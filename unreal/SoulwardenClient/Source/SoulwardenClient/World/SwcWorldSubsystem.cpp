@@ -1,6 +1,7 @@
 #include "World/SwcWorldSubsystem.h"
 
 #include "Camera/PlayerCameraManager.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "HAL/PlatformTime.h"
@@ -71,9 +72,19 @@ void USwcWorldSubsystem::UpdateGroundTest()
 	}
 	FHitResult Hit;
 	const bool bGround = GetWorld()->LineTraceSingleByChannel(Hit, Place + FVector(0.0, 0.0, 200.0), Place - FVector(0.0, 0.0, 5000.0), ECC_WorldStatic);
-	UE_LOG(LogSwcWorldTools, Log, TEXT("SWC GROUND TEST {\"place m\": [%.1f, %.1f, %.1f], \"seconds\": %.1f, \"ground\": %s, \"ground m\": %.2f, \"actor\": \"%s\"}"),
+	// All the static surfaces on the line (an object query does not stop at the first one), with their meshes.
+	TArray<FHitResult> Hits;
+	GetWorld()->LineTraceMultiByObjectType(Hits, Place + FVector(0.0, 0.0, 200.0), Place - FVector(0.0, 0.0, 5000.0), FCollisionObjectQueryParams(ECC_WorldStatic));
+	FString Surfaces;
+	for (const FHitResult& Each : Hits)
+	{
+		const UStaticMeshComponent* Mesh = Cast<UStaticMeshComponent>(Each.GetComponent());
+		Surfaces += FString::Printf(TEXT("%s[%.2f, \"%s\"]"), Surfaces.IsEmpty() ? TEXT("") : TEXT(", "), Each.ImpactPoint.Z / 100.0,
+			Mesh && Mesh->GetStaticMesh() ? *Mesh->GetStaticMesh()->GetName() : Each.GetComponent() ? *Each.GetComponent()->GetName() : TEXT(""));
+	}
+	UE_LOG(LogSwcWorldTools, Log, TEXT("SWC GROUND TEST {\"place m\": [%.1f, %.1f, %.1f], \"seconds\": %.1f, \"ground\": %s, \"ground m\": %.2f, \"actor\": \"%s\", \"surfaces\": [%s]}"),
 		Place.X / 100.0, -Place.Y / 100.0, Place.Z / 100.0, FPlatformTime::Seconds() - GroundTestStart, bGround ? TEXT("true") : TEXT("false"),
-		bGround ? Hit.ImpactPoint.Z / 100.0 : 0.0, bGround && Hit.GetActor() ? *Hit.GetActor()->GetActorNameOrLabel() : TEXT(""));
+		bGround ? Hit.ImpactPoint.Z / 100.0 : 0.0, bGround && Hit.GetActor() ? *Hit.GetActor()->GetActorNameOrLabel() : TEXT(""), *Surfaces);
 	SwcWorldStreaming::Release();
 	GroundTests.RemoveAt(0);
 	GroundTestStart = 0.0;

@@ -16,12 +16,21 @@ FVector Place = FVector(TNumericLimits<double>::Max());
 double Since = 0.0;
 double StreamedSince = 0.0;
 
-bool HasGround(UWorld* World, const FVector& Location)
+// A ground at most this far below the place of the server is the ground of the place (the server Z is about 0.5 m
+// above the feet; the Landscape below the floor of the inn of Oxboro is 2.06 m below it).
+constexpr double NearGroundBelowCm = 150.0;
+
+/** @return The Z (cm) of the first ground below 2 m above Location (down 50 m), or no value. */
+TOptional<double> GroundBelow(UWorld* World, const FVector& Location)
 {
 	FHitResult Hit;
 	FCollisionQueryParams Query(TEXT("SwcWorldGround"), true);
-	return World->LineTraceSingleByChannel(Hit, Location + FVector(0.0, 0.0, 200.0), Location - FVector(0.0, 0.0, 5000.0),
-		ECC_WorldStatic, Query);
+	if (World->LineTraceSingleByChannel(Hit, Location + FVector(0.0, 0.0, 200.0), Location - FVector(0.0, 0.0, 5000.0),
+		ECC_WorldStatic, Query))
+	{
+		return Hit.ImpactPoint.Z;
+	}
+	return {};
 }
 } // namespace
 
@@ -62,13 +71,15 @@ bool SwcWorldStreaming::IsReadyAt(UWorld* World, const FVector& Location, double
 	const double Now = FPlatformTime::Seconds();
 	const double Waited = Now - Since;
 	const bool bStreamed = SourceComponent.IsValid() && SourceComponent->IsStreamingCompleted();
-	if (bStreamed && HasGround(World, Location))
+	const TOptional<double> Ground = GroundBelow(World, Location);
+	const bool bNearGround = Ground.IsSet() && Ground.GetValue() >= Location.Z - NearGroundBelowCm;
+	if (bStreamed && bNearGround)
 	{
 		UE_LOG(LogSwcWorld, Log, TEXT("world: the cells of the place are loaded and it has ground (%.1f s)"), Waited);
 		return true;
 	}
-	StreamedSince = bStreamed ? (StreamedSince > 0.0 ? StreamedSince : Now) : 0.0;
-	if (bStreamed && Now - StreamedSince > 3.0)
+	StreamedSince = bStreamed && !Ground.IsSet() ? (StreamedSince > 0.0 ? StreamedSince : Now) : 0.0;
+	if (StreamedSince > 0.0 && Now - StreamedSince > 3.0)
 	{
 		// The cells are loaded (the physics of a new cell is in the scene after a frame or two): the place has no ground.
 		UE_LOG(LogSwcWorld, Warning, TEXT("world: the cells of the place are loaded, but it has no ground (%.1f s)"), Waited);
@@ -76,7 +87,15 @@ bool SwcWorldStreaming::IsReadyAt(UWorld* World, const FVector& Location, double
 	}
 	if (Waited > TimeoutSeconds)
 	{
-		UE_LOG(LogSwcWorld, Warning, TEXT("world: no ground at the place after %.0f s (cells %s)"), Waited, bStreamed ? TEXT("loaded") : TEXT("not loaded"));
+		if (Ground.IsSet())
+		{
+			UE_LOG(LogSwcWorld, Warning, TEXT("world: no ground near the place after %.0f s (cells %s; a ground %.2f m below the place)"),
+				Waited, bStreamed ? TEXT("loaded") : TEXT("not loaded"), (Location.Z - Ground.GetValue()) / 100.0);
+		}
+		else
+		{
+			UE_LOG(LogSwcWorld, Warning, TEXT("world: no ground at the place after %.0f s (cells %s)"), Waited, bStreamed ? TEXT("loaded") : TEXT("not loaded"));
+		}
 		return true;
 	}
 	return false;
