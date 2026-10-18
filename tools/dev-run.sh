@@ -86,6 +86,11 @@ fi
 # A made-up identity: a Steam id of the range of the made-up ids of the backend tests, not an account of a person.
 run_environment=(SWC_DEV_RUN=1 SWC_RUN=development SWC_STEAM_ID=76561202255233000 "SWC_PERSONA_NAME=Swc Dev"
     "SWC_SESSION_DATA=${SWC_DEV_DATA}" "SWC_SESSION_LOCK=${SWC_DEV_DATA}/run.lock" "SWC_SESSION_SEED=${seed}")
+# The extra backend arguments of a development session (tools/lib/session.sh) go by name: a window run starts with the
+# environment of the compositor.
+if [[ -n "${SWC_SESSION_BACKEND_ARGS:-}" ]]; then
+    run_environment+=("SWC_SESSION_BACKEND_ARGS=${SWC_SESSION_BACKEND_ARGS}")
+fi
 
 if [[ "${window}" == "0" ]]; then
     echo "dev-run: client with no window, ${seconds} s at most, log ${client_log}" >&2
