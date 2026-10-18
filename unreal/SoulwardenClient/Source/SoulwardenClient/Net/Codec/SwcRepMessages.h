@@ -56,6 +56,10 @@ inline constexpr MessageType kStateCooldowns{"MB::CooldownTimersComponentReplica
 /** The weapon trees of the owner (stage P3.5: the learned nodes for the conditions of the abilities; protocol notes 4.13). */
 inline constexpr MessageType kStatePoints{"MB::ProgressionPointReplicatedState", "F7B56641F8C341A983B213AC4F9843F9", 3681};
 inline constexpr MessageType kTimeSynch{"REPClient::TimeSynchMsg", "038CD847065342439A26936E3BD7F312", 335};
+/** The world time (protocol notes 4.43; Net/Codec/SwcWorldTime.h): the request of the client, the record, and the phase. */
+inline constexpr MessageType kTimeRequest{"TimeComponentServerFacet_SyncToClient", "5AFEA4119BF64DBEAF48B8CB7EE0F6A3", 4248};
+inline constexpr MessageType kTimeAndPhase{"TimeComponentClientFacet_SyncTimeAndPhase", "32096077F75C4BF7A444EC738F237632", 7036};
+inline constexpr MessageType kDayPhase{"TimeComponentClientFacet_SyncDayPhase", "DEEBDC36DEA0485284F6A63ABEA5E8BA", 4247};
 /** The damage number of the attacker (protocol notes 4.15; backend server/rep/combat_messages.h): the creature view reads it. */
 inline constexpr MessageType kDamageDealt{"DamageReceiverComponentClientFacet_OnDamageDealt", "07D9175B3AFE4F43A49443005BB1BB4F", 2071};
 
@@ -120,14 +124,14 @@ inline constexpr MessageType kStateSpeedTable{"MB::StatMultiplierTableReplicated
 inline constexpr MessageType kStateStatuses{"MB::StatusEffectsComponentReplicatedState", "E36B9CC4082E40F0BA4F5C5BE9CD3C16", 4236};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 48> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 51> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
     kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult, kTakeAllItems,
     kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints, kStateGathering, kEquipItem,
     kUnequipItem, kSwapItems, kEquipItemFail, kUseItem, kDropInventoryItems, kDropPaperdollItem, kStateCurrency, kStateSpeedTable,
-    kStateStatuses};
+    kStateStatuses, kTimeRequest, kTimeAndPhase, kDayPhase};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;

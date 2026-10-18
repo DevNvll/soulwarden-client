@@ -12,6 +12,7 @@
 
 #include "Net/Codec/SwcCarrier.h"
 #include "Net/Codec/SwcRepMessages.h"
+#include "Net/Codec/SwcWorldTime.h"
 
 // The session of the client with the game server: the carrier handshake, the registration, the world entry, the input
 // report, and the timers of the client contract (Soulwarden protocol notes 1, 3.4 to 3.6, 4.1 to 4.7). Plain C++ with
@@ -155,6 +156,11 @@ public:
         /** The Gathering state (slot 36): the gather or the open that runs (stage P4.1 part 2). One more revision at each change. */
         GatheringState gathering;
         std::uint32_t gatheringRevision{0};
+        /** The world time (protocol notes 4.43, Net/Codec/SwcWorldTime.h): the record of the last 7036 of the own Time facet (no
+         *  value before it), and the phase of the last 7036 or 4247. One more revision at each record. */
+        std::optional<TimeRecord> timeRecord;
+        std::uint32_t timeRevision{0};
+        std::uint32_t dayPhase{kPhaseDay};
 
         /** The ability state (slot 46, type 185, field 0 persistentAbilityData): one bar for each ability table, in the
          *  sequence of the field; each place has an ability id (the CRC-32 of the lower-case ability id text) and its
@@ -360,6 +366,8 @@ private:
     void log(Event::Level level, std::string text);
     void on_message(const ServerMessage& message, Clock::time_point now);
     void on_bundle(std::span<const std::uint8_t> body, Clock::time_point now);
+    /** The record 7036 and the phase 4247 of the own Time facet (protocol notes 4.43). */
+    void on_world_time(const ServerMessage& message);
     void apply_own(const soulwarden::backend::tests::Record& record, Clock::time_point now);
     void apply_other(const soulwarden::backend::tests::Record& record);
     void send_registration();
@@ -406,6 +414,8 @@ private:
     /** The part of the last correction of 335 that the slow correction did not apply yet. */
     std::int64_t m_clockCorrectionNs{0};
     std::uint32_t m_clockLogs{0};
+    /** The request 4248 went out (one time for each world entry of the session). */
+    bool m_timeRequested{false};
 };
 
 } // namespace swc::net

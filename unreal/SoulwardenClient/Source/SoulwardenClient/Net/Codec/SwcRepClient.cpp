@@ -271,6 +271,10 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         }
         return;
     }
+    if (message.type == kTimeAndPhase.index || message.type == kDayPhase.index) {
+        on_world_time(message);
+        return;
+    }
     if (message.type == kSelfIdentification.index) {
         m_self = read_self_identification(message.body);
         if (!m_self) {
@@ -806,6 +810,13 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
         m_nextInput = now;
         m_inputNumber = 0;
         m_recentInputs.clear();
+        if (!m_timeRequested) {
+            // The request of the world time (4248): one time for each world entry, when the Time facet of the own entity is known
+            // (protocol notes 4.43; the retail client sends it after the mission load of the world level).
+            m_timeRequested = true;
+            send_call(kTimeRequest, time_request_body(m_own.group));
+            log(Event::Level::info, "time request (4248) for the Time facet of the own entity");
+        }
     }
 }
 
@@ -952,6 +963,36 @@ void RepClient::send_input(Clock::time_point now) {
                       body.size(), static_cast<unsigned long long>(target), static_cast<unsigned long long>(m_own.group));
         log(Event::Level::info, text);
     }
+}
+
+void RepClient::on_world_time(const ServerMessage& message) {
+    // The record (7036) and the phase (4247) of the own Time facet: G + kTimeComponent and the entity G (protocol notes 4.43).
+    const bool record = message.type == kTimeAndPhase.index;
+    std::optional<TimeAndPhase> full = record ? read_time_and_phase(message.body) : std::nullopt;
+    std::optional<DayPhaseCall> phase = record ? std::nullopt : read_day_phase(message.body);
+    const ComponentCall call = full ? full->call : phase ? phase->call : ComponentCall{};
+    if ((!full && !phase) || call.entity != m_own.group || call.target != m_own.group + kTimeComponent) {
+        log(Event::Level::warning, std::string(record ? "a time record (7036)" : "a day phase (4247)") + " that does not have its form or "
+                                       "does not name the own Time facet");
+        return;
+    }
+    if (phase) {
+        m_own.dayPhase = phase->phase;
+        log(Event::Level::info, std::string("day phase (4247): ") + day_phase_text(phase->phase));
+        return;
+    }
+    if (!usable(full->record)) {
+        log(Event::Level::warning, "a time record (7036) with lengths that the hour formula cannot use");
+        return;
+    }
+    m_own.timeRecord = full->record;
+    m_own.dayPhase = full->phase;
+    ++m_own.timeRevision;
+    char text[160];
+    std::snprintf(text, sizeof(text), "time record (7036): anchor %llu ns, offset %.9f, day %u s, night %u s, phase %s",
+                  static_cast<unsigned long long>(full->record.anchor), static_cast<double>(full->record.offset), full->record.dayLength,
+                  full->record.nightLength, day_phase_text(full->phase));
+    log(Event::Level::info, text);
 }
 
 void RepClient::send_call(const MessageType& type, const Bytes& body) {
