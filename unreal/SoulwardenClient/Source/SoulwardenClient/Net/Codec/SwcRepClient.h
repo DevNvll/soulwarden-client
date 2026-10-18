@@ -221,6 +221,10 @@ public:
         bool hasCoin{false};
         std::uint64_t coin{0};
         std::uint32_t equipFails{0};
+        /** The Progression state (slot 70): the level of the wire (the level of the screen minus 1) and the experience. */
+        bool hasProgression{false};
+        std::uint32_t level{0};
+        std::uint32_t experience{0};
     };
 
     /** An entity of a different interest number: its metadata and its position. */

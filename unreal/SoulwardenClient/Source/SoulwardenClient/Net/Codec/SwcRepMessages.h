@@ -118,20 +118,23 @@ inline constexpr MessageType kDropInventoryItems{"ItemDropComponentServerFacet_D
 inline constexpr MessageType kDropPaperdollItem{"ItemDropComponentServerFacet_DropPaperdollItem", "43F9A0B65B1D4D97A4A361F51E0610C8", 826};
 /** The coin of the character (slot 60): group 0, field 0, u64 in hundredths of a coin. */
 inline constexpr MessageType kStateCurrency{"MB::CurrencyComponentReplicatedState", "C3F8F5F55D8E45A0890C36B9B0183C8E", 3786};
+/** The level and the experience of the character (slot 70; protocol notes 4.12): group 0 field 0 level (the level of the screen
+ *  minus 1), group 1 field 0 experiencePoints (u32 each). The bag window needs the level (Hud.LocalPlayer.Progression.Level). */
+inline constexpr MessageType kStateProgression{"MB::ProgressionComponentReplicatedState", "3529CE4BE0EF40C5AF115165DA637303", 899};
 
 /** The movement of the owner (stage P3.3; protocol notes 4.24): the speed table (slot 43) and the status map (slot 44). */
 inline constexpr MessageType kStateSpeedTable{"MB::StatMultiplierTableReplicatedState", "DDD468968DAD4EE5836E341A72D44403", 1525};
 inline constexpr MessageType kStateStatuses{"MB::StatusEffectsComponentReplicatedState", "E36B9CC4082E40F0BA4F5C5BE9CD3C16", 4236};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 51> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 52> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
     kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult, kTakeAllItems,
     kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints, kStateGathering, kEquipItem,
     kUnequipItem, kSwapItems, kEquipItemFail, kUseItem, kDropInventoryItems, kDropPaperdollItem, kStateCurrency, kStateSpeedTable,
-    kStateStatuses, kTimeRequest, kTimeAndPhase, kDayPhase};
+    kStateStatuses, kTimeRequest, kTimeAndPhase, kDayPhase, kStateProgression};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -161,6 +164,8 @@ inline constexpr std::uint32_t kSlotAchievement = 66;
 inline constexpr std::uint32_t kSlotGathering = 36;
 /** The coin of the owner (the Currency of the entity Inventory). */
 inline constexpr std::uint32_t kSlotCurrency = 60;
+/** The level and the experience of the character (the Progression component). */
+inline constexpr std::uint32_t kSlotProgression = 70;
 
 /** The component id of the action list component (slot 16) of the entity RootPlayer of the player slice (game data
  *  slice-ids.json; research ids.md, table of the targets). The facet target of the input report is G + this id. */

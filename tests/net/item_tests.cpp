@@ -175,6 +175,8 @@ void test_states(const std::string& goldenPath) {
     entity.equipment.slots[1].item = chest;
     entity.equipment.slots[1].changed = 1;
     entity.wallet.coin = 12345;
+    entity.progression.level = 5;
+    entity.progression.experience = 1234;
     const rep::PartsRequest fresh{0, 900};
     backend::tests::ManualClock clock;
 
@@ -186,7 +188,9 @@ void test_states(const std::string& goldenPath) {
         fragments.emplace_back(swc::net::kSlotPaperdoll, swc::net::kStatePaperdoll.index, part);
     }
     fragments.emplace_back(swc::net::kSlotCurrency, swc::net::kStateCurrency.index, rep::encode_currency_state(entity, rep::View::owner, clock));
-    expect(fragments.size() == 3, "the encoders give one part for the bag, the paperdoll, and the coin");
+    fragments.emplace_back(swc::net::kSlotProgression, swc::net::kStateProgression.index,
+                           rep::encode_progression_state(entity, rep::View::owner, clock));
+    expect(fragments.size() == 4, "the encoders give one part for the bag, the paperdoll, the coin, and the progression");
     const auto bagBefore = session.client->own().bagRevision;
     session.apply(fragments);
     const auto& own = session.client->own();
@@ -204,6 +208,7 @@ void test_states(const std::string& goldenPath) {
                && same_instance(chestEntry->second.instance, chest.instance) && own.equipment.at(1) == 1323,
            "the paperdoll: the chest armor in slot 1 with its instance and gear score");
     expect(own.hasCoin && own.coin == 12345, "the coin: 12345 hundredths (123.45)");
+    expect(own.hasProgression && own.level == 4 && own.experience == 1234, "the progression: the wire level 4 (level 5 of the screen), 1234 experience");
 
     // A journal: bag slot 1 gets 3 potions (revision 6 after the record of revision 5).
     entity.bag.slots[1].item = item("PotionHealthT1", 4100, 3, 0, 0x70);

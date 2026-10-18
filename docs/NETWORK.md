@@ -287,6 +287,7 @@ yaw of the camera of the player (0 = north, positive = to the left, the conventi
 | `paperdollItems`, `paperdollRevision` | paperdoll, the same lists (owner view) | paperdoll slot -> the full item (instance, durability, gear score, perks, chrono); an emptied slot goes away; a count of the changes |
 | `bag`, `bagRevision` | container (61, 1755), group 0 field 0 | one item for each bag slot (an empty slot: quantity 0); the full vector or a journal |
 | `hasCoin`, `coin` | currency (60, 3786), group 0 field 0 | u64, hundredths of a coin (the bag window shows coin / 100 with 2 decimals) |
+| `hasProgression`, `level`, `experience` | progression (70, 899), group 0 field 0 and group 1 field 0 | u32 each: the level of the wire (the level of the screen minus 1) and the experience points |
 | `equipFails` | message 3626 OnEquipItemFail | a count of the refused requests of the equipment (the retail client then shows its paperdoll slots again) |
 | `appearance`, `position`, `rotation`, `name`, `characterId`, `actor` | appearance, movement, player, metadata | as above |
 
@@ -428,9 +429,10 @@ target lock of the camera takes its targets from them ([CAMERA.md](CAMERA.md)).
 - The abilities (stage P3.5): the shot of a cast in list 2 of one entry, read by the input reader of the backend (the origin, the
   direction of the look, the attack, no receiver), and the ProgressionPoint state of the golden session (no node).
 - The bag and the equipment (`tools/test-items.sh`, `tests/net/item_tests.cpp`): after the golden session, the states of the
-  encoders of the backend (`encode_container_state`, `encode_paperdoll_state`, `encode_currency_state`) go into the client in
-  state bundles: the bag (an item with its index, quantity, gear score, durability, instance; an empty slot; a stack), the
-  paperdoll item with its instance, the coin, a journal of the bag, and an unequip (the emptied paperdoll entry, the item in
+  encoders of the backend (`encode_container_state`, `encode_paperdoll_state`, `encode_currency_state`,
+  `encode_progression_state`) go into the client in state bundles: the bag (an item with its index, quantity, gear score,
+  durability, instance; an empty slot; a stack), the paperdoll item with its instance, the coin, the level and the experience,
+  a journal of the bag, and an unequip (the emptied paperdoll entry, the item in
   a new bag slot). The requests 3895, 3896, 3900, 2917, 1838, and 826 of the client go through its carrier to a carrier of
   the backend and to the readers of the backend; the targets agree with the research table and with the paperdoll target of
   the captures; the client reads the body of a refusal 3626 of the backend.

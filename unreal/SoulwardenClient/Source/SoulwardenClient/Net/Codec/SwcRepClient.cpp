@@ -778,6 +778,16 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                 m_own.activeMap = slot_map(value);
             }
             ++m_own.lookRevision;
+        } else if (fragment.slot == kSlotProgression && fragment.type == kStateProgression.index) {
+            if (const auto value = decoder::field_of(fragment, 0, 0); value.size() == 4) {
+                Reader reader(value);
+                m_own.level = reader.u32();
+                m_own.hasProgression = true;
+            }
+            if (const auto value = decoder::field_of(fragment, 1, 0); value.size() == 4) {
+                Reader reader(value);
+                m_own.experience = reader.u32();
+            }
         } else if (fragment.slot == kSlotCurrency && fragment.type == kStateCurrency.index) {
             if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
                 if (const auto coin = read_currency(value)) {

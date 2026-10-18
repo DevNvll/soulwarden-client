@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds and runs the tests of the bag and the equipment of the client (tests/net/item_tests.cpp) with the system C++ compiler:
-# the states of the encoders of the backend (Container, Paperdoll, Currency: apps/backend/src/server/rep/states) into the read
+# the states of the encoders of the backend (Container, Paperdoll, Currency, Progression: apps/backend/src/server/rep/states) into the read
 # path of the client after the golden session of case T2, and the requests of the client (equip, unequip, swap, use, drop)
 # against the readers of the backend (server/rep/item_requests.cpp). The Soulwarden sources are read only; the build output goes
 # to SWC_WORK/build/item-tests.
@@ -22,6 +22,7 @@ nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     "${backend}/src/server/carrier/carrier.cpp" "${backend}/src/server/rep/item_requests.cpp" \
     "${backend}/src/server/rep/replication.cpp" "${backend}/src/server/rep/states/container_state.cpp" \
     "${backend}/src/server/rep/states/paperdoll_state.cpp" "${backend}/src/server/rep/states/currency_state.cpp" \
+    "${backend}/src/server/rep/states/progression_state.cpp" \
     "${backend}/src/world/item.cpp" \
     "${backend}/src/core/logging/log.cpp" "${backend}/src/middleware/compression/lz4.cpp" \
     -o "${out}/swc-item-tests"
