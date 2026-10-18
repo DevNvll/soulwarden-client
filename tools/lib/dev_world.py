@@ -42,6 +42,8 @@ Usage (tools/creature-world.sh):
   gathering [RADIUS] | chests [RADIUS]   the gathering or the chests of the character (the nodes with a server state near it)
   respawn NODE SECONDS               a depleted node respawns after SECONDS (NODE: a UUID, REGION#RECORD, or G)
   chest-clear CHEST                  removes the claim of the character on a chest (its UUID): the chest can open again
+  tool ITEM SLOT                     a tool in a paperdoll slot (33 axe, 34 sickle, 35 knife, 36 pick): from the bag, else given
+  untool SLOT                        the item of a paperdoll slot goes into the bag
   script FILE [--clock LOG]          a timed list of these commands: "SECONDS COMMAND WORDS..." each line (the seconds from
                                      now, or on the clock of the drive script in the client log LOG: its "drive: SECONDS s"
                                      lines; a drive line "SECONDS tick" is a clock mark that does nothing)
@@ -250,6 +252,23 @@ def run(words: list[str], folder: Path) -> object:
     if command == "respawn" and len(rest) == 2:
         node = rest[0].replace("#", "%23")
         return request(folder, "POST", f"/v1/dev/gathering/respawn?character={character(folder)}&node={node}&seconds={int(float(rest[1]))}")
+    if command == "tool" and len(rest) == 2:
+        # A tool in its paperdoll slot (stage P5.2: 33 the logging axe, 34 the sickle, 35 the skinning knife, 36 the pick): the item of the
+        # bag, else a new one, equipped into the slot.
+        who, item, slot = character(folder), rest[0], int(rest[1])
+        view = request(folder, "GET", f"/v1/dev/items?character={who}")
+        if any(entry["slot"] == slot and entry["item"].lower() == item.lower() for entry in view.get("equipment", [])):
+            return {"message": f"{item} is in slot {slot}"}
+        held = next((entry["slot"] for entry in view.get("items", []) if entry["item"].lower() == item.lower()), None)
+        if held is None:
+            request(folder, "POST", f"/v1/dev/items/give?character={who}&item={item}&quantity=1")
+            view = request(folder, "GET", f"/v1/dev/items?character={who}")
+            held = next((entry["slot"] for entry in view.get("items", []) if entry["item"].lower() == item.lower()), None)
+        if held is None:
+            fail(f"the bag has no {item} after the give")
+        return request(folder, "POST", f"/v1/dev/items/equip?character={who}&from={held}&slot={slot}")
+    if command == "untool" and len(rest) == 1:
+        return request(folder, "POST", f"/v1/dev/items/unequip?character={character(folder)}&slot={int(rest[0])}")
     if command == "chest-clear" and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/chests/clear?character={character(folder)}&chest={rest[0]}")
     fail(f"unknown command {' '.join(words)}")
