@@ -125,7 +125,11 @@ struct Walker {
     DrawList& out;
 
     void image(const Element& e, const ImageData& image, float alpha, const std::string& overrideSprite = std::string(), int overrideIndex = -1) {
-        const std::string& path = overrideSprite.empty() ? image.sprite : overrideSprite;
+        // A state action sprite wins over the sprite (a flipbook frame gives its own sprite and index).
+        const std::string& path = !overrideSprite.empty() ? overrideSprite : image.overrideSprite ? *image.overrideSprite : image.sprite;
+        if (overrideIndex < 0 && image.overrideSprite && image.overrideIndex >= 0) {
+            overrideIndex = image.overrideIndex;
+        }
         const Sprite* sprite = nullptr;
         if (!path.empty()) {
             sprite = &model.sprite(path);
@@ -133,7 +137,7 @@ struct Walker {
                 return;   // missing converted texture: nothing (the log names it)
             }
         }
-        const float a = image.alpha * alpha;
+        const float a = image.overrideAlpha.value_or(image.alpha) * alpha;
         if (a <= 0.0F) {
             return;
         }
@@ -143,7 +147,7 @@ struct Walker {
         item.texture = sprite != nullptr ? sprite->file : std::string();
         item.blend = image.blend;
         const Affine transform = model.to_viewport(e.id);
-        MeshBuilder mesh(item, transform, pack_color(image.color, a));
+        MeshBuilder mesh(item, transform, pack_color(image.overrideColor.value_or(image.color), a));
         const Edges r = model.rect(e.id);
 
         // The cell of a sprite sheet (the flipbook frame), else the full texture.
@@ -291,7 +295,7 @@ struct Walker {
     }
 
     void text(const Element& e, const TextData& text, float alpha) {
-        const float a = text.alpha * alpha;
+        const float a = text.overrideAlpha.value_or(text.alpha) * alpha;
         if (a <= 0.0F || text.text.empty()) {
             return;
         }
@@ -347,7 +351,7 @@ struct Walker {
                     item.text = piece.text;
                     item.transform = transform * Affine::translation(line.x + piece.x + pass->offset.x, line.y + line.textTop + pass->offset.y) *
                                      Affine::scaling(layout.scaleX, 1.0F);
-                    Color color = pass->color ? *pass->color : (piece.color ? *piece.color : text.color);
+                    Color color = pass->color ? *pass->color : (piece.color ? *piece.color : text.overrideColor.value_or(text.color));
                     color.a = a * passAlpha;
                     item.color = color;
                     ++out.texts;
@@ -355,12 +359,54 @@ struct Walker {
                 }
             }
         }
+        if (text.cursor >= 0) {
+            cursor(e, text, layout, transform, a);
+        }
         if (clip) {
             DrawItem pop;
             pop.kind = DrawItem::Kind::pop_clip;
             pop.element = e.id;
             out.items.push_back(pop);
         }
+    }
+
+    /** The cursor of a text input that edits: a line of 2 canvas units before the character at the cursor. */
+    void cursor(const Element& e, const TextData& text, const TextLayout& layout, const Affine& transform, float alpha) {
+        int left = text.cursor;
+        const TextLayout::Line* at = &layout.lines.back();
+        std::string prefix = at->text;
+        for (const TextLayout::Line& line : layout.lines) {
+            int count = 0;
+            std::size_t bytes = 0;
+            while (bytes < line.text.size() && count < left) {
+                const auto lead = static_cast<unsigned char>(line.text[bytes]);
+                bytes += lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 1;
+                ++count;
+            }
+            if (count == left || &line == &layout.lines.back()) {
+                at = &line;
+                prefix = line.text.substr(0, std::min(bytes, line.text.size()));
+                break;
+            }
+            left -= count;
+        }
+        const std::string font = !at->pieces.empty() ? at->pieces.front().fontFile : std::string();
+        const float spacing = layout.glyphSize > 0.0F ? text.charSpacing * layout.fontSize / layout.glyphSize : text.charSpacing;
+        const float x = at->x + measure.width(font, layout.glyphSize, spacing, prefix) * layout.scaleX;
+        const float top = at->y;
+        const float bottom = at->y + at->height;
+        DrawItem item;
+        item.kind = DrawItem::Kind::mesh;
+        item.element = e.id;
+        const std::uint32_t rgba = pack_color(text.cursorColor, text.cursorColor.a * alpha);
+        const Vec2 corners[4] = {{x, top}, {x + 2.0F, top}, {x + 2.0F, bottom}, {x, bottom}};
+        for (const Vec2& corner : corners) {
+            const Vec2 p = transform.apply(corner);
+            item.vertices.push_back({p.x, p.y, 0.0F, 0.0F, rgba});
+        }
+        item.indices = {0, 1, 2, 0, 2, 3};
+        ++out.meshes;
+        out.items.push_back(std::move(item));
     }
 
     /** An inline image of a text (markup <img>): a quad of its texture at its place in the line. */

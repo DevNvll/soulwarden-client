@@ -69,15 +69,19 @@ COMPONENTS = {
     "7dfe5e32-fafb-4a19-8a57-e0b61419ad02": "progressBar", "2422ec06-9003-4165-a609-9d6ab90c2332": "imageRepeater",
     "e7e9c0b0-f552-4008-e0b2-2aa78bc14034": "layoutColumnFixed", "661370c1-899a-4d56-364a-1d30f465469e": "layoutRowFixed",
 }
+# The interactive components (read_interactive): type id -> (the key of the data, the interactable kind, or None for a
+# component that is not an interactable: the radio button group, the mouse wheel of a scroll bar, the drop target, ...).
+INTERACTIVE = {
+    "68d62281-b360-4426-aaca-e8bde8bfeb3a": ("checkbox", "checkbox"), "c96b1eef-033a-479b-829b-ed3555d0f33a": ("draggable", "draggable"),
+    "e4b8ace0-fce7-42d8-9836-942f910168b4": ("dropTarget", None), "bfc4d5a3-2f7c-4079-b19c-c2a06e93f343": ("dropdown", "dropdown"),
+    "6982c200-4d32-43cc-a7f6-f54fa50fcff5": ("dynamicScrollBox", None), "965cdda3-ca50-4938-9088-0cd476942146": ("exitHover", None),
+    "d7eb1706-75e8-4c94-a266-61913f42431b": ("markupButton", "markupButton"), "773a0f4b-f9f9-4b82-9951-bbd73a737de4": ("radio", "radio"),
+    "f89d5ef2-37c4-4ca7-9aa2-23dc3867ec9d": ("radioGroup", None), "6b283f90-3519-47da-a1dd-65a79ce119cf": ("scrollBar", "scrollBar"),
+    "3ad4b591-438c-4e08-87b1-a686bcf49198": ("wheel", None), "2f539588-aeab-4341-a6a6-af645d129693": ("scrollBox", "scrollBox"),
+    "2913d76b-36a0-45e0-a104-33c668eb612d": ("slider", "slider"), "2cb3872b-d2b4-4ddb-b39a-97492310ae11": ("textInput", "textInput"),
+}
 OTHER_COMPONENTS = {
-    "68d62281-b360-4426-aaca-e8bde8bfeb3a": "UiCheckboxComponent", "c96b1eef-033a-479b-829b-ed3555d0f33a": "UiDraggableComponent",
-    "e4b8ace0-fce7-42d8-9836-942f910168b4": "UiDropTargetComponent", "bfc4d5a3-2f7c-4079-b19c-c2a06e93f343": "UiDropdownComponent",
-    "6982c200-4d32-43cc-a7f6-f54fa50fcff5": "UiDynamicScrollBoxComponent", "965cdda3-ca50-4938-9088-0cd476942146": "UiExitHoverEventComponent",
-    "ee5c91f4-3111-40d9-8549-fbd657fc326b": "UiMarkerComponent", "d7eb1706-75e8-4c94-a266-61913f42431b": "UiMarkupButtonComponent",
-    "773a0f4b-f9f9-4b82-9951-bbd73a737de4": "UiRadioButtonComponent", "f89d5ef2-37c4-4ca7-9aa2-23dc3867ec9d": "UiRadioButtonGroupComponent",
-    "6b283f90-3519-47da-a1dd-65a79ce119cf": "UiScrollBarComponent", "3ad4b591-438c-4e08-87b1-a686bcf49198": "UiScrollBarMouseWheelComponent",
-    "2f539588-aeab-4341-a6a6-af645d129693": "UiScrollBoxComponent", "2913d76b-36a0-45e0-a104-33c668eb612d": "UiSliderComponent",
-    "2cb3872b-d2b4-4ddb-b39a-97492310ae11": "UiTextInputComponent", "67dc06d3-1f16-4fab-b3f8-d8c0a3af4f61": "SequenceAgentComponent",
+    "ee5c91f4-3111-40d9-8549-fbd657fc326b": "UiMarkerComponent", "67dc06d3-1f16-4fab-b3f8-d8c0a3af4f61": "SequenceAgentComponent",
     "393cda3f-7a95-438a-b7f5-3230abb36c8a": "SimpleMarkerComponent", "a1ab7323-837f-43e1-9e41-23bd4932e2d3": "UiDamageNumberAnchorComponent",
     "fe8d6ff2-77e2-480d-a2df-2911312c5026": "UiDamageNumberComponent", "153a4bf9-1404-4d54-8b39-af2224b15088": "UiRequiredResourceDetailsComponent",
     "08cebe4a-a04f-4567-80c0-949e913607ef": "UiReticlesComponent", "c73d19a3-d33d-4adc-9cc9-26b4afb2d6c4": "UiSelectionComponent",
@@ -112,7 +116,21 @@ TargetHeightOverridden ExtraWidthRatioOverridden ExtraHeightRatioOverridden Hori
 ImageSequenceDirectory Slice SpawnOnActivate Saturation NumChildElements Script properties Groups value TypeId m_data
 Values UniqueId RootElement CanvasSize DrawOrder IsPixelAligned TextureAtlases requiresMouse escapable replaceable
 actionMapOverrides drawLayer ActionName HoverStartActionName HoverEndActionName PressedActionName ReleasedActionName
-IsHandlingEvents Progress Vertical NumRepeats""".split()}
+IsHandlingEvents Progress Vertical NumRepeats HoverStateActions PressedStateActions DisabledStateActions TargetEntity sprite
+IsAutoActivationEnabled ActionNameRight ActionNamePressedRight UseClickBehavior ClickSqTolerance SetHoverOnPress
+OptionalCheckedEntity OptionalUncheckedEntity IsChecked ChangedActionName TurnOnActionName TurnOffActionName Group
+AllowRestoreUnchecked TrackEntity FillEntity ManipulatorEntity MinValue MaxValue StepValue ValueChangingActionName
+ValueChangedActionName HandleEntity Orientation HandleSize MinHandlePixelSize WheelStepValue ScrollBarEntity ContentEntity
+ScrollOffset ConstrainScrolling EnableEasing AllowDragging SnapMode SnapGrid AllowHorizSrolling HScrollBarEntity
+HScrollBarVisibility AllowVertScrolling VScrollBarEntity VScrollBarVisibility ScrollOffsetChangingActionName
+ScrollOffsetChangedActionName PlaceholderText TextSelectionColor TextCursorColor MaxStringLength CursorBlinkInterval
+IsPasswordField ReplacementCharacter ClipInputText ChangeAction StartEditAction EndEditAction EnterAction
+DoubleClickInterval Content ExpandedParent TextElement IconElement ExpandOnHover WaitTime CollapseOnOutsideClick
+ExpandedStateActions ExpandedActionName CollapsedActionName OptionSelectedActionName DragNormalStateActions
+DragValidStateActions DragInvalidStateActions DropValidStateActions DropInvalidStateActions OnDropActionName LinkColor
+LinkHoverColor AlwaysCheckHover EventName Delay AutoRefreshOnPostActivate PrototypeElement VariableElementSize
+AutoCalcElementSize EstimatedElementSize DefaultNumElements HasSections HeaderPrototypeElement StickyHeaders
+VariableHeaderSize AutoCalcHeaderSize EstimatedHeaderSize DefaultNumSections""".split()}
 for _label in ("Start Frame", "End Frame", "Loop Start Frame", "Loop Type", "Framerate Unit", "Framerate", "Start Delay",
                "Loop Delay", "Reverse Delay", "Auto Play"):
     F[_label] = field_id(_label)
@@ -277,11 +295,122 @@ def read_sequence(c) -> dict:
             "alpha": num(c, "Alpha", 1.0), "blend": whole(c, "BlendMode")}
 
 
+def read_state_actions(node) -> list[dict]:
+    """The state actions of an interactable state (UiInteractableStateColor, Alpha, Sprite): each changes a visual of its
+    target element (the element itself when the target is not set) while the state lasts."""
+    out = []
+    for action in (node.children if node is not None else []):
+        entry: dict = {"targetEntity": entity_id(child(action, "TargetEntity"))}
+        if child(action, "COLOR") is not None:
+            entry["kind"] = "color"
+            entry["color"] = color(action)
+        elif child(action, "sprite") is not None:
+            entry["kind"] = "sprite"
+            entry["sprite"] = asset_hint(child(action, "sprite"))
+            entry["index"] = whole(action, "Index")
+        elif child(action, "Alpha") is not None:
+            entry["kind"] = "alpha"
+            entry["alpha"] = num(action, "Alpha", 1.0)
+        else:
+            entry["kind"] = "other"
+        out.append(entry)
+    return out
+
+
+def read_interactable(c, kind: str) -> dict:
+    """The interactable part (BaseClass1: UiInteractableComponent) of a button, check box, radio button, slider, scroll
+    bar, scroll box, text input, drop-down, draggable, or markup button."""
+    base = child(c, "BaseClass1")
+    return {"kind": kind, "handling": flag(base, "IsHandlingEvents", True),
+            "autoActivation": flag(base, "IsAutoActivationEnabled"),
+            "hoverStart": string(base, "HoverStartActionName"), "hoverEnd": string(base, "HoverEndActionName"),
+            "pressed": string(base, "PressedActionName"), "released": string(base, "ReleasedActionName"),
+            "states": {"hover": read_state_actions(child(base, "HoverStateActions")),
+                       "pressed": read_state_actions(child(base, "PressedStateActions")),
+                       "disabled": read_state_actions(child(base, "DisabledStateActions"))}}
+
+
 def read_button(c) -> dict:
     base = child(c, "BaseClass1")
-    return {"action": string(c, "ActionName"), "hoverStart": string(base, "HoverStartActionName"),
+    return {"action": string(c, "ActionName"), "actionRight": string(c, "ActionNameRight"),
+            "actionPressedRight": string(c, "ActionNamePressedRight"), "clickBehavior": flag(c, "UseClickBehavior"),
+            "hoverOnPressEntity": entity_id(child(c, "SetHoverOnPress")),
+            "hoverStart": string(base, "HoverStartActionName"),
             "hoverEnd": string(base, "HoverEndActionName"), "pressed": string(base, "PressedActionName"),
             "released": string(base, "ReleasedActionName"), "handlingEvents": flag(base, "IsHandlingEvents", True)}
+
+
+def read_interactive(name: str, c) -> dict:
+    """The data of an interactive component that is not a button (the runtime emulation gives its behavior). An entity
+    id field has a key that ends with "Entity" (the runtime maps them in a copy of the element)."""
+    def e(field):
+        return entity_id(child(c, field))
+    if name in ("checkbox", "radio"):
+        out = {"checkedEntity": e("OptionalCheckedEntity"), "uncheckedEntity": e("OptionalUncheckedEntity"),
+               "checked": flag(c, "IsChecked"), "changed": string(c, "ChangedActionName"),
+               "turnOn": string(c, "TurnOnActionName"), "turnOff": string(c, "TurnOffActionName")}
+        if name == "radio":
+            out["groupEntity"] = e("Group")
+        return out
+    if name == "radioGroup":
+        return {"allowUncheck": flag(c, "AllowRestoreUnchecked"), "changed": string(c, "ChangedActionName")}
+    if name == "slider":
+        return {"trackEntity": e("TrackEntity"), "fillEntity": e("FillEntity"), "manipulatorEntity": e("ManipulatorEntity"),
+                "value": num(c, "value"), "min": num(c, "MinValue"), "max": num(c, "MaxValue", 100.0),
+                "step": num(c, "StepValue"), "changing": string(c, "ValueChangingActionName"),
+                "changed": string(c, "ValueChangedActionName")}
+    if name == "scrollBar":
+        return {"handleEntity": e("HandleEntity"), "orientation": whole(c, "Orientation"), "value": num(c, "value"),
+                "handleSize": num(c, "HandleSize", 0.1), "minHandlePixels": num(c, "MinHandlePixelSize", 16.0),
+                "changing": string(c, "ValueChangingActionName"), "changed": string(c, "ValueChangedActionName")}
+    if name == "wheel":
+        return {"step": num(c, "WheelStepValue", 120.0), "scrollBarEntity": e("ScrollBarEntity")}
+    if name == "scrollBox":
+        return {"contentEntity": e("ContentEntity"), "offset": vec2(c, "ScrollOffset"),
+                "constrain": flag(c, "ConstrainScrolling", True), "easing": flag(c, "EnableEasing", True),
+                "dragging": flag(c, "AllowDragging", True), "snapMode": whole(c, "SnapMode"),
+                "snapGrid": vec2(c, "SnapGrid", (10.0, 10.0)), "horizontal": flag(c, "AllowHorizSrolling"),
+                "hScrollBarEntity": e("HScrollBarEntity"), "hVisibility": whole(c, "HScrollBarVisibility"),
+                "vertical": flag(c, "AllowVertScrolling", True), "vScrollBarEntity": e("VScrollBarEntity"),
+                "vVisibility": whole(c, "VScrollBarVisibility"), "changing": string(c, "ScrollOffsetChangingActionName"),
+                "changed": string(c, "ScrollOffsetChangedActionName")}
+    if name == "textInput":
+        return {"textEntity": e("Text"), "placeholderEntity": e("PlaceholderText"),
+                "selectionColor": color(c, "TextSelectionColor"), "cursorColor": color(c, "TextCursorColor"),
+                "maxLength": whole(c, "MaxStringLength", 0, signed=True), "blink": num(c, "CursorBlinkInterval", 1.0),
+                "password": flag(c, "IsPasswordField"), "replacement": whole(c, "ReplacementCharacter", 42),
+                "clip": flag(c, "ClipInputText", True), "change": string(c, "ChangeAction"),
+                "startEdit": string(c, "StartEditAction"), "endEdit": string(c, "EndEditAction"),
+                "enter": string(c, "EnterAction"), "doubleClick": num(c, "DoubleClickInterval", 0.5)}
+    if name == "dropdown":
+        return {"contentEntity": e("Content"), "expandedParentEntity": e("ExpandedParent"), "textEntity": e("TextElement"),
+                "iconEntity": e("IconElement"), "expandOnHover": flag(c, "ExpandOnHover"), "waitTime": num(c, "WaitTime"),
+                "collapseOnOutsideClick": flag(c, "CollapseOnOutsideClick", True),
+                "expandedStates": read_state_actions(child(c, "ExpandedStateActions")),
+                "expanded": string(c, "ExpandedActionName"), "collapsed": string(c, "CollapsedActionName"),
+                "optionSelected": string(c, "OptionSelectedActionName")}
+    if name == "draggable":
+        return {"states": {"normal": read_state_actions(child(c, "DragNormalStateActions")),
+                           "valid": read_state_actions(child(c, "DragValidStateActions")),
+                           "invalid": read_state_actions(child(c, "DragInvalidStateActions"))}}
+    if name == "dropTarget":
+        return {"states": {"valid": read_state_actions(child(c, "DropValidStateActions")),
+                           "invalid": read_state_actions(child(c, "DropInvalidStateActions"))},
+                "drop": string(c, "OnDropActionName")}
+    if name == "markupButton":
+        return {"linkColor": color(c, "LinkColor"), "linkHoverColor": color(c, "LinkHoverColor"),
+                "alwaysCheckHover": flag(c, "AlwaysCheckHover")}
+    if name == "exitHover":
+        return {"event": string(c, "EventName"), "delay": num(c, "Delay")}
+    if name == "dynamicScrollBox":
+        return {"autoRefresh": flag(c, "AutoRefreshOnPostActivate", True), "prototypeEntity": e("PrototypeElement"),
+                "variableSize": flag(c, "VariableElementSize"), "autoSize": flag(c, "AutoCalcElementSize"),
+                "estimatedSize": num(c, "EstimatedElementSize"), "defaultCount": whole(c, "DefaultNumElements"),
+                "sections": flag(c, "HasSections"), "headerPrototypeEntity": e("HeaderPrototypeElement"),
+                "stickyHeaders": flag(c, "StickyHeaders"), "variableHeaderSize": flag(c, "VariableHeaderSize"),
+                "autoHeaderSize": flag(c, "AutoCalcHeaderSize"), "estimatedHeaderSize": num(c, "EstimatedHeaderSize"),
+                "defaultSections": whole(c, "DefaultNumSections")}
+    return {}
 
 
 def property_value(prop) -> dict:
@@ -414,6 +543,7 @@ def convert_entity(entity) -> tuple[dict, dict | None]:
             out[name] = {"count": whole(c, "NumChildElements")}
         elif name == "button":
             out[name] = read_button(c)
+            out["interactable"] = read_interactable(c, "button")
         elif name == "progressBar":
             out[name] = {"progress": num(c, "Progress"), "vertical": flag(c, "Vertical")}
         elif name == "imageRepeater":
@@ -429,6 +559,11 @@ def convert_entity(entity) -> tuple[dict, dict | None]:
             out["javelin"] = {"requiresMouse": flag(c, "requiresMouse"), "escapable": flag(c, "escapable"),
                               "replaceable": flag(c, "replaceable"), "drawLayer": string(c, "drawLayer"),
                               "actionMapOverrides": [text(m) for m in (maps.children if maps else [])]}
+        elif kind in INTERACTIVE:
+            key, interactable = INTERACTIVE[kind]
+            out[key] = read_interactive(key, c)
+            if interactable is not None:
+                out["interactable"] = read_interactable(c, interactable)
         else:
             other.append(OTHER_COMPONENTS.get(kind, kind))
     if other:

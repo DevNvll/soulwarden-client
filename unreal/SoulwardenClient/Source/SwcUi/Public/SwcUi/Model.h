@@ -85,6 +85,12 @@ struct ImageData {
     bool fillCenter{true};
     bool stretchSliced{true};
     int blend{kBlendNormal};
+    // The overrides of the state actions of an interactable (hover, pressed, disabled, drag, drop): they win over the
+    // values while the state lasts (LyShine UiVisualBus SetOverride...).
+    std::optional<Color> overrideColor;
+    std::optional<float> overrideAlpha;
+    std::optional<std::string> overrideSprite;
+    int overrideIndex{-1};
     int fillType{kFillNone};
     float fillAmount{1.0F};
     float fillStartAngle{0.0F};
@@ -112,6 +118,10 @@ struct TextData {
     int shrink{kShrinkNone};
     float minShrink{0.0F};
     int textCase{kCaseNormal};
+    std::optional<Color> overrideColor;   // the state actions of an interactable (as ImageData)
+    std::optional<float> overrideAlpha;
+    int cursor{-1};                       // a text input that edits: the cursor before this character (-1: none)
+    Color cursorColor;
 };
 
 struct MaskData {
@@ -222,6 +232,11 @@ struct Element {
     std::optional<CellData> cell;
     std::optional<FitterData> fitter;
     std::optional<json::Value> button;   // the action names of an interactable
+    // The interactive components of the converted canvas (interactable, checkbox, radio, radioGroup, slider, scrollBar,
+    // wheel, scrollBox, textInput, dropdown, draggable, dropTarget, markupButton, exitHover, dynamicScrollBox): their
+    // data; the emulation (swc/interactables.lua) gives their behavior. A key that ends with "Entity" names an element.
+    std::map<std::string, json::Value> components;
+    bool handling{true};                 // UiInteractableBus IsHandlingEvents (an element with an interactable)
     std::vector<ScriptData> scripts;
     std::vector<std::string> other;      // the components that the runtime does not have
 };
@@ -346,6 +361,12 @@ public:
     /** The four corners in viewport space: top left, top right, bottom right, bottom left. */
     void viewport_points(Id id, Vec2 out[4]) const;
     [[nodiscard]] Vec2 device_scale(Id id) const;
+    /** @return True when a viewport point is inside the rect of an element (with its scale and rotation). */
+    [[nodiscard]] bool contains(Id id, Vec2 viewportPoint) const;
+    /** @return The front-most element with an interactable that handles events at a viewport point, in the enabled
+     *  canvases (the front canvas first; in a canvas, children before parents, the last child first). A mask
+     *  with "mask interaction" hides the points outside it from its children. kNoId: none. */
+    [[nodiscard]] Id interactable_at(Vec2 viewportPoint);
 
     // ---- the layouts (Layout.cpp; the rules of the LyShine layout manager)
     /** The text metrics for the default layout cells of the texts. It stays owned by the caller; null: an estimate. */
@@ -395,6 +416,8 @@ private:
     void log(std::string line);
     void destroy_recursive(Id id, std::vector<Id>* destroyed);
     void remap_properties(json::Value& value, const std::unordered_map<Id, Id>& map) const;
+    void remap_entities(json::Value& value, const std::unordered_map<Id, Id>& map) const;
+    Id interactable_in(Id id, Vec2 point, Vec2 canvasPoint);
     void load_fonts();
     void load_texts();
     // Layout.cpp

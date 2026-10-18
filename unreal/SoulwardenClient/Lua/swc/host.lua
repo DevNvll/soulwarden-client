@@ -11,6 +11,7 @@ function Swc.Tick(dt)
   Swc.TickFlipbooks(dt)
   Swc.TickTweens(dt)
   Swc.Notify("TickBus", nil, "OnTick", dt, Swc.ScriptTimePoint.new({seconds = Swc.time}))
+  Swc.TickInteractables()
 end
 
 --- Sends one event to each handler table of some buses one time (a script that connects to two of them gets it once).

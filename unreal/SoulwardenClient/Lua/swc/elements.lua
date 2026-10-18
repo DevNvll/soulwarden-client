@@ -168,6 +168,8 @@ function Swc.ActivateElements(ids, root, loading)
   end
   local order = post_order(root, {})
   for _, id in ipairs(order) do
+    -- The components first (they connect before the script components of the element), then the scripts.
+    Swc.InitInteractive(id)
     Swc.Notify("UiInitializationBus", id, "InGamePostActivate")
   end
   if loading then
@@ -194,6 +196,7 @@ function Swc.DeactivateEntities(ids)
     end
     Swc.FlipbookForget(id)
     Swc.TweenForget(id)
+    Swc.ForgetInteractive(id)
   end
 end
 

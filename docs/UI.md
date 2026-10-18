@@ -124,6 +124,32 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
 - `textures/index.json` (`tools/convert-ui.sh texture-index`) gives the size, borders, and cells of a texture that is not
   converted yet: the default cells of images need them. Such a texture does not draw.
 
+### Input and interactive components (swc/input.lua, swc/interactables.lua)
+
+- The converter keeps the interactable part of each interactive component (the handling flag, the hover, pressed, and
+  released action names, the state actions of the hover, pressed, and disabled states) and the data of the component:
+  button, check box, radio button and group, slider, scroll bar, the fork mouse wheel, scroll box, text input,
+  drop-down, draggable, drop target, markup button. A key that ends with "Entity" names an element (a copy maps it).
+- The input (the rules of the LyShine canvas): one hover and one active interactable. A move sets the hover (only the
+  active one while one is active) and drags the active one; a press of the left button goes to the front interactable
+  at the point (`Model::interactable_at`: the front canvas first, then the last child first, children before parents;
+  a mask with "mask interaction" hides the points outside it); the release goes to the active one; the wheel goes to
+  the scroll box under the point; keys and text go to a text input that edits. A text input stays active after the
+  release.
+- The state of an interactable: disabled (no handling), pressed (pressed and hovered), hover (hovered or pressed),
+  normal. The state actions of the state override the color, the alpha, or the sprite of their target (the overrides
+  go away with the state).
+- Each action goes to the canvas: `UiCanvasNotificationBus.OnAction(entity, name)`; the fork BaseScreen calls the
+  function of its scope. A button click waits for the end of the input event (LyShine queues it).
+- The components: a check box toggles on a release inside; a radio button asks its group (one checked button; "allow
+  uncheck"); a slider takes the value at the point along its track (step, range; the fill and the manipulator anchors);
+  a scroll bar moves its handle (size: the part of the content that shows, with a minimum in pixels) and its scroll
+  box; a scroll box puts the pivot of its content at the offset, keeps the content over its parent, follows the size of
+  its content each frame, and scrolls by the wheel (the fork step for each notch of 120: an approximation); a text input
+  starts the edit on a release inside, takes typed text at its cursor (maximum length, password character), and ends
+  with Enter or Escape or a press elsewhere; a drop-down expands (its content goes on top of the canvas at the same
+  place) and collapses on a second click, on an option, or on a release outside.
+
 ## The Lua host
 
 - Lua 5.1.5 compiles as C++ (`SwcLua51.cpp`, `SwcLua51Os.cpp`). Thus a Lua error is a C++ exception and unwinds the
@@ -224,6 +250,7 @@ frames, and checks values. The helpers are in `prelude.lua`: `check`, `equal`, `
 | Fixture | Checks |
 | --- | --- |
 | `enums` | The client table against the own values, the paperdoll slots of the protocol notes, the LyShine values, a name that the client does not have. |
+| `controls` | The original InfoModal: the hover of its button (`button.luac`) and its press, which closes the modal (the button of the game acts on the press). Then original slices spawned into the modal with their scripts: a slider (a drag sets 50; typed 25 in its text input with Enter sets 25), a toggle (two radio buttons in a group), a check box, a drop-down (its list of 12 items cloned from a prototype by `dropdown.luac`, the expand, the wheel scroll). Pictures `controls-button-normal`, `-hover`, `controls-slider`, `controls-textinput`, `controls-dropdown-open`, `-scrolled`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
 The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,

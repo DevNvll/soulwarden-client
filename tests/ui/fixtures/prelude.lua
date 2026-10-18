@@ -83,3 +83,85 @@ function find(parent, name)
   end
   return id
 end
+
+--- Spawns a UI slice of the game (a path with the ending .dynamicslice) under an element, with its scripts.
+--- @return The root of the copy.
+function spawn(slicePath, parent)
+  local root, created = swcui.spawn(slicePath, parent)
+  check(root ~= nil, "the slice spawns: " .. slicePath)
+  if root then
+    Swc.ActivateElements(created, root, false)
+  end
+  return root
+end
+
+-- The input of the fixtures: the same entry as the client (Swc.HostInput), in viewport pixels.
+
+--- @return The point of an element at fractions of its rect (0.5, 0.5: the middle), in viewport pixels.
+function point_of(id, fx, fy)
+  local p = {swcui.viewport_points(id)}
+  fx, fy = fx or 0.5, fy or 0.5
+  -- top left, top right, bottom right, bottom left (x, y each)
+  local tx = p[1] + (p[3] - p[1]) * fx
+  local ty = p[2] + (p[4] - p[2]) * fx
+  local bx = p[7] + (p[5] - p[7]) * fx
+  local by = p[8] + (p[6] - p[8]) * fx
+  return tx + (bx - tx) * fy, ty + (by - ty) * fy
+end
+
+function move_to(id, fx, fy)
+  local x, y = point_of(id, fx, fy)
+  Swc.HostInput("move", x, y)
+  return x, y
+end
+
+function click(id, fx, fy)
+  move_to(id, fx, fy)
+  Swc.HostInput("button", "left", true)
+  frames(0.05)
+  Swc.HostInput("button", "left", false)
+  frames(0.05)
+end
+
+--- Drags from one point of an element to another (fractions of its rect), in steps.
+function drag(id, fx0, fy0, fx1, fy1, steps)
+  move_to(id, fx0, fy0)
+  Swc.HostInput("button", "left", true)
+  steps = steps or 8
+  for i = 1, steps do
+    local t = i / steps
+    move_to(id, fx0 + (fx1 - fx0) * t, fy0 + (fy1 - fy0) * t)
+    frames(1 / 60)
+  end
+  Swc.HostInput("button", "left", false)
+  frames(0.05)
+end
+
+function wheel(delta)
+  Swc.HostInput("wheel", delta)
+  frames(1 / 60)
+end
+
+function key(name)
+  Swc.HostInput("key", name, true)
+  Swc.HostInput("key", name, false)
+  frames(1 / 60)
+end
+
+function type_text(text)
+  for ch in string.gmatch(text, "[%z\1-\127\194-\244][\128-\191]*") do
+    Swc.HostInput("text", ch)
+  end
+  frames(1 / 60)
+end
+
+--- @return The script table of an element (the first script component, or the one of a script path), as the element
+--- registrar of the scripts gives it.
+function script_of(id, path)
+  for _, instance in ipairs(Swc.components[tostring(id)] or {}) do
+    if path == nil or string.find(instance.__swcScript or "", path, 1, true) then
+      return instance
+    end
+  end
+  return nil
+end

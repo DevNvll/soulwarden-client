@@ -389,6 +389,84 @@ int n_other(lua_State* L) {
     return 1;
 }
 
+int push_vec(lua_State* L, Vec2 v);
+
+/** Pushes the data of an interactive component: a member whose key ends with "Entity" is an EntityId (nil when null). */
+void push_component(lua_State* L, const json::Value& value) {
+    if (value.is_object()) {
+        lua_createtable(L, 0, static_cast<int>(value.size()));
+        for (const json::Value::Member& member : value.members()) {
+            const std::string& key = member.first;
+            if (key.size() > 6 && key.compare(key.size() - 6, 6, "Entity") == 0) {
+                if (!member.second.is_string()) {
+                    continue;
+                }
+                push_id(L, parse_id(member.second.text()));
+            } else {
+                push_component(L, member.second);
+            }
+            lua_setfield(L, -2, key.c_str());
+        }
+    } else if (value.is_array()) {
+        lua_createtable(L, static_cast<int>(value.size()), 0);
+        int at = 1;
+        for (const json::Value& element : value.elements()) {
+            push_component(L, element);
+            lua_rawseti(L, -2, at++);
+        }
+    } else {
+        push_json(L, value);
+    }
+}
+
+// The interactive components (swc/interactables.lua): the data of one, the list of the kinds of an element.
+int n_component(lua_State* L) {
+    const Element* e = model_of(L).element(to_id(L, 1));
+    if (e == nullptr) {
+        return 0;
+    }
+    const auto found = e->components.find(arg_text(L, 2));
+    if (found == e->components.end()) {
+        return 0;
+    }
+    push_component(L, found->second);
+    return 1;
+}
+
+int n_components(lua_State* L) {
+    const Element* e = model_of(L).element(to_id(L, 1));
+    lua_newtable(L);
+    if (e != nullptr) {
+        int at = 1;
+        for (const auto& [key, value] : e->components) {
+            lua_pushstring(L, key.c_str());
+            lua_rawseti(L, -2, at++);
+        }
+    }
+    return 1;
+}
+
+// The input: the front-most interactable at a viewport point; a point in an element; a point in the canvas space of the
+// rect of an element (no scale, no rotation).
+int n_interactable_at(lua_State* L) {
+    const Id hit = model_of(L).interactable_at({arg_real(L, 1), arg_real(L, 2)});
+    if (hit == kNoId) {
+        return 0;
+    }
+    push_id(L, hit);
+    return 1;
+}
+
+int n_contains(lua_State* L) {
+    lua_pushboolean(L, model_of(L).contains(to_id(L, 1), {arg_real(L, 2), arg_real(L, 3)}));
+    return 1;
+}
+
+int n_to_rect_space(lua_State* L) {
+    const Vec2 p = model_of(L).to_viewport(to_id(L, 1)).inverse().apply({arg_real(L, 2), arg_real(L, 3)});
+    return push_vec(L, p);
+}
+
 int n_button(lua_State* L) {
     const Element* e = model_of(L).element(to_id(L, 1));
     if (e == nullptr || !e->button) {
@@ -738,6 +816,10 @@ int n_get(lua_State* L) {
     if (key.rfind("layout.", 0) == 0 || key.rfind("cell.", 0) == 0 || key.rfind("fitter.", 0) == 0) {
         return get_layout(L, model, *e, key);
     }
+    if (key == "interactable.handling") {
+        lua_pushboolean(L, e->handling);
+        return 1;
+    }
     return luaL_error(L, "get: no field %s", key.c_str());
 }
 
@@ -836,6 +918,11 @@ int n_set(lua_State* L) {
         if (f == "minShrink") { x.minShrink = arg_real(L, 3); return 0; }
         if (f == "case") { x.textCase = static_cast<int>(luaL_checknumber(L, 3)); return 0; }
         if (f == "markup") { x.markup = lua_toboolean(L, 3) != 0; return 0; }
+        if (f == "cursor") {
+            x.cursor = static_cast<int>(luaL_checknumber(L, 3));
+            x.cursorColor = arg_color(L, 4, {1.0F, 1.0F, 1.0F, 1.0F});
+            return 0;
+        }
     }
     if (key == "fader.fade") {
         if (e->fade) *e->fade = std::clamp(arg_real(L, 3), 0.0F, 1.0F);
@@ -871,6 +958,50 @@ int n_set(lua_State* L) {
     }
     if (key.rfind("layout.", 0) == 0 || key.rfind("cell.", 0) == 0 || key.rfind("fitter.", 0) == 0) {
         return set_layout(L, model, *e, key);
+    }
+    if (key == "interactable.handling") {
+        e->handling = lua_toboolean(L, 3) != 0;
+        return 0;
+    }
+    // The state actions of an interactable: overrides of the visual (image or text) of an element; nil clears one.
+    if (key == "visual.overrideColor") {
+        const std::optional<Color> color = lua_isnil(L, 3) ? std::optional<Color>{} : std::optional<Color>{arg_color(L, 3, {1.0F, 1.0F, 1.0F, 1.0F})};
+        if (e->image) e->image->overrideColor = color;
+        if (e->text) e->text->overrideColor = color;
+        return 0;
+    }
+    if (key == "visual.overrideAlpha") {
+        const std::optional<float> alpha = lua_isnil(L, 3) ? std::optional<float>{} : std::optional<float>{arg_real(L, 3)};
+        if (e->image) e->image->overrideAlpha = alpha;
+        if (e->text) e->text->overrideAlpha = alpha;
+        return 0;
+    }
+    if (key == "visual.overrideSprite") {
+        if (e->image) {
+            if (lua_isnil(L, 3)) {
+                e->image->overrideSprite.reset();
+                e->image->overrideIndex = -1;
+            } else {
+                std::string sprite = lower(arg_text(L, 3));
+                std::replace(sprite.begin(), sprite.end(), '\\', '/');
+                e->image->overrideSprite = sprite;
+                e->image->overrideIndex = lua_isnumber(L, 4) ? static_cast<int>(lua_tonumber(L, 4)) : -1;
+            }
+        }
+        return 0;
+    }
+    if (key == "visual.clearOverrides") {
+        if (e->image) {
+            e->image->overrideColor.reset();
+            e->image->overrideAlpha.reset();
+            e->image->overrideSprite.reset();
+            e->image->overrideIndex = -1;
+        }
+        if (e->text) {
+            e->text->overrideColor.reset();
+            e->text->overrideAlpha.reset();
+        }
+        return 0;
     }
     return luaL_error(L, "set: no field %s", key.c_str());
 }
@@ -1199,7 +1330,8 @@ const luaL_Reg kNatives[] = {
     {"set", n_set}, {"load_canvas", n_load_canvas}, {"unload_canvas", n_unload_canvas}, {"find_canvas", n_find_canvas},
     {"canvases", n_canvases}, {"canvas_get", n_canvas_get}, {"canvas_set", n_canvas_set}, {"localize", n_localize},
     {"has_text", n_has_text}, {"crc32", n_crc32}, {"texture_exists", n_texture_exists}, {"stub", n_stub}, {"log", n_log},
-    {"clock", n_clock}, {"tick", n_tick}, {"update_layouts", n_update_layouts}, {"text_layout", n_text_layout}, {"compute_layout", n_compute_layout}, {"write_draw", n_write_draw}, {"viewport", n_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
+    {"clock", n_clock}, {"tick", n_tick}, {"update_layouts", n_update_layouts}, {"component", n_component}, {"components", n_components},
+    {"interactable_at", n_interactable_at}, {"contains", n_contains}, {"to_rect_space", n_to_rect_space}, {"text_layout", n_text_layout}, {"compute_layout", n_compute_layout}, {"write_draw", n_write_draw}, {"viewport", n_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
     {"load_lua", n_load_lua}, {nullptr, nullptr}};
 
 } // namespace

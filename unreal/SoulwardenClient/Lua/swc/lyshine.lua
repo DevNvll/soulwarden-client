@@ -105,7 +105,9 @@ Swc.Define("UiTransformBus", "Event", {
     local top, bottom = math.min(y1, y2, y3, y4), math.max(y1, y2, y3, y4)
     return {left = left, top = top, right = right, bottom = bottom, GetWidth = function() return right - left end,
             GetHeight = function() return bottom - top end, GetCenterX = function() return (left + right) / 2 end,
-            GetCenterY = function() return (top + bottom) / 2 end}
+            GetCenterY = function() return (top + bottom) / 2 end,
+            GetCenter = function() return V2((left + right) / 2, (top + bottom) / 2) end,
+            GetSize = function() return V2(right - left, bottom - top) end}
   end,
   GetViewportSpacePoints = function(id)
     local x1, y1, x2, y2, x3, y3, x4, y4 = swcui.viewport_points(id)
@@ -438,46 +440,7 @@ Swc.Define("UiLayoutGridBus", "Event", line_layout({
   GetStartingDirection = function(id) return swcui.get(id, "layout.startingWith") or 0 end,
   SetStartingDirection = function(id, v) swcui.set(id, "layout.startingWith", v) end,
 }))
-Swc.Define("UiInteractableBus", "Event", {
-  IsHandlingEvents = function(id) local v = store(id).handling if v == nil then return true end return v end,
-  SetIsHandlingEvents = function(id, v) store(id).handling = v end,
-  IsAutoActivationEnabled = function() return false end,
-  SetIsAutoActivationEnabled = function() end,
-  SetHoverEnterEventHandlingScale = function() end,
-  SetMagnetismMode = function() end,
-  SetFrictionOverrideValue = function() end,
-  SetIsVirtualCursorEffector = function() end,
-})
-
-local function action_accessors()
-  local out = {}
-  local keys = {HoverStartActionName = "hoverStart", HoverEndActionName = "hoverEnd", PressedActionName = "pressed",
-                ReleasedActionName = "released"}
-  for name, field in pairs(keys) do
-    out["Get" .. name] = function(id)
-      local v = store(id)[field]
-      if v == nil then
-        local data = swcui.button(id)
-        v = data and data[field] or ""
-      end
-      return v
-    end
-    out["Set" .. name] = function(id, v) store(id)[field] = v end
-  end
-  return out
-end
-Swc.Define("UiInteractableActionsBus", "Event", action_accessors())
-Swc.Define("UiButtonBus", "Event", {
-  GetOnClickActionName = function(id)
-    local v = store(id).action
-    if v == nil then
-      local data = swcui.button(id)
-      v = data and data.action or ""
-    end
-    return v
-  end,
-  SetOnClickActionName = function(id, v) store(id).action = v end,
-})
+-- The interactables, buttons, check boxes, radio buttons, sliders, scroll boxes, text inputs, and drop-downs: swc/interactables.lua.
 Swc.Define("UiDraggableBus", "Event", {
   IsProxy = function() return false end,
   SetDragState = function(id, v) store(id).dragState = v end,

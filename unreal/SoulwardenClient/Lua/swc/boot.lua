@@ -21,5 +21,7 @@ Swc.Load("swc.lyshine")   -- the LyShine buses on the element model
 Swc.Load("swc.datalayer") -- the data layer of the fork
 Swc.Load("swc.manager")   -- the screen manager and the canvas load of the fork
 Swc.Load("swc.tween")     -- the tween engine (the gem ScriptedEntityTweener)
+Swc.Load("swc.interactables") -- buttons, check boxes, radio buttons, sliders, scroll boxes, text inputs, drop-downs
+Swc.Load("swc.input")     -- the input of the UI: hover, press, release, drag, wheel, keys, text
 Swc.Load("swc.game")      -- the game buses that the first HUD reads
 Swc.Load("swc.host")      -- the calls of the host: Swc.Tick, Swc.Boot, Swc.EnterWorld, the player data

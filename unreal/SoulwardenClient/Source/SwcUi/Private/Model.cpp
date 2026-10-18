@@ -298,6 +298,15 @@ void Model::read_element(const json::Value& data, Element& out) const {
     if (const json::Value& b = data["button"]; b.is_object()) {
         out.button = b;
     }
+    for (const char* key : {"interactable", "checkbox", "radio", "radioGroup", "slider", "scrollBar", "wheel", "scrollBox",
+                            "textInput", "dropdown", "draggable", "dropTarget", "markupButton", "exitHover", "dynamicScrollBox"}) {
+        if (const json::Value& component = data[key]; component.is_object()) {
+            out.components[key] = component;
+        }
+    }
+    if (const auto found = out.components.find("interactable"); found != out.components.end()) {
+        out.handling = found->second["handling"].boolean(true);
+    }
     for (const json::Value& script : data["scripts"].elements()) {
         ScriptData entry;
         entry.script = lower(script["script"].text());
@@ -360,6 +369,27 @@ void Model::read_element(const json::Value& data, Element& out) const {
     }
     for (const json::Value& name : data["other"].elements()) {
         out.other.push_back(name.text());
+    }
+}
+
+void Model::remap_entities(json::Value& value, const std::unordered_map<Id, Id>& map) const {
+    // The data of an interactive component: a member whose key ends with "Entity" names an element.
+    if (value.is_object()) {
+        for (json::Value::Member& member : value.members_mut()) {
+            const std::string& key = member.first;
+            if (key.size() > 6 && key.compare(key.size() - 6, 6, "Entity") == 0 && member.second.is_string()) {
+                const auto found = map.find(parse_id(member.second.text()));
+                if (found != map.end()) {
+                    member.second.set_text(std::to_string(found->second));
+                }
+            } else {
+                remap_entities(member.second, map);
+            }
+        }
+    } else if (value.is_array()) {
+        for (json::Value& element : value.elements_mut()) {
+            remap_entities(element, map);
+        }
     }
 }
 
@@ -457,6 +487,9 @@ Id Model::load_canvas(const std::string& path, std::string* error) {
         if (!remap.empty()) {
             for (ScriptData& script : element.scripts) {
                 remap_properties(script.properties, remap);
+            }
+            for (auto& [key, component] : element.components) {
+                remap_entities(component, remap);
             }
         }
         element.canvas = canvas.entity;
@@ -608,6 +641,9 @@ Id Model::clone_element(Id source, Id parent, Id before, std::vector<Id>* create
         for (ScriptData& script : copy.scripts) {
             remap_properties(script.properties, map);
         }
+        for (auto& [key, component] : copy.components) {
+            remap_entities(component, map);
+        }
         if (copy.flipbook) {
             copy.flipbook->playing = false;
         }
@@ -656,6 +692,9 @@ Id Model::spawn_slice(const std::string& slicePath, Id parent, std::vector<Id>* 
         }
         for (ScriptData& script : element.scripts) {
             remap_properties(script.properties, map);
+        }
+        for (auto& [key, component] : element.components) {
+            remap_entities(component, map);
         }
         element.canvas = canvasId;
         ids.push_back(element.id);
@@ -1182,6 +1221,48 @@ std::string Model::localize(const std::string& text) const {
         }
     }
     return out;
+}
+
+bool Model::contains(Id id, Vec2 point) const {
+    // The point in the canvas space of the element (no scale, no rotation), against its rect.
+    const Vec2 local = to_viewport(id).inverse().apply(point);
+    const Edges r = rect(id);
+    return local.x >= r.left && local.x <= r.right && local.y >= r.top && local.y <= r.bottom;
+}
+
+Id Model::interactable_in(Id id, Vec2 point, Vec2 canvasPoint) {
+    const Element* e = element(id);
+    if (e == nullptr || !e->enabled) {
+        return kNoId;
+    }
+    // A mask with "mask interaction" hides the points outside it from its children.
+    const bool masked = e->mask && e->mask->enabled && e->mask->interaction && !contains(id, point);
+    if (!masked) {
+        // The last child first (LyShine FindInteractableToHandleEvent: the child order, not the render priority).
+        const std::vector<Id> order = e->children;
+        for (auto child = order.rbegin(); child != order.rend(); ++child) {
+            if (const Id hit = interactable_in(*child, point, canvasPoint); hit != kNoId) {
+                return hit;
+            }
+        }
+    }
+    if (e->handling && e->components.count("interactable") != 0 && contains(id, point)) {
+        return id;
+    }
+    return kNoId;
+}
+
+Id Model::interactable_at(Vec2 point) {
+    std::vector<Canvas*> canvases = canvases_in_order();
+    for (auto it = canvases.rbegin(); it != canvases.rend(); ++it) {
+        if (!(*it)->enabled) {
+            continue;
+        }
+        if (const Id hit = interactable_in((*it)->root, point, point); hit != kNoId) {
+            return hit;
+        }
+    }
+    return kNoId;
 }
 
 } // namespace swc::ui
