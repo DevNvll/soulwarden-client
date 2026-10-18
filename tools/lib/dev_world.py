@@ -48,6 +48,7 @@ Usage (tools/creature-world.sh):
   gathering [RADIUS] | chests [RADIUS]   the gathering or the chests of the character (the nodes with a server state near it)
   respawn NODE SECONDS               a depleted node respawns after SECONDS (NODE: a UUID, REGION#RECORD, or G)
   chest-clear CHEST                  removes the claim of the character on a chest (its UUID): the chest can open again
+  chest-reset CHEST SECONDS          the looted claim of the character on a chest resets after SECONDS (the light comes back)
   tool ITEM SLOT                     a tool in a paperdoll slot (33 axe, 34 sickle, 35 knife, 36 pick): from the bag, else given
   untool SLOT                        the item of a paperdoll slot goes into the bag
   script FILE [--clock LOG]          a timed list of these commands: "SECONDS COMMAND WORDS..." each line (the seconds from
@@ -292,6 +293,8 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "POST", f"/v1/dev/items/equip?character={who}&from={held}&slot={slot}")
     if command == "untool" and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/items/unequip?character={character(folder)}&slot={int(rest[0])}")
+    if command == "chest-reset" and len(rest) == 2:
+        return request(folder, "POST", f"/v1/dev/chests/reset?character={character(folder)}&chest={rest[0]}&seconds={int(float(rest[1]))}")
     if command == "chest-clear" and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/chests/clear?character={character(folder)}&chest={rest[0]}")
     fail(f"unknown command {' '.join(words)}")
