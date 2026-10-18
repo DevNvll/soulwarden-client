@@ -20,6 +20,13 @@ constexpr double DiscHeight = 0.03;
 const FLinearColor ShotColor(1.0f, 0.9f, 0.6f, 0.9f);
 const FLinearColor WarningColor(1.0f, 0.45f, 0.0f, 0.35f);
 const FLinearColor DangerColor(1.0f, 0.05f, 0.02f, 0.6f);
+/** A spell of a character (values of this client): blue before its volume is active, light blue while it is active. */
+const FLinearColor FriendlyWarningColor(0.2f, 0.5f, 1.0f, 0.3f);
+const FLinearColor FriendlyActiveColor(0.2f, 0.85f, 1.0f, 0.45f);
+/** The pillar of a summon (m). */
+constexpr double PillarWidth = 0.6;
+constexpr double PillarHeight = 2.0;
+constexpr double WidestDisc = 8.0;
 } // namespace
 
 ASwcEffectActor::ASwcEffectActor()
@@ -64,9 +71,10 @@ void ASwcEffectActor::SetupProjectile(const FSwcProjectileSlice* Slice)
 	SetColor(ShotColor);
 }
 
-void ASwcEffectActor::SetupArea(const FSwcSpellSlice* Slice, const FSwcSpellRow* Row)
+void ASwcEffectActor::SetupArea(const FSwcSpellSlice* Slice, const FSwcSpellRow* Row, bool bInFriendly, bool bInSummon)
 {
 	bArea = true;
+	bFriendly = bInFriendly;
 	if (Slice != nullptr)
 	{
 		Events = Slice->Events;
@@ -88,12 +96,21 @@ void ASwcEffectActor::SetupArea(const FSwcSpellSlice* Slice, const FSwcSpellRow*
 		Radius = Row->Radius;
 	}
 	Shape->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, CylinderMesh));
-	Shape->SetRelativeScale3D(FVector(Radius * 2.0, Radius * 2.0, DiscHeight));
-	Shape->SetRelativeLocation(FVector(0.0, 0.0, DiscHeight * 50.0));
-	SetColor(WarningColor);
+	bSummon = bInSummon || Radius > WidestDisc;
+	if (bSummon)
+	{
+		Shape->SetRelativeScale3D(FVector(PillarWidth, PillarWidth, PillarHeight));
+		Shape->SetRelativeLocation(FVector(0.0, 0.0, PillarHeight * 50.0));
+	}
+	else
+	{
+		Shape->SetRelativeScale3D(FVector(Radius * 2.0, Radius * 2.0, DiscHeight));
+		Shape->SetRelativeLocation(FVector(0.0, 0.0, DiscHeight * 50.0));
+	}
+	SetColor(bFriendly ? FriendlyWarningColor : WarningColor);
 }
 
-FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, uint64 RenderTimeUs)
+FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, uint64 RenderTimeUs, const FVector* Follow)
 {
 	FString Text;
 	if (!bArea && Entity.hasProjectile)
@@ -122,12 +139,27 @@ FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, 
 	{
 		const swc::creatures::SpellParts& Parts = Entity.spell;
 		const swc::net::WorldPosition& Place = Parts.hasSpell ? Parts.place : Entity.worldPlace;
-		SetActorLocation(SwcEngineToUnreal(Place));
+		// A spell that follows an entity (field 6: the Beacon) is at the shown place of that entity.
+		FVector Where = Follow != nullptr ? *Follow : SwcEngineToUnreal(Place);
+		// The disc lies on the ground below or above the place of the server (the place can be some cm under the surface of the
+		// level): a line of 1 m up and down to the static world.
+		if (!bSummon && GetWorld() != nullptr && !Where.Equals(LastPlace, 1.0))
+		{
+			LastPlace = Where;
+			FHitResult Ground;
+			if (GetWorld()->LineTraceSingleByObjectType(Ground, Where + FVector(0.0, 0.0, 100.0), Where - FVector(0.0, 0.0, 100.0),
+					FCollisionObjectQueryParams(ECC_WorldStatic)))
+			{
+				GroundOffset = Ground.ImpactPoint.Z - Where.Z;
+			}
+		}
+		Where.Z += GroundOffset;
+		SetActorLocation(Where);
 		const swc::creatures::AreaTimes Times = bHasVolume ? swc::creatures::area_times(Parts, Volume, Events)
 														  : swc::creatures::AreaTimes{swc::creatures::spell_start_us(Parts, Events), 0, 0};
 		const swc::creatures::AreaPhase Phase = swc::creatures::area_phase(Times, RenderTimeUs);
 		const bool bStarted = RenderTimeUs >= Times.startUs;
-		Shape->SetVisibility(bStarted && Phase != swc::creatures::AreaPhase::ended && Radius > 0.0f);
+		Shape->SetVisibility(bStarted && (bSummon || (Phase != swc::creatures::AreaPhase::ended && Radius > 0.0f)));
 		const int32 PhaseIndex = bStarted ? static_cast<int32>(Phase) : -1;
 		if (PhaseIndex != LastPhase)
 		{
@@ -136,15 +168,18 @@ FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, 
 			switch (Phase)
 			{
 			case swc::creatures::AreaPhase::warning:
-				SetColor(WarningColor);
-				Text = FString::Printf(TEXT("the warning of the area (radius %.2f m) at %.2f s"), Radius, Since);
+				SetColor(bFriendly ? FriendlyWarningColor : WarningColor);
+				Text = bFriendly ? FString::Printf(TEXT("the spell before its volume is active (radius %.2f m) at %.2f s"), Radius, Since)
+								 : FString::Printf(TEXT("the warning of the area (radius %.2f m) at %.2f s"), Radius, Since);
 				break;
 			case swc::creatures::AreaPhase::danger:
-				SetColor(DangerColor);
-				Text = FString::Printf(TEXT("the danger of the area at %.2f s"), Since);
+				SetColor(bFriendly ? FriendlyActiveColor : DangerColor);
+				Text = bFriendly ? FString::Printf(TEXT("the volume of the spell is active at %.2f s"), Since)
+								 : FString::Printf(TEXT("the danger of the area at %.2f s"), Since);
 				break;
 			case swc::creatures::AreaPhase::ended:
-				Text = FString::Printf(TEXT("the end of the area at %.2f s"), Since);
+				Text = bFriendly ? FString::Printf(TEXT("the end of the volume of the spell at %.2f s"), Since)
+								 : FString::Printf(TEXT("the end of the area at %.2f s"), Since);
 				break;
 			}
 			if (!bStarted)

@@ -82,6 +82,10 @@ struct SpellParts {
     std::uint64_t caster{0};
     std::uint64_t spawnUs{0};
     float radiusScale{1.0F};
+    /** Field 6: the entity that the spell follows (the Beacon on a character or a creature): its actor id and G. */
+    bool attached{false};
+    swc::net::ActorId attachedActor{};
+    std::uint64_t attachedGroup{0};
     std::map<std::uint32_t, DelayedEventState> events;
     /** The server time of the first state of the entity that the client applied (us). */
     std::uint64_t firstSeenUs{0};
@@ -146,6 +150,19 @@ struct Entity {
     bool hasWorldPlace{false};
     swc::net::WorldPosition worldPlace;
     swc::net::Quaternion worldPlaceRotation;
+    /** The status effects of a creature at its name plate (StatusEffects, type 4236, group 3 field 1: the compact map; protocol
+     *  notes 4.22): the index of each status row, its stacks, and the potency 1 mark. A list with a larger stamp replaces the
+     *  list; a smaller stamp changes nothing; an empty list removes each entry. */
+    struct StatusEntry {
+        std::uint16_t index{0};
+        std::uint8_t stacks{0};
+        bool potencyOne{false};
+    };
+    bool hasStatuses{false};
+    std::uint64_t statusStamp{0};
+    std::vector<StatusEntry> statuses;
+    /** One more at each new list. */
+    std::uint32_t statusRevision{0};
     /** LootDrop (type 2027; a loot bag, protocol notes 4.42): m_rarityLevel. */
     bool hasLootDrop{false};
     std::uint32_t lootRarity{0};
@@ -171,7 +188,7 @@ struct Entity {
 
 /** A change of the table for the log and the view. */
 struct Change {
-    enum class Kind { added, removed, action, health, death, effect };
+    enum class Kind { added, removed, action, health, death, effect, status };
     Kind kind{Kind::added};
     std::uint32_t interest{0};
     std::uint64_t serial{0};
@@ -204,6 +221,7 @@ private:
     void apply_movement(const soulwarden::backend::tests::Fragment& fragment, Entity& entity);
     void apply_vitals(const soulwarden::backend::tests::Fragment& fragment, Entity& entity);
     void apply_projectile(const soulwarden::backend::tests::Fragment& fragment, Entity& entity);
+    void apply_statuses(const soulwarden::backend::tests::Fragment& fragment, Entity& entity);
     void apply_spell(const soulwarden::backend::tests::Fragment& fragment, Entity& entity, std::uint64_t nowUs);
 
     std::map<std::uint32_t, Entity> m_entities;

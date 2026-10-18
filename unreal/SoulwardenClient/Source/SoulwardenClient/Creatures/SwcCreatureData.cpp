@@ -254,6 +254,23 @@ bool FSwcCreatureLibrary::Load(FString& OutReport)
 					Out.Local = FCString::Strtoui64(*Volume->GetStringField(TEXT("local")), nullptr, 16);
 				}
 			}
+			const TSharedPtr<FJsonObject>* Lock = nullptr;
+			if (Entry->TryGetObjectField(TEXT("lock"), Lock))
+			{
+				const TArray<double> Offset = Floats(*Lock, TEXT("offset"));
+				Slice.bHasLock = true;
+				Slice.LockOffset = Offset.Num() == 3 ? FVector(Offset[0], Offset[1], Offset[2]) : FVector::ZeroVector;
+				FString Joint;
+				if ((*Lock)->TryGetStringField(TEXT("joint"), Joint) && !Joint.IsEmpty() && Joint != TEXT("None"))
+				{
+					Slice.LockJoint = FName(*Joint);
+				}
+				Slice.LockJointOffset = Number(*Lock, TEXT("jointOffset"), 0.0f);
+				bool bLimit = false;
+				Slice.bLimitPitch = (*Lock)->TryGetBoolField(TEXT("limitPitch"), bLimit) && bLimit;
+				Slice.PitchMin = Number(*Lock, TEXT("pitchMin"), 0.0f);
+				Slice.PitchMax = Number(*Lock, TEXT("pitchMax"), 0.0f);
+			}
 			const TSharedPtr<FJsonObject>* Capsule = nullptr;
 			if (Entry->TryGetObjectField(TEXT("capsule"), Capsule))
 			{
@@ -398,6 +415,23 @@ void FSwcCreatureLibrary::LoadEffects(const FString& Folder)
 				}
 			}
 			LootContainers.Add(FString(Pair.Key.ToView()), MoveTemp(Container));
+		}
+	}
+	if (Document->TryGetObjectField(TEXT("statusRows"), Objects))
+	{
+		for (const auto& Pair : (*Objects)->Values)
+		{
+			const TSharedPtr<FJsonObject> Entry = Pair.Value->AsObject();
+			FSwcStatusRow Row;
+			Row.Id = Entry->GetStringField(TEXT("id"));
+			Row.Duration = Number(Entry, TEXT("duration"), 0.0f);
+			Row.MoveSpeedMod = Number(Entry, TEXT("moveSpeedMod"), 0.0f);
+			bool bFlag = false;
+			Row.bStunned = Entry->TryGetBoolField(TEXT("stunned"), bFlag) && bFlag;
+			bFlag = false;
+			Row.bRoot = Entry->TryGetBoolField(TEXT("root"), bFlag) && bFlag;
+			Row.Categories = Entry->GetStringField(TEXT("categories"));
+			StatusRows.Add(static_cast<uint32>(FCString::Atoi(*FString(Pair.Key.ToView()))), Row);
 		}
 	}
 	if (Document->TryGetObjectField(TEXT("spellRows"), Objects))

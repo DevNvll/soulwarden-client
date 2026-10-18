@@ -274,6 +274,102 @@ void test_death_and_stop() {
     check(table.find(4) != nullptr && table.find(4)->serial != serial, "a new entity of the same interest number has a new serial");
 }
 
+/** A forced motion (stage P3.5; backend forced_motion.cpp, protocol notes 4.26): the server moves the creature with a state each
+ *  50 ms while the record of its reaction (the stagger r_R2_F) goes out again in each state with the same start count. */
+void test_forced_motion() {
+    Scene scene;
+    make_wolf(scene);
+    EntityTable table;
+    table.apply(first_record(scene, 3));
+    table.take_changes();
+    backend::world::CreatureAction stagger;
+    stagger.action = 25;
+    stagger.fragment = 15;
+    stagger.generation = 1;
+    stagger.tags = scene.slice.tags;
+    stagger.started = scene.clock.now();
+    stagger.ends = stagger.started + std::chrono::milliseconds(1000);
+    scene.entity.creature.action = stagger;
+    table.apply(movement_record(scene, 3, backend::server::rep::kScopeNone, false));
+    const swc::creatures::Entity* wolf = table.find(3);
+    const std::size_t before = wolf->samples.size();
+    int actionChanges = 0;
+    for (const auto& change : table.take_changes()) {
+        actionChanges += change.kind == swc::creatures::Change::Kind::action ? 1 : 0;
+    }
+    // Six steps of 50 ms of a push to the east: 0.12 m each.
+    for (int step = 1; step <= 6; ++step) {
+        scene.clock.advance(std::chrono::milliseconds(50));
+        scene.entity.position.x += 0.12F;
+        table.apply(movement_record(scene, 3, 0x10001, false));
+        for (const auto& change : table.take_changes()) {
+            actionChanges += change.kind == swc::creatures::Change::Kind::action ? 1 : 0;
+        }
+    }
+    check(wolf->samples.size() == before + 6, "a sample for each state of the forced motion");
+    check(wolf->samples.back().timeUs - wolf->samples[wolf->samples.size() - 2].timeUs == 50000, "the states of a forced motion are 50 ms apart");
+    check(near(wolf->samples.back().position.x, 8815.25 + 0.72, 1e-3), "the place after six steps of 0.12 m");
+    check(wolf->scope(0) != nullptr && wolf->scope(0)->startCount == 1 && wolf->scope(0)->fragment == 15 && near(wolf->scope(0)->time, 0.3, 1.0 / 30.0),
+          "the reaction record in each state: the same start count, the time of the state");
+    check(actionChanges == 1, "one action change: the same start count does not start the reaction again");
+}
+
+/** The status effects of a creature (stage P3.5; StatusEffects, type 4236, the compact map of group 3 field 1). */
+void test_statuses() {
+    Scene scene;
+    make_wolf(scene);
+    EntityTable table;
+    table.apply(first_record(scene, 3));
+    const auto record = [&](std::uint64_t stamp) {
+        backend::server::rep::PartsRequest request;
+        request.since = 7;
+        request.clock = &scene.clock;
+        scene.entity.changed[backend::world::ComponentKey::status] = stamp;
+        decoder::Record out;
+        out.interest = 3;
+        for (const auto& part : backend::server::rep::encode_creature_status_state(scene.entity, backend::server::rep::View::observer, request)) {
+            out.fragments.push_back(fragment_of(12, 4236, part, "status effects"));
+        }
+        return out;
+    };
+    backend::world::CreatureEffect stun;
+    stun.status = "WarHammer_Shockwave_Stun";
+    stun.index = 1710;
+    stun.stacks = 1;
+    stun.shown = true;
+    scene.entity.creature.effects.push_back(stun);
+    table.apply(record(5));
+    const swc::creatures::Entity* wolf = table.find(3);
+    check(wolf->hasStatuses && wolf->statusStamp == 5 && wolf->statuses.size() == 1, "the compact map: one status");
+    check(!wolf->statuses.empty() && wolf->statuses[0].index == 1710 && wolf->statuses[0].stacks == 1 && wolf->statuses[0].potencyOne,
+          "the stun of Shockwave (1710): one stack, the potency 1");
+    bool changed = false;
+    for (const auto& change : table.take_changes()) {
+        changed = changed || change.kind == swc::creatures::Change::Kind::status;
+    }
+    check(changed, "a change of the kind status");
+    // Three stacks of a slow (packed 0x83), with a hidden effect that is not in the map.
+    backend::world::CreatureEffect slow;
+    slow.status = "WarHammer_Ult_SlowOnCC";
+    slow.index = 1728;
+    slow.stacks = 3;
+    slow.shown = true;
+    backend::world::CreatureEffect hidden;
+    hidden.status = "GreatAxe_Vortex";
+    hidden.index = 3399;
+    hidden.shown = false;
+    scene.entity.creature.effects.push_back(slow);
+    scene.entity.creature.effects.push_back(hidden);
+    table.apply(record(8));
+    check(wolf->statuses.size() == 2 && wolf->statuses[1].index == 1728 && wolf->statuses[1].stacks == 3, "the slow with three stacks; no hidden effect");
+    // A list with a smaller stamp changes nothing; an empty list with a larger stamp removes each entry.
+    scene.entity.creature.effects.clear();
+    table.apply(record(6));
+    check(wolf->statuses.size() == 2 && wolf->statusStamp == 8, "a smaller stamp changes nothing");
+    table.apply(record(9));
+    check(wolf->hasStatuses && wolf->statuses.empty() && wolf->statusStamp == 9, "an empty list removes each status");
+}
+
 void test_half_float() {
     check(swc::creatures::half_to_float(0x3C00) == 1.0F, "half float 0x3C00 is 1.0");
     check(near(swc::creatures::half_to_float(0x34CD), 0.3, 0.001), "half float 0x34CD is 0.3");
@@ -284,6 +380,8 @@ void test_half_float() {
 
 int main() {
     test_half_float();
+    test_forced_motion();
+    test_statuses();
     test_first_record();
     test_actions();
     test_death_and_stop();

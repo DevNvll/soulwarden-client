@@ -26,14 +26,18 @@ public:
 	ASwcEffectActor();
 
 	void SetupProjectile(const FSwcProjectileSlice* Slice);
-	void SetupArea(const FSwcSpellSlice* Slice, const FSwcSpellRow* Row);
+	/**
+	 * @param bFriendly A spell of a character (the vortex, the trap, the Beacon): blue, not the orange and red of a creature attack.
+	 * @param bSummon A spell with health (the Pylon, the trap) or with a volume wider than 8 m: a pillar at its place, not a disc.
+	 */
+	void SetupArea(const FSwcSpellSlice* Slice, const FSwcSpellRow* Row, bool bFriendly, bool bSummon);
 
 	/**
 	 * Shows the entity at a time of the server clock (the render time of the creatures).
 	 * @return The text of a new phase for the log (the contact of a shot; the warning, the danger, and the end of an area), or an
 	 *         empty text.
 	 */
-	FString UpdateFromEntity(const swc::creatures::Entity& Entity, uint64 RenderTimeUs);
+	FString UpdateFromEntity(const swc::creatures::Entity& Entity, uint64 RenderTimeUs, const FVector* Follow = nullptr);
 
 	uint64 GetSerial() const { return Serial; }
 	void SetSerial(uint64 Value) { Serial = Value; }
@@ -61,4 +65,9 @@ private:
 	bool bHasVolume = false;
 	float Radius = 0.0f;
 	int32 LastPhase = -1;
+	bool bFriendly = false;
+	bool bSummon = false;
+	/** The place of the last ground line and the height from the place of the server to the ground there (cm). */
+	FVector LastPlace = FVector(TNumericLimits<double>::Max());
+	double GroundOffset = 0.0;
 };

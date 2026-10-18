@@ -71,6 +71,9 @@ HIT_SHAPES = {bytes.fromhex("7495c65c" "9193" "4193" "bbb2" "de3343b9eb03"): "ca
               bytes.fromhex("7f2ef312" "4089" "4582" "89c5" "5d4156daa7fb"): "sphere",
               bytes.fromhex("c6651a66" "23d4" "4508" "b4ad" "180c516655a8"): "box"}
 F_COMPONENT_ID = 0xBF396750
+# The CameraLockTargetComponent of a creature slice (the lock point of the camera) and its client facet.
+LOCK_TARGET_TYPE = bytes.fromhex("b7f335ff" "5b90" "4055" "8116" "2845e33d4048")
+LOCK_FACET_TYPE = bytes.fromhex("abc07432" "10aa" "46ca" "af3e" "8b0667799bf6")
 # AZ::Entity and its field Id (the entity id of the slice file; the backend tool slice_ids.py reads the same field).
 ENTITY_TYPE = bytes.fromhex("75651658" "8663" "478d" "9090" "2432dfcafa44")
 F_ID = source.field_id("Id")
@@ -136,9 +139,12 @@ def read_slice(path: str) -> dict:
     marker_ids = {source.field_id(name): key for key, name in MARKER_FIELDS.items()}
     flag_ids = {source.field_id(name): key for key, name in MARKER_FLAGS.items()}
     hit_volumes = read_hit_volumes(roots[0])
+    lock: dict = {}
     for element in source.walk(roots[0]):
         if element.type_id == HIT_VOLUME_TYPE:
             continue
+        if element.type_id == LOCK_TARGET_TYPE and not lock:
+            lock = read_lock_target(element)
         slot, item = element.child(F_SLOT_TYPE), element.child(F_ITEM_NAME)
         if slot is not None and item is not None and source.text(item):
             items.append({"slot": source.number(slot), "item": source.text(item)})
@@ -162,11 +168,40 @@ def read_slice(path: str) -> dict:
                          and item.name == source.field_id("ScopeName")]
                 scopes.append({"scope": names[0] if names else "", "database": asset_path_of(entry)})
     return {"body": norm(body), "controller": controller, "database": database, "tags": tags, "scopeDatabases": scopes,
-            "scale": scale, "marker": marker, "items": items, "hitVolumes": hit_volumes}
+            "scale": scale, "marker": marker, "items": items, "hitVolumes": hit_volumes, "lock": lock}
 
 
 def vector_of(element) -> list[float]:
     return [round(v, 5) for v in struct.unpack(">3f", element.value)] if element is not None and element.value and len(element.value) == 12 else []
+
+
+def read_lock_target(element) -> dict:
+    """@return The lock point of the camera of a creature slice (its CameraLockTargetComponent): m_Offset (engine space, m, from the
+    root of the creature), the joint of the lock icon and its vertical offset (m), and from the client facet the joint and fixed
+    offset flags and the pitch limits of the observer (degrees)."""
+    out: dict = {}
+    offset = vector_of(element.child(source.field_id("m_Offset")))
+    if offset:
+        out["offset"] = offset
+    joint = element.child(source.field_id("m_targetLockIconJoint"))
+    if joint is not None:
+        out["joint"] = source.text(joint)
+    joint_offset = element.child(source.field_id("m_targetLockIconJointVerticalOffset"))
+    if joint_offset is not None and joint_offset.value and len(joint_offset.value) == 4:
+        out["jointOffset"] = round(source.real(joint_offset), 5)
+    for item in source.walk(element):
+        if item.type_id != LOCK_FACET_TYPE:
+            continue
+        for name, key in (("m_forceJointOffset", "forceJoint"), ("m_forceFixedOffset", "forceFixed"), ("m_limitObserverPitch", "limitPitch")):
+            flag = item.child(source.field_id(name))
+            if flag is not None and flag.value:
+                out[key] = flag.value[0] != 0
+        for name, key in (("m_observerPitchMin", "pitchMin"), ("m_observerPitchMax", "pitchMax")):
+            value = item.child(source.field_id(name))
+            if value is not None and value.value and len(value.value) == 4:
+                out[key] = round(source.real(value), 5)
+        break
+    return out
 
 
 def read_hit_volumes(root) -> list[dict]:
@@ -1163,6 +1198,8 @@ def convert(indexes: set[int], force: bool = False) -> dict:
         report["hit volumes"] += len(volumes)
         # The body capsule: the QueryShapeCapsule of the CharacterComponent of the slice (the backend tool: radius, the length
         # of the segment, its axis and its offset in the frame of the creature: x right, y front, z up).
+        if record.get("lock"):
+            entry["lock"] = record["lock"]
         capsule = backend_slice.get("capsule")
         if capsule:
             entry["capsule"] = {"radius": capsule[0], "height": capsule[1], "axis": capsule[2], "offset": capsule[3]}
@@ -1317,7 +1354,8 @@ def write_effects() -> dict:
                    detection volume (the danger area): its shape (sphere, cylinder, or none: the shape of the spell row), its
                    sizes (m), and its active time from the start (s; -1: never)
       spellRows    ShapeTypes and Radius (m) of each spell row of the spell tables
-      lootContainers  the loot bags (loot_containers)"""
+      lootContainers  the loot bags (loot_containers)
+      statusRows   the status rows at a name plate (status_rows)"""
     gd = gamedata_dir()
     projectiles = json.loads((gd / "projectile-data.json").read_text())
     spells = json.loads((gd / "spell-data.json").read_text())
@@ -1354,10 +1392,28 @@ def write_effects() -> dict:
                 out["spellRows"].setdefault(str(crc_of(spell_id.lower())), {"id": spell_id, "shape": str(row.get("ShapeTypes") or ""),
                                                                            "radius": number_of(str(row.get("Radius") or ""))})
     out["lootContainers"] = loot_containers()
+    out["statusRows"] = status_rows()
     out_path = creature_dir() / "effects.json"
     out_path.write_text(json.dumps(out, indent=1, sort_keys=True))
     return {"projectile slices": len(out["projectiles"]), "spell slices": len(out["spells"]), "spell rows": len(out["spellRows"]),
-            "loot containers": len(out["lootContainers"])}
+            "loot containers": len(out["lootContainers"]), "status rows": len(out["statusRows"])}
+
+
+def status_rows() -> dict:
+    """@return The status rows of the backend data that show at a name plate (ability-data.json statusEffects; the compact map of
+    the StatusEffects state names them by their index): the id, the base duration (s), MoveSpeedMod, Stunned, NoNav (a root),
+    StopOnHitCount, and the EffectCategories."""
+    path = gamedata_dir() / "ability-data.json"
+    if not path.is_file():
+        return {}
+    out: dict = {}
+    for row in json.loads(path.read_text()).get("statusEffects", []):
+        name, index, duration, speed, stunned, no_nav, stop_on_hit, shown, *_rest = row
+        cells = row[9] if len(row) > 9 and isinstance(row[9], dict) else {}
+        if shown:
+            out[str(index)] = {"id": name, "duration": duration, "moveSpeedMod": speed, "stunned": stunned, "root": no_nav,
+                               "stopOnHit": stop_on_hit, "categories": str(cells.get("EffectCategories") or "")}
+    return out
 
 
 def loot_containers() -> dict:

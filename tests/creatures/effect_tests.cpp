@@ -356,6 +356,93 @@ void test_status_area() {
     check(table.find(60) == nullptr, "the stop removes the area");
 }
 
+/** The vortex of Gravity Well (greataxe_gravitywell_vortex, D60BAED0-C08F-514F-9ECD-9BB5E20F7E9D:2; stage P3.5): the Spell state at
+ *  slot 1, the events of slots 4 to 9 (the burst at 3.0 s, the root off at 1.0 s, Destroy at 3.5 s), the volume DetectionVolume (a
+ *  sphere of 4 m from 0 s to 3.1 s). A spell of a character: its caster is no creature. */
+void test_vortex() {
+    TestClock clock;
+    Area area;
+    const std::uint8_t asset[16] = {0xD6, 0x0B, 0xAE, 0xD0, 0xC0, 0x8F, 0x51, 0x4F, 0x9E, 0xCD, 0x9B, 0xB5, 0xE2, 0x0F, 0x7E, 0x9D};
+    set_asset(area.slice.asset, asset);
+    area.slice.subId = 2;
+    area.slice.spellSlot = 1;
+    add_event(area, 4, 3.0F, 3, "VFX_Foe");
+    add_event(area, 5, 3.0F, 3, "VFX_Vortex");
+    add_event(area, 6, 3.1F, 3, "DetectionVolume");
+    add_event(area, 7, 3.0F, 2, "Burst");
+    add_event(area, 8, 1.0F, 3, "VortexRoot");
+    add_event(area, 9, 3.5F, 0, "Destroy");
+    area.volume = {"DetectionVolume", "sphere", 4.0F, 4.0F, 0.0F, 0.0F, 0.0F, 3.1F};
+    area.entity.kind = backend::world::EntityKind::spell;
+    for (std::size_t index = 0; index < 16; ++index) {
+        area.entity.actor.bytes[index] = static_cast<std::uint8_t>(0xB0 + index);
+    }
+    area.entity.position = {8884.0F, 4250.0F, 138.2F};
+    area.entity.spell.slice = &area.slice;
+    area.entity.spell.spellId = "Spell_GreatAxe_GravityWell_Vortex";
+    area.entity.spell.key = 0x11223344U;
+    // The caster: a character (the reference of the Spell state is its actor id and the G of that actor id).
+    const std::uint8_t caster[16] = {0x02, 0x00, 0x00, 0x00, 0x53, 0x4F, 0x55, 0x4C, 0x10, 0x00, 0x00, 0x00, 0x53, 0x4F, 0x55, 0x4C};
+    std::copy(std::begin(caster), std::end(caster), area.entity.spell.casterActor.bytes.begin());
+    area.entity.spell.caster = backend::world::entity_group_id(area.entity.spell.casterActor);
+    area.entity.spell.started = clock.now();
+    area.entity.spell.ends = clock.now() + std::chrono::milliseconds(3500);
+    EntityTable table;
+    table.apply(area_record(area, clock, 80), server_us(clock));
+    const swc::creatures::Entity* vortex = table.find(80);
+    check(vortex != nullptr && vortex->slice_key() == "D60BAED0-C08F-514F-9ECD-9BB5E20F7E9D:2" && vortex->spell.hasSpell, "the record of the vortex");
+    if (vortex == nullptr) {
+        return;
+    }
+    check(vortex->spell.caster == 0x4C554F5300000002ULL && vortex->spell.casterActor[0] == 0x02 && !vortex->spell.attached,
+          "the caster (a character: its actor id and G); no attachment");
+    check(vortex->spell.events.size() == 6, "a state for each of the six delayed events");
+    const auto times = swc::creatures::area_times(vortex->spell, area.volume, area.events);
+    const std::uint64_t start = vortex->spell.spawnUs;
+    check(times.dangerUs == start && near(static_cast<double>(times.endUs), static_cast<double>(start + 3100000), 5000.0),
+          "the vortex is active from its start to 3.1 s");
+    check(swc::creatures::area_phase(times, start + 1000000) == AreaPhase::danger
+              && swc::creatures::area_phase(times, start + 3300000) == AreaPhase::ended,
+          "1.0 s: active (the pull); 3.3 s: gone (the burst at 3.0 s)");
+    table.stop(80);
+    check(table.find(80) == nullptr, "the stop removes the vortex (3.5 s)");
+}
+
+/** The Beacon of the life staff (spell_life_staff_beacon, 9A996354-A2B4-5D4E-BB56-684B27EF5E14:2; stage P3.5): field 6 of the Spell
+ *  state is the entity that it follows (spells.cpp: the actor id and G of the entity). */
+void test_beacon() {
+    TestClock clock;
+    Area area;
+    const std::uint8_t asset[16] = {0x9A, 0x99, 0x63, 0x54, 0xA2, 0xB4, 0x5D, 0x4E, 0xBB, 0x56, 0x68, 0x4B, 0x27, 0xEF, 0x5E, 0x14};
+    set_asset(area.slice.asset, asset);
+    area.slice.subId = 2;
+    area.slice.spellSlot = 1;
+    add_event(area, 4, 3.0F, 2, "Destroy");
+    add_event(area, 5, 0.05F, 2, "AreaTrigger");
+    area.entity.kind = backend::world::EntityKind::spell;
+    for (std::size_t index = 0; index < 16; ++index) {
+        area.entity.actor.bytes[index] = static_cast<std::uint8_t>(0xC0 + index);
+    }
+    area.entity.position = {8880.0F, 4252.0F, 138.2F};
+    area.entity.spell.slice = &area.slice;
+    area.entity.spell.key = 0x55667788U;
+    area.entity.spell.started = clock.now();
+    area.entity.spell.ends = clock.now() + std::chrono::seconds(10);
+    for (std::size_t index = 0; index < 16; ++index) {
+        area.entity.spell.attachedActor.bytes[index] = static_cast<std::uint8_t>(0x40 + index);
+    }
+    area.entity.spell.attached = backend::world::entity_group_id(area.entity.spell.attachedActor);
+    EntityTable table;
+    table.apply(area_record(area, clock, 81), server_us(clock));
+    const swc::creatures::Entity* beacon = table.find(81);
+    check(beacon != nullptr && beacon->spell.attached, "the Beacon follows an entity (field 6)");
+    if (beacon != nullptr) {
+        check(beacon->spell.attachedGroup == area.entity.spell.attached && beacon->spell.attachedActor[0] == 0x40
+                  && beacon->spell.attachedActor[15] == 0x4F,
+              "the actor id and G of the followed entity");
+    }
+}
+
 // ------------------------------------------------------------------------------------------------------------ the loot bag
 
 /** The personal loot container (instanced_loot_container, 9844F2DE-C3B1-5BD3-98FA-8768B5445906:2; interaction-data.json template
@@ -431,6 +518,8 @@ int main() {
     test_strike();
     test_status_area();
     test_loot_bag();
+    test_vortex();
+    test_beacon();
     std::printf("effects: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

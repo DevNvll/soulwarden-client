@@ -83,6 +83,7 @@ void USwcCreatureSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	bVolumeProbe = FParse::Param(FCommandLine::Get(), TEXT("SwcVolumeProbe"));
 	bLootProbe = FParse::Param(FCommandLine::Get(), TEXT("SwcLootProbe"));
 	bLootModel = FParse::Param(FCommandLine::Get(), TEXT("SwcLootModel"));
+	bDrawLockPoints = FParse::Param(FCommandLine::Get(), TEXT("SwcLockPoints"));
 	DrawHandle = UDebugDrawService::Register(TEXT("Game"), FDebugDrawDelegate::CreateUObject(this, &USwcCreatureSubsystem::DrawPlates));
 }
 
@@ -279,6 +280,16 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 		{
 			UE_LOG(LogSwcCreatures, Log, TEXT("creature %u: %s health %.1f/%.1f"), Change.interest, *(*Actor)->GetDisplayName(), Entity->health, Entity->healthMax);
 		}
+		else if (Change.kind == swc::creatures::Change::Kind::status)
+		{
+			FString Names;
+			for (const swc::creatures::Entity::StatusEntry& Status : Entity->statuses)
+			{
+				const FSwcStatusRow* Row = Library.FindStatusRow(Status.index);
+				Names += FString::Printf(TEXT("%s%s (%u) x%u"), Names.IsEmpty() ? TEXT("") : TEXT(", "), Row != nullptr ? *Row->Id : TEXT("?"), Status.index, Status.stacks);
+			}
+			UE_LOG(LogSwcCreatures, Log, TEXT("creature %u: %s statuses: %s"), Change.interest, *(*Actor)->GetDisplayName(), Names.IsEmpty() ? TEXT("none") : *Names);
+		}
 		else if (Change.kind == swc::creatures::Change::Kind::death)
 		{
 			++Deaths;
@@ -334,7 +345,7 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 		const double DeadSeconds = Creature->GetDeadSeconds();
 		Creature->SetActorHiddenInGame(DeadSeconds > DeadBodySeconds);
 	}
-	if (bDrawVolumes || bVolumeProbe || bLootProbe || bLootModel)
+	if (bDrawVolumes || bVolumeProbe || bLootProbe || bLootModel || bDrawLockPoints)
 	{
 		DevelopmentAids();
 	}
@@ -426,6 +437,17 @@ void USwcCreatureSubsystem::DevelopmentAids()
 				FVector Extent;
 				Bag->GetActorBounds(false, Center, Extent);
 				DrawDebugBox(World, Center, Extent, FColor::Green, false, -1.0f, 0, 1.0f);
+			}
+		}
+	}
+	if (bDrawLockPoints)
+	{
+		// The lock point of each creature (magenta): ASwcCreature::GetLockPoint.
+		for (const TPair<uint32, TWeakObjectPtr<ASwcCreature>>& Pair : Actors)
+		{
+			if (const ASwcCreature* Creature = Pair.Value.Get(); Creature != nullptr && !Creature->IsHidden())
+			{
+				DrawDebugSphere(World, Creature->GetLockPoint(), 12.0f, 8, FColor::Magenta, false, -1.0f, 0, 1.0f);
 			}
 		}
 	}
@@ -592,6 +614,19 @@ bool USwcCreatureSubsystem::FindNearestLootBag(const FVector& From, FSwcLootBag&
 	return true;
 }
 
+bool USwcCreatureSubsystem::IsCreature(uint64 Group) const
+{
+	for (const TPair<uint32, TWeakObjectPtr<ASwcCreature>>& Pair : Actors)
+	{
+		const swc::creatures::Entity* Entity = Table.find(Pair.Key);
+		if (Entity != nullptr && Entity->hasMetadata && swc::net::group_of(Entity->actor) == Group)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 FString USwcCreatureSubsystem::CreatureName(uint64 Group) const
 {
 	for (const auto& [Interest, Entity] : Table.entities())
@@ -638,14 +673,45 @@ void USwcCreatureSubsystem::UpdateEffect(uint32 Interest, const swc::creatures::
 		{
 			const FSwcSpellSlice* Slice = Library.FindSpell(Key);
 			const FSwcSpellRow* Row = Entity.spell.hasSpell ? Library.FindSpellRow(Entity.spell.key) : nullptr;
-			Effect->SetupArea(Slice, Row);
+			// A spell of a character, not of a creature: its caster is no creature of the table; a spell with no Spell state (a trap,
+			// a status area) by the folder of its slice (the slices of the weapons of the players).
+			const bool bCreatureCaster = Entity.spell.hasSpell && IsCreature(Entity.spell.caster);
+			const bool bFriendly = Entity.spell.hasSpell ? !bCreatureCaster : (Slice != nullptr && Slice->Path.StartsWith(TEXT("slices/items/weapons/")));
+			Effect->SetupArea(Slice, Row, bFriendly, Entity.hasVitals);
 			++Areas;
-			UE_LOG(LogSwcCreatures, Log, TEXT("effect %u: an area %s of %s (%s), radius %.2f m"), Interest, Row != nullptr ? *Row->Id : TEXT("(no Spell state)"),
-				Entity.spell.hasSpell ? *CreatureName(Entity.spell.caster) : TEXT("-"), Slice != nullptr ? *Slice->Path : *Key, Effect->GetRadius());
+			UE_LOG(LogSwcCreatures, Log, TEXT("effect %u: %s %s of %s (%s), radius %.2f m%s%s"), Interest, bFriendly ? TEXT("a spell") : TEXT("an area"),
+				Row != nullptr ? *Row->Id : TEXT("(no Spell state)"), Entity.spell.hasSpell ? *CreatureName(Entity.spell.caster) : TEXT("-"),
+				Slice != nullptr ? *Slice->Path : *Key, Effect->GetRadius(), Entity.hasVitals ? TEXT(", with health (a summon)") : TEXT(""),
+				Entity.spell.attached ? *FString::Printf(TEXT(", it follows %s"), *CreatureName(Entity.spell.attachedGroup)) : TEXT(""));
 		}
 		Effects.Add(Interest, Effect);
 	}
-	const FString Text = Effect->UpdateFromEntity(Entity, RenderTimeUs);
+	// A spell that follows an entity (the Beacon): the shown place of a creature, or of the local player.
+	FVector FollowPlace;
+	const FVector* Follow = nullptr;
+	if (Entity.hasSpellParts && Entity.spell.attached)
+	{
+		for (const TPair<uint32, TWeakObjectPtr<ASwcCreature>>& Pair : Actors)
+		{
+			const swc::creatures::Entity* Other = Table.find(Pair.Key);
+			if (Other != nullptr && Other->hasMetadata && swc::net::group_of(Other->actor) == Entity.spell.attachedGroup && Pair.Value.IsValid())
+			{
+				FollowPlace = Pair.Value->GetActorLocation();
+				Follow = &FollowPlace;
+			}
+		}
+		UGameInstance* GameInstance = GetWorld() != nullptr ? GetWorld()->GetGameInstance() : nullptr;
+		const USwcBackendSubsystem* Backend = GameInstance != nullptr ? GameInstance->GetSubsystem<USwcBackendSubsystem>() : nullptr;
+		swc::net::RepClient::OwnEntity Own;
+		const APlayerController* Player = GetWorld() != nullptr ? GetWorld()->GetFirstPlayerController() : nullptr;
+		if (Follow == nullptr && Backend != nullptr && Backend->GetLocalPlayer(Own) && Own.group == Entity.spell.attachedGroup && Player != nullptr
+			&& Player->GetPawn() != nullptr)
+		{
+			FollowPlace = Player->GetPawn()->GetActorLocation() - FVector(0.0, 0.0, Player->GetPawn()->GetSimpleCollisionHalfHeight());
+			Follow = &FollowPlace;
+		}
+	}
+	const FString Text = Effect->UpdateFromEntity(Entity, RenderTimeUs, Follow);
 	if (!Text.IsEmpty())
 	{
 		UE_LOG(LogSwcCreatures, Log, TEXT("effect %u: %s"), Interest, *Text);
@@ -744,7 +810,7 @@ void USwcCreatureSubsystem::GetTargets(TArray<FSwcCreatureTarget>& Out) const
 		const TWeakObjectPtr<ASwcCreature>* Actor = Actors.Find(Interest);
 		if (Actor != nullptr && Actor->IsValid())
 		{
-			Out.Add({Interest, (*Actor)->GetActorLocation(), Entity.dead});
+			Out.Add({Interest, (*Actor)->GetActorLocation(), Entity.dead, (*Actor)->GetLockPoint()});
 		}
 	}
 }
@@ -909,6 +975,24 @@ void USwcCreatureSubsystem::QueryMeleeContacts(const FSwcMeleeShape& Shape, std:
 	}
 }
 
+bool USwcCreatureSubsystem::GetLockPoint(uint32 Interest, FSwcLockPoint& Out) const
+{
+	const TWeakObjectPtr<ASwcCreature>* Actor = Actors.Find(Interest);
+	if (Actor == nullptr || !Actor->IsValid())
+	{
+		return false;
+	}
+	Out = FSwcLockPoint();
+	Out.Point = (*Actor)->GetLockPoint();
+	if (const FSwcCreatureSlice* Slice = (*Actor)->GetSlice(); Slice != nullptr && Slice->bHasLock)
+	{
+		Out.bLimitPitch = Slice->bLimitPitch;
+		Out.PitchMin = Slice->PitchMin;
+		Out.PitchMax = Slice->PitchMax;
+	}
+	return true;
+}
+
 void USwcCreatureSubsystem::DrawPlates(UCanvas* Canvas, APlayerController* Controller)
 {
 	if (Canvas == nullptr || GetWorld() == nullptr || Canvas->SceneView == nullptr || Canvas->SceneView->Family == nullptr
@@ -978,6 +1062,32 @@ void USwcCreatureSubsystem::DrawPlates(UCanvas* Canvas, APlayerController* Contr
 		FCanvasTextItem Text(FVector2D(X - TextWidth * 0.5f, Y - TextHeight - BarHeight - 2.0f), FText::FromString(Title), Font, FLinearColor::White);
 		Text.EnableShadow(FLinearColor::Black);
 		Canvas->DrawItem(Text);
+		// The status effects of the compact map (the name plate of the creature): a simple line of their names (the original shows
+		// the icons of the rows; the UI track).
+		if (!Entity.statuses.empty())
+		{
+			FString Line;
+			for (const swc::creatures::Entity::StatusEntry& Status : Entity.statuses)
+			{
+				const FSwcStatusRow* Row = Library.FindStatusRow(Status.index);
+				FString Name = Row == nullptr ? FString::Printf(TEXT("#%u"), Status.index)
+					: Row->bStunned ? FString(TEXT("Stunned"))
+					: Row->bRoot ? FString(TEXT("Rooted"))
+					: Row->MoveSpeedMod < 0.0f ? FString::Printf(TEXT("Slowed %d%%"), FMath::RoundToInt(-Row->MoveSpeedMod * 100.0f))
+					: Row->Id;
+				if (Status.stacks > 1)
+				{
+					Name += FString::Printf(TEXT(" x%u"), Status.stacks);
+				}
+				Line += (Line.IsEmpty() ? TEXT("") : TEXT("  ")) + Name;
+			}
+			float LineWidth = 0.0f;
+			float LineHeight = 0.0f;
+			Canvas->StrLen(Font, Line, LineWidth, LineHeight);
+			FCanvasTextItem Statuses(FVector2D(X - LineWidth * 0.5f, Y + 3.0f), FText::FromString(Line), Font, FLinearColor(1.0f, 0.8f, 0.3f, 1.0f));
+			Statuses.EnableShadow(FLinearColor::Black);
+			Canvas->DrawItem(Statuses);
+		}
 		if (Slice == nullptr || !Slice->bNeverShowHealthBar)
 		{
 			const float Share = Entity.healthMax > 0.0f ? FMath::Clamp(Entity.health / Entity.healthMax, 0.0f, 1.0f) : 0.0f;

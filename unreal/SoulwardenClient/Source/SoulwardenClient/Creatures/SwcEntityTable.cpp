@@ -1,5 +1,6 @@
 #include "Creatures/SwcEntityTable.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -20,6 +21,11 @@ constexpr std::uint32_t kTypePositionInTheWorld = 13;
 constexpr std::uint32_t kTypeDelayedEvent = 3139;
 constexpr std::uint32_t kTypeLootDrop = 2027;
 constexpr std::uint32_t kTypeInteract = 2930;
+constexpr std::uint32_t kTypeStatusEffects = 4236;
+// The compact map of the StatusEffects state (backend server/rep/states/status_state.cpp): group 3 field 1.
+constexpr unsigned kStatusObserverGroup = 3;
+constexpr unsigned kStatusCompactMap = 1;
+constexpr std::uint8_t kPackedPotencyOne = 0x80;
 // The fields of the Projectile state (backend server/rep/states/projectile_state.cpp).
 constexpr unsigned kShotPosition = 0;
 constexpr unsigned kShotVelocity = 2;
@@ -32,6 +38,7 @@ constexpr std::uint8_t kShotCollided = 0x01;
 constexpr unsigned kSpellKey = 0;
 constexpr unsigned kSpellPlace = 1;
 constexpr unsigned kSpellRotation = 2;
+constexpr unsigned kSpellAttachment = 6;
 constexpr unsigned kSpellCaster = 7;
 constexpr unsigned kSpellSpawn = 8;
 constexpr unsigned kSpellRadiusScale = 10;
@@ -196,6 +203,8 @@ void EntityTable::apply(const decoder::Record& record, std::uint64_t nowUs) {
                 entity.lootRarity = static_cast<std::uint32_t>(read_be(rarity));
             }
             m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
+        } else if (fragment.type == kTypeStatusEffects) {
+            apply_statuses(fragment, entity);
         } else if (fragment.type == kTypeInteract) {
             Entity::InteractState& state = entity.interact[fragment.slot];
             if (const auto enabled = decoder::field_of(fragment, 0, 0); enabled.size() == 1) {
@@ -248,6 +257,40 @@ void EntityTable::apply_projectile(const decoder::Fragment& fragment, Entity& en
     m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
 }
 
+void EntityTable::apply_statuses(const decoder::Fragment& fragment, Entity& entity) {
+    const auto map = decoder::field_of(fragment, kStatusObserverGroup, kStatusCompactMap);
+    if (map.empty()) {
+        return;
+    }
+    // A full list: 00, the stamp (01 sequence:size64), count:size, entries (statusIndex:u16 packed:u8).
+    Reader reader(map);
+    if (reader.size() != 0 || reader.u8() != 1) {
+        return;
+    }
+    const std::uint64_t stamp = reader.size64();
+    const std::uint32_t count = reader.size();
+    if (!reader.ok() || count > reader.left() / 3) {
+        return;
+    }
+    std::vector<Entity::StatusEntry> entries;
+    for (std::uint32_t index = 0; index < count; ++index) {
+        Entity::StatusEntry entry;
+        entry.index = reader.u16();
+        const std::uint8_t packed = reader.u8();
+        entry.stacks = static_cast<std::uint8_t>(packed & 0x7F);
+        entry.potencyOne = (packed & kPackedPotencyOne) != 0;
+        entries.push_back(entry);
+    }
+    if (!reader.ok() || (entity.hasStatuses && stamp < entity.statusStamp)) {
+        return;
+    }
+    entity.hasStatuses = true;
+    entity.statusStamp = stamp;
+    entity.statuses = std::move(entries);
+    ++entity.statusRevision;
+    m_changes.push_back({Change::Kind::status, entity.interest, entity.serial});
+}
+
 void EntityTable::apply_spell(const decoder::Fragment& fragment, Entity& entity, std::uint64_t nowUs) {
     SpellParts& spell = entity.spell;
     if (!entity.hasSpellParts) {
@@ -264,6 +307,13 @@ void EntityTable::apply_spell(const decoder::Fragment& fragment, Entity& entity,
         }
         if (const auto rotation = decoder::field_of(fragment, 0, kSpellRotation); !rotation.empty()) {
             spell.rotation = swc::net::read_quaternion(rotation);
+        }
+        if (const auto attachment = decoder::field_of(fragment, 0, kSpellAttachment); attachment.size() == 24) {
+            // No entity: the zero actor id and the group 00000000FFFFFFFF.
+            std::copy(attachment.begin(), attachment.begin() + 16, spell.attachedActor.begin());
+            spell.attachedGroup = read_be(attachment.subspan(16, 8));
+            spell.attached = spell.attachedGroup != 0x00000000FFFFFFFFULL
+                             && std::any_of(spell.attachedActor.begin(), spell.attachedActor.end(), [](std::uint8_t byte) { return byte != 0; });
         }
         if (const auto caster = decoder::field_of(fragment, 0, kSpellCaster); caster.size() == 24) {
             std::copy(caster.begin(), caster.begin() + 16, spell.casterActor.begin());

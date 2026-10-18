@@ -15,11 +15,17 @@ Usage (tools/creature-world.sh):
   kill ID | remove ID                a creature
   health ID VALUE|PERCENT%           the health of a creature
   action ID NAME [SECONDS]           an action of the action table of the slice of a creature
-  heal                               the health of the character
+  heal [NAME]                        the health of the character (or of a character NAME; a dead one lives again)
   level N                            the level of the character (its health grows with it)
-  ignore on|off                      the creatures ignore the character (on) or not
+  ignore on|off [NAME]               the creatures ignore the character (on) or not (or a character NAME)
   loot on|off                        each kill of the character drops loot (on; stage 3.5b.2: a loot bag) or the normal roll
   bags                               the loot bags of the character
+  effect CREATURE STATUS [SECONDS]   a status effect of the data on a creature (a row id; knockdown: 2 s, stagger: 1 s)
+  mastery NAME WEAPON LEVEL          the mastery level of a weapon of a character NAME (greataxe, warhammer, ...)
+  node NAME WEAPON NODE...           nodes of the tree of a weapon for a character NAME (one point each, in the order of the tree)
+  bar NAME WEAPON SLOT ABILITY       an ability on place 0 (Q), 1 (R), or 2 (F) of the bar of a weapon of a character NAME
+  place NAME [DX DY [DZ]]            a character NAME of the database into the world at the character (a remote test character)
+  cast NAME PLACE [--yaw DEGREES]    the press of place PLACE of the bar for a character NAME (yaw from the north to the east)
   shoot CREATURE                     the creature starts its basic shot at the character now (stage 3.4f-A)
   area CREATURE                      the creature starts its next area attack at the character now (stage 3.4f-C)
   hurt AMOUNT                        damage of the character (an amount at or above its health kills it: the death, stage P2.10)
@@ -104,6 +110,15 @@ def character(folder: Path) -> str:
     return ""
 
 
+def character_named(folder: Path, name: str) -> str:
+    """@return The id of the character with this name (a remote test character of the development database)."""
+    for identifier, row_name in characters(folder):
+        if row_name == name:
+            return identifier
+    fail(f"no character {name} in the development database")
+    return ""
+
+
 def request(folder: Path, method: str, path: str) -> dict:
     process, port = backend(folder)
     command = ["nsenter", "-t", str(process), "-U", "-n", "--preserve-credentials", "curl", "--noproxy", "*", "--silent",
@@ -148,6 +163,29 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "POST", f"/v1/dev/world/force-loot?character={character(folder)}&force={1 if rest[0] == 'on' else 0}")
     if command == "bags":
         return request(folder, "GET", f"/v1/dev/lootbags?character={character(folder)}")
+    if command == "effect" and len(rest) in (2, 3):
+        seconds = f"&seconds={float(rest[2])}" if len(rest) == 3 else ""
+        return request(folder, "POST", f"/v1/dev/creatures/effect?creature={rest[0]}&status={rest[1]}{seconds}")
+    if command == "mastery" and len(rest) == 3:
+        return request(folder, "POST", f"/v1/dev/progress/mastery?character={character_named(folder, rest[0])}&weapon={rest[1]}&level={int(rest[2])}")
+    if command == "node" and len(rest) >= 3:
+        result = None
+        for node in rest[2:]:
+            result = request(folder, "POST", f"/v1/dev/progress/node?character={character_named(folder, rest[0])}&weapon={rest[1]}&node={node}")
+        return result
+    if command == "bar" and len(rest) == 4:
+        return request(folder, "POST", f"/v1/dev/progress/bar?character={character_named(folder, rest[0])}&weapon={rest[1]}&slot={int(rest[2])}"
+                                       f"&ability={rest[3]}")
+    if command == "place" and len(rest) in (1, 3, 4):
+        offsets = "".join(f"&{axis}={float(value)}" for axis, value in zip(("dx", "dy", "dz"), rest[1:]))
+        return request(folder, "POST", f"/v1/dev/world/spawn?character={character_named(folder, rest[0])}&near={character(folder)}{offsets}")
+    if command == "cast" and len(rest) >= 2:
+        yaw = ""
+        if "--yaw" in rest:
+            place = rest.index("--yaw")
+            yaw = f"&yaw={float(rest[place + 1])}"
+            del rest[place:place + 2]
+        return request(folder, "POST", f"/v1/dev/abilities/cast?character={character_named(folder, rest[0])}&place={int(rest[1])}{yaw}")
     if command in ("shoot", "area") and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/creatures/{command}?creature={rest[0]}&character={character(folder)}")
     if command == "health" and len(rest) == 2:
@@ -159,9 +197,11 @@ def run(words: list[str], folder: Path) -> object:
     if command == "level" and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/progress/level?character={character(folder)}&level={int(rest[0])}")
     if command == "heal":
-        return request(folder, "POST", f"/v1/dev/world/heal?character={character(folder)}")
+        who = character_named(folder, rest[0]) if rest else character(folder)
+        return request(folder, "POST", f"/v1/dev/world/heal?character={who}")
     if command == "ignore" and rest and rest[0] in ("on", "off"):
-        return request(folder, "POST", f"/v1/dev/world/ignore?character={character(folder)}&ignore={1 if rest[0] == 'on' else 0}")
+        who = character_named(folder, rest[1]) if len(rest) > 1 else character(folder)
+        return request(folder, "POST", f"/v1/dev/world/ignore?character={who}&ignore={1 if rest[0] == 'on' else 0}")
     # The life, the travel, and the interactions (stage P2.10; the routes of ~/Developer/azoth/tools/world, protocol notes 4.16,
     # 4.18, 4.36).
     if command == "hurt" and len(rest) == 1:

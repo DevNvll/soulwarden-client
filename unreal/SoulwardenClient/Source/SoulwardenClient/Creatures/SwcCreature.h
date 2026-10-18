@@ -59,6 +59,13 @@ public:
 	/** Adds the hit volumes of the slice at the pose of this frame (the bones of the leader), in Unreal world space (cm). A
 	 *  placeholder has none. */
 	void GetHitShapes(TArray<FSwcCreatureHitShape>& Out) const;
+	/**
+	 * @return The lock point of the camera (Unreal world space) from the CameraLockTargetComponent of the slice: the feet and
+	 *         m_Offset in the frame of the creature (with its scale) when the offset is not zero; else the joint of the lock icon
+	 *         and its vertical offset; else 1.0 m above the feet. The combination of the offset and the joint in the retail
+	 *         client is not known (an inference).
+	 */
+	FVector GetLockPoint() const;
 	/** @return The body capsule that blocks the player (no collision: none, or a dead creature). */
 	const UCapsuleComponent* GetBodyBlock() const { return BodyBlock; }
 	/** @return The bounds of the body (Unreal world space), for a fast test before the hit volumes. */

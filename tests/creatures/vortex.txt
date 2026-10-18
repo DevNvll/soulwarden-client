@@ -1,0 +1,23 @@
+# A check of the forced motion and the spell entities (stage P3.5, docs/CREATURES.md): the remote test character Axewarden (a great
+# axe; made by tools/dev-run.sh --create "name=Axewarden,gear=2hGreatAxeT2@24") gets the nodes of the Mauler tree to Gravity Well
+# and its bar place, comes into the world 4 m east of the character, and casts to the east: the projectile lands at the first
+# wolf 3 m away, and the vortex (a spell entity, a sphere of 4 m) starts there. Two more wolves about 3 m from that wolf (they
+# ignore the characters): the pull, the root, and the slow of the vortex, and the burst at 3.0 s (a reaction and a push). Then the route
+# effect: a knockdown, a stagger, and the stun of Shockwave on the wolves. Times on the clock of the drive; offsets in m east,
+# north; yaw: 0 north, 90 west, 180 south, 270 east.
+1 level 60
+2 heal
+3 ignore on
+3 mastery Axewarden greataxe 20
+3 node Axewarden greataxe Ability_Greataxe_Whirlwind Passive_Greataxe_Mauler_StamVsLowHp Ability_Greataxe_Maelstorm Passive_Greataxe_Mauler_HeavyAddPull Ability_Greataxe_GravityWell
+4 bar Axewarden greataxe 0 Ability_Greataxe_GravityWell
+4 place Axewarden 4 1.5
+5 heal Axewarden
+5 ignore on Axewarden
+6 spawn Wolf_Grey_7 7 1.5 0 --yaw 90
+6 spawn Wolf_Grey_7 7 4.3 0 --yaw 180
+6 spawn Wolf_Grey_7 9.6 0.6 0 --yaw 90
+10 cast Axewarden 0 --yaw 90
+18 effect $1 knockdown
+21 effect $2 stagger
+24 effect $3 WarHammer_Shockwave_Stun 4

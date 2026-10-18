@@ -1,0 +1,15 @@
+# The drive of the check of the forced motion (tests/creatures/vortex.txt): the camera turns 75 degrees to the east-north-east (the
+# wolves) and looks 20 degrees down. The "tick" lines are the clock marks of the route script. Times in seconds from the possession
+# of the character; turn: degrees each second.
+1.0 turn 75
+2.0 turn 0
+3.0 tick
+3.2 pitch -20
+4.0 tick
+4.2 pitch 0
+5.0 tick
+6.0 tick
+10.0 tick
+18.0 tick
+21.0 tick
+24.0 tick

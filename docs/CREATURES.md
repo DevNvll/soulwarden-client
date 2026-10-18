@@ -273,7 +273,8 @@ sends the record of a bag only to its eligible characters: each bag of the table
   - `FSwcLootBag`: the interest number, the actor id and G of the bag (the reference of the interaction request), the place
     (Unreal and engine space), the rarity, the slot of the Interact state, the facet target of the bound ((entity XOR root XOR
     G) + component: the rule of a server child, backend `Interactions::spawn`), the range, the Enabled mark, and the options (the
-    option id and the instance id of the option entity: entity XOR root XOR G).
+    index of the option in the options table of `interaction-data.json`, 80 and 30, not a CRC-32 id; and the instance id of the
+    option entity: entity XOR root XOR G).
 - The library of the creatures loads at the start of the connection (a bag or a shot can come before the first creature).
 - Development aids: `-SwcLootProbe` writes the result of `FindNearestLootBag` when it changes (each 1 s) and draws the bounds of
   each bag (green); `-SwcLootModel` puts the model of the bag 2 m in front of the character one time. The route tool has
@@ -285,6 +286,57 @@ sends the record of a bag only to its eligible characters: each bag of the table
   180 s after its kill. The corpse of a wolf covers the bag at its place; `lootmodel.mp4` shows the model alone.
   `tools/test-creatures.sh`: the record of a bag with the backend encoders (14 checks).
 
+## Forced motion, statuses, the lock point, and the spells of the players (stage P3.5, the creature part)
+
+Linear AST-173. The facts of the backend: Soulwarden `docs/systems/forced-movement.md`, `status-effects.md`, `spells.md`, and the
+protocol notes 4.22, 4.25, 4.26.
+
+- **Forced motion** (the pull, the push; backend stage 3.3b-S4): the server sends no flag and no special record, only more
+  movement states (a state each 50 ms while the force moves the creature; a walk has a state each 200 ms) with the record of the
+  reaction that plays (the same start count in each state). The retail client does not move a server creature by the impact of a
+  hit; it shows the slide from the places of the server. The client interpolates the states; after a pause a step starts one step
+  of the motion after it before its state (50 ms for a forced motion, at most 200 ms), not always 200 ms.
+- **The reactions**: records of scope 0 (the action `Reaction` with the fragment of the reaction table, `r_R2_F` front, `r_R2_B`
+  back, `r_R2_L` left), the knockdown (`r_R4_F`, 2 s) and the stagger (`r_R2_F`, 1 s) of `Creatures::knock`, and the additive
+  reaction of its own scope. The vortex pull has no reaction record.
+- **The statuses of a creature**: the StatusEffects state (type 4236), the compact map of group 3 field 1 (the rows with
+  ShowInNameplates: the status index, the stacks, the potency 1; a larger stamp replaces the list). The name plate shows a line
+  of their names ("Stunned", "Rooted", "Slowed 20%", or the row id; a simple form: the icons of the rows are for the UI track).
+  The data: `effects.json` member `statusRows` (1,258 rows of `ability-data.json`). The server shows the effects on the movement
+  itself: a stun is the action `Stun` (`r_Stun_Loop`) until its end, a root has no new places, a slow has slower steps.
+- **The lock point** of the camera: the CameraLockTargetComponent of the slice (type `b7f335ff-…`; the backend does not keep it;
+  `slices.json` member `lock` for each of the 503 slices): `m_Offset` (engine m, in the frame of the creature), the joint of the
+  lock icon and its vertical offset, and the pitch limits of the observer of its client facet. `ASwcCreature::GetLockPoint`: the
+  feet and the offset (with the scale of the creature) when the offset is not zero (the wolf: 1.0 m), else the joint (the turkey:
+  `bind_spine`), else 1.0 m above the feet. The combination of the offset and the joint in the retail client is not known (an
+  inference). The read path: `FSwcCreatureTarget::LockPoint` of `GetTargets`, and `GetLockPoint(Interest, FSwcLockPoint&)` (the
+  point and the pitch limits). `-SwcLockPoints` draws each lock point (magenta).
+- **The spells of the players** (backend stages 3.3b-S2a and S2b): the vortex of Gravity Well (`greataxe_gravitywell_vortex`: a
+  sphere of 4 m, active from 0 s to 3.1 s, the stop at 3.5 s), the Pylon (`ice_pylon`: the Spell state at slot 4, health), the trap
+  (`trap_bear`: PositionInTheWorld at slot 4, health), the Beacon (`spell_life_staff_beacon`: field 6 of the Spell state is the
+  entity that it follows). The table reads field 6 (the actor id and G; none: the zero actor and `00000000FFFFFFFF`). The view:
+  a spell whose caster is not a creature of the table (a spell with no Spell state: by the folder of its slice,
+  `slices/items/weapons/`) is blue (before its volume is active) and light blue (while it is active), not orange and red; a
+  spell with health or with a volume wider than 8 m (the Pylon: its range of 20 m) is a pillar at its place; the Beacon is at the
+  shown place of the entity that it follows (a creature, or the local player). A disc lies on the ground (a line of 1 m up and down
+  to the static world: the place of the server can be some cm under the surface).
+- The route tool: `effect CREATURE STATUS [SECONDS]` (a status row, `knockdown`, `stagger`), `mastery NAME WEAPON LEVEL`, `node NAME
+  WEAPON NODE...`, `bar NAME WEAPON SLOT ABILITY`, `place NAME [DX DY [DZ]]` (a remote test character into the world), `cast NAME
+  PLACE [--yaw DEGREES]`, and `heal [NAME]`, `ignore on|off [NAME]` for a remote character. A node of row N of a tree needs a point
+  in row N−1 of the same tree (backend `Skills::node_condition`): Gravity Well (Mauler tree, row 4) needs Whirlwind, a row-1
+  passive, Maelstrom, and a row-3 passive first. A character with no client throws the projectile of Gravity Well to the first
+  creature on its line (or 0 m).
+
+Exit check of the creature part of P3.5 (development run, 2026-10-18; `SWC_WORK/evidence/P3.5/exit2.mp4`, 34 s,
+`exit2-forced-motion.png`, and the logs; `tests/creatures/vortex.txt`): the remote test character Axewarden (a great axe) casts
+Gravity Well 4 m east of the character; the projectile lands at the first wolf 3 m away. The vortex (a spell entity, the blue disc
+of 4 m) roots the three wolves ("Rooted" at their plates) and pulls two of them 2.7 m to its center in 0.41 s; the burst at 3.0 s
+pushes each one 0.5 m in 0.11 s with the reaction `r_R2_F`; the stop removes the vortex at 3.5 s. Then the route `effect`: a
+knockdown (`r_R4_F`), a stagger (`r_R2_F`), and the stun of Shockwave ("Stunned", the action `Stun`, and no status at its end after
+4 s). The magenta spheres are the lock points. The tests: `tools/test-creatures.sh` (the forced motion: six states of 50 ms with
+one reaction record; the status map: one status, three stacks, a smaller stamp, an empty list; the vortex; the Beacon
+attachment: 93, 26, and 94 checks).
+
 ## The read path of the other tracks
 
 - `USwcCreatureSubsystem::GetTargets(TArray<FSwcCreatureTarget>&)`: each creature of the table with an actor: its interest
@@ -294,6 +346,8 @@ sends the record of a bag only to its eligible characters: each bag of the table
 - `USwcCreatureSubsystem::FindMeleeContacts(const FSwcMeleeShape&, TArray<FSwcMeleeContact>&)` and `QueryMeleeContacts`: the
   melee contacts of a damage shape (above).
 - `USwcCreatureSubsystem::FindNearestLootBag` and `GetLootBags`: the loot bags of the local character (above).
+- `USwcCreatureSubsystem::GetLockPoint(Interest, FSwcLockPoint&)` and `FSwcCreatureTarget::LockPoint`: the lock point of the camera
+  (above).
 
 ## The name plate
 
@@ -338,7 +392,7 @@ about 13 minutes in all.
 ## The checks
 
 ```sh
-tools/test-creatures.sh                     # the entity table (63), the contact item and the damage number (26), the shots, areas, bags (74)
+tools/test-creatures.sh                     # the entity table (93), the contact item and the damage number (26), the shots, areas, bags, spells (94)
 export SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-creatures SWC_AGENT_DESKTOP=soulwarden-client-creatures
 tools/creature-check.sh creatures-world 80 tests/creatures/fight.txt tests/drive/creatures.txt
 # Stage P2.8: the melee contacts with the sword character of docs/GEAR.md, on the street west of the start place.

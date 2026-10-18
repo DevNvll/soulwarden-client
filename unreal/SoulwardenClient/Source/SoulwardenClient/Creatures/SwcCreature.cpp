@@ -248,6 +248,22 @@ void ASwcCreature::GetHitShapes(TArray<FSwcCreatureHitShape>& Out) const
 	}
 }
 
+FVector ASwcCreature::GetLockPoint() const
+{
+	const double Scale = GetActorScale3D().Z;
+	if (Slice != nullptr && Slice->bHasLock && !Slice->LockOffset.IsNearlyZero())
+	{
+		// The frame of the creature: x right, y front, z up (engine m); the actor faces +X with +Y to its right.
+		const FVector Local(Slice->LockOffset.Y, Slice->LockOffset.X, Slice->LockOffset.Z);
+		return GetActorLocation() + GetActorQuat().RotateVector(Local * 100.0 * Scale);
+	}
+	if (Slice != nullptr && Slice->bHasLock && !Slice->LockJoint.IsNone() && bHasModel && Leader->GetBoneIndex(Slice->LockJoint) != INDEX_NONE)
+	{
+		return Leader->GetBoneLocation(Slice->LockJoint) + FVector(0.0, 0.0, Slice->LockJointOffset * 100.0 * Scale);
+	}
+	return GetActorLocation() + FVector(0.0, 0.0, 100.0 * Scale);
+}
+
 FBoxSphereBounds ASwcCreature::GetBodyBounds() const
 {
 	return Body->IsVisible() ? Body->Bounds : Leader->Bounds;
@@ -285,8 +301,14 @@ void ASwcCreature::SampleMotion(const swc::creatures::Entity& Entity, uint64 Ren
 		{
 			continue;
 		}
-		// After a pause the step starts one step before its state.
-		const int64 Start = static_cast<int64>(B.timeUs) - static_cast<int64>(A.timeUs) > PauseUs ? static_cast<int64>(B.timeUs) - StepUs
+		// After a pause the step starts one step before its state: the step of the motion after it (a forced motion of the server has
+		// a state each 50 ms, a walk each 200 ms; backend forced_motion.cpp), at most 200 ms.
+		int64 Step = StepUs;
+		if (Index + 1 < Samples.size())
+		{
+			Step = FMath::Min<int64>(StepUs, static_cast<int64>(Samples[Index + 1].timeUs) - static_cast<int64>(B.timeUs));
+		}
+		const int64 Start = static_cast<int64>(B.timeUs) - static_cast<int64>(A.timeUs) > PauseUs ? static_cast<int64>(B.timeUs) - FMath::Max<int64>(Step, 1)
 			: static_cast<int64>(A.timeUs);
 		const double Alpha = FMath::Clamp(static_cast<double>(static_cast<int64>(RenderTimeUs) - Start) / static_cast<double>(static_cast<int64>(B.timeUs) - Start),
 			0.0, 1.0);

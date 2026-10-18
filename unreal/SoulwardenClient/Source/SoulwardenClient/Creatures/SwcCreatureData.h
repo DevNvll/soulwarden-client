@@ -153,6 +153,15 @@ struct FSwcCreatureSlice
 	TMap<uint32, FString> VariantMeshes;
 	TArray<FSwcCreatureWeapon> Weapons;
 	TArray<FSwcHitVolume> HitVolumes;
+	/** The lock point of the camera (CameraLockTargetComponent of the slice): m_Offset (engine space, m, from the feet in the frame
+	 *  of the creature), the joint of the lock icon and its vertical offset (m), and the pitch limits of the observer (degrees). */
+	bool bHasLock = false;
+	FVector LockOffset = FVector::ZeroVector;
+	FName LockJoint;
+	float LockJointOffset = 0.0f;
+	bool bLimitPitch = false;
+	float PitchMin = 0.0f;
+	float PitchMax = 0.0f;
 	/** The body capsule (the QueryShapeCapsule of the CharacterComponent of the slice; backend gamedata CreatureCapsule): the
 	 *  radius, the length of the segment, its axis and its offset in the frame of the creature (m; x right, y front, z up). */
 	bool bHasCapsule = false;
@@ -207,7 +216,8 @@ struct FSwcLootContainer
 	float Lifetime = 0.0f;
 	float EmptyLifetime = 0.0f;
 	/** One Interact component of the slice: its slot (the Interact state, type 2930), its component id, its entity in the slice,
-	 *  m_interactRangeSq (m^2), and its options (the option id and the entity of the option in the slice). */
+	 *  m_interactRangeSq (m^2), and its options (the index of the option in the options table of interaction-data.json, and the
+	 *  entity of the option in the slice). */
 	struct FBound
 	{
 		uint32 Slot = 0;
@@ -217,6 +227,18 @@ struct FSwcLootContainer
 		TArray<TPair<uint32, uint64>> Options;
 	};
 	TArray<FBound> Bounds;
+};
+
+/** A status row that shows at a name plate (effects.json statusRows; the compact map of the StatusEffects state names it by its
+ *  index). */
+struct FSwcStatusRow
+{
+	FString Id;
+	float Duration = 0.0f;
+	float MoveSpeedMod = 0.0f;
+	bool bStunned = false;
+	bool bRoot = false;
+	FString Categories;
 };
 
 class FSwcCreatureLibrary
@@ -243,6 +265,7 @@ public:
 	const FSwcSpellSlice* FindSpell(const FString& Key) const { return Spells.Find(Key); }
 	const FSwcSpellRow* FindSpellRow(uint32 Key) const { return SpellRows.Find(Key); }
 	const FSwcLootContainer* FindLootContainer(const FString& Key) const { return LootContainers.Find(Key); }
+	const FSwcStatusRow* FindStatusRow(uint32 Index) const { return StatusRows.Find(Index); }
 
 	/** Adds a slice key to SWC_WORK/creatures/wanted.json (tools/convert-creatures.sh wanted). @return True when it is new. */
 	bool AddWanted(const FString& Key);
@@ -260,6 +283,7 @@ private:
 	TMap<FString, FSwcSpellSlice> Spells;
 	TMap<uint32, FSwcSpellRow> SpellRows;
 	TMap<FString, FSwcLootContainer> LootContainers;
+	TMap<uint32, FSwcStatusRow> StatusRows;
 	void LoadEffects(const FString& Folder);
 	TSet<FString> Wanted;
 };

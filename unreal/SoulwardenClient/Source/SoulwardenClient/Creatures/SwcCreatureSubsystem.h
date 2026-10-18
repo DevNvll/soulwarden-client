@@ -16,12 +16,24 @@ class UCanvas;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogSwcCreatures, Log, All);
 
-/** A creature for the target lock of the camera: its interest number, its feet (Unreal cm), and the dead mark. */
+/** A creature for the target lock of the camera: its interest number, its feet (Unreal cm), the dead mark, and its lock point
+ *  (ASwcCreature::GetLockPoint: the CameraLockTargetComponent of the slice). */
 struct FSwcCreatureTarget
 {
 	uint32 Interest = 0;
 	FVector Position = FVector::ZeroVector;
 	bool bDead = false;
+	FVector LockPoint = FVector::ZeroVector;
+};
+
+/** The lock point of a creature for the camera (stage P3.5): the point (Unreal world space), and the pitch limits of the observer of
+ *  the client facet of its CameraLockTargetComponent (degrees; m_limitObserverPitch, m_observerPitchMin, m_observerPitchMax). */
+struct FSwcLockPoint
+{
+	FVector Point = FVector::ZeroVector;
+	bool bLimitPitch = false;
+	float PitchMin = 0.0f;
+	float PitchMax = 0.0f;
 };
 
 /**
@@ -41,7 +53,8 @@ struct FSwcLootBag
 	uint32 Rarity = 0;
 	/** The Interact bound of the bag (the first one of its slice): the slot of its Interact state, its facet target (the target of
 	 *  the interaction request: (entity XOR root XOR G) + component), m_interactRangeSq (m^2), the Enabled mark of its state, and
-	 *  its options: the option id and the instance id of the option entity (entity XOR root XOR G). */
+	 *  its options: the index of the option in the options table of interaction-data.json (80, 30; not a CRC-32 id) and the
+	 *  instance id of the option entity (entity XOR root XOR G). */
 	uint32 InteractSlot = 0;
 	uint64 Target = 0;
 	float RangeSq = 0.0f;
@@ -91,6 +104,7 @@ struct FSwcMeleeContact
  * FindMeleeContacts and writes a log line for each contact (it sends nothing). -SwcLootProbe writes the result of
  * FindNearestLootBag at the place of the player when it changes (each 1 s), and draws the bounds of each bag (green).
  * -SwcLootModel puts the model of the loot container 2 m in front of the player one time (a look check of the model).
+ * -SwcLockPoints draws the lock point of each creature (magenta).
  */
 UCLASS()
 class SOULWARDENCLIENT_API USwcCreatureSubsystem : public UTickableWorldSubsystem
@@ -106,6 +120,8 @@ public:
 
 	/** The read path of the camera (the target lock): the creatures of the table with a position. */
 	void GetTargets(TArray<FSwcCreatureTarget>& Out) const;
+	/** @return False when the creature of an interest number has no actor. */
+	bool GetLockPoint(uint32 Interest, FSwcLockPoint& Out) const;
 	const swc::creatures::EntityTable& GetTable() const { return Table; }
 
 	/**
@@ -171,6 +187,8 @@ private:
 	void UpdateEffect(uint32 Interest, const swc::creatures::Entity& Entity, uint64 RenderTimeUs);
 	/** @return The name of the creature of an entity id (G), for the log. */
 	FString CreatureName(uint64 Group) const;
+	/** @return True when an entity id (G) is a creature with an actor. */
+	bool IsCreature(uint64 Group) const;
 	int32 Shots = 0;
 	int32 Areas = 0;
 	FDelegateHandle DrawHandle;
@@ -181,6 +199,7 @@ private:
 	bool bVolumeProbe = false;
 	bool bLootProbe = false;
 	bool bLootModel = false;
+	bool bDrawLockPoints = false;
 	bool bLootModelShown = false;
 	double ConnectedAt = 0.0;
 	double NextLootProbe = 0.0;
