@@ -272,6 +272,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		// The objects of the level data (stage P4.1 part 2): the nearest bound in range of the object layer when it is nearer. Its first
 		// option: ReadLore of a lore page, GatherOption of a node or a chest. The ids and the request come from the layer.
 		bFocusGather = false;
+		bFocusNoTool = false;
 		USwcObjectSubsystem* Layer = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcObjectSubsystem>() : nullptr;
 		FSwcWorldObjectTarget Object;
 		if (!bLocked && Layer != nullptr && Layer->FindNearestObject(From, Object) && !Object.Options.IsEmpty()
@@ -284,22 +285,32 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Candidate.place = Object.EnginePlace;
 			Candidate.distanceSq = Object.Distance * Object.Distance;
 			Focus = Candidate;
-			FocusName = FString::Printf(TEXT("%s %s"), *Object.Kind.ToString(), *Object.Key);
+			// The prompt of a gather has the name of the row and, with no tool, the refusal ("YOUNG TREE  No equipped Axe").
+			FocusName = Object.Name.IsEmpty() ? FString::Printf(TEXT("%s %s"), *Object.Kind.ToString(), *Object.Key)
+				: Object.bToolMissing ? FString::Printf(TEXT("%s  %s"), *Object.Name.ToUpper(), *Object.RefusalText) : Object.Name.ToUpper();
 			bFocusBag = false;
 			bFocusGather = ObjectOption.action == GatherAction;
+			bFocusNoTool = Object.bToolMissing;
+			FocusUseKind = Object.UseKind;
+			FocusTool = Object.ToolItem != 0 ? Object.ToolSlot : 0;
 		}
 	}
 	if (bLocked)
 	{
 		Use.abort();
 	}
-	// The key E.
-	if (bKeyDown && !bKeyWas && Focus && !bLocked)
+	// The key E. A gather with no tool for its row sends nothing (protocol notes 4.44, live check L6: no request in the log).
+	if (bKeyDown && !bKeyWas && Focus && !bLocked && bFocusNoTool)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: E at %s: no request (the tool rule of the client)"), *FocusName);
+	}
+	else if (bKeyDown && !bKeyWas && Focus && !bLocked)
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: E at %s (interest %u, %.1f m): %s, action %u, delay %.1f s, hold %.1f s"), *FocusName, Focus->interest,
 			FMath::Sqrt(Focus->distanceSq), UTF8_TO_TCHAR(Focus->option->name.c_str()), Focus->option->action, Focus->option->delay, Focus->option->hold);
 		// A bag and a gather keep their request until their source ends them (the Looted claim; the Gathering state).
 		Use.press(Now, *Focus, bFocusBag || bFocusGather);
+		UsePlace = SwcEngineToUnreal(Focus->place);
 		if (bFocusBag)
 		{
 			bUseBag = true;
@@ -308,6 +319,8 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		if (bFocusGather)
 		{
 			bUseGather = true;
+			UseKind = FocusUseKind;
+			UseTool = FocusTool;
 			Gather.start(Now, Snapshot.Own.gathering);
 		}
 	}

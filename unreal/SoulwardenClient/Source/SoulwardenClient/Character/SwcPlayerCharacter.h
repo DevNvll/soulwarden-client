@@ -44,6 +44,9 @@ public:
 	 * weapons are in their sheath places. docs/GEAR.md has the rules.
 	 */
 	void SetWeaponState(uint32 ActiveSlot, bool bDrawn);
+	/** A gather (stage P5.2): the tool of a paperdoll tool slot (33 to 36) goes into its hand place; 0 puts it back into its sheath,
+	 *  where it is hidden. */
+	void SetToolInHand(uint32 Slot);
 	/**
 	 * The logical weapon state only (gear.md "Active, sheathed, and attached are separate states"): the actions of the
 	 * player (USwcPlayerActions) move each gear part at the mark of its draw or sheathe fragment.

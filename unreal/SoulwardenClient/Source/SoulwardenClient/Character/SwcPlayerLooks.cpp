@@ -426,7 +426,7 @@ void FSwcPlayerLooks::ResolveGear(const TMap<uint32, uint32>& Equipment, FSwcPla
 		Part.DrawTime = Marker(ObjectField(Timing, TEXT("draw")), TEXT("unsheathe_weapon"));
 		Part.SheatheTime = Marker(ObjectField(Timing, TEXT("sheathe")), TEXT("sheathe_weapon"));
 		OffhandDrawTimes.Add(Slot, Marker(ObjectField(Timing, TEXT("draw")), TEXT("unsheathe_offhand"), Part.DrawTime));
-		const TSharedPtr<FJsonObject> Side = ObjectField(ObjectField(EquipTypes, Part.EquipType), Slot >= 27 && !bAccessory ? TEXT("offHand") : TEXT("main"));
+		const TSharedPtr<FJsonObject> Side = ObjectField(ObjectField(EquipTypes, Part.EquipType), Slot >= 27 && Slot <= 29 && !bAccessory ? TEXT("offHand") : TEXT("main"));
 		Part.Sheathed = Place(Look.bFemale, StringField(Side, TEXT("sheathed")), Side, TEXT("sheath"));
 		Part.Hand = Place(Look.bFemale, StringField(Side, TEXT("hand")), Side, TEXT("hand"));
 		if (!Part.Sheathed.IsValid() || !Part.Hand.IsValid())
@@ -435,7 +435,11 @@ void FSwcPlayerLooks::ResolveGear(const TMap<uint32, uint32>& Equipment, FSwcPla
 		}
 		Look.Gear.Add(Part);
 	};
-	for (uint32 Slot = 24; Slot <= 29; ++Slot)
+	// The weapon slots 24 to 29, and the tool slots 33 to 36 (stage P5.2: 33 the logging axe, 34 the sickle, 35 the skinning knife,
+	// 36 the pick; Soulwarden protocol notes 4.44). A tool is in the hand only in a gather (ASwcPlayerCharacter::SetToolInHand);
+	// else it is hidden (an inference: the retail character shows no tool when it does not gather).
+	const uint32 GearSlots[] = {24, 25, 26, 27, 28, 29, 33, 34, 35, 36};
+	for (const uint32 Slot : GearSlots)
 	{
 		const uint32* ItemIndex = Equipment.Find(Slot);
 		if (ItemIndex == nullptr || *ItemIndex == 0 || !Items.IsValidIndex(static_cast<int32>(*ItemIndex) - 1))
@@ -449,7 +453,16 @@ void FSwcPlayerLooks::ResolveGear(const TMap<uint32, uint32>& Equipment, FSwcPla
 			Look.Notes.Add(FString::Printf(TEXT("paperdoll slot %u: item %s has no weapon look"), Slot, *Item));
 			continue;
 		}
+		const int32 Before = Look.Gear.Num();
 		MakePart(Slot, Item, Data, false);
+		if (Slot >= 33)
+		{
+			if (Look.Gear.Num() > Before)
+			{
+				Look.Gear.Last().bHideSheathed = true;
+			}
+			continue;
+		}
 		if (const TSharedPtr<FJsonObject> Accessory = ObjectField(Data, TEXT("accessory")))
 		{
 			MakePart(Slot, Item, Accessory, true);
@@ -461,7 +474,7 @@ void FSwcPlayerLooks::ResolveGear(const TMap<uint32, uint32>& Equipment, FSwcPla
 	{
 		const FSwcGearPart* Main = Look.Gear.FindByPredicate([&Part](const FSwcGearPart& Other)
 			{ return !Other.bAccessory && Other.PaperdollSlot + 3 == Part.PaperdollSlot; });
-		if (Part.PaperdollSlot >= 27 && Main != nullptr)
+		if (Part.PaperdollSlot >= 27 && Part.PaperdollSlot <= 29 && Main != nullptr)
 		{
 			Part.DrawTime = OffhandDrawTimes.FindRef(Main->PaperdollSlot);
 			Part.SheatheTime = Main->SheatheTime;

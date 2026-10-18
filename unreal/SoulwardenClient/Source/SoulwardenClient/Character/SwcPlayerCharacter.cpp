@@ -163,9 +163,21 @@ void ASwcPlayerCharacter::SetWeaponState(uint32 ActiveSlot, bool bDrawn)
 	for (int32 Index = 0; Index < Gear.Num(); ++Index)
 	{
 		const FSwcGearPart& Part = GearParts[Index];
-		// The off hand slots 27 to 29 go with the weapon slots 24 to 26.
-		const uint32 WeaponSlot = Part.PaperdollSlot >= 27 ? Part.PaperdollSlot - 3 : Part.PaperdollSlot;
+		// The off hand slots 27 to 29 go with the weapon slots 24 to 26. A tool (33 to 36) is in the hand only in a gather.
+		const uint32 WeaponSlot = Part.PaperdollSlot >= 27 && Part.PaperdollSlot <= 29 ? Part.PaperdollSlot - 3 : Part.PaperdollSlot;
 		PlaceGear(Index, bDrawn && WeaponSlot == ActiveSlot && !Part.bAccessory);
+	}
+}
+
+void ASwcPlayerCharacter::SetToolInHand(uint32 Slot)
+{
+	for (int32 Index = 0; Index < Gear.Num(); ++Index)
+	{
+		const uint32 PartSlot = GearParts[Index].PaperdollSlot;
+		if (PartSlot >= 33 && PartSlot <= 36 && !GearParts[Index].bAccessory)
+		{
+			PlaceGear(Index, PartSlot == Slot);
+		}
 	}
 }
 

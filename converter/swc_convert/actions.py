@@ -33,7 +33,7 @@ import zlib
 from pathlib import Path
 
 from . import anim, cgf, datasheet, source
-from . import player
+from . import gather_actions, player
 
 ADB_FOLDER = "animations/mannequin/adb/player/"
 ATTACK_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_attack.actionlist"
@@ -423,6 +423,8 @@ def actions() -> dict:
         found = find_fragment(name, set(), tag_set(variant), False)
         if found is not None:
             use[kind] = record(found[0], found[1], name)
+    # The gather fragments (stage P5.2, the creature track: converter/swc_convert/gather_actions.py): "gather|ACTION|TOOLTAGS".
+    use.update(gather_actions.fragments(record, find_fragment, tag_set))
     weapons.append({"tags": [], "stance": {}, "offhand": {}, "dodge": dodges(set()), "life": life, "use": use})
     for name in list(clips):
         try:
@@ -437,7 +439,7 @@ def actions() -> dict:
     perks = json.loads((gamedata_dir() / "perk-data.json").read_text())
     stamina = {"data": json.loads((gamedata_dir() / "stamina-data.json").read_text()), "encumbrance": perks["encumbrance"],
                "itemLoads": {item.lower(): load for item, load in perks["equipLoad"].items()}}
-    doc = {"format": 1, "sources": [player.ADB, ATTACK_ACTIONS, DODGE_ACTIONS, DEATH_ACTIONS, INTERACT_ACTIONS, ABILITY_ACTIONS + "*",
+    doc = {"format": 1, "sources": [player.ADB, ATTACK_ACTIONS, DODGE_ACTIONS, DEATH_ACTIONS, INTERACT_ACTIONS, gather_actions.GATHER_ACTIONS, ABILITY_ACTIONS + "*",
                                     datasheet.TABLES_FOLDER + "javelindata_spelltable_*", str(gamedata_dir() / "weapon-actions.json"), str(gamedata_dir() / "ability-data.json"),
                                     str(gamedata_dir() / "stamina-data.json"), str(gamedata_dir() / "perk-data.json")],
            "weapons": weapons, "fragments": fragments, "blendSpaces": blend_spaces, "clips": clips,

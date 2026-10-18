@@ -929,22 +929,67 @@ void USwcPlayerActions::SheatheForAction()
 	bPlaying = false;
 }
 
-void USwcPlayerActions::SetTimedUse(bool bOn)
+void USwcPlayerActions::SetTimedUse(bool bOn, const FString& Kind, uint32 ToolSlot, const FVector* FacePlace)
 {
+	// InteractionAlignment (playeractions_interact DelayedInteraction, playeractions_gather Gather): AlignFacingBlendTime 0.2 s. The
+	// character turns to the object in that time (a linear turn; the position part, AlignPositionSpeed, is not in the client: the
+	// object is in range already).
+	const auto Align = [this, FacePlace]()
+	{
+		ASwcPlayerCharacter* Owner = Character();
+		if (FacePlace == nullptr || Owner == nullptr)
+		{
+			return;
+		}
+		constexpr float AlignFacingBlendTime = 0.2f;
+		const FVector To = *FacePlace - Owner->GetActorLocation();
+		if (To.SizeSquared2D() < 1.0)
+		{
+			return;
+		}
+		AlignYaw = To.Rotation().Yaw;
+		AlignRate = static_cast<float>(FMath::Max(FMath::Abs(FMath::FindDeltaAngleDegrees(Owner->GetActorRotation().Yaw, AlignYaw)) / AlignFacingBlendTime, 1.0));
+		bAlignFacing = true;
+	};
+	// A gather fragment that the data does not have: the default gather fragment, else the kneel.
+	const FSwcWeaponActions* Unarmed = Data.IsValid() ? Data->Weapon(FString()) : nullptr;
+	const FString Played = Unarmed == nullptr || Unarmed->Use.Contains(Kind) ? Kind
+		: Kind.StartsWith(TEXT("gather|")) && Unarmed->Use.Contains(TEXT("gather|None|")) ? FString(TEXT("gather|None|")) : FString(TEXT("delayed"));
 	if (!LifeState.set_timed_use(bOn))
 	{
+		// A new use while one plays (a gather after a gather): its fragment and its tool.
+		if (bOn && !TimedUseKind.IsEmpty() && Played != TimedUseKind)
+		{
+			TimedUseKind = Played;
+			StartLifeFragment(&FSwcWeaponActions::Use, *Played);
+			if (ASwcPlayerCharacter* Owner = Character())
+			{
+				Owner->SetToolInHand(ToolSlot);
+			}
+			Align();
+		}
 		return;
 	}
 	if (bOn)
 	{
-		// The action DelayedInteraction: "Instant Sheathe-All", then Delayed_Interact (the kneel) while the request lasts.
+		// The action DelayedInteraction: "Instant Sheathe-All", then Delayed_Interact (the kneel) while the request lasts. The action
+		// Gather: the weapons go to their sheaths, the tool of the row goes into the hand, and its Gather fragment plays.
 		SheatheForAction();
-		StartLifeFragment(&FSwcWeaponActions::Use, TEXT("delayed"));
+		TimedUseKind = Played;
+		StartLifeFragment(&FSwcWeaponActions::Use, *Played);
+		if (ASwcPlayerCharacter* Owner = Character())
+		{
+			Owner->SetToolInHand(ToolSlot);
+		}
+		Align();
 		return;
 	}
+	TimedUseKind.Reset();
+	bAlignFacing = false;
 	if (ASwcPlayerCharacter* Owner = Character())
 	{
 		Owner->GetSwcMovement()->EndActionMotion(0.0f);
+		Owner->SetToolInHand(0);
 	}
 	if (USwcPlayerAnimInstance* Anim = Animation())
 	{
@@ -986,11 +1031,23 @@ bool USwcPlayerActions::UpdateLife(float DeltaTime)
 	}
 	// The clips play in place (ReactionMotion has no root track in this client): the character does not move on the ground.
 	Movement->SetActionMotion(true, FVector::ZeroVector);
+	// The turn of InteractionAlignment at the start of a timed use (SetTimedUse).
+	if (bAlignFacing && LifeState.timed_use())
+	{
+		FSwcFacingRule Rule;
+		Rule.TurnRate = AlignRate;
+		const double Yaw = TurnYaw(Owner->GetActorRotation().Yaw, AlignYaw, Rule, DeltaTime);
+		Owner->SetActorRotation(FRotator(0.0, Yaw, 0.0));
+		bAlignFacing = FMath::Abs(FMath::FindDeltaAngleDegrees(Yaw, AlignYaw)) > 0.5;
+	}
 	if (USwcPlayerAnimInstance* Anim = Animation())
 	{
-		// A clip that ends holds its last pose (the death lies on the ground until the respawn); the kneel of a timed use loops.
+		// A clip that ends holds its last pose (the death lies on the ground until the respawn); the kneel of a timed use loops. A gather
+		// plays its Gather fragment (one swing in the data) again while the work lasts (stage P5.2; the repeat is an inference).
 		const float Clock = LifeState.clock();
-		Anim->SetAction(0, LifeFragment, 0x80000000u | LifeSerial, Length > 0.0f && !LifeState.timed_use() ? FMath::Min(Clock, Length) : Clock);
+		const bool bGather = LifeState.timed_use() && TimedUseKind.StartsWith(TEXT("gather|")) && Length > 0.0f;
+		Anim->SetAction(0, LifeFragment, 0x80000000u | LifeSerial,
+			bGather ? FMath::Fmod(Clock, Length) : Length > 0.0f && !LifeState.timed_use() ? FMath::Min(Clock, Length) : Clock);
 	}
 	return true;
 }

@@ -123,12 +123,18 @@ The creature track added this part (docs/OBJECTS.md); the player track owns the 
   (`swc::interact::GatherWatch`). A release before the time ends the work with no item (chests.md, ST-R1).
 - `tools/test-creatures.sh` (the object program) tests the reader of the Gathering state with the backend encoder
   (`chest_states.cpp`) and the end rule.
+- The action of a gather (stage P5.2, [OBJECTS.md](OBJECTS.md)): `GetUseKind()` is the use fragment of the gather
+  (`gather|ACTION|TOOLTAGS`), `GetUseTool()` the paperdoll slot of the tool, and `GetUsePlace()` the place of the object.
+  `USwcPlayerActions::SetTimedUse` plays the fragment (again while the work lasts), puts the tool into the hand
+  (`ASwcPlayerCharacter::SetToolInHand`), and turns the character to the object in 0.2 s (InteractionAlignment,
+  AlignFacingBlendTime). With no tool for a row (ToolRequired) the prompt has the refusal text and E sends nothing.
 
 ## Not done, open points
 
 - The loot panel: stage P2.4 of the UI track (the inventory screen `lyshineui/inventory/newinventory`).
 - A bag with no claim of the character in the LootTracker shows (the retail client shows nothing); the server sends the record
   only to its eligible characters, with the claim.
-- InteractionAlignment of the action DelayedInteraction (the character turns and moves to the object) is not in the client.
+- InteractionAlignment: the turn to the object is in the client (stage P5.2, AlignFacingBlendTime 0.2 s, also for
+  DelayedInteraction); the move to the object (AlignPositionSpeed) is not.
 - The keg has no body in the client (the slice has a mesh; the view of the server objects is not in this stage).
 - The side-by-side check with the retail client is open.

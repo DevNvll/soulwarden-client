@@ -88,9 +88,12 @@ public:
 	/**
 	 * A timed use of an object (stage P2.10, the action DelayedInteraction of playeractions_interact: the options Trigger,
 	 * PickupBuildable, RevivePlayer): the weapons go to their sheaths, Delayed_Interact plays (the kneel), and the character
-	 * does not move until the use ends.
+	 * does not move until the use ends. A gather (stage P5.2, the action Gather of playeractions_gather): Kind is its Gather fragment
+	 * ("gather|ACTION|TOOLTAGS" of the use fragments; else the default gather fragment) and ToolSlot the paperdoll slot of the tool
+	 * that goes into the hand (0: none). FacePlace: the place of the object (Unreal world space): the character turns to it at the start
+	 * of the use (InteractionAlignment of the actions DelayedInteraction and Gather: AlignFacingBlendTime 0.2 s).
 	 */
-	void SetTimedUse(bool bOn);
+	void SetTimedUse(bool bOn, const FString& Kind = TEXT("delayed"), uint32 ToolSlot = 0, const FVector* FacePlace = nullptr);
 	/** @return True while the input of the player does nothing: the death, a loading screen, the respawn before its mark, a
 	 *  timed use. */
 	bool IsInputLocked() const { return LifeState.locked(); }
@@ -227,6 +230,12 @@ private:
 	bool bAttackBeforeTransition = false;
 	swc::combat::Life LifeState;
 	int32 LifeFragment = INDEX_NONE;
+	/** The use fragment of the timed use that plays (a gather: its Gather fragment). */
+	FString TimedUseKind;
+	/** The turn of InteractionAlignment: its target yaw and its rate (degrees each second: the angle in AlignFacingBlendTime). */
+	bool bAlignFacing = false;
+	double AlignYaw = 0.0;
+	float AlignRate = 0.0f;
 	uint32 LifeSerial = 0;
 	FDelegateHandle BonesHandle;
 	TWeakObjectPtr<USkeletalMeshComponent> BonesMesh;

@@ -40,8 +40,18 @@ public:
 	 */
 	void Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRepConnection& Connection, const swc::net::WorldPosition& Feet, bool bLocked,
 		double Now, USwcCreatureSubsystem* Creatures);
-	/** A timed use plays (the action DelayedInteraction: the kneel, the weapons in their sheaths, no movement). */
-	bool IsTimedUse() const { return Use.timed() && Use.phase() == swc::interact::Use::Phase::requested; }
+	/** A timed use plays (the action DelayedInteraction: the kneel, the weapons in their sheaths, no movement), or a gather works (the
+	 *  action Gather: the Gather fragment of the row and the tool; stage P5.2). */
+	bool IsTimedUse() const
+	{
+		return (Use.timed() && Use.phase() == swc::interact::Use::Phase::requested) || (bUseGather && Use.phase() != swc::interact::Use::Phase::idle);
+	}
+	/** The use fragment of the timed use: "delayed" (the kneel), or the Gather fragment of a gather ("gather|ACTION|TOOLTAGS"). */
+	FString GetUseKind() const { return bUseGather ? UseKind : FString(TEXT("delayed")); }
+	/** The paperdoll slot of the tool in the hand during a gather (0: none). */
+	uint32 GetUseTool() const { return bUseGather ? UseTool : 0; }
+	/** The place of the object of the use (Unreal world space; the character turns to it: InteractionAlignment), or none. */
+	const FVector* GetUsePlace() const { return Use.phase() != swc::interact::Use::Phase::idle ? &UsePlace : nullptr; }
 	/** The prompt and the progress for the debug text of a development run. */
 	FString DebugText(double Now) const;
 	const swc::interact::Use& GetUse() const { return Use; }
@@ -70,6 +80,14 @@ private:
 	bool bFocusGather = false;
 	bool bUseGather = false;
 	swc::interact::GatherWatch Gather;
+	/** The object of the focus: no tool for its row (the prompt has the refusal text, E sends nothing), its use fragment, and its
+	 *  tool slot; the use fragment and the tool of the gather that works. */
+	bool bFocusNoTool = false;
+	FString FocusUseKind;
+	uint32 FocusTool = 0;
+	FString UseKind;
+	uint32 UseTool = 0;
+	FVector UsePlace = FVector::ZeroVector;
 	TMap<uint32, double> LootedSince;
 	/** The revisions of the bag of the character and of the LootTracker that the log saw. */
 	uint32 SeenBag = 0;

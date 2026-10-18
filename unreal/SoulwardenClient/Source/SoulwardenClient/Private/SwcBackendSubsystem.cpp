@@ -1037,7 +1037,7 @@ void USwcBackendSubsystem::UpdatePlayer()
 		Interactor->SetKey(bInteractKey);
 		Interactor->Update(Snapshot, *Connection, Motion.character, Snapshot.Own.dead || Snapshot.Own.loadingScreen || bTravelWait,
 			FPlatformTime::Seconds(), World->GetSubsystem<USwcCreatureSubsystem>());
-		Avatar->GetActions()->SetTimedUse(Interactor->IsTimedUse());
+		Avatar->GetActions()->SetTimedUse(Interactor->IsTimedUse(), Interactor->GetUseKind(), Interactor->GetUseTool(), Interactor->GetUsePlace());
 	}
 	// The server copy of the stamina (the Stamina state): the client keeps its prediction (Driver::set_server_stamina).
 	if (AttackDriver && Snapshot.Own.hasStamina && Snapshot.Own.staminaRevision != StaminaRevision)
