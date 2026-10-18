@@ -1,0 +1,28 @@
+# The drive of the slope and step check of stage 1.7 (docs/MOVEMENT.md) on the test floor: lane A (the 30 degree ramp, a
+# fall of 5 m from its top, the 0.5 m step), lane B (the 75 degree ramp: no walk up), lane C (the 0.8 m step: no step up).
+# Times in seconds from the possession of the character; the camera turns at 90 degrees each second.
+# tools/dev-run.sh --window --enter --quit-when world --stay 33 -- -SwcDrive=$PWD/tests/drive/rules.txt
+1.0 turn 90
+2.0 turn 0
+2.5 move 0 1
+7.1 move 0 0
+8.0 turn -90
+9.0 turn 0
+9.5 move 0 1
+14.7 move 0 0
+15.5 turn 90
+16.5 turn 0
+16.5 move 0 1
+17.65 move 0 0
+18.5 turn -90
+19.5 turn 0
+19.5 move 0 1
+22.5 move 0 0
+23.5 turn 90
+24.5 turn 0
+24.5 move 0 1
+25.65 move 0 0
+26.5 turn -90
+27.5 turn 0
+27.5 move 0 1
+30.5 move 0 0

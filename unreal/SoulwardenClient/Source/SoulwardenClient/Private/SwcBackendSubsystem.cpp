@@ -1,8 +1,11 @@
 #include "SwcBackendSubsystem.h"
 
 #include "Camera/CameraActor.h"
+#include "Character/SwcCharacterMovement.h"
+#include "Character/SwcLocomotion.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcPlayerLooks.h"
+#include "Character/SwcTestFloor.h"
 #include "Components/CapsuleComponent.h"
 #include "Containers/Ticker.h"
 #include "Engine/Engine.h"
@@ -25,11 +28,11 @@ namespace
 {
 using FPhase = swc::net::RepClient::Phase;
 
-/** The camera of a character at rest at the start of a session (protocol notes 4.7): north, no pitch, 4.0 m behind,
- *  0.5 m to the right, 1.65 m above the feet. */
-constexpr float CameraBehind = 4.0f;
-constexpr float CameraRight = 0.5f;
-constexpr float CameraUp = 1.65f;
+/** The distance of the ground value of an input entry in a fall: 10 m at most (protocol notes 4.7). */
+constexpr double MaxAirHeight = 1000.0;
+/** The spawn height of the backend is the saved height plus a lift of 0.5 m (protocol notes 4.6): the test floor is
+ *  0.5 m below the spawn, and the character drops to it as the retail client does. */
+constexpr double SpawnLift = 50.0;
 
 FString Text(const std::string& Value)
 {
@@ -272,6 +275,10 @@ bool USwcBackendSubsystem::TickWorld(float)
 	{
 		UpdateLook();
 	}
+	if (bInGame && !bQuitting)
+	{
+		UpdatePlayer();
+	}
 	if (bInGame && QuitWhen == TEXT("world") && !bQuitting && FPlatformTime::Seconds() - InGameSince >= StaySeconds)
 	{
 		bQuitting = true;
@@ -328,30 +335,48 @@ void USwcBackendSubsystem::ShowOwnEntity()
 	const FVector North = Rotation.RotateVector(FVector(0.0, 1.0, 0.0));
 	const swc::net::WorldPosition Ahead{Own.position.x + static_cast<float>(North.X), Own.position.y + static_cast<float>(North.Y), Own.position.z};
 	const FVector Forward = (SwcEngineToUnreal(Ahead) - Feet).GetSafeNormal();
+	// The level has no ground yet (the world level comes in stage 1.3): the test floor of the movement.
+	bTestFloor = !SwcTestFloor::HasGround(World, Feet);
+	if (bTestFloor)
+	{
+		SwcTestFloor::Spawn(World, Feet - FVector(0.0, 0.0, SpawnLift), Forward);
+	}
+	// The position field of the input reports moves the saved character of the backend: a player run sends it only on
+	// the ground of the world, not on the test floor (docs/MOVEMENT.md).
+	bSendPosition = !bPlayerRun || !bTestFloor;
+	UE_LOG(LogSwcBackend, Log, TEXT("world: %s; the input reports %s"),
+		bTestFloor ? TEXT("no ground below the spawn: the test floor of the movement") : TEXT("the level has ground below the spawn"),
+		bSendPosition ? TEXT("have the position of the character") : TEXT("have the camera of a character at rest (a player run on the test floor)"));
 	FActorSpawnParameters Parameters;
 	Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	APlayerController* Controller = World->GetFirstPlayerController();
 	if (ASwcPlayerCharacter* Character = World->SpawnActor<ASwcPlayerCharacter>(Feet, Forward.Rotation(), Parameters))
 	{
 		Character->SetActorLocation(Feet + FVector(0.0, 0.0, Character->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight()));
 		Avatar = Character;
+		if (Controller != nullptr)
+		{
+			Controller->Possess(Character);
+		}
+		if (bTestFloor)
+		{
+			// The new floor is in the scene queries after the next physics step: the character waits for it.
+			Character->GetCharacterMovement()->DisableMovement();
+			bWaitForFloor = true;
+		}
 	}
-	const FVector Chest = Feet + FVector(0.0, 0.0, 120.0);
-	FVector Eye;
 	if (View == TEXT("front"))
 	{
-		Eye = Chest + Forward * 300.0 + FVector(0.0, 0.0, 30.0);
-	}
-	else
-	{
-		const swc::net::WorldPosition CameraPosition{Own.position.x + CameraRight, Own.position.y - CameraBehind, Own.position.z + CameraUp};
-		Eye = SwcEngineToUnreal(CameraPosition);
-	}
-	if (ACameraActor* ViewActor = World->SpawnActor<ACameraActor>(Eye, (Chest - Eye).Rotation(), Parameters))
-	{
-		Camera = ViewActor;
-		if (APlayerController* Controller = World->GetFirstPlayerController())
+		// A picture of the character: the camera stands 3 m in front of the chest.
+		const FVector Chest = Feet + FVector(0.0, 0.0, 120.0);
+		const FVector Eye = Chest + Forward * 300.0 + FVector(0.0, 0.0, 30.0);
+		if (ACameraActor* ViewActor = World->SpawnActor<ACameraActor>(Eye, (Chest - Eye).Rotation(), Parameters))
 		{
-			Controller->SetViewTarget(ViewActor);
+			Camera = ViewActor;
+			if (Controller != nullptr)
+			{
+				Controller->SetViewTarget(ViewActor);
+			}
 		}
 	}
 	if (GEngine != nullptr)
@@ -436,7 +461,19 @@ void USwcBackendSubsystem::UpdateLook()
 		Equipment.Add(Slot, Item);
 	}
 	const FSwcPlayerLook Look = Looks->Resolve(Appearance, Equipment);
-	Avatar->ApplyLook(Look, Looks->BaseMesh(Look.bFemale), Looks->IdleAnimation(Look.bFemale));
+	TSharedPtr<FSwcLocomotion>& Locomotion = Locomotions[Look.bFemale ? 1 : 0];
+	if (!Locomotion.IsValid())
+	{
+		Locomotion = MakeShared<FSwcLocomotion>();
+		FString Report;
+		const bool bLoaded = Locomotion->Load(Look.bFemale, Report);
+		UE_LOG(LogSwcBackend, Log, TEXT("character: %s"), *Report);
+		if (!bLoaded)
+		{
+			Locomotion.Reset();
+		}
+	}
+	Avatar->ApplyLook(Look, Looks->BaseMesh(Look.bFemale), Looks->IdleAnimation(Look.bFemale), Locomotion);
 	FString Bytes;
 	for (const uint8 Value : Appearance)
 	{
@@ -457,6 +494,69 @@ void USwcBackendSubsystem::UpdateLook()
 	{
 		UE_LOG(LogSwcBackend, Warning, TEXT("character: %d part(s) are not imported; they are in the wanted list: run tools/convert-player.sh wanted, then tools/import-player.sh"),
 			Wanted);
+	}
+}
+
+void USwcBackendSubsystem::UpdatePlayer()
+{
+	if (!Connection.IsValid() || !Avatar.IsValid())
+	{
+		return;
+	}
+	const ASwcPlayerCharacter* Character = Avatar.Get();
+	USwcCharacterMovement* Movement = Character->GetSwcMovement();
+	const UWorld* World = Character->GetWorld();
+	const APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	if (Movement == nullptr || Controller == nullptr || Controller->PlayerCameraManager == nullptr)
+	{
+		return;
+	}
+	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
+	Movement->SetPermissions(Snapshot.Own.dataBits, Snapshot.Own.moreDataBits);
+	if (bWaitForFloor && SwcTestFloor::HasGround(Character->GetWorld(), Character->GetFeetLocation()))
+	{
+		bWaitForFloor = false;
+		Movement->SetMovementMode(MOVE_Falling);
+		UE_LOG(LogSwcBackend, Log, TEXT("world: the test floor is in the scene: the character drops to it"));
+	}
+	if (!bSendPosition)
+	{
+		Connection->SetMotion(std::nullopt);
+		return;
+	}
+	// The player of this frame, in the engine space of the wire (protocol notes 4.7).
+	swc::net::RepClient::Motion Motion;
+	FVector Feet = Character->GetFeetLocation();
+	if (Movement->IsMovingOnGround() && Movement->CurrentFloor.bBlockingHit)
+	{
+		// The capsule of the engine floats 1.9 to 2.4 cm above its floor: the feet of the character are on the floor.
+		Feet.Z -= Movement->CurrentFloor.FloorDist;
+	}
+	Motion.character = SwcUnrealToEngine(Feet);
+	Motion.camera = SwcUnrealToEngine(Controller->PlayerCameraManager->GetCameraLocation());
+	Motion.yaw = FMath::DegreesToRadians(GetCameraYawDegrees());
+	Motion.pitch = -FMath::DegreesToRadians(static_cast<float>(FRotator::NormalizeAxis(Controller->PlayerCameraManager->GetCameraRotation().Pitch)));
+	Motion.forward = Movement->IsForwardHeld();
+	if (Movement->IsFalling())
+	{
+		FHitResult Hit;
+		const bool bHit = World->LineTraceSingleByChannel(Hit, Feet, Feet - FVector(0.0, 0.0, MaxAirHeight), ECC_WorldStatic);
+		Motion.airHeight = static_cast<float>((bHit ? Hit.Distance : MaxAirHeight) / 100.0);
+	}
+	Connection->SetMotion(Motion);
+	if (Movement->GetMoveState() != LastMove)
+	{
+		LastMove = Movement->GetMoveState();
+		UE_LOG(LogSwcBackend, Log, TEXT("move: %s (fragment %s), %.2f m/s, feet %.3f %.3f %.3f m"), *UEnum::GetValueAsString(LastMove),
+			*Movement->GetFragment(), Movement->GetHorizontalSpeed(), Motion.character.x, Motion.character.y, Motion.character.z);
+	}
+	if (!bPlayerRun && GEngine != nullptr)
+	{
+		// The movement state for the videos of a development run.
+		GEngine->AddOnScreenDebugMessage(static_cast<uint64>(0x5357434D), 1.0f, FColor::Yellow,
+			FString::Printf(TEXT("move %s, %s, %.2f m/s, feet %.2f %.2f %.2f m, yaw %.1f"), *UEnum::GetValueAsString(Movement->GetMoveState()),
+				*Movement->GetFragment(), Movement->GetHorizontalSpeed(), Motion.character.x, Motion.character.y, Motion.character.z,
+				FMath::RadiansToDegrees(Motion.yaw)));
 	}
 }
 

@@ -86,6 +86,7 @@ The run scripts give these values. The editor does not connect.
 | `-SwcHttp=HOST:PORT` | The HTTP listener of the backend (default `127.0.0.1:32200`). A host that is not loopback is replaced by `127.0.0.1`. |
 | `-SwcPlay=first`, `-SwcPlay=ID`, `-SwcPlay=NAME` | After the character list: the world entry with the first character, the character ID, or (development runs) the character NAME. |
 | `-SwcView=front` | The camera stands 3 m in front of the character (pictures). |
+| `-SwcDrive=FILE` | A drive script of the player controller: the keys and the mouse through the input actions ([MOVEMENT.md](MOVEMENT.md)). |
 | `-SwcQuitWhen=characters` | The client stops after the character list (status 0) or after a failure of the login path (status 1). |
 | `-SwcQuitWhen=world` | The client stays `-SwcStay=SECONDS` in the world (default 10), leaves (the carrier disconnect), and stops (status 0). A session that ends before: status 1. |
 | `-SwcQuitAfter=SECONDS` | The client stops after this time (status 0). |
@@ -268,10 +269,25 @@ live client). The body is `target:u64 entity:u64 header count entry*` with the t
 `G + 0x3C591A4EA3C2AD75` (the component id of the action list of the entity `RootPlayer` in `slice-ids.json`; the backend
 log names the facet). Each entry has the values of a client that stands (the backend tests and the captures): the flags
 `0x20004F0`, the permissions 15, the ground value 180, 19 action words with the bits 475, 497, 506, 569, the step time
-1/30 s, and the camera of a character at rest at the start of a session: 0.5 m east, 4.0 m south, and 1.65 m above
-the position of the own entity, north, no pitch. The entry has no position field (no flag `0x8000`): the backend then
-uses its camera estimate, and the camera axis goes through the known position, thus the position of the character does
-not change and the backend writes no new position.
+1/30 s.
+
+With the player of the game thread (stage 1.7, `RepClient::set_motion`; [MOVEMENT.md](MOVEMENT.md)) each entry has:
+
+- the flags `0x20084F0` (with `0x8000`) and the position field: the feet of the character after the movement of the
+  last game frame, as the retail client with the game hook of Soulwarden sends it (the height in the 16 bits of the
+  wire, cut as the client cuts it);
+- the camera position of the camera of the player, and the look (mask bit 6): the yaw in radians from north to the
+  left, the pitch in radians, positive down;
+- the action bits 14, 43, 416, 542 of the W key while it is down (the backend reads bit 14), with the rest bits;
+- in the air, the ground value: the half float of the distance to the ground (10 m at most; an inference from the
+  protocol notes "0 to 10; 10 in a fall").
+
+The backend log then has `position source changed: the position field of the input reports, the exact position`, and
+each report goes through its check (the input number, the numbers, the speed). With no player (before the character
+exists, and in a player run on the test floor) the entry has the camera of a character at rest at the start of a
+session: 0.5 m east, 4.0 m south, and 1.65 m above the position of the own entity, north, no pitch, and no position
+field: the backend then uses its camera estimate, and the camera axis goes through the known position, thus the
+position of the character does not change.
 
 ### The timers of the client contract
 
@@ -280,12 +296,11 @@ not change and the backend writes no new position.
 | 30 s | `connection_ingame_timeout`: no game message for 30 s ends the connection (protocol notes 4.1) | The session ends with this cause and sends the carrier disconnect. The thread measures the time: a game thread that loads a level does not stop it. |
 | 2 s | `javelin.alc-server-timeout-for-input`: with no movement state for 2 s the client clears the actions of each new input (protocol notes 4.6) | The entries have no action bits while the last movement state of the own entity is older than 2 s; the log has one line at each change. |
 
-### The view (provisional)
+### The view
 
-`Net/SwcSpace.h` maps a position of the wire to Unreal: centimeters, and Unreal Y = -engine Y. This rule is PROVISIONAL:
-stage 1.1 proves the map of the placements, and the function then takes its rule. At InGame the client puts a marker of
-the size of a character (a cylinder of 0.6 m by 1.8 m) at the position of the own entity, and a camera at the camera
-of the input report, which looks at the chest of the marker.
+`Net/SwcSpace.h` maps a position of the wire to Unreal and back (`SwcEngineToUnreal`, `SwcUnrealToEngine`; proved by
+stage 1.1). At InGame the client puts the character of the user ([CHARACTER.md](CHARACTER.md)) at the position of the own
+entity with the facing of its movement state, and the player controller possesses it ([MOVEMENT.md](MOVEMENT.md)).
 
 ### The tests (`tools/test-net.sh`)
 
@@ -296,8 +311,9 @@ of the input report, which looks at the chest of the marker.
   the actor id, `G`, the slice asset, the spawn position, the rotation, the permissions, the heartbeat id 0x8000, the
   vitals, and the appearance of the scenario; each bundle is read to its last byte; a carrier of the backend reads each
   datagram of the client (one registration on channel 0, the input reports on channel 1, which the input reader of the
-  backend reads: the camera of the spawn, no position field); 2 s with no movement state clear the actions; 30 s with no
-  game message end the session.
+  backend reads: the camera of the spawn, no position field); with a player (`set_motion`) the input reader of the
+  backend reads the position field, the camera, the look, the forward key, and the 5 entries of each report; 2 s with
+  no movement state clear the actions; 30 s with no game message end the session.
 - The writers: the registration body, the client frame, the local ticket, and an input report of three entries are
   equal byte for byte to the writers of the made-up client of the backend tests; the input reader of the backend reads
   the report; the facet target of the action list is the value of the research (`90A8748FA3C2AD77` for serial 1).

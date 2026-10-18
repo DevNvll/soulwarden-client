@@ -137,7 +137,21 @@ FString FSwcPlayerLooks::BaseMesh(bool bFemale) const
 
 FString FSwcPlayerLooks::IdleAnimation(bool bFemale) const
 {
-	return ImportedObject(bFemale ? TEXT("base|female") : TEXT("base|male"), TEXT("AnimSequence"));
+	// The base has each locomotion clip (Character/SwcLocomotion): the idle clip is "<gender>unarmed_idle".
+	const FString Name = (bFemale ? TEXT("female") : TEXT("male")) + FString(TEXT("unarmed_idle"));
+	const TArray<TSharedPtr<FJsonValue>>* Objects =
+		ArrayField(ObjectField(ObjectField(Imported, TEXT("assets")), bFemale ? TEXT("base|female") : TEXT("base|male")), TEXT("AnimSequence"));
+	if (Objects != nullptr)
+	{
+		for (const TSharedPtr<FJsonValue>& Value : *Objects)
+		{
+			if (FPaths::GetBaseFilename(Value->AsString()).Equals(Name, ESearchCase::IgnoreCase))
+			{
+				return Value->AsString();
+			}
+		}
+	}
+	return FString();
 }
 
 FSwcPlayerLook FSwcPlayerLooks::Resolve(const TArray<uint8>& Appearance, const TMap<uint32, uint32>& Equipment) const

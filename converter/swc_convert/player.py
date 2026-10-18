@@ -3,8 +3,10 @@
 Usage (tools/convert-player.sh; output in SWC_CONTENT/player, never in git):
   tables            looks.json: for each gender the races, skin tones, hair styles, hair colors, facial hair, and the
                     default body slots; each armor appearance row. Game paths only, no conversion.
+  locomotion        locomotion.json: the default unarmed locomotion fragments of the player Mannequin database
+                    (player.adb), their blend spaces (.bspace with the precomputed weight grid), and their clips.
   base              base/<gender>.gltf: the skeleton of each gender, one base mesh (the leader of the modular body),
-                    and the idle clip.
+                    and the clips of locomotion.json with the root bone locked (the data moves the character).
   wanted [FILE]     converts the parts that the client asked for
                     (default SWC_WORK/player/wanted.json, written by the client).
   part GENDER SKIN [MTL]   converts one part.
@@ -30,6 +32,7 @@ import re
 import struct
 import sys
 import xml.etree.ElementTree as ET
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -42,6 +45,18 @@ GENDERS = {"Male": "male", "Female": "female"}
 # The idle clip of each gender for the base (the player clips are in the male folder; research feel-values.md R2.7).
 IDLE_CLIPS = {"male": "animations/gameplay/character/player/male/unarmed/navigation/idle/unarmed_idle.caf",
               "female": "animations/gameplay/character/player/male/unarmed/navigation/idle/female_unarmed_idle.caf"}
+# The player Mannequin database and the locomotion fragments of stage 1.7 (research feel-values.md R2.7, R3): the default
+# (unarmed) variant of each fragment; for Jump the variant with forward input and the default one; for Land its three classes.
+ADB = "animations/mannequin/adb/player/player.adb"
+LOCOMOTION_FRAGMENTS = {"Idle": [""], "Strafe": [""], "Sprint": [""], "Sprint_Start": [""], "Fall": [""],
+                        "Land": ["Soft", "Normal", "Hard"], "Jump": ["ForwardNav", "BackNav", "LeftNav", "RightNav", ""],
+                        "Jump_Standing": [""]}
+# The fragments with root motion: the jumps move the character with the root bone of their clip until the marker
+# Enable_Gravity (research feel-values.md R2.4.1, R2.8.4). locomotion.json keeps the root track of their clips.
+ROOT_MOTION_FRAGMENTS = {"Jump", "Jump_Standing"}
+CLIP_FOLDER = "animations/gameplay/character/player/"
+# The female idle (the female body has its own idle clip in the male folder; the other clips are common).
+FEMALE_IDLE = {"unarmed_idle": "female_unarmed_idle"}
 # The base mesh: the leader of the modular body (the client hides it). The naked chest of the default appearance.
 BASE_SLOT = "shirt1"
 UNREAL_ROOT = "/Game/Imported/Player"
@@ -285,13 +300,15 @@ class Skeleton:
         return {"skin": skin_path, "material": mtl, "vertices": len(mesh.positions), "triangles": len(mesh.indices) // 3,
                 "sections": len(prims)}
 
-    def add_clip(self, w: gltf.Writer, first: int, clip_path: str) -> dict:
+    def add_clip(self, w: gltf.Writer, first: int, clip_path: str, name: str | None = None, root_lock: bool = False) -> dict:
+        """Adds one clip as a glTF animation. root_lock: no track for the root bone (Xform carries the motion of a clip;
+        the movement data moves the character, research feel-values.md R2.8.5)."""
         clip = anim.read_clip(cgf.read_chunks(source.read(clip_path)))
         by_id = {b.controller_id: b for b in self.bones}
         samplers, channels = [], []
         for cid, c in clip.controllers.items():
             b = by_id.get(cid)
-            if b is None:
+            if b is None or (root_lock and b.parent < 0):
                 continue
             node = first + b.index
             if len(c.rotations):
@@ -308,9 +325,10 @@ class Skeleton:
                 samplers.append({"input": w.accessor(t, "SCALAR", None, minmax=True), "output": w.accessor(p, "VEC3", None),
                                  "interpolation": "LINEAR"})
                 channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": "translation"}})
-        w.doc.setdefault("animations", []).append({"name": Path(clip_path).stem, "samplers": samplers, "channels": channels})
+        w.doc.setdefault("animations", []).append({"name": name or Path(clip_path).stem, "samplers": samplers, "channels": channels})
         return {"clip": clip_path, "frames": clip.end - clip.start, "fps": round(1 / clip.secs_per_frame, 3),
-                "controllers": len(clip.controllers)}
+                "duration": round((clip.end - clip.start) * clip.secs_per_frame, 5), "controllers": len(clip.controllers),
+                "moveSpeed": round(clip.move_speed, 4)}
 
 
 def base(force: bool = False) -> dict:
@@ -331,13 +349,129 @@ def base(force: bool = False) -> dict:
         slot = looks["genders"][gender]["slots"][BASE_SLOT]
         part = skeleton.add_skin(w, slot["skin"], slot["material"], out, f"SK_Player{gender}", 512)
         w.doc["scenes"][0]["nodes"] += roots
-        clip = skeleton.add_clip(w, first, IDLE_CLIPS[folder])
+        # The idle clip first (the clip of stage 1.6), then each clip of the locomotion table with the root bone locked.
+        clips = [skeleton.add_clip(w, first, IDLE_CLIPS[folder], "unarmed_idle")]
+        locomotion_file = player_dir() / "locomotion.json"
+        if locomotion_file.is_file():
+            for name, clip in sorted(json.loads(locomotion_file.read_text())["clips"].items()):
+                if name == "unarmed_idle":
+                    continue
+                path = clip["path"]
+                if gender == "Female" and name in FEMALE_IDLE:
+                    path = clip.get("female", path)
+                clips.append(skeleton.add_clip(w, first, path, name, root_lock=True))
         w.save(out)
         doc["assets"][key] = {"kind": "base", "gender": gender, "file": str(out.relative_to(env.content_dir())),
                               "unreal": f"{UNREAL_ROOT}/{gender}/Base"}
-        report[gender] = {"bones": len(skeleton.bones), "base": part, "clip": clip, "gltf": str(out)}
+        report[gender] = {"bones": len(skeleton.bones), "base": part, "clips": len(clips), "gltf": str(out)}
     save_manifest(doc)
     return report
+
+
+def stem_index(ending: str) -> dict[str, list[str]]:
+    """@return The pak entries of the player clip folder with one ending, by file stem (the clip name rule of the
+    .chrparams animation lists: the name of a clip is its file stem, research feel-values.md R3.2.8)."""
+    index: dict[str, list[str]] = {}
+    for name in source.paks().entries:
+        if name.startswith(CLIP_FOLDER) and name.endswith(ending):
+            index.setdefault(Path(name).stem, []).append(name)
+    return index
+
+
+def pick(paths: list[str]) -> str:
+    """@return The path of a clip name: the male player folder first, then the unarmed folders."""
+    ranked = sorted(paths, key=lambda path: ("/player/male/" not in path, "/unarmed/" not in path, path))
+    return ranked[0]
+
+
+def read_blend_space(path: str) -> dict:
+    """@return The dimensions, the examples, and the precomputed grid of a .bspace (research feel-values.md R3.2.7)."""
+    root = ET.fromstring(source.read(path).decode("utf-8", "replace"))
+    params = [{"name": p.get("Name"), "min": float(p.get("Min")), "max": float(p.get("Max")), "cells": int(p.get("Cells"))}
+              for p in root.find("Dimensions")]
+    # Clip names are file stems: lower case, as the pak paths (the files of the game write some with capitals).
+    examples = [{"clip": e.get("AName").lower(), "scale": float(e.get("PlaybackScale") or 1.0)} for e in root.find("ExampleList")]
+    grid = []
+    vgrid = root.find("VGrid")
+    for cell in (vgrid if vgrid is not None else []):
+        grid.append([int(cell.get(f"i{n}", 0)) for n in range(4)] + [float(cell.get(f"w{n}", 0)) for n in range(4)])
+    return {"path": path, "params": params, "examples": examples, "grid": grid}
+
+
+def fragment_markers(fragment: ET.Element) -> dict:
+    """The named markers of a fragment (procedural CAGE-Named, for example Enable_Gravity): name -> time in seconds from
+    the start of the fragment (the sum of the ExitTime values of the Blend elements of its layer before it)."""
+    markers = {}
+    for layer in fragment.findall("ProcLayer"):
+        time = 0.0
+        for item in layer:
+            if item.tag == "Blend":
+                time += float(item.get("ExitTime", 0))
+            elif item.tag == "Procedural" and item.get("type") == "CAGE-Named":
+                name = item.find("ProceduralParams/Name")
+                if name is not None and name.get("value"):
+                    markers.setdefault(name.get("value"), round(time, 5))
+    return markers
+
+
+def locomotion() -> dict:
+    """Writes locomotion.json: the fragments, the blend spaces, and the clips of the player locomotion."""
+    adb = ET.fromstring(source.read(ADB).decode("utf-8", "replace"))
+    fragments_xml = adb.find("FragmentList")
+    cafs, spaces = stem_index(".caf"), stem_index(".bspace")
+    fragments, blend_spaces, clips = {}, {}, {}
+
+    def add_clip(name: str, root: bool = False) -> None:
+        if name not in clips and name in cafs:
+            clips[name] = {"path": pick(cafs[name])}
+            female = FEMALE_IDLE.get(name)
+            if female and female in cafs:
+                clips[name]["female"] = pick(cafs[female])
+        if root and name in clips:
+            clips[name]["rootMotion"] = True
+
+    for fragment, variants in LOCOMOTION_FRAGMENTS.items():
+        node = fragments_xml.find(fragment)
+        for tags in variants:
+            match = next((f for f in node if (f.get("Tags") or "") == tags), None) if node is not None else None
+            if match is None:
+                continue
+            layer = match.find("AnimLayer")
+            blend = layer.find("Blend")
+            animation = layer.find("Animation")
+            name = animation.get("name").lower()
+            entry = {"blendIn": round(float(blend.get("Duration", 0)), 4), "blendOut": round(float(match.get("BlendOutDuration", 0.2)), 4),
+                     "loop": "Loop" in (animation.get("flags") or ""), "speed": float(animation.get("speed") or 1.0)}
+            markers = fragment_markers(match)
+            if markers:
+                entry["markers"] = markers
+            if name in spaces:
+                entry["blendSpace"] = name
+                if name not in blend_spaces:
+                    blend_spaces[name] = read_blend_space(pick(spaces[name]))
+                    for example in blend_spaces[name]["examples"]:
+                        add_clip(example["clip"])
+            else:
+                entry["clip"] = name
+                add_clip(name, fragment in ROOT_MOTION_FRAGMENTS)
+            fragments[fragment + ("+" + tags if tags else "")] = entry
+    root_id = zlib.crc32(b"Xform")
+    for name, clip in clips.items():
+        info = anim.read_clip(cgf.read_chunks(source.read(clip["path"])))
+        clip["duration"] = round((info.end - info.start) * info.secs_per_frame, 5)
+        clip["moveSpeed"] = round(info.move_speed, 4)
+        root = info.controllers.get(root_id)
+        if clip.pop("rootMotion", False) and root is not None and len(root.positions):
+            # The root bone Xform in the space of the character (meters; x right, y forward, z up): [time, x, y, z].
+            times = (root.pos_times - info.start) * info.secs_per_frame
+            clip["root"] = [[round(float(t), 5)] + [round(float(v), 5) for v in p] for t, p in zip(times, root.positions)]
+    doc = {"format": 1, "source": ADB, "fragments": fragments, "blendSpaces": blend_spaces, "clips": clips}
+    out = player_dir() / "locomotion.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(doc, indent=1, sort_keys=True))
+    missing = [example["clip"] for space in blend_spaces.values() for example in space["examples"] if example["clip"] not in clips]
+    return {"locomotion": str(out), "fragments": sorted(fragments), "blend spaces": {k: len(v["grid"]) for k, v in blend_spaces.items()},
+            "clips": len(clips), "missing clips": sorted(set(missing))}
 
 
 def part(gender: str, skin: str, mtl: str = "", force: bool = False, doc: dict | None = None) -> dict:
@@ -383,6 +517,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="swc-convert-player", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("tables")
+    sub.add_parser("locomotion")
     p = sub.add_parser("base"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("wanted"); p.add_argument("file", nargs="?"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("part"); p.add_argument("gender", choices=list(GENDERS)); p.add_argument("skin"); p.add_argument("mtl", nargs="?", default="")
@@ -390,6 +525,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.command == "tables":
         result = tables()
+    elif args.command == "locomotion":
+        result = locomotion()
     elif args.command == "base":
         result = base(args.force)
     elif args.command == "wanted":

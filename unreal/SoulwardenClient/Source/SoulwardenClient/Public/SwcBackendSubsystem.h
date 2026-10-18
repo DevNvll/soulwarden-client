@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Containers/Ticker.h"
+#include "Character/SwcCharacterMovement.h"
 #include "Net/Codec/SwcRepClient.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "SwcBackendSubsystem.generated.h"
@@ -10,6 +11,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogSwcBackend, Log, All);
 
 class AActor;
 class ASwcPlayerCharacter;
+class FSwcLocomotion;
 class FSwcLoginClient;
 class FSwcPlayerLooks;
 class FSwcRepConnection;
@@ -29,6 +31,7 @@ struct FSwcLoginToken;
  *   -SwcQuitWhen=world         the client stays -SwcStay seconds in the world (default 10), leaves, and stops (status 0)
  *   -SwcQuitAfter=SECONDS      the client stops after this time
  *   -SwcView=front             the camera stands in front of the character (pictures of the character)
+ *   -SwcDrive=FILE             a drive script of the player controller (ASwcPlayerController)
  * Environment: SWC_STEAM_ID and SWC_PERSONA_NAME (the Steam stubs), SWC_RUN (player or development).
  */
 UCLASS(Config = Game)
@@ -78,6 +81,8 @@ private:
 	bool TickWorld(float DeltaTime);
 	void ShowOwnEntity();
 	void UpdateLook();
+	/** Gives the movement its permissions and the connection the player of this frame (the input report). */
+	void UpdatePlayer();
 	void Quit(bool bSucceeded, const TCHAR* Cause);
 
 	TSharedPtr<FSwcLoginClient> Login;
@@ -95,6 +100,15 @@ private:
 	TWeakObjectPtr<ASwcPlayerCharacter> Avatar;
 	TWeakObjectPtr<AActor> Camera;
 	TSharedPtr<FSwcPlayerLooks> Looks;
+	/** The locomotion data of each gender (index 0 male, 1 female), read at the first use. */
+	TSharedPtr<FSwcLocomotion> Locomotions[2];
+	/** The level has no ground at the spawn: the test floor of the movement (Character/SwcTestFloor). */
+	bool bTestFloor = false;
+	bool bWaitForFloor = false;
+	/** The input reports have the position of the character (docs/MOVEMENT.md): not in a player run on the test floor. */
+	bool bSendPosition = false;
+	/** The movement state of the last log line. */
+	ESwcMove LastMove = ESwcMove::Idle;
 	uint32 LookRevision = MAX_uint32;
 	FString View;
 };

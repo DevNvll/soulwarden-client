@@ -10,7 +10,8 @@ are the Soulwarden research files `appearance.md`, `character-creation.md`, `men
 
 ```text
 game copy --tools/convert-player.sh tables--> content/player/looks.json   (databases, armor rows; game paths only)
-          --tools/convert-player.sh base----> content/player/base/<gender>.gltf   (skeleton, base mesh, idle clip)
+          --tools/convert-player.sh locomotion--> content/player/locomotion.json   (fragments, blend spaces, clips)
+          --tools/convert-player.sh base----> content/player/base/<gender>.gltf   (skeleton, base mesh, the clips)
 client (a run) --writes--> SWC_WORK/player/wanted.json   (the parts that a character needs and that are not imported)
           --tools/convert-player.sh wanted--> content/player/parts/*.gltf  (one skin with one material and the skeleton)
           --tools/import-player.sh----------> /Game/Imported/Player/...    and content/player/imported.json
@@ -68,12 +69,14 @@ color, the face mark, the scar, the tattoo (the layers of the head material), th
 
 ## The character in Unreal (`Character/SwcPlayerCharacter`)
 
-- `ASwcPlayerCharacter` is an `ACharacter`. Its mesh is the base of the gender: the leader. It has the skeleton and plays
-  the idle clip (`unarmed_idle`, `female_unarmed_idle`), and it is not drawn (it computes its pose each frame).
+- `ASwcPlayerCharacter` is an `ACharacter`. Its mesh is the base of the gender: the leader. It has the skeleton and the
+  animation (`USwcPlayerAnimInstance` with the locomotion clips of the base; with no locomotion data only the idle clip
+  `unarmed_idle`), and it is not drawn (it computes its pose each frame). [MOVEMENT.md](MOVEMENT.md) has the movement
+  and the animation.
 - Each part is one more `USkeletalMeshComponent` with `SetLeaderPoseComponent(leader)`.
 - The mesh has a yaw of +90 degrees on the actor: the imported body then faces the forward vector of the actor (the
-  facing of the movement state through the provisional space map of `Net/SwcSpace.h`).
-- The capsule is the default capsule until stage 1.7.
+  facing of the movement state through the space map of `Net/SwcSpace.h`, proved by stage 1.1).
+- The capsule of the player slice: radius 0.41 m, half height 0.81 m (stage 1.7).
 - The subsystem builds the body again at each change of the appearance state or of the paperdoll state.
 - `-SwcView=front` puts the camera 3 m in front of the character at 1.5 m (the pictures of this stage).
 

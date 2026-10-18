@@ -82,12 +82,15 @@ pipelines = {}
 for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get(item[1]["kind"], 9), item[0])):
     destination = entry["unreal"]
     kind = entry["kind"]
-    if not force and key in imported["assets"] and assets.list_assets(destination, recursive=True):
+    path = os.path.join(content, entry["file"])
+    # A file that the converter wrote again (a new time) is imported again, onto the same assets.
+    stamp = os.path.getmtime(path) if os.path.isfile(path) else 0
+    known = imported["assets"].get(key, {})
+    if not force and known and known.get("_source") == stamp and assets.list_assets(destination, recursive=True):
         skipped += 1
         if kind == "base":
-            skeletons[entry["gender"]] = imported["assets"][key]["Skeleton"][0]
+            skeletons[entry["gender"]] = known["Skeleton"][0]
         continue
-    path = os.path.join(content, entry["file"])
     if kind == "part":
         gender = entry["gender"]
         if gender not in skeletons:
@@ -103,6 +106,7 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
     if wanted not in found:
         failed.append(key)
         continue
+    found["_source"] = stamp
     imported["assets"][key] = found
     if kind == "base":
         skeletons[entry["gender"]] = found["Skeleton"][0]
