@@ -19,6 +19,8 @@
 // of the canvas; a disabled element hides its subtree; a fader multiplies the alpha of its subtree.
 namespace swc::ui {
 
+class TextMeasure;   // Draw.h
+
 using Id = std::uint64_t;
 /** The invalid entity id of Lumberyard 1.12 (the canvases use it for "no element"). */
 inline constexpr Id kNoId = 0xFFFFFFFFull;
@@ -151,6 +153,47 @@ struct SequenceData {
     int blend{0};
 };
 
+/** A layout of the children (UiLayoutRowComponent, UiLayoutColumnComponent, UiLayoutGridComponent, and the fixed row and
+ *  column of the fork). The layout sets the anchors of each child to 0 and its offsets (docs/UI.md, the layouts). */
+struct LayoutData {
+    enum class Kind : std::uint8_t { row, column, grid };
+    Kind kind{Kind::row};
+    bool fixed{false};            // the fork forms: the children keep their sizes; no padding, no layout cells
+    Edges padding;                // left, top, right, bottom (pixels)
+    Vec2 spacing;                 // row and column: x
+    Vec2 cellSize{100.0F, 100.0F};   // grid
+    int order{0};                 // row: 0 left to right, 1 right to left; column and grid rows: 0 top to bottom, 1 bottom to top
+    int horizontalOrder{0};       // grid: 0 left to right, 1 right to left
+    int startingWith{0};          // grid: 0 fill a row first, 1 fill a column first
+    int hAlign{kAlignLeft};
+    int vAlign{kAlignTop};
+    bool ignoreDefaultCells{true};
+    bool visibleOnly{false};      // grid and the fork forms: only the enabled children
+};
+
+/** The layout cell of an element (UiLayoutCellComponent): each value that the element overrides. */
+struct CellData {
+    std::optional<float> minWidth;
+    std::optional<float> minHeight;
+    std::optional<float> targetWidth;
+    std::optional<float> targetHeight;
+    std::optional<float> extraWidthRatio;
+    std::optional<float> extraHeightRatio;
+};
+
+/** The cell of one child along one axis of a layout (min, target, extra ratio). */
+struct LayoutCellSize {
+    float min{0.0F};
+    float target{0.0F};
+    float extra{1.0F};
+};
+
+/** UiLayoutFitterComponent: the element takes the target size of its own layout cell. */
+struct FitterData {
+    bool horizontal{false};
+    bool vertical{false};
+};
+
 struct ScriptData {
     std::string script;   // ".luac" path, lower case
     json::Value properties;
@@ -175,6 +218,9 @@ struct Element {
     std::optional<std::string> spawnerSlice;
     std::optional<float> saturation;
     std::optional<int> repeats;
+    std::optional<LayoutData> layout;
+    std::optional<CellData> cell;
+    std::optional<FitterData> fitter;
     std::optional<json::Value> button;   // the action names of an interactable
     std::vector<ScriptData> scripts;
     std::vector<std::string> other;      // the components that the runtime does not have
@@ -206,7 +252,8 @@ struct Canvas {
 
 /** The texture data that the runtime needs: the size and the borders of the .sprite file next to the texture. */
 struct Sprite {
-    bool found{false};
+    bool found{false};       // the game has the texture (a PNG, or an entry of textures/index.json)
+    bool converted{false};   // the PNG is in the converted content (else nothing draws it)
     float width{0.0F};
     float height{0.0F};
     Edges borders{0.0F, 0.0F, 1.0F, 1.0F};   // fractions: left, top lines; right, bottom lines
@@ -268,7 +315,8 @@ public:
      *  @return The id of the copy of `source`. `created` gets each new id, parents before children. */
     Id clone_element(Id source, Id parent, Id before, std::vector<Id>* created);
     /** A copy of the elements of a UI slice under `parent`. @return The id of the root of the copy. */
-    Id spawn_slice(const std::string& slicePath, Id parent, std::vector<Id>* created, std::string* error);
+    Id spawn_slice(const std::string& slicePath, Id parent, std::vector<Id>* created, std::string* error,
+                   std::unordered_map<Id, Id>* idMap = nullptr);
     /** A new empty element. */
     Id create_element(const std::string& name, Id parent, Id before);
     /** Removes an element and its subtree. `destroyed` gets each id, children before parents. */
@@ -299,6 +347,28 @@ public:
     void viewport_points(Id id, Vec2 out[4]) const;
     [[nodiscard]] Vec2 device_scale(Id id) const;
 
+    // ---- the layouts (Layout.cpp; the rules of the LyShine layout manager)
+    /** The text metrics for the default layout cells of the texts. It stays owned by the caller; null: an estimate. */
+    void set_text_measure(TextMeasure* measure) { m_measure = measure; }
+    [[nodiscard]] TextMeasure& text_measure();
+    /** @return True when the element has a layout or a fitter (a layout controller). */
+    [[nodiscard]] bool is_layout_controller(Id id) const;
+    /** Marks the layout of an element (a controller) to compute again at the next update. */
+    void mark_layout(Id id);
+    /** Marks the layouts that use the layout cell of an element (its parents up to the first one that does not use
+     *  the cells; a default cell counts only for a parent that does not ignore the default cells). */
+    void mark_layout_cell_change(Id id, bool defaultCell);
+    /** Computes the marked layouts and the layouts whose size changed. @return The number of computed roots. */
+    int update_layouts();
+    /** Computes the layout of an element and of its descendants now (widths first, then heights). */
+    void compute_layout(Id id);
+    [[nodiscard]] float cell_min_width(Id id, bool ignoreDefault);
+    [[nodiscard]] float cell_min_height(Id id, bool ignoreDefault);
+    [[nodiscard]] float cell_target_width(Id id, bool ignoreDefault);
+    [[nodiscard]] float cell_target_height(Id id, bool ignoreDefault);
+    [[nodiscard]] float cell_extra_width_ratio(Id id, bool ignoreDefault);
+    [[nodiscard]] float cell_extra_height_ratio(Id id, bool ignoreDefault);
+
     // ---- content
     [[nodiscard]] const Sprite& sprite(const std::string& texturePath);
     [[nodiscard]] const FontInfo* font(const std::string& fontPath);
@@ -327,6 +397,16 @@ private:
     void remap_properties(json::Value& value, const std::unordered_map<Id, Id>& map) const;
     void load_fonts();
     void load_texts();
+    // Layout.cpp
+    std::vector<Id> layout_children(Id id) const;
+    std::vector<LayoutCellSize> cell_sizes(Id id, bool horizontal, bool ignoreDefault);
+    bool default_cell(Id id, bool horizontal, int which, float maxSize, float& out);
+    void apply_layout_width(Id id);
+    void apply_layout_height(Id id);
+    void add_layout_mark(Id id);
+    /** A child came or went: the layout of the element and the layouts that use its cell (LyShine AddChild). */
+    void child_list_changed(Id parent);
+    void note_layout_element(Id id);
 
     std::string m_contentDir;
     Vec2 m_viewport{1920.0F, 1080.0F};
@@ -337,7 +417,13 @@ private:
     std::unordered_map<std::string, Sprite> m_sprites;
     std::unordered_map<std::string, FontInfo> m_fonts;
     bool m_fontsLoaded{false};
+    json::Value m_textureIndex;   // textures/index.json (loaded at the first missing texture)
+    bool m_textureIndexLoaded{false};
     std::vector<FontEffect> m_effects;
+    TextMeasure* m_measure{nullptr};
+    std::vector<Id> m_layoutMarks;
+    std::unordered_map<Id, Vec2> m_layoutSizes;   // the size of each layout element at its last computation
+    std::set<Id> m_layoutElements;                // the elements with a layout
     std::unordered_map<std::string, std::string> m_texts;
     bool m_textsLoaded{false};
     std::set<std::string> m_missingTextures;

@@ -284,6 +284,7 @@ Swc.Define("UiImageRepeaterBus", "Event", {
 Swc.canvasNames = {}   -- tostring(canvas id) -> the canvas name with the case of the load path
 
 Swc.Define("UiCanvasBus", "Event", {
+  RecomputeChangedLayouts = function() swcui.update_layouts() end,
   GetCanvasName = function(canvas)
     return Swc.canvasNames[tostring(canvas)] or swcui.canvas_get(canvas, "name")
   end,
@@ -357,9 +358,9 @@ Swc.Define("UiImageSequenceBus", "Event", {
   UnloadTextures = function() end,
 })
 
--- ------------------------------------------------------------------- layout cells, interactables (values only)
+-- -------------------------------------------------------------------------------------- layouts, interactables
 
--- The first HUD has no layout component that changes a place; the values stay for the scripts that read them back.
+-- The values of the interactables that the runtime does not use yet stay for the scripts that read them back.
 local stored = {}
 local function store(id)
   local k = tostring(id)
@@ -371,18 +372,72 @@ local function store(id)
   return t
 end
 
-local function stored_accessors(names)
+-- The layouts (the runtime computes them: Source/SwcUi/Private/Layout.cpp). A cell value that the element does not
+-- override is -1 (LyShine UiLayoutCellUnspecifiedSize); a negative value set removes the override.
+local function cell_accessors()
   local out = {}
-  for _, name in ipairs(names) do
-    out["Get" .. name] = function(id) return store(id)[name] end
-    out["Set" .. name] = function(id, v) store(id)[name] = v end
+  for _, name in ipairs({"MinWidth", "MinHeight", "TargetWidth", "TargetHeight", "ExtraWidthRatio", "ExtraHeightRatio"}) do
+    local key = "cell." .. string.lower(name:sub(1, 1)) .. name:sub(2)
+    out["Get" .. name] = function(id) if not valid(id) then return -1 end return swcui.get(id, key) end
+    out["Set" .. name] = function(id, v) if valid(id) then swcui.set(id, key, v) end end
   end
   return out
 end
+Swc.Define("UiLayoutCellBus", "Event", cell_accessors())
+Swc.Define("UiLayoutCellDefaultBus", "Event", {
+  GetMinWidth = function(id) return swcui.get(id, "cell.defaultMinWidth") end,
+  GetMinHeight = function(id) return swcui.get(id, "cell.defaultMinHeight") end,
+  GetTargetWidth = function(id) return swcui.get(id, "cell.defaultTargetWidth") end,
+  GetTargetHeight = function(id) return swcui.get(id, "cell.defaultTargetHeight") end,
+  GetExtraWidthRatio = function(id) return swcui.get(id, "cell.defaultExtraWidthRatio") end,
+  GetExtraHeightRatio = function(id) return swcui.get(id, "cell.defaultExtraHeightRatio") end,
+})
+Swc.Define("UiLayoutFitterBus", "Event", {
+  GetHorizontalFit = function(id) return valid(id) and swcui.get(id, "fitter.horizontal") or false end,
+  SetHorizontalFit = function(id, v) if valid(id) then swcui.set(id, "fitter.horizontal", v) end end,
+  GetVerticalFit = function(id) return valid(id) and swcui.get(id, "fitter.vertical") or false end,
+  SetVerticalFit = function(id, v) if valid(id) then swcui.set(id, "fitter.vertical", v) end end,
+})
 
-Swc.Define("UiLayoutCellBus", "Event", stored_accessors({"MinWidth", "MinHeight", "TargetWidth", "TargetHeight",
-  "ExtraWidthRatio", "ExtraHeightRatio"}))
-Swc.Define("UiLayoutFitterBus", "Event", stored_accessors({"HorizontalFit", "VerticalFit", "FitType"}))
+local function padding_of(id)
+  local l, t, r, b = swcui.get(id, "layout.padding")
+  return UiPadding(l or 0, t or 0, r or 0, b or 0)
+end
+
+local function line_layout(extra)
+  local out = {
+    GetPadding = function(id) return padding_of(id) end,
+    SetPadding = function(id, p) swcui.set(id, "layout.padding", p.left, p.top, p.right, p.bottom) end,
+    GetSpacing = function(id) return swcui.get(id, "layout.spacing") or 0 end,
+    SetSpacing = function(id, v) swcui.set(id, "layout.spacing", v) end,
+    GetOrder = function(id) return swcui.get(id, "layout.order") or 0 end,
+    SetOrder = function(id, v) swcui.set(id, "layout.order", v) end,
+    GetChildHorizontalAlignment = function(id) return swcui.get(id, "layout.hAlign") or 0 end,
+    SetChildHorizontalAlignment = function(id, v) swcui.set(id, "layout.hAlign", v) end,
+    GetChildVerticalAlignment = function(id) return swcui.get(id, "layout.vAlign") or 0 end,
+    SetChildVerticalAlignment = function(id, v) swcui.set(id, "layout.vAlign", v) end,
+    GetIgnoreDefaultLayoutCells = function(id) return swcui.get(id, "layout.ignoreDefaultCells") end,
+    SetIgnoreDefaultLayoutCells = function(id, v) swcui.set(id, "layout.ignoreDefaultCells", v) end,
+  }
+  for k, v in pairs(extra or {}) do
+    out[k] = v
+  end
+  return out
+end
+Swc.Define("UiLayoutRowBus", "Event", line_layout())
+Swc.Define("UiLayoutColumnBus", "Event", line_layout())
+Swc.Define("UiLayoutGridBus", "Event", line_layout({
+  GetSpacing = function(id) return V2(swcui.get(id, "layout.spacing")) end,
+  SetSpacing = function(id, v) swcui.set(id, "layout.spacing", v.x, v.y) end,
+  GetCellSize = function(id) return V2(swcui.get(id, "layout.cellSize")) end,
+  SetCellSize = function(id, v) swcui.set(id, "layout.cellSize", v.x, v.y) end,
+  GetHorizontalOrder = function(id) return swcui.get(id, "layout.horizontalOrder") or 0 end,
+  SetHorizontalOrder = function(id, v) swcui.set(id, "layout.horizontalOrder", v) end,
+  GetVerticalOrder = function(id) return swcui.get(id, "layout.order") or 0 end,
+  SetVerticalOrder = function(id, v) swcui.set(id, "layout.order", v) end,
+  GetStartingDirection = function(id) return swcui.get(id, "layout.startingWith") or 0 end,
+  SetStartingDirection = function(id, v) swcui.set(id, "layout.startingWith", v) end,
+}))
 Swc.Define("UiInteractableBus", "Event", {
   IsHandlingEvents = function(id) local v = store(id).handling if v == nil then return true end return v end,
   SetIsHandlingEvents = function(id, v) store(id).handling = v end,

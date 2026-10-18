@@ -275,9 +275,18 @@ int n_enabled(lua_State* L) {
 }
 
 int n_set_enabled(lua_State* L) {
-    Element* e = model_of(L).element(to_id(L, 1));
+    Model& model = model_of(L);
+    Element* e = model.element(to_id(L, 1));
     if (e != nullptr) {
-        e->enabled = lua_toboolean(L, 2) != 0;
+        const bool enabled = lua_toboolean(L, 2) != 0;
+        if (enabled != e->enabled) {
+            e->enabled = enabled;
+            // A layout of the fork with "visible only" places only the enabled children.
+            const Element* parent = model.element(e->parent);
+            if (parent != nullptr && parent->layout && parent->layout->visibleOnly) {
+                model.mark_layout(parent->id);
+            }
+        }
     }
     return 0;
 }
@@ -462,6 +471,146 @@ int n_viewport_points(lua_State* L) {
 }
 
 /** Fields of components: get(id, "component.field") and set(id, "component.field", values...). */
+// The layout components (UiLayoutRowBus, UiLayoutColumnBus, UiLayoutGridBus, UiLayoutCellBus, UiLayoutFitterBus). A cell
+// value that the element does not override reads as -1 (LyShine UiLayoutCellUnspecifiedSize).
+int get_layout(lua_State* L, Model& model, Element& e, const std::string& key) {
+    const Id id = e.id;
+    if (key.rfind("cell.", 0) == 0) {
+        const std::string f = key.substr(5);
+        if (f.rfind("default", 0) == 0) {
+            // UiLayoutCellDefaultBus: the values of the components of the element.
+            const std::string d = f.substr(7);
+            float v = 0.0F;
+            if (d == "MinWidth") v = model.cell_min_width(id, false);
+            else if (d == "MinHeight") v = model.cell_min_height(id, false);
+            else if (d == "TargetWidth") v = model.cell_target_width(id, false);
+            else if (d == "TargetHeight") v = model.cell_target_height(id, false);
+            else if (d == "ExtraWidthRatio") v = model.cell_extra_width_ratio(id, false);
+            else if (d == "ExtraHeightRatio") v = model.cell_extra_height_ratio(id, false);
+            else return luaL_error(L, "get: no field %s", key.c_str());
+            lua_pushnumber(L, v);
+            return 1;
+        }
+        if (!e.cell) {
+            lua_pushnumber(L, -1.0);
+            return 1;
+        }
+        const CellData& c = *e.cell;
+        const std::optional<float>* value = f == "minWidth" ? &c.minWidth : f == "minHeight" ? &c.minHeight
+                                            : f == "targetWidth" ? &c.targetWidth : f == "targetHeight" ? &c.targetHeight
+                                            : f == "extraWidthRatio" ? &c.extraWidthRatio : f == "extraHeightRatio" ? &c.extraHeightRatio
+                                            : nullptr;
+        if (value == nullptr) {
+            return luaL_error(L, "get: no field %s", key.c_str());
+        }
+        lua_pushnumber(L, value->value_or(-1.0F));
+        return 1;
+    }
+    if (key.rfind("fitter.", 0) == 0) {
+        lua_pushboolean(L, e.fitter && (key == "fitter.horizontal" ? e.fitter->horizontal : e.fitter->vertical));
+        return 1;
+    }
+    if (!e.layout) {
+        return 0;
+    }
+    const LayoutData& l = *e.layout;
+    const std::string f = key.substr(7);
+    if (f == "padding") {
+        lua_pushnumber(L, l.padding.left);
+        lua_pushnumber(L, l.padding.top);
+        lua_pushnumber(L, l.padding.right);
+        lua_pushnumber(L, l.padding.bottom);
+        return 4;
+    }
+    if (f == "spacing") {
+        if (l.kind == LayoutData::Kind::grid) return push_vec(L, l.spacing);
+        lua_pushnumber(L, l.spacing.x);
+        return 1;
+    }
+    if (f == "cellSize") return push_vec(L, l.cellSize);
+    if (f == "order") { lua_pushnumber(L, l.order); return 1; }
+    if (f == "horizontalOrder") { lua_pushnumber(L, l.horizontalOrder); return 1; }
+    if (f == "startingWith") { lua_pushnumber(L, l.startingWith); return 1; }
+    if (f == "hAlign") { lua_pushnumber(L, l.hAlign); return 1; }
+    if (f == "vAlign") { lua_pushnumber(L, l.vAlign); return 1; }
+    if (f == "ignoreDefaultCells") { lua_pushboolean(L, l.ignoreDefaultCells); return 1; }
+    if (f == "kind") {
+        lua_pushstring(L, l.kind == LayoutData::Kind::grid ? "grid" : l.kind == LayoutData::Kind::row ? "row" : "column");
+        return 1;
+    }
+    return luaL_error(L, "get: no field %s", key.c_str());
+}
+
+int set_layout(lua_State* L, Model& model, Element& e, const std::string& key) {
+    const Id id = e.id;
+    if (key.rfind("cell.", 0) == 0) {
+        if (!e.cell) {
+            return 0;
+        }
+        CellData& c = *e.cell;
+        const std::string f = key.substr(5);
+        std::optional<float>* value = f == "minWidth" ? &c.minWidth : f == "minHeight" ? &c.minHeight
+                                      : f == "targetWidth" ? &c.targetWidth : f == "targetHeight" ? &c.targetHeight
+                                      : f == "extraWidthRatio" ? &c.extraWidthRatio : f == "extraHeightRatio" ? &c.extraHeightRatio
+                                      : nullptr;
+        if (value == nullptr) {
+            return luaL_error(L, "set: no field %s", key.c_str());
+        }
+        const float v = arg_real(L, 3);
+        if (v < 0.0F) {
+            value->reset();   // a negative value: not overridden
+        } else {
+            *value = v;
+        }
+        model.mark_layout_cell_change(id, false);
+        return 0;
+    }
+    if (key.rfind("fitter.", 0) == 0) {
+        if (!e.fitter) {
+            return 0;
+        }
+        (key == "fitter.horizontal" ? e.fitter->horizontal : e.fitter->vertical) = lua_toboolean(L, 3) != 0;
+        model.mark_layout(id);
+        return 0;
+    }
+    if (!e.layout) {
+        return 0;
+    }
+    LayoutData& l = *e.layout;
+    const std::string f = key.substr(7);
+    bool cellChanges = false;
+    if (f == "padding") {
+        l.padding = {arg_real(L, 3), arg_real(L, 4), arg_real(L, 5), arg_real(L, 6)};
+        cellChanges = true;
+    } else if (f == "spacing") {
+        l.spacing = l.kind == LayoutData::Kind::grid ? Vec2{arg_real(L, 3), arg_real(L, 4)} : Vec2{arg_real(L, 3), 0.0F};
+        cellChanges = true;
+    } else if (f == "cellSize") {
+        l.cellSize = {arg_real(L, 3), arg_real(L, 4)};
+        cellChanges = true;
+    } else if (f == "order") {
+        l.order = static_cast<int>(luaL_checknumber(L, 3));
+    } else if (f == "horizontalOrder") {
+        l.horizontalOrder = static_cast<int>(luaL_checknumber(L, 3));
+    } else if (f == "startingWith") {
+        l.startingWith = static_cast<int>(luaL_checknumber(L, 3));
+    } else if (f == "hAlign") {
+        l.hAlign = static_cast<int>(luaL_checknumber(L, 3));
+    } else if (f == "vAlign") {
+        l.vAlign = static_cast<int>(luaL_checknumber(L, 3));
+    } else if (f == "ignoreDefaultCells") {
+        l.ignoreDefaultCells = lua_toboolean(L, 3) != 0;
+        cellChanges = true;
+    } else {
+        return luaL_error(L, "set: no field %s", key.c_str());
+    }
+    model.mark_layout(id);
+    if (cellChanges) {
+        model.mark_layout_cell_change(id, true);
+    }
+    return 0;
+}
+
 int n_get(lua_State* L) {
     Model& model = model_of(L);
     Element* e = model.element(to_id(L, 1));
@@ -590,6 +739,9 @@ int n_get(lua_State* L) {
         if (key == "mask.enabled") { lua_pushboolean(L, e->mask->enabled); return 1; }
         if (key == "mask.childMask") { push_id(L, e->mask->childMask); return 1; }
     }
+    if (key.rfind("layout.", 0) == 0 || key.rfind("cell.", 0) == 0 || key.rfind("fitter.", 0) == 0) {
+        return get_layout(L, model, *e, key);
+    }
     return luaL_error(L, "get: no field %s", key.c_str());
 }
 
@@ -609,6 +761,20 @@ int n_set(lua_State* L) {
     if (e == nullptr) {
         return 0;
     }
+    // A change of a text or of an image changes the default layout cell of the element (LyShine
+    // InvalidateParentLayout): the layouts that use it compute again.
+    struct CellChange {
+        Model& model;
+        Id id;
+        bool active;
+        ~CellChange() {
+            if (active) {
+                model.mark_layout_cell_change(id, true);
+            }
+        }
+    } cellChange{model, e->id,
+                 (key.rfind("text.", 0) == 0 && key != "text.color" && key != "text.alpha") || key == "image.sprite" ||
+                     key == "image.type" || key == "image.index"};
     TransformData& t = e->transform;
     if (key == "transform.anchors") { t.anchors = {arg_real(L, 3), arg_real(L, 4), arg_real(L, 5), arg_real(L, 6)}; return 0; }
     if (key == "transform.offsets") { t.offsets = {arg_real(L, 3), arg_real(L, 4), arg_real(L, 5), arg_real(L, 6)}; return 0; }
@@ -706,6 +872,9 @@ int n_set(lua_State* L) {
     if (key == "mask.enabled") {
         if (e->mask) e->mask->enabled = lua_toboolean(L, 3) != 0;
         return 0;
+    }
+    if (key.rfind("layout.", 0) == 0 || key.rfind("cell.", 0) == 0 || key.rfind("fitter.", 0) == 0) {
+        return set_layout(L, model, *e, key);
     }
     return luaL_error(L, "set: no field %s", key.c_str());
 }
@@ -825,6 +994,17 @@ int n_log(lua_State* L) {
 int n_clock(lua_State* L) {
     lua_pushnumber(L, runtime_of(L).clock());
     return 1;
+}
+
+// UiCanvasBus RecomputeChangedLayouts: the marked layouts now (else at the end of the frame).
+int n_update_layouts(lua_State* L) {
+    lua_pushnumber(L, model_of(L).update_layouts());
+    return 1;
+}
+
+int n_compute_layout(lua_State* L) {
+    model_of(L).compute_layout(to_id(L, 1));
+    return 0;
 }
 
 // The tests (tests/ui/fixtures): one frame of the runtime, and the draw list of the frame as a file for a picture.
@@ -968,7 +1148,7 @@ const luaL_Reg kNatives[] = {
     {"set", n_set}, {"load_canvas", n_load_canvas}, {"unload_canvas", n_unload_canvas}, {"find_canvas", n_find_canvas},
     {"canvases", n_canvases}, {"canvas_get", n_canvas_get}, {"canvas_set", n_canvas_set}, {"localize", n_localize},
     {"has_text", n_has_text}, {"crc32", n_crc32}, {"texture_exists", n_texture_exists}, {"stub", n_stub}, {"log", n_log},
-    {"clock", n_clock}, {"tick", n_tick}, {"write_draw", n_write_draw}, {"viewport", n_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
+    {"clock", n_clock}, {"tick", n_tick}, {"update_layouts", n_update_layouts}, {"compute_layout", n_compute_layout}, {"write_draw", n_write_draw}, {"viewport", n_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
     {"load_lua", n_load_lua}, {nullptr, nullptr}};
 
 } // namespace
@@ -1099,20 +1279,15 @@ void Runtime::tick(double deltaSeconds) {
     m_clock += deltaSeconds;
     ++m_counts.ticks;
     call("Tick", {Arg::of(deltaSeconds)});
+    // The canvas update after the scripts: the marked layouts and the layouts whose size changed.
+    m_model->update_layouts();
     for (std::string& line : m_model->take_log()) {
         note(line);
     }
 }
 
 void Runtime::build_draw_list(DrawList& out) {
-    struct Estimate final : TextMeasure {
-        float width(const std::string&, float size, float spacing, std::string_view text) override {
-            return static_cast<float>(text.size()) * size * (0.5F + spacing / 1000.0F);
-        }
-        float line_height(const std::string&, float size) override { return size; }
-    };
-    Estimate estimate;
-    swc::ui::build_draw_list(*m_model, m_measure != nullptr ? *m_measure : estimate, out);
+    swc::ui::build_draw_list(*m_model, m_model->text_measure(), out);
 }
 
 void Runtime::note_stub(const std::string& kind, const std::string& name, const std::string& where) {

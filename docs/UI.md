@@ -41,6 +41,7 @@ tools/convert-ui.sh fonts                  # fonts/fonts.json, fonts/effects.jso
 tools/convert-ui.sh text                   # localization/en-us.json
 tools/convert-ui.sh gamedata               # gamedata/abilities.json, gamedata/weapons.json
 tools/convert-ui.sh enums                  # gamedata/enums.json: the enum values of the client program
+tools/convert-ui.sh texture-index          # textures/index.json: sizes, borders, cells (no pixels)
 ```
 
 - Canvas (`.dynamicuicanvas`) and UI slice (`.dynamicslice`): an AZ object stream. A field id is the CRC-32 of the
@@ -79,6 +80,27 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   effects (the passes of a `.font` effect) draw in reverse order.
 - Draw list: textured triangles, text lines, and clip quads, in viewport pixels. The Slate widget and the preview draw
   the same list.
+
+### Layouts (Layout.cpp)
+
+- A row, a column, or a grid sets the anchors of each child to 0 and sets its offsets. A fitter gives its element the
+  target size of its own layout cell (the pivot keeps its place; stretched anchors join at their middle first).
+- A layout cell gives min, target, and extra ratio for each axis. A value that the element does not override comes from
+  the default cells of its components (with "ignore default cells" off): an image (Fixed: the texture size; Sliced: the
+  borders; StretchedToFit: the height for its width), a text (the widest line with no wrap; the height of the wrapped
+  lines), or a layout (row and column: padding, spacing, and the cells of the children; grid: the cells for its width).
+- Along a row or column: the targets when they fit; else the minimums, then the rest for the cells under their targets
+  (by the amount that each needs); the space that is left goes to the cells with an extra ratio. Across: the whole
+  space for a cell with an extra ratio, else its target.
+- The fork forms (fixed row and column): the children keep their sizes; the spacing is the step from one child start to
+  the next. "Visible only" (grid and fixed forms): only the enabled children.
+- The layout manager: a canvas load computes all layouts before the scripts activate. A child that comes or goes, a
+  change of a cell, of a text, of an image, or of a layout value, and a change of the size of a layout element mark the
+  layout. The marks compute at the end of the frame (after the tick of the scripts) or at
+  `UiCanvasBus.RecomputeChangedLayouts`: all widths first, then all heights, parents before children. A hidden canvas
+  keeps its marks.
+- `textures/index.json` (`tools/convert-ui.sh texture-index`) gives the size, borders, and cells of a texture that is not
+  converted yet: the default cells of images need them. Such a texture does not draw.
 
 ## The Lua host
 
@@ -180,6 +202,12 @@ frames, and checks values. The helpers are in `prelude.lua`: `check`, `equal`, `
 | --- | --- |
 | `enums` | The client table against the own values, the paperdoll slots of the protocol notes, the LyShine values, a name that the client does not have. |
 
+The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,
+and each UI slice spawns into one; the layouts compute; each child of a layout must have the offsets that the editor
+saved. Result: 959 layouts, 1,450 children, 0 differ. Not compared: 328 layouts or children with the default cells of
+texts (the offline tests have no font metrics) and 2 layouts whose saved child offsets are older than the last edit of
+their canvas (the saved size of the layout element does not give them).
+
 `tools/dev-build.sh` gives a preset of the backend (`--list` shows them) to the dev character. It uses the
 development routes of the backend (`--dev-commands`): only in a development session, never with the data folder of
 the user ([AGENTS.md](../AGENTS.md), rules).
@@ -198,5 +226,5 @@ the user ([AGENTS.md](../AGENTS.md), rules).
 - The mana cost of an ability comes from the mana cost table by AbilityID (an approximation).
 - The heart rune slot shows the icon of the rune. Its charge (`Hud.LocalPlayer.Vitals.ChargePercent`) has no source in
   the read path of the backend yet, thus the slot does not show the charge.
-- No layout components (the HUD uses none). A sprite mask clips with its quad, not with its alpha.
+- A sprite mask clips with its quad, not with its alpha.
 - Without a frame limit (`-nullrhi`), the runtime ticks with each frame.

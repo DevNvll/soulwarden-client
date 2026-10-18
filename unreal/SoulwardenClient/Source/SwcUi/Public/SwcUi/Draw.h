@@ -76,6 +76,13 @@ struct TextLayout {
 /** Lays out the text of an element in its rect (wrap, alignment, case, shrink to fit, ellipsis). */
 SWCUI_EXPORT TextLayout layout_text(Model& model, Id id, TextMeasure& measure);
 
+/** The size of the text of an element at its own font size with no shrink to fit (the default layout cell of a text):
+ *  the widest line with no wrap, and the height of the lines wrapped at the width of the rect. */
+SWCUI_EXPORT Vec2 text_natural_size(Model& model, Id id, TextMeasure& measure);
+
+/** The text metrics with no fonts: width = characters x size x 0.5 (the offline tests and the fallback). */
+SWCUI_EXPORT TextMeasure& estimate_text_measure();
+
 /** The text with no markup tags, in its case, as the renderer draws it. */
 SWCUI_EXPORT std::string display_text(const TextData& text);
 

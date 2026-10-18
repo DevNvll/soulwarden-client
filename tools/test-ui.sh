@@ -25,7 +25,7 @@ for part in SwcLua51 SwcLua51Os; do
 done
 nice -n 10 "${compiler}" -std=c++20 -O1 -g -fexceptions -Wall -Wextra -Wno-unused-parameter \
     -I"${module}/Public" -I"${module}/Private" -I"${lua}" \
-    "${SWC_REPO}/tests/ui/ui_tests.cpp" "${module}/Private/Json.cpp" "${module}/Private/Model.cpp" \
+    "${SWC_REPO}/tests/ui/ui_tests.cpp" "${module}/Private/Json.cpp" "${module}/Private/Model.cpp" "${module}/Private/Layout.cpp" \
     "${module}/Private/Draw.cpp" "${module}/Private/LuaHost.cpp" "${module}/Private/LuaSource.cpp" "${out}/SwcLua51.o" "${out}/SwcLua51Os.o" -o "${out}/swc-ui-tests"
 status=0
 rm -rf "${out}/reports/fixtures"

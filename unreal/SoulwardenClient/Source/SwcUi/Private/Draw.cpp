@@ -254,7 +254,7 @@ struct Walker {
         const Sprite* sprite = nullptr;
         if (!path.empty()) {
             sprite = &model.sprite(path);
-            if (!sprite->found) {
+            if (!sprite->converted) {
                 return;   // missing converted texture: nothing (the log names it)
             }
         }
@@ -652,6 +652,39 @@ TextLayout layout_text(Model& model, Id id, TextMeasure& measure) {
         y += lineHeight + text.lineSpacing;
     }
     return layout;
+}
+
+Vec2 text_natural_size(Model& model, Id id, TextMeasure& measure) {
+    const Element* e = model.element(id);
+    if (e == nullptr || !e->text) {
+        return {};
+    }
+    const TextData& text = *e->text;
+    const FontInfo* font = model.font(text.font);
+    const std::string file = font != nullptr ? font->file : std::string();
+    const Edges r = model.rect(id);
+    const float width = r.right - r.left;
+    const auto measure_line = [&](const std::string& line) { return measure.width(file, text.size, text.charSpacing, line); };
+    Vec2 size;
+    std::size_t count = 0;
+    for (const std::string& line : split_lines(display_text(text))) {
+        size.x = std::max(size.x, measure_line(line));
+        count += (text.wrap != kNoWrap && width > 0.0F) ? wrap_line(line, width, text.wrap == kWrapSplitWords, measure_line).size() : 1;
+    }
+    const float lineHeight = measure.line_height(file, text.size);
+    size.y = count == 0 ? 0.0F : lineHeight * static_cast<float>(count) + text.lineSpacing * static_cast<float>(count - 1);
+    return size;
+}
+
+TextMeasure& estimate_text_measure() {
+    struct Estimate final : TextMeasure {
+        float width(const std::string&, float size, float spacing, std::string_view text) override {
+            return static_cast<float>(text.size()) * size * (0.5F + spacing / 1000.0F);
+        }
+        float line_height(const std::string&, float size) override { return size; }
+    };
+    static Estimate estimate;
+    return estimate;
 }
 
 void build_draw_list(Model& model, TextMeasure& measure, DrawList& out) {

@@ -6,6 +6,7 @@ Usage (tools/convert-ui.sh; output in SWC_CONTENT/ui, never in git):
   canvases [PATH...|--all]  canvases (.dynamicuicanvas) and UI slices (.dynamicslice) -> canvases/<path>.json
   scripts                 each Lua script of the game (lyshineui/ and scripts/) -> scripts/<path>.luac (unchanged bytes)
   textures PATH...|--canvas PATH...|--folder PREFIX   textures -> textures/<path>.png (+ <path>.sprite.json)
+  texture-index           the sizes, borders, and cells of the textures of the converted canvases -> textures/index.json
   wanted [FILE]           the textures that the client asked for (default SWC_WORK/ui/wanted.json)
   fonts                   the .font files -> fonts/fonts.json, the font effects -> fonts/effects.json, the font files
   text                    the English texts (localization/en-us/*.loc.xml) -> localization/en-us.json
@@ -66,12 +67,12 @@ COMPONENTS = {
     "690bec14-3642-4247-bd96-fe414ccb7de7": "dynamicLayout", "7329dfe8-0f3c-4629-b395-78b2cf646b96": "button",
     "50b8cf6c-b19a-4d86-afe9-96efb820d422": "canvas", "3a1f597c-b374-44b1-a563-c7f7c6834269": "javelinCanvas",
     "7dfe5e32-fafb-4a19-8a57-e0b61419ad02": "progressBar", "2422ec06-9003-4165-a609-9d6ab90c2332": "imageRepeater",
+    "e7e9c0b0-f552-4008-e0b2-2aa78bc14034": "layoutColumnFixed", "661370c1-899a-4d56-364a-1d30f465469e": "layoutRowFixed",
 }
 OTHER_COMPONENTS = {
     "68d62281-b360-4426-aaca-e8bde8bfeb3a": "UiCheckboxComponent", "c96b1eef-033a-479b-829b-ed3555d0f33a": "UiDraggableComponent",
     "e4b8ace0-fce7-42d8-9836-942f910168b4": "UiDropTargetComponent", "bfc4d5a3-2f7c-4079-b19c-c2a06e93f343": "UiDropdownComponent",
     "6982c200-4d32-43cc-a7f6-f54fa50fcff5": "UiDynamicScrollBoxComponent", "965cdda3-ca50-4938-9088-0cd476942146": "UiExitHoverEventComponent",
-    "e7e9c0b0-f552-4008-e0b2-2aa78bc14034": "UiLayoutColumnFixedComponent", "661370c1-899a-4d56-364a-1d30f465469e": "UiLayoutRowFixedComponent",
     "ee5c91f4-3111-40d9-8549-fbd657fc326b": "UiMarkerComponent", "d7eb1706-75e8-4c94-a266-61913f42431b": "UiMarkupButtonComponent",
     "773a0f4b-f9f9-4b82-9951-bbd73a737de4": "UiRadioButtonComponent", "f89d5ef2-37c4-4ca7-9aa2-23dc3867ec9d": "UiRadioButtonGroupComponent",
     "6b283f90-3519-47da-a1dd-65a79ce119cf": "UiScrollBarComponent", "3ad4b591-438c-4e08-87b1-a686bcf49198": "UiScrollBarMouseWheelComponent",
@@ -391,6 +392,10 @@ def convert_entity(entity) -> tuple[dict, dict | None]:
             out.setdefault("scripts", []).append(read_script(c))
         elif name in ("layoutRow", "layoutColumn"):
             out[name] = read_line_layout(c)
+        elif name in ("layoutRowFixed", "layoutColumnFixed"):
+            # The fixed forms of the fork: the children keep their sizes (no padding, no cells).
+            out[name] = {"spacing": num(c, "Spacing"), "order": whole(c, "Order"), "hAlign": whole(c, "ChildHAlignment"),
+                         "vAlign": whole(c, "ChildVAlignment"), "visibleOnly": flag(c, "LayoutVisibleOnly")}
         elif name == "layoutGrid":
             out[name] = read_grid(c)
         elif name == "layoutCell":
@@ -601,6 +606,40 @@ def convert_textures(paths, force: bool = False) -> dict:
     return {"converted": count, "present": skipped, "failed": failed}
 
 
+def convert_texture_index() -> dict:
+    """textures/index.json: the size, the borders, and the cells of each texture that a converted canvas or slice
+    names (from the DDS header and the .sprite file; no pixels). The runtime takes the sizes from it when a texture is
+    not converted yet (the layout cells of images need them)."""
+    names: set[str] = set()
+    for file in (out_dir() / "canvases").rglob("*.json"):
+        doc = json.loads(file.read_text())
+        found, _, _, _ = references(doc)
+        names |= found
+    index = {}
+    failed = {}
+    for name in sorted(names):
+        path = name.lower().replace("\\", "/")
+        if not path.endswith(".dds"):
+            path = path.rsplit(".", 1)[0] + ".dds"
+        try:
+            head = source.read(path)
+            if head[:4] != b"DDS ":
+                raise ValueError("not a DDS file")
+            height, width = struct.unpack_from("<II", head, 12)
+        except Exception as error:  # noqa: BLE001
+            failed[path] = str(error)[:120]
+            continue
+        entry = {"size": [width, height]}
+        sprite = sprite_data(path)
+        if sprite is not None:
+            entry.update(sprite)
+        index[path.rsplit(".", 1)[0]] = entry
+    target = out_dir() / "textures"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "index.json").write_text(json.dumps(index, separators=(",", ":")))
+    return {"textures": len(index), "failed": len(failed)}
+
+
 def folder_textures(prefix: str) -> list[str]:
     return source.paks().paths(prefix.lower(), ".dds")
 
@@ -796,7 +835,8 @@ def hud(force: bool) -> dict:
     for folder in HUD_TEXTURE_FOLDERS:
         textures |= set(folder_textures(folder))
     result = {"canvases": canvases, "scripts": convert_scripts(), "fonts": convert_fonts(), "text": convert_text(),
-              "gamedata": convert_gamedata(), "enums": convert_enums(), "textures": convert_textures(textures, force)}
+              "gamedata": convert_gamedata(), "enums": convert_enums(), "textures": convert_textures(textures, force),
+              "texture index": convert_texture_index()}
     return result
 
 
@@ -814,6 +854,7 @@ def main(argv=None) -> int:
     sub.add_parser("text")
     sub.add_parser("gamedata")
     sub.add_parser("enums")
+    sub.add_parser("texture-index")
     args = parser.parse_args(argv)
     if args.command == "hud":
         result = hud(args.force)
@@ -842,6 +883,8 @@ def main(argv=None) -> int:
         result = convert_gamedata()
     elif args.command == "enums":
         result = convert_enums()
+    elif args.command == "texture-index":
+        result = convert_texture_index()
     else:
         result = convert_text()
     print(json.dumps(result, indent=1, default=str))

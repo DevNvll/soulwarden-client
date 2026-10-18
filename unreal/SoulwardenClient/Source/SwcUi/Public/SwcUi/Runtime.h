@@ -53,7 +53,10 @@ public:
 
     void set_viewport(float width, float height);
     /** The text metrics for the layout of the texts (GetTextWidth, wrap, shrink to fit). It stays owned by the caller. */
-    void set_text_measure(TextMeasure* measure) { m_measure = measure; }
+    void set_text_measure(TextMeasure* measure) {
+        m_measure = measure;
+        m_model->set_text_measure(measure);
+    }
 
     /** Calls a function of the emulation: Swc.<name>(arguments). The arguments are numbers, booleans, or texts.
      *  @return False when the call raised a Lua error (the log has it). */

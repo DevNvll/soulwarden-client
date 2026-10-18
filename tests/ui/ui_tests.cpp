@@ -15,6 +15,9 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <set>
+#include <unordered_map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -123,6 +126,131 @@ void core_tests(const std::string& tmp) {
 
 } // namespace
 
+/** The layout conformance: each canvas of the converted content loads into a model (no scripts); the layouts compute
+ *  as at a canvas load; each child of a layout must have the offsets that the editor saved in the canvas. Layouts that
+ *  use the default cells of texts are not compared (the offline tests have no font metrics), nor canvases that are not
+ *  1920 x 1080. @return The lines of the report. */
+std::vector<std::string> layout_conformance(const std::string& content) {
+    using namespace swc::ui;
+    std::vector<std::string> report;
+    int layouts = 0;
+    int children = 0;
+    int differ = 0;
+    int skippedText = 0;
+    int skippedStale = 0;
+    std::map<std::string, int> differByKind;
+    const std::filesystem::path root = std::filesystem::path(content) / "canvases";
+    std::vector<std::filesystem::path> files;
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+        if (entry.path().extension() == ".json") files.push_back(entry.path());
+    }
+    std::sort(files.begin(), files.end());
+    for (const std::filesystem::path& file : files) {
+        json::Value doc;
+        std::string error;
+        if (!json::parse_file(file.string(), doc, &error)) {
+            continue;
+        }
+        Model model(content);
+        model.set_viewport(1920.0F, 1080.0F);
+        const std::string path = doc["source"].text();
+        std::unordered_map<Id, Id> idMap;   // a slice: the ids of the data -> the ids of the spawn
+        if (doc["canvas"].is_object()) {
+            const json::Value& size = doc["canvas"]["size"];
+            if (size.size() != 2 || size[0].real() != 1920.0F || size[1].real() != 1080.0F) {
+                continue;
+            }
+            if (model.load_canvas(path, &error) == kNoId) {
+                report.push_back("load " + path + ": " + error);
+                continue;
+            }
+        } else {
+            // A UI slice: spawned into the root of a canvas of 1920 x 1080 (the globals canvas), then its layouts.
+            const Id host = model.load_canvas("lyshineui/globals.dynamicuicanvas", &error);
+            const Canvas* c = host != kNoId ? model.canvas(host) : nullptr;
+            const Id spawned = c != nullptr ? model.spawn_slice(path, c->root, nullptr, &error, &idMap) : kNoId;
+            if (spawned == kNoId) {
+                report.push_back("spawn " + path + ": " + error);
+                continue;
+            }
+            model.compute_layout(spawned);
+        }
+        std::unordered_map<std::string, const json::Value*> saved;
+        for (const json::Value& e : doc["elements"].elements()) saved[e["id"].text()] = &e;
+        const auto has_text = [&](Id id) {
+            for (const Id sub : model.subtree(id)) {
+                const Element* e = model.element(sub);
+                if (e != nullptr && e->text) return true;
+            }
+            return false;
+        };
+        const auto model_id = [&idMap](Id id) {
+            const auto found = idMap.find(id);
+            return found != idMap.end() ? found->second : id;
+        };
+        std::unordered_map<Id, Id> dataId;   // the id of the spawn -> the id of the data
+        for (const auto& [from, to] : idMap) dataId[to] = from;
+        for (const json::Value& data : doc["elements"].elements()) {
+            const Id id = model_id(parse_id(data["id"].text()));
+            const Element* e = model.element(id);
+            if (e == nullptr || !e->layout) continue;
+            bool textCells = false;
+            if (!e->layout->ignoreDefaultCells || e->fitter) {
+                for (const Id child : e->children) textCells = textCells || has_text(child);
+            }
+            if (textCells) {
+                ++skippedText;
+                continue;
+            }
+            // Two layouts whose saved child offsets are older than the last edit of the canvas (the saved size of the
+            // layout element does not give the saved child offsets; the game computes the layouts again at load).
+            static const std::set<std::string> stale = {"lyshineui/guildmenu/guild.dynamicuicanvas PermissionList",
+                                                        "lyshineui/main menu/landingscreenv2.dynamicuicanvas WorldInfoMessageHolder"};
+            if (stale.count(path + " " + e->name) != 0) {
+                ++skippedStale;
+                continue;
+            }
+            ++layouts;
+            const std::string kind = e->layout->kind == LayoutData::Kind::grid ? "grid"
+                                     : std::string(e->layout->kind == LayoutData::Kind::row ? "row" : "column") + (e->layout->fixed ? " fixed" : "");
+            for (const Id child : e->children) {
+                const Element* c = model.element(child);
+                const auto original = dataId.find(child);
+                const auto found = saved.find(std::to_string(original != dataId.end() ? original->second : child));
+                if (c == nullptr || found == saved.end()) continue;
+                if (c->fitter && has_text(child)) {
+                    ++skippedText;   // the fitter of the child takes the size of a text
+                    continue;
+                }
+                const json::Value& o = (*found->second)["transform"]["offsets"];
+                ++children;
+                const Edges& got = c->transform.offsets;
+                const float d = std::max({std::fabs(got.left - o[0].real()), std::fabs(got.top - o[1].real()),
+                                          std::fabs(got.right - o[2].real()), std::fabs(got.bottom - o[3].real())});
+                if (d > 0.05F) {
+                    ++differ;
+                    ++differByKind[kind];
+                    if (differ <= 12) {
+                        char line[512];
+                        std::snprintf(line, sizeof(line), "differ %s %s/%s (%s): got %.2f %.2f %.2f %.2f, saved %.2f %.2f %.2f %.2f", path.c_str(),
+                                      e->name.c_str(), c->name.c_str(), kind.c_str(), got.left, got.top, got.right, got.bottom, o[0].real(),
+                                      o[1].real(), o[2].real(), o[3].real());
+                        report.emplace_back(line);
+                    }
+                }
+            }
+        }
+    }
+    char line[256];
+    std::snprintf(line, sizeof(line),
+                  "layouts: %d layouts, %d children compared, %d differ; not compared: %d with text cells, %d with older saved offsets",
+                  layouts, children, differ, skippedText, skippedStale);
+    report.insert(report.begin(), line);
+    for (const auto& [kind, count] : differByKind) report.push_back("  differ by kind: " + kind + " " + std::to_string(count));
+    check(differ == 0, "the layout children have the offsets that the editor saved");
+    return report;
+}
+
 std::string read_file(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
     std::ostringstream text;
@@ -215,6 +343,9 @@ int main(int argc, char** argv) {
     }
     core_tests(reports + "/core-test-content");
     std::printf("core: %d checks, %d failed\n", g_checks, g_failed);
+    for (const std::string& line : layout_conformance(content)) {
+        std::printf("%s\n", line.c_str());
+    }
     if (onlyCore) {
         return g_failed == 0 ? 0 : 1;
     }

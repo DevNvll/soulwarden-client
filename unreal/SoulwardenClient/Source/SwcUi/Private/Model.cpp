@@ -304,7 +304,56 @@ void Model::read_element(const json::Value& data, Element& out) const {
         entry.properties = script["properties"];
         out.scripts.push_back(std::move(entry));
     }
-    for (const char* key : {"layoutRow", "layoutColumn", "layoutGrid", "layoutCell", "layoutFitter", "dynamicLayout", "progressBar"}) {
+    // The layouts: row and column (cells), the fixed forms of the fork, and the grid.
+    for (const char* key : {"layoutRow", "layoutColumn", "layoutRowFixed", "layoutColumnFixed", "layoutGrid"}) {
+        const json::Value& l = data[key];
+        if (!l.is_object()) {
+            continue;
+        }
+        const std::string kind = key;
+        LayoutData layout;
+        layout.kind = kind == "layoutGrid" ? LayoutData::Kind::grid
+                      : (kind == "layoutRow" || kind == "layoutRowFixed") ? LayoutData::Kind::row : LayoutData::Kind::column;
+        layout.fixed = kind.find("Fixed") != std::string::npos;
+        const json::Value& p = l["padding"];
+        if (p.size() == 4) {
+            layout.padding = {p[0].real(), p[1].real(), p[2].real(), p[3].real()};
+        }
+        if (layout.kind == LayoutData::Kind::grid) {
+            layout.spacing = vec_of(l["spacing"], {});
+            layout.cellSize = vec_of(l["cellSize"], {100.0F, 100.0F});
+            layout.horizontalOrder = l["hOrder"].integer();
+            layout.order = l["vOrder"].integer();
+            layout.startingWith = l["startingWith"].integer();
+        } else {
+            layout.spacing = {l["spacing"].real(), 0.0F};
+            layout.order = l["order"].integer();
+        }
+        layout.hAlign = l["hAlign"].integer();
+        layout.vAlign = l["vAlign"].integer();
+        layout.ignoreDefaultCells = l["ignoreDefaultCells"].boolean(true);
+        layout.visibleOnly = l["visibleOnly"].boolean(false);
+        out.layout = layout;
+    }
+    if (const json::Value& cell = data["layoutCell"]; cell.is_object()) {
+        CellData c;
+        auto read = [&cell](const char* key, std::optional<float>& value) {
+            if (cell[key].is_number()) {
+                value = cell[key].real();
+            }
+        };
+        read("minWidth", c.minWidth);
+        read("minHeight", c.minHeight);
+        read("targetWidth", c.targetWidth);
+        read("targetHeight", c.targetHeight);
+        read("extraWidthRatio", c.extraWidthRatio);
+        read("extraHeightRatio", c.extraHeightRatio);
+        out.cell = c;
+    }
+    if (const json::Value& f = data["layoutFitter"]; f.is_object()) {
+        out.fitter = FitterData{f["horizontal"].boolean(), f["vertical"].boolean()};
+    }
+    for (const char* key : {"dynamicLayout", "progressBar"}) {
         if (data[key].is_object()) {
             out.other.emplace_back(key);
         }
@@ -412,6 +461,9 @@ Id Model::load_canvas(const std::string& path, std::string* error) {
         }
         element.canvas = canvas.entity;
         ids.push_back(element.id);
+        if (element.layout) {
+            m_layoutElements.insert(element.id);
+        }
         m_elements.emplace(element.id, std::move(element));
     }
     for (const Id id : ids) {
@@ -437,7 +489,10 @@ Id Model::load_canvas(const std::string& path, std::string* error) {
         }
     }
     const Id canvasId = canvas.entity;
+    const Id rootId = canvas.root;
     m_canvases.emplace(canvasId, std::move(canvas));
+    // The layouts of the canvas, before the scripts activate (LyShine InitializeLayouts).
+    compute_layout(rootId);
     return canvasId;
 }
 
@@ -556,6 +611,9 @@ Id Model::clone_element(Id source, Id parent, Id before, std::vector<Id>* create
         if (copy.flipbook) {
             copy.flipbook->playing = false;
         }
+        if (copy.layout) {
+            m_layoutElements.insert(copy.id);
+        }
         m_elements.emplace(copy.id, std::move(copy));
         if (created != nullptr) {
             created->push_back(map[id]);
@@ -563,11 +621,13 @@ Id Model::clone_element(Id source, Id parent, Id before, std::vector<Id>* create
     }
     if (target != nullptr) {
         insert_child(*target, map[source], before);
+        child_list_changed(parent);
     }
     return map[source];
 }
 
-Id Model::spawn_slice(const std::string& slicePath, Id parent, std::vector<Id>* created, std::string* error) {
+Id Model::spawn_slice(const std::string& slicePath, Id parent, std::vector<Id>* created, std::string* error,
+                      std::unordered_map<Id, Id>* idMap) {
     const Template* entry = load_template(slicePath, error);
     if (entry == nullptr) {
         return kNoId;
@@ -599,6 +659,9 @@ Id Model::spawn_slice(const std::string& slicePath, Id parent, std::vector<Id>* 
         }
         element.canvas = canvasId;
         ids.push_back(element.id);
+        if (element.layout) {
+            m_layoutElements.insert(element.id);
+        }
         m_elements.emplace(element.id, std::move(element));
     }
     for (const Id id : ids) {
@@ -618,11 +681,15 @@ Id Model::spawn_slice(const std::string& slicePath, Id parent, std::vector<Id>* 
     if (Element* r = element(root); r != nullptr && target != nullptr) {
         r->parent = parent;
         insert_child(*target, root, kNoId);
+        child_list_changed(parent);
     }
     if (created != nullptr) {
         for (const Id id : subtree(root)) {
             created->push_back(id);
         }
+    }
+    if (idMap != nullptr) {
+        *idMap = map;
     }
     return root;
 }
@@ -638,6 +705,7 @@ Id Model::create_element(const std::string& name, Id parent, Id before) {
     m_elements.emplace(id, std::move(e));
     if (target != nullptr) {
         insert_child(*target, id, before);
+        child_list_changed(parent);
     }
     return id;
 }
@@ -654,6 +722,9 @@ void Model::destroy_recursive(Id id, std::vector<Id>* destroyed) {
     if (destroyed != nullptr) {
         destroyed->push_back(id);
     }
+    m_layoutElements.erase(id);
+    m_layoutSizes.erase(id);
+    m_layoutMarks.erase(std::remove(m_layoutMarks.begin(), m_layoutMarks.end(), id), m_layoutMarks.end());
     m_elements.erase(id);
 }
 
@@ -662,10 +733,12 @@ void Model::destroy_element(Id id, std::vector<Id>* destroyed) {
     if (e == nullptr) {
         return;
     }
-    if (Element* parent = element(e->parent)) {
+    const Id parentId = e->parent;
+    if (Element* parent = element(parentId)) {
         parent->children.erase(std::remove(parent->children.begin(), parent->children.end(), id), parent->children.end());
     }
     destroy_recursive(id, destroyed);
+    child_list_changed(parentId);
 }
 
 bool Model::reparent(Id id, Id parent, Id before) {
@@ -682,11 +755,14 @@ bool Model::reparent(Id id, Id parent, Id before) {
         const Element* p = element(at);
         at = p != nullptr ? p->parent : kNoId;
     }
-    if (Element* old = element(e->parent)) {
+    const Id oldParent = e->parent;
+    if (Element* old = element(oldParent)) {
         old->children.erase(std::remove(old->children.begin(), old->children.end(), id), old->children.end());
     }
     e->parent = parent;
     insert_child(*target, id, before);
+    child_list_changed(oldParent);
+    child_list_changed(parent);
     if (e->canvas != target->canvas) {
         for (const Id sub : subtree(id)) {
             element(sub)->canvas = target->canvas;
@@ -971,22 +1047,38 @@ const Sprite& Model::sprite(const std::string& texturePath) {
     }
     Sprite sprite;
     sprite.file = m_contentDir + "/textures/" + stem + ".png";
+    const auto read_side = [&sprite](const json::Value& side) {
+        sprite.borders = edges_of(side["borders"], sprite.borders);
+        for (const json::Value& cell : side["cells"].elements()) {
+            Sprite::Cell c;
+            c.uv = edges_of(cell["uv"], c.uv);
+            c.borders = edges_of(cell["borders"], c.borders);
+            c.alias = cell["alias"].text();
+            sprite.cells.push_back(c);
+        }
+    };
     if (png_size(sprite.file, sprite.width, sprite.height)) {
         sprite.found = true;
+        sprite.converted = true;
         json::Value side;
         if (json::parse_file(m_contentDir + "/textures/" + stem + ".sprite.json", side)) {
-            sprite.borders = edges_of(side["borders"], sprite.borders);
-            for (const json::Value& cell : side["cells"].elements()) {
-                Sprite::Cell c;
-                c.uv = edges_of(cell["uv"], c.uv);
-                c.borders = edges_of(cell["borders"], c.borders);
-                c.alias = cell["alias"].text();
-                sprite.cells.push_back(c);
-            }
+            read_side(side);
         }
     } else {
         m_missingTextures.insert(stem + ".dds");
         log("texture " + stem + ".dds is not in the converted content (tools/convert-ui.sh wanted)");
+        // The size, borders, and cells of the index (the layout cells of images need them).
+        if (!m_textureIndexLoaded) {
+            m_textureIndexLoaded = true;
+            json::parse_file(m_contentDir + "/textures/index.json", m_textureIndex);
+        }
+        const json::Value& entry = m_textureIndex[stem];
+        if (entry.is_object() && entry["size"].size() == 2) {
+            sprite.found = true;
+            sprite.width = entry["size"][0].real();
+            sprite.height = entry["size"][1].real();
+            read_side(entry);
+        }
     }
     return m_sprites.emplace(stem, std::move(sprite)).first->second;
 }
