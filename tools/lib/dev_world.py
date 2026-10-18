@@ -22,6 +22,12 @@ Usage (tools/creature-world.sh):
   bags                               the loot bags of the character
   shoot CREATURE                     the creature starts its basic shot at the character now (stage 3.4f-A)
   area CREATURE                      the creature starts its next area attack at the character now (stage 3.4f-C)
+  hurt AMOUNT                        damage of the character (an amount at or above its health kills it: the death, stage P2.10)
+  travel X Y Z [auto|on|off]         a travel of the character to a place (engine m; the loading screen rule of the backend)
+  travel PLACE [auto|on|off]         a travel to a travel place of the game data (shrine_40170, inn_40300)
+  fixture NAME [DX DY DZ]            a fixture of the backend at the character (powderKeg: the timed use "Ignite Fuse", 5 s)
+  remove-object ENTITY               removes a server child (the entity of the fixture reply, 16 hex digits)
+  cancel                             the server ends the interaction of the character (3746)
   script FILE [--clock LOG]          a timed list of these commands: "SECONDS COMMAND WORDS..." each line (the seconds from
                                      now, or on the clock of the drive script in the client log LOG: its "drive: SECONDS s"
                                      lines; a drive line "SECONDS tick" is a clock mark that does nothing)
@@ -156,6 +162,23 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "POST", f"/v1/dev/world/heal?character={character(folder)}")
     if command == "ignore" and rest and rest[0] in ("on", "off"):
         return request(folder, "POST", f"/v1/dev/world/ignore?character={character(folder)}&ignore={1 if rest[0] == 'on' else 0}")
+    # The life, the travel, and the interactions (stage P2.10; the routes of ~/Developer/azoth/tools/world, protocol notes 4.16,
+    # 4.18, 4.36).
+    if command == "hurt" and len(rest) == 1:
+        return request(folder, "POST", f"/v1/dev/world/hurt?character={character(folder)}&amount={float(rest[0])}")
+    if command == "travel" and len(rest) in (1, 2, 3, 4):
+        screen = f"&screen={rest[-1]}" if rest[-1] in ("auto", "on", "off") else ""
+        place = [word for word in rest if word not in ("auto", "on", "off")]
+        target = f"x={float(place[0])}&y={float(place[1])}&z={float(place[2])}" if len(place) == 3 else f"place={place[0]}"
+        return request(folder, "POST", f"/v1/dev/world/travel?character={character(folder)}&{target}{screen}")
+    if command == "fixture" and len(rest) in (1, 4):
+        offset = f"&dx={float(rest[1])}&dy={float(rest[2])}&dz={float(rest[3])}" if len(rest) == 4 else ""
+        # The rule 1 of the Ownership state gives the prompt (the rule 4 of the data: "No public access.").
+        return request(folder, "POST", f"/v1/dev/interactions/fixture?character={character(folder)}&name={rest[0]}{offset}&permission=1")
+    if command == "remove-object" and len(rest) == 1:
+        return request(folder, "POST", f"/v1/dev/interactions/remove?character={character(folder)}&entity={rest[0]}")
+    if command == "cancel":
+        return request(folder, "POST", f"/v1/dev/interactions/cancel?character={character(folder)}")
     fail(f"unknown command {' '.join(words)}")
     return None
 
