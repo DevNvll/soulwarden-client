@@ -7,7 +7,9 @@ level and the client load the same assets.
 - A base (one for each gender): the skeleton, the base mesh, the physics asset, and the clips (the default glTF pipeline).
 - A part: one skeletal mesh on the skeleton of the base of its gender (a copy of the glTF asset pipeline with that
   skeleton, no physics asset, no animation). The client attaches it to the base with Leader Pose.
-- A weapon: one static mesh (the default glTF pipeline). The client attaches it to a bone attachment of the base.
+- A weapon: one static mesh (a copy of the glTF asset pipeline with no mesh distance field and no Lumen cards, as the world
+  meshes: the look is not a goal now, and a run then does not build them). The client attaches it to a bone attachment of the
+  base. A weapon of an earlier pipeline (no mark WEAPON_PIPELINE in imported.json) is imported again one time.
 - A clip pack (stage P2.7): the clips of one weapon tag set as animations on the skeleton of the base of its gender (a copy
   of the glTF asset pipeline with that skeleton and "import only animations"). The client plays them on the base.
 
@@ -31,6 +33,8 @@ manager = unreal.InterchangeManager.get_interchange_manager_scripted()
 GLTF_ASSETS = "/Interchange/Pipelines/DefaultGLTFAssetsPipeline"
 GLTF_MATERIALS = "/Interchange/Pipelines/DefaultGLTFPipeline"
 PIPELINES = "/SwcGameContent/Player/Pipelines"
+# The mark of the weapon pipeline with no mesh distance field and no Lumen cards (a weapon with an older mark imports again).
+WEAPON_PIPELINE = "no-distance-field-1"
 # A commandlet does not scan the content of a plugin: scan it before any question to the asset registry.
 unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(["/SwcGameContent"], True)
 
@@ -58,6 +62,20 @@ def part_pipeline(gender, skeleton):
     mesh.set_editor_property("create_physics_asset", False)
     animation = pipeline.get_editor_property("animation_pipeline")
     animation.set_editor_property("import_animations", False)
+    assets.save_loaded_asset(pipeline)
+    return unreal.SoftObjectPath(pipeline.get_path_name())
+
+
+def weapon_pipeline():
+    """@return The soft path of the pipeline of the weapons: no mesh distance field, no Lumen cards (import_content.py does the
+    same for the world meshes)."""
+    path = f"{PIPELINES}/WeaponAssets"
+    pipeline = unreal.load_asset(path) if assets.does_asset_exist(path) else None
+    if pipeline is None:
+        pipeline = assets.duplicate_loaded_asset(unreal.load_asset(GLTF_ASSETS), path)
+    mesh = pipeline.get_editor_property("mesh_pipeline")
+    mesh.set_editor_property("distance_field_resolution_scale", 0.0)
+    mesh.set_editor_property("max_lumen_mesh_cards", 0)
     assets.save_loaded_asset(pipeline)
     return unreal.SoftObjectPath(pipeline.get_path_name())
 
@@ -109,7 +127,8 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
     # A file that the converter wrote again (a new time) is imported again, onto the same assets.
     stamp = os.path.getmtime(path) if os.path.isfile(path) else 0
     known = imported["assets"].get(key, {})
-    if not force and known and known.get("_source") == stamp and assets.list_assets(destination, recursive=True):
+    current = known.get("_pipeline") == WEAPON_PIPELINE if kind == "weapon" else True
+    if not force and known and known.get("_source") == stamp and current and assets.list_assets(destination, recursive=True):
         skipped += 1
         if kind == "base":
             skeletons[entry["gender"]] = known["Skeleton"][0]
@@ -131,13 +150,17 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
             clip_pipelines[gender] = clip_pipeline(gender, unreal.load_asset(skeletons[gender]))
         import_file(path, destination, [clip_pipelines[gender]])
     else:
-        import_file(path, destination)
+        if "weapon" not in pipelines:
+            pipelines["weapon"] = weapon_pipeline()
+        import_file(path, destination, [pipelines["weapon"], unreal.SoftObjectPath(GLTF_MATERIALS)])
     found = objects_in(destination)
     wanted = {"base": "Skeleton", "part": "SkeletalMesh", "weapon": "StaticMesh", "clips": "AnimSequence"}[kind]
     if wanted not in found:
         failed.append(key)
         continue
     found["_source"] = stamp
+    if kind == "weapon":
+        found["_pipeline"] = WEAPON_PIPELINE
     imported["assets"][key] = found
     if kind == "base":
         skeletons[entry["gender"]] = found["Skeleton"][0]
