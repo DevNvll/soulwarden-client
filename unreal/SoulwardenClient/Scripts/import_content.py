@@ -16,6 +16,7 @@ Incremental: SWC_GAME_CONTENT/import-state.json keeps the hash of each imported 
 hash changed (a new conversion) or SWC_IMPORT_FORCE=1.
 Environment: SWC_CONTENT, SWC_GAME_CONTENT, SWC_IMPORT_FILTER (a text that the asset key must contain),
 SWC_IMPORT_REGIONS (region names: only the meshes of these regions and their materials and textures),
+SWC_IMPORT_KEYS (a file with a JSON list of manifest keys: only these assets and their materials and textures),
 SWC_IMPORT_FORCE=1, SWC_IMPORT_MAX_SECONDS (stop after the batch that passes this time: the report has
 "incomplete": true, and a next call continues; a long import releases the lock between calls).
 """
@@ -29,6 +30,8 @@ content = os.environ["SWC_CONTENT"]
 plugin = os.environ["SWC_GAME_CONTENT"]
 wanted = os.environ.get("SWC_IMPORT_FILTER", "")
 regions = os.environ.get("SWC_IMPORT_REGIONS", "").split()
+keys_file = os.environ.get("SWC_IMPORT_KEYS", "")
+listed = set(json.load(open(keys_file))) if keys_file else set()
 force = os.environ.get("SWC_IMPORT_FORCE", "") == "1"
 max_seconds = float(os.environ.get("SWC_IMPORT_MAX_SECONDS") or 0)
 manifest = json.load(open(os.path.join(content, "manifest.json")))["assets"]
@@ -98,6 +101,8 @@ for key, entry in manifest.items():
     if entry["kind"] in ("texture", "material"):
         continue
     if regions and key not in selected:
+        continue
+    if keys_file and key not in listed:
         continue
     if wanted and wanted not in key:
         continue
