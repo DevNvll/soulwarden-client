@@ -660,6 +660,9 @@ void RepClient::send_input(Clock::time_point now) {
             m_pressSerial = m_motion->pressSerial;
             entry.actionBits.insert(entry.actionBits.end(), m_motion->pressBits.begin(), m_motion->pressBits.end());
         }
+        if (m_options.inputStep) {
+            m_options.inputStep(static_cast<std::uint16_t>(entry.sequence), steady_ns(now), entry.actionBits);
+        }
     } else {
         m_hasReported = false;
         // The camera of a character at rest at its position, north, no pitch: the camera estimate of the backend keeps

@@ -1,0 +1,31 @@
+# The actions of stage P2.7 (docs/ACTIONS.md) with Swordwarden (1hSwordT2 in slot 24, 1hShieldAT2 in 27, 2hGreatSwordT2 in 25).
+# The camera goes to the side in free look (the attacks face the direction of the camera at the free look start).
+# Times in seconds from the possession of the character.
+# SWC_SESSION_BACKEND_ARGS=--dev-commands tools/dev-run.sh --window --enter Swordwarden --quit-when world --stay 24 -- -SwcDrive=$PWD/tests/drive/actions.txt
+1.0 key 1
+2.0 move 0 1
+3.0 move 0 0
+3.6 freelook 1
+3.6 turn 75
+4.8 turn 0
+# The light chain: a click, a click in the buffered window of each swing (Attack_Primary 0.333 to 0.533 s; Strike2 0.167 to
+# 0.433 s): Attack_Primary, Attack_Primary_Strike2, Attack_Primary_Strike3.
+5.5 click
+5.9 click
+6.3 click
+# The partial heavy attack: the release 0.4 s after the press (Attack_Primary_Released 0.333 to 0.667 s): Attack_Heavy.
+9.0 attack 1
+9.4 attack 0
+# The full charge: a hold of 1 s (the charge is full at 0.667 s): Attack_Heavy_Charged.
+11.0 attack 1
+12.0 attack 0
+# The buffered weapon swap: a swing, the key 2 at 0.4 s, a click after it: the switch at the switch mark of the swing
+# (CanUnsheathe 0.767 s), then the swing of the greatsword 3 steps after the switch with the kept press. (The events are
+# 0.2 s apart or more: at a low frame rate two events of one frame come in one input step.)
+14.0 click
+14.4 key 2
+14.6 click
+# The greatsword chain, then the sheathe key.
+17.5 click
+18.0 click
+21.0 key sheathe

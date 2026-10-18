@@ -78,7 +78,7 @@ color, the face mark, the scar, the tattoo (the layers of the head material), th
   and the animation.
 - Each part is one more `USkeletalMeshComponent` with `SetLeaderPoseComponent(leader)`.
 - The weapons, the shield, and the quiver are static meshes on bone attachments of the leader; the cloth parts of an
-  armor (capes, skirts) are parts. [GEAR.md](GEAR.md) has the rules.
+  armor (capes, skirts) are parts. [GEAR.md](GEAR.md) has the rules, [ACTIONS.md](ACTIONS.md) the actions of the weapons.
 - The mesh has a yaw of +90 degrees on the actor: the imported body then faces the forward vector of the actor (the
   facing of the movement state through the space map of `Net/SwcSpace.h`, proved by stage 1.1).
 - The capsule of the player slice: radius 0.41 m, half height 0.81 m (stage 1.7).

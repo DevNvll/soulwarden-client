@@ -9,6 +9,7 @@ class FSwcLocomotion;
 class USkeletalMeshComponent;
 class UStaticMeshComponent;
 class USwcCharacterMovement;
+class USwcPlayerActions;
 
 /**
  * The character of a player: the modular body of the retail client (player_<gender>.cdf). The mesh of the character is
@@ -44,17 +45,20 @@ public:
 	 */
 	void SetWeaponState(uint32 ActiveSlot, bool bDrawn);
 	/**
-	 * A draw or a sheathe of the keys: the logical state changes at once; each gear part goes to its new place at the
-	 * marker time of the Mannequin data (gear.md "Active, sheathed, and attached are separate states"). A switch from a
-	 * drawn weapon to another one sheathes the first one, then draws the second one after that sheathe marker.
+	 * The logical weapon state only (gear.md "Active, sheathed, and attached are separate states"): the actions of the
+	 * player (USwcPlayerActions) move each gear part at the mark of its draw or sheathe fragment.
 	 */
-	void RequestWeaponState(uint32 ActiveSlot, bool bDrawn);
+	void SetLogicalWeaponState(uint32 ActiveSlot, bool bDrawn);
 	uint32 GetActiveWeaponSlot() const { return ActiveWeaponSlot; }
 	bool IsWeaponDrawn() const { return bWeaponDrawn; }
-	/** @return True when a weapon slot (24 to 26) has a weapon. */
+	/** @return True when a weapon slot (24 to 26, or an off-hand slot 27 to 29) has a weapon with a mesh. */
 	bool HasWeapon(uint32 Slot) const;
+	/** The gear parts with a mesh, and the physical place of one part (true: the hand). */
+	const TArray<FSwcGearPart>& GetGearParts() const { return GearParts; }
+	void PlaceGear(int32 Index, bool bInHand);
 
 	USwcCharacterMovement* GetSwcMovement() const;
+	USwcPlayerActions* GetActions() const { return Actions; }
 	/** The feet of the character (the bottom of the capsule). */
 	FVector GetFeetLocation() const;
 
@@ -64,10 +68,10 @@ private:
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> Gear;
 	TArray<FSwcGearPart> GearParts;
-	/** The physical place of each gear part (true: the hand), and its timer of a move to come. */
+	/** The physical place of each gear part (true: the hand). */
 	TArray<bool> GearInHand;
-	TArray<FTimerHandle> GearTimers;
-	void PlaceGear(int32 Index, bool bInHand);
+	UPROPERTY()
+	TObjectPtr<USwcPlayerActions> Actions;
 	uint32 ActiveWeaponSlot = 0;
 	bool bWeaponDrawn = false;
 };

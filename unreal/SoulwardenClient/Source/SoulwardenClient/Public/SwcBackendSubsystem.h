@@ -5,12 +5,21 @@
 #include "Character/SwcCharacterMovement.h"
 #include "Net/Codec/SwcRepClient.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+
+#include <memory>
+
 #include "SwcBackendSubsystem.generated.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogSwcBackend, Log, All);
 
+namespace swc::combat
+{
+class Driver;
+}
+
 class AActor;
 class ASwcPlayerCharacter;
+class FSwcActions;
 class FSwcLocomotion;
 class FSwcLoginClient;
 class FSwcPlayerLooks;
@@ -112,6 +121,9 @@ private:
 	TSharedPtr<FSwcPlayerLooks> Looks;
 	/** The locomotion data of each gender (index 0 male, 1 female), read at the first use. */
 	TSharedPtr<FSwcLocomotion> Locomotions[2];
+	/** The actions of the weapons (actions.json, read at the first use) and the attack driver of the session (stage P2.7). */
+	TSharedPtr<FSwcActions> Actions;
+	std::shared_ptr<swc::combat::Driver> AttackDriver;
 	/** The level has no ground at the spawn: the test floor of the movement (Character/SwcTestFloor). */
 	bool bTestFloor = false;
 	bool bWaitForFloor = false;

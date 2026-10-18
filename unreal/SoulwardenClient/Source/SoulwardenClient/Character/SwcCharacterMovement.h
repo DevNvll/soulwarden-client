@@ -47,6 +47,16 @@ public:
 	void SetPermissions(uint8 DataBits, uint8 MoreDataBits);
 	/** The locomotion data: the root motion of the jump clips and the markers of the fragments. */
 	void SetLocomotion(const TSharedPtr<FSwcLocomotion>& Data);
+	/**
+	 * An action of the full body (an attack) moves the character: the horizontal velocity of this frame (cm/s; the root
+	 * track of its fragment, AnimationDrivenMotion, docs/ACTIONS.md). While it plays, the move keys do not move the
+	 * character, the jump key does nothing, and the strafe turn stops (the action turns the character).
+	 */
+	void SetActionMotion(bool bActive, const FVector& HorizontalVelocity);
+	bool IsActionMotion() const { return bActionMotion; }
+	/** The camera yaw of the input (Unreal degrees) and the move keys (x right, y forward). */
+	double GetCameraYaw() const { return CameraYaw; }
+	FVector2D GetMoveInput() const { return Input; }
 
 	ESwcMove GetMoveState() const { return Move; }
 	/** The fragment of the Mannequin data that the animation plays (locomotion.json). */
@@ -109,4 +119,6 @@ private:
 	float TurnSpeed = 0.0f;
 	/** The horizontal velocity of the data on the ground (cm/s). */
 	FVector GroundVelocity = FVector::ZeroVector;
+	bool bActionMotion = false;
+	FVector ActionVelocity = FVector::ZeroVector;
 };

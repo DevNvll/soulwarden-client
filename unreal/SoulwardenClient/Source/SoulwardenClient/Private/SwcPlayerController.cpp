@@ -1,6 +1,7 @@
 #include "SwcPlayerController.h"
 
 #include "Character/SwcCharacterMovement.h"
+#include "Character/SwcPlayerActions.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -91,6 +92,7 @@ void ASwcPlayerController::SetupInputComponent()
 	Weapon1Action = MakeAction(this, TEXT("IA_Weapon1"), EInputActionValueType::Boolean);
 	Weapon2Action = MakeAction(this, TEXT("IA_Weapon2"), EInputActionValueType::Boolean);
 	SheatheAction = MakeAction(this, TEXT("IA_Sheathe"), EInputActionValueType::Boolean);
+	AttackAction = MakeAction(this, TEXT("IA_AttackPrimary"), EInputActionValueType::Boolean);
 	MovementContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Movement"));
 	MapAxisKey(MovementContext, MoveAction, EKeys::W, true, false);
 	MapAxisKey(MovementContext, MoveAction, EKeys::S, true, true);
@@ -105,6 +107,7 @@ void ASwcPlayerController::SetupInputComponent()
 	MovementContext->MapKey(Weapon1Action, EKeys::One);
 	MovementContext->MapKey(Weapon2Action, EKeys::Two);
 	MovementContext->MapKey(SheatheAction, EKeys::Tilde);
+	MovementContext->MapKey(AttackAction, EKeys::LeftMouseButton);
 	if (UEnhancedInputComponent* Enhanced = Cast<UEnhancedInputComponent>(InputComponent))
 	{
 		Enhanced->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ASwcPlayerController::OnMove);
@@ -120,6 +123,8 @@ void ASwcPlayerController::SetupInputComponent()
 		Enhanced->BindAction(Weapon1Action, ETriggerEvent::Started, this, &ASwcPlayerController::OnWeapon1);
 		Enhanced->BindAction(Weapon2Action, ETriggerEvent::Started, this, &ASwcPlayerController::OnWeapon2);
 		Enhanced->BindAction(SheatheAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnSheathe);
+		Enhanced->BindAction(AttackAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnAttack);
+		Enhanced->BindAction(AttackAction, ETriggerEvent::Completed, this, &ASwcPlayerController::OnAttackEnd);
 	}
 	else
 	{
@@ -238,17 +243,14 @@ void ASwcPlayerController::OnFreeLookEnd(const FInputActionValue&)
 void ASwcPlayerController::UseWeapon(uint32 Slot, const TArray<uint32>& Bits)
 {
 	// The weapon keys reach the server in the input report (Use_MainHandSlot_N and quickslot-weaponN; protocol notes 4.15).
-	// The client draws the weapon itself (the action lists of Unsheathe_MainHand_N: a key draws the weapon of its slot
-	// when that weapon is not the drawn one; the backend has no draw, protocol notes 4.11).
+	// The client draws the weapon itself (the action lists of Unsheathe_MainHand_N; the backend has no draw, protocol notes
+	// 4.11); a key of the other weapon switches at the step of the attack driver (docs/ACTIONS.md).
 	PressBits = Bits;
 	++PressSerial;
-	ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn());
-	if (Character == nullptr || !Character->HasWeapon(Slot) || (Character->GetActiveWeaponSlot() == Slot && Character->IsWeaponDrawn()))
+	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
 	{
-		return;
+		Character->GetActions()->OnWeaponKey(Slot);
 	}
-	UE_LOG(LogSwcBackend, Log, TEXT("weapon: key for slot %u: draw"), Slot);
-	Character->RequestWeaponState(Slot, true);
 }
 
 void ASwcPlayerController::OnWeapon1(const FInputActionValue&)
@@ -264,12 +266,25 @@ void ASwcPlayerController::OnWeapon2(const FInputActionValue&)
 void ASwcPlayerController::OnSheathe(const FInputActionValue&)
 {
 	// The sheathe key changes the active weapon between the hand and its sheath (its bit is not known: no bit).
-	ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn());
-	if (Character != nullptr && Character->GetActiveWeaponSlot() != 0)
+	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
 	{
-		UE_LOG(LogSwcBackend, Log, TEXT("weapon: sheathe key: slot %u %s"), Character->GetActiveWeaponSlot(),
-			Character->IsWeaponDrawn() ? TEXT("sheathe") : TEXT("draw"));
-		Character->RequestWeaponState(Character->GetActiveWeaponSlot(), !Character->IsWeaponDrawn());
+		Character->GetActions()->OnSheatheKey();
+	}
+}
+
+void ASwcPlayerController::OnAttack(const FInputActionValue&)
+{
+	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
+	{
+		Character->GetActions()->OnAttackButton(true);
+	}
+}
+
+void ASwcPlayerController::OnAttackEnd(const FInputActionValue&)
+{
+	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
+	{
+		Character->GetActions()->OnAttackButton(false);
 	}
 }
 
@@ -319,6 +334,11 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 		return;
 	}
 	const double Time = GetWorld()->GetTimeSeconds() - DriveStart;
+	if (bDriveClick)
+	{
+		bDriveClick = false;
+		Input->StopContinuousInputInjectionForAction(AttackAction);
+	}
 	while (DriveNext < Drive.Num() && Drive[DriveNext].Time <= Time)
 	{
 		const FDriveStep& Step = Drive[DriveNext++];
@@ -375,6 +395,18 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 		{
 			UInputAction* Action = Step.Text == TEXT("1") ? Weapon1Action.Get() : Step.Text == TEXT("2") ? Weapon2Action.Get() : SheatheAction.Get();
 			Input->InjectInputForAction(Action, FInputActionValue(true), {}, {});
+		}
+		else if (Step.Command == TEXT("attack") || Step.Command == TEXT("click"))
+		{
+			if (Step.Command == TEXT("click") || Step.Value.X != 0.0)
+			{
+				Input->StartContinuousInputInjectionForAction(AttackAction, FInputActionValue(true), {}, {});
+				bDriveClick = Step.Command == TEXT("click");
+			}
+			else
+			{
+				Input->StopContinuousInputInjectionForAction(AttackAction);
+			}
 		}
 		else if (Step.Command == TEXT("camera"))
 		{

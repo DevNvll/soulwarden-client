@@ -13,8 +13,10 @@ struct FInputActionValue;
  * The player controller: the keys of the movement and of the camera (Enhanced Input, the default profile of the retail
  * client; research feel-values.md R6), the mouse look with the sensitivity of the camera state (R1), the mouse wheel (the
  * zoom, or the next target of the target lock), the target lock (middle mouse, toggle), free look (Left Alt), and the
- * weapon keys (1, 2) and the sheathe key (~): the client draws and sheathes itself, as the retail client (docs/GEAR.md). The
- * actions and the context are made in code: no input asset. The camera manager is ASwcCameraManager.
+ * weapon keys (1, 2) and the sheathe key (~): the client draws and sheathes itself, as the retail client (docs/GEAR.md), and
+ * the attack button (left mouse: attack_primary; its press, hold, and release go into the input report and to the attack
+ * graph, docs/ACTIONS.md). The actions and the context are made in code: no input asset. The camera manager is
+ * ASwcCameraManager.
  *
  * Command line: -SwcDrive=FILE plays a drive script through the same input actions (Enhanced Input injection; no input
  * tool of the host). Each line is "TIME COMMAND [VALUES]", the time in seconds from the possession of the character:
@@ -29,6 +31,8 @@ struct FInputActionValue;
  *   freelook 1|0     Left Alt down or up
  *   camera STATE     a camera state of gamecamera.xml in place of the state of the action list (none: the action list)
  *   key 1|2|sheathe  one press of the weapon key 1 or 2, or of the sheathe key
+ *   attack 1|0       the attack button down or up
+ *   click            the attack button down for one frame
  * The run ends with -SwcQuitWhen=world and -SwcStay (USwcBackendSubsystem).
  */
 UCLASS()
@@ -74,6 +78,8 @@ private:
 	void OnWeapon1(const FInputActionValue& Value);
 	void OnWeapon2(const FInputActionValue& Value);
 	void OnSheathe(const FInputActionValue& Value);
+	void OnAttack(const FInputActionValue& Value);
+	void OnAttackEnd(const FInputActionValue& Value);
 	void UseWeapon(uint32 Slot, const TArray<uint32>& Bits);
 	void LoadDrive(const FString& Path);
 	void TickDrive(float DeltaTime);
@@ -100,6 +106,10 @@ private:
 	TObjectPtr<UInputAction> Weapon2Action;
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> SheatheAction;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> AttackAction;
+	/** A click of the drive script: the button goes up at the next frame. */
+	bool bDriveClick = false;
 	uint32 PressSerial = 0;
 	TArray<uint32> PressBits;
 

@@ -124,6 +124,12 @@ void USwcCharacterMovement::SetLocomotion(const TSharedPtr<FSwcLocomotion>& Data
 	JumpClip = nullptr;
 }
 
+void USwcCharacterMovement::SetActionMotion(bool bActive, const FVector& HorizontalVelocity)
+{
+	bActionMotion = bActive;
+	ActionVelocity = bActive ? FVector(HorizontalVelocity.X, HorizontalVelocity.Y, 0.0) : FVector::ZeroVector;
+}
+
 const FSwcFragment* USwcCharacterMovement::FragmentData(const FString& Name) const
 {
 	return Locomotion.IsValid() ? Locomotion->Fragment(Name) : nullptr;
@@ -254,6 +260,13 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 		bJumpRequested = false;
 		return;
 	}
+	if (bActionMotion)
+	{
+		// An action of the full body holds the movement state: its root track moves the character.
+		bJumpRequested = false;
+		SetMove(ESwcMove::Idle);
+		return;
+	}
 	const bool bInput = HasMoveInput() && bCanNav;
 	// The speed of the data: a character that runs into a wall keeps its state.
 	const float Speed = static_cast<float>(GroundVelocity.Size2D());
@@ -311,7 +324,7 @@ void USwcCharacterMovement::Turn(float DeltaTime)
 {
 	// Strafe mode: while the character moves, it turns to the camera yaw, step = (1 - (1 - r)^(30 dt)) x the remaining angle
 	// (CameraRelativeFacing, C 0x2A919A0). At idle and in the air it does not turn.
-	if (CharacterOwner == nullptr || !HasMoveInput() || IsFalling() || IsFlying() || Move == ESwcMove::Land)
+	if (CharacterOwner == nullptr || bActionMotion || !HasMoveInput() || IsFalling() || IsFlying() || Move == ESwcMove::Land)
 	{
 		return;
 	}
@@ -375,6 +388,14 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 		}
 		Velocity.X = Horizontal.X;
 		Velocity.Y = Horizontal.Y;
+		return;
+	}
+	if (bActionMotion)
+	{
+		// The velocity of the action (the next movement state starts from it).
+		GroundVelocity = ActionVelocity;
+		Velocity.X = ActionVelocity.X;
+		Velocity.Y = ActionVelocity.Y;
 		return;
 	}
 	// The target and the rates of the state; each axis of the camera frame moves linearly to its target (research R2.8.2).

@@ -2,7 +2,10 @@
 
 #include "Camera/CameraActor.h"
 #include "Character/SwcCharacterMovement.h"
+#include "Character/SwcActions.h"
 #include "Character/SwcLocomotion.h"
+#include "Character/SwcPlayerActions.h"
+#include "Combat/SwcAttackGraph.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcPlayerLooks.h"
 #include "Character/SwcTestFloor.h"
@@ -236,6 +239,12 @@ void USwcBackendSubsystem::StartConnection(const FSwcLoginToken& Token, const FS
 	Options.Session.ticketHex = TCHAR_TO_UTF8(*Identity.GetAuthTicketHex());
 	// The records of the other entities go to the entity table of the creatures (TakeOtherUpdates).
 	Options.Session.keepOtherRecords = true;
+	// The attack input and the attack graph at the input steps of the session thread (stage P2.7, docs/ACTIONS.md).
+	AttackDriver = std::make_shared<swc::combat::Driver>();
+	Options.Session.inputStep = [Driver = AttackDriver](std::uint16_t Input, std::int64_t SteadyNs, std::vector<unsigned>& Bits)
+	{
+		Driver->step(Input, SteadyNs, Bits);
+	};
 	Connection = MakeShared<FSwcRepConnection>(MoveTemp(Options));
 	if (!Connection->Launch())
 	{
@@ -306,6 +315,13 @@ bool USwcBackendSubsystem::TickWorld(float)
 			Own.dead ? 1 : 0, static_cast<int32>(Own.abilityBars.size()), Abilities, static_cast<int32>(Own.cooldowns[0].size()), static_cast<int32>(Own.cooldowns[1].size()),
 			static_cast<int32>(Own.cooldowns[2].size()), static_cast<unsigned long long>(Own.activeMap), static_cast<unsigned long long>(Own.sheatheMap),
 			static_cast<unsigned long long>(GetServerTimeMicroseconds()), GetCameraYawDegrees());
+		if (AttackDriver)
+		{
+			const swc::combat::Driver::Snapshot Attack = AttackDriver->snapshot();
+			UE_LOG(LogSwcBackend, Log, TEXT("world: attacks: %u press(es), %u hold step(s), %u release(s) in the input report; %u fragment visit(s) played, %u weapon switch(es), %u lost key(s)"),
+				Attack.presses, Attack.holds, Attack.releases, Avatar.IsValid() ? Avatar->GetActions()->GetVisitCount() : 0u, Attack.switches,
+				Attack.lostKeys);
+		}
 		Connection->Leave(TEXT("the client leaves the world (-SwcQuitWhen=world)"));
 	}
 	if (Snapshot.bFinished)
@@ -511,6 +527,23 @@ void USwcBackendSubsystem::UpdateLook()
 		bDrawn = Active != 0 && ((SheatheMap >> Active) & 1) == 0;
 	}
 	Avatar->SetWeaponState(Active, bDrawn);
+	// The actions of the weapons: the stances, the draw and the sheathe, the attacks (stage P2.7).
+	if (!Actions.IsValid())
+	{
+		Actions = MakeShared<FSwcActions>();
+		FString Report;
+		const bool bLoaded = Actions->Load(Report);
+		UE_LOG(LogSwcBackend, Log, TEXT("character: %s"), *Report);
+		if (!bLoaded)
+		{
+			Actions.Reset();
+		}
+	}
+	if (Actions.IsValid())
+	{
+		Avatar->GetActions()->Setup(Actions, Look.bFemale, AttackDriver);
+		Avatar->GetActions()->OnGearChanged();
+	}
 	FString Bytes;
 	for (const uint8 Value : Appearance)
 	{

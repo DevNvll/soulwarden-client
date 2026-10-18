@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -38,6 +39,12 @@ public:
         bool sendInput{true};
         /** Keep the records and the stops of the other entities for take_other_updates() (the entity table of the creatures). */
         bool keepOtherRecords{false};
+        /**
+         * A step of the input of the player (stage P2.7, docs/ACTIONS.md): called for each input entry with the player motion,
+         * with its input number (the 16 bits of the wire), the steady clock in nanoseconds, and its action bits. It adds the bits
+         * of the attack input and follows the attack graph at the same step as the server. Called on the thread of the session.
+         */
+        std::function<void(std::uint16_t input, std::int64_t steadyNs, std::vector<unsigned>& actionBits)> inputStep;
     };
 
     enum class Phase { idle, waitingForRepConnection, waitingForActorGameConnection, waitingForSpawnPoint, waitingForPlayerSpawn, inGame, ended };

@@ -1,0 +1,623 @@
+#include "Character/SwcActions.h"
+
+#include "Dom/JsonObject.h"
+#include "HAL/PlatformMisc.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+
+namespace
+{
+TSharedPtr<FJsonObject> ReadObject(const FString& Path)
+{
+	FString Text;
+	TSharedPtr<FJsonObject> Object;
+	if (!FFileHelper::LoadFileToString(Text, *Path) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Object))
+	{
+		return nullptr;
+	}
+	return Object;
+}
+
+FString ContentFolder()
+{
+	FString Content = FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_CONTENT"));
+	if (Content.IsEmpty())
+	{
+		FString Work = FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_WORK"));
+		if (Work.IsEmpty())
+		{
+			Work = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("HOME")), TEXT("Games/soulwarden-client"));
+		}
+		Content = FPaths::Combine(Work, TEXT("content"));
+	}
+	return Content;
+}
+
+float Number(const TSharedPtr<FJsonValue>& Value, float Default = 0.0f)
+{
+	return Value.IsValid() && Value->Type == EJson::Number ? static_cast<float>(Value->AsNumber()) : Default;
+}
+
+/** A number of an attribute text of the action list ("1.50"), or Default. */
+float AttrNumber(const TSharedPtr<FJsonObject>& Attrs, const TCHAR* Name, float Default)
+{
+	FString Text;
+	return Attrs.IsValid() && Attrs->TryGetStringField(Name, Text) && !Text.IsEmpty() ? FCString::Atof(*Text) : Default;
+}
+
+FSwcCondition ReadCondition(const TSharedPtr<FJsonObject>& Object)
+{
+	FSwcCondition Out;
+	if (!Object.IsValid())
+	{
+		return Out;
+	}
+	Out.Type = Object->GetStringField(TEXT("type"));
+	if (const TSharedPtr<FJsonObject>* Attrs = nullptr; Object->TryGetObjectField(TEXT("attrs"), Attrs))
+	{
+		for (const auto& Pair : (*Attrs)->Values)
+		{
+			Out.Attrs.Add(FString(Pair.Key.ToView()), Pair.Value->AsString());
+		}
+	}
+	if (const TArray<TSharedPtr<FJsonValue>>* Children = nullptr; Object->TryGetArrayField(TEXT("children"), Children))
+	{
+		for (const TSharedPtr<FJsonValue>& Child : *Children)
+		{
+			Out.Children.Add(ReadCondition(Child->AsObject()));
+		}
+	}
+	return Out;
+}
+
+/** The motion parameters of one parameter set; the values that it does not have stay those of Base. */
+FSwcMotionRule ReadMotion(const TSharedPtr<FJsonObject>& Attrs, const FSwcMotionRule& Base)
+{
+	FSwcMotionRule Out = Base;
+	if (!Attrs.IsValid())
+	{
+		return Out;
+	}
+	Out.Condition = Attrs->GetStringField(TEXT("Name"));
+	Out.MotionMultiplier = AttrNumber(Attrs, TEXT("MotionMultiplier"), Base.MotionMultiplier);
+	FString Text;
+	if (Attrs->TryGetStringField(TEXT("Decel"), Text))
+	{
+		TArray<FString> Values;
+		Text.ParseIntoArray(Values, TEXT(","));
+		if (Values.Num() == 3)
+		{
+			Out.Decel = FVector(FCString::Atof(*Values[0]), FCString::Atof(*Values[1]), FCString::Atof(*Values[2]));
+		}
+	}
+	if (Attrs->TryGetStringField(TEXT("InheritVelocity"), Text))
+	{
+		Out.bInheritVelocity = Text.Equals(TEXT("true"), ESearchCase::IgnoreCase);
+	}
+	Out.InheritVelocityMaxSpeed = AttrNumber(Attrs, TEXT("InheritVelocityMaxSpeed"), Base.InheritVelocityMaxSpeed);
+	return Out;
+}
+
+FSwcFacingRule ReadFacing(const TSharedPtr<FJsonObject>& Attrs)
+{
+	FSwcFacingRule Out;
+	if (!Attrs.IsValid())
+	{
+		return Out;
+	}
+	Attrs->TryGetStringField(TEXT("Name"), Out.Condition);
+	Out.TurnRate = AttrNumber(Attrs, TEXT("TurnRate"), 0.0f);
+	FString Text;
+	Out.bExponential = Attrs->TryGetStringField(TEXT("UseExponentialTurnRate"), Text) && Text.Equals(TEXT("true"), ESearchCase::IgnoreCase);
+	return Out;
+}
+} // namespace
+
+float FSwcActionItem::ClipTime(float Time, float Duration) const
+{
+	const float Value = Start + FMath::Max(Time - At, 0.0f) * Speed;
+	if (Duration <= 0.0f)
+	{
+		return Value;
+	}
+	return bLoop ? FMath::Fmod(Value, Duration) : FMath::Min(Value, Duration);
+}
+
+float FSwcActionFragment::MarkTime(const TCHAR* MarkName, float Default) const
+{
+	for (const swc::combat::Mark& Mark : Marks)
+	{
+		if (FString(UTF8_TO_TCHAR(Mark.name.c_str())).Equals(MarkName, ESearchCase::IgnoreCase))
+		{
+			return Mark.start;
+		}
+	}
+	return Default;
+}
+
+bool FSwcActions::Load(FString& OutReport)
+{
+	const TSharedPtr<FJsonObject> Document = ReadObject(FPaths::Combine(ContentFolder(), TEXT("player/actions.json")));
+	if (!Document.IsValid())
+	{
+		OutReport = TEXT("no player/actions.json (tools/convert-player.sh actions)");
+		return false;
+	}
+	// The clips.
+	if (const TSharedPtr<FJsonObject>* Objects = nullptr; Document->TryGetObjectField(TEXT("clips"), Objects))
+	{
+		for (const auto& Pair : (*Objects)->Values)
+		{
+			const TSharedPtr<FJsonObject> Info = Pair.Value->AsObject();
+			FSwcActionClip& Clip = Clips.AddDefaulted_GetRef();
+			Clip.Name = FString(Pair.Key.ToView());
+			ClipIndex.Add(Clip.Name, Clips.Num() - 1);
+			if (!Info.IsValid() || Info->HasField(TEXT("error")))
+			{
+				continue;
+			}
+			Clip.Duration = Number(Info->TryGetField(TEXT("duration")));
+			Clip.bAdditive = Info->GetBoolField(TEXT("additive"));
+			for (const TSharedPtr<FJsonValue>& Bone : Info->GetArrayField(TEXT("bones")))
+			{
+				Clip.Bones.Add(FName(*Bone->AsString()));
+			}
+			if (const TArray<TSharedPtr<FJsonValue>>* Keys = nullptr; Info->TryGetArrayField(TEXT("root"), Keys))
+			{
+				for (const TSharedPtr<FJsonValue>& Key : *Keys)
+				{
+					const TArray<TSharedPtr<FJsonValue>>& Values = Key->AsArray();
+					if (Values.Num() == 4)
+					{
+						Clip.Root.Add(FVector4f(Number(Values[0]), Number(Values[1]), Number(Values[2]), Number(Values[3])));
+					}
+				}
+			}
+		}
+	}
+	// The blend spaces (the same form as locomotion.json).
+	TMap<FString, int32> SpaceIndex;
+	if (const TSharedPtr<FJsonObject>* Objects = nullptr; Document->TryGetObjectField(TEXT("blendSpaces"), Objects))
+	{
+		for (const auto& Pair : (*Objects)->Values)
+		{
+			const TSharedPtr<FJsonObject> Info = Pair.Value->AsObject();
+			FSwcBlendSpace& Space = BlendSpaces.AddDefaulted_GetRef();
+			for (const TSharedPtr<FJsonValue>& Value : Info->GetArrayField(TEXT("params")))
+			{
+				const TSharedPtr<FJsonObject> Param = Value->AsObject();
+				Space.Params.Add({Param->GetStringField(TEXT("name")), static_cast<float>(Param->GetNumberField(TEXT("min"))),
+					static_cast<float>(Param->GetNumberField(TEXT("max"))), static_cast<int32>(Param->GetNumberField(TEXT("cells")))});
+			}
+			for (const TSharedPtr<FJsonValue>& Value : Info->GetArrayField(TEXT("examples")))
+			{
+				const TSharedPtr<FJsonObject> Example = Value->AsObject();
+				const int32* Index = ClipIndex.Find(Example->GetStringField(TEXT("clip")));
+				Space.ExampleClips.Add(Index != nullptr ? *Index : INDEX_NONE);
+				Space.ExampleScales.Add(static_cast<float>(Example->GetNumberField(TEXT("scale"))));
+			}
+			for (const TSharedPtr<FJsonValue>& Value : Info->GetArrayField(TEXT("grid")))
+			{
+				const TArray<TSharedPtr<FJsonValue>>& Cell = Value->AsArray();
+				for (int32 Slot = 0; Slot < 4; ++Slot)
+				{
+					Space.GridIndexes.Add(static_cast<int32>(Cell[Slot]->AsNumber()));
+					Space.GridWeights.Add(static_cast<float>(Cell[4 + Slot]->AsNumber()));
+				}
+			}
+			SpaceIndex.Add(FString(Pair.Key.ToView()), BlendSpaces.Num() - 1);
+		}
+	}
+	// The fragments: the items of each layer with their times in the fragment.
+	TMap<FString, int32> FragmentIndex;
+	if (const TSharedPtr<FJsonObject>* Objects = nullptr; Document->TryGetObjectField(TEXT("fragments"), Objects))
+	{
+		for (const auto& Pair : (*Objects)->Values)
+		{
+			const TSharedPtr<FJsonObject> Info = Pair.Value->AsObject();
+			FSwcActionFragment& Fragment = Fragments.AddDefaulted_GetRef();
+			Fragment.Key = FString(Pair.Key.ToView());
+			Fragment.Name = Info->GetStringField(TEXT("name"));
+			Fragment.Tags = Info->GetStringField(TEXT("tags"));
+			Fragment.BlendOut = static_cast<float>(Info->GetNumberField(TEXT("blendOut")));
+			for (const TSharedPtr<FJsonValue>& LayerValue : Info->GetArrayField(TEXT("layers")))
+			{
+				TArray<FSwcActionItem>& Layer = Fragment.Layers.AddDefaulted_GetRef();
+				for (const TSharedPtr<FJsonValue>& ItemValue : LayerValue->AsArray())
+				{
+					const TSharedPtr<FJsonObject> Data = ItemValue->AsObject();
+					FSwcActionItem Item;
+					const float Exit = Number(Data->TryGetField(TEXT("exit")));
+					Item.Start = Number(Data->TryGetField(TEXT("start")));
+					Item.BlendIn = Number(Data->TryGetField(TEXT("blendIn")));
+					Item.Speed = FMath::Max(Number(Data->TryGetField(TEXT("speed")), 1.0f), 0.01f);
+					Item.Weight = Number(Data->TryGetField(TEXT("weight")), 1.0f);
+					Item.bLoop = Data->GetBoolField(TEXT("loop"));
+					FString Name;
+					if (Data->TryGetStringField(TEXT("blendSpace"), Name))
+					{
+						Item.BlendSpace = SpaceIndex.FindRef(Name, INDEX_NONE);
+					}
+					else if (Data->TryGetStringField(TEXT("clip"), Name) && !Name.IsEmpty())
+					{
+						Item.Clip = ClipIndex.FindRef(Name, INDEX_NONE);
+					}
+					// The exit time counts from the start of the item before; -1: at the end of its clip (an inference).
+					if (!Layer.IsEmpty())
+					{
+						const FSwcActionItem& Before = Layer.Last();
+						const float BeforeLength = Before.Clip != INDEX_NONE
+							? FMath::Max(Clips[Before.Clip].Duration - Before.Start, 0.0f) / Before.Speed : 0.0f;
+						Item.At = Before.At + (Exit < 0.0f ? BeforeLength : Exit);
+					}
+					else
+					{
+						Item.At = FMath::Max(Exit, 0.0f);
+					}
+					Layer.Add(Item);
+				}
+			}
+			for (const TSharedPtr<FJsonValue>& MarkValue : Info->GetArrayField(TEXT("markers")))
+			{
+				const TArray<TSharedPtr<FJsonValue>>& Row = MarkValue->AsArray();
+				if (Row.Num() == 3)
+				{
+					Fragment.Marks.push_back({TCHAR_TO_UTF8(*Row[0]->AsString()), Number(Row[1]), Row[2]->IsNull() ? -1.0f : Number(Row[2])});
+				}
+			}
+			// The length: the end of the last item of layer 0 (the rule of the backend, protocol notes 4.32).
+			if (!Fragment.Layers.IsEmpty() && !Fragment.Layers[0].IsEmpty())
+			{
+				const FSwcActionItem& Last = Fragment.Layers[0].Last();
+				if (Last.IsEmpty())
+				{
+					Fragment.Length = Last.At;
+				}
+				else if (Last.Clip != INDEX_NONE && !Last.bLoop)
+				{
+					Fragment.Length = Last.At + FMath::Max(Clips[Last.Clip].Duration - Last.Start, 0.0f) / Last.Speed;
+				}
+			}
+			FragmentIndex.Add(Fragment.Key, Fragments.Num() - 1);
+		}
+	}
+	// The weapon tag sets.
+	int32 Graphs = 0;
+	for (const TSharedPtr<FJsonValue>& Value : Document->GetArrayField(TEXT("weapons")))
+	{
+		const TSharedPtr<FJsonObject> Info = Value->AsObject();
+		const TSharedPtr<FSwcWeaponActions> Weapon = MakeShared<FSwcWeaponActions>();
+		for (const TSharedPtr<FJsonValue>& Tag : Info->GetArrayField(TEXT("tags")))
+		{
+			Weapon->Tags.Add(Tag->AsString());
+		}
+		Weapon->ClipKey = FString::Join(Weapon->Tags, TEXT("_")).ToLower();
+		for (const TCHAR* Kind : {TEXT("stance"), TEXT("offhand")})
+		{
+			const TSharedPtr<FJsonObject>* Map = nullptr;
+			if (Info->TryGetObjectField(Kind, Map))
+			{
+				for (const auto& Pair : (*Map)->Values)
+				{
+					if (const int32* Index = FragmentIndex.Find(Pair.Value->AsString()))
+					{
+						(FCString::Strcmp(Kind, TEXT("stance")) == 0 ? Weapon->Stance : Weapon->Offhand).Add(FString(Pair.Key.ToView()), *Index);
+					}
+				}
+			}
+		}
+		FString Key;
+		Weapon->Draw = Info->TryGetStringField(TEXT("draw"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE;
+		Weapon->Sheathe = Info->TryGetStringField(TEXT("sheathe"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE;
+		if (const TArray<TSharedPtr<FJsonValue>>* Graph = nullptr; Info->TryGetArrayField(TEXT("graph"), Graph))
+		{
+			// The graph of the backend copy (the same reader as tests/actions/actions_tests.cpp).
+			for (const TSharedPtr<FJsonValue>& ItemValue : *Graph)
+			{
+				const TSharedPtr<FJsonObject> Item = ItemValue->AsObject();
+				swc::combat::Fragment Fragment;
+				Fragment.name = TCHAR_TO_UTF8(*Item->GetStringField(TEXT("name")));
+				Fragment.length = Number(Item->TryGetField(TEXT("length")));
+				Fragment.canTransition = Number(Item->TryGetField(TEXT("canTransition")), -1.0f);
+				const TArray<TSharedPtr<FJsonValue>>& Switch = Item->GetArrayField(TEXT("switch"));
+				Fragment.switchBuffer = Switch.Num() == 2 ? Number(Switch[0], -1.0f) : -1.0f;
+				Fragment.switchAt = Switch.Num() == 2 ? Number(Switch[1], -1.0f) : -1.0f;
+				Weapon->Graph.fragments.push_back(Fragment);
+				Weapon->GraphFragments.Add(Item->TryGetStringField(TEXT("fragment"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE);
+			}
+			std::size_t Index = 0;
+			for (const TSharedPtr<FJsonValue>& ItemValue : *Graph)
+			{
+				for (const TSharedPtr<FJsonValue>& RowValue : ItemValue->AsObject()->GetArrayField(TEXT("transitions")))
+				{
+					const TArray<TSharedPtr<FJsonValue>>& Row = RowValue->AsArray();
+					if (Row.Num() < 5)
+					{
+						continue;
+					}
+					swc::combat::Transition Transition;
+					Transition.buffered = Row[0]->AsString() == TEXT("buffered");
+					Transition.start = Number(Row[1]);
+					Transition.end = Row[2]->IsNull() ? -1.0f : Number(Row[2]);
+					Transition.input = swc::combat::input_of(TCHAR_TO_UTF8(*Row[3]->AsString()));
+					Transition.to = Weapon->Graph.index_of(TCHAR_TO_UTF8(*Row[4]->AsString()));
+					Weapon->Graph.fragments[Index].transitions.push_back(Transition);
+				}
+				++Index;
+			}
+			FString Start;
+			Weapon->Graph.start = Info->TryGetStringField(TEXT("start"), Start) ? Weapon->Graph.index_of(TCHAR_TO_UTF8(*Start)) : -1;
+			Graphs += Weapon->HasGraph() ? 1 : 0;
+		}
+		Weapons.Add(Weapon);
+	}
+	// The motion and the facing of the attack actions, and the named conditions.
+	if (const TSharedPtr<FJsonObject>* Objects = nullptr; Document->TryGetObjectField(TEXT("conditions"), Objects))
+	{
+		for (const auto& Pair : (*Objects)->Values)
+		{
+			Conditions.Add(FString(Pair.Key.ToView()), ReadCondition(Pair.Value->AsObject()));
+		}
+	}
+	if (const TSharedPtr<FJsonObject>* Objects = nullptr; Document->TryGetObjectField(TEXT("activities"), Objects))
+	{
+		for (const auto& Pair : (*Objects)->Values)
+		{
+			const TSharedPtr<FJsonObject> Info = Pair.Value->AsObject();
+			FSwcActivity Activity;
+			if (const TSharedPtr<FJsonObject>* Motion = nullptr; Info->TryGetObjectField(TEXT("AnimationDrivenMotion"), Motion))
+			{
+				Activity.MotionDefault = ReadMotion((*Motion)->GetObjectField(TEXT("default")), FSwcMotionRule());
+				Activity.MotionDefault.Condition.Reset();
+				for (const TSharedPtr<FJsonValue>& Conditional : (*Motion)->GetArrayField(TEXT("conditionals")))
+				{
+					Activity.Motion.Add(ReadMotion(Conditional->AsObject(), Activity.MotionDefault));
+				}
+			}
+			for (const TCHAR* Kind : {TEXT("CameraRelativeFacing"), TEXT("InputRelativeFacing")})
+			{
+				const TSharedPtr<FJsonObject>* Facing = nullptr;
+				if (!Info->TryGetObjectField(Kind, Facing))
+				{
+					continue;
+				}
+				const bool bCamera = FCString::Strcmp(Kind, TEXT("CameraRelativeFacing")) == 0;
+				(bCamera ? Activity.CameraDefault : Activity.InputDefault) = ReadFacing((*Facing)->GetObjectField(TEXT("default")));
+				for (const TSharedPtr<FJsonValue>& Conditional : (*Facing)->GetArrayField(TEXT("conditionals")))
+				{
+					(bCamera ? Activity.CameraFacing : Activity.InputFacing).Add(ReadFacing(Conditional->AsObject()));
+				}
+			}
+			Activities.Add(FString(Pair.Key.ToView()), Activity);
+		}
+	}
+	OutReport = FString::Printf(TEXT("actions: %d weapon tag sets (%d attack graphs), %d fragments, %d blend spaces, %d clips, %d actions, %d conditions"),
+		Weapons.Num(), Graphs, Fragments.Num(), BlendSpaces.Num(), Clips.Num(), Activities.Num(), Conditions.Num());
+	return !Weapons.IsEmpty();
+}
+
+int32 FSwcActions::ClipAssets(bool bFemale, TArray<FString>& OutPaths) const
+{
+	OutPaths.Init(FString(), Clips.Num());
+	const TSharedPtr<FJsonObject> Imported = ReadObject(FPaths::Combine(ContentFolder(), TEXT("player/imported.json")));
+	const TSharedPtr<FJsonObject>* Assets = nullptr;
+	if (!Imported.IsValid() || !Imported->TryGetObjectField(TEXT("assets"), Assets))
+	{
+		return 0;
+	}
+	const FString Gender = bFemale ? TEXT("female") : TEXT("male");
+	int32 Found = 0;
+	// The AnimSequence of a clip of a pack is "clips<clip>" (the file stem and the animation name); of the base "<gender><clip>".
+	const auto Take = [&](const TSharedPtr<FJsonObject>& Entry, const FString& Prefix)
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Sequences = nullptr;
+		if (!Entry.IsValid() || !Entry->TryGetArrayField(TEXT("AnimSequence"), Sequences))
+		{
+			return;
+		}
+		for (const TSharedPtr<FJsonValue>& Value : *Sequences)
+		{
+			const FString Path = Value->AsString();
+			const FString Name = FPaths::GetBaseFilename(Path).ToLower();
+			if (!Name.StartsWith(Prefix))
+			{
+				continue;
+			}
+			const int32* Index = ClipIndex.Find(Name.RightChop(Prefix.Len()));
+			if (Index != nullptr && OutPaths[*Index].IsEmpty())
+			{
+				OutPaths[*Index] = Path;
+				++Found;
+			}
+		}
+	};
+	for (const auto& Pair : (*Assets)->Values)
+	{
+		if (FString(Pair.Key.ToView()).StartsWith(TEXT("clips|") + Gender + TEXT("|")))
+		{
+			Take(Pair.Value->AsObject(), TEXT("clips"));
+		}
+	}
+	if (const TSharedPtr<FJsonObject>* Base = nullptr; (*Assets)->TryGetObjectField(TEXT("base|") + Gender, Base))
+	{
+		Take(*Base, Gender);
+	}
+	return Found;
+}
+
+const FSwcWeaponActions* FSwcActions::Weapon(const FString& TagText) const
+{
+	TArray<FString> Wanted;
+	TagText.ParseIntoArray(Wanted, TEXT(","));
+	for (FString& Tag : Wanted)
+	{
+		Tag = Tag.TrimStartAndEnd().ToLower();
+	}
+	for (const TSharedPtr<FSwcWeaponActions>& Weapon : Weapons)
+	{
+		if (Weapon->Tags.Num() != Wanted.Num())
+		{
+			continue;
+		}
+		bool bSame = true;
+		for (int32 Index = 0; Index < Wanted.Num() && bSame; ++Index)
+		{
+			bSame = Weapon->Tags[Index].ToLower() == Wanted[Index];
+		}
+		if (bSame)
+		{
+			return Weapon.Get();
+		}
+	}
+	return nullptr;
+}
+
+const FSwcWeaponActions* FSwcActions::WeaponOfGraph(const swc::combat::Graph* Graph) const
+{
+	for (const TSharedPtr<FSwcWeaponActions>& Weapon : Weapons)
+	{
+		if (&Weapon->Graph == Graph)
+		{
+			return Weapon.Get();
+		}
+	}
+	return nullptr;
+}
+
+bool FSwcActions::Evaluate(const FSwcCondition& Condition, const FSwcConditionFacts& Facts, int32 Depth) const
+{
+	if (Depth > 16)
+	{
+		return false;
+	}
+	const FString& Type = Condition.Type;
+	if (Type == TEXT("And"))
+	{
+		for (const FSwcCondition& Child : Condition.Children)
+		{
+			if (!Evaluate(Child, Facts, Depth + 1))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+	if (Type == TEXT("Or"))
+	{
+		for (const FSwcCondition& Child : Condition.Children)
+		{
+			if (Evaluate(Child, Facts, Depth + 1))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+	if (Type == TEXT("Not"))
+	{
+		return !Condition.Children.IsEmpty() && !Evaluate(Condition.Children[0], Facts, Depth + 1);
+	}
+	if (Type == TEXT("True"))
+	{
+		return true;
+	}
+	if (Type == TEXT("IfMannequinMarker"))
+	{
+		return Facts.Marks != nullptr
+			&& swc::combat::mark_active(*Facts.Marks, TCHAR_TO_UTF8(*Condition.Attrs.FindRef(TEXT("MarkerName"))), Facts.Time);
+	}
+	if (Type == TEXT("IfMannequinTag"))
+	{
+		return Facts.Tags.Contains(Condition.Attrs.FindRef(TEXT("TagName")).ToLower());
+	}
+	if (Type == TEXT("IfCameraLockActive"))
+	{
+		return Facts.bCameraLock;
+	}
+	if (Type.Equals(TEXT("IfInput"), ESearchCase::IgnoreCase))
+	{
+		const FString Input = Condition.Attrs.FindRef(TEXT("InputName"));
+		if (Input == TEXT("attack_primary_hold"))
+		{
+			return Facts.bAttackHold;
+		}
+		if (Input == TEXT("attack_primary") || Input == TEXT("attack_primary_virtual"))
+		{
+			return Facts.bAttackPress || (Input == TEXT("attack_primary_virtual") && Facts.bAttackHold);
+		}
+		return false;
+	}
+	if (Type == TEXT("IfFacingVelocityAngleDiff"))
+	{
+		if (Facts.FacingVelocityAngle < 0.0f)
+		{
+			return false;
+		}
+		const float Limit = FCString::Atof(*Condition.Attrs.FindRef(TEXT("AngleDiff")));
+		const FString Comparison = Condition.Attrs.FindRef(TEXT("Comparison"));
+		return Comparison == TEXT("LessThanOrEqual") ? Facts.FacingVelocityAngle <= Limit
+			: Comparison == TEXT("LessThan")         ? Facts.FacingVelocityAngle < Limit
+			: Comparison == TEXT("GreaterThan")      ? Facts.FacingVelocityAngle > Limit
+													 : Facts.FacingVelocityAngle >= Limit;
+	}
+	// The other types (player settings, items, status effects, water, stamina, ...) are not known on the client: false.
+	return false;
+}
+
+bool FSwcActions::Holds(const FString& Name, const FSwcConditionFacts& Facts) const
+{
+	const FSwcCondition* Condition = Conditions.Find(Name);
+	return Condition != nullptr && Evaluate(*Condition, Facts, 0);
+}
+
+FSwcMotionRule FSwcActions::MotionRule(const FSwcActivity& Activity, const FSwcConditionFacts& Facts) const
+{
+	for (const FSwcMotionRule& Rule : Activity.Motion)
+	{
+		if (Holds(Rule.Condition, Facts))
+		{
+			return Rule;
+		}
+	}
+	return Activity.MotionDefault;
+}
+
+const FSwcFacingRule* FSwcActions::FacingRule(const TArray<FSwcFacingRule>& Rules, const FSwcFacingRule& Default, const FSwcConditionFacts& Facts) const
+{
+	for (const FSwcFacingRule& Rule : Rules)
+	{
+		if (Holds(Rule.Condition, Facts))
+		{
+			return Rule.TurnRate > 0.0f ? &Rule : nullptr;
+		}
+	}
+	return Default.TurnRate > 0.0f ? &Default : nullptr;
+}
+
+bool FSwcActions::RootDelta(const FSwcActionFragment& Fragment, float From, float To, FVector& OutDelta) const
+{
+	for (const TArray<FSwcActionItem>& Layer : Fragment.Layers)
+	{
+		// The item of the layer at the time To (the items of one layer follow one another).
+		const FSwcActionItem* Item = nullptr;
+		for (const FSwcActionItem& Candidate : Layer)
+		{
+			if (Candidate.At <= To + KINDA_SMALL_NUMBER)
+			{
+				Item = &Candidate;
+			}
+		}
+		if (Item == nullptr || Item->Clip == INDEX_NONE || Clips[Item->Clip].Root.IsEmpty())
+		{
+			continue;
+		}
+		const FSwcActionClip& Clip = Clips[Item->Clip];
+		const float A = Item->ClipTime(FMath::Max(From, Item->At), Clip.Duration);
+		const float B = Item->ClipTime(To, Clip.Duration);
+		OutDelta = B >= A ? Clip.RootAt(B) - Clip.RootAt(A) : FVector::ZeroVector;
+		return true;
+	}
+	return false;
+}

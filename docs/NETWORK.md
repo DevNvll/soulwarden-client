@@ -291,6 +291,10 @@ With the player of the game thread (stage 1.7, `RepClient::set_motion`; [MOVEMEN
   left, the pitch in radians, positive down;
 - the action bits 14, 43, 416, 542 of the W key while it is down (the backend reads bit 14), with the rest bits; the
   bits of a weapon key in one entry: 9 and 40 (key 1), 355 and 306 (key 2) (protocol notes 4.15; [GEAR.md](GEAR.md));
+- the attack input (stage P2.7, [ACTIONS.md](ACTIONS.md)): the press bits 555, 203, and 408, the hold bit 191 at each
+  step after the press while the button is down, the release bit 567. The attack driver adds them at the thread of the
+  session (`RepClient::Options::inputStep`, called for each entry with its input number) and steps the attack graph at
+  the same input numbers;
 - in the air, the ground value: the half float of the distance to the ground (10 m at most; an inference from the
   protocol notes "0 to 10; 10 in a fall").
 

@@ -34,6 +34,8 @@ struct FSwcGearPart
 	uint32 PaperdollSlot = 0;
 	FString Item;
 	FString EquipType;
+	/** The Mannequin tags of the weapon (MannequinTag of its weapon row, "1H_Melee,Sword"): its actions (actions.json). */
+	FString Tags;
 	/** The key of the converted mesh (weapons.json), and the static mesh when it was imported. */
 	FString MeshKey;
 	FString MeshPath;
@@ -83,7 +85,10 @@ public:
 	FString BaseMesh(bool bFemale) const;
 	FString IdleAnimation(bool bFemale) const;
 
-	/** Adds the parts and the weapons with no mesh to SWC_WORK/player/wanted.json. @return The count of new entries. */
+	/**
+	 * Adds the parts and the weapons with no mesh, and the clip packs of the weapon tags that are not imported (stage P2.7),
+	 * to SWC_WORK/player/wanted.json. @return The count of new entries.
+	 */
 	int32 WriteWanted(const FSwcPlayerLook& Look) const;
 
 private:

@@ -54,7 +54,8 @@ of the equip database (rotation about x, then y, then z). Both go through the sp
 - The keys: 1 and 2 draw the weapon of slot 24 and 25 (the input report has their bits 9, 40 and 355, 306 for one
   entry); the sheathe key (`~`) sheathes or draws the active weapon (its bit is not known: none). The client draws and
   sheathes itself, as the retail client.
-- The logical state changes at once. Each part goes to its new place at the marker time of its action (a timer):
+- The logical state changes at once. Each part goes to its new place at the mark of its action: the draw and the sheathe
+  fragments play on the UpperBody channel and their marks move the parts (stage P2.7, [ACTIONS.md](ACTIONS.md)):
 
 | Weapon tags | Draw: `unsheathe_weapon` | Sheathe: `sheathe_weapon` (`From_` tag) |
 | --- | ---: | ---: |
@@ -67,7 +68,8 @@ of the equip database (rotation about x, then y, then z). Both go through the sp
 
   An off-hand part moves at `Unsheathe_Offhand` of the draw fragment of its main weapon (else at its
   `unsheathe_weapon`). A switch from a drawn weapon to another one draws the new one after the sheathe marker of the
-  old one. The choice of the `From_` tag (the tag that names the most tags of the weapon; a tie goes to the more
+  old one. A key of the other weapon switches at the step of the attack graph (at once at rest; in an attack at its
+  switch mark, [ACTIONS.md](ACTIONS.md)). The choice of the `From_` tag (the tag that names the most tags of the weapon; a tie goes to the more
   specific tag) is an inference.
 - The inactive weapons stay in their sheath places; a weapon with `HideMainWeaponMeshWhileSheathed` is hidden there; an
   accessory with `SheathMode` `ALWAYS_VISIBLE` stays visible.
@@ -105,9 +107,8 @@ tools/dev-run.sh --window --enter Swordwarden --quit-when world --stay 27 -- -Sw
 
 ## Open points
 
-- The draw and sheathe body clips (`rswrd_idle_draw_v1_ub`, ...) and the stances of the weapons do not play: a drawn
-  weapon is in the hand of the unarmed pose. The weapon clips (the bow string, the flail chain, the moving parts of the
-  firearms) do not play.
+- The draw and sheathe body clips and the stances of the weapons play from stage P2.7 ([ACTIONS.md](ACTIONS.md)). The
+  weapon clips (the flail chain, the bow string, the moving parts of the firearms) do not play.
 - The visibility of the inactive weapons, the accessory fallback of a bow with no accessory row, the nocked arrow, the
   side of an asymmetric gauntlet, and the gauntlet body replacement (forearm skins) are open (gear.md, open points).
 - The dyes, the eye color, the face marks, the scars, and the tattoos need material parameters and mask textures

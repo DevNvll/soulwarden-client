@@ -3,6 +3,7 @@
 #include "Animation/AnimSequence.h"
 #include "Character/SwcCharacterMovement.h"
 #include "Character/SwcLocomotion.h"
+#include "Character/SwcPlayerActions.h"
 #include "Character/SwcPlayerAnimInstance.h"
 #include "Character/SwcPlayerLooks.h"
 #include "Components/CapsuleComponent.h"
@@ -12,7 +13,6 @@
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "SwcBackendSubsystem.h"
-#include "TimerManager.h"
 #include "Components/WorldPartitionStreamingSourceComponent.h"
 
 namespace
@@ -41,6 +41,7 @@ ASwcPlayerCharacter::ASwcPlayerCharacter(const FObjectInitializer& ObjectInitial
 	// The leader is not drawn, but its pose is computed each frame for the parts.
 	GetMesh()->SetVisibility(false);
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+	Actions = CreateDefaultSubobject<USwcPlayerActions>(TEXT("Actions"));
 }
 
 USwcCharacterMovement* ASwcPlayerCharacter::GetSwcMovement() const
@@ -136,7 +137,6 @@ void ASwcPlayerCharacter::ApplyLook(const FSwcPlayerLook& Look, const FString& B
 		GearParts.Add(Part);
 	}
 	GearInHand.Init(false, Gear.Num());
-	GearTimers.SetNum(Gear.Num());
 	SetWeaponState(ActiveWeaponSlot, bWeaponDrawn);
 }
 
@@ -165,50 +165,12 @@ void ASwcPlayerCharacter::SetWeaponState(uint32 ActiveSlot, bool bDrawn)
 		const FSwcGearPart& Part = GearParts[Index];
 		// The off hand slots 27 to 29 go with the weapon slots 24 to 26.
 		const uint32 WeaponSlot = Part.PaperdollSlot >= 27 ? Part.PaperdollSlot - 3 : Part.PaperdollSlot;
-		GetWorldTimerManager().ClearTimer(GearTimers[Index]);
 		PlaceGear(Index, bDrawn && WeaponSlot == ActiveSlot && !Part.bAccessory);
 	}
 }
 
-void ASwcPlayerCharacter::RequestWeaponState(uint32 ActiveSlot, bool bDrawn)
+void ASwcPlayerCharacter::SetLogicalWeaponState(uint32 ActiveSlot, bool bDrawn)
 {
-	// The sheathe marker of the weapon that leaves the hand delays the draw of a new one.
-	float SheatheDelay = 0.0f;
-	for (int32 Index = 0; Index < Gear.Num(); ++Index)
-	{
-		const FSwcGearPart& Part = GearParts[Index];
-		const uint32 WeaponSlot = Part.PaperdollSlot >= 27 ? Part.PaperdollSlot - 3 : Part.PaperdollSlot;
-		if (GearInHand[Index] && !(bDrawn && WeaponSlot == ActiveSlot))
-		{
-			SheatheDelay = FMath::Max(SheatheDelay, Part.SheatheTime);
-		}
-	}
 	ActiveWeaponSlot = ActiveSlot;
 	bWeaponDrawn = bDrawn;
-	for (int32 Index = 0; Index < Gear.Num(); ++Index)
-	{
-		const FSwcGearPart& Part = GearParts[Index];
-		const uint32 WeaponSlot = Part.PaperdollSlot >= 27 ? Part.PaperdollSlot - 3 : Part.PaperdollSlot;
-		const bool bInHand = bDrawn && WeaponSlot == ActiveSlot && !Part.bAccessory;
-		if (bInHand == GearInHand[Index])
-		{
-			continue;
-		}
-		const float Delay = bInHand ? SheatheDelay + Part.DrawTime : Part.SheatheTime;
-		UE_LOG(LogSwcBackend, Log, TEXT("weapon: slot %u %s to the %s at the marker, %.3f s"), Part.PaperdollSlot, *Part.Item,
-			bInHand ? TEXT("hand") : TEXT("sheath"), Delay);
-		GetWorldTimerManager().ClearTimer(GearTimers[Index]);
-		if (Delay <= 0.0f)
-		{
-			PlaceGear(Index, bInHand);
-			continue;
-		}
-		GetWorldTimerManager().SetTimer(GearTimers[Index], FTimerDelegate::CreateWeakLambda(this, [this, Index, bInHand]()
-			{
-				if (GearInHand.IsValidIndex(Index))
-				{
-					PlaceGear(Index, bInHand);
-				}
-			}), Delay, false);
-	}
 }

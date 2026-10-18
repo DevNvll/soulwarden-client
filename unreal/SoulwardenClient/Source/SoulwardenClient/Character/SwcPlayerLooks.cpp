@@ -393,6 +393,7 @@ void FSwcPlayerLooks::ResolveGear(const TMap<uint32, uint32>& Equipment, FSwcPla
 		Part.Item = Item;
 		Part.bAccessory = bAccessory;
 		Part.EquipType = StringField(Data, TEXT("equipType"));
+		Part.Tags = StringField(Data, TEXT("tag"));
 		Part.MeshKey = StringField(Data, TEXT("key"));
 		Part.MeshPath = ImportedObject(Part.MeshKey, TEXT("StaticMesh"));
 		Part.bHideSheathed = FlagField(Data, TEXT("hideSheathed"));
@@ -505,6 +506,44 @@ int32 FSwcPlayerLooks::WriteWanted(const FSwcPlayerLook& Look) const
 		}
 	}
 	Wanted->SetArrayField(TEXT("weapons"), WantedWeapons);
+	// The clip packs of the weapon tags (stage P2.7): "clips|<gender>|<tags in lower case, joined by _>" in imported.json.
+	TArray<TSharedPtr<FJsonValue>> WantedClips;
+	if (const TArray<TSharedPtr<FJsonValue>>* Old = ArrayField(Wanted, TEXT("clips")))
+	{
+		WantedClips = *Old;
+	}
+	TSet<FString> KnownClips;
+	for (const TSharedPtr<FJsonValue>& Pack : WantedClips)
+	{
+		const TArray<TSharedPtr<FJsonValue>>& Values = Pack->AsArray();
+		if (Values.Num() == 2)
+		{
+			KnownClips.Add(Values[0]->AsString() + TEXT("|") + Values[1]->AsString());
+		}
+	}
+	const FString Gender = Look.bFemale ? TEXT("Female") : TEXT("Male");
+	for (const FSwcGearPart& Part : Look.Gear)
+	{
+		if (Part.bAccessory || Part.Tags.IsEmpty() || Part.PaperdollSlot >= 27)
+		{
+			continue;
+		}
+		TArray<FString> Tags;
+		Part.Tags.ParseIntoArray(Tags, TEXT(","));
+		for (FString& Tag : Tags)
+		{
+			Tag = Tag.TrimStartAndEnd().ToLower();
+		}
+		const FString Key = TEXT("clips|") + Gender.ToLower() + TEXT("|") + FString::Join(Tags, TEXT("_"));
+		if (!ImportedObject(Key, TEXT("AnimSequence")).IsEmpty() || KnownClips.Contains(Gender + TEXT("|") + Part.Tags))
+		{
+			continue;
+		}
+		KnownClips.Add(Gender + TEXT("|") + Part.Tags);
+		WantedClips.Add(MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueString>(Gender), MakeShared<FJsonValueString>(Part.Tags)}));
+		++Added;
+	}
+	Wanted->SetArrayField(TEXT("clips"), WantedClips);
 	for (const FSwcLookPart& Part : Look.Parts)
 	{
 		if (!Part.MeshPath.IsEmpty() || Known.Contains(Part.Skin + TEXT("|") + Part.Material))

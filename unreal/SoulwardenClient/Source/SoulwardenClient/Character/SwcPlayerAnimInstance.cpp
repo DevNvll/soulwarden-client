@@ -2,9 +2,12 @@
 
 #include "Animation/AnimSequence.h"
 #include "AnimationRuntime.h"
+#include "Character/SwcActions.h"
 #include "Character/SwcCharacterMovement.h"
 #include "Character/SwcLocomotion.h"
 #include "Character/SwcSmooth.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "GameFramework/Character.h"
 
 namespace
@@ -15,17 +18,13 @@ constexpr float SpeedConvergeTime = 0.1f;
 constexpr float AngleConvergeTime = 0.1f;
 constexpr float TurnConvergeTime = 0.75f;
 constexpr float MovementSpeedEpsilon = 0.02f;
-/** Samples with a smaller weight are not evaluated. */
+/** Samples and overlays with a smaller weight are not evaluated. */
 constexpr float MinimumWeight = 0.005f;
 
-} // namespace
-
-bool FSwcPlayerAnimProxy::Evaluate(FPoseContext& Output)
+/** Evaluates samples (weights that sum to 1) into one pose. */
+void BlendSamples(const TArray<FSwcPoseSample>& Samples, FPoseContext& Context, FCompactPose& OutPose, FBlendedCurve& OutCurve,
+	UE::Anim::FStackAttributeContainer& OutAttributes)
 {
-	if (Samples.IsEmpty())
-	{
-		return false;
-	}
 	const int32 Count = Samples.Num();
 	TArray<FCompactPose> Poses;
 	TArray<FBlendedCurve> Curves;
@@ -38,14 +37,56 @@ bool FSwcPlayerAnimProxy::Evaluate(FPoseContext& Output)
 	for (int32 Index = 0; Index < Count; ++Index)
 	{
 		const FSwcPoseSample& Sample = Samples[Index];
-		Poses[Index].SetBoneContainer(&Output.Pose.GetBoneContainer());
-		Curves[Index].InitFrom(Output.Curve);
+		Poses[Index].SetBoneContainer(&Context.Pose.GetBoneContainer());
+		Curves[Index].InitFrom(Context.Curve);
 		FAnimationPoseData Data(Poses[Index], Curves[Index], Attributes[Index]);
 		Sample.Sequence->GetAnimationPose(Data, FAnimExtractContext(static_cast<double>(Sample.Time), false, FDeltaTimeRecord(), Sample.bLoop));
 		Weights[Index] = Sample.Weight;
 	}
-	FAnimationPoseData Result(Output);
+	FAnimationPoseData Result(OutPose, OutCurve, OutAttributes);
 	FAnimationRuntime::BlendPosesTogether(Poses, Curves, Attributes, Weights, Result);
+}
+} // namespace
+
+bool FSwcPlayerAnimProxy::Evaluate(FPoseContext& Output)
+{
+	if (Samples.IsEmpty())
+	{
+		return false;
+	}
+	BlendSamples(Samples, Output, Output.Pose, Output.Curve, Output.CustomAttributes);
+	// The overlays in their order: an override layer moves its bones to its pose with its weight; an additive layer adds
+	// its rotation (q = slerp(1, delta, w) x q; the additive clips of the player data have rotations only; the order of
+	// the product is an inference, research feel-values.md R3.2.9).
+	const FBoneContainer& Bones = Output.Pose.GetBoneContainer();
+	for (const FSwcPoseOverlay& Overlay : Overlays)
+	{
+		FCompactPose Pose;
+		FBlendedCurve Curve;
+		UE::Anim::FStackAttributeContainer Attributes;
+		Pose.SetBoneContainer(&Bones);
+		Curve.InitFrom(Output.Curve);
+		BlendSamples(Overlay.Samples, Output, Pose, Curve, Attributes);
+		const float Weight = FMath::Clamp(Overlay.Weight, 0.0f, 1.0f);
+		for (const int32 MeshBone : Overlay.Bones)
+		{
+			const FCompactPoseBoneIndex Index = Bones.MakeCompactPoseIndex(FMeshPoseBoneIndex(MeshBone));
+			if (Index == INDEX_NONE)
+			{
+				continue;
+			}
+			FTransform& Out = Output.Pose[Index];
+			const FTransform& In = Pose[Index];
+			if (Overlay.bAdditive)
+			{
+				Out.SetRotation((FQuat::Slerp(FQuat::Identity, In.GetRotation(), Weight) * Out.GetRotation()).GetNormalized());
+				continue;
+			}
+			Out.SetRotation(FQuat::Slerp(Out.GetRotation(), In.GetRotation(), Weight).GetNormalized());
+			Out.SetTranslation(FMath::Lerp(Out.GetTranslation(), In.GetTranslation(), static_cast<double>(Weight)));
+			Out.SetScale3D(FMath::Lerp(Out.GetScale3D(), In.GetScale3D(), static_cast<double>(Weight)));
+		}
+	}
 	return true;
 }
 
@@ -74,28 +115,294 @@ void USwcPlayerAnimInstance::SetLocomotion(const TSharedPtr<FSwcLocomotion>& Dat
 	}
 }
 
+void USwcPlayerAnimInstance::SetActions(const TSharedPtr<FSwcActions>& Data, bool bFemale)
+{
+	Actions = Data;
+	ActionPaths.Reset();
+	ActionSequences.Reset();
+	ActionLoaded.Reset();
+	BoneCache.Reset();
+	Channels[0].Reset();
+	Channels[1].Reset();
+	if (!Actions.IsValid())
+	{
+		return;
+	}
+	Actions->ClipAssets(bFemale, ActionPaths);
+	ActionSequences.SetNum(ActionPaths.Num());
+	ActionLoaded.Init(false, ActionPaths.Num());
+	// The clips load here, not at their first use (no hitch in an attack).
+	for (int32 Clip = 0; Clip < ActionPaths.Num(); ++Clip)
+	{
+		ActionSequence(Clip);
+	}
+}
+
+void USwcPlayerAnimInstance::SetStance(const FSwcWeaponActions* Weapon, bool bOffhand)
+{
+	Stance = Weapon;
+	bOffhandStance = bOffhand;
+}
+
+void USwcPlayerAnimInstance::SetAction(int32 Channel, int32 Fragment, uint32 Serial, float Time)
+{
+	if (Channel < 0 || Channel > 1)
+	{
+		return;
+	}
+	TArray<FActionLayer>& Layers0 = Channels[Channel];
+	if (Fragment == INDEX_NONE || !Actions.IsValid() || !Actions->Fragments.IsValidIndex(Fragment))
+	{
+		if (!Layers0.IsEmpty())
+		{
+			Layers0.Last().bEnding = true;
+		}
+		return;
+	}
+	if (!Layers0.IsEmpty() && Layers0.Last().Serial == Serial && Layers0.Last().Fragment == Fragment && !Layers0.Last().bEnding)
+	{
+		Layers0.Last().Time = Time;
+		return;
+	}
+	FActionLayer& Layer = Layers0.AddDefaulted_GetRef();
+	Layer.Fragment = Fragment;
+	Layer.Serial = Serial;
+	Layer.Time = Time;
+}
+
+UAnimSequence* USwcPlayerAnimInstance::ActionSequence(int32 Clip) const
+{
+	if (!ActionPaths.IsValidIndex(Clip))
+	{
+		return nullptr;
+	}
+	if (!ActionLoaded[Clip])
+	{
+		ActionLoaded[Clip] = true;
+		ActionSequences[Clip] = ActionPaths[Clip].IsEmpty() ? nullptr : LoadObject<UAnimSequence>(nullptr, *ActionPaths[Clip]);
+	}
+	return ActionSequences[Clip];
+}
+
+const TArray<int32>& USwcPlayerAnimInstance::ClipBones(int32 Clip) const
+{
+	if (const TArray<int32>* Found = BoneCache.Find(Clip))
+	{
+		return *Found;
+	}
+	TArray<int32>& Out = BoneCache.Add(Clip);
+	const USkeletalMeshComponent* Mesh = GetSkelMeshComponent();
+	const USkeletalMesh* Asset = Mesh != nullptr ? Mesh->GetSkeletalMeshAsset() : nullptr;
+	if (Asset == nullptr || !Actions.IsValid() || !Actions->Clips.IsValidIndex(Clip))
+	{
+		return Out;
+	}
+	for (const FName& Bone : Actions->Clips[Clip].Bones)
+	{
+		// The root bone (Xform) stays locked: the root track moves the character.
+		const int32 Index = Asset->GetRefSkeleton().FindBoneIndex(Bone);
+		if (Index > 0)
+		{
+			Out.Add(Index);
+		}
+	}
+	return Out;
+}
+
+TArray<float> USwcPlayerAnimInstance::ParamValues(const FSwcBlendSpace& Space) const
+{
+	TArray<float> Values;
+	for (const FSwcBlendSpace::FParam& Param : Space.Params)
+	{
+		Values.Add(Param.Name == TEXT("MoveSpeed") ? MoveSpeed : Param.Name == TEXT("TravelAngle") ? TravelAngle : Param.Name == TEXT("TurnSpeed") ? TurnSpeed : 0.0f);
+	}
+	return Values;
+}
+
+void USwcPlayerAnimInstance::SpaceSamples(const FSwcBlendSpace& Space, float Phase, bool bLoop, float Weight, TArray<FSwcPoseSample>& Out) const
+{
+	TMap<int32, float> Weights;
+	Space.Evaluate(ParamValues(Space), Weights);
+	for (const TPair<int32, float>& Example : Weights)
+	{
+		const int32 Clip = Space.ExampleClips.IsValidIndex(Example.Key) ? Space.ExampleClips[Example.Key] : INDEX_NONE;
+		UAnimSequence* Sequence = ActionSequence(Clip);
+		if (Sequence == nullptr)
+		{
+			continue;
+		}
+		const float Duration = Actions->Clips[Clip].Duration;
+		const float Cycle = bLoop ? FMath::Fmod(Phase, 1.0f) : FMath::Min(Phase, 1.0f);
+		Out.Add({Sequence, Cycle * Duration, Weight * Example.Value, bLoop});
+	}
+}
+
+float USwcPlayerAnimInstance::PhaseStep(const FSwcBlendSpace& Space, float DeltaSeconds, float Speed) const
+{
+	TMap<int32, float> Weights;
+	Space.Evaluate(ParamValues(Space), Weights);
+	float Cycle = 0.0f;
+	float Total = 0.0f;
+	for (const TPair<int32, float>& Example : Weights)
+	{
+		const int32 Clip = Space.ExampleClips.IsValidIndex(Example.Key) ? Space.ExampleClips[Example.Key] : INDEX_NONE;
+		if (Clip != INDEX_NONE)
+		{
+			Cycle += Example.Value * Actions->Clips[Clip].Duration / FMath::Max(Space.ExampleScales[Example.Key], 0.01f);
+			Total += Example.Value;
+		}
+	}
+	return Total > 0.0f && Cycle > 0.0f ? DeltaSeconds * Speed / (Cycle / Total) : 0.0f;
+}
+
+void USwcPlayerAnimInstance::AddOverlays(const FSwcActionFragment& Fragment, int32 First, float Time, float Phase, float Weight)
+{
+	for (int32 LayerIndex = First; LayerIndex < Fragment.Layers.Num(); ++LayerIndex)
+	{
+		const TArray<FSwcActionItem>& Items = Fragment.Layers[LayerIndex];
+		int32 Current = INDEX_NONE;
+		for (int32 Index = 0; Index < Items.Num(); ++Index)
+		{
+			if (Items[Index].At <= Time + KINDA_SMALL_NUMBER)
+			{
+				Current = Index;
+			}
+		}
+		if (Current == INDEX_NONE)
+		{
+			continue;
+		}
+		// The item blends in over its blend-in time from its start; the item before it blends out in that time.
+		const FSwcActionItem& Item = Items[Current];
+		const float Alpha = Item.BlendIn > KINDA_SMALL_NUMBER ? FMath::Clamp((Time - Item.At) / Item.BlendIn, 0.0f, 1.0f) : 1.0f;
+		const auto Add = [&](const FSwcActionItem& Source, float SourceWeight)
+		{
+			// Weight 0 in a layer keeps the pose below it (layer 0 of the attacks: the base plays on).
+			if (Source.IsEmpty() || SourceWeight * Source.Weight < MinimumWeight)
+			{
+				return;
+			}
+			FSwcPoseOverlay Overlay;
+			Overlay.Weight = SourceWeight * Source.Weight;
+			TSet<int32> BoneSet;
+			if (Source.Clip != INDEX_NONE)
+			{
+				UAnimSequence* Sequence = ActionSequence(Source.Clip);
+				if (Sequence == nullptr)
+				{
+					return;
+				}
+				const FSwcActionClip& Clip = Actions->Clips[Source.Clip];
+				Overlay.Samples.Add({Sequence, Source.ClipTime(Time, Clip.Duration), 1.0f, Source.bLoop});
+				Overlay.bAdditive = Clip.bAdditive;
+				BoneSet.Append(ClipBones(Source.Clip));
+			}
+			else
+			{
+				const FSwcBlendSpace& Space = Actions->BlendSpaces[Source.BlendSpace];
+				// A blend space of an action channel: one cycle from the start of the item (the stance gives its phase).
+				float SourcePhase = Phase;
+				if (SourcePhase < 0.0f)
+				{
+					const float Step = PhaseStep(Space, 1.0f, Source.Speed);
+					SourcePhase = Step * FMath::Max(Time - Source.At, 0.0f);
+				}
+				SpaceSamples(Space, SourcePhase, Source.bLoop, 1.0f, Overlay.Samples);
+				float Sum = 0.0f;
+				for (const FSwcPoseSample& Sample : Overlay.Samples)
+				{
+					Sum += Sample.Weight;
+				}
+				for (FSwcPoseSample& Sample : Overlay.Samples)
+				{
+					Sample.Weight /= FMath::Max(Sum, KINDA_SMALL_NUMBER);
+				}
+				for (const int32 Clip : Space.ExampleClips)
+				{
+					if (Actions->Clips.IsValidIndex(Clip))
+					{
+						Overlay.bAdditive = Overlay.bAdditive || Actions->Clips[Clip].bAdditive;
+						BoneSet.Append(ClipBones(Clip));
+					}
+				}
+			}
+			if (Overlay.Samples.IsEmpty())
+			{
+				return;
+			}
+			Overlay.Bones = BoneSet.Array();
+			Overlays.Add(MoveTemp(Overlay));
+		};
+		if (Current > 0 && Alpha < 1.0f)
+		{
+			Add(Items[Current - 1], Weight * (1.0f - Alpha));
+		}
+		Add(Item, Weight * Alpha);
+	}
+}
+
 void USwcPlayerAnimInstance::AddSamples(const FLayer& Layer, TMap<UAnimSequence*, FSwcPoseSample>& Out) const
 {
+	const auto Merge = [&Out](const FSwcPoseSample& Sample)
+	{
+		if (Sample.Sequence == nullptr || Sample.Weight <= 0.0f)
+		{
+			return;
+		}
+		FSwcPoseSample& Merged = Out.FindOrAdd(Sample.Sequence);
+		Merged.Sequence = Sample.Sequence;
+		// One time for each clip: the layer with the larger weight gives it.
+		if (Sample.Weight > Merged.Weight)
+		{
+			Merged.Time = Sample.Time;
+			Merged.bLoop = Sample.bLoop;
+		}
+		Merged.Weight += Sample.Weight;
+	};
+	if (Layer.Action != INDEX_NONE)
+	{
+		// A stance fragment of the weapon: layer 0 is the base.
+		const FSwcActionFragment& Fragment = Actions->Fragments[Layer.Action];
+		if (Fragment.Layers.IsEmpty() || Fragment.Layers[0].IsEmpty())
+		{
+			return;
+		}
+		// The item of layer 0 at the time (a jump: the jump clip, then its fall loop).
+		const FSwcActionItem* Current = &Fragment.Layers[0][0];
+		for (const FSwcActionItem& Candidate : Fragment.Layers[0])
+		{
+			if (!Candidate.IsEmpty() && Candidate.At <= Layer.Elapsed)
+			{
+				Current = &Candidate;
+			}
+		}
+		const FSwcActionItem& Item = *Current;
+		if (Item.Clip != INDEX_NONE)
+		{
+			Merge({ActionSequence(Item.Clip), Item.ClipTime(Layer.Elapsed, Actions->Clips[Item.Clip].Duration), Layer.Weight, Item.bLoop});
+		}
+		else if (Item.BlendSpace != INDEX_NONE)
+		{
+			TArray<FSwcPoseSample> Space;
+			SpaceSamples(Actions->BlendSpaces[Item.BlendSpace], Layer.Phase, Item.bLoop, Layer.Weight, Space);
+			for (const FSwcPoseSample& Sample : Space)
+			{
+				Merge(Sample);
+			}
+		}
+		return;
+	}
 	const FSwcFragment* Fragment = Locomotion->Fragment(Layer.Fragment);
 	if (Fragment == nullptr)
 	{
 		return;
 	}
-	const auto Add = [this, &Out](int32 Clip, float Time, float Weight, bool bLoop)
+	const auto Add = [this, &Merge](int32 Clip, float Time, float Weight, bool bLoop)
 	{
-		if (!Sequences.IsValidIndex(Clip) || Sequences[Clip] == nullptr || Weight <= 0.0f)
+		if (Sequences.IsValidIndex(Clip))
 		{
-			return;
+			Merge({Sequences[Clip], Time, Weight, bLoop});
 		}
-		FSwcPoseSample& Sample = Out.FindOrAdd(Sequences[Clip]);
-		Sample.Sequence = Sequences[Clip];
-		// One time for each clip: the layer with the larger weight gives it.
-		if (Weight > Sample.Weight)
-		{
-			Sample.Time = Time;
-			Sample.bLoop = bLoop;
-		}
-		Sample.Weight += Weight;
 	};
 	if (Fragment->Clip != INDEX_NONE)
 	{
@@ -105,13 +412,8 @@ void USwcPlayerAnimInstance::AddSamples(const FLayer& Layer, TMap<UAnimSequence*
 		return;
 	}
 	const FSwcBlendSpace& Space = Locomotion->BlendSpaces[Fragment->BlendSpace];
-	TArray<float> Values;
-	for (const FSwcBlendSpace::FParam& Param : Space.Params)
-	{
-		Values.Add(Param.Name == TEXT("MoveSpeed") ? MoveSpeed : Param.Name == TEXT("TravelAngle") ? TravelAngle : Param.Name == TEXT("TurnSpeed") ? TurnSpeed : 0.0f);
-	}
 	TMap<int32, float> Weights;
-	Space.Evaluate(Values, Weights);
+	Space.Evaluate(ParamValues(Space), Weights);
 	for (const TPair<int32, float>& Example : Weights)
 	{
 		const int32 Clip = Space.ExampleClips.IsValidIndex(Example.Key) ? Space.ExampleClips[Example.Key] : INDEX_NONE;
@@ -133,6 +435,7 @@ void USwcPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	if (!Locomotion.IsValid() || Movement == nullptr)
 	{
 		Samples.Reset();
+		Overlays.Reset();
 		return;
 	}
 	// The motion parameters: speed (m/s), the direction of the travel to the facing (radians, positive to the left), and
@@ -152,18 +455,27 @@ void USwcPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	}
 	SwcSmoothCD(TurnSpeed, TurnSpeedRate, Movement->GetTurnSpeed(), TurnConvergeTime, DeltaSeconds);
 
-	// The fragment of the movement state, with the blend-in time of the data.
+	// The fragment of the movement state: the stance of the weapon in the hand, else the unarmed fragment of locomotion.json.
 	const FString Fragment = Movement->GetFragment();
-	if ((Layers.IsEmpty() || Layers.Last().Fragment != Fragment) && Locomotion->Fragment(Fragment) != nullptr)
+	const int32* StanceFragment = Stance != nullptr && Actions.IsValid() ? Stance->Stance.Find(Fragment) : nullptr;
+	const int32 Action = StanceFragment != nullptr ? *StanceFragment : INDEX_NONE;
+	const int32* OffhandFragment = Action != INDEX_NONE && bOffhandStance ? Stance->Offhand.Find(Fragment) : nullptr;
+	if ((Layers.IsEmpty() || Layers.Last().Fragment != Fragment || Layers.Last().Action != Action)
+		&& (Action != INDEX_NONE || Locomotion->Fragment(Fragment) != nullptr))
 	{
 		FLayer& Layer = Layers.AddDefaulted_GetRef();
 		Layer.Fragment = Fragment;
-		Layer.BlendIn = Locomotion->Fragment(Fragment)->BlendIn;
+		Layer.Action = Action;
+		Layer.Offhand = OffhandFragment != nullptr ? *OffhandFragment : INDEX_NONE;
+		const FSwcActionFragment* Data = Action != INDEX_NONE ? &Actions->Fragments[Action] : nullptr;
+		Layer.BlendIn = Data != nullptr ? (Data->Layers.IsEmpty() || Data->Layers[0].IsEmpty() ? 0.2f : Data->Layers[0][0].BlendIn)
+										: Locomotion->Fragment(Fragment)->BlendIn;
 		Layer.Weight = Layers.Num() == 1 ? 1.0f : 0.0f;
 	}
 	if (Layers.IsEmpty())
 	{
 		Samples.Reset();
+		Overlays.Reset();
 		return;
 	}
 	FLayer& Top = Layers.Last();
@@ -186,19 +498,24 @@ void USwcPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	for (FLayer& Layer : Layers)
 	{
 		Layer.Elapsed += DeltaSeconds;
+		if (Layer.Action != INDEX_NONE)
+		{
+			const FSwcActionFragment& Data = Actions->Fragments[Layer.Action];
+			const FSwcActionItem* Item = Data.Layers.IsEmpty() || Data.Layers[0].IsEmpty() ? nullptr : &Data.Layers[0][0];
+			if (Item != nullptr && Item->BlendSpace != INDEX_NONE)
+			{
+				Layer.Phase += PhaseStep(Actions->BlendSpaces[Item->BlendSpace], DeltaSeconds, Item->Speed);
+			}
+			continue;
+		}
 		const FSwcFragment* Data = Locomotion->Fragment(Layer.Fragment);
 		if (Data == nullptr || Data->BlendSpace == INDEX_NONE)
 		{
 			continue;
 		}
 		const FSwcBlendSpace& Space = Locomotion->BlendSpaces[Data->BlendSpace];
-		TArray<float> Values;
-		for (const FSwcBlendSpace::FParam& Param : Space.Params)
-		{
-			Values.Add(Param.Name == TEXT("MoveSpeed") ? MoveSpeed : Param.Name == TEXT("TravelAngle") ? TravelAngle : Param.Name == TEXT("TurnSpeed") ? TurnSpeed : 0.0f);
-		}
 		TMap<int32, float> Weights;
-		Space.Evaluate(Values, Weights);
+		Space.Evaluate(ParamValues(Space), Weights);
 		float Cycle = 0.0f;
 		float Total = 0.0f;
 		for (const TPair<int32, float>& Example : Weights)
@@ -234,6 +551,68 @@ void USwcPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	{
 		Sample.Weight /= Sum;
 	}
+
+	// The overlays: the other layers of the stance fragments and the fragments of the shield (with the phase of the base),
+	// then the draw or the sheathe, then the attack over all of them.
+	Overlays.Reset();
+	if (Actions.IsValid())
+	{
+		for (const FLayer& Layer : Layers)
+		{
+			if (Layer.Action != INDEX_NONE)
+			{
+				AddOverlays(Actions->Fragments[Layer.Action], 1, Layer.Elapsed, Layer.Phase, Layer.Weight);
+			}
+			if (Layer.Offhand != INDEX_NONE)
+			{
+				AddOverlays(Actions->Fragments[Layer.Offhand], 0, Layer.Elapsed, Layer.Phase, Layer.Weight);
+			}
+		}
+		for (const int32 Channel : {1, 0})
+		{
+			TArray<FActionLayer>& Played = Channels[Channel];
+			for (int32 Index = 0; Index < Played.Num(); ++Index)
+			{
+				FActionLayer& Layer = Played[Index];
+				const bool bNewest = Index == Played.Num() - 1;
+				// The component gives the time of the newest fragment; an older or an ending one runs on.
+				if (!bNewest || Layer.bEnding)
+				{
+					Layer.Time += DeltaSeconds;
+				}
+				if (Layer.bEnding)
+				{
+					const float BlendOut = Actions->Fragments[Layer.Fragment].BlendOut;
+					Layer.Weight = BlendOut > 0.001f ? Layer.Weight - DeltaSeconds / BlendOut : 0.0f;
+				}
+			}
+			// A fragment that blended in fully covers the ones before it.
+			for (int32 Index = Played.Num() - 1; Index > 0; --Index)
+			{
+				const FSwcActionFragment& Data = Actions->Fragments[Played[Index].Fragment];
+				float FullIn = 0.0f;
+				for (const TArray<FSwcActionItem>& Items : Data.Layers)
+				{
+					if (!Items.IsEmpty() && Items[0].Weight > 0.0f)
+					{
+						FullIn = FMath::Max(FullIn, Items[0].At + Items[0].BlendIn);
+					}
+				}
+				if (Played[Index].Time >= FullIn)
+				{
+					Played.RemoveAt(0, Index);
+					break;
+				}
+			}
+			Played.RemoveAll([](const FActionLayer& Layer) { return Layer.Weight <= 0.0f; });
+			for (const FActionLayer& Layer : Played)
+			{
+				AddOverlays(Actions->Fragments[Layer.Fragment], 0, Layer.Time, -1.0f, Layer.Weight);
+			}
+		}
+	}
 	// The evaluation runs after this update (on a worker thread): the proxy keeps a copy.
-	GetProxyOnGameThread<FSwcPlayerAnimProxy>().Samples = Samples;
+	FSwcPlayerAnimProxy& Proxy = GetProxyOnGameThread<FSwcPlayerAnimProxy>();
+	Proxy.Samples = Samples;
+	Proxy.Overlays = Overlays;
 }

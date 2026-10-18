@@ -1,0 +1,125 @@
+# The actions of the player with a weapon
+
+Stage P2.7 (Linear AST-162). The character plays the stances of its weapon, the draw and the sheathe, the light chain,
+the partial and the full heavy attack, and the weapon switch from the original action graph: the Mannequin fragments,
+their layers and marks, and the transitions of the action lists. The server follows the same graph with the input steps
+of the client (Soulwarden protocol notes 4.32), so the client plays the fragments that the server expects.
+[GEAR.md](GEAR.md) has the gear and its places. [MOVEMENT.md](MOVEMENT.md) has the unarmed movement.
+
+## The data
+
+`tools/convert-player.sh actions` writes `SWC_CONTENT/player/actions.json` (`converter/swc_convert/actions.py`):
+
+| Block | Content | Source |
+| --- | --- | --- |
+| `weapons` | For each weapon tag set: the stance fragments (`Idle`, `Strafe`, `Sprint`, `Sprint_Start`, `Fall`, `Land`, `Jump`), the fragments of a shield (tag `Offhand`), the draw and the sheathe fragments, and for a melee weapon its attack graph | The SubADB chain of `player.adb` (the first database whose tags the weapon has); the graph of the backend copy (`SWC_GAMEDATA_DIR/weapon-actions.json`, the same graph as the server) |
+| `fragments` | The layers of each fragment (each item: its exit time, start time, blend-in time, speed, weight, loop, and clip or blend space), its blend-out time, and its marks (`CAGE-Named`: start and end) | The animation databases |
+| `clips` | The duration, the flags (1: additive), the animated bones, and the root track of the attack clips | The `.caf` files |
+| `blendSpaces` | The blend spaces of the layers, with the weight grid | The `.bspace` files |
+| `activities`, `conditions` | `AnimationDrivenMotion`, `CameraRelativeFacing`, and `InputRelativeFacing` of each attack action, with their conditionals, and the named conditions | `playeractions_attack.actionlist` |
+
+The clips come on demand in packs, one for each gender and weapon tag set: the client writes the packs that it does
+not have into the wanted list (`"clips": [["Male", "1H_Melee,Sword"]]`); `tools/convert-player.sh wanted` (or
+`clips GENDER TAGS`) writes `clips/<gender>/<tags>/clips.gltf` (the skeleton and each clip of the set, the root bone
+locked), and `tools/import-player.sh` imports the animations onto the skeleton of the base. The sword set has 157 clips,
+the greatsword set 88.
+
+## The attack graph
+
+`Combat/SwcAttackGraph` is plain C++ with the rules of the backend (`world/attack_sequence.cpp`,
+`world/combat.cpp` `Combat::step_switch`):
+
+- The clock of a fragment that started at the input step s is (k − s + 1) / 30 s at the step k.
+- At rest a press starts the first fragment of the graph (`Attack_Start_Charge`).
+- An instant transition starts its fragment at the first step in its window with its input. A buffered transition takes
+  a press in its window and starts its fragment at the end of the window; a press before the window is lost. The full
+  charge needs the hold at its step. A fragment ends at its length; a press that no window takes, now or later, starts
+  a new attack.
+- The weapon switch: a key of the other weapon switches at once at rest; in a fragment at its switch mark
+  (`CanUnsheathe`, `CanTransition`) when a switch window (`CanUnsheathe_Buffer`) starts in the 20 steps of the key, else
+  the key is lost. In the first 3 steps after the switch a press is kept; the kept press starts the first attack of the
+  new weapon 3 steps after the switch.
+
+The attack input of the input report (protocol notes 4.15): the press bit 555 with 203 and 408 at the step where the
+left mouse button goes down, the hold bit 191 at each step after it while the button is down, and the release bit 567
+at the step where it goes up. Each step takes one button event (a click in one frame is a press, then a release at the
+next step). The driver (`swc::combat::Driver`) runs on the thread of the session at each input entry
+(`RepClient::Options::inputStep`, [NETWORK.md](NETWORK.md)): it adds the bits, reads the weapon keys of the entry, and
+steps the switch and the graph. Thus the client follows the graph at the same input steps as the server. The game
+thread reads a snapshot: the visits, the last step, and the switches.
+
+## The playback
+
+`Character/SwcPlayerActions` (a component of the character) and `Character/SwcPlayerAnimInstance`:
+
+- The base: the stance fragment of the weapon in the hand for the movement fragment (layer 0), else the unarmed
+  fragment of `locomotion.json`. The other layers of the stance fragment and the fragment of the shield are overlays.
+- Two action channels over the base: the draw or the sheathe (`UpperBody`), then the attack (`FullBody`). Each item of
+  a layer with a weight above 0 is an overlay on the bones of its clip: an override with its weight, or an additive clip
+  (its rotation is multiplied before the rotation below it; the order is an inference). An item with weight 0 keeps the
+  pose below it (layer 0 of the attacks: the base plays on). An item blends in over its blend-in time; a fragment at the
+  end of its channel blends out over its blend-out time.
+- The clock of the attack fragment is the clock of its visit at the last input step, plus the time since that step
+  (at most 1/30 s).
+- The motion of an attack: the root track of its clip times `MotionMultiplier` of the first conditional of
+  `AnimationDrivenMotion` that holds, in the frame of the character. `InheritVelocity` keeps the velocity at the start
+  (`InheritVelocityMaxSpeed` at most), and `Decel` takes it to 0 (the unit m/s² is an inference). The move keys do
+  not move the character while an attack plays.
+- The facing of an attack: `CameraRelativeFacing` (the first conditional that holds) turns the character to the camera
+  yaw; else `InputRelativeFacing` turns it to the move keys. An exponential rate is the share of the remaining angle in
+  each step of 1/30 s; else degrees in each second. The priority of the two is an inference.
+- The conditions: `And`, `Or`, `Not`, `True`, `IfMannequinMarker` (the marks of the fragment at its clock),
+  `IfMannequinTag` (the tags of the weapon), `IfCameraLockActive`, `IfInput` (the attack input and its hold),
+  `IfFacingVelocityAngleDiff`. The other types are false on the client.
+- The draw and the sheathe: each part moves at the mark of its fragment (`unsheathe_weapon`, `Unsheathe_Offhand`,
+  `sheathe_weapon`). A switch sheathes the old weapon and draws the new one at the sheathe mark. The stance of a weapon
+  starts at its draw mark and ends at its sheathe mark. An attack puts the weapon of its graph into the hand at once
+  (an attack with a sheathed weapon, or the kept press of a switch; an inference).
+
+## The tests
+
+`tools/test-actions.sh` (no engine) builds `tests/actions/actions_tests.cpp` with the attack sequence of the backend
+(its sources, read only):
+
+- the action order of the sword: a click, the light chain, a press before a window, a press after a window, the
+  partial heavy attack, the full charge, the repeat of a long hold, a new attack after the end;
+- the marker order: the marks of each fragment with marks come one time, in the order of their times, for frames of
+  1/30, 1/60, 1/144, and 0.1 s; the draw marks of the sword;
+- the weapon switch (live checks SW-L1 to SW-L3 of the notes) for the war hammer to the great axe and for the sword to
+  the greatsword;
+- the driver: the bits of a click, a hold, and a release; a weapon key at rest;
+- the parity: 3,672 input scripts (the live check inputs and random clicks and holds) for each of the 12 melee graphs:
+  the client and the backend start the same fragments at the same steps.
+
+```sh
+tools/test-actions.sh   # 4847 checks, 0 failed
+```
+
+## Exit check (development runs, 2026-10-18)
+
+`Swordwarden` (the sword in slot 24, the shield in 27, the greatsword in 25) on the test floor of the world level (a
+place outside the built regions: the frame rate of the world level was about 8 frames in a second under the load of the
+computer, too low for the windows of a chain), `tests/drive/actions.txt`, the pictures of `-SwcFrames` with
+`r.MotionBlurQuality 0`. Evidence in `~/Games/soulwarden-client/evidence/P2.7/`:
+
+- `chain-heavy-charge.mp4`: the draw; the light chain `Attack_Primary`, `Attack_Primary_Strike2`,
+  `Attack_Primary_Strike3`; the partial heavy attack `Attack_Heavy` (the release 0.4 s after the press); the full
+  charge `Attack_Heavy_Charged`; the greatsword chain; the sheathe.
+- `buffered-swap.mp4`: the key 2 in a sword chain. The switch came at input 624, the switch mark of
+  `Attack_Primary_Strike2` (its start 601 + 23); the backend log has `Swordwarden switches to slot 25 at input 624 (the
+  key at input 592, 32 steps before); a kept press starts the first attack 3 steps later`. The greatsword swing started
+  at input 627. The backend counts (`/v1/dev/world`, `basicAttacks`): 16 visits, 1 end by a change of the weapon; the
+  client had 16 visits too. 654 position reports accepted, 0 refused.
+
+## Open points
+
+- The weapon clips: in the attachment databases (`playermaleanims_1h_meleeattach.adb`, `_2h_`) only the flail has
+  clips (18, `rflail_*_prop`: its chain); the sword and the greatsword have none (particle effects, the damage clips,
+  and weapon effects only). The clips of the flail, the bow string, and the firearms need the weapons as skeletal meshes.
+- The melee contacts (list 3 of the input entry) are stage P2.8: the client sends no contact yet.
+- The abilities, the dodge, the block, the sprint and air attacks, the stamina, and the overencumbered rule are not
+  played.
+- Remote players do not play actions (the Slayer map of other players is open).
+- The inferences above (the additive order, the unit of `Decel`, the facing priority, the weapon in the hand at the
+  start of an attack).
+- The side-by-side check with the retail client waits for the approval of the user.
