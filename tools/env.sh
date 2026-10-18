@@ -15,7 +15,13 @@
 # retail game, with the run.lock of the Soulwarden launcher. Development runs of agents never use it.
 : "${SWC_PLAYER_DATA:=${XDG_DATA_HOME:-${HOME}/.local/share}/soulwarden}"
 : "${SWC_DEV_DATA:=${SWC_WORK}/dev-data}"                          # development runs: own database, a seed character
+: "${SOULWARDEN_RELEASES:=${HOME}/Games/soulwarden/releases}"     # the releases of the Soulwarden project (read only)
+: "${SWC_STEAM_DIR:=${HOME}/.local/share/Steam}"                  # only config/loginusers.vdf is read (tools/play.sh)
+: "${SWC_HTTP_PORT:=32200}"                                        # the HTTP listener of the backend, in the run namespace
+: "${SWC_CLIENT_EXE:=${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor}"       # the client window (game mode)
+: "${SWC_CLIENT_CMD:=${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor-Cmd}"   # the client with no window (-nullrhi)
 SWC_UPROJECT="${SWC_REPO}/unreal/SoulwardenClient/SoulwardenClient.uproject"
 export SWC_REPO SWC_WORK SWC_CONTENT SOULWARDEN_REPO SOULWARDEN_GAME_DIR UE_ROOT SOULWARDEN_OODLE_LIB \
-    SWC_BACKEND_DIR SWC_BACKEND_EXE SWC_GAMEDATA_DIR SWC_PLAYER_DATA SWC_DEV_DATA SWC_UPROJECT
+    SWC_BACKEND_DIR SWC_BACKEND_EXE SWC_GAMEDATA_DIR SWC_PLAYER_DATA SWC_DEV_DATA SOULWARDEN_RELEASES SWC_STEAM_DIR \
+    SWC_HTTP_PORT SWC_CLIENT_EXE SWC_CLIENT_CMD SWC_UPROJECT
 export PYTHONDONTWRITEBYTECODE=1

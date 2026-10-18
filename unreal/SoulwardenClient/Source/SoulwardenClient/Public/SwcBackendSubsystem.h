@@ -1,15 +1,25 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Containers/Ticker.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "SwcBackendSubsystem.generated.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogSwcBackend, Log, All);
 
+class FSwcLoginClient;
+
 /**
  * The connection to the Soulwarden backend. The client speaks the original wire protocol of the backend
  * (decision of 2026-10-18): the HTTP login path, then DTLS 1.2, the carrier, and the state bundles
- * (Soulwarden protocol notes, sections 2 to 4). Stage P0 has only the endpoints; the protocol is stage P3.
+ * (Soulwarden protocol notes, sections 2 to 4). docs/NETWORK.md has the client side of each contract.
+ *
+ * Command line (the run scripts give it; the editor does not connect):
+ *   -SwcConnect                the login path starts with the game
+ *   -SwcHttp=HOST:PORT         the HTTP listener of the backend (loopback only)
+ *   -SwcQuitWhen=characters    the client stops after the character list (status 0), or after a failure (status 1)
+ *   -SwcQuitAfter=SECONDS      the client stops after this time
+ * Environment: SWC_STEAM_ID and SWC_PERSONA_NAME (the Steam stubs), SWC_RUN (player or development).
  */
 UCLASS(Config = Game)
 class SOULWARDENCLIENT_API USwcBackendSubsystem : public UGameInstanceSubsystem
@@ -18,8 +28,12 @@ class SOULWARDENCLIENT_API USwcBackendSubsystem : public UGameInstanceSubsystem
 
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	virtual void Deinitialize() override;
 
 	void LogEndpoints() const;
+
+	/** Runs the HTTP login path to the character list. */
+	void StartLogin();
 
 	/** HTTP host and port of the backend (loopback only). The command line can set them: -SwcHttp=HOST:PORT. */
 	UPROPERTY(Config)
@@ -27,4 +41,14 @@ public:
 
 	UPROPERTY(Config)
 	int32 HttpPort = 32200;
+
+private:
+	void OnCharacterList(bool bSucceeded, const FString& Error);
+	void Quit(bool bSucceeded, const TCHAR* Cause) const;
+
+	TSharedPtr<FSwcLoginClient> Login;
+	/** A player run shows no character name of the user in the log (the rule of AGENTS.md). */
+	bool bPlayerRun = true;
+	FString QuitWhen;
+	FTSTicker::FDelegateHandle QuitTimer;
 };
