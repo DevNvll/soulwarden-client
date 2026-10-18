@@ -24,6 +24,7 @@ Usage (tools/convert-materials.sh):
   proof-sheet [STAGE]  the pictures of the render check with the names of the columns
   decals export NAME... | specs | scan NAME...   the roads and the projected decals of regions (decals.py: the
                        road meshes, the decal list, layer.json for the client) and the specs of their materials
+  frames LOG...        the frame time of runs with -SwcFrameStats, for each view place (the cost checks)
   chains               the exit check of M0: the source chains of the research proofs and the on/off overrides
   proof-plan [STAGE]   the meshes and variants of the render check of a stage (Scripts/material_proof.py)
   record MTL [INDEX]   print the rich records of one material file
@@ -1058,6 +1059,33 @@ def proof_sheet(stage: str, evidence: Path | None = None) -> dict:
     return {"sheet": str(out)}
 
 
+def frames(logs: list[str]) -> dict:
+    """@return The frame time of runs with -SwcFrameStats (Source/SoulwardenClient/World/SwcFrameStats): for each log and
+    each view place (the "view m" of the lines, to 1 m), the median of the p50 and p95 values of its windows after
+    the first window at the place (it still loads)."""
+    import re
+    import statistics
+    out = {}
+    for log in logs:
+        places: dict[str, list[dict]] = {}
+        for line in Path(log).read_text(errors="replace").splitlines():
+            m = re.search(r"SWC FRAMES (\{.*\})", line)
+            if not m:
+                continue
+            row = json.loads(m.group(1))
+            if row["frames"] < 10 or row["view m"] == [0.0, -0.0, 0.0] or row["view m"] == [0.0, 0.0, 0.0]:
+                continue
+            places.setdefault(" ".join(f"{v:.0f}" for v in row["view m"]), []).append(row)
+        result = {}
+        for place, rows in places.items():
+            rows = rows[1:] or rows
+            result[place] = {"windows": len(rows),
+                             **{k: round(statistics.median(r[k] for r in rows), 2)
+                                for k in ("frame p50 ms", "frame p95 ms", "gpu p50 ms", "gpu p95 ms")}}
+        out[Path(log).name] = result
+    return out
+
+
 # The exit check of M0: the source chains of the research proofs (research/world-materials/proof/*-inputs.json) and the
 # on/off overrides of the entities near Oxboro (near-entity-evidence.json) come out of the records unchanged.
 RESEARCH = Path.home() / "Games/soulwarden-client/research/world-materials"
@@ -1127,7 +1155,8 @@ def same(a, b, tolerance: float = 1e-6) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if not argv or argv[0] not in ("audit", "instances", "proof-plan", "proof-sheet", "chains", "record", "decals"):
+    if not argv or argv[0] not in ("audit", "instances", "proof-plan", "proof-sheet", "chains", "record", "decals",
+                                   "frames"):
         print(__doc__)
         return 2
     if argv[0] == "audit":
@@ -1136,6 +1165,8 @@ def main(argv: list[str] | None = None) -> int:
         result = instances(tuple(argv[2].split(",")) if len(argv) > 2 and argv[1] == "--candidate" else ())
     elif argv[0] == "chains":
         result = chains()
+    elif argv[0] == "frames":
+        result = frames(argv[1:])
     elif argv[0] == "decals":
         from . import decals
         result = decals.main(argv[1:])

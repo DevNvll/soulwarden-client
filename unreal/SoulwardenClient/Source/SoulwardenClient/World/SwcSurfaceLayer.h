@@ -15,7 +15,7 @@ struct FStreamableHandle;
  * region (converter/swc_convert/decals.py); tools/import-surface-layer.sh imports the road meshes and the decal
  * materials into /SwcGameContent. This subsystem streams them near the view: the road meshes of the cells within
  * RoadRangeCm, the decals within their view distance (Max View Distance x View Distance Multiplier of the source).
- * -SwcNoSurfaceLayer turns it off.
+ * Opt-in until the check of stage S1 passes: -SwcSurfaceLayer or SWC_SURFACE_LAYER=1 (-SwcNoSurfaceLayer turns it off).
  */
 UCLASS()
 class SOULWARDENCLIENT_API USwcSurfaceLayer : public UTickableWorldSubsystem

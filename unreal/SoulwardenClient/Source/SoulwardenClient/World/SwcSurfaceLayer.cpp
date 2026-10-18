@@ -73,7 +73,10 @@ TStatId USwcSurfaceLayer::GetStatId() const
 void USwcSurfaceLayer::OnWorldBeginPlay(UWorld& World)
 {
 	Super::OnWorldBeginPlay(World);
-	bEnabled = !FParse::Param(FCommandLine::Get(), TEXT("SwcNoSurfaceLayer"));
+	// Opt-in until the check of stage S1 passes: -SwcSurfaceLayer (or SWC_SURFACE_LAYER=1); -SwcNoSurfaceLayer turns it off.
+	bEnabled = (FParse::Param(FCommandLine::Get(), TEXT("SwcSurfaceLayer"))
+				|| FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_SURFACE_LAYER")) == TEXT("1"))
+		&& !FParse::Param(FCommandLine::Get(), TEXT("SwcNoSurfaceLayer"));
 	Folder = ContentFolder();
 	UE_LOG(LogSwcSurface, Log, TEXT("surface: layer %s (%s)"), bEnabled ? TEXT("on") : TEXT("off"), *Folder);
 }
@@ -114,9 +117,11 @@ bool USwcSurfaceLayer::ReadRegion(const FIntPoint& Key, FRegion& Region) const
 	{
 		const TSharedPtr<FJsonObject> Road = Value->AsObject();
 		FRoad Entry;
-		// The asset of the road mesh: the mesh of the glTF node (its file name) in the folder of the record.
+		// The asset of the road mesh: Interchange puts the mesh of the glTF FOLDER/STEM.gltf (its node STEM) into
+		// FOLDER/STEM/StaticMeshes/STEM (Scripts/import_surface_layer.py).
 		const FString Stem = FPaths::GetBaseFilename(Road->GetStringField(TEXT("file")));
-		Entry.Mesh = FSoftObjectPath(FString::Printf(TEXT("%s/%s.%s"), *Road->GetStringField(TEXT("unreal")), *Stem, *Stem));
+		Entry.Mesh = FSoftObjectPath(FString::Printf(TEXT("%s/%s/StaticMeshes/%s.%s"), *Road->GetStringField(TEXT("unreal")),
+			*Stem, *Stem, *Stem));
 		const FVector Origin = ReadVector(Road, TEXT("origin m"));
 		Entry.Location = FVector(Origin.X * 100.0, -Origin.Y * 100.0, Origin.Z * 100.0);   // engine m -> Unreal cm
 		Entry.Center = Entry.Location + FVector(12800.0, -12800.0, 0.0);

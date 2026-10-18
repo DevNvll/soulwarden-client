@@ -34,7 +34,7 @@ ROAD_TYPE = "3700da70407d47a6b7884654edda32a1"
 DECAL_TYPE = "1c2ceaa8786f46848202ca7d940d627b"
 FLOAT_TYPE = "ea2c3e90afbe44d4a90dfaaf79baf93d"
 COMPONENTS, WORLD_TM, NAME, ID = F("Components"), F("m_worldTM"), F("Name"), F("Id")
-VERSION = 1   # the rule of the road and decal records
+VERSION = 2   # the rule of the road and decal records (2: road U along the road, V across; decals of type 2 project down)
 
 
 def out_dir(name: str):
@@ -327,7 +327,7 @@ class Heights:
 
 def ribbon(road: dict, heights: Heights) -> dict | None:
     """@return The ribbon of a road in engine space: positions (rows x ACROSS, 3), uvs, and the distances along the
-    road. Rows every SegmentLength (and the end); u goes across (0..1), v = distance / TileLength."""
+    road. Rows every SegmentLength (and the end); u = distance / TileLength, v goes across (0..1)."""
     line = centerline(road)
     if line is None:
         return None
@@ -350,7 +350,9 @@ def ribbon(road: dict, heights: Heights) -> dict | None:
     py = cy[:, None] + right[:, 1:2] * (u[None, :] - 0.5) * w[:, None]
     pz = heights(px, py) + LIFT_M
     tile = float(road["tile length"] or 1.0)
-    uv = np.stack([np.broadcast_to(u[None, :], px.shape), np.broadcast_to((rows / tile)[:, None], px.shape)], 2)
+    # U along the road (distance / TileLength), V across (0..1): the road maps of the source fade their alpha along V
+    # (the cobblestone diffa: the first and last eighth of the rows have the mean alpha 0.75, the columns 0.94 all).
+    uv = np.stack([np.broadcast_to((rows / tile)[:, None], px.shape), np.broadcast_to(u[None, :], px.shape)], 2)
     return {"positions": np.stack([px, py, pz], 2), "uv": uv, "rows": rows, "length": length}
 
 
@@ -447,6 +449,20 @@ def decal_transforms(decals: list[dict], materials: dict) -> list[dict]:
         materials.setdefault(key, {"mtl": d["material"], "rules": rules, "uses": 0})["uses"] += 1
         m = np.asarray(d["matrix"], dtype=np.float64)
         right, up, front = m[:3, 0], m[:3, 1], m[:3, 2]
+        if d["projection"] == 2:
+            # On the terrain (2): the decal projects straight down whatever the tilt of the entity (14,013 decals of
+            # r_+04_+02: 9,417 have their Z vertical, 2,390 their Y, 2,206 their X; in each group X and Y have the
+            # same median scale: the footprint is |X| x |Y|, the depth |Z| x Depth). The heading: the horizontal part
+            # of X (of Y turned by -90 degrees when X is vertical).
+            sx, sy, sz = (float(np.linalg.norm(c)) for c in (right, up, front))
+            heading = np.array([right[0], right[1], 0.0])
+            if np.linalg.norm(heading) < 1e-3 * max(sx, 1e-9):
+                heading = np.array([up[1], -up[0], 0.0])
+            heading /= max(float(np.linalg.norm(heading)), 1e-9)
+            down = np.array([0.0, 0.0, 1.0])
+            right = heading * sx
+            up = np.cross(down, heading) * sy
+            front = down * sz
         box = np.eye(4)
         box[:3, 0] = front * float(d["depth"] or 1.0)
         box[:3, 1] = right
