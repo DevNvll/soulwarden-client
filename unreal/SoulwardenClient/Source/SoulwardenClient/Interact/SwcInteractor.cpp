@@ -303,6 +303,64 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			FocusTool = Object.ToolItem != 0 ? Object.ToolSlot : 0;
 		}
 	}
+	// The bag panel of the UI (stage P2.4): the open with OpenStorageOption, and the close (2473).
+	if (Use.phase() == swc::interact::Use::Phase::idle)
+	{
+		OpenBagInterest = 0;
+	}
+	if (bPendingClose)
+	{
+		bPendingClose = false;
+		if (OpenBagInterest != 0 && Use.phase() != swc::interact::Use::Phase::idle)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the panel of the bag %u closes: the client ends the use (2473)"), OpenBagInterest);
+			Use.finish();
+		}
+	}
+	if (PendingOpen != 0)
+	{
+		const uint32 Interest = PendingOpen;
+		PendingOpen = 0;
+		TArray<FSwcLootBag> Bags;
+		if (Creatures != nullptr)
+		{
+			Creatures->GetLootBags(FVector(SwcEngineToUnreal(Reported)), Bags);
+		}
+		const FSwcLootBag* Bag = Bags.FindByPredicate([Interest](const FSwcLootBag& Item) { return Item.Interest == Interest; });
+		// The range rule of the server (the position field of the report: "The range" of docs/INTERACTIONS.md).
+		const bool bReady = Bag != nullptr && Use.phase() == swc::interact::Use::Phase::idle && !bLocked && LootTemplate
+			&& !LootTemplate->bounds.empty() && LootTemplate->bounds.front().options.size() > 1 && Bag->bEnabled && !IsLooted(Own, Bag->Actor)
+			&& swc::interact::in_range(Reported, Bag->EnginePlace, Bag->RangeSq) && !Bag->Options.IsEmpty();
+		if (!bReady)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the panel of the bag %u: no open (a use runs, or the bag is not in its range)"), Interest);
+		}
+		else
+		{
+			const swc::interact::Bound& Bound = LootTemplate->bounds.front();
+			OpenOption = Bound.options[1];
+			OpenOption.hold = 0.0F;
+			swc::interact::Candidate Candidate;
+			Candidate.interest = Bag->Interest;
+			Candidate.object = &*LootTemplate;
+			Candidate.option = &OpenOption;
+			Candidate.request = swc::interact::request_of(*LootTemplate, Bound, OpenOption, Bag->Actor);
+			Candidate.request.reference.group = Bag->Group;
+			Candidate.request.reference.target = Bag->Target;
+			Candidate.request.optionEntity = Bag->Options[Bag->Options.Num() > 1 ? 1 : 0].Value;
+			Candidate.place = Bag->EnginePlace;
+			Candidate.distanceSq = swc::interact::distance_sq(Reported, Bag->EnginePlace);
+			Candidate.rangeSq = Bag->RangeSq;
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the panel of the bag %u (%.2f m of %.2f m): %s, action %u"), Interest,
+				FMath::Sqrt(Candidate.distanceSq), FMath::Sqrt(Bag->RangeSq),
+				UTF8_TO_TCHAR(OpenOption.name.c_str()), OpenOption.action);
+			Use.press(Now, Candidate, true);
+			UsePlace = SwcEngineToUnreal(Bag->EnginePlace);
+			bUseBag = true;
+			UseBag = Bag->Actor;
+			OpenBagInterest = Interest;
+		}
+	}
 	if (bLocked)
 	{
 		Use.abort();

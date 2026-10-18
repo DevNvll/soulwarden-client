@@ -108,6 +108,11 @@ public:
 	bool IsWaitingForCells() const { return bTravelWait; }
 	/** The key E of the interactions (stage P2.10): down or up. */
 	void SetInteractKey(bool bDown) { bInteractKey = bDown; }
+	/** The bag panel of the UI (stage P2.4): the open of a loot bag of the creature view (its interest) with OpenStorageOption, the
+	 *  close of the panel (2473), and the bag of the panel use (0: none). FSwcInteractor does the use. */
+	void OpenLootBag(uint32 Interest);
+	void CloseLootBag();
+	uint32 GetOpenLootBag() const;
 
 	/**
 	 * @return The yaw of the camera of the player in degrees, in the convention of the input report (protocol notes 4.7):

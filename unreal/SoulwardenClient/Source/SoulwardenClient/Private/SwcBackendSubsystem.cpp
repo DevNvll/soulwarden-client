@@ -1421,6 +1421,27 @@ bool USwcBackendSubsystem::DropPaperdollItem(uint32 PaperdollSlot, uint32 Quanti
 	return true;
 }
 
+void USwcBackendSubsystem::OpenLootBag(uint32 Interest)
+{
+	if (Interactor.IsValid())
+	{
+		Interactor->OpenBag(Interest);
+	}
+}
+
+void USwcBackendSubsystem::CloseLootBag()
+{
+	if (Interactor.IsValid())
+	{
+		Interactor->CloseBag();
+	}
+}
+
+uint32 USwcBackendSubsystem::GetOpenLootBag() const
+{
+	return Interactor.IsValid() ? Interactor->GetOpenBag() : 0;
+}
+
 bool USwcBackendSubsystem::TakeAllItems()
 {
 	if (!Connection.IsValid() || !bInGame)

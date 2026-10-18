@@ -55,6 +55,15 @@ public:
 	/** The prompt and the progress for the debug text of a development run. */
 	FString DebugText(double Now) const;
 	const swc::interact::Use& GetUse() const { return Use; }
+	/**
+	 * The bag panel of the UI (stage P2.4, the UI track; protocol notes 4.42): the next Update opens the bag of the interest with its
+	 * second option, OpenStorageOption (action 26; the open of the panel has no hold), when no use runs and the bag is in its range
+	 * with no Looted claim. The use stays until CloseBag (the panel closes: 2473), the Looted claim, or the end of the bag.
+	 */
+	void OpenBag(uint32 Interest) { PendingOpen = Interest; }
+	void CloseBag() { bPendingClose = true; }
+	/** The interest of the bag whose panel use runs (0: none). */
+	uint32 GetOpenBag() const { return OpenBagInterest; }
 
 private:
 	/** The Looted claims: the model of each bag hides HideMeshDelay after the claim. */
@@ -92,4 +101,9 @@ private:
 	/** The revisions of the bag of the character and of the LootTracker that the log saw. */
 	uint32 SeenBag = 0;
 	uint32 SeenLoot = 0;
+	/** The bag panel of the UI: the open that waits for the next Update, the close, the bag of the open use, and its option. */
+	uint32 PendingOpen = 0;
+	bool bPendingClose = false;
+	uint32 OpenBagInterest = 0;
+	swc::interact::Option OpenOption;
 };

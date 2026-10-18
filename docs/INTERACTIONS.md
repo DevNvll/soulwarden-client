@@ -145,7 +145,11 @@ options of `interaction-data.json` (80, 30), not its CRC-32 id; the interactor t
 
 The panel of the open bag (OpenStorageOption with T, the take of one item and the Take All button: messages 2939 and 2942) is
 a part of the inventory screen of the UI track (stage P2.4). The client has the messages and the states in its read path
-([NETWORK.md](NETWORK.md)).
+([NETWORK.md](NETWORK.md)). The UI opens a bag through the interactor (`USwcBackendSubsystem::OpenLootBag(Interest)`,
+`FSwcInteractor::OpenBag`): at its next update, with no use that runs, the bag in its range with no Looted claim gets the
+request of its second option, OpenStorageOption (action 26), with no hold (the open of the panel). The use stays until the
+panel closes (`CloseLootBag`: 2473), the Looted claim, or the end of the bag; `GetOpenLootBag` gives its bag ([UI.md](UI.md)).
+The key T of the prompt is not bound yet (Tab near a bag opens it: the inventory script).
 
 Check (development run on the world level, 2026-10-18; `tests/drive/loot.txt`, the routes `tests/drive/loot-routes.txt`,
 `tools/creature-check.sh loot ...` with `SWC_DEV_PLACE=8872:4250:138.25`; evidence `loot.mp4`, `loot-client.log`,
