@@ -105,8 +105,8 @@ starts the retail client.
 
 - 4 meshes of the settlement area are not in the game copy; 3 effect meshes have a vertex layout that the reader
   does not read; effect cards (`fx_fogcard_*`) are converted but need an effect material.
-- Interchange imports the textures of each glTF again for each mesh (no shared texture assets). Stage 1.2 needs a
-  shared texture and material step (import each texture one time, then material instances).
+- Closed in stage 1.2: each texture is imported one time, and the meshes use shared material instances
+  ([WORLD.md](WORLD.md)).
 - The specular maps of the source have no slot in the glTF material (metallic workflow); the look is not a goal now.
 - Closed in stage 1.1: the node matrices of multi-chunk meshes are applied, and each mesh is one glTF node (one
   static mesh asset).
