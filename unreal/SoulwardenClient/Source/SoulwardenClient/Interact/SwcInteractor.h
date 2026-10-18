@@ -11,6 +11,42 @@
 class USwcCreatureSubsystem;
 
 /**
+ * The prompt of the focus for the UI (the original prompt card of lyshineui/markers/unifiedinteract.dynamicuicanvas; stage WF7):
+ * FSwcInteractor::GetPrompt.
+ */
+struct FSwcInteractPrompt
+{
+	/** The kind of the focus: a loot bag of the creature view, an object of the level data (the object layer), a fixture of the
+	 *  server (interactions.json). */
+	enum class EKind : uint8
+	{
+		None,
+		Bag,
+		Object,
+		Fixture
+	};
+	EKind Kind = EKind::None;
+	/** The interest number of a bag or a fixture; the key and the kind of an object of the level data (FSwcWorldObjectTarget). */
+	uint32 Interest = 0;
+	FString ObjectKey;
+	FName ObjectKind;
+	/** The name of the focus: the name of the row of an object, the template name of a fixture (empty for a bag). */
+	FString Name;
+	/** The options of the prompt in the order of the bound (the first one is the option of the key E; for a bag the second one,
+	 *  OpenStorageOption, opens the panel): the option name of the data and its hold time (s). */
+	TArray<TPair<FString, float>> Options;
+	/** The use: "idle", "hold", "use", or "done", and its progress 0..1 (the hold, the delay, or the work of a gather). */
+	FString Phase;
+	float Progress = 0.0f;
+	/** No tool for the row (E sends nothing): the gathering type of the row and the text key of the refusal ("ui_notoolchopping"). */
+	bool bToolMissing = false;
+	FString GatheringType;
+	FString RefusalKey;
+	/** The place of the focus (Unreal world space). */
+	FVector Place = FVector::ZeroVector;
+};
+
+/**
  * The interactor of the player (stage P2.10, docs/INTERACTIONS.md): the objects of the server with a template of
  * SWC_CONTENT/player/interactions.json (tools/convert-player.sh interactions: the fixtures and the personal loot bag of the backend
  * copy), the focus (the nearest bound in its range), and the use of its option with the key E (swc::interact::Use). The request
@@ -54,6 +90,8 @@ public:
 	const FVector* GetUsePlace() const { return Use.phase() != swc::interact::Use::Phase::idle ? &UsePlace : nullptr; }
 	/** The prompt and the progress for the debug text of a development run. */
 	FString DebugText(double Now) const;
+	/** The prompt of the focus for the UI (stage WF7). @return False with no focus (Out.Kind None). */
+	bool GetPrompt(double Now, FSwcInteractPrompt& Out) const;
 	const swc::interact::Use& GetUse() const { return Use; }
 	/**
 	 * The bag panel of the UI (stage P2.4, the UI track; protocol notes 4.42): the next Update opens the bag of the interest with its
@@ -98,6 +136,8 @@ private:
 	uint32 UseTool = 0;
 	FVector UsePlace = FVector::ZeroVector;
 	TMap<uint32, double> LootedSince;
+	/** The values of the prompt of the UI at the focus (GetPrompt). */
+	FSwcInteractPrompt FocusPrompt;
 	/** The revisions of the bag of the character and of the LootTracker that the log saw. */
 	uint32 SeenBag = 0;
 	uint32 SeenLoot = 0;

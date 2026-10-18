@@ -1442,6 +1442,16 @@ uint32 USwcBackendSubsystem::GetOpenLootBag() const
 	return Interactor.IsValid() ? Interactor->GetOpenBag() : 0;
 }
 
+bool USwcBackendSubsystem::GetInteractPrompt(FSwcInteractPrompt& Out) const
+{
+	if (!Interactor.IsValid())
+	{
+		Out = FSwcInteractPrompt();
+		return false;
+	}
+	return Interactor->GetPrompt(FPlatformTime::Seconds(), Out);
+}
+
 bool USwcBackendSubsystem::TakeAllItems()
 {
 	if (!Connection.IsValid() || !bInGame)

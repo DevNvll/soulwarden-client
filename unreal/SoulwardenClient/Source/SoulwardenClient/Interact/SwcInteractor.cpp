@@ -245,6 +245,15 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		Focus = bLocked ? std::nullopt : swc::interact::focus(Templates, Objects, Reported);
 		FocusName = Focus ? FString(UTF8_TO_TCHAR(Focus->object->name.c_str())) : FString();
 		bFocusBag = false;
+		FocusPrompt = FSwcInteractPrompt();
+		if (Focus)
+		{
+			FocusPrompt.Kind = FSwcInteractPrompt::EKind::Fixture;
+			FocusPrompt.Interest = Focus->interest;
+			FocusPrompt.Name = FocusName;
+			FocusPrompt.Options.Emplace(UTF8_TO_TCHAR(Focus->option->name.c_str()), Focus->option->hold);
+			FocusPrompt.Place = SwcEngineToUnreal(Focus->place);
+		}
 		// The nearest bag in range with an enabled bound and no Looted claim: its first option (TakeAllOption).
 		FSwcLootBag Bag;
 		const FVector From(SwcEngineToUnreal(Reported));
@@ -273,6 +282,14 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 				Focus = Candidate;
 				FocusName = TEXT("loot bag");
 				bFocusBag = true;
+				FocusPrompt = FSwcInteractPrompt();
+				FocusPrompt.Kind = FSwcInteractPrompt::EKind::Bag;
+				FocusPrompt.Interest = Bag.Interest;
+				for (const swc::interact::Option& Each : Bound.options)
+				{
+					FocusPrompt.Options.Emplace(UTF8_TO_TCHAR(Each.name.c_str()), Each.hold);
+				}
+				FocusPrompt.Place = SwcEngineToUnreal(Bag.EnginePlace);
 			}
 		}
 		// The objects of the level data (stage P4.1 part 2): the nearest bound in range of the object layer when it is nearer. Its first
@@ -301,6 +318,20 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			bFocusNoTool = Object.bToolMissing;
 			FocusUseKind = Object.UseKind;
 			FocusTool = Object.ToolItem != 0 ? Object.ToolSlot : 0;
+			FocusPrompt = FSwcInteractPrompt();
+			FocusPrompt.Kind = FSwcInteractPrompt::EKind::Object;
+			FocusPrompt.ObjectKey = Object.Key;
+			FocusPrompt.ObjectKind = Object.Kind;
+			FocusPrompt.Name = Object.Name;
+			for (const FSwcWorldObjectOption& Each : Object.Options)
+			{
+				FocusPrompt.Options.Emplace(UTF8_TO_TCHAR(Each.Option.name.c_str()), Each.Option.hold);
+			}
+			FocusPrompt.bToolMissing = Object.bToolMissing;
+			FocusPrompt.GatheringType = Object.GatheringType;
+			// The text key of the refusal: the rule of the object layer (ui_notool + the gathering type).
+			FocusPrompt.RefusalKey = Object.bToolMissing ? TEXT("ui_notool") + Object.GatheringType.ToLower() : FString();
+			FocusPrompt.Place = SwcEngineToUnreal(Object.EnginePlace);
 		}
 	}
 	// The bag panel of the UI (stage P2.4): the open with OpenStorageOption, and the close (2473).
@@ -452,6 +483,21 @@ void FSwcInteractor::UpdateLootedBags(const swc::net::RepClient::OwnEntity& Own,
 			UE_LOG(LogSwcBackend, Log, TEXT("interact: the model of the bag %u hides (HideMeshDelay)"), Bag.Interest);
 		}
 	}
+}
+
+bool FSwcInteractor::GetPrompt(double Now, FSwcInteractPrompt& Out) const
+{
+	if (!Focus)
+	{
+		Out = FSwcInteractPrompt();
+		return false;
+	}
+	Out = FocusPrompt;
+	Out.Phase = Use.phase() == swc::interact::Use::Phase::holding ? TEXT("hold") : Use.phase() == swc::interact::Use::Phase::requested ? TEXT("use")
+		: Use.phase() == swc::interact::Use::Phase::executed ? TEXT("done") : TEXT("idle");
+	// A gather: the progress ring of the work (the Gathering state), not of the request (as DebugText).
+	Out.Progress = bUseGather && Gather.step() == swc::interact::GatherWatch::Step::running ? Gather.progress(Now) : Use.progress(Now);
+	return Out.Kind != FSwcInteractPrompt::EKind::None;
 }
 
 FString FSwcInteractor::DebugText(double Now) const

@@ -24,6 +24,7 @@ class FSwcActions;
 class FSwcLocomotion;
 class FSwcLoginClient;
 class FSwcInteractor;
+struct FSwcInteractPrompt;
 class FSwcPlayerLooks;
 class FSwcRepConnection;
 struct FStreamableHandle;
@@ -113,6 +114,8 @@ public:
 	void OpenLootBag(uint32 Interest);
 	void CloseLootBag();
 	uint32 GetOpenLootBag() const;
+	/** The prompt of the focus for the UI (stage WF7; FSwcInteractor::GetPrompt). @return False with no focus. */
+	bool GetInteractPrompt(FSwcInteractPrompt& Out) const;
 
 	/**
 	 * @return The yaw of the camera of the player in degrees, in the convention of the input report (protocol notes 4.7):
