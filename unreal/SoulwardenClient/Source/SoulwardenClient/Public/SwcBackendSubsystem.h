@@ -8,7 +8,9 @@
 DECLARE_LOG_CATEGORY_EXTERN(LogSwcBackend, Log, All);
 
 class AActor;
+class ASwcPlayerCharacter;
 class FSwcLoginClient;
+class FSwcPlayerLooks;
 class FSwcRepConnection;
 struct FSwcLoginToken;
 
@@ -20,10 +22,12 @@ struct FSwcLoginToken;
  * Command line (the run scripts give it; the editor does not connect):
  *   -SwcConnect                the login path starts with the game
  *   -SwcHttp=HOST:PORT         the HTTP listener of the backend (loopback only)
- *   -SwcPlay=first|ID          after the character list: the world entry with the first character, or the character ID
+ *   -SwcPlay=first|ID|NAME     after the character list: the world entry with the first character, the character ID, or
+ *                              (development runs) the character NAME
  *   -SwcQuitWhen=characters    the client stops after the character list (status 0), or after a failure (status 1)
  *   -SwcQuitWhen=world         the client stays -SwcStay seconds in the world (default 10), leaves, and stops (status 0)
  *   -SwcQuitAfter=SECONDS      the client stops after this time
+ *   -SwcView=front             the camera stands in front of the character (pictures of the character)
  * Environment: SWC_STEAM_ID and SWC_PERSONA_NAME (the Steam stubs), SWC_RUN (player or development).
  */
 UCLASS(Config = Game)
@@ -55,6 +59,7 @@ private:
 	void StartConnection(const FSwcLoginToken& Token, const FString& CertificatePem);
 	bool TickWorld(float DeltaTime);
 	void ShowOwnEntity();
+	void UpdateLook();
 	void Quit(bool bSucceeded, const TCHAR* Cause);
 
 	TSharedPtr<FSwcLoginClient> Login;
@@ -69,6 +74,9 @@ private:
 	bool bQuitting = false;
 	FTSTicker::FDelegateHandle QuitTimer;
 	FTSTicker::FDelegateHandle WorldTicker;
-	TWeakObjectPtr<AActor> Marker;
+	TWeakObjectPtr<ASwcPlayerCharacter> Avatar;
 	TWeakObjectPtr<AActor> Camera;
+	TSharedPtr<FSwcPlayerLooks> Looks;
+	uint32 LookRevision = MAX_uint32;
+	FString View;
 };

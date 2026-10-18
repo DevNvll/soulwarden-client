@@ -337,6 +337,29 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                     m_own.hasAppearance = true;
                 }
             }
+            ++m_own.lookRevision;
+        } else if (fragment.slot == kSlotPaperdoll && fragment.type == kStatePaperdoll.index) {
+            // The owner view: two pairs of parallel lists (the slots with a look, the other slots). An entry is a change
+            // of its slot; a slot with no entry keeps its item (client code 0x68382D0).
+            const auto apply_lists = [this](std::span<const std::uint8_t> slotBytes, std::span<const std::uint8_t> itemBytes) {
+                if (slotBytes.empty() || itemBytes.empty()) {
+                    return;
+                }
+                Reader slotReader(slotBytes);
+                Reader itemReader(itemBytes);
+                std::vector<std::uint32_t> slots;
+                std::vector<decoder::WireItem> items;
+                if (!decoder::read_number_list(slotReader, slots) || !decoder::read_item_list(itemReader, items)
+                    || slots.size() != items.size()) {
+                    return;
+                }
+                for (std::size_t index = 0; index < slots.size(); ++index) {
+                    m_own.equipment[slots[index]] = items[index].empty() ? 0 : items[index].index;
+                }
+            };
+            apply_lists(decoder::field_of(fragment, 2, 3), decoder::field_of(fragment, 1, 1));
+            apply_lists(decoder::field_of(fragment, 1, 3), decoder::field_of(fragment, 1, 2));
+            ++m_own.lookRevision;
         }
     }
     if (newPosition && m_phase == Phase::inGame) {

@@ -48,11 +48,12 @@ inline constexpr MessageType kStateMovement{"MB::ALCReplicatedState", "01B0664B3
 inline constexpr MessageType kStateVitals{"MB::VitalsComponentReplicatedState", "0E721C702CDB4E85BAE4D545FDC6D25B", 15};
 inline constexpr MessageType kStatePlayer{"MB::PlayerComponentReplicatedState", "BDDDA784A6E7416BA041449920D90FB6", 3935};
 inline constexpr MessageType kStateAppearance{"MB::PlayerAppearanceComponentReplicatedState", "6C597946250643858FB4882FB6A98D5D", 1195};
+inline constexpr MessageType kStatePaperdoll{"MB::PaperdollComponentReplicatedState", "B258A60EFC2140CF8B8657B7F6083D32", 3183};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 14> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 15> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged,
-    kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance};
+    kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -60,6 +61,7 @@ inline constexpr std::uint32_t kSlotPlayer = 9;
 inline constexpr std::uint32_t kSlotAppearance = 12;
 inline constexpr std::uint32_t kSlotMovement = 16;
 inline constexpr std::uint32_t kSlotVitals = 41;
+inline constexpr std::uint32_t kSlotPaperdoll = 62;
 
 /** The component id of the action list component (slot 16) of the entity RootPlayer of the player slice (game data
  *  slice-ids.json; research ids.md, table of the targets). The facet target of the input report is G + this id. */

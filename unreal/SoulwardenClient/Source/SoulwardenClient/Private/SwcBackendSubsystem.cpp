@@ -1,11 +1,11 @@
 #include "SwcBackendSubsystem.h"
 
 #include "Camera/CameraActor.h"
-#include "Components/StaticMeshComponent.h"
+#include "Character/SwcPlayerCharacter.h"
+#include "Character/SwcPlayerLooks.h"
+#include "Components/CapsuleComponent.h"
 #include "Containers/Ticker.h"
 #include "Engine/Engine.h"
-#include "Engine/StaticMesh.h"
-#include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformMisc.h"
@@ -64,6 +64,7 @@ void USwcBackendSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	FParse::Value(FCommandLine::Get(), TEXT("SwcQuitWhen="), QuitWhen);
 	FParse::Value(FCommandLine::Get(), TEXT("SwcPlay="), PlayCharacter);
 	FParse::Value(FCommandLine::Get(), TEXT("SwcStay="), StaySeconds);
+	FParse::Value(FCommandLine::Get(), TEXT("SwcView="), View);
 	float QuitAfter = 0.0f;
 	if (FParse::Value(FCommandLine::Get(), TEXT("SwcQuitAfter="), QuitAfter) && QuitAfter > 0.0f)
 	{
@@ -145,7 +146,8 @@ void USwcBackendSubsystem::OnCharacterList(bool bSucceeded, const FString& Error
 	if (!PlayCharacter.IsEmpty())
 	{
 		const FSwcCharacterInfo* Selected = Session.Characters.FindByPredicate(
-			[this](const FSwcCharacterInfo& Character) { return PlayCharacter == TEXT("first") || Character.CharacterId == PlayCharacter; });
+			[this](const FSwcCharacterInfo& Character)
+			{ return PlayCharacter == TEXT("first") || Character.CharacterId == PlayCharacter || (!bPlayerRun && Character.Name == PlayCharacter); });
 		if (Selected == nullptr)
 		{
 			UE_LOG(LogSwcBackend, Error, TEXT("world: no character %s in the character list"), *PlayCharacter);
@@ -265,6 +267,10 @@ bool USwcBackendSubsystem::TickWorld(float)
 		InGameSince = FPlatformTime::Seconds();
 		ShowOwnEntity();
 	}
+	if (bInGame && Snapshot.Own.lookRevision != LookRevision)
+	{
+		UpdateLook();
+	}
 	if (bInGame && QuitWhen == TEXT("world") && !bQuitting && FPlatformTime::Seconds() - InGameSince >= StaySeconds)
 	{
 		bQuitting = true;
@@ -296,30 +302,42 @@ void USwcBackendSubsystem::ShowOwnEntity()
 		*Hex(Own.actor), *Text(Own.characterId), bPlayerRun ? TEXT("name not in the log of a player run") : *Text(Own.name),
 		Own.position.x, Own.position.y, Own.position.z, Feet.X, Feet.Y, Feet.Z, Own.health, Own.healthMax);
 
-	// A marker of the size of a character at its feet, and the camera of the retail client at the start of a session.
+	// The character of the user, and the camera of the retail client at the start of a session (or in front of the
+	// character for a picture, -SwcView=front).
 	UWorld* World = GetGameInstance() != nullptr ? GetGameInstance()->GetWorld() : nullptr;
 	if (World == nullptr)
 	{
 		return;
 	}
-	const swc::net::WorldPosition CameraPosition{Own.position.x + CameraRight, Own.position.y - CameraBehind, Own.position.z + CameraUp};
-	const FVector Eye = SwcEngineToUnreal(CameraPosition);
-	const FVector Chest = Feet + FVector(0.0, 0.0, 120.0);
+	// The facing of the entity: the rotation of the movement state turns north (engine +Y) about the vertical axis.
+	const FQuat Rotation(Own.rotation.x, Own.rotation.y, Own.rotation.z, Own.rotation.w);
+	const FVector North = Rotation.RotateVector(FVector(0.0, 1.0, 0.0));
+	const swc::net::WorldPosition Ahead{Own.position.x + static_cast<float>(North.X), Own.position.y + static_cast<float>(North.Y), Own.position.z};
+	const FVector Forward = (SwcEngineToUnreal(Ahead) - Feet).GetSafeNormal();
 	FActorSpawnParameters Parameters;
 	Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	if (AStaticMeshActor* Body = World->SpawnActor<AStaticMeshActor>(Feet + FVector(0.0, 0.0, 90.0), FRotator::ZeroRotator, Parameters))
+	if (ASwcPlayerCharacter* Character = World->SpawnActor<ASwcPlayerCharacter>(Feet, Forward.Rotation(), Parameters))
 	{
-		Body->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
-		Body->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder")));
-		Body->SetActorScale3D(FVector(0.6, 0.6, 1.8));
-		Marker = Body;
+		Character->SetActorLocation(Feet + FVector(0.0, 0.0, Character->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight()));
+		Avatar = Character;
 	}
-	if (ACameraActor* View = World->SpawnActor<ACameraActor>(Eye, (Chest - Eye).Rotation(), Parameters))
+	const FVector Chest = Feet + FVector(0.0, 0.0, 120.0);
+	FVector Eye;
+	if (View == TEXT("front"))
 	{
-		Camera = View;
+		Eye = Chest + Forward * 300.0 + FVector(0.0, 0.0, 30.0);
+	}
+	else
+	{
+		const swc::net::WorldPosition CameraPosition{Own.position.x + CameraRight, Own.position.y - CameraBehind, Own.position.z + CameraUp};
+		Eye = SwcEngineToUnreal(CameraPosition);
+	}
+	if (ACameraActor* ViewActor = World->SpawnActor<ACameraActor>(Eye, (Chest - Eye).Rotation(), Parameters))
+	{
+		Camera = ViewActor;
 		if (APlayerController* Controller = World->GetFirstPlayerController())
 		{
-			Controller->SetViewTarget(View);
+			Controller->SetViewTarget(ViewActor);
 		}
 	}
 	if (GEngine != nullptr)
@@ -328,6 +346,60 @@ void USwcBackendSubsystem::ShowOwnEntity()
 			FString::Printf(TEXT("InGame: entity %s, position %.2f %.2f %.2f m, health %.0f/%.0f, permissions %02x %02x"),
 				*Hex(std::span(Own.actor).first(8)), Own.position.x, Own.position.y, Own.position.z, Own.health, Own.healthMax, Own.dataBits,
 				Own.moreDataBits));
+	}
+}
+
+void USwcBackendSubsystem::UpdateLook()
+{
+	if (!Connection.IsValid() || !Avatar.IsValid())
+	{
+		return;
+	}
+	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
+	LookRevision = Snapshot.Own.lookRevision;
+	if (!Looks.IsValid())
+	{
+		Looks = MakeShared<FSwcPlayerLooks>();
+		FString Report;
+		const bool bLoaded = Looks->Load(Report);
+		UE_LOG(LogSwcBackend, Log, TEXT("character: %s"), *Report);
+		if (!bLoaded)
+		{
+			return;
+		}
+	}
+	TArray<uint8> Appearance;
+	if (Snapshot.Own.hasAppearance)
+	{
+		Appearance.Append(Snapshot.Own.appearance.data(), static_cast<int32>(Snapshot.Own.appearance.size()));
+	}
+	TMap<uint32, uint32> Equipment;
+	for (const auto& [Slot, Item] : Snapshot.Own.equipment)
+	{
+		Equipment.Add(Slot, Item);
+	}
+	const FSwcPlayerLook Look = Looks->Resolve(Appearance, Equipment);
+	Avatar->ApplyLook(Look, Looks->BaseMesh(Look.bFemale), Looks->IdleAnimation(Look.bFemale));
+	FString Bytes;
+	for (const uint8 Value : Appearance)
+	{
+		Bytes += FString::Printf(TEXT("%d "), Value);
+	}
+	UE_LOG(LogSwcBackend, Log, TEXT("character: %s, appearance [%s], %d equipped slot(s), %d of %d part(s) drawn"),
+		Look.bFemale ? TEXT("female") : TEXT("male"), *Bytes.TrimEnd(), Equipment.Num(), Avatar->PartCount(), Look.Parts.Num());
+	for (const FSwcLookPart& Part : Look.Parts)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("character: slot %s: %s with %s%s"), *Part.Slot.ToString(), *Part.Skin, *Part.Material,
+			Part.MeshPath.IsEmpty() ? TEXT(" (not imported)") : TEXT(""));
+	}
+	for (const FString& Note : Look.Notes)
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("character: %s"), *Note);
+	}
+	if (const int32 Wanted = Looks->WriteWanted(Look); Wanted > 0)
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("character: %d part(s) are not imported; they are in the wanted list: run tools/convert-player.sh wanted, then tools/import-player.sh"),
+			Wanted);
 	}
 }
 

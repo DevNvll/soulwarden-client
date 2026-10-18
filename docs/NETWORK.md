@@ -55,7 +55,7 @@ player run the client log has no character name (`SWC_RUN=player`).
 
 ### The development run
 
-`tools/dev-run.sh [--window] [--enter] [--seed NAME] [--quit-when characters|world] [--stay S] [--seconds N] [--label TEXT] [-- CLIENT ARGUMENTS]`
+`tools/dev-run.sh [--window] [--enter [NAME]] [--create SPEC]... [--seed NAME] [--quit-when characters|world] [--stay S] [--seconds N] [--label TEXT] [-- CLIENT ARGUMENTS]`
 
 - The data folder is `SWC_DEV_DATA`. The script refuses a value that is the data folder of the user. Each run clears
   `dev-data/logs/backend.log`; the database stays (the seed character and its position).
@@ -69,7 +69,10 @@ player run the client log has no character name (`SWC_RUN=player`).
   `soulwarden-client-dev` (`omarchy-agent-desktop`), never on the desktop of the user. gamescope runs outside the
   namespace: in a user namespace it refuses `/tmp/.X11-unix`, which the real root owns. The client in the namespace
   reaches the X server of gamescope through its socket file. The script returns when the window shows.
-- `--enter`: the world entry with the first character after the character list (`-SwcPlay=first`).
+- `--enter`: the world entry with the first character after the character list (`-SwcPlay=first`); `--enter NAME`
+  with the character NAME.
+- `--create SPEC`: before the client starts, the create request of the retail client (protocol notes 2.2.3) makes a
+  character of the development account (`tools/lib/dev_character.py`; a name that is in use is not an error).
 - Each process of a development run has the mark `SWC_DEV_RUN=1`. `tools/dev-stop.sh` stops them (SIGTERM, then
   SIGKILL after 15 s); `tools/dev-stop.sh --check` has the status 1 while one runs.
 
@@ -81,7 +84,8 @@ The run scripts give these values. The editor does not connect.
 | --- | --- |
 | `-SwcConnect` | The login path starts with the game. |
 | `-SwcHttp=HOST:PORT` | The HTTP listener of the backend (default `127.0.0.1:32200`). A host that is not loopback is replaced by `127.0.0.1`. |
-| `-SwcPlay=first` or `-SwcPlay=ID` | After the character list: the world entry with the first character, or with the character ID. |
+| `-SwcPlay=first`, `-SwcPlay=ID`, `-SwcPlay=NAME` | After the character list: the world entry with the first character, the character ID, or (development runs) the character NAME. |
+| `-SwcView=front` | The camera stands 3 m in front of the character (pictures). |
 | `-SwcQuitWhen=characters` | The client stops after the character list (status 0) or after a failure of the login path (status 1). |
 | `-SwcQuitWhen=world` | The client stays `-SwcStay=SECONDS` in the world (default 10), leaves (the carrier disconnect), and stops (status 0). A session that ends before: status 1. |
 | `-SwcQuitAfter=SECONDS` | The client stops after this time (status 0). |
@@ -200,7 +204,7 @@ envelope := flags:u8 present:u8 type:size body        (the client writes flags 0
 The route of a component call is the actor id of the entity (the input report: the own actor id). The registration
 has the route of 16 zero bytes (the backend reads no route for it). `Net/SwcTypeIndex` reads `typeindex.json` of the game
 copy (`SOULWARDEN_GAME_DIR`, read only; 7,052 type ids) and checks the type id at the index of each type of the client
-(`swc::net::kUsedTypes`: 9 message types and 5 state types). A difference stops the world entry: the build of the game
+(`swc::net::kUsedTypes`: 9 message types and 6 state types). A difference stops the world entry: the build of the game
 copy is not the build of the backend (the retail client gets the result -90, `TypeIndexMismatch`).
 
 ### The registration (protocol notes 3.4)
@@ -221,8 +225,10 @@ and "rejected" (1630).
 - The record of interest 1 is the own entity: the metadata state (the player slice `A660EEEB-...`, sub id 2, and the
   actor id; `G` is its first 8 bytes, little-endian), the player state (character id, name, connected), the movement
   state (`worldPosAbs`, `rotation`, `lookDir`, `teleportAndMigrationId`, `timeAnchor`, `dataBits`, `moreDataBits`, the
-  id), the vitals state, and the appearance state. The entity is the local player only when its character id is the
-  character id of the login: then the phase is InGame.
+  id), the vitals state, the appearance state (12 index bytes), and the paperdoll state (the owner view: the two pairs of
+  parallel lists of slots and items; the own entity keeps paperdoll slot -> item index, and a slot with no entry keeps its
+  item). The entity is the local player only when its character id is the character id of the login: then the phase is
+  InGame. A change of the appearance or of the paperdoll builds the body again ([CHARACTER.md](CHARACTER.md)).
 - The records of the other interest numbers (the creatures, the objects, the spells) keep their metadata and position
   for the stages 1.9 and later.
 - A fragment of a state type that the reader does not know stops the reader for the rest of that bundle; the client

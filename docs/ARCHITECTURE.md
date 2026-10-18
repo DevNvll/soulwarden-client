@@ -7,8 +7,9 @@
 | Converter | `converter/swc_convert` | Reads the paks of the game copy (Oodle through the library of the installed engine) and writes glTF, PNG, and JSON into `~/Games/soulwarden-client/content`, plus `manifest.json`. |
 | Soulwarden readers | `converter/vendor/soulwarden` | An unchanged copy of the pak, object stream, slice, terrain, and shape readers of the Soulwarden repository (MIT, commit e0a3d97). Update by a new copy, never by an edit. |
 | Unreal project | `unreal/SoulwardenClient` | The client: the C++ module `SoulwardenClient`, the config, the import script. |
+| Character | `Source/SoulwardenClient/Character/`, `converter/swc_convert/player.py` | The character of a player: the modular body on one skeleton (Leader Pose), its look from the appearance and paperdoll states ([CHARACTER.md](CHARACTER.md)). |
 | Imported assets | `unreal/SoulwardenClient/Content/Imported` | The Unreal assets of the converted content. Made from the game copy: not in git. |
-| Tools | `tools/` | `env.sh` (paths), `convert.sh`, `build.sh`, `import.sh`, `editor.sh`, `backend-update.sh`, `play.sh`, `dev-run.sh`, `dev-stop.sh`, `lib/session.sh`, `test-net.sh`. |
+| Tools | `tools/` | `env.sh` (paths), `convert.sh`, `build.sh`, `import.sh`, `editor.sh`, `backend-update.sh`, `play.sh`, `dev-run.sh`, `dev-stop.sh`, `lib/session.sh`, `lib/dev_character.py`, `test-net.sh`, `convert-player.sh`, `import-player.sh`. |
 | Backend | `~/Games/soulwarden-client/backend/current` | A copy of a Soulwarden release (backend and game data), unchanged. `tools/backend-update.sh` updates it. |
 
 ## The content pipeline

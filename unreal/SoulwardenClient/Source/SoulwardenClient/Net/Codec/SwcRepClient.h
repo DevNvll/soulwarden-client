@@ -70,6 +70,10 @@ public:
         float healthMax{0.0F};
         bool hasAppearance{false};
         std::array<std::uint8_t, 12> appearance{};
+        /** The paperdoll (protocol notes 4.11): paperdoll slot -> item index on the wire (0: the slot is empty). */
+        std::map<std::uint32_t, std::uint32_t> equipment;
+        /** One more at each change of the appearance or of the equipment (the view builds the body again). */
+        std::uint32_t lookRevision{0};
     };
 
     /** An entity of a different interest number: its metadata and its position. */

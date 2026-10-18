@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # A development run (agents): the backend copy and the client in one network namespace with loopback only, on the own
 # data folder SWC_DEV_DATA (never the data folder of the user), with a made-up Steam identity and a seed character.
-# Usage: tools/dev-run.sh [--window] [--enter] [--seed NAME] [--quit-when characters|world] [--stay S] [--seconds N] [--label TEXT]
-#                         [-- CLIENT ARGUMENTS]
+# Usage: tools/dev-run.sh [--window] [--enter [NAME]] [--create SPEC]... [--seed NAME] [--quit-when characters|world] [--stay S]
+#                         [--seconds N] [--label TEXT] [-- CLIENT ARGUMENTS]
 #   (default)   the client with no window and no sound (-nullrhi -nosound) in the foreground; it stops after
 #               --seconds (default 120). Logs: SWC_WORK/logs/dev-run/LABEL-client.log, SWC_DEV_DATA/logs/backend.log.
 #   --window    the client window on the own agent desktop "soulwarden-client-dev" (gamescope, no sound). The script
 #               returns when the window shows; tools/dev-stop.sh stops the run.
 #   --enter     after the character list the client enters the world with the first character (-SwcPlay=first).
+#   --enter NAME            the same with the character NAME.
+#   --create SPEC           before the client starts, the create request of the retail client makes a character
+#                           (tools/lib/dev_character.py: name=NAME,gender=Female,race=face07,hair=hairstyle12m,...).
 #   --quit-when characters   the client stops after the character list (status 0) or after a failure (status 1).
 #   --quit-when world        the client stays --stay seconds in the world (default 10), leaves, and stops (status 0).
 # Each process of a development run has the mark SWC_DEV_RUN=1 (tools/dev-stop.sh). A process of this project never
@@ -17,7 +20,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 unset SOULWARDEN_DEV_RUN
 
 window=0
-enter=0
+enter=""
+creates=()
 stay=""
 seed="Devwarden"
 quit_when=""
@@ -26,7 +30,10 @@ label="run"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --window) window=1 ;;
-        --enter) enter=1 ;;
+        --enter)
+            enter=first
+            if [[ $# -gt 1 && "$2" != --* ]]; then enter="$2"; shift; fi ;;
+        --create) creates+=("$2"); shift ;;
         --stay) stay="$2"; shift ;;
         --seed) seed="$2"; shift ;;
         --quit-when) quit_when="$2"; shift ;;
@@ -63,8 +70,13 @@ client_arguments=(-game -nosound -SwcConnect -abslog="${client_log}")
 if [[ -n "${quit_when}" ]]; then
     client_arguments+=(-SwcQuitWhen="${quit_when}")
 fi
-if [[ "${enter}" == "1" ]]; then
-    client_arguments+=(-SwcPlay=first)
+if [[ -n "${enter}" ]]; then
+    client_arguments+=(-SwcPlay="${enter}")
+fi
+# The create requests run in the namespace of the session, before the client starts.
+client_prefix=()
+if [[ ${#creates[@]} -gt 0 ]]; then
+    client_prefix=(python3 -B "${SWC_REPO}/tools/lib/dev_character.py" "${creates[@]}" --)
 fi
 if [[ -n "${stay}" ]]; then
     client_arguments+=(-SwcStay="${stay}")
@@ -76,7 +88,7 @@ run_environment=(SWC_DEV_RUN=1 SWC_RUN=development SWC_STEAM_ID=7656120225523300
 if [[ "${window}" == "0" ]]; then
     echo "dev-run: client with no window, ${seconds} s at most, log ${client_log}" >&2
     set +e
-    env "${run_environment[@]}" "${SWC_REPO}/tools/lib/session.sh" -- \
+    env "${run_environment[@]}" "${SWC_REPO}/tools/lib/session.sh" -- "${client_prefix[@]}" \
         timeout --kill-after=15 "${seconds}" "${SWC_CLIENT_CMD}" "${SWC_UPROJECT}" "${client_arguments[@]}" \
         -nullrhi -unattended -nosplash "$@" >"${logs}/${label}-console.log" 2>&1
     status=$?
@@ -100,7 +112,7 @@ fi
 omarchy-agent-desktop run --wait "${SWC_WINDOW_WAIT:-180}" --json "${desktop_id}" -- \
     env "${run_environment[@]}" \
     gamescope --backend wayland -W "${game_size%x*}" -H "${game_size#*x}" -w "${game_size%x*}" -h "${game_size#*x}" -r 60 -- \
-    "${SWC_REPO}/tools/lib/session.sh" -- \
+    "${SWC_REPO}/tools/lib/session.sh" -- "${client_prefix[@]}" \
     "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" "${client_arguments[@]}" -windowed -ResX="${game_size%x*}" -ResY="${game_size#*x}" "$@" \
     >"${logs}/${label}-launch.json" 2>&1 || true
 cat "${logs}/${label}-launch.json"
