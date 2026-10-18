@@ -5,6 +5,7 @@
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcSmooth.h"
 #include "Character/SwcTestFloor.h"
+#include "Environment/SwcMatchView.h"
 #include "CollisionQueryParams.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -495,6 +496,7 @@ void ASwcCameraManager::UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime)
 	OutVT.POV.AspectRatio = ReferenceAspect;
 	OutVT.POV.bConstrainAspectRatio = false;
 	OutVT.POV.AspectRatioAxisConstraint = EAspectRatioAxisConstraint::AspectRatio_MaintainYFOV;
+	FSwcViewOverride::Apply(OutVT.POV);   // a matched view of the fidelity checks (Environment/SwcMatchView.h)
 	ViewPitchMin = PitchDown.Value;
 	ViewPitchMax = PitchUp.Value;
 
