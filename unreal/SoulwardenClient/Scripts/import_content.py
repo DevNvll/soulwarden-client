@@ -93,6 +93,7 @@ if regions:
     for name in regions:
         selected.update(json.load(open(os.path.join(content, "regions", name, "meshes.json"))))
         selected.add("texture:macro:" + name)   # the macro color map of the terrain of the region (stage 1.3)
+        selected.update(k for k in manifest if k.startswith(f"impostor:{name}:"))   # the far meshes of the region
 for key, entry in manifest.items():
     if entry["kind"] in ("texture", "material"):
         continue

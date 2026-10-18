@@ -152,7 +152,7 @@ def level_data(names: list[str]) -> dict:
         if record:
             records["texture:macro:" + name] = record
         report[name] = {"heights m": [layout["height min m"], layout["height max m"]], "cookies": layout["cookies"],
-                        "macro": record is not None, "cells": cells.write(name)}
+                        "macro": record is not None, "cells": cells.write(name), "impostors": impostors(name)}
     if records:
         manifest.add_many(records)
     return report
@@ -197,3 +197,45 @@ def flythrough_plan(route: list[tuple[float, float]], altitude: float, speed: fl
     out.write_text(json.dumps(plan))
     return {"plan": str(out), "points": len(points), "length m": round(float(sum(np.hypot(*np.diff(np.array(points), axis=0).T))), 0),
             "seconds": round(float(sum(np.hypot(*np.diff(np.array(points), axis=0).T))) / speed, 0)}
+
+
+IMPOSTOR_GROUP_M = 512.0
+
+
+def impostors(name: str) -> dict:
+    """Converts the far meshes of the game of a region (`impostors/` and `poi_impostors/`: one mesh for each cell of
+    128 m, the vertices local to the cell, the heights absolute) into groups of 512 m (one glTF each; key
+    `impostor:NAME:KIND:GX_GY`, origin = the south-west corner of the group at height 0). @return Counts; the
+    manifest records are written."""
+    from . import manifest, mesh
+    folder = region.WORLD + "regions/" + name + "/"
+    rx, ry = (int(v) for v in name[2:].split("_"))
+    ox, oy = rx * 2048.0, ry * 2048.0
+    reports, groups = [], {}
+    for kind in ("impostors", "poi_impostors"):
+        if not source.has(folder + kind + ".json"):
+            continue
+        for cell in json.loads(source.read(folder + kind + ".json")).get("impostors", []):
+            path = source.product_of_text(cell.get("meshAssetID", ""), ".cgf")
+            if path is None:
+                continue
+            x, y = cell["worldPosition"]["x"], cell["worldPosition"]["y"]
+            gx, gy = int((x - ox) // IMPOSTOR_GROUP_M), int((y - oy) // IMPOSTOR_GROUP_M)
+            groups.setdefault((kind, gx, gy), []).append((path, (x, y)))
+    for (kind, gx, gy), cells in sorted(groups.items()):
+        origin = (ox + gx * IMPOSTOR_GROUP_M, oy + gy * IMPOSTOR_GROUP_M)
+        parts = [(path, np.array([x - origin[0], y - origin[1], 0.0])) for path, (x, y) in cells]
+        key = f"impostor:{name}:{kind}:{gx}_{gy}"
+        out = env.content_dir() / "regions" / name / "impostors" / f"{kind}_{gx}_{gy}.gltf"
+        try:
+            report = mesh.convert_group(key, out, parts)
+        except Exception as error:
+            reports.append({"mesh": key, "error": str(error)[:120]})
+            continue
+        report["entry"]["origin m"] = [origin[0], origin[1], 0.0]
+        reports.append(report)
+    records = mesh.records_of(reports)
+    if records:
+        manifest.add_many(records)
+    return {"region": name, "groups": len(groups), "converted": sum(1 for r in reports if "entry" in r),
+            "triangles": sum(r.get("triangles", 0) for r in reports), "errors": [r["error"] for r in reports if "error" in r][:5]}

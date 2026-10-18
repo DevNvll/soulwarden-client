@@ -142,7 +142,7 @@ def ocean():
     plane = library.spawn_mesh_actor(unreal.load_asset("/Engine/BasicShapes/Plane"), transform, "ocean")
     plane.static_mesh_component.set_material(0, unreal.load_asset(material_path))
     plane.static_mesh_component.set_editor_property("cast_shadow", False)
-    plane.static_mesh_component.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
+    plane.static_mesh_component.set_collision_profile_name("NoCollision")   # no ground on the water (the backend swims)
     library.set_spatially_loaded(plane, False)
     unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
     state["ocean"] = True
@@ -150,13 +150,70 @@ def ocean():
     log("environment: ocean at 40 m")
 
 
+def no_collision_fix():
+    """The ocean and the far meshes of levels built before: the collision profile NoCollision (set_collision_enabled
+    did not stay in the saved actors)."""
+    changed = 0
+    for actor in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+        if not isinstance(actor, unreal.StaticMeshActor):
+            continue
+        if actor.get_actor_label() != "ocean" and unreal.Name("SwcImpostor") not in actor.get_editor_property("tags"):
+            continue
+        component = actor.static_mesh_component
+        if str(component.get_collision_profile_name()) != "NoCollision":
+            component.set_collision_profile_name("NoCollision")
+            changed += 1
+    if changed:
+        unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+        log(f"no collision for {changed} ocean or far mesh actors")
+
+
 parent = landscape_material()
+no_collision_fix()
 if not state.get("environment"):
     environment()
 if not state.get("ocean"):
     ocean()
+def add_impostors(name):
+    """The far meshes of the game of a region (groups of 512 m, converter terrain.impostors): always loaded actors
+    with the tag SwcImpostor; the client shows a group only beyond the loading range (USwcWorldSubsystem).
+    @return The number of groups."""
+    count = 0
+    prefix = f"impostor:{name}:"
+    for key, entry in sorted(manifest.items()):
+        if not key.startswith(prefix):
+            continue
+        mesh = None
+        for asset_path in assets.list_assets(entry["unreal"], recursive=True, include_folder=False):
+            candidate = assets.load_asset(asset_path)
+            if isinstance(candidate, unreal.StaticMesh):
+                mesh = candidate
+                break
+        if mesh is None:
+            continue
+        x, y, z = entry["origin m"]
+        transform = unreal.Transform()
+        transform.translation = unreal.Vector(x * 100.0, -y * 100.0, z * 100.0)   # the space map of stage 1.1
+        actor = library.spawn_mesh_actor(mesh, transform, f"{name} {key.split(':')[2]} {key.split(':')[3]}")
+        actor.set_editor_property("tags", [unreal.Name("SwcImpostor")])
+        component = actor.static_mesh_component
+        component.set_editor_property("cast_shadow", False)
+        component.set_collision_profile_name("NoCollision")
+        library.set_spatially_loaded(actor, False)
+        count += 1
+    return count
+
+
 for name in state["regions"]:   # a macro color map that the import added later
     region_material(name, parent)
+for name, done in state["regions"].items():   # the far meshes of a region that was built before them
+    if not done.get("impostors"):
+        count = add_impostors(name)   # 0 while the import of the region has not taken them yet: retried
+        if count:
+            done["impostors"] = count
+            unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+            save_state()
+            log(f"region {name}: {count} impostor groups")
 for name in regions:
     if name in state["regions"]:
         log(f"region {name}: in the level")
@@ -171,9 +228,10 @@ for name in regions:
     landscape_seconds = round(time.time() - phase, 1)
     cells = os.path.join(folder, "cells.bin")
     actors = library.spawn_instance_actors(cells) if os.path.isfile(cells) else 0
+    impostor_groups = add_impostors(name)
     unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
     unreal.SystemLibrary.collect_garbage()
-    state["regions"][name] = {"landscape": landscape is not None, "cell actors": actors,
+    state["regions"][name] = {"landscape": landscape is not None, "cell actors": actors, "impostors": impostor_groups,
                               "landscape seconds": landscape_seconds, "seconds": round(time.time() - phase, 1)}
     save_state()
     log(f"region {name}: {json.dumps(state['regions'][name])}")

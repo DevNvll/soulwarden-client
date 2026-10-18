@@ -25,6 +25,7 @@ path = os.path.join(plugin, 'import-state.json')
 state = json.load(open(path)) if os.path.isfile(path) else {}
 left = sum(1 for m in meshes if assets.get(m, {}).get('kind') == 'static' and state.get(m) != assets[m].get('hash'))
 left += 1 if 'texture:macro:' + region in assets and 'texture:macro:' + region not in state else 0   # the terrain map
+left += sum(1 for k, e in assets.items() if k.startswith('impostor:' + region + ':') and state.get(k) != e.get('hash'))
 print(left)" \
         "${SWC_CONTENT}" "${SWC_GAME_CONTENT}" "${region}")
     if [[ "${left}" == "0" ]]; then
