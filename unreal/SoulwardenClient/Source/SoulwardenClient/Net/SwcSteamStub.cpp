@@ -1,33 +1,13 @@
 #include "Net/SwcSteamStub.h"
 
 #include "HAL/PlatformMisc.h"
+#include "Net/Codec/SwcRepMessages.h"
 
 namespace
 {
 /** The fallback identity of the Soulwarden game hook: Steam id 0x0110000100A207A1 and the name "Soulwarden". */
 const TCHAR* const FallbackSteamId = TEXT("76561197970884513");
 const TCHAR* const FallbackPersonaName = TEXT("Soulwarden");
-/** A persona name of Steam has 32 characters at most, and a character has 4 bytes at most in UTF-8. */
-constexpr int32 PersonaNameLimit = 32 * 4;
-
-FString HexOf(const uint8* Data, int32 Size)
-{
-	static const TCHAR* Digits = TEXT("0123456789abcdef");
-	FString Text;
-	Text.Reserve(Size * 2);
-	for (int32 Index = 0; Index < Size; ++Index)
-	{
-		Text.AppendChar(Digits[Data[Index] >> 4]);
-		Text.AppendChar(Digits[Data[Index] & 15]);
-	}
-	return Text;
-}
-
-FString HexOfUtf8(const FString& Text, int32 Limit)
-{
-	const FTCHARToUTF8 Utf8(*Text);
-	return HexOf(reinterpret_cast<const uint8*>(Utf8.Get()), FMath::Min(Utf8.Length(), Limit));
-}
 } // namespace
 
 FSwcSteamStub FSwcSteamStub::FromEnvironment()
@@ -68,9 +48,9 @@ bool FSwcSteamStub::IsSteamId(const FString& Text)
 
 FString FSwcSteamStub::GetAuthTicketHex() const
 {
-	const FString Ticket = FString::Printf(TEXT("SOULWARDEN-LOCAL-TICKET;1;%s;%s"), *SteamId, *HexOfUtf8(PersonaName, PersonaNameLimit));
-	const FTCHARToUTF8 Utf8(*Ticket);
-	return HexOf(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length());
+	// One writer for the ticket: the codec (tools/test-net.sh compares it with the ticket of the backend tests).
+	const std::string Ticket = swc::net::local_ticket_hex(TCHAR_TO_UTF8(*SteamId), TCHAR_TO_UTF8(*PersonaName));
+	return UTF8_TO_TCHAR(Ticket.c_str());
 }
 
 FString FSwcSteamStub::MaskedSteamId() const

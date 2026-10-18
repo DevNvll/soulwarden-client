@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # A development run (agents): the backend copy and the client in one network namespace with loopback only, on the own
 # data folder SWC_DEV_DATA (never the data folder of the user), with a made-up Steam identity and a seed character.
-# Usage: tools/dev-run.sh [--window] [--seed NAME] [--quit-when characters] [--seconds N] [--label TEXT] [-- CLIENT ARGUMENTS]
+# Usage: tools/dev-run.sh [--window] [--enter] [--seed NAME] [--quit-when characters|world] [--stay S] [--seconds N] [--label TEXT]
+#                         [-- CLIENT ARGUMENTS]
 #   (default)   the client with no window and no sound (-nullrhi -nosound) in the foreground; it stops after
 #               --seconds (default 120). Logs: SWC_WORK/logs/dev-run/LABEL-client.log, SWC_DEV_DATA/logs/backend.log.
 #   --window    the client window on the own agent desktop "soulwarden-client-dev" (gamescope, no sound). The script
 #               returns when the window shows; tools/dev-stop.sh stops the run.
+#   --enter     after the character list the client enters the world with the first character (-SwcPlay=first).
 #   --quit-when characters   the client stops after the character list (status 0) or after a failure (status 1).
+#   --quit-when world        the client stays --stay seconds in the world (default 10), leaves, and stops (status 0).
 # Each process of a development run has the mark SWC_DEV_RUN=1 (tools/dev-stop.sh). A process of this project never
 # has SOULWARDEN_DEV_RUN=1 (the mark of the Soulwarden development runs).
 set -euo pipefail
@@ -14,6 +17,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 unset SOULWARDEN_DEV_RUN
 
 window=0
+enter=0
+stay=""
 seed="Devwarden"
 quit_when=""
 seconds=120
@@ -21,6 +26,8 @@ label="run"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --window) window=1 ;;
+        --enter) enter=1 ;;
+        --stay) stay="$2"; shift ;;
         --seed) seed="$2"; shift ;;
         --quit-when) quit_when="$2"; shift ;;
         --seconds) seconds="$2"; shift ;;
@@ -55,6 +62,12 @@ client_log="${logs}/${label}-client.log"
 client_arguments=(-game -nosound -SwcConnect -abslog="${client_log}")
 if [[ -n "${quit_when}" ]]; then
     client_arguments+=(-SwcQuitWhen="${quit_when}")
+fi
+if [[ "${enter}" == "1" ]]; then
+    client_arguments+=(-SwcPlay=first)
+fi
+if [[ -n "${stay}" ]]; then
+    client_arguments+=(-SwcStay="${stay}")
 fi
 # A made-up identity: a Steam id of the range of the made-up ids of the backend tests, not an account of a person.
 run_environment=(SWC_DEV_RUN=1 SWC_RUN=development SWC_STEAM_ID=76561202255233000 "SWC_PERSONA_NAME=Swc Dev"

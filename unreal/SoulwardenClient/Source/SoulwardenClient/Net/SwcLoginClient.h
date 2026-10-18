@@ -102,6 +102,12 @@ public:
 	/** POST /prod/game/login/queue/v2: the login token of a character (protocol notes 2.1 step 5). Needs a done Start. */
 	void RequestLoginToken(const FString& CharacterId, FTokenDone Done);
 
+	/**
+	 * GET /v1/tls/ca.pem: the certificate of the backend for DTLS. The game hook reads it at this route and puts it in
+	 * the trust list of the retail client (protocol notes 3.1). The route is a management route: no service host.
+	 */
+	void RequestBackendCertificate(TFunction<void(bool bSucceeded, const FString& Pem)> Done);
+
 	const FSwcAccountSession& GetSession() const { return Session; }
 	const FSwcSteamStub& GetIdentity() const { return Identity; }
 

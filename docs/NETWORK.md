@@ -46,14 +46,16 @@ unshare --user --map-root-user --net          one network namespace; the script 
    `SWC_STEAM_ID=<17 digits>` selects a different account, `SWC_STEAM_ID=local` the fallback identity.
 5. The data folder of the user, and the state of `run.lock` from `/proc/locks`: the check takes no lock.
 
-`--check` starts nothing. Status 0: a start can begin now. A player run holds `run.lock` of the data folder of the
+`--check` starts nothing. Status 0: a start can begin now. The client of a player run logs the character list and does
+not enter the world; `tools/play.sh -- -SwcPlay=first` enters the world with the first character. The client cannot
+move or fight yet (stages 1.7 and milestone 3): a creature near the character can attack it while it stands. A player run holds `run.lock` of the data folder of the
 user, as the Soulwarden launcher does: the retail game and a player run do not run at the same time, and a Soulwarden
 release waits (status 3) while one of them runs. The client log goes to `~/Games/soulwarden-client/logs/play/`. In a
 player run the client log has no character name (`SWC_RUN=player`).
 
 ### The development run
 
-`tools/dev-run.sh [--window] [--seed NAME] [--quit-when characters] [--seconds N] [--label TEXT] [-- CLIENT ARGUMENTS]`
+`tools/dev-run.sh [--window] [--enter] [--seed NAME] [--quit-when characters|world] [--stay S] [--seconds N] [--label TEXT] [-- CLIENT ARGUMENTS]`
 
 - The data folder is `SWC_DEV_DATA`. The script refuses a value that is the data folder of the user. Each run clears
   `dev-data/logs/backend.log`; the database stays (the seed character and its position).
@@ -67,6 +69,7 @@ player run the client log has no character name (`SWC_RUN=player`).
   `soulwarden-client-dev` (`omarchy-agent-desktop`), never on the desktop of the user. gamescope runs outside the
   namespace: in a user namespace it refuses `/tmp/.X11-unix`, which the real root owns. The client in the namespace
   reaches the X server of gamescope through its socket file. The script returns when the window shows.
+- `--enter`: the world entry with the first character after the character list (`-SwcPlay=first`).
 - Each process of a development run has the mark `SWC_DEV_RUN=1`. `tools/dev-stop.sh` stops them (SIGTERM, then
   SIGKILL after 15 s); `tools/dev-stop.sh --check` has the status 1 while one runs.
 
@@ -78,7 +81,9 @@ The run scripts give these values. The editor does not connect.
 | --- | --- |
 | `-SwcConnect` | The login path starts with the game. |
 | `-SwcHttp=HOST:PORT` | The HTTP listener of the backend (default `127.0.0.1:32200`). A host that is not loopback is replaced by `127.0.0.1`. |
+| `-SwcPlay=first` or `-SwcPlay=ID` | After the character list: the world entry with the first character, or with the character ID. |
 | `-SwcQuitWhen=characters` | The client stops after the character list (status 0) or after a failure of the login path (status 1). |
+| `-SwcQuitWhen=world` | The client stays `-SwcStay=SECONDS` in the world (default 10), leaves (the carrier disconnect), and stops (status 0). A session that ends before: status 1. |
 | `-SwcQuitAfter=SECONDS` | The client stops after this time (status 0). |
 | environment `SWC_STEAM_ID`, `SWC_PERSONA_NAME` | The values of the Steam stubs. |
 | environment `SWC_RUN` | `development`: the log has the character names. Each other value: no character name in the log. |
@@ -132,3 +137,142 @@ Exit check of stage 1.4 (development run, 2026-10-18): the 7 requests of the pat
 200 and the route name of the backend (`channel.document`, `omni.create_token`, `gateway.omni_credentials`,
 `entitlements.sync`, `entitlements.list`, `aws.s3_gameplay_configuration`, `gateway.get_login_info`), and the client log
 has the seed character of the account.
+
+## The game server (protocol notes 3 and 4)
+
+The code has two layers:
+
+| Layer | Path | Job |
+| --- | --- | --- |
+| Codec and session | `Net/Codec/` (plain C++, no engine header) | `SwcCarrier` (the carrier), `SwcRepMessages` (the frames, the registration, the readers of the world entry messages, the input report writer), `SwcRepClient` (the session: the phases, the own entity, the input report, the timers). The caller gives the time and the clear datagrams. |
+| Vendored readers | `Net/Vendor/soulwarden/` | Unchanged copies of the wire codec of the backend (`server/hub/wire`) and of the state reader of the backend tests (`tests/support/state_decoder.h` and its three helpers). A fragment of a record has no length: the client must read each state type that the backend sends, to its end. `NOTICE.md` has the update rule. |
+| Transport | `Net/SwcRepConnection` | One thread: the UDP socket on loopback, DTLS 1.2, and the session. The thread keeps the carrier alive also while the game thread loads a level. |
+| Glue | `USwcBackendSubsystem`, `Net/SwcTypeIndex`, `Net/SwcSpace.h` | The login token, the certificate, the type index check, the log lines, the view of the own entity. |
+
+### The order of the world entry
+
+```text
+POST /prod/game/login/queue/v2            the login token: RepAddress 127.0.0.1:32210 (loopback only, else no start)
+GET  /v1/tls/ca.pem                       the certificate of the backend (management route: no service host)
+check typeindex.json of the game copy     the 14 types of the client must have the indexes of the backend
+UDP socket 127.0.0.1:any -> RepAddress    DTLS 1.2 handshake (cookie exchange of the backend), 10 s at most
+carrier connect request (system 1, version 5), again each 250 ms until the connect ack (system 2)
+    WaitingForREPConnection -> WaitingForActorGameConnection
+RegistrationRequestV3Msg (19), reliable, channel 0
+<- RegistrationResponseMsg (3), result 0
+<- PlayerManagerSelfIdentificationMsg (1628)          -> WaitingForSpawnPoint
+<- LevelInfoChangedMsg (1635): level, terrain, instance, reload, version
+<- ReceivePlayerSpawnPointMsg (1617)
+<- ReplicatedStateBundle (8), sequence 1: the level load -> WaitingForPlayerSpawn
+<- the record of interest 1 with the character id of the login -> InGame
+-> ActionListComponentServerFacet_ReceiveInputFromClient (1589), unreliable, channel 1, 30 each second
+<- a movement state each 200 ms (a new time anchor and the id 0x8000 or 0x0000)
+...
+-> carrier disconnect (system 3, reason 0) at the leave; no DTLS close notice
+```
+
+### DTLS (protocol notes 3.1)
+
+- The OpenSSL of the engine (1.1.1t, module `OpenSSL`; no GPL code). `DTLS_client_method` with DTLS 1.2 only, and the
+  cipher suite `ECDHE-RSA-AES256-GCM-SHA384` (`TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384`, the cipher of the retail
+  client).
+- The trust store has only the certificate of the backend (`/v1/tls/ca.pem`, a self-signed RSA 2048 authority,
+  `CN=Soulwarden Local`): the client checks the certificate chain (`SSL_VERIFY_PEER`), not a host name. The game hook
+  does the same for the retail client: it replaces the embedded authority with the certificate of the backend.
+- One DTLS record is one carrier datagram. The link MTU is 1,500 (a datagram of 1,038 bytes and the record overhead).
+
+### The carrier (protocol notes 3.2)
+
+`swc::net::Carrier` has the rules of the backend carrier in the two directions: the datagram header, the message
+header with its compression flags, the chunks (1,024 bytes of data at most for one message, 1,038 bytes for one
+datagram), the order of the reliable messages, an unreliable message that waits for the reliable message before it,
+the acknowledgements (one number, a continuous range, or a bit list), the resend after 250 ms, the acknowledgement after
+40 ms, and the keep-alive after 100 ms. The backend sends no compressed datagram; the client logs one and drops it.
+
+### Frames and the type index (protocol notes 3.3)
+
+```text
+client -> server := crc32:u32 size:u32 payload        payload := route:16 bytes, envelope
+server -> client := size envelope                     (one or more in one carrier message)
+envelope := flags:u8 present:u8 type:size body        (the client writes flags 0; it reads the flags 0x01 and 0x02)
+```
+
+The route of a component call is the actor id of the entity (the input report: the own actor id). The registration
+has the route of 16 zero bytes (the backend reads no route for it). `Net/SwcTypeIndex` reads `typeindex.json` of the game
+copy (`SOULWARDEN_GAME_DIR`, read only; 7,052 type ids) and checks the type id at the index of each type of the client
+(`swc::net::kUsedTypes`: 9 message types and 5 state types). A difference stops the world entry: the build of the game
+copy is not the build of the backend (the retail client gets the result -90, `TypeIndexMismatch`).
+
+### The registration (protocol notes 3.4)
+
+The body has the layout of the made-up client of the backend tests (`tests/support/client_frames.h`): u32 1, the
+version map (6 entries, the text `1.400.6031.6004151`), a text, the login token (the values of `LoginQueueResponse.Token`;
+`IssueTime` and `GenerateTime` are the low 32 bits of the millisecond values), the client data (the Steam id of the stub,
+and `steam|` with the hexadecimal text of the local ticket), two identities in the text form, and one flag. A result
+that is not 0 ends the session with the text key of the result (protocol notes 3.6), as do the messages "kicked" (271)
+and "rejected" (1630).
+
+### The world entry and the own entity (protocol notes 4.1 to 4.6)
+
+- The client keeps the self identification (the session actor and the player manager), the level information, and the
+  rules of the retail client for a state bundle: no bundle before the level information; the instance of each bundle is
+  the instance of the level information; the reliable bundles are 1, 2, 3, ... with no gap (after a gap the client drops
+  each later bundle); the stops of the control block remove an entity.
+- The record of interest 1 is the own entity: the metadata state (the player slice `A660EEEB-...`, sub id 2, and the
+  actor id; `G` is its first 8 bytes, little-endian), the player state (character id, name, connected), the movement
+  state (`worldPosAbs`, `rotation`, `lookDir`, `teleportAndMigrationId`, `timeAnchor`, `dataBits`, `moreDataBits`, the
+  id), the vitals state, and the appearance state. The entity is the local player only when its character id is the
+  character id of the login: then the phase is InGame.
+- The records of the other interest numbers (the creatures, the objects, the spells) keep their metadata and position
+  for the stages 1.9 and later.
+- A fragment of a state type that the reader does not know stops the reader for the rest of that bundle; the client
+  logs the type one time. The live runs of this stage had none.
+
+### The input report (protocol notes 4.7)
+
+From InGame the client sends one report each 1/30 s on channel 1: the newest entry and the 4 entries before it (as a
+live client). The body is `target:u64 entity:u64 header count entry*` with the target of the action list facet:
+`G + 0x3C591A4EA3C2AD75` (the component id of the action list of the entity `RootPlayer` in `slice-ids.json`; the backend
+log names the facet). Each entry has the values of a client that stands (the backend tests and the captures): the flags
+`0x20004F0`, the permissions 15, the ground value 180, 19 action words with the bits 475, 497, 506, 569, the step time
+1/30 s, and the camera of a character at rest at the start of a session: 0.5 m east, 4.0 m south, and 1.65 m above
+the position of the own entity, north, no pitch. The entry has no position field (no flag `0x8000`): the backend then
+uses its camera estimate, and the camera axis goes through the known position, thus the position of the character does
+not change and the backend writes no new position.
+
+### The timers of the client contract
+
+| Timer | Rule of the retail client | The client |
+| --- | --- | --- |
+| 30 s | `connection_ingame_timeout`: no game message for 30 s ends the connection (protocol notes 4.1) | The session ends with this cause and sends the carrier disconnect. The thread measures the time: a game thread that loads a level does not stop it. |
+| 2 s | `javelin.alc-server-timeout-for-input`: with no movement state for 2 s the client clears the actions of each new input (protocol notes 4.6) | The entries have no action bits while the last movement state of the own entity is older than 2 s; the log has one line at each change. |
+
+### The view (provisional)
+
+`Net/SwcSpace.h` maps a position of the wire to Unreal: centimeters, and Unreal Y = -engine Y. This rule is PROVISIONAL:
+stage 1.1 proves the map of the placements, and the function then takes its rule. At InGame the client puts a marker of
+the size of a character (a cylinder of 0.6 m by 1.8 m) at the position of the own entity, and a camera at the camera
+of the input report, which looks at the chest of the marker.
+
+### The tests (`tools/test-net.sh`)
+
+`tests/net/codec_tests.cpp` builds with the system compiler (no engine) and uses only bytes that the backend makes:
+
+- The golden session: the 16 server datagrams of case T2 of the backend tests
+  (`apps/backend/tests/golden/one_session.hex`) go to a `RepClient`: it reaches InGame with the character id, the name,
+  the actor id, `G`, the slice asset, the spawn position, the rotation, the permissions, the heartbeat id 0x8000, the
+  vitals, and the appearance of the scenario; each bundle is read to its last byte; a carrier of the backend reads each
+  datagram of the client (one registration on channel 0, the input reports on channel 1, which the input reader of the
+  backend reads: the camera of the spawn, no position field); 2 s with no movement state clear the actions; 30 s with no
+  game message end the session.
+- The writers: the registration body, the client frame, the local ticket, and an input report of three entries are
+  equal byte for byte to the writers of the made-up client of the backend tests; the input reader of the backend reads
+  the report; the facet target of the action list is the value of the research (`90A8748FA3C2AD77` for serial 1).
+- The carrier: the client carrier against the carrier of the backend: the handshake, a reliable message of 3,000 bytes
+  in chunks to the server and of 2,500 bytes to the client, an unreliable message, a lost datagram of the server that
+  comes again in its order, the 1,038-byte limit, and the disconnect.
+
+Exit check of stage 1.5 (development runs, 2026-10-18): the client enters the world of the unchanged backend (the
+release copy `2026-10-17-e0a3d97`) at the place of the character and logs its own entity and position; a session of
+180 s had 972 state bundles, 887 movement states, 5,400 input reports (each with a target of the id rule in the
+backend), no unknown state type, no resend, and the end cause `carrier close`.

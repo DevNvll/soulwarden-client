@@ -98,9 +98,13 @@ void FSwcLoginClient::Send(const FString& Verb, const FString& ServiceHost, cons
 	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
 	Request->SetVerb(Verb);
 	Request->SetURL(FString::Printf(TEXT("http://%s:%d%s"), *HttpHost, HttpPort, *PathAndQuery));
-	// The header of the game hook: the backend finds the service of a request by this host (http_server.cpp).
-	Request->SetHeader(TEXT("X-Soulwarden-Host"), ServiceHost);
-	Request->SetHeader(TEXT("X-Soulwarden-Scheme"), TEXT("https"));
+	// The header of the game hook: the backend finds the service of a request by this host (http_server.cpp). A
+	// management route of the backend has no service host.
+	if (!ServiceHost.IsEmpty())
+	{
+		Request->SetHeader(TEXT("X-Soulwarden-Host"), ServiceHost);
+		Request->SetHeader(TEXT("X-Soulwarden-Scheme"), TEXT("https"));
+	}
 	for (const TPair<FString, FString>& Header : Headers)
 	{
 		Request->SetHeader(Header.Key, Header.Value);
@@ -399,6 +403,16 @@ void FSwcLoginClient::RequestLoginToken(const FString& CharacterId, FTokenDone D
 			Token.AccountAge = Low32(Object, TEXT("AccountAge"));
 			Token.TokenVersion = Low32(Object, TEXT("TokenVersion"));
 			Done(true, Token, FString());
+		});
+}
+
+void FSwcLoginClient::RequestBackendCertificate(TFunction<void(bool bSucceeded, const FString& Pem)> Done)
+{
+	Send(TEXT("GET"), FString(), TEXT("/v1/tls/ca.pem"), {}, FString(), FString(),
+		[Done = MoveTemp(Done)](int32 Status, const FString& Reply)
+		{
+			const bool bPem = Status == 200 && Reply.Contains(TEXT("-----BEGIN CERTIFICATE-----"));
+			Done(bPem, bPem ? Reply : FString());
 		});
 }
 

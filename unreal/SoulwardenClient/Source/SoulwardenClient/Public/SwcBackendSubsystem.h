@@ -7,7 +7,10 @@
 
 DECLARE_LOG_CATEGORY_EXTERN(LogSwcBackend, Log, All);
 
+class AActor;
 class FSwcLoginClient;
+class FSwcRepConnection;
+struct FSwcLoginToken;
 
 /**
  * The connection to the Soulwarden backend. The client speaks the original wire protocol of the backend
@@ -17,7 +20,9 @@ class FSwcLoginClient;
  * Command line (the run scripts give it; the editor does not connect):
  *   -SwcConnect                the login path starts with the game
  *   -SwcHttp=HOST:PORT         the HTTP listener of the backend (loopback only)
+ *   -SwcPlay=first|ID          after the character list: the world entry with the first character, or the character ID
  *   -SwcQuitWhen=characters    the client stops after the character list (status 0), or after a failure (status 1)
+ *   -SwcQuitWhen=world         the client stays -SwcStay seconds in the world (default 10), leaves, and stops (status 0)
  *   -SwcQuitAfter=SECONDS      the client stops after this time
  * Environment: SWC_STEAM_ID and SWC_PERSONA_NAME (the Steam stubs), SWC_RUN (player or development).
  */
@@ -35,6 +40,9 @@ public:
 	/** Runs the HTTP login path to the character list. */
 	void StartLogin();
 
+	/** Enters the world with a character of the character list: the login token, then the game server. */
+	void EnterWorld(const FString& CharacterId);
+
 	/** HTTP host and port of the backend (loopback only). The command line can set them: -SwcHttp=HOST:PORT. */
 	UPROPERTY(Config)
 	FString HttpHost = TEXT("127.0.0.1");
@@ -44,11 +52,23 @@ public:
 
 private:
 	void OnCharacterList(bool bSucceeded, const FString& Error);
-	void Quit(bool bSucceeded, const TCHAR* Cause) const;
+	void StartConnection(const FSwcLoginToken& Token, const FString& CertificatePem);
+	bool TickWorld(float DeltaTime);
+	void ShowOwnEntity();
+	void Quit(bool bSucceeded, const TCHAR* Cause);
 
 	TSharedPtr<FSwcLoginClient> Login;
+	TSharedPtr<FSwcRepConnection> Connection;
 	/** A player run shows no character name of the user in the log (the rule of AGENTS.md). */
 	bool bPlayerRun = true;
 	FString QuitWhen;
+	FString PlayCharacter;
+	float StaySeconds = 10.0f;
+	double InGameSince = 0.0;
+	bool bInGame = false;
+	bool bQuitting = false;
 	FTSTicker::FDelegateHandle QuitTimer;
+	FTSTicker::FDelegateHandle WorldTicker;
+	TWeakObjectPtr<AActor> Marker;
+	TWeakObjectPtr<AActor> Camera;
 };

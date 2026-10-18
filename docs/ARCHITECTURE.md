@@ -8,7 +8,7 @@
 | Soulwarden readers | `converter/vendor/soulwarden` | An unchanged copy of the pak, object stream, slice, terrain, and shape readers of the Soulwarden repository (MIT, commit e0a3d97). Update by a new copy, never by an edit. |
 | Unreal project | `unreal/SoulwardenClient` | The client: the C++ module `SoulwardenClient`, the config, the import script. |
 | Imported assets | `unreal/SoulwardenClient/Content/Imported` | The Unreal assets of the converted content. Made from the game copy: not in git. |
-| Tools | `tools/` | `env.sh` (paths), `convert.sh`, `build.sh`, `import.sh`, `editor.sh`, `backend-update.sh`, `play.sh`, `dev-run.sh`, `dev-stop.sh`, `lib/session.sh`. |
+| Tools | `tools/` | `env.sh` (paths), `convert.sh`, `build.sh`, `import.sh`, `editor.sh`, `backend-update.sh`, `play.sh`, `dev-run.sh`, `dev-stop.sh`, `lib/session.sh`, `test-net.sh`. |
 | Backend | `~/Games/soulwarden-client/backend/current` | A copy of a Soulwarden release (backend and game data), unchanged. `tools/backend-update.sh` updates it. |
 
 ## The content pipeline
@@ -67,5 +67,7 @@ protocol (Soulwarden protocol notes, sections 2 to 4): the HTTP login path, DTLS
 the GridMate carrier (datagram at most 1,038 bytes), the envelope with the type index of `typeindex.json`, the
 registration, the state bundles (records of interest numbers, fragments for component slots of the slice of an
 entity group), and the input report 1589. The backend encoders (`apps/backend/src/server/rep/states`) are the
-specification of the client decoders. The code is in `Source/SoulwardenClient/Net/`; [NETWORK.md](NETWORK.md) has the
-client side of each contract.
+specification of the client decoders. The code is in `Source/SoulwardenClient/Net/`: the codec and the session in plain
+C++ (`Net/Codec/`, tested with bytes of the backend by `tools/test-net.sh`), an unchanged copy of the wire codec and of
+the state reader of the backend tests (`Net/Vendor/soulwarden/`), and the transport thread with the DTLS of the engine
+OpenSSL (`Net/SwcRepConnection`). [NETWORK.md](NETWORK.md) has the client side of each contract.
