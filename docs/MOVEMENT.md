@@ -339,7 +339,9 @@ sprint (5.5 m/s; crouch 2.5, prone 1.25).
   agrees with the red-green value of the macro map (correlation +0.32; 0.04 or less for each flip or turn).
 - The layer priorities and AffectedTiles (the render tiles of a layer) are not applied. A layer with AffectedTiles 0
   adds nothing.
-- The result: 28 of the 49 regions have roads; 5.55 km² are on a road. In r_+04_+02: 387,754 texels on a road.
+- The result: 28 of the 49 regions have roads; 5.91 km² are on a road. In r_+04_+02: 412,633 texels on a road. (Before the
+  fix of the BC4 decoder on 2026-10-18, 1eaed5a: 5.55 km² and 387,754 texels; the values between the two end values of a
+  block were too near the second one.)
 - An inference: the data does not say if IfOnRoad reads the road weight of the terrain or the cover of a road spline
   (the RoadsAndRivers module). A backend can use the same maps.
 
