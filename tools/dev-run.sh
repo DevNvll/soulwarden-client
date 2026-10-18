@@ -5,7 +5,7 @@
 #                         [--seconds N] [--label TEXT] [-- CLIENT ARGUMENTS]
 #   (default)   the client with no window and no sound (-nullrhi -nosound) in the foreground; it stops after
 #               --seconds (default 120). Logs: SWC_WORK/logs/dev-run/LABEL-client.log, SWC_DEV_DATA/logs/backend.log.
-#   --window    the client window on the own agent desktop "soulwarden-client-dev" (gamescope, no sound). The script
+#   --window    the client window on the own agent desktop "soulwarden-client-dev" or SWC_AGENT_DESKTOP (gamescope, no sound). The script
 #               returns when the window shows; tools/dev-stop.sh stops the run.
 #   --enter     after the character list the client enters the world with the first character (-SwcPlay=first).
 #   --enter NAME            the same with the character NAME.
@@ -97,7 +97,13 @@ if [[ "${window}" == "0" ]]; then
     exit "${status}"
 fi
 
-desktop_id="soulwarden-client-dev"
+# Each track of the project has its own agent desktop and data folder, so that their runs do not wait for each other
+# (SWC_AGENT_DESKTOP, SWC_DEV_DATA; AGENTS.md).
+desktop_id="${SWC_AGENT_DESKTOP:-soulwarden-client-dev}"
+if [[ ! "${desktop_id}" =~ ^soulwarden-client-[a-z0-9-]+$ ]]; then
+    echo "dev-run: SWC_AGENT_DESKTOP must start with soulwarden-client- (an own agent desktop of this project)." >&2
+    exit 2
+fi
 game_size="${SWC_GAME_SIZE:-1256x660}"
 if ! command -v gamescope >/dev/null 2>&1 || ! command -v omarchy-agent-desktop >/dev/null 2>&1; then
     echo "dev-run: gamescope or omarchy-agent-desktop was not found: no window run (the client never opens on the desktop of the user)." >&2

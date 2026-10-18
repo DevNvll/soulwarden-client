@@ -64,6 +64,9 @@ files at the same time; a shared document (this file, the roadmap) changes only 
 - The Steam account: read only the Steam id and the persona name of the most recent login of the Steam installation
   (`config/loginusers.vdf`, as the Soulwarden launcher does). Never open a Steam credential. The two values go to
   the client in its environment, never into a file; a log line shows only the last 4 digits of the Steam id.
+- Parallel tracks: each track uses its own development data folder (`SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-TRACK`)
+  and its own agent desktop (`SWC_AGENT_DESKTOP=soulwarden-client-TRACK`), so that the runs of two tracks do not wait
+  for one lock. Each run has its own network namespace: the ports do not collide.
 - A process of this project never has `SOULWARDEN_DEV_RUN=1` in its environment: `tools/dev-stop.sh` of Soulwarden
   stops such processes, and its `--check` fails while one is alive.
 - Do not open the Proton prefixes of the Soulwarden project or its development data.
