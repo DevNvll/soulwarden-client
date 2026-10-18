@@ -18,6 +18,10 @@ do
     for _, name in ipairs(data.absent or {}) do
       Swc.absentNames[name] = true
     end
+    Swc.nativeNames = {}
+    for _, name in ipairs(data.natives or {}) do
+      Swc.nativeNames[name] = true
+    end
   else
     Swc.Note("no enum table of the client: " .. tostring(err) .. " (tools/convert-ui.sh enums); own values only")
   end

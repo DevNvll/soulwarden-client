@@ -389,6 +389,8 @@ public:
     [[nodiscard]] float cell_target_height(Id id, bool ignoreDefault);
     [[nodiscard]] float cell_extra_width_ratio(Id id, bool ignoreDefault);
     [[nodiscard]] float cell_extra_height_ratio(Id id, bool ignoreDefault);
+    /** UiLayoutBus GetSizeToFitChildElements: the size of a layout element for a number of children of one size. */
+    [[nodiscard]] Vec2 size_to_fit(Id id, Vec2 childSize, int count);
 
     // ---- content
     [[nodiscard]] const Sprite& sprite(const std::string& texturePath);

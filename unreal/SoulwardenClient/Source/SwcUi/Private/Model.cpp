@@ -299,7 +299,8 @@ void Model::read_element(const json::Value& data, Element& out) const {
         out.button = b;
     }
     for (const char* key : {"interactable", "checkbox", "radio", "radioGroup", "slider", "scrollBar", "wheel", "scrollBox",
-                            "textInput", "dropdown", "draggable", "dropTarget", "markupButton", "exitHover", "dynamicScrollBox"}) {
+                            "textInput", "dropdown", "draggable", "dropTarget", "markupButton", "exitHover", "dynamicScrollBox",
+                            "dynamicLayout"}) {
         if (const json::Value& component = data[key]; component.is_object()) {
             out.components[key] = component;
         }
@@ -362,7 +363,7 @@ void Model::read_element(const json::Value& data, Element& out) const {
     if (const json::Value& f = data["layoutFitter"]; f.is_object()) {
         out.fitter = FitterData{f["horizontal"].boolean(), f["vertical"].boolean()};
     }
-    for (const char* key : {"dynamicLayout", "progressBar"}) {
+    for (const char* key : {"progressBar"}) {
         if (data[key].is_object()) {
             out.other.emplace_back(key);
         }

@@ -263,9 +263,14 @@ end
 --- A class of the engine that the emulation does not have: a callable that makes an object; the object keeps the
 --- fields that the scripts set, and a member that no script set is a stub.
 function Swc.NativeClass(name)
+  -- An object keeps the fields that a script sets. A missing PascalCase member is a method of the client (a stub that
+  -- gives nil); a missing lowerCamelCase member is a field (nil): the naming of the script API of the client.
   local meta = {
     __index = function(_, key)
       Swc.Stub("native member", name .. "." .. tostring(key))
+      if type(key) == "string" and key:find("^%u") then
+        return function() return nil end
+      end
       return nil
     end,
   }
@@ -341,6 +346,11 @@ setmetatable(_G, {
       local class = Swc.Vector(name)
       rawset(_G, name, class)
       return class
+    end
+    -- A value class of the client (a native name of the scripts, gamedata/enums.json): a stub class whose objects
+    -- keep their fields (SimplePlayerIdentification(), ItemDescriptor(), ...).
+    if Swc.nativeNames and Swc.nativeNames[name] and name:find("^%u") then
+      return Swc.NativeClass(name)
     end
     Swc.Stub("global", name)
     return nil

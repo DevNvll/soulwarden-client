@@ -683,4 +683,44 @@ int Model::update_layouts() {
     return static_cast<int>(marks.size());
 }
 
+Vec2 Model::size_to_fit(Id id, Vec2 child, int count) {
+    // UiLayoutBus GetSizeToFitChildElements (the dynamic layout): a row adds the widths of the children with the
+    // spacing and the padding; across, the child size when the anchors are together, else the current size. A column
+    // the other way; a grid the box of its rows and columns with the padding.
+    const Element* e = element(id);
+    const Edges r = rect(id);
+    Vec2 size{r.right - r.left, r.bottom - r.top};
+    if (e == nullptr || !e->layout) {
+        return size;
+    }
+    const LayoutData& l = *e->layout;
+    const float n = static_cast<float>(count);
+    const TransformData& t = e->transform;
+    if (l.kind == LayoutData::Kind::grid) {
+        if (count <= 0) {
+            return size;
+        }
+        const float spaceX = size.x - (l.padding.left + l.padding.right) + kFitEpsilon;
+        const float spaceY = size.y - (l.padding.top + l.padding.bottom) + kFitEpsilon;
+        int columns = 1;
+        int rows = 1;
+        if (l.startingWith == 0) {
+            columns = std::clamp(static_cast<int>(std::floor((spaceX + l.spacing.x) / (child.x + l.spacing.x))), 1, count);
+            rows = std::max(1, static_cast<int>(std::ceil(n / static_cast<float>(columns))));
+        } else {
+            rows = std::clamp(static_cast<int>(std::floor((spaceY + l.spacing.y) / (child.y + l.spacing.y))), 1, count);
+            columns = std::max(1, static_cast<int>(std::ceil(n / static_cast<float>(rows))));
+        }
+        return {static_cast<float>(columns) * child.x + l.spacing.x * static_cast<float>(columns - 1) + l.padding.left + l.padding.right + kFitEpsilon,
+                static_cast<float>(rows) * child.y + l.spacing.y * static_cast<float>(rows - 1) + l.padding.top + l.padding.bottom + kFitEpsilon};
+    }
+    const bool row = l.kind == LayoutData::Kind::row;
+    const float along = count > 0 ? (row ? child.x : child.y) * n + l.spacing.x * (n - 1.0F) +
+                                         (row ? l.padding.left + l.padding.right : l.padding.top + l.padding.bottom)
+                                   : 0.0F;
+    const bool togetherAcross = row ? t.anchors.top == t.anchors.bottom : t.anchors.left == t.anchors.right;
+    const float across = togetherAcross ? (count > 0 ? (row ? child.y : child.x) : 0.0F) : (row ? size.y : size.x);
+    return row ? Vec2{along, across} : Vec2{across, along};
+}
+
 } // namespace swc::ui

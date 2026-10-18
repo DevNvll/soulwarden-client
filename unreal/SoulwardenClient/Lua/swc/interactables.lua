@@ -403,6 +403,9 @@ function Swc.ScrollBoxSetOffset(id, offset, changing)
   d.offset = {offset.x, offset.y}
   scrollbox_place(d)
   update_scrollbars(id)
+  if Swc.IState(id).dynamicScrollBox then
+    Swc.DynamicScrollBoxUpdate(id)
+  end
   Swc.SendAction(id, changing and d.changing or d.changed)
   Swc.Notify("UiScrollBoxNotificationBus", id, changing and "OnScrollOffsetChanging" or "OnScrollOffsetChanged", V2(d.offset[1], d.offset[2]))
 end
@@ -426,6 +429,9 @@ function Swc.ScrollBoxFromScroller(id, bar, value)
     return
   end
   scrollbox_place(d)
+  if Swc.IState(id).dynamicScrollBox then
+    Swc.DynamicScrollBoxUpdate(id)
+  end
   Swc.SendAction(id, d.changing)
 end
 
@@ -921,6 +927,9 @@ function Swc.InitInteractive(id)
   end
   if s.kind then
     Swc.UpdateInteractableState(id)
+  end
+  if s.dynamicLayout or s.dynamicScrollBox then
+    Swc.InitDynamic(id)
   end
 end
 

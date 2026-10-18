@@ -948,14 +948,20 @@ def convert_enums() -> dict:
     program = Path(os.environ["SOULWARDEN_GAME_DIR"]) / "Bin64" / "NewWorld.exe"
     values, unknown = uienums.enum_values(program, names)
     absent = sorted(n for n, cause in unknown.items() if cause == "no text in the client")
+    # The other native globals: classes and functions of the client (read by a script, written by none).
+    lua_names = set("""assert collectgarbage dofile error getfenv getmetatable ipairs load loadfile loadstring module next
+        pairs pcall print rawequal rawget rawset require select setfenv setmetatable tonumber tostring type unpack xpcall
+        coroutine debug io math os package string table _G _VERSION gcinfo newproxy""".split())
+    natives = sorted(n for n in read - written if not ENUM_NAME.match(n) and not n.endswith("Bus") and n not in lua_names)
     target = out_dir() / "gamedata"
     target.mkdir(parents=True, exist_ok=True)
     (target / "enums.json").write_text(json.dumps({
         "program": {"file": "Bin64/NewWorld.exe", "size": program.stat().st_size},
-        "values": values, "absent": absent,
+        "values": values, "absent": absent, "natives": natives,
         "unknown": {n: c for n, c in unknown.items() if n not in absent},
     }, indent=0, sort_keys=True))
-    return {"names": len(names), "values": len(values), "absent": len(absent), "unknown": len(unknown) - len(absent)}
+    return {"names": len(names), "values": len(values), "absent": len(absent), "unknown": len(unknown) - len(absent),
+            "natives": len(natives)}
 
 
 # ------------------------------------------------------------------------------------------------------------------ main

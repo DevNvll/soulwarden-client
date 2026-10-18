@@ -150,6 +150,20 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   with Enter or Escape or a press elsewhere; a drop-down expands (its content goes on top of the canvas at the same
   place) and collapses on a second click, on an option, or on a release outside.
 
+### Dynamic lists (swc/dynamic.lua)
+
+- Dynamic layout: at activation its first child becomes the prototype (the other children go); `SetNumChildElements`
+  makes copies to the count (or removes the last ones), then the element takes the size of its layout for them
+  (`Model::size_to_fit`: row, column, grid), unless a parent layout controls it.
+- Dynamic scroll box: the first refresh prepares the list (the item prototype: the property, else the first child of
+  the content; the header prototype with sections; their sizes along the axis; the content becomes empty). A refresh
+  asks the scripts (`UiDynamicScrollBoxDataBus`: `GetNumElements`, the sections, the sizes that vary, or the target
+  size of a prepared copy), gives the content the total size, and puts copies of the prototypes only at the visible
+  places. A copy that becomes visible for an index goes to the scripts (`UiDynamicScrollBoxElementNotificationBus`
+  `OnElementBecomingVisible`, `OnSectionHeaderBecomingVisible`, `OnElementInSectionBecomingVisible`); a copy that
+  leaves the view goes to a pool. A scroll updates the visible copies.
+- The prototypes leave their list: they wait under a hidden element of the canvas ("Prototypes").
+
 ## The Lua host
 
 - Lua 5.1.5 compiles as C++ (`SwcLua51.cpp`, `SwcLua51Os.cpp`). Thus a Lua error is a C++ exception and unwinds the
@@ -183,6 +197,10 @@ Rules of the emulation:
 - Enums: the values of the client table apply first. An own value of the emulation applies only to a name that the
   table does not have; a difference between an own value and the client value goes into `Swc.enumDifferences` (the
   enum fixture fails on it). A name that the client does not have stays nil.
+- Native value classes: the converter lists the other native globals of the scripts (`natives` in
+  `gamedata/enums.json`, 121 names); such a name is a stub class whose objects keep the fields that a script sets. A
+  missing PascalCase member of an object is a stub method (it gives nil); a missing lowerCamelCase member is nil (the
+  naming of the script API of the client).
 - The stub layer: a global name that ends with `Bus` is a stub bus. A name like `eUiImageType_Fixed` or
   `SomeType_Value` that no table has is an enum with a number of its own. A `vector_*` name is an engine vector. Each other unknown
   global is a stub. Each stub call goes into the stub log one time with its count and its first caller.
@@ -251,6 +269,7 @@ frames, and checks values. The helpers are in `prelude.lua`: `check`, `equal`, `
 | --- | --- |
 | `enums` | The client table against the own values, the paperdoll slots of the protocol notes, the LyShine values, a name that the client does not have. |
 | `controls` | The original InfoModal: the hover of its button (`button.luac`) and its press, which closes the modal (the button of the game acts on the press). Then original slices spawned into the modal with their scripts: a slider (a drag sets 50; typed 25 in its text input with Enter sets 25), a toggle (two radio buttons in a group), a check box, a drop-down (its list of 12 items cloned from a prototype by `dropdown.luac`, the expand, the wheel scroll). Pictures `controls-button-normal`, `-hover`, `controls-slider`, `controls-textinput`, `controls-dropdown-open`, `-scrolled`. |
+| `lists` | The original ReusableScoreboard screen shows the test data of its own script (`GetDummyColumnData`, `GetDummyRowsData`, 60 rows) in its dynamic scroll box: the content has the size of all rows, only the visible rows have copies, the script fills each copy; the wheel scrolls (rows 7 to 18 show). Pictures `lists-top`, `lists-scrolled`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
 The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,
