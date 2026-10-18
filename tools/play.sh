@@ -114,6 +114,12 @@ if [[ -x "${SWC_CLIENT_EXE}" && -f "${module}" ]]; then
 else
     report FAIL "no client: ${SWC_CLIENT_EXE} or ${module} is missing (run tools/build.sh editor)"
 fi
+# The imported content and the world level (the default map): the shared content plugin (docs/WORLD.md).
+if "${SWC_REPO}/tools/content-link.sh" && [[ -f "${SWC_GAME_CONTENT}/Content/World/NewWorld.umap" ]]; then
+    report ok "the shared content plugin with the world level"
+else
+    report FAIL "no world level in ${SWC_GAME_CONTENT}: run tools/build-world.sh (docs/WORLD.md)"
+fi
 
 # 4. The Steam account (only the last 4 digits of the Steam id in a message, never the persona name).
 steam_id="${SWC_STEAM_ID:-}"
