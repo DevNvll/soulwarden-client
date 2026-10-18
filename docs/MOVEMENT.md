@@ -152,7 +152,8 @@ lanes to the right of the facing: lane A at 25 m (a ramp of 30° from 6 m, 10 m 
 
 `-SwcDrive=FILE` plays a script through the same input actions (Enhanced Input injection; no input tool of the host).
 `tests/drive/movement.txt` walks, sprints, turns, and stops, with a running, a standing, a backward, and a side jump.
-`tests/drive/rules.txt` runs the three lanes of the test floor.
+`tests/drive/rules.txt` runs the three lanes of the test floor. The line `SECONDS ability q|r|f [HOLD]` presses a key of the
+bar for HOLD seconds (default 0.1 s; stage P3.5, [ACTIONS.md](ACTIONS.md)).
 
 ```sh
 tools/dev-run.sh --window --enter --quit-when world --stay 36 -- -SwcDrive=$PWD/tests/drive/movement.txt

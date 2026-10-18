@@ -98,6 +98,9 @@ void ASwcPlayerController::SetupInputComponent()
 	AimAction = MakeAction(this, TEXT("IA_Aim"), EInputActionValueType::Boolean);
 	GiveUpAction = MakeAction(this, TEXT("IA_DevGiveUp"), EInputActionValueType::Boolean);
 	InteractAction = MakeAction(this, TEXT("IA_Interact"), EInputActionValueType::Boolean);
+	AbilityActions[0] = MakeAction(this, TEXT("IA_Ability1"), EInputActionValueType::Boolean);
+	AbilityActions[1] = MakeAction(this, TEXT("IA_Ability2"), EInputActionValueType::Boolean);
+	AbilityActions[2] = MakeAction(this, TEXT("IA_Ability3"), EInputActionValueType::Boolean);
 	MovementContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Movement"));
 	MapAxisKey(MovementContext, MoveAction, EKeys::W, true, false);
 	MapAxisKey(MovementContext, MoveAction, EKeys::S, true, true);
@@ -119,6 +122,10 @@ void ASwcPlayerController::SetupInputComponent()
 	MovementContext->MapKey(GiveUpAction, EKeys::F8);
 	// The key of the prompt of an object (the retail client: E, "E Ignite Fuse", "E Take All").
 	MovementContext->MapKey(InteractAction, EKeys::E);
+	// The keys of the bar of the default profile: Q, R, F (protocol notes 4.22 "The keys": the input numbers 402, 115, 139).
+	MovementContext->MapKey(AbilityActions[0], EKeys::Q);
+	MovementContext->MapKey(AbilityActions[1], EKeys::R);
+	MovementContext->MapKey(AbilityActions[2], EKeys::F);
 	if (UEnhancedInputComponent* Enhanced = Cast<UEnhancedInputComponent>(InputComponent))
 	{
 		Enhanced->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ASwcPlayerController::OnMove);
@@ -142,6 +149,11 @@ void ASwcPlayerController::SetupInputComponent()
 		Enhanced->BindAction(GiveUpAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnGiveUp);
 		Enhanced->BindAction(InteractAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnInteract);
 		Enhanced->BindAction(InteractAction, ETriggerEvent::Completed, this, &ASwcPlayerController::OnInteractEnd);
+		for (int32 Place = 0; Place < 3; ++Place)
+		{
+			Enhanced->BindActionValueLambda(AbilityActions[Place], ETriggerEvent::Started, [this, Place](const FInputActionValue&) { OnAbilityKey(Place, true); });
+			Enhanced->BindActionValueLambda(AbilityActions[Place], ETriggerEvent::Completed, [this, Place](const FInputActionValue&) { OnAbilityKey(Place, false); });
+		}
 	}
 	else
 	{
@@ -367,6 +379,25 @@ void ASwcPlayerController::OnInteractEnd(const FInputActionValue&)
 	}
 }
 
+void ASwcPlayerController::OnAbilityKey(int32 Place, bool bDown)
+{
+	// The keys of the game map "player": the pre-processor of the UI keeps a real key from the game while that map is off; an
+	// injected key of a drive script asks the same rule. A release always goes (the key is up).
+	static const TCHAR* const Keys[] = {TEXT("q"), TEXT("r"), TEXT("f")};
+	if (bDown)
+	{
+		if (USwcUiSubsystem* Ui = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcUiSubsystem>() : nullptr; Ui != nullptr && !Ui->UiKeyToGame(Keys[Place]))
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("ability: %s while a screen of the UI holds the key: no press"), Keys[Place]);
+			return;
+		}
+	}
+	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
+	{
+		Character->GetActions()->OnAbilityKey(static_cast<uint32>(Place), bDown);
+	}
+}
+
 void ASwcPlayerController::PlayerTick(float DeltaTime)
 {
 	TickDrive(DeltaTime);
@@ -418,6 +449,14 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 	{
 		bDriveClick = false;
 		Input->StopContinuousInputInjectionForAction(AttackAction);
+	}
+	for (int32 Place = 0; Place < 3; ++Place)
+	{
+		if (DriveAbilityUp[Place] >= 0.0 && Time >= DriveAbilityUp[Place])
+		{
+			DriveAbilityUp[Place] = -1.0;
+			Input->StopContinuousInputInjectionForAction(AbilityActions[Place]);
+		}
 	}
 	while (DriveNext < Drive.Num() && Drive[DriveNext].Time <= Time)
 	{
@@ -517,6 +556,16 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 		else if (Step.Command == TEXT("dodge"))
 		{
 			Input->InjectInputForAction(DodgeAction, FInputActionValue(true), {}, {});
+		}
+		else if (Step.Command == TEXT("ability"))
+		{
+			// "TIME ability q|r|f [SECONDS]": a press of a key of the bar, up after SECONDS (default 0.1 s: a tap of 3 input steps).
+			const int32 Place = Step.Text == TEXT("q") ? 0 : Step.Text == TEXT("r") ? 1 : Step.Text == TEXT("f") ? 2 : INDEX_NONE;
+			if (Place != INDEX_NONE)
+			{
+				Input->StartContinuousInputInjectionForAction(AbilityActions[Place], FInputActionValue(true), {}, {});
+				DriveAbilityUp[Place] = Time + (Step.Value.Y > 0.0 ? Step.Value.Y : 0.1);
+			}
 		}
 		else if (Step.Command == TEXT("camera"))
 		{

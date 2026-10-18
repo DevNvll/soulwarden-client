@@ -40,6 +40,20 @@ float Number(const TSharedPtr<FJsonValue>& Value, float Default = 0.0f)
 	return Value.IsValid() && Value->Type == EJson::Number ? static_cast<float>(Value->AsNumber()) : Default;
 }
 
+/** @return The progression ids of a list of names of actions.json (stage P3.5: the nodes and the perks of a condition). */
+std::vector<std::uint32_t> IdsOf(const TSharedPtr<FJsonValue>& Value)
+{
+	std::vector<std::uint32_t> Out;
+	if (Value.IsValid() && Value->Type == EJson::Array)
+	{
+		for (const TSharedPtr<FJsonValue>& Name : Value->AsArray())
+		{
+			Out.push_back(swc::combat::progression_id(TCHAR_TO_UTF8(*Name->AsString())));
+		}
+	}
+	return Out;
+}
+
 /** A number of an attribute text of the action list ("1.50"), or Default. */
 float AttrNumber(const TSharedPtr<FJsonObject>& Attrs, const TCHAR* Name, float Default)
 {
@@ -331,6 +345,18 @@ bool FSwcActions::Load(FString& OutReport)
 				const TArray<TSharedPtr<FJsonValue>>& Switch = Item->GetArrayField(TEXT("switch"));
 				Fragment.switchBuffer = Switch.Num() == 2 ? Number(Switch[0], -1.0f) : -1.0f;
 				Fragment.switchAt = Switch.Num() == 2 ? Number(Switch[1], -1.0f) : -1.0f;
+				const TArray<TSharedPtr<FJsonValue>>* Markers = nullptr;
+				if (Item->TryGetArrayField(TEXT("markers"), Markers))
+				{
+					for (const TSharedPtr<FJsonValue>& MarkerValue : *Markers)
+					{
+						const TArray<TSharedPtr<FJsonValue>>& Row = MarkerValue->AsArray();
+						if (Row.Num() >= 2)
+						{
+							Fragment.markers.push_back({TCHAR_TO_UTF8(*Row[0]->AsString()), Number(Row[1], -1.0f)});
+						}
+					}
+				}
 				Weapon->Graph.fragments.push_back(Fragment);
 				Weapon->GraphFragments.Add(Item->TryGetStringField(TEXT("fragment"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE);
 				TArray<FSwcStrike>& Strikes = Weapon->Strikes.AddDefaulted_GetRef();
@@ -344,8 +370,10 @@ bool FSwcActions::Load(FString& OutReport)
 						Strike.Key = StrikeInfo->GetStringField(TEXT("key"));
 						Strike.Start = Number(StrikeInfo->TryGetField(TEXT("start")));
 						Strike.End = Number(StrikeInfo->TryGetField(TEXT("end")));
+						int32 DataIndex = -1;
 						for (const TSharedPtr<FJsonValue>& ShapeValue : StrikeInfo->GetArrayField(TEXT("shapes")))
 						{
+							++DataIndex;
 							const TSharedPtr<FJsonObject> ShapeInfo = ShapeValue->AsObject();
 							const FString Type = ShapeInfo->GetStringField(TEXT("type"));
 							if (Type != TEXT("sphere") && Type != TEXT("capsule") && Type != TEXT("box"))
@@ -353,6 +381,7 @@ bool FSwcActions::Load(FString& OutReport)
 								continue; // MeleeAttackShapeCastTypeNone: no shape.
 							}
 							FSwcStrikeShape& Shape = Strike.Shapes.AddDefaulted_GetRef();
+							Shape.DataIndex = DataIndex;
 							Shape.Kind = Type == TEXT("sphere") ? FSwcStrikeShape::EKind::Sphere : Type == TEXT("box") ? FSwcStrikeShape::EKind::Box
 																														: FSwcStrikeShape::EKind::Capsule;
 							Shape.Radius = Number(ShapeInfo->TryGetField(TEXT("radius")));
@@ -370,6 +399,18 @@ bool FSwcActions::Load(FString& OutReport)
 							Shape.bOffhand = ShapeInfo->GetBoolField(TEXT("offhand"));
 							Shape.bEndAsCenter = ShapeInfo->GetBoolField(TEXT("endAsCenter"));
 							Shape.bNoSight = ShapeInfo->GetBoolField(TEXT("noSight"));
+						}
+						const TArray<TSharedPtr<FJsonValue>>* RowValues = nullptr;
+						if (StrikeInfo->TryGetArrayField(TEXT("rows"), RowValues))
+						{
+							for (const TSharedPtr<FJsonValue>& RowValue : *RowValues)
+							{
+								const TArray<TSharedPtr<FJsonValue>>& Row = RowValue->AsArray();
+								if (Row.Num() == 4)
+								{
+									Strike.Rows.Add({IdsOf(Row[1]), IdsOf(Row[2]), static_cast<int32>(Number(Row[3]))});
+								}
+							}
 						}
 					}
 				}
@@ -390,12 +431,77 @@ bool FSwcActions::Load(FString& OutReport)
 					Transition.end = Row[2]->IsNull() ? -1.0f : Number(Row[2]);
 					Transition.input = swc::combat::input_of(TCHAR_TO_UTF8(*Row[3]->AsString()));
 					Transition.to = Weapon->Graph.index_of(TCHAR_TO_UTF8(*Row[4]->AsString()));
+					// Stage P3.5: the ability of a start of an ability, the terms of a transition inside an ability (row 6; the same
+					// reader as tests/actions/actions_tests.cpp graph_of).
+					if (Transition.input == swc::combat::Input::ability && Row.Num() > 6 && Row[6]->Type == EJson::String)
+					{
+						Transition.ability = swc::combat::progression_id(TCHAR_TO_UTF8(*Row[6]->AsString()));
+					}
+					else if (Transition.input == swc::combat::Input::terms && Row.Num() > 6 && Row[6]->Type == EJson::Array)
+					{
+						for (const TSharedPtr<FJsonValue>& Term : Row[6]->AsArray())
+						{
+							std::vector<swc::combat::Literal> Literals;
+							bool bKnown = true;
+							for (const TSharedPtr<FJsonValue>& LiteralValue : Term->AsArray())
+							{
+								const TArray<TSharedPtr<FJsonValue>>& Parts = LiteralValue->AsArray();
+								swc::combat::Literal Literal;
+								const bool bCount = Parts.Num() == 3 && Parts[1]->Type == EJson::Number;
+								bKnown = bKnown && Parts.Num() == 3
+									&& swc::combat::literal_of(TCHAR_TO_UTF8(*Parts[0]->AsString()), bCount ? std::string() : std::string(TCHAR_TO_UTF8(*Parts[1]->AsString())),
+										bCount ? static_cast<std::uint32_t>(Parts[1]->AsNumber()) : 0, Parts[2]->AsBool(), Literal);
+								Literals.push_back(Literal);
+							}
+							if (bKnown)
+							{
+								Transition.terms.push_back(MoveTemp(Literals));
+							}
+						}
+					}
 					Weapon->Graph.fragments[Index].transitions.push_back(Transition);
 				}
 				++Index;
 			}
 			FString Start;
 			Weapon->Graph.start = Info->TryGetStringField(TEXT("start"), Start) ? Weapon->Graph.index_of(TCHAR_TO_UTF8(*Start)) : -1;
+			// Stage P3.5: the abilities of the weapon (the fragment of the action, the selections by the nodes and the perks, the
+			// cooldown of the data, the shots of the casts of a projectile spell).
+			const TArray<TSharedPtr<FJsonValue>>* AbilityValues = nullptr;
+			if (Info->TryGetArrayField(TEXT("abilities"), AbilityValues))
+			{
+				for (const TSharedPtr<FJsonValue>& AbilityValue : *AbilityValues)
+				{
+					const TSharedPtr<FJsonObject> AbilityInfo = AbilityValue->AsObject();
+					swc::combat::Ability Ability;
+					Ability.name = TCHAR_TO_UTF8(*AbilityInfo->GetStringField(TEXT("ability")));
+					Ability.id = static_cast<std::uint32_t>(AbilityInfo->GetNumberField(TEXT("crc")));
+					Ability.fragment = Weapon->Graph.index_of(TCHAR_TO_UTF8(*AbilityInfo->GetStringField(TEXT("fragment"))));
+					for (const TSharedPtr<FJsonValue>& SelectionValue : AbilityInfo->GetArrayField(TEXT("selections")))
+					{
+						const TArray<TSharedPtr<FJsonValue>>& Row = SelectionValue->AsArray();
+						if (Row.Num() == 5)
+						{
+							Ability.selections.push_back({Weapon->Graph.index_of(TCHAR_TO_UTF8(*Row[0]->AsString())), IdsOf(Row[1]), IdsOf(Row[2]), IdsOf(Row[3]), IdsOf(Row[4])});
+						}
+					}
+					Ability.cooldown = Number(AbilityInfo->TryGetField(TEXT("cooldown")));
+					Ability.minCooldown = Number(AbilityInfo->TryGetField(TEXT("minCooldown")));
+					const TArray<TSharedPtr<FJsonValue>>* ShotValues = nullptr;
+					if (AbilityInfo->TryGetArrayField(TEXT("shots"), ShotValues))
+					{
+						for (const TSharedPtr<FJsonValue>& ShotValue : *ShotValues)
+						{
+							const TArray<TSharedPtr<FJsonValue>>& Row = ShotValue->AsArray();
+							if (Row.Num() == 6)
+							{
+								Ability.shots.push_back({TCHAR_TO_UTF8(*Row[0]->AsString()), static_cast<std::uint32_t>(Row[3]->AsNumber()), IdsOf(Row[4]), IdsOf(Row[5])});
+							}
+						}
+					}
+					Weapon->Graph.abilities.push_back(MoveTemp(Ability));
+				}
+			}
 			Graphs += Weapon->HasGraph() ? 1 : 0;
 		}
 		Weapons.Add(Weapon);

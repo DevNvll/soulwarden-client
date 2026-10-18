@@ -68,6 +68,8 @@ public:
 	void OnAttackButton(bool bDown);
 	/** The dodge key (left Shift). */
 	void OnDodgeKey();
+	/** A key of the bar (the place 0 to 2: Q, R, F) went down or up (stage P3.5): the press bits at the step of the driver. */
+	void OnAbilityKey(uint32 Place, bool bDown);
 	/** The aim button (the right mouse button): the aim of a ranged weapon in the hand (AimDownSights). */
 	void OnAimButton(bool bDown) { bAimHeld = bDown; }
 	/** The aim plays (the AimCamera, the walk); the target lock can start (DisableCameraLock of the camera action list: not in
@@ -96,6 +98,13 @@ public:
 
 	/** The count of the attack fragments that started, and of the weapon switches of the driver (a log line and a check). */
 	uint32 GetVisitCount() const { return Visits; }
+	/** The learned nodes of the character (the ProgressionPoint state; stage P3.5): the rows of the strikes. */
+	void SetLearnedNodes(uint32 Revision, const std::vector<std::uint32_t>& Nodes);
+	/** @return The attack graph of a weapon slot in the driver (24, 25), or null. */
+	const swc::combat::Graph* GetDriverGraph(uint32 Slot) const
+	{
+		return Slot == 24 || Slot == 25 ? static_cast<const swc::combat::Graph*>(DriverGraphs[Slot - 24]) : nullptr;
+	}
 	uint32 GetSwitchCount() const { return SeenSwitches; }
 
 	/** The melee contact query of the creatures: the contacts of one shape with the hit volumes (the item fields). */
@@ -106,6 +115,7 @@ public:
 	/** The counts of the shapes that went to the query, of the strikes with a shape, and of the contacts. */
 	uint32 GetShapeQueries() const { return ShapeQueries; }
 	uint32 GetStrikeCount() const { return StrikeCount; }
+	uint32 GetSkippedStrikes() const { return SkippedStrikes; }
 	uint32 GetContactCount() const { return ContactCount; }
 
 protected:
@@ -180,6 +190,16 @@ private:
 	uint32 SeenSwitches = 0;
 	uint32 SeenLost = 0;
 	bool bButtonDown = false;
+	/** The keys of the bar, the presses and the shots of the driver that the log saw, the blocks of the movement by a creature. */
+	bool bAbilityDown[3] = {false, false, false};
+	uint32 SeenAbilityPresses = 0;
+	uint32 SeenShots = 0;
+	uint32 SeenBlocks = 0;
+	uint32 CollidedVisit = 0;
+	uint32 NodesRevision = MAX_uint32;
+	TSet<uint32> LearnedNodes;
+	/** The strikes with no row for the learned nodes that the query skipped. */
+	uint32 SkippedStrikes = 0;
 	/** The melee contacts: the query, the contacts of this frame, the targets of each strike of the visit, the last
 	 *  center of each shape (the cast direction), and the counts. */
 	struct FStrikeWork

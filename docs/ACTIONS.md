@@ -208,6 +208,81 @@ from the Dustmeadow Shrine). Evidence in `~/Games/soulwarden-client/evidence/P2.
 - Note for a route script: a creature with 1 health gives no credit for its kill (no loot), and a creature that ignores the
   character takes no death from a hit; the check uses 100 health and fighting creatures.
 
+## The abilities (stage P3.5, the player part)
+
+The keys of the bar play the abilities of the weapon in the hand from the same graph as the server (Soulwarden protocol
+notes 4.22 "The keys", 4.27, 4.32; backend `world/attack_sequence.cpp` `AttackSequences::start_ability`, `world/abilities.cpp`).
+The build of the check is the build sheet of the user (great axe: Charge, Maelstrom, Gravity Well; war hammer: Wrecking Ball,
+Shockwave, Path of Destiny; 19 nodes of each tree).
+
+The data (`tools/convert-player.sh actions`, the graph of the backend copy):
+
+| Field | Content | Source |
+| --- | --- | --- |
+| `abilities` of a weapon | The ability id and its CRC-32 (the id on the bar), the action, the fragment, the selections of a fragment by the nodes and the perks (`ChangeActionFragment`), the casts of the action, the cooldown (`Time`, `MinTime`), and the shots | `weapon-actions.json`, `ability-data.json` (`cooldowns`), the spell tables (`javelindata_spelltable_*`: a cast of a spell with `CastingTypes` Projectile has a shot with the CRC-32 of its `RangedAttackName`) |
+| `transitions` of a graph fragment | Also the starts of the abilities (`ability`, row 6: the ability id) and the transitions inside an ability (`terms`, row 6: an OR of ANDs of the literals `input` attack, block, collided; `node`; `perk`; `playing`; `hits`) | `weapon-actions.json` (format 2) |
+| `markers`, `casts` of a graph fragment | The named marks (the throw of Gravity Well: `CastGavityWellProjectile` at 0.533 s) and the spell casts | `weapon-actions.json` |
+| `rows` of a strike | The damage row of each row of the strike, the nodes that it needs and forbids, and its shape | `weapon-actions.json` |
+
+The rules (`Combat/SwcAttackGraph`, plain C++; `Driver` on the thread of the session):
+
+- The keys Q, R, F (the places 0 to 2; the input numbers 402, 115, 139): the first entry of a press has the press bit and
+  the virtual bit (402 and 479, 115 and 571, 139 and 523), each step while the key is down the hold bit (39, 332, 207), the
+  step of the release the release bit (211, 196, 172). One press in each step. The bits go out also for a press that the
+  client does not play (the backend reads only the press bit).
+- The order of a step: the attack step of the sequence, then the press (`RepSession::handle_attacks` of the backend). The
+  ability of the press: the bar of the weapon in the hand (the bar of the Ability state whose abilities the graph of the
+  weapon has). The fragment: the last selection whose learned nodes and perks hold, else the fragment of the action.
+- The start (`Sequence::start_ability`, the rules of the backend): at rest at the press; in a fragment only the step of the
+  press counts: an instant window `CanAttack_<ability>` that holds it starts the ability at the press, a buffered window at
+  its end (`start + max(round(end * 30) - 1, 0)`; the step loop starts a pending ability first), the mark `CanTransition`
+  and the end of the fragment at the press. With none, the client does not play the press. The fragments of one ability
+  keep its cast (not a fragment `Attack_*`).
+- The transitions inside an ability (`terms`): the learned nodes (the ProgressionPoint state, slot 67), the attack and the
+  block input of the step, the fragment that plays, and the collision of the character. The client sees its collision: a
+  block of the movement by the body of a creature in a fragment (an inference: only a creature; the retail input
+  `character_collided` is not described). The server does not see it, and it takes the transition at the match of the
+  contact. The hits of a cast (`IfAbilityNumHits`) are 0 on the client (only Whirlwind with Unending Winds reads them).
+- The cooldown: the client starts its own cooldown at a press that it plays, with the time of the data (the setter of the
+  retail client runs at the press), and it does not play a press in its own cooldown. The countdown of the HUD comes only
+  from the cooldown state of the server (slot 45; the UI track). The own cooldown only blocks a press. The correction: the
+  end of an entry of the server is the end of the client, one time for each end (the backend keeps the end of the client
+  equal to its end, also after a reduction and with the cooldown factor of the character); an ability with no entry keeps
+  its own end (a reset of the server: the client keeps its cooldown, live check I8-05 of the notes).
+- The shot of a cast: at the step of the named mark of its spell in the fragment of the cast (Gravity Well: 15 steps after
+  the press), one item in list 2 of the input entry with the attack of the data (`8E14366B`, "gravitywell"); the origin
+  1.5 m above the character, the direction of the look ([NETWORK.md](NETWORK.md)).
+- The strikes of an ability: only a strike with a row for the learned nodes (`Combat::row_for` of the backend: Maelstrom has
+  two strikes in each window, one with the node Gravity and one without it), with only the shapes of those rows.
+- The fragments play as the attacks: their clips, their root motion and facing (the actions of
+  `playeractions_ability_<weapon>.actionlist`), and their strikes. Charge goes in the direction of the body: a short walk
+  turns the body to the camera (protocol notes 4.22).
+
+The creature motion (the pull of the vortex, the push of Path of Destiny, the impacts) and the spell entities come from the
+server; the creature track shows them ([CREATURES.md](CREATURES.md)).
+
+## Exit check of the player part of stage P3.5 (development run on the world level, 2026-10-18)
+
+`tests/drive/p35-abilities.txt` with the routes `tests/drive/p35-abilities-routes.txt` (`tools/creature-check.sh p35-abilities 45
+...`, `Swordwarden` at 9255 4735 m with the great axe in slot 24 and the war hammer in slot 25, the build of
+`tests/drive/p35-build-routes.txt`). Evidence in `~/Games/soulwarden-client/evidence/P3.5/`: `p35-abilities.mp4`,
+`p35-abilities-sheet.png`, `p35-abilities-client.log`, `p35-abilities-backend.log`, `p35-abilities-routes.txt`.
+
+- The bars and the nodes: the client took the bars of the two weapons and 38 learned nodes from the states of the server.
+- Charge: the collision with the wolf 11 steps after the press, the uppercut at the next step, its hit (row
+  `GreatAxe_Engage1`) and its impact.
+- Maelstrom (`_Upgrade`: No Reprieve): the two spins, the hits of the pull rows (`_Reach_RP2`, `_NoReprieve_RP2`: the node
+  Gravity), the travel of 2 m of each wolf.
+- Gravity Well: the shot 15 steps after the press; the projectile of the server at a creature; the vortex (4 creatures, the
+  pull to its center at 7 m/s) and the burst after 3 s (4 hits).
+- The switch to the war hammer; Wrecking Ball: the knockdown of 4 wolves (the reaction of power 5, 2.8 s); Q 2 s later: the
+  own cooldown (the bits went out; the server refused it too: "the cooldown runs"); Shockwave: the stun of 4 wolves; Path of
+  Destiny: 3 hits and the push of 2 m; its end on the server 3.3 s earlier after the hits (Stimulated Reduction), which the
+  client took.
+- The reset of the server at 29.5 s: the bar has no countdown, and F in the own cooldown of Path of Destiny played nothing.
+- The counts: 8 presses (6 played, 2 in the own cooldown), 24 hits, 10 melee contacts (10 accepted), 1 shot, 1,349 position
+  reports accepted (0 refused).
+
 ## The tests
 
 `tools/test-actions.sh` (no engine) builds `tests/actions/actions_tests.cpp` with the attack sequence of the backend
@@ -222,7 +297,17 @@ from the Dustmeadow Shrine). Evidence in `~/Games/soulwarden-client/evidence/P2.
 - the driver: the bits of a click, a hold, and a release; a weapon key at rest;
 - the parity: 3,672 input scripts (the live check inputs and random clicks and holds) for each of the 12 melee graphs:
   the client and the backend start the same fragments at the same steps;
-- the strikes: the damage key, the window, and the count of the shapes of each strike are the ones of the backend;
+- the strikes: the damage key, the window, the count of the shapes, and the rows of each strike are the ones of the backend;
+- the abilities (stage P3.5): the data of each ability and each transition is the data of the backend (the ids, the
+  fragments, the selections, the terms); the cooldown and the shots of Gravity Well; the fragment of Maelstrom with No
+  Reprieve; the parity of the ability presses: 2,400 random scripts of clicks, block presses, and presses of the abilities of
+  each melee weapon, with random learned nodes, give the same verdicts (at once, later, refused) and the same fragments at the
+  same steps as `AttackSequences::start_ability` and `step` of the backend;
+- the keys of the bar in the driver: the bits of a press, a hold, and a release; Charge at rest and its own cooldown of 20 s;
+  the uppercut at 0.967 s with no collision and at the step of a collision; a press in the own cooldown (its bits go out);
+  an end of the server that comes earlier (a press after it plays), one time for each end; a reset of the server (the own
+  cooldown holds); a press with no window (the first steps of Gravity Well); the shot of Gravity Well 15 steps after its
+  press; an empty place of the bar;
 - the stamina and the dodge: the live checks LS5 and LS6 and the live proof P5 of the notes (the payments 45, 45, 10, the
   fourth press refused, full again 4.4 s after the third payment), the windows of a dodge that plays, the load classes, and
   the dodge bits of the driver;
@@ -231,7 +316,7 @@ from the Dustmeadow Shrine). Evidence in `~/Games/soulwarden-client/evidence/P2.
   travel.
 
 ```sh
-tools/test-actions.sh   # 5834 checks, 0 failed
+tools/test-actions.sh   # 8690 checks, 0 failed
 ```
 
 A video of the actions: the recording of the agent desktop, not `-SwcFrames` (the rule of the videos in
@@ -258,8 +343,11 @@ computer, too low for the windows of a chain), `tests/drive/actions.txt`, the pi
 - The weapon clips: in the attachment databases (`playermaleanims_1h_meleeattach.adb`, `_2h_`) only the flail has
   clips (18, `rflail_*_prop`: its chain); the sword and the greatsword have none (particle effects, the damage clips,
   and weapon effects only). The clips of the flail, the bow string, and the firearms need the weapons as skeletal meshes.
-- The melee contacts need the query of the creature track (stage P2.8); the abilities with strikes are not played.
-- The abilities, the block, the sprint and air attacks, the stamina payments of the attacks (0 for the reachable graphs),
+- The abilities (stage P3.5): the homing of Wrecking Ball and the pull strike of Reap that only the server makes (later); the
+  hits of a cast for `IfAbilityNumHits` (the fields 1 and 2 of the Ability state are not read); the perks of the items for
+  the selections and the terms (the client has no perk rows: the artifact of Whirlwind); the cooldown factor of the character
+  before the first state of the server (the own end comes from the data until then); the block press (bit 484) has no key.
+- The block, the sprint and air attacks, the stamina payments of the attacks (0 for the reachable graphs),
   the dodge of the shield (its off-hand fragments), and the overencumbered and encumbered rules (the bag weight: no
   inventory yet) are not played.
 - Remote players do not play actions (the Slayer map of other players is open).

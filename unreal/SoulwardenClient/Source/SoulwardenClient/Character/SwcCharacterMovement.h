@@ -78,11 +78,17 @@ public:
 	/** True while the forward move key is down (the action bit of the input report). */
 	bool IsForwardHeld() const { return Input.Y > 0.5; }
 	bool HasMoveInput() const;
+	/**
+	 * The count of the blocks of the movement by the body of a creature (its body block: the object type Pawn; stage P3.5): the
+	 * collision of the character (character_collided) of the transitions inside Charge.
+	 */
+	uint32 GetCreatureBlocks() const { return CreatureBlocks; }
 
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void CalcVelocity(float DeltaTime, float Friction, bool bFluid, float BrakingDeceleration) override;
 	virtual void ProcessLanded(const FHitResult& Hit, float RemainingTime, int32 Iterations) override;
+	virtual void HandleImpact(const FHitResult& Hit, float TimeSlice = 0.0f, const FVector& MoveDelta = FVector::ZeroVector) override;
 	virtual void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;
 
 private:
@@ -135,4 +141,5 @@ private:
 	bool bArmedStop = false;
 	bool bAiming = false;
 	float SkipSprintStartLeft = 0.0f;
+	uint32 CreatureBlocks = 0;
 };

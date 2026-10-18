@@ -76,6 +76,8 @@ struct FSwcStrikeShape
 	bool bOffhand = false;
 	bool bEndAsCenter = false;
 	bool bNoSight = false;
+	/** The index of the shape in the shapes of the strike of the data (the shape of a row). */
+	int32 DataIndex = 0;
 };
 
 /** The damage clips of one damage key of a fragment: one hit of each target (protocol notes 4.32). */
@@ -86,6 +88,15 @@ struct FSwcStrike
 	float Start = 0.0f;
 	float End = 0.0f;
 	TArray<FSwcStrikeShape> Shapes;
+	/** The rows of the strike (stage P3.5): the learned nodes that a row needs and forbids (progression ids), and its shape. A
+	 *  strike with rows and no row for the nodes of the character is no strike of it (the backend: Combat row_for). */
+	struct FRow
+	{
+		std::vector<uint32> Needs;
+		std::vector<uint32> Forbids;
+		int32 Shape = 0;
+	};
+	TArray<FRow> Rows;
 };
 
 struct FSwcWeaponActions

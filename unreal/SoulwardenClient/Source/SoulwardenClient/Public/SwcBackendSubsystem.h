@@ -149,6 +149,12 @@ private:
 	 *  cells of that place (stage P2.10, protocol notes 4.16). */
 	void Travel(const swc::net::RepClient::OwnEntity& Own);
 	void UpdateTravel();
+	/**
+	 * The keys of the bar (stage P3.5, docs/ACTIONS.md): the bar of each weapon slot (the bar of the Ability state whose abilities
+	 * are abilities of the graph of the weapon), the learned nodes (slot 67), and the cooldowns of the server (slot 45: the end of
+	 * the own cooldown of the client) to the driver. `ServerOffsetNs`: server ns = steady ns + offset (no clock: no cooldown).
+	 */
+	void UpdateAbilities(const swc::net::RepClient::OwnEntity& Own, bool bServerClock, int64 ServerOffsetNs);
 	void Quit(bool bSucceeded, const TCHAR* Cause);
 
 	TSharedPtr<FSwcLoginClient> Login;
@@ -197,6 +203,10 @@ private:
 	std::shared_ptr<swc::combat::Driver> AttackDriver;
 	bool bStaminaSet = false;
 	uint32 StaminaRevision = 0;
+	/** The bars, the revision of the learned nodes, and the cooldown entries (ability, end in server us) that the driver has. */
+	std::array<std::array<uint32, 3>, 2> SentBars{};
+	uint32 NodesRevision = 0;
+	std::vector<std::pair<std::uint32_t, std::uint64_t>> SentCooldowns;
 	/** The level has no ground at the spawn: the test floor of the movement (Character/SwcTestFloor). */
 	bool bTestFloor = false;
 	bool bWaitForFloor = false;

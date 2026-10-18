@@ -506,6 +506,17 @@ void USwcCharacterMovement::OnMovementModeChanged(EMovementMode PreviousMovement
 	GroundVelocity = FVector(Velocity.X, Velocity.Y, 0.0);
 }
 
+void USwcCharacterMovement::HandleImpact(const FHitResult& Hit, float TimeSlice, const FVector& MoveDelta)
+{
+	Super::HandleImpact(Hit, TimeSlice, MoveDelta);
+	// A block by the body of a creature (only the body block of a creature has the object type Pawn and blocks the player).
+	if (const UPrimitiveComponent* Other = Hit.GetComponent(); Other != nullptr && Other->GetOwner() != GetOwner()
+		&& Other->GetCollisionObjectType() == ECC_Pawn)
+	{
+		++CreatureBlocks;
+	}
+}
+
 void USwcCharacterMovement::ProcessLanded(const FHitResult& Hit, float RemainingTime, int32 Iterations)
 {
 	// The landing class from the time in the air [D playeractions_fall].

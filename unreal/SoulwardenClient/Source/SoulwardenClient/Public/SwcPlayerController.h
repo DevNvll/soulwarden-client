@@ -90,6 +90,8 @@ private:
 	void OnGiveUp(const FInputActionValue& Value);
 	void OnInteract(const FInputActionValue& Value);
 	void OnInteractEnd(const FInputActionValue& Value);
+	/** The keys of the bar (Q, R, F: the places 0 to 2; stage P3.5). */
+	void OnAbilityKey(int32 Place, bool bDown);
 	void UseWeapon(uint32 Slot, const TArray<uint32>& Bits);
 	void LoadDrive(const FString& Path);
 	void TickDrive(float DeltaTime);
@@ -126,6 +128,10 @@ private:
 	TObjectPtr<UInputAction> GiveUpAction;
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> InteractAction;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> AbilityActions[3];
+	/** The release time of a key of the bar that a drive script pressed (its drive time; below 0: up). */
+	double DriveAbilityUp[3] = {-1.0, -1.0, -1.0};
 	/** A click of the drive script: the button goes up at the next frame. */
 	bool bDriveClick = false;
 	uint32 PressSerial = 0;

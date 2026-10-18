@@ -15,6 +15,10 @@ Writes SWC_CONTENT/player/actions.json (tools/convert-player.sh actions):
   rotation offsets and the flags of their CAGE-Damage items (the backend file has no rotation); weaponJoints: the joints of
   the weapon skeletons of the melee weapons (the frames of the shapes of the weapon).
 - blendSpaces: the blend spaces of the layers.
+- the abilities of each melee weapon (stage P3.5): the ability id and its CRC-32 (the id on the bar), the fragment, the
+  selections, the casts, and the cooldown (ability-data.json of the backend copy); the shots: each cast of a projectile spell
+  at a named mark (CastingTypes Projectile of the spell tables), with the CRC-32 of its RangedAttackName (the value "attack"
+  of the shot item, protocol notes 4.27: Gravity Well 8E14366B).
 
 Research: ~/Games/soulwarden-client/research/gear.md ("Sheathe and draw animation"), feel-values.md R3, the Soulwarden
 protocol notes 4.32 (the attack graph of the client).
@@ -28,7 +32,7 @@ import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
 
-from . import anim, cgf, source
+from . import anim, cgf, datasheet, source
 from . import player
 
 ADB_FOLDER = "animations/mannequin/adb/player/"
@@ -165,9 +169,11 @@ def damage_params(fragment: ET.Element | None) -> list[dict]:
 def strikes_of(fragment: dict, params: list[dict]) -> list[dict]:
     """The strikes of a graph fragment of the backend file (its damage key, window, and shapes: type, radius, half height,
     box, offset, scale, joint), with the rotation offsets and the flags of the CAGE-Damage item of each shape (the file
-    of the backend has no rotation)."""
+    of the backend has no rotation). Stage P3.5: the rows of each strike [row, needs, forbids, shape] (the learned nodes of the
+    clip conditions: a strike with no row for the nodes of the character is no strike of it; the shape of a row is the index of
+    its shape)."""
     out = []
-    for key, start, end, _rows, shapes in fragment.get("strikes", []):
+    for key, start, end, rows, shapes in fragment.get("strikes", []):
         items = []
         for shape in shapes:
             kind, radius, half_height = shape[0], shape[1], shape[2]
@@ -179,7 +185,7 @@ def strikes_of(fragment: dict, params: list[dict]) -> list[dict]:
                           "rotation": match["rotation"] if match else [0.0, 0.0, 0.0], "matched": match is not None,
                           "offhand": bool(match and match["offhand"]), "endAsCenter": bool(match and match["endAsCenter"]),
                           "noSight": bool(match and match["noSight"])})
-        out.append({"key": key, "start": start, "end": end, "shapes": items})
+        out.append({"key": key, "start": start, "end": end, "shapes": items, "rows": [list(row) for row in rows]})
     return out
 
 
@@ -220,11 +226,36 @@ def condition_json(element: ET.Element) -> dict:
             "children": [condition_json(child) for child in element]}
 
 
+ABILITY_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_ability_"
+
+
+def projectile_spells() -> dict:
+    """@return The spells of the spell tables that throw a projectile (CastingTypes Projectile): lower-case SpellID ->
+    RangedAttackName (stage P3.5: the attack of the shot item of the cast)."""
+    out = {}
+    for path in sorted(p for p in source.paks().entries if p.startswith(datasheet.TABLES_FOLDER) and p.endswith(".datasheet")
+                       and "spelltable" in p):
+        try:
+            sheet = datasheet.Sheet(source.read(path))
+        except Exception:
+            continue
+        if sheet.type != "SpellData":
+            continue
+        for row in sheet.rows():
+            spell, attack = str(row.get("SpellID") or ""), str(row.get("RangedAttackName") or "")
+            if spell and attack and "Projectile" in str(row.get("CastingTypes") or ""):
+                out.setdefault(spell.lower(), attack)
+    return out
+
+
 def activities() -> tuple[dict, dict]:
-    """The motion and facing activities of each attack fragment and of the dodge (its action in playeractions_attack and
-    playeractions_dodge), and the named conditions of the two action lists."""
+    """The motion and facing activities of each attack fragment, of the dodge, and of the ability fragments (stage P3.5: their
+    actions in playeractions_attack, playeractions_dodge, and playeractions_ability_<weapon>), and the named conditions of these
+    action lists."""
     out, conditions = {}, {}
-    for path in (ATTACK_ACTIONS, DODGE_ACTIONS):
+    ability_lists = sorted(n for n in source.paks().paths(ABILITY_ACTIONS.rsplit("/", 1)[0] + "/")
+                           if n.startswith(ABILITY_ACTIONS) and n.endswith(".actionlist"))
+    for path in (ATTACK_ACTIONS, DODGE_ACTIONS, *ability_lists):
         root = ET.fromstring(source.read(path).decode("utf-8", "replace"))
         for c in root.find("Conditions") if root.find("Conditions") is not None else []:
             if c.get("Name") and c.get("Name") not in conditions:
@@ -270,6 +301,9 @@ def actions() -> dict:
     """Writes actions.json (see the module text). @return Counts."""
     graph = json.loads((gamedata_dir() / "weapon-actions.json").read_text())
     weapons_doc = json.loads((player.player_dir() / "weapons.json").read_text())
+    # The cooldowns of the abilities (ability-data.json of the backend copy: [AbilityID, Time, MinTime]; stage P3.5).
+    cooldowns = {row[0].lower(): row for row in json.loads((gamedata_dir() / "ability-data.json").read_text())["cooldowns"]}
+    projectiles = projectile_spells()
     cafs, space_files = player.stem_index(".caf"), player.stem_index(".bspace")
     spaces_lower = {name.lower(): paths for name, paths in space_files.items()}
     skeleton = player.Skeleton("Male")
@@ -339,6 +373,17 @@ def actions() -> dict:
         if entry["graph"]:
             w = entry["graph"]
             out["start"] = w["start"]
+            # The abilities of the weapon (stage P3.5): the ability id and its CRC-32 (the id of the bar), the action, the fragment,
+            # the selections of a fragment by the learned nodes and the perks, the casts of the action, the cooldown of the data.
+            out["abilities"] = []
+            for ability in w.get("abilities", []):
+                row = cooldowns.get(ability["ability"].lower())
+                # The casts of a projectile spell at a mark: [mark, spell, RangedAttackName, its CRC-32, needs, forbids].
+                shots = [[cast[5], cast[0], projectiles[cast[0].lower()], zlib.crc32(projectiles[cast[0].lower()].lower().encode()),
+                          cast[1], cast[2]] for cast in ability.get("casts", []) if cast[5] and cast[0].lower() in projectiles]
+                out["abilities"].append({**ability, "crc": zlib.crc32(ability["ability"].lower().encode()),
+                                         "cooldown": row[1] if row else None, "minCooldown": row[2] if row else None,
+                                         "shots": shots})
             out["graph"] = []
             # The attachment database of the weapons of the tags (AnimDbPath of a weapon row): the damage clips of the weapon.
             attach_db = next((item.get("animDb") for item in weapons_doc["items"].values()
@@ -348,8 +393,12 @@ def actions() -> dict:
                 node = player.adb_root(adb).find(f"FragmentList/{fragment['name']}")
                 match = next((f for f in node if (f.get("Tags") or "") == fragment["tags"]), None) if node is not None else None
                 item = {name: fragment[name] for name in ("name", "length", "switch", "canTransition", "dodge")}
-                # The basic attacks only: the transitions of the abilities wait for the abilities.
-                item["transitions"] = [t[:6] for t in fragment["transitions"] if t[3] != "ability"]
+                # Each transition (stage P3.5: also the starts of the abilities, with their ability id, and the transitions inside the
+                # abilities, with their terms): [kind, start, end, input, to, condition, ability id | terms].
+                item["transitions"] = [list(t) for t in fragment["transitions"]]
+                # The named marks and the casts of the backend fragment (the throw of Gravity Well, the ground of Mighty Gavel).
+                item["markers"] = fragment.get("markers", [])
+                item["casts"] = fragment.get("casts", [])
                 params = damage_params(match)
                 if attach_db:
                     attach = player.adb_root(player.norm(attach_db)).find(f"FragmentList/{fragment['name']}")
@@ -388,7 +437,8 @@ def actions() -> dict:
     perks = json.loads((gamedata_dir() / "perk-data.json").read_text())
     stamina = {"data": json.loads((gamedata_dir() / "stamina-data.json").read_text()), "encumbrance": perks["encumbrance"],
                "itemLoads": {item.lower(): load for item, load in perks["equipLoad"].items()}}
-    doc = {"format": 1, "sources": [player.ADB, ATTACK_ACTIONS, DODGE_ACTIONS, DEATH_ACTIONS, INTERACT_ACTIONS, str(gamedata_dir() / "weapon-actions.json"),
+    doc = {"format": 1, "sources": [player.ADB, ATTACK_ACTIONS, DODGE_ACTIONS, DEATH_ACTIONS, INTERACT_ACTIONS, ABILITY_ACTIONS + "*",
+                                    datasheet.TABLES_FOLDER + "javelindata_spelltable_*", str(gamedata_dir() / "weapon-actions.json"), str(gamedata_dir() / "ability-data.json"),
                                     str(gamedata_dir() / "stamina-data.json"), str(gamedata_dir() / "perk-data.json")],
            "weapons": weapons, "fragments": fragments, "blendSpaces": blend_spaces, "clips": clips,
            "activities": acts, "conditions": conditions, "weaponJoints": weapon_joints(models), "stamina": stamina}

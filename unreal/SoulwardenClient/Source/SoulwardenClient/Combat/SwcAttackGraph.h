@@ -1,9 +1,12 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <deque>
+#include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -45,6 +48,17 @@ inline constexpr unsigned kBitAim = 126;
 inline constexpr unsigned kBitsKey1[2] = {9, 40};
 inline constexpr unsigned kBitsKey2[2] = {355, 306};
 inline constexpr std::uint32_t kMainHand1 = 24;
+/**
+ * The three keys of the bar (Q, R, F: the places 0 to 2; protocol notes 4.22 "The keys", live proof L1): the first entry of a
+ * press has the press bit and the virtual bit, the entries while the key is down the hold bit, one entry the release bit. The
+ * backend reads only the press bit (server/rep/client_input.cpp kActionAbility).
+ */
+inline constexpr unsigned kBitsAbilityPress[3] = {402, 115, 139};
+inline constexpr unsigned kBitsAbilityVirtual[3] = {479, 571, 523};
+inline constexpr unsigned kBitsAbilityHold[3] = {39, 332, 207};
+inline constexpr unsigned kBitsAbilityRelease[3] = {211, 196, 172};
+/** The block press (block_press_virtual, the right pointer button): a literal of the transitions inside Charge. */
+inline constexpr unsigned kBitBlock = 484;
 
 /** The input that a transition needs (gamedata::AttackInput of the backend). */
 enum class Input : std::uint8_t {
@@ -58,12 +72,50 @@ enum class Input : std::uint8_t {
 	notHeld,
 	/** Attack_Primary_Released: the release (or a step with neither the input nor its hold). */
 	released,
-	/** The start of an ability, a condition of an ability: not a step of a basic attack. */
+	/** The start of an ability (a condition CanAttack_<ability>; stage P3.5): a press of the key of that ability in the window
+	 *  (Sequence::start_ability), not an input of a step. */
+	ability,
+	/** A transition inside an ability with the condition of the data as terms (Transition::terms; stage P3.5). */
+	terms,
+	/** A name that the client does not know: never. */
 	other,
+};
+
+/** One literal of the condition of a transition inside an ability (gamedata::ConditionLiteral of the backend). */
+struct Literal {
+	enum class Kind : std::uint8_t {
+		/** A learned node of the character (IfAbilityActive): its progression id (the CRC-32 of the lower-case node id). */
+		node,
+		/** An ability row of a perk of an equipped item (IfAbilityActive External). */
+		perk,
+		/** The attack input (attack_primary_virtual), the block press (block_press_virtual). */
+		attack,
+		block,
+		/** A collision of the character (character_collided). */
+		collided,
+		/** The hits of the ability are fewer than `count` (IfAbilityNumHits LessThan). */
+		hits,
+		/** The fragment with the name `text` plays (IfFragmentPlaying). */
+		playing,
+	};
+	Kind kind{Kind::node};
+	std::uint32_t id{0};
+	std::string text;
+	std::uint32_t count{0};
+	bool negated{false};
 };
 
 /** @return The input of a name of the data ("virtual", "notHeld", ...); Input::other for an unknown name. */
 Input input_of(std::string_view name);
+/** @return The progression id of a text (gamedata::progression_id of the backend): the CRC-32 of the text with A to Z in lower
+ *  case (an ability id, a node id, a perk ability, a ranged attack name). */
+std::uint32_t progression_id(std::string_view text);
+/**
+ * A literal of the data ([kind, value, negated] of weapon-actions.json: ["input", "attack", false], ["node", NAME, true],
+ * ["playing", FRAGMENT, true], ["hits", 1, false]; gamedata read_literal of the backend). @param count The value of "hits".
+ * @return False for a kind or an input that the backend does not know.
+ */
+bool literal_of(std::string_view kind, std::string_view text, std::uint32_t count, bool negated, Literal& out);
 
 struct Transition {
 	bool buffered{false};
@@ -73,6 +125,10 @@ struct Transition {
 	Input input{Input::always};
 	/** The next fragment: an index into Graph::fragments, or -1 (a fragment that the graph does not have). */
 	int to{-1};
+	/** Input::ability: the ability that the press starts (the CRC-32 of the lower-case ability id). */
+	std::uint32_t ability{0};
+	/** Input::terms: the condition as an OR of ANDs of literals (no term: never; one empty term: always). */
+	std::vector<std::vector<Literal>> terms;
 };
 
 /** A dodge window of a fragment (CanDodgeCancel: at once; CanDodgeBuffer: at the end of the window). */
@@ -93,6 +149,60 @@ struct Fragment {
 	float switchAt{-1.0F};
 	std::vector<Transition> transitions;
 	std::vector<DodgeWindow> dodge;
+	/** The named marks of the backend fragment (the throw of Gravity Well: CastGavityWellProjectile at 0.533 s). Below 0: none. */
+	struct Marker {
+		std::string name;
+		float at{-1.0F};
+	};
+	std::vector<Marker> markers;
+	/** @return The time of the named mark, or -1. */
+	[[nodiscard]] float marker(std::string_view markName) const;
+};
+
+/** The facts of a character for the conditions of the abilities (gamedata::AttackFacts of the backend; stage P3.5). */
+struct Facts {
+	/** The learned nodes (the progression ids of the nodes of the ProgressionPoint state, slot 67). */
+	std::set<std::uint32_t> nodes;
+	/** The ability rows of the perks of the equipped items. */
+	std::set<std::uint32_t> perks;
+	/** A collision of the character at this step (character_collided: the client sees it). */
+	bool collided{false};
+	/** The hits of the cast that plays (IfAbilityNumHits). */
+	std::uint32_t hits{0};
+};
+
+/** An ability of a weapon (weapon-actions.json `abilities`; stage P3.5): its id, the fragment of its action, the selections of a
+ *  fragment by the learned nodes, and its cooldown (ability-data.json). */
+struct Ability {
+	std::uint32_t id{0};
+	std::string name;
+	int fragment{-1};
+	/** The nodes and the perk abilities that a selection needs and forbids (their progression ids). */
+	struct Selection {
+		int fragment{-1};
+		std::vector<std::uint32_t> needs;
+		std::vector<std::uint32_t> forbids;
+		std::vector<std::uint32_t> perks;
+		std::vector<std::uint32_t> perkForbids;
+	};
+	std::vector<Selection> selections;
+	/** The cooldown of the data (s; Time of the cooldown row) and its minimum (MinTime). */
+	float cooldown{0.0F};
+	float minCooldown{0.0F};
+	/**
+	 * A cast of a projectile spell at a named mark of the fragment (the throw of Gravity Well: CastGavityWellProjectile): the shot
+	 * item of the client at that step (protocol notes 4.27, the shot of Gravity Well: the attack is the progression id of the
+	 * RangedAttackName of the spell, "GravityWell" 8E14366B), for the nodes of the cast.
+	 */
+	struct Shot {
+		std::string mark;
+		std::uint32_t attack{0};
+		std::vector<std::uint32_t> needs;
+		std::vector<std::uint32_t> forbids;
+	};
+	std::vector<Shot> shots;
+	/** @return The shot of the cast for the learned nodes (the first one whose nodes hold), or null. */
+	[[nodiscard]] const Shot* shot_of(const Facts& facts) const;
 };
 
 /** The attack graph of one weapon tag set. */
@@ -100,9 +210,14 @@ struct Graph {
 	/** The first fragment (Attack_Start_Charge). */
 	int start{0};
 	std::vector<Fragment> fragments;
+	std::vector<Ability> abilities;
 
 	/** @return The index of the fragment with this name, or -1. */
 	[[nodiscard]] int index_of(std::string_view name) const;
+	/** @return The ability with this id, or null. */
+	[[nodiscard]] const Ability* ability(std::uint32_t id) const;
+	/** @return The fragment of an ability for the learned nodes: the last selection whose nodes hold, else its fragment. */
+	[[nodiscard]] int fragment_of(const Ability& ability, const Facts& facts) const;
 };
 
 /** The attack bits of one input step. */
@@ -113,6 +228,8 @@ struct Bits {
 	/** The dodge input, and whether the stamina can start a dodge now (Stamina::can_dodge; AttackBits::dodgeAllowed). */
 	bool dodge{false};
 	bool dodgeAllowed{true};
+	/** The block press (bit 484): a literal of the transitions inside Charge. */
+	bool block{false};
 };
 
 /** One visit of a fragment. */
@@ -131,6 +248,31 @@ struct Visit {
 	float pendingAt{0.0F};
 	/** A dodge in a buffered dodge window: the end of the window. Below 0: none. */
 	float dodgeAt{-1.0F};
+	/** The cast of the ability of the visit (0: a basic attack; the transitions inside an ability keep it). */
+	std::uint64_t cast{0};
+};
+
+/** What the client did with a press of a key of the bar (stage P3.5). */
+enum class PressVerdict : std::uint8_t {
+	/** The fragment of the ability starts (at the press, or at the end of a buffered window). */
+	played,
+	/** No ability on the place of the bar of the weapon in the hand, or no data of it in the graph. */
+	empty,
+	/** The own cooldown of the client runs: the client does not play the press (it sends its bits). */
+	cooldown,
+	/** No window of the fragment that plays takes the press (AbilityStart::Verdict::refused). */
+	refused,
+};
+inline constexpr std::size_t kPressVerdicts = 4;
+[[nodiscard]] const char* press_verdict_text(PressVerdict verdict);
+
+/** The start of an ability (AttackSequences::start_ability of the backend). */
+struct AbilityStart {
+	enum class Verdict : std::uint8_t { refused, now, later };
+	Verdict verdict{Verdict::refused};
+	/** The input step of the start, and the steps from the press to it. */
+	std::uint16_t at{0};
+	unsigned delay{0};
 };
 
 /** @return The clock of a fragment that started at `start`, at the input step `input`: (input - start + 1) / 30 s. */
@@ -163,7 +305,15 @@ public:
 	/** Ends the fragment that plays (a change of the weapon). */
 	void interrupt(std::uint16_t input);
 	/** One input step. */
-	void step(std::uint16_t input, const Bits& bits);
+	void step(std::uint16_t input, const Bits& bits, const Facts& facts = {});
+	/**
+	 * The press of a key of the bar (stage P3.5; AttackSequences::start_ability of the backend): the fragment of the ability starts
+	 * as a visit with the cast. At rest at the press. In a fragment that plays only the step of the press counts: a window of a
+	 * transition of the fragment to the ability that holds that step (an instant window at once, a buffered window at its end), or
+	 * the press at or after the mark CanTransition or after the end of the fragment. With none, the start is refused.
+	 * @param dryRun True: only the verdict.
+	 */
+	AbilityStart start_ability(std::uint16_t input, std::uint32_t ability, int fragment, std::uint64_t cast, bool dryRun = false);
 	/** @return The fragment visit that plays, or null at rest. */
 	[[nodiscard]] const Visit* playing() const;
 	/** The last visits (the newest at the back; at most 8). */
@@ -172,12 +322,17 @@ public:
 	bool take_dodge();
 
 private:
-	void start_visit(int fragment, std::uint16_t input);
+	void start_visit(int fragment, std::uint16_t input, std::uint64_t cast = 0);
+	[[nodiscard]] bool holds(const Visit& visit, const Transition& transition, const Bits& bits, bool instant, const Facts& facts) const;
 
 	const Graph* m_graph{nullptr};
 	std::deque<Visit> m_visits;
 	std::uint32_t m_count{0};
 	bool m_dodged{false};
+	/** A press of an ability that starts later (a buffered window): its fragment, its cast, and its input step. */
+	int m_pendingAbility{-1};
+	std::uint64_t m_pendingCast{0};
+	std::uint16_t m_pendingInput{0};
 };
 
 /** The weapon switch of a weapon key (Combat::select_weapon and Combat::step_switch of the backend). */
@@ -270,6 +425,26 @@ public:
 		std::uint32_t dodgeBits{0};
 		std::uint32_t corrections{0};
 		std::array<std::uint32_t, kDodgeVerdicts> verdicts{};
+		/** The keys of the bar (stage P3.5): the presses that went out, the count of each verdict, and the last press. */
+		std::uint32_t abilityPresses{0};
+		std::array<std::uint32_t, kPressVerdicts> pressVerdicts{};
+		struct AbilityPress {
+			unsigned place{0};
+			std::uint32_t ability{0};
+			PressVerdict verdict{PressVerdict::empty};
+			/** The input step of the press and of the start of the fragment, and the cast number of the client. */
+			std::uint16_t input{0};
+			std::uint16_t at{0};
+			std::uint64_t cast{0};
+			int fragment{-1};
+		};
+		std::optional<AbilityPress> lastPress;
+		/** The own cooldowns: the end of each ability on the steady clock (ns), and the count of the ends of the server that it took. */
+		std::map<std::uint32_t, std::int64_t> cooldowns;
+		std::uint32_t cooldownCorrections{0};
+		/** The shots of the casts (the throw of Gravity Well), and the steps with the collision of the character. */
+		std::uint32_t shots{0};
+		std::uint32_t collisions{0};
 	};
 
 	/** The graph of each weapon slot (24, 25; null: no attack graph) and the weapon in the hand. Resets the sequence. */
@@ -294,8 +469,32 @@ public:
 	void set_server_stamina(float value, float regenDelay, float regenMultiplier, std::int64_t atNs);
 	static constexpr float kCorrection = 10.0F;
 	static constexpr double kCorrectionTime = 2.0;
-	/** Called for each input entry (the session thread): adds the attack bits to `actionBits` and steps the sequence. */
-	void step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>& actionBits);
+	/** The bar of each weapon slot (24, 25): the ability ids of the places 0 to 2 (the Ability state, slot 46; 0: none). */
+	void set_bars(const std::array<std::uint32_t, 3>& slot1, const std::array<std::uint32_t, 3>& slot2);
+	/** The learned nodes of the character (the ProgressionPoint state, slot 67) and the ability rows of the perks of its items. */
+	void set_facts(std::set<std::uint32_t> nodes, std::set<std::uint32_t> perks);
+	/** The character collided in a frame of the game thread (character_collided): the next step sees it. */
+	void collided();
+	/** A key of the bar went down or up (the place 0 to 2; the game thread). The steps take one event of each key in each step. */
+	void ability_key(unsigned place, bool down);
+	/**
+	 * The cooldowns of the server (the CooldownTimers state, slot 45): the ability ids with their end on the steady clock (ns).
+	 * The client starts its own cooldown at a press that it plays, with the time of the data (protocol notes 4.22: the setter
+	 * runs at the press; the client does not play a press in its own cooldown, and its HUD shows the countdown of the server
+	 * state). The own cooldown only blocks a press. The end of an entry of the server is the end of the client (a rule of this
+	 * project: the backend keeps the end of the client equal to its end, also after a reduction and with the cooldown factor of
+	 * the character, world/abilities.cpp AbilityCooldown::clientEnd); an ability with no entry keeps its own end (a reset of
+	 * the server: the client keeps its cooldown, live check I8-05). An indefinite end (all ones) changes nothing. Each end of
+	 * an entry applies one time (a state that comes again changes nothing).
+	 * @param endsUs The ability ids with their ends on the server clock (us); `serverNowUs` and `nowNs` give the steady clock.
+	 */
+	void set_server_cooldowns(const std::vector<std::pair<std::uint32_t, std::uint64_t>>& endsUs, std::uint64_t serverNowUs, std::int64_t nowNs);
+	/**
+	 * Called for each input entry (the session thread): adds the attack bits and the bits of the keys of the bar to `actionBits`,
+	 * steps the sequence, and then takes a press of a key of the bar (the order of the backend: RepSession::handle_attacks steps
+	 * the sequence, then presses the ability). `shots`: the attack of each shot of a cast at this step (the mark of its spell).
+	 */
+	void step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>& actionBits, std::vector<std::uint32_t>* shots = nullptr);
 	[[nodiscard]] Snapshot snapshot() const;
 
 private:
@@ -323,6 +522,19 @@ private:
 	double m_differentSince{-1.0};
 	std::uint32_t m_paymentsSeen{0};
 	double m_lastPayment{-100.0};
+	/** The keys of the bar: the events of each key, its state, and the bar of each weapon slot. */
+	std::array<std::deque<bool>, 3> m_keyEvents;
+	std::array<bool, 3> m_keyDown{};
+	std::array<std::array<std::uint32_t, 3>, 2> m_bars{};
+	Facts m_facts;
+	bool m_collided{false};
+	std::map<std::uint32_t, std::int64_t> m_cooldowns;
+	std::map<std::uint32_t, std::uint64_t> m_serverEnds;
+	std::uint64_t m_casts{0};
+	/** The cast that plays its fragments: its number, its ability, and whether its shot went out. */
+	std::uint64_t m_cast{0};
+	std::uint32_t m_castAbility{0};
+	bool m_shotSent{false};
 	Snapshot m_snapshot;
 };
 

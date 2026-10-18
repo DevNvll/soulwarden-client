@@ -1,0 +1,16 @@
+# The development routes of the exit check of the player part of stage P3.5 (tools/creature-check.sh, tools/lib/dev_world.py;
+# the character Swordwarden with the build of tests/drive/p35-build-routes.txt). The full health, the cooldowns of the server end,
+# the creatures ignore the character (they stand: each ability has its target). One grey wolf 7 m to the east for Charge, two
+# wolves 2.5 m in front for Maelstrom, one 5 m in front for the throw of Gravity Well (the throw takes a creature 1 m or less
+# from its line), one 3 m in front for Wrecking Ball after the
+# switch; at 29.5 s the cooldowns of the server end (the client keeps its own). Times on the clock of the drive script
+# tests/drive/p35-abilities.txt (its "tick" lines); offsets in m east, north from the character; yaw 90: to the west.
+1 heal
+1.5 reset
+2 ignore on
+3 spawn Wolf_Grey_7 7 0 0 --yaw 90
+7 spawn Wolf_Grey_7 2.5 0.8 0 --yaw 90
+7.5 spawn Wolf_Grey_7 2.5 -0.8 0 --yaw 90
+11 spawn Wolf_Grey_7 5 0 0 --yaw 90
+18 spawn Wolf_Grey_7 3 0 0 --yaw 90
+29.5 reset

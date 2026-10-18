@@ -285,9 +285,9 @@ void USwcBackendSubsystem::StartConnection(const FSwcLoginToken& Token, const FS
 	Options.Session.keepOtherRecords = true;
 	// The attack input and the attack graph at the input steps of the session thread (stage P2.7, docs/ACTIONS.md).
 	AttackDriver = std::make_shared<swc::combat::Driver>();
-	Options.Session.inputStep = [Driver = AttackDriver](std::uint16_t Input, std::int64_t SteadyNs, std::vector<unsigned>& Bits, std::vector<std::uint32_t>&)
+	Options.Session.inputStep = [Driver = AttackDriver](std::uint16_t Input, std::int64_t SteadyNs, std::vector<unsigned>& Bits, std::vector<std::uint32_t>& Shots)
 	{
-		Driver->step(Input, SteadyNs, Bits);
+		Driver->step(Input, SteadyNs, Bits, &Shots);
 	};
 	Connection = MakeShared<FSwcRepConnection>(MoveTemp(Options));
 	if (!Connection->Launch())
@@ -394,9 +394,13 @@ bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 			if (Avatar.IsValid())
 			{
 				const USwcPlayerActions* Actions0 = Avatar->GetActions();
-				UE_LOG(LogSwcBackend, Log, TEXT("world: melee: %u strike window(s), %u shape(s) to the contact query, %u contact(s); %llu contact(s) in list 3 of the input entries"),
-					Actions0->GetStrikeCount(), Actions0->GetShapeQueries(), Actions0->GetContactCount(), static_cast<unsigned long long>(Snapshot.Counts.meleeContacts));
+				UE_LOG(LogSwcBackend, Log, TEXT("world: melee: %u strike window(s) (%u with no row for the learned nodes), %u shape(s) to the contact query, %u contact(s); %llu contact(s) in list 3 of the input entries"),
+					Actions0->GetStrikeCount(), Actions0->GetSkippedStrikes(), Actions0->GetShapeQueries(), Actions0->GetContactCount(),
+					static_cast<unsigned long long>(Snapshot.Counts.meleeContacts));
 			}
+			UE_LOG(LogSwcBackend, Log, TEXT("world: abilities: %u press(es) of the keys of the bar: %u played, %u in the own cooldown, %u with no window, %u with no ability; %u shot(s) of a cast, %llu in list 2 of the input entries; %u end(s) of the server taken; %u collision step(s)"),
+				Attack.abilityPresses, Attack.pressVerdicts[0], Attack.pressVerdicts[2], Attack.pressVerdicts[3], Attack.pressVerdicts[1], Attack.shots,
+				static_cast<unsigned long long>(Snapshot.Counts.shots), Attack.cooldownCorrections, Attack.collisions);
 		}
 		Connection->Leave(TEXT("the client leaves the world (-SwcQuitWhen=world)"));
 	}
@@ -524,6 +528,92 @@ bool USwcBackendSubsystem::TakeOtherUpdates(std::vector<swc::net::RepClient::Oth
 	}
 	Out = Connection->TakeOtherUpdates();
 	return true;
+}
+
+void USwcBackendSubsystem::UpdateAbilities(const swc::net::RepClient::OwnEntity& Own, bool bServerClock, int64 ServerOffsetNs)
+{
+	// The bar of each weapon slot: the bar whose abilities the graph of the weapon has (the ability table of the weapon).
+	std::array<std::array<uint32, 3>, 2> Bars{};
+	for (uint32 Index = 0; Index < 2; ++Index)
+	{
+		const swc::combat::Graph* Graph = Avatar.IsValid() ? Avatar->GetActions()->GetDriverGraph(24 + Index) : nullptr;
+		if (Graph == nullptr)
+		{
+			continue;
+		}
+		for (const swc::net::RepClient::OwnEntity::AbilityBar& Bar : Own.abilityBars)
+		{
+			const bool bOfWeapon = std::any_of(Bar.abilities.begin(), Bar.abilities.end(), [Graph](std::uint32_t Id) { return Id != 0 && Graph->ability(Id) != nullptr; });
+			if (bOfWeapon)
+			{
+				for (std::size_t Place = 0; Place < 3 && Place < Bar.abilities.size(); ++Place)
+				{
+					Bars[Index][Place] = Bar.abilities[Place];
+				}
+				break;
+			}
+		}
+	}
+	if (Bars != SentBars)
+	{
+		SentBars = Bars;
+		AttackDriver->set_bars(Bars[0], Bars[1]);
+		FString Text;
+		for (uint32 Index = 0; Index < 2; ++Index)
+		{
+			const swc::combat::Graph* Graph = Avatar.IsValid() ? Avatar->GetActions()->GetDriverGraph(24 + Index) : nullptr;
+			Text += FString::Printf(TEXT("%sslot %u:"), Index == 0 ? TEXT("") : TEXT("; "), 24 + Index);
+			for (const uint32 Id : Bars[Index])
+			{
+				const swc::combat::Ability* Ability = Graph != nullptr && Id != 0 ? Graph->ability(Id) : nullptr;
+				Text += FString::Printf(TEXT(" %s"), Ability != nullptr ? UTF8_TO_TCHAR(Ability->name.c_str()) : Id != 0 ? TEXT("(not in the graph)") : TEXT("-"));
+			}
+		}
+		UE_LOG(LogSwcBackend, Log, TEXT("ability: the bars of the weapons: %s"), *Text);
+	}
+	// The learned nodes of the weapon trees: the conditions of the transitions inside the abilities and the selections, and the
+	// rows of the strikes.
+	if (Avatar.IsValid())
+	{
+		Avatar->GetActions()->SetLearnedNodes(Own.nodesRevision, Own.learnedNodes);
+	}
+	if (Own.nodesRevision != NodesRevision)
+	{
+		NodesRevision = Own.nodesRevision;
+		AttackDriver->set_facts(std::set<std::uint32_t>(Own.learnedNodes.begin(), Own.learnedNodes.end()), {});
+		UE_LOG(LogSwcBackend, Log, TEXT("ability: %d learned node(s) of the weapon trees (the ProgressionPoint state)"), static_cast<int32>(Own.learnedNodes.size()));
+	}
+	// The cooldowns of the server: the end of the own cooldown of the client (Driver::set_server_cooldowns).
+	std::vector<std::pair<std::uint32_t, std::uint64_t>> Cooldowns;
+	for (const std::vector<swc::net::RepClient::OwnEntity::Cooldown>& Place : Own.cooldowns)
+	{
+		for (const swc::net::RepClient::OwnEntity::Cooldown& Entry : Place)
+		{
+			Cooldowns.emplace_back(Entry.ability, Entry.endUs);
+		}
+	}
+	if (Cooldowns != SentCooldowns && bServerClock)
+	{
+		const int64 Steady = std::chrono::duration_cast<std::chrono::nanoseconds>(swc::net::Clock::now().time_since_epoch()).count();
+		const uint64 ServerUs = static_cast<uint64>(Steady + ServerOffsetNs) / 1000;
+		AttackDriver->set_server_cooldowns(Cooldowns, ServerUs, Steady);
+		// The log: only a new entry or a new end.
+		for (const auto& [Ability, EndUs] : Cooldowns)
+		{
+			const auto Before = std::find_if(SentCooldowns.begin(), SentCooldowns.end(), [Id = Ability](const auto& Entry) { return Entry.first == Id; });
+			if (Before == SentCooldowns.end() || Before->second != EndUs)
+			{
+				const int64 LeftUs = static_cast<int64>(EndUs) - static_cast<int64>(ServerUs);
+				UE_LOG(LogSwcBackend, Log, TEXT("ability: the cooldown state of the server: %08x ends in %.2f s%s"), Ability, static_cast<double>(LeftUs) / 1e6,
+					Before == SentCooldowns.end() ? TEXT("") : TEXT(" (a new end)"));
+			}
+		}
+		SentCooldowns = Cooldowns;
+		if (Cooldowns.empty())
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("ability: the cooldown state of the server: no cooldown (the client keeps its own cooldowns)"));
+		}
+	}
 }
 
 uint64 USwcBackendSubsystem::GetServerTimeMicroseconds() const
@@ -954,6 +1044,10 @@ void USwcBackendSubsystem::UpdatePlayer()
 	{
 		StaminaRevision = Snapshot.Own.staminaRevision;
 		AttackDriver->set_server_stamina(Snapshot.Own.stamina, Snapshot.Own.staminaRegenDelay, Snapshot.Own.staminaRegenMultiplier, Snapshot.Own.staminaAtNs);
+	}
+	if (AttackDriver)
+	{
+		UpdateAbilities(Snapshot.Own, Snapshot.bServerClock, Snapshot.ServerOffsetNs);
 	}
 	// The melee contacts of this frame: list 3 of the next input entry (stage P2.8).
 	if (std::vector<swc::net::MeleeContactItem> Contacts = Avatar->GetActions()->TakeContacts(); !Contacts.empty())

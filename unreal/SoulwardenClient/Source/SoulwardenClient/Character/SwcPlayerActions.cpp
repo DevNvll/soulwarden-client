@@ -159,6 +159,28 @@ void USwcPlayerActions::QueryStrikes(const FSwcWeaponActions& Weapon, int32 Grap
 		{
 			continue;
 		}
+		// The rows for the learned nodes (stage P3.5; Combat row_for of the backend): a strike with no such row is no strike of the
+		// character (Maelstrom has two strikes in each window, one with the node Gravity and one without it), and only the shapes
+		// of those rows query.
+		TSet<int32> RowShapes;
+		for (const FSwcStrike::FRow& Row : Strike.Rows)
+		{
+			const bool bNeeds = std::all_of(Row.Needs.begin(), Row.Needs.end(), [this](uint32 Node) { return LearnedNodes.Contains(Node); });
+			const bool bForbids = std::none_of(Row.Forbids.begin(), Row.Forbids.end(), [this](uint32 Node) { return LearnedNodes.Contains(Node); });
+			if (bNeeds && bForbids)
+			{
+				RowShapes.Add(Row.Shape);
+			}
+		}
+		if (!Strike.Rows.IsEmpty() && RowShapes.IsEmpty())
+		{
+			if (!StrikesSeen.Contains(StrikeIndex))
+			{
+				StrikesSeen.Add(StrikeIndex);
+				++SkippedStrikes;
+			}
+			continue;
+		}
 		if (!StrikesSeen.Contains(StrikeIndex))
 		{
 			StrikesSeen.Add(StrikeIndex);
@@ -166,6 +188,10 @@ void USwcPlayerActions::QueryStrikes(const FSwcWeaponActions& Weapon, int32 Grap
 		}
 		for (int32 ShapeIndex = 0; ShapeIndex < Strike.Shapes.Num(); ++ShapeIndex)
 		{
+			if (!Strike.Rows.IsEmpty() && !RowShapes.Contains(Strike.Shapes[ShapeIndex].DataIndex))
+			{
+				continue;
+			}
 			FSwcMeleeShape Shape;
 			if (!ShapeOf(Strike.Shapes[ShapeIndex], Shape))
 			{
@@ -339,6 +365,32 @@ void USwcPlayerActions::OnDodgeKey()
 	if (Driver && !IsInputLocked())
 	{
 		Driver->dodge_press();
+	}
+}
+
+void USwcPlayerActions::SetLearnedNodes(uint32 Revision, const std::vector<std::uint32_t>& Nodes)
+{
+	if (Revision != NodesRevision)
+	{
+		NodesRevision = Revision;
+		LearnedNodes.Reset();
+		for (const std::uint32_t Node : Nodes)
+		{
+			LearnedNodes.Add(Node);
+		}
+	}
+}
+
+void USwcPlayerActions::OnAbilityKey(uint32 Place, bool bDown)
+{
+	if (Place >= 3 || (bDown && IsInputLocked()) || bAbilityDown[Place] == bDown)
+	{
+		return;
+	}
+	bAbilityDown[Place] = bDown;
+	if (Driver)
+	{
+		Driver->ability_key(Place, bDown);
 	}
 }
 
@@ -624,6 +676,30 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 		SeenLost = Snapshot.lostKeys;
 		UE_LOG(LogSwcBackend, Log, TEXT("weapon: a key is lost: no switch window of the attack in its %u steps"), swc::combat::kKeySteps);
 	}
+	// The keys of the bar (stage P3.5): the verdict of the client for each press, and the shots of the casts.
+	if (Snapshot.abilityPresses != SeenAbilityPresses && Snapshot.lastPress)
+	{
+		SeenAbilityPresses = Snapshot.abilityPresses;
+		static const TCHAR* const Keys[] = {TEXT("Q"), TEXT("R"), TEXT("F")};
+		const swc::combat::Driver::Snapshot::AbilityPress& Press = *Snapshot.lastPress;
+		const swc::combat::Ability* Ability = Snapshot.graph != nullptr ? Snapshot.graph->ability(Press.ability) : nullptr;
+		const auto Running = Snapshot.cooldowns.find(Press.ability);
+		UE_LOG(LogSwcBackend, Log, TEXT("ability: key %s (place %u) %s %08x at input %u: %s%s"), Keys[FMath::Min(Press.place, 2u)], Press.place,
+			Ability != nullptr ? UTF8_TO_TCHAR(Ability->name.c_str()) : TEXT("(none)"), Press.ability, static_cast<unsigned>(Press.input),
+			UTF8_TO_TCHAR(swc::combat::press_verdict_text(Press.verdict)),
+			Press.verdict == swc::combat::PressVerdict::played
+				? *FString::Printf(TEXT(", %s at input %u, cast %llu, own cooldown %.1f s"),
+					Press.fragment >= 0 ? UTF8_TO_TCHAR(Snapshot.graph->fragments[static_cast<std::size_t>(Press.fragment)].name.c_str()) : TEXT("?"),
+					static_cast<unsigned>(Press.at), static_cast<unsigned long long>(Press.cast),
+					Running != Snapshot.cooldowns.end() ? static_cast<double>(Running->second - Snapshot.inputNs) / 1e9 : 0.0)
+				: Running != Snapshot.cooldowns.end() ? *FString::Printf(TEXT(", %.1f s left"), static_cast<double>(Running->second - Snapshot.inputNs) / 1e9)
+													  : TEXT(""));
+	}
+	if (Snapshot.shots != SeenShots)
+	{
+		SeenShots = Snapshot.shots;
+		UE_LOG(LogSwcBackend, Log, TEXT("ability: the shot of the cast at input %u (list 2 of the input entry)"), static_cast<unsigned>(Snapshot.input));
+	}
 	const FSwcWeaponActions* Weapon = Data.IsValid() ? Data->WeaponOfGraph(Snapshot.graph) : nullptr;
 	const swc::combat::Visit* Newest = Snapshot.visits.empty() ? nullptr : &Snapshot.visits.back();
 	const int32 Fragment = Newest != nullptr && Weapon != nullptr && Weapon->GraphFragments.IsValidIndex(Newest->fragment)
@@ -644,6 +720,21 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 		}
 	}
 	bAttackBeforeTransition = false;
+	// The collision of the character in a fragment (character_collided: the uppercut of Charge at a creature).
+	if (const uint32 Blocks = Movement->GetCreatureBlocks(); Blocks != SeenBlocks)
+	{
+		SeenBlocks = Blocks;
+		if (bPlays && Driver)
+		{
+			Driver->collided();
+			if (CollidedVisit != Newest->number)
+			{
+				CollidedVisit = Newest->number;
+				UE_LOG(LogSwcBackend, Log, TEXT("attack: the character collided with a creature in visit %u %s at input %u"), Newest->number,
+					UTF8_TO_TCHAR(Weapon->Graph.fragments[Newest->fragment].name.c_str()), static_cast<unsigned>(Snapshot.input));
+			}
+		}
+	}
 	if (!bPlays)
 	{
 		if (bPlaying)

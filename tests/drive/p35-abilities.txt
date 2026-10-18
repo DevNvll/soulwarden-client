@@ -1,0 +1,36 @@
+# The exit check of the player part of stage P3.5 (docs/ACTIONS.md "The abilities") with the routes of
+# tests/drive/p35-abilities-routes.txt: the camera to the east, the great axe, a short walk (it turns the body to the camera: Charge
+# goes in the direction of the body, protocol notes 4.22); Charge (the collision and the uppercut), Maelstrom
+# (the spin), Gravity Well (the shot at its mark, the vortex and its pull, the burst); the war hammer; Wrecking Ball (the
+# knockdown), Q again 2 s later in the own cooldown (its bits go out, nothing plays), Shockwave (the stun), Path of Destiny (the
+# push); the reset of the server, and F again: the own cooldown of the client holds (the HUD has no countdown). The countdowns
+# of the HUD come from the cooldown state of the server. The "tick" lines are the clock marks of the route script. Times in seconds from the possession of the character; turn: degrees each second.
+# SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=9255:4735:140 SWC_DEV_SPEC=unequip=27 SWC_STAGE=P3.5 tools/creature-check.sh \
+#   p35-abilities 45 tests/drive/p35-abilities-routes.txt tests/drive/p35-abilities.txt
+1.0 turn 90
+2.0 turn 0
+2.5 key 1
+3.0 tick
+3.5 move 0 1
+3.8 move 0 0
+4.0 tick
+5.0 ability q
+7.0 tick
+7.5 tick
+8.0 tick
+9.0 ability r
+11.0 tick
+12.0 tick
+13.0 ability f
+16.5 key 2
+17.5 tick
+18.0 tick
+19.0 tick
+20.0 ability q
+22.0 ability q
+24.0 ability r
+27.0 ability f
+29.0 tick
+30.0 tick
+31.0 ability f
+33.0 tick

@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <fstream>
 #include <random>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -23,16 +24,13 @@
 #include "gamedata/weapon_actions.h"
 #include "world/attack_sequence.h"
 
-// The ability ids of the backend file go through progression_id (progression_tables.cpp, not in this test): a stub. The basic
-// attacks do not read it.
+// The ids of the backend file (abilities, nodes, perks) go through progression_id (progression_tables.cpp, not in this test: it
+// is the CRC-32 of the text with A to Z in lower case, item_id_crc): the client function, which the ability tests compare with
+// the ids of actions.json (the converter writes them with zlib).
 namespace soulwarden::backend::gamedata {
 std::uint32_t progression_id(std::string_view text)
 {
-	std::uint32_t hash = 2166136261U;
-	for (const char c : text) {
-		hash = (hash ^ static_cast<unsigned char>(c)) * 16777619U;
-	}
-	return hash;
+	return swc::combat::progression_id(text);
 }
 } // namespace soulwarden::backend::gamedata
 
@@ -71,6 +69,16 @@ std::string text_of(const std::vector<Seen>& seen)
 	return out;
 }
 
+/** @return The progression ids of a list of names of actions.json. */
+std::vector<std::uint32_t> ids_of(const Json& names)
+{
+	std::vector<std::uint32_t> out;
+	for (const Json& name : names) {
+		out.push_back(swc::combat::progression_id(name.get<std::string>()));
+	}
+	return out;
+}
+
 /** The client graph of a weapon of actions.json (the same fields that the engine loader reads, SwcActions.cpp). */
 Graph graph_of(const Json& weapon)
 {
@@ -85,6 +93,9 @@ Graph graph_of(const Json& weapon)
 		for (const Json& window : item["dodge"]) {
 			fragment.dodge.push_back({window[0].get<float>(), window[1].is_null() ? -1.0F : window[1].get<float>(), window[2].get<bool>()});
 		}
+		for (const Json& marker : item.value("markers", Json::array())) {
+			fragment.markers.push_back({marker[0].get<std::string>(), marker[1].get<float>()});
+		}
 		graph.fragments.push_back(fragment);
 	}
 	std::size_t index = 0;
@@ -96,11 +107,46 @@ Graph graph_of(const Json& weapon)
 			transition.end = row[2].is_null() ? -1.0F : row[2].get<float>();
 			transition.input = swc::combat::input_of(row[3].get<std::string>());
 			transition.to = graph.index_of(row[4].get<std::string>());
+			// Stage P3.5: the ability of a start of an ability, the terms of a transition inside an ability (row 6).
+			if (transition.input == swc::combat::Input::ability && row.size() > 6 && row[6].is_string()) {
+				transition.ability = swc::combat::progression_id(row[6].get<std::string>());
+			} else if (transition.input == swc::combat::Input::terms && row.size() > 6 && row[6].is_array()) {
+				for (const Json& term : row[6]) {
+					std::vector<swc::combat::Literal> literals;
+					bool known = true;
+					for (const Json& value : term) {
+						swc::combat::Literal literal;
+						const bool count = value[1].is_number_unsigned();
+						known = known && swc::combat::literal_of(value[0].get<std::string>(), count ? std::string() : value[1].get<std::string>(),
+							count ? value[1].get<std::uint32_t>() : 0, value[2].get<bool>(), literal);
+						literals.push_back(literal);
+					}
+					if (known) {
+						transition.terms.push_back(std::move(literals));
+					}
+				}
+			}
 			graph.fragments[index].transitions.push_back(transition);
 		}
 		++index;
 	}
 	graph.start = graph.index_of(weapon["start"].get<std::string>());
+	// Stage P3.5: the abilities of the weapon (the fragment of the action, the selections, the cooldown, the shots of the casts).
+	for (const Json& item : weapon.value("abilities", Json::array())) {
+		swc::combat::Ability ability;
+		ability.name = item["ability"].get<std::string>();
+		ability.id = item["crc"].get<std::uint32_t>();
+		ability.fragment = graph.index_of(item["fragment"].get<std::string>());
+		for (const Json& row : item["selections"]) {
+			ability.selections.push_back({graph.index_of(row[0].get<std::string>()), ids_of(row[1]), ids_of(row[2]), ids_of(row[3]), ids_of(row[4])});
+		}
+		ability.cooldown = item["cooldown"].is_null() ? 0.0F : item["cooldown"].get<float>();
+		ability.minCooldown = item["minCooldown"].is_null() ? 0.0F : item["minCooldown"].get<float>();
+		for (const Json& row : item.value("shots", Json::array())) {
+			ability.shots.push_back({row[0].get<std::string>(), row[3].get<std::uint32_t>(), ids_of(row[4]), ids_of(row[5])});
+		}
+		graph.abilities.push_back(ability);
+	}
 	return graph;
 }
 
@@ -424,6 +470,157 @@ void driver_tests(const Graph& sword, const Graph& other)
 	check(snapshot.presses == 2 && snapshot.releases == 2 && snapshot.holds >= 2, "driver: the counts");
 }
 
+/**
+ * The keys of the bar in the driver (stage P3.5): the bits of a press (protocol notes 4.22 "The keys"), the press that plays (the
+ * fragment of the ability, its own cooldown with the time of the data), a press in the own cooldown (the bits go out, no start), the
+ * correction from the cooldown state of the server (an entry sets the end; a reset keeps the own end), a press that the fragment
+ * that plays does not take, an empty place, the collision of Charge, and the shot of Gravity Well at its mark.
+ */
+void driver_ability_tests(const Graph& greataxe, const Graph& hammer)
+{
+	using swc::combat::PressVerdict;
+	using swc::combat::progression_id;
+	const std::uint32_t charge = progression_id("Ability_Greataxe_Charge");
+	const std::uint32_t maelstrom = progression_id("Ability_Greataxe_Maelstorm");
+	const std::uint32_t well = progression_id("Ability_Greataxe_GravityWell");
+	const std::uint32_t wrecking = progression_id("Ability_WarHammer_WreckingBall");
+	check(charge == 0x737F440BU && maelstrom == 0xADE1DC59U && well == 0xA3EBD08CU && wrecking == 0xFD3C4928U,
+		"the ability ids are the ids of the bar on the wire (the build sheet)");
+	const auto ns = [](int input) { return static_cast<std::int64_t>(input) * 33'333'333; };
+	const auto has = [](const std::vector<unsigned>& bits, unsigned bit) { return std::find(bits.begin(), bits.end(), bit) != bits.end(); };
+	const auto name_of = [&greataxe](const swc::combat::Visit& visit) { return greataxe.fragments[static_cast<std::size_t>(visit.fragment)].name; };
+	{
+		swc::combat::Driver driver;
+		driver.set_weapons(&greataxe, &hammer, swc::combat::kMainHand1);
+		driver.set_bars({charge, maelstrom, well}, {wrecking, 0, 0});
+		std::vector<std::vector<unsigned>> entries;
+		std::vector<std::pair<int, std::uint32_t>> shots;
+		const auto step = [&](int input) {
+			std::vector<unsigned> bits;
+			std::vector<std::uint32_t> made;
+			driver.step(static_cast<std::uint16_t>(input), ns(input), bits, &made);
+			entries.push_back(bits);
+			for (const std::uint32_t attack : made) {
+				shots.emplace_back(input, attack);
+			}
+		};
+		// The bits of a press of Q held for 3 steps: press and virtual, the hold, the release.
+		driver.ability_key(0, true);
+		step(10);
+		step(11);
+		step(12);
+		driver.ability_key(0, false);
+		step(13);
+		check(has(entries[0], 402) && has(entries[0], 479) && !has(entries[0], 39) && has(entries[1], 39) && has(entries[2], 39)
+				&& has(entries[3], 211) && !has(entries[3], 39),
+			"driver: the bits of Q (402 and 479, the hold 39, the release 211)");
+		swc::combat::Driver::Snapshot snapshot = driver.snapshot();
+		check(snapshot.lastPress && snapshot.lastPress->verdict == PressVerdict::played && snapshot.lastPress->ability == charge
+				&& snapshot.lastPress->at == 10 && snapshot.abilityPresses == 1,
+			"driver: Q at rest plays Charge at the press");
+		check(snapshot.visits.size() == 1 && name_of(snapshot.visits[0]) == "Ability_GreatAxe_Engage" && snapshot.visits[0].start == 10
+				&& snapshot.visits[0].cast == snapshot.lastPress->cast,
+			"driver: the fragment of Charge with the cast");
+		check(snapshot.cooldowns.count(charge) == 1 && snapshot.cooldowns.at(charge) == ns(10) + 20'000'000'000LL,
+			"driver: the own cooldown of Charge, 20 s from the press (ability-data.json)");
+		// The charge with no collision and no node: the uppercut at 0.967 s (Engage_Uppercut_NoHit), then the end.
+		for (int input = 14; input < 200; ++input) {
+			step(input);
+		}
+		snapshot = driver.snapshot();
+		check(snapshot.visits.size() == 2 && name_of(snapshot.visits[1]) == "Ability_GreatAxe_Engage_Uppercut" && snapshot.visits[1].start == 10 + 28
+				&& snapshot.visits[1].cast == snapshot.visits[0].cast && driver.snapshot().visits.back().ended,
+			"driver: the uppercut of Charge at 0.967 s keeps the cast, then the rest");
+		// A press in the own cooldown: the bits go out, the client does not play it.
+		driver.ability_key(0, true);
+		driver.ability_key(0, false);
+		step(200);
+		step(201);
+		snapshot = driver.snapshot();
+		check(has(entries.end()[-2], 402) && snapshot.lastPress->verdict == PressVerdict::cooldown && snapshot.visits.size() == 2,
+			"driver: a press in the own cooldown sends its bits and plays nothing");
+		// The cooldown state of the server: its end (here 2 s later: a reduction of the server) is the end of the client.
+		const std::uint64_t serverNow = 5'000'000'000ULL;
+		driver.set_server_cooldowns({{charge, serverNow + 2'000'000}}, serverNow, ns(201));
+		driver.set_server_cooldowns({{charge, serverNow + 2'000'000}}, serverNow + 33'333, ns(202));
+		snapshot = driver.snapshot();
+		check(snapshot.cooldownCorrections == 1, "driver: an entry of the server applies one time");
+		driver.ability_key(0, true);
+		driver.ability_key(0, false);
+		step(259);
+		step(260);
+		check(driver.snapshot().lastPress->verdict == PressVerdict::cooldown, "driver: a press before the end of the server: the own cooldown");
+		driver.ability_key(0, true);
+		driver.ability_key(0, false);
+		step(262);
+		step(263);
+		snapshot = driver.snapshot();
+		check(snapshot.lastPress->verdict == PressVerdict::played && snapshot.cooldowns.at(charge) == ns(262) + 20'000'000'000LL,
+			"driver: after the end of the server Charge plays again, with a new own cooldown");
+		// A reset of the server (the map has no entry): the client keeps its own cooldown (live check I8-05).
+		driver.set_server_cooldowns({}, serverNow + 3'000'000, ns(290));
+		driver.ability_key(0, true);
+		driver.ability_key(0, false);
+		step(300);
+		step(301);
+		check(driver.snapshot().lastPress->verdict == PressVerdict::cooldown, "driver: a reset of the server keeps the own cooldown");
+		for (int input = 302; input < 1000; ++input) {
+			step(input);
+		}
+		// Gravity Well at rest, then R one step later: the fragment of Gravity Well takes no ability before 0.533 s (refused, no
+		// cooldown of Maelstrom); the shot at the mark CastGavityWellProjectile (15 steps after the press: protocol notes 4.27).
+		shots.clear();
+		driver.ability_key(2, true);
+		driver.ability_key(2, false);
+		step(1000);
+		driver.ability_key(1, true);
+		driver.ability_key(1, false);
+		step(1001);
+		step(1002);
+		snapshot = driver.snapshot();
+		check(snapshot.lastPress->verdict == PressVerdict::refused && snapshot.lastPress->ability == maelstrom && snapshot.cooldowns.count(maelstrom) == 0
+				&& has(entries.end()[-2], 115) && has(entries.end()[-2], 571),
+			"driver: R in the first steps of Gravity Well: no window (its bits go out, no cooldown)");
+		for (int input = 1003; input < 1100; ++input) {
+			step(input);
+		}
+		check(shots.size() == 1 && shots[0] == std::pair<int, std::uint32_t>(1015, 0x8E14366BU) && driver.snapshot().shots == 1,
+			"driver: one shot of Gravity Well, 15 steps after the press, with the attack 8E14366B");
+		// An empty place of the bar of the war hammer.
+		step(1100);
+		driver.ability_key(1, true);
+		driver.ability_key(1, false);
+		std::vector<unsigned> keys = {355, 306};
+		driver.step(1101, ns(1101), keys);
+		step(1102);
+		step(1103);
+		check(driver.snapshot().held == swc::combat::kMainHand1 + 1, "driver: the war hammer in the hand");
+		driver.ability_key(1, true);
+		driver.ability_key(1, false);
+		step(1110);
+		check(driver.snapshot().lastPress->verdict == PressVerdict::empty, "driver: a place with no ability plays nothing");
+	}
+	{
+		// The collision of the charge (character_collided): the uppercut at the step of the collision (Engage_Uppercut_Detected,
+		// 0.133 to 0.933 s; the client sees it, the server takes it at the match of the contact).
+		swc::combat::Driver driver;
+		driver.set_weapons(&greataxe, &hammer, swc::combat::kMainHand1);
+		driver.set_bars({charge, maelstrom, well}, {wrecking, 0, 0});
+		driver.ability_key(0, true);
+		driver.ability_key(0, false);
+		std::vector<unsigned> bits;
+		for (int input = 10; input < 20; ++input) {
+			driver.step(static_cast<std::uint16_t>(input), ns(input), bits);
+		}
+		driver.collided();
+		driver.step(20, ns(20), bits);
+		const swc::combat::Driver::Snapshot snapshot = driver.snapshot();
+		check(snapshot.visits.size() == 2 && name_of(snapshot.visits[1]) == "Ability_GreatAxe_Engage_Uppercut" && snapshot.visits[1].start == 20
+				&& snapshot.collisions == 1,
+			"driver: a collision in the charge starts the uppercut at its step");
+	}
+}
+
 /** The strikes of the client (actions.json) are the strikes of the backend: the damage key and the window of each one, and
  *  the shapes of each strike (stage P2.8: the contacts must come in the windows of the server). */
 void strike_tests(const Json& actions, const backend::gamedata::WeaponActions& tables)
@@ -453,6 +650,13 @@ void strike_tests(const Json& actions, const backend::gamedata::WeaponActions& t
 				same = key == wanted[strike].key && std::fabs(got[strike]["start"].get<float>() - wanted[strike].start) < 1e-5F
 					&& std::fabs(got[strike]["end"].get<float>() - wanted[strike].end) < 1e-5F
 					&& got[strike]["shapes"].size() == wanted[strike].shapes.size();
+				// Stage P3.5: the rows of the strike (the learned nodes of each row and its shape).
+				const Json& rows = got[strike].value("rows", Json::array());
+				same = same && rows.size() == wanted[strike].rows.size();
+				for (std::size_t row = 0; same && row < rows.size(); ++row) {
+					same = rows[row][0].get<std::string>() == wanted[strike].rows[row].row && rows[row][1].size() == wanted[strike].rows[row].needs.size()
+						&& rows[row][2].size() == wanted[strike].rows[row].forbids.size() && rows[row][3].get<std::uint32_t>() == wanted[strike].rows[row].shape;
+				}
 				shapes += static_cast<int>(wanted[strike].shapes.size());
 				++strikes;
 			}
@@ -717,6 +921,293 @@ void parity_tests(const Json& actions, const backend::gamedata::WeaponActions& t
 	std::printf("parity: %d scripts\n", scripts);
 }
 
+/** The ability data of the client graph and of the backend graph (stage P3.5): the ids, the fragments, the transitions. */
+void ability_data_tests(const Json& actions, const backend::gamedata::WeaponActions& tables)
+{
+	int abilities = 0;
+	for (const Json& weapon : actions["weapons"]) {
+		if (!weapon.contains("graph") || weapon.value("abilities", Json::array()).empty()) {
+			continue;
+		}
+		std::string tags;
+		for (const Json& tag : weapon["tags"]) {
+			tags += (tags.empty() ? "" : ",") + tag.get<std::string>();
+		}
+		const backend::gamedata::WeaponActionSet* server = tables.of_tags(tags);
+		if (server == nullptr) {
+			continue;
+		}
+		const Graph client = graph_of(weapon);
+		check(client.abilities.size() == server->abilities.size(), tags + ": the abilities of the backend");
+		for (std::size_t place = 0; place < client.abilities.size() && place < server->abilities.size(); ++place) {
+			// One ability can have two actions (the throw of the hatchet and its upper body variant): each one at its place; a press
+			// takes the first one of the id, on the two sides (WeaponActionSet::ability, Graph::ability).
+			const swc::combat::Ability& ability = client.abilities[place];
+			++abilities;
+			const backend::gamedata::AbilityAction* action = &server->abilities[place];
+			check(ability.id == swc::combat::progression_id(ability.name) && action != nullptr && action->ability == ability.name,
+				tags + ": the id of " + ability.name + " (the CRC-32 of the converter) is the id of the backend");
+			if (action == nullptr) {
+				continue;
+			}
+			check(ability.fragment == static_cast<int>(action->fragment) && ability.selections.size() == action->selections.size(),
+				tags + ": the fragment and the selections of " + ability.name);
+			check(ability.cooldown > 0.0F, tags + ": the cooldown of " + ability.name);
+		}
+		for (std::size_t index = 0; index < client.fragments.size(); ++index) {
+			const swc::combat::Fragment& mine = client.fragments[index];
+			const backend::gamedata::AttackFragment& theirs = server->fragments[index];
+			bool same = mine.transitions.size() == theirs.transitions.size();
+			for (std::size_t row = 0; same && row < mine.transitions.size(); ++row) {
+				const swc::combat::Transition& a = mine.transitions[row];
+				const backend::gamedata::AttackTransition& b = theirs.transitions[row];
+				same = a.ability == b.abilityId && a.terms.size() == b.terms.size() && (a.to < 0 || static_cast<std::uint32_t>(a.to) == b.to);
+				for (std::size_t term = 0; same && term < a.terms.size(); ++term) {
+					same = a.terms[term].size() == b.terms[term].size();
+					for (std::size_t literal = 0; same && literal < a.terms[term].size(); ++literal) {
+						const swc::combat::Literal& x = a.terms[term][literal];
+						const backend::gamedata::ConditionLiteral& y = b.terms[term][literal];
+						same = static_cast<int>(x.kind) == static_cast<int>(y.kind) && x.id == y.id && x.count == y.count && x.negated == y.negated
+							&& (x.kind != swc::combat::Literal::Kind::playing || x.text == y.text);
+					}
+				}
+			}
+			check(same, tags + ": the transitions of " + mine.name + " (the abilities, the terms) are the transitions of the backend");
+		}
+	}
+	check(abilities >= 12, "abilities of the melee weapons: " + std::to_string(abilities));
+	// The Gravity Well of the great axe: its cooldown (ability-data.json: 30 s), its shot at the mark (0.533 s) with the attack
+	// "GravityWell" (protocol notes 4.27: 8E14366B), and the shot of the upgrade with Unyielding.
+	for (const Json& weapon : actions["weapons"]) {
+		if (!weapon.contains("graph") || weapon["tags"].dump() != R"(["2H_Melee","GreatAxe"])") {
+			continue;
+		}
+		const Graph graph = graph_of(weapon);
+		const swc::combat::Ability* well = graph.ability(0xA3EBD08CU);
+		check(well != nullptr && well->cooldown == 30.0F && well->shots.size() == 2, "Gravity Well: the cooldown 30 s and two shots");
+		if (well != nullptr && !well->shots.empty()) {
+			swc::combat::Facts facts;
+			const swc::combat::Ability::Shot* shot = well->shot_of(facts);
+			check(shot != nullptr && shot->attack == 0x8E14366BU && shot->mark == "CastGavityWellProjectile", "Gravity Well: the shot attack 8E14366B");
+			check(std::fabs(graph.fragments[static_cast<std::size_t>(well->fragment)].marker("CastGavityWellProjectile") - 0.533333F) < 0.001F,
+				"Gravity Well: the mark of the throw at 0.533 s");
+			facts.nodes.insert(swc::combat::progression_id("Upgrade_Greataxe_GravityWell_ArmorInWell"));
+			check(well->shot_of(facts) == &well->shots[1], "Gravity Well with Unyielding: the shot of the upgrade spell");
+		}
+		const swc::combat::Ability* maelstrom = graph.ability(0xADE1DC59U);
+		swc::combat::Facts reprieve;
+		reprieve.nodes.insert(swc::combat::progression_id("Upgrade_Greataxe_Maelstorm_SpinAttack"));
+		check(maelstrom != nullptr && graph.fragments[static_cast<std::size_t>(graph.fragment_of(*maelstrom, {}))].name == "Ability_GreatAxe_Maelstrom"
+				&& graph.fragments[static_cast<std::size_t>(graph.fragment_of(*maelstrom, reprieve))].name == "Ability_GreatAxe_Maelstrom_Upgrade",
+			"Maelstrom: the fragment of No Reprieve (the selection of Upgrade_Greataxe_Maelstorm_SpinAttack)");
+	}
+}
+
+/** One step of an ability script: the attack button (1 down, -1 up), the block press, and a press of an ability. */
+struct AbilityStep {
+	int button{0};
+	bool block{false};
+	std::uint32_t ability{0};
+};
+
+/** The verdict of each press and the visits (the fragment and the step of its start), from the steps of a script. */
+struct AbilityRun {
+	std::vector<Seen> visits;
+	std::vector<std::string> presses;
+};
+
+std::string verdict_of(int verdict, unsigned delay)
+{
+	return verdict == 0 ? "now" : verdict == 1 ? "later+" + std::to_string(delay) : "refused";
+}
+
+/** The fragment of an ability for the learned nodes and the perks by the rule of the backend (Abilities::press_entity). */
+int backend_fragment(const backend::gamedata::AbilityAction& action, const swc::combat::Facts& facts)
+{
+	const auto all = [&](const std::vector<std::string>& names, const std::set<std::uint32_t>& set) {
+		return std::all_of(names.begin(), names.end(), [&](const std::string& name) { return set.count(swc::combat::progression_id(name)) > 0; });
+	};
+	const auto none = [&](const std::vector<std::string>& names, const std::set<std::uint32_t>& set) {
+		return std::none_of(names.begin(), names.end(), [&](const std::string& name) { return set.count(swc::combat::progression_id(name)) > 0; });
+	};
+	std::uint32_t fragment = action.fragment;
+	for (const backend::gamedata::AbilityAction::Selection& selection : action.selections) {
+		if (all(selection.needs, facts.nodes) && none(selection.forbids, facts.nodes) && all(selection.perks, facts.perks) && none(selection.perkForbids, facts.perks)) {
+			fragment = selection.fragment;
+		}
+	}
+	return static_cast<int>(fragment);
+}
+
+AbilityRun run_client_abilities(const Graph& graph, const std::vector<AbilityStep>& script, const swc::combat::Facts& facts, std::uint16_t first)
+{
+	swc::combat::Sequence sequence;
+	sequence.set_graph(&graph);
+	AbilityRun run;
+	std::uint32_t last = 0;
+	std::uint64_t casts = 0;
+	bool down = false;
+	for (std::size_t index = 0; index < script.size(); ++index) {
+		const auto input = static_cast<std::uint16_t>(first + index);
+		Bits bits;
+		bits.press = script[index].button > 0 && !down;
+		bits.release = script[index].button < 0 && down;
+		down = bits.press || (down && !bits.release);
+		bits.hold = down && !bits.press;
+		bits.block = script[index].block;
+		sequence.step(input, bits, facts);
+		if (script[index].ability != 0) {
+			const swc::combat::Ability* ability = graph.ability(script[index].ability);
+			const swc::combat::AbilityStart start = sequence.start_ability(input, ability->id, graph.fragment_of(*ability, facts), ++casts);
+			run.presses.push_back(verdict_of(start.verdict == swc::combat::AbilityStart::Verdict::now ? 0 : start.verdict == swc::combat::AbilityStart::Verdict::later ? 1 : 2,
+				start.delay));
+		}
+		for (const swc::combat::Visit& visit : sequence.visits()) {
+			if (visit.number > last) {
+				run.visits.push_back({graph.fragments[static_cast<std::size_t>(visit.fragment)].name, static_cast<std::uint16_t>(visit.start - first)});
+				last = visit.number;
+			}
+		}
+	}
+	return run;
+}
+
+AbilityRun run_backend_abilities(const backend::gamedata::WeaponActionSet& actions, const std::vector<AbilityStep>& script, const swc::combat::Facts& facts,
+	std::uint16_t first)
+{
+	backend::world::AttackSequences sequences;
+	backend::world::AttackFacts known;
+	known.learned = [&facts](std::uint32_t node) { return facts.nodes.count(node) > 0; };
+	known.perk = [&facts](std::uint32_t perk) { return facts.perks.count(perk) > 0; };
+	AbilityRun run;
+	std::uint32_t last = 0;
+	std::uint64_t casts = 0;
+	bool down = false;
+	const auto base = std::chrono::steady_clock::time_point{} + std::chrono::hours(1);
+	for (std::size_t index = 0; index < script.size(); ++index) {
+		const auto input = static_cast<std::uint16_t>(first + index);
+		backend::world::AttackBits bits;
+		bits.press = script[index].button > 0 && !down;
+		bits.release = script[index].button < 0 && down;
+		down = bits.press || (down && !bits.release);
+		bits.hold = down && !bits.press;
+		bits.block = script[index].block;
+		const auto now = base + std::chrono::milliseconds(static_cast<long>(index * 1000 / 30));
+		sequences.step("c", 1, 1, input, bits, "w", &actions, now, known);
+		if (script[index].ability != 0) {
+			const backend::gamedata::AbilityAction* action = actions.ability(script[index].ability);
+			const backend::world::AbilityStart start = sequences.start_ability("c", 1, 1, input, "w", &actions, action->abilityId,
+				static_cast<std::uint32_t>(backend_fragment(*action, facts)), ++casts, now);
+			run.presses.push_back(verdict_of(static_cast<int>(start.verdict), start.delaySteps));
+		}
+		if (const auto* state = sequences.state_of("c"); state != nullptr) {
+			for (const backend::world::AttackVisit& visit : state->visits) {
+				if (visit.number > last) {
+					run.visits.push_back({actions.fragments[visit.fragment].name, static_cast<std::uint16_t>(visit.start - first)});
+					last = visit.number;
+				}
+			}
+		}
+	}
+	return run;
+}
+
+std::string text_of(const std::vector<std::string>& items)
+{
+	std::string out;
+	for (const std::string& item : items) {
+		out += item + " ";
+	}
+	return out;
+}
+
+/**
+ * The parity of the presses of the abilities with the backend (stage P3.5; AttackSequences::start_ability, the step loop with the
+ * pending start, the transitions inside an ability with their terms): the same scripts of clicks, block presses, and presses of
+ * the abilities of the weapon, with random learned nodes, give the same verdicts and the same fragments at the same steps.
+ */
+void ability_parity_tests(const Json& actions, const backend::gamedata::WeaponActions& tables)
+{
+	std::mt19937 random(20261018U + 35U);
+	int scripts = 0;
+	int played = 0;
+	int later = 0;
+	int refused = 0;
+	for (const Json& weapon : actions["weapons"]) {
+		if (!weapon.contains("graph") || weapon.value("abilities", Json::array()).empty()) {
+			continue;
+		}
+		std::string tags;
+		for (const Json& tag : weapon["tags"]) {
+			tags += (tags.empty() ? "" : ",") + tag.get<std::string>();
+		}
+		const backend::gamedata::WeaponActionSet* server = tables.of_tags(tags);
+		if (server == nullptr) {
+			continue;
+		}
+		const Graph client = graph_of(weapon);
+		// The nodes of the conditions of the weapon (the terms, the selections): each script learns a random part of them.
+		std::vector<std::uint32_t> nodes;
+		for (const swc::combat::Fragment& fragment : client.fragments) {
+			for (const swc::combat::Transition& transition : fragment.transitions) {
+				for (const auto& term : transition.terms) {
+					for (const swc::combat::Literal& literal : term) {
+						if (literal.kind == swc::combat::Literal::Kind::node) {
+							nodes.push_back(literal.id);
+						}
+					}
+				}
+			}
+		}
+		for (const swc::combat::Ability& ability : client.abilities) {
+			for (const auto& selection : ability.selections) {
+				nodes.insert(nodes.end(), selection.needs.begin(), selection.needs.end());
+			}
+		}
+		for (int index = 0; index < 200; ++index) {
+			swc::combat::Facts facts;
+			for (const std::uint32_t node : nodes) {
+				if (random() % 2 == 0) {
+					facts.nodes.insert(node);
+				}
+			}
+			std::vector<AbilityStep> script(360);
+			for (std::size_t at = static_cast<std::size_t>(random() % 10); at < script.size();) {
+				const unsigned kind = random() % 10;
+				if (kind < 5) {
+					script[at].ability = client.abilities[random() % client.abilities.size()].id;
+				} else if (kind < 8) {
+					script[at].button = 1;
+					const std::size_t up = at + 1 + random() % (random() % 4 == 0 ? 40 : 8);
+					if (up < script.size()) {
+						script[up].button = -1;
+					}
+				} else {
+					script[at].block = true;
+				}
+				at += 1 + random() % 25;
+			}
+			const std::uint16_t first = static_cast<std::uint16_t>(random());
+			const AbilityRun a = run_client_abilities(client, script, facts, first);
+			const AbilityRun b = run_backend_abilities(*server, script, facts, first);
+			++scripts;
+			for (const std::string& verdict : a.presses) {
+				played += verdict == "now" ? 1 : 0;
+				later += verdict.rfind("later", 0) == 0 ? 1 : 0;
+				refused += verdict == "refused" ? 1 : 0;
+			}
+			if (a.visits != b.visits || a.presses != b.presses) {
+				check(false, "ability parity " + tags + ":\n  client  " + text_of(a.visits) + "\n  backend " + text_of(b.visits) + "\n  client  "
+					+ text_of(a.presses) + "\n  backend " + text_of(b.presses));
+				break;
+			}
+			++g_checks;
+		}
+	}
+	check(scripts >= 1000 && played > 0 && later > 0 && refused > 0, "ability parity scripts: " + std::to_string(scripts));
+	std::printf("ability parity: %d scripts, presses: %d now, %d later, %d refused\n", scripts, played, later, refused);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -796,7 +1287,10 @@ int main(int argc, char** argv)
 	switch_tests(hammerGraph, greataxeGraph, 18, "war hammer to great axe");
 	switch_tests(swordGraph, greatswordGraph, 12, "sword to greatsword");
 	driver_tests(swordGraph, greatswordGraph);
+	driver_ability_tests(greataxeGraph, hammerGraph);
 	parity_tests(actions, tables);
+	ability_data_tests(actions, tables);
+	ability_parity_tests(actions, tables);
 	strike_tests(actions, tables);
 	contact_filter_tests();
 	life_tests();

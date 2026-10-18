@@ -1,0 +1,16 @@
+# The build of the development character Swordwarden (the character of the fight loop of P2.10) for stage P3.5 (tools/creature-check.sh, tools/lib/dev_world.py): the
+# weapon masteries, the tree nodes, and the bars of the great axe and the war hammer of the build sheet
+# ~/Games/azoth/work/builds/medium-bruiser-mikars.md (section 2: 19 nodes of each tree, the bars of the guide). The nodes go in
+# the order of the rows of the tree (one point each). The level 60 and the full health. Times from the world entry (s).
+1 level 60
+1.5 heal
+2 mastery Swordwarden greataxe 20
+2.5 node Swordwarden greataxe Passive_Greataxe_Reaper_DmgOnLight Passive_Greataxe_Mauler_StamVsLowHp Passive_Greataxe_Reaper_OnCritHeal Passive_Greataxe_Reaper_ArmorPenVsLowHP Ability_Greataxe_Maelstorm Passive_Greataxe_Mauler_HeavyAddGrit Ability_Greataxe_Charge Passive_Greataxe_Reaper_Crit Passive_Greataxe_Mauler_PullDur Upgrade_Greataxe_Maelstorm_Rng Ability_Greataxe_GravityWell Passive_Greataxe_Reaper_CritVsLowHP Upgrade_Greataxe_Maelstorm_AbsorbProjectiles Upgrade_Greataxe_GravityWell_DmgPerFoe Passive_Greataxe_Mauler_DmgWhenFoesNear Upgrade_Greataxe_Maelstorm_SpinAttack Passive_Greataxe_Mauler_ArmorWhenFoesNear Upgrade_Greataxe_GravityWell_ArmorInWell Ultimate_Greataxe_Mauler
+3.5 bar Swordwarden greataxe 0 Ability_Greataxe_Charge
+4 bar Swordwarden greataxe 1 Ability_Greataxe_Maelstorm
+4.5 bar Swordwarden greataxe 2 Ability_Greataxe_GravityWell
+5 mastery Swordwarden warhammer 20
+5.5 node Swordwarden warhammer Ability_WarHammer_WreckingBall Passive_WarHammer_Juggernaut_LightHeavyPenetrate Passive_WarHammer_Juggernaut_HeavyEmpower Ability_WarHammer_Shockwave Passive_WarHammer_CrowdCrusher_ArmorPerNearbyEnemy Passive_WarHammer_Juggernaut_ExhaustOnHit Passive_WarHammer_Juggernaut_HeavyGrit Upgrade_WarHammer_Shockwave_Weaken Passive_WarHammer_CrowdCrusher_RangeAbsorbSprint Upgrade_WarHammer_Wreck_Fortify Passive_WarHammer_CrowdCrusher_DmgToWHDebuff Ability_WarHammer_PathOfDestiny Upgrade_WarHammer_Wreck_Pushback Upgrade_WarHammer_Shockwave_SizeIncrease Passive_WarHammer_CrowdCrusher_HPOnCCHit Upgrade_WarHammer_PathOfDestiny_Stagger Passive_WarHammer_Juggernaut_DmgAfterTakingDmg Upgrade_WarHammer_PathOfDestiny_CDRPerHit Ult_Passive_WarHammer_SlowOnCC
+6.5 bar Swordwarden warhammer 0 Ability_WarHammer_WreckingBall
+7 bar Swordwarden warhammer 1 Ability_WarHammer_Shockwave
+7.5 bar Swordwarden warhammer 2 Ability_WarHammer_PathOfDestiny
