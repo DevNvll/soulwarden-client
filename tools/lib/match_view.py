@@ -73,7 +73,8 @@ def side_by_side(view: dict, reference: Path, client: Path, out: Path) -> None:
     draw = ImageDraw.Draw(image)
     feet = view["feet"]
     draw.text((14, 8), f"{view['name']}  |  retail (left), client (right)  |  {view.get('place', '')}", font=font(22), fill=(238, 242, 249))
-    draw.text((14, 40), f"hour: retail {clock(view['targetHour'])}, client {view.get('clientClock', '-')}  |  feet {feet[0]:.2f} {feet[1]:.2f} {feet[2]:.2f}  |  "
+    retail_hour = clock(view.get("referenceHour", view["targetHour"]))
+    draw.text((14, 40), f"hour: retail {retail_hour}, client {view.get('clientClock', '-')}  |  feet {feet[0]:.2f} {feet[1]:.2f} {feet[2]:.2f}  |  "
                         f"camera {view['camera'][0]:.2f} {view['camera'][1]:.2f} {view['camera'][2]:.2f}, heading {view['heading']:.1f}, pitch {view['pitch']:.1f}  |  "
                         f"vertical FOV {view['fov']:g}", font=font(17), fill=(175, 190, 209))
     image.save(out)
@@ -101,6 +102,8 @@ def main() -> int:
     parser.add_argument("--label", default="matchview")
     parser.add_argument("--settle", type=float, default=4.0)
     parser.add_argument("--lead", type=float, default=14.0, help="real seconds from the hour command to the hour of the picture")
+    parser.add_argument("--hours", action="append", default=[],
+                        help="VIEW=HH:MM[,HH:MM...]: more views of a reference view at other world hours (the left side: its retail picture)")
     parser.add_argument("--character", default=os.environ.get("SWC_DEV_CHARACTER", ""))
     parser.add_argument("--client-args", nargs=argparse.REMAINDER, default=[])
     args = parser.parse_args()
@@ -121,6 +124,33 @@ def main() -> int:
                       "camera": [camera["x"], camera["y"], camera["z"]], "heading": camera.get("heading_deg_cw_from_north", 0.0),
                       "pitch": camera.get("pitch_deg_positive_up", 0.0), "fov": camera["fov"]["vertical_deg"],
                       "targetHour": source["world_hour"]["client_hour_at_picture"]})
+    # More hours of a view: a copy of its JSON with the hour (the retail picture of the view stays the left side, with its own hour).
+    for spec in args.hours:
+        name, _, hours = spec.partition("=")
+        base = next((v for v in views if v["name"] == name), None)
+        if base is None:
+            entry = next((e for e in index["files"] if e.get("view") == name and "json" in e), None)
+            if entry is None:
+                print(f"match-view: no view {name} for --hours", flush=True)
+                continue
+            source = json.loads((folder / entry["json"]).read_text())
+        else:
+            source = json.loads(Path(base["json"]).read_text())
+        for text in hours.split(","):
+            hh, mm = (int(x) for x in text.split(":")[:2])
+            hour = hh + mm / 60.0
+            derived = json.loads(json.dumps(source))
+            derived["world_hour"]["client_hour_at_picture"] = hour
+            label = f"{name}@{hh:02d}{mm:02d}"
+            (out / "views").mkdir(exist_ok=True)
+            path = out / "views" / f"{label}.json"
+            path.write_text(json.dumps(derived, indent=1))
+            camera = derived["camera"]
+            views.append({"name": label, "json": str(path), "reference": str(folder / f"{name}.png"), "referenceHour": source["world_hour"]["client_hour_at_picture"],
+                          "out": str(out / "client" / f"{label}.png"), "place": derived.get("place", ""),
+                          "feet": [derived["feet"]["x"], derived["feet"]["y"], derived["feet"]["z"]], "camera": [camera["x"], camera["y"], camera["z"]],
+                          "heading": camera.get("heading_deg_cw_from_north", 0.0), "pitch": camera.get("pitch_deg_positive_up", 0.0),
+                          "fov": camera["fov"]["vertical_deg"], "targetHour": hour})
     plan = out / "plan.json"
     plan.write_text(json.dumps({"settle": args.settle, "width": 1280, "height": 720,
                                 "views": [{"name": v["name"], "json": v["json"], "out": v["out"]} for v in views]}, indent=1))

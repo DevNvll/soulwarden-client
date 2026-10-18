@@ -299,8 +299,10 @@ void USwcMatchViewSubsystem::Tick(float DeltaTime)
 		}
 		Step = EStep::InPlace;
 		StepSince = Now;
-		UE_LOG(LogSwcEnvironment, Log, TEXT("matchview: view %d %s: in place%s (server %.3f %.3f %.3f; camera pitch %.2f yaw %.2f, roll of the reference %.3f; %s, %d package(s) loading)"),
-			Current + 1, *View.Name, bTimeout ? TEXT(" after the timeout") : TEXT(""), Own.position.x, Own.position.y, Own.position.z, Rotation.Pitch, Rotation.Yaw, View.Roll,
+		const swc::net::WorldPosition PawnPlace = SwcUnrealToEngine(Pawn != nullptr ? Pawn->GetActorLocation() : FVector::ZeroVector);
+		UE_LOG(LogSwcEnvironment, Log, TEXT("matchview: view %d %s: in place%s (server %.3f %.3f %.3f; pawn %.3f %.3f %.3f, yaw %.2f; camera pitch %.2f yaw %.2f, roll of the reference %.3f; %s, %d package(s) loading)"),
+			Current + 1, *View.Name, bTimeout ? TEXT(" after the timeout") : TEXT(""), Own.position.x, Own.position.y, Own.position.z, PawnPlace.x, PawnPlace.y, PawnPlace.z,
+			Pawn != nullptr ? Pawn->GetActorRotation().Yaw : 0.0, Rotation.Pitch, Rotation.Yaw, View.Roll,
 			StreamingDone() ? TEXT("streaming done") : TEXT("streaming not done after the wait"), GetNumAsyncPackages());
 		return;
 	}
