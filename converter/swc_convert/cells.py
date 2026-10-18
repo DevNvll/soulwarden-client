@@ -5,10 +5,13 @@ Output: `regions/NAME/cells.bin`, the file of SwcEditorLibrary.SpawnInstanceActo
 CELL_M x CELL_M meters with one instanced static mesh component for each mesh. World Partition streams the actors by
 their bounds.
 
-File (little-endian): "SWCI", u32 version 1, u32 mesh count, the meshes (u16 length + UTF-8 Unreal folder), u32 actor
-count, then each actor: u16 length + UTF-8 label, f64 x 3 location (cm), u32 group count, then each group: u32 mesh
-index, u32 instance count, and each instance: f64 x 3 translation (cm), f32 x 4 rotation (Unreal quaternion x y z w),
-f32 x 3 scale. The transforms follow the space map of stage 1.1 (space.py).
+File (little-endian): "SWCI", u32 version 2, u32 entry count, the entries (u16 length + UTF-8 Unreal folder of the
+mesh, u16 slot count, and for each slot: the slot name and the material key that replaces its material, each u16
+length + UTF-8), u32 actor count, then each actor: u16 length + UTF-8 label, f64 x 3 location (cm), u32 group count,
+then each group: u32 entry index, u32 instance count, and each instance: f64 x 3 translation (cm), f32 x 4 rotation
+(Unreal quaternion x y z w), f32 x 3 scale. The transforms follow the space map of stage 1.1 (space.py).
+An entry is a pair (mesh, material override) (P4.1, overrides.py): the slots of a placement with an override get the
+material instances of the override (version 1 had only the mesh).
 """
 from __future__ import annotations
 
@@ -17,7 +20,7 @@ import struct
 
 import numpy as np
 
-from . import census, env, manifest
+from . import census, env, manifest, overrides
 
 CELL_M = 256.0
 SIGNS = np.array([[1.0, -1.0, 1.0], [-1.0, 1.0, -1.0], [1.0, -1.0, 1.0]])   # S L S with S = diag(1, -1, 1)
@@ -80,19 +83,42 @@ def write(name: str) -> dict:
     usable = np.array([assets.get(m, {}).get("kind") == "static" and not m.rsplit("/", 1)[-1].startswith("fx_")
                        for m in names], dtype=bool)
     keep = usable[data["mesh"]] if len(names) else np.zeros(0, bool)
-    mesh_of = data["mesh"][keep]
+    material_names = [str(m) for m in data.get("materials", np.array([""]))]
+    material_all = data["material"] if "material" in data else np.zeros(len(data["mesh"]), np.uint16)
+    pairs_path = overrides.out_dir() / "pairs.json"
+    pairs = json.loads(pairs_path.read_text()) if pairs_path.is_file() else {}
+
+    def slots_of(mesh_index: int, material_index: int) -> dict:
+        if not material_index:
+            return {}
+        return pairs.get(overrides.pair_key(names[mesh_index], material_names[material_index]), {}).get("slots", {})
+
+    # The entry of a placement: (mesh, override) when the override changes a slot, else the mesh alone.
+    entry_of_pair: dict[tuple[int, int], tuple[int, int]] = {}
+    for m, o in set(zip(data["mesh"][keep].tolist(), material_all[keep].tolist())):
+        entry_of_pair[(m, o)] = (m, o) if slots_of(m, o) else (m, 0)
+    pair_rows = np.array([entry_of_pair[(m, o)] for m, o in zip(data["mesh"][keep].tolist(), material_all[keep].tolist())],
+                         dtype=np.int64).reshape(-1, 2)
+    mesh_of = pair_rows[:, 0] * 65536 + pair_rows[:, 1]   # one number for each entry
     matrices = data["matrix"][keep]
     rx, ry = (int(v) for v in name[2:].split("_"))
     ox, oy = rx * 2048.0, ry * 2048.0
-    per_side = int(2048 / CELL_M)
-    cx = np.clip(((matrices[:, 0, 3] - ox) // CELL_M).astype(int), 0, per_side - 1)
-    cy = np.clip(((matrices[:, 1, 3] - oy) // CELL_M).astype(int), 0, per_side - 1)
+    # The cell of the place of each instance (no clip: 0.11 % of the placements are more than 200 m outside the square of
+    # their region, up to 970 m; a cell index can be below 0 or above 7). The actor stands at the center of its cell:
+    # floor(X / 25600) and floor(-Y / 25600) give the global cell (the creature track's SwcLevelInstances).
+    cx = np.floor((matrices[:, 0, 3] - ox) / CELL_M).astype(int)
+    cy = np.floor((matrices[:, 1, 3] - oy) / CELL_M).astype(int)
     transforms = unreal_transforms(matrices)
     used = sorted(set(mesh_of.tolist()))
     table = {m: i for i, m in enumerate(used)}
-    out = bytearray(b"SWCI" + struct.pack("<II", 1, len(used)))
+    out = bytearray(b"SWCI" + struct.pack("<II", 2, len(used)))
+    overridden = 0
     for m in used:
-        out += text(assets[names[m]]["unreal"])
+        slots = slots_of(m // 65536, m % 65536)
+        overridden += bool(slots)
+        out += text(assets[names[m // 65536]]["unreal"]) + struct.pack("<H", len(slots))
+        for slot, key in sorted(slots.items()):
+            out += text(slot) + text(key)
     cells = sorted(set(zip(cx.tolist(), cy.tolist())))
     out += struct.pack("<I", len(cells))
     groups = 0
@@ -111,7 +137,9 @@ def write(name: str) -> dict:
     temporary = path.with_suffix(".tmp")   # a level build can read the file: atomic
     temporary.write_bytes(bytes(out))
     temporary.replace(path)
-    report = {"region": name, "placements": int(len(data["mesh"])), "instances": int(keep.sum()), "meshes": len(used),
+    report = {"region": name, "placements": int(len(data["mesh"])), "instances": int(keep.sum()), "entries": len(used),
+              "entries with an override": overridden,
+              "instances with an override": int(sum(1 for m in mesh_of.tolist() if m % 65536)),
               "cells": len(cells), "components": groups, "file": str(path), "bytes": len(out),
               "left out (not imported or effect cards)": int((~keep).sum())}
     (path.parent / "cells.json").write_text(json.dumps(report, indent=1))

@@ -10,6 +10,7 @@ Not done yet: the terrain cookies of the capitals, the grass (.vegetation), wate
 """
 from __future__ import annotations
 
+import functools
 import json
 import math
 import struct
@@ -26,8 +27,21 @@ WORLD = "sharedassets/coatlicue/newworld_vitaeeterna/"
 F = source.field_id
 SMRN, STATIC_MESH, WORLD_TM, COMPONENTS = F("Static Mesh Render Node"), F("Static Mesh"), F("m_worldTM"), F("Components")
 VISIBLE = F("Visible")
+NAME = F("Name")
+# Gathering nodes (P4.1): the level shows only the healthy mesh of a node; the client shows the depleted mesh at run time
+# when the server says that the node is depleted (the creature track). Two rules of the game data:
+# 1. The master slices of slices/gatherables name the entity of the depleted mesh DepletedMesh or Depleted (both
+#    entities of a node are Visible).
+# 2. The variation tables (VariationData: StartMesh, DepletedMesh of each variant): a DepletedMesh is not placed where
+#    the StartMesh of its row stands (within DEPLETED_PLACE_M; for example the BaseMesh of the alchemy nodes).
+DEPLETED_ENTITIES = (b"DepletedMesh", b"Depleted")
+DEPLETED_PLACE_M = 0.1
 MAP, SLICE_NAME, VARIANT_NAME = F("sliceMetaDataMap"), F("sliceName"), F("variantName")
 MESHES, MESH_ID, ROOT_TM, INSTANCE_TMS = F("meshes"), F("meshAssetId"), F("rootRelativeTransform"), F("rootRelativeInstanceTransforms")
+# The material override of a placement (P4.1): the field of the mesh render node of a slice entity, and the field of a
+# mesh of the slice metadata (a variant: for example the fall material of a poplar of Oxboro). It replaces the material
+# of the mesh (all its sub-materials, by index).
+MATERIAL_OVERRIDE_ASSET, MATERIAL_OVERRIDE_ID = F("Material Override Asset"), F("materialOverrideAssetId")
 
 
 def slice_key(name: str) -> str:
@@ -73,14 +87,33 @@ def asset_path(element) -> str | None:
     return v[56:56 + size].decode("latin-1").lower() or None
 
 
-def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray]]:
-    """@return (mesh path, entity world matrix) of each entity of a slice with a static mesh component."""
+def material_path(element) -> str | None:
+    """@return The .mtl of a material asset field, or None (no override). Two forms: a value with the asset id (the mesh
+    render node of a slice), or the children guid and subId (the meshes of the slice metadata)."""
+    if element is None:
+        return None
+    if element.children:
+        a = source.asset_id(element)
+        path = source.product(a[0], a[1], ".mtl") if a and any(a[0]) else None
+    elif element.value and any(element.value[:16]):
+        path = asset_path(element)
+    else:
+        return None
+    return path if path and path.endswith(".mtl") else None
+
+
+def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None]]:
+    """@return (mesh path, entity world matrix, material override or None) of each entity of a slice with a static mesh
+    component."""
     out = []
     for e in source.walk(source.parse(data)[0]):
         comps = e.child(COMPONENTS)
         if comps is None:
             continue
-        tm, mesh = None, None
+        name = e.child(NAME)
+        if name is not None and name.value in DEPLETED_ENTITIES:
+            continue   # the depleted mesh of a gathering node (rule 1)
+        tm, mesh, material = None, None, None
         for comp in comps.children:
             for f in comp.children:
                 if f.name == WORLD_TM and f.value is not None and len(f.value) == 48:
@@ -92,9 +125,52 @@ def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray]]:
                     a = f.child(STATIC_MESH)
                     if a is not None:
                         mesh = asset_path(a)
+                    material = material_path(f.child(MATERIAL_OVERRIDE_ASSET))
         if mesh and mesh.endswith(".cgf"):
-            out.append((mesh, tm if tm is not None else np.eye(4)))
+            out.append((mesh, tm if tm is not None else np.eye(4), material))
     return out
+
+
+@functools.lru_cache(maxsize=1)
+def depleted_pairs() -> dict[str, frozenset[str]]:
+    """@return For each DepletedMesh of the variation tables of the game: the StartMeshes of its rows (rule 2)."""
+    from . import datasheet
+    pairs: dict[str, set[str]] = {}
+    for path in sorted(p for p in source.paks().entries if p.startswith(datasheet.TABLES_FOLDER) and p.endswith(".datasheet")):
+        try:
+            sheet = datasheet.Sheet(source.read(path))
+        except (ValueError, struct.error):
+            continue
+        if sheet.type != "VariationData" or "StartMesh" not in sheet.columns or "DepletedMesh" not in sheet.columns:
+            continue
+        for row in sheet.rows():
+            start = str(row.get("StartMesh", "")).lower().replace("\\", "/")
+            depleted = str(row.get("DepletedMesh", "")).lower().replace("\\", "/")
+            if start and depleted and start != depleted:
+                pairs.setdefault(depleted, set()).add(start)
+    return {k: frozenset(v) for k, v in pairs.items()}
+
+
+def without_depleted(items: list[dict]) -> tuple[list[dict], int]:
+    """@return The placements without each DepletedMesh whose StartMesh stands at its place (rule 2), and the count."""
+    pairs = depleted_pairs()
+    cell = DEPLETED_PLACE_M
+
+    def key(mesh, m):
+        return mesh, round(m[0][3] / cell), round(m[1][3] / cell), round(m[2][3] / cell)
+
+    starts = {key(p["mesh"], p["matrix"]) for p in items}
+    out, dropped = [], 0
+    for p in items:
+        mesh = p["mesh"]
+        if mesh in pairs:
+            _, x, y, z = key(mesh, p["matrix"])
+            if any((s, x + dx, y + dy, z + dz) in starts for s in pairs[mesh]
+                   for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)):
+                dropped += 1
+                continue
+        out.append(p)
+    return out, dropped
 
 
 def read_distribution(data: bytes):
@@ -209,10 +285,10 @@ class Region:
                 continue
             base = np.eye(4)
             base[:3, 3] = (x, y, z)
-            for mesh, tm in slice_meshes(source.read(path)):
+            for mesh, tm, material in slice_meshes(source.read(path)):
                 m = base @ tm
                 if inside(m[0, 3], m[1, 3]):
-                    out.append({"source": "chunk", "mesh": mesh, "matrix": m.tolist()})
+                    out.append({"source": "chunk", "mesh": mesh, "matrix": m.tolist(), "material": material})
                     counts["chunk"] += 1
         # capitals
         metadata = {}
@@ -246,12 +322,14 @@ class Region:
                     root_m = rows4(matrix_of(getattr(mesh.child(ROOT_TM), "value", None)) or (1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0))
                     inst = mesh.child(INSTANCE_TMS)
                     mats = [rows4(m) for m in (matrix_of(n.value) for n in inst.children) if m is not None] if inst is not None else []
+                    material = material_path(mesh.child(MATERIAL_OVERRIDE_ID))
                     for im in (mats or [np.eye(4)]):
-                        out.append({"source": "capital variant", "mesh": mp, "matrix": (matrix @ root_m @ im).tolist()})
+                        out.append({"source": "capital variant", "mesh": mp, "matrix": (matrix @ root_m @ im).tolist(),
+                                    "material": material})
                         counts["capital variant"] += 1
             else:
-                for mp, tm in meshes:
-                    out.append({"source": "capital", "mesh": mp, "matrix": (matrix @ tm).tolist()})
+                for mp, tm, material in meshes:
+                    out.append({"source": "capital", "mesh": mp, "matrix": (matrix @ tm).tolist(), "material": material})
                     counts["capital"] += 1
             for sp in spawners:
                 if sp.slice is None or not sp.on_start:
@@ -285,21 +363,46 @@ class Region:
                 m[:3, 3] = (wp["x"], wp["y"], wp["z"])
                 place(path, str(c.get("variantName", "")), m, 0)
         # distribution rows
-        names, _variants, idx, pos, rot, scale = read_distribution(source.read(self.folder + "region.distribution"))
+        names, variants, idx, pos, rot, scale = read_distribution(source.read(self.folder + "region.distribution"))
         lx = (pos >> 16) * 2048 / 65535.0
         ly = (pos & 0xFFFF) * 2048 / 65535.0
-        slices: dict[str, list | None] = {}
+        slices: dict = {}
+        of_variant: set[tuple[str, str]] = set()
+        counts["distribution rows of a variant"] = 0
         wx, wy = lx + ox, ly + oy
         for r in np.nonzero((wx >= x0) & (wx <= x0 + size) & (wy >= y0) & (wy <= y0 + size))[0]:
             name = names[idx[r]].lower()
-            if name not in slices:
-                p = name if name.endswith(".dynamicslice") else name + ".dynamicslice"
-                p = p if p.startswith("slices/") else "slices/" + p
-                try:
-                    slices[name] = slice_meshes(source.read(p))
-                except Exception:
-                    slices[name] = None
-            meshes = slices[name]
+            variant = variants[idx[r]].lower() if idx[r] < len(variants) else ""
+            if (name, variant) not in slices:
+                # The variant of the row (for example the ore of a master_minerals node): the meshes of its metadata in
+                # region.slicedata, as for a capital; else the meshes of the slice.
+                meta = metadata.get((slice_key(name), variant)) if variant else None
+                if meta is not None and meta.child(MESHES) is not None:
+                    found = []
+                    for mesh in meta.child(MESHES).children:
+                        a = source.asset_id(mesh.child(MESH_ID))
+                        mp = source.product(a[0], a[1], ".cgf") if a else None
+                        if mp is None:
+                            continue
+                        root_m = rows4(matrix_of(getattr(mesh.child(ROOT_TM), "value", None)) or (1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0))
+                        inst = mesh.child(INSTANCE_TMS)
+                        mats = [rows4(m) for m in (matrix_of(n.value) for n in inst.children) if m is not None] if inst is not None else []
+                        material = material_path(mesh.child(MATERIAL_OVERRIDE_ID))
+                        found.extend((mp, root_m @ im, material) for im in (mats or [np.eye(4)]))
+                    slices[(name, variant)] = found or None
+                    of_variant.add((name, variant))
+                else:
+                    if name not in slices:
+                        p = name if name.endswith(".dynamicslice") else name + ".dynamicslice"
+                        p = p if p.startswith("slices/") else "slices/" + p
+                        try:
+                            slices[name] = slice_meshes(source.read(p))
+                        except Exception:
+                            slices[name] = None
+                    slices[(name, variant)] = slices[name]
+            meshes = slices[(name, variant)]
+            if (name, variant) in of_variant and meshes:
+                counts["distribution rows of a variant"] += 1
             if not meshes:
                 counts["distribution rows with no mesh"] += 1
                 continue
@@ -311,9 +414,10 @@ class Region:
             m = np.eye(4)
             m[:3, :3] = quat_matrix(qx, qy, qz, qw) * (scale[r] * 0.01)
             m[:3, 3] = (lx[r] + ox, ly[r] + oy, self.height_at(lx[r], ly[r]))
-            for mesh, tm in meshes:
-                out.append({"source": "distribution", "mesh": mesh, "matrix": (m @ tm).tolist()})
+            for mesh, tm, material in meshes:
+                out.append({"source": "distribution", "mesh": mesh, "matrix": (m @ tm).tolist(), "material": material})
                 counts["distribution"] += 1
+        out, counts["depleted meshes left out (variation rows)"] = without_depleted(out)
         return out, counts
 
     def write_placements(self, area=None) -> dict:

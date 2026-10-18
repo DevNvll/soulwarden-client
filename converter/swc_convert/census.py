@@ -49,13 +49,18 @@ def region_pass(name: str) -> dict:
     mesh_of = np.array([index[p["mesh"]] for p in items], dtype=np.uint32)
     source_of = np.array([SOURCES.index(p["source"]) for p in items], dtype=np.uint8)
     matrices = np.array([p["matrix"][:3] for p in items], dtype=np.float64).reshape(-1, 3, 4)
+    # The material override of each placement (P4.1): an index into `materials` (0: none, the material of the mesh).
+    overrides = [""] + sorted({p["material"] for p in items if p.get("material")})
+    override_index = {m: i for i, m in enumerate(overrides)}
+    material_of = np.array([override_index[p.get("material") or ""] for p in items], dtype=np.uint16)
     out = placements_file(name)
     out.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out, meshes=np.array(meshes), mesh=mesh_of, source=source_of, matrix=matrices,
-                        sources=np.array(SOURCES))
+                        sources=np.array(SOURCES), materials=np.array(overrides), material=material_of)
     (out.parent / "meshes.json").write_text(json.dumps(meshes))   # for the import script (no numpy in Unreal)
     instances = np.bincount(mesh_of, minlength=len(meshes)) if len(meshes) else np.zeros(0, np.int64)
     return {"region": name, "placements": len(items), "counts": counts, "unique meshes": len(meshes),
+            "material overrides": len(overrides) - 1, "placements with an override": int((material_of > 0).sum()),
             "instances": {m: int(c) for m, c in zip(meshes, instances)}, "seconds": round(time.time() - started, 1)}
 
 
