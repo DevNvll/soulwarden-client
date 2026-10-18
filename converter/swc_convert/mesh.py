@@ -35,8 +35,8 @@ def load(path: str) -> tuple[cgf.ChunkFile, list[cgf.Mesh]]:
 
 
 # The rule of the static meshes: 1 = stage P0 (textures in each glTF); 2 = stage 1.2 (shared materials);
-# 3 = the shared PNGs of materials.TEXTURE_VERSION 2.
-VERSION = 3
+# 3 = the shared PNGs of materials.TEXTURE_VERSION 2; 4 = a texture with only a file path (materials.texture_product).
+VERSION = 4
 
 
 def compact(indices: np.ndarray, *arrays):
