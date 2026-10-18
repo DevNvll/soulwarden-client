@@ -2,7 +2,9 @@
 # Builds and runs the offline tests of the UI runtime (tests/ui) with the system C++ compiler: the core rules, then the
 # original HUD scripts on the converted content (SWC_CONTENT/ui) in the embedded Lua 5.1.5 with no engine. The build
 # output and the reports (the stub log, the error log, the missing textures, the draw list) go to SWC_WORK/build/ui-tests.
-# Usage: tools/test-ui.sh [--preview] [TEST ARGUMENTS]   (--preview: a picture of the draw list, uipreview.py)
+# Then the fixtures of the original scripts (tests/ui/fixtures/*.lua, each in a runtime of its own).
+# Usage: tools/test-ui.sh [--preview] [TEST ARGUMENTS]   (--preview: the pictures of the draw lists, uipreview.py;
+#        --fixture NAME runs only that fixture, --no-hud skips the HUD run)
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 compiler="${CXX:-clang++}"
@@ -26,9 +28,15 @@ nice -n 10 "${compiler}" -std=c++20 -O1 -g -fexceptions -Wall -Wextra -Wno-unuse
     "${SWC_REPO}/tests/ui/ui_tests.cpp" "${module}/Private/Json.cpp" "${module}/Private/Model.cpp" \
     "${module}/Private/Draw.cpp" "${module}/Private/LuaHost.cpp" "${module}/Private/LuaSource.cpp" "${out}/SwcLua51.o" "${out}/SwcLua51Os.o" -o "${out}/swc-ui-tests"
 status=0
+rm -rf "${out}/reports/fixtures"
 "${out}/swc-ui-tests" "${SWC_CONTENT}/ui" "${SWC_REPO}/unreal/SoulwardenClient/Lua" "${out}/reports" \
-    --draw "${out}/reports/draw.json" "$@" || status=$?
+    --draw "${out}/reports/draw.json" --fixtures "${SWC_REPO}/tests/ui/fixtures" "$@" || status=$?
 if [[ "${preview}" == 1 ]]; then
     (cd "${SWC_REPO}/converter" && python3 -B -m swc_convert.uipreview "${out}/reports/draw.json" "${out}/reports/hud.png")
+    # The pictures of the fixtures (picture(NAME) in a fixture: reports/fixtures/FIXTURE/draw/NAME.json).
+    for draw in "${out}"/reports/fixtures/*/draw/*.json; do
+        [[ -f "${draw}" ]] || continue
+        (cd "${SWC_REPO}/converter" && python3 -B -m swc_convert.uipreview "${draw}" "${draw%.json}.png")
+    done
 fi
 exit "${status}"

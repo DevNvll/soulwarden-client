@@ -328,6 +328,11 @@ setmetatable(_G, {
       Swc.Stub("bus", name)
       return Swc.Bus(name)
     end
+    if Swc.absentNames and Swc.absentNames[name] then
+      -- A name that the client program does not have (gamedata/enums.json): nil, as in the client.
+      Swc.Stub("absent in the client", name)
+      return nil
+    end
     local value = enum_stub(name)
     if value ~= nil then
       return value

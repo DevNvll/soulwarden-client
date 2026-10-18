@@ -82,6 +82,9 @@ SWCUI_EXPORT std::string display_text(const TextData& text);
 /** Builds the draw list of each enabled canvas, in the draw order. */
 SWCUI_EXPORT void build_draw_list(Model& model, TextMeasure& measure, DrawList& out);
 
+/** @return The draw list as JSON (the format of the preview, converter/swc_convert/uipreview.py). */
+SWCUI_EXPORT std::string draw_list_json(const DrawList& list);
+
 /** @return 8-bit RGBA of a color (sRGB values) with an alpha. */
 SWCUI_EXPORT std::uint32_t pack_color(const Color& color, float alpha);
 

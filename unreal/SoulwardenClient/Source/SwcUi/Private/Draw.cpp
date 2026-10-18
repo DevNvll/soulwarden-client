@@ -1,4 +1,5 @@
 #include "SwcUi/Draw.h"
+#include "SwcUi/Json.h"
 
 #include <algorithm>
 #include <cmath>
@@ -665,6 +666,51 @@ void build_draw_list(Model& model, TextMeasure& measure, DrawList& out) {
         }
         walker.element(canvas->root, 1.0F);
     }
+}
+
+// The draw list as JSON for the preview (converter/swc_convert/uipreview.py): meshes, text lines, and clip quads.
+std::string draw_list_json(const DrawList& list) {
+    std::string out = "{\"viewport\":[" + std::to_string(list.viewport.x) + "," + std::to_string(list.viewport.y) + "],\"items\":[";
+    bool first = true;
+    char buffer[128];
+    for (const DrawItem& item : list.items) {
+        out += first ? "" : ",";
+        first = false;
+        switch (item.kind) {
+        case DrawItem::Kind::mesh: {
+            out += "{\"k\":\"mesh\",\"tex\":" + json::quote(item.texture) + ",\"blend\":" + std::to_string(item.blend) + ",\"v\":[";
+            for (std::size_t i = 0; i < item.vertices.size(); ++i) {
+                const Vertex& vx = item.vertices[i];
+                std::snprintf(buffer, sizeof(buffer), "%s%.2f,%.2f,%.4f,%.4f,%u", i == 0 ? "" : ",", vx.x, vx.y, vx.u, vx.v, vx.rgba);
+                out += buffer;
+            }
+            out += "],\"i\":[";
+            for (std::size_t i = 0; i < item.indices.size(); ++i) {
+                out += (i == 0 ? "" : ",") + std::to_string(item.indices[i]);
+            }
+            out += "]}";
+            break;
+        }
+        case DrawItem::Kind::text:
+            std::snprintf(buffer, sizeof(buffer), "[%.4f,%.4f,%.4f,%.4f,%.2f,%.2f]", item.transform.a, item.transform.b, item.transform.c,
+                          item.transform.d, item.transform.tx, item.transform.ty);
+            out += "{\"k\":\"text\",\"font\":" + json::quote(item.fontFile) + ",\"size\":" + std::to_string(item.fontSize) +
+                   ",\"text\":" + json::quote(item.text) + ",\"m\":" + buffer;
+            std::snprintf(buffer, sizeof(buffer), ",\"color\":[%.3f,%.3f,%.3f,%.3f]}", item.color.r, item.color.g, item.color.b, item.color.a);
+            out += buffer;
+            break;
+        case DrawItem::Kind::push_clip:
+            std::snprintf(buffer, sizeof(buffer), "{\"k\":\"push\",\"q\":[%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f]}", item.quad[0].x,
+                          item.quad[0].y, item.quad[1].x, item.quad[1].y, item.quad[2].x, item.quad[2].y, item.quad[3].x, item.quad[3].y);
+            out += buffer;
+            break;
+        case DrawItem::Kind::pop_clip:
+            out += "{\"k\":\"pop\"}";
+            break;
+        }
+    }
+    out += "]}\n";
+    return out;
 }
 
 } // namespace swc::ui

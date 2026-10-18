@@ -1,13 +1,44 @@
--- The enum values that the emulation knows. The values of the client are inside its generated code (open point O1 of
--- the research); the scripts and the emulation use the same table, thus the values only need to agree with the
--- emulation. The LyShine enums have the orders of O3DE (UiImageBus.h, UiTextBus.h, UiTransformBus.h; facts only);
--- the runtime (Source/SwcUi/Public/SwcUi/Model.h) uses the same numbers. An enum that is not here is a stub with a
--- number of its own (swc/core.lua).
+-- The enum values. The client values come from a static read of the client program (tools/convert-ui.sh enums,
+-- gamedata/enums.json; docs/UI.md): they apply first. The own values below apply only to names that the table does not
+-- have (the table has only the names that the scripts read). Where an own value differs from the client value, the
+-- client value applies and Swc.enumDifferences records the name (the enum fixture of tools/test-ui.sh checks it: the
+-- runtime C++ code uses the LyShine values, Source/SwcUi/Public/SwcUi/Model.h). An enum that is in neither table is a
+-- stub with a number of its own (swc/core.lua). A name that the client does not have stays nil, as in the client.
+
+Swc.clientEnums = {}
+Swc.absentNames = {}
+Swc.enumDifferences = {}
+do
+  local data, err = swcui.load_json("gamedata/enums.json")
+  if data then
+    for name, value in pairs(data.values or {}) do
+      Swc.clientEnums[name] = value
+      rawset(_G, name, value)
+    end
+    for _, name in ipairs(data.absent or {}) do
+      Swc.absentNames[name] = true
+    end
+  else
+    Swc.Note("no enum table of the client: " .. tostring(err) .. " (tools/convert-ui.sh enums); own values only")
+  end
+end
+
+--- Defines one enum value of the emulation: the client value when the table has the name, else the own value.
+function Swc.DefineEnum(name, own)
+  local client = Swc.clientEnums[name]
+  if client ~= nil then
+    if client ~= own then
+      Swc.enumDifferences[name] = {own = own, client = client}
+    end
+    return
+  end
+  rawset(_G, name, own)
+end
 
 local function define(group, names, first)
   local value = first or 0
   for _, name in ipairs(names) do
-    rawset(_G, group .. "_" .. name, value)
+    Swc.DefineEnum(group .. "_" .. name, value)
     value = value + 1
   end
 end
@@ -33,17 +64,19 @@ define("eUiNavigationMode", {"Automatic", "Custom", "None"})
 define("eUiLayoutOrder", {"LeftToRight", "RightToLeft"})
 define("eUiScaleToDeviceMode", {"None", "UniformScaleToFit", "UniformScaleToFill", "UniformScaleToFitX",
                                 "UniformScaleToFitY", "NonUniformScale", "ScaleXOnly", "ScaleYOnly"})
-define("eUiRecompute", {"RectOnly", "TransformOnly", "RectAndTransform", "ViewportTransformOnly", "RectAndTransformForced"})
+define("eUiRecompute", {"RectOnly", "TransformOnly", "RectAndTransform", "ViewportTransformOnly", "TransformOnlyForced",
+                        "RectAndTransformForced"})
 -- SetTextWithFlags: bit 0 escapes the markup, bit 1 localizes (O3DE UiTextInterface::SetTextFlags).
-rawset(_G, "eUiTextSet_SetAsIs", 0)
-rawset(_G, "eUiTextSet_SetEscapeMarkup", 1)
-rawset(_G, "eUiTextSet_SetLocalized", 2)
+Swc.DefineEnum("eUiTextSet_SetAsIs", 0)
+Swc.DefineEnum("eUiTextSet_SetEscapeMarkup", 1)
+Swc.DefineEnum("eUiTextSet_SetLocalized", 2)
 
 -- The tween engine: the ease methods and the ease types of the gem (swc/tween.lua has the functions).
-define("ScriptedEntityTweenerEasingMethod", {"None", "Linear", "Quad", "Cubic", "Quart", "Quint", "Sine", "Expo",
-                                             "Circ", "Elastic", "Back", "Bounce"})
+define("ScriptedEntityTweenerEasingMethod", {"Linear", "Quad", "Cubic", "Quart", "Quint", "Sine", "Expo", "Circ",
+                                             "Elastic", "Back", "Bounce"})
 define("ScriptedEntityTweenerEasingType", {"In", "Out", "InOut"})
 
--- The input devices of the actions (LyShineManagerBus GetLastActionInputDevice, LastInputDeviceNotificationBus): this
--- stage has only the keyboard and the mouse.
-define("eAID", {"KeyboardMouse", "AzPad"})
+-- The input devices of the actions (LyShineManagerBus GetLastActionInputDevice, LastInputDeviceNotificationBus): bit
+-- flags in the client (KeyboardMouse 1, AzPad 16).
+Swc.DefineEnum("eAID_KeyboardMouse", 1)
+Swc.DefineEnum("eAID_AzPad", 16)

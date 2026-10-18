@@ -89,7 +89,6 @@ end
 
 -- The "in" form of each method; out(t) = 1 - in(1 - t); inOut joins the two halves.
 local easeIn = {
-  [ScriptedEntityTweenerEasingMethod_None] = function(t) return t end,
   [ScriptedEntityTweenerEasingMethod_Linear] = function(t) return t end,
   [ScriptedEntityTweenerEasingMethod_Quad] = function(t) return t * t end,
   [ScriptedEntityTweenerEasingMethod_Cubic] = function(t) return t * t * t end,

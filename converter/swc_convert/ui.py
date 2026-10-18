@@ -10,6 +10,7 @@ Usage (tools/convert-ui.sh; output in SWC_CONTENT/ui, never in git):
   fonts                   the .font files -> fonts/fonts.json, the font effects -> fonts/effects.json, the font files
   text                    the English texts (localization/en-us/*.loc.xml) -> localization/en-us.json
   gamedata                the game data of the HUD (data tables): gamedata/abilities.json, gamedata/weapons.json
+  enums                   the enum values of the client for the names that the scripts read -> gamedata/enums.json
 
 The canvas form (research ~/Games/soulwarden-client/research/ui.md, section 2): a binary object stream with one
 SliceComponent; its Entities list has the canvas entity and one entity for each element. The converter keeps each
@@ -25,6 +26,8 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
+import re
 import shutil
 import struct
 import sys
@@ -35,7 +38,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from . import datasheet, dds, env, source
+from . import datasheet, dds, env, luabc, source, uienums
 from .source import field_id, number, parse, real, text
 
 # The canvases of the first HUD (stage 1.10): the globals (the loader of the screens), the vitals, the weapon and
@@ -744,6 +747,43 @@ def convert_gamedata() -> dict:
     return {"ability tables": len(tables), "abilities": len(abilities), "weapons": len(weapons)}
 
 
+# ---------------------------------------------------------------------------------------------------------------- enums
+
+ENUM_NAME = re.compile(r"^([A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|e[A-Z][A-Za-z0-9]+)$")
+CONTAINER_NAME = re.compile(r"^(vector|array|pair|unordered_map|map|set)_")
+
+
+def script_globals() -> tuple[set[str], set[str]]:
+    """@return (the global names that the scripts read, the global names that they write), from their bytecode."""
+    read: set[str] = set()
+    written: set[str] = set()
+    for prefix in ("lyshineui/", "scripts/"):
+        for path in source.paks().paths(prefix, ".luac"):
+            r, w = luabc.globals_used(luabc.load(source.read(path)))
+            read |= r
+            written |= w
+    return read, written
+
+
+def convert_enums() -> dict:
+    """The enum values of the client program (uienums.py) for each enum-like global name that a script reads and no
+    script writes. gamedata/enums.json: values (name -> number), absent (names with no text in the client: nil in
+    the client), unknown (names with a text but no value)."""
+    read, written = script_globals()
+    names = sorted(n for n in read - written if ENUM_NAME.match(n) and not CONTAINER_NAME.match(n))
+    program = Path(os.environ["SOULWARDEN_GAME_DIR"]) / "Bin64" / "NewWorld.exe"
+    values, unknown = uienums.enum_values(program, names)
+    absent = sorted(n for n, cause in unknown.items() if cause == "no text in the client")
+    target = out_dir() / "gamedata"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "enums.json").write_text(json.dumps({
+        "program": {"file": "Bin64/NewWorld.exe", "size": program.stat().st_size},
+        "values": values, "absent": absent,
+        "unknown": {n: c for n, c in unknown.items() if n not in absent},
+    }, indent=0, sort_keys=True))
+    return {"names": len(names), "values": len(values), "absent": len(absent), "unknown": len(unknown) - len(absent)}
+
+
 # ------------------------------------------------------------------------------------------------------------------ main
 
 def wanted_file() -> Path:
@@ -756,7 +796,7 @@ def hud(force: bool) -> dict:
     for folder in HUD_TEXTURE_FOLDERS:
         textures |= set(folder_textures(folder))
     result = {"canvases": canvases, "scripts": convert_scripts(), "fonts": convert_fonts(), "text": convert_text(),
-              "gamedata": convert_gamedata(), "textures": convert_textures(textures, force)}
+              "gamedata": convert_gamedata(), "enums": convert_enums(), "textures": convert_textures(textures, force)}
     return result
 
 
@@ -773,6 +813,7 @@ def main(argv=None) -> int:
     sub.add_parser("fonts")
     sub.add_parser("text")
     sub.add_parser("gamedata")
+    sub.add_parser("enums")
     args = parser.parse_args(argv)
     if args.command == "hud":
         result = hud(args.force)
@@ -799,6 +840,8 @@ def main(argv=None) -> int:
         result = convert_fonts()
     elif args.command == "gamedata":
         result = convert_gamedata()
+    elif args.command == "enums":
+        result = convert_enums()
     else:
         result = convert_text()
     print(json.dumps(result, indent=1, default=str))

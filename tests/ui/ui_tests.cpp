@@ -3,14 +3,19 @@
 // the missing textures, and the draw list (a JSON file for the preview: converter/swc_convert/uipreview.py).
 //
 // Usage: swc-ui-tests CONTENT_UI LUA_DIR REPORT_DIR [--seconds S] [--draw FILE] [--health H MAX] [--mana M MAX]
-//                     [--stamina S MAX] [--only-core] [--all-screens]
+//                     [--stamina S MAX] [--only-core] [--all-screens] [--fixtures DIR] [--fixture NAME]... [--no-hud]
+//   --fixtures DIR: after the HUD run, each DIR/*.lua (not prelude.lua) runs in a runtime of its own (fixtures of the
+//   original scripts: tests/ui/fixtures); --fixture NAME runs only the named fixtures; --no-hud skips the HUD run.
 //   --all-screens: the loader of the globals loads each screen of the game, not only the HUD screens of stage 1.10 (a
 //   probe of the stub surface of the other screens; their textures are not converted).
 
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -115,52 +120,62 @@ void core_tests(const std::string& tmp) {
     }
 }
 
-std::string draw_json(const swc::ui::DrawList& list) {
-    using namespace swc::ui;
-    std::string out = "{\"viewport\":[" + std::to_string(list.viewport.x) + "," + std::to_string(list.viewport.y) + "],\"items\":[";
-    bool first = true;
-    char buffer[128];
-    for (const DrawItem& item : list.items) {
-        out += first ? "" : ",";
-        first = false;
-        switch (item.kind) {
-        case DrawItem::Kind::mesh: {
-            out += "{\"k\":\"mesh\",\"tex\":" + json::quote(item.texture) + ",\"blend\":" + std::to_string(item.blend) + ",\"v\":[";
-            for (std::size_t i = 0; i < item.vertices.size(); ++i) {
-                const Vertex& vx = item.vertices[i];
-                std::snprintf(buffer, sizeof(buffer), "%s%.2f,%.2f,%.4f,%.4f,%u", i == 0 ? "" : ",", vx.x, vx.y, vx.u, vx.v, vx.rgba);
-                out += buffer;
-            }
-            out += "],\"i\":[";
-            for (std::size_t i = 0; i < item.indices.size(); ++i) {
-                out += (i == 0 ? "" : ",") + std::to_string(item.indices[i]);
-            }
-            out += "]}";
-            break;
-        }
-        case DrawItem::Kind::text:
-            std::snprintf(buffer, sizeof(buffer), "[%.4f,%.4f,%.4f,%.4f,%.2f,%.2f]", item.transform.a, item.transform.b, item.transform.c,
-                          item.transform.d, item.transform.tx, item.transform.ty);
-            out += "{\"k\":\"text\",\"font\":" + json::quote(item.fontFile) + ",\"size\":" + std::to_string(item.fontSize) +
-                   ",\"text\":" + json::quote(item.text) + ",\"m\":" + buffer;
-            std::snprintf(buffer, sizeof(buffer), ",\"color\":[%.3f,%.3f,%.3f,%.3f]}", item.color.r, item.color.g, item.color.b, item.color.a);
-            out += buffer;
-            break;
-        case DrawItem::Kind::push_clip:
-            std::snprintf(buffer, sizeof(buffer), "{\"k\":\"push\",\"q\":[%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f]}", item.quad[0].x,
-                          item.quad[0].y, item.quad[1].x, item.quad[1].y, item.quad[2].x, item.quad[2].y, item.quad[3].x, item.quad[3].y);
-            out += buffer;
-            break;
-        case DrawItem::Kind::pop_clip:
-            out += "{\"k\":\"pop\"}";
-            break;
-        }
-    }
-    out += "]}\n";
-    return out;
-}
 
 } // namespace
+
+std::string read_file(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    std::ostringstream text;
+    text << in.rdbuf();
+    return text.str();
+}
+
+/** Runs each fixture (DIR/NAME.lua) in a runtime of its own after the boot of the emulation; adds its checks. */
+void run_fixtures(const std::string& content, const std::string& luaDir, const std::string& reports, const std::string& dir,
+                  const std::vector<std::string>& only) {
+    using swc::ui::Runtime;
+    const std::string prelude = read_file(std::filesystem::path(dir) / "prelude.lua");
+    std::vector<std::filesystem::path> files;
+    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+        const std::string name = entry.path().stem().string();
+        if (entry.path().extension() == ".lua" && name != "prelude" &&
+            (only.empty() || std::find(only.begin(), only.end(), name) != only.end())) {
+            files.push_back(entry.path());
+        }
+    }
+    std::sort(files.begin(), files.end());
+    for (const std::filesystem::path& file : files) {
+        const std::string name = file.stem().string();
+        Runtime::Options options;
+        options.contentDir = content;
+        options.luaDir = luaDir;
+        options.reportDir = reports + "/fixtures/" + name;
+        options.allowedCanvases = {"(no screen of the loader)"};
+        std::filesystem::create_directories(options.reportDir);
+        Runtime runtime(options);
+        runtime.set_viewport(1920, 1080);
+        std::string error;
+        if (!runtime.start(&error)) {
+            check(false, "fixture " + name + ": the runtime did not start: " + error);
+            continue;
+        }
+        runtime.call("Boot");
+        std::string result;
+        const bool ok = runtime.call("RunFixture", {Runtime::Arg::of(name), Runtime::Arg::of(prelude), Runtime::Arg::of(read_file(file))},
+                                     &result);
+        int checks = 0;
+        int failed = 0;
+        std::sscanf(result.c_str(), "%d checks, %d failed", &checks, &failed);
+        g_checks += checks;
+        g_failed += failed + (ok ? 0 : 1);
+        std::printf("fixture %s: %s\n", name.c_str(), ok ? result.c_str() : "the runner raised an error");
+        runtime.write_reports(&error);
+        std::ofstream logFile(options.reportDir + "/ui-log.txt");
+        for (const std::string& line : runtime.take_log()) {
+            logFile << line << "\n";
+        }
+    }
+}
 
 int main(int argc, char** argv) {
     if (argc < 4) {
@@ -174,6 +189,9 @@ int main(int argc, char** argv) {
     std::string drawFile;
     bool onlyCore = false;
     bool allScreens = false;
+    bool hud = true;
+    std::string fixtureDir;
+    std::vector<std::string> fixtureNames;
     std::vector<std::string> dumpNames;
     std::vector<std::string> traceNames;
     std::vector<std::string> luaTexts;
@@ -184,6 +202,9 @@ int main(int argc, char** argv) {
         else if (a == "--draw" && i + 1 < argc) drawFile = argv[++i];
         else if (a == "--only-core") onlyCore = true;
         else if (a == "--all-screens") allScreens = true;
+        else if (a == "--no-hud") hud = false;
+        else if (a == "--fixtures" && i + 1 < argc) fixtureDir = argv[++i];
+        else if (a == "--fixture" && i + 1 < argc) fixtureNames.push_back(argv[++i]);
         else if (a == "--dump" && i + 1 < argc) dumpNames.push_back(argv[++i]);
         else if (a == "--trace" && i + 1 < argc) traceNames.push_back(argv[++i]);
         else if (a == "--lua" && i + 1 < argc) luaTexts.push_back(argv[++i]);
@@ -199,6 +220,13 @@ int main(int argc, char** argv) {
     }
 
     using swc::ui::Runtime;
+    if (!fixtureDir.empty()) {
+        run_fixtures(content, luaDir, reports, fixtureDir, fixtureNames);
+    }
+    if (!hud) {
+        std::printf("all: %d checks, %d failed\n", g_checks, g_failed);
+        return g_failed == 0 ? 0 : 1;
+    }
     Runtime::Options options;
     options.contentDir = content;
     options.luaDir = luaDir;
@@ -263,7 +291,7 @@ int main(int argc, char** argv) {
     swc::ui::DrawList list;
     runtime.build_draw_list(list);
     if (!drawFile.empty()) {
-        std::ofstream(drawFile) << draw_json(list);
+        std::ofstream(drawFile) << swc::ui::draw_list_json(list);
     }
     if (!runtime.write_reports(&error)) {
         std::printf("reports: %s\n", error.c_str());
@@ -280,5 +308,6 @@ int main(int argc, char** argv) {
                 static_cast<unsigned long long>(c.luaErrors), static_cast<unsigned long long>(c.stubNames),
                 static_cast<unsigned long long>(c.stubCalls), list.items.size(), static_cast<unsigned long long>(list.meshes),
                 static_cast<unsigned long long>(list.texts));
+    std::printf("all: %d checks, %d failed\n", g_checks, g_failed);
     return g_failed == 0 ? 0 : 1;
 }

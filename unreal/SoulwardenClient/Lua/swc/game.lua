@@ -93,11 +93,11 @@ local slots = {Head = 0, Chest = 1, Hands = 2, Legs = 3, Feet = 4, Amulet = 5, T
   InstrumentMandolin = 41, InstrumentUprightBass = 42, InstrumentDrums = 43, HeartGem = 45, Mount = 48, Num = 50,
   Invalid = 51}
 for name, value in pairs(slots) do
-  rawset(_G, "ePaperDollSlotTypes_" .. name, value)
+  Swc.DefineEnum("ePaperDollSlotTypes_" .. name, value)
 end
--- The aliases of GetActiveSlot (values of this emulation).
-rawset(_G, "ePaperdollSlotAlias_ActiveWeapon", 1000)
-rawset(_G, "ePaperdollSlotAlias_ActiveOffHandWeapon", 1001)
+-- The aliases of GetActiveSlot (the client values: ActiveWeapon 50, ActiveOffHandWeapon 55).
+Swc.DefineEnum("ePaperdollSlotAlias_ActiveWeapon", 50)
+Swc.DefineEnum("ePaperdollSlotAlias_ActiveOffHandWeapon", 55)
 
 Swc.player = Swc.player or {}
 Swc.player.equipment = {}      -- slot -> item id (text)

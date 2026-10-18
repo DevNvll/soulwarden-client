@@ -68,6 +68,8 @@ public:
         static Arg nil() { return {}; }
     };
     bool call(const std::string& name, const std::vector<Arg>& args = {});
+    /** As call(), with the first result of the function as text (tostring) in *result. */
+    bool call(const std::string& name, const std::vector<Arg>& args, std::string* result);
 
     /** One frame: the tick buses, the tweens, the flipbooks of the emulation. */
     void tick(double deltaSeconds);

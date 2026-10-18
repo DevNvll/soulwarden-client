@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -826,6 +827,29 @@ int n_clock(lua_State* L) {
     return 1;
 }
 
+// The tests (tests/ui/fixtures): one frame of the runtime, and the draw list of the frame as a file for a picture.
+int n_tick(lua_State* L) {
+    runtime_of(L).tick(luaL_checknumber(L, 1));
+    return 0;
+}
+
+int n_write_draw(lua_State* L) {
+    const std::string name = luaL_checkstring(L, 1);
+    if (name.find_first_of("/\\") != std::string::npos || name.empty()) {
+        return luaL_error(L, "write_draw: a plain name only");
+    }
+    Runtime& runtime = runtime_of(L);
+    DrawList list;
+    runtime.build_draw_list(list);
+    const std::string dir = runtime.options().reportDir + "/draw";
+    std::error_code ignored;
+    std::filesystem::create_directories(dir, ignored);
+    const std::string path = dir + "/" + name + ".json";
+    std::ofstream(path) << draw_list_json(list);
+    lua_pushstring(L, path.c_str());
+    return 1;
+}
+
 int n_viewport(lua_State* L) {
     return push_vec(L, model_of(L).viewport());
 }
@@ -944,7 +968,7 @@ const luaL_Reg kNatives[] = {
     {"set", n_set}, {"load_canvas", n_load_canvas}, {"unload_canvas", n_unload_canvas}, {"find_canvas", n_find_canvas},
     {"canvases", n_canvases}, {"canvas_get", n_canvas_get}, {"canvas_set", n_canvas_set}, {"localize", n_localize},
     {"has_text", n_has_text}, {"crc32", n_crc32}, {"texture_exists", n_texture_exists}, {"stub", n_stub}, {"log", n_log},
-    {"clock", n_clock}, {"viewport", n_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
+    {"clock", n_clock}, {"tick", n_tick}, {"write_draw", n_write_draw}, {"viewport", n_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
     {"load_lua", n_load_lua}, {nullptr, nullptr}};
 
 } // namespace
@@ -1022,6 +1046,10 @@ bool Runtime::run_file(const std::string& path, std::string* error) {
 }
 
 bool Runtime::call(const std::string& name, const std::vector<Arg>& args) {
+    return call(name, args, nullptr);
+}
+
+bool Runtime::call(const std::string& name, const std::vector<Arg>& args, std::string* result) {
     if (m_lua == nullptr) {
         return false;
     }
@@ -1048,10 +1076,16 @@ bool Runtime::call(const std::string& name, const std::vector<Arg>& args) {
         default: lua_pushnil(L); break;
         }
     }
-    const bool ok = lua_pcall(L, static_cast<int>(args.size()), 0, top + 1) == 0;
+    const bool ok = lua_pcall(L, static_cast<int>(args.size()), result != nullptr ? 1 : 0, top + 1) == 0;
     if (!ok) {
         const char* why = lua_tostring(L, -1);
         note_error(std::string("Swc.") + name + ": " + (why != nullptr ? why : "(error)"));
+    } else if (result != nullptr) {
+        lua_getglobal(L, "tostring");
+        lua_pushvalue(L, -2);
+        lua_call(L, 1, 1);
+        const char* text = lua_tostring(L, -1);
+        *result = text != nullptr ? text : "";
     }
     lua_settop(L, top);
     return ok;

@@ -40,6 +40,7 @@ tools/convert-ui.sh wanted [FILE]          # the textures that a run asked for (
 tools/convert-ui.sh fonts                  # fonts/fonts.json, fonts/effects.json, fonts/files/
 tools/convert-ui.sh text                   # localization/en-us.json
 tools/convert-ui.sh gamedata               # gamedata/abilities.json, gamedata/weapons.json
+tools/convert-ui.sh enums                  # gamedata/enums.json: the enum values of the client program
 ```
 
 - Canvas (`.dynamicuicanvas`) and UI slice (`.dynamicslice`): an AZ object stream. A field id is the CRC-32 of the
@@ -51,6 +52,13 @@ tools/convert-ui.sh gamedata               # gamedata/abilities.json, gamedata/w
 - `--all` converts each canvas and each slice that a canvas spawns: 244 files. Two slices that canvases name are not
   in the game copy.
 - Texture: a PNG with an optional `.sprite.json` (the borders of a sliced image, or the cells of a sprite sheet).
+- Enum values (`enums`): `converter/swc_convert/luabc.py` reads the bytecode of each script and gives the global
+  names that the scripts read and do not write. For each enum-like name, `uienums.py` reads the client program
+  (`Bin64/NewWorld.exe`, read only, no code runs): the client registers each value with a LEA of the name text and a
+  call of a template function for that value. Down that call chain (depth 4 or less) a LEA points to a getter of a
+  few bytes (`mov eax, 2; ret`): its constant is the value. 1,674 of 1,681 names have a value. 7 names are not in the
+  client (they are nil in the client). One name text has 5 registrations (`ePaperDollSlotTypes_QuickSlot6`, values 19
+  to 23): the first one applies, as in the script context of the client.
 - Game data: `abilities.json` has each ability of the weapon ability tables (key: the CRC-32 of the lower-case
   AbilityID) with its icon, its category, its cooldown time, and its mana cost. `weapons.json` has each weapon and heart
   rune item (key: the lower-case item id) with its ability table, its mannequin tags, its tier, and its equip ability.
@@ -91,7 +99,7 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
 | `boot.lua` | Loads the files below. |
 | `core.lua` | The bus framework (`Connect`, `Broadcast`, `Event`, handlers by id), `DynamicBus`, the stub layer, the loader of the scripts. |
 | `values.lua` | The value classes: `Vector2`, `Vector3`, `Color`, `Uuid`, `UiOffsets`, `UiAnchors`, the time points, `Math`. |
-| `enums.lua` | The enum values that the emulation knows. |
+| `enums.lua` | The enum values: the client table (`gamedata/enums.json`) first, then the own values for the other names. |
 | `elements.lua` | The script instances, the activation of the elements, clone, destroy, the spawner, the flipbooks. |
 | `lyshine.lua` | The LyShine buses: element, transform, image, text, fader, mask, canvas, spawner, flipbook, image sequence. |
 | `datalayer.lua` | The data layer: nodes by path, observers (on a change), callbacks (on each set or call). |
@@ -102,8 +110,11 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
 
 Rules of the emulation:
 
+- Enums: the values of the client table apply first. An own value of the emulation applies only to a name that the
+  table does not have; a difference between an own value and the client value goes into `Swc.enumDifferences` (the
+  enum fixture fails on it). A name that the client does not have stays nil.
 - The stub layer: a global name that ends with `Bus` is a stub bus. A name like `eUiImageType_Fixed` or
-  `SomeType_Value` is an enum with a number of its own. A `vector_*` name is an engine vector. Each other unknown
+  `SomeType_Value` that no table has is an enum with a number of its own. A `vector_*` name is an engine vector. Each other unknown
   global is a stub. Each stub call goes into the stub log one time with its count and its first caller.
 - Activation (the order of `UiCanvasComponent`): the scripts of the canvas entity activate first. The new elements
   activate with no canvas link (`GetCanvas` gives an invalid id). Then the canvas links, then `InGamePostActivate`
@@ -148,7 +159,8 @@ to the data layer only when it changes.
 ## Checks
 
 ```sh
-tools/test-ui.sh --preview                         # core rules + 3 s of HUD scripts, picture hud.png
+tools/test-ui.sh --preview                         # core rules, 3 s of HUD scripts, the fixtures, pictures
+tools/test-ui.sh --no-hud --fixture enums          # one fixture only
 tools/test-ui.sh --all-screens --seconds 5         # the probe: each screen of the game, no engine
 tools/build.sh editor
 SWC_DEV_DATA=... SWC_AGENT_DESKTOP=... tools/dev-build.sh --preset bow-boltcaster
@@ -158,14 +170,22 @@ SWC_DEV_DATA=... SWC_AGENT_DESKTOP=... tools/dev-run.sh --window --enter --quit-
 The offline test uses a made-up player: a sword, a rapier, a heart rune, three abilities on each bar, one cooldown.
 Its reports go to `SWC_WORK/build/ui-tests/reports`.
 
+Fixtures (`tests/ui/fixtures/*.lua`): each fixture runs in a runtime of its own after the boot of the emulation (the
+globals canvas, no screen of the loader). It loads original canvases with their original scripts, sends input, runs
+frames, and checks values. The helpers are in `prelude.lua`: `check`, `equal`, `near`, `frames(seconds)`, `load(path)`,
+`element(canvas, "A/B")`, and `picture(name)` (a draw list; `--preview` makes the PNG in
+`reports/fixtures/FIXTURE/draw/`). The fixtures:
+
+| Fixture | Checks |
+| --- | --- |
+| `enums` | The client table against the own values, the paperdoll slots of the protocol notes, the LyShine values, a name that the client does not have. |
+
 `tools/dev-build.sh` gives a preset of the backend (`--list` shows them) to the dev character. It uses the
 development routes of the backend (`--dev-commands`): only in a development session, never with the data folder of
 the user ([AGENTS.md](../AGENTS.md), rules).
 
 ## Open points
 
-- O1: the enum values of the client are in its compiled code. The emulation uses its own values. The paperdoll slots
-  come from the protocol notes (section 4.11).
 - O3: the font size factor 0.75. O8: the rule of 1080 lines. A side-by-side picture with the retail client checks
   them.
 - O4: the order of the state transitions is a rule of the emulation, not a fact of the client.

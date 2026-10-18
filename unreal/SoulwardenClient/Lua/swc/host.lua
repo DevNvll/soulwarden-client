@@ -215,3 +215,27 @@ function Swc.Eval(text)
   end
   Swc.Note("eval: " .. table.concat(parts, " "))
 end
+
+--- Runs a fixture of the offline tests (tests/ui/fixtures): the prelude (the helpers), then the fixture.
+-- @return "N checks, M failed", then the lines of the failed checks and the notes.
+function Swc.RunFixture(name, prelude, text)
+  local result = {checks = 0, failed = 0, lines = {}}
+  Swc.fixture = result
+  for _, part in ipairs({{"prelude", prelude}, {name, text}}) do
+    local chunk, err = loadstring(part[2], "=" .. part[1])
+    local ok, why = chunk ~= nil, err
+    if chunk then
+      ok, why = xpcall(chunk, debug.traceback)
+    end
+    if not ok then
+      result.failed = result.failed + 1
+      result.lines[#result.lines + 1] = "error: " .. tostring(why)
+      break
+    end
+  end
+  local head = string.format("%d checks, %d failed", result.checks, result.failed)
+  if #result.lines == 0 then
+    return head
+  end
+  return head .. "\n" .. table.concat(result.lines, "\n")
+end
