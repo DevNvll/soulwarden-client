@@ -14,6 +14,25 @@ constexpr std::uint32_t kTypeMetadata = 10;
 constexpr std::uint32_t kTypeMovement = 11;
 constexpr std::uint32_t kTypeVitals = 15;
 constexpr std::uint32_t kTypeMarker = 5399;
+constexpr std::uint32_t kTypeProjectile = 16;
+constexpr std::uint32_t kTypeSpell = 2912;
+constexpr std::uint32_t kTypePositionInTheWorld = 13;
+constexpr std::uint32_t kTypeDelayedEvent = 3139;
+// The fields of the Projectile state (backend server/rep/states/projectile_state.cpp).
+constexpr unsigned kShotPosition = 0;
+constexpr unsigned kShotVelocity = 2;
+constexpr unsigned kShotTime = 4;
+constexpr unsigned kShotFlags = 9;
+constexpr unsigned kShotOwner = 10;
+constexpr unsigned kShotAmmo = 13;
+constexpr std::uint8_t kShotCollided = 0x01;
+// The fields of the Spell state (backend server/rep/states/spell_state.cpp).
+constexpr unsigned kSpellKey = 0;
+constexpr unsigned kSpellPlace = 1;
+constexpr unsigned kSpellRotation = 2;
+constexpr unsigned kSpellCaster = 7;
+constexpr unsigned kSpellSpawn = 8;
+constexpr unsigned kSpellRadiusScale = 10;
 constexpr std::uint32_t kSlotMetadata = 0;
 
 /** Fields of the movement state (movement_state.cpp). */
@@ -58,6 +77,18 @@ float f32_at(std::span<const std::uint8_t> value) {
 std::uint32_t size_of(std::span<const std::uint8_t> value) {
     Reader reader(value);
     return reader.size();
+}
+
+/** @return A place of the Projectile, Spell, and PositionInTheWorld states: x:f32 y:f32 z:u16 over -100 to 2000 m (reader
+ *  0x5CEA190; the movement state has -100 to 1000 m). */
+swc::net::WorldPosition wide_position(std::span<const std::uint8_t> value) {
+    constexpr float kWideHeightMin = -100.0F;
+    constexpr float kWideHeightRange = 2100.0F;
+    swc::net::WorldPosition position;
+    position.x = f32_at(value.subspan(0, 4));
+    position.y = f32_at(value.subspan(4, 4));
+    position.z = kWideHeightMin + static_cast<float>(read_be(value.subspan(8, 2))) / 65535.0F * kWideHeightRange;
+    return position;
 }
 
 } // namespace
@@ -114,7 +145,7 @@ void EntityTable::stop(std::uint32_t interest) {
     m_entities.erase(found);
 }
 
-void EntityTable::apply(const decoder::Record& record) {
+void EntityTable::apply(const decoder::Record& record, std::uint64_t nowUs) {
     auto found = m_entities.find(record.interest);
     if (found == m_entities.end()) {
         Entity entity;
@@ -144,8 +175,101 @@ void EntityTable::apply(const decoder::Record& record) {
                 entity.hasMarker = true;
                 entity.markerEnabled = value[0] != 0;
             }
+        } else if (fragment.type == kTypeProjectile) {
+            apply_projectile(fragment, entity);
+        } else if (fragment.type == kTypeSpell || fragment.type == kTypePositionInTheWorld || fragment.type == kTypeDelayedEvent) {
+            apply_spell(fragment, entity, nowUs);
         }
     }
+}
+
+void EntityTable::apply_projectile(const decoder::Fragment& fragment, Entity& entity) {
+    // A launch (flags 0: the flight from the anchor) or a collision (flags bit 0: the contact place and its time). A first
+    // record after a contact has both, in this order.
+    const auto flags = decoder::field_of(fragment, 0, kShotFlags);
+    const auto place = decoder::field_of(fragment, 0, kShotPosition);
+    const auto time = decoder::field_of(fragment, 0, kShotTime);
+    Projectile& shot = entity.projectile;
+    if (!flags.empty() && (flags[0] & kShotCollided) != 0) {
+        shot.collided = true;
+        if (place.size() == 10) {
+            shot.contact = wide_position(place);
+        }
+        if (time.size() == 8) {
+            shot.contactUs = read_be(time);
+        }
+    } else {
+        shot.hasLaunch = true;
+        if (place.size() == 10) {
+            shot.anchor = wide_position(place);
+        }
+        if (const auto velocity = decoder::field_of(fragment, 0, kShotVelocity); velocity.size() == 6) {
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                shot.velocity[axis] = half_to_float(static_cast<std::uint16_t>(read_be(velocity.subspan(axis * 2, 2))));
+            }
+        }
+        if (time.size() == 8) {
+            shot.launchUs = read_be(time);
+        }
+        if (const auto owner = decoder::field_of(fragment, 0, kShotOwner); owner.size() == 8) {
+            shot.owner = read_be(owner);
+        }
+        if (const auto ammo = decoder::field_of(fragment, 0, kShotAmmo); !ammo.empty()) {
+            shot.ammoKey = size_of(ammo);
+        }
+    }
+    entity.hasProjectile = true;
+    m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
+}
+
+void EntityTable::apply_spell(const decoder::Fragment& fragment, Entity& entity, std::uint64_t nowUs) {
+    SpellParts& spell = entity.spell;
+    if (!entity.hasSpellParts) {
+        spell.firstSeenUs = nowUs;
+    }
+    entity.hasSpellParts = true;
+    if (fragment.type == kTypeSpell) {
+        spell.hasSpell = true;
+        if (const auto key = decoder::field_of(fragment, 0, kSpellKey); key.size() == 4) {
+            spell.key = static_cast<std::uint32_t>(read_be(key));
+        }
+        if (const auto place = decoder::field_of(fragment, 0, kSpellPlace); place.size() == 10) {
+            spell.place = wide_position(place);
+        }
+        if (const auto rotation = decoder::field_of(fragment, 0, kSpellRotation); !rotation.empty()) {
+            spell.rotation = swc::net::read_quaternion(rotation);
+        }
+        if (const auto caster = decoder::field_of(fragment, 0, kSpellCaster); caster.size() == 24) {
+            std::copy(caster.begin(), caster.begin() + 16, spell.casterActor.begin());
+            spell.caster = read_be(caster.subspan(16, 8));
+        }
+        if (const auto spawn = decoder::field_of(fragment, 0, kSpellSpawn); spawn.size() == 8) {
+            spell.spawnUs = read_be(spawn);
+        }
+        if (const auto scale = decoder::field_of(fragment, 0, kSpellRadiusScale); scale.size() == 4) {
+            spell.radiusScale = f32_at(scale);
+        }
+    } else if (fragment.type == kTypePositionInTheWorld) {
+        if (const auto place = decoder::field_of(fragment, 0, 0); place.size() == 10) {
+            spell.hasPosition = true;
+            spell.position = wide_position(place);
+        }
+        if (const auto rotation = decoder::field_of(fragment, 0, 1); !rotation.empty()) {
+            spell.positionRotation = swc::net::read_quaternion(rotation);
+        }
+    } else {
+        // A delayed event: the time that is left from now (a half float, s) and the completed mark; a state with only one of
+        // them keeps the other one.
+        DelayedEventState& event = spell.events[fragment.slot];
+        if (const auto remaining = decoder::field_of(fragment, 0, 0); remaining.size() == 2) {
+            event.remaining = half_to_float(static_cast<std::uint16_t>(read_be(remaining)));
+        }
+        if (const auto completed = decoder::field_of(fragment, 0, 1); completed.size() == 1) {
+            event.completed = completed[0] != 0;
+        }
+        event.appliedUs = nowUs;
+    }
+    m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
 }
 
 void EntityTable::apply_movement(const decoder::Fragment& fragment, Entity& entity) {

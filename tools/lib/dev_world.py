@@ -18,6 +18,8 @@ Usage (tools/creature-world.sh):
   heal                               the health of the character
   level N                            the level of the character (its health grows with it)
   ignore on|off                      the creatures ignore the character (on) or not
+  shoot CREATURE                     the creature starts its basic shot at the character now (stage 3.4f-A)
+  area CREATURE                      the creature starts its next area attack at the character now (stage 3.4f-C)
   script FILE [--clock LOG]          a timed list of these commands: "SECONDS COMMAND WORDS..." each line (the seconds from
                                      now, or on the clock of the drive script in the client log LOG: its "drive: SECONDS s"
                                      lines; a drive line "SECONDS tick" is a clock mark that does nothing)
@@ -134,6 +136,8 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "POST", f"/v1/dev/creatures/spawn?character={character(folder)}&kind={rest[0]}{options}")
     if command in ("kill", "remove") and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/creatures/{command}?creature={rest[0]}")
+    if command in ("shoot", "area") and len(rest) == 1:
+        return request(folder, "POST", f"/v1/dev/creatures/{command}?creature={rest[0]}&character={character(folder)}")
     if command == "health" and len(rest) == 2:
         amount = f"percent={float(rest[1][:-1])}" if rest[1].endswith("%") else f"health={float(rest[1])}"
         return request(folder, "POST", f"/v1/dev/creatures/health?creature={rest[0]}&{amount}")

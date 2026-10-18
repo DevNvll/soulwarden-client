@@ -1,0 +1,26 @@
+# The drive of the exit check of stage P2.9 (tests/creatures/p29.txt): the camera turns to the east, 25 degrees down and
+# 2 m farther. The "tick" lines are the clock marks of the route script. Times in seconds from the possession of the
+# character; turn: degrees each second.
+1.0 turn 90
+2.0 turn 0
+3.0 tick
+3.2 pitch -25
+3.2 wheel -1
+3.6 wheel -1
+4.0 tick
+4.2 pitch 0
+6.0 tick
+8.0 tick
+10.0 tick
+12.0 tick
+14.0 tick
+18.0 tick
+20.0 tick
+22.0 tick
+26.0 tick
+28.0 tick
+30.0 tick
+34.0 tick
+36.0 tick
+38.0 tick
+42.0 tick

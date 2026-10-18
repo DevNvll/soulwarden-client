@@ -32,6 +32,7 @@ import os
 import re
 import struct
 import sys
+import uuid
 import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
@@ -1302,7 +1303,58 @@ def convert(indexes: set[int], force: bool = False) -> dict:
     report["slices"] = len(indexes)
     report["missing clips"] = {Path(k).stem: sorted(r.missing)[:10] for k, r in resolvers.items() if r.missing}
     report["failures"] = failures
+    report["effects"] = write_effects()
     return report
+
+
+def write_effects() -> dict:
+    """Writes effects.json (stage P2.9): the projectile slices and the spell slices of the backend data by the key of their
+    metadata state ("GUID:SUB", the asset catalog of the game), and the spell rows of the game by the CRC-32 of their
+    lower-case SpellID (the key of the Spell state, protocol notes 4.25).
+      projectiles  the flight of the client (protocol notes 4.37): m_baseSpeed, m_accel (m/s/s; x east, y north, z up),
+                   m_flyingLifetime and m_stuckLifetime (s)
+      spells       the delayed events (slot, delay, type: 0 trigger, 2 activate, 3 deactivate; target entity), and the first
+                   detection volume (the danger area): its shape (sphere, cylinder, or none: the shape of the spell row), its
+                   sizes (m), and its active time from the start (s; -1: never)
+      spellRows    ShapeTypes and Radius (m) of each spell row of the spell tables"""
+    gd = gamedata_dir()
+    projectiles = json.loads((gd / "projectile-data.json").read_text())
+    spells = json.loads((gd / "spell-data.json").read_text())
+    by_path: dict[str, str] = {}
+    for guid, products in source.catalog().items():
+        for sub, path in products:
+            if path.endswith(".dynamicslice"):
+                by_path.setdefault(path, f"{uuid.UUID(bytes=guid)}".upper() + f":{sub}")
+    out: dict = {"format": 1, "projectiles": {}, "spells": {}, "spellRows": {}}
+    for path, speed, _extra, _time_max, accel, flying, stuck in projectiles["slices"]:
+        if path in by_path:
+            out["projectiles"][by_path[path]] = {"path": path, "speed": speed, "accel": accel, "flyingLifetime": flying,
+                                                 "stuckLifetime": stuck}
+    for entry in spells["slices"]:
+        volume = None
+        for name, radius, active, shape, shape_radius, height, offset, inactive, *_rest in entry.get("volumes", []):
+            volume = {"name": name, "radius": radius, "activeAfter": active, "shape": shape, "shapeRadius": shape_radius,
+                      "height": height, "offset": offset, "inactiveAfter": inactive}
+            break
+        out["spells"][f"{entry['asset']}:{entry['sub']}"] = {
+            "path": entry["path"], "events": [[event[0], event[1], event[2], event[3]] for event in entry.get("events", [])],
+            "volume": volume}
+    for path in sorted(p for p in source.paks().entries if p.startswith(datasheet.TABLES_FOLDER) and p.endswith(".datasheet")
+                       and "spelltable" in p):
+        try:
+            sheet = datasheet.Sheet(source.read(path))
+        except Exception:
+            continue
+        if sheet.type != "SpellData":
+            continue
+        for row in sheet.rows():
+            spell_id = str(row.get("SpellID") or "")
+            if spell_id:
+                out["spellRows"].setdefault(str(crc_of(spell_id.lower())), {"id": spell_id, "shape": str(row.get("ShapeTypes") or ""),
+                                                                           "radius": number_of(str(row.get("Radius") or ""))})
+    out_path = creature_dir() / "effects.json"
+    out_path.write_text(json.dumps(out, indent=1, sort_keys=True))
+    return {"projectile slices": len(out["projectiles"]), "spell slices": len(out["spells"]), "spell rows": len(out["spellRows"])}
 
 
 def slices_matching(census_doc: dict, texts: list[str]) -> set[int]:
@@ -1332,6 +1384,7 @@ def main(argv=None) -> int:
     p.add_argument("--all", action="store_true")
     p.add_argument("--force", action="store_true")
     p = sub.add_parser("wanted"); p.add_argument("file", nargs="?"); p.add_argument("--force", action="store_true")
+    sub.add_parser("effects")
     args = parser.parse_args(argv)
     if args.command == "census":
         result = census()
@@ -1348,6 +1401,8 @@ def main(argv=None) -> int:
             x, y, radius = args.near if args.near else (*START, NEAR_RADIUS)
             indexes = near_slices(backend_data(), census_doc, (x, y), radius)
         result = convert(indexes, args.force)
+    elif args.command == "effects":
+        result = write_effects()
     else:
         result = wanted(args.file, args.force)
     print(json.dumps(result, indent=1, default=str))

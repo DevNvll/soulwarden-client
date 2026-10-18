@@ -44,6 +44,52 @@ struct ScopeRecord {
     float time{0.0F};
 };
 
+/** A projectile of a creature (MB::ProjectileReplicatedState, type 16; protocol notes 4.37): the launch state (the flight of the
+ *  client from the anchor) and the collision state (the client holds the projectile at the contact). */
+struct Projectile {
+    bool hasLaunch{false};
+    swc::net::WorldPosition anchor;
+    /** m/s, engine space. */
+    std::array<float, 3> velocity{};
+    /** The server time of the anchor (us). */
+    std::uint64_t launchUs{0};
+    /** The entity id of the creature that shot it, and the CRC-32 of the lower-case AmmoID (0: none). */
+    std::uint64_t owner{0};
+    std::uint32_t ammoKey{0};
+    bool collided{false};
+    swc::net::WorldPosition contact;
+    std::uint64_t contactUs{0};
+};
+
+/** The newest state of one DelayedEvent component of a spell entity (type 3139): the time that is left (s) and the
+ *  completed mark, with the server time at which the client applied it. */
+struct DelayedEventState {
+    float remaining{0.0F};
+    bool completed{false};
+    std::uint64_t appliedUs{0};
+};
+
+/** A spell entity (protocol notes 4.25, 4.39): the Spell state (type 2912), PositionInTheWorld (type 13), and the states of its
+ *  delayed events (type 3139) by their slot. */
+struct SpellParts {
+    bool hasSpell{false};
+    /** The CRC-32 of the lower-case SpellID, the start place and rotation, the caster, the spawn time (server us), the radius
+     *  scale. */
+    std::uint32_t key{0};
+    swc::net::WorldPosition place;
+    swc::net::Quaternion rotation;
+    swc::net::ActorId casterActor{};
+    std::uint64_t caster{0};
+    std::uint64_t spawnUs{0};
+    float radiusScale{1.0F};
+    bool hasPosition{false};
+    swc::net::WorldPosition position;
+    swc::net::Quaternion positionRotation;
+    std::map<std::uint32_t, DelayedEventState> events;
+    /** The server time of the first state of the entity that the client applied (us). */
+    std::uint64_t firstSeenUs{0};
+};
+
 /** One movement state of an entity: the time anchor of the server and the place. */
 struct MovementSample {
     std::uint64_t timeUs{0};
@@ -92,6 +138,12 @@ struct Entity {
     bool hasMarker{false};
     bool markerEnabled{false};
 
+    /** A projectile or a spell entity (its states; none for a creature). */
+    bool hasProjectile{false};
+    Projectile projectile;
+    bool hasSpellParts{false};
+    SpellParts spell;
+
     /** The counts of the states of this entity. */
     std::uint32_t movementStates{0};
     std::uint32_t vitalsStates{0};
@@ -107,7 +159,7 @@ struct Entity {
 
 /** A change of the table for the log and the view. */
 struct Change {
-    enum class Kind { added, removed, action, health, death };
+    enum class Kind { added, removed, action, health, death, effect };
     Kind kind{Kind::added};
     std::uint32_t interest{0};
     std::uint64_t serial{0};
@@ -122,8 +174,9 @@ public:
     /** Ticks of the time of scope 0 (movement_state.cpp kActionTicksPerSecond). */
     static constexpr float kTicksPerSecond = 30.0F;
 
-    /** Reads one record of an interest number that is not 1. */
-    void apply(const soulwarden::backend::tests::Record& record);
+    /** Reads one record of an interest number that is not 1. @param nowUs The server time now (us): the time of the states
+     *  of the delayed events of a spell entity (their remaining time counts from it). */
+    void apply(const soulwarden::backend::tests::Record& record, std::uint64_t nowUs = 0);
     /** Removes the entity of a stop of the control block. */
     void stop(std::uint32_t interest);
     void clear();
@@ -138,6 +191,8 @@ public:
 private:
     void apply_movement(const soulwarden::backend::tests::Fragment& fragment, Entity& entity);
     void apply_vitals(const soulwarden::backend::tests::Fragment& fragment, Entity& entity);
+    void apply_projectile(const soulwarden::backend::tests::Fragment& fragment, Entity& entity);
+    void apply_spell(const soulwarden::backend::tests::Fragment& fragment, Entity& entity, std::uint64_t nowUs);
 
     std::map<std::uint32_t, Entity> m_entities;
     std::uint64_t m_serial{0};

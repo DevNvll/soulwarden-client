@@ -5,7 +5,8 @@ in an entity table, the slice of its metadata state gives its model, and its mov
 its action, its name plate, and its health bar. The sources are the Soulwarden protocol notes 4.14 and 4.17, the research
 files `~/Games/soulwarden-client/research/feel-values.md` (part R3, Mannequin) and `creature-visuals.md` (AST-154), and the
 backend encoders (`apps/backend/src/server/rep/states`). Stage P2.8 (Linear AST-163) adds the hit volumes, the melee contacts of
-the player, the body capsule, the overlays of the other scopes, the reactions, and the damage numbers.
+the player, the body capsule, the overlays of the other scopes, the reactions, and the damage numbers. Stage P2.9 (AST-164) adds
+the weapon scope (the bow string), the shots, and the danger areas.
 
 ## The parts
 
@@ -21,6 +22,8 @@ the player, the body capsule, the overlays of the other scopes, the reactions, a
 | `Creatures/SwcHitShapes` | The shape test of the melee contacts: a point, a segment, or a box with a radius (Unreal world space). |
 | `Creatures/SwcMeleeContact` | Plain C++: the facet target of a hit volume and the fields of the item of list 3 (the writer is the one of the input codec). |
 | `Creatures/SwcDamageMessage` | Plain C++: the reader of the damage number of the attacker (type 2071). |
+| `Creatures/SwcEffects` | Plain C++: the flight of a shot, and the phases of a danger area (stage P2.9). |
+| `Creatures/SwcEffectActor` | The actor of a shot or a danger area (stage P2.9). |
 | `RepClient::take_other_updates`, `FSwcRepConnection::TakeOtherUpdates`, `USwcBackendSubsystem::TakeOtherUpdates` | The read path of the records of the other entities and of the damage numbers (Net/ of the player track; option `keepOtherRecords`). |
 
 ## The pipeline
@@ -208,6 +211,46 @@ creature. The backend sends only the record of scope 0 (and the additive scope):
   and a Vulkgard Archer play `FireBow` and `Archer_Fast_Ranged_Attack` 3 m from the character (the route `action`); the bow
   bends and the string moves with the draw and the release.
 
+## The shots and the danger areas (stage P2.9)
+
+The shots and the areas of the creatures are entities of their own in the state bundles (protocol notes 4.25, 4.37, 4.39;
+backend stages 3.4f-A to D). The entity table reads their states; `ASwcEffectActor` shows them on the render clock of the
+creatures (the server time less 0.25 s).
+
+| Record | States | The client |
+| --- | --- | --- |
+| A shot (`basic_ai_arrow`, `arcane_ai_arrow`, `mage_projectile_slow`, ...) | metadata (the projectile slice); Projectile (type 16): the launch (field 0 the anchor, 2 the velocity as half floats, 4 the time anchor, 10 the owner, 13 the ammunition key), then the collision (flags bit 0: field 0 the contact place, 4 its time) | flies from the anchor with the velocity and the acceleration of the slice (`m_accel`, not the gravity of the profile); holds at the contact; the stop of the record removes it |
+| A strike (`undead_shaman_lightning_strike`) | metadata; Spell (type 2912: the key of the spell row, the place, the rotation, the caster, the spawn time, the radius scale); DelayedEvent (type 3139) for each event slot | the danger area of the first detection volume of the slice |
+| A status area (`mage_ranged_aoe`, the mushroom) | metadata; PositionInTheWorld (type 13); DelayedEvent | the same; its start comes from the state of a delayed event (the time that is left, less the delay of the event) |
+
+- The places of these states have the height over −100 to 2000 m (the movement state: −100 to 1000 m).
+- The danger area: the shape of the first detection volume of the spell slice (a sphere, a cylinder, or no shape: the shape
+  of the spell row, `ShapeTypes` and `Radius`, for example the strike: 2.5 m). Before the volume is active it is a warning
+  (orange); while it is active it is the danger (red); after its deactivation it is gone. The times are the delays of the
+  events of the slice (the strike: the warning from 0 s, the danger at 0.9 s, the deactivation at 0.95 s), or the states of
+  the delayed events (the time that is left; a completed event is in the past; a held activation, which the server sends for
+  an activation that passed, is in the past too: a late session shows no bolt). A danger shows at least 0.3 s (a value of
+  this client). The stop of the record removes the area (the strike: 5 s after its start).
+- The data: `tools/convert-creatures.sh effects` (also at the end of `convert`) writes `SWC_CONTENT/creatures/effects.json`:
+  the projectile slices (108) and the spell slices (1,058) of the backend data by the key of their metadata state (the asset
+  catalog of the game), and the spell rows (1,777) by the CRC-32 of their lower-case SpellID.
+- The look is simple and readable (the effects of the game, their particles and their sounds, are for a later stage): a shot
+  is a thin shaft along its flight, an area is a flat disc on the ground (an engine material with the parameter Color).
+- The log lines: `effect N: a shot of creature M NAME (SLICE), launch X Y Z, velocity ...`, `the shot holds at the contact`,
+  `an area SPELL of creature M NAME (SLICE), radius R m`, `the warning of the area ... at 0.00 s`, `the danger of the area at
+  0.92 s`, `the end of the area at 1.22 s`, `removed (the stop of its record)`.
+- The route tool has `shoot CREATURE` and `area CREATURE` (the development routes of stages 3.4f-A and 3.4f-C): the creature
+  starts its basic shot or its next area attack at the character now.
+
+Exit check of stage P2.9 (development run, 2026-10-18, after the rebase on main a1af9e5; `SWC_WORK/evidence/P2.9/exit2.mp4`,
+50 s, and the logs; the picture `exit1-strike.png` of the same check before the rebase; `tests/creatures/p29.txt`): a grey
+wolf 3 m east of the character bites and lunges (melee: 12 attacks); a Vulkgard Archer 8 m east shoots 13 arrows (`FireBow`
+with the weapon scope on its bow; 11 hold at the contact at the character, 2 end with no contact; each one goes at the stop of
+its record); a Greedfall Grotto Shaman casts 4 lightning strikes (the route `area`): each one shows the orange warning disc of
+2.5 m at the character, the red danger at 0.91 s to 0.99 s, the end at 1.21 s to 1.28 s, and the removal at the stop. The
+tests: `tools/test-creatures.sh` (the shot, the strike, and the status area with the states of the backend encoders: 60
+checks).
+
 ## The read path of the other tracks
 
 - `USwcCreatureSubsystem::GetTargets(TArray<FSwcCreatureTarget>&)`: each creature of the table with an actor: its interest
@@ -260,7 +303,7 @@ about 13 minutes in all.
 ## The checks
 
 ```sh
-tools/test-creatures.sh                     # the entity table (63 checks); the contact item and the damage number (26 checks)
+tools/test-creatures.sh                     # the entity table (63), the contact item and the damage number (26), the shots and areas (60)
 export SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-creatures SWC_AGENT_DESKTOP=soulwarden-client-creatures
 tools/creature-check.sh creatures-world 80 tests/creatures/fight.txt tests/drive/creatures.txt
 # Stage P2.8: the melee contacts with the sword character of docs/GEAR.md, on the street west of the start place.
@@ -310,8 +353,9 @@ tests: `tools/test-creatures.sh` (63 and 26 checks), with the bytes of the backe
 
 ## Differences and open points
 
-- Not shown yet: the procedural clips (sounds, effects, the death material, the dissolve), the cloth and the bound props of a
-  `CA_BONE` binding, the look poses.
+- Not shown yet: the procedural clips (sounds, effects, the death material, the dissolve), the effects of the game for the shots
+  and the areas (their particles, trails, decals, and sounds: the client shows a simple shaft and a disc), the cloth and the
+  bound props of a `CA_BONE` binding, the look poses.
 - The melee contact: before 9557c3d the player side keyed one contact by its target and its facet, and a second volume of the
   same strike gave a refused contact ("the same attack", or "dead" after a kill). Now the key is the target (one contact for
   each target for each strike).

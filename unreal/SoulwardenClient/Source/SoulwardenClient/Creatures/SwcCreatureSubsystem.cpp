@@ -5,6 +5,7 @@
 #include "CanvasItem.h"
 #include "Creatures/SwcCreature.h"
 #include "Creatures/SwcDamageMessage.h"
+#include "Creatures/SwcEffectActor.h"
 #include "Debug/DebugDrawService.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/Canvas.h"
@@ -102,8 +103,8 @@ void USwcCreatureSubsystem::Clear(const TCHAR* Cause)
 {
 	if (Spawned > 0 || !Actors.IsEmpty())
 	{
-		UE_LOG(LogSwcCreatures, Log, TEXT("creatures: %s: %d creature(s) made (%d placeholder(s)), %d removed, %d action(s), %d death(s), %d kind(s), %d damage number(s)"),
-			Cause, Spawned, Placeholders, Removed, Actions, Deaths, Kinds.Num(), Damages);
+		UE_LOG(LogSwcCreatures, Log, TEXT("creatures: %s: %d creature(s) made (%d placeholder(s)), %d removed, %d action(s), %d death(s), %d kind(s), %d damage number(s), %d shot(s), %d area(s)"),
+			Cause, Spawned, Placeholders, Removed, Actions, Deaths, Kinds.Num(), Damages, Shots, Areas);
 	}
 	for (const TPair<uint32, TWeakObjectPtr<ASwcCreature>>& Pair : Actors)
 	{
@@ -113,6 +114,15 @@ void USwcCreatureSubsystem::Clear(const TCHAR* Cause)
 		}
 	}
 	Actors.Reset();
+	for (const TPair<uint32, TWeakObjectPtr<ASwcEffectActor>>& Pair : Effects)
+	{
+		if (Pair.Value.IsValid())
+		{
+			Pair.Value->Destroy();
+		}
+	}
+	Effects.Reset();
+	Shots = Areas = 0;
 	DamageNumbers.Reset();
 	Damages = 0;
 	Table.clear();
@@ -178,6 +188,8 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 		return;
 	}
 	bConnected = true;
+	// The server time of the records: the states of the delayed events of a spell count from it.
+	const uint64 ApplyTimeUs = Backend->GetServerTimeMicroseconds();
 	for (const swc::net::RepClient::OtherUpdate& Update : Updates)
 	{
 		if (Update.messageType == swc::net::kDamageDealt.index)
@@ -190,11 +202,33 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 		}
 		else
 		{
-			Table.apply(Update.record);
+			Table.apply(Update.record, ApplyTimeUs);
 		}
 	}
 	for (const swc::creatures::Change& Change : Table.take_changes())
 	{
+		// A shot or an area: the stop removes its actor.
+		if (TWeakObjectPtr<ASwcEffectActor>* Effect = Effects.Find(Change.interest))
+		{
+			const bool bStaleEffect = !Effect->IsValid() || (*Effect)->GetSerial() != Change.serial;
+			if (Change.kind == swc::creatures::Change::Kind::removed || bStaleEffect)
+			{
+				if (Effect->IsValid() && (Change.kind != swc::creatures::Change::Kind::removed || (*Effect)->GetSerial() == Change.serial))
+				{
+					UE_LOG(LogSwcCreatures, Log, TEXT("effect %u: removed (the stop of its record)"), Change.interest);
+					(*Effect)->Destroy();
+					Effects.Remove(Change.interest);
+				}
+			}
+			if (Change.kind == swc::creatures::Change::Kind::removed)
+			{
+				continue;
+			}
+		}
+		if (Change.kind == swc::creatures::Change::Kind::effect)
+		{
+			continue;
+		}
 		const swc::creatures::Entity* Entity = Table.find(Change.interest);
 		TWeakObjectPtr<ASwcCreature>* Actor = Actors.Find(Change.interest);
 		const bool bStale = Actor != nullptr && (!Actor->IsValid() || (*Actor)->GetSerial() != Change.serial);
@@ -231,6 +265,13 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 	const uint64 RenderTimeUs = ServerNowUs - static_cast<uint64>(InterpolationDelaySeconds * 1.0e6);
 	for (const auto& [Interest, Entity] : Table.entities())
 	{
+		// A shot, or a spell: a Spell state, a delayed event, or a spell slice (PositionInTheWorld alone is a state of many objects).
+		if (Entity.hasProjectile || (Entity.hasSpellParts && (Entity.spell.hasSpell || !Entity.spell.events.empty()
+			|| (Entity.hasMetadata && Library.FindSpell(UTF8_TO_TCHAR(Entity.slice_key().c_str())) != nullptr))))
+		{
+			UpdateEffect(Interest, Entity, RenderTimeUs);
+			continue;
+		}
 		TWeakObjectPtr<ASwcCreature>* Actor = Actors.Find(Interest);
 		if (Actor == nullptr || !Actor->IsValid())
 		{
@@ -332,6 +373,66 @@ void USwcCreatureSubsystem::DevelopmentAids()
 				*Contact.Volume, Contact.Distance, Contact.Item.point.x, Contact.Item.point.y, Contact.Item.point.z,
 				static_cast<unsigned long long>(Contact.Item.facet), Contact.bDevelopment ? TEXT(" (development contact)") : TEXT(""));
 		}
+	}
+}
+
+FString USwcCreatureSubsystem::CreatureName(uint64 Group) const
+{
+	for (const auto& [Interest, Entity] : Table.entities())
+	{
+		if (Entity.hasMetadata && swc::net::group_of(Entity.actor) == Group)
+		{
+			const TWeakObjectPtr<ASwcCreature>* Actor = Actors.Find(Interest);
+			return FString::Printf(TEXT("creature %u %s"), Interest, Actor != nullptr && Actor->IsValid() ? *(*Actor)->GetDisplayName() : TEXT(""));
+		}
+	}
+	return FString::Printf(TEXT("entity %016llx"), static_cast<unsigned long long>(Group));
+}
+
+void USwcCreatureSubsystem::UpdateEffect(uint32 Interest, const swc::creatures::Entity& Entity, uint64 RenderTimeUs)
+{
+	TWeakObjectPtr<ASwcEffectActor>* Found = Effects.Find(Interest);
+	ASwcEffectActor* Effect = Found != nullptr ? Found->Get() : nullptr;
+	if (Effect == nullptr)
+	{
+		// The slice of the metadata state gives the data of the effect; the Spell state gives the spell row (its key).
+		if (!Entity.hasMetadata)
+		{
+			return;
+		}
+		FActorSpawnParameters Parameters;
+		Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Effect = GetWorld()->SpawnActor<ASwcEffectActor>(ASwcEffectActor::StaticClass(), FTransform::Identity, Parameters);
+		if (Effect == nullptr)
+		{
+			return;
+		}
+		Effect->SetSerial(Entity.serial);
+		const FString Key = UTF8_TO_TCHAR(Entity.slice_key().c_str());
+		if (Entity.hasProjectile)
+		{
+			const FSwcProjectileSlice* Slice = Library.FindProjectile(Key);
+			Effect->SetupProjectile(Slice);
+			++Shots;
+			UE_LOG(LogSwcCreatures, Log, TEXT("effect %u: a shot of %s (%s), launch %.2f %.2f %.2f, velocity %.1f %.1f %.1f m/s"), Interest,
+				*CreatureName(Entity.projectile.owner), Slice != nullptr ? *Slice->Path : *Key, Entity.projectile.anchor.x, Entity.projectile.anchor.y,
+				Entity.projectile.anchor.z, Entity.projectile.velocity[0], Entity.projectile.velocity[1], Entity.projectile.velocity[2]);
+		}
+		else
+		{
+			const FSwcSpellSlice* Slice = Library.FindSpell(Key);
+			const FSwcSpellRow* Row = Entity.spell.hasSpell ? Library.FindSpellRow(Entity.spell.key) : nullptr;
+			Effect->SetupArea(Slice, Row);
+			++Areas;
+			UE_LOG(LogSwcCreatures, Log, TEXT("effect %u: an area %s of %s (%s), radius %.2f m"), Interest, Row != nullptr ? *Row->Id : TEXT("(no Spell state)"),
+				Entity.spell.hasSpell ? *CreatureName(Entity.spell.caster) : TEXT("-"), Slice != nullptr ? *Slice->Path : *Key, Effect->GetRadius());
+		}
+		Effects.Add(Interest, Effect);
+	}
+	const FString Text = Effect->UpdateFromEntity(Entity, RenderTimeUs);
+	if (!Text.IsEmpty())
+	{
+		UE_LOG(LogSwcCreatures, Log, TEXT("effect %u: %s"), Interest, *Text);
 	}
 }
 

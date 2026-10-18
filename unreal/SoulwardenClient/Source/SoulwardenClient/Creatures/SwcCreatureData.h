@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Character/SwcLocomotion.h"
+#include "Creatures/SwcEffects.h"
 
 /**
  * The converted creature content (tools/convert-creatures.sh, tools/import-creatures.sh; docs/CREATURES.md), read from
@@ -9,6 +10,7 @@
  *   slices.json      the asset id of a slice ("GUID:SUB") -> its body (.cdf), skeleton, animation set, weapons, material
  *                    variants, and marker values, with the object paths in /SwcGameContent (tools/import.sh)
  *   names.json       the name of each category row and vitals row (the name plate) and the creature type
+ *   effects.json     the projectile slices, the spell slices (their delayed events and their danger volume), the spell rows
  *   animations/KEY.json   the fragments of one animation set: for each fragment id the variant of the tags of its slice
  */
 
@@ -169,6 +171,28 @@ struct FSwcCreatureSlice
 	bool bNeverShowHealthBar = false;
 };
 
+/** The effect data (effects.json; stage P2.9): a projectile slice, a spell slice, a spell row. */
+struct FSwcProjectileSlice
+{
+	FString Path;
+	swc::creatures::ProjectileFlight Flight;
+};
+
+struct FSwcSpellSlice
+{
+	FString Path;
+	std::vector<swc::creatures::SpellEventData> Events;
+	bool bHasVolume = false;
+	swc::creatures::SpellVolumeData Volume;
+};
+
+struct FSwcSpellRow
+{
+	FString Id;
+	FString Shape;
+	float Radius = 0.0f;
+};
+
 class FSwcCreatureLibrary
 {
 public:
@@ -188,6 +212,11 @@ public:
 	/** @return The scale of a creature: CharacterScale of the base row of its vitals row (1 when it is not known). */
 	float Scale(uint32 VitalsId) const;
 
+	/** The effect data by the slice key ("GUID:SUB") or the key of the Spell state; null when it is not known. */
+	const FSwcProjectileSlice* FindProjectile(const FString& Key) const { return Projectiles.Find(Key); }
+	const FSwcSpellSlice* FindSpell(const FString& Key) const { return Spells.Find(Key); }
+	const FSwcSpellRow* FindSpellRow(uint32 Key) const { return SpellRows.Find(Key); }
+
 	/** Adds a slice key to SWC_WORK/creatures/wanted.json (tools/convert-creatures.sh wanted). @return True when it is new. */
 	bool AddWanted(const FString& Key);
 
@@ -200,5 +229,9 @@ private:
 	TMap<uint32, TPair<FString, FString>> Categories;
 	TMap<uint32, TPair<FString, FString>> VitalsRows;
 	TMap<uint32, float> Scales;
+	TMap<FString, FSwcProjectileSlice> Projectiles;
+	TMap<FString, FSwcSpellSlice> Spells;
+	TMap<uint32, FSwcSpellRow> SpellRows;
+	void LoadEffects(const FString& Folder);
 	TSet<FString> Wanted;
 };

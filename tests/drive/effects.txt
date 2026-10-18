@@ -1,0 +1,21 @@
+# The drive of the effect check (tests/creatures/effects.txt): the camera turns to the east, 25 degrees down and 2 m farther.
+# The "tick" lines are the clock marks of the route script. Times in seconds from the possession of the character.
+1.0 turn 90
+2.0 turn 0
+3.0 tick
+3.2 pitch -25
+3.2 wheel -1
+3.6 wheel -1
+4.0 tick
+4.2 pitch 0
+6.0 tick
+10.0 tick
+12.0 tick
+15.0 tick
+20.0 tick
+22.0 tick
+25.0 tick
+30.0 tick
+32.0 tick
+35.0 tick
+40.0 tick

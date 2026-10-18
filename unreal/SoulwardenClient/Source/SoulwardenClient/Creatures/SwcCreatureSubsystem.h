@@ -11,6 +11,7 @@
 
 class APlayerController;
 class ASwcCreature;
+class ASwcEffectActor;
 class UCanvas;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogSwcCreatures, Log, All);
@@ -48,6 +49,9 @@ struct FSwcMeleeContact
  * position, the movement states shown with a delay of InterpolationDelay on the server clock, and the name plates (a simple
  * plate drawn on the canvas of the game viewport; the original is the AiMarker template of
  * lyshineui/markers/markermanager.dynamicuicanvas, for the UI track).
+ *
+ * The shots and the danger areas of the creatures (stage P2.9): the entities with a Projectile state or the states of a spell
+ * (ASwcEffectActor; Creatures/SwcEffects.h).
  *
  * The damage numbers of the player (the message "on damage dealt", Creatures/SwcDamageMessage.h): a simple number at the
  * creature that rises and fades. The original is the damage number canvas of the game (for the UI runtime later).
@@ -112,6 +116,13 @@ private:
 	swc::creatures::EntityTable Table;
 	FSwcCreatureLibrary Library;
 	TMap<uint32, TWeakObjectPtr<ASwcCreature>> Actors;
+	/** The shots and the danger areas (stage P2.9): one actor for each entity with a Projectile state or the states of a spell. */
+	TMap<uint32, TWeakObjectPtr<ASwcEffectActor>> Effects;
+	void UpdateEffect(uint32 Interest, const swc::creatures::Entity& Entity, uint64 RenderTimeUs);
+	/** @return The name of the creature of an entity id (G), for the log. */
+	FString CreatureName(uint64 Group) const;
+	int32 Shots = 0;
+	int32 Areas = 0;
 	FDelegateHandle DrawHandle;
 	bool bAllPlates = false;
 	bool bFarContacts = false;

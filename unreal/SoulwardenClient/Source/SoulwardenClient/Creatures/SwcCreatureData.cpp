@@ -279,9 +279,98 @@ bool FSwcCreatureLibrary::Load(FString& OutReport)
 			Slices.Add(FString(Pair.Key.ToView()), Slice);
 		}
 	}
-	OutReport = FString::Printf(TEXT("creatures: %d converted slices (%d with a body), %d skeletons, %d names"), Slices.Num(), WithMesh, SkeletonCount,
-		Categories.Num());
+	LoadEffects(Folder);
+	OutReport = FString::Printf(TEXT("creatures: %d converted slices (%d with a body), %d skeletons, %d names; effects: %d projectile slices, %d spell slices, %d spell rows"),
+		Slices.Num(), WithMesh, SkeletonCount, Categories.Num(), Projectiles.Num(), Spells.Num(), SpellRows.Num());
 	return true;
+}
+
+void FSwcCreatureLibrary::LoadEffects(const FString& Folder)
+{
+	const TSharedPtr<FJsonObject> Document = ReadObject(FPaths::Combine(Folder, TEXT("effects.json")));
+	if (!Document.IsValid())
+	{
+		return;
+	}
+	const auto Floats = [](const TSharedPtr<FJsonObject>& Object, const TCHAR* Name)
+	{
+		TArray<double> Out;
+		const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+		if (Object.IsValid() && Object->TryGetArrayField(Name, Values))
+		{
+			for (const TSharedPtr<FJsonValue>& Value : *Values)
+			{
+				Out.Add(Value->AsNumber());
+			}
+		}
+		return Out;
+	};
+	const TSharedPtr<FJsonObject>* Objects = nullptr;
+	if (Document->TryGetObjectField(TEXT("projectiles"), Objects))
+	{
+		for (const auto& Pair : (*Objects)->Values)
+		{
+			const TSharedPtr<FJsonObject> Entry = Pair.Value->AsObject();
+			FSwcProjectileSlice Slice;
+			Slice.Path = Entry->GetStringField(TEXT("path"));
+			const TArray<double> Accel = Floats(Entry, TEXT("accel"));
+			if (Accel.Num() == 3)
+			{
+				Slice.Flight.accel = {static_cast<float>(Accel[0]), static_cast<float>(Accel[1]), static_cast<float>(Accel[2])};
+			}
+			Slice.Flight.flyingLifetime = Number(Entry, TEXT("flyingLifetime"), 0.0f);
+			Slice.Flight.stuckLifetime = Number(Entry, TEXT("stuckLifetime"), 0.0f);
+			Projectiles.Add(FString(Pair.Key.ToView()), Slice);
+		}
+	}
+	if (Document->TryGetObjectField(TEXT("spells"), Objects))
+	{
+		for (const auto& Pair : (*Objects)->Values)
+		{
+			const TSharedPtr<FJsonObject> Entry = Pair.Value->AsObject();
+			FSwcSpellSlice Slice;
+			Slice.Path = Entry->GetStringField(TEXT("path"));
+			const TArray<TSharedPtr<FJsonValue>>* Events = nullptr;
+			if (Entry->TryGetArrayField(TEXT("events"), Events))
+			{
+				for (const TSharedPtr<FJsonValue>& Value : *Events)
+				{
+					const TArray<TSharedPtr<FJsonValue>>& Event = Value->AsArray();
+					if (Event.Num() >= 4)
+					{
+						Slice.Events.push_back({static_cast<std::uint32_t>(Event[0]->AsNumber()), static_cast<float>(Event[1]->AsNumber()),
+							static_cast<std::uint32_t>(Event[2]->AsNumber()), TCHAR_TO_UTF8(*Event[3]->AsString())});
+					}
+				}
+			}
+			const TSharedPtr<FJsonObject>* Volume = nullptr;
+			if (Entry->TryGetObjectField(TEXT("volume"), Volume))
+			{
+				Slice.bHasVolume = true;
+				Slice.Volume.name = TCHAR_TO_UTF8(*(*Volume)->GetStringField(TEXT("name")));
+				Slice.Volume.shape = TCHAR_TO_UTF8(*(*Volume)->GetStringField(TEXT("shape")));
+				Slice.Volume.radius = Number(*Volume, TEXT("radius"), 0.0f);
+				Slice.Volume.shapeRadius = Number(*Volume, TEXT("shapeRadius"), 0.0f);
+				Slice.Volume.height = Number(*Volume, TEXT("height"), 0.0f);
+				Slice.Volume.offset = Number(*Volume, TEXT("offset"), 0.0f);
+				Slice.Volume.activeAfter = Number(*Volume, TEXT("activeAfter"), 0.0f);
+				Slice.Volume.inactiveAfter = Number(*Volume, TEXT("inactiveAfter"), -1.0f);
+			}
+			Spells.Add(FString(Pair.Key.ToView()), MoveTemp(Slice));
+		}
+	}
+	if (Document->TryGetObjectField(TEXT("spellRows"), Objects))
+	{
+		for (const auto& Pair : (*Objects)->Values)
+		{
+			const TSharedPtr<FJsonObject> Entry = Pair.Value->AsObject();
+			FSwcSpellRow Row;
+			Row.Id = Entry->GetStringField(TEXT("id"));
+			Row.Shape = Entry->GetStringField(TEXT("shape"));
+			Row.Radius = Number(Entry, TEXT("radius"), 0.0f);
+			SpellRows.Add(static_cast<uint32>(FCString::Strtoui64(*FString(Pair.Key.ToView()), nullptr, 10)), Row);
+		}
+	}
 }
 
 TSharedPtr<FSwcCreatureAnimations> FSwcCreatureLibrary::Animations(const FString& Key)

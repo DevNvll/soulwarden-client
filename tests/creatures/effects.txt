@@ -1,0 +1,19 @@
+# A check of the shots and the danger areas (stage P2.9, docs/CREATURES.md): a Vulkgard archer and a Greedfall Grotto Shaman east
+# of the character fight it (the arrows; the lightning strike, its warning, its danger, and its end: the route area). tools/creature-check.sh
+# with SWC_DEV_CHARACTER=Swordwarden, SWC_DEV_PLACE=8872:4250:138.25, and tests/drive/effects.txt. Times on the clock of the
+# drive; offsets in m east, north; yaw: 0 north, 90 west, 180 south, 270 east.
+1 level 60
+2 heal
+3 ignore off
+4 spawn Evil_Knight_Bow_17:2 8 2.5 0 --yaw 90
+6 spawn Undead_Shaman:6 7 -2.5 0 --yaw 90
+10 heal
+12 area $2
+15 heal
+20 heal
+22 area $2
+25 heal
+30 heal
+32 area $2
+35 heal
+40 heal
