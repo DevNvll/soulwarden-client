@@ -54,6 +54,8 @@ if [[ ! -x "${SWC_BACKEND_EXE}" ]]; then
     exit 1
 fi
 mkdir -p "${SWC_DEV_DATA}/logs"
+# The client loads the imported content from the shared content plugin (the link of this checkout).
+"${SWC_REPO}/tools/content-link.sh"
 logs="${SWC_WORK}/logs/dev-run"
 mkdir -p "${logs}"
 # A new backend log for each run, while no run holds the lock of the data folder.

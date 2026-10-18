@@ -164,6 +164,8 @@ if [[ "${check_only}" == "1" ]]; then
     exit 0
 fi
 
+# The client loads the imported content from the shared content plugin (the link of this checkout).
+"${SWC_REPO}/tools/content-link.sh"
 logs="${SWC_WORK}/logs/play"
 mkdir -p "${logs}"
 stamp="$(date +%Y%m%d-%H%M%S)"

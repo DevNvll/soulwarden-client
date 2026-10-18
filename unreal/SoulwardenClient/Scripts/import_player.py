@@ -1,7 +1,8 @@
-"""Imports the converted player content (SWC_CONTENT/player/manifest.json) into /Game/Imported/Player.
+"""Imports the converted player content (SWC_CONTENT/player/manifest.json) into /SwcGameContent/Player.
 
 Run through tools/import-player.sh (UnrealEditor-Cmd -run=pythonscript, no window). The assets are made from the game
-copy: /Game/Imported is not in git.
+copy: they go to the shared content plugin of the imported content (tools/content-link.sh), not into git. The world
+level and the client load the same assets.
 
 - A base (one for each gender): the skeleton, the base mesh, the physics asset, and the clips (the default glTF pipeline).
 - A part: one skeletal mesh on the skeleton of the base of its gender (a copy of the glTF asset pipeline with that
@@ -26,7 +27,9 @@ assets = unreal.EditorAssetLibrary
 manager = unreal.InterchangeManager.get_interchange_manager_scripted()
 GLTF_ASSETS = "/Interchange/Pipelines/DefaultGLTFAssetsPipeline"
 GLTF_MATERIALS = "/Interchange/Pipelines/DefaultGLTFPipeline"
-PIPELINES = "/Game/Imported/Player/Pipelines"
+PIPELINES = "/SwcGameContent/Player/Pipelines"
+# A commandlet does not scan the content of a plugin: scan it before any question to the asset registry.
+unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(["/SwcGameContent"], True)
 
 
 def objects_in(folder):
@@ -40,7 +43,7 @@ def objects_in(folder):
 
 
 def part_pipeline(gender, skeleton):
-    """@return The soft path of the pipeline of the parts of one gender (an asset under /Game/Imported/Player)."""
+    """@return The soft path of the pipeline of the parts of one gender (an asset under /SwcGameContent/Player)."""
     path = f"{PIPELINES}/PartAssets_{gender}"
     pipeline = unreal.load_asset(path) if assets.does_asset_exist(path) else None
     if pipeline is None:

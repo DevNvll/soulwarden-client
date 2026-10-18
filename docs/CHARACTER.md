@@ -14,14 +14,17 @@ game copy --tools/convert-player.sh tables--> content/player/looks.json   (datab
           --tools/convert-player.sh base----> content/player/base/<gender>.gltf   (skeleton, base mesh, the clips)
 client (a run) --writes--> SWC_WORK/player/wanted.json   (the parts that a character needs and that are not imported)
           --tools/convert-player.sh wanted--> content/player/parts/*.gltf  (one skin with one material and the skeleton)
-          --tools/import-player.sh----------> /Game/Imported/Player/...    and content/player/imported.json
+          --tools/import-player.sh----------> /SwcGameContent/Player/... and content/player/imported.json
 ```
 
+- The player assets go to the shared content plugin of the imported content (`/SwcGameContent/Player`,
+  `tools/content-link.sh`): the world level and the client load the same content. `tools/import-player.sh` waits for
+  the import lock of `tools/import.sh` (one import at a time).
 - A part is one skin attachment (`.skin`) with one material (`.mtl`) and the full skeleton of its gender. The key of a
   part is `skin|material`: a body part with a different skin tone is a different part (the meshes are small).
 - `tools/import-player.sh` imports a base with the default glTF pipeline (skeleton, skeletal mesh, physics asset, clip),
   and each part with a copy of the glTF asset pipeline that has the skeleton of the base of its gender
-  (`/Game/Imported/Player/Pipelines/PartAssets_<Gender>`): no new skeleton, no physics asset, no clip.
+  (`/SwcGameContent/Player/Pipelines/PartAssets_<Gender>`): no new skeleton, no physics asset, no clip.
 - The player conversion has its own manifest (`content/player/manifest.json`) and its own import script
   (`Scripts/import_player.py`): the shared import of the world content does not import a part with no skeleton.
 - The parts of a character come on demand. Each part of the databases and of the 8,928 armor rows is too much to

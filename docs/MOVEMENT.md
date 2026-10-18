@@ -23,7 +23,7 @@ next to it.
 ```text
 game copy --tools/convert-player.sh locomotion--> content/player/locomotion.json   (player.adb, .bspace files, clip table)
           --tools/convert-player.sh base --force--> content/player/base/<gender>.gltf (the idle clip and 49 clips)
-          --tools/import-player.sh-----------------> /Game/Imported/Player/Base/...   (AnimSequence <gender><clip>)
+          --tools/import-player.sh-----------------> /SwcGameContent/Player/Base/... (AnimSequence <gender><clip>)
 ```
 
 - `locomotion.json` has the default unarmed fragments of `animations/mannequin/adb/player/player.adb`: Idle, Strafe,

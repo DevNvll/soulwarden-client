@@ -59,7 +59,9 @@ CLIP_FOLDER = "animations/gameplay/character/player/"
 FEMALE_IDLE = {"unarmed_idle": "female_unarmed_idle"}
 # The base mesh: the leader of the modular body (the client hides it). The naked chest of the default appearance.
 BASE_SLOT = "shirt1"
-UNREAL_ROOT = "/Game/Imported/Player"
+# The player assets are in the shared content plugin of the imported content (tools/content-link.sh), with the world.
+UNREAL_ROOT = "/SwcGameContent/Player"
+OLD_UNREAL_ROOT = "/Game/Imported/Player"
 
 # Field ids of the creation databases (CRC-32 of the lower-case field name; meaning from the dumps of the files).
 F_NAME = 0x5E237E06
@@ -220,7 +222,7 @@ def tables() -> dict:
 # ---------------------------------------------------------------------------------------------------------- the glTF
 
 def unreal_folder(kind: str, key: str) -> str:
-    """@return A short Unreal folder: /Game/Imported/Player/KIND/STEM_HASH (the folder rule of the manifest module)."""
+    """@return A short Unreal folder: /SwcGameContent/Player/KIND/STEM_HASH (the folder rule of the manifest module)."""
     stem = re.sub(r"[^A-Za-z0-9_]", "_", Path(key.split("|")[0]).stem)[:40]
     return f"{UNREAL_ROOT}/{kind}/{stem}_{hashlib.sha1(key.encode()).hexdigest()[:6]}"
 
@@ -231,7 +233,12 @@ def manifest_path() -> Path:
 
 def load_manifest() -> dict:
     path = manifest_path()
-    return json.loads(path.read_text()) if path.is_file() else {"format": 1, "assets": {}}
+    doc = json.loads(path.read_text()) if path.is_file() else {"format": 1, "assets": {}}
+    # An entry of the time before the content plugin: the same folder under the new root.
+    for entry in doc["assets"].values():
+        if entry.get("unreal", "").startswith(OLD_UNREAL_ROOT):
+            entry["unreal"] = UNREAL_ROOT + entry["unreal"][len(OLD_UNREAL_ROOT):]
+    return doc
 
 
 def save_manifest(doc: dict) -> None:
