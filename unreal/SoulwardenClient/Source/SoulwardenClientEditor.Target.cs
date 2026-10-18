@@ -7,6 +7,6 @@ public class SoulwardenClientEditorTarget : TargetRules
 		Type = TargetType.Editor;
 		DefaultBuildSettings = BuildSettingsVersion.Latest;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
-		ExtraModuleNames.Add("SoulwardenClient");
+		ExtraModuleNames.AddRange(new string[] { "SoulwardenClient", "SoulwardenClientEditor" });
 	}
 }

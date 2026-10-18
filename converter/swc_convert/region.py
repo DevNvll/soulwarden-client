@@ -155,6 +155,35 @@ class Region:
         (self.out / "terrain.json").write_text(json.dumps(info, indent=1))
         return info
 
+    def write_patch(self, area: tuple[float, float, float], step: int = 2) -> Path:
+        """Writes the terrain of an area as one glTF mesh with the macro color map (a test of the space map; the
+        world level uses Landscape actors). The mesh origin is the south-west corner of the area at height 0."""
+        from . import gltf
+        x0, y0, size = area
+        ox, oy = self.origin
+        heights = self.heights().astype(np.float64) * HEIGHT_SCALE
+        xs = np.arange(int(x0 - ox), int(x0 - ox + size) + 1, step)
+        ys = np.arange(int(y0 - oy), int(y0 - oy + size) + 1, step)
+        gx, gy = np.meshgrid(xs, ys)
+        gz = heights[np.clip(gy, 0, 2047), np.clip(gx, 0, 2047)]
+        p = np.stack([gx + ox - x0, gy + oy - y0, gz], -1).reshape(-1, 3)
+        dzdx, dzdy = np.gradient(gz, step, axis=1), np.gradient(gz, step, axis=0)
+        n = np.stack([-dzdx, -dzdy, np.ones_like(gz)], -1).reshape(-1, 3)
+        n /= np.linalg.norm(n, axis=1, keepdims=True)
+        uv = np.stack([gx / 2048.0, 1 - gy / 2048.0], -1).reshape(-1, 2)   # the macro map: row 0 = north
+        nx, ny = len(xs), len(ys)
+        a = (np.arange(ny - 1)[:, None] * nx + np.arange(nx - 1)[None, :]).reshape(-1)
+        idx = np.concatenate([np.stack([a, a + 1, a + nx + 1], 1), np.stack([a, a + nx + 1, a + nx], 1)]).reshape(-1)
+        out = self.out / ("patch-%d-%d-%d.gltf" % (int(x0), int(y0), int(size)))
+        w = gltf.Writer()
+        base = "macro_diff.png" if (self.out / "macro_diff.png").is_file() else None
+        mat = w.material("terrain_macro", base)
+        prim = w.primitive(gltf.z_up_to_y_up(p).astype(np.float32), idx, gltf.z_up_to_y_up(n).astype(np.float32),
+                           uv.astype(np.float32), material=mat)
+        w.doc["scenes"][0]["nodes"] = [w.node(name="terrain_patch", mesh=w.mesh("terrain_patch", [prim]))]
+        w.save(out)
+        return out
+
     def placements(self, area: tuple[float, float, float] | None = None) -> tuple[list[dict], dict]:
         """@return (placements, counts). `area` = (x0, y0, size) in world meters, or all of the region."""
         ox, oy = self.origin

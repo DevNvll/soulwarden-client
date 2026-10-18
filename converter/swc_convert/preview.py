@@ -109,7 +109,19 @@ def character_preview(cdf_path: str, clip_path: str | None, frames: list[float])
     return out
 
 
-def region_preview(name: str, area: tuple[float, float, float]) -> Path:
+def region_camera(name: str, area: tuple[float, float, float]) -> tuple[tuple, tuple]:
+    """@return (eye, target) of the oblique view of an area, in engine space."""
+    reg = region.Region(name)
+    ox, oy = reg.origin
+    x0, y0, size = area
+    cx, cy = x0 + size / 2, y0 + size / 2
+    cz = reg.height_at(cx - ox, cy - oy)
+    return (cx - size * 0.55, cy - size * 0.75, cz + size * 0.42), (cx, cy + size * 0.05, cz)
+
+
+def region_preview(name: str, area: tuple[float, float, float], extra=None, view=None, out: Path | None = None) -> Path:
+    """Renders the terrain and the placements of an area. `extra`: more parts in engine world space, each one
+    (positions, normals, indices, color). `view`: (eye, target, vertical field of view, (width, height))."""
     reg = region.Region(name)
     pfile = region.placement_file(name, area)
     if not pfile.is_file():
@@ -177,12 +189,19 @@ def region_preview(name: str, area: tuple[float, float, float]) -> Path:
                 tri = m.indices[s.first_index:s.first_index + s.num_indices].reshape(-1, 3) + off
                 T.append(tri); TT.append(np.full(len(tri), k, np.int64))
             off += len(p)
-    cx, cy = x0 + size / 2, y0 + size / 2
-    cz = reg.height_at(cx - ox, cy - oy)
-    img = render.render(np.concatenate(P), np.concatenate(N), np.concatenate(U), None, np.concatenate(T),
-                        np.concatenate(TT), ts.textures, (cx - size * 0.55, cy - size * 0.75, cz + size * 0.42),
-                        (cx, cy + size * 0.05, cz), size=(1280, 800), fov=50, light=(0.3, -0.4, 0.85),
-                        background=(0.62, 0.74, 0.88), ambient=0.4)
-    out = out_dir() / ("%s_%d_%d_%d.png" % (name, *[int(v) for v in area]))
+    colors = [np.full((off, 3), 0.8)]
+    for p, n, idx, color in extra or []:
+        P.append(p); N.append(n); U.append(np.zeros((len(p), 2)))
+        T.append(idx.reshape(-1, 3) + off); TT.append(np.full(len(idx) // 3, -1, np.int64))
+        colors.append(np.tile(np.asarray(color, dtype=np.float64), (len(p), 1)))
+        off += len(p)
+    eye, target = region_camera(name, area)
+    fov, size_px = 50, (1280, 800)
+    if view:
+        eye, target, fov, size_px = view
+    img = render.render(np.concatenate(P), np.concatenate(N), np.concatenate(U), np.concatenate(colors),
+                        np.concatenate(T), np.concatenate(TT), ts.textures, eye, target, size=size_px, fov=fov,
+                        light=(0.3, -0.4, 0.85), background=(0.62, 0.74, 0.88), ambient=0.4)
+    out = out or out_dir() / ("%s_%d_%d_%d.png" % (name, *[int(v) for v in area]))
     img.save(out)
     return out

@@ -33,7 +33,7 @@ def refresh() -> dict:
     return counts
 
 
-FOLDERS = {"static": "Meshes", "character": "Characters"}
+FOLDERS = {"static": "Meshes", "character": "Characters", "test": "Test"}
 
 
 def unreal_folder(kind: str, asset: str) -> str:
@@ -45,7 +45,7 @@ def unreal_folder(kind: str, asset: str) -> str:
 
 
 def add(kind: str, asset: str, gltf: Path) -> None:
-    """Adds one converted asset. `kind` is static or character."""
+    """Adds one converted asset. `kind` is static, character, or test (made by the converter, not game content)."""
     doc = load()
     rel = gltf.relative_to(env.content_dir())
     doc["assets"][asset] = {"kind": kind, "file": str(rel), "unreal": unreal_folder(kind, asset)}

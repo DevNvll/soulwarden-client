@@ -7,6 +7,8 @@ Usage (through tools/convert.sh):
   proofs                                            the four proofs of the research AST-135 (exit check of stage P0)
   manifest                                          write the manifest again (the Unreal folder rule)
   checks                                            check the readers against the values of the research
+  space-proof [NAME --area X Y SIZE] [--sheet]      the proof of the space map (stage 1.1): marker, terrain patch, plan;
+                                                    --sheet: the pictures side by side after Scripts/space_proof.py
   preview mesh PATH | character CDF [--clip CAF] | region NAME --area X Y SIZE
 Output: SWC_CONTENT (default ~/Games/soulwarden-client/content). Previews: ~/Games/soulwarden-client/previews.
 """
@@ -48,6 +50,7 @@ def main(argv=None) -> int:
     sub.add_parser("proofs")
     sub.add_parser("manifest")
     sub.add_parser("checks")
+    p = sub.add_parser("space-proof"); p.add_argument("name", nargs="?", default=PROOF_REGION); p.add_argument("--area", type=float, nargs=3, default=list(PROOF_AREA)); p.add_argument("--sheet", action="store_true")
     p = sub.add_parser("preview"); p.add_argument("kind", choices=["mesh", "character", "region"]); p.add_argument("target")
     p.add_argument("--clip"); p.add_argument("--area", type=float, nargs=3); p.add_argument("--frames", type=float, nargs="*", default=[0, 6.5, 13, 19.5])
     args = parser.parse_args(argv)
@@ -64,6 +67,9 @@ def main(argv=None) -> int:
     elif args.command == "checks":
         from . import checks
         result = checks.run()
+    elif args.command == "space-proof":
+        from . import space
+        result = space.sheet() if args.sheet else space.proof(args.name, tuple(args.area))
     elif args.command == "manifest":
         result = manifest.refresh()
     elif args.command == "proofs":
