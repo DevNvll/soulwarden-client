@@ -81,6 +81,24 @@ player run the client log has no character name (`SWC_RUN=player`).
   other tracks continue. `--all` stops the runs of all tracks. `tools/dev-stop.sh --check` has the status 1 while one
   runs on the own data folder (with `--all`: on any data folder).
 
+### The derived data cache of the runs
+
+The network namespace of a run has loopback only, thus the client cannot reach the Zen cache server of the host
+(`[::1]:8558`): the engine logs `ZenLocal: Unable to reach ZenServer` and turns that store off at its first check. There is
+no bridge of that port into the namespace (decision of the orchestrator, 2026-10-18). The client then uses the local file
+store of the engine, `~/.config/Epic/UnrealEngine/Common/DerivedDataCache` (`Local: ... Writable`). All runs (the
+development runs of each track and the player run) use it: the same user, the same file store.
+
+Measurement (2026-10-18, two window runs one after the other, the same character and level): the file store had 9.3 GB
+in 117,630 files; the second run wrote 16 new files in its time (the derived data came from the cache). The engine
+initialization took 56.6 s and 60.3 s; about 36 s of it is the start of the modules of the editor binary before the shader
+compile manager (`-game` with the uncooked content), not the cache. A window run gave 8 to 11 frames in a second under the
+load of that time (three runs and an import). Thus a run does not build its derived data again.
+
+One rule to know: the import commandlets (`tools/import.sh`, `tools/import-player.sh`, outside the namespace) use the Zen
+store. Thus the first run after an import builds the derived data of the new assets one time into the file store (textures,
+mesh data, shaders); the runs after it read it from the cache.
+
 ## The command line of the client
 
 The run scripts give these values. The editor does not connect.
