@@ -439,18 +439,21 @@ def override_mtls() -> dict[str, list[str]]:
 
 
 def slice_overrides(data: bytes) -> list[tuple[str, str]]:
-    """@return (mesh, material) of each entity of a slice whose static mesh component names a material file: the
-    material override of the component (research near-entity-evidence: for example the forge "off" and the lantern
+    """@return (mesh, material) of each entity of a slice whose static or instanced mesh component names a material
+    file: the material override of the component (research near-entity-evidence: for example the forge "off" and the lantern
     "on" materials of the chunks of Oxboro)."""
     from . import region as region_module
     out = []
+    # The static mesh render node and the instanced mesh render node (the instanced mesh components of the settlement
+    # slices: the lane walls, fences, gates, and poplars of Oxboro; research/settlements.md E5).
+    nodes = {region_module.SMRN, source.field_id("Instanced Mesh Render Node")}
     for e in source.walk(source.parse(data)[0]):
         comps = e.child(region_module.COMPONENTS)
         if comps is None:
             continue
         for comp in comps.children:
             for f in comp.children:
-                if f.name != region_module.SMRN:
+                if f.name not in nodes:
                     continue
                 mesh, mtls = None, []
                 for node in source.walk(f):
@@ -732,7 +735,7 @@ def differing_fields(rules: list[dict]) -> list[str]:
 # comes from the render rules of the main source of the key (the source of the most mesh slots). The Unreal script
 # Scripts/apply_materials.py sets the material instance of the key from its spec (the asset path does not change).
 
-SPEC_VERSION = 2      # the rule of the specs (2: the surface parents of M2)
+SPEC_VERSION = 3      # the rule of the specs (2: the surface parents of M2; 3: the n_ instances of A1)
 DEPLOYED = ("m1", "m2", "m3a")  # the stages that passed their check: instances.json (the import pipeline applies it)
 STAGES = DEPLOYED      # the stages of the specs that spec_of() makes now
 LINEAR_VERSION = 1    # the rule of the one-channel PNGs (textures/m1-CAP/: the red channel, or the alpha image)
@@ -903,6 +906,42 @@ def uv_limits(rules: dict) -> list[str]:
     return out
 
 
+@functools.lru_cache(maxsize=1)
+def main_keys() -> dict[str, str]:
+    """@return The main render key of each legacy key (SWC_CONTENT/materials/keys.json, written by instances())."""
+    path = out_dir() / "keys.json"
+    return json.loads(path.read_text())["main render keys"] if path.is_file() else {}
+
+
+def legacy_entry(records: dict, name: str) -> dict:
+    """@return The stage 1.2 base color rule of a source: "+opacity:" when it is masked and has an Opacity map."""
+    record = records["sources"][name]
+    opacity = (record["textures"].get("Opacity") or {}).get("product")
+    return {"base": "+opacity:" + opacity} if opacity and blend_of(record)[0] == "masked" else {}
+
+
+def legacy_spec(records: dict, name: str, textures: dict) -> dict:
+    """@return The spec of the stage 1.2 rules of one source sub-material (materials.shared_material: the old base
+    parents M_SwcOpaque, M_SwcMasked, M_SwcTranslucent with BaseColor, Normal, BaseColorFactor, two sided, cutoff):
+    an n_ instance of a source that no stage rule changes."""
+    mtl, index = name.rsplit("#", 1)
+    subs = sub_materials(mtl)
+    element = subs[int(index)] if int(index) < len(subs) else None
+    record, used = materials.shared_material(element, "far legacy" not in records["sources"][name]
+                                             or bool(records["sources"][name].get("legacy")))
+    for t in used:
+        textures[t["asset"]] = {"file": t["file"], "color": "normal" if t["role"] == "normal" else "srgb", "cap": t["cap"]}
+    spec = {"parent": "legacy " + record["blend"], "textures": {}, "vectors": {"BaseColorFactor": record["factor"]},
+            "scalars": {}, "two sided": record["two sided"]}
+    if "cutoff" in record:
+        spec["cutoff"] = record["cutoff"]
+    if "base" in record:
+        spec["textures"]["BaseColor"] = record["base"]
+    if "normal" in record:
+        spec["textures"]["Normal"] = record["normal"]
+    return spec
+
+
 def instances(candidate: tuple[str, ...] = ()) -> dict:
     """Writes SWC_CONTENT/materials/instances.json (the spec of each material key that changes with the deployed
     stages DEPLOYED, with the main source and the other render keys of the key) and textures.json (the texture records
@@ -929,13 +968,17 @@ def instances(candidate: tuple[str, ...] = ()) -> dict:
                 uses.setdefault(s[field], {}).setdefault(s["render"], 0)
     textures: dict = {}
     summary: dict = {}
+    # The main render key of each legacy key: the render key of the most mesh slots (keys.json: materials.instance_key).
+    mains = {legacy: sorted(renders.items(), key=lambda kv: (-kv[1], kv[0]))[0][0] for legacy, renders in uses.items()}
+    write_json(out_dir() / "keys.json", {"version": SPEC_VERSION, "main render keys": mains})
+    main_keys.cache_clear()
     for label, stages in (("instances", DEPLOYED), ("instances-candidate", tuple(candidate))):
         if not stages:
             continue
         STAGES = stages
         specs, errors, counts, limits = {}, {}, {}, {}
         for legacy, renders in sorted(uses.items()):
-            main = sorted(renders.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+            main = mains[legacy]
             # A key that the manifest does not have yet (for example an override material that the world track imports
             # later): the hook of import_content.py applies its spec at its first import. The base color of stage 1.2
             # had the Opacity map as its alpha when the source is masked and has an Opacity map.
@@ -958,9 +1001,28 @@ def instances(candidate: tuple[str, ...] = ()) -> dict:
             counts[kind] = counts.get(kind, 0) + 1
             for limit in uv_limits(records["render rules"][main]):
                 limits[limit] = limits.get(limit, 0) + 1
+            # A1: an instance n_RENDER for each other render key of the legacy key (materials.instance_key gives it to a
+            # source sub-material): its own rules; the stage 1.2 rules of its own source when no stage rule applies.
+            for render in renders:
+                if render == main:
+                    continue
+                try:
+                    other = spec_of(records["render rules"][render], legacy_entry(records, source_of[render]), textures)
+                    if other is None or other["parent"] is None:
+                        base = legacy_spec(records, source_of[render], textures)
+                        if other is not None:   # M1 base color only: the base color with its own alpha
+                            base["textures"]["BaseColor"] = other["textures"]["BaseColor"]
+                        other = base
+                except Exception as error:
+                    errors["n_" + render[2:]] = str(error)[:160]
+                    continue
+                other.update({"create": True, "render": render, "source": source_of.get(render),
+                              "slots": renders[render], "legacy": legacy})
+                specs["n_" + render[2:]] = other
+                counts["n_ " + str(other["parent"])] = counts.get("n_ " + str(other["parent"]), 0) + 1
         write_json(out_dir() / f"{label}.json", {"version": SPEC_VERSION, "stages": list(stages), "instances": specs})
         summary[label] = {"stages": list(stages), "instances": len(specs), "by parent": counts,
-                          "with other render keys": sum(1 for s in specs.values() if s["other render keys"]),
+                          "with other render keys": sum(1 for s in specs.values() if s.get("other render keys")),
                           "UV limits": limits, "errors": len(errors), "first errors": dict(list(errors.items())[:5])}
     STAGES = DEPLOYED
     for key, record in textures.items():

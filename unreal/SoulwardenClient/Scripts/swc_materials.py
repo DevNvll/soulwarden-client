@@ -571,6 +571,9 @@ def apply_specs(keys, state, force=True, content=None, max_seconds=0.0, report=N
         parents["surface masked"] = surface_parent(content, state, masked=True)
     if "decal" in wanted:
         parents["decal"] = decal_parent(content, state)
+    for blend, name in (("opaque", "M_SwcOpaque"), ("masked", "M_SwcMasked"), ("translucent", "M_SwcTranslucent")):
+        if "legacy " + blend in wanted:   # the base parents of stage 1.2 (import_content.py): an n_ instance of old rules
+            parents["legacy " + blend] = assets.load_asset(f"{BASE}/{name}")
     manifest_path = os.path.join(content, "manifest.json")
     with open(manifest_path) as handle:
         manifest = json.load(handle)["assets"]

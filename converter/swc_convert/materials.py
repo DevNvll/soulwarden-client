@@ -188,3 +188,18 @@ def shared_material(material: ET.Element | None, normal_map: bool = True) -> tup
     if errors:
         record["errors"] = errors
     return record, textures
+
+
+def instance_key(material: ET.Element | None, normal_map: bool = True) -> str:
+    """@return The key of the material instance that has the render rules of this sub-material (the materials track,
+    docs/MATERIALS.md, A1): its legacy key (shared_material) when its rules are the main rules of that key, else
+    "n_" and the 10 hex digits of its render key (material_records.render_key). A key that keys.json does not know
+    (no audit yet, or a new key) is the legacy key."""
+    from . import material_records
+    legacy = shared_material(material, normal_map)[0]["name"]
+    main = material_records.main_keys().get(legacy)
+    if main is None:
+        return legacy
+    rules = material_records.render_rules(material_records.source_record("", 0, material), normal_map)
+    render = material_records.render_key(rules)
+    return legacy if render == main else "n_" + render[2:]
