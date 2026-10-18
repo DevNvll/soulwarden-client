@@ -42,6 +42,8 @@ game copy (paks)
    --tools/import.sh creature-------------> /SwcGameContent/Characters/..., /SwcGameContent/Meshes/...
 client (a run) --writes--> SWC_WORK/creatures/wanted.json   (the slices with no converted model)
    --tools/convert-creatures.sh wanted --> the same files for these slices
+   --tools/convert-creatures.sh markers -> the marker type of each slice ("Wolf") in census.json and slices.json (the
+                                           AiMarker plate of the UI; no asset, no manifest change, no import)
 ```
 
 - `convert` takes the slices of the spawn points near a place (`--near X Y R`; default the start place 8880 4250 with 300 m),

@@ -292,6 +292,10 @@ bool FSwcCreatureLibrary::Load(FString& OutReport)
 				Slice.VerticalOffset = Number(*Marker, TEXT("verticalOffset"), Slice.VerticalOffset);
 				bool bNever = false;
 				Slice.bNeverShowHealthBar = (*Marker)->TryGetBoolField(TEXT("neverShowHealthBar"), bNever) && bNever;
+				bool bForce = false;
+				Slice.bForceDisplayHealthBar = (*Marker)->TryGetBoolField(TEXT("forceDisplayHealthBar"), bForce) && bForce;
+				(*Marker)->TryGetStringField(TEXT("type"), Slice.MarkerType);
+				(*Marker)->TryGetStringField(TEXT("creatureTypeOverride"), Slice.CreatureTypeOverride);
 			}
 			Slices.Add(FString(Pair.Key.ToView()), Slice);
 		}

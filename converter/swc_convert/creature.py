@@ -10,6 +10,8 @@ Usage (tools/convert-creatures.sh; output in SWC_CONTENT/creatures, never in git
                               mesh of one body, the clips), the body glTF files (one for each other .cdf), and the
                               animation sets (fragments, variants, blend spaces, clips).
   wanted [FILE]               the slices that the client asked for (default SWC_WORK/creatures/wanted.json).
+  markers                     the marker type of each slice (the AiMarker plate of the UI) into census.json and slices.json, no
+                              other change.
 
 The chain (research feel-values.md R3.3.3; protocol notes 4.14):
   metadata state: the asset id of the slice -> the slice (creature data of the backend copy: path, action table, tags)
@@ -87,6 +89,11 @@ EQUIP_SOCKETS = {"main": (0x795FD9BB, 0x169D0BA2, 0x22A1A564), "mainSheathed": (
 MARKER_FIELDS = {"nearRange": "m_nearRange", "nearAngle": "m_nearAngle", "farAngle": "m_farAngle",
                  "angleShrinkDistance": "m_angleShrinkDistance", "verticalOffset": "m_verticalOffset"}
 MARKER_FLAGS = {"neverShowHealthBar": "m_neverShowHealthBar", "forceDisplayHealthBar": "m_forceDisplayHealthBar"}
+# The names of that client facet for the AiMarker plate of the UI (stage WF7): the marker type (the field 0xF8598E82, its name is
+# not known; "Wolf" in the wolf slice: markermanager.luac selects the type info of markerdata.luac by it) and m_creatureTypeOverride.
+MARKER_FACET_TYPE = bytes.fromhex("68b753ad" "51f7" "4980" "a020" "abf8db7b4be7")
+F_MARKER_TYPE = 0xF8598E82
+F_CREATURE_TYPE_OVERRIDE = source.field_id("m_creatureTypeOverride")
 
 
 def creature_dir() -> Path:
@@ -145,6 +152,8 @@ def read_slice(path: str) -> dict:
             continue
         if element.type_id == LOCK_TARGET_TYPE and not lock:
             lock = read_lock_target(element)
+        if element.type_id == MARKER_FACET_TYPE and "type" not in marker:
+            marker.update(read_marker_names(element))
         slot, item = element.child(F_SLOT_TYPE), element.child(F_ITEM_NAME)
         if slot is not None and item is not None and source.text(item):
             items.append({"slot": source.number(slot), "item": source.text(item)})
@@ -169,6 +178,56 @@ def read_slice(path: str) -> dict:
                 scopes.append({"scope": names[0] if names else "", "database": asset_path_of(entry)})
     return {"body": norm(body), "controller": controller, "database": database, "tags": tags, "scopeDatabases": scopes,
             "scale": scale, "marker": marker, "items": items, "hitVolumes": hit_volumes, "lock": lock}
+
+
+def read_marker_names(facet) -> dict:
+    """@return The marker type and the creature type override of the client facet of a MarkerComponent (empty texts are left out)."""
+    out: dict = {}
+    for key, field in (("type", F_MARKER_TYPE), ("creatureTypeOverride", F_CREATURE_TYPE_OVERRIDE)):
+        child = facet.child(field)
+        value = source.text(child) if child is not None and child.value else ""
+        if value:
+            out[key] = value
+    return out
+
+
+def marker_names(path: str) -> dict:
+    """@return The marker names of one slice (read_marker_names of its first MarkerComponent client facet)."""
+    roots = source.parse(source.read(path))
+    for element in source.walk(roots[0]):
+        if element.type_id == MARKER_FACET_TYPE:
+            return read_marker_names(element)
+    return {}
+
+
+def update_markers() -> dict:
+    """Adds the marker names (marker_names) to each slice of census.json and slices.json, with no other change (stage WF7: no
+    conversion of an asset, no manifest change, no import)."""
+    census_path, index_path = creature_dir() / "census.json", creature_dir() / "slices.json"
+    census_doc = json.loads(census_path.read_text())
+    index = load_json(index_path, {"format": 2, "slices": {}})
+    by_key: dict[str, dict] = {}
+    failures: dict[str, str] = {}
+    for record in census_doc["slices"]:
+        try:
+            names = marker_names(record["path"])
+        except Exception as error:
+            failures[record["path"]] = str(error)[:160]
+            continue
+        record.setdefault("marker", {}).update(names)
+        by_key[f"{record['asset']}:{record['sub']}"] = names
+    census_path.write_text(json.dumps(census_doc, indent=1, sort_keys=True))
+    updated = 0
+    for key, entry in index.get("slices", {}).items():
+        if key in by_key:
+            entry.setdefault("marker", {}).update(by_key[key])
+            updated += 1
+    index_path.write_text(json.dumps(index, indent=1, sort_keys=True))
+    types: dict[str, int] = {}
+    for names in by_key.values():
+        types[names.get("type", "")] = types.get(names.get("type", ""), 0) + 1
+    return {"census slices": len(by_key), "slices.json entries": updated, "marker types": dict(sorted(types.items())),
+            "failures": failures}
 
 
 def vector_of(element) -> list[float]:
@@ -1478,6 +1537,7 @@ def main(argv=None) -> int:
     p.add_argument("--force", action="store_true")
     p = sub.add_parser("wanted"); p.add_argument("file", nargs="?"); p.add_argument("--force", action="store_true")
     sub.add_parser("effects")
+    sub.add_parser("markers")
     args = parser.parse_args(argv)
     if args.command == "census":
         result = census()
@@ -1496,6 +1556,8 @@ def main(argv=None) -> int:
         result = convert(indexes, args.force)
     elif args.command == "effects":
         result = write_effects()
+    elif args.command == "markers":
+        result = update_markers()
     else:
         result = wanted(args.file, args.force)
     print(json.dumps(result, indent=1, default=str))

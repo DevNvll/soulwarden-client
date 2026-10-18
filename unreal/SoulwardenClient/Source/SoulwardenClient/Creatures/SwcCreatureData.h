@@ -179,6 +179,11 @@ struct FSwcCreatureSlice
 	float AngleShrinkDistance = 20.0f;
 	float VerticalOffset = 0.0f;
 	bool bNeverShowHealthBar = false;
+	bool bForceDisplayHealthBar = false;
+	/** The marker type of the facet ("Wolf"; the AiMarker plate of the UI selects its type info by it; empty: none) and
+	 *  m_creatureTypeOverride (tools/convert-creatures.sh markers). */
+	FString MarkerType;
+	FString CreatureTypeOverride;
 };
 
 /** The effect data (effects.json; stage P2.9): a projectile slice, a spell slice, a spell row. */
