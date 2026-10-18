@@ -745,7 +745,7 @@ def differing_fields(rules: list[dict]) -> list[str]:
 # Scripts/apply_materials.py sets the material instance of the key from its spec (the asset path does not change).
 
 SPEC_VERSION = 3      # the rule of the specs (2: the surface parents of M2; 3: the n_ instances of A1)
-DEPLOYED = ("m1", "m2", "m3a")  # the stages that passed their check: instances.json (the import pipeline applies it)
+DEPLOYED = ("m1", "m2", "m3a", "glass")  # the stages that passed their check: instances.json (the import pipeline applies it)
 STAGES = DEPLOYED      # the stages of the specs that spec_of() makes now
 LINEAR_VERSION = 1    # the rule of the one-channel PNGs (textures/m1-CAP/: the red channel, or the alpha image)
 CAP = 1024            # the largest size (the cap of the base color and normal maps of stage 1.2)
