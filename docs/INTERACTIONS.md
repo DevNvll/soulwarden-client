@@ -10,7 +10,7 @@ The wire bytes are in [NETWORK.md](NETWORK.md), "The life, the travel, and the i
 | Part | Job |
 | --- | --- |
 | `converter/swc_convert/actions.py interactions` | Writes `SWC_CONTENT/player/interactions.json`: the templates of the fixtures of the backend (the powder keg, the camps) and of the personal loot bag, with their Interact bounds and options. |
-| `Interact/SwcInteraction` | Plain C++ (tested by `tools/test-net.sh`): the ids of an object, the focus, and the use of one option (`swc::interact::Use`). |
+| `Interact/SwcInteraction` | Plain C++ (tested by `tools/test-net.sh`): the ids of an object, the focus, the range rule of the server, and the use of one option (`swc::interact::Use`). |
 | `Interact/SwcInteractor` | Reads `interactions.json` (on the worker thread of the player tables), finds the focus each frame, drives the use with the key E, and gives the request and the cancel to the connection. |
 | `Net/Codec/SwcRepClient` | The interaction block of the input entries, the reply 3743, the end 3746 (the client answers with 2473 at once), and the cancel 2473. |
 | `Character/SwcPlayerActions` | The kneel of a timed use (`Delayed_Interact`, [ACTIONS.md](ACTIONS.md)). |
@@ -35,11 +35,56 @@ the option entity `4C54561C65E43ABF`. In the live check the backend accepted eac
 
 ## The focus
 
-The focus is the nearest Interact bound of an object with a template whose 3D squared distance to the feet is not more than
-its `rangeSq` (25 m² for the keg and the loot bag; equal passes; the check of the backend). The option of the focus is the
-first option of the bound. The place of a bound is the place of its object plus the place of the bound in the frame of the
-slice (both templates have their bound at the origin: the rotation of the object is not used). The death and a loading screen
-give no focus.
+The focus is the nearest Interact bound of an object with a template in its range (the rule of the server: "The range",
+below; `rangeSq` 25 m² for the keg and the loot bag). The option of the focus is the first option of the bound. The place of
+a bound is the place of the bound in the frame of the slice, turned by the rotation of its object and moved to its place
+(PositionInTheWorld, fields 0 and 1; the bound of a camp is 0.84 m from the origin of its slice). The death and a loading
+screen give no focus.
+
+## The range
+
+The rule of the server (backend `world/interactions.cpp`, `Interactions::check`; Soulwarden `docs/systems/interactions.md`).
+The client uses the same rule for the focus, the prompt, and the hold (`swc::interact::in_range`).
+
+| Part | Rule | Source |
+| --- | --- | --- |
+| The position of the character | the position field of the input report that has the request: the server takes the position of a report before its request. A character with no position field (a camera estimate) is refused | `server/rep/rep_session.cpp`: `report_position`, then `observe_interaction` |
+| The height of the character | the 16 bits of the field (-100 m to 1000 m, steps of 1100 / 65535 m = 1.68 cm): the client cuts the height off, and the server reads it back (`swc::net::position_field`) | `server/rep/client_input.cpp` |
+| The place of the bound | a level object: the bound place of the data (`interaction-data.json`; the object layer has the same values); a natural node: the node place plus the translation of the bound of its slice, no rotation; a server child: its place plus its rotation times the bound place in the slice (`transform_point`) | `world/interactions.cpp`, `world/gathering.cpp`, `gamedata::transform_point` |
+| The check | the squared 3D distance in float (dx² + dy² + dz², in this order) is not more than `m_interactRangeSq`: equal passes, no margin | `world/interactions.cpp` `distance_sq` |
+| The time | at the request, not at the press. In the hold of the prompt the client measures in each frame from the position field of the next report (`RepClient::next_reported`, then `position_field`); a hold out of the range ends with no request and no cancel (`Use::moved`). After the request the server ends a committed use when the character goes out of its range (3746) | `world/world.cpp` `place` (`Interactions::moved`) |
+
+The cause of the refusal in the P5.1 run of the creature track (E at a saltpeter node "at 9.4 m"; the server: "the character is
+not in the range of the object"): the press came 0.1 s after the loading screen of a teleport, in a fall of 1.1 m, at 9.28 m. The
+landing 0.36 s later was 10.08 m from the bound, and the hold of 0.5 s ended after it: the request had the position of the landing.
+The client measured only at the press.
+
+Limits:
+
+- The place of a server object comes with its height in steps of 2100 / 65535 m (PositionInTheWorld field 0): the bound place
+  in the client can be 1.6 cm from the place of the server. The rotation has steps of 1 / 32767.5; the test measured no
+  difference in the float places of the world.
+- The object layer (`USwcObjectSubsystem::FindNearestObject`, a file of the creature track) finds its nearest bound with double
+  values from the feet. The interactor takes it only when the float rule passes, and it measures the distance with that rule.
+- The Gather fragment of a gather press stops the move input: in a hold only a fall or the server can move the character.
+
+Tests (`tools/test-net.sh`): the plain tests (the hold out of the range, the turned bound of a camp, the next position field)
+and `tests/net/interaction_range_tests.cpp` against the world of the backend (its core library; the input reports of the made-up
+client of the backend tests, with the position and the request): the edge on one axis, in 3D, and in the steps of the height
+(equal passes; one float step or one height step more is refused), a report with the request on the other side of the edge than
+the report before it, the case of the P5.1 run, and the bounds of a turned object through the PositionInTheWorld state of the
+backend encoder (23 checks, 0 failed).
+
+Check (development run, 2026-10-18; `Devwarden` with the pick `1hPickT1` in slot 36; `SWC_STAGE=interact-range`; evidence
+`~/Games/soulwarden-client/evidence/interact-range/`):
+
+| Case | The client | The backend |
+| --- | --- | --- |
+| `tests/drive/interact-fall.txt` (`SWC_DEV_PLACE=8485.76:5298.65:186.3`, the place of the P5.1 run): E in the fall of the spawn | the focus at 9.91 m; the hold ends at 10.02 m with no request; E on the ground: no prompt | no request |
+| `tests/drive/interact-range.txt` (`SWC_DEV_PLACE=8500.054:5305.6:186.5`): E at rest 9.26 m from a node | the request, the reply 1, the gather (Done) | accepted |
+
+A first run from the place of the P5.1 run also had E at a second node at 9.93 m of 10 m: the reply 1 and the gather (its logs
+were not kept).
 
 ## The use of an option
 

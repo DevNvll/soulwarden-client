@@ -315,7 +315,8 @@ With the player of the game thread (stage 1.7, `RepClient::set_motion`; [MOVEMEN
   wire, cut as the client cuts it). The field goes to the feet at 10 m/s at most in each step (up 10 m/s, down
   60 m/s; a distance of more than 20 m, a travel, goes at once): at a low frame rate a frame has the move of more
   than one step, and the backend refuses a step above 20 m/s (`world/position_report.h`). These speeds are decisions
-  of an agent, below the limits of the backend; after a long frame the field follows the feet some steps later;
+  of an agent, below the limits of the backend; after a long frame the field follows the feet some steps later. The
+  snapshot has the last field (`FSnapshot::Reported`): the range of an interaction is from the next one;
 - the camera position of the camera of the player, and the look (mask bit 6): the yaw in radians from north to the
   left, the pitch in radians, positive down;
 - the action bits 14, 43, 416, 542 of the W key while it is down (the backend reads bit 14), with the rest bits; the
@@ -392,8 +393,9 @@ The component calls of the root entity of the player slice: `target:u64 entity:u
   3626. There is no request to move or to split a stack inside the bag: the bag window sorts the items itself.
   `USwcBackendSubsystem` has a wrapper for each request and for the take of the open bag (`TakeAllItems`, `TakeItem`).
 - The objects of the server (a fixture, a loot bag): the client keeps the place of their PositionInTheWorld state (type 13,
-  field 0: `x:f32 y:f32 height:u16` with the height range -100 m to 2000 m, not the range of a movement state) in the
-  snapshot (`FSnapshot::Objects`).
+  field 0: `x:f32 y:f32 height:u16` with the height range -100 m to 2000 m, not the range of a movement state) and its
+  rotation (field 1: a header byte and a u16 for each of x, y, z with no header bit; `read_place_rotation`) in the snapshot
+  (`FSnapshot::Objects`). The interactions turn the bounds of an object with it ([INTERACTIONS.md](INTERACTIONS.md), "The range").
 
 ### The timers of the client contract
 
