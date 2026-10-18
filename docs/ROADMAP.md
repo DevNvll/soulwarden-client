@@ -16,7 +16,8 @@ content, and the large cost is the client logic (animation logic, UI, combat cli
 | Where the code goes | A local git repository, no remote. |
 | For whom | The user only: the content is converted and imported on this computer. |
 | Connection | The Soulwarden backend with no change: the client speaks its original wire protocol (option (a)). |
-| Fidelity | The look can differ; the feel of the gameplay and the UI must match. |
+| Fidelity | The feel of the gameplay and the UI must match. The look could differ until 2026-10-18. |
+| World fidelity (2026-10-18) | "Focus on the terrain and world fidelity, with the original game." The terrain, the ground cover, the materials of the world meshes, the vegetation, the light, the sky, the time of day, and the water must match the retail client. The retail reference pictures are the development-run pictures of the Soulwarden project (`~/Games/soulwarden/work/evidence`). Research: `research/terrain.md`, `research/world-materials.md`, `research/world-environment.md` (outside the repository). |
 | World | An open world client: the whole world, streamed. A small area is only a first test place. |
 | Identity | The Steam account of the user, read at run time; the Steam authentication functions are stubs. |
 | Characters | The same characters as the retail game: a player run uses the data folder of the user. |

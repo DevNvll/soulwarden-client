@@ -97,7 +97,7 @@ Folders of the plugin:
 - Material: one record for each set of rules: the blend (opaque, masked, translucent), two-sided (`MtlFlags` 0x2),
   the alpha cutoff, the color factor, the base color texture, and the normal texture. The key of a record is `m_` and
   10 hex digits of the hash of its rules: two meshes with the same rules use one material. Each record is one
-  `MaterialInstanceConstant` of a base material. The look is not a goal now (no specular, gloss, or emissive map).
+  `MaterialInstanceConstant` of a base material. The look was not a goal until 2026-10-18 (no specular, gloss, or emissive map); now world fidelity is a goal (docs/ROADMAP.md).
 - Not drawn (`materials.not_drawn`): the shaders Nodraw and NoDraw (collision; both spellings are in the game data),
   GeometryBeam (light beams, fog spheres), shadow proxies, and decals (`%DECAL`: the game draws them over another
   surface). A mesh with nothing to draw is `empty` in the manifest (no asset, no placement). A masked material with
@@ -211,7 +211,7 @@ tools/build-world.sh --import --all      # each region: import its content (tool
   sky, the sky light, and the fog are always loaded.
 - Exposure: an unbound post-process volume (always loaded) sets a manual exposure, bias -1. With the auto exposure of
   the game, the ground near the character was white: the sunny ground is the brightest surface (in the unlit view it
-  had the macro color). At bias 0 the ground was still pale. The look is not a goal now: engine sun, sky, and fog.
+  had the macro color). At bias 0 the ground was still pale. The look was not a goal until 2026-10-18: engine sun, sky, and fog; now world fidelity is a goal (docs/ROADMAP.md).
 - A new converter rule can make a mesh empty (mesh rule 6). `build_world.py` then removes the components of these
   meshes from the cells of the regions built before (`USwcEditorLibrary::RemoveInstanceComponentsOf`; 25 to 47
   components for each region).
