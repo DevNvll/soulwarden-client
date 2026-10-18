@@ -43,6 +43,7 @@ tools/convert-ui.sh text                   # localization/en-us.json
 tools/convert-ui.sh gamedata               # gamedata/abilities.json, gamedata/weapons.json
 tools/convert-ui.sh enums                  # gamedata/enums.json: the enum values of the client program
 tools/convert-ui.sh loader                 # gamedata/loader.json: the canvases that the two loaders name
+tools/convert-ui.sh actionmaps             # gamedata/actionmaps.json: the action maps of the client profile
 tools/convert-ui.sh texture-index          # textures/index.json: sizes, borders, cells (no pixels)
 ```
 
@@ -160,6 +161,32 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   with Enter or Escape or a press elsewhere; a drop-down expands (its content goes on top of the canvas at the same
   place) and collapses on a second click, on an option, or on a release outside.
 
+### Game actions and screen states (swc/actions.lua, swc/manager.lua)
+
+- The action maps of the client profile (`libs/config/defaultprofile.xml` and its includes; `tools/convert-ui.sh
+  actionmaps` writes `gamedata/actionmaps.json`, keyboard and mouse only). A map starts with its state in the profile;
+  the development maps (debug, flycam, the spectator cameras) start off. `UIInputRequestsBus` turns maps on and off
+  and has the input filters of the scripts (an enabled filter holds its actions).
+- A key that no text input edits fires each action of an enabled map with that key (onPress at the press, onRelease
+  at the release): `CryActionNotificationsBus.OnCryAction(name, value)` to the handlers of the action (1 at a press,
+  0 at a release). The maps and the filters are read before the first action of the key.
+- Escape fires `ui_cancel` (map default), `toggleMenuComponent` (map ui), and `ui_genpop_cancel` (map ui_genpop),
+  among others. When no handler used `toggleMenuComponent` (a handler returns true), the escape rule of the
+  emulation runs: the handlers of `DynamicBus.EscapeKeyNotificationBus` get `OnEscapeKeyPressed`; with no handler, a
+  state other than HUD with an escapable screen goes back to HUD, and the HUD goes to the state "esc" (1643432462) of
+  the escape menu. (The native code of the client does this; the rule comes from the scripts: open point O12.)
+- Screen states: an autohide screen shows in the state of its name and in the states of `Swc.extraScreenStates` (the
+  escape menu: "esc", 2907552185, 921475099, the states that `escapemenu.luac` tests). A shown screen turns off the
+  action maps of its canvas component (`actionMapOverrides`: the escape menu turns off player, movement, camera).
+  `TryShowById` and `TryHideById` show and hide a screen over the state (the popup) with `OnTransitionIn` and
+  `OnTransitionOut`; the state does not change.
+- The cursor: the UI needs the pointer while a mouse owner exists (`AddMouseOwner`) or a shown screen has
+  `requiresMouse` (`Swc.HostCursor`). A key goes to the game unless each game map (movement, combat, player, camera)
+  that binds it is off, or a text input edits (`Swc.HostKeyToGame`; "maxis_x" for the mouse moves).
+- Fixture `escape`: the original EscapeMenu and Popup screens: Escape opens the menu (the cursor, the maps off), exit
+  to desktop opens the quit popup over it, Escape closes only the popup, the pointer hovers the menu buttons again,
+  Escape goes back to the HUD.
+
 ### Dynamic lists (swc/dynamic.lua)
 
 - Dynamic layout: at activation its first child becomes the prototype (the other children go); `SetNumChildElements`
@@ -246,7 +273,17 @@ to the data layer only when it changes.
 
 - `USwcUiSubsystem` starts in a game run (not in the editor). `-SwcUi=off` stops it. `-SwcUiScreens=all` loads each
   screen of the game (a probe; most textures are not converted).
-- The widget fills the game viewport (Z order 10). It has no input in this stage.
+- The widget fills the game viewport (Z order 10).
+- Input (`UI/SwcUiInput.cpp`): a Slate input pre-processor sees each key and mouse event before the game viewport.
+  Each key goes to the runtime (its CryInput name: `escape`, `w`, `lshift`, `tilde`); the UI keeps a key from the game
+  when it used it or when `Swc.HostKeyToGame` says no. While the UI needs the pointer, the cursor shows (input mode
+  game and UI, no capture) and each mouse event goes to the UI only; a key release and a button release always go to
+  the game too (a held key or attack ends). The player controller is not changed: the pre-processor holds its input.
+- Harness input (`-SwcUiDrive=FILE`, `tests/drive/ui-*.txt`): a script of UI input events in the process, through the
+  same entry as Slate (no input tool of the host): key, keydown, keyup, point ELEMENT (an element of a shown canvas by
+  its name), move, click, press, release, drag, wheel, log, end (releases each held key and button). The widget draws
+  a marker at the harness pointer. `tools/ui-check.sh LABEL STAY DRIVE` makes a window run with a drive and records
+  the agent desktop (wf-recorder) into `SWC_WORK/evidence/P2.2`.
 - Font size: the draw list gives the glyph size in canvas pixels (0.8 of the LyShine size); a Slate size is in points,
   thus Slate gets 0.75 of the glyph size.
 - Additive blend: premultiplied alpha with an alpha of 0 (an approximation).
@@ -292,6 +329,7 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `lists` | The original ReusableScoreboard screen shows the test data of its own script (`GetDummyColumnData`, `GetDummyRowsData`, 60 rows) in its dynamic scroll box: the content has the size of all rows, only the visible rows have copies, the script fills each copy; the wheel scrolls (rows 7 to 18 show). Pictures `lists-top`, `lists-scrolled`. |
 | `visuals` | The HUD screens WeaponQuickslots, ReticlesCanvas, Vitals2024, and Compass with their scripts in the HUD state. The fixture shows the parts that need game events and sets the fill amounts through `UiImageBus` (0, 0.25, 0.5, 0.75, 1): the area of each mesh against the O3DE geometry for a radial fill (the combo points, also from 60 degrees), a counter-clockwise radial fill (the channel ring), a sliced radial fill (the hint ring of the heart rune), a counter-clockwise corner fill (the heat meter), a linear fill (the turret health), an edge fill (the reload ring, set through the bus). The heart rune hexagon and the compass give their sprite mask to the meshes below them. Pictures `visuals-fills-0` to `-100`, `visuals-masks`. |
 | `loader` | The screen loader of the game (`uiloader.luac`) at a world entry, with two allowed screens (Vitals2024, InfoModal): it asks only for canvases of its list (`gamedata/loader.json`, 153 paths), one time each, with the ending `.uicanvas` (105 for the world); it counts each load and failure and sets the state HUD; the HUD screen has no autohide and shows, the menu has autohide and shows only in its state. Each canvas that the game has for the two lists (the UI loader and the 69 canvases of `dynamiccanvasloader.luac`) is converted; 2 paths of the UI loader have no canvas in the game. |
+| `escape` | The original EscapeMenu and Popup screens driven by keys and clicks (`Swc.HostInput`): Escape in the HUD fires `toggleMenuComponent`, the state goes to "esc", the menu shows with the cursor and the maps player, movement, camera off; exit to desktop opens the quit popup over the menu (the state stays; the map ui off); Escape fires `ui_genpop_cancel` and closes only the popup; the pointer hovers a menu button again; Escape gives `OnEscapeKeyPressed` to the menu and the HUD comes back with its maps. Pictures `escape-menu`, `escape-popup`, `escape-focus`. |
 | `transitions` | The open of the original InfoModal (`OnTransitionIn`, its tweens) and the hover of its button (`button.luac`): each animation that a script starts has the eased value at each frame (60 a second), the final value, and ends after its delay and duration (15 animations; 4 replaced by a new one on the same property, the rule of the gem). The close hides the modal at once (its script has no animation). The ease functions against values of the Penner equations. Pictures `transitions-open-00` to `-24`, `transitions-hover-00` to `-24`, `transitions-close-00`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
@@ -325,6 +363,9 @@ the user ([AGENTS.md](../AGENTS.md), rules).
 - A sliced radial fill clips with lines in canvas space; O3DE clips in viewport space. The angles are the same unless
   the element has a scale that is not uniform.
 - A sprite mask in a sprite mask: only the innermost one applies (LyShine combines the two in the stencil).
+- O12: the escape rule and the states of the escape menu are rules of the emulation from the scripts (the native
+  screen manager of the client has them). The popup grid list (`simplegriditemlist.luac`) finds no row table in
+  `OnInit`: the quit popup works; the split stack popup is not checked.
 - O11: the sprite mask in the client window. With `-SwcUiMaskMaterial` the mask material compiles and its instances
   have the textures of the item (the game thread and the render thread show them, the texture reference points at
   each texture), but the window shows the default (white) textures of the material for them. An engine texture

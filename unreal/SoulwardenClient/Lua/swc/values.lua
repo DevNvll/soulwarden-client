@@ -406,12 +406,46 @@ WallClockTimePoint = setmetatable({
     return nil
   end,
 })
+-- The game clock (TimePoint): monotonic seconds of the runtime. The scripts call TimePoint:Now(), an instance
+-- :Subtract(other) (a Duration), :AddDuration, :SubtractDuration, :IsValid, :IsZero, TimePoint.FromIso.
+local TimePointMethods = {}
+Swc.TimePoint = Swc.ValueClass({
+  name = "TimePoint",
+  fields = {"seconds"},
+  methods = TimePointMethods,
+  ops = {
+    __lt = function(a, b) return a.seconds < b.seconds end,
+    __le = function(a, b) return a.seconds <= b.seconds end,
+    __eq = function(a, b) return a.seconds == b.seconds end,
+  },
+})
+local function game_time(seconds)
+  return Swc.TimePoint.new({seconds = seconds})
+end
+TimePointMethods.Now = function() return game_time(swcui.clock()) end
+TimePointMethods.Subtract = function(self, other) return Swc.Duration.new({seconds = self.seconds - other.seconds}) end
+TimePointMethods.AddDuration = function(self, d) return game_time(self.seconds + d.seconds) end
+TimePointMethods.SubtractDuration = function(self, d) return game_time(self.seconds - d.seconds) end
+TimePointMethods.IsValid = function(self) return self.seconds ~= 0 end
+TimePointMethods.IsZero = function(self) return self.seconds == 0 end
+TimePoint = setmetatable({
+  Now = function() return game_time(swcui.clock()) end,
+  FromIso = function() return game_time(0) end,
+}, {
+  __call = function() return game_time(0) end,
+  __index = function(_, key)
+    Swc.Stub("value member", "TimePoint." .. tostring(key))
+    return nil
+  end,
+})
+
 Duration = setmetatable({}, {
   __call = function(_, seconds) return Swc.Duration.new({seconds = seconds or 0}) end,
   __index = function(_, key)
-    if key == "CreateFromSeconds" then return function(s) return Swc.Duration.new({seconds = s}) end end
+    if key == "CreateFromSeconds" or key == "FromSecondsUnrounded" then return function(s) return Swc.Duration.new({seconds = s}) end end
     if key == "CreateFromMilliseconds" then return function(ms) return Swc.Duration.new({seconds = ms / 1000}) end end
-    if key == "CreateFromMinutes" then return function(m) return Swc.Duration.new({seconds = m * 60}) end end
+    if key == "CreateFromMinutes" or key == "FromMinutesUnrounded" then return function(m) return Swc.Duration.new({seconds = m * 60}) end end
+    if key == "FromHoursUnrounded" then return function(h) return Swc.Duration.new({seconds = h * 3600}) end end
     Swc.Stub("value member", "Duration." .. tostring(key))
     return nil
   end,

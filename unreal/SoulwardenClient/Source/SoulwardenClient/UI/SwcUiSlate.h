@@ -87,6 +87,10 @@ public:
 	void SetDrawList(const swc::ui::DrawList* InList) { List = InList; }
 	/** @return The size of the widget in Slate units at the last paint (the viewport of the runtime). */
 	FVector2f GetLastSize() const { return LastSize; }
+	/** @return The geometry of the widget at the last paint (screen space to the viewport of the runtime). */
+	const FGeometry& GetLastGeometry() const { return LastGeometry; }
+	/** The marker of the pointer of the harness input (viewport pixels), or none. */
+	void SetPointerMarker(bool bShow, FVector2f Position) { bMarker = bShow; MarkerPosition = Position; }
 
 	virtual int32 OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
 		FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const override;
@@ -96,4 +100,7 @@ private:
 	TSharedPtr<FSwcUiResources> Resources;
 	const swc::ui::DrawList* List = nullptr;
 	mutable FVector2f LastSize = FVector2f(1920.0f, 1080.0f);
+	mutable FGeometry LastGeometry;
+	bool bMarker = false;
+	FVector2f MarkerPosition = FVector2f::ZeroVector;
 };

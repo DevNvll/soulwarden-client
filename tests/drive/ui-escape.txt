@@ -1,0 +1,19 @@
+# Stage P2.2: the escape menu, a nested popup, Escape, and the return of the focus, with the harness input of the UI
+# (-SwcUiDrive; docs/UI.md). Times in seconds from the world entry of the UI.
+# tools/dev-run.sh --window --enter --quit-when world --stay 40 -- -SwcUiDrive=$PWD/tests/drive/ui-escape.txt
+12 log open: Escape in the HUD
+12 key escape
+14 point ButtonSettings
+15 point ButtonUnstuck
+16 point ButtonExitDesktop
+17 log a nested popup: exit to desktop
+17 click
+19 point ButtonNo
+20 log Escape closes the popup
+20 key escape
+21.5 log the return of the focus
+21.5 point ButtonHelp
+22.5 point ButtonSettings
+23.5 log Escape closes the menu
+23.5 key escape
+25 end

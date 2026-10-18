@@ -20,6 +20,7 @@ Swc.Load("swc.elements")  -- the script components and the activation order of L
 Swc.Load("swc.lyshine")   -- the LyShine buses on the element model
 Swc.Load("swc.datalayer") -- the data layer of the fork
 Swc.Load("swc.manager")   -- the screen manager and the canvas load of the fork
+Swc.Load("swc.actions")   -- the game actions: the action maps, the input filters, OnCryAction, the escape rule
 Swc.Load("swc.tween")     -- the tween engine (the gem ScriptedEntityTweener)
 Swc.Load("swc.interactables") -- buttons, check boxes, radio buttons, sliders, scroll boxes, text inputs, drop-downs
 Swc.Load("swc.input")     -- the input of the UI: hover, press, release, drag, wheel, keys, text

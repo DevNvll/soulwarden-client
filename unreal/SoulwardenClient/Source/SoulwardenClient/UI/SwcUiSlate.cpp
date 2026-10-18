@@ -272,6 +272,7 @@ int32 SSwcUiCanvas::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 	FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const
 {
 	LastSize = AllottedGeometry.GetLocalSize();
+	LastGeometry = AllottedGeometry;
 	if (List == nullptr || !Resources.IsValid() || !FSlateApplication::IsInitialized())
 	{
 		return LayerId;
@@ -377,6 +378,25 @@ int32 SSwcUiCanvas::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 			OutDrawElements.PopClip();
 			break;
 		}
+	}
+	if (bMarker)
+	{
+		// The pointer of the harness input: a white arrow with a dark edge (no texture).
+		const FVector2f P = MarkerPosition;
+		const auto Arrow = [&](float Scale, FColor Color)
+		{
+			const FVector2f Points[4] = {P, P + FVector2f(0.0f, 22.0f) * Scale, P + FVector2f(6.0f, 16.0f) * Scale, P + FVector2f(15.0f, 15.0f) * Scale};
+			Vertices.Reset();
+			Indices.Reset();
+			for (const FVector2f& Point : Points)
+			{
+				Vertices.Add(FSlateVertex::Make<ESlateVertexRounding::Disabled>(ToWindow, Point, FVector2f::ZeroVector, Color));
+			}
+			Indices.Append({0, 1, 2, 0, 2, 3});
+			FSlateDrawElement::MakeCustomVerts(OutDrawElements, ++Layer, FSlateResourceHandle(), Vertices, Indices, nullptr, 0, 0);
+		};
+		Arrow(1.25f, FColor(20, 20, 20, 230));
+		Arrow(1.0f, FColor(255, 255, 255, 255));
 	}
 	return Layer;
 }

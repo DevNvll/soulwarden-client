@@ -65,6 +65,10 @@ function Swc.UnloadCanvas(canvas)
     order[#order + 1] = canvas
     Swc.DeactivateEntities(order)
   end
+  local screen = Swc.screens[tostring(canvas)]
+  if screen then
+    Swc.SetScreenShown(screen, false)
+  end
   Swc.screens[tostring(canvas)] = nil
   swcui.unload_canvas(canvas)
 end
@@ -87,8 +91,12 @@ function Swc.LoadScreen(path, autohide, drawOrder)
     return canvas
   end
   local name = name_of(path)
+  local states = {[Math.CreateCrc32(name)] = true}
+  for _, state in ipairs(Swc.extraScreenStates[string.lower(name)] or {}) do
+    states[state] = true
+  end
   Swc.screens[tostring(canvas)] = {autohide = autohide and true or false, path = path, name = name, canvas = canvas,
-                                    state = Math.CreateCrc32(name)}
+                                    state = Math.CreateCrc32(name), states = states}
   if autohide then
     -- An autohide screen is hidden until the state machine enters its state.
     swcui.canvas_set(canvas, "enabled", false)
@@ -158,11 +166,56 @@ Swc.uiState = 0
 Swc.mouseOwners = {}
 
 -- The transitions of a state change (the rule of this emulation; the order of the events is open point O4):
---   * an autohide screen (a menu) has the state of its name (the CRC-32 of the canvas name): it shows and gets
---     OnTransitionIn when the machine enters that state, and gets OnTransitionOut and hides when the machine leaves it;
+--   * an autohide screen (a menu) has the state of its name (the CRC-32 of the canvas name) and the states of
+--     Swc.extraScreenStates: it shows and gets OnTransitionIn when the machine enters one of its states, and gets
+--     OnTransitionOut and hides when the machine leaves its states;
+--   * a shown autohide screen turns off the action maps of its canvas component (UiJavelinCanvasComponent
+--     actionMapOverrides) until it hides;
 --   * each other screen (the HUD) gets OnTransitionIn when the new state is HUD, else OnTransitionOut, with the new
 --     state as the third argument (the HUD screens show or hide themselves with HudStateCommon).
 local HUD_STATE = 2702338936
+
+-- The states of a screen that are not the state of its name (the native code of the client knows them; these come
+-- from the scripts): the escape menu shows in "esc" (1643432462) and in the two states that escapemenu.luac tests in
+-- OnTransitionIn (2907552185, the escape menu of the main menu level; 921475099, the respawn state).
+Swc.extraScreenStates = {
+  escapemenu = {1643432462, 2907552185, 921475099},
+}
+
+function Swc.SetScreenShown(screen, shown)
+  if (screen.shown or false) == shown then
+    return
+  end
+  screen.shown = shown
+  local overrides = swcui.canvas_get(screen.canvas, "actionMapOverrides") or {}
+  for _, map in ipairs(overrides) do
+    Swc.mapOverrides[map] = math.max(0, (Swc.mapOverrides[map] or 0) + (shown and 1 or -1))
+  end
+end
+
+--- @return True when a shown screen of a state is escapable (UiJavelinCanvasComponent).
+function Swc.StateEscapable(state)
+  for _, screen in pairs(Swc.screens) do
+    if screen.autohide and screen.states[state] and swcui.canvas_get(screen.canvas, "escapable") then
+      return true
+    end
+  end
+  return false
+end
+
+--- @return True when the UI needs the pointer: a mouse owner (AddMouseOwner) or a shown screen whose canvas
+--- component requires the mouse.
+function Swc.CursorWanted()
+  if next(Swc.mouseOwners) ~= nil then
+    return true
+  end
+  for _, screen in pairs(Swc.screens) do
+    if screen.autohide and screen.shown and swcui.canvas_get(screen.canvas, "requiresMouse") then
+      return true
+    end
+  end
+  return false
+end
 
 local function send(canvas, event, from, to)
   for _, h in ipairs(Swc.Handlers("LyShineManagerNotificationBus", canvas)) do
@@ -178,12 +231,14 @@ end
 local function transition(from, to)
   for _, screen in pairs(Swc.screens) do
     if screen.autohide then
-      if screen.state == to then
+      if screen.states[to] then
         swcui.canvas_set(screen.canvas, "enabled", true)
+        Swc.SetScreenShown(screen, true)
         send(screen.canvas, "OnTransitionIn", from, to)
-      elseif screen.state == from then
+      elseif screen.states[from] then
         send(screen.canvas, "OnTransitionOut", from, to)
         swcui.canvas_set(screen.canvas, "enabled", false)
+        Swc.SetScreenShown(screen, false)
       end
     else
       send(screen.canvas, to == HUD_STATE and "OnTransitionIn" or "OnTransitionOut", from, to)
@@ -219,12 +274,34 @@ Swc.Define("LyShineManagerBus", "Broadcast", {
   GetCurrentState = function() return Swc.uiState end,
   IsInState = function(state) return Swc.uiState == state end,
   TransitionOutComplete = function() end,
-  TryShowById = function() end,
-  TryHideById = function() end,
+  -- A screen that shows over the state (the popup: popup.luac ShowPopup, HidePopup): its canvas shows or hides and
+  -- gets OnTransitionIn or OnTransitionOut with the current state; the state does not change.
+  TryShowById = function(canvas)
+    local screen = Swc.screens[tostring(canvas)]
+    if screen and not screen.shown then
+      swcui.canvas_set(canvas, "enabled", true)
+      Swc.SetScreenShown(screen, true)
+      send(canvas, "OnTransitionIn", Swc.uiState, Swc.uiState)
+    end
+  end,
+  TryHideById = function(canvas)
+    local screen = Swc.screens[tostring(canvas)]
+    if screen and screen.shown then
+      send(canvas, "OnTransitionOut", Swc.uiState, Swc.uiState)
+      swcui.canvas_set(canvas, "enabled", false)
+      Swc.SetScreenShown(screen, false)
+    end
+  end,
   AddMouseOwner = function(canvas) Swc.mouseOwners[tostring(canvas)] = true end,
   RemoveMouseOwner = function(canvas) Swc.mouseOwners[tostring(canvas)] = nil end,
   EnableMouse = function() end,
-  DeregisterScreen = function(canvas) Swc.screens[tostring(canvas)] = nil end,
+  DeregisterScreen = function(canvas)
+    local screen = Swc.screens[tostring(canvas)]
+    if screen then
+      Swc.SetScreenShown(screen, false)
+    end
+    Swc.screens[tostring(canvas)] = nil
+  end,
   DeregisterAllScreens = function() end,
   PushMemoryContext = function() end,
   PopMemoryContext = function() end,
@@ -238,7 +315,8 @@ Swc.Define("LyShineManagerBus", "Broadcast", {
   end,
   OnMapChange = function() end,
   SetServerMOTD = function() end,
-  SetWorldName = function() end,
+  SetWorldName = function(name) Swc.worldName = tostring(name or "") end,
+  GetWorldName = function() return Swc.worldName or "" end,
   UpdateVirtualCursorSettings = function() end,
   IsKeybindBound = function(action) return Swc.Keybind(action) ~= nil end,
   GetKeybind = function(action, actionMap) return Swc.Keybind(action, actionMap) or "" end,

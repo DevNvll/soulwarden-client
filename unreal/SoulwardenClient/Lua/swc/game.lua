@@ -57,6 +57,28 @@ Swc.Define("FtueSystemRequestBus", "Broadcast", {
   IsFtue = function() return false end,
 })
 
+-- The store of the retail client: the backend has no store, thus no entitlement and a balance of 0 (the escape menu
+-- and its store button read them).
+Swc.Define("EntitlementRequestBus", "Broadcast", {
+  GetEntitlementBalance = function() return 0 end,
+  GetEntitlementsForRewardType = function() return {} end,
+})
+
+-- The input profiles of a game pad (the options screen lists them): none (keyboard and mouse only).
+Swc.Define("InputProfileDataManagerRequestBus", "Broadcast", {
+  GetAllInputProfileData = function() return {} end,
+})
+
+-- The build of the client (the options screen shows it): this client, no changelist of the retail build.
+Swc.Define("GameRequestsBus", "Broadcast", {
+  GetVersion = function() return "Soulwarden client" end,
+  GetChangelist = function() return "-" end,
+  ResetActionMaps = function() end,
+})
+
+-- The end of the last combat (a time point in the past: not in combat; quitgamepopup.luac).
+Swc.SetData("Hud.LocalPlayer.CombatStatus.InCombatTimePoint", Swc.TimePoint.new({seconds = 0}))
+
 -- ------------------------------------------------------------------------------------------------- the key names
 
 -- The default keys of the client (defaultprofile.xml; research feel-values.md R6.3): the hints of the HUD show them.

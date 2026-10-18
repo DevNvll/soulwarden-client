@@ -3,6 +3,9 @@
 #include "Dom/JsonObject.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
+#include "Engine/World.h"
+#include "Framework/Application/SlateApplication.h"
+#include "GameFramework/PlayerController.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformProcess.h"
@@ -13,6 +16,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "SwcBackendSubsystem.h"
+#include "UI/SwcUiInput.h"
 #include "UI/SwcUiSlate.h"
 
 DEFINE_LOG_CATEGORY(LogSwcUi);
@@ -21,12 +25,15 @@ namespace
 {
 using FArg = swc::ui::Runtime::Arg;
 
-/** The screens of the first HUD (stage 1.10): the loader of the game loads each screen; only these load here. */
+/** The screens of the first HUD (stage 1.10) and of stage P2.2: the loader of the game loads each screen; only these
+ *  load here. */
 const char* const HudScreens[] = {
 	"lyshineui/hud2024/vitals/vitals2024",
 	"lyshineui/hud2024/weaponquickslots/weaponquickslots",
 	"lyshineui/compass/compass",
 	"lyshineui/hud2024/editmode/hudeditmode",
+	"lyshineui/escapemenu/escapemenu",
+	"lyshineui/popup/popup",
 };
 
 /** The world level name of the HUD scripts (the level crc tells them the front end and the tutorial levels). */
@@ -109,11 +116,26 @@ void USwcUiSubsystem::Start()
 	LoadItemCatalog();
 	UE_LOG(LogSwcUi, Log, TEXT("ui: the runtime started (Lua 5.1.5, the original scripts of the game)"));
 	Ticker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &USwcUiSubsystem::Tick));
+	if (FSlateApplication::IsInitialized())
+	{
+		InputProcessor = MakeShared<FSwcUiInputProcessor>(this);
+		FSlateApplication::Get().RegisterInputPreProcessor(InputProcessor);
+	}
+	FString DrivePath;
+	if (FParse::Value(FCommandLine::Get(), TEXT("SwcUiDrive="), DrivePath))
+	{
+		LoadDrive(DrivePath);
+	}
 }
 
 void USwcUiSubsystem::Deinitialize()
 {
 	FTSTicker::RemoveTicker(Ticker);
+	if (InputProcessor.IsValid() && FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().UnregisterInputPreProcessor(InputProcessor);
+	}
+	InputProcessor.Reset();
 	if (Runtime.IsValid())
 	{
 		WriteReports();
@@ -181,7 +203,9 @@ bool USwcUiSubsystem::Tick(float DeltaTime)
 		Runtime->set_viewport(FMath::Max(Size.X, 1.0f), FMath::Max(Size.Y, 1.0f));
 	}
 	FeedLocalPlayer();
+	TickDrive();
 	Runtime->tick(FMath::Min(DeltaTime, 0.25f));
+	UpdateCursor();
 	Runtime->build_draw_list(DrawList);
 	if (Widget.IsValid())
 	{
@@ -206,6 +230,295 @@ bool USwcUiSubsystem::Tick(float DeltaTime)
 			static_cast<int32>(DrawList.items.size()), Resources.IsValid() ? Resources->TextureCount() : 0);
 	}
 	return true;
+}
+
+// ---------------------------------------------------------------------------------------------------------------- input
+
+bool USwcUiSubsystem::CallInput(const std::vector<FArg>& Args)
+{
+	if (!Runtime.IsValid())
+	{
+		return false;
+	}
+	std::string Result;
+	Runtime->call("HostInput", Args, &Result);
+	return Result == "true";
+}
+
+bool USwcUiSubsystem::UiKey(const FString& Name, bool bDown)
+{
+	return CallInput({FArg::of(std::string("key")), FArg::of(Utf8(Name)), FArg::of(bDown)});
+}
+
+bool USwcUiSubsystem::UiKeyToGame(const FString& Name)
+{
+	if (!Runtime.IsValid())
+	{
+		return true;
+	}
+	std::string Result;
+	Runtime->call("HostKeyToGame", {FArg::of(Utf8(Name))}, &Result);
+	return Result != "false";
+}
+
+void USwcUiSubsystem::UiPointer(FVector2D ScreenPosition)
+{
+	if (Widget.IsValid())
+	{
+		UiPointerLocal(Widget->GetLastGeometry().AbsoluteToLocal(FVector2f(ScreenPosition)));
+	}
+}
+
+void USwcUiSubsystem::UiPointerLocal(FVector2f Local)
+{
+	CallInput({FArg::of(std::string("move")), FArg::of(static_cast<double>(Local.X)), FArg::of(static_cast<double>(Local.Y))});
+}
+
+bool USwcUiSubsystem::UiButton(const TCHAR* Button, bool bDown)
+{
+	return CallInput({FArg::of(std::string("button")), FArg::of(Utf8(Button)), FArg::of(bDown)});
+}
+
+bool USwcUiSubsystem::UiWheel(float Delta)
+{
+	return CallInput({FArg::of(std::string("wheel")), FArg::of(static_cast<double>(Delta))});
+}
+
+void USwcUiSubsystem::UpdateCursor()
+{
+	std::string Result;
+	Runtime->call("HostCursor", {}, &Result);
+	bCursorWanted = Result == "true";
+	if (bCursorWanted == bCursorApplied || GEngine == nullptr || GEngine->GameViewport == nullptr)
+	{
+		return;
+	}
+	UWorld* World = GEngine->GameViewport->GetWorld();
+	APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	if (Controller == nullptr)
+	{
+		return;
+	}
+	bCursorApplied = bCursorWanted;
+	// The cursor of a screen that needs the pointer (UiJavelinCanvasComponent requiresMouse, AddMouseOwner): the
+	// viewport gives up the mouse capture; the input pre-processor keeps the mouse events from the game.
+	Controller->SetShowMouseCursor(bCursorWanted);
+	if (bCursorWanted)
+	{
+		FInputModeGameAndUI Mode;
+		Mode.SetHideCursorDuringCapture(false);
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		Controller->SetInputMode(Mode);
+	}
+	else
+	{
+		Controller->SetInputMode(FInputModeGameOnly());
+		CallInput({FArg::of(std::string("move")), FArg::of(-1.0), FArg::of(-1.0)});
+	}
+	UE_LOG(LogSwcUi, Log, TEXT("ui: the cursor %s"), bCursorWanted ? TEXT("shows (a screen needs the pointer)") : TEXT("hides (the game has the mouse)"));
+}
+
+// -------------------------------------------------------------------------------------------------------- harness input
+
+void USwcUiSubsystem::LoadDrive(const FString& Path)
+{
+	TArray<FString> Lines;
+	if (!FFileHelper::LoadFileToStringArray(Lines, *Path))
+	{
+		UE_LOG(LogSwcUi, Warning, TEXT("ui drive: the script %s did not load"), *Path);
+		return;
+	}
+	for (const FString& Raw : Lines)
+	{
+		FString Line = Raw.TrimStartAndEnd();
+		if (Line.IsEmpty() || Line.StartsWith(TEXT("#")))
+		{
+			continue;
+		}
+		TArray<FString> Parts;
+		Line.ParseIntoArrayWS(Parts);
+		if (Parts.Num() < 2)
+		{
+			continue;
+		}
+		FDriveStep Step;
+		Step.Time = FCString::Atod(*Parts[0]);
+		Step.Command = Parts[1].ToLower();
+		for (int32 I = 2; I < Parts.Num(); ++I)
+		{
+			Step.Args.Add(Parts[I]);
+		}
+		if (Step.Command == TEXT("log"))
+		{
+			Step.Args = {Line.Mid(Line.Find(Parts[1]) + Parts[1].Len()).TrimStartAndEnd()};
+		}
+		Drive.Add(MoveTemp(Step));
+	}
+	Drive.StableSort([](const FDriveStep& A, const FDriveStep& B) { return A.Time < B.Time; });
+	UE_LOG(LogSwcUi, Log, TEXT("ui drive: %d step(s) from %s (from the world entry of the UI)"), Drive.Num(), *Path);
+}
+
+bool USwcUiSubsystem::DrivePointAt(const FString& Element, float FractionX, float FractionY)
+{
+	std::string Result;
+	Runtime->call("HostPointOf", {FArg::of(Utf8(Element)), FArg::of(static_cast<double>(FractionX)), FArg::of(static_cast<double>(FractionY))}, &Result);
+	float X = 0.0f;
+	float Y = 0.0f;
+	if (Result.empty() || sscanf(Result.c_str(), "%f %f", &X, &Y) != 2)
+	{
+		UE_LOG(LogSwcUi, Warning, TEXT("ui drive: no shown element %s"), *Element);
+		return false;
+	}
+	UiPointerLocal(FVector2f(X, Y));
+	if (Widget.IsValid())
+	{
+		Widget->SetPointerMarker(true, FVector2f(X, Y));
+	}
+	return true;
+}
+
+void USwcUiSubsystem::ReleaseDriveInput()
+{
+	for (const FString& Key : DriveKeysUp)
+	{
+		UiKey(Key, false);
+	}
+	DriveKeysUp.Reset();
+	for (const FString& Key : DriveKeysDown)
+	{
+		UiKey(Key, false);
+	}
+	DriveKeysDown.Reset();
+	if (bDriveButtonDown)
+	{
+		UiButton(TEXT("left"), false);
+		bDriveButtonDown = false;
+	}
+	DriveDrag.bActive = false;
+	if (Widget.IsValid())
+	{
+		Widget->SetPointerMarker(false, FVector2f::ZeroVector);
+	}
+}
+
+void USwcUiSubsystem::TickDrive()
+{
+	if (Drive.IsEmpty() || !bWorldEntered)
+	{
+		return;
+	}
+	const double Now = FPlatformTime::Seconds();
+	if (DriveStart < 0.0)
+	{
+		DriveStart = Now;
+	}
+	const double Time = Now - DriveStart;
+	// A "key" press lasts one frame; a click releases at the next frame.
+	for (const FString& Key : DriveKeysUp)
+	{
+		UiKey(Key, false);
+	}
+	DriveKeysUp.Reset();
+	if (bDriveReleaseNext)
+	{
+		UiButton(TEXT("left"), false);
+		bDriveButtonDown = false;
+		bDriveReleaseNext = false;
+	}
+	if (DriveDrag.bActive)
+	{
+		const float T = DriveDrag.Duration > 0.0 ? FMath::Clamp(static_cast<float>((Time - DriveDrag.Start) / DriveDrag.Duration), 0.0f, 1.0f) : 1.0f;
+		const FVector2f F = FMath::Lerp(DriveDrag.From, DriveDrag.To, T);
+		DrivePointAt(DriveDrag.Element, F.X, F.Y);
+		if (T >= 1.0f)
+		{
+			UiButton(TEXT("left"), false);
+			bDriveButtonDown = false;
+			DriveDrag.bActive = false;
+		}
+	}
+	while (DriveNext < Drive.Num() && Drive[DriveNext].Time <= Time)
+	{
+		const FDriveStep& Step = Drive[DriveNext++];
+		const auto Arg = [&Step](int32 I, float Default) { return Step.Args.IsValidIndex(I) ? FCString::Atof(*Step.Args[I]) : Default; };
+		UE_LOG(LogSwcUi, Log, TEXT("ui drive: %.2f s %s %s"), Time, *Step.Command, *FString::Join(Step.Args, TEXT(" ")));
+		if (Step.Command == TEXT("key") && Step.Args.Num() > 0)
+		{
+			UiKey(Step.Args[0], true);
+			DriveKeysUp.Add(Step.Args[0]);
+		}
+		else if (Step.Command == TEXT("keydown") && Step.Args.Num() > 0)
+		{
+			UiKey(Step.Args[0], true);
+			DriveKeysDown.Add(Step.Args[0]);
+		}
+		else if (Step.Command == TEXT("keyup") && Step.Args.Num() > 0)
+		{
+			UiKey(Step.Args[0], false);
+			DriveKeysDown.Remove(Step.Args[0]);
+		}
+		else if (Step.Command == TEXT("point") && Step.Args.Num() > 0)
+		{
+			DrivePointAt(Step.Args[0], Arg(1, 0.5f), Arg(2, 0.5f));
+		}
+		else if (Step.Command == TEXT("move"))
+		{
+			const FVector2f Size = Widget.IsValid() ? Widget->GetLastSize() : FVector2f(1920.0f, 1080.0f);
+			const FVector2f P(Arg(0, 0.5f) * Size.X, Arg(1, 0.5f) * Size.Y);
+			UiPointerLocal(P);
+			if (Widget.IsValid())
+			{
+				Widget->SetPointerMarker(true, P);
+			}
+		}
+		else if (Step.Command == TEXT("click"))
+		{
+			UiButton(TEXT("left"), true);
+			bDriveButtonDown = true;
+			bDriveReleaseNext = true;
+		}
+		else if (Step.Command == TEXT("press"))
+		{
+			UiButton(TEXT("left"), true);
+			bDriveButtonDown = true;
+		}
+		else if (Step.Command == TEXT("release"))
+		{
+			UiButton(TEXT("left"), false);
+			bDriveButtonDown = false;
+		}
+		else if (Step.Command == TEXT("drag") && Step.Args.Num() >= 6)
+		{
+			DriveDrag.Element = Step.Args[0];
+			DriveDrag.From = FVector2f(Arg(1, 0.5f), Arg(2, 0.5f));
+			DriveDrag.To = FVector2f(Arg(3, 0.5f), Arg(4, 0.5f));
+			DriveDrag.Duration = Arg(5, 1.0f);
+			DriveDrag.Start = Time;
+			if (DrivePointAt(DriveDrag.Element, DriveDrag.From.X, DriveDrag.From.Y))
+			{
+				UiButton(TEXT("left"), true);
+				bDriveButtonDown = true;
+				DriveDrag.bActive = true;
+			}
+		}
+		else if (Step.Command == TEXT("wheel"))
+		{
+			UiWheel(Arg(0, 1.0f));
+		}
+		else if (Step.Command == TEXT("log"))
+		{
+			UE_LOG(LogSwcUi, Log, TEXT("ui drive: mark: %s"), Step.Args.Num() > 0 ? *Step.Args[0] : TEXT(""));
+		}
+		else if (Step.Command == TEXT("end"))
+		{
+			ReleaseDriveInput();
+			UE_LOG(LogSwcUi, Log, TEXT("ui drive: the test input is released (no held key, no held button)"));
+		}
+		else
+		{
+			UE_LOG(LogSwcUi, Warning, TEXT("ui drive: unknown command %s"), *Step.Command);
+		}
+	}
 }
 
 void USwcUiSubsystem::FeedLocalPlayer()

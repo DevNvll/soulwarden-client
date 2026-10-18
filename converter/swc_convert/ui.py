@@ -13,6 +13,7 @@ Usage (tools/convert-ui.sh; output in SWC_CONTENT/ui, never in git):
   gamedata                the game data of the HUD (data tables): gamedata/abilities.json, gamedata/weapons.json
   enums                   the enum values of the client for the names that the scripts read -> gamedata/enums.json
   loader                  the canvases that the two loaders of the game name -> gamedata/loader.json
+  actionmaps              the action maps of the client profile (keyboard and mouse) -> gamedata/actionmaps.json
 
 The canvas form (research ~/Games/soulwarden-client/research/ui.md, section 2): a binary object stream with one
 SliceComponent; its Entities list has the canvas entity and one entity for each element. The converter keeps each
@@ -992,6 +993,71 @@ def convert_loader() -> dict:
     return {key: len(value) for key, value in result.items()}
 
 
+# ---------------------------------------------------------------------------------------------------------- action maps
+
+ACTION_PROFILE = "libs/config/defaultprofile.xml"
+ACTION_FLAGS = {"onPress": "press", "onRelease": "release", "onHold": "hold", "blockActionsWhenConsumed": "block",
+                "retriggerable": "retrigger"}
+
+
+def read_actionmaps() -> list[dict]:
+    """The action maps of the client profile (CryAction, the Javelin fork), with their includes, in file order: for each
+    map its name, its start state, and its actions with their keyboard and mouse inputs and trigger flags. The pad
+    inputs are not kept."""
+    paks = source.paks()
+    maps: list[dict] = []
+
+    def flags(element, into: dict):
+        for attribute, key in ACTION_FLAGS.items():
+            if element.get(attribute) is not None:
+                into[key] = element.get(attribute) == "1"
+        if element.get("holdTriggerDelay") is not None:
+            try:
+                into["holdDelay"] = float(element.get("holdTriggerDelay"))
+            except ValueError:
+                into["holdDelay"] = element.get("holdTriggerDelay")
+
+    def action_of(element) -> dict | None:
+        action = {"name": element.get("name"), "inputs": []}
+        flags(element, action)
+        key = (element.get("keyboard") or "").strip()
+        if key:
+            action["inputs"].append({"key": key.lower()})
+        for keyboard in element.findall("keyboard"):
+            shared: dict = {}
+            flags(keyboard, shared)
+            for data in keyboard.findall("inputdata"):
+                one = dict(shared)
+                flags(data, one)
+                if (data.get("input") or "").strip():
+                    one["key"] = data.get("input").strip().lower()
+                    action["inputs"].append(one)
+        return action if action["inputs"] else None
+
+    def load(path: str):
+        root = ET.fromstring(paks.read(path))
+        for child in root:
+            if child.tag == "include":
+                name = child.get("filename", "").lower()
+                load(name.rsplit(".", 1)[0] + ".xml")
+            elif child.tag == "actionmap":
+                actions = [a for a in (action_of(e) for e in child.findall("action")) if a]
+                maps.append({"name": child.get("name"), "enabled": child.get("enable", "1") != "0", "actions": actions})
+
+    load(ACTION_PROFILE)
+    return maps
+
+
+def convert_actionmaps() -> dict:
+    """gamedata/actionmaps.json: the action maps of the client profile (read_actionmaps). The UI emulation fires the
+    game actions (CryActionNotificationsBus) of the enabled maps for each key (docs/UI.md)."""
+    maps = read_actionmaps()
+    target = out_dir() / "gamedata"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "actionmaps.json").write_text(json.dumps({"maps": maps}, indent=0))
+    return {"maps": len(maps), "actions": sum(len(m["actions"]) for m in maps)}
+
+
 # ------------------------------------------------------------------------------------------------------------------ main
 
 def wanted_file() -> Path:
@@ -1005,6 +1071,7 @@ def hud(force: bool) -> dict:
         textures |= set(folder_textures(folder))
     result = {"canvases": canvases, "scripts": convert_scripts(), "fonts": convert_fonts(), "text": convert_text(),
               "gamedata": convert_gamedata(), "enums": convert_enums(), "loader": convert_loader(),
+              "actionmaps": convert_actionmaps(),
               "textures": convert_textures(textures, force),
               "texture index": convert_texture_index()}
     return result
@@ -1025,6 +1092,7 @@ def main(argv=None) -> int:
     sub.add_parser("gamedata")
     sub.add_parser("enums")
     sub.add_parser("loader")
+    sub.add_parser("actionmaps")
     sub.add_parser("texture-index")
     args = parser.parse_args(argv)
     if args.command == "hud":
@@ -1056,6 +1124,8 @@ def main(argv=None) -> int:
         result = convert_enums()
     elif args.command == "loader":
         result = convert_loader()
+    elif args.command == "actionmaps":
+        result = convert_actionmaps()
     elif args.command == "texture-index":
         result = convert_texture_index()
     else:

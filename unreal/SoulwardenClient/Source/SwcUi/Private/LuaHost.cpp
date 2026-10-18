@@ -1064,6 +1064,15 @@ int n_canvas_get(lua_State* L) {
     if (key == "drawLayer") { lua_pushstring(L, canvas->javelin.drawLayer.c_str()); return 1; }
     if (key == "requiresMouse") { lua_pushboolean(L, canvas->javelin.requiresMouse); return 1; }
     if (key == "escapable") { lua_pushboolean(L, canvas->javelin.escapable); return 1; }
+    if (key == "actionMapOverrides") {
+        lua_createtable(L, static_cast<int>(canvas->javelin.actionMapOverrides.size()), 0);
+        int i = 0;
+        for (const std::string& map : canvas->javelin.actionMapOverrides) {
+            lua_pushstring(L, map.c_str());
+            lua_rawseti(L, -2, ++i);
+        }
+        return 1;
+    }
     return luaL_error(L, "canvas_get: no field %s", key.c_str());
 }
 
