@@ -8,9 +8,10 @@
 | Soulwarden readers | `converter/vendor/soulwarden` | An unchanged copy of the pak, object stream, slice, terrain, and shape readers of the Soulwarden repository (MIT, commit e0a3d97). Update by a new copy, never by an edit. |
 | Unreal project | `unreal/SoulwardenClient` | The client: the C++ module `SoulwardenClient`, the config, the import script. |
 | Character | `Source/SoulwardenClient/Character/`, `converter/swc_convert/player.py` | The character of a player: the modular body on one skeleton (Leader Pose), its look from the appearance and paperdoll states ([CHARACTER.md](CHARACTER.md)); its movement, animation, and keys ([MOVEMENT.md](MOVEMENT.md)) and its camera ([CAMERA.md](CAMERA.md)) with the values of the game data. |
+| UI | `Source/SwcUi`, `Source/SoulwardenClient/UI`, `unreal/SoulwardenClient/Lua/swc`, `converter/swc_convert/ui.py` | The original UI scripts (Lua 5.1.5, `Source/ThirdParty/Lua51`) on the original canvases as data, with an emulation of the engine buses and a stub layer; the HUD with the data of the backend ([UI.md](UI.md)). |
 | Editor tools | `unreal/SoulwardenClient/Source/SoulwardenClientEditor` | An editor module for the scripts: wait for compilation, render a scene capture to PNG, spawn actors in a commandlet. |
 | Imported assets | `unreal/SoulwardenClient/Content/Imported` | The Unreal assets of the converted content. Made from the game copy: not in git. |
-| Tools | `tools/` | `env.sh` (paths), `convert.sh`, `build.sh`, `import.sh`, `editor.sh`, `editor-script.sh`, `backend-update.sh`, `play.sh`, `dev-run.sh`, `dev-stop.sh`, `lib/session.sh`, `lib/dev_character.py`, `test-net.sh`, `convert-player.sh`, `import-player.sh`. |
+| Tools | `tools/` | `env.sh` (paths), `convert.sh`, `build.sh`, `import.sh`, `editor.sh`, `editor-script.sh`, `backend-update.sh`, `play.sh`, `dev-run.sh`, `dev-stop.sh`, `lib/session.sh`, `lib/dev_character.py`, `test-net.sh`, `convert-player.sh`, `import-player.sh`, `convert-ui.sh`, `test-ui.sh`, `dev-build.sh`, `lib/dev_build.py`. |
 | Backend | `~/Games/soulwarden-client/backend/current` | A copy of a Soulwarden release (backend and game data), unchanged. `tools/backend-update.sh` updates it. |
 
 ## The content pipeline
