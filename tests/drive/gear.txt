@@ -1,0 +1,21 @@
+# The drive of the gear check of stage 1.6b (docs/GEAR.md): the character stands; the camera turns round it (back view,
+# front view) while weapon 1 goes to the hand, weapon 2 goes to the hand, and the sheathe key sheathes it. Times in
+# seconds from the possession of the character; 180 degrees in 2 s.
+# tools/dev-run.sh --window --enter NAME --quit-when world --stay 27 -- -SwcDrive=$PWD/tests/drive/gear.txt
+1.0 wheel 1
+# 2 to 4.5: back view, sheathed.
+4.5 turn 90
+6.5 turn 0
+# 6.5 to 8: front view, sheathed. 8: weapon 1 in the hand.
+8.0 key 1
+10.0 turn 90
+12.0 turn 0
+# 12 to 14: back view, weapon 1 in the hand. 14: weapon 2 in the hand.
+14.0 key 2
+16.0 turn 90
+18.0 turn 0
+# 18 to 20: front view, weapon 2 in the hand. 20: the sheathe key.
+20.0 key sheathe
+22.0 turn 90
+24.0 turn 0
+# 24 to 26: back view, weapon 2 in its sheath.

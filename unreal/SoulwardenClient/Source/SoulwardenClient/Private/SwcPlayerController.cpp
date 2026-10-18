@@ -88,6 +88,9 @@ void ASwcPlayerController::SetupInputComponent()
 	ZoomAction = MakeAction(this, TEXT("IA_Zoom"), EInputActionValueType::Axis1D);
 	LockAction = MakeAction(this, TEXT("IA_TargetLock"), EInputActionValueType::Boolean);
 	FreeLookAction = MakeAction(this, TEXT("IA_FreeLook"), EInputActionValueType::Boolean);
+	Weapon1Action = MakeAction(this, TEXT("IA_Weapon1"), EInputActionValueType::Boolean);
+	Weapon2Action = MakeAction(this, TEXT("IA_Weapon2"), EInputActionValueType::Boolean);
+	SheatheAction = MakeAction(this, TEXT("IA_Sheathe"), EInputActionValueType::Boolean);
 	MovementContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Movement"));
 	MapAxisKey(MovementContext, MoveAction, EKeys::W, true, false);
 	MapAxisKey(MovementContext, MoveAction, EKeys::S, true, true);
@@ -99,6 +102,9 @@ void ASwcPlayerController::SetupInputComponent()
 	MovementContext->MapKey(ZoomAction, EKeys::MouseWheelAxis);
 	MovementContext->MapKey(LockAction, EKeys::MiddleMouseButton);
 	MovementContext->MapKey(FreeLookAction, EKeys::LeftAlt);
+	MovementContext->MapKey(Weapon1Action, EKeys::One);
+	MovementContext->MapKey(Weapon2Action, EKeys::Two);
+	MovementContext->MapKey(SheatheAction, EKeys::Tilde);
 	if (UEnhancedInputComponent* Enhanced = Cast<UEnhancedInputComponent>(InputComponent))
 	{
 		Enhanced->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ASwcPlayerController::OnMove);
@@ -111,6 +117,9 @@ void ASwcPlayerController::SetupInputComponent()
 		Enhanced->BindAction(LockAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnLock);
 		Enhanced->BindAction(FreeLookAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnFreeLook);
 		Enhanced->BindAction(FreeLookAction, ETriggerEvent::Completed, this, &ASwcPlayerController::OnFreeLookEnd);
+		Enhanced->BindAction(Weapon1Action, ETriggerEvent::Started, this, &ASwcPlayerController::OnWeapon1);
+		Enhanced->BindAction(Weapon2Action, ETriggerEvent::Started, this, &ASwcPlayerController::OnWeapon2);
+		Enhanced->BindAction(SheatheAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnSheathe);
 	}
 	else
 	{
@@ -226,6 +235,44 @@ void ASwcPlayerController::OnFreeLookEnd(const FInputActionValue&)
 	}
 }
 
+void ASwcPlayerController::UseWeapon(uint32 Slot, const TArray<uint32>& Bits)
+{
+	// The weapon keys reach the server in the input report (Use_MainHandSlot_N and quickslot-weaponN; protocol notes 4.15).
+	// The client draws the weapon itself (the action lists of Unsheathe_MainHand_N: a key draws the weapon of its slot
+	// when that weapon is not the drawn one; the backend has no draw, protocol notes 4.11).
+	PressBits = Bits;
+	++PressSerial;
+	ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn());
+	if (Character == nullptr || !Character->HasWeapon(Slot) || (Character->GetActiveWeaponSlot() == Slot && Character->IsWeaponDrawn()))
+	{
+		return;
+	}
+	UE_LOG(LogSwcBackend, Log, TEXT("weapon: key for slot %u: draw"), Slot);
+	Character->RequestWeaponState(Slot, true);
+}
+
+void ASwcPlayerController::OnWeapon1(const FInputActionValue&)
+{
+	UseWeapon(24, {9, 40});
+}
+
+void ASwcPlayerController::OnWeapon2(const FInputActionValue&)
+{
+	UseWeapon(25, {355, 306});
+}
+
+void ASwcPlayerController::OnSheathe(const FInputActionValue&)
+{
+	// The sheathe key changes the active weapon between the hand and its sheath (its bit is not known: no bit).
+	ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn());
+	if (Character != nullptr && Character->GetActiveWeaponSlot() != 0)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("weapon: sheathe key: slot %u %s"), Character->GetActiveWeaponSlot(),
+			Character->IsWeaponDrawn() ? TEXT("sheathe") : TEXT("draw"));
+		Character->RequestWeaponState(Character->GetActiveWeaponSlot(), !Character->IsWeaponDrawn());
+	}
+}
+
 void ASwcPlayerController::PlayerTick(float DeltaTime)
 {
 	TickDrive(DeltaTime);
@@ -323,6 +370,11 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 		{
 			// A fast mouse move: these counts in one frame.
 			Input->InjectInputForAction(LookAction, FInputActionValue(FVector2D(Step.Value.X, 0.0)), {}, {});
+		}
+		else if (Step.Command == TEXT("key"))
+		{
+			UInputAction* Action = Step.Text == TEXT("1") ? Weapon1Action.Get() : Step.Text == TEXT("2") ? Weapon2Action.Get() : SheatheAction.Get();
+			Input->InjectInputForAction(Action, FInputActionValue(true), {}, {});
 		}
 		else if (Step.Command == TEXT("camera"))
 		{

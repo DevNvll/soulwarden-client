@@ -7,9 +7,12 @@
 #include "Character/SwcPlayerLooks.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
+#include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "SwcBackendSubsystem.h"
+#include "TimerManager.h"
 
 namespace
 {
@@ -58,6 +61,15 @@ void ASwcPlayerCharacter::ApplyLook(const FSwcPlayerLook& Look, const FString& B
 		}
 	}
 	Parts.Reset();
+	for (UStaticMeshComponent* Mesh : Gear)
+	{
+		if (Mesh != nullptr)
+		{
+			Mesh->DestroyComponent();
+		}
+	}
+	Gear.Reset();
+	GearParts.Reset();
 	USkeletalMesh* Base = BaseMesh.IsEmpty() ? nullptr : LoadObject<USkeletalMesh>(nullptr, *BaseMesh);
 	if (Base == nullptr)
 	{
@@ -103,5 +115,97 @@ void ASwcPlayerCharacter::ApplyLook(const FSwcPlayerLook& Look, const FString& B
 			}
 		}
 		Parts.Add(Component);
+	}
+	// The gear: one static mesh for each weapon and accessory with a mesh; SetWeaponState places them.
+	for (const FSwcGearPart& Part : Look.Gear)
+	{
+		UStaticMesh* Mesh = Part.MeshPath.IsEmpty() ? nullptr : LoadObject<UStaticMesh>(nullptr, *Part.MeshPath);
+		if (Mesh == nullptr || !Part.Sheathed.IsValid() || !Part.Hand.IsValid())
+		{
+			continue;
+		}
+		UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>(this);
+		Component->SetupAttachment(GetMesh(), Part.Sheathed.Bone);
+		Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Component->RegisterComponent();
+		Component->SetStaticMesh(Mesh);
+		Gear.Add(Component);
+		GearParts.Add(Part);
+	}
+	GearInHand.Init(false, Gear.Num());
+	GearTimers.SetNum(Gear.Num());
+	SetWeaponState(ActiveWeaponSlot, bWeaponDrawn);
+}
+
+bool ASwcPlayerCharacter::HasWeapon(uint32 Slot) const
+{
+	return GearParts.ContainsByPredicate([Slot](const FSwcGearPart& Part) { return Part.PaperdollSlot == Slot && !Part.bAccessory; });
+}
+
+void ASwcPlayerCharacter::PlaceGear(int32 Index, bool bInHand)
+{
+	const FSwcGearPart& Part = GearParts[Index];
+	UStaticMeshComponent* Component = Gear[Index];
+	const FSwcAttachPlace& Place = bInHand ? Part.Hand : Part.Sheathed;
+	GearInHand[Index] = bInHand;
+	Component->AttachToComponent(GetMesh(), FAttachmentTransformRules::KeepRelativeTransform, Place.Bone);
+	Component->SetRelativeTransform(Place.Offset);
+	Component->SetVisibility(bInHand || Part.bAlwaysVisible || !Part.bHideSheathed);
+}
+
+void ASwcPlayerCharacter::SetWeaponState(uint32 ActiveSlot, bool bDrawn)
+{
+	ActiveWeaponSlot = ActiveSlot;
+	bWeaponDrawn = bDrawn;
+	for (int32 Index = 0; Index < Gear.Num(); ++Index)
+	{
+		const FSwcGearPart& Part = GearParts[Index];
+		// The off hand slots 27 to 29 go with the weapon slots 24 to 26.
+		const uint32 WeaponSlot = Part.PaperdollSlot >= 27 ? Part.PaperdollSlot - 3 : Part.PaperdollSlot;
+		GetWorldTimerManager().ClearTimer(GearTimers[Index]);
+		PlaceGear(Index, bDrawn && WeaponSlot == ActiveSlot && !Part.bAccessory);
+	}
+}
+
+void ASwcPlayerCharacter::RequestWeaponState(uint32 ActiveSlot, bool bDrawn)
+{
+	// The sheathe marker of the weapon that leaves the hand delays the draw of a new one.
+	float SheatheDelay = 0.0f;
+	for (int32 Index = 0; Index < Gear.Num(); ++Index)
+	{
+		const FSwcGearPart& Part = GearParts[Index];
+		const uint32 WeaponSlot = Part.PaperdollSlot >= 27 ? Part.PaperdollSlot - 3 : Part.PaperdollSlot;
+		if (GearInHand[Index] && !(bDrawn && WeaponSlot == ActiveSlot))
+		{
+			SheatheDelay = FMath::Max(SheatheDelay, Part.SheatheTime);
+		}
+	}
+	ActiveWeaponSlot = ActiveSlot;
+	bWeaponDrawn = bDrawn;
+	for (int32 Index = 0; Index < Gear.Num(); ++Index)
+	{
+		const FSwcGearPart& Part = GearParts[Index];
+		const uint32 WeaponSlot = Part.PaperdollSlot >= 27 ? Part.PaperdollSlot - 3 : Part.PaperdollSlot;
+		const bool bInHand = bDrawn && WeaponSlot == ActiveSlot && !Part.bAccessory;
+		if (bInHand == GearInHand[Index])
+		{
+			continue;
+		}
+		const float Delay = bInHand ? SheatheDelay + Part.DrawTime : Part.SheatheTime;
+		UE_LOG(LogSwcBackend, Log, TEXT("weapon: slot %u %s to the %s at the marker, %.3f s"), Part.PaperdollSlot, *Part.Item,
+			bInHand ? TEXT("hand") : TEXT("sheath"), Delay);
+		GetWorldTimerManager().ClearTimer(GearTimers[Index]);
+		if (Delay <= 0.0f)
+		{
+			PlaceGear(Index, bInHand);
+			continue;
+		}
+		GetWorldTimerManager().SetTimer(GearTimers[Index], FTimerDelegate::CreateWeakLambda(this, [this, Index, bInHand]()
+			{
+				if (GearInHand.IsValidIndex(Index))
+				{
+					PlaceGear(Index, bInHand);
+				}
+			}), Delay, false);
 	}
 }

@@ -7,6 +7,7 @@ level and the client load the same assets.
 - A base (one for each gender): the skeleton, the base mesh, the physics asset, and the clips (the default glTF pipeline).
 - A part: one skeletal mesh on the skeleton of the base of its gender (a copy of the glTF asset pipeline with that
   skeleton, no physics asset, no animation). The client attaches it to the base with Leader Pose.
+- A weapon: one static mesh (the default glTF pipeline). The client attaches it to a bone attachment of the base.
 
 The script writes SWC_CONTENT/player/imported.json: for each manifest key, the object paths that the client loads.
 Environment: SWC_CONTENT, SWC_IMPORT_FORCE=1 (import each asset again).
@@ -79,7 +80,7 @@ def import_file(path, destination, pipelines=None):
 
 
 done, skipped, failed = 0, 0, []
-order = {"base": 0, "part": 1}
+order = {"base": 0, "part": 1, "weapon": 2}
 skeletons = {}
 pipelines = {}
 for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get(item[1]["kind"], 9), item[0])):
@@ -105,7 +106,7 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
     else:
         import_file(path, destination)
     found = objects_in(destination)
-    wanted = {"base": "Skeleton", "part": "SkeletalMesh"}[kind]
+    wanted = {"base": "Skeleton", "part": "SkeletalMesh", "weapon": "StaticMesh"}[kind]
     if wanted not in found:
         failed.append(key)
         continue

@@ -280,7 +280,8 @@ With the player of the game thread (stage 1.7, `RepClient::set_motion`; [MOVEMEN
   wire, cut as the client cuts it);
 - the camera position of the camera of the player, and the look (mask bit 6): the yaw in radians from north to the
   left, the pitch in radians, positive down;
-- the action bits 14, 43, 416, 542 of the W key while it is down (the backend reads bit 14), with the rest bits;
+- the action bits 14, 43, 416, 542 of the W key while it is down (the backend reads bit 14), with the rest bits; the
+  bits of a weapon key in one entry: 9 and 40 (key 1), 355 and 306 (key 2) (protocol notes 4.15; [GEAR.md](GEAR.md));
 - in the air, the ground value: the half float of the distance to the ground (10 m at most; an inference from the
   protocol notes "0 to 10; 10 in a fall").
 

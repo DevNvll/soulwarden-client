@@ -152,6 +152,9 @@ public:
         bool forward{false};
         /** The distance to the ground below the feet in meters while the character is in the air; negative on the ground. */
         float airHeight{-1.0F};
+        /** The action bits of the last key press (a weapon key): one entry has them, at each new serial. */
+        std::uint32_t pressSerial{0};
+        std::vector<unsigned> pressBits;
     };
 
     explicit RepClient(Options options);
@@ -236,6 +239,7 @@ private:
     std::vector<InputEntry> m_recentInputs;
     std::optional<Motion> m_motion;
     bool m_sentMotion{false};
+    std::uint32_t m_pressSerial{0};
     bool m_hasServerClock{false};
     std::int64_t m_serverOffsetNs{0};
     /** The part of the last correction of 335 that the slow correction did not apply yet. */

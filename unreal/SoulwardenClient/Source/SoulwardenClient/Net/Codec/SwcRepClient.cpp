@@ -604,6 +604,11 @@ void RepClient::send_input(Clock::time_point now) {
         if (m_motion->forward && !m_movementStale) {
             entry.actionBits.insert(entry.actionBits.end(), kForwardActionBits.begin(), kForwardActionBits.end());
         }
+        if (m_motion->pressSerial != m_pressSerial) {
+            // A key press: its bits in one entry (protocol notes 4.15: the weapon keys).
+            m_pressSerial = m_motion->pressSerial;
+            entry.actionBits.insert(entry.actionBits.end(), m_motion->pressBits.begin(), m_motion->pressBits.end());
+        }
     } else {
         // The camera of a character at rest at its position, north, no pitch: the camera estimate of the backend keeps
         // the position (protocol notes 4.7). No position field (the flag 0x8000).

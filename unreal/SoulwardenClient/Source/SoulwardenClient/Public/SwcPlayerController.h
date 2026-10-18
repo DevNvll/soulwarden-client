@@ -12,7 +12,8 @@ struct FInputActionValue;
 /**
  * The player controller: the keys of the movement and of the camera (Enhanced Input, the default profile of the retail
  * client; research feel-values.md R6), the mouse look with the sensitivity of the camera state (R1), the mouse wheel (the
- * zoom, or the next target of the target lock), the target lock (middle mouse, toggle), and free look (Left Alt). The
+ * zoom, or the next target of the target lock), the target lock (middle mouse, toggle), free look (Left Alt), and the
+ * weapon keys (1, 2) and the sheathe key (~): the client draws and sheathes itself, as the retail client (docs/GEAR.md). The
  * actions and the context are made in code: no input asset. The camera manager is ASwcCameraManager.
  *
  * Command line: -SwcDrive=FILE plays a drive script through the same input actions (Enhanced Input injection; no input
@@ -27,6 +28,7 @@ struct FInputActionValue;
  *   flick COUNTS     a fast mouse move on X in one frame
  *   freelook 1|0     Left Alt down or up
  *   camera STATE     a camera state of gamecamera.xml in place of the state of the action list (none: the action list)
+ *   key 1|2|sheathe  one press of the weapon key 1 or 2, or of the sheathe key
  * The run ends with -SwcQuitWhen=world and -SwcStay (USwcBackendSubsystem).
  */
 UCLASS()
@@ -40,6 +42,10 @@ public:
 	virtual void PlayerTick(float DeltaTime) override;
 
 	ASwcCameraManager* GetSwcCamera() const;
+
+	/** The last key press with action bits for the input report: its serial and its bits. */
+	uint32 GetPressSerial() const { return PressSerial; }
+	const TArray<uint32>& GetPressBits() const { return PressBits; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -65,6 +71,10 @@ private:
 	void OnLock(const FInputActionValue& Value);
 	void OnFreeLook(const FInputActionValue& Value);
 	void OnFreeLookEnd(const FInputActionValue& Value);
+	void OnWeapon1(const FInputActionValue& Value);
+	void OnWeapon2(const FInputActionValue& Value);
+	void OnSheathe(const FInputActionValue& Value);
+	void UseWeapon(uint32 Slot, const TArray<uint32>& Bits);
 	void LoadDrive(const FString& Path);
 	void TickDrive(float DeltaTime);
 
@@ -84,6 +94,14 @@ private:
 	TObjectPtr<UInputAction> LockAction;
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> FreeLookAction;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> Weapon1Action;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> Weapon2Action;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> SheatheAction;
+	uint32 PressSerial = 0;
+	TArray<uint32> PressBits;
 
 	FVector2D MoveInput = FVector2D::ZeroVector;
 	bool bWalkHeld = false;

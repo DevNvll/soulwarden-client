@@ -196,8 +196,37 @@ def armor_rows() -> dict:
                 value = norm(value)
             if value not in ("", 0, False):
                 entry[key] = value
+        if entry.get("cdf"):
+            cloth = cloth_parts(entry["cdf"])
+            if cloth:
+                entry["cloth"] = cloth
         rows[row["ItemID"]] = entry
     return rows
+
+
+_cloth_cache: dict[str, list] = {}
+
+
+def cloth_parts(cdf_path: str) -> list[list[str]]:
+    """The cloth attachments (capes, skirts) of the character file of an appearance (AppearanceCDF): [attachment name,
+    render skin, material]. A .cloth file names its render mesh, a skin on the player skeleton; the client draws it as a
+    skinned part with no cloth simulation."""
+    if cdf_path in _cloth_cache:
+        return _cloth_cache[cdf_path]
+    out = []
+    try:
+        cdf = ET.fromstring(source.read(cdf_path).decode("utf-8", "replace"))
+        for attachment in cdf.iter("Attachment"):
+            if attachment.get("Type") != "CA_CLOTH" or not attachment.get("Binding"):
+                continue
+            data = source.read(norm(attachment.get("Binding")))
+            skins = re.findall(rb"[A-Za-z0-9_/\.\-]+\.skin", data)
+            if skins:
+                out.append([attachment.get("AName") or "cloth", norm(skins[0].decode()), norm(attachment.get("Material") or "")])
+    except Exception:
+        out = []
+    _cloth_cache[cdf_path] = out
+    return out
 
 
 def tables() -> dict:
@@ -278,8 +307,23 @@ class Skeleton:
         """Adds one skin attachment as a mesh node of the skin 0. @return A report."""
         f = cgf.read_chunks(source.read(skin_path))
         mesh = cgf.read_mesh(f, f.of_type(cgf.T_MESH)[0])
-        remap = np.array([self.index_of.get(b.name, 0) for b in cgf.read_bones(f)], dtype=np.uint16)
+        # A bone of the skin that the base skeleton does not have (the simulation bones of a cloth skin) takes the weight
+        # of its nearest parent in the skin file that the skeleton has: the missing chain stays in its bind pose (research
+        # gear.md, "Cloth without a solver"). Not bone 0.
+        skin_bones = cgf.read_bones(f)
+        missing = set()
+
+        def bone_of(index: int) -> int:
+            bone = skin_bones[index]
+            while bone.name not in self.index_of and bone.parent >= 0:
+                missing.add(bone.name)
+                bone = skin_bones[bone.parent]
+            return self.index_of.get(bone.name, 0)
+
+        remap = np.array([bone_of(index) for index in range(len(skin_bones))], dtype=np.uint16)
         joints = remap[mesh.joints]
+        used = {skin_bones[index].name for index in np.unique(mesh.joints[mesh.weights > 0])}
+        missing &= used
         subs = []
         if mtl:
             try:
@@ -305,7 +349,7 @@ class Skeleton:
             node = w.node(name=name, mesh=w.mesh(name, prims), skin=0)
             w.doc["scenes"][0]["nodes"].append(node)
         return {"skin": skin_path, "material": mtl, "vertices": len(mesh.positions), "triangles": len(mesh.indices) // 3,
-                "sections": len(prims)}
+                "sections": len(prims), "frozen bones": sorted(missing)}
 
     def add_clip(self, w: gltf.Writer, first: int, clip_path: str, name: str | None = None, root_lock: bool = False) -> dict:
         """Adds one clip as a glTF animation. root_lock: no track for the root bone (Xform carries the motion of a clip;
@@ -481,6 +525,251 @@ def locomotion() -> dict:
             "clips": len(clips), "missing clips": sorted(set(missing))}
 
 
+# The weapon look (research equipment.md 6.2): WeaponAppearanceOverride of the item -> WeaponAppearanceDefinitions
+# (MeshOverride: a character file with a weapon skeleton and its skins); ItemStatsRef -> WeaponItemDefinitions (EquipType,
+# MannequinTag, HideMainWeaponMeshWhileSheathed); the accessory table (the quiver of a bow).
+WEAPON_APPEARANCES = "javelindata_itemdefinitions_weaponappearances.datasheet"
+WEAPON_STATS = "javelindata_itemdefinitions_weapons.datasheet"
+WEAPON_ACCESSORIES = "javelindata_itemdefinitions_weaponaccessories.datasheet"
+# The equip database: for each EquipType of the weapon table the attachment in the hand and in the sheath, for the main
+# hand and the off hand, with their offsets (research gear.md "Attachments and transforms"; fields CRC-32 of the names).
+EQUIP_DATABASE = "sharedassets/genericassets/items/equiptypesdatabase.equipdb"
+EQUIP_FIELDS = {"hand": "attachment", "handPosition": "attachment offset position", "handRotation": "attachment offset rotation (degrees)",
+                "sheathed": "sheath data", "sheathPosition": "sheath offset position", "sheathRotation": "sheath offset rotation (degrees)"}
+
+
+def crc(name: str) -> int:
+    return zlib.crc32(name.lower().encode()) & 0xFFFFFFFF
+
+
+def equip_types() -> dict:
+    """The equip types of the equip database: {name: {"main": {...}, "offHand": {...}}}; each side has the hand and the
+    sheath attachment names, the offset positions (m), and the offset rotations (degrees about x, y, z)."""
+    root = source.parse(source.read(EQUIP_DATABASE))[0]
+    out = {}
+    for element in root.child(crc("Equip Types")).children:
+        entry = {}
+        for side, prefix in (("main", ""), ("offHand", "off-hand ")):
+            values = {}
+            for key, field in EQUIP_FIELDS.items():
+                node = element.child(crc(prefix + field))
+                values[key] = floats_of(node) if key.endswith(("Position", "Rotation")) else text_of(node)
+            entry[side] = values
+        out[text_of(element.child(F_NAME))] = entry
+    return out
+
+
+def weapon_skins(cdf_path: str) -> list[list[str]]:
+    """@return The (skin, material) pairs of the skin attachments of a weapon character file."""
+    cdf = ET.fromstring(source.read(norm(cdf_path)).decode("utf-8", "replace"))
+    return [[norm(a.get("Binding")), norm(a.get("Material") or "")] for a in cdf.iter("Attachment")
+            if a.get("Type") == "CA_SKIN" and a.get("Binding")]
+
+
+def weapon_model(cdf_path: str) -> str:
+    cdf = ET.fromstring(source.read(norm(cdf_path)).decode("utf-8", "replace"))
+    model = cdf.find("Model")
+    return norm(model.get("File") or "") if model is not None else ""
+
+
+def weapon_look(row: dict) -> dict | None:
+    """The look of an appearance or accessory row: its model, and the skins of its character file with the overrides of
+    the row (SkinOverrideN replaces skin N, MaterialOverrideN its material; an unset override keeps the file; research
+    gear.md, "From a paperdoll entry to a weapon", step 6)."""
+    mesh = (row.get("MeshOverride") or "").strip()
+    if not mesh:
+        return None
+    try:
+        skins = weapon_skins(mesh)
+        model = weapon_model(mesh)
+    except Exception:
+        return None
+    for n in range(1, 5):
+        skin = norm((row.get(f"SkinOverride{n}") or "").strip())
+        material = norm((row.get(f"MaterialOverride{n}") or "").strip())
+        while (skin or material) and len(skins) < n:
+            skins.append(["", ""])
+        if skin:
+            skins[n - 1][0] = skin
+        if material:
+            skins[n - 1][1] = material
+    skins = [pair for pair in skins if pair[0]]
+    if not skins:
+        return None
+    key = "weapon|" + norm(mesh) + "|" + hashlib.sha1(json.dumps(skins).encode()).hexdigest()[:8]
+    # A model on the player skeleton (a gauntlet) is a part of the body, not a rigid weapon (gear.md, step 5).
+    return {"mesh": norm(mesh), "model": model, "playerModel": model.startswith("objects/characters/player/"), "skins": skins, "key": key}
+
+
+def attachments() -> dict:
+    """The bone attachments of the player character file of each gender: bone, position (m), rotation (w, x, y, z)."""
+    out = {}
+    for gender, folder in GENDERS.items():
+        cdf = ET.fromstring(source.read(f"objects/characters/player/{folder}/player_{folder}.cdf").decode("utf-8", "replace"))
+        out[gender] = {a.get("AName"): {"bone": a.get("BoneName"),
+                                        "position": [float(v) for v in (a.get("RelPosition") or "0,0,0").split(",")],
+                                        "rotation": [float(v) for v in (a.get("RelRotation") or "1,0,0,0").split(",")]}
+                       for a in cdf.iter("Attachment") if a.get("Type") == "CA_BONE" and a.get("BoneName")}
+    return out
+
+
+# The context tags of a standing character with no other state: a draw or a sheathe fragment of the settled stance.
+STANCE_TAGS = {"Stand"}
+_adb_cache: dict[str, ET.Element] = {}
+
+
+def adb_root(path: str) -> ET.Element:
+    path = norm(path)
+    if path not in _adb_cache:
+        _adb_cache[path] = ET.fromstring(source.read(path).decode("utf-8", "replace"))
+    return _adb_cache[path]
+
+
+def fragment_timing(fragment: ET.Element) -> dict:
+    """The first clip of a fragment (name, speed, start) and its named markers."""
+    animation = fragment.find("AnimLayer/Animation")
+    out = {"markers": fragment_markers(fragment)}
+    if animation is not None and animation.get("name"):
+        out.update({"clip": animation.get("name").lower(), "speed": float(animation.get("speed") or 1.0),
+                    "start": float(animation.get("startTime") or animation.get("start") or 0.0)})
+    return out
+
+
+def weapon_timing(tag_text: str) -> dict:
+    """The swap times of the weapon tags (research gear.md "Sheathe and draw animation"): the draw fragment
+    Unsheathe_UpperBody of the first database of player.adb whose SubADB tags the weapon has (the variant with the most
+    tags of the weapon and no context tag but Stand), and the sheathe fragment Sheathe_UpperBody of player.adb with the
+    From_ tag that names the most tags of the weapon. The choice of the From_ tag is an inference."""
+    ordered = [tag.strip().lower() for tag in tag_text.split(",") if tag.strip()]
+    tags = {tag.strip() for tag in tag_text.split(",") if tag.strip()}
+    lower = set(ordered)
+    out = {}
+    root = adb_root(ADB)
+    # Mannequin tags compare without case (the tag GreatSword selects the SubADB Greatsword).
+    stance = {tag.lower() for tag in STANCE_TAGS}
+    for sub in root.find("SubADBs"):
+        if not set(sub.get("Tags", "").lower().split("+")) <= lower:
+            continue
+        node = adb_root(sub.get("File")).find("FragmentList/Unsheathe_UpperBody")
+        best = None
+        for fragment in node if node is not None else []:
+            names = set(filter(None, (fragment.get("Tags") or "").lower().split("+")))
+            if names <= lower | stance and (best is None or len(names) > best[0]):
+                best = (len(names), fragment)
+        if best is not None:
+            out["draw"] = {**fragment_timing(best[1]), "adb": norm(sub.get("File")), "tags": best[1].get("Tags") or ""}
+            break
+    candidates = []
+    for fragment in root.find("FragmentList/Sheathe_UpperBody"):
+        names = set(filter(None, (fragment.get("Tags") or "").lower().split("+")))
+        origin = [name for name in names if name.startswith("from_")]
+        if len(origin) != 1 or not (names - set(origin)) <= stance:
+            continue
+        rest = origin[0][5:].lower()
+        matched = 0
+        last = -1
+        for tag in sorted(lower, key=len, reverse=True):
+            if tag in rest:
+                matched += 1
+                rest = rest.replace(tag, "")
+                last = max(last, ordered.index(tag))
+        if matched:
+            # A tie goes to the tag that is later in the tags of the weapon (the more specific one: GreatSword, not 2H_Melee).
+            candidates.append((matched - (1 if rest.strip("_") else 0), matched, last, fragment))
+    if candidates:
+        fragment = max(candidates, key=lambda item: item[:3])[3]
+        out["sheathe"] = {**fragment_timing(fragment), "adb": ADB, "tags": fragment.get("Tags") or ""}
+    return out
+
+
+def weapons() -> dict:
+    """Writes weapons.json: the bone attachments of the player, the attachment rules of each EquipType, and the look of
+    each weapon item of the master item tables."""
+    # The ids compare without case (gear.md: a master reference can have a different case than its row).
+    looks = {row["WeaponAppearanceID"].lower(): row for row in datasheet.load(WEAPON_APPEARANCES).rows()}
+    stats = {row["WeaponID"].lower(): row for row in datasheet.load(WEAPON_STATS).rows()}
+    accessories = {}
+    for row in datasheet.load(WEAPON_ACCESSORIES).rows():
+        accessories.setdefault(row["WeaponID"].lower(), row)
+    items = {}
+    for name in sorted(n for n in source.paks().entries if n.endswith(".datasheet") and "itemdefinitions_master" in n.lower()):
+        for row in datasheet.Sheet(source.read(name)).rows():
+            stat = stats.get((row.get("ItemStatsRef") or "").lower())
+            if stat is None or row["ItemID"] in items:
+                continue
+            look_row = looks.get((row.get("WeaponAppearanceOverride") or "").lower())
+            look = weapon_look(look_row) if look_row else None
+            if look is None:
+                look = weapon_look(stat)
+            if look is None:
+                continue
+            entry = {**look, "stats": row.get("ItemStatsRef"), "equipType": stat.get("EquipType") or "", "tag": stat.get("MannequinTag") or "",
+                     "offHandTag": stat.get("OffHandMannequinTag") or "", "animDb": norm(stat.get("AnimDbPath") or ""),
+                     "shieldCompatible": stat.get("IsShieldCompatible") not in (None, "", 0, 0.0, False, "0", "false", "FALSE"),
+                     "hideSheathed": stat.get("HideMainWeaponMeshWhileSheathed") not in (None, "", 0, 0.0, False, "0", "false", "FALSE")}
+            # The accessory row names the master item (gear.md "Bow, quiver, and arrows"); the stats row is a fallback.
+            accessory_row = accessories.get(row["ItemID"].lower()) or accessories.get((row.get("ItemStatsRef") or "").lower())
+            accessory = weapon_look(accessory_row) if accessory_row else None
+            if accessory:
+                entry["accessory"] = {**accessory, "equipType": accessory_row.get("EquipType") or "",
+                                      "sheathMode": accessory_row.get("SheathMode") or ""}
+            items[row["ItemID"]] = entry
+    timings = {}
+    for entry in items.values():
+        if entry["tag"] not in timings:
+            timings[entry["tag"]] = weapon_timing(entry["tag"])
+    doc = {"format": 2, "sources": [EQUIP_DATABASE, WEAPON_APPEARANCES, WEAPON_STATS, WEAPON_ACCESSORIES, ADB],
+           "attachments": attachments(), "equipTypes": equip_types(), "timings": timings, "items": items}
+    out = player_dir() / "weapons.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(doc, indent=1, sort_keys=True))
+    return {"weapons": str(out), "items": len(items), "meshes": len({entry["key"] for entry in items.values()})}
+
+
+def weapon(key: str, skins: list, force: bool = False, doc: dict | None = None) -> dict:
+    """Converts one weapon look (its skins, with no skeleton) into a static mesh glTF."""
+    folder = unreal_folder("Weapons", key.split("|", 1)[1])
+    out = player_dir() / "weapons" / (folder.rsplit("/", 1)[-1] + ".gltf")
+    own = doc is None
+    doc = doc if doc is not None else load_manifest()
+    if out.is_file() and not force and key in doc["assets"]:
+        return {"weapon": key, "skipped": "exists"}
+    out.parent.mkdir(parents=True, exist_ok=True)
+    w = gltf.Writer()
+    prims = []
+    for skin_path, mtl in skins:
+        f = cgf.read_chunks(source.read(skin_path))
+        mesh = cgf.read_mesh(f, f.of_type(cgf.T_MESH)[0])
+        subs = []
+        if mtl:
+            try:
+                subs = materials.load_mtl(mtl, skin_path)[1]
+            except Exception:
+                subs = []
+        pos = gltf.z_up_to_y_up(mesh.positions)
+        nrm = gltf.z_up_to_y_up(mesh.normals) if mesh.normals is not None else None
+        for s in mesh.subsets:
+            mi = None
+            if s.material < len(subs):
+                if materials.not_drawn(subs[s.material]):
+                    continue
+                info = materials.describe(subs[s.material], 1024)
+                files = info["files"]
+                mi = w.material(info["name"], materials.relative(files["base"], out) if "base" in files else None,
+                                materials.relative(files["normal"], out) if "normal" in files else None,
+                                blend=materials.is_glass(subs[s.material]))
+            prims.append(w.primitive(pos, mesh.indices[s.first_index:s.first_index + s.num_indices], nrm, mesh.uvs, None, None, None, mi))
+    if not prims:
+        raise ValueError("no drawn section")
+    name = "SM_" + folder.rsplit("/", 1)[-1]
+    w.doc["scenes"][0]["nodes"].append(w.node(name=name, mesh=w.mesh(name, prims)))
+    w.save(out)
+    doc["assets"][key] = {"kind": "weapon", "file": str(out.relative_to(env.content_dir())), "unreal": folder}
+    if own:
+        save_manifest(doc)
+    return {"weapon": key, "sections": len(prims)}
+
+
 CAMERA_SETTINGS = "libs/camera/gamecamera.xml"
 CAMERA_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_camera.actionlist"
 
@@ -562,7 +851,8 @@ def part(gender: str, skin: str, mtl: str = "", force: bool = False, doc: dict |
 
 
 def wanted(path: str | None = None, force: bool = False) -> dict:
-    """Converts the parts of the wanted list of the client: {"parts": [[gender, skin, material], ...]}."""
+    """Converts the parts and the weapons of the wanted list of the client: {"parts": [[gender, skin, material], ...],
+    "weapons": [item id, ...]} (weapons.json gives the look of each item, and of its accessory)."""
     file = Path(path) if path else env.work_dir() / "player" / "wanted.json"
     request = json.loads(file.read_text())
     doc = load_manifest()
@@ -573,6 +863,16 @@ def wanted(path: str | None = None, force: bool = False) -> dict:
             done += 1
         except Exception as error:   # a part that does not convert: the client keeps the slot empty
             failed[skin] = str(error)[:160]
+    if request.get("weapons"):
+        table = json.loads((player_dir() / "weapons.json").read_text())["items"]
+        for item in request["weapons"]:
+            entry = table.get(item)
+            for look in ([entry] + ([entry["accessory"]] if "accessory" in entry else [])) if entry else []:
+                try:
+                    weapon(look["key"], look["skins"], force, doc)
+                    done += 1
+                except Exception as error:   # a weapon that does not convert: the client shows no mesh for it
+                    failed[look["key"]] = str(error)[:160]
     save_manifest(doc)
     return {"converted": done, "failed": len(failed), "failures": failed}
 
@@ -583,6 +883,7 @@ def main(argv=None) -> int:
     sub.add_parser("tables")
     sub.add_parser("locomotion")
     sub.add_parser("camera")
+    sub.add_parser("weapons")
     p = sub.add_parser("base"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("wanted"); p.add_argument("file", nargs="?"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("part"); p.add_argument("gender", choices=list(GENDERS)); p.add_argument("skin"); p.add_argument("mtl", nargs="?", default="")
@@ -594,6 +895,8 @@ def main(argv=None) -> int:
         result = locomotion()
     elif args.command == "camera":
         result = camera()
+    elif args.command == "weapons":
+        result = weapons()
     elif args.command == "base":
         result = base(args.force)
     elif args.command == "wanted":

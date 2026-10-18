@@ -22,6 +22,7 @@
 #include "Net/SwcSteamStub.h"
 #include "Net/SwcTypeIndex.h"
 #include "SwcCameraManager.h"
+#include "SwcPlayerController.h"
 
 DEFINE_LOG_CATEGORY(LogSwcBackend);
 
@@ -475,6 +476,25 @@ void USwcBackendSubsystem::UpdateLook()
 		}
 	}
 	Avatar->ApplyLook(Look, Looks->BaseMesh(Look.bFemale), Looks->IdleAnimation(Look.bFemale), Locomotion);
+	// The weapon state of the paperdoll state at the start (protocol notes 4.11: the active weapon is the first weapon
+	// slot of activeMap, sheatheMap has the sheathe bit of each weapon); then the keys of the client change it.
+	const uint64 ActiveMap = Snapshot.Own.activeMap;
+	const uint64 SheatheMap = Snapshot.Own.sheatheMap;
+	uint32 Active = Avatar->HasWeapon(Avatar->GetActiveWeaponSlot()) ? Avatar->GetActiveWeaponSlot() : 0;
+	bool bDrawn = Active != 0 && Avatar->IsWeaponDrawn();
+	if (Active == 0)
+	{
+		for (uint32 Slot = 24; Slot <= 26 && Active == 0; ++Slot)
+		{
+			Active = ((ActiveMap >> Slot) & 1) != 0 && Avatar->HasWeapon(Slot) ? Slot : 0;
+		}
+		for (uint32 Slot = 24; Slot <= 26 && Active == 0; ++Slot)
+		{
+			Active = Avatar->HasWeapon(Slot) ? Slot : 0;
+		}
+		bDrawn = Active != 0 && ((SheatheMap >> Active) & 1) == 0;
+	}
+	Avatar->SetWeaponState(Active, bDrawn);
 	FString Bytes;
 	for (const uint8 Value : Appearance)
 	{
@@ -486,6 +506,18 @@ void USwcBackendSubsystem::UpdateLook()
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("character: slot %s: %s with %s%s"), *Part.Slot.ToString(), *Part.Skin, *Part.Material,
 			Part.MeshPath.IsEmpty() ? TEXT(" (not imported)") : TEXT(""));
+	}
+	for (const FSwcGearPart& Part : Look.Gear)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("character: gear slot %u: %s%s (%s: sheath %s on %s, hand %s on %s)%s"), Part.PaperdollSlot, *Part.Item,
+			Part.bAccessory ? TEXT(" accessory") : TEXT(""), *Part.EquipType, *Part.Sheathed.Name, *Part.Sheathed.Bone.ToString(), *Part.Hand.Name,
+			*Part.Hand.Bone.ToString(), Part.MeshPath.IsEmpty() ? TEXT(" (not imported)") : TEXT(""));
+	}
+	if (!Look.Gear.IsEmpty())
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("character: weapon slot %u %s, active map %llx, sheathe map %llx"), Active,
+			Active == 0 ? TEXT("(none)") : bDrawn ? TEXT("in the hand") : TEXT("in its sheath"), static_cast<unsigned long long>(ActiveMap),
+			static_cast<unsigned long long>(SheatheMap));
 	}
 	for (const FString& Note : Look.Notes)
 	{
@@ -550,6 +582,14 @@ void USwcBackendSubsystem::UpdatePlayer()
 	Motion.yaw = FMath::DegreesToRadians(GetCameraYawDegrees());
 	Motion.pitch = -FMath::DegreesToRadians(static_cast<float>(FRotator::NormalizeAxis(Controller->PlayerCameraManager->GetCameraRotation().Pitch)));
 	Motion.forward = Movement->IsForwardHeld();
+	if (const ASwcPlayerController* Player = Cast<ASwcPlayerController>(Controller))
+	{
+		Motion.pressSerial = Player->GetPressSerial();
+		for (const uint32 Bit : Player->GetPressBits())
+		{
+			Motion.pressBits.push_back(Bit);
+		}
+	}
 	if (Movement->IsFalling())
 	{
 		FHitResult Hit;

@@ -101,6 +101,7 @@ bool FSwcPlayerLooks::Load(FString& OutReport)
 		return false;
 	}
 	Imported = ReadObject(FPaths::Combine(Content, TEXT("player/imported.json")));
+	Weapons = ReadObject(FPaths::Combine(Content, TEXT("player/weapons.json")));
 	const FString Catalog = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_GAMEDATA_DIR")), TEXT("item-catalog.json"));
 	const TSharedPtr<FJsonObject> ItemCatalog = ReadObject(Catalog);
 	Items.Reset();
@@ -118,9 +119,10 @@ bool FSwcPlayerLooks::Load(FString& OutReport)
 		}
 	}
 	const TSharedPtr<FJsonObject> ImportedAssets = ObjectField(Imported, TEXT("assets"));
-	OutReport = FString::Printf(TEXT("player looks: %d armor appearances, %d imported assets, %d items of the catalog %s"),
+	const TSharedPtr<FJsonObject> WeaponItems = ObjectField(Weapons, TEXT("items"));
+	OutReport = FString::Printf(TEXT("player looks: %d armor appearances, %d weapon items, %d imported assets, %d items of the catalog %s"),
 		ObjectField(Looks, TEXT("armor")).IsValid() ? ObjectField(Looks, TEXT("armor"))->Values.Num() : 0,
-		ImportedAssets.IsValid() ? ImportedAssets->Values.Num() : 0, Items.Num(), *Catalog);
+		WeaponItems.IsValid() ? WeaponItems->Values.Num() : 0, ImportedAssets.IsValid() ? ImportedAssets->Values.Num() : 0, Items.Num(), *Catalog);
 	return true;
 }
 
@@ -223,6 +225,7 @@ FSwcPlayerLook FSwcPlayerLooks::Resolve(const TArray<uint8>& Appearance, const T
 
 	// The armor of the paperdoll slots 0 to 4 (research menu-equipment.md, equipment.md 6.1).
 	const TSharedPtr<FJsonObject> Armor = ObjectField(Looks, TEXT("armor"));
+	bool bHideLegs = false;
 	for (uint32 PaperdollSlot = 0; PaperdollSlot < UE_ARRAY_COUNT(VisualSlots); ++PaperdollSlot)
 	{
 		const uint32* ItemIndex = Equipment.Find(PaperdollSlot);
@@ -244,10 +247,18 @@ FSwcPlayerLook FSwcPlayerLooks::Resolve(const TArray<uint8>& Appearance, const T
 				AppearanceName.IsEmpty() ? TEXT("no name") : *AppearanceName));
 			continue;
 		}
-		if (!StringField(Row, TEXT("cdf")).IsEmpty())
+		// The cloth attachments of the character file of the appearance (AppearanceCDF): a cape or a skirt, drawn as a
+		// skinned part with its render skin (no cloth simulation yet).
+		if (const TArray<TSharedPtr<FJsonValue>>* Cloth = ArrayField(Row, TEXT("cloth")))
 		{
-			Look.Notes.Add(FString::Printf(TEXT("paperdoll slot %u: appearance %s has a character file of its own (AppearanceCDF): only its skins are used"),
-				PaperdollSlot, *AppearanceName));
+			for (const TSharedPtr<FJsonValue>& Value : *Cloth)
+			{
+				const TArray<TSharedPtr<FJsonValue>>& Fields = Value->AsArray();
+				if (Fields.Num() == 3)
+				{
+					Put(Fields[0]->AsString(), Fields[1]->AsString(), Fields[2]->AsString());
+				}
+			}
 		}
 		const FString Visual = VisualSlots[PaperdollSlot];
 		const FString Skin1 = StringField(Row, TEXT("skin1"));
@@ -283,17 +294,172 @@ FSwcPlayerLook FSwcPlayerLooks::Resolve(const TArray<uint8>& Appearance, const T
 				Slots.Remove(TEXT("head1"));
 			}
 		}
-		if (FlagField(Row, TEXT("hideLegs")))
-		{
-			Look.Notes.Add(FString::Printf(TEXT("appearance %s has HideLegs: not applied (the rule is not known)"), *AppearanceName));
-		}
+		// HideLegs counts only on the chest (a pants row with the flag does not hide itself).
+		bHideLegs = bHideLegs || (PaperdollSlot == 1 && FlagField(Row, TEXT("hideLegs")));
 	}
+	if (bHideLegs)
+	{
+		// HideLegs of the chest hides both pants parts (gear.md "Hide rules": 0x6851BA0, 0x68F9660).
+		Slots.Remove(TEXT("pants1"));
+		Slots.Remove(TEXT("pants2"));
+	}
+	ResolveGear(Equipment, Look, Slots);
 	for (TPair<FName, FSwcLookPart>& Slot : Slots)
 	{
 		Slot.Value.MeshPath = ImportedObject(Slot.Value.Skin + TEXT("|") + Slot.Value.Material, TEXT("SkeletalMesh"));
 		Look.Parts.Add(Slot.Value);
 	}
 	return Look;
+}
+
+namespace
+{
+/** A rotation of the game (a quaternion w, x, y, z) in Unreal: the space map of stage 1.1, (x, y, z, w) -> (-x, y, -z, w). */
+FQuat UnrealRotation(const FQuat& Game)
+{
+	return FQuat(-Game.X, Game.Y, -Game.Z, Game.W).GetNormalized();
+}
+
+FVector UnrealOffset(double X, double Y, double Z)
+{
+	return FVector(X * 100.0, -Y * 100.0, Z * 100.0);
+}
+
+double NumberAt(const TArray<TSharedPtr<FJsonValue>>* Values, int32 Index)
+{
+	return Values != nullptr && Values->IsValidIndex(Index) ? (*Values)[Index]->AsNumber() : 0.0;
+}
+} // namespace
+
+FSwcAttachPlace FSwcPlayerLooks::Place(bool bFemale, const FString& Attachment, const TSharedPtr<FJsonObject>& Side, const TCHAR* Kind) const
+{
+	// The socket of the base character file of the gender (position m; rotation w, x, y, z), then the offset of the equip
+	// database (position m; rotation in degrees about x, y, z, the x rotation first: CryEngine CreateRotationXYZ). Both go
+	// through the space map of stage 1.1 (research gear.md, "Attachments and transforms").
+	FSwcAttachPlace Out;
+	const TSharedPtr<FJsonObject> Data = ObjectField(ObjectField(ObjectField(Weapons, TEXT("attachments")), bFemale ? TEXT("Female") : TEXT("Male")), Attachment);
+	const TArray<TSharedPtr<FJsonValue>>* Position = ArrayField(Data, TEXT("position"));
+	const TArray<TSharedPtr<FJsonValue>>* Rotation = ArrayField(Data, TEXT("rotation"));
+	if (Attachment.IsEmpty() || !Data.IsValid() || Position == nullptr || Rotation == nullptr)
+	{
+		return Out;
+	}
+	const FTransform Socket(UnrealRotation(FQuat(NumberAt(Rotation, 1), NumberAt(Rotation, 2), NumberAt(Rotation, 3), NumberAt(Rotation, 0))),
+		UnrealOffset(NumberAt(Position, 0), NumberAt(Position, 1), NumberAt(Position, 2)));
+	const TArray<TSharedPtr<FJsonValue>>* OffsetPosition = ArrayField(Side, FString(Kind) + TEXT("Position"));
+	const TArray<TSharedPtr<FJsonValue>>* OffsetDegrees = ArrayField(Side, FString(Kind) + TEXT("Rotation"));
+	const FQuat GameOffset = FQuat(FVector::ZAxisVector, FMath::DegreesToRadians(NumberAt(OffsetDegrees, 2)))
+		* FQuat(FVector::YAxisVector, FMath::DegreesToRadians(NumberAt(OffsetDegrees, 1)))
+		* FQuat(FVector::XAxisVector, FMath::DegreesToRadians(NumberAt(OffsetDegrees, 0)));
+	const FTransform Offset(UnrealRotation(GameOffset), UnrealOffset(NumberAt(OffsetPosition, 0), NumberAt(OffsetPosition, 1), NumberAt(OffsetPosition, 2)));
+	Out.Name = Attachment;
+	Out.Bone = FName(*StringField(Data, TEXT("bone")));
+	// The equip offset is in the frame of the socket: socket x offset (Unreal order: the offset first).
+	Out.Offset = Offset * Socket;
+	return Out;
+}
+
+void FSwcPlayerLooks::ResolveGear(const TMap<uint32, uint32>& Equipment, FSwcPlayerLook& Look, TMap<FName, FSwcLookPart>& Slots) const
+{
+	// The weapons of the paperdoll slots 24 to 29 (weapons 1 to 3 and their off hand; research gear.md "From a paperdoll
+	// entry to a weapon"). The attachments come from the equip database: the main-hand fields for the slots 24 to 26, the
+	// off-hand fields for 27 to 29 (the shield has only off-hand fields).
+	const TSharedPtr<FJsonObject> WeaponItems = ObjectField(Weapons, TEXT("items"));
+	const TSharedPtr<FJsonObject> EquipTypes = ObjectField(Weapons, TEXT("equipTypes"));
+	if (!WeaponItems.IsValid())
+	{
+		return;
+	}
+	// A marker time of a fragment (the names compare without case), or a default.
+	const auto Marker = [](const TSharedPtr<FJsonObject>& Fragment, const TCHAR* Name, float Default = 0.0f)
+	{
+		if (const TSharedPtr<FJsonObject> Markers = ObjectField(Fragment, TEXT("markers")))
+		{
+			for (const auto& Pair : Markers->Values)
+			{
+				if (FString(Pair.Key.ToView()).Equals(Name, ESearchCase::IgnoreCase))
+				{
+					return static_cast<float>(Pair.Value->AsNumber());
+				}
+			}
+		}
+		return Default;
+	};
+	TMap<uint32, float> OffhandDrawTimes;
+	const auto MakePart = [&](uint32 Slot, const FString& Item, const TSharedPtr<FJsonObject>& Data, bool bAccessory)
+	{
+		FSwcGearPart Part;
+		Part.PaperdollSlot = Slot;
+		Part.Item = Item;
+		Part.bAccessory = bAccessory;
+		Part.EquipType = StringField(Data, TEXT("equipType"));
+		Part.MeshKey = StringField(Data, TEXT("key"));
+		Part.MeshPath = ImportedObject(Part.MeshKey, TEXT("StaticMesh"));
+		Part.bHideSheathed = FlagField(Data, TEXT("hideSheathed"));
+		Part.bAlwaysVisible = StringField(Data, TEXT("sheathMode")) == TEXT("ALWAYS_VISIBLE");
+		if (FlagField(Data, TEXT("playerModel")))
+		{
+			// A model on the player skeleton (a gauntlet): its skins are parts of the body (gear.md, step 5).
+			if (const TArray<TSharedPtr<FJsonValue>>* Skins = ArrayField(Data, TEXT("skins")))
+			{
+				for (int32 Index = 0; Index < Skins->Num(); ++Index)
+				{
+					const TArray<TSharedPtr<FJsonValue>>& Pair = (*Skins)[Index]->AsArray();
+					FSwcLookPart Body;
+					Body.Slot = FName(*FString::Printf(TEXT("weapon%u_skin%d"), Slot, Index + 1));
+					Body.Skin = Pair.Num() > 0 ? Pair[0]->AsString() : FString();
+					Body.Material = Pair.Num() > 1 ? Pair[1]->AsString() : FString();
+					Slots.Add(Body.Slot, Body);
+				}
+			}
+			return;
+		}
+		// The swap times of the tags of the weapon (weapons.json "timings": the draw and the sheathe fragments).
+		const TSharedPtr<FJsonObject> Timing = ObjectField(ObjectField(Weapons, TEXT("timings")), StringField(Data, TEXT("tag")));
+		Part.DrawTime = Marker(ObjectField(Timing, TEXT("draw")), TEXT("unsheathe_weapon"));
+		Part.SheatheTime = Marker(ObjectField(Timing, TEXT("sheathe")), TEXT("sheathe_weapon"));
+		OffhandDrawTimes.Add(Slot, Marker(ObjectField(Timing, TEXT("draw")), TEXT("unsheathe_offhand"), Part.DrawTime));
+		const TSharedPtr<FJsonObject> Side = ObjectField(ObjectField(EquipTypes, Part.EquipType), Slot >= 27 && !bAccessory ? TEXT("offHand") : TEXT("main"));
+		Part.Sheathed = Place(Look.bFemale, StringField(Side, TEXT("sheathed")), Side, TEXT("sheath"));
+		Part.Hand = Place(Look.bFemale, StringField(Side, TEXT("hand")), Side, TEXT("hand"));
+		if (!Part.Sheathed.IsValid() || !Part.Hand.IsValid())
+		{
+			Look.Notes.Add(FString::Printf(TEXT("paperdoll slot %u: %s: no attachment of the equip type %s"), Slot, *Item, *Part.EquipType));
+		}
+		Look.Gear.Add(Part);
+	};
+	for (uint32 Slot = 24; Slot <= 29; ++Slot)
+	{
+		const uint32* ItemIndex = Equipment.Find(Slot);
+		if (ItemIndex == nullptr || *ItemIndex == 0 || !Items.IsValidIndex(static_cast<int32>(*ItemIndex) - 1))
+		{
+			continue;
+		}
+		const FString& Item = Items[*ItemIndex - 1][0];
+		const TSharedPtr<FJsonObject> Data = ObjectField(WeaponItems, Item);
+		if (!Data.IsValid())
+		{
+			Look.Notes.Add(FString::Printf(TEXT("paperdoll slot %u: item %s has no weapon look"), Slot, *Item));
+			continue;
+		}
+		MakePart(Slot, Item, Data, false);
+		if (const TSharedPtr<FJsonObject> Accessory = ObjectField(Data, TEXT("accessory")))
+		{
+			MakePart(Slot, Item, Accessory, true);
+		}
+	}
+	// An off-hand part moves with the action of its main weapon: Unsheathe_Offhand of its draw fragment (else its
+	// Unsheathe_Weapon), and its sheathe marker. An accessory does not move.
+	for (FSwcGearPart& Part : Look.Gear)
+	{
+		const FSwcGearPart* Main = Look.Gear.FindByPredicate([&Part](const FSwcGearPart& Other)
+			{ return !Other.bAccessory && Other.PaperdollSlot + 3 == Part.PaperdollSlot; });
+		if (Part.PaperdollSlot >= 27 && Main != nullptr)
+		{
+			Part.DrawTime = OffhandDrawTimes.FindRef(Main->PaperdollSlot);
+			Part.SheatheTime = Main->SheatheTime;
+		}
+	}
 }
 
 int32 FSwcPlayerLooks::WriteWanted(const FSwcPlayerLook& Look) const
@@ -319,6 +485,26 @@ int32 FSwcPlayerLooks::WriteWanted(const FSwcPlayerLook& Look) const
 		}
 	}
 	int32 Added = 0;
+	TArray<TSharedPtr<FJsonValue>> WantedWeapons;
+	if (const TArray<TSharedPtr<FJsonValue>>* Old = ArrayField(Wanted, TEXT("weapons")))
+	{
+		WantedWeapons = *Old;
+	}
+	TSet<FString> KnownWeapons;
+	for (const TSharedPtr<FJsonValue>& Item : WantedWeapons)
+	{
+		KnownWeapons.Add(Item->AsString());
+	}
+	for (const FSwcGearPart& Part : Look.Gear)
+	{
+		if (Part.MeshPath.IsEmpty() && !KnownWeapons.Contains(Part.Item))
+		{
+			KnownWeapons.Add(Part.Item);
+			WantedWeapons.Add(MakeShared<FJsonValueString>(Part.Item));
+			++Added;
+		}
+	}
+	Wanted->SetArrayField(TEXT("weapons"), WantedWeapons);
 	for (const FSwcLookPart& Part : Look.Parts)
 	{
 		if (!Part.MeshPath.IsEmpty() || Known.Contains(Part.Skin + TEXT("|") + Part.Material))

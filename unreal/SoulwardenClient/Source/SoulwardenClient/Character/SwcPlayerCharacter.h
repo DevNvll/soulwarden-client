@@ -1,12 +1,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Character/SwcPlayerLooks.h"
 #include "GameFramework/Character.h"
 #include "SwcPlayerCharacter.generated.h"
 
-struct FSwcPlayerLook;
 class FSwcLocomotion;
 class USkeletalMeshComponent;
+class UStaticMeshComponent;
 class USwcCharacterMovement;
 
 /**
@@ -32,8 +33,26 @@ public:
 	void ApplyLook(const FSwcPlayerLook& Look, const FString& BaseMesh, const FString& IdleAnimation,
 		const TSharedPtr<FSwcLocomotion>& Locomotion);
 
-	/** The number of drawn parts (a log line and a check). */
+	/** The number of drawn parts and of the gear meshes (a log line and a check). */
 	int32 PartCount() const { return Parts.Num(); }
+	int32 GearCount() const { return Gear.Num(); }
+
+	/**
+	 * The weapon state: the active weapon slot (24 to 26) and drawn or sheathed. The gear of the active weapon (and of
+	 * its off hand slot) goes to the hand when it is drawn and to its sheath place when it is sheathed; the other
+	 * weapons are in their sheath places. docs/GEAR.md has the rules.
+	 */
+	void SetWeaponState(uint32 ActiveSlot, bool bDrawn);
+	/**
+	 * A draw or a sheathe of the keys: the logical state changes at once; each gear part goes to its new place at the
+	 * marker time of the Mannequin data (gear.md "Active, sheathed, and attached are separate states"). A switch from a
+	 * drawn weapon to another one sheathes the first one, then draws the second one after that sheathe marker.
+	 */
+	void RequestWeaponState(uint32 ActiveSlot, bool bDrawn);
+	uint32 GetActiveWeaponSlot() const { return ActiveWeaponSlot; }
+	bool IsWeaponDrawn() const { return bWeaponDrawn; }
+	/** @return True when a weapon slot (24 to 26) has a weapon. */
+	bool HasWeapon(uint32 Slot) const;
 
 	USwcCharacterMovement* GetSwcMovement() const;
 	/** The feet of the character (the bottom of the capsule). */
@@ -42,4 +61,13 @@ public:
 private:
 	UPROPERTY()
 	TArray<TObjectPtr<USkeletalMeshComponent>> Parts;
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> Gear;
+	TArray<FSwcGearPart> GearParts;
+	/** The physical place of each gear part (true: the hand), and its timer of a move to come. */
+	TArray<bool> GearInHand;
+	TArray<FTimerHandle> GearTimers;
+	void PlaceGear(int32 Index, bool bInHand);
+	uint32 ActiveWeaponSlot = 0;
+	bool bWeaponDrawn = false;
 };

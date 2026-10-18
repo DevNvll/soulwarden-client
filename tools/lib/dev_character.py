@@ -4,7 +4,11 @@ then starts the client. It runs in the network namespace of tools/lib/session.sh
 
 Usage: dev_character.py SPEC -- CLIENT COMMAND...
   SPEC: name=NAME,gender=Male|Female,race=face01,skin=skin04,hair=hairstyle01m,facial=None,haircolor=haircolor1,
-        facialcolor=haircolor1,eyecolor=eyecolor1,archetype=Archetype_Soldier   (each key is optional but name)
+        facialcolor=haircolor1,eyecolor=eyecolor1,archetype=Archetype_Soldier,gear=ITEM@SLOT+ITEM@SLOT
+        (each key is optional but name)
+  gear: items of the item catalog in slots of the paperdoll (24 to 26: weapon 1 to 3, 27 to 29: their off hand). It
+        needs the development routes of the backend (SWC_SESSION_BACKEND_ARGS=--dev-commands): the helper gives each item
+        (/v1/dev/items/give) and equips it (/v1/dev/items/equip). An item that is in its slot stays.
 
 The creation data has the form of the create requests of the client and of the menu document of the backend
 (protocol notes 2.2.5; apps/backend/src/state/creation_data.cpp): base64(zlib(JSON)), the JSON member visualsBlob is a
@@ -109,6 +113,43 @@ def request(method: str, host: str, path: str, body: dict | None = None, token: 
         return error.code, json.loads(error.read() or b"{}")
 
 
+def management(method: str, path: str):
+    """A development route of the backend: a management request (no service host)."""
+    handler = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with handler.open(urllib.request.Request(HTTP + path, method=method), timeout=10) as reply:
+            return reply.status, json.loads(reply.read() or b"{}")
+    except urllib.error.HTTPError as error:
+        return error.code, json.loads(error.read() or b"{}")
+
+
+def equip(character: str, name: str, gear: str) -> int:
+    """Gives and equips the items of a gear spec (ITEM@SLOT+ITEM@SLOT)."""
+    for entry in filter(None, gear.split("+")):
+        item, _, slot = entry.partition("@")
+        status, view = management("GET", f"/v1/dev/items?character={character}")
+        if status != 200:
+            print(f"dev-character: no item list of {name} ({status}): the gear needs SWC_SESSION_BACKEND_ARGS=--dev-commands", file=sys.stderr)
+            return 1
+        if any(e.get("item") == item and str(e.get("slot")) == slot for e in view.get("equipment", [])):
+            continue
+        status, reply = management("POST", f"/v1/dev/items/give?character={character}&item={item}&quantity=1")
+        if status != 200:
+            print(f"dev-character: give {item} to {name}: {status} {reply}", file=sys.stderr)
+            return 1
+        _status, view = management("GET", f"/v1/dev/items?character={character}")
+        bag = [e["slot"] for e in view.get("items", []) if e.get("item") == item]
+        if not bag:
+            print(f"dev-character: {item} is not in the bag of {name}", file=sys.stderr)
+            return 1
+        status, reply = management("POST", f"/v1/dev/items/equip?character={character}&from={bag[-1]}" + (f"&slot={slot}" if slot else ""))
+        if status != 200:
+            print(f"dev-character: equip {item} in slot {slot} of {name}: {status} {reply}", file=sys.stderr)
+            return 1
+        print(f"dev-character: {name} has {item} in slot {slot or 'of its class'}", file=sys.stderr)
+    return 0
+
+
 def ticket() -> str:
     steam_id = os.environ.get("SWC_STEAM_ID", "")
     persona = os.environ.get("SWC_PERSONA_NAME", "Soulwarden").encode()
@@ -119,6 +160,7 @@ def create(spec: str) -> int:
     values = dict(part.split("=", 1) for part in spec.split(",") if "=" in part)
     name = values.pop("name")
     archetype = values.pop("archetype", "Archetype_Soldier")
+    gear = values.pop("gear", "")
     names = {field: values.get(key, default) for key, field, default in APPEARANCE}
     status, reply = request("POST", "tokenservice.soulwarden.local", "/games/new-world/tokens",
                             {"platformIdentityType": "steam", "platformAuth": {"ticket": ticket()}, "fallbackToken": "", "attributionData": {}})
@@ -132,17 +174,19 @@ def create(spec: str) -> int:
         print(f"dev-character: no world ({status})", file=sys.stderr)
         return 1
     world_id = worlds[0]["WorldId"]
-    if any(character.get("Name") == name for character in reply["LoginInfoList"].get("Characters", [])):
+    existing = [character for character in reply["LoginInfoList"].get("Characters", []) if character.get("Name") == name]
+    if existing:
         print(f"dev-character: {name} is there", file=sys.stderr)
-        return 0
+        return equip(existing[0]["CharacterId"], name, gear) if gear else 0
     body = {"CreateCharacterRequest": {"CharacterCreationParams": creation_params(name, names, archetype, world_id),
                                        "ClientCapabilities": [], "Name": name, "SkipFtue": False, "SteamAppId": 1063730,
                                        "SteamAuthTicket": ticket()}}
     status, reply = request("POST", "gateway.soulwarden.local", f"/prod/game/worlds/{world_id}/characters?channelId={CHANNEL}",
                             body, token, "application/x-amz-json-1.1")
     if status == 200:
-        print(f"dev-character: created {name} ({reply['Character']['CharacterId']}), {archetype}, {names}", file=sys.stderr)
-        return 0
+        character = reply["Character"]["CharacterId"]
+        print(f"dev-character: created {name} ({character}), {archetype}, {names}", file=sys.stderr)
+        return equip(character, name, gear) if gear else 0
     print(f"dev-character: the create request of {name} got {status} {reply}", file=sys.stderr)
     return 1
 
