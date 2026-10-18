@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <fstream>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -165,6 +166,47 @@ void test_golden_session(const std::string& goldenPath) {
     }
     expect(registrations == 1, "the backend carrier got one registration request on channel 0");
     expect(reports == counts.inputReports, "the backend carrier got each input report on channel 1");
+
+    // The player of the game thread (stage 1.7): the position field, the camera, the look, and the forward key.
+    swc::net::RepClient::Motion motion;
+    motion.character = {101.25F, 203.5F, 50.0F};
+    motion.camera = {101.75F, 199.5F, 51.7F};
+    motion.yaw = 0.5F;
+    motion.pitch = -0.25F;
+    motion.forward = true;
+    client.set_motion(motion);
+    serverGot.clear();
+    for (int step = 0; step < 4; ++step) {
+        now += std::chrono::milliseconds(34);
+        for (const Bytes& out : client.tick(now)) {
+            serverView.receive(out);
+        }
+    }
+    std::optional<backend::server::rep::ClientInput> moved;
+    for (const auto& [channel, frame] : serverGot) {
+        std::span<const std::uint8_t> payload;
+        if (channel != 1 || !backend::server::hub::decode_frame(frame, payload) || payload.size() < 19) {
+            continue;
+        }
+        backend::server::hub::Reader reader(payload.subspan(16));
+        reader.u8();
+        reader.u8();
+        if (reader.size() == 1589) {
+            moved = backend::server::rep::read_client_input(payload.subspan(16 + reader.position()));
+        }
+    }
+    expect(moved.has_value(), "input reports with the motion of the player");
+    if (moved) {
+        expect((moved->flags & backend::server::rep::kInputFlagPosition) != 0 && moved->hasCharacter && near(moved->characterX, 101.25F, 0.001F)
+                   && near(moved->characterY, 203.5F, 0.001F) && near(moved->characterZ, 50.0F, 0.02F),
+               "the backend reads the position field (flag 0x8000) of the character");
+        expect(moved->hasCamera && near(moved->cameraX, 101.75F, 0.001F) && near(moved->cameraY, 199.5F, 0.001F) && near(moved->cameraZ, 51.7F, 0.02F),
+               "the backend reads the camera of the player");
+        expect(moved->hasLook && near(moved->lookYaw, 0.5F, 0.0001F) && near(moved->lookPitch, -0.25F, 0.0001F), "the backend reads the look");
+        expect(moved->forward, "the backend reads the forward key (action bit 14)");
+        expect(moved->entries == 5 && moved->steps.size() == 5, "the backend reads the 5 entries of the report to their end");
+    }
+    client.set_motion(std::nullopt);
 
     // The 2 s timer: no movement state for 2 s.
     for (int step = 0; step < 300; ++step) {

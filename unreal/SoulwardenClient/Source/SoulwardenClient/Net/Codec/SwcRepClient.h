@@ -139,6 +139,21 @@ public:
         std::uint64_t inputReports{0};
     };
 
+    /** The player of the game thread for the input report (protocol notes 4.7). */
+    struct Motion {
+        /** The position of the character (the feet, after the physics step of the client): the position field (flag 0x8000). */
+        WorldPosition character;
+        /** The position of the camera (mask bit 7). */
+        WorldPosition camera;
+        /** The look of the camera in radians (mask bit 6): yaw to the left from north (+y), a positive pitch is down. */
+        float yaw{0.0F};
+        float pitch{0.0F};
+        /** The forward key is down: the action bits of W. */
+        bool forward{false};
+        /** The distance to the ground below the feet in meters while the character is in the air; negative on the ground. */
+        float airHeight{-1.0F};
+    };
+
     explicit RepClient(Options options);
 
     /** Starts the carrier handshake. */
@@ -149,6 +164,12 @@ public:
     std::vector<Bytes> tick(Clock::time_point now);
     /** Leaves the world: the carrier disconnect goes out at the next tick, as at "Exit to Main Menu". */
     void leave(const std::string& cause);
+    /**
+     * The player of the game thread: from now on each input entry has its camera, its look, its keys, and the position of
+     * the character. With no motion (the default, or std::nullopt) an entry has the camera of a character at rest at
+     * the position of the server and no position field (stage 1.5).
+     */
+    void set_motion(const std::optional<Motion>& motion) { m_motion = motion; }
 
     [[nodiscard]] Phase phase() const { return m_phase; }
     [[nodiscard]] static const char* phase_name(Phase phase);
@@ -213,6 +234,8 @@ private:
     Clock::time_point m_nextInput{};
     std::uint16_t m_inputNumber{0};
     std::vector<InputEntry> m_recentInputs;
+    std::optional<Motion> m_motion;
+    bool m_sentMotion{false};
     bool m_hasServerClock{false};
     std::int64_t m_serverOffsetNs{0};
     /** The part of the last correction of 335 that the slow correction did not apply yet. */

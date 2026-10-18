@@ -122,6 +122,12 @@ std::vector<swc::net::RepClient::Event> FSwcRepConnection::TakeEvents()
 	return Out;
 }
 
+void FSwcRepConnection::SetMotion(const std::optional<swc::net::RepClient::Motion>& InMotion)
+{
+	FScopeLock Guard(&Lock);
+	Motion = InMotion;
+}
+
 FSwcRepConnection::FSnapshot FSwcRepConnection::GetSnapshot() const
 {
 	FScopeLock Guard(&Lock);
@@ -298,6 +304,10 @@ uint32 FSwcRepConnection::Run()
 			{
 				Client.leave(TCHAR_TO_UTF8(*Cause));
 			}
+		}
+		{
+			FScopeLock Guard(&Lock);
+			Client.set_motion(Motion);
 		}
 		if (Now >= NextTick)
 		{

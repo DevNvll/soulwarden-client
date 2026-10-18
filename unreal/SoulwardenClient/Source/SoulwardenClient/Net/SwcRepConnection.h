@@ -55,6 +55,8 @@ public:
 	/** @return The log lines of the thread since the last call (with their level). */
 	std::vector<swc::net::RepClient::Event> TakeEvents();
 	FSnapshot GetSnapshot() const;
+	/** The player of the game thread for the next input reports (swc::net::RepClient::set_motion). */
+	void SetMotion(const std::optional<swc::net::RepClient::Motion>& InMotion);
 
 	// FRunnable
 	virtual uint32 Run() override;
@@ -72,4 +74,5 @@ private:
 	std::vector<swc::net::RepClient::Event> Events;
 	FSnapshot Snapshot;
 	FString LeaveCause;
+	std::optional<swc::net::RepClient::Motion> Motion;
 };

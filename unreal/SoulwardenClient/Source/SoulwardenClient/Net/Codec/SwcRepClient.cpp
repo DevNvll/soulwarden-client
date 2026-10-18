@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 namespace swc::net {
 namespace {
@@ -14,6 +15,8 @@ constexpr ActorId kNoRoute{};
 constexpr std::size_t kEntriesPerReport = 5;
 /** The action bits of an entry with no input after the loading screen (protocol notes 4.7, the captures). */
 const std::vector<unsigned> kRestActionBits{475, 497, 506, 569};
+/** The action bits of the forward key W while it is down (protocol notes 4.7, the captures; the backend reads bit 14). */
+const std::vector<unsigned> kForwardActionBits{14, 43, 416, 542};
 /** The action words of an entry in the world. */
 constexpr unsigned kActionWords = 19;
 /** The movement permissions and the ground distance of an entry of a client that stands (backend tests, report_entry). */
@@ -24,6 +27,27 @@ constexpr int kRestGroundDistance = 180;
 constexpr float kCameraRight = 0.5F;
 constexpr float kCameraBehind = 4.0F;
 constexpr float kCameraUp = 1.65F;
+/** The ground value of an entry in a fall (protocol notes 4.7: "0 to 10; 10 in a fall"): a half float, 10 at most. */
+constexpr float kMaxAirHeight = 10.0F;
+
+/** @return The bits of a half float (IEEE 754 binary16) for a value from 0 to 65504; the low bits are cut. */
+std::uint16_t half_bits(float value) {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    const std::int32_t exponent = static_cast<std::int32_t>((bits >> 23) & 0xFFU) - 127 + 15;
+    const std::uint32_t mantissa = bits & 0x7FFFFFU;
+    if (value <= 0.0F || exponent < -10) {
+        return 0;
+    }
+    if (exponent <= 0) {
+        // A subnormal half float.
+        return static_cast<std::uint16_t>((mantissa | 0x800000U) >> (14 - exponent));
+    }
+    if (exponent >= 31) {
+        return 0x7BFF;
+    }
+    return static_cast<std::uint16_t>((static_cast<std::uint32_t>(exponent) << 10) | (mantissa >> 13));
+}
 
 std::uint64_t read_be(std::span<const std::uint8_t> value) {
     std::uint64_t out = 0;
@@ -564,9 +588,35 @@ void RepClient::send_input(Clock::time_point now) {
         entry.actionBits = kRestActionBits;
     }
     entry.stepTime = 1.0F / 30.0F;
-    // The camera of a character at rest at its position, north, no pitch: the camera estimate of the backend keeps the
-    // position (protocol notes 4.7). No position field yet (the flag 0x8000): the client has no movement of its own.
-    entry.camera = {m_own.position.x + kCameraRight, m_own.position.y - kCameraBehind, m_own.position.z + kCameraUp};
+    if (m_motion) {
+        // The player of the game thread: the camera with its look, the keys, and the position field (flag 0x8000, as
+        // the retail client with the game hook of Soulwarden sends it; protocol notes 4.7).
+        entry.flags |= kInputFlagPosition;
+        entry.hasCharacter = true;
+        entry.character = m_motion->character;
+        entry.camera = m_motion->camera;
+        entry.hasLook = true;
+        entry.yaw = m_motion->yaw;
+        entry.pitch = m_motion->pitch;
+        if (m_motion->airHeight >= 0.0F) {
+            entry.groundDistance = half_bits(std::min(m_motion->airHeight, kMaxAirHeight));
+        }
+        if (m_motion->forward && !m_movementStale) {
+            entry.actionBits.insert(entry.actionBits.end(), kForwardActionBits.begin(), kForwardActionBits.end());
+        }
+    } else {
+        // The camera of a character at rest at its position, north, no pitch: the camera estimate of the backend keeps
+        // the position (protocol notes 4.7). No position field (the flag 0x8000).
+        entry.camera = {m_own.position.x + kCameraRight, m_own.position.y - kCameraBehind, m_own.position.z + kCameraUp};
+    }
+    if (m_motion.has_value() != m_sentMotion) {
+        m_sentMotion = m_motion.has_value();
+        char text[160];
+        std::snprintf(text, sizeof(text), m_sentMotion ? "input %u: the position of the character (flag 0x8000), the camera, and the keys of the player"
+                                                       : "input %u: the camera of a character at rest, no position field",
+                      static_cast<unsigned>(entry.sequence));
+        log(Event::Level::info, text);
+    }
     m_recentInputs.insert(m_recentInputs.begin(), entry);
     if (m_recentInputs.size() > kEntriesPerReport) {
         m_recentInputs.resize(kEntriesPerReport);
