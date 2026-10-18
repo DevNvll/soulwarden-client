@@ -44,8 +44,11 @@ public:
          * A step of the input of the player (stage P2.7, docs/ACTIONS.md): called for each input entry with the player motion,
          * with its input number (the 16 bits of the wire), the steady clock in nanoseconds, and its action bits. It adds the bits
          * of the attack input and follows the attack graph at the same step as the server. Called on the thread of the session.
+         * Stage P3.5: it adds the attack of each shot of a cast of an ability at this step (`shots`: the progression id of its
+         * RangedAttackName); the shot item goes into list 2 of the entry with the origin 1.5 m above the character and the
+         * direction of the look (protocol notes 4.27, the shot of Gravity Well).
          */
-        std::function<void(std::uint16_t input, std::int64_t steadyNs, std::vector<unsigned>& actionBits)> inputStep;
+        std::function<void(std::uint16_t input, std::int64_t steadyNs, std::vector<unsigned>& actionBits, std::vector<std::uint32_t>& shots)> inputStep;
     };
 
     enum class Phase { idle, waitingForRepConnection, waitingForActorGameConnection, waitingForSpawnPoint, waitingForPlayerSpawn, inGame, ended };
@@ -170,6 +173,13 @@ public:
         std::array<std::vector<Cooldown>, 3> cooldowns;
         /** Field 3 (ccdmap): the cooldowns of the consumables: the CRC-32 of the lower-case item id and the end. */
         std::vector<std::pair<std::uint32_t, std::uint64_t>> itemCooldowns;
+        /**
+         * The learned nodes of the weapon trees (the ProgressionPoint state, slot 67, type 3681; stage P3.5): the node id (the
+         * CRC-32 of the lower-case node id text) of each point entry with a level above 0. A state has each pool and each node
+         * (the backend never cuts it), thus each state replaces the list. `nodesRevision` counts the states.
+         */
+        std::vector<std::uint32_t> learnedNodes;
+        std::uint32_t nodesRevision{0};
     };
 
     /** An entity of a different interest number: its metadata and its position. */
@@ -205,6 +215,8 @@ public:
         std::uint64_t inputReports{0};
         /** The melee contacts in list 3 of the input entries (each one in one entry). */
         std::uint64_t meleeContacts{0};
+        /** The shots in list 2 of the input entries (stage P3.5). */
+        std::uint64_t shots{0};
     };
 
     /** The player of the game thread for the input report (protocol notes 4.7). */

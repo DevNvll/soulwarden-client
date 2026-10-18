@@ -86,6 +86,14 @@ void test_golden_session(const std::string& goldenPath) {
     options.token = golden_token();
     options.steamId = backend::tests::kSteamIdA;
     options.ticketHex = swc::net::local_ticket_hex(backend::tests::kSteamIdA, "Tester");
+    // Stage P3.5: the shot of a cast comes from the input step of the player (the attack driver puts its attack there).
+    std::uint32_t pendingShot = 0;
+    options.inputStep = [&pendingShot](std::uint16_t, std::int64_t, std::vector<unsigned>&, std::vector<std::uint32_t>& shots) {
+        if (pendingShot != 0) {
+            shots.push_back(pendingShot);
+            pendingShot = 0;
+        }
+    };
     swc::net::RepClient client(options);
     Clock::time_point now{};
     client.start(now);
@@ -133,6 +141,9 @@ void test_golden_session(const std::string& goldenPath) {
                && near(own.vitalsManaMax, 100.0F, 0.001F),
            "the stamina and mana values of the vitals state");
     expect(!own.dead, "not dead");
+    // The ProgressionPoint state (slot 67, type 3681; stage P3.5): the reader of the backend tests reads it, and the character of the
+    // scenario has no node (the dev runs check a character with the nodes of the build: docs/ACTIONS.md).
+    expect(own.nodesRevision >= 1 && own.learnedNodes.empty(), "the ProgressionPoint state: the weapon trees of the character, no node");
     // The server clock of the registration reply: the scenario starts at 1,000,000 s of the server clock.
     expect(client.has_server_clock() && client.server_time_ns(now) >= 1'000'000'000'000'000ULL
                && client.server_time_ns(now) < 1'000'001'000'000'000ULL,
@@ -314,6 +325,51 @@ void test_golden_session(const std::string& goldenPath) {
                "the point, the normal, and the direction of a contact");
     }
     expect(client.counts().meleeContacts == 2, "the count of the contacts that went out");
+    // The shot of Gravity Well (stage P3.5; protocol notes 4.27): one item of list 2 of one entry, the origin 1.5 m above the
+    // character, the direction of the look, the attack 8E14366B, no receiver; the reader of the backend reads each field.
+    pendingShot = 0x8E14366BU;
+    std::vector<backend::server::rep::InputShot> shotsRead;
+    std::size_t entriesWithShots = 0;
+    for (int step = 0; step < 3; ++step) {
+        serverGot.clear();
+        now += std::chrono::milliseconds(34);
+        for (const Bytes& out : client.tick(now)) {
+            serverView.receive(out);
+        }
+        for (const auto& [channel, frame] : serverGot) {
+            std::span<const std::uint8_t> payload;
+            if (channel != 1 || !backend::server::hub::decode_frame(frame, payload) || payload.size() < 19) {
+                continue;
+            }
+            backend::server::hub::Reader reader(payload.subspan(16));
+            reader.u8();
+            reader.u8();
+            if (reader.size() != 1589) {
+                continue;
+            }
+            if (const auto input = backend::server::rep::read_client_input(payload.subspan(16 + reader.position())); input && !input->steps.empty()) {
+                if (!input->steps.front().shotItems.empty()) {
+                    ++entriesWithShots;
+                    shotsRead = input->steps.front().shotItems;
+                }
+                expect(input->tail == backend::server::rep::InputTail::read && input->entries == input->steps.size()
+                           && input->hasCharacter && near(input->characterX, 141.91F, 0.002F),
+                       "the backend reads each entry of a report with a shot, to the position field after the lists");
+            }
+        }
+    }
+    expect(entriesWithShots == 1 && shotsRead.size() == 1, "the shot is in list 2 of one entry (" + std::to_string(entriesWithShots) + " entries)");
+    if (shotsRead.size() == 1) {
+        const backend::server::rep::InputShot& shot = shotsRead[0];
+        expect(near(shot.origin[0], 141.91F, 0.002F) && near(shot.origin[1], 203.5F, 0.002F) && near(shot.origin[2], 51.5F, 0.02F),
+               "the origin of the shot: the character, 1.5 m higher");
+        expect(near(shot.direction[0], -std::sin(0.5F) * std::cos(0.25F), 0.0001F) && near(shot.direction[1], std::cos(0.5F) * std::cos(0.25F), 0.0001F)
+                   && near(shot.direction[2], std::sin(0.25F), 0.0001F),
+               "the direction of the shot: the look (yaw 0.5 to the left of north, pitch 0.25 up)");
+        expect(shot.attack == 0x8E14366BU && !shot.hasReceiver && shot.charge == 0.0F && shot.ammo == 0 && shot.row == 0,
+               "the attack of the shot (gravitywell), no receiver, no charge, no ammunition, no row");
+    }
+    expect(client.counts().shots == 1, "the count of the shots that went out");
     client.set_motion(std::nullopt);
 
     // The 2 s timer: no movement state for 2 s.

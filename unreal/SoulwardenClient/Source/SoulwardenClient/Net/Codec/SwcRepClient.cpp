@@ -43,6 +43,9 @@ constexpr float kReportHorizontalSpeed = 10.0F;
 constexpr float kReportRiseSpeed = 10.0F;
 constexpr float kReportFallSpeed = 60.0F;
 constexpr float kReportJump = 20.0F;
+/** The origin of the shot of a cast above the feet of the character (m; protocol notes 4.27, live proof L7 of the shot of
+ *  Gravity Well: "the origin at the character (1.5 m higher)"; the backend launch place has the same height). */
+constexpr float kShotHeight = 1.5F;
 
 /** @return The bits of a half float (IEEE 754 binary16) for a value from 0 to 65504; the low bits are cut. */
 std::uint16_t half_bits(float value) {
@@ -583,6 +586,21 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                     }
                 }
             }
+        } else if (fragment.slot == kSlotPoints && fragment.type == kStatePoints.index) {
+            const std::array<std::span<const std::uint8_t>, 4> fields{decoder::field_of(fragment, 0, 0), decoder::field_of(fragment, 0, 1),
+                                                                      decoder::field_of(fragment, 0, 2), decoder::field_of(fragment, 0, 3)};
+            if (!fields[3].empty()) {
+                const decoder::WirePools pools = decoder::read_pools(fields);
+                if (pools.ok) {
+                    m_own.learnedNodes.clear();
+                    for (const decoder::WireNode& node : pools.nodes) {
+                        if (node.level > 0) {
+                            m_own.learnedNodes.push_back(node.node);
+                        }
+                    }
+                    ++m_own.nodesRevision;
+                }
+            }
         } else if (fragment.slot == kSlotCooldowns && fragment.type == kStateCooldowns.index) {
             for (unsigned place = 0; place < m_own.cooldowns.size(); ++place) {
                 if (const auto value = decoder::field_of(fragment, 0, place); !value.empty()) {
@@ -793,7 +811,19 @@ void RepClient::send_input(Clock::time_point now) {
             entry.actionBits.insert(entry.actionBits.end(), m_motion->pressBits.begin(), m_motion->pressBits.end());
         }
         if (m_options.inputStep) {
-            m_options.inputStep(static_cast<std::uint16_t>(entry.sequence), steady_ns(now), entry.actionBits);
+            std::vector<std::uint32_t> shots;
+            m_options.inputStep(static_cast<std::uint16_t>(entry.sequence), steady_ns(now), entry.actionBits, shots);
+            for (const std::uint32_t attack : shots) {
+                // The shot of a cast (protocol notes 4.27: the origin at the character, 1.5 m higher, the direction of the camera, no
+                // receiver). A positive pitch is down.
+                ShotItem shot;
+                shot.origin = {entry.character.x, entry.character.y, entry.character.z + kShotHeight};
+                const float level = std::cos(m_motion->pitch);
+                shot.direction = {-std::sin(m_motion->yaw) * level, std::cos(m_motion->yaw) * level, -std::sin(m_motion->pitch)};
+                shot.attack = attack;
+                entry.shots.push_back(shot);
+            }
+            m_counts.shots += entry.shots.size();
         }
         // The interaction request: its block in each entry while it is current.
         if (m_own.interaction) {

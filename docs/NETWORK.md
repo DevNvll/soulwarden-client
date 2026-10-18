@@ -279,6 +279,7 @@ yaw of the camera of the player (0 = north, positive = to the left, the conventi
 | `abilityBars` | ability (46, 185), group 0 field 0 `persistentAbilityData` | for each ability table, in the sequence of the field: the table id, and for each place the ability id (u32, the CRC-32 of the lower-case id text) and its button number |
 | `cooldowns[0..2]` | cooldown timers (45, 2932), group 0 fields 0 to 2 | the map of place N of the bars: ability id, end, minimum end, in microseconds of the server clock; an indefinite cooldown has the end 0xFFFFFFFFFFFFFFFF and the minimum end 0 |
 | `itemCooldowns` | cooldown timers, group 0 field 3 (ccdmap) | the CRC-32 of the lower-case item id, the end in microseconds |
+| `learnedNodes`, `nodesRevision` | progression points (67, 3681), group 0 field 3 `pointEntries` | the node id (u32, the CRC-32 of the lower-case node id) of each point entry with a level above 0; the backend sends each pool and each node in one state, thus each state replaces the list (stage P3.5: the conditions of the abilities, [ACTIONS.md](ACTIONS.md)) |
 | `equipment` | paperdoll (62, 3183), group 1 fields 1 to 3 and group 2 field 3 | paperdoll slot -> item index on the wire (0: empty); the item with index N is entry N - 1 of the item catalog |
 | `sheatheMap`, `activeMap` | paperdoll, group 2 fields 0 and 2 | bit N (byte N / 8, bit N % 8 of the 7 bytes) is paperdoll slot N |
 | `appearance`, `position`, `rotation`, `name`, `characterId`, `actor` | appearance, movement, player, metadata | as above |
@@ -317,6 +318,12 @@ With the player of the game thread (stage 1.7, `RepClient::set_motion`; [MOVEMEN
   provider `0xFFFFFFFF`, the group reference, the receiver reference with its facet target, the point, the normal, and
   the direction in engine space). The contacts of a frame go into the next entry only (`RepClient::queue_contacts`;
   `tools/test-net.sh` reads them with the reader of the backend);
+- list 2, the shots (stage P3.5, [ACTIONS.md](ACTIONS.md)): each item 192 bytes (`write_shot`, the layout of the writer of the
+  made-up client of the backend tests: the origin, the direction, the point, the receiver at wire 92, the charge, the
+  ammunition, the attack at 180, the row). The attack driver gives the attack of a shot of a cast at its step
+  (`inputStep`: the throw of Gravity Well, `8E14366B`, the CRC-32 of "gravitywell"); the client writes the origin 1.5 m
+  above the position field, the direction of the look, and no receiver (the actor id 0, `G` 0xFFFFFFFF, the category 255
+  at wire 190, as the live client; protocol notes 4.27);
 - in the air, the ground value: the half float of the distance to the ground (10 m at most; an inference from the
   protocol notes "0 to 10; 10 in a fall").
 
@@ -402,6 +409,8 @@ target lock of the camera takes its targets from them ([CAMERA.md](CAMERA.md)).
   the ids, the focus, and the use of `Interact/SwcInteraction` ([INTERACTIONS.md](INTERACTIONS.md)); the take messages 2939 and
   2942 read by the reader of the backend (the targets of the backend fixture), and the readers of the LootTracker, GlobalStorage,
   and Container values (the full vector, a journal that sets and adds slots, an emptied slot).
+- The abilities (stage P3.5): the shot of a cast in list 2 of one entry, read by the input reader of the backend (the origin, the
+  direction of the look, the attack, no receiver), and the ProgressionPoint state of the golden session (no node).
 - The carrier: the client carrier against the carrier of the backend: the handshake, a reliable message of 3,000 bytes
   in chunks to the server and of 2,500 bytes to the client, an unreliable message, a lost datagram of the server that
   comes again in its order, the 1,038-byte limit, and the disconnect.

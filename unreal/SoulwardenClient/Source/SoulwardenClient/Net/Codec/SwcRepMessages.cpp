@@ -154,7 +154,10 @@ void write_input_entry(Writer& w, const InputEntry& entry, const InputEntry* bef
         ++bit;
     }
     fields.size(0); // The hits of a projectile with no flight.
-    fields.size(0); // The shots.
+    fields.size(static_cast<std::uint32_t>(entry.shots.size())); // The shots.
+    for (const ShotItem& shot : entry.shots) {
+        write_shot(fields, shot);
+    }
     fields.size(static_cast<std::uint32_t>(entry.contacts.size())); // The melee contacts.
     for (const MeleeContactItem& contact : entry.contacts) {
         write_melee_contact(fields, contact);
@@ -189,6 +192,26 @@ void write_melee_contact(Writer& out, const MeleeContactItem& contact) {
     write_vector(out, contact.point);
     write_vector(out, contact.normal);
     write_vector(out, contact.direction);
+}
+
+void write_shot(Writer& out, const ShotItem& shot) {
+    write_vector(out, shot.origin);
+    write_vector(out, shot.direction);
+    write_vector(out, WorldPosition{});
+    write_vector(out, shot.point);
+    out.zeros(16 + 4 + 24); // The identifier, its u32, and the owner reference.
+    out.raw(shot.receiverActor);
+    out.u64(shot.receiver);
+    out.u64(shot.facet);
+    out.zeros(24 + 8 + 8 + 4 + 4); // The group, the token, a u64, and two floats.
+    out.f32(shot.charge);
+    out.u32(shot.ammo);
+    out.u32(shot.attack);
+    out.u32(shot.row);
+    const bool none = std::all_of(shot.receiverActor.begin(), shot.receiverActor.end(), [](std::uint8_t byte) { return byte == 0; });
+    out.zeros(2);
+    out.u8(none ? 255 : 0); // The category of the receiver (wire 190).
+    out.u8(0);
 }
 
 Bytes interaction_block(const InteractionRequest& request) {

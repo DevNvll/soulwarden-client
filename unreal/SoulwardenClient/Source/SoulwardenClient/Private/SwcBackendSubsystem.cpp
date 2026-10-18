@@ -285,7 +285,7 @@ void USwcBackendSubsystem::StartConnection(const FSwcLoginToken& Token, const FS
 	Options.Session.keepOtherRecords = true;
 	// The attack input and the attack graph at the input steps of the session thread (stage P2.7, docs/ACTIONS.md).
 	AttackDriver = std::make_shared<swc::combat::Driver>();
-	Options.Session.inputStep = [Driver = AttackDriver](std::uint16_t Input, std::int64_t SteadyNs, std::vector<unsigned>& Bits)
+	Options.Session.inputStep = [Driver = AttackDriver](std::uint16_t Input, std::int64_t SteadyNs, std::vector<unsigned>& Bits, std::vector<std::uint32_t>&)
 	{
 		Driver->step(Input, SteadyNs, Bits);
 	};

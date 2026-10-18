@@ -53,6 +53,8 @@ inline constexpr MessageType kStateStamina{"MB::StaminaComponentReplicatedState"
 inline constexpr MessageType kStateMana{"MB::ManaComponentReplicatedState", "3729094D0FBA4DCFB1917E9E53AA9B85", 1652};
 inline constexpr MessageType kStateAbility{"MB::AbilityComponentReplicatedState", "35877C3E4EF843DDABE7ABF35104F1B5", 185};
 inline constexpr MessageType kStateCooldowns{"MB::CooldownTimersComponentReplicatedState", "6D45EB2095FE442096C53F9367A3FC5C", 2932};
+/** The weapon trees of the owner (stage P3.5: the learned nodes for the conditions of the abilities; protocol notes 4.13). */
+inline constexpr MessageType kStatePoints{"MB::ProgressionPointReplicatedState", "F7B56641F8C341A983B213AC4F9843F9", 3681};
 inline constexpr MessageType kTimeSynch{"REPClient::TimeSynchMsg", "038CD847065342439A26936E3BD7F312", 335};
 /** The damage number of the attacker (protocol notes 4.15; backend server/rep/combat_messages.h): the creature view reads it. */
 inline constexpr MessageType kDamageDealt{"DamageReceiverComponentClientFacet_OnDamageDealt", "07D9175B3AFE4F43A49443005BB1BB4F", 2071};
@@ -92,12 +94,12 @@ inline constexpr MessageType kStateGlobalStorage{"MB::GlobalStorageComponentRepl
 inline constexpr MessageType kStateAchievement{"MB::AchievementComponentReplicatedState", "44528310AAA54E1BB8C168135B81CD06", 3210};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 36> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 37> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
     kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult, kTakeAllItems,
-    kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement};
+    kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -110,6 +112,8 @@ inline constexpr std::uint32_t kSlotStamina = 42;
 inline constexpr std::uint32_t kSlotCooldowns = 45;
 inline constexpr std::uint32_t kSlotAbility = 46;
 inline constexpr std::uint32_t kSlotMana = 47;
+/** The ProgressionPoint state of the owner (the pools and the nodes of the weapon trees). */
+inline constexpr std::uint32_t kSlotPoints = 67;
 /** The loot of the owner (protocol notes 4.10, 4.41, 4.42): the bag (the Container of slot 61), the LootTracker (33), the selected
  *  Container (76: the open bag), and the GlobalStorage map (77). */
 inline constexpr std::uint32_t kSlotBag = 61;
@@ -289,6 +293,33 @@ inline constexpr std::size_t kMeleeContactSize = 96;
 void write_melee_contact(Writer& out, const MeleeContactItem& contact);
 
 /**
+ * One shot of an input entry (list 2, 192 bytes; protocol notes 4.27; the reader of the backend server/rep/client_input.cpp and
+ * the writer of its made-up client, tests/support/client_frames.h): the shot of a cast of an ability (stage P3.5: the throw of
+ * Gravity Well at its mark, with no receiver).
+ *
+ *   0 origin:v3  12 direction:v3 (a unit vector)  24 the offset of the aim:v3 (0)  36 point:v3 (a hit near the muzzle)
+ *   92 receiver := actor id:16 bytes G:u64 facet target:u64 (no receiver: the actor id 0 and G 0xFFFFFFFF)
+ *   172 charge:f32  176 ammunition:u32  180 attack:u32 (the progression id of the RangedAttackName)  184 row:u32
+ *   190 the category of the receiver:u8 (255: none; the live client)
+ * The other bytes are 0 (the identifier, the owner reference, the token: the backend does not read them).
+ */
+struct ShotItem {
+    WorldPosition origin;
+    WorldPosition direction;
+    WorldPosition point;
+    ActorId receiverActor{};
+    std::uint64_t receiver{0xFFFFFFFFULL};
+    std::uint64_t facet{0};
+    float charge{0.0F};
+    std::uint32_t ammo{0};
+    std::uint32_t attack{0};
+    std::uint32_t row{0};
+};
+inline constexpr std::size_t kShotSize = 192;
+/** Writes the 192 bytes of one shot. */
+void write_shot(Writer& out, const ShotItem& shot);
+
+/**
  * The reference of an interaction (protocol notes 4.35): the actor of the object, its entity group G, and the facet target of
  * its Interact bound (the id rule of 4.2: K = root XOR G, target = (entity XOR K) + component).
  */
@@ -416,6 +447,8 @@ struct InputEntry {
     WorldPosition character;
     /** The byte of entry +0x470 after the position (the live client sends it). */
     bool value470{false};
+    /** List 2: the shots of this step (an entry has only its own items). */
+    std::vector<ShotItem> shots;
     /** List 3: the melee contacts of this step (an entry has only its own items). */
     std::vector<MeleeContactItem> contacts;
     /** The interaction block of mask bit 8 (from its present byte): the request that is current at this step. An entry with
