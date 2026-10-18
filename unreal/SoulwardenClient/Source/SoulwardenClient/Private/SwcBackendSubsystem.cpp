@@ -6,6 +6,7 @@
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcPlayerLooks.h"
 #include "Character/SwcTestFloor.h"
+#include "World/SwcWorldStreaming.h"
 #include "Components/CapsuleComponent.h"
 #include "Containers/Ticker.h"
 #include "Engine/Engine.h"
@@ -267,11 +268,14 @@ bool USwcBackendSubsystem::TickWorld(float)
 		}
 	}
 	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
-	if (Snapshot.Phase == FPhase::inGame && !bInGame)
+	// On the world level (World Partition), the character waits for the ground of its place (stage 1.3).
+	if (Snapshot.Phase == FPhase::inGame && !bInGame &&
+		SwcWorldStreaming::IsReadyAt(GetGameInstance()->GetWorld(), SwcEngineToUnreal(Snapshot.Own.position)))
 	{
 		bInGame = true;
 		InGameSince = FPlatformTime::Seconds();
 		ShowOwnEntity();
+		SwcWorldStreaming::Release();   // the character has its own streaming source
 	}
 	if (bInGame && Snapshot.Own.lookRevision != LookRevision)
 	{

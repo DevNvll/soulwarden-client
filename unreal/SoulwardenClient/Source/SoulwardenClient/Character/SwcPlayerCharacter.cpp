@@ -13,6 +13,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "SwcBackendSubsystem.h"
 #include "TimerManager.h"
+#include "Components/WorldPartitionStreamingSourceComponent.h"
 
 namespace
 {
@@ -32,6 +33,8 @@ ASwcPlayerCharacter::ASwcPlayerCharacter(const FObjectInitializer& ObjectInitial
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationRoll = false;
+	// The World Partition cells of the world level load around the character (stage 1.3).
+	CreateDefaultSubobject<UWorldPartitionStreamingSourceComponent>(TEXT("WorldStreaming"));
 	// The mesh stands on the bottom of the capsule.
 	GetMesh()->SetRelativeLocation(FVector(0.0, 0.0, -CapsuleHalfHeight));
 	GetMesh()->SetRelativeRotation(FRotator(0.0, MeshYaw, 0.0));
