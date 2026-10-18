@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Builds and runs the tests of the entity table of the creatures (tests/creatures) with the system C++ compiler. The tests
-# use the states that the encoders of the backend make (metadata, movement, vitals, marker: apps/backend/src/server/rep/states).
+# Builds and runs the tests of the creatures (tests/creatures) with the system C++ compiler: the entity table with the states
+# that the encoders of the backend make (metadata, movement, vitals, marker: apps/backend/src/server/rep/states), the melee
+# contact item with the reader of the backend (server/rep/client_input.cpp) and its test client (tests/support/client_frames.h),
+# and the damage number with the encoder of the backend (server/rep/combat_messages.cpp).
 # The Soulwarden sources are read only; the build output goes to SWC_WORK/build/creature-tests.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
@@ -11,8 +13,9 @@ vendor="${module}/Net/Vendor/soulwarden"
 out="${SWC_WORK}/build/creature-tests"
 mkdir -p "${out}"
 # The include order: the vendored copies first (the same files as the backend), then the backend sources.
-nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
-    -I"${module}" -I"${vendor}/src" -I"${vendor}/tests" -I"${backend}/src" -I"${backend}/tests" \
+flags=(-std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter
+    -I"${module}" -I"${vendor}/src" -I"${vendor}/tests" -I"${backend}/src" -I"${backend}/tests")
+nice -n 10 "${compiler}" "${flags[@]}" \
     "${SWC_REPO}/tests/creatures/entity_tests.cpp" \
     "${module}/Creatures/SwcEntityTable.cpp" "${module}/Net/Codec/SwcRepMessages.cpp" "${module}/Net/Codec/SwcCarrier.cpp" \
     "${vendor}/src/server/hub/wire.cpp" \
@@ -21,4 +24,10 @@ nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     "${backend}/src/server/rep/states/metadata_state.cpp" \
     "${backend}/src/core/logging/log.cpp" "${backend}/src/middleware/compression/lz4.cpp" \
     -o "${out}/swc-creature-tests"
-exec "${out}/swc-creature-tests"
+nice -n 10 "${compiler}" "${flags[@]}" \
+    "${SWC_REPO}/tests/creatures/combat_tests.cpp" "${module}/Creatures/SwcMeleeContact.cpp" "${module}/Creatures/SwcDamageMessage.cpp" \
+    "${module}/Net/Codec/SwcRepMessages.cpp" "${module}/Net/Codec/SwcCarrier.cpp" "${vendor}/src/server/hub/wire.cpp" \
+    "${backend}/src/server/rep/client_input.cpp" "${backend}/src/server/rep/combat_messages.cpp" "${backend}/src/core/logging/log.cpp" \
+    -o "${out}/swc-combat-tests"
+"${out}/swc-creature-tests"
+exec "${out}/swc-combat-tests"

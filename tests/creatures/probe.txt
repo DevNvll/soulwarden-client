@@ -1,0 +1,11 @@
+# A check of the hit volumes and of FindMeleeContacts with no attack (stage P2.8; tools/creature-check.sh with
+# -SwcHitVolumes -SwcContactProbe): four creatures 2 m around the character, which the creatures ignore; the drive turns the
+# camera, and the test capsule in front of the character touches each one in turn. A wolf at 8 m for -SwcFarContact.
+# Times in seconds from the world entry; offsets in m east, north; yaw: 0 north, 90 west, 180 south, 270 east.
+1 level 60
+2 ignore on
+3 spawn Wolf_Grey_7 0 2 0 --yaw 180
+4 spawn Wolf_Grey_7 2 0 0 --yaw 90
+5 spawn Skeleton_Club_23 -2 0 0 --yaw 270
+6 spawn Turkey:8 0 -2 0
+7 spawn Wolf_Grey_7 8 3 0 --yaw 90

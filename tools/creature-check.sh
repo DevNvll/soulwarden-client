@@ -3,10 +3,11 @@
 # (SWC_AGENT_DESKTOP), the development routes of the backend (a script of tools/lib/dev_world.py), an optional drive script
 # of the player, and a recording of the headless output of that desktop (wf-recorder).
 # Usage: tools/creature-check.sh LABEL STAY ROUTES [DRIVE] [-- CLIENT ARGUMENTS]
-#   LABEL    the name of the video and of the logs in SWC_WORK/evidence/1.9
+#   LABEL    the name of the video and of the logs in SWC_WORK/evidence/STAGE (SWC_STAGE, default 1.9)
 #   STAY     the seconds in the world (-SwcStay); the client then leaves and stops
 #   ROUTES   a script of the development routes ("SECONDS COMMAND WORDS..." from the world entry)
 #   DRIVE    a drive script of the player controller (-SwcDrive)
+# SWC_DEV_CHARACTER: the character of the run and of the routes (default: the first one).
 # Never for the data folder of the user (tools/dev-run.sh and tools/lib/dev_world.py refuse it).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
@@ -17,13 +18,15 @@ if [[ $# -gt 0 && "$1" != "--" ]]; then drive="$1"; shift; fi
 [[ "${1:-}" == "--" ]] && shift
 export SWC_SESSION_BACKEND_ARGS="--dev-commands"
 desktop="${SWC_AGENT_DESKTOP:-soulwarden-client-dev}"
-evidence="${SWC_WORK}/evidence/1.9"
+evidence="${SWC_WORK}/evidence/${SWC_STAGE:-1.9}"
 log="${SWC_WORK}/logs/dev-run/${label}-client.log"
 mkdir -p "${evidence}"
 rm -f "${log}"
 client_arguments=(-SwcPlates=all)
 [[ -n "${drive}" ]] && client_arguments+=(-SwcDrive="$(realpath "${drive}")")
-"${SWC_REPO}/tools/dev-run.sh" --window --enter --quit-when world --stay "${stay}" --label "${label}" -- "${client_arguments[@]}" "$@" >/dev/null
+enter=(--enter)
+[[ -n "${SWC_DEV_CHARACTER:-}" ]] && enter=(--enter "${SWC_DEV_CHARACTER}")
+"${SWC_REPO}/tools/dev-run.sh" --window "${enter[@]}" --quit-when world --stay "${stay}" --label "${label}" -- "${client_arguments[@]}" "$@" >/dev/null
 for ((i = 0; i < 240; ++i)); do
     grep -q 'world: own entity' "${log}" 2>/dev/null && break
     sleep 1

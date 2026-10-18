@@ -63,6 +63,16 @@ F_SLOT_TYPE = source.field_id("m_slotType")
 F_ITEM_NAME = source.field_id("m_itemName")
 MAIN_HAND, OFF_HAND = 24, 27
 EQUIP_TYPES = "sharedassets/genericassets/items/equiptypesdatabase.equipdb"
+# The hit volumes of a slice (the entities Head, Leg_F_L, ... of the slice; component HitVolume): the volume of a melee contact.
+# Its facet target is the target of a contact item (protocol notes 4.7, 4.15; the id rule of 4.2).
+HIT_VOLUME_TYPE = bytes.fromhex("6d3e998c" "fc19" "4c9d" "b8f6" "77c3fe985d29")
+HIT_SHAPES = {bytes.fromhex("7495c65c" "9193" "4193" "bbb2" "de3343b9eb03"): "capsule",
+              bytes.fromhex("7f2ef312" "4089" "4582" "89c5" "5d4156daa7fb"): "sphere",
+              bytes.fromhex("c6651a66" "23d4" "4508" "b4ad" "180c516655a8"): "box"}
+F_COMPONENT_ID = 0xBF396750
+# AZ::Entity and its field Id (the entity id of the slice file; the backend tool slice_ids.py reads the same field).
+ENTITY_TYPE = bytes.fromhex("75651658" "8663" "478d" "9090" "2432dfcafa44")
+F_ID = source.field_id("Id")
 # The four sockets of an equip type (field ids of equiptypesdatabase.equipdb; the names of the fields are not known): the
 # main hand drawn, the main hand sheathed, the off hand drawn, the off hand sheathed; each with a position and a rotation
 # (three f32 each). AlwaysUnsheathed_RHand: righthandattach, righthandattach, lefthandattach, lefthandattach.
@@ -124,7 +134,10 @@ def read_slice(path: str) -> dict:
     items: list[dict] = []
     marker_ids = {source.field_id(name): key for key, name in MARKER_FIELDS.items()}
     flag_ids = {source.field_id(name): key for key, name in MARKER_FLAGS.items()}
+    hit_volumes = read_hit_volumes(roots[0])
     for element in source.walk(roots[0]):
+        if element.type_id == HIT_VOLUME_TYPE:
+            continue
         slot, item = element.child(F_SLOT_TYPE), element.child(F_ITEM_NAME)
         if slot is not None and item is not None and source.text(item):
             items.append({"slot": source.number(slot), "item": source.text(item)})
@@ -148,7 +161,75 @@ def read_slice(path: str) -> dict:
                          and item.name == source.field_id("ScopeName")]
                 scopes.append({"scope": names[0] if names else "", "database": asset_path_of(entry)})
     return {"body": norm(body), "controller": controller, "database": database, "tags": tags, "scopeDatabases": scopes,
-            "scale": scale, "marker": marker, "items": items}
+            "scale": scale, "marker": marker, "items": items, "hitVolumes": hit_volumes}
+
+
+def vector_of(element) -> list[float]:
+    return [round(v, 5) for v in struct.unpack(">3f", element.value)] if element is not None and element.value and len(element.value) == 12 else []
+
+
+def read_hit_volumes(root) -> list[dict]:
+    """@return The hit volumes of a slice, each with the id of its slice entity (hexadecimal). Two entities can have the same
+    component ids (the left and the right leg of the werewolf), thus a volume is the pair of its entity and its component; the
+    data patches of a nested slice repeat a pair: the first one is the volume of the entity."""
+    volumes: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    stack = [(root, None)]
+    while stack:
+        element, entity = stack.pop()
+        if element.type_id == ENTITY_TYPE:
+            for child in element.children:
+                if child.name == F_ID:
+                    value = next((c.value for c in [child, *child.children] if c.value is not None and len(c.value) == 8), None)
+                    entity = f"{int.from_bytes(value, 'big'):016X}" if value is not None else None
+        if element.type_id == HIT_VOLUME_TYPE:
+            volume = read_hit_volume(element)
+            if volume is not None and entity is not None and (entity, volume["component"]) not in seen:
+                seen.add((entity, volume["component"]))
+                volumes.append(dict(volume, entity=entity))
+            continue
+        # The children in their order (a stack: the last child first).
+        stack.extend((child, entity) for child in reversed(element.children))
+    return volumes
+
+
+def read_hit_volume(element) -> dict | None:
+    """@return One hit volume: its component id (hexadecimal), name, bone, center (m, in the space of the bone), shape
+    (capsule: radius, height with the ends, axis; sphere: radius; box: half sizes), and the head and leg marks."""
+    component = None
+    for item in source.walk(element):
+        if item.name == F_COMPONENT_ID and item.value is not None and len(item.value) == 8:
+            component = item.value.hex().upper()
+            break
+    shape_field = element.child(source.field_id("m_shape"))
+    shapes = shape_field.children if shape_field is not None else []
+    if component is None or not shapes or shapes[0].type_id not in HIT_SHAPES:
+        return None
+    shape = shapes[0]
+    out = {"component": component, "name": source.text(element.child(source.field_id("m_volumeName"))),
+           "bone": source.text(element.child(source.field_id("m_targetBoneName"))),
+           "center": vector_of(element.child(source.field_id("m_center"))) or [0.0, 0.0, 0.0],
+           "shape": HIT_SHAPES[shape.type_id]}
+    radius = shape.child(source.field_id("m_Radius"))
+    if radius is not None:
+        out["radius"] = round(source.real(radius), 5)
+    height = shape.child(source.field_id("m_Height"))
+    if height is not None:
+        out["height"] = round(source.real(height), 5)
+    axis = vector_of(shape.child(source.field_id("m_axis")))
+    if axis:
+        out["axis"] = axis
+    box = vector_of(shape.child(source.field_id("m_Box")))
+    if box:
+        out["box"] = box
+    for key in ("m_isHeadshot", "m_isLegshot"):
+        flag = element.child(source.field_id(key))
+        if flag is not None and flag.value:
+            out[key[4:].lower()] = flag.value[0] != 0
+    mult = element.child(source.field_id("m_damageMult"))
+    if mult is not None and mult.value and len(mult.value) == 4:
+        out["damageMult"] = round(source.real(mult), 4)
+    return out
 
 
 def floats(text: str | None) -> list[float]:
@@ -525,16 +606,22 @@ def census() -> dict:
 T_MOTION = 0x3002
 
 
-def clip_info(path: str) -> dict:
-    """@return The length, the move speed, and the additive bit of a clip (chunk 0x3002: flags bit 0 is additive, research
-    feel-values.md R3.2.9, open point O4)."""
+def clip_info(path: str, bones_by_id: dict | None = None) -> dict:
+    """@return The length, the move speed, the additive bit (chunk 0x3002: flags bit 0 is additive, research feel-values.md
+    R3.2.9, open point O4; an additive clip has the identity rotation in its first frame: its keys are differences), and the
+    bones of the skeleton that the clip animates (not the root: the clips play in place). A layer after the first one of a
+    variant changes only these bones."""
     chunks = cgf.read_chunks(source.read(path))
     clip = anim.read_clip(chunks)
     motion = [c for c in chunks.chunks if c.type == T_MOTION][0].data
     flags = struct.unpack_from("<I", motion, 0)[0]
-    return {"path": path, "duration": round((clip.end - clip.start) * clip.secs_per_frame, 5),
+    info = {"path": path, "duration": round((clip.end - clip.start) * clip.secs_per_frame, 5),
             "fps": round(1.0 / clip.secs_per_frame, 3) if clip.secs_per_frame else 30.0,
             "moveSpeed": round(clip.move_speed, 4), "additive": bool(flags & 1)}
+    if bones_by_id is not None:
+        info["bones"] = sorted(bones_by_id[cid].name for cid, c in clip.controllers.items()
+                               if cid in bones_by_id and bones_by_id[cid].parent >= 0 and (len(c.rotations) or len(c.positions)))
+    return info
 
 
 def fragment_length(items: list[dict], clips: dict[str, dict]) -> float:
@@ -570,6 +657,7 @@ class ClipResolver:
 
     def __init__(self, skeleton: str) -> None:
         self.names = clip_list(skeleton)
+        self.bones_by_id = {b.controller_id: b for b in cgf.read_bones(cgf.read_chunks(source.read(skeleton)))}
         self.clips: dict[str, dict] = {}
         self.spaces: dict[str, dict] = {}
         self.combs: dict[str, dict] = {}
@@ -591,7 +679,7 @@ class ClipResolver:
             return "missing"
         try:
             if path.endswith(".caf"):
-                self.clips[name] = clip_info(path)
+                self.clips[name] = clip_info(path, self.bones_by_id)
                 return "clip"
             if path.endswith(".bspace"):
                 space = read_blend_space(path)
@@ -642,25 +730,28 @@ def animation_set(record: dict, backend_slice: dict, resolver: ClipResolver) -> 
         state |= set(decode_tags(controller["tags"], wire_tags))
     database = read_database(record["database"])
     fragments = {}
-    skipped_layers = 0
     for fragment_id in sorted(wanted_fragments(backend_slice, controller["fragments"])):
         name = controller["fragments"][fragment_id]
         variant, index = select_variant(database.get(name.lower(), []), state)
         if variant is None or not variant["layers"]:
             fragments[str(fragment_id)] = {"name": name, "variant": -1}
             continue
-        items = []
-        for item in variant["layers"][0]:
-            entry = dict(item)
-            entry["kind"] = resolver.add(item["clip"])
-            items.append(entry)
-        skipped_layers += max(len(variant["layers"]) - 1, 0)
+        layers = []
+        for layer in variant["layers"]:
+            items = []
+            for item in layer:
+                entry = dict(item)
+                entry["kind"] = resolver.add(item["clip"])
+                items.append(entry)
+            layers.append(items)
+        items = layers[0]
         definition = controller["definitions"].get(name.lower(), {})
         fragments[str(fragment_id)] = {"name": name, "variant": index, "tags": variant["tags"], "blendOut": variant["blendOut"],
-                                       "items": items, "marks": variant["marks"], "scopes": definition.get("scopes", []),
+                                       "items": items, "layers": layers[1:], "marks": variant["marks"],
+                                       "scopes": definition.get("scopes", []),
                                        "flags": definition.get("flags", [])}
     return {"controller": record["controller"], "database": record["database"], "tags": sorted(state), "wireTags": wire_tags,
-            "fragmentNames": controller["fragments"], "fragments": fragments, "skippedLayers": skipped_layers}
+            "fragmentNames": controller["fragments"], "fragments": fragments, "scopeNames": controller["scopes"]}
 
 
 # ---------------------------------------------------------------------------------------------------------- the glTF
@@ -961,7 +1052,8 @@ def convert(indexes: set[int], force: bool = False) -> dict:
     resolvers: dict[str, ClipResolver] = {}
     by_skeleton: dict[str, list[tuple[str, dict]]] = {}
     failures: dict[str, str] = {}
-    report: dict = {"skeletons": {}, "bodies": 0, "weapons": 0, "animation sets": 0}
+    report: dict = {"skeletons": {}, "bodies": 0, "weapons": 0, "animation sets": 0, "hit volumes": 0,
+                    "hit volumes not in the backend slice": 0}
 
     def manifest_entry(key: str, kind: str, out: Path, extra: dict | None = None) -> str:
         """Adds a manifest entry. @return Its Unreal folder."""
@@ -1005,6 +1097,20 @@ def convert(indexes: set[int], force: bool = False) -> dict:
         entry = {"path": record["path"], "body": record["body"], "skeleton": short_key(skeleton), "animations": set_key,
                  "marker": record.get("marker", {}), "weapons": [], "variants": {},
                  "actions": [action[0] for action in data["slices"][slice_index].get("actions", [])]}
+        # The hit volumes with the local id of their entity (the entity id XOR the root id of the slice; the facet target is
+        # (local id XOR G) + component id: the id rule of protocol notes 4.2).
+        backend_slice = data["slices"][slice_index]
+        pairs = {(entity.upper(), component.upper()) for entity, component, _name in backend_slice.get("components", [])}
+        root = int(backend_slice.get("root", "0"), 16)
+        volumes = []
+        for volume in record.get("hitVolumes", []):
+            # Only a component of the slice of the backend: the backend refuses a contact with a different facet target.
+            if (volume["entity"], volume["component"]) not in pairs:
+                report["hit volumes not in the backend slice"] += 1
+                continue
+            volumes.append({**{k: v for k, v in volume.items() if k != "entity"}, "local": f"{int(volume['entity'], 16) ^ root:016X}"})
+        entry["hitVolumes"] = volumes
+        report["hit volumes"] += len(volumes)
         body = census_doc["bodies"][record["body"]]
         # The default weapons on the sockets of their equip type (research creature-visuals.md section 4).
         for item in record.get("items", []):

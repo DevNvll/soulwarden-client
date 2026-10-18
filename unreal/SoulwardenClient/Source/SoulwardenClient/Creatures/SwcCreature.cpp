@@ -130,6 +130,52 @@ FVector ASwcCreature::GetPlatePoint() const
 	return GetActorLocation() + FVector(0.0, 0.0, (BodyTop + 30.0) * GetActorScale3D().Z + Offset);
 }
 
+void ASwcCreature::GetHitShapes(TArray<FSwcCreatureHitShape>& Out) const
+{
+	if (!bHasModel || Slice == nullptr)
+	{
+		return;
+	}
+	// The bone transforms have the scale of the creature: the sizes of the volumes get it too. A volume is in the space of its
+	// bone in engine space (m): the map of Net/SwcSpace.h (the weapons on their sockets use the same one).
+	const double Scale = GetActorScale3D().GetMax() * 100.0;
+	const auto ToUnreal = [](const FVector& Engine) { return FVector(Engine.X, -Engine.Y, Engine.Z); };
+	for (const FSwcHitVolume& Volume : Slice->HitVolumes)
+	{
+		const int32 Bone = Leader->GetBoneIndex(Volume.Bone);
+		if (Bone == INDEX_NONE)
+		{
+			continue;
+		}
+		const FTransform BoneWorld = Leader->GetBoneTransform(Bone);
+		const FVector Center = BoneWorld.TransformPosition(ToUnreal(Volume.EngineCenter) * 100.0);
+		FSwcCreatureHitShape& Hit = Out.AddDefaulted_GetRef();
+		Hit.Volume = &Volume;
+		switch (Volume.Shape)
+		{
+		case FSwcHitVolume::EShape::Sphere:
+			Hit.Shape = FSwcHitShape::Sphere(Center, static_cast<float>(Volume.Radius * Scale));
+			break;
+		case FSwcHitVolume::EShape::Box:
+			Hit.Shape = FSwcHitShape::Box(Center, BoneWorld.GetRotation(), Volume.EngineHalfSize.GetAbs() * Scale);
+			break;
+		case FSwcHitVolume::EShape::Capsule:
+		{
+			// The height of a capsule is the length with its two ends.
+			const FVector Axis = BoneWorld.TransformVectorNoScale(ToUnreal(Volume.EngineAxis));
+			const double Half = FMath::Max(0.0, Volume.Height * 0.5 - Volume.Radius) * Scale;
+			Hit.Shape = FSwcHitShape::Capsule(Center - Axis * Half, Center + Axis * Half, static_cast<float>(Volume.Radius * Scale));
+			break;
+		}
+		}
+	}
+}
+
+FBoxSphereBounds ASwcCreature::GetBodyBounds() const
+{
+	return Body->IsVisible() ? Body->Bounds : Leader->Bounds;
+}
+
 double ASwcCreature::GetDeadSeconds() const
 {
 	return bDead ? FPlatformTime::Seconds() - DeadAt : -1.0;
@@ -175,10 +221,25 @@ void ASwcCreature::SampleMotion(const swc::creatures::Entity& Entity, uint64 Ren
 
 void ASwcCreature::ApplyScope(const swc::creatures::Entity& Entity)
 {
-	// One new state of the scope fields: the record of scope 0 (or none) with its start on the server clock. The time of the
-	// record is the time of the action at the time anchor of its state (protocol notes 4.14).
+	// One new state of the scope fields: the record of each scope with a bit in the mask, and the end of each scope that has a
+	// record and no bit now (protocol notes 4.14).
+	ApplyScopeRecord(0, Entity);
+	for (uint32 Scope = 1; Scope < 32; ++Scope)
+	{
+		if ((Entity.scopeMask & (1U << Scope)) != 0 || Scopes.Contains(Scope))
+		{
+			ApplyScopeRecord(Scope, Entity);
+		}
+	}
+}
+
+void ASwcCreature::ApplyScopeRecord(uint32 Scope, const swc::creatures::Entity& Entity)
+{
+	// The record of the scope (or none) with its start on the server clock. The time of the record is the time of the action at
+	// the time anchor of its state.
+	FScopeState& State = Scopes.FindOrAdd(Scope);
 	FPending Next;
-	const swc::creatures::ScopeRecord* Record = Entity.scope(0);
+	const swc::creatures::ScopeRecord* Record = Entity.scope(Scope);
 	Next.bRecord = Record != nullptr && Record->fragment != swc::creatures::EntityTable::kNone;
 	if (Next.bRecord)
 	{
@@ -191,9 +252,9 @@ void ASwcCreature::ApplyScope(const swc::creatures::Entity& Entity)
 	}
 	// The same record again (a timed action in each state, user test 2 UT2-3): it starts again only when its time is far from
 	// the time of the action that plays.
-	const FPending* Last = Pending.IsEmpty() ? nullptr : &Pending.Last();
+	const FPending* Last = State.Pending.IsEmpty() ? nullptr : &State.Pending.Last();
 	const bool bSameAsLast = Last != nullptr ? Last->bRecord == Next.bRecord && (!Next.bRecord || Last->Record.startCount == Next.Record.startCount)
-		: bPlaying == Next.bRecord && (!Next.bRecord || Playing.startCount == Next.Record.startCount);
+		: State.bPlaying == Next.bRecord && (!Next.bRecord || State.Playing.startCount == Next.Record.startCount);
 	if (bSameAsLast)
 	{
 		if (!Next.bRecord || Last != nullptr)
@@ -202,47 +263,82 @@ void ASwcCreature::ApplyScope(const swc::creatures::Entity& Entity)
 		}
 		const FSwcCreatureFragment* Fragment = Animations.IsValid() ? Animations->Fragment(static_cast<int32>(Next.Record.fragment)) : nullptr;
 		const float Length = Fragment != nullptr ? Fragment->Length : -1.0f;
-		if (Length <= 0.0f || FMath::Abs(static_cast<double>(Next.StartUs - PlayingStartUs)) <= RestartShare * Length * 1.0e6)
+		if (Length <= 0.0f || FMath::Abs(static_cast<double>(Next.StartUs - State.PlayingStartUs)) <= RestartShare * Length * 1.0e6)
 		{
 			return;
 		}
 	}
-	Pending.Add(Next);
+	State.Pending.Add(Next);
 }
 
 FString ASwcCreature::StartPending(uint64 RenderTimeUs, bool bIsDead)
 {
 	FString Text;
-	USwcCreatureAnimInstance* Animation = Cast<USwcCreatureAnimInstance>(Leader->GetAnimInstance());
-	while (!Pending.IsEmpty() && Pending[0].StartUs <= static_cast<int64>(RenderTimeUs))
+	for (TPair<uint32, FScopeState>& Pair : Scopes)
 	{
-		const FPending Next = Pending[0];
-		Pending.RemoveAt(0);
+		const FString Started = StartScope(Pair.Key, Pair.Value, RenderTimeUs, bIsDead);
+		if (!Started.IsEmpty())
+		{
+			Text += (Text.IsEmpty() ? TEXT("") : TEXT("; ")) + Started;
+		}
+	}
+	return Text;
+}
+
+FString ASwcCreature::StartScope(uint32 Scope, FScopeState& State, uint64 RenderTimeUs, bool bIsDead)
+{
+	FString Text;
+	USwcCreatureAnimInstance* Animation = Cast<USwcCreatureAnimInstance>(Leader->GetAnimInstance());
+	while (!State.Pending.IsEmpty() && State.Pending[0].StartUs <= static_cast<int64>(RenderTimeUs))
+	{
+		const FPending Next = State.Pending[0];
+		State.Pending.RemoveAt(0);
 		// A later record that is already due replaces this one.
-		if (!Pending.IsEmpty() && Pending[0].StartUs <= static_cast<int64>(RenderTimeUs))
+		if (!State.Pending.IsEmpty() && State.Pending[0].StartUs <= static_cast<int64>(RenderTimeUs))
 		{
 			continue;
 		}
 		const float FragmentTime = static_cast<float>(static_cast<double>(static_cast<int64>(RenderTimeUs) - Next.StartUs) / 1.0e6);
-		bPlaying = Next.bRecord;
-		Playing = Next.Record;
-		PlayingStartUs = Next.StartUs;
+		const bool bWasPlaying = State.bPlaying;
+		State.bPlaying = Next.bRecord;
+		State.Playing = Next.Record;
+		State.PlayingStartUs = Next.StartUs;
 		int32 Fragment = INDEX_NONE;
 		if (Next.bRecord)
 		{
 			Fragment = static_cast<int32>(Next.Record.fragment);
 		}
-		else if (!bIsDead && Animations.IsValid())
+		else if (Scope == 0 && !bIsDead && Animations.IsValid())
 		{
 			// The fields with no record: the client plays its own idle (protocol notes 4.14). A dead creature keeps its pose.
 			Fragment = Animations->IdleFragment;
 		}
-		if (Fragment == INDEX_NONE || Animation == nullptr)
+		if (Animation == nullptr)
+		{
+			continue;
+		}
+		if (Scope != 0)
+		{
+			// An overlay: a record starts it, the end of the record blends it out.
+			if (Fragment == INDEX_NONE && !bWasPlaying)
+			{
+				continue;
+			}
+			const bool bStarted = Animation->PlayOverlay(static_cast<int32>(Scope), Fragment, FragmentTime, Next.bRecord ? Next.Record.speed : 1.0f);
+			State.PlayingFragment = Fragment;
+			Text = Fragment == INDEX_NONE ? FString::Printf(TEXT("scope %u: end"), Scope)
+				: FString::Printf(TEXT("scope %u: action %u %s (fragment %d %s), start count %u, at %.2f s%s"), Scope, Next.Record.action,
+					Slice != nullptr && Slice->Actions.IsValidIndex(static_cast<int32>(Next.Record.action)) ? *Slice->Actions[static_cast<int32>(Next.Record.action)] : TEXT(""),
+					Fragment, Animations.IsValid() ? *Animations->FragmentName(Fragment) : TEXT(""), Next.Record.startCount, FragmentTime,
+					bStarted ? TEXT("") : TEXT(": no variant of the fragment for the tags of the slice"));
+			continue;
+		}
+		if (Fragment == INDEX_NONE)
 		{
 			continue;
 		}
 		const bool bStarted = Animation->PlayFragment(Fragment, FragmentTime, Next.bRecord ? Next.Record.speed : 1.0f);
-		PlayingFragment = Fragment;
+		State.PlayingFragment = Fragment;
 		Text = FString::Printf(TEXT("%s %s (fragment %d%s), start count %u, at %.2f s of the action"), Next.bRecord ? TEXT("action") : TEXT("idle of the client"),
 			Next.bRecord ? *FString::Printf(TEXT("%u %s"), Next.Record.action,
 				Slice != nullptr && Slice->Actions.IsValidIndex(static_cast<int32>(Next.Record.action)) ? *Slice->Actions[static_cast<int32>(Next.Record.action)] : TEXT(""))
@@ -322,7 +418,9 @@ FString ASwcCreature::UpdateFromEntity(FSwcCreatureLibrary& Library, const swc::
 	{
 		Animation->SetMotion(MoveSpeed, TurnSpeed, TravelAngle);
 		// The first idle: a creature with no action of the server (its first state has no record of scope 0).
-		if (Animation->GetFragment() == INDEX_NONE && Pending.IsEmpty() && !bPlaying && Animations.IsValid() && !Entity.dead)
+		const FScopeState* Main = Scopes.Find(0);
+		if (Animation->GetFragment() == INDEX_NONE && (Main == nullptr || (Main->Pending.IsEmpty() && !Main->bPlaying)) && Animations.IsValid()
+			&& !Entity.dead)
 		{
 			Animation->PlayFragment(Animations->IdleFragment, 0.0f, 1.0f);
 		}

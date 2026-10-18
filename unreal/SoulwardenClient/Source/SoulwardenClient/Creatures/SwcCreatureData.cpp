@@ -215,6 +215,38 @@ bool FSwcCreatureLibrary::Load(FString& OutReport)
 					}
 				}
 			}
+			const TArray<TSharedPtr<FJsonValue>>* Volumes = nullptr;
+			if (Entry->TryGetArrayField(TEXT("hitVolumes"), Volumes))
+			{
+				for (const TSharedPtr<FJsonValue>& Value : *Volumes)
+				{
+					const TSharedPtr<FJsonObject> Volume = Value->AsObject();
+					FSwcHitVolume& Out = Slice.HitVolumes.AddDefaulted_GetRef();
+					Out.Name = Volume->GetStringField(TEXT("name"));
+					Out.Bone = FName(*Volume->GetStringField(TEXT("bone")));
+					const FString Shape = Volume->GetStringField(TEXT("shape"));
+					Out.Shape = Shape == TEXT("sphere") ? FSwcHitVolume::EShape::Sphere
+						: Shape == TEXT("box")          ? FSwcHitVolume::EShape::Box
+														: FSwcHitVolume::EShape::Capsule;
+					const auto Vector = [&](const TCHAR* Name, const FVector& Default)
+					{
+						const TArray<double> Values = Floats(Volume, Name);
+						return Values.Num() == 3 ? FVector(Values[0], Values[1], Values[2]) : Default;
+					};
+					Out.EngineCenter = Vector(TEXT("center"), FVector::ZeroVector);
+					Out.EngineAxis = Vector(TEXT("axis"), FVector::UpVector).GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+					Out.EngineHalfSize = Vector(TEXT("box"), FVector::ZeroVector);
+					Out.Radius = Number(Volume, TEXT("radius"), 0.0f);
+					Out.Height = Number(Volume, TEXT("height"), 0.0f);
+					Out.DamageMult = Number(Volume, TEXT("damageMult"), 1.0f);
+					bool bFlag = false;
+					Out.bHeadshot = Volume->TryGetBoolField(TEXT("headshot"), bFlag) && bFlag;
+					bFlag = false;
+					Out.bLegshot = Volume->TryGetBoolField(TEXT("legshot"), bFlag) && bFlag;
+					Out.Component = FCString::Strtoui64(*Volume->GetStringField(TEXT("component")), nullptr, 16);
+					Out.Local = FCString::Strtoui64(*Volume->GetStringField(TEXT("local")), nullptr, 16);
+				}
+			}
 			const TSharedPtr<FJsonObject>* Marker = nullptr;
 			if (Entry->TryGetObjectField(TEXT("marker"), Marker))
 			{
@@ -264,6 +296,17 @@ TSharedPtr<FSwcCreatureAnimations> FSwcCreatureLibrary::Animations(const FString
 			Clip.Duration = Number(Info, TEXT("duration"), 0.0f);
 			Clip.MoveSpeed = Number(Info, TEXT("moveSpeed"), 0.0f);
 			Info->TryGetStringField(TEXT("asset"), Clip.AssetPath);
+			TArray<FName>& Bones = Set->ClipBones.AddDefaulted_GetRef();
+			const TArray<TSharedPtr<FJsonValue>>* BoneNames = nullptr;
+			if (Info->TryGetArrayField(TEXT("bones"), BoneNames))
+			{
+				for (const TSharedPtr<FJsonValue>& Bone : *BoneNames)
+				{
+					Bones.Add(FName(*Bone->AsString()));
+				}
+			}
+			bool bAdditive = false;
+			Set->ClipAdditive.Add(Info->TryGetBoolField(TEXT("additive"), bAdditive) && bAdditive);
 			Set->ImportedClips += Clip.AssetPath.IsEmpty() ? 0 : 1;
 			ClipIndex.Add(Clip.Name, Set->Clips.Num() - 1);
 		}
@@ -356,35 +399,49 @@ TSharedPtr<FSwcCreatureAnimations> FSwcCreatureLibrary::Animations(const FString
 				}
 			}
 			// The start of each item: its "at" time, or the end of the clip before it (ExitTime -1).
-			float PreviousEnd = 0.0f;
-			for (const TSharedPtr<FJsonValue>& Value : *Items)
+			const auto ReadItems = [&Set, &ClipIndex, &SpaceIndex, &CombIndex](const TArray<TSharedPtr<FJsonValue>>& Values)
 			{
-				const TSharedPtr<FJsonObject> Entry = Value->AsObject();
-				FSwcFragmentItem Item;
-				Item.Kind = KindOf(Entry->GetStringField(TEXT("kind")));
-				const FString Name = Entry->GetStringField(TEXT("clip"));
-				const int32* Index = Item.Kind == FSwcFragmentItem::EKind::Clip ? ClipIndex.Find(Name)
-					: Item.Kind == FSwcFragmentItem::EKind::BlendSpace ? SpaceIndex.Find(Name)
-					: Item.Kind == FSwcFragmentItem::EKind::Comb ? CombIndex.Find(Name) : nullptr;
-				Item.Index = Index != nullptr ? *Index : INDEX_NONE;
-				if (Item.Index == INDEX_NONE && Item.Kind != FSwcFragmentItem::EKind::End)
+				TArray<FSwcFragmentItem> Out;
+				float PreviousEnd = 0.0f;
+				for (const TSharedPtr<FJsonValue>& Value : Values)
 				{
-					Item.Kind = FSwcFragmentItem::EKind::Missing;
+					const TSharedPtr<FJsonObject> Entry = Value->AsObject();
+					FSwcFragmentItem Item;
+					Item.Kind = KindOf(Entry->GetStringField(TEXT("kind")));
+					const FString Name = Entry->GetStringField(TEXT("clip"));
+					const int32* Index = Item.Kind == FSwcFragmentItem::EKind::Clip ? ClipIndex.Find(Name)
+						: Item.Kind == FSwcFragmentItem::EKind::BlendSpace ? SpaceIndex.Find(Name)
+						: Item.Kind == FSwcFragmentItem::EKind::Comb ? CombIndex.Find(Name) : nullptr;
+					Item.Index = Index != nullptr ? *Index : INDEX_NONE;
+					if (Item.Index == INDEX_NONE && Item.Kind != FSwcFragmentItem::EKind::End)
+					{
+						Item.Kind = FSwcFragmentItem::EKind::Missing;
+					}
+					bool bAfter = false;
+					Entry->TryGetBoolField(TEXT("afterPrevious"), bAfter);
+					Item.Start = bAfter && Out.Num() > 0 ? PreviousEnd : Number(Entry, TEXT("at"), 0.0f);
+					Item.ClipStart = Number(Entry, TEXT("clipStart"), 0.0f);
+					Item.BlendIn = Number(Entry, TEXT("blendIn"), 0.0f);
+					Item.Speed = FMath::Max(Number(Entry, TEXT("speed"), 1.0f), 0.001f);
+					Item.Weight = Number(Entry, TEXT("weight"), 1.0f);
+					bool bItemLoop = false;
+					Item.bLoop = Entry->TryGetBoolField(TEXT("loop"), bItemLoop) && bItemLoop;
+					if (Item.Kind == FSwcFragmentItem::EKind::Clip)
+					{
+						PreviousEnd = Item.Start + FMath::Max(Set->Clips[Item.Index].Duration - Item.ClipStart, 0.0f) / Item.Speed;
+					}
+					Out.Add(Item);
 				}
-				bool bAfter = false;
-				Entry->TryGetBoolField(TEXT("afterPrevious"), bAfter);
-				Item.Start = bAfter && Fragment.Items.Num() > 0 ? PreviousEnd : Number(Entry, TEXT("at"), 0.0f);
-				Item.ClipStart = Number(Entry, TEXT("clipStart"), 0.0f);
-				Item.BlendIn = Number(Entry, TEXT("blendIn"), 0.0f);
-				Item.Speed = FMath::Max(Number(Entry, TEXT("speed"), 1.0f), 0.001f);
-				Item.Weight = Number(Entry, TEXT("weight"), 1.0f);
-				bool bItemLoop = false;
-				Item.bLoop = Entry->TryGetBoolField(TEXT("loop"), bItemLoop) && bItemLoop;
-				if (Item.Kind == FSwcFragmentItem::EKind::Clip)
+				return Out;
+			};
+			Fragment.Items = ReadItems(*Items);
+			const TArray<TSharedPtr<FJsonValue>>* Extra = nullptr;
+			if (Info->TryGetArrayField(TEXT("layers"), Extra))
+			{
+				for (const TSharedPtr<FJsonValue>& Layer : *Extra)
 				{
-					PreviousEnd = Item.Start + FMath::Max(Set->Clips[Item.Index].Duration - Item.ClipStart, 0.0f) / Item.Speed;
+					Fragment.ExtraLayers.Add(ReadItems(Layer->AsArray()));
 				}
-				Fragment.Items.Add(Item);
 			}
 			Set->Fragments.Add(Id, MoveTemp(Fragment));
 		}

@@ -40,7 +40,10 @@ struct FSwcFragmentItem
 struct FSwcCreatureFragment
 {
 	FString Name;
+	/** The items of the first layer (the base pose), and of each later layer of the variant (they change only the bones of
+	 *  their clips: a hand pose, an arm blend space, or a copy). */
 	TArray<FSwcFragmentItem> Items;
+	TArray<TArray<FSwcFragmentItem>> ExtraLayers;
 	/** The length of the fragment (s): its end blend or the end of its last clip; -1: it loops (or no length is known). */
 	float Length = -1.0f;
 	bool bLoop = false;
@@ -66,6 +69,9 @@ struct FSwcCreatureAnimations
 	/** The names of the fragments in the order of the fragment file (the wire id of a fragment is its position). */
 	TArray<FString> FragmentNames;
 	TArray<FSwcClip> Clips;
+	/** For each clip: the bones that it animates (not the root), and its additive mark (its keys are differences). */
+	TArray<TArray<FName>> ClipBones;
+	TArray<bool> ClipAdditive;
 	TArray<FSwcBlendSpace> BlendSpaces;
 	TArray<FSwcComb> Combs;
 	/** The fragment of the idle of the client (fragment Idle: the client plays it when the server has no action). */
@@ -93,6 +99,38 @@ struct FSwcCreatureWeapon
 	FQuat EngineRotation = FQuat::Identity;
 };
 
+/**
+ * A hit volume of a slice: the HitVolume component of a slice entity (Head, Leg_F_L, ...; protocol notes 4.15). The weapon of
+ * a character touches it; the contact names the entity and the component (FSwcCreatureSubsystem::FindMeleeContacts).
+ */
+struct FSwcHitVolume
+{
+	enum class EShape : uint8
+	{
+		Capsule,
+		Sphere,
+		Box
+	};
+	FString Name;
+	/** The bone of the volume (m_targetBoneName) and the center on it (m_center), in engine space (m). */
+	FName Bone;
+	FVector EngineCenter = FVector::ZeroVector;
+	EShape Shape = EShape::Capsule;
+	/** A capsule: the radius, the height with the two ends, and the axis (in the space of the bone); a sphere: the radius;
+	 *  a box: the half sizes (m). */
+	float Radius = 0.0f;
+	float Height = 0.0f;
+	FVector EngineAxis = FVector::UpVector;
+	FVector EngineHalfSize = FVector::ZeroVector;
+	bool bHeadshot = false;
+	bool bLegshot = false;
+	float DamageMult = 1.0f;
+	/** The component id, and the local id of its entity (the entity id XOR the root id of the slice): the facet target of the
+	 *  volume for an entity group id G is (Local XOR G) + Component (swc::creatures::facet_target). */
+	uint64 Component = 0;
+	uint64 Local = 0;
+};
+
 /** The model of one slice. */
 struct FSwcCreatureSlice
 {
@@ -106,6 +144,7 @@ struct FSwcCreatureSlice
 	 *  the category row (MtlOverride, FemaleMtlOverride). */
 	TMap<uint32, FString> VariantMeshes;
 	TArray<FSwcCreatureWeapon> Weapons;
+	TArray<FSwcHitVolume> HitVolumes;
 	/** The names of the action table of the slice (the action index of a scope record is a position in it). */
 	TArray<FString> Actions;
 	FString AnimationKey;

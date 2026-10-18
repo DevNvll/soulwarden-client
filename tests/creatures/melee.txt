@@ -1,0 +1,7 @@
+# A first check of the melee contacts of stage P2.8 (tools/creature-check.sh with SWC_DEV_CHARACTER=Swordwarden and
+# tests/drive/melee.txt): a wolf 2.2 m in front of the character (north), which ignores the character.
+# Times in seconds from the world entry; offsets in m east, north; yaw: 0 north, 90 west, 180 south, 270 east.
+1 level 60
+2 heal
+3 ignore on
+4 spawn Wolf_Grey_7 0 2.2 0 --yaw 180

@@ -16,8 +16,11 @@ backend encoders (`apps/backend/src/server/rep/states`).
 | `Creatures/SwcCreatureData` | Reads the converted data: the model of each slice, the animation sets, the names, the scales. |
 | `Creatures/SwcCreature` | The actor of one creature: the body, the weapons, the interpolation, the actions of the server. |
 | `Creatures/SwcCreatureAnimInstance` | The Mannequin fragments of the actions with the timing of their variants, and the blend spaces with the weight grid of the data. |
-| `Creatures/SwcCreatureSubsystem` | A world subsystem: the entity table, the actors, the log lines, and the name plates. |
-| `RepClient::take_other_updates`, `FSwcRepConnection::TakeOtherUpdates`, `USwcBackendSubsystem::TakeOtherUpdates` | The read path of the records of the other entities (Net/ of the player track; option `keepOtherRecords`). |
+| `Creatures/SwcCreatureSubsystem` | A world subsystem: the entity table, the actors, the log lines, the name plates, the melee contacts, and the damage numbers. |
+| `Creatures/SwcHitShapes` | The shape test of the melee contacts: a point, a segment, or a box with a radius (Unreal world space). |
+| `Creatures/SwcMeleeContact` | Plain C++: the facet target of a hit volume and the fields of the item of list 3 (the writer is the one of the input codec). |
+| `Creatures/SwcDamageMessage` | Plain C++: the reader of the damage number of the attacker (type 2071). |
+| `RepClient::take_other_updates`, `FSwcRepConnection::TakeOtherUpdates`, `USwcBackendSubsystem::TakeOtherUpdates` | The read path of the records of the other entities and of the damage numbers (Net/ of the player track; option `keepOtherRecords`). |
 
 ## The pipeline
 
@@ -115,12 +118,70 @@ the folder, the name is the file stem; the first entry of a name wins).
 - The clips have no root track: the server moves a creature, also in its attacks (the retail client plays a remote lunge
   in place, LC-Q1-1).
 
+## The melee contacts (stage P2.8)
+
+The retail client finds the contacts of a melee weapon and sends them; the server checks each one and computes the damage
+(protocol notes 4.7, 4.15, 4.32). The work is in two parts (agreed through the orchestrator):
+
+- The player track: the damage windows of an attack (`weapon-actions.json`), the weapon shape of each step, the call of
+  `FindMeleeContacts`, one contact for each creature in one strike, and list 3 of the input entry in its input codec.
+- This track: the hit volumes, `USwcCreatureSubsystem::FindMeleeContacts`, and the item writer.
+
+The hit volumes: the `HitVolume` components (type `6d3e998c-fc19-4c9d-b8f6-77c3fe985d29`) of the entities of a slice (Head,
+Torso, Leg_L_Foot, ...): the bone (`m_targetBoneName`), the center on the bone (`m_center`, engine space), the shape (capsule:
+`m_Radius`, `m_Height` with its two ends, `m_axis`; sphere: `m_Radius`; box: `m_Box` half sizes), the marks `m_isHeadshot`,
+`m_isLegshot`, and `m_damageMult`. Two entities can have the same component ids (the left and the right leg of the
+werewolf): a volume is the pair of its entity and its component. `slices.json` keeps for each volume its component id and the
+local id of its entity (the entity id XOR the root id of the slice). The world: 4,714 volumes (4,234 capsules, 453 spheres,
+27 boxes), each one a component of the slice of the backend (`creatures.json`).
+
+The interface (decision of the orchestrator): the shape is `FSwcMeleeShape` of the player track (`Combat/SwcMeleeShape.h`,
+Unreal world space), the item is `swc::net::MeleeContactItem` of the input codec, and its writer is
+`swc::net::write_melee_contact` (one writer). `USwcBackendSubsystem::UpdateLook` connects the query to the player actions:
+
+```cpp
+Avatar->GetActions()->SetContactQuery(/* USwcCreatureSubsystem::QueryMeleeContacts(Shape, Out) */);
+```
+
+- `FindMeleeContacts(const FSwcMeleeShape&, TArray<FSwcMeleeContact>&)` tests the hit volumes at the pose that the creature
+  shows (the bones of its leader mesh, with the scale of the creature). One contact for each creature: the touched volume
+  nearest to the middle of the shape. No contact for a dead creature, a creature with the mark "invulnerable" (the server
+  refuses it), a placeholder, or a point behind a wall: a line from the chest of the attacker (its feet + 1 m, a value of this
+  client) to the point hits the static world (`ECC_WorldStatic`). `bNoSight` (DisableLOSCheck of the clip) skips the line.
+- The point is on the surface of the volume toward the weapon; the normal is the normal of the surface there; the direction
+  is the cast direction of the shape.
+- The item: provider 0xFFFFFFFF, the actor id and G of the creature two times (the group and the receiver), the facet target
+  `(local id XOR G) + component id` (`swc::creatures::facet_target`, `melee_contact_item`), and the point, the normal, and the
+  direction in engine space. `tools/test-creatures.sh` checks the bytes against the test client of the backend and reads them
+  with the reader of the backend (`server/rep/client_input.cpp`).
+- The player side keeps one contact for each target for each strike, and puts the contacts into list 3 of the next input
+  entry. The query writes one log line for each creature in each strike (`creature N: melee contact: visit V strike S ...`).
+- `-SwcFarContact[=SECONDS]` (development runs): when the shape touches no creature, one contact with the nearest living
+  creature 6 to 10 m from the attacker (from SECONDS after the start of the world). The server refuses it: "too far" (reach
+  3.5 m + 1.5 m).
+- `-SwcHitVolumes` draws the volumes of the creatures within 20 m (red: head, cyan: legs). `-SwcVolumeProbe` tests a capsule
+  in front of the character each 0.5 s and writes a log line for each contact; it sends nothing.
+
+The damage number: the server sends `DamageReceiverComponentClientFacet_OnDamageDealt` (type 2071) only to the client of
+the attacker: the actor id of the creature, the flags (bit 3: the kill; bit 6: a critical hit; bit 8: a headshot), and the
+damage entries (type, amount, part). The view shows the whole part of the sum at the creature: a simple number that rises
+70 cm and fades in 1.2 s (white; a critical hit larger and yellow). These values are not from the data: the original is the
+damage number canvas of the game (later, through the UI runtime). Each message has a log line
+(`creature N: NAME: damage number 64.0 slash, flags 0x0000`).
+
+The overlays: a record of a scope other than 0 (the additive reaction of scope 4 of the wolf, `Reaction_Additive`) plays as
+an overlay over the pose of scope 0. It blends in with the blend-in of its first item, and out with the blend-out of its
+fragment at its end or when the mask has no bit of its scope. A layer after the first one of a variant changes only the
+bones that its clips animate; an additive clip (keys that are differences from the identity) adds its rotations.
+
 ## The read path of the other tracks
 
 - `USwcCreatureSubsystem::GetTargets(TArray<FSwcCreatureTarget>&)`: each creature of the table with an actor: its interest
   number, its feet (Unreal cm, the shown place after the interpolation), and the dead mark. The target lock of the camera
   (stage 1.8, docs/CAMERA.md) can take its candidates from it in place of the positions of the snapshot.
 - `USwcCreatureSubsystem::GetTable()`: the entity table (the records of the server, with no delay).
+- `USwcCreatureSubsystem::FindMeleeContacts(const FSwcMeleeShape&, TArray<FSwcMeleeContact>&)` and `QueryMeleeContacts`: the
+  melee contacts of a damage shape (above).
 
 ## The name plate
 
@@ -165,7 +226,7 @@ about 13 minutes in all.
 ## The checks
 
 ```sh
-tools/test-creatures.sh                     # the entity table with the states of the backend encoders (63 checks)
+tools/test-creatures.sh                     # the entity table (63 checks); the contact item and the damage number (26 checks)
 export SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-creatures SWC_AGENT_DESKTOP=soulwarden-client-creatures
 tools/creature-check.sh creatures-world 80 tests/creatures/fight.txt tests/drive/creatures.txt
 ```

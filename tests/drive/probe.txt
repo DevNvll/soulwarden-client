@@ -1,0 +1,4 @@
+# The drive of the probe check (tests/creatures/probe.txt): the camera turns one full turn in 16 s, two times. Times in
+# seconds from the possession of the character; turn: degrees each second.
+8.0 turn 22.5
+40.0 turn 0

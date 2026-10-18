@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Creatures/SwcEntityTable.h"
+#include "Creatures/SwcHitShapes.h"
 #include "SwcCreature.generated.h"
 
 class FSwcCreatureLibrary;
@@ -11,6 +12,14 @@ class UStaticMeshComponent;
 class USwcCreatureAnimInstance;
 struct FSwcCreatureAnimations;
 struct FSwcCreatureSlice;
+struct FSwcHitVolume;
+
+/** A hit volume of a creature at the pose that it shows: the volume of its slice and its shape in Unreal world space. */
+struct FSwcCreatureHitShape
+{
+	const FSwcHitVolume* Volume = nullptr;
+	FSwcHitShape Shape;
+};
 
 /**
  * A creature of the backend (docs/CREATURES.md): the body of its slice with the material variant of its category row, its
@@ -46,6 +55,11 @@ public:
 	FVector GetPlatePoint() const;
 	/** The time since the death mark (s), or a negative value. */
 	double GetDeadSeconds() const;
+	/** Adds the hit volumes of the slice at the pose of this frame (the bones of the leader), in Unreal world space (cm). A
+	 *  placeholder has none. */
+	void GetHitShapes(TArray<FSwcCreatureHitShape>& Out) const;
+	/** @return The bounds of the body (Unreal world space), for a fast test before the hit volumes. */
+	FBoxSphereBounds GetBodyBounds() const;
 
 private:
 	struct FPending
@@ -56,7 +70,21 @@ private:
 		swc::creatures::ScopeRecord Record;
 	};
 
+	/** The records of one scope: the records that wait for their time, and the record that plays (its start on the server
+	 *  clock). Scope 0 (FullBody) plays the main fragment; a different scope plays an overlay (the additive reaction of scope 4
+	 *  of the wolf). */
+	struct FScopeState
+	{
+		TArray<FPending> Pending;
+		bool bPlaying = false;
+		swc::creatures::ScopeRecord Playing;
+		int64 PlayingStartUs = 0;
+		int32 PlayingFragment = INDEX_NONE;
+	};
+
 	void ApplyScope(const swc::creatures::Entity& Entity);
+	void ApplyScopeRecord(uint32 Scope, const swc::creatures::Entity& Entity);
+	FString StartScope(uint32 Scope, FScopeState& State, uint64 RenderTimeUs, bool bDead);
 	/** Shows a body mesh: the leader itself (the body of the skeleton file) or the follower. */
 	void ShowBody(USkeletalMesh* Mesh);
 	FString StartPending(uint64 RenderTimeUs, bool bDead);
@@ -86,14 +114,9 @@ private:
 	uint32 AppliedCategory = 0;
 	float BodyTop = 180.0f;
 
-	/** The scope records: the revision of the entity that the actor read, the records that wait for their time, and the record
-	 *  that plays (its start on the server clock). */
+	/** The scope records: the revision of the entity that the actor read, and the state of each scope (scope index -> state). */
 	uint32 ScopeRevision = 0;
-	TArray<FPending> Pending;
-	bool bPlaying = false;
-	swc::creatures::ScopeRecord Playing;
-	int64 PlayingStartUs = 0;
-	int32 PlayingFragment = INDEX_NONE;
+	TMap<uint32, FScopeState> Scopes;
 
 	/** The motion parameters and their smoothing (MotionParameterSmoothing of the slices: 0.1 s speed and travel angle,
 	 *  0.75 s turn speed; research feel-values.md R3.3.1). */
