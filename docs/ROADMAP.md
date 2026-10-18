@@ -123,7 +123,8 @@ starts the retail client.
 - Interchange imports the textures of each glTF again for each mesh (no shared texture assets). Stage 1.2 needs a
   shared texture and material step (import each texture one time, then material instances).
 - The specular maps of the source have no slot in the glTF material (metallic workflow); the look is not a goal now.
-- Multi-chunk meshes are placed at the identity (no node transform of the chunk file yet).
+- Closed in stage 1.1: the node matrices of multi-chunk meshes are applied, and each mesh is one glTF node (one
+  static mesh asset).
 
 Rules found in stage P0 (they are in the converter):
 
