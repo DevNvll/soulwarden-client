@@ -8,6 +8,7 @@
 #include "Combat/SwcAttackGraph.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcPlayerLooks.h"
+#include "Character/SwcRangedView.h"
 #include "Character/SwcTestFloor.h"
 #include "Interact/SwcInteractor.h"
 #include "World/SwcWorldStreaming.h"
@@ -285,9 +286,14 @@ void USwcBackendSubsystem::StartConnection(const FSwcLoginToken& Token, const FS
 	Options.Session.keepOtherRecords = true;
 	// The attack input and the attack graph at the input steps of the session thread (stage P2.7, docs/ACTIONS.md).
 	AttackDriver = std::make_shared<swc::combat::Driver>();
-	Options.Session.inputStep = [Driver = AttackDriver](std::uint16_t Input, std::int64_t SteadyNs, std::vector<unsigned>& Bits, std::vector<std::uint32_t>& Shots)
+	Options.Session.inputStep = [Driver = AttackDriver](std::uint16_t Input, std::int64_t SteadyNs, std::vector<unsigned>& Bits, std::vector<swc::net::ShotRequest>& Shots)
 	{
-		Driver->step(Input, SteadyNs, Bits, &Shots);
+		std::vector<swc::combat::Shot> Made;
+		Driver->step(Input, SteadyNs, Bits, &Made);
+		for (const swc::combat::Shot& Shot : Made)
+		{
+			Shots.push_back({Shot.attack, Shot.row, Shot.charge, Shot.ammo, Shot.forward, Shot.up});
+		}
 	};
 	Connection = MakeShared<FSwcRepConnection>(MoveTemp(Options));
 	if (!Connection->Launch())
@@ -401,6 +407,12 @@ bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 			UE_LOG(LogSwcBackend, Log, TEXT("world: abilities: %u press(es) of the keys of the bar: %u played, %u in the own cooldown, %u with no window, %u with no ability, %u refused by the load or a status; %u shot(s) of a cast, %llu in list 2 of the input entries; %u end(s) of the server taken; %u collision step(s); %u dodge press(es) refused by the load or a status"),
 				Attack.abilityPresses, Attack.pressVerdicts[0], Attack.pressVerdicts[2], Attack.pressVerdicts[3], Attack.pressVerdicts[1], Attack.pressVerdicts[4],
 				Attack.shots, static_cast<unsigned long long>(Snapshot.Counts.shots), Attack.cooldownCorrections, Attack.collisions, Attack.limitedDodges);
+			const USwcRangedView* RangedView = Avatar.IsValid() ? Avatar->GetRangedView() : nullptr;
+			UE_LOG(LogSwcBackend, Log, TEXT("world: ranged: %u shot(s), %u cast(s), %u ability start(s), %u mana payment(s) (%u refused), mana %.1f of %.1f, %u correction(s); %u own projectile(s), %u hit(s); %u ground target(s); %u heal number(s); %u unknown leaf value(s) [%s], %u action(s) ended by the time rule"),
+				Attack.ranged.shots, Attack.ranged.casts, Attack.ranged.abilities, Attack.ranged.payments, Attack.ranged.refusedPayments, Attack.mana, Attack.manaMax,
+				Attack.manaCorrections, RangedView != nullptr ? RangedView->GetProjectiles() : 0u, RangedView != nullptr ? RangedView->GetProjectileHits() : 0u,
+				RangedView != nullptr ? RangedView->GetTargetings() : 0u, RangedView != nullptr ? RangedView->GetHealNumbers() : 0u, Attack.ranged.unknown,
+				UTF8_TO_TCHAR(Attack.ranged.unknownTypes.c_str()), Attack.ranged.stuck);
 		}
 		Connection->Leave(TEXT("the client leaves the world (-SwcQuitWhen=world)"));
 	}
@@ -516,6 +528,30 @@ bool USwcBackendSubsystem::GetLocalPlayer(swc::net::RepClient::OwnEntity& Out) c
 			Out.stamina = Attack.stamina;
 			Out.staminaMax = Attack.staminaMax;
 		}
+		// The mana meter follows the predicted copy of the client (stage P3.6; backend mana_messages.h: the meter of the retail client
+		// follows its prediction, the mana state writes only the copy of the server).
+		if (Attack.stepped && Attack.manaKnown)
+		{
+			Out.hasMana = true;
+			Out.mana = Attack.mana;
+			Out.manaMax = Attack.manaMax;
+		}
+		// The selected weapon of the HUD follows the weapon switch of the client (the driver). The backend switches at the same input
+		// step, but its paperdoll state keeps the first weapon slot with an item as the active one (backend paperdoll_state.cpp: no
+		// draw and no sheathe yet), so the HUD kept the bar of slot 24 after a switch to slot 25. The off hand of the weapon is active
+		// with it; the weapon in the hand is out of its sheath while the character holds it drawn.
+		if (Attack.stepped && (Attack.held == 24 || Attack.held == 25))
+		{
+			const uint32 Held = Attack.held;
+			uint64 Active = 1ull << Held;
+			if (const auto OffHand = Out.equipment.find(Held + 3); OffHand != Out.equipment.end() && OffHand->second != 0)
+			{
+				Active |= 1ull << (Held + 3);
+			}
+			const bool bDrawn = Avatar.IsValid() && Avatar->IsWeaponDrawn() && Avatar->GetActiveWeaponSlot() == Held;
+			Out.activeMap = Active;
+			Out.sheatheMap = bDrawn ? (Out.sheatheMap & ~Active) : (Out.sheatheMap | Active);
+		}
 	}
 	return true;
 }
@@ -581,6 +617,43 @@ void USwcBackendSubsystem::UpdateMovementLimits(const swc::net::RepClient::OwnEn
 	if (AttackDriver)
 	{
 		AttackDriver->set_action_limits(Merged.can_dodge(), Merged.can_use_abilities(), Merged.can_attack_from_rest());
+		// The facts of the conditions of the ranged actions (stage P3.6): the statuses, the stun and the silence of the status columns, the
+		// encumbered movement (IfEncumbered), the movement, a damage in this frame, the camera lock, the ground target.
+		swc::combat::Driver::RangedFacts Facts;
+		bool bSilenced = false;
+		for (const swc::move::StatusRow* Row : Merged.statuses)
+		{
+			Facts.statuses.insert(TCHAR_TO_UTF8(*FString(UTF8_TO_TCHAR(Row->id.c_str())).ToLower()));
+			bSilenced = bSilenced || Row->silenced;
+		}
+		Facts.stunned = Merged.stunned();
+		Facts.silenced = bSilenced;
+		Facts.encumbered = Merged.encumbered_movement();
+		Facts.moving = Movement->GetHorizontalSpeed() > 0.1f;
+		Facts.heightToGround = Movement->IsFalling() ? 1.0f : 0.0f;
+		Facts.damaged = Own.health < LastHealth;
+		LastHealth = Own.health;
+		const APlayerController* Controller = Avatar->GetWorld() != nullptr ? Avatar->GetWorld()->GetFirstPlayerController() : nullptr;
+		const ASwcCameraManager* CameraManager = Controller != nullptr ? Cast<ASwcCameraManager>(Controller->PlayerCameraManager) : nullptr;
+		Facts.cameraLock = CameraManager != nullptr && CameraManager->IsLocked();
+		Facts.groundValid = Avatar->GetRangedView() != nullptr && Avatar->GetRangedView()->IsGroundValid();
+		AttackDriver->set_ranged_facts(Facts);
+		// The mana of the server (stage P3.6): the mana state (slot 47) and the prediction sync 4289.
+		if (Own.manaRevision != ManaRevision)
+		{
+			ManaRevision = Own.manaRevision;
+			AttackDriver->set_server_mana(Own.mana, Own.manaMax, Own.manaDelay, Own.manaRate, Own.manaAtNs);
+		}
+		if (Own.manaSyncRevision != ManaSyncRevision)
+		{
+			ManaSyncRevision = Own.manaSyncRevision;
+			AttackDriver->sync_mana(Own.manaSync.value, Own.manaSync.maximum, Own.manaSync.delay, Own.manaSync.factor, Own.manaSync.atNs);
+		}
+	}
+	// The heal numbers (stage P3.6).
+	if (USwcRangedView* RangedView = Avatar->GetRangedView())
+	{
+		RangedView->SetHeals(Own.healRevision, Own.heals);
 	}
 	const FString Text = FString::Printf(TEXT("bag %.1f of %.1f%s%s, equip load %s, statuses [%s], speed table %.2f; nav %d run %d sprint %d dodge %d jump %d abilities %d attack %d"),
 		BagWeight / 10.0f, Limits.bagLimit / 10.0f, Merged.encumbered() ? TEXT(" (encumbered)") : TEXT(""),
@@ -601,13 +674,17 @@ void USwcBackendSubsystem::UpdateAbilities(const swc::net::RepClient::OwnEntity&
 	for (uint32 Index = 0; Index < 2; ++Index)
 	{
 		const swc::combat::Graph* Graph = Avatar.IsValid() ? Avatar->GetActions()->GetDriverGraph(24 + Index) : nullptr;
-		if (Graph == nullptr)
+		// A ranged weapon (stage P3.6): the bar whose abilities its program has.
+		const swc::ranged::Program* Program = Avatar.IsValid() ? Avatar->GetActions()->GetRangedProgram(24 + Index) : nullptr;
+		if (Graph == nullptr && Program == nullptr)
 		{
 			continue;
 		}
 		for (const swc::net::RepClient::OwnEntity::AbilityBar& Bar : Own.abilityBars)
 		{
-			const bool bOfWeapon = std::any_of(Bar.abilities.begin(), Bar.abilities.end(), [Graph](std::uint32_t Id) { return Id != 0 && Graph->ability(Id) != nullptr; });
+			const bool bOfWeapon = std::any_of(Bar.abilities.begin(), Bar.abilities.end(), [Graph, Program](std::uint32_t Id) {
+				return Id != 0 && ((Graph != nullptr && Graph->ability(Id) != nullptr) || (Program != nullptr && Program->ability(Id) != nullptr));
+			});
 			if (bOfWeapon)
 			{
 				for (std::size_t Place = 0; Place < 3 && Place < Bar.abilities.size(); ++Place)
@@ -627,10 +704,15 @@ void USwcBackendSubsystem::UpdateAbilities(const swc::net::RepClient::OwnEntity&
 		{
 			const swc::combat::Graph* Graph = Avatar.IsValid() ? Avatar->GetActions()->GetDriverGraph(24 + Index) : nullptr;
 			Text += FString::Printf(TEXT("%sslot %u:"), Index == 0 ? TEXT("") : TEXT("; "), 24 + Index);
+			const swc::ranged::Program* Program = Avatar.IsValid() ? Avatar->GetActions()->GetRangedProgram(24 + Index) : nullptr;
 			for (const uint32 Id : Bars[Index])
 			{
 				const swc::combat::Ability* Ability = Graph != nullptr && Id != 0 ? Graph->ability(Id) : nullptr;
-				Text += FString::Printf(TEXT(" %s"), Ability != nullptr ? UTF8_TO_TCHAR(Ability->name.c_str()) : Id != 0 ? TEXT("(not in the graph)") : TEXT("-"));
+				const swc::ranged::Ability* Ranged = Program != nullptr && Id != 0 ? Program->ability(Id) : nullptr;
+				Text += FString::Printf(TEXT(" %s"), Ability != nullptr ? UTF8_TO_TCHAR(Ability->name.c_str())
+						: Ranged != nullptr                         ? UTF8_TO_TCHAR(Ranged->id.c_str())
+						: Id != 0                                   ? TEXT("(not in the graph)")
+																	: TEXT("-"));
 			}
 		}
 		UE_LOG(LogSwcBackend, Log, TEXT("ability: the bars of the weapons: %s"), *Text);
@@ -925,6 +1007,7 @@ void USwcBackendSubsystem::UpdateLook()
 	if (Actions.IsValid())
 	{
 		Avatar->GetActions()->Setup(Actions, Look.bFemale, AttackDriver);
+		Avatar->GetRangedView()->Setup(Actions, AttackDriver);
 		// The melee contacts of the strikes: the hit volumes of the creatures (stage P2.8, docs/CREATURES.md).
 		Avatar->GetActions()->SetContactQuery([Creatures = TWeakObjectPtr<USwcCreatureSubsystem>(Avatar->GetWorld()->GetSubsystem<USwcCreatureSubsystem>())](
 			const FSwcMeleeShape& Shape, std::vector<swc::net::MeleeContactItem>& Out) { if (Creatures.IsValid()) { Creatures->QueryMeleeContacts(Shape, Out); } });
@@ -1093,6 +1176,12 @@ void USwcBackendSubsystem::UpdatePlayer()
 		FHitResult Hit;
 		const bool bHit = World->LineTraceSingleByChannel(Hit, Feet, Feet - FVector(0.0, 0.0, MaxAirHeight), ECC_WorldStatic);
 		Motion.airHeight = static_cast<float>((bHit ? Hit.Distance : MaxAirHeight) / 100.0);
+	}
+	// The aim point of the camera for the direction of the shot items (stage P3.6).
+	if (FVector Aim; Character->GetRangedView() != nullptr && Character->GetRangedView()->GetAimPoint(Aim))
+	{
+		Motion.hasAimPoint = true;
+		Motion.aimPoint = SwcUnrealToEngine(Aim);
 	}
 	Connection->SetMotion(Motion);
 	// The interactions (stage P2.10): the focus at the feet, the key E, the use, and the replies of the session. The death and a

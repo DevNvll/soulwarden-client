@@ -11,6 +11,7 @@
 #include <string_view>
 #include <vector>
 
+#include "Combat/SwcRanged.h"
 #include "Combat/SwcStamina.h"
 
 // The basic attacks of a melee weapon on the client (stage P2.7): the attack graph of the weapon (the Mannequin fragments
@@ -44,6 +45,10 @@ inline constexpr unsigned kBitRelease = 567;
 inline constexpr unsigned kBitDodge = 322;
 /** The aim input ("aim_draw", the right mouse button with a ranged weapon): each step while it is held. */
 inline constexpr unsigned kBitAim = 126;
+/** The hold of a bow (aim_shoot_hold): the bow sends it in place of attack_primary_hold (protocol notes 4.27, live; stage P3.6). */
+inline constexpr unsigned kBitAimShootHold = 315;
+/** The self target (Left Ctrl, self_target): each step while it is down; the self confirm of an aim (backend client_input.cpp). */
+inline constexpr unsigned kBitSelfTarget = 430;
 /** The weapon keys: Use_MainHandSlot_1 and quickslot-weapon1 (slot 24), Use_MainHandSlot_2 and quickslot-weapon2 (slot 25). */
 inline constexpr unsigned kBitsKey1[2] = {9, 40};
 inline constexpr unsigned kBitsKey2[2] = {355, 306};
@@ -233,6 +238,21 @@ struct Bits {
 	/** A press at rest can start an attack (AttackBits::attackAllowed of the backend; stage P3.3): false when the bag is over 1.5 x
 	 *  its weight limit (Prevent_Attack of the data) or the character is stunned. A chain that plays goes on. */
 	bool attackAllowed{true};
+};
+
+/**
+ * A shot item of an input step: the attack, the row, the charge, and the ammunition of the data (CRC-32 values; stage P3.6), and the
+ * origin rule: `forward` m along the look from the character and `up` m above its feet (a basic shot and a ranged ability: 1.0 and
+ * 1.46, the live bow item of protocol notes 4.27; the shot of a cast of a melee ability: 0 and 1.5, the Gravity Well of stage P3.5).
+ * The direction goes to the aim point of the camera (the session thread has it from the game thread).
+ */
+struct Shot {
+	std::uint32_t attack{0};
+	std::uint32_t row{0};
+	float charge{0.0F};
+	std::uint32_t ammo{0};
+	float forward{0.0F};
+	float up{1.5F};
 };
 
 /** One visit of a fragment. */
@@ -453,6 +473,66 @@ public:
 		std::uint32_t collisions{0};
 		/** The dodge presses that the limits of the load or of a status refused (stage P3.3). */
 		std::uint32_t limitedDodges{0};
+		/**
+		 * The ranged actions (stage P3.6, Combat/SwcRanged): the fragment of the scope (its action, its fragment, the record of its
+		 * clips, its start step, a serial, its clock), the aim of the data (the tag AimDownSights), the walk, the ground target, the
+		 * channel, the turn to the camera, and the counts.
+		 */
+		struct Ranged {
+			bool program{false};
+			std::string action;
+			std::string fragment;
+			std::string record;
+			std::uint16_t start{0};
+			std::uint32_t serial{0};
+			float clock{0.0F};
+			bool aimDownSights{false};
+			bool forceWalk{false};
+			std::string targeting;
+			std::string channel;
+			float facingRate{-1.0F};
+			std::uint32_t shots{0};
+			std::uint32_t casts{0};
+			std::uint32_t abilities{0};
+			std::uint32_t payments{0};
+			std::uint32_t refusedPayments{0};
+			std::uint32_t unknown{0};
+			/** The leaf types of the unknown values with their counts ("IfX 3, named:Y 1"). */
+			std::string unknownTypes;
+			std::uint32_t stuck{0};
+			/** The last shots and casts (the newest at the back; at most 16) for the pictures of the game thread. */
+			struct Recent {
+				std::uint32_t serial{0};
+				bool shot{false};
+				std::string spell;
+				std::uint32_t attack{0};
+				std::uint32_t row{0};
+				std::uint16_t input{0};
+			};
+			std::vector<Recent> recent;
+		};
+		Ranged ranged;
+		/** The predicted mana of the client (ranged::Mana) and whether a mana state of the server came. */
+		float mana{0.0F};
+		float manaMax{0.0F};
+		bool manaKnown{false};
+		std::uint32_t manaCorrections{0};
+	};
+
+	/** The facts of the character for the conditions of the ranged actions (the game thread, each frame; stage P3.6). */
+	struct RangedFacts {
+		/** The statuses of the status map (lower-case ids). */
+		std::set<std::string> statuses;
+		bool stunned{false};
+		bool silenced{false};
+		bool encumbered{false};
+		bool moving{false};
+		bool damaged{false};
+		bool cameraLock{false};
+		bool freeLook{false};
+		/** The ground target of the camera ray is in the cast distance of the targeting spell, on a ground. */
+		bool groundValid{false};
+		float heightToGround{0.0F};
 	};
 
 	/** The graph of each weapon slot (24, 25; null: no attack graph) and the weapon in the hand. Resets the sequence. */
@@ -463,6 +543,19 @@ public:
 	void dodge_press();
 	/** The aim (the game thread): the aim bit in each step while it is on. */
 	void set_aim(bool aim);
+	/** The ranged program of each weapon slot (24, 25; null: none) and their shared data (stage P3.6). A change resets the player. */
+	void set_ranged(const ranged::Program* slot1, const ranged::Program* slot2, const ranged::Shared* shared);
+	/** Left Ctrl (the game thread): the self-target bit in each step while it is down. */
+	void set_self_target(bool down);
+	void set_ranged_facts(const RangedFacts& facts);
+	/**
+	 * The mana state of the server (slot 47: the value, the base maximum, the delay that is left, the rate in mana/s) at the steady
+	 * time of its arrival (ns), and the rate factor of message 4289. The client keeps its own prediction (ranged::Mana).
+	 */
+	void set_server_mana(float value, float baseMax, float delay, float rate, std::int64_t atNs);
+	void set_mana_factor(float factor);
+	/** Message 4289 at the steady time of its arrival (ns): the predicted mana takes the values of the server at once (ranged::Mana). */
+	void sync_mana(float value, float baseMax, float delay, float factor, std::int64_t atNs);
 	/** The stamina data, the equip load class of the character, a world entry (the full stamina). */
 	void set_stamina(const StaminaData& data);
 	void set_load(LoadClass load);
@@ -508,11 +601,13 @@ public:
 	 * steps the sequence, and then takes a press of a key of the bar (the order of the backend: RepSession::handle_attacks steps
 	 * the sequence, then presses the ability). `shots`: the attack of each shot of a cast at this step (the mark of its spell).
 	 */
-	void step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>& actionBits, std::vector<std::uint32_t>* shots = nullptr);
+	void step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>& actionBits, std::vector<Shot>* shots = nullptr);
 	[[nodiscard]] Snapshot snapshot() const;
 
 private:
 	[[nodiscard]] const Graph* graph_of(std::uint32_t slot) const;
+	/** The ranged step of the weapon in the hand (stage P3.6). `pressed`: the place of the key of the bar that this step pressed (-1). */
+	void step_ranged(std::uint16_t input, std::int64_t nowNs, const Bits& bits, int pressed, bool weaponKey, std::vector<Shot>* shots);
 
 	mutable std::mutex m_lock;
 	const Graph* m_graphs[2]{nullptr, nullptr};
@@ -552,6 +647,26 @@ private:
 	std::uint64_t m_cast{0};
 	std::uint32_t m_castAbility{0};
 	bool m_shotSent{false};
+	/** The ranged actions (stage P3.6): the program of each slot, the player of the program in the hand, the keys, the facts, the mana. */
+	const ranged::Program* m_programs[2]{nullptr, nullptr};
+	const ranged::Shared* m_rangedShared{nullptr};
+	const ranged::Program* m_rangedNow{nullptr};
+	ranged::Player m_ranged;
+	bool m_selfTarget{false};
+	bool m_aimWas{false};
+	RangedFacts m_rangedFacts;
+	ranged::Mana m_mana;
+	struct ServerMana {
+		float value{0.0F};
+		float baseMax{0.0F};
+		float delay{0.0F};
+		float rate{0.0F};
+		std::int64_t atNs{0};
+	};
+	std::optional<ServerMana> m_serverMana;
+	std::optional<ServerMana> m_manaSync;
+	std::optional<float> m_manaFactor;
+	std::uint32_t m_recentSerial{0};
 	Snapshot m_snapshot;
 };
 

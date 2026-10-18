@@ -97,6 +97,8 @@ public:
 	/** @return True while the input of the player does nothing: the death, a loading screen, the respawn before its mark, a
 	 *  timed use. */
 	bool IsInputLocked() const { return LifeState.locked(); }
+	/** Left Ctrl (self_target): bit 430 in each input step while it is down (stage P3.6). */
+	void SetSelfTarget(bool bDown);
 	bool IsDead() const { return LifeState.state() == swc::combat::Life::State::dead; }
 
 	/** The count of the attack fragments that started, and of the weapon switches of the driver (a log line and a check). */
@@ -108,6 +110,8 @@ public:
 	{
 		return Slot == 24 || Slot == 25 ? static_cast<const swc::combat::Graph*>(DriverGraphs[Slot - 24]) : nullptr;
 	}
+	/** The ranged program of the weapon of a slot (24, 25; stage P3.6), or null. */
+	const swc::ranged::Program* GetRangedProgram(uint32 Slot) const;
 	uint32 GetSwitchCount() const { return SeenSwitches; }
 
 	/** The melee contact query of the creatures: the contacts of one shape with the hit volumes (the item fields). */
@@ -227,6 +231,8 @@ private:
 	/** The largest speed that the movement keeps at the end of the action (cm/s; 0: no limit). */
 	float CarryLimit = 0.0f;
 	bool bAimHeld = false;
+	/** The serial of the last fragment of the ranged scope that started (stage P3.6). */
+	uint32 RangedSerial = 0;
 	bool bAiming = false;
 	bool bLockAllowed = true;
 	bool bAttackBeforeTransition = false;

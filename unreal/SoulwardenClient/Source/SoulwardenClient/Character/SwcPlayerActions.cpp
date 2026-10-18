@@ -324,6 +324,25 @@ void USwcPlayerActions::OnGearChanged()
 			First != nullptr ? *FString::Join(First->Tags, TEXT(",")) : TEXT("none"), Second != nullptr ? *FString::Join(Second->Tags, TEXT(",")) : TEXT("none"),
 			Held);
 	}
+	// The ranged programs of the bow and the staffs (stage P3.6); the driver keeps its player when they are the same.
+	if (Driver && Data.IsValid())
+	{
+		Driver->set_ranged(First != nullptr ? First->Ranged.Get() : nullptr, Second != nullptr ? Second->Ranged.Get() : nullptr, &Data->GetRangedShared());
+	}
+}
+
+const swc::ranged::Program* USwcPlayerActions::GetRangedProgram(uint32 Slot) const
+{
+	const FSwcWeaponActions* Weapon = WeaponOf(Slot);
+	return Weapon != nullptr ? Weapon->Ranged.Get() : nullptr;
+}
+
+void USwcPlayerActions::SetSelfTarget(bool bDown)
+{
+	if (Driver)
+	{
+		Driver->set_self_target(bDown);
+	}
 }
 
 void USwcPlayerActions::OnWeaponKey(uint32 Slot)
@@ -694,16 +713,28 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 		const swc::combat::Driver::Snapshot::AbilityPress& Press = *Snapshot.lastPress;
 		const swc::combat::Ability* Ability = Snapshot.graph != nullptr ? Snapshot.graph->ability(Press.ability) : nullptr;
 		const auto Running = Snapshot.cooldowns.find(Press.ability);
-		UE_LOG(LogSwcBackend, Log, TEXT("ability: key %s (place %u) %s %08x at input %u: %s%s"), Keys[FMath::Min(Press.place, 2u)], Press.place,
-			Ability != nullptr ? UTF8_TO_TCHAR(Ability->name.c_str()) : TEXT("(none)"), Press.ability, static_cast<unsigned>(Press.input),
-			UTF8_TO_TCHAR(swc::combat::press_verdict_text(Press.verdict)),
-			Press.verdict == swc::combat::PressVerdict::played
-				? *FString::Printf(TEXT(", %s at input %u, cast %llu, own cooldown %.1f s"),
-					Press.fragment >= 0 ? UTF8_TO_TCHAR(Snapshot.graph->fragments[static_cast<std::size_t>(Press.fragment)].name.c_str()) : TEXT("?"),
-					static_cast<unsigned>(Press.at), static_cast<unsigned long long>(Press.cast),
-					Running != Snapshot.cooldowns.end() ? static_cast<double>(Running->second - Snapshot.inputNs) / 1e9 : 0.0)
-				: Running != Snapshot.cooldowns.end() ? *FString::Printf(TEXT(", %.1f s left"), static_cast<double>(Running->second - Snapshot.inputNs) / 1e9)
-													  : TEXT(""));
+		if (Snapshot.ranged.program && Snapshot.graph == nullptr)
+		{
+			// A ranged weapon (stage P3.6): the ranged player plays the key from the action lists of the data (the "ranged:" lines).
+			UE_LOG(LogSwcBackend, Log, TEXT("ability: key %s (place %u) %08x at input %u: to the ranged program%s"), Keys[FMath::Min(Press.place, 2u)], Press.place,
+				Press.ability, static_cast<unsigned>(Press.input),
+				Running != Snapshot.cooldowns.end() && Running->second > Snapshot.inputNs
+					? *FString::Printf(TEXT(", own cooldown %.1f s left"), static_cast<double>(Running->second - Snapshot.inputNs) / 1e9)
+					: TEXT(""));
+		}
+		else
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("ability: key %s (place %u) %s %08x at input %u: %s%s"), Keys[FMath::Min(Press.place, 2u)], Press.place,
+				Ability != nullptr ? UTF8_TO_TCHAR(Ability->name.c_str()) : TEXT("(none)"), Press.ability, static_cast<unsigned>(Press.input),
+				UTF8_TO_TCHAR(swc::combat::press_verdict_text(Press.verdict)),
+				Press.verdict == swc::combat::PressVerdict::played
+					? *FString::Printf(TEXT(", %s at input %u, cast %llu, own cooldown %.1f s"),
+						Press.fragment >= 0 ? UTF8_TO_TCHAR(Snapshot.graph->fragments[static_cast<std::size_t>(Press.fragment)].name.c_str()) : TEXT("?"),
+						static_cast<unsigned>(Press.at), static_cast<unsigned long long>(Press.cast),
+						Running != Snapshot.cooldowns.end() ? static_cast<double>(Running->second - Snapshot.inputNs) / 1e9 : 0.0)
+					: Running != Snapshot.cooldowns.end() ? *FString::Printf(TEXT(", %.1f s left"), static_cast<double>(Running->second - Snapshot.inputNs) / 1e9)
+														  : TEXT(""));
+		}
 	}
 	if (Snapshot.shots != SeenShots)
 	{
@@ -751,6 +782,38 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 		{
 			bPlaying = false;
 			Movement->EndActionMotion(CarryLimit);
+		}
+		// The fragment of the ranged scope (stage P3.6) on the FullBody channel: its clips are upper-body clips, the legs keep the
+		// movement; no root motion. A start ends autorun and draws the weapon of the program (an attack with a sheathed weapon).
+		const swc::combat::Driver::Snapshot::Ranged& Ranged = Snapshot.ranged;
+		const int32 RangedFragment = Ranged.program && !Ranged.record.empty() ? Data->FragmentOfRecord(UTF8_TO_TCHAR(Ranged.record.c_str())) : INDEX_NONE;
+		if (RangedFragment != INDEX_NONE)
+		{
+			if (Ranged.serial != RangedSerial)
+			{
+				RangedSerial = Ranged.serial;
+				UE_LOG(LogSwcBackend, Log, TEXT("ranged: %s (action %s) at input %u"), UTF8_TO_TCHAR(Ranged.fragment.c_str()), UTF8_TO_TCHAR(Ranged.action.c_str()),
+					static_cast<unsigned>(Ranged.start));
+				Movement->CancelAutoRun(TEXT("an attack"));
+				if (VisualSlot != Snapshot.held || !Owner->IsWeaponDrawn() || Owner->GetActiveWeaponSlot() != Snapshot.held)
+				{
+					DrawAtOnce(Snapshot.held);
+				}
+			}
+			if (Anim != nullptr)
+			{
+				// A serial of its own (the high bit) so that a ranged fragment never takes the serial of an attack visit.
+				Anim->SetAction(0, RangedFragment, 0x80000000U | Ranged.serial, Ranged.clock + Since);
+			}
+			// The turn to the camera of a CameraRelativeFacing of the action (AlignToCamera; an exponential rate of the data).
+			if (Ranged.facingRate > 0.0f)
+			{
+				FSwcFacingRule Rule;
+				Rule.TurnRate = Ranged.facingRate;
+				Rule.bExponential = true;
+				Owner->SetActorRotation(FRotator(0.0, TurnYaw(Owner->GetActorRotation().Yaw, Movement->GetCameraYaw(), Rule, DeltaTime), 0.0));
+			}
+			return;
 		}
 		if (Anim != nullptr)
 		{
@@ -1107,11 +1170,18 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	const bool bArmedStop = Has({TEXT("1H_Melee"), TEXT("2H_Melee"), TEXT("MagicGauntlet"), TEXT("MagicStaff")});
 	const bool bWasAiming = bAiming;
 	bAiming = bAimHeld && !bPlaying && Has({TEXT("1H_Ranged"), TEXT("2H_Ranged"), TEXT("Bow")});
+	// The ranged actions (stage P3.6): the aim is the tag AimDownSights of the actions of the data (the bow aims from the ready fragment
+	// to the lower fragment), and a cast walks in its mark ForceWalk.
+	const swc::combat::Driver::Snapshot::Ranged Ranged = Driver ? Driver->snapshot().ranged : swc::combat::Driver::Snapshot::Ranged();
+	if (Ranged.program)
+	{
+		bAiming = Ranged.aimDownSights;
+	}
 	if (bAiming != bWasAiming)
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("actions: aim %s"), bAiming ? TEXT("on (AimDownSights)") : TEXT("off"));
 	}
-	Character()->GetSwcMovement()->SetCombat(bArmedSprint, bArmedNav, bArmedStop, bAiming);
+	Character()->GetSwcMovement()->SetCombat(bArmedSprint, bArmedNav, bArmedStop, bAiming || (Ranged.program && Ranged.forceWalk));
 	// The tags of the weapon in the hand for the conditions of the movement data (stage P3.3; unarmed: none).
 	Character()->GetSwcMovement()->SetWeaponTags(Drawn != nullptr ? Drawn->Tags : TArray<FString>());
 	// Prone sheathes the weapons, but a rifle (the musket): the transitions to prone set Unarmed and AutoUnsheathe [D idleposetransition].
@@ -1125,7 +1195,8 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	bProneSheathe = bProne && bProneSheathe;
 	if (Driver)
 	{
-		Driver->set_aim(bAiming);
+		// The right button of a ranged program goes to its player as it is (aim_draw, block_active_virtual of the data).
+		Driver->set_aim(Ranged.program ? bAimHeld && !IsInputLocked() : bAiming);
 	}
 	bLockAllowed = !bAiming && !bAttackBeforeTransition && !IsInputLocked();
 	if (USwcPlayerAnimInstance* Anim = Animation())

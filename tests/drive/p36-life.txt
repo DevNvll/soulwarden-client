@@ -1,0 +1,28 @@
+# The exit check of stage P3.6, part 3, with the routes of tests/drive/p36-life-routes.txt: the life staff (slot 25) on open ground, the
+# camera to the east and 7 degrees down to a wolf 26 m away. A light cast and a heavy cast (a hold of 0.8 s) at the wolf; Sacred
+# Ground (Q): the aim with its ground target, the confirm (a click), the area of the server at the caster and its heal numbers each
+# second (the character took 2000 damage just before); Divine Embrace on the caster (Left Ctrl with F); the Beacon (R). Times in seconds from the
+# possession.
+# SWC_DEV_CHARACTER=Mysticwarden SWC_DEV_PLACE=9255:4735:140 SWC_DEV_SPEC=gear=2hCelestialStaff_LifeT2@25 SWC_STAGE=P3.6 \
+#   tools/creature-check.sh p36-life 45 tests/drive/p36-life-routes.txt tests/drive/p36-life.txt
+1.0 turn 90
+2.0 turn 0
+2.2 pitch -12
+2.9 pitch 0
+3.0 tick
+4.0 tick
+6.0 tick
+7.0 key 2
+9.0 click
+11.0 attack 1
+11.8 attack 0
+13.0 tick
+14.0 ability q
+16.0 click
+19.0 tick
+21.0 walk 1
+21.2 ability f
+22.0 walk 0
+24.0 ability r
+27.0 tick
+30.0 tick

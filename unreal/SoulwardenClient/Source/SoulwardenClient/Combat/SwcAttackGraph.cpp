@@ -713,6 +713,49 @@ void Driver::set_aim(bool aim)
 	m_aim = aim;
 }
 
+void Driver::set_ranged(const ranged::Program* slot1, const ranged::Program* slot2, const ranged::Shared* shared)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	if (m_programs[0] != slot1 || m_programs[1] != slot2 || m_rangedShared != shared) {
+		m_programs[0] = slot1;
+		m_programs[1] = slot2;
+		m_rangedShared = shared;
+		m_rangedNow = nullptr;
+		m_ranged.set_program(nullptr, nullptr);
+	}
+}
+
+void Driver::set_self_target(bool down)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_selfTarget = down;
+}
+
+void Driver::set_ranged_facts(const RangedFacts& facts)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_rangedFacts = facts;
+}
+
+void Driver::set_server_mana(float value, float baseMax, float delay, float rate, std::int64_t atNs)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_serverMana = ServerMana{value, baseMax, delay, rate, atNs};
+}
+
+void Driver::set_mana_factor(float factor)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_manaFactor = factor;
+}
+
+void Driver::sync_mana(float value, float baseMax, float delay, float factor, std::int64_t atNs)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	// The factor in the rate field of the record (ServerMana::rate).
+	m_manaSync = ServerMana{value, baseMax, delay, factor, atNs};
+}
+
 void Driver::set_stamina(const StaminaData& data)
 {
 	const std::lock_guard<std::mutex> guard(m_lock);
@@ -752,7 +795,7 @@ void Driver::button(bool down)
 	}
 }
 
-void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>& actionBits, std::vector<std::uint32_t>* shots)
+void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>& actionBits, std::vector<Shot>* shots)
 {
 	const std::lock_guard<std::mutex> guard(m_lock);
 	// The button: one event in each step (a click in one frame of the game is a press, then a release at the next step).
@@ -814,8 +857,15 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 	if (bits.press) {
 		actionBits.insert(actionBits.end(), {kBitPress, kBitPressVirtual, kBitShoot});
 	}
+	// The hold of a bow is aim_shoot_hold, not attack_primary_hold (protocol notes 4.27: the live bow sends no 191; the backend takes
+	// the charge from the press to the release).
+	const std::uint32_t heldBefore = m_switch.held();
+	const ranged::Program* programBefore = heldBefore == kMainHand1 ? m_programs[0] : heldBefore == kMainHand1 + 1 ? m_programs[1] : nullptr;
 	if (bits.hold) {
-		actionBits.push_back(kBitHold);
+		actionBits.push_back(programBefore != nullptr && programBefore->weaponTags.count("bow") != 0 ? kBitAimShootHold : kBitHold);
+	}
+	if (m_selfTarget) {
+		actionBits.push_back(kBitSelfTarget);
 	}
 	if (bits.release) {
 		actionBits.push_back(kBitRelease);
@@ -905,7 +955,9 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 			m_shotSent = true;
 			++m_snapshot.shots;
 			if (shots != nullptr) {
-				shots->push_back(shot->attack);
+				Shot item;
+				item.attack = shot->attack;
+				shots->push_back(item);
 			}
 		}
 	}
@@ -918,6 +970,9 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 			++m_snapshot.limitedDodges;
 		}
 	}
+
+	// The ranged actions of the weapon in the hand (stage P3.6): the player of the action lists of the data at this step.
+	step_ranged(input, nowNs, bits, pressed, has(kBitsKey1[0]) || has(kBitsKey1[1]) || has(kBitsKey2[0]) || has(kBitsKey2[1]), shots);
 
 	Snapshot& out = m_snapshot;
 	out.input = input;
@@ -965,6 +1020,144 @@ Driver::Snapshot Driver::snapshot() const
 {
 	const std::lock_guard<std::mutex> guard(m_lock);
 	return m_snapshot;
+}
+
+void Driver::step_ranged(std::uint16_t input, std::int64_t nowNs, const Bits& bits, int pressed, bool weaponKey, std::vector<Shot>* shots)
+{
+	const std::uint32_t held = m_switch.held();
+	const int slot = held == kMainHand1 ? 0 : held == kMainHand1 + 1 ? 1 : -1;
+	const ranged::Program* program = slot >= 0 ? m_programs[slot] : nullptr;
+	if (program != m_rangedNow) {
+		m_rangedNow = program;
+		m_ranged.set_program(program, m_rangedShared);
+	}
+	// The mana: the server copy at the time of its arrival on the clock of the steps, the factor of message 4289, the regeneration.
+	if (m_manaFactor) {
+		m_mana.set_factor(*m_manaFactor);
+		m_manaFactor.reset();
+	}
+	if (m_serverMana) {
+		const double age = std::max(0.0, static_cast<double>(nowNs - m_serverMana->atNs) / 1e9);
+		m_mana.set_server(std::max(0.0, m_time - age), m_serverMana->value, m_serverMana->baseMax, m_serverMana->delay, m_serverMana->rate);
+		m_serverMana.reset();
+	}
+	if (m_manaSync) {
+		const double age = std::max(0.0, static_cast<double>(nowNs - m_manaSync->atNs) / 1e9);
+		m_mana.force_sync(std::max(0.0, m_time - age), m_manaSync->value, m_manaSync->baseMax, m_manaSync->delay, m_manaSync->rate);
+		m_manaSync.reset();
+	}
+	m_mana.advance(m_time);
+	Snapshot::Ranged& out = m_snapshot.ranged;
+	out.program = program != nullptr;
+	if (program != nullptr) {
+		ranged::Input in;
+		in.attackDown = m_down;
+		in.attackPress = bits.press;
+		in.attackRelease = bits.release;
+		in.aimDown = m_aim;
+		in.aimPress = m_aim && !m_aimWas;
+		in.aimRelease = !m_aim && m_aimWas;
+		for (std::size_t place = 0; place < 3; ++place) {
+			in.keyPress[place] = pressed == static_cast<int>(place);
+			in.keyDown[place] = m_keyDown[place];
+		}
+		in.selfTarget = m_selfTarget;
+		in.dodge = bits.dodge;
+		in.weaponKey = weaponKey;
+		ranged::Facts facts;
+		facts.mana = m_mana.value();
+		facts.nodes = m_facts.nodes;
+		facts.statuses = m_rangedFacts.statuses;
+		facts.stunned = m_rangedFacts.stunned;
+		facts.silenced = m_rangedFacts.silenced;
+		facts.encumbered = m_rangedFacts.encumbered;
+		facts.moving = m_rangedFacts.moving;
+		facts.damaged = m_rangedFacts.damaged;
+		facts.heightToGround = m_rangedFacts.heightToGround;
+		facts.cameraLock = m_rangedFacts.cameraLock;
+		facts.freeLook = m_rangedFacts.freeLook;
+		facts.groundValid = m_rangedFacts.groundValid;
+		facts.bar = m_bars[static_cast<std::size_t>(slot)];
+		for (const auto& [ability, end] : m_cooldowns) {
+			if (nowNs < end) {
+				facts.cooldowns.insert(ability);
+			}
+		}
+		std::vector<ranged::Event> events;
+		m_ranged.step(input, in, facts, events);
+		for (const ranged::Event& event : events) {
+			switch (event.kind) {
+			case ranged::Event::Kind::shot: {
+				// The origin of a basic shot and of a ranged ability: 1.0 m along the look, 1.46 m above the feet (live, notes 4.27).
+				Shot item;
+				item.attack = event.attack;
+				item.row = event.row;
+				item.charge = event.charge;
+				item.ammo = event.ammo;
+				item.forward = 1.0F;
+				item.up = 1.46F;
+				if (shots != nullptr) {
+					shots->push_back(item);
+				}
+				++out.shots;
+				out.recent.push_back({++m_recentSerial, true, event.text, event.attack, event.row, input});
+				break;
+			}
+			case ranged::Event::Kind::cast:
+				++out.casts;
+				out.recent.push_back({++m_recentSerial, false, event.text, 0, 0, input});
+				break;
+			case ranged::Event::Kind::mana:
+				if (m_mana.pay(m_time, event.amount)) {
+					++out.payments;
+				} else {
+					++out.refusedPayments;
+				}
+				break;
+			case ranged::Event::Kind::cooldown: {
+				// The own cooldown with the time of the data (the setter of the client: SetCooldownTimer of the action list).
+				const ranged::Ability* ability = program->ability(event.ability);
+				if (ability != nullptr && ability->cooldown > 0.0F) {
+					m_cooldowns[event.ability] = nowNs + static_cast<std::int64_t>(static_cast<double>(ability->cooldown) * 1e9);
+				}
+				break;
+			}
+			case ranged::Event::Kind::ability:
+				++out.abilities;
+				break;
+			case ranged::Event::Kind::raycast:
+			case ranged::Event::Kind::damage:
+				break;
+			}
+		}
+		while (out.recent.size() > 16) {
+			out.recent.erase(out.recent.begin());
+		}
+	}
+	const ranged::Playing& playing = m_ranged.playing();
+	out.action = playing.action != nullptr ? playing.action->name : std::string();
+	out.fragment = playing.fragment != nullptr ? playing.fragment->name : std::string();
+	out.record = playing.variant != nullptr ? playing.variant->record : std::string();
+	out.start = playing.start;
+	out.serial = playing.serial;
+	out.clock = playing.clock;
+	out.aimDownSights = m_ranged.aim_down_sights();
+	out.forceWalk = m_ranged.force_walk();
+	out.targeting = m_ranged.targeting();
+	out.channel = m_ranged.channel();
+	out.facingRate = m_ranged.facing_rate();
+	out.unknown = 0;
+	out.unknownTypes.clear();
+	for (const auto& [type, count] : m_ranged.unknown()) {
+		out.unknown += count;
+		out.unknownTypes += (out.unknownTypes.empty() ? "" : ", ") + type + " " + std::to_string(count);
+	}
+	out.stuck = m_ranged.stuck();
+	m_snapshot.mana = m_mana.value();
+	m_snapshot.manaMax = m_mana.maximum();
+	m_snapshot.manaKnown = m_mana.known();
+	m_snapshot.manaCorrections = m_mana.corrections();
+	m_aimWas = m_aim;
 }
 
 } // namespace swc::combat

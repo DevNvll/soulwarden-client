@@ -1,0 +1,5 @@
+# The routes of the exit check of stage P3.6, part 1 (tests/drive/p36-bow.txt): the full health, the creatures ignore the character, a
+# wolf 26 m east (it looks west). Times on the clock of the drive script.
+1 heal
+1.5 ignore on
+2 spawn Wolf_Grey_7 26 0 0 --yaw 90

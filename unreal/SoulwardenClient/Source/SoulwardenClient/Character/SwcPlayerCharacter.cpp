@@ -6,6 +6,7 @@
 #include "Character/SwcPlayerActions.h"
 #include "Character/SwcPlayerAnimInstance.h"
 #include "Character/SwcPlayerLooks.h"
+#include "Character/SwcRangedView.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -42,6 +43,7 @@ ASwcPlayerCharacter::ASwcPlayerCharacter(const FObjectInitializer& ObjectInitial
 	GetMesh()->SetVisibility(false);
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 	Actions = CreateDefaultSubobject<USwcPlayerActions>(TEXT("Actions"));
+	RangedView = CreateDefaultSubobject<USwcRangedView>(TEXT("RangedView"));
 }
 
 USwcCharacterMovement* ASwcPlayerCharacter::GetSwcMovement() const

@@ -1,0 +1,15 @@
+# The routes of the exit check of stage P3.6, part 3 (tests/drive/p36-life.txt): the level 60, the full health, the mastery of the life
+# staff and the nodes of its abilities (the rows of the trees: Sacred Ground in row 0, Divine Embrace in row 1; Orb of Protection in
+# row 0 of the second tree, the Beacon in row 1), the bar (Q Sacred Ground, R Beacon, F Divine Embrace), the creatures ignore the
+# character, a wolf 26 m east, 2000 damage at 13 s for the heals of Sacred Ground (the rest rule of the backend gives the health back
+# after some seconds). Times on the clock of the drive script.
+1 level 60
+1.5 heal
+2 mastery Mysticwarden lifemagic 20
+2.5 node Mysticwarden lifemagic Ability_Lifestaff_SacredGround Ability_Lifestaff_DivineEmbrace Ability_Lifestaff_OrbofProtection Ability_Lifestaff_Beacon
+3 bar Mysticwarden lifemagic 0 Ability_Lifestaff_SacredGround
+3.5 bar Mysticwarden lifemagic 1 Ability_Lifestaff_Beacon
+4 bar Mysticwarden lifemagic 2 Ability_Lifestaff_DivineEmbrace
+4.5 ignore on
+5 spawn Wolf_Grey_7 26 0 0 --yaw 90
+13 hurt 2000

@@ -224,11 +224,20 @@ void ASwcPlayerController::OnJump(const FInputActionValue&)
 void ASwcPlayerController::OnWalk(const FInputActionValue&)
 {
 	bWalkHeld = true;
+	// Left Ctrl is also self_target in the default profile (stage P3.6): the self cast of a heal (bit 430).
+	if (ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
+	{
+		Character->GetActions()->SetSelfTarget(true);
+	}
 }
 
 void ASwcPlayerController::OnWalkEnd(const FInputActionValue&)
 {
 	bWalkHeld = false;
+	if (ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
+	{
+		Character->GetActions()->SetSelfTarget(false);
+	}
 }
 
 void ASwcPlayerController::OnZoom(const FInputActionValue& Value)

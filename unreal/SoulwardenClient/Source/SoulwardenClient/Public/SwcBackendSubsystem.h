@@ -218,6 +218,10 @@ private:
 	int32 BagWeight = 0;
 	uint8 EquipLoadClass = 0;
 	FString LastLimits;
+	/** The mana revisions of the read path that went to the driver, and the health of the last frame (stage P3.6). */
+	uint32 ManaRevision = MAX_uint32;
+	uint32 ManaSyncRevision = 0;
+	float LastHealth = 0.0f;
 	/** The level has no ground at the spawn: the test floor of the movement (Character/SwcTestFloor). */
 	bool bTestFloor = false;
 	bool bWaitForFloor = false;

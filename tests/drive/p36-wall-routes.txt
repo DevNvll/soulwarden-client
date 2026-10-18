@@ -1,0 +1,5 @@
+# The routes of the exit check of stage P3.6, part 2 (tests/drive/p36-wall.txt): the full health, the creatures ignore the character, a
+# wolf 35 m north behind the tavern of Oxboro (it looks south). Times on the clock of the drive script.
+1 heal
+1.5 ignore on
+2 spawn Wolf_Grey_7 0 35 0 --yaw 180

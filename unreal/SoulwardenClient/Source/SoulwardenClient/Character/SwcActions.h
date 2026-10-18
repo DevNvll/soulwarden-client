@@ -122,6 +122,8 @@ struct FSwcWeaponActions
 	TArray<TArray<FSwcStrike>> Strikes;
 
 	bool HasGraph() const { return !Graph.fragments.empty() && Graph.start >= 0; }
+	/** The ranged program of a bow, a fire staff, or a life staff (stage P3.6, Combat/SwcRanged; null: none). */
+	TSharedPtr<swc::ranged::Program> Ranged;
 };
 
 /** A named condition of the action list (And, Or, Not, IfMannequinMarker, IfMannequinTag, IfInput, ...). */
@@ -217,6 +219,11 @@ public:
 	/** The bag limit in tenths of a weight unit (EncumbranceBaseMax of the row Player of the encumbrance table; stage P3.3). */
 	int32 GetBagLimit() const { return FMath::RoundToInt(EncumbranceMax); }
 
+	/** The shared data of the ranged programs (stage P3.6: the shot rules with their flight, the spells, the mana costs). */
+	const swc::ranged::Shared& GetRangedShared() const { return RangedData; }
+	/** @return The fragment of a record key of actions.json (a variant of a ranged fragment), or INDEX_NONE. */
+	int32 FragmentOfRecord(const FString& Record) const { return RecordIndex.FindRef(Record, INDEX_NONE); }
+
 	/** @return A joint of a weapon skeleton in the model of the weapon (Unreal cm, the space map of stage 1.1), or null. */
 	const FTransform* WeaponJoint(const FString& Model, FName Joint) const;
 
@@ -233,6 +240,8 @@ private:
 	TMap<FString, int32> ClipIndex;
 	TMap<FString, TMap<FName, FTransform>> WeaponJoints;
 	swc::combat::StaminaData StaminaData;
+	swc::ranged::Shared RangedData;
+	TMap<FString, int32> RecordIndex;
 	TMap<FString, float> ItemLoads;
 	float LoadMax = 500.0f;
 	float EncumbranceMax = 2000.0f;

@@ -129,6 +129,225 @@ FSwcFacingRule ReadFacing(const TSharedPtr<FJsonObject>& Attrs)
 	Out.bExponential = Attrs->TryGetStringField(TEXT("UseExponentialTurnRate"), Text) && Text.Equals(TEXT("true"), ESearchCase::IgnoreCase);
 	return Out;
 }
+
+// The ranged programs (stage P3.6, Combat/SwcRanged): the same fields as the reader of the tests (tests/ranged/ranged_load.h).
+std::string Utf8(const FString& Text)
+{
+	return std::string(TCHAR_TO_UTF8(*Text));
+}
+
+std::string LowerUtf8(const FString& Text)
+{
+	return Utf8(Text.ToLower());
+}
+
+std::map<std::string, std::string> TextMap(const TSharedPtr<FJsonValue>& Value)
+{
+	std::map<std::string, std::string> Out;
+	if (Value.IsValid() && Value->Type == EJson::Object)
+	{
+		for (const auto& Pair : Value->AsObject()->Values)
+		{
+			FString Text;
+			if (Pair.Value->TryGetString(Text))
+			{
+				Out[Utf8(FString(Pair.Key.ToView()))] = Utf8(Text);
+			}
+		}
+	}
+	return Out;
+}
+
+swc::ranged::Node RangedNode(const TSharedPtr<FJsonValue>& Value)
+{
+	swc::ranged::Node Node;
+	const TArray<TSharedPtr<FJsonValue>>& Row = Value->AsArray();
+	if (Row.Num() < 3)
+	{
+		return Node;
+	}
+	Node.type = Utf8(Row[0]->AsString());
+	Node.attrs = TextMap(Row[1]);
+	for (const TSharedPtr<FJsonValue>& Child : Row[2]->AsArray())
+	{
+		Node.children.push_back(RangedNode(Child));
+	}
+	return Node;
+}
+
+swc::ranged::ItemKind RangedItemKind(const FString& Type)
+{
+	using swc::ranged::ItemKind;
+	return Type == TEXT("CAGE-TransitionInstant") ? ItemKind::transitionInstant
+		: Type == TEXT("CAGE-TransitionBuffered") ? ItemKind::transitionBuffered
+		: Type == TEXT("CAGE-RangedAttack")       ? ItemKind::rangedAttack
+		: Type == TEXT("CAGE-CastSpell")          ? ItemKind::castSpell
+		: Type == TEXT("CAGE-Named")              ? ItemKind::named
+		: Type == TEXT("CAGE-PayManaCost")        ? ItemKind::payMana
+		: Type == TEXT("CAGE-Damage")             ? ItemKind::damage
+												  : ItemKind::other;
+}
+
+TSharedPtr<swc::ranged::Program> RangedProgram(const TArray<FString>& Tags, const TSharedPtr<FJsonObject>& Info)
+{
+	TSharedPtr<swc::ranged::Program> Program = MakeShared<swc::ranged::Program>();
+	for (const FString& Tag : Tags)
+	{
+		Program->weaponTags.insert(LowerUtf8(Tag));
+	}
+	for (const auto& Pair : Info->GetObjectField(TEXT("fragments"))->Values)
+	{
+		swc::ranged::Fragment Fragment;
+		Fragment.name = Utf8(FString(Pair.Key.ToView()));
+		for (const TSharedPtr<FJsonValue>& EntryValue : Pair.Value->AsArray())
+		{
+			const TSharedPtr<FJsonObject> Entry = EntryValue->AsObject();
+			swc::ranged::Variant Variant;
+			for (const TSharedPtr<FJsonValue>& Tag : Entry->GetArrayField(TEXT("tags")))
+			{
+				Variant.tags.insert(LowerUtf8(Tag->AsString()));
+			}
+			Variant.record = Utf8(Entry->GetStringField(TEXT("fragment")));
+			Variant.length = Number(Entry->TryGetField(TEXT("length")));
+			Entry->TryGetBoolField(TEXT("loop"), Variant.loop);
+			for (const TSharedPtr<FJsonValue>& RowValue : Entry->GetArrayField(TEXT("items")))
+			{
+				const TArray<TSharedPtr<FJsonValue>>& Row = RowValue->AsArray();
+				swc::ranged::Item Item;
+				Item.kind = RangedItemKind(Row[0]->AsString());
+				Item.start = Number(Row[1]);
+				Item.end = Number(Row[2], -1.0f);
+				Item.params = TextMap(Row[3]);
+				Variant.items.push_back(Item);
+			}
+			Fragment.variants.push_back(Variant);
+		}
+		Program->fragments[LowerUtf8(FString(Pair.Key.ToView()))] = Fragment;
+	}
+	for (const auto& Pair : Info->GetObjectField(TEXT("actions"))->Values)
+	{
+		const TSharedPtr<FJsonObject> Value = Pair.Value->AsObject();
+		swc::ranged::Action Action;
+		Action.name = Utf8(FString(Pair.Key.ToView()));
+		Action.fragment = Utf8(Value->GetStringField(TEXT("fragment")));
+		if (const TSharedPtr<FJsonValue> Activation = Value->TryGetField(TEXT("activation")); Activation.IsValid() && Activation->Type == EJson::Array)
+		{
+			Action.activation = RangedNode(Activation);
+		}
+		if (const TSharedPtr<FJsonValue> Deactivation = Value->TryGetField(TEXT("deactivation")); Deactivation.IsValid() && Deactivation->Type == EJson::Array)
+		{
+			Action.deactivation = RangedNode(Deactivation);
+		}
+		for (const TSharedPtr<FJsonValue>& RowValue : Value->GetArrayField(TEXT("activities")))
+		{
+			const TArray<TSharedPtr<FJsonValue>>& Row = RowValue->AsArray();
+			swc::ranged::Activity Activity;
+			Activity.type = Utf8(Row[0]->AsString());
+			Activity.attrs = TextMap(Row[1]);
+			if (Row[2]->Type == EJson::Array)
+			{
+				Activity.guard = RangedNode(Row[2]);
+			}
+			Action.activities.push_back(Activity);
+		}
+		Program->actions[LowerUtf8(FString(Pair.Key.ToView()))] = Action;
+	}
+	for (const TSharedPtr<FJsonValue>& AbilityValue : Info->GetArrayField(TEXT("abilities")))
+	{
+		const TSharedPtr<FJsonObject> Value = AbilityValue->AsObject();
+		swc::ranged::Ability Ability;
+		Ability.id = Utf8(Value->GetStringField(TEXT("id")));
+		Ability.crc = static_cast<std::uint32_t>(Value->GetNumberField(TEXT("crc")));
+		for (const TSharedPtr<FJsonValue>& StartValue : Value->GetArrayField(TEXT("actions")))
+		{
+			const TSharedPtr<FJsonObject> Start = StartValue->AsObject();
+			Ability.starts.push_back({Utf8(Start->GetStringField(TEXT("action"))), Start->GetBoolField(TEXT("self"))});
+		}
+		Ability.cooldown = Number(Value->TryGetField(TEXT("cooldown")), -1.0f);
+		Ability.minCooldown = Number(Value->TryGetField(TEXT("minCooldown")), -1.0f);
+		Ability.costId = Utf8(Value->GetStringField(TEXT("costId")));
+		Ability.manaCost = Number(Value->TryGetField(TEXT("manaCost")));
+		Program->abilities.push_back(Ability);
+	}
+	for (const auto& Pair : Info->GetObjectField(TEXT("conditions"))->Values)
+	{
+		Program->conditions[LowerUtf8(FString(Pair.Key.ToView()))] = RangedNode(Pair.Value);
+	}
+	for (const TSharedPtr<FJsonValue>& Name : Info->GetArrayField(TEXT("start")))
+	{
+		Program->start.push_back(Utf8(Name->AsString()));
+	}
+	for (const TSharedPtr<FJsonValue>& Name : Info->GetArrayField(TEXT("order")))
+	{
+		Program->order.push_back(Utf8(Name->AsString()));
+	}
+	FString Ammo;
+	Info->TryGetStringField(TEXT("ammo"), Ammo);
+	Program->ammo = Utf8(Ammo);
+	return Program;
+}
+
+void RangedShared(const TSharedPtr<FJsonObject>& Info, swc::ranged::Shared& Out)
+{
+	for (const TSharedPtr<FJsonValue>& RowValue : Info->GetArrayField(TEXT("shots")))
+	{
+		const TSharedPtr<FJsonObject> Row = RowValue->AsObject();
+		swc::ranged::ShotRule Rule;
+		Rule.profile = Utf8(Row->GetStringField(TEXT("profile")));
+		Rule.attack = Utf8(Row->GetStringField(TEXT("attack")));
+		Rule.attackCrc = static_cast<std::uint32_t>(Row->GetNumberField(TEXT("attackCrc")));
+		Rule.row = Utf8(Row->GetStringField(TEXT("row")));
+		Rule.rowCrc = static_cast<std::uint32_t>(Row->GetNumberField(TEXT("rowCrc")));
+		Rule.charge = Number(Row->TryGetField(TEXT("charge")));
+		Rule.spell = Utf8(Row->GetStringField(TEXT("spell")));
+		Row->TryGetBoolField(TEXT("heavy"), Rule.heavy);
+		Row->TryGetBoolField(TEXT("ability"), Rule.ability);
+		if (const TSharedPtr<FJsonObject>* Flight = nullptr; Row->TryGetObjectField(TEXT("flight"), Flight))
+		{
+			Rule.flight.known = true;
+			Rule.flight.speed = Number((*Flight)->TryGetField(TEXT("speed")));
+			const TArray<TSharedPtr<FJsonValue>>& Accel = (*Flight)->GetArrayField(TEXT("accel"));
+			for (int32 Axis = 0; Axis < 3 && Axis < Accel.Num(); ++Axis)
+			{
+				Rule.flight.accel[Axis] = Number(Accel[Axis]);
+			}
+			Rule.flight.life = Number((*Flight)->TryGetField(TEXT("life")));
+			Rule.flight.accelDelay = Number((*Flight)->TryGetField(TEXT("accelDelay")));
+			Rule.flight.maxRange = Number((*Flight)->TryGetField(TEXT("maxRange")));
+			Rule.flight.radius = Number((*Flight)->TryGetField(TEXT("radius")));
+			Rule.flight.nearRange = Number((*Flight)->TryGetField(TEXT("nearRange")));
+		}
+		Out.shots.push_back(Rule);
+	}
+	for (const auto& Pair : Info->GetObjectField(TEXT("spells"))->Values)
+	{
+		const TSharedPtr<FJsonObject> Value = Pair.Value->AsObject();
+		swc::ranged::Spell Spell;
+		Spell.id = Utf8(Value->GetStringField(TEXT("id")));
+		Spell.types = Utf8(Value->GetStringField(TEXT("types")));
+		Spell.attack = Utf8(Value->GetStringField(TEXT("attack")));
+		Spell.attackCrc = static_cast<std::uint32_t>(Value->GetNumberField(TEXT("attackCrc")));
+		Spell.castDistance = Number(Value->TryGetField(TEXT("castDistance")));
+		Spell.castHeight = Number(Value->TryGetField(TEXT("castHeight")));
+		Spell.radius = Number(Value->TryGetField(TEXT("radius")));
+		Spell.height = Number(Value->TryGetField(TEXT("height")));
+		Spell.duration = Number(Value->TryGetField(TEXT("duration")));
+		Value->TryGetBoolField(TEXT("cameraLock"), Spell.cameraLock);
+		FString ManaCost;
+		Value->TryGetStringField(TEXT("manaCost"), ManaCost);
+		Spell.manaCost = Utf8(ManaCost);
+		Out.spells[Utf8(FString(Pair.Key.ToView()))] = Spell;
+	}
+	for (const auto& Pair : Info->GetObjectField(TEXT("manaCosts"))->Values)
+	{
+		Out.manaCosts[Utf8(FString(Pair.Key.ToView()))] = Number(Pair.Value);
+	}
+	for (const auto& Pair : Info->GetObjectField(TEXT("weapons"))->Values)
+	{
+		const TSharedPtr<FJsonObject> Value = Pair.Value->AsObject();
+		Out.weapons[Utf8(FString(Pair.Key.ToView()))] = {Utf8(Value->GetStringField(TEXT("profile"))), Utf8(Value->GetStringField(TEXT("ammo")))};
+	}
+}
 } // namespace
 
 float FSwcActionItem::ClipTime(float Time, float Duration) const
@@ -329,6 +548,11 @@ bool FSwcActions::Load(FString& OutReport)
 				}
 			}
 		}
+		// The ranged program of a bow, a fire staff, or a life staff (stage P3.6).
+		if (const TSharedPtr<FJsonObject>* Ranged = nullptr; Info->TryGetObjectField(TEXT("ranged"), Ranged))
+		{
+			Weapon->Ranged = RangedProgram(Weapon->Tags, *Ranged);
+		}
 		FString Key;
 		Weapon->Draw = Info->TryGetStringField(TEXT("draw"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE;
 		Weapon->Sheathe = Info->TryGetStringField(TEXT("sheathe"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE;
@@ -525,6 +749,13 @@ bool FSwcActions::Load(FString& OutReport)
 			}
 		}
 	}
+	// The shared data of the ranged programs (stage P3.6): the shot rules with their flight, the spells, the mana costs, the weapons.
+	if (const TSharedPtr<FJsonObject>* Ranged = nullptr; Document->TryGetObjectField(TEXT("ranged"), Ranged))
+	{
+		RangedData = swc::ranged::Shared();
+		RangedShared(*Ranged, RangedData);
+	}
+	RecordIndex = FragmentIndex;
 	// The stamina and the dodge (stage P2.5): the data of the backend copy, the encumbrance row, the loads of the armor items.
 	if (const TSharedPtr<FJsonObject>* Stamina = nullptr; Document->TryGetObjectField(TEXT("stamina"), Stamina))
 	{

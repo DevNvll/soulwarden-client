@@ -1,0 +1,17 @@
+# The exit check of stage P3.6 (docs/RANGED.md), part 2, with the routes of tests/drive/p36-wall-routes.txt: in the street of Oxboro
+# 20 m south of the tavern (jav_struct_social_tavern at 8914.9 4257.5), the camera to the north and 4 degrees down; a wolf 35 m north
+# stands behind the tavern. The bow: the aim and a light shot: the own arrow stops at the wall; the server ends its projectile at the
+# wall (the navigation data): no hit, no damage number. Then a charged shot. Times in seconds from the possession.
+# SWC_DEV_CHARACTER=Mysticwarden SWC_DEV_PLACE=8914.9:4237.5:139.2 SWC_DEV_SPEC=gear=2hElementalStaff_FireT2@25 SWC_STAGE=P3.6 \
+#   tools/creature-check.sh p36-wall 30 tests/drive/p36-wall-routes.txt tests/drive/p36-wall.txt
+2.2 pitch -8
+2.7 pitch 0
+3.0 key 1
+6.0 aim 1
+7.5 attack 1
+7.6 attack 0
+10.0 attack 1
+11.0 attack 0
+13.0 aim 0
+15.0 tick
+17.0 tick

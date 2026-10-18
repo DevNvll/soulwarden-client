@@ -10,6 +10,7 @@ class USkeletalMeshComponent;
 class UStaticMeshComponent;
 class USwcCharacterMovement;
 class USwcPlayerActions;
+class USwcRangedView;
 
 /**
  * The character of a player: the modular body of the retail client (player_<gender>.cdf). The mesh of the character is
@@ -63,6 +64,8 @@ public:
 
 	USwcCharacterMovement* GetSwcMovement() const;
 	USwcPlayerActions* GetActions() const { return Actions; }
+	/** The pictures of the ranged and magic actions (stage P3.6). */
+	USwcRangedView* GetRangedView() const { return RangedView; }
 	/** The feet of the character (the bottom of the capsule). */
 	FVector GetFeetLocation() const;
 
@@ -76,6 +79,8 @@ private:
 	TArray<bool> GearInHand;
 	UPROPERTY()
 	TObjectPtr<USwcPlayerActions> Actions;
+	UPROPERTY()
+	TObjectPtr<USwcRangedView> RangedView;
 	uint32 ActiveWeaponSlot = 0;
 	bool bWeaponDrawn = false;
 };

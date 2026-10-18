@@ -1,0 +1,27 @@
+# The exit check of stage P3.6 (docs/RANGED.md), part 1, with the routes of tests/drive/p36-bow-routes.txt: on open ground the camera
+# to the east and 4 degrees down to a wolf 26 m away; the bow (slot 24): a hip shot (a click), the aim (the right button) with a light
+# shot (a hold of 3 steps) and a charged shot (a hold of 1 s); the fire staff (slot 25, 3 more degrees down): a light cast (a click)
+# and a heavy cast (a hold of 0.8 s: the release before the next charge). Each shot hits: the damage numbers of the server. The "tick"
+# lines are the clock marks of the route script. Times in seconds from the possession; turn and pitch: degrees each second.
+# SWC_DEV_CHARACTER=Mysticwarden SWC_DEV_PLACE=9255:4735:140 SWC_DEV_SPEC=gear=2hElementalStaff_FireT2@25 SWC_STAGE=P3.6 \
+#   tools/creature-check.sh p36-bow 40 tests/drive/p36-bow-routes.txt tests/drive/p36-bow.txt
+1.0 turn 90
+2.0 turn 0
+2.2 pitch -10
+2.7 pitch 0
+3.0 key 1
+5.0 click
+7.0 aim 1
+8.0 attack 1
+8.1 attack 0
+10.0 attack 1
+11.0 attack 0
+12.5 aim 0
+14.0 key 2
+15.0 pitch -8
+15.4 pitch 0
+16.5 click
+19.0 attack 1
+19.8 attack 0
+22.0 tick
+24.0 tick

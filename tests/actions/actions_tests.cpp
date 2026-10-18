@@ -498,11 +498,11 @@ void driver_ability_tests(const Graph& greataxe, const Graph& hammer)
 		std::vector<std::pair<int, std::uint32_t>> shots;
 		const auto step = [&](int input) {
 			std::vector<unsigned> bits;
-			std::vector<std::uint32_t> made;
+			std::vector<swc::combat::Shot> made;
 			driver.step(static_cast<std::uint16_t>(input), ns(input), bits, &made);
 			entries.push_back(bits);
-			for (const std::uint32_t attack : made) {
-				shots.emplace_back(input, attack);
+			for (const swc::combat::Shot& shot : made) {
+				shots.emplace_back(input, shot.attack);
 			}
 		};
 		// The bits of a press of Q held for 3 steps: press and virtual, the hold, the release.
