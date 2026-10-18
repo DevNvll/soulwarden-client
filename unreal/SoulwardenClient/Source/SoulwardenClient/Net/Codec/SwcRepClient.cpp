@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 namespace swc::net {
 namespace {
@@ -46,6 +47,22 @@ constexpr float kReportJump = 20.0F;
 /** The origin of the shot of a cast above the feet of the character (m; protocol notes 4.27, live proof L7 of the shot of
  *  Gravity Well: "the origin at the character (1.5 m higher)"; the backend launch place has the same height). */
 constexpr float kShotHeight = 1.5F;
+
+/** @return The value of a half float (IEEE 754 binary16). */
+float half_value(std::uint16_t bits) {
+    const std::uint32_t sign = (bits & 0x8000U) << 16;
+    const std::uint32_t exponent = (bits >> 10) & 0x1FU;
+    const std::uint32_t mantissa = bits & 0x3FFU;
+    float value = 0.0F;
+    if (exponent == 0) {
+        value = std::ldexp(static_cast<float>(mantissa), -24);
+    } else if (exponent == 31) {
+        value = mantissa == 0 ? std::numeric_limits<float>::infinity() : std::numeric_limits<float>::quiet_NaN();
+    } else {
+        value = std::ldexp(static_cast<float>(mantissa | 0x400U), static_cast<int>(exponent) - 25);
+    }
+    return sign != 0 ? -value : value;
+}
 
 /** @return The bits of a half float (IEEE 754 binary16) for a value from 0 to 65504; the low bits are cut. */
 std::uint16_t half_bits(float value) {
@@ -592,6 +609,54 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                     m_own.abilityBars.clear();
                     for (const decoder::WireBar& bar : bars.tables) {
                         m_own.abilityBars.push_back({bar.table, bar.abilities, bar.buttons});
+                    }
+                }
+            }
+        } else if (fragment.slot == kSlotSpeedTable && fragment.type == kStateSpeedTable.index) {
+            // A full table (group 1 field 0): deltaCount:size 0, hasSequence:u8, sequence:size64, count:size, entries of key:u8
+            // value:i32 (big-endian, the multiplier times 10000) m_syncVitals:u8 (backend stat_multiplier_state.cpp).
+            if (const auto value = decoder::field_of(fragment, 1, 0); !value.empty()) {
+                Reader reader(value);
+                if (reader.size() == 0) {
+                    if (reader.u8() != 0) {
+                        (void)reader.size64();
+                    }
+                    const std::uint32_t count = reader.size();
+                    std::map<std::uint8_t, float> table;
+                    for (std::uint32_t index = 0; index < count && reader.ok(); ++index) {
+                        const std::uint8_t key = reader.u8();
+                        const auto raw = static_cast<std::int32_t>(reader.u32());
+                        (void)reader.u8();
+                        table[key] = static_cast<float>(raw) / 10000.0F;
+                    }
+                    if (reader.ok()) {
+                        m_own.speedTable = std::move(table);
+                        ++m_own.speedRevision;
+                    }
+                }
+            }
+        } else if (fragment.slot == kSlotStatuses && fragment.type == kStateStatuses.index) {
+            // The full map of the owner (group 1 field 0): 00, the stamp (01 sequence:size64), count:size, entries of statusIndex:u16
+            // wallEnd:u64 potency:f16 stacks:u8 flags:u8 (backend status_state.cpp). A map with an older stamp changes nothing.
+            if (const auto value = decoder::field_of(fragment, 1, 0); !value.empty()) {
+                Reader reader(value);
+                if (reader.size() == 0 && reader.u8() == 1) {
+                    const std::uint64_t stamp = reader.size64();
+                    const std::uint32_t count = reader.size();
+                    std::vector<OwnEntity::Status> statuses;
+                    for (std::uint32_t index = 0; index < count && reader.ok(); ++index) {
+                        OwnEntity::Status status;
+                        status.index = reader.u16();
+                        status.wallEndNs = reader.u64();
+                        status.potency = half_value(reader.u16());
+                        status.stacks = reader.u8();
+                        (void)reader.u8();
+                        statuses.push_back(status);
+                    }
+                    if (reader.ok() && (m_own.statusRevision == 0 || stamp >= m_own.statusStamp)) {
+                        m_own.statuses = std::move(statuses);
+                        m_own.statusStamp = stamp;
+                        ++m_own.statusRevision;
                     }
                 }
             }

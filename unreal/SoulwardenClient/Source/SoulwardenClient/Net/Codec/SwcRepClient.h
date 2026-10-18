@@ -183,6 +183,27 @@ public:
          */
         std::vector<std::uint32_t> learnedNodes;
         std::uint32_t nodesRevision{0};
+        /**
+         * The speed table of the owner (StatMultiplierTable, slot 43, type 1525; stage P3.3, protocol notes 4.24): the multiplier of
+         * each key of a full table (0x34 MoveSpeedMod, 0x35 SprintSpeedMod, 0x0B StaminaRate, 0x4F CooldownReduction); an absent key
+         * is 1.0, and an empty table is all 1.0. `speedRevision` counts the tables.
+         */
+        std::map<std::uint8_t, float> speedTable;
+        std::uint32_t speedRevision{0};
+        /**
+         * The status map of the owner (StatusEffects, slot 44, type 4236, group 1 field 0, the full map; stage P3.3, protocol notes
+         * 4.24): each status with its index in the status rows, its end on the synced wall clock (Unix ns), its potency, and its
+         * stacks. The server sends the map again at each change and at the end of a status. `statusRevision` counts the maps.
+         */
+        struct Status {
+            std::uint16_t index{0};
+            std::uint64_t wallEndNs{0};
+            float potency{1.0F};
+            std::uint8_t stacks{0};
+        };
+        std::vector<Status> statuses;
+        std::uint64_t statusStamp{0};
+        std::uint32_t statusRevision{0};
 
         /** The bag and the equipment screens (stage P2.4; protocol notes 4.10, 4.11):
          *  - the full items of the paperdoll (owner view): paperdoll slot -> item (instance, durability, gear score, perks); a slot

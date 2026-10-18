@@ -115,14 +115,19 @@ inline constexpr MessageType kDropPaperdollItem{"ItemDropComponentServerFacet_Dr
 /** The coin of the character (slot 60): group 0, field 0, u64 in hundredths of a coin. */
 inline constexpr MessageType kStateCurrency{"MB::CurrencyComponentReplicatedState", "C3F8F5F55D8E45A0890C36B9B0183C8E", 3786};
 
+/** The movement of the owner (stage P3.3; protocol notes 4.24): the speed table (slot 43) and the status map (slot 44). */
+inline constexpr MessageType kStateSpeedTable{"MB::StatMultiplierTableReplicatedState", "DDD468968DAD4EE5836E341A72D44403", 1525};
+inline constexpr MessageType kStateStatuses{"MB::StatusEffectsComponentReplicatedState", "E36B9CC4082E40F0BA4F5C5BE9CD3C16", 4236};
+
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 46> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 48> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
     kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult, kTakeAllItems,
     kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints, kStateGathering, kEquipItem,
-    kUnequipItem, kSwapItems, kEquipItemFail, kUseItem, kDropInventoryItems, kDropPaperdollItem, kStateCurrency};
+    kUnequipItem, kSwapItems, kEquipItemFail, kUseItem, kDropInventoryItems, kDropPaperdollItem, kStateCurrency, kStateSpeedTable,
+    kStateStatuses};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -133,6 +138,9 @@ inline constexpr std::uint32_t kSlotVitals = 41;
 inline constexpr std::uint32_t kSlotPaperdoll = 62;
 inline constexpr std::uint32_t kSlotStamina = 42;
 inline constexpr std::uint32_t kSlotCooldowns = 45;
+/** The speed table (StatMultiplierTable) and the status map (StatusEffects) of the owner (stage P3.3). */
+inline constexpr std::uint32_t kSlotSpeedTable = 43;
+inline constexpr std::uint32_t kSlotStatuses = 44;
 inline constexpr std::uint32_t kSlotAbility = 46;
 inline constexpr std::uint32_t kSlotMana = 47;
 /** The ProgressionPoint state of the owner (the pools and the nodes of the weapon trees). */
