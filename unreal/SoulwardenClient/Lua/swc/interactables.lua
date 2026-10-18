@@ -798,6 +798,11 @@ function Swc.InteractableLostActive(id)
   if s.editing then
     Swc.TextInputEndEdit(id)
   end
+  -- LyShine LostActiveStatus: the press ends (a canvas that hid during a press).
+  if s.pressed then
+    s.pressed = false
+    Swc.UpdateInteractableState(id)
+  end
 end
 
 -- ------------------------------------------------------------------------- check box, radio button, radio group

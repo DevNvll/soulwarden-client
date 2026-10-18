@@ -1,5 +1,5 @@
 # Stage P2.2: the escape menu, a nested popup, Escape, and the return of the focus, with the harness input of the UI
-# (-SwcUiDrive; docs/UI.md). Times in seconds from the world entry of the UI.
+# (-SwcUiDrive; docs/UI.md). Times in seconds from the spawn of the player.
 # tools/dev-run.sh --window --enter --quit-when world --stay 40 -- -SwcUiDrive=$PWD/tests/drive/ui-escape.txt
 12 log open: Escape in the HUD
 12 key escape

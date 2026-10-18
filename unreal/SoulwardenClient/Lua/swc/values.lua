@@ -143,6 +143,10 @@ V3 = Swc.ValueClass({
     SetZ = function(self, v) self.z = v end,
     GetLength = function(self) return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z) end,
     GetLengthSq = function(self) return self.x * self.x + self.y * self.y + self.z * self.z end,
+    IsFinite = function(self)
+      local function finite(v) return v == v and v ~= math.huge and v ~= -math.huge end
+      return finite(self.x) and finite(self.y) and finite(self.z)
+    end,
     GetDistance = function(self, o)
       local dx, dy, dz = self.x - o.x, self.y - o.y, self.z - o.z
       return math.sqrt(dx * dx + dy * dy + dz * dz)

@@ -79,6 +79,13 @@ Swc.Define("UiTransformBus", "Event", {
   MoveViewportPositionBy = function(id, d) local x, y = swcui.viewport_position(id) swcui.set_viewport_position(id, x + d.x, y + d.y) end,
   GetCanvasPosition = function(id) return V2(swcui.canvas_position(id)) end,
   SetCanvasPosition = function(id, p) swcui.set_canvas_position(id, p.x, p.y) end,
+  -- The fork: a viewport point in the local space of the element (canvas units from the top left of its rect, no
+  -- rotation or scale; tooltip.luac places the tooltip at the cursor with it).
+  ViewportPointToLocalPoint = function(id, p)
+    local x, y = swcui.to_rect_space(id, p.x, p.y)
+    local l, t = swcui.rect(id)
+    return V2(x - l, y - t)
+  end,
   GetPivot = function(id) return V2(swcui.get(id, "transform.pivot")) end,
   SetPivot = function(id, p) swcui.set(id, "transform.pivot", p.x, p.y) end,
   GetPivotX = function(id) local x = swcui.get(id, "transform.pivot") return x end,
@@ -147,7 +154,8 @@ Swc.Define("UiImageBus", "Event", {
   GetAlpha = function(id) if image(id) then return swcui.get(id, "image.alpha") end end,
   SetAlpha = function(id, a) if image(id) then swcui.set(id, "image.alpha", a) end end,
   GetSpritePathname = function(id) if image(id) then return swcui.get(id, "image.sprite") end end,
-  SetSpritePathname = function(id, path) if image(id) then swcui.set(id, "image.sprite", path or "") end end,
+  -- A value that is not a text (data of a stubbed game bus) gives no sprite.
+  SetSpritePathname = function(id, path) if image(id) then swcui.set(id, "image.sprite", type(path) == "string" and path or "") end end,
   SetSpritePathnameIfExists = function(id, path)
     if image(id) and path and swcui.texture_exists(path) then
       swcui.set(id, "image.sprite", path)

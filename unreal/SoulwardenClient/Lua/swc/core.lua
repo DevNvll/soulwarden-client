@@ -165,9 +165,32 @@ local function stub_member(kind, busName, mode)
   return {
     __index = function(t, method)
       local full = busName .. "." .. mode .. "." .. tostring(method)
-      local fn = function()
-        Swc.Stub(kind, full)
-        return nil
+      -- A bus that a script implements (an EBus with a Lua handler: the popup screen has UiPopupBus): the handlers
+      -- that have the method get the call (Event: the handlers of the address); with none, a stub.
+      local fn = function(...)
+        local args = pack(...)
+        local id = nil
+        if mode == "Event" then
+          id = args[1]
+        end
+        local results
+        for _, h in ipairs(Swc.Handlers(busName, id)) do
+          local f = h.connected and h.table[method]
+          if type(f) == "function" then
+            if mode == "Event" then
+              results = pack(Swc.Call(f, h.table, unpack(args, 2, args.n)))
+            else
+              results = pack(Swc.Call(f, h.table, unpack(args, 1, args.n)))
+            end
+          end
+        end
+        if results == nil then
+          Swc.Stub(kind, full)
+          return nil
+        end
+        if results[1] then
+          return unpack(results, 2, results.n)
+        end
       end
       rawset(t, method, fn)
       return fn

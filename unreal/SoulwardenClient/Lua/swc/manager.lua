@@ -317,6 +317,9 @@ Swc.Define("LyShineManagerBus", "Broadcast", {
   SetServerMOTD = function() end,
   SetWorldName = function(name) Swc.worldName = tostring(name or "") end,
   GetWorldName = function() return Swc.worldName or "" end,
+  -- The map scan of a game pad (magicmap.luac reads its speeds): the pad is not used.
+  GetControllerMapScan = function() return {controllerMapScanSpeed_X = 1, controllerMapScanSpeed_Y = 1} end,
+  SetMapScrollTimerBetweenSteps = function() end,
   UpdateVirtualCursorSettings = function() end,
   IsKeybindBound = function(action) return Swc.Keybind(action) ~= nil end,
   GetKeybind = function(action, actionMap) return Swc.Keybind(action, actionMap) or "" end,

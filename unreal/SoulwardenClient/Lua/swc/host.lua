@@ -12,6 +12,7 @@ function Swc.Tick(dt)
   Swc.TickTweens(dt)
   Swc.Notify("TickBus", nil, "OnTick", dt, Swc.ScriptTimePoint.new({seconds = Swc.time}))
   Swc.TickInteractables()
+  Swc.InputTick()
 end
 
 --- Sends one event to each handler table of some buses one time (a script that connects to two of them gets it once).
@@ -174,7 +175,13 @@ end
 function Swc.HostVitals(health, healthMax, stamina, staminaMax, mana, manaMax, dead)
   local p = Swc.player
   p.health, p.healthMax, p.stamina, p.staminaMax, p.mana, p.manaMax = health, healthMax, stamina, staminaMax, mana, manaMax
+  local wasDead = p.dead
   p.dead = dead
+  -- The dead mark of the vitals state (respawn.luac and giveup.luac observe it); the end of a death is a revive.
+  set_if_changed("Hud.LocalPlayer.Vitals.IsDead", dead and true or false)
+  if wasDead and not dead then
+    Swc.SetData("Hud.LocalPlayer.OnRevived", true)
+  end
   if healthMax and healthMax > 0 then
     set_if_changed("Hud.LocalPlayer.Vitals.HealthMax", healthMax)
     set_if_changed("Hud.LocalPlayer.Vitals.HealthPercent", math.max(0, math.min(1, health / healthMax)))
@@ -239,4 +246,98 @@ function Swc.RunFixture(name, prelude, text)
     return head
   end
   return head .. "\n" .. table.concat(result.lines, "\n")
+end
+
+-- ---------------------------------------------------------------------------------------- the loading and error UI
+
+-- The loading screen (LoadScreenBus of the fork): globals.luac registers lyshineui/hud/loadingscreen; the native code
+-- shows it while a level loads and sends LoadScreenNotificationBus events to its script. Here the host shows it from
+-- its start to the spawn of the player (Swc.HostLoading), with the same events: SetLoadingScreenType,
+-- OnLoadingLevelDetermined, OnCanvasEnabledChanged(true), OnLoadingScreenShown; at the end OnCanvasEnabledChanged(false)
+-- and OnLoadingScreenDismissed (loadingscreen.luac, respawn.luac). A respawn has the screen type eLoadingScreenIds_DEATH:
+-- the client shows it from its respawn request to message 3954.
+Swc.Handled("LoadScreenNotificationBus")
+Swc.loading = {path = nil, canvas = nil, shown = false}
+local LOADING_SCREEN_DRAW_ORDER = 1000   -- canvascommon.luac
+
+Swc.Define("LoadScreenBus", "Broadcast", {
+  RegisterLoadingScreen = function(path) Swc.loading.path = path end,
+  IsLoadingScreenShown = function() return Swc.loading.shown end,
+  GetCurrentLevelName = function() return Swc.levelName or "" end,
+  SetLoadingBarFull = function() end,
+})
+
+function Swc.HostLoading(on, levelName, screenType)
+  local l = Swc.loading
+  if type(screenType) == "string" then
+    screenType = rawget(_G, screenType) or Swc.clientEnums and Swc.clientEnums[screenType]
+  end
+  if on then
+    if l.shown or not l.path then
+      return
+    end
+    Swc.levelName = levelName or Swc.levelName
+    if not (l.canvas and l.canvas:IsValid() and swcui.canvas_get(l.canvas, "root")) then
+      l.canvas = Swc.LoadCanvas(l.path, LOADING_SCREEN_DRAW_ORDER)
+    end
+    if not (l.canvas and l.canvas:IsValid()) then
+      return
+    end
+    swcui.canvas_set(l.canvas, "enabled", true)
+    l.shown = true
+    Swc.Notify("LoadScreenNotificationBus", nil, "SetLoadingScreenType", screenType or eLoadingScreenIds_LEVEL1)
+    Swc.Notify("LoadScreenNotificationBus", nil, "OnLoadingLevelDetermined", Swc.levelName or "")
+    Swc.Notify("LoadScreenNotificationBus", nil, "OnCanvasEnabledChanged", true)
+    Swc.Notify("LoadScreenNotificationBus", nil, "OnLoadingScreenShown")
+    Swc.Note("the loading screen shows (" .. tostring(Swc.levelName) .. ")")
+  elseif l.shown then
+    l.shown = false
+    Swc.Notify("LoadScreenNotificationBus", nil, "OnCanvasEnabledChanged", false)
+    Swc.Notify("LoadScreenNotificationBus", nil, "OnLoadingScreenDismissed")
+    if l.canvas then
+      swcui.canvas_set(l.canvas, "enabled", false)
+    end
+    Swc.Note("the loading screen hides")
+  end
+end
+
+-- A death notice of the server (message 3950): the time to the respawn screen in seconds. The data callback
+-- Hud.LocalPlayer.OnPlayerDeath gives it to respawn.luac (with Hud.LocalPlayer.Vitals.IsDead it queues the state
+-- "respawn").
+function Swc.HostDeathNotice(seconds)
+  Swc.SetData("Hud.LocalPlayer.OnPlayerDeath", seconds)
+end
+
+-- The requests of the scripts to the client (the C++ takes them each frame: Swc.TakeHostRequest).
+Swc.hostRequests = {}
+Swc.Define("LocalPlayerUIRequestsBus", "Broadcast", {
+  -- respawn.luac TriggerRespawn: random is true for "Random Location" (no home id).
+  RequestRespawn = function(random, homeId)
+    Swc.hostRequests[#Swc.hostRequests + 1] = "respawn " .. (random and "1" or "0") .. " " .. tostring(homeId or "")
+    Swc.Note("respawn request: random " .. tostring(random) .. ", home point " .. tostring(homeId))
+  end,
+  RequestSpectate = function() end,
+})
+
+--- @return The next request of the scripts ("respawn RANDOM HOMEID"), or "".
+function Swc.TakeHostRequest()
+  return table.remove(Swc.hostRequests, 1) or ""
+end
+
+-- The error UI of the login path: the popup screen (popup.luac ShowError) with the error of the table of the game
+-- (uierrors.luac): a refused or failed connection is UIError_login_unable_to_connect ("@mm_connection_error_title",
+-- "@mm_loginservices_UnableToConnectError"). The popup loads here when the loader did not load it (no world).
+function Swc.HostConnectionError()
+  Swc.HostLoading(false)
+  local popup
+  for _, screen in pairs(Swc.screens) do
+    if string.lower(screen.name) == "popup" then
+      popup = screen.canvas
+    end
+  end
+  if not popup then
+    popup = Swc.LoadScreen("LyShineUI/Popup/Popup.uicanvas", true, 52)   -- canvascommon.luac POPUP_DRAW_ORDER
+  end
+  UiPopupBus.Broadcast.ShowError(UIError_login_unable_to_connect, nil, nil, "Swc_ConnectionError")
+  Swc.Note("the error UI shows: the connection failed")
 end

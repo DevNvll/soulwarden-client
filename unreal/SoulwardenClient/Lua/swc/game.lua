@@ -76,6 +76,55 @@ Swc.Define("GameRequestsBus", "Broadcast", {
   ResetActionMaps = function() end,
 })
 
+-- The world map data of the client (MapComponentBus): none in this stage. The respawn screen holds the world map
+-- (magicmap.luac and its layers): the lists are empty, the territory ids 0, the tests false.
+Swc.Define("MapComponentBus", "Broadcast", {
+  GetSimplePOIs = function() return {} end,
+  GetTerritories = function() return {} end,
+  GetAllLandmarksByType = function() return {} end,
+  GetOutposts = function() return {} end,
+  GetFastTravelPointPOIIds = function() return {} end,
+  GetContainingTerritories = function() return {} end,
+  GetSettlements = function() return {} end,
+  GetLandmarksInTerritory = function() return {} end,
+  GetClaims = function() return {} end,
+  GetSmallestContainingTerritory = function() return 0 end,
+  GetContainingTerritory = function() return 0 end,
+  GetTractAtPosition = function() return "" end,
+  WorldPosToTerritoryLoRes = function() return 0 end,
+  IsDynamicPoiObjectiveComplete = function() return false end,
+  HasDynamicPoiObjective = function() return false end,
+  GetMedianPoiLevel = function() return 0 end,
+})
+
+-- The group and the raid sizes of the game (5 members in a group, 10 groups in a raid); the map layers make their
+-- icons from them (markerslayer.luac). No position of the raid members.
+Swc.SetData("Hud.LocalPlayer.Group.MaxMembers", 5)
+Swc.SetData("Hud.LocalPlayer.Raid.MaxGroups", 10)
+Swc.SetData("javelin.enable-replicate-all-raid-member-positions", false)
+
+-- The place of the player before the first value of the host (swc/host.lua writes them each frame).
+Swc.SetData("Hud.LocalPlayer.PlayerHeading", 0)
+Swc.SetData("Hud.LocalPlayer.Position", Swc.Vector3.new({x = 0, y = 0, z = 0}))
+
+-- The home points of the character (the respawn list): the backend has none, thus the one row "Random Location".
+Swc.SetData("Hud.LocalPlayer.HomePoints.Count", 0)
+
+-- The level cap of the character (progression-tables.json levelCap of the backend copy; the host gives it:
+-- Swc.HostLevelCap). The loading screen tips use it (loadingscreenmanager.luac).
+Swc.levelCap = 60
+function Swc.HostLevelCap(cap)
+  Swc.levelCap = tonumber(cap) or Swc.levelCap
+end
+Swc.Define("ProgressionRequestBus", "Event", {
+  GetMaxLevelForPlayer = function() return Swc.levelCap end,
+})
+
+-- The NPC markers of the objectives of the character (the map layers read them): none in this stage.
+Swc.Define("ObjectivesComponentRequestBus", "Event", {
+  GetNPCMarkers = function() return {} end,
+})
+
 -- The end of the last combat (a time point in the past: not in combat; quitgamepopup.luac).
 Swc.SetData("Hud.LocalPlayer.CombatStatus.InCombatTimePoint", Swc.TimePoint.new({seconds = 0}))
 

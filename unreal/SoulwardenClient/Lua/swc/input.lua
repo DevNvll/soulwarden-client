@@ -48,8 +48,25 @@ local function clear_active()
   end
 end
 
+--- @return True when an element shows: it exists, it and its parents are on, and its canvas shows.
+local function shown(id)
+  if not valid(id) or not swcui.enabled_in_hierarchy(id) then
+    return false
+  end
+  local canvas = swcui.canvas_of(id)
+  return canvas ~= nil and swcui.canvas_get(canvas, "enabled") == true
+end
+
 local function move(x, y)
   input.x, input.y = x, y
+  -- A hidden canvas or element ends its hover and its active state (LyShine: the canvas of the hover hides).
+  if input.hover and not shown(input.hover) then
+    clear_hover()
+  end
+  if input.active and not shown(input.active) then
+    clear_active()
+    input.activePressed = false
+  end
   local latest
   if valid(input.active) then
     if swcui.contains(input.active, x, y) then
@@ -216,6 +233,17 @@ end
 Swc.Define("UiCursorBus", "Broadcast", {
   GetUiCursorPosition = function() return Swc.Vector2.new({x = input.x, y = input.y}) end,
 })
+
+--- Each frame: a hover or an active interactable that does not show any more ends (its canvas or element hid).
+function Swc.InputTick()
+  if input.hover and not shown(input.hover) then
+    clear_hover()
+  end
+  if input.active and not shown(input.active) then
+    clear_active()
+    input.activePressed = false
+  end
+end
 
 --- The harness input of the client: the point at fractions of the rect of the first shown element with a name, in
 --- the shown canvases from the top draw order down. @return "x y" in viewport pixels, or "" when no shown element has

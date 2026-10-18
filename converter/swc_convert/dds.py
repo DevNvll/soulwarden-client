@@ -19,7 +19,14 @@ sys.dont_write_bytecode = True
 BLOCK_BYTES = {71: 8, 72: 8, 74: 16, 75: 16, 77: 16, 78: 16, 80: 8, 81: 8, 83: 16, 84: 16, 95: 16, 96: 16, 98: 16, 99: 16}
 
 
+# The uncompressed formats: 4 bytes for each pixel (28, 29: R8G8B8A8 UNORM and SRGB; 87, 91: B8G8R8A8 UNORM and SRGB).
+RGBA8 = (28, 29)
+BGRA8 = (87, 91)
+
+
 def mip_size(fmt: int, w: int, h: int) -> int:
+    if fmt in RGBA8 or fmt in BGRA8:
+        return max(1, w) * max(1, h) * 4
     b = BLOCK_BYTES.get(fmt)
     if b is None:
         raise ValueError(f"DXGI format {fmt} not handled")
@@ -118,6 +125,10 @@ def decode_bc45(data: bytes, w: int, h: int, fmt: int) -> np.ndarray:
 
 
 def to_image(dds: bytes, w: int, h: int, fmt: int) -> Image.Image:
+    if fmt in RGBA8 or fmt in BGRA8:
+        data = dds[148:148 + mip_size(fmt, w, h)]
+        img = Image.frombuffer("RGBA", (w, h), data, "raw", "RGBA" if fmt in RGBA8 else "BGRA", 0, 1)
+        return img.copy()
     if fmt in (80, 81, 83, 84):
         data = dds[148:148 + mip_size(fmt, w, h)]
         arr = decode_bc45(data, w, h, fmt)

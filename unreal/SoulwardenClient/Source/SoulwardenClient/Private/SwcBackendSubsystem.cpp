@@ -169,6 +169,7 @@ void USwcBackendSubsystem::OnCharacterList(bool bSucceeded, const FString& Error
 {
 	if (!bSucceeded)
 	{
+		LoginError = Error.IsEmpty() ? FString(TEXT("the login path failed")) : Error;
 		if (!QuitWhen.IsEmpty())
 		{
 			Quit(false, TEXT("the login path failed"));

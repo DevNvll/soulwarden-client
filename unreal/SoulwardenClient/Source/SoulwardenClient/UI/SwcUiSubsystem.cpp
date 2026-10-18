@@ -34,6 +34,8 @@ const char* const HudScreens[] = {
 	"lyshineui/hud2024/editmode/hudeditmode",
 	"lyshineui/escapemenu/escapemenu",
 	"lyshineui/popup/popup",
+	"lyshineui/respawn/respawn",
+	"lyshineui/tooltip/tooltip",
 };
 
 /** The world level name of the HUD scripts (the level crc tells them the front end and the tutorial levels). */
@@ -112,6 +114,9 @@ void USwcUiSubsystem::Start()
 		return;
 	}
 	Runtime->call("Boot");
+	// The loading screen of the game (globals.luac registers it) from the start to the spawn of the player.
+	Runtime->call("HostLoading", {FArg::of(true), FArg::of(std::string(WorldLevelName)), FArg::of(std::string("eLoadingScreenIds_LEVEL1"))});
+	bStartLoading = true;
 	FlushLog();
 	LoadItemCatalog();
 	UE_LOG(LogSwcUi, Log, TEXT("ui: the runtime started (Lua 5.1.5, the original scripts of the game)"));
@@ -152,6 +157,17 @@ void USwcUiSubsystem::Deinitialize()
 
 void USwcUiSubsystem::LoadItemCatalog()
 {
+	// The level cap of the character (the game data of the backend copy: progression-tables.json levelCap).
+	{
+		FString Progression;
+		TSharedPtr<FJsonObject> Root;
+		const FString ProgressionPath = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_GAMEDATA_DIR")), TEXT("progression-tables.json"));
+		if (FFileHelper::LoadFileToString(Progression, *ProgressionPath) && FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Progression), Root) &&
+			Root.IsValid() && Root->HasTypedField<EJson::Number>(TEXT("levelCap")))
+		{
+			Runtime->call("HostLevelCap", {FArg::of(Root->GetNumberField(TEXT("levelCap")))});
+		}
+	}
 	// The item list of the wire (the backend copy): the item with index N is entry N - 1 (docs/CHARACTER.md).
 	const FString Path = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_GAMEDATA_DIR")), TEXT("item-catalog.json"));
 	FString Text;
@@ -205,6 +221,7 @@ bool USwcUiSubsystem::Tick(float DeltaTime)
 	FeedLocalPlayer();
 	TickDrive();
 	Runtime->tick(FMath::Min(DeltaTime, 0.25f));
+	UpdateLoadingAndRequests();
 	UpdateCursor();
 	Runtime->build_draw_list(DrawList);
 	if (Widget.IsValid())
@@ -318,6 +335,59 @@ void USwcUiSubsystem::UpdateCursor()
 	UE_LOG(LogSwcUi, Log, TEXT("ui: the cursor %s"), bCursorWanted ? TEXT("shows (a screen needs the pointer)") : TEXT("hides (the game has the mouse)"));
 }
 
+void USwcUiSubsystem::UpdateLoadingAndRequests()
+{
+	USwcBackendSubsystem* Backend = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr;
+	if (Backend == nullptr)
+	{
+		return;
+	}
+	// A refused or failed connection of the login path: the error popup of the game (UIError_login_unable_to_connect).
+	if (!bErrorShown && !Backend->GetLoginError().IsEmpty())
+	{
+		bErrorShown = true;
+		bStartLoading = false;
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the login path failed (%s): the error UI shows"), *Backend->GetLoginError());
+		Runtime->call("HostConnectionError");
+	}
+	// The end of the loading screen of the start: the player has its character.
+	if (bStartLoading && bWorldEntered && GEngine != nullptr && GEngine->GameViewport != nullptr)
+	{
+		UWorld* World = GEngine->GameViewport->GetWorld();
+		APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+		if (Controller != nullptr && Controller->GetPawn() != nullptr)
+		{
+			bStartLoading = false;
+			Runtime->call("HostLoading", {FArg::of(false)});
+		}
+	}
+	// The requests of the scripts: a respawn of the respawn screen (respawn.luac TriggerRespawn).
+	for (int32 Guard = 0; Guard < 8; ++Guard)
+	{
+		std::string Request;
+		Runtime->call("TakeHostRequest", {}, &Request);
+		if (Request.empty())
+		{
+			break;
+		}
+		if (Request.rfind("respawn ", 0) == 0)
+		{
+			// "respawn RANDOM HOMEID": the row "Random Location" has random 1 and no home id (the backend has no home point).
+			TArray<FString> Parts;
+			FString(UTF8_TO_TCHAR(Request.c_str())).ParseIntoArray(Parts, TEXT(" "));
+			const bool bRandom = Parts.Num() < 2 || Parts[1] == TEXT("1");
+			const bool bSent = Backend->RequestRespawn(bRandom, Parts.Num() > 2 ? Parts[2] : FString());
+			if (bSent)
+			{
+				// The retail client shows the loading screen of the death at the request.
+				bLoadingForDeath = true;
+				LoadingHoldUntil = FPlatformTime::Seconds() + 1.0;
+			}
+			UE_LOG(LogSwcUi, Log, TEXT("ui: the respawn screen asks for a respawn (%hs): %s"), Request.c_str(), bSent ? TEXT("sent") : TEXT("not sent"));
+		}
+	}
+}
+
 // -------------------------------------------------------------------------------------------------------- harness input
 
 void USwcUiSubsystem::LoadDrive(const FString& Path)
@@ -355,7 +425,7 @@ void USwcUiSubsystem::LoadDrive(const FString& Path)
 		Drive.Add(MoveTemp(Step));
 	}
 	Drive.StableSort([](const FDriveStep& A, const FDriveStep& B) { return A.Time < B.Time; });
-	UE_LOG(LogSwcUi, Log, TEXT("ui drive: %d step(s) from %s (from the world entry of the UI)"), Drive.Num(), *Path);
+	UE_LOG(LogSwcUi, Log, TEXT("ui drive: %d step(s) from %s (from the spawn of the player)"), Drive.Num(), *Path);
 }
 
 bool USwcUiSubsystem::DrivePointAt(const FString& Element, float FractionX, float FractionY)
@@ -403,7 +473,9 @@ void USwcUiSubsystem::ReleaseDriveInput()
 
 void USwcUiSubsystem::TickDrive()
 {
-	if (Drive.IsEmpty() || !bWorldEntered)
+	// The clock of the drive starts at the spawn of the player (the end of the loading screen of the start), as the
+	// drive of the player controller (-SwcDrive) starts at the possession: the two scripts agree.
+	if (Drive.IsEmpty() || !bWorldEntered || bStartLoading)
 	{
 		return;
 	}
@@ -439,6 +511,28 @@ void USwcUiSubsystem::TickDrive()
 	}
 	while (DriveNext < Drive.Num() && Drive[DriveNext].Time <= Time)
 	{
+		// waitfor ELEMENT [SECONDS]: the clock of the drive stays at this step until a shown element has the name.
+		if (Drive[DriveNext].Command == TEXT("waitfor") && Drive[DriveNext].Args.Num() > 0)
+		{
+			const FDriveStep& Wait = Drive[DriveNext];
+			std::string Point;
+			Runtime->call("HostPointOf", {FArg::of(Utf8(Wait.Args[0])), FArg::of(0.5), FArg::of(0.5)}, &Point);
+			if (DriveWaitStart < 0.0)
+			{
+				DriveWaitStart = Now;
+			}
+			const double Limit = Wait.Args.IsValidIndex(1) ? FCString::Atod(*Wait.Args[1]) : 30.0;
+			if (Point.empty() && Now - DriveWaitStart < Limit)
+			{
+				DriveStart = Now - Wait.Time;
+				return;
+			}
+			UE_LOG(LogSwcUi, Log, TEXT("ui drive: %.2f s waitfor %s: %s after %.1f s"), Wait.Time, *Wait.Args[0],
+				Point.empty() ? TEXT("not shown (the limit)") : TEXT("shown"), Now - DriveWaitStart);
+			DriveWaitStart = -1.0;
+			++DriveNext;
+			continue;
+		}
 		const FDriveStep& Step = Drive[DriveNext++];
 		const auto Arg = [&Step](int32 I, float Default) { return Step.Args.IsValidIndex(I) ? FCString::Atof(*Step.Args[I]) : Default; };
 		UE_LOG(LogSwcUi, Log, TEXT("ui drive: %.2f s %s %s"), Time, *Step.Command, *FString::Join(Step.Args, TEXT(" ")));
@@ -544,6 +638,33 @@ void USwcUiSubsystem::FeedLocalPlayer()
 	Runtime->call("HostVitals", {FArg::of(static_cast<double>(Own.health)), FArg::of(static_cast<double>(Own.healthMax)),
 								  FArg::of(static_cast<double>(Stamina)), FArg::of(static_cast<double>(StaminaMax)),
 								  FArg::of(static_cast<double>(Mana)), FArg::of(static_cast<double>(ManaMax)), FArg::of(Own.dead)});
+
+	// The life of the character (stage P2.10): each death notice (message 3950) with its time to the respawn screen, and
+	// the loading screen of the client (from the respawn request 1938 or message 3951 to message 3954).
+	if (Own.deathNotices != SentDeathNotices)
+	{
+		if (Own.deathNotices > SentDeathNotices)
+		{
+			Runtime->call("HostDeathNotice", {FArg::of(static_cast<double>(Own.respawnScreenTime))});
+			UE_LOG(LogSwcUi, Log, TEXT("ui: a death notice: the respawn screen in %.1f s"), Own.respawnScreenTime);
+		}
+		SentDeathNotices = Own.deathNotices;
+	}
+	// The loading screen of a respawn or a travel: from the request (or message 3951) while the flag lasts, while the cells
+	// of the new place load, and at least 1 s from a respawn request (the flag of a respawn can end in the same frame).
+	const bool bWantLoading = !bStartLoading && (Own.loadingScreen || Backend->IsWaitingForCells() || FPlatformTime::Seconds() < LoadingHoldUntil);
+	if (bWantLoading != bSentLoadingScreen)
+	{
+		bSentLoadingScreen = bWantLoading;
+		Runtime->call("HostLoading", {FArg::of(bSentLoadingScreen), FArg::of(std::string(WorldLevelName)),
+										FArg::of(std::string(bLoadingForDeath ? "eLoadingScreenIds_DEATH" : "eLoadingScreenIds_LEVEL1"))});
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the loading screen of %s %s"), bLoadingForDeath ? TEXT("a respawn") : TEXT("a travel"),
+			bSentLoadingScreen ? TEXT("shows") : TEXT("ends"));
+		if (!bSentLoadingScreen)
+		{
+			bLoadingForDeath = false;
+		}
+	}
 
 	// The paperdoll: the item id of each slot (the item index of the wire in the item catalog of the backend copy).
 	for (const auto& [Slot, Index] : Own.equipment)

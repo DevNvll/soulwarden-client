@@ -90,6 +90,10 @@ public:
 	/** The respawn request of the original respawn screen (LocalPlayerUIRequestsBus.RequestRespawn(random, homeId) of respawn.luac, a
 	 *  host request of the UI): random true for the row "Random Location" (an empty home id). The checks of RequestRespawn(). */
 	bool RequestRespawn(bool bRandom, const FString& HomeId);
+	/** @return The error of the login path when it failed (a refused connection), else empty: the UI shows its error popup. */
+	const FString& GetLoginError() const { return LoginError; }
+	/** @return True while the cells of a new place load after a travel or a respawn (the UI keeps its loading screen). */
+	bool IsWaitingForCells() const { return bTravelWait; }
 	/** The key E of the interactions (stage P2.10): down or up. */
 	void SetInteractKey(bool bDown) { bInteractKey = bDown; }
 
@@ -136,6 +140,7 @@ private:
 	void Quit(bool bSucceeded, const TCHAR* Cause);
 
 	TSharedPtr<FSwcLoginClient> Login;
+	FString LoginError;
 	TSharedPtr<FSwcRepConnection> Connection;
 	/** A player run shows no character name of the user in the log (the rule of AGENTS.md). */
 	bool bPlayerRun = true;

@@ -187,6 +187,27 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   to desktop opens the quit popup over it, Escape closes only the popup, the pointer hovers the menu buttons again,
   Escape goes back to the HUD.
 
+### Loading, error, and respawn screens (swc/host.lua)
+
+- The loading screen of the game (`lyshineui/hud/loadingscreen`; `globals.luac` registers it with `LoadScreenBus`):
+  `Swc.HostLoading(on, level, type)` shows it (draw order 1000) with the events of the native code
+  (`SetLoadingScreenType`, `OnLoadingLevelDetermined`, `OnCanvasEnabledChanged`, `OnLoadingScreenShown`) and hides it
+  (`OnCanvasEnabledChanged(false)`, `OnLoadingScreenDismissed`). The client shows it from its start to the spawn of the
+  player (type LEVEL1), and for a respawn (type DEATH) from the respawn request to the end of the loading flag and of
+  the cells wait of the new place (at least 1 s: the flag of a respawn can end in the same frame).
+- The error UI: a failed login path (a refused connection: `USwcBackendSubsystem::GetLoginError`) gives the popup
+  screen of the game with the error of `uierrors.luac` (`UIError_login_unable_to_connect`: "@mm_connection_error_title",
+  "@mm_loginservices_UnableToConnectError"); the popup loads when the loader did not load it.
+- The respawn screen (`lyshineui/respawn/respawn`, stage P2.10): the vitals write `Hud.LocalPlayer.Vitals.IsDead`, a
+  death notice (message 3950) the data callback `Hud.LocalPlayer.OnPlayerDeath` with the time to the screen, the end
+  of a death `Hud.LocalPlayer.OnRevived`. The script then queues the state "respawn" (3901667439). With no home point
+  (`Hud.LocalPlayer.HomePoints.Count` 0) the list has the one row "Random Location". RESPAWN calls
+  `LocalPlayerUIRequestsBus.RequestRespawn(random, homeId)`: a host request (`Swc.TakeHostRequest`) that the client
+  gives to `USwcBackendSubsystem::RequestRespawn(bRandom, HomeId)`. The screen holds the world map: the map buses
+  give empty data (no points of interest, no territories, no NPC markers), the group and raid sizes 5 and 10.
+- A bus method that the emulation does not define goes to the script handlers of that bus that have it (an EBus with
+  a Lua handler: the popup screen has `UiPopupBus`), else a stub.
+
 ### Dynamic lists (swc/dynamic.lua)
 
 - Dynamic layout: at activation its first child becomes the prototype (the other children go); `SetNumChildElements`
@@ -281,7 +302,10 @@ to the data layer only when it changes.
   the game too (a held key or attack ends). The player controller is not changed: the pre-processor holds its input.
 - Harness input (`-SwcUiDrive=FILE`, `tests/drive/ui-*.txt`): a script of UI input events in the process, through the
   same entry as Slate (no input tool of the host): key, keydown, keyup, point ELEMENT (an element of a shown canvas by
-  its name), move, click, press, release, drag, wheel, log, end (releases each held key and button). The widget draws
+  its name), waitfor ELEMENT (the clock stays until it shows), move, click, press, release, drag, wheel, log, end
+  (releases each held key and button). The clock starts at the spawn of the player, as the drive of the player
+  controller: `tools/creature-check.sh` runs the development routes on the same clock (the respawn check:
+  `tests/drive/ui-respawn.txt`). The widget draws
   a marker at the harness pointer. `tools/ui-check.sh LABEL STAY DRIVE` makes a window run with a drive and records
   the agent desktop (wf-recorder) into `SWC_WORK/evidence/P2.2`.
 - Font size: the draw list gives the glyph size in canvas pixels (0.8 of the LyShine size); a Slate size is in points,
@@ -330,6 +354,8 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `visuals` | The HUD screens WeaponQuickslots, ReticlesCanvas, Vitals2024, and Compass with their scripts in the HUD state. The fixture shows the parts that need game events and sets the fill amounts through `UiImageBus` (0, 0.25, 0.5, 0.75, 1): the area of each mesh against the O3DE geometry for a radial fill (the combo points, also from 60 degrees), a counter-clockwise radial fill (the channel ring), a sliced radial fill (the hint ring of the heart rune), a counter-clockwise corner fill (the heat meter), a linear fill (the turret health), an edge fill (the reload ring, set through the bus). The heart rune hexagon and the compass give their sprite mask to the meshes below them. Pictures `visuals-fills-0` to `-100`, `visuals-masks`. |
 | `loader` | The screen loader of the game (`uiloader.luac`) at a world entry, with two allowed screens (Vitals2024, InfoModal): it asks only for canvases of its list (`gamedata/loader.json`, 153 paths), one time each, with the ending `.uicanvas` (105 for the world); it counts each load and failure and sets the state HUD; the HUD screen has no autohide and shows, the menu has autohide and shows only in its state. Each canvas that the game has for the two lists (the UI loader and the 69 canvases of `dynamiccanvasloader.luac`) is converted; 2 paths of the UI loader have no canvas in the game. |
 | `escape` | The original EscapeMenu and Popup screens driven by keys and clicks (`Swc.HostInput`): Escape in the HUD fires `toggleMenuComponent`, the state goes to "esc", the menu shows with the cursor and the maps player, movement, camera off; exit to desktop opens the quit popup over the menu (the state stays; the map ui off); Escape fires `ui_genpop_cancel` and closes only the popup; the pointer hovers a menu button again; Escape gives `OnEscapeKeyPressed` to the menu and the HUD comes back with its maps. Pictures `escape-menu`, `escape-popup`, `escape-focus`. |
+| `loading` | The loading screen of the game (`loadingscreen.luac`) shows and hides with the events of the native code; a refused connection gives the original error popup (`popup.luac` ShowError, `UIError_login_unable_to_connect`) with the cursor, and its OK button closes it. Pictures `loading-start`, `loading-later`, `loading-error`. |
+| `respawn` | The original Respawn screen: the dead mark and a death notice of 5 s queue the state "respawn", the list has "Random Location", the RESPAWN button (on 2 s after the map) gives the host request "respawn 1", the loading screen of the death shows, the revive and its end give the HUD. Pictures `respawn-list`, `respawn-loading`. |
 | `transitions` | The open of the original InfoModal (`OnTransitionIn`, its tweens) and the hover of its button (`button.luac`): each animation that a script starts has the eased value at each frame (60 a second), the final value, and ends after its delay and duration (15 animations; 4 replaced by a new one on the same property, the rule of the gem). The close hides the modal at once (its script has no animation). The ease functions against values of the Penner equations. Pictures `transitions-open-00` to `-24`, `transitions-hover-00` to `-24`, `transitions-close-00`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
@@ -363,6 +389,8 @@ the user ([AGENTS.md](../AGENTS.md), rules).
 - A sliced radial fill clips with lines in canvas space; O3DE clips in viewport space. The angles are the same unless
   the element has a scale that is not uniform.
 - A sprite mask in a sprite mask: only the innermost one applies (LyShine combines the two in the stencil).
+- O13: the dynamic tooltip of the Tooltip screen shows at the pointer (a button with a tooltip: the unstuck cooldown),
+  but its sections and its size are not complete for a description tooltip.
 - O12: the escape rule and the states of the escape menu are rules of the emulation from the scripts (the native
   screen manager of the client has them). The popup grid list (`simplegriditemlist.luac`) finds no row table in
   `OnInit`: the quit popup works; the split stack popup is not checked.

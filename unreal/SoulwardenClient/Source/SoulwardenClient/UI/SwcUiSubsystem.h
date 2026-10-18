@@ -27,7 +27,7 @@ class SSwcUiCanvas;
  *   -SwcUi=off           no UI
  *   -SwcUiScreens=all    each converted screen loads (default: the screens of the first HUD and of stage P2.2)
  *   -SwcUiDrive=FILE     the harness input: a script of UI input events in the process (no input tool of the host).
- *                        Each line is "TIME COMMAND [VALUES]", the time in seconds from the world entry of the UI:
+ *                        Each line is "TIME COMMAND [VALUES]", the time in seconds from the spawn of the player:
  *                          key NAME            one press and release of a key (a CryInput name: escape, w, f10)
  *                          keydown NAME / keyup NAME
  *                          point ELEMENT [FX FY]   the pointer to an element of a shown canvas (fractions of its
@@ -36,6 +36,8 @@ class SSwcUiCanvas;
  *                          click / press / release   the left button at the pointer
  *                          drag ELEMENT FX0 FY0 FX1 FY1 SECONDS   press at one point of the element, move, release
  *                          wheel N             one wheel event of N notches
+ *                          waitfor ELEMENT [SECONDS]   the clock stays at this step until a shown element has
+ *                                              the name (default limit 30 s)
  *                          log TEXT            a line in the client log (a mark for a video)
  *                          end                 releases each held key and button ("the test input is released")
  *                        The harness draws a marker at its pointer.
@@ -79,6 +81,8 @@ private:
 	void TickDrive();
 	void ReleaseDriveInput();
 	bool DrivePointAt(const FString& Element, float FractionX, float FractionY);
+	/** The loading screen of the start, the error UI of the login path, and the requests of the scripts (a respawn). */
+	void UpdateLoadingAndRequests();
 
 	TUniquePtr<swc::ui::Runtime> Runtime;
 	TSharedPtr<FSwcUiResources> Resources;
@@ -86,6 +90,12 @@ private:
 	swc::ui::DrawList DrawList;
 	FTSTicker::FDelegateHandle Ticker;
 	TSharedPtr<class FSwcUiInputProcessor> InputProcessor;
+	bool bStartLoading = false;
+	bool bErrorShown = false;
+	bool bSentLoadingScreen = false;
+	bool bLoadingForDeath = false;
+	double LoadingHoldUntil = 0.0;
+	uint32 SentDeathNotices = 0;
 	bool bCursorWanted = false;
 	bool bCursorApplied = false;
 
@@ -98,6 +108,7 @@ private:
 	TArray<FDriveStep> Drive;
 	int32 DriveNext = 0;
 	double DriveStart = -1.0;
+	double DriveWaitStart = -1.0;
 	TSet<FString> DriveKeysDown;
 	TArray<FString> DriveKeysUp;   // the key releases of the next frame (a "key" press lasts one frame)
 	bool bDriveButtonDown = false;

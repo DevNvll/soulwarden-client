@@ -1,0 +1,12 @@
+# The clock marks of the respawn check of the UI (tests/drive/ui-respawn.txt): the player drive does nothing (the
+# "tick" lines are the clock of the routes of tests/drive/death-routes.txt). Times in seconds from the possession.
+1 tick
+2 tick
+3 tick
+4 tick
+6 tick
+8 tick
+10 tick
+14 tick
+18 tick
+22 tick
