@@ -8,6 +8,8 @@ Shared assets (stage 1.2):
   parameters BaseColor, BaseColorFactor, and Normal. The look is not a goal now.
 - Textures: each texture is one asset (/SwcGameContent/Textures/STEM_HASH).
 - Materials: each material record is one material instance (/SwcGameContent/Materials/m_HASH) of a base material.
+  Then the materials track (Scripts/swc_materials.py) applies the spec of each instance that step 4 made or set again
+  (SWC_CONTENT/materials/instances.json; a key with no spec keeps the rules of stage 1.2).
 - Static meshes: glTF with no material and no texture import; each slot has the name of a material record, and the
   script gives it that material instance. A mesh with a translucent material has no Nanite.
 - Characters and test assets: the default glTF pipeline (their own materials and textures).
@@ -22,6 +24,7 @@ SWC_IMPORT_FORCE=1, SWC_IMPORT_MAX_SECONDS (stop after the batch that passes thi
 """
 import json
 import os
+import sys
 import time
 
 import unreal
@@ -257,6 +260,7 @@ def texture_of(key):
     return texture_cache[key]
 
 
+made_materials = []   # the keys that this step made or set again (the materials track applies their specs below)
 for key in by_kind.get("material", []):
     if report["incomplete"]:
         break
@@ -286,6 +290,17 @@ for key in by_kind.get("material", []):
     assets.save_loaded_asset(instance)
     state[key] = stamp
     count("material", True)
+    made_materials.append(key)
+# The rules of the materials track (Scripts/swc_materials.py, docs/MATERIALS.md): the spec of each instance that this
+# step made or set again replaces the rules above (a key with no spec keeps them).
+try:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import swc_materials
+    track = swc_materials.apply_specs(made_materials, state)
+    report["failed"].extend(track["failed"])
+    report["materials track"] = {k: track[k] for k in ("textures", "instances")}
+except Exception as error:
+    report["failed"].append(f"materials track: {str(error)[:160]}")
 save_state()
 report["seconds"]["materials"] = round(time.time() - phase, 1)
 

@@ -95,7 +95,7 @@ tools/convert-materials.sh chains      # the exit check: the source chains of th
 - The texture check reads the DDS header of each active slot (no decode). Result: no texture that the converter
   cannot read.
 
-## The material instances (stage M1 and later; the Unreal scripts come with stage M1)
+## The material instances (stage M1 and later)
 
 ```sh
 tools/convert-materials.sh instances   # content/materials/instances.json, textures.json
@@ -110,6 +110,10 @@ tools/convert-materials.sh proof-plan m1 && tools/material-proof.sh m1   # the r
   and no cell build. The state of each instance is `materials:KEY` in `import-state.json` (the hash of the spec and
   the rule versions of `swc_materials.py`). A key that `tools/import.sh` did not import yet is skipped.
 - The script holds the import lock, as `tools/import.sh`, and stops after `--max-seconds`.
+- The import pipeline calls the same code: at the end of its step 4, `Scripts/import_content.py` calls
+  `swc_materials.apply_specs(keys, state)` with the material keys that the step made or set again. A key with no spec
+  keeps the rules of stage 1.2. A failure of this call goes into the import report; the import continues. Test:
+  `tests/converter/test_swc_materials.py` (a stub of the module `unreal`).
 
 ### M_SwcFoliage (stage M1)
 
