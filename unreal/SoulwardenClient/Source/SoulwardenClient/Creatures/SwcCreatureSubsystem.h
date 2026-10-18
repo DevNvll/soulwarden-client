@@ -131,6 +131,8 @@ public:
 	 * @return False when no bag is in range.
 	 */
 	bool FindNearestLootBag(const FVector& From, FSwcLootBag& Out) const;
+	/** The player track hides the model of a bag of a Looted claim (HideMeshDelay of the slice, 1.5 s after the claim; stage P2.10). */
+	void SetLootBagHidden(uint32 Interest, bool bHidden);
 
 	/** The contact query of the player actions (USwcPlayerActions::SetContactQuery): the items of FindMeleeContacts. */
 	void QueryMeleeContacts(const FSwcMeleeShape& Shape, std::vector<swc::net::MeleeContactItem>& Out) const;

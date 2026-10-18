@@ -475,6 +475,14 @@ void USwcCreatureSubsystem::DevelopmentAids()
 	}
 }
 
+void USwcCreatureSubsystem::SetLootBagHidden(uint32 Interest, bool bHidden)
+{
+	if (const TWeakObjectPtr<AActor>* Found = Bags.Find(Interest); Found != nullptr && Found->IsValid())
+	{
+		(*Found)->SetActorHiddenInGame(bHidden);
+	}
+}
+
 void USwcCreatureSubsystem::UpdateBag(uint32 Interest, const swc::creatures::Entity& Entity, const FSwcLootContainer& Container)
 {
 	if (!Entity.hasWorldPlace)
