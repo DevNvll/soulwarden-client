@@ -65,6 +65,16 @@ def texture_png(product: str, max_size: int, normal: bool = False, alpha: bool =
     return out
 
 
+def texture_product(texture: ET.Element) -> str | None:
+    """@return The pak path of the .dds of a texture element: its asset id, or (an older material with only a file path,
+    for example a .tif name) the file path with the extension .dds when the pak has it."""
+    product = source.product_of_text(texture.get("AssetId"), ".dds") if texture.get("AssetId") else None
+    if product is None and texture.get("File"):
+        candidate = texture.get("File").lower().replace("\\", "/").rsplit(".", 1)[0] + ".dds"
+        product = candidate if source.has(candidate) else None
+    return product
+
+
 def describe(material: ET.Element, max_size: int = 1024) -> dict:
     """@return A description of one sub-material with the PNG paths of its main textures."""
     info = {"name": material.get("Name", ""), "shader": material.get("Shader", ""),
@@ -75,9 +85,9 @@ def describe(material: ET.Element, max_size: int = 1024) -> dict:
     for t in material.iter("Texture"):
         slot = t.get("Map", "")
         info["textures"][slot] = t.get("File", "")
-        if slot not in SLOTS or not t.get("AssetId"):
+        if slot not in SLOTS:
             continue
-        product = source.product_of_text(t.get("AssetId"), ".dds")
+        product = texture_product(t)
         if product is None:
             continue
         try:
@@ -143,9 +153,9 @@ def shared_material(material: ET.Element | None) -> tuple[dict, list[dict]]:
             pass
         for t in material.iter("Texture"):
             role = {"Diffuse": "base", "Bumpmap": "normal"}.get(t.get("Map", ""))
-            if role is None or role in rules or not t.get("AssetId"):
+            if role is None or role in rules:
                 continue
-            product = source.product_of_text(t.get("AssetId"), ".dds")
+            product = texture_product(t)
             if product is None:
                 continue
             try:
