@@ -20,6 +20,7 @@ Usage (tools/convert-materials.sh):
                        the key collisions, and the texture checks -> SWC_CONTENT/materials/
   instances            the spec of each material instance that changes and its textures (after audit)
                        -> SWC_CONTENT/materials/instances.json, textures.json; then tools/apply-materials.sh
+  proof-sheet [STAGE]  the pictures of the render check with the names of the columns
   chains               the exit check of M0: the source chains of the research proofs and the on/off overrides
   proof-plan [STAGE]   the meshes and variants of the render check of a stage (Scripts/material_proof.py)
   record MTL [INDEX]   print the rich records of one material file
@@ -900,6 +901,36 @@ def proof_plan(stage: str) -> dict:
                                      for r in rows]}
 
 
+def proof_sheet(stage: str, evidence: Path | None = None) -> dict:
+    """Writes proof-STAGE-sheet.png next to the pictures of Scripts/material_proof.py: for each mesh, the front and
+    back pictures with the names of the three columns. @return The path."""
+    from PIL import Image, ImageDraw
+    evidence = evidence or env.work_dir() / "evidence" / "WF3" / stage
+    plan = json.loads((out_dir() / f"proof-{stage}.json").read_text())
+    tiles = []
+    for row in plan["rows"]:
+        for side in ("front", "back"):
+            path = evidence / f"proof-{row['label']}-{side}.png"
+            if path.is_file():
+                tiles.append((f"{row['label']}, sun {'behind the camera' if side == 'front' else 'behind the meshes'}",
+                              Image.open(path).convert("RGB")))
+    if not tiles:
+        return {"sheet": None}
+    width = max(t.width for _l, t in tiles)
+    sheet = Image.new("RGB", (width, sum(t.height + 34 for _l, t in tiles)), (20, 24, 30))
+    draw = ImageDraw.Draw(sheet)
+    y = 0
+    for label, tile in tiles:
+        draw.text((8, y + 10), label, fill=(230, 230, 230))
+        for i, name in enumerate(("stage 1.2 rules", "materials track (now)", "region override")):
+            draw.text((tile.width * (2 * i + 1) // 6 - 50, y + 10), name, fill=(230, 200, 120))
+        sheet.paste(tile, (0, y + 34))
+        y += tile.height + 34
+    out = evidence / f"proof-{stage}-sheet.png"
+    sheet.save(out)
+    return {"sheet": str(out)}
+
+
 # The exit check of M0: the source chains of the research proofs (research/world-materials/proof/*-inputs.json) and the
 # on/off overrides of the entities near Oxboro (near-entity-evidence.json) come out of the records unchanged.
 RESEARCH = Path.home() / "Games/soulwarden-client/research/world-materials"
@@ -969,7 +1000,7 @@ def same(a, b, tolerance: float = 1e-6) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if not argv or argv[0] not in ("audit", "instances", "proof-plan", "chains", "record"):
+    if not argv or argv[0] not in ("audit", "instances", "proof-plan", "proof-sheet", "chains", "record"):
         print(__doc__)
         return 2
     if argv[0] == "audit":
@@ -978,6 +1009,8 @@ def main(argv: list[str] | None = None) -> int:
         result = instances()
     elif argv[0] == "chains":
         result = chains()
+    elif argv[0] == "proof-sheet":
+        result = proof_sheet(argv[1] if len(argv) > 1 else "m1")
     elif argv[0] == "proof-plan":
         result = proof_plan(argv[1] if len(argv) > 1 else "m1")
     else:
