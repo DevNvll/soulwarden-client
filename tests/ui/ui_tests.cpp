@@ -1,0 +1,284 @@
+// The offline tests of the UI runtime (tools/test-ui.sh): the core rules with made-up data, then a run of the original
+// HUD scripts on the converted content (SWC_CONTENT/ui) with no engine. The run writes the stub log, the error log,
+// the missing textures, and the draw list (a JSON file for the preview: converter/swc_convert/uipreview.py).
+//
+// Usage: swc-ui-tests CONTENT_UI LUA_DIR REPORT_DIR [--seconds S] [--draw FILE] [--health H MAX] [--mana M MAX]
+//                     [--stamina S MAX] [--only-core] [--all-screens]
+//   --all-screens: the loader of the globals loads each screen of the game, not only the HUD screens of stage 1.10 (a
+//   probe of the stub surface of the other screens; their textures are not converted).
+
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <string>
+#include <vector>
+
+#include "SwcUi/Draw.h"
+#include "SwcUi/Json.h"
+#include "SwcUi/Model.h"
+#include "SwcUi/Runtime.h"
+
+namespace {
+
+int g_checks = 0;
+int g_failed = 0;
+
+void check(bool ok, const std::string& what) {
+    ++g_checks;
+    if (!ok) {
+        ++g_failed;
+        std::printf("FAIL %s\n", what.c_str());
+    }
+}
+
+bool close(float a, float b, float tolerance = 0.01F) {
+    return std::fabs(a - b) <= tolerance;
+}
+
+/** A canvas in the converted form, written to a temporary content folder. */
+void write_test_canvas(const std::string& dir) {
+    std::system(("mkdir -p '" + dir + "/canvases/test'").c_str());
+    std::ofstream out(dir + "/canvases/test/rules.json");
+    // root (canvas rect) -> panel (centered 200x100, pivot 0.5) -> child (stretched with 10 px margins, rotated 90)
+    out << R"({"format":1,"kind":"canvas","canvas":{"id":"1","root":"10","size":[1920,1080],"drawOrder":5},
+"elements":[
+{"id":"10","name":"_root","enabled":true,"children":["11"],"transform":{"anchors":[0.5,0.5,0.5,0.5],"offsets":[-50,-50,50,50],"pivot":[0.5,0.5],"rotation":0,"scale":[1,1]}},
+{"id":"11","name":"Panel","enabled":true,"children":["12","13"],"transform":{"anchors":[0.5,0.5,0.5,0.5],"offsets":[-100,-50,100,50],"pivot":[0.5,0.5],"rotation":0,"scale":[1,1]},
+ "scripts":[{"script":"x.luac","properties":{"5":{"t":"id","v":"12"},"6":{"t":"id","v":"99"}}}]},
+{"id":"12","name":"Child","enabled":true,"children":[],"transform":{"anchors":[0,0,1,1],"offsets":[10,10,-10,-10],"pivot":[0.5,0.5],"rotation":90,"scale":[1,1]},
+ "image":{"sprite":null,"color":[1,0,0,1],"alpha":1,"type":0,"fillType":1,"fillAmount":0.5,"fillEdgeOrigin":0}},
+{"id":"13","name":"Off","enabled":false,"children":[],"transform":{"anchors":[0,0,0,0],"offsets":[0,0,10,10],"pivot":[0,0],"rotation":0,"scale":[1,1]}}
+]})";
+}
+
+void core_tests(const std::string& tmp) {
+    using namespace swc::ui;
+    // JSON
+    json::Value v;
+    check(json::parse(R"({"a":[1,2,{"b":"xé"}],"c":true,"d":null})", v), "json parse");
+    check(v["a"][2]["b"].text() == "x\xc3\xa9", "json unicode escape");
+    check(v["c"].boolean() && v["d"].is_null() && v["a"].size() == 3, "json values");
+    check(crc32("name") == 1579384326U, "crc32 of a property name (research ui.md 2.4)");
+    check(crc32("hud") == 2702338936U, "crc32 of the state HUD");
+
+    // Rect rules
+    write_test_canvas(tmp);
+    Model model(tmp);
+    model.set_viewport(1920, 1080);
+    std::string error;
+    const Id canvas = model.load_canvas("test/rules.uicanvas", &error);
+    check(canvas == 1, "load a canvas: " + error);
+    const Edges root = model.rect(10);
+    check(close(root.left, 0) && close(root.right, 1920) && close(root.bottom, 1080), "the root has the canvas rect");
+    const Edges panel = model.rect(11);
+    check(close(panel.left, 860) && close(panel.top, 490) && close(panel.right, 1060) && close(panel.bottom, 590), "anchors and offsets");
+    const Edges child = model.rect(12);
+    check(close(child.left, 870) && close(child.right, 1050) && close(child.top, 500) && close(child.bottom, 580), "stretched anchors");
+    // Rotation 90 around the pivot (960, 540): the top left corner (870, 500) goes to (1000, 450).
+    const Vec2 corner = model.to_canvas(12).apply({870, 500});
+    check(close(corner.x, 1000) && close(corner.y, 450), "rotation around the pivot");
+    const Vec2 local = model.local_position(11);
+    check(close(local.x, 0) && close(local.y, 0), "local position of a centered element");
+    model.set_local_position(11, {30, -20});
+    check(close(model.rect(11).left, 890) && close(model.rect(11).top, 470), "set local position moves the offsets");
+    model.set_local_width(11, 300);
+    check(close(model.local_width(11), 300) && close(model.rect(11).left, 840), "set local width keeps the pivot");
+    check(model.find_descendant(10, "Off") == 13 && !model.enabled_in_hierarchy(13), "find and enabled");
+
+    // Clone: new ids, and a script property that names an element of the subtree names its copy.
+    std::vector<Id> created;
+    const Id copy = model.clone_element(11, 10, kNoId, &created);
+    check(copy != 11 && created.size() == 3, "clone makes the subtree");
+    const Element* e = model.element(copy);
+    check(e != nullptr && e->scripts.size() == 1, "clone keeps the scripts");
+    if (e != nullptr && !e->scripts.empty()) {
+        const std::string inner = e->scripts[0].properties["5"]["v"].text();
+        const std::string outer = e->scripts[0].properties["6"]["v"].text();
+        check(inner == std::to_string(created[1]), "clone remaps an inner id property");
+        check(outer == "99", "clone keeps an outer id property");
+    }
+    std::vector<Id> destroyed;
+    model.destroy_element(copy, &destroyed);
+    check(destroyed.size() == 3 && model.element(copy) == nullptr, "destroy removes the subtree");
+
+    // Draw: the linear fill of the child gives one quad with half the width (left origin).
+    struct Measure final : TextMeasure {
+        float width(const std::string&, float size, float, std::string_view text) override { return static_cast<float>(text.size()) * size * 0.5F; }
+        float line_height(const std::string&, float size) override { return size; }
+    } measure;
+    DrawList list;
+    build_draw_list(model, measure, list);
+    check(list.meshes == 1 && list.items.size() == 1, "one mesh for one image");
+    if (!list.items.empty()) {
+        check(list.items[0].vertices.size() == 4, "a linear fill is a quad");
+    }
+}
+
+std::string draw_json(const swc::ui::DrawList& list) {
+    using namespace swc::ui;
+    std::string out = "{\"viewport\":[" + std::to_string(list.viewport.x) + "," + std::to_string(list.viewport.y) + "],\"items\":[";
+    bool first = true;
+    char buffer[128];
+    for (const DrawItem& item : list.items) {
+        out += first ? "" : ",";
+        first = false;
+        switch (item.kind) {
+        case DrawItem::Kind::mesh: {
+            out += "{\"k\":\"mesh\",\"tex\":" + json::quote(item.texture) + ",\"blend\":" + std::to_string(item.blend) + ",\"v\":[";
+            for (std::size_t i = 0; i < item.vertices.size(); ++i) {
+                const Vertex& vx = item.vertices[i];
+                std::snprintf(buffer, sizeof(buffer), "%s%.2f,%.2f,%.4f,%.4f,%u", i == 0 ? "" : ",", vx.x, vx.y, vx.u, vx.v, vx.rgba);
+                out += buffer;
+            }
+            out += "],\"i\":[";
+            for (std::size_t i = 0; i < item.indices.size(); ++i) {
+                out += (i == 0 ? "" : ",") + std::to_string(item.indices[i]);
+            }
+            out += "]}";
+            break;
+        }
+        case DrawItem::Kind::text:
+            std::snprintf(buffer, sizeof(buffer), "[%.4f,%.4f,%.4f,%.4f,%.2f,%.2f]", item.transform.a, item.transform.b, item.transform.c,
+                          item.transform.d, item.transform.tx, item.transform.ty);
+            out += "{\"k\":\"text\",\"font\":" + json::quote(item.fontFile) + ",\"size\":" + std::to_string(item.fontSize) +
+                   ",\"text\":" + json::quote(item.text) + ",\"m\":" + buffer;
+            std::snprintf(buffer, sizeof(buffer), ",\"color\":[%.3f,%.3f,%.3f,%.3f]}", item.color.r, item.color.g, item.color.b, item.color.a);
+            out += buffer;
+            break;
+        case DrawItem::Kind::push_clip:
+            std::snprintf(buffer, sizeof(buffer), "{\"k\":\"push\",\"q\":[%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f]}", item.quad[0].x,
+                          item.quad[0].y, item.quad[1].x, item.quad[1].y, item.quad[2].x, item.quad[2].y, item.quad[3].x, item.quad[3].y);
+            out += buffer;
+            break;
+        case DrawItem::Kind::pop_clip:
+            out += "{\"k\":\"pop\"}";
+            break;
+        }
+    }
+    out += "]}\n";
+    return out;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    if (argc < 4) {
+        std::printf("usage: swc-ui-tests CONTENT_UI LUA_DIR REPORT_DIR [--seconds S] [--draw FILE] [--health H MAX] [--only-core]\n");
+        return 2;
+    }
+    const std::string content = argv[1];
+    const std::string luaDir = argv[2];
+    const std::string reports = argv[3];
+    double seconds = 3.0;
+    std::string drawFile;
+    bool onlyCore = false;
+    bool allScreens = false;
+    std::vector<std::string> dumpNames;
+    std::vector<std::string> traceNames;
+    std::vector<std::string> luaTexts;
+    double health = 650, healthMax = 1000, stamina = 70, staminaMax = 100, mana = 40, manaMax = 100, heading = 30;
+    for (int i = 4; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--seconds" && i + 1 < argc) seconds = std::atof(argv[++i]);
+        else if (a == "--draw" && i + 1 < argc) drawFile = argv[++i];
+        else if (a == "--only-core") onlyCore = true;
+        else if (a == "--all-screens") allScreens = true;
+        else if (a == "--dump" && i + 1 < argc) dumpNames.push_back(argv[++i]);
+        else if (a == "--trace" && i + 1 < argc) traceNames.push_back(argv[++i]);
+        else if (a == "--lua" && i + 1 < argc) luaTexts.push_back(argv[++i]);
+        else if (a == "--health" && i + 2 < argc) { health = std::atof(argv[++i]); healthMax = std::atof(argv[++i]); }
+        else if (a == "--stamina" && i + 2 < argc) { stamina = std::atof(argv[++i]); staminaMax = std::atof(argv[++i]); }
+        else if (a == "--mana" && i + 2 < argc) { mana = std::atof(argv[++i]); manaMax = std::atof(argv[++i]); }
+        else if (a == "--heading" && i + 1 < argc) heading = std::atof(argv[++i]);
+    }
+    core_tests(reports + "/core-test-content");
+    std::printf("core: %d checks, %d failed\n", g_checks, g_failed);
+    if (onlyCore) {
+        return g_failed == 0 ? 0 : 1;
+    }
+
+    using swc::ui::Runtime;
+    Runtime::Options options;
+    options.contentDir = content;
+    options.luaDir = luaDir;
+    options.reportDir = reports;
+    options.allowedCanvases = {"lyshineui/hud2024/vitals/vitals2024", "lyshineui/hud2024/weaponquickslots/weaponquickslots",
+                               "lyshineui/compass/compass", "lyshineui/hud2024/editmode/hudeditmode"};
+    if (allScreens) {
+        options.allowedCanvases.clear();
+    }
+    Runtime runtime(options);
+    runtime.set_viewport(1920, 1080);
+    std::string error;
+    if (!runtime.start(&error)) {
+        std::printf("the runtime did not start: %s\n", error.c_str());
+        for (const std::string& line : runtime.take_log()) std::printf("  %s\n", line.c_str());
+        return 1;
+    }
+    for (const std::string& name : traceNames) {
+        runtime.call("Trace", {Runtime::Arg::of(name)});
+    }
+    runtime.call("Boot");
+    runtime.call("EnterWorld", {Runtime::Arg::of(std::string("newworld_vitaeeterna"))});
+    // A made-up player of the test: a sword in the first weapon slot, three sword abilities on its bar, one cooldown.
+    runtime.call("PlayerSpawned");
+    runtime.call("HostEquipment", {Runtime::Arg::of(24.0), Runtime::Arg::of(std::string("1hSwordT52"))});
+    runtime.call("HostEquipment", {Runtime::Arg::of(45.0), Runtime::Arg::of(std::string("RuneBileBombT4A"))});
+    runtime.call("HostEquipment", {Runtime::Arg::of(25.0), Runtime::Arg::of(std::string("artifact_set1_1hrapier"))});
+    runtime.call("HostAbilityBar", {Runtime::Arg::of(2169986235.0), Runtime::Arg::of(617453373.0), Runtime::Arg::of(241886633.0), Runtime::Arg::of(2855651066.0)});
+    runtime.call("HostActiveWeapon", {Runtime::Arg::of(24.0), Runtime::Arg::of(false)});
+    runtime.call("HostAbilityBar", {Runtime::Arg::of(3907802902.0), Runtime::Arg::of(2977457251.0), Runtime::Arg::of(248953190.0),
+                                    Runtime::Arg::of(3873560184.0)});
+    runtime.call("HostCooldown", {Runtime::Arg::of(248953190.0), Runtime::Arg::of(12.0), Runtime::Arg::of(18.0)});
+    const double dt = 1.0 / 60.0;
+    const int frames = static_cast<int>(seconds / dt);
+    for (int frame = 0; frame < frames; ++frame) {
+        runtime.call("HostVitals", {Runtime::Arg::of(health), Runtime::Arg::of(healthMax), Runtime::Arg::of(stamina),
+                                    Runtime::Arg::of(staminaMax), Runtime::Arg::of(mana), Runtime::Arg::of(manaMax),
+                                    Runtime::Arg::of(false)});
+        runtime.call("HostView", {Runtime::Arg::of(heading), Runtime::Arg::of(0.0), Runtime::Arg::of(0.0), Runtime::Arg::of(0.0)});
+        runtime.call("HostCommit");
+        runtime.tick(dt);
+    }
+    runtime.call("Report");
+    for (const std::string& text : luaTexts) {
+        runtime.call("Eval", {Runtime::Arg::of(text)});
+    }
+    // The state of some elements after the run (a check of the values that the scripts set).
+    for (const std::string& wanted : dumpNames) {
+        for (swc::ui::Canvas* canvas : runtime.model().canvases_in_order()) {
+            for (const swc::ui::Id id : runtime.model().subtree(canvas->root)) {
+                const swc::ui::Element* e = runtime.model().element(id);
+                if (e == nullptr || e->name != wanted) continue;
+                std::printf("  dump %s/%s enabled=%d fade=%.2f", canvas->name.c_str(), e->name.c_str(), runtime.model().enabled_in_hierarchy(id) ? 1 : 0,
+                            e->fade ? *e->fade : -1.0F);
+                if (e->image) std::printf(" color=(%.2f %.2f %.2f) alpha=%.2f fill=%.2f sprite=%s", e->image->color.r, e->image->color.g,
+                                          e->image->color.b, e->image->alpha, e->image->fillAmount, e->image->sprite.c_str());
+                if (e->text) std::printf(" text='%s'", e->text->text.c_str());
+                std::printf("\n");
+            }
+        }
+    }
+    swc::ui::DrawList list;
+    runtime.build_draw_list(list);
+    if (!drawFile.empty()) {
+        std::ofstream(drawFile) << draw_json(list);
+    }
+    if (!runtime.write_reports(&error)) {
+        std::printf("reports: %s\n", error.c_str());
+    }
+    // The full log of the run in a file; the console gets the lines that are not stubs.
+    std::ofstream logFile(reports + "/ui-log.txt");
+    int shown = 0;
+    for (const std::string& line : runtime.take_log()) {
+        logFile << line << "\n";
+        if (line.rfind("stub ", 0) != 0 && shown++ < 80) std::printf("  %s\n", line.c_str());
+    }
+    const Runtime::Counts& c = runtime.counts();
+    std::printf("hud: %d frames, %llu Lua errors, %llu stub names, %llu stub calls, %zu draw items (%llu meshes, %llu texts)\n", frames,
+                static_cast<unsigned long long>(c.luaErrors), static_cast<unsigned long long>(c.stubNames),
+                static_cast<unsigned long long>(c.stubCalls), list.items.size(), static_cast<unsigned long long>(list.meshes),
+                static_cast<unsigned long long>(list.texts));
+    return g_failed == 0 ? 0 : 1;
+}
