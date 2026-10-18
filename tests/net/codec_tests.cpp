@@ -206,6 +206,46 @@ void test_golden_session(const std::string& goldenPath) {
         expect(moved->forward, "the backend reads the forward key (action bit 14)");
         expect(moved->entries == 5 && moved->steps.size() == 5, "the backend reads the 5 entries of the report to their end");
     }
+    // A long frame of the game thread (the world level check): the character moved 0.66 m between two steps. The position
+    // field goes to it at 10 m/s at most (0.333 m in one step), under the 20 m/s of the backend for one step; a travel of
+    // more than 20 m goes at once.
+    const auto newest_x = [&]() -> std::optional<float> {
+        std::optional<float> x;
+        for (const auto& [channel, frame] : serverGot) {
+            std::span<const std::uint8_t> payload;
+            if (channel != 1 || !backend::server::hub::decode_frame(frame, payload) || payload.size() < 19) {
+                continue;
+            }
+            backend::server::hub::Reader reader(payload.subspan(16));
+            reader.u8();
+            reader.u8();
+            if (reader.size() == 1589) {
+                if (const auto input = backend::server::rep::read_client_input(payload.subspan(16 + reader.position())); input && input->hasCharacter) {
+                    x = input->characterX;
+                }
+            }
+        }
+        return x;
+    };
+    const auto one_step = [&]() -> std::optional<float> {
+        serverGot.clear();
+        now += std::chrono::milliseconds(34);
+        for (const Bytes& out : client.tick(now)) {
+            serverView.receive(out);
+        }
+        return newest_x();
+    };
+    motion.character.x = 101.91F;
+    client.set_motion(motion);
+    const std::optional<float> first = one_step();
+    const std::optional<float> second = one_step();
+    const std::optional<float> third = one_step();
+    expect(first && second && third && near(*first, 101.25F + 1.0F / 3.0F, 0.002F) && near(*second, 101.91F, 0.002F) && near(*third, 101.91F, 0.002F),
+           "a move of 0.66 m in one frame: the position field goes 0.333 m in the first step, then to the character");
+    motion.character.x = 141.91F;
+    client.set_motion(motion);
+    const std::optional<float> travel = one_step();
+    expect(travel && near(*travel, 141.91F, 0.002F), "a travel of 40 m: the position field goes at once");
     client.set_motion(std::nullopt);
 
     // The 2 s timer: no movement state for 2 s.

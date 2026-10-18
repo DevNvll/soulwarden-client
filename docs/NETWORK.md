@@ -72,7 +72,10 @@ player run the client log has no character name (`SWC_RUN=player`).
 - `--enter`: the world entry with the first character after the character list (`-SwcPlay=first`); `--enter NAME`
   with the character NAME.
 - `--create SPEC`: before the client starts, the create request of the retail client (protocol notes 2.2.3) makes a
-  character of the development account (`tools/lib/dev_character.py`; a name that is in use is not an error).
+  character of the development account (`tools/lib/dev_character.py`; a name that is in use is not an error). With
+  `SWC_SESSION_BACKEND_ARGS=--dev-commands`, `gear=ITEM@SLOT+...` gives and equips items ([GEAR.md](GEAR.md)), and
+  `place=X:Y:Z` sets the saved place of the character (engine meters; `/v1/dev/world/travel` of a character that is not
+  in the world).
 - Each process of a development run has the marks `SWC_DEV_RUN=1` and `SWC_SESSION_DATA` (its data folder).
   `tools/dev-stop.sh` stops the processes on the own `SWC_DEV_DATA` (SIGTERM, then SIGKILL after 15 s); the runs of the
   other tracks continue. `--all` stops the runs of all tracks. `tools/dev-stop.sh --check` has the status 1 while one
@@ -277,7 +280,10 @@ With the player of the game thread (stage 1.7, `RepClient::set_motion`; [MOVEMEN
 
 - the flags `0x20084F0` (with `0x8000`) and the position field: the feet of the character after the movement of the
   last game frame, as the retail client with the game hook of Soulwarden sends it (the height in the 16 bits of the
-  wire, cut as the client cuts it);
+  wire, cut as the client cuts it). The field goes to the feet at 10 m/s at most in each step (up 10 m/s, down
+  60 m/s; a distance of more than 20 m, a travel, goes at once): at a low frame rate a frame has the move of more
+  than one step, and the backend refuses a step above 20 m/s (`world/position_report.h`). These speeds are decisions
+  of an agent, below the limits of the backend; after a long frame the field follows the feet some steps later;
 - the camera position of the camera of the player, and the look (mask bit 6): the yaw in radians from north to the
   left, the pitch in radians, positive down;
 - the action bits 14, 43, 416, 542 of the W key while it is down (the backend reads bit 14), with the rest bits; the

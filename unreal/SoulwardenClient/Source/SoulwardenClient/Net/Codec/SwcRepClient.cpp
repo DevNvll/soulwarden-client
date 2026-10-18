@@ -1,6 +1,7 @@
 #include "Net/Codec/SwcRepClient.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -29,6 +30,19 @@ constexpr float kCameraBehind = 4.0F;
 constexpr float kCameraUp = 1.65F;
 /** The ground value of an entry in a fall (protocol notes 4.7: "0 to 10; 10 in a fall"): a half float, 10 at most. */
 constexpr float kMaxAirHeight = 10.0F;
+/**
+ * The steps of the position field. The game thread moves the character one time in each frame: at a frame rate below 30
+ * frames in a second, two entries one step apart can have the move of a whole frame (a sprint of 5.5 m/s in a frame of
+ * 0.12 s: 0.66 m in one step, 19.8 m/s; the world level check had 46 reports refused as too fast at 11 frames in a second).
+ * Each entry moves the reported position to the character at these speeds at most (m/s): after a long frame the reports
+ * follow the path of the character some steps later. A larger distance (a travel) goes at once. Decisions of an agent,
+ * below the limits of the backend (world/position_report.h: 20 m/s for one step horizontal and up, 120 m/s down).
+ */
+constexpr float kStepSeconds = 1.0F / 30.0F;
+constexpr float kReportHorizontalSpeed = 10.0F;
+constexpr float kReportRiseSpeed = 10.0F;
+constexpr float kReportFallSpeed = 60.0F;
+constexpr float kReportJump = 20.0F;
 
 /** @return The bits of a half float (IEEE 754 binary16) for a value from 0 to 65504; the low bits are cut. */
 std::uint16_t half_bits(float value) {
@@ -568,6 +582,24 @@ void RepClient::send_registration() {
                                 + " bytes) for character " + m_options.token.characterId);
 }
 
+WorldPosition RepClient::reported_position(const WorldPosition& character) {
+    const float dx = character.x - m_reported.x;
+    const float dy = character.y - m_reported.y;
+    const float dz = character.z - m_reported.z;
+    const float horizontal = std::sqrt(dx * dx + dy * dy);
+    if (!m_hasReported || horizontal > kReportJump || std::fabs(dz) > kReportJump) {
+        m_hasReported = true;
+        m_reported = character;
+        return m_reported;
+    }
+    const float limit = kReportHorizontalSpeed * kStepSeconds;
+    const float share = horizontal > limit ? limit / horizontal : 1.0F;
+    m_reported.x += dx * share;
+    m_reported.y += dy * share;
+    m_reported.z += std::clamp(dz, -kReportFallSpeed * kStepSeconds, kReportRiseSpeed * kStepSeconds);
+    return m_reported;
+}
+
 void RepClient::send_input(Clock::time_point now) {
     if (now < m_nextInput) {
         return;
@@ -593,7 +625,7 @@ void RepClient::send_input(Clock::time_point now) {
         // the retail client with the game hook of Soulwarden sends it; protocol notes 4.7).
         entry.flags |= kInputFlagPosition;
         entry.hasCharacter = true;
-        entry.character = m_motion->character;
+        entry.character = reported_position(m_motion->character);
         entry.camera = m_motion->camera;
         entry.hasLook = true;
         entry.yaw = m_motion->yaw;
@@ -610,6 +642,7 @@ void RepClient::send_input(Clock::time_point now) {
             entry.actionBits.insert(entry.actionBits.end(), m_motion->pressBits.begin(), m_motion->pressBits.end());
         }
     } else {
+        m_hasReported = false;
         // The camera of a character at rest at its position, north, no pitch: the camera estimate of the backend keeps
         // the position (protocol notes 4.7). No position field (the flag 0x8000).
         entry.camera = {m_own.position.x + kCameraRight, m_own.position.y - kCameraBehind, m_own.position.z + kCameraUp};

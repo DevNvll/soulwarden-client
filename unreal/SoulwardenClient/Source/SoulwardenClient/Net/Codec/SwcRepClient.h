@@ -215,6 +215,8 @@ private:
     void apply_other(const soulwarden::backend::tests::Record& record);
     void send_registration();
     void send_input(Clock::time_point now);
+    /** @return The position field of the next entry: the reported position one step nearer to the character. */
+    WorldPosition reported_position(const WorldPosition& character);
 
     Options m_options;
     Carrier m_carrier;
@@ -238,6 +240,9 @@ private:
     std::uint16_t m_inputNumber{0};
     std::vector<InputEntry> m_recentInputs;
     std::optional<Motion> m_motion;
+    /** The position of the last position field (it follows the character at a limited speed: reported_position). */
+    bool m_hasReported{false};
+    WorldPosition m_reported;
     bool m_sentMotion{false};
     std::uint32_t m_pressSerial{0};
     bool m_hasServerClock{false};

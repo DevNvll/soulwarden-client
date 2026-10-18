@@ -4,11 +4,13 @@ then starts the client. It runs in the network namespace of tools/lib/session.sh
 
 Usage: dev_character.py SPEC -- CLIENT COMMAND...
   SPEC: name=NAME,gender=Male|Female,race=face01,skin=skin04,hair=hairstyle01m,facial=None,haircolor=haircolor1,
-        facialcolor=haircolor1,eyecolor=eyecolor1,archetype=Archetype_Soldier,gear=ITEM@SLOT+ITEM@SLOT
+        facialcolor=haircolor1,eyecolor=eyecolor1,archetype=Archetype_Soldier,gear=ITEM@SLOT+ITEM@SLOT,place=X:Y:Z
         (each key is optional but name)
   gear: items of the item catalog in slots of the paperdoll (24 to 26: weapon 1 to 3, 27 to 29: their off hand). It
         needs the development routes of the backend (SWC_SESSION_BACKEND_ARGS=--dev-commands): the helper gives each item
         (/v1/dev/items/give) and equips it (/v1/dev/items/equip). An item that is in its slot stays.
+  place: the saved place of the character (engine meters; the development route /v1/dev/world/travel of a character
+        that is not in the world). It needs the development routes too.
 
 The creation data has the form of the create requests of the client and of the menu document of the backend
 (protocol notes 2.2.5; apps/backend/src/state/creation_data.cpp): base64(zlib(JSON)), the JSON member visualsBlob is a
@@ -150,6 +152,24 @@ def equip(character: str, name: str, gear: str) -> int:
     return 0
 
 
+def place(character: str, name: str, text: str) -> int:
+    """Sets the saved place of a character that is not in the world (X:Y:Z, engine meters)."""
+    x, y, z = (float(value) for value in text.split(":"))
+    status, reply = management("POST", f"/v1/dev/world/travel?character={character}&x={x}&y={y}&z={z}")
+    if status != 200:
+        print(f"dev-character: the place of {name}: {status} {reply} (the place needs SWC_SESSION_BACKEND_ARGS=--dev-commands)", file=sys.stderr)
+        return 1
+    print(f"dev-character: {name} is at {x} {y} {z}", file=sys.stderr)
+    return 0
+
+
+def finish(character: str, name: str, gear: str, where: str) -> int:
+    """The gear and the place of a spec."""
+    if gear and equip(character, name, gear) != 0:
+        return 1
+    return place(character, name, where) if where else 0
+
+
 def ticket() -> str:
     steam_id = os.environ.get("SWC_STEAM_ID", "")
     persona = os.environ.get("SWC_PERSONA_NAME", "Soulwarden").encode()
@@ -161,6 +181,7 @@ def create(spec: str) -> int:
     name = values.pop("name")
     archetype = values.pop("archetype", "Archetype_Soldier")
     gear = values.pop("gear", "")
+    where = values.pop("place", "")
     names = {field: values.get(key, default) for key, field, default in APPEARANCE}
     status, reply = request("POST", "tokenservice.soulwarden.local", "/games/new-world/tokens",
                             {"platformIdentityType": "steam", "platformAuth": {"ticket": ticket()}, "fallbackToken": "", "attributionData": {}})
@@ -177,7 +198,7 @@ def create(spec: str) -> int:
     existing = [character for character in reply["LoginInfoList"].get("Characters", []) if character.get("Name") == name]
     if existing:
         print(f"dev-character: {name} is there", file=sys.stderr)
-        return equip(existing[0]["CharacterId"], name, gear) if gear else 0
+        return finish(existing[0]["CharacterId"], name, gear, where)
     body = {"CreateCharacterRequest": {"CharacterCreationParams": creation_params(name, names, archetype, world_id),
                                        "ClientCapabilities": [], "Name": name, "SkipFtue": False, "SteamAppId": 1063730,
                                        "SteamAuthTicket": ticket()}}
@@ -186,7 +207,7 @@ def create(spec: str) -> int:
     if status == 200:
         character = reply["Character"]["CharacterId"]
         print(f"dev-character: created {name} ({character}), {archetype}, {names}", file=sys.stderr)
-        return equip(character, name, gear) if gear else 0
+        return finish(character, name, gear, where)
     print(f"dev-character: the create request of {name} got {status} {reply}", file=sys.stderr)
     return 1
 

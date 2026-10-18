@@ -140,6 +140,20 @@ tools/dev-run.sh --window --enter --quit-when world --stay 33 -- -SwcDrive=$PWD/
   25, flags 0x20084f0)`, then 1,057 position reports accepted and 0 refused in the movement run (967 and 0 in the
   slope run). The client logs have one line for each change of the movement state, with the speed and the feet.
 
+## The world level check (2026-10-18)
+
+The open world level (`/SwcGameContent/World/NewWorld`, stage 1.3): `Swordwarden` (its armor, the sword and the shield,
+the greatsword) at 8907.75 4248.35 m in r_+04_+02, `tests/drive/world-walk.txt`, the pictures of the view of
+`-SwcFrames` (the real frame rate: about 11 frames in a second with three runs and a region import on the computer).
+Evidence in `~/Games/soulwarden-client/evidence/world-level/`: `character-on-ground.png`, `walk-world-level.mp4`.
+
+- The character spawns on the ground of the level with no test floor, lands, walks, runs (the sprint at 5.5 m/s), and
+  stops. The backend log: `position reports of the session: 928 accepted, 0 refused`, the largest step 0.334 m.
+- Before the speed limit of the position field ([NETWORK.md](NETWORK.md), "The input report") the same walk had 46 of
+  925 reports refused as too fast (19.92 m/s between two reports): the move of a long frame came in one step.
+- The saved place of a development character moves in each development run, also on the test floor. A place in a
+  building of the world level holds the character in the building: `place=X:Y:Z` of `tools/dev-run.sh --create` moves it.
+
 ## Differences and open points
 
 - Land_Sprint and Land_Roll (root motion after a landing with input) are not played: a landing with input goes on to
