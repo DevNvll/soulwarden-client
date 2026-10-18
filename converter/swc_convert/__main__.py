@@ -16,6 +16,13 @@ Usage (through tools/convert.sh):
                                                     the meshes of regions with shared textures and materials (stage 1.2)
   space-proof [NAME --area X Y SIZE] [--sheet]      the proof of the space map (stage 1.1): marker, terrain patch, plan;
                                                     --sheet: the pictures side by side after Scripts/space_proof.py
+  collision [PATH...]                               the game collision of the static meshes (P4.1): the physics file
+                                                    of each mesh -> content/collision (default: all static meshes)
+  overrides NAME... | --all                         the material overrides of the placements (P4.1): the slot maps of
+                                                    the pairs (mesh, material), their records (after census)
+  terrain-layers NAME... | --all                    the terrain materials of the game (world fidelity T0): the layer
+                                                    lists, the splats (2,048 and 2,041 grids), the macro maps, the
+                                                    layer materials and their full textures (terrain_layers.py)
   preview mesh PATH | character CDF [--clip CAF] | region NAME --area X Y SIZE
 Output: SWC_CONTENT (default ~/Games/soulwarden-client/content). Previews: ~/Games/soulwarden-client/previews.
 """
@@ -56,6 +63,9 @@ def main(argv=None) -> int:
     p = sub.add_parser("world"); p.add_argument("names", nargs="*"); p.add_argument("--playable", action="store_true"); p.add_argument("--all", action="store_true")
     p.add_argument("--workers", type=int, default=4); p.add_argument("--force", action="store_true")
     p = sub.add_parser("space-proof"); p.add_argument("name", nargs="?", default=PROOF_REGION); p.add_argument("--area", type=float, nargs=3, default=list(PROOF_AREA)); p.add_argument("--sheet", action="store_true")
+    p = sub.add_parser("collision"); p.add_argument("paths", nargs="*")
+    p = sub.add_parser("overrides"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
+    p = sub.add_parser("terrain-layers"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("preview"); p.add_argument("kind", choices=["mesh", "character", "region"]); p.add_argument("target")
     p.add_argument("--clip"); p.add_argument("--area", type=float, nargs=3); p.add_argument("--frames", type=float, nargs="*", default=[0, 6.5, 13, 19.5])
     args = parser.parse_args(argv)
@@ -93,6 +103,21 @@ def main(argv=None) -> int:
     elif args.command == "space-proof":
         from . import space
         result = space.sheet() if args.sheet else space.proof(args.name, tuple(args.area))
+    elif args.command == "terrain-layers":
+        from . import census, terrain_layers
+        names = census.world_regions() if args.all else args.names
+        if not names:
+            parser.error("terrain-layers needs region names or --all")
+        result = [terrain_layers.export_region(n) for n in names]
+    elif args.command == "overrides":
+        from . import census, overrides
+        names = census.world_regions() if args.all else args.names
+        if not names:
+            parser.error("overrides needs region names or --all")
+        result = overrides.convert(names)
+    elif args.command == "collision":
+        from . import collision
+        result = collision.convert_all([p.lower() for p in args.paths] or None)
     elif args.command == "manifest":
         result = manifest.refresh()
     elif args.command == "proofs":
