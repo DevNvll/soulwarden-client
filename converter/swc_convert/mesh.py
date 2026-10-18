@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
+
 from . import cgf, env, gltf, manifest, materials, source
 
 
@@ -20,15 +22,21 @@ def out_path(asset: str) -> Path:
 
 
 def load(path: str) -> tuple[cgf.ChunkFile, list[cgf.Mesh]]:
+    """@return The chunk file and its meshes, each one in the space of the file (the node matrices are applied)."""
     heap = source.read(path + "heap") if source.has(path + "heap") else None
     f = cgf.read_chunks(source.read(path), heap)
+    nodes = cgf.node_matrices(f)
     meshes = []
     for chunk in f.of_type(cgf.T_MESH):
         try:
-            meshes.append(cgf.read_mesh(f, chunk))
+            m = cgf.read_mesh(f, chunk)
         except ValueError as error:
             if "no geometry" not in str(error):
                 raise
+            continue
+        if chunk.id in nodes and not np.allclose(nodes[chunk.id], np.eye(4), atol=1e-6):
+            m = cgf.transform_mesh(m, nodes[chunk.id])
+        meshes.append(m)
     if not meshes:
         raise ValueError(f"{path}: no mesh chunk with geometry")
     return f, meshes
@@ -53,9 +61,8 @@ def convert(path: str, max_texture: int = 1024, force: bool = False) -> dict:
         except Exception as error:
             report["material error"] = str(error)
     out.parent.mkdir(parents=True, exist_ok=True)
-    nodes = []
-    for number, mesh in enumerate(meshes):
-        prims = []
+    prims = []   # all chunks in one glTF mesh: Interchange makes one static mesh asset for each glTF node
+    for mesh in meshes:
         pos = gltf.z_up_to_y_up(mesh.positions)
         nrm = gltf.z_up_to_y_up(mesh.normals) if mesh.normals is not None else None
         tan = None
@@ -86,10 +93,22 @@ def convert(path: str, max_texture: int = 1024, force: bool = False) -> dict:
             prims.append(w.primitive(pos, idx, nrm, mesh.uvs, tan, material=mats[s.material]))
             report["triangles"] += len(idx) // 3
         report["vertices"] += len(mesh.positions)
-        if prims:
-            mi = w.mesh(f"{Path(path).stem}_{number}", prims)
-            nodes.append(w.node(name=f"{Path(path).stem}_{number}", mesh=mi))
-    w.doc["scenes"][0]["nodes"] = nodes
+    if prims:
+        w.doc["scenes"][0]["nodes"] = [w.node(name=Path(path).stem, mesh=w.mesh(Path(path).stem, prims))]
     w.save(out)
     manifest.add("static", path, out)
     return report
+
+
+def drawn_positions(path: str) -> np.ndarray:
+    """@return The engine positions of the vertices of the drawn triangles of a mesh (the glTF has no others)."""
+    f, meshes = load(path.lower())
+    reference = cgf.material_guid(f) or ""
+    sub_materials = materials.load_mtl(reference, path.lower())[1] if reference else []
+    out = []
+    for m in meshes:
+        for s in m.subsets:
+            if s.material < len(sub_materials) and materials.not_drawn(sub_materials[s.material]):
+                continue
+            out.append(m.positions[np.unique(m.indices[s.first_index:s.first_index + s.num_indices])])
+    return np.concatenate(out) if out else np.zeros((0, 3), np.float32)

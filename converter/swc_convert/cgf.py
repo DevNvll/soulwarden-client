@@ -196,6 +196,56 @@ def read_mesh(f: ChunkFile, chunk: Chunk) -> Mesh:
     return Mesh(positions, normals, tangents, uvs, colors, indices, subsets, joints, weights, streams, bbox)
 
 
+def node_matrices(f: ChunkFile) -> dict[int, np.ndarray]:
+    """@return For each object chunk id of a node: the 4 x 4 matrix (column vectors, meters) from the space of the
+    object to the space of the file (the product of the parent chain).
+
+    Node chunk 0x824 (CryEngine NODE_CHUNK_DESC_0824): name[64], object id, parent id, child count, material id,
+    4 bytes, tm float[4][4] at offset 84 (rows = the images of the X, Y, Z axes, then the translation in
+    centimeters), then obsolete pos, rot, scale, controller ids, and a property text. Proved on the game copy: the
+    physics proxy of a ceiling beam is at -443 cm on the 8.9 m beam (the middle), and the ornament of a claim totem
+    is at 465 cm, on the top of its pole.
+    """
+    local: dict[int, tuple[int, int, np.ndarray]] = {}
+    for c in f.of_type(T_NODE):
+        if c.version not in (0x823, 0x824) or len(c.data) < 148:
+            continue
+        obj, parent = struct.unpack_from("<2i", c.data, 64)
+        tm = np.array(struct.unpack_from("<16f", c.data, 84), dtype=np.float64).reshape(4, 4)
+        m = np.eye(4)
+        m[:3, :3] = tm[:3, :3].T
+        m[:3, 3] = tm[3, :3] * 0.01
+        local[c.id] = (obj, parent, m)
+    by_object: dict[int, np.ndarray] = {}
+    for obj, parent, m in local.values():
+        world, depth = m, 0
+        while parent in local and depth < 64:
+            _obj, parent, pm = local[parent]
+            world = pm @ world
+            depth += 1
+        by_object[obj] = world
+    return by_object
+
+
+def transform_mesh(mesh: Mesh, m: np.ndarray) -> Mesh:
+    """Moves a mesh by a 4 x 4 matrix (column vectors): positions, normals, tangents, and the triangle order of a
+    mirror."""
+    linear = m[:3, :3]
+    mesh.positions = (mesh.positions.astype(np.float64) @ linear.T + m[:3, 3]).astype(np.float32)
+    if mesh.normals is not None:
+        n = mesh.normals.astype(np.float64) @ np.linalg.inv(linear)
+        mesh.normals = (n / (np.linalg.norm(n, axis=1, keepdims=True) + 1e-12)).astype(np.float32)
+    mirror = np.linalg.det(linear) < 0
+    if mesh.tangents is not None:
+        t = mesh.tangents[:, :3].astype(np.float64) @ linear.T
+        t /= np.linalg.norm(t, axis=1, keepdims=True) + 1e-12
+        w = mesh.tangents[:, 3:4] * (-1.0 if mirror else 1.0)
+        mesh.tangents = np.concatenate([t, w], axis=1).astype(np.float32)
+    if mirror:
+        mesh.indices = mesh.indices.reshape(-1, 3)[:, ::-1].reshape(-1).copy()
+    return mesh
+
+
 def material_guid(f: ChunkFile) -> str | None:
     for c in f.of_type(T_MTLNAME):
         text = c.data[:128].split(b"\0")[0].decode("latin-1")
