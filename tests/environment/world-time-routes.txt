@@ -1,0 +1,18 @@
+# The development routes of the check of the world clock (docs/ENVIRONMENT.md) on the clock of the script (seconds from its start):
+# reads of the world time of the backend (with the wall time of each reply) and two commands for the world: 18:58:30 (dusk; night at
+# 19:00, 3.5 s later: the phase 4247) and 05:59:00 (night; dawn at 06:00, 1.4 s later; day at 06:26, 60 s later). Then noon again.
+# The creatures ignore the character (the night creatures of Brightwood Isle come at night).
+# SWC_DEV_CHARACTER=Devwarden SWC_STAGE=WF-clock tools/creature-check.sh worldtime 115 tests/environment/world-time-routes.txt \
+#   -- -SwcWorldTimeProbe
+1 ignore on
+3 world-time
+15 world-time
+20 world-time 18:58:30
+22 world-time
+30 world-time
+35 world-time 05:59:00
+40 world-time
+70 world-time
+100 world-time
+105 world-time 12:00
+108 world-time
