@@ -230,6 +230,9 @@ struct Bits {
 	bool dodgeAllowed{true};
 	/** The block press (bit 484): a literal of the transitions inside Charge. */
 	bool block{false};
+	/** A press at rest can start an attack (AttackBits::attackAllowed of the backend; stage P3.3): false when the bag is over 1.5 x
+	 *  its weight limit (Prevent_Attack of the data) or the character is stunned. A chain that plays goes on. */
+	bool attackAllowed{true};
 };
 
 /** One visit of a fragment. */
@@ -262,8 +265,11 @@ enum class PressVerdict : std::uint8_t {
 	cooldown,
 	/** No window of the fragment that plays takes the press (AbilityStart::Verdict::refused). */
 	refused,
+	/** The limits of the load or of a status (stage P3.3): the bag over its limit, a stun, a silence (the backend refuses the
+	 *  press of an encumbered character too: CastVerdict encumbered). */
+	limited,
 };
-inline constexpr std::size_t kPressVerdicts = 4;
+inline constexpr std::size_t kPressVerdicts = 5;
 [[nodiscard]] const char* press_verdict_text(PressVerdict verdict);
 
 /** The start of an ability (AttackSequences::start_ability of the backend). */
@@ -445,6 +451,8 @@ public:
 		/** The shots of the casts (the throw of Gravity Well), and the steps with the collision of the character. */
 		std::uint32_t shots{0};
 		std::uint32_t collisions{0};
+		/** The dodge presses that the limits of the load or of a status refused (stage P3.3). */
+		std::uint32_t limitedDodges{0};
 	};
 
 	/** The graph of each weapon slot (24, 25; null: no attack graph) and the weapon in the hand. Resets the sequence. */
@@ -490,6 +498,12 @@ public:
 	 */
 	void set_server_cooldowns(const std::vector<std::pair<std::uint32_t, std::uint64_t>>& endsUs, std::uint64_t serverNowUs, std::int64_t nowNs);
 	/**
+	 * The limits of the load and of the statuses for the actions (stage P3.3, swc::move::Limits): a dodge, a press of the bar, and an
+	 * attack from rest that the client does not play. The bits of the press go out (the retail client sends the dodge bit of a
+	 * press that it refuses, protocol notes 4.38).
+	 */
+	void set_action_limits(bool dodgeAllowed, bool abilitiesAllowed, bool attackAllowed);
+	/**
 	 * Called for each input entry (the session thread): adds the attack bits and the bits of the keys of the bar to `actionBits`,
 	 * steps the sequence, and then takes a press of a key of the bar (the order of the backend: RepSession::handle_attacks steps
 	 * the sequence, then presses the ability). `shots`: the attack of each shot of a cast at this step (the mark of its spell).
@@ -530,6 +544,9 @@ private:
 	bool m_collided{false};
 	std::map<std::uint32_t, std::int64_t> m_cooldowns;
 	std::map<std::uint32_t, std::uint64_t> m_serverEnds;
+	bool m_dodgeAllowed{true};
+	bool m_abilitiesAllowed{true};
+	bool m_attackAllowed{true};
 	std::uint64_t m_casts{0};
 	/** The cast that plays its fragments: its number, its ability, and whether its shot went out. */
 	std::uint64_t m_cast{0};

@@ -101,6 +101,9 @@ void ASwcPlayerController::SetupInputComponent()
 	AbilityActions[0] = MakeAction(this, TEXT("IA_Ability1"), EInputActionValueType::Boolean);
 	AbilityActions[1] = MakeAction(this, TEXT("IA_Ability2"), EInputActionValueType::Boolean);
 	AbilityActions[2] = MakeAction(this, TEXT("IA_Ability3"), EInputActionValueType::Boolean);
+	CrouchAction = MakeAction(this, TEXT("IA_CrouchToggle"), EInputActionValueType::Boolean);
+	ProneAction = MakeAction(this, TEXT("IA_ProneToggle"), EInputActionValueType::Boolean);
+	AutoRunAction = MakeAction(this, TEXT("IA_AutoRun"), EInputActionValueType::Boolean);
 	MovementContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Movement"));
 	MapAxisKey(MovementContext, MoveAction, EKeys::W, true, false);
 	MapAxisKey(MovementContext, MoveAction, EKeys::S, true, true);
@@ -126,6 +129,11 @@ void ASwcPlayerController::SetupInputComponent()
 	MovementContext->MapKey(AbilityActions[0], EKeys::Q);
 	MovementContext->MapKey(AbilityActions[1], EKeys::R);
 	MovementContext->MapKey(AbilityActions[2], EKeys::F);
+	// The keys of the posture and autorun of the default profile: C crouch_toggle, Z prone_toggle, `=` autorun (research
+	// feel-values.md R6.3; p33-movement.md Q1, Q2).
+	MovementContext->MapKey(CrouchAction, EKeys::C);
+	MovementContext->MapKey(ProneAction, EKeys::Z);
+	MovementContext->MapKey(AutoRunAction, EKeys::Equals);
 	if (UEnhancedInputComponent* Enhanced = Cast<UEnhancedInputComponent>(InputComponent))
 	{
 		Enhanced->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ASwcPlayerController::OnMove);
@@ -154,6 +162,9 @@ void ASwcPlayerController::SetupInputComponent()
 			Enhanced->BindActionValueLambda(AbilityActions[Place], ETriggerEvent::Started, [this, Place](const FInputActionValue&) { OnAbilityKey(Place, true); });
 			Enhanced->BindActionValueLambda(AbilityActions[Place], ETriggerEvent::Completed, [this, Place](const FInputActionValue&) { OnAbilityKey(Place, false); });
 		}
+		Enhanced->BindActionValueLambda(CrouchAction, ETriggerEvent::Started, [this](const FInputActionValue&) { OnMoveKey(TEXT("c")); });
+		Enhanced->BindActionValueLambda(ProneAction, ETriggerEvent::Started, [this](const FInputActionValue&) { OnMoveKey(TEXT("z")); });
+		Enhanced->BindActionValueLambda(AutoRunAction, ETriggerEvent::Started, [this](const FInputActionValue&) { OnMoveKey(TEXT("equals")); });
 	}
 	else
 	{
@@ -369,6 +380,11 @@ void ASwcPlayerController::OnInteract(const FInputActionValue&)
 	{
 		Backend->SetInteractKey(true);
 	}
+	// A use of an object ends autorun (the interaction kinds of the deactivation of AutoRun; stage P3.3).
+	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
+	{
+		Character->GetSwcMovement()->CancelAutoRun(TEXT("a use of an object"));
+	}
 }
 
 void ASwcPlayerController::OnInteractEnd(const FInputActionValue&)
@@ -376,6 +392,29 @@ void ASwcPlayerController::OnInteractEnd(const FInputActionValue&)
 	if (USwcBackendSubsystem* Backend = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr)
 	{
 		Backend->SetInteractKey(false);
+	}
+}
+
+void ASwcPlayerController::OnMoveKey(const TCHAR* Key)
+{
+	if (USwcUiSubsystem* Ui = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcUiSubsystem>() : nullptr; Ui != nullptr && !Ui->UiKeyToGame(Key))
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("move: %s while a screen of the UI holds the key: nothing"), Key);
+		return;
+	}
+	const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn());
+	if (Character == nullptr || Character->GetActions()->IsInputLocked())
+	{
+		return;
+	}
+	USwcCharacterMovement* Movement = Character->GetSwcMovement();
+	if (FCString::Strcmp(Key, TEXT("equals")) == 0)
+	{
+		Movement->ToggleAutoRun();
+	}
+	else
+	{
+		Movement->TogglePosture(FCString::Strcmp(Key, TEXT("z")) == 0);
 	}
 }
 
@@ -556,6 +595,11 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 		else if (Step.Command == TEXT("dodge"))
 		{
 			Input->InjectInputForAction(DodgeAction, FInputActionValue(true), {}, {});
+		}
+		else if (Step.Command == TEXT("crouch") || Step.Command == TEXT("prone") || Step.Command == TEXT("autorun"))
+		{
+			UInputAction* Action = Step.Command == TEXT("crouch") ? CrouchAction.Get() : Step.Command == TEXT("prone") ? ProneAction.Get() : AutoRunAction.Get();
+			Input->InjectInputForAction(Action, FInputActionValue(true), {}, {});
 		}
 		else if (Step.Command == TEXT("ability"))
 		{

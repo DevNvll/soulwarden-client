@@ -1,7 +1,11 @@
 #include "Character/SwcCharacterMovement.h"
 
 #include "Character/SwcLocomotion.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/Character.h"
+#include "SwcBackendSubsystem.h"
 
 namespace
 {
@@ -107,9 +111,118 @@ USwcCharacterMovement::USwcCharacterMovement()
 
 void USwcCharacterMovement::SetInput(const FVector2D& Move2, double Yaw, bool bWalk)
 {
-	Input = Move2;
+	// Autorun (stage P3.3): a virtual W; the back key and a new press of W end it (the deactivation of the action AutoRun).
+	const bool bForward = Move2.Y > 0.5;
+	if (AutoRun.on() && (Move2.Y < -0.5 || (bForward && !bWasForward)))
+	{
+		CancelAutoRun(Move2.Y < -0.5 ? TEXT("the back key") : TEXT("a new press of W"));
+	}
+	bWasForward = bForward;
+	RawInput = Move2;
+	const auto [Side, Ahead] = AutoRun.input(static_cast<float>(Move2.X), static_cast<float>(Move2.Y));
+	Input = FVector2D(Side, Ahead);
 	CameraYaw = Yaw;
 	bWalkHeld = bWalk;
+}
+
+bool USwcCharacterMovement::ToggleAutoRun()
+{
+	const bool bOn = AutoRun.toggle();
+	UE_LOG(LogSwcBackend, Log, TEXT("move: autorun %s"), bOn ? TEXT("on") : TEXT("off (the key)"));
+	return bOn;
+}
+
+void USwcCharacterMovement::CancelAutoRun(const TCHAR* Cause)
+{
+	if (AutoRun.on())
+	{
+		AutoRun.cancel();
+		UE_LOG(LogSwcBackend, Log, TEXT("move: autorun off (%s)"), Cause);
+	}
+}
+
+void USwcCharacterMovement::TogglePosture(bool bProne)
+{
+	if (bProne)
+	{
+		Posture.toggle_prone();
+	}
+	else
+	{
+		Posture.toggle_crouch();
+	}
+	UE_LOG(LogSwcBackend, Log, TEXT("move: the key %s: the desired posture %s (now %s)"), bProne ? TEXT("Z") : TEXT("C"),
+		UTF8_TO_TCHAR(swc::move::posture_text(Posture.desired())), UTF8_TO_TCHAR(swc::move::posture_text(Posture.posture())));
+}
+
+void USwcCharacterMovement::ForcePosture(swc::move::Posture Target)
+{
+	if (Posture.posture() == Target && !Posture.pending())
+	{
+		return;
+	}
+	if (!HasRoomFor(Target))
+	{
+		return;
+	}
+	ActiveTransition.reset();
+	if (Move == ESwcMove::PostureTransition)
+	{
+		SetMove(ESwcMove::Idle);
+	}
+	Posture.force(Target);
+	ApplyCapsule(Target);
+	UE_LOG(LogSwcBackend, Log, TEXT("move: the posture %s at once (an action)"), UTF8_TO_TCHAR(swc::move::posture_text(Target)));
+}
+
+void USwcCharacterMovement::SetLimits(const swc::move::Limits& InLimits)
+{
+	// The server bits stay the ones of the movement state (SetPermissions).
+	const bool bSprint = Limits.serverSprint;
+	const bool bRun = Limits.serverRun;
+	const bool bNav = Limits.serverNav;
+	const bool bDodge = Limits.serverDodge;
+	Limits = InLimits;
+	Limits.serverSprint = bSprint;
+	Limits.serverRun = bRun;
+	Limits.serverNav = bNav;
+	Limits.serverDodge = bDodge;
+}
+
+const swc::move::Data* USwcCharacterMovement::Rules() const
+{
+	return Locomotion.IsValid() && Locomotion->Rules.loaded() ? &Locomotion->Rules : nullptr;
+}
+
+swc::move::Facts USwcCharacterMovement::MakeFacts() const
+{
+	swc::move::Facts Facts;
+	Facts.tags.insert(swc::move::posture_tag(Posture.posture()));
+	if (WeaponTags.IsEmpty())
+	{
+		Facts.tags.insert("Unarmed");
+	}
+	for (const FString& Tag : WeaponTags)
+	{
+		Facts.tags.insert(TCHAR_TO_UTF8(*Tag));
+	}
+	if (bAiming)
+	{
+		// The aim of a ranged weapon or a bow (AimDownSights, stage P2.6).
+		Facts.tags.insert("Aim");
+		Facts.tags.insert("AimDownSights");
+	}
+	if (AutoRun.on())
+	{
+		Facts.tags.insert("AutoRun");
+	}
+	if (bWalkHeld)
+	{
+		Facts.inputs.insert("walk");
+	}
+	Limits.apply(Facts);
+	Facts.moveSpeed = static_cast<float>(GroundVelocity.Size2D() / 100.0);
+	return Facts;
 }
 
 void USwcCharacterMovement::RequestJump()
@@ -124,6 +237,10 @@ void USwcCharacterMovement::SetPermissions(uint8 DataBits, uint8 MoreDataBits)
 	bCanRun = (DataBits & 0x80) != 0;
 	bCanNav = (MoreDataBits & 0x01) != 0;
 	bCanDodge = (MoreDataBits & 0x02) != 0;
+	Limits.serverSprint = bCanSprint;
+	Limits.serverRun = bCanRun;
+	Limits.serverNav = bCanNav;
+	Limits.serverDodge = bCanDodge;
 }
 
 void USwcCharacterMovement::SetLocomotion(const TSharedPtr<FSwcLocomotion>& Data)
@@ -143,6 +260,10 @@ void USwcCharacterMovement::SetCombat(bool bInArmedSprint, bool bInArmedNav, boo
 	bArmedSprint = bInArmedSprint;
 	bArmedNav = bInArmedNav;
 	bArmedStop = bInArmedStop;
+	if (bInAiming && !bAiming)
+	{
+		CancelAutoRun(TEXT("the aim"));
+	}
 	bAiming = bInAiming;
 }
 
@@ -179,7 +300,7 @@ float USwcCharacterMovement::GetHorizontalSpeed() const
 	return static_cast<float>(Velocity.Size2D() / 100.0);
 }
 
-FString USwcCharacterMovement::GetFragment() const
+FString USwcCharacterMovement::GetBaseFragment() const
 {
 	switch (Move)
 	{
@@ -198,9 +319,27 @@ FString USwcCharacterMovement::GetFragment() const
 		return TEXT("Fall");
 	case ESwcMove::Land:
 		return TEXT("Land+") + LandClass;
+	case ESwcMove::PostureTransition:
+		return ActiveTransition ? FString(UTF8_TO_TCHAR(ActiveTransition->fragment.c_str())) : FString(TEXT("Idle"));
+	case ESwcMove::Stun:
+		return StunPhase == EStun::Start ? TEXT("r_Stun") : StunPhase == EStun::End ? TEXT("r_Stun_End") : TEXT("r_Stun_Loop");
 	default:
 		return TEXT("Idle");
 	}
+}
+
+FString USwcCharacterMovement::GetFragment() const
+{
+	// The fragments of crouch and prone (player.adb: Idle, Strafe, Sprint, Sprint_Start with the tag Crouch or Prone).
+	FString Base = GetBaseFragment();
+	const bool bLoop = Move == ESwcMove::Idle || Move == ESwcMove::SprintStart || Move == ESwcMove::Sprint || Move == ESwcMove::NavStart
+		|| Move == ESwcMove::Nav || Move == ESwcMove::Walk || Move == ESwcMove::Stop;
+	if (bLoop && Posture.posture() != swc::move::Posture::stand)
+	{
+		Base += TEXT("+");
+		Base += UTF8_TO_TCHAR(swc::move::posture_tag(Posture.posture()));
+	}
+	return Base;
 }
 
 void USwcCharacterMovement::SetMove(ESwcMove Next)
@@ -281,6 +420,13 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 	{
 		AirTime += DeltaTime;
 		JumpTime += DeltaTime;
+		// A fall stands the character up (the fall actions set Stand; research p33-movement.md Q1).
+		if (Posture.posture() != swc::move::Posture::stand || Posture.pending())
+		{
+			ActiveTransition.reset();
+			Posture.force(swc::move::Posture::stand);
+			ApplyCapsule(swc::move::Posture::stand);
+		}
 		if (bRootMotion && RootTime >= EnableGravity)
 		{
 			// Enable_Gravity: the character falls with the velocity of the clip.
@@ -295,14 +441,27 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 		bJumpRequested = false;
 		return;
 	}
+	if (UpdateStun())
+	{
+		bJumpRequested = false;
+		return;
+	}
 	if (bActionMotion)
 	{
 		// An action of the full body holds the movement state: its root track moves the character.
 		bJumpRequested = false;
+		ActiveTransition.reset();
 		SetMove(ESwcMove::Idle);
 		return;
 	}
-	const bool bInput = HasMoveInput() && bCanNav;
+	UpdatePosture();
+	if (Move == ESwcMove::PostureTransition)
+	{
+		bJumpRequested = false;
+		return;
+	}
+	// The root of a status (NoNav) and the server bit "can navigate" stop the character (Nav_Stop).
+	const bool bInput = HasMoveInput() && Limits.can_nav();
 	// The speed of the data: a character that runs into a wall keeps its state.
 	const float Speed = static_cast<float>(GroundVelocity.Size2D());
 	if (Move == ESwcMove::Land)
@@ -316,9 +475,14 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 	if (bJumpRequested)
 	{
 		bJumpRequested = false;
-		// A jump needs the ground, "can navigate", and "can dodge" (IfCanNav, IfCanDodge) [D playeractions_traversal].
-		if (bCanNav && bCanDodge)
+		// A jump needs the ground, IfCanNav and IfCanDodge, not IfEncumbered, not Overburdened [D playeractions_traversal]; from
+		// crouch or prone it stands the character up first (Jump sets Stand; with room above).
+		if (Limits.can_jump() && HasRoomFor(swc::move::Posture::stand))
 		{
+			if (Posture.posture() != swc::move::Posture::stand)
+			{
+				ForcePosture(swc::move::Posture::stand);
+			}
 			StartJump(bInput);
 			return;
 		}
@@ -329,23 +493,29 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 		return;
 	}
 	const bool bBackward = FMath::Abs(InputAngle(Input)) > ForwardConeDegrees;
-	// The aim (AimDownSights) walks (Stand_Walk) and has no sprint (Sprint_Start needs "not ADS") [D].
-	if (bWalkHeld || !bCanRun || bAiming)
+	const bool bLowPosture = Posture.posture() != swc::move::Posture::stand;
+	// The speed of the sprint threshold (MoveSpeed 4 m/s) with the multiplier of the speed table: a slowed sprint (2.75 m/s with
+	// 0.5) stays a sprint (an inference; with the plain threshold the state went between Sprint and Sprint_Start).
+	const float SprintThreshold = SprintMinimumSpeed * FMath::Min(Limits.speed_multiplier(), 1.0f);
+	// The aim (AimDownSights) has no sprint (Sprint_Start needs "not ADS"); the walk key has none (Sprint_Start: not walk); no
+	// IfCanSprint (NoSprint, the server bit), IfEncumbered, or Overburdened: no sprint [D playeractions_sprint].
+	if (bWalkHeld || !Limits.can_run() || bAiming)
 	{
 		SetMove(ESwcMove::Walk);
 	}
-	else if (bBackward || !bCanSprint)
+	else if (bBackward || !Limits.can_sprint())
 	{
 		const bool bStart = Move == ESwcMove::Idle || Move == ESwcMove::Stop || Move == ESwcMove::Land;
 		SetMove(bStart ? ESwcMove::NavStart : (Move == ESwcMove::NavStart && Speed < NavSpeed * 0.98f ? ESwcMove::NavStart : ESwcMove::Nav));
 	}
-	else if (Move == ESwcMove::Sprint && Speed >= SprintMinimumSpeed)
+	else if (Move == ESwcMove::Sprint && (Speed >= SprintThreshold - 1.0f || bLowPosture))
 	{
 		SetMove(ESwcMove::Sprint);
 	}
 	else if (Move == ESwcMove::SprintStart)
 	{
-		if (Speed >= SprintMinimumSpeed || StateTime >= SprintStartMaximumTime)
+		// The sprint of crouch and prone has no speed threshold (the State conditions of Sprint accept the tag Crouch or Prone).
+		if (Speed >= SprintThreshold - 1.0f || StateTime >= SprintStartMaximumTime || bLowPosture)
 		{
 			SetMove(ESwcMove::Sprint);
 		}
@@ -357,15 +527,180 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 	}
 }
 
+bool USwcCharacterMovement::UpdateStun()
+{
+	// A stun of a status of the server (the column Stunned): r_Stun, then r_Stun_Loop while it lasts, then r_Stun_End
+	// [D playeractions_reaction: Stun_Loop with ClearMotion; the end with r_Stun_End].
+	const auto Length = [this](const TCHAR* Name)
+	{
+		const FSwcFragment* Fragment = FragmentData(Name);
+		return Fragment != nullptr && Locomotion->Clips.IsValidIndex(Fragment->Clip)
+			? Locomotion->Clips[Fragment->Clip].Duration / FMath::Max(Fragment->Speed, 0.01f) : 0.0f;
+	};
+	if (Limits.stunned())
+	{
+		if (Move != ESwcMove::Stun)
+		{
+			ActiveTransition.reset();
+			SetMove(ESwcMove::Stun);
+			StunPhase = EStun::Start;
+			StunTime = 0.0f;
+			GroundVelocity = FVector::ZeroVector;
+			CancelAutoRun(TEXT("a stun"));
+			UE_LOG(LogSwcBackend, Log, TEXT("move: a stun of the server: the movement stops"));
+		}
+		if (StunPhase == EStun::End)
+		{
+			StunPhase = EStun::Loop; // A new stun in the end of the last one.
+		}
+		if (StunPhase == EStun::Start && StateTime >= Length(TEXT("r_Stun")))
+		{
+			StunPhase = EStun::Loop;
+		}
+		return true;
+	}
+	if (Move != ESwcMove::Stun)
+	{
+		return false;
+	}
+	if (StunPhase != EStun::End)
+	{
+		StunPhase = EStun::End;
+		StunTime = StateTime;
+	}
+	if (StateTime - StunTime < Length(TEXT("r_Stun_End")))
+	{
+		return true;
+	}
+	StunPhase = EStun::None;
+	SetMove(ESwcMove::Idle);
+	return false;
+}
+
+bool USwcCharacterMovement::HasRoomFor(swc::move::Posture Target) const
+{
+	// IfCanResizeCharacterController: the capsule of the posture at the feet hits nothing that blocks (a taller capsule only).
+	const UCapsuleComponent* Capsule = CharacterOwner != nullptr ? CharacterOwner->GetCapsuleComponent() : nullptr;
+	if (Capsule == nullptr || GetWorld() == nullptr)
+	{
+		return true;
+	}
+	const float Current = Capsule->GetUnscaledCapsuleHalfHeight();
+	const float Wanted = swc::move::capsule_half_height(Target);
+	if (Wanted <= Current + 0.5f)
+	{
+		return true;
+	}
+	const FVector Center = UpdatedComponent->GetComponentLocation() + FVector(0.0, 0.0, Wanted - Current);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SwcPostureRoom), false, CharacterOwner);
+	FCollisionResponseParams Response;
+	InitCollisionParams(Params, Response);
+	// A little smaller than the capsule: a contact with the ground is no block.
+	const FCollisionShape Shape = FCollisionShape::MakeCapsule(Capsule->GetUnscaledCapsuleRadius() - 2.0f, Wanted - 2.0f);
+	return !GetWorld()->OverlapBlockingTestByChannel(Center, FQuat::Identity, UpdatedComponent->GetCollisionObjectType(), Shape, Params, Response);
+}
+
+bool USwcCharacterMovement::CanStartPosture(swc::move::Posture Target) const
+{
+	// The gates of the transitions of the data: on the ground, no attack (AttackAction), no stun, no landing hold, the room above.
+	return !IsFalling() && !IsFlying() && !bActionMotion && Move != ESwcMove::Stun && Move != ESwcMove::Land && Move != ESwcMove::Jump
+		&& HasRoomFor(Target);
+}
+
+void USwcCharacterMovement::ApplyCapsule(swc::move::Posture Target)
+{
+	UCapsuleComponent* Capsule = CharacterOwner != nullptr ? CharacterOwner->GetCapsuleComponent() : nullptr;
+	if (Capsule == nullptr)
+	{
+		return;
+	}
+	const float Old = Capsule->GetUnscaledCapsuleHalfHeight();
+	const float New = swc::move::capsule_half_height(Target);
+	if (FMath::IsNearlyEqual(Old, New, 0.1f))
+	{
+		return;
+	}
+	// The feet stay on the ground: the center goes down (or up) by the difference, and the mesh stays at the feet.
+	Capsule->SetCapsuleHalfHeight(New, false);
+	if (!IsFalling() && !IsFlying())
+	{
+		UpdatedComponent->MoveComponent(FVector(0.0, 0.0, New - Old), UpdatedComponent->GetComponentQuat(), false, nullptr, MOVECOMP_NoFlags,
+			ETeleportType::TeleportPhysics);
+	}
+	if (USkeletalMeshComponent* Mesh = CharacterOwner->GetMesh())
+	{
+		FVector Location = Mesh->GetRelativeLocation();
+		Location.Z = -New;
+		Mesh->SetRelativeLocation(Location);
+	}
+}
+
+void USwcCharacterMovement::UpdatePosture()
+{
+	if (Move == ESwcMove::PostureTransition && ActiveTransition)
+	{
+		// The end: the mark CanTransition with move input, else the end of the clip (the fragment plays to its end).
+		const float End = HasMoveInput() ? TransitionMark : FMath::Max(TransitionMark, TransitionLength);
+		if (StateTime < End)
+		{
+			return;
+		}
+		Posture.arrive(TransitionTo);
+		ActiveTransition.reset();
+		SetMove(ESwcMove::Idle);
+	}
+	const std::optional<swc::move::Posture> Target = Posture.pending();
+	if (!Target || !CanStartPosture(*Target))
+	{
+		return;
+	}
+	const bool bSprinting = Move == ESwcMove::Sprint || Move == ESwcMove::SprintStart;
+	const bool bMoving = HasMoveInput() && GroundVelocity.Size2D() > 50.0;
+	const swc::move::Posture From = Posture.posture();
+	const swc::move::Transition Transition = swc::move::transition_of(From, *Target, bSprinting, bMoving);
+	ApplyCapsule(*Target);
+	const FSwcFragment* Fragment = Transition.instant() ? nullptr : FragmentData(UTF8_TO_TCHAR(Transition.fragment.c_str()));
+	UE_LOG(LogSwcBackend, Log, TEXT("move: posture %s -> %s%s"), UTF8_TO_TCHAR(swc::move::posture_text(From)),
+		UTF8_TO_TCHAR(swc::move::posture_text(*Target)), Fragment != nullptr ? *FString::Printf(TEXT(" (%s)"), UTF8_TO_TCHAR(Transition.fragment.c_str())) : TEXT(" (at once)"));
+	if (Fragment == nullptr)
+	{
+		Posture.arrive(*Target);
+		return;
+	}
+	ActiveTransition = Transition;
+	TransitionTo = *Target;
+	TransitionMark = Fragment->Marker(TEXT("CanTransition"), Transition.canTransition);
+	TransitionLength = Locomotion->Clips.IsValidIndex(Fragment->Clip) ? Locomotion->Clips[Fragment->Clip].Duration / FMath::Max(Fragment->Speed, 0.01f) : 0.0f;
+	if (!Transition.sprint)
+	{
+		GroundVelocity = FVector::ZeroVector; // ClearMotion of the idle transitions.
+	}
+	SetMove(ESwcMove::PostureTransition);
+}
+
 void USwcCharacterMovement::Turn(float DeltaTime)
 {
 	// Strafe mode: while the character moves, it turns to the camera yaw, step = (1 - (1 - r)^(30 dt)) x the remaining angle
 	// (CameraRelativeFacing, C 0x2A919A0). At idle and in the air it does not turn.
-	if (CharacterOwner == nullptr || bActionMotion || !HasMoveInput() || IsFalling() || IsFlying() || Move == ESwcMove::Land)
+	if (CharacterOwner == nullptr || bActionMotion || !HasMoveInput() || IsFalling() || IsFlying() || Move == ESwcMove::Land
+		|| Move == ESwcMove::Stun || (Move == ESwcMove::PostureTransition && !(ActiveTransition && ActiveTransition->sprint)))
 	{
 		return;
 	}
-	const float Rate = Move == ESwcMove::Sprint ? TurnRateSprint : Move == ESwcMove::SprintStart ? TurnRateSprintStart : TurnRateNav;
+	// The TurnRate of the facing list of the action (stage P3.3, movement.json), else the values of the research.
+	float Rate = Move == ESwcMove::Sprint ? TurnRateSprint : Move == ESwcMove::SprintStart ? TurnRateSprintStart : TurnRateNav;
+	const TCHAR* Action = Move == ESwcMove::Sprint ? TEXT("Sprint") : Move == ESwcMove::SprintStart ? TEXT("Sprint_Start")
+		: Move == ESwcMove::NavStart ? TEXT("Nav_Start") : TEXT("Nav");
+	if (Move == ESwcMove::PostureTransition)
+	{
+		// The slide of a sprint to crouch faces the camera at once (CameraRelativeFacing 1.0); the dive turns slowly (0.03).
+		Rate = TransitionTo == swc::move::Posture::crouch ? 1.0f : 0.03f;
+	}
+	else if (const swc::move::Data* Data = Rules())
+	{
+		const float FromData = swc::move::facing_of(*Data, TCHAR_TO_UTF8(Action), MakeFacts());
+		Rate = FromData > 0.0f ? FromData : Rate;
+	}
 	const float Alpha = Rate >= 1.0f ? 1.0f : 1.0f - FMath::Pow(1.0f - Rate, 30.0f * DeltaTime);
 	FRotator Rotation = CharacterOwner->GetActorRotation();
 	Rotation.Yaw += FMath::FindDeltaAngleDegrees(Rotation.Yaw, CameraYaw) * Alpha;
@@ -381,7 +716,8 @@ void USwcCharacterMovement::JumpVelocity(float DeltaTime)
 	const FRotator Frame(0.0, JumpYaw, 0.0);
 	const FVector Forward = Frame.Vector();
 	const FVector Right = FRotationMatrix(Frame).GetUnitAxis(EAxis::Y);
-	const FVector Step = (To - From) * 100.0;
+	// Jump_Slowed: a status of the category Slow scales the root motion of the jump by 0.85 [D playeractions_traversal].
+	const FVector Step = (To - From) * 100.0 * Limits.jump_multiplier();
 	Velocity = (Forward * Step.Y + Right * Step.X + FVector::UpVector * Step.Z) / DeltaTime;
 	if (bStandingJump)
 	{
@@ -472,11 +808,63 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 	default:
 		break;
 	}
+	// Stage P3.3: the motion list of the data (movement.json): the first Conditional of the action whose condition holds gives
+	// the speed and the rates of each axis; Nav and Sprint have the multiplier of the speed table (the speed and the acceleration,
+	// not the deceleration: ApplyMoveSpeedMultiplier).
+	const TCHAR* Action = Move == ESwcMove::SprintStart ? TEXT("Sprint_Start") : Move == ESwcMove::Sprint ? TEXT("Sprint")
+		: Move == ESwcMove::NavStart ? TEXT("Nav_Start") : (Move == ESwcMove::Nav || Move == ESwcMove::Walk) ? TEXT("Nav")
+		: (Move == ESwcMove::Stop || Move == ESwcMove::Idle) ? TEXT("Nav_Stop") : nullptr;
+	float SpeedSide = Speed;
+	float AccelSide = Accel;
+	float DecelSide = Decel;
+	float Backwards = 1.0f;
+	const swc::move::Data* Data = Rules();
+	if (Data != nullptr && Action != nullptr)
+	{
+		if (const swc::move::Motion* Motion = swc::move::motion_of(*Data, TCHAR_TO_UTF8(Action), MakeFacts()))
+		{
+			const bool bScaled = Move != ESwcMove::Stop && Move != ESwcMove::Idle;
+			const float Multiplier = bScaled ? Limits.speed_multiplier() : 1.0f;
+			Speed = Motion->speed[1] * 100.0f * Multiplier;
+			SpeedSide = Motion->speed[0] * 100.0f * Multiplier;
+			Accel = Motion->accel[1] * 100.0f * Multiplier;
+			AccelSide = Motion->accel[0] * 100.0f * Multiplier;
+			Decel = Motion->decel[1] * 100.0f;
+			DecelSide = Motion->decel[0] * 100.0f;
+			Backwards = Motion->backwards;
+			MotionAction = Action;
+			MotionName = Motion->name.empty() ? FString(TEXT("Default")) : FString(UTF8_TO_TCHAR(Motion->name.c_str()));
+		}
+	}
+	if (Move == ESwcMove::Stun || (Move == ESwcMove::PostureTransition && !(ActiveTransition && ActiveTransition->sprint)))
+	{
+		// The stun and an idle transition hold the character (ClearMotion).
+		GroundVelocity = FVector::ZeroVector;
+		Velocity.X = 0.0;
+		Velocity.Y = 0.0;
+		return;
+	}
+	if (Move == ESwcMove::PostureTransition && ActiveTransition)
+	{
+		// A sprint transition: the forced speed in the direction of the character (CharacterRelativeMovement), its deceleration,
+		// and after CanTransition the deceleration of SlowToStop [D playeractions_sprintposetransition].
+		const FVector Ahead = CharacterOwner != nullptr ? CharacterOwner->GetActorForwardVector().GetSafeNormal2D() : FVector::ForwardVector;
+		const double Current = FVector::DotProduct(GroundVelocity, Ahead);
+		const double Forced = ActiveTransition->forcedSpeed * 100.0;
+		const double Rate = (StateTime < TransitionMark ? ActiveTransition->decel : ActiveTransition->decelAfter) * 100.0 * DeltaTime;
+		const double Next = Current > Forced ? FMath::Max(Current - Rate, Forced) : FMath::Min(Current + 800.0 * DeltaTime, Forced);
+		GroundVelocity = Ahead * Next;
+		Velocity.X = GroundVelocity.X;
+		Velocity.Y = GroundVelocity.Y;
+		return;
+	}
 	const FRotator Frame(0.0, CameraYaw, 0.0);
 	const FVector Forward = Frame.Vector();
 	const FVector Right = FRotationMatrix(Frame).GetUnitAxis(EAxis::Y);
-	const FVector2D Direction = HasMoveInput() && Speed > 0.0f ? Input.GetSafeNormal() : FVector2D::ZeroVector;
-	const FVector Target = (Forward * Direction.Y + Right * Direction.X) * Speed;
+	const FVector2D Direction = HasMoveInput() && (Speed > 0.0f || SpeedSide > 0.0f) ? Input.GetSafeNormal() : FVector2D::ZeroVector;
+	// The speed of each axis (x side, y forward); a backward input has BackwardsMultiplier (the sprint 0.55).
+	const double AheadSpeed = Direction.Y < 0.0 ? Speed * Backwards : Speed;
+	const FVector Target = Forward * (Direction.Y * AheadSpeed) + Right * (Direction.X * SpeedSide);
 	// The velocity of the data, not the velocity of the last move: a block (a wall, the face of a step) does not reset it,
 	// thus the next move has its full length (the step-up of the engine needs it).
 	FVector Current = GroundVelocity;
@@ -491,7 +879,7 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 		const double Step = (bFaster ? Up : Down) * DeltaTime;
 		return Value < Goal ? FMath::Min(Value + Step, Goal) : FMath::Max(Value - Step, Goal);
 	};
-	const double Side = Approach(FVector::DotProduct(Current, Right), FVector::DotProduct(Target, Right), Accel, Decel);
+	const double Side = Approach(FVector::DotProduct(Current, Right), FVector::DotProduct(Target, Right), AccelSide, DecelSide);
 	const double Ahead = Approach(FVector::DotProduct(Current, Forward), FVector::DotProduct(Target, Forward), Accel, Decel);
 	const FVector Result = Forward * Ahead + Right * Side;
 	GroundVelocity = Result;
@@ -531,7 +919,7 @@ void USwcCharacterMovement::ProcessLanded(const FHitResult& Hit, float Remaining
 	const FSwcFragment* Land = FragmentData(TEXT("Land+") + LandClass);
 	const float DefaultHold = LandClass == TEXT("Hard") ? HardLandHold : LandClass == TEXT("Normal") ? NormalLandHold : SoftLandHold;
 	LandHold = Land != nullptr ? Land->Marker(TEXT("CanTransition"), DefaultHold) : DefaultHold;
-	const bool bInput = HasMoveInput() && bCanNav;
+	const bool bInput = HasMoveInput() && Limits.can_nav();
 	bJumped = false;
 	bStandingJump = false;
 	bRootMotion = false;
@@ -547,11 +935,11 @@ void USwcCharacterMovement::ProcessLanded(const FHitResult& Hit, float Remaining
 			Velocity = FVector::ZeroVector;
 		}
 	}
-	else if (bWalkHeld || !bCanRun)
+	else if (bWalkHeld || !Limits.can_run() || bAiming)
 	{
 		SetMove(ESwcMove::Walk);
 	}
-	else if (FMath::Abs(InputAngle(Input)) > ForwardConeDegrees || !bCanSprint)
+	else if (FMath::Abs(InputAngle(Input)) > ForwardConeDegrees || !Limits.can_sprint())
 	{
 		SetMove(ESwcMove::NavStart);
 	}

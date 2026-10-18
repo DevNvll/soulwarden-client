@@ -199,6 +199,8 @@ private:
 	uint32 SeenShots = 0;
 	uint32 SeenBlocks = 0;
 	uint32 CollidedVisit = 0;
+	/** The sheathe of the weapon at the posture prone (stage P3.3), one time. */
+	bool bProneSheathe = false;
 	uint32 NodesRevision = MAX_uint32;
 	TSet<uint32> LearnedNodes;
 	/** The strikes with no row for the learned nodes that the query skipped. */

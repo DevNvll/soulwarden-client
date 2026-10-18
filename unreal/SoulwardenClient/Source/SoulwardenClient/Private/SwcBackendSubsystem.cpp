@@ -398,9 +398,9 @@ bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 					Actions0->GetStrikeCount(), Actions0->GetSkippedStrikes(), Actions0->GetShapeQueries(), Actions0->GetContactCount(),
 					static_cast<unsigned long long>(Snapshot.Counts.meleeContacts));
 			}
-			UE_LOG(LogSwcBackend, Log, TEXT("world: abilities: %u press(es) of the keys of the bar: %u played, %u in the own cooldown, %u with no window, %u with no ability; %u shot(s) of a cast, %llu in list 2 of the input entries; %u end(s) of the server taken; %u collision step(s)"),
-				Attack.abilityPresses, Attack.pressVerdicts[0], Attack.pressVerdicts[2], Attack.pressVerdicts[3], Attack.pressVerdicts[1], Attack.shots,
-				static_cast<unsigned long long>(Snapshot.Counts.shots), Attack.cooldownCorrections, Attack.collisions);
+			UE_LOG(LogSwcBackend, Log, TEXT("world: abilities: %u press(es) of the keys of the bar: %u played, %u in the own cooldown, %u with no window, %u with no ability, %u refused by the load or a status; %u shot(s) of a cast, %llu in list 2 of the input entries; %u end(s) of the server taken; %u collision step(s); %u dodge press(es) refused by the load or a status"),
+				Attack.abilityPresses, Attack.pressVerdicts[0], Attack.pressVerdicts[2], Attack.pressVerdicts[3], Attack.pressVerdicts[1], Attack.pressVerdicts[4],
+				Attack.shots, static_cast<unsigned long long>(Snapshot.Counts.shots), Attack.cooldownCorrections, Attack.collisions, Attack.limitedDodges);
 		}
 		Connection->Leave(TEXT("the client leaves the world (-SwcQuitWhen=world)"));
 	}
@@ -528,6 +528,70 @@ bool USwcBackendSubsystem::TakeOtherUpdates(std::vector<swc::net::RepClient::Oth
 	}
 	Out = Connection->TakeOtherUpdates();
 	return true;
+}
+
+void USwcBackendSubsystem::UpdateMovementLimits(const swc::net::RepClient::OwnEntity& Own)
+{
+	if (!Avatar.IsValid() || !Looks.IsValid())
+	{
+		return;
+	}
+	USwcCharacterMovement* Movement = Avatar->GetSwcMovement();
+	const swc::move::Data* Rules = Movement->GetRules();
+	swc::move::Limits Limits;
+	// The bag weight (the rule of the backend Inventory::encumbrance): the weight of each bag slot times its quantity.
+	if (Own.bagRevision != BagRevision)
+	{
+		BagRevision = Own.bagRevision;
+		int64 Sum = 0;
+		for (const soulwarden::backend::tests::WireItem& Item : Own.bag)
+		{
+			Sum += static_cast<int64>(Looks->ItemWeight(Item.index)) * Item.quantity;
+		}
+		BagWeight = static_cast<int32>(FMath::Min<int64>(Sum, MAX_int32));
+	}
+	Limits.bagWeight = BagWeight;
+	Limits.bagLimit = Actions.IsValid() ? Actions->GetBagLimit() : 2000;
+	// The equip load class (stage P2.5): light, medium, heavy, overburdened are Fast, Normal, Slow, Overburdened of the data.
+	Limits.equipLoad = static_cast<swc::move::EquipLoad>(FMath::Min<uint8>(EquipLoadClass, 3));
+	// The statuses of the status map with a movement column (a rule of this project: the backend never clears the permission bits).
+	FString Statuses;
+	if (Rules != nullptr)
+	{
+		for (const swc::net::RepClient::OwnEntity::Status& Status : Own.statuses)
+		{
+			const auto Row = Rules->statuses.find(Status.index);
+			if (Row != Rules->statuses.end())
+			{
+				Limits.statuses.push_back(&Row->second);
+				Statuses += FString::Printf(TEXT("%s%s"), Statuses.IsEmpty() ? TEXT("") : TEXT(", "), UTF8_TO_TCHAR(Row->second.id.c_str()));
+			}
+		}
+	}
+	// The speed table of the server: the key 0x35 (an absent key is 1.0).
+	const auto Sprint = Own.speedTable.find(0x35);
+	Limits.sprintMultiplier = Sprint != Own.speedTable.end() ? Sprint->second : 1.0f;
+	if (AttackDriver)
+	{
+		const swc::combat::Driver::Snapshot Attack = AttackDriver->snapshot();
+		Limits.exhausted = Attack.exhausted;
+	}
+	Movement->SetLimits(Limits);
+	const swc::move::Limits& Merged = Movement->GetLimits();
+	if (AttackDriver)
+	{
+		AttackDriver->set_action_limits(Merged.can_dodge(), Merged.can_use_abilities(), Merged.can_attack_from_rest());
+	}
+	const FString Text = FString::Printf(TEXT("bag %.1f of %.1f%s%s, equip load %s, statuses [%s], speed table %.2f; nav %d run %d sprint %d dodge %d jump %d abilities %d attack %d"),
+		BagWeight / 10.0f, Limits.bagLimit / 10.0f, Merged.encumbered() ? TEXT(" (encumbered)") : TEXT(""),
+		Merged.encumbered_movement() ? TEXT(" (the movement limit)") : TEXT(""), UTF8_TO_TCHAR(swc::move::equip_load_text(Merged.equipLoad)), *Statuses,
+		Merged.speed_multiplier(), Merged.can_nav() ? 1 : 0, Merged.can_run() ? 1 : 0, Merged.can_sprint() ? 1 : 0, Merged.can_dodge() ? 1 : 0,
+		Merged.can_jump() ? 1 : 0, Merged.can_use_abilities() ? 1 : 0, Merged.can_attack_from_rest() ? 1 : 0);
+	if (Text != LastLimits)
+	{
+		LastLimits = Text;
+		UE_LOG(LogSwcBackend, Log, TEXT("move: limits: %s"), *Text);
+	}
 }
 
 void USwcBackendSubsystem::UpdateAbilities(const swc::net::RepClient::OwnEntity& Own, bool bServerClock, int64 ServerOffsetNs)
@@ -883,6 +947,7 @@ void USwcBackendSubsystem::UpdateLook()
 			}
 			float Load = 0.0f;
 			const swc::combat::LoadClass Class = Actions->LoadClassOf(Armor, Load);
+			EquipLoadClass = static_cast<uint8>(Class);
 			AttackDriver->set_load(Class);
 			static const TCHAR* const ClassNames[] = {TEXT("light"), TEXT("medium"), TEXT("heavy"), TEXT("overburdened")};
 			UE_LOG(LogSwcBackend, Log, TEXT("character: equip load %.1f of %d armor item(s): %s"), Load / 10.0f, Armor.Num(),
@@ -1049,6 +1114,7 @@ void USwcBackendSubsystem::UpdatePlayer()
 	{
 		UpdateAbilities(Snapshot.Own, Snapshot.bServerClock, Snapshot.ServerOffsetNs);
 	}
+	UpdateMovementLimits(Snapshot.Own);
 	// The melee contacts of this frame: list 3 of the next input entry (stage P2.8).
 	if (std::vector<swc::net::MeleeContactItem> Contacts = Avatar->GetActions()->TakeContacts(); !Contacts.empty())
 	{
@@ -1060,12 +1126,20 @@ void USwcBackendSubsystem::UpdatePlayer()
 		UE_LOG(LogSwcBackend, Log, TEXT("move: %s (fragment %s), %.2f m/s, feet %.3f %.3f %.3f m"), *UEnum::GetValueAsString(LastMove),
 			*Movement->GetFragment(), Movement->GetHorizontalSpeed(), Motion.character.x, Motion.character.y, Motion.character.z);
 	}
+	// A speed sample each second while the character moves (development runs: the speed checks of stage P3.3).
+	if (!bPlayerRun && Movement->GetHorizontalSpeed() > 0.05f && World->GetTimeSeconds() >= NextMoveSample)
+	{
+		NextMoveSample = World->GetTimeSeconds() + 1.0;
+		UE_LOG(LogSwcBackend, Log, TEXT("move: sample %s, %s, %.3f m/s, feet %.3f %.3f %.3f m"), *UEnum::GetValueAsString(LastMove),
+			*Movement->GetMotionName(), Movement->GetHorizontalSpeed(), Motion.character.x, Motion.character.y, Motion.character.z);
+	}
 	if (!bPlayerRun && GEngine != nullptr)
 	{
 		// The movement state for the videos of a development run.
 		GEngine->AddOnScreenDebugMessage(static_cast<uint64>(0x5357434D), 1.0f, FColor::Yellow,
-			FString::Printf(TEXT("move %s, %s, %.2f m/s, feet %.2f %.2f %.2f m, yaw %.1f, camera %s %.2f m"),
-				*UEnum::GetValueAsString(Movement->GetMoveState()), *Movement->GetFragment(), Movement->GetHorizontalSpeed(), Motion.character.x,
+			FString::Printf(TEXT("move %s, %s (%s%s), %.2f m/s, feet %.2f %.2f %.2f m, yaw %.1f, camera %s %.2f m"),
+				*UEnum::GetValueAsString(Movement->GetMoveState()), *Movement->GetFragment(), *Movement->GetMotionName(),
+				Movement->IsAutoRun() ? TEXT(", autorun") : TEXT(""), Movement->GetHorizontalSpeed(), Motion.character.x,
 				Motion.character.y, Motion.character.z, FMath::RadiansToDegrees(Motion.yaw), *GetCameraStateName(),
 				FVector::Dist(Controller->PlayerCameraManager->GetCameraLocation(), Feet) / 100.0));
 		if (AttackDriver)

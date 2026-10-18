@@ -214,6 +214,8 @@ public:
 	swc::combat::LoadClass LoadClassOf(const TArray<FString>& ArmorItems, float& OutLoad) const;
 	/** The stamina and dodge data of the backend copy (stamina-data.json in actions.json). */
 	const swc::combat::StaminaData& GetStaminaData() const { return StaminaData; }
+	/** The bag limit in tenths of a weight unit (EncumbranceBaseMax of the row Player of the encumbrance table; stage P3.3). */
+	int32 GetBagLimit() const { return FMath::RoundToInt(EncumbranceMax); }
 
 	/** @return A joint of a weapon skeleton in the model of the weapon (Unreal cm, the space map of stage 1.1), or null. */
 	const FTransform* WeaponJoint(const FString& Model, FName Joint) const;
@@ -233,6 +235,7 @@ private:
 	swc::combat::StaminaData StaminaData;
 	TMap<FString, float> ItemLoads;
 	float LoadMax = 500.0f;
+	float EncumbranceMax = 2000.0f;
 	float RatioMedium = 26.0f;
 	float RatioHeavy = 46.0f;
 	float RatioOverburdened = 100.0f;

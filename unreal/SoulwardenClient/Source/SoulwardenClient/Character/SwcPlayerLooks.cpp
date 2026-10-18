@@ -105,10 +105,12 @@ bool FSwcPlayerLooks::Load(FString& OutReport)
 	const FString Catalog = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_GAMEDATA_DIR")), TEXT("item-catalog.json"));
 	const TSharedPtr<FJsonObject> ItemCatalog = ReadObject(Catalog);
 	Items.Reset();
+	Weights.Reset();
 	if (const TArray<TSharedPtr<FJsonValue>>* Rows = ArrayField(ItemCatalog, TEXT("items")))
 	{
-		// Columns of format 5: id ... armorAppearanceM (15), armorAppearanceF (16).
+		// Columns of format 5: id ... weight (5, tenths), armorAppearanceM (15), armorAppearanceF (16).
 		Items.Reserve(Rows->Num());
+		Weights.Reserve(Rows->Num());
 		for (const TSharedPtr<FJsonValue>& Row : *Rows)
 		{
 			const TArray<TSharedPtr<FJsonValue>>& Cells = Row->AsArray();
@@ -116,6 +118,7 @@ bool FSwcPlayerLooks::Load(FString& OutReport)
 			Item.Add(Cells.Num() > 0 ? Cells[0]->AsString() : FString());
 			Item.Add(Cells.Num() > 16 ? Cells[15]->AsString() : FString());
 			Item.Add(Cells.Num() > 16 ? Cells[16]->AsString() : FString());
+			Weights.Add(Cells.Num() > 5 && Cells[5]->Type == EJson::Number ? static_cast<int32>(Cells[5]->AsNumber()) : 0);
 		}
 	}
 	const TSharedPtr<FJsonObject> ImportedAssets = ObjectField(Imported, TEXT("assets"));
@@ -135,6 +138,11 @@ FString FSwcPlayerLooks::ImportedObject(const FString& Key, const TCHAR* Class) 
 FString FSwcPlayerLooks::ItemId(uint32 ItemIndex) const
 {
 	return ItemIndex > 0 && Items.IsValidIndex(static_cast<int32>(ItemIndex) - 1) && !Items[ItemIndex - 1].IsEmpty() ? Items[ItemIndex - 1][0] : FString();
+}
+
+int32 FSwcPlayerLooks::ItemWeight(uint32 ItemIndex) const
+{
+	return ItemIndex > 0 && Weights.IsValidIndex(static_cast<int32>(ItemIndex) - 1) ? Weights[ItemIndex - 1] : 0;
 }
 
 FString FSwcPlayerLooks::BaseMesh(bool bFemale) const

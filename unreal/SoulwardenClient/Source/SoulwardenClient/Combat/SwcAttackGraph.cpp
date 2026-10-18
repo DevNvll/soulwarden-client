@@ -145,6 +145,8 @@ const char* press_verdict_text(PressVerdict verdict)
 		return "own cooldown";
 	case PressVerdict::refused:
 		return "no window";
+	case PressVerdict::limited:
+		return "the load or a status";
 	}
 	return "?";
 }
@@ -417,6 +419,9 @@ void Sequence::step(std::uint16_t input, const Bits& bits, const Facts& facts)
 			if (!bits.press || pressUsed) {
 				return;
 			}
+			if (!bits.attackAllowed) {
+				return; // The overencumbered character plays no swing from rest (Prevent_Attack); the server starts none.
+			}
 			// From rest: the first fragment of the graph.
 			pressUsed = true;
 			start_visit(graph.start, input);
@@ -669,6 +674,14 @@ void Driver::ability_key(unsigned place, bool down)
 	}
 }
 
+void Driver::set_action_limits(bool dodgeAllowed, bool abilitiesAllowed, bool attackAllowed)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_dodgeAllowed = dodgeAllowed;
+	m_abilitiesAllowed = abilitiesAllowed;
+	m_attackAllowed = attackAllowed;
+}
+
 void Driver::set_server_cooldowns(const std::vector<std::pair<std::uint32_t, std::uint64_t>>& endsUs, std::uint64_t serverNowUs, std::int64_t nowNs)
 {
 	const std::lock_guard<std::mutex> guard(m_lock);
@@ -796,7 +809,8 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 	} else {
 		m_differentSince = -1.0;
 	}
-	bits.dodgeAllowed = m_stamina.can_dodge();
+	bits.dodgeAllowed = m_stamina.can_dodge() && m_dodgeAllowed;
+	bits.attackAllowed = m_attackAllowed;
 	if (bits.press) {
 		actionBits.insert(actionBits.end(), {kBitPress, kBitPressVirtual, kBitShoot});
 	}
@@ -859,6 +873,8 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 		const auto running = m_cooldowns.find(made.ability);
 		if (ability == nullptr) {
 			made.verdict = PressVerdict::empty;
+		} else if (!m_abilitiesAllowed) {
+			made.verdict = PressVerdict::limited;
 		} else if (running != m_cooldowns.end() && nowNs < running->second) {
 			made.verdict = PressVerdict::cooldown;
 		} else {
@@ -896,7 +912,11 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 	// The dodge (Combat::step): the sequence permits it at rest or in a dodge window; with no attack graph each dodge input.
 	std::optional<DodgeVerdict> verdict;
 	if (m_sequence.take_dodge() || (bits.dodge && m_sequence.graph() == nullptr)) {
-		verdict = m_stamina.dodge(m_time);
+		if (m_dodgeAllowed) {
+			verdict = m_stamina.dodge(m_time);
+		} else {
+			++m_snapshot.limitedDodges;
+		}
 	}
 
 	Snapshot& out = m_snapshot;

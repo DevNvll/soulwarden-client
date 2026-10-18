@@ -92,6 +92,8 @@ private:
 	void OnInteractEnd(const FInputActionValue& Value);
 	/** The keys of the bar (Q, R, F: the places 0 to 2; stage P3.5). */
 	void OnAbilityKey(int32 Place, bool bDown);
+	/** The keys of the movement of stage P3.3: C crouch, Z prone, `=` autorun (a key name of the UI rule). */
+	void OnMoveKey(const TCHAR* Key);
 	void UseWeapon(uint32 Slot, const TArray<uint32>& Bits);
 	void LoadDrive(const FString& Path);
 	void TickDrive(float DeltaTime);
@@ -130,6 +132,12 @@ private:
 	TObjectPtr<UInputAction> InteractAction;
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> AbilityActions[3];
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> CrouchAction;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> ProneAction;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> AutoRunAction;
 	/** The release time of a key of the bar that a drive script pressed (its drive time; below 0: up). */
 	double DriveAbilityUp[3] = {-1.0, -1.0, -1.0};
 	/** A click of the drive script: the button goes up at the next frame. */

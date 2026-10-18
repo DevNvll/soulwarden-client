@@ -1,6 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Character/SwcMoveRules.h"
+
+class FJsonObject;
 
 /**
  * The player locomotion of the Mannequin data (research feel-values.md R2.7, R3; SWC_CONTENT/player/locomotion.json made
@@ -82,6 +85,11 @@ public:
 	const FSwcFragment* Fragment(const FString& Name) const { return Fragments.Find(Name); }
 
 	TArray<FSwcClip> Clips;
+	/** The movement rules of the data (stage P3.3; SWC_CONTENT/player/movement.json, tools/convert-player.sh movement): empty
+	 *  when the file is not there (the movement then uses its own values of the research). */
+	swc::move::Data Rules;
+	/** Reads movement.json into the rules (no document: empty rules). */
+	static void ReadRules(const TSharedPtr<FJsonObject>& Document, swc::move::Data& Out);
 	TArray<FSwcBlendSpace> BlendSpaces;
 	TMap<FString, FSwcFragment> Fragments;
 };

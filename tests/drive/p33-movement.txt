@@ -1,0 +1,54 @@
+# The exit check of stage P3.3 (docs/MOVEMENT.md "The postures", "Autorun", "The limits") with the routes of
+# tests/drive/p33-movement-routes.txt. From the road junction of the dev place: the camera to the south-southwest along the road;
+# the road haste of the server (the status Traversal_RoadSprintBoost_Haste of the route, again each 2.5 s): the sprint at
+# 5.5 x 1.15 = 6.325 m/s from the speed table; the turn back; crouch (C) and the crouch sprint, prone (Z) and the prone sprint;
+# autorun (=), then S ends it; the slow (AI_Snare_6sec), the root (AI_Root_4sec: no movement, no jump), the stun
+# (AI_Stun_4sec); an encumbered bag (264.9 of 200.0: the sprint, no dodge), a bag over 1.5 x the limit (364.9: the walk, no
+# jump); the bag again under the limit: the sprint and the dodge. The "tick" lines are the clock marks of the route script.
+# Times in seconds from the possession of the character; turn: degrees each second (the camera faces north at the spawn).
+# SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=9255:4735:140 SWC_STAGE=P3.3 tools/creature-check.sh \
+#   p33-movement 110 tests/drive/p33-movement-routes.txt tests/drive/p33-movement.txt
+1.0 turn 195
+2.0 turn 0
+3.0 tick
+3.5 move 0 1
+5.5 tick
+8.0 tick
+10.5 tick
+11.5 move 0 0
+14.0 turn 180
+15.0 turn 0
+16.0 crouch
+17.0 move 0 1
+20.0 move 0 0
+21.0 crouch
+22.0 prone
+24.0 move 0 1
+26.0 move 0 0
+27.0 prone
+29.0 autorun
+33.0 move 0 -1
+33.3 move 0 0
+34.0 tick
+35.0 move 0 1
+38.0 move 0 0
+41.0 tick
+42.0 move 0 1
+43.0 jump
+44.5 move 0 0
+46.0 tick
+47.0 move 0 1
+49.0 move 0 0
+50.0 tick
+51.0 move 0 1
+52.5 dodge
+54.0 move 0 0
+55.0 tick
+56.0 move 0 1
+57.5 jump
+59.0 move 0 0
+60.0 tick
+61.0 move 0 1
+62.5 dodge
+64.0 move 0 0
+65.0 tick

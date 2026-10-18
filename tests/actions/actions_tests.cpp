@@ -232,6 +232,7 @@ std::vector<Seen> run_backend(const backend::gamedata::WeaponActionSet& actions,
 		bits.release = steps[index].release;
 		bits.dodge = steps[index].dodge;
 		bits.dodgeAllowed = steps[index].dodgeAllowed;
+		bits.attackAllowed = steps[index].attackAllowed;
 		const auto now = base + std::chrono::milliseconds(static_cast<long>(index * 1000 / 30));
 		sequences.step("c", 1, 1, static_cast<std::uint16_t>(first + index), bits, "w", &actions, now);
 		if (sequences.take_dodge("c")) {
@@ -905,6 +906,8 @@ void parity_tests(const Json& actions, const backend::gamedata::WeaponActions& t
 			// Some steps cannot start a dodge (the stamina system refuses it): the attack stays.
 			for (Bits& bits : steps) {
 				bits.dodgeAllowed = random() % 5 != 0;
+				// Stage P3.3: an overencumbered character starts no attack from rest (AttackBits::attackAllowed).
+				bits.attackAllowed = random() % 7 != 0;
 			}
 			const std::uint16_t first = static_cast<std::uint16_t>(random());
 			const std::vector<Seen> a = run_client(client, steps, first);

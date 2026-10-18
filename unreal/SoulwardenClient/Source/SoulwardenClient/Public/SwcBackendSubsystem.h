@@ -155,6 +155,12 @@ private:
 	 * the own cooldown of the client) to the driver. `ServerOffsetNs`: server ns = steady ns + offset (no clock: no cooldown).
 	 */
 	void UpdateAbilities(const swc::net::RepClient::OwnEntity& Own, bool bServerClock, int64 ServerOffsetNs);
+	/**
+	 * The limits of the movement (stage P3.3, docs/MOVEMENT.md "The limits"): the movement columns of the statuses of the status map
+	 * of the owner (slot 44), the speed table (slot 43, key 0x35), the bag weight (the bag of slot 61 with the item weights of the
+	 * catalog), and the equip load class, for the movement and for the actions of the driver.
+	 */
+	void UpdateMovementLimits(const swc::net::RepClient::OwnEntity& Own);
 	void Quit(bool bSucceeded, const TCHAR* Cause);
 
 	TSharedPtr<FSwcLoginClient> Login;
@@ -207,6 +213,11 @@ private:
 	std::array<std::array<uint32, 3>, 2> SentBars{};
 	uint32 NodesRevision = 0;
 	std::vector<std::pair<std::uint32_t, std::uint64_t>> SentCooldowns;
+	/** The movement limits (stage P3.3): the bag weight and its revision, the equip load class, the log of the last limits. */
+	uint32 BagRevision = MAX_uint32;
+	int32 BagWeight = 0;
+	uint8 EquipLoadClass = 0;
+	FString LastLimits;
 	/** The level has no ground at the spawn: the test floor of the movement (Character/SwcTestFloor). */
 	bool bTestFloor = false;
 	bool bWaitForFloor = false;
@@ -214,6 +225,8 @@ private:
 	bool bSendPosition = false;
 	/** The movement state of the last log line. */
 	ESwcMove LastMove = ESwcMove::Idle;
+	/** The game time of the next speed sample of a development run (stage P3.3). */
+	double NextMoveSample = 0.0;
 	uint32 LookRevision = MAX_uint32;
 	/** The travel revision of the own entity that the character took, and the wait for the cells of a new place. */
 	uint32 SeenTravel = 0;

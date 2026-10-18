@@ -84,6 +84,9 @@ public:
 	FSwcPlayerLook Resolve(const TArray<uint8>& Appearance, const TMap<uint32, uint32>& Equipment) const;
 	/** @return The item id of an item index of the wire (item-catalog.json), or an empty text. */
 	FString ItemId(uint32 ItemIndex) const;
+	/** @return The weight of one item of an item index of the wire in tenths (the column weight of item-catalog.json: the rule of
+	 *  the backend Inventory::encumbrance, stage P3.3), or 0. */
+	int32 ItemWeight(uint32 ItemIndex) const;
 
 	/** The base of a gender: the skeletal mesh (the leader) and the idle clip. Empty when it was not imported. */
 	FString BaseMesh(bool bFemale) const;
@@ -105,4 +108,5 @@ private:
 	TSharedPtr<FJsonObject> Imported;
 	/** Item index - 1 -> [id, armorAppearanceM, armorAppearanceF]. */
 	TArray<TArray<FString>> Items;
+	TArray<int32> Weights;
 };

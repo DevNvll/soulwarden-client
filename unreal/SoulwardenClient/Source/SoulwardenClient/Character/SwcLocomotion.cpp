@@ -117,6 +117,135 @@ FVector FSwcClip::RootAt(float Time) const
 	return FVector(Last.Y, Last.Z, Last.W);
 }
 
+namespace
+{
+float Float(const TSharedPtr<FJsonValue>& Value)
+{
+	return Value.IsValid() && Value->Type == EJson::Number ? static_cast<float>(Value->AsNumber()) : 0.0f;
+}
+
+swc::move::Condition ConditionOf(const TSharedPtr<FJsonValue>& Value)
+{
+	swc::move::Condition Out;
+	const TArray<TSharedPtr<FJsonValue>>& Parts = Value->AsArray();
+	if (Parts.Num() != 3)
+	{
+		return Out;
+	}
+	Out.type = TCHAR_TO_UTF8(*Parts[0]->AsString());
+	for (const auto& Attr : Parts[1]->AsObject()->Values)
+	{
+		Out.attrs[TCHAR_TO_UTF8(*FString(Attr.Key.ToView()))] = TCHAR_TO_UTF8(*Attr.Value->AsString());
+	}
+	for (const TSharedPtr<FJsonValue>& Child : Parts[2]->AsArray())
+	{
+		Out.children.push_back(ConditionOf(Child));
+	}
+	return Out;
+}
+
+swc::move::Motion MotionOf(const TSharedPtr<FJsonObject>& Info)
+{
+	swc::move::Motion Out;
+	FString Name;
+	if (Info->TryGetStringField(TEXT("name"), Name))
+	{
+		Out.name = TCHAR_TO_UTF8(*Name);
+	}
+	const TCHAR* const Fields[3] = {TEXT("speed"), TEXT("accel"), TEXT("decel")};
+	float* const Targets[3] = {Out.speed, Out.accel, Out.decel};
+	for (int32 Field = 0; Field < 3; ++Field)
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+		if (Info->TryGetArrayField(Fields[Field], Values) && Values->Num() == 3)
+		{
+			for (int32 Axis = 0; Axis < 3; ++Axis)
+			{
+				Targets[Field][Axis] = Float((*Values)[Axis]);
+			}
+		}
+	}
+	Out.backwards = Info->HasField(TEXT("backwards")) ? static_cast<float>(Info->GetNumberField(TEXT("backwards"))) : 1.0f;
+	return Out;
+}
+} // namespace
+
+void FSwcLocomotion::ReadRules(const TSharedPtr<FJsonObject>& Document, swc::move::Data& Out)
+{
+	// The same fields as tests/movement/movement_tests.cpp data_of.
+	Out = swc::move::Data();
+	if (!Document.IsValid())
+	{
+		return;
+	}
+	const TSharedPtr<FJsonObject>* Motions = nullptr;
+	if (Document->TryGetObjectField(TEXT("motions"), Motions))
+	{
+		for (const auto& Pair : (*Motions)->Values)
+		{
+			const TSharedPtr<FJsonObject> Info = Pair.Value->AsObject();
+			swc::move::MotionList List;
+			const TSharedPtr<FJsonObject>* Default = nullptr;
+			if (Info->TryGetObjectField(TEXT("default"), Default))
+			{
+				List.fallback = MotionOf(*Default);
+			}
+			for (const TSharedPtr<FJsonValue>& Item : Info->GetArrayField(TEXT("conditionals")))
+			{
+				List.conditionals.push_back(MotionOf(Item->AsObject()));
+			}
+			Out.motions[TCHAR_TO_UTF8(*FString(Pair.Key.ToView()))] = MoveTemp(List);
+		}
+	}
+	const TSharedPtr<FJsonObject>* Facings = nullptr;
+	if (Document->TryGetObjectField(TEXT("facings"), Facings))
+	{
+		for (const auto& Pair : (*Facings)->Values)
+		{
+			const TSharedPtr<FJsonObject> Info = Pair.Value->AsObject();
+			swc::move::FacingList List;
+			List.fallback = static_cast<float>(Info->GetNumberField(TEXT("default")));
+			for (const TSharedPtr<FJsonValue>& Item : Info->GetArrayField(TEXT("conditionals")))
+			{
+				const TArray<TSharedPtr<FJsonValue>>& Row = Item->AsArray();
+				if (Row.Num() == 2)
+				{
+					List.conditionals.emplace_back(TCHAR_TO_UTF8(*Row[0]->AsString()), Float(Row[1]));
+				}
+			}
+			Out.facings[TCHAR_TO_UTF8(*FString(Pair.Key.ToView()))] = MoveTemp(List);
+		}
+	}
+	const TSharedPtr<FJsonObject>* Conditions = nullptr;
+	if (Document->TryGetObjectField(TEXT("conditions"), Conditions))
+	{
+		for (const auto& Pair : (*Conditions)->Values)
+		{
+			Out.conditions[TCHAR_TO_UTF8(*FString(Pair.Key.ToView()))] = ConditionOf(Pair.Value);
+		}
+	}
+	const TSharedPtr<FJsonObject>* Statuses = nullptr;
+	if (Document->TryGetObjectField(TEXT("statuses"), Statuses))
+	{
+		for (const auto& Pair : (*Statuses)->Values)
+		{
+			const TSharedPtr<FJsonObject> Info = Pair.Value->AsObject();
+			swc::move::StatusRow Row;
+			Row.id = TCHAR_TO_UTF8(*Info->GetStringField(TEXT("id")));
+			Row.noNav = Info->GetBoolField(TEXT("noNav"));
+			Row.noRun = Info->GetBoolField(TEXT("noRun"));
+			Row.noSprint = Info->GetBoolField(TEXT("noSprint"));
+			Row.noDodge = Info->GetBoolField(TEXT("noDodge"));
+			Row.stunned = Info->GetBoolField(TEXT("stunned"));
+			Row.silenced = Info->GetBoolField(TEXT("silenced"));
+			Row.moveSpeedMod = static_cast<float>(Info->GetNumberField(TEXT("moveSpeedMod")));
+			Row.sprintSpeedMod = static_cast<float>(Info->GetNumberField(TEXT("sprintSpeedMod")));
+			Row.categories = TCHAR_TO_UTF8(*Info->GetStringField(TEXT("categories")));
+			Out.statuses[static_cast<std::uint16_t>(FCString::Atoi(*FString(Pair.Key.ToView())))] = MoveTemp(Row);
+		}
+	}
+}
+
 bool FSwcLocomotion::Load(bool bFemale, FString& OutReport)
 {
 	const FString Content = ContentFolder();
@@ -238,7 +367,9 @@ bool FSwcLocomotion::Load(bool bFemale, FString& OutReport)
 		}
 	}
 	const int32 Missing = Clips.FilterByPredicate([](const FSwcClip& Clip) { return Clip.AssetPath.IsEmpty(); }).Num();
-	OutReport = FString::Printf(TEXT("locomotion: %d fragments, %d blend spaces, %d clips (%d not imported for the %s base)"), Fragments.Num(),
-		BlendSpaces.Num(), Clips.Num(), Missing, *Gender);
+	ReadRules(ReadObject(FPaths::Combine(Content, TEXT("player/movement.json"))), Rules);
+	OutReport = FString::Printf(TEXT("locomotion: %d fragments, %d blend spaces, %d clips (%d not imported for the %s base); movement rules: %d motion lists, %d conditions, %d status rows"),
+		Fragments.Num(), BlendSpaces.Num(), Clips.Num(), Missing, *Gender, static_cast<int32>(Rules.motions.size()),
+		static_cast<int32>(Rules.conditions.size()), static_cast<int32>(Rules.statuses.size()));
 	return Fragments.Num() > 0 && Missing < Clips.Num();
 }

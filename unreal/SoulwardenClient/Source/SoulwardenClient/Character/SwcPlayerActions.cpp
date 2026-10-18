@@ -339,6 +339,11 @@ void USwcPlayerActions::OnWeaponKey(uint32 Slot)
 		// The key of the weapon in the hand draws it (the server has no draw and asks for nothing, protocol notes 4.11).
 		if (Owner->GetActiveWeaponSlot() != Slot || !Owner->IsWeaponDrawn())
 		{
+			// A weapon draw from prone (not a rifle) rises to crouch [D playeractions_sheathe: Unsheathe_MainHand_1_UB].
+			if (Owner->GetSwcMovement()->GetPosture() == swc::move::Posture::prone)
+			{
+				Owner->GetSwcMovement()->ForcePosture(swc::move::Posture::crouch);
+			}
 			UE_LOG(LogSwcBackend, Log, TEXT("weapon: key for slot %u: draw"), Slot);
 			Request(Slot, true);
 		}
@@ -632,6 +637,11 @@ void USwcPlayerActions::Move(const FSwcActionFragment& Fragment, const FSwcWeapo
 	}
 	FVector Root = FVector::ZeroVector;
 	Data->RootDelta(Fragment, From, To, Root);
+	if (Fragment.Name.StartsWith(TEXT("Dodge_Roll")))
+	{
+		// The dodge has ApplyMoveSpeedMultiplier SprintSpeedMod with ClampMax 1.0: a slow shortens it (stage P3.3).
+		Root *= Movement->GetLimits().dodge_multiplier();
+	}
 	// The root track (m, x right, y forward) x MotionMultiplier, in the frame of the character now.
 	const FVector Step = Root * 100.0 * Rule.MotionMultiplier;
 	FVector Velocity = DeltaTime > 0.0f ? (Forward * Step.Y + Right * Step.X) / DeltaTime : FVector::ZeroVector;
@@ -756,6 +766,10 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 	{
 		Visit = Newest->number;
 		++Visits;
+		// An attack ends autorun (AttackAction) and stands the character up from crouch or prone (the attack actions set Stand;
+		// stage P3.3).
+		Movement->CancelAutoRun(TEXT("an attack"));
+		Movement->ForcePosture(swc::move::Posture::stand);
 		LastClock = 0.0f;
 		StrikeClock = -1.0f;
 		StrikesSeen.Reset();
@@ -1065,6 +1079,7 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 		bAiming = false;
 		bLockAllowed = false;
 		Character()->GetSwcMovement()->SetCombat(false, false, false, false);
+		Character()->GetSwcMovement()->SetWeaponTags({});
 		if (Driver)
 		{
 			Driver->set_aim(false);
@@ -1097,6 +1112,17 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 		UE_LOG(LogSwcBackend, Log, TEXT("actions: aim %s"), bAiming ? TEXT("on (AimDownSights)") : TEXT("off"));
 	}
 	Character()->GetSwcMovement()->SetCombat(bArmedSprint, bArmedNav, bArmedStop, bAiming);
+	// The tags of the weapon in the hand for the conditions of the movement data (stage P3.3; unarmed: none).
+	Character()->GetSwcMovement()->SetWeaponTags(Drawn != nullptr ? Drawn->Tags : TArray<FString>());
+	// Prone sheathes the weapons, but a rifle (the musket): the transitions to prone set Unarmed and AutoUnsheathe [D idleposetransition].
+	const bool bProne = Character()->GetSwcMovement()->GetPosture() == swc::move::Posture::prone;
+	if (bProne && Drawn != nullptr && !Has({TEXT("Rifle")}) && Character()->IsWeaponDrawn() && !bProneSheathe)
+	{
+		bProneSheathe = true;
+		UE_LOG(LogSwcBackend, Log, TEXT("weapon: prone sheathes slot %u"), Character()->GetActiveWeaponSlot());
+		Request(Character()->GetActiveWeaponSlot(), false);
+	}
+	bProneSheathe = bProne && bProneSheathe;
 	if (Driver)
 	{
 		Driver->set_aim(bAiming);

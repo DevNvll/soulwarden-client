@@ -579,6 +579,8 @@ bool FSwcActions::Load(FString& OutReport)
 		StaminaData.loaded = true;
 		const TSharedPtr<FJsonObject> Encumbrance = (*Stamina)->GetObjectField(TEXT("encumbrance"));
 		LoadMax = Number(Encumbrance->TryGetField(TEXT("equipLoadMax")), 500.0f);
+		// The bag limit in tenths (EncumbranceBaseMax of the row Player: 2000; stage P3.3).
+		EncumbranceMax = Number(Encumbrance->TryGetField(TEXT("encumbranceMax")), 2000.0f);
 		RatioMedium = Number(Encumbrance->TryGetField(TEXT("ratioMedium")), 26.0f);
 		RatioHeavy = Number(Encumbrance->TryGetField(TEXT("ratioHeavy")), 46.0f);
 		RatioOverburdened = Number(Encumbrance->TryGetField(TEXT("ratioOverburdened")), 100.0f);

@@ -88,7 +88,10 @@ void ASwcCameraManager::SelectState(const ASwcPlayerCharacter& Character)
 {
 	// The entry of the camera action list (R1.4.1): the first true condition wins.
 	FString Entry;
-	const FString Fragment = Character.GetSwcMovement()->GetFragment();
+	// The base name of the movement fragment and the posture tag (stage P3.3: the entries of crouch and prone, MidCameraCrouch,
+	// MidCameraProne, LockedCameraCrouch, AimCameraCrouch of the camera action list).
+	const FString Fragment = Character.GetSwcMovement()->GetBaseFragment();
+	const FString Posture = UTF8_TO_TCHAR(swc::move::posture_tag(Character.GetSwcMovement()->GetPosture()));
 	// DisableCameraLock in the aim and in the death (the action Death): they end the lock.
 	if (IsLocked() && Character.GetActions() != nullptr && Character.GetActions()->IsAiming())
 	{
@@ -104,27 +107,27 @@ void ASwcCameraManager::SelectState(const ASwcPlayerCharacter& Character)
 	}
 	else if (IsLocked())
 	{
-		Entry = TEXT("Locked_Cam+Stand");
+		Entry = TEXT("Locked_Cam+") + Posture;
 	}
 	else if (Character.GetActions() != nullptr && Character.GetActions()->IsAiming())
 	{
-		Entry = TEXT("Aim+Stand");
+		Entry = TEXT("Aim+") + Posture;
 	}
 	else if (Fragment == TEXT("Sprint") || Fragment == TEXT("Sprint_Start"))
 	{
-		Entry = TEXT("Dynamic+Sprint+Stand");
+		Entry = TEXT("Dynamic+Sprint+") + Posture;
 	}
 	else if (Fragment == TEXT("Idle"))
 	{
-		Entry = TEXT("Dynamic+Idle+Stand");
+		Entry = TEXT("Dynamic+Idle+") + Posture;
 	}
 	else if (Fragment == TEXT("Strafe"))
 	{
-		Entry = TEXT("Dynamic+Nav+Stand");
+		Entry = TEXT("Dynamic+Nav+") + Posture;
 	}
 	else
 	{
-		Entry = TEXT("Dynamic+Stand");
+		Entry = TEXT("Dynamic+") + Posture;
 	}
 	FString Camera = TEXT("MidCamera");
 	float SmoothTime = 0.3f;

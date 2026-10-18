@@ -1,0 +1,19 @@
+# The development routes of the exit check of stage P3.3 (tools/creature-check.sh, tools/lib/dev_world.py; the character
+# Swordwarden). The full health, the creatures ignore the character, no anchor in the bag. The road haste of the server
+# (DurationMax 3 s, RefreshDuration) again each 2.5 s while the character sprints on the road; the slow, the root, and the stun
+# of the creature status rows; 41 and then 20 more anchors (FishingTreasureBigAnchorT3, 5.0 each) for the encumbered bag and
+# the bag over 1.5 x the limit; the anchors go again. Times on the clock of the drive script tests/drive/p33-movement.txt
+# (its "tick" lines).
+1 heal
+1.5 ignore on
+2 unstack FishingTreasureBigAnchorT3
+3 status Traversal_RoadSprintBoost_Haste 3
+5.5 status Traversal_RoadSprintBoost_Haste 3
+8 status Traversal_RoadSprintBoost_Haste 3
+10.5 status Traversal_RoadSprintBoost_Haste 3
+34 status AI_Snare_6sec 6
+41 status AI_Root_4sec 4
+46 status AI_Stun_4sec 3
+50 stack FishingTreasureBigAnchorT3 41
+55 stack FishingTreasureBigAnchorT3 20
+60 unstack FishingTreasureBigAnchorT3
