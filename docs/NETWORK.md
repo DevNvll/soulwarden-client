@@ -282,6 +282,10 @@ yaw of the camera of the player (0 = north, positive = to the left, the conventi
 | `learnedNodes`, `nodesRevision` | progression points (67, 3681), group 0 field 3 `pointEntries` | the node id (u32, the CRC-32 of the lower-case node id) of each point entry with a level above 0; the backend sends each pool and each node in one state, thus each state replaces the list (stage P3.5: the conditions of the abilities, [ACTIONS.md](ACTIONS.md)) |
 | `equipment` | paperdoll (62, 3183), group 1 fields 1 to 3 and group 2 field 3 | paperdoll slot -> item index on the wire (0: empty); the item with index N is entry N - 1 of the item catalog |
 | `sheatheMap`, `activeMap` | paperdoll, group 2 fields 0 and 2 | bit N (byte N / 8, bit N % 8 of the 7 bytes) is paperdoll slot N |
+| `paperdollItems`, `paperdollRevision` | paperdoll, the same lists (owner view) | paperdoll slot -> the full item (instance, durability, gear score, perks, chrono); an emptied slot goes away; a count of the changes |
+| `bag`, `bagRevision` | container (61, 1755), group 0 field 0 | one item for each bag slot (an empty slot: quantity 0); the full vector or a journal |
+| `hasCoin`, `coin` | currency (60, 3786), group 0 field 0 | u64, hundredths of a coin (the bag window shows coin / 100 with 2 decimals) |
+| `equipFails` | message 3626 OnEquipItemFail | a count of the refused requests of the equipment (the retail client then shows its paperdoll slots again) |
 | `appearance`, `position`, `rotation`, `name`, `characterId`, `actor` | appearance, movement, player, metadata | as above |
 
 The server clock: the registration reply gives the first value; `REPClient::TimeSynchMsg` (type 335, serverTime:u64 in
@@ -368,6 +372,16 @@ The component calls of the root entity of the player slice: `target:u64 entity:u
   items of each bag). The take of the open bag: 2939 TakeAllItems (48 bytes) and 2942 TakeItem (68 bytes: the instance, the
   quantity), with the target `G + 5E6EA4CE9484F842` (PlayerTrade) and the reference of the own GlobalStorage Container: the own
   actor, G, and `((00006914A15737B2 XOR DAEE4E2555650AB7 XOR G) + 476865E50327A1C7)` (`slice-ids.json`), not the bag.
+- The requests of the bag and of the equipment (stage P2.4; protocol notes 4.10, 4.11, 4.23): `RepClient::equip_item`
+  (3895, 45 bytes: bag slot, paperdoll slot, the full stack, the instance, flag 0), `unequip_item` (3896, 29 bytes: bag slot
+  -1 is the first free slot; flag 1 as the capture), `swap_items` (3900, 57 bytes: the slot of the drop, the slot of the
+  drag, their instances), `use_item` (2917, 20 bytes: the bag slot), `drop_items` (1838: the entries slot, instance,
+  FFFFFFFF, quantity), and `drop_paperdoll_item` (826, 24 bytes). The target of the paperdoll calls is the Paperdoll of the
+  entity Inventory, `((E97EBAF556467A3A XOR DAEE4E2555650AB7 XOR G) + A4682AF2564E7814)`; of 2917 its Container
+  (`+ 76258CC02DF25991`); of the drops the ItemDrop component of the root (`G + E39A2483DC525915`). The server has no reply
+  for a request that it did: the new states of the slots 61 and 62 are the answer; a refused request of the equipment gets
+  3626. There is no request to move or to split a stack inside the bag: the bag window sorts the items itself.
+  `USwcBackendSubsystem` has a wrapper for each request and for the take of the open bag (`TakeAllItems`, `TakeItem`).
 - The objects of the server (a fixture, a loot bag): the client keeps the place of their PositionInTheWorld state (type 13,
   field 0: `x:f32 y:f32 height:u16` with the height range -100 m to 2000 m, not the range of a movement state) in the
   snapshot (`FSnapshot::Objects`).
@@ -411,6 +425,13 @@ target lock of the camera takes its targets from them ([CAMERA.md](CAMERA.md)).
   and Container values (the full vector, a journal that sets and adds slots, an emptied slot).
 - The abilities (stage P3.5): the shot of a cast in list 2 of one entry, read by the input reader of the backend (the origin, the
   direction of the look, the attack, no receiver), and the ProgressionPoint state of the golden session (no node).
+- The bag and the equipment (`tools/test-items.sh`, `tests/net/item_tests.cpp`): after the golden session, the states of the
+  encoders of the backend (`encode_container_state`, `encode_paperdoll_state`, `encode_currency_state`) go into the client in
+  state bundles: the bag (an item with its index, quantity, gear score, durability, instance; an empty slot; a stack), the
+  paperdoll item with its instance, the coin, a journal of the bag, and an unequip (the emptied paperdoll entry, the item in
+  a new bag slot). The requests 3895, 3896, 3900, 2917, 1838, and 826 of the client go through its carrier to a carrier of
+  the backend and to the readers of the backend; the targets agree with the research table and with the paperdoll target of
+  the captures; the client reads the body of a refusal 3626 of the backend.
 - The carrier: the client carrier against the carrier of the backend: the handshake, a reliable message of 3,000 bytes
   in chunks to the server and of 2,500 bytes to the client, an unreliable message, a lost datagram of the server that
   comes again in its order, the 1,038-byte limit, and the disconnect.

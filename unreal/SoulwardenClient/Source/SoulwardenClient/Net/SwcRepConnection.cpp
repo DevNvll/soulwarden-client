@@ -153,6 +153,42 @@ void FSwcRepConnection::TakeItem(const std::array<uint8, 16>& Instance, uint32 Q
 	Calls.push_back([Instance, Quantity](swc::net::RepClient& Client) { Client.take_item(Instance, Quantity); });
 }
 
+void FSwcRepConnection::EquipItem(int32 BagSlot, uint32 PaperdollSlot, uint32 Quantity, const swc::net::ItemInstanceId& Instance)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([=](swc::net::RepClient& Client) { Client.equip_item(BagSlot, PaperdollSlot, Quantity, Instance); });
+}
+
+void FSwcRepConnection::UnequipItem(uint32 PaperdollSlot, int32 BagSlot, uint32 Quantity)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([=](swc::net::RepClient& Client) { Client.unequip_item(PaperdollSlot, BagSlot, Quantity); });
+}
+
+void FSwcRepConnection::SwapItems(uint32 SlotTo, uint32 SlotFrom, const swc::net::ItemInstanceId& InstanceTo, const swc::net::ItemInstanceId& InstanceFrom)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([=](swc::net::RepClient& Client) { Client.swap_items(SlotTo, SlotFrom, InstanceTo, InstanceFrom); });
+}
+
+void FSwcRepConnection::UseItem(uint32 BagSlot)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([=](swc::net::RepClient& Client) { Client.use_item(BagSlot); });
+}
+
+void FSwcRepConnection::DropItems(const std::vector<swc::net::DropItemEntry>& Entries)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([Entries](swc::net::RepClient& Client) { Client.drop_items(Entries); });
+}
+
+void FSwcRepConnection::DropPaperdollItem(uint32 PaperdollSlot, uint32 Quantity)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([=](swc::net::RepClient& Client) { Client.drop_paperdoll_item(PaperdollSlot, Quantity); });
+}
+
 void FSwcRepConnection::SetInteraction(const std::optional<swc::net::InteractionRequest>& Request)
 {
 	FScopeLock Guard(&Lock);

@@ -90,6 +90,18 @@ public:
 	/** The respawn request of the original respawn screen (LocalPlayerUIRequestsBus.RequestRespawn(random, homeId) of respawn.luac, a
 	 *  host request of the UI): random true for the row "Random Location" (an empty home id). The checks of RequestRespawn(). */
 	bool RequestRespawn(bool bRandom, const FString& HomeId);
+	/** The requests of the inventory screens (stage P2.4, host requests of the UI; protocol notes 4.10, 4.11, 4.23, 4.42): equip,
+	 *  unequip (bag slot -1: the first free slot), swap two paperdoll slots, use a bag item, drop bag items or a paperdoll item,
+	 *  and take the items of the open bag. The answer is the new states (GetLocalPlayer), or message 3626 for a refused request
+	 *  of the equipment (OwnEntity::equipFails). @return False when no request went out (no connection, not in the world). */
+	bool EquipItem(int32 BagSlot, uint32 PaperdollSlot, uint32 Quantity, const swc::net::ItemInstanceId& Instance);
+	bool UnequipItem(uint32 PaperdollSlot, int32 BagSlot, uint32 Quantity);
+	bool SwapItems(uint32 SlotTo, uint32 SlotFrom, const swc::net::ItemInstanceId& InstanceTo, const swc::net::ItemInstanceId& InstanceFrom);
+	bool UseItem(uint32 BagSlot);
+	bool DropItems(const std::vector<swc::net::DropItemEntry>& Entries);
+	bool DropPaperdollItem(uint32 PaperdollSlot, uint32 Quantity);
+	bool TakeAllItems();
+	bool TakeItem(const swc::net::ItemInstanceId& Instance, uint32 Quantity);
 	/** @return The error of the login path when it failed (a refused connection), else empty: the UI shows its error popup. */
 	const FString& GetLoginError() const { return LoginError; }
 	/** @return True while the cells of a new place load after a travel or a respawn (the UI keeps its loading screen). */

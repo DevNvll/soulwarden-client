@@ -365,6 +365,86 @@ Bytes take_item_body(const ActorId& actor, const std::array<std::uint8_t, 16>& i
     return w.data();
 }
 
+std::uint64_t inventory_target(std::uint64_t group, std::uint64_t component) {
+    return (kInventoryEntity ^ kPlayerSliceRoot ^ group) + component;
+}
+
+Bytes equip_item_body(std::uint64_t group, std::int32_t bagSlot, std::uint32_t paperdollSlot, std::uint32_t quantity, const ItemInstanceId& instance) {
+    Writer w;
+    w.u64(inventory_target(group, kPaperdollComponent));
+    w.u64(group);
+    w.u32(static_cast<std::uint32_t>(bagSlot));
+    w.u32(paperdollSlot);
+    w.u32(quantity);
+    w.raw(instance);
+    w.u8(0);
+    return w.data();
+}
+
+Bytes unequip_item_body(std::uint64_t group, std::uint32_t paperdollSlot, std::int32_t bagSlot, std::uint32_t quantity) {
+    Writer w;
+    w.u64(inventory_target(group, kPaperdollComponent));
+    w.u64(group);
+    w.u32(paperdollSlot);
+    w.u32(static_cast<std::uint32_t>(bagSlot));
+    w.u32(quantity);
+    w.u8(1);
+    return w.data();
+}
+
+Bytes swap_items_body(std::uint64_t group, std::uint32_t slotTo, std::uint32_t slotFrom, const ItemInstanceId& instanceTo,
+                      const ItemInstanceId& instanceFrom) {
+    Writer w;
+    w.u64(inventory_target(group, kPaperdollComponent));
+    w.u64(group);
+    w.u32(slotTo);
+    w.u32(slotFrom);
+    w.raw(instanceTo);
+    w.raw(instanceFrom);
+    w.u8(0);
+    return w.data();
+}
+
+Bytes use_item_body(std::uint64_t group, std::uint32_t bagSlot) {
+    Writer w;
+    w.u64(inventory_target(group, kInventoryContainer));
+    w.u64(group);
+    w.u32(bagSlot);
+    return w.data();
+}
+
+Bytes drop_inventory_items_body(std::uint64_t group, const std::vector<DropItemEntry>& entries) {
+    Writer w;
+    w.u64(group + kItemDropComponent);
+    w.u64(group);
+    w.size(static_cast<std::uint32_t>(entries.size()));
+    for (const DropItemEntry& entry : entries) {
+        w.u32(entry.slot);
+        w.raw(entry.instance);
+        w.u32(0xFFFFFFFFU);   // a slot value of the client whose meaning is not known (the client sends FFFFFFFF)
+        w.u32(entry.quantity);
+    }
+    return w.data();
+}
+
+Bytes drop_paperdoll_item_body(std::uint64_t group, std::uint32_t paperdollSlot, std::uint32_t quantity) {
+    Writer w;
+    w.u64(group + kItemDropComponent);
+    w.u64(group);
+    w.u32(paperdollSlot);
+    w.u32(quantity);
+    return w.data();
+}
+
+std::optional<std::uint64_t> read_currency(std::span<const std::uint8_t> field) {
+    Reader reader(field);
+    const std::uint64_t coin = reader.u64();
+    if (!reader.ok() || reader.left() != 0) {
+        return std::nullopt;
+    }
+    return coin;
+}
+
 std::optional<std::vector<LootClaim>> read_loot_tracker(std::span<const std::uint8_t> field) {
     Reader reader(field);
     std::uint32_t count = 0;

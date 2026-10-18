@@ -70,6 +70,14 @@ public:
 	/** The take of the open bag (swc::net::RepClient::take_all_items, take_item). */
 	void TakeAllItems();
 	void TakeItem(const std::array<uint8, 16>& Instance, uint32 Quantity);
+	/** The requests of the bag and of the equipment (stage P2.4; swc::net::RepClient::equip_item, unequip_item, swap_items,
+	 *  use_item, drop_items, drop_paperdoll_item). */
+	void EquipItem(int32 BagSlot, uint32 PaperdollSlot, uint32 Quantity, const swc::net::ItemInstanceId& Instance);
+	void UnequipItem(uint32 PaperdollSlot, int32 BagSlot, uint32 Quantity);
+	void SwapItems(uint32 SlotTo, uint32 SlotFrom, const swc::net::ItemInstanceId& InstanceTo, const swc::net::ItemInstanceId& InstanceFrom);
+	void UseItem(uint32 BagSlot);
+	void DropItems(const std::vector<swc::net::DropItemEntry>& Entries);
+	void DropPaperdollItem(uint32 PaperdollSlot, uint32 Quantity);
 	/** The interaction request of the player, or none (swc::net::RepClient::set_interaction). */
 	void SetInteraction(const std::optional<swc::net::InteractionRequest>& Request);
 	/** The client ends its committed interaction: message 2473 (swc::net::RepClient::cancel_interaction). */

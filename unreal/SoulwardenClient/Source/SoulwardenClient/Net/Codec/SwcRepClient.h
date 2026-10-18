@@ -183,6 +183,17 @@ public:
          */
         std::vector<std::uint32_t> learnedNodes;
         std::uint32_t nodesRevision{0};
+
+        /** The bag and the equipment screens (stage P2.4; protocol notes 4.10, 4.11):
+         *  - the full items of the paperdoll (owner view): paperdoll slot -> item (instance, durability, gear score, perks); a slot
+         *    that loses its item goes away; one more at each change;
+         *  - the coin (slot 60, Currency state, field 0): hundredths of a coin;
+         *  - the refusals of a request of the equipment (message 3626): a count. */
+        std::map<std::uint32_t, soulwarden::backend::tests::WireItem> paperdollItems;
+        std::uint32_t paperdollRevision{0};
+        bool hasCoin{false};
+        std::uint64_t coin{0};
+        std::uint32_t equipFails{0};
     };
 
     /** An entity of a different interest number: its metadata and its position. */
@@ -272,6 +283,18 @@ public:
      *  the bag of the character; the answer is the states of the slots 61, 76, 77, and 33 (protocol notes 4.42). */
     void take_all_items();
     void take_item(const std::array<std::uint8_t, 16>& instance, std::uint32_t quantity);
+    /** The requests of the bag and of the equipment (stage P2.4; protocol notes 4.10, 4.11, 4.23): equip the stack of a bag slot,
+     *  unequip a paperdoll slot (bag slot -1: the first free slot), swap two paperdoll slots, use the item of a bag slot, drop bag
+     *  items or the item of a paperdoll slot. The answer is the new states of the slots 61 and 62, or message 3626 (equipFails). */
+    void equip_item(std::int32_t bagSlot, std::uint32_t paperdollSlot, std::uint32_t quantity, const ItemInstanceId& instance);
+    void unequip_item(std::uint32_t paperdollSlot, std::int32_t bagSlot, std::uint32_t quantity);
+    void swap_items(std::uint32_t slotTo, std::uint32_t slotFrom, const ItemInstanceId& instanceTo, const ItemInstanceId& instanceFrom);
+    void use_item(std::uint32_t bagSlot);
+    void drop_items(const std::vector<DropItemEntry>& entries);
+    void drop_paperdoll_item(std::uint32_t paperdollSlot, std::uint32_t quantity);
+    /** The tests: the body of a ReplicatedStateBundle message (8) as if it came in now (tests/net/item_tests.cpp gives the states of
+     *  the encoders of the backend this way). */
+    void apply_bundle_for_tests(std::span<const std::uint8_t> body, Clock::time_point now) { on_bundle(body, now); }
     /** Melee contacts of the player (stage P2.8): they go into list 3 of the next input entry with the player motion. */
     void queue_contacts(const std::vector<MeleeContactItem>& contacts) { m_pendingContacts.insert(m_pendingContacts.end(), contacts.begin(), contacts.end()); }
 

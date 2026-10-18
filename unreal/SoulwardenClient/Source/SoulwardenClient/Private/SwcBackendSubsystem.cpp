@@ -1104,6 +1104,86 @@ bool USwcBackendSubsystem::RequestRespawn(bool bRandom, const FString& HomeId)
 	return true;
 }
 
+bool USwcBackendSubsystem::EquipItem(int32 BagSlot, uint32 PaperdollSlot, uint32 Quantity, const swc::net::ItemInstanceId& Instance)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->EquipItem(BagSlot, PaperdollSlot, Quantity, Instance);
+	return true;
+}
+
+bool USwcBackendSubsystem::UnequipItem(uint32 PaperdollSlot, int32 BagSlot, uint32 Quantity)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->UnequipItem(PaperdollSlot, BagSlot, Quantity);
+	return true;
+}
+
+bool USwcBackendSubsystem::SwapItems(uint32 SlotTo, uint32 SlotFrom, const swc::net::ItemInstanceId& InstanceTo, const swc::net::ItemInstanceId& InstanceFrom)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->SwapItems(SlotTo, SlotFrom, InstanceTo, InstanceFrom);
+	return true;
+}
+
+bool USwcBackendSubsystem::UseItem(uint32 BagSlot)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->UseItem(BagSlot);
+	return true;
+}
+
+bool USwcBackendSubsystem::DropItems(const std::vector<swc::net::DropItemEntry>& Entries)
+{
+	if (!Connection.IsValid() || !bInGame || Entries.empty())
+	{
+		return false;
+	}
+	Connection->DropItems(Entries);
+	return true;
+}
+
+bool USwcBackendSubsystem::DropPaperdollItem(uint32 PaperdollSlot, uint32 Quantity)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->DropPaperdollItem(PaperdollSlot, Quantity);
+	return true;
+}
+
+bool USwcBackendSubsystem::TakeAllItems()
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->TakeAllItems();
+	return true;
+}
+
+bool USwcBackendSubsystem::TakeItem(const swc::net::ItemInstanceId& Instance, uint32 Quantity)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->TakeItem(Instance, Quantity);
+	return true;
+}
+
 FString USwcBackendSubsystem::GetCameraStateName() const
 {
 	const UWorld* World = GetGameInstance() != nullptr ? GetGameInstance()->GetWorld() : nullptr;

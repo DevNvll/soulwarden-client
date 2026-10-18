@@ -339,6 +339,15 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         }
         return;
     }
+    if (message.type == kEquipItemFail.index) {
+        // The client shows its paperdoll slots again (handler 0x687BB60; it does not read the reason).
+        const auto call = read_component_call(message.body);
+        if (call && call->entity == m_own.group) {
+            ++m_own.equipFails;
+            log(Event::Level::info, "the server refused a request of the equipment (3626)");
+        }
+        return;
+    }
     if (message.type == kCutsceneEndFinalized.index) {
         const auto call = read_component_call(message.body);
         if (call && call->entity == m_own.group) {
@@ -683,7 +692,13 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                 }
                 for (std::size_t index = 0; index < slots.size(); ++index) {
                     m_own.equipment[slots[index]] = items[index].empty() ? 0 : items[index].index;
+                    if (items[index].empty()) {
+                        m_own.paperdollItems.erase(slots[index]);
+                    } else {
+                        m_own.paperdollItems[slots[index]] = items[index];
+                    }
                 }
+                ++m_own.paperdollRevision;
             };
             apply_lists(decoder::field_of(fragment, 2, 3), decoder::field_of(fragment, 1, 1));
             apply_lists(decoder::field_of(fragment, 1, 3), decoder::field_of(fragment, 1, 2));
@@ -694,6 +709,13 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                 m_own.activeMap = slot_map(value);
             }
             ++m_own.lookRevision;
+        } else if (fragment.slot == kSlotCurrency && fragment.type == kStateCurrency.index) {
+            if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
+                if (const auto coin = read_currency(value)) {
+                    m_own.coin = *coin;
+                    m_own.hasCoin = true;
+                }
+            }
         }
     }
     if (newPosition && m_phase == Phase::inGame) {
@@ -891,6 +913,51 @@ void RepClient::take_item(const std::array<std::uint8_t, 16>& instance, std::uin
     if (m_phase == Phase::inGame && m_own.hasMetadata) {
         send_call(kTakeItem, take_item_body(m_own.actor, instance, quantity));
         log(Event::Level::info, "take item (2942) " + hex_of(instance) + ", quantity " + std::to_string(quantity));
+    }
+}
+
+void RepClient::equip_item(std::int32_t bagSlot, std::uint32_t paperdollSlot, std::uint32_t quantity, const ItemInstanceId& instance) {
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kEquipItem, equip_item_body(m_own.group, bagSlot, paperdollSlot, quantity, instance));
+        log(Event::Level::info, "equip (3895): bag slot " + std::to_string(bagSlot) + " to paperdoll slot " + std::to_string(paperdollSlot)
+                                    + ", quantity " + std::to_string(quantity));
+    }
+}
+
+void RepClient::unequip_item(std::uint32_t paperdollSlot, std::int32_t bagSlot, std::uint32_t quantity) {
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kUnequipItem, unequip_item_body(m_own.group, paperdollSlot, bagSlot, quantity));
+        log(Event::Level::info, "unequip (3896): paperdoll slot " + std::to_string(paperdollSlot) + " to bag slot " + std::to_string(bagSlot)
+                                    + ", quantity " + std::to_string(quantity));
+    }
+}
+
+void RepClient::swap_items(std::uint32_t slotTo, std::uint32_t slotFrom, const ItemInstanceId& instanceTo, const ItemInstanceId& instanceFrom) {
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kSwapItems, swap_items_body(m_own.group, slotTo, slotFrom, instanceTo, instanceFrom));
+        log(Event::Level::info, "swap (3900): paperdoll slot " + std::to_string(slotFrom) + " to slot " + std::to_string(slotTo));
+    }
+}
+
+void RepClient::use_item(std::uint32_t bagSlot) {
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kUseItem, use_item_body(m_own.group, bagSlot));
+        log(Event::Level::info, "use item (2917): bag slot " + std::to_string(bagSlot));
+    }
+}
+
+void RepClient::drop_items(const std::vector<DropItemEntry>& entries) {
+    if (m_phase == Phase::inGame && m_own.hasMetadata && !entries.empty()) {
+        send_call(kDropInventoryItems, drop_inventory_items_body(m_own.group, entries));
+        log(Event::Level::info, "drop (1838): " + std::to_string(entries.size()) + " entries, the first: bag slot "
+                                    + std::to_string(entries.front().slot) + ", quantity " + std::to_string(entries.front().quantity));
+    }
+}
+
+void RepClient::drop_paperdoll_item(std::uint32_t paperdollSlot, std::uint32_t quantity) {
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kDropPaperdollItem, drop_paperdoll_item_body(m_own.group, paperdollSlot, quantity));
+        log(Event::Level::info, "drop (826): paperdoll slot " + std::to_string(paperdollSlot) + ", quantity " + std::to_string(quantity));
     }
 }
 

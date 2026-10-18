@@ -95,13 +95,34 @@ inline constexpr MessageType kStateAchievement{"MB::AchievementComponentReplicat
 /** The gather or the open of the owner (backend server/rep/states/chest_states.cpp; docs/systems/chests.md, gathering.md). */
 inline constexpr MessageType kStateGathering{"MB::GatheringComponentReplicatedState", "0091234C7DDA45FC99EED44859C02A7F", 81};
 
+// The bag and the equipment of the player (stage P2.4; protocol notes 4.10, 4.11, 4.23; backend server/rep/item_requests.h and
+// server/rep/states/currency_state.cpp). Component calls (client to server): target:u64 entity:u64 body. The server has no reply
+// for a request that it did: the new states of the slots 61 and 62 are the answer.
+/** Equip (45 bytes): bagSlot:i32 paperdollSlot:u32 quantity:u32 instance:16 flag:u8 (the full stack; the flag of the captures: 0). */
+inline constexpr MessageType kEquipItem{"PaperdollComponentServerFacet_ServerEquipItem", "073F09E718EC4818AA7217639CB0FDB2", 3895};
+/** Unequip (29 bytes): paperdollSlot:u32 bagSlot:i32 (-1: the first free slot) quantity:u32 flag:u8 (the flag of the capture: 1). */
+inline constexpr MessageType kUnequipItem{"PaperdollComponentServerFacet_ServerUnequipItem", "8282246D76644676A8CE05E04A9DAACD", 3896};
+/** Swap of two paperdoll slots (57 bytes): the slot of the drop, the slot of the drag, their instances (zero: no item), count:u8. */
+inline constexpr MessageType kSwapItems{"PaperdollComponentServerFacet_ServerSwapItems", "52D8A095A6D74C999FF46E4C880E2687", 3900};
+/** The refusal of a request of the equipment (server to client, 20 bytes): the target and the entity of the request, reason:u32. */
+inline constexpr MessageType kEquipItemFail{"PaperdollComponentClientFacet_OnEquipItemFail", "5C40A053F92B446FAAFA6F9C819DF06E", 3626};
+/** The use of an item of the bag (20 bytes): bagSlot:u32 (the entry "Use" of the action menu of the bag). */
+inline constexpr MessageType kUseItem{"ContainerComponentServerFacet_ServerUseItem", "B359CD4BA0D24B25A72402BAB73BFB5F", 2917};
+/** The drop of items of the bag: count:size, then for each entry slot:u32 instance:16 u32 (FFFFFFFF) quantity:u32. */
+inline constexpr MessageType kDropInventoryItems{"ItemDropComponentServerFacet_DropInventoryItems", "EBE3D337F65246F89A7C432AC4CA44B8", 1838};
+/** The drop of an item of the paperdoll (24 bytes): paperdollSlot:u32 quantity:u32. */
+inline constexpr MessageType kDropPaperdollItem{"ItemDropComponentServerFacet_DropPaperdollItem", "43F9A0B65B1D4D97A4A361F51E0610C8", 826};
+/** The coin of the character (slot 60): group 0, field 0, u64 in hundredths of a coin. */
+inline constexpr MessageType kStateCurrency{"MB::CurrencyComponentReplicatedState", "C3F8F5F55D8E45A0890C36B9B0183C8E", 3786};
+
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 38> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 46> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
     kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult, kTakeAllItems,
-    kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints, kStateGathering};
+    kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints, kStateGathering, kEquipItem,
+    kUnequipItem, kSwapItems, kEquipItemFail, kUseItem, kDropInventoryItems, kDropPaperdollItem, kStateCurrency};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -126,6 +147,8 @@ inline constexpr std::uint32_t kSlotGlobalStorage = 77;
 inline constexpr std::uint32_t kSlotAchievement = 66;
 /** The Gathering state of the player slice (owner only). */
 inline constexpr std::uint32_t kSlotGathering = 36;
+/** The coin of the owner (the Currency of the entity Inventory). */
+inline constexpr std::uint32_t kSlotCurrency = 60;
 
 /** The component id of the action list component (slot 16) of the entity RootPlayer of the player slice (game data
  *  slice-ids.json; research ids.md, table of the targets). The facet target of the input report is G + this id. */
@@ -142,6 +165,13 @@ inline constexpr std::uint64_t kPlayerTradeComponent = 0x5E6EA4CE9484F842ULL;
 inline constexpr std::uint64_t kPlayerSliceRoot = 0xDAEE4E2555650AB7ULL;
 inline constexpr std::uint64_t kGlobalStorageEntity = 0x00006914A15737B2ULL;
 inline constexpr std::uint64_t kGlobalStorageContainer = 0x476865E50327A1C7ULL;
+/** The entity Inventory of the player slice and its components Container (the bag, slot 61) and Paperdoll (slot 62), and the
+ *  ItemDrop component of the root entity (slice-ids.json: Inventory/91b8850b-..., Inventory/ba93b9ff-..., RootPlayer/5b3ec9f6-...;
+ *  the targets of the rule of 4.2 agree with the paperdoll target of the captures and with the table of research inventory.md 9). */
+inline constexpr std::uint64_t kInventoryEntity = 0xE97EBAF556467A3AULL;
+inline constexpr std::uint64_t kInventoryContainer = 0x76258CC02DF25991ULL;
+inline constexpr std::uint64_t kPaperdollComponent = 0xA4682AF2564E7814ULL;
+inline constexpr std::uint64_t kItemDropComponent = 0xE39A2483DC525915ULL;
 
 using ActorId = std::array<std::uint8_t, 16>;
 
@@ -397,6 +427,32 @@ std::uint64_t global_storage_target(std::uint64_t group);
 Bytes take_all_items_body(const ActorId& actor);
 /** @return The body of TakeItem (2942, 68 bytes): the same, then the item instance (16 bytes) and the quantity (1 to 10,000). */
 Bytes take_item_body(const ActorId& actor, const std::array<std::uint8_t, 16>& instance, std::uint32_t quantity);
+
+/** The requests of the bag and of the equipment (stage P2.4). An item instance id: 16 bytes (zero: no item). */
+using ItemInstanceId = std::array<std::uint8_t, 16>;
+/** @return The facet target of a component of the entity Inventory of the own character (the rule of 4.2). */
+std::uint64_t inventory_target(std::uint64_t group, std::uint64_t component);
+/** @return The body of ServerEquipItem (3895, 45 bytes): the stack of a bag slot into a paperdoll slot (the full stack). */
+Bytes equip_item_body(std::uint64_t group, std::int32_t bagSlot, std::uint32_t paperdollSlot, std::uint32_t quantity, const ItemInstanceId& instance);
+/** @return The body of ServerUnequipItem (3896, 29 bytes): the item of a paperdoll slot into a bag slot (-1: the first free slot). */
+Bytes unequip_item_body(std::uint64_t group, std::uint32_t paperdollSlot, std::int32_t bagSlot, std::uint32_t quantity);
+/** @return The body of ServerSwapItems (3900, 57 bytes): the slot of the drop, the slot of the drag, the instance of each slot. */
+Bytes swap_items_body(std::uint64_t group, std::uint32_t slotTo, std::uint32_t slotFrom, const ItemInstanceId& instanceTo,
+                      const ItemInstanceId& instanceFrom);
+/** @return The body of ServerUseItem (2917, 20 bytes): the use of the item of a bag slot (the target: the Container of the bag). */
+Bytes use_item_body(std::uint64_t group, std::uint32_t bagSlot);
+/** One entry of a drop of bag items. */
+struct DropItemEntry {
+    std::uint32_t slot{0};
+    ItemInstanceId instance{};
+    std::uint32_t quantity{0};
+};
+/** @return The body of DropInventoryItems (1838; 17 + 28 bytes for each entry; the target: the ItemDrop component of the root). */
+Bytes drop_inventory_items_body(std::uint64_t group, const std::vector<DropItemEntry>& entries);
+/** @return The body of DropPaperdollItem (826, 24 bytes). */
+Bytes drop_paperdoll_item_body(std::uint64_t group, std::uint32_t paperdollSlot, std::uint32_t quantity);
+/** @return The coin of field 0 of a Currency state (u64, hundredths of a coin), or no value. */
+std::optional<std::uint64_t> read_currency(std::span<const std::uint8_t> field);
 
 /** One claim of the LootTracker map (58 bytes; protocol notes 4.41): a chest or a bag of the character and its state. */
 struct LootClaim {
