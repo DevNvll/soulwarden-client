@@ -1,0 +1,16 @@
+# Unreal build and editor output
+unreal/SoulwardenClient/Binaries/
+unreal/SoulwardenClient/Intermediate/
+unreal/SoulwardenClient/Saved/
+unreal/SoulwardenClient/DerivedDataCache/
+unreal/SoulwardenClient/Build/
+unreal/SoulwardenClient/Platforms/
+unreal/SoulwardenClient/*.code-workspace
+unreal/SoulwardenClient/.vscode/
+unreal/SoulwardenClient/.idea/
+unreal/SoulwardenClient/compile_commands.json
+# Assets made from the game copy: never in git
+unreal/SoulwardenClient/Content/Imported/
+# Python
+__pycache__/
+*.pyc
