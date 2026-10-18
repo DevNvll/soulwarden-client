@@ -25,6 +25,8 @@ Usage (tools/convert-materials.sh):
   decals export NAME... | specs | scan NAME...   the roads and the projected decals of regions (decals.py: the
                        road meshes, the decal list, layer.json for the client) and the specs of their materials
   frames LOG...        the frame time of runs with -SwcFrameStats, for each view place (the cost checks)
+  cover scan|convert|pairs   the ground cover of region.vegetation (cover_materials.py): the descriptors, the cover
+                       meshes (rule 7), the slot maps of the override pairs -> SWC_CONTENT/cover/
   rebuild-set          the meshes of the M3 rebuild (mesh rule 7) -> SWC_CONTENT/materials/rule7-meshes.json
   rebuild-convert      convert them with rule 7 (the manifest records) and write rebuild-import.json (the list of
                        tools/import-gltf-list.sh --state: the existing mesh folders)
@@ -639,6 +641,12 @@ def audit(workers: int = 4) -> dict:
             continue
         for index, element in enumerate(sub_materials(mtl)):
             add_source(mtl, index, element, "component override")
+    from . import cover_materials
+    if (cover_materials.out_dir() / "descriptors.json").is_file():   # the overrides of the ground cover (T3)
+        for mtl in cover_materials.cover_mtls():
+            if source.has(mtl):
+                for index, element in enumerate(sub_materials(mtl)):
+                    add_source(mtl, index, element, "cover")
     far = far_mesh_mtls()
     for mtl in far:
         for index, element in enumerate(sub_materials(mtl)):
@@ -866,6 +874,15 @@ def spec_of(rules: dict, legacy: dict, textures: dict) -> dict | None:
         spec["scalars"]["BackDiffuseMultiplier"] = float(params.get("BackDiffuseMultiplier", 1.0))
         spec["scalars"]["Smoothness"] = max(1 / 127, float(rules["shininess"]) / 255)
         spec["scalars"]["Specular"] = min(1.0, luminance(rules["specular"]) / 0.08)
+        if "m6" in STAGES and "%DETAIL_BENDING" in rules["flags"]:
+            # M6: the detail bending of the source (modificatorvt.cfib; the defaults of its parameters: 1, 0.2, -0.5).
+            def bend(name: str, default: float) -> float:
+                v = params.get(name, default)
+                return float(v[0] if isinstance(v, list) else v)
+            spec["vectors"]["BendDetail"] = [bend("bendDetailFrequency", 1.0), bend("bendDetailLeafAmplitude", 0.2),
+                                             bend("bendDetailBranchAmplitude", -0.5), 0.0]
+        if "m6" in STAGES:
+            spec["switches"] = {"Wind": True}   # the main bending of all vegetation; the detail bending with BendDetail
         return spec
     if rules["family"] == "illum" and "m2" in STAGES:
         return surface_spec(rules, use)
@@ -1121,7 +1138,11 @@ def instances(candidate: tuple[str, ...] = ()) -> dict:
     textures: dict = {}
     summary: dict = {}
     # The main render key of each legacy key: the render key of the most mesh slots (keys.json: materials.instance_key).
-    mains = {legacy: sorted(renders.items(), key=lambda kv: (-kv[1], kv[0]))[0][0] for legacy, renders in uses.items()}
+    # A main of the earlier keys.json stays while it is still a render key of its legacy key: new sources (for example
+    # the ground cover) do not rename the n_ instances that the meshes and the cells use.
+    earlier = main_keys()
+    mains = {legacy: earlier[legacy] if earlier.get(legacy) in renders
+             else sorted(renders.items(), key=lambda kv: (-kv[1], kv[0]))[0][0] for legacy, renders in uses.items()}
     write_json(out_dir() / "keys.json", {"version": SPEC_VERSION, "main render keys": mains})
     main_keys.cache_clear()
     for label, stages in (("instances", DEPLOYED), ("instances-candidate", tuple(candidate))):
@@ -1179,9 +1200,24 @@ def instances(candidate: tuple[str, ...] = ()) -> dict:
     for key, record in textures.items():
         record["unreal"] = manifest.unreal_folder("texture", key)
     write_json(out_dir() / "textures.json", {"version": SPEC_VERSION, "textures": textures})
+    write_json(out_dir() / "globals.json", globals_of())
     summary.update({"textures": len(textures), "new textures (not in the manifest)": sum(1 for k in textures if k not in assets),
                     "seconds": round(time.time() - started, 1)})
     return summary
+
+
+def globals_of() -> dict:
+    """@return The global values of MPC_SwcMaterials from the level data: WindVector, the EnvState WindVector of the
+    mission (content/environment/mission.json of the environment work; engine axes -> Unreal axes (x, -y, z); its
+    length is the strength of the wind). The default (1, 0, 0) is the value of the main world."""
+    path = env.content_dir() / "environment" / "mission.json"
+    wind = [1.0, 0.0, 0.0]
+    if path.is_file():
+        text = json.loads(path.read_text()).get("environment", {}).get("EnvState", {}).get("WindVector")
+        if text:
+            x, y, z = (float(v) for v in str(text).split(","))
+            wind = [x, -y, z]
+    return {"version": SPEC_VERSION, "WindVector": wind}
 
 
 # The render check of a stage (Scripts/material_proof.py): meshes in three variants side by side.
@@ -1213,20 +1249,35 @@ PROOF_M3 = [("plot-shell", "slices/structures/plots/house_plots/ef_msq_2_house_p
             ("tincture", "objects/crafting/props/shopwares/alchemyprops/tincture_t1.cgf")]
 
 
+# M6: the wind of the foliage on rule 7 test meshes with detail bending: the same candidate spec with SwcWind (the custom
+# primitive data 0) 0, 1, and 4 (a still picture shows the bend; the motion needs a video).
+PROOF_M6 = [("poplar", "objects/nature/veg_trees/trees_forest/poplar/jav_fst_poplartree_full_a.cgf"),
+            ("pawpaw", "objects/nature/veg_bushes/bushes_forest/pawpaw/jav_fst_pawpawbush_a.cgf"),
+            ("groundcover", "objects/nature/veg_grass/grass_jungle/junglegroundcover/jav_jgl_groundcover_a.cgf")]
+WIND_COLUMNS = {"still": 0.0, "wind": 1.0, "wind x4": 4.0}
+
+
 def proof_plan_test(stage: str) -> dict:
-    """Writes proof-STAGE.json for the meshes of the test import (rule 7): columns "now" and "candidate"."""
+    """Writes proof-STAGE.json for the meshes of the test import (rule 7): columns "now" and "candidate" (m6: the
+    candidate in the columns of WIND_COLUMNS, with their custom primitive data)."""
     rows_in = {r["mesh"]: r for r in json.loads((M3_TEST / "list.json").read_text())}
     folders = {i["file"]: i["folder"] for i in json.loads((M3_TEST / "import-list.json").read_text())}
     candidates = json.loads((out_dir() / "instances-candidate.json").read_text())["instances"]
     assets = manifest.load()["assets"]
     slot_table = json.loads((out_dir() / "slots.json").read_text())["meshes"]
     rows = []
-    for label, mesh in PROOF_M3:
+    for label, mesh in (PROOF_M6 if stage == "m6" else PROOF_M3):
         if mesh in rows_in:   # a mesh of the test import: its slots are the instance keys
             keys, folder = rows_in[mesh]["materials"], folders[rows_in[mesh]["file"]]
         elif mesh in slot_table:   # a mesh of the plugin (rule 6): its slots are the legacy keys
             keys, folder = sorted({legacy for _i, legacy, _r in slot_table[mesh]}), assets[mesh]["unreal"]
         else:
+            continue
+        if stage == "m6":
+            variants = {column: {key: ({"spec": candidates[key]} if key in candidates else {"instance": key})
+                                 for key in keys} for column in WIND_COLUMNS}
+            rows.append({"label": label, "mesh": mesh, "unreal": folder, "override": None, "columns": list(variants),
+                         "variants": variants, "custom data": dict(WIND_COLUMNS)})
             continue
         variants = {"now": {}, "candidate": {}}
         for key in keys:
@@ -1236,7 +1287,8 @@ def proof_plan_test(stage: str) -> dict:
                      "columns": list(variants), "variants": variants})
     plan = {"stage": stage, "rows": rows}
     write_json(out_dir() / f"proof-{stage}.json", plan)
-    return {"stage": stage, "rows": [{"label": r["label"], "slots": len(r["variants"]["now"])} for r in rows]}
+    return {"stage": stage, "rows": [{"label": r["label"], "slots": len(r["variants"][r["columns"][0]]),
+                                      "columns": r["columns"]} for r in rows]}
 
 
 def proof_plan(stage: str) -> dict:
@@ -1368,6 +1420,9 @@ def rebuild_set() -> dict:
     census_file = env.content_dir() / "census" / "meshes.json"
     census = {r["mesh"]: r for r in json.loads(census_file.read_text())} if census_file.is_file() else {}
     parts: dict[str, set] = {"collapsed": set(), "A3": set(), "vertex data": set(), "mesh decals": set(decal_meshes())}
+    from . import cover_materials
+    if (cover_materials.out_dir() / "descriptors.json").is_file():
+        parts["cover"] = set(cover_materials.cover_meshes())   # the bend data of the wind (the vertex colors)
     for mesh, out in slot_table.items():
         if mesh in collapsed:
             parts["collapsed"].add(mesh)
@@ -1542,7 +1597,7 @@ def same(a, b, tolerance: float = 1e-6) -> bool:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] not in ("audit", "instances", "proof-plan", "proof-sheet", "chains", "record", "decals",
-                                   "frames", "rebuild-set", "rebuild-convert"):
+                                   "frames", "rebuild-set", "rebuild-convert", "cover"):
         print(__doc__)
         return 2
     if argv[0] == "audit":
@@ -1553,6 +1608,9 @@ def main(argv: list[str] | None = None) -> int:
         result = chains()
     elif argv[0] == "frames":
         result = frames(argv[1:])
+    elif argv[0] == "cover":
+        from . import cover_materials
+        result = cover_materials.main(argv[1:])
     elif argv[0] == "rebuild-set":
         result = rebuild_set()
     elif argv[0] == "rebuild-convert":
@@ -1564,7 +1622,7 @@ def main(argv: list[str] | None = None) -> int:
         result = proof_sheet(argv[1] if len(argv) > 1 else "m1")
     elif argv[0] == "proof-plan":
         stage = argv[1] if len(argv) > 1 else "m1"
-        result = proof_plan_test(stage) if stage in ("m3", "m4") else proof_plan(stage)
+        result = proof_plan_test(stage) if stage in ("m3", "m4", "m6") else proof_plan(stage)
     else:
         mtl = argv[1].lower()
         subs = sub_materials(mtl)

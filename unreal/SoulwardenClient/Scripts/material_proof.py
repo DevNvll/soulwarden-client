@@ -129,6 +129,8 @@ for row in plan["rows"]:
         xf.translation = unreal.Vector((1 - column) * width, 0.0, 0.0)
         actor = editor_tools.spawn_mesh_actor(mesh, xf, f"{row['label']} {variant}")
         component = actor.static_mesh_component
+        if variant in row.get("custom data", {}):   # M6: SwcWind, the custom primitive data 0 of the cells
+            component.set_custom_primitive_data_float(0, float(row["custom data"][variant]))
         used["variants"][variant] = {}
         for slot, entry in row["variants"][variant].items():
             n += 1

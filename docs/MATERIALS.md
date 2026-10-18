@@ -256,28 +256,54 @@ tools/import-gltf-list.sh ~/Games/soulwarden-client/content/materials/rebuild-im
 - Then the world track builds the cells with overrides again: the slot names changed (A2b: `overrides.py` names the
   slots with `materials.instance_key`).
 
-### M6 wind (the design; not built)
+### M6 wind (M_SwcFoliage version 2; the stage label m6)
 
 The source (modificatorvt.cfib `_VTBending`, `_DetailBending`, `_MainBending`; vegetation.cfxb):
 
 - The Vegetation shader reads the vertex RGB as bend data, not as a color: R = the leaf edge amplitude, G = the branch
-  phase, B = 1 - the branch amplitude. Do not multiply the foliage albedo by the vertex RGB.
-- The vertex alpha is an occlusion: the diffuse and the specular color x vertex alpha (the deferred path).
-- Detail bending (168 vegetation records with `%DETAIL_BENDING`): the material parameters `bendDetailFrequency`,
-  `bendDetailLeafAmplitude`, `bendDetailBranchAmplitude`; four triangle waves of the time + the vertex phase + the
-  object phase (dot(world position, 2)); the leaf edge moves along the vertex normal.xy, the branch along Z. Grass
-  (`%GRASS`) multiplies the speed by a world noise (`SimpleWindNoise`).
-- The speed of the detail bending and the main bending (the whole plant bends along the wind: xy += wind x (z x
-  bend)^2, with the length kept) use per-instance bend data: the wind of the frame x the bend value of the instance.
-  With no bend data (bend 0) the plant does not move.
-- The mesh components of the slices have a flag `ReceiveWind` (in the render options). Oxboro: 1,561 vegetation
-  components with the flag, 861 without it. The bend value of the cover (`.vegetation` descriptors: Bending / 100)
-  is in the terrain research.
+  phase, B = 1 - the branch amplitude. The foliage albedo is not multiplied by the vertex RGB.
+- The vertex alpha is an occlusion: the diffuse and the specular color x vertex alpha (the deferred path). Version 2
+  does this; with no vertex colors Unreal reads white (no change).
+- Detail bending (175 specs with `%DETAIL_BENDING`): `BendDetail` = (`bendDetailFrequency`, `bendDetailLeafAmplitude`,
+  `bendDetailBranchAmplitude`; the defaults of the shader 1, 0.2, -0.5). Four triangle waves of the time + the vertex
+  phase + the object phase (dot(the instance origin, 2)); the speed is the wind strength x the bend of the instance x
+  `SimpleWindNoise` (the instance origin and the time). The leaf edge moves along the vertex normal.xy, the branch
+  along Z.
+- Main bending: xy += the wind x the bend x (z x scale)^2, with the length kept. The source computes the bend vector
+  on the CPU (not in the shader text): here the wind x the bend of the instance, and scale = 1 / the height of the mesh
+  (the local bounds). A retail video calibrates it.
+- The global wind: `WindVector` of `MPC_SwcMaterials`, the EnvState `WindVector` of the mission of the main world
+  (1, 0, 0: its length is the strength; `content/materials/globals.json`).
+- The bend of an instance: `SwcWind`, the custom primitive data 0 of the instanced component (the cells of the world
+  track): 0 = no motion (the default). 1 for a slice mesh component with `ReceiveWind` (Oxboro: 1,561 vegetation
+  components with it, 861 without it), Bending / 100 of the descriptor for the ground cover (0, 0.1, or 1).
+- `WIND_HLSL` works in the engine space of the source (meters, (x, -y, z) / 100 of Unreal) and gives the local offset;
+  a transform gives the world position offset.
 
-The plan: a world position offset in `M_SwcFoliage` with the source formulas, the global wind (direction, strength,
-time) in `MPC_SwcMaterials`, and the vertex alpha occlusion. It needs mesh rule 7 (the vertex colors) and a per-instance
-flag from the cell builder of the world track (`ReceiveWind`, for example in the custom primitive data). Check: a video
-side by side with a retail development video.
+Check: `tools/material-proof.sh m6` (the rule 7 test meshes with `SwcWind` 0, 1, 4: the bend in a still picture);
+the motion needs a video side by side with a retail development video.
+
+## The ground cover (for T3 of the world track)
+
+```sh
+tools/convert-materials.sh cover scan      # the descriptor tables of the 49 region.vegetation -> content/cover/descriptors.json
+tools/convert-materials.sh cover convert   # the cover meshes that the manifest does not have, with rule 7
+tools/convert-materials.sh cover pairs     # the slot maps of the (mesh, override) pairs -> content/cover/pairs.json
+```
+
+- The world: 6,517 descriptors, 357 meshes, 81 override files, 493 pairs, 172,811,292 records (the research total).
+  A descriptor has the mesh, AutoMerge, Bending / 100 (0, 0.1, or 1), and the material override (the fall01 and fall02
+  variants of the grass).
+- The cover meshes convert with rule 7 (the bend data in the vertex colors): 131 new meshes now (8,990 triangles);
+  the 226 meshes that the manifest has get rule 7 in the M3 rebuild (the set has all cover meshes).
+- `pairs.json` has the format of `content/overrides/pairs.json` (each slot -> the instance key of the override
+  sub-material with the same index: A2, A2b). `material-keys.json` has the 97 manifest keys for `tools/import.sh
+  --keys` (the overrides and the material records of the new meshes); the 29 n_ keys come from the apply step.
+- The materials: the audit reads the override files as the use "cover"; 127 keys (110 foliage, 14 surface,
+  3 surface masked). The foliage parent has the Diffuse-alpha cutout, the Opacity map as the back light
+  (transmission), two sided, and the wind.
+- Stable names: a main render key of `keys.json` stays while it is still a render key of its legacy key (new sources
+  do not rename the n_ instances).
 
 ## The surface layer (S1 with M5)
 

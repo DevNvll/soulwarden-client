@@ -21,11 +21,12 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "2",
+PARENT_VERSIONS = {"M_SwcFoliage": "2", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "2",
                    "M_SwcGlass": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
-# M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha)
+# M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; M_SwcFoliage 2: the wind (M6) and
+# the vertex alpha occlusion)
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
 assets = unreal.EditorAssetLibrary
@@ -294,22 +295,41 @@ return C.rgb * C.a * 0.1 * e * Scale;"""
 
 
 def collection(content, state):
-    """@return MPC_SwcMaterials: the global values of this module (EmissiveScale, default 1)."""
+    """@return MPC_SwcMaterials: the global values of this module. EmissiveScale (default 1; at run time
+    USwcMaterialScale), WindVector (M6: the global wind of the level data, EnvState WindVector of the mission, in Unreal
+    axes: SWC_CONTENT/materials/globals.json; its length is the wind strength). An existing parameter keeps its id (the
+    materials refer to it)."""
     name = "MPC_SwcMaterials"
     path = f"{BASE}/{name}"
-    if assets.does_asset_exist(path) and state.get("base:" + name) == "1":
+    if assets.does_asset_exist(path) and state.get("base:" + name) == "2":
         return assets.load_asset(path)
     if assets.does_asset_exist(path):
         mpc = assets.load_asset(path)
     else:
         mpc = tools.create_asset(name, BASE, unreal.MaterialParameterCollection,
                                  unreal.MaterialParameterCollectionFactoryNew())
-    value = unreal.CollectionScalarParameter()
-    value.set_editor_property("parameter_name", "EmissiveScale")
-    value.set_editor_property("default_value", 1.0)
-    mpc.set_editor_property("scalar_parameters", [value])
+    globals_path = os.path.join(content, "materials", "globals.json")
+    values = json.load(open(globals_path)) if os.path.isfile(globals_path) else {}
+    scalars = list(mpc.get_editor_property("scalar_parameters"))
+    if not any(str(s.get_editor_property("parameter_name")) == "EmissiveScale" for s in scalars):
+        value = unreal.CollectionScalarParameter()
+        value.set_editor_property("parameter_name", "EmissiveScale")
+        value.set_editor_property("default_value", 1.0)
+        scalars.append(value)
+        mpc.set_editor_property("scalar_parameters", scalars)
+    vectors = list(mpc.get_editor_property("vector_parameters"))
+    wind = values.get("WindVector", [1.0, 0.0, 0.0])
+    found = [v for v in vectors if str(v.get_editor_property("parameter_name")) == "WindVector"]
+    if found:
+        found[0].set_editor_property("default_value", unreal.LinearColor(*wind, 0.0))
+    else:
+        value = unreal.CollectionVectorParameter()
+        value.set_editor_property("parameter_name", "WindVector")
+        value.set_editor_property("default_value", unreal.LinearColor(*wind, 0.0))
+        vectors.append(value)
+    mpc.set_editor_property("vector_parameters", vectors)
     assets.save_loaded_asset(mpc)
-    state["base:" + name] = "1"
+    state["base:" + name] = "2"
     return mpc
 
 
@@ -698,8 +718,89 @@ def glass_parent(content, state):
     return material
 
 
+# M6: the wind of the source (modificatorvt.cfib: _DetailBending, SimpleWindNoise, _MainBending), in the engine space of the
+# source (meters; Unreal (x, -y, z) x 100). LP, LN: the local position (cm) and normal of the vertex; VC: the vertex
+# color (the bend data of the source: R the leaf edge, G the branch phase, B 1 - the branch amplitude); OP: the instance
+# origin (cm, world); WL: the global wind in local axes (its length is the strength: PerFrame_WindDirection.w); Bend:
+# the bend of the instance (CustomPrimitiveData[0], SwcWind: 0 = no motion); P: bendDetailFrequency,
+# bendDetailLeafAmplitude, bendDetailBranchAmplitude; H: the height of the mesh (cm, the local bounds). Output: the
+# local offset (cm). The main bending: xy += the wind x the bend x (z / height)^2, the length kept (the source shader;
+# the CPU rule of the source for the bend vector is not in the shader text: the wind x the bend, and 1 / height).
+WIND_HLSL = """if (Bend <= 0.0) return float3(0.0, 0.0, 0.0);
+float3 S = float3(0.01, -0.01, 0.01);
+float3 p = LP * S;
+float3 n = LN * float3(1.0, -1.0, 1.0);
+float3 wp = OP * S;
+float3 w = WL * float3(1.0, -1.0, 1.0);
+float4 q = wp.xyxy * float4(0.3, 0.2, 0.1, 0.02) + T * float4(1.0, 0.3, 0.1, 0.1);
+q = abs(frac(q + 0.5) * 2.0 - 1.0);
+q.zw = saturate(q.zw - float2(0.3, 0.7)) / float2(0.7, 0.3);
+float s = length(w) * Bend * saturate(dot(q, float4(1.0, 1.0, 6.0, 10.0)) / 14.0);
+float bp = VC.g + dot(wp, float3(2.0, 2.0, 2.0));
+float vp = dot(p, float3(bp, bp, bp));
+float2 wi = T + float2(vp, bp);
+float4 v = (frac(wi.xxyy * float4(1.2, 0.793, 0.375, 0.193)) * 2.0 - 1.0) * P.x * s;
+v = abs(frac(v + 0.5) * 2.0 - 1.0);
+float2 sum = v.xz + v.yw;
+float3 r = p + sum.xxy * float3(VC.r * P.y * n.xy, (1.0 - VC.b) * P.z);
+float f = r.z * 100.0 / max(H, 1.0);
+f *= f;
+float len = length(r);
+float3 m = r;
+m.xy += w.xy * Bend * f;
+r = normalize(m) * len;
+return (r - p) * float3(100.0, -100.0, 100.0);"""
+
+
+def wind_parent_graph(material, content, state):
+    """The world position offset of WIND_HLSL in a parent: the inputs from the Unreal nodes (the local position and
+    normal, the vertex color, the time, the instance origin, the global wind in local axes, SwcWind of the custom
+    primitive data 0, BendDetail, the height of the local bounds); the local offset goes to world axes."""
+    position = node(material, unreal.MaterialExpressionPreSkinnedPosition, -1700, 1500)
+    normal = node(material, unreal.MaterialExpressionPreSkinnedNormal, -1700, 1600)
+    vertex = node(material, unreal.MaterialExpressionVertexColor, -1700, 1700)
+    time = node(material, unreal.MaterialExpressionTime, -1700, 1850)
+    zero = node(material, unreal.MaterialExpressionConstant3Vector, -1900, 1950)
+    origin = node(material, unreal.MaterialExpressionTransformPosition, -1700, 1950)
+    origin.set_editor_property("transform_source_type", unreal.MaterialPositionTransformSource.TRANSFORMPOSSOURCE_LOCAL)
+    origin.set_editor_property("transform_type", unreal.MaterialPositionTransformSource.TRANSFORMPOSSOURCE_WORLD)
+    editing.connect_material_expressions(zero, "", origin, "")
+    wind = node(material, unreal.MaterialExpressionCollectionParameter, -1900, 2100)
+    wind.set_editor_property("collection", collection(content, state))
+    wind.set_editor_property("parameter_name", "WindVector")
+    wind_local = node(material, unreal.MaterialExpressionTransform, -1700, 2100)
+    wind_local.set_editor_property("transform_source_type", unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_WORLD)
+    wind_local.set_editor_property("transform_type", unreal.MaterialVectorCoordTransform.TRANSFORM_LOCAL)
+    wind_rgb = mask(material, wind, "", "rgb", -1800, 2100)
+    editing.connect_material_expressions(wind_rgb, "", wind_local, "")
+    bend = scalar(material, "SwcWind", 0.0, -1700, 2250)
+    bend.set_editor_property("use_custom_primitive_data", True)
+    bend.set_editor_property("primitive_data_index", 0)
+    detail = vector(material, "BendDetail", (0.0, 0.0, 0.0, 0.0), -1700, 2400)
+    bounds = node(material, unreal.MaterialExpressionObjectLocalBounds, -1700, 2550)
+    height = mask(material, bounds, "Extents", "b", -1500, 2550)
+    offset = custom(material, WIND_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT3,
+                    ("LP", "LN", "VC", "T", "OP", "WL", "Bend", "P", "H"), -1200, 1900)
+    for pin, source, out in (("LP", position, ""), ("LN", normal, ""), ("VC", vertex, ""), ("T", time, ""),
+                             ("OP", origin, ""), ("WL", wind_local, ""), ("Bend", bend, ""), ("P", detail, "RGB"),
+                             ("H", height, "")):
+        editing.connect_material_expressions(source, out, offset, pin)
+    world = node(material, unreal.MaterialExpressionTransform, -900, 1900)
+    world.set_editor_property("transform_source_type", unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_LOCAL)
+    world.set_editor_property("transform_type", unreal.MaterialVectorCoordTransform.TRANSFORM_WORLD)
+    editing.connect_material_expressions(offset, "", world, "")
+    # Static switch Wind (the m6 specs): with it off the parent has no world position offset, so Nanite and the virtual
+    # shadow maps treat the mesh as static (no cost before the wind deploys).
+    still = node(material, unreal.MaterialExpressionConstant3Vector, -900, 2050)
+    moving = switch(material, "Wind", (world, ""), (still, ""), -700, 1900)
+    editing.connect_material_property(moving, "", MP.MP_WORLD_POSITION_OFFSET)
+
+
 def foliage_parent(content, state):
-    """@return M_SwcFoliage (made again when its version in PARENT_VERSIONS changes; its instances keep their parameters)."""
+    """@return M_SwcFoliage (made again when its version in PARENT_VERSIONS changes; its instances keep their parameters).
+    Version 2: the world position offset of the source wind (WIND_HLSL; no motion while SwcWind, the custom primitive
+    data 0, is 0) and the vertex alpha occlusion of the Vegetation shader (the diffuse and the specular x the vertex
+    alpha; white with no vertex colors)."""
     name = "M_SwcFoliage"
     material, white = parent_asset(name, content, state)
     if material is None:
@@ -711,7 +812,9 @@ def foliage_parent(content, state):
     albedo = node(material, unreal.MaterialExpressionMultiply, -500, -200)
     editing.connect_material_expressions(color, "RGB", albedo, "A")
     editing.connect_material_expressions(diffuse, "RGB", albedo, "B")
-    editing.connect_material_property(albedo, "", MP.MP_BASE_COLOR)
+    vertex = node(material, unreal.MaterialExpressionVertexColor, -900, -500)
+    occluded = multiply(material, (albedo, ""), (vertex, "A"), -350, -250)   # the vertex alpha occlusion of the source
+    editing.connect_material_property(occluded, "", MP.MP_BASE_COLOR)
     editing.connect_material_property(color, "A", MP.MP_OPACITY_MASK)
     normal = sampler(material, "Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"),
                      -900, 150)
@@ -725,7 +828,9 @@ def foliage_parent(content, state):
     editing.connect_material_expressions(s, "", rough, "")
     editing.connect_material_property(rough, "", MP.MP_ROUGHNESS)
     specular = scalar(material, "Specular", 0.5, -500, 650)
-    editing.connect_material_property(specular, "", MP.MP_SPECULAR)
+    occluded_specular = multiply(material, (specular, ""), (vertex, "A"), -350, 650)
+    editing.connect_material_property(occluded_specular, "", MP.MP_SPECULAR)
+    wind_parent_graph(material, content, state)
     transmission = sampler(material, "Transmission", st.SAMPLERTYPE_ALPHA, white, -900, 850)
     back = scalar(material, "BackDiffuseMultiplier", 1.0, -900, 1100)
     amount = node(material, unreal.MaterialExpressionMultiply, -600, 900)
