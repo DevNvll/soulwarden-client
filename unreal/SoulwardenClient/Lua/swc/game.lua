@@ -43,6 +43,10 @@ Swc.NativeClass("VirtualCursorConfiguration")
 
 Swc.levelName = ""
 
+-- The platform of the client (a native table; the scripts only compare its values): this client is a 64-bit PC.
+Platform = {Windows64 = 1, Windows32 = 2, Scarlett = 3, Prospero = 4}
+Platform.Current = Platform.Windows64
+
 Swc.Define("GameRequestsBus", "Broadcast", {
   IsInMainMenu = function() return false end,
   GetMainMenuLevelName = function() return "frontend" end,

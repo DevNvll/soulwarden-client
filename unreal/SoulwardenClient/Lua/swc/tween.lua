@@ -338,8 +338,9 @@ Swc.Define("ScriptedEntityTweenerBus", "Broadcast", {
       return property.get(entity)
     end
   end,
+  -- Reset stops the running animations (the gem clears its animation tasks); the cached animations of the fork stay
+  -- until ReleaseCachedAnimation (globals.luac resets the tweens after the shared scripts cached theirs).
   Reset = function()
     animations = {}
-    cached = {}
   end,
 })

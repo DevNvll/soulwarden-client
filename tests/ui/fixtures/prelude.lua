@@ -55,3 +55,31 @@ function element(canvas, path)
   end
   return id
 end
+
+-- The screens of a fixture: the fixture runtime refuses the screens of the loader; screen() allows one and loads it as
+-- the loader does (autohide: hidden until the state machine enters its state).
+local allowedScreens = {}
+local nativeAllowed = swcui.allowed
+local function screen_key(path)
+  return (string.lower(path):gsub("%.dynamicuicanvas$", ""):gsub("%.uicanvas$", ""))
+end
+swcui.allowed = function(path)
+  return allowedScreens[screen_key(path)] or nativeAllowed(path)
+end
+
+--- Loads a screen of the game (a path with the ending .uicanvas). @return The canvas id.
+function screen(path, drawOrder)
+  allowedScreens[screen_key(path)] = true
+  local canvas = Swc.LoadScreen(path, true, drawOrder or 50)
+  check(canvas:IsValid(), "the screen loads: " .. path)
+  return canvas
+end
+
+--- @return The first element with a name below an element (breadth first), or nil.
+function find(parent, name)
+  local id = swcui.find_descendant(parent, name)
+  if id == nil or not id:IsValid() then
+    return nil
+  end
+  return id
+end

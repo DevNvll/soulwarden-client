@@ -26,9 +26,11 @@
 #include "SwcUi/Json.h"
 #include "SwcUi/Model.h"
 #include "SwcUi/Runtime.h"
+#include "font_measure.h"
 
 namespace {
 
+FontMeasure g_measure;   // the font metrics of the converted font files (font_measure.cpp)
 int g_checks = 0;
 int g_failed = 0;
 
@@ -138,6 +140,8 @@ std::vector<std::string> layout_conformance(const std::string& content) {
     int differ = 0;
     int skippedText = 0;
     int skippedStale = 0;
+    int textChildren = 0;
+    int textDiffer = 0;
     std::map<std::string, int> differByKind;
     const std::filesystem::path root = std::filesystem::path(content) / "canvases";
     std::vector<std::filesystem::path> files;
@@ -153,6 +157,7 @@ std::vector<std::string> layout_conformance(const std::string& content) {
         }
         Model model(content);
         model.set_viewport(1920.0F, 1080.0F);
+        model.set_text_measure(&g_measure);
         const std::string path = doc["source"].text();
         std::unordered_map<Id, Id> idMap;   // a slice: the ids of the data -> the ids of the spawn
         if (doc["canvas"].is_object()) {
@@ -200,6 +205,28 @@ std::vector<std::string> layout_conformance(const std::string& content) {
             }
             if (textCells) {
                 ++skippedText;
+                // The layouts with text cells: compared with the font metrics of the tests (a report, no check).
+                for (const Id child : e->children) {
+                    const Element* c = model.element(child);
+                    const auto original = dataId.find(child);
+                    const auto found = saved.find(std::to_string(original != dataId.end() ? original->second : child));
+                    if (c == nullptr || found == saved.end()) continue;
+                    const json::Value& o = (*found->second)["transform"]["offsets"];
+                    const Edges& got = c->transform.offsets;
+                    const float d = std::max({std::fabs(got.left - o[0].real()), std::fabs(got.top - o[1].real()),
+                                              std::fabs(got.right - o[2].real()), std::fabs(got.bottom - o[3].real())});
+                    ++textChildren;
+                    if (d > 1.0F) {
+                        ++textDiffer;
+                        if (textDiffer <= 8) {
+                            char line[512];
+                            std::snprintf(line, sizeof(line), "text cells differ %s %s/%s: got %.2f %.2f %.2f %.2f, saved %.2f %.2f %.2f %.2f",
+                                          path.c_str(), e->name.c_str(), c->name.c_str(), got.left, got.top, got.right, got.bottom,
+                                          o[0].real(), o[1].real(), o[2].real(), o[3].real());
+                            report.emplace_back(line);
+                        }
+                    }
+                }
                 continue;
             }
             // Two layouts whose saved child offsets are older than the last edit of the canvas (the saved size of the
@@ -246,6 +273,12 @@ std::vector<std::string> layout_conformance(const std::string& content) {
                   "layouts: %d layouts, %d children compared, %d differ; not compared: %d with text cells, %d with older saved offsets",
                   layouts, children, differ, skippedText, skippedStale);
     report.insert(report.begin(), line);
+    std::snprintf(line, sizeof(line), "layouts with text cells (font metrics of the tests, no check): %d children, %d differ by more than 1 px",
+                  textChildren, textDiffer);
+    report.insert(report.begin() + 1, line);
+    // A guard: the text metrics of the tests (stb) and of CryFont differ by the rounding of the size cache; at least 85%
+    // of these children agree within 1 px (the result of the 0.8 glyph rule, docs/UI.md).
+    check(textChildren == 0 || textDiffer * 100 <= textChildren * 15, "the layouts with text cells agree within 1 px (85% or more)");
     for (const auto& [kind, count] : differByKind) report.push_back("  differ by kind: " + kind + " " + std::to_string(count));
     check(differ == 0, "the layout children have the offsets that the editor saved");
     return report;
@@ -282,6 +315,7 @@ void run_fixtures(const std::string& content, const std::string& luaDir, const s
         std::filesystem::create_directories(options.reportDir);
         Runtime runtime(options);
         runtime.set_viewport(1920, 1080);
+        runtime.set_text_measure(&g_measure);
         std::string error;
         if (!runtime.start(&error)) {
             check(false, "fixture " + name + ": the runtime did not start: " + error);
@@ -369,6 +403,7 @@ int main(int argc, char** argv) {
     }
     Runtime runtime(options);
     runtime.set_viewport(1920, 1080);
+    runtime.set_text_measure(&g_measure);
     std::string error;
     if (!runtime.start(&error)) {
         std::printf("the runtime did not start: %s\n", error.c_str());

@@ -119,131 +119,6 @@ private:
     std::uint32_t m_color;
 };
 
-std::string utf8_upper_or_lower(const std::string& text, bool upper) {
-    std::string out = text;
-    for (char& c : out) {
-        if (upper && c >= 'a' && c <= 'z') {
-            c = static_cast<char>(c - 'a' + 'A');
-        } else if (!upper && c >= 'A' && c <= 'Z') {
-            c = static_cast<char>(c - 'A' + 'a');
-        }
-    }
-    // Latin-1 letters in UTF-8 (2 bytes, 0xC3 lead): a small part of the case rules of the fork.
-    for (std::size_t i = 0; i + 1 < out.size(); ++i) {
-        if (static_cast<unsigned char>(out[i]) == 0xC3) {
-            auto& next = reinterpret_cast<unsigned char&>(out[i + 1]);
-            if (upper && next >= 0xA0 && next <= 0xBE && next != 0xB7) {
-                next = static_cast<unsigned char>(next - 0x20);
-            } else if (!upper && next >= 0x80 && next <= 0x9E && next != 0x97) {
-                next = static_cast<unsigned char>(next + 0x20);
-            }
-            ++i;
-        }
-    }
-    return out;
-}
-
-std::string strip_markup(const std::string& text) {
-    std::string out;
-    out.reserve(text.size());
-    for (std::size_t i = 0; i < text.size(); ++i) {
-        const char c = text[i];
-        if (c == '<') {
-            const std::size_t close = text.find('>', i);
-            if (close != std::string::npos) {
-                const std::string tag = lower(text.substr(i + 1, close - i - 1));
-                if (tag == "br" || tag == "br/" || tag == "br /") {
-                    out += '\n';
-                }
-                i = close;
-                continue;
-            }
-        }
-        if (c == '&') {
-            static const std::pair<const char*, const char*> entities[] = {
-                {"&amp;", "&"}, {"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""}, {"&apos;", "'"}, {"&nbsp;", " "}};
-            bool replaced = false;
-            for (const auto& [name, value] : entities) {
-                const std::size_t length = std::char_traits<char>::length(name);
-                if (text.compare(i, length, name) == 0) {
-                    out += value;
-                    i += length - 1;
-                    replaced = true;
-                    break;
-                }
-            }
-            if (replaced) {
-                continue;
-            }
-        }
-        out += c;
-    }
-    return out;
-}
-
-std::vector<std::string> split_lines(const std::string& text) {
-    std::vector<std::string> out;
-    std::string line;
-    for (const char c : text) {
-        if (c == '\n') {
-            out.push_back(line);
-            line.clear();
-        } else if (c != '\r') {
-            line += c;
-        }
-    }
-    out.push_back(line);
-    return out;
-}
-
-/** Wraps one line at spaces (or at characters for WrapSplitWords) to the width. */
-std::vector<std::string> wrap_line(const std::string& line, float width, bool splitWords, const std::function<float(const std::string&)>& measure) {
-    std::vector<std::string> out;
-    if (measure(line) <= width) {
-        out.push_back(line);
-        return out;
-    }
-    std::string current;
-    std::size_t at = 0;
-    while (at < line.size()) {
-        std::size_t next = line.find(' ', at);
-        std::string word = line.substr(at, next == std::string::npos ? std::string::npos : next - at);
-        const std::string candidate = current.empty() ? word : current + " " + word;
-        if (measure(candidate) <= width || current.empty()) {
-            if (current.empty() && measure(word) > width && splitWords) {
-                // Split the word at the character that does not fit.
-                std::string part;
-                for (std::size_t i = 0; i < word.size();) {
-                    std::size_t length = 1;
-                    const auto lead = static_cast<unsigned char>(word[i]);
-                    if (lead >= 0xF0) length = 4;
-                    else if (lead >= 0xE0) length = 3;
-                    else if (lead >= 0xC0) length = 2;
-                    const std::string ch = word.substr(i, length);
-                    if (!part.empty() && measure(part + ch) > width) {
-                        out.push_back(part);
-                        part.clear();
-                    }
-                    part += ch;
-                    i += length;
-                }
-                current = part;
-            } else {
-                current = candidate;
-            }
-        } else {
-            out.push_back(current);
-            current = word;
-        }
-        if (next == std::string::npos) {
-            break;
-        }
-        at = next + 1;
-    }
-    out.push_back(current);
-    return out;
-}
-
 struct Walker {
     Model& model;
     TextMeasure& measure;
@@ -420,8 +295,7 @@ struct Walker {
         if (a <= 0.0F || text.text.empty()) {
             return;
         }
-        const FontInfo* font = model.font(text.font);
-        if (font == nullptr) {
+        if (model.font(text.font) == nullptr) {
             return;
         }
         const TextLayout layout = layout_text(model, e.id, measure);
@@ -448,24 +322,37 @@ struct Walker {
             push.quad[3] = transform.apply({r.left, r.bottom});
             out.items.push_back(push);
         }
-        // The passes of the effect in reverse order: the first pass (the text itself) on top.
+        // The passes of the effect in reverse order: the first pass (the text itself) on top. A <font color> piece has
+        // its own color in the first pass; the other passes (shadows, outlines) keep the color of the effect.
         for (auto pass = passes.rbegin(); pass != passes.rend(); ++pass) {
-            Color color = pass->color ? *pass->color : text.color;
+            const bool main = pass + 1 == passes.rend();
             const float passAlpha = pass->color ? pass->color->a : 1.0F;
             for (const TextLayout::Line& line : layout.lines) {
-                DrawItem item;
-                item.kind = DrawItem::Kind::text;
-                item.element = e.id;
-                item.fontFile = font->file;
-                item.fontSize = layout.fontSize;
-                item.letterSpacing = text.charSpacing;
-                item.text = line.text;
-                item.transform = transform * Affine::translation(line.x + pass->offset.x, line.y + pass->offset.y) *
-                                 Affine::scaling(layout.scaleX, 1.0F);
-                color.a = a * passAlpha;
-                item.color = color;
-                ++out.texts;
-                out.items.push_back(std::move(item));
+                for (const TextPiece& piece : line.pieces) {
+                    if (!piece.image.empty()) {
+                        if (main) {
+                            inline_image(e, piece, line, transform, a);
+                        }
+                        continue;
+                    }
+                    if (piece.text.empty()) {
+                        continue;
+                    }
+                    DrawItem item;
+                    item.kind = DrawItem::Kind::text;
+                    item.element = e.id;
+                    item.fontFile = piece.fontFile;
+                    item.fontSize = layout.glyphSize;
+                    item.letterSpacing = layout.glyphSize > 0.0F ? text.charSpacing * layout.fontSize / layout.glyphSize : text.charSpacing;
+                    item.text = piece.text;
+                    item.transform = transform * Affine::translation(line.x + piece.x + pass->offset.x, line.y + line.textTop + pass->offset.y) *
+                                     Affine::scaling(layout.scaleX, 1.0F);
+                    Color color = pass->color ? *pass->color : (piece.color ? *piece.color : text.color);
+                    color.a = a * passAlpha;
+                    item.color = color;
+                    ++out.texts;
+                    out.items.push_back(std::move(item));
+                }
             }
         }
         if (clip) {
@@ -474,6 +361,32 @@ struct Walker {
             pop.element = e.id;
             out.items.push_back(pop);
         }
+    }
+
+    /** An inline image of a text (markup <img>): a quad of its texture at its place in the line. */
+    void inline_image(const Element& e, const TextPiece& piece, const TextLayout::Line& line, const Affine& transform, float alpha) {
+        const Sprite& sprite = model.sprite(piece.image);
+        if (!sprite.converted || piece.imageWidth <= 0.0F || piece.imageHeight <= 0.0F) {
+            return;
+        }
+        DrawItem item;
+        item.kind = DrawItem::Kind::mesh;
+        item.element = e.id;
+        item.texture = sprite.file;
+        item.blend = kBlendNormal;
+        const float left = line.x + piece.x + piece.imageLeft;
+        const float top = line.y + piece.imageTop;
+        const std::uint32_t rgba = pack_color(Color{1.0F, 1.0F, 1.0F, 1.0F}, alpha);
+        const Vec2 corners[4] = {{left, top}, {left + piece.imageWidth, top}, {left + piece.imageWidth, top + piece.imageHeight},
+                                 {left, top + piece.imageHeight}};
+        const Vec2 uvs[4] = {{0.0F, 0.0F}, {1.0F, 0.0F}, {1.0F, 1.0F}, {0.0F, 1.0F}};
+        for (int i = 0; i < 4; ++i) {
+            const Vec2 p = transform.apply(corners[i]);
+            item.vertices.push_back({p.x, p.y, uvs[i].x, uvs[i].y, rgba});
+        }
+        item.indices = {0, 1, 2, 0, 2, 3};
+        ++out.meshes;
+        out.items.push_back(std::move(item));
     }
 
     void element(Id id, float alpha) {
@@ -556,126 +469,6 @@ std::uint32_t pack_color(const Color& color, float alpha) {
     return (byte(color.r) << 24) | (byte(color.g) << 16) | (byte(color.b) << 8) | byte(alpha);
 }
 
-std::string display_text(const TextData& text) {
-    std::string out = text.markup ? strip_markup(text.text) : text.text;
-    if (text.textCase == kCaseUpper) {
-        out = utf8_upper_or_lower(out, true);
-    } else if (text.textCase == kCaseLower) {
-        out = utf8_upper_or_lower(out, false);
-    }
-    return out;
-}
-
-TextLayout layout_text(Model& model, Id id, TextMeasure& measure) {
-    TextLayout layout;
-    const Element* e = model.element(id);
-    if (e == nullptr || !e->text) {
-        return layout;
-    }
-    const TextData& text = *e->text;
-    const FontInfo* font = model.font(text.font);
-    const std::string file = font != nullptr ? font->file : std::string();
-    const Edges r = model.rect(id);
-    const float width = r.right - r.left;
-    const float height = r.bottom - r.top;
-    const std::string shown = display_text(text);
-
-    const auto lay = [&](float size) {
-        TextLayout out;
-        out.fontSize = size;
-        const auto measure_line = [&](const std::string& line) { return measure.width(file, size, text.charSpacing, line); };
-        for (const std::string& line : split_lines(shown)) {
-            if (text.wrap != kNoWrap && width > 0.0F) {
-                for (std::string& part : wrap_line(line, width, text.wrap == kWrapSplitWords, measure_line)) {
-                    out.lines.push_back({std::move(part), 0.0F, 0.0F, 0.0F});
-                }
-            } else {
-                out.lines.push_back({line, 0.0F, 0.0F, 0.0F});
-            }
-        }
-        const float lineHeight = measure.line_height(file, size);
-        for (TextLayout::Line& line : out.lines) {
-            line.width = measure_line(line.text);
-            out.width = std::max(out.width, line.width);
-        }
-        out.height = lineHeight * static_cast<float>(out.lines.size()) + text.lineSpacing * static_cast<float>(out.lines.size() - 1);
-        return out;
-    };
-
-    layout = lay(text.size);
-    if (text.shrink == kShrinkUniform && (layout.width > width || layout.height > height) && layout.width > 0.0F) {
-        float k = std::min(width / std::max(layout.width, 1e-6F), height / std::max(layout.height, 1e-6F));
-        k = std::max(k, text.minShrink > 0.0F ? text.minShrink : 0.0F);
-        layout = lay(text.size * std::min(k, 1.0F));
-    } else if (text.shrink == kShrinkWidthOnly && layout.width > width && layout.width > 0.0F) {
-        float k = width / layout.width;
-        k = std::max(k, text.minShrink > 0.0F ? text.minShrink : 0.0F);
-        layout.scaleX = std::min(k, 1.0F);
-        for (TextLayout::Line& line : layout.lines) {
-            line.width *= layout.scaleX;
-        }
-        layout.width *= layout.scaleX;
-    }
-    if (text.overflow == kOverflowEllipsis && text.wrap == kNoWrap) {
-        const auto measure_line = [&](const std::string& line) { return measure.width(file, layout.fontSize, text.charSpacing, line) * layout.scaleX; };
-        for (TextLayout::Line& line : layout.lines) {
-            if (line.width <= width) {
-                continue;
-            }
-            std::string cut = line.text;
-            while (!cut.empty() && measure_line(cut + "...") > width) {
-                cut.pop_back();
-                while (!cut.empty() && (static_cast<unsigned char>(cut.back()) & 0xC0) == 0x80) {
-                    cut.pop_back();
-                }
-            }
-            line.text = cut + "...";
-            line.width = measure_line(line.text);
-        }
-    }
-    const float lineHeight = measure.line_height(file, layout.fontSize);
-    float y = r.top;
-    if (text.vAlign == kAlignMiddle) {
-        y = r.top + (height - layout.height) * 0.5F;
-    } else if (text.vAlign == kAlignBottom) {
-        y = r.bottom - layout.height;
-    }
-    for (TextLayout::Line& line : layout.lines) {
-        float x = r.left;
-        if (text.hAlign == kAlignCenter) {
-            x = r.left + (width - line.width) * 0.5F;
-        } else if (text.hAlign == kAlignRight) {
-            x = r.right - line.width;
-        }
-        line.x = x;
-        line.y = y;
-        y += lineHeight + text.lineSpacing;
-    }
-    return layout;
-}
-
-Vec2 text_natural_size(Model& model, Id id, TextMeasure& measure) {
-    const Element* e = model.element(id);
-    if (e == nullptr || !e->text) {
-        return {};
-    }
-    const TextData& text = *e->text;
-    const FontInfo* font = model.font(text.font);
-    const std::string file = font != nullptr ? font->file : std::string();
-    const Edges r = model.rect(id);
-    const float width = r.right - r.left;
-    const auto measure_line = [&](const std::string& line) { return measure.width(file, text.size, text.charSpacing, line); };
-    Vec2 size;
-    std::size_t count = 0;
-    for (const std::string& line : split_lines(display_text(text))) {
-        size.x = std::max(size.x, measure_line(line));
-        count += (text.wrap != kNoWrap && width > 0.0F) ? wrap_line(line, width, text.wrap == kWrapSplitWords, measure_line).size() : 1;
-    }
-    const float lineHeight = measure.line_height(file, text.size);
-    size.y = count == 0 ? 0.0F : lineHeight * static_cast<float>(count) + text.lineSpacing * static_cast<float>(count - 1);
-    return size;
-}
-
 TextMeasure& estimate_text_measure() {
     struct Estimate final : TextMeasure {
         float width(const std::string&, float size, float spacing, std::string_view text) override {
@@ -728,7 +521,7 @@ std::string draw_list_json(const DrawList& list) {
             std::snprintf(buffer, sizeof(buffer), "[%.4f,%.4f,%.4f,%.4f,%.2f,%.2f]", item.transform.a, item.transform.b, item.transform.c,
                           item.transform.d, item.transform.tx, item.transform.ty);
             out += "{\"k\":\"text\",\"font\":" + json::quote(item.fontFile) + ",\"size\":" + std::to_string(item.fontSize) +
-                   ",\"text\":" + json::quote(item.text) + ",\"m\":" + buffer;
+                   ",\"ls\":" + std::to_string(item.letterSpacing) + ",\"text\":" + json::quote(item.text) + ",\"m\":" + buffer;
             std::snprintf(buffer, sizeof(buffer), ",\"color\":[%.3f,%.3f,%.3f,%.3f]}", item.color.r, item.color.g, item.color.b, item.color.a);
             out += buffer;
             break;

@@ -76,15 +76,37 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   fill walks the perimeter from the top middle).
 - Fader: multiplies the alpha of its subtree. A disabled element hides its subtree. A mask clips its children with a
   quad. The mask image itself does not draw (only with "draw behind" or "draw in front").
-- Text: wrap, shrink to fit (uniform or width only), ellipsis, alignment, case. The markup tags are removed. The font
-  effects (the passes of a `.font` effect) draw in reverse order.
+- Text: wrap, shrink to fit (uniform or width only), ellipsis, alignment, case. The font effects (the passes of a
+  `.font` effect) draw in reverse order. The text part is below.
 - Draw list: textured triangles, text lines, and clip quads, in viewport pixels. The Slate widget and the preview draw
   the same list.
+
+### Text (Text.cpp)
+
+- Markup (an element with markup on): the text is XML for LyShine. The tags: `b` and `i` (no change: a `.font` file is
+  a family of one font), `a action data` (a link piece), `font face color` (a piece in another `.font` and color),
+  `img src height scale vAlign yOffset xPadding lPadding rPadding` (an inline image; height "fontAscent" by default),
+  and the fork tag `g` (the gestures of the conversation lines: no text). The XML entities decode; an escaped line end
+  is a line end. A text that is not valid markup (an unknown tag or attribute, a `&` with no entity, a tag that does
+  not close) shows raw, as in LyShine. With markup off, the text shows raw, less the `g` tags.
+- Layout: the spans become words, spaces, line ends, and images. Wrap at spaces; the fork WrapSplitWords breaks a word
+  that does not fit in one line. Shrink to fit (uniform: a smaller font size; width only: a horizontal scale), then
+  ellipsis (the lines that fit in the height; the last one and each line that is too wide end with "..."). Clip: the
+  draw clips at the rect.
+- Glyph size: CryFont draws a glyph at 0.8 of the font size (its default size ratio; no `.font` file of the game has
+  another one), and the line is the font size. The character spacing is in 1/1000 of the font size. The saved widths
+  of the canvases give these rules: the widths of 1,878 texts with a horizontal fitter are 0.79 to 0.84 of the em
+  widths at the font size; with the 0.8 rule the spacing in 1/1000 of the font size fits (ratio 1.007), in 1/1000 of
+  the glyph em not (1.041). The saved line heights are the size or the size + 1 (the rounding of the size cache).
+- The draw list has one text item for each piece (its font, its color, the glyph size, the spacing in 1/1000 of the
+  glyph size) and one mesh for each inline image (in the first pass of the font effect only).
+- The default cell of a text: the widest line with no wrap (+ 0.01 with wrap) and the height of the wrapped lines.
 
 ### Layouts (Layout.cpp)
 
 - A row, a column, or a grid sets the anchors of each child to 0 and sets its offsets. A fitter gives its element the
-  target size of its own layout cell (the pivot keeps its place; stretched anchors join at their middle first).
+  target size of its own layout cell, with no minimum (the saved canvases show it; O3DE applies the minimum). The pivot
+  keeps its place; stretched anchors join at their middle first.
 - A layout cell gives min, target, and extra ratio for each axis. A value that the element does not override comes from
   the default cells of its components (with "ignore default cells" off): an image (Fixed: the texture size; Sliced: the
   borders; StretchedToFit: the height for its width), a text (the widest line with no wrap; the height of the wrapped
@@ -171,7 +193,8 @@ to the data layer only when it changes.
 - `USwcUiSubsystem` starts in a game run (not in the editor). `-SwcUi=off` stops it. `-SwcUiScreens=all` loads each
   screen of the game (a probe; most textures are not converted).
 - The widget fills the game viewport (Z order 10). It has no input in this stage.
-- Font size: a LyShine size is in canvas pixels; a Slate size is in points. The factor is 0.75.
+- Font size: the draw list gives the glyph size in canvas pixels (0.8 of the LyShine size); a Slate size is in points,
+  thus Slate gets 0.75 of the glyph size.
 - Additive blend: premultiplied alpha with an alpha of 0 (an approximation).
 - Logs: errors in the client log; each line in `SWC_WORK/logs/ui/ui-log.txt`. Every 30 s and at the end, the reports
   go to `SWC_WORK/logs/ui`: `ui-stubs.txt` and `.json` (the stub log), `ui-errors.txt` (each Lua error one time with
@@ -201,12 +224,14 @@ frames, and checks values. The helpers are in `prelude.lua`: `check`, `equal`, `
 | Fixture | Checks |
 | --- | --- |
 | `enums` | The client table against the own values, the paperdoll slots of the protocol notes, the LyShine values, a name that the client does not have. |
+| `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
 The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,
 and each UI slice spawns into one; the layouts compute; each child of a layout must have the offsets that the editor
-saved. Result: 959 layouts, 1,450 children, 0 differ. Not compared: 328 layouts or children with the default cells of
-texts (the offline tests have no font metrics) and 2 layouts whose saved child offsets are older than the last edit of
-their canvas (the saved size of the layout element does not give them).
+saved. Result: 959 layouts, 1,450 children, 0 differ. Apart: the layouts with the default cells of texts compare with
+the font metrics of the tests (`tests/ui/font_measure.cpp`, stb_truetype, `tests/ui/vendor/stb`): 806 of 907 children
+agree within 1 px (the rest: the integer advances of the CryFont size cache and wraps at the edge); a guard needs 85%.
+Not compared: 2 layouts whose saved child offsets are older than the last edit of their canvas.
 
 `tools/dev-build.sh` gives a preset of the backend (`--list` shows them) to the dev character. It uses the
 development routes of the backend (`--dev-commands`): only in a development session, never with the data folder of
@@ -214,8 +239,10 @@ the user ([AGENTS.md](../AGENTS.md), rules).
 
 ## Open points
 
-- O3: the font size factor 0.75. O8: the rule of 1080 lines. A side-by-side picture with the retail client checks
-  them.
+- O3: the glyph size (0.8 of the font size) comes from the saved canvases; the place of the glyphs in the line (the
+  baseline) is an approximation (the Slate line box in the middle of the line). O8: the rule of 1080 lines. A
+  side-by-side picture with the retail client checks them.
+- O10 (the fork tag `g`): the gestures of the conversation lines; the text shows no gesture.
 - O4: the order of the state transitions is a rule of the emulation, not a fact of the client.
 - O9: the run-time surface. The reports of a run give it (`ui-stubs.txt`, `ui-surface.txt`). Each later screen adds
   its buses and its value classes.

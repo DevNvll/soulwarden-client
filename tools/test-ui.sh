@@ -17,6 +17,11 @@ if [[ "${1:-}" == "--preview" ]]; then
     shift
 fi
 mkdir -p "${out}" "${out}/reports"
+# The font metrics of the tests (stb_truetype, tests/ui/vendor/stb), compiled one time.
+if [[ ! -f "${out}/font_measure.o" || "${SWC_REPO}/tests/ui/font_measure.cpp" -nt "${out}/font_measure.o" ]]; then
+    nice -n 10 "${compiler}" -std=c++20 -O2 -g -I"${module}/Public" -I"${SWC_REPO}/tests/ui" \
+        -c "${SWC_REPO}/tests/ui/font_measure.cpp" -o "${out}/font_measure.o"
+fi
 # Lua as C++ (the same files as the module), compiled one time.
 for part in SwcLua51 SwcLua51Os; do
     if [[ ! -f "${out}/${part}.o" || "${module}/Private/${part}.cpp" -nt "${out}/${part}.o" ]]; then
@@ -25,14 +30,16 @@ for part in SwcLua51 SwcLua51Os; do
 done
 nice -n 10 "${compiler}" -std=c++20 -O1 -g -fexceptions -Wall -Wextra -Wno-unused-parameter \
     -I"${module}/Public" -I"${module}/Private" -I"${lua}" \
-    "${SWC_REPO}/tests/ui/ui_tests.cpp" "${module}/Private/Json.cpp" "${module}/Private/Model.cpp" "${module}/Private/Layout.cpp" \
+    "${SWC_REPO}/tests/ui/ui_tests.cpp" "${out}/font_measure.o" "${module}/Private/Json.cpp" "${module}/Private/Model.cpp" "${module}/Private/Layout.cpp" "${module}/Private/Text.cpp" \
     "${module}/Private/Draw.cpp" "${module}/Private/LuaHost.cpp" "${module}/Private/LuaSource.cpp" "${out}/SwcLua51.o" "${out}/SwcLua51Os.o" -o "${out}/swc-ui-tests"
 status=0
-rm -rf "${out}/reports/fixtures"
+rm -rf "${out}/reports/fixtures" "${out}/reports/draw.json"
 "${out}/swc-ui-tests" "${SWC_CONTENT}/ui" "${SWC_REPO}/unreal/SoulwardenClient/Lua" "${out}/reports" \
     --draw "${out}/reports/draw.json" --fixtures "${SWC_REPO}/tests/ui/fixtures" "$@" || status=$?
 if [[ "${preview}" == 1 ]]; then
-    (cd "${SWC_REPO}/converter" && python3 -B -m swc_convert.uipreview "${out}/reports/draw.json" "${out}/reports/hud.png")
+    if [[ -f "${out}/reports/draw.json" ]]; then
+        (cd "${SWC_REPO}/converter" && python3 -B -m swc_convert.uipreview "${out}/reports/draw.json" "${out}/reports/hud.png")
+    fi
     # The pictures of the fixtures (picture(NAME) in a fixture: reports/fixtures/FIXTURE/draw/NAME.json).
     for draw in "${out}"/reports/fixtures/*/draw/*.json; do
         [[ -f "${draw}" ]] || continue

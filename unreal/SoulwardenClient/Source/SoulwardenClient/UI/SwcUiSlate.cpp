@@ -91,6 +91,18 @@ float FSwcUiResources::line_height(const std::string& FontFile, float Size)
 	return static_cast<float>(Measure->GetMaxCharacterHeight(Font(FontFile, Size, 0.0f)));
 }
 
+float FSwcUiResources::ascent(const std::string& FontFile, float Size)
+{
+	if (!FSlateApplication::IsInitialized())
+	{
+		return Size * 0.8f;
+	}
+	// Slate gives the baseline as a negative offset from the bottom of the line box.
+	const TSharedRef<FSlateFontMeasure> Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
+	const FSlateFontInfo Info = Font(FontFile, Size, 0.0f);
+	return static_cast<float>(Measure->GetMaxCharacterHeight(Info) + Measure->GetBaseline(Info));
+}
+
 // --------------------------------------------------------------------------------------------------------------- widget
 
 void SSwcUiCanvas::Construct(const FArguments& InArgs, TSharedRef<FSwcUiResources> InResources)

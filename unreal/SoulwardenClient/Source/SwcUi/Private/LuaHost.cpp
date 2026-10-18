@@ -679,11 +679,7 @@ int n_get(lua_State* L) {
         if (f == "case") { lua_pushnumber(L, x.textCase); return 1; }
         if (f == "markup") { lua_pushboolean(L, x.markup); return 1; }
         if (f == "size2d") {
-            TextMeasure* measure = runtime_of(L).measure();
-            if (measure == nullptr) {
-                return push_vec(L, {0.0F, 0.0F});
-            }
-            const TextLayout layout = layout_text(model, e->id, *measure);
+            const TextLayout layout = layout_text(model, e->id, model.text_measure());
             return push_vec(L, {layout.width, layout.height});
         }
     }
@@ -996,6 +992,61 @@ int n_clock(lua_State* L) {
     return 1;
 }
 
+// The layout of the text of an element (the tests check the lines and the pieces): {width, height, fontSize, lines =
+// {{text, x, y, width, height, pieces = {{text, font, image, link, action, data, x, width, color = {r, g, b}}}}}}.
+int n_text_layout(lua_State* L) {
+    Model& model = model_of(L);
+    const TextLayout layout = layout_text(model, to_id(L, 1), model.text_measure());
+    lua_newtable(L);
+    const auto field = [L](const char* name, float value) {
+        lua_pushnumber(L, value);
+        lua_setfield(L, -2, name);
+    };
+    const auto text_field = [L](const char* name, const std::string& value) {
+        lua_pushlstring(L, value.data(), value.size());
+        lua_setfield(L, -2, name);
+    };
+    field("width", layout.width);
+    field("height", layout.height);
+    field("fontSize", layout.fontSize);
+    lua_newtable(L);
+    int lineIndex = 1;
+    for (const TextLayout::Line& line : layout.lines) {
+        lua_newtable(L);
+        text_field("text", line.text);
+        field("x", line.x);
+        field("y", line.y);
+        field("width", line.width);
+        field("height", line.height);
+        lua_newtable(L);
+        int pieceIndex = 1;
+        for (const TextPiece& piece : line.pieces) {
+            lua_newtable(L);
+            text_field("text", piece.text);
+            text_field("font", piece.fontFile);
+            text_field("image", piece.image);
+            text_field("action", piece.linkAction);
+            text_field("data", piece.linkData);
+            lua_pushboolean(L, piece.link);
+            lua_setfield(L, -2, "link");
+            field("x", piece.x);
+            field("width", piece.width);
+            if (piece.color) {
+                lua_newtable(L);
+                field("r", piece.color->r);
+                field("g", piece.color->g);
+                field("b", piece.color->b);
+                lua_setfield(L, -2, "color");
+            }
+            lua_rawseti(L, -2, pieceIndex++);
+        }
+        lua_setfield(L, -2, "pieces");
+        lua_rawseti(L, -2, lineIndex++);
+    }
+    lua_setfield(L, -2, "lines");
+    return 1;
+}
+
 // UiCanvasBus RecomputeChangedLayouts: the marked layouts now (else at the end of the frame).
 int n_update_layouts(lua_State* L) {
     lua_pushnumber(L, model_of(L).update_layouts());
@@ -1148,7 +1199,7 @@ const luaL_Reg kNatives[] = {
     {"set", n_set}, {"load_canvas", n_load_canvas}, {"unload_canvas", n_unload_canvas}, {"find_canvas", n_find_canvas},
     {"canvases", n_canvases}, {"canvas_get", n_canvas_get}, {"canvas_set", n_canvas_set}, {"localize", n_localize},
     {"has_text", n_has_text}, {"crc32", n_crc32}, {"texture_exists", n_texture_exists}, {"stub", n_stub}, {"log", n_log},
-    {"clock", n_clock}, {"tick", n_tick}, {"update_layouts", n_update_layouts}, {"compute_layout", n_compute_layout}, {"write_draw", n_write_draw}, {"viewport", n_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
+    {"clock", n_clock}, {"tick", n_tick}, {"update_layouts", n_update_layouts}, {"text_layout", n_text_layout}, {"compute_layout", n_compute_layout}, {"write_draw", n_write_draw}, {"viewport", n_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
     {"load_lua", n_load_lua}, {nullptr, nullptr}};
 
 } // namespace

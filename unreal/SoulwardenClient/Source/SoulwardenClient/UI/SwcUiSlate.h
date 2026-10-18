@@ -32,6 +32,7 @@ public:
 	// swc::ui::TextMeasure
 	virtual float width(const std::string& FontFile, float Size, float LetterSpacing, std::string_view Text) override;
 	virtual float line_height(const std::string& FontFile, float Size) override;
+	virtual float ascent(const std::string& FontFile, float Size) override;
 
 	int32 TextureCount() const { return Textures.Num(); }
 

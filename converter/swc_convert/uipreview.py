@@ -122,7 +122,17 @@ class Canvas:
         scale = (m[0] ** 2 + m[1] ** 2) ** 0.5
         f = font(item["font"], item["size"] * scale)
         layer = Image.new("L", (self.w, self.h), 0)
-        ImageDraw.Draw(layer).text((m[4], m[5]), item["text"], font=f, fill=255)
+        draw = ImageDraw.Draw(layer)
+        spacing = item.get("ls", 0.0) / 1000.0 * item["size"] * scale
+        if spacing == 0.0:
+            draw.text((m[4], m[5]), item["text"], font=f, fill=255)
+        else:
+            # The character spacing (1/1000 em) after each character, as the runtime measures it.
+            x = m[4]
+            for i, ch in enumerate(item["text"]):
+                draw.text((x, m[5]), ch, font=f, fill=255)
+                pair = item["text"][i:i + 2]
+                x += (f.getlength(pair) - f.getlength(pair[1:]) if len(pair) == 2 else f.getlength(ch)) + spacing
         coverage = np.asarray(layer, dtype=np.float32) / 255.0
         r, g, b, a = item["color"]
         alpha = coverage * a

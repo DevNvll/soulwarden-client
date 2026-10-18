@@ -400,6 +400,7 @@ private:
     // Layout.cpp
     std::vector<Id> layout_children(Id id) const;
     std::vector<LayoutCellSize> cell_sizes(Id id, bool horizontal, bool ignoreDefault);
+    float fitter_target(Id id, bool horizontal);
     bool default_cell(Id id, bool horizontal, int which, float maxSize, float& out);
     void apply_layout_width(Id id);
     void apply_layout_height(Id id);

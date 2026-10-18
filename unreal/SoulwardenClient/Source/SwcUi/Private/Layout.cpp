@@ -304,6 +304,20 @@ float Model::cell_extra_height_ratio(Id id, bool ignoreDefault) {
     return value;
 }
 
+float Model::fitter_target(Id id, bool horizontal) {
+    // The target of the own cell (an override, else the default cells), with no minimum: the canvases that the editor
+    // saved show it (a text with a vertical fitter and a minimum height of 25 keeps the height of its text).
+    const Element* e = element(id);
+    const std::optional<float>& own = e != nullptr && e->cell ? (horizontal ? e->cell->targetWidth : e->cell->targetHeight)
+                                                              : std::optional<float>{};
+    if (own) {
+        return *own;
+    }
+    float value = 0.0F;
+    default_cell(id, horizontal, 1, -1.0F, value);
+    return value;
+}
+
 std::vector<LayoutCellSize> Model::cell_sizes(Id id, bool horizontal, bool ignoreDefault) {
     std::vector<LayoutCellSize> out;
     for (const Id child : layout_children(id)) {
@@ -326,7 +340,7 @@ void Model::apply_layout_width(Id id) {
     if (e->fitter && e->fitter->horizontal) {
         // The element takes the target width of its own cell; the pivot keeps its place. Stretched anchors join at
         // their middle first (the offsets stay, so the rect moves, as in LyShine).
-        const float target = cell_target_width(id, false);
+        const float target = fitter_target(id, true);
         TransformData& t = e->transform;
         if (t.anchors.left != t.anchors.right) {
             t.anchors.left = t.anchors.right = (t.anchors.left + t.anchors.right) * 0.5F;
@@ -416,7 +430,7 @@ void Model::apply_layout_height(Id id) {
         return;
     }
     if (e->fitter && e->fitter->vertical) {
-        const float target = cell_target_height(id, false);
+        const float target = fitter_target(id, false);
         TransformData& t = e->transform;
         if (t.anchors.top != t.anchors.bottom) {
             t.anchors.top = t.anchors.bottom = (t.anchors.top + t.anchors.bottom) * 0.5F;
