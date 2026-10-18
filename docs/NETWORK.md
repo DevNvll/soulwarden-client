@@ -73,8 +73,10 @@ player run the client log has no character name (`SWC_RUN=player`).
   with the character NAME.
 - `--create SPEC`: before the client starts, the create request of the retail client (protocol notes 2.2.3) makes a
   character of the development account (`tools/lib/dev_character.py`; a name that is in use is not an error).
-- Each process of a development run has the mark `SWC_DEV_RUN=1`. `tools/dev-stop.sh` stops them (SIGTERM, then
-  SIGKILL after 15 s); `tools/dev-stop.sh --check` has the status 1 while one runs.
+- Each process of a development run has the marks `SWC_DEV_RUN=1` and `SWC_SESSION_DATA` (its data folder).
+  `tools/dev-stop.sh` stops the processes on the own `SWC_DEV_DATA` (SIGTERM, then SIGKILL after 15 s); the runs of the
+  other tracks continue. `--all` stops the runs of all tracks. `tools/dev-stop.sh --check` has the status 1 while one
+  runs on the own data folder (with `--all`: on any data folder).
 
 ## The command line of the client
 
