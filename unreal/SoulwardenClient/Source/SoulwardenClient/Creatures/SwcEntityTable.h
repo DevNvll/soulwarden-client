@@ -172,6 +172,12 @@ struct Entity {
         std::uint32_t users{0};
     };
     std::map<std::uint32_t, InteractState> interact;
+    /** GatherableController (type 12; a gathering node, or the body of a creature with skinning; stage P4.1 part 2): field 0, Healthy 4,
+     *  Depleted 8 (backend gatherable_state.cpp). One more revision at each state. */
+    bool hasGatherable{false};
+    std::uint8_t gatherableState{0};
+    std::uint32_t gatherableSlot{0};
+    std::uint32_t gatherableRevision{0};
 
     /** The counts of the states of this entity. */
     std::uint32_t movementStates{0};

@@ -149,6 +149,11 @@ public:
 	bool FindNearestLootBag(const FVector& From, FSwcLootBag& Out) const;
 	/** The player track hides the model of a bag of a Looted claim (HideMeshDelay of the slice, 1.5 s after the claim; stage P2.10). */
 	void SetLootBagHidden(uint32 Interest, bool bHidden);
+	/** The entity table of the other entities: the object layer (Objects/SwcObjectSubsystem.h) reads the records of the objects of
+	 *  the level data from it (the Interact and GatherableController states by the actor of the object). */
+	const swc::creatures::EntityTable& GetEntityTable() const { return Table; }
+	/** One more at each Tick that applied records (the object layer reads the table again then). */
+	uint32 GetTableRevision() const { return TableRevision; }
 
 	/** The contact query of the player actions (USwcPlayerActions::SetContactQuery): the items of FindMeleeContacts. */
 	void QueryMeleeContacts(const FSwcMeleeShape& Shape, std::vector<swc::net::MeleeContactItem>& Out) const;
@@ -175,6 +180,7 @@ private:
 	TArray<FDamageNumber> DamageNumbers;
 
 	swc::creatures::EntityTable Table;
+	uint32 TableRevision = 0;
 	FSwcCreatureLibrary Library;
 	TMap<uint32, TWeakObjectPtr<ASwcCreature>> Actors;
 	/** The loot bags (stage P2.10): the model of the slice at the place of each bag. */

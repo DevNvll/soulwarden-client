@@ -3,7 +3,8 @@
 # that the encoders of the backend make (metadata, movement, vitals, marker: apps/backend/src/server/rep/states), the melee
 # contact item with the reader of the backend (server/rep/client_input.cpp) and its test client (tests/support/client_frames.h),
 # the damage number with the encoder of the backend (server/rep/combat_messages.cpp), and the shots and the danger areas with the
-# encoders of the Projectile, Spell, PositionInTheWorld, and DelayedEvent states, and the loot bag (server/rep/states).
+# encoders of the Projectile, Spell, PositionInTheWorld, and DelayedEvent states, and the loot bag (server/rep/states), and the
+# objects of the level data (stage P4.1 part 2: the id rules, the GatherableController and Achievement states, the node file).
 # The Soulwarden sources are read only; the build output goes to SWC_WORK/build/creature-tests.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
@@ -40,6 +41,16 @@ nice -n 10 "${compiler}" "${flags[@]}" \
     "${backend}/src/server/rep/states/object_states.cpp" "${backend}/src/world/ids.cpp" \
     "${backend}/src/core/logging/log.cpp" "${backend}/src/middleware/compression/lz4.cpp" \
     -o "${out}/swc-effect-tests"
+nice -n 10 "${compiler}" "${flags[@]}" \
+    "${SWC_REPO}/tests/creatures/object_tests.cpp" "${module}/Objects/SwcObjectRules.cpp" "${module}/Creatures/SwcEntityTable.cpp" \
+    "${module}/Creatures/SwcEffects.cpp" "${module}/Creatures/SwcMeleeContact.cpp" \
+    "${module}/Net/Codec/SwcRepMessages.cpp" "${module}/Net/Codec/SwcCarrier.cpp" "${vendor}/src/server/hub/wire.cpp" \
+    "${backend}/src/server/rep/replication.cpp" "${backend}/src/server/rep/states/metadata_state.cpp" \
+    "${backend}/src/server/rep/states/interaction_states.cpp" "${backend}/src/server/rep/states/gatherable_state.cpp" \
+    "${backend}/src/server/rep/states/ownership_states.cpp" "${backend}/src/world/ids.cpp" \
+    "${backend}/src/core/logging/log.cpp" "${backend}/src/middleware/compression/lz4.cpp" \
+    -o "${out}/swc-object-tests"
 "${out}/swc-creature-tests"
 "${out}/swc-combat-tests"
-exec "${out}/swc-effect-tests"
+"${out}/swc-effect-tests"
+exec "${out}/swc-object-tests"

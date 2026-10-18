@@ -22,6 +22,7 @@ constexpr std::uint32_t kTypeDelayedEvent = 3139;
 constexpr std::uint32_t kTypeLootDrop = 2027;
 constexpr std::uint32_t kTypeInteract = 2930;
 constexpr std::uint32_t kTypeStatusEffects = 4236;
+constexpr std::uint32_t kTypeGatherable = 12;
 // The compact map of the StatusEffects state (backend server/rep/states/status_state.cpp): group 3 field 1.
 constexpr unsigned kStatusObserverGroup = 3;
 constexpr unsigned kStatusCompactMap = 1;
@@ -212,6 +213,14 @@ void EntityTable::apply(const decoder::Record& record, std::uint64_t nowUs) {
             }
             if (const auto users = decoder::field_of(fragment, 0, 1); users.size() == 4) {
                 state.users = static_cast<std::uint32_t>(read_be(users));
+            }
+            m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
+        } else if (fragment.type == kTypeGatherable) {
+            if (const auto node = decoder::field_of(fragment, 0, 0); node.size() == 1) {
+                entity.hasGatherable = true;
+                entity.gatherableState = node[0];
+                entity.gatherableSlot = fragment.slot;
+                ++entity.gatherableRevision;
             }
             m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
         }

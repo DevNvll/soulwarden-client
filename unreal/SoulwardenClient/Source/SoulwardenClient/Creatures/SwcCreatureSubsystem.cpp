@@ -139,6 +139,7 @@ void USwcCreatureSubsystem::Clear(const TCHAR* Cause)
 	DamageNumbers.Reset();
 	Damages = 0;
 	Table.clear();
+	++TableRevision;
 	Table.take_changes();
 	Spawned = Removed = Actions = Deaths = Placeholders = 0;
 	Kinds.Reset();
@@ -222,6 +223,10 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 		{
 			Table.apply(Update.record, ApplyTimeUs);
 		}
+	}
+	if (!Updates.empty())
+	{
+		++TableRevision;
 	}
 	for (const swc::creatures::Change& Change : Table.take_changes())
 	{
