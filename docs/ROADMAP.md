@@ -90,8 +90,8 @@ with the decisions D1 to D3 above.
 
 R1, R2, R3, and R6 are answered (AST-142, 2026-10-18): `~/Games/soulwarden-client/research/feel-values.md` (outside
 the repository). Its section 3 lists the open points of each stage; most need a side-by-side video with the retail
-client. Such a video comes from the user (the orchestrator of this project asks the user, not the Soulwarden thread):
-this project never starts the retail client.
+client. Such a video comes from a retail reference run of this project (AGENTS.md, the rule of the retail reference
+runs) or from the user.
 
 | Id | Question | Needed by |
 | --- | --- | --- |

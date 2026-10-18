@@ -67,10 +67,17 @@ files at the same time; a shared document (this file, the roadmap) changes only 
 - Parallel tracks: each track uses its own development data folder (`SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-TRACK`)
   and its own agent desktop (`SWC_AGENT_DESKTOP=soulwarden-client-TRACK`), so that the runs of two tracks do not wait
   for one lock. Each run has its own network namespace: the ports do not collide.
-- A process of this project never has `SOULWARDEN_DEV_RUN=1` in its environment: `tools/dev-stop.sh` of Soulwarden
+- A process of the Unreal client never has `SOULWARDEN_DEV_RUN=1` in its environment: `tools/dev-stop.sh` of Soulwarden
   stops such processes, and its `--check` fails while one is alive.
-- Do not open the Proton prefixes of the Soulwarden project or its development data.
-- Do not start, stop, or control the retail client or a development run of the Soulwarden project.
+- Retail reference runs (decision of the user, 2026-10-18): an agent of this project may start a development run of
+  the retail client with the tools of the Soulwarden project, for reference pictures, videos, and measurements
+  (`tools/scenarios`, `tools/dev-run.sh`, `tools/hx`, and the capture scripts in
+  `~/Games/soulwarden/work/evidence/unreal-references/tools`). Conditions: no other development run of the Soulwarden
+  project is alive (`~/Developer/azoth/tools/dev-stop.sh --check` gives 0) and the Soulwarden orchestrator does not use
+  runs at that time (parallel work). Follow the run rules of `~/Developer/azoth/AGENTS.md`: its own Proton prefix and
+  data folder, the mark `SOULWARDEN_DEV_RUN=1`, input only through `tools/hx`, gamescope on an agent desktop. Stop only
+  the own run. Never use the Proton prefix or the data folder of the user. Write the results under
+  `~/Games/soulwarden/work/evidence/unreal-references/`, never into `~/Developer/azoth`.
 - The Soulwarden repository is read only for this project. A change that the backend needs goes to the orchestrator of
   this project, which reports it to the user, never as an edit of `~/Developer/azoth`. No thread of this project sends
   a report, a request, or a fact to the Soulwarden orchestrator thread (decision of the user, 2026-10-18).
