@@ -497,6 +497,26 @@ and D. `ui-tooltip.mp4`: the escape menu of the respawn state shows the tooltip 
 Escape goes back to the respawn screen. `ui-refused.mp4`: the error popup of the game with the cursor; OK closes it.
 The UI lines of each run are in `LABEL-ui.txt`.
 
+Exit check of stage P2.4 (development runs, 2026-10-18; `SWC_WORK/evidence/P2.4`):
+
+```sh
+export SWC_STAGE=P2.4 SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8872:4250:138.25
+tools/creature-check.sh ui-equip 74 tests/drive/ui-equip-routes.txt tests/drive/ui-exit-player.txt -- -SwcUiDrive=$PWD/tests/drive/ui-equip.txt
+tools/creature-check.sh ui-loot 200 tests/drive/ui-loot-routes.txt tests/drive/ui-loot-player.txt -- -SwcUiDrive=$PWD/tests/drive/ui-loot.txt
+tools/test-items.sh
+```
+
+`ui-equip.mp4` (`ui-equip-sheet.png`): Tab opens the inventory with the bag of the server; the hover of the sword gives its
+item tooltip and a click the command list; Equip puts it into weapon slot 24 (the server: "equip ... done"; the weight 76.8
+to 73.8); the command list of the equipped sword has Unequip (the slot is empty again, 76.8); the potions have Use (3 to 2,
+76.3); the sword of tier 3 (level 21; the routes set level 10) has Equip off with "Requirements not met", and no request goes
+out. `ui-loot.mp4` (`ui-loot-sheet.png`): five kills of grey wolves give bags; Tab near the nearest bag opens the panel "LOOT"
+(OpenStorageOption); LSHIFT and a click take its item (2942: "1 moved"); the Looted claim ends the use (2473) and closes the
+panel; Tab twice opens the next bag; Take All takes its item (2939). The clocks: the routes start after the world entry of
+the log, which can come up to 45 s after the clock of the drives starts; the UI drives wait for the items of the routes
+(`waitfor item:...`, `waitfor lootbag`). `tools/test-items.sh`: the bag, the paperdoll items, the coin, and the level of
+the encoders of the backend into the read path, and the requests against the readers of the backend (31 checks).
+
 `tools/dev-build.sh` gives a preset of the backend (`--list` shows them) to the dev character. It uses the
 development routes of the backend (`--dev-commands`): only in a development session, never with the data folder of
 the user ([AGENTS.md](../AGENTS.md), rules).

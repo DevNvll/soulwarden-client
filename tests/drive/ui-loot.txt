@@ -1,28 +1,29 @@
-# Stage P2.4: the panel of a loot bag in the client. The player drive kills a grey wolf (tests/drive/ui-loot-player.txt); the UI
-# drive waits for its bag near the character and 20 s more (the end of the swings) (the player drive starts at the possession, up to 30 s after the clock of this
-# script); Tab opens the panel (newinventory.luac OpenNearbyLootContainers: OpenStorageOption) in the state Container; LSHIFT and
-# a click take the first item (2942; a bag of one item is then Looted: the panel closes); Tab twice opens the next bag; Take
-# All takes its items (2939); the Looted claim ends the use and closes the panel. Times
-# in seconds from the spawn of the player.
+# Stage P2.4: the panel of a loot bag in the client (the exit check). The player drive kills five grey wolves
+# (tests/drive/ui-loot-player.txt, the routes tests/drive/ui-loot-routes.txt). The UI drive waits for a bag near the character
+# (the player drive starts at the possession, up to 30 s after the clock of this script) and 45 s more (the end of the swings).
+# Tab opens the panel of the nearest bag (newinventory.luac OpenNearbyLootContainers: OpenStorageOption) in the state Container;
+# LSHIFT and a click take the first item (2942; a bag of one item is then Looted and the panel closes); Tab twice opens the panel
+# again (the same bag or the next one); Take All takes its items (2939); the Looted claim ends the use and closes the panel.
+# Times in seconds from the spawn of the player.
 # export SWC_STAGE=P2.4 SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8872:4250:138.25
-# tools/creature-check.sh ui-loot 170 tests/drive/ui-loot-routes.txt tests/drive/ui-loot-player.txt -- -SwcUiDrive=$PWD/tests/drive/ui-loot.txt
+# tools/creature-check.sh ui-loot 200 tests/drive/ui-loot-routes.txt tests/drive/ui-loot-player.txt -- -SwcUiDrive=$PWD/tests/drive/ui-loot.txt
 1 waitfor CompassLines 60
-20 waitfor lootbag 110
-40 log Tab near the bag opens its panel
-40 key tab
-42 waitfor loot:1 10
-44 point loot:1
-46 log LSHIFT and a click take the first item
-46 keydown lshift
-47 click
-48.5 keyup lshift
-53 log Tab twice: the inventory closes, then the panel of the next bag opens
-53 key tab
-56 key tab
-58 waitfor loot:1 10
-60 point text:Take_All
-62 log Take All
-62 click
-68 log Tab closes the inventory
-68 key tab
-71 end
+20 waitfor lootbag 150
+65 log Tab near the bag opens its panel
+65 key tab
+67 waitfor loot:1 10
+69 point loot:1
+71 log LSHIFT and a click take the first item
+71 keydown lshift
+72 click
+73.5 keyup lshift
+78 log Tab twice: the inventory closes, then the panel of the next bag opens
+78 key tab
+81 key tab
+83 waitfor loot:1 10
+85 point text:Take_All
+87 log Take All
+87 click
+93 log Tab closes the inventory
+93 key tab
+96 end
