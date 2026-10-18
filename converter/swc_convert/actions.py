@@ -11,6 +11,9 @@ Writes SWC_CONTENT/player/actions.json (tools/convert-player.sh actions):
   action (playeractions_attack.actionlist) with their conditionals, and the named conditions of the action list.
 - clips: for each clip, its path, its duration, its flags (1: additive, 2: loop), its animated bones, and the root track
   of the clips of the attacks (the action moves the character with it: AnimationDrivenMotion).
+- the strikes of each graph fragment (stage P2.8): the damage key, the window, and the shapes of the backend file, with the
+  rotation offsets and the flags of their CAGE-Damage items (the backend file has no rotation); weaponJoints: the joints of
+  the weapon skeletons of the melee weapons (the frames of the shapes of the weapon).
 - blendSpaces: the blend spaces of the layers.
 
 Research: ~/Games/soulwarden-client/research/gear.md ("Sheathe and draw animation"), feel-values.md R3, the Soulwarden
@@ -127,6 +130,77 @@ def layers_of(fragment: ET.Element, spaces: dict, add_clip, add_space) -> list[l
     return layers
 
 
+def damage_params(fragment: ET.Element | None) -> list[dict]:
+    """The CAGE-Damage items of a fragment: the damage key and the shape parameters (rotation offsets in degrees)."""
+    out = []
+    for item in fragment.iter("Procedural") if fragment is not None else []:
+        if item.get("type") != "CAGE-Damage":
+            continue
+        params = {child.tag: child.get("value") for child in item.find("ProceduralParams") or []}
+        number = lambda name, default=0.0: float(params.get(name) or default)
+        out.append({"key": (params.get("DamageKey") or "").lower(), "type": params.get("MeleeAttackShapeCastType") or "",
+                    "joint": params.get("JointName") or "",
+                    "offset": [number("OffsetX"), number("OffsetY"), number("OffsetZ")],
+                    "rotation": [number("xRotationOffset"), number("yRotationOffset"), number("zRotationOffset")],
+                    "offhand": (params.get("UseOffhandWeapon") or "").lower() == "true",
+                    "endAsCenter": (params.get("UseEndAsCenter") or "").lower() == "true",
+                    "noSight": (params.get("DisableLOSCheck") or "").lower() == "true"})
+    return out
+
+
+def strikes_of(fragment: dict, params: list[dict]) -> list[dict]:
+    """The strikes of a graph fragment of the backend file (its damage key, window, and shapes: type, radius, half height,
+    box, offset, scale, joint), with the rotation offsets and the flags of the CAGE-Damage item of each shape (the file
+    of the backend has no rotation)."""
+    out = []
+    for key, start, end, _rows, shapes in fragment.get("strikes", []):
+        items = []
+        for shape in shapes:
+            kind, radius, half_height = shape[0], shape[1], shape[2]
+            box, offset, scale, joint = shape[3:6], shape[6:9], shape[9:12], shape[12]
+            match = next((p for p in params if p["key"] == key.lower() and p["type"] == kind and p["joint"] == joint
+                          and all(abs(a - b) < 1e-3 for a, b in zip(p["offset"], offset))), None)
+            items.append({"type": kind.replace("MeleeAttackShapeCastType", "").lower(), "radius": radius, "halfHeight": half_height,
+                          "box": box, "offset": offset, "scale": scale, "joint": joint,
+                          "rotation": match["rotation"] if match else [0.0, 0.0, 0.0], "matched": match is not None,
+                          "offhand": bool(match and match["offhand"]), "endAsCenter": bool(match and match["endAsCenter"]),
+                          "noSight": bool(match and match["noSight"])})
+        out.append({"key": key, "start": start, "end": end, "shapes": items})
+    return out
+
+
+def quaternion_of(matrix) -> list[float]:
+    """@return The quaternion (w, x, y, z) of a rotation matrix (engine space)."""
+    m = matrix
+    trace = m[0][0] + m[1][1] + m[2][2]
+    if trace > 0:
+        k = 0.5 / (trace + 1.0) ** 0.5
+        q = [0.25 / k, (m[2][1] - m[1][2]) * k, (m[0][2] - m[2][0]) * k, (m[1][0] - m[0][1]) * k]
+    elif m[0][0] > m[1][1] and m[0][0] > m[2][2]:
+        k = 2.0 * (1.0 + m[0][0] - m[1][1] - m[2][2]) ** 0.5
+        q = [(m[2][1] - m[1][2]) / k, 0.25 * k, (m[0][1] + m[1][0]) / k, (m[0][2] + m[2][0]) / k]
+    elif m[1][1] > m[2][2]:
+        k = 2.0 * (1.0 + m[1][1] - m[0][0] - m[2][2]) ** 0.5
+        q = [(m[0][2] - m[2][0]) / k, (m[0][1] + m[1][0]) / k, 0.25 * k, (m[1][2] + m[2][1]) / k]
+    else:
+        k = 2.0 * (1.0 + m[2][2] - m[0][0] - m[1][1]) ** 0.5
+        q = [(m[1][0] - m[0][1]) / k, (m[0][2] + m[2][0]) / k, (m[1][2] + m[2][1]) / k, 0.25 * k]
+    return [round(float(v), 6) for v in q]
+
+
+def weapon_joints(models: set[str]) -> dict:
+    """The joints of the weapon skeletons (model space: position in meters, rotation w, x, y, z): the frames of the damage
+    shapes of the weapon attachment."""
+    out = {}
+    for model in sorted(models):
+        try:
+            bones = cgf.read_bones(cgf.read_chunks(source.read(model)))
+        except Exception:   # a skeleton that does not read: the shapes use the frame of the weapon
+            continue
+        out[model] = {b.name: [round(float(v), 6) for v in b.b2w[:3, 3]] + quaternion_of(b.b2w[:3, :3]) for b in bones}
+    return out
+
+
 def condition_json(element: ET.Element) -> dict:
     return {"type": element.tag, "attrs": {k: v for k, v in element.attrib.items() if k != "Name"},
             "children": [condition_json(child) for child in element]}
@@ -236,6 +310,9 @@ def actions() -> dict:
             w = entry["graph"]
             out["start"] = w["start"]
             out["graph"] = []
+            # The attachment database of the weapons of the tags (AnimDbPath of a weapon row): the damage clips of the weapon.
+            attach_db = next((item.get("animDb") for item in weapons_doc["items"].values()
+                              if item.get("tag", "").lower() == ",".join(entry["tags"]).lower() and item.get("animDb")), None)
             for fragment in w["fragments"]:
                 adb = ADB_FOLDER + fragment["file"]
                 node = player.adb_root(adb).find(f"FragmentList/{fragment['name']}")
@@ -243,6 +320,13 @@ def actions() -> dict:
                 item = {name: fragment[name] for name in ("name", "length", "switch", "canTransition", "dodge")}
                 # The basic attacks only: the transitions of the abilities wait for the abilities.
                 item["transitions"] = [t[:6] for t in fragment["transitions"] if t[3] != "ability"]
+                params = damage_params(match)
+                if attach_db:
+                    attach = player.adb_root(player.norm(attach_db)).find(f"FragmentList/{fragment['name']}")
+                    for variant in attach if attach is not None else []:
+                        if tag_set(variant.get("Tags") or "") <= tags | CONTEXT_TAGS:
+                            params += damage_params(variant)
+                item["strikes"] = strikes_of(fragment, params)
                 if match is not None:
                     item["fragment"] = record(adb, match, fragment["name"], root=True)
                 else:
@@ -255,9 +339,11 @@ def actions() -> dict:
         except Exception as error:   # a clip that does not read: the client plays no clip for it
             clips[name] = {"error": str(error)[:120]}
     acts, conditions = activities()
+    graph_tags = {",".join(w["tags"]).lower() for w in weapons if w.get("graph")}
+    models = {item["model"] for item in weapons_doc["items"].values() if item.get("model") and item.get("tag", "").lower() in graph_tags}
     doc = {"format": 1, "sources": [player.ADB, ATTACK_ACTIONS, str(gamedata_dir() / "weapon-actions.json")],
            "weapons": weapons, "fragments": fragments, "blendSpaces": blend_spaces, "clips": clips,
-           "activities": acts, "conditions": conditions}
+           "activities": acts, "conditions": conditions, "weaponJoints": weapon_joints(models)}
     out = player.player_dir() / "actions.json"
     out.write_text(json.dumps(doc, indent=1, sort_keys=True))
     return {"actions": str(out), "weapon tag sets": len(weapons), "fragments": len(fragments), "blend spaces": len(blend_spaces),
