@@ -53,10 +53,15 @@ def region_pass(name: str) -> dict:
     overrides = [""] + sorted({p["material"] for p in items if p.get("material")})
     override_index = {m: i for i, m in enumerate(overrides)}
     material_of = np.array([override_index[p.get("material") or ""] for p in items], dtype=np.uint16)
+    # The source ids (S0): the slice entity of a placement (0: a distribution row or a variant mesh) and the index of
+    # an instance of an instanced mesh component (-1: a static mesh component).
+    entity_of = np.array([p.get("entity", 0) for p in items], dtype=np.uint64)
+    instance_of = np.array([p.get("instance", -1) for p in items], dtype=np.int32)
     out = placements_file(name)
     out.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out, meshes=np.array(meshes), mesh=mesh_of, source=source_of, matrix=matrices,
-                        sources=np.array(SOURCES), materials=np.array(overrides), material=material_of)
+                        sources=np.array(SOURCES), materials=np.array(overrides), material=material_of,
+                        entity=entity_of, instance=instance_of)
     (out.parent / "meshes.json").write_text(json.dumps(meshes))   # for the import script (no numpy in Unreal)
     instances = np.bincount(mesh_of, minlength=len(meshes)) if len(meshes) else np.zeros(0, np.int64)
     return {"region": name, "placements": len(items), "counts": counts, "unique meshes": len(meshes),

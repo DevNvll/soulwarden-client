@@ -42,6 +42,10 @@ MESHES, MESH_ID, ROOT_TM, INSTANCE_TMS = F("meshes"), F("meshAssetId"), F("rootR
 # mesh of the slice metadata (a variant: for example the fall material of a poplar of Oxboro). It replaces the material
 # of the mesh (all its sub-materials, by index).
 MATERIAL_OVERRIDE_ASSET, MATERIAL_OVERRIDE_ID = F("Material Override Asset"), F("materialOverrideAssetId")
+# The instanced mesh component of a slice entity (S0 of the settlement research): its render node has the fields of the
+# static node in its BaseClass1, and its Instance Transforms (a child of the node) are the transforms of the instances in
+# the entity space.
+IMRN, BASE, INSTANCE_TRANSFORMS, ID = F("Instanced Mesh Render Node"), F("BaseClass1"), F("Instance Transforms"), F("Id")
 
 
 def slice_key(name: str) -> str:
@@ -102,9 +106,17 @@ def material_path(element) -> str | None:
     return path if path and path.endswith(".mtl") else None
 
 
-def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None]]:
-    """@return (mesh path, entity world matrix, material override or None) of each entity of a slice with a static mesh
-    component."""
+def entity_id(entity) -> int:
+    """@return The id of a slice entity (u64), or 0."""
+    node = entity.child(ID)
+    child = node.children[0] if node is not None and node.children else node
+    return int.from_bytes(child.value, "big") if child is not None and child.value and len(child.value) == 8 else 0
+
+
+def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None, int, int]]:
+    """@return (mesh path, world matrix, material override or None, entity id, instance index or -1) of each static mesh
+    of a slice: the static mesh component of an entity, and each instance of an instanced mesh component (its matrix:
+    the entity world matrix times the instance transform; research/settlements.md 5)."""
     out = []
     for e in source.walk(source.parse(data)[0]):
         comps = e.child(COMPONENTS)
@@ -114,6 +126,7 @@ def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None]]:
         if name is not None and name.value in DEPLETED_ENTITIES:
             continue   # the depleted mesh of a gathering node (rule 1)
         tm, mesh, material = None, None, None
+        instanced = []
         for comp in comps.children:
             for f in comp.children:
                 if f.name == WORLD_TM and f.value is not None and len(f.value) == 48:
@@ -126,8 +139,24 @@ def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None]]:
                     if a is not None:
                         mesh = asset_path(a)
                     material = material_path(f.child(MATERIAL_OVERRIDE_ASSET))
+                if f.name == IMRN:
+                    node = f.child(BASE) or f
+                    visible = node.child(VISIBLE)
+                    if visible is not None and visible.value == b"\x00":
+                        continue
+                    a = node.child(STATIC_MESH)
+                    path = asset_path(a) if a is not None else None
+                    transforms = f.child(INSTANCE_TRANSFORMS)   # a child of the render node
+                    if path and path.endswith(".cgf") and transforms is not None:
+                        instanced.append((path, material_path(node.child(MATERIAL_OVERRIDE_ASSET)),
+                                          [az_matrix(t.value) for t in transforms.children if t.value and len(t.value) == 48]))
+        world = tm if tm is not None else np.eye(4)
+        ident = entity_id(e) if (mesh or instanced) else 0
         if mesh and mesh.endswith(".cgf"):
-            out.append((mesh, tm if tm is not None else np.eye(4), material))
+            out.append((mesh, world, material, ident, -1))
+        for path, override, matrices in instanced:
+            for index, m in enumerate(matrices):
+                out.append((path, world @ m, override, ident, index))
     return out
 
 
@@ -285,10 +314,11 @@ class Region:
                 continue
             base = np.eye(4)
             base[:3, 3] = (x, y, z)
-            for mesh, tm, material in slice_meshes(source.read(path)):
+            for mesh, tm, material, ident, instance in slice_meshes(source.read(path)):
                 m = base @ tm
                 if inside(m[0, 3], m[1, 3]):
-                    out.append({"source": "chunk", "mesh": mesh, "matrix": m.tolist(), "material": material})
+                    out.append({"source": "chunk", "mesh": mesh, "matrix": m.tolist(), "material": material,
+                                "entity": ident, "instance": instance})
                     counts["chunk"] += 1
         # capitals
         metadata = {}
@@ -328,8 +358,9 @@ class Region:
                                     "material": material})
                         counts["capital variant"] += 1
             else:
-                for mp, tm, material in meshes:
-                    out.append({"source": "capital", "mesh": mp, "matrix": (matrix @ tm).tolist(), "material": material})
+                for mp, tm, material, ident, instance in meshes:
+                    out.append({"source": "capital", "mesh": mp, "matrix": (matrix @ tm).tolist(), "material": material,
+                                "entity": ident, "instance": instance})
                     counts["capital"] += 1
             for sp in spawners:
                 if sp.slice is None or not sp.on_start:
@@ -388,7 +419,7 @@ class Region:
                         inst = mesh.child(INSTANCE_TMS)
                         mats = [rows4(m) for m in (matrix_of(n.value) for n in inst.children) if m is not None] if inst is not None else []
                         material = material_path(mesh.child(MATERIAL_OVERRIDE_ID))
-                        found.extend((mp, root_m @ im, material) for im in (mats or [np.eye(4)]))
+                        found.extend((mp, root_m @ im, material, 0, -1) for im in (mats or [np.eye(4)]))
                     slices[(name, variant)] = found or None
                     of_variant.add((name, variant))
                 else:
@@ -414,8 +445,9 @@ class Region:
             m = np.eye(4)
             m[:3, :3] = quat_matrix(qx, qy, qz, qw) * (scale[r] * 0.01)
             m[:3, 3] = (lx[r] + ox, ly[r] + oy, self.height_at(lx[r], ly[r]))
-            for mesh, tm, material in meshes:
-                out.append({"source": "distribution", "mesh": mesh, "matrix": (m @ tm).tolist(), "material": material})
+            for mesh, tm, material, ident, instance in meshes:
+                out.append({"source": "distribution", "mesh": mesh, "matrix": (m @ tm).tolist(), "material": material,
+                            "entity": ident, "instance": instance})
                 counts["distribution"] += 1
         out, counts["depleted meshes left out (variation rows)"] = without_depleted(out)
         return out, counts
