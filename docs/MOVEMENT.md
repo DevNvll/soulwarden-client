@@ -155,6 +155,17 @@ lanes to the right of the facing: lane A at 25 m (a ramp of 30° from 6 m, 10 m 
 `tests/drive/rules.txt` runs the three lanes of the test floor. The line `SECONDS ability q|r|f [HOLD]` presses a key of the
 bar for HOLD seconds (default 0.1 s; stage P3.5, [ACTIONS.md](ACTIONS.md)).
 
+The clock of a drive script is the game time of the world (`GetTimeSeconds`). Under load it runs slower than the wall
+clock and the input steps of 1/30 s (the engine clamps a long frame): in the exit run of stage P3.5, 9 s of drive time
+were 15.4 s of input steps. Thus:
+
+- Put a step that must come in a time window of the server (a press in a cooldown, a press in a buffered window) a short
+  time after its cause, not at a fixed late time.
+- A `turn` with a rate for one second can turn more or less than its rate (9 degrees too far in that run). A test that
+  needs a direction gives its target a margin, or it uses the target lock.
+- The routes of `tools/creature-check.sh` with a drive script run on the drive clock: each route time needs a drive line
+  at or before it (the `tick` lines), else the route waits for the next drive line.
+
 ```sh
 tools/dev-run.sh --window --enter --quit-when world --stay 36 -- -SwcDrive=$PWD/tests/drive/movement.txt
 tools/dev-run.sh --window --enter --quit-when world --stay 33 -- -SwcDrive=$PWD/tests/drive/rules.txt
