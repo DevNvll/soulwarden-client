@@ -228,7 +228,7 @@ envelope := flags:u8 present:u8 type:size body        (the client writes flags 0
 The route of a component call is the actor id of the entity (the input report: the own actor id). The registration
 has the route of 16 zero bytes (the backend reads no route for it). `Net/SwcTypeIndex` reads `typeindex.json` of the game
 copy (`SOULWARDEN_GAME_DIR`, read only; 7,052 type ids) and checks the type id at the index of each type of the client
-(`swc::net::kUsedTypes`: 50 types at stage P3.6). A difference stops the world entry: the build of the game
+(`swc::net::kUsedTypes`: 54 types at stage P3.6). A difference stops the world entry: the build of the game
 copy is not the build of the backend (the retail client gets the result -90, `TypeIndexMismatch`).
 
 ### The registration (protocol notes 3.4)
