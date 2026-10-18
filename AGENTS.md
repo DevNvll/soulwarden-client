@@ -117,6 +117,8 @@ tools/editor.sh                                 # open the editor (only when the
 tools/play.sh --check                           # check the player run, start nothing (only the user starts tools/play.sh)
 tools/dev-run.sh --quit-when characters         # a development run with no window: the login path to the character list
 tools/dev-run.sh --window                       # a development run with the client window on the agent desktop
+tools/dev-run.sh --enter --quit-when world      # a development run that enters the world, stays 10 s, and leaves
+tools/test-net.sh                               # the tests of the network codec with bytes of the backend (no engine)
 tools/dev-stop.sh                               # stop each process of the development runs (SWC_DEV_RUN=1)
 ```
 
