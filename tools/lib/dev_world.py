@@ -49,6 +49,7 @@ Usage (tools/creature-world.sh):
   respawn NODE SECONDS               a depleted node respawns after SECONDS (NODE: a UUID, REGION#RECORD, or G)
   chest-clear CHEST                  removes the claim of the character on a chest (its UUID): the chest can open again
   chest-reset CHEST SECONDS          the looted claim of the character on a chest resets after SECONDS (the light comes back)
+  world-time [HH:MM[:SS]]            the world time of the backend (with the wall time of the reply), or a new time for the world
   tool ITEM SLOT                     a tool in a paperdoll slot (33 axe, 34 sickle, 35 knife, 36 pick): from the bag, else given
   untool SLOT                        the item of a paperdoll slot goes into the bag
   script FILE [--clock LOG]          a timed list of these commands: "SECONDS COMMAND WORDS..." each line (the seconds from
@@ -58,6 +59,7 @@ The character is the first character of the database, or SWC_DEV_CHARACTER (a na
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
@@ -293,6 +295,18 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "POST", f"/v1/dev/items/equip?character={who}&from={held}&slot={slot}")
     if command == "untool" and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/items/unequip?character={character(folder)}&slot={int(rest[0])}")
+    if command == "world-time" and len(rest) <= 1:
+        # The wall time of the reply (local, ms) for the compare with the clock of the client (the logs of the run).
+        if rest:
+            reply = request(folder, "POST", f"/v1/dev/world/time?character={character(folder)}&time={rest[0]}")
+        else:
+            reply = request(folder, "GET", f"/v1/dev/world/time?character={character(folder)}")
+        if isinstance(reply, dict):
+            # The time first: a script line shows only the start of the reply.
+            now = reply.get("worldTime", reply)
+            reply = {"wall": datetime.datetime.now().isoformat(timespec="milliseconds"), "time": now.get("time"), "hour": now.get("hour"),
+                     "phase": now.get("phase"), **reply}
+        return reply
     if command == "chest-reset" and len(rest) == 2:
         return request(folder, "POST", f"/v1/dev/chests/reset?character={character(folder)}&chest={rest[0]}&seconds={int(float(rest[1]))}")
     if command == "chest-clear" and len(rest) == 1:
