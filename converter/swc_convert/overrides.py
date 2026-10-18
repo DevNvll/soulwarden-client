@@ -5,9 +5,11 @@ has materialOverrideAssetId (region.py). Near Oxboro the fall variants of the po
 fall materials, and the lanterns select their on and off materials. The override replaces all the sub-materials of the
 mesh, by index.
 
-The slots of an imported mesh are named by the key of the material record of their sub-material (mesh.convert). For a
-pair (mesh, override), the slot map gives for each slot the key of the override sub-material with the same index
-(materials.shared_material, the current material rules). Two sub-materials of the mesh with the same key are one slot:
+The slots of an imported mesh are named by the instance key of their sub-material (materials.instance_key: the key of
+its material record, or the n_ key of A1 when its render rules are not the main rules of that key; mesh rule 7 names
+the slots so, and a mesh of rule 6 has only main rules). For a pair (mesh, override), the slot map gives for each slot
+the instance key of the override sub-material with the same index (A2: the instance with the rules of that
+sub-material); the manifest gets its material record. Two sub-materials of the mesh with the same key are one slot:
 when the override gives them different keys, the first one wins ("merged slots" in the report).
 
 Output: content/overrides/pairs.json (the slot map of each pair, "MESH|MTL" -> {"slots": {slot: key}}), the material
@@ -22,7 +24,8 @@ from pathlib import Path
 
 from . import census, cgf, env, manifest, materials, mesh
 
-VERSION = 1   # the rule of the slot maps (with materials.TEXTURE_VERSION and the material keys of materials.py)
+VERSION = 2   # the rule of the slot maps (with materials.TEXTURE_VERSION and the material keys of materials.py;
+              # 2: the instance keys of materials.instance_key for the slots and the overrides, A2 and A2b)
 
 
 def out_dir() -> Path:
@@ -53,7 +56,7 @@ def slot_map(pair: tuple[str, str]) -> dict:
         default = defaults[index] if 0 <= index < len(defaults) else None
         if default is not None and materials.not_drawn(default):
             continue   # no slot (mesh rule 6)
-        slot = materials.shared_material(default)[0]["name"]
+        slot = materials.instance_key(default)
         replacement = overrides[index] if 0 <= index < len(overrides) else None
         if replacement is None or materials.not_drawn(replacement):
             continue   # the slot keeps its material
@@ -61,11 +64,12 @@ def slot_map(pair: tuple[str, str]) -> dict:
         records[record["asset"]] = record
         for texture in textures:
             records[texture["asset"]] = texture
-        if slot in slots and slots[slot] != record["name"]:
+        key = materials.instance_key(replacement)
+        if slot in slots and slots[slot] != key:
             merged += 1
             continue
-        if record["name"] != slot:
-            slots[slot] = record["name"]
+        if key != slot:
+            slots[slot] = key
     out.update({"slots": slots, "records": list(records.values()), "merged slots": merged})
     return out
 
