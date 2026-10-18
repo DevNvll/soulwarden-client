@@ -655,6 +655,10 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                     ++m_own.storageRevision;
                 }
             }
+        } else if (fragment.slot == kSlotGathering && fragment.type == kStateGathering.index) {
+            if (apply_gathering(fragment, m_own.gathering)) {
+                ++m_own.gatheringRevision;
+            }
         } else if (fragment.slot == kSlotAchievement && fragment.type == kStateAchievement.index) {
             if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
                 if (auto bytes = read_bit_vector(value)) {

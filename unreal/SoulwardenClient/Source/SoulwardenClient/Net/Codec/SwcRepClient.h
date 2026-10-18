@@ -152,6 +152,9 @@ public:
         /** The Achievement state (slot 66): the byte vector of the achievements (a read lore page sets its bit; stage P4.1 part 2). */
         std::vector<std::uint8_t> achievements;
         std::uint32_t achievementRevision{0};
+        /** The Gathering state (slot 36): the gather or the open that runs (stage P4.1 part 2). One more revision at each change. */
+        GatheringState gathering;
+        std::uint32_t gatheringRevision{0};
 
         /** The ability state (slot 46, type 185, field 0 persistentAbilityData): one bar for each ability table, in the
          *  sequence of the field; each place has an ability id (the CRC-32 of the lower-case ability id text) and its

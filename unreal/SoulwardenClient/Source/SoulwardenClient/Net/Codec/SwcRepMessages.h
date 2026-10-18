@@ -92,14 +92,16 @@ inline constexpr MessageType kStateGlobalStorage{"MB::GlobalStorageComponentRepl
 /** The achievements of the owner (stage P4.1 part 2; backend server/rep/states/ownership_states.cpp): field 0 is the byte vector of
  *  the achievements (the bit of a read lore page). */
 inline constexpr MessageType kStateAchievement{"MB::AchievementComponentReplicatedState", "44528310AAA54E1BB8C168135B81CD06", 3210};
+/** The gather or the open of the owner (backend server/rep/states/chest_states.cpp; docs/systems/chests.md, gathering.md). */
+inline constexpr MessageType kStateGathering{"MB::GatheringComponentReplicatedState", "0091234C7DDA45FC99EED44859C02A7F", 81};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 37> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 38> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
     kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult, kTakeAllItems,
-    kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints};
+    kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints, kStateGathering};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -122,6 +124,8 @@ inline constexpr std::uint32_t kSlotSelectedContainer = 76;
 inline constexpr std::uint32_t kSlotGlobalStorage = 77;
 /** The Achievement state of the player slice (backend state_codecs.h kAchievementSlot). */
 inline constexpr std::uint32_t kSlotAchievement = 66;
+/** The Gathering state of the player slice (owner only). */
+inline constexpr std::uint32_t kSlotGathering = 36;
 
 /** The component id of the action list component (slot 16) of the entity RootPlayer of the player slice (game data
  *  slice-ids.json; research ids.md, table of the targets). The facet target of the input report is G + this id. */
@@ -424,6 +428,30 @@ std::optional<std::vector<StorageKey>> read_global_storage(std::span<const std::
 std::optional<std::vector<std::uint8_t>> read_bit_vector(std::span<const std::uint8_t> field);
 /** @return True when the bit `index` of a bit vector is set: byte index >> 3, mask 1 << (index & 7) (backend write_bits). */
 bool has_bit(const std::vector<std::uint8_t>& bytes, std::uint32_t index);
+
+/** The Gathering state of the owner (type 81, slot 36; group 1, big-endian numbers; backend chest_states.cpp): the progress ring of
+ *  the prompt of a gather or an open runs remaining / speed seconds; Done (the completion) and Failure (a cancel of the server) end
+ *  the use of the client (it sends 2473: live check L3 of the backend stage 3.5b.1). */
+struct GatheringState {
+    std::uint8_t status{0};
+    float remaining{0.0F};
+    float speed{1.0F};
+    std::uint8_t gatherers{0};
+    std::uint32_t reference{0};
+    bool active{false};
+    /** m_gatherableGDEID: the G of the chest or of the node (0x00000000FFFFFFFF: none). */
+    std::uint64_t target{0x00000000FFFFFFFFULL};
+    std::uint32_t syncReference{0};
+};
+inline constexpr std::uint8_t kGatherNone = 0;
+inline constexpr std::uint8_t kGatherSuccess = 1;
+inline constexpr std::uint8_t kGatherFailure = 2;
+inline constexpr std::uint8_t kGatherDone = 3;
+/**
+ * Applies a Gathering state with the rule of the client (apply 0x4905130): fields 0 to 3 only when field 4 (the reference) changes,
+ * fields 6 and 7 only when field 8 (the sync reference) changes. @return True when the state changed.
+ */
+bool apply_gathering(const soulwarden::backend::tests::Fragment& fragment, GatheringState& state);
 
 /** The elements of a Container (protocol notes 4.10): one element for each slot; the full vector replaces them, a journal
  *  sets elements (at the length of the vector: a new element at the end). @return False when the value has no form. */

@@ -10,12 +10,32 @@
 #include "Serialization/JsonSerializer.h"
 #include "Creatures/SwcCreatureSubsystem.h"
 #include "Net/SwcSpace.h"
+#include "Objects/SwcObjectSubsystem.h"
 #include "SwcBackendSubsystem.h"
 
 namespace
 {
 /** HideMeshDelay of the slice of the personal loot bag (interaction-data.json: lootContainers.personal, 1.5 s at looted). */
 constexpr double BagHideDelay = 1.5;
+/** GatherResource: the action of GatherOption (interaction-data.json), a timed use of the server (a node, a chest). */
+constexpr uint8 GatherAction = 14;
+
+const TCHAR* GatherStepName(swc::interact::GatherWatch::Step Step)
+{
+	switch (Step)
+	{
+	case swc::interact::GatherWatch::Step::running:
+		return TEXT("runs");
+	case swc::interact::GatherWatch::Step::done:
+		return TEXT("is Done");
+	case swc::interact::GatherWatch::Step::failed:
+		return TEXT("failed (Failure)");
+	case swc::interact::GatherWatch::Step::late:
+		return TEXT("has no end in its time");
+	default:
+		return TEXT("waits");
+	}
+}
 
 bool IsLooted(const swc::net::RepClient::OwnEntity& Own, const swc::net::ActorId& Actor)
 {
@@ -173,6 +193,21 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Use.finish();
 		}
 	}
+	// A gather or an open (GatherOption): the request stays until the Gathering state ends the work (Done, Failure) or its time passed.
+	if (bUseGather && Use.phase() != swc::interact::Use::Phase::idle)
+	{
+		const swc::interact::GatherWatch::Step Before = Gather.step();
+		const swc::interact::GatherWatch::Step Step = Gather.update(Now, Own.gathering);
+		if (Step != Before)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the work %s (remaining %.2f s, speed %.2f, G %016llx)%s"), GatherStepName(Step), Own.gathering.remaining,
+				Own.gathering.speed, Own.gathering.target, Step == swc::interact::GatherWatch::Step::running ? TEXT("") : TEXT(": the client ends the use (2473)"));
+		}
+		if (Step == swc::interact::GatherWatch::Step::done || Step == swc::interact::GatherWatch::Step::failed || Step == swc::interact::GatherWatch::Step::late)
+		{
+			Use.finish();
+		}
+	}
 	// The log of the loot: the items of the bag of the character and the claims of the LootTracker at each change.
 	if (Own.bagRevision != SeenBag)
 	{
@@ -202,6 +237,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 	if (Use.phase() == swc::interact::Use::Phase::idle)
 	{
 		bUseBag = false;
+		bUseGather = false;
 		Focus = bLocked ? std::nullopt : swc::interact::focus(Templates, Objects, Feet);
 		FocusName = Focus ? FString(UTF8_TO_TCHAR(Focus->object->name.c_str())) : FString();
 		bFocusBag = false;
@@ -233,6 +269,25 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 				bFocusBag = true;
 			}
 		}
+		// The objects of the level data (stage P4.1 part 2): the nearest bound in range of the object layer when it is nearer. Its first
+		// option: ReadLore of a lore page, GatherOption of a node or a chest. The ids and the request come from the layer.
+		bFocusGather = false;
+		USwcObjectSubsystem* Layer = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcObjectSubsystem>() : nullptr;
+		FSwcWorldObjectTarget Object;
+		if (!bLocked && Layer != nullptr && Layer->FindNearestObject(From, Object) && !Object.Options.IsEmpty()
+			&& (!Focus || Object.Distance * Object.Distance < Focus->distanceSq))
+		{
+			ObjectOption = Object.Options[0].Option;
+			swc::interact::Candidate Candidate;
+			Candidate.option = &ObjectOption;
+			Candidate.request = Object.Options[0].Request;
+			Candidate.place = Object.EnginePlace;
+			Candidate.distanceSq = Object.Distance * Object.Distance;
+			Focus = Candidate;
+			FocusName = FString::Printf(TEXT("%s %s"), *Object.Kind.ToString(), *Object.Key);
+			bFocusBag = false;
+			bFocusGather = ObjectOption.action == GatherAction;
+		}
 	}
 	if (bLocked)
 	{
@@ -243,11 +298,17 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: E at %s (interest %u, %.1f m): %s, action %u, delay %.1f s, hold %.1f s"), *FocusName, Focus->interest,
 			FMath::Sqrt(Focus->distanceSq), UTF8_TO_TCHAR(Focus->option->name.c_str()), Focus->option->action, Focus->option->delay, Focus->option->hold);
-		Use.press(Now, *Focus, bFocusBag);
+		// A bag and a gather keep their request until their source ends them (the Looted claim; the Gathering state).
+		Use.press(Now, *Focus, bFocusBag || bFocusGather);
 		if (bFocusBag)
 		{
 			bUseBag = true;
 			UseBag = Focus->request.reference.actor;
+		}
+		if (bFocusGather)
+		{
+			bUseGather = true;
+			Gather.start(Now, Snapshot.Own.gathering);
 		}
 	}
 	else if (!bKeyDown && bKeyWas)
@@ -313,5 +374,7 @@ FString FSwcInteractor::DebugText(double Now) const
 	}
 	const TCHAR* Phase = Use.phase() == swc::interact::Use::Phase::holding ? TEXT("hold") : Use.phase() == swc::interact::Use::Phase::requested ? TEXT("use")
 		: Use.phase() == swc::interact::Use::Phase::executed ? TEXT("done") : TEXT("E");
-	return FString::Printf(TEXT("%s %s (%s), %.0f %%"), Phase, UTF8_TO_TCHAR(Focus->option->name.c_str()), *FocusName, Use.progress(Now) * 100.0f);
+	// A gather: the progress ring of the work (the Gathering state), not of the request.
+	const float Progress = bUseGather && Gather.step() == swc::interact::GatherWatch::Step::running ? Gather.progress(Now) : Use.progress(Now);
+	return FString::Printf(TEXT("%s %s (%s), %.0f %%"), Phase, UTF8_TO_TCHAR(Focus->option->name.c_str()), *FocusName, Progress * 100.0f);
 }

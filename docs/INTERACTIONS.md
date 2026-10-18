@@ -108,13 +108,27 @@ Check (development run on the world level, 2026-10-18; `tests/drive/loot.txt`, t
 reply 1, the bag of the character from 6 to 7 items, the claim Looted, the end of the use (2473); the backend: "took 1 item(s) of
 the bag", "ended: the client cancelled it (2473)", and the end of the bag 1.25 s later ("each part is empty").
 
+## The objects of the level data and the gather use (stage P4.1 part 2)
+
+The creature track added this part (docs/OBJECTS.md); the player track owns the files.
+
+- The focus: after the bag, `USwcObjectSubsystem::FindNearestObject` (the object layer) gives the nearest usable bound of a lore
+  page, a chest, a node, a station, a person. It is the focus when it is nearer than the focus of the fixtures and the bag. Its
+  first option and its ready request come from the layer (ReadLore of a lore page, GatherOption of a node or a chest).
+- The gather or open use (GatherOption, action 14): a timed use of the server. The client keeps its request (the press keeps it as
+  for a bag: the reply 1 and the release of the key do not end it). The Gathering state of the owner (type 81, slot 36; the client
+  rule: fields 0 to 3 only with a new field 4, fields 6 and 7 only with a new field 8) gives Success with remaining / speed seconds
+  of work, then Done at the completion, or Failure. Done and Failure end the use (2473: live check L3 of the backend stage
+  3.5b.1). Limits: no Success 5 s after the press, or no end 2 s after the time of the work, end it too
+  (`swc::interact::GatherWatch`). A release before the time ends the work with no item (chests.md, ST-R1).
+- `tools/test-creatures.sh` (the object program) tests the reader of the Gathering state with the backend encoder
+  (`chest_states.cpp`) and the end rule.
+
 ## Not done, open points
 
 - The loot panel: stage P2.4 of the UI track (the inventory screen `lyshineui/inventory/newinventory`).
 - A bag with no claim of the character in the LootTracker shows (the retail client shows nothing); the server sends the record
   only to its eligible characters, with the claim.
-- The objects of the level data (the lore pages, the chests, the persons, the stations): the client makes no object from the
-  level data yet.
 - InteractionAlignment of the action DelayedInteraction (the character turns and moves to the object) is not in the client.
 - The keg has no body in the client (the slice has a mesh; the view of the server objects is not in this stage).
 - The side-by-side check with the retail client is open.

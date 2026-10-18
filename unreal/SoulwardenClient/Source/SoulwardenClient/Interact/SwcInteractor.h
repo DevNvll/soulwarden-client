@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Interact/SwcGatherUse.h"
 #include "Interact/SwcInteraction.h"
 #include "Net/SwcRepConnection.h"
 
@@ -20,6 +21,11 @@ class USwcCreatureSubsystem;
  * bag is its first option, TakeAllOption (the hold of the prompt 0.5 s): the server moves the items, the claim of the bag in the
  * LootTracker becomes Looted, and the client ends its use (2473). A Looted bag has no prompt, and its model hides 1.5 s after the
  * claim (HideMeshDelay of the slice).
+ *
+ * The objects of the level data (stage P4.1 part 2, docs/OBJECTS.md): the object layer of the creature track
+ * (USwcObjectSubsystem::FindNearestObject) gives the nearest bound in range of a lore page, a chest, a node, a station; it is the focus
+ * when it is nearer than the focus above. GatherOption (a node, a chest) is a timed use of the server: the request stays until the
+ * Gathering state ends the work (swc::interact::GatherWatch), then the client ends the use (2473).
  */
 class FSwcInteractor
 {
@@ -59,6 +65,11 @@ private:
 	bool bFocusBag = false;
 	swc::net::ActorId UseBag{};
 	bool bUseBag = false;
+	/** The object of the focus (its first option; the candidate points to it), and the gather or open that runs. */
+	swc::interact::Option ObjectOption;
+	bool bFocusGather = false;
+	bool bUseGather = false;
+	swc::interact::GatherWatch Gather;
 	TMap<uint32, double> LootedSince;
 	/** The revisions of the bag of the character and of the LootTracker that the log saw. */
 	uint32 SeenBag = 0;

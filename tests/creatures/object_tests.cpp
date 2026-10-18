@@ -3,16 +3,19 @@
 // gathering-data.json of the backend copy: the actor, the facet target, and the option entity of a lore page, a chest, a capital
 // node, and a natural node; backend test cases IT10 and GAT2), the record of a gathering node with the states that the encoders of
 // the backend make (metadata, Interact, GatherableController: server/rep/states), the Achievement state of the owner
-// (ownership_states.cpp), and the file of the natural nodes (converter/swc_convert/objects.py). tools/test-creatures.sh builds it
-// with the system compiler; the Soulwarden sources are read only.
+// (ownership_states.cpp), the Gathering state of the owner (chest_states.cpp) and the end of a gather use (Interact/SwcGatherUse),
+// and the file of the natural nodes (converter/swc_convert/objects.py). tools/test-creatures.sh builds it with the system compiler;
+// the Soulwarden sources are read only.
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
 
 #include "Creatures/SwcEntityTable.h"
+#include "Interact/SwcGatherUse.h"
 #include "Net/Codec/SwcRepMessages.h"
 #include "Objects/SwcObjectRules.h"
 #include "server/rep/replication.h"
@@ -176,6 +179,103 @@ void test_achievements() {
     check(rep::encode_achievement_state(player, rep::View::observer, clock).empty(), "no Achievement state for an observer");
 }
 
+// ---------------------------------------------------------------------------------------------------- the Gathering state
+
+/** @return The fragment of the Gathering state of the backend for a character with this progress. */
+decoder::Fragment gathering_fragment(const backend::world::GatherProgress& progress, const TestClock& clock, const char* name) {
+    backend::world::Entity player;
+    player.kind = backend::world::EntityKind::player;
+    player.gathering = progress;
+    rep::PartsRequest request;
+    request.clock = &clock;
+    const std::vector<backend::server::hub::Bytes> parts = rep::encode_gathering_state(player, rep::View::owner, request);
+    check(parts.size() == 1, std::string(name) + ": one Gathering state for the owner");
+    return fragment_of(swc::net::kSlotGathering, swc::net::kStateGathering.index, parts.empty() ? backend::server::hub::Bytes{} : parts.front(), name);
+}
+
+void test_gathering_state() {
+    TestClock clock;
+    // The start of the work of a node: Success, 35 s of BaseGatherTime, the speed 6.25 of a tool, the G of the node (gathering.md).
+    backend::world::GatherProgress progress;
+    progress.status = 1;
+    progress.remaining = 35.0F;
+    progress.speed = 6.25F;
+    progress.gatherers = 1;
+    progress.reference = 1;
+    progress.active = true;
+    progress.target = 0x09188221ULL;
+    progress.syncReference = 1;
+    swc::net::GatheringState state;
+    check(swc::net::apply_gathering(gathering_fragment(progress, clock, "gathering (success)"), state), "the first Gathering state changes the state");
+    check(state.status == swc::net::kGatherSuccess && state.remaining == 35.0F && state.speed == 6.25F && state.gatherers == 1 && state.reference == 1,
+          "fields 0 to 4 of the Gathering state (big-endian)");
+    check(state.active && state.target == 0x09188221ULL && state.syncReference == 1, "fields 6 to 8: the G of the node");
+    // The rule of the client: fields 0 to 3 change only with a new reference (field 4), fields 6 and 7 only with field 8.
+    backend::world::GatherProgress same = progress;
+    same.status = 3;
+    same.active = false;
+    check(!swc::net::apply_gathering(gathering_fragment(same, clock, "gathering (same references)"), state) && state.status == swc::net::kGatherSuccess
+              && state.active,
+          "a state with the same references changes nothing");
+    backend::world::GatherProgress done = progress;
+    done.status = 3;
+    done.remaining = 0.0F;
+    done.reference = 2;
+    done.active = false;
+    done.target = 0x00000000FFFFFFFFULL;
+    done.syncReference = 2;
+    check(swc::net::apply_gathering(gathering_fragment(done, clock, "gathering (done)"), state) && state.status == swc::net::kGatherDone && !state.active
+              && state.target == 0x00000000FFFFFFFFULL,
+          "the completion: Done, no target");
+    // No Gathering state before the first work (reference 0).
+    backend::world::Entity idle;
+    idle.kind = backend::world::EntityKind::player;
+    rep::PartsRequest request;
+    request.clock = &clock;
+    check(rep::encode_gathering_state(idle, rep::View::owner, request).empty(), "no Gathering state before the first work");
+}
+
+void test_gather_watch() {
+    using Step = swc::interact::GatherWatch::Step;
+    swc::net::GatheringState state;
+    state.reference = 4;   // an earlier work
+    state.status = swc::net::kGatherDone;
+    swc::interact::GatherWatch watch;
+    watch.start(10.0, state);
+    check(watch.update(10.2, state) == Step::waiting, "the Done of an earlier work does not end the new use");
+    // Success 0.6 s after the press (the hold 0.5 s of GatherOption, then the request): 35 s / 6.25 = 5.6 s of work.
+    state.reference = 5;
+    state.status = swc::net::kGatherSuccess;
+    state.remaining = 35.0F;
+    state.speed = 6.25F;
+    check(watch.update(10.6, state) == Step::running && std::fabs(watch.end_time() - 16.2) < 1e-6, "the time of the work: remaining / speed");
+    check(std::fabs(watch.progress(13.4) - 0.5F) < 1e-5F, "the progress of the work");
+    check(watch.update(17.0, state) == Step::running, "the request stays until the end (no release at the time)");
+    state.reference = 6;
+    state.status = swc::net::kGatherDone;
+    check(watch.update(17.1, state) == Step::done, "Done ends the use (the client sends 2473)");
+    check(watch.update(30.0, state) == Step::done, "the end stays");
+    // A supply chest: 2.5 s, speed 1; no Done: the use ends kSlack after the time.
+    swc::interact::GatherWatch chest;
+    chest.start(0.0, state);
+    state.reference = 7;
+    state.status = swc::net::kGatherSuccess;
+    state.remaining = 2.5F;
+    state.speed = 1.0F;
+    check(chest.update(0.7, state) == Step::running && chest.update(5.1, state) == Step::running && chest.update(5.3, state) == Step::late,
+          "no end by the time of the work plus 2 s: late");
+    // Failure (a walk out of the range, damage).
+    swc::interact::GatherWatch failed;
+    failed.start(0.0, state);
+    state.reference = 8;
+    state.status = swc::net::kGatherFailure;
+    check(failed.update(1.0, state) == Step::failed, "Failure ends the use");
+    // No Success after the press.
+    swc::interact::GatherWatch none;
+    none.start(0.0, state);
+    check(none.update(4.9, state) == Step::waiting && none.update(5.1, state) == Step::late, "no work 5 s after the press: late");
+}
+
 // -------------------------------------------------------------------------------------------------------- the node file
 
 void put32(std::vector<std::uint8_t>& out, std::uint32_t value) {
@@ -242,6 +342,8 @@ int main() {
     test_ids();
     test_node_record();
     test_achievements();
+    test_gathering_state();
+    test_gather_watch();
     test_node_file();
     std::printf("objects: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

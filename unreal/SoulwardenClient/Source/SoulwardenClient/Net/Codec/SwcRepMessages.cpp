@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace swc::net {
 namespace {
@@ -438,6 +439,60 @@ std::optional<std::vector<std::uint8_t>> read_bit_vector(std::span<const std::ui
 
 bool has_bit(const std::vector<std::uint8_t>& bytes, std::uint32_t index) {
     return (index >> 3) < bytes.size() && (bytes[index >> 3] & (1U << (index & 7))) != 0;
+}
+
+bool apply_gathering(const soulwarden::backend::tests::Fragment& fragment, GatheringState& state) {
+    namespace decoder = soulwarden::backend::tests;
+    constexpr unsigned kGroup = 1;
+    const auto number = [&fragment](unsigned field, std::size_t size, std::uint64_t& out) {
+        const auto value = decoder::field_of(fragment, kGroup, field);
+        if (value.size() != size) {
+            return false;
+        }
+        out = 0;
+        for (const std::uint8_t byte : value) {
+            out = (out << 8) | byte;
+        }
+        return true;
+    };
+    const auto real = [](std::uint64_t bits) {
+        const auto narrow = static_cast<std::uint32_t>(bits);
+        float out = 0.0F;
+        std::memcpy(&out, &narrow, sizeof(out));
+        return out;
+    };
+    bool changed = false;
+    std::uint64_t reference = 0;
+    if (number(4, 4, reference) && static_cast<std::uint32_t>(reference) != state.reference) {
+        state.reference = static_cast<std::uint32_t>(reference);
+        std::uint64_t value = 0;
+        if (number(0, 1, value)) {
+            state.status = static_cast<std::uint8_t>(value);
+        }
+        if (number(1, 4, value)) {
+            state.remaining = real(value);
+        }
+        if (number(2, 4, value)) {
+            state.speed = real(value);
+        }
+        if (number(3, 1, value)) {
+            state.gatherers = static_cast<std::uint8_t>(value);
+        }
+        changed = true;
+    }
+    std::uint64_t sync = 0;
+    if (number(8, 4, sync) && static_cast<std::uint32_t>(sync) != state.syncReference) {
+        state.syncReference = static_cast<std::uint32_t>(sync);
+        std::uint64_t value = 0;
+        if (number(6, 1, value)) {
+            state.active = value != 0;
+        }
+        if (number(7, 8, value)) {
+            state.target = value;
+        }
+        changed = true;
+    }
+    return changed;
 }
 
 bool apply_container(std::span<const std::uint8_t> field, std::vector<soulwarden::backend::tests::WireItem>& elements) {
