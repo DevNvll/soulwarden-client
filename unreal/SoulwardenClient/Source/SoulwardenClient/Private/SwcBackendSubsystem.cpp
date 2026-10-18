@@ -12,6 +12,7 @@
 #include "World/SwcWorldStreaming.h"
 #include "Components/CapsuleComponent.h"
 #include "Containers/Ticker.h"
+#include "Creatures/SwcCreatureSubsystem.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Camera/PlayerCameraManager.h"
@@ -548,6 +549,9 @@ void USwcBackendSubsystem::UpdateLook()
 	if (Actions.IsValid())
 	{
 		Avatar->GetActions()->Setup(Actions, Look.bFemale, AttackDriver);
+		// The melee contacts of the strikes: the hit volumes of the creatures (stage P2.8, docs/CREATURES.md).
+		Avatar->GetActions()->SetContactQuery([Creatures = TWeakObjectPtr<USwcCreatureSubsystem>(Avatar->GetWorld()->GetSubsystem<USwcCreatureSubsystem>())](
+			const FSwcMeleeShape& Shape, std::vector<swc::net::MeleeContactItem>& Out) { if (Creatures.IsValid()) { Creatures->QueryMeleeContacts(Shape, Out); } });
 		Avatar->GetActions()->OnGearChanged();
 	}
 	FString Bytes;
