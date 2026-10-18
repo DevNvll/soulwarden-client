@@ -1,0 +1,15 @@
+# The armed movement of stage P2.6 (docs/MOVEMENT.md): the start and the stop with the weapon in its sheath (Sprint_Start
+# 20 m/s2, Nav_Stop 40 m/s2), then the same with the sword in the hand (10 m/s2 and 12 m/s2), the armed run backward
+# (Combat_Nav_Stand 25 / 25), a running jump and a standing jump with the sword. Times in seconds from the possession.
+# tools/dev-run.sh --window --enter NAME --quit-when world --stay 22 -- -SwcDrive=$PWD/tests/drive/combat-move.txt
+2.0 move 0 1
+4.0 move 0 0
+5.0 key 1
+7.0 move 0 1
+9.0 move 0 0
+10.5 move 0 -1
+12.0 move 0 0
+13.0 move 0 1
+14.5 jump
+16.0 move 0 0
+18.0 jump

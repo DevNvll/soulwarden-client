@@ -1,6 +1,6 @@
 # The movement of the player
 
-Stage 1.7 (Linear AST-144). The client moves the character of the user with the values of the game data, plays the
+Stage 1.7 (Linear AST-144), with the armed rates and the aim of stage P2.6 (AST-161). The client moves the character of the user with the values of the game data, plays the
 original clips of the player with the timings of the Mannequin data, and sends the position of the character in the
 input report. The sources are the research file `~/Games/soulwarden-client/research/feel-values.md` (R2 the movement,
 R3 the animation, R6 the keys) and the Soulwarden protocol notes (4.6, 4.7). Each value in the code has its source
@@ -38,10 +38,10 @@ game copy --tools/convert-player.sh locomotion--> content/player/locomotion.json
 | Value | Data | Source |
 | --- | --- | --- |
 | Sprint | 5.5 m/s, accel 20 m/s², decel 20 m/s²; the default with forward or side input | R2, `playeractions_sprint` |
-| Sprint_Start | accel 20 m/s² unarmed (10 with a weapon); to Sprint at 4 m/s or after 1.13 s | R2 |
+| Sprint_Start | accel 20 m/s² unarmed (10 with a weapon, below); to Sprint at 4 m/s or after 1.13 s | R2 |
 | Run (Nav) | 3.25 m/s, accel 35 m/s² (Nav_Start 12), decel 35 m/s²; only with backward input or with no "can sprint" | R2, `playeractions_nav` |
 | Walk | 1.65 m/s, 25 / 25 m/s²; Left Ctrl held, or no "can run" | R2, `Stand_Walk` |
-| Stop | 40 m/s² unarmed (12 with a weapon) | R2, `Nav_Stop` |
+| Stop | 40 m/s² unarmed (12 with a melee or magic weapon, below) | R2, `Nav_Stop` |
 | Input angles | forward cone 110° (sprint), backward the rest (run); dead zone 0.2 | R2, `playerinput_navigation` |
 | ClearMotion | velocity cleared when the input turns more than 80° (Sprint_Start) or 125° (Sprint) from it | R2 |
 | Turn rule | strafe mode: alpha = 1 − (1 − r)^(30·dt) to the camera yaw while moving; r = 0.30 run, 1.0 sprint, 0.33 sprint start; no turn at idle or in the air | R2.8.3, C 0x2A919A0 |
@@ -61,6 +61,25 @@ game copy --tools/convert-player.sh locomotion--> content/player/locomotion.json
 The velocity on the ground is the velocity of the data: each axis of the camera frame goes linearly to its target with
 the rate of the state (no friction). A block (a wall, the face of a step) does not reset it: the next move of the
 engine has its full length, which the step-up of the engine needs. The state rules use this speed.
+
+## The armed rates and the aim (stage P2.6)
+
+With a weapon in the hand (drawn), the conditional rates of the movement action lists replace the unarmed rates. The
+tags of the weapon in `actions.json` select them (`USwcPlayerActions::TickComponent` gives the flags to
+`USwcCharacterMovement::SetCombat`):
+
+| Phase | Unarmed | Armed | Condition of the data |
+| --- | --- | --- | --- |
+| Sprint_Start | 20 m/s² | 10 m/s² | `Stand+Armed`: 1H or 2H melee, 1H or 2H ranged, bow |
+| Nav_Start, Nav (accel / decel) | 12 / 35, 35 / 35 m/s² | 25 / 25 m/s² | `Combat_Nav_Stand`: also the magic weapons (the first conditional that holds, before NavStart) |
+| Nav_Stop | 40 m/s² | 12 m/s² | `CombatNav+Melee`, `CombatNav+Magic` (no change for a ranged weapon) |
+
+- The sprint speed (5.5 m/s), the run speed (3.25 m/s), and the walk do not change with a weapon.
+- The aim (`AimDownSights`, the right mouse button held, a 1H or 2H ranged weapon or a bow in the hand, no attack):
+  the character walks (`Stand_Walk`, 1.65 m/s). Sprint_Start needs "not ADS", thus the aim has no sprint. Each input
+  step has the action bit 126 while the aim is on.
+- The exit of a dodge sets `SkipSprintStartTimer` (0.85 s, `playeractions_dodge`): in this time a forward input goes
+  to Sprint at once, with no Sprint_Start.
 
 ## The animation
 
@@ -92,6 +111,7 @@ engine has its full length, which the step-up of the engine needs. The state rul
 | Move | W A S D | Axis2D (x right, y forward); the sprint is automatic |
 | Jump | Space | one press |
 | Walk | Left Ctrl | hold |
+| Aim | right mouse button | hold, with a ranged weapon or a bow drawn (stage P2.6) |
 | Look | mouse | 0.025° for each mouse count (0.5 × the option sensitivity 0.05 × the sensitivity of the camera state), no smoothing (`bEnableMouseSmoothing=False`) |
 
 The camera, the wheel (zoom), the target lock (middle mouse), and free look (Left Alt) are in [CAMERA.md](CAMERA.md).
@@ -129,6 +149,15 @@ tools/dev-run.sh --window --enter --quit-when world --stay 36 -- -SwcDrive=$PWD/
 tools/dev-run.sh --window --enter --quit-when world --stay 33 -- -SwcDrive=$PWD/tests/drive/rules.txt
 ```
 
+The armed drives of stage P2.6: `tests/drive/combat-move.txt` (the start and the stop with the weapon sheathed, then
+drawn, the armed run backward, two jumps with the weapon) and `tests/drive/rules-armed.txt` (rules.txt with the weapon
+drawn). The character must have a melee weapon in slot 1:
+
+```sh
+tools/dev-run.sh --window --enter Swordwarden --quit-when world --stay 22 -- -SwcDrive=$PWD/tests/drive/combat-move.txt
+tools/dev-run.sh --window --enter Swordwarden --quit-when world --stay 35 -- -SwcDrive=$PWD/tests/drive/rules-armed.txt
+```
+
 ## Exit check (development runs, 2026-10-18)
 
 - Videos in `~/Games/soulwarden-client/evidence/1.7/`: `movement-world.mp4` (walk 1.65 m/s, sprint 5.5 m/s, a turn of
@@ -154,6 +183,24 @@ Evidence in `~/Games/soulwarden-client/evidence/world-level/`: `character-on-gro
 - The saved place of a development character moves in each development run, also on the test floor. A place in a
   building of the world level holds the character in the building: `place=X:Y:Z` of `tools/dev-run.sh --create` moves it.
 
+## The armed check of stage P2.6 (development runs, 2026-10-18)
+
+`Swordwarden` (the sword and the shield drawn) on the test floor, `tests/drive/combat-move.txt` and
+`tests/drive/rules-armed.txt`; `Mysticwarden` (the bow) with `tests/drive/aim.txt`. About 36 frames in a second.
+Evidence in `~/Games/soulwarden-client/evidence/P2.6/` (`armed-start-stop.mp4`, `armed-slope-step.mp4`,
+`aim-camera.mp4`, and the client logs):
+
+| Measure (the log of the movement state) | Unarmed | Armed |
+| --- | --- | --- |
+| Sprint_Start to 4 m/s | 0.22 s | 0.42 s |
+| Stop from the sprint | 0.12 s | 0.46 s |
+| Run backward to 3.25 m/s | | 0.13 s |
+
+- The slope and step lanes armed: the same rules as unarmed (up the 30° ramp and the 0.5 m step, no walk up the 75°
+  ramp, no step up the 0.8 m step).
+- The aim with the bow: "actions: aim on (AimDownSights)", then a walk at 1.48 m/s to 1.65 m/s; after "aim off" the
+  sprint starts again.
+
 ## Differences and open points
 
 - Land_Sprint and Land_Roll (root motion after a landing with input) are not played: a landing with input goes on to
@@ -165,7 +212,9 @@ Evidence in `~/Games/soulwarden-client/evidence/world-level/`: `character-on-gro
   each simulation step: a long frame gives a larger step between two reports (the backend accepted each one).
 - The ground value of an entry in the air is the half float of the distance (an inference from "0 to 10; 10 in a
   fall" of protocol notes 4.7); on the ground the value of the captures (180).
-- TravelSlope is 0; the weapon rates (accel 10, stop 12) wait for the weapons; the dodge is not in this stage.
+- TravelSlope is 0.
+- The armed rates of the crouch, the prone, the swim, and the mounts are not in the client. The aim of a magic weapon and
+  the shooter stance are not in the client: the aim needs a ranged weapon or a bow.
 - A character that runs into a wall changes between Sprint and Sprint_Start each 1.13 s.
 - In the first second after the world entry the engine prepares the clips (the bind pose).
-- The side-by-side check with the retail client (research R2.9) is open.
+- The side-by-side check with the retail client (research R2.9) is open, also for the armed rates of stage P2.6.

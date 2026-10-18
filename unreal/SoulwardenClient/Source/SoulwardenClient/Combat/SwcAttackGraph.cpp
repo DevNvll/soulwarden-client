@@ -387,6 +387,12 @@ void Driver::dodge_press()
 	m_dodgePresses = std::min(m_dodgePresses + 1, 8U);
 }
 
+void Driver::set_aim(bool aim)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_aim = aim;
+}
+
 void Driver::set_stamina(const StaminaData& data)
 {
 	const std::lock_guard<std::mutex> guard(m_lock);
@@ -443,6 +449,9 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 	}
 	// The hold: each step while the button is down, from the step after the press.
 	bits.hold = m_down && !bits.press;
+	if (m_aim) {
+		actionBits.push_back(kBitAim);
+	}
 	// The dodge key: one press for each step.
 	if (m_dodgePresses > 0) {
 		--m_dodgePresses;

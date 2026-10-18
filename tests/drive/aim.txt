@@ -1,0 +1,13 @@
+# The aim of stage P2.6 (docs/CAMERA.md): the bow in the hand, the aim button (right mouse) held: AimDownSights, the
+# AimCamera (1 m, blend 0.09 s), the walk (Stand_Walk 1.65 m/s, no sprint), the aim bit 126; then the release. A target lock
+# key in the aim does nothing (DisableCameraLock). Times in seconds from the possession.
+# tools/dev-run.sh --window --enter Mysticwarden --quit-when world --stay 18 -- -SwcDrive=$PWD/tests/drive/aim.txt
+1.0 key 1
+3.0 aim 1
+4.5 move 0 1
+6.5 move 1 0
+8.0 move 0 0
+8.5 lock
+9.5 aim 0
+11.0 move 0 1
+13.0 move 0 0

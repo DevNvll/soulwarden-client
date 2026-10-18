@@ -644,13 +644,29 @@ void USwcBackendSubsystem::UpdatePlayer()
 	Movement->SetPermissions(Snapshot.Own.dataBits, Snapshot.Own.moreDataBits);
 	if (ASwcCameraManager* CameraManager = Cast<ASwcCameraManager>(Controller->PlayerCameraManager))
 	{
-		// The camera: the dead mark (DeathCamera) and the targets of the target lock.
+		// The camera: the dead mark (DeathCamera) and the targets of the target lock: the living creatures at their shown feet
+		// (USwcCreatureSubsystem, stage P2.6); with no creature view the entities of the backend.
 		CameraManager->SetDead(Snapshot.Own.dead);
-		CameraManager->SetDrawCandidates(!bPlayerRun);
+		CameraManager->SetDrawCandidates(false);
 		TArray<FSwcLockCandidate> Candidates;
-		for (const TPair<uint32, swc::net::WorldPosition>& Other : Snapshot.Others)
+		if (const USwcCreatureSubsystem* Creatures = World->GetSubsystem<USwcCreatureSubsystem>())
 		{
-			Candidates.Add({Other.Key, SwcEngineToUnreal(Other.Value)});
+			TArray<FSwcCreatureTarget> Targets;
+			Creatures->GetTargets(Targets);
+			for (const FSwcCreatureTarget& Target : Targets)
+			{
+				if (!Target.bDead)
+				{
+					Candidates.Add({Target.Interest, Target.Position});
+				}
+			}
+		}
+		else
+		{
+			for (const TPair<uint32, swc::net::WorldPosition>& Other : Snapshot.Others)
+			{
+				Candidates.Add({Other.Key, SwcEngineToUnreal(Other.Value)});
+			}
 		}
 		CameraManager->SetLockCandidates(MoveTemp(Candidates));
 	}

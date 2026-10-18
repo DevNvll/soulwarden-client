@@ -1,6 +1,6 @@
 # The camera of the player
 
-Stage 1.8 (Linear AST-145). The camera uses the camera data of the client: the camera states of `gamecamera.xml`, the
+Stage 1.8 (Linear AST-145), with the combat cameras of stage P2.6 (AST-161). The camera uses the camera data of the client: the camera states of `gamecamera.xml`, the
 `ActivateCamera` entries of the camera action list, and the `CameraLockComponent` of the player slice. The source is the
 research file `~/Games/soulwarden-client/research/feel-values.md`, part R1. Each value in the code has its source next
 to it.
@@ -27,12 +27,13 @@ Each frame the manager takes the entry of the camera action list (the first true
 | --- | --- | --- | --- |
 | the character is dead (the dead mark of the vitals state) | `DeathCam` | DeathCamera | 0.10 s |
 | the target lock is on | `Locked_Cam+Stand` | LockedCamera | 0.20 s |
+| the aim (`AimDownSights`: the right mouse button, a ranged weapon or a bow drawn; [MOVEMENT.md](MOVEMENT.md)) | `Aim+Stand` | AimCamera | 0 s |
 | fragment Sprint or Sprint_Start | `Dynamic+Sprint+Stand` | DynamicCamera | 0.30 s |
 | fragment Idle | `Dynamic+Idle+Stand` | MidCamera | 0.30 s |
 | fragment Strafe (run, walk) | `Dynamic+Nav+Stand` | MidCamera | 0.30 s |
 | each other fragment (jump, fall, land) | `Dynamic+Stand` | MidCamera | 0.30 s |
 
-The aim states (AimCamera and the others) need a ranged weapon; until the weapons can aim, the drive command
+The other aim states (crouch, prone, the shooter stance, the siege weapons) are not in the client. The drive command
 `camera STATE` selects a state for the checks.
 
 A change of state blends each value with SmoothCD: the distance, the offset, the FOV, the pitch limits, and the look
@@ -87,10 +88,24 @@ The values are the `CameraLockComponent` of the player slice:
 | Line of sight lost | `m_targetLOSLossTime` 1 s, then the lock goes off |
 | Next target | the mouse wheel; a mouse move of more than 700 counts on X in 0.25 s, then no switch for 0.2 s |
 
-While the lock is on, the mouse does not turn the camera. The targets are the other entities of the backend with a
-position (`FSwcRepConnection::FSnapshot::Others`). The point of a target is 1.0 m above its feet (an inference). The
-creatures have no model before stage 1.9: a development run draws a sphere at each target in range (red: the locked
-target).
+While the lock is on, the mouse does not turn the camera. The targets are the living creatures of the creature view at
+their shown feet (`USwcCreatureSubsystem::GetTargets`, stage P2.6; a dead creature is not a target). With no creature
+view the targets are the other entities of the backend with a position (`FSwcRepConnection::FSnapshot::Others`). The
+point of a target is 1.0 m above its feet (an inference). The client draws no sphere at the targets now: the creatures
+have their models.
+
+`DisableCameraLock` of the camera action list (stage P2.6):
+
+- In the aim the lock key does nothing. The start of the aim ends a lock.
+- In an attack before the mark `CanTransition` of its fragment the lock key does nothing. After the mark the lock key
+  works again, also while the attack plays. A fragment with no mark `CanTransition` (22 of the 77 attack fragments of
+  `actions.json`: the charge starts, `Attack_Sprint` of the axe) has no lock in the whole fragment.
+- The log has "camera: target lock: not now (the aim, or an attack before its mark CanTransition)".
+
+The line of sight: a trace on the visibility channel from the camera to the lock point. A hit within 1.5 m of the lock
+point does not block the sight (`LockSightBody`, an inference): the creatures have collision from stage 1.9, and the
+trace meets the body of the target. When the lock goes off for no line of sight, the log has the actor and the
+component of the hit.
 
 ## Free look
 
@@ -107,6 +122,14 @@ the aim state, free look, and the target lock with its two switches.
 tools/dev-run.sh --window --enter --quit-when world --stay 53 -- -SwcDrive=$PWD/tests/drive/camera.txt
 ```
 
+The drives of stage P2.6: `tests/drive/camera-armed.txt` (camera.txt with the sword drawn), `tests/drive/aim.txt` (a
+character with a bow), and `tests/drive/lock.txt` with the creature routes `tests/drive/lock-routes.txt`:
+
+```sh
+tools/dev-run.sh --window --enter Mysticwarden --quit-when world --stay 18 -- -SwcDrive=$PWD/tests/drive/aim.txt
+SWC_DEV_CHARACTER=Swordwarden SWC_STAGE=P2.6 tools/creature-check.sh lock 26 tests/drive/lock-routes.txt tests/drive/lock.txt
+```
+
 ## Exit check (development run, 2026-10-18)
 
 The video `~/Games/soulwarden-client/evidence/1.8/camera-world.mp4` and the log `camera-client.log`:
@@ -121,6 +144,23 @@ The video `~/Games/soulwarden-client/evidence/1.8/camera-world.mp4` and the log 
   mouse flick, off;
 - the backend accepted each position report of the session (1,570, 0 refused).
 
+## The combat check of stage P2.6 (development runs, 2026-10-18)
+
+Evidence in `~/Games/soulwarden-client/evidence/P2.6/`:
+
+- `armed-wall-camera.mp4` (`tests/drive/camera-armed.txt`, the sword and the shield drawn): the camera comes in at the
+  wall at once, and is out again at 4.00 m 1.40 s after the last hit, as unarmed.
+- `aim-camera.mp4` and `aim-client.log` (`tests/drive/aim.txt`, `Mysticwarden` with the bow): MidCamera → AimCamera
+  (`Aim+Stand`, 0.09 s), the walk in the aim, the lock key refused in the aim, AimCamera → MidCamera (0.09 s).
+- `lock.mp4`, `lock-client.log`, `lock-backend.log` (`tests/drive/lock.txt` with four `Wolf_Grey_7` at 6 m to the
+  north, the east, the south, and the west, `tests/drive/lock-routes.txt`, `tools/creature-check.sh`, on the test
+  floor): the lock on entity 2 at 6.0 m, MidCamera → LockedCamera (0.25 s), an attack with the lock, a switch with the
+  wheel to entity 3 (to the right), off (LockedCamera → MidCamera 0.30 s), the lock key refused in an attack before
+  `CanTransition`, the lock on at rest at 4.4 m, off. The backend accepted each position report of the session (712,
+  0 refused). The routes go on the clock of the drive (the "tick" lines of `lock.txt`).
+- A lock in the town of the world level went off after 1 s: the sight met a building (an instanced static mesh 4.4 m
+  from the camera). That is the correct rule; thus the lock check used the open test floor.
+
 ## Differences and open points
 
 - The side offset reduction with a second cast (`offsetReductionBySecondaryDistanceCastAllowed`) is not in the client.
@@ -131,4 +171,4 @@ The video `~/Games/soulwarden-client/evidence/1.8/camera-world.mp4` and the log 
 - The lock: the near zone rules (`lookAtNearZone...`), the target position springs, and the lock point of a creature
   are not read; the vertical mouse switch is not in the client.
 - RotationDampening is 0 in the states of this stage and is not in the client.
-- The side-by-side check with the retail client (R1.7) is open.
+- The side-by-side check with the retail client (R1.7) is open, also for the combat cameras of stage P2.6.

@@ -55,6 +55,13 @@ public:
 	void SetActionMotion(bool bActive, const FVector& HorizontalVelocity);
 	/** The end of an action: the movement starts from its velocity, at most MaxSpeed (cm/s; 0: no limit). */
 	void EndActionMotion(float MaxSpeed);
+	/**
+	 * The weapon in the hand (stage P2.6, docs/MOVEMENT.md): the armed rates of the sprint start (a melee, ranged, or bow
+	 * weapon), of the run (also a magic weapon), and of the stop (a melee or magic weapon); the aim walks and has no sprint.
+	 */
+	void SetCombat(bool bInArmedSprint, bool bInArmedNav, bool bInArmedStop, bool bInAiming);
+	/** The exit of a dodge: the sprint at once for 0.85 s (SkipSprintStartTimer). */
+	void SkipSprintStart();
 	bool IsActionMotion() const { return bActionMotion; }
 	/** The camera yaw of the input (Unreal degrees) and the move keys (x right, y forward). */
 	double GetCameraYaw() const { return CameraYaw; }
@@ -123,4 +130,9 @@ private:
 	FVector GroundVelocity = FVector::ZeroVector;
 	bool bActionMotion = false;
 	FVector ActionVelocity = FVector::ZeroVector;
+	bool bArmedSprint = false;
+	bool bArmedNav = false;
+	bool bArmedStop = false;
+	bool bAiming = false;
+	float SkipSprintStartLeft = 0.0f;
 };

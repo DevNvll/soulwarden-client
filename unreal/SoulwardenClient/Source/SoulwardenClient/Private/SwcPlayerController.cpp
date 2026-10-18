@@ -94,6 +94,7 @@ void ASwcPlayerController::SetupInputComponent()
 	SheatheAction = MakeAction(this, TEXT("IA_Sheathe"), EInputActionValueType::Boolean);
 	AttackAction = MakeAction(this, TEXT("IA_AttackPrimary"), EInputActionValueType::Boolean);
 	DodgeAction = MakeAction(this, TEXT("IA_Dodge"), EInputActionValueType::Boolean);
+	AimAction = MakeAction(this, TEXT("IA_Aim"), EInputActionValueType::Boolean);
 	MovementContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Movement"));
 	MapAxisKey(MovementContext, MoveAction, EKeys::W, true, false);
 	MapAxisKey(MovementContext, MoveAction, EKeys::S, true, true);
@@ -110,6 +111,7 @@ void ASwcPlayerController::SetupInputComponent()
 	MovementContext->MapKey(SheatheAction, EKeys::Tilde);
 	MovementContext->MapKey(AttackAction, EKeys::LeftMouseButton);
 	MovementContext->MapKey(DodgeAction, EKeys::LeftShift);
+	MovementContext->MapKey(AimAction, EKeys::RightMouseButton);
 	if (UEnhancedInputComponent* Enhanced = Cast<UEnhancedInputComponent>(InputComponent))
 	{
 		Enhanced->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ASwcPlayerController::OnMove);
@@ -128,6 +130,8 @@ void ASwcPlayerController::SetupInputComponent()
 		Enhanced->BindAction(AttackAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnAttack);
 		Enhanced->BindAction(AttackAction, ETriggerEvent::Completed, this, &ASwcPlayerController::OnAttackEnd);
 		Enhanced->BindAction(DodgeAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnDodge);
+		Enhanced->BindAction(AimAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnAim);
+		Enhanced->BindAction(AimAction, ETriggerEvent::Completed, this, &ASwcPlayerController::OnAimEnd);
 	}
 	else
 	{
@@ -299,6 +303,22 @@ void ASwcPlayerController::OnDodge(const FInputActionValue&)
 	}
 }
 
+void ASwcPlayerController::OnAim(const FInputActionValue&)
+{
+	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
+	{
+		Character->GetActions()->OnAimButton(true);
+	}
+}
+
+void ASwcPlayerController::OnAimEnd(const FInputActionValue&)
+{
+	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
+	{
+		Character->GetActions()->OnAimButton(false);
+	}
+}
+
 void ASwcPlayerController::PlayerTick(float DeltaTime)
 {
 	TickDrive(DeltaTime);
@@ -417,6 +437,17 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 			else
 			{
 				Input->StopContinuousInputInjectionForAction(AttackAction);
+			}
+		}
+		else if (Step.Command == TEXT("aim"))
+		{
+			if (Step.Value.X != 0.0)
+			{
+				Input->StartContinuousInputInjectionForAction(AimAction, FInputActionValue(true), {}, {});
+			}
+			else
+			{
+				Input->StopContinuousInputInjectionForAction(AimAction);
 			}
 		}
 		else if (Step.Command == TEXT("dodge"))

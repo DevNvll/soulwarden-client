@@ -1,0 +1,9 @@
+# The development routes of the target lock check of stage P2.6 (tools/creature-check.sh, tools/lib/dev_world.py): four
+# grey wolves 6 m from the character (north, east, south, west), which ignore it. Times in seconds on the clock of the
+# drive script tests/drive/lock.txt; offsets in m east, north.
+2 heal
+3 ignore on
+4 spawn Wolf_Grey_7 0 6 0 --yaw 180
+4 spawn Wolf_Grey_7 6 0 0 --yaw 270
+4 spawn Wolf_Grey_7 0 -6 0 --yaw 0
+4 spawn Wolf_Grey_7 -6 0 0 --yaw 90

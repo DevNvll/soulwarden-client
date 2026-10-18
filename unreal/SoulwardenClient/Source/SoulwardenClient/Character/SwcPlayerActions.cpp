@@ -639,6 +639,7 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 			}
 		}
 	}
+	bAttackBeforeTransition = false;
 	if (!bPlays)
 	{
 		if (bPlaying)
@@ -678,6 +679,7 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 	Clock = FMath::Max(Clock, LastClock);
 	bPlaying = true;
 	CarryLimit = 0.0f;
+	bAttackBeforeTransition = !swc::combat::mark_active(Data->Fragments[Fragment].Marks, "CanTransition", Clock);
 	if (Anim != nullptr)
 	{
 		Anim->SetAction(0, Fragment, Newest->number, Clock);
@@ -735,6 +737,7 @@ bool USwcPlayerActions::PlayDodge(const swc::combat::Driver::Snapshot& Snapshot,
 	if ((Fragment.Length > 0.0f && Clock >= Fragment.Length) || (Clock >= Transition && !Movement->GetMoveInput().IsNearlyZero()))
 	{
 		DodgeReleased = Dodge.number;
+		Movement->SkipSprintStart();
 		return false;
 	}
 	bPlaying = true;
@@ -786,6 +789,35 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	}
 	UpdateAttack(DeltaTime);
 	UpdateUpper(GetWorld()->GetTimeSeconds());
+	// The weapon in the hand: the armed rates of the movement and the aim of a ranged weapon (stage P2.6, the tags of the
+	// conditions Stand+Armed, Combat_Nav_Stand, CombatNav+Melee, CombatNav+Magic of the action lists).
+	const FSwcWeaponActions* Drawn = VisualSlot != 0 ? WeaponOf(VisualSlot) : nullptr;
+	const auto Has = [Drawn](std::initializer_list<const TCHAR*> Names)
+	{
+		for (const TCHAR* Name : Names)
+		{
+			if (Drawn != nullptr && Drawn->Tags.ContainsByPredicate([Name](const FString& Tag) { return Tag.Equals(Name, ESearchCase::IgnoreCase); }))
+			{
+				return true;
+			}
+		}
+		return false;
+	};
+	const bool bArmedSprint = Has({TEXT("1H_Melee"), TEXT("2H_Melee"), TEXT("1H_Ranged"), TEXT("2H_Ranged"), TEXT("Bow")});
+	const bool bArmedNav = bArmedSprint || Has({TEXT("MagicGauntlet"), TEXT("MagicStaff")});
+	const bool bArmedStop = Has({TEXT("1H_Melee"), TEXT("2H_Melee"), TEXT("MagicGauntlet"), TEXT("MagicStaff")});
+	const bool bWasAiming = bAiming;
+	bAiming = bAimHeld && !bPlaying && Has({TEXT("1H_Ranged"), TEXT("2H_Ranged"), TEXT("Bow")});
+	if (bAiming != bWasAiming)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("actions: aim %s"), bAiming ? TEXT("on (AimDownSights)") : TEXT("off"));
+	}
+	Character()->GetSwcMovement()->SetCombat(bArmedSprint, bArmedNav, bArmedStop, bAiming);
+	if (Driver)
+	{
+		Driver->set_aim(bAiming);
+	}
+	bLockAllowed = !bAiming && !bAttackBeforeTransition;
 	if (USwcPlayerAnimInstance* Anim = Animation())
 	{
 		Anim->SetStance(VisualSlot != 0 ? WeaponOf(VisualSlot) : nullptr, bVisualOffhand);

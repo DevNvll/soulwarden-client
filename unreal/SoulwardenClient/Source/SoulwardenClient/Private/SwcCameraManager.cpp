@@ -1,6 +1,7 @@
 #include "SwcCameraManager.h"
 
 #include "Character/SwcCharacterMovement.h"
+#include "Character/SwcPlayerActions.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcSmooth.h"
 #include "Character/SwcTestFloor.h"
@@ -30,6 +31,8 @@ constexpr float LockPitchMin = -5.0f;
 constexpr float LockPitchMax = 10.0f;
 constexpr float LockSwitchTime = 0.3f;
 constexpr float LockLineOfSightTime = 1.0f;
+/** The part of the line of sight at the target that its own body can block (cm; an inference, P2.6). */
+constexpr double LockSightBody = 150.0;
 constexpr double LockMouseTime = 0.25;
 constexpr float LockMouseThreshold = 700.0f;
 constexpr double LockMouseIgnoreTime = 0.2;
@@ -88,6 +91,11 @@ void ASwcCameraManager::SelectState(const ASwcPlayerCharacter& Character)
 	// The entry of the camera action list (R1.4.1): the first true condition wins.
 	FString Entry;
 	const FString Fragment = Character.GetSwcMovement()->GetFragment();
+	// DisableCameraLock in the aim: the aim ends the lock.
+	if (IsLocked() && Character.GetActions() != nullptr && Character.GetActions()->IsAiming())
+	{
+		Unlock(TEXT("the aim"));
+	}
 	if (bDead)
 	{
 		Entry = TEXT("DeathCam");
@@ -95,6 +103,10 @@ void ASwcCameraManager::SelectState(const ASwcPlayerCharacter& Character)
 	else if (IsLocked())
 	{
 		Entry = TEXT("Locked_Cam+Stand");
+	}
+	else if (Character.GetActions() != nullptr && Character.GetActions()->IsAiming())
+	{
+		Entry = TEXT("Aim+Stand");
 	}
 	else if (Fragment == TEXT("Sprint") || Fragment == TEXT("Sprint_Start"))
 	{
@@ -224,6 +236,12 @@ void ASwcCameraManager::ToggleLock()
 	{
 		return;
 	}
+	// DisableCameraLock of the camera action list: no new lock in the aim, or in an attack before its mark CanTransition.
+	if (const ASwcPlayerCharacter* Player = Cast<ASwcPlayerCharacter>(Pawn); Player != nullptr && !Player->GetActions()->IsLockAllowed())
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("camera: target lock: not now (the aim, or an attack before its mark CanTransition)"));
+		return;
+	}
 	const FVector Camera = GetCameraLocation();
 	const FVector Forward = GetCameraRotation().Vector();
 	double Best = TNumericLimits<double>::Max();
@@ -337,11 +355,17 @@ FRotator ASwcCameraManager::UpdateLock(const FVector& Pivot, const ASwcPlayerCha
 	SwcTestFloor::Actors(GetWorld(), Floor);
 	Query.AddIgnoredActors(Floor);
 	FHitResult Hit;
-	if (GetWorld()->LineTraceSingleByChannel(Hit, GetCameraLocation(), Point, ECC_Visibility, Query))
+	// A hit near the lock point is the body of the target itself (the creatures have models and collision from stage 1.9): only
+	// a hit farther than LockSightBody from the point blocks the sight.
+	if (GetWorld()->LineTraceSingleByChannel(Hit, GetCameraLocation(), Point, ECC_Visibility, Query)
+		&& FVector::Dist(Hit.ImpactPoint, Point) > LockSightBody)
 	{
 		LineOfSightLost += DeltaTime;
 		if (LineOfSightLost >= LockLineOfSightTime)
 		{
+			UE_LOG(LogSwcBackend, Log, TEXT("camera: the sight to the target meets %s (%s) at %.1f m, %.1f m before the target"),
+				Hit.GetActor() != nullptr ? *Hit.GetActor()->GetName() : TEXT("no actor"), Hit.GetComponent() != nullptr ? *Hit.GetComponent()->GetName() : TEXT("no component"),
+				Hit.Distance / 100.0f, FVector::Dist(Hit.ImpactPoint, Point) / 100.0);
 			Unlock(TEXT("no line of sight for 1 s"));
 			return LastRotation;
 		}

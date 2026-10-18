@@ -1,0 +1,28 @@
+# The slope and step lanes of stage 1.7 (tests/drive/rules.txt) with the sword in the hand (stage P2.6): the times of
+# rules.txt plus 2 s, after the weapon key 1.
+# tools/dev-run.sh --window --enter NAME --quit-when world --stay 35 -- -SwcDrive=$PWD/tests/drive/rules-armed.txt
+0.5 key 1
+3 turn 90
+4 turn 0
+4.5 move 0 1
+9.1 move 0 0
+10 turn -90
+11 turn 0
+11.5 move 0 1
+16.7 move 0 0
+17.5 turn 90
+18.5 turn 0
+18.5 move 0 1
+19.65 move 0 0
+20.5 turn -90
+21.5 turn 0
+21.5 move 0 1
+24.5 move 0 0
+25.5 turn 90
+26.5 turn 0
+26.5 move 0 1
+27.65 move 0 0
+28.5 turn -90
+29.5 turn 0
+29.5 move 0 1
+32.5 move 0 0

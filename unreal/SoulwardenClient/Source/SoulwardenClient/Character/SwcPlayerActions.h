@@ -66,6 +66,12 @@ public:
 	void OnAttackButton(bool bDown);
 	/** The dodge key (left Shift). */
 	void OnDodgeKey();
+	/** The aim button (the right mouse button): the aim of a ranged weapon in the hand (AimDownSights). */
+	void OnAimButton(bool bDown) { bAimHeld = bDown; }
+	/** The aim plays (the AimCamera, the walk); the target lock can start (DisableCameraLock of the camera action list: not in
+	 *  the aim, not in an attack before its mark CanTransition). */
+	bool IsAiming() const { return bAiming; }
+	bool IsLockAllowed() const { return bLockAllowed; }
 
 	/** The count of the attack fragments that started, and of the weapon switches of the driver (a log line and a check). */
 	uint32 GetVisitCount() const { return Visits; }
@@ -168,6 +174,10 @@ private:
 	bool bDodgePlayed = false;
 	/** The largest speed that the movement keeps at the end of the action (cm/s; 0: no limit). */
 	float CarryLimit = 0.0f;
+	bool bAimHeld = false;
+	bool bAiming = false;
+	bool bLockAllowed = true;
+	bool bAttackBeforeTransition = false;
 	FDelegateHandle BonesHandle;
 	TWeakObjectPtr<USkeletalMeshComponent> BonesMesh;
 	FContactQuery ContactQuery;

@@ -39,6 +39,8 @@ inline constexpr unsigned kBitHold = 191;
 inline constexpr unsigned kBitRelease = 567;
 /** The dodge (left Shift): one step for each press, also for a press that the client refuses (protocol notes 4.38). */
 inline constexpr unsigned kBitDodge = 322;
+/** The aim input ("aim_draw", the right mouse button with a ranged weapon): each step while it is held. */
+inline constexpr unsigned kBitAim = 126;
 /** The weapon keys: Use_MainHandSlot_1 and quickslot-weapon1 (slot 24), Use_MainHandSlot_2 and quickslot-weapon2 (slot 25). */
 inline constexpr unsigned kBitsKey1[2] = {9, 40};
 inline constexpr unsigned kBitsKey2[2] = {355, 306};
@@ -276,6 +278,8 @@ public:
 	void button(bool down);
 	/** The dodge key (the game thread): one step with the dodge bit for each press. */
 	void dodge_press();
+	/** The aim (the game thread): the aim bit in each step while it is on. */
+	void set_aim(bool aim);
 	/** The stamina data, the equip load class of the character, a world entry (the full stamina). */
 	void set_stamina(const StaminaData& data);
 	void set_load(LoadClass load);
@@ -302,6 +306,7 @@ private:
 	std::deque<bool> m_events;
 	bool m_down{false};
 	unsigned m_dodgePresses{0};
+	bool m_aim{false};
 	Sequence m_sequence;
 	WeaponSwitch m_switch;
 	Stamina m_stamina;

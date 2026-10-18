@@ -34,6 +34,7 @@ struct FInputActionValue;
  *   attack 1|0       the attack button down or up
  *   click            the attack button down for one frame
  *   dodge            one press of the dodge key (left Shift)
+ *   aim 1|0          the aim button (right mouse) down or up
  * The run ends with -SwcQuitWhen=world and -SwcStay (USwcBackendSubsystem).
  */
 UCLASS()
@@ -82,6 +83,8 @@ private:
 	void OnAttack(const FInputActionValue& Value);
 	void OnAttackEnd(const FInputActionValue& Value);
 	void OnDodge(const FInputActionValue& Value);
+	void OnAim(const FInputActionValue& Value);
+	void OnAimEnd(const FInputActionValue& Value);
 	void UseWeapon(uint32 Slot, const TArray<uint32>& Bits);
 	void LoadDrive(const FString& Path);
 	void TickDrive(float DeltaTime);
@@ -112,6 +115,8 @@ private:
 	TObjectPtr<UInputAction> AttackAction;
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> DodgeAction;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> AimAction;
 	/** A click of the drive script: the button goes up at the next frame. */
 	bool bDriveClick = false;
 	uint32 PressSerial = 0;

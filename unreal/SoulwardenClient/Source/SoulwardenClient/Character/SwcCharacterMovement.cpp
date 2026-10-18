@@ -24,6 +24,14 @@ constexpr float WalkSpeed = 165.0f;
 constexpr float WalkAccel = 2500.0f;
 /** Stop (Nav_Stop, no input): 40 m/s^2 unarmed (12 with a melee or magic weapon) [D]. */
 constexpr float StopDecel = 4000.0f;
+/** The rates with a weapon drawn (stage P2.6) [D]: Sprint_Start `Stand+Armed` (1H/2H melee, 1H/2H ranged, bow) 10 / 20 m/s^2;
+ *  Nav and Nav_Start `Combat_Nav_Stand` (also the magic weapons; the first conditional that holds, before NavStart) 25 / 25;
+ *  Nav_Stop `CombatNav+Melee`, `CombatNav+Magic` 12 m/s^2. */
+constexpr float ArmedSprintStartAccel = 1000.0f;
+constexpr float ArmedNavAccel = 2500.0f;
+constexpr float ArmedStopDecel = 1200.0f;
+/** SkipSprintStartTimer (0.85 s) of the exit of a dodge: the sprint at once, no Sprint_Start [D playeractions_dodge]. */
+constexpr float SkipSprintStartTime = 0.85f;
 /** The input angles of strafe mode: forward within 110 degrees of the camera forward (sprint); the rest is backward (run) [D]. */
 constexpr float ForwardConeDegrees = 110.0f;
 /** ClearMotion: the velocity is cleared when the input turns more than 80 (Sprint_Start) or 125 (Sprint) degrees from it [D]. */
@@ -130,6 +138,19 @@ void USwcCharacterMovement::SetActionMotion(bool bActive, const FVector& Horizon
 	ActionVelocity = bActive ? FVector(HorizontalVelocity.X, HorizontalVelocity.Y, 0.0) : FVector::ZeroVector;
 }
 
+void USwcCharacterMovement::SetCombat(bool bInArmedSprint, bool bInArmedNav, bool bInArmedStop, bool bInAiming)
+{
+	bArmedSprint = bInArmedSprint;
+	bArmedNav = bInArmedNav;
+	bArmedStop = bInArmedStop;
+	bAiming = bInAiming;
+}
+
+void USwcCharacterMovement::SkipSprintStart()
+{
+	SkipSprintStartLeft = SkipSprintStartTime;
+}
+
 void USwcCharacterMovement::EndActionMotion(float MaxSpeed)
 {
 	bActionMotion = false;
@@ -194,6 +215,7 @@ void USwcCharacterMovement::SetMove(ESwcMove Next)
 void USwcCharacterMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	StateTime += DeltaTime;
+	SkipSprintStartLeft = FMath::Max(SkipSprintStartLeft - DeltaTime, 0.0f);
 	UpdateState(DeltaTime);
 	Turn(DeltaTime);
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
@@ -307,7 +329,8 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 		return;
 	}
 	const bool bBackward = FMath::Abs(InputAngle(Input)) > ForwardConeDegrees;
-	if (bWalkHeld || !bCanRun)
+	// The aim (AimDownSights) walks (Stand_Walk) and has no sprint (Sprint_Start needs "not ADS") [D].
+	if (bWalkHeld || !bCanRun || bAiming)
 	{
 		SetMove(ESwcMove::Walk);
 	}
@@ -329,7 +352,8 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 	}
 	else
 	{
-		SetMove(ESwcMove::SprintStart);
+		// SkipSprintStartTimer after a dodge: the sprint at once.
+		SetMove(SkipSprintStartLeft > 0.0f ? ESwcMove::Sprint : ESwcMove::SprintStart);
 	}
 }
 
@@ -414,13 +438,13 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 	// The target and the rates of the state; each axis of the camera frame moves linearly to its target (research R2.8.2).
 	float Speed = 0.0f;
 	float Accel = 0.0f;
-	float Decel = StopDecel;
+	float Decel = bArmedStop ? ArmedStopDecel : StopDecel;
 	float ClearDegrees = 0.0f;
 	switch (Move)
 	{
 	case ESwcMove::SprintStart:
 		Speed = SprintSpeed;
-		Accel = SprintStartAccel;
+		Accel = bArmedSprint ? ArmedSprintStartAccel : SprintStartAccel;
 		Decel = SprintDecel;
 		ClearDegrees = SprintStartClearDegrees;
 		break;
@@ -432,13 +456,13 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 		break;
 	case ESwcMove::NavStart:
 		Speed = NavSpeed;
-		Accel = NavStartAccel;
-		Decel = NavDecel;
+		Accel = bArmedNav ? ArmedNavAccel : NavStartAccel;
+		Decel = bArmedNav ? ArmedNavAccel : NavDecel;
 		break;
 	case ESwcMove::Nav:
 		Speed = NavSpeed;
-		Accel = NavAccel;
-		Decel = NavDecel;
+		Accel = bArmedNav ? ArmedNavAccel : NavAccel;
+		Decel = bArmedNav ? ArmedNavAccel : NavDecel;
 		break;
 	case ESwcMove::Walk:
 		Speed = WalkSpeed;
