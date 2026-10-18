@@ -15,6 +15,13 @@ This file has the rules and the common workflows. The plan is in [docs/ROADMAP.m
 - The client uses the Soulwarden backend, with no change of the backend. This project builds only the client.
 - The look can be different from the retail client for now (the default look of Unreal is acceptable).
 - The feel of the gameplay and the UI must match the retail client.
+- The client is an open world client: the whole world of the game, streamed. A small area is only a first test place.
+- Identity: the Steam account of the user (read at run time, as the Soulwarden launcher reads it). The functions of
+  the Steam authentication are stubs: the backend does not check a ticket.
+- The client uses the same characters as the retail game: a player run uses the data folder of the user.
+
+The roles (decision of the user, 2026-10-18): the T3 thread of the research AST-135 is the orchestrator of this
+project. The Soulwarden orchestrator (thread 02915e32-02d5-4ff1-a796-cc7c5cf30798) does only the backend.
 
 ## Rules
 
@@ -28,13 +35,23 @@ This file has the rules and the common workflows. The plan is in [docs/ROADMAP.m
 - No game content goes into git: no game file, no converted file (glTF, PNG, JSON of the game), no imported asset
   (`unreal/SoulwardenClient/Content/Imported/` is ignored), no text or picture of the game, no game log, no capture.
   Converted content stays in `~/Games/soulwarden-client/content`.
-- Do not use the data of the Soulwarden project of the user: not `~/.local/share/soulwarden` (only its folder
-  `gamedata`, read only, for the backend instance of this project), not the Proton prefixes, not
-  `~/Games/soulwarden/releases`. The backend instance of this project has its own data folder
-  (`~/Games/soulwarden-client/backend-data`).
+- Two kinds of runs:
+  - A player run (`tools/play.sh`, started by the user): the data folder of the user (`~/.local/share/soulwarden`,
+    the same characters as the retail game), with the `run.lock` of the Soulwarden launcher. While a player run holds
+    the lock, a release of the Soulwarden project waits (status 3), as when the user plays the retail game.
+  - A development run (agents): its own data folder (`~/Games/soulwarden-client/dev-data`) with a seed character.
+    A development run never opens the data folder of the user.
+- The backend of a run is the copy of a Soulwarden release in `~/Games/soulwarden-client/backend/current`
+  (`tools/backend-update.sh`), never `~/Developer/azoth/apps/backend/dist`: the backend stage threads rebuild that file
+  before their live check. Update the copy on purpose, after a release.
+- A process of this project never has `SOULWARDEN_DEV_RUN=1` in its environment: `tools/dev-stop.sh` of Soulwarden
+  stops such processes, and its `--check` fails while one is alive.
+- Do not open the Proton prefixes of the Soulwarden project or its development data.
 - Do not start, stop, or control the retail client or a development run of the Soulwarden project.
-- The Soulwarden repository is read only for this project. A change that the backend needs goes to the Soulwarden
-  project (its orchestrator thread or its Linear project), not into this repository.
+- The Soulwarden repository is read only for this project. A change that the backend needs goes as a message to the
+  Soulwarden orchestrator (thread 02915e32-02d5-4ff1-a796-cc7c5cf30798), never as an edit of `~/Developer/azoth`.
+- The Soulwarden orchestrator tells this project when a backend commit changes the wire bytes (the golden file of its
+  case T2) or the start options of the backend. Then check the client and update the backend copy.
 
 ### The backend contract
 
@@ -77,6 +94,7 @@ tools/convert.sh character CDF --clip CAF ...   # a character with skins and cli
 tools/convert.sh region r_+04_+02 --area X Y SIZE --meshes   # terrain, macro map, placements, and their meshes
 tools/convert.sh preview region r_+04_+02 --area 8780 4100 300   # a software picture, no Unreal
 tools/build.sh editor                           # build the C++ module for the editor
+tools/backend-update.sh [RELEASE]               # copy the backend and its game data of a Soulwarden release
 tools/import.sh [FILTER] [--force]              # import the converted content into /Game/Imported (no window)
 tools/editor.sh                                 # open the editor (only when the user asks)
 ```

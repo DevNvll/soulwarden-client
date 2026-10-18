@@ -8,8 +8,8 @@
 | Soulwarden readers | `converter/vendor/soulwarden` | An unchanged copy of the pak, object stream, slice, terrain, and shape readers of the Soulwarden repository (MIT, commit e0a3d97). Update by a new copy, never by an edit. |
 | Unreal project | `unreal/SoulwardenClient` | The client: the C++ module `SoulwardenClient`, the config, the import script. |
 | Imported assets | `unreal/SoulwardenClient/Content/Imported` | The Unreal assets of the converted content. Made from the game copy: not in git. |
-| Tools | `tools/` | `env.sh` (paths), `convert.sh`, `build.sh`, `import.sh`, `editor.sh`. |
-| Backend | `~/Developer/azoth/apps/backend/dist/soulwarden-backend` | The Soulwarden backend, unchanged. This project starts its own instance with its own data folder. |
+| Tools | `tools/` | `env.sh` (paths), `convert.sh`, `build.sh`, `import.sh`, `editor.sh`, `backend-update.sh`. |
+| Backend | `~/Games/soulwarden-client/backend/current` | A copy of a Soulwarden release (backend and game data), unchanged. `tools/backend-update.sh` updates it. |
 
 ## The content pipeline
 
@@ -32,16 +32,29 @@ Proved formats and their limits: research AST-135, section 3.
 - Unreal: centimeters, Z up, left-handed. The importer converts glTF. Stage 1.1 proves the full map for the
   placements.
 
-## Run model (stage 1.3)
+## Run model (stage 1.4)
 
 ```text
-unshare (user + network namespace, loopback only)
-  +-- soulwarden-backend --data-dir ~/Games/soulwarden-client/backend-data --gamedata-dir (read only)
-  +-- the Unreal client (-SwcHttp=127.0.0.1:PORT)
+player run (tools/play.sh, the user):
+  flock ~/.local/share/soulwarden/run.lock          (the lock of the Soulwarden launcher)
+  unshare (user + network namespace, loopback only)
+    +-- backend copy: --data-dir ~/.local/share/soulwarden --gamedata-dir backend/current/gamedata
+    +-- the Unreal client (the Steam id and persona of the user in its environment, never in a file)
+
+development run (agents):
+  unshare (user + network namespace, loopback only)
+    +-- backend copy: --data-dir ~/Games/soulwarden-client/dev-data --seed-character NAME
+    +-- the Unreal client
 ```
 
-The retail client of the Soulwarden project runs in its own namespace with its own backend. Thus both can run at
-the same time with no port conflict.
+- The backend is the copy of a Soulwarden release (`~/Games/soulwarden-client/backend/current`,
+  `tools/backend-update.sh`), not the working copy of the Soulwarden repository.
+- A player run uses the same characters as the retail game. It holds the same lock as the Soulwarden launcher: the
+  retail game and a player run of this client do not run at the same time on one database, and a Soulwarden release
+  waits while one of them runs. A later option: a player run that finds the lock held joins the network namespace of
+  the running backend (both clients in one world).
+- No process of this project has `SOULWARDEN_DEV_RUN=1` (the mark of the Soulwarden development runs).
+- The Steam authentication of the client is a stub: the backend does not check a ticket (Soulwarden protocol notes 2.1).
 
 ## The connection
 

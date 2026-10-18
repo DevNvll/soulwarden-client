@@ -1,7 +1,8 @@
 # Soulwarden Client
 
-A personal, local project: a game client in Unreal Engine 5.8 for the Soulwarden backend, with the content of the
-game copy of the user converted on this computer. The Soulwarden project (`~/Developer/azoth`) keeps the retail
+A personal, local project: an open world game client in Unreal Engine 5.8 for the Soulwarden backend, with the
+content of the game copy of the user converted on this computer, the Steam account of the user, and the same
+characters as the retail game. The Soulwarden project (`~/Developer/azoth`) keeps the retail
 client and the backend; both projects run in parallel. The look can be different for now; the feel of the
 gameplay and the UI must match the retail client.
 
@@ -13,7 +14,7 @@ the design in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - The game copy in `~/Games/soulwarden/game` (read only).
 - Unreal Engine 5.8 in `~/Applications/UnrealEngine-5.8.0` (its Oodle library also decodes the paks).
 - Python 3 with numpy and Pillow (numba for the previews).
-- The Soulwarden backend, built in `~/Developer/azoth/apps/backend/dist`.
+- A Soulwarden release in `~/Games/soulwarden/releases` (`tools/backend-update.sh` copies its backend and game data).
 
 ## Quick start
 
@@ -26,4 +27,4 @@ tools/editor.sh             # open the editor
 
 ## Status
 
-Stage P0 (foundation) is done. Next: milestone 1, "walk in the start area" (docs/ROADMAP.md).
+Stage P0 (foundation) is done. Next: milestone 1, "enter the open world" (docs/ROADMAP.md).
