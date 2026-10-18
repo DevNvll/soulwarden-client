@@ -867,6 +867,8 @@ def convert_gamedata() -> dict:
     weapons.json     item id (lower case) -> the weapon definition of its ItemStatsRef (javelindata_itemdefinitions_weapons
                      and _runes): WeaponMasteryCategoryId (the ability table), IsShieldCompatible, ManaCostId, MannequinTag,
                      TierNumber, EquipAbility (the heart rune), and the Name and Description keys of the item
+    afflictions.json the affliction rows (javelindata_afflictions): IntID, AfflictionID, Max, IsGlobalAffliction, ColorHex
+                     (AARRGGBB), Icon, and the two tooltip keys
     """
     import zlib
     cooldowns = {r["AbilityID"]: r for r in table_rows("javelindata_cooldowns_player.datasheet") if r.get("AbilityID")}
@@ -920,7 +922,267 @@ def convert_gamedata() -> dict:
     target.mkdir(parents=True, exist_ok=True)
     (target / "abilities.json").write_text(json.dumps({"tables": tables, "abilities": abilities}, separators=(",", ":")))
     (target / "weapons.json").write_text(json.dumps(weapons, separators=(",", ":")))
-    return {"ability tables": len(tables), "abilities": len(abilities), "weapons": len(weapons)}
+    # The afflictions (javelindata_afflictions): the meters of the HUD and of the equipment screen, in the order of the table.
+    afflictions = [{"id": int(r["IntID"]), "key": r["AfflictionID"], "max": number_or_none(r.get("Max")) or 0,
+                    "global": bool(r.get("IsGlobalAffliction")), "color": r.get("ColorHex", ""), "icon": r.get("Icon", ""),
+                    "tooltip": r.get("AfflictionTooltipText", ""), "afflictedTooltip": r.get("AfflictedTooltipText", "")}
+                   for r in table_rows("javelindata_afflictions.datasheet")
+                   if r.get("AfflictionID") and isinstance(r.get("IntID"), (int, float))]
+    (target / "afflictions.json").write_text(json.dumps(afflictions, separators=(",", ":")))
+    return {"ability tables": len(tables), "abilities": len(abilities), "weapons": len(weapons), "afflictions": len(afflictions)}
+
+
+# The columns of the item definitions that the inventory screens use (javelindata_itemdefinitions_master_*), with their
+# names in items.json. A number column keeps its number; an empty value is left out.
+ITEM_COLUMNS = {
+    "Name": "name", "Description": "description", "ItemType": "itemType", "ItemTypeDisplayName": "itemTypeDisplayName",
+    "ItemClass": "itemClass", "UiItemClass": "uiItemClass", "Tier": "tier", "Weight": "weight", "MaxStackSize": "maxStack",
+    "GearScoreOverride": "gearScoreOverride", "MinGearScore": "minGearScore", "MaxGearScore": "maxGearScore",
+    "Durability": "durability", "DurabilityDmgOnDeath": "durabilityDamageOnDeath", "BindOnPickup": "bindOnPickup",
+    "BindOnEquip": "bindOnEquip", "Nonremovable": "nonRemovable", "NotDroppable": "notDroppable",
+    "NotDroppableNotificationOverride": "notDroppableNotification", "RequiredLevel": "requiredLevel",
+    "RequiredTradeskillRank": "requiredTradeskillRank", "RequiredExpansionId": "requiredExpansionId",
+    "CanHavePerks": "canHavePerks", "CanReplaceGem": "canReplaceGem", "IsRepairable": "repairable",
+    "IsSalvageable": "salvageable", "ConfirmBeforeUse": "confirmBeforeUse", "ConfirmDestroy": "confirmDestroy",
+    "ConsumeOnUse": "consumeOnUse", "TradingCategory": "tradingCategory", "TradingFamily": "tradingFamily",
+    "TradingGroup": "tradingGroup", "ItemStatsRef": "itemStatsRef", "ForceRarity": "forceRarity", "IsUniqueItem": "unique",
+    "HideInLootTicker": "hideInLootTicker", "IngredientCategories": "ingredientCategories", "EquipmentSetId": "equipmentSetId",
+    "Perk1": "perk1", "Perk2": "perk2", "Perk3": "perk3", "Perk4": "perk4", "Perk5": "perk5",
+    "PerkBucket1": "perkBucket1", "PerkBucket2": "perkBucket2", "PerkBucket3": "perkBucket3", "PerkBucket4": "perkBucket4",
+    "PerkBucket5": "perkBucket5", "ArmorAppearanceM": "armorAppearanceM", "ArmorAppearanceF": "armorAppearanceF",
+    "WeaponAppearanceOverride": "weaponAppearance", "SalvageResources": "salvageResources", "RepairRecipe": "repairRecipe",
+}
+
+
+def icon_paths(row: dict, armor: dict, weapons: dict) -> tuple[str, str]:
+    """@return (icon, hires icon) of an item: its IconPath and HiResIconPath; else the icons of its armor appearance
+    (ArmorAppearanceM in javelindata_itemappearancedefinitions) or of its weapon appearance (WeaponAppearanceOverride, else the
+    ItemID, in javelindata_itemdefinitions_weaponappearances). The rule of the native ItemDataManagerBus.GetIconPath is not
+    known: this rule follows the tables (armor and weapon rows have no IconPath; their appearance rows have one)."""
+    def norm(value):
+        return (value or "").lower().replace("\\", "/")
+    icon, hires = norm(row.get("IconPath")), norm(row.get("HiResIconPath"))
+    if not icon:
+        look = armor.get((row.get("ArmorAppearanceM") or "").lower()) or weapons.get(
+            (row.get("WeaponAppearanceOverride") or row.get("ItemID") or "").lower())
+        if look:
+            icon, hires = norm(look.get("IconPath")), hires or norm(look.get("HiResIconPath"))
+    return icon, hires
+
+
+def convert_items() -> dict:
+    """items.tsv (write_key_table): item id (lower case) -> the columns of ITEM_COLUMNS, the original id, and the icon paths (icon_paths), for
+    each row of the master item definitions (the first row of an id wins). The inventory screens read it
+    (ItemDataManagerBus); the item index of the wire comes from the item catalog of the backend. encumbrance.json: the weight
+    limits of the bag of the player. perks.tsv: the perks (javelindata_perks*). consumables.tsv: the consumables."""
+    armor = {(r.get("ItemID") or "").lower(): r for r in table_rows("javelindata_itemappearancedefinitions.datasheet")}
+    weapons = {(r.get("WeaponAppearanceID") or "").lower(): r
+               for r in table_rows("javelindata_itemdefinitions_weaponappearances.datasheet")}
+    items: dict[str, dict] = {}
+    for path in sorted(source.paks().paths("", ".datasheet")):
+        name = path.rsplit("/", 1)[1]
+        if not name.startswith("javelindata_itemdefinitions_master_"):
+            continue
+        for row in datasheet.Sheet(source.read(path)).rows():
+            item_id = row.get("ItemID")
+            if not item_id or item_id.lower() in items:
+                continue
+            entry = {"id": item_id}
+            for column, key in ITEM_COLUMNS.items():
+                value = row.get(column)
+                if value not in (None, ""):
+                    entry[key] = value
+            icon, hires = icon_paths(row, armor, weapons)
+            if icon:
+                entry["icon"] = icon
+            if hires:
+                entry["hiresIcon"] = hires
+            items[item_id.lower()] = entry
+    target = out_dir() / "gamedata"
+    target.mkdir(parents=True, exist_ok=True)
+    write_key_table(target / "items.tsv", items)
+    # The perks (javelindata_perks*.datasheet): perk id (lower case) -> the columns that the tooltips and the filters read.
+    perk_columns = {"DisplayName": "displayName", "Description": "description", "PerkType": "perkType", "IconPath": "iconPath",
+                    "Tier": "tier", "ItemClass": "itemClass", "StatDisplayText": "statDisplayText", "Affix": "affix",
+                    "AppliedPrefix": "appliedPrefix", "AppliedSuffix": "appliedSuffix", "ScalingPerGearScore": "scalingPerGearScore",
+                    "EquipAbility": "equipAbility", "ExclusiveLabels": "exclusiveLabels", "Sorting": "sorting",
+                    "SecondaryEffectDisplayName": "secondaryEffectDisplayName"}
+    perks: dict[str, dict] = {}
+    for path in sorted(source.paks().paths("", ".datasheet")):
+        name = path.rsplit("/", 1)[1]
+        if not re.match(r"javelindata_perks(_2025|_artifacts|_gems|_infix|_deprecated)?\.datasheet$", name):
+            continue
+        for row in datasheet.Sheet(source.read(path)).rows():
+            perk_id = row.get("PerkID")
+            if not perk_id or perk_id.lower() in perks:
+                continue
+            entry = {"id": perk_id}
+            for column, key in perk_columns.items():
+                value = row.get(column)
+                if value not in (None, ""):
+                    entry[key] = value.lower().replace("\\", "/") if key == "iconPath" else value
+            perks[perk_id.lower()] = entry
+    write_key_table(target / "perks.tsv", perks)
+    # The consumables (javelindata_itemdefinitions_consumables): item id (lower case) -> the cooldown and the effects.
+    consumable_columns = {"CooldownId": "cooldownId", "CooldownDuration": "cooldownDuration", "AddStatusEffects": "addStatusEffects",
+                          "MannequinTag": "mannequinTag", "SharedCooldownLocString": "sharedCooldownLocString",
+                          "DurationScaleFactor": "durationScaleFactor", "StatusEffectMod": "statusEffectMod"}
+    consumables: dict[str, dict] = {}
+    for row in table_rows("javelindata_itemdefinitions_consumables.datasheet"):
+        consumable_id = row.get("ConsumableID")
+        if not consumable_id or consumable_id.lower() in consumables:
+            continue
+        entry = {"id": consumable_id}
+        for column, key in consumable_columns.items():
+            if row.get(column) not in (None, ""):
+                entry[key] = row[column]
+        consumables[consumable_id.lower()] = entry
+    write_key_table(target / "consumables.tsv", consumables)
+    # The weight limits of the bag of the player (javelindata_encumbrancelimits, row Player; tenths for the weights).
+    limits = next((r for r in table_rows("javelindata_encumbrancelimits.datasheet") if r.get("ContainerTypeID") == "Player"), {})
+    keep = ("EncumbranceBaseMax", "EncumbranceWarningPercent", "EquipLoadBaseMax", "EquipLoadWarningPercent", "FullWhenEncumbered",
+            "EquipLoadRatioFast", "EquipLoadRatioNormal", "EquipLoadRatioSlow", "EquipLoadRatioOverburdened")
+    (target / "encumbrance.json").write_text(json.dumps({k: limits.get(k) for k in keep}, separators=(",", ":")))
+    counts = convert_item_stats(target)
+    return {"items": len(items), "with icon": sum(1 for e in items.values() if "icon" in e), "perks": len(perks), **counts}
+
+
+# The stat columns of the weapon definitions (javelindata_itemdefinitions_weapons and the other weapon tables, by WeaponID =
+# the ItemStatsRef of an item) that the item tooltips read, with their names in weaponstats.tsv.
+WEAPON_STAT_COLUMNS = {
+    "BaseDamage": "baseDamage", "CritChance": "critChance", "CritDamageMultiplier": "critDamageMultiplier",
+    "BlockStaminaDamage": "blockStaminaDamage", "BlockStability": "blockStability", "ScalingStrength": "scalingStrength",
+    "ScalingDexterity": "scalingDexterity", "ScalingIntelligence": "scalingIntelligence", "ScalingFocus": "scalingFocus",
+    "WeaponBaseDamageCompoundIncrease": "gearScoreRate", "GatheringEfficiency": "gatheringEfficiency",
+    "PhysicalArmorSetScaleFactor": "physicalArmor", "ElementalArmorSetScaleFactor": "elementalArmor",
+    "ArmorRatingScaleFactor": "armorRating", "PrimaryUse": "primaryUse", "MannequinTag": "mannequinTag",
+    "TooltipPrimaryAttackData": "primaryAttack", "TooltipAlternateAttackData": "alternateAttack",
+    "GatheringTypes": "gatheringTypes",
+}
+# The columns of the armor definitions (javelindata_itemdefinitions_armor, by WeaponID = the ItemStatsRef of an item), with
+# the absorption (ABS*) and the resistance (RES*) columns as they are.
+ARMOR_STAT_COLUMNS = {
+    "PhysicalArmorSetScaleFactor": "physicalArmor", "ElementalArmorSetScaleFactor": "elementalArmor",
+    "ArmorRatingScaleFactor": "armorRating", "Encumbrance": "encumbrance", "EquipLoad": "equipLoad",
+    "WeightClass": "weightClass", "TrinketBonus": "trinketBonus", "ScaleHealthPerGS": "scaleHealthPerGS",
+    "ScaleDamagePerGS": "scaleDamagePerGS", "ScaleCDRPerGS": "scaleCDRPerGS",
+}
+# The fields of the base attributes file of the player (sharedassets/genericassets/playerbaseattributes.pbadb; the field id
+# is the CRC-32 of the name in lower case) for the gear score rule of the weapon damage (client code at image RVA 0x3691470,
+# Soulwarden Combat::weapon_base) and for the armor rating of an item (client code at image RVA 0x5BFB400).
+ITEM_RULE_FIELDS = {
+    "levelDamage": ("Level Damage Multiplier", "float"),
+    "gearScoreRate": ("Base Damage Compound Increase", "float"),
+    "gearScoreSmallerRate": ("Compound Increase Diminishing Multiplier", "float"),
+    "gearScoreInterval": ("Base Damage Gear Score Interval", "whole"),
+    "gearScoreMinimum": ("Min Possible Weapon Gear Score", "whole"),
+    "gearScoreLimit": ("Diminishing Gear Score Threshold", "whole"),
+    "armorRatingExponent": ("Armor Set Rating Exponent", "float"),
+}
+
+
+def convert_item_stats(target: Path) -> dict:
+    """weaponstats.tsv and armorstats.tsv (write_key_table): the stat rows of the weapon and the armor definitions, by the
+    lower-case WeaponID (the ItemStatsRef of an item); itemrules.json: the constants of ITEM_RULE_FIELDS and the scaling tiers
+    of the weapons."""
+    import struct
+    from .source import walk
+    weapons: dict[str, dict] = {}
+    armors: dict[str, dict] = {}
+    for path in sorted(source.paks().paths("", ".datasheet")):
+        name = path.rsplit("/", 1)[1]
+        is_weapon = name.startswith("javelindata_itemdefinitions_weapons")
+        if not is_weapon and name != "javelindata_itemdefinitions_armor.datasheet":
+            continue
+        rows, columns = (weapons, WEAPON_STAT_COLUMNS) if is_weapon else (armors, ARMOR_STAT_COLUMNS)
+        for row in datasheet.Sheet(source.read(path)).rows():
+            stats_id = row.get("WeaponID")
+            if not stats_id or stats_id.lower() in rows:
+                continue
+            entry = {"id": stats_id}
+            for column, key in columns.items():
+                if row.get(column) not in (None, ""):
+                    entry[key] = row[column]
+            if not is_weapon:
+                for column, value in row.items():
+                    if column[:3] in ("ABS", "RES") and isinstance(value, (int, float)) and value:
+                        entry[column] = value
+            rows[stats_id.lower()] = entry
+    write_key_table(target / "weaponstats.tsv", weapons)
+    write_key_table(target / "armorstats.tsv", armors)
+    values: dict[int, bytes] = {}
+    for root in parse(source.read("sharedassets/genericassets/playerbaseattributes.pbadb")):
+        for element in walk(root):
+            if element.name is not None and element.value is not None:
+                values.setdefault(element.name, element.value)
+    rules = {}
+    for key, (label, kind) in ITEM_RULE_FIELDS.items():
+        value = values.get(field_id(label))
+        if value is None or (kind == "float" and len(value) != 4):
+            raise SystemExit(f"playerbaseattributes.pbadb has no field \"{label}\"")
+        rules[key] = int.from_bytes(value, "big") if kind == "whole" else round(struct.unpack(">f", value)[0], 6)
+    # The scaling tiers of the weapons (javelindata_weapontiers): the tier letter and its lowest scaling value, highest first.
+    rules["weaponTiers"] = sorted(([r["Tier"], round(r["ScalingStart"], 6)] for r in table_rows("javelindata_weapontiers.datasheet")
+                                   if r.get("Tier") and isinstance(r.get("ScalingStart"), (int, float))), key=lambda t: -t[1])
+    (target / "itemrules.json").write_text(json.dumps(rules, separators=(",", ":")))
+    return {"weapon stats": len(weapons), "armor stats": len(armors)}
+
+
+def write_key_table(path: Path, rows: dict[str, dict]) -> None:
+    """A keyed table for the native swcui.table_row of the runtime: a head line ("key", then each column; ":n" marks a column
+    whose values are all numbers), then one line for each key (lower case) with its values, tab-separated (an empty value:
+    no value). A tab or a line end in a value becomes a space."""
+    columns: list[str] = []
+    for row in rows.values():
+        for column in row:
+            if column not in columns:
+                columns.append(column)
+    def is_number(value):
+        if isinstance(value, bool):
+            return True
+        if isinstance(value, (int, float)):
+            return True
+        try:
+            float(value)
+            return True
+        except (TypeError, ValueError):
+            return False
+    numeric = {c: all(is_number(r[c]) for r in rows.values() if c in r) for c in columns}
+    def text(value, number):
+        if number:
+            value = float(value)
+            return str(int(value)) if value.is_integer() else repr(value)
+        return str(value).replace("\t", " ").replace("\n", " ").replace("\r", " ")
+    lines = ["\t".join(["key"] + [c + (":n" if numeric[c] else "") for c in columns])]
+    for key, row in rows.items():
+        lines.append("\t".join([key] + [text(row[c], numeric[c]) if c in row else "" for c in columns]))
+    path.write_text("\n".join(lines) + "\n")
+
+
+def convert_uistates() -> dict:
+    """uistates.json: the screen states of the game (libs/ui/uistates.xml, the table of the native screen manager): for each
+    state its CRC-32 (of the lower-case name), its level, its close rules (CloseLowerLevels, CloseHigherLevels), and its
+    screens (the canvas name, and disableCanvasOnOut: false for a screen that keeps its canvas when the state ends)."""
+    import xml.etree.ElementTree as ET
+    import zlib
+    root = ET.fromstring(source.read("libs/ui/uistates.xml").decode("utf-8", "replace"))
+    states = {}
+    for state in root.findall("State"):
+        name = state.get("name")
+        params = {p.get("name"): p.get("value") for p in state.findall("param")}
+        screens = []
+        for screen in state.findall("Screens/param"):
+            entry = {"name": screen.get("value")}
+            if screen.get("disableCanvasOnOut") == "false":
+                entry["keepCanvas"] = True
+            screens.append(entry)
+        states[name] = {"crc": zlib.crc32(name.lower().encode()) & 0xFFFFFFFF, "level": int(params.get("Level", "0")),
+                        "closeLower": params.get("CloseLowerLevels") == "true",
+                        "closeHigher": params.get("CloseHigherLevels") == "true", "screens": screens}
+    target = out_dir() / "gamedata"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "uistates.json").write_text(json.dumps(states, separators=(",", ":")))
+    return {"states": len(states)}
 
 
 # ---------------------------------------------------------------------------------------------------------------- enums
@@ -1090,6 +1352,8 @@ def main(argv=None) -> int:
     sub.add_parser("fonts")
     sub.add_parser("text")
     sub.add_parser("gamedata")
+    sub.add_parser("items")
+    sub.add_parser("uistates")
     sub.add_parser("enums")
     sub.add_parser("loader")
     sub.add_parser("actionmaps")
@@ -1118,6 +1382,10 @@ def main(argv=None) -> int:
         result = convert_textures(wanted.get("textures", []))
     elif args.command == "fonts":
         result = convert_fonts()
+    elif args.command == "items":
+        result = convert_items()
+    elif args.command == "uistates":
+        result = convert_uistates()
     elif args.command == "gamedata":
         result = convert_gamedata()
     elif args.command == "enums":

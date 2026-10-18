@@ -7,6 +7,8 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <string_view>
+#include <unordered_map>
 
 #include "LuaApi.h"
 #include "LuaSource.h"
@@ -1300,6 +1302,98 @@ int n_load_json(lua_State* L) {
     return 1;
 }
 
+/** A keyed table of the converter (gamedata/NAME.tsv, swc_convert.ui.write_key_table): the columns, the line of each key, and the
+ *  key of each CRC-32. It loads one time for the process (the content does not change in a run). */
+struct KeyTable {
+    bool loaded{false};
+    std::vector<std::string> columns;
+    std::vector<bool> numeric;
+    std::unordered_map<std::string, std::string> lines;
+    std::unordered_map<std::uint32_t, std::string> keyOfCrc;
+};
+
+std::vector<std::string_view> split_tabs(std::string_view line) {
+    std::vector<std::string_view> parts;
+    std::size_t start = 0;
+    while (true) {
+        const std::size_t tab = line.find('\t', start);
+        parts.push_back(line.substr(start, tab == std::string_view::npos ? std::string_view::npos : tab - start));
+        if (tab == std::string_view::npos) {
+            return parts;
+        }
+        start = tab + 1;
+    }
+}
+
+KeyTable& key_table(const std::string& file) {
+    static std::unordered_map<std::string, KeyTable> tables;
+    KeyTable& table = tables[file];
+    if (table.loaded) {
+        return table;
+    }
+    table.loaded = true;
+    std::ifstream input(file, std::ios::binary);
+    std::string line;
+    if (!std::getline(input, line)) {
+        return table;
+    }
+    for (const std::string_view column : split_tabs(line)) {
+        const bool number = column.size() > 2 && column.substr(column.size() - 2) == ":n";
+        table.columns.emplace_back(number ? column.substr(0, column.size() - 2) : column);
+        table.numeric.push_back(number);
+    }
+    while (std::getline(input, line)) {
+        const std::size_t tab = line.find('\t');
+        if (tab == std::string::npos || tab == 0) {
+            continue;
+        }
+        std::string key = line.substr(0, tab);
+        table.keyOfCrc.emplace(crc32(key), key);
+        table.lines.emplace(std::move(key), std::move(line));
+    }
+    return table;
+}
+
+/** swcui.table_row(name, key): the row of a key of gamedata/NAME.tsv as a table (column -> value; a ":n" column gives numbers,
+ *  an empty value no field), or nil. The key: a text (any letter case) or a number, the CRC-32 of the lower-case key. */
+int n_table_row(lua_State* L) {
+    const std::string name = arg_text(L, 1);
+    if (name.find("..") != std::string::npos || name.find('/') != std::string::npos) {
+        return luaL_error(L, "table_row: a table name with a path");
+    }
+    KeyTable& table = key_table(runtime_of(L).options().contentDir + "/gamedata/" + name + ".tsv");
+    std::string key;
+    if (lua_type(L, 2) == LUA_TNUMBER) {
+        const auto found = table.keyOfCrc.find(static_cast<std::uint32_t>(lua_tonumber(L, 2)));
+        if (found == table.keyOfCrc.end()) {
+            lua_pushnil(L);
+            return 1;
+        }
+        key = found->second;
+    } else {
+        key = lower(arg_text(L, 2));
+    }
+    const auto row = table.lines.find(key);
+    if (row == table.lines.end()) {
+        lua_pushnil(L);
+        return 1;
+    }
+    const std::vector<std::string_view> values = split_tabs(row->second);
+    lua_createtable(L, 0, static_cast<int>(table.columns.size()));
+    for (std::size_t index = 0; index < table.columns.size() && index < values.size(); ++index) {
+        if (values[index].empty()) {
+            continue;
+        }
+        if (table.numeric[index]) {
+            lua_pushnumber(L, std::strtod(std::string(values[index]).c_str(), nullptr));
+        } else {
+            lua_pushlstring(L, values[index].data(), values[index].size());
+        }
+        lua_setfield(L, -2, table.columns[index].c_str());
+    }
+    return 1;
+}
+
 /** Loads a script of the game: the content file "scripts/<path>.luac", 2 bytes, then Lua 5.1 bytecode. */
 int n_load_game_script(lua_State* L) {
     std::string name = lower(arg_text(L, 1));
@@ -1378,7 +1472,7 @@ const luaL_Reg kNatives[] = {
     {"set_canvas_position", n_set_canvas_position}, {"rect", n_rect}, {"viewport_points", n_viewport_points}, {"get", n_get},
     {"set", n_set}, {"load_canvas", n_load_canvas}, {"unload_canvas", n_unload_canvas}, {"find_canvas", n_find_canvas},
     {"canvases", n_canvases}, {"canvas_get", n_canvas_get}, {"canvas_set", n_canvas_set}, {"localize", n_localize},
-    {"has_text", n_has_text}, {"crc32", n_crc32}, {"texture_exists", n_texture_exists}, {"stub", n_stub}, {"log", n_log},
+    {"has_text", n_has_text}, {"crc32", n_crc32}, {"table_row", n_table_row}, {"texture_exists", n_texture_exists}, {"stub", n_stub}, {"log", n_log},
     {"clock", n_clock}, {"wall_clock", n_wall_clock}, {"tick", n_tick}, {"update_layouts", n_update_layouts}, {"size_to_fit", n_size_to_fit}, {"component", n_component}, {"components", n_components},
     {"interactable_at", n_interactable_at}, {"contains", n_contains}, {"to_rect_space", n_to_rect_space}, {"text_layout", n_text_layout}, {"compute_layout", n_compute_layout}, {"write_draw", n_write_draw}, {"mesh_area", n_mesh_area}, {"viewport", n_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
     {"load_lua", n_load_lua}, {nullptr, nullptr}};

@@ -679,9 +679,9 @@ struct Walker {
                 text(*e, *e->text, alpha);
             }
         };
-        if (!masking) {
-            own();
-        } else if (e->mask->drawBehind) {
+        // The visual of an element with a mask component (the masking on or off) draws only behind or in front of the
+        // children, when the mask asks for it (LyShine UiMaskComponent); a different element draws it behind its children.
+        if (!e->mask || e->mask->drawBehind) {
             own();
         }
         bool spriteMask = false;
@@ -734,9 +734,9 @@ struct Walker {
             pop.kind = DrawItem::Kind::pop_clip;
             pop.element = id;
             out.items.push_back(pop);
-            if (e->mask->drawInFront) {
-                own();
-            }
+        }
+        if (e->mask && e->mask->drawInFront) {
+            own();
         }
     }
 };

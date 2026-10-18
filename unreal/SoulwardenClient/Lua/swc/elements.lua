@@ -104,12 +104,34 @@ local function key(id)
   return tostring(id)
 end
 
+-- The empty tables of each script base (the per-element lists that a script declares on its class table: catsection.luac
+-- itemDefs = {}, slotIdsToItemDefs = {}). Each instance gets new empty tables for them: the 33 category sections of the
+-- inventory keep their own items, as in the client (a rule from the scripts: a shared list would mix the sections).
+local emptyTablesOf = setmetatable({}, {__mode = "k"})
+
+local function empty_tables(base)
+  local keys = emptyTablesOf[base]
+  if keys == nil then
+    keys = {}
+    for k, v in pairs(base) do
+      if type(v) == "table" and k ~= "Properties" and k ~= "__index" and getmetatable(v) == nil and next(v) == nil then
+        keys[#keys + 1] = k
+      end
+    end
+    emptyTablesOf[base] = keys
+  end
+  return keys
+end
+
 --- @return A new instance of a component script for an entity (the properties are the raw values of the canvas).
 function Swc.ScriptInstance(entityId, path, properties)
   local base = Swc.ScriptBase(path)
   local instance = {}
   instance.Properties = Swc.ResolveProperties(rawget(base, "Properties"), properties)
   instance.entityId = entityId
+  for _, k in ipairs(empty_tables(base)) do
+    instance[k] = {}
+  end
   setmetatable(instance, base)
   return instance
 end
@@ -168,9 +190,16 @@ function Swc.ActivateElements(ids, root, loading)
   end
   local order = post_order(root, {})
   for _, id in ipairs(order) do
-    -- The components first (they connect before the script components of the element), then the scripts.
+    -- The interactive components first (they connect before the script components of the element), then the scripts.
     Swc.InitInteractive(id)
     Swc.Notify("UiInitializationBus", id, "InGamePostActivate")
+  end
+  -- The dynamic lists after the OnInit of each new element: an owner script reads the prototype of a dynamic scroll box of
+  -- a child element in its OnInit (simplegriditemlist.luac Initialize, called by abilityselection.luac and
+  -- dynamicitemlist.luac), before the auto refresh moves the prototype away. (O3DE calls InGamePostActivate from the
+  -- children up and its auto refresh in it; the scripts of the game show that the fork does it later: open point O4.)
+  for _, id in ipairs(order) do
+    Swc.InitDynamic(id)
   end
   if loading then
     for _, id in ipairs(order) do

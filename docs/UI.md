@@ -40,7 +40,10 @@ tools/convert-ui.sh textures PATH...|--canvas PATH|--folder PREFIX
 tools/convert-ui.sh wanted [FILE]          # the textures that a run asked for (SWC_WORK/ui/wanted.json)
 tools/convert-ui.sh fonts                  # fonts/fonts.json, fonts/effects.json, fonts/files/
 tools/convert-ui.sh text                   # localization/en-us.json
-tools/convert-ui.sh gamedata               # gamedata/abilities.json, gamedata/weapons.json
+tools/convert-ui.sh gamedata               # gamedata/abilities.json, weapons.json, afflictions.json
+tools/convert-ui.sh items                  # gamedata/items.tsv, perks.tsv, consumables.tsv, weaponstats.tsv, armorstats.tsv,
+                                           # encumbrance.json, itemrules.json (the inventory screens, stage P2.4)
+tools/convert-ui.sh uistates               # gamedata/uistates.json: the UI state table (libs/ui/uistates.xml)
 tools/convert-ui.sh enums                  # gamedata/enums.json: the enum values of the client program
 tools/convert-ui.sh loader                 # gamedata/loader.json: the canvases that the two loaders name
 tools/convert-ui.sh actionmaps             # gamedata/actionmaps.json: the action maps of the client profile
@@ -66,6 +69,19 @@ tools/convert-ui.sh texture-index          # textures/index.json: sizes, borders
 - Game data: `abilities.json` has each ability of the weapon ability tables (key: the CRC-32 of the lower-case
   AbilityID) with its icon, its category, its cooldown time, and its mana cost. `weapons.json` has each weapon and heart
   rune item (key: the lower-case item id) with its ability table, its mannequin tags, its tier, and its equip ability.
+  `afflictions.json` has the rows of `javelindata_afflictions` (the meters of the HUD and of the equipment screen).
+- Item data (`items`): a keyed table (`.tsv`: a head line "key" and the columns, ":n" marks a number column; one line
+  for each lower-case key) that the runtime reads by key with the native `swcui.table_row(name, key)` (a key text in
+  any letter case, or the CRC-32 of the lower-case key). `items.tsv`: each row of the master item definitions (the
+  first row of an id wins), with the icon (the IconPath, else the icon of the armor appearance ArmorAppearanceM, else
+  of the weapon appearance). `perks.tsv` (`javelindata_perks*`), `consumables.tsv`. `weaponstats.tsv` and
+  `armorstats.tsv`: the stat columns of the weapon and the armor definitions, by WeaponID (the ItemStatsRef of an
+  item). `encumbrance.json`: the weight limits of the bag of the player (`javelindata_encumbrancelimits`, row Player).
+  `itemrules.json`: the gear score rule and the armor exponent of `playerbaseattributes.pbadb` (object stream, the
+  field ids of the names "Base Damage Compound Increase" and the others), and the scaling tiers of the weapons
+  (`javelindata_weapontiers`).
+- The UI state table (`uistates`): `libs/ui/uistates.xml`, 106 states with their level, their close rules, their
+  screens, and the screens that keep their canvas.
 
 ## The runtime model (Source/SwcUi)
 
@@ -82,7 +98,8 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   one line from the corner clips the slices); radial edge (three triangles about the middle of an edge; sliced: one
   line from that point). A sliced linear fill moves the slice values.
 - Fader: multiplies the alpha of its subtree. A disabled element hides its subtree. A mask clips its children with a
-  quad. The mask image itself does not draw (only with "draw behind" or "draw in front").
+  quad. The mask image itself does not draw (only with "draw behind" or "draw in front"); this is also true for a mask
+  component with the masking off (O3DE `UiMaskComponent::RenderDisabledMask`).
 - Sprite mask: a mask element with a converted sprite (or its child mask element) also multiplies the alpha of each
   mesh below it by the alpha of its texture: each vertex gets the place in the mask texture (the rect of the mask
   element, the cell of a sprite sheet). With the option UseAlphaTest the mask alpha is 0 or 1 at 0.5. The innermost
@@ -184,13 +201,18 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   emulation runs: the handlers of `DynamicBus.EscapeKeyNotificationBus` get `OnEscapeKeyPressed`; with no handler, a
   state other than HUD with an escapable screen goes back to HUD, and the HUD goes to the state "esc" (1643432462) of
   the escape menu. (The native code of the client does this; the rule comes from the scripts: open point O12.)
-- Screen states: an autohide screen shows in the state of its name and in the states of `Swc.extraScreenStates` (the
-  escape menu: "esc", 2907552185, 921475099, the states that `escapemenu.luac` tests; the respawn screen: 921475099,
-  the escape menu of the respawn state). A screen of both states of a transition stays, with no transition: the
-  respawn screen stays under the escape menu (`respawn.luac` toggles 921475099 with Escape and takes any other
-  transition out as an error). `ToggleState` and `ExitState` go back to the state before the toggle (else to HUD). A
-  shown screen turns off the action maps of its canvas component (`actionMapOverrides`: the escape menu turns off
-  player, movement, camera).
+- Screen states (stage P2.4): the state table of the game (`gamedata/uistates.json`). The states make a stack by
+  their level; the current state is the state of the highest level. A new state closes the states of a lower level
+  (`closeLower`) or of a higher level (`closeHigher`) as the table says, and takes the place of a state of its own
+  level. A screen shows while a state of the stack lists it (the escape menu shows in "esc", 2907552185, and
+  921475099; the respawn screen stays under the escape menu of the respawn state). A screen of both states of a
+  transition stays, with no transition (`respawn.luac` toggles 921475099 with Escape and takes any other transition out
+  as an error). `ToggleState` and `ExitState` leave the state (its stack entry). A shown screen turns off the action
+  maps of its canvas component (`actionMapOverrides`: the escape menu turns off player, movement, camera).
+- The inventory: Tab (`toggleInventoryWindow`) leaves the state Inventory or Container when it is current, else it sets
+  the native flag "looking through loadout" (`LocalPlayerUIRequestsBus.SetIsLookingThroughLoadout`); the player
+  component tells `newinventory.luac`, which queues the state Inventory (2972535350: the screens NewInventory,
+  EquipmentV3, and the flyout menu).
   `TryShowById` and `TryHideById` show and hide a screen over the state (the popup) with `OnTransitionIn` and
   `OnTransitionOut`; the state does not change.
 - The cursor: the UI needs the pointer while a mouse owner exists (`AddMouseOwner`) or a shown screen has
@@ -265,7 +287,8 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
 | `datalayer.lua` | The data layer: nodes by path, observers (on a change), callbacks (on each set or call). |
 | `manager.lua` | The screen loader (`ScriptLoadCanvas`), the UI state machine, the keys, the texts with replacements. |
 | `tween.lua` | The tween engine (`ScriptedEntityTweenerBus`): virtual properties, the easing functions of Penner, timelines. |
-| `game.lua` | The game buses of the HUD: config, paperdoll, abilities, cooldowns, item data, stamina. |
+| `game.lua` | The game buses of the HUD: config, abilities, cooldowns, stamina, progression. |
+| `items.lua` | The items (stage P2.4): the static data, the item stats, the item slots and descriptors of the bag and of the paperdoll, the containers, the item data, the requests of the bag and of the equipment, the weight. |
 | `host.lua` | The calls of the client: boot, enter the world, the data of the player, the tick. |
 
 Rules of the emulation:
@@ -292,6 +315,31 @@ Rules of the emulation:
   The other screens get `OnTransitionIn` when the new state is HUD, else `OnTransitionOut`.
 - Sound calls are stubs (no sound in this stage).
 
+## The items (swc/items.lua, stage P2.4)
+
+- An item slot (`ItemSlot`) and an item descriptor (`ItemDescriptor`) have the values of the backend (the item, the
+  quantity, the gear score, the durability, the instance, the flags, the perks) and the static data of `items.tsv`.
+  The rarity: the ForceRarity of the data, else the count of the perks (the backend sends no rarity). The weight of a
+  slot is the weight of the data times the quantity (the bag sections add it).
+- The paperdoll slots that an item takes: the tags of its item class (the rule of the client check 0x679C060, as the
+  backend has it). `GetEquipSlots` gives their names (the names of `equipmentcommon.luac`, which are also the names of
+  the slot elements of the equipment screen); a slot with no name (8, 18, 19, 20, 26, 29) has no element.
+- The item stats of the tooltips: the base damage of a weapon at a gear score (one factor of 1 + 0.0112 for each full
+  5 above 100, a smaller factor above 500: client code 0x3691470, Soulwarden `Combat::weapon_base`); the core damage is
+  the base times 1 + 0.025 for each level above 1 (client code 0x5BFB530). The armor rating of an item: the gear score
+  to the power 1.2 times the scale factor of the set, times its rating factor, each to one decimal (client code
+  0x5BFB400). The jewelry lines: gear score x Scale...PerGS x TrinketBonus x 0.01 (client code 0x3636A50). The scaling
+  tier of an attribute: the highest tier of `javelindata_weapontiers` whose start the scaling reaches.
+- The requests of the scripts (`LocalPlayerUIRequestsBus`) go to the client as host requests: `equip BAG SLOT QTY
+  INSTANCE`, `unequip SLOT BAG QTY`, `swap TO FROM INSTANCE INSTANCE`, `use BAG`, `drop BAG QTY INSTANCE`,
+  `dropequipped SLOT QTY`. The client sends them to the backend (the request writers of `RepClient`, NETWORK.md). The
+  screens change only with the states of the backend (no prediction). A refusal 3626 gives each paperdoll slot to the
+  scripts again (`Swc.HostEquipFail`).
+- The defaults of the client settings that the item screens read (`Swc.config`, game.lua): the values of the
+  registration function of the client (image RVA 0x616C670), with the address of each name. A setting that the
+  emulation does not have is false or 0.
+- The afflictions: the meters start with no damage and hide (the backend sends no affliction state).
+
 ## The data of the backend
 
 `USwcUiSubsystem` reads `USwcBackendSubsystem::GetLocalPlayer` each frame and calls the host functions. A value goes
@@ -306,6 +354,11 @@ to the data layer only when it changes.
 | `Hud.LocalPlayer.Equipment.ActiveWeaponSlot`, `IsSheathed` | activeMap bits 24 to 26, sheatheMap |
 | `CharacterAbilityRequestBus`, `Abilities.OnDataUpdate` | abilityBars (table CRC-32 and three ability keys) |
 | `CooldownTimersComponentBus` | cooldowns (end time in server microseconds; an indefinite end shows as 3600 s) |
+| `ContainerRequestBus`, `ContainerEventBus` (the bag) | the bag (Container, slot 61): each slot with its item (index in the item catalog, quantity, gear score, durability, instance, perks, flags) |
+| `PaperdollRequestBus.GetSlot` (full items) | the paperdoll items of the owner view (`paperdollItems`) |
+| `Hud.LocalPlayer.Currency.Amount` | the coin (Currency, slot 60) |
+| `Hud.LocalPlayer.Progression.Level` | the level of the Progression state (slot 70) plus 1 |
+| `Hud.LocalPlayer.Inventory.CurrentEncumbrance` and the limits | the sum of the weight of the bag items (the weight of the item data times the quantity); the limits of `encumbrance.json` |
 | `Hud.LocalPlayer.PlayerHeading` | camera yaw (`GetCameraYawDegrees`, radians, west positive) |
 
 ## The client
@@ -379,6 +432,7 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `respawn` | The original Respawn screen: the dead mark and a death notice of 5 s queue the state "respawn", the list has "Random Location"; a drag on the world map (a press on a tile, the hand-off to the `MagicMap` scroll box) moves its content by the drag vector, `magicmap.luac` sees the drag and its end; Escape opens the escape menu of the respawn state over the screen and Escape goes back to it; the RESPAWN button (on 2 s after the map) gives the host request "respawn 1", the loading screen of the death shows, the revive and its end give the HUD. Pictures `respawn-list`, `respawn-drag`, `respawn-loading`. |
 | `tooltip` | The original EscapeMenu and Tooltip screens: with the dead mark the menu buttons have the tooltip "@ui_button_disabled_dead"; the hover of a button shows the dynamic tooltip after the delay of its setter, at the cursor, with the English text and the width of the text and its padding; the end of the hover hides it; with the character alive the button has no tooltip. Picture `tooltip-dead`. |
 | `transitions` | The open of the original InfoModal (`OnTransitionIn`, its tweens) and the hover of its button (`button.luac`): each animation that a script starts has the eased value at each frame (60 a second), the final value, and ends after its delay and duration (15 animations; 4 replaced by a new one on the same property, the rule of the gem). The close hides the modal at once (its script has no animation). The ease functions against values of the Penner equations. Pictures `transitions-open-00` to `-24`, `transitions-hover-00` to `-24`, `transitions-close-00`. |
+| `inventory` | The original NewInventory, EquipmentV3, Tooltip, Encumbrance, and FlyoutMenu screens with a bag of the host calls (a sword, a shirt, 3 potions, 25 ore), the equipped sword, and the coin. The weight of the bag (14.0 of 200.0); Tab opens the state Inventory with the two screens and the cursor; the bag sections have their items and weights; the hover of the sword gives the item tooltip (gear score 100, core damage 70); a click gives the command list (Equip, Lock, Drop); Equip gives the host request `equip 0 24 1 INSTANCE`; the answer of the server (the swords change places) changes the screens and the weight (14.6); Tab closes. Pictures `inventory-open`, `-tooltip`, `-commands`, `-equipped`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
 The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,
@@ -444,3 +498,8 @@ the user ([AGENTS.md](../AGENTS.md), rules).
   asset as the image parameter draws. Thus the client uses the quad clip; the offline runtime and the preview apply
   the sprite masks.
 - Without a frame limit (`-nullrhi`), the runtime ticks with each frame.
+- The items (stage P2.4): the attribute part of the core damage waits for the attribute state of the read path (the
+  equipment screen shows the place-holder values of its canvas); `isMagic` of a weapon (the label "core power"); the
+  ammunition stats; the equipment sets (their perks and names: no bonus lines); the defaults of the client settings
+  that the item screens do not read (183 settings of the scripts have a default that is not false or 0); the key hints
+  of the command list (Lock, Drop) show no key; the minor notifications (the notification screen is not loaded).

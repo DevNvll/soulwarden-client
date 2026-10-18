@@ -1,0 +1,10 @@
+# Stage P2.4: the inventory of the development character in the client: Tab opens it (the bag, the equipment), the pointer
+# visits an item, Tab closes it. Times in seconds from the spawn of the player.
+# SWC_STAGE=P2.4 SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8872:4250:138.25 tools/ui-check.sh ui-inventory 40 tests/drive/ui-inventory.txt
+1 waitfor CompassLines 60
+12 log Tab opens the inventory
+12 key tab
+16 point ItemDraggable
+19 log Tab closes the inventory
+19 key tab
+21 end

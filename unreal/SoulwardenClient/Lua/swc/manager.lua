@@ -99,7 +99,7 @@ function Swc.LoadScreen(path, autohide, drawOrder)
   end
   local name = name_of(path)
   local states = {[Math.CreateCrc32(name)] = true}
-  for _, state in ipairs(Swc.extraScreenStates[string.lower(name)] or {}) do
+  for state in pairs(Swc.StatesOfScreen(name)) do
     states[state] = true
   end
   Swc.screens[tostring(canvas)] = {autohide = autohide and true or false, path = path, name = name, canvas = canvas,
@@ -176,35 +176,101 @@ Swc.uiState = 0
 Swc.mouseOwners = {}
 
 -- The transitions of a state change (the rule of this emulation; the order of the events is open point O4):
---   * an autohide screen (a menu) has the state of its name (the CRC-32 of the canvas name) and the states of
---     Swc.extraScreenStates: it shows and gets OnTransitionIn when the machine enters one of its states, and gets
---     OnTransitionOut and hides when the machine leaves its states;
+--   * an autohide screen (a menu) has the state of its name (the CRC-32 of the canvas name) and the states of the state
+--     table that list it: it shows and gets OnTransitionIn when a state of the stack has it, and gets OnTransitionOut and
+--     hides when no state of the stack has it;
 --   * a shown autohide screen turns off the action maps of its canvas component (UiJavelinCanvasComponent
 --     actionMapOverrides) until it hides;
 --   * each other screen (the HUD) gets OnTransitionIn when the new state is HUD, else OnTransitionOut, with the new
 --     state as the third argument (the HUD screens show or hide themselves with HudStateCommon).
 local HUD_STATE = 2702338936
 
--- The states of a screen that are not the state of its name (the native code of the client knows them; these come
--- from the scripts): the escape menu shows in "esc" (1643432462) and in the two states that escapemenu.luac tests in
--- OnTransitionIn (2907552185, the escape menu of the main menu level; 921475099, the escape menu of the respawn state).
--- The respawn screen stays in 921475099: respawn.luac toggles that state with Escape (ui_cancel), and its
--- OnTransitionOut takes a transition out to a state other than its own exit as an error and queues "respawn" again.
-Swc.extraScreenStates = {
-  escapemenu = {1643432462, 2907552185, 921475099},
-  respawn = {921475099},
-}
+-- The screen states of the game (gamedata/uistates.json: libs/ui/uistates.xml, the table of the native screen manager;
+-- tools/convert-ui.sh uistates): each state has a level, its close rules, and its screens. The machine keeps a stack of
+-- states: a new state closes the states of its level, the lower levels when it has CloseLowerLevels, and the higher levels
+-- when it has CloseHigherLevels; the current state is the state of the highest level (the escape menu of the respawn state,
+-- level 6, opens over the respawn state, level 5, and the respawn screen stays). An autohide screen shows while a state of
+-- the stack has it.
+local uiStates          -- state CRC -> {name, level, closeLower, closeHigher, screens = {lower-case name -> true}}
+local statesOfScreen    -- lower-case screen name -> {state CRC -> true}
+
+local function load_states()
+  if uiStates ~= nil then
+    return
+  end
+  uiStates, statesOfScreen = {}, {}
+  local data, err = swcui.load_json("gamedata/uistates.json")
+  if not data then
+    Swc.Note("no screen states: " .. tostring(err) .. " (tools/convert-ui.sh uistates)")
+    return
+  end
+  for name, state in pairs(data) do
+    local entry = {name = name, level = state.level or 0, closeLower = state.closeLower == true,
+                   closeHigher = state.closeHigher == true, screens = {}}
+    for _, screen in ipairs(state.screens or {}) do
+      local key = string.lower(screen.name)
+      entry.screens[key] = true
+      statesOfScreen[key] = statesOfScreen[key] or {}
+      statesOfScreen[key][state.crc] = true
+    end
+    uiStates[state.crc] = entry
+  end
+end
+
+--- @return The states of the table that have a screen (a canvas name), as a set of CRCs.
+function Swc.StatesOfScreen(name)
+  load_states()
+  return statesOfScreen[string.lower(name)] or {}
+end
+
+--- @return The state of the table for a CRC, or nil.
+function Swc.UiStateInfo(state)
+  load_states()
+  return uiStates[state]
+end
+
+Swc.stateStack = {}
+
+--- @return The action maps that a screen turns off while it shows (the canvas component; the scripts change them).
+local function overrides_of(screen)
+  if screen.overrides == nil then
+    screen.overrides = {}
+    for _, map in ipairs(swcui.canvas_get(screen.canvas, "actionMapOverrides") or {}) do
+      screen.overrides[map] = true
+    end
+  end
+  return screen.overrides
+end
 
 function Swc.SetScreenShown(screen, shown)
   if (screen.shown or false) == shown then
     return
   end
   screen.shown = shown
-  local overrides = swcui.canvas_get(screen.canvas, "actionMapOverrides") or {}
-  for _, map in ipairs(overrides) do
+  for map in pairs(overrides_of(screen)) do
     Swc.mapOverrides[map] = math.max(0, (Swc.mapOverrides[map] or 0) + (shown and 1 or -1))
   end
 end
+
+-- UiJavCanvasComponentBus SetOverridesActionMap(canvas, map, on): a script turns an override of its canvas on or off
+-- (newinventory.luac: no "movement" override, the character walks while the inventory shows).
+Swc.Define("UiJavCanvasComponentBus", "Event", {
+  SetOverridesActionMap = function(canvas, map, on)
+    local screen = Swc.screens[tostring(canvas)]
+    if not screen then
+      return
+    end
+    local overrides = overrides_of(screen)
+    on = on and true or nil
+    if overrides[map] == on then
+      return
+    end
+    overrides[map] = on
+    if screen.shown then
+      Swc.mapOverrides[map] = math.max(0, (Swc.mapOverrides[map] or 0) + (on and 1 or -1))
+    end
+  end,
+})
 
 --- @return True when a shown screen of a state is escapable (UiJavelinCanvasComponent).
 function Swc.StateEscapable(state)
@@ -241,59 +307,120 @@ local function send(canvas, event, from, to)
   end
 end
 
-local function transition(from, to)
+local function level_of(state)
+  local info = Swc.UiStateInfo(state)
+  return info and info.level or 0
+end
+
+local function in_stack(stack, state)
+  for _, s in ipairs(stack) do
+    if s == state then
+      return true
+    end
+  end
+  return false
+end
+
+--- @return True when a state of the stack has the screen.
+local function shown_by(screen, stack)
+  for _, state in ipairs(stack) do
+    if screen.states[state] then
+      return true
+    end
+  end
+  return false
+end
+
+--- The new stack of states: each screen that a state of the new stack has shows (OnTransitionIn), each other autohide screen
+--- hides (OnTransitionOut). A shown screen whose state stays in the stack gets no transition; a shown screen whose state left
+--- (a state of the same level replaced it) gets OnTransitionIn of the new state.
+local function apply_stack(stack, from)
+  local before = Swc.stateStack
+  Swc.stateStack = stack
+  local to = stack[#stack]
+  Swc.uiState = to
+  Swc.Note("ui state " .. tostring(from) .. " -> " .. tostring(to))
   for _, screen in pairs(Swc.screens) do
     if screen.autohide then
-      if screen.states[to] and screen.states[from] and screen.shown then
-        -- A screen of the two states stays, with no transition.
-      elseif screen.states[to] then
+      local now = shown_by(screen, stack)
+      if now and not screen.shown then
         swcui.canvas_set(screen.canvas, "enabled", true)
         Swc.SetScreenShown(screen, true)
         send(screen.canvas, "OnTransitionIn", from, to)
-      elseif screen.states[from] then
+      elseif now then
+        local kept = false
+        for _, state in ipairs(before) do
+          if screen.states[state] and in_stack(stack, state) then
+            kept = true
+          end
+        end
+        if not kept then
+          send(screen.canvas, "OnTransitionIn", from, to)
+        end
+      elseif screen.shown then
         send(screen.canvas, "OnTransitionOut", from, to)
         swcui.canvas_set(screen.canvas, "enabled", false)
         Swc.SetScreenShown(screen, false)
       end
-    else
+    elseif from ~= to then
       send(screen.canvas, to == HUD_STATE and "OnTransitionIn" or "OnTransitionOut", from, to)
     end
   end
 end
 
+--- Enters a state (SetState, QueueState): the close rules of its table entry (a state with no entry replaces the stack).
 function Swc.SetUiState(state)
   local from = Swc.uiState
   if from == state then
     return
   end
-  Swc.uiState = state
-  Swc.Note("ui state " .. tostring(from) .. " -> " .. tostring(state))
-  transition(from, state)
+  local info = Swc.UiStateInfo(state)
+  local level = info and info.level or 0
+  local stack = {}
+  for _, s in ipairs(Swc.stateStack) do
+    local l = level_of(s)
+    local keep = info ~= nil and Swc.UiStateInfo(s) ~= nil and s ~= state and l ~= level
+      and not (info.closeLower and l < level) and not (info.closeHigher and l > level)
+    if keep then
+      stack[#stack + 1] = s
+    end
+  end
+  stack[#stack + 1] = state
+  table.sort(stack, function(a, b) return level_of(a) < level_of(b) end)
+  apply_stack(stack, from)
 end
 
--- The state before a toggled state: ToggleState and ExitState go back to it (respawn.luac toggles 921475099, the escape
--- menu of the respawn state, on and off from the respawn state). Else they go to HUD.
-Swc.stateBefore = {}
-
+--- Leaves a state of the stack (ToggleState, ExitState): the state of the next lower level is current again (HUD when the
+--- stack is empty).
 local function leave_state(state)
-  local back = Swc.stateBefore[state] or HUD_STATE
-  Swc.stateBefore[state] = nil
-  Swc.SetUiState(back)
+  local stack = {}
+  for _, s in ipairs(Swc.stateStack) do
+    if s ~= state then
+      stack[#stack + 1] = s
+    end
+  end
+  if #stack == 0 then
+    stack[1] = HUD_STATE
+  end
+  apply_stack(stack, Swc.uiState)
 end
 
 Swc.Define("LyShineManagerBus", "Broadcast", {
   SetState = function(state) Swc.SetUiState(state) end,
   QueueState = function(state) Swc.SetUiState(state) end,
   ToggleState = function(state)
-    if Swc.uiState == state then
+    if in_stack(Swc.stateStack, state) then
       leave_state(state)
     else
-      Swc.stateBefore[state] = Swc.uiState ~= HUD_STATE and Swc.uiState or nil
       Swc.SetUiState(state)
     end
   end,
+  -- ExitState(0): the current state.
   ExitState = function(state)
-    if Swc.uiState == state then
+    if state == 0 then
+      state = Swc.uiState
+    end
+    if in_stack(Swc.stateStack, state) then
       leave_state(state)
     end
   end,

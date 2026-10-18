@@ -9,7 +9,23 @@ Swc.Handled("ConfigSystemEventBus", "LocalPlayerEventsBus", "LocalPlayerComponen
 
 -- The remote configuration and the feature flags of the client. The backend gives one document of 12 (docs/NETWORK.md,
 -- step 6 of the login path); the host can set values (Swc.SetConfig). A flag that is not set is false.
-Swc.config = {}
+Swc.config = {
+  -- The default of the client (research inventory.md 6: the setting has the default 500, the vector a maximum of 500).
+  ["javelin.max-container-size"] = 500,
+  -- The defaults of the settings that the item screens read (the registration function of the client at image RVA
+  -- 0x616C670; the address of the name of each setting). Open point: the defaults of the other settings.
+  ["javelin.enable-dyeing"] = true,                             -- 0x616EBEA
+  ["javelin.enable-equipment-set-bonuses"] = true,              -- 0x618783F
+  ["javelin.enable-instanced-drops"] = true,                    -- 0x6181182
+  ["javelin.enable-inventory-while-running"] = true,            -- 0x6176FE7
+  ["javelin.enable-item-skinning"] = true,                      -- 0x616CB57
+  ["javelin.enable-shared-cooldown-reduction"] = true,          -- 0x616FF80
+  ["javelin.enable-storage-transfer-rfi"] = true,               -- 0x6178160
+  ["javelin.gear-set-storage-enabled"] = true,                  -- 0x6174241
+  ["javelin.gear-set-storage-enable-store-attributes"] = true,  -- 0x6174607
+  ["javelin.gear-set-storage-hotkeys-enabled"] = true,          -- 0x617426A
+  ["javelin.umbral-upgrade-required-tier"] = 5,                 -- 0x617F3F9
+}
 
 function Swc.SetConfig(name, value)
   Swc.config[name] = value
@@ -19,6 +35,7 @@ Swc.Define("ConfigProviderEventBus", "Broadcast", {
   GetBool = function(name) return Swc.config[name] == true end,
   GetInt = function(name) return tonumber(Swc.config[name]) or 0 end,
   GetUInt = function(name) return tonumber(Swc.config[name]) or 0 end,
+  GetUInt64 = function(name) return tonumber(Swc.config[name]) or 0 end,
   GetFloat = function(name) return tonumber(Swc.config[name]) or 0 end,
   GetString = function(name) local v = Swc.config[name] if type(v) == "string" then return v end return "" end,
 })
@@ -118,6 +135,8 @@ function Swc.HostLevelCap(cap)
 end
 Swc.Define("ProgressionRequestBus", "Event", {
   GetMaxLevelForPlayer = function() return Swc.levelCap end,
+  -- The highest level of the wire (the level of the screen minus 1: xpdetails.luac adds 1).
+  GetMaxLevel = function() return Swc.levelCap - 1 end,
 })
 
 -- The NPC markers of the objectives of the character (the map layers read them): none in this stage.
@@ -199,15 +218,8 @@ function Swc.GameData()
     else
       Swc.Note("no weapon data: " .. tostring(err2) .. " (tools/convert-ui.sh gamedata)")
     end
-    gamedata.itemsByCrc = {}
   end
   return gamedata
-end
-
-local function item_crc(itemId)
-  local crc = swcui.crc32(string.lower(itemId))
-  Swc.GameData().itemsByCrc[crc] = string.lower(itemId)
-  return crc
 end
 
 local function weapon_of(itemId)
@@ -217,47 +229,14 @@ local function weapon_of(itemId)
   return Swc.GameData().weapons[string.lower(itemId)]
 end
 
--- An item slot of the paperdoll (the value class of the client: IsValid, GetItemId, IsEquipped, ...).
-Swc.ItemSlot = Swc.ValueClass({
-  name = "ItemSlot",
-  fields = {"itemId", "slot"},
-  methods = {
-    IsValid = function(self) return self.itemId ~= nil end,
-    IsEquipped = function(self) return self.itemId ~= nil end,
-    GetItemId = function(self) return self.itemId and item_crc(self.itemId) or 0 end,
-    GetItemName = function(self) return self.itemId or "" end,
-    GetSlotId = function(self) return self.slot end,
-    GetStackSize = function(self) return self.itemId and 1 or 0 end,
-  },
-})
-
-local function item_slot(slot)
-  return Swc.ItemSlot.new({itemId = Swc.player.equipment[slot], slot = slot})
-end
-
+-- The item slots, the paperdoll, and the item data: swc/items.lua.
 local function item_slot_of(value)
   -- A slot object of the scripts, or a slot number.
   if type(value) == "number" then
-    return item_slot(value)
+    return Swc.PaperdollSlot(value)
   end
   return value
 end
-
-Swc.Define("PaperdollRequestBus", "Event", {
-  GetSlot = function(_, slot) return item_slot(slot) end,
-  GetActiveSlot = function(_, alias)
-    if alias == ePaperdollSlotAlias_ActiveWeapon then
-      return Swc.player.activeWeaponSlot or ePaperDollSlotTypes_Invalid
-    elseif alias == ePaperdollSlotAlias_ActiveOffHandWeapon then
-      local active = Swc.player.activeWeaponSlot
-      return active and (active + 3) or ePaperDollSlotTypes_Invalid
-    end
-    return ePaperDollSlotTypes_Invalid
-  end,
-  IsSheathed = function(_, slot) return Swc.player.sheathed[slot] == true end,
-  GetItemDescriptor = function(_, slot) return item_slot(slot) end,
-})
-Swc.Handled("PaperdollEventBus")
 
 -- The abilities (CharacterAbilityRequestBus of the entity root). An ability data object has the fields that the HUD
 -- reads: id (the ability key), displayIcon, uiCategory, weaponTag (CRC-32), treeId, holdConditionButtonIcon.
@@ -273,7 +252,7 @@ end
 
 local function table_of_slot(itemSlot)
   local slot = item_slot_of(itemSlot)
-  local weapon = slot and weapon_of(slot.itemId)
+  local weapon = slot and slot.static and weapon_of(slot.static.key)
   if not weapon or weapon.masteryTable == "" then
     return nil
   end
@@ -326,28 +305,6 @@ end
 Swc.Define("CooldownTimersComponentBus", "Event", {
   GetAbilityCurrentCooldown = function(_, key) return cooldown_left(key) end,
   IsAbilityOnCooldown = function(_, key) return cooldown_left(key) > 0 end,
-})
-
--- The item data (ItemDataManagerBus): the weapon data and the static item data of an item id CRC. Only the items of
--- gamedata/weapons.json have data (the weapons and the heart runes of the weapon bar).
-local function item_valid(self) return self.key ~= nil end
-
-Swc.Define("ItemDataManagerBus", "Broadcast", {
-  GetWeaponData = function(itemCrc)
-    local weapon = weapon_of(Swc.GameData().itemsByCrc[itemCrc])
-    local equip = weapon and weapon.equipAbility
-    return {mannequinTags = weapon and weapon.mannequinTags or {}, tierNumber = weapon and weapon.tier or 0,
-            equipAbilityId = equip and swcui.crc32(string.lower(equip)) or nil}
-  end,
-  GetItemData = function(itemCrc)
-    local itemId = Swc.GameData().itemsByCrc[itemCrc]
-    local weapon = weapon_of(itemId)
-    if not weapon then
-      return {IsValid = item_valid}
-    end
-    return {IsValid = item_valid, key = itemId, name = weapon.name, description = weapon.description,
-            itemClass = weapon.itemClass, tierNumber = weapon.tier}
-  end,
 })
 
 -- The stamina of the player: the client predicts it (UiStaminaRequestsBus GetStaminaState); here the value of the

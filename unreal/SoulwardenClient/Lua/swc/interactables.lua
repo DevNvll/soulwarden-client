@@ -992,9 +992,6 @@ function Swc.InitInteractive(id)
   if s.kind then
     Swc.UpdateInteractableState(id)
   end
-  if s.dynamicLayout or s.dynamicScrollBox then
-    Swc.InitDynamic(id)
-  end
 end
 
 --- Each frame: a scroll box follows the size of its content (its bars and its constraint).
@@ -1128,8 +1125,12 @@ Swc.Define("UiSliderBus", "Event", {
 })
 
 Swc.Define("UiScrollerBus", "Event", {
+  GetOrientation = function(id) local d = Swc.IState(id).scrollBar return d and d.orientation or 0 end,
   GetValue = function(id) local d = Swc.IState(id).scrollBar return d and d.value or 0 end,
   SetValue = function(id, v) if Swc.IState(id).scrollBar then Swc.ScrollBarSetValue(id, v) end end,
+})
+Swc.Define("UiScrollBarMouseWheelBus", "Event", {
+  GetWheelStepValue = function(id) local w = Swc.IState(id).wheel return w and w.step or 0 end,
 })
 Swc.Define("UiScrollBarBus", "Event", {
   GetHandleSize = function(id) local d = Swc.IState(id).scrollBar return d and d.handleSize or 0 end,

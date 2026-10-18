@@ -36,6 +36,11 @@ const char* const HudScreens[] = {
 	"lyshineui/popup/popup",
 	"lyshineui/respawn/respawn",
 	"lyshineui/tooltip/tooltip",
+	// The inventory (stage P2.4): the bag, the equipment, the weight of the action bar, the action menu of an item.
+	"lyshineui/inventory/newinventory",
+	"lyshineui/equipment/equipmentv3",
+	"lyshineui/hud2024/actionbar/encumbrance",
+	"lyshineui/flyoutmenu/flyoutmenu",
 };
 
 /** The world level name of the HUD scripts (the level crc tells them the front end and the tutorial levels). */
@@ -192,6 +197,216 @@ void USwcUiSubsystem::LoadItemCatalog()
 			ItemIds.Add(Columns.Num() > 0 ? Columns[0]->AsString() : FString());
 		}
 	}
+	// The perk list of the wire (perk-data.json of the backend copy): the perk with index K + 1 is row K (protocol notes 4.23).
+	FString PerkText;
+	TSharedPtr<FJsonObject> PerkRoot;
+	const FString PerkPath = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_GAMEDATA_DIR")), TEXT("perk-data.json"));
+	const TArray<TSharedPtr<FJsonValue>>* Perks = nullptr;
+	if (FFileHelper::LoadFileToString(PerkText, *PerkPath) && FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(PerkText), PerkRoot)
+		&& PerkRoot.IsValid() && PerkRoot->TryGetArrayField(TEXT("perks"), Perks))
+	{
+		PerkIds.Reserve(Perks->Num());
+		for (const TSharedPtr<FJsonValue>& Perk : *Perks)
+		{
+			const TArray<TSharedPtr<FJsonValue>>& Columns = Perk->AsArray();
+			PerkIds.Add(Columns.Num() > 0 ? Columns[0]->AsString() : FString());
+		}
+	}
+	else
+	{
+		UE_LOG(LogSwcUi, Warning, TEXT("ui: no perk list at %s: the items show no perk"), *PerkPath);
+	}
+}
+
+namespace
+{
+/** @return The text of an item instance id ({8-4-4-4-12} hexadecimal digits of the 16 bytes in their sequence), or empty for zero. */
+FString InstanceText(const std::array<uint8, 16>& Instance)
+{
+	bool bZero = true;
+	for (const uint8 Byte : Instance)
+	{
+		bZero = bZero && Byte == 0;
+	}
+	if (bZero)
+	{
+		return FString();
+	}
+	FString Hex;
+	for (int32 Index = 0; Index < 16; ++Index)
+	{
+		if (Index == 4 || Index == 6 || Index == 8 || Index == 10)
+		{
+			Hex += TEXT("-");
+		}
+		Hex += FString::Printf(TEXT("%02X"), Instance[Index]);
+	}
+	return TEXT("{") + Hex + TEXT("}");
+}
+
+/** @return The 16 bytes of an instance id text of InstanceText (zero for a text that is not one). */
+swc::net::ItemInstanceId ParseInstance(const FString& Text)
+{
+	swc::net::ItemInstanceId Instance{};
+	FString Hex = Text.Replace(TEXT("{"), TEXT("")).Replace(TEXT("}"), TEXT("")).Replace(TEXT("-"), TEXT(""));
+	if (Hex.Len() != 32)
+	{
+		return Instance;
+	}
+	for (int32 Index = 0; Index < 16; ++Index)
+	{
+		Instance[Index] = static_cast<uint8>(FParse::HexNumber(*Hex.Mid(Index * 2, 2)));
+	}
+	return Instance;
+}
+} // namespace
+
+FString USwcUiSubsystem::CallItem(const char* Function, uint32 Slot, const soulwarden::backend::tests::WireItem* Item)
+{
+	const bool bItem = Item != nullptr && !Item->empty();
+	const FString ItemId = bItem && ItemIds.IsValidIndex(static_cast<int32>(Item->index) - 1) ? ItemIds[Item->index - 1] : FString();
+	FString Perks;
+	if (bItem)
+	{
+		for (const auto Perk : Item->perks)
+		{
+			if (Perk > 0 && PerkIds.IsValidIndex(static_cast<int32>(Perk) - 1))
+			{
+				Perks += (Perks.IsEmpty() ? TEXT("") : TEXT(",")) + PerkIds[Perk - 1];
+			}
+		}
+	}
+	const FString Instance = bItem ? InstanceText(Item->instance) : FString();
+	const double Quantity = bItem ? Item->quantity : 0;
+	const double GearScore = bItem ? Item->gearScore : 0;
+	const double Durability = bItem ? Item->durability : 0;
+	const double MaxDurability = bItem ? Item->maxDurability : 0;
+	const double Flags = bItem ? Item->flags : 0;
+	const double Chrono = bItem ? Item->chrono : 0;
+	const double Action = Item != nullptr ? Item->action : 0;
+	Runtime->call(Function, {FArg::of(static_cast<double>(Slot)), FArg::of(Utf8(ItemId)), FArg::of(Quantity), FArg::of(GearScore),
+							 FArg::of(Durability), FArg::of(MaxDurability), FArg::of(Utf8(Instance)), FArg::of(Flags), FArg::of(Chrono),
+							 FArg::of(Action), FArg::of(Utf8(Perks))});
+	return FString::Printf(TEXT("%s|%g|%g|%g|%g|%s|%g|%s"), *ItemId, Quantity, GearScore, Durability, MaxDurability, *Instance, Flags, *Perks);
+}
+
+void USwcUiSubsystem::FeedItems(const swc::net::RepClient::OwnEntity& Own)
+{
+	// The bag (the Container of slot 61): each slot whose values changed.
+	if (Own.bagRevision != SentBagRevision)
+	{
+		SentBagRevision = Own.bagRevision;
+		if (SentBag.Num() != static_cast<int32>(Own.bag.size()))
+		{
+			SentBag.SetNum(static_cast<int32>(Own.bag.size()));
+			Runtime->call("HostBagSize", {FArg::of(static_cast<double>(Own.bag.size()))});
+		}
+		for (int32 Slot = 0; Slot < SentBag.Num(); ++Slot)
+		{
+			const auto& Item = Own.bag[static_cast<size_t>(Slot)];
+			const FString ItemId = !Item.empty() && ItemIds.IsValidIndex(static_cast<int32>(Item.index) - 1) ? ItemIds[Item.index - 1] : FString();
+			const FString Key = FString::Printf(TEXT("%s|%u|%u|%u|%u|%u|%s"), *ItemId, Item.empty() ? 0u : Item.quantity, Item.gearScore, Item.durability,
+				Item.flags, Item.perks[0] + Item.perks[1] * 7 + Item.perks[2] * 13, *InstanceText(Item.instance));
+			if (SentBag[Slot] != Key)
+			{
+				SentBag[Slot] = Key;
+				CallItem("HostBagSlot", static_cast<uint32>(Slot), &Item);
+			}
+		}
+	}
+	// The items of the paperdoll (the owner view of slot 62): each slot that got or lost an item.
+	if (Own.paperdollRevision != SentPaperdollRevision)
+	{
+		SentPaperdollRevision = Own.paperdollRevision;
+		TSet<uint32> Slots;
+		for (const auto& [Slot, Item] : Own.paperdollItems)
+		{
+			Slots.Add(Slot);
+		}
+		for (const auto& [Slot, Key] : SentPaperdoll)
+		{
+			Slots.Add(Slot);
+		}
+		for (const uint32 Slot : Slots)
+		{
+			const auto Found = Own.paperdollItems.find(Slot);
+			const soulwarden::backend::tests::WireItem* Item = Found != Own.paperdollItems.end() ? &Found->second : nullptr;
+			const FString ItemId = Item && ItemIds.IsValidIndex(static_cast<int32>(Item->index) - 1) ? ItemIds[Item->index - 1] : FString();
+			const FString Key = Item ? FString::Printf(TEXT("%s|%u|%u|%s"), *ItemId, Item->gearScore, Item->durability, *InstanceText(Item->instance)) : FString();
+			const FString* Sent = SentPaperdoll.Find(Slot);
+			if (Sent == nullptr ? !Key.IsEmpty() : *Sent != Key)
+			{
+				CallItem("HostPaperdollItem", Slot, Item);
+				if (Key.IsEmpty())
+				{
+					SentPaperdoll.Remove(Slot);
+				}
+				else
+				{
+					SentPaperdoll.Add(Slot, Key);
+				}
+			}
+		}
+	}
+	// A refused request of the equipment (3626): the scripts show the slots again.
+	if (Own.equipFails != SentEquipFails)
+	{
+		SentEquipFails = Own.equipFails;
+		Runtime->call("HostEquipFail");
+	}
+	// The level of the screen (the wire level + 1) and the coin.
+	if (Own.hasProgression && static_cast<int64>(Own.level) != SentLevel)
+	{
+		SentLevel = Own.level;
+		Runtime->call("HostProgression", {FArg::of(static_cast<double>(Own.level) + 1.0), FArg::of(static_cast<double>(Own.experience))});
+	}
+	if (Own.hasCoin && static_cast<int64>(Own.coin) != SentCoin)
+	{
+		SentCoin = static_cast<int64>(Own.coin);
+		Runtime->call("HostCoin", {FArg::of(static_cast<double>(Own.coin))});
+	}
+}
+
+void USwcUiSubsystem::HandleItemRequest(const FString& Request, USwcBackendSubsystem* Backend)
+{
+	TArray<FString> Parts;
+	Request.ParseIntoArray(Parts, TEXT(" "));
+	const auto Int = [&Parts](int32 Index) { return Parts.IsValidIndex(Index) ? FCString::Atoi(*Parts[Index]) : 0; };
+	const FString& Verb = Parts.Num() > 0 ? Parts[0] : Request;
+	bool bSent = false;
+	if (Verb == TEXT("equip") && Parts.Num() >= 5)
+	{
+		bSent = Backend->EquipItem(Int(1), static_cast<uint32>(Int(2)), static_cast<uint32>(Int(3)), ParseInstance(Parts[4]));
+	}
+	else if (Verb == TEXT("unequip") && Parts.Num() >= 4)
+	{
+		bSent = Backend->UnequipItem(static_cast<uint32>(Int(1)), Int(2), static_cast<uint32>(Int(3)));
+	}
+	else if (Verb == TEXT("swap") && Parts.Num() >= 5)
+	{
+		bSent = Backend->SwapItems(static_cast<uint32>(Int(1)), static_cast<uint32>(Int(2)), ParseInstance(Parts[3]), ParseInstance(Parts[4]));
+	}
+	else if (Verb == TEXT("use") && Parts.Num() >= 2)
+	{
+		bSent = Backend->UseItem(static_cast<uint32>(Int(1)));
+	}
+	else if (Verb == TEXT("drop") && Parts.Num() >= 4)
+	{
+		bSent = Backend->DropItems({swc::net::DropItemEntry{static_cast<uint32>(Int(1)), ParseInstance(Parts[3]), static_cast<uint32>(Int(2))}});
+	}
+	else if (Verb == TEXT("dropequipped") && Parts.Num() >= 3)
+	{
+		bSent = Backend->DropPaperdollItem(static_cast<uint32>(Int(1)), static_cast<uint32>(Int(2)));
+	}
+	else if (Verb == TEXT("takeall"))
+	{
+		bSent = Backend->TakeAllItems();
+	}
+	else if (Verb == TEXT("take") && Parts.Num() >= 3)
+	{
+		bSent = Backend->TakeItem(ParseInstance(Parts[1]), static_cast<uint32>(Int(2)));
+	}
+	UE_LOG(LogSwcUi, Log, TEXT("ui: item request \"%s\": %s"), *Request, bSent ? TEXT("sent") : TEXT("not sent"));
 }
 
 void USwcUiSubsystem::AttachWidget()
@@ -384,6 +599,10 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 				LoadingHoldUntil = FPlatformTime::Seconds() + 1.0;
 			}
 			UE_LOG(LogSwcUi, Log, TEXT("ui: the respawn screen asks for a respawn (%hs): %s"), Request.c_str(), bSent ? TEXT("sent") : TEXT("not sent"));
+		}
+		else
+		{
+			HandleItemRequest(UTF8_TO_TCHAR(Request.c_str()), Backend);
 		}
 	}
 }
@@ -693,17 +912,8 @@ void USwcUiSubsystem::FeedLocalPlayer()
 		}
 	}
 
-	// The paperdoll: the item id of each slot (the item index of the wire in the item catalog of the backend copy).
-	for (const auto& [Slot, Index] : Own.equipment)
-	{
-		const FString ItemId = Index > 0 && ItemIds.IsValidIndex(static_cast<int32>(Index) - 1) ? ItemIds[Index - 1] : FString();
-		const FString* Sent = SentEquipment.Find(Slot);
-		if (Sent == nullptr || *Sent != ItemId)
-		{
-			SentEquipment.Add(Slot, ItemId);
-			Runtime->call("HostEquipment", {FArg::of(static_cast<double>(Slot)), FArg::of(Utf8(ItemId))});
-		}
-	}
+	// The bag, the paperdoll items (the item index of the wire in the item catalog of the backend copy), the level, the coin.
+	FeedItems(Own);
 	int32 Active = -1;
 	for (uint32 Slot = FirstWeaponSlot; Slot <= LastWeaponSlot; ++Slot)
 	{

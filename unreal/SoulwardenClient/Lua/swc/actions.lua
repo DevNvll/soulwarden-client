@@ -158,6 +158,21 @@ local function escape_rule()
   return false
 end
 
+-- The inventory key (toggleInventoryWindow, Tab of the map ui): the native client handles it (no script binds it; the
+-- server copy of the flag: PlayerComponentServerFacet_RequestSetIsLookingThroughLoadout). The rule of the emulation: in
+-- the state Inventory or Container the key leaves the state (the screen turns the flag off at its transition out); else
+-- it sets the flag "looking through loadout" (newinventory.luac then queues the state Inventory).
+local INVENTORY_STATE, CONTAINER_STATE = 2972535350, 3349343259
+local function inventory_rule()
+  local state = LyShineManagerBus.Broadcast.GetCurrentState()
+  if state == INVENTORY_STATE or state == CONTAINER_STATE then
+    LyShineManagerBus.Broadcast.ExitState(state)
+  else
+    LocalPlayerUIRequestsBus.Broadcast.SetIsLookingThroughLoadout(true)
+  end
+  return true
+end
+
 Swc.actionLog = {}   -- the last actions (the tests read it)
 
 --- One key of the host: the actions of the key go to their handlers (OnCryAction). @return True when a handler used an
@@ -165,6 +180,7 @@ Swc.actionLog = {}   -- the last actions (the tests read it)
 function Swc.FireActions(key, down)
   local used = false
   local escape = false
+  local inventory = false
   for _, a in ipairs(actions_of(key, down)) do
     if not filtered(a.name) then
       Swc.actionLog[#Swc.actionLog + 1] = a.name .. (down and " 1" or " 0")
@@ -181,10 +197,16 @@ function Swc.FireActions(key, down)
       if a.name == "toggleMenuComponent" and down then
         escape = true
       end
+      if a.name == "toggleInventoryWindow" and down then
+        inventory = true
+      end
     end
   end
   if escape and not used then
     used = escape_rule() or used
+  end
+  if inventory and not used then
+    used = inventory_rule() or used
   end
   return used
 end

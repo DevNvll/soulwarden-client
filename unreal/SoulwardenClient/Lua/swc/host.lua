@@ -74,26 +74,21 @@ function Swc.PlayerSpawned()
   Swc.SetData("Hud.LocalPlayer.HudComponent.GDERootEntityId", ids.root)
   Swc.SetData("Hud.LocalPlayer.HudComponent.PaperdollEntityId", ids.paperdoll)
   Swc.SetData("Hud.LocalPlayer.HudComponent.ObjectiveEntityId", ids.objectives)
+  Swc.SetData("Hud.LocalPlayer.HudComponent.InventoryEntityId", ids.inventory)
+  Swc.SetData("Hud.LocalPlayer.HudComponent.InteractorEntityId", ids.interactor)
+  Swc.SetData("Hud.LocalPlayer.HudComponent.ItemRepairEntityId", ids.itemRepair)
+  Swc.SetData("Hud.LocalPlayer.HudComponent.CraftingEntityId", ids.crafting)
+  Swc.SetData("Hud.LocalPlayer.HudComponent.VitalsEntityId", ids.vitals)
+  Swc.SetData("Hud.LocalPlayer.HudComponent.EventNotificationEntityId", ids.eventNotification)
+  Swc.SetData("Hud.LocalPlayer.Currency.Amount", Swc.player.coin or 0)
   Swc.SetData("Hud.LocalPlayer.Vitals.ComponentIsActive", true)
   Swc.SetData("Hud.LocalPlayer.Mounts.IsMounted", false)
   Swc.SetData("Hud.LocalPlayer.CombatStatus.IsInCombat", false)
   Swc.SetData("Hud.LocalPlayer.StatusEffects.IsSilenced", false)
   Swc.SetData("Hud.LocalPlayer.IsInCutscene", false)
   Swc.SetData("Hud.LocalPlayer.Options.Video.HudShowVitalsValues", true)
+  Swc.StartAfflictions()
   Swc.SetData("Hud.LocalPlayer.OnLocalPlayerSet", true)
-end
-
---- One paperdoll slot of the local player (the paperdoll state of the backend; the host gives the item id text).
-function Swc.HostEquipment(slot, itemId)
-  if itemId == "" then
-    itemId = nil
-  end
-  if Swc.player.equipment[slot] == itemId then
-    return
-  end
-  Swc.player.equipment[slot] = itemId
-  Swc.Notify("PaperdollEventBus", Swc.ids.paperdoll, "OnPaperdollSlotUpdate", slot,
-             Swc.ItemSlot.new({itemId = itemId, slot = slot}))
 end
 
 --- The active weapon slot and its sheathe state (the paperdoll maps of the backend).
@@ -306,6 +301,15 @@ end
 -- "respawn").
 function Swc.HostDeathNotice(seconds)
   Swc.SetData("Hud.LocalPlayer.OnPlayerDeath", seconds)
+end
+
+-- The level of the character (the Progression state: the level of the screen, the wire level + 1; xpdetails.luac compares
+-- it with GetMaxLevel() + 1) and its experience. The item cells compare the level with the level of an item.
+function Swc.HostProgression(level, experience)
+  if Swc.GetData("Hud.LocalPlayer.Progression.Level") ~= level then
+    Swc.SetData("Hud.LocalPlayer.Progression.Level", level)
+  end
+  Swc.player.experience = experience
 end
 
 -- The requests of the scripts to the client (the C++ takes them each frame: Swc.TakeHostRequest).

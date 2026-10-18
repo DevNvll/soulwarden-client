@@ -8,6 +8,7 @@
 #   DRIVE    a script of the harness input of the UI (tests/drive/ui-*.txt)
 #   --refused  a refused connection: the login path of the client goes to a closed port of the loopback (127.0.0.1:1,
 #              -SwcHttp), the error UI shows, and the client stops STAY seconds after its start (-SwcQuitAfter)
+# SWC_DEV_CHARACTER and SWC_DEV_PLACE (X:Y:Z, engine m): the character and its place at the start (as tools/creature-check.sh).
 # Never for the data folder of the user (tools/dev-run.sh refuses it).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
@@ -27,7 +28,14 @@ if [[ "${refused}" == 1 ]]; then
         -SwcHttp=127.0.0.1:1 -SwcQuitAfter="${stay}" -SwcUiDrive="$(realpath "${drive}")" "$@" >/dev/null
 else
     started='ui: the world entry'
-    "${SWC_REPO}/tools/dev-run.sh" --window --enter --quit-when world --stay "${stay}" --label "${label}" -- \
+    enter=(--enter)
+    [[ -n "${SWC_DEV_CHARACTER:-}" ]] && enter=(--enter "${SWC_DEV_CHARACTER}")
+    if [[ -n "${SWC_DEV_CHARACTER:-}" && -n "${SWC_DEV_PLACE:-}" ]]; then
+        # The place goes through the development routes of the backend (a development session only).
+        enter+=(--create "name=${SWC_DEV_CHARACTER},place=${SWC_DEV_PLACE}")
+        export SWC_SESSION_BACKEND_ARGS="--dev-commands"
+    fi
+    "${SWC_REPO}/tools/dev-run.sh" --window "${enter[@]}" --quit-when world --stay "${stay}" --label "${label}" -- \
         -SwcUiDrive="$(realpath "${drive}")" "$@" >/dev/null
 fi
 for ((i = 0; i < 240; ++i)); do
@@ -56,5 +64,5 @@ sleep 2
 kill -INT "${recorder}" 2>/dev/null || true
 wait "${recorder}" 2>/dev/null || true
 "${SWC_REPO}/tools/dev-stop.sh" >/dev/null 2>&1 || true
-grep -a "ui drive\|ui: key\|ui: the cursor\|ui: ui state\|ui: the login path\|LogSwcUi: Warning\|LogSwcUi: Error" "${log}" > "${evidence}/${label}-ui.txt" || true
+grep -a "ui drive\|ui: key\|ui: the cursor\|ui: ui state\|ui: the login path\|ui: item request\|LogSwcUi: Warning\|LogSwcUi: Error" "${log}" > "${evidence}/${label}-ui.txt" || true
 echo "ui-check: ${evidence}/${label}.mp4 (the UI lines: ${evidence}/${label}-ui.txt)"

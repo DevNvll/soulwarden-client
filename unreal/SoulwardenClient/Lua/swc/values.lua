@@ -373,6 +373,10 @@ Swc.Duration = Swc.ValueClass({
     ToSecondsRoundedUp = function(self) return math.ceil(self.seconds) end,
     ToMinutes = function(self) return self.seconds / 60 end,
     ToHours = function(self) return self.seconds / 3600 end,
+    ToSecondsUnrounded = function(self) return self.seconds end,
+    ToMillisecondsUnrounded = function(self) return self.seconds * 1000 end,
+    ToMinutesUnrounded = function(self) return self.seconds / 60 end,
+    ToHoursUnrounded = function(self) return self.seconds / 3600 end,
   },
   ops = {
     __lt = function(a, b) return a.seconds < b.seconds end,

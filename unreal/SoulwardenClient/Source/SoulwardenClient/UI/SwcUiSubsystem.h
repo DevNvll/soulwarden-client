@@ -6,6 +6,7 @@
 
 #include "SwcUi/Draw.h"
 #include "SwcUi/Runtime.h"
+#include "Net/Codec/SwcRepClient.h"
 
 #include "SwcUiSubsystem.generated.h"
 
@@ -85,6 +86,12 @@ private:
 	bool DrivePointAt(const FString& Element, float FractionX, float FractionY);
 	/** The loading screen of the start, the error UI of the login path, and the requests of the scripts (a respawn). */
 	void UpdateLoadingAndRequests();
+	/** The bag, the items of the paperdoll, the level, and the coin of the read path (stage P2.4; docs/UI.md). */
+	void FeedItems(const swc::net::RepClient::OwnEntity& Own);
+	/** One item to the runtime (HostBagSlot or HostPaperdollItem). @return The key of the values (a change test). */
+	FString CallItem(const char* Function, uint32 Slot, const soulwarden::backend::tests::WireItem* Item);
+	/** A request of the inventory scripts ("equip BAG SLOT QUANTITY INSTANCE", "use SLOT", ...) to the backend subsystem. */
+	void HandleItemRequest(const FString& Request, class USwcBackendSubsystem* Backend);
 
 	TUniquePtr<swc::ui::Runtime> Runtime;
 	TSharedPtr<FSwcUiResources> Resources;
@@ -132,7 +139,14 @@ private:
 
 	// The values that the runtime has (a change goes to the runtime).
 	TArray<FString> ItemIds;
-	TMap<uint32, FString> SentEquipment;
+	TArray<FString> PerkIds;
+	TArray<FString> SentBag;
+	TMap<uint32, FString> SentPaperdoll;
+	uint32 SentBagRevision = ~0u;
+	uint32 SentPaperdollRevision = ~0u;
+	uint32 SentEquipFails = 0;
+	int64 SentCoin = -1;
+	int64 SentLevel = -1;
 	int32 SentActiveSlot = -2;
 	bool bSentSheathed = false;
 	TMap<uint32, TArray<uint32>> SentBars;
