@@ -8,6 +8,8 @@ level and the client load the same assets.
 - A part: one skeletal mesh on the skeleton of the base of its gender (a copy of the glTF asset pipeline with that
   skeleton, no physics asset, no animation). The client attaches it to the base with Leader Pose.
 - A weapon: one static mesh (the default glTF pipeline). The client attaches it to a bone attachment of the base.
+- A clip pack (stage P2.7): the clips of one weapon tag set as animations on the skeleton of the base of its gender (a copy
+  of the glTF asset pipeline with that skeleton and "import only animations"). The client plays them on the base.
 
 The script writes SWC_CONTENT/player/imported.json: for each manifest key, the object paths that the client loads.
 Environment: SWC_CONTENT, SWC_IMPORT_FORCE=1 (import each asset again).
@@ -60,6 +62,22 @@ def part_pipeline(gender, skeleton):
     return unreal.SoftObjectPath(pipeline.get_path_name())
 
 
+def clip_pipeline(gender, skeleton):
+    """@return The soft path of the pipeline of the clip packs of one gender: only the animations, on the base skeleton."""
+    path = f"{PIPELINES}/ClipAssets_{gender}"
+    pipeline = unreal.load_asset(path) if assets.does_asset_exist(path) else None
+    if pipeline is None:
+        pipeline = assets.duplicate_loaded_asset(unreal.load_asset(GLTF_ASSETS), path)
+    common = pipeline.get_editor_property("common_skeletal_meshes_and_animations_properties")
+    common.set_editor_property("skeleton", skeleton)
+    common.set_editor_property("try_auto_select_skeleton", False)
+    common.set_editor_property("import_only_animations", True)
+    animation = pipeline.get_editor_property("animation_pipeline")
+    animation.set_editor_property("import_animations", True)
+    assets.save_loaded_asset(pipeline)
+    return unreal.SoftObjectPath(pipeline.get_path_name())
+
+
 def import_file(path, destination, pipelines=None):
     if pipelines is None:
         task = unreal.AssetImportTask()
@@ -80,9 +98,10 @@ def import_file(path, destination, pipelines=None):
 
 
 done, skipped, failed = 0, 0, []
-order = {"base": 0, "part": 1, "weapon": 2}
+order = {"base": 0, "part": 1, "weapon": 2, "clips": 3}
 skeletons = {}
 pipelines = {}
+clip_pipelines = {}
 for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get(item[1]["kind"], 9), item[0])):
     destination = entry["unreal"]
     kind = entry["kind"]
@@ -103,10 +122,18 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
         if gender not in pipelines:
             pipelines[gender] = part_pipeline(gender, unreal.load_asset(skeletons[gender]))
         import_file(path, destination, [pipelines[gender], unreal.SoftObjectPath(GLTF_MATERIALS)])
+    elif kind == "clips":
+        gender = entry["gender"]
+        if gender not in skeletons:
+            failed.append(key + ": no base skeleton of " + gender)
+            continue
+        if gender not in clip_pipelines:
+            clip_pipelines[gender] = clip_pipeline(gender, unreal.load_asset(skeletons[gender]))
+        import_file(path, destination, [clip_pipelines[gender]])
     else:
         import_file(path, destination)
     found = objects_in(destination)
-    wanted = {"base": "Skeleton", "part": "SkeletalMesh", "weapon": "StaticMesh"}[kind]
+    wanted = {"base": "Skeleton", "part": "SkeletalMesh", "weapon": "StaticMesh", "clips": "AnimSequence"}[kind]
     if wanted not in found:
         failed.append(key)
         continue

@@ -1,0 +1,265 @@
+"""The actions of the player with a weapon (stage P2.7): the stances, the draw and the sheathe, and the attack graph.
+
+Writes SWC_CONTENT/player/actions.json (tools/convert-player.sh actions):
+
+- weapons: for each weapon tag set, the stance fragments (Idle, Strafe, Sprint, ...) found through the SubADB chain of
+  player.adb, the off-hand fragments of a shield, the draw and the sheathe fragments, and (melee) the attack graph of
+  the backend copy (SWC_GAMEDATA_DIR/weapon-actions.json: the same graph as the server, protocol notes 4.32).
+- fragments: the layers of each fragment (a sequence of clips or blend spaces with their blend, speed, start, and
+  weight), its blend-out time, and its marker windows (CAGE-Named: start and end in seconds).
+- activities: for each attack fragment, the AnimationDrivenMotion, CameraRelativeFacing, and InputRelativeFacing of its
+  action (playeractions_attack.actionlist) with their conditionals, and the named conditions of the action list.
+- clips: for each clip, its path, its duration, its flags (1: additive, 2: loop), its animated bones, and the root track
+  of the clips of the attacks (the action moves the character with it: AnimationDrivenMotion).
+- blendSpaces: the blend spaces of the layers.
+
+Research: ~/Games/soulwarden-client/research/gear.md ("Sheathe and draw animation"), feel-values.md R3, the Soulwarden
+protocol notes 4.32 (the attack graph of the client).
+"""
+from __future__ import annotations
+
+import json
+import os
+import struct
+import xml.etree.ElementTree as ET
+import zlib
+from pathlib import Path
+
+from . import anim, cgf, source
+from . import player
+
+ADB_FOLDER = "animations/mannequin/adb/player/"
+ATTACK_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_attack.actionlist"
+# The locomotion fragments of a stance, with the variant tags of each (the unarmed set of locomotion.json).
+STANCE_FRAGMENTS = {"Idle": [""], "Strafe": [""], "Sprint": [""], "Sprint_Start": [""], "Fall": ["ForwardNav", ""],
+                    "Land": ["Soft", "Normal", "Hard"], "Jump": ["ForwardNav", "BackNav", "LeftNav", "RightNav", ""],
+                    "Jump_Standing": [""]}
+# The context tags that a fragment of a settled stance can have.
+CONTEXT_TAGS = {"stand"}
+MOTION_ACTIVITIES = ("AnimationDrivenMotion", "CameraRelativeFacing", "InputRelativeFacing")
+
+
+def gamedata_dir() -> Path:
+    return Path(os.environ.get("SWC_GAMEDATA_DIR", str(Path.home() / "Games/soulwarden-client/backend/current/gamedata")))
+
+
+def tag_set(text: str) -> set[str]:
+    return {tag.strip().lower() for tag in text.replace(",", "+").split("+") if tag.strip()}
+
+
+def adb_chain(tags: set[str]) -> list[str]:
+    """The animation databases of a tag set: the SubADBs of player.adb whose tags it has (in their order), then player.adb
+    (Mannequin tags compare without case)."""
+    root = player.adb_root(player.ADB)
+    chain = [player.norm(sub.get("File")) for sub in root.find("SubADBs") if tag_set(sub.get("Tags", "")) <= tags]
+    return chain + [player.norm(player.ADB)]
+
+
+def find_fragment(name: str, tags: set[str], extra: set[str], offhand: bool) -> tuple[str, ET.Element] | None:
+    """The fragment variant of the first database of the chain that has one: the variant with the most tags, each of them
+    in the tags, the extra tags, or the context tags. offhand: the variants of the Offhand scope (tag Offhand)."""
+    for adb in adb_chain(tags):
+        node = player.adb_root(adb).find(f"FragmentList/{name}")
+        best = None
+        for fragment in node if node is not None else []:
+            names = tag_set(fragment.get("Tags") or "")
+            if ("offhand" in names) != offhand:
+                continue
+            if names <= tags | extra | CONTEXT_TAGS and (best is None or len(names) > best[0]):
+                best = (len(names), fragment)
+        if best is not None:
+            return adb, best[1]
+    return None
+
+
+def markers_of(fragment: ET.Element) -> list[list]:
+    """The CAGE-Named markers of a fragment: [name, start, end] (seconds; end None: to the end of the fragment). A marker
+    lasts to the next procedural item of its layer."""
+    out = []
+    for layer in fragment.findall("ProcLayer"):
+        time = 0.0
+        open_marker = None
+        for item in layer:
+            if item.tag == "Blend":
+                time += float(item.get("ExitTime", 0))
+                continue
+            if item.tag != "Procedural":
+                continue
+            if open_marker is not None:
+                open_marker[2] = round(time, 5)
+                out.append(open_marker)
+                open_marker = None
+            name = item.find("ProceduralParams/Name")
+            if item.get("type") == "CAGE-Named" and name is not None and name.get("value"):
+                open_marker = [name.get("value"), round(time, 5), None]
+        if open_marker is not None:
+            out.append(open_marker)
+    return out
+
+
+def layers_of(fragment: ET.Element, spaces: dict, add_clip, add_space) -> list[list[dict]]:
+    """The animation layers of a fragment: each one a sequence of items (Blend then Animation)."""
+    layers = []
+    for layer in fragment.findall("AnimLayer"):
+        items = []
+        blend = None
+        for item in layer:
+            if item.tag == "Blend":
+                blend = item
+            elif item.tag == "Animation":
+                name = (item.get("name") or "").lower()
+                entry = {"exit": float(blend.get("ExitTime", 0)) if blend is not None else 0.0,
+                         "start": float(blend.get("StartTime", 0)) if blend is not None else 0.0,
+                         "blendIn": float(blend.get("Duration", 0)) if blend is not None else 0.0,
+                         "speed": float(item.get("speed") or 1.0), "weight": float(item.get("weight") if item.get("weight") is not None else 1.0),
+                         "loop": "Loop" in (item.get("flags") or "")}
+                if not name:
+                    entry["clip"] = ""
+                elif name in spaces:
+                    entry["blendSpace"] = name
+                    add_space(name)
+                else:
+                    entry["clip"] = name
+                    add_clip(name)
+                items.append(entry)
+                blend = None
+        layers.append(items)
+    return layers
+
+
+def condition_json(element: ET.Element) -> dict:
+    return {"type": element.tag, "attrs": {k: v for k, v in element.attrib.items() if k != "Name"},
+            "children": [condition_json(child) for child in element]}
+
+
+def activities() -> tuple[dict, dict]:
+    """The motion and facing activities of each attack fragment (its action in playeractions_attack.actionlist), and the
+    named conditions of the action list."""
+    root = ET.fromstring(source.read(ATTACK_ACTIONS).decode("utf-8", "replace"))
+    conditions = {c.get("Name"): condition_json(c) for c in root.find("Conditions") if c.get("Name")}
+    out = {}
+    for action in root.iter("Action"):
+        fragment = action.get("FragmentName")
+        acts = action.find("Activities")
+        if not fragment or fragment in out or acts is None:
+            continue
+        entry = {"action": action.get("Name")}
+        for kind in MOTION_ACTIVITIES:
+            node = acts.find(f".//{kind}")
+            if node is None:
+                continue
+            default = node.find("Default")
+            entry[kind] = {"default": dict(default.attrib) if default is not None else {},
+                           "conditionals": [dict(c.attrib) for c in node.findall("Conditional")]}
+        out[fragment] = entry
+    return out, conditions
+
+
+def clip_info(path: str, skeleton: player.Skeleton, root: bool) -> dict:
+    """The duration, the flags, the animated bones, and (root) the root track of a clip."""
+    f = cgf.read_chunks(source.read(path))
+    motion = [c for c in f.chunks if c.type == anim.T_MOTION][0].data
+    flags = struct.unpack_from("<I", motion, 0)[0]
+    clip = anim.read_clip(f)
+    names = {b.controller_id: b.name for b in skeleton.bones}
+    out = {"path": path, "duration": round((clip.end - clip.start) * clip.secs_per_frame, 5), "flags": flags,
+           "additive": bool(flags & 1), "bones": sorted(names[c] for c in clip.controllers if c in names)}
+    xform = clip.controllers.get(zlib.crc32(b"Xform"))
+    if root and xform is not None and len(xform.positions):
+        times = (xform.pos_times - clip.start) * clip.secs_per_frame
+        out["root"] = [[round(float(t), 5)] + [round(float(v), 5) for v in p] for t, p in zip(times, xform.positions)]
+    return out
+
+
+def actions() -> dict:
+    """Writes actions.json (see the module text). @return Counts."""
+    graph = json.loads((gamedata_dir() / "weapon-actions.json").read_text())
+    weapons_doc = json.loads((player.player_dir() / "weapons.json").read_text())
+    cafs, space_files = player.stem_index(".caf"), player.stem_index(".bspace")
+    spaces_lower = {name.lower(): paths for name, paths in space_files.items()}
+    skeleton = player.Skeleton("Male")
+    fragments, blend_spaces, clips, root_clips = {}, {}, {}, set()
+
+    def add_clip(name: str) -> None:
+        if name and name not in clips and name in cafs:
+            clips[name] = None
+
+    def add_space(name: str) -> None:
+        if name not in blend_spaces:
+            blend_spaces[name] = player.read_blend_space(player.pick(spaces_lower[name]))
+            for example in blend_spaces[name]["examples"]:
+                add_clip(example["clip"])
+
+    def record(adb: str, element: ET.Element, name: str, root: bool = False) -> str:
+        key = f"{adb.rsplit('/', 1)[-1]}|{name}|{element.get('Tags') or ''}"
+        if key not in fragments:
+            layers = layers_of(element, spaces_lower, add_clip, add_space)
+            if root:
+                for layer in layers:
+                    for item in layer:
+                        if item.get("clip"):
+                            root_clips.add(item["clip"])
+            fragments[key] = {"adb": adb, "name": name, "tags": element.get("Tags") or "",
+                              "blendOut": float(element.get("BlendOutDuration") or 0.2), "layers": layers, "markers": markers_of(element)}
+        return key
+
+    def stance(tags: set[str], offhand: bool) -> dict:
+        out = {}
+        for name, variants in STANCE_FRAGMENTS.items():
+            for variant in variants:
+                found = find_fragment(name, tags, tag_set(variant), offhand)
+                if found is not None:
+                    out[name + ("+" + variant if variant else "")] = record(found[0], found[1], name)
+        return out
+
+    # The tag sets: the melee graphs of the backend, and each other tag set of a weapon with a draw fragment.
+    sets = {"+".join(w["tags"]): {"tags": w["tags"], "graph": w} for w in graph["weapons"]}
+    for tag_text, timing in weapons_doc["timings"].items():
+        tags = [t.strip() for t in tag_text.split(",") if t.strip()]
+        if tags and "draw" in timing and "+".join(tags) not in sets:
+            sets["+".join(tags)] = {"tags": tags, "graph": None}
+    weapons = []
+    missing = []
+    for key, entry in sorted(sets.items()):
+        tags = tag_set(key)
+        out = {"tags": entry["tags"], "stance": stance(tags, False),
+               "offhand": stance(tags | {"offhand", "shield_oh"}, True)}
+        timing = weapons_doc["timings"].get(",".join(entry["tags"])) or {}
+        for kind, fragment_name in (("draw", "Unsheathe_UpperBody"), ("sheathe", "Sheathe_UpperBody")):
+            data = timing.get(kind)
+            if data:
+                node = player.adb_root(data["adb"]).find(f"FragmentList/{fragment_name}")
+                match = next((f for f in node if (f.get("Tags") or "").lower() == data["tags"].lower()), None) if node is not None else None
+                if match is not None:
+                    out[kind] = record(data["adb"], match, fragment_name)
+        if entry["graph"]:
+            w = entry["graph"]
+            out["start"] = w["start"]
+            out["graph"] = []
+            for fragment in w["fragments"]:
+                adb = ADB_FOLDER + fragment["file"]
+                node = player.adb_root(adb).find(f"FragmentList/{fragment['name']}")
+                match = next((f for f in node if (f.get("Tags") or "") == fragment["tags"]), None) if node is not None else None
+                item = {name: fragment[name] for name in ("name", "length", "switch", "canTransition", "dodge")}
+                # The basic attacks only: the transitions of the abilities wait for the abilities.
+                item["transitions"] = [t[:6] for t in fragment["transitions"] if t[3] != "ability"]
+                if match is not None:
+                    item["fragment"] = record(adb, match, fragment["name"], root=True)
+                else:
+                    missing.append(f"{key}: {fragment['name']}")
+                out["graph"].append(item)
+        weapons.append(out)
+    for name in list(clips):
+        try:
+            clips[name] = clip_info(player.pick(cafs[name]), skeleton, name in root_clips)
+        except Exception as error:   # a clip that does not read: the client plays no clip for it
+            clips[name] = {"error": str(error)[:120]}
+    acts, conditions = activities()
+    doc = {"format": 1, "sources": [player.ADB, ATTACK_ACTIONS, str(gamedata_dir() / "weapon-actions.json")],
+           "weapons": weapons, "fragments": fragments, "blendSpaces": blend_spaces, "clips": clips,
+           "activities": acts, "conditions": conditions}
+    out = player.player_dir() / "actions.json"
+    out.write_text(json.dumps(doc, indent=1, sort_keys=True))
+    return {"actions": str(out), "weapon tag sets": len(weapons), "fragments": len(fragments), "blend spaces": len(blend_spaces),
+            "clips": len(clips), "clips with a root track": len(root_clips), "clip errors": sum(1 for c in clips.values() if "error" in c),
+            "graph fragments with no variant": missing[:10]}

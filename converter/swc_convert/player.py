@@ -7,8 +7,12 @@ Usage (tools/convert-player.sh; output in SWC_CONTENT/player, never in git):
                     (player.adb), their blend spaces (.bspace with the precomputed weight grid), and their clips.
   base              base/<gender>.gltf: the skeleton of each gender, one base mesh (the leader of the modular body),
                     and the clips of locomotion.json with the root bone locked (the data moves the character).
-  wanted [FILE]     converts the parts that the client asked for
+  weapons           weapons.json: the weapon items, their equip types, the bone attachments, the draw and sheathe times.
+  actions           actions.json: the stances, the draw and sheathe, and the attack graph of each weapon tag set
+                    (actions.py, stage P2.7).
+  wanted [FILE]     converts the parts, the weapons, and the clip packs that the client asked for
                     (default SWC_WORK/player/wanted.json, written by the client).
+  clips GENDER TAGS the clip pack of one weapon tag set ("1H_Melee,Sword") on the skeleton of a gender.
   part GENDER SKIN [MTL]   converts one part.
 
 A part is one skin attachment (.skin) with one material (.mtl) and the full skeleton of its gender: Unreal imports it
@@ -827,6 +831,61 @@ def camera() -> dict:
     return {"camera": str(out), "settings": len(settings), "states": len(states), "activations": len(activations)}
 
 
+def clip_key(tags: list[str]) -> str:
+    """The key of the clip pack of a weapon tag set: the tags in lower case, joined by '_' ("1h_melee_sword")."""
+    return "_".join(tag.lower() for tag in tags)
+
+
+def clip_pack(gender: str, tag_text: str, force: bool = False, doc: dict | None = None) -> dict:
+    """Converts the clips of one weapon tag set of actions.json (its stance, off-hand, draw, sheathe, and attack
+    fragments, with the clips of their blend spaces) into clips/<gender>/<key>/clips.gltf: the skeleton of the gender
+    and one animation for each clip, the root bone locked (the client moves the character with the root track of
+    actions.json: AnimationDrivenMotion). Unreal imports the animations onto the skeleton of the base."""
+    actions_doc = json.loads((player_dir() / "actions.json").read_text())
+    wanted_tags = [tag.strip().lower() for tag in tag_text.replace("+", ",").split(",") if tag.strip()]
+    entry = next((w for w in actions_doc["weapons"] if [tag.lower() for tag in w["tags"]] == wanted_tags), None)
+    if entry is None:
+        raise ValueError(f"actions.json has no weapon tag set {tag_text}")
+    folder = GENDERS[gender]
+    key_text = clip_key(entry["tags"])
+    key = f"clips|{folder}|{key_text}"
+    out = player_dir() / "clips" / folder / key_text / "clips.gltf"
+    own = doc is None
+    doc = doc if doc is not None else load_manifest()
+    if out.is_file() and not force and key in doc["assets"]:
+        return {"clips": key, "skipped": "exists"}
+    fragment_keys = list(entry["stance"].values()) + list(entry["offhand"].values())
+    fragment_keys += [entry[kind] for kind in ("draw", "sheathe") if kind in entry]
+    fragment_keys += [item["fragment"] for item in entry.get("graph", []) if "fragment" in item]
+    names = set()
+    for fragment_key in fragment_keys:
+        for layer in actions_doc["fragments"][fragment_key]["layers"]:
+            for item in layer:
+                if item.get("clip"):
+                    names.add(item["clip"])
+                elif item.get("blendSpace"):
+                    names.update(example["clip"] for example in actions_doc["blendSpaces"][item["blendSpace"]]["examples"])
+    clips = actions_doc["clips"]
+    usable = sorted(name for name in names if name in clips and "path" in clips[name])
+    out.parent.mkdir(parents=True, exist_ok=True)
+    skeleton = Skeleton(gender)
+    w = gltf.Writer()
+    first, roots = skeleton.write(w)
+    w.doc["scenes"][0]["nodes"] += roots
+    failed = {}
+    for name in usable:
+        try:
+            skeleton.add_clip(w, first, clips[name]["path"], name, root_lock=True)
+        except Exception as error:   # a clip that does not read: the client plays no clip for it
+            failed[name] = str(error)[:120]
+    w.save(out)
+    doc["assets"][key] = {"kind": "clips", "gender": gender, "tags": entry["tags"], "file": str(out.relative_to(env.content_dir())),
+                          "unreal": f"{UNREAL_ROOT}/{gender}/Clips/{key_text}"}
+    if own:
+        save_manifest(doc)
+    return {"clips": key, "count": len(usable) - len(failed), "failed": failed, "not in actions.json": sorted(names - set(usable))[:10]}
+
+
 def part(gender: str, skin: str, mtl: str = "", force: bool = False, doc: dict | None = None) -> dict:
     """Converts one part (a skin with its material) onto the skeleton of its gender."""
     skin, mtl = norm(skin), norm(mtl) if mtl else ""
@@ -851,8 +910,9 @@ def part(gender: str, skin: str, mtl: str = "", force: bool = False, doc: dict |
 
 
 def wanted(path: str | None = None, force: bool = False) -> dict:
-    """Converts the parts and the weapons of the wanted list of the client: {"parts": [[gender, skin, material], ...],
-    "weapons": [item id, ...]} (weapons.json gives the look of each item, and of its accessory)."""
+    """Converts the parts, the weapons, and the clip packs of the wanted list of the client: {"parts": [[gender, skin,
+    material], ...], "weapons": [item id, ...], "clips": [[gender, weapon tags], ...]} (weapons.json gives the look of each
+    item, and of its accessory; actions.json gives the clips of each weapon tag set)."""
     file = Path(path) if path else env.work_dir() / "player" / "wanted.json"
     request = json.loads(file.read_text())
     doc = load_manifest()
@@ -873,6 +933,12 @@ def wanted(path: str | None = None, force: bool = False) -> dict:
                     done += 1
                 except Exception as error:   # a weapon that does not convert: the client shows no mesh for it
                     failed[look["key"]] = str(error)[:160]
+    for gender, tags in request.get("clips", []):
+        try:
+            clip_pack(gender, tags, force, doc)
+            done += 1
+        except Exception as error:   # a clip pack that does not convert: the client plays the unarmed clips
+            failed[f"clips|{gender}|{tags}"] = str(error)[:160]
     save_manifest(doc)
     return {"converted": done, "failed": len(failed), "failures": failed}
 
@@ -884,8 +950,10 @@ def main(argv=None) -> int:
     sub.add_parser("locomotion")
     sub.add_parser("camera")
     sub.add_parser("weapons")
+    sub.add_parser("actions")
     p = sub.add_parser("base"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("wanted"); p.add_argument("file", nargs="?"); p.add_argument("--force", action="store_true")
+    p = sub.add_parser("clips"); p.add_argument("gender", choices=list(GENDERS)); p.add_argument("tags"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("part"); p.add_argument("gender", choices=list(GENDERS)); p.add_argument("skin"); p.add_argument("mtl", nargs="?", default="")
     p.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
@@ -897,10 +965,15 @@ def main(argv=None) -> int:
         result = camera()
     elif args.command == "weapons":
         result = weapons()
+    elif args.command == "actions":
+        from . import actions
+        result = actions.actions()
     elif args.command == "base":
         result = base(args.force)
     elif args.command == "wanted":
         result = wanted(args.file, args.force)
+    elif args.command == "clips":
+        result = clip_pack(args.gender, args.tags, args.force)
     else:
         result = part(args.gender, args.skin, args.mtl, args.force)
     print(json.dumps(result, indent=1, default=str))
