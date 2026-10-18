@@ -519,6 +519,29 @@ void test_life_messages() {
         expect(readDeath->call.entity == group && readDeath->call.target == group + swc::net::kPlayerComponent, "3950: the entity and the target");
         expect(readDeath->time == 5.0F, "3950: the time to the respawn screen");
     }
+    // The damage to the own character (3601, stage WF7): 64 slash from a creature at a place, 2.9 % of the health.
+    backend::world::DamageTaken taken;
+    taken.source = 0x4C554F5300000009ULL;
+    taken.from.x = 8880.5;
+    taken.from.y = 4250.25;
+    taken.from.z = 101.0;
+    taken.type = 4;
+    taken.amount = 64.0F;
+    taken.part = 0.029F;
+    const Bytes damage = rep::damage_taken_body(group, taken);
+    const auto readDamage = swc::net::read_damage_taken(damage);
+    expect(damage.size() == 52 && readDamage.has_value(), "3601: 52 bytes (one entry), the client reads them");
+    if (readDamage) {
+        expect(readDamage->call.entity == group && readDamage->call.target == rep::player_vitals_target(group), "3601: the entity and the vitals facet");
+        expect(readDamage->source == taken.source && (readDamage->flags & swc::net::DamageTaken::kHasPlace) != 0, "3601: the source and the place flag");
+        expect(readDamage->part == 0.029F && readDamage->from[0] == 8880.5F && readDamage->from[1] == 4250.25F && readDamage->from[2] == 101.0F,
+               "3601: the part of the health and the place of the source");
+        expect(readDamage->entries.size() == 1 && readDamage->entries[0].type == 4 && readDamage->entries[0].amount == 64.0F
+                   && readDamage->entries[0].part == 1.0F, "3601: one entry: slash 64, part 1");
+    }
+    Bytes shortDamage = damage;
+    shortDamage.pop_back();
+    expect(!swc::net::read_damage_taken(shortDamage).has_value(), "3601: a short body is no message");
     const Bytes screen = rep::teleport_screen_body(group);
     const auto readScreen = swc::net::read_component_call(screen);
     expect(screen.size() == 17 && readScreen && readScreen->entity == group && readScreen->target == group + swc::net::kPlayerComponent,

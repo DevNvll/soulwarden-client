@@ -445,6 +445,29 @@ struct PlayerDeath {
     float time{0.0F};
 };
 std::optional<PlayerDeath> read_player_death(std::span<const std::uint8_t> body);
+/**
+ * VitalsComponentClientFacet_OnDamage (3601; protocol notes 4.18; backend server/rep/health_messages.cpp): the damage that the own
+ * character took. The call (the vitals facet of the character, its G), the entity that did the damage, the flags (two bytes, the
+ * low byte first; bit 1: the damage has a place), the damage as a part of the maximum health, the place of the source (x y z f32),
+ * and the entries (count:size, then type:u8 amount:f32 part:f32: the number of the damage type, the damage, the part before the
+ * defense). The message changes no value: the health is in the vitals state.
+ */
+struct DamageTaken {
+    struct Entry {
+        std::uint8_t type{0};
+        float amount{0.0F};
+        float part{1.0F};
+    };
+    ComponentCall call;
+    std::uint64_t source{0};
+    std::uint16_t flags{0};
+    float part{0.0F};
+    std::array<float, 3> from{};
+    std::vector<Entry> entries;
+
+    static constexpr std::uint16_t kHasPlace = 1U << 1;
+};
+std::optional<DamageTaken> read_damage_taken(std::span<const std::uint8_t> body);
 /** ReceiveInteractionResult (3743): the call, the reference, the action of the request, the result (1 accepted, 2 refused). */
 struct InteractionResult {
     ComponentCall call;

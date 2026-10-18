@@ -298,6 +298,38 @@ std::optional<PlayerDeath> read_player_death(std::span<const std::uint8_t> body)
     return death;
 }
 
+std::optional<DamageTaken> read_damage_taken(std::span<const std::uint8_t> body) {
+    Reader reader(body);
+    DamageTaken damage;
+    damage.call.target = reader.u64();
+    damage.call.entity = reader.u64();
+    damage.source = reader.u64();
+    // The flags are two raw bytes, the low byte first.
+    const std::uint8_t low = reader.u8();
+    const std::uint8_t high = reader.u8();
+    damage.flags = static_cast<std::uint16_t>(low | (high << 8));
+    damage.part = reader.f32();
+    for (float& value : damage.from) {
+        value = reader.f32();
+    }
+    const std::uint32_t count = reader.size();
+    // An entry has 9 bytes: a count above the rest of the body is no message.
+    if (!reader.ok() || count > reader.left() / 9) {
+        return std::nullopt;
+    }
+    for (std::uint32_t index = 0; index < count; ++index) {
+        DamageTaken::Entry entry;
+        entry.type = reader.u8();
+        entry.amount = reader.f32();
+        entry.part = reader.f32();
+        damage.entries.push_back(entry);
+    }
+    if (!reader.ok() || reader.left() != 0) {
+        return std::nullopt;
+    }
+    return damage;
+}
+
 std::optional<InteractionResult> read_interaction_result(std::span<const std::uint8_t> body) {
     Reader reader(body);
     InteractionResult result;

@@ -155,6 +155,14 @@ public:
         };
         std::vector<Heal> heals;
         std::uint32_t healRevision{0};
+        /** The damage that the own character took (stage WF7; message 3601, read_damage_taken): the newest at the back (at most
+         *  16) with the steady time of its arrival (ns), and a count. The UI shows its red numbers. */
+        struct Damage {
+            DamageTaken message;
+            std::int64_t atNs{0};
+        };
+        std::vector<Damage> damages;
+        std::uint32_t damageRevision{0};
         /** The vitals state: StaminaAmount and StaminaMax (group 0, fields 1 and 6), ManaAmount and ManaMax (group 1,
          *  fields 0 and 3), and bit 0 of vitalsData (group 0, field 2): the character is dead. */
         float vitalsStamina{0.0F};

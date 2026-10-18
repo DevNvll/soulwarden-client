@@ -346,6 +346,19 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         }
         return;
     }
+    if (message.type == kDamageTaken.index) {
+        const auto damage = read_damage_taken(message.body);
+        if (!damage || damage->call.entity != m_own.group) {
+            log(Event::Level::warning, "a damage message (3601) that does not have its form or does not name the own entity");
+            return;
+        }
+        m_own.damages.push_back({*damage, steady_ns(now)});
+        if (m_own.damages.size() > 16) {
+            m_own.damages.erase(m_own.damages.begin());
+        }
+        ++m_own.damageRevision;
+        return;
+    }
     if (message.type == kPlayerDeath.index) {
         const auto death = read_player_death(message.body);
         if (!death || death->call.entity != m_own.group) {
