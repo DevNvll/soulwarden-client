@@ -133,6 +133,19 @@ public:
         std::uint32_t interactionResults{0};
         std::uint8_t lastInteractionResult{0};
         std::uint8_t lastInteractionAction{0};
+        /** The loot of the owner (stage P2.10; protocol notes 4.10, 4.41, 4.42), each with a count of its changes:
+         *  - the bag of the character (the Container of slot 61): one element for each slot (an empty slot: quantity 0);
+         *  - the LootTracker (slot 33): the claims of the chests and of the bags (Rolled shows a bag, Looted hides it);
+         *  - the selected Container (slot 76): the items of the open bag (the panel);
+         *  - the GlobalStorage map (slot 77): the items of each bag near the character (the list under its prompt). */
+        std::vector<soulwarden::backend::tests::WireItem> bag;
+        std::uint32_t bagRevision{0};
+        std::vector<LootClaim> lootClaims;
+        std::uint32_t lootRevision{0};
+        std::vector<soulwarden::backend::tests::WireItem> selectedContainer;
+        std::uint32_t selectedRevision{0};
+        std::vector<StorageKey> globalStorage;
+        std::uint32_t storageRevision{0};
 
         /** The ability state (slot 46, type 185, field 0 persistentAbilityData): one bar for each ability table, in the
          *  sequence of the field; each place has an ability id (the CRC-32 of the lower-case ability id text) and its
@@ -229,7 +242,7 @@ public:
      * The respawn request of the death screen (stage P2.10; protocol notes 4.18): message 1938 with the row "Random Location"
      * (random 1, no id). The client shows its loading screen before it sends (loadingScreen until message 3954).
      */
-    void request_respawn();
+    void request_respawn(bool random = true, const std::string& id = {});
     /**
      * The interaction request of the player (protocol notes 4.35, 4.36): its block goes into each input entry while it is current.
      * A new request replaces the request before it. std::nullopt ends it with no message (the use completed, or a refusal).
@@ -237,6 +250,10 @@ public:
     void set_interaction(const std::optional<InteractionRequest>& request);
     /** The client ends its committed interaction: the block goes away and message 2473 names its reference. */
     void cancel_interaction();
+    /** The take of all the items of the open bag (2939), and of one item instance with a quantity (2942): the server moves them into
+     *  the bag of the character; the answer is the states of the slots 61, 76, 77, and 33 (protocol notes 4.42). */
+    void take_all_items();
+    void take_item(const std::array<std::uint8_t, 16>& instance, std::uint32_t quantity);
     /** Melee contacts of the player (stage P2.8): they go into list 3 of the next input entry with the player motion. */
     void queue_contacts(const std::vector<MeleeContactItem>& contacts) { m_pendingContacts.insert(m_pendingContacts.end(), contacts.begin(), contacts.end()); }
 

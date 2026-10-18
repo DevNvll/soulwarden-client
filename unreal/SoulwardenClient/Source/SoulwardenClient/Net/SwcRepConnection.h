@@ -66,7 +66,10 @@ public:
 	/** Melee contacts for list 3 of the next input entry (swc::net::RepClient::queue_contacts). */
 	void QueueContacts(const std::vector<swc::net::MeleeContactItem>& Contacts);
 	/** The respawn request of the death screen (swc::net::RepClient::request_respawn; stage P2.10). */
-	void RequestRespawn();
+	void RequestRespawn(bool bRandom = true, const FString& HomeId = FString());
+	/** The take of the open bag (swc::net::RepClient::take_all_items, take_item). */
+	void TakeAllItems();
+	void TakeItem(const std::array<uint8, 16>& Instance, uint32 Quantity);
 	/** The interaction request of the player, or none (swc::net::RepClient::set_interaction). */
 	void SetInteraction(const std::optional<swc::net::InteractionRequest>& Request);
 	/** The client ends its committed interaction: message 2473 (swc::net::RepClient::cancel_interaction). */

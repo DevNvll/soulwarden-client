@@ -134,10 +134,23 @@ void FSwcRepConnection::QueueContacts(const std::vector<swc::net::MeleeContactIt
 	Contacts.insert(Contacts.end(), InContacts.begin(), InContacts.end());
 }
 
-void FSwcRepConnection::RequestRespawn()
+void FSwcRepConnection::RequestRespawn(bool bRandom, const FString& HomeId)
 {
 	FScopeLock Guard(&Lock);
-	Calls.push_back([](swc::net::RepClient& Client) { Client.request_respawn(); });
+	const std::string Id = TCHAR_TO_UTF8(*HomeId);
+	Calls.push_back([bRandom, Id](swc::net::RepClient& Client) { Client.request_respawn(bRandom, Id); });
+}
+
+void FSwcRepConnection::TakeAllItems()
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([](swc::net::RepClient& Client) { Client.take_all_items(); });
+}
+
+void FSwcRepConnection::TakeItem(const std::array<uint8, 16>& Instance, uint32 Quantity)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([Instance, Quantity](swc::net::RepClient& Client) { Client.take_item(Instance, Quantity); });
 }
 
 void FSwcRepConnection::SetInteraction(const std::optional<swc::net::InteractionRequest>& Request)

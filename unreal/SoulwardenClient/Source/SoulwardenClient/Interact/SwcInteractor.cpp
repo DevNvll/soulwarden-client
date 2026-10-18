@@ -1,15 +1,34 @@
 #include "Interact/SwcInteractor.h"
 
+#include <algorithm>
+
 #include "Dom/JsonObject.h"
 #include "HAL/PlatformMisc.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "Creatures/SwcCreatureSubsystem.h"
+#include "Net/SwcSpace.h"
 #include "SwcBackendSubsystem.h"
 
 namespace
 {
+/** HideMeshDelay of the slice of the personal loot bag (interaction-data.json: lootContainers.personal, 1.5 s at looted). */
+constexpr double BagHideDelay = 1.5;
+
+bool IsLooted(const swc::net::RepClient::OwnEntity& Own, const swc::net::ActorId& Actor)
+{
+	for (const swc::net::LootClaim& Claim : Own.lootClaims)
+	{
+		if (Claim.actor == Actor)
+		{
+			return Claim.state == swc::net::kLootLooted;
+		}
+	}
+	return false;
+}
+
 FString ContentFolder()
 {
 	const FString Content = FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_CONTENT"));
@@ -89,14 +108,23 @@ bool FSwcInteractor::Load(FString& OutReport)
 			}
 			Template.bounds.push_back(Bound);
 		}
-		Templates.push_back(Template);
+		// The personal loot bag: its focus comes from the bag entities of the creature view, not from the objects of the snapshot.
+		if (Template.name.rfind("loot:", 0) == 0)
+		{
+			LootTemplate = Template;
+		}
+		else
+		{
+			Templates.push_back(Template);
+		}
 	}
-	OutReport = FString::Printf(TEXT("interactions: %d templates of server objects, %d options (%s)"), static_cast<int32>(Templates.size()), Options, *Path);
-	return !Templates.empty();
+	OutReport = FString::Printf(TEXT("interactions: %d templates of server objects and %s, %d options (%s)"), static_cast<int32>(Templates.size()),
+		LootTemplate ? TEXT("the personal loot bag") : TEXT("no loot bag"), Options, *Path);
+	return !Templates.empty() || LootTemplate.has_value();
 }
 
 void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRepConnection& Connection, const swc::net::WorldPosition& Feet,
-	bool bLocked, double Now)
+	bool bLocked, double Now, USwcCreatureSubsystem* Creatures)
 {
 	const swc::net::RepClient::OwnEntity& Own = Snapshot.Own;
 	if (!bSeeded)
@@ -134,10 +162,77 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		Object.place = Pair.Value.place;
 		Objects.push_back(Object);
 	}
+	// The use of a bag ends at its Looted claim, or when its record stops (the client sends 2473: live check L6 of the backend).
+	if (bUseBag && Use.phase() != swc::interact::Use::Phase::idle)
+	{
+		const bool bGone = !Snapshot.Objects.ContainsByPredicate(
+			[this](const TPair<uint32, swc::net::RepClient::OtherEntity>& Pair) { return Pair.Value.actor == UseBag; });
+		if (IsLooted(Own, UseBag) || bGone)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the bag is %s: the client ends the use (2473)"), bGone ? TEXT("gone") : TEXT("Looted"));
+			Use.finish();
+		}
+	}
+	// The log of the loot: the items of the bag of the character and the claims of the LootTracker at each change.
+	if (Own.bagRevision != SeenBag)
+	{
+		SeenBag = Own.bagRevision;
+		int32 Items = 0;
+		uint32 Quantity = 0;
+		for (const soulwarden::backend::tests::WireItem& Item : Own.bag)
+		{
+			Items += Item.empty() ? 0 : 1;
+			Quantity += Item.empty() ? 0 : Item.quantity;
+		}
+		UE_LOG(LogSwcBackend, Log, TEXT("loot: the bag of the character: %d of %d slot(s) with an item, quantity %u (revision %u)"), Items, static_cast<int32>(Own.bag.size()),
+			Quantity, Own.bagRevision);
+	}
+	if (Own.lootRevision != SeenLoot)
+	{
+		SeenLoot = Own.lootRevision;
+		FString Claims;
+		for (const swc::net::LootClaim& Claim : Own.lootClaims)
+		{
+			Claims += FString::Printf(TEXT(" %s:%s"), UTF8_TO_TCHAR(swc::net::hex_of(std::span(Claim.actor).first(8)).c_str()),
+				Claim.state == swc::net::kLootRolled ? TEXT("Rolled") : Claim.state == swc::net::kLootLooted ? TEXT("Looted") : *FString::FromInt(Claim.state));
+		}
+		UE_LOG(LogSwcBackend, Log, TEXT("loot: the LootTracker: %d claim(s)%s"), static_cast<int32>(Own.lootClaims.size()), *Claims);
+	}
+	UpdateLootedBags(Own, Creatures, Now);
 	if (Use.phase() == swc::interact::Use::Phase::idle)
 	{
+		bUseBag = false;
 		Focus = bLocked ? std::nullopt : swc::interact::focus(Templates, Objects, Feet);
 		FocusName = Focus ? FString(UTF8_TO_TCHAR(Focus->object->name.c_str())) : FString();
+		bFocusBag = false;
+		// The nearest bag in range with an enabled bound and no Looted claim: its first option (TakeAllOption).
+		FSwcLootBag Bag;
+		const FVector From(SwcEngineToUnreal(Feet));
+		if (!bLocked && LootTemplate && !LootTemplate->bounds.empty() && Creatures != nullptr && Creatures->FindNearestLootBag(From, Bag)
+			&& !IsLooted(Own, Bag.Actor) && Bag.bEnabled && !Bag.Options.IsEmpty() && (!Focus || Bag.Distance * Bag.Distance < Focus->distanceSq))
+		{
+			// The options of the bag of the creature view are in the order of the bound of the data (the key of a pair is the index of
+			// the option in the options of interaction-data.json, not its CRC-32 id): the first one is TakeAllOption.
+			const swc::interact::Bound& Bound = LootTemplate->bounds.front();
+			const auto Option = Bound.options.begin();
+			if (Option != Bound.options.end())
+			{
+				swc::interact::Candidate Candidate;
+				Candidate.interest = Bag.Interest;
+				Candidate.object = &*LootTemplate;
+				Candidate.option = &*Option;
+				Candidate.request = swc::interact::request_of(*LootTemplate, Bound, *Option, Bag.Actor);
+				// The ids of the creature view (the backend rule of a server child): the target and the instance of the option entity.
+				Candidate.request.reference.group = Bag.Group;
+				Candidate.request.reference.target = Bag.Target;
+				Candidate.request.optionEntity = Bag.Options[0].Value;
+				Candidate.place = Bag.EnginePlace;
+				Candidate.distanceSq = Bag.Distance * Bag.Distance;
+				Focus = Candidate;
+				FocusName = TEXT("loot bag");
+				bFocusBag = true;
+			}
+		}
 	}
 	if (bLocked)
 	{
@@ -148,7 +243,12 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: E at %s (interest %u, %.1f m): %s, action %u, delay %.1f s, hold %.1f s"), *FocusName, Focus->interest,
 			FMath::Sqrt(Focus->distanceSq), UTF8_TO_TCHAR(Focus->option->name.c_str()), Focus->option->action, Focus->option->delay, Focus->option->hold);
-		Use.press(Now, *Focus);
+		Use.press(Now, *Focus, bFocusBag);
+		if (bFocusBag)
+		{
+			bUseBag = true;
+			UseBag = Focus->request.reference.actor;
+		}
 	}
 	else if (!bKeyDown && bKeyWas)
 	{
@@ -174,6 +274,34 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: the client cancels the use of %s (2473)"), UTF8_TO_TCHAR(Use.option().name.c_str()));
 		Connection.CancelInteraction();
+	}
+}
+
+void FSwcInteractor::UpdateLootedBags(const swc::net::RepClient::OwnEntity& Own, USwcCreatureSubsystem* Creatures, double Now)
+{
+	if (Creatures == nullptr)
+	{
+		return;
+	}
+	TArray<FSwcLootBag> Bags;
+	Creatures->GetLootBags(FVector::ZeroVector, Bags);
+	for (const FSwcLootBag& Bag : Bags)
+	{
+		if (!IsLooted(Own, Bag.Actor))
+		{
+			continue;
+		}
+		double& Since = LootedSince.FindOrAdd(Bag.Interest, Now);
+		if (Since == Now)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the bag %u is Looted: no prompt; the model hides in %.1f s"), Bag.Interest, BagHideDelay);
+		}
+		if (Now - Since >= BagHideDelay && Since >= 0.0)
+		{
+			Creatures->SetLootBagHidden(Bag.Interest, true);
+			Since = -1.0;   // hidden
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the model of the bag %u hides (HideMeshDelay)"), Bag.Interest);
+		}
 	}
 }
 

@@ -1,0 +1,10 @@
+# The development routes of the loot check of stage P2.10 (tools/creature-check.sh, tools/lib/dev_world.py): level 60, the full
+# health, each kill rolls loot (the roll can still give no item: then no bag), a grey wolf 2 m to the east with 100 health. Times
+# on the clock of the drive script tests/drive/loot.txt; offsets in m east, north; yaw: 0 north, 90 west.
+1 level 60
+2 heal
+3 ignore off
+3 loot on
+4 spawn Wolf_Grey_7 2 0 0 --yaw 90
+7 health $1 100
+18 bags

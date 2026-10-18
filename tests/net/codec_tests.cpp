@@ -22,6 +22,7 @@
 #include "server/carrier/carrier.h"
 #include "server/rep/client_input.h"
 #include "server/rep/health_messages.h"
+#include "server/rep/item_requests.h"
 #include "server/rep/lock_messages.h"
 #include "server/rep/travel_messages.h"
 #include "support/client_frames.h"
@@ -723,6 +724,173 @@ void test_interactions() {
         effects = take.take();
         expect(take.phase() == interact::Use::Phase::idle && effects.requestChanged && !effects.request, "the reply 1: the request ends");
     }
+    // The Take All of a loot bag keeps its request after the execution and the reply 1 (the client waits for the server); the
+    // release does not end it; the Looted claim of the bag ends it with 2473 (protocol notes 4.42, live check L6).
+    if (bagFocus) {
+        interact::Use take;
+        take.press(80.0, *bagFocus, true);
+        take.tick(80.5);
+        (void)take.take();
+        take.reply(1, 80.52);
+        take.tick(81.0);
+        take.release(81.0);
+        effects = take.take();
+        expect(take.phase() == interact::Use::Phase::executed && !effects.cancel && !effects.requestChanged,
+               "the Take All of a bag: the request stays after the reply 1 and the release");
+        take.finish();
+        effects = take.take();
+        expect(take.phase() == interact::Use::Phase::idle && effects.cancel, "the Looted claim: the client ends the use (2473)");
+    }
+}
+
+/**
+ * The loot (stage P2.10): the take messages 2939 and 2942 to the reader of the backend (server/rep/item_requests); the readers of
+ * the client for the LootTracker map (slot 33), the GlobalStorage map (slot 77), and the Container (slots 61, 76: the full vector
+ * and a journal), with fields in the layout of the protocol notes 4.10, 4.41, 4.42 (the made-up values of the backend fixtures).
+ */
+void test_loot() {
+    std::printf("the loot: the take messages against the reader of the backend, the readers of the loot states\n");
+    namespace rep = backend::server::rep;
+    const swc::net::ActorId actor{0x02, 0x00, 0x00, 0x00, 0x53, 0x4F, 0x55, 0x4C, 0x10, 0x00, 0x00, 0x00, 0x53, 0x4F, 0x55, 0x4C};
+    const std::uint64_t group = swc::net::group_of(actor);
+    expect(group == 0x4C554F5300000002ULL, "G of serial 1");
+    // The values of the backend fixture (tests/support/loot_bag_fixture.h): the GlobalStorage target and the PlayerTrade target.
+    expect(swc::net::global_storage_target(group) == 0xDE23CE47F759DECEULL, "the facet target of the own GlobalStorage Container");
+    expect(group + swc::net::kPlayerTradeComponent == 0xAAC3F4219484F844ULL, "the facet target of the PlayerTrade facet");
+    const Bytes all = swc::net::take_all_items_body(actor);
+    const auto readAll = rep::read_bag_request(all, false);
+    expect(all.size() == 48 && readAll.has_value(), "2939: 48 bytes, the backend reads them");
+    if (readAll) {
+        expect(readAll->call.entity == group && readAll->call.target == group + swc::net::kPlayerTradeComponent, "2939: the entity and the target");
+        expect(readAll->container.actor == actor && readAll->container.group == group
+                   && readAll->container.target == swc::net::global_storage_target(group),
+               "2939: the reference names the own GlobalStorage Container");
+    }
+    std::array<std::uint8_t, 16> instance{};
+    for (std::size_t index = 0; index < instance.size(); ++index) {
+        instance[index] = static_cast<std::uint8_t>(0xA0 + index);
+    }
+    const Bytes one = swc::net::take_item_body(actor, instance, 9);
+    const auto readOne = rep::read_bag_request(one, true);
+    expect(one.size() == 68 && readOne.has_value(), "2942: 68 bytes, the backend reads them");
+    if (readOne) {
+        expect(readOne->container.target == swc::net::global_storage_target(group), "2942: the reference");
+        expect(std::equal(instance.begin(), instance.end(), readOne->instance.begin()) && readOne->quantity == 9, "2942: the instance and the quantity");
+    }
+    expect(!rep::read_bag_request(one, false).has_value() && !rep::read_bag_request(all, true).has_value(), "the backend refuses a body of the other form");
+
+    // A LootTracker map in its full form: changes 0, no version, two claims of 58 bytes (a Rolled bag and a Looted bag).
+    swc::net::Writer tracker;
+    tracker.size(0);
+    tracker.u8(0);
+    tracker.size(2);
+    for (const std::uint32_t state : {swc::net::kLootRolled, swc::net::kLootLooted}) {
+        swc::net::ActorId bag{};
+        bag[0] = static_cast<std::uint8_t>(0x30 + state);
+        tracker.raw(bag);
+        tracker.u32(state);
+        tracker.u32(1);            // AILoot
+        tracker.u64(1000000ULL);   // resetTime
+        tracker.u64(state == swc::net::kLootLooted ? 2000000ULL : 0ULL);
+        tracker.u8(0);
+        tracker.f32(8880.5F);
+        tracker.f32(4250.25F);
+        tracker.f32(138.0F);
+        tracker.u32(0);
+        tracker.u8(0);
+    }
+    const Bytes trackerBytes = tracker.data();
+    expect(trackerBytes.size() == 3 + 2 * 58, "the LootTracker map: 2 entries of 58 bytes");
+    const auto claims = swc::net::read_loot_tracker(trackerBytes);
+    expect(claims && claims->size() == 2, "the LootTracker reader: two claims");
+    if (claims && claims->size() == 2) {
+        expect((*claims)[0].actor[0] == 0x31 && (*claims)[0].state == swc::net::kLootRolled && (*claims)[0].kind == 1, "a Rolled bag of a kill");
+        expect((*claims)[1].state == swc::net::kLootLooted && (*claims)[1].lootedTime == 2000000ULL, "a Looted bag");
+        expect(near((*claims)[0].place.x, 8880.5F, 0.001F) && near((*claims)[0].place.z, 138.0F, 0.001F), "the place of the claim");
+    }
+    swc::net::Writer empty;
+    empty.size(0);
+    empty.u8(0);
+    empty.size(0);
+    const auto none = swc::net::read_loot_tracker(empty.data());
+    expect(none && none->empty(), "the map with no entry (the server ends the claims)");
+
+    // An item of the wire in the layout of the reader of the client (protocol notes 4.10; the vendored item_decoder.h of the backend
+    // tests): packed = maxDurability + 8001 x (index + 2^20 x (slot + 502 x (action + 64 x quantity))), the sizes durability, chrono,
+    // gear score, five perks, 4 dye bytes, the instance, the flags, the appearance, 4 skin dye bytes.
+    const auto write_item = [](swc::net::Writer& w, std::uint32_t index, std::uint32_t quantity, std::uint8_t mark) {
+        const std::uint64_t slot = 501;   // no slot
+        const std::uint64_t packed = 750 + 8001ULL * (index + (1ULL << 20) * (slot + 502ULL * (0x11 + 64ULL * quantity)));
+        w.u64(packed);
+        w.size(750);
+        w.size(0);
+        w.size(75);
+        for (int perk = 0; perk < 5; ++perk) {
+            w.size(0);
+        }
+        w.zeros(4);
+        for (int index2 = 0; index2 < 16; ++index2) {
+            w.u8(static_cast<std::uint8_t>(mark + index2));
+        }
+        w.u8(0);
+        w.u32(0);
+        w.zeros(4);
+    };
+    swc::net::Writer storage;
+    storage.size(0);
+    storage.u8(0);
+    storage.size(2);
+    swc::net::ActorId bagActor{};
+    bagActor[0] = 0x31;
+    storage.raw(bagActor);
+    storage.size(1);
+    write_item(storage, 1234, 9, 0x50);
+    swc::net::ActorId emptyBag{};
+    emptyBag[0] = 0x32;
+    storage.raw(emptyBag);
+    storage.size(0);
+    const auto keys = swc::net::read_global_storage(storage.data());
+    expect(keys && keys->size() == 2, "the GlobalStorage map: two keys");
+    if (keys && keys->size() == 2) {
+        const auto& item = (*keys)[0].items;
+        expect((*keys)[0].actor == bagActor && item.size() == 1 && item[0].index == 1234 && item[0].quantity == 9 && item[0].gearScore == 75,
+               "the key of the bag: one item (its index, quantity, gear score)");
+        expect(item.size() == 1 && item[0].instance[0] == 0x50 && item[0].durability == 750, "the instance and the durability of the item");
+        expect((*keys)[1].actor == emptyBag && (*keys)[1].items.empty(), "a key with no item");
+    }
+
+    // The Container: the full vector of two slots (an empty one and an item), then a journal of two entries that sets slot 0 and
+    // adds slot 2 (the length of the vector), then a journal that empties slot 1 (the backend sends the empty element).
+    std::vector<backend::tests::WireItem> elements;
+    swc::net::Writer full;
+    full.size(0);
+    full.u8(0);
+    full.size(2);
+    write_item(full, 0, 0, 0x00);
+    write_item(full, 77, 1, 0x60);
+    expect(swc::net::apply_container(full.data(), elements) && elements.size() == 2 && elements[0].empty() && elements[1].index == 77,
+           "the full vector: an empty slot and an item");
+    swc::net::Writer journal;
+    journal.size(2);
+    journal.u8(0x03);              // the mask: both entries set an element
+    journal.size64(0);
+    journal.u8(0);
+    write_item(journal, 1234, 9, 0x50);
+    journal.size64(2);
+    journal.u8(0);
+    write_item(journal, 88, 3, 0x70);
+    expect(swc::net::apply_container(journal.data(), elements) && elements.size() == 3, "a journal: the vector has 3 slots");
+    expect(elements.size() == 3 && elements[0].index == 1234 && elements[0].quantity == 9 && elements[2].index == 88, "the set slot and the new slot");
+    swc::net::Writer emptied;
+    emptied.size(1);
+    emptied.u8(0x01);
+    emptied.size64(1);
+    emptied.u8(0);
+    write_item(emptied, 0, 0, 0x00);
+    expect(swc::net::apply_container(emptied.data(), elements) && elements.size() == 3 && elements[1].empty(), "a slot that loses its item: the empty element");
+    swc::net::Writer bad;
+    bad.size(1);
+    expect(!swc::net::apply_container(bad.data(), elements), "a journal that ends early has no form");
 }
 
 /** The carrier of this client against the carrier of the backend (apps/backend/src/server/carrier). */
@@ -818,6 +986,7 @@ int main(int argc, char** argv) {
     test_client_writers();
     test_life_messages();
     test_interactions();
+    test_loot();
     test_carrier();
     std::printf("Result: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

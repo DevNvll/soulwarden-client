@@ -87,6 +87,9 @@ public:
 	 * development key F8 and the drive command "respawn" call it. @return False when no request went out.
 	 */
 	bool RequestRespawn();
+	/** The respawn request of the original respawn screen (LocalPlayerUIRequestsBus.RequestRespawn(random, homeId) of respawn.luac, a
+	 *  host request of the UI): random true for the row "Random Location" (an empty home id). The checks of RequestRespawn(). */
+	bool RequestRespawn(bool bRandom, const FString& HomeId);
 	/** The key E of the interactions (stage P2.10): down or up. */
 	void SetInteractKey(bool bDown) { bInteractKey = bDown; }
 

@@ -292,6 +292,128 @@ std::optional<InteractionResult> read_interaction_result(std::span<const std::ui
     return result;
 }
 
+std::uint64_t global_storage_target(std::uint64_t group) {
+    return (kGlobalStorageEntity ^ kPlayerSliceRoot ^ group) + kGlobalStorageContainer;
+}
+
+namespace {
+void write_bag_reference(Writer& w, const ActorId& actor) {
+    const std::uint64_t group = group_of(actor);
+    w.u64(group + kPlayerTradeComponent);
+    w.u64(group);
+    w.raw(actor);
+    w.u64(group);
+    w.u64(global_storage_target(group));
+}
+
+/** The head of a replicated map in its full form (protocol notes 4.41): changes 0, the version, the count. */
+bool read_map_head(Reader& reader, std::uint32_t& count) {
+    if (reader.size() != 0) {
+        return false;
+    }
+    if (reader.u8() == 1) {
+        reader.size64();
+    }
+    count = reader.size();
+    return reader.ok();
+}
+
+ActorId read_actor(Reader& reader) {
+    ActorId actor{};
+    for (std::uint8_t& value : actor) {
+        value = reader.u8();
+    }
+    return actor;
+}
+} // namespace
+
+Bytes take_all_items_body(const ActorId& actor) {
+    Writer w;
+    write_bag_reference(w, actor);
+    return w.data();
+}
+
+Bytes take_item_body(const ActorId& actor, const std::array<std::uint8_t, 16>& instance, std::uint32_t quantity) {
+    Writer w;
+    write_bag_reference(w, actor);
+    w.raw(instance);
+    w.u32(quantity);
+    return w.data();
+}
+
+std::optional<std::vector<LootClaim>> read_loot_tracker(std::span<const std::uint8_t> field) {
+    Reader reader(field);
+    std::uint32_t count = 0;
+    if (!read_map_head(reader, count)) {
+        return std::nullopt;
+    }
+    std::vector<LootClaim> claims;
+    for (std::uint32_t index = 0; index < count && reader.ok(); ++index) {
+        // actor 16, state u32, kind u32, resetTime u64, lootedTime u64, privileged u8, x y z f32, tag u32, selector u8 (58 bytes).
+        LootClaim claim;
+        claim.actor = read_actor(reader);
+        claim.state = reader.u32();
+        claim.kind = reader.u32();
+        claim.resetTime = reader.u64();
+        claim.lootedTime = reader.u64();
+        claim.privileged = reader.u8() != 0;
+        claim.place.x = reader.f32();
+        claim.place.y = reader.f32();
+        claim.place.z = reader.f32();
+        claim.tag = reader.u32();
+        claim.selector = reader.u8();
+        claims.push_back(claim);
+    }
+    if (!reader.ok()) {
+        return std::nullopt;
+    }
+    return claims;
+}
+
+std::optional<std::vector<StorageKey>> read_global_storage(std::span<const std::uint8_t> field) {
+    Reader reader(field);
+    std::uint32_t count = 0;
+    if (!read_map_head(reader, count)) {
+        return std::nullopt;
+    }
+    std::vector<StorageKey> keys;
+    for (std::uint32_t index = 0; index < count && reader.ok(); ++index) {
+        StorageKey key;
+        key.actor = read_actor(reader);
+        const std::uint32_t items = reader.size();
+        for (std::uint32_t item = 0; item < items && reader.ok(); ++item) {
+            soulwarden::backend::tests::WireItem value;
+            if (!soulwarden::backend::tests::read_item(reader, value)) {
+                return std::nullopt;
+            }
+            key.items.push_back(value);
+        }
+        keys.push_back(std::move(key));
+    }
+    if (!reader.ok()) {
+        return std::nullopt;
+    }
+    return keys;
+}
+
+bool apply_container(std::span<const std::uint8_t> field, std::vector<soulwarden::backend::tests::WireItem>& elements) {
+    const soulwarden::backend::tests::WireContainer container = soulwarden::backend::tests::read_container(field);
+    if (!container.ok) {
+        return false;
+    }
+    if (container.full) {
+        elements.clear();
+    }
+    for (const auto& [index, item] : container.elements) {
+        if (index < elements.size()) {
+            elements[index] = item;
+        } else if (index == elements.size()) {
+            elements.push_back(item);
+        }
+    }
+    return true;
+}
+
 std::uint64_t group_of(const ActorId& actor) {
     std::uint64_t value = 0;
     for (int index = 7; index >= 0; --index) {

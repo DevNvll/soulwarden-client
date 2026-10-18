@@ -355,6 +355,12 @@ The component calls of the root entity of the player slice: `target:u64 entity:u
   current (`RepClient::set_interaction`), 131 bytes with the hold time, empty texts, and no vectors; an older entry with no
   request after a newer one with a request has bit 8 with the present byte 0 (else the reader of the backend gives it the
   block of the newer entry). [INTERACTIONS.md](INTERACTIONS.md) has the rules of the use.
+- The loot of the owner (protocol notes 4.10, 4.41, 4.42) in the read path (`RepClient::OwnEntity`, each with a count of its
+  changes): the bag of the character (the Container of slot 61: the full vector and the journal), the LootTracker (slot 33:
+  the 58-byte claims, Rolled 1, Looted 2), the selected Container (slot 76: the open bag), and the GlobalStorage map (slot 77: the
+  items of each bag). The take of the open bag: 2939 TakeAllItems (48 bytes) and 2942 TakeItem (68 bytes: the instance, the
+  quantity), with the target `G + 5E6EA4CE9484F842` (PlayerTrade) and the reference of the own GlobalStorage Container: the own
+  actor, G, and `((00006914A15737B2 XOR DAEE4E2555650AB7 XOR G) + 476865E50327A1C7)` (`slice-ids.json`), not the bag.
 - The objects of the server (a fixture, a loot bag): the client keeps the place of their PositionInTheWorld state (type 13,
   field 0: `x:f32 y:f32 height:u16` with the height range -100 m to 2000 m, not the range of a movement state) in the
   snapshot (`FSnapshot::Objects`).
@@ -393,7 +399,9 @@ target lock of the camera takes its targets from them ([CAMERA.md](CAMERA.md)).
   3743 (`server/rep/health_messages`, `travel_messages`, `lock_messages`) to the readers of the client; the client bodies 1938
   and 2473 to the readers of the backend; the interaction block byte for byte as the block of the made-up client, and a
   report with a request in the newest entry only, read by the input reader of the backend; the teleport numbers of a travel;
-  the ids, the focus, and the use of `Interact/SwcInteraction` ([INTERACTIONS.md](INTERACTIONS.md)).
+  the ids, the focus, and the use of `Interact/SwcInteraction` ([INTERACTIONS.md](INTERACTIONS.md)); the take messages 2939 and
+  2942 read by the reader of the backend (the targets of the backend fixture), and the readers of the LootTracker, GlobalStorage,
+  and Container values (the full vector, a journal that sets and adds slots, an emptied slot).
 - The carrier: the client carrier against the carrier of the backend: the handshake, a reliable message of 3,000 bytes
   in chunks to the server and of 2,500 bytes to the client, an unreliable message, a lost datagram of the server that
   comes again in its order, the 1,038-byte limit, and the disconnect.

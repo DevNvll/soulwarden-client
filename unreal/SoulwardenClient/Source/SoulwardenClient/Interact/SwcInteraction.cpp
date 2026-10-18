@@ -61,10 +61,11 @@ std::optional<Candidate> focus(const std::vector<Template>& templates, const std
     return best;
 }
 
-void Use::press(double now, const Candidate& candidate) {
+void Use::press(double now, const Candidate& candidate, bool keepUntilEnd) {
     if (m_phase != Phase::idle || candidate.option == nullptr) {
         return;
     }
+    m_keepUntilEnd = keepUntilEnd;
     m_option = *candidate.option;
     m_interest = candidate.interest;
     m_request = candidate.request;
@@ -94,7 +95,8 @@ void Use::request(double now) {
 }
 
 void Use::clear_when_due(double now) {
-    if (m_phase == Phase::executed && m_accepted && now >= m_executedAt + kClearDelay && now >= m_acceptedAt + m_option.delay + kClearDelay) {
+    if (m_phase == Phase::executed && m_accepted && !m_keepUntilEnd && now >= m_executedAt + kClearDelay
+        && now >= m_acceptedAt + m_option.delay + kClearDelay) {
         end(false);
     }
 }
@@ -121,7 +123,7 @@ void Use::release(double now) {
         return;
     }
     tick(now);
-    if (m_phase == Phase::requested || (m_phase == Phase::executed && !m_accepted)) {
+    if (m_phase == Phase::requested || (m_phase == Phase::executed && !m_accepted && !m_keepUntilEnd)) {
         // A release before the end of the Delay Time, or after the execution with no reply: the cancel 2473.
         end(true);
     }
@@ -149,6 +151,14 @@ void Use::server_cancel() {
     // The session client answered with 2473 and cleared the block (0x490EDA0, 0x4916150).
     ++m_serverEnds;
     m_phase = Phase::idle;
+}
+
+void Use::finish() {
+    if (m_phase == Phase::holding) {
+        m_phase = Phase::idle;
+    } else if (m_phase != Phase::idle) {
+        end(true);
+    }
 }
 
 void Use::abort() {

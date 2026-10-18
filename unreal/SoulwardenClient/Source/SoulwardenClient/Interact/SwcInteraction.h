@@ -115,7 +115,14 @@ public:
     /** The time from the execution to the end of the request (s): the measure of the retail client. */
     static constexpr double kClearDelay = 0.03;
 
-    void press(double now, const Candidate& candidate);
+    /**
+     * @param keepUntilEnd True for a use whose end comes from its source (the Take All of a loot bag: the client keeps its request
+     * after the execution and the reply 1 until the claim of the bag is Looted, then it sends 2473; protocol notes 4.42, live L6):
+     * the reply 1 and a release do not end it; finish() does.
+     */
+    void press(double now, const Candidate& candidate, bool keepUntilEnd = false);
+    /** The source of a use that keeps its request ends it (the Looted claim of a bag, the stop of its record): the cancel 2473. */
+    void finish();
     void release(double now);
     void tick(double now);
     /** The reply 3743 to the current request (1 accepted, 2 refused) at its arrival. */
@@ -153,6 +160,7 @@ private:
     double m_acceptedAt{0.0};
     bool m_down{false};
     bool m_accepted{false};
+    bool m_keepUntilEnd{false};
     Effects m_effects;
     std::uint32_t m_requests{0};
     std::uint32_t m_executions{0};

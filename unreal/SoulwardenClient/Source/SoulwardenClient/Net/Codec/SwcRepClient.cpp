@@ -613,6 +613,30 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                 }
             }
             ++m_own.lookRevision;
+        } else if ((fragment.slot == kSlotBag || fragment.slot == kSlotSelectedContainer) && fragment.type == kStateContainer.index) {
+            // The bag of the character and the selected Container (the open bag): field 0, the full vector or a journal.
+            const bool bag = fragment.slot == kSlotBag;
+            if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
+                if (apply_container(value, bag ? m_own.bag : m_own.selectedContainer)) {
+                    ++(bag ? m_own.bagRevision : m_own.selectedRevision);
+                } else {
+                    log(Event::Level::warning, std::string("the container of slot ") + std::to_string(fragment.slot) + " does not have its form");
+                }
+            }
+        } else if (fragment.slot == kSlotLootTracker && fragment.type == kStateLootTracker.index) {
+            if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
+                if (auto claims = read_loot_tracker(value)) {
+                    m_own.lootClaims = std::move(*claims);
+                    ++m_own.lootRevision;
+                }
+            }
+        } else if (fragment.slot == kSlotGlobalStorage && fragment.type == kStateGlobalStorage.index) {
+            if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
+                if (auto keys = read_global_storage(value)) {
+                    m_own.globalStorage = std::move(*keys);
+                    ++m_own.storageRevision;
+                }
+            }
         } else if (fragment.slot == kSlotPaperdoll && fragment.type == kStatePaperdoll.index) {
             // The owner view: two pairs of parallel lists (the slots with a look, the other slots). An entry is a change
             // of its slot; a slot with no entry keeps its item (client code 0x68382D0).
@@ -806,13 +830,27 @@ void RepClient::send_call(const MessageType& type, const Bytes& body) {
     m_carrier.send(kChannelReliable, client_frame(m_own.actor, type.index, body), true);
 }
 
-void RepClient::request_respawn() {
+void RepClient::request_respawn(bool random, const std::string& id) {
     if (m_phase != Phase::inGame || !m_own.hasMetadata) {
         return;
     }
     m_own.loadingScreen = true;
-    send_call(kRequestRespawn, respawn_request_body(m_own.group));
-    log(Event::Level::info, "respawn request (1938): Random Location; the loading screen shows");
+    send_call(kRequestRespawn, respawn_request_body(m_own.group, random, id));
+    log(Event::Level::info, std::string("respawn request (1938): ") + (random ? "Random Location" : "the home point " + id) + "; the loading screen shows");
+}
+
+void RepClient::take_all_items() {
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kTakeAllItems, take_all_items_body(m_own.actor));
+        log(Event::Level::info, "take all items (2939) of the open bag");
+    }
+}
+
+void RepClient::take_item(const std::array<std::uint8_t, 16>& instance, std::uint32_t quantity) {
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kTakeItem, take_item_body(m_own.actor, instance, quantity));
+        log(Event::Level::info, "take item (2942) " + hex_of(instance) + ", quantity " + std::to_string(quantity));
+    }
 }
 
 void RepClient::set_interaction(const std::optional<InteractionRequest>& request) {

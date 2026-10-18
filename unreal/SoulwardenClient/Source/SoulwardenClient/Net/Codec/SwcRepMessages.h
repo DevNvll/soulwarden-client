@@ -78,12 +78,23 @@ inline constexpr MessageType kCancelCurrentInteraction{"InteractorComponentClien
 /** The reply to an interaction request: the reference, the action, the result (1 accepted, 2 refused). */
 inline constexpr MessageType kInteractionResult{"InteractorComponentClientFacet_ReceiveInteractionResult", "188632B415E649A484A4DD7FEA17B5CF", 3743};
 
+// The loot of the player (stage P2.10; protocol notes 4.10, 4.41, 4.42; backend server/rep/item_requests.h, the states of
+// server/rep/states/chest_states.cpp and loot_bag_states.cpp).
+/** The take of all the items of the open bag (client to server, 48 bytes): the reference of the own GlobalStorage Container. */
+inline constexpr MessageType kTakeAllItems{"PlayerTradeComponentServerFacet_TakeAllItems", "1C4DF3BE03D147DCA7DC08FC4FFCB8CF", 2939};
+/** The take of one item instance (client to server, 68 bytes): the reference, the instance, and the quantity. */
+inline constexpr MessageType kTakeItem{"PlayerTradeComponentServerFacet_TakeItem", "46E59A060D7246569E06E3667726AE51", 2942};
+inline constexpr MessageType kStateContainer{"MB::ContainerComponentReplicatedState", "EF1A20F2F6CF439FA1AC63460F803134", 1755};
+inline constexpr MessageType kStateLootTracker{"MB::LootTrackerComponentReplicatedState", "756DEAE5A1F04863BE20B44D871C46A1", 982};
+inline constexpr MessageType kStateGlobalStorage{"MB::GlobalStorageComponentReplicatedState", "37F7555D8476410A9753850945075374", 2938};
+
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 30> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 35> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
-    kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult};
+    kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult, kTakeAllItems,
+    kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -96,6 +107,12 @@ inline constexpr std::uint32_t kSlotStamina = 42;
 inline constexpr std::uint32_t kSlotCooldowns = 45;
 inline constexpr std::uint32_t kSlotAbility = 46;
 inline constexpr std::uint32_t kSlotMana = 47;
+/** The loot of the owner (protocol notes 4.10, 4.41, 4.42): the bag (the Container of slot 61), the LootTracker (33), the selected
+ *  Container (76: the open bag), and the GlobalStorage map (77). */
+inline constexpr std::uint32_t kSlotBag = 61;
+inline constexpr std::uint32_t kSlotLootTracker = 33;
+inline constexpr std::uint32_t kSlotSelectedContainer = 76;
+inline constexpr std::uint32_t kSlotGlobalStorage = 77;
 
 /** The component id of the action list component (slot 16) of the entity RootPlayer of the player slice (game data
  *  slice-ids.json; research ids.md, table of the targets). The facet target of the input report is G + this id. */
@@ -105,6 +122,13 @@ inline constexpr std::uint64_t kActionListComponent = 0x3C591A4EA3C2AD75ULL;
 inline constexpr std::uint64_t kPlayerComponent = 0xDF0CE8C98D27619DULL;
 inline constexpr std::uint64_t kPlayerCutsceneComponent = 0xD49931510E1DD23FULL;
 inline constexpr std::uint64_t kInteractorComponent = 0x6C5718DBFE6DF612ULL;
+/** The PlayerTrade component of the root entity (the target of the take calls: G + this id) and the Container component of the
+ *  entity GlobalStorage of the player slice (slice-ids.json: RootPlayer/f4e8fe37-..., GlobalStorage/91b8850b-...; the root of the
+ *  slice DAEE4E2555650AB7). */
+inline constexpr std::uint64_t kPlayerTradeComponent = 0x5E6EA4CE9484F842ULL;
+inline constexpr std::uint64_t kPlayerSliceRoot = 0xDAEE4E2555650AB7ULL;
+inline constexpr std::uint64_t kGlobalStorageEntity = 0x00006914A15737B2ULL;
+inline constexpr std::uint64_t kGlobalStorageContainer = 0x476865E50327A1C7ULL;
 
 using ActorId = std::array<std::uint8_t, 16>;
 
@@ -324,6 +348,46 @@ struct InteractionResult {
     std::uint8_t result{0};
 };
 std::optional<InteractionResult> read_interaction_result(std::span<const std::uint8_t> body);
+
+/** @return The facet target of the Container of the entity GlobalStorage of the own character (the rule of 4.2: the instance
+ *  id (entity XOR root XOR G) + the component id). */
+std::uint64_t global_storage_target(std::uint64_t group);
+/** @return The body of TakeAllItems (2939, 48 bytes): target (G + PlayerTrade) entity (G) and the reference of the own
+ *  GlobalStorage Container (the own actor, G, its facet target), not the bag (live check L5 of the backend stage 3.5b.2). */
+Bytes take_all_items_body(const ActorId& actor);
+/** @return The body of TakeItem (2942, 68 bytes): the same, then the item instance (16 bytes) and the quantity (1 to 10,000). */
+Bytes take_item_body(const ActorId& actor, const std::array<std::uint8_t, 16>& instance, std::uint32_t quantity);
+
+/** One claim of the LootTracker map (58 bytes; protocol notes 4.41): a chest or a bag of the character and its state. */
+struct LootClaim {
+    ActorId actor{};
+    /** InstancedLootState: 0 Initial, 1 Rolled, 2 Looted, 3 RegeneratedForMission, 4 NotOnRequiredQuest, 5 Locked, 6 Unlocked. */
+    std::uint32_t state{0};
+    /** InstancedLootType: 1 AILoot (the bag of a kill), 5 Discarded. */
+    std::uint32_t kind{0};
+    std::uint64_t resetTime{0};
+    std::uint64_t lootedTime{0};
+    bool privileged{false};
+    WorldPosition place;
+    std::uint32_t tag{0};
+    std::uint8_t selector{0};
+};
+inline constexpr std::uint32_t kLootRolled = 1;
+inline constexpr std::uint32_t kLootLooted = 2;
+/** @return The claims of field 0 of a LootTracker state (the full form of the map), or no value. */
+std::optional<std::vector<LootClaim>> read_loot_tracker(std::span<const std::uint8_t> field);
+
+/** One key of the GlobalStorage map: the actor of a storage (a loot bag) and its items. */
+struct StorageKey {
+    ActorId actor{};
+    std::vector<soulwarden::backend::tests::WireItem> items;
+};
+/** @return The keys of field 0 of a GlobalStorage state (the full form of the map), or no value. */
+std::optional<std::vector<StorageKey>> read_global_storage(std::span<const std::uint8_t> field);
+
+/** The elements of a Container (protocol notes 4.10): one element for each slot; the full vector replaces them, a journal
+ *  sets elements (at the length of the vector: a new element at the end). @return False when the value has no form. */
+bool apply_container(std::span<const std::uint8_t> field, std::vector<soulwarden::backend::tests::WireItem>& elements);
 
 struct InputEntry {
     std::uint16_t sequence{1};

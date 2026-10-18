@@ -82,11 +82,37 @@ counted a release, not a completion.
 The backend accepted each position report of the session (1,029, 0 refused). The tests: `tools/test-net.sh` (the ids, the
 focus, the release, the full use with and with no reply, 3746, the reply 2, the death, the hold of the loot bag).
 
+## The loot bag (the take by the prompt)
+
+The creature view has the bag entities of the kills of the character (`USwcCreatureSubsystem::FindNearestLootBag`: the nearest
+bag with an enabled Interact bound in its range; [CREATURES.md](CREATURES.md), "The loot bags"). The interactor takes the nearest
+usable bag as the focus when it is nearer than the focus of the other objects:
+
+| Step | Rule | Source |
+| --- | --- | --- |
+| The key E | the first option of the bound: TakeAllOption (action 28, committed, no Delay Time, the hold of the prompt 0.5 s); the reference, the target, and the option entity of the bag query | interaction-data.json; protocol notes 4.42 (live L5) |
+| The take | the server moves the items of the part of the character into its bag (the reply 1; the bag of slot 61 changes) and gives the claim of the bag the state Looted (the LootTracker of slot 33); the client sends no 2939 for E | protocol notes 4.42 |
+| The end of the use | the client keeps its request after the execution and the reply until the Looted claim (or the stop of the record of the bag), then it sends 2473 | protocol notes 4.42 (live L6: 2473 7 ms after the Looted claim) |
+| A Looted bag | no prompt at once; its model hides 1.5 s after the claim (HideMeshDelay of the slice, `USwcCreatureSubsystem::SetLootBagHidden`) unless the server removes it before (its end 1.25 s after the last item) | interaction-data.json `lootContainers.personal` |
+
+The options of the bag query are in the order of the bound of the data: the key of a pair is the index of the option in the
+options of `interaction-data.json` (80, 30), not its CRC-32 id; the interactor takes the first option by its place.
+
+The panel of the open bag (OpenStorageOption with T, the take of one item and the Take All button: messages 2939 and 2942) is
+a part of the inventory screen of the UI track (stage P2.4). The client has the messages and the states in its read path
+([NETWORK.md](NETWORK.md)).
+
+Check (development run on the world level, 2026-10-18; `tests/drive/loot.txt`, the routes `tests/drive/loot-routes.txt`,
+`tools/creature-check.sh loot ...` with `SWC_DEV_PLACE=8872:4250:138.25`; evidence `loot.mp4`, `loot-client.log`,
+`loot-backend.log`): the kill of a grey wolf, its bag with the claim Rolled; E at 4.9 m: after the hold of 0.5 s the request, the
+reply 1, the bag of the character from 6 to 7 items, the claim Looted, the end of the use (2473); the backend: "took 1 item(s) of
+the bag", "ended: the client cancelled it (2473)", and the end of the bag 1.25 s later ("each part is empty").
+
 ## Not done, open points
 
-- The loot bag (part 2): the creature track shows the bag entity of a kill and gives a query of the nearest usable bag; the
-  player track does the interaction (TakeAllOption, OpenStorageOption), the take messages 2939 and 2942, and the loot panel
-  with the UI track.
+- The loot panel: stage P2.4 of the UI track (the inventory screen `lyshineui/inventory/newinventory`).
+- A bag with no claim of the character in the LootTracker shows (the retail client shows nothing); the server sends the record
+  only to its eligible characters, with the claim.
 - The objects of the level data (the lore pages, the chests, the persons, the stations): the client makes no object from the
   level data yet.
 - InteractionAlignment of the action DelayedInteraction (the character turns and moves to the object) is not in the client.

@@ -1,0 +1,23 @@
+# The loot of stage P2.10 (docs/INTERACTIONS.md) with the routes of tests/drive/loot-routes.txt: the camera to the east and down,
+# the draw, the swings at a grey wolf 2 m to the east until it dies, then the key E held 1 s at its bag (TakeAllOption, the hold of
+# the prompt 0.5 s): the take, the Looted claim, the end of the use, the hide of the bag. The "tick" lines are the clock marks of
+# the route script. Times in seconds from the possession of the character; turn: degrees each second.
+# SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=8872:4250:138.25 SWC_STAGE=P2.10 tools/creature-check.sh loot 30 \
+#   tests/drive/loot-routes.txt tests/drive/loot.txt -- -SwcLootProbe
+1.0 turn 90
+2.0 turn 0
+2.5 key 1
+3.0 tick
+3.2 pitch -25
+4.0 tick
+4.2 pitch 0
+7.0 tick
+8.0 click
+9.5 click
+11.0 click
+12.5 click
+14.0 tick
+16.0 interact 1
+17.0 interact 0
+18.0 tick
+20.0 tick

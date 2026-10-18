@@ -934,7 +934,7 @@ void USwcBackendSubsystem::UpdatePlayer()
 	{
 		Interactor->SetKey(bInteractKey);
 		Interactor->Update(Snapshot, *Connection, Motion.character, Snapshot.Own.dead || Snapshot.Own.loadingScreen || bTravelWait,
-			FPlatformTime::Seconds());
+			FPlatformTime::Seconds(), World->GetSubsystem<USwcCreatureSubsystem>());
 		Avatar->GetActions()->SetTimedUse(Interactor->IsTimedUse());
 	}
 	// The server copy of the stamina (the Stamina state): the client keeps its prediction (Driver::set_server_stamina).
@@ -1067,6 +1067,11 @@ void USwcBackendSubsystem::UpdateTravel()
 
 bool USwcBackendSubsystem::RequestRespawn()
 {
+	return RequestRespawn(true, FString());
+}
+
+bool USwcBackendSubsystem::RequestRespawn(bool bRandom, const FString& HomeId)
+{
 	if (!Connection.IsValid() || !bInGame)
 	{
 		return false;
@@ -1081,8 +1086,9 @@ bool USwcBackendSubsystem::RequestRespawn()
 			: Snapshot.Own.loadingScreen ? TEXT("a loading screen shows") : TEXT("the respawn screen is not there yet"));
 		return false;
 	}
-	Connection->RequestRespawn();
-	UE_LOG(LogSwcBackend, Log, TEXT("life: the give-up: the respawn request (Random Location), %.1f s after the death notice"), Since);
+	Connection->RequestRespawn(bRandom, HomeId);
+	UE_LOG(LogSwcBackend, Log, TEXT("life: the respawn request (%s), %.1f s after the death notice"),
+		bRandom ? TEXT("Random Location") : *FString::Printf(TEXT("the home point %s"), *HomeId), Since);
 	return true;
 }
 
