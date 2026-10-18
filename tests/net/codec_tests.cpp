@@ -87,11 +87,11 @@ void test_golden_session(const std::string& goldenPath) {
     options.steamId = backend::tests::kSteamIdA;
     options.ticketHex = swc::net::local_ticket_hex(backend::tests::kSteamIdA, "Tester");
     // Stage P3.5: the shot of a cast comes from the input step of the player (the attack driver puts its attack there).
-    std::uint32_t pendingShot = 0;
-    options.inputStep = [&pendingShot](std::uint16_t, std::int64_t, std::vector<unsigned>&, std::vector<std::uint32_t>& shots) {
-        if (pendingShot != 0) {
-            shots.push_back(pendingShot);
-            pendingShot = 0;
+    std::optional<swc::net::ShotRequest> pendingShot;
+    options.inputStep = [&pendingShot](std::uint16_t, std::int64_t, std::vector<unsigned>&, std::vector<swc::net::ShotRequest>& shots) {
+        if (pendingShot) {
+            shots.push_back(*pendingShot);
+            pendingShot.reset();
         }
     };
     swc::net::RepClient client(options);
@@ -327,9 +327,10 @@ void test_golden_session(const std::string& goldenPath) {
     expect(client.counts().meleeContacts == 2, "the count of the contacts that went out");
     // The shot of Gravity Well (stage P3.5; protocol notes 4.27): one item of list 2 of one entry, the origin 1.5 m above the
     // character, the direction of the look, the attack 8E14366B, no receiver; the reader of the backend reads each field.
-    pendingShot = 0x8E14366BU;
+    pendingShot = swc::net::ShotRequest{0x8E14366BU, 0, 0.0F, 0, 0.0F, 1.5F};
     std::vector<backend::server::rep::InputShot> shotsRead;
     std::size_t entriesWithShots = 0;
+    const auto read_shots = [&]() {
     for (int step = 0; step < 3; ++step) {
         serverGot.clear();
         now += std::chrono::milliseconds(34);
@@ -358,6 +359,8 @@ void test_golden_session(const std::string& goldenPath) {
             }
         }
     }
+    };
+    read_shots();
     expect(entriesWithShots == 1 && shotsRead.size() == 1, "the shot is in list 2 of one entry (" + std::to_string(entriesWithShots) + " entries)");
     if (shotsRead.size() == 1) {
         const backend::server::rep::InputShot& shot = shotsRead[0];
@@ -370,6 +373,32 @@ void test_golden_session(const std::string& goldenPath) {
                "the attack of the shot (gravitywell), no receiver, no charge, no ammunition, no row");
     }
     expect(client.counts().shots == 1, "the count of the shots that went out");
+    // A charged arrow (stage P3.6; protocol notes 4.27): the origin 1.0 m along the look and 1.46 m above the feet, the direction to the
+    // aim point of the camera, the attack basic_heavy, the row bowattack2, the charge 100, the ammunition DefaultArrow.
+    motion.hasAimPoint = true;
+    motion.aimPoint = {130.0F, 240.0F, 55.0F};
+    client.set_motion(motion);
+    pendingShot = swc::net::ShotRequest{0xA005D4C3U, 0x252222BDU, 100.0F, 0xC0E3A523U, 1.0F, 1.46F};
+    entriesWithShots = 0;
+    shotsRead.clear();
+    read_shots();
+    expect(entriesWithShots == 1 && shotsRead.size() == 1, "the arrow is in list 2 of one entry");
+    if (shotsRead.size() == 1) {
+        const backend::server::rep::InputShot& shot = shotsRead[0];
+        const float originX = 141.91F - std::sin(0.5F) * 1.0F;
+        const float originY = 203.5F + std::cos(0.5F) * 1.0F;
+        expect(near(shot.origin[0], originX, 0.002F) && near(shot.origin[1], originY, 0.002F) && near(shot.origin[2], 51.46F, 0.02F),
+               "the origin of the arrow: 1.0 m along the look, 1.46 m above the feet");
+        const float dx = 130.0F - shot.origin[0];
+        const float dy = 240.0F - shot.origin[1];
+        const float dz = 55.0F - shot.origin[2];
+        const float length = std::sqrt(dx * dx + dy * dy + dz * dz);
+        expect(near(shot.direction[0], dx / length, 0.0005F) && near(shot.direction[1], dy / length, 0.0005F) && near(shot.direction[2], dz / length, 0.0005F),
+               "the direction of the arrow: to the aim point (a unit vector)");
+        expect(shot.attack == 0xA005D4C3U && shot.row == 0x252222BDU && shot.charge == 100.0F && shot.ammo == 0xC0E3A523U && !shot.hasReceiver,
+               "the arrow: basic_heavy, bowattack2, charge 100, DefaultArrow, no receiver");
+    }
+    motion.hasAimPoint = false;
     client.set_motion(std::nullopt);
 
     // The 2 s timer: no movement state for 2 s.

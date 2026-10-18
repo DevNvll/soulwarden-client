@@ -29,6 +29,19 @@
 
 namespace swc::net {
 
+/**
+ * A shot item that a step of the player asks for (stage P3.6): the attack, the row, the charge, and the ammunition (CRC-32 values),
+ * and the origin: `forward` m along the look from the reported position of the character, `up` m above its feet.
+ */
+struct ShotRequest {
+    std::uint32_t attack{0};
+    std::uint32_t row{0};
+    float charge{0.0F};
+    std::uint32_t ammo{0};
+    float forward{0.0F};
+    float up{1.5F};
+};
+
 class RepClient {
 public:
     struct Options {
@@ -47,9 +60,10 @@ public:
          * of the attack input and follows the attack graph at the same step as the server. Called on the thread of the session.
          * Stage P3.5: it adds the attack of each shot of a cast of an ability at this step (`shots`: the progression id of its
          * RangedAttackName); the shot item goes into list 2 of the entry with the origin 1.5 m above the character and the
-         * direction of the look (protocol notes 4.27, the shot of Gravity Well).
+         * direction of the look (protocol notes 4.27, the shot of Gravity Well). Stage P3.6: each shot has its row, its charge, its
+         * ammunition, and its origin rule (ShotRequest); the direction goes to the aim point of the camera when the motion has one.
          */
-        std::function<void(std::uint16_t input, std::int64_t steadyNs, std::vector<unsigned>& actionBits, std::vector<std::uint32_t>& shots)> inputStep;
+        std::function<void(std::uint16_t input, std::int64_t steadyNs, std::vector<unsigned>& actionBits, std::vector<ShotRequest>& shots)> inputStep;
     };
 
     enum class Phase { idle, waitingForRepConnection, waitingForActorGameConnection, waitingForSpawnPoint, waitingForPlayerSpawn, inGame, ended };
@@ -111,6 +125,36 @@ public:
         bool hasMana{false};
         float mana{0.0F};
         float manaMax{0.0F};
+        /** Fields 2 and 3 of the mana state (stage P3.6): the delay of the regeneration that was left (s) and the rate (mana/s), the
+         *  steady time of its arrival (ns), and a count. */
+        float manaDelay{0.0F};
+        float manaRate{0.0F};
+        std::int64_t manaAtNs{0};
+        std::uint32_t manaRevision{0};
+        /** Message 4289 (the prediction sync): the four values of the server (the rate is the factor 1 + the ManaRate parts), the steady
+         *  time of its arrival, and a count. The retail client copies them into its predicted mana. */
+        struct ManaSync {
+            float value{0.0F};
+            float maximum{0.0F};
+            float delay{0.0F};
+            float factor{1.0F};
+            std::int64_t atNs{0};
+        };
+        ManaSync manaSync;
+        std::uint32_t manaSyncRevision{0};
+        /**
+         * The heal numbers (stage P3.6; protocol notes 4.31): each owner vitals state with bit 1 of healthChangeFlags (group 0, field
+         * 3) gives a green "+N", N = the new health less the health that the client had; and each message 4298 (a heal of a different
+         * character by the owner) with the Stats id of the healed character. The newest at the back (at most 16), and a count.
+         */
+        struct Heal {
+            float amount{0.0F};
+            /** 0: the own character; else the Stats id of the healed character (4298). */
+            std::uint64_t healed{0};
+            std::int64_t atNs{0};
+        };
+        std::vector<Heal> heals;
+        std::uint32_t healRevision{0};
         /** The vitals state: StaminaAmount and StaminaMax (group 0, fields 1 and 6), ManaAmount and ManaMax (group 1,
          *  fields 0 and 3), and bit 0 of vitalsData (group 0, field 2): the character is dead. */
         float vitalsStamina{0.0F};
@@ -280,6 +324,9 @@ public:
         /** The action bits of the last key press (a weapon key): one entry has them, at each new serial. */
         std::uint32_t pressSerial{0};
         std::vector<unsigned> pressBits;
+        /** The point of the crosshair (the camera ray to the first hit or to the range of the weapon; stage P3.6): the shot items go to it. */
+        bool hasAimPoint{false};
+        WorldPosition aimPoint;
     };
 
     explicit RepClient(Options options);
@@ -326,6 +373,10 @@ public:
     /** The tests: the body of a ReplicatedStateBundle message (8) as if it came in now (tests/net/item_tests.cpp gives the states of
      *  the encoders of the backend this way). */
     void apply_bundle_for_tests(std::span<const std::uint8_t> body, Clock::time_point now) { on_bundle(body, now); }
+    /** Applies one message of the server (its type and body) as from a carrier frame (stage P3.6: 4289, 4298). For the tests. */
+    void apply_message_for_tests(std::uint32_t type, std::span<const std::uint8_t> body, Clock::time_point now) {
+        on_message(ServerMessage{type, Bytes(body.begin(), body.end())}, now);
+    }
     /** Melee contacts of the player (stage P2.8): they go into list 3 of the next input entry with the player motion. */
     void queue_contacts(const std::vector<MeleeContactItem>& contacts) { m_pendingContacts.insert(m_pendingContacts.end(), contacts.begin(), contacts.end()); }
 

@@ -1,6 +1,7 @@
 #include "Net/Codec/SwcRepClient.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -44,10 +45,6 @@ constexpr float kReportHorizontalSpeed = 10.0F;
 constexpr float kReportRiseSpeed = 10.0F;
 constexpr float kReportFallSpeed = 60.0F;
 constexpr float kReportJump = 20.0F;
-/** The origin of the shot of a cast above the feet of the character (m; protocol notes 4.27, live proof L7 of the shot of
- *  Gravity Well: "the origin at the character (1.5 m higher)"; the backend launch place has the same height). */
-constexpr float kShotHeight = 1.5F;
-
 /** @return The value of a half float (IEEE 754 binary16). */
 float half_value(std::uint16_t bits) {
     const std::uint32_t sign = (bits & 0x8000U) << 16;
@@ -316,6 +313,39 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         }
         return;
     }
+    if (message.type == kManaForceSync.index) {
+        // 4289 (backend mana_messages.cpp): target:u64 entity:u64 current:f32 maximum:f32 delay:f32 rate:f32, big-endian.
+        Reader reader(message.body);
+        (void)reader.u64();
+        const std::uint64_t entity = reader.u64();
+        OwnEntity::ManaSync sync;
+        sync.value = std::bit_cast<float>(reader.u32());
+        sync.maximum = std::bit_cast<float>(reader.u32());
+        sync.delay = std::bit_cast<float>(reader.u32());
+        sync.factor = std::bit_cast<float>(reader.u32());
+        sync.atNs = steady_ns(now);
+        if (reader.ok() && entity == m_own.group) {
+            m_own.manaSync = sync;
+            ++m_own.manaSyncRevision;
+        }
+        return;
+    }
+    if (message.type == kHealedPlayer.index) {
+        // 4298 (backend health_messages.cpp): target:u64 entity:u64 healedTargetId:u64 amount:f32.
+        Reader reader(message.body);
+        (void)reader.u64();
+        const std::uint64_t entity = reader.u64();
+        const std::uint64_t healed = reader.u64();
+        const float amount = std::bit_cast<float>(reader.u32());
+        if (reader.ok() && entity == m_own.group) {
+            m_own.heals.push_back({amount, healed, steady_ns(now)});
+            if (m_own.heals.size() > 16) {
+                m_own.heals.erase(m_own.heals.begin());
+            }
+            ++m_own.healRevision;
+        }
+        return;
+    }
     if (message.type == kPlayerDeath.index) {
         const auto death = read_player_death(message.body);
         if (!death || death->call.entity != m_own.group) {
@@ -558,8 +588,18 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                 m_own.stateId = static_cast<std::uint16_t>((idAbs[0] << 8) | idRel[0]);
             }
         } else if (fragment.slot == kSlotVitals && fragment.type == kStateVitals.index) {
+            const float healthBefore = m_own.health;
             if (const auto health = decoder::field_of(fragment, 0, 0); health.size() == 4) {
                 m_own.health = f32_at(health);
+            }
+            // healthChangeFlags (group 0, field 3; backend vitals_state.cpp): bit 1 gives the heal number of the owner, the new health
+            // less the health that the client had (protocol notes 4.31).
+            if (const auto flags = decoder::field_of(fragment, 0, 3); flags.size() == 1 && (flags[0] & 0x02) != 0 && m_own.health > healthBefore) {
+                m_own.heals.push_back({std::floor(m_own.health - healthBefore), 0, steady_ns(now)});
+                if (m_own.heals.size() > 16) {
+                    m_own.heals.erase(m_own.heals.begin());
+                }
+                ++m_own.healRevision;
             }
             if (const auto maximum = decoder::field_of(fragment, 0, 4); maximum.size() == 4) {
                 m_own.healthMax = f32_at(maximum);
@@ -606,6 +646,14 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
             if (const auto value = decoder::field_of(fragment, 0, 1); value.size() == 4) {
                 m_own.manaMax = f32_at(value);
             }
+            if (const auto value = decoder::field_of(fragment, 0, 2); value.size() == 4) {
+                m_own.manaDelay = f32_at(value);
+            }
+            if (const auto value = decoder::field_of(fragment, 0, 3); value.size() == 4) {
+                m_own.manaRate = f32_at(value);
+            }
+            m_own.manaAtNs = steady_ns(now);
+            ++m_own.manaRevision;
         } else if (fragment.slot == kSlotAbility && fragment.type == kStateAbility.index) {
             if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
                 const decoder::WireBars bars = decoder::read_bars(value);
@@ -923,16 +971,35 @@ void RepClient::send_input(Clock::time_point now) {
             entry.actionBits.insert(entry.actionBits.end(), m_motion->pressBits.begin(), m_motion->pressBits.end());
         }
         if (m_options.inputStep) {
-            std::vector<std::uint32_t> shots;
+            std::vector<ShotRequest> shots;
             m_options.inputStep(static_cast<std::uint16_t>(entry.sequence), steady_ns(now), entry.actionBits, shots);
-            for (const std::uint32_t attack : shots) {
-                // The shot of a cast (protocol notes 4.27: the origin at the character, 1.5 m higher, the direction of the camera, no
-                // receiver). A positive pitch is down.
+            for (const ShotRequest& request : shots) {
+                // The shot item (protocol notes 4.27): the origin `forward` m along the look and `up` m above the feet of the reported
+                // character (Gravity Well: 0 and 1.5 m; a bow shot: 1.0 m and 1.46 m, live), the direction to the aim point of the
+                // camera (else the look; a positive pitch is down), no receiver (the server flies the shot).
                 ShotItem shot;
-                shot.origin = {entry.character.x, entry.character.y, entry.character.z + kShotHeight};
                 const float level = std::cos(m_motion->pitch);
-                shot.direction = {-std::sin(m_motion->yaw) * level, std::cos(m_motion->yaw) * level, -std::sin(m_motion->pitch)};
-                shot.attack = attack;
+                const float lookX = -std::sin(m_motion->yaw) * level;
+                const float lookY = std::cos(m_motion->yaw) * level;
+                const float flat = std::hypot(lookX, lookY);
+                const float forwardX = flat > 1e-4F ? lookX / flat : 0.0F;
+                const float forwardY = flat > 1e-4F ? lookY / flat : 1.0F;
+                shot.origin = {entry.character.x + forwardX * request.forward, entry.character.y + forwardY * request.forward,
+                               entry.character.z + request.up};
+                shot.direction = {lookX, lookY, -std::sin(m_motion->pitch)};
+                if (m_motion->hasAimPoint) {
+                    const float dx = m_motion->aimPoint.x - shot.origin.x;
+                    const float dy = m_motion->aimPoint.y - shot.origin.y;
+                    const float dz = m_motion->aimPoint.z - shot.origin.z;
+                    const float length = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    if (length > 0.5F) {
+                        shot.direction = {dx / length, dy / length, dz / length};
+                    }
+                }
+                shot.attack = request.attack;
+                shot.row = request.row;
+                shot.charge = request.charge;
+                shot.ammo = request.ammo;
                 entry.shots.push_back(shot);
             }
             m_counts.shots += entry.shots.size();

@@ -126,15 +126,21 @@ inline constexpr MessageType kStateProgression{"MB::ProgressionComponentReplicat
 inline constexpr MessageType kStateSpeedTable{"MB::StatMultiplierTableReplicatedState", "DDD468968DAD4EE5836E341A72D44403", 1525};
 inline constexpr MessageType kStateStatuses{"MB::StatusEffectsComponentReplicatedState", "E36B9CC4082E40F0BA4F5C5BE9CD3C16", 4236};
 
+/** The mana and the heals of the owner (stage P3.6; protocol notes 4.5, 4.31): the prediction sync of the server (4289: target,
+ *  entity, current, maximum, delay, rate factor) and the heal of a different character by the owner (4298: target, entity, the Stats
+ *  id of the healed character, amount). */
+inline constexpr MessageType kManaForceSync{"ManaComponentClientFacet_ClientForceSyncServerState", "07C85A72F95645FB98529E92A516DB7A", 4289};
+inline constexpr MessageType kHealedPlayer{"VitalsComponentClientFacet_OnHealedPlayer", "6F1EB843106A427AA09E61BC50DD82F2", 4298};
+
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 52> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 54> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
     kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult, kTakeAllItems,
     kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints, kStateGathering, kEquipItem,
     kUnequipItem, kSwapItems, kEquipItemFail, kUseItem, kDropInventoryItems, kDropPaperdollItem, kStateCurrency, kStateSpeedTable,
-    kStateStatuses, kTimeRequest, kTimeAndPhase, kDayPhase, kStateProgression};
+    kStateStatuses, kTimeRequest, kTimeAndPhase, kDayPhase, kStateProgression, kManaForceSync, kHealedPlayer};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
