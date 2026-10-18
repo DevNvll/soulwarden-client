@@ -31,6 +31,12 @@ Usage (tools/creature-world.sh):
   equip FROM [SLOT]                  the item of the bag slot FROM into a slot of the paperdoll (no SLOT: the slot of its class)
   abilities                          the cooldowns of the server of the character and the counts of the abilities
   reset                              each cooldown of the server of the character ends (the client keeps its own cooldown)
+  stack ITEM QUANTITY                a quantity of a stack item into the bag (stage P3.3: the bag weight, FishingTreasureBigAnchorT3
+                                     5.0 each)
+  unstack ITEM                       each bag slot with the item goes away
+  status ROW [SECONDS]               a status row of the data on the character (0 or none: the duration of the row; stage P3.3:
+                                     a root, a stun, a slow, the road haste)
+  unstatus ROW                       the status ends (all: each status but the gear)
   shoot CREATURE                     the creature starts its basic shot at the character now (stage 3.4f-A)
   area CREATURE                      the creature starts its next area attack at the character now (stage 3.4f-C)
   hurt AMOUNT                        damage of the character (an amount at or above its health kills it: the death, stage P2.10)
@@ -209,6 +215,23 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "GET", f"/v1/dev/abilities?character={character(folder)}")
     if command == "reset":
         return request(folder, "POST", f"/v1/dev/abilities/reset?character={character(folder)}")
+    # The bag weight (stage P3.3).
+    if command == "stack" and len(rest) == 2:
+        return request(folder, "POST", f"/v1/dev/items/give?character={character(folder)}&item={rest[0]}&quantity={int(rest[1])}")
+    if command == "unstack" and len(rest) == 1:
+        view = request(folder, "GET", f"/v1/dev/items?character={character(folder)}")
+        removed = []
+        for entry in view.get("items", []):
+            if str(entry.get("item", "")).lower() == rest[0].lower():
+                request(folder, "POST", f"/v1/dev/items/remove?character={character(folder)}&slot={entry['slot']}")
+                removed.append(entry["slot"])
+        return {"removed slots": removed}
+    # The statuses of the character (stage P3.3: the movement columns of the status map and the speed table of the server).
+    if command == "status" and len(rest) in (1, 2):
+        seconds = f"&seconds={float(rest[1])}" if len(rest) == 2 else ""
+        return request(folder, "POST", f"/v1/dev/status?character={character(folder)}&status={rest[0]}{seconds}")
+    if command == "unstatus" and len(rest) == 1:
+        return request(folder, "POST", f"/v1/dev/status/remove?character={character(folder)}&status={rest[0]}")
     if command in ("shoot", "area") and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/creatures/{command}?creature={rest[0]}&character={character(folder)}")
     if command == "health" and len(rest) == 2:
