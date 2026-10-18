@@ -114,7 +114,13 @@ tools/build.sh editor                           # build the C++ module for the e
 tools/backend-update.sh [RELEASE]               # copy the backend and its game data of a Soulwarden release
 tools/import.sh [FILTER] [--force]              # import the converted content into /Game/Imported (no window)
 tools/editor.sh                                 # open the editor (only when the user asks)
+tools/play.sh --check                           # check the player run, start nothing (only the user starts tools/play.sh)
+tools/dev-run.sh --quit-when characters         # a development run with no window: the login path to the character list
+tools/dev-run.sh --window                       # a development run with the client window on the agent desktop
+tools/dev-stop.sh                               # stop each process of the development runs (SWC_DEV_RUN=1)
 ```
+
+The runs and the connection: [docs/NETWORK.md](docs/NETWORK.md).
 
 Paths and defaults are in `tools/env.sh` (each one can be set before). The converter writes to
 `~/Games/soulwarden-client/content`, the logs go to `~/Games/soulwarden-client/logs`.
