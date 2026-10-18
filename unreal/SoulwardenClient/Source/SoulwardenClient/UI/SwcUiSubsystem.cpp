@@ -25,6 +25,7 @@
 #include "SceneView.h"
 #include "GameFramework/Pawn.h"
 #include "SwcBackendSubsystem.h"
+#include "SwcDebugLines.h"
 #include "UI/SwcUiInput.h"
 #include "UI/SwcUiSlate.h"
 
@@ -93,6 +94,15 @@ void USwcUiSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	if (GIsEditor || Mode == TEXT("off"))
 	{
 		return;
+	}
+	// A normal run shows no debug text (stage WF7): with no -SwcDebugLines the screen messages of the engine go off too (the warnings
+	// of the renderer, and the map warnings: "Preparing Textures (N)" of the asset compile of an editor build), as in the matched
+	// views (USwcMatchViewSubsystem). GAreScreenMessagesEnabled is the switch of the console command DisableAllScreenMessages.
+	if (!SwcDebugLines() && GEngine != nullptr)
+	{
+		GEngine->bEnableOnScreenDebugMessages = false;
+		GEngine->ClearOnScreenDebugMessages();
+		GAreScreenMessagesEnabled = false;
 	}
 	Start();
 }

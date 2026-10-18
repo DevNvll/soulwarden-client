@@ -113,7 +113,7 @@ The run scripts give these values. The editor does not connect.
 | `-SwcQuitWhen=characters` | The client stops after the character list (status 0) or after a failure of the login path (status 1). |
 | `-SwcQuitWhen=world` | The client stays `-SwcStay=SECONDS` in the world (default 10), leaves (the carrier disconnect), and stops (status 0). A session that ends before: status 1. |
 | `-SwcQuitAfter=SECONDS` | The client stops after this time (status 0). |
-| `-SwcDebugLines` | The debug text lines (the InGame line, the movement, the stamina, the life and the prompt, the world time) show. Default (stage WF7): no debug text; `tools/creature-check.sh` gives the switch (its videos use the lines). The matched views hide the lines in any case. |
+| `-SwcDebugLines` | The debug text lines (the InGame line, the movement, the stamina, the life and the prompt, the world time) show. Default (stage WF7): no debug text, and the UI turns the screen messages of the engine off (the shader compile count, the warnings of the renderer); `tools/creature-check.sh` gives the switch (its videos use the lines; `SWC_DEBUG_LINES=0`: none). The matched views hide the lines in any case. |
 | environment `SWC_STEAM_ID`, `SWC_PERSONA_NAME` | The values of the Steam stubs. |
 | environment `SWC_RUN` | `development`: the log has the character names. Each other value: no character name in the log. |
 

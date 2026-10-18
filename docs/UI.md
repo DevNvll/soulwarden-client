@@ -649,6 +649,23 @@ the user ([AGENTS.md](../AGENTS.md), rules).
   equipment screen shows the place-holder values of its canvas); `isMagic` of a weapon (the label "core power"); the
   ammunition stats; the equipment sets (their perks and names: no bonus lines); the defaults of the client settings
   that the item screens do not read (183 settings of the scripts have a default that is not false or 0); the key hints
-  of the command list (Lock, Drop) show no key; the key T of the prompt of a bag (Tab opens it); the largest weight of the
+  of the command list (Lock, Drop) show no key; the largest weight of the
   panel after the state of the bag (the live check showed 1000.0; the rule is not known); the objective data (the quests: `GetObjectiveData` gives no title); the
   expressions of the data sheets in the item texts (O13: the potion text shows `{[400.000000]}`).
+- The world views (stage WF7):
+  - The marker types of the objects of the level data and of the bodies are not converted: the card of a prompt comes from a
+    table of this client (a chest, a gathering type, a lore page; a body has the AI type "Wolf").
+  - The rules of the native marker code that the scripts do not show are rules of this client: the ramps of the scale and the
+    alpha between the distances of the marker params, the hide of an occluded marker, the order of the pool (the shown
+    creatures first, then the nearest). The marker data `VerticalOffset` (m_verticalOffset of the slice) is not written.
+  - The read path has no threat of a creature (`IsTargetingPlayer` is false: no threat mark) and no creature stamina (the
+    stamina bar of a plate hides).
+  - The option UseNewDamageNumbers (the floating numbers) is on: its native default is not known (the retail pictures show
+    floating numbers). The status texts of the damage numbers (`OnStatusEffectDisplayed`, ShowTextInDamageNumbers) and the
+    generic numbers are not fed.
+  - The gather work bar of the HUD ("29.3 remaining") is a different element; the circle timer of a gatherable card is not fed.
+  - The loot ticker: the mastery line (+N War Hammer Mastery) needs the categorical progression state (not in the read path).
+  - `lootticker2024canvas.luac` gives one error at its load (the loop of an empty array property from index 0), after the
+    visibility is set; `hudcanvasdefault.luac` has the same error form.
+  - The rule of the queued tweens comes from the scripts (damagenumber.luac, button.luac); the code of the gem is not in the game
+    files.
