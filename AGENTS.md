@@ -141,6 +141,7 @@ tools/test-creatures.sh                         # the tests of the creature enti
 tools/creature-check.sh LABEL STAY ROUTES [DRIVE]   # a video check of the creatures with the development routes
 tools/convert-objects.sh write                  # the objects of the level data for the object layer (docs/OBJECTS.md; meshes: the depleted node meshes)
 tools/convert-environment.sh write              # the environment data: the mission, the time presets, the lights and volumes of each region, the sky (check: the E0 proof)
+tools/match-view.sh SET [VIEW...]               # the matched views of a set of retail references: client pictures, side-by-side pictures, a contact sheet
 tools/test-environment.sh                       # the tests of the world clock (backend time messages and day cycle) and of the environment reader (no engine)
 tools/convert-materials.sh audit                # the rich material records, the slot provenance, and the key collisions (docs/MATERIALS.md)
 ```
