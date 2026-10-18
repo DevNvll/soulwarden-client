@@ -22,6 +22,8 @@ Usage (tools/convert-materials.sh):
                        --candidate m1,m2: also instances-candidate.json for the render check of stages under check
                        -> SWC_CONTENT/materials/instances.json, textures.json; then tools/apply-materials.sh
   proof-sheet [STAGE]  the pictures of the render check with the names of the columns
+  decals export NAME... | specs | scan NAME...   the roads and the projected decals of regions (decals.py: the
+                       road meshes, the decal list, layer.json for the client) and the specs of their materials
   chains               the exit check of M0: the source chains of the research proofs and the on/off overrides
   proof-plan [STAGE]   the meshes and variants of the render check of a stage (Scripts/material_proof.py)
   record MTL [INDEX]   print the rich records of one material file
@@ -1125,7 +1127,7 @@ def same(a, b, tolerance: float = 1e-6) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if not argv or argv[0] not in ("audit", "instances", "proof-plan", "proof-sheet", "chains", "record"):
+    if not argv or argv[0] not in ("audit", "instances", "proof-plan", "proof-sheet", "chains", "record", "decals"):
         print(__doc__)
         return 2
     if argv[0] == "audit":
@@ -1134,6 +1136,9 @@ def main(argv: list[str] | None = None) -> int:
         result = instances(tuple(argv[2].split(",")) if len(argv) > 2 and argv[1] == "--candidate" else ())
     elif argv[0] == "chains":
         result = chains()
+    elif argv[0] == "decals":
+        from . import decals
+        result = decals.main(argv[1:])
     elif argv[0] == "proof-sheet":
         result = proof_sheet(argv[1] if len(argv) > 1 else "m1")
     elif argv[0] == "proof-plan":

@@ -21,7 +21,7 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "3", "M_SwcSurfaceMasked": "3"}   # the rule of each parent
+PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "3", "M_SwcSurfaceMasked": "3", "M_SwcDecal": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks)
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
@@ -345,6 +345,75 @@ def surface_parent(content, state, masked):
     return material
 
 
+# The decal alpha of the source (clusterforward_commonzpass, %DECAL): saturate(pow(DiffuseColor.w x diffuse.a x the
+# decal opacity map x DecalAlphaMult, DecalFalloff)). Unreal has one opacity for the color, the normal, and the roughness
+# of a DBuffer decal: DecalDiffuseOpacity (the color alone) is a limit.
+DECAL_ALPHA_HLSL = "return saturate(pow(max(A * O * Mult, 0.0), Falloff));"
+
+
+def decal_parent(content, state):
+    """@return M_SwcDecal: the material of the projected decals and of the road meshes (mesh decals): the domain Deferred
+    Decal, the blend mode Translucent (the DBuffer color, normal, and roughness). UV = TexCoord0 x UVTransform.rg +
+    UVTransform.ba (the mesh UV of a road, the projection UV of a decal); base color = diffuse map x DiffuseColor;
+    roughness 1 - Smoothness x gloss; opacity DECAL_ALPHA_HLSL."""
+    name = "M_SwcDecal"
+    material, white = parent_asset(name, content, state)
+    if material is None:
+        return assets.load_asset(f"{BASE}/{name}")
+    st = unreal.MaterialSamplerType
+    coords = node(material, unreal.MaterialExpressionTextureCoordinate, -1600, 0)
+    transform = vector(material, "UVTransform", (1.0, 1.0, 0.0, 0.0), -1600, 200)
+    tile = mask(material, transform, "RGBA", "rg", -1400, 150)
+    offset = mask(material, transform, "RGBA", "ba", -1400, 300)
+    scaled = node(material, unreal.MaterialExpressionMultiply, -1250, 50)
+    editing.connect_material_expressions(coords, "", scaled, "A")
+    editing.connect_material_expressions(tile, "", scaled, "B")
+    uv = node(material, unreal.MaterialExpressionAdd, -1100, 100)
+    editing.connect_material_expressions(scaled, "", uv, "A")
+    editing.connect_material_expressions(offset, "", uv, "B")
+
+    def sample(parameter, kind, default, y):
+        node_ = sampler(material, parameter, kind, default, -900, y)
+        editing.connect_material_expressions(uv, "", node_, "UVs")
+        return node_
+
+    color = sample("BaseColor", st.SAMPLERTYPE_COLOR, unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture"), -400)
+    diffuse = vector(material, "DiffuseColor", (1.0, 1.0, 1.0, 1.0), -900, -150)
+    albedo = node(material, unreal.MaterialExpressionMultiply, -600, -300)
+    editing.connect_material_expressions(color, "RGB", albedo, "A")
+    editing.connect_material_expressions(diffuse, "RGB", albedo, "B")
+    editing.connect_material_property(albedo, "", MP.MP_BASE_COLOR)
+    normal = sample("Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"), 200)
+    editing.connect_material_property(normal, "RGB", MP.MP_NORMAL)
+    gloss = sample("Gloss", st.SAMPLERTYPE_ALPHA, white, 500)
+    smoothness = scalar(material, "Smoothness", 0.5, -900, 750)
+    s_value = node(material, unreal.MaterialExpressionMultiply, -500, 550)
+    editing.connect_material_expressions(gloss, "R", s_value, "A")
+    editing.connect_material_expressions(smoothness, "", s_value, "B")
+    rough = node(material, unreal.MaterialExpressionOneMinus, -300, 550)
+    editing.connect_material_expressions(s_value, "", rough, "")
+    editing.connect_material_property(rough, "", MP.MP_ROUGHNESS)
+    opacity_map = sample("DecalOpacity", st.SAMPLERTYPE_ALPHA, white, 900)
+    alpha = node(material, unreal.MaterialExpressionMultiply, -600, 950)
+    editing.connect_material_expressions(color, "A", alpha, "A")
+    editing.connect_material_expressions(diffuse, "A", alpha, "B")
+    mult = scalar(material, "DecalAlphaMult", 1.0, -900, 1150)
+    falloff = scalar(material, "DecalFalloff", 1.0, -900, 1300)
+    opacity = custom(material, DECAL_ALPHA_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1,
+                     ("A", "O", "Mult", "Falloff"), -350, 1000)
+    editing.connect_material_expressions(alpha, "", opacity, "A")
+    editing.connect_material_expressions(opacity_map, "R", opacity, "O")
+    editing.connect_material_expressions(mult, "", opacity, "Mult")
+    editing.connect_material_expressions(falloff, "", opacity, "Falloff")
+    editing.connect_material_property(opacity, "", MP.MP_OPACITY)
+    material.set_editor_property("material_domain", unreal.MaterialDomain.MD_DEFERRED_DECAL)
+    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    editing.recompile_material(material)
+    assets.save_loaded_asset(material)
+    state["base:" + name] = PARENT_VERSIONS[name]
+    return material
+
+
 def foliage_parent(content, state):
     """@return M_SwcFoliage (made again when its version in PARENT_VERSIONS changes; its instances keep their parameters)."""
     name = "M_SwcFoliage"
@@ -417,7 +486,7 @@ def apply(instance, spec, parents, texture_of):
         editing.set_material_instance_vector_parameter_value(instance, name, unreal.LinearColor(*value))
     for name, value in spec.get("scalars", {}).items():
         editing.set_material_instance_scalar_parameter_value(instance, name, float(value))
-    if parent is not None:
+    if parent is not None and spec.get("parent") != "decal":
         overrides = instance.get_editor_property("base_property_overrides")
         overrides.set_editor_property("override_two_sided", True)
         overrides.set_editor_property("two_sided", bool(spec.get("two sided")))
@@ -428,9 +497,10 @@ def apply(instance, spec, parents, texture_of):
     editing.update_material_instance(instance)
 
 
-def load_specs(content):
-    """@return (the specs, the texture records) of SWC_CONTENT/materials (empty when the converter wrote none)."""
-    folder = os.path.join(content, "materials")
+def load_specs(content, part="materials"):
+    """@return (the specs, the texture records) of SWC_CONTENT/PART (materials: the instances of the material records;
+    decals: the decal materials of the roads and decals), empty when the converter wrote none."""
+    folder = os.path.join(content, part)
     specs, textures = {}, {}
     if os.path.isfile(os.path.join(folder, "instances.json")):
         with open(os.path.join(folder, "instances.json")) as handle:
@@ -452,7 +522,7 @@ def plan(keys, specs, state, force):
     return sorted(set(out))
 
 
-def apply_specs(keys, state, force=True, content=None, max_seconds=0.0, report=None):
+def apply_specs(keys, state, force=True, content=None, max_seconds=0.0, report=None, part="materials"):
     """Applies the spec of each material key that has one (a key with no spec is skipped): the textures of the specs
     that are new or changed, the parents, then each instance /SwcGameContent/Materials/KEY. import_content.py calls it
     at the end of its step 4 with the keys that the step made or set again (force: the step set the stage 1.2 rules
@@ -466,7 +536,7 @@ def apply_specs(keys, state, force=True, content=None, max_seconds=0.0, report=N
     report.setdefault("instances", {"applied": 0, "up to date": 0, "missing": 0})
     report.setdefault("failed", [])
     report.setdefault("incomplete", False)
-    specs, textures = load_specs(content)
+    specs, textures = load_specs(content, part)
     todo = plan(keys, specs, state, force)
     report["instances"]["up to date"] += len({k for k in keys if (k.split(":", 1)[-1]) in specs}) - len(todo)
     if not todo:
@@ -499,6 +569,8 @@ def apply_specs(keys, state, force=True, content=None, max_seconds=0.0, report=N
         parents["surface"] = surface_parent(content, state, masked=False)
     if "surface masked" in wanted:
         parents["surface masked"] = surface_parent(content, state, masked=True)
+    if "decal" in wanted:
+        parents["decal"] = decal_parent(content, state)
     manifest_path = os.path.join(content, "manifest.json")
     with open(manifest_path) as handle:
         manifest = json.load(handle)["assets"]
@@ -514,6 +586,10 @@ def apply_specs(keys, state, force=True, content=None, max_seconds=0.0, report=N
         if out_of_time():
             break
         path = f"{ROOT}/Materials/{name}"
+        if not assets.does_asset_exist(path) and specs[name].get("create"):
+            # A key with no manifest record (a decal material): this module makes its instance.
+            tools.create_asset(name, f"{ROOT}/Materials", unreal.MaterialInstanceConstant,
+                               unreal.MaterialInstanceConstantFactoryNew())
         if not assets.does_asset_exist(path):
             report["instances"]["missing"] += 1   # not imported yet: tools/import.sh makes the instance first
             continue

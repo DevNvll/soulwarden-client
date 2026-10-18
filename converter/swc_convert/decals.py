@@ -364,3 +364,182 @@ def centerline_distance(road: dict, x: float, y: float) -> float | None:
     d = b - a
     t = np.clip(((np.array([x, y]) - a) * d).sum(1) / np.maximum((d * d).sum(1), 1e-12), 0, 1)
     return float(np.min(np.linalg.norm(a + d * t[:, None] - np.array([x, y]), axis=1)))
+
+
+# The export (S1): the road meshes of each cell and the decal list of each region, and the layer file of the client
+# (Source/SoulwardenClient/World/SwcSurfaceLayer: it streams them near the view).
+CELL_M = 256.0        # the cells of the road meshes (the cells of the level, cells.py)
+ROOT = "/SwcGameContent"
+
+
+def material_key(mtl: str | None) -> tuple[str | None, dict | None]:
+    """@return (the key of the decal material instance, its render rules) of a road or decal material file: "d_" and the
+    10 hex digits of the render key of its first drawn sub-material (material_records.render_rules)."""
+    from . import material_records as mr
+    if not mtl or not source.has(mtl):
+        return None, None
+    subs = mr.sub_materials(mtl)
+    element = subs[0] if subs else None
+    if element is None:
+        return None, None
+    rules = mr.render_rules(mr.source_record(mtl, 0, element))
+    return "d_" + mr.render_key(rules)[2:], rules
+
+
+def write_roads(name: str, roads: list[dict], heights: Heights, materials: dict) -> list[dict]:
+    """Writes the road meshes of a region (one glTF for each cell and sort priority) and @return their records."""
+    from . import gltf
+    rx, ry = (int(v) for v in name[2:].split("_"))
+    groups: dict[tuple, list] = {}
+    for road in roads:
+        key, rules = material_key(road["material"])
+        if key is None:
+            continue
+        materials.setdefault(key, {"mtl": road["material"], "rules": rules, "uses": 0})["uses"] += 1
+        rb = ribbon(road, heights)
+        if rb is None or np.isnan(rb["positions"]).any():
+            continue
+        mid = rb["positions"][len(rb["rows"]) // 2, ACROSS // 2]
+        cell = (int(np.floor(mid[0] / CELL_M)), int(np.floor(mid[1] / CELL_M)))
+        groups.setdefault((cell, int(road["sort priority"] or 0)), []).append((key, rb, road))
+    records = []
+    for ((cx, cy), priority), parts in sorted(groups.items()):
+        origin = np.array([cx * CELL_M, cy * CELL_M, 0.0])
+        w = gltf.Writer()
+        slots: dict[str, int] = {}
+        prims = []
+        for key, rb, road in parts:
+            rows = len(rb["rows"])
+            pos = (rb["positions"].reshape(-1, 3) - origin).astype(np.float32)
+            uv = rb["uv"].reshape(-1, 2).astype(np.float32)
+            quads = [(r * ACROSS + c, (r + 1) * ACROSS + c, r * ACROSS + c + 1, (r + 1) * ACROSS + c + 1)
+                     for r in range(rows - 1) for c in range(ACROSS - 1)]
+            # Two triangles of each quad, with the face toward +Z (engine space, right handed).
+            idx = np.array([[a, c, b, c, d, b] for a, b, c, d in quads], dtype=np.uint32).ravel()
+            normals = np.tile(np.array([0.0, 0.0, 1.0], np.float32), (len(pos), 1))
+            if key not in slots:
+                slots[key] = w.material(key)
+            prims.append(w.primitive(gltf.z_up_to_y_up(pos), idx, gltf.z_up_to_y_up(normals), uv, material=slots[key]))
+        out = out_dir(name) / f"roads_{cx}_{cy}_{priority}.gltf"
+        stem = out.stem
+        w.doc["scenes"][0]["nodes"] = [w.node(name=stem, mesh=w.mesh(stem, prims))]
+        w.save(out)
+        from . import mesh as mesh_module
+        records.append({"key": f"road:{name}:{cx}_{cy}_{priority}", "file": str(out.relative_to(env.content_dir())),
+                        "hash": mesh_module.file_hash(out), "unreal": f"{ROOT}/Roads/R{rx}_{ry}_{cx}_{cy}_{priority}",
+                        "origin m": origin.tolist(), "sort priority": priority, "roads": len(parts),
+                        "materials": sorted(slots), "cell": [cx, cy]})
+    return records
+
+
+def decal_transforms(decals: list[dict], materials: dict) -> list[dict]:
+    """@return The decals in Unreal space: the projection box (half sizes) from the columns of the entity matrix
+    (right, up, front: the decal of the source projects along front, with the depth factor on front) and the Offset; an
+    Unreal decal projects along its local X: X = front, Y = right, Z = up (a cyclic order keeps the hand)."""
+    from . import space
+    out = []
+    for d in decals:
+        if not d["visible"]:
+            continue
+        key, rules = material_key(d["material"])
+        if key is None:
+            continue
+        materials.setdefault(key, {"mtl": d["material"], "rules": rules, "uses": 0})["uses"] += 1
+        m = np.asarray(d["matrix"], dtype=np.float64)
+        right, up, front = m[:3, 0], m[:3, 1], m[:3, 2]
+        box = np.eye(4)
+        box[:3, 0] = front * float(d["depth"] or 1.0)
+        box[:3, 1] = right
+        box[:3, 2] = up
+        box[:3, 3] = m[:3, :3] @ np.asarray(d["offset"] or [0.0, 0.0, 0.0]) + m[:3, 3]
+        t = space.unreal_transform(box)
+        distance = d["max view distance"]
+        out.append({"entity": d["entity"], "material": key, "location": t["location"], "rotation": t["rotation"],
+                    "size": [abs(v) * 100.0 for v in t["scale"]], "sort priority": int(d["sort priority"] or 0),
+                    "fade m": float(distance) * float(d["view distance multiplier"] or 1.0) if distance else None,
+                    "opacity": d["opacity"], "color": d["color"], "projection": d["projection"],
+                    "deferred": d["deferred"]})
+    return out
+
+
+def export(names: list[str]) -> dict:
+    """Writes for each region SWC_CONTENT/decals/NAME/: items.json (the source records), the road meshes
+    (roads_CX_CY_P.gltf), and layer.json (the road meshes with their Unreal folders and origins, the decals in Unreal
+    space). Writes SWC_CONTENT/decals/materials.json (each decal material key with its source and render rules).
+    @return The counts."""
+    started = time.time()
+    heights = Heights()
+    path = env.content_dir() / "decals" / "materials.json"
+    materials = json.loads(path.read_text()) if path.is_file() else {}
+    report = {}
+    for name in names:
+        items = region_items(name)
+        (out_dir(name) / "items.json").write_text(json.dumps(items))
+        roads = write_roads(name, items["roads"], heights, materials)
+        decals = decal_transforms(items["decals"], materials)
+        layer = {"version": VERSION, "region": name, "roads": roads, "decals": decals}
+        (out_dir(name) / "layer.json").write_text(json.dumps(layer))
+        report[name] = {"roads": len(items["roads"]), "road meshes": len(roads), "decals": len(items["decals"]),
+                        "decals placed": len(decals), **items["counts"]}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(materials, indent=1, sort_keys=True))
+    return {"regions": report, "materials": len(materials), "seconds": round(time.time() - started, 1)}
+
+
+def specs() -> dict:
+    """Writes SWC_CONTENT/decals/instances.json (the spec of each decal material key: the parent M_SwcDecal of
+    Scripts/swc_materials.py, "create": the instance has no manifest record) and textures.json. @return The counts."""
+    from . import material_records as mr
+    materials = json.loads((env.content_dir() / "decals" / "materials.json").read_text())
+    textures: dict = {}
+    out = {}
+
+    def use(record: dict) -> str:
+        textures[record["asset"]] = {k: v for k, v in record.items() if k != "asset"}
+        return record["asset"]
+
+    for key, m in sorted(materials.items()):
+        rules = m["rules"]
+        maps = rules["textures"]
+        record = mr.source_record(m["mtl"], 0, mr.sub_materials(m["mtl"])[0])
+        diffuse = record["lighting"].get("Diffuse") or [1.0, 1.0, 1.0, 1.0]
+        alpha = float(diffuse[3]) if isinstance(diffuse, list) and len(diffuse) > 3 else 1.0
+        spec = {"parent": "decal", "create": True, "textures": {}, "vectors": {}, "scalars": {}, "source": m["mtl"],
+                "uses": m["uses"], "flags": rules.get("flags", [])}
+        if "diffuse" in maps:
+            spec["textures"]["BaseColor"] = use(mr.color_texture(maps["diffuse"]["product"], "base"))
+        if "normal" in maps:
+            spec["textures"]["Normal"] = use(mr.color_texture(maps["normal"]["product"], "normal"))
+        if "gloss" in maps:
+            product = maps["gloss"]["product"]
+            spec["textures"]["Gloss"] = use(mr.linear_texture(product, alpha=source.has(product + ".a")))
+        if "decal opacity" in maps:
+            spec["textures"]["DecalOpacity"] = use(mr.linear_texture(maps["decal opacity"]["product"]))
+        params = rules["params"]
+        spec["vectors"]["DiffuseColor"] = list(rules["diffuse"]) + [alpha]
+        spec["vectors"]["UVTransform"] = mr.uv_transform(maps.get("diffuse", {}).get("uv"))
+        spec["scalars"]["Smoothness"] = max(1 / 127, float(rules["shininess"]) / 255)
+        spec["scalars"]["DecalAlphaMult"] = float(params.get("DecalAlphaMult", 1.0))
+        spec["scalars"]["DecalFalloff"] = float(params.get("DecalFalloff", 1.0))
+        out[key] = spec
+    from . import manifest
+    for key, record in textures.items():
+        record["unreal"] = manifest.unreal_folder("texture", key)
+    folder = env.content_dir() / "decals"
+    (folder / "instances.json").write_text(json.dumps({"version": VERSION, "instances": out}, indent=1, sort_keys=True))
+    (folder / "textures.json").write_text(json.dumps({"version": VERSION, "textures": textures}, indent=1, sort_keys=True))
+    return {"instances": len(out), "textures": len(textures),
+            "without %DECAL": sum(1 for s in out.values() if "%DECAL" not in s["flags"])}
+
+
+def main(argv: list[str]) -> dict:
+    """decals scan NAME... | decals export NAME... | decals specs"""
+    if argv and argv[0] == "scan":
+        return scan(argv[1:])
+    if argv and argv[0] == "export":
+        result = export(argv[1:])
+        result["specs"] = specs()
+        return result
+    if argv and argv[0] == "specs":
+        return specs()
+    raise SystemExit("usage: decals scan NAME... | export NAME... | specs")
