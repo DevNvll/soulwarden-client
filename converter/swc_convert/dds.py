@@ -81,30 +81,35 @@ def join(read, base: str, max_size: int = 1024, alpha: bool = False) -> tuple[by
     return bytes(new) + b"".join(parts), w0, h0, fmt
 
 
-def bc4_block(block: bytes, signed: bool) -> np.ndarray:
-    a = np.frombuffer(block[:2], dtype=np.int8 if signed else np.uint8).astype(np.float32)
-    a0, a1 = a[0], a[1]
-    if a0 > a1:
-        pal = [a0, a1] + [((6 - i) * a0 + i * a1) / 7 for i in range(1, 7)]
-    else:
-        pal = [a0, a1] + [((4 - i) * a0 + i * a1) / 5 for i in range(1, 5)] + [(-127 if signed else 0), (127 if signed else 255)]
-    bits = int.from_bytes(block[2:8], "little")
-    idx = [(bits >> (3 * i)) & 7 for i in range(16)]
-    return np.array([pal[i] for i in idx], dtype=np.float32).reshape(4, 4)
+def bc4_blocks(blocks: np.ndarray, signed: bool) -> np.ndarray:
+    """Decodes many BC4 blocks at once: two end values, then 6 or 4 values between them (and 0 and 1 in the
+    4-value mode), and 16 indices of 3 bits. @return (n, 16) float32 values."""
+    a = blocks[:, :2].copy().view(np.int8 if signed else np.uint8).astype(np.float32)
+    a0, a1 = a[:, 0:1], a[:, 1:2]
+    six = a0 > a1
+    i = np.arange(1, 7, dtype=np.float32)[None, :]
+    k = np.arange(1, 5, dtype=np.float32)[None, :]
+    low, high = (-127.0 if signed else 0.0), (127.0 if signed else 255.0)
+    pal6 = np.concatenate([a0, a1, ((6 - i) * a0 + i * a1) / 7], axis=1)
+    pal4 = np.concatenate([a0, a1, ((4 - k) * a0 + k * a1) / 5, np.full_like(a0, low), np.full_like(a0, high)], axis=1)
+    pal = np.where(six, pal6, pal4)
+    bits = np.zeros(len(blocks), dtype=np.uint64)
+    for b in range(6):
+        bits |= blocks[:, 2 + b].astype(np.uint64) << np.uint64(8 * b)
+    idx = ((bits[:, None] >> (np.arange(16, dtype=np.uint64) * np.uint64(3))[None, :]) & np.uint64(7)).astype(np.int64)
+    return np.take_along_axis(pal, idx, axis=1)
 
 
 def decode_bc45(data: bytes, w: int, h: int, fmt: int) -> np.ndarray:
-    """Small numpy decoder for BC4/BC5 (unsigned and signed). @return float array in 0..1."""
+    """Numpy decoder for BC4/BC5 (unsigned and signed). @return float array in 0..1."""
     signed = fmt in (81, 84)
     channels = 2 if fmt in (83, 84) else 1
     bw, bh = max(1, (w + 3) // 4), max(1, (h + 3) // 4)
+    raw = np.frombuffer(data, dtype=np.uint8, count=bw * bh * 8 * channels).reshape(bh * bw, channels, 8)
     out = np.zeros((bh * 4, bw * 4, channels), dtype=np.float32)
-    step = 8 * channels
-    for by in range(bh):
-        for bx in range(bw):
-            o = (by * bw + bx) * step
-            for c in range(channels):
-                out[by * 4:by * 4 + 4, bx * 4:bx * 4 + 4, c] = bc4_block(data[o + 8 * c:o + 8 * c + 8], signed)
+    for c in range(channels):
+        values = bc4_blocks(raw[:, c, :], signed).reshape(bh, bw, 4, 4)
+        out[:, :, c] = values.transpose(0, 2, 1, 3).reshape(bh * 4, bw * 4)
     if signed:
         out = (out / 127.0 + 1) / 2
     else:
