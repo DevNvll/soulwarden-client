@@ -4,6 +4,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
+#include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
 
 namespace
@@ -11,6 +12,7 @@ namespace
 /** The engine cube: 100 cm on each side, its pivot at its center. */
 const TCHAR* CubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
 const TCHAR* GridMaterialPath = TEXT("/Engine/EngineMaterials/WorldGridMaterial.WorldGridMaterial");
+const FName FloorTag(TEXT("SwcTestFloor"));
 
 /** A box: the center, the rotation, and the size in cm. */
 void Box(UWorld* World, const FVector& Center, const FRotator& Rotation, const FVector& Size, const TCHAR* Name)
@@ -25,6 +27,7 @@ void Box(UWorld* World, const FVector& Center, const FRotator& Rotation, const F
 	{
 		return;
 	}
+	Actor->Tags.Add(FloorTag);
 	UStaticMeshComponent* Mesh = Actor->GetStaticMeshComponent();
 	Mesh->SetMobility(EComponentMobility::Movable);
 	Mesh->SetStaticMesh(Cube);
@@ -70,4 +73,11 @@ void SwcTestFloor::Spawn(UWorld* World, const FVector& Feet, const FVector& Forw
 	// Lane B, 31 m to the right: a ramp of 75 degrees at 34 m. Lane C, 37 m to the right: a step of 0.8 m at 38 m.
 	Ramp(75.0, 400.0, 3100.0, 3400.0, TEXT("SwcTestRamp75"));
 	Step(80.0, 3700.0, 3800.0, TEXT("SwcTestStep80"));
+	// A wall 10 m behind the spawn, 8 m wide and 5 m high: the collision of the camera (tests/drive/camera.txt).
+	Box(World, Feet - Ahead * 1025.0 + FVector(0.0, 0.0, 250.0), FRotator(0.0, Yaw, 0.0), FVector(50.0, 800.0, 500.0), TEXT("SwcTestWall"));
+}
+
+void SwcTestFloor::Actors(UWorld* World, TArray<AActor*>& Out)
+{
+	UGameplayStatics::GetAllActorsWithTag(World, FloorTag, Out);
 }

@@ -68,6 +68,9 @@ public:
 	 */
 	float GetCameraYawDegrees() const;
 
+	/** @return The camera state of the player (gamecamera.xml), or an empty text. */
+	FString GetCameraStateName() const;
+
 	/** HTTP host and port of the backend (loopback only). The command line can set them: -SwcHttp=HOST:PORT. */
 	UPROPERTY(Config)
 	FString HttpHost = TEXT("127.0.0.1");

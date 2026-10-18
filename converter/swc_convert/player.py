@@ -474,6 +474,63 @@ def locomotion() -> dict:
             "clips": len(clips), "missing clips": sorted(set(missing))}
 
 
+CAMERA_SETTINGS = "libs/camera/gamecamera.xml"
+CAMERA_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_camera.actionlist"
+
+
+def camera_value(text: str):
+    """A value of gamecamera.xml: a number ("2.0f"), a list of numbers ("0.5, 0.0, 1.7"), a flag, or a text."""
+    text = (text or "").strip()
+    if text in ("true", "false"):
+        return text == "true"
+    parts = [part.strip().rstrip("f") for part in text.split(",")]
+    try:
+        numbers = [float(part) for part in parts]
+    except ValueError:
+        return text
+    return numbers[0] if len(numbers) == 1 else numbers
+
+
+def camera() -> dict:
+    """Writes camera.json: the settings of gamecamera.xml, each camera state with its include chain resolved (a child
+    value replaces the value of its parent) and its own FromTransition times, and the ActivateCamera entries of the
+    camera action list (research feel-values.md R1)."""
+    root = ET.fromstring(source.read(CAMERA_SETTINGS).decode("utf-8", "replace"))
+    settings = {param.get("name"): camera_value(param.get("value")) for param in root.findall("param")}
+    raw = {}
+    for state in root.iter("CameraState"):
+        transitions = {}
+        for transition in state.iter("FromTransition"):
+            values = {param.get("name"): param.get("value") for param in transition.findall("param")}
+            if values.get("FromCamera"):
+                transitions[values["FromCamera"]] = camera_value(values.get("SmoothTime", "0"))
+        raw[state.get("name")] = {"include": state.get("include"), "params": {param.get("name"): camera_value(param.get("value"))
+                                                                           for param in state.findall("param")},
+                                  "transitions": transitions}
+
+    def resolve(name: str, seen: tuple = ()) -> tuple[dict, list]:
+        state = raw[name]
+        include = state["include"]
+        params, chain = ({}, []) if not include or include not in raw or include in seen else resolve(include, seen + (name,))
+        return {**params, **state["params"]}, [name] + chain
+
+    states = {}
+    for name, state in raw.items():
+        params, chain = resolve(name)
+        states[name] = {"chain": chain, "params": params, "transitions": state["transitions"]}
+    actions = ET.fromstring(source.read(CAMERA_ACTIONS).decode("utf-8", "replace"))
+    activations = {}
+    for activity in actions.iter("ActivateCamera"):
+        for entry in activity:
+            activations.setdefault(entry.get("Name") or entry.tag, {"camera": entry.get("CameraName"),
+                                                                   "smoothTime": camera_value(entry.get("SmoothTime", "0"))})
+    doc = {"format": 1, "source": [CAMERA_SETTINGS, CAMERA_ACTIONS], "settings": settings, "states": states, "activations": activations}
+    out = player_dir() / "camera.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(doc, indent=1, sort_keys=True))
+    return {"camera": str(out), "settings": len(settings), "states": len(states), "activations": len(activations)}
+
+
 def part(gender: str, skin: str, mtl: str = "", force: bool = False, doc: dict | None = None) -> dict:
     """Converts one part (a skin with its material) onto the skeleton of its gender."""
     skin, mtl = norm(skin), norm(mtl) if mtl else ""
@@ -518,6 +575,7 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("tables")
     sub.add_parser("locomotion")
+    sub.add_parser("camera")
     p = sub.add_parser("base"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("wanted"); p.add_argument("file", nargs="?"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("part"); p.add_argument("gender", choices=list(GENDERS)); p.add_argument("skin"); p.add_argument("mtl", nargs="?", default="")
@@ -527,6 +585,8 @@ def main(argv=None) -> int:
         result = tables()
     elif args.command == "locomotion":
         result = locomotion()
+    elif args.command == "camera":
+        result = camera()
     elif args.command == "base":
         result = base(args.force)
     elif args.command == "wanted":

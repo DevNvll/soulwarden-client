@@ -300,7 +300,9 @@ position of the character does not change.
 
 `Net/SwcSpace.h` maps a position of the wire to Unreal and back (`SwcEngineToUnreal`, `SwcUnrealToEngine`; proved by
 stage 1.1). At InGame the client puts the character of the user ([CHARACTER.md](CHARACTER.md)) at the position of the own
-entity with the facing of its movement state, and the player controller possesses it ([MOVEMENT.md](MOVEMENT.md)).
+entity with the facing of its movement state, and the player controller possesses it ([MOVEMENT.md](MOVEMENT.md)). The
+snapshot of the connection has the other entities with a position (`Others`: the interest number and the position); the
+target lock of the camera takes its targets from them ([CAMERA.md](CAMERA.md)).
 
 ### The tests (`tools/test-net.sh`)
 

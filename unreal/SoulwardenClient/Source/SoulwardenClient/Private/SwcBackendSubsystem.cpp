@@ -21,6 +21,7 @@
 #include "Net/SwcSpace.h"
 #include "Net/SwcSteamStub.h"
 #include "Net/SwcTypeIndex.h"
+#include "SwcCameraManager.h"
 
 DEFINE_LOG_CATEGORY(LogSwcBackend);
 
@@ -513,6 +514,18 @@ void USwcBackendSubsystem::UpdatePlayer()
 	}
 	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
 	Movement->SetPermissions(Snapshot.Own.dataBits, Snapshot.Own.moreDataBits);
+	if (ASwcCameraManager* CameraManager = Cast<ASwcCameraManager>(Controller->PlayerCameraManager))
+	{
+		// The camera: the dead mark (DeathCamera) and the targets of the target lock.
+		CameraManager->SetDead(Snapshot.Own.dead);
+		CameraManager->SetDrawCandidates(!bPlayerRun);
+		TArray<FSwcLockCandidate> Candidates;
+		for (const TPair<uint32, swc::net::WorldPosition>& Other : Snapshot.Others)
+		{
+			Candidates.Add({Other.Key, SwcEngineToUnreal(Other.Value)});
+		}
+		CameraManager->SetLockCandidates(MoveTemp(Candidates));
+	}
 	if (bWaitForFloor && SwcTestFloor::HasGround(Character->GetWorld(), Character->GetFeetLocation()))
 	{
 		bWaitForFloor = false;
@@ -554,10 +567,19 @@ void USwcBackendSubsystem::UpdatePlayer()
 	{
 		// The movement state for the videos of a development run.
 		GEngine->AddOnScreenDebugMessage(static_cast<uint64>(0x5357434D), 1.0f, FColor::Yellow,
-			FString::Printf(TEXT("move %s, %s, %.2f m/s, feet %.2f %.2f %.2f m, yaw %.1f"), *UEnum::GetValueAsString(Movement->GetMoveState()),
-				*Movement->GetFragment(), Movement->GetHorizontalSpeed(), Motion.character.x, Motion.character.y, Motion.character.z,
-				FMath::RadiansToDegrees(Motion.yaw)));
+			FString::Printf(TEXT("move %s, %s, %.2f m/s, feet %.2f %.2f %.2f m, yaw %.1f, camera %s %.2f m"),
+				*UEnum::GetValueAsString(Movement->GetMoveState()), *Movement->GetFragment(), Movement->GetHorizontalSpeed(), Motion.character.x,
+				Motion.character.y, Motion.character.z, FMath::RadiansToDegrees(Motion.yaw), *GetCameraStateName(),
+				FVector::Dist(Controller->PlayerCameraManager->GetCameraLocation(), Feet) / 100.0));
 	}
+}
+
+FString USwcBackendSubsystem::GetCameraStateName() const
+{
+	const UWorld* World = GetGameInstance() != nullptr ? GetGameInstance()->GetWorld() : nullptr;
+	const APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	const ASwcCameraManager* CameraManager = Controller != nullptr ? Cast<ASwcCameraManager>(Controller->PlayerCameraManager) : nullptr;
+	return CameraManager != nullptr ? CameraManager->GetStateName() : FString();
 }
 
 void USwcBackendSubsystem::Quit(bool bSucceeded, const TCHAR* Cause)

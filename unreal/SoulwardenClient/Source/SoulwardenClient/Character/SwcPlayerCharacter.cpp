@@ -1,7 +1,6 @@
 #include "Character/SwcPlayerCharacter.h"
 
 #include "Animation/AnimSequence.h"
-#include "Camera/CameraComponent.h"
 #include "Character/SwcCharacterMovement.h"
 #include "Character/SwcLocomotion.h"
 #include "Character/SwcPlayerAnimInstance.h"
@@ -9,7 +8,6 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
-#include "GameFramework/SpringArmComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "SwcBackendSubsystem.h"
 
@@ -20,16 +18,6 @@ constexpr float CapsuleRadius = 41.0f;
 constexpr float CapsuleHalfHeight = 81.0f;
 /** The imported player mesh faces 90 degrees to the left of the actor (stage 1.6; the space map of stage 1.1 keeps it). */
 constexpr double MeshYaw = 90.0;
-/**
- * The free camera (MidCamera) of the retail client, research feel-values.md R1.6: the pivot 1.7 m above the feet and
- * 0.5 m to the right, the arm 4.0 m (distance 2.0 m + the default zoom 2.0 m), the collision sphere 0.084 m, no lag, the
- * player FOV 57 degrees (vertical) = 88.0 degrees horizontal at 16:9. Stage 1.8 adds the zoom, the blends, and the modes.
- */
-constexpr double PivotHeight = 170.0;
-constexpr double PivotRight = 50.0;
-constexpr float ArmLength = 400.0f;
-constexpr float ProbeRadius = 8.4f;
-constexpr float HorizontalFov = 88.0f;
 } // namespace
 
 ASwcPlayerCharacter::ASwcPlayerCharacter(const FObjectInitializer& ObjectInitializer)
@@ -47,22 +35,6 @@ ASwcPlayerCharacter::ASwcPlayerCharacter(const FObjectInitializer& ObjectInitial
 	// The leader is not drawn, but its pose is computed each frame for the parts.
 	GetMesh()->SetVisibility(false);
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
-
-	CameraArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraArm"));
-	CameraArm->SetupAttachment(GetCapsuleComponent());
-	CameraArm->SetRelativeLocation(FVector(0.0, 0.0, PivotHeight - CapsuleHalfHeight));
-	CameraArm->TargetArmLength = ArmLength;
-	CameraArm->SocketOffset = FVector(0.0, PivotRight, 0.0);
-	CameraArm->bUsePawnControlRotation = true;
-	CameraArm->bDoCollisionTest = true;
-	CameraArm->ProbeSize = ProbeRadius;
-	CameraArm->ProbeChannel = ECC_Camera;
-	CameraArm->bEnableCameraLag = false;
-	CameraArm->bEnableCameraRotationLag = false;
-	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
-	Camera->SetupAttachment(CameraArm, USpringArmComponent::SocketName);
-	Camera->FieldOfView = HorizontalFov;
-	Camera->bUsePawnControlRotation = false;
 }
 
 USwcCharacterMovement* ASwcPlayerCharacter::GetSwcMovement() const

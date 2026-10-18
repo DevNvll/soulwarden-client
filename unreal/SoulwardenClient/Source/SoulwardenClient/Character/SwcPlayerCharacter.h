@@ -6,17 +6,16 @@
 
 struct FSwcPlayerLook;
 class FSwcLocomotion;
-class UCameraComponent;
 class USkeletalMeshComponent;
-class USpringArmComponent;
 class USwcCharacterMovement;
 
 /**
  * The character of a player: the modular body of the retail client (player_<gender>.cdf). The mesh of the character is
  * the base of the gender (the leader: it has the skeleton and the animation, and it is not drawn); each visible part
  * (head, body parts, hair, armor) is one more skeletal mesh component that follows the pose of the leader (Leader Pose).
- * The movement (USwcCharacterMovement) and the animation (USwcPlayerAnimInstance) use the values of the game data.
- * docs/CHARACTER.md and docs/MOVEMENT.md have the rules.
+ * The movement (USwcCharacterMovement) and the animation (USwcPlayerAnimInstance) use the values of the game data; the
+ * camera manager of the player controller (ASwcCameraManager) makes the view. docs/CHARACTER.md, docs/MOVEMENT.md, and
+ * docs/CAMERA.md have the rules.
  */
 UCLASS()
 class SOULWARDENCLIENT_API ASwcPlayerCharacter : public ACharacter
@@ -37,15 +36,10 @@ public:
 	int32 PartCount() const { return Parts.Num(); }
 
 	USwcCharacterMovement* GetSwcMovement() const;
-	UCameraComponent* GetCamera() const { return Camera; }
 	/** The feet of the character (the bottom of the capsule). */
 	FVector GetFeetLocation() const;
 
 private:
 	UPROPERTY()
 	TArray<TObjectPtr<USkeletalMeshComponent>> Parts;
-	UPROPERTY()
-	TObjectPtr<USpringArmComponent> CameraArm;
-	UPROPERTY()
-	TObjectPtr<UCameraComponent> Camera;
 };

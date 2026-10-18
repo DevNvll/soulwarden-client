@@ -4,22 +4,29 @@
 #include "GameFramework/PlayerController.h"
 #include "SwcPlayerController.generated.h"
 
+class ASwcCameraManager;
 class UInputAction;
 class UInputMappingContext;
 struct FInputActionValue;
 
 /**
- * The player controller: the keys of the movement and the mouse look (Enhanced Input, the default profile of the retail
- * client; research feel-values.md R6), and the pitch limits of the free camera (R1). The actions and the context are
- * made in code: no input asset.
+ * The player controller: the keys of the movement and of the camera (Enhanced Input, the default profile of the retail
+ * client; research feel-values.md R6), the mouse look with the sensitivity of the camera state (R1), the mouse wheel (the
+ * zoom, or the next target of the target lock), the target lock (middle mouse, toggle), and free look (Left Alt). The
+ * actions and the context are made in code: no input asset. The camera manager is ASwcCameraManager.
  *
  * Command line: -SwcDrive=FILE plays a drive script through the same input actions (Enhanced Input injection; no input
  * tool of the host). Each line is "TIME COMMAND [VALUES]", the time in seconds from the possession of the character:
- *   move X Y      the move keys from now on (X right, Y forward; 0 0 releases them)
- *   walk 1|0      Left Ctrl down or up
- *   jump          one press of Space
- *   turn DEG_S    the mouse turns the camera at this yaw rate (degrees each second, positive to the right; 0 stops)
- *   pitch DEG_S   the same for the pitch (positive up)
+ *   move X Y         the move keys from now on (X right, Y forward; 0 0 releases them)
+ *   walk 1|0         Left Ctrl down or up
+ *   jump             one press of Space
+ *   turn DEG_S       the mouse turns the camera at this yaw rate (degrees each second, positive to the right; 0 stops)
+ *   pitch DEG_S      the same for the pitch (positive up)
+ *   wheel N          one wheel event of N notches (positive: up, the camera nearer)
+ *   lock             one press of the target lock key
+ *   flick COUNTS     a fast mouse move on X in one frame
+ *   freelook 1|0     Left Alt down or up
+ *   camera STATE     a camera state of gamecamera.xml in place of the state of the action list (none: the action list)
  * The run ends with -SwcQuitWhen=world and -SwcStay (USwcBackendSubsystem).
  */
 UCLASS()
@@ -28,7 +35,11 @@ class SOULWARDENCLIENT_API ASwcPlayerController : public APlayerController
 	GENERATED_BODY()
 
 public:
+	ASwcPlayerController();
+
 	virtual void PlayerTick(float DeltaTime) override;
+
+	ASwcCameraManager* GetSwcCamera() const;
 
 protected:
 	virtual void BeginPlay() override;
@@ -40,6 +51,7 @@ private:
 	{
 		float Time = 0.0f;
 		FString Command;
+		FString Text;
 		FVector2D Value = FVector2D::ZeroVector;
 	};
 
@@ -49,6 +61,10 @@ private:
 	void OnJump(const FInputActionValue& Value);
 	void OnWalk(const FInputActionValue& Value);
 	void OnWalkEnd(const FInputActionValue& Value);
+	void OnZoom(const FInputActionValue& Value);
+	void OnLock(const FInputActionValue& Value);
+	void OnFreeLook(const FInputActionValue& Value);
+	void OnFreeLookEnd(const FInputActionValue& Value);
 	void LoadDrive(const FString& Path);
 	void TickDrive(float DeltaTime);
 
@@ -62,9 +78,17 @@ private:
 	TObjectPtr<UInputAction> JumpAction;
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> WalkAction;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> ZoomAction;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> LockAction;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> FreeLookAction;
 
 	FVector2D MoveInput = FVector2D::ZeroVector;
 	bool bWalkHeld = false;
+	bool bFreeLook = false;
+	FRotator FreeLookRotation = FRotator::ZeroRotator;
 
 	TArray<FDriveStep> Drive;
 	int32 DriveNext = 0;

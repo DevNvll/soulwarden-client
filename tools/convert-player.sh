@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Converts the player character (the modular body, the creation databases, the armor appearances) into
 # SWC_CONTENT/player (outside the repository). See converter/swc_convert/player.py.
-# Usage: tools/convert-player.sh tables | locomotion | base [--force] | wanted [FILE] | part GENDER SKIN [MTL]
+# Usage: tools/convert-player.sh tables | locomotion | camera | base [--force] | wanted [FILE] | part GENDER SKIN [MTL]
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 cd "${SWC_REPO}/converter"

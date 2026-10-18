@@ -14,7 +14,7 @@ next to it.
 | `Character/SwcPlayerAnimInstance` | The animation with no graph asset: the fragment of the movement state, its blend-in time, the blend spaces with the weight grid of the data, the motion parameters with their smoothing. The proxy blends the clips on the worker thread. |
 | `Character/SwcLocomotion` | Reads `SWC_CONTENT/player/locomotion.json` (the fragments, their markers, the blend spaces, the clips, the root track of the jump clips) and the imported clips of the base of each gender. |
 | `Public/SwcPlayerController` | The keys and the mouse look (Enhanced Input, made in code), the pitch limits, and the drive scripts (`-SwcDrive`). |
-| `Character/SwcPlayerCharacter` | The capsule, the mesh, the animation, the camera arm. |
+| `Character/SwcPlayerCharacter` | The capsule, the mesh, the animation. The camera is in [CAMERA.md](CAMERA.md). |
 | `Character/SwcTestFloor` | A temporary floor with ramps and steps, until the world level gives the ground (stage 1.3). |
 | `USwcBackendSubsystem::UpdatePlayer` | Each frame: the permissions of the server to the movement, the player to the input report. |
 
@@ -92,11 +92,9 @@ engine has its full length, which the step-up of the engine needs. The state rul
 | Move | W A S D | Axis2D (x right, y forward); the sprint is automatic |
 | Jump | Space | one press |
 | Walk | Left Ctrl | hold |
-| Look | mouse | 0.025° for each mouse count (0.5 × the option sensitivity 0.05), no smoothing (`bEnableMouseSmoothing=False`) |
+| Look | mouse | 0.025° for each mouse count (0.5 × the option sensitivity 0.05 × the sensitivity of the camera state), no smoothing (`bEnableMouseSmoothing=False`) |
 
-The camera of this stage is the free camera MidCamera with no blends: the pivot 1.7 m above the feet and 0.5 m to the
-right, the arm 4.0 m, the collision sphere 0.084 m, no lag, the FOV 88° horizontal (57° vertical at 16:9), the pitch
-from 70° down to 60° up (research R1.6). Stage 1.8 adds the zoom, the blends, and the modes.
+The camera, the wheel (zoom), the target lock (middle mouse), and free look (Left Alt) are in [CAMERA.md](CAMERA.md).
 
 ## The position in the input report
 

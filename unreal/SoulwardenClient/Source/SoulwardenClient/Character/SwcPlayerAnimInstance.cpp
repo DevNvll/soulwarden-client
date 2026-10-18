@@ -4,6 +4,7 @@
 #include "AnimationRuntime.h"
 #include "Character/SwcCharacterMovement.h"
 #include "Character/SwcLocomotion.h"
+#include "Character/SwcSmooth.h"
 #include "GameFramework/Character.h"
 
 namespace
@@ -17,23 +18,6 @@ constexpr float MovementSpeedEpsilon = 0.02f;
 /** Samples with a smaller weight are not evaluated. */
 constexpr float MinimumWeight = 0.005f;
 
-/** The critically damped smoothing of the client (SmoothCD, research feel-values.md R1: omega = 2 / T). */
-void SmoothCD(float& Value, float& Rate, float Target, float Time, float DeltaSeconds)
-{
-	if (Time <= 0.0f)
-	{
-		Value = Target;
-		Rate = 0.0f;
-		return;
-	}
-	const float Omega = 2.0f / Time;
-	const float X = Omega * DeltaSeconds;
-	const float Exp = 1.0f / (1.0f + X + 0.48f * X * X + 0.235f * X * X * X);
-	const float Change = Value - Target;
-	const float Temp = (Rate + Omega * Change) * DeltaSeconds;
-	Rate = (Rate - Omega * Temp) * Exp;
-	Value = Target + (Change + Temp) * Exp;
-}
 } // namespace
 
 bool FSwcPlayerAnimProxy::Evaluate(FPoseContext& Output)
@@ -155,7 +139,7 @@ void USwcPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// the turn speed (rad/s, positive to the left), each with its smoothing.
 	const FVector Velocity = Movement->Velocity;
 	const float Speed = static_cast<float>(Velocity.Size2D() / 100.0);
-	SmoothCD(MoveSpeed, MoveSpeedRate, Speed < MovementSpeedEpsilon ? 0.0f : Speed, SpeedConvergeTime, DeltaSeconds);
+	SwcSmoothCD(MoveSpeed, MoveSpeedRate, Speed < MovementSpeedEpsilon ? 0.0f : Speed, SpeedConvergeTime, DeltaSeconds);
 	if (Speed >= MovementSpeedEpsilon)
 	{
 		const FVector Forward = Character->GetActorForwardVector();
@@ -163,10 +147,10 @@ void USwcPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		const float Angle = static_cast<float>(FMath::Atan2(FVector::DotProduct(Velocity, Left), FVector::DotProduct(Velocity, Forward)));
 		// The shortest way to the new angle (the parameter goes from -pi to pi).
 		const float Target = TravelAngle + FMath::FindDeltaAngleRadians(TravelAngle, Angle);
-		SmoothCD(TravelAngle, TravelAngleRate, Target, AngleConvergeTime, DeltaSeconds);
+		SwcSmoothCD(TravelAngle, TravelAngleRate, Target, AngleConvergeTime, DeltaSeconds);
 		TravelAngle = FMath::UnwindRadians(TravelAngle);
 	}
-	SmoothCD(TurnSpeed, TurnSpeedRate, Movement->GetTurnSpeed(), TurnConvergeTime, DeltaSeconds);
+	SwcSmoothCD(TurnSpeed, TurnSpeedRate, Movement->GetTurnSpeed(), TurnConvergeTime, DeltaSeconds);
 
 	// The fragment of the movement state, with the blend-in time of the data.
 	const FString Fragment = Movement->GetFragment();

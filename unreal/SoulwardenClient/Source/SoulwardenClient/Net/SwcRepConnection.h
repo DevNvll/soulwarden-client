@@ -35,6 +35,8 @@ public:
 		swc::net::RepClient::OwnEntity Own;
 		swc::net::RepClient::Counts Counts;
 		int32 OtherEntities = 0;
+		/** The other entities with a position: the interest number and the position (the targets of the target lock). */
+		TArray<TPair<uint32, swc::net::WorldPosition>> Others;
 		bool bMovementStale = false;
 		/** The server clock: server nanoseconds = the steady clock of the client in nanoseconds + ServerOffsetNs. */
 		bool bServerClock = false;

@@ -147,6 +147,14 @@ void FSwcRepConnection::Publish(const swc::net::RepClient& Client, bool bFinishe
 	Snapshot.Own = Client.own();
 	Snapshot.Counts = Client.counts();
 	Snapshot.OtherEntities = static_cast<int32>(Client.others().size());
+	Snapshot.Others.Reset();
+	for (const auto& [Interest, Other] : Client.others())
+	{
+		if (Other.hasPosition)
+		{
+			Snapshot.Others.Emplace(Interest, Other.position);
+		}
+	}
 	Snapshot.bMovementStale = Client.movement_stale();
 	Snapshot.bServerClock = Client.has_server_clock();
 	Snapshot.ServerOffsetNs = Client.server_clock_offset_ns();

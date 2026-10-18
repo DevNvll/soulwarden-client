@@ -1,0 +1,56 @@
+# The drive of the camera check of stage 1.8 (docs/CAMERA.md) on the test floor. Times in seconds from the possession of
+# the character; the mouse turns at 90 degrees each second (180 degrees in 2 s).
+# tools/dev-run.sh --window --enter --quit-when world --stay 53 -- -SwcDrive=$PWD/tests/drive/camera.txt
+# The collision: walk to the wall behind the spawn, turn round (the camera goes into the wall and comes in at once), walk
+# away (the camera goes back out with offCollisionSmoothTime 0.35 s).
+2.0 turn 90
+4.0 turn 0
+4.0 walk 1
+4.0 move 0 1
+8.85 move 0 0
+8.85 walk 0
+9.5 turn 90
+11.5 turn 0
+13.5 walk 1
+13.5 move 0 1
+16.0 move 0 0
+16.0 walk 0
+# The zoom: 2 notches in (4 m to 2 m), 6 notches out (8 m), 4 notches in (4 m).
+17.0 wheel 1
+17.8 wheel 1
+19.0 wheel -1
+19.3 wheel -1
+19.6 wheel -1
+19.9 wheel -1
+20.2 wheel -1
+20.5 wheel -1
+22.0 wheel 1
+22.3 wheel 1
+22.6 wheel 1
+22.9 wheel 1
+# The pitch limits: 70 degrees down, 60 degrees up, then level.
+24.0 pitch -60
+25.5 pitch 60
+28.0 pitch -60
+29.0 pitch 0
+# A sprint (DynamicCamera) with a running jump (the Z smoothing of the pivot), and a stop.
+30.0 move 0 1
+32.0 jump
+34.0 move 0 0
+# The aim state (AimCamera: 1 m, no zoom; blend 0.09 s each way).
+35.5 camera AimCamera
+37.5 camera none
+# Free look: Left Alt held, the camera turns 90 degrees, the release sets the camera back.
+39.0 freelook 1
+39.0 turn 90
+40.0 turn 0
+41.0 freelook 0
+# The target lock: on, a walk to the right, the next target with the wheel, then with a mouse flick, off.
+42.5 lock
+43.0 walk 1
+43.0 move 1 0
+46.0 move 0 0
+46.0 walk 0
+46.5 wheel 1
+48.0 flick 900
+49.5 lock
