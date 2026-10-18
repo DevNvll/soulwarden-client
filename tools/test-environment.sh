@@ -22,5 +22,15 @@ nice -n 10 "${compiler}" "${flags[@]}" \
     "${backend}/src/core/logging/log.cpp" "${backend}/src/middleware/compression/lz4.cpp" \
     -Wl,--gc-sections -o "${out}/swc-environment-tests"
 "${out}/swc-environment-tests"
+# The rules of the runtime environment (stage E1): the evaluator against a table of the converter evaluator (the Everfall preset of
+# SWC_CONTENT/environment, when it is there), the sun path against the samples of the research.
+nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -I"${module}" \
+    "${SWC_REPO}/tests/environment/environment_rules_tests.cpp" "${module}/Environment/SwcEnvironmentRules.cpp" -o "${out}/swc-environment-rules-tests"
+table="${out}/everfall-table.txt"
+rm -f "${table}"
+if [[ -f "${SWC_CONTENT}/environment/presets.json" ]]; then
+    (cd "${SWC_REPO}/converter" && python3 -B -m swc_convert.environment table libs/timeofday/zones/everfall_a.xml "${table}" >/dev/null)
+fi
+"${out}/swc-environment-rules-tests" "${table}" "${HOME}/Games/soulwarden-client/research/world-environment/proof-metadata.json"
 cd "${SWC_REPO}"
 exec python3 -B -m unittest discover -s tests/environment -p "test_*.py"

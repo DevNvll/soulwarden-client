@@ -105,6 +105,65 @@ failures). The research census has the same numbers of lights, probes, fog volum
 - The equal-priority ties and the blend order of the time volumes (research, open point 5) are stage E3.
 - The water records (polygons, rivers, ocean overrides) are in the data for the water stage (E4, the player track).
 
+## The sun, the moon, and the base sky (stage E1)
+
+`Environment/SwcEnvironmentSubsystem` (the runtime) with the plain rules of `Environment/SwcEnvironmentRules` (tested by
+`tools/test-environment.sh`). The decision of the user (2026-10-18, docs/ROADMAP.md): the content follows the retail client (the hour
+of the backend clock, the sun and moon path, the colors of the data where they look good); the rendering keeps the Unreal way where
+it looks better. The retail pictures are the reference for the places, the times, and the colors, not for the exact brightness.
+
+| Part | Rule (source) |
+| --- | --- |
+| The data | `SWC_CONTENT/environment` (stage E0: `mission.json`, `presets.json`, `volumes.json`), read on a worker thread at the start (about 0.45 s). |
+| The preset | The time-of-day volume at the camera with the highest priority (the first one of a tie), with its hour override; else the base TimeOfDay of the main-world mission. At the Oxboro feet: `everfall_a.xml`. The blend between volumes (priority, blend time, distance) is stage E3. |
+| The hour | The world clock (`USwcWorldTimeSubsystem::GetHour`, steps of one game second); the time of a curve is `float32(hour) x float32(1/24)`. |
+| The sun | A movable directional light, atmosphere light 0, always on, on the sun path of the public engine with the mission angles (SunRotation 215, Longitude 130): the angle (hour + 12) / 24 x 2 pi about Z, the longitude about X, the rotation about Y, then the axes (x, -z, y). The sun rises at 06:00 and sets at 18:00; at noon it is toward -0.369, 0.527, 0.766 (north-west, 50 degrees high). The retail noon pictures agree: in noon-road-low (camera to the west) the shadow of the character goes to the east-south; in noon-wall-grass the sun lights a wall face to the north-west. Its illuminance and color are the noon "Sun intensity" (100,000 lux in Everfall) and "Sun color" of the preset (the color with its luminance kept, Rec. 709). |
+| The moon | A movable directional light, atmosphere light 1, at the fixed direction of the Moon element (latitude 240, longitude 35: toward 0.410, 0.709, 0.574), with the "Sun intensity" and "Sun color" of the hour (the night values of the data: 3,000 lux at 18:30 to 5,000 lux at midnight, a blue color). Its weight is the larger of the fade of the public engine (CTimeOfDay::UpdateEnvLighting) with the visual edges of the record (by night 1; out in the first half of the visual dawn, 6.0 to 6.1833; in with the second half of the visual dusk, 19.1833 to 19.3667) and a fade with the sun below the horizon (0 at the sunset, 1 at 4 degrees below it): the moon comes when the physical sun goes (the night values of "Sun intensity" start at 18:05, just after the sunset of the path at 18:00). Its source angle is the Size of the element as degrees (0.8; an inference). |
+| The sky | A SkyAtmosphere with the Unreal defaults: the sunrise, the sunset, and the twilight come from its transmittance and its sky. By night its sky luminance is scaled by 0.2, faded in with the moon (a look choice: the atmosphere lit by the moon is a day sky; `-SwcNightSky=FACTOR`). The stars, the moon texture, the clouds, and the fog are stage E3. |
+| The ambient | A SkyLight with a real-time capture of the sky at intensity 1: it follows the sky (also the twilight after the sunset) with no capture event. |
+| The exposure | An unbound post process over the fixed exposure of the level: the Unreal auto exposure (histogram) with the bounds EV100 3 to 16 and a compensation of -2.5 by night, faded in with the moon (a night look; `-SwcNightExposure=EV`). Stage E5 refines it; the user judges the look. |
+| The level | The sun, the sky atmosphere, and the sky light of the level of the world track are turned off while the runtime environment runs; its fog and its ocean stay (stages E3 and E4). |
+
+The Unreal way kept on purpose (the decision of the user):
+
+- The sun is not the dominant light of the source (one light that changes to the moon at night and lights from below the horizon until
+  the visual dusk at 19:11): it is the physical sun of the SkyAtmosphere, always on; its transmittance makes the colors of the sunrise
+  and the sunset in place of the dawn and dusk keys of "Sun color". The moon comes when this sun goes (from 18:00), not at 19:11:
+  with the source rule the scene was black from 18:50 to 19:11 (the twilight of the physical sky is over).
+- The sky is the SkyAtmosphere, not the sky shader and the night sky colors of the source; the ambient is the real-time sky light and
+  Lumen, not the baked probes and their multipliers.
+- The exposure is the Unreal auto exposure with wide bounds, not the EV bounds and the film curve of the source.
+
+### Check of E1
+
+`tools/match-view.sh set1-oxboro noon-n night-n noon-road-low dusk-road-low night-road-low --hours
+noon-road-low=06:00,06:22,19:00,19:22 --hours noon-n=06:00,06:22,19:00,19:22 --out ~/Games/soulwarden-client/evidence/E1/check
+--label e1check`; evidence `~/Games/soulwarden-client/evidence/E1/check/` (`side/`: retail | client; `client/`; `contact-sheet.png`;
+`report.json`; `clock-compare.txt`; the logs). The views of the extra hours have the retail picture of their view (its own hour) on
+the left.
+
+- Each picture is at the hour of its retail picture (within 1 game second); the client clock against the server: 19 points, the
+  largest difference 0.67 game seconds.
+- The sun: at noon the shadows go the same way as in the retail pictures (noon-road-low: to the east-south; the south facade of
+  noon-n in the shade of a north-west sun, lit by the sky). 06:22: the sunrise with long shadows.
+- The moon and the night: at 00:04 (night-n, night-road-low) the sky is dark navy and the light is blue and from the north-east, as
+  in the retail pictures (no stars yet: stage E3); 19:00 and 19:22 have the moon light; 06:00 has the last moon light before the
+  sunrise.
+- The dusk at 18:32 (dusk-road-low): a moonlit dusk with a dark sky, near the retail picture (the retail sky has a violet glow at
+  the horizon and stars).
+- Kept the Unreal way on purpose: the physical sun and sky, the real-time sky light and Lumen, the auto exposure (see above). The
+  brightness differs from the retail pictures (the decision of the user): the noon ground is near white (the flat beige ground of
+  the level, no terrain texture yet) and the moonlit road is bright; stage E5 tunes the exposure.
+- Tests: `tools/test-environment.sh`: the evaluator of the client equals the evaluator of the converter (12,513 values of the 129
+  variables of everfall_a, the largest relative difference 4e-16), the sun path equals the 721 samples of the research, the edges,
+  the multipliers, the light color, and the volumes (20 checks), the world clock (67 checks), the reader (14 tests): 0 failures.
+
+### Not done, open points (E1)
+
+- The stars, the moon texture, the clouds, the regional sky, the fog, and the blend of the time-of-day volumes: stage E3.
+- The local lights and the probes of interiors: stage E2. The exposure: stage E5.
+- The optional retail clamp of the sun path (research, open point 2): the noon shadows agree with the public rule.
+
 ## The matched views
 
 `tools/match-view.sh SET [VIEW...] [--out FOLDER] [--label LABEL]` (`tools/lib/match_view.py`, client `Environment/SwcMatchView`)
@@ -130,6 +189,8 @@ client selects its own volumes (stage E3).
 | The debug line | "world time HH:MM:SS (PHASE), hour H, phase of the server PHASE" on the screen, after the first record (with `-SwcDebugLines`, stage WF7). |
 | `-SwcWorldTimeProbe` | The log line of the time each 1 s (else each 60 s, at each record, and at each phase edge). |
 | `tools/lib/dev_world.py world-time [HH:MM[:SS]]` | The world time of the backend with the wall time of the reply (`wall`), or a command for the world (the development route `/v1/dev/world/time`; development data only). |
+| `-SwcEnvironmentProbe` | The log line of the runtime environment each 1 s (the hour, the preset, the lights, the exposure). |
+| `-SwcNoEnvironment` | The environment of the level (no runtime environment). |
 | `-SwcMatchView=PLAN.json` | The matched views of a plan (tools/match-view.sh). |
 | `tools/convert-environment.sh volumes X Y Z` | The time-of-day volumes that hold a place (engine m), the highest priority first. |
 | `tools/convert-environment.sh sample PRESET HOUR [NAME...]` | The values of a preset at an hour. |

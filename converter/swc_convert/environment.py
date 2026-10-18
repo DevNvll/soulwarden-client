@@ -641,6 +641,28 @@ def time_volumes_at(point: tuple[float, float, float]) -> list[dict]:
     return sorted(out, key=lambda v: -(v["priority"] or 0))
 
 
+def write_table(preset: dict, out: Path) -> dict:
+    """Writes the keys of a preset and the values of this evaluator each 15 game minutes, in a plain text form for the test of the
+    client evaluator (tools/test-environment.sh): "key VARIABLE CHANNELS TIME V0 V1 V2 FLAGS" and "value VARIABLE HOUR V0 V1 V2"."""
+    lines = []
+    count = 0
+    for index, variable in enumerate(preset["variables"]):
+        if not variable["keys"]:
+            continue
+        channels = 3 if isinstance(variable["keys"][0][1], list) else 1
+        for time, value, flags in variable["keys"]:
+            v = value if channels == 3 else [value, 0.0, 0.0]
+            lines.append(f"key {index} {channels} {time!r} {v[0]!r} {v[1]!r} {v[2]!r} {flags}")
+        for step in range(97):
+            hour = step * 0.25
+            value = evaluate(variable["keys"], curve_time(hour))
+            v = value if channels == 3 else [value, 0.0, 0.0]
+            lines.append(f"value {index} {hour!r} {v[0]!r} {v[1]!r} {v[2]!r}")
+            count += 1
+    out.write_text("\n".join(lines) + "\n")
+    return {"file": str(out), "values": count}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="swc-environment", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -650,6 +672,9 @@ def main(argv=None) -> int:
     p.add_argument("x", type=float)
     p.add_argument("y", type=float)
     p.add_argument("z", type=float)
+    p = sub.add_parser("table")
+    p.add_argument("preset")
+    p.add_argument("out")
     p = sub.add_parser("sample")
     p.add_argument("preset")
     p.add_argument("hour", type=float)
@@ -659,6 +684,9 @@ def main(argv=None) -> int:
         print(json.dumps(write(args.regions), indent=1))
     elif args.command == "volumes":
         print(json.dumps(time_volumes_at((args.x, args.y, args.z)), indent=1))
+    elif args.command == "table":
+        doc = json.loads((out_dir() / "presets.json").read_text())
+        print(json.dumps(write_table(doc[preset_path(args.preset)], Path(args.out))))
     elif args.command == "sample":
         doc = json.loads((out_dir() / "presets.json").read_text())
         values = sample(doc[preset_path(args.preset)], args.hour)
