@@ -36,6 +36,9 @@ public:
 		swc::net::RepClient::Counts Counts;
 		int32 OtherEntities = 0;
 		bool bMovementStale = false;
+		/** The server clock: server nanoseconds = the steady clock of the client in nanoseconds + ServerOffsetNs. */
+		bool bServerClock = false;
+		int64 ServerOffsetNs = 0;
 		FString EndCause;
 		/** True when the thread ended (the session ended, or the transport failed). */
 		bool bFinished = false;

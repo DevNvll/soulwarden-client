@@ -1,5 +1,6 @@
 #include "Net/Codec/SwcRepClient.h"
 
+#include <algorithm>
 #include <cstdio>
 
 namespace swc::net {
@@ -43,6 +44,39 @@ std::string text_at(std::span<const std::uint8_t> value, std::size_t skip) {
 float f32_at(std::span<const std::uint8_t> value) {
     Reader reader(value);
     return reader.f32();
+}
+
+std::int64_t steady_ns(Clock::time_point now) {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+}
+
+/** Reads a list of a cooldown map in the full form: 00, stamp, count, entries of 20 bytes (protocol notes 4.22). */
+template <class Entry>
+bool read_cooldown_list(std::span<const std::uint8_t> value, std::vector<Entry>& out, Entry (*read)(Reader&)) {
+    Reader reader(value);
+    if (reader.size() != 0) {
+        return false;
+    }
+    if (reader.u8() == 1) {
+        reader.size64();
+    }
+    const std::uint32_t count = reader.size();
+    if (!reader.ok() || count > 1000) {
+        return false;
+    }
+    out.clear();
+    for (std::uint32_t index = 0; index < count && reader.ok(); ++index) {
+        out.push_back(read(reader));
+    }
+    return reader.ok();
+}
+
+std::uint64_t slot_map(std::span<const std::uint8_t> value) {
+    std::uint64_t map = 0;
+    for (std::size_t index = 0; index < value.size() && index < 8; ++index) {
+        map |= static_cast<std::uint64_t>(value[index]) << (8 * index);
+    }
+    return map;
 }
 
 std::string position_text(const WorldPosition& position) {
@@ -152,6 +186,31 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
             return;
         }
         log(Event::Level::info, "registration accepted, server version " + response->serverVersion);
+        // The server clock of the reply (nanoseconds): the first value of the clock of the client (protocol notes 4.43).
+        m_serverOffsetNs = static_cast<std::int64_t>(response->serverTime) - steady_ns(now);
+        m_hasServerClock = true;
+        return;
+    }
+    if (message.type == kTimeSynch.index) {
+        // REPClient::TimeSynchMsg: serverTime:u64 in nanoseconds, each 3 s (protocol notes 4.43).
+        Reader reader(message.body);
+        const std::uint64_t serverTime = reader.u64();
+        if (!reader.ok()) {
+            return;
+        }
+        const std::int64_t target = static_cast<std::int64_t>(serverTime) - steady_ns(now);
+        const std::int64_t difference = target - m_serverOffsetNs;
+        if (!m_hasServerClock || difference > kClockJumpNs || difference < -kClockJumpNs) {
+            m_serverOffsetNs = target;
+            m_clockCorrectionNs = 0;
+            m_hasServerClock = true;
+        } else {
+            m_clockCorrectionNs = difference;
+        }
+        if (m_clockLogs < 3 || (difference > kClockJumpNs || difference < -kClockJumpNs)) {
+            ++m_clockLogs;
+            log(Event::Level::info, "clock correction (335): " + std::to_string(difference / 1000) + " us");
+        }
         return;
     }
     if (message.type == kSelfIdentification.index) {
@@ -330,6 +389,69 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
             if (const auto maximum = decoder::field_of(fragment, 0, 4); maximum.size() == 4) {
                 m_own.healthMax = f32_at(maximum);
             }
+            if (const auto value = decoder::field_of(fragment, 0, 1); value.size() == 4) {
+                m_own.vitalsStamina = f32_at(value);
+            }
+            if (const auto value = decoder::field_of(fragment, 0, 6); value.size() == 4) {
+                m_own.vitalsStaminaMax = f32_at(value);
+            }
+            if (const auto value = decoder::field_of(fragment, 0, 2); !value.empty()) {
+                m_own.dead = (value[0] & 0x01) != 0; // vitalsData: bit 0 of its flags (client getter 0x684AC70).
+            }
+            if (const auto value = decoder::field_of(fragment, 1, 0); value.size() == 4) {
+                m_own.vitalsMana = f32_at(value);
+            }
+            if (const auto value = decoder::field_of(fragment, 1, 3); value.size() == 4) {
+                m_own.vitalsManaMax = f32_at(value);
+            }
+        } else if (fragment.slot == kSlotStamina && fragment.type == kStateStamina.index) {
+            if (const auto value = decoder::field_of(fragment, 0, 0); value.size() == 4) {
+                m_own.stamina = f32_at(value);
+                m_own.hasStamina = true;
+            }
+            if (const auto value = decoder::field_of(fragment, 0, 1); value.size() == 4) {
+                m_own.staminaMax = f32_at(value);
+            }
+        } else if (fragment.slot == kSlotMana && fragment.type == kStateMana.index) {
+            if (const auto value = decoder::field_of(fragment, 0, 0); value.size() == 4) {
+                m_own.mana = f32_at(value);
+                m_own.hasMana = true;
+            }
+            if (const auto value = decoder::field_of(fragment, 0, 1); value.size() == 4) {
+                m_own.manaMax = f32_at(value);
+            }
+        } else if (fragment.slot == kSlotAbility && fragment.type == kStateAbility.index) {
+            if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
+                const decoder::WireBars bars = decoder::read_bars(value);
+                if (bars.ok) {
+                    m_own.abilityBars.clear();
+                    for (const decoder::WireBar& bar : bars.tables) {
+                        m_own.abilityBars.push_back({bar.table, bar.abilities, bar.buttons});
+                    }
+                }
+            }
+        } else if (fragment.slot == kSlotCooldowns && fragment.type == kStateCooldowns.index) {
+            for (unsigned place = 0; place < m_own.cooldowns.size(); ++place) {
+                if (const auto value = decoder::field_of(fragment, 0, place); !value.empty()) {
+                    read_cooldown_list<OwnEntity::Cooldown>(value, m_own.cooldowns[place], [](Reader& reader) {
+                        OwnEntity::Cooldown entry;
+                        entry.ability = reader.u32();
+                        entry.endUs = reader.u64();
+                        entry.minimumEndUs = reader.u64();
+                        return entry;
+                    });
+                }
+            }
+            if (const auto value = decoder::field_of(fragment, 0, 3); !value.empty()) {
+                // key:u32 end:u64 a:u32 b:u32 (the two values are 0).
+                read_cooldown_list<std::pair<std::uint32_t, std::uint64_t>>(value, m_own.itemCooldowns, [](Reader& reader) {
+                    const std::uint32_t key = reader.u32();
+                    const std::uint64_t end = reader.u64();
+                    reader.u32();
+                    reader.u32();
+                    return std::pair<std::uint32_t, std::uint64_t>(key, end);
+                });
+            }
         } else if (fragment.slot == kSlotAppearance && fragment.type == kStateAppearance.index) {
             for (unsigned field = 0; field < m_own.appearance.size(); ++field) {
                 if (const auto value = decoder::field_of(fragment, 0, field); value.size() == 1) {
@@ -359,6 +481,12 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
             };
             apply_lists(decoder::field_of(fragment, 2, 3), decoder::field_of(fragment, 1, 1));
             apply_lists(decoder::field_of(fragment, 1, 3), decoder::field_of(fragment, 1, 2));
+            if (const auto value = decoder::field_of(fragment, 2, 0); !value.empty()) {
+                m_own.sheatheMap = slot_map(value);
+            }
+            if (const auto value = decoder::field_of(fragment, 2, 2); !value.empty()) {
+                m_own.activeMap = slot_map(value);
+            }
             ++m_own.lookRevision;
         }
     }
@@ -455,7 +583,17 @@ void RepClient::send_input(Clock::time_point now) {
     }
 }
 
+std::uint64_t RepClient::server_time_ns(Clock::time_point now) const {
+    return m_hasServerClock ? static_cast<std::uint64_t>(steady_ns(now) + m_serverOffsetNs) : 0;
+}
+
 std::vector<Bytes> RepClient::tick(Clock::time_point now) {
+    // The slow correction of the clock: 2 ms for each tick until the difference of the last 335 is applied.
+    if (m_clockCorrectionNs != 0) {
+        const std::int64_t step = std::clamp(m_clockCorrectionNs, -kClockStepNs, kClockStepNs);
+        m_serverOffsetNs += step;
+        m_clockCorrectionNs -= step;
+    }
     if (m_phase == Phase::waitingForRepConnection && m_carrier.state() == Carrier::State::connected) {
         log(Event::Level::info, "carrier connection established");
         send_registration();

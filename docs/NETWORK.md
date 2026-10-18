@@ -204,7 +204,7 @@ envelope := flags:u8 present:u8 type:size body        (the client writes flags 0
 The route of a component call is the actor id of the entity (the input report: the own actor id). The registration
 has the route of 16 zero bytes (the backend reads no route for it). `Net/SwcTypeIndex` reads `typeindex.json` of the game
 copy (`SOULWARDEN_GAME_DIR`, read only; 7,052 type ids) and checks the type id at the index of each type of the client
-(`swc::net::kUsedTypes`: 9 message types and 6 state types). A difference stops the world entry: the build of the game
+(`swc::net::kUsedTypes`: 10 message types and 10 state types). A difference stops the world entry: the build of the game
 copy is not the build of the backend (the retail client gets the result -90, `TypeIndexMismatch`).
 
 ### The registration (protocol notes 3.4)
@@ -233,6 +233,33 @@ and "rejected" (1630).
   for the stages 1.9 and later.
 - A fragment of a state type that the reader does not know stops the reader for the rest of that bundle; the client
   logs the type one time. The live runs of this stage had none.
+
+### The read path of the own entity (the HUD)
+
+`USwcBackendSubsystem::GetLocalPlayer(swc::net::RepClient::OwnEntity&)` gives a copy of the decoded own entity while the
+client is in the world (InGame). `GetServerTimeMicroseconds()` gives the server clock now, and `GetCameraYawDegrees()` the
+yaw of the camera of the player (0 = north, positive = to the left, the convention of the input report). Each value of
+`OwnEntity` and its source (backend encoders `apps/backend/src/server/rep/states`, protocol notes):
+
+| Field of `OwnEntity` | State (slot, type), group and field | Unit, notes |
+| --- | --- | --- |
+| `health`, `healthMax` | vitals (41, 15), group 0 fields 0 and 4 | f32 |
+| `vitalsStamina`, `vitalsStaminaMax` | vitals, group 0 fields 1 and 6 | f32 (the values before a stamina state) |
+| `vitalsMana`, `vitalsManaMax` | vitals, group 1 fields 0 and 3 | f32 |
+| `dead` | vitals, group 0 field 2 `vitalsData`, bit 0 of its first byte | the character is dead (client getter 0x684AC70) |
+| `hasStamina`, `stamina`, `staminaMax` | stamina (42, 4297), group 0 fields 0 and 1 | f32; the copy of the server: the retail client predicts its stamina itself |
+| `hasMana`, `mana`, `manaMax` | mana (47, 1652), group 0 fields 0 and 1 | f32; the mana meter of the retail HUD reads this component, and it divides the current value by the maximum of the client (the first field 1 plus the MaxMana parts of the attributes): the current value can be larger than field 1 (protocol notes 4.5) |
+| `abilityBars` | ability (46, 185), group 0 field 0 `persistentAbilityData` | for each ability table, in the sequence of the field: the table id, and for each place the ability id (u32, the CRC-32 of the lower-case id text) and its button number |
+| `cooldowns[0..2]` | cooldown timers (45, 2932), group 0 fields 0 to 2 | the map of place N of the bars: ability id, end, minimum end, in microseconds of the server clock; an indefinite cooldown has the end 0xFFFFFFFFFFFFFFFF and the minimum end 0 |
+| `itemCooldowns` | cooldown timers, group 0 field 3 (ccdmap) | the CRC-32 of the lower-case item id, the end in microseconds |
+| `equipment` | paperdoll (62, 3183), group 1 fields 1 to 3 and group 2 field 3 | paperdoll slot -> item index on the wire (0: empty); the item with index N is entry N - 1 of the item catalog |
+| `sheatheMap`, `activeMap` | paperdoll, group 2 fields 0 and 2 | bit N (byte N / 8, bit N % 8 of the 7 bytes) is paperdoll slot N |
+| `appearance`, `position`, `rotation`, `name`, `characterId`, `actor` | appearance, movement, player, metadata | as above |
+
+The server clock: the registration reply gives the first value; `REPClient::TimeSynchMsg` (type 335, serverTime:u64 in
+nanoseconds, each 3 s) corrects it: a difference of more than 1 s at once, a smaller one with a slow correction of 2 ms for
+each tick of 10 ms (protocol notes 4.43, live L8: +0.5 s slow, +5 s at once; the limit of 1 s is an inference). The
+cooldown ends and `server_time_ns` / 1000 use the same clock: the time that is left is `end - GetServerTimeMicroseconds()`.
 
 ### The input report (protocol notes 4.7)
 

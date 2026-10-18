@@ -142,6 +142,8 @@ void FSwcRepConnection::Publish(const swc::net::RepClient& Client, bool bFinishe
 	Snapshot.Counts = Client.counts();
 	Snapshot.OtherEntities = static_cast<int32>(Client.others().size());
 	Snapshot.bMovementStale = Client.movement_stale();
+	Snapshot.bServerClock = Client.has_server_clock();
+	Snapshot.ServerOffsetNs = Client.server_clock_offset_ns();
 	Snapshot.EndCause = UTF8_TO_TCHAR(Client.end_cause().c_str());
 	Snapshot.bFinished = bFinished;
 }

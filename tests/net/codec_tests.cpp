@@ -119,6 +119,15 @@ void test_golden_session(const std::string& goldenPath) {
     expect(own.timeAnchor != 0, "a time anchor");
     expect(near(own.healthMax, 1000.0F, 0.01F), "the vitals state: maximum health 1000 with no progression tables");
     expect(own.hasAppearance, "the appearance state");
+    expect(own.hasMana && near(own.mana, 100.0F, 0.001F) && near(own.manaMax, 100.0F, 0.001F), "the mana state (slot 47): 100 of 100");
+    expect(near(own.vitalsStamina, 100.0F, 0.001F) && near(own.vitalsStaminaMax, 100.0F, 0.001F) && near(own.vitalsMana, 100.0F, 0.001F)
+               && near(own.vitalsManaMax, 100.0F, 0.001F),
+           "the stamina and mana values of the vitals state");
+    expect(!own.dead, "not dead");
+    // The server clock of the registration reply: the scenario starts at 1,000,000 s of the server clock.
+    expect(client.has_server_clock() && client.server_time_ns(now) >= 1'000'000'000'000'000ULL
+               && client.server_time_ns(now) < 1'000'001'000'000'000ULL,
+           "the server clock of the registration reply");
     const auto& counts = client.counts();
     expect(counts.incompleteBundles == 0, "each state bundle was read to its last byte");
     expect(counts.droppedBundles == 0, "no state bundle was dropped");

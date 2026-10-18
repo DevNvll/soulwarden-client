@@ -7,6 +7,7 @@
 #include "Containers/Ticker.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Camera/PlayerCameraManager.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformTime.h"
@@ -277,6 +278,19 @@ bool USwcBackendSubsystem::TickWorld(float)
 		UE_LOG(LogSwcBackend, Log, TEXT("world: %.0f s in the world, %llu state bundles, %llu movement states, %llu input reports, %d other entities; the client leaves"),
 			StaySeconds, static_cast<unsigned long long>(Snapshot.Counts.bundles), static_cast<unsigned long long>(Snapshot.Counts.movementStates),
 			static_cast<unsigned long long>(Snapshot.Counts.inputReports), Snapshot.OtherEntities);
+		// The values of the read path (the HUD of the UI track) at the leave: a check in the log.
+		const swc::net::RepClient::OwnEntity& Own = Snapshot.Own;
+		int32 Abilities = 0;
+		for (const auto& Bar : Own.abilityBars)
+		{
+			Abilities += static_cast<int32>(Bar.abilities.size());
+		}
+		UE_LOG(LogSwcBackend, Log, TEXT("world: read path: health %.0f/%.0f, stamina %.0f/%.0f (state %d), mana %.0f/%.0f (state %d), dead %d, %d ability bar(s) with %d place(s), cooldowns %d/%d/%d, active map %llx, sheathe map %llx, server time %llu us, camera yaw %.1f"),
+			Own.health, Own.healthMax, Own.hasStamina ? Own.stamina : Own.vitalsStamina, Own.hasStamina ? Own.staminaMax : Own.vitalsStaminaMax,
+			Own.hasStamina ? 1 : 0, Own.hasMana ? Own.mana : Own.vitalsMana, Own.hasMana ? Own.manaMax : Own.vitalsManaMax, Own.hasMana ? 1 : 0,
+			Own.dead ? 1 : 0, static_cast<int32>(Own.abilityBars.size()), Abilities, static_cast<int32>(Own.cooldowns[0].size()), static_cast<int32>(Own.cooldowns[1].size()),
+			static_cast<int32>(Own.cooldowns[2].size()), static_cast<unsigned long long>(Own.activeMap), static_cast<unsigned long long>(Own.sheatheMap),
+			static_cast<unsigned long long>(GetServerTimeMicroseconds()), GetCameraYawDegrees());
 		Connection->Leave(TEXT("the client leaves the world (-SwcQuitWhen=world)"));
 	}
 	if (Snapshot.bFinished)
@@ -347,6 +361,49 @@ void USwcBackendSubsystem::ShowOwnEntity()
 				*Hex(std::span(Own.actor).first(8)), Own.position.x, Own.position.y, Own.position.z, Own.health, Own.healthMax, Own.dataBits,
 				Own.moreDataBits));
 	}
+}
+
+bool USwcBackendSubsystem::GetLocalPlayer(swc::net::RepClient::OwnEntity& Out) const
+{
+	if (!Connection.IsValid())
+	{
+		return false;
+	}
+	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
+	if (Snapshot.Phase != FPhase::inGame)
+	{
+		return false;
+	}
+	Out = Snapshot.Own;
+	return true;
+}
+
+uint64 USwcBackendSubsystem::GetServerTimeMicroseconds() const
+{
+	if (!Connection.IsValid())
+	{
+		return 0;
+	}
+	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
+	if (!Snapshot.bServerClock)
+	{
+		return 0;
+	}
+	const int64 Steady = std::chrono::duration_cast<std::chrono::nanoseconds>(swc::net::Clock::now().time_since_epoch()).count();
+	return static_cast<uint64>(Steady + Snapshot.ServerOffsetNs) / 1000;
+}
+
+float USwcBackendSubsystem::GetCameraYawDegrees() const
+{
+	const UWorld* World = GetGameInstance() != nullptr ? GetGameInstance()->GetWorld() : nullptr;
+	const APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	if (Controller == nullptr || Controller->PlayerCameraManager == nullptr)
+	{
+		return 0.0f;
+	}
+	// The Unreal forward vector in the engine space (Unreal Y = -engine Y), then the angle from north to the left.
+	const FVector Forward = Controller->PlayerCameraManager->GetCameraRotation().Vector();
+	return static_cast<float>(FMath::RadiansToDegrees(FMath::Atan2(-Forward.X, -Forward.Y)));
 }
 
 void USwcBackendSubsystem::UpdateLook()

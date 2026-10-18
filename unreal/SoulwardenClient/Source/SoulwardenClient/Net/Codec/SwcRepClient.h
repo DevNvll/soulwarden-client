@@ -74,6 +74,50 @@ public:
         std::map<std::uint32_t, std::uint32_t> equipment;
         /** One more at each change of the appearance or of the equipment (the view builds the body again). */
         std::uint32_t lookRevision{0};
+        /** The paperdoll, group 2 (protocol notes 4.11): bit N (byte N / 8, bit N % 8 of the 7 bytes) is paperdoll slot N.
+         *  sheatheMap (field 0): the item of the slot is in its sheath. activeMap (field 2): the active weapon slots. */
+        std::uint64_t sheatheMap{0};
+        std::uint64_t activeMap{0};
+
+        /** The stamina state (slot 42, type 4297, fields 0 and 1, f32). The retail client predicts its stamina itself; this
+         *  is the copy of the server. No state yet: the vitals values below. */
+        bool hasStamina{false};
+        float stamina{0.0F};
+        float staminaMax{0.0F};
+        /** The mana state (slot 47, type 1652, fields 0 and 1, f32). The mana meter of the retail HUD reads this component.
+         *  `manaMax` is the base maximum: the current value can be larger (the client maximum has the MaxMana parts of the
+         *  attributes, protocol notes 4.5). */
+        bool hasMana{false};
+        float mana{0.0F};
+        float manaMax{0.0F};
+        /** The vitals state: StaminaAmount and StaminaMax (group 0, fields 1 and 6), ManaAmount and ManaMax (group 1,
+         *  fields 0 and 3), and bit 0 of vitalsData (group 0, field 2): the character is dead. */
+        float vitalsStamina{0.0F};
+        float vitalsStaminaMax{0.0F};
+        float vitalsMana{0.0F};
+        float vitalsManaMax{0.0F};
+        bool dead{false};
+
+        /** The ability state (slot 46, type 185, field 0 persistentAbilityData): one bar for each ability table, in the
+         *  sequence of the field; each place has an ability id (the CRC-32 of the lower-case ability id text) and its
+         *  button number. */
+        struct AbilityBar {
+            std::uint32_t table{0};
+            std::vector<std::uint32_t> abilities;
+            std::vector<std::uint32_t> buttons;
+        };
+        std::vector<AbilityBar> abilityBars;
+        /** The cooldown state (slot 45, type 2932): fields 0 to 2 are the maps of the places 0 to 2 of the bars. Times in
+         *  microseconds of the server clock (the clock of server_time_ns). An indefinite cooldown has the end
+         *  0xFFFFFFFFFFFFFFFF and the minimum end 0. */
+        struct Cooldown {
+            std::uint32_t ability{0};
+            std::uint64_t endUs{0};
+            std::uint64_t minimumEndUs{0};
+        };
+        std::array<std::vector<Cooldown>, 3> cooldowns;
+        /** Field 3 (ccdmap): the cooldowns of the consumables: the CRC-32 of the lower-case item id and the end. */
+        std::vector<std::pair<std::uint32_t, std::uint64_t>> itemCooldowns;
     };
 
     /** An entity of a different interest number: its metadata and its position. */
@@ -117,6 +161,12 @@ public:
     [[nodiscard]] const Carrier& carrier() const { return m_carrier; }
     /** True while the last movement state of the own entity is older than 2 s (the input then has no actions). */
     [[nodiscard]] bool movement_stale() const { return m_movementStale; }
+    /** The server clock at `now` in nanoseconds (the clock of the registration reply, of 335, and of the cooldowns), or 0
+     *  before the registration reply. */
+    [[nodiscard]] std::uint64_t server_time_ns(Clock::time_point now) const;
+    /** The offset of the server clock: server nanoseconds = the steady clock of the client in nanoseconds + this value. */
+    [[nodiscard]] std::int64_t server_clock_offset_ns() const { return m_serverOffsetNs; }
+    [[nodiscard]] bool has_server_clock() const { return m_hasServerClock; }
     std::vector<Event> take_events();
 
     /** javelin.alc-server-timeout-for-input of the retail client (protocol notes 4.6). */
@@ -125,6 +175,11 @@ public:
     static constexpr auto kGameMessageTimeout = std::chrono::seconds(30);
     /** The input report rate: 30 each second (protocol notes 4.7). */
     static constexpr auto kInputInterval = std::chrono::nanoseconds(1'000'000'000 / 30);
+    /** The clock correction of 335 (protocol notes 4.43, live L8: +0.5 s went to the slow correction in steps of 2 ms, +5 s
+     *  moved the clock at once): a difference above this limit moves the clock at once. The limit is an inference. */
+    static constexpr std::int64_t kClockJumpNs = 1'000'000'000;
+    /** The step of the slow correction for each tick of the session (10 ms). */
+    static constexpr std::int64_t kClockStepNs = 2'000'000;
 
 private:
     void set_phase(Phase phase);
@@ -158,6 +213,11 @@ private:
     Clock::time_point m_nextInput{};
     std::uint16_t m_inputNumber{0};
     std::vector<InputEntry> m_recentInputs;
+    bool m_hasServerClock{false};
+    std::int64_t m_serverOffsetNs{0};
+    /** The part of the last correction of 335 that the slow correction did not apply yet. */
+    std::int64_t m_clockCorrectionNs{0};
+    std::uint32_t m_clockLogs{0};
 };
 
 } // namespace swc::net

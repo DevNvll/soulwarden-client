@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Containers/Ticker.h"
+#include "Net/Codec/SwcRepClient.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "SwcBackendSubsystem.generated.h"
 
@@ -46,6 +47,23 @@ public:
 
 	/** Enters the world with a character of the character list: the login token, then the game server. */
 	void EnterWorld(const FString& CharacterId);
+
+	/**
+	 * The read path of the states of the own entity (the HUD of the UI track reads it): a copy of the decoded own entity
+	 * (health, stamina, mana, the dead mark, the ability bars, the cooldowns, the paperdoll with its sheathe and active
+	 * maps, the appearance, the position). docs/NETWORK.md has the slot, the field, and the unit of each value.
+	 * @return True while the client is in the world (phase InGame).
+	 */
+	bool GetLocalPlayer(swc::net::RepClient::OwnEntity& Out) const;
+
+	/** @return The server clock now in microseconds (the clock of the cooldown ends), or 0 before the registration reply. */
+	uint64 GetServerTimeMicroseconds() const;
+
+	/**
+	 * @return The yaw of the camera of the player in degrees, in the convention of the input report (protocol notes 4.7):
+	 *         0 = north (engine +Y), positive = to the left (west), -180 to 180.
+	 */
+	float GetCameraYawDegrees() const;
 
 	/** HTTP host and port of the backend (loopback only). The command line can set them: -SwcHttp=HOST:PORT. */
 	UPROPERTY(Config)

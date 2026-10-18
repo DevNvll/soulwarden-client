@@ -49,11 +49,17 @@ inline constexpr MessageType kStateVitals{"MB::VitalsComponentReplicatedState", 
 inline constexpr MessageType kStatePlayer{"MB::PlayerComponentReplicatedState", "BDDDA784A6E7416BA041449920D90FB6", 3935};
 inline constexpr MessageType kStateAppearance{"MB::PlayerAppearanceComponentReplicatedState", "6C597946250643858FB4882FB6A98D5D", 1195};
 inline constexpr MessageType kStatePaperdoll{"MB::PaperdollComponentReplicatedState", "B258A60EFC2140CF8B8657B7F6083D32", 3183};
+inline constexpr MessageType kStateStamina{"MB::StaminaComponentReplicatedState", "4A6A34E3FE184746972DD48DCE3DB1E3", 4297};
+inline constexpr MessageType kStateMana{"MB::ManaComponentReplicatedState", "3729094D0FBA4DCFB1917E9E53AA9B85", 1652};
+inline constexpr MessageType kStateAbility{"MB::AbilityComponentReplicatedState", "35877C3E4EF843DDABE7ABF35104F1B5", 185};
+inline constexpr MessageType kStateCooldowns{"MB::CooldownTimersComponentReplicatedState", "6D45EB2095FE442096C53F9367A3FC5C", 2932};
+inline constexpr MessageType kTimeSynch{"REPClient::TimeSynchMsg", "038CD847065342439A26936E3BD7F312", 335};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 15> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
-    kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged,
-    kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll};
+inline constexpr std::array<MessageType, 20> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+    kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
+    kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina, kStateMana,
+    kStateAbility, kStateCooldowns};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -62,6 +68,10 @@ inline constexpr std::uint32_t kSlotAppearance = 12;
 inline constexpr std::uint32_t kSlotMovement = 16;
 inline constexpr std::uint32_t kSlotVitals = 41;
 inline constexpr std::uint32_t kSlotPaperdoll = 62;
+inline constexpr std::uint32_t kSlotStamina = 42;
+inline constexpr std::uint32_t kSlotCooldowns = 45;
+inline constexpr std::uint32_t kSlotAbility = 46;
+inline constexpr std::uint32_t kSlotMana = 47;
 
 /** The component id of the action list component (slot 16) of the entity RootPlayer of the player slice (game data
  *  slice-ids.json; research ids.md, table of the targets). The facet target of the input report is G + this id. */
