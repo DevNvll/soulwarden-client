@@ -48,7 +48,11 @@ if [[ ! "${output}" =~ ^AGENT-[0-9]+$ ]]; then
 fi
 wf-recorder -y -o "${output}" -c libx264 -r 30 -f "${evidence}/${label}.mp4" >"${SWC_WORK}/logs/dev-run/${label}-recorder.log" 2>&1 &
 recorder=$!
-python3 -B "${SWC_REPO}/tools/lib/dev_world.py" script "${routes}" > "${evidence}/${label}-routes.txt" 2>&1 || true
+# With a drive script, the routes go on the clock of the drive (its lines "drive: SECONDS s" in the client log): the times
+# of the two scripts then agree.
+clock=()
+[[ -n "${drive}" ]] && clock=(--clock "${log}")
+python3 -B "${SWC_REPO}/tools/lib/dev_world.py" script "${routes}" "${clock[@]}" > "${evidence}/${label}-routes.txt" 2>&1 || true
 for ((i = 0; i < stay + 120; ++i)); do
     grep -q 'client: stop' "${log}" 2>/dev/null && break
     sleep 1

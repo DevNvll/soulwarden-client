@@ -1,0 +1,27 @@
+# The drive of the exit check of stage P2.8 (tests/creatures/p28.txt): the camera turns to the east (the attacks face the
+# direction of the camera), the draw of the sword, the camera 25 degrees down and 2 m farther (two notches of the wheel), so
+# that the wolf in front of the character shows, then the clicks. The "tick" lines do nothing: they are the clock marks of the route script
+# (tools/creature-check.sh). Times in seconds from the possession of the character; turn: degrees each second.
+1.0 turn 90
+2.0 turn 0
+2.5 key 1
+3.0 tick
+3.2 pitch -25
+3.2 wheel -1
+3.6 wheel -1
+4.0 tick
+4.2 pitch 0
+7.0 click
+11.0 tick
+12.0 tick
+15.0 click
+17.5 tick
+21.0 click
+25.0 click
+28.0 tick
+31.0 click
+31.4 click
+31.8 click
+37.0 tick
+38.0 tick
+41.0 click

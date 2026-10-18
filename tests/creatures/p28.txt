@@ -1,0 +1,20 @@
+# The exit check of stage P2.8 (docs/CREATURES.md): tools/creature-check.sh with SWC_DEV_CHARACTER=Swordwarden,
+# SWC_DEV_PLACE=8872:4250:138.25, tests/drive/p28.txt, and -SwcFarContact. The camera turns to the east (the street); each
+# wolf comes 2 m east of the character and ignores the character. Times in seconds on the clock of the drive (the check
+# tool reads it in the client log); offsets in m east, north; yaw: 0 north, 90 west, 180 south, 270 east. The clicks of
+# the drive: 7 (a hit from behind), 15 (a hit at the side), 21 (the kill), 25 (a miss), 31 to 31.8 (a light chain from the
+# front), 41 (the range refusal). The script goes on the clock of the drive (its "tick" marks).
+1 level 60
+2 heal
+3 ignore on
+4 spawn Wolf_Grey_7 2 0 0 --yaw 270
+# The leave of the interest: the server removes the wolf (a stop of the control block).
+11 remove $1
+# A new entry after the leave: the left side of the wolf to the character.
+12 spawn Wolf_Grey_7 2 0 0 --yaw 0
+17.5 health $2 100
+# The face of the wolf to the character.
+28 spawn Wolf_Grey_7 2 0 0 --yaw 90
+37 kill $3
+# A wolf at 8 m: the development contact of -SwcFarContact (the server refuses it: too far).
+38 spawn Wolf_Grey_7 8 0 0 --yaw 90

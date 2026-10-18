@@ -18,13 +18,16 @@ Usage (tools/creature-world.sh):
   heal                               the health of the character
   level N                            the level of the character (its health grows with it)
   ignore on|off                      the creatures ignore the character (on) or not
-  script FILE                        a timed list of these commands: "SECONDS COMMAND WORDS..." each line
+  script FILE [--clock LOG]          a timed list of these commands: "SECONDS COMMAND WORDS..." each line (the seconds from
+                                     now, or on the clock of the drive script in the client log LOG: its "drive: SECONDS s"
+                                     lines; a drive line "SECONDS tick" is a clock mark that does nothing)
 The character is the first character of the database, or SWC_DEV_CHARACTER (a name).
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -147,9 +150,30 @@ def run(words: list[str], folder: Path) -> object:
     return None
 
 
-def script(path: str, folder: Path) -> None:
-    """Runs a timed list: "SECONDS COMMAND WORDS..." (seconds from the start of the script). $N is the id of the creature of
-    the Nth spawn of the script (1 first)."""
+class DriveClock:
+    """The time of the drive script of the client: the largest time of its lines "drive: SECONDS s COMMAND" in the client log
+    (the drive counts the game time, which is slower than the wall clock while the world loads)."""
+
+    def __init__(self, log: Path) -> None:
+        self.log, self.offset, self.time = log, 0, -1.0
+
+    def now(self) -> float:
+        try:
+            with self.log.open("rb") as file:
+                file.seek(self.offset)
+                data = file.read()
+        except OSError:
+            return self.time
+        end = data.rfind(b"\n") + 1
+        self.offset += end
+        for match in re.finditer(rb"drive: (\d+\.\d+) s ", data[:end]):
+            self.time = max(self.time, float(match.group(1)))
+        return self.time
+
+
+def script(path: str, folder: Path, clock: DriveClock | None = None) -> None:
+    """Runs a timed list: "SECONDS COMMAND WORDS..." (seconds from the start of the script, or on the drive clock of the client
+    log). $N is the id of the creature of the Nth spawn of the script (1 first)."""
     start = time.monotonic()
     spawned: list[str] = []
     for line in Path(path).read_text().splitlines():
@@ -157,26 +181,32 @@ def script(path: str, folder: Path) -> None:
         if not line:
             continue
         at, *words = line.split()
-        delay = float(at) - (time.monotonic() - start)
-        if delay > 0:
-            time.sleep(delay)
+        if clock is not None:
+            # At most 10 minutes for one step: a client that stopped ends the script.
+            waited = time.monotonic()
+            while clock.now() < float(at) and time.monotonic() - waited < 600.0:
+                time.sleep(0.05)
+        else:
+            delay = float(at) - (time.monotonic() - start)
+            if delay > 0:
+                time.sleep(delay)
         words = [spawned[int(word[1:]) - 1] if word.startswith("$") and word[1:].isdigit() and int(word[1:]) <= len(spawned) else word
                  for word in words]
         try:
             result = run(words, folder)
         except SystemExit as error:
-            print(f"{time.monotonic() - start:7.2f} s  {' '.join(words)}: {error}", flush=True)
+            print(f"{clock.now() if clock is not None else time.monotonic() - start:7.2f} s  {' '.join(words)}: {error}", flush=True)
             continue
         if words[0] == "spawn" and isinstance(result, dict) and "creature" in result:
             spawned.append(str(result["creature"].get("id")))
         summary = json.dumps(result)[:240]
-        print(f"{time.monotonic() - start:7.2f} s  {' '.join(words)}: {summary}", flush=True)
+        print(f"{clock.now() if clock is not None else time.monotonic() - start:7.2f} s  {' '.join(words)}: {summary}", flush=True)
 
 
 def main() -> None:
     folder = data_dir()
-    if len(sys.argv) == 3 and sys.argv[1] == "script":
-        script(sys.argv[2], folder)
+    if len(sys.argv) in (3, 5) and sys.argv[1] == "script" and (len(sys.argv) == 3 or sys.argv[3] == "--clock"):
+        script(sys.argv[2], folder, DriveClock(Path(sys.argv[4])) if len(sys.argv) == 5 else None)
         return
     print(json.dumps(run(sys.argv[1:], folder), indent=1))
 

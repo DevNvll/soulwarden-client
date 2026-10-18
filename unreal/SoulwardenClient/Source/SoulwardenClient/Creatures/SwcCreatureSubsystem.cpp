@@ -389,23 +389,30 @@ void USwcCreatureSubsystem::DrawDamageNumbers(UCanvas* Canvas)
 {
 	const double Now = FPlatformTime::Seconds();
 	DamageNumbers.RemoveAll([Now](const FDamageNumber& Number) { return Now - Number.Start > DamageSeconds; });
-	UFont* Font = GEngine != nullptr ? GEngine->GetMediumFont() : nullptr;
-	UFont* LargeFont = GEngine != nullptr ? GEngine->GetLargeFont() : nullptr;
+	UFont* Font = GEngine != nullptr ? GEngine->GetLargeFont() : nullptr;
+	if (Font == nullptr)
+	{
+		return;
+	}
 	for (const FDamageNumber& Number : DamageNumbers)
 	{
 		const double Age = Now - Number.Start;
 		const FVector Screen = Canvas->Project(Number.Point + FVector(0.0, 0.0, DamageRise * Age / DamageSeconds));
-		UFont* Used = Number.bCrit && LargeFont != nullptr ? LargeFont : Font;
-		if (Screen.Z <= 0.0 || Used == nullptr)
+		if (Screen.Z <= 0.0)
 		{
 			continue;
 		}
+		// A critical hit: 1.4 times larger.
+		const float Scale = Number.bCrit ? 1.4f : 1.0f;
 		const float Alpha = static_cast<float>(FMath::Clamp((DamageSeconds - Age) / DamageFadeSeconds, 0.0, 1.0));
 		float Width = 0.0f;
 		float Height = 0.0f;
-		Canvas->StrLen(Used, Number.Text, Width, Height);
+		Canvas->StrLen(Font, Number.Text, Width, Height);
+		Width *= Scale;
+		Height *= Scale;
 		const FLinearColor Color = Number.bCrit ? FLinearColor(1.0f, 0.85f, 0.2f, Alpha) : FLinearColor(1.0f, 1.0f, 1.0f, Alpha);
-		FCanvasTextItem Text(FVector2D(Screen.X - Width * 0.5f, Screen.Y - Height * 0.5f), FText::FromString(Number.Text), Used, Color);
+		FCanvasTextItem Text(FVector2D(Screen.X - Width * 0.5f, Screen.Y - Height * 0.5f), FText::FromString(Number.Text), Font, Color);
+		Text.Scale = FVector2D(Scale, Scale);
 		Text.EnableShadow(FLinearColor(0.0f, 0.0f, 0.0f, Alpha));
 		Text.BlendMode = SE_BLEND_Translucent;
 		Canvas->DrawItem(Text);

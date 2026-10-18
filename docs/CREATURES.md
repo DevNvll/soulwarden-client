@@ -4,7 +4,8 @@ Stage 1.9 (Linear AST-146). The client shows the creatures of the backend: each 
 in an entity table, the slice of its metadata state gives its model, and its movement and vitals states give its place,
 its action, its name plate, and its health bar. The sources are the Soulwarden protocol notes 4.14 and 4.17, the research
 files `~/Games/soulwarden-client/research/feel-values.md` (part R3, Mannequin) and `creature-visuals.md` (AST-154), and the
-backend encoders (`apps/backend/src/server/rep/states`).
+backend encoders (`apps/backend/src/server/rep/states`). Stage P2.8 (Linear AST-163) adds the hit volumes, the melee contacts of
+the player, the body capsule, the overlays of the other scopes, the reactions, and the damage numbers.
 
 ## The parts
 
@@ -242,12 +243,19 @@ about 13 minutes in all.
 tools/test-creatures.sh                     # the entity table (63 checks); the contact item and the damage number (26 checks)
 export SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-creatures SWC_AGENT_DESKTOP=soulwarden-client-creatures
 tools/creature-check.sh creatures-world 80 tests/creatures/fight.txt tests/drive/creatures.txt
+# Stage P2.8: the melee contacts with the sword character of docs/GEAR.md, on the street west of the start place.
+export SWC_STAGE=P2.8 SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=8872:4250:138.25
+tools/creature-check.sh exit8 50 tests/creatures/p28.txt tests/drive/p28.txt -- -SwcFarContact
 ```
 
 `tools/creature-check.sh` starts a window run with the development routes (`SWC_SESSION_BACKEND_ARGS=--dev-commands`), runs
 the script of `tools/lib/dev_world.py` (`tools/creature-world.sh`: spawn, kill, health, action, heal, level, ignore), plays the
 drive script, and records the headless output of the agent desktop (`wf-recorder`). The video and the logs go to
-`SWC_WORK/evidence/1.9`.
+`SWC_WORK/evidence/STAGE` (`SWC_STAGE`, default 1.9). With a drive script, the routes go on the clock of the drive (its lines
+`drive: SECONDS s` in the client log; a drive line `SECONDS tick` is a clock mark that does nothing): the drive counts the game
+time, which is slower than the wall clock while the world loads. `SWC_DEV_CHARACTER` is the character of the run and of the
+routes, and `SWC_DEV_PLACE` (X:Y:Z, engine m) its place at the start of the run (the swings move the character, and the
+database keeps its place).
 
 Exit check (development run, 2026-10-18, the world level at the start place 8880 4250): `creatures-world.mp4` (80 s). The
 script gives the character the level 60 (a lunge of the level 18 wolf makes 1,079 damage) and makes a grey wolf and a
@@ -260,11 +268,39 @@ Attack_Bite and 2 Attack_Lunge, the knight 12 attacks, the skeleton 8 attacks, a
 bodies (0 placeholders). The white wire spheres in the video are the markers of the target lock of the camera (development
 runs).
 
+Exit check of stage P2.8 (development run, 2026-10-18, after the rebase on stage P2.5; `SWC_WORK/evidence/P2.8/exit8.mp4`,
+50 s, with its client log, backend log, and route log). The character Swordwarden (a sword and a shield) faces east on the
+street; the camera is behind it, 25 degrees down and 6 m away. Each grey wolf comes 2 m in front of the character and ignores
+it (`ignore on`):
+
+| Drive time | Event | Client | Backend |
+| --- | --- | --- | --- |
+| 7 s | a hit from behind | contact Body; damage number 142 (critical hit, larger and yellow); `Reaction` r_R2_B | accepted; reaction back |
+| 11 s | the leave of the interest | the server removes the wolf: a stop; `creature 34: removed` | |
+| 12 s | a new entry | a new wolf on the same interest number 34 (a new serial) | |
+| 15 s | a hit at the side | contact Body; damage number 109; `Reaction` r_R2_L | accepted; reaction left |
+| 21 s | the kill (health 100 before it) | contact Leg_F_L; damage number 109 with the flag 0x0008; `Death` r_Death; no body capsule | accepted |
+| 25 s | a miss | no contact (the dead wolf has none) | |
+| 31 s | a light chain from the front | contacts Body, Head, Body; damage numbers 109, 109, 149 (critical); `Reaction` r_R2_F three times | accepted |
+| 41 s | the range refusal | `-SwcFarContact`: a development contact with a wolf at 6.5 m | refused: "too far" |
+
+The backend counts: 8 attack inputs, 7 contacts, 6 accepted, 1 refused ("too far"); position reports 1,399 accepted, 0
+refused. The additive reaction of scope 4 (`Reaction_Additive`, r_R0_F) plays in the runs `melee3` and `exit4`. The codec
+tests: `tools/test-creatures.sh` (63 and 26 checks), with the bytes of the backend.
+
 ## Differences and open points
 
-- Not shown yet: the additive scope (the flinch of `Reaction_Additive`), the layers after the first one of a variant (head,
-  tail, and mouth layers), the procedural clips (sounds, effects, the death material, the dissolve), the weapon scope
-  animations (the bow string), the cloth and the bound props of a `CA_BONE` binding, the look poses.
+- Not shown yet: the procedural clips (sounds, effects, the death material, the dissolve), the weapon scope animations (the
+  bow string: stage P2.9), the cloth and the bound props of a `CA_BONE` binding, the look poses.
+- The melee contact: before 9557c3d the player side keyed one contact by its target and its facet, and a second volume of the
+  same strike gave a refused contact ("the same attack", or "dead" after a kill). Now the key is the target (one contact for
+  each target for each strike).
+- The damage number is a simple number (its rise, its time, its colors are values of this client); the original is the
+  damage number canvas of the game (later, through the UI runtime).
+- The body capsule that blocks the player is an inference of the orchestrator (in the retail game the creatures block the
+  players); the side-by-side check with the retail client is open. The wall line of a contact starts 1 m above the feet of
+  the attacker (a value of this client).
+- A creature has no reaction that the client starts: each reaction is a record of the server.
 - The material precedence, the variant ties (tag priority), the option byte, and the remote motion parameter formula are
   open points of the research (AST-154 O1 to O3, R3 O1, O2, O5). The interpolation delay (0.25 s) is a value of this client.
 - The name plate is a simple plate on the canvas of the viewport; the original is the `AiMarker` template (the UI track).
