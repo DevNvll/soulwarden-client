@@ -11,9 +11,10 @@ class UWorld;
 namespace SwcWorldStreaming
 {
 /**
- * @return True when the world has no World Partition; or when the cells at Location are loaded and a line from 2 m
- * above Location down 50 m hits the ground; or when TimeoutSeconds passed since the first call for this place. Until
- * then a streaming source stands at Location (call again each frame).
+ * @return True when the world has no World Partition; or when the cells within 80 m of Location are loaded and a line
+ * from 2 m above Location down 50 m hits the ground; or 3 s after those cells when the line hits nothing (no ground
+ * there); or when TimeoutSeconds passed since the first call for this place. Until then a streaming source (a sphere
+ * of 80 m, the highest priority) stands at Location (call again each frame).
  */
 SOULWARDENCLIENT_API bool IsReadyAt(UWorld* World, const FVector& Location, double TimeoutSeconds = 30.0);
 

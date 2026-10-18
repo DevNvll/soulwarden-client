@@ -1,12 +1,17 @@
 #include "World/SwcWorldSubsystem.h"
 
+#include "Camera/PlayerCameraManager.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "HAL/PlatformTime.h"
 #include "GameFramework/PlayerController.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "UnrealClient.h"
+#include "Net/SwcSpace.h"
 #include "World/SwcFlythrough.h"
+#include "World/SwcWorldStreaming.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSwcWorldTools, Log, All);
 
@@ -20,9 +25,74 @@ TStatId USwcWorldSubsystem::GetStatId() const
 	RETURN_QUICK_DECLARE_CYCLE_STAT(USwcWorldSubsystem, STATGROUP_Tickables);
 }
 
+namespace
+{
+/** The loading range of the main runtime partition of the world level (Scripts/build_world.py, RANGE_CM). */
+constexpr double LoadingRangeCm = 102400.0;
+} // namespace
+
+void USwcWorldSubsystem::UpdateImpostors()
+{
+	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
+	if (Controller == nullptr || Controller->PlayerCameraManager == nullptr || Impostors.IsEmpty())
+	{
+		return;
+	}
+	const FVector View = Controller->PlayerCameraManager->GetCameraLocation();
+	for (const TWeakObjectPtr<AActor>& Actor : Impostors)
+	{
+		if (AActor* Impostor = Actor.Get())
+		{
+			FVector Origin, Extent;
+			Impostor->GetActorBounds(false, Origin, Extent);
+			const bool bNear = FVector::Dist2D(Origin, View) < LoadingRangeCm;
+			if (Impostor->IsHidden() != bNear)
+			{
+				Impostor->SetActorHiddenInGame(bNear);
+			}
+		}
+	}
+}
+
+void USwcWorldSubsystem::UpdateGroundTest()
+{
+	if (GroundTests.IsEmpty())
+	{
+		return;
+	}
+	if (GroundTestStart == 0.0)
+	{
+		GroundTestStart = FPlatformTime::Seconds();
+	}
+	const FVector Place = GroundTests[0];
+	if (!SwcWorldStreaming::IsReadyAt(GetWorld(), Place))
+	{
+		return;
+	}
+	FHitResult Hit;
+	const bool bGround = GetWorld()->LineTraceSingleByChannel(Hit, Place + FVector(0.0, 0.0, 200.0), Place - FVector(0.0, 0.0, 5000.0), ECC_WorldStatic);
+	UE_LOG(LogSwcWorldTools, Log, TEXT("SWC GROUND TEST {\"place m\": [%.1f, %.1f, %.1f], \"seconds\": %.1f, \"ground\": %s, \"ground m\": %.2f, \"actor\": \"%s\"}"),
+		Place.X / 100.0, -Place.Y / 100.0, Place.Z / 100.0, FPlatformTime::Seconds() - GroundTestStart, bGround ? TEXT("true") : TEXT("false"),
+		bGround ? Hit.ImpactPoint.Z / 100.0 : 0.0, bGround && Hit.GetActor() ? *Hit.GetActor()->GetActorNameOrLabel() : TEXT(""));
+	SwcWorldStreaming::Release();
+	GroundTests.RemoveAt(0);
+	GroundTestStart = 0.0;
+	if (GroundTests.IsEmpty())
+	{
+		FGenericPlatformMisc::RequestExit(false);
+	}
+}
+
 void USwcWorldSubsystem::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	UpdateGroundTest();
+	const double Now = FPlatformTime::Seconds();
+	if (Now >= NextImpostorUpdate)
+	{
+		NextImpostorUpdate = Now + 0.5;
+		UpdateImpostors();
+	}
 	if (!FrameFolder.IsEmpty() && ++Frames % FrameEvery == 0)
 	{
 		FScreenshotRequest::RequestScreenshot(FPaths::Combine(FrameFolder, FString::Printf(TEXT("frame_%06d.png"), Pictures++)), false, false);
@@ -32,11 +102,40 @@ void USwcWorldSubsystem::Tick(float DeltaTime)
 void USwcWorldSubsystem::OnWorldBeginPlay(UWorld& World)
 {
 	Super::OnWorldBeginPlay(World);
+	for (TActorIterator<AActor> It(&World); It; ++It)
+	{
+		if (It->ActorHasTag(TEXT("SwcImpostor")))
+		{
+			Impostors.Add(*It);
+		}
+	}
+	if (!Impostors.IsEmpty())
+	{
+		UE_LOG(LogSwcWorldTools, Log, TEXT("world: %d groups of far meshes (shown beyond %.0f m)"), Impostors.Num(), LoadingRangeCm / 100.0);
+	}
 	if (FParse::Value(FCommandLine::Get(), TEXT("-SwcFrames="), FrameFolder))
 	{
 		FParse::Value(FCommandLine::Get(), TEXT("-SwcFramesEvery="), FrameEvery);
 		FrameEvery = FMath::Max(FrameEvery, 1);
 		UE_LOG(LogSwcWorldTools, Log, TEXT("frames: a picture every %d frames in %s"), FrameEvery, *FrameFolder);
+	}
+	FString Tests;
+	if (FParse::Value(FCommandLine::Get(), TEXT("-SwcGroundTest="), Tests, false))
+	{
+		TArray<FString> Places;
+		Tests.ParseIntoArray(Places, TEXT(";"));
+		for (const FString& Place : Places)
+		{
+			TArray<FString> Values;
+			if (Place.ParseIntoArray(Values, TEXT(",")) == 3)
+			{
+				GroundTests.Add(SwcEngineToUnreal(swc::net::WorldPosition{FCString::Atof(*Values[0]), FCString::Atof(*Values[1]), FCString::Atof(*Values[2])}));
+			}
+		}
+		if (APlayerController* Controller = World.GetFirstPlayerController())
+		{
+			Controller->bEnableStreamingSource = false;   // only the source of the wait streams
+		}
 	}
 	FString Plan;
 	if (!FParse::Value(FCommandLine::Get(), TEXT("-SwcFlythrough="), Plan))

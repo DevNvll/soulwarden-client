@@ -43,6 +43,13 @@ bool SwcWorldStreaming::IsReadyAt(UWorld* World, const FVector& Location, double
 		Root->RegisterComponent();
 		Actor->SetActorLocation(Location);
 		UWorldPartitionStreamingSourceComponent* Component = NewObject<UWorldPartitionStreamingSourceComponent>(Actor, TEXT("Streaming"));
+		// Only the cells at the place: a sphere of 80 m (cells of 256 m), first in the queue. IsStreamingCompleted then
+		// waits for these cells, not for all the cells in the loading range of 1 km (the character has its own source).
+		FStreamingSourceShape Shape;
+		Shape.bUseGridLoadingRange = false;
+		Shape.Radius = 8000.0f;
+		Component->Shapes.Add(Shape);
+		Component->Priority = EStreamingSourcePriority::Highest;
 		Component->RegisterComponent();
 		Component->EnableStreamingSource();
 		Source = Actor;

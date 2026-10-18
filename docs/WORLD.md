@@ -76,6 +76,10 @@ Folders of the plugin:
   the alpha cutoff, the color factor, the base color texture, and the normal texture. The key of a record is `m_` and
   10 hex digits of the hash of its rules: two meshes with the same rules use one material. Each record is one
   `MaterialInstanceConstant` of a base material. The look is not a goal now (no specular, gloss, or emissive map).
+- Not drawn (`materials.not_drawn`): the shaders Nodraw and NoDraw (collision; both spellings are in the game data),
+  GeometryBeam (light beams, fog spheres), shadow proxies, and decals (`%DECAL`: the game draws them over another
+  surface). A mesh with nothing to draw is `empty` in the manifest (no asset, no placement). A masked material with
+  an Opacity map has that map as the alpha of its base color.
 - Static mesh: a glTF with no texture; each glTF material is a key. The pipeline `P_SwcMeshNanite` (a copy of the
   glTF pipeline of the engine) makes no material and no texture; the pipeline `SwcMaterialLinkPipeline` (C++, editor
   module) after it gives each slot the material instance `/SwcGameContent/Materials/KEY` before the build. Two rules
@@ -102,8 +106,8 @@ Asset counts (the exit check of stage 1.2):
 
 ## The incremental pipeline
 
-- Converter: `mesh.VERSION` is the rule of the static meshes (3 since stage 1.2), `materials.TEXTURE_VERSION` the
-  rule of the shared PNGs (2). The manifest entry of a mesh has the
+- Converter: `mesh.VERSION` is the rule of the static meshes (6 in stage 1.3), `materials.TEXTURE_VERSION` the rule
+  of the shared PNGs (2). The manifest entry of a mesh has the
   version and the hash of its glTF. `tools/convert.sh world NAME...` (or `--playable`, `--all`) converts only the
   meshes that are missing, have an older version, or are forced (`--force`), in 4 processes, and writes the manifest
   one time. A texture PNG exists one time for each cap. The game copy does not change.
@@ -184,9 +188,20 @@ tools/build-world.sh --import --all      # each region: import its content (tool
 - Streaming: the main runtime partition of the level has cells of 256 m and a loading range of 1,024 m. The sun, the
   sky, the sky light, and the fog are always loaded.
 - The client (`Source/SoulwardenClient/World/`): the character has a World Partition streaming source. Before the
-  spawn of the character, `SwcWorldStreaming::IsReadyAt` puts a streaming source at the place of the character and
-  waits until the cells there are loaded and a line down finds ground (at most 30 s; 3 s after the cells when there is
-  no ground). Then the player track uses that ground (no test floor), and the input reports carry the position.
+  spawn of the character, `SwcWorldStreaming::IsReadyAt` puts a streaming source at the place of the character (a
+  sphere of 80 m, the highest priority: only the cells at the place, not all the cells in the loading range of 1 km)
+  and waits until those cells are loaded and a line from 2 m above the place down 50 m finds ground. With no ground,
+  it gives up 3 s after the cells (the player code then uses its test floor); the limit is 30 s. Then the player
+  track uses that ground (no test floor), and the input reports carry the position.
+- `-SwcGroundTest=X,Y,Z;...` (engine m, no backend) runs that wait for each place and logs the time and the ground.
+  Measured with the region import beside it (2026-10-18): the place of the development character 4.6 s, ground =
+  the Landscape at 138.24 m (with the sphere of the whole loading range: more than 30 s); a region not in the level
+  yet: no ground after 3.0 s.
+- The far meshes of the game (`impostors/`, `poi_impostors/` of each region: one mesh for each cell of 128 m) are
+  groups of 512 m (`terrain.impostors`, 767 groups, 68.5 million triangles), always loaded, with the tag
+  `SwcImpostor` and no collision. The client hides a group while its center is within the loading range of the view
+  (USwcWorldSubsystem): they fill the distance where the cells are not loaded.
+- The ocean is a flat plane at 40 m with no collision.
 - `-SwcFlythrough=PLAN.json` (USwcWorldSubsystem, ASwcFlythrough): a camera flies along a path (engine points), with
   a streaming source; it logs the frame rate and the streaming each second, can write a picture every N frames, and
   ends the client with a summary line. `terrain.flythrough_plan` writes a plan from a route.
