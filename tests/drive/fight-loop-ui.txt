@@ -1,0 +1,10 @@
+# The UI drive of tests/drive/fight-loop.txt (stage P2.10): the original respawn screen after the death (about 30 s), the row
+# Random Location, and its button RESPAWN (it shows 2 s after the map); the clock of the UI drive starts at the spawn, and it
+# stays at "waitfor" until the button shows. Times in seconds from the spawn of the player.
+24 waitfor RespawnMapButtonAccept 40
+24 log the respawn screen: the row Random Location, the button RESPAWN
+25 point RespawnMapListContent 0.5 0.15
+26.5 point RespawnMapButtonAccept
+27.5 log RESPAWN
+27.5 click
+44 end

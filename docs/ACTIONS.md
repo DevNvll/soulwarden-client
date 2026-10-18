@@ -163,7 +163,7 @@ player. `Combat/SwcLife` (plain C++) has the state and the lock of the input; `U
 | State | Data | The client |
 | --- | --- | --- |
 | Death | the action Death of `playeractions_death.actionlist` (IfDead): SheatheWeapon of the main and the off hand (the tag Unarmed), DisableInteractor, DisableCameraLock, then `r_Death` with the tag Unarmed (`unarmed_death_droptokneesfaceplant`, 4.23 s) | the attack, the aim, and a timed use end; the weapons go to their sheaths at once; the fragment plays on the FullBody channel and holds its last pose; the camera lock ends; the camera state DeathCamera |
-| The give-up | the button "Respawn" of the respawn screen after the time of the notice: the request 1938 with the row "Random Location"; the client shows its loading screen before it sends | until the death screen of the UI track exists: the development key F8 (the drive command `respawn`), refused before the time of the notice |
+| The give-up | the button "Respawn" of the respawn screen after the time of the notice: the request 1938 with the row "Random Location"; the client shows its loading screen before it sends | the original respawn screen of the UI track (`lyshineui/respawn/respawn`: `LocalPlayerUIRequestsBus.RequestRespawn(random, homeId)` calls `USwcBackendSubsystem::RequestRespawn(bool, FString)`); also the development key F8 (the drive command `respawn`); each refused before the time of the notice |
 | The respawn | the server: 3746, 6709, the movement state with the next teleport number (the nearest travel place), the vitals state with the mark clear, 3954 | the pose of the death holds while the loading screen shows and while the cells of the new place load; then the character goes to the place and the action Respawn plays `Respawn` (`unarmed_crch_idle_to_idle`, 0.733 s); the input is free at its mark CanTransition (0.533 s); the full stamina |
 
 - The lock of the input: the move keys, the jump, the attack, the dodge, the aim, the weapon keys, and the sheathe key do
@@ -186,6 +186,27 @@ jump, a click, and a dodge while dead gave no movement, no attack, and no dodge 
 notice) was refused, the give-up at 10 s went out; the travel of 4,080.3 m (teleport number 2) with 3746, 6709, and 3954; the
 cells of the new place in 2.3 s to 3.0 s; the respawn fragment free at 0.56 s to 0.60 s; then a sprint, the draw, and an
 attack. The backend accepted each position report (533, 0 refused) and used no report from the old place.
+
+## Exit check of stage P2.10 (development run on the world level, 2026-10-18)
+
+The complete fight loop: `tests/drive/fight-loop.txt` with the routes `tests/drive/fight-loop-routes.txt` and the UI drive
+`tests/drive/fight-loop-ui.txt` (`tools/creature-check.sh fight-loop 70 ...`, `Swordwarden` at level 60 at 9255 4735 m, 12 m
+from the Dustmeadow Shrine). Evidence in `~/Games/soulwarden-client/evidence/P2.10/`: `fight-loop.mp4`, `fight-loop-client.log`,
+`fight-loop-backend.log`, `fight-loop-routes.txt`.
+
+- The fight: six grey wolves, two swings each: six kills (6 melee contacts, 6 accepted), five items in five bags.
+- The loot: E at two bags (0.7 m and 1.4 m): after the hold of 0.5 s the take; the bag of the character from 9 to 10 and 11
+  items; each claim Looted; the end of each use (2473).
+- The death: the dead mark and the notice 3950 (5 s); `r_Death`; the original respawn screen with the world map and the row
+  "Random Location"; the button RESPAWN (it shows 2 s after the map); the request 1938; the travel of 10 m to the shrine; the
+  respawn fragment free at 0.54 s.
+- The continued play: a sprint and an attack chain at the shrine. The backend accepted each position report of the session
+  (1,837, 0 refused).
+- The nearest travel place of the first place of the check (8872 4250 m) is the Inn of Oxboro: the respawn there is in the inn,
+  and the simple building collision of the world level keeps the character in the state Fall (a known defect of the world
+  track). The place of the check has a shrine as its nearest travel place.
+- Note for a route script: a creature with 1 health gives no credit for its kill (no loot), and a creature that ignores the
+  character takes no death from a hit; the check uses 100 health and fighting creatures.
 
 ## The tests
 

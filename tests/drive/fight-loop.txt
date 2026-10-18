@@ -1,0 +1,52 @@
+# The exit check of stage P2.10 (the complete fight loop, docs/ACTIONS.md, docs/INTERACTIONS.md) with the routes of
+# tests/drive/fight-loop-routes.txt and the UI drive tests/drive/fight-loop-ui.txt: the camera to the east and down, the draw,
+# two swings for each of six grey wolves (each kill rolls loot; a roll can give no item), the key E two times at their
+# bags (the take), then a seventh wolf kills the character (the routes lower its health first; no swing at it); the respawn screen of the UI and its button Respawn (the UI drive); the respawn at the
+# nearest travel place; a run and an attack after it. The "tick" lines are the clock marks of the route script. Times in
+# seconds from the possession of the character; turn: degrees each second.
+# SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=9255:4735:140 SWC_STAGE=P2.10 tools/creature-check.sh fight-loop 70 \
+#   tests/drive/fight-loop-routes.txt tests/drive/fight-loop.txt -- -SwcUiDrive=$PWD/tests/drive/fight-loop-ui.txt
+1.0 turn 90
+2.0 turn 0
+2.5 key 1
+3.0 tick
+3.2 pitch -25
+4.0 tick
+4.2 pitch 0
+4.5 tick
+5.0 click
+6.0 click
+7.0 tick
+7.5 tick
+8.0 click
+9.0 click
+10.0 tick
+10.5 tick
+11.0 click
+12.0 click
+13.0 tick
+13.5 tick
+14.0 click
+15.0 click
+16.0 tick
+16.5 tick
+17.0 click
+18.0 click
+19.0 tick
+19.5 tick
+20.0 click
+21.0 click
+22.0 tick
+23.0 interact 1
+24.0 interact 0
+25.5 interact 1
+26.5 interact 0
+29.0 tick
+30.0 tick
+33.0 tick
+37.0 tick
+58.0 move 0 1
+60.0 move 0 0
+61.0 key 1
+62.0 click
+63.5 click

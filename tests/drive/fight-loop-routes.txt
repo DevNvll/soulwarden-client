@@ -1,0 +1,26 @@
+# The development routes of the exit check of stage P2.10 (tools/creature-check.sh, tools/lib/dev_world.py): level 60 (health
+# 3,806), the full health, each kill rolls loot (a roll can still give no item). The loot phase: six grey wolves 2 m to the
+# east with 100 health each, one each 3 s (a swing of 109 kills; with 1 health a kill gives no credit, and a wolf that ignores the character does not die). The death phase:
+# a seventh wolf fights the character (its health route), the health of the character goes to 46 (two bites of 30.5); at 37 s a
+# last damage kills it if no bite came (409 when it is dead). Times on the clock of the drive script tests/drive/fight-loop.txt;
+# offsets in m east, north; yaw: 0 north, 90 west.
+1 level 60
+2 heal
+3 ignore off
+3 loot on
+4 spawn Wolf_Grey_7 2 0 0 --yaw 90
+4.5 health $1 100
+7 spawn Wolf_Grey_7 2 0.3 0 --yaw 90
+7.5 health $2 100
+10 spawn Wolf_Grey_7 2 -0.3 0 --yaw 90
+10.5 health $3 100
+13 spawn Wolf_Grey_7 2 0 0 --yaw 90
+13.5 health $4 100
+16 spawn Wolf_Grey_7 2 0.3 0 --yaw 90
+16.5 health $5 100
+19 spawn Wolf_Grey_7 2 -0.3 0 --yaw 90
+19.5 health $6 100
+29 spawn Wolf_Grey_7 3 0 0 --yaw 90
+30 health $7 1000
+30 hurt 3760
+37 hurt 1000
