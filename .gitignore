@@ -11,6 +11,8 @@ unreal/SoulwardenClient/.idea/
 unreal/SoulwardenClient/compile_commands.json
 # Assets made from the game copy: never in git
 unreal/SoulwardenClient/Content/Imported/
+# The link to the shared content plugin (tools/content-link.sh)
+unreal/SoulwardenClient/Plugins/SwcGameContent
 # Python
 __pycache__/
 *.pyc

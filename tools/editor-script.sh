@@ -11,6 +11,7 @@ script="${1:?usage: tools/editor-script.sh SCRIPT.py [--render]}"
 [[ "${script}" == */* ]] || script="${SWC_REPO}/unreal/SoulwardenClient/Scripts/${script}"
 rhi=(-nullrhi)
 [[ "${2:-}" == "--render" ]] && rhi=(-AllowCommandletRendering -RenderOffscreen -NoTextureStreaming)
+"${SWC_REPO}/tools/content-link.sh"
 mkdir -p "${SWC_WORK}/logs"
 log="${SWC_WORK}/logs/$(basename "${script}" .py).log"
 status=0

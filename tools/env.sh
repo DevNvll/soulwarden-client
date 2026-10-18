@@ -4,6 +4,8 @@
 : "${SWC_REPO:=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 : "${SWC_WORK:=${HOME}/Games/soulwarden-client}"              # work folder, outside the repository
 : "${SWC_CONTENT:=${SWC_WORK}/content}"                          # converted content (made from the game copy)
+# The imported Unreal content: one content plugin outside the repository for all checkouts (tools/content-link.sh).
+: "${SWC_GAME_CONTENT:=${SWC_WORK}/unreal/SwcGameContent}"
 : "${SOULWARDEN_REPO:=${HOME}/Developer/azoth}"                  # the Soulwarden repository (the backend)
 : "${SOULWARDEN_GAME_DIR:=${HOME}/Games/soulwarden/game}"        # the game copy of the user (read only)
 : "${UE_ROOT:=${HOME}/Applications/UnrealEngine-5.8.0}"
@@ -21,7 +23,7 @@
 : "${SWC_CLIENT_EXE:=${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor}"       # the client window (game mode)
 : "${SWC_CLIENT_CMD:=${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor-Cmd}"   # the client with no window (-nullrhi)
 SWC_UPROJECT="${SWC_REPO}/unreal/SoulwardenClient/SoulwardenClient.uproject"
-export SWC_REPO SWC_WORK SWC_CONTENT SOULWARDEN_REPO SOULWARDEN_GAME_DIR UE_ROOT SOULWARDEN_OODLE_LIB \
+export SWC_REPO SWC_WORK SWC_CONTENT SWC_GAME_CONTENT SOULWARDEN_REPO SOULWARDEN_GAME_DIR UE_ROOT SOULWARDEN_OODLE_LIB \
     SWC_BACKEND_DIR SWC_BACKEND_EXE SWC_GAMEDATA_DIR SWC_PLAYER_DATA SWC_DEV_DATA SOULWARDEN_RELEASES SWC_STEAM_DIR \
     SWC_HTTP_PORT SWC_CLIENT_EXE SWC_CLIENT_CMD SWC_UPROJECT
 export PYTHONDONTWRITEBYTECODE=1
