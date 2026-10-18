@@ -15,6 +15,9 @@ Writes SWC_CONTENT/player/actions.json (tools/convert-player.sh actions):
   rotation offsets and the flags of their CAGE-Damage items (the backend file has no rotation); weaponJoints: the joints of
   the weapon skeletons of the melee weapons (the frames of the shapes of the weapon).
 - blendSpaces: the blend spaces of the layers.
+- ranged (stage P3.6, ranged.py): for the bow, the fire staff, and the life staff, the actions, the fragments with their timed
+  items, the abilities, and the named conditions of the action lists; the shared part: the shot rules with their flight, the
+  weapon profiles, and the spells of the spell tables.
 - the abilities of each melee weapon (stage P3.5): the ability id and its CRC-32 (the id on the bar), the fragment, the
   selections, the casts, and the cooldown (ability-data.json of the backend copy); the shots: each cast of a projectile spell
   at a named mark (CastingTypes Projectile of the spell tables), with the CRC-32 of its RangedAttackName (the value "attack"
@@ -33,7 +36,7 @@ import zlib
 from pathlib import Path
 
 from . import anim, cgf, datasheet, source
-from . import gather_actions, player
+from . import gather_actions, player, ranged
 
 ADB_FOLDER = "animations/mannequin/adb/player/"
 ATTACK_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_attack.actionlist"
@@ -313,6 +316,7 @@ def actions() -> dict:
     # The cooldowns of the abilities (ability-data.json of the backend copy: [AbilityID, Time, MinTime]; stage P3.5).
     cooldowns = {row[0].lower(): row for row in json.loads((gamedata_dir() / "ability-data.json").read_text())["cooldowns"]}
     projectiles = projectile_spells()
+    mana_costs = {row[0].lower(): row[1] for row in json.loads((gamedata_dir() / "ability-data.json").read_text())["manaCosts"]}
     cafs, space_files = player.stem_index(".caf"), player.stem_index(".bspace")
     spaces_lower = {name.lower(): paths for name, paths in space_files.items()}
     skeleton = player.Skeleton("Male")
@@ -420,6 +424,10 @@ def actions() -> dict:
                 else:
                     missing.append(f"{key}: {fragment['name']}")
                 out["graph"].append(item)
+        # The ranged and magic actions (stage P3.6, ranged.py): the bow, the fire staff, and the life staff.
+        if key.lower() in {k.lower() for k in ranged.RANGED_SETS}:
+            ranged_key = next(k for k in ranged.RANGED_SETS if k.lower() == key.lower())
+            out["ranged"] = ranged.weapon(ranged_key, tags, record, find_fragment, tag_set, adb_chain, mana_costs, cooldowns)
         weapons.append(out)
     # The unarmed set: no stance (the fragments of locomotion.json), the dodge of player.adb, the death and the respawn.
     life = {}
@@ -440,6 +448,14 @@ def actions() -> dict:
             clips[name] = clip_info(player.pick(cafs[name]), skeleton, name in root_clips)
         except Exception as error:   # a clip that does not read: the client plays no clip for it
             clips[name] = {"error": str(error)[:120]}
+    ranged.finish([w["ranged"] for w in weapons if "ranged" in w], fragments, clips)
+    # The ammunition key of the shot items of each ranged tag set: the fallback of the AmmoType of the weapon rows of its profile
+    # (projectile-data.json "weapons"; DefaultArrow for a bow, none for a magic weapon).
+    ranged_weapons = ranged.flights(json.loads((gamedata_dir() / "projectile-data.json").read_text()))["weapons"]
+    for w in weapons:
+        if "ranged" in w:
+            profile = w["ranged"]["profile"]
+            w["ranged"]["ammo"] = next((r["ammo"] for r in ranged_weapons.values() if r["profile"] == profile and r["ammo"]), "")
     acts, conditions = activities()
     graph_tags = {",".join(w["tags"]).lower() for w in weapons if w.get("graph")}
     models = {item["model"] for item in weapons_doc["items"].values() if item.get("model") and item.get("tag", "").lower() in graph_tags}
@@ -452,7 +468,11 @@ def actions() -> dict:
                                     datasheet.TABLES_FOLDER + "javelindata_spelltable_*", str(gamedata_dir() / "weapon-actions.json"), str(gamedata_dir() / "ability-data.json"),
                                     str(gamedata_dir() / "stamina-data.json"), str(gamedata_dir() / "perk-data.json")],
            "weapons": weapons, "fragments": fragments, "blendSpaces": blend_spaces, "clips": clips,
-           "activities": acts, "conditions": conditions, "weaponJoints": weapon_joints(models), "stamina": stamina}
+           "activities": acts, "conditions": conditions, "weaponJoints": weapon_joints(models), "stamina": stamina,
+           "ranged": {**ranged.flights(json.loads((gamedata_dir() / "projectile-data.json").read_text())),
+                      "manaCosts": {name: value for name, value in mana_costs.items()},
+                      "spells": {name: row for name, row in ranged.spells().items()
+                                 if name in ranged.spells_of([w["ranged"] for w in weapons if "ranged" in w])}}}
     out = player.player_dir() / "actions.json"
     out.write_text(json.dumps(doc, indent=1, sort_keys=True))
     return {"actions": str(out), "weapon tag sets": len(weapons), "fragments": len(fragments), "blend spaces": len(blend_spaces),

@@ -852,7 +852,7 @@ def clip_key(tags: list[str]) -> str:
 
 
 def clip_pack(gender: str, tag_text: str, force: bool = False, doc: dict | None = None) -> dict:
-    """Converts the clips of one weapon tag set of actions.json (its stance, off-hand, draw, sheathe, and attack
+    """Converts the clips of one weapon tag set of actions.json (its stance, off-hand, draw, sheathe, attack, and ranged
     fragments, with the clips of their blend spaces) into clips/<gender>/<key>/clips.gltf: the skeleton of the gender
     and one animation for each clip, the root bone locked (the client moves the character with the root track of
     actions.json: AnimationDrivenMotion). Unreal imports the animations onto the skeleton of the base."""
@@ -873,6 +873,8 @@ def clip_pack(gender: str, tag_text: str, force: bool = False, doc: dict | None 
     fragment_keys += list(entry.get("life", {}).values()) + list(entry.get("use", {}).values())
     fragment_keys += [entry[kind] for kind in ("draw", "sheathe") if kind in entry]
     fragment_keys += [item["fragment"] for item in entry.get("graph", []) if "fragment" in item]
+    # The ranged and magic actions (stage P3.6): each variant of the fragments of the ranged program.
+    fragment_keys += [variant["fragment"] for variants in entry.get("ranged", {}).get("fragments", {}).values() for variant in variants]
     names = set()
     for fragment_key in fragment_keys:
         for layer in actions_doc["fragments"][fragment_key]["layers"]:
