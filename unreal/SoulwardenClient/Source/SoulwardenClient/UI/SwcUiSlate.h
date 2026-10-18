@@ -8,6 +8,8 @@
 
 #include "SwcUi/Draw.h"
 
+class UMaterialInstanceDynamic;
+class UMaterialInterface;
 class UTexture2D;
 struct FStandaloneCompositeFont;
 
@@ -26,6 +28,14 @@ public:
 
 	/** @return The brush of a PNG file, or null when the file does not load (one log line). */
 	const FSlateBrush* Brush(const std::string& File);
+	/**
+	 * @return The brush of an image under a sprite mask (only with -SwcUiMaskMaterial; open point O11 of docs/UI.md): a
+	 * dynamic instance of the UI mask material
+	 * (/SwcGameContent/SwcUi/M_SwcUiMasked, Scripts/ui_materials.py) with the texture (empty: white), the mask texture,
+	 * and the alpha test. Null when the material or a texture does not load (then the image draws with no mask), or
+	 * with bOutWait while a texture is new (then the item does not draw in this frame).
+	 */
+	const FSlateBrush* MaskedBrush(const std::string& File, const std::string& MaskFile, float AlphaTest, bool bAdditive, bool& bOutWait);
 	/** @return The font of a font file at a size in canvas pixels. */
 	FSlateFontInfo Font(const std::string& File, float PixelSize, float LetterSpacing);
 
@@ -41,9 +51,23 @@ private:
 	{
 		TStrongObjectPtr<UTexture2D> Texture;
 		TSharedPtr<FSlateBrush> Brush;
+		double LoadTime = 0.0;
 	};
+	struct FMasked
+	{
+		TStrongObjectPtr<UMaterialInstanceDynamic> Material;
+		TSharedPtr<FSlateBrush> Brush;
+	};
+	UTexture2D* MaterialTexture(const std::string& File);
+	double LoadTime(const std::string& File) const;
+	UMaterialInterface* MaskMaterial(bool bAdditive);
+
 	TMap<FString, FTexture> Textures;
 	TSet<FString> FailedTextures;
+	TMap<FString, FMasked> Masked;
+	TMap<FString, FTexture> MaterialTextures;
+	TStrongObjectPtr<UMaterialInterface> MaskMaterials[2];
+	bool bMaskMaterialFailed[2] = {false, false};
 	TMap<FString, TSharedPtr<FStandaloneCompositeFont>> Fonts;
 };
 

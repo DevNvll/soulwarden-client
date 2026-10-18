@@ -20,6 +20,8 @@ struct Vertex {
     float u{0.0F};
     float v{0.0F};
     std::uint32_t rgba{0xFFFFFFFFU};   // 8-bit sRGB values and straight alpha: R in the high byte
+    float mu{0.0F};   // the place in the texture of a sprite mask (an item with maskTexture)
+    float mv{0.0F};
 };
 
 struct DrawItem {
@@ -31,6 +33,10 @@ struct DrawItem {
     int blend{kBlendNormal};
     std::vector<Vertex> vertices;
     std::vector<std::uint16_t> indices;
+    // A sprite mask over the mesh (the innermost one): its texture multiplies the alpha at the mask UV of each vertex;
+    // an alpha test (the mask option UseAlphaTest) keeps only the points over the threshold.
+    std::string maskTexture;
+    float maskAlphaTest{0.0F};
     // text: one line of one pass
     std::string fontFile;
     float fontSize{0.0F};        // the em size of the glyphs in canvas units (0.8 of the LyShine size)

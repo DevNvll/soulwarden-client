@@ -44,28 +44,189 @@ public:
         m_item.indices.insert(m_item.indices.end(), {ia, ib, ic});
     }
 
-    /** A quad with the fill of the image (linear or radial), or the full quad. */
+    /** A convex polygon (a fan of triangles). */
+    void polygon(const std::vector<Point>& poly) {
+        if (poly.size() < 3) {
+            return;
+        }
+        std::vector<std::uint16_t> ids;
+        ids.reserve(poly.size());
+        for (const Point& p : poly) {
+            ids.push_back(add(p));
+        }
+        for (std::size_t i = 1; i + 1 < ids.size(); ++i) {
+            m_item.indices.insert(m_item.indices.end(), {ids[0], ids[i], ids[i + 1]});
+        }
+    }
+
+    /** A quad with the fill of the image, or the full quad (O3DE UiImageComponent RenderFilledQuad). */
     void filled_quad(const Point q[4], const ImageData& image) {
-        if (image.fillType == kFillLinear) {
-            linear(q, image);
-        } else if (image.fillType == kFillRadial || image.fillType == kFillRadialCorner || image.fillType == kFillRadialEdge) {
-            radial(q, image);
-        } else {
+        const float amount = std::clamp(image.fillAmount, 0.0F, 1.0F);
+        switch (image.fillType) {
+        case kFillNone:
             quad(q);
+            break;
+        case kFillLinear:
+            if (amount > 0.0F) {
+                linear(q, image.fillEdgeOrigin, amount);
+            }
+            break;
+        case kFillRadial:
+            if (amount > 0.0F) {
+                radial(q, image, amount);
+            }
+            break;
+        case kFillRadialCorner:
+            if (amount > 0.0F) {
+                radial_corner(q, image, amount);
+            }
+            break;
+        case kFillRadialEdge:
+            if (amount > 0.0F) {
+                radial_edge(q, image, amount);
+            }
+            break;
+        default:
+            quad(q);
+            break;
+        }
+    }
+
+    /** A sliced image (the 9 quads of the slice values) with the fill of the image. A linear fill moves the slice
+     *  values; a radial fill clips the quads by lines from the center (an angle, not a fraction of the border as on a
+     *  single quad); a corner or edge fill clips them by one line from its origin (O3DE RenderSlicedLinearFilledSprite,
+     *  ClipAndRenderForSlicedRadialFill, ClipAndRenderForSlicedRadialCornerOrEdgeFill). The lines are in canvas space:
+     *  the same angles as O3DE (viewport space) unless the element has a scale that is not uniform. */
+    void sliced(float xs[4], float ys[4], float us[4], float vs[4], const ImageData& image) {
+        const float amount = std::clamp(image.fillAmount, 0.0F, 1.0F);
+        if (image.fillType != kFillNone && amount <= 0.0F) {
+            return;
+        }
+        if (image.fillType == kFillLinear) {
+            const int origin = std::clamp(image.fillEdgeOrigin, 0, 3);
+            clip_values(origin == 0 || origin == 2 ? xs : ys, origin == 0 || origin == 2 ? us : vs, origin >= 2, amount);
+        }
+        std::vector<std::vector<Point>> quads;
+        for (int row = 0; row < 3; ++row) {
+            for (int col = 0; col < 3; ++col) {
+                if (row == 1 && col == 1 && !image.fillCenter) {
+                    continue;
+                }
+                if (xs[col + 1] <= xs[col] || ys[row + 1] <= ys[row]) {
+                    continue;
+                }
+                quads.push_back({{{xs[col], ys[row]}, {us[col], vs[row]}},
+                                 {{xs[col + 1], ys[row]}, {us[col + 1], vs[row]}},
+                                 {{xs[col + 1], ys[row + 1]}, {us[col + 1], vs[row + 1]}},
+                                 {{xs[col], ys[row + 1]}, {us[col], vs[row + 1]}}});
+            }
+        }
+        const Vec2 corners[4] = {{xs[0], ys[0]}, {xs[3], ys[0]}, {xs[3], ys[3]}, {xs[0], ys[3]}};
+        const float sign = image.fillClockwise ? 1.0F : -1.0F;
+        if (image.fillType == kFillRadial) {
+            const Vec2 center{(xs[0] + xs[3]) * 0.5F, (ys[0] + ys[3]) * 0.5F};
+            const Vec2 up{0.0F, (ys[0] - ys[3]) * 0.5F};
+            const float start = image.fillStartAngle * kPi / 180.0F;
+            // Clockwise: the first half is on the right of the line to the start; counter-clockwise the lines turn.
+            const Vec2 first = offset(center, rotate(scale(up, -sign), start));
+            const Vec2 second = offset(center, rotate(scale(up, sign), start));
+            const Vec2 moving = offset(center, rotate(scale(up, sign), start + sign * 2.0F * kPi * amount));
+            for (const std::vector<Point>& q : quads) {
+                if (amount < 0.5F) {
+                    polygon(clip(clip(q, center, first), center, moving));
+                } else {
+                    polygon(clip(q, center, first));
+                    polygon(clip(clip(q, center, second), center, moving));
+                }
+            }
+        } else if (image.fillType == kFillRadialCorner || image.fillType == kFillRadialEdge) {
+            // The origin corner and the next corner clockwise: corner top left / edge top, then each quarter turn.
+            const int which = image.fillType == kFillRadialCorner ? std::clamp(image.fillCornerOrigin, 0, 3)
+                                                                  : (std::clamp(image.fillEdgeOrigin, 0, 3) + 3) % 4;
+            const Vec2 from = corners[which];
+            const Vec2 to = corners[(which + 1) % 4];
+            const Vec2 origin = image.fillType == kFillRadialEdge ? Vec2{(from.x + to.x) * 0.5F, (from.y + to.y) * 0.5F} : from;
+            const float sweep = image.fillType == kFillRadialCorner ? kPi * 0.5F : kPi;
+            const Vec2 along{(to.x - from.x) * sign, (to.y - from.y) * sign};
+            const float angle = image.fillClockwise ? sweep * amount : sweep * (1.0F - amount);
+            const Vec2 end = offset(origin, rotate(along, angle));
+            for (const std::vector<Point>& q : quads) {
+                polygon(clip(q, origin, end));
+            }
+        } else {
+            for (const std::vector<Point>& q : quads) {
+                polygon(q);
+            }
         }
     }
 
 private:
-    void linear(const Point q[4], const ImageData& image) {
+    static constexpr float kPi = 3.14159265358979F;
+
+    static Vec2 rotate(Vec2 v, float angle) {
+        // Positive angles turn clockwise on the screen (y goes down).
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+        return {v.x * c - v.y * s, v.x * s + v.y * c};
+    }
+    static Vec2 scale(Vec2 v, float k) { return {v.x * k, v.y * k}; }
+    static Vec2 offset(Vec2 a, Vec2 b) { return {a.x + b.x, a.y + b.y}; }
+
+    /** The part of a convex polygon on one side of a line (O3DE ClipToLine keeps cross(line, point - origin) <= 0). */
+    static std::vector<Point> clip(const std::vector<Point>& poly, Vec2 origin, Vec2 end) {
+        const Vec2 d{end.x - origin.x, end.y - origin.y};
+        const auto side = [&](const Point& p) { return d.x * (p.position.y - origin.y) - d.y * (p.position.x - origin.x); };
+        constexpr float kEpsilon = 0.001F;
+        std::vector<Point> out;
+        for (std::size_t i = 0; i < poly.size(); ++i) {
+            const Point& a = poly[(i + poly.size() - 1) % poly.size()];
+            const Point& b = poly[i];
+            const float sa = side(a);
+            const float sb = side(b);
+            const bool inA = sa < kEpsilon;
+            const bool inB = sb < kEpsilon;
+            if (inA != inB && std::fabs(sa - sb) > 1e-9F) {
+                out.push_back(lerp(a, b, sa / (sa - sb)));
+            }
+            if (inB) {
+                out.push_back(b);
+            }
+        }
+        return out;
+    }
+
+    /** The slice values of a linear fill: the value at the amount (of the full length) and all values after it
+     *  clamped to it (O3DE ClipValuesForSlicedLinearFill). */
+    static void clip_values(float positions[4], float uvs[4], bool reverse, float amount) {
+        const int first = reverse ? 3 : 0;
+        const int step = reverse ? -1 : 1;
+        const float total = positions[first + 3 * step] - positions[first];
+        float previousPercentage = 0.0F;
+        int previous = first;
+        int clamp = -1;
+        for (int k = 1; k < 4; ++k) {
+            const int current = first + k * step;
+            const float percentage = total != 0.0F ? (positions[current] - positions[first]) / total : 1.0F;
+            if (clamp != -1) {
+                positions[current] = positions[clamp];
+                uvs[current] = uvs[clamp];
+            } else if (percentage > amount) {
+                const float t = (amount - previousPercentage) / (percentage - previousPercentage);
+                positions[current] = positions[previous] + t * (positions[current] - positions[previous]);
+                uvs[current] = uvs[previous] + t * (uvs[current] - uvs[previous]);
+                clamp = current;
+            }
+            previousPercentage = percentage;
+            previous = current;
+        }
+    }
+
+    void linear(const Point q[4], int edgeOrigin, float amount) {
         // The vertices turn with the origin edge (0 left, 1 top, 2 right, 3 bottom); the far edge moves with the amount.
-        const int offset = std::clamp(image.fillEdgeOrigin, 0, 3);
+        const int offset = std::clamp(edgeOrigin, 0, 3);
         Point v[4];
         for (int i = 0; i < 4; ++i) {
             v[i] = q[(i + offset) % 4];
-        }
-        const float amount = std::clamp(image.fillAmount, 0.0F, 1.0F);
-        if (amount <= 0.0F) {
-            return;
         }
         v[1] = lerp(v[0], v[1], amount);
         v[2] = lerp(v[3], v[2], amount);
@@ -90,11 +251,7 @@ private:
         return top;
     }
 
-    void radial(const Point q[4], const ImageData& image) {
-        const float amount = std::clamp(image.fillAmount, 0.0F, 1.0F);
-        if (amount <= 0.0F) {
-            return;
-        }
+    void radial(const Point q[4], const ImageData& image, float amount) {
         const Point center = lerp(lerp(q[0], q[1], 0.5F), lerp(q[3], q[2], 0.5F), 0.5F);
         const float start = std::fmod(image.fillStartAngle, 360.0F) / 360.0F;
         const float direction = image.fillClockwise ? 1.0F : -1.0F;
@@ -114,6 +271,50 @@ private:
         }
     }
 
+    /** A fill that turns about a corner (0 top left, then clockwise): two triangles, the moving point goes along the
+     *  far edges (O3DE RenderRadialCornerFilledQuad). Clockwise it starts at the edge from the corner to the next
+     *  corner clockwise. */
+    void radial_corner(const Point q[4], const ImageData& image, float amount) {
+        const int offset = std::clamp(image.fillCornerOrigin, 0, 3);
+        Point v[4];
+        for (int i = 0; i < 4; ++i) {
+            v[i] = q[(i + offset) % 4];
+        }
+        const bool second = amount >= 0.5F;
+        const float s = (amount - (second ? 0.5F : 0.0F)) * 2.0F;
+        if (image.fillClockwise) {
+            triangle(v[0], v[1], second ? v[2] : lerp(v[1], v[2], s));
+            if (second) {
+                triangle(v[0], v[2], lerp(v[2], v[3], s));
+            }
+        } else {
+            triangle(v[0], v[3], second ? v[2] : lerp(v[3], v[2], s));
+            if (second) {
+                triangle(v[0], v[2], lerp(v[2], v[1], s));
+            }
+        }
+    }
+
+    /** A fill that turns about the middle of an edge (0 left, 1 top, 2 right, 3 bottom): three triangles, the moving
+     *  point goes along the other edges (O3DE RenderRadialEdgeFilledQuad). */
+    void radial_edge(const Point q[4], const ImageData& image, float amount) {
+        const int offset = std::clamp(image.fillEdgeOrigin, 0, 3);
+        Point v[5];
+        v[0] = lerp(q[offset], q[(offset + 3) % 4], 0.5F);
+        for (int i = 1; i < 5; ++i) {
+            v[i] = q[(i - 1 + offset) % 4];
+        }
+        const int segment = std::min(static_cast<int>(amount * 3.0F), 2);
+        const float s = (amount - 0.3333F * static_cast<float>(segment)) * 3.0F;
+        for (int k = 0; k <= segment; ++k) {
+            if (image.fillClockwise) {
+                triangle(v[0], v[k + 1], k == segment ? lerp(v[k + 1], v[k + 2], s) : v[k + 2]);
+            } else {
+                triangle(v[0], v[4 - k], k == segment ? lerp(v[4 - k], v[3 - k], s) : v[3 - k]);
+            }
+        }
+    }
+
     DrawItem& m_item;
     Affine m_transform;
     std::uint32_t m_color;
@@ -123,6 +324,35 @@ struct Walker {
     Model& model;
     TextMeasure& measure;
     DrawList& out;
+
+    /** A sprite mask that clips its children by the alpha of its texture (the mask element or its child mask element). */
+    struct SpriteMask {
+        std::string file;
+        Affine toRect;    // viewport -> the canvas space of the rect of the mask element
+        Edges rect;
+        Edges uv;         // the part of the texture (a cell of a sprite sheet, else all)
+        float alphaTest{0.0F};
+    };
+    std::vector<SpriteMask> masks;
+
+    /** The mask UVs of the vertices of an item inside a sprite mask. */
+    void apply_mask(DrawItem& item) const {
+        if (masks.empty() || item.kind != DrawItem::Kind::mesh) {
+            return;
+        }
+        const SpriteMask& m = masks.back();
+        item.maskTexture = m.file;
+        item.maskAlphaTest = m.alphaTest;
+        const float w = m.rect.right - m.rect.left;
+        const float h = m.rect.bottom - m.rect.top;
+        for (Vertex& v : item.vertices) {
+            const Vec2 p = m.toRect.apply({v.x, v.y});
+            const float fx = w > 0.0F ? (p.x - m.rect.left) / w : 0.0F;
+            const float fy = h > 0.0F ? (p.y - m.rect.top) / h : 0.0F;
+            v.mu = m.uv.left + fx * (m.uv.right - m.uv.left);
+            v.mv = m.uv.top + fy * (m.uv.bottom - m.uv.top);
+        }
+    }
 
     void image(const Element& e, const ImageData& image, float alpha, const std::string& overrideSprite = std::string(), int overrideIndex = -1) {
         // A state action sprite wins over the sprite (a flipbook frame gives its own sprite and index).
@@ -202,33 +432,13 @@ struct Walker {
                 tb *= k;
                 bb *= k;
             }
-            const float xs[4] = {r.left, r.left + lb * textureSize.x, r.right - rb * textureSize.x, r.right};
-            const float ys[4] = {r.top, r.top + tb * textureSize.y, r.bottom - bb * textureSize.y, r.bottom};
+            float xs[4] = {r.left, r.left + lb * textureSize.x, r.right - rb * textureSize.x, r.right};
+            float ys[4] = {r.top, r.top + tb * textureSize.y, r.bottom - bb * textureSize.y, r.bottom};
             const float uw = uv.right - uv.left;
             const float vh = uv.bottom - uv.top;
-            const float us[4] = {uv.left, uv.left + borders.left * uw, uv.left + borders.right * uw, uv.right};
-            const float vs[4] = {uv.top, uv.top + borders.top * vh, uv.top + borders.bottom * vh, uv.bottom};
-            if (image.fillType != kFillNone) {
-                // A filled sliced image: the fill cuts the whole rect (an approximation of the clip of each slice).
-                rect_points(r, q);
-                mesh.filled_quad(q, image);
-                break;
-            }
-            for (int row = 0; row < 3; ++row) {
-                for (int col = 0; col < 3; ++col) {
-                    if (row == 1 && col == 1 && !image.fillCenter) {
-                        continue;
-                    }
-                    if (xs[col + 1] <= xs[col] || ys[row + 1] <= ys[row]) {
-                        continue;
-                    }
-                    Point s[4] = {{{xs[col], ys[row]}, {us[col], vs[row]}},
-                                  {{xs[col + 1], ys[row]}, {us[col + 1], vs[row]}},
-                                  {{xs[col + 1], ys[row + 1]}, {us[col + 1], vs[row + 1]}},
-                                  {{xs[col], ys[row + 1]}, {us[col], vs[row + 1]}}};
-                    mesh.quad(s);
-                }
-            }
+            float us[4] = {uv.left, uv.left + borders.left * uw, uv.left + borders.right * uw, uv.right};
+            float vs[4] = {uv.top, uv.top + borders.top * vh, uv.top + borders.bottom * vh, uv.bottom};
+            mesh.sliced(xs, ys, us, vs, image);
             break;
         }
         case kImageFixed:
@@ -290,6 +500,7 @@ struct Walker {
         }
         if (!item.indices.empty()) {
             ++out.meshes;
+            apply_mask(item);
             out.items.push_back(std::move(item));
         }
     }
@@ -432,6 +643,7 @@ struct Walker {
         }
         item.indices = {0, 1, 2, 0, 2, 3};
         ++out.meshes;
+        apply_mask(item);
         out.items.push_back(std::move(item));
     }
 
@@ -472,15 +684,33 @@ struct Walker {
         } else if (e->mask->drawBehind) {
             own();
         }
+        bool spriteMask = false;
         if (masking) {
-            // The mask element (or its child mask element) clips the children: a quad clip. A sprite mask (an alpha
-            // shape) is not exact here (docs/UI.md).
+            // The mask element (or its child mask element) clips the children: a quad clip; with a sprite, the images of
+            // the children also take the alpha of the sprite (the mask UVs of their vertices; texts keep the quad).
             DrawItem push;
             push.kind = DrawItem::Kind::push_clip;
             push.element = id;
             const Id shape = (e->mask->childMask != kNoId && model.element(e->mask->childMask) != nullptr) ? e->mask->childMask : id;
             model.viewport_points(shape, push.quad);
             out.items.push_back(push);
+            const Element* s = model.element(shape);
+            if (s != nullptr && s->image && !s->image->sprite.empty()) {
+                const Sprite& sprite = model.sprite(s->image->sprite);
+                if (sprite.converted) {
+                    SpriteMask m;
+                    m.file = sprite.file;
+                    m.toRect = model.to_viewport(shape).inverse();
+                    m.rect = model.rect(shape);
+                    m.uv = {0.0F, 0.0F, 1.0F, 1.0F};
+                    if (!sprite.cells.empty()) {
+                        m.uv = sprite.cells[static_cast<std::size_t>(std::clamp(s->image->index, 0, static_cast<int>(sprite.cells.size()) - 1))].uv;
+                    }
+                    m.alphaTest = e->mask->alphaTest ? 0.5F : 0.0F;
+                    masks.push_back(m);
+                    spriteMask = true;
+                }
+            }
         }
         std::vector<Id> children = e->children;
         if (e->childrenSortable) {
@@ -495,6 +725,9 @@ struct Walker {
                 continue;   // the child mask element is the shape, not a visual
             }
             element(child, alpha);
+        }
+        if (spriteMask) {
+            masks.pop_back();
         }
         if (masking) {
             DrawItem pop;
@@ -550,7 +783,16 @@ std::string draw_list_json(const DrawList& list) {
         first = false;
         switch (item.kind) {
         case DrawItem::Kind::mesh: {
-            out += "{\"k\":\"mesh\",\"tex\":" + json::quote(item.texture) + ",\"blend\":" + std::to_string(item.blend) + ",\"v\":[";
+            out += "{\"k\":\"mesh\",\"tex\":" + json::quote(item.texture) + ",\"blend\":" + std::to_string(item.blend);
+            if (!item.maskTexture.empty()) {
+                out += ",\"mask\":" + json::quote(item.maskTexture) + ",\"at\":" + std::to_string(item.maskAlphaTest) + ",\"m\":[";
+                for (std::size_t i = 0; i < item.vertices.size(); ++i) {
+                    std::snprintf(buffer, sizeof(buffer), "%s%.4f,%.4f", i == 0 ? "" : ",", item.vertices[i].mu, item.vertices[i].mv);
+                    out += buffer;
+                }
+                out += "]";
+            }
+            out += ",\"v\":[";
             for (std::size_t i = 0; i < item.vertices.size(); ++i) {
                 const Vertex& vx = item.vertices[i];
                 std::snprintf(buffer, sizeof(buffer), "%s%.2f,%.2f,%.4f,%.4f,%u", i == 0 ? "" : ",", vx.x, vx.y, vx.u, vx.v, vx.rgba);

@@ -12,6 +12,7 @@ Usage (tools/convert-ui.sh; output in SWC_CONTENT/ui, never in git):
   text                    the English texts (localization/en-us/*.loc.xml) -> localization/en-us.json
   gamedata                the game data of the HUD (data tables): gamedata/abilities.json, gamedata/weapons.json
   enums                   the enum values of the client for the names that the scripts read -> gamedata/enums.json
+  loader                  the canvases that the two loaders of the game name -> gamedata/loader.json
 
 The canvas form (research ~/Games/soulwarden-client/research/ui.md, section 2): a binary object stream with one
 SliceComponent; its Entities list has the canvas entity and one entity for each element. The converter keeps each
@@ -964,6 +965,33 @@ def convert_enums() -> dict:
             "natives": len(natives)}
 
 
+# -------------------------------------------------------------------------------------------------------------- loaders
+
+LOADER_SCRIPTS = {"screens": "lyshineui/uiloader.luac", "dynamic": "lyshineui/dynamiccanvasloader/dynamiccanvasloader.luac"}
+LOADER_PATH = re.compile(r"^lyshineui/[a-z0-9_ ]+(/[a-z0-9_ ]+)+$")
+
+
+def convert_loader() -> dict:
+    """The canvases that the two loaders of the game name: gamedata/loader.json. "screens": the canvas paths in the
+    string constants of uiloader.luac (its AddScreen list; the loader picks the screens of the level), "dynamic": the
+    ones of dynamiccanvasloader.luac (it loads a canvas when the game asks for it). For each list, KEYNotInGame has the
+    paths with no canvas in the game (the retail loader fails on them too) and KEYNotConverted the paths that are not
+    converted. The loader fixture (tests/ui/fixtures/loader.lua) checks the run of the loaders against these lists."""
+    in_game = {path[:-len(".dynamicuicanvas")] for path in source.paks().paths("lyshineui/", ".dynamicuicanvas")}
+    result: dict = {}
+    for key, script in LOADER_SCRIPTS.items():
+        main = luabc.load((out_dir() / "scripts" / script).read_bytes())
+        paths = sorted({c.lower() for c in luabc.string_constants(main) if LOADER_PATH.match(c.lower())})
+        result[key] = paths
+        result[key + "NotInGame"] = [path for path in paths if path not in in_game]
+        result[key + "NotConverted"] = [path for path in paths if path in in_game
+                                        and not (out_dir() / "canvases" / (path + ".json")).is_file()]
+    target = out_dir() / "gamedata"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "loader.json").write_text(json.dumps(result, indent=0, sort_keys=True))
+    return {key: len(value) for key, value in result.items()}
+
+
 # ------------------------------------------------------------------------------------------------------------------ main
 
 def wanted_file() -> Path:
@@ -976,7 +1004,8 @@ def hud(force: bool) -> dict:
     for folder in HUD_TEXTURE_FOLDERS:
         textures |= set(folder_textures(folder))
     result = {"canvases": canvases, "scripts": convert_scripts(), "fonts": convert_fonts(), "text": convert_text(),
-              "gamedata": convert_gamedata(), "enums": convert_enums(), "textures": convert_textures(textures, force),
+              "gamedata": convert_gamedata(), "enums": convert_enums(), "loader": convert_loader(),
+              "textures": convert_textures(textures, force),
               "texture index": convert_texture_index()}
     return result
 
@@ -995,6 +1024,7 @@ def main(argv=None) -> int:
     sub.add_parser("text")
     sub.add_parser("gamedata")
     sub.add_parser("enums")
+    sub.add_parser("loader")
     sub.add_parser("texture-index")
     args = parser.parse_args(argv)
     if args.command == "hud":
@@ -1024,6 +1054,8 @@ def main(argv=None) -> int:
         result = convert_gamedata()
     elif args.command == "enums":
         result = convert_enums()
+    elif args.command == "loader":
+        result = convert_loader()
     elif args.command == "texture-index":
         result = convert_texture_index()
     else:

@@ -1217,6 +1217,34 @@ int n_write_draw(lua_State* L) {
     return 1;
 }
 
+/** The mesh of an element in the draw list of the frame: its area in viewport pixels (the sum of its triangles), the
+ *  number of triangles, and the texture of its sprite mask ("" with no mask). */
+int n_mesh_area(lua_State* L) {
+    const Id id = to_id(L, 1);
+    DrawList list;
+    runtime_of(L).build_draw_list(list);
+    double area = 0.0;
+    lua_Integer triangles = 0;
+    std::string mask;
+    for (const DrawItem& item : list.items) {
+        if (item.kind != DrawItem::Kind::mesh || item.element != id) {
+            continue;
+        }
+        mask = item.maskTexture;
+        for (std::size_t i = 0; i + 2 < item.indices.size(); i += 3) {
+            const Vertex& a = item.vertices[item.indices[i]];
+            const Vertex& b = item.vertices[item.indices[i + 1]];
+            const Vertex& c = item.vertices[item.indices[i + 2]];
+            area += std::fabs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)) * 0.5;
+            ++triangles;
+        }
+    }
+    lua_pushnumber(L, area);
+    lua_pushinteger(L, triangles);
+    lua_pushstring(L, mask.c_str());
+    return 3;
+}
+
 int n_viewport(lua_State* L) {
     return push_vec(L, model_of(L).viewport());
 }
@@ -1336,7 +1364,7 @@ const luaL_Reg kNatives[] = {
     {"canvases", n_canvases}, {"canvas_get", n_canvas_get}, {"canvas_set", n_canvas_set}, {"localize", n_localize},
     {"has_text", n_has_text}, {"crc32", n_crc32}, {"texture_exists", n_texture_exists}, {"stub", n_stub}, {"log", n_log},
     {"clock", n_clock}, {"tick", n_tick}, {"update_layouts", n_update_layouts}, {"size_to_fit", n_size_to_fit}, {"component", n_component}, {"components", n_components},
-    {"interactable_at", n_interactable_at}, {"contains", n_contains}, {"to_rect_space", n_to_rect_space}, {"text_layout", n_text_layout}, {"compute_layout", n_compute_layout}, {"write_draw", n_write_draw}, {"viewport", n_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
+    {"interactable_at", n_interactable_at}, {"contains", n_contains}, {"to_rect_space", n_to_rect_space}, {"text_layout", n_text_layout}, {"compute_layout", n_compute_layout}, {"write_draw", n_write_draw}, {"mesh_area", n_mesh_area}, {"viewport", n_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
     {"load_lua", n_load_lua}, {nullptr, nullptr}};
 
 } // namespace

@@ -67,7 +67,7 @@ class Canvas:
         if self.clips:
             self.clips.pop()
 
-    def triangle(self, p, uv, col, tex, additive: bool):
+    def triangle(self, p, uv, col, tex, additive: bool, mask=None):
         xs = [p[0][0], p[1][0], p[2][0]]
         ys = [p[0][1], p[1][1], p[2][1]]
         x0, x1 = max(int(np.floor(min(xs))), 0), min(int(np.ceil(max(xs))), self.w)
@@ -94,6 +94,19 @@ class Canvas:
             ty = np.clip((v * th).astype(np.int32), 0, th - 1)
             color = color * tex[ty, tx]
         alpha = color[..., 3] * inside
+        if mask is not None:
+            # A sprite mask: the alpha of its texture at the interpolated mask UV (with the alpha test of the mask).
+            mtex, muv, test = mask
+            mu = w0 * muv[0][0] + w1 * muv[1][0] + w2 * muv[2][0]
+            mv = w0 * muv[0][1] + w1 * muv[1][1] + w2 * muv[2][1]
+            mh, mw = mtex.shape[:2]
+            mx = np.clip((mu * mw).astype(np.int32), 0, mw - 1)
+            my = np.clip((mv * mh).astype(np.int32), 0, mh - 1)
+            ma = mtex[my, mx][..., 3]
+            if test > 0:
+                ma = (ma >= test).astype(np.float32)
+            outside = (mu < 0) | (mu > 1) | (mv < 0) | (mv > 1)
+            alpha = alpha * np.where(outside, 0.0, ma)
         clip = self.clip_mask()
         if clip is not None:
             alpha = alpha * clip[y0:y1, x0:x1]
@@ -111,11 +124,17 @@ class Canvas:
             return
         v = item["v"]
         verts = [(v[i], v[i + 1], v[i + 2], v[i + 3], unpack_color(int(v[i + 4]))) for i in range(0, len(v), 5)]
+        mtex = texture(item["mask"]) if item.get("mask") else None
+        m = item.get("m", [])
         idx = item["i"]
         for t in range(0, len(idx), 3):
             a, b, c = verts[idx[t]], verts[idx[t + 1]], verts[idx[t + 2]]
+            mask = None
+            if mtex is not None:
+                ia, ib, ic = idx[t], idx[t + 1], idx[t + 2]
+                mask = (mtex, [(m[2 * ia], m[2 * ia + 1]), (m[2 * ib], m[2 * ib + 1]), (m[2 * ic], m[2 * ic + 1])], item.get("at", 0.0))
             self.triangle([(a[0], a[1]), (b[0], b[1]), (c[0], c[1])], [(a[2], a[3]), (b[2], b[3]), (c[2], c[3])],
-                          [a[4], b[4], c[4]], tex, item.get("blend", 0) == 1)
+                          [a[4], b[4], c[4]], tex, item.get("blend", 0) == 1, mask)
 
     def text(self, item):
         m = item["m"]

@@ -67,10 +67,16 @@ swcui.allowed = function(path)
   return allowedScreens[screen_key(path)] or nativeAllowed(path)
 end
 
---- Loads a screen of the game (a path with the ending .uicanvas). @return The canvas id.
-function screen(path, drawOrder)
+--- Allows a screen of the loader in this fixture (a path with or with no ending), with no load.
+function allow(path)
   allowedScreens[screen_key(path)] = true
-  local canvas = Swc.LoadScreen(path, true, drawOrder or 50)
+end
+
+--- Loads a screen of the game (a path with the ending .uicanvas). A HUD screen (hud = true) has no autohide: it shows
+--- in the HUD state, as the loader loads it. @return The canvas id.
+function screen(path, drawOrder, hud)
+  allowedScreens[screen_key(path)] = true
+  local canvas = Swc.LoadScreen(path, not hud, drawOrder or 50)
   check(canvas:IsValid(), "the screen loads: " .. path)
   return canvas
 end

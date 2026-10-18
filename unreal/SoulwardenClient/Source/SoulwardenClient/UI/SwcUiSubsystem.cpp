@@ -196,6 +196,7 @@ bool USwcUiSubsystem::Tick(float DeltaTime)
 		{
 			std::string Error;
 			Runtime->write_reports(&Error);
+			WriteDrawList();
 		}
 		LastStatusTime = Now;
 		const swc::ui::Runtime::Counts& Counts = Runtime->counts();
@@ -347,6 +348,13 @@ void USwcUiSubsystem::FlushLog()
 	}
 }
 
+void USwcUiSubsystem::WriteDrawList()
+{
+	// The draw list of the last frame (a software picture: python3 -B -m swc_convert.uipreview draw.json OUT.png).
+	FFileHelper::SaveStringToFile(FString(UTF8_TO_TCHAR(swc::ui::draw_list_json(DrawList).c_str())),
+		*FPaths::Combine(ReportDir, TEXT("draw.json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+}
+
 void USwcUiSubsystem::WriteReports()
 {
 	Runtime->call("Report");
@@ -357,6 +365,7 @@ void USwcUiSubsystem::WriteReports()
 		UE_LOG(LogSwcUi, Warning, TEXT("ui: %hs"), Error.c_str());
 		return;
 	}
+	WriteDrawList();
 	// The missing textures for the converter (tools/convert-ui.sh wanted).
 	const FString Wanted = FPaths::Combine(WorkDir(), TEXT("ui/wanted.json"));
 	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Wanted), true);

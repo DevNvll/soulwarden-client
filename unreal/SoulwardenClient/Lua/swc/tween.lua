@@ -119,6 +119,8 @@ local function ease(method, kind, t)
   return 1 - fn(1 - t)
 end
 
+Swc.TweenEase = ease
+
 -- ----------------------------------------------------------------------------------------------- interpolation
 
 local function lerp(a, b, t)
@@ -183,6 +185,10 @@ local function start(entity, propertyId, target, p)
     onLoop = p.onLoop, speed = 1, paused = false, key = key, uuid = p.uuid,
   }
   animations[key] = a
+  if Swc.tweenObserver then
+    -- The tests: each animation that a script starts (tests/ui/fixtures/transitions.lua).
+    Swc.tweenObserver(a, property.get)
+  end
   if a.delay <= 0 and a.duration <= 0 then
     -- No time: the value at once (the gem completes it at the next tick; the scripts see the value now).
     Swc.Call(property.set, entity, a.backward and a.from or a.to)

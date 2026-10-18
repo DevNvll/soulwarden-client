@@ -25,6 +25,7 @@ research is `~/Games/soulwarden-client/research/ui.md`.
 | Client UI | `Source/SoulwardenClient/UI` | `USwcUiSubsystem` (the runtime in the game, the data of the backend) and `SSwcUiCanvas` (a Slate widget that draws the draw list). |
 | Offline tests | `tests/ui/ui_tests.cpp`, `tools/test-ui.sh` | The core rules with made-up data, then the HUD scripts on the converted content with no engine. |
 | Preview | `converter/swc_convert/uipreview.py` | A software picture of a draw list (numpy and Pillow). |
+| UI materials | `unreal/SoulwardenClient/Scripts/ui_materials.py` | The sprite mask materials in the shared content plugin (`tools/editor-script.sh ui_materials.py`). |
 | Dev build | `tools/dev-build.sh`, `tools/lib/dev_build.py` | Gives a build (gear, abilities) to the dev character of a development run. |
 
 ## The content (tools/convert-ui.sh)
@@ -41,6 +42,7 @@ tools/convert-ui.sh fonts                  # fonts/fonts.json, fonts/effects.jso
 tools/convert-ui.sh text                   # localization/en-us.json
 tools/convert-ui.sh gamedata               # gamedata/abilities.json, gamedata/weapons.json
 tools/convert-ui.sh enums                  # gamedata/enums.json: the enum values of the client program
+tools/convert-ui.sh loader                 # gamedata/loader.json: the canvases that the two loaders name
 tools/convert-ui.sh texture-index          # textures/index.json: sizes, borders, cells (no pixels)
 ```
 
@@ -72,10 +74,18 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   rect of the canvas.
 - Transform: T(pivot) R S T(-pivot) for each element that is not the root. Local position = pivot - anchor center.
 - Canvas size: the canvas has 1080 lines. The width is viewport width / (viewport height / 1080).
-- Image types: Stretched, Sliced, Fixed, Tiled, StretchedToFit, StretchedToFill. Fills: linear and radial (the radial
-  fill walks the perimeter from the top middle).
+- Image types: Stretched, Sliced, Fixed, Tiled, StretchedToFit, StretchedToFill.
+- Fills (O3DE `UiImageComponent`): linear (the far edge moves; the origin edge turns the quad); radial (from the start
+  angle, clockwise or not: on one quad the point walks the border, each edge is a quarter of the amount; on a sliced
+  image lines from the center clip the 9 slices by the angle); radial corner (two triangles about a corner; sliced:
+  one line from the corner clips the slices); radial edge (three triangles about the middle of an edge; sliced: one
+  line from that point). A sliced linear fill moves the slice values.
 - Fader: multiplies the alpha of its subtree. A disabled element hides its subtree. A mask clips its children with a
   quad. The mask image itself does not draw (only with "draw behind" or "draw in front").
+- Sprite mask: a mask element with a converted sprite (or its child mask element) also multiplies the alpha of each
+  mesh below it by the alpha of its texture: each vertex gets the place in the mask texture (the rect of the mask
+  element, the cell of a sprite sheet). With the option UseAlphaTest the mask alpha is 0 or 1 at 0.5. The innermost
+  mask applies.
 - Text: wrap, shrink to fit (uniform or width only), ellipsis, alignment, case. The font effects (the passes of a
   `.font` effect) draw in reverse order. The text part is below.
 - Draw list: textured triangles, text lines, and clip quads, in viewport pixels. The Slate widget and the preview draw
@@ -240,6 +250,14 @@ to the data layer only when it changes.
 - Font size: the draw list gives the glyph size in canvas pixels (0.8 of the LyShine size); a Slate size is in points,
   thus Slate gets 0.75 of the glyph size.
 - Additive blend: premultiplied alpha with an alpha of 0 (an approximation).
+- Sprite mask: the client draws an image below a sprite mask with the quad clip of the mask (as in 1.10). The
+  option `-SwcUiMaskMaterial` draws it with the UI materials `/SwcGameContent/SwcUi/M_SwcUiMasked` and
+  `M_SwcUiMaskedAdditive` (made by `tools/editor-script.sh ui_materials.py`, no game content): one dynamic instance
+  for each texture, mask texture, and alpha test; the custom vertices of Slate have the mesh UVs in TexCoord 0 and the
+  mask UVs in TexCoord 1. This path is not complete (open point O11). When the shader map of a mask material is
+  incomplete (the cache server is not in the network namespace of a run), the client compiles it again once.
+- Draw list: with the reports, the client writes the draw list of the last frame to `SWC_WORK/logs/ui/draw.json`
+  (`python3 -B -m swc_convert.uipreview draw.json OUT.png` makes a software picture of it).
 - Logs: errors in the client log; each line in `SWC_WORK/logs/ui/ui-log.txt`. Every 30 s and at the end, the reports
   go to `SWC_WORK/logs/ui`: `ui-stubs.txt` and `.json` (the stub log), `ui-errors.txt` (each Lua error one time with
   its count), `ui-surface.txt` (each emulated call that the scripts used, with its count). The missing textures go to
@@ -262,14 +280,19 @@ Its reports go to `SWC_WORK/build/ui-tests/reports`.
 Fixtures (`tests/ui/fixtures/*.lua`): each fixture runs in a runtime of its own after the boot of the emulation (the
 globals canvas, no screen of the loader). It loads original canvases with their original scripts, sends input, runs
 frames, and checks values. The helpers are in `prelude.lua`: `check`, `equal`, `near`, `frames(seconds)`, `load(path)`,
-`element(canvas, "A/B")`, and `picture(name)` (a draw list; `--preview` makes the PNG in
-`reports/fixtures/FIXTURE/draw/`). The fixtures:
+`screen(path, drawOrder, hud)` (a screen of the loader; `hud`: no autohide), `allow(path)` (a screen that the loader
+may load), `element(canvas, "A/B")`, the input helpers (`move_to`, `click`, `drag`, `wheel`, `key`), and
+`picture(name)` (a draw list; `--preview` makes the PNG in `reports/fixtures/FIXTURE/draw/`). `swcui.mesh_area(id)`
+gives the area, the triangle count, and the mask texture of the mesh of an element in the draw list. The fixtures:
 
 | Fixture | Checks |
 | --- | --- |
 | `enums` | The client table against the own values, the paperdoll slots of the protocol notes, the LyShine values, a name that the client does not have. |
 | `controls` | The original InfoModal: the hover of its button (`button.luac`) and its press, which closes the modal (the button of the game acts on the press). Then original slices spawned into the modal with their scripts: a slider (a drag sets 50; typed 25 in its text input with Enter sets 25), a toggle (two radio buttons in a group), a check box, a drop-down (its list of 12 items cloned from a prototype by `dropdown.luac`, the expand, the wheel scroll). Pictures `controls-button-normal`, `-hover`, `controls-slider`, `controls-textinput`, `controls-dropdown-open`, `-scrolled`. |
 | `lists` | The original ReusableScoreboard screen shows the test data of its own script (`GetDummyColumnData`, `GetDummyRowsData`, 60 rows) in its dynamic scroll box: the content has the size of all rows, only the visible rows have copies, the script fills each copy; the wheel scrolls (rows 7 to 18 show). Pictures `lists-top`, `lists-scrolled`. |
+| `visuals` | The HUD screens WeaponQuickslots, ReticlesCanvas, Vitals2024, and Compass with their scripts in the HUD state. The fixture shows the parts that need game events and sets the fill amounts through `UiImageBus` (0, 0.25, 0.5, 0.75, 1): the area of each mesh against the O3DE geometry for a radial fill (the combo points, also from 60 degrees), a counter-clockwise radial fill (the channel ring), a sliced radial fill (the hint ring of the heart rune), a counter-clockwise corner fill (the heat meter), a linear fill (the turret health), an edge fill (the reload ring, set through the bus). The heart rune hexagon and the compass give their sprite mask to the meshes below them. Pictures `visuals-fills-0` to `-100`, `visuals-masks`. |
+| `loader` | The screen loader of the game (`uiloader.luac`) at a world entry, with two allowed screens (Vitals2024, InfoModal): it asks only for canvases of its list (`gamedata/loader.json`, 153 paths), one time each, with the ending `.uicanvas` (105 for the world); it counts each load and failure and sets the state HUD; the HUD screen has no autohide and shows, the menu has autohide and shows only in its state. Each canvas that the game has for the two lists (the UI loader and the 69 canvases of `dynamiccanvasloader.luac`) is converted; 2 paths of the UI loader have no canvas in the game. |
+| `transitions` | The open of the original InfoModal (`OnTransitionIn`, its tweens) and the hover of its button (`button.luac`): each animation that a script starts has the eased value at each frame (60 a second), the final value, and ends after its delay and duration (15 animations; 4 replaced by a new one on the same property, the rule of the gem). The close hides the modal at once (its script has no animation). The ease functions against values of the Penner equations. Pictures `transitions-open-00` to `-24`, `transitions-hover-00` to `-24`, `transitions-close-00`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
 The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,
@@ -299,5 +322,12 @@ the user ([AGENTS.md](../AGENTS.md), rules).
 - The mana cost of an ability comes from the mana cost table by AbilityID (an approximation).
 - The heart rune slot shows the icon of the rune. Its charge (`Hud.LocalPlayer.Vitals.ChargePercent`) has no source in
   the read path of the backend yet, thus the slot does not show the charge.
-- A sprite mask clips with its quad, not with its alpha.
+- A sliced radial fill clips with lines in canvas space; O3DE clips in viewport space. The angles are the same unless
+  the element has a scale that is not uniform.
+- A sprite mask in a sprite mask: only the innermost one applies (LyShine combines the two in the stencil).
+- O11: the sprite mask in the client window. With `-SwcUiMaskMaterial` the mask material compiles and its instances
+  have the textures of the item (the game thread and the render thread show them, the texture reference points at
+  each texture), but the window shows the default (white) textures of the material for them. An engine texture
+  asset as the image parameter draws. Thus the client uses the quad clip; the offline runtime and the preview apply
+  the sprite masks.
 - Without a frame limit (`-nullrhi`), the runtime ticks with each frame.

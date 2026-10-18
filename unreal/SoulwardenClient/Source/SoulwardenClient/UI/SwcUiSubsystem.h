@@ -42,6 +42,7 @@ private:
 	void FeedLocalPlayer();
 	void FlushLog();
 	void WriteReports();
+	void WriteDrawList();
 	void LoadItemCatalog();
 
 	TUniquePtr<swc::ui::Runtime> Runtime;
