@@ -1,0 +1,15 @@
+# A check of the weapon scope (stage P2.9, docs/CREATURES.md): a skeleton archer and a Vulkgard archer 3 m east and 1.8 m north of the
+# character, their left side to the camera, play their bow actions (the bow string: the variants of the weapon database).
+# tools/creature-check.sh with SWC_DEV_CHARACTER=Swordwarden, SWC_DEV_PLACE=8872:4250:138.25, and tests/drive/archer.txt.
+# Times on the clock of the drive; offsets in m east, north; yaw: 0 north, 90 west, 180 south, 270 east.
+1 level 60
+2 heal
+3 ignore on
+4 spawn Skeleton_Archer:2 3 1.8 0 --yaw 0
+8 action $1 FireBow
+13 action $1 Archer_Fast_Ranged_Attack
+18 action $1 FireBow
+22 remove $1
+23 spawn Evil_Knight_Bow_17:2 3 1.8 0 --yaw 0
+27 action $2 FireBow
+32 action $2 FireBow

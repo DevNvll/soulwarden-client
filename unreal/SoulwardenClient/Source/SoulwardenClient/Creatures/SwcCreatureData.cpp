@@ -202,6 +202,13 @@ bool FSwcCreatureLibrary::Load(FString& OutReport)
 					Out.Item = Weapon->GetStringField(TEXT("item"));
 					Out.Bone = FName(*Weapon->GetStringField(TEXT("bone")));
 					Out.MeshPath = MeshOf(WeaponModels, Weapon->GetStringField(TEXT("model")));
+					FString WeaponAnimations;
+					if (Weapon->TryGetStringField(TEXT("animations"), WeaponAnimations))
+					{
+						Out.AnimationKey = WeaponAnimations;
+						Out.SkeletonMeshPath = MeshOf(Skeletons, Weapon->GetStringField(TEXT("skeleton")));
+						Out.BodyMeshPath = MeshOf(Bodies, Weapon->GetStringField(TEXT("body")));
+					}
 					const TArray<double> Position = Floats(Weapon, TEXT("position"));
 					const TArray<double> Rotation = Floats(Weapon, TEXT("rotation"));
 					if (Position.Num() == 3)

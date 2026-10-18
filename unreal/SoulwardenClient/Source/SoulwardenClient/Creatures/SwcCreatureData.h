@@ -92,6 +92,11 @@ struct FSwcCreatureWeapon
 	FString Item;
 	/** The object path of the static mesh of the weapon (empty: not imported). */
 	FString MeshPath;
+	/** An animated weapon (the weapon scope, Mannequin: the bow string): the skeletal mesh of its skeleton file, the skeletal
+	 *  mesh of its body (the same one, or a body that follows its pose), and its animation set. Empty: a static weapon. */
+	FString SkeletonMeshPath;
+	FString BodyMeshPath;
+	FString AnimationKey;
 	/** The bone of the socket of the body (CA_BONE) and the transform of the socket on it, in engine space (m; the rotation
 	 *  as w, x, y, z). */
 	FName Bone;

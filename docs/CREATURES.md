@@ -188,6 +188,26 @@ an overlay over the pose of scope 0. It blends in with the blend-in of its first
 fragment at its end or when the mask has no bit of its scope. A layer after the first one of a variant changes only the
 bones that its clips animate; an additive clip (keys that are differences from the identity) adds its rotations.
 
+## The weapon scope (stage P2.9)
+
+The controller of a creature has the scopes `Weapon` (context `WeaponContext`) and `OffHandWeapon`. A fragment whose
+FragmentDef lists such a scope (`Fire_Bow`: `FullBody+Audio+VFX+Weapon`) plays on the weapon too: Mannequin takes the variant
+of the animation database of the weapon row (`AnimDbPath`, for example `NPC_Damned_BowAnims.adb`) for the tag state of the
+creature. The backend sends only the record of scope 0 (and the additive scope): the client plays the weapon scope itself
+(the rule of Mannequin; an inference, not checked side by side with the retail client).
+
+- The converter: a default weapon with a skeleton (`.chr` of its `.cdf`) and a database with clips for the fragments of its
+  creature is an animated weapon. Its skeleton file has its bones, its first body, and its clips (manifest key
+  `creature-skeleton:CHR`); a different body on the same skeleton follows its pose. Its animation set has the variants of the
+  weapon database. In the world: 22 animated weapons (bows; one sword) on 2 weapon skeletons (`wep_ran2h_bowa.chr`: 19 clips,
+  the bow string; `lh_weapon_skel.chr`: 3 clips). The other weapons stay static meshes.
+- The client: an animated weapon is a skeletal mesh on the socket of its creature with its own animation instance. Each
+  fragment of scope 0 plays its variant on the weapon at the same time and playback scale; a fragment with no variant stops
+  the weapon animation (the rest pose). The log line of the action has ", the weapon scope on N weapon(s)".
+- Check (development run, `SWC_WORK/evidence/P2.9/archer3.mp4`, `tests/creatures/archer.txt`): a Moonshadow Archer (skeleton)
+  and a Vulkgard Archer play `FireBow` and `Archer_Fast_Ranged_Attack` 3 m from the character (the route `action`); the bow
+  bends and the string moves with the draw and the release.
+
 ## The read path of the other tracks
 
 - `USwcCreatureSubsystem::GetTargets(TArray<FSwcCreatureTarget>&)`: each creature of the table with an actor: its interest
@@ -290,8 +310,8 @@ tests: `tools/test-creatures.sh` (63 and 26 checks), with the bytes of the backe
 
 ## Differences and open points
 
-- Not shown yet: the procedural clips (sounds, effects, the death material, the dissolve), the weapon scope animations (the
-  bow string: stage P2.9), the cloth and the bound props of a `CA_BONE` binding, the look poses.
+- Not shown yet: the procedural clips (sounds, effects, the death material, the dissolve), the cloth and the bound props of a
+  `CA_BONE` binding, the look poses.
 - The melee contact: before 9557c3d the player side keyed one contact by its target and its facet, and a second volume of the
   same strike gave a refused contact ("the same attack", or "dead" after a kill). Now the key is the target (one contact for
   each target for each strike).

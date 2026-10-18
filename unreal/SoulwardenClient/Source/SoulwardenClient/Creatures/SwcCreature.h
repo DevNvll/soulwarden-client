@@ -106,6 +106,20 @@ private:
 	TObjectPtr<UStaticMeshComponent> Placeholder;
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> Weapons;
+	/** The animated weapons (the weapon scope): the skeletal mesh of the weapon skeleton, its body (or none: the skeleton mesh
+	 *  is the body), and the animation set. Each fragment of scope 0 plays its variant of the weapon database on them. */
+	struct FAnimatedWeapon
+	{
+		USkeletalMeshComponent* Leader = nullptr;
+		TSharedPtr<FSwcCreatureAnimations> Animations;
+	};
+	TArray<FAnimatedWeapon> AnimatedWeapons;
+	UPROPERTY()
+	TArray<TObjectPtr<USkeletalMeshComponent>> WeaponMeshes;
+	/** Plays the weapon scope of a fragment of scope 0 on each animated weapon (or stops it: no variant).
+	 *  @return The number of weapons that play the fragment. */
+	int32 PlayWeaponScope(int32 Fragment, float FragmentTime, float PlaybackScale);
+
 	/** The body capsule that blocks the movement of the player (only the channel Pawn): none for a dead creature. */
 	UPROPERTY()
 	TObjectPtr<UCapsuleComponent> BodyBlock;

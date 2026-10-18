@@ -1,0 +1,15 @@
+# The drive of the archer check (tests/creatures/archer.txt): the camera turns to the east and comes 1 m nearer (a notch of
+# the wheel). The "tick" lines are the clock marks of the route script. Times in seconds from the possession of the character.
+1.0 turn 90
+2.0 turn 0
+2.5 wheel 1
+3.0 tick
+4.0 tick
+8.0 tick
+13.0 tick
+18.0 tick
+22.0 tick
+23.0 tick
+27.0 tick
+32.0 tick
+36.0 tick

@@ -75,6 +75,9 @@ public:
 	 *  INDEX_NONE: it blends out). */
 	bool PlayOverlay(int32 Scope, int32 Fragment, float FragmentTime, float PlaybackScale);
 
+	/** Stops each fragment and overlay: the mesh shows its reference pose (the weapon scope with no fragment). */
+	void Stop();
+
 	/** The motion parameters of this frame: MoveSpeed (m/s), TurnSpeed (rad/s, positive to the left), TravelAngle (rad,
 	 *  positive to the left). */
 	void SetMotion(float InMoveSpeed, float InTurnSpeed, float InTravelAngle);

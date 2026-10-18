@@ -114,8 +114,52 @@ void ASwcCreature::Setup(FSwcCreatureLibrary& Library, const swc::creatures::Ent
 		// (engine space: the map of Net/SwcSpace.h for a position and a rotation).
 		for (const FSwcCreatureWeapon& Weapon : Slice->Weapons)
 		{
+			if (Leader->GetBoneIndex(Weapon.Bone) == INDEX_NONE)
+			{
+				continue;
+			}
+			const swc::net::WorldPosition Offset{static_cast<float>(Weapon.EnginePosition.X), static_cast<float>(Weapon.EnginePosition.Y),
+				static_cast<float>(Weapon.EnginePosition.Z)};
+			const swc::net::Quaternion Turn{static_cast<float>(Weapon.EngineRotation.X), static_cast<float>(Weapon.EngineRotation.Y),
+				static_cast<float>(Weapon.EngineRotation.Z), static_cast<float>(Weapon.EngineRotation.W)};
+			const FTransform Socket(SwcEngineToUnreal(Turn), SwcEngineToUnreal(Offset));
+			// An animated weapon (the weapon scope): the skeletal mesh of its skeleton file with its animation set, and its body.
+			USkeletalMesh* WeaponSkeleton = Weapon.SkeletonMeshPath.IsEmpty() ? nullptr : LoadObject<USkeletalMesh>(nullptr, *Weapon.SkeletonMeshPath);
+			TSharedPtr<FSwcCreatureAnimations> WeaponAnimations = WeaponSkeleton != nullptr ? Library.Animations(Weapon.AnimationKey) : nullptr;
+			if (WeaponSkeleton != nullptr && WeaponAnimations.IsValid())
+			{
+				USkeletalMeshComponent* WeaponLeader = NewObject<USkeletalMeshComponent>(this);
+				WeaponLeader->SetSkeletalMeshAsset(WeaponSkeleton);
+				WeaponLeader->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				WeaponLeader->SetupAttachment(Leader, Weapon.Bone);
+				WeaponLeader->SetRelativeTransform(Socket);
+				WeaponLeader->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+				WeaponLeader->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+				WeaponLeader->SetAnimInstanceClass(USwcCreatureAnimInstance::StaticClass());
+				WeaponLeader->RegisterComponent();
+				if (USwcCreatureAnimInstance* WeaponAnimation = Cast<USwcCreatureAnimInstance>(WeaponLeader->GetAnimInstance()))
+				{
+					WeaponAnimation->SetAnimations(WeaponAnimations);
+				}
+				WeaponMeshes.Add(WeaponLeader);
+				USkeletalMesh* WeaponBody = Weapon.BodyMeshPath.IsEmpty() ? nullptr : LoadObject<USkeletalMesh>(nullptr, *Weapon.BodyMeshPath);
+				if (WeaponBody != nullptr && WeaponBody != WeaponSkeleton)
+				{
+					// A different body on the same weapon skeleton follows the pose of the skeleton mesh (Leader Pose).
+					USkeletalMeshComponent* Follower = NewObject<USkeletalMeshComponent>(this);
+					Follower->SetSkeletalMeshAsset(WeaponBody);
+					Follower->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+					Follower->SetupAttachment(WeaponLeader);
+					Follower->RegisterComponent();
+					Follower->SetLeaderPoseComponent(WeaponLeader);
+					WeaponLeader->SetVisibility(false);
+					WeaponMeshes.Add(Follower);
+				}
+				AnimatedWeapons.Add({WeaponLeader, WeaponAnimations});
+				continue;
+			}
 			UStaticMesh* Model = Weapon.MeshPath.IsEmpty() ? nullptr : LoadObject<UStaticMesh>(nullptr, *Weapon.MeshPath);
-			if (Model == nullptr || Leader->GetBoneIndex(Weapon.Bone) == INDEX_NONE)
+			if (Model == nullptr)
 			{
 				continue;
 			}
@@ -123,11 +167,7 @@ void ASwcCreature::Setup(FSwcCreatureLibrary& Library, const swc::creatures::Ent
 			Component->SetStaticMesh(Model);
 			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Component->SetupAttachment(Leader, Weapon.Bone);
-			const swc::net::WorldPosition Offset{static_cast<float>(Weapon.EnginePosition.X), static_cast<float>(Weapon.EnginePosition.Y),
-				static_cast<float>(Weapon.EnginePosition.Z)};
-			const swc::net::Quaternion Turn{static_cast<float>(Weapon.EngineRotation.X), static_cast<float>(Weapon.EngineRotation.Y),
-				static_cast<float>(Weapon.EngineRotation.Z), static_cast<float>(Weapon.EngineRotation.W)};
-			Component->SetRelativeTransform(FTransform(SwcEngineToUnreal(Turn), SwcEngineToUnreal(Offset)));
+			Component->SetRelativeTransform(Socket);
 			Component->RegisterComponent();
 			Weapons.Add(Component);
 		}
@@ -375,6 +415,7 @@ FString ASwcCreature::StartScope(uint32 Scope, FScopeState& State, uint64 Render
 			continue;
 		}
 		const bool bStarted = Animation->PlayFragment(Fragment, FragmentTime, Next.bRecord ? Next.Record.speed : 1.0f);
+		const int32 WeaponScopes = PlayWeaponScope(Fragment, FragmentTime, Next.bRecord ? Next.Record.speed : 1.0f);
 		State.PlayingFragment = Fragment;
 		Text = FString::Printf(TEXT("%s %s (fragment %d%s), start count %u, at %.2f s of the action"), Next.bRecord ? TEXT("action") : TEXT("idle of the client"),
 			Next.bRecord ? *FString::Printf(TEXT("%u %s"), Next.Record.action,
@@ -385,8 +426,34 @@ FString ASwcCreature::StartScope(uint32 Scope, FScopeState& State, uint64 Render
 		{
 			Text += TEXT(": no variant of the fragment for the tags of the slice");
 		}
+		if (WeaponScopes > 0)
+		{
+			Text += FString::Printf(TEXT(", the weapon scope on %d weapon(s)"), WeaponScopes);
+		}
 	}
 	return Text;
+}
+
+int32 ASwcCreature::PlayWeaponScope(int32 Fragment, float FragmentTime, float PlaybackScale)
+{
+	int32 Playing = 0;
+	for (const FAnimatedWeapon& Weapon : AnimatedWeapons)
+	{
+		USwcCreatureAnimInstance* WeaponAnimation = Weapon.Leader != nullptr ? Cast<USwcCreatureAnimInstance>(Weapon.Leader->GetAnimInstance()) : nullptr;
+		if (WeaponAnimation == nullptr)
+		{
+			continue;
+		}
+		// The weapon database has a variant of the fragment: it plays with the time of the fragment of scope 0. Else the weapon
+		// scope has no fragment, and the weapon shows its rest pose.
+		if (Weapon.Animations->Fragment(Fragment) == nullptr || !WeaponAnimation->PlayFragment(Fragment, FragmentTime, PlaybackScale))
+		{
+			WeaponAnimation->Stop();
+			continue;
+		}
+		++Playing;
+	}
+	return Playing;
 }
 
 FString ASwcCreature::UpdateFromEntity(FSwcCreatureLibrary& Library, const swc::creatures::Entity& Entity, uint64 RenderTimeUs, float DeltaSeconds)

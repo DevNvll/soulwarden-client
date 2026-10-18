@@ -210,6 +210,12 @@ bool USwcCreatureAnimInstance::PlayOverlay(int32 Scope, int32 Fragment, float Fr
 	return true;
 }
 
+void USwcCreatureAnimInstance::Stop()
+{
+	Layers.Reset();
+	Overlays.Reset();
+}
+
 void USwcCreatureAnimInstance::SetMotion(float InMoveSpeed, float InTurnSpeed, float InTravelAngle)
 {
 	MoveSpeed = InMoveSpeed;

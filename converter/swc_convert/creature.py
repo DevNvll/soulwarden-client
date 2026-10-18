@@ -846,6 +846,50 @@ class Skeleton:
             w.doc.setdefault("animations", []).append({"name": name, "samplers": samplers, "channels": channels})
 
 
+def weapon_body(cdf_path: str, row: dict) -> dict:
+    """@return The body of a weapon model: its .cdf with the skin and material overrides of its weapon row (attachments 1 and
+    2)."""
+    body = read_cdf(cdf_path)
+    skins = list(body["skins"])
+    for index in (1, 2):
+        skin, mtl = row.get(f"SkinOverride{index}", ""), row.get(f"MaterialOverride{index}", "")
+        if skin and index - 1 < len(skins):
+            skins[index - 1] = {"name": skins[index - 1]["name"], "skin": norm(skin), "material": norm(mtl) or skins[index - 1]["material"]}
+        elif mtl and index - 1 < len(skins):
+            skins[index - 1] = dict(skins[index - 1], material=norm(mtl))
+    return dict(body, skins=skins)
+
+
+def weapon_animation_set(animations: dict, row: dict, scope: str, resolver: "ClipResolver") -> dict | None:
+    """@return The animation set of the weapon scope of a weapon (Mannequin: a fragment whose FragmentDef has the scope Weapon,
+    or OffHandWeapon for the off hand, plays the variant of the animation database of the weapon row on the weapon too; the
+    controller of the creature names the scope context WeaponContext), or None when no fragment of the creature has a clip
+    there. The variants: the tag state of the creature (its default tags and the tags of the wire). The clips go to the
+    resolver of the skeleton of the weapon."""
+    if not row.get("AnimDbPath"):
+        return None
+    database = read_database(norm(row["AnimDbPath"]))
+    state = set(animations["tags"])
+    fragments = {}
+    for fragment_id, fragment in animations["fragments"].items():
+        if scope not in fragment.get("scopes", []):
+            continue
+        variant, index = select_variant(database.get(fragment["name"].lower(), []), state)
+        if variant is None or not any(item["clip"] for layer in variant["layers"] for item in layer):
+            continue
+        layers = [[dict(item, kind=resolver.add(item["clip"])) for item in layer] for layer in variant["layers"]]
+        if not any(item["kind"] != "missing" and item["kind"] != "end" for layer in layers for item in layer):
+            continue
+        fragments[fragment_id] = {"name": fragment["name"], "variant": index, "tags": variant["tags"], "blendOut": variant["blendOut"],
+                                  "items": layers[0], "layers": layers[1:], "marks": variant["marks"], "scopes": [scope],
+                                  "flags": fragment.get("flags", [])}
+    if not fragments:
+        return None
+    return {"controller": animations["controller"], "database": norm(row["AnimDbPath"]), "tags": animations["tags"],
+            "wireTags": animations["wireTags"], "fragmentNames": animations["fragmentNames"], "fragments": fragments,
+            "scopeNames": animations["scopeNames"], "scope": scope}
+
+
 def write_weapon(cdf_path: str, row: dict, out: Path) -> dict:
     """Writes one weapon model as a static glTF mesh with the shared materials of stage 1.2 (docs/WORLD.md: each glTF
     material is the key of a material record): the skins of its .cdf in their bind pose; the skin and material overrides of
@@ -983,12 +1027,14 @@ def equip_types() -> dict:
 
 
 def weapon_rows() -> dict:
-    """@return The weapon rows by the lower-case WeaponID: the equip type, the mesh, the skin and material overrides, the tags."""
+    """@return The weapon rows by the lower-case WeaponID: the equip type, the mesh, the skin and material overrides, the tags,
+    and the animation database of the weapon scope."""
     out = {}
     for row in tables_of_type("WeaponItemDefinitions"):
         out[str(row["WeaponID"]).lower()] = {key: (norm(str(row.get(key) or "")) if "Override" in key else str(row.get(key) or ""))
                                              for key in ("EquipType", "MeshOverride", "SkinOverride1", "MaterialOverride1",
-                                                         "SkinOverride2", "MaterialOverride2", "MannequinTag", "OffHandMannequinTag")}
+                                                         "SkinOverride2", "MaterialOverride2", "MannequinTag", "OffHandMannequinTag",
+                                                         "AnimDbPath")}
     return out
 
 
@@ -1051,6 +1097,9 @@ def convert(indexes: set[int], force: bool = False) -> dict:
             kinds_of_slice.setdefault(body, []).append(kind)
     resolvers: dict[str, ClipResolver] = {}
     by_skeleton: dict[str, list[tuple[str, dict]]] = {}
+    # The bodies of the animated weapons (the model key of a weapon -> its body), and the first one on each weapon skeleton.
+    weapon_bodies: dict[str, dict] = {}
+    weapon_base: dict[str, str] = {}
     failures: dict[str, str] = {}
     report: dict = {"skeletons": {}, "bodies": 0, "weapons": 0, "animation sets": 0, "hit volumes": 0,
                     "hit volumes not in the backend slice": 0}
@@ -1147,10 +1196,29 @@ def convert(indexes: set[int], force: bool = False) -> dict:
                     failures[item["item"]] = f"weapon: {error}"[:200]
                     continue
                 index["weapons"][model_key] = {"mesh": object_path(shared_manifest.unreal_folder("static", manifest_key), stem, "StaticMeshes")}
-            entry["weapons"].append({"slot": item["slot"], "item": item["item"], "model": model_key, "socket": equip["socket"],
-                                     "bone": socket["bone"], "position": socket["position"], "rotation": socket["rotation"],
-                                     "equipPosition": equip["position"], "equipRotation": equip["rotation"],
-                                     "tags": row["OffHandMannequinTag"] if item["slot"] == OFF_HAND else row["MannequinTag"]})
+            weapon_entry = {"slot": item["slot"], "item": item["item"], "model": model_key, "socket": equip["socket"],
+                            "bone": socket["bone"], "position": socket["position"], "rotation": socket["rotation"],
+                            "equipPosition": equip["position"], "equipRotation": equip["rotation"],
+                            "tags": row["OffHandMannequinTag"] if item["slot"] == OFF_HAND else row["MannequinTag"]}
+            # The weapon scope: a weapon with a skeleton and clips for the fragments of this creature is a skeletal mesh on the
+            # skeleton of the weapon with its own animation set (the bow string). The static model stays for the other weapons.
+            try:
+                body_of_weapon = weapon_body(row["MeshOverride"], row)
+                weapon_skeleton = body_of_weapon["skeleton"]
+                if weapon_skeleton and row.get("AnimDbPath") and source.has(weapon_skeleton):
+                    weapon_resolver = resolvers.setdefault(weapon_skeleton, ClipResolver(weapon_skeleton))
+                    scope = "Weapon" if item["slot"] == MAIN_HAND else "OffHandWeapon"
+                    weapon_set = weapon_animation_set(animations, row, scope, weapon_resolver)
+                    if weapon_set is not None:
+                        weapon_set_key = short_key(f"weapon|{weapon_set['database']}|{weapon_skeleton}|{'+'.join(weapon_set['tags'])}|{scope}")
+                        by_skeleton.setdefault(weapon_skeleton, []).append((weapon_set_key, weapon_set))
+                        weapon_bodies[model_key] = body_of_weapon
+                        weapon_base.setdefault(weapon_skeleton, model_key)
+                        weapon_entry.update({"skeleton": short_key(weapon_skeleton), "animations": weapon_set_key, "body": model_key})
+                        report["animated weapons"] = report.get("animated weapons", 0) + 1
+            except Exception as error:
+                failures[f"{record['path']}:{item['item']}"] = f"weapon scope: {error}"[:200]
+            entry["weapons"].append(weapon_entry)
         # The material variants of the category rows of the kinds of this slice (MtlOverride, FemaleMtlOverride for a female
         # body; research section 3: the exact precedence is an open point).
         female = "female" in record["body"]
@@ -1168,7 +1236,7 @@ def convert(indexes: set[int], force: bool = False) -> dict:
         skeleton_entry = index["skeletons"].setdefault(skeleton_key, {"path": skeleton, "clips": {}})
         known = skeleton_entry["clips"]
         known.update({name: dict(info) for name, info in resolver.clips.items()})
-        base_body = base_body_of(census_doc, skeleton)
+        base_body = base_body_of(census_doc, skeleton) or weapon_base.get(skeleton, "")
         skeleton_entry["baseBody"] = base_body
         stem = file_stem("s", skeleton)
         out = creature_dir() / "skeletons" / f"{stem}.gltf"
@@ -1178,7 +1246,7 @@ def convert(indexes: set[int], force: bool = False) -> dict:
             bones = Skeleton(skeleton)
             w = gltf.Writer()
             first, roots = bones.write(w)
-            base_report = bones.add_body(w, census_doc["bodies"][base_body], out, stem, 1024)
+            base_report = bones.add_body(w, weapon_bodies.get(base_body) or census_doc["bodies"][base_body], out, stem, 1024)
             w.doc["scenes"][0]["nodes"] += roots
             for name in clip_names:
                 bones.add_clip(w, first, known[name]["path"], clip_asset_name(name))
@@ -1193,11 +1261,15 @@ def convert(indexes: set[int], force: bool = False) -> dict:
         index["bodies"][base_body] = {"skeleton": skeleton_key, "mesh": skeleton_entry["mesh"], "base": True}
         # The other bodies and the material variants of the converted slices on this skeleton.
         for entry in index["slices"].values():
-            if entry["skeleton"] != skeleton_key:
-                continue
-            wanted_bodies = {entry["body"]} | set(entry.get("variants", {}).values())
+            wanted_bodies = {weapon["body"] for weapon in entry.get("weapons", []) if weapon.get("skeleton") == skeleton_key}
+            if entry["skeleton"] == skeleton_key:
+                wanted_bodies |= {entry["body"]} | set(entry.get("variants", {}).values())
             for body_key in sorted(wanted_bodies):
                 if body_key == base_body or f"creature-body:{body_key}" in entries:
+                    continue
+                if body_key in weapon_bodies:
+                    mesh_path = body_file(skeleton, weapon_bodies[body_key], file_stem("b", body_key), f"creature-body:{body_key}")
+                    index["bodies"][body_key] = {"skeleton": skeleton_key, "mesh": mesh_path, "base": False}
                     continue
                 body_path, _, material = body_key.partition("|")
                 body = dict(census_doc["bodies"][body_path])

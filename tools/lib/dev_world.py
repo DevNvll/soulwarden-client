@@ -155,7 +155,7 @@ class DriveClock:
     (the drive counts the game time, which is slower than the wall clock while the world loads)."""
 
     def __init__(self, log: Path) -> None:
-        self.log, self.offset, self.time = log, 0, -1.0
+        self.log, self.offset, self.time, self.stopped = log, 0, -1.0, False
 
     def now(self) -> float:
         try:
@@ -168,6 +168,8 @@ class DriveClock:
         self.offset += end
         for match in re.finditer(rb"drive: (\d+\.\d+) s ", data[:end]):
             self.time = max(self.time, float(match.group(1)))
+        # The client stopped: its drive clock does not go on.
+        self.stopped = self.stopped or b"client: stop" in data[:end]
         return self.time
 
 
@@ -184,8 +186,11 @@ def script(path: str, folder: Path, clock: DriveClock | None = None) -> None:
         if clock is not None:
             # At most 10 minutes for one step: a client that stopped ends the script.
             waited = time.monotonic()
-            while clock.now() < float(at) and time.monotonic() - waited < 600.0:
+            while clock.now() < float(at) and not clock.stopped and time.monotonic() - waited < 600.0:
                 time.sleep(0.05)
+            if clock.stopped and clock.now() < float(at):
+                print(f"{clock.now():7.2f} s  the client stopped: the routes from {at} s do not run", flush=True)
+                return
         else:
             delay = float(at) - (time.monotonic() - start)
             if delay > 0:
