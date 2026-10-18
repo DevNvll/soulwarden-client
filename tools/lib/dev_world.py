@@ -26,6 +26,11 @@ Usage (tools/creature-world.sh):
   bar NAME WEAPON SLOT ABILITY       an ability on place 0 (Q), 1 (R), or 2 (F) of the bar of a weapon of a character NAME
   place NAME [DX DY [DZ]]            a character NAME of the database into the world at the character (a remote test character)
   cast NAME PLACE [--yaw DEGREES]    the press of place PLACE of the bar for a character NAME (yaw from the north to the east)
+  items                              the bag, the equipment, and the coin of the character
+  give ITEM [GEARSCORE]              one item of the item catalog (ItemID) into the bag of the character
+  equip FROM [SLOT]                  the item of the bag slot FROM into a slot of the paperdoll (no SLOT: the slot of its class)
+  abilities                          the cooldowns of the server of the character and the counts of the abilities
+  reset                              each cooldown of the server of the character ends (the client keeps its own cooldown)
   shoot CREATURE                     the creature starts its basic shot at the character now (stage 3.4f-A)
   area CREATURE                      the creature starts its next area attack at the character now (stage 3.4f-C)
   hurt AMOUNT                        damage of the character (an amount at or above its health kills it: the death, stage P2.10)
@@ -189,6 +194,19 @@ def run(words: list[str], folder: Path) -> object:
             yaw = f"&yaw={float(rest[place + 1])}"
             del rest[place:place + 2]
         return request(folder, "POST", f"/v1/dev/abilities/cast?character={character_named(folder, rest[0])}&place={int(rest[1])}{yaw}")
+    # The items and the abilities of the character (stage P3.5: the build of the great axe and the war hammer, the cooldowns).
+    if command == "items":
+        return request(folder, "GET", f"/v1/dev/items?character={character(folder)}")
+    if command == "give" and len(rest) in (1, 2):
+        score = f"&gearScore={int(rest[1])}" if len(rest) == 2 else ""
+        return request(folder, "POST", f"/v1/dev/items/give?character={character(folder)}&item={rest[0]}&quantity=1{score}")
+    if command == "equip" and len(rest) in (1, 2):
+        slot = f"&slot={int(rest[1])}" if len(rest) == 2 else ""
+        return request(folder, "POST", f"/v1/dev/items/equip?character={character(folder)}&from={int(rest[0])}{slot}")
+    if command == "abilities":
+        return request(folder, "GET", f"/v1/dev/abilities?character={character(folder)}")
+    if command == "reset":
+        return request(folder, "POST", f"/v1/dev/abilities/reset?character={character(folder)}")
     if command in ("shoot", "area") and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/creatures/{command}?creature={rest[0]}&character={character(folder)}")
     if command == "health" and len(rest) == 2:
