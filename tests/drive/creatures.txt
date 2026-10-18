@@ -1,0 +1,11 @@
+# The drive of the video check of stage 1.9 (tools/creature-check.sh, tests/creatures/fight.txt): the camera looks east (the
+# wolf and the skeleton), then west (the Risen, the knight, the turkey), then east again. Times in seconds from the possession
+# of the character; turn: degrees each second.
+3.0 turn 90
+4.0 turn 0
+25.0 turn 90
+27.0 turn 0
+41.0 turn 90
+43.0 turn 0
+50.0 turn 90
+52.0 turn 0

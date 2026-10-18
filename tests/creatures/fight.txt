@@ -1,0 +1,35 @@
+# The development routes of the video check of stage 1.9 (tools/creature-check.sh; docs/CREATURES.md). Times in seconds
+# from the world entry; $N is the creature of the Nth spawn. The offsets (m east, north) are on the street of the start place
+# (the navigation floor of the backend at 138.1 to 138.3 m, the height of the test floor). yaw: 0 north, 90 west, 270 east.
+# The character has the level 60 (its health; a lunge of the level 18 wolf makes 1,079 damage) and its full health each 3 s.
+1 level 60
+2 heal
+3 spawn Wolf_Grey_7 10 2 0 --yaw 90
+4 spawn Skeleton_Club_23 8 0 0 --yaw 90
+5 spawn Turkey:8 -6 6 0
+6 spawn Risen_L-R_Arm_6 -10 5 0 --yaw 270
+7 spawn Lost_Knight_Tank_12MB03e -8 0 0 --yaw 270
+9 heal
+11 level 60
+2 heal
+15 heal
+18 heal
+21 heal
+24 heal
+27 heal
+30 heal
+33 heal
+36 heal
+39 heal
+40 kill $1
+41 level 60
+2 heal
+45 kill $2
+45 heal
+48 heal
+51 heal
+52 kill $4
+54 heal
+57 kill $5
+60 kill $3
+63 heal
