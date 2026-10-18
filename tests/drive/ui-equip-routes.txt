@@ -1,0 +1,15 @@
+# The development routes of the item check of stage P2.4 (tools/creature-check.sh, tools/lib/dev_world.py): weapon slot 24
+# and quick slot 17 empty, level 10 for the check (the sword of tier 3 needs level 21: a refused equip), a sword of gear score
+# 100, the sword of tier 3, and 3 potions in the bag of the development character; level 70 again at the end. Times in
+# seconds on the clock of the drive script tests/drive/ui-exit-player.txt.
+2 untool 24
+2 untool 17
+2 unstack 1hSwordT1
+2 unstack 1hSwordT2
+2 unstack 1hSwordT3
+2 unstack PotionHealthT1
+3 level 10
+3 give 1hSwordT1 100
+3 stack PotionHealthT1 3
+4 give 1hSwordT3 100
+67 level 70

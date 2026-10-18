@@ -52,12 +52,13 @@ tools/convert-ui.sh texture-index          # textures/index.json: sizes, borders
 
 - Canvas (`.dynamicuicanvas`) and UI slice (`.dynamicslice`): an AZ object stream. A field id is the CRC-32 of the
   lower-case field name. The output is `canvases/<path>.json` (format 1): the canvas (size, draw order, pixel
-  alignment, the scripts of the canvas entity) and each element with its components (transform, image, text, fader,
+  alignment, the positional input `IsPosInputSupported`, the scripts of the canvas entity) and each element with its components (transform, image, text, fader,
   mask, scripts with their properties, flipbook, image sequence, spawner, desaturator, button, progress bar, image
   repeater). An entity id is a u64 in decimal text. A script property value is `{t, v}` with a type (bool, num, str,
   id, vec2, color, array, strs, group).
 - `--all` converts each canvas and each slice that a canvas spawns: 244 files. Two slices that canvases name are not
-  in the game copy.
+  in the game copy. A slice whose name a canvas also has (one in the game: `lyshineui/notifications/notification`) goes
+  to `canvases/<path>.slice.json`; a spawn reads that file first.
 - Texture: a PNG with an optional `.sprite.json` (the borders of a sliced image, or the cells of a sprite sheet).
 - Enum values (`enums`): `converter/swc_convert/luabc.py` reads the bytecode of each script and gives the global
   names that the scripts read and do not write. For each enum-like name, `uienums.py` reads the client program
@@ -78,8 +79,8 @@ tools/convert-ui.sh texture-index          # textures/index.json: sizes, borders
   `armorstats.tsv`: the stat columns of the weapon and the armor definitions, by WeaponID (the ItemStatsRef of an
   item). `encumbrance.json`: the weight limits of the bag of the player (`javelindata_encumbrancelimits`, row Player).
   `itemrules.json`: the gear score rule and the armor exponent of `playerbaseattributes.pbadb` (object stream, the
-  field ids of the names "Base Damage Compound Increase" and the others), and the scaling tiers of the weapons
-  (`javelindata_weapontiers`).
+  field ids of the names "Base Damage Compound Increase" and the others), the expansions (`javelindata_expansions`:
+  MaxEquipGS, MaxDisplayLevel), and the scaling tiers of the weapons (`javelindata_weapontiers`).
 - The UI state table (`uistates`): `libs/ui/uistates.xml`, 106 states with their level, their close rules, their
   screens, and the screens that keep their canvas.
 
@@ -97,7 +98,9 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   image lines from the center clip the 9 slices by the angle); radial corner (two triangles about a corner; sliced:
   one line from the corner clips the slices); radial edge (three triangles about the middle of an edge; sliced: one
   line from that point). A sliced linear fill moves the slice values.
-- Fader: multiplies the alpha of its subtree. A disabled element hides its subtree. A mask clips its children with a
+- Fader: multiplies the alpha of its subtree. A disabled element hides its subtree. A canvas with the positional
+  input off (`posInput`: 12 canvases of the game, the tooltip among them) takes no pointer: a press goes to the canvas
+  below it. A mask clips its children with a
   quad. The mask image itself does not draw (only with "draw behind" or "draw in front"); this is also true for a mask
   component with the masking off (O3DE `UiMaskComponent::RenderDisabledMask`).
 - Sprite mask: a mask element with a converted sprite (or its child mask element) also multiplies the alpha of each
@@ -339,6 +342,16 @@ Rules of the emulation:
   registration function of the client (image RVA 0x616C670), with the address of each name. A setting that the
   emulation does not have is false or 0.
 - The afflictions: the meters start with no damage and hide (the backend sends no affliction state).
+- The equip check of the client (the native ItemSlot `CanEquipItem`; a rule of the emulation from the data and
+  `equipmentcommon.luac`): the item has a paperdoll slot, its RequiredLevel (the level of the wire; the tooltip shows it
+  plus 1) is not above the level of the wire, and its gear score is not above the MaxEquipGS of the owned expansion
+  (Expansion2023, 800; the backend gives each player that expansion and refuses a higher gear score too). The command
+  list then has "Equip" off ("Requirements not met"). `PaperdollGetWeaponAutoEquipSlot` (the weapon slot of an equip
+  when no weapon slot is empty and no equipped weapon compares) gives the slot of the active weapon, else weapon slot 1
+  (the native rule is not known).
+- The notifications (`lyshineui/notifications/notification`, the screen of `notifications.luac`): the script is the
+  handler of `UiNotificationsBus`; `AreNotificationsEnabled` is true. A minor notification shows after the pause of
+  the queue (`SecondsBetweenNotifications`, 1.5 s).
 
 ## The data of the backend
 
@@ -375,7 +388,8 @@ to the data layer only when it changes.
 - Harness input (`-SwcUiDrive=FILE`, `tests/drive/ui-*.txt`): a script of UI input events in the process (no input
   tool of the host): key, keydown, keyup, point ELEMENT (an element of a shown canvas by its name), waitfor ELEMENT
   (the clock stays until it shows), move, click, press, release, drag, wheel, log, end (releases each held key and
-  button). A key goes through Slate as a key of the keyboard (`FSlateApplication::ProcessKeyDownEvent`): the UI first,
+  button). An element name `text:LABEL` is a shown element with that text (after the localization); `item:ITEMID` is a
+  shown item cell of the item (the canvas of the highest draw order first). A key goes through Slate as a key of the keyboard (`FSlateApplication::ProcessKeyDownEvent`): the UI first,
   then the game viewport and the player controller when the UI does not keep it. The pointer events go to the UI
   entry of the pre-processor. The clock starts at the spawn of the player, as the drive of the player controller
   (`tools/creature-check.sh` runs the development routes on the same clock), or at a failed login path. The widget
@@ -384,17 +398,21 @@ to the data layer only when it changes.
   closed port of the loopback (`-SwcHttp=127.0.0.1:1`) and the client stops after STAY seconds.
 - Font size: the draw list gives the glyph size in canvas pixels (0.8 of the LyShine size); a Slate size is in points,
   thus Slate gets 0.75 of the glyph size.
-- Additive blend: premultiplied alpha with an alpha of 0 (an approximation).
+- Additive blend (LyShine blend mode Add: the target plus color x alpha): the premultiplied blend of Slate with a
+  premultiplied copy of the texture (color x alpha) and the vertex color x alpha with an alpha of 0. (Before, the texture
+  was not premultiplied: a white particle with alpha 0 drew as a white square.)
 - Sprite mask: the client draws an image below a sprite mask with the quad clip of the mask (as in 1.10). The
   option `-SwcUiMaskMaterial` draws it with the UI materials `/SwcGameContent/SwcUi/M_SwcUiMasked` and
   `M_SwcUiMaskedAdditive` (made by `tools/editor-script.sh ui_materials.py`, no game content): one dynamic instance
   for each texture, mask texture, and alpha test; the custom vertices of Slate have the mesh UVs in TexCoord 0 and the
   mask UVs in TexCoord 1. This path is not complete (open point O11). When the shader map of a mask material is
   incomplete (the cache server is not in the network namespace of a run), the client compiles it again once.
-- Draw list: with the reports, the client writes the draw list of the last frame to `SWC_WORK/logs/ui/draw.json`
-  (`python3 -B -m swc_convert.uipreview draw.json OUT.png` makes a software picture of it).
-- Logs: errors in the client log; each line in `SWC_WORK/logs/ui/ui-log.txt`. Every 30 s and at the end, the reports
-  go to `SWC_WORK/logs/ui`: `ui-stubs.txt` and `.json` (the stub log), `ui-errors.txt` (each Lua error one time with
+- Draw list: with the reports, the client writes the draw list of the last frame to `draw.json` of the reports
+  (`python3 -B -m swc_convert.uipreview draw.json OUT.png` makes a software picture of it). A mesh has the id of its
+  element (`e`; the ids of the elements of a canvas file are the ids of that file).
+- Logs: errors in the client log; each line in `ui-log.txt` of the reports. Every 30 s and at the end, the reports
+  go to `SWC_WORK/logs/ui` (`-SwcUiReports=DIR`: a folder of its own; the default folder is common to the runs of all
+  tracks): `ui-stubs.txt` and `.json` (the stub log), `ui-errors.txt` (each Lua error one time with
   its count), `ui-surface.txt` (each emulated call that the scripts used, with its count). The missing textures go to
   `SWC_WORK/ui/wanted.json` (then `tools/convert-ui.sh wanted`).
 
@@ -432,7 +450,7 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `respawn` | The original Respawn screen: the dead mark and a death notice of 5 s queue the state "respawn", the list has "Random Location"; a drag on the world map (a press on a tile, the hand-off to the `MagicMap` scroll box) moves its content by the drag vector, `magicmap.luac` sees the drag and its end; Escape opens the escape menu of the respawn state over the screen and Escape goes back to it; the RESPAWN button (on 2 s after the map) gives the host request "respawn 1", the loading screen of the death shows, the revive and its end give the HUD. Pictures `respawn-list`, `respawn-drag`, `respawn-loading`. |
 | `tooltip` | The original EscapeMenu and Tooltip screens: with the dead mark the menu buttons have the tooltip "@ui_button_disabled_dead"; the hover of a button shows the dynamic tooltip after the delay of its setter, at the cursor, with the English text and the width of the text and its padding; the end of the hover hides it; with the character alive the button has no tooltip. Picture `tooltip-dead`. |
 | `transitions` | The open of the original InfoModal (`OnTransitionIn`, its tweens) and the hover of its button (`button.luac`): each animation that a script starts has the eased value at each frame (60 a second), the final value, and ends after its delay and duration (15 animations; 4 replaced by a new one on the same property, the rule of the gem). The close hides the modal at once (its script has no animation). The ease functions against values of the Penner equations. Pictures `transitions-open-00` to `-24`, `transitions-hover-00` to `-24`, `transitions-close-00`. |
-| `inventory` | The original NewInventory, EquipmentV3, Tooltip, Encumbrance, and FlyoutMenu screens with a bag of the host calls (a sword, a shirt, 3 potions, 25 ore), the equipped sword, and the coin. The weight of the bag (14.0 of 200.0); Tab opens the state Inventory with the two screens and the cursor; the bag sections have their items and weights; the hover of the sword gives the item tooltip (gear score 100, core damage 70); a click gives the command list (Equip, Lock, Drop); Equip gives the host request `equip 0 24 1 INSTANCE`; the answer of the server (the swords change places) changes the screens and the weight (14.6); Tab closes. Pictures `inventory-open`, `-tooltip`, `-commands`, `-equipped`. |
+| `inventory` | The original NewInventory, EquipmentV3, Tooltip, Encumbrance, and FlyoutMenu screens with a bag of the host calls (a sword, a shirt, 3 potions, 25 ore), the equipped sword, and the coin. The weight of the bag (14.0 of 200.0); Tab opens the state Inventory with the two screens and the cursor; the bag sections have their items and weights; the hover of the sword gives the item tooltip (gear score 100, core damage 70); a click gives the command list (Equip, Lock, Drop); Equip gives the host request `equip 0 24 1 INSTANCE`; the answer of the server (the swords change places) changes the screens and the weight (14.6); a sword that needs level 21 has "Equip" off ("Requirements not met") and no request; a refusal of the server (3626) keeps the paperdoll; Use of the potions gives `use 2`, the answer changes the weight (18.3); Unequip of the equipped sword gives `unequip 24 -1 1`, the answer empties the slot (21.3); Tab closes. Pictures `inventory-open`, `-tooltip`, `-commands`, `-equipped`, `-refused`, `-unequipped`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
 The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,
@@ -502,4 +520,5 @@ the user ([AGENTS.md](../AGENTS.md), rules).
   equipment screen shows the place-holder values of its canvas); `isMagic` of a weapon (the label "core power"); the
   ammunition stats; the equipment sets (their perks and names: no bonus lines); the defaults of the client settings
   that the item screens do not read (183 settings of the scripts have a default that is not false or 0); the key hints
-  of the command list (Lock, Drop) show no key; the minor notifications (the notification screen is not loaded).
+  of the command list (Lock, Drop) show no key; the objective data (the quests: `GetObjectiveData` gives no title); the
+  expressions of the data sheets in the item texts (O13: the potion text shows `{[400.000000]}`).

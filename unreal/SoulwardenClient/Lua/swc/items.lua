@@ -269,6 +269,58 @@ local function armor_attributes(static, gearScore)
   return out
 end
 
+-- The expansions (itemrules.json: javelindata_expansions). The backend gives each player the expansion Expansion2023 (its
+-- entitlements: the owned expansion of the client).
+local OWNED_EXPANSION = "Expansion2023"
+local function expansion_row(id)
+  for _, row in ipairs(rules.expansions or {}) do
+    if row.id == id then
+      return row
+    end
+  end
+  return nil
+end
+local function expansion_name(value)
+  if type(value) == "string" then
+    return value
+  end
+  for name, v in pairs(_G) do
+    if v == value and type(name) == "string" and name:sub(1, 13) == "eExpansionId_" then
+      return name:sub(14)
+    end
+  end
+  return nil
+end
+local function expansion_data(id)
+  local row = expansion_row(id) or {}
+  return {name = row.name or "", maxEquipGS = row.maxEquipGS or 0, maxCraftGS = row.maxCraftGS or 0,
+          maxDisplayLevel = row.maxDisplayLevel or 0}
+end
+Swc.Define("PlayerComponentRequestsBus", "Event", {
+  IsExpansionOwnerScript = function(_, id)
+    local name = expansion_name(id)
+    return name == "None" or name == OWNED_EXPANSION
+  end,
+  GetOwnedExpansionData = function() return expansion_data(OWNED_EXPANSION) end,
+  GetExpansionData = function(_, id) return expansion_data(expansion_name(id)) end,
+})
+
+--- @return True when the local player can equip an item (the native ItemSlot CanEquipItem; the rule of the emulation from the
+--- data and equipmentcommon.luac ShowCannotEquipNotification): the item has a paperdoll slot, its RequiredLevel (the level of
+--- the wire: the tooltip shows it plus 1) is not above the level of the wire, and its gear score is not above the MaxEquipGS
+--- of the owned expansion (the backend refuses that too).
+function Swc.CanEquip(static, gearScore)
+  if #Swc.ItemEquipSlots(static) == 0 then
+    return false
+  end
+  local level = (Swc.GetData("Hud.LocalPlayer.Progression.Level") or 1) - 1
+  if (static.requiredLevel or 0) > level then
+    return false
+  end
+  local owned = expansion_row(OWNED_EXPANSION)
+  return not owned or (owned.maxEquipGS or 0) == 0 or (gearScore or 0) <= owned.maxEquipGS
+end
+
 --- An item descriptor (ItemDescriptor of the client): the item id (CRC-32), the quantity, the gear score, the perks.
 Swc.ItemDescriptor = Swc.ValueClass({
   name = "ItemDescriptor",
@@ -374,7 +426,7 @@ Swc.ItemSlot = Swc.ValueClass({
     GetIconPath = function(self) return self.static and self.static.icon or "" end,
     GetEquipSlots = function(self) return Swc.ItemEquipSlotNames(self.static) end,
     IsEquippable = function(self) return #Swc.ItemEquipSlots(self.static) > 0 end,
-    CanEquipItem = function(self) return #Swc.ItemEquipSlots(self.static) > 0 end,
+    CanEquipItem = function(self) return Swc.CanEquip(self.static, self.gearScore or 0) end,
     CanEquipInSlot = function(self, slot)
       slot = paperdoll_slot_number(slot)
       for _, s in ipairs(Swc.ItemEquipSlots(self.static)) do
@@ -818,7 +870,16 @@ Swc.Define("LocalPlayerUIRequestsBus", "Broadcast", {
     end
     request(string.format("swap %d %d %s %s", to, from, instance_of(Swc.player.paperdoll[to]), instance_of(Swc.player.paperdoll[from])))
   end,
+  -- The weapon slot of an equip when no weapon slot is empty and no equipped weapon compares (equipmentcommon.luac
+  -- EquipItemToBestSlot). The native rule is not known (open point): the emulation gives the slot of the active weapon, else
+  -- weapon slot 1.
+  PaperdollGetWeaponAutoEquipSlot = function()
+    local active = Swc.player.activeWeaponSlot
+    return (active == 24 or active == 25) and NAME_OF_SLOT[active] or "main-hand-option-1"
+  end,
   InventoryUseItem = function(bagSlot) request(string.format("use %d", bagSlot)) end,
+  -- The notifications of the screen notifications.luac (an option of the native code: on).
+  AreNotificationsEnabled = function() return true end,
   InventoryDropItem = function(bagSlot, quantity)
     local slot = Swc.player.bag.slots[bagSlot]
     if slot and slot.static then
@@ -949,6 +1010,13 @@ Swc.Define("StatusEffectsRequestBus", "Event", {
 })
 Swc.Define("UiInteractorComponentRequestsBus", "Event", {
   IsInCommittedInteraction = function() return false end,
+})
+-- The objective data (the quests: open point; the equipment screen names the quest of the mounts in a tooltip): an objective
+-- with no title.
+Swc.Define("ObjectivesDataManagerBus", "Broadcast", {
+  GetObjectiveData = function(id)
+    return {id = id, title = "", description = "", IsValid = function() return false end}
+  end,
 })
 Swc.Define("AchievementRequestBus", "Event", {
   IsAchievementUnlocked = function() return false end,

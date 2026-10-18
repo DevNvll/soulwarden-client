@@ -1060,6 +1060,7 @@ int n_canvas_get(lua_State* L) {
     if (key == "path") { lua_pushstring(L, canvas->path.c_str()); return 1; }
     if (key == "drawOrder") { lua_pushnumber(L, canvas->drawOrder); return 1; }
     if (key == "enabled") { lua_pushboolean(L, canvas->enabled); return 1; }
+    if (key == "posInput") { lua_pushboolean(L, canvas->posInput); return 1; }
     if (key == "root") { push_id(L, canvas->root); return 1; }
     if (key == "size") { return push_vec(L, model.target_canvas_size(*canvas)); }
     if (key == "authoredSize") { return push_vec(L, canvas->authoredSize); }
@@ -1086,6 +1087,7 @@ int n_canvas_set(lua_State* L) {
     }
     if (key == "drawOrder") { canvas->drawOrder = static_cast<int>(luaL_checknumber(L, 3)); return 0; }
     if (key == "enabled") { canvas->enabled = lua_toboolean(L, 3) != 0; return 0; }
+    if (key == "posInput") { canvas->posInput = lua_toboolean(L, 3) != 0; return 0; }
     return luaL_error(L, "canvas_set: no field %s", key.c_str());
 }
 

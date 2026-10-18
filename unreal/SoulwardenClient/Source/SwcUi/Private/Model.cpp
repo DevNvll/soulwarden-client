@@ -171,23 +171,25 @@ Id Model::new_id() {
     return m_nextId++;
 }
 
-const Model::Template* Model::load_template(const std::string& path, std::string* error) {
+const Model::Template* Model::load_template(const std::string& path, std::string* error, bool slice) {
     const std::string stem = stem_of(path);
-    const auto found = m_templates.find(stem);
+    const std::string key = slice ? stem + "#slice" : stem;
+    const auto found = m_templates.find(key);
     if (found != m_templates.end()) {
         return &found->second;
     }
     Template entry;
     std::string why;
     const std::string file = m_contentDir + "/canvases/" + stem + ".json";
-    if (!json::parse_file(file, entry.doc, &why)) {
+    if ((!slice || !json::parse_file(m_contentDir + "/canvases/" + stem + ".slice.json", entry.doc, nullptr)) &&
+        !json::parse_file(file, entry.doc, &why)) {
         if (error != nullptr) {
             *error = "no converted canvas " + stem + " (" + why + "; tools/convert-ui.sh canvases)";
         }
         return nullptr;
     }
     entry.isCanvas = entry.doc["kind"].text() == "canvas";
-    return &m_templates.emplace(stem, std::move(entry)).first->second;
+    return &m_templates.emplace(key, std::move(entry)).first->second;
 }
 
 void Model::read_element(const json::Value& data, Element& out) const {
@@ -441,6 +443,7 @@ Id Model::load_canvas(const std::string& path, std::string* error) {
     canvas.authoredSize = vec_of(info["size"], {1920.0F, 1080.0F});
     canvas.drawOrder = info["drawOrder"].integer();
     canvas.pixelAligned = info["pixelAligned"].boolean(true);
+    canvas.posInput = info["posInput"].boolean(true);
     canvas.loadSequence = ++m_loadSequence;
     if (const json::Value& j = info["javelin"]; j.is_object()) {
         canvas.javelin.present = true;
@@ -665,7 +668,7 @@ Id Model::clone_element(Id source, Id parent, Id before, std::vector<Id>* create
 
 Id Model::spawn_slice(const std::string& slicePath, Id parent, std::vector<Id>* created, std::string* error,
                       std::unordered_map<Id, Id>* idMap) {
-    const Template* entry = load_template(slicePath, error);
+    const Template* entry = load_template(slicePath, error, true);
     if (entry == nullptr) {
         return kNoId;
     }
@@ -1256,7 +1259,7 @@ Id Model::interactable_in(Id id, Vec2 point, Vec2 canvasPoint) {
 Id Model::interactable_at(Vec2 point) {
     std::vector<Canvas*> canvases = canvases_in_order();
     for (auto it = canvases.rbegin(); it != canvases.rend(); ++it) {
-        if (!(*it)->enabled) {
+        if (!(*it)->enabled || !(*it)->posInput) {
             continue;
         }
         if (const Id hit = interactable_in((*it)->root, point, point); hit != kNoId) {

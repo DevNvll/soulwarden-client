@@ -32,8 +32,9 @@ FColor ToColor(uint32 Rgba)
 
 namespace
 {
-/** A PNG file as a transient texture: the settings come before the only UpdateResource (one render resource). */
-UTexture2D* LoadTexture(const FString& Path)
+/** A PNG file as a transient texture: the settings come before the only UpdateResource (one render resource).
+ *  bPremultiply: each color times its alpha. */
+UTexture2D* LoadTexture(const FString& Path, bool bPremultiply)
 {
 	FImage Loaded;
 	if (!FImageUtils::LoadImage(*Path, Loaded))
@@ -42,6 +43,15 @@ UTexture2D* LoadTexture(const FString& Path)
 	}
 	FImage Image;
 	Loaded.CopyTo(Image, ERawImageFormat::BGRA8, EGammaSpace::sRGB);
+	if (bPremultiply)
+	{
+		for (FColor& Pixel : Image.AsBGRA8())
+		{
+			Pixel.R = static_cast<uint8>((Pixel.R * Pixel.A + 127) / 255);
+			Pixel.G = static_cast<uint8>((Pixel.G * Pixel.A + 127) / 255);
+			Pixel.B = static_cast<uint8>((Pixel.B * Pixel.A + 127) / 255);
+		}
+	}
 	UTexture2D* Texture = UTexture2D::CreateTransient(Image.SizeX, Image.SizeY, PF_B8G8R8A8);
 	if (Texture == nullptr)
 	{
@@ -60,10 +70,11 @@ UTexture2D* LoadTexture(const FString& Path)
 }
 } // namespace
 
-const FSlateBrush* FSwcUiResources::Brush(const std::string& File)
+const FSlateBrush* FSwcUiResources::Brush(const std::string& File, bool bPremultiplied)
 {
 	const FString Path = ToFString(File);
-	if (const FTexture* Found = Textures.Find(Path))
+	const FString Key = bPremultiplied ? Path + TEXT("|premultiplied") : Path;
+	if (const FTexture* Found = Textures.Find(Key))
 	{
 		return Found->Brush.Get();
 	}
@@ -71,7 +82,7 @@ const FSlateBrush* FSwcUiResources::Brush(const std::string& File)
 	{
 		return nullptr;
 	}
-	UTexture2D* Texture = LoadTexture(Path);
+	UTexture2D* Texture = LoadTexture(Path, bPremultiplied);
 	if (Texture == nullptr)
 	{
 		UE_LOG(LogSwcUiSlate, Warning, TEXT("ui: the texture %s did not load"), *Path);
@@ -85,7 +96,7 @@ const FSlateBrush* FSwcUiResources::Brush(const std::string& File)
 	Entry.Brush->SetResourceObject(Texture);
 	Entry.Brush->ImageSize = FVector2D(Texture->GetSizeX(), Texture->GetSizeY());
 	Entry.Brush->DrawAs = ESlateBrushDrawType::Image;
-	return Textures.Add(Path, MoveTemp(Entry)).Brush.Get();
+	return Textures.Add(Key, MoveTemp(Entry)).Brush.Get();
 }
 
 UTexture2D* FSwcUiResources::MaterialTexture(const std::string& File)
@@ -303,7 +314,7 @@ int32 SSwcUiCanvas::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 			}
 			if (!bMasked && !Item.texture.empty())
 			{
-				Brush = Resources->Brush(Item.texture);
+				Brush = Resources->Brush(Item.texture, bAdditive);
 				if (Brush == nullptr)
 				{
 					break;
@@ -324,7 +335,8 @@ int32 SSwcUiCanvas::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 				}
 				if (bAdditive)
 				{
-					// An additive image (LyShine blend mode Add): premultiplied color with alpha 0 adds to the target.
+					// An additive image (LyShine blend mode Add): the premultiplied texture and color with alpha 0 add color x
+					// alpha to the target.
 					const float A = Color.A / 255.0f;
 					Color = FColor(static_cast<uint8>(Color.R * A), static_cast<uint8>(Color.G * A), static_cast<uint8>(Color.B * A), 0);
 				}

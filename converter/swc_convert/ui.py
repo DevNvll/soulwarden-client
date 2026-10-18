@@ -116,8 +116,8 @@ IgnoreDefaultLayoutCells CellSize HorizontalOrder VerticalOrder StartingWith Lay
 TargetWidth TargetHeight ExtraWidthRatio ExtraHeightRatio MinWidthOverridden MinHeightOverridden TargetWidthOverridden
 TargetHeightOverridden ExtraWidthRatioOverridden ExtraHeightRatioOverridden HorizontalFit VerticalFit ImageList
 ImageSequenceDirectory Slice SpawnOnActivate Saturation NumChildElements Script properties Groups value TypeId m_data
-Values UniqueId RootElement CanvasSize DrawOrder IsPixelAligned TextureAtlases requiresMouse escapable replaceable
-actionMapOverrides drawLayer ActionName HoverStartActionName HoverEndActionName PressedActionName ReleasedActionName
+Values UniqueId RootElement CanvasSize DrawOrder IsPixelAligned IsPosInputSupported TextureAtlases requiresMouse escapable
+replaceable actionMapOverrides drawLayer ActionName HoverStartActionName HoverEndActionName PressedActionName ReleasedActionName
 IsHandlingEvents Progress Vertical NumRepeats HoverStateActions PressedStateActions DisabledStateActions TargetEntity sprite
 IsAutoActivationEnabled ActionNameRight ActionNamePressedRight UseClickBehavior ClickSqTolerance SetHoverOnPress
 OptionalCheckedEntity OptionalUncheckedEntity IsChecked ChangedActionName TurnOnActionName TurnOffActionName Group
@@ -555,6 +555,8 @@ def convert_entity(entity) -> tuple[dict, dict | None]:
             canvas = {"id": out["id"], "uniqueId": str(whole(c, "UniqueId")), "root": entity_id(child(c, "RootElement")),
                       "size": vec2(c, "CanvasSize", (1920.0, 1080.0)), "drawOrder": whole(c, "DrawOrder"),
                       "pixelAligned": flag(c, "IsPixelAligned", True),
+                      # IsPosInputSupported: the canvas takes the pointer (12 canvases of the game do not: the tooltip).
+                      "posInput": flag(c, "IsPosInputSupported", True),
                       "atlases": [string(child(a, "BaseClass1"), "AssetPath").lower() for a in (atlases.children if atlases else [])]}
         elif name == "javelinCanvas":
             maps = child(c, "actionMapOverrides")
@@ -602,7 +604,12 @@ def convert_canvas(path: str) -> dict:
 
 
 def canvas_file(path: str) -> Path:
-    return out_dir() / "canvases" / (path.rsplit(".", 1)[0] + ".json")
+    """@return The output file of a canvas or a UI slice: canvases/<path>.json; a slice whose name a canvas also has (the
+    game has one: lyshineui/notifications/notification) is canvases/<path>.slice.json."""
+    stem = path.rsplit(".", 1)[0]
+    if path.endswith(".dynamicslice") and source.has(stem + ".dynamicuicanvas"):
+        return out_dir() / "canvases" / (stem + ".slice.json")
+    return out_dir() / "canvases" / (stem + ".json")
 
 
 def references(doc: dict) -> tuple[set[str], set[str], set[str], set[str]]:
@@ -1083,8 +1090,8 @@ ITEM_RULE_FIELDS = {
 
 def convert_item_stats(target: Path) -> dict:
     """weaponstats.tsv and armorstats.tsv (write_key_table): the stat rows of the weapon and the armor definitions, by the
-    lower-case WeaponID (the ItemStatsRef of an item); itemrules.json: the constants of ITEM_RULE_FIELDS and the scaling tiers
-    of the weapons."""
+    lower-case WeaponID (the ItemStatsRef of an item); itemrules.json: the constants of ITEM_RULE_FIELDS, the expansions, and
+    the scaling tiers of the weapons."""
     import struct
     from .source import walk
     weapons: dict[str, dict] = {}
@@ -1122,6 +1129,11 @@ def convert_item_stats(target: Path) -> dict:
             raise SystemExit(f"playerbaseattributes.pbadb has no field \"{label}\"")
         rules[key] = int.from_bytes(value, "big") if kind == "whole" else round(struct.unpack(">f", value)[0], 6)
     # The scaling tiers of the weapons (javelindata_weapontiers): the tier letter and its lowest scaling value, highest first.
+    # The expansions (javelindata_expansions): the largest gear score of an equipped item and the largest level of each.
+    rules["expansions"] = [{"id": r["ExpansionId"], "name": r.get("DisplayName", ""), "maxEquipGS": number_or_none(r.get("MaxEquipGS")) or 0,
+                            "maxCraftGS": number_or_none(r.get("MaxCraftGS")) or 0,
+                            "maxDisplayLevel": number_or_none(r.get("MaxDisplayLevel")) or 0}
+                           for r in table_rows("javelindata_expansions.datasheet") if r.get("ExpansionId")]
     rules["weaponTiers"] = sorted(([r["Tier"], round(r["ScalingStart"], 6)] for r in table_rows("javelindata_weapontiers.datasheet")
                                    if r.get("Tier") and isinstance(r.get("ScalingStart"), (int, float))), key=lambda t: -t[1])
     (target / "itemrules.json").write_text(json.dumps(rules, separators=(",", ":")))

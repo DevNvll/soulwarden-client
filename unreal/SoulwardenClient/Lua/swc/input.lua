@@ -261,6 +261,43 @@ end
 --- The harness input of the client: the point at fractions of the rect of the first shown element with a name, in
 --- the shown canvases from the top draw order down. @return "x y" in viewport pixels, or "" when no shown element has
 --- the name.
+-- The element of a name of the harness input in a subtree: "text:LABEL" is a shown element whose text is LABEL (the text
+-- of the screen, after the localization); "item:ITEMID" is a shown item cell (itemdraggable.luac) of the item; a different
+-- name is the first element with the name.
+local function drive_target(root, name)
+  local label = name:match("^text:(.+)$")
+  local item = name:match("^item:(.+)$")
+  if not label and not item then
+    return swcui.find_descendant(root, name)
+  end
+  local static = item and Swc.ItemStatic(item)
+  local function scan(id)
+    for _, c in ipairs(swcui.children(id)) do
+      if swcui.enabled_in_hierarchy(c) then
+        if label then
+          local text = swcui.get(c, "text.text")
+          if text and (text == label or swcui.localize(text) == label) then
+            return c
+          end
+        elseif static then
+          for _, inst in ipairs(Swc.components[tostring(c)] or {}) do
+            if (inst.__swcScript or ""):find("itemdraggable.luac", 1, true) and inst.ItemLayout
+              and inst.ItemLayout.itemId == static.crc then
+              return c
+            end
+          end
+        end
+        local found = scan(c)
+        if found then
+          return found
+        end
+      end
+    end
+    return nil
+  end
+  return scan(root)
+end
+
 function Swc.HostPointOf(name, fx, fy)
   local canvases = {}
   for _, screen in pairs(Swc.screens) do
@@ -270,7 +307,7 @@ function Swc.HostPointOf(name, fx, fy)
   end
   table.sort(canvases, function(a, b) return swcui.canvas_get(a, "drawOrder") > swcui.canvas_get(b, "drawOrder") end)
   for _, canvas in ipairs(canvases) do
-    local id = swcui.find_descendant(swcui.canvas_get(canvas, "root"), name)
+    local id = drive_target(swcui.canvas_get(canvas, "root"), name)
     if id and id:IsValid() and swcui.enabled_in_hierarchy(id) then
       local p = {swcui.viewport_points(id)}
       fx, fy = fx or 0.5, fy or 0.5

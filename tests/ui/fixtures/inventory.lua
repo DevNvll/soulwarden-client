@@ -2,14 +2,16 @@
 -- lists and the item slices) with a bag and a paperdoll of the host calls of the client (Swc.HostBagSlot, HostPaperdollItem,
 -- HostCoin). Tab (toggleInventoryWindow: the loadout flag) opens the state "Inventory" of the state table: the two screens
 -- show with the cursor; the bag items show in their sections with the weights of the data; the equipped sword shows in
--- its weapon slot; the header has the weight of the bag and its limit. Tab closes the inventory.
--- Pictures: inventory-open.
+-- its weapon slot; the header has the weight of the bag and its limit. The item tooltip, the command list, equip, a refused
+-- equip, a refusal of the server, use, unequip, with the answers of the server. Tab closes the inventory.
+-- Pictures: inventory-open, -tooltip, -commands, -equipped, -refused, -unequipped.
 local HUD, INVENTORY = 2702338936, 2972535350
 local inventory = screen("LyShineUI/Inventory/NewInventory.uicanvas", 15)
 local equipment = screen("LyShineUI/Equipment/EquipmentV3.uicanvas", 35)
 local tooltip = screen("LyShineUI/Tooltip/Tooltip.uicanvas", 54, true)
 local encumbrance = screen("LyShineUI/HUD2024/ActionBar/Encumbrance.uicanvas", 36, true)
 local flyout = screen("LyShineUI/FlyoutMenu/FlyoutMenu.uicanvas", 52)
+local notification = screen("LyShineUI/Notifications/Notification.uicanvas", 55, true)
 allow("LyShineUI/Popup/Popup")
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(HUD)
@@ -132,6 +134,64 @@ check(PaperdollRequestBus.Event.GetSlot(Swc.ids.paperdoll, 24):GetItemName() == 
 check(cell_of(root, "1hSwordT2_FTUE") ~= nil and cell_of(root, "1hSwordT1") == nil, "after the equip: the other sword is in the bag")
 equal(value and swcui.text_layout(value).lines[1].text, "14.6", "after the equip: the bag weight of the header")
 picture("inventory-equipped")
+
+-- A refused equip: the client checks the item (RequiredLevel 20 of the third sword, level 21 of the screen; the character has
+-- level 5). The command "Equip" is off ("Requirements not met"); its click sends no request.
+local function close_commands()
+  click(swcui.canvas_get(equipment, "root"), 0.4, 0.5)
+  frames(0.5)
+end
+local function commands_of(cell)
+  move_to(cell, 0.5, 0.5)
+  frames(1.5)
+  click(cell, 0.5, 0.5)
+  frames(0.8)
+end
+Swc.HostBagSlot(4, "1hSwordT3", 1, 100, 1000, 1000, instance(6), 0, 6, 17, "")
+frames(0.5)
+commands_of(cell_of(root, "1hSwordT3"))
+Swc.hostRequests = {}
+click(command("Equip"), 0.3, 0.5)
+frames(2.5)
+equal(#Swc.hostRequests, 0, "a refused equip: no request (the level of the item)")
+check(Swc.HostPointOf("text:Requirements not met") ~= "", "a refused equip: the command has the tooltip of the requirements")
+picture("inventory-refused")
+close_commands()
+
+-- A refusal of the server (3626): the client gives each paperdoll slot to the scripts again; the screens keep the states of
+-- the server.
+Swc.HostEquipFail()
+frames(0.3)
+check(PaperdollRequestBus.Event.GetSlot(Swc.ids.paperdoll, 24):GetItemName() == "1hSwordT1", "a refusal of the server: the paperdoll stays")
+
+-- A use of the potions: "Use" of the command list, the request of the bag slot; the answer of the server (one potion less)
+-- changes the stack and the weight (18.8 with the third sword, then 18.3).
+equal(value and swcui.text_layout(value).lines[1].text, "18.8", "the bag weight with the third sword")
+commands_of(cell_of(root, "PotionHealthT1"))
+Swc.hostRequests = {}
+click(command("Use"), 0.3, 0.5)
+frames(0.5)
+equal(Swc.hostRequests[1], "use 2", "Use: the request of the bag slot of the potions")
+Swc.HostBagSlot(2, "PotionHealthT1", 2, 100, 0, 0, instance(3), 0, 3, 19, "")
+frames(0.5)
+equal(value and swcui.text_layout(value).lines[1].text, "18.3", "after the use: the bag weight")
+close_commands()
+
+-- An unequip: the command list of the equipped sword has "Unequip"; the request names the weapon slot and a free bag slot
+-- (-1); the answer of the server empties the slot and puts the sword into the bag.
+local eroot = swcui.canvas_get(equipment, "root")
+commands_of(cell_of(eroot, "1hSwordT1"))
+Swc.hostRequests = {}
+click(command("Unequip"), 0.3, 0.5)
+frames(0.5)
+equal(Swc.hostRequests[1], "unequip 24 -1 1", "Unequip: the request of the weapon slot")
+Swc.HostPaperdollItem(24, "", 0, 0, 0, 0, "", 0, 7, 20, "")
+Swc.HostBagSlot(5, "1hSwordT1", 1, 100, 900, 1000, instance(1), 1, 7, 20, "")
+frames(0.5)
+check(PaperdollRequestBus.Event.GetSlot(Swc.ids.paperdoll, 24):GetItemName() == "", "after the unequip: the weapon slot is empty")
+check(cell_of(root, "1hSwordT1") ~= nil, "after the unequip: the sword is in the bag")
+equal(value and swcui.text_layout(value).lines[1].text, "21.3", "after the unequip: the bag weight")
+picture("inventory-unequipped")
 
 -- Close: Tab again.
 key("tab")

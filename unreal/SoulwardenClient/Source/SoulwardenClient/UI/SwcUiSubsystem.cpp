@@ -41,6 +41,8 @@ const char* const HudScreens[] = {
 	"lyshineui/equipment/equipmentv3",
 	"lyshineui/hud2024/actionbar/encumbrance",
 	"lyshineui/flyoutmenu/flyoutmenu",
+	// The notifications (the minor messages of the inventory, the loot).
+	"lyshineui/notifications/notification",
 };
 
 /** The world level name of the HUD scripts (the level crc tells them the front end and the tutorial levels). */
@@ -86,7 +88,11 @@ void USwcUiSubsystem::Start()
 	{
 		Content = FPaths::Combine(WorkDir(), TEXT("content"));
 	}
-	ReportDir = FPaths::Combine(WorkDir(), TEXT("logs/ui"));
+	// The reports of the runtime (-SwcUiReports=DIR: a folder of its own; the default folder is common to the runs of all tracks).
+	if (!FParse::Value(FCommandLine::Get(), TEXT("SwcUiReports="), ReportDir))
+	{
+		ReportDir = FPaths::Combine(WorkDir(), TEXT("logs/ui"));
+	}
 	IFileManager::Get().MakeDirectory(*ReportDir, true);
 
 	swc::ui::Runtime::Options Options;

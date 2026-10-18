@@ -26,8 +26,11 @@ class FSwcUiResources : public swc::ui::TextMeasure
 public:
 	static constexpr float FontPointsPerPixel = 0.75f;
 
-	/** @return The brush of a PNG file, or null when the file does not load (one log line). */
-	const FSlateBrush* Brush(const std::string& File);
+	/**
+	 * @return The brush of a PNG file, or null when the file does not load (one log line). bPremultiplied: a copy with
+	 * the color times the alpha (an additive image: the premultiplied blend of Slate then adds color x alpha).
+	 */
+	const FSlateBrush* Brush(const std::string& File, bool bPremultiplied = false);
 	/**
 	 * @return The brush of an image under a sprite mask (only with -SwcUiMaskMaterial; open point O11 of docs/UI.md): a
 	 * dynamic instance of the UI mask material

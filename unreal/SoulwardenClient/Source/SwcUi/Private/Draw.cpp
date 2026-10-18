@@ -783,7 +783,9 @@ std::string draw_list_json(const DrawList& list) {
         first = false;
         switch (item.kind) {
         case DrawItem::Kind::mesh: {
-            out += "{\"k\":\"mesh\",\"tex\":" + json::quote(item.texture) + ",\"blend\":" + std::to_string(item.blend);
+            // "e": the element of the mesh (a diagnostic: the id of the runtime model).
+            out += "{\"k\":\"mesh\",\"e\":\"" + std::to_string(item.element) + "\",\"tex\":" + json::quote(item.texture) +
+                   ",\"blend\":" + std::to_string(item.blend);
             if (!item.maskTexture.empty()) {
                 out += ",\"mask\":" + json::quote(item.maskTexture) + ",\"at\":" + std::to_string(item.maskAlphaTest) + ",\"m\":[";
                 for (std::size_t i = 0; i < item.vertices.size(); ++i) {

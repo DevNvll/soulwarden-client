@@ -320,6 +320,9 @@ Swc.Define("UiCanvasBus", "Event", {
   StopMultithread = function() end,
   GetIsPixelAligned = function() return true end,
   SetIsPixelAligned = function() end,
+  -- The canvas takes the pointer (IsPosInputSupported of the canvas file; the tooltip canvas does not).
+  GetIsPositionalInputSupported = function(canvas) return swcui.canvas_get(canvas, "posInput") end,
+  SetIsPositionalInputSupported = function(canvas, v) swcui.canvas_set(canvas, "posInput", v and true or false) end,
 })
 
 Swc.Define("UiCanvasManagerBus", "Broadcast", {

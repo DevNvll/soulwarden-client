@@ -258,6 +258,8 @@ struct Canvas {
     int drawOrder{0};
     bool enabled{true};
     bool pixelAligned{true};
+    /** The canvas takes the positional input (the pointer): LyShine IsPosInputSupported. */
+    bool posInput{true};
     Id root{kNoId};
     JavelinCanvasData javelin;
     std::uint64_t loadSequence{0};
@@ -412,7 +414,8 @@ private:
         bool isCanvas{false};
     };
 
-    const Template* load_template(const std::string& path, std::string* error);
+    /** slice: a UI slice (the file <stem>.slice.json first: a slice whose name a canvas also has). */
+    const Template* load_template(const std::string& path, std::string* error, bool slice = false);
     void read_element(const json::Value& data, Element& out) const;
     Id new_id();
     void log(std::string line);

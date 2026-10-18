@@ -1,0 +1,37 @@
+# Stage P2.4: the item actions of the inventory in the client. Tab opens the inventory; the pointer on the sword gives its
+# item tooltip; a click gives the command list; "Equip" sends the request and the backend moves the sword into the weapon
+# slot (the bag and the paperdoll states, the weight); the command list of the equipped sword has "Unequip"; the command
+# list of the potions has "Use" (the stack goes down by one); the sword of tier 3 (level 21; the routes set level 10) has
+# "Equip" off ("Requirements not met"): a refused equip. The drive waits for the items of the routes (tools/creature-check.sh
+# starts the routes late). Times in seconds from the spawn of the player.
+# export SWC_STAGE=P2.4 SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8872:4250:138.25
+# tools/creature-check.sh ui-equip 74 tests/drive/ui-equip-routes.txt tests/drive/ui-exit-player.txt -- -SwcUiDrive=$PWD/tests/drive/ui-equip.txt
+1 waitfor CompassLines 60
+20 log Tab opens the inventory
+20 key tab
+23 waitfor item:1hSwordT3 60
+24 point item:1hSwordT1
+27 log the click on the sword gives the command list
+27 click
+29 point text:Equip
+31 log Equip
+31 click
+35 point item:1hSwordT1
+38 log the click on the equipped sword gives the command list
+38 click
+40 point text:Unequip
+42 log Unequip
+42 click
+46 point item:PotionHealthT1
+49 log the click on the potions gives the command list
+49 click
+51 point text:Use
+53 log Use
+53 click
+57 point item:1hSwordT3
+60 log the click on the sword of tier 3 gives the command list
+60 click
+62 point text:Equip
+64 log Equip (off: requirements not met)
+64 click
+69 end
