@@ -28,9 +28,9 @@ print('\n'.join(census.world_regions() if sys.argv[1] == 'all' else census.playa
 done
 [[ ${#regions[@]} -gt 0 ]] || { echo "usage: tools/build-world.sh NAME... | --playable | --all [--force]" >&2; exit 1; }
 mkdir -p "${SWC_WORK}/logs"
-in_level() {   # with --cells: in the level with cell actors of the current rule (CELLS_VERSION 4 of build_world.py)
+in_level() {   # with --cells: in the level with cell actors of the current rule (CELLS_VERSION 5 of build_world.py)
     [[ -f "${SWC_GAME_CONTENT}/world-state.json" ]] && \
-        python3 -B -c "import json,sys; r = json.load(open(sys.argv[1]))['regions'].get(sys.argv[2]); sys.exit(0 if r is not None and (sys.argv[3] != '1' or r.get('cells version', 1) >= 4) else 1)" \
+        python3 -B -c "import json,sys; r = json.load(open(sys.argv[1]))['regions'].get(sys.argv[2]); sys.exit(0 if r is not None and (sys.argv[3] != '1' or r.get('cells version', 1) >= 5) else 1)" \
             "${SWC_GAME_CONTENT}/world-state.json" "$1" "${SWC_WORLD_CELLS:-}"
 }
 editor_log="${SWC_REPO}/unreal/SoulwardenClient/Saved/Logs/SoulwardenClient.log"

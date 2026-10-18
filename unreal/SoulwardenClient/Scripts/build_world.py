@@ -41,8 +41,9 @@ MAX_SECONDS = float(os.environ.get("SWC_WORLD_MAX_SECONDS") or 240)   # then the
 CELLS_AGAIN = os.environ.get("SWC_WORLD_CELLS", "") == "1"
 # The rule of the cell actors: 1 = stage 1.3; 2 = P4.1 (a placement in the cell of its place, the depleted meshes of the
 # gathering nodes left out, the hidden collision instances of the game, no collision on the render instances; 3: a
-# distribution row places the meshes of its variant; 4: the material overrides of the placements, cells file version 2).
-CELLS_VERSION = 4
+# distribution row places the meshes of its variant; 4: the material overrides of the placements, cells file version 2;
+# 5: the instances of the instanced mesh components of the slices, S0 of research/settlements.md).
+CELLS_VERSION = 5
 unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([ROOT], True)
 manifest = json.load(open(os.path.join(content, "manifest.json")))["assets"]
 state_path = os.path.join(plugin, "world-state.json" if LEVEL.startswith(ROOT) else "world-state-test.json")
