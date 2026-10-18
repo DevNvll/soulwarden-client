@@ -8,7 +8,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 export SWC_PROOF_STAGE="${1:?usage: tools/material-proof.sh STAGE [--wait N]}"
 wait_lock=(-n)
 [[ "${2:-}" == "--wait" ]] && wait_lock=(-w "${3:?--wait N}")
+# The test folder of the proof (its level and transient instances) goes away first, under the lock: an editor cannot
+# always delete a level package that a run before made.
 flock "${wait_lock[@]}" -o -E 75 "${SWC_WORK}/unreal/import.lock" \
+    bash -c 'rm -rf "${SWC_GAME_CONTENT}/Content/Test/MaterialProof" && exec "$@"' _ \
     "${SWC_REPO}/tools/editor-script.sh" material_proof.py --render || status=$?
 if [[ ${status:-0} -eq 75 ]]; then
     echo "material-proof: another import holds ${SWC_WORK}/unreal/import.lock" >&2

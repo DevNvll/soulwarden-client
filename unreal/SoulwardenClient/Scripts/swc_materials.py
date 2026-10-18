@@ -21,8 +21,8 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "2", "M_SwcSurfaceMasked": "2"}   # the rule of each parent
-# (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform; version 1 did not compile)
+PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "3", "M_SwcSurfaceMasked": "3"}   # the rule of each parent
+# (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks)
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
 assets = unreal.EditorAssetLibrary
@@ -65,6 +65,10 @@ def texture_settings(texture, color):
         texture.set_editor_property("srgb", False)
         texture.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_NORMALMAP)
         texture.set_editor_property("lod_group", unreal.TextureGroup.TEXTUREGROUP_WORLD_NORMAL_MAP)
+    elif color == "data":   # several channels of data (an overlay mask): linear, the default compression with alpha
+        texture.set_editor_property("srgb", False)
+        texture.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_MASKS)
+        texture.set_editor_property("lod_group", unreal.TextureGroup.TEXTUREGROUP_WORLD)
     elif color == "linear":
         texture.set_editor_property("srgb", False)
         texture.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_ALPHA)
@@ -92,38 +96,49 @@ def import_texture(key, record, content, state):
     return True
 
 
-def white_linear(content, state):
-    """@return The default texture of the one-channel parameters: 4 x 4 white, TC_Alpha (a sampler of type Alpha needs
-    a default texture of the same type)."""
-    path = f"{BASE}/T_SwcWhiteLinear"
-    if assets.does_asset_exist(path) and state.get("base:T_SwcWhiteLinear") == "1":
+def base_texture(name, color, channels, value, content, state):
+    """@return A default texture of this module (4 x 4 pixels of one value; a sampler needs a default texture of its own
+    type): `channels` 1 (a grayscale PNG) or 4 (RGBA), imported with the settings of `color`."""
+    path = f"{BASE}/{name}"
+    if assets.does_asset_exist(path) and state.get("base:" + name) == "1":
         return assets.load_asset(path)
-    png = os.path.join(content, "materials", "base", "T_SwcWhiteLinear.png")
+    png = os.path.join(content, "materials", "base", name + ".png")
     os.makedirs(os.path.dirname(png), exist_ok=True)
     if not os.path.isfile(png):
-        # A grayscale PNG of 4 x 4 white pixels, written with no extra Python module (zlib and the PNG chunks).
+        # A PNG of 4 x 4 pixels, written with no extra Python module (zlib and the PNG chunks).
         import struct
         import zlib
 
         def chunk(kind, data):
             return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-        raw = b"".join(b"\x00" + b"\xff" * 4 for _ in range(4))
+        raw = b"".join(b"\x00" + bytes([value]) * (4 * channels) for _ in range(4))
+        kind = 0 if channels == 1 else 6
         with open(png, "wb") as handle:
-            handle.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 4, 4, 8, 0, 0, 0, 0))
+            handle.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 4, 4, 8, kind, 0, 0, 0))
                          + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
     task = unreal.AssetImportTask()
     task.set_editor_property("filename", png)
     task.set_editor_property("destination_path", BASE)
-    task.set_editor_property("destination_name", "T_SwcWhiteLinear")
+    task.set_editor_property("destination_name", name)
     task.set_editor_property("automated", True)
     task.set_editor_property("save", True)
     task.set_editor_property("replace_existing", True)
     tools.import_asset_tasks([task])
     texture = assets.load_asset(path)
-    texture_settings(texture, "linear")
+    texture_settings(texture, color)
     assets.save_loaded_asset(texture)
-    state["base:T_SwcWhiteLinear"] = "1"
+    state["base:" + name] = "1"
     return texture
+
+
+def white_linear(content, state):
+    """@return The default texture of the one-channel parameters: 4 x 4 white, TC_Alpha."""
+    return base_texture("T_SwcWhiteLinear", "linear", 1, 255, content, state)
+
+
+def black_data(content, state):
+    """@return The default texture of the mask parameters: 4 x 4 black RGBA (no mask), TC_Masks."""
+    return base_texture("T_SwcBlackData", "data", 4, 0, content, state)
 
 
 def sampler(material, name, kind, default, x, y):
@@ -183,6 +198,34 @@ float u = saturate((b - sqrt(max(b * b - 0.32 * d, 0.0))) / 0.16);
 float3 base = lerp(S, saturate(D / max(u, 0.001)), u);
 return float4(base, 1.0 - u);"""
 SPECULAR_HLSL = "return saturate(dot(S, float3(0.2126, 0.7152, 0.0722)) / 0.08);"
+# The overlay masks of the source (charactermasking.cfib, AddMasking; called after the diffuse factor in
+# clusterforward_commonzpass): Mode 1 = %OVERLAY_MASK, Mode 2 = %COLOR_SAMPLER_OVERLAY_MASK, 0 = none. M is the mask
+# map (the Custom slot, linear RGBA). Amt = (Mask_R, Mask_G, Mask_B, Mask_A_Gloss), Ovr = (Mask_R_Override,
+# Mask_G_Override, Mask_B_Override, Mask_A_SpecColor_Override), Ext = (Mask_A_GlossShift, ColorMaskStrength,
+# ColorMaskOverride, ColorMaskAlphaInf). Output: float4(the diffuse color, the smoothness).
+MASK_HLSL = """float3 w = float3(0.2125, 0.7154, 0.0721);
+float l = dot(D, w);
+float3 d = D;
+float g = G;
+float3 hi = step(0.5, l.xxx);
+if (Mode > 1.5) {
+  float3 o = lerp(2.0 * l * M.rgb, 1.0 - 2.0 * (1.0 - l) * (1.0 - M.rgb), hi);
+  float3 c = lerp(o, M.rgb, Ext.b);
+  d = lerp(d, c, lerp(1.0, M.a, Ext.a) * Ext.g);
+} else if (Mode > 0.5) {
+  float3 oR = lerp(2.0 * l * CR, 1.0 - 2.0 * (1.0 - l) * (1.0 - CR), hi);
+  float3 oG = lerp(2.0 * l * CG, 1.0 - 2.0 * (1.0 - l) * (1.0 - CG), hi);
+  float3 oB = lerp(2.0 * l * CB, 1.0 - 2.0 * (1.0 - l) * (1.0 - CB), hi);
+  d = lerp(d, lerp(oR, CR * CR, Ovr.r), M.r * Amt.r);
+  d = lerp(d, lerp(oG, CG * CG, Ovr.g), M.g * Amt.g);
+  d = lerp(d, lerp(oB, CB * CB, Ovr.b), M.b * Amt.b);
+  float gm = lerp(0.0, g, saturate(Ext.r / 0.5));
+  gm = lerp(gm, 1.0, saturate((Ext.r - 0.5) / 0.5));
+  g = lerp(g, gm, M.a * Amt.a);
+}
+return float4(d, g);"""
+# The specular color of the overlay mask (Mode 1): S = lerp(S, Mask_A_SpecColor, M.a x Mask_A_SpecColor_Override).
+MASK_SPEC_HLSL = "return (Mode > 0.5 && Mode < 1.5) ? lerp(S, SC, M.a * Ovr.a) : S;"
 
 
 def custom(material, code, output, inputs, x, y):
@@ -242,25 +285,54 @@ def surface_parent(content, state, masked):
     reflectance = node(material, unreal.MaterialExpressionMultiply, -600, 50)
     editing.connect_material_expressions(spec_map, "RGB", reflectance, "A")
     editing.connect_material_expressions(spec_color, "RGB", reflectance, "B")
-    split = custom(material, REFLECTANCE_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT4, ("D", "S"), -350, -200)
-    editing.connect_material_expressions(albedo, "", split, "D")
-    editing.connect_material_expressions(reflectance, "", split, "S")
-    base = mask(material, split, "", "rgb", -150, -250)
-    metallic = mask(material, split, "", "a", -150, -100)
-    editing.connect_material_property(base, "", MP.MP_BASE_COLOR)
-    editing.connect_material_property(metallic, "", MP.MP_METALLIC)
-    specular = custom(material, SPECULAR_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("S",), -350, 50)
-    editing.connect_material_expressions(reflectance, "", specular, "S")
-    editing.connect_material_property(specular, "", MP.MP_SPECULAR)
-    normal = sample("Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"), 400)
-    editing.connect_material_property(normal, "RGB", MP.MP_NORMAL)
     gloss = sample("Gloss", st.SAMPLERTYPE_ALPHA, white, 750)
     smoothness = scalar(material, "Smoothness", 0.5, -900, 1000)
     s_value = node(material, unreal.MaterialExpressionMultiply, -500, 800)
     editing.connect_material_expressions(gloss, "R", s_value, "A")
     editing.connect_material_expressions(smoothness, "", s_value, "B")
+    # The overlay masks (M3 part 1): the diffuse color and the smoothness, then the specular color.
+    mask_map = sample("MaskTex", st.SAMPLERTYPE_MASKS, black_data(content, state), 1300)
+    mode = scalar(material, "MaskMode", 0.0, -1600, 1300)
+    inputs = {"CR": vector(material, "MaskColorR", (0.0, 0.0, 0.0, 0.0), -1600, 1450),
+              "CG": vector(material, "MaskColorG", (0.0, 0.0, 0.0, 0.0), -1600, 1600),
+              "CB": vector(material, "MaskColorB", (0.0, 0.0, 0.0, 0.0), -1600, 1750)}
+    packed = {"Amt": vector(material, "MaskAmount", (0.0, 0.0, 0.0, 0.0), -1600, 1900),
+              "Ovr": vector(material, "MaskOverride", (0.0, 0.0, 0.0, 0.0), -1600, 2050),
+              "Ext": vector(material, "MaskExtra", (0.0, 0.0, 0.0, 0.0), -1600, 2200)}
+    masked_color = custom(material, MASK_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT4,
+                          ("D", "G", "M", "Mode", "CR", "CG", "CB", "Amt", "Ovr", "Ext"), -600, 1300)
+    editing.connect_material_expressions(albedo, "", masked_color, "D")
+    editing.connect_material_expressions(s_value, "", masked_color, "G")
+    editing.connect_material_expressions(mask_map, "RGBA", masked_color, "M")
+    editing.connect_material_expressions(mode, "", masked_color, "Mode")
+    for pin, source in inputs.items():
+        editing.connect_material_expressions(source, "RGB", masked_color, pin)
+    for pin, source in packed.items():
+        editing.connect_material_expressions(source, "RGBA", masked_color, pin)
+    spec_out = vector(material, "MaskSpecColor", (0.0, 0.0, 0.0, 0.0), -1600, 2350)
+    masked_spec = custom(material, MASK_SPEC_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT3,
+                         ("S", "SC", "M", "Mode", "Ovr"), -600, 1600)
+    editing.connect_material_expressions(reflectance, "", masked_spec, "S")
+    editing.connect_material_expressions(spec_out, "RGB", masked_spec, "SC")
+    editing.connect_material_expressions(mask_map, "RGBA", masked_spec, "M")
+    editing.connect_material_expressions(mode, "", masked_spec, "Mode")
+    editing.connect_material_expressions(packed["Ovr"], "RGBA", masked_spec, "Ovr")
+    masked_albedo = mask(material, masked_color, "", "rgb", -450, 1300)
+    masked_gloss = mask(material, masked_color, "", "a", -450, 1450)
+    split = custom(material, REFLECTANCE_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT4, ("D", "S"), -350, -200)
+    editing.connect_material_expressions(masked_albedo, "", split, "D")
+    editing.connect_material_expressions(masked_spec, "", split, "S")
+    base = mask(material, split, "", "rgb", -150, -250)
+    metallic = mask(material, split, "", "a", -150, -100)
+    editing.connect_material_property(base, "", MP.MP_BASE_COLOR)
+    editing.connect_material_property(metallic, "", MP.MP_METALLIC)
+    specular = custom(material, SPECULAR_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("S",), -350, 50)
+    editing.connect_material_expressions(masked_spec, "", specular, "S")
+    editing.connect_material_property(specular, "", MP.MP_SPECULAR)
+    normal = sample("Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"), 400)
+    editing.connect_material_property(normal, "RGB", MP.MP_NORMAL)
     rough = node(material, unreal.MaterialExpressionOneMinus, -300, 800)
-    editing.connect_material_expressions(s_value, "", rough, "")
+    editing.connect_material_expressions(masked_gloss, "", rough, "")
     editing.connect_material_property(rough, "", MP.MP_ROUGHNESS)
     if masked:
         material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)

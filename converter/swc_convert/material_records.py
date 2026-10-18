@@ -82,7 +82,7 @@ PARAMS = {
 # normal map compression; linear = data; raw = the source sampler has no sRGB lookup (emittance).
 COLOR = {"diffuse": "srgb", "normal": "normal", "gloss": "linear", "specular": "srgb", "detail": "srgb",
          "diffuse2": "srgb", "normal2": "normal", "gloss2": "linear", "specular2": "linear", "blend mask": "linear",
-         "overlay mask": "linear", "transmission": "linear", "decal opacity": "linear", "height": "linear",
+         "overlay mask": "data", "transmission": "linear", "decal opacity": "linear", "height": "linear",
          "height2": "linear", "emittance": "raw", "emittance intensity": "raw", "occlusion": "linear",
          "tint mask": "srgb", "tint color": "srgb", "dirt": "srgb", "cloud gloss": "linear"}
 
@@ -730,7 +730,7 @@ def differing_fields(rules: list[dict]) -> list[str]:
 # Scripts/apply_materials.py sets the material instance of the key from its spec (the asset path does not change).
 
 SPEC_VERSION = 2      # the rule of the specs (2: the surface parents of M2)
-DEPLOYED = ("m1",)     # the stages that passed their check: instances.json (the import pipeline applies it)
+DEPLOYED = ("m1", "m2", "m3a")  # the stages that passed their check: instances.json (the import pipeline applies it)
 STAGES = DEPLOYED      # the stages of the specs that spec_of() makes now
 LINEAR_VERSION = 1    # the rule of the one-channel PNGs (textures/m1-CAP/: the red channel, or the alpha image)
 CAP = 1024            # the largest size (the cap of the base color and normal maps of stage 1.2)
@@ -755,6 +755,23 @@ def linear_texture(product: str, alpha: bool = False) -> dict:
         image.save(temporary)
         temporary.replace(out)
     return {"asset": key, "file": str(out.relative_to(env.content_dir())), "color": "linear", "cap": CAP}
+
+
+def data_texture(product: str) -> dict:
+    """Writes all channels of a texture product as an RGBA PNG for linear data (once) and @return its record: an
+    overlay mask (the Custom slot with %OVERLAY_MASK or %COLOR_SAMPLER_OVERLAY_MASK). Unreal imports it as linear
+    data with alpha (TC_Masks)."""
+    key = f"texture:{product}@data"
+    out = env.content_dir() / "textures" / f"d{LINEAR_VERSION}-{CAP}" / (product[:-4] + ".png")
+    if not out.is_file():
+        from . import dds
+        data, w, h, fmt = dds.join(source.read, product, CAP)
+        image = dds.to_image(data, w, h, fmt).convert("RGBA")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        temporary = out.with_name(f".{out.name}.tmp.png")
+        image.save(temporary)
+        temporary.replace(out)
+    return {"asset": key, "file": str(out.relative_to(env.content_dir())), "color": "data", "cap": CAP}
 
 
 def color_texture(product: str, role: str) -> dict:
@@ -841,6 +858,30 @@ def surface_spec(rules: dict, use) -> dict:
     spec["vectors"]["SpecularColor"] = rules["specular"] + [1.0]
     spec["vectors"]["UVTransform"] = uv_transform(maps.get("diffuse", {}).get("uv"))
     spec["scalars"]["Smoothness"] = max(1 / 127, float(rules["shininess"]) / 255)
+    flags = set(rules["flags"])
+    if "overlay mask" in maps and "m3a" in STAGES and flags & {"%OVERLAY_MASK", "%COLOR_SAMPLER_OVERLAY_MASK"}:
+        # M3a (M3 part 1): the overlay masks (swc_materials.MASK_HLSL). %OVERLAY_MASK wins when both flags are set.
+        params = rules["params"]
+
+        def value(name: str, default: float = 0.0) -> float:
+            v = params.get(name, default)
+            return float(v[0] if isinstance(v, list) else v)
+
+        def color(name: str) -> list[float]:
+            v = params.get(name, [0.0, 0.0, 0.0])
+            return (list(v) + [0.0, 0.0, 0.0])[:3] + [0.0] if isinstance(v, list) else [float(v)] * 3 + [0.0]
+
+        spec["textures"]["MaskTex"] = use(data_texture(maps["overlay mask"]["product"]))
+        spec["scalars"]["MaskMode"] = 1.0 if "%OVERLAY_MASK" in flags else 2.0
+        spec["vectors"]["MaskColorR"] = color("Mask_R_Color")
+        spec["vectors"]["MaskColorG"] = color("Mask_G_Color")
+        spec["vectors"]["MaskColorB"] = color("Mask_B_Color")
+        spec["vectors"]["MaskSpecColor"] = color("Mask_A_SpecColor")
+        spec["vectors"]["MaskAmount"] = [value("Mask_R"), value("Mask_G"), value("Mask_B"), value("Mask_A_Gloss")]
+        spec["vectors"]["MaskOverride"] = [value("Mask_R_Override"), value("Mask_G_Override"),
+                                           value("Mask_B_Override"), value("Mask_A_SpecColor_Override")]
+        spec["vectors"]["MaskExtra"] = [value("Mask_A_GlossShift"), value("ColorMaskStrength"),
+                                        value("ColorMaskOverride"), value("ColorMaskAlphaInf")]
     return spec
 
 
@@ -936,6 +977,7 @@ PROOF_MESHES = {   # (label, mesh, override material or None: then the third col
     "m2": [("plot-walls", "slices/structures/plots/house_plots/ef_msq_2_house_plots/ef_2story_9x15_ab__28236438930.cgf", None),
            ("plot-stone", "slices/structures/plots/house_plots/ef_msq_2_house_plots/ef_2story_9x15_ab__935090250.cgf", None),
            ("plot-roof", "slices/structures/plots/house_plots/ef_msq_2_house_plots/ef_2story_9x15_ab__11223487900.cgf", None),
+           ("plot-shell", "slices/structures/plots/house_plots/ef_msq_2_house_plots/ef_2story_9x15_ab__19224261670.cgf", None),
            ("lamp", "objects/crafting/props/props_everfall/decor/everfall_lightpole_a.cgf", None),
            ("boulder", "objects/nature/rock_boulders/boulders_forest/jav_fst_boulder_sm_b.cgf", None),
            ("timber", "objects/crafting/architecture/crafting_structures/baseframe/jav_struc_craft_t2_abnd.cgf", None)],
