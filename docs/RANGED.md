@@ -138,7 +138,8 @@ its sheath while the character holds it drawn. Before this rule the HUD kept the
 
 The owner vitals state with bit 1 of `healthChangeFlags` gives a green "+N" (N = the new health less the health of the client;
 UIStyle COLOR_NAMEPLATE_HEALING, RGB 48 229 171) 1.6 m above the feet for 2 s. Message 4298 (a heal of a friend by the owner) goes
-to the log (the client shows no other player yet).
+to the log (the client shows no other player yet). From stage WF7 the UI shows the heal numbers in the original damage number
+canvas and calls `USwcRangedView::SetUiHealNumbers(true)`: the simple numbers go off.
 
 ## The tests
 

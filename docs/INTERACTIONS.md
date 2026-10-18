@@ -106,7 +106,10 @@ While a screen of the UI turns that map off (the escape menu), the input pre-pro
 `tests/drive/menu-hold.txt` with `-SwcUiDrive=tests/drive/menu-hold-ui.txt` (E in the menu: no use; after it: the use).
 
 The prompt of the UI (the text of the option, the ring of the progress) comes in part 2 with the UI track; a development run
-shows the prompt and the progress in the debug text (`E Trigger (powderKeg), 0 %`).
+shows the prompt and the progress in the debug text (`E Trigger (powderKeg), 0 %`). From stage WF7 the UI reads the prompt with
+`FSwcInteractor::GetPrompt` (`USwcBackendSubsystem::GetInteractPrompt`): the kind of the focus (a bag, an object, a fixture), the
+name of the row, the options of the bound with their hold times, the phase and the progress, the tool refusal (the gathering type
+and the text key `ui_notool` + type), and the place; it shows the original prompt card.
 
 ## Check (development run, 2026-10-18)
 
