@@ -6,6 +6,8 @@ names Illum, HumanSkin, Nodraw, ...
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -90,3 +92,70 @@ def describe(material: ET.Element, max_size: int = 1024) -> dict:
 
 def relative(target: str, gltf_path: Path) -> str:
     return os.path.relpath(target, gltf_path.parent)
+
+
+# Shared assets (stage 1.2): each texture is one Unreal asset, and each material is one material instance of a base
+# material, for all meshes. A material is the same for each mesh with the same textures and rules (its key is a hash).
+
+TEXTURE_CAPS = {"base": 1024, "normal": 1024}   # the largest size of each role (the look is not a goal now)
+TEXTURE_VERSION = 2   # the rule of the shared PNGs (2: a base color with an alpha of 255 everywhere is RGB)
+TWO_SIDED = 0x2                                  # MtlFlags: MTL_FLAG_2SIDED (CryEngine)
+
+
+def shared_texture(product: str, role: str) -> dict:
+    """Writes a texture product as PNG for its own Unreal asset (once for each size cap) and @return its record.
+    A normal map keeps the green channel of the engine (Unreal uses the same direction; the glTF PNGs flip it)."""
+    cap = TEXTURE_CAPS[role]
+    out = env.content_dir() / "textures" / f"v{TEXTURE_VERSION}-{cap}" / (product[:-4] + ".png")
+    if not out.is_file():
+        data, w, h, fmt = dds.join(source.read, product, cap)
+        img = dds.to_image(data, w, h, fmt)
+        if role == "normal" or (img.mode == "RGBA" and int(np.asarray(img)[:, :, 3].min()) == 255):
+            img = img.convert("RGB")   # no alpha: Unreal compresses it as DXT1 (a 1-bit alpha of BC1 stays)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        temporary = out.with_name(f".{out.name}.{os.getpid()}.png")   # workers can write the same texture: atomic
+        img.save(temporary)
+        os.replace(temporary, out)
+    return {"kind": "texture", "asset": "texture:" + product, "file": str(out.relative_to(env.content_dir())),
+            "role": role, "cap": cap}
+
+
+def shared_material(material: ET.Element | None) -> tuple[dict, list[dict]]:
+    """@return (the material record, the texture records) of one sub-material. The record name is the key of the
+    material: "m_" + 10 hex digits of the hash of its rules. A missing sub-material is the default (opaque, white)."""
+    rules: dict = {"blend": "opaque", "two sided": False, "factor": [1.0, 1.0, 1.0, 1.0]}
+    textures = []
+    if material is not None:
+        if is_glass(material):
+            rules["blend"] = "translucent"
+            rules["factor"] = [0.8, 0.85, 0.9, 0.25]
+        else:
+            try:
+                cutoff = float(material.get("AlphaTest", "0") or 0)
+            except ValueError:
+                cutoff = 0.0
+            if cutoff > 0:
+                rules["blend"] = "masked"
+                rules["cutoff"] = round(cutoff, 3)
+        try:
+            rules["two sided"] = bool(int(material.get("MtlFlags", "0") or 0) & TWO_SIDED)
+        except ValueError:
+            pass
+        for t in material.iter("Texture"):
+            role = {"Diffuse": "base", "Bumpmap": "normal"}.get(t.get("Map", ""))
+            if role is None or role in rules or not t.get("AssetId"):
+                continue
+            product = source.product_of_text(t.get("AssetId"), ".dds")
+            if product is None:
+                continue
+            try:
+                textures.append(shared_texture(product, role))
+                rules[role] = "texture:" + product
+            except Exception as error:   # a texture that does not decode: the material has no such map
+                rules.setdefault("errors", []).append(f"{role}: {str(error)[:80]}")
+    errors = rules.pop("errors", None)
+    key = "m_" + hashlib.sha1(json.dumps(rules, sort_keys=True).encode()).hexdigest()[:10]
+    record = {"kind": "material", "asset": "material:" + key, "name": key, **rules}
+    if errors:
+        record["errors"] = errors
+    return record, textures

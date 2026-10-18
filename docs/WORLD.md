@@ -1,0 +1,152 @@
+# The world of the client
+
+The main world of the game (`newworld_vitaeeterna`): 7 x 7 regions of 2,048 m (14.336 km x 14.336 km). This document
+has the census of the world (stage 1.2), the shared assets and their pipeline (stage 1.2), and the disk budget. The
+space map is in [ARCHITECTURE.md](ARCHITECTURE.md) ("Spaces").
+
+## The census (stage 1.2)
+
+`tools/convert.sh census` reads the game copy only (no conversion): the chunks, the capitals (with the spawned slices
+and the meshes of the variants), and the distribution of each region, with the rules of stage P0 and 1.1. Output
+(made from the game copy, not in git): `content/census/` (`world-census.json`, `regions.json`, `meshes.json`,
+`textures.json`) and, for each region, `content/regions/NAME/placements.npz` (the mesh table, a mesh index, a source
+index, and the engine matrices, 3 x 4 rows) and `meshes.json`. The census of the 49 regions takes about 3 minutes with
+2 processes; a later run reads its cache.
+
+Result (2026-10-18):
+
+| Value | All 49 regions | The 26 regions of `playable.json` |
+| --- | --- | --- |
+| Placements | 5,890,959 | 4,446,353 |
+| - chunk | 432,535 | |
+| - capital | 270,242 | |
+| - capital variant | 17,981 | |
+| - distribution (plants, stones, trees) | 5,170,201 | |
+| Unique meshes | 17,204 (118 are not in the game copy) | 17,198 |
+| Triangles of the unique meshes (LOD 0, drawn) | 177.1 million | |
+| Triangles of all placements (LOD 0, drawn) | 13.8 billion | |
+| Textures that the materials use: base color | 1,954 (1.86 G texels at 1,024) | |
+| Textures that the materials use: normal | 1,770 (1.71 G texels at 1,024) | |
+
+- 12 regions have no placement (ocean). Some regions have only distribution (for example `r_+05_+05`: 299,939
+  plants, 6 chunks, and 7 plot markers in its capitals).
+- The largest region has 299,939 placements; the region of the proof area (`r_+04_+02`) has 221,103 placements and
+  3,179 unique meshes.
+- 13.8 billion triangles of all placements at LOD 0: the client needs Nanite (or the LOD files) and instancing.
+- Each region has the far meshes of the game (`impostors/`, `poi_impostors/`): a candidate for the distance (stage 1.3).
+
+## The shared place of the imported content
+
+The imported assets are made from the game copy: they cannot be in git, and one copy serves the root checkout and each
+worktree. The place is a content plugin outside the repository:
+
+- `~/Games/soulwarden-client/unreal/SwcGameContent` (`SWC_GAME_CONTENT` in `tools/env.sh`), mount point
+  `/SwcGameContent/`.
+- `tools/content-link.sh` makes the plugin and links it into the checkout:
+  `unreal/SoulwardenClient/Plugins/SwcGameContent` (a symbolic link; git ignores it). The tools that start Unreal
+  (`import.sh`, `editor-script.sh`, `editor.sh`) call it. A new checkout runs it one time.
+- One import at a time: `tools/import.sh` holds `~/Games/soulwarden-client/unreal/import.lock` (`flock -o`: the
+  servers that the editor starts do not keep the lock). Do not import while an editor of another checkout has the
+  same assets open.
+- A commandlet does not scan the content of a plugin: a script calls
+  `AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(["/SwcGameContent"], True)` first.
+- The derived data cache of the engine (Zen, in `~/.config/Epic/UnrealEngine/Common`) is shared by all checkouts.
+
+Folders of the plugin:
+
+| Folder | Content |
+| --- | --- |
+| `Base/` | The base materials `M_SwcOpaque`, `M_SwcMasked`, `M_SwcTranslucent` and the mesh pipelines `P_SwcMeshNanite`, `P_SwcMesh` (made by the import script) |
+| `Textures/STEM_HASH/` | One texture |
+| `Materials/m_HASH` | One material instance |
+| `Meshes/STEM_HASH/` | One static mesh |
+| `Characters/`, `Test/` | Characters and test assets (the default glTF pipeline) |
+
+## Shared assets (stage 1.2)
+
+- Texture: one PNG for each texture product, rule, and size cap (`content/textures/v2-1024/PATH.png`; the cap is
+  1,024 for the base color and the normal maps), and one `Texture2D`. Base color: sRGB, the default compression; a
+  PNG with an alpha of 255 everywhere is RGB, thus DXT1 (a 1-bit alpha of BC1 stays). Normal: linear,
+  `TC_Normalmap`, the green channel of the engine (no flip; the glTF PNGs of the characters flip it).
+- Material: one record for each set of rules: the blend (opaque, masked, translucent), two-sided (`MtlFlags` 0x2),
+  the alpha cutoff, the color factor, the base color texture, and the normal texture. The key of a record is `m_` and
+  10 hex digits of the hash of its rules: two meshes with the same rules use one material. Each record is one
+  `MaterialInstanceConstant` of a base material. The look is not a goal now (no specular, gloss, or emissive map).
+- Static mesh: a glTF with no texture; each glTF material is a key. The pipeline `P_SwcMeshNanite` (a copy of the
+  glTF pipeline of the engine) makes no material and no texture; the pipeline `SwcMaterialLinkPipeline` (C++, editor
+  module) after it gives each slot the material instance `/SwcGameContent/Materials/KEY` before the build. Two rules
+  found in stage 1.2: a material that a script sets after the import makes Unreal build the mesh a second time (a
+  large merged mesh then took about 30 s); and `InterchangeManager.import_asset` does not save: the script saves each
+  batch of 16 meshes (a save waits for the builds of the batch, which run at the same time) and then collects the
+  garbage. A mesh with a translucent (glass) material has no Nanite (`P_SwcMesh`): Nanite draws only opaque and masked
+  materials. The world meshes have no mesh distance field and no Lumen cards (see the import time below).
+- Skeletal meshes with their clips (characters, creatures) use the default glTF pipeline of the engine (kind
+  `character`): one folder for each character, with its skeleton, meshes, physics asset, and animation sequences.
+- Each primitive of a glTF has only the vertices that it uses (before stage 1.2, each primitive had all vertices of
+  its chunk).
+
+Why three base materials and not one: the blend mode is a property of a material. A material instance can override
+it, but an override gives that instance its own shaders (a static permutation). Three parents let all instances of
+one blend mode share the shaders of their parent.
+
+Asset counts (the exit check of stage 1.2):
+
+| Content | Rule of stage P0 (textures in each glTF) | Shared rule (stage 1.2) |
+| --- | --- | --- |
+| Proof area of stage 1.1 (757 meshes), measured | 2,725 textures, 1,466 material instances | 449 textures, 253 material instances |
+| Region `r_+04_+02` (3,148 meshes) | about 18,212 textures, 8,672 material instances (computed from the census) | 1,216 textures, 716 material instances (imported) |
+
+## The incremental pipeline
+
+- Converter: `mesh.VERSION` is the rule of the static meshes (3 since stage 1.2), `materials.TEXTURE_VERSION` the
+  rule of the shared PNGs (2). The manifest entry of a mesh has the
+  version and the hash of its glTF. `tools/convert.sh world NAME...` (or `--playable`, `--all`) converts only the
+  meshes that are missing, have an older version, or are forced (`--force`), in 4 processes, and writes the manifest
+  one time. A texture PNG exists one time for each cap. The game copy does not change.
+- Import: `SwcGameContent/import-state.json` has, for each imported asset, the hash of the glTF (a mesh), the size and
+  time of the PNG (a texture), or the rule version of the script (a material). `tools/import.sh` imports only the
+  assets that are new or changed. `--regions NAME...` selects the meshes of regions and their materials and
+  textures.
+
+```sh
+tools/convert.sh census                  # the census of the 49 regions
+tools/convert.sh world r_+04_+02         # the meshes of regions, shared textures and materials (--playable, --all)
+tools/import.sh --regions r_+04_+02      # only the new or changed assets of these regions
+```
+
+## The disk budget (stage 1.2)
+
+`tools/convert.sh budget --ddc-bytes N` measures the unit costs on the imported regions (the plugin assets, their
+glTF and PNG files, the triangles and texels of the census) and scales them to the census of the 49 regions
+(`content/census/budget.json`). Measured on region `r_+04_+02` (3,148 meshes, 18.8 million triangles, 1,216
+textures, 716 material instances), 2026-10-18:
+
+| Unit | Value |
+| --- | --- |
+| Mesh asset (plugin) | 46.7 bytes / triangle |
+| glTF + bin (converted) | 57.8 bytes / triangle |
+| Texture asset (plugin) | 1.22 bytes / texel |
+| PNG (converted) | 1.09 bytes / texel |
+| Texture cache (DXT1 0.5, DXT5 and BC5 1 byte / texel, x 4/3 for the mips; computed) | 1.27 bytes / texel |
+| Material instance | 4.5 KB |
+| Mesh cache (the growth of the derived data cache during the imports; an upper bound: the cache is shared with the other tracks, and some test builds had distance fields) | 105 bytes / triangle |
+
+Estimate for the world (177.1 million triangles; 3.57 G texels of base color and normal maps at 1,024):
+
+| Part | GB |
+| --- | --- |
+| Converted content: glTF | 10.2 |
+| Converted content: PNG | 3.9 |
+| Converted content: placements (census) | 0.3 |
+| Plugin: meshes | 8.3 |
+| Plugin: textures | 4.3 |
+| Plugin: materials | 0.0 |
+| Derived data cache: meshes (upper bound) | 18.6 |
+| Derived data cache: textures | 4.5 |
+| Total | 50.1 |
+
+The world level of stage 1.3 (the Landscape actors, the cell actors, the streaming data) adds to this. 235 GB were free
+on 2026-10-18 after the region import; the limit of the project is 150 GB of new data, with 50 GB free at least.
+
+Import time: Interchange builds each mesh (Nanite). With a mesh distance field and Lumen cards, the build of 20 meshes
+took 80 s; without them, 14 s. The world meshes have no distance field and no Lumen cards (pipeline version 4).

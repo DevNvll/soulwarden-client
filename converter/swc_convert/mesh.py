@@ -1,20 +1,12 @@
 """Static meshes (.cgf + .cgfheap) -> glTF 2.0 with PNG textures."""
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import numpy as np
 
 from . import cgf, env, gltf, manifest, materials, source
-
-
-def alpha_cutoff(value: str) -> float | None:
-    """@return The glTF alpha cutoff of a CryEngine AlphaTest value, or no value for an opaque material."""
-    try:
-        cutoff = float(value)
-    except ValueError:
-        return None
-    return cutoff if cutoff > 0.0 else None
 
 
 def out_path(asset: str) -> Path:
@@ -42,26 +34,48 @@ def load(path: str) -> tuple[cgf.ChunkFile, list[cgf.Mesh]]:
     return f, meshes
 
 
-def convert(path: str, max_texture: int = 1024, force: bool = False) -> dict:
-    """Converts one static mesh. @return A report."""
+# The rule of the static meshes: 1 = stage P0 (textures in each glTF); 2 = stage 1.2 (shared materials);
+# 3 = the shared PNGs of materials.TEXTURE_VERSION 2.
+VERSION = 3
+
+
+def compact(indices: np.ndarray, *arrays):
+    """@return The indices of one primitive and the vertex arrays with only the vertices that it uses."""
+    used, local = np.unique(indices, return_inverse=True)
+    return local.astype(np.uint32), [a[used] if a is not None else None for a in arrays]
+
+
+def file_hash(gltf_path: Path) -> str:
+    digest = hashlib.sha1(gltf_path.read_bytes())
+    digest.update(gltf_path.with_suffix(".bin").read_bytes())
+    return digest.hexdigest()[:16]
+
+
+def convert(path: str, force: bool = False, write_manifest: bool = True) -> dict:
+    """Converts one static mesh to glTF with shared materials: each glTF material is only the key of a material
+    record (materials.shared_material); the textures are their own assets. All chunks are one glTF mesh with one node
+    (Interchange makes one static mesh asset for each node). @return A report with the manifest records."""
     path = path.lower()
     out = out_path(path)
-    if out.is_file() and not force:
-        return {"mesh": path, "gltf": str(out), "skipped": "exists"}
+    if not force and out.is_file():
+        entry = manifest.load()["assets"].get(path, {})
+        if entry.get("version") == VERSION:
+            return {"mesh": path, "skipped": "up to date"}
     f, meshes = load(path)
     reference = cgf.material_guid(f) or ""
-    w = gltf.Writer()
-    report = {"mesh": path, "gltf": str(out), "vertices": 0, "triangles": 0, "materials": []}
-    mats: dict[int, int | None] = {}
-    sub_materials = []
+    sub_materials: list = []
+    report: dict = {"mesh": path, "triangles": 0, "vertices": 0}
     if reference:
         try:
-            mtl_path, sub_materials = materials.load_mtl(reference, path)
-            report["mtl"] = mtl_path
+            report["mtl"], sub_materials = materials.load_mtl(reference, path)
         except Exception as error:
-            report["material error"] = str(error)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    prims = []   # all chunks in one glTF mesh: Interchange makes one static mesh asset for each glTF node
+            report["material error"] = str(error)[:120]
+    w = gltf.Writer()
+    slots: dict[int, int] = {}          # sub-material index -> glTF material index (-1: not drawn)
+    by_key: dict[str, int] = {}         # material key -> glTF material index
+    records: dict[str, dict] = {}
+    textures: dict[str, dict] = {}
+    prims = []
     for mesh in meshes:
         pos = gltf.z_up_to_y_up(mesh.positions)
         nrm = gltf.z_up_to_y_up(mesh.normals) if mesh.normals is not None else None
@@ -70,34 +84,48 @@ def convert(path: str, max_texture: int = 1024, force: bool = False) -> dict:
             tan = mesh.tangents.copy()
             tan[:, :3] = gltf.z_up_to_y_up(mesh.tangents[:, :3])
         for s in mesh.subsets:
-            if s.material not in mats:
-                mats[s.material] = None
-                if s.material < len(sub_materials):
-                    m = sub_materials[s.material]
-                    if materials.not_drawn(m):
-                        mats[s.material] = -1
-                    else:
-                        info = materials.describe(m, max_texture)
-                        report["materials"].append(info)
-                        files = info["files"]
-                        glass = materials.is_glass(m)
-                        mats[s.material] = w.material(
-                            f"m{s.material}_{info['name']}"[:48],   # unique in the file: Interchange shortens long names
-                            materials.relative(files["base"], out) if "base" in files else None,
-                            materials.relative(files["normal"], out) if "normal" in files else None,
-                            None, factor=(0.8, 0.85, 0.9, 0.25) if glass else (1, 1, 1, 1),
-                            alpha_mask=None if glass else alpha_cutoff(info.get("alphaTest", "")), blend=glass)
-            if mats[s.material] == -1:
+            if s.material not in slots:
+                m = sub_materials[s.material] if 0 <= s.material < len(sub_materials) else None
+                if m is not None and materials.not_drawn(m):
+                    slots[s.material] = -1
+                else:
+                    record, used = materials.shared_material(m)
+                    records[record["name"]] = record
+                    textures.update({t["asset"]: t for t in used})
+                    if record["name"] not in by_key:
+                        by_key[record["name"]] = w.material(record["name"])
+                    slots[s.material] = by_key[record["name"]]
+            if slots[s.material] == -1:
                 continue   # collision (Nodraw) and shadow proxies are not drawn
-            idx = mesh.indices[s.first_index:s.first_index + s.num_indices]
-            prims.append(w.primitive(pos, idx, nrm, mesh.uvs, tan, material=mats[s.material]))
+            idx, (p, n, uv, t) = compact(mesh.indices[s.first_index:s.first_index + s.num_indices], pos, nrm, mesh.uvs, tan)
+            prims.append(w.primitive(p, idx, n, uv, t, material=slots[s.material]))
             report["triangles"] += len(idx) // 3
-        report["vertices"] += len(mesh.positions)
-    if prims:
-        w.doc["scenes"][0]["nodes"] = [w.node(name=Path(path).stem, mesh=w.mesh(Path(path).stem, prims))]
+            report["vertices"] += len(p)
+    if not prims:
+        raise ValueError(f"{path}: no drawn triangles")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    w.doc["scenes"][0]["nodes"] = [w.node(name=Path(path).stem, mesh=w.mesh(Path(path).stem, prims))]
     w.save(out)
-    manifest.add("static", path, out)
+    translucent = any(r["blend"] == "translucent" for r in records.values())
+    entry = {"kind": "static", "file": str(out.relative_to(env.content_dir())), "version": VERSION,
+             "hash": file_hash(out), "materials": sorted(records), "nanite": not translucent}
+    report.update({"entry": entry, "materials": list(records.values()), "textures": list(textures.values())})
+    if write_manifest:
+        manifest.add_many(records_of([report]))
     return report
+
+
+def records_of(reports: list[dict]) -> dict[str, dict]:
+    """@return The manifest entries of mesh reports: the meshes, their materials, and their textures."""
+    out: dict[str, dict] = {}
+    for r in reports:
+        if "entry" not in r:
+            continue
+        out[r["mesh"]] = r["entry"]
+        for record in r["materials"] + r["textures"]:
+            entry = {k: v for k, v in record.items() if k != "asset"}
+            out[record["asset"]] = entry
+    return out
 
 
 def drawn_positions(path: str) -> np.ndarray:

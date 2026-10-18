@@ -4,7 +4,8 @@ Run: tools/convert.sh space-proof (the plan), then tools/editor-script.sh space_
 The script imports the test assets of the plan (the marker, the terrain patch), places all actors of the plan with
 their Unreal transforms, reads the vertices back from Unreal, compares them with the engine positions of the plan
 (through the map), and renders the views of the plan. The level and the pictures are made from the game copy: the
-level goes to /Game/Imported/Test (not in git), the pictures and the report to SWC_EVIDENCE.
+level goes to /SwcGameContent/Test (the shared content plugin, not in git), the pictures and the report to
+SWC_EVIDENCE.
 Environment: SWC_CONTENT, SWC_WORK, SWC_EVIDENCE (default SWC_WORK/evidence/1.1).
 """
 import json
@@ -22,6 +23,7 @@ manifest = json.load(open(os.path.join(content, "manifest.json")))
 assets = unreal.EditorAssetLibrary
 editor_tools = unreal.SwcEditorLibrary   # spawns with no placement subsystem (a commandlet has none)
 started = time.time()
+unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(["/SwcGameContent"], True)   # see import_content.py
 
 
 def log(text):
@@ -79,7 +81,7 @@ for asset, entry in manifest["assets"].items():
         log(f"import {asset}: {'ok' if ok else 'FAILED'}")
 
 # 2. A new level with the actors of the plan.
-level_path = "/Game/Imported/Test/SpaceProof"
+level_path = "/SwcGameContent/Test/SpaceProof"
 levels = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 if assets.does_asset_exist(level_path):   # a level of an earlier run: open it and remove its actors
     levels.load_level(level_path)

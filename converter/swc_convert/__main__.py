@@ -1,12 +1,17 @@
 """swc-convert: convert the content of the game copy of the user for the Unreal client.
 
 Usage (through tools/convert.sh):
-  mesh PATH... [--max-texture N] [--force]          static meshes -> glTF
+  mesh PATH... [--force]                            static meshes -> glTF (shared textures and materials)
   character CDF [--clip CAF]... [--force]           a character with its skins and clips -> glTF
   region NAME [--area X Y SIZE] [--meshes]          height map, macro map, placements (+ the meshes of the placements)
   proofs                                            the four proofs of the research AST-135 (exit check of stage P0)
   manifest                                          write the manifest again (the Unreal folder rule)
   checks                                            check the readers against the values of the research
+  census [NAME...] [--workers N] [--force]          the world census (stage 1.2): placements of all regions, meshes,
+                                                    textures, triangles (default: the 49 regions of the main world)
+  budget [--ddc-bytes N]                            the disk budget of the world from the imported regions (stage 1.2)
+  world NAME... | --playable | --all [--workers N] [--force]
+                                                    the meshes of regions with shared textures and materials (stage 1.2)
   space-proof [NAME --area X Y SIZE] [--sheet]      the proof of the space map (stage 1.1): marker, terrain patch, plan;
                                                     --sheet: the pictures side by side after Scripts/space_proof.py
   preview mesh PATH | character CDF [--clip CAF] | region NAME --area X Y SIZE
@@ -18,7 +23,7 @@ import argparse
 import json
 import sys
 
-from . import character, env, manifest, mesh, region
+from . import character, env, manifest, mesh, region, world
 
 PROOF_MESH = "objects/props/tents/legion/legion_tent_b/legion_tent_b.cgf"
 PROOF_CDF = "objects/characters/npc/natural/predator/wolf/wolf.cdf"
@@ -31,32 +36,29 @@ PROOF_AREA = (8780.0, 4100.0, 300.0)
 def region_meshes(name: str, area, force: bool) -> dict:
     data = json.loads(region.placement_file(name, area).read_text())
     unique = sorted({p["mesh"] for p in data["placements"]})
-    done, failed = 0, {}
-    for path in unique:
-        try:
-            mesh.convert(path, 512, force)
-            done += 1
-        except Exception as error:
-            failed[path] = str(error)[:120]
-    return {"unique meshes": len(unique), "converted": done, "failed": len(failed), "failures": dict(list(failed.items())[:10])}
+    return world.convert_meshes(unique, workers=1, force=force)
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="swc-convert", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("mesh"); p.add_argument("paths", nargs="+"); p.add_argument("--max-texture", type=int, default=1024); p.add_argument("--force", action="store_true")
+    p = sub.add_parser("mesh"); p.add_argument("paths", nargs="+"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("character"); p.add_argument("cdf"); p.add_argument("--clip", action="append", default=[]); p.add_argument("--force", action="store_true")
     p = sub.add_parser("region"); p.add_argument("name"); p.add_argument("--area", type=float, nargs=3); p.add_argument("--meshes", action="store_true"); p.add_argument("--force", action="store_true")
     sub.add_parser("proofs")
     sub.add_parser("manifest")
     sub.add_parser("checks")
+    p = sub.add_parser("census"); p.add_argument("names", nargs="*"); p.add_argument("--workers", type=int, default=4); p.add_argument("--force", action="store_true")
+    p = sub.add_parser("budget"); p.add_argument("--ddc-bytes", type=int)
+    p = sub.add_parser("world"); p.add_argument("names", nargs="*"); p.add_argument("--playable", action="store_true"); p.add_argument("--all", action="store_true")
+    p.add_argument("--workers", type=int, default=4); p.add_argument("--force", action="store_true")
     p = sub.add_parser("space-proof"); p.add_argument("name", nargs="?", default=PROOF_REGION); p.add_argument("--area", type=float, nargs=3, default=list(PROOF_AREA)); p.add_argument("--sheet", action="store_true")
     p = sub.add_parser("preview"); p.add_argument("kind", choices=["mesh", "character", "region"]); p.add_argument("target")
     p.add_argument("--clip"); p.add_argument("--area", type=float, nargs=3); p.add_argument("--frames", type=float, nargs="*", default=[0, 6.5, 13, 19.5])
     args = parser.parse_args(argv)
     result: object
     if args.command == "mesh":
-        result = [mesh.convert(path, args.max_texture, args.force) for path in args.paths]
+        result = world.convert_meshes(args.paths, workers=1, force=args.force)
     elif args.command == "character":
         result = character.convert(args.cdf, args.clip, force=args.force)
     elif args.command == "region":
@@ -67,6 +69,18 @@ def main(argv=None) -> int:
     elif args.command == "checks":
         from . import checks
         result = checks.run()
+    elif args.command == "census":
+        from . import census
+        result = census.run(args.names or None, args.workers, args.force)
+    elif args.command == "budget":
+        from . import budget
+        result = budget.run(args.ddc_bytes)
+    elif args.command == "world":
+        from . import census
+        names = census.world_regions() if args.all else census.playable_regions() if args.playable else args.names
+        if not names:
+            parser.error("world needs region names, --playable, or --all")
+        result = world.convert_regions(names, args.workers, args.force)
     elif args.command == "space-proof":
         from . import space
         result = space.sheet() if args.sheet else space.proof(args.name, tuple(args.area))

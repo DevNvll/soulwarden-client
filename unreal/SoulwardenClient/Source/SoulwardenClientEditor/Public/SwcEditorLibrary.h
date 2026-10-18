@@ -5,6 +5,7 @@
 #include "SwcEditorLibrary.generated.h"
 
 class AActor;
+class UMaterialInterface;
 class USceneCaptureComponent2D;
 class UStaticMesh;
 
@@ -33,4 +34,18 @@ public:
 	/** Spawns a static mesh actor (static mobility) in the editor world. */
 	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
 	static AActor* SpawnMeshActor(UStaticMesh* Mesh, const FTransform& Transform, const FString& Label);
+
+	/** Makes one Landscape in the editor world from a raw file of 16-bit heights (little-endian, row 0 = the smallest
+	 *  Y): ComponentsPerSide x ComponentsPerSide components of one section of QuadsPerSection quads. In a World
+	 *  Partition world, the Landscape becomes streaming proxies of GridSize x GridSize components (the steps of the
+	 *  New Landscape tool of the editor). @return The Landscape, or null when the file has a wrong size. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static AActor* CreateLandscape(const FString& RawFile, int32 ComponentsPerSide, int32 QuadsPerSection, const FVector& Location,
+		const FVector& Scale, UMaterialInterface* Material, const FString& Label, int32 GridSize = 2);
+
+	/** Spawns the instance actors of a file of the converter (converter/swc_convert/cells.py): each actor has one
+	 *  instanced static mesh component for each mesh of its cell, with the instances in world space.
+	 *  @return The number of actors, or -1 when the file cannot be read. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static int32 SpawnInstanceActors(const FString& File);
 };
