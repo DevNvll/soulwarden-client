@@ -2,9 +2,10 @@
 
 Run: tools/convert-materials.sh proof-plan STAGE, then tools/material-proof.sh STAGE (tools/editor-script.sh --render
 with the import lock). Each row of the plan is one mesh, placed three times along X: "stage 1.2" (transient
-instances of the old base materials with the manifest record of each slot key: the look before the stage),
-"materials" (the material instances of /SwcGameContent/Materials as they are now), and "override" (the instances of
-the material override of the region data, for example the fall leaves of Oxboro). Two cameras: the sun behind the
+instances of the old base materials with the manifest record of each slot key: the look before the stage), "now"
+(the material instances of /SwcGameContent/Materials as they are now), and "override" (the instances of the material
+override of the region data, for example the fall leaves of Oxboro) or "candidate" (transient instances of the specs
+of the stages under check, instances-candidate.json; this script imports their textures). Two cameras: the sun behind the
 camera (front) and the sun behind the meshes (back: the transmitted light). The level and the test instances are not
 saved. Pictures and the report go to SWC_EVIDENCE (default SWC_WORK/evidence/WF3/STAGE).
 Environment: SWC_CONTENT, SWC_WORK, SWC_PROOF_STAGE, SWC_EVIDENCE.
@@ -64,7 +65,9 @@ def legacy_instance(name, record):
     return instance
 
 
-parents = {"foliage": sm.assets.load_asset(f"{sm.BASE}/M_SwcFoliage")}
+parents = {kind: sm.assets.load_asset(f"{sm.BASE}/{name}") for kind, name in
+           (("foliage", "M_SwcFoliage"), ("surface", "M_SwcSurface"), ("surface masked", "M_SwcSurfaceMasked"))
+           if sm.assets.does_asset_exist(f"{sm.BASE}/{name}")}
 
 
 def spec_instance(name, spec):
@@ -87,11 +90,29 @@ def material_of(variant, slot, entry, n):
     raise RuntimeError(f"{variant} {slot}: no material ({entry})")
 
 
+# The textures of the candidate specs (the stages under check): imported here, as apply_specs does.
+state_path = os.path.join(os.environ["SWC_GAME_CONTENT"], "import-state.json")
+state = json.load(open(state_path)) if os.path.isfile(state_path) else {}
+needed = {t for row in plan["rows"] for slots in row["variants"].values() for entry in slots.values()
+          for t in (entry.get("spec") or {}).get("textures", {}).values()}
+for key in sorted(needed):
+    if key in textures:
+        sm.import_texture(key, textures[key], content, state)
+for kind, name in (("foliage", "M_SwcFoliage"), ("surface", "M_SwcSurface"), ("surface masked", "M_SwcSurfaceMasked")):
+    if kind not in parents and any((entry.get("spec") or {}).get("parent") == kind for row in plan["rows"]
+                                   for slots in row["variants"].values() for entry in slots.values()):
+        parents[kind] = (sm.foliage_parent(content, state) if kind == "foliage"
+                         else sm.surface_parent(content, state, masked=kind == "surface masked"))
+with open(state_path + ".tmp", "w") as handle:
+    json.dump(state, handle, indent=0, sort_keys=True)
+os.replace(state_path + ".tmp", state_path)
+
+if sm.assets.does_directory_exist(TEST):   # the level and the test instances of an earlier run
+    sm.assets.delete_directory(TEST)
 levels = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
 if not levels.new_level(f"{TEST}/Level_{stage}"):
     raise RuntimeError("cannot make the proof level")
 world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
-VARIANTS = ("stage 1.2", "materials", "override")
 report = {"stage": stage, "rows": [], "pictures": {}}
 n = 0
 for row in plan["rows"]:
@@ -102,7 +123,7 @@ for row in plan["rows"]:
     bounds = mesh.get_bounds()
     width = max(bounds.box_extent.x, bounds.box_extent.y) * 2.2
     used = {"label": row["label"], "variants": {}}
-    for column, variant in enumerate(VARIANTS):
+    for column, variant in enumerate(row["variants"]):
         xf = unreal.Transform()
         # The camera looks along +Y: +X is on the left of the picture. Left to right: stage 1.2, materials, override.
         xf.translation = unreal.Vector((1 - column) * width, 0.0, 0.0)

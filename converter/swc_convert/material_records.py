@@ -18,7 +18,8 @@ material is inactive: it is in the rich record, not in the render rules.
 Usage (tools/convert-materials.sh):
   audit                the records of the source materials of the converted meshes, the provenance of the mesh slots,
                        the key collisions, and the texture checks -> SWC_CONTENT/materials/
-  instances            the spec of each material instance that changes and its textures (after audit)
+  instances [--candidate STAGES]  the spec of each material instance that changes and its textures (after audit);
+                       --candidate m1,m2: also instances-candidate.json for the render check of stages under check
                        -> SWC_CONTENT/materials/instances.json, textures.json; then tools/apply-materials.sh
   proof-sheet [STAGE]  the pictures of the render check with the names of the columns
   chains               the exit check of M0: the source chains of the research proofs and the on/off overrides
@@ -728,7 +729,9 @@ def differing_fields(rules: list[dict]) -> list[str]:
 # comes from the render rules of the main source of the key (the source of the most mesh slots). The Unreal script
 # Scripts/apply_materials.py sets the material instance of the key from its spec (the asset path does not change).
 
-SPEC_VERSION = 1      # the rule of the specs
+SPEC_VERSION = 2      # the rule of the specs (2: the surface parents of M2)
+DEPLOYED = ("m1",)     # the stages that passed their check: instances.json (the import pipeline applies it)
+STAGES = DEPLOYED      # the stages of the specs that spec_of() makes now
 LINEAR_VERSION = 1    # the rule of the one-channel PNGs (textures/m1-CAP/: the red channel, or the alpha image)
 CAP = 1024            # the largest size (the cap of the base color and normal maps of stage 1.2)
 
@@ -772,7 +775,9 @@ def spec_of(rules: dict, legacy: dict, textures: dict) -> dict | None:
     Opacity map is the transmission), and the base color with its own alpha for each other masked material whose
     base color had the Opacity map as its alpha. `legacy` is the manifest record of the key; `textures` collects
     the texture records."""
-    if rules.get("missing") or rules["blend"] != "masked":
+    if rules.get("missing") or rules["blend"] not in ("masked", "opaque"):
+        return None
+    if rules["blend"] == "opaque" and not (rules["family"] == "illum" and "m2" in STAGES):
         return None
     maps = rules["textures"]
 
@@ -800,16 +805,68 @@ def spec_of(rules: dict, legacy: dict, textures: dict) -> dict | None:
         spec["scalars"]["Smoothness"] = max(1 / 127, float(rules["shininess"]) / 255)
         spec["scalars"]["Specular"] = min(1.0, luminance(rules["specular"]) / 0.08)
         return spec
+    if rules["family"] == "illum" and "m2" in STAGES:
+        return surface_spec(rules, use)
     if "+opacity:" in str(legacy.get("base", "")) and "diffuse" in maps:
         return {"parent": None, "textures": {"BaseColor": use(color_texture(maps["diffuse"]["product"], "base"))}}
     return None
 
 
-def instances() -> dict:
-    """Writes SWC_CONTENT/materials/instances.json (the spec of each material key that changes, with the main source
-    and the other render keys of the key) and textures.json (the texture records of the specs: the key, the PNG,
-    the color space, the Unreal folder). Reads records.json, slots.json (tools/convert-materials.sh audit) and the
-    manifest. @return The summary."""
+def uv_transform(uv: dict | None) -> list[float]:
+    """@return UVTransform (tile u, tile v, offset u, offset v) of the UV rules of a slot: the source TexMod tiling and
+    offset. The rotation and the oscillators are not in the parents (a limit, counted by instances())."""
+    uv = uv or {}
+    return list(uv.get("tile", [1.0, 1.0])) + list(uv.get("offset", [0.0, 0.0]))
+
+
+def surface_spec(rules: dict, use) -> dict:
+    """@return The spec of an Illum material (stage M2): M_SwcSurface or M_SwcSurfaceMasked with the diffuse map and
+    the XML Diffuse, the specular map and the XML Specular (F0), the gloss (the alpha image of the normal map) and
+    Smoothness = max(1/127, Shininess/255), the normal map, and the UV transform of the diffuse slot."""
+    maps = rules["textures"]
+    spec = {"parent": "surface masked" if rules["blend"] == "masked" else "surface", "textures": {}, "vectors": {},
+            "scalars": {}, "two sided": rules["two sided"]}
+    if rules["blend"] == "masked":
+        spec["cutoff"] = rules["cutoff"]
+    if "diffuse" in maps:
+        spec["textures"]["BaseColor"] = use(color_texture(maps["diffuse"]["product"], "base"))
+    if "normal" in maps:
+        spec["textures"]["Normal"] = use(color_texture(maps["normal"]["product"], "normal"))
+    if "gloss" in maps:
+        product = maps["gloss"]["product"]
+        spec["textures"]["Gloss"] = use(linear_texture(product, alpha=source.has(product + ".a")))
+    if "specular" in maps:
+        spec["textures"]["Specular"] = use(color_texture(maps["specular"]["product"], "base"))
+    spec["vectors"]["DiffuseColor"] = rules["diffuse"] + [1.0]
+    spec["vectors"]["SpecularColor"] = rules["specular"] + [1.0]
+    spec["vectors"]["UVTransform"] = uv_transform(maps.get("diffuse", {}).get("uv"))
+    spec["scalars"]["Smoothness"] = max(1 / 127, float(rules["shininess"]) / 255)
+    return spec
+
+
+def uv_limits(rules: dict) -> list[str]:
+    """@return The UV rules of a spec that the parents do not show: a rotation or an oscillator, and a slot whose
+    tiling differs from the tiling of the diffuse slot."""
+    out = []
+    maps = rules["textures"]
+    first = uv_transform(maps.get("diffuse", {}).get("uv"))
+    for role, t in maps.items():
+        uv = t.get("uv") or {}
+        if "mod" in uv:
+            out.append(f"{role}: rotation or oscillator")
+        if role in ("normal", "gloss", "specular") and uv_transform(uv) != first:
+            out.append(f"{role}: other tiling")
+    return out
+
+
+def instances(candidate: tuple[str, ...] = ()) -> dict:
+    """Writes SWC_CONTENT/materials/instances.json (the spec of each material key that changes with the deployed
+    stages DEPLOYED, with the main source and the other render keys of the key) and textures.json (the texture records
+    of all specs: the key, the PNG, the color space, the Unreal folder). The import pipeline applies instances.json
+    (swc_materials.apply_specs). `candidate`: stages under check; their specs go to instances-candidate.json, which
+    only the render check reads. Reads records.json and slots.json (tools/convert-materials.sh audit) and the manifest.
+    @return The summary."""
+    global STAGES
     started = time.time()
     records = json.loads((out_dir() / "records.json").read_text())
     slot_table = json.loads((out_dir() / "slots.json").read_text())["meshes"]
@@ -826,79 +883,104 @@ def instances() -> dict:
         for field in ("legacy", "far legacy"):
             if s.get(field) and "mesh" not in s["use"]:
                 uses.setdefault(s[field], {}).setdefault(s["render"], 0)
-    specs, textures, errors = {}, {}, {}
-    counts: dict[str, int] = {}
-    for legacy, renders in sorted(uses.items()):
-        entry = assets.get("material:" + legacy)
-        if entry is None:
-            continue   # a key with no material record: not imported
-        main = sorted(renders.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
-        try:
-            spec = spec_of(records["render rules"][main], entry, textures)
-        except Exception as error:
-            errors[legacy] = str(error)[:160]
+    textures: dict = {}
+    summary: dict = {}
+    for label, stages in (("instances", DEPLOYED), ("instances-candidate", tuple(candidate))):
+        if not stages:
             continue
-        if spec is None:
-            continue
-        spec.update({"render": main, "source": source_of.get(main), "slots": renders[main],
-                     "other render keys": {k: v for k, v in renders.items() if k != main}})
-        specs[legacy] = spec
-        kind = spec["parent"] or "base color only"
-        counts[kind] = counts.get(kind, 0) + 1
+        STAGES = stages
+        specs, errors, counts, limits = {}, {}, {}, {}
+        for legacy, renders in sorted(uses.items()):
+            main = sorted(renders.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+            # A key that the manifest does not have yet (for example an override material that the world track imports
+            # later): the hook of import_content.py applies its spec at its first import. The base color of stage 1.2
+            # had the Opacity map as its alpha when the source is masked and has an Opacity map.
+            entry = assets.get("material:" + legacy)
+            if entry is None:
+                record = records["sources"][source_of[main]]
+                opacity = (record["textures"].get("Opacity") or {}).get("product")
+                entry = {"base": "+opacity:" + opacity} if opacity and blend_of(record)[0] == "masked" else {}
+            try:
+                spec = spec_of(records["render rules"][main], entry, textures)
+            except Exception as error:
+                errors[legacy] = str(error)[:160]
+                continue
+            if spec is None:
+                continue
+            spec.update({"render": main, "source": source_of.get(main), "slots": renders[main],
+                         "other render keys": {k: v for k, v in renders.items() if k != main}})
+            specs[legacy] = spec
+            kind = spec["parent"] or "base color only"
+            counts[kind] = counts.get(kind, 0) + 1
+            for limit in uv_limits(records["render rules"][main]):
+                limits[limit] = limits.get(limit, 0) + 1
+        write_json(out_dir() / f"{label}.json", {"version": SPEC_VERSION, "stages": list(stages), "instances": specs})
+        summary[label] = {"stages": list(stages), "instances": len(specs), "by parent": counts,
+                          "with other render keys": sum(1 for s in specs.values() if s["other render keys"]),
+                          "UV limits": limits, "errors": len(errors), "first errors": dict(list(errors.items())[:5])}
+    STAGES = DEPLOYED
     for key, record in textures.items():
         record["unreal"] = manifest.unreal_folder("texture", key)
-    write_json(out_dir() / "instances.json", {"version": SPEC_VERSION, "instances": specs})
     write_json(out_dir() / "textures.json", {"version": SPEC_VERSION, "textures": textures})
-    return {"instances": len(specs), "by parent": counts, "textures": len(textures),
-            "new textures (not in the manifest)": sum(1 for k in textures if k not in assets),
-            "with other render keys": sum(1 for s in specs.values() if s["other render keys"]),
-            "errors": len(errors), "first errors": dict(list(errors.items())[:5]),
-            "seconds": round(time.time() - started, 1)}
+    summary.update({"textures": len(textures), "new textures (not in the manifest)": sum(1 for k in textures if k not in assets),
+                    "seconds": round(time.time() - started, 1)})
+    return summary
 
 
 # The render check of a stage (Scripts/material_proof.py): meshes in three variants side by side.
-PROOF_MESHES = {   # stage M1: the Oxboro poplar and pawpaw with their fall override (research section 2)
+PROOF_MESHES = {   # (label, mesh, override material or None: then the third column is the candidate spec)
     "m1": [("poplar", "objects/nature/veg_trees/trees_forest/poplar/jav_fst_poplartree_full_e.cgf",
-            "objects/nature/veg_trees/trees_forest/poplar/jav_fst_poplartree_a_fall01_mat.mtl", [12.2, -16.1, 10.5],
-            [0.0, 0.2, 6.4]),
+            "objects/nature/veg_trees/trees_forest/poplar/jav_fst_poplartree_a_fall01_mat.mtl"),
            ("pawpaw", "objects/nature/veg_bushes/bushes_forest/pawpaw/jav_fst_pawpawbush_c.cgf",
-            "objects/nature/veg_bushes/bushes_forest/pawpaw/jav_fst_pawpawbush_a_fall01_mat.mtl", [2.8, -3.6, 2.6],
-            [-0.1, 0.0, 0.6])],
+            "objects/nature/veg_bushes/bushes_forest/pawpaw/jav_fst_pawpawbush_a_fall01_mat.mtl")],
+    "m2": [("plot-walls", "slices/structures/plots/house_plots/ef_msq_2_house_plots/ef_2story_9x15_ab__28236438930.cgf", None),
+           ("plot-stone", "slices/structures/plots/house_plots/ef_msq_2_house_plots/ef_2story_9x15_ab__935090250.cgf", None),
+           ("plot-roof", "slices/structures/plots/house_plots/ef_msq_2_house_plots/ef_2story_9x15_ab__11223487900.cgf", None),
+           ("lamp", "objects/crafting/props/props_everfall/decor/everfall_lightpole_a.cgf", None),
+           ("boulder", "objects/nature/rock_boulders/boulders_forest/jav_fst_boulder_sm_b.cgf", None),
+           ("timber", "objects/crafting/architecture/crafting_structures/baseframe/jav_struc_craft_t2_abnd.cgf", None)],
 }
 
 
 def proof_plan(stage: str) -> dict:
     """Writes SWC_CONTENT/materials/proof-STAGE.json: for each proof mesh, its Unreal folder and three variants of its
-    slots: "stage 1.2" (the manifest record of each slot key: the old rules), "materials" (the material instance of
-    the slot key), and "override" (the key of the same source slot of the override material: its instance, or its
-    spec when the asset is not imported). The cameras are in engine m, local to the mesh."""
+    slots: "stage 1.2" (the manifest record of each slot key: the old rules), "now" (the material instance of the slot
+    key as it is now), and either "override" (the key of the same source slot of the override material of the region
+    data: its instance, or its spec when the asset is not imported) or "candidate" (the spec of the slot key in
+    instances-candidate.json: the stages under check)."""
     assets = manifest.load()["assets"]
     slot_table = json.loads((out_dir() / "slots.json").read_text())["meshes"]
     specs = json.loads((out_dir() / "instances.json").read_text())["instances"]
+    candidate_file = out_dir() / "instances-candidate.json"
+    candidates = json.loads(candidate_file.read_text())["instances"] if candidate_file.is_file() else {}
     rows = []
-    for label, mesh, override, eye, target in PROOF_MESHES[stage]:
-        subs = sub_materials(override)
-        variants = {"stage 1.2": {}, "materials": {}, "override": {}}
+    for label, mesh, override in PROOF_MESHES[stage]:
+        if mesh not in slot_table:
+            raise ValueError(f"{mesh}: no slots (not converted, or not in the audit)")
+        third = "override" if override else "candidate"
+        variants = {"stage 1.2": {}, "now": {}, third: {}}
+        subs = sub_materials(override) if override else ()
         for index, legacy, _render in slot_table[mesh]:
             if legacy in variants["stage 1.2"]:
                 continue   # a collapsed slot: its first source slot
             variants["stage 1.2"][legacy] = {"legacy": assets["material:" + legacy]}
-            variants["materials"][legacy] = {"instance": legacy}
+            variants["now"][legacy] = {"instance": legacy}
+            if not override:
+                variants[third][legacy] = {"spec": candidates[legacy]} if legacy in candidates else {"instance": legacy}
+                continue
             element = subs[index] if index < len(subs) else None
             if element is None or materials.not_drawn(element):
-                variants["override"][legacy] = {"instance": legacy}
+                variants[third][legacy] = {"instance": legacy}
                 continue
             key = legacy_key(element)
-            variants["override"][legacy] = ({"instance": key, **({"spec": specs[key]} if key in specs else {})}
-                                            if "material:" + key in assets else {"spec": specs.get(key), "key": key})
+            variants[third][legacy] = ({"instance": key, **({"spec": specs[key]} if key in specs else {})}
+                                       if "material:" + key in assets else {"spec": specs.get(key), "key": key})
         rows.append({"label": label, "mesh": mesh, "unreal": assets[mesh]["unreal"], "override": override,
-                     "eye": eye, "target": target, "variants": variants})
+                     "variants": variants})
     plan = {"stage": stage, "rows": rows}
     write_json(out_dir() / f"proof-{stage}.json", plan)
     return {"stage": stage, "rows": [{"label": r["label"], "slots": len(r["variants"]["stage 1.2"]),
-                                      "override keys": sorted({v.get("instance") or v.get("key")
-                                                               for v in r["variants"]["override"].values()})}
-                                     for r in rows]}
+                                      "columns": list(r["variants"])} for r in rows]}
 
 
 def proof_sheet(stage: str, evidence: Path | None = None) -> dict:
@@ -922,7 +1004,8 @@ def proof_sheet(stage: str, evidence: Path | None = None) -> dict:
     y = 0
     for label, tile in tiles:
         draw.text((8, y + 10), label, fill=(230, 230, 230))
-        for i, name in enumerate(("stage 1.2 rules", "materials track (now)", "region override")):
+        names = list(plan["rows"][0]["variants"]) if plan["rows"] else []
+        for i, name in enumerate(names):
             draw.text((tile.width * (2 * i + 1) // 6 - 50, y + 10), name, fill=(230, 200, 120))
         sheet.paste(tile, (0, y + 34))
         y += tile.height + 34
@@ -1006,7 +1089,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv[0] == "audit":
         result = audit()
     elif argv[0] == "instances":
-        result = instances()
+        result = instances(tuple(argv[2].split(",")) if len(argv) > 2 and argv[1] == "--candidate" else ())
     elif argv[0] == "chains":
         result = chains()
     elif argv[0] == "proof-sheet":
