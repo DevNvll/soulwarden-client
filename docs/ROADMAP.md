@@ -24,6 +24,7 @@ content, and the large cost is the client logic (animation logic, UI, combat cli
 | UI logic (D1) | The original Lua 5.1 scripts run in an embedded Lua 5.1.5 (MIT), with an emulation of the buses that grows screen by screen behind a stub layer that logs each missing call. |
 | First HUD (D2) | Stage 1.10 runs the original HUD scripts (size L); it is the go or no-go point of D1. |
 | Canvases (D3) | The canvases are converted as data, with one runtime widget that follows the LyShine rules. |
+| Goal (2026-10-18) | "Don't stop until you have the new world open world with creatures spawning and a character loading its gear." The orchestrator continues with no stop; research runs in parallel on GPT-6.1-Sol; a feature parity plan with the official client follows (AST-155). |
 
 ## Status
 
@@ -61,6 +62,7 @@ budget (269 GB free on 2026-10-18).
 | 1.4 | Backend connection, part 1: the player run (`tools/play.sh`: the Steam account of the user read at run time, the data folder of the user with the `run.lock` of the Soulwarden launcher, the release backend copy, one network namespace with loopback only for the backend and the client) and the development run (own data folder, a seed character); the HTTP login path (Soulwarden protocol notes 2) with stubs for the Steam authentication; the character list | M | P0 |
 | 1.5 | Backend connection, part 2: DTLS 1.2, the carrier, the type index, the registration, the world entry at the place of the character (self identification, level information, state bundles, the metadata state, the movement state), the 30 s and 2 s timers of the client contract | L | 1.4 |
 | 1.6 | The character of the user: the player skeleton, the body parts, the head, the hair, the skin tone from the appearance state (12 index bytes and the creation databases), the armor from the paperdoll state and the item catalog; modular skeletal meshes | M | 1.5 |
+| 1.6b | The character loads all its gear: the weapons in the hand and at the sheathe place (paperdoll group 2), shield, bow and quiver, the cloth parts without a simulation, the hide rules, the dyes and face details if cheap (AST-152; research AST-153) | M | 1.6 |
 | 1.7 | Movement feel: the movement values of the player slice and the client data (speeds, acceleration, turn, jump, sprint, slopes), the input report 1589 at 30 Hz with the position, the locomotion graph from the player clips and the blend spaces | L | 1.6, R2, R6 |
 | 1.8 | Camera feel: the camera values of the client (distance, offsets, lag, field of view, the combat and aim modes) | M | 1.7, R1 |
 | 1.9 | Creatures of the backend in the whole world: records -> slice -> character model, movement interpolation, action fragments -> montages, name plate and health bar | L | 1.5, R3 |
