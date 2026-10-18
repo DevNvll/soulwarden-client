@@ -832,8 +832,9 @@ def camera() -> dict:
 
 
 def clip_key(tags: list[str]) -> str:
-    """The key of the clip pack of a weapon tag set: the tags in lower case, joined by '_' ("1h_melee_sword")."""
-    return "_".join(tag.lower() for tag in tags)
+    """The key of the clip pack of a weapon tag set: the tags in lower case, joined by '_' ("1h_melee_sword"); "unarmed"
+    for no tag."""
+    return "_".join(tag.lower() for tag in tags) or "unarmed"
 
 
 def clip_pack(gender: str, tag_text: str, force: bool = False, doc: dict | None = None) -> dict:
@@ -842,7 +843,7 @@ def clip_pack(gender: str, tag_text: str, force: bool = False, doc: dict | None 
     and one animation for each clip, the root bone locked (the client moves the character with the root track of
     actions.json: AnimationDrivenMotion). Unreal imports the animations onto the skeleton of the base."""
     actions_doc = json.loads((player_dir() / "actions.json").read_text())
-    wanted_tags = [tag.strip().lower() for tag in tag_text.replace("+", ",").split(",") if tag.strip()]
+    wanted_tags = [tag.strip().lower() for tag in tag_text.replace("+", ",").split(",") if tag.strip() and tag.strip().lower() != "unarmed"]
     entry = next((w for w in actions_doc["weapons"] if [tag.lower() for tag in w["tags"]] == wanted_tags), None)
     if entry is None:
         raise ValueError(f"actions.json has no weapon tag set {tag_text}")
@@ -854,7 +855,7 @@ def clip_pack(gender: str, tag_text: str, force: bool = False, doc: dict | None 
     doc = doc if doc is not None else load_manifest()
     if out.is_file() and not force and key in doc["assets"]:
         return {"clips": key, "skipped": "exists"}
-    fragment_keys = list(entry["stance"].values()) + list(entry["offhand"].values())
+    fragment_keys = list(entry["stance"].values()) + list(entry["offhand"].values()) + list(entry.get("dodge", {}).values())
     fragment_keys += [entry[kind] for kind in ("draw", "sheathe") if kind in entry]
     fragment_keys += [item["fragment"] for item in entry.get("graph", []) if "fragment" in item]
     names = set()

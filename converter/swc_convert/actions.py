@@ -33,6 +33,11 @@ from . import player
 
 ADB_FOLDER = "animations/mannequin/adb/player/"
 ATTACK_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_attack.actionlist"
+DODGE_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_dodge.actionlist"
+# The dodge fragments of the load classes (stamina-data.json of the backend copy), with the direction variants of the move keys
+# (no tag: forward). The Prone variants are not used (the backend file lists them as not used).
+DODGE_FRAGMENTS = ("Dodge_Roll_Fast", "Dodge_Roll", "Dodge_Roll_Slow")
+DODGE_VARIANTS = ("", "BackNav", "LeftNav", "RightNav")
 # The locomotion fragments of a stance, with the variant tags of each (the unarmed set of locomotion.json).
 STANCE_FRAGMENTS = {"Idle": [""], "Strafe": [""], "Sprint": [""], "Sprint_Start": [""], "Fall": ["ForwardNav", ""],
                     "Land": ["Soft", "Normal", "Hard"], "Jump": ["ForwardNav", "BackNav", "LeftNav", "RightNav", ""],
@@ -207,11 +212,19 @@ def condition_json(element: ET.Element) -> dict:
 
 
 def activities() -> tuple[dict, dict]:
-    """The motion and facing activities of each attack fragment (its action in playeractions_attack.actionlist), and the
-    named conditions of the action list."""
-    root = ET.fromstring(source.read(ATTACK_ACTIONS).decode("utf-8", "replace"))
-    conditions = {c.get("Name"): condition_json(c) for c in root.find("Conditions") if c.get("Name")}
-    out = {}
+    """The motion and facing activities of each attack fragment and of the dodge (its action in playeractions_attack and
+    playeractions_dodge), and the named conditions of the two action lists."""
+    out, conditions = {}, {}
+    for path in (ATTACK_ACTIONS, DODGE_ACTIONS):
+        root = ET.fromstring(source.read(path).decode("utf-8", "replace"))
+        for c in root.find("Conditions") if root.find("Conditions") is not None else []:
+            if c.get("Name") and c.get("Name") not in conditions:
+                conditions[c.get("Name")] = condition_json(c)
+        list_activities(root, out)
+    return out, conditions
+
+
+def list_activities(root: ET.Element, out: dict) -> None:
     for action in root.iter("Action"):
         fragment = action.get("FragmentName")
         acts = action.find("Activities")
@@ -226,7 +239,6 @@ def activities() -> tuple[dict, dict]:
             entry[kind] = {"default": dict(default.attrib) if default is not None else {},
                            "conditionals": [dict(c.attrib) for c in node.findall("Conditional")]}
         out[fragment] = entry
-    return out, conditions
 
 
 def clip_info(path: str, skeleton: player.Skeleton, root: bool) -> dict:
@@ -277,6 +289,15 @@ def actions() -> dict:
                               "blendOut": float(element.get("BlendOutDuration") or 0.2), "layers": layers, "markers": markers_of(element)}
         return key
 
+    def dodges(tags: set[str]) -> dict:
+        out = {}
+        for name in DODGE_FRAGMENTS:
+            for variant in DODGE_VARIANTS:
+                found = find_fragment(name, tags, tag_set(variant), False)
+                if found is not None:
+                    out[name + ("+" + variant if variant else "")] = record(found[0], found[1], name, root=True)
+        return out
+
     def stance(tags: set[str], offhand: bool) -> dict:
         out = {}
         for name, variants in STANCE_FRAGMENTS.items():
@@ -297,7 +318,7 @@ def actions() -> dict:
     for key, entry in sorted(sets.items()):
         tags = tag_set(key)
         out = {"tags": entry["tags"], "stance": stance(tags, False),
-               "offhand": stance(tags | {"offhand", "shield_oh"}, True)}
+               "offhand": stance(tags | {"offhand", "shield_oh"}, True), "dodge": dodges(tags)}
         timing = weapons_doc["timings"].get(",".join(entry["tags"])) or {}
         for kind, fragment_name in (("draw", "Unsheathe_UpperBody"), ("sheathe", "Sheathe_UpperBody")):
             data = timing.get(kind)
@@ -333,6 +354,8 @@ def actions() -> dict:
                     missing.append(f"{key}: {fragment['name']}")
                 out["graph"].append(item)
         weapons.append(out)
+    # The unarmed set: no stance (the fragments of locomotion.json), the dodge of player.adb.
+    weapons.append({"tags": [], "stance": {}, "offhand": {}, "dodge": dodges(set())})
     for name in list(clips):
         try:
             clips[name] = clip_info(player.pick(cafs[name]), skeleton, name in root_clips)
@@ -341,9 +364,15 @@ def actions() -> dict:
     acts, conditions = activities()
     graph_tags = {",".join(w["tags"]).lower() for w in weapons if w.get("graph")}
     models = {item["model"] for item in weapons_doc["items"].values() if item.get("model") and item.get("tag", "").lower() in graph_tags}
-    doc = {"format": 1, "sources": [player.ADB, ATTACK_ACTIONS, str(gamedata_dir() / "weapon-actions.json")],
+    # The stamina and the dodge (stage P2.5): the stamina data of the backend copy (the same values as the server), the
+    # encumbrance row of the player, and the equip load of each armor item (tenths; perk-data.json of the backend copy).
+    perks = json.loads((gamedata_dir() / "perk-data.json").read_text())
+    stamina = {"data": json.loads((gamedata_dir() / "stamina-data.json").read_text()), "encumbrance": perks["encumbrance"],
+               "itemLoads": {item.lower(): load for item, load in perks["equipLoad"].items()}}
+    doc = {"format": 1, "sources": [player.ADB, ATTACK_ACTIONS, DODGE_ACTIONS, str(gamedata_dir() / "weapon-actions.json"),
+                                    str(gamedata_dir() / "stamina-data.json"), str(gamedata_dir() / "perk-data.json")],
            "weapons": weapons, "fragments": fragments, "blendSpaces": blend_spaces, "clips": clips,
-           "activities": acts, "conditions": conditions, "weaponJoints": weapon_joints(models)}
+           "activities": acts, "conditions": conditions, "weaponJoints": weapon_joints(models), "stamina": stamina}
     out = player.player_dir() / "actions.json"
     out.write_text(json.dumps(doc, indent=1, sort_keys=True))
     return {"actions": str(out), "weapon tag sets": len(weapons), "fragments": len(fragments), "blend spaces": len(blend_spaces),
