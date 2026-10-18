@@ -578,13 +578,29 @@ end
 
 --- One bag slot of the backend: the item id text (empty: no item), the quantity, the gear score, the durability, the
 --- instance id ({...} text), the flags (bit 0 bound, bit 1 locked), the chrono, the sync cause, and the perk ids ("a,b").
+-- The loot notice of the native code (stage WF7; Soulwarden research loot.md, the gates at image RVA 0x48DA750 and 0x48E4130): a bag
+-- slot whose sync cause is in the mask (1 ItemGathered, 6 ContainerTransfer, 20, 25 Fishing, 37, 40; 34 only for a slot that the
+-- vector had) and whose quantity grew gives OnLootReceived(slot, the new quantity less the prior quantity of that item in the slot)
+-- to lootticker2024.luac (LyShineScriptBindNotificationBus). The load of the bag (cause 0x11) and the cause 0 give none.
+local LOOT_CAUSES = {[1] = true, [6] = true, [20] = true, [25] = true, [37] = true, [40] = true}
+Swc.Handled("LyShineScriptBindNotificationBus")
+
 function Swc.HostBagSlot(slot, itemId, quantity, gearScore, durability, maxDurability, instance, flags, chrono, action, perks)
+  local existed = slot < Swc.player.bag.count
+  local before = Swc.player.bag.slots[slot]
   if slot >= Swc.player.bag.count then
     Swc.HostBagSize(slot + 1)
   end
   local item = Swc.NewItemSlot("bag", slot, values_of(itemId, quantity, gearScore, durability, maxDurability, instance, flags,
                                                       chrono, action, perks))
   Swc.player.bag.slots[slot] = item
+  if item.static and (LOOT_CAUSES[action or 0] or (action == 34 and existed)) then
+    local prior = before and before.itemId == item.itemId and before.quantity or 0
+    if item.quantity > prior then
+      Swc.Note(string.format("the loot notice: +%d %s (cause %d)", item.quantity - prior, item.static.key or "?", action))
+      Swc.Notify("LyShineScriptBindNotificationBus", nil, "OnLootReceived", item, item.quantity - prior)
+    end
+  end
   -- The slot id is a number, as in the list of dynamicitemlist.luac (UpdateLists queues the numbers 0 ...).
   Swc.Notify("ContainerEventBus", Swc.ids.inventory, "OnSlotUpdate", slot, item, action or 0)
   Swc.Notify("ContainerEventBus", Swc.ids.inventory, "OnContainerSlotChanged", slot, item, action or 0)
@@ -774,6 +790,8 @@ local function static_data(itemCrc)
   data.id = static.crc
   data.tierNumber = static.tier
   data.displayName = static.name
+  -- The name of the field of the native StaticItemData (loottickeritem.luac reads maxStackSize: the quantity line of a stack).
+  data.maxStackSize = static.maxStack
   data.IsValid = function() return true end
   data.HasDurabilityEnabled = function() return (static.durability or 0) > 0 end
   return data

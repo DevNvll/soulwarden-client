@@ -175,6 +175,10 @@ function Swc.HostViewProjection(...)
     m[i] = a[i]
   end
   M.view = {m = m, width = a[17], height = a[18], x = a[19], y = a[20], z = a[21]}
+  -- The places of the elements that follow a point of the world for some frames (the enemy damage numbers).
+  if Swc.TickNotices then
+    Swc.TickNotices()
+  end
 end
 
 --- @return The viewport point (x, y) of a point of the world (Unreal cm), or nil behind the camera.

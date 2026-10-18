@@ -17,6 +17,9 @@
 #include "Serialization/JsonSerializer.h"
 #include "Creatures/SwcCreature.h"
 #include "Interact/SwcInteractor.h"
+#include "Character/SwcRangedView.h"
+#include "Objects/SwcObjectSubsystem.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Creatures/SwcCreatureSubsystem.h"
 #include "Engine/LocalPlayer.h"
 #include "SceneView.h"
@@ -49,9 +52,11 @@ const char* const HudScreens[] = {
 	"lyshineui/flyoutmenu/flyoutmenu",
 	// The panel of an open loot bag (the state Container).
 	"lyshineui/container/catcontainer",
-	// The world views (stage WF7): the markers (the AI plates), the prompt cards of the focus.
+	// The world views (stage WF7): the markers (the AI plates), the prompt cards of the focus, the damage numbers, the loot ticker.
 	"lyshineui/markers/markermanager",
 	"lyshineui/markers/unifiedinteract",
+	"lyshineui/hud/damagenumbers/damagenumbers",
+	"lyshineui/hud2024/lootticker/lootticker2024",
 	// The notifications (the minor messages of the inventory, the loot).
 	"lyshineui/notifications/notification",
 };
@@ -1029,7 +1034,7 @@ void USwcUiSubsystem::FeedLocalPlayer()
 	// The bag, the paperdoll items (the item index of the wire in the item catalog of the backend copy), the level, the coin.
 	FeedItems(Own);
 	FeedLoot(Own, Backend);
-	FeedWorld();
+	FeedWorld(Own);
 	int32 Active = -1;
 	for (uint32 Slot = FirstWeaponSlot; Slot <= LastWeaponSlot; ++Slot)
 	{
@@ -1101,7 +1106,70 @@ void USwcUiSubsystem::FeedLocalPlayer()
 	Runtime->call("HostCommit");
 }
 
-void USwcUiSubsystem::FeedWorld()
+void USwcUiSubsystem::FeedNumbers(const swc::net::RepClient::OwnEntity& Own, USwcCreatureSubsystem* Creatures, const FVector& Eye, const FRotator& View)
+{
+	UWorld* World = GetGameInstance()->GetWorld();
+	APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	APawn* Pawn = Controller != nullptr ? Controller->GetPawn() : nullptr;
+	const FVector Feet = Pawn != nullptr ? Pawn->GetNavAgentLocation() : Eye;
+	auto Send = [this](const TCHAR* Kind, uint32 Interest, const FVector& Point, uint32 Flags, double DistanceSq, uint32 Vitals, const FString& Entries)
+	{
+		const FString Line = FString::Printf(TEXT("%s\t%u\t%.1f\t%.1f\t%.1f\t%u\t%.2f\t%s\t%s"), Kind, Interest, Point.X, Point.Y, Point.Z, Flags, DistanceSq,
+			Vitals != 0 ? *FString::Printf(TEXT("%u"), Vitals) : TEXT(""), *Entries);
+		Runtime->call("HostDamage", {FArg::of(Utf8(Line))});
+	};
+	// The damage numbers of the player (2071): the point at the creature, its vitals row (the weakness of defenses.json).
+	TArray<FSwcDamageEvent> Events;
+	const uint32 Newest = Creatures->GetDamageEvents(SentDamageSerial, Events);
+	for (const FSwcDamageEvent& Event : Events)
+	{
+		FString Entries;
+		for (const TPair<uint8, float>& Entry : Event.Entries)
+		{
+			Entries += FString::Printf(TEXT("%s%u:%.2f:1"), Entries.IsEmpty() ? TEXT("") : TEXT(","), Entry.Key, Entry.Value);
+		}
+		uint32 Vitals = 0;
+		const auto Found = Creatures->GetTable().entities().find(Event.Interest);
+		if (Found != Creatures->GetTable().entities().end())
+		{
+			Vitals = Found->second.vitalsId;
+		}
+		Send(TEXT("enemy"), Event.Interest, Event.Point, Event.Flags, FVector::DistSquared(Feet, Event.Point) / 10000.0, Vitals, Entries);
+	}
+	SentDamageSerial = Newest;
+	// The numbers of the own character: 1.6 m above the feet and 0.5 m to the right of the view (the Player settings of
+	// damagenumber.luac: ZOffsetBase 1.6, HorizontalOffsetBase 0.5).
+	const FVector Right = FRotationMatrix(FRotator(0.0, View.Yaw, 0.0)).GetScaledAxis(EAxis::Y);
+	const FVector OwnPoint = Feet + FVector(0.0, 0.0, 160.0) + Right * 50.0;
+	if (SentOwnDamages == ~0u)
+	{
+		SentOwnDamages = Own.damageRevision;
+		SentHeals = Own.healRevision;
+	}
+	const uint32 NewDamages = FMath::Min<uint32>(Own.damageRevision - SentOwnDamages, static_cast<uint32>(Own.damages.size()));
+	for (std::size_t Index = Own.damages.size() - NewDamages; Index < Own.damages.size(); ++Index)
+	{
+		FString Entries;
+		for (const swc::net::DamageTaken::Entry& Entry : Own.damages[Index].message.entries)
+		{
+			Entries += FString::Printf(TEXT("%s%u:%.2f:%.3f"), Entries.IsEmpty() ? TEXT("") : TEXT(","), Entry.type, Entry.amount, Entry.part > 0.0f ? Entry.part : 1.0f);
+		}
+		Send(TEXT("player"), 0, OwnPoint, Own.damages[Index].message.flags, 0.0, 0, Entries);
+	}
+	SentOwnDamages = Own.damageRevision;
+	const uint32 NewHeals = FMath::Min<uint32>(Own.healRevision - SentHeals, static_cast<uint32>(Own.heals.size()));
+	for (std::size_t Index = Own.heals.size() - NewHeals; Index < Own.heals.size(); ++Index)
+	{
+		if (Own.heals[Index].healed == 0)
+		{
+			// A heal has no damage type: the Standard row (3) of the damage types; the script shows "+N" with no icon.
+			Send(TEXT("heal"), 0, OwnPoint, 0, 0.0, 0, FString::Printf(TEXT("3:%.2f:1"), Own.heals[Index].amount));
+		}
+	}
+	SentHeals = Own.healRevision;
+}
+
+void USwcUiSubsystem::FeedWorld(const swc::net::RepClient::OwnEntity& Own)
 {
 	UWorld* World = GetGameInstance() != nullptr ? GetGameInstance()->GetWorld() : nullptr;
 	APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
@@ -1117,7 +1185,12 @@ void USwcUiSubsystem::FeedWorld()
 		// The original plates and numbers of the UI replace the simple stand-ins of the creature view.
 		bStandInsOff = true;
 		Creatures->SetUiPlates(true);
-		UE_LOG(LogSwcUi, Log, TEXT("ui: the world views: the AiMarker plates of the UI replace the simple plates"));
+		USwcRangedView::SetUiHealNumbers(true);
+		if (USwcObjectSubsystem* Objects = World->GetSubsystem<USwcObjectSubsystem>())
+		{
+			Objects->SetUiLootNotice(true);
+		}
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the world views: the plates, the damage and heal numbers, and the loot ticker of the UI replace the stand-ins"));
 	}
 	// The view projection of the frame (Unreal row vectors: clip = (x, y, z, 1) * M), the size of the viewport of the UI, the camera.
 	FSceneViewProjectionData Projection;
@@ -1141,6 +1214,7 @@ void USwcUiSubsystem::FeedWorld()
 	View.push_back(FArg::of(Projection.ViewOrigin.Y));
 	View.push_back(FArg::of(Projection.ViewOrigin.Z));
 	Runtime->call("HostViewProjection", View);
+	FeedNumbers(Own, Creatures, Projection.ViewOrigin, Controller->PlayerCameraManager != nullptr ? Controller->PlayerCameraManager->GetCameraRotation() : FRotator::ZeroRotator);
 	// The plates: one line for each creature (swc/markers.lua parse_plates).
 	TArray<FSwcCreaturePlate> Plates;
 	Creatures->GetPlates(Plates);

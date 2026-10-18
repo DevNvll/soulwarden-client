@@ -30,4 +30,5 @@ Swc.Load("swc.items")     -- the items: static data, item slots, the bag, the pa
 Swc.Load("swc.loot")      -- the loot bags near the character and the panel of an open bag
 Swc.Load("swc.markers")   -- the markers in the world: the AI plates (the native part of the marker manager)
 Swc.Load("swc.interact")  -- the prompt cards of the focus (the native part of the interactor)
+Swc.Load("swc.notices")   -- the damage numbers and the heal numbers (the native part of the damage numbers)
 Swc.Load("swc.host")      -- the calls of the host: Swc.Tick, Swc.Boot, Swc.EnterWorld, the player data

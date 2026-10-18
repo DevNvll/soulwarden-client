@@ -153,8 +153,18 @@ Swc.Define("LyShineDataLayerBus", "Broadcast", {
   Reset = function() end,
 })
 
+-- The native calls of the data layer by the CRC-32 of a path whose name is not known: the CRC -> a function that gives the value of
+-- the call (the node of the call has it).
+Swc.callValues = {}
+
 --- A call to the callbacks of a path: the first argument is the value of the call (a data callback gets it).
 function Swc.DataCall(path, a, b, c)
+  if type(path) == "number" and Swc.callValues[path] then
+    if not byCrc[path] then
+      byCrc[path] = "Swc.NativeCall." .. path
+    end
+    a = Swc.callValues[path](a, b, c)
+  end
   local id = node_of(path, true)
   if not id then
     return 0

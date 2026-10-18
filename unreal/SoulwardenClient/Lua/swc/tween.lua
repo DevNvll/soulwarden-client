@@ -143,6 +143,12 @@ end
 -- ------------------------------------------------------------------------------------------------- animations
 
 local animations = {}   -- tostring(entity) .. "|" .. property id -> animation
+-- The animations that wait for their delay (the queued subtasks of the gem ScriptedEntityTweener): a delayed animation does not stop
+-- the running animation of its property; at the end of its delay it starts and replaces it, with the value of that moment as its
+-- start (damagenumber.luac: the fade in after 0.1 s, then the fade out after 1 s, on the same opacity; button.luac: the pulse of a
+-- hover, a fade out and two delayed fades in). An animation with no delay removes the queued ones of its property. The rules come
+-- from these scripts (the code of the gem is not in the game files).
+local queued = {}
 local params = {}
 local cached = {}       -- cached animation id -> {params, entries = {{property, target}}}
 local nextCached = 1
@@ -182,9 +188,21 @@ local function start(entity, propertyId, target, p)
     entity = entity, property = property, from = from, to = to, duration = p.duration or 0, elapsed = p.timeIntoTween or 0,
     delay = p.delay or 0, method = p.easeMethod, kind = p.easeType, times = p.timesToPlay or 1, played = 0,
     backward = p.isPlayingBackward, timeline = p.timelineId, onComplete = p.onComplete, onUpdate = p.onUpdate,
-    onLoop = p.onLoop, speed = 1, paused = false, key = key, uuid = p.uuid,
+    onLoop = p.onLoop, speed = 1, paused = false, key = key, uuid = p.uuid, target = target, isFrom = p.isFrom,
   }
-  animations[key] = a
+  if a.delay > 0 then
+    queued[#queued + 1] = a
+  else
+    -- An animation with no delay also removes the queued animations of its property (the end of a hover stops its pulse).
+    local keep = {}
+    for _, q in ipairs(queued) do
+      if q.key ~= key then
+        keep[#keep + 1] = q
+      end
+    end
+    queued = keep
+    animations[key] = a
+  end
   if Swc.tweenObserver then
     -- The tests: each animation that a script starts (tests/ui/fixtures/transitions.lua).
     Swc.tweenObserver(a, property.get)
@@ -229,14 +247,47 @@ local function step(a, dt)
   return false
 end
 
+-- The queued animations whose delay ends start now (their start value is the value of this moment). @return The time of each
+-- started animation after its delay (the step of this tick).
+local function start_queued(dt)
+  local started = {}
+  local waiting = {}
+  for _, a in ipairs(queued) do
+    if not a.paused then
+      a.delay = a.delay - dt * a.speed
+    end
+    if a.delay <= 0 and swcui.exists(a.entity) then
+      local ok, current = Swc.Call(a.property.get, a.entity)
+      if ok then
+        if a.isFrom then
+          a.from, a.to = a.target, current
+        else
+          a.from = current
+        end
+      end
+      started[#started + 1] = {a = a, rest = -a.delay}
+      a.delay = 0
+      animations[a.key] = a
+    elseif a.delay > 0 then
+      waiting[#waiting + 1] = a
+    end
+  end
+  queued = waiting
+  return started
+end
+
 function Swc.TickTweens(dt)
+  local starts = {}
+  for _, s in ipairs(start_queued(dt)) do
+    starts[s.a] = s.rest
+  end
   local done = {}
   local list = {}
   for key, a in pairs(animations) do
     list[#list + 1] = a
   end
   for _, a in ipairs(list) do
-    if animations[a.key] == a and step(a, dt) then
+    if animations[a.key] == a and step(a, starts[a] or dt) then
       done[#done + 1] = a
     end
   end
@@ -248,6 +299,19 @@ function Swc.TickTweens(dt)
   end
 end
 
+local function drop_queued(entity, propertyId)
+  local prefix = entity ~= nil and (tostring(entity) .. "|") or nil
+  local keep = {}
+  for _, a in ipairs(queued) do
+    local entityMatch = prefix == nil or a.key:sub(1, #prefix) == prefix
+    local propertyMatch = propertyId == nil or (prefix ~= nil and a.key == prefix .. tostring(propertyId))
+    if not (entityMatch and propertyMatch) then
+      keep[#keep + 1] = a
+    end
+  end
+  queued = keep
+end
+
 function Swc.TweenForget(entity)
   local prefix = tostring(entity) .. "|"
   for key in pairs(animations) do
@@ -255,6 +319,7 @@ function Swc.TweenForget(entity)
       animations[key] = nil
     end
   end
+  drop_queued(entity, nil)
 end
 
 --- A simple value animation of the emulation (UiFaderBus Fade): a setter function, linear.
@@ -276,6 +341,18 @@ local function each_animation(entity, propertyId, fn)
     local propertyMatch = propertyId == nil or (prefix ~= nil and key == prefix .. tostring(propertyId))
     if entityMatch and propertyMatch then
       fn(key, a)
+    end
+  end
+end
+
+-- The same for the queued animations (the pause, the speed, the direction).
+local function each_queued(entity, propertyId, fn)
+  local prefix = entity ~= nil and (tostring(entity) .. "|") or nil
+  for _, a in ipairs(queued) do
+    local entityMatch = prefix == nil or a.key:sub(1, #prefix) == prefix
+    local propertyMatch = propertyId == nil or (prefix ~= nil and a.key == prefix .. tostring(propertyId))
+    if entityMatch and propertyMatch then
+      fn(a.key, a)
     end
   end
 end
@@ -322,18 +399,23 @@ Swc.Define("ScriptedEntityTweenerBus", "Broadcast", {
   ReleaseCachedAnimation = function(id) cached[id] = nil end,
   Stop = function(timelineId, entity)
     each_animation(entity, nil, function(key) animations[key] = nil end)
+    drop_queued(entity, nil)
   end,
   Pause = function(timelineId, entity, propertyId)
     each_animation(entity, propertyId, function(_, a) a.paused = true end)
+    each_queued(entity, propertyId, function(_, a) a.paused = true end)
   end,
   Resume = function(timelineId, entity, propertyId)
     each_animation(entity, propertyId, function(_, a) a.paused = false end)
+    each_queued(entity, propertyId, function(_, a) a.paused = false end)
   end,
   SetSpeed = function(timelineId, entity, propertyId, speed)
     each_animation(entity, propertyId, function(_, a) a.speed = speed end)
+    each_queued(entity, propertyId, function(_, a) a.speed = speed end)
   end,
   SetPlayDirectionReversed = function(timelineId, entity, propertyId, reversed)
     each_animation(entity, propertyId, function(_, a) a.backward = reversed end)
+    each_queued(entity, propertyId, function(_, a) a.backward = reversed end)
   end,
   SetInitialValue = function(uuid, entity, propertyId, value)
     each_animation(entity, propertyId, function(_, a) a.from = value end)
@@ -348,5 +430,6 @@ Swc.Define("ScriptedEntityTweenerBus", "Broadcast", {
   -- until ReleaseCachedAnimation (globals.luac resets the tweens after the shared scripts cached theirs).
   Reset = function()
     animations = {}
+    queued = {}
   end,
 })

@@ -95,7 +95,9 @@ private:
 	FString CallItem(const char* Function, uint32 Slot, const soulwarden::backend::tests::WireItem* Item);
 	/** The UI in the world views (stage WF7; docs/UI.md): the view projection of the camera, the plates of the creature view
 	 *  (USwcCreatureSubsystem::GetPlates), and the occlusion tests of the markers; the simple stand-ins of the other tracks go off. */
-	void FeedWorld();
+	void FeedWorld(const swc::net::RepClient::OwnEntity& Own);
+	/** The damage numbers (the creature view, message 3601) and the heal numbers of the own entity for the damage number canvas. */
+	void FeedNumbers(const swc::net::RepClient::OwnEntity& Own, class USwcCreatureSubsystem* Creatures, const FVector& Eye, const FRotator& View);
 	/** A request of the inventory scripts ("equip BAG SLOT QUANTITY INSTANCE", "use SLOT", ...) to the backend subsystem. */
 	void HandleItemRequest(const FString& Request, class USwcBackendSubsystem* Backend);
 
@@ -170,4 +172,8 @@ private:
 	/** The world views: the time of the next occlusion test of the markers, and the switches of the stand-ins. */
 	double NextOcclusionTime = 0.0;
 	bool bStandInsOff = false;
+	/** The numbers that went to the UI: the serial of the damage events, the counts of the own damages and heals. */
+	uint32 SentDamageSerial = 0;
+	uint32 SentOwnDamages = ~0u;
+	uint32 SentHeals = ~0u;
 };

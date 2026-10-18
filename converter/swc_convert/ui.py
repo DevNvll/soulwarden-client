@@ -951,6 +951,8 @@ def convert_world() -> dict:
     damagetypes.json    the number of a damage type on the wire (IntID of javelindata_damagetypes) -> TypeID, DisplayName,
                         Category
     interactoptions.json  the option records of the UI database: option name -> the label key and the additional info slice
+    defenses.json       the weakness and the absorption of each vitals row by damage type (convert_defenses)
+    xplevels.json       the total experience at which each level starts (XPToLevel of javelindata_xpamountsbylevel)
     and the canvases of WORLD_CANVASES with their textures and the sprite folders that their scripts use."""
     statuses: dict[str, dict] = {}
     for path in sorted(source.paks().paths("", ".datasheet")):
@@ -980,6 +982,12 @@ def convert_world() -> dict:
     (target / "damagetypes.json").write_text(json.dumps(damage_types, separators=(",", ":"), sort_keys=True))
     options = convert_interact_options()
     (target / "interactoptions.json").write_text(json.dumps(options, separators=(",", ":"), sort_keys=True))
+    defenses = convert_defenses()
+    (target / "defenses.json").write_text(json.dumps(defenses, separators=(",", ":"), sort_keys=True))
+    # The total experience at which each level starts (javelindata_xpamountsbylevel XPToLevel, by the row of the level of the wire;
+    # protocol notes 4.12): the XP bar of the progression line of the loot ticker.
+    levels = [r.get("XPToLevel") or 0 for r in table_rows("javelindata_xpamountsbylevel.datasheet")]
+    (target / "xplevels.json").write_text(json.dumps(levels, separators=(",", ":")))
     # The textures: the canvases of the world views and the UI slices that they spawn, and the folders of the sprites that the
     # scripts set (the markers, the status icons, the icons of the damage types: TooltipCommon GetIconFromDamageTypeName; the icons
     # of the gathering types: gatheringtooladditionalinfo.luac).
@@ -989,7 +997,9 @@ def convert_world() -> dict:
                    "lyshineui/images/icons/gatherables/"):
         textures |= set(folder_textures(folder))
     return {"status rows": len(statuses), "on the plates": sum(1 for e in statuses.values() if e["nameplate"]),
-            "damage types": len(damage_types), "interact options": len(options), "canvases": canvases, "textures": convert_textures(textures),
+            "damage types": len(damage_types), "interact options": len(options), "defenses": len(defenses), "levels": len(levels),
+            "canvases": canvases,
+            "textures": convert_textures(textures),
             "texture index": convert_texture_index()}
 
 
@@ -1017,6 +1027,29 @@ def convert_interact_options() -> dict:
         if info:
             entry["additionalInfo"] = info
         out[name] = entry
+    return out
+
+
+def convert_defenses() -> dict:
+    """@return The weakness and the absorption of each vitals row by damage type (the damage numbers: the yellow number of a
+    weakness, the immune text of an absorption of 1): the CRC-32 of the lower-case VitalsID (the vitals id of the wire) -> {weak,
+    abs}, for the rows with one of them. The source is the backend copy (combat-tables.json: the WKN and ABS columns of the vitals
+    tables of the game, for each vitals row its defense row)."""
+    import zlib
+    gamedata = Path(os.environ.get("SWC_GAMEDATA_DIR") or env.work_dir() / "backend/current/gamedata")
+    path = gamedata / "combat-tables.json"
+    if not path.is_file():
+        return {}
+    tables = json.loads(path.read_text())
+    rows = tables.get("defenses", [])
+    out: dict[str, dict] = {}
+    for name, index in tables.get("vitals", {}).items():
+        if not isinstance(index, int) or index >= len(rows):
+            continue
+        row = rows[index]
+        weak, absorb = (row[2] if len(row) > 2 else {}) or {}, (row[3] if len(row) > 3 else {}) or {}
+        if weak or absorb:
+            out[str(zlib.crc32(name.lower().encode()) & 0xFFFFFFFF)] = {"weak": weak, "abs": absorb}
     return out
 
 

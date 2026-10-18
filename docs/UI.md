@@ -436,6 +436,27 @@ The prompt cards (`swc/interact.lua`; the canvas `lyshineui/markers/unifiedinter
 - The key T: the action `ui_interact_sec` of the map "ui" (actionmaps.json) at a bag opens its panel (`OpenLootDrop`: the request
   OpenStorageOption, as Tab near a bag). The player controller does not change.
 
+The notices (`swc/notices.lua`, the bag feed of `swc/items.lua`, `Swc.HostProgression`):
+
+- The damage numbers (the canvas `lyshineui/hud/damagenumbers/damagenumbers`, `damagenumber.luac`): a pool of copies of the template
+  (`DamageNumberContainerV2`: the option UseNewDamageNumbers is on, the floating numbers; an inference from the retail pictures); a
+  copy goes to the screen point of its target, gets `OnCombinedDamageDisplayed` (the entries with the name of the damage type of
+  `gamedata/damagetypes.json`, the special number for a critical hit or a ranged headshot that can crit, the weakness and the
+  absorption of the vitals row of the creature of `gamedata/defenses.json`), and comes back to the pool at `OnAnimDone`. The
+  events: the damage numbers of the player (2071; the point at the creature, updated for 10 frames), the damage of the own
+  character (3601; the red number), the heals of the own character (the green "+N"); the numbers of the own character 1.6 m above
+  the feet and 0.5 m to the right of the view (the Player settings of the script).
+- The tween rule: a tween with a delay waits in a queue and replaces the running tween of its property at the end of its delay,
+  with the value of that moment as its start; a tween with no delay removes the queued tweens of its property (the fade in and out
+  of a damage number, the pulse of a button hover).
+- The loot ticker (`lyshineui/hud2024/lootticker/lootticker2024`): a bag slot with the sync cause 1, 6, 20, 25, 37, or 40 (34 for a
+  slot that the vector had) and a larger quantity gives `OnLootReceived(slot, the new quantity less the prior quantity)`
+  (Soulwarden research loot.md: the gates 0x48DA750 and 0x48E4130); the load of the bag (0x11) and the cause 0 give none. The
+  experience: `Hud.LocalPlayer.Progression.Glory` (the total), `PrevRequiredGlory` and `RequiredGlory` (the level table
+  `gamedata/xplevels.json`); the ticker takes the first total of the world entry with no line. The flag
+  `g_enableNewProgressionTicker` (0x4A3A1F7) and `javelin.xp-multipliers.character` 1.0 come from the settings registration.
+- When the UI runs, the simple heal numbers (`SetUiHealNumbers`) and the loot lines of the object layer (`SetUiLootNotice`) go off.
+
 ## The data of the backend
 
 `USwcUiSubsystem` reads `USwcBackendSubsystem::GetLocalPlayer` each frame and calls the host functions. A value goes
@@ -538,6 +559,7 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `loot` | The original CatContainer screen next to NewInventory and EquipmentV3: a bag near the character and Tab give the host request `openloot 57` and the state Container ("LOOT", the loot bag mode); the items of the server show ("2 items", the weight 5.4); LSHIFT and a click on the ore give `take INSTANCE 9`; the answer of the server leaves "1 item"; Take All gives `takeall`; the end of the use closes the panel (the state Inventory). Pictures `loot-panel`, `loot-taken`. |
 | `plates` | The original AiMarker plates (`markermanager.luac`, `marker.luac`, `markerstatuseffect.luac`): the scripts register the types and the pools; two grey wolves of the host get the elements a0 and a1: the near one (5 m) with its name, its level 18, the red bar, and the stun icon on a red square at the middle of the view 1.5 m above its feet; the far one (12.4 m, one half of its health) with the alpha 0.52; at its death the bar empties, and a creature out of the pool hides. Pictures `plates`, `plates-dead`. |
 | `prompt` | The original prompt cards: a loot bag 2 m ahead gives the card "DROPPED ITEMS" with "E Take All" (the hold form) and "T Open" at the screen place of the bag; a hold of one half fills the ring of the key to one half; T gives the request `openloot 57`; a young tree with no axe gives the gatherable card "YOUNG TREE" with the crossed ring, no key, and "No equipped Axe" with the icon of the gathering type; no focus hides the card. Pictures `prompt-bag`, `prompt-hold`, `prompt-tree`. |
+| `notices` | The original damage numbers and loot ticker: 64 slash (white, the slash icon), 132 critical (orange), 85 thrust at a wolf (yellow with the arrow: the weakness of the wolf), 151 strike to the own character (red), a heal "+120" (green); the numbers go back to the pool after their animation; 9 iron ore with the cause 1 give "+9 Iron Ore"; 27 experience give "+27 XP"; the first total gives no line; a load of the bag gives no notice. Pictures `notices-damage`, `notices-loot`, `notices-xp`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
 The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,

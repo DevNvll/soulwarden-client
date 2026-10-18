@@ -312,6 +312,22 @@ function Swc.HostProgression(level, experience)
     Swc.SetData("Hud.LocalPlayer.Progression.Level", level)
   end
   Swc.player.experience = experience
+  -- The start of this level and of the next one (the level table of the client, gamedata/xplevels.json: the row of the level of the
+  -- wire, the level of the screen minus 1; protocol notes 4.12): the XP bar of the progression line of the loot ticker.
+  Swc.xpLevels = Swc.xpLevels or swcui.load_json("gamedata/xplevels.json") or {}
+  local row = math.max(0, (level or 1) - 1)
+  local start = Swc.xpLevels[row + 1] or 0
+  local nextStart = Swc.xpLevels[row + 2] or start
+  if Swc.GetData("Hud.LocalPlayer.Progression.PrevRequiredGlory") ~= start then
+    Swc.SetData("Hud.LocalPlayer.Progression.PrevRequiredGlory", start)
+  end
+  if Swc.GetData("Hud.LocalPlayer.Progression.RequiredGlory") ~= nextStart then
+    Swc.SetData("Hud.LocalPlayer.Progression.RequiredGlory", nextStart)
+  end
+  -- The total of the experience (the native Glory node: lootticker2024.luac OnXpChanged shows "+N XP", the new total less the old).
+  if Swc.GetData("Hud.LocalPlayer.Progression.Glory") ~= experience then
+    Swc.SetData("Hud.LocalPlayer.Progression.Glory", experience)
+  end
 end
 
 -- The requests of the scripts to the client (the C++ takes them each frame: Swc.TakeHostRequest).

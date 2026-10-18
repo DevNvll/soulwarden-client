@@ -11,25 +11,59 @@ local frame = 1 / 60
 
 local records = {}
 local replaced = 0
-Swc.tweenObserver = function(a, get)
-  -- A new animation of a property of an entity replaces the one before (the rule of the gem).
+-- A new animation of a property of an entity replaces the one before when it starts (the rule of the gem, swc/tween.lua): at once
+-- with no delay (it also removes the queued ones), else at the end of its delay (a delayed animation waits in the queue of the gem).
+local function replace_before(record, queuedToo)
   for _, r in ipairs(records) do
-    if not r.done and r.a.key == a.key then
-      r.done, r.replaced = r.ticks, true
-      replaced = replaced + 1
+    if r ~= record and not r.done and r.a.key == record.a.key and r.serial < record.serial and (queuedToo or not r.queuedNow) then
+      r.done, r.replaced, r.queuedNow = r.ticks, true, false
+      if not r.untracked then
+        replaced = replaced + 1
+      end
     end
   end
+end
+local serial = 0
+Swc.tweenObserver = function(a, get)
+  serial = serial + 1
+  local record = {a = a, get = get, delay = a.delay, duration = a.duration, ticks = 0, done = nil, bad = nil, serial = serial,
+                  queuedNow = a.delay > 0}
+  if a.delay <= 0 then
+    -- An animation with no delay replaces the running one and removes the queued ones of its property.
+    replace_before(record, true)
+  end
   if type(a.from) == "number" and type(a.to) == "number" and a.duration > 0 and (a.times or 1) == 1 and get then
-    records[#records + 1] = {a = a, get = get, delay = a.delay, duration = a.duration, ticks = 0, done = nil, bad = nil}
+    records[#records + 1] = record
+  elseif a.delay > 0 then
+    -- A queued animation that the fixture does not follow still replaces the one before at its start.
+    records[#records + 1] = record
+    record.untracked = true
   end
 end
 
 --- One frame: each recorded animation that runs gets one more frame; its value must be the eased value at its time.
 local checked = 0
 local function tick()
+  local before = serial
   swcui.tick(frame)
   for _, r in ipairs(records) do
-    if not r.done then
+    -- An animation that a script started in this tick (an OnComplete, an OnTick) gets its first step in the next tick.
+    r.fresh = r.serial > before
+  end
+  for _, r in ipairs(records) do
+    if r.queuedNow and not r.fresh and r.ticks * frame + frame >= r.delay - 1e-6 then
+      -- The end of the delay of this frame: the animation starts and replaces the one before.
+      r.queuedNow = false
+      replace_before(r)
+    end
+  end
+  for _, r in ipairs(records) do
+    if r.fresh then
+      -- No step in the tick of its start.
+    elseif r.untracked then
+      r.ticks = r.ticks + 1
+      r.done = r.done or (not r.queuedNow and r.ticks) or nil
+    elseif not r.done then
       r.ticks = r.ticks + 1
       local a = r.a
       local time = r.ticks * frame - r.delay   -- the time of the animation after its delay
@@ -102,8 +136,11 @@ check(not swcui.canvas_get(canvas, "enabled"), "the modal is hidden after the cl
 check(LyShineManagerBus.Broadcast.GetCurrentState() == 2702338936, "the state goes back to the HUD")
 
 local ended, late, wrong = 0, 0, 0
+local untracked = 0
 for _, r in ipairs(records) do
-  if r.done and not r.replaced then
+  if r.untracked then
+    untracked = untracked + 1
+  elseif r.done and not r.replaced then
     ended = ended + 1
     -- The last frame of an animation: the one at its delay plus its duration (the next frame at most).
     local expected = math.ceil((r.delay + r.duration) * 60 - 1e-6)
@@ -118,7 +155,7 @@ for _, r in ipairs(records) do
   end
 end
 note(string.format("%d animations, %d ended, %d replaced by a new one, %d values checked", #records, ended, replaced, checked))
-equal(ended + replaced, #records, "each animation ends in the time of the fixture")
+equal(ended + replaced, #records - untracked, "each animation ends in the time of the fixture")
 equal(late, 0, "animations that end at another frame than their delay plus duration")
 equal(wrong, 0, "animations with another value than the ease at their time")
 check(checked > 20, "the fixture checked the values of the animations (" .. checked .. ")")

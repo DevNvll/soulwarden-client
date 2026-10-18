@@ -1,0 +1,14 @@
+# The development routes of the fight check of stage WF7 (tools/creature-check.sh, tools/lib/dev_world.py): level 70 with the full
+# health; a grey wolf of level 18 3 m to the east that fights the character (its bites: the red numbers of the own character); at 80 s
+# the damage of the character (hurt) and at 84 s its full health again (heal: a heal number when the backend marks the gain);
+# at 92 s a second wolf 6 m to the east with a stun (the status icon on its plate). Times on the clock of
+# tests/drive/wf7-fight-player.txt (the routes start after the world entry of the log; $N is the Nth spawn); offsets in m east,
+# north; yaw: 0 north, 90 west.
+50 level 70
+50 heal
+50 ignore off
+52 spawn Wolf_Grey_7 3 0 0 --yaw 90 --level 18
+80 hurt 600
+84 heal
+92 spawn Wolf_Grey_7 6 1 0 --yaw 90 --level 18
+93 effect $2 AI_Stun_4sec 20
