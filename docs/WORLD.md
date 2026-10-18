@@ -323,3 +323,17 @@ tools/build-world.sh --cells --all       # cells version 4: the groups by (mesh,
   instances change in place, with no new cell build.
 - The cell step of a region has two calls: the destroy of the old cell actors, then the spawn (about 5 minutes for a
   large region with the collision and the material slots).
+
+## Instanced mesh components of the slices (S0, research/settlements.md)
+
+A slice entity can have an instanced mesh component: its `Instanced Mesh Render Node` has the fields of the static node
+in its `BaseClass1` (`Visible`, `Static Mesh`, `Material Override Asset`), and its child `Instance Transforms` has the
+transform of each instance in the space of the entity. `region.slice_meshes` places each instance with the entity world
+matrix times the instance transform, and keeps the entity id and the instance index (placements.npz: `entity`,
+`instance`). The walls, fences, gates, and poplars of the settlement lanes are such instances (the static startup
+children of the settlement slices). At the spawn lane of Oxboro: 69 new instances in the 30 m box (40 fence parts, 4
+gates, 2 poplars, and more); the south fence (fence_a_400 instance 11 and fence_b instance 10 at one origin), the north
+gate (iron_gate_a instance 6), and the west poplar (poplartree_full_a instance 41, fall01) are at the positions of the
+research (0.0004 m or less). r_+04_+02: 193,980 placements, 56,194 of them instances. Cells version 5.
+The five house files at the lane are parts of one house: all of them stay. The cobblestones are road splines (the
+materials track).
