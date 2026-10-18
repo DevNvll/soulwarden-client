@@ -176,5 +176,7 @@ the user ([AGENTS.md](../AGENTS.md), rules).
 - The mana meter divides by the maximum of the client (field 1 plus the MaxMana parts). The value can be more than
   the maximum.
 - The mana cost of an ability comes from the mana cost table by AbilityID (an approximation).
+- The heart rune slot shows the icon of the rune. Its charge (`Hud.LocalPlayer.Vitals.ChargePercent`) has no source in
+  the read path of the backend yet, thus the slot does not show the charge.
 - No layout components (the HUD uses none). A sprite mask clips with its quad, not with its alpha.
 - Without a frame limit (`-nullrhi`), the runtime ticks with each frame.
