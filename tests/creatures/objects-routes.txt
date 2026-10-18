@@ -1,0 +1,14 @@
+# The development routes of the exit check of stage P4.1 part 2 (tools/creature-check.sh, tools/lib/dev_world.py) on the clock of
+# tests/creatures/objects.txt. The objects of r_+04_+02: the lore page bdf81e34 (8838.85 4246.60), the small bush of record 18772
+# (BushSmall, no tool; 8880.73 4297.22; G 00000000092aa221: a "#" starts a comment in this file), the supply chest 1ce79c8f (2.5 s; 8943.07 4333.97). Short travels (less than 40 m): a
+# travel of more than about 50 m shows the loading screen. Places in engine m.
+1 chest-clear 1ce79c8f-9e60-27f0-c86f-c05d3f011057
+1 travel 8838.85 4244.9 137.0 off
+8 travel 8860 4271 136.5 off
+13 travel 8880.73 4295.6 135.6 off
+24 gathering 30
+26 respawn 00000000092aa221 6
+36 gathering 30
+38 travel 8912 4314 136.5 off
+42 travel 8943.07 4331.6 136.8 off
+55 chests 20

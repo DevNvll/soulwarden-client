@@ -81,8 +81,13 @@ Only within 100 m of the character (the interest radius of the server: a record 
   meshes of a node; after that pass it places only the StartMesh). Far nodes outside the radius still show both meshes until that
   pass (accepted by the orchestrator).
 - A node instance of the level: an instance within 0.3 m (horizontal) and 1.5 m (height) of the place of the node whose mesh is in
-  the folder of the StartMesh or of the DepletedMesh of a visual of the node. The layer keeps an index of these instances near the
-  character (one search of the level each 20 m of movement or at each new load of a level).
+  the folder of the StartMesh or of the DepletedMesh of a visual of the node. The visuals of a node: the visual of the variant of
+  its record (a natural node) or of its variation table (a capital node), and the visuals of the meshes of its template slice. The
+  level places the default meshes of the master slice at a distribution record, not the meshes of its variant (for example
+  honeysuckle_a at a record of the variant Bush_Pawpaw_c_Fall01). The layer keeps an index of these instances near the character
+  (one search of the level each 20 m of movement or at each new load of a level).
+- The own depleted mesh: the DepletedMesh of the visual whose StartMesh the level placed at the node (the look of the level), else
+  the DepletedMesh of the variant of the record.
 - A chest that the character can loot: a point light 0.4 m above it (a stand-in for the Idle_VFX of the variation row; the
   particles are not converted). The Looted claim removes it. A supply chest does not change its mesh when it is looted (chests.md,
   live check L9): the layer does not hide the loot props of the level.
@@ -99,6 +104,42 @@ range, the state, the lore bit and its read mark, and each option with its ready
 
 The cost: the grid cells of 64 m within the largest range of the data (100 m: rangeSq 10000 of 24 bounds) around the point. The
 layer loads the region files within 300 m of the character (about 150 ms for a full region) and removes them beyond 500 m.
+
+## Check (development run, 2026-10-18)
+
+`tests/creatures/objects.txt` (the drive) and `tests/creatures/objects-routes.txt` (the routes), with
+`SWC_DEV_CHARACTER=Devwarden SWC_STAGE=4.1 tools/creature-check.sh objects 64 tests/creatures/objects-routes.txt tests/creatures/objects.txt -- -SwcObjectProbe`;
+evidence `~/Games/soulwarden-client/evidence/4.1/objects.mp4`, `objects-client.log`, `objects-backend.log`, the frames `objects-*.png`.
+
+- The lore page bdf81e34: the prompt "E ReadLore" at 1.9 m (actor c3099bdc2acb20b5, target 8cf752924a848ca2, option entity
+  b520cb2edc9b09c3); the hold of 0.5 s, the request, the reply 1, the end with no message. The Achievement state gets the bit of the
+  page (a first run: 1 bit to 2 bits); the query then has "read".
+- The small bush r_+04_+02#18772 (BushSmall, no tool; G 00000000092aa221, target bdc538d73abe68bb): the hold, the request, the reply
+  1, the Gathering state Success (0.50 s, speed 1), Done, the end of the use (2473). The backend: "gathered the natural node ...
+  1 WoodT1". The record: node state Depleted; the layer hides the healthy level instance and shows the depleted level instance. The
+  route `respawn 00000000092aa221 6`: Healthy 11 s later; the layer shows the healthy instance again and hides the depleted one.
+- The supply chest 1ce79c8f (G d4885cd2a16137a3): the light of the loot; the hold, the request, Success (2.50 s), Done, 2473; the
+  LootTracker claim Looted; the light goes off.
+- `tools/test-creatures.sh`: objects 64 checks, 0 failures; `tools/test-net.sh`: 179 checks, 0 failed.
+
+The route commands of the check (`tools/lib/dev_world.py`): `gathering [RADIUS]`, `chests [RADIUS]`, `respawn NODE SECONDS` (a
+UUID, REGION#RECORD, or the G in 16 hexadecimal digits; in a script file "#" starts a comment: use the G), `chest-clear CHEST`.
+
+## Not done, open points
+
+- The variant meshes of the natural nodes: the level shows the default meshes of the master slice (for example the flint of
+  master_minerals at an ore record). The node file gives the variant of each record, so the level build can place the StartMesh of
+  the variant at a small cost. In the layer it costs about 700 own mesh instances within 100 m and a visible change at the edge of
+  100 m: not done (a look, not a feel). The world track can take the variants from `content/world-objects/nodes` and `objects.json`
+  (or the gathering data of the backend copy).
+- The line of sight of a bound (`bLineOfSight`, for example each chest): the retail client checks it with a ray before it shows the
+  prompt (chests.md); the query gives the mark, and the interactor does not check it yet.
+- The requirements of an option (a level, an item, an achievement): the client does not check them; the server refuses.
+- The Idle_VFX of a chest and the depletion effect of an elite chest are not converted (the light is a stand-in). A lore page has no
+  visual. A tree has no fall (the retail client: the trunk falls, the stump stays): the layer swaps the meshes at once.
+- The objects of the kind `gatherable` (mostly `master_quest_instanced`) have no prompt; the quests are a later stage.
+- Far nodes (beyond 100 m) show the level state; until the final level pass of the world track that is both meshes of a node.
+- The side-by-side check with the retail client is open.
 
 ## Development aids
 

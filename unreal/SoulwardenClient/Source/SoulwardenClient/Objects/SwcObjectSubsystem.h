@@ -133,7 +133,10 @@ private:
 		float RangeSq = 0.0f;
 		bool bLineOfSight = false;
 		FVector3d Translation = FVector3d::ZeroVector;
+		/** The visuals of the variation table of the template (a capital node), and the visuals of the meshes of its slice: the level
+		 *  places these default meshes at each node of the slice, not the meshes of the variant of the record. */
 		TArray<int32> Visuals;
+		TArray<int32> SliceVisuals;
 	};
 	struct FVisual
 	{

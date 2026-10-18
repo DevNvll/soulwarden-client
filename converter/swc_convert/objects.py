@@ -13,7 +13,8 @@ the data of the layer from the game data of the backend copy (made by the Soulwa
 and from the variation tables of the game copy (the StartMesh and the DepletedMesh of each variant of a node).
 
 Output (SWC_CONTENT/world-objects, outside the repository):
-  objects.json            the tables: the options, the gathering templates, the gatherable rows, the visuals of the variants
+  objects.json            the tables: the options, the gathering templates (with the visuals of the meshes of their slice: the
+                          level places them at each node), the gatherable rows, the visuals of the variants
                           (the folders of the StartMesh and of the DepletedMesh, the object path of the imported DepletedMesh:
                           write the file again after tools/import.sh), the regions (their node types)
   regions/REGION.json     the objects of the interaction data of a region, with the ids of the backend (actor, facet target,
@@ -141,6 +142,22 @@ class Visuals:
         return self.index[key]
 
 
+def slice_meshes(path: str) -> set[str]:
+    """@return The static meshes of a slice (game paths, lower case; no LOD file)."""
+    out: set[str] = set()
+    try:
+        roots = source.parse(source.read(path))
+    except Exception:   # a slice that the reader cannot read: no meshes
+        return out
+    for root in roots:
+        for element in source.walk(root):
+            found = source.asset_id(element)
+            product = source.product(found[0], found[1], ".cgf") if found else None
+            if product and "_lod" not in product:
+                out.add(norm(product))
+    return out
+
+
 # ------------------------------------------------------------------------------------------------------------- write
 
 def file_hash(path: Path) -> str:
@@ -183,6 +200,20 @@ def write() -> dict:
     for template in templates:
         rows = rows_by_table.get(template["table"], {})
         template_visuals.append(sorted({visuals.of(str(r.get("StartMesh", "")), str(r.get("DepletedMesh", ""))) for r in rows.values()} - {-1}))
+
+    # The meshes of each gathering slice: the level of the world track places them at each node of the slice (its default variant,
+    # not the variant of the record): the layer also takes these visuals as the meshes of the node.
+    by_start: dict[str, list[int]] = {}
+    by_depleted: dict[str, list[int]] = {}
+    for index, row in enumerate(visuals.rows):
+        by_start.setdefault(row[4], []).append(index)
+        if row[5]:
+            by_depleted.setdefault(row[5], []).append(index)
+    slice_visuals: list[list[int]] = []
+    for template in templates:
+        meshes = slice_meshes(template["slice"])
+        slice_visuals.append(sorted({v for m in meshes for v in by_start.get(m, []) + by_depleted.get(m, [])}))
+    report["templatesWithSliceVisuals"] = sum(1 for v in slice_visuals if v)
 
     # The objects of the interaction data, by region.
     achievements = interactions["achievements"]
@@ -278,7 +309,7 @@ def write() -> dict:
         "gatherOption": gather_option,
         "templates": [{"root": t["root"], "controllerSlot": t["controllerSlot"], "table": t["table"], "entry": t["entry"],
                        "bound": {k: t["bound"][k] for k in ("entity", "component", "option", "slot", "rangeSq", "translation", "lineOfSight")},
-                       "visuals": template_visuals[i]} for i, t in enumerate(templates)],
+                       "visuals": template_visuals[i], "sliceVisuals": slice_visuals[i]} for i, t in enumerate(templates)],
         "rows": [r["id"] for r in gathering["rows"]],
         "visuals": [[row[0], row[1], row[3]] for row in visuals.rows],
         "regions": regions,

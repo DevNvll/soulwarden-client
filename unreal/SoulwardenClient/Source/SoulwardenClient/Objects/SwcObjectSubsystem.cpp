@@ -276,6 +276,14 @@ bool USwcObjectSubsystem::LoadTables(FString& OutReport)
 		{
 			Template.Visuals.Add(static_cast<int32>(Index->AsNumber()));
 		}
+		const TArray<TSharedPtr<FJsonValue>>* SliceVisuals = nullptr;
+		if (Info->TryGetArrayField(TEXT("sliceVisuals"), SliceVisuals))
+		{
+			for (const TSharedPtr<FJsonValue>& Index : *SliceVisuals)
+			{
+				Template.SliceVisuals.Add(static_cast<int32>(Index->AsNumber()));
+			}
+		}
 		Templates.Add(Template);
 	}
 	RegionTypes.Reset();
@@ -995,11 +1003,26 @@ void USwcObjectSubsystem::UpdateVisuals(const FVector& Center)
 			}
 			for (const swc::objects::NodeRecord& Node : Region->Nodes.cell(GX - Region->X * PerRegion, GY - Region->Y * PerRegion))
 			{
-				if (Region->Types.IsValidIndex(Node.type) && Region->Types[Node.type].Visual >= 0)
+				if (!Region->Types.IsValidIndex(Node.type))
 				{
-					Visit(swc::objects::natural_group(Region->X, Region->Y, Node.record + 1), FString::Printf(TEXT("%s#%u"), *Region->Name, Node.record),
-						FVector3d(Node.x, Node.y, Node.z), TArray<int32>{Region->Types[Node.type].Visual});
+					continue;
 				}
+				// The visual of the variant of the record first (its depleted mesh is the own mesh), then the meshes of the slice.
+				const FNodeType& Type = Region->Types[Node.type];
+				TArray<int32> NodeVisuals;
+				if (Type.Visual >= 0)
+				{
+					NodeVisuals.Add(Type.Visual);
+				}
+				if (Templates.IsValidIndex(Type.Template))
+				{
+					for (const int32 Index : Templates[Type.Template].SliceVisuals)
+					{
+						NodeVisuals.AddUnique(Index);
+					}
+				}
+				Visit(swc::objects::natural_group(Region->X, Region->Y, Node.record + 1), FString::Printf(TEXT("%s#%u"), *Region->Name, Node.record),
+					FVector3d(Node.x, Node.y, Node.z), NodeVisuals);
 			}
 			if (const TArray<int32>* List = Region->Grid.Find(FIntPoint(GX, GY)))
 			{
@@ -1008,7 +1031,12 @@ void USwcObjectSubsystem::UpdateVisuals(const FVector& Center)
 					const FDataObject& Object = Region->Objects[Index];
 					if (Object.Kind == KindNode && Templates.IsValidIndex(Object.Template))
 					{
-						Visit(Object.Group, Object.Key, Object.EnginePlace, Templates[Object.Template].Visuals);
+						TArray<int32> NodeVisuals = Templates[Object.Template].Visuals;
+						for (const int32 SliceVisual : Templates[Object.Template].SliceVisuals)
+						{
+							NodeVisuals.AddUnique(SliceVisual);
+						}
+						Visit(Object.Group, Object.Key, Object.EnginePlace, NodeVisuals);
 					}
 				}
 			}
@@ -1066,9 +1094,9 @@ void USwcObjectSubsystem::UpdateChestLights(const FVector& Center)
 				UPointLightComponent* Light = NewObject<UPointLightComponent>(Owner);
 				Light->SetMobility(EComponentMobility::Movable);
 				Light->SetIntensityUnits(ELightUnits::Candelas);
-				Light->SetIntensity(15.0f);
+				Light->SetIntensity(40.0f);
 				Light->SetLightColor(FLinearColor(1.0f, 0.75f, 0.35f));
-				Light->SetAttenuationRadius(300.0f);
+				Light->SetAttenuationRadius(400.0f);
 				Light->SetCastShadows(false);
 				Light->SetupAttachment(Owner->GetRootComponent());
 				Light->RegisterComponent();

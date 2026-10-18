@@ -1,0 +1,77 @@
+# The exit check of stage P4.1 part 2 (docs/OBJECTS.md) with the routes of tests/creatures/objects-routes.txt: a lore page read
+# (ReadLore), a small bush that a gather depletes and that comes back (the respawn route), and a supply chest that opens (the light of
+# the loot goes off at the Looted claim). E: "interact 1" / "interact 0" (the hold of the prompt 0.5 s). The routes move the
+# character south of each object (the camera looks north). The "tick" lines are the clock marks of the route script. Times in
+# seconds from the possession of the character; pitch: degrees each second.
+# SWC_DEV_CHARACTER=Devwarden SWC_STAGE=4.1 tools/creature-check.sh objects 64 tests/creatures/objects-routes.txt \
+#   tests/creatures/objects.txt -- -SwcObjectProbe
+1.0 tick
+2.0 tick
+3.0 tick
+4.0 tick
+4.1 interact 1
+5.0 tick
+5.1 interact 0
+6.0 tick
+7.0 tick
+8.0 tick
+9.0 tick
+10.0 tick
+11.0 tick
+12.0 tick
+13.0 tick
+14.0 tick
+15.0 tick
+15.1 pitch -20
+16.0 tick
+16.1 pitch 0
+17.0 tick
+18.0 tick
+19.0 tick
+20.0 tick
+20.1 interact 1
+21.0 tick
+21.1 interact 0
+22.0 tick
+23.0 tick
+24.0 tick
+25.0 tick
+26.0 tick
+27.0 tick
+28.0 tick
+29.0 tick
+30.0 tick
+31.0 tick
+32.0 tick
+33.0 tick
+34.0 tick
+35.0 tick
+36.0 tick
+37.0 tick
+38.0 tick
+39.0 tick
+40.0 tick
+41.0 tick
+42.0 tick
+43.0 tick
+44.0 tick
+45.0 tick
+46.0 tick
+47.0 tick
+48.0 tick
+48.1 interact 1
+49.0 tick
+49.1 interact 0
+50.0 tick
+51.0 tick
+52.0 tick
+53.0 tick
+54.0 tick
+55.0 tick
+56.0 tick
+57.0 tick
+58.0 tick
+59.0 tick
+60.0 tick
+61.0 tick
+62.0 tick
