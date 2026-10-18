@@ -105,6 +105,24 @@ failures). The research census has the same numbers of lights, probes, fog volum
 - The equal-priority ties and the blend order of the time volumes (research, open point 5) are stage E3.
 - The water records (polygons, rivers, ocean overrides) are in the data for the water stage (E4, the player track).
 
+## The matched views
+
+`tools/match-view.sh SET [VIEW...] [--out FOLDER] [--label LABEL]` (`tools/lib/match_view.py`, client `Environment/SwcMatchView`)
+makes the client pictures of a set of retail references in one development run, for the fidelity checks of each track (the world,
+the materials, the environment). A set is a folder with `index.json` and, for each picture, `NAME.png` and `NAME.json` (the feet,
+the camera, the field of view, the measured world hour), or its name in `~/Games/soulwarden/work/evidence/unreal-references`.
+
+| Step | Rule |
+| --- | --- |
+| The plan | The tool writes `FOLDER/plan.json` (the views, 1280 x 720, the settle time) and starts the run with `-SwcMatchView=PLAN` and `-SwcWorldTimeProbe`, the backend with the development routes, the window on the own agent desktop. The creatures ignore the character (the night creatures of a place). |
+| The place | The client logs `matchview: view K NAME: ready`; the tool moves the character to the feet (the travel route). At the feet (the server place and the pawn within 2 m), the client turns the body to the yaw of the feet and sets the camera override: the exact place and forward vector of the JSON camera (engine to Unreal: x, -y, z), the roll 0, and the vertical field of view of the JSON (57 degrees; the horizontal one is 87.97 degrees at 16:9). The camera manager of the player track applies the override with one hook line. The client hides the debug text and the HUD canvas (a high resolution screenshot has no Slate user interface). |
+| The streaming | The cells of the partition loaded and no package loading for 1 s, else at most 25 s at the feet (the log has the number of the loading packages). Then the textures of the view load (StreamAllResources, at most 5 s). |
+| The hour | The client logs `in place`; the tool sets the world hour of the backend 14 real seconds before the hour of the retail picture (the world-time route; the rate of the part of the cycle). The client waits for the new record, the settle time (4 s), and the hour of the picture on its own world clock (1 game second), and takes the picture (a high resolution screenshot of 1280 x 720). |
+| The output | `FOLDER/client/NAME.png`, `FOLDER/side/NAME.png` (retail on the left, client on the right, with the two hours, the feet, the camera, and the field of view), `FOLDER/contact-sheet.png`, `FOLDER/report.json` (the client hour of each picture and its difference from the retail hour), the logs, and `clock-compare.txt` (`tools/lib/world_time_compare.py`: the client clock against the server). |
+
+The client picture has the hour of the retail picture. The weather of a retail picture is not measured (null in the set); the
+client selects its own volumes (stage E3).
+
 ## Development aids
 
 | Switch or command | Effect |
@@ -112,6 +130,7 @@ failures). The research census has the same numbers of lights, probes, fog volum
 | The debug line | "world time HH:MM:SS (PHASE), hour H, phase of the server PHASE" on the screen, after the first record. |
 | `-SwcWorldTimeProbe` | The log line of the time each 1 s (else each 60 s, at each record, and at each phase edge). |
 | `tools/lib/dev_world.py world-time [HH:MM[:SS]]` | The world time of the backend with the wall time of the reply (`wall`), or a command for the world (the development route `/v1/dev/world/time`; development data only). |
+| `-SwcMatchView=PLAN.json` | The matched views of a plan (tools/match-view.sh). |
 | `tools/convert-environment.sh volumes X Y Z` | The time-of-day volumes that hold a place (engine m), the highest priority first. |
 | `tools/convert-environment.sh sample PRESET HOUR [NAME...]` | The values of a preset at an hour. |
 | `tools/lib/world_time_compare.py FOLDER LABEL` | The compare of the client clock (the log lines of `-SwcWorldTimeProbe`) with the records, the phase edges, and the reads of the server in one run; exit status 1 above 1 game second. |
