@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Builds and runs the tests of the environment (tests/environment) with the system compiler: the world time of the client
-# (Net/Codec/SwcWorldTime.h) with the bytes of the encoders of the backend (server/rep/time_messages.cpp) and the values of its day cycle
-# (world/world_time.cpp). The Soulwarden sources are read only; the build output goes to SWC_WORK/build/environment-tests.
+# Builds and runs the tests of the environment (tests/environment): the world time of the client (Net/Codec/SwcWorldTime.h) with the
+# bytes of the encoders of the backend (server/rep/time_messages.cpp) and the values of its day cycle (world/world_time.cpp), with the
+# system compiler; and the tests of the environment reader of the converter (test_environment.py: Python unittest, no game data).
+# The Soulwarden sources are read only; the build output goes to SWC_WORK/build/environment-tests.
 # The backend file world_time.cpp also has the class WorldTime of the world: the build keeps only the functions that the test uses
 # (function sections and the garbage collection of the linker).
 set -euo pipefail
@@ -20,4 +21,6 @@ nice -n 10 "${compiler}" "${flags[@]}" \
     "${backend}/src/server/rep/time_messages.cpp" "${backend}/src/world/world_time.cpp" \
     "${backend}/src/core/logging/log.cpp" "${backend}/src/middleware/compression/lz4.cpp" \
     -Wl,--gc-sections -o "${out}/swc-environment-tests"
-exec "${out}/swc-environment-tests"
+"${out}/swc-environment-tests"
+cd "${SWC_REPO}"
+exec python3 -B -m unittest discover -s tests/environment -p "test_*.py"
