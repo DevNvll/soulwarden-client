@@ -19,3 +19,7 @@ if [[ ! -d "${target}" ]]; then
 fi
 ln -sfn "${version}" "${SWC_WORK}/backend/current"
 echo "client backend: ${version} (${target})"
+user_version="$(cat "${releases}/current/VERSION")"
+if [[ "${version}" != "${user_version}" ]]; then
+    echo "note: the current release of the user is ${user_version}; a player run needs that version (shared database schema)" >&2
+fi

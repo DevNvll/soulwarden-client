@@ -44,6 +44,15 @@ project. The Soulwarden orchestrator (thread 02915e32-02d5-4ff1-a796-cc7c5cf3079
 - The backend of a run is the copy of a Soulwarden release in `~/Games/soulwarden-client/backend/current`
   (`tools/backend-update.sh`), never `~/Developer/azoth/apps/backend/dist`: the backend stage threads rebuild that file
   before their live check. Update the copy on purpose, after a release.
+- The shared database has a schema version (`PRAGMA user_version`). A backend migrates an older database forward and
+  refuses a newer one ("database schema N is newer than this backend"). Thus a player run uses only the backend of
+  the current release of the user: `tools/play.sh` compares `backend/current/release.json` with
+  `~/Games/soulwarden/releases/current/VERSION` and refuses a different version (run `tools/backend-update.sh`).
+  Never give a player run a release that is newer than the current release: then the retail game refuses the
+  database. The Soulwarden orchestrator tells this project when a backend commit changes the schema version.
+- The Steam account: read only the Steam id and the persona name of the most recent login of the Steam installation
+  (`config/loginusers.vdf`, as the Soulwarden launcher does). Never open a Steam credential. The two values go to
+  the client in its environment, never into a file; a log line shows only the last 4 digits of the Steam id.
 - A process of this project never has `SOULWARDEN_DEV_RUN=1` in its environment: `tools/dev-stop.sh` of Soulwarden
   stops such processes, and its `--check` fails while one is alive.
 - Do not open the Proton prefixes of the Soulwarden project or its development data.
