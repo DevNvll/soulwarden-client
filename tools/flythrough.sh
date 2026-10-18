@@ -34,7 +34,7 @@ omarchy-agent-desktop run --wait 180 --json "${desktop_id}" -- \
     env SWC_DEV_RUN=1 SWC_RUN=development "SWC_SESSION_DATA=${SWC_DEV_DATA}" \
     gamescope --backend wayland -W "${game_size%x*}" -H "${game_size#*x}" -w "${game_size%x*}" -h "${game_size#*x}" -r 60 -- \
     "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" -game -nosound -windowed -ResX="${game_size%x*}" -ResY="${game_size#*x}" \
-    -SwcFlythrough="${run_plan}" -abslog="${log}" > "${out}/launch.json" 2>&1 || true
+    -SwcFlythrough="${run_plan}" -abslog="${log}" ${SWC_FLY_EXTRA:+"${SWC_FLY_EXTRA}"} > "${out}/launch.json" 2>&1 || true
 for _ in $(seq 1 1800); do
     grep -q "SWC FLYTHROUGH\|Critical error" "${log}" 2>/dev/null && break
     sleep 1
