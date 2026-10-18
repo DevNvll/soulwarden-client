@@ -1,6 +1,7 @@
 #include "Creatures/SwcCreature.h"
 
 #include "Character/SwcSmooth.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Creatures/SwcCreatureAnimInstance.h"
@@ -50,6 +51,41 @@ ASwcCreature::ASwcCreature()
 	Placeholder->SetupAttachment(Root);
 	Placeholder->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Placeholder->SetVisibility(false);
+	BodyBlock = CreateDefaultSubobject<UCapsuleComponent>(TEXT("BodyBlock"));
+	BodyBlock->SetupAttachment(Root);
+	BodyBlock->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	BodyBlock->SetCanEverAffectNavigation(false);
+	BodyBlock->SetHiddenInGame(true);
+}
+
+void ASwcCreature::SetupBodyBlock()
+{
+	// The body capsule of the slice blocks the movement of the player: in the retail game the creatures block the players (an
+	// inference of the orchestrator, docs/CREATURES.md). The rule of the backend for its place (world/projectiles.cpp,
+	// capsule_of): the segment of the length `height` on the axis in the frame of the creature (x right, y front, z up), the
+	// radius around it, the offset in the same frame, and the lowest point at the feet. No scale (the backend uses none).
+	if (Slice == nullptr || !Slice->bHasCapsule || Slice->CapsuleRadius <= 0.0f)
+	{
+		return;
+	}
+	// The frame of the creature in the frame of the actor (X front, Y right, Z up).
+	const auto ToActor = [](const FVector& Engine) { return FVector(Engine.Y, Engine.X, Engine.Z); };
+	const FVector Axis = ToActor(Slice->CapsuleAxis).GetSafeNormal();
+	const double Half = Slice->CapsuleHeight * 0.5;
+	const double Lift = FMath::Abs(Axis.Z) * Half + Slice->CapsuleRadius;
+	BodyBlock->SetAbsolute(false, false, true);
+	BodyBlock->SetWorldScale3D(FVector::OneVector);
+	BodyBlock->SetCapsuleSize(Slice->CapsuleRadius * 100.0f, static_cast<float>((Axis.IsZero() ? 0.0 : Half) + Slice->CapsuleRadius) * 100.0f);
+	BodyBlock->SetRelativeLocation((ToActor(Slice->CapsuleOffset) + FVector(0.0, 0.0, Lift)) * 100.0);
+	BodyBlock->SetRelativeRotation(Axis.IsZero() ? FQuat::Identity : FRotationMatrix::MakeFromZ(Axis).ToQuat());
+	// Only the movement of the player: the object type Pawn, a block for the channel Pawn, and no other channel (the camera, the
+	// ground traces, and the wall line of the melee contacts do not see it). The player cannot stand on it.
+	BodyBlock->SetCollisionObjectType(ECC_Pawn);
+	BodyBlock->SetCollisionResponseToAllChannels(ECR_Ignore);
+	BodyBlock->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+	BodyBlock->CanCharacterStepUpOn = ECB_No;
+	BodyBlock->SetWalkableSlopeOverride(FWalkableSlopeOverride(WalkableSlope_Unwalkable, 0.0f));
+	BodyBlock->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 }
 
 void ASwcCreature::Setup(FSwcCreatureLibrary& Library, const swc::creatures::Entity& Entity)
@@ -96,6 +132,7 @@ void ASwcCreature::Setup(FSwcCreatureLibrary& Library, const swc::creatures::Ent
 			Weapons.Add(Component);
 		}
 		bHasModel = true;
+		SetupBodyBlock();
 	}
 	else if (UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, PlaceholderMesh))
 	{
@@ -407,6 +444,8 @@ FString ASwcCreature::UpdateFromEntity(FSwcCreatureLibrary& Library, const swc::
 	{
 		bDead = true;
 		DeadAt = FPlatformTime::Seconds();
+		// A dead creature does not block.
+		BodyBlock->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 	if (Entity.scopeRevision != ScopeRevision)
 	{

@@ -145,6 +145,13 @@ struct FSwcCreatureSlice
 	TMap<uint32, FString> VariantMeshes;
 	TArray<FSwcCreatureWeapon> Weapons;
 	TArray<FSwcHitVolume> HitVolumes;
+	/** The body capsule (the QueryShapeCapsule of the CharacterComponent of the slice; backend gamedata CreatureCapsule): the
+	 *  radius, the length of the segment, its axis and its offset in the frame of the creature (m; x right, y front, z up). */
+	bool bHasCapsule = false;
+	float CapsuleRadius = 0.0f;
+	float CapsuleHeight = 0.0f;
+	FVector CapsuleAxis = FVector::UpVector;
+	FVector CapsuleOffset = FVector::ZeroVector;
 	/** The names of the action table of the slice (the action index of a scope record is a position in it). */
 	TArray<FString> Actions;
 	FString AnimationKey;

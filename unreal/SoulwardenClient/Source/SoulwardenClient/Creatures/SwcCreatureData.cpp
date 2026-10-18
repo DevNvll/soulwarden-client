@@ -247,6 +247,17 @@ bool FSwcCreatureLibrary::Load(FString& OutReport)
 					Out.Local = FCString::Strtoui64(*Volume->GetStringField(TEXT("local")), nullptr, 16);
 				}
 			}
+			const TSharedPtr<FJsonObject>* Capsule = nullptr;
+			if (Entry->TryGetObjectField(TEXT("capsule"), Capsule))
+			{
+				const TArray<double> Axis = Floats(*Capsule, TEXT("axis"));
+				const TArray<double> Offset = Floats(*Capsule, TEXT("offset"));
+				Slice.bHasCapsule = true;
+				Slice.CapsuleRadius = Number(*Capsule, TEXT("radius"), 0.0f);
+				Slice.CapsuleHeight = Number(*Capsule, TEXT("height"), 0.0f);
+				Slice.CapsuleAxis = Axis.Num() == 3 ? FVector(Axis[0], Axis[1], Axis[2]) : FVector::ZeroVector;
+				Slice.CapsuleOffset = Offset.Num() == 3 ? FVector(Offset[0], Offset[1], Offset[2]) : FVector::ZeroVector;
+			}
 			const TSharedPtr<FJsonObject>* Marker = nullptr;
 			if (Entry->TryGetObjectField(TEXT("marker"), Marker))
 			{

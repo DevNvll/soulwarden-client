@@ -159,8 +159,21 @@ Avatar->GetActions()->SetContactQuery(/* USwcCreatureSubsystem::QueryMeleeContac
 - `-SwcFarContact[=SECONDS]` (development runs): when the shape touches no creature, one contact with the nearest living
   creature 6 to 10 m from the attacker (from SECONDS after the start of the world). The server refuses it: "too far" (reach
   3.5 m + 1.5 m).
-- `-SwcHitVolumes` draws the volumes of the creatures within 20 m (red: head, cyan: legs). `-SwcVolumeProbe` tests a capsule
+- `-SwcHitVolumes` draws the volumes of the creatures within 20 m (red: head, cyan: legs, yellow: the others) and their body
+  capsules (white). `-SwcVolumeProbe` tests a capsule
   in front of the character each 0.5 s and writes a log line for each contact; it sends nothing.
+
+The body capsule: each living creature with a model has the capsule of its slice (the `QueryShapeCapsule` of its
+`CharacterComponent`; `capsule` of the backend `creatures.json`, 501 of 503 slices): the segment of the length `height` on
+the axis in the frame of the creature (x right, y front, z up), the radius around it, the offset in the same frame, and its
+lowest point at the feet (the rule of the backend, `world/projectiles.cpp` `capsule_of`; no scale). The wolf: radius 0.7 m,
+segment 0.9 m on the front axis, along its body. The capsule blocks only the movement of the player (object type Pawn, a block
+for the channel Pawn, no other channel): not the camera, not the ground traces, not the strike shapes, not the wall line of the
+contacts. The player cannot stand on it. A dead creature has none. The reason: in the retail game the creatures block the
+players, and without the capsule a chain of attacks moves the character through the creature. This is an inference of the
+orchestrator, not a fact of the client code: the side-by-side check with the retail client is open. Check (development run,
+`melee3`): the character stays 1.67 m in front of the wolf through two light chains and a heavy attack, and the backend
+accepts each position report (821 accepted, 0 refused).
 
 The damage number: the server sends `DamageReceiverComponentClientFacet_OnDamageDealt` (type 2071) only to the client of
 the attacker: the actor id of the creature, the flags (bit 3: the kill; bit 6: a critical hit; bit 8: a headshot), and the

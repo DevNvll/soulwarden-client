@@ -7,7 +7,8 @@
 #   STAY     the seconds in the world (-SwcStay); the client then leaves and stops
 #   ROUTES   a script of the development routes ("SECONDS COMMAND WORDS..." from the world entry)
 #   DRIVE    a drive script of the player controller (-SwcDrive)
-# SWC_DEV_CHARACTER: the character of the run and of the routes (default: the first one).
+# SWC_DEV_CHARACTER: the character of the run and of the routes (default: the first one). SWC_DEV_PLACE (X:Y:Z, engine m):
+# its place at the start of the run.
 # Never for the data folder of the user (tools/dev-run.sh and tools/lib/dev_world.py refuse it).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
@@ -26,6 +27,8 @@ client_arguments=(-SwcPlates=all)
 [[ -n "${drive}" ]] && client_arguments+=(-SwcDrive="$(realpath "${drive}")")
 enter=(--enter)
 [[ -n "${SWC_DEV_CHARACTER:-}" ]] && enter=(--enter "${SWC_DEV_CHARACTER}")
+# The same start place for each run: the swings of a check move the character, and the database keeps its place.
+[[ -n "${SWC_DEV_CHARACTER:-}" && -n "${SWC_DEV_PLACE:-}" ]] && enter+=(--create "name=${SWC_DEV_CHARACTER},place=${SWC_DEV_PLACE}")
 "${SWC_REPO}/tools/dev-run.sh" --window "${enter[@]}" --quit-when world --stay "${stay}" --label "${label}" -- "${client_arguments[@]}" "$@" >/dev/null
 for ((i = 0; i < 240; ++i)); do
     grep -q 'world: own entity' "${log}" 2>/dev/null && break

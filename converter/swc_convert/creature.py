@@ -1111,6 +1111,11 @@ def convert(indexes: set[int], force: bool = False) -> dict:
             volumes.append({**{k: v for k, v in volume.items() if k != "entity"}, "local": f"{int(volume['entity'], 16) ^ root:016X}"})
         entry["hitVolumes"] = volumes
         report["hit volumes"] += len(volumes)
+        # The body capsule: the QueryShapeCapsule of the CharacterComponent of the slice (the backend tool: radius, the length
+        # of the segment, its axis and its offset in the frame of the creature: x right, y front, z up).
+        capsule = backend_slice.get("capsule")
+        if capsule:
+            entry["capsule"] = {"radius": capsule[0], "height": capsule[1], "axis": capsule[2], "offset": capsule[3]}
         body = census_doc["bodies"][record["body"]]
         # The default weapons on the sockets of their equip type (research creature-visuals.md section 4).
         for item in record.get("items", []):

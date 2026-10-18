@@ -1,6 +1,7 @@
 #include "Creatures/SwcCreatureSubsystem.h"
 
 #include "Camera/PlayerCameraManager.h"
+#include "Components/CapsuleComponent.h"
 #include "CanvasItem.h"
 #include "Creatures/SwcCreature.h"
 #include "Creatures/SwcDamageMessage.h"
@@ -280,6 +281,12 @@ void USwcCreatureSubsystem::DevelopmentAids()
 			if (Creature == nullptr || FVector::Dist(Creature->GetActorLocation(), Own) > 2000.0)
 			{
 				continue;
+			}
+			// The body capsule that blocks the player: white.
+			if (const UCapsuleComponent* Block = Creature->GetBodyBlock(); Block != nullptr && Block->IsCollisionEnabled())
+			{
+				DrawDebugCapsule(World, Block->GetComponentLocation(), Block->GetScaledCapsuleHalfHeight(), Block->GetScaledCapsuleRadius(),
+					Block->GetComponentQuat(), FColor::White, false, -1.0f, 0, 0.5f);
 			}
 			Shapes.Reset();
 			Creature->GetHitShapes(Shapes);

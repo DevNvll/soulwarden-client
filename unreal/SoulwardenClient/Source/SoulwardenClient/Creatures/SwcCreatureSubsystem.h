@@ -53,7 +53,7 @@ struct FSwcMeleeContact
  * creature that rises and fades. The original is the damage number canvas of the game (for the UI runtime later).
  *
  * Command line: -SwcPlates=all (development pictures) draws the plate of each creature within 40 m. -SwcHitVolumes draws the
- * hit volumes of the creatures within 20 m. -SwcVolumeProbe tests a capsule in front of the player each 0.5 s with
+ * hit volumes of the creatures within 20 m and their body capsules (white). -SwcVolumeProbe tests a capsule in front of the player each 0.5 s with
  * FindMeleeContacts and writes a log line for each contact (it sends nothing).
  */
 UCLASS()

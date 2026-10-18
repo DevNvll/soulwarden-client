@@ -7,6 +7,7 @@
 #include "SwcCreature.generated.h"
 
 class FSwcCreatureLibrary;
+class UCapsuleComponent;
 class USkeletalMeshComponent;
 class UStaticMeshComponent;
 class USwcCreatureAnimInstance;
@@ -58,6 +59,8 @@ public:
 	/** Adds the hit volumes of the slice at the pose of this frame (the bones of the leader), in Unreal world space (cm). A
 	 *  placeholder has none. */
 	void GetHitShapes(TArray<FSwcCreatureHitShape>& Out) const;
+	/** @return The body capsule that blocks the player (no collision: none, or a dead creature). */
+	const UCapsuleComponent* GetBodyBlock() const { return BodyBlock; }
 	/** @return The bounds of the body (Unreal world space), for a fast test before the hit volumes. */
 	FBoxSphereBounds GetBodyBounds() const;
 
@@ -82,6 +85,7 @@ private:
 		int32 PlayingFragment = INDEX_NONE;
 	};
 
+	void SetupBodyBlock();
 	void ApplyScope(const swc::creatures::Entity& Entity);
 	void ApplyScopeRecord(uint32 Scope, const swc::creatures::Entity& Entity);
 	FString StartScope(uint32 Scope, FScopeState& State, uint64 RenderTimeUs, bool bDead);
@@ -102,6 +106,9 @@ private:
 	TObjectPtr<UStaticMeshComponent> Placeholder;
 	UPROPERTY()
 	TArray<TObjectPtr<UStaticMeshComponent>> Weapons;
+	/** The body capsule that blocks the movement of the player (only the channel Pawn): none for a dead creature. */
+	UPROPERTY()
+	TObjectPtr<UCapsuleComponent> BodyBlock;
 
 	const FSwcCreatureSlice* Slice = nullptr;
 	TSharedPtr<FSwcCreatureAnimations> Animations;
