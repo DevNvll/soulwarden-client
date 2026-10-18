@@ -131,6 +131,10 @@ tools/dev-build.sh --preset NAME                # a build preset of the backend 
 tools/convert-player.sh tables|base|wanted      # the player character: databases, base skeletons, the parts that a run asked for
 tools/import-player.sh                          # import the player base and parts onto one skeleton for each gender
 tools/dev-stop.sh                               # stop the development runs on the own SWC_DEV_DATA (--all: of all tracks)
+tools/convert-creatures.sh convert --near 8880 4250 300   # the creatures near a place (--all: the world; wanted: the client list)
+tools/import.sh creature-                       # import the converted creatures into /SwcGameContent
+tools/test-creatures.sh                         # the tests of the creature entity table with states of the backend encoders
+tools/creature-check.sh LABEL STAY ROUTES [DRIVE]   # a video check of the creatures with the development routes
 ```
 
 The runs and the connection: [docs/NETWORK.md](docs/NETWORK.md).
