@@ -50,7 +50,8 @@ public:
 	void SetInstanceHidden(const FSwcMeshInstanceRef& Instance, bool bHidden);
 	bool IsInstanceHidden(const FSwcMeshInstanceRef& Instance) const;
 
-	/** One more each time a streaming level with cell actors comes: a hide of an instance of an earlier load is gone. */
+	/** One more each time a streaming level with cell actors comes (also again after a stream out): its instances have the level
+	 *  transforms, and a hide of an earlier load is gone. */
 	uint32 GetRevision() const { return Revision; }
 
 	/** The size of a cell of the level (m: cells.py CELL_M). */
@@ -59,9 +60,12 @@ public:
 private:
 	void AddLevel(ULevel* Level, UWorld* World);
 	void RemoveLevel(ULevel* Level, UWorld* World);
-	void AddActor(AActor* Actor);
+	/** @return True when the actor is a cell actor (now in the index). */
+	bool AddActor(AActor* Actor);
 	static FIntPoint CellOf(const FVector& Place);
-	/** The development aid -SwcInstanceProbe=METERS: each 2 s, hide or show again the instances near the pawn. */
+	/** The development aid -SwcInstanceProbe=METERS: each 2 s, hide or show again the instances near the pawn. With
+	 *  -SwcInstanceProbeKeep: hide the instances near the first place of the pawn one time, and hide them again after each new
+	 *  load of their cells (GetRevision), as the object layer does. */
 	bool TickProbe(float DeltaSeconds);
 
 	TMap<FIntPoint, TArray<TWeakObjectPtr<AActor>>> Cells;
@@ -72,6 +76,10 @@ private:
 	uint32 Revision = 0;
 	double ProbeMeters = 0.0;
 	bool bProbeHidden = false;
+	bool bProbeKeep = false;
+	bool bProbePlaceSet = false;
+	FVector ProbePlace = FVector::ZeroVector;
+	uint32 ProbeRevision = 0;
 	TArray<FSwcMeshInstanceRef> ProbeInstances;
 	FTSTicker::FDelegateHandle ProbeTicker;
 };

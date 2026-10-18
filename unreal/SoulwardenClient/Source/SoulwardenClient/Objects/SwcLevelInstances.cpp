@@ -31,6 +31,7 @@ void USwcLevelInstances::OnWorldBeginPlay(UWorld& InWorld)
 	Super::OnWorldBeginPlay(InWorld);
 	if (FParse::Value(FCommandLine::Get(), TEXT("SwcInstanceProbe="), ProbeMeters) && ProbeMeters > 0.0)
 	{
+		bProbeKeep = FParse::Param(FCommandLine::Get(), TEXT("SwcInstanceProbeKeep"));
 		ProbeTicker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &USwcLevelInstances::TickProbe), 2.0f);
 	}
 }
@@ -56,14 +57,15 @@ FIntPoint USwcLevelInstances::CellOf(const FVector& Place)
 	return FIntPoint(FMath::FloorToInt32(Place.X / 100.0 / CellMeters), FMath::FloorToInt32(-Place.Y / 100.0 / CellMeters));
 }
 
-void USwcLevelInstances::AddActor(AActor* Actor)
+bool USwcLevelInstances::AddActor(AActor* Actor)
 {
 	// A cell actor of the level build: a plain actor with instanced static mesh components (SwcEditorLibrary::SpawnInstanceActors).
 	if (Actor == nullptr || Actor->GetClass() != AActor::StaticClass() || Actor->FindComponentByClass<UInstancedStaticMeshComponent>() == nullptr)
 	{
-		return;
+		return false;
 	}
 	Cells.FindOrAdd(CellOf(Actor->GetActorLocation())).AddUnique(Actor);
+	return true;
 }
 
 void USwcLevelInstances::AddLevel(ULevel* Level, UWorld* World)
@@ -72,14 +74,16 @@ void USwcLevelInstances::AddLevel(ULevel* Level, UWorld* World)
 	{
 		return;
 	}
-	const int32 Before = Cells.Num();
+	int32 Added = 0;
 	for (AActor* Actor : Level->Actors)
 	{
-		AddActor(Actor);
+		Added += AddActor(Actor) ? 1 : 0;
 	}
-	if (Cells.Num() != Before)
+	// Also a level that comes again after a stream out: its components are new, with the level transforms.
+	if (Added > 0)
 	{
 		++Revision;
+		UE_LOG(LogSwcObjects, Verbose, TEXT("level instances: %d cell actor(s) came, revision %u"), Added, Revision);
 	}
 }
 
@@ -95,9 +99,14 @@ void USwcLevelInstances::RemoveLevel(ULevel* Level, UWorld* World)
 		{
 			continue;
 		}
-		if (TArray<TWeakObjectPtr<AActor>>* Actors = Cells.Find(CellOf(Actor->GetActorLocation())))
+		const FIntPoint Cell = CellOf(Actor->GetActorLocation());
+		if (TArray<TWeakObjectPtr<AActor>>* Actors = Cells.Find(Cell))
 		{
 			Actors->Remove(Actor);
+			if (Actors->IsEmpty())
+			{
+				Cells.Remove(Cell);
+			}
 		}
 	}
 	// The saved transforms of the components that go away (a new load has the level transforms again).
@@ -204,6 +213,35 @@ bool USwcLevelInstances::TickProbe(float DeltaSeconds)
 	{
 		return true;
 	}
+	if (bProbeKeep)
+	{
+		if (!bProbePlaceSet)
+		{
+			// The first place with instances (before the world entry the pawn is not at its place yet).
+			if (FindInstancesAt(Pawn->GetActorLocation(), ProbeMeters * 100.0, ProbeInstances) == 0)
+			{
+				return true;
+			}
+			bProbePlaceSet = true;
+			ProbePlace = Pawn->GetActorLocation();
+		}
+		else if (ProbeRevision == Revision)
+		{
+			return true;
+		}
+		ProbeRevision = Revision;
+		FindInstancesAt(ProbePlace, ProbeMeters * 100.0, ProbeInstances);
+		int32 Newly = 0;
+		for (const FSwcMeshInstanceRef& Instance : ProbeInstances)
+		{
+			Newly += IsInstanceHidden(Instance) ? 0 : 1;
+			SetInstanceHidden(Instance, true);
+		}
+		UE_LOG(LogSwcObjects, Display, TEXT("Swc instance probe: revision %u: %d instances within %.0f m of the first place, %d hidden now (%d cells known, %d hidden components)"),
+			Revision, ProbeInstances.Num(), ProbeMeters, Newly, Cells.Num(), Hidden.Num());
+		return true;
+	}
+	// A new search at each hide: a stream out and in of a cell makes new components (GetRevision).
 	if (!bProbeHidden)
 	{
 		FindInstancesAt(Pawn->GetActorLocation(), ProbeMeters * 100.0, ProbeInstances);
@@ -215,7 +253,7 @@ bool USwcLevelInstances::TickProbe(float DeltaSeconds)
 		SetInstanceHidden(Instance, bProbeHidden);
 		Meshes.Add(Instance.Mesh.Get());
 	}
-	UE_LOG(LogSwcObjects, Display, TEXT("Swc instance probe: %s %d instances of %d meshes within %.0f m (%d cells known)"),
-		bProbeHidden ? TEXT("hid") : TEXT("showed"), ProbeInstances.Num(), Meshes.Num(), ProbeMeters, Cells.Num());
+	UE_LOG(LogSwcObjects, Display, TEXT("Swc instance probe: %s %d instances of %d meshes within %.0f m (%d cells known, revision %u, %d hidden components)"),
+		bProbeHidden ? TEXT("hid") : TEXT("showed"), ProbeInstances.Num(), Meshes.Num(), ProbeMeters, Cells.Num(), Revision, Hidden.Num());
 	return true;
 }
