@@ -139,6 +139,7 @@ tools/test-ranged.sh                            # the tests of the ranged and ma
 tools/convert-ui.sh hud                         # the canvases, scripts, textures, fonts, texts, and game data of the HUD
 tools/test-ui.sh --preview                      # the tests of the UI runtime and the HUD scripts (no engine), a picture
 tools/convert-ui.sh items|uistates              # the item data of the inventory screens, the UI state table (stage P2.4)
+tools/convert-ui.sh world                       # the canvases and the data of the UI in the world views: plates, prompts, numbers, ticker (stage WF7)
 tools/test-items.sh                             # the tests of the bag and the equipment with the states of the backend encoders (no engine)
 tools/dev-build.sh --preset NAME                # a build preset of the backend for the dev character (--list)
 tools/convert-player.sh tables|base|wanted      # the player character: databases, base skeletons, the parts that a run asked for
@@ -146,6 +147,7 @@ tools/convert-player.sh movement|roads          # the movement rules of the data
 tools/import-player.sh                          # import the player base and parts onto one skeleton for each gender
 tools/dev-stop.sh                               # stop the development runs on the own SWC_DEV_DATA (--all: of all tracks)
 tools/convert-creatures.sh convert --near 8880 4250 300   # the creatures near a place (--all: the world; wanted: the client list)
+tools/convert-creatures.sh markers              # the marker type of each creature slice (the plates of the UI; no import)
 tools/import.sh creature-                       # import the converted creatures into /SwcGameContent
 tools/test-creatures.sh                         # the tests of the creature entity table with states of the backend encoders
 tools/creature-check.sh LABEL STAY ROUTES [DRIVE]   # a video check of the creatures with the development routes
