@@ -1,0 +1,87 @@
+# The player drive of the prompt check of stage WF7 (with tests/drive/wf7-prompt-routes.txt and tests/drive/wf7-prompt.txt): the camera
+# down to the bag at the feet; at 130 s E held 1.5 s at the bag of the focus (Take All: the hold of the prompt 0.5 s, the ring of
+# the key). The "tick" lines are the clock marks of the route script. Times in seconds from the possession of the character.
+# turn, pitch: degrees each second.
+1 tick
+3 tick
+5 tick
+7 tick
+9 tick
+11 tick
+13 tick
+15 tick
+17 tick
+19 tick
+21 tick
+23 tick
+25 tick
+27 tick
+29 tick
+31 tick
+33 tick
+35 tick
+37 tick
+39 tick
+41 tick
+43 tick
+45 tick
+47 tick
+49 tick
+51 tick
+53 tick
+55 tick
+57 tick
+59 tick
+61 tick
+63 tick
+65 tick
+67 tick
+69 tick
+71 tick
+73 tick
+75 tick
+77 tick
+79 tick
+81 tick
+83 tick
+84 pitch -30
+85 pitch 0
+87 tick
+89 tick
+91 tick
+93 tick
+95 tick
+97 tick
+99 tick
+101 tick
+103 tick
+105 tick
+107 tick
+109 tick
+111 tick
+113 tick
+115 tick
+117 tick
+119 tick
+121 tick
+123 tick
+125 tick
+127 tick
+129 tick
+130 interact 1
+131 tick
+131.5 interact 0
+133 tick
+135 tick
+137 tick
+139 tick
+141 tick
+143 tick
+145 tick
+147 tick
+149 tick
+151 tick
+153 tick
+155 tick
+157 tick
+159 tick

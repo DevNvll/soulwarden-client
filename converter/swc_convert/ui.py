@@ -981,10 +981,12 @@ def convert_world() -> dict:
     options = convert_interact_options()
     (target / "interactoptions.json").write_text(json.dumps(options, separators=(",", ":"), sort_keys=True))
     # The textures: the canvases of the world views and the UI slices that they spawn, and the folders of the sprites that the
-    # scripts set (the markers, the status icons, the icons of the damage types: TooltipCommon GetIconFromDamageTypeName).
+    # scripts set (the markers, the status icons, the icons of the damage types: TooltipCommon GetIconFromDamageTypeName; the icons
+    # of the gathering types: gatheringtooladditionalinfo.luac).
     canvases = convert_canvases(WORLD_CANVASES)
     textures = set(canvases.pop("textures"))
-    for folder in ("lyshineui/images/markers/", "lyshineui/images/status/", "lyshineui/images/icons/tooltip/"):
+    for folder in ("lyshineui/images/markers/", "lyshineui/images/status/", "lyshineui/images/icons/tooltip/",
+                   "lyshineui/images/icons/gatherables/"):
         textures |= set(folder_textures(folder))
     return {"status rows": len(statuses), "on the plates": sum(1 for e in statuses.values() if e["nameplate"]),
             "damage types": len(damage_types), "interact options": len(options), "canvases": canvases, "textures": convert_textures(textures),

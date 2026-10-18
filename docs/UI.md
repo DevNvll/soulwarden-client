@@ -409,6 +409,33 @@ The creature plates (`swc/markers.lua`; the canvas `lyshineui/markers/markermana
   `Swc.HostMarkerOcclusion`; a hit on a creature or on the pawn does not hide it; the hide is an inference).
 - When the UI runs, the creature view draws no simple plates and numbers (`SetUiPlates`).
 
+The prompt cards (`swc/interact.lua`; the canvas `lyshineui/markers/unifiedinteract`, `markermanager.luac` in the interact mode,
+`unifiedinteractcard.luac`, `unifiedinteractoption.luac`, `gatheringtooladditionalinfo.luac`, `hint.luac`):
+
+- Each frame the C++ gives the prompt of the focus (`FSwcInteractor::GetPrompt`; `Swc.HostPrompt`): the kind (a bag, an object of
+  the level data, a fixture), the name, the place, the phase and the progress of the use, the tool refusal, and the options. A new
+  focus (or a new refusal state) gives `OnInteractUnfocus` and `OnInteractFocus(data, no marker, the marker type)` on
+  `UiInteractorComponentNotificationsBus`. The marker type selects the card of `markermanager.luac`: a chest
+  "Master_LootContainer", a node by its gathering type ("Master_Tree", "Master_Minerals", "Master_Plants"), a body "Wolf" (an AI
+  type: the Gatherable card, as the retail picture of a skinning), a lore page "LoreItems", a bag and a fixture none (the
+  Structure card). The table is an inference: the marker types of the object slices are not converted.
+- The name: the name of the row of an object; for each bag "@inv_DroppedItems" (the Interact component of the bag slice; the live
+  check L5 of the backend shows "DROPPED ITEMS" for both kinds of bag).
+- The rows (`PopulateInteractOptions`): one copy of the option template of the card for each option of the bound, with the label of
+  the option record of the UI database (`gamedata/interactoptions.json`: TakeAllOption "@interact_takeAll", OpenStorageOption
+  "@ui_storage_interact", GatherOption "@ui_gather", Trigger "@ui_ignite_fuse"). The first option has the key of `ui_interact`
+  (E), the second of `ui_interact_sec` (T); a hold time gives the hold hint. The key names: the table of the emulation, else the
+  first key of the action in the action maps of the data.
+- The hold: the fill of the ring of the row (`PressandHoldProgressBar`) and `CryActionHoldProgress` of the hints, from the progress
+  of the use of the client.
+- The tool refusal of a gather: the key hides, the crossed ring of the card shows (`DontHave_Tool`), and the gather info of the row
+  (a copy of `GatherAdditionalInfo` in `AdditionalInfoRoot`) gets `PopulateGatheringToolAdditionalInfo` with the gathering type and
+  an empty tool list: the script shows the icon of the gathering type and "No equipped Axe" (the retail pictures F-03 and L6-02 of
+  the backend gathering stage show this form). A bag shows no container info (live check L5).
+- The place: `Hud.LocalPlayer.UnifiedInteract.ScreenPosition.<entity>`, the place of the bound projected, in canvas units.
+- The key T: the action `ui_interact_sec` of the map "ui" (actionmaps.json) at a bag opens its panel (`OpenLootDrop`: the request
+  OpenStorageOption, as Tab near a bag). The player controller does not change.
+
 ## The data of the backend
 
 `USwcUiSubsystem` reads `USwcBackendSubsystem::GetLocalPlayer` each frame and calls the host functions. A value goes
@@ -510,6 +537,7 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `inventory` | The original NewInventory, EquipmentV3, Tooltip, Encumbrance, and FlyoutMenu screens with a bag of the host calls (a sword, a shirt, 3 potions, 25 ore), the equipped sword, and the coin. The weight of the bag (14.0 of 200.0); Tab opens the state Inventory with the two screens and the cursor; the bag sections have their items and weights; the hover of the sword gives the item tooltip (gear score 100, core damage 70); a click gives the command list (Equip, Lock, Drop); Equip gives the host request `equip 0 24 1 INSTANCE`; the answer of the server (the swords change places) changes the screens and the weight (14.6); a sword that needs level 21 has "Equip" off ("Requirements not met") and no request; a refusal of the server (3626) keeps the paperdoll; Use of the potions gives `use 2`, the answer changes the weight (18.3); Unequip of the equipped sword gives `unequip 24 -1 1`, the answer empties the slot (21.3); Tab closes. Pictures `inventory-open`, `-tooltip`, `-commands`, `-equipped`, `-refused`, `-unequipped`. |
 | `loot` | The original CatContainer screen next to NewInventory and EquipmentV3: a bag near the character and Tab give the host request `openloot 57` and the state Container ("LOOT", the loot bag mode); the items of the server show ("2 items", the weight 5.4); LSHIFT and a click on the ore give `take INSTANCE 9`; the answer of the server leaves "1 item"; Take All gives `takeall`; the end of the use closes the panel (the state Inventory). Pictures `loot-panel`, `loot-taken`. |
 | `plates` | The original AiMarker plates (`markermanager.luac`, `marker.luac`, `markerstatuseffect.luac`): the scripts register the types and the pools; two grey wolves of the host get the elements a0 and a1: the near one (5 m) with its name, its level 18, the red bar, and the stun icon on a red square at the middle of the view 1.5 m above its feet; the far one (12.4 m, one half of its health) with the alpha 0.52; at its death the bar empties, and a creature out of the pool hides. Pictures `plates`, `plates-dead`. |
+| `prompt` | The original prompt cards: a loot bag 2 m ahead gives the card "DROPPED ITEMS" with "E Take All" (the hold form) and "T Open" at the screen place of the bag; a hold of one half fills the ring of the key to one half; T gives the request `openloot 57`; a young tree with no axe gives the gatherable card "YOUNG TREE" with the crossed ring, no key, and "No equipped Axe" with the icon of the gathering type; no focus hides the card. Pictures `prompt-bag`, `prompt-hold`, `prompt-tree`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
 The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,

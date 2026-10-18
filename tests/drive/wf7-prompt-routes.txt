@@ -1,0 +1,7 @@
+# The development routes of the prompt check of stage WF7 (tools/creature-check.sh, tools/lib/dev_world.py): five iron ore into the bag
+# of the character; the client drops the stack 90 s after the world entry (-SwcDrop=90:OreT1: a Discarded bag at the feet, the bag of
+# the prompt). Times on the clock of tests/drive/wf7-prompt-player.txt (the routes start after the world entry of the log).
+50 heal
+50 stack OreT1 5
+120 bags
+150 bags

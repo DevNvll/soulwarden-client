@@ -16,6 +16,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Creatures/SwcCreature.h"
+#include "Interact/SwcInteractor.h"
 #include "Creatures/SwcCreatureSubsystem.h"
 #include "Engine/LocalPlayer.h"
 #include "SceneView.h"
@@ -48,8 +49,9 @@ const char* const HudScreens[] = {
 	"lyshineui/flyoutmenu/flyoutmenu",
 	// The panel of an open loot bag (the state Container).
 	"lyshineui/container/catcontainer",
-	// The world views (stage WF7): the markers (the AI plates).
+	// The world views (stage WF7): the markers (the AI plates), the prompt cards of the focus.
 	"lyshineui/markers/markermanager",
+	"lyshineui/markers/unifiedinteract",
 	// The notifications (the minor messages of the inventory, the loot).
 	"lyshineui/notifications/notification",
 };
@@ -1157,6 +1159,24 @@ void USwcUiSubsystem::FeedWorld()
 			Plate.Distance, Plate.bShown ? 1 : 0, *Statuses);
 	}
 	Runtime->call("HostPlates", {FArg::of(Utf8(Lines))});
+	// The prompt of the focus (FSwcInteractor::GetPrompt): one line for swc/interact.lua (Swc.HostPrompt).
+	USwcBackendSubsystem* Backend = GetGameInstance()->GetSubsystem<USwcBackendSubsystem>();
+	FSwcInteractPrompt Prompt;
+	FString PromptLine(TEXT("none"));
+	if (Backend != nullptr && Backend->GetInteractPrompt(Prompt))
+	{
+		static const TCHAR* const Kinds[] = {TEXT("none"), TEXT("bag"), TEXT("object"), TEXT("fixture")};
+		FString Options;
+		for (const TPair<FString, float>& Option : Prompt.Options)
+		{
+			Options += FString::Printf(TEXT("%s%s:%.2f"), Options.IsEmpty() ? TEXT("") : TEXT(","), *Option.Key, Option.Value);
+		}
+		const FString Id = Prompt.Kind == FSwcInteractPrompt::EKind::Object ? Prompt.ObjectKey : FString::FromInt(static_cast<int32>(Prompt.Interest));
+		PromptLine = FString::Printf(TEXT("%s\t%s\t%s\t%s\t%.1f\t%.1f\t%.1f\t%s\t%.3f\t%d\t%s\t%s\t%s"), Kinds[static_cast<int32>(Prompt.Kind)], *Id,
+			*Prompt.ObjectKind.ToString(), *Prompt.Name.Replace(TEXT("\t"), TEXT(" ")), Prompt.Place.X, Prompt.Place.Y, Prompt.Place.Z, *Prompt.Phase,
+			Prompt.Progress, Prompt.bToolMissing ? 1 : 0, *Prompt.GatheringType, *Prompt.RefusalKey, *Options);
+	}
+	Runtime->call("HostPrompt", {FArg::of(Utf8(PromptLine))});
 	// The occlusion of the markers (markerdata.luac: allowWorldOcclusion, occlusionInterval 0.33 s): a line from the camera to the point
 	// of each marker; a hit of the world before the point hides it (the creatures and the pawn do not hide a marker).
 	const double Now = FPlatformTime::Seconds();

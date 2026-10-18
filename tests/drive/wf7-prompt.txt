@@ -1,0 +1,15 @@
+# Stage WF7: the prompt card of a loot bag (the exit check). The client drops five iron ore 90 s after the world entry (-SwcDrop):
+# a Discarded bag at the feet. The UI drive waits for the bag near the character: the card "DROPPED ITEMS" with "E Take All" and
+# "T Open" shows; T (the action ui_interact_sec of the map "ui") opens the panel of the bag (OpenStorageOption); Escape closes it
+# (2473). Later the player drive holds E at the bag (Take All: the ring of the key; the loot ticker shows the ore).
+# Times in seconds from the spawn of the player.
+# export SWC_STAGE=WF7 SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8872:4250:138.25
+# tools/creature-check.sh wf7-prompt 160 tests/drive/wf7-prompt-routes.txt tests/drive/wf7-prompt-player.txt -- \
+#   -SwcUiDrive=$PWD/tests/drive/wf7-prompt.txt -SwcDrop=90:OreT1
+1 waitfor CompassLines 60
+20 waitfor lootbag 150
+25 log T at the bag opens its panel
+25 key t
+30 log Escape closes the panel
+30 key escape
+35 end

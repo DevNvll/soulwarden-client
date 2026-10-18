@@ -159,11 +159,25 @@ Swc.keys = {
   mount_summon = "X", target_tag = "B",
 }
 
-function Swc.Keybind(action)
+--- @return The key name of an action: the table above, else the first key of the action in the action maps of the data (a map name
+--- first, then each map; actionmaps.json: ui_interact_sec is "t"), in upper case.
+function Swc.Keybind(action, actionMap)
   if action == nil then
     return nil
   end
-  return Swc.keys[action]
+  if Swc.keys[action] then
+    return Swc.keys[action]
+  end
+  local maps = actionMap and {actionMap} or Swc.actionMapOrder or {}
+  for _, mapName in ipairs(maps) do
+    local map = Swc.actionMaps and Swc.actionMaps[mapName]
+    for _, a in ipairs(map and map.actions or {}) do
+      if a.name == action and a.inputs and a.inputs[1] and a.inputs[1].key and #a.inputs[1].key == 1 then
+        return string.upper(a.inputs[1].key)
+      end
+    end
+  end
+  return nil
 end
 
 -- ------------------------------------------------------------------------------------------------- the local player
