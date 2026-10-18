@@ -12,6 +12,10 @@ Usage (tools/convert-player.sh; output in SWC_CONTENT/player, never in git):
                     (actions.py, stage P2.7).
   interactions      interactions.json: the templates of the server objects that the client uses (the fixtures, the
                     personal loot bag) from interaction-data.json of the backend copy (actions.py, stage P2.10).
+  movement          movement.json: the motion and facing lists of the movement actions, their named conditions, and the
+                    movement columns of the status rows (movement.py, stage P3.3).
+  roads [NAME...]   SWC_CONTENT/roads: the road weight of the terrain at 1 m for each region (default: the 49 regions of the
+                    main world; roads.py, stage P3.3).
   wanted [FILE]     converts the parts, the weapons, and the clip packs that the client asked for
                     (default SWC_WORK/player/wanted.json, written by the client).
   clips GENDER TAGS the clip pack of one weapon tag set ("1H_Melee,Sword") on the skeleton of a gender.
@@ -54,9 +58,17 @@ IDLE_CLIPS = {"male": "animations/gameplay/character/player/male/unarmed/navigat
 # The player Mannequin database and the locomotion fragments of stage 1.7 (research feel-values.md R2.7, R3): the default
 # (unarmed) variant of each fragment; for Jump the variant with forward input and the default one; for Land its three classes.
 ADB = "animations/mannequin/adb/player/player.adb"
-LOCOMOTION_FRAGMENTS = {"Idle": [""], "Strafe": [""], "Sprint": [""], "Sprint_Start": [""], "Fall": [""],
+LOCOMOTION_FRAGMENTS = {"Idle": ["", "Crouch", "Prone"], "Strafe": ["", "Crouch", "Prone"], "Sprint": ["", "Crouch", "Prone"],
+                        "Sprint_Start": ["", "Crouch", "Prone"], "Fall": [""],
                         "Land": ["Soft", "Normal", "Hard"], "Jump": ["ForwardNav", "BackNav", "LeftNav", "RightNav", ""],
-                        "Jump_Standing": [""]}
+                        "Jump_Standing": [""],
+                        # Stage P3.3: the posture transitions (playeractions_idleposetransition, sprintposetransition) and the stun of
+                        # the player (playeractions_reaction: r_Stun, r_Stun_Loop, r_Stun_End).
+                        "Idle_PostureTransition": ["Crouch+FromStand", "Stand+FromCrouch", "Prone+FromStand", "Stand+FromProne",
+                                                   "Crouch+FromProne", "Prone+FromCrouch"],
+                        "Sprint_PostureTransition": ["Crouch+FromStand", "Crouch+FromStand+LeftNav", "Crouch+FromStand+RightNav",
+                                                     "Prone+FromStand", "Stand+FromProne", "Crouch+FromProne", "Prone+FromCrouch"],
+                        "r_Stun": [""], "r_Stun_Loop": [""], "r_Stun_End": [""]}
 # The fragments with root motion: the jumps move the character with the root bone of their clip until the marker
 # Enable_Gravity (research feel-values.md R2.4.1, R2.8.4). locomotion.json keeps the root track of their clips.
 ROOT_MOTION_FRAGMENTS = {"Jump", "Jump_Standing"}
@@ -956,6 +968,8 @@ def main(argv=None) -> int:
     sub.add_parser("weapons")
     sub.add_parser("actions")
     sub.add_parser("interactions")
+    sub.add_parser("movement")
+    p = sub.add_parser("roads"); p.add_argument("names", nargs="*")
     p = sub.add_parser("base"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("wanted"); p.add_argument("file", nargs="?"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("clips"); p.add_argument("gender", choices=list(GENDERS)); p.add_argument("tags"); p.add_argument("--force", action="store_true")
@@ -976,6 +990,12 @@ def main(argv=None) -> int:
     elif args.command == "interactions":
         from . import actions
         result = actions.interactions()
+    elif args.command == "movement":
+        from . import movement
+        result = movement.movement()
+    elif args.command == "roads":
+        from . import census, roads
+        result = roads.convert(args.names or census.world_regions())
     elif args.command == "base":
         result = base(args.force)
     elif args.command == "wanted":

@@ -52,7 +52,10 @@ USE_FRAGMENTS = {"delayed": ("Delayed_Interact", "")}
 DODGE_FRAGMENTS = ("Dodge_Roll_Fast", "Dodge_Roll", "Dodge_Roll_Slow")
 DODGE_VARIANTS = ("", "BackNav", "LeftNav", "RightNav")
 # The locomotion fragments of a stance, with the variant tags of each (the unarmed set of locomotion.json).
-STANCE_FRAGMENTS = {"Idle": [""], "Strafe": [""], "Sprint": [""], "Sprint_Start": [""], "Fall": ["ForwardNav", ""],
+# Stage P3.3: the crouch variants (a weapon has crouch fragments: 1H_Melee, 2H_Melee, the bow, the magic weapons, the shields;
+# research p33-movement.md Q1); a weapon with no crouch fragment uses the unarmed one of locomotion.json.
+STANCE_FRAGMENTS = {"Idle": ["", "Crouch"], "Strafe": ["", "Crouch"], "Sprint": ["", "Crouch"], "Sprint_Start": ["", "Crouch"],
+                    "Fall": ["ForwardNav", ""],
                     "Land": ["Soft", "Normal", "Hard"], "Jump": ["ForwardNav", "BackNav", "LeftNav", "RightNav", ""],
                     "Jump_Standing": [""]}
 # The context tags that a fragment of a settled stance can have.
@@ -76,15 +79,21 @@ def adb_chain(tags: set[str]) -> list[str]:
     return chain + [player.norm(player.ADB)]
 
 
+# The posture tags: a variant with one of them takes only a fragment with it (else the stand fragment is no crouch fragment).
+POSTURE_TAGS = {"crouch", "prone"}
+
+
 def find_fragment(name: str, tags: set[str], extra: set[str], offhand: bool) -> tuple[str, ET.Element] | None:
     """The fragment variant of the first database of the chain that has one: the variant with the most tags, each of them
-    in the tags, the extra tags, or the context tags. offhand: the variants of the Offhand scope (tag Offhand)."""
+    in the tags, the extra tags, or the context tags. offhand: the variants of the Offhand scope (tag Offhand). A posture tag
+    of the extra tags must be in the fragment."""
+    required = extra & POSTURE_TAGS
     for adb in adb_chain(tags):
         node = player.adb_root(adb).find(f"FragmentList/{name}")
         best = None
         for fragment in node if node is not None else []:
             names = tag_set(fragment.get("Tags") or "")
-            if ("offhand" in names) != offhand:
+            if ("offhand" in names) != offhand or not required <= names:
                 continue
             if names <= tags | extra | CONTEXT_TAGS and (best is None or len(names) > best[0]):
                 best = (len(names), fragment)
