@@ -39,6 +39,8 @@ FVector EngineVector(const std::array<float, 3>& Value)
 }
 } // namespace
 
+bool USwcRangedView::bUiHealNumbers = false;
+
 USwcRangedView::USwcRangedView()
 {
 	PrimaryComponentTick.bCanEverTick = true;
@@ -339,7 +341,7 @@ void USwcRangedView::DrawNumbers(UCanvas* Canvas, APlayerController* Controller)
 	const double Now = FPlatformTime::Seconds();
 	Numbers.RemoveAll([Now](const FNumber& Number) { return Now - Number.Start > kNumberSeconds; });
 	UFont* Font = GEngine != nullptr ? GEngine->GetLargeFont() : nullptr;
-	if (Font == nullptr || Canvas == nullptr)
+	if (Font == nullptr || Canvas == nullptr || bUiHealNumbers)
 	{
 		return;
 	}

@@ -47,6 +47,9 @@ public:
 	bool IsGroundValid() const { return bGroundValid; }
 	/** The heal numbers of the read path (OwnEntity::heals); each new one shows. */
 	void SetHeals(uint32 Revision, const std::vector<swc::net::RepClient::OwnEntity::Heal>& Heals);
+	/** The UI shows the heal numbers in the original damage number canvas (stage WF7): the simple heal numbers of each ranged view go
+	 *  off (default on; the log lines stay). */
+	static void SetUiHealNumbers(bool bUi) { bUiHealNumbers = bUi; }
 
 	/** The counts of the run (the log at the leave). */
 	uint32 GetProjectiles() const { return Projectiles; }
@@ -107,4 +110,5 @@ private:
 	uint32 ProjectileHits = 0;
 	uint32 HealNumbers = 0;
 	uint32 Targetings = 0;
+	static bool bUiHealNumbers;
 };
