@@ -280,8 +280,8 @@ bool FSwcCreatureLibrary::Load(FString& OutReport)
 		}
 	}
 	LoadEffects(Folder);
-	OutReport = FString::Printf(TEXT("creatures: %d converted slices (%d with a body), %d skeletons, %d names; effects: %d projectile slices, %d spell slices, %d spell rows"),
-		Slices.Num(), WithMesh, SkeletonCount, Categories.Num(), Projectiles.Num(), Spells.Num(), SpellRows.Num());
+	OutReport = FString::Printf(TEXT("creatures: %d converted slices (%d with a body), %d skeletons, %d names; effects: %d projectile slices, %d spell slices, %d spell rows, %d loot containers"),
+		Slices.Num(), WithMesh, SkeletonCount, Categories.Num(), Projectiles.Num(), Spells.Num(), SpellRows.Num(), LootContainers.Num());
 	return true;
 }
 
@@ -357,6 +357,47 @@ void FSwcCreatureLibrary::LoadEffects(const FString& Folder)
 				Slice.Volume.inactiveAfter = Number(*Volume, TEXT("inactiveAfter"), -1.0f);
 			}
 			Spells.Add(FString(Pair.Key.ToView()), MoveTemp(Slice));
+		}
+	}
+	if (Document->TryGetObjectField(TEXT("lootContainers"), Objects))
+	{
+		const auto Hex = [](const FString& Text) { return static_cast<uint64>(FCString::Strtoui64(*Text, nullptr, 16)); };
+		for (const auto& Pair : (*Objects)->Values)
+		{
+			const TSharedPtr<FJsonObject> Entry = Pair.Value->AsObject();
+			FSwcLootContainer Container;
+			Container.Name = Entry->GetStringField(TEXT("name"));
+			Container.Slice = Entry->GetStringField(TEXT("slice"));
+			Container.MeshPath = Entry->GetStringField(TEXT("mesh"));
+			Container.Root = Hex(Entry->GetStringField(TEXT("root")));
+			Container.Lifetime = Number(Entry, TEXT("lifetime"), 0.0f);
+			Container.EmptyLifetime = Number(Entry, TEXT("emptyLifetime"), 0.0f);
+			const TArray<TSharedPtr<FJsonValue>>* Bounds = nullptr;
+			if (Entry->TryGetArrayField(TEXT("bounds"), Bounds))
+			{
+				for (const TSharedPtr<FJsonValue>& Value : *Bounds)
+				{
+					const TSharedPtr<FJsonObject> Bound = Value->AsObject();
+					FSwcLootContainer::FBound& Out = Container.Bounds.AddDefaulted_GetRef();
+					Out.Slot = static_cast<uint32>(Number(Bound, TEXT("slot"), 0.0f));
+					Out.Component = Hex(Bound->GetStringField(TEXT("component")));
+					Out.Entity = Hex(Bound->GetStringField(TEXT("entity")));
+					Out.RangeSq = Number(Bound, TEXT("rangeSq"), 0.0f);
+					const TArray<TSharedPtr<FJsonValue>>* Options = nullptr;
+					if (Bound->TryGetArrayField(TEXT("options"), Options))
+					{
+						for (const TSharedPtr<FJsonValue>& Option : *Options)
+						{
+							const TArray<TSharedPtr<FJsonValue>>& Pair2 = Option->AsArray();
+							if (Pair2.Num() == 2)
+							{
+								Out.Options.Add({static_cast<uint32>(Pair2[0]->AsNumber()), Hex(Pair2[1]->AsString())});
+							}
+						}
+					}
+				}
+			}
+			LootContainers.Add(FString(Pair.Key.ToView()), MoveTemp(Container));
 		}
 	}
 	if (Document->TryGetObjectField(TEXT("spellRows"), Objects))

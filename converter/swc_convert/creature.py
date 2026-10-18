@@ -1316,7 +1316,8 @@ def write_effects() -> dict:
       spells       the delayed events (slot, delay, type: 0 trigger, 2 activate, 3 deactivate; target entity), and the first
                    detection volume (the danger area): its shape (sphere, cylinder, or none: the shape of the spell row), its
                    sizes (m), and its active time from the start (s; -1: never)
-      spellRows    ShapeTypes and Radius (m) of each spell row of the spell tables"""
+      spellRows    ShapeTypes and Radius (m) of each spell row of the spell tables
+      lootContainers  the loot bags (loot_containers)"""
     gd = gamedata_dir()
     projectiles = json.loads((gd / "projectile-data.json").read_text())
     spells = json.loads((gd / "spell-data.json").read_text())
@@ -1352,9 +1353,45 @@ def write_effects() -> dict:
             if spell_id:
                 out["spellRows"].setdefault(str(crc_of(spell_id.lower())), {"id": spell_id, "shape": str(row.get("ShapeTypes") or ""),
                                                                            "radius": number_of(str(row.get("Radius") or ""))})
+    out["lootContainers"] = loot_containers()
     out_path = creature_dir() / "effects.json"
     out_path.write_text(json.dumps(out, indent=1, sort_keys=True))
-    return {"projectile slices": len(out["projectiles"]), "spell slices": len(out["spells"]), "spell rows": len(out["spellRows"])}
+    return {"projectile slices": len(out["projectiles"]), "spell slices": len(out["spells"]), "spell rows": len(out["spellRows"]),
+            "loot containers": len(out["lootContainers"])}
+
+
+def loot_containers() -> dict:
+    """@return The loot containers of the backend data (interaction-data.json format 3, member lootContainers; stage P2.10): by the
+    key of their metadata state, the slice, the model (the first static mesh of the slice, a shared manifest entry), the slots of
+    PositionInTheWorld and LootDrop, the times (s), and the Interact bounds of the template (the slot, the component, the entity
+    and the root of the slice: the facet target is (entity XOR root XOR G) + component; m_interactRangeSq; the options: the option
+    id and its entity, whose instance id is entity XOR root XOR G)."""
+    path = gamedata_dir() / "interaction-data.json"
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text())
+    out: dict = {}
+    for name, container in (data.get("lootContainers") or {}).items():
+        template = data["templates"][container["template"]]
+        key = f"{uuid.UUID(template['asset'])}".upper() + f":{template['sub']}"
+        mesh = ""
+        roots = source.parse(source.read(template["slice"]))
+        for element in source.walk(roots[0]):
+            found = source.asset_id(element)
+            product = source.product(found[0], found[1], ".cgf") if found else None
+            if product and "_lod" not in product:
+                product = norm(product)
+                if product not in shared_manifest.load()["assets"]:
+                    shared_mesh.convert(product)
+                stem = Path(product).stem
+                mesh = object_path(shared_manifest.unreal_folder("static", product), stem, "StaticMeshes")
+                break
+        out[key] = {"name": name, "slice": template["slice"], "root": template["root"], "mesh": mesh,
+                    "positionSlot": template["slots"]["position"], "lootDropSlot": container["lootDropSlot"],
+                    "lifetime": container["lifetime"], "emptyLifetime": container["emptyLifetime"], "hideDelay": container["hideDelay"],
+                    "bounds": [{"slot": bound["slot"], "component": bound["component"], "entity": bound["entity"],
+                                "rangeSq": bound["rangeSq"], "options": bound["options"]} for bound in template.get("bounds", [])]}
+    return out
 
 
 def slices_matching(census_doc: dict, texts: list[str]) -> set[int]:

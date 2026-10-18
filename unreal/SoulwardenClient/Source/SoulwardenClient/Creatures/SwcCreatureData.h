@@ -10,7 +10,8 @@
  *   slices.json      the asset id of a slice ("GUID:SUB") -> its body (.cdf), skeleton, animation set, weapons, material
  *                    variants, and marker values, with the object paths in /SwcGameContent (tools/import.sh)
  *   names.json       the name of each category row and vitals row (the name plate) and the creature type
- *   effects.json     the projectile slices, the spell slices (their delayed events and their danger volume), the spell rows
+ *   effects.json     the projectile slices, the spell slices (their delayed events and their danger volume), the spell rows,
+ *                    the loot containers
  *   animations/KEY.json   the fragments of one animation set: for each fragment id the variant of the tags of its slice
  */
 
@@ -193,6 +194,31 @@ struct FSwcSpellRow
 	float Radius = 0.0f;
 };
 
+/** A loot container (effects.json, member lootContainers; protocol notes 4.42): the slice of the personal loot bag of a kill. */
+struct FSwcLootContainer
+{
+	FString Name;
+	FString Slice;
+	/** The object path of its model (a static mesh of the shared content). */
+	FString MeshPath;
+	/** The id of the root entity of the slice (the XOR rule of protocol notes 4.2). */
+	uint64 Root = 0;
+	/** The lifetime (KillSelfDelay) and the end after the last item (FastKillSelfDelay), s: the server ends the bag (the stop). */
+	float Lifetime = 0.0f;
+	float EmptyLifetime = 0.0f;
+	/** One Interact component of the slice: its slot (the Interact state, type 2930), its component id, its entity in the slice,
+	 *  m_interactRangeSq (m^2), and its options (the option id and the entity of the option in the slice). */
+	struct FBound
+	{
+		uint32 Slot = 0;
+		uint64 Component = 0;
+		uint64 Entity = 0;
+		float RangeSq = 0.0f;
+		TArray<TPair<uint32, uint64>> Options;
+	};
+	TArray<FBound> Bounds;
+};
+
 class FSwcCreatureLibrary
 {
 public:
@@ -216,6 +242,7 @@ public:
 	const FSwcProjectileSlice* FindProjectile(const FString& Key) const { return Projectiles.Find(Key); }
 	const FSwcSpellSlice* FindSpell(const FString& Key) const { return Spells.Find(Key); }
 	const FSwcSpellRow* FindSpellRow(uint32 Key) const { return SpellRows.Find(Key); }
+	const FSwcLootContainer* FindLootContainer(const FString& Key) const { return LootContainers.Find(Key); }
 
 	/** Adds a slice key to SWC_WORK/creatures/wanted.json (tools/convert-creatures.sh wanted). @return True when it is new. */
 	bool AddWanted(const FString& Key);
@@ -232,6 +259,7 @@ private:
 	TMap<FString, FSwcProjectileSlice> Projectiles;
 	TMap<FString, FSwcSpellSlice> Spells;
 	TMap<uint32, FSwcSpellRow> SpellRows;
+	TMap<FString, FSwcLootContainer> LootContainers;
 	void LoadEffects(const FString& Folder);
 	TSet<FString> Wanted;
 };

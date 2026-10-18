@@ -18,6 +18,8 @@ constexpr std::uint32_t kTypeProjectile = 16;
 constexpr std::uint32_t kTypeSpell = 2912;
 constexpr std::uint32_t kTypePositionInTheWorld = 13;
 constexpr std::uint32_t kTypeDelayedEvent = 3139;
+constexpr std::uint32_t kTypeLootDrop = 2027;
+constexpr std::uint32_t kTypeInteract = 2930;
 // The fields of the Projectile state (backend server/rep/states/projectile_state.cpp).
 constexpr unsigned kShotPosition = 0;
 constexpr unsigned kShotVelocity = 2;
@@ -177,8 +179,32 @@ void EntityTable::apply(const decoder::Record& record, std::uint64_t nowUs) {
             }
         } else if (fragment.type == kTypeProjectile) {
             apply_projectile(fragment, entity);
-        } else if (fragment.type == kTypeSpell || fragment.type == kTypePositionInTheWorld || fragment.type == kTypeDelayedEvent) {
+        } else if (fragment.type == kTypeSpell || fragment.type == kTypeDelayedEvent) {
             apply_spell(fragment, entity, nowUs);
+        } else if (fragment.type == kTypePositionInTheWorld) {
+            if (const auto place = decoder::field_of(fragment, 0, 0); place.size() == 10) {
+                entity.hasWorldPlace = true;
+                entity.worldPlace = wide_position(place);
+            }
+            if (const auto rotation = decoder::field_of(fragment, 0, 1); !rotation.empty()) {
+                entity.worldPlaceRotation = swc::net::read_quaternion(rotation);
+            }
+            m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
+        } else if (fragment.type == kTypeLootDrop) {
+            if (const auto rarity = decoder::field_of(fragment, 0, 0); rarity.size() == 4) {
+                entity.hasLootDrop = true;
+                entity.lootRarity = static_cast<std::uint32_t>(read_be(rarity));
+            }
+            m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
+        } else if (fragment.type == kTypeInteract) {
+            Entity::InteractState& state = entity.interact[fragment.slot];
+            if (const auto enabled = decoder::field_of(fragment, 0, 0); enabled.size() == 1) {
+                state.enabled = enabled[0] != 0;
+            }
+            if (const auto users = decoder::field_of(fragment, 0, 1); users.size() == 4) {
+                state.users = static_cast<std::uint32_t>(read_be(users));
+            }
+            m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
         }
     }
 }
@@ -248,14 +274,6 @@ void EntityTable::apply_spell(const decoder::Fragment& fragment, Entity& entity,
         }
         if (const auto scale = decoder::field_of(fragment, 0, kSpellRadiusScale); scale.size() == 4) {
             spell.radiusScale = f32_at(scale);
-        }
-    } else if (fragment.type == kTypePositionInTheWorld) {
-        if (const auto place = decoder::field_of(fragment, 0, 0); place.size() == 10) {
-            spell.hasPosition = true;
-            spell.position = wide_position(place);
-        }
-        if (const auto rotation = decoder::field_of(fragment, 0, 1); !rotation.empty()) {
-            spell.positionRotation = swc::net::read_quaternion(rotation);
         }
     } else {
         // A delayed event: the time that is left from now (a half float, s) and the completed mark; a state with only one of

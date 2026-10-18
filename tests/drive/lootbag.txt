@@ -1,0 +1,28 @@
+# The drive of the loot bag check (tests/creatures/lootbag.txt): the camera turns to the east and looks down, the draw, three swings
+# for each wolf, a step back from the bags, and the wait for the end of the bags. The "tick" lines are the clock marks of the route
+# script. Times in seconds from the possession of the character; turn: degrees each second.
+1.0 turn 90
+2.0 turn 0
+2.5 key 1
+3.0 tick
+3.2 pitch -25
+4.0 tick
+4.2 pitch 0
+7.0 tick
+8.0 click
+9.5 click
+11.0 click
+14.0 tick
+16.0 tick
+17.0 click
+18.5 click
+20.0 click
+23.0 tick
+25.0 tick
+26.0 click
+27.5 click
+29.0 click
+32.0 tick
+33.0 move 0 -1
+33.8 move 0 0
+36.0 tick

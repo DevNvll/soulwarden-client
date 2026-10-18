@@ -18,6 +18,8 @@ Usage (tools/creature-world.sh):
   heal                               the health of the character
   level N                            the level of the character (its health grows with it)
   ignore on|off                      the creatures ignore the character (on) or not
+  loot on|off                        each kill of the character drops loot (on; stage 3.5b.2: a loot bag) or the normal roll
+  bags                               the loot bags of the character
   shoot CREATURE                     the creature starts its basic shot at the character now (stage 3.4f-A)
   area CREATURE                      the creature starts its next area attack at the character now (stage 3.4f-C)
   script FILE [--clock LOG]          a timed list of these commands: "SECONDS COMMAND WORDS..." each line (the seconds from
@@ -136,6 +138,10 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "POST", f"/v1/dev/creatures/spawn?character={character(folder)}&kind={rest[0]}{options}")
     if command in ("kill", "remove") and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/creatures/{command}?creature={rest[0]}")
+    if command == "loot" and rest and rest[0] in ("on", "off"):
+        return request(folder, "POST", f"/v1/dev/world/force-loot?character={character(folder)}&force={1 if rest[0] == 'on' else 0}")
+    if command == "bags":
+        return request(folder, "GET", f"/v1/dev/lootbags?character={character(folder)}")
     if command in ("shoot", "area") and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/creatures/{command}?creature={rest[0]}&character={character(folder)}")
     if command == "health" and len(rest) == 2:

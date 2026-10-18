@@ -1,0 +1,17 @@
+# A check of the loot bag (stage P2.10, the creature part; docs/CREATURES.md): the character kills three grey wolves, one after the
+# other (the health of each one 100 before the swings; each kill rolls loot: the route loot on, but the roll can give no item, then
+# no bag), the bag of a kill shows at the place of its wolf, and the server removes it at the end of its lifetime (180 s).
+# tools/creature-check.sh with SWC_DEV_CHARACTER=Swordwarden, SWC_DEV_PLACE=8872:4250:138.25, tests/drive/lootbag.txt, and
+# -SwcLootProbe. Times on the clock of the drive; offsets in m east, north; yaw: 0 north, 90 west, 180 south, 270 east.
+1 level 60
+2 heal
+3 ignore off
+3 loot on
+4 spawn Wolf_Grey_7 2 0 0 --yaw 90
+7 health $1 100
+14 spawn Wolf_Grey_7 2 0.5 0 --yaw 90
+16 health $2 100
+23 spawn Wolf_Grey_7 2 -0.5 0 --yaw 90
+25 health $3 100
+32 bags
+36 heal

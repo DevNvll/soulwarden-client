@@ -3,7 +3,7 @@
 # that the encoders of the backend make (metadata, movement, vitals, marker: apps/backend/src/server/rep/states), the melee
 # contact item with the reader of the backend (server/rep/client_input.cpp) and its test client (tests/support/client_frames.h),
 # the damage number with the encoder of the backend (server/rep/combat_messages.cpp), and the shots and the danger areas with the
-# encoders of the Projectile, Spell, PositionInTheWorld, and DelayedEvent states (server/rep/states).
+# encoders of the Projectile, Spell, PositionInTheWorld, and DelayedEvent states, and the loot bag (server/rep/states).
 # The Soulwarden sources are read only; the build output goes to SWC_WORK/build/creature-tests.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
@@ -32,6 +32,8 @@ nice -n 10 "${compiler}" "${flags[@]}" \
     -o "${out}/swc-combat-tests"
 nice -n 10 "${compiler}" "${flags[@]}" \
     "${SWC_REPO}/tests/creatures/effect_tests.cpp" "${module}/Creatures/SwcEntityTable.cpp" "${module}/Creatures/SwcEffects.cpp" \
+    "${module}/Creatures/SwcMeleeContact.cpp" "${backend}/src/server/rep/states/interaction_states.cpp" \
+    "${backend}/src/server/rep/states/loot_bag_states.cpp" \
     "${module}/Net/Codec/SwcRepMessages.cpp" "${module}/Net/Codec/SwcCarrier.cpp" "${vendor}/src/server/hub/wire.cpp" \
     "${backend}/src/server/rep/replication.cpp" "${backend}/src/server/rep/states/metadata_state.cpp" \
     "${backend}/src/server/rep/states/projectile_state.cpp" "${backend}/src/server/rep/states/spell_state.cpp" \

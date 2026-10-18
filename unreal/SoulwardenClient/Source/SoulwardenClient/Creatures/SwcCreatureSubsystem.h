@@ -24,6 +24,33 @@ struct FSwcCreatureTarget
 	bool bDead = false;
 };
 
+/**
+ * A loot bag of the local character (stage P2.10; protocol notes 4.42; Soulwarden docs/systems/loot-bags.md): the personal bag of a
+ * kill or of a discard. The server sends the record of a bag only to its eligible characters: each bag of the table is a bag of the
+ * local character.
+ */
+struct FSwcLootBag
+{
+	uint32 Interest = 0;
+	/** The reference of the interaction request: the actor id of the bag and its G. */
+	swc::net::ActorId Actor{};
+	uint64 Group = 0;
+	/** The place of the bag (Unreal world space, cm; engine space, m) and the rarity of its LootDrop state. */
+	FVector Place = FVector::ZeroVector;
+	swc::net::WorldPosition EnginePlace;
+	uint32 Rarity = 0;
+	/** The Interact bound of the bag (the first one of its slice): the slot of its Interact state, its facet target (the target of
+	 *  the interaction request: (entity XOR root XOR G) + component), m_interactRangeSq (m^2), the Enabled mark of its state, and
+	 *  its options: the option id and the instance id of the option entity (entity XOR root XOR G). */
+	uint32 InteractSlot = 0;
+	uint64 Target = 0;
+	float RangeSq = 0.0f;
+	bool bEnabled = true;
+	TArray<TPair<uint32, uint64>> Options;
+	/** The 3D distance from the point of the query (m). */
+	float Distance = 0.0f;
+};
+
 /** A melee contact: the weapon shape of the player touches a hit volume of a creature (FindMeleeContacts). */
 struct FSwcMeleeContact
 {
@@ -50,6 +77,9 @@ struct FSwcMeleeContact
  * plate drawn on the canvas of the game viewport; the original is the AiMarker template of
  * lyshineui/markers/markermanager.dynamicuicanvas, for the UI track).
  *
+ * The loot bags of the local character (stage P2.10): the model of the bag slice at its place, and the query of the bag in range
+ * for the player track (FindNearestLootBag).
+ *
  * The shots and the danger areas of the creatures (stage P2.9): the entities with a Projectile state or the states of a spell
  * (ASwcEffectActor; Creatures/SwcEffects.h).
  *
@@ -58,7 +88,9 @@ struct FSwcMeleeContact
  *
  * Command line: -SwcPlates=all (development pictures) draws the plate of each creature within 40 m. -SwcHitVolumes draws the
  * hit volumes of the creatures within 20 m and their body capsules (white). -SwcVolumeProbe tests a capsule in front of the player each 0.5 s with
- * FindMeleeContacts and writes a log line for each contact (it sends nothing).
+ * FindMeleeContacts and writes a log line for each contact (it sends nothing). -SwcLootProbe writes the result of
+ * FindNearestLootBag at the place of the player when it changes (each 1 s), and draws the bounds of each bag (green).
+ * -SwcLootModel puts the model of the loot container 2 m in front of the player one time (a look check of the model).
  */
 UCLASS()
 class SOULWARDENCLIENT_API USwcCreatureSubsystem : public UTickableWorldSubsystem
@@ -89,6 +121,17 @@ public:
 	 * @return The number of contacts in Out (Out is reset).
 	 */
 	int32 FindMeleeContacts(const FSwcMeleeShape& Shape, TArray<FSwcMeleeContact>& Out) const;
+	/** The loot bags of the local character (with a place and the data of their slice), and their distance from a point (Unreal world
+	 *  space, cm). */
+	void GetLootBags(const FVector& From, TArray<FSwcLootBag>& Out) const;
+	/**
+	 * The nearest loot bag that the local character can use from a point (the place of the character in its input report, Unreal
+	 * world space): its Interact bound is enabled, and the 3D distance is not more than the range of the bound (the check of the
+	 * server: the squared distance against m_interactRangeSq). The player track does the interaction, the take, and the panel.
+	 * @return False when no bag is in range.
+	 */
+	bool FindNearestLootBag(const FVector& From, FSwcLootBag& Out) const;
+
 	/** The contact query of the player actions (USwcPlayerActions::SetContactQuery): the items of FindMeleeContacts. */
 	void QueryMeleeContacts(const FSwcMeleeShape& Shape, std::vector<swc::net::MeleeContactItem>& Out) const;
 
@@ -116,6 +159,11 @@ private:
 	swc::creatures::EntityTable Table;
 	FSwcCreatureLibrary Library;
 	TMap<uint32, TWeakObjectPtr<ASwcCreature>> Actors;
+	/** The loot bags (stage P2.10): the model of the slice at the place of each bag. */
+	TMap<uint32, TWeakObjectPtr<AActor>> Bags;
+	void UpdateBag(uint32 Interest, const swc::creatures::Entity& Entity, const FSwcLootContainer& Container);
+	bool MakeLootBag(uint32 Interest, const swc::creatures::Entity& Entity, const FVector& From, FSwcLootBag& Out) const;
+	int32 LootBags = 0;
 	/** The shots and the danger areas (stage P2.9): one actor for each entity with a Projectile state or the states of a spell. */
 	TMap<uint32, TWeakObjectPtr<ASwcEffectActor>> Effects;
 	void UpdateEffect(uint32 Interest, const swc::creatures::Entity& Entity, uint64 RenderTimeUs);
@@ -129,6 +177,12 @@ private:
 	float FarContactFrom = 0.0f;
 	bool bDrawVolumes = false;
 	bool bVolumeProbe = false;
+	bool bLootProbe = false;
+	bool bLootModel = false;
+	bool bLootModelShown = false;
+	double ConnectedAt = 0.0;
+	double NextLootProbe = 0.0;
+	FString LastLootProbe;
 	double NextProbe = 0.0;
 	/** The strikes and creatures with a log line of a contact (visit|strike|interest). */
 	mutable TSet<FString> LoggedContacts;

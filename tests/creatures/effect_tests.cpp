@@ -2,7 +2,8 @@
 // states that the encoders of the backend make: the Projectile state (server/rep/states/projectile_state.cpp), the Spell state,
 // the PositionInTheWorld state, and the DelayedEvent states (spell_state.cpp, object_states.cpp). tools/test-creatures.sh builds
 // it with the system compiler; the Soulwarden sources are read only. The slices have the values of the game data
-// (basic_ai_arrow; undead_shaman_lightning_strike; mage_ranged_aoe).
+// (basic_ai_arrow; undead_shaman_lightning_strike; mage_ranged_aoe), and the loot bag (stage P2.10: metadata, PositionInTheWorld,
+// Interact, LootDrop; object_states.cpp, interaction_states.cpp, loot_bag_states.cpp).
 
 #include <chrono>
 #include <cmath>
@@ -12,6 +13,7 @@
 
 #include "Creatures/SwcEffects.h"
 #include "Creatures/SwcEntityTable.h"
+#include "Creatures/SwcMeleeContact.h"
 #include "gamedata/creature_data.h"
 #include "gamedata/spell_data.h"
 #include "server/rep/replication.h"
@@ -20,12 +22,18 @@
 #include "world/entity.h"
 #include "world/world_clock.h"
 
-// The Spell state links the id of a vitals row (a spell with health; none here).
+// The Spell state links the id of a vitals row (a spell with health; none here), and the file of the LootDrop state links the item
+// encoder of the GlobalStorage state (not used here).
 namespace soulwarden::backend::gamedata {
 std::uint32_t progression_id(std::string_view) {
     return 0;
 }
 } // namespace soulwarden::backend::gamedata
+namespace soulwarden::backend::server::rep {
+hub::Bytes encode_item(const world::ItemInstance*, std::uint32_t, std::uint8_t, ItemWire) {
+    return {};
+}
+} // namespace soulwarden::backend::server::rep
 
 namespace {
 
@@ -330,11 +338,11 @@ void test_status_area() {
     EntityTable table;
     table.apply(area_record(area, clock, 60), server_us(clock));
     const swc::creatures::Entity* cloud = table.find(60);
-    check(cloud != nullptr && cloud->hasSpellParts && !cloud->spell.hasSpell && cloud->spell.hasPosition, "a status area: no Spell state, the place");
+    check(cloud != nullptr && cloud->hasSpellParts && !cloud->spell.hasSpell && cloud->hasWorldPlace, "a status area: no Spell state, the place");
     if (cloud == nullptr) {
         return;
     }
-    check(near(cloud->spell.position.x, 8878.0, 1e-3) && near(cloud->spell.position.y, 4255.0, 1e-3), "PositionInTheWorld");
+    check(near(cloud->worldPlace.x, 8878.0, 1e-3) && near(cloud->worldPlace.y, 4255.0, 1e-3), "PositionInTheWorld");
     const auto times = swc::creatures::area_times(cloud->spell, area.volume, area.events);
     const std::uint64_t start = server_us(clock) - 400000;
     check(near(static_cast<double>(times.startUs), static_cast<double>(start), 2000.0),
@@ -348,12 +356,81 @@ void test_status_area() {
     check(table.find(60) == nullptr, "the stop removes the area");
 }
 
+// ------------------------------------------------------------------------------------------------------------ the loot bag
+
+/** The personal loot container (instanced_loot_container, 9844F2DE-C3B1-5BD3-98FA-8768B5445906:2; interaction-data.json template
+ *  93): PositionInTheWorld at slot 1, Interact at slot 5 (component 2953d2fecfa764bd of the entity 000000dd28f454df; the root
+ *  000000de28f454df), LootDrop at slot 6. */
+void test_loot_bag() {
+    TestClock clock;
+    backend::world::Entity bag;
+    bag.kind = backend::world::EntityKind::object;
+    for (std::size_t index = 0; index < 16; ++index) {
+        bag.actor.bytes[index] = static_cast<std::uint8_t>(0xA0 + index);
+    }
+    bag.id = backend::world::entity_group_id(bag.actor);
+    const std::uint8_t asset[16] = {0x98, 0x44, 0xF2, 0xDE, 0xC3, 0xB1, 0x5B, 0xD3, 0x98, 0xFA, 0x87, 0x68, 0xB5, 0x44, 0x59, 0x06};
+    set_asset(bag.object.asset, asset);
+    bag.object.subId = 2;
+    bag.object.positionSlot = 1;
+    bag.object.lootDropSlot = 6;
+    bag.object.rarity = 3;
+    bag.object.bounds.push_back(backend::world::ObjectBound{5, true, 0});
+    bag.position = {8876.4F, 4251.2F, 138.21F};
+    rep::PartsRequest request;
+    request.clock = &clock;
+    decoder::Record record;
+    record.interest = 70;
+    record.fragments.push_back(fragment_of(0, 10, rep::encode_metadata_state(bag, rep::View::observer, clock), "metadata (bag)"));
+    record.fragments.push_back(fragment_of(1, 13, rep::encode_object_place_state(bag, rep::View::observer, clock), "position in the world (bag)"));
+    for (const rep::SlotState& state : rep::encode_interact_states(bag, rep::View::observer, request)) {
+        record.fragments.push_back(fragment_of(state.slot, 2930, state.state, "interact (bag)"));
+    }
+    record.fragments.push_back(fragment_of(6, 2027, rep::encode_loot_drop_state(bag, rep::View::observer, clock), "loot drop"));
+    EntityTable table;
+    table.apply(record, server_us(clock));
+    const swc::creatures::Entity* seen = table.find(70);
+    check(seen != nullptr && seen->slice_key() == "9844F2DE-C3B1-5BD3-98FA-8768B5445906:2", "the metadata of the bag: the key of the loot container");
+    if (seen == nullptr) {
+        return;
+    }
+    check(seen->hasWorldPlace && near(seen->worldPlace.x, 8876.4, 1e-3) && near(seen->worldPlace.y, 4251.2, 1e-3)
+              && near(seen->worldPlace.z, 138.21, 0.04),
+          "the place of the bag (PositionInTheWorld)");
+    check(seen->hasLootDrop && seen->lootRarity == 3, "the rarity of the LootDrop state");
+    const auto interact = seen->interact.find(5);
+    check(interact != seen->interact.end() && interact->second.enabled && interact->second.users == 0, "the Interact state of slot 5");
+    check(!seen->hasSpellParts && !seen->hasProjectile, "a bag is not a spell and not a shot");
+    // The facet target of the Interact bound: the rule of the backend for a server child (Interactions::spawn: k = root ^ G,
+    // target = (entity ^ k) + component).
+    const std::uint64_t root = 0x000000DE28F454DFULL;
+    const std::uint64_t entity = 0x000000DD28F454DFULL;
+    const std::uint64_t component = 0x2953D2FECFA764BDULL;
+    const std::uint64_t group = swc::net::group_of(seen->actor);
+    check(group == bag.id, "G of the bag: the first 8 bytes of its actor id");
+    check(swc::creatures::facet_target(group, entity ^ root, component) == (entity ^ (root ^ bag.id)) + component,
+          "the target of the Interact bound: (entity XOR root XOR G) + component");
+    // The disabled bound (the prompt goes away) and the stop.
+    bag.object.bounds[0].enabled = false;
+    decoder::Record change;
+    change.interest = 70;
+    for (const rep::SlotState& state : rep::encode_interact_states(bag, rep::View::observer, request)) {
+        change.fragments.push_back(fragment_of(state.slot, 2930, state.state, "interact (disabled)"));
+    }
+    table.apply(change, server_us(clock));
+    seen = table.find(70);
+    check(seen != nullptr && !seen->interact.at(5).enabled, "a disabled Interact state");
+    table.stop(70);
+    check(table.find(70) == nullptr, "the stop removes the bag");
+}
+
 } // namespace
 
 int main() {
     test_shot();
     test_strike();
     test_status_area();
+    test_loot_bag();
     std::printf("effects: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

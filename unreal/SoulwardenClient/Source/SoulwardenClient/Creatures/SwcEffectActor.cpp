@@ -121,7 +121,7 @@ FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, 
 	if (bArea && Entity.hasSpellParts)
 	{
 		const swc::creatures::SpellParts& Parts = Entity.spell;
-		const swc::net::WorldPosition& Place = Parts.hasSpell ? Parts.place : Parts.position;
+		const swc::net::WorldPosition& Place = Parts.hasSpell ? Parts.place : Entity.worldPlace;
 		SetActorLocation(SwcEngineToUnreal(Place));
 		const swc::creatures::AreaTimes Times = bHasVolume ? swc::creatures::area_times(Parts, Volume, Events)
 														  : swc::creatures::AreaTimes{swc::creatures::spell_start_us(Parts, Events), 0, 0};

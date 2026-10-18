@@ -251,6 +251,40 @@ its record); a Greedfall Grotto Shaman casts 4 lightning strikes (the route `are
 tests: `tools/test-creatures.sh` (the shot, the strike, and the status area with the states of the backend encoders: 60
 checks).
 
+## The loot bags (stage P2.10, the creature part)
+
+The personal loot bag of a kill (backend stage 3.5b.2; protocol notes 4.42; Soulwarden `docs/systems/loot-bags.md`) is an entity
+of the world: the slice `slices/instanced_loot_container.dynamicslice` (`9844F2DE-C3B1-5BD3-98FA-8768B5445906:2`) with the
+metadata, PositionInTheWorld (slot 1), Interact (type 2930, slot 5), and LootDrop (type 2027, slot 6: the rarity). The server
+sends the record of a bag only to its eligible characters: each bag of the table is a bag of the local character.
+
+- The data: `effects.json`, member `lootContainers` (from `interaction-data.json` format 3 of the backend copy): the slice, the
+  root of the slice, the model (the first static mesh of the slice: `jav_prp_hangingsackssm_b.cgf`, a shared manifest entry),
+  the lifetime (180 s) and the end after the last item (1.25 s), and the Interact bound (slot 5, component `2953d2fecfa764bd` of
+  the entity `000000dd28f454df`, `m_interactRangeSq` 25, two options).
+- The view: the model at the place of PositionInTheWorld, with no collision. The stop of the record removes it (the server ends
+  a bag at its lifetime or after its last item). Not done: the hide of the model 1.5 s after the Looted entry (HideMeshDelay;
+  the LootTracker entries of the own player state), and the rarity particles.
+- The query for the player track (the interaction, the take, and the panel are its work):
+  - `USwcCreatureSubsystem::FindNearestLootBag(From, FSwcLootBag&)`: the nearest bag whose Interact bound is enabled (the
+    Interact state) and whose 3D distance from `From` (the place of the character in its input report, Unreal cm) is not more
+    than the range of the bound (the check of the server: the squared distance against `m_interactRangeSq`).
+  - `GetLootBags(From, TArray<FSwcLootBag>&)`: each bag with its distance.
+  - `FSwcLootBag`: the interest number, the actor id and G of the bag (the reference of the interaction request), the place
+    (Unreal and engine space), the rarity, the slot of the Interact state, the facet target of the bound ((entity XOR root XOR
+    G) + component: the rule of a server child, backend `Interactions::spawn`), the range, the Enabled mark, and the options (the
+    option id and the instance id of the option entity: entity XOR root XOR G).
+- The library of the creatures loads at the start of the connection (a bag or a shot can come before the first creature).
+- Development aids: `-SwcLootProbe` writes the result of `FindNearestLootBag` when it changes (each 1 s) and draws the bounds of
+  each bag (green); `-SwcLootModel` puts the model of the bag 2 m in front of the character one time. The route tool has
+  `loot on|off` (each kill rolls loot; the roll can still give no item: then no bag) and `bags` (the bags of the character).
+- Check (development run, 2026-10-18; `SWC_WORK/evidence/P2.10/lootbag4.mp4` and its logs, `tests/creatures/lootbag.txt`): the
+  character kills three wolves; three bags show at the places of the wolves 0.2 s to 0.4 s after the kills (the items of the
+  backend log: a void gauntlet, medium feet, heavy feet; rarity 1), the query finds each one in range (0.7 m to 3.7 m from the
+  character, the target `75a9224f0fa76523` for the first one, as the rule of the backend gives), and the stop removes each one
+  180 s after its kill. The corpse of a wolf covers the bag at its place; `lootmodel.mp4` shows the model alone.
+  `tools/test-creatures.sh`: the record of a bag with the backend encoders (14 checks).
+
 ## The read path of the other tracks
 
 - `USwcCreatureSubsystem::GetTargets(TArray<FSwcCreatureTarget>&)`: each creature of the table with an actor: its interest
@@ -259,6 +293,7 @@ checks).
 - `USwcCreatureSubsystem::GetTable()`: the entity table (the records of the server, with no delay).
 - `USwcCreatureSubsystem::FindMeleeContacts(const FSwcMeleeShape&, TArray<FSwcMeleeContact>&)` and `QueryMeleeContacts`: the
   melee contacts of a damage shape (above).
+- `USwcCreatureSubsystem::FindNearestLootBag` and `GetLootBags`: the loot bags of the local character (above).
 
 ## The name plate
 
@@ -303,7 +338,7 @@ about 13 minutes in all.
 ## The checks
 
 ```sh
-tools/test-creatures.sh                     # the entity table (63), the contact item and the damage number (26), the shots and areas (60)
+tools/test-creatures.sh                     # the entity table (63), the contact item and the damage number (26), the shots, areas, bags (74)
 export SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-creatures SWC_AGENT_DESKTOP=soulwarden-client-creatures
 tools/creature-check.sh creatures-world 80 tests/creatures/fight.txt tests/drive/creatures.txt
 # Stage P2.8: the melee contacts with the sword character of docs/GEAR.md, on the street west of the start place.

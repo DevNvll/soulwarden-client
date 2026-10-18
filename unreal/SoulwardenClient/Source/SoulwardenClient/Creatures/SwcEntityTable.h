@@ -69,8 +69,8 @@ struct DelayedEventState {
     std::uint64_t appliedUs{0};
 };
 
-/** A spell entity (protocol notes 4.25, 4.39): the Spell state (type 2912), PositionInTheWorld (type 13), and the states of its
- *  delayed events (type 3139) by their slot. */
+/** A spell entity (protocol notes 4.25, 4.39): the Spell state (type 2912) and the states of its delayed events (type 3139) by
+ *  their slot (a status area has its place in PositionInTheWorld: Entity::worldPlace). */
 struct SpellParts {
     bool hasSpell{false};
     /** The CRC-32 of the lower-case SpellID, the start place and rotation, the caster, the spawn time (server us), the radius
@@ -82,9 +82,6 @@ struct SpellParts {
     std::uint64_t caster{0};
     std::uint64_t spawnUs{0};
     float radiusScale{1.0F};
-    bool hasPosition{false};
-    swc::net::WorldPosition position;
-    swc::net::Quaternion positionRotation;
     std::map<std::uint32_t, DelayedEventState> events;
     /** The server time of the first state of the entity that the client applied (us). */
     std::uint64_t firstSeenUs{0};
@@ -143,6 +140,21 @@ struct Entity {
     Projectile projectile;
     bool hasSpellParts{false};
     SpellParts spell;
+
+    /** PositionInTheWorld (type 13): the place of an object, a status area, or a loot bag (x, y, and the height over -100 to
+     *  2000 m), and its rotation. */
+    bool hasWorldPlace{false};
+    swc::net::WorldPosition worldPlace;
+    swc::net::Quaternion worldPlaceRotation;
+    /** LootDrop (type 2027; a loot bag, protocol notes 4.42): m_rarityLevel. */
+    bool hasLootDrop{false};
+    std::uint32_t lootRarity{0};
+    /** Interact (type 2930) by its slot: Enabled (false hides the prompt) and HasInteractors. */
+    struct InteractState {
+        bool enabled{true};
+        std::uint32_t users{0};
+    };
+    std::map<std::uint32_t, InteractState> interact;
 
     /** The counts of the states of this entity. */
     std::uint32_t movementStates{0};
