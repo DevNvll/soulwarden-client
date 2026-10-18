@@ -155,3 +155,38 @@ on 2026-10-18 after the region import; the limit of the project is 150 GB of new
 
 Import time: Interchange builds each mesh (Nanite). With a mesh distance field and Lumen cards, the build of 20 meshes
 took 80 s; without them, 14 s. The world meshes have no distance field and no Lumen cards (pipeline version 4).
+
+## The open world level (stage 1.3)
+
+One World Partition level: `/SwcGameContent/World/NewWorld` (in the shared plugin, not in git). It is the default
+game map of the client (`GameDefaultMap` in `Config/DefaultEngine.ini`): a development run and a player run start on
+it.
+
+```sh
+tools/convert.sh level --all             # Landscape heights with the cookies, macro color maps, cell files
+tools/build-world.sh --import --all      # each region: import its content (tools/import-world.sh), then add it to the level
+```
+
+- Terrain: one Landscape for each region (`converter/swc_convert/terrain.py`): 8 x 8 components of 255 quads, 2,041 x
+  2,041 vertices over 2,048 m (a quad of 100.39 cm), from the 2,049 samples of the region and its shared edge
+  (bilinear). Z scale 128 x 204800 / 65535 = 400.006 cm: one step of the Landscape is one step of the source
+  (2048 / 65535 m), and the actor is at Z = 1,024.02 m. The heights have the terrain cookies of the capitals: the rule
+  of the client in the vendored `navcore cookies` (`converter/vendor/soulwarden/navcore.cpp`, compiled with
+  `-ffp-contract=off`). Check: at the place of the development character (8880, 4250) the terrain is 138.31 m, and the
+  backend has the character at 138.50 m.
+- The Landscape proxies (2 x 2 components) are always loaded (not spatially loaded): the terrain to the horizon, with
+  the Landscape LOD. The material `M_SwcLandscape` shows the macro color map of the region (one instance for each
+  region).
+- Placements: `converter/swc_convert/cells.py` writes the instances of each region in Unreal space (the map of stage
+  1.1) by cells of 256 m: one actor for each cell with one instanced static mesh component for each mesh. Region
+  `r_+04_+02`: 216,456 instances, 64 actors, 12,709 components. Effect cards (`fx_*`) and the meshes that are not in
+  the game copy are left out.
+- Streaming: the main runtime partition of the level has cells of 256 m and a loading range of 1,024 m. The sun, the
+  sky, the sky light, and the fog are always loaded.
+- The client (`Source/SoulwardenClient/World/`): the character has a World Partition streaming source. Before the
+  spawn of the character, `SwcWorldStreaming::IsReadyAt` puts a streaming source at the place of the character and
+  waits until the cells there are loaded and a line down finds ground (at most 30 s; 3 s after the cells when there is
+  no ground). Then the player track uses that ground (no test floor), and the input reports carry the position.
+- `-SwcFlythrough=PLAN.json` (USwcWorldSubsystem, ASwcFlythrough): a camera flies along a path (engine points), with
+  a streaming source; it logs the frame rate and the streaming each second, can write a picture every N frames, and
+  ends the client with a summary line. `terrain.flythrough_plan` writes a plan from a route.

@@ -15,6 +15,22 @@ print('\n'.join(census.world_regions() if sys.argv[1] == 'all' else census.playa
 fi
 [[ ${#regions[@]} -gt 0 ]] || { echo "usage: tools/import-world.sh NAME... | --playable | --all" >&2; exit 1; }
 for region in "${regions[@]}"; do
+    # A region with all its meshes in the import state (same hash) needs no call.
+    left=$(python3 -B -c "
+import json, os, sys
+content, plugin, region = sys.argv[1:4]
+meshes = json.load(open(os.path.join(content, 'regions', region, 'meshes.json')))
+assets = json.load(open(os.path.join(content, 'manifest.json')))['assets']
+path = os.path.join(plugin, 'import-state.json')
+state = json.load(open(path)) if os.path.isfile(path) else {}
+left = sum(1 for m in meshes if assets.get(m, {}).get('kind') == 'static' and state.get(m) != assets[m].get('hash'))
+left += 1 if 'texture:macro:' + region in assets and 'texture:macro:' + region not in state else 0   # the terrain map
+print(left)" \
+        "${SWC_CONTENT}" "${SWC_GAME_CONTENT}" "${region}")
+    if [[ "${left}" == "0" ]]; then
+        echo "$(date -u +%H:%M:%S) ${region}: up to date"
+        continue
+    fi
     for attempt in $(seq 1 100); do
         status=0
         "${SWC_REPO}/tools/import.sh" --regions "${region}" --max-seconds "${SWC_IMPORT_CALL_SECONDS:-480}" --wait 3600 \

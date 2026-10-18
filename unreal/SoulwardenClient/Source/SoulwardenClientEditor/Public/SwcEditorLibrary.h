@@ -38,10 +38,22 @@ public:
 	/** Makes one Landscape in the editor world from a raw file of 16-bit heights (little-endian, row 0 = the smallest
 	 *  Y): ComponentsPerSide x ComponentsPerSide components of one section of QuadsPerSection quads. In a World
 	 *  Partition world, the Landscape becomes streaming proxies of GridSize x GridSize components (the steps of the
-	 *  New Landscape tool of the editor). @return The Landscape, or null when the file has a wrong size. */
+	 *  New Landscape tool of the editor); bAlwaysLoaded makes the proxies not spatially loaded (the terrain to the
+	 *  horizon; the Landscape LOD makes far components cheap). @return The Landscape, or null when the file has a wrong
+	 *  size. */
 	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
 	static AActor* CreateLandscape(const FString& RawFile, int32 ComponentsPerSide, int32 QuadsPerSection, const FVector& Location,
-		const FVector& Scale, UMaterialInterface* Material, const FString& Label, int32 GridSize = 2);
+		const FVector& Scale, UMaterialInterface* Material, const FString& Label, int32 GridSize = 2, bool bAlwaysLoaded = true);
+
+	/** Sets the cell size and the loading range (cm) of the main runtime partition of the World Partition of the editor
+	 *  world (a runtime hash set; the members are private: reflection). @return False when the world has none. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static bool ConfigureStreaming(int32 CellSize, int32 LoadingRange);
+
+	/** Sets whether an actor of a World Partition level is spatially loaded (false: always loaded, for example the
+	 *  sun and the sky). */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static void SetSpatiallyLoaded(AActor* Actor, bool bSpatiallyLoaded);
 
 	/** Spawns the instance actors of a file of the converter (converter/swc_convert/cells.py): each actor has one
 	 *  instanced static mesh component for each mesh of its cell, with the instances in world space.

@@ -14,6 +14,7 @@
 #include "IImageWrapperModule.h"
 #include "Landscape.h"
 #include "LandscapeInfo.h"
+#include "LandscapeStreamingProxy.h"
 #include "LandscapeSubsystem.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/FileHelper.h"
@@ -21,6 +22,9 @@
 #include "RenderingThread.h"
 #include "ShaderCompiler.h"
 #include "TextureResource.h"
+#include "GameFramework/WorldSettings.h"
+#include "WorldPartition/WorldPartition.h"
+#include "WorldPartition/WorldPartitionRuntimeHash.h"
 
 void USwcEditorLibrary::FinishCompilation()
 {
@@ -102,7 +106,7 @@ AActor* USwcEditorLibrary::SpawnMeshActor(UStaticMesh* Mesh, const FTransform& T
 }
 
 AActor* USwcEditorLibrary::CreateLandscape(const FString& RawFile, int32 ComponentsPerSide, int32 QuadsPerSection, const FVector& Location,
-	const FVector& Scale, UMaterialInterface* Material, const FString& Label, int32 GridSize)
+	const FVector& Scale, UMaterialInterface* Material, const FString& Label, int32 GridSize, bool bAlwaysLoaded)
 {
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	const int32 Size = ComponentsPerSide * QuadsPerSection + 1;
@@ -137,8 +141,61 @@ AActor* USwcEditorLibrary::CreateLandscape(const FString& RawFile, int32 Compone
 		{
 			Landscapes->ChangeGridSize(Info, static_cast<uint32>(FMath::Max(GridSize, 1)));
 		}
+		Info->ForEachLandscapeProxy([&Label, bAlwaysLoaded](ALandscapeProxy* Proxy)
+		{
+			if (bAlwaysLoaded)
+			{
+				Proxy->SetIsSpatiallyLoaded(false);
+			}
+			if (!Label.IsEmpty() && Proxy->IsA<ALandscapeStreamingProxy>())
+			{
+				Proxy->SetActorLabel(Label + TEXT(" proxy"));
+			}
+			return true;
+		});
 	}
 	return Landscape;
+}
+
+bool USwcEditorLibrary::ConfigureStreaming(int32 CellSize, int32 LoadingRange)
+{
+	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	UWorldPartition* Partition = World ? World->GetWorldPartition() : nullptr;
+	UObject* Hash = Partition ? Partition->RuntimeHash.Get() : nullptr;
+	FArrayProperty* Partitions = Hash ? FindFProperty<FArrayProperty>(Hash->GetClass(), TEXT("RuntimePartitions")) : nullptr;
+	FStructProperty* Desc = Partitions ? CastField<FStructProperty>(Partitions->Inner) : nullptr;
+	if (!Desc)
+	{
+		return false;
+	}
+	FScriptArrayHelper Array(Partitions, Partitions->ContainerPtrToValuePtr<void>(Hash));
+	FObjectProperty* MainLayer = FindFProperty<FObjectProperty>(Desc->Struct, TEXT("MainLayer"));
+	bool bChanged = false;
+	Hash->Modify();
+	for (int32 Index = 0; Index < Array.Num() && MainLayer; ++Index)
+	{
+		UObject* Layer = MainLayer->GetObjectPropertyValue_InContainer(Array.GetRawPtr(Index));
+		if (!Layer)
+		{
+			continue;
+		}
+		Layer->Modify();
+		if (FUInt32Property* Size = FindFProperty<FUInt32Property>(Layer->GetClass(), TEXT("CellSize")))
+		{
+			Size->SetPropertyValue_InContainer(Layer, static_cast<uint32>(CellSize));
+		}
+		if (FIntProperty* Range = FindFProperty<FIntProperty>(Layer->GetClass(), TEXT("LoadingRange")))
+		{
+			Range->SetPropertyValue_InContainer(Layer, LoadingRange);
+			bChanged = true;
+		}
+	}
+	if (bChanged)
+	{
+		Hash->MarkPackageDirty();
+		World->GetWorldSettings()->MarkPackageDirty();
+	}
+	return bChanged;
 }
 
 namespace
@@ -275,4 +332,12 @@ int32 USwcEditorLibrary::SpawnInstanceActors(const FString& File)
 		++Spawned;
 	}
 	return Reader.bFailed ? -1 : Spawned;
+}
+
+void USwcEditorLibrary::SetSpatiallyLoaded(AActor* Actor, bool bSpatiallyLoaded)
+{
+	if (Actor)
+	{
+		Actor->SetIsSpatiallyLoaded(bSpatiallyLoaded);
+	}
 }

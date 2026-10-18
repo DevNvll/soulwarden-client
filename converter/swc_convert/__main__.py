@@ -10,6 +10,8 @@ Usage (through tools/convert.sh):
   census [NAME...] [--workers N] [--force]          the world census (stage 1.2): placements of all regions, meshes,
                                                     textures, triangles (default: the 49 regions of the main world)
   budget [--ddc-bytes N]                            the disk budget of the world from the imported regions (stage 1.2)
+  level NAME... | --playable | --all                the data of the world level (stage 1.3): Landscape heights with the
+                                                    terrain cookies, macro color maps, the cell files of the instances
   world NAME... | --playable | --all [--workers N] [--force]
                                                     the meshes of regions with shared textures and materials (stage 1.2)
   space-proof [NAME --area X Y SIZE] [--sheet]      the proof of the space map (stage 1.1): marker, terrain patch, plan;
@@ -50,6 +52,7 @@ def main(argv=None) -> int:
     sub.add_parser("checks")
     p = sub.add_parser("census"); p.add_argument("names", nargs="*"); p.add_argument("--workers", type=int, default=4); p.add_argument("--force", action="store_true")
     p = sub.add_parser("budget"); p.add_argument("--ddc-bytes", type=int)
+    p = sub.add_parser("level"); p.add_argument("names", nargs="*"); p.add_argument("--playable", action="store_true"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("world"); p.add_argument("names", nargs="*"); p.add_argument("--playable", action="store_true"); p.add_argument("--all", action="store_true")
     p.add_argument("--workers", type=int, default=4); p.add_argument("--force", action="store_true")
     p = sub.add_parser("space-proof"); p.add_argument("name", nargs="?", default=PROOF_REGION); p.add_argument("--area", type=float, nargs=3, default=list(PROOF_AREA)); p.add_argument("--sheet", action="store_true")
@@ -75,6 +78,12 @@ def main(argv=None) -> int:
     elif args.command == "budget":
         from . import budget
         result = budget.run(args.ddc_bytes)
+    elif args.command == "level":
+        from . import census, terrain
+        names = census.world_regions() if args.all else census.playable_regions() if args.playable else args.names
+        if not names:
+            parser.error("level needs region names, --playable, or --all")
+        result = terrain.level_data(names)
     elif args.command == "world":
         from . import census
         names = census.world_regions() if args.all else census.playable_regions() if args.playable else args.names
