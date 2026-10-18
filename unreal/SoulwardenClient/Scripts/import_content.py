@@ -16,7 +16,8 @@ Incremental: SWC_GAME_CONTENT/import-state.json keeps the hash of each imported 
 hash changed (a new conversion) or SWC_IMPORT_FORCE=1.
 Environment: SWC_CONTENT, SWC_GAME_CONTENT, SWC_IMPORT_FILTER (a text that the asset key must contain),
 SWC_IMPORT_REGIONS (region names: only the meshes of these regions and their materials and textures),
-SWC_IMPORT_FORCE=1.
+SWC_IMPORT_FORCE=1, SWC_IMPORT_MAX_SECONDS (stop after the batch that passes this time: the report has
+"incomplete": true, and a next call continues; a long import releases the lock between calls).
 """
 import json
 import os
@@ -29,6 +30,7 @@ plugin = os.environ["SWC_GAME_CONTENT"]
 wanted = os.environ.get("SWC_IMPORT_FILTER", "")
 regions = os.environ.get("SWC_IMPORT_REGIONS", "").split()
 force = os.environ.get("SWC_IMPORT_FORCE", "") == "1"
+max_seconds = float(os.environ.get("SWC_IMPORT_MAX_SECONDS") or 0)
 manifest = json.load(open(os.path.join(content, "manifest.json")))["assets"]
 state_path = os.path.join(plugin, "import-state.json")
 state = json.load(open(state_path)) if os.path.isfile(state_path) else {}
@@ -112,7 +114,13 @@ by_kind = {}
 for key in sorted(selected):
     by_kind.setdefault(manifest[key]["kind"], []).append(key)
 log("selected " + json.dumps({k: len(v) for k, v in by_kind.items()}))
-report = {"imported": {}, "skipped (up to date)": {}, "failed": [], "seconds": {}}
+report = {"imported": {}, "skipped (up to date)": {}, "failed": [], "seconds": {}, "incomplete": False}
+
+
+def out_of_time():
+    if max_seconds and time.time() - started > max_seconds:
+        report["incomplete"] = True
+    return report["incomplete"]
 
 
 def count(kind, done):
@@ -203,6 +211,8 @@ if by_kind.get("material") or by_kind.get("static"):
 # 3. Textures.
 phase = time.time()
 for key in by_kind.get("texture", []):
+    if out_of_time():
+        break
     entry = manifest[key]
     path = os.path.join(content, entry["file"])
     stamp = file_stamp(path)
@@ -241,6 +251,8 @@ def texture_of(key):
 
 
 for key in by_kind.get("material", []):
+    if report["incomplete"]:
+        break
     entry = manifest[key]
     name = entry["name"]
     path = f"{entry['unreal']}/{name}"
@@ -305,6 +317,8 @@ def flush():
 
 for kind in ("static", "character", "test"):
     for key in by_kind.get(kind, []):
+        if report["incomplete"]:
+            break
         entry = manifest[key]
         folder = entry["unreal"]
         path = os.path.join(content, entry["file"])
@@ -323,6 +337,7 @@ for kind in ("static", "character", "test"):
         batch.append((key, kind, folder, stamp))
         if len(batch) >= BATCH:
             flush()
+            out_of_time()
             done = sum(report["imported"].get(k, 0) for k in ("static", "character", "test"))
             if done % 160 == 0:
                 log(f"progress {json.dumps(report['imported'])} {round(time.time() - started)} s")

@@ -48,6 +48,10 @@ worktree. The place is a content plugin outside the repository:
 - One import at a time: `tools/import.sh` holds `~/Games/soulwarden-client/unreal/import.lock` (`flock -o`: the
   servers that the editor starts do not keep the lock). Do not import while an editor of another checkout has the
   same assets open.
+- A long import releases import.lock at least every 10 minutes. `tools/import-world.sh NAME... | --playable | --all`
+  calls `tools/import.sh --regions NAME --max-seconds 480 --wait 3600` until the region is complete (the import script
+  stops after the batch that passes the time) and waits 15 s between two calls: an import of another track that
+  waits on the lock (`flock -w`) gets it there.
 - A commandlet does not scan the content of a plugin: a script calls
   `AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(["/SwcGameContent"], True)` first.
 - The derived data cache of the engine (Zen, in `~/.config/Epic/UnrealEngine/Common`) is shared by all checkouts.
@@ -111,7 +115,8 @@ Asset counts (the exit check of stage 1.2):
 ```sh
 tools/convert.sh census                  # the census of the 49 regions
 tools/convert.sh world r_+04_+02         # the meshes of regions, shared textures and materials (--playable, --all)
-tools/import.sh --regions r_+04_+02      # only the new or changed assets of these regions
+tools/import.sh --regions r_+04_+02      # only the new or changed assets of these regions (one call)
+tools/import-world.sh --all              # all regions in calls of 8 minutes; the lock is free between two calls
 ```
 
 ## The disk budget (stage 1.2)
