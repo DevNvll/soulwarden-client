@@ -79,7 +79,9 @@ def main() -> int:
             largest = float("inf")
             continue
         gap = (near[0] - when).total_seconds()
-        expected = second + (44.0 if phase == "night" else 26.0) * gap
+        # The rate of the part of the cycle between the two moments: the phase of the earlier one (a point at an edge).
+        earlier = near[2] if gap < 0 else phase
+        expected = second + (44.0 if earlier == "night" else 26.0) * gap
         difference = near[1] - expected
         largest = max(largest, abs(difference))
         print(f"{what:18} server {str(when.time())[:12]} {phase:5} {second:9.2f} | client {str(near[0].time())[:12]} {near[2]:5} {near[1]:9.2f} | "
