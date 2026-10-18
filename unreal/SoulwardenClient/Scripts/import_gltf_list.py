@@ -53,6 +53,17 @@ def save_state(done):
 
 
 state = load_state()
+# The instances of the slots (the rebuild: the n_ instances of A1 and the dm_ instances of the mesh decal companions)
+# must exist before the link pipeline sets the slots: apply their specs first (a spec that is up to date is skipped).
+slot_keys = sorted({k for item in items for k in item.get("slots", [])})
+if slot_keys:
+    before = dict(state)
+    for part, keys in (("materials", [k for k in slot_keys if not k.startswith("dm_")]),
+                       ("decals", [k for k in slot_keys if k.startswith("dm_")])):
+        if keys:
+            applied = sm.apply_specs(keys, state, force=False, part=part)
+            report.setdefault("slot specs", {})[part] = {"instances": applied["instances"], "failed": len(applied["failed"])}
+    save_state({k: v for k, v in state.items() if before.get(k) != v})
 
 
 def flush():

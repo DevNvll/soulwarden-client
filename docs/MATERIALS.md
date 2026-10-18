@@ -231,12 +231,21 @@ tools/import-gltf-list.sh ~/Games/soulwarden-client/content/materials/rebuild-im
     --max-seconds 300 --wait 7200            # again until "incomplete" is false
 ```
 
-- The set: each mesh with a collapsed slot, a slot whose rules are not the main rules of its legacy key (A3), or vertex
-  data (`%VERTCOLORS`, `%BLENDLAYER`, `%DETAIL_BENDING`): 13,323 meshes, 163.7 M triangles.
+- The set: each mesh with a collapsed slot, a slot whose rules are not the main rules of its legacy key (A3), vertex
+  data (`%VERTCOLORS`, `%BLENDLAYER`, `%DETAIL_BENDING`), or mesh decal subsets: 13,372 meshes, 163.8 M triangles.
+- The mesh decal companions (option B of the orchestrator): rule 7 writes the drawable `%DECAL` subsets of a mesh
+  (`mesh.is_mesh_decal`) into a second glTF, `STEM_decals.gltf`, with the manifest key `decals:MESH` (no Nanite:
+  Nanite draws only surface materials). The main mesh stays Nanite, and its entry names the companion (`"decals"`).
+  The slots of a companion are `dm_` instances of `M_SwcDecal` (the render key of the sub-material; with
+  `%VERTCOLORS` the static switch `UseVertexAlpha`: the source decal alpha x the vertex alpha). Their specs are in
+  `content/decals/instances.json` (`decals.specs`, from `content/decals/mesh-materials.json`). 575 meshes, 397,803
+  companion triangles, 123 `dm_` materials. The cells place a companion at the transforms of its mesh (the world
+  track, step d).
 - The import replaces the meshes in their folders (the asset paths stay) and writes the hash of each mesh into the
   import state of the pipeline (`import-state.json`): `tools/import.sh` sees them as up to date. A call also holds
   `world-build.lock` exclusively when it exists (runs stream these meshes).
-- The n_ instances of the slots must exist first (`tools/apply-materials.sh`).
+- The instances of the slots (`n_`, `dm_`) must exist first: the import tool applies their specs at the start of
+  each call (a spec that is up to date is skipped).
 - Then the world track builds the cells with overrides again: the slot names changed (A2b: `overrides.py` names the
   slots with `materials.instance_key`).
 

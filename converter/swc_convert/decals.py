@@ -504,9 +504,14 @@ def export(names: list[str]) -> dict:
 
 def specs() -> dict:
     """Writes SWC_CONTENT/decals/instances.json (the spec of each decal material key: the parent M_SwcDecal of
-    Scripts/swc_materials.py, "create": the instance has no manifest record) and textures.json. @return The counts."""
+    Scripts/swc_materials.py, "create": the instance has no manifest record) and textures.json: the d_ materials of the
+    roads and projected decals (materials.json), and the dm_ materials of the mesh decal companions of mesh rule 7
+    (mesh-materials.json: the sub-material index; the vertex alpha with %VERTCOLORS). @return The counts."""
     from . import material_records as mr
-    materials = json.loads((env.content_dir() / "decals" / "materials.json").read_text())
+    folder = env.content_dir() / "decals"
+    materials = json.loads((folder / "materials.json").read_text()) if (folder / "materials.json").is_file() else {}
+    mesh_file = folder / "mesh-materials.json"
+    mesh_materials = json.loads(mesh_file.read_text())["materials"] if mesh_file.is_file() else {}
     textures: dict = {}
     out = {}
 
@@ -514,14 +519,21 @@ def specs() -> dict:
         textures[record["asset"]] = {k: v for k, v in record.items() if k != "asset"}
         return record["asset"]
 
-    for key, m in sorted(materials.items()):
-        rules = m["rules"]
+    rows = [(key, m, 0, m["rules"], False) for key, m in materials.items()]
+    for key, m in mesh_materials.items():
+        record = mr.source_record(m["mtl"], m["index"], mr.sub_materials(m["mtl"])[m["index"]])
+        rows.append((key, m, m["index"], mr.render_rules(record), True))
+    for key, m, index, rules, on_mesh in sorted(rows, key=lambda row: row[0]):
         maps = rules["textures"]
-        record = mr.source_record(m["mtl"], 0, mr.sub_materials(m["mtl"])[0])
+        record = mr.source_record(m["mtl"], index, mr.sub_materials(m["mtl"])[index])
         diffuse = record["lighting"].get("Diffuse") or [1.0, 1.0, 1.0, 1.0]
         alpha = float(diffuse[3]) if isinstance(diffuse, list) and len(diffuse) > 3 else 1.0
         spec = {"parent": "decal", "create": True, "textures": {}, "vectors": {}, "scalars": {}, "source": m["mtl"],
                 "uses": m["uses"], "flags": rules.get("flags", [])}
+        if on_mesh:
+            spec["source"] = f"{m['mtl']}#{index}"
+            if "%VERTCOLORS" in rules.get("flags", []):   # the source decal alpha x the vertex alpha
+                spec["switches"] = {"UseVertexAlpha": True}
         if "diffuse" in maps:
             spec["textures"]["BaseColor"] = use(mr.color_texture(maps["diffuse"]["product"], "base"))
         if "normal" in maps:
@@ -541,10 +553,9 @@ def specs() -> dict:
     from . import manifest
     for key, record in textures.items():
         record["unreal"] = manifest.unreal_folder("texture", key)
-    folder = env.content_dir() / "decals"
     (folder / "instances.json").write_text(json.dumps({"version": VERSION, "instances": out}, indent=1, sort_keys=True))
     (folder / "textures.json").write_text(json.dumps({"version": VERSION, "textures": textures}, indent=1, sort_keys=True))
-    return {"instances": len(out), "textures": len(textures),
+    return {"instances": len(out), "mesh decals": len(mesh_materials), "textures": len(textures),
             "without %DECAL": sum(1 for s in out.values() if "%DECAL" not in s["flags"])}
 
 

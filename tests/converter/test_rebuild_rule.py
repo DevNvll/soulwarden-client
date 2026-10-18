@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -39,6 +40,24 @@ class RebuildRule(unittest.TestCase):
         self.assertEqual(mesh.rule_for("Objects/A.cgf"), mesh.RULE_COLORS)   # the game paths are lower case
         self.assertEqual(mesh.rule_for("objects/b.cgf"), mesh.VERSION)
         self.assertEqual(mesh.rule_for("objects/a.cgf", 5), 5)   # an explicit older rule stays
+
+
+class MeshDecal(unittest.TestCase):
+    def element(self, shader: str, flags: str, name: str = "decal") -> ET.Element:
+        return ET.Element("Material", {"Name": name, "Shader": shader, "MtlFlags": "0", "StringGenMask": flags,
+                                       "Diffuse": "1,1,1,1", "Specular": "0.04,0.04,0.04", "Shininess": "128"})
+
+    def test_decal_rule(self):
+        self.assertTrue(mesh.is_mesh_decal(self.element("Illum", "%DECAL%VERTCOLORS")))
+        self.assertFalse(mesh.is_mesh_decal(self.element("Illum", "%NORMAL_MAP")))
+        self.assertFalse(mesh.is_mesh_decal(self.element("NoDraw", "%DECAL")))   # collision
+        self.assertFalse(mesh.is_mesh_decal(self.element("Illum", "%DECAL", "wall_shadow_proxy")))
+        self.assertFalse(mesh.is_mesh_decal(None))
+
+    def test_keys(self):
+        key = mesh.decal_key("", 0, self.element("", "%DECAL"))   # no shader name, no texture: no game read
+        self.assertRegex(key, r"^dm_[0-9a-f]{10}$")
+        self.assertEqual(mesh.companion_key("objects/a.cgf"), "decals:objects/a.cgf")
 
 
 if __name__ == "__main__":

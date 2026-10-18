@@ -55,6 +55,27 @@ def rule7_meshes() -> frozenset:
     return frozenset(json.loads(p.read_text())["meshes"]) if p.is_file() else frozenset()
 
 
+def is_mesh_decal(material) -> bool:
+    """@return True for a decal sub-material (%DECAL) that rule 7 draws as a mesh decal: not NoDraw, not a shadow proxy,
+    not a GeometryBeam (materials.not_drawn leaves all decals out of the main mesh)."""
+    return (material is not None and "%DECAL" in material.get("StringGenMask", "").upper()
+            and material.get("Shader", "").lower() not in materials.NOT_DRAWN_SHADERS
+            and "shadow_proxy" not in material.get("Name", "").lower())
+
+
+def decal_key(mtl: str, index: int, material) -> str:
+    """@return The key of the mesh decal instance of a sub-material: "dm_" and the 10 hex digits of its render key
+    (material_records.render_rules). Its own prefix: a mesh decal reads the vertex alpha, a projected decal (d_) not."""
+    from . import material_records
+    rules = material_records.render_rules(material_records.source_record(mtl, index, material))
+    return "dm_" + material_records.render_key(rules)[2:]
+
+
+def companion_key(path: str) -> str:
+    """@return The manifest key of the mesh decal companion of a mesh (rule 7)."""
+    return "decals:" + path
+
+
 def rule_for(path: str, rule: int = VERSION) -> int:
     """@return The rule of a conversion: rule 7 for a mesh of the M3 rebuild when the caller asks for the default rule."""
     return RULE_COLORS if rule == VERSION and path.lower() in rule7_meshes() else rule
@@ -107,6 +128,10 @@ def convert(path: str, force: bool = False, write_manifest: bool = True, rule: i
         except Exception as error:
             report["material error"] = str(error)[:120]
     w = gltf.Writer()
+    dw = gltf.Writer()                  # rule 7: the mesh decal companion (the %DECAL subsets)
+    decal_slots: dict[int, int] = {}    # sub-material index -> glTF material index of the companion
+    decal_prims = []
+    decals: dict[str, dict] = {}        # dm_ key -> the source sub-material
     slots: dict[int, int] = {}          # sub-material index -> glTF material index (-1: not drawn)
     by_key: dict[str, int] = {}         # material key -> glTF material index
     records: dict[str, dict] = {}
@@ -134,7 +159,16 @@ def convert(path: str, force: bool = False, write_manifest: bool = True, rule: i
                         by_key[name] = w.material(name)
                     slots[s.material] = by_key[name]
             if slots[s.material] == -1:
-                continue   # collision (Nodraw) and shadow proxies are not drawn
+                m = sub_materials[s.material] if 0 <= s.material < len(sub_materials) else None
+                if rule >= RULE_COLORS and is_mesh_decal(m):
+                    if s.material not in decal_slots:
+                        key = decal_key(report["mtl"], s.material, m)
+                        decals.setdefault(key, {"mtl": report["mtl"], "index": s.material})
+                        decal_slots[s.material] = dw.material(key)
+                    idx, (p, n, uv, t, c) = compact(mesh.indices[s.first_index:s.first_index + s.num_indices], pos,
+                                                    nrm, mesh.uvs, tan, col)
+                    decal_prims.append(dw.primitive(p, idx, n, uv, t, material=decal_slots[s.material], colors=c))
+                continue   # collision (Nodraw) and shadow proxies are not drawn; decals: the companion
             idx, (p, n, uv, t, c) = compact(mesh.indices[s.first_index:s.first_index + s.num_indices], pos, nrm,
                                             mesh.uvs, tan, col)
             prims.append(w.primitive(p, idx, n, uv, t, material=slots[s.material], colors=c))
@@ -153,6 +187,21 @@ def convert(path: str, force: bool = False, write_manifest: bool = True, rule: i
              "nanite": not translucent}
     if rule >= RULE_COLORS:
         entry["slots"] = sorted(m["name"] for m in w.doc["materials"])
+    if decal_prims:
+        # The mesh decal companion: its own glTF and asset (no Nanite: Nanite draws only surface materials); the
+        # cells place it at the transforms of the mesh. Its slots are dm_ instances (no material record).
+        out_decals = out.with_name(out.stem + "_decals.gltf")
+        stem = Path(path).stem + "_decals"
+        dw.doc["scenes"][0]["nodes"] = [dw.node(name=stem, mesh=dw.mesh(stem, decal_prims))]
+        dw.save(out_decals)
+        entry["decals"] = companion_key(path)
+        report["companion"] = {
+            "key": companion_key(path), "decals": decals,
+            "triangles": sum(dw.doc["accessors"][p["indices"]]["count"] for p in decal_prims) // 3,
+            "entry": {"kind": "static", "file": str(out_decals.relative_to(env.content_dir()))
+                      if out_decals.is_relative_to(env.content_dir()) else str(out_decals),
+                      "version": rule, "hash": file_hash(out_decals), "materials": [],
+                      "slots": sorted(m["name"] for m in dw.doc["materials"]), "nanite": False, "decals of": path}}
     report.update({"entry": entry, "materials": list(records.values()), "textures": list(textures.values())})
     if write_manifest:
         manifest.add_many(records_of([report]))
@@ -166,6 +215,8 @@ def records_of(reports: list[dict]) -> dict[str, dict]:
         if "entry" not in r:
             continue
         out[r["mesh"]] = r["entry"]
+        if "companion" in r:
+            out[r["companion"]["key"]] = r["companion"]["entry"]
         for record in r["materials"] + r["textures"]:
             entry = {k: v for k, v in record.items() if k != "asset"}
             out[record["asset"]] = entry

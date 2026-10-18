@@ -1317,17 +1317,57 @@ def proof_sheet(stage: str, evidence: Path | None = None) -> dict:
 REBUILD_FLAGS = {"%VERTCOLORS", "%BLENDLAYER", "%DETAIL_BENDING"}
 
 
+def mesh_decal_subsets(mesh: str) -> tuple[str, int, str | None]:
+    """@return (mesh, the count of its subsets that rule 7 draws as mesh decals, an error) for a worker process: the chunk
+    headers and the material file (no .cgfheap)."""
+    from . import cgf
+    from . import mesh as mesh_module
+    try:
+        f = cgf.read_chunks(source.read(mesh))
+        reference = cgf.material_guid(f) or ""
+        subs = materials.load_mtl(reference, mesh)[1] if reference else []
+        count = 0
+        for chunk in f.of_type(cgf.T_MESH):
+            _flags, _flags2, nverts, _nindices, _nsubsets, subsets_id, _va = struct.unpack_from("<7i", chunk.data, 0)
+            if nverts == 0 or subsets_id not in f.by_id:
+                continue
+            sub = f.by_id[subsets_id].data
+            _sflags, n = struct.unpack_from("<2i", sub, 0)
+            for i in range(n):
+                mat = struct.unpack_from("<5i", sub, 16 + i * 36)[4]
+                count += mesh_module.is_mesh_decal(subs[mat] if 0 <= mat < len(subs) else None)
+        return mesh, count, None
+    except Exception as error:
+        return mesh, 0, str(error)[:120]
+
+
+def decal_meshes(workers: int = 4) -> list[str]:
+    """@return The converted meshes with mesh decal subsets (%DECAL: the companions of rule 7). Cached in
+    SWC_CONTENT/materials/decal-meshes.json (delete it to scan again)."""
+    path = out_dir() / "decal-meshes.json"
+    if path.is_file():
+        return json.loads(path.read_text())["meshes"]
+    from concurrent.futures import ProcessPoolExecutor
+    slot_table = json.loads((out_dir() / "slots.json").read_text())["meshes"]
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        rows = list(pool.map(mesh_decal_subsets, sorted(slot_table), chunksize=32))
+    found = sorted(m for m, n, _e in rows if n)
+    write_json(path, {"meshes": found, "errors": sum(1 for _m, _n, e in rows if e)})
+    return found
+
+
 def rebuild_set() -> dict:
     """Writes SWC_CONTENT/materials/rule7-meshes.json: each converted mesh with a collapsed slot (source slots with
     different render rules), a slot whose rules are not the main rules of its legacy key (A3: it needs its n_ instance),
-    or vertex data (%VERTCOLORS, %BLENDLAYER, %DETAIL_BENDING). mesh.convert gives these meshes rule 7. @return The counts."""
+    vertex data (%VERTCOLORS, %BLENDLAYER, %DETAIL_BENDING), or mesh decal subsets (the companions). mesh.convert gives
+    these meshes rule 7. @return The counts."""
     rules = json.loads((out_dir() / "records.json").read_text())["render rules"]
     slot_table = json.loads((out_dir() / "slots.json").read_text())["meshes"]
     collapsed = {c["mesh"] for c in json.loads((out_dir() / "audit.json").read_text())["collapsed"]}
     mains = main_keys()
     census_file = env.content_dir() / "census" / "meshes.json"
     census = {r["mesh"]: r for r in json.loads(census_file.read_text())} if census_file.is_file() else {}
-    parts: dict[str, set] = {"collapsed": set(), "A3": set(), "vertex data": set()}
+    parts: dict[str, set] = {"collapsed": set(), "A3": set(), "vertex data": set(), "mesh decals": set(decal_meshes())}
     for mesh, out in slot_table.items():
         if mesh in collapsed:
             parts["collapsed"].add(mesh)
@@ -1374,16 +1414,33 @@ def rebuild_convert(workers: int = 4) -> dict:
     converted = [r for r in reports if "entry" in r]
     if converted:
         manifest.add_many(mesh_module.records_of(converted))
+    # The materials of the mesh decal companions (decals.specs: dm_ instances of M_SwcDecal).
+    mesh_decals: dict[str, dict] = {}
+    for r in converted:
+        for key, m in r.get("companion", {}).get("decals", {}).items():
+            mesh_decals.setdefault(key, {**m, "uses": 0})["uses"] += 1
+    decal_folder = env.content_dir() / "decals"
+    decal_folder.mkdir(parents=True, exist_ok=True)
+    write_json(decal_folder / "mesh-materials.json", {"version": SPEC_VERSION, "materials": mesh_decals})
+    from . import decals
+    decal_specs = decals.specs()
     assets = manifest.load()["assets"]
     items = []
     for path in todo:
         entry = assets.get(path)
-        if entry and entry.get("version") == mesh_module.RULE_COLORS:
-            items.append({"key": path, "hash": entry["hash"], "file": str(env.content_dir() / entry["file"]),
-                          "folder": entry["unreal"], "nanite": entry.get("nanite", True)})
+        if not entry or entry.get("version") != mesh_module.RULE_COLORS:
+            continue
+        for key in (path, entry.get("decals")):
+            e = assets.get(key) if key else None
+            if e:
+                items.append({"key": key, "hash": e["hash"], "file": str(env.content_dir() / e["file"]),
+                              "folder": e["unreal"], "nanite": e.get("nanite", True), "slots": e.get("slots", [])})
     write_json(out_dir() / "rebuild-import.json", items)
     errors = [r for r in reports if "error" in r]
-    return {"meshes": len(todo), "converted": len(converted), "errors": len(errors), "first errors": errors[:5], "import list": len(items),
+    companions = [r["companion"] for r in converted if "companion" in r]
+    return {"meshes": len(todo), "converted": len(converted), "errors": len(errors),
+            "companions": len(companions), "companion triangles": sum(c["triangles"] for c in companions),
+            "mesh decal materials": len(mesh_decals), "decal specs": decal_specs, "first errors": errors[:5], "import list": len(items),
             "M triangles converted": round(sum(r.get("triangles", 0) for r in converted) / 1e6, 1),
             "seconds": round(time.time() - started, 1)}
 

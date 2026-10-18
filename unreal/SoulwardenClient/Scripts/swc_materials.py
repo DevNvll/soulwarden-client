@@ -21,10 +21,11 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "1",
+PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "2",
                    "M_SwcGlass": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
-# 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data)
+# 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
+# M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha)
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
 assets = unreal.EditorAssetLibrary
@@ -561,9 +562,14 @@ def decal_parent(content, state):
     editing.connect_material_expressions(s_value, "", rough, "")
     editing.connect_material_property(rough, "", MP.MP_ROUGHNESS)
     opacity_map = sample("DecalOpacity", st.SAMPLERTYPE_ALPHA, white, 900)
-    alpha = node(material, unreal.MaterialExpressionMultiply, -600, 950)
-    editing.connect_material_expressions(color, "A", alpha, "A")
-    editing.connect_material_expressions(diffuse, "A", alpha, "B")
+    texture_alpha = node(material, unreal.MaterialExpressionMultiply, -750, 950)
+    editing.connect_material_expressions(color, "A", texture_alpha, "A")
+    editing.connect_material_expressions(diffuse, "A", texture_alpha, "B")
+    # A mesh decal with %VERTCOLORS (the companions of mesh rule 7): x the vertex alpha (static switch UseVertexAlpha;
+    # off for the projected decals and the roads).
+    vertex = node(material, unreal.MaterialExpressionVertexColor, -900, 1450)
+    with_vertex = multiply(material, (texture_alpha, ""), (vertex, "A"), -600, 1100)
+    alpha = switch(material, "UseVertexAlpha", (with_vertex, ""), (texture_alpha, ""), -500, 950)
     mult = scalar(material, "DecalAlphaMult", 1.0, -900, 1150)
     falloff = scalar(material, "DecalFalloff", 1.0, -900, 1300)
     opacity = custom(material, DECAL_ALPHA_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1,
