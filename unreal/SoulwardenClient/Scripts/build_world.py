@@ -98,6 +98,7 @@ if force or not state["regions"] or not assets.does_asset_exist(LEVEL):
     state["regions"] = {}
     state.pop("environment", None)
     state.pop("ocean", None)
+    state.pop("exposure", None)
     log(f"level {LEVEL}: new; streaming {library.configure_streaming(CELL_CM, RANGE_CM)}")
 else:
     if not levels.load_level(LEVEL):
@@ -168,8 +169,74 @@ def no_collision_fix():
         log(f"no collision for {changed} ocean or far mesh actors")
 
 
+def empty_folders():
+    """@return The asset folders of the meshes that are "empty" in the manifest (nothing to draw since mesh rule 6):
+    the folder of their old static mesh asset (manifest.unreal_folder("static", key))."""
+    import hashlib
+    import re
+    folders = []
+    for key, entry in manifest.items():
+        if entry.get("kind") == "empty":
+            stem = re.sub(r"[^A-Za-z0-9_]", "_", key.rsplit("/", 1)[-1].rsplit(".", 1)[0])[:40]
+            folders.append(f"{ROOT}/Meshes/{stem}_{hashlib.sha1(key.encode()).hexdigest()[:6]}")
+    return folders
+
+
+def remove_empty(name, folders):
+    """Removes the instance components of the empty meshes from the cell actors of a region built before."""
+    result = unreal.WorldPartitionBlueprintLibrary.get_actor_descs()
+    descs = result[1] if isinstance(result, tuple) else result
+    guids = [d.guid for d in descs if str(d.label).startswith(f"{name} cell ")]
+    if not guids:
+        return 0
+    unreal.WorldPartitionBlueprintLibrary.load_actors(guids)
+    removed = 0
+    for actor in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+        if actor.get_actor_label().startswith(f"{name} cell "):
+            removed += library.remove_instance_components_of(actor, folders)
+    unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+    unreal.WorldPartitionBlueprintLibrary.unload_actors(guids)
+    return removed
+
+
+EXPOSURE_BIAS = -1.0
+
+
+def exposure():
+    """An unbound post-process volume with manual exposure (always loaded): with the auto exposure of the game the
+    sunny ground was white (the brightest surface; in the unlit view it had its color). The look is not a goal now:
+    a fixed exposure for the default sun (10 lux). EXPOSURE_BIAS -1: at 0 the ground (macro color map) was still
+    pale (evidence 1.3/test, town)."""
+    volume = next((actor for actor in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()
+                   if isinstance(actor, unreal.PostProcessVolume) and actor.get_actor_label() == "exposure"), None)
+    if volume is None:
+        volume = library.spawn_actor_of_class(unreal.PostProcessVolume, unreal.Transform(), "exposure")
+    volume.set_editor_property("unbound", True)
+    settings = volume.get_editor_property("settings")
+    settings.set_editor_property("override_auto_exposure_method", True)
+    settings.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL)
+    settings.set_editor_property("override_auto_exposure_apply_physical_camera_exposure", True)
+    settings.set_editor_property("auto_exposure_apply_physical_camera_exposure", False)
+    settings.set_editor_property("override_auto_exposure_bias", True)
+    settings.set_editor_property("auto_exposure_bias", EXPOSURE_BIAS)
+    volume.set_editor_property("settings", settings)
+    library.set_spatially_loaded(volume, False)
+    unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+    state["exposure"] = EXPOSURE_BIAS
+    save_state()
+    log(f"environment: manual exposure, bias {EXPOSURE_BIAS}")
+
+
 parent = landscape_material()
 no_collision_fix()
+if state.get("exposure") != EXPOSURE_BIAS:
+    exposure()
+folders = empty_folders()
+for name, done in state["regions"].items():   # mesh rule 6 made some meshes empty: remove them from older cells
+    if done.get("empty removed") != len(folders):
+        done["empty removed"] = len(folders)
+        log(f"region {name}: {remove_empty(name, folders)} components of empty meshes removed")
+        save_state()
 if not state.get("environment"):
     environment()
 if not state.get("ocean"):
@@ -232,6 +299,7 @@ for name in regions:
     unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
     unreal.SystemLibrary.collect_garbage()
     state["regions"][name] = {"landscape": landscape is not None, "cell actors": actors, "impostors": impostor_groups,
+                              "empty removed": len(folders),
                               "landscape seconds": landscape_seconds, "seconds": round(time.time() - phase, 1)}
     save_state()
     log(f"region {name}: {json.dumps(state['regions'][name])}")

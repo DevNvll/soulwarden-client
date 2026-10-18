@@ -341,3 +341,28 @@ void USwcEditorLibrary::SetSpatiallyLoaded(AActor* Actor, bool bSpatiallyLoaded)
 		Actor->SetIsSpatiallyLoaded(bSpatiallyLoaded);
 	}
 }
+
+int32 USwcEditorLibrary::RemoveInstanceComponentsOf(AActor* Actor, const TArray<FString>& MeshFolders)
+{
+	if (!Actor)
+	{
+		return 0;
+	}
+	TArray<UInstancedStaticMeshComponent*> Components;
+	Actor->GetComponents(Components);
+	int32 Removed = 0;
+	for (UInstancedStaticMeshComponent* Component : Components)
+	{
+		const UStaticMesh* Mesh = Component->GetStaticMesh();
+		const FString Path = Mesh ? Mesh->GetPathName() : FString();
+		if (!MeshFolders.ContainsByPredicate([&Path](const FString& Folder) { return Path.StartsWith(Folder + TEXT("/")); }))
+		{
+			continue;
+		}
+		Actor->Modify();
+		Actor->RemoveInstanceComponent(Component);
+		Component->DestroyComponent();
+		++Removed;
+	}
+	return Removed;
+}

@@ -55,6 +55,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
 	static void SetSpatiallyLoaded(AActor* Actor, bool bSpatiallyLoaded);
 
+	/** Removes the instanced static mesh components of an actor whose mesh is in one of the folders (for example the
+	 *  meshes that a new converter rule made empty). @return The number of removed components. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static int32 RemoveInstanceComponentsOf(AActor* Actor, const TArray<FString>& MeshFolders);
+
 	/** Spawns the instance actors of a file of the converter (converter/swc_convert/cells.py): each actor has one
 	 *  instanced static mesh component for each mesh of its cell, with the instances in world space.
 	 *  @return The number of actors, or -1 when the file cannot be read. */

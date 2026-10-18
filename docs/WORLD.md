@@ -187,6 +187,12 @@ tools/build-world.sh --import --all      # each region: import its content (tool
   the game copy are left out.
 - Streaming: the main runtime partition of the level has cells of 256 m and a loading range of 1,024 m. The sun, the
   sky, the sky light, and the fog are always loaded.
+- Exposure: an unbound post-process volume (always loaded) sets a manual exposure, bias -1. With the auto exposure of
+  the game, the ground near the character was white: the sunny ground is the brightest surface (in the unlit view it
+  had the macro color). At bias 0 the ground was still pale. The look is not a goal now: engine sun, sky, and fog.
+- A new converter rule can make a mesh empty (mesh rule 6). `build_world.py` then removes the components of these
+  meshes from the cells of the regions built before (`USwcEditorLibrary::RemoveInstanceComponentsOf`; 25 to 47
+  components for each region).
 - The client (`Source/SoulwardenClient/World/`): the character has a World Partition streaming source. Before the
   spawn of the character, `SwcWorldStreaming::IsReadyAt` puts a streaming source at the place of the character (a
   sphere of 80 m, the highest priority: only the cells at the place, not all the cells in the loading range of 1 km)
@@ -200,7 +206,8 @@ tools/build-world.sh --import --all      # each region: import its content (tool
 - The far meshes of the game (`impostors/`, `poi_impostors/` of each region: one mesh for each cell of 128 m) are
   groups of 512 m (`terrain.impostors`, 767 groups, 68.5 million triangles), always loaded, with the tag
   `SwcImpostor` and no collision. The client hides a group while its center is within the loading range of the view
-  (USwcWorldSubsystem): they fill the distance where the cells are not loaded.
+  (USwcWorldSubsystem): they fill the distance where the cells are not loaded. They have no normal map: the normal
+  maps of the impostor atlases are not tangent-space maps (the far meshes were black under the sun with them).
 - The ocean is a flat plane at 40 m with no collision.
 - `-SwcFlythrough=PLAN.json` (USwcWorldSubsystem, ASwcFlythrough): a camera flies along a path (engine points), with
   a streaming source; it logs the frame rate and the streaming each second, can write a picture every N frames, and
