@@ -18,6 +18,7 @@
 #include <nlohmann/json.hpp>
 
 #include "Combat/SwcAttackGraph.h"
+#include "Combat/SwcContactFilter.h"
 #include "gamedata/weapon_actions.h"
 #include "world/attack_sequence.h"
 
@@ -596,6 +597,22 @@ void driver_dodge_tests(const Graph& sword, const swc::combat::StaminaData& data
 		"the driver: three dodges and one refused press at rest with the sword (the sequence permits the dodge)");
 }
 
+/** One contact for each target for each strike (stage P2.8): two steps of one strike with two hit volumes of one creature
+ *  give one contact; the next strike, the next visit, and a second creature give their own. */
+void contact_filter_tests()
+{
+	swc::combat::ContactFilter filter;
+	const std::uint64_t wolf = 0x4C554F5300000010ULL;
+	const std::uint64_t boar = 0x4C554F5300000011ULL;
+	check(filter.take(5, 0, wolf), "the first contact of a strike goes out");
+	check(!filter.take(5, 0, wolf), "a second hit volume of the same creature in a later step of the strike: no second contact");
+	check(filter.take(5, 0, boar), "a second creature in the same strike: its own contact");
+	check(filter.take(5, 1, wolf), "the next strike of the visit: a new contact");
+	check(filter.take(6, 0, wolf), "the next visit: a new contact");
+	filter.reset();
+	check(filter.take(5, 0, wolf), "after a reset (a new visit) the key is free again");
+}
+
 /** The parity with the backend: the same steps give the same fragments at the same steps, for each melee weapon. */
 void parity_tests(const Json& actions, const backend::gamedata::WeaponActions& tables)
 {
@@ -740,6 +757,7 @@ int main(int argc, char** argv)
 	driver_tests(swordGraph, greatswordGraph);
 	parity_tests(actions, tables);
 	strike_tests(actions, tables);
+	contact_filter_tests();
 	stamina_tests(staminaData);
 	driver_dodge_tests(swordGraph, staminaData);
 	std::printf("%d checks, %d failed\n", g_checks, g_failed);

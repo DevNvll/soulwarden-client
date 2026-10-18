@@ -193,10 +193,9 @@ void USwcPlayerActions::QueryStrikes(const FSwcWeaponActions& Weapon, int32 Grap
 				UE_LOG(LogSwcBackend, Log, TEXT("attack: no melee contact query of the creatures: the strikes give no contact%s"),
 					bContactProbe ? TEXT(" (the probe sends made-up contacts)") : TEXT(""));
 			}
-			if (bContactProbe && ShapeIndex == 0 && !Contacted.Contains(FString::Printf(TEXT("%u|%d|probe"), VisitNumber, StrikeIndex)))
+			if (bContactProbe && ShapeIndex == 0)
 			{
 				// A receiver that does not exist (actor id 0, facet 0): the backend refuses the claim (a check of list 3).
-				Contacted.Add(FString::Printf(TEXT("%u|%d|probe"), VisitNumber, StrikeIndex));
 				swc::net::MeleeContactItem Probe;
 				const FVector Point = Shape.Center / 100.0;
 				Probe.point = {static_cast<float>(Point.X), static_cast<float>(-Point.Y), static_cast<float>(Point.Z)};
@@ -206,14 +205,11 @@ void USwcPlayerActions::QueryStrikes(const FSwcWeaponActions& Weapon, int32 Grap
 			}
 			for (const swc::net::MeleeContactItem& Contact : Found)
 			{
-				// One contact for each target for each strike (the damage key of the fragment visit).
-				const FString Key = FString::Printf(TEXT("%u|%d|%016llx|%016llx"), VisitNumber, StrikeIndex, static_cast<unsigned long long>(Contact.entity),
-					static_cast<unsigned long long>(Contact.facet));
-				if (Contacted.Contains(Key))
+				// One contact for each target for each strike of the fragment visit: the target group, not its hit volume.
+				if (!Contacted.take(VisitNumber, StrikeIndex, Contact.group))
 				{
 					continue;
 				}
-				Contacted.Add(Key);
 				Outgoing.push_back(Contact);
 				++ContactCount;
 				UE_LOG(LogSwcBackend, Log, TEXT("attack: contact of visit %u strike %s (%s): entity %016llx facet %016llx at %.2f %.2f %.2f m"), VisitNumber,
@@ -668,7 +664,7 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 		StrikeClock = -1.0f;
 		StrikesSeen.Reset();
 		LastCenters.Reset();
-		Contacted.Reset();
+		Contacted.reset();
 		const FSwcActionFragment& Data0 = Data->Fragments[Fragment];
 		UE_LOG(LogSwcBackend, Log, TEXT("attack: visit %u %s (%s) at input %u, clock %.3f s, length %.3f s"), Newest->number,
 			UTF8_TO_TCHAR(Weapon->Graph.fragments[Newest->fragment].name.c_str()), *Data0.Key, static_cast<unsigned>(Newest->start), Clock,

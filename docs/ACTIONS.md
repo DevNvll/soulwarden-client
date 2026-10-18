@@ -95,7 +95,9 @@ contact fields (`USwcCreatureSubsystem::FindMeleeContacts`).
   weapon skeleton (`actions.json` `weaponJoints`; an empty joint is the frame of the weapon model, its blade on +Z). The
   offset and the rotation (about x, then y, then z) go through the space map of stage 1.1. The cast direction is the move
   of the shape since the step before. `UseEndAsCenter` and the scale of the clips are not applied.
-- One contact for each target for each strike of a fragment visit. The contacts of a frame go into list 3 of the next
+- One contact for each target for each strike of a fragment visit: the key is the visit, the strike, and the entity group
+  of the target, not its hit volume (`Combat/SwcContactFilter.h`; a second volume of the same creature in a later step of
+  the strike gave a second contact, which the server refused as the same attack, or as dead after a kill). The contacts of a frame go into list 3 of the next
   input entry of the session (`RepClient::queue_contacts`), with the position field.
 - The query is a hook (`USwcPlayerActions::SetContactQuery`): with no query the strikes give no contact.
 - Command line: `-SwcDrawStrikes` draws the shapes; `-SwcContactProbe` sends one made-up contact for each strike (a

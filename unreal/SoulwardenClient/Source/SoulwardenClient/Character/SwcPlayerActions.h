@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Combat/SwcContactFilter.h"
 #include "Combat/SwcMeleeShape.h"
 #include "Components/ActorComponent.h"
 #include "Combat/SwcAttackGraph.h"
@@ -171,7 +172,7 @@ private:
 	TWeakObjectPtr<USkeletalMeshComponent> BonesMesh;
 	FContactQuery ContactQuery;
 	std::vector<swc::net::MeleeContactItem> Outgoing;
-	TSet<FString> Contacted;
+	swc::combat::ContactFilter Contacted;
 	TMap<int32, FVector> LastCenters;
 	TSet<int32> StrikesSeen;
 	float StrikeClock = -1.0f;
