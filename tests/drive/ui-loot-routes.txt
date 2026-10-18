@@ -1,0 +1,18 @@
+# The development routes of the loot panel check of stage P2.4 (tools/creature-check.sh, tools/lib/dev_world.py): level 70, the full
+# health, each kill rolls loot (the roll can give no item: then no bag), three grey wolves of level 1 2 m to the east, one after the other (a roll can give no item) (the full health: a kill
+# with a reduced health gives no credit, and so does a kill while the creatures ignore the character), stunned 30 s (it
+# stands still for the swings). The routes come
+# at 50 s: tools/creature-check.sh starts them after the world entry of the log, which can come 45 s after the clock of the drive
+# scripts starts. Times on the clock of the drive script tests/drive/ui-loot-player.txt; offsets in m east, north; yaw: 0 north,
+# 90 west.
+50 level 70
+50 heal
+50 ignore off
+50 loot on
+51 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 1
+52 effect $1 AI_Stun_4sec 30
+60 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 1
+61 effect $1 AI_Stun_4sec 30
+69 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 1
+70 effect $1 AI_Stun_4sec 30
+80 bags

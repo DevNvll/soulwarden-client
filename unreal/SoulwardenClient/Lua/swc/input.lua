@@ -182,6 +182,10 @@ function Swc.HostInput(kind, a, b)
     move(a, b)
     used = Swc.CursorWanted()
   elseif kind == "button" then
+    -- The cursor notifications of the native code (CursorNotificationBus; the CRC-32 of the input channel name, "mouse_button_left"
+    -- or "mouse_button_right"): the click recognizer (clickrecognizer.luac) and the item cells read the button of a click.
+    local channel = swcui.crc32(a == "right" and "mouse_button_right" or "mouse_button_left")
+    Swc.Notify("CursorNotificationBus", nil, b and "OnCursorPressed" or "OnCursorReleased", channel)
     if a == "left" then
       if b then
         press(input.x, input.y)
@@ -239,6 +243,7 @@ end
 local function cursor_position()
   return Swc.Vector2.new({x = input.x, y = input.y})
 end
+Swc.Handled("CursorNotificationBus")
 Swc.Define("UiCursorBus", "Broadcast", {
   GetUiCursorPosition = cursor_position,
 })
@@ -262,11 +267,42 @@ end
 --- the shown canvases from the top draw order down. @return "x y" in viewport pixels, or "" when no shown element has
 --- the name.
 -- The element of a name of the harness input in a subtree: "text:LABEL" is a shown element whose text is LABEL (the text
--- of the screen, after the localization); "item:ITEMID" is a shown item cell (itemdraggable.luac) of the item; a different
--- name is the first element with the name.
-local function drive_target(root, name)
+-- of the screen, after the localization); "item:ITEMID" is a shown item cell (itemdraggable.luac) of the item; "loot:N" is
+-- the item cell N of the panel of an open bag; "lootbag" (Swc.HostPointOf) is a loot bag near the character; a different name
+-- is the first element with the name.
+local function drive_target(root, name, canvas)
+  -- A label of the drive files has "_" for each space (the steps split at spaces).
   local label = name:match("^text:(.+)$")
+  label = label and label:gsub("_", " ")
   local item = name:match("^item:(.+)$")
+  local lootIndex = tonumber(name:match("^loot:(%d+)$") or "")
+  if lootIndex then
+    -- loot:N: the item cell N (1 ...) of the panel of an open bag (the CatContainer screen), in the order of the elements.
+    if not string.find(string.lower(swcui.canvas_get(canvas, "path") or ""), "catcontainer", 1, true) then
+      return nil
+    end
+    local count = 0
+    local function scan(id)
+      for _, c in ipairs(swcui.children(id)) do
+        if swcui.enabled_in_hierarchy(c) then
+          for _, inst in ipairs(Swc.components[tostring(c)] or {}) do
+            if (inst.__swcScript or ""):find("itemdraggable.luac", 1, true) and inst.ItemLayout and (inst.ItemLayout.itemId or 0) ~= 0 then
+              count = count + 1
+              if count == lootIndex then
+                return c
+              end
+            end
+          end
+          local found = scan(c)
+          if found then
+            return found
+          end
+        end
+      end
+      return nil
+    end
+    return scan(root)
+  end
   if not label and not item then
     return swcui.find_descendant(root, name)
   end
@@ -299,6 +335,14 @@ local function drive_target(root, name)
 end
 
 function Swc.HostPointOf(name, fx, fy)
+  -- "lootbag": a loot bag is near the character (Swc.HostLootBags); the point is the middle of the viewport (a waitfor mark).
+  if name == "lootbag" then
+    if Swc.loot and next(Swc.loot.bags) ~= nil then
+      local w, h = swcui.viewport()
+      return string.format("%.1f %.1f", (w or 1920) / 2, (h or 1080) / 2)
+    end
+    return ""
+  end
   local canvases = {}
   for _, screen in pairs(Swc.screens) do
     if swcui.canvas_get(screen.canvas, "enabled") then
@@ -307,7 +351,7 @@ function Swc.HostPointOf(name, fx, fy)
   end
   table.sort(canvases, function(a, b) return swcui.canvas_get(a, "drawOrder") > swcui.canvas_get(b, "drawOrder") end)
   for _, canvas in ipairs(canvases) do
-    local id = drive_target(swcui.canvas_get(canvas, "root"), name)
+    local id = drive_target(swcui.canvas_get(canvas, "root"), name, canvas)
     if id and id:IsValid() and swcui.enabled_in_hierarchy(id) then
       local p = {swcui.viewport_points(id)}
       fx, fy = fx or 0.5, fy or 0.5

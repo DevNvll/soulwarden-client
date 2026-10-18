@@ -15,6 +15,8 @@
 #include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "Creatures/SwcCreatureSubsystem.h"
+#include "GameFramework/Pawn.h"
 #include "SwcBackendSubsystem.h"
 #include "UI/SwcUiInput.h"
 #include "UI/SwcUiSlate.h"
@@ -41,6 +43,8 @@ const char* const HudScreens[] = {
 	"lyshineui/equipment/equipmentv3",
 	"lyshineui/hud2024/actionbar/encumbrance",
 	"lyshineui/flyoutmenu/flyoutmenu",
+	// The panel of an open loot bag (the state Container).
+	"lyshineui/container/catcontainer",
 	// The notifications (the minor messages of the inventory, the loot).
 	"lyshineui/notifications/notification",
 };
@@ -373,6 +377,89 @@ void USwcUiSubsystem::FeedItems(const swc::net::RepClient::OwnEntity& Own)
 	}
 }
 
+void USwcUiSubsystem::FeedLoot(const swc::net::RepClient::OwnEntity& Own, USwcBackendSubsystem* Backend)
+{
+	// The items of the open bag (the selected Container of slot 76): each slot whose values changed.
+	if (Own.selectedRevision != SentLootRevision)
+	{
+		SentLootRevision = Own.selectedRevision;
+		if (SentLoot.Num() != static_cast<int32>(Own.selectedContainer.size()))
+		{
+			SentLoot.SetNum(static_cast<int32>(Own.selectedContainer.size()));
+			Runtime->call("HostLootSize", {FArg::of(static_cast<double>(Own.selectedContainer.size()))});
+			for (FString& Key : SentLoot)
+			{
+				Key.Reset();
+			}
+		}
+		for (int32 Slot = 0; Slot < SentLoot.Num(); ++Slot)
+		{
+			const auto& Item = Own.selectedContainer[static_cast<size_t>(Slot)];
+			const FString Key = Item.empty() ? FString() : FString::Printf(TEXT("%u|%u|%u|%s"), Item.index, Item.quantity, Item.gearScore, *InstanceText(Item.instance));
+			if (SentLoot[Slot] != Key || Key.IsEmpty())
+			{
+				SentLoot[Slot] = Key;
+				CallItem("HostLootSlot", static_cast<uint32>(Slot), &Item);
+			}
+		}
+	}
+	// The bags near the character (the trigger areas of the native code: a test of the place): the bags of the creature view in the
+	// range of their Interact bound (m_interactRangeSq) with no Looted claim, each 0.25 s. The Enabled mark of the bound is not a
+	// part of it (a use of the bag can change it).
+	const double Now = FPlatformTime::Seconds();
+	UWorld* World = GetGameInstance() != nullptr ? GetGameInstance()->GetWorld() : nullptr;
+	USwcCreatureSubsystem* Creatures = World != nullptr ? World->GetSubsystem<USwcCreatureSubsystem>() : nullptr;
+	APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	APawn* Pawn = Controller != nullptr ? Controller->GetPawn() : nullptr;
+	if (Creatures != nullptr && Pawn != nullptr && Now >= NextBagsTime)
+	{
+		NextBagsTime = Now + 0.25;
+		TArray<FSwcLootBag> Bags;
+		Creatures->GetLootBags(Pawn->GetNavAgentLocation(), Bags);
+		FString Near;
+		for (const FSwcLootBag& Bag : Bags)
+		{
+			const auto Claim = std::find_if(Own.lootClaims.begin(), Own.lootClaims.end(),
+				[&Bag](const swc::net::LootClaim& Item) { return Item.actor == Bag.Actor; });
+			const bool bLooted = Claim != Own.lootClaims.end() && Claim->state == swc::net::kLootLooted;
+			const float DistanceSq = Bag.Distance * Bag.Distance;
+			if (!bLooted && DistanceSq <= Bag.RangeSq)
+			{
+				// INTEREST:DISTANCESQ:KIND (the kind of the claim: 1 AILoot, 5 Discarded).
+				Near += FString::Printf(TEXT("%s%u:%.1f:%u"), Near.IsEmpty() ? TEXT("") : TEXT(" "), Bag.Interest, DistanceSq,
+					Claim != Own.lootClaims.end() ? Claim->kind : 1u);
+			}
+		}
+		if (Near != SentNearBags)
+		{
+			SentNearBags = Near;
+			Runtime->call("HostLootBags", {FArg::of(Utf8(Near))});
+		}
+	}
+	// The use of the bag panel: its end (the Looted claim, the end of the bag, the close) closes the panel; an open with no use after
+	// 1 s (the bag is not in range, a use runs) too.
+	const uint32 Open = Backend->GetOpenLootBag();
+	if (Open != SentOpenBag)
+	{
+		if (SentOpenBag != 0 && Open == 0)
+		{
+			UE_LOG(LogSwcUi, Log, TEXT("ui: the use of the bag %u ended: the panel closes"), SentOpenBag);
+			Runtime->call("HostLootBagClosed", {FArg::of(static_cast<double>(SentOpenBag))});
+		}
+		SentOpenBag = Open;
+		if (Open == AskedOpenBag)
+		{
+			AskedOpenBag = 0;
+		}
+	}
+	if (AskedOpenBag != 0 && Now - AskedOpenTime > 1.0)
+	{
+		UE_LOG(LogSwcUi, Log, TEXT("ui: no use of the bag %u: the panel closes"), AskedOpenBag);
+		Runtime->call("HostLootBagClosed", {FArg::of(static_cast<double>(AskedOpenBag))});
+		AskedOpenBag = 0;
+	}
+}
+
 void USwcUiSubsystem::HandleItemRequest(const FString& Request, USwcBackendSubsystem* Backend)
 {
 	TArray<FString> Parts;
@@ -411,6 +498,20 @@ void USwcUiSubsystem::HandleItemRequest(const FString& Request, USwcBackendSubsy
 	else if (Verb == TEXT("take") && Parts.Num() >= 3)
 	{
 		bSent = Backend->TakeItem(ParseInstance(Parts[1]), static_cast<uint32>(Int(2)));
+	}
+	else if (Verb == TEXT("openloot") && Parts.Num() >= 2)
+	{
+		// The panel of a bag (OpenStorageOption): the interactor sends the request at its next update.
+		Backend->OpenLootBag(static_cast<uint32>(Int(1)));
+		AskedOpenBag = static_cast<uint32>(Int(1));
+		AskedOpenTime = FPlatformTime::Seconds();
+		bSent = true;
+	}
+	else if (Verb == TEXT("panelclosed"))
+	{
+		// The panel closed (catcontainer.luac InteractPanelClosed): the use of the bag ends (2473).
+		bSent = Backend->GetOpenLootBag() != 0;
+		Backend->CloseLootBag();
 	}
 	UE_LOG(LogSwcUi, Log, TEXT("ui: item request \"%s\": %s"), *Request, bSent ? TEXT("sent") : TEXT("not sent"));
 }
@@ -920,6 +1021,7 @@ void USwcUiSubsystem::FeedLocalPlayer()
 
 	// The bag, the paperdoll items (the item index of the wire in the item catalog of the backend copy), the level, the coin.
 	FeedItems(Own);
+	FeedLoot(Own, Backend);
 	int32 Active = -1;
 	for (uint32 Slot = FirstWeaponSlot; Slot <= LastWeaponSlot; ++Slot)
 	{

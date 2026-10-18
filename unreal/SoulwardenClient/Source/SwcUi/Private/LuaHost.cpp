@@ -841,14 +841,15 @@ int n_set(lua_State* L) {
     if (e == nullptr) {
         return 0;
     }
-    // A change of a text or of an image changes the default layout cell of the element (LyShine
-    // InvalidateParentLayout): the layouts that use it compute again.
+    // A change of a text or of an image changes the default layout cell of the element (LyShine InvalidateLayout and
+    // InvalidateParentLayout): its own fitter and the layouts that use the cell compute again.
     struct CellChange {
         Model& model;
         Id id;
         bool active;
         ~CellChange() {
             if (active) {
+                model.mark_layout(id);
                 model.mark_layout_cell_change(id, true);
             }
         }

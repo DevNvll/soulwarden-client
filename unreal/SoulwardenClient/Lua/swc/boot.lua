@@ -27,4 +27,5 @@ Swc.Load("swc.input")     -- the input of the UI: hover, press, release, drag, w
 Swc.Load("swc.dynamic")   -- the dynamic lists: the dynamic layout and the dynamic scroll box
 Swc.Load("swc.game")      -- the game buses that the first HUD reads
 Swc.Load("swc.items")     -- the items: static data, item slots, the bag, the paperdoll, the containers, the requests
+Swc.Load("swc.loot")      -- the loot bags near the character and the panel of an open bag
 Swc.Load("swc.host")      -- the calls of the host: Swc.Tick, Swc.Boot, Swc.EnterWorld, the player data

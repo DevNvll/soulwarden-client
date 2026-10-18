@@ -98,6 +98,8 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   image lines from the center clip the 9 slices by the angle); radial corner (two triangles about a corner; sliced:
   one line from the corner clips the slices); radial edge (three triangles about the middle of an edge; sliced: one
   line from that point). A sliced linear fill moves the slice values.
+- A change of a text or of an image marks the layout of its own element (a fitter) and the layouts of its parents that use
+  its cell (LyShine `UiTextComponent::InvalidateLayout`).
 - Fader: multiplies the alpha of its subtree. A disabled element hides its subtree. A canvas with the positional
   input off (`posInput`: 12 canvases of the game, the tooltip among them) takes no pointer: a press goes to the canvas
   below it. A mask clips its children with a
@@ -349,6 +351,22 @@ Rules of the emulation:
   list then has "Equip" off ("Requirements not met"). `PaperdollGetWeaponAutoEquipSlot` (the weapon slot of an equip
   when no weapon slot is empty and no equipped weapon compares) gives the slot of the active weapon, else weapon slot 1
   (the native rule is not known).
+- The loot bags (`swc/loot.lua`; protocol notes 4.42): the C++ gives the bags of the creature view in the range of their
+  Interact bound with no Looted claim (`Swc.HostLootBags`, with the kind of the claim); a new bag gives the data callback
+  `Hud.LocalPlayer.LootDrop.TriggerAreaEntered`, a bag that left gives `TriggerAreaExited` (`newinventory.luac` keeps them).
+  Tab near a bag: `OpenNearbyLootContainers` calls `LootDropRequestsBus.OpenLootDrop`: the host request `openloot INTEREST`
+  (the interactor sends OpenStorageOption), and the panel opens at once: the emulation clears the open bag, sets the title
+  (`Hud.LocalPlayer.InteractName`: "@ui_loot" for the bag of a kill, the live proof of the backend; the name of the slice,
+  "@inv_DroppedItems", for a discard), and calls `ContainerScreenRequestBus.RegisterWithLootDropInteractable` of
+  `catcontainer.luac`, which sets the loadout flag again: `newinventory.luac` queues the state Container (a set of the flag
+  notifies also with no change). The items of the panel are the selected Container (slot 76; `Swc.HostLootSlot`). Take All:
+  `takeall` (2939); LSHIFT and a click (the single click of `clickrecognizer.luac` after the time of a double click):
+  `TradeBatchAddItem` and `TradeBatchExecute`, the request `take INSTANCE QUANTITY` (2942). The close of the panel
+  (`InteractPanelClosed`) ends the use (2473); the end of the use (the Looted claim, the end of the bag, an open with no use
+  after 1 s) closes the panel (`UnregisterInteractable`). The weight of the panel: the items of the bag, and the limit of the
+  player as the largest value (the live check showed it with no state).
+- The cursor notifications of the native code (`CursorNotificationBus OnCursorPressed`, `OnCursorReleased`, the CRC-32 of the
+  input channel "mouse_button_left" or "mouse_button_right") come with each button event: the click recognizer reads them.
 - The notifications (`lyshineui/notifications/notification`, the screen of `notifications.luac`): the script is the
   handler of `UiNotificationsBus`; `AreNotificationsEnabled` is true. A minor notification shows after the pause of
   the queue (`SecondsBetweenNotifications`, 1.5 s).
@@ -388,8 +406,9 @@ to the data layer only when it changes.
 - Harness input (`-SwcUiDrive=FILE`, `tests/drive/ui-*.txt`): a script of UI input events in the process (no input
   tool of the host): key, keydown, keyup, point ELEMENT (an element of a shown canvas by its name), waitfor ELEMENT
   (the clock stays until it shows), move, click, press, release, drag, wheel, log, end (releases each held key and
-  button). An element name `text:LABEL` is a shown element with that text (after the localization); `item:ITEMID` is a
-  shown item cell of the item (the canvas of the highest draw order first). A key goes through Slate as a key of the keyboard (`FSlateApplication::ProcessKeyDownEvent`): the UI first,
+  button). An element name `text:LABEL` is a shown element with that text (after the localization; "_" for a space);
+  `item:ITEMID` is a shown item cell of the item (the canvas of the highest draw order first); `loot:N` is the item cell N of
+  the panel of an open bag; `lootbag` is shown while a loot bag is near the character (a waitfor mark). A key goes through Slate as a key of the keyboard (`FSlateApplication::ProcessKeyDownEvent`): the UI first,
   then the game viewport and the player controller when the UI does not keep it. The pointer events go to the UI
   entry of the pre-processor. The clock starts at the spawn of the player, as the drive of the player controller
   (`tools/creature-check.sh` runs the development routes on the same clock), or at a failed login path. The widget
@@ -451,6 +470,7 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `tooltip` | The original EscapeMenu and Tooltip screens: with the dead mark the menu buttons have the tooltip "@ui_button_disabled_dead"; the hover of a button shows the dynamic tooltip after the delay of its setter, at the cursor, with the English text and the width of the text and its padding; the end of the hover hides it; with the character alive the button has no tooltip. Picture `tooltip-dead`. |
 | `transitions` | The open of the original InfoModal (`OnTransitionIn`, its tweens) and the hover of its button (`button.luac`): each animation that a script starts has the eased value at each frame (60 a second), the final value, and ends after its delay and duration (15 animations; 4 replaced by a new one on the same property, the rule of the gem). The close hides the modal at once (its script has no animation). The ease functions against values of the Penner equations. Pictures `transitions-open-00` to `-24`, `transitions-hover-00` to `-24`, `transitions-close-00`. |
 | `inventory` | The original NewInventory, EquipmentV3, Tooltip, Encumbrance, and FlyoutMenu screens with a bag of the host calls (a sword, a shirt, 3 potions, 25 ore), the equipped sword, and the coin. The weight of the bag (14.0 of 200.0); Tab opens the state Inventory with the two screens and the cursor; the bag sections have their items and weights; the hover of the sword gives the item tooltip (gear score 100, core damage 70); a click gives the command list (Equip, Lock, Drop); Equip gives the host request `equip 0 24 1 INSTANCE`; the answer of the server (the swords change places) changes the screens and the weight (14.6); a sword that needs level 21 has "Equip" off ("Requirements not met") and no request; a refusal of the server (3626) keeps the paperdoll; Use of the potions gives `use 2`, the answer changes the weight (18.3); Unequip of the equipped sword gives `unequip 24 -1 1`, the answer empties the slot (21.3); Tab closes. Pictures `inventory-open`, `-tooltip`, `-commands`, `-equipped`, `-refused`, `-unequipped`. |
+| `loot` | The original CatContainer screen next to NewInventory and EquipmentV3: a bag near the character and Tab give the host request `openloot 57` and the state Container ("LOOT", the loot bag mode); the items of the server show ("2 items", the weight 5.4); LSHIFT and a click on the ore give `take INSTANCE 9`; the answer of the server leaves "1 item"; Take All gives `takeall`; the end of the use closes the panel (the state Inventory). Pictures `loot-panel`, `loot-taken`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
 The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,
@@ -520,5 +540,6 @@ the user ([AGENTS.md](../AGENTS.md), rules).
   equipment screen shows the place-holder values of its canvas); `isMagic` of a weapon (the label "core power"); the
   ammunition stats; the equipment sets (their perks and names: no bonus lines); the defaults of the client settings
   that the item screens do not read (183 settings of the scripts have a default that is not false or 0); the key hints
-  of the command list (Lock, Drop) show no key; the objective data (the quests: `GetObjectiveData` gives no title); the
+  of the command list (Lock, Drop) show no key; the key T of the prompt of a bag (Tab opens it); the largest weight of the
+  panel after the state of the bag (the live check showed 1000.0; the rule is not known); the objective data (the quests: `GetObjectiveData` gives no title); the
   expressions of the data sheets in the item texts (O13: the potion text shows `{[400.000000]}`).

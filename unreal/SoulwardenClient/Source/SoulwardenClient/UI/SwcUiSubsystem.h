@@ -88,6 +88,9 @@ private:
 	void UpdateLoadingAndRequests();
 	/** The bag, the items of the paperdoll, the level, and the coin of the read path (stage P2.4; docs/UI.md). */
 	void FeedItems(const swc::net::RepClient::OwnEntity& Own);
+	/** The loot bags near the character, the items of the open bag (the selected Container, slot 76), and the end of the use of
+	 *  the bag panel (stage P2.4; docs/UI.md). */
+	void FeedLoot(const swc::net::RepClient::OwnEntity& Own, class USwcBackendSubsystem* Backend);
 	/** One item to the runtime (HostBagSlot or HostPaperdollItem). @return The key of the values (a change test). */
 	FString CallItem(const char* Function, uint32 Slot, const soulwarden::backend::tests::WireItem* Item);
 	/** A request of the inventory scripts ("equip BAG SLOT QUANTITY INSTANCE", "use SLOT", ...) to the backend subsystem. */
@@ -147,6 +150,15 @@ private:
 	uint32 SentEquipFails = 0;
 	int64 SentCoin = -1;
 	int64 SentLevel = -1;
+	/** The bag panel: the items of the open bag, the bags near the character ("INTEREST:DISTANCESQ ..."), the bag of the panel use,
+	 *  and the open that the scripts asked for (its bag and its time: no use after 1 s closes the panel). */
+	TArray<FString> SentLoot;
+	uint32 SentLootRevision = ~0u;
+	FString SentNearBags;
+	double NextBagsTime = 0.0;
+	uint32 SentOpenBag = 0;
+	uint32 AskedOpenBag = 0;
+	double AskedOpenTime = 0.0;
 	int32 SentActiveSlot = -2;
 	bool bSentSheathed = false;
 	TMap<uint32, TArray<uint32>> SentBars;

@@ -673,8 +673,24 @@ Swc.Define("ContainerRequestBus", "Event", {
     return -1
   end,
   IsPlayerContainer = function(id) return id == Swc.ids.inventory end,
-  GetCurrentEncumbrance = function(id) return id == Swc.ids.inventory and Swc.BagWeight() or 0 end,
-  GetMaximumEncumbrance = function(id) return id == Swc.ids.inventory and Swc.player.encumbranceMax or 0 end,
+  -- The weight of a container: the bag of the player, or the items of the open bag (the panel). The largest weight of the open
+  -- bag: the limit of the player (the panel showed "0.0/200.0" before the state of the bag, live check L5 of the backend stage
+  -- 3.5b.2; it showed "5.9/1000.0" after it: that rule is not known).
+  GetCurrentEncumbrance = function(id)
+    if id == Swc.ids.inventory then
+      return Swc.BagWeight()
+    end
+    local container = container_of(id)
+    local total = 0
+    for i = 0, (container and container.count or 0) - 1 do
+      local slot = container.slots[i]
+      total = total + (slot and slot:GetWeight() or 0)
+    end
+    return total
+  end,
+  GetMaximumEncumbrance = function(id)
+    return (id == Swc.ids.inventory or container_of(id) ~= nil) and Swc.player.encumbranceMax or 0
+  end,
   IsEncumbered = function(id) return id == Swc.ids.inventory and Swc.BagWeight() > Swc.player.encumbranceMax end,
   IsFullWhenEncumbered = function() return false end,
   GetEncumbranceWarningPercent = function() return Swc.player.encumbranceWarningPercent end,
@@ -891,9 +907,12 @@ Swc.Define("LocalPlayerUIRequestsBus", "Broadcast", {
   end,
   -- The inventory screen: the native flag "looking through loadout" (the server has its copy; Tab and the bag button
   -- of the HUD set it). The player component tells the scripts.
+  -- A set to true notifies also with no change: the container screen sets it again at the open of a bag
+  -- (catcontainer.luac RegisterWithLootDropInteractable), and only that call lets newinventory.luac queue the state Container
+  -- (the open at Tab near a bag queues no state: skipNextLootOpen).
   SetIsLookingThroughLoadout = function(looking)
     looking = looking and true or false
-    if Swc.player.lookingThroughLoadout == looking then
+    if Swc.player.lookingThroughLoadout == looking and not looking then
       return
     end
     Swc.player.lookingThroughLoadout = looking
