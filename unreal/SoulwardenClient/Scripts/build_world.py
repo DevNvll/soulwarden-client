@@ -44,6 +44,7 @@ CELLS_AGAIN = os.environ.get("SWC_WORLD_CELLS", "") == "1"
 # distribution row places the meshes of its variant; 4: the material overrides of the placements, cells file version 2;
 # 5: the instances of the instanced mesh components of the slices, S0 of research/settlements.md).
 CELLS_VERSION = 5
+CELL_CHUNK = 8   # cell actors in one spawn step of the cells again (about 1 minute for the dense town of Oxboro)
 unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([ROOT], True)
 manifest = json.load(open(os.path.join(content, "manifest.json")))["assets"]
 state_path = os.path.join(plugin, "world-state.json" if LEVEL.startswith(ROOT) else "world-state-test.json")
@@ -282,8 +283,13 @@ def add_impostors(name):
     return count
 
 
-for name in state["regions"]:   # a macro color map that the import added later
+for name, done in state["regions"].items():   # a macro color map that the import added later (once: each update and
+    if done.get("macro material"):               # save of a material instance takes about 2.5 s)
+        continue
     region_material(name, parent)
+    if manifest.get("texture:macro:" + name):
+        done["macro material"] = True
+        save_state()
 for name, done in state["regions"].items():   # the far meshes of a region that was built before them
     if not done.get("impostors"):
         count = add_impostors(name)   # 0 while the import of the region has not taken them yet: retried
@@ -326,25 +332,42 @@ partial = state.setdefault("partial", {})
 for name in regions:
     done = state["regions"].get(name)
     if done is not None and CELLS_AGAIN and done.get("cells version", 1) < CELLS_VERSION:
-        if out_of_time():
-            incomplete = True
-            break
         cells = os.path.join(content, "regions", name, "cells.bin")
+        total = library.count_instance_actors(cells) if os.path.isfile(cells) else 0
         if "cells destroyed" not in done:
+            if out_of_time():
+                incomplete = True
+                break
             phase = time.time()
             done["cells destroyed"] = destroy_cells(name)
+            done["cells spawned"] = 0
+            done["cells seconds"] = 0
             save_state()
             log(f"region {name}: {done['cells destroyed']} old cell actors destroyed ({time.time() - phase:.1f} s)")
-            # The spawn of a large region takes about 5 minutes: it has its own call (import.lock less than 10 minutes).
-            incomplete = True
+        # The spawn in chunks of CELL_CHUNK actors, each with a time check (a call holds import.lock less than 10 min).
+        while done.get("cells spawned", 0) < max(total, 0):
+            if out_of_time():
+                incomplete = True
+                break
+            phase = time.time()
+            spawned = library.spawn_instance_actor_range(cells, done["cells spawned"], CELL_CHUNK)
+            unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+            unreal.SystemLibrary.collect_garbage()
+            if spawned < 0:
+                log(f"region {name}: the cells file cannot be read")
+                break
+            done["cells spawned"] += spawned
+            done["cells seconds"] = round(done.get("cells seconds", 0) + time.time() - phase, 1)
+            save_state()
+            log(f"region {name}: {done['cells spawned']} of {total} cell actors ({time.time() - phase:.1f} s)")
+            if spawned == 0:
+                break
+        if incomplete:
             break
-        phase = time.time()
-        done["cell actors"] = library.spawn_instance_actors(cells) if os.path.isfile(cells) else 0
-        unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
-        unreal.SystemLibrary.collect_garbage()
-        done["cells seconds"] = round(time.time() - phase, 1)
+        done["cell actors"] = max(total, 0)
         done["cells version"] = CELLS_VERSION
         done.pop("cells destroyed", None)
+        done.pop("cells spawned", None)
         save_state()
         log(f"region {name}: cells again {json.dumps(done)}")
         continue

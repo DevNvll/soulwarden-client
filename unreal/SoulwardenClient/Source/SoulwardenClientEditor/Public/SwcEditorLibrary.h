@@ -68,6 +68,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
 	static int32 SpawnInstanceActors(const FString& File);
 
+	/** SpawnInstanceActors for the actors FirstActor .. FirstActor + MaxActors - 1 of the file (the cell step of a large
+	 *  region in several calls). @return The number of spawned actors, or -1 when the file cannot be read. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static int32 SpawnInstanceActorRange(const FString& File, int32 FirstActor, int32 MaxActors);
+
+	/** @return The number of actors of a cells file, or -1. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static int32 CountInstanceActors(const FString& File);
+
 	/** The collision of the game (P4.1, converter/swc_convert/collision.py). The render mesh gets no collision (no
 	 *  simple shape, no complex collision mesh). With a collision file: a collision-only static mesh at
 	 *  CollisionAssetPath (made from the triangles of the file, no Nanite, never drawn) uses its own triangles as its

@@ -34,6 +34,35 @@ in_level() {   # with --cells: in the level with cell actors of the current rule
             "${SWC_GAME_CONTENT}/world-state.json" "$1" "${SWC_WORLD_CELLS:-}"
 }
 editor_log="${SWC_REPO}/unreal/SoulwardenClient/Saved/Logs/SoulwardenClient.log"
+# One call of build_world.py for the regions (SWC_WORLD_REGIONS) with import.lock; sets `status`, writes one line.
+build_call() {   # build_call REGIONS LABEL
+    status=0
+    rm -f "${SWC_WORK}/logs/build-world-seconds"
+    SWC_WORLD_REGIONS="$1" flock -w 3600 -o -E 75 "${SWC_WORK}/unreal/import.lock" \
+        bash -c 'out="$1"; shift; start=${SECONDS}; status=0; "$@" || status=$?; echo $((SECONDS - start)) > "${out}"; exit ${status}' _ \
+        "${SWC_WORK}/logs/build-world-seconds" \
+        systemd-run --user --scope -q -p CPUQuota="${SWC_CPU_QUOTA:-400%}" -p MemoryMax="${SWC_MEMORY_MAX:-16G}" \
+        nice -n 10 "${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor-Cmd" "${SWC_UPROJECT}" \
+        -run=pythonscript -script="${SWC_REPO}/unreal/SoulwardenClient/Scripts/build_world.py" "${SWC_EDITOR_DDC}" \
+        -AllowCommandletRendering -RenderOffscreen -unattended -nosplash -nosound -nopause -stdout \
+        > "${SWC_WORK}/logs/build-world.log" 2>&1 || status=$?
+    echo "$(date -u +%H:%M:%S) $2: status ${status}, $(cat "${SWC_WORK}/logs/build-world-seconds" 2>/dev/null || echo '?') s with the lock; $(grep -ho 'SWC region .*\|SWC WORLD .*' "${editor_log}" | tail -2 | cut -c1-200 | tr '\n' ' ')"
+    if [[ ${status} -ne 0 ]]; then
+        cp "${editor_log}" "${SWC_WORK}/logs/build-world-failed.log" 2>/dev/null || true
+    fi
+    sleep 15   # another track that waits on the lock gets it now
+}
+if [[ -n "${SWC_WORLD_CELLS:-}" ]]; then
+    # The cells again: each call works on the regions that are left, in order, until its time limit.
+    for attempt in $(seq 1 300); do
+        left=()
+        for region in "${regions[@]}"; do in_level "${region}" || left+=("${region}"); done
+        [[ ${#left[@]} -eq 0 ]] && break
+        build_call "${left[*]}" "cells call ${attempt} (${#left[@]} regions left, from ${left[0]})"
+        [[ ${status} -eq 0 ]] || break
+    done
+    exit 0
+fi
 for region in "${regions[@]}"; do
     [[ ${import} -eq 1 ]] && "${SWC_REPO}/tools/import-world.sh" "${region}"
     if [[ -z "${SWC_WORLD_FORCE:-}" ]] && in_level "${region}"; then

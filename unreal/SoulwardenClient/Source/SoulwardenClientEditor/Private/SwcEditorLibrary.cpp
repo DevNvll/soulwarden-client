@@ -260,6 +260,16 @@ UStaticMesh* FindStaticMesh(const FString& Folder)
 
 int32 USwcEditorLibrary::SpawnInstanceActors(const FString& File)
 {
+	return SpawnInstanceActorRange(File, 0, MAX_int32);
+}
+
+int32 USwcEditorLibrary::CountInstanceActors(const FString& File)
+{
+	return SpawnInstanceActorRange(File, 0, 0);
+}
+
+int32 USwcEditorLibrary::SpawnInstanceActorRange(const FString& File, int32 FirstActor, int32 MaxActors)
+{
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	TArray<uint8> Bytes;
 	if (!World || !FFileHelper::LoadFileToArray(Bytes, *File) || Bytes.Num() < 12 || FMemory::Memcmp(Bytes.GetData(), "SWCI", 4) != 0)
@@ -314,6 +324,10 @@ int32 USwcEditorLibrary::SpawnInstanceActors(const FString& File)
 		UE_LOG(LogTemp, Warning, TEXT("SWC cells: %d override slots with no slot or no material instance (%s)"), MissingSlots, *File);
 	}
 	const uint32 ActorCount = Reader.Read<uint32>();
+	if (MaxActors == 0)
+	{
+		return Reader.bFailed ? -1 : static_cast<int32>(ActorCount);   // CountInstanceActors
+	}
 	int32 Spawned = 0;
 	for (uint32 ActorIndex = 0; ActorIndex < ActorCount && !Reader.bFailed; ++ActorIndex)
 	{
@@ -322,6 +336,19 @@ int32 USwcEditorLibrary::SpawnInstanceActors(const FString& File)
 		Location.X = Reader.Read<double>();
 		Location.Y = Reader.Read<double>();
 		Location.Z = Reader.Read<double>();
+		if (static_cast<int32>(ActorIndex) < FirstActor || Spawned >= MaxActors)
+		{
+			// Skip this actor: read past its groups (the range of a call).
+			const uint32 Skip = Reader.Read<uint32>();
+			for (uint32 Group = 0; Group < Skip && !Reader.bFailed; ++Group)
+			{
+				Reader.Read<uint32>();
+				const uint32 Count = Reader.Read<uint32>();
+				Reader.Offset += static_cast<int64>(Count) * (3 * sizeof(double) + 7 * sizeof(float));
+				Reader.bFailed |= Reader.Offset > Bytes.Num();
+			}
+			continue;
+		}
 		FActorSpawnParameters Parameters;
 		Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		AActor* Actor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform(Location), Parameters);
@@ -371,7 +398,7 @@ int32 USwcEditorLibrary::SpawnInstanceActors(const FString& File)
 			Component->SetupAttachment(Root);
 			Actor->AddInstanceComponent(Component);
 			Component->RegisterComponent();
-			Component->AddInstances(Transforms, false, true);
+			Component->AddInstances(Transforms, false, true, false);
 			UStaticMesh* CollisionMesh = MeshIndex < static_cast<uint32>(CollisionMeshes.Num()) ? CollisionMeshes[MeshIndex] : nullptr;
 			if (!CollisionMesh)
 			{
@@ -390,7 +417,7 @@ int32 USwcEditorLibrary::SpawnInstanceActors(const FString& File)
 			Collision->SetupAttachment(Root);
 			Actor->AddInstanceComponent(Collision);
 			Collision->RegisterComponent();
-			Collision->AddInstances(Transforms, false, true);
+			Collision->AddInstances(Transforms, false, true, false);
 		}
 		if (!Label.IsEmpty())
 		{
