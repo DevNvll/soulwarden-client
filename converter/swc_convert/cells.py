@@ -108,7 +108,9 @@ def write(name: str) -> dict:
             out += struct.pack("<II", table[m], len(picked)) + transforms[picked].tobytes()
         groups += len(order)
     path = env.content_dir() / "regions" / name / "cells.bin"
-    path.write_bytes(bytes(out))
+    temporary = path.with_suffix(".tmp")   # a level build can read the file: atomic
+    temporary.write_bytes(bytes(out))
+    temporary.replace(path)
     report = {"region": name, "placements": int(len(data["mesh"])), "instances": int(keep.sum()), "meshes": len(used),
               "cells": len(cells), "components": groups, "file": str(path), "bytes": len(out),
               "left out (not imported or effect cards)": int((~keep).sum())}

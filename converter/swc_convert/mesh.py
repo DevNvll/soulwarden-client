@@ -144,7 +144,7 @@ def drawn_positions(path: str) -> np.ndarray:
     return np.concatenate(out) if out else np.zeros((0, 3), np.float32)
 
 
-def convert_group(key: str, out: Path, parts: list[tuple[str, np.ndarray]]) -> dict:
+def convert_group(key: str, out: Path, parts: list[tuple[str, np.ndarray]], normal_maps: bool = True) -> dict:
     """Converts several static meshes into one glTF mesh (the same rule as convert): `parts` are (path, offset in
     engine m) pairs; the offset moves the vertices of that mesh. @return A report with the manifest records (the mesh
     record has the key `key`)."""
@@ -179,7 +179,7 @@ def convert_group(key: str, out: Path, parts: list[tuple[str, np.ndarray]]) -> d
                 sub = sub_materials[s.material] if 0 <= s.material < len(sub_materials) else None
                 if sub is not None and materials.not_drawn(sub):
                     continue
-                record, used = materials.shared_material(sub)
+                record, used = materials.shared_material(sub, normal_maps)
                 records[record["name"]] = record
                 textures.update({t["asset"]: t for t in used})
                 if record["name"] not in by_key:

@@ -228,7 +228,9 @@ def impostors(name: str) -> dict:
         key = f"impostor:{name}:{kind}:{gx}_{gy}"
         out = env.content_dir() / "regions" / name / "impostors" / f"{kind}_{gx}_{gy}.gltf"
         try:
-            report = mesh.convert_group(key, out, parts)
+            # No normal map: the normal maps of the impostor atlases are not tangent-space maps (the far meshes were
+            # black under the sun with them); the vertex normals light them.
+            report = mesh.convert_group(key, out, parts, normal_maps=False)
         except Exception as error:
             reports.append({"mesh": key, "error": str(error)[:120]})
             continue

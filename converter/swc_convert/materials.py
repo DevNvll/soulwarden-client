@@ -144,7 +144,7 @@ def shared_texture(product: str, role: str, opacity: str | None = None) -> dict:
     return {"kind": "texture", "asset": key, "file": str(out.relative_to(env.content_dir())), "role": role, "cap": cap}
 
 
-def shared_material(material: ET.Element | None) -> tuple[dict, list[dict]]:
+def shared_material(material: ET.Element | None, normal_map: bool = True) -> tuple[dict, list[dict]]:
     """@return (the material record, the texture records) of one sub-material. The record name is the key of the
     material: "m_" + 10 hex digits of the hash of its rules. A missing sub-material is the default (opaque, white)."""
     rules: dict = {"blend": "opaque", "two sided": False, "factor": [1.0, 1.0, 1.0, 1.0]}
@@ -174,7 +174,7 @@ def shared_material(material: ET.Element | None) -> tuple[dict, list[dict]]:
                     products[role] = product
         opacity = products.get("opacity") if rules["blend"] == "masked" else None
         for role in ("base", "normal"):
-            if role not in products:
+            if role not in products or (role == "normal" and not normal_map):
                 continue
             try:
                 record = shared_texture(products[role], role, opacity if role == "base" else None)
