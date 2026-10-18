@@ -1,0 +1,8 @@
+# P4.1 part 1: the respawn point of the Inn of Oxboro (engine 8907.97 4206.54 140.25, inside the inn of r_+04_+02).
+# The character stands on the floor, then goes out of the door (north: the porch and the stairs to the ground).
+# Times in seconds from the possession of the character.
+# SWC_SESSION_BACKEND_ARGS=--dev-commands tools/dev-run.sh --window --create name=Devwarden,place=8907.97:4206.54:140.25 \
+#     --enter Devwarden --quit-when world --stay 25 -- -SwcDrive=$PWD/tests/drive/inn-walk.txt
+6.0 walk 1
+6.0 move 0 1
+14.0 move 0 0

@@ -1,0 +1,16 @@
+# P4.1 part 1, the movement checks at the Inn of Oxboro (engine 8907.97 4206.54 140.25, r_+04_+02): out of the door
+# (north: the porch and the stairs down), a half turn, back up the stairs and in through the door, then on to the back
+# wall of the room (south), where the character stops and does not stick. Times in seconds from the possession.
+# SWC_SESSION_BACKEND_ARGS=--dev-commands tools/dev-run.sh --window --create name=Devwarden,place=8907.97:4206.54:140.25 \
+#     --enter Devwarden --quit-when world --stay 40 -- -SwcDrive=$PWD/tests/drive/inn-round.txt
+5.0 walk 1
+5.0 move 0 1
+13.0 move 0 0
+13.5 turn 180
+14.5 turn 0
+15.0 move 0 1
+30.0 move 0 0
+30.5 turn 90
+31.5 turn 0
+32.0 move 0 1
+36.0 move 0 0

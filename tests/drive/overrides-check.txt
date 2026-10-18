@@ -1,0 +1,8 @@
+# P4.1, the material overrides: the default spawn lane of Oxboro (feet 8880.01 4250.03 138.21), the views of the matched
+# references set1-oxboro noon-e (camera heading 90) and noon-w (heading 270). The character stands; the camera turns.
+# SWC_SESSION_BACKEND_ARGS=--dev-commands tools/dev-run.sh --window --create name=Devwarden,place=8880.01:4250.03:138.71 \
+#     --enter Devwarden --quit-when world --stay 40 -- -SwcDrive=$PWD/tests/drive/overrides-check.txt
+12.0 turn 90
+13.0 turn 0
+26.0 turn 180
+27.0 turn 0

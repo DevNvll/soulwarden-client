@@ -216,11 +216,16 @@ tools/build-world.sh --import --all      # each region: import its content (tool
   meshes from the cells of the regions built before (`USwcEditorLibrary::RemoveInstanceComponentsOf`; 25 to 47
   components for each region).
 - The client (`Source/SoulwardenClient/World/`): the character has a World Partition streaming source. Before the
-  spawn of the character, `SwcWorldStreaming::IsReadyAt` puts a streaming source at the place of the character (a
-  sphere of 80 m, the highest priority: only the cells at the place, not all the cells in the loading range of 1 km)
-  and waits until those cells are loaded and a line from 2 m above the place down 50 m finds ground. With no ground,
-  it gives up 3 s after the cells (the player code then uses its test floor); the limit is 30 s. Then the player
-  track uses that ground (no test floor), and the input reports carry the position.
+  spawn of the character, `SwcWorldStreaming::IsReadyAt` puts a streaming source at the place of the character from
+  the server (a sphere of 80 m, the highest priority: only the cells at the place, not all the cells in the loading
+  range of 1 km) and waits until those cells are loaded and a line from 2 m above the place down 50 m hits a ground
+  near the place. The place of the server is the authority: its Z is about 0.5 m above the feet. A ground near the
+  place is at most 1.5 m below it. A ground farther below (for example the Landscape 2.06 m below the floor of the inn
+  of Oxboro) means that the cells of the floor are not there yet: the wait goes on, and the character does not fall.
+  With no ground at all (the line hits nothing), the wait gives up 3 s after the cells (the player code then uses its
+  test floor). The limit is 90 s; after it the character spawns (a place in the air, or with no mesh there). Then
+  the player track uses that ground (no test floor), and the input reports carry the position. The spawn code that
+  calls the wait (`SwcBackendSubsystem`) is shared with the player track.
 - `-SwcGroundTest=X,Y,Z;...` (engine m, no backend) runs that wait for each place and logs the time and the ground.
   Measured with the region import beside it (2026-10-18): the place of the development character 4.6 s, ground =
   the Landscape at 138.24 m (with the sphere of the whole loading range: more than 30 s); a region not in the level
@@ -240,3 +245,81 @@ tools/build-world.sh --import --all      # each region: import its content (tool
 - `-SwcFlythrough=PLAN.json` (USwcWorldSubsystem, ASwcFlythrough): a camera flies along a path (engine points), with
   a streaming source; it logs the frame rate and the streaming each second, can write a picture every N frames, and
   ends the client with a summary line. `terrain.flythrough_plan` writes a plan from a route.
+
+## The collision of the game (P4.1 part 1)
+
+The game has the collision of a mesh in its physics file: the path of the `.cgf` with `.rnr`. It has boxes, spheres,
+cylinders, capsules, convex hulls, triangle meshes, and compounds of them. The reader is the reader of the Soulwarden
+navigation tools (`converter/vendor/soulwarden/nav_shapes.py`, unchanged). 7,700 of the static meshes have a physics
+file (2.5 million triangles). A mesh with no physics file (plants, cloth, books, small props) has no collision in the
+game.
+
+```sh
+tools/convert.sh collision                # content/collision/PATH.swccol for each mesh with a physics file
+tools/import-world.sh NAME...             # import_content.py section 6 makes the collision meshes (COLLISION_VERSION)
+tools/build-world.sh --cells NAME...      # new cell actors with the collision instances (CELLS_VERSION)
+```
+
+- `collision.py` writes the triangles of all the shapes of a mesh in the space of the mesh (engine meters, the same
+  space as its glTF: the bounds of 298 of 300 sampled meshes are in the bounds of the render mesh).
+- Section 6 of `import_content.py`: the render mesh gets no collision (no simple shape, no complex collision mesh).
+  A collision-only static mesh `/SwcGameContent/Collision/FOLDER/C_NAME` (no Nanite, no distance field, no Lumen
+  cards, no ray tracing, never drawn) uses its own triangles as its collision (UseComplexAsSimple).
+- The cells of the level (`SwcEditorLibrary::SpawnInstanceActors`): each render component has no collision; a mesh
+  with a collision mesh gets a second component with hidden instances of it at the same transforms (tag
+  `SwcCollision`). The creature track's layer finds the instances of a place in both (SwcLevelInstances).
+- Faults found on the way (the rules that came from them):
+  - A render mesh with a ComplexCollisionMesh crashed: its async post-load cooked the body on a cache miss while the
+    other mesh still compiled (`check(HasValidRenderData())` in GetPhysicsTriMeshDataCheckComplex). Thus no render
+    mesh has a ComplexCollisionMesh.
+  - The key of a cooked body is `BodySetupGuid`: a cook before the build of its triangles was empty, and the cache
+    kept it. The cook waits for the build of the collision mesh.
+  - The corners of a triangle keep their order (with the mirror of the space map, the front still faces out). The
+    complex collision ignores the back of a triangle: with the order turned, a line down went through each top face.
+  - A new build of an existing collision mesh kept its old triangles: section 6 deletes the old asset first.
+  - The save of a commandlet keeps the files of destroyed external actors (the next load had them again):
+    `build_world.py` deletes the files of the cell actors that it destroys.
+- Check: the ground test (`-SwcGroundTest`) logs each static surface on its line with its mesh. At the Inn of Oxboro
+  (r_+04_+02): the floor 139.89 m (C_everfall_floor_9x15_a), the foundation 139.88 m, the porch 140.14 m.
+
+## Gathering nodes in the level (P4.1)
+
+The level shows only the healthy mesh of a gathering node. The creature track shows the depleted mesh at run time when
+the server says that a node is depleted, and hides the healthy instance (SwcLevelInstances).
+
+- Rule 1: the master slices of `slices/gatherables` name the entity of the depleted mesh `DepletedMesh` or `Depleted`
+  (both entities of a node have Visible = 1). `region.slice_meshes` leaves them out.
+- Rule 2: the variation tables (VariationData: StartMesh and DepletedMesh of each variant, 432 pairs). A DepletedMesh is
+  not placed where the StartMesh of its row stands (within 0.1 m); for example the BaseMesh of the alchemy nodes.
+- A distribution row places the meshes of its variant (`region.slicedata`, as a capital does), not the meshes of the
+  master slice: before, each master_bush row showed honeysuckle_a.
+- The world (49 regions): 3,545,784 placements in place of 5,890,959. In r_+04_+02: 137,786 in place of 221,103;
+  53 single stumps and fragments with no healthy mesh at their place stay as decorations.
+- A placement goes into the cell of its own place (no clip; 0.11 % of the placements are more than 200 m outside the
+  square of their region).
+
+## Material overrides of the placements (P4.1)
+
+A placement can replace the material of its mesh: the field `Material Override Asset` of the mesh render node of a
+slice entity, or `materialOverrideAssetId` of a mesh of the slice metadata (a variant). Near Oxboro the fall variants of
+the poplars and the pawpaw bushes select their fall materials, and the lanterns select their on and off materials. The
+override replaces all the sub-materials of the mesh, by index. The asset id of the metadata is a struct (guid, subId).
+
+```sh
+tools/convert.sh census --force          # placements.npz: the override of each placement (materials, material)
+tools/convert.sh overrides --all         # the slot maps of the pairs (mesh, override), their material records
+tools/import.sh --keys ~/Games/soulwarden-client/content/overrides/material-keys.json   # the override materials
+tools/build-world.sh --cells --all       # cells version 4: the groups by (mesh, override), the slot materials
+```
+
+- `overrides.py`: the slots of an imported mesh have the names of the material keys of their sub-materials. For a pair
+  (mesh, override), each slot gets the key of the override sub-material with the same index (the current material
+  rules). Two sub-materials of a mesh with one key are one slot; when the override gives them two keys, the first one
+  wins. r_+04_+02: 1,000 pairs, 490 change a slot, 2 merged slots, 23 errors (a mesh or a material that is not in the
+  game copy).
+- `cells.py`, file version 2: an entry is a pair (mesh, override) with its slot list; the spawn sets the component
+  material of each slot (`/SwcGameContent/Materials/KEY`). The world: 8,476 entries with an override, 587,188 instances.
+- The materials track owns the material rules (materials.py, the parent materials, the instance parameters): its
+  instances change in place, with no new cell build.
+- The cell step of a region has two calls: the destroy of the old cell actors, then the spawn (about 5 minutes for a
+  large region with the collision and the material slots).
