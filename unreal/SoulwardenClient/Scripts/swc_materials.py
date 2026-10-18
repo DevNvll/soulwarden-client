@@ -21,9 +21,10 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "5", "M_SwcSurfaceMasked": "5", "M_SwcDecal": "1"}   # the rule of each parent
+PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "1",
+                   "M_SwcGlass": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
-# 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission)
+# 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data)
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
 assets = unreal.EditorAssetLibrary
@@ -420,7 +421,7 @@ def surface_parent(content, state, masked):
     detail_scaled = multiply(material, (coords, ""), (mask(material, detail_transform, "RGBA", "rg", -1400, 4600), ""), -1250, 4600)
     editing.connect_material_expressions(detail_scaled, "", detail_uv, "A")
     editing.connect_material_expressions(mask(material, detail_transform, "RGBA", "ba", -1400, 4750), "", detail_uv, "B")
-    detail_map = sample_at("Detail", st.SAMPLERTYPE_COLOR, unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture"), detail_uv, 4600)
+    detail_map = sample_at("Detail", st.SAMPLERTYPE_MASKS, white_data(content, state), detail_uv, 4600)   # linear data
     detail_scales = vector(material, "DetailScales", (1.0, 1.0, 1.0, 0.0), -900, 4850)   # bump, diffuse, gloss, alpha mask
     detail_color = custom(material, DETAIL_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT4,
                           ("D", "G", "Det", "Sc", "A", "AM"), -100, 4600)
@@ -574,6 +575,116 @@ def decal_parent(content, state):
     editing.connect_material_property(opacity, "", MP.MP_OPACITY)
     material.set_editor_property("material_domain", unreal.MaterialDomain.MD_DEFERRED_DECAL)
     material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    editing.recompile_material(material)
+    assets.save_loaded_asset(material)
+    state["base:" + name] = PARENT_VERSIONS[name]
+    return material
+
+
+# M4: the Glass shader of the source (glass.cfxb, frag_custom_begin and frag_custom_end, the path with no multi-layer
+# alpha blend). Tint = saturate(TintColor x the tint color map); with the tint mask (%TINT_MAP, read only with
+# %SPECULAR_MAP): cloudiness = saturate(TintCloudiness x K.r x K.g), tint = saturate(tint + 1 - K.r). The source color:
+# lerp(lerp(lerp(background x tint, lit tint, cloudiness), lit dirt, dirt.a), the reflection, Fresnel). Unreal (Thin
+# Translucent): the background x TransmittanceColor x (1 - Opacity) + the lit BaseColor x Opacity, and the specular
+# reflection. Thus Opacity = cloudiness + a - cloudiness x a, BaseColor = (tint x cloudiness x (1 - a) + dirt x a) /
+# Opacity, TransmittanceColor = tint. F = (%TINT_MAP and %SPECULAR_MAP, %SPECULAR_MAP, %DIRT_MAP, unused).
+GLASS_TINT_HLSL = """float3 t = saturate(TC.rgb * TM.rgb);
+float c = Cloud;
+if (F.x > 0.5) {
+  c = saturate(Cloud * K.r * K.g);
+  t = saturate(t + (1.0 - K.r));
+}
+return float4(t, c);"""
+GLASS_COVER_HLSL = """float a = F.z > 0.5 ? Dirt.a : 0.0;
+float o = T.a + a - T.a * a;
+float3 b = (T.rgb * T.a * (1.0 - a) + Dirt.rgb * DC.rgb * a) / max(o, 1e-4);
+return float4(b, o);"""
+# The F0 of the source glass: XML Specular; with %DIRT_MAP lerp(F0, 0.03, dirt.a); then %SPECULAR_MAP replaces it
+# (K.b with %TINT_MAP, else K.rgb). Unreal: Specular = lum(F0) / 0.08.
+GLASS_SPEC_HLSL = """float3 s = S;
+if (F.z > 0.5) s = lerp(s, float3(0.03, 0.03, 0.03), Dirt.a);
+if (F.y > 0.5) s = F.x > 0.5 ? K.bbb : K.rgb;
+return saturate(dot(s, float3(0.2126, 0.7152, 0.0722)) / 0.08);"""
+# The gloss: Smoothness x the gloss map, x saturate(1 - K.g x CloudinessReducesGloss) with %TINT_MAP.
+GLASS_ROUGH_HLSL = """float g = Sm * G;
+if (F.x > 0.5) g *= saturate(1.0 - K.g * R);
+return 1.0 - g;"""
+
+
+def glass_parent(content, state):
+    """@return M_SwcGlass: the parent of the Glass shader (stage M4): Translucent, the shading model Thin Translucent
+    (lighting mode Surface ForwardShading), the GLASS_*_HLSL formulas. The normal map uses TexCoord0 x BumpMapTile.
+    Limits: no refraction offset (BumpScale) and no back light (BackLightScale); the Unreal reflections."""
+    name = "M_SwcGlass"
+    material, white = parent_asset(name, content, state)
+    if material is None:
+        return assets.load_asset(f"{BASE}/{name}")
+    st = unreal.MaterialSamplerType
+    white_color = unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture")
+    flags = vector(material, "GlassFlags", (0.0, 0.0, 0.0, 0.0), -1300, 1200)
+    tint_color = vector(material, "TintColor", (1.0, 1.0, 1.0, 1.0), -1300, -400)
+    tint_map = sampler(material, "TintColorMap", st.SAMPLERTYPE_COLOR, white_color, -1300, -200)
+    tint_mask = sampler(material, "TintMask", st.SAMPLERTYPE_COLOR, white_color, -1300, 100)
+    cloud = scalar(material, "TintCloudiness", 0.0, -1300, 350)
+    tint = custom(material, GLASS_TINT_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT4,
+                  ("TC", "TM", "K", "Cloud", "F"), -900, -200)
+    editing.connect_material_expressions(tint_color, "RGBA", tint, "TC")
+    editing.connect_material_expressions(tint_map, "RGBA", tint, "TM")
+    editing.connect_material_expressions(tint_mask, "RGBA", tint, "K")
+    editing.connect_material_expressions(cloud, "", tint, "Cloud")
+    editing.connect_material_expressions(flags, "RGBA", tint, "F")
+    dirt = sampler(material, "Dirt", st.SAMPLERTYPE_COLOR, white_color, -1300, 550)
+    diffuse = vector(material, "DiffuseColor", (1.0, 1.0, 1.0, 1.0), -1300, 800)
+    cover = custom(material, GLASS_COVER_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT4,
+                   ("T", "Dirt", "DC", "F"), -600, 0)
+    editing.connect_material_expressions(tint, "", cover, "T")
+    editing.connect_material_expressions(dirt, "RGBA", cover, "Dirt")
+    editing.connect_material_expressions(diffuse, "RGB", cover, "DC")
+    editing.connect_material_expressions(flags, "RGBA", cover, "F")
+    base = mask(material, cover, "", "rgb", -350, -50)
+    editing.connect_material_property(base, "", MP.MP_BASE_COLOR)
+    opacity = mask(material, cover, "", "a", -350, 100)
+    editing.connect_material_property(opacity, "", MP.MP_OPACITY)
+    transmittance = mask(material, tint, "", "rgb", -600, -350)
+    # ThinTranslucentCommon.ush: the background x (1 - F)^2 x TransmittanceColor^(1/NoV) x (1 - Opacity) + the lit
+    # BaseColor x Opacity + the specular, all x SurfaceCoverage (1: the whole pane).
+    output = node(material, unreal.MaterialExpressionThinTranslucentMaterialOutput, -100, -350)
+    editing.connect_material_expressions(transmittance, "", output, "TransmittanceColor")
+    coverage = node(material, unreal.MaterialExpressionConstant, -350, -250)
+    coverage.set_editor_property("r", 1.0)
+    editing.connect_material_expressions(coverage, "", output, "SurfaceCoverage")
+    spec_color = vector(material, "SpecularColor", (0.04, 0.04, 0.04, 1.0), -1300, 1000)
+    specular = custom(material, GLASS_SPEC_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1,
+                      ("S", "K", "Dirt", "F"), -600, 400)
+    editing.connect_material_expressions(spec_color, "RGB", specular, "S")
+    editing.connect_material_expressions(tint_mask, "RGBA", specular, "K")
+    editing.connect_material_expressions(dirt, "RGBA", specular, "Dirt")
+    editing.connect_material_expressions(flags, "RGBA", specular, "F")
+    editing.connect_material_property(specular, "", MP.MP_SPECULAR)
+    gloss = sampler(material, "Gloss", st.SAMPLERTYPE_ALPHA, white, -1300, 1400)
+    smoothness = scalar(material, "Smoothness", 1.0, -1300, 1650)
+    reduce = scalar(material, "CloudinessReducesGloss", 0.0, -1300, 1800)
+    rough = custom(material, GLASS_ROUGH_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1,
+                   ("Sm", "G", "K", "R", "F"), -600, 700)
+    editing.connect_material_expressions(smoothness, "", rough, "Sm")
+    editing.connect_material_expressions(gloss, "R", rough, "G")
+    editing.connect_material_expressions(tint_mask, "RGBA", rough, "K")
+    editing.connect_material_expressions(reduce, "", rough, "R")
+    editing.connect_material_expressions(flags, "RGBA", rough, "F")
+    editing.connect_material_property(rough, "", MP.MP_ROUGHNESS)
+    coords = node(material, unreal.MaterialExpressionTextureCoordinate, -1700, 2000)
+    bump_tile = scalar(material, "BumpMapTile", 1.0, -1700, 2150)
+    bump_uv = multiply(material, (coords, ""), (bump_tile, ""), -1500, 2050)
+    normal = sampler(material, "Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"),
+                     -1300, 2050)
+    editing.connect_material_expressions(bump_uv, "", normal, "UVs")
+    editing.connect_material_property(normal, "RGB", MP.MP_NORMAL)
+    # The lighting mode first: Thin Translucent needs Surface ForwardShading (a compile between the two fails).
+    material.set_editor_property("translucency_lighting_mode",
+                                 unreal.TranslucencyLightingMode.TLM_SURFACE_PER_PIXEL_LIGHTING)
+    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_THIN_TRANSLUCENT)
+    material.set_editor_property("used_with_instanced_static_meshes", True)
     editing.recompile_material(material)
     assets.save_loaded_asset(material)
     state["base:" + name] = PARENT_VERSIONS[name]
@@ -739,6 +850,8 @@ def apply_specs(keys, state, force=True, content=None, max_seconds=0.0, report=N
         parents["surface masked"] = surface_parent(content, state, masked=True)
     if "decal" in wanted:
         parents["decal"] = decal_parent(content, state)
+    if "glass" in wanted:
+        parents["glass"] = glass_parent(content, state)
     for blend, name in (("opaque", "M_SwcOpaque"), ("masked", "M_SwcMasked"), ("translucent", "M_SwcTranslucent")):
         if "legacy " + blend in wanted:   # the base parents of stage 1.2 (import_content.py): an n_ instance of old rules
             parents["legacy " + blend] = assets.load_asset(f"{BASE}/{name}")

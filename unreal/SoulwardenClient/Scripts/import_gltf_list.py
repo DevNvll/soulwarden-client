@@ -3,9 +3,14 @@ in /SwcGameContent/Test/M3; docs/MATERIALS.md). Run through tools/import-gltf-li
 
 The pipelines are those of Scripts/import_content.py: P_SwcMeshNanite or P_SwcMesh, then the link pipeline (each
 slot gets the material instance of its name in /SwcGameContent/Materials). Batches of 16 (a save waits for the builds
-of the batch). A file whose folder has a static mesh is skipped (a next call continues).
-Environment: SWC_GLTF_LIST (a JSON list of {"file", "folder", "nanite"}), SWC_GLTF_MAX_SECONDS, SWC_GLTF_REPORT (the
-report file).
+of the batch). A next call continues:
+- An item with no "key" (the test import): it is skipped when its folder has a static mesh.
+- An item with "key" and "hash" (the M3 rebuild into the existing mesh folders: material_records.rebuild_convert): it
+  is skipped when the import state of the pipeline (SWC_GAME_CONTENT/import-state.json) has its hash and its folder has
+  a static mesh. After each batch the state gets the hash of each mesh of the batch, so that tools/import.sh sees them
+  as up to date.
+Environment: SWC_GLTF_LIST (a JSON list of {"file", "folder", "nanite"[, "key", "hash"]}), SWC_GLTF_MAX_SECONDS,
+SWC_GLTF_REPORT (the report file), SWC_GAME_CONTENT.
 """
 import json
 import os
@@ -28,12 +33,33 @@ pipelines = {nanite: [unreal.SoftObjectPath(sm.BASE + ("/P_SwcMeshNanite" if nan
                       unreal.SoftObjectPath(link.get_path_name())] for nanite in (True, False)}
 report = {"imported": 0, "up to date": 0, "failed": [], "incomplete": False, "batches": [], "slots with no material": 0}
 batch = []
+state_path = os.path.join(os.environ["SWC_GAME_CONTENT"], "import-state.json")
+
+
+def load_state():
+    return json.load(open(state_path)) if os.path.isfile(state_path) else {}
+
+
+def save_state(done):
+    """Writes the hash of each imported mesh into the import state of the pipeline (read again first: only these keys
+    change). The caller holds the import lock."""
+    if not done:
+        return
+    state = load_state()
+    state.update(done)
+    with open(state_path + ".tmp", "w") as handle:
+        json.dump(state, handle, indent=0, sort_keys=True)
+    os.replace(state_path + ".tmp", state_path)
+
+
+state = load_state()
 
 
 def flush():
     if not batch:
         return
     start = time.time()
+    done = {}
     for item in batch:
         try:
             sm.assets.save_directory(item["folder"], only_if_is_dirty=False, recursive=True)
@@ -41,11 +67,16 @@ def flush():
             if mesh is None:
                 raise RuntimeError("no static mesh")
             for slot in mesh.get_editor_property("static_materials"):
-                if slot.get_editor_property("material_interface") is None:
+                material = slot.get_editor_property("material_interface")   # the rule of import_content.py
+                if material is None or not material.get_path_name().startswith(sm.ROOT + "/Materials/"):
                     report["slots with no material"] += 1
+                    report.setdefault("slots", []).append(str(slot.get_editor_property("material_slot_name")))
             report["imported"] += 1
+            if "key" in item:
+                done[item["key"]] = item["hash"]
         except Exception as error:
             report["failed"].append(f"{item['file']}: {str(error)[:120]}")
+    save_state(done)
     report["batches"].append({"meshes": len(batch), "save seconds": round(time.time() - start, 1),
                               "since start": round(time.time() - started, 1)})
     batch.clear()
@@ -56,7 +87,8 @@ for item in items:
     if max_seconds and time.time() - started > max_seconds:
         report["incomplete"] = True
         break
-    if sm.assets.does_directory_exist(item["folder"]) and sm.first_asset(item["folder"], "StaticMesh") is not None:
+    exists = sm.assets.does_directory_exist(item["folder"]) and sm.first_asset(item["folder"], "StaticMesh") is not None
+    if exists and ("key" not in item or state.get(item["key"]) == item["hash"]):
         report["up to date"] += 1
         continue
     parameters = unreal.ImportAssetParameters()
@@ -71,6 +103,7 @@ for item in items:
 flush()
 report["seconds"] = round(time.time() - started, 1)
 report["failures"] = report["failed"][:20]
+report["slots"] = sorted(set(report.get("slots", [])))[:20]
 report["failed"] = len(report["failed"])
 with open(report_path, "w") as handle:
     json.dump(report, handle, indent=1)

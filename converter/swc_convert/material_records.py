@@ -25,6 +25,9 @@ Usage (tools/convert-materials.sh):
   decals export NAME... | specs | scan NAME...   the roads and the projected decals of regions (decals.py: the
                        road meshes, the decal list, layer.json for the client) and the specs of their materials
   frames LOG...        the frame time of runs with -SwcFrameStats, for each view place (the cost checks)
+  rebuild-set          the meshes of the M3 rebuild (mesh rule 7) -> SWC_CONTENT/materials/rule7-meshes.json
+  rebuild-convert      convert them with rule 7 (the manifest records) and write rebuild-import.json (the list of
+                       tools/import-gltf-list.sh --state: the existing mesh folders)
   chains               the exit check of M0: the source chains of the research proofs and the on/off overrides
   proof-plan [STAGE]   the meshes and variants of the render check of a stage (Scripts/material_proof.py)
   record MTL [INDEX]   print the rich records of one material file
@@ -83,7 +86,10 @@ PARAMS = {
 
 # Color spaces of the sampler roles (research section 3, "sRGB rules"): srgb = sRGB RGB and linear alpha; normal = the
 # normal map compression; linear = data; raw = the source sampler has no sRGB lookup (emittance).
-COLOR = {"diffuse": "srgb", "normal": "normal", "gloss": "linear", "specular": "srgb", "detail": "srgb",
+# The color space of each role (the sRGBLookup of the source sampler). A sampler with sRGBLookup decodes sRGB only for
+# an sRGB file (file_srgb): the detail maps are linear files (383 of 385: data_texture), and 8 diffuse and 4 specular
+# files are linear (a limit: they are imported as sRGB).
+COLOR = {"diffuse": "srgb", "normal": "normal", "gloss": "linear", "specular": "srgb", "detail": "file",
          "diffuse2": "srgb", "normal2": "normal", "gloss2": "linear", "specular2": "linear", "blend mask": "linear",
          "overlay mask": "data", "transmission": "linear", "decal opacity": "linear", "height": "linear",
          "height2": "linear", "emittance": "raw", "emittance intensity": "raw", "occlusion": "linear",
@@ -383,7 +389,10 @@ def primitive_slots(mesh: str, gltf_file: Path) -> list[tuple[int, str]] | None:
     for (mat, ni), prim in zip(order, prims):
         if doc["accessors"][prim["indices"]]["count"] != ni:
             return None
-        out.append((mat, names[prim["material"]]))
+        name = names[prim["material"]]
+        if name.startswith("n_"):   # mesh rule 7 names a slot by its instance key: the legacy key of its sub-material
+            name = legacy_key(subs[mat] if 0 <= mat < len(subs) else None)
+        out.append((mat, name))
     return out
 
 
@@ -763,16 +772,41 @@ def linear_texture(product: str, alpha: bool = False) -> dict:
     return {"asset": key, "file": str(out.relative_to(env.content_dir())), "color": "linear", "cap": CAP}
 
 
-def data_texture(product: str) -> dict:
+# The DXGI formats with an sRGB view, and the sRGB flag of the game's DDS header (the second reserved word; for example
+# 0x200800 for a BC1_UNORM_SRGB diffuse, 0x200000 for a BC7_UNORM detail map). The two agree in all 4,478 files of
+# the sRGB roles.
+SRGB_FORMATS = {29, 72, 75, 78, 91, 93, 99}
+SRGB_FLAG = 0x800
+
+
+@functools.lru_cache(maxsize=16384)
+def file_srgb(product: str) -> bool:
+    """@return True when a texture file is sRGB (an _SRGB DXGI format, or the sRGB flag of a legacy header). A sampler
+    of the source with sRGBLookup = true decodes sRGB only for such a file; the other files are read as they are."""
+    head = source.read(product)[:148]
+    if head[84:88] == b"DX10":
+        return struct.unpack_from("<I", head, 128)[0] in SRGB_FORMATS
+    return bool(struct.unpack_from("<I", head, 36)[0] & SRGB_FLAG)
+
+
+def data_texture(product: str, decode: bool = False) -> dict:
     """Writes all channels of a texture product as an RGBA PNG for linear data (once) and @return its record: an
-    overlay mask (the Custom slot with %OVERLAY_MASK or %COLOR_SAMPLER_OVERLAY_MASK). Unreal imports it as linear
-    data with alpha (TC_Masks)."""
-    key = f"texture:{product}@data"
-    out = env.content_dir() / "textures" / f"d{LINEAR_VERSION}-{CAP}" / (product[:-4] + ".png")
+    overlay mask (the Custom slot with %OVERLAY_MASK or %COLOR_SAMPLER_OVERLAY_MASK), a detail map. Unreal imports it
+    as linear data with alpha (TC_Masks). `decode`: the file is sRGB and the source sampler decodes it (sRGBLookup):
+    the PNG has the decoded RGB values (the alpha stays)."""
+    key = f"texture:{product}@data" + ("-decoded" if decode else "")
+    out = env.content_dir() / "textures" / (f"d{LINEAR_VERSION}-{CAP}" + ("-decoded" if decode else "")) / (product[:-4] + ".png")
     if not out.is_file():
         from . import dds
         data, w, h, fmt = dds.join(source.read, product, CAP)
         image = dds.to_image(data, w, h, fmt).convert("RGBA")
+        if decode:
+            import numpy as np
+            from PIL import Image
+            a = np.asarray(image).astype(np.float64) / 255.0
+            rgb = a[..., :3]
+            a[..., :3] = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+            image = Image.fromarray(np.round(a * 255.0).astype(np.uint8), "RGBA")
         out.parent.mkdir(parents=True, exist_ok=True)
         temporary = out.with_name(f".{out.name}.tmp.png")
         image.save(temporary)
@@ -798,15 +832,20 @@ def spec_of(rules: dict, legacy: dict, textures: dict) -> dict | None:
     Opacity map is the transmission), and the base color with its own alpha for each other masked material whose
     base color had the Opacity map as its alpha. `legacy` is the manifest record of the key; `textures` collects
     the texture records."""
-    if rules.get("missing") or rules["blend"] not in ("masked", "opaque"):
+    if rules.get("missing"):
         return None
-    if rules["blend"] == "opaque" and not (rules["family"] == "illum" and "m2" in STAGES):
-        return None
-    maps = rules["textures"]
 
     def use(record: dict) -> str:
         textures[record["asset"]] = {k: v for k, v in record.items() if k != "asset"}
         return record["asset"]
+
+    if rules["family"] == "glass" and "glass" in STAGES:
+        return glass_spec(rules, use)
+    if rules["blend"] not in ("masked", "opaque"):
+        return None
+    if rules["blend"] == "opaque" and not (rules["family"] == "illum" and "m2" in STAGES):
+        return None
+    maps = rules["textures"]
 
     if rules["family"] == "vegetation":
         spec = {"parent": "foliage", "textures": {}, "vectors": {}, "scalars": {},
@@ -936,7 +975,9 @@ def m3b(rules: dict, spec: dict, use) -> None:
         spec["scalars"]["BlendMaskTiling"] = value("BlendMaskTiling", 1.0)
     if "%DETAIL_MAPPING" in flags and "detail" in maps:
         switches["Detail"] = True
-        spec["textures"]["Detail"] = use(color_texture(maps["detail"]["product"], "base"))
+        # The source detail sampler decodes sRGB only for an sRGB file (383 of the 385 detail maps are linear).
+        product = maps["detail"]["product"]
+        spec["textures"]["Detail"] = use(data_texture(product, decode=file_srgb(product)))
         spec["vectors"]["DetailTransform"] = uv_transform(maps["detail"].get("uv"))
         spec["vectors"]["DetailScales"] = [value("DetailBumpScale", 0.5), value("DetailDiffuseScale", 0.5),
                                            value("DetailGlossScale", 0.5),
@@ -963,6 +1004,43 @@ def m4(rules: dict, spec: dict, use) -> None:
     gamma = rules["params"].get("EmittanceMapGamma", 1.0)
     spec["vectors"]["EmittanceParams"] = [float(gamma[0] if isinstance(gamma, list) else gamma), 1.0 if has_map else 0.0,
                                           0.0, 0.0]
+
+
+def glass_spec(rules: dict, use) -> dict:
+    """@return The spec of a Glass material (stage M4, swc_materials.glass_parent): TintColor, TintCloudiness, the tint
+    color map (Custom), the tint mask (Specular: %TINT_MAP with %SPECULAR_MAP), the dirt (Diffuse with %DIRT_MAP and the
+    XML Diffuse), the XML Specular (F0), the gloss and Smoothness, the normal map and BumpMapTile."""
+    maps, params, flags = rules["textures"], rules["params"], set(rules["flags"])
+
+    def value(name: str, default: float) -> float:
+        v = params.get(name, default)
+        return float(v[0] if isinstance(v, list) else v)
+
+    spec = {"parent": "glass", "textures": {}, "vectors": {}, "scalars": {}, "two sided": rules["two sided"]}
+    if "normal" in maps:
+        spec["textures"]["Normal"] = use(color_texture(maps["normal"]["product"], "normal"))
+    if "gloss" in maps:
+        product = maps["gloss"]["product"]
+        spec["textures"]["Gloss"] = use(linear_texture(product, alpha=source.has(product + ".a")))
+    if "tint color" in maps:
+        spec["textures"]["TintColorMap"] = use(color_texture(maps["tint color"]["product"], "base"))
+    tint_mask = "tint mask" in maps and "%SPECULAR_MAP" in flags   # the source reads it only with %SPECULAR_MAP
+    if tint_mask:
+        spec["textures"]["TintMask"] = use(color_texture(maps["tint mask"]["product"], "base"))
+    if "dirt" in maps and "%DIRT_MAP" in flags:
+        spec["textures"]["Dirt"] = use(color_texture(maps["dirt"]["product"], "base"))
+    tint = params.get("TintColor", [1.0, 1.0, 1.0])
+    tint = list(tint) if isinstance(tint, list) else [float(tint)] * 3
+    spec["vectors"]["TintColor"] = (tint + [1.0, 1.0, 1.0])[:3] + [1.0]
+    spec["vectors"]["SpecularColor"] = rules["specular"] + [1.0]
+    spec["vectors"]["DiffuseColor"] = rules["diffuse"] + [1.0]
+    spec["vectors"]["GlassFlags"] = [1.0 if tint_mask and "%TINT_MAP" in flags else 0.0, 1.0 if tint_mask else 0.0,
+                                     1.0 if "%DIRT_MAP" in flags and "dirt" in maps else 0.0, 0.0]
+    spec["scalars"]["TintCloudiness"] = value("TintCloudiness", 0.0)
+    spec["scalars"]["CloudinessReducesGloss"] = value("CloudinessReducesGloss", 0.0)
+    spec["scalars"]["BumpMapTile"] = value("BumpMapTile", 1.0)
+    spec["scalars"]["Smoothness"] = max(1 / 127, float(rules["shininess"]) / 255)
+    return spec
 
 
 def uv_limits(rules: dict) -> list[str]:
@@ -1066,15 +1144,14 @@ def instances(candidate: tuple[str, ...] = ()) -> dict:
             except Exception as error:
                 errors[legacy] = str(error)[:160]
                 continue
-            if spec is None:
-                continue
-            spec.update({"render": main, "source": source_of.get(main), "slots": renders[main],
-                         "other render keys": {k: v for k, v in renders.items() if k != main}})
-            specs[legacy] = spec
-            kind = spec["parent"] or "base color only"
-            counts[kind] = counts.get(kind, 0) + 1
-            for limit in uv_limits(records["render rules"][main]):
-                limits[limit] = limits.get(limit, 0) + 1
+            if spec is not None:   # None: the instance of the key keeps the rules of stage 1.2
+                spec.update({"render": main, "source": source_of.get(main), "slots": renders[main],
+                             "other render keys": {k: v for k, v in renders.items() if k != main}})
+                specs[legacy] = spec
+                kind = spec["parent"] or "base color only"
+                counts[kind] = counts.get(kind, 0) + 1
+                for limit in uv_limits(records["render rules"][main]):
+                    limits[limit] = limits.get(limit, 0) + 1
             # A1: an instance n_RENDER for each other render key of the legacy key (materials.instance_key gives it to a
             # source sub-material): its own rules; the stage 1.2 rules of its own source when no stage rule applies.
             for render in renders:
@@ -1130,7 +1207,10 @@ PROOF_M3 = [("plot-shell", "slices/structures/plots/house_plots/ef_msq_2_house_p
             ("plot-walls", "slices/structures/plots/house_plots/ef_msq_2_house_plots/ef_2story_9x15_ab__28236438930.cgf"),
             ("timber", "objects/crafting/architecture/crafting_structures/baseframe/jav_struc_craft_t2_abnd.cgf"),
             ("lamp", "objects/crafting/props/props_everfall/decor/everfall_lightpole_a.cgf"),
-            ("boulder", "objects/nature/rock_boulders/boulders_forest/jav_fst_boulder_sm_b.cgf")]
+            ("boulder", "objects/nature/rock_boulders/boulders_forest/jav_fst_boulder_sm_b.cgf"),
+            # M4 glass: the window panes (the tint mask and the dirt) and a small bottle (the tint mask as F0)
+            ("windows", "objects/crafting/architecture/living_structures/everfall/housing/everfall_living_story_9x15_h.cgf"),
+            ("tincture", "objects/crafting/props/shopwares/alchemyprops/tincture_t1.cgf")]
 
 
 def proof_plan_test(stage: str) -> dict:
@@ -1231,6 +1311,83 @@ def proof_sheet(stage: str, evidence: Path | None = None) -> dict:
     return {"sheet": str(out)}
 
 
+# The M3 rebuild (A3 included): the meshes that need mesh rule 7, their conversion, and the list of the import into the
+# existing mesh folders (tools/import-gltf-list.sh: the import state of the pipeline is written, so that
+# tools/import.sh sees them as up to date).
+REBUILD_FLAGS = {"%VERTCOLORS", "%BLENDLAYER", "%DETAIL_BENDING"}
+
+
+def rebuild_set() -> dict:
+    """Writes SWC_CONTENT/materials/rule7-meshes.json: each converted mesh with a collapsed slot (source slots with
+    different render rules), a slot whose rules are not the main rules of its legacy key (A3: it needs its n_ instance),
+    or vertex data (%VERTCOLORS, %BLENDLAYER, %DETAIL_BENDING). mesh.convert gives these meshes rule 7. @return The counts."""
+    rules = json.loads((out_dir() / "records.json").read_text())["render rules"]
+    slot_table = json.loads((out_dir() / "slots.json").read_text())["meshes"]
+    collapsed = {c["mesh"] for c in json.loads((out_dir() / "audit.json").read_text())["collapsed"]}
+    mains = main_keys()
+    census_file = env.content_dir() / "census" / "meshes.json"
+    census = {r["mesh"]: r for r in json.loads(census_file.read_text())} if census_file.is_file() else {}
+    parts: dict[str, set] = {"collapsed": set(), "A3": set(), "vertex data": set()}
+    for mesh, out in slot_table.items():
+        if mesh in collapsed:
+            parts["collapsed"].add(mesh)
+        for _index, legacy, render in out:
+            if not render:
+                continue
+            if mains.get(legacy, render) != render:
+                parts["A3"].add(mesh)
+            if set(rules[render].get("flags", [])) & REBUILD_FLAGS:
+                parts["vertex data"].add(mesh)
+    union = sorted(set().union(*parts.values()))
+
+    def triangles(meshes) -> float:
+        return round(sum(census.get(m, {}).get("drawn triangles", 0) for m in meshes) / 1e6, 1)
+
+    counts = {k: {"meshes": len(v), "M triangles": triangles(v)} for k, v in parts.items()}
+    counts["rebuild"] = {"meshes": len(union), "M triangles": triangles(union)}
+    write_json(out_dir() / "rule7-meshes.json", {"version": SPEC_VERSION, "counts": counts, "meshes": union})
+    from . import mesh as mesh_module
+    mesh_module.rule7_meshes.cache_clear()
+    return counts
+
+
+def rebuild_one(path: str) -> dict:
+    from . import mesh as mesh_module
+    try:
+        # force: the check of an existing output reads the whole manifest (slow for each mesh); a conversion again gives
+        # the same file and hash.
+        return mesh_module.convert(path, force=True, write_manifest=False, rule=mesh_module.RULE_COLORS)
+    except Exception as error:
+        return {"mesh": path, "error": str(error)[:160]}
+
+
+def rebuild_convert(workers: int = 4) -> dict:
+    """Converts the meshes of rule7-meshes.json with rule 7, writes their
+    manifest records one time, and writes SWC_CONTENT/materials/rebuild-import.json: the list of
+    tools/import-gltf-list.sh (each glTF, its existing mesh folder, Nanite, the manifest key and hash). @return The counts."""
+    from concurrent.futures import ProcessPoolExecutor
+    from . import mesh as mesh_module
+    started = time.time()
+    todo = json.loads((out_dir() / "rule7-meshes.json").read_text())["meshes"]
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        reports = list(pool.map(rebuild_one, todo, chunksize=16))
+    converted = [r for r in reports if "entry" in r]
+    if converted:
+        manifest.add_many(mesh_module.records_of(converted))
+    assets = manifest.load()["assets"]
+    items = []
+    for path in todo:
+        entry = assets.get(path)
+        if entry and entry.get("version") == mesh_module.RULE_COLORS:
+            items.append({"key": path, "hash": entry["hash"], "file": str(env.content_dir() / entry["file"]),
+                          "folder": entry["unreal"], "nanite": entry.get("nanite", True)})
+    write_json(out_dir() / "rebuild-import.json", items)
+    errors = [r for r in reports if "error" in r]
+    return {"meshes": len(todo), "converted": len(converted), "errors": len(errors), "first errors": errors[:5], "import list": len(items),
+            "M triangles converted": round(sum(r.get("triangles", 0) for r in converted) / 1e6, 1),
+            "seconds": round(time.time() - started, 1)}
+
+
 def frames(logs: list[str]) -> dict:
     """@return The frame time of runs with -SwcFrameStats (Source/SoulwardenClient/World/SwcFrameStats): for each log and
     each view place (the "view m" of the lines, to 1 m), the median of the p50 and p95 values of its windows after
@@ -1328,7 +1485,7 @@ def same(a, b, tolerance: float = 1e-6) -> bool:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] not in ("audit", "instances", "proof-plan", "proof-sheet", "chains", "record", "decals",
-                                   "frames"):
+                                   "frames", "rebuild-set", "rebuild-convert"):
         print(__doc__)
         return 2
     if argv[0] == "audit":
@@ -1339,6 +1496,10 @@ def main(argv: list[str] | None = None) -> int:
         result = chains()
     elif argv[0] == "frames":
         result = frames(argv[1:])
+    elif argv[0] == "rebuild-set":
+        result = rebuild_set()
+    elif argv[0] == "rebuild-convert":
+        result = rebuild_convert()
     elif argv[0] == "decals":
         from . import decals
         result = decals.main(argv[1:])

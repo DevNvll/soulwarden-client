@@ -27,8 +27,11 @@ if ! grep -q "SWC PROOF" "${evidence}/proof-${SWC_PROOF_STAGE}.log"; then
     status=1
 fi
 # A material that does not compile: Unreal draws its default material (the log has a warning, not an error).
-# Only the lines after "parents ready": a parent of an older version can fail at its load, before it is made again.
-if sed -n '/SWC parents ready/,$p' "${SWC_WORK}/logs/material_proof.log" | grep "Failed to compile Material" \
+# Only the lines of the project log after "parents ready" (the standard output has no "SWC" line): a parent can
+# fail at its load, or while its graph is made again. The summary at the exit ("LogInit: Display:") repeats the older
+# warnings: not these lines.
+if sed -n '/SWC parents ready/,$p' "${SWC_REPO}/unreal/SoulwardenClient/Saved/Logs/SoulwardenClient.log" \
+        | grep -v "LogInit: Display:" | grep "Failed to compile Material" \
         | grep -o "/SwcGameContent/[A-Za-z0-9_/.]*" | sort -u | grep .; then
     echo "material-proof: a material does not compile" >&2
     status=1

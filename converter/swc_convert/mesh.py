@@ -1,7 +1,9 @@
 """Static meshes (.cgf + .cgfheap) -> glTF 2.0 with PNG textures."""
 from __future__ import annotations
 
+import functools
 import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
@@ -45,6 +47,19 @@ VERSION = 6
 RULE_COLORS = 7
 
 
+@functools.lru_cache(maxsize=1)
+def rule7_meshes() -> frozenset:
+    """@return The meshes of the M3 rebuild (SWC_CONTENT/materials/rule7-meshes.json, material_records.rebuild_set):
+    convert() gives them rule 7 when the caller asks for the default rule, so that a later conversion keeps rule 7."""
+    p = env.content_dir() / "materials" / "rule7-meshes.json"
+    return frozenset(json.loads(p.read_text())["meshes"]) if p.is_file() else frozenset()
+
+
+def rule_for(path: str, rule: int = VERSION) -> int:
+    """@return The rule of a conversion: rule 7 for a mesh of the M3 rebuild when the caller asks for the default rule."""
+    return RULE_COLORS if rule == VERSION and path.lower() in rule7_meshes() else rule
+
+
 def vertex_colors(colors) -> np.ndarray | None:
     """@return COLOR_0 (n, 4) of the source colors (n, 4) uint8 B, G, R, A (the interleaved vertex of the chunk file):
     RGBA, the RGB as the linear value whose sRGB encoding is the source byte. Unreal stores a vertex color as sRGB bytes
@@ -76,6 +91,7 @@ def convert(path: str, force: bool = False, write_manifest: bool = True, rule: i
     record (materials.shared_material); the textures are their own assets. All chunks are one glTF mesh with one node
     (Interchange makes one static mesh asset for each node). @return A report with the manifest records."""
     path = path.lower()
+    rule = rule_for(path, rule)
     out = out or out_path(path)
     if not force and out.is_file():
         entry = manifest.load()["assets"].get(path, {})
@@ -130,9 +146,13 @@ def convert(path: str, force: bool = False, write_manifest: bool = True, rule: i
     w.doc["scenes"][0]["nodes"] = [w.node(name=Path(path).stem, mesh=w.mesh(Path(path).stem, prims))]
     w.save(out)
     translucent = any(r["blend"] == "translucent" for r in records.values())
-    names = sorted(m["name"] for m in w.doc["materials"]) if rule >= RULE_COLORS else sorted(records)
+    # "materials": the keys of the material records (the import pipeline makes and sets their instances); rule 7 also
+    # gives "slots": the slot names (the instance keys; an n_ instance has no record: swc_materials makes it).
     entry = {"kind": "static", "file": str(out.relative_to(env.content_dir())) if out.is_relative_to(env.content_dir())
-             else str(out), "version": rule, "hash": file_hash(out), "materials": names, "nanite": not translucent}
+             else str(out), "version": rule, "hash": file_hash(out), "materials": sorted(records),
+             "nanite": not translucent}
+    if rule >= RULE_COLORS:
+        entry["slots"] = sorted(m["name"] for m in w.doc["materials"])
     report.update({"entry": entry, "materials": list(records.values()), "textures": list(textures.values())})
     if write_manifest:
         manifest.add_many(records_of([report]))

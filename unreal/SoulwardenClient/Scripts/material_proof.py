@@ -100,6 +100,7 @@ for key in sorted(needed):
 parents["foliage"] = sm.foliage_parent(content, state)
 parents["surface"] = sm.surface_parent(content, state, masked=False)
 parents["surface masked"] = sm.surface_parent(content, state, masked=True)
+parents["glass"] = sm.glass_parent(content, state)
 sm.log("parents ready")   # tools/material-proof.sh checks the compile warnings after this line
 with open(state_path + ".tmp", "w") as handle:
     json.dump(state, handle, indent=0, sort_keys=True)

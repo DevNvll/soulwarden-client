@@ -49,7 +49,7 @@ scripts of the research (section 3).
 | Bumpmap | normal | `%NORMAL_MAP` | normal (BC5) |
 | Smoothness | gloss (the alpha image of the normal map) | always | linear |
 | Specular | specular | `%SPECULAR_MAP` | sRGB |
-| Detail | detail | `%DETAIL_MAPPING` | sRGB RGB, linear alpha |
+| Detail | detail | `%DETAIL_MAPPING` | the file: 383 of 385 are linear files (see below) |
 | Custom | diffuse2 with `%BLENDLAYER`; overlay mask with `%OVERLAY_MASK` or `%COLOR_SAMPLER_OVERLAY_MASK` (`$CustomMap`) | one of these flags | sRGB / linear |
 | [1] Custom, SecondSmoothness, Specular2, SubSurface | normal2, gloss2, specular2, height2 | `%BLENDLAYER` | normal / linear |
 | Opacity | Vegetation: transmission. Illum: blend mask (`%BLENDLAYER`), decal opacity (`%DECAL`), transmission (`%TRANSMITTANCE`) | see the role | linear |
@@ -61,6 +61,14 @@ scripts of the research (section 3).
 
 The Glass shader has its own table: Specular is the tint mask (`%TINT_MAP` or `%SPECULAR_MAP`), Custom the tint
 color (`%TINT_COLOR_MAP`), Diffuse the dirt (`%DIRT_MAP`), SecondSmoothness the cloud gloss.
+
+The sRGB decode: a source sampler with `sRGBLookup = true` (diffuse, specular, detail, the diffuse of the blend
+layer, the glass tint maps) decodes sRGB only when the file is sRGB: an `_SRGB` DXGI format, or the flag 0x800 in the
+second reserved word of a legacy header (`material_records.file_srgb`; the two agree in all 4,478 files of these roles).
+A sampler without it (the blend mask, the gloss, the overlay mask, the emission, the second normal, gloss, and
+specular) reads the values as they are. The detail maps are linear files (383 of 385): they import as linear data
+(`texture:PRODUCT@data`; the 2 sRGB files as `@data-decoded`, with the decoded RGB). Limit: 8 diffuse and 4 specular
+files are linear (mostly default textures); they import as sRGB.
 
 Important: the cutout of a masked material is the alpha of the diffuse map, for both shaders. Before stage M1, the
 converter put the Opacity map into the alpha of the base color. That is wrong: for Vegetation the Opacity map is
@@ -171,11 +179,32 @@ sub-material: the legacy key for the main rules, else its `n_` key. The override
 | M3a overlay masks | `MaskTex` (the Custom slot, linear RGBA), `MaskMode`, `MaskColorR/G/B`, `MaskAmount`, `MaskOverride`, `MaskExtra`, `MaskSpecColor` | `AddMasking` (charactermasking.cfib) after the diffuse factor |
 | M3b blend layer (static switch `Blend`) | `Diffuse2`, `Normal2`, `Gloss2`, `Specular2`, `BlendMask`, `BlendParams` (BlendFactor, BlendFalloff, -, ignore vertex alpha), `BlendLayer2Diffuse`, `BlendLayer2Specular`, `BlendLayer2Smoothness` (/256), `BlendLayer2Tiling`, `BlendMaskTiling` | b = saturate(abs(vertex alpha x mask.r x (1 + BlendFactor)) ^ BlendFalloff) (shadelib `GetLayerBlendingValue`); lerp of the diffuse, specular, smoothness, and tangent normal |
 | M3b vertex colors | `UseVertexColor` | `%VERTCOLORS`: albedo x vertex RGB |
-| M3b detail (static switch `Detail`) | `Detail`, `DetailTransform`, `DetailScales` (bump, diffuse, gloss, alpha mask) | `GetDetailMap`: sample.garb x 2 - 1; normal.xy += x y; D += D x z; s += s x w |
+| M3b detail (static switch `Detail`) | `Detail` (linear data), `DetailTransform`, `DetailScales` (bump, diffuse, gloss, alpha mask) | `GetDetailMap`: sample.garb x 2 - 1; normal.xy += x y; D += D x z; s += s x w |
 | M4 emission (static switch `Emissive`) | `Emittance`, `EmissiveIntensity` (raw data), `EmittanceColor` (RGB, A), `EmittanceParams` (gamma, has map); the global `EmissiveScale` of `MPC_SwcMaterials` | `GetEmittance`: Emittance RGB x A x 0.1 x (map x lum^(gamma - 1) x intensity x map.a, or 0.5) |
 
 The order is the order of the source forward pass: D = diffuse x XML Diffuse, the blend layer, x vertex RGB, the detail,
 the overlay masks, then the F0 split. A static switch makes one shader for each combination that the instances use.
+
+### M_SwcGlass (M4, approved: the stage label `glass`)
+
+The parent of the Glass shader (70 specs): Translucent, the shading model Thin Translucent (lighting mode Surface
+ForwardShading).
+
+| Part | Parameters | Source (glass.cfxb) |
+| --- | --- | --- |
+| Tint | `TintColor`, `TintColorMap` (Custom, %TINT_COLOR_MAP) | tint = saturate(TintColor x map) |
+| Cloudiness | `TintCloudiness`, `TintMask` (Specular, %TINT_MAP with %SPECULAR_MAP) | c = saturate(TintCloudiness x K.r x K.g); tint = saturate(tint + 1 - K.r) |
+| Dirt | `Dirt` (Diffuse, %DIRT_MAP), `DiffuseColor` | the lit dirt over the glass with its alpha; F0 goes to 0.03 |
+| F0, gloss | `SpecularColor`, `Gloss`, `Smoothness`, `CloudinessReducesGloss` | %SPECULAR_MAP: F0 = K.rgb (K.b with %TINT_MAP); gloss x saturate(1 - K.g x CloudinessReducesGloss) |
+| Normal | `Normal`, `BumpMapTile` | the UV x BumpMapTile |
+| Flags | `GlassFlags` (tint mask, specular map, dirt, -) | |
+
+The source color is lerp(lerp(lerp(background x tint, lit tint, c), lit dirt, dirt.a), the reflection, Fresnel).
+Unreal (ThinTranslucentCommon.ush) gives the background x TransmittanceColor x (1 - Opacity) + the lit BaseColor x
+Opacity + the specular. Thus TransmittanceColor = tint, Opacity = c + a - c x a, BaseColor = (tint x c x (1 - a) +
+dirt x a) / Opacity. Unreal also squares the Fresnel loss and darkens the tint at grazing views (a better model; the
+decision of the user to keep what Unreal does better). Limits: no refraction offset (`BumpScale`), no back light
+(`BackLightScale`).
 
 ### Mesh rule 7 (M3, an option of `mesh.convert` until the rollout)
 
@@ -186,7 +215,53 @@ the overlay masks, then the F0 split. A static switch makes one shader for each 
 - The slot of each sub-material is named by `materials.instance_key`: one slot for each set of render rules (no
   collapsed slot, no wrong rules of a shared key).
 - The cost measure on Oxboro (the rebuild set of `r_+04_+02`: 1,924 meshes, 16.9 M triangles) imports into
-  `/SwcGameContent/Test/M3` (`tools/import-gltf-list.sh`), apart from the world.
+  `/SwcGameContent/Test/M3` (`tools/import-gltf-list.sh`), apart from the world: 829.6 s of import, 0 failures, the
+  plugin +1.3 % (727.7 MB against 718.2 MB).
+- The manifest entry of a rule 7 mesh keeps `materials` (the keys of the material records: the import pipeline makes
+  their instances) and adds `slots` (the slot names). The audit reads an `n_` slot name as the legacy key of its
+  sub-material.
+
+The rebuild (M3 with A3; decision of the orchestrator: after the world pass, step c, never at the same time as a cell
+build of the world track):
+
+```sh
+tools/convert-materials.sh rebuild-set       # content/materials/rule7-meshes.json: mesh.convert gives them rule 7
+tools/convert-materials.sh rebuild-convert   # the rule 7 glTFs, their manifest records, materials/rebuild-import.json
+tools/import-gltf-list.sh ~/Games/soulwarden-client/content/materials/rebuild-import.json REPORT.json \
+    --max-seconds 300 --wait 7200            # again until "incomplete" is false
+```
+
+- The set: each mesh with a collapsed slot, a slot whose rules are not the main rules of its legacy key (A3), or vertex
+  data (`%VERTCOLORS`, `%BLENDLAYER`, `%DETAIL_BENDING`): 13,323 meshes, 163.7 M triangles.
+- The import replaces the meshes in their folders (the asset paths stay) and writes the hash of each mesh into the
+  import state of the pipeline (`import-state.json`): `tools/import.sh` sees them as up to date. A call also holds
+  `world-build.lock` exclusively when it exists (runs stream these meshes).
+- The n_ instances of the slots must exist first (`tools/apply-materials.sh`).
+- Then the world track builds the cells with overrides again: the slot names changed (A2b: `overrides.py` names the
+  slots with `materials.instance_key`).
+
+### M6 wind (the design; not built)
+
+The source (modificatorvt.cfib `_VTBending`, `_DetailBending`, `_MainBending`; vegetation.cfxb):
+
+- The Vegetation shader reads the vertex RGB as bend data, not as a color: R = the leaf edge amplitude, G = the branch
+  phase, B = 1 - the branch amplitude. Do not multiply the foliage albedo by the vertex RGB.
+- The vertex alpha is an occlusion: the diffuse and the specular color x vertex alpha (the deferred path).
+- Detail bending (168 vegetation records with `%DETAIL_BENDING`): the material parameters `bendDetailFrequency`,
+  `bendDetailLeafAmplitude`, `bendDetailBranchAmplitude`; four triangle waves of the time + the vertex phase + the
+  object phase (dot(world position, 2)); the leaf edge moves along the vertex normal.xy, the branch along Z. Grass
+  (`%GRASS`) multiplies the speed by a world noise (`SimpleWindNoise`).
+- The speed of the detail bending and the main bending (the whole plant bends along the wind: xy += wind x (z x
+  bend)^2, with the length kept) use per-instance bend data: the wind of the frame x the bend value of the instance.
+  With no bend data (bend 0) the plant does not move.
+- The mesh components of the slices have a flag `ReceiveWind` (in the render options). Oxboro: 1,561 vegetation
+  components with the flag, 861 without it. The bend value of the cover (`.vegetation` descriptors: Bending / 100)
+  is in the terrain research.
+
+The plan: a world position offset in `M_SwcFoliage` with the source formulas, the global wind (direction, strength,
+time) in `MPC_SwcMaterials`, and the vertex alpha occlusion. It needs mesh rule 7 (the vertex colors) and a per-instance
+flag from the cell builder of the world track (`ReceiveWind`, for example in the custom primitive data). Check: a video
+side by side with a retail development video.
 
 ## The surface layer (S1 with M5)
 
