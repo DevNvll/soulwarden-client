@@ -42,8 +42,8 @@ done
 sleep 5
 grep -h "SWC FLYTHROUGH\|Critical error" "${log}" | cut -c30- || echo "flythrough: no summary in ${log}" >&2
 if [[ -n "${every}" && -n "$(ls "${frames}" 2>/dev/null | head -1)" ]]; then
-    rate=$((60 / every))
-    ffmpeg -loglevel error -y -framerate "${rate}" -pattern_type glob -i "${frames}/*.png" \
+    rate="60/${every}"   # a fraction: EVERY can be more than 60 (an integer division gave 0)
+    ffmpeg -loglevel error -y -framerate "${rate}" -pattern_type glob -i "${frames}/*.png" -vf fps=30 \
         -c:v libx264 -pix_fmt yuv420p -crf 23 -preset medium "${out}/flythrough.mp4"
     echo "video: ${out}/flythrough.mp4 ($(ls "${frames}" | wc -l) pictures, ${rate} pictures each second)"
     rm -rf "${frames}"
