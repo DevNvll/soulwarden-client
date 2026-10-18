@@ -91,8 +91,11 @@ The values are the `CameraLockComponent` of the player slice:
 While the lock is on, the mouse does not turn the camera. The targets are the living creatures of the creature view at
 their shown feet (`USwcCreatureSubsystem::GetTargets`, stage P2.6; a dead creature is not a target). With no creature
 view the targets are the other entities of the backend with a position (`FSwcRepConnection::FSnapshot::Others`). The
-point of a target is 1.0 m above its feet (an inference). The client draws no sphere at the targets now: the creatures
-have their models.
+point of a target is the lock point of its slice (stage P3.5: the CameraLockTargetComponent, `USwcCreatureSubsystem::GetLockPoint`;
+the wolf: 1.0 m above the feet; [CREATURES.md](CREATURES.md)), and with no creature view 1.0 m above its feet (an inference).
+When the component limits the pitch of its observer (`m_limitObserverPitch`), the camera pitch to the target stays in that
+range and in the range of the player (an inference: both ranges apply). The client draws no sphere at the targets now: the
+creatures have their models (`-SwcLockPoints` draws the lock points).
 
 `DisableCameraLock` of the camera action list (stage P2.6):
 
@@ -168,7 +171,7 @@ Evidence in `~/Games/soulwarden-client/evidence/P2.6/`:
 - The inputs of the Z strength curves and the fields of the lower Z limit are inferences.
 - `SuppressVerticalCameraMovement` of the fall actions, the tilt-based zoom (option off), the self-correcting follow
   camera (off for mouse and keyboard), and the gamepad are not in the client.
-- The lock: the near zone rules (`lookAtNearZone...`), the target position springs, and the lock point of a creature
-  are not read; the vertical mouse switch is not in the client.
+- The lock: the near zone rules (`lookAtNearZone...`) and the target position springs are not read; the vertical mouse
+  switch is not in the client.
 - RotationDampening is 0 in the states of this stage and is not in the client.
 - The side-by-side check with the retail client (R1.7) is open, also for the combat cameras of stage P2.6.

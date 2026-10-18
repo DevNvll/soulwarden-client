@@ -12,6 +12,12 @@ struct FSwcLockCandidate
 {
 	uint32 Id = 0;
 	FVector Position = FVector::ZeroVector;
+	/** The lock point (the CameraLockTargetComponent of the slice of a creature; stage P3.5) and the pitch limits of the observer of
+	 *  its client facet (degrees; m_limitObserverPitch, m_observerPitchMin, m_observerPitchMax). */
+	FVector LockPoint = FVector::ZeroVector;
+	bool bLimitPitch = false;
+	float PitchMin = 0.0f;
+	float PitchMax = 0.0f;
 };
 
 /**

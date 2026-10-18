@@ -877,7 +877,17 @@ void USwcBackendSubsystem::UpdatePlayer()
 			{
 				if (!Target.bDead)
 				{
-					Candidates.Add({Target.Interest, Target.Position});
+					// The lock point of the slice of the creature (its CameraLockTargetComponent), with the pitch limits of its observer.
+					FSwcLockCandidate Candidate{Target.Interest, Target.Position, Target.LockPoint};
+					FSwcLockPoint Point;
+					if (Creatures->GetLockPoint(Target.Interest, Point))
+					{
+						Candidate.LockPoint = Point.Point;
+						Candidate.bLimitPitch = Point.bLimitPitch;
+						Candidate.PitchMin = Point.PitchMin;
+						Candidate.PitchMax = Point.PitchMax;
+					}
+					Candidates.Add(Candidate);
 				}
 			}
 		}
@@ -885,7 +895,8 @@ void USwcBackendSubsystem::UpdatePlayer()
 		{
 			for (const TPair<uint32, swc::net::WorldPosition>& Other : Snapshot.Others)
 			{
-				Candidates.Add({Other.Key, SwcEngineToUnreal(Other.Value)});
+				// No creature view: 1.0 m above the feet (an inference).
+				Candidates.Add({Other.Key, SwcEngineToUnreal(Other.Value), SwcEngineToUnreal(Other.Value) + FVector(0.0, 0.0, 100.0)});
 			}
 		}
 		CameraManager->SetLockCandidates(MoveTemp(Candidates));

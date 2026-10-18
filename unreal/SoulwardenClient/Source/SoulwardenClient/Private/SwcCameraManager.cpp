@@ -36,8 +36,6 @@ constexpr double LockSightBody = 150.0;
 constexpr double LockMouseTime = 0.25;
 constexpr float LockMouseThreshold = 700.0f;
 constexpr double LockMouseIgnoreTime = 0.2;
-/** The point of a target: 1.0 m above its feet (an inference: the lock point of a creature is not read yet). */
-constexpr double LockPointHeight = 100.0;
 
 /** The score of a candidate for the first lock: the smallest weighted cost of the scans that hold it (the weights of the
  *  slice; the combination of the scans is an inference). */
@@ -252,7 +250,7 @@ void ASwcCameraManager::ToggleLock()
 	const FSwcLockCandidate* Chosen = nullptr;
 	for (const FSwcLockCandidate& Candidate : Candidates)
 	{
-		const FVector Point = Candidate.Position + FVector(0.0, 0.0, LockPointHeight);
+		const FVector Point = Candidate.LockPoint;
 		if (FVector::Dist(Point, Pawn->GetActorLocation()) > LockRange)
 		{
 			continue;
@@ -270,7 +268,7 @@ void ASwcCameraManager::ToggleLock()
 		return;
 	}
 	LockId = Chosen->Id;
-	LockPoint = Chosen->Position + FVector(0.0, 0.0, LockPointHeight);
+	LockPoint = Chosen->LockPoint;
 	LockPointRate = FVector::ZeroVector;
 	LockStart = LastRotation.Quaternion();
 	LockBlend = 0.0f;
@@ -347,7 +345,7 @@ FRotator ASwcCameraManager::UpdateLock(const FVector& Pivot, const ASwcPlayerCha
 		Unlock(TEXT("the target is gone"));
 		return LastRotation;
 	}
-	const FVector Point = Target->Position + FVector(0.0, 0.0, LockPointHeight);
+	const FVector Point = Target->LockPoint;
 	if (FVector::Dist(Point, Character.GetActorLocation()) > LockRange)
 	{
 		Unlock(TEXT("the target is farther than 50 m"));
@@ -383,6 +381,11 @@ FRotator ASwcCameraManager::UpdateLock(const FVector& Pivot, const ASwcPlayerCha
 	SwcSmoothCD(LockPoint, LockPointRate, Point, Data.LookAtSmoothingTime, DeltaTime);
 	FRotator Look = (LockPoint - Pivot).Rotation();
 	Look.Pitch = FMath::Clamp(Look.Pitch, LockPitchMin, LockPitchMax);
+	if (Target->bLimitPitch)
+	{
+		// The pitch limits of the observer of the target (its CameraLockTargetComponent): both ranges apply (an inference).
+		Look.Pitch = FMath::Clamp(Look.Pitch, Target->PitchMin, Target->PitchMax);
+	}
 	Look.Roll = 0.0;
 	SwcSmoothCD(LockBlend, LockBlendRate, 1.0f, LockSwitchTime, DeltaTime);
 	const FRotator Result = FQuat::Slerp(LockStart, Look.Quaternion(), FMath::Clamp(LockBlend, 0.0f, 1.0f)).Rotator();
@@ -499,7 +502,7 @@ void ASwcCameraManager::UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime)
 			if (FVector::Dist(Candidate.Position, Character->GetActorLocation()) <= LockRange)
 			{
 				const bool bLocked = Candidate.Id == LockId;
-				DrawDebugSphere(GetWorld(), Candidate.Position + FVector(0.0, 0.0, LockPointHeight), bLocked ? 40.0f : 25.0f, 10,
+				DrawDebugSphere(GetWorld(), Candidate.LockPoint, bLocked ? 40.0f : 25.0f, 10,
 					bLocked ? FColor::Red : FColor(200, 200, 200), false, -1.0f, 0, bLocked ? 3.0f : 1.0f);
 			}
 		}
