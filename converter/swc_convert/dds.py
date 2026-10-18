@@ -90,15 +90,18 @@ def join(read, base: str, max_size: int = 1024, alpha: bool = False) -> tuple[by
 
 def bc4_blocks(blocks: np.ndarray, signed: bool) -> np.ndarray:
     """Decodes many BC4 blocks at once: two end values, then 6 or 4 values between them (and 0 and 1 in the
-    4-value mode), and 16 indices of 3 bits. @return (n, 16) float32 values."""
+    4-value mode), and 16 indices of 3 bits. @return (n, 16) float32 values.
+    The values between (Microsoft, block compression BC4): with a0 > a1, index i + 1 (i = 1..6) is
+    ((7 - i) a0 + i a1) / 7; else index i + 1 (i = 1..4) is ((5 - i) a0 + i a1) / 5. (Before 2026-10-18 the converter used
+    6 - i and 4 - i: each value between was too near a1; the terrain research found it, research/terrain.md 5.)"""
     a = blocks[:, :2].copy().view(np.int8 if signed else np.uint8).astype(np.float32)
     a0, a1 = a[:, 0:1], a[:, 1:2]
     six = a0 > a1
     i = np.arange(1, 7, dtype=np.float32)[None, :]
     k = np.arange(1, 5, dtype=np.float32)[None, :]
     low, high = (-127.0 if signed else 0.0), (127.0 if signed else 255.0)
-    pal6 = np.concatenate([a0, a1, ((6 - i) * a0 + i * a1) / 7], axis=1)
-    pal4 = np.concatenate([a0, a1, ((4 - k) * a0 + k * a1) / 5, np.full_like(a0, low), np.full_like(a0, high)], axis=1)
+    pal6 = np.concatenate([a0, a1, ((7 - i) * a0 + i * a1) / 7], axis=1)
+    pal4 = np.concatenate([a0, a1, ((5 - k) * a0 + k * a1) / 5, np.full_like(a0, low), np.full_like(a0, high)], axis=1)
     pal = np.where(six, pal6, pal4)
     bits = np.zeros(len(blocks), dtype=np.uint64)
     for b in range(6):
