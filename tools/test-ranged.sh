@@ -33,20 +33,15 @@ nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     "${backend}/src/server/rep/travel_messages.cpp" \
     "${backend}/src/core/logging/log.cpp" "${backend}/src/middleware/compression/lz4.cpp" \
     -o "${out}/swc-ranged-state-tests"
-# The parity of the presses (tests/ranged/parity_tests.cpp): the input entries of the attack driver into the world of the backend. The
-# core library of the backend builds once outside the Soulwarden repository (its root CMake file with no game hook; 4 jobs).
-core="${SWC_WORK}/build/backend-core"
-if [[ ! -f "${core}/apps/backend/libsoulwarden_backend_core.a" || -n "${SWC_REBUILD_BACKEND_CORE:-}" ]]; then
-    mkdir -p "${core}"
-    nice -n 10 cmake -S "${SOULWARDEN_REPO}" -B "${core}" -G Ninja -DSOULWARDEN_BUILD_GAME_HOOK=OFF -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang > "${core}/configure.log"
-    systemd-run --user --scope -q -p MemoryMax=8G nice -n 10 ninja -j "${SWC_BUILD_JOBS:-4}" -C "${core}" soulwarden_backend_core > "${core}/build.log"
-fi
+# The parity of the presses (tests/ranged/parity_tests.cpp): the input entries of the attack driver into the world of the backend (its
+# core library: tools/lib/backend-core.sh).
+source "${SWC_REPO}/tools/lib/backend-core.sh"
+backend_core
 nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     -I"${module}" -I"${backend}/src" -I"${backend}/tests" -I"${backend}/vendor" \
     "${SWC_REPO}/tests/ranged/parity_tests.cpp" "${module}/Combat/SwcAttackGraph.cpp" "${module}/Combat/SwcStamina.cpp" \
     "${module}/Combat/SwcRanged.cpp" \
-    -L"${core}/apps/backend" -lsoulwarden_backend_core -lsoulwarden_sqlite -lsoulwarden_mbedtls -lpthread -ldl \
+    -L"${BACKEND_CORE}" -lsoulwarden_backend_core -lsoulwarden_sqlite -lsoulwarden_mbedtls -lpthread -ldl \
     -o "${out}/swc-ranged-parity-tests"
 "${out}/swc-ranged-tests" "${SWC_CONTENT}/player/actions.json" "$@"
 "${out}/swc-ranged-state-tests" "${backend}/tests/golden/one_session.hex"

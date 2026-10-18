@@ -28,6 +28,34 @@ swc::net::InteractionRequest request_of(const Template& object, const Bound& bou
     return request;
 }
 
+float distance_sq(const swc::net::WorldPosition& character, const swc::net::WorldPosition& place) {
+    // The expression of the backend (world/interactions.cpp distance_sq): the same float operations in the same order.
+    const float dx = character.x - place.x;
+    const float dy = character.y - place.y;
+    const float dz = character.z - place.z;
+    return dx * dx + dy * dy + dz * dz;
+}
+
+bool in_range(const swc::net::WorldPosition& character, const swc::net::WorldPosition& place, float rangeSq) {
+    return !(distance_sq(character, place) > rangeSq);
+}
+
+swc::net::WorldPosition transform_point(const swc::net::WorldPosition& place, const swc::net::Quaternion& rotation, const float local[3]) {
+    // v' = v + 2 w (u x v) + 2 u x (u x v), with u = (x, y, z): the expression of the backend (gamedata::transform_point).
+    const float ux = rotation.x;
+    const float uy = rotation.y;
+    const float uz = rotation.z;
+    const float w = rotation.w;
+    const float cx = uy * local[2] - uz * local[1];
+    const float cy = uz * local[0] - ux * local[2];
+    const float cz = ux * local[1] - uy * local[0];
+    const float dx = uy * cz - uz * cy;
+    const float dy = uz * cx - ux * cz;
+    const float dz = ux * cy - uy * cx;
+    return swc::net::WorldPosition{place.x + local[0] + 2.0F * (w * cx + dx), place.y + local[1] + 2.0F * (w * cy + dy),
+                                   place.z + local[2] + 2.0F * (w * cz + dz)};
+}
+
 std::optional<Candidate> focus(const std::vector<Template>& templates, const std::vector<Object>& objects, const swc::net::WorldPosition& character) {
     std::optional<Candidate> best;
     for (const Object& object : objects) {
@@ -40,12 +68,9 @@ std::optional<Candidate> focus(const std::vector<Template>& templates, const std
             if (bound.options.empty()) {
                 continue;
             }
-            const swc::net::WorldPosition place{object.place.x + bound.position[0], object.place.y + bound.position[1], object.place.z + bound.position[2]};
-            const float dx = place.x - character.x;
-            const float dy = place.y - character.y;
-            const float dz = place.z - character.z;
-            const float distanceSq = dx * dx + dy * dy + dz * dz;
-            if (distanceSq > bound.rangeSq || (best && distanceSq >= best->distanceSq)) {
+            const swc::net::WorldPosition place = transform_point(object.place, object.rotation, bound.position);
+            const float distanceSq = distance_sq(character, place);
+            if (!in_range(character, place, bound.rangeSq) || (best && distanceSq >= best->distanceSq)) {
                 continue;
             }
             Candidate candidate;
@@ -55,6 +80,7 @@ std::optional<Candidate> focus(const std::vector<Template>& templates, const std
             candidate.request = request_of(*found, bound, bound.options.front(), object.actor);
             candidate.place = place;
             candidate.distanceSq = distanceSq;
+            candidate.rangeSq = bound.rangeSq;
             best = candidate;
         }
     }
@@ -69,6 +95,8 @@ void Use::press(double now, const Candidate& candidate, bool keepUntilEnd) {
     m_option = *candidate.option;
     m_interest = candidate.interest;
     m_request = candidate.request;
+    m_place = candidate.place;
+    m_rangeSq = candidate.rangeSq;
     m_start = now;
     m_down = true;
     m_accepted = false;
@@ -167,6 +195,16 @@ void Use::abort() {
     } else if (m_phase != Phase::idle) {
         end(true);
     }
+}
+
+bool Use::moved(const swc::net::WorldPosition& reported) {
+    if (m_phase != Phase::holding || in_range(reported, m_place, m_rangeSq)) {
+        return false;
+    }
+    // No request went out: no cancel.
+    m_phase = Phase::idle;
+    ++m_rangeEnds;
+    return true;
 }
 
 void Use::end(bool cancel) {

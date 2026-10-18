@@ -1,0 +1,3 @@
+# The routes of the check of the range rule (tests/drive/interact-range.txt): the creatures ignore the character. Times on the clock
+# of the drive script.
+0.5 ignore on

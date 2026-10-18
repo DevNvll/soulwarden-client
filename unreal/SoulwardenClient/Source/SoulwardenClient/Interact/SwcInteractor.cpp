@@ -180,6 +180,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		Object.sliceAsset = Pair.Value.sliceAsset;
 		Object.sliceSub = Pair.Value.sliceSubId;
 		Object.place = Pair.Value.place;
+		Object.rotation = Pair.Value.placeRotation;
 		Objects.push_back(Object);
 	}
 	// The use of a bag ends at its Looted claim, or when its record stops (the client sends 2473: live check L6 of the backend).
@@ -234,18 +235,22 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		UE_LOG(LogSwcBackend, Log, TEXT("loot: the LootTracker: %d claim(s)%s"), static_cast<int32>(Own.lootClaims.size()), *Claims);
 	}
 	UpdateLootedBags(Own, Creatures, Now);
+	// The range of the server is from the position field of the report that has the request (docs/INTERACTIONS.md "The range"):
+	// the next field, from the last one and the feet, as the server reads it. The focus, the prompt, and the hold use it.
+	const swc::net::WorldPosition Reported = swc::net::position_field(swc::net::RepClient::next_reported(Snapshot.Reported, Feet));
 	if (Use.phase() == swc::interact::Use::Phase::idle)
 	{
 		bUseBag = false;
 		bUseGather = false;
-		Focus = bLocked ? std::nullopt : swc::interact::focus(Templates, Objects, Feet);
+		Focus = bLocked ? std::nullopt : swc::interact::focus(Templates, Objects, Reported);
 		FocusName = Focus ? FString(UTF8_TO_TCHAR(Focus->object->name.c_str())) : FString();
 		bFocusBag = false;
 		// The nearest bag in range with an enabled bound and no Looted claim: its first option (TakeAllOption).
 		FSwcLootBag Bag;
-		const FVector From(SwcEngineToUnreal(Feet));
+		const FVector From(SwcEngineToUnreal(Reported));
 		if (!bLocked && LootTemplate && !LootTemplate->bounds.empty() && Creatures != nullptr && Creatures->FindNearestLootBag(From, Bag)
-			&& !IsLooted(Own, Bag.Actor) && Bag.bEnabled && !Bag.Options.IsEmpty() && (!Focus || Bag.Distance * Bag.Distance < Focus->distanceSq))
+			&& !IsLooted(Own, Bag.Actor) && Bag.bEnabled && !Bag.Options.IsEmpty() && swc::interact::in_range(Reported, Bag.EnginePlace, Bag.RangeSq)
+			&& (!Focus || swc::interact::distance_sq(Reported, Bag.EnginePlace) < Focus->distanceSq))
 		{
 			// The options of the bag of the creature view are in the order of the bound of the data (the key of a pair is the index of
 			// the option in the options of interaction-data.json, not its CRC-32 id): the first one is TakeAllOption.
@@ -263,7 +268,8 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 				Candidate.request.reference.target = Bag.Target;
 				Candidate.request.optionEntity = Bag.Options[0].Value;
 				Candidate.place = Bag.EnginePlace;
-				Candidate.distanceSq = Bag.Distance * Bag.Distance;
+				Candidate.distanceSq = swc::interact::distance_sq(Reported, Bag.EnginePlace);
+				Candidate.rangeSq = Bag.RangeSq;
 				Focus = Candidate;
 				FocusName = TEXT("loot bag");
 				bFocusBag = true;
@@ -276,14 +282,16 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		USwcObjectSubsystem* Layer = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcObjectSubsystem>() : nullptr;
 		FSwcWorldObjectTarget Object;
 		if (!bLocked && Layer != nullptr && Layer->FindNearestObject(From, Object) && !Object.Options.IsEmpty()
-			&& (!Focus || Object.Distance * Object.Distance < Focus->distanceSq))
+			&& swc::interact::in_range(Reported, Object.EnginePlace, Object.RangeSq)
+			&& (!Focus || swc::interact::distance_sq(Reported, Object.EnginePlace) < Focus->distanceSq))
 		{
 			ObjectOption = Object.Options[0].Option;
 			swc::interact::Candidate Candidate;
 			Candidate.option = &ObjectOption;
 			Candidate.request = Object.Options[0].Request;
 			Candidate.place = Object.EnginePlace;
-			Candidate.distanceSq = Object.Distance * Object.Distance;
+			Candidate.distanceSq = swc::interact::distance_sq(Reported, Object.EnginePlace);
+			Candidate.rangeSq = Object.RangeSq;
 			Focus = Candidate;
 			// The prompt of a gather has the name of the row and, with no tool, the refusal ("YOUNG TREE  No equipped Axe").
 			FocusName = Object.Name.IsEmpty() ? FString::Printf(TEXT("%s %s"), *Object.Kind.ToString(), *Object.Key)
@@ -306,8 +314,9 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 	}
 	else if (bKeyDown && !bKeyWas && Focus && !bLocked)
 	{
-		UE_LOG(LogSwcBackend, Log, TEXT("interact: E at %s (interest %u, %.1f m): %s, action %u, delay %.1f s, hold %.1f s"), *FocusName, Focus->interest,
-			FMath::Sqrt(Focus->distanceSq), UTF8_TO_TCHAR(Focus->option->name.c_str()), Focus->option->action, Focus->option->delay, Focus->option->hold);
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: E at %s (interest %u, %.2f m of %.2f m): %s, action %u, delay %.1f s, hold %.1f s"), *FocusName,
+			Focus->interest, FMath::Sqrt(Focus->distanceSq), FMath::Sqrt(Focus->rangeSq), UTF8_TO_TCHAR(Focus->option->name.c_str()), Focus->option->action,
+			Focus->option->delay, Focus->option->hold);
 		// A bag and a gather keep their request until their source ends them (the Looted claim; the Gathering state).
 		Use.press(Now, *Focus, bFocusBag || bFocusGather);
 		UsePlace = SwcEngineToUnreal(Focus->place);
@@ -329,6 +338,14 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		Use.release(Now);
 	}
 	bKeyWas = bKeyDown;
+	// A hold whose character went out of the range ends with no request: the server would refuse it (it measures at the request).
+	if (Use.moved(Reported))
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: the hold of %s ends with no request: the character is %.2f m from the bound (range %.2f m)"),
+			UTF8_TO_TCHAR(Use.option().name.c_str()), FMath::Sqrt(swc::interact::distance_sq(Reported, Use.place())), FMath::Sqrt(Use.rangeSq()));
+		bUseBag = false;
+		bUseGather = false;
+	}
 	const uint32 Executions = Use.executions();
 	Use.tick(Now);
 	if (Use.executions() != Executions)

@@ -826,6 +826,42 @@ void test_interactions() {
         effects = take.take();
         expect(take.phase() == interact::Use::Phase::idle && effects.cancel, "the Looted claim: the client ends the use (2473)");
     }
+    // The range at the request (docs/INTERACTIONS.md "The range"): the server measures from the position field of the report that
+    // has the request. A hold whose character goes out of the range ends with no request; in the range the hold goes on.
+    if (bagFocus) {
+        interact::Use take;
+        take.press(90.0, *bagFocus);
+        expect(near(take.rangeSq(), 25.0F, 0.0F) && !take.moved(edge), "a hold at the edge of the range (5 m) goes on");
+        expect(take.moved(swc::net::WorldPosition{100.0F, 197.9F, 50.0F}) && take.phase() == interact::Use::Phase::idle && take.rangeEnds() == 1,
+               "a hold 5.1 m from the bound ends");
+        take.tick(90.5);
+        const auto ended = take.take();
+        expect(take.requests() == 0 && !ended.requestChanged && !ended.cancel, "the end of the hold out of the range: no request, no cancel");
+    }
+    // A server child turns the bounds of its slice with its rotation (backend gamedata::transform_point): the bound of a camp 0.835 m
+    // to the south of its origin is 0.835 m to the north of it at a yaw of 180 degrees.
+    interact::Template camp = bag;
+    camp.bounds[0].position[1] = -0.835F;
+    const std::vector<interact::Template> campTemplates{camp};
+    interact::Object turned = near_keg;
+    turned.rotation = swc::net::Quaternion{0.0F, 0.0F, 1.0F, 0.0F};
+    const auto campFocus = interact::focus(campTemplates, {turned}, feet);
+    expect(campFocus && near(campFocus->place.y, 203.835F, 1.0e-4F) && near(campFocus->distanceSq, 3.835F * 3.835F, 1.0e-3F),
+           "the bound of a camp turned by 180 degrees: north of its origin");
+    const float local[3]{0.0F, -0.835F, 0.0F};
+    const float half = 0.5F * 1.5707964F;
+    const swc::net::WorldPosition east = interact::transform_point({0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, std::sin(half), std::cos(half)}, local);
+    expect(near(east.x, 0.835F, 1.0e-5F) && near(east.y, 0.0F, 1.0e-5F), "a yaw of 90 degrees turns the south to the east");
+
+    // The position field of the next input entry (RepClient::next_reported): the character with no last field, after a travel, and
+    // at rest; a fall of 1.13 m in one step (the limit is 2 m); a long frame of 1 m (the limit is 0.333 m in one step).
+    const swc::net::WorldPosition fall{100.0F, 200.0F, 48.87F};
+    expect(near(swc::net::RepClient::next_reported(std::nullopt, fall).z, 48.87F, 0.0F), "no last field: the character");
+    expect(near(swc::net::RepClient::next_reported(feet, swc::net::WorldPosition{100.0F, 230.0F, 50.0F}).y, 230.0F, 0.0F), "a travel of 30 m: the character");
+    expect(near(swc::net::RepClient::next_reported(feet, feet).y, 200.0F, 0.0F), "at rest: the same field");
+    expect(near(swc::net::RepClient::next_reported(feet, fall).z, 48.87F, 0.0F), "a fall of 1.13 m: the landing in one step");
+    expect(near(swc::net::RepClient::next_reported(feet, swc::net::WorldPosition{101.0F, 200.0F, 50.0F}).x, 100.0F + 10.0F / 30.0F, 1.0e-5F),
+           "a move of 1 m in one frame: 0.333 m in one step");
 }
 
 /**

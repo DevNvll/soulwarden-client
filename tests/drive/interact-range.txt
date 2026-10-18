@@ -1,0 +1,18 @@
+# The check of the range rule of the interactions (docs/INTERACTIONS.md "The range"), with the routes of
+# tests/drive/interact-range-routes.txt: a saltpeter node at 8500.054 5314.826 185.693 (range 10 m), the start 9.2 m to the south
+# of it (the camera looks to the north). E at rest in the range: the request, the reply 1, and the gather. The move input in the
+# hold does nothing: the Gather fragment of the press stops the movement (a fall can move the character: tests/drive/interact-fall.txt).
+# Times in seconds from the possession.
+# SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8500.054:5305.6:186.5 SWC_DEV_SPEC=gear=1hPickT1@36 SWC_STAGE=interact-range \
+#   tools/creature-check.sh interact-range 20 tests/drive/interact-range-routes.txt tests/drive/interact-range.txt
+2.0 tick
+3.0 interact 1
+3.05 move 0 -1
+3.6 move 0 0
+3.7 interact 0
+5.0 tick
+6.0 move 0 1
+6.4 move 0 0
+8.0 interact 1
+9.0 interact 0
+14.0 tick

@@ -53,14 +53,30 @@ std::uint64_t instance_of(std::uint64_t root, std::uint64_t group, std::uint64_t
 /** @return The facet target of a component of an entity of the slice: the instance id + the component id (a 64-bit sum). */
 std::uint64_t facet_target(std::uint64_t root, std::uint64_t group, std::uint64_t sliceEntity, std::uint64_t component);
 
-/** An object of the server: its interest number, its actor, its slice, and its place (PositionInTheWorld). */
+/** An object of the server: its interest number, its actor, its slice, and its place and rotation (PositionInTheWorld). */
 struct Object {
     std::uint32_t interest{0};
     swc::net::ActorId actor{};
     swc::net::ActorId sliceAsset{};
     std::uint32_t sliceSub{0};
     swc::net::WorldPosition place;
+    swc::net::Quaternion rotation;
 };
+
+/**
+ * The range rule of the server (backend world/interactions.cpp, Interactions::check; docs/INTERACTIONS.md "The range"): the squared
+ * 3D distance from the position of the character to the place of the bound, in float, is not more than m_interactRangeSq (equal
+ * passes, no margin). The position of the character is the position field of the input report that has the request: the server
+ * takes the position of a report before its request (RepClient::next_reported).
+ */
+float distance_sq(const swc::net::WorldPosition& character, const swc::net::WorldPosition& place);
+bool in_range(const swc::net::WorldPosition& character, const swc::net::WorldPosition& place, float rangeSq);
+
+/**
+ * @return The place of a point of a slice in the world: the place of the object plus the point turned by the rotation of the
+ * object (backend gamedata::transform_point, the bounds of a server child).
+ */
+swc::net::WorldPosition transform_point(const swc::net::WorldPosition& place, const swc::net::Quaternion& rotation, const float local[3]);
 
 /** A usable option of a bound of an object near the player. */
 struct Candidate {
@@ -69,26 +85,27 @@ struct Candidate {
     const Option* option{nullptr};
     /** The request of the block: the reference of the bound, the action, the option entity, the option id, the hold time. */
     swc::net::InteractionRequest request;
-    /** The place of the bound (engine m) and its squared distance to the character. */
+    /** The place of the bound (engine m), its squared distance to the character, and its squared range (m^2). */
     swc::net::WorldPosition place;
     float distanceSq{0.0F};
+    float rangeSq{0.0F};
 };
 
 /** @return The request of an option of a bound of an object (the ids of the object from its actor). */
 swc::net::InteractionRequest request_of(const Template& object, const Bound& bound, const Option& option, const swc::net::ActorId& actor);
 
 /**
- * @return The option of the nearest bound in its range (the 3D squared distance to the character, equal passes; the backend check
- * Interactions::check) of the first option of each bound, or no value. The place of a bound is the place of its object plus the
- * place of the bound in the frame of the slice (the rotation of the object is not used: the bounds of the client templates are
- * at the origin of their slice).
+ * @return The option of the nearest bound in its range (in_range) of the first option of each bound, or no value. The place of a
+ * bound is its place in the frame of the slice, turned and moved by the rotation and the place of its object (transform_point).
  */
 std::optional<Candidate> focus(const std::vector<Template>& templates, const std::vector<Object>& objects, const swc::net::WorldPosition& character);
 
 /**
  * The use of one option by the player (the client side of protocol notes 4.35 and 4.36):
  *   press      the key goes down at a focus: the hold of the prompt (hold > 0), else the request at once;
- *   the hold   the key stays down for the hold time: the request (the block goes into each input entry);
+ *   the hold   the key stays down for the hold time: the request (the block goes into each input entry); a hold whose
+ *              character goes out of the range of the bound ends with no request (moved: the server refuses a request
+ *              out of the range, and it measures at the request, not at the press);
  *   the delay  a timed option (delay > 0): the progress for the Delay Time while the key is down; the execution at its end;
  *   release    before the request: nothing; before the execution: the cancel (2473); after the execution with no reply: the
  *              cancel (the client keeps its request until the release); after the execution with the reply 1: nothing;
@@ -131,6 +148,11 @@ public:
     void server_cancel();
     /** The player cannot use an object now (the death, a loading screen): a use that is in progress ends with the cancel. */
     void abort();
+    /**
+     * The position field of the next input entry (before tick): a hold out of the range of its bound (in_range) ends with no
+     * request. @return True when the hold ended.
+     */
+    bool moved(const swc::net::WorldPosition& reported);
 
     [[nodiscard]] Phase phase() const { return m_phase; }
     [[nodiscard]] bool timed() const { return m_option.delay > 0.0F; }
@@ -138,11 +160,15 @@ public:
     [[nodiscard]] float progress(double now) const;
     [[nodiscard]] const Option& option() const { return m_option; }
     [[nodiscard]] std::uint32_t interest() const { return m_interest; }
-    /** The counts: the requests, the executions, the cancels of the client, the ends by the server. */
+    /** The place of the bound of the use and its squared range (m^2). */
+    [[nodiscard]] const swc::net::WorldPosition& place() const { return m_place; }
+    [[nodiscard]] float rangeSq() const { return m_rangeSq; }
+    /** The counts: the requests, the executions, the cancels of the client, the ends by the server, the holds out of range. */
     [[nodiscard]] std::uint32_t requests() const { return m_requests; }
     [[nodiscard]] std::uint32_t executions() const { return m_executions; }
     [[nodiscard]] std::uint32_t cancels() const { return m_cancels; }
     [[nodiscard]] std::uint32_t serverEnds() const { return m_serverEnds; }
+    [[nodiscard]] std::uint32_t rangeEnds() const { return m_rangeEnds; }
     Effects take();
 
 private:
@@ -155,6 +181,8 @@ private:
     Option m_option;
     std::uint32_t m_interest{0};
     swc::net::InteractionRequest m_request;
+    swc::net::WorldPosition m_place;
+    float m_rangeSq{0.0F};
     double m_start{0.0};
     double m_executedAt{0.0};
     double m_acceptedAt{0.0};
@@ -166,6 +194,7 @@ private:
     std::uint32_t m_executions{0};
     std::uint32_t m_cancels{0};
     std::uint32_t m_serverEnds{0};
+    std::uint32_t m_rangeEnds{0};
 };
 
 } // namespace swc::interact

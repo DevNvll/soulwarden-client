@@ -292,6 +292,12 @@ struct WorldPosition {
     float z{};
 };
 WorldPosition read_world_position(std::span<const std::uint8_t> value);
+/**
+ * @return The position that the server reads from the position field of an input entry with this position of the character
+ * (backend server/rep/client_input.cpp): x and y as f32, the height cut off to a step of 1100 / 65535 m (as the retail client
+ * writes it) and read back. The range of an interaction is from this position (docs/INTERACTIONS.md "The range").
+ */
+WorldPosition position_field(const WorldPosition& character);
 /** The place of an object (PositionInTheWorld, field 0): x:f32 y:f32 height:u16, height = -100 + value / 65535 * 2100. */
 WorldPosition read_object_place(std::span<const std::uint8_t> value);
 /** The type of the PositionInTheWorld state (the vendored state reader has it). */
@@ -305,6 +311,12 @@ struct Quaternion {
     float w{1.0F};
 };
 Quaternion read_quaternion(std::span<const std::uint8_t> value);
+/**
+ * The rotation of an object (PositionInTheWorld, field 1; backend server/rep/states/object_states.cpp): header:u8, then u16 for
+ * each of x, y, z with no header bit. The bits 0x01, 0x02, 0x04 give 0, the bits 0x08, 0x10, 0x20 give 1, a u16 value v gives
+ * v / 32767.5 - 1, w is the square root of the rest, and the bit 0x40 makes w negative.
+ */
+Quaternion read_place_rotation(std::span<const std::uint8_t> value);
 
 /** A state bundle with the place of the first fragment that the state reader does not know. */
 struct CheckedBundle {

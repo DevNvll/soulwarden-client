@@ -40,6 +40,8 @@ public:
 		/** The objects of the server with a slice and a place (PositionInTheWorld): the fixtures, the loot bags (stage P2.10). */
 		TArray<TPair<uint32, swc::net::RepClient::OtherEntity>> Objects;
 		bool bMovementStale = false;
+		/** The position field of the last input entry (none: no position field): the start of the next one (RepClient::next_reported). */
+		std::optional<swc::net::WorldPosition> Reported;
 		/** The server clock: server nanoseconds = the steady clock of the client in nanoseconds + ServerOffsetNs. */
 		bool bServerClock = false;
 		int64 ServerOffsetNs = 0;

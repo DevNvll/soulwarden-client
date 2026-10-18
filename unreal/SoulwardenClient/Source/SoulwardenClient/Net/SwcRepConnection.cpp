@@ -242,6 +242,7 @@ void FSwcRepConnection::Publish(const swc::net::RepClient& Client, bool bFinishe
 		}
 	}
 	Snapshot.bMovementStale = Client.movement_stale();
+	Snapshot.Reported = Client.reported();
 	Snapshot.bServerClock = Client.has_server_clock();
 	Snapshot.ServerOffsetNs = Client.server_clock_offset_ns();
 	Snapshot.EndCause = UTF8_TO_TCHAR(Client.end_cause().c_str());

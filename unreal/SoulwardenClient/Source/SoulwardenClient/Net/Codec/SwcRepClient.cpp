@@ -899,6 +899,9 @@ void RepClient::apply_other(const decoder::Record& record) {
                 entity.place = read_object_place(place);
                 entity.hasPlace = true;
             }
+            if (const auto rotation = decoder::field_of(fragment, 0, 1); !rotation.empty()) {
+                entity.placeRotation = read_place_rotation(rotation);
+            }
         }
     }
 }
@@ -911,21 +914,29 @@ void RepClient::send_registration() {
                                 + " bytes) for character " + m_options.token.characterId);
 }
 
-WorldPosition RepClient::reported_position(const WorldPosition& character) {
-    const float dx = character.x - m_reported.x;
-    const float dy = character.y - m_reported.y;
-    const float dz = character.z - m_reported.z;
+WorldPosition RepClient::next_reported(const std::optional<WorldPosition>& last, const WorldPosition& character) {
+    if (!last) {
+        return character;
+    }
+    const float dx = character.x - last->x;
+    const float dy = character.y - last->y;
+    const float dz = character.z - last->z;
     const float horizontal = std::sqrt(dx * dx + dy * dy);
-    if (!m_hasReported || horizontal > kReportJump || std::fabs(dz) > kReportJump) {
-        m_hasReported = true;
-        m_reported = character;
-        return m_reported;
+    if (horizontal > kReportJump || std::fabs(dz) > kReportJump) {
+        return character;
     }
     const float limit = kReportHorizontalSpeed * kStepSeconds;
     const float share = horizontal > limit ? limit / horizontal : 1.0F;
-    m_reported.x += dx * share;
-    m_reported.y += dy * share;
-    m_reported.z += std::clamp(dz, -kReportFallSpeed * kStepSeconds, kReportRiseSpeed * kStepSeconds);
+    WorldPosition next = *last;
+    next.x += dx * share;
+    next.y += dy * share;
+    next.z += std::clamp(dz, -kReportFallSpeed * kStepSeconds, kReportRiseSpeed * kStepSeconds);
+    return next;
+}
+
+WorldPosition RepClient::reported_position(const WorldPosition& character) {
+    m_reported = next_reported(reported(), character);
+    m_hasReported = true;
     return m_reported;
 }
 

@@ -1,0 +1,12 @@
+# The check of the range rule of the interactions in a fall (docs/INTERACTIONS.md "The range"; the case of the P5.1 run), with the
+# routes of tests/drive/interact-range-routes.txt: the start at the place of the P5.1 run, 9.28 m from the bound of the saltpeter
+# node at 8478.388 5297.833 192.373 (range 10 m) at the height of the spawn. E 0.05 s after the possession, in the fall: the hold
+# of 0.5 s starts; the landing 1.1 m lower is 10.08 m from the bound, and the hold ends with no request (the P5.1 run sent the
+# request, and the server refused it). E again on the ground: no prompt. Times in seconds from the possession.
+# SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8485.76:5298.65:186.3 SWC_DEV_SPEC=gear=1hPickT1@36 SWC_STAGE=interact-range \
+#   tools/creature-check.sh interact-fall 12 tests/drive/interact-range-routes.txt tests/drive/interact-fall.txt
+0.05 interact 1
+1.0 interact 0
+3.0 interact 1
+3.5 interact 0
+6.0 tick

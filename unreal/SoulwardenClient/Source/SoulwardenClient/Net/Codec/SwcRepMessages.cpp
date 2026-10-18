@@ -835,6 +835,42 @@ WorldPosition read_object_place(std::span<const std::uint8_t> value) {
     return out;
 }
 
+WorldPosition position_field(const WorldPosition& character) {
+    return WorldPosition{character.x, character.y, kHeightMin + static_cast<float>(character_height(character.z)) / 65535.0F * kHeightRange};
+}
+
+Quaternion read_place_rotation(std::span<const std::uint8_t> value) {
+    Quaternion out;
+    if (value.empty()) {
+        return out;
+    }
+    Reader reader(value);
+    const std::uint8_t header = reader.u8();
+    float axes[3]{};
+    float sum = 0.0F;
+    for (unsigned axis = 0; axis < 3; ++axis) {
+        if ((header & (0x01U << axis)) != 0) {
+            axes[axis] = 0.0F;
+        } else if ((header & (0x08U << axis)) != 0) {
+            axes[axis] = 1.0F;
+        } else {
+            axes[axis] = static_cast<float>(reader.u16()) / 32767.5F - 1.0F;
+        }
+        sum += axes[axis] * axes[axis];
+    }
+    if (!reader.ok()) {
+        return Quaternion{};
+    }
+    out.x = axes[0];
+    out.y = axes[1];
+    out.z = axes[2];
+    out.w = std::sqrt(std::max(0.0F, 1.0F - sum));
+    if ((header & 0x40U) != 0) {
+        out.w = -out.w;
+    }
+    return out;
+}
+
 Quaternion read_quaternion(std::span<const std::uint8_t> value) {
     constexpr float kStep = 0.0055459356F;
     constexpr float kLowest = 0.70710677F;

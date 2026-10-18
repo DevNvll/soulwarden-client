@@ -282,6 +282,8 @@ public:
          *  field 0 x:f32 y:f32 height:u16 over -100 m to 2000 m (backend server/rep/states/object_states.cpp). */
         bool hasPlace{false};
         WorldPosition place;
+        /** The rotation of the object (PositionInTheWorld, field 1): the server turns the bounds of its slice with it. */
+        Quaternion placeRotation;
     };
 
     /** A record of an interest number that is not 1, a stop of the control block, or a message for the view of the other
@@ -391,6 +393,16 @@ public:
     [[nodiscard]] const Carrier& carrier() const { return m_carrier; }
     /** True while the last movement state of the own entity is older than 2 s (the input then has no actions). */
     [[nodiscard]] bool movement_stale() const { return m_movementStale; }
+    /** @return The position field of the last input entry, or none (the last entry had no position field). */
+    [[nodiscard]] std::optional<WorldPosition> reported() const {
+        return m_hasReported ? std::optional<WorldPosition>(m_reported) : std::nullopt;
+    }
+    /**
+     * @return The position field of the next input entry for a position of the character: the last field one step nearer to the
+     * character (at the limits of the steps), or the character with no last field or after a travel. The server takes the
+     * position of a report before the interaction request of the same report: the range of a request is from this position.
+     */
+    [[nodiscard]] static WorldPosition next_reported(const std::optional<WorldPosition>& last, const WorldPosition& character);
     /** The server clock at `now` in nanoseconds (the clock of the registration reply, of 335, and of the cooldowns), or 0
      *  before the registration reply. */
     [[nodiscard]] std::uint64_t server_time_ns(Clock::time_point now) const;
