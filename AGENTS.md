@@ -139,7 +139,8 @@ tools/import.sh creature-                       # import the converted creatures
 tools/test-creatures.sh                         # the tests of the creature entity table with states of the backend encoders
 tools/creature-check.sh LABEL STAY ROUTES [DRIVE]   # a video check of the creatures with the development routes
 tools/convert-objects.sh write                  # the objects of the level data for the object layer (docs/OBJECTS.md; meshes: the depleted node meshes)
-tools/test-environment.sh                       # the tests of the world clock with the time messages and the day cycle of the backend (no engine)
+tools/convert-environment.sh write              # the environment data: the mission, the time presets, the lights and volumes of each region, the sky (check: the E0 proof)
+tools/test-environment.sh                       # the tests of the world clock (backend time messages and day cycle) and of the environment reader (no engine)
 ```
 
 The runs and the connection: [docs/NETWORK.md](docs/NETWORK.md).
