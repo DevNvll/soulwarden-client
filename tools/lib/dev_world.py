@@ -34,6 +34,9 @@ Usage (tools/creature-world.sh):
   fixture NAME [DX DY DZ]            a fixture of the backend at the character (powderKeg: the timed use "Ignite Fuse", 5 s)
   remove-object ENTITY               removes a server child (the entity of the fixture reply, 16 hex digits)
   cancel                             the server ends the interaction of the character (3746)
+  gathering [RADIUS] | chests [RADIUS]   the gathering or the chests of the character (the nodes with a server state near it)
+  respawn NODE SECONDS               a depleted node respawns after SECONDS (NODE: a UUID, REGION#RECORD, or G)
+  chest-clear CHEST                  removes the claim of the character on a chest (its UUID): the chest can open again
   script FILE [--clock LOG]          a timed list of these commands: "SECONDS COMMAND WORDS..." each line (the seconds from
                                      now, or on the clock of the drive script in the client log LOG: its "drive: SECONDS s"
                                      lines; a drive line "SECONDS tick" is a clock mark that does nothing)
@@ -219,6 +222,18 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "POST", f"/v1/dev/interactions/remove?character={character(folder)}&entity={rest[0]}")
     if command == "cancel":
         return request(folder, "POST", f"/v1/dev/interactions/cancel?character={character(folder)}")
+    # The objects of the level data (stage P4.1 part 2, docs/OBJECTS.md): the nodes and the chests of the character.
+    if command == "gathering" and len(rest) <= 1:
+        radius = f"&radius={float(rest[0])}" if rest else ""
+        return request(folder, "GET", f"/v1/dev/gathering?character={character(folder)}{radius}")
+    if command == "chests" and len(rest) <= 1:
+        radius = f"&radius={float(rest[0])}" if rest else ""
+        return request(folder, "GET", f"/v1/dev/chests?character={character(folder)}{radius}")
+    if command == "respawn" and len(rest) == 2:
+        node = rest[0].replace("#", "%23")
+        return request(folder, "POST", f"/v1/dev/gathering/respawn?character={character(folder)}&node={node}&seconds={int(float(rest[1]))}")
+    if command == "chest-clear" and len(rest) == 1:
+        return request(folder, "POST", f"/v1/dev/chests/clear?character={character(folder)}&chest={rest[0]}")
     fail(f"unknown command {' '.join(words)}")
     return None
 
