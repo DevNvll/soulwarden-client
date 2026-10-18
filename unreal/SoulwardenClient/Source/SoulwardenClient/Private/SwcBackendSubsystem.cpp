@@ -11,6 +11,7 @@
 #include "Character/SwcRangedView.h"
 #include "Character/SwcTestFloor.h"
 #include "Interact/SwcInteractor.h"
+#include "SwcDebugLines.h"
 #include "World/SwcWorldStreaming.h"
 #include "Components/CapsuleComponent.h"
 #include "Containers/Ticker.h"
@@ -497,7 +498,7 @@ void USwcBackendSubsystem::ShowOwnEntity()
 			}
 		}
 	}
-	if (GEngine != nullptr)
+	if (GEngine != nullptr && SwcDebugLines())
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 3600.0f, FColor::White,
 			FString::Printf(TEXT("InGame: entity %s, position %.2f %.2f %.2f m, health %.0f/%.0f, permissions %02x %02x"),
@@ -1222,7 +1223,7 @@ void USwcBackendSubsystem::UpdatePlayer()
 		UE_LOG(LogSwcBackend, Log, TEXT("move: sample %s, %s, %.3f m/s, feet %.3f %.3f %.3f m"), *UEnum::GetValueAsString(LastMove),
 			*Movement->GetMotionName(), Movement->GetHorizontalSpeed(), Motion.character.x, Motion.character.y, Motion.character.z);
 	}
-	if (!bPlayerRun && GEngine != nullptr)
+	if (!bPlayerRun && GEngine != nullptr && SwcDebugLines())
 	{
 		// The movement state for the videos of a development run.
 		GEngine->AddOnScreenDebugMessage(static_cast<uint64>(0x5357434D), 1.0f, FColor::Yellow,

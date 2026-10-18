@@ -127,7 +127,7 @@ client selects its own volumes (stage E3).
 
 | Switch or command | Effect |
 | --- | --- |
-| The debug line | "world time HH:MM:SS (PHASE), hour H, phase of the server PHASE" on the screen, after the first record. |
+| The debug line | "world time HH:MM:SS (PHASE), hour H, phase of the server PHASE" on the screen, after the first record (with `-SwcDebugLines`, stage WF7). |
 | `-SwcWorldTimeProbe` | The log line of the time each 1 s (else each 60 s, at each record, and at each phase edge). |
 | `tools/lib/dev_world.py world-time [HH:MM[:SS]]` | The world time of the backend with the wall time of the reply (`wall`), or a command for the world (the development route `/v1/dev/world/time`; development data only). |
 | `-SwcMatchView=PLAN.json` | The matched views of a plan (tools/match-view.sh). |

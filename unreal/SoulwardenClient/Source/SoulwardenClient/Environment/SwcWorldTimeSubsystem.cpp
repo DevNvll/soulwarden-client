@@ -7,6 +7,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "SwcBackendSubsystem.h"
+#include "SwcDebugLines.h"
 
 DEFINE_LOG_CATEGORY(LogSwcEnvironment);
 
@@ -95,7 +96,7 @@ void USwcWorldTimeSubsystem::Tick(float DeltaTime)
 	{
 		ShowLine(nullptr);
 	}
-	if (Now >= NextShow && GEngine != nullptr)
+	if (Now >= NextShow && GEngine != nullptr && SwcDebugLines())
 	{
 		NextShow = Now + ShowSeconds;
 		GEngine->AddOnScreenDebugMessage(DebugLineKey, static_cast<float>(ShowSeconds * 4.0), FColor(170, 200, 255),

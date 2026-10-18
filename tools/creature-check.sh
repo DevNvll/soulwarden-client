@@ -23,7 +23,8 @@ evidence="${SWC_WORK}/evidence/${SWC_STAGE:-1.9}"
 log="${SWC_WORK}/logs/dev-run/${label}-client.log"
 mkdir -p "${evidence}"
 rm -f "${log}"
-client_arguments=(-SwcPlates=all)
+# The debug text lines: the frames of a video are found by them (off by default from stage WF7).
+client_arguments=(-SwcPlates=all -SwcDebugLines)
 [[ -n "${drive}" ]] && client_arguments+=(-SwcDrive="$(realpath "${drive}")")
 enter=(--enter)
 [[ -n "${SWC_DEV_CHARACTER:-}" ]] && enter=(--enter "${SWC_DEV_CHARACTER}")
