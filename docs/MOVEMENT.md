@@ -158,6 +158,12 @@ tools/dev-run.sh --window --enter Swordwarden --quit-when world --stay 22 -- -Sw
 tools/dev-run.sh --window --enter Swordwarden --quit-when world --stay 35 -- -SwcDrive=$PWD/tests/drive/rules-armed.txt
 ```
 
+The videos of a drive: record the headless output of the own agent desktop (`wf-recorder`, as `tools/creature-check.sh`
+does; `omarchy-agent-desktop screenshot DESKTOP FILE` for one picture). The recorder does not slow the client. Use
+`-SwcFrames` (a picture of the view of each N frames, `World/SwcWorldSubsystem`) only for a check that needs each
+frame: it slows the client to about 9 frames in a second, and then the cells of the place do not load in 30 s
+([WORLD.md](WORLD.md)).
+
 ## Exit check (development runs, 2026-10-18)
 
 - Videos in `~/Games/soulwarden-client/evidence/1.7/`: `movement-world.mp4` (walk 1.65 m/s, sprint 5.5 m/s, a turn of

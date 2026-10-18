@@ -177,6 +177,9 @@ sequence; no correction; 0 refused position reports.
 tools/test-actions.sh   # 5800 checks, 0 failed
 ```
 
+A video of the actions: the recording of the agent desktop, not `-SwcFrames` (the rule of the videos in
+[MOVEMENT.md](MOVEMENT.md), "The drive scripts").
+
 ## Exit check (development runs, 2026-10-18)
 
 `Swordwarden` (the sword in slot 24, the shield in 27, the greatsword in 25) on the test floor of the world level (a
