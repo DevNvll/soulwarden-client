@@ -152,6 +152,8 @@ public:
 	/** The entity table of the other entities: the object layer (Objects/SwcObjectSubsystem.h) reads the records of the objects of
 	 *  the level data from it (the Interact and GatherableController states by the actor of the object). */
 	const swc::creatures::EntityTable& GetEntityTable() const { return Table; }
+	/** @return The display name of the creature of an entity id (G), or empty: the prompt of a body (the skinning of stage P5.2). */
+	FString CreatureDisplayName(uint64 Group) const;
 	/** One more at each Tick that applied records (the object layer reads the table again then). */
 	uint32 GetTableRevision() const { return TableRevision; }
 

@@ -16,7 +16,9 @@ Output (SWC_CONTENT/world-objects, outside the repository):
   objects.json            the tables: the options, the gathering templates (with the visuals of the meshes of their slice: the
                           level places them at each node), the gatherable rows, the visuals of the variants
                           (the folders of the StartMesh and of the DepletedMesh, the object path of the imported DepletedMesh:
-                          write the file again after tools/import.sh), the regions (their node types)
+                          write the file again after tools/import.sh), the regions (their node types), and the gathering
+                          (stage P5.2): the rows (the tool family, the gather action, the rank gate, the time, the name), the
+                          tools by item index, the tool slots, the bodies of the creature slices with skinning, the texts
   regions/REGION.json     the objects of the interaction data of a region, with the ids of the backend (actor, facet target,
                           option entities) and their bounds
   nodes/REGION.bin        the natural nodes of a region in cells of 64 m (the record index gives the offline id)
@@ -156,6 +158,78 @@ def slice_meshes(path: str) -> set[str]:
             if product and "_lod" not in product:
                 out.add(norm(product))
     return out
+
+
+# ------------------------------------------------------------------------------------------------------------- gathering
+
+# The paperdoll slot of the tool of each gathering type (Soulwarden protocol notes 4.44, live check L6: 33 the logging axe, 34 the
+# sickle, 35 the skinning knife, 36 the pick) and the prompt text of a missing tool (the localization keys ui_notool<type>).
+TOOL_SLOTS = {"Chopping": 33, "Cutting": 34, "Dressing": 35, "Mining": 36}
+
+
+def gatherable_columns() -> dict[str, dict]:
+    """@return GatheringAction and DisplayName of each gatherable row of the GatherableData tables (the id in lower case)."""
+    out: dict[str, dict] = {}
+    for path in sorted(p for p in source.paks().entries if p.startswith(datasheet.TABLES_FOLDER) and p.endswith(".datasheet")):
+        try:
+            sheet = datasheet.Sheet(source.read(path))
+        except (ValueError, struct.error):
+            continue
+        if sheet.type != "GatherableData" or "GatheringAction" not in sheet.columns:
+            continue
+        for row in sheet.rows():
+            identifier = str(row.get("GatherableID", "")).strip().lower()
+            if identifier and identifier not in out:
+                out[identifier] = {"action": str(row.get("GatheringAction", "") or "None"), "name": str(row.get("DisplayName", ""))}
+    return out
+
+
+def localized_texts() -> dict[str, str]:
+    """@return The converted texts of the game (the UI track: SWC_CONTENT/ui/localization/en-us.json), keys in lower case."""
+    path = env.content_dir() / "ui" / "localization" / "en-us.json"
+    if not path.is_file():
+        return {}
+    return {key.lower(): value for key, value in json.loads(path.read_text()).items() if isinstance(value, str)}
+
+
+def text_key(value: str) -> str:
+    return value[1:].lower() if value.startswith("@") else value.lower()
+
+
+def gathering_tables(folder: Path, gathering: dict) -> dict:
+    """@return The rows of the gathering (the tool family, the gather action, the rank gate, the time, the name), the tools by
+    their item index (the position in item-catalog.json plus 1: the value of the paperdoll; their weapon tags of weapons.json),
+    the bodies of the creature slices with skinning, and the texts of the prompts."""
+    columns = gatherable_columns()
+    texts = localized_texts()
+    used_texts: dict[str, str] = {}
+    rows = []
+    for row in gathering["rows"]:
+        extra = columns.get(row["id"].lower(), {})
+        name = extra.get("name", "")
+        if name and text_key(name) in texts:
+            used_texts[text_key(name)] = texts[text_key(name)]
+        rows.append([row["id"], row["type"], extra.get("action", "None"), row["restriction"], row["tradeskill"], row["level"], row["time"],
+                     name, list(row.get("unsupported", []))[:1]])
+    for kind in TOOL_SLOTS:
+        key = f"ui_notool{kind.lower()}"
+        if key in texts:
+            used_texts[key] = texts[key]
+    catalog = json.loads((folder / "item-catalog.json").read_text())["items"]
+    index_of = {item[0].lower(): position + 1 for position, item in enumerate(catalog)}
+    weapons_path = env.content_dir() / "player" / "weapons.json"
+    weapon_items = json.loads(weapons_path.read_text())["items"] if weapons_path.is_file() else {}
+    tools = {}
+    for item, tool in gathering["tools"].items():
+        index = index_of.get(item.lower())
+        if index is not None:
+            tools[str(index)] = [item, (weapon_items.get(item) or {}).get("tag", ""), tool["types"]]
+    # The key of a slice as the entity table has it (Creatures/SwcEntityTable slice_key: the UUID with dashes, upper case, ":" sub).
+    bodies = {}
+    for key, entry in gathering.get("creatures", {}).items():
+        asset, sub = key.split(":")
+        bodies[f"{str(uuid.UUID(asset)).upper()}:{sub}"] = [entry["template"], entry["row"]]
+    return {"rows": rows, "tools": tools, "bodies": bodies, "texts": used_texts}
 
 
 # ------------------------------------------------------------------------------------------------------------- write
@@ -310,7 +384,7 @@ def write() -> dict:
         "templates": [{"root": t["root"], "controllerSlot": t["controllerSlot"], "table": t["table"], "entry": t["entry"],
                        "bound": {k: t["bound"][k] for k in ("entity", "component", "option", "slot", "rangeSq", "translation", "lineOfSight")},
                        "visuals": template_visuals[i], "sliceVisuals": slice_visuals[i]} for i, t in enumerate(templates)],
-        "rows": [r["id"] for r in gathering["rows"]],
+        "gathering": gathering_tables(folder, gathering),
         "visuals": [[row[0], row[1], row[3]] for row in visuals.rows],
         "regions": regions,
     }

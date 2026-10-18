@@ -83,6 +83,40 @@ BoundIds bound_ids(std::uint64_t root, std::uint64_t group, std::uint64_t boundE
     return {(boundEntity ^ key) + component, option ^ key};
 }
 
+std::uint32_t tool_slot(std::string_view gatheringType) {
+    if (gatheringType == "Chopping") {
+        return 33;
+    }
+    if (gatheringType == "Cutting") {
+        return 34;
+    }
+    if (gatheringType == "Dressing") {
+        return 35;
+    }
+    if (gatheringType == "Mining") {
+        return 36;
+    }
+    return 0;
+}
+
+ToolCheck check_tool(std::string_view gatheringType, std::string_view restriction, bool slotItemHasType) {
+    ToolCheck out;
+    out.slot = tool_slot(gatheringType);
+    out.hasTool = out.slot != 0 && slotItemHasType;
+    out.missing = out.slot != 0 && !out.hasTool && restriction == "ToolRequired";
+    return out;
+}
+
+std::string gather_use_kind(std::string_view action, std::string_view toolTags, bool hasTool) {
+    constexpr std::string_view kOwn[] = {"Chopping", "ChoppingVertical", "Mining", "Cutting", "Dressing"};
+    for (const std::string_view own : kOwn) {
+        if (hasTool && action == own) {
+            return "gather|" + std::string(action) + "|" + std::string(toolTags);
+        }
+    }
+    return action == "Handcrafting" ? "gather|Handcrafting|" : "gather|None|";
+}
+
 bool NodeFile::read(std::span<const std::uint8_t> bytes) {
     m_offsets.clear();
     m_nodes.clear();

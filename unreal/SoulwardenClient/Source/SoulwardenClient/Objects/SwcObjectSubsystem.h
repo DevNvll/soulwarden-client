@@ -67,6 +67,26 @@ struct FSwcWorldObjectTarget
 	bool bRead = false;
 	/** The 3D distance from the point of the query (m). */
 	float Distance = 0.0f;
+
+	/** The gathering (stage P5.2; a node, a chest, a body): the gatherable row (-1: none), its GatheringType (the tool family:
+	 *  Chopping, Cutting, Dressing, Mining, None) and GatheringAction (the tag of the Gather fragment), and the name of the row. */
+	int32 Row = -1;
+	FString GatheringType;
+	FString GatherAction;
+	FString Name;
+	/** The tool: its paperdoll slot (33 axe, 34 sickle, 35 knife, 36 pick; 0: none), the item index in that slot when its gathering
+	 *  types have the type of the row, and its weapon tags. With the restriction ToolRequired and no tool the client sends no request
+	 *  and the prompt has RefusalText ("No equipped Axe"; Soulwarden protocol notes 4.44, live check L6). */
+	uint32 ToolSlot = 0;
+	uint32 ToolItem = 0;
+	FString ToolTags;
+	bool bToolMissing = false;
+	FString RefusalText;
+	/** The use fragment of the player for the work ("gather|ACTION|TOOLTAGS": the use fragments of actions.json), empty for a use
+	 *  that is not a gather. */
+	FString UseKind;
+	/** A body (the skinning of a dead creature): the interest number of the creature. */
+	uint32 Interest = 0;
 };
 
 /**
@@ -162,8 +182,28 @@ private:
 		uint64 Group = 0;
 		FVector3d EnginePlace = FVector3d::ZeroVector;
 		TArray<FBound> Bounds;
-		/** A capital node: its gathering template. */
+		/** A capital node: its gathering template and its gatherable row. */
 		int32 Template = -1;
+		int32 Row = -1;
+	};
+	/** A gatherable row of the gathering data (stage P5.2). */
+	struct FGatherRow
+	{
+		FString Id;
+		FString Type;
+		FString Action;
+		FString Restriction;
+		FString Tradeskill;
+		int32 Level = 0;
+		float Time = 0.0f;
+		FString Name;
+	};
+	/** A gathering tool by its item index: its id, its weapon tags, and its gathering types. */
+	struct FToolItem
+	{
+		FString Id;
+		FString Tags;
+		TArray<FString> Types;
 	};
 	struct FNodeType
 	{
@@ -194,6 +234,19 @@ private:
 		TArray<FSwcMeshInstanceRef> HiddenDepleted;
 		TWeakObjectPtr<UStaticMeshComponent> Own;
 		bool bSeen = false;
+		/** The gatherable row of the node (a tree falls: GatheringType Chopping). */
+		int32 Row = -1;
+	};
+	/** A tree that falls at its depletion (a stand-in for the cut trunk of the client: the healthy mesh turns around its base). */
+	struct FFall
+	{
+		/** A copy of each healthy instance of the node (a tree has several meshes) and its level transform. */
+		TArray<TWeakObjectPtr<UStaticMeshComponent>> Components;
+		TArray<FTransform> Bases;
+		/** The base of the tree (the place of the node) and the axis of the fall. */
+		FVector Pivot = FVector::ZeroVector;
+		FVector Axis = FVector::ZeroVector;
+		double Start = 0.0;
 	};
 
 	bool LoadTables(FString& OutReport);
@@ -202,7 +255,9 @@ private:
 	void ReadStates();
 	void UpdateVisuals(const FVector& Center);
 	void RebuildInstanceIndex(const FVector& Center);
-	void ApplyNode(uint64 Group, FNodeView& View, uint8 State);
+	/** bLive: the state changed while the character saw the node (a tree then falls). */
+	void ApplyNode(uint64 Group, FNodeView& View, uint8 State, bool bLive = false);
+	void UpdateFalls(double Now);
 	void RestoreNode(FNodeView& View);
 	void UpdateChestLights(const FVector& Center);
 	void ClearAll(const TCHAR* Cause);
@@ -214,6 +269,11 @@ private:
 	void MakeTarget(const FString& Key, FName Kind, const swc::net::ActorId& Actor, uint64 Group, const FBound& Bound, const FVector3d& From,
 		FSwcWorldObjectTarget& Out) const;
 	ESwcWorldObjectState StateOf(FName Kind, uint64 Group) const;
+	/** The gathering fields of a target from its row (the tool of the paperdoll, the refusal, the use fragment). */
+	void FillGather(FSwcWorldObjectTarget& Out, int32 Row) const;
+	/** The skinnable bodies of the creature view near a point (stage P5.2). */
+	void AddBodies(const FVector3d& From, double RadiusMeters, bool bUsableOnly, TArray<FSwcWorldObjectTarget>& Out) const;
+	FString Text(const FString& Key) const;
 	void DevelopmentAids();
 
 	bool bTablesLoaded = false;
@@ -228,6 +288,13 @@ private:
 	TMap<FString, TArray<int32>> StartFolders;
 	TMap<FString, TArray<int32>> DepletedFolders;
 	TMap<FString, TArray<FNodeType>> RegionTypes;
+	/** The gathering (stage P5.2): the rows, the tools by item index, the bodies (the slice key of a creature -> its template and row),
+	 *  the texts of the prompts, and the item index of each tool slot of the paperdoll (33 to 36). */
+	TArray<FGatherRow> Rows;
+	TMap<uint32, FToolItem> Tools;
+	TMap<FString, TPair<int32, int32>> Bodies;
+	TMap<FString, FString> Texts;
+	TMap<uint32, uint32> Equipment;
 	TMap<FIntPoint, FRegion> Regions;
 
 	/** The states of the records of the objects (by G): the node state, the Enabled marks of the Interact states by slot. */
@@ -252,6 +319,7 @@ private:
 	TMap<FString, TObjectPtr<UStaticMesh>> DepletedMeshes;
 	TWeakObjectPtr<AActor> Visual;
 	TMap<uint64, TWeakObjectPtr<UPointLightComponent>> ChestLights;
+	TArray<FFall> Falls;
 	double NextUpdate = 0.0;
 	double NextProbe = 0.0;
 	bool bConnected = false;

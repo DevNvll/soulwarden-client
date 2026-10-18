@@ -25,6 +25,7 @@ nice -n 10 "${compiler}" "${flags[@]}" \
     "${backend}/src/server/rep/replication.cpp" "${backend}/src/server/rep/states/movement_state.cpp" \
     "${backend}/src/server/rep/states/vitals_state.cpp" "${backend}/src/server/rep/states/marker_state.cpp" \
     "${backend}/src/server/rep/states/metadata_state.cpp" "${backend}/src/server/rep/states/status_state.cpp" \
+    "${backend}/src/server/rep/states/gatherable_state.cpp" \
     "${backend}/src/core/logging/log.cpp" "${backend}/src/middleware/compression/lz4.cpp" \
     -o "${out}/swc-creature-tests"
 nice -n 10 "${compiler}" "${flags[@]}" \

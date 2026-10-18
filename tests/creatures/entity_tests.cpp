@@ -267,6 +267,27 @@ void test_death_and_stop() {
         death_change = death_change || change.kind == swc::creatures::Change::Kind::death;
     }
     check(death_change, "a change: the death");
+    // The body of a creature with a skinning row (stage P5.2, gathering.md): the GatherableController of the slice (slot 3) Healthy at
+    // the death, Depleted after the skinning (backend gatherable_state.cpp).
+    {
+        namespace rep = backend::server::rep;
+        scene.entity.creature.skinSlot = 3;
+        scene.entity.creature.skinState = 4;
+        decoder::Record body;
+        body.interest = 4;
+        body.fragments.push_back(fragment_of(3, 12, rep::encode_gatherable_state(scene.entity, rep::View::observer, scene.clock), "gatherable (body)"));
+        table.apply(body);
+        check(wolf->dead && wolf->hasGatherable && wolf->gatherableState == 4 && wolf->gatherableSlot == 3, "the body: dead, the node state Healthy at slot 3");
+        scene.entity.creature.skinState = 8;
+        decoder::Record skinned;
+        skinned.interest = 4;
+        skinned.fragments.push_back(fragment_of(3, 12, rep::encode_gatherable_state(scene.entity, rep::View::observer, scene.clock), "gatherable (skinned)"));
+        table.apply(skinned);
+        check(wolf->gatherableState == 8, "the skinned body: Depleted");
+        scene.entity.creature.skinSlot = 0;
+        scene.entity.creature.skinState = 0;
+        table.take_changes();
+    }
     const std::uint64_t serial = wolf->serial;
     table.stop(4);
     check(table.find(4) == nullptr, "a stop removes the entity");

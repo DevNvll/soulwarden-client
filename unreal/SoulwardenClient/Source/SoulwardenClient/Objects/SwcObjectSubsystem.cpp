@@ -31,6 +31,11 @@ constexpr double UpdateSeconds = 0.2;
  *  the variation row (Loot.Crate_small01 and others; the particles are not converted): a choice of the look, not of the feel. */
 constexpr double ChestLightMeters = 60.0;
 constexpr double ChestLightHeight = 0.4;
+/** The fall of a tree (a look stand-in, not a value of the data): the angle grows with the square of the time to FallDegrees in
+ *  FallSeconds; the trunk then lies FallHoldSeconds and goes. */
+constexpr double FallSeconds = 2.0;
+constexpr double FallDegrees = 85.0;
+constexpr double FallHoldSeconds = 2.5;
 /** The instance of a node mesh at the place of a node: the level places it at the place of the record (cells.py). */
 constexpr double InstanceCellCm = 50.0;
 constexpr double InstanceNearCm = 30.0;
@@ -47,6 +52,8 @@ const FName KindNode(TEXT("node"));
 const FName KindNatural(TEXT("naturalNode"));
 const FName KindChest(TEXT("chest"));
 const FName KindGatherable(TEXT("gatherable"));
+const FName KindBody(TEXT("body"));
+
 
 uint64 HexNumber(const FString& Text)
 {
@@ -133,6 +140,7 @@ void USwcObjectSubsystem::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	const double Now = FPlatformTime::Seconds();
+	UpdateFalls(Now);
 	if (Now < NextUpdate)
 	{
 		return;
@@ -191,6 +199,16 @@ void USwcObjectSubsystem::Tick(float DeltaTime)
 			Own.achievementRevision);
 		Achievements = Own.achievements;
 		++StateRevision;
+	}
+	// The tools of the paperdoll (the item index of each tool slot).
+	Equipment.Reset();
+	for (uint32 Slot = 33; Slot <= 36; ++Slot)
+	{
+		const auto Found = Own.equipment.find(Slot);
+		if (Found != Own.equipment.end() && Found->second != 0)
+		{
+			Equipment.Add(Slot, Found->second);
+		}
 	}
 	// The place of the character: the pawn (the prediction of the client), else the place of the server.
 	const APlayerController* Controller = World->GetFirstPlayerController();
@@ -308,14 +326,67 @@ bool USwcObjectSubsystem::LoadTables(FString& OutReport)
 		Nodes += static_cast<int32>(Info->GetIntegerField(TEXT("nodes")));
 		Objects += static_cast<int32>(Info->GetIntegerField(TEXT("objects")));
 	}
+	// The gathering (stage P5.2).
+	Rows.Reset();
+	Tools.Reset();
+	Bodies.Reset();
+	Texts.Reset();
+	const TSharedPtr<FJsonObject>* Gathering = nullptr;
+	if (Document->TryGetObjectField(TEXT("gathering"), Gathering))
+	{
+		for (const TSharedPtr<FJsonValue>& Value : (*Gathering)->GetArrayField(TEXT("rows")))
+		{
+			// [id, type, action, restriction, tradeskill, level, time, name, unsupported]
+			const TArray<TSharedPtr<FJsonValue>>& Row = Value->AsArray();
+			FGatherRow& Entry = Rows.AddDefaulted_GetRef();
+			if (Row.Num() >= 8)
+			{
+				Entry.Id = Row[0]->AsString();
+				Entry.Type = Row[1]->AsString();
+				Entry.Action = Row[2]->AsString();
+				Entry.Restriction = Row[3]->AsString();
+				Entry.Tradeskill = Row[4]->AsString();
+				Entry.Level = static_cast<int32>(Row[5]->AsNumber());
+				Entry.Time = static_cast<float>(Row[6]->AsNumber());
+				Entry.Name = Row[7]->AsString();
+			}
+		}
+		for (const auto& Pair : (*Gathering)->GetObjectField(TEXT("tools"))->Values)
+		{
+			// item index -> [id, weapon tags, gathering types]
+			const TArray<TSharedPtr<FJsonValue>>& Row = Pair.Value->AsArray();
+			if (Row.Num() == 3)
+			{
+				FToolItem& Tool = Tools.Add(static_cast<uint32>(FCString::Atoi(*FString(Pair.Key))));
+				Tool.Id = Row[0]->AsString();
+				Tool.Tags = Row[1]->AsString();
+				for (const TSharedPtr<FJsonValue>& Type : Row[2]->AsArray())
+				{
+					Tool.Types.Add(Type->AsString());
+				}
+			}
+		}
+		for (const auto& Pair : (*Gathering)->GetObjectField(TEXT("bodies"))->Values)
+		{
+			const TArray<TSharedPtr<FJsonValue>>& Row = Pair.Value->AsArray();
+			if (Row.Num() == 2)
+			{
+				Bodies.Add(FString(Pair.Key), TPair<int32, int32>(static_cast<int32>(Row[0]->AsNumber()), static_cast<int32>(Row[1]->AsNumber())));
+			}
+		}
+		for (const auto& Pair : (*Gathering)->GetObjectField(TEXT("texts"))->Values)
+		{
+			Texts.Add(FString(Pair.Key), Pair.Value->AsString());
+		}
+	}
 	if (!Options.IsValidIndex(GatherOption))
 	{
 		OutReport = FString::Printf(TEXT("objects: %s has no GatherOption"), *Path);
 		return false;
 	}
 	GatherOptionIndex = GatherOption;
-	OutReport = FString::Printf(TEXT("objects: %d options, %d gathering templates, %d node visuals, %d regions (%d objects of the interaction data, %d natural nodes) from %s"),
-		Options.Num(), Templates.Num(), Visuals.Num(), RegionTypes.Num(), Objects, Nodes, *Path);
+	OutReport = FString::Printf(TEXT("objects: %d options, %d gathering templates, %d node visuals, %d regions (%d objects of the interaction data, %d natural nodes), %d gatherable rows, %d tools, %d skinnable slices from %s"),
+		Options.Num(), Templates.Num(), Visuals.Num(), RegionTypes.Num(), Objects, Nodes, Rows.Num(), Tools.Num(), Bodies.Num(), *Path);
 	return true;
 }
 
@@ -366,6 +437,7 @@ bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, FRegion& Out)
 		if (Info->TryGetArrayField(TEXT("gather"), Gather) && Gather->Num() == 2)
 		{
 			Object.Template = static_cast<int32>((*Gather)[0]->AsNumber());
+			Object.Row = static_cast<int32>((*Gather)[1]->AsNumber());
 		}
 		for (const TSharedPtr<FJsonValue>& BoundValue : Info->GetArrayField(TEXT("bounds")))
 		{
@@ -498,7 +570,7 @@ void USwcObjectSubsystem::ReadStates()
 
 ESwcWorldObjectState USwcObjectSubsystem::StateOf(FName Kind, uint64 Group) const
 {
-	if (Kind == KindNode || Kind == KindNatural)
+	if (Kind == KindNode || Kind == KindNatural || Kind == KindBody)
 	{
 		const uint8* State = NodeStates.Find(Group);
 		return State != nullptr && *State == swc::objects::kNodeDepleted ? ESwcWorldObjectState::Depleted : ESwcWorldObjectState::Ready;
@@ -570,6 +642,7 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 		return !bUsableOnly
 			|| (!Target.Options.IsEmpty() && Target.bEnabled && Target.State == ESwcWorldObjectState::Ready && Target.Kind != KindGatherable);
 	};
+	AddBodies(From, RadiusMeters, bUsableOnly, Out);
 	for (int32 GY = MinY; GY <= MaxY; ++GY)
 	{
 		for (int32 GX = MinX; GX <= MaxX; ++GX)
@@ -597,6 +670,11 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 						}
 						FSwcWorldObjectTarget Target;
 						MakeTarget(Object.Key, Object.Kind, Object.Actor, Object.Group, Bound, From, Target);
+						if (Object.Kind == KindNode || Object.Kind == KindChest)
+						{
+							// A capital node: the tool of its row; a chest: the default Gather fragment (its action LootContainer has none).
+							FillGather(Target, Object.Kind == KindNode ? Object.Row : -1);
+						}
 						if (Accept(Target))
 						{
 							Out.Add(MoveTemp(Target));
@@ -628,12 +706,101 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 				Bound.Options.Emplace(GatherOptionIndex, Ids.optionEntity);
 				FSwcWorldObjectTarget Target;
 				MakeTarget(FString::Printf(TEXT("%s#%u"), *Region->Name, Node.record), KindNatural, swc::objects::actor_of_group(Group), Group, Bound, From, Target);
+				FillGather(Target, Region->Types[Node.type].Row);
 				if (Accept(Target))
 				{
 					Out.Add(MoveTemp(Target));
 				}
 			}
 		}
+	}
+}
+
+FString USwcObjectSubsystem::Text(const FString& Key) const
+{
+	// A text key of the data ("@BushSmall_DisplayName", "ui_notoolchopping"); the key itself when the texts do not have it.
+	const FString Bare = Key.StartsWith(TEXT("@")) ? Key.Mid(1) : Key;
+	const FString* Found = Texts.Find(Bare.ToLower());
+	return Found != nullptr ? *Found : Bare;
+}
+
+void USwcObjectSubsystem::FillGather(FSwcWorldObjectTarget& Out, int32 Row) const
+{
+	Out.Row = Row;
+	Out.UseKind = TEXT("gather|None|");
+	if (!Rows.IsValidIndex(Row))
+	{
+		return;
+	}
+	const FGatherRow& Entry = Rows[Row];
+	Out.GatheringType = Entry.Type;
+	Out.GatherAction = Entry.Action;
+	Out.Name = Text(Entry.Name);
+	// The tool rule of the client and the Gather fragment (Objects/SwcObjectRules.h).
+	const uint32 SlotItem = Equipment.FindRef(swc::objects::tool_slot(TCHAR_TO_UTF8(*Entry.Type)));
+	const FToolItem* Tool = SlotItem != 0 ? Tools.Find(SlotItem) : nullptr;
+	const swc::objects::ToolCheck Check = swc::objects::check_tool(TCHAR_TO_UTF8(*Entry.Type), TCHAR_TO_UTF8(*Entry.Restriction),
+		Tool != nullptr && Tool->Types.Contains(Entry.Type));
+	Out.ToolSlot = Check.slot;
+	Out.ToolItem = Check.hasTool ? SlotItem : 0;
+	Out.ToolTags = Check.hasTool ? Tool->Tags : FString();
+	Out.bToolMissing = Check.missing;
+	Out.RefusalText = Check.missing ? Text(TEXT("ui_notool") + Entry.Type.ToLower()) : FString();
+	Out.UseKind = UTF8_TO_TCHAR(swc::objects::gather_use_kind(TCHAR_TO_UTF8(*Entry.Action), TCHAR_TO_UTF8(*Out.ToolTags), Check.hasTool).c_str());
+}
+
+void USwcObjectSubsystem::AddBodies(const FVector3d& From, double RadiusMeters, bool bUsableOnly, TArray<FSwcWorldObjectTarget>& Out) const
+{
+	const USwcCreatureSubsystem* Creatures = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcCreatureSubsystem>() : nullptr;
+	if (Creatures == nullptr || Bodies.IsEmpty())
+	{
+		return;
+	}
+	for (const auto& [Interest, Entity] : Creatures->GetEntityTable().entities())
+	{
+		// A dead creature whose slice has a skinning row: the server sets its GatherableController Healthy at the death (gathering.md).
+		if (!Entity.dead || !Entity.hasGatherable || !Entity.hasMetadata || !Entity.hasPosition())
+		{
+			continue;
+		}
+		const TPair<int32, int32>* Body = Bodies.Find(UTF8_TO_TCHAR(Entity.slice_key().c_str()));
+		if (Body == nullptr || !Templates.IsValidIndex(Body->Key))
+		{
+			continue;
+		}
+		const FTemplate& Template = Templates[Body->Key];
+		const swc::net::WorldPosition& Feet = Entity.samples.back().position;
+		FBound Bound;
+		Bound.EnginePlace = FVector3d(Feet.x, Feet.y, Feet.z) + Template.Translation;
+		const double DistanceSq = FVector3d::DistSquared(From, Bound.EnginePlace);
+		if (DistanceSq > (bUsableOnly ? static_cast<double>(Template.RangeSq) : RadiusMeters * RadiusMeters))
+		{
+			continue;
+		}
+		// The ids of a body: G of the creature entity, and the XOR rule with the template of its slice.
+		const uint64 Group = swc::net::group_of(Entity.actor);
+		const swc::objects::BoundIds Ids = swc::objects::bound_ids(Template.Root, Group, Template.BoundEntity, Template.Component, Template.OptionEntity);
+		Bound.Slot = Template.Slot;
+		Bound.Target = Ids.target;
+		Bound.RangeSq = Template.RangeSq;
+		Bound.bLineOfSight = Template.bLineOfSight;
+		Bound.Options.Emplace(GatherOptionIndex, Ids.optionEntity);
+		FSwcWorldObjectTarget Target;
+		MakeTarget(FString::Printf(TEXT("body#%u"), Interest), KindBody, Entity.actor, Group, Bound, From, Target);
+		Target.Interest = Interest;
+		FillGather(Target, Body->Value);
+		// The prompt of a body has the name of the creature ("E CHALKY RABBIT": protocol notes 4.44, stage run S1).
+		const FString Creature = Creatures->CreatureDisplayName(Group);
+		if (!Creature.IsEmpty())
+		{
+			Target.Name = Creature;
+		}
+		// The prompt of a body shows only with the knife in slot 35 (protocol notes 4.44): no refusal text, no prompt.
+		if (bUsableOnly && (Target.bToolMissing || Target.State != ESwcWorldObjectState::Ready || !Target.bEnabled))
+		{
+			continue;
+		}
+		Out.Add(MoveTemp(Target));
 	}
 }
 
@@ -787,7 +954,7 @@ AActor* USwcObjectSubsystem::VisualActor()
 	return Visual.Get();
 }
 
-void USwcObjectSubsystem::ApplyNode(uint64 Group, FNodeView& View, uint8 State)
+void USwcObjectSubsystem::ApplyNode(uint64 Group, FNodeView& View, uint8 State, bool bLive)
 {
 	USwcLevelInstances* Level = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcLevelInstances>() : nullptr;
 	if (Level == nullptr)
@@ -817,12 +984,17 @@ void USwcObjectSubsystem::ApplyNode(uint64 Group, FNodeView& View, uint8 State)
 		// healthy instance (the rotation and the scale of the record).
 		FTransform Transform(View.Place);
 		int32 Visible = INDEX_NONE;
+		TArray<TPair<UStaticMesh*, FTransform>> FallParts;
 		for (const FSwcMeshInstanceRef& Instance : Healthy)
 		{
 			if (!Level->IsInstanceHidden(Instance) && Instance.Component.IsValid())
 			{
 				Instance.Component->GetInstanceTransform(Instance.Index, Transform, true);
 				Visible = Instance.Index;
+				if (Instance.Mesh.IsValid())
+				{
+					FallParts.Emplace(Instance.Mesh.Get(), Transform);
+				}
 			}
 			Level->SetInstanceHidden(Instance, true);
 			AddInstance(View.HiddenHealthy, Instance);
@@ -831,6 +1003,35 @@ void USwcObjectSubsystem::ApplyNode(uint64 Group, FNodeView& View, uint8 State)
 		{
 			Level->SetInstanceHidden(Instance, false);
 			View.HiddenDepleted.RemoveAll([&Instance](const FSwcMeshInstanceRef& Item) { return SameInstance(Item, Instance); });
+		}
+		// A tree that the character sees fall (the client: the cut trunk falls, the stump stays; gathering.md, protocol notes 4.44): a copy
+		// of each healthy instance turns around the base of the tree, away from the character.
+		const bool bTree = Rows.IsValidIndex(View.Row) && Rows[View.Row].Type == TEXT("Chopping");
+		AActor* FallOwner = bLive && bTree && !FallParts.IsEmpty() ? VisualActor() : nullptr;
+		if (FallOwner != nullptr)
+		{
+			const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
+			const FVector Viewer = Controller != nullptr && Controller->GetPawn() != nullptr ? Controller->GetPawn()->GetActorLocation() : View.Place;
+			FVector Away = View.Place - Viewer;
+			Away.Z = 0.0;
+			Away = Away.IsNearlyZero() ? FVector::ForwardVector : Away.GetSafeNormal();
+			FFall& Fall = Falls.AddDefaulted_GetRef();
+			Fall.Pivot = View.Place;
+			Fall.Axis = FVector::CrossProduct(FVector::UpVector, Away).GetSafeNormal();
+			Fall.Start = FPlatformTime::Seconds();
+			for (const TPair<UStaticMesh*, FTransform>& Part : FallParts)
+			{
+				UStaticMeshComponent* Trunk = NewObject<UStaticMeshComponent>(FallOwner);
+				Trunk->SetMobility(EComponentMobility::Movable);
+				Trunk->SetStaticMesh(Part.Key);
+				Trunk->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				Trunk->SetupAttachment(FallOwner->GetRootComponent());
+				Trunk->RegisterComponent();
+				Trunk->SetWorldTransform(Part.Value);
+				Fall.Components.Add(Trunk);
+				Fall.Bases.Add(Part.Value);
+			}
+			UE_LOG(LogSwcObjects, Log, TEXT("objects: the tree %s falls (%d mesh(es)) away from the character"), *View.Key, FallParts.Num());
 		}
 		FString Shown = Depleted.IsEmpty() ? TEXT("none") : TEXT("the level instance");
 		if (Depleted.IsEmpty() && !View.Own.IsValid())
@@ -919,6 +1120,42 @@ void USwcObjectSubsystem::ApplyNode(uint64 Group, FNodeView& View, uint8 State)
 	View.AppliedRevision = IndexRevision;
 }
 
+void USwcObjectSubsystem::UpdateFalls(double Now)
+{
+	for (int32 Index = Falls.Num() - 1; Index >= 0; --Index)
+	{
+		FFall& Fall = Falls[Index];
+		const double Time = Now - Fall.Start;
+		if (Time > FallSeconds + FallHoldSeconds)
+		{
+			for (const TWeakObjectPtr<UStaticMeshComponent>& Component : Fall.Components)
+			{
+				if (Component.IsValid())
+				{
+					Component->DestroyComponent();
+				}
+			}
+			Falls.RemoveAt(Index);
+			continue;
+		}
+		// Each part turns around the base of the tree, away from the character.
+		const double Part = FMath::Min(Time / FallSeconds, 1.0);
+		const FQuat Turn(Fall.Axis, FMath::DegreesToRadians(FallDegrees * Part * Part));
+		for (int32 Piece = 0; Piece < Fall.Components.Num(); ++Piece)
+		{
+			if (!Fall.Components[Piece].IsValid())
+			{
+				continue;
+			}
+			const FTransform& Base = Fall.Bases[Piece];
+			FTransform Pose = Base;
+			Pose.SetLocation(Fall.Pivot + Turn.RotateVector(Base.GetLocation() - Fall.Pivot));
+			Pose.SetRotation(Turn * Base.GetRotation());
+			Fall.Components[Piece]->SetWorldTransform(Pose);
+		}
+	}
+}
+
 void USwcObjectSubsystem::RestoreNode(FNodeView& View)
 {
 	if (USwcLevelInstances* Level = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcLevelInstances>() : nullptr)
@@ -968,7 +1205,7 @@ void USwcObjectSubsystem::UpdateVisuals(const FVector& Center)
 	const FVector3d From(Engine.x, Engine.y, Engine.z);
 	const double RadiusSq2D = VisualMeters * VisualMeters;
 	const int32 PerRegion = static_cast<int32>(swc::objects::kRegionMeters / swc::objects::kCellMeters);
-	const auto Visit = [&](uint64 Group, const FString& Key, const FVector3d& Place, const TArray<int32>& NodeVisuals) {
+	const auto Visit = [&](uint64 Group, const FString& Key, const FVector3d& Place, const TArray<int32>& NodeVisuals, int32 Row) {
 		if (FVector2d::DistSquared(FVector2d(Place.X, Place.Y), FVector2d(From.X, From.Y)) > RadiusSq2D || NodeVisuals.IsEmpty())
 		{
 			return;
@@ -982,6 +1219,7 @@ void USwcObjectSubsystem::UpdateVisuals(const FVector& Center)
 			View->Place = ToUnreal(Place);
 			View->Visuals = NodeVisuals;
 			View->AppliedState = 0;
+			View->Row = Row;
 			bNew = true;
 		}
 		View->bSeen = true;
@@ -989,7 +1227,7 @@ void USwcObjectSubsystem::UpdateVisuals(const FVector& Center)
 		const uint8 State = Found != nullptr ? *Found : 0;
 		if (bNew || bIndex || View->AppliedState != State)
 		{
-			ApplyNode(Group, *View, State);
+			ApplyNode(Group, *View, State, !bNew && View->AppliedState != State);
 		}
 	};
 	for (int32 GY = swc::objects::grid_cell(From.Y - VisualMeters); GY <= swc::objects::grid_cell(From.Y + VisualMeters); ++GY)
@@ -1022,7 +1260,7 @@ void USwcObjectSubsystem::UpdateVisuals(const FVector& Center)
 					}
 				}
 				Visit(swc::objects::natural_group(Region->X, Region->Y, Node.record + 1), FString::Printf(TEXT("%s#%u"), *Region->Name, Node.record),
-					FVector3d(Node.x, Node.y, Node.z), NodeVisuals);
+					FVector3d(Node.x, Node.y, Node.z), NodeVisuals, Type.Row);
 			}
 			if (const TArray<int32>* List = Region->Grid.Find(FIntPoint(GX, GY)))
 			{
@@ -1036,7 +1274,7 @@ void USwcObjectSubsystem::UpdateVisuals(const FVector& Center)
 						{
 							NodeVisuals.AddUnique(SliceVisual);
 						}
-						Visit(Object.Group, Object.Key, Object.EnginePlace, NodeVisuals);
+						Visit(Object.Group, Object.Key, Object.EnginePlace, NodeVisuals, Object.Row);
 					}
 				}
 			}
@@ -1138,6 +1376,17 @@ void USwcObjectSubsystem::ClearAll(const TCHAR* Cause)
 		}
 	}
 	ChestLights.Reset();
+	for (FFall& Fall : Falls)
+	{
+		for (const TWeakObjectPtr<UStaticMeshComponent>& Component : Fall.Components)
+		{
+			if (Component.IsValid())
+			{
+				Component->DestroyComponent();
+			}
+		}
+	}
+	Falls.Reset();
 	if (Visual.IsValid())
 	{
 		Visual->Destroy();
@@ -1187,6 +1436,12 @@ void USwcObjectSubsystem::DevelopmentAids()
 	if (FindNearestObject(Feet, Best))
 	{
 		const FSwcWorldObjectOption* First = Best.Options.IsEmpty() ? nullptr : &Best.Options[0];
+		if (Best.Row >= 0 || !Best.UseKind.IsEmpty())
+		{
+			UE_LOG(LogSwcObjects, Log, TEXT("objects probe: %s %s: row %d (%s, %s), tool slot %u item %u (%s)%s, use %s"), *Best.Kind.ToString(), *Best.Name, Best.Row,
+				*Best.GatheringType, *Best.GatherAction, Best.ToolSlot, Best.ToolItem, *Best.ToolTags,
+				Best.bToolMissing ? *FString::Printf(TEXT(": %s"), *Best.RefusalText) : TEXT(""), *Best.UseKind);
+		}
 		UE_LOG(LogSwcObjects, Log, TEXT("objects probe: nearest %s %s at %.1f m: actor %s, target %s, slot %u, %s (action %u, option entity %s)%s"), *Best.Kind.ToString(),
 			*Best.Key, Best.Distance, UTF8_TO_TCHAR(swc::net::hex_of(std::span(Best.Actor).first(8)).c_str()), *Hex64(Best.Target), Best.Slot,
 			First != nullptr ? UTF8_TO_TCHAR(First->Option.name.c_str()) : TEXT("no option"), First != nullptr ? First->Option.action : 0,

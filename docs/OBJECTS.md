@@ -1,6 +1,6 @@
 # The objects of the level data
 
-Stage P4.1 part 2 (Linear AST-174). The client makes the interactable objects of the level data itself: the lore pages, the
+Stage P4.1 part 2 (Linear AST-174) and stage P5.2 (AST-175, the gathering of each tool family). The client makes the interactable objects of the level data itself: the lore pages, the
 chests, the gathering nodes (the natural nodes of the distribution files and the capital nodes of the layers), the stations, the
 persons, the doors, the shrines, the furniture. The server sends a record of such an object only when its state is not the state
 of the data (a depleted node, a disabled bound). The object layer gives each object its ids by the rule of the backend, keeps its
@@ -139,6 +139,51 @@ UUID, REGION#RECORD, or the G in 16 hexadecimal digits; in a script file "#" sta
   visual. A tree has no fall (the retail client: the trunk falls, the stump stays): the layer swaps the meshes at once.
 - The objects of the kind `gatherable` (mostly `master_quest_instanced`) have no prompt; the quests are a later stage.
 - Far nodes (beyond 100 m) show the level state; until the final level pass of the world track that is both meshes of a node.
+- The side-by-side check with the retail client is open.
+
+## The gathering (stage P5.2)
+
+The sources: Soulwarden `docs/systems/gathering.md` and protocol notes 4.44 (read only), `playeractions_gather.actionlist`, the
+GatherableData tables (GatheringType, GatheringAction, DisplayName), and `gathering-data.json` of the backend copy.
+
+| Part | Rule (source) |
+| --- | --- |
+| The rows | `objects.json` member `gathering`: each gatherable row (its id, GatheringType: the tool family, GatheringAction: the tag of the Gather fragment, Restriction, Tradeskill and its rank, BaseGatherTime, DisplayName), the tools by item index (the position in `item-catalog.json` plus 1: the value of the paperdoll) with their weapon tags and gathering types, the bodies (the slice of each creature with skinning: its template and row), and the texts of the prompts (from the converted localization of the UI track). |
+| The tool | The paperdoll slot of the GatheringType: Chopping 33 (the logging axe), Cutting 34 (the sickle), Dressing 35 (the skinning knife), Mining 36 (the pick). The item of the slot counts when its gathering types have the type (client 0x48FF240 FindFirstGatheringTool). A tool in the bag does not count. |
+| The refusal | ToolRequired and no tool: the prompt is "NAME  No equipped Axe" (the text `ui_notool<type>`), and E sends no request (live check L6). ItemRequired with no item (BushSmall) and NoToolNecessary have no gate. A body (the skinning) has no prompt with no knife. The rank gate is a check of the server: its refusal is the reply 3743 result 2 (the use ends; no text of the client). |
+| The work | GatherOption keeps its request until the Gathering state (type 81) has Done or Failure (`Interact/SwcGatherUse`, docs/INTERACTIONS.md). The time is remaining / speed of that state: the speed of the tool (T1: 2) with the rank and the effects of the server. |
+| The action | The use fragment `gather|ACTION|TOOLTAGS` of `actions.json` (converter `gather_actions.py`: the variant of "Gather" for the tag of the action and the tags of the tool, for example `player_axe.adb` Axe+Chopping, `player_pick.adb` 2H_Melee+Pick+Mining, `player.adb` Cutting, Dressing; with no tool the default kneel). The weapons go to their sheaths, the tool goes into the hand, and the fragment plays again while the work lasts (the data has one swing; the repeat is an inference). The character turns to the object in 0.2 s (InteractionAlignment, AlignFacingBlendTime; also for the timed use of DelayedInteraction). A chest (GatheringAction LootContainer) plays the default kneel. |
+| The skinning | A dead creature whose slice has a skinning row: its GatherableController (type 12, slot 3) is Healthy at the death, Depleted after the skinning. The ids: G of the creature entity and the XOR rule with the template of its slice; the place: the feet of the creature plus the translation of the bound. The prompt has the name of the creature ("E CHALKY RABBIT"). |
+| The fall of a tree | At a depletion that the character sees (a Healthy to Depleted change of a node in view, GatheringType Chopping), a copy of each healthy instance turns 85 degrees around the base of the tree, away from the character, in 2 s, lies 2.5 s, and goes; the stump (the depleted mesh) stays. The retail client lets the cut trunk of the CutTrunks table fall (gathering.md); the copy is a stand-in (a look, not a value of the data). |
+| The respawn | The server sends Healthy at the time of the run clock (gathering.md); the layer shows the healthy mesh again. |
+
+### Check (development run, 2026-10-18)
+
+`tests/creatures/gathering.txt` (the drive) and `tests/creatures/gathering-routes.txt` (the routes), with
+`SWC_DEV_CHARACTER=Devwarden SWC_STAGE=P5.2 tools/creature-check.sh gathering 122 tests/creatures/gathering-routes.txt tests/creatures/gathering.txt`;
+evidence `~/Games/soulwarden-client/evidence/P5.2/gathering.mp4`, `gathering-client.log`, `gathering-backend.log`, the frames
+`gathering-*.png` and `sheet-*.png`. The nodes are in r_+04_+02 near 9260 4177 (rank 0).
+
+- The refusal: the young tree 27406 with no axe: the prompt "YOUNG TREE  No equipped Axe", E sends no request.
+- The tree with the axe (route `tool 1hHatchetT1 33`): the fragment Axe+Chopping with the axe in the hand, the character turns to
+  the tree; the work 25 s / speed 2.8; Done, 2473; the node Depleted: the tree falls away from the character, the stump stays.
+- The ore vein 27254 with the pick (2H_Melee+Pick+Mining): 15 s / 2.3; the vein turns into its fragments.
+- The cranberry 27423 with the sickle (Cutting): 12 s / 2.2; the bush hides; the route `respawn 000000000d640221 5`: Healthy
+  again 9 s later.
+- The Chalky Rabbit (route `spawn`, `kill`): "E CHALKY RABBIT" with the knife (Dressing): 7 s / 2.1; the body Depleted.
+- The powder keg (the timed use of DelayedInteraction): the character turns to it and kneels; the execution after 5 s.
+- The backend: each gather "gathered ..." with its items; 3,636 position reports accepted, 0 refused.
+- Tests: `tools/test-creatures.sh` (objects 77, entity 97 with the body record of the backend encoder), `tools/test-net.sh` 179,
+  `tools/test-actions.sh` 8,734 checks: 0 failures.
+
+### Not done, open points (P5.2)
+
+- The move keys stay locked during a gather (the lock of a timed use); the retail input Stop_Gathering (Continue_Gather) ends it.
+- The impact of a swing (the mark GatherMomentOfImpact: the wood chips, the sounds) and the position part of InteractionAlignment
+  (AlignPositionSpeed) are not in the client.
+- The rank gate has no prompt of the client; the server refusal shows only as the end of the use.
+- The cut trunk of the CutTrunks table is not converted (the fall is a stand-in); the elite chest and the depletion effects.
+- The gather of another player (the observer action: type 11, not derived by the backend).
 - The side-by-side check with the retail client is open.
 
 ## Development aids

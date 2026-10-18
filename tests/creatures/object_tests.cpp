@@ -276,6 +276,40 @@ void test_gather_watch() {
     check(none.update(4.9, state) == Step::waiting && none.update(5.1, state) == Step::late, "no work 5 s after the press: late");
 }
 
+// ------------------------------------------------------------------------------------------------------------ the tool rule
+
+void test_tool_rule() {
+    // The paperdoll slots of the tools (protocol notes 4.44): 33 the logging axe, 34 the sickle, 35 the skinning knife, 36 the pick.
+    check(swc::objects::tool_slot("Chopping") == 33 && swc::objects::tool_slot("Cutting") == 34 && swc::objects::tool_slot("Dressing") == 35
+              && swc::objects::tool_slot("Mining") == 36 && swc::objects::tool_slot("None") == 0 && swc::objects::tool_slot("Fishing") == 0,
+          "the tool slot of each gathering type");
+    // TreeHardwoodLarge (Chopping, ToolRequired) with no axe: the refusal, no request (live check L6).
+    const swc::objects::ToolCheck tree = swc::objects::check_tool("Chopping", "ToolRequired", false);
+    check(tree.slot == 33 && !tree.hasTool && tree.missing, "a tree with no axe: the refusal");
+    const swc::objects::ToolCheck axe = swc::objects::check_tool("Chopping", "ToolRequired", true);
+    check(axe.hasTool && !axe.missing, "a tree with the axe in slot 33");
+    // BushSmall (None, ItemRequired with no item): no gate of the client (the stage run F: "E BUSH" and the request).
+    const swc::objects::ToolCheck bush = swc::objects::check_tool("None", "ItemRequired", false);
+    check(bush.slot == 0 && !bush.missing, "a small bush: no tool, no gate");
+    // SingleStone (None, NoToolNecessary) and a Mining row with NoToolNecessary: no gate.
+    check(!swc::objects::check_tool("Mining", "NoToolNecessary", false).missing, "NoToolNecessary: no gate");
+    // The use fragment of the gather (the keys of gather_actions.py).
+    check(swc::objects::gather_use_kind("Chopping", "2H_Melee,Axe,Tool", true) == "gather|Chopping|2H_Melee,Axe,Tool", "the use of a tree with the axe");
+    check(swc::objects::gather_use_kind("Mining", "2H_Melee,Pick,Tool", true) == "gather|Mining|2H_Melee,Pick,Tool", "the use of an ore with the pick");
+    check(swc::objects::gather_use_kind("Dressing", "1H_Melee,Knife,Tool", true) == "gather|Dressing|1H_Melee,Knife,Tool", "the use of a body with the knife");
+    check(swc::objects::gather_use_kind("None", "", false) == "gather|None|", "the use of a small bush: the default fragment");
+    check(swc::objects::gather_use_kind("Mining", "", false) == "gather|None|", "an action with no tool: the default fragment");
+    check(swc::objects::gather_use_kind("Handcrafting", "", false) == "gather|Handcrafting|", "Handcrafting: its own fragment");
+    check(swc::objects::gather_use_kind("LootContainer", "", false) == "gather|None|", "a chest: the default fragment");
+    // The ids of a body (gathering.md: the body has the entity id of the creature; the XOR rule with the template of its slice, here
+    // angryearth_overgrownbeetle: root 000000540431ae07, entity 0000003e0431ae07, component bd58e9558d26b0c6, option = root).
+    const std::uint64_t group = 0x4C554F5340000064ULL;
+    const swc::objects::BoundIds body = swc::objects::bound_ids(0x000000540431AE07ULL, group, 0x0000003E0431AE07ULL, 0xBD58E9558D26B0C6ULL,
+        0x000000540431AE07ULL);
+    check(body.target == ((0x0000003E0431AE07ULL ^ 0x000000540431AE07ULL ^ group) + 0xBD58E9558D26B0C6ULL) && body.optionEntity == group,
+          "the ids of a body: (entity XOR root XOR G) + component, the option entity G");
+}
+
 // -------------------------------------------------------------------------------------------------------- the node file
 
 void put32(std::vector<std::uint8_t>& out, std::uint32_t value) {
@@ -344,6 +378,7 @@ int main() {
     test_achievements();
     test_gathering_state();
     test_gather_watch();
+    test_tool_rule();
     test_node_file();
     std::printf("objects: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

@@ -1,0 +1,28 @@
+# The development routes of the exit check of stage P5.2 (tools/creature-check.sh, tools/lib/dev_world.py) on the clock of
+# tests/creatures/gathering.txt. The nodes of r_+04_+02 (rank 0; the places of the character have the node as the nearest bound by
+# more than 1.5 m): the tree TreeHardwoodMedium of record 27406 (9258.49 4179.47; the character 2.4 m east), the ore vein OreVeinSmall
+# of record 27254 (9264.24 4176.22; 1.6 m north-east), the plant Cranberry of record 27423 (9245.48 4174.47; 1.6 m south-west; G
+# 000000000d640221: a "#" starts a comment in this file), and a Chalky Rabbit at a place with no node within 5 m. The tools of the
+# paperdoll: 33 the axe, 34 the sickle, 35 the knife, 36 the pick (T1: the speed 2). A powder keg of the backend 2 m south-east of
+# the character at the end (the timed use "Ignite Fuse", 5 s). Places in engine m; a travel of more than about
+# 50 m shows the loading screen.
+# The nodes of an earlier run respawn at once (the tree 27406 and 27407, the ore vein 27254, the cranberries 27422 and 27423).
+1 respawn 000000000d61e221 1
+1 respawn 000000000d620221 1
+1 respawn 000000000d4ee221 1
+1 respawn 000000000d63e221 1
+1 respawn 000000000d640221 1
+1 tool 1hSickleT1 34
+1 tool 1hSkinningKnifeT1 35
+1 tool 1hPickT1 36
+1 untool 33
+2 travel 9260.89 4179.47 115.6 auto
+30 tool 1hHatchetT1 33
+50 travel 9265.37 4177.35 115.8 off
+66 travel 9244.35 4173.34 115.1 off
+81 respawn 000000000d640221 5
+90 travel 9230 4168 116.0 off
+93 spawn Rabbit_Snowshoe_3 1.4 1.4 0
+95 kill $1
+106 fixture powderKeg 1.4 -1.4 0
+118 gathering 30

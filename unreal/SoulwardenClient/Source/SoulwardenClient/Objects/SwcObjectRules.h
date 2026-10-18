@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -50,6 +51,29 @@ struct BoundIds {
     std::uint64_t optionEntity{0};
 };
 BoundIds bound_ids(std::uint64_t root, std::uint64_t group, std::uint64_t boundEntity, std::uint64_t component, std::uint64_t option);
+
+/**
+ * The tool of a gather (stage P5.2; Soulwarden protocol notes 4.44, live check L6; client 0x48FF240 FindFirstGatheringTool): the
+ * paperdoll slot of the gathering type of the row (Chopping 33 the logging axe, Cutting 34 the sickle, Dressing 35 the skinning
+ * knife, Mining 36 the pick; another type has no slot), and the item of that slot counts when its gathering types have the type. A
+ * row with the restriction ToolRequired and no tool: the prompt has the refusal ("No equipped Axe") and the client sends no request.
+ * ItemRequired with no item (BushSmall) and NoToolNecessary have no gate in the client.
+ */
+struct ToolCheck {
+    std::uint32_t slot{0};
+    bool hasTool{false};
+    bool missing{false};
+};
+std::uint32_t tool_slot(std::string_view gatheringType);
+ToolCheck check_tool(std::string_view gatheringType, std::string_view restriction, bool slotItemHasType);
+
+/**
+ * @return The use fragment of a gather ("gather|ACTION|TOOLTAGS": the Gather fragment of the action list with the tag of the
+ * GatheringAction of the row and the tags of the tool in the hand; converter gather_actions.py): the action of the row with the tool;
+ * with no tool the default fragment ("gather|None|"; Handcrafting has its own); an action with no fragment of its own (LootContainer,
+ * the chests) plays the default one.
+ */
+std::string gather_use_kind(std::string_view action, std::string_view toolTags, bool hasTool);
 
 /** One natural node of the file of a region: the record index (counter = record + 1), the type (an index into the types of the
  *  region: template, row, visual), and the place (engine m). */

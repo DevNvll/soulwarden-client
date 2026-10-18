@@ -632,6 +632,19 @@ bool USwcCreatureSubsystem::IsCreature(uint64 Group) const
 	return false;
 }
 
+FString USwcCreatureSubsystem::CreatureDisplayName(uint64 Group) const
+{
+	for (const auto& [Interest, Entity] : Table.entities())
+	{
+		if (Entity.hasMetadata && swc::net::group_of(Entity.actor) == Group)
+		{
+			const TWeakObjectPtr<ASwcCreature>* Actor = Actors.Find(Interest);
+			return Actor != nullptr && Actor->IsValid() ? (*Actor)->GetDisplayName() : FString();
+		}
+	}
+	return FString();
+}
+
 FString USwcCreatureSubsystem::CreatureName(uint64 Group) const
 {
 	for (const auto& [Interest, Entity] : Table.entities())
