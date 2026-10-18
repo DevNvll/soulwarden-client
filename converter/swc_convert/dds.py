@@ -19,14 +19,24 @@ sys.dont_write_bytecode = True
 BLOCK_BYTES = {71: 8, 72: 8, 74: 16, 75: 16, 77: 16, 78: 16, 80: 8, 81: 8, 83: 16, 84: 16, 95: 16, 96: 16, 98: 16, 99: 16}
 
 
-# The uncompressed formats: 4 bytes for each pixel (28, 29: R8G8B8A8 UNORM and SRGB; 87, 91: B8G8R8A8 UNORM and SRGB).
+# The uncompressed formats: 4 bytes for each pixel (28, 29: R8G8B8A8 UNORM and SRGB; 87, 91: B8G8R8A8 UNORM and SRGB),
+# 1 byte for each pixel (65: A8 UNORM, 21 alpha images of normal maps: the gloss).
 RGBA8 = (28, 29)
 BGRA8 = (87, 91)
+A8 = 65
+# A legacy header (no DX10 part, 128 bytes): the four-character code of its block format -> the DXGI format. The game
+# has 5 such files, the default textures (textures/defaults/white.dds, grey.dds, 16_grey.dds, perlinnoise2d.dds,
+# textures/references/mid_gray.dds; 53 diffuse slots of the world materials use them).
+LEGACY = {b"DXT1": 71, b"DXT3": 74, b"DXT5": 77, b"BGRA": 87}
+# The pixel format of a legacy header with no four-character code: flags RGB and alpha, 32 bits, the masks of B8G8R8A8.
+BGRA8_MASKS = (0x41, 0, 32, 0xFF0000, 0xFF00, 0xFF)
 
 
 def mip_size(fmt: int, w: int, h: int) -> int:
     if fmt in RGBA8 or fmt in BGRA8:
         return max(1, w) * max(1, h) * 4
+    if fmt == A8:
+        return max(1, w) * max(1, h)
     b = BLOCK_BYTES.get(fmt)
     if b is None:
         raise ValueError(f"DXGI format {fmt} not handled")
@@ -45,7 +55,11 @@ def join(read, base: str, max_size: int = 1024, alpha: bool = False) -> tuple[by
     height, width = struct.unpack_from("<II", head, 12)
     mips = struct.unpack_from("<I", head, 28)[0] or 1
     fourcc = head[84:88]
-    if fourcc != b"DX10":
+    if fourcc == b"\0\0\0\0" and struct.unpack_from("<6I", head, 80) == BGRA8_MASKS:
+        fourcc = b"BGRA"   # a legacy header of 32-bit pixels B8G8R8A8 (engineassets/textures/grey.dds)
+    if fourcc in LEGACY:   # a legacy header: the same data after a DX10 header (the decoders read 148 bytes)
+        head = (head[:84] + b"DX10" + head[88:128] + struct.pack("<5I", LEGACY[fourcc], 3, 0, 1, 0) + head[128:])
+    elif fourcc != b"DX10":
         raise ValueError(f"fourcc {fourcc!r} not handled in this scratch reader")
     fmt = struct.unpack_from("<I", head, 128)[0]
     header_size = 148
@@ -128,6 +142,8 @@ def decode_bc45(data: bytes, w: int, h: int, fmt: int) -> np.ndarray:
 
 
 def to_image(dds: bytes, w: int, h: int, fmt: int) -> Image.Image:
+    if fmt == A8:
+        return Image.frombuffer("L", (w, h), dds[148:148 + w * h], "raw", "L", 0, 1).copy()
     if fmt in RGBA8 or fmt in BGRA8:
         data = dds[148:148 + mip_size(fmt, w, h)]
         img = Image.frombuffer("RGBA", (w, h), data, "raw", "RGBA" if fmt in RGBA8 else "BGRA", 0, 1)
