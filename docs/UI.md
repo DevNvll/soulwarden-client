@@ -371,6 +371,44 @@ Rules of the emulation:
   handler of `UiNotificationsBus`; `AreNotificationsEnabled` is true. A minor notification shows after the pause of
   the queue (`SecondsBetweenNotifications`, 1.5 s).
 
+## The world views (stage WF7)
+
+The UI in the world views uses the original canvases (`tools/convert-ui.sh world`: the canvases, their textures, the status
+rows `gamedata/statuseffects.json`, the damage types `gamedata/damagetypes.json`, the option labels
+`gamedata/interactoptions.json`). The native parts of the game (not in the scripts) are emulation code of this project.
+
+The creature plates (`swc/markers.lua`; the canvas `lyshineui/markers/markermanager`):
+
+- At the world entry the data node `Hud.Markers.LocalPlayerMarkerSet` is true: `markermanager.luac` registers the marker
+  types (`SetMarkerParams`: the place offset, the fade, the scale, the occlusion of each type of `markerdata.luac`) and the
+  pools (`AddMarkerBucketGroup`; the emulation copies the vectors), and clones the elements of each pool
+  (`Hud.LocalPlayer.Markers.a0` to `a9` for the AI pool).
+- The feature flags and the count of the plates come from the registration of the client settings (image RVA 0x4A3A805 to
+  0x4A3A92C; each entry: the name, the type, a bool, the value; an int is the second DWORD of the value):
+  `UIFeatures.nameplateStatusEffects` true (live: the icons at the plates), `namePlateQuantityPc` 15, the option
+  `Video.NameplateQuantity` 15: 10 elements in the AI pool.
+- Each frame the C++ gives the view projection of the camera (`Swc.HostViewProjection`: the Unreal matrix, the size of the
+  viewport of the UI, the camera) and the creatures of `USwcCreatureSubsystem::GetPlates` (`Swc.HostPlates`, one line for
+  each creature with vitals and a marker within 50 m). The creatures with a marker type of the table of
+  `markermanager.luac` ("Wolf", "Damned", ...; the slice data, `tools/convert-creatures.sh markers`) get the elements of
+  the pool: the shown ones first, then the nearest. A creature keeps its element while it is in the pool.
+- The data nodes of an element: `MarkerComponentId` (a marker id for each entity), `Type`, `EntityName`, `Level`,
+  `HealthPercent`, `HealthMax`, `IsDead`, `EnemyDifficulty` and `CreatureTypeOverride` (the CRC-32 of the lower-case creature
+  type: the frame and the level mark of `marker.luac`), `IsTeamAlignmentEnemy` true (the red bar), `StaminaBaseMax` 0 and
+  `StaminaPercent` 1 (no creature stamina: the bar hides), `IsTargetingPlayer` false (no threat data), the status rows
+  (`StatusEffectStackSize.N` first, then `StatusEffectImage.N` and `StatusEffectIsNegative.N`, N = 1 to 5: the statuses with
+  ShowInNameplates by UiNameplatePriority; one with HidesOtherStatusEffectIcons shows alone), and `IsVisible`. A value goes
+  only when it changes (a data callback of the scripts gets each set).
+- The place: the feet plus the offset of the type (wZ: 1.5 m for a wolf), projected; the pivot of the element (the bottom
+  middle) goes there. The scale goes from maxScale to minScale between scaleStart and scaleDistance, the alpha (the fader of
+  the element) from maxAlpha to minAlpha between fadeStart and fadeDistance (AI: 1 to 0.6 between 1 m and 15 m; 1 to 0
+  between 10 m and 15 m). The ramps are a rule of this client (the native rule is not known).
+- `IsVisible`: the show rule of the creature view (the near range, the crosshair angle; `bShown`), the point is in front
+  of the camera, the alpha is above 0, and the world does not hide the point: each 0.33 s (occlusionInterval) the C++
+  traces from the camera to the point of each marker with allowWorldOcclusion (`Swc.HostMarkerPoints`,
+  `Swc.HostMarkerOcclusion`; a hit on a creature or on the pawn does not hide it; the hide is an inference).
+- When the UI runs, the creature view draws no simple plates and numbers (`SetUiPlates`).
+
 ## The data of the backend
 
 `USwcUiSubsystem` reads `USwcBackendSubsystem::GetLocalPlayer` each frame and calls the host functions. A value goes
@@ -471,6 +509,7 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `transitions` | The open of the original InfoModal (`OnTransitionIn`, its tweens) and the hover of its button (`button.luac`): each animation that a script starts has the eased value at each frame (60 a second), the final value, and ends after its delay and duration (15 animations; 4 replaced by a new one on the same property, the rule of the gem). The close hides the modal at once (its script has no animation). The ease functions against values of the Penner equations. Pictures `transitions-open-00` to `-24`, `transitions-hover-00` to `-24`, `transitions-close-00`. |
 | `inventory` | The original NewInventory, EquipmentV3, Tooltip, Encumbrance, and FlyoutMenu screens with a bag of the host calls (a sword, a shirt, 3 potions, 25 ore), the equipped sword, and the coin. The weight of the bag (14.0 of 200.0); Tab opens the state Inventory with the two screens and the cursor; the bag sections have their items and weights; the hover of the sword gives the item tooltip (gear score 100, core damage 70); a click gives the command list (Equip, Lock, Drop); Equip gives the host request `equip 0 24 1 INSTANCE`; the answer of the server (the swords change places) changes the screens and the weight (14.6); a sword that needs level 21 has "Equip" off ("Requirements not met") and no request; a refusal of the server (3626) keeps the paperdoll; Use of the potions gives `use 2`, the answer changes the weight (18.3); Unequip of the equipped sword gives `unequip 24 -1 1`, the answer empties the slot (21.3); Tab closes. Pictures `inventory-open`, `-tooltip`, `-commands`, `-equipped`, `-refused`, `-unequipped`. |
 | `loot` | The original CatContainer screen next to NewInventory and EquipmentV3: a bag near the character and Tab give the host request `openloot 57` and the state Container ("LOOT", the loot bag mode); the items of the server show ("2 items", the weight 5.4); LSHIFT and a click on the ore give `take INSTANCE 9`; the answer of the server leaves "1 item"; Take All gives `takeall`; the end of the use closes the panel (the state Inventory). Pictures `loot-panel`, `loot-taken`. |
+| `plates` | The original AiMarker plates (`markermanager.luac`, `marker.luac`, `markerstatuseffect.luac`): the scripts register the types and the pools; two grey wolves of the host get the elements a0 and a1: the near one (5 m) with its name, its level 18, the red bar, and the stun icon on a red square at the middle of the view 1.5 m above its feet; the far one (12.4 m, one half of its health) with the alpha 0.52; at its death the bar empties, and a creature out of the pool hides. Pictures `plates`, `plates-dead`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
 The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,

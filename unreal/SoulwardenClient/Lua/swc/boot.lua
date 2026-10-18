@@ -28,4 +28,5 @@ Swc.Load("swc.dynamic")   -- the dynamic lists: the dynamic layout and the dynam
 Swc.Load("swc.game")      -- the game buses that the first HUD reads
 Swc.Load("swc.items")     -- the items: static data, item slots, the bag, the paperdoll, the containers, the requests
 Swc.Load("swc.loot")      -- the loot bags near the character and the panel of an open bag
+Swc.Load("swc.markers")   -- the markers in the world: the AI plates (the native part of the marker manager)
 Swc.Load("swc.host")      -- the calls of the host: Swc.Tick, Swc.Boot, Swc.EnterWorld, the player data

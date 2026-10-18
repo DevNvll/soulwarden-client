@@ -93,6 +93,9 @@ private:
 	void FeedLoot(const swc::net::RepClient::OwnEntity& Own, class USwcBackendSubsystem* Backend);
 	/** One item to the runtime (HostBagSlot or HostPaperdollItem). @return The key of the values (a change test). */
 	FString CallItem(const char* Function, uint32 Slot, const soulwarden::backend::tests::WireItem* Item);
+	/** The UI in the world views (stage WF7; docs/UI.md): the view projection of the camera, the plates of the creature view
+	 *  (USwcCreatureSubsystem::GetPlates), and the occlusion tests of the markers; the simple stand-ins of the other tracks go off. */
+	void FeedWorld();
 	/** A request of the inventory scripts ("equip BAG SLOT QUANTITY INSTANCE", "use SLOT", ...) to the backend subsystem. */
 	void HandleItemRequest(const FString& Request, class USwcBackendSubsystem* Backend);
 
@@ -164,4 +167,7 @@ private:
 	TMap<uint32, TArray<uint32>> SentBars;
 	TMap<uint32, uint64> SentCooldowns;
 	float SentYaw = 1000.0f;
+	/** The world views: the time of the next occlusion test of the markers, and the switches of the stand-ins. */
+	double NextOcclusionTime = 0.0;
+	bool bStandInsOff = false;
 };

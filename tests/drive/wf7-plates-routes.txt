@@ -1,0 +1,13 @@
+# The development routes of the plate check of stage WF7 (tools/creature-check.sh, tools/lib/dev_world.py): three grey wolves of
+# level 18 to the east of the character (14 m, 9 m at one half of its health, 4 m with a stun: the status icon), the creatures
+# ignore the character; at 75 s the near wolf dies. Times on the clock of the drive script tests/drive/wf7-plates-player.txt (the
+# routes start after the world entry of the log; $N is the Nth spawn); offsets in m east, north; yaw: 0 north, 90 west.
+50 level 70
+50 heal
+50 ignore on
+51 spawn Wolf_Grey_7 14 -1 0 --yaw 90 --level 18
+52 spawn Wolf_Grey_7 9 1 0 --yaw 90 --level 18
+53 health $2 50%
+54 spawn Wolf_Grey_7 4 0 0 --yaw 90 --level 18
+55 effect $3 AI_Stun_4sec 20
+75 kill $3

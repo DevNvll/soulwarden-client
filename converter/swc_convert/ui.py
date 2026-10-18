@@ -14,6 +14,9 @@ Usage (tools/convert-ui.sh; output in SWC_CONTENT/ui, never in git):
   enums                   the enum values of the client for the names that the scripts read -> gamedata/enums.json
   loader                  the canvases that the two loaders of the game name -> gamedata/loader.json
   actionmaps              the action maps of the client profile (keyboard and mouse) -> gamedata/actionmaps.json
+  world                   the data of the UI in the world views (stage WF7): the status rows of the plates and of the damage
+                          numbers -> gamedata/statuseffects.json, the damage types -> gamedata/damagetypes.json, the
+                          canvases of the markers, the prompt cards, the damage numbers, and the loot ticker, and their textures
 
 The canvas form (research ~/Games/soulwarden-client/research/ui.md, section 2): a binary object stream with one
 SliceComponent; its Entities list has the canvas entity and one entity for each element. The converter keeps each
@@ -939,6 +942,89 @@ def convert_gamedata() -> dict:
     return {"ability tables": len(tables), "abilities": len(abilities), "weapons": len(weapons), "afflictions": len(afflictions)}
 
 
+def convert_world() -> dict:
+    """The data of the UI in the world views (stage WF7; docs/UI.md):
+    statuseffects.json  status id -> the columns that the name plate (markerstatuseffect.luac, the native part of the marker)
+                        and the damage numbers read, for each row that shows there (ShowInNameplates, ShowTextInNameplates,
+                        ShowTextInDamageNumbers; javelindata_statuseffects*.datasheet): PlaceholderIcon, IsNegative,
+                        UiNameplatePriority, OverrideOtherNameplateText, HidesOtherStatusEffectIcons, DisplayName
+    damagetypes.json    the number of a damage type on the wire (IntID of javelindata_damagetypes) -> TypeID, DisplayName,
+                        Category
+    interactoptions.json  the option records of the UI database: option name -> the label key and the additional info slice
+    and the canvases of WORLD_CANVASES with their textures and the sprite folders that their scripts use."""
+    statuses: dict[str, dict] = {}
+    for path in sorted(source.paks().paths("", ".datasheet")):
+        name = path.rsplit("/", 1)[1]
+        if not re.match(r"javelindata_statuseffects[a-z0-9_]*\.datasheet$", name):
+            continue
+        for row in datasheet.Sheet(source.read(path)).rows():
+            status = row.get("StatusID")
+            shown = bool(row.get("ShowInNameplates")) or bool(row.get("ShowTextInNameplates")) or bool(row.get("ShowTextInDamageNumbers"))
+            if not status or not shown or status in statuses:
+                continue
+            entry = {"icon": (row.get("PlaceholderIcon") or "").lower().replace("\\", "/"), "negative": bool(row.get("IsNegative")),
+                     "nameplate": bool(row.get("ShowInNameplates")), "nameplateText": bool(row.get("ShowTextInNameplates")),
+                     "damageText": bool(row.get("ShowTextInDamageNumbers")), "name": row.get("DisplayName") or ""}
+            for key, column in (("priority", "UiNameplatePriority"), ("stackMax", "StackMax")):
+                if number_or_none(row.get(column)) is not None:
+                    entry[key] = row[column]
+            for key, column in (("overrideText", "OverrideOtherNameplateText"), ("hidesOthers", "HidesOtherStatusEffectIcons")):
+                if row.get(column):
+                    entry[key] = True
+            statuses[status] = entry
+    damage_types = {str(int(r["IntID"])): {"id": r["TypeID"], "name": r.get("DisplayName", ""), "category": r.get("Category", "")}
+                    for r in table_rows("javelindata_damagetypes.datasheet") if r.get("TypeID") and isinstance(r.get("IntID"), float)}
+    target = out_dir() / "gamedata"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "statuseffects.json").write_text(json.dumps(statuses, separators=(",", ":"), sort_keys=True))
+    (target / "damagetypes.json").write_text(json.dumps(damage_types, separators=(",", ":"), sort_keys=True))
+    options = convert_interact_options()
+    (target / "interactoptions.json").write_text(json.dumps(options, separators=(",", ":"), sort_keys=True))
+    # The textures: the canvases of the world views and the UI slices that they spawn, and the folders of the sprites that the
+    # scripts set (the markers, the status icons, the icons of the damage types: TooltipCommon GetIconFromDamageTypeName).
+    canvases = convert_canvases(WORLD_CANVASES)
+    textures = set(canvases.pop("textures"))
+    for folder in ("lyshineui/images/markers/", "lyshineui/images/status/", "lyshineui/images/icons/tooltip/"):
+        textures |= set(folder_textures(folder))
+    return {"status rows": len(statuses), "on the plates": sum(1 for e in statuses.values() if e["nameplate"]),
+            "damage types": len(damage_types), "interact options": len(options), "canvases": canvases, "textures": convert_textures(textures),
+            "texture index": convert_texture_index()}
+
+
+# The option records of the UI database (sharedassets/genericassets/ui/uidatabase.uidb; the native UnifiedInteractOptionComponent fills
+# the rows of the prompt card from them): the record type, and the fields Name, the label key ("@ui_storage_interact": the text of the
+# row), and the name of the additional info slice of the row ("ContainerAdditionalInfo"; an element of AdditionalInfoSlices of the
+# canvas lyshineui/markers/unifiedinteract). The names of the two fields are not known (their ids).
+UIDB_OPTION_TYPE = bytes.fromhex("f0887e97" "5084" "413c" "bce7" "5c24cecb03c0")
+F_OPTION_LABEL = 0xAECBE459
+F_OPTION_ADDITIONAL_INFO = 0xD818B750
+
+
+def convert_interact_options() -> dict:
+    """@return The option records of the UI database: option name -> {label, additionalInfo}."""
+    roots = source.parse(source.read("sharedassets/genericassets/ui/uidatabase.uidb"))
+    out: dict[str, dict] = {}
+    for element in source.walk(roots[0]):
+        if element.type_id != UIDB_OPTION_TYPE:
+            continue
+        name = source.text(element.child(source.field_id("Name")))
+        if not name or name in out:
+            continue
+        entry = {"label": source.text(element.child(F_OPTION_LABEL))}
+        info = source.text(element.child(F_OPTION_ADDITIONAL_INFO))
+        if info:
+            entry["additionalInfo"] = info
+        out[name] = entry
+    return out
+
+
+# The canvases of the UI in the world views (stage WF7): the markers (the AI plates), the prompt cards, the damage numbers, the loot
+# ticker.
+WORLD_CANVASES = ["lyshineui/markers/markermanager.dynamicuicanvas", "lyshineui/markers/unifiedinteract.dynamicuicanvas",
+                  "lyshineui/hud/damagenumbers/damagenumbers.dynamicuicanvas",
+                  "lyshineui/hud2024/lootticker/lootticker2024.dynamicuicanvas"]
+
+
 # The columns of the item definitions that the inventory screens use (javelindata_itemdefinitions_master_*), with their
 # names in items.json. A number column keeps its number; an empty value is left out.
 ITEM_COLUMNS = {
@@ -1370,6 +1456,7 @@ def main(argv=None) -> int:
     sub.add_parser("loader")
     sub.add_parser("actionmaps")
     sub.add_parser("texture-index")
+    sub.add_parser("world")
     args = parser.parse_args(argv)
     if args.command == "hud":
         result = hud(args.force)
@@ -1408,6 +1495,8 @@ def main(argv=None) -> int:
         result = convert_actionmaps()
     elif args.command == "texture-index":
         result = convert_texture_index()
+    elif args.command == "world":
+        result = convert_world()
     else:
         result = convert_text()
     print(json.dumps(result, indent=1, default=str))

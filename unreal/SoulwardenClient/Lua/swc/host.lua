@@ -89,6 +89,8 @@ function Swc.PlayerSpawned()
   Swc.SetData("Hud.LocalPlayer.Options.Video.HudShowVitalsValues", true)
   Swc.StartAfflictions()
   Swc.SetData("Hud.LocalPlayer.OnLocalPlayerSet", true)
+  -- The marker component of the local player is set: markermanager.luac registers the marker types and the pools (swc/markers.lua).
+  Swc.SetData("Hud.Markers.LocalPlayerMarkerSet", true)
 end
 
 --- The active weapon slot and its sheathe state (the paperdoll maps of the backend).

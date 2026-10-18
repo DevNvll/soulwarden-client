@@ -15,7 +15,10 @@
 #include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "Creatures/SwcCreature.h"
 #include "Creatures/SwcCreatureSubsystem.h"
+#include "Engine/LocalPlayer.h"
+#include "SceneView.h"
 #include "GameFramework/Pawn.h"
 #include "SwcBackendSubsystem.h"
 #include "UI/SwcUiInput.h"
@@ -45,6 +48,8 @@ const char* const HudScreens[] = {
 	"lyshineui/flyoutmenu/flyoutmenu",
 	// The panel of an open loot bag (the state Container).
 	"lyshineui/container/catcontainer",
+	// The world views (stage WF7): the markers (the AI plates).
+	"lyshineui/markers/markermanager",
 	// The notifications (the minor messages of the inventory, the loot).
 	"lyshineui/notifications/notification",
 };
@@ -1022,6 +1027,7 @@ void USwcUiSubsystem::FeedLocalPlayer()
 	// The bag, the paperdoll items (the item index of the wire in the item catalog of the backend copy), the level, the coin.
 	FeedItems(Own);
 	FeedLoot(Own, Backend);
+	FeedWorld();
 	int32 Active = -1;
 	for (uint32 Slot = FirstWeaponSlot; Slot <= LastWeaponSlot; ++Slot)
 	{
@@ -1091,6 +1097,92 @@ void USwcUiSubsystem::FeedLocalPlayer()
 									FArg::of(Own.position.z)});
 	}
 	Runtime->call("HostCommit");
+}
+
+void USwcUiSubsystem::FeedWorld()
+{
+	UWorld* World = GetGameInstance() != nullptr ? GetGameInstance()->GetWorld() : nullptr;
+	APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	ULocalPlayer* LocalPlayer = Controller != nullptr ? Controller->GetLocalPlayer() : nullptr;
+	UGameViewportClient* ViewportClient = World != nullptr ? World->GetGameViewport() : nullptr;
+	USwcCreatureSubsystem* Creatures = World != nullptr ? World->GetSubsystem<USwcCreatureSubsystem>() : nullptr;
+	if (LocalPlayer == nullptr || ViewportClient == nullptr || ViewportClient->Viewport == nullptr || Creatures == nullptr || !Widget.IsValid())
+	{
+		return;
+	}
+	if (!bStandInsOff)
+	{
+		// The original plates and numbers of the UI replace the simple stand-ins of the creature view.
+		bStandInsOff = true;
+		Creatures->SetUiPlates(true);
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the world views: the AiMarker plates of the UI replace the simple plates"));
+	}
+	// The view projection of the frame (Unreal row vectors: clip = (x, y, z, 1) * M), the size of the viewport of the UI, the camera.
+	FSceneViewProjectionData Projection;
+	if (!LocalPlayer->GetProjectionData(ViewportClient->Viewport, Projection))
+	{
+		return;
+	}
+	const FMatrix ViewProjection = Projection.ComputeViewProjectionMatrix();
+	const FVector2f Size = Widget->GetLastSize();
+	std::vector<FArg> View;
+	for (int32 Row = 0; Row < 4; ++Row)
+	{
+		for (int32 Column = 0; Column < 4; ++Column)
+		{
+			View.push_back(FArg::of(static_cast<double>(ViewProjection.M[Row][Column])));
+		}
+	}
+	View.push_back(FArg::of(static_cast<double>(FMath::Max(Size.X, 1.0f))));
+	View.push_back(FArg::of(static_cast<double>(FMath::Max(Size.Y, 1.0f))));
+	View.push_back(FArg::of(Projection.ViewOrigin.X));
+	View.push_back(FArg::of(Projection.ViewOrigin.Y));
+	View.push_back(FArg::of(Projection.ViewOrigin.Z));
+	Runtime->call("HostViewProjection", View);
+	// The plates: one line for each creature (swc/markers.lua parse_plates).
+	TArray<FSwcCreaturePlate> Plates;
+	Creatures->GetPlates(Plates);
+	FString Lines;
+	for (const FSwcCreaturePlate& Plate : Plates)
+	{
+		FString Statuses;
+		for (const FSwcPlateStatus& Status : Plate.Statuses)
+		{
+			Statuses += FString::Printf(TEXT("%s%s*%u"), Statuses.IsEmpty() ? TEXT("") : TEXT(","), *Status.Id, Status.Stacks);
+		}
+		Lines += FString::Printf(TEXT("%u\t%llu\t%.1f\t%.1f\t%.1f\t%s\t%s\t%s\t%s\t%u\t%d\t%.1f\t%.1f\t%d\t%.2f\t%d\t%d\t%d\t%.2f\t%d\t%s\n"),
+			Plate.Interest, static_cast<unsigned long long>(Plate.Serial), Plate.Feet.X, Plate.Feet.Y, Plate.Feet.Z, *Plate.Name.Replace(TEXT("\t"), TEXT(" ")),
+			*Plate.MarkerType, *Plate.CreatureType, *Plate.CreatureTypeOverride, Plate.Level, Plate.bHidesLevel ? 1 : 0, Plate.Health, Plate.HealthMax,
+			Plate.bDead ? 1 : 0, Plate.DeadSeconds, Plate.bImmune ? 1 : 0, Plate.bNeverShowHealthBar ? 1 : 0, Plate.bForceDisplayHealthBar ? 1 : 0,
+			Plate.Distance, Plate.bShown ? 1 : 0, *Statuses);
+	}
+	Runtime->call("HostPlates", {FArg::of(Utf8(Lines))});
+	// The occlusion of the markers (markerdata.luac: allowWorldOcclusion, occlusionInterval 0.33 s): a line from the camera to the point
+	// of each marker; a hit of the world before the point hides it (the creatures and the pawn do not hide a marker).
+	const double Now = FPlatformTime::Seconds();
+	if (Now < NextOcclusionTime)
+	{
+		return;
+	}
+	NextOcclusionTime = Now + 0.33;
+	std::string Points;
+	Runtime->call("HostMarkerPoints", {}, &Points);
+	TArray<FString> Parts;
+	FString(UTF8_TO_TCHAR(Points.c_str())).ParseIntoArray(Parts, TEXT(" "));
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SwcMarkerOcclusion), false, Controller->GetPawn());
+	FString Result;
+	for (int32 Index = 0; Index + 3 < Parts.Num(); Index += 4)
+	{
+		const FVector Point(FCString::Atod(*Parts[Index + 1]), FCString::Atod(*Parts[Index + 2]), FCString::Atod(*Parts[Index + 3]));
+		FHitResult Hit;
+		bool bHidden = World->LineTraceSingleByChannel(Hit, Projection.ViewOrigin, Point, ECC_Visibility, Params);
+		if (bHidden && Hit.GetActor() != nullptr && Hit.GetActor()->IsA<ASwcCreature>())
+		{
+			bHidden = false;
+		}
+		Result += FString::Printf(TEXT("%s:%d "), *Parts[Index], bHidden ? 1 : 0);
+	}
+	Runtime->call("HostMarkerOcclusion", {FArg::of(Utf8(Result))});
 }
 
 void USwcUiSubsystem::FlushLog()
