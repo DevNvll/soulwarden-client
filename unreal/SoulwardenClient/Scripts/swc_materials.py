@@ -279,7 +279,8 @@ return normalize(float3(N.xy + v.xy, N.z));"""
 # (Map, raw) and its intensity map (I: the Decal slot, raw; white when the slot is empty): E = Map.rgb x
 # lum(Map.rgb)^(EmittanceMapGamma - 1) x I.rgb x Map.a; with no map, E = 0.5. Output = Emittance RGB x Emittance A
 # x 0.1 (EMITTANCE_TO_ENGINE_LIGHT_SCALE, 1000/10000) x E, when the Emittance RGB is not black; x the global
-# EmissiveScale of MPC_SwcMaterials (the calibration with the Unreal exposure, the environment work).
+# EmissiveScale of MPC_SwcMaterials: at run time 10,000 cd/m2 for each engine unit of the source x swc.LightScale
+# (USwcMaterialScale; the balance with the local lights of the environment work).
 # C = EmittanceColor (RGB, A), P = (EmittanceMapGamma, has map, unused, unused).
 EMISSIVE_HLSL = """float3 w = float3(0.2126, 0.7152, 0.0722);
 if (dot(C.rgb, w) <= 0.0) return float3(0.0, 0.0, 0.0);
