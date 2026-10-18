@@ -71,8 +71,9 @@ files at the same time; a shared document (this file, the roadmap) changes only 
   stops such processes, and its `--check` fails while one is alive.
 - Do not open the Proton prefixes of the Soulwarden project or its development data.
 - Do not start, stop, or control the retail client or a development run of the Soulwarden project.
-- The Soulwarden repository is read only for this project. A change that the backend needs goes as a message to the
-  Soulwarden orchestrator (thread 02915e32-02d5-4ff1-a796-cc7c5cf30798), never as an edit of `~/Developer/azoth`.
+- The Soulwarden repository is read only for this project. A change that the backend needs goes to the orchestrator of
+  this project, which reports it to the user, never as an edit of `~/Developer/azoth`. No thread of this project sends
+  a report, a request, or a fact to the Soulwarden orchestrator thread (decision of the user, 2026-10-18).
 - The Soulwarden orchestrator tells this project when a backend commit changes the wire bytes (the golden file of its
   case T2) or the start options of the backend. Then check the client and update the backend copy.
 
