@@ -20,9 +20,15 @@ from . import dds, env, source
 SLOTS = {"Diffuse": "base", "Bumpmap": "normal", "Specular": "specular", "Emittance": "emissive"}
 
 
+NOT_DRAWN_SHADERS = {"nodraw", "geometrybeam"}   # collision (both spellings are in the game data), light beams
+
+
 def not_drawn(material: ET.Element) -> bool:
-    """A sub-material that the game does not draw: Nodraw (collision) or a shadow proxy (it only casts shadows)."""
-    return material.get("Shader", "") == "Nodraw" or "shadow_proxy" in material.get("Name", "").lower()
+    """A sub-material that the client does not draw as a surface: Nodraw or NoDraw (collision), a shadow proxy (it only
+    casts shadows), a light beam or fog volume (GeometryBeam), or a decal (%DECAL: the game draws it over another
+    surface; as a surface of its own it would hide that surface)."""
+    return (material.get("Shader", "").lower() in NOT_DRAWN_SHADERS or "shadow_proxy" in material.get("Name", "").lower()
+            or "%DECAL" in material.get("StringGenMask", "").upper())
 
 
 def is_glass(material: ET.Element) -> bool:
@@ -112,22 +118,30 @@ TEXTURE_VERSION = 2   # the rule of the shared PNGs (2: a base color with an alp
 TWO_SIDED = 0x2                                  # MtlFlags: MTL_FLAG_2SIDED (CryEngine)
 
 
-def shared_texture(product: str, role: str) -> dict:
+def shared_texture(product: str, role: str, opacity: str | None = None) -> dict:
     """Writes a texture product as PNG for its own Unreal asset (once for each size cap) and @return its record.
-    A normal map keeps the green channel of the engine (Unreal uses the same direction; the glTF PNGs flip it)."""
+    A normal map keeps the green channel of the engine (Unreal uses the same direction; the glTF PNGs flip it).
+    `opacity`: the product of the Opacity map of a masked material: it becomes the alpha of the base color (the masked
+    base material takes its mask from the alpha of the base color)."""
     cap = TEXTURE_CAPS[role]
-    out = env.content_dir() / "textures" / f"v{TEXTURE_VERSION}-{cap}" / (product[:-4] + ".png")
+    name = product[:-4] + ("+" + opacity.rsplit("/", 1)[-1][:-4] if opacity else "") + ".png"
+    out = env.content_dir() / "textures" / f"v{TEXTURE_VERSION}-{cap}" / name
     if not out.is_file():
         data, w, h, fmt = dds.join(source.read, product, cap)
         img = dds.to_image(data, w, h, fmt)
-        if role == "normal" or (img.mode == "RGBA" and int(np.asarray(img)[:, :, 3].min()) == 255):
+        if opacity:
+            data, ow, oh, ofmt = dds.join(source.read, opacity, cap)
+            mask = dds.to_image(data, ow, oh, ofmt).convert("L").resize(img.size)
+            img = img.convert("RGB")
+            img.putalpha(mask)
+        elif role == "normal" or (img.mode == "RGBA" and int(np.asarray(img)[:, :, 3].min()) == 255):
             img = img.convert("RGB")   # no alpha: Unreal compresses it as DXT1 (a 1-bit alpha of BC1 stays)
         out.parent.mkdir(parents=True, exist_ok=True)
         temporary = out.with_name(f".{out.name}.{os.getpid()}.png")   # workers can write the same texture: atomic
         img.save(temporary)
         os.replace(temporary, out)
-    return {"kind": "texture", "asset": "texture:" + product, "file": str(out.relative_to(env.content_dir())),
-            "role": role, "cap": cap}
+    key = "texture:" + product + ("+opacity:" + opacity if opacity else "")
+    return {"kind": "texture", "asset": key, "file": str(out.relative_to(env.content_dir())), "role": role, "cap": cap}
 
 
 def shared_material(material: ET.Element | None) -> tuple[dict, list[dict]]:
@@ -151,16 +165,21 @@ def shared_material(material: ET.Element | None) -> tuple[dict, list[dict]]:
             rules["two sided"] = bool(int(material.get("MtlFlags", "0") or 0) & TWO_SIDED)
         except ValueError:
             pass
+        products: dict[str, str] = {}
         for t in material.iter("Texture"):
-            role = {"Diffuse": "base", "Bumpmap": "normal"}.get(t.get("Map", ""))
-            if role is None or role in rules:
-                continue
-            product = texture_product(t)
-            if product is None:
+            role = {"Diffuse": "base", "Bumpmap": "normal", "Opacity": "opacity"}.get(t.get("Map", ""))
+            if role is not None and role not in products:
+                product = texture_product(t)
+                if product is not None:
+                    products[role] = product
+        opacity = products.get("opacity") if rules["blend"] == "masked" else None
+        for role in ("base", "normal"):
+            if role not in products:
                 continue
             try:
-                textures.append(shared_texture(product, role))
-                rules[role] = "texture:" + product
+                record = shared_texture(products[role], role, opacity if role == "base" else None)
+                textures.append(record)
+                rules[role] = record["asset"]
             except Exception as error:   # a texture that does not decode: the material has no such map
                 rules.setdefault("errors", []).append(f"{role}: {str(error)[:80]}")
     errors = rules.pop("errors", None)

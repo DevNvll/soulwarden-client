@@ -35,8 +35,10 @@ def load(path: str) -> tuple[cgf.ChunkFile, list[cgf.Mesh]]:
 
 
 # The rule of the static meshes: 1 = stage P0 (textures in each glTF); 2 = stage 1.2 (shared materials);
-# 3 = the shared PNGs of materials.TEXTURE_VERSION 2; 4 = a texture with only a file path (materials.texture_product).
-VERSION = 4
+# 3 = the shared PNGs of materials.TEXTURE_VERSION 2; 4 = a texture with only a file path (materials.texture_product);
+# 5 = the Opacity map of a masked material is the alpha of its base color; 6 = NoDraw, GeometryBeam, and decal
+# sub-materials are not drawn (materials.not_drawn).
+VERSION = 6
 
 
 def compact(indices: np.ndarray, *arrays):
@@ -140,3 +142,59 @@ def drawn_positions(path: str) -> np.ndarray:
                 continue
             out.append(m.positions[np.unique(m.indices[s.first_index:s.first_index + s.num_indices])])
     return np.concatenate(out) if out else np.zeros((0, 3), np.float32)
+
+
+def convert_group(key: str, out: Path, parts: list[tuple[str, np.ndarray]]) -> dict:
+    """Converts several static meshes into one glTF mesh (the same rule as convert): `parts` are (path, offset in
+    engine m) pairs; the offset moves the vertices of that mesh. @return A report with the manifest records (the mesh
+    record has the key `key`)."""
+    w = gltf.Writer()
+    by_key: dict[str, int] = {}
+    records: dict[str, dict] = {}
+    textures: dict[str, dict] = {}
+    prims = []
+    report: dict = {"mesh": key, "triangles": 0, "vertices": 0, "parts": 0}
+    for path, offset in parts:
+        try:
+            f, meshes = load(path)
+        except Exception as error:
+            report.setdefault("part errors", []).append(f"{path}: {str(error)[:80]}")
+            continue
+        reference = (cgf.material_guid(f) or "").lstrip("/")
+        sub_materials: list = []
+        if reference:
+            try:
+                sub_materials = materials.load_mtl(reference, path)[1]
+            except Exception:
+                sub_materials = []
+        report["parts"] += 1
+        for m in meshes:
+            pos = gltf.z_up_to_y_up(m.positions + np.asarray(offset, dtype=np.float32))
+            nrm = gltf.z_up_to_y_up(m.normals) if m.normals is not None else None
+            tan = None
+            if m.tangents is not None:
+                tan = m.tangents.copy()
+                tan[:, :3] = gltf.z_up_to_y_up(m.tangents[:, :3])
+            for s in m.subsets:
+                sub = sub_materials[s.material] if 0 <= s.material < len(sub_materials) else None
+                if sub is not None and materials.not_drawn(sub):
+                    continue
+                record, used = materials.shared_material(sub)
+                records[record["name"]] = record
+                textures.update({t["asset"]: t for t in used})
+                if record["name"] not in by_key:
+                    by_key[record["name"]] = w.material(record["name"])
+                idx, (p, n, uv, t) = compact(m.indices[s.first_index:s.first_index + s.num_indices], pos, nrm, m.uvs, tan)
+                prims.append(w.primitive(p, idx, n, uv, t, material=by_key[record["name"]]))
+                report["triangles"] += len(idx) // 3
+                report["vertices"] += len(p)
+    if not prims:
+        raise ValueError(f"{key}: no drawn triangles")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    w.doc["scenes"][0]["nodes"] = [w.node(name=out.stem, mesh=w.mesh(out.stem, prims))]
+    w.save(out)
+    translucent = any(r["blend"] == "translucent" for r in records.values())
+    entry = {"kind": "static", "file": str(out.relative_to(env.content_dir())), "version": VERSION,
+             "hash": file_hash(out), "materials": sorted(records), "nanite": not translucent}
+    report.update({"entry": entry, "materials": list(records.values()), "textures": list(textures.values())})
+    return report
