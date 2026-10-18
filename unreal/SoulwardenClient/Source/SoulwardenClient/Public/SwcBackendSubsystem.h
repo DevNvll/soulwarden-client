@@ -113,6 +113,8 @@ private:
 	 * @return True when the spawn can go on (the assets are loaded, there is nothing to load, or the time limit came).
 	 */
 	bool UpdatePreload();
+	/** The time of the async loader from the in-game phase to the spawn (on), and the time of the engine again (off). */
+	void SetSpawnLoading(bool bOn);
 	/** Gives the movement its permissions and the connection the player of this frame (the input report). */
 	void UpdatePlayer();
 	void Quit(bool bSucceeded, const TCHAR* Cause);
@@ -147,7 +149,8 @@ private:
 	enum class EPreload : uint8 { Waiting, Loading, Done };
 	EPreload PreloadState = EPreload::Waiting;
 	double PreloadSince = 0.0;
-	/** The time of the async loader of the engine before the preload (GAsyncLoadingTimeLimit, GAsyncLoadingUseFullTimeLimit). */
+	/** The async loader has more time in each frame from the in-game phase to the spawn; its values of the engine before. */
+	bool bSpawnLoading = false;
 	float SavedLoadingTimeLimit = 5.0f;
 	int32 SavedLoadingFullTime = 0;
 	/** The cells of the place are loaded (SwcWorldStreaming::IsReadyAt returned true). */

@@ -53,9 +53,11 @@ using FPhase = swc::net::RepClient::Phase;
 constexpr double PreloadLimit = 30.0;
 /** The time after the spawn for the log of its longest frame. */
 constexpr double SpawnFramesTime = 5.0;
-/** The time of the async loader in each frame while the spawn waits for the assets (the loading screen shows): 50 ms in
- *  place of the 5 ms of the engine (s.AsyncLoadingTimeLimit), with the full time also when the loader waits for a read. */
-constexpr float PreloadLoadingTimeLimit = 50.0f;
+/** The time of the async loader in each frame from the in-game phase to the spawn (the loading screen shows; the assets of
+ *  the look and the cells of the place load): 50 ms in place of the 5 ms of the engine (s.AsyncLoadingTimeLimit), with the
+ *  full time also when the loader waits for a read (s.AsyncLoadingUseFullTimeLimit). Measured by the world track: the cells
+ *  of the place in 7.1 s and 7.7 s, against 9.8 s and 8.4 s with 50 ms only until the assets of the look were loaded. */
+constexpr float SpawnLoadingTimeLimit = 50.0f;
 
 /** The distance of the ground value of an input entry in a fall: 10 m at most (protocol notes 4.7). */
 constexpr double MaxAirHeight = 1000.0;
@@ -135,11 +137,7 @@ void USwcBackendSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void USwcBackendSubsystem::Deinitialize()
 {
-	if (PreloadState == EPreload::Loading)
-	{
-		GAsyncLoadingTimeLimit = SavedLoadingTimeLimit;
-		GAsyncLoadingUseFullTimeLimit = SavedLoadingFullTime;
-	}
+	SetSpawnLoading(false);
 	FTSTicker::RemoveTicker(QuitTimer);
 	FTSTicker::RemoveTicker(WorldTicker);
 	if (Connection.IsValid())
@@ -327,9 +325,11 @@ bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 	double SpawnStart = 0.0;
 	if (Snapshot.Phase == FPhase::inGame && !bInGame)
 	{
+		SetSpawnLoading(true);
 		bCellsReady = bCellsReady || SwcWorldStreaming::IsReadyAt(GetGameInstance()->GetWorld(), SwcEngineToUnreal(Snapshot.Own.position));
 		if (UpdatePreload() && bCellsReady)
 		{
+			SetSpawnLoading(false);
 			bInGame = true;
 			InGameSince = FPlatformTime::Seconds();
 			SpawnStart = InGameSince;
@@ -676,18 +676,10 @@ bool USwcBackendSubsystem::UpdatePreload()
 			}
 			Preload = UAssetManager::GetStreamableManager().RequestAsyncLoad(Paths, FStreamableDelegate(), FStreamableManager::AsyncLoadHighPriority);
 			PreloadState = Preload.IsValid() ? EPreload::Loading : EPreload::Done;
-			if (PreloadState == EPreload::Loading)
-			{
-				SavedLoadingTimeLimit = GAsyncLoadingTimeLimit;
-				SavedLoadingFullTime = GAsyncLoadingUseFullTimeLimit;
-				GAsyncLoadingTimeLimit = FMath::Max(GAsyncLoadingTimeLimit, PreloadLoadingTimeLimit);
-				GAsyncLoadingUseFullTimeLimit = 1;
-			}
 			UE_LOG(LogSwcBackend, Log, TEXT("character: %d asset(s) of the look load in the background (the meshes, the clips of the movement and of the actions)"),
 				Paths.Num());
 		}
 	}
-	const EPreload Before = PreloadState;
 	if (PreloadState == EPreload::Loading && (Preload->HasLoadCompleted() || Preload->WasCanceled()))
 	{
 		PreloadState = EPreload::Done;
@@ -698,13 +690,31 @@ bool USwcBackendSubsystem::UpdatePreload()
 		PreloadState = EPreload::Done;
 		UE_LOG(LogSwcBackend, Warning, TEXT("character: the assets of the look are not loaded after %.0f s: the spawn goes on, the rest loads at once"), PreloadLimit);
 	}
-	if (Before == EPreload::Loading && PreloadState == EPreload::Done)
+	return PreloadState == EPreload::Done;
+}
+
+void USwcBackendSubsystem::SetSpawnLoading(bool bOn)
+{
+	if (bOn == bSpawnLoading)
+	{
+		return;
+	}
+	bSpawnLoading = bOn;
+	if (bOn)
+	{
+		SavedLoadingTimeLimit = GAsyncLoadingTimeLimit;
+		SavedLoadingFullTime = GAsyncLoadingUseFullTimeLimit;
+		GAsyncLoadingTimeLimit = FMath::Max(GAsyncLoadingTimeLimit, SpawnLoadingTimeLimit);
+		GAsyncLoadingUseFullTimeLimit = 1;
+	}
+	else
 	{
 		// The time of the loader goes back to the value of the engine for the play.
 		GAsyncLoadingTimeLimit = SavedLoadingTimeLimit;
 		GAsyncLoadingUseFullTimeLimit = SavedLoadingFullTime;
 	}
-	return PreloadState == EPreload::Done;
+	UE_LOG(LogSwcBackend, Log, TEXT("world: the async loader has %.0f ms in each frame%s"), GAsyncLoadingTimeLimit,
+		bOn ? TEXT(" until the spawn (the cells of the place and the assets of the look load)") : TEXT(" again (the spawn)"));
 }
 
 void USwcBackendSubsystem::UpdateLook()

@@ -93,11 +93,14 @@ The spawn frame reads no table and loads no asset at once:
    item catalog of the backend copy, `locomotion.json` of each gender, and `actions.json` (about 1.2 s to 1.8 s).
 2. At the in-game phase (the own entity is there, with its appearance and its paperdoll), the subsystem resolves the
    look and starts an async load of its assets: the base mesh, the parts, the gear, the 49 movement clips, and the
-   clips of the actions of the gender (314 assets for `Swordwarden`). While this load runs, the loading screen shows,
-   and the async loader of the engine has 50 ms in each frame (5 ms is the default of the engine); after it, the
-   default again.
+   clips of the actions of the gender (314 assets for `Swordwarden`).
 3. The spawn waits for the cells of the place and for these assets (30 s at most for the assets; after that time the
    rest loads at once). The handle of the load keeps the assets in memory.
+4. From the in-game phase to the spawn the loading screen shows, and the async loader of the engine has 50 ms in each
+   frame, with the full time also when it waits for a read (the engine default: 5 ms, `s.AsyncLoadingTimeLimit`,
+   `s.AsyncLoadingUseFullTimeLimit` 0). At the spawn the values of the engine come back. The world track measured the
+   cells of the place in 7.1 s and 7.7 s with this window, against 9.8 s and 8.4 s with 50 ms only until the assets of
+   the look were loaded.
 
 | Measure (development runs, 2026-10-18) | Before | After |
 | --- | --- | --- |
