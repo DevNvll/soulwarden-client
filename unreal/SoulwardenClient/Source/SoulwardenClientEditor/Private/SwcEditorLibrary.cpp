@@ -278,15 +278,16 @@ int32 USwcEditorLibrary::SpawnInstanceActorRange(const FString& File, int32 Firs
 	}
 	FSwcReader Reader{Bytes, 4};
 	const uint32 Version = Reader.Read<uint32>();
-	if (Version != 1 && Version != 2)
+	if (Version < 1 || Version > 3)
 	{
 		return -1;
 	}
-	// One entry for each pair (mesh, material override) of the file (version 2; version 1: the mesh alone). An entry loads
-	// its assets only when an actor of the range uses it: a region has thousands of meshes, a call spawns a few actors,
-	// and the count loads nothing.
+	// One entry for each group (mesh, material override, wind) of the file, or a decal companion (version 3; version 2:
+	// no flags; version 1: the mesh alone). An entry loads its assets only when an actor of the range uses it: a region
+	// has thousands of meshes, a call spawns a few actors, and the count loads nothing.
 	TArray<FString> Folders;
 	TArray<TArray<TPair<FString, FString>>> SlotKeys;   // (slot name, material key) of each entry
+	TArray<uint8> Flags;   // cells.py: bit 0 the wind (receiveWind of the render node), bit 1 a decal companion
 	const uint32 MeshCount = Reader.Read<uint32>();
 	for (uint32 Index = 0; Index < MeshCount && !Reader.bFailed; ++Index)
 	{
@@ -298,6 +299,7 @@ int32 USwcEditorLibrary::SpawnInstanceActorRange(const FString& File, int32 Firs
 			FString SlotName = Reader.Text();
 			Slots.Emplace(MoveTemp(SlotName), Reader.Text());
 		}
+		Flags.Add(Version >= 3 ? Reader.Read<uint8>() : 0);
 	}
 	TArray<bool> Resolved;
 	Resolved.Init(false, Folders.Num());
@@ -324,7 +326,10 @@ int32 USwcEditorLibrary::SpawnInstanceActorRange(const FString& File, int32 Firs
 		UStaticMesh* Mesh = FindStaticMesh(Folders[Index]);
 		Meshes[Index] = Mesh;
 		// import_content.py section 6: /SwcGameContent/Collision/FOLDER_NAME/C_MESH_NAME.
-		CollisionMeshes[Index] = FindStaticMesh(TEXT("/SwcGameContent/Collision/") + FPaths::GetCleanFilename(Folders[Index]));
+		if (!(Flags[Index] & 2))   // a decal companion has no collision
+		{
+			CollisionMeshes[Index] = FindStaticMesh(TEXT("/SwcGameContent/Collision/") + FPaths::GetCleanFilename(Folders[Index]));
+		}
 		for (const TPair<FString, FString>& Slot : SlotKeys[Index])
 		{
 			UMaterialInterface*& Material = MaterialCache.FindOrAdd(Slot.Value);
@@ -432,6 +437,15 @@ int32 USwcEditorLibrary::SpawnInstanceActorRange(const FString& File, int32 Firs
 			Component->SetMobility(EComponentMobility::Static);
 			Component->SetStaticMesh(Mesh);
 			Component->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);   // the collision is below
+			if (Flags[MeshIndex] & 1)
+			{
+				// The wind of the vegetation material: custom primitive data 0 "SwcWind" (E1, the materials track).
+				Component->SetDefaultCustomPrimitiveDataFloat(0, 1.0f);
+			}
+			if (Flags[MeshIndex] & 2)
+			{
+				Component->SetCastShadow(false);   // a decal companion (the deferred decal subsets of the main mesh)
+			}
 			for (const TPair<int32, UMaterialInterface*>& Slot : SlotMaterials[MeshIndex])
 			{
 				Component->SetMaterial(Slot.Key, Slot.Value);   // the material override of the placements (P4.1)

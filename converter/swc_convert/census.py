@@ -57,11 +57,15 @@ def region_pass(name: str) -> dict:
     # an instance of an instanced mesh component (-1: a static mesh component).
     entity_of = np.array([p.get("entity", 0) for p in items], dtype=np.uint64)
     instance_of = np.array([p.get("instance", -1) for p in items], dtype=np.int32)
+    wind_of = np.array([bool(p.get("wind")) for p in items], dtype=bool)   # receiveWind of the render node (region.py)
     out = placements_file(name)
     out.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(out, meshes=np.array(meshes), mesh=mesh_of, source=source_of, matrix=matrices,
-                        sources=np.array(SOURCES), materials=np.array(overrides), material=material_of,
-                        entity=entity_of, instance=instance_of)
+    temporary = out.with_suffix(".tmp")   # other tools can read the file: atomic
+    with open(temporary, "wb") as file:
+        np.savez_compressed(file, meshes=np.array(meshes), mesh=mesh_of, source=source_of, matrix=matrices,
+                            sources=np.array(SOURCES), materials=np.array(overrides), material=material_of,
+                            entity=entity_of, instance=instance_of, wind=wind_of)
+    temporary.replace(out)
     (out.parent / "meshes.json").write_text(json.dumps(meshes))   # for the import script (no numpy in Unreal)
     instances = np.bincount(mesh_of, minlength=len(meshes)) if len(meshes) else np.zeros(0, np.int64)
     return {"region": name, "placements": len(items), "counts": counts, "unique meshes": len(meshes),

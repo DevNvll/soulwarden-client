@@ -46,6 +46,11 @@ MATERIAL_OVERRIDE_ASSET, MATERIAL_OVERRIDE_ID = F("Material Override Asset"), F(
 # static node in its BaseClass1, and its Instance Transforms (a child of the node) are the transforms of the instances in
 # the entity space.
 IMRN, BASE, INSTANCE_TRANSFORMS, ID = F("Instanced Mesh Render Node"), F("BaseClass1"), F("Instance Transforms"), F("Id")
+# The wind of a placement: the bool receiveWind of the Render Options of the mesh render node (of the BaseClass1 of an
+# instanced node). Oxboro chunk slices: 40 of 2,088 render nodes. The mesh of a slice metadata variant and a distribution
+# row have no field of this name (a variant mesh has two fields with no known name, 0x755c7d72 bool and 0x9ae4b28c u32):
+# no wind. The level gives a component with wind the custom primitive data 0 "SwcWind" = 1 (cells.py, E1).
+RENDER_OPTIONS, RECEIVE_WIND = F("Render Options"), F("receiveWind")
 
 
 def slice_key(name: str) -> str:
@@ -113,10 +118,17 @@ def entity_id(entity) -> int:
     return int.from_bytes(child.value, "big") if child is not None and child.value and len(child.value) == 8 else 0
 
 
-def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None, int, int]]:
-    """@return (mesh path, world matrix, material override or None, entity id, instance index or -1) of each static mesh
-    of a slice: the static mesh component of an entity, and each instance of an instanced mesh component (its matrix:
-    the entity world matrix times the instance transform; research/settlements.md 5)."""
+def receives_wind(node) -> bool:
+    """@return The receiveWind flag of the Render Options of a mesh render node (False when it has none)."""
+    options = node.child(RENDER_OPTIONS) if node is not None else None
+    flag = options.child(RECEIVE_WIND) if options is not None else None
+    return flag is not None and flag.value == b"\x01"
+
+
+def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None, int, int, bool]]:
+    """@return (mesh path, world matrix, material override or None, entity id, instance index or -1, wind) of each static
+    mesh of a slice: the static mesh component of an entity, and each instance of an instanced mesh component (its
+    matrix: the entity world matrix times the instance transform; research/settlements.md 5)."""
     out = []
     for e in source.walk(source.parse(data)[0]):
         comps = e.child(COMPONENTS)
@@ -125,7 +137,7 @@ def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None, int, in
         name = e.child(NAME)
         if name is not None and name.value in DEPLETED_ENTITIES:
             continue   # the depleted mesh of a gathering node (rule 1)
-        tm, mesh, material = None, None, None
+        tm, mesh, material, wind = None, None, None, False
         instanced = []
         for comp in comps.children:
             for f in comp.children:
@@ -139,6 +151,7 @@ def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None, int, in
                     if a is not None:
                         mesh = asset_path(a)
                     material = material_path(f.child(MATERIAL_OVERRIDE_ASSET))
+                    wind = receives_wind(f)
                 if f.name == IMRN:
                     node = f.child(BASE) or f
                     visible = node.child(VISIBLE)
@@ -149,14 +162,15 @@ def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None, int, in
                     transforms = f.child(INSTANCE_TRANSFORMS)   # a child of the render node
                     if path and path.endswith(".cgf") and transforms is not None:
                         instanced.append((path, material_path(node.child(MATERIAL_OVERRIDE_ASSET)),
-                                          [az_matrix(t.value) for t in transforms.children if t.value and len(t.value) == 48]))
+                                          [az_matrix(t.value) for t in transforms.children if t.value and len(t.value) == 48],
+                                          receives_wind(node)))
         world = tm if tm is not None else np.eye(4)
         ident = entity_id(e) if (mesh or instanced) else 0
         if mesh and mesh.endswith(".cgf"):
-            out.append((mesh, world, material, ident, -1))
-        for path, override, matrices in instanced:
+            out.append((mesh, world, material, ident, -1, wind))
+        for path, override, matrices, bends in instanced:
             for index, m in enumerate(matrices):
-                out.append((path, world @ m, override, ident, index))
+                out.append((path, world @ m, override, ident, index, bends))
     return out
 
 
@@ -314,11 +328,11 @@ class Region:
                 continue
             base = np.eye(4)
             base[:3, 3] = (x, y, z)
-            for mesh, tm, material, ident, instance in slice_meshes(source.read(path)):
+            for mesh, tm, material, ident, instance, wind in slice_meshes(source.read(path)):
                 m = base @ tm
                 if inside(m[0, 3], m[1, 3]):
                     out.append({"source": "chunk", "mesh": mesh, "matrix": m.tolist(), "material": material,
-                                "entity": ident, "instance": instance})
+                                "entity": ident, "instance": instance, "wind": wind})
                     counts["chunk"] += 1
         # capitals
         metadata = {}
@@ -358,9 +372,9 @@ class Region:
                                     "material": material})
                         counts["capital variant"] += 1
             else:
-                for mp, tm, material, ident, instance in meshes:
+                for mp, tm, material, ident, instance, wind in meshes:
                     out.append({"source": "capital", "mesh": mp, "matrix": (matrix @ tm).tolist(), "material": material,
-                                "entity": ident, "instance": instance})
+                                "entity": ident, "instance": instance, "wind": wind})
                     counts["capital"] += 1
             for sp in spawners:
                 if sp.slice is None or not sp.on_start:
@@ -419,7 +433,7 @@ class Region:
                         inst = mesh.child(INSTANCE_TMS)
                         mats = [rows4(m) for m in (matrix_of(n.value) for n in inst.children) if m is not None] if inst is not None else []
                         material = material_path(mesh.child(MATERIAL_OVERRIDE_ID))
-                        found.extend((mp, root_m @ im, material, 0, -1) for im in (mats or [np.eye(4)]))
+                        found.extend((mp, root_m @ im, material, 0, -1, False) for im in (mats or [np.eye(4)]))
                     slices[(name, variant)] = found or None
                     of_variant.add((name, variant))
                 else:
@@ -445,9 +459,9 @@ class Region:
             m = np.eye(4)
             m[:3, :3] = quat_matrix(qx, qy, qz, qw) * (scale[r] * 0.01)
             m[:3, 3] = (lx[r] + ox, ly[r] + oy, self.height_at(lx[r], ly[r]))
-            for mesh, tm, material, ident, instance in meshes:
+            for mesh, tm, material, ident, instance, wind in meshes:
                 out.append({"source": "distribution", "mesh": mesh, "matrix": (m @ tm).tolist(), "material": material,
-                            "entity": ident, "instance": instance})
+                            "entity": ident, "instance": instance, "wind": wind})
                 counts["distribution"] += 1
         out, counts["depleted meshes left out (variation rows)"] = without_depleted(out)
         return out, counts

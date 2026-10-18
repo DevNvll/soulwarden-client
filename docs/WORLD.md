@@ -53,7 +53,7 @@ worktree. The place is a content plugin outside the repository:
   stops after the batch that passes the time) and waits 15 s between two calls: an import of another track that
   waits on the lock (`flock -w`) gets it there.
 - The level build obeys the same rule. A region has three steps (the Landscape, the cell actors, the far meshes).
-  `build_world.py` stops after the step that passes 240 s of work (`SWC_WORLD_MAX_SECONDS`), and
+  `build_world.py` stops after the step that passes 400 s of work (`SWC_WORLD_MAX_SECONDS`), and
   `tools/build-world.sh` calls it again until the region is in the level. Each call writes one line to the output
   with the seconds that it held the lock. A normal call holds it for about 2 minutes. One call (`r_+05_+01`) held it
   for 17.5 minutes: a Landscape step of 454 s and 5 minutes in the exit of the editor.
@@ -215,6 +215,23 @@ tools/build-world.sh --import --all      # each region: import its content (tool
 - A new converter rule can make a mesh empty (mesh rule 6). `build_world.py` then removes the components of these
   meshes from the cells of the regions built before (`USwcEditorLibrary::RemoveInstanceComponentsOf`; 25 to 47
   components for each region).
+- The cells again (`tools/build-world.sh --cells`, when `CELLS_VERSION` of `build_world.py` changes): a call destroys
+  the old cell actors of a region in one step, then makes the new ones in chunks of 8 actors
+  (`USwcEditorLibrary::SpawnInstanceActorRange`), each with the time check. Measured in the final pass (2026-10-18):
+  - The reader loads a mesh, its collision mesh, and its override materials only when an actor of the chunk uses it.
+    Before, each call and each chunk loaded all the meshes of the region (3,448 in `r_+01_+02`), and the count step
+    took 6 to 9 minutes.
+  - The cells calls run with `-nullrhi`. With the renderer, each chunk compiled the shader maps of the new material
+    instances (106 in one call): 8 dense actors took 201 s, with `-nullrhi` 51 s. The Landscape step keeps the
+    renderer (its edit layers use the GPU).
+  - A component gets all its instances before its registration. Each call logs the count of components with a first
+    instance away from its place in the file (0 in the pass).
+  - The bounds: while the mesh of a new component compiles (async), its bounds stay at the world origin
+    (`UInstancedStaticMeshComponent::UpdateBounds` waits). The descriptors of that session then show actors with
+    bounds from the cell to the origin. The saved actors have the right bounds. `build_world.py` writes the saved
+    bounds of the cell actors of earlier calls to `~/Games/soulwarden-client/logs/cell-bounds/REGION.json`: the
+    largest distance of a bounds center from its cell center is 85 to 134 m, with or without the renderer (14
+    regions).
 - The client (`Source/SoulwardenClient/World/`): the character has a World Partition streaming source. Before the
   spawn of the character, `SwcWorldStreaming::IsReadyAt` puts a streaming source at the place of the character from
   the server (a sphere of 80 m, the highest priority: only the cells at the place, not all the cells in the loading
@@ -337,3 +354,22 @@ gate (iron_gate_a instance 6), and the west poplar (poplartree_full_a instance 4
 research (0.0004 m or less). r_+04_+02: 193,980 placements, 56,194 of them instances. Cells version 5.
 The five house files at the lane are parts of one house: all of them stay. The cobblestones are road splines (the
 materials track).
+
+## The wind flag and the decal companions (cells version 3, step d)
+
+- The wind: the mesh render node of a slice entity has the bool `receiveWind` in its `Render Options` (an instanced
+  node: in its `BaseClass1`; the field id does not depend on the case of the name). `region.slice_meshes` keeps it,
+  and placements.npz has the array `wind`. All 49 regions: 337,636 of 5,190,540 placements; Oxboro: 8,040 of 193,980
+  (mostly ground plants and bushes). The variant meshes of the slice metadata and the distribution rows have no field
+  of this name: no wind (a variant mesh has two fields with no known name, `0x755c7d72` a bool and `0x9ae4b28c` a
+  u32; they are not used).
+- `cells.py` groups the instances by (mesh, override, wind). The component of a group with wind gets the custom
+  primitive data 0 `SwcWind` = 1 (`SetDefaultCustomPrimitiveDataFloat`) for the wind of the vegetation material (E1).
+- The decal companions (the materials track, mesh rule 7): Nanite does not draw deferred decal materials, so the
+  `%DECAL` subsets of a mesh are a small non-Nanite mesh of their own. The manifest entry of the main mesh names it
+  (`"decals": "decals:MESH"`). Each group of such a mesh is followed by a group of its companion with the same
+  transforms: one more component in the same cell actor, with no slot map, no wind, no shadow, and no collision.
+- File version 3: each entry has a flags byte (bit 0 the wind, bit 1 a decal companion). The reader reads versions 1
+  to 3. Check of the converter on `r_+04_+02` (a temporary folder): the census gives the same arrays as before and
+  the new `wind`; the version 3 file has the same instances of each mesh in each actor as the version 2 file (64
+  actors, 188,681 instances; 175 entries with wind, 8,021 instances).

@@ -5,13 +5,20 @@ Output: `regions/NAME/cells.bin`, the file of SwcEditorLibrary.SpawnInstanceActo
 CELL_M x CELL_M meters with one instanced static mesh component for each mesh. World Partition streams the actors by
 their bounds.
 
-File (little-endian): "SWCI", u32 version 2, u32 entry count, the entries (u16 length + UTF-8 Unreal folder of the
+File (little-endian): "SWCI", u32 version 3, u32 entry count, the entries (u16 length + UTF-8 Unreal folder of the
 mesh, u16 slot count, and for each slot: the slot name and the material key that replaces its material, each u16
-length + UTF-8), u32 actor count, then each actor: u16 length + UTF-8 label, f64 x 3 location (cm), u32 group count,
-then each group: u32 entry index, u32 instance count, and each instance: f64 x 3 translation (cm), f32 x 4 rotation
-(Unreal quaternion x y z w), f32 x 3 scale. The transforms follow the space map of stage 1.1 (space.py).
-An entry is a pair (mesh, material override) (P4.1, overrides.py): the slots of a placement with an override get the
-material instances of the override (version 1 had only the mesh).
+length + UTF-8, then u8 flags: bit 0 the wind, bit 1 a decal companion), u32 actor count, then each actor: u16
+length + UTF-8 label, f64 x 3 location (cm), u32 group count, then each group: u32 entry index, u32 instance count, and
+each instance: f64 x 3 translation (cm), f32 x 4 rotation (Unreal quaternion x y z w), f32 x 3 scale. The transforms
+follow the space map of stage 1.1 (space.py).
+An entry is a group (mesh, material override, wind) (P4.1, overrides.py): the slots of a placement with an override get
+the material instances of the override (version 1 had only the mesh). The wind is the receiveWind flag of the render
+node of the placement (region.py): the component of an entry with wind gets the custom primitive data 0 "SwcWind" = 1,
+for the wind of the vegetation material (E1; version 2 had no flags).
+A decal companion (the materials track, step c): Nanite does not draw deferred decal materials, so the %DECAL subsets of
+a mesh are a small non-Nanite mesh of their own (manifest: the main mesh has "decals": the key of the companion). Each
+group of such a mesh is followed by a group of its companion with the same transforms: no slot map, no wind, no shadow,
+no collision.
 """
 from __future__ import annotations
 
@@ -99,7 +106,9 @@ def write(name: str) -> dict:
         entry_of_pair[(m, o)] = (m, o) if slots_of(m, o) else (m, 0)
     pair_rows = np.array([entry_of_pair[(m, o)] for m, o in zip(data["mesh"][keep].tolist(), material_all[keep].tolist())],
                          dtype=np.int64).reshape(-1, 2)
-    mesh_of = pair_rows[:, 0] * 65536 + pair_rows[:, 1]   # one number for each entry
+    wind_all = data["wind"] if "wind" in data else np.zeros(len(data["mesh"]), bool)
+    # One number for each entry: (mesh * 65536 + override) * 2 + wind.
+    mesh_of = (pair_rows[:, 0] * 65536 + pair_rows[:, 1]) * 2 + wind_all[keep].astype(np.int64)
     matrices = data["matrix"][keep]
     rx, ry = (int(v) for v in name[2:].split("_"))
     ox, oy = rx * 2048.0, ry * 2048.0
@@ -111,35 +120,48 @@ def write(name: str) -> dict:
     transforms = unreal_transforms(matrices)
     used = sorted(set(mesh_of.tolist()))
     table = {m: i for i, m in enumerate(used)}
-    out = bytearray(b"SWCI" + struct.pack("<II", 2, len(used)))
+    # The decal companion of a mesh: one entry for each mesh, after the entries of the groups.
+    companions = sorted({m // 131072 for m in used if assets[names[m // 131072]].get("decals") in assets})
+    companion_entry = {m: len(used) + i for i, m in enumerate(companions)}
+    out = bytearray(b"SWCI" + struct.pack("<II", 3, len(used) + len(companions)))
     overridden = 0
     for m in used:
-        slots = slots_of(m // 65536, m % 65536)
+        pair, wind = divmod(m, 2)
+        slots = slots_of(pair // 65536, pair % 65536)
         overridden += bool(slots)
-        out += text(assets[names[m // 65536]]["unreal"]) + struct.pack("<H", len(slots))
+        out += text(assets[names[pair // 65536]]["unreal"]) + struct.pack("<H", len(slots))
         for slot, key in sorted(slots.items()):
             out += text(slot) + text(key)
+        out += struct.pack("<B", wind)
+    for m in companions:
+        out += text(assets[assets[names[m]]["decals"]]["unreal"]) + struct.pack("<HB", 0, 2)
     cells = sorted(set(zip(cx.tolist(), cy.tolist())))
     out += struct.pack("<I", len(cells))
-    groups = 0
+    groups = decal_groups = 0
     for x, y in cells:
         rows = np.nonzero((cx == x) & (cy == y))[0]
         z = float(np.median(transforms["t"][rows, 2]))
         center = ((ox + (x + 0.5) * CELL_M) * 100.0, -(oy + (y + 0.5) * CELL_M) * 100.0, z)
         meshes_here = mesh_of[rows]
         order = sorted(set(meshes_here.tolist()))
-        out += text(f"{name} cell {x} {y}") + struct.pack("<3d", *center) + struct.pack("<I", len(order))
+        with_decals = [m for m in order if m // 131072 in companion_entry]
+        out += text(f"{name} cell {x} {y}") + struct.pack("<3d", *center) + struct.pack("<I", len(order) + len(with_decals))
         for m in order:
             picked = rows[meshes_here == m]
             out += struct.pack("<II", table[m], len(picked)) + transforms[picked].tobytes()
-        groups += len(order)
+            if m // 131072 in companion_entry:
+                out += struct.pack("<II", companion_entry[m // 131072], len(picked)) + transforms[picked].tobytes()
+        groups += len(order) + len(with_decals)
+        decal_groups += len(with_decals)
     path = env.content_dir() / "regions" / name / "cells.bin"
     temporary = path.with_suffix(".tmp")   # a level build can read the file: atomic
     temporary.write_bytes(bytes(out))
     temporary.replace(path)
     report = {"region": name, "placements": int(len(data["mesh"])), "instances": int(keep.sum()), "entries": len(used),
               "entries with an override": overridden,
-              "instances with an override": int(sum(1 for m in mesh_of.tolist() if m % 65536)),
+              "instances with an override": int(sum(1 for m in mesh_of.tolist() if (m // 2) % 65536)),
+              "entries with wind": sum(m % 2 for m in used), "instances with wind": int((mesh_of % 2).sum()),
+              "decal companions": len(companions), "decal components": decal_groups,
               "cells": len(cells), "components": groups, "file": str(path), "bytes": len(out),
               "left out (not imported or effect cards)": int((~keep).sum())}
     (path.parent / "cells.json").write_text(json.dumps(report, indent=1))
