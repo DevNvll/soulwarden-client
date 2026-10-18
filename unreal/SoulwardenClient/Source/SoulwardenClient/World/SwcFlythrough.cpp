@@ -3,11 +3,13 @@
 #include "Camera/CameraComponent.h"
 #include "Components/WorldPartitionStreamingSourceComponent.h"
 #include "Dom/JsonObject.h"
+#include "DynamicRHI.h"
 #include "Engine/Engine.h"
 #include "HAL/PlatformTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Net/SwcSpace.h"
+#include "RenderTimer.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "UnrealClient.h"
@@ -110,6 +112,8 @@ void ASwcFlythrough::Tick(float DeltaSeconds)
 	++Frames;
 	++SecondFrames;
 	FrameTimes.Add(DeltaSeconds);
+	GameThreadTimes.Add(FPlatformTime::ToMilliseconds(GGameThreadTime));
+	GpuTimes.Add(FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles()));
 	if (FrameEvery > 0 && Frames % FrameEvery == 0)
 	{
 		FScreenshotRequest::RequestScreenshot(FPaths::Combine(FrameFolder, FString::Printf(TEXT("frame_%05d.png"), Pictures++)), false, false);
@@ -134,8 +138,16 @@ void ASwcFlythrough::Tick(float DeltaSeconds)
 			Total += Time;
 		}
 		const float Worst1 = Sorted[FMath::Clamp(static_cast<int32>(Sorted.Num() * 0.99), 0, Sorted.Num() - 1)];
-		UE_LOG(LogSwcFlythrough, Log, TEXT("SWC FLYTHROUGH {\"frames\": %d, \"seconds\": %.1f, \"average fps\": %.1f, \"1%% low fps\": %.1f, \"longest frame ms\": %.1f, \"seconds with streaming not complete\": %d, \"pictures\": %d}"),
-			Frames, Total, Frames / FMath::Max(Total, 0.001), 1.0f / FMath::Max(Worst1, 0.0001f), Sorted.Last() * 1000.0f, StreamingIncompleteSeconds, Pictures);
+		// The percentiles of the frame time, the game thread, and the GPU (ms; stat unit), with no picture capture.
+		auto Percentile = [](TArray<float> Values, double Fraction)
+		{
+			Values.Sort();
+			return Values.IsEmpty() ? 0.0f : Values[FMath::Clamp(static_cast<int32>(Values.Num() * Fraction), 0, Values.Num() - 1)];
+		};
+		UE_LOG(LogSwcFlythrough, Log, TEXT("SWC FLYTHROUGH {\"frames\": %d, \"seconds\": %.1f, \"average fps\": %.1f, \"1%% low fps\": %.1f, \"longest frame ms\": %.1f, \"seconds with streaming not complete\": %d, \"pictures\": %d, \"frame ms p50\": %.2f, \"frame ms p95\": %.2f, \"game thread ms p50\": %.2f, \"game thread ms p95\": %.2f, \"gpu ms p50\": %.2f, \"gpu ms p95\": %.2f}"),
+			Frames, Total, Frames / FMath::Max(Total, 0.001), 1.0f / FMath::Max(Worst1, 0.0001f), Sorted.Last() * 1000.0f, StreamingIncompleteSeconds, Pictures,
+			Percentile(FrameTimes, 0.5) * 1000.0f, Percentile(FrameTimes, 0.95) * 1000.0f, Percentile(GameThreadTimes, 0.5), Percentile(GameThreadTimes, 0.95),
+			Percentile(GpuTimes, 0.5), Percentile(GpuTimes, 0.95));
 		Points.Reset();
 		FGenericPlatformMisc::RequestExit(false);
 	}

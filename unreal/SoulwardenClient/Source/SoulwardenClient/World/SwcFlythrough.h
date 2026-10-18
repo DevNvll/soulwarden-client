@@ -51,6 +51,8 @@ private:
 	double StartWait = 0.0;
 	int32 Frames = 0;
 	TArray<float> FrameTimes;
+	TArray<float> GameThreadTimes;   // ms (GGameThreadTime, the value of stat unit)
+	TArray<float> GpuTimes;          // ms (RHIGetGPUFrameCycles)
 	double SecondStart = 0.0;
 	int32 SecondFrames = 0;
 	int32 StreamingIncompleteSeconds = 0;

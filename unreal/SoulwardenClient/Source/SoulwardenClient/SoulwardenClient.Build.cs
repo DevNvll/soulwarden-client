@@ -12,7 +12,7 @@ public class SoulwardenClient : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[] { "Sockets", "Networking", "HTTP", "Json", "JsonUtilities" });
 		AddEngineThirdPartyPrivateStaticDependencies(Target, "OpenSSL");
 		// The UI (docs/UI.md): the runtime of the module SwcUi (the canvases and Lua), drawn with Slate.
-		PrivateDependencyModuleNames.AddRange(new string[] { "SwcUi", "Slate", "SlateCore", "RHI", "ImageCore" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "SwcUi", "Slate", "SlateCore", "RHI", "RenderCore", "ImageCore" });
 		// The folder Net/ of the connection ("Net/SwcLoginClient.h"), and the vendored wire codec and state reader of
 		// the Soulwarden backend ("server/hub/wire.h", "support/state_decoder.h"; Net/Vendor/soulwarden/NOTICE.md).
 		PrivateIncludePaths.Add(ModuleDirectory);
