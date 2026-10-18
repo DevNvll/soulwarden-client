@@ -282,47 +282,83 @@ int32 USwcEditorLibrary::SpawnInstanceActorRange(const FString& File, int32 Firs
 	{
 		return -1;
 	}
-	// One entry for each pair (mesh, material override) of the file (version 2; version 1: the mesh alone).
-	TArray<UStaticMesh*> Meshes;
-	TArray<UStaticMesh*> CollisionMeshes;   // the collision of the game of each mesh (P4.1, design 2), or none
-	TArray<TArray<TPair<int32, UMaterialInterface*>>> SlotMaterials;   // the slots that the override changes
-	TMap<FString, UMaterialInterface*> MaterialCache;
-	int32 MissingSlots = 0;
+	// One entry for each pair (mesh, material override) of the file (version 2; version 1: the mesh alone). An entry loads
+	// its assets only when an actor of the range uses it: a region has thousands of meshes, a call spawns a few actors,
+	// and the count loads nothing.
+	TArray<FString> Folders;
+	TArray<TArray<TPair<FString, FString>>> SlotKeys;   // (slot name, material key) of each entry
 	const uint32 MeshCount = Reader.Read<uint32>();
 	for (uint32 Index = 0; Index < MeshCount && !Reader.bFailed; ++Index)
 	{
-		const FString Folder = Reader.Text();
-		UStaticMesh* Mesh = FindStaticMesh(Folder);
-		Meshes.Add(Mesh);
-		// import_content.py section 6: /SwcGameContent/Collision/FOLDER_NAME/C_MESH_NAME.
-		CollisionMeshes.Add(FindStaticMesh(TEXT("/SwcGameContent/Collision/") + FPaths::GetCleanFilename(Folder)));
-		TArray<TPair<int32, UMaterialInterface*>>& Slots = SlotMaterials.AddDefaulted_GetRef();
+		Folders.Add(Reader.Text());
+		TArray<TPair<FString, FString>>& Slots = SlotKeys.AddDefaulted_GetRef();
 		const uint16 SlotCount = Version >= 2 ? Reader.Read<uint16>() : 0;
 		for (uint16 Slot = 0; Slot < SlotCount && !Reader.bFailed; ++Slot)
 		{
-			const FString SlotName = Reader.Text();
-			const FString Key = Reader.Text();
-			UMaterialInterface*& Material = MaterialCache.FindOrAdd(Key);
+			FString SlotName = Reader.Text();
+			Slots.Emplace(MoveTemp(SlotName), Reader.Text());
+		}
+	}
+	TArray<bool> Resolved;
+	Resolved.Init(false, Folders.Num());
+	TArray<UStaticMesh*> Meshes;
+	Meshes.Init(nullptr, Folders.Num());
+	TArray<UStaticMesh*> CollisionMeshes;   // the collision of the game of each mesh (P4.1, design 2), or none
+	CollisionMeshes.Init(nullptr, Folders.Num());
+	TArray<TArray<TPair<int32, UMaterialInterface*>>> SlotMaterials;   // the slots that the override changes
+	SlotMaterials.SetNum(Folders.Num());
+	TMap<FString, UMaterialInterface*> MaterialCache;
+	int32 MissingSlots = 0;
+	int32 Checked = 0;
+	int32 Misplaced = 0;   // the components with a first instance away from its place in the file (more than 1 cm)
+	int32 BadBounds = 0;   // the components with bounds that do not hold their first instance (before UpdateBounds)
+	int32 StillBad = 0;   // the same after UpdateBounds
+	int32 WideActors = 0;   // the actors with a bounds box wider than 2 km (a cell is 256 m)
+	auto Resolve = [&](int32 Index)
+	{
+		if (Resolved[Index])
+		{
+			return;
+		}
+		Resolved[Index] = true;
+		UStaticMesh* Mesh = FindStaticMesh(Folders[Index]);
+		Meshes[Index] = Mesh;
+		// import_content.py section 6: /SwcGameContent/Collision/FOLDER_NAME/C_MESH_NAME.
+		CollisionMeshes[Index] = FindStaticMesh(TEXT("/SwcGameContent/Collision/") + FPaths::GetCleanFilename(Folders[Index]));
+		for (const TPair<FString, FString>& Slot : SlotKeys[Index])
+		{
+			UMaterialInterface*& Material = MaterialCache.FindOrAdd(Slot.Value);
 			if (!Material)
 			{
 				// import_content.py: the material instance of a material record is /SwcGameContent/Materials/KEY.
-				Material = LoadObject<UMaterialInterface>(nullptr, *FString::Printf(TEXT("/SwcGameContent/Materials/%s.%s"), *Key, *Key), nullptr, LOAD_Quiet | LOAD_NoWarn);
+				Material = LoadObject<UMaterialInterface>(nullptr, *FString::Printf(TEXT("/SwcGameContent/Materials/%s.%s"), *Slot.Value, *Slot.Value), nullptr, LOAD_Quiet | LOAD_NoWarn);
 			}
-			const int32 MaterialIndex = Mesh ? Mesh->GetMaterialIndex(FName(*SlotName)) : INDEX_NONE;
+			const int32 MaterialIndex = Mesh ? Mesh->GetMaterialIndex(FName(*Slot.Key)) : INDEX_NONE;
 			if (Material && MaterialIndex != INDEX_NONE)
 			{
-				Slots.Emplace(MaterialIndex, Material);
+				SlotMaterials[Index].Emplace(MaterialIndex, Material);
 			}
 			else
 			{
 				++MissingSlots;
 			}
 		}
-	}
-	if (MissingSlots > 0)
+	};
+	// The bounds of a component at the spawn time: World Partition streams a cell actor by the bounds of its components.
+	// While the mesh of a component compiles (async), UpdateBounds waits and the bounds stay at the world origin; the
+	// saved actor has the right bounds (build_world.py check_bounds reads them in a later call). The count shows how many
+	// components the save must wait for.
+	auto CheckBounds = [&](UInstancedStaticMeshComponent* Checked, const FTransform& FirstInstance)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("SWC cells: %d override slots with no slot or no material instance (%s)"), MissingSlots, *File);
-	}
+		const FVector Place = FirstInstance.GetLocation();
+		if (Checked->Bounds.GetBox().ExpandBy(100.0).IsInside(Place))
+		{
+			return;
+		}
+		++BadBounds;
+		Checked->UpdateBounds();
+		StillBad += !Checked->Bounds.GetBox().ExpandBy(100.0).IsInside(Place);
+	};
 	const uint32 ActorCount = Reader.Read<uint32>();
 	if (MaxActors == 0)
 	{
@@ -382,8 +418,13 @@ int32 USwcEditorLibrary::SpawnInstanceActorRange(const FString& File, int32 Firs
 				Scale3D.Z = Reader.Read<float>();
 				Transforms.Emplace(Rotation, Translation, Scale3D);
 			}
-			UStaticMesh* Mesh = MeshIndex < static_cast<uint32>(Meshes.Num()) ? Meshes[MeshIndex] : nullptr;
-			if (!Mesh || Transforms.IsEmpty())
+			if (MeshIndex >= static_cast<uint32>(Folders.Num()) || Transforms.IsEmpty())
+			{
+				continue;
+			}
+			Resolve(static_cast<int32>(MeshIndex));
+			UStaticMesh* Mesh = Meshes[MeshIndex];
+			if (!Mesh)
 			{
 				continue;
 			}
@@ -397,9 +438,19 @@ int32 USwcEditorLibrary::SpawnInstanceActorRange(const FString& File, int32 Firs
 			}
 			Component->SetupAttachment(Root);
 			Actor->AddInstanceComponent(Component);
-			Component->RegisterComponent();
+			// The instances before the registration: the render and physics state are made once, with all instances.
+			// (World-space transforms need the component transform: the root is at the actor location.)
+			Component->SetWorldTransform(Root->GetComponentTransform());
 			Component->AddInstances(Transforms, false, true, false);
-			UStaticMesh* CollisionMesh = MeshIndex < static_cast<uint32>(CollisionMeshes.Num()) ? CollisionMeshes[MeshIndex] : nullptr;
+			Component->RegisterComponent();
+			FTransform First;
+			++Checked;
+			if (!Component->GetInstanceTransform(0, First, true) || !First.GetLocation().Equals(Transforms[0].GetLocation(), 1.0))
+			{
+				++Misplaced;
+			}
+			CheckBounds(Component, Transforms[0]);
+			UStaticMesh* CollisionMesh = CollisionMeshes[MeshIndex];
 			if (!CollisionMesh)
 			{
 				continue;   // the game has no collision for this mesh
@@ -416,14 +467,27 @@ int32 USwcEditorLibrary::SpawnInstanceActorRange(const FString& File, int32 Firs
 			Collision->ComponentTags.Add(TEXT("SwcCollision"));
 			Collision->SetupAttachment(Root);
 			Actor->AddInstanceComponent(Collision);
-			Collision->RegisterComponent();
+			Collision->SetWorldTransform(Root->GetComponentTransform());
 			Collision->AddInstances(Transforms, false, true, false);
+			Collision->RegisterComponent();
+			CheckBounds(Collision, Transforms[0]);
 		}
 		if (!Label.IsEmpty())
 		{
 			Actor->SetActorLabel(Label);
 		}
+		const FBox ActorBox = Actor->GetComponentsBoundingBox(true);
+		WideActors += ActorBox.IsValid && FMath::Max(ActorBox.GetSize().X, ActorBox.GetSize().Y) > 200000.0;
 		++Spawned;
+	}
+	if (Checked > 0)
+	{
+		UE_LOG(LogTemp, Display, TEXT("SWC cells: %d render components, %d with a misplaced first instance (%s)"), Checked, Misplaced, *File);
+		UE_LOG(LogTemp, Display, TEXT("SWC cells: %d components with bounds away from their first instance, %d of them after UpdateBounds; %d actors wider than 2 km (%s)"), BadBounds, StillBad, WideActors, *File);
+	}
+	if (MissingSlots > 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SWC cells: %d override slots with no slot or no material instance (%s)"), MissingSlots, *File);
 	}
 	return Reader.bFailed ? -1 : Spawned;
 }

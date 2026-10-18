@@ -18,6 +18,7 @@ Environment: SWC_CONTENT, SWC_GAME_CONTENT, SWC_WORLD_REGIONS (the region names)
 path, for a test), SWC_WORLD_FORCE=1, SWC_WORLD_MAX_SECONDS (default 240).
 """
 import json
+import math
 import os
 import time
 
@@ -37,7 +38,7 @@ editing = unreal.MaterialEditingLibrary
 tools = unreal.AssetToolsHelpers.get_asset_tools()
 library = unreal.SwcEditorLibrary
 started = time.time()
-MAX_SECONDS = float(os.environ.get("SWC_WORLD_MAX_SECONDS") or 240)   # then the call stops after its current step
+MAX_SECONDS = float(os.environ.get("SWC_WORLD_MAX_SECONDS") or 400)   # then the call stops after its current step
 CELLS_AGAIN = os.environ.get("SWC_WORLD_CELLS", "") == "1"
 # The rule of the cell actors: 1 = stage 1.3; 2 = P4.1 (a placement in the cell of its place, the depleted meshes of the
 # gathering nodes left out, the hidden collision instances of the game, no collision on the render instances; 3: a
@@ -309,6 +310,7 @@ def destroy_cells(name):
     guids = [d.guid for d in descs if str(d.label).startswith(f"{name} cell ")]
     if not guids:
         return 0
+    destroyed.update(str(g) for g in guids)   # their descriptors stay in this session (check_bounds skips them)
     unreal.WorldPartitionBlueprintLibrary.load_actors(guids)
     count = 0
     files = []
@@ -325,6 +327,46 @@ def destroy_cells(name):
         if os.path.isfile(path):
             os.remove(path)
     return count
+
+
+destroyed = set()   # the guids of the cell actors that this call destroyed
+# The regions that this call changed: their descriptors in this session have the bounds of the spawn time, while the
+# meshes still compile (async: UpdateBounds waits, the bounds stay at the world origin). The saved descriptors have the
+# right bounds (r_+01_+03, a new session: largest distance 99 m). check_bounds reads only regions of earlier calls.
+touched = set()
+
+
+def check_bounds(name):
+    """The check of the cell actors of a region in the actor descriptors of the level (World Partition streams them by
+    these bounds; a call with -nullrhi makes them from the saved mesh bounds). Writes the bounds of each actor (cm) to
+    SWC_WORK/logs/cell-bounds/NAME.json for the offline compare with the meshes. @return A report."""
+    result = unreal.WorldPartitionBlueprintLibrary.get_actor_descs()
+    descs = result[1] if isinstance(result, tuple) else result
+    rx, ry = (int(v) for v in name[2:].split("_"))
+    count, empty, far, beyond = 0, 0, 0.0, 0
+    rows = {}
+    for d in descs:
+        label = str(d.label)
+        if not label.startswith(f"{name} cell ") or str(d.guid) in destroyed:
+            continue
+        count += 1
+        lo, hi = d.bounds.min, d.bounds.max
+        rows[label] = [[lo.x, lo.y, lo.z], [hi.x, hi.y, hi.z]]
+        if hi.x - lo.x <= 0 or hi.y - lo.y <= 0:
+            empty += 1
+            continue
+        x, y = (int(v) for v in label.split()[-2:])
+        cx, cy = (rx * 2048.0 + (x + 0.5) * 256.0) * 100.0, -(ry * 2048.0 + (y + 0.5) * 256.0) * 100.0
+        distance = math.hypot((lo.x + hi.x) / 2 - cx, (lo.y + hi.y) / 2 - cy) / 100.0
+        far = max(far, distance)
+        beyond += distance > 500.0
+    folder = os.path.join(os.environ.get("SWC_WORK", os.path.expanduser("~/Games/soulwarden-client")), "logs", "cell-bounds")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, name + ".json"), "w") as out:
+        json.dump(rows, out)
+    return {"cell actors in the descriptors": count, "with empty bounds": empty,
+            "bounds centers more than 500 m from the cell center": beyond,
+            "largest distance of a bounds center from its cell center (m)": round(far, 1)}
 
 
 incomplete = False
@@ -370,6 +412,7 @@ for name in regions:
         done.pop("cells spawned", None)
         save_state()
         log(f"region {name}: cells again {json.dumps(done)}")
+        touched.add(name)
         continue
     if name in state["regions"]:
         log(f"region {name}: in the level")
@@ -415,6 +458,12 @@ for name in regions:
     partial.pop(name)
     save_state()
     log(f"region {name}: {json.dumps(state['regions'][name])}")
+# The bounds of the regions that have the current cells and no bounds file yet, from their saved descriptors.
+bounds_folder = os.path.join(os.environ.get("SWC_WORK", os.path.expanduser("~/Games/soulwarden-client")), "logs", "cell-bounds")
+for name, done in state["regions"].items():
+    if done.get("cells version", 1) >= CELLS_VERSION and "cells destroyed" not in done and name not in touched and \
+            not os.path.isfile(os.path.join(bounds_folder, name + ".json")):
+        log(f"region {name}: bounds {json.dumps(check_bounds(name))}")
 report = {"level": LEVEL, "regions in the level": len(state["regions"]), "incomplete": incomplete,
           "seconds": round(time.time() - started, 1)}
 log("WORLD " + json.dumps(report))

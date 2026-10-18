@@ -34,6 +34,12 @@ in_level() {   # with --cells: in the level with cell actors of the current rule
             "${SWC_GAME_CONTENT}/world-state.json" "$1" "${SWC_WORLD_CELLS:-}"
 }
 editor_log="${SWC_REPO}/unreal/SoulwardenClient/Saved/Logs/SoulwardenClient.log"
+# The Landscape step needs the renderer (the edit layers of the Landscape use the GPU). The cells again need no renderer:
+# with it, each chunk compiled the shader maps and built the textures of its new materials (call 9 of the final pass:
+# 106 shader maps, a chunk of 8 actors in 73 to 201 s). The bounds of a cell actor come from the saved bounds of its
+# meshes (build_world.py checks them).
+render=(-AllowCommandletRendering -RenderOffscreen)
+[[ -n "${SWC_WORLD_CELLS:-}" ]] && render=(-nullrhi)
 # One call of build_world.py for the regions (SWC_WORLD_REGIONS) with import.lock; sets `status`, writes one line.
 build_call() {   # build_call REGIONS LABEL
     status=0
@@ -44,7 +50,7 @@ build_call() {   # build_call REGIONS LABEL
         systemd-run --user --scope -q -p CPUQuota="${SWC_CPU_QUOTA:-400%}" -p MemoryMax="${SWC_MEMORY_MAX:-16G}" \
         nice -n 10 "${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor-Cmd" "${SWC_UPROJECT}" \
         -run=pythonscript -script="${SWC_REPO}/unreal/SoulwardenClient/Scripts/build_world.py" "${SWC_EDITOR_DDC}" \
-        -AllowCommandletRendering -RenderOffscreen -unattended -nosplash -nosound -nopause -stdout \
+        "${render[@]}" -unattended -nosplash -nosound -nopause -stdout \
         > "${SWC_WORK}/logs/build-world.log" 2>&1 || status=$?
     echo "$(date -u +%H:%M:%S) $2: status ${status}, $(cat "${SWC_WORK}/logs/build-world-seconds" 2>/dev/null || echo '?') s with the lock; $(grep -ho 'SWC region .*\|SWC WORLD .*' "${editor_log}" | tail -2 | cut -c1-200 | tr '\n' ' ')"
     if [[ ${status} -ne 0 ]]; then
