@@ -23,6 +23,14 @@ This file has the rules and the common workflows. The plan is in [docs/ROADMAP.m
 The roles (decision of the user, 2026-10-18): the T3 thread of the research AST-135 is the orchestrator of this
 project. The Soulwarden orchestrator (thread 02915e32-02d5-4ff1-a796-cc7c5cf30798) does only the backend.
 
+Tracking: the Linear project "Soulwarden Client" (P-AST-7, team Astarteslabs) is the source of truth for the order
+and the status of the work: one issue for each stage. A stage thread sets its issue to In Progress at its start and
+writes its result as a comment at its end; the orchestrator sets it to Done. `docs/ROADMAP.md` keeps the plan.
+
+Stage threads: each track works in its own git worktree and branch. A stage commits on its branch; when its checks
+pass, it rebases its branch on `main` and merges it into `main` with a fast-forward. Two tracks do not edit the same
+files at the same time; a shared document (this file, the roadmap) changes only in small, separate commits.
+
 ## Rules
 
 ### Safety and privacy

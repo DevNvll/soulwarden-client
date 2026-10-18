@@ -22,6 +22,12 @@ content, and the large cost is the client logic (animation logic, UI, combat cli
 | Characters | The same characters as the retail game: a player run uses the data folder of the user. |
 | Roles | The research thread of AST-135 is the orchestrator of this project; the Soulwarden orchestrator does only the backend. |
 
+## Status
+
+The status of each stage is in the Linear project "Soulwarden Client" (P-AST-7): P0 AST-136, 1.1 AST-137, 1.2 AST-138,
+1.3 AST-139, 1.4 AST-140, 1.5 AST-141, the feel research AST-142, 1.6 AST-143, 1.7 AST-144, 1.8 AST-145, 1.9
+AST-146, 1.10 AST-147, the UI research AST-148, milestone 2 AST-149, milestone 3 AST-150, milestone 4 AST-151.
+
 ## Sizes
 
 As in the Soulwarden roadmap: `S` one stage run, `M` two or three, `L` four or more, `XL` open.
