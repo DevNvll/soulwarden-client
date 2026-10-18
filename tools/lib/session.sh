@@ -81,9 +81,23 @@ backend_arguments=(--data-dir "${data}" --gamedata-dir "${SWC_GAMEDATA_DIR}" --h
 if [[ -n "${SWC_SESSION_SEED:-}" ]]; then
     backend_arguments+=(--seed-character "${SWC_SESSION_SEED}")
 fi
-echo "session: backend $(basename "$(readlink -f "${SWC_BACKEND_DIR}")"), data ${data}" >&2
 # The backend gets no identity of the client and no diagnostics switch of the Soulwarden harness.
-env -u SWC_STEAM_ID -u SWC_PERSONA_NAME -u SOULWARDEN_HARNESS -u SOULWARDEN_ADMIN_TOKEN \
+backend_environment=(-u SWC_STEAM_ID -u SWC_PERSONA_NAME -u SOULWARDEN_HARNESS -u SOULWARDEN_ADMIN_TOKEN)
+# Development sessions only: SWC_SESSION_BACKEND_ARGS gives the backend extra arguments (for example --dev-commands, the
+# development routes of the backend: tools/dev-build.sh), and its process alone gets the mark SOULWARDEN_HARNESS=1 that
+# the backend needs for them. Never for the data folder of the user (a player run; tools/play.sh does not set it).
+if [[ -n "${SWC_SESSION_BACKEND_ARGS:-}" ]]; then
+    if [[ "$(realpath -m -- "${data}")" == "$(realpath -m -- "${SWC_PLAYER_DATA}")" ]]; then
+        echo "session: SWC_SESSION_BACKEND_ARGS is for development sessions only, not for the data folder of the user." >&2
+        exit 1
+    fi
+    read -r -a extra_arguments <<<"${SWC_SESSION_BACKEND_ARGS}"
+    backend_arguments+=("${extra_arguments[@]}")
+    backend_environment+=(SOULWARDEN_HARNESS=1)
+    echo "session: development backend arguments: ${SWC_SESSION_BACKEND_ARGS}" >&2
+fi
+echo "session: backend $(basename "$(readlink -f "${SWC_BACKEND_DIR}")"), data ${data}" >&2
+env "${backend_environment[@]}" \
     "${SWC_BACKEND_EXE}" "${backend_arguments[@]}" >>"${data}/logs/backend-launch.log" 2>&1 9>&- &
 backend=$!
 ready=0
@@ -105,7 +119,7 @@ echo "session: backend ready, client starts" >&2
 set +e
 # No proxy: each request of the client goes to the backend on loopback.
 unshare --user --map-user="${SWC_SESSION_UID}" --map-group="${SWC_SESSION_GID}" -- \
-    env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY "$@" 9>&-
+    env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u SWC_SESSION_BACKEND_ARGS "$@" 9>&-
 status=$?
 set -e
 echo "session: client ended with status ${status}" >&2
