@@ -49,6 +49,9 @@ files at the same time; a shared document (this file, the roadmap) changes only 
     the lock, a release of the Soulwarden project waits (status 3), as when the user plays the retail game.
   - A development run (agents): its own data folder (`~/Games/soulwarden-client/dev-data`) with a seed character.
     A development run never opens the data folder of the user.
+  - Only a development session can give its backend extra arguments (`SWC_SESSION_BACKEND_ARGS` of
+    `tools/lib/session.sh`, for example `--dev-commands` for the development routes; `tools/dev-build.sh`) with the mark
+    `SOULWARDEN_HARNESS=1` for the backend process alone; session.sh refuses them for the data folder of the user.
 - The backend of a run is the copy of a Soulwarden release in `~/Games/soulwarden-client/backend/current`
   (`tools/backend-update.sh`), never `~/Developer/azoth/apps/backend/dist`: the backend stage threads rebuild that file
   before their live check. Update the copy on purpose, after a release.
