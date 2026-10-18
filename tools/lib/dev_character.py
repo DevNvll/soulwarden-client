@@ -4,13 +4,15 @@ then starts the client. It runs in the network namespace of tools/lib/session.sh
 
 Usage: dev_character.py SPEC -- CLIENT COMMAND...
   SPEC: name=NAME,gender=Male|Female,race=face01,skin=skin04,hair=hairstyle01m,facial=None,haircolor=haircolor1,
-        facialcolor=haircolor1,eyecolor=eyecolor1,archetype=Archetype_Soldier,gear=ITEM@SLOT+ITEM@SLOT,place=X:Y:Z
+        facialcolor=haircolor1,eyecolor=eyecolor1,archetype=Archetype_Soldier,gear=ITEM@SLOT+ITEM@SLOT,place=X:Y:Z,
+        unequip=SLOT+SLOT
         (each key is optional but name)
   gear: items of the item catalog in slots of the paperdoll (24 to 26: weapon 1 to 3, 27 to 29: their off hand). It
         needs the development routes of the backend (SWC_SESSION_BACKEND_ARGS=--dev-commands): the helper gives each item
         (/v1/dev/items/give) and equips it (/v1/dev/items/equip). An item that is in its slot stays.
   place: the saved place of the character (engine meters; the development route /v1/dev/world/travel of a character
         that is not in the world). It needs the development routes too.
+  unequip: paperdoll slots (SLOT+SLOT) whose items go to the bag (/v1/dev/items/unequip; before the gear of the spec).
 
 The creation data has the form of the create requests of the client and of the menu document of the backend
 (protocol notes 2.2.5; apps/backend/src/state/creation_data.cpp): base64(zlib(JSON)), the JSON member visualsBlob is a
@@ -163,8 +165,23 @@ def place(character: str, name: str, text: str) -> int:
     return 0
 
 
-def finish(character: str, name: str, gear: str, where: str) -> int:
-    """The gear and the place of a spec."""
+def unequip(character: str, name: str, slots: str) -> int:
+    """Puts the items of paperdoll slots into the bag."""
+    for slot in filter(None, slots.split("+")):
+        status, reply = management("POST", f"/v1/dev/items/unequip?character={character}&slot={slot}")
+        if status == 400 and "no item" in str(reply.get("message", "")):
+            continue
+        if status != 200:
+            print(f"dev-character: unequip slot {slot} of {name}: {status} {reply}", file=sys.stderr)
+            return 1
+        print(f"dev-character: {name} has no item in slot {slot}", file=sys.stderr)
+    return 0
+
+
+def finish(character: str, name: str, gear: str, where: str, empty: str = "") -> int:
+    """The unequipped slots, the gear, and the place of a spec."""
+    if empty and unequip(character, name, empty) != 0:
+        return 1
     if gear and equip(character, name, gear) != 0:
         return 1
     return place(character, name, where) if where else 0
@@ -182,6 +199,7 @@ def create(spec: str) -> int:
     archetype = values.pop("archetype", "Archetype_Soldier")
     gear = values.pop("gear", "")
     where = values.pop("place", "")
+    empty = values.pop("unequip", "")
     names = {field: values.get(key, default) for key, field, default in APPEARANCE}
     status, reply = request("POST", "tokenservice.soulwarden.local", "/games/new-world/tokens",
                             {"platformIdentityType": "steam", "platformAuth": {"ticket": ticket()}, "fallbackToken": "", "attributionData": {}})
@@ -198,7 +216,7 @@ def create(spec: str) -> int:
     existing = [character for character in reply["LoginInfoList"].get("Characters", []) if character.get("Name") == name]
     if existing:
         print(f"dev-character: {name} is there", file=sys.stderr)
-        return finish(existing[0]["CharacterId"], name, gear, where)
+        return finish(existing[0]["CharacterId"], name, gear, where, empty)
     body = {"CreateCharacterRequest": {"CharacterCreationParams": creation_params(name, names, archetype, world_id),
                                        "ClientCapabilities": [], "Name": name, "SkipFtue": False, "SteamAppId": 1063730,
                                        "SteamAuthTicket": ticket()}}
@@ -207,7 +225,7 @@ def create(spec: str) -> int:
     if status == 200:
         character = reply["Character"]["CharacterId"]
         print(f"dev-character: created {name} ({character}), {archetype}, {names}", file=sys.stderr)
-        return finish(character, name, gear, where)
+        return finish(character, name, gear, where, empty)
     print(f"dev-character: the create request of {name} got {status} {reply}", file=sys.stderr)
     return 1
 

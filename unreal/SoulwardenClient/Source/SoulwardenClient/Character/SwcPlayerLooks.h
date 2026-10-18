@@ -82,6 +82,8 @@ public:
 	bool Load(FString& OutReport);
 
 	FSwcPlayerLook Resolve(const TArray<uint8>& Appearance, const TMap<uint32, uint32>& Equipment) const;
+	/** @return The item id of an item index of the wire (item-catalog.json), or an empty text. */
+	FString ItemId(uint32 ItemIndex) const;
 
 	/** The base of a gender: the skeletal mesh (the leader) and the idle clip. Empty when it was not imported. */
 	FString BaseMesh(bool bFemale) const;

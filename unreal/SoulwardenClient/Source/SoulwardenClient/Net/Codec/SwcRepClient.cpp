@@ -475,6 +475,17 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
             if (const auto value = decoder::field_of(fragment, 0, 1); value.size() == 4) {
                 m_own.staminaMax = f32_at(value);
             }
+            if (const auto value = decoder::field_of(fragment, 0, 2); value.size() == 4) {
+                m_own.staminaWinded = f32_at(value);
+            }
+            if (const auto value = decoder::field_of(fragment, 0, 3); value.size() == 4) {
+                m_own.staminaRegenDelay = f32_at(value);
+            }
+            if (const auto value = decoder::field_of(fragment, 0, 5); value.size() == 4) {
+                m_own.staminaRegenMultiplier = f32_at(value);
+            }
+            m_own.staminaAtNs = steady_ns(now);
+            ++m_own.staminaRevision;
         } else if (fragment.slot == kSlotMana && fragment.type == kStateMana.index) {
             if (const auto value = decoder::field_of(fragment, 0, 0); value.size() == 4) {
                 m_own.mana = f32_at(value);

@@ -322,6 +322,9 @@ bool USwcBackendSubsystem::TickWorld(float)
 			UE_LOG(LogSwcBackend, Log, TEXT("world: attacks: %u press(es), %u hold step(s), %u release(s) in the input report; %u fragment visit(s) played, %u weapon switch(es), %u lost key(s)"),
 				Attack.presses, Attack.holds, Attack.releases, Avatar.IsValid() ? Avatar->GetActions()->GetVisitCount() : 0u, Attack.switches,
 				Attack.lostKeys);
+			UE_LOG(LogSwcBackend, Log, TEXT("world: dodge: %u dodge bit(s), %u request(s): %u accepted, %u buffered, %u refused while a dodge plays, %u exhausted, %u no stamina, %u overburdened; stamina %.1f of %.1f%s; %u correction(s) from the server copy"),
+				Attack.dodgeBits, Attack.requests, Attack.verdicts[0], Attack.verdicts[1], Attack.verdicts[2], Attack.verdicts[6], Attack.verdicts[7],
+				Attack.verdicts[5], Attack.stamina, Attack.staminaMax, Attack.exhausted ? TEXT(", exhausted") : TEXT(""), Attack.corrections);
 			if (Avatar.IsValid())
 			{
 				const USwcPlayerActions* Actions0 = Avatar->GetActions();
@@ -431,6 +434,17 @@ bool USwcBackendSubsystem::GetLocalPlayer(swc::net::RepClient::OwnEntity& Out) c
 		return false;
 	}
 	Out = Snapshot.Own;
+	// The stamina of the HUD is the prediction of the client (protocol notes 4.38: the state of the server does not change it).
+	if (AttackDriver)
+	{
+		const swc::combat::Driver::Snapshot Attack = AttackDriver->snapshot();
+		if (Attack.stepped && Attack.staminaMax > 0.0f)
+		{
+			Out.hasStamina = true;
+			Out.stamina = Attack.stamina;
+			Out.staminaMax = Attack.staminaMax;
+		}
+	}
 	return true;
 }
 
@@ -553,6 +567,29 @@ void USwcBackendSubsystem::UpdateLook()
 		Avatar->GetActions()->SetContactQuery([Creatures = TWeakObjectPtr<USwcCreatureSubsystem>(Avatar->GetWorld()->GetSubsystem<USwcCreatureSubsystem>())](
 			const FSwcMeleeShape& Shape, std::vector<swc::net::MeleeContactItem>& Out) { if (Creatures.IsValid()) { Creatures->QueryMeleeContacts(Shape, Out); } });
 		Avatar->GetActions()->OnGearChanged();
+		// The stamina (stage P2.5): the data at the first look, and the equip load class of the armor (slots 0 to 4).
+		if (AttackDriver)
+		{
+			if (!bStaminaSet)
+			{
+				bStaminaSet = true;
+				AttackDriver->set_stamina(Actions->GetStaminaData());
+			}
+			TArray<FString> Armor;
+			for (uint32 Slot = 0; Slot <= 4; ++Slot)
+			{
+				if (const uint32* Item = Equipment.Find(Slot); Item != nullptr && *Item != 0)
+				{
+					Armor.Add(Looks->ItemId(*Item));
+				}
+			}
+			float Load = 0.0f;
+			const swc::combat::LoadClass Class = Actions->LoadClassOf(Armor, Load);
+			AttackDriver->set_load(Class);
+			static const TCHAR* const ClassNames[] = {TEXT("light"), TEXT("medium"), TEXT("heavy"), TEXT("overburdened")};
+			UE_LOG(LogSwcBackend, Log, TEXT("character: equip load %.1f of %d armor item(s): %s"), Load / 10.0f, Armor.Num(),
+				ClassNames[static_cast<int32>(Class)]);
+		}
 	}
 	FString Bytes;
 	for (const uint8 Value : Appearance)
@@ -656,6 +693,12 @@ void USwcBackendSubsystem::UpdatePlayer()
 		Motion.airHeight = static_cast<float>((bHit ? Hit.Distance : MaxAirHeight) / 100.0);
 	}
 	Connection->SetMotion(Motion);
+	// The server copy of the stamina (the Stamina state): the client keeps its prediction (Driver::set_server_stamina).
+	if (AttackDriver && Snapshot.Own.hasStamina && Snapshot.Own.staminaRevision != StaminaRevision)
+	{
+		StaminaRevision = Snapshot.Own.staminaRevision;
+		AttackDriver->set_server_stamina(Snapshot.Own.stamina, Snapshot.Own.staminaRegenDelay, Snapshot.Own.staminaRegenMultiplier, Snapshot.Own.staminaAtNs);
+	}
 	// The melee contacts of this frame: list 3 of the next input entry (stage P2.8).
 	if (std::vector<swc::net::MeleeContactItem> Contacts = Avatar->GetActions()->TakeContacts(); !Contacts.empty())
 	{
@@ -675,6 +718,15 @@ void USwcBackendSubsystem::UpdatePlayer()
 				*UEnum::GetValueAsString(Movement->GetMoveState()), *Movement->GetFragment(), Movement->GetHorizontalSpeed(), Motion.character.x,
 				Motion.character.y, Motion.character.z, FMath::RadiansToDegrees(Motion.yaw), *GetCameraStateName(),
 				FVector::Dist(Controller->PlayerCameraManager->GetCameraLocation(), Feet) / 100.0));
+		if (AttackDriver)
+		{
+			// The stamina of the client and the last dodge request (stage P2.5).
+			const swc::combat::Driver::Snapshot Attack = AttackDriver->snapshot();
+			GEngine->AddOnScreenDebugMessage(static_cast<uint64>(0x53574353), 1.0f, FColor::Cyan,
+				FString::Printf(TEXT("stamina %.1f of %.1f%s%s, dodge %u, last request: %s"), Attack.stamina, Attack.staminaMax,
+					Attack.exhausted ? TEXT(", exhausted") : TEXT(""), Attack.winded > 0.0f ? TEXT(", winded") : TEXT(""),
+					Attack.dodge ? Attack.dodge->number : 0u, Attack.lastVerdict ? UTF8_TO_TCHAR(swc::combat::dodge_verdict_text(*Attack.lastVerdict)) : TEXT("none")));
+		}
 	}
 }
 

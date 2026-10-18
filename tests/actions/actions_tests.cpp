@@ -80,6 +80,9 @@ Graph graph_of(const Json& weapon)
 		fragment.canTransition = item["canTransition"].is_null() ? -1.0F : item["canTransition"].get<float>();
 		fragment.switchBuffer = item["switch"][0].get<float>();
 		fragment.switchAt = item["switch"][1].get<float>();
+		for (const Json& window : item["dodge"]) {
+			fragment.dodge.push_back({window[0].get<float>(), window[1].is_null() ? -1.0F : window[1].get<float>(), window[2].get<bool>()});
+		}
 		graph.fragments.push_back(fragment);
 	}
 	std::size_t index = 0;
@@ -119,7 +122,9 @@ std::vector<Bits> bits_of(const std::vector<int>& script)
 	bool down = false;
 	for (const int event : script) {
 		Bits bits;
-		if (event > 0 && !down) {
+		if (event == 2) {
+			bits.dodge = true;
+		} else if (event > 0 && !down) {
 			bits.press = true;
 			down = true;
 		} else if (event < 0 && down) {
@@ -153,6 +158,9 @@ std::vector<Seen> run_client(const Graph& graph, const std::vector<Bits>& steps,
 	std::uint32_t last = 0;
 	for (std::size_t index = 0; index < steps.size(); ++index) {
 		sequence.step(static_cast<std::uint16_t>(first + index), steps[index]);
+		if (sequence.take_dodge()) {
+			seen.push_back({"dodge", static_cast<unsigned>(index)});
+		}
 		for (const swc::combat::Visit& visit : sequence.visits()) {
 			if (visit.number > last) {
 				seen.push_back({graph.fragments[static_cast<std::size_t>(visit.fragment)].name, static_cast<std::uint16_t>(visit.start - first)});
@@ -174,8 +182,13 @@ std::vector<Seen> run_backend(const backend::gamedata::WeaponActionSet& actions,
 		bits.press = steps[index].press;
 		bits.hold = steps[index].hold;
 		bits.release = steps[index].release;
+		bits.dodge = steps[index].dodge;
+		bits.dodgeAllowed = steps[index].dodgeAllowed;
 		const auto now = base + std::chrono::milliseconds(static_cast<long>(index * 1000 / 30));
 		sequences.step("c", 1, 1, static_cast<std::uint16_t>(first + index), bits, "w", &actions, now);
+		if (sequences.take_dodge("c")) {
+			seen.push_back({"dodge", static_cast<unsigned>(index)});
+		}
 		const auto* state = sequences.state_of("c");
 		if (state == nullptr) {
 			continue;
@@ -448,6 +461,141 @@ void strike_tests(const Json& actions, const backend::gamedata::WeaponActions& t
 	std::printf("strikes: %d with %d shapes\n", strikes, shapes);
 }
 
+/** The stamina and the dodge (stage P2.5) with the values of the backend copy and the live checks of the protocol notes 4.38. */
+void stamina_tests(const swc::combat::StaminaData& data)
+{
+	using swc::combat::DodgeVerdict;
+	const auto near_value = [](float a, float b) { return std::fabs(a - b) < 0.05F; };
+	// The steps of the client: 1/30 s each.
+	const auto run = [&](swc::combat::Stamina& stamina, double from, double to) {
+		for (double t = from; t <= to + 1e-9; t += 1.0 / 30.0) {
+			stamina.advance(t);
+		}
+	};
+	{
+		// LS5: a dodge pays 45 at 0.1 s; no regeneration to CanTransition (0.5 s), then the delay of the exit (1 s); 33.33 in a second.
+		swc::combat::Stamina stamina;
+		stamina.set_data(data);
+		stamina.refill(0.0);
+		check(stamina.dodge(0.0) == DodgeVerdict::accepted, "LS5: a dodge at full stamina");
+		run(stamina, 0.0, 0.0667);
+		check(near_value(stamina.value(), 100.0F), "LS5: no payment before the mark 0.1 s");
+		run(stamina, 0.1, 1.5);
+		check(near_value(stamina.value(), 55.0F), "LS5: 55 after the payment, no regeneration to 1.5 s (" + std::to_string(stamina.value()) + ")");
+		run(stamina, 1.5333, 2.5);
+		check(near_value(stamina.value(), 55.0F + 33.33F), "LS5: 33.33 in the second after the delay (" + std::to_string(stamina.value()) + ")");
+		run(stamina, 2.5333, 3.5);
+		check(near_value(stamina.value(), 100.0F), "LS5: full again");
+	}
+	{
+		// P5 (the live proof of 3.4f-B): four presses 0.73 s apart pay 45, 45, 10, the fourth is refused (exhausted); winded for
+		// 2 s; the stamina is full about 4.4 s after the third payment.
+		swc::combat::Stamina stamina;
+		stamina.set_data(data);
+		stamina.refill(0.0);
+		std::vector<DodgeVerdict> verdicts;
+		double t = 0.0;
+		double emptyAt = -1.0;
+		double fullAt = -1.0;
+		for (int step = 0; step <= 30 * 8; ++step) {
+			t = step / 30.0;
+			stamina.advance(t);
+			if (step == 0 || step == 22 || step == 44 || step == 66) {
+				verdicts.push_back(stamina.dodge(t));
+			}
+			if (emptyAt < 0.0 && stamina.value() <= 0.0F) {
+				emptyAt = t;
+			}
+			if (emptyAt >= 0.0 && fullAt < 0.0 && stamina.value() >= 100.0F) {
+				fullAt = t;
+			}
+		}
+		check(verdicts.size() == 4 && verdicts[0] == DodgeVerdict::accepted && verdicts[1] == DodgeVerdict::accepted
+				&& verdicts[2] == DodgeVerdict::accepted && verdicts[3] == DodgeVerdict::exhausted,
+			"P5: three dodges, the fourth refused (exhausted)");
+		check(stamina.payments() == 3 && emptyAt > 0.0, "P5: three payments, then empty");
+		check(fullAt > 0.0 && std::fabs((fullAt - emptyAt) - 4.4) < 0.15, "P5: full again 4.4 s after the third payment (" + std::to_string(fullAt - emptyAt) + " s)");
+	}
+	{
+		// LS6: a dodge at 5 is accepted; the payment stops at 0 (no debt); at 0 winded for 2 s and exhausted until full.
+		swc::combat::Stamina stamina;
+		stamina.set_data(data);
+		stamina.refill(0.0);
+		stamina.pay(0.0, 95.0F);
+		check(near_value(stamina.value(), 5.0F), "LS6: 5 stamina");
+		check(stamina.dodge(0.0) == DodgeVerdict::accepted, "LS6: a dodge at 5 is accepted");
+		run(stamina, 0.0, 0.2);
+		check(stamina.value() == 0.0F && stamina.exhausted() && near_value(stamina.winded(0.2), 1.9F), "LS6: 0, exhausted, winded 2 s from the payment");
+		check(stamina.dodge(0.6) == DodgeVerdict::exhausted, "LS6: an exhausted character gets no dodge");
+		run(stamina, 0.2333, 5.0);
+		check(!stamina.exhausted() && near_value(stamina.value(), 100.0F), "LS6: full, not exhausted");
+	}
+	{
+		// The windows of a dodge that plays: a press at 0.1 s (no window, before CanTransition) is a duplicate; at 0.3 s (the
+		// buffered window 0.267 to 0.5 s) the next dodge starts at 0.5 s; a second press in the window waits with it.
+		swc::combat::Stamina stamina;
+		stamina.set_data(data);
+		stamina.refill(0.0);
+		stamina.dodge(0.0);
+		check(stamina.dodge(0.1) == DodgeVerdict::dodging, "a press at 0.1 s of a dodge is a duplicate");
+		run(stamina, 0.0, 0.3);
+		check(stamina.dodge(0.3) == DodgeVerdict::buffered && stamina.dodge(0.35) == DodgeVerdict::buffered, "a press at 0.3 s waits for 0.5 s");
+		run(stamina, 0.3333, 0.4667);
+		check(stamina.dodge_state()->number == 1, "the next dodge does not start before 0.5 s");
+		run(stamina, 0.5, 0.7);
+		check(stamina.dodge_state()->number == 2 && std::fabs(stamina.dodge_state()->start - 0.5) < 1e-6 && stamina.payments() == 2,
+			"the next dodge starts at 0.5 s and pays at its mark");
+		check(stamina.dodge(1.1) == DodgeVerdict::accepted && stamina.dodge_state()->number == 3, "a press in the instant window starts at once");
+	}
+	{
+		// The equip load class (the encumbrance row of the backend copy: the maximum 500 tenths, 26 %, 46 %, 100 %) and the
+		// armor of the exit check: the heavy chest of 110 tenths, with the heavy legs 173, with the head and the hands 267.
+		using swc::combat::LoadClass;
+		const auto load = [](float tenths) { return swc::combat::load_class_of(tenths, 500.0F, 26.0F, 46.0F, 100.0F); };
+		check(load(0.0F) == LoadClass::light && load(129.0F) == LoadClass::light && load(130.0F) == LoadClass::medium
+				&& load(229.0F) == LoadClass::medium && load(230.0F) == LoadClass::heavy && load(500.0F) == LoadClass::heavy
+				&& load(501.0F) == LoadClass::overburdened,
+			"the limits of the load classes");
+		check(load(110.0F) == LoadClass::light && load(173.0F) == LoadClass::medium && load(267.0F) == LoadClass::heavy,
+			"the armor of the exit check: light, medium, heavy");
+	}
+	{
+		// The load class: the cost of the heavy dodge (50) and no dodge for an overburdened character.
+		swc::combat::Stamina stamina;
+		stamina.set_data(data);
+		stamina.set_load(swc::combat::LoadClass::heavy);
+		stamina.refill(0.0);
+		stamina.dodge(0.0);
+		run(stamina, 0.0, 0.2);
+		check(near_value(stamina.value(), 50.0F), "a heavy dodge pays 50");
+		stamina.set_load(swc::combat::LoadClass::overburdened);
+		check(stamina.dodge(2.0) == DodgeVerdict::overburdened, "no dodge when overburdened");
+	}
+}
+
+/** The driver with the stamina: the dodge bit for each press, also for a refused one (live check LS9). */
+void driver_dodge_tests(const Graph& sword, const swc::combat::StaminaData& data)
+{
+	swc::combat::Driver driver;
+	driver.set_stamina(data);
+	driver.set_weapons(&sword, nullptr, swc::combat::kMainHand1);
+	std::vector<unsigned> bits;
+	int dodgeBits = 0;
+	for (int step = 0; step < 90; ++step) {
+		if (step == 0 || step == 22 || step == 44 || step == 66) {
+			driver.dodge_press();
+		}
+		bits.clear();
+		driver.step(static_cast<std::uint16_t>(1000 + step), step * 33'333'333LL, bits);
+		dodgeBits += std::find(bits.begin(), bits.end(), swc::combat::kBitDodge) != bits.end() ? 1 : 0;
+	}
+	const swc::combat::Driver::Snapshot snapshot = driver.snapshot();
+	check(dodgeBits == 4, "the driver: one dodge bit for each press (" + std::to_string(dodgeBits) + ")");
+	check(snapshot.verdicts[static_cast<std::size_t>(swc::combat::DodgeVerdict::accepted)] == 3
+			&& snapshot.verdicts[static_cast<std::size_t>(swc::combat::DodgeVerdict::exhausted)] == 1 && snapshot.exhausted,
+		"the driver: three dodges and one refused press at rest with the sword (the sequence permits the dodge)");
+}
+
 /** The parity with the backend: the same steps give the same fragments at the same steps, for each melee weapon. */
 void parity_tests(const Json& actions, const backend::gamedata::WeaponActions& tables)
 {
@@ -483,11 +631,19 @@ void parity_tests(const Json& actions, const backend::gamedata::WeaponActions& t
 					script[static_cast<std::size_t>(at + hold)] = -1;
 				}
 				at += hold + 1 + static_cast<int>(random() % 30);
+				if (random() % 3 == 0 && at < 400) {
+					script[static_cast<std::size_t>(at)] = 2; // a dodge press
+					at += 1 + static_cast<int>(random() % 20);
+				}
 			}
 			all.push_back(script);
 		}
 		for (const std::vector<int>& script : all) {
-			const std::vector<Bits> steps = bits_of(script);
+			std::vector<Bits> steps = bits_of(script);
+			// Some steps cannot start a dodge (the stamina system refuses it): the attack stays.
+			for (Bits& bits : steps) {
+				bits.dodgeAllowed = random() % 5 != 0;
+			}
 			const std::uint16_t first = static_cast<std::uint16_t>(random());
 			const std::vector<Seen> a = run_client(client, steps, first);
 			const std::vector<Seen> b = run_backend(*server, steps, first);
@@ -542,6 +698,37 @@ int main(int argc, char** argv)
 		std::fprintf(stderr, "actions.json has no graph of the sword, the greatsword, the war hammer, or the great axe\n");
 		return 2;
 	}
+	// The stamina data of the backend copy (stamina-data.json, next to weapon-actions.json).
+	swc::combat::StaminaData staminaData;
+	{
+		std::string folder = argv[2];
+		folder = folder.substr(0, folder.find_last_of('/') + 1);
+		std::ifstream staminaFile(folder + "stamina-data.json");
+		const Json stamina = Json::parse(staminaFile);
+		staminaData.max = stamina["component"]["max"].get<float>();
+		staminaData.regenRate = stamina["component"]["regenRate"].get<float>();
+		staminaData.maxWindedTime = stamina["component"]["maxWindedTime"].get<float>();
+		staminaData.regenDelay = stamina["vitals"]["regenDelay"].get<float>();
+		staminaData.regenDelayOnEmpty = stamina["vitals"]["regenDelayOnEmpty"].get<float>();
+		staminaData.dodgeExitDelay = stamina["dodge"]["regenDelayOnExit"].get<float>();
+		const char* classes[3] = {"light", "medium", "heavy"};
+		for (int index = 0; index < 3; ++index) {
+			const Json& row = stamina["dodge"]["classes"][classes[index]];
+			const Json& marks = stamina["dodge"]["fragments"][row["fragment"].get<std::string>()];
+			swc::combat::DodgeFragment fragment;
+			fragment.name = row["fragment"].get<std::string>();
+			fragment.pay = marks["pay"].get<float>();
+			fragment.immuneEnd = marks["immune"][1].get<float>();
+			fragment.canTransition = marks["canTransition"].get<float>();
+			for (const Json& window : marks["cancel"]) {
+				fragment.cancel.push_back({window[0].get<float>(), window[1].is_null() ? std::optional<float>() : std::optional<float>(window[1].get<float>()),
+					window[2].get<bool>()});
+			}
+			staminaData.dodges[static_cast<std::size_t>(index)] = fragment;
+			staminaData.dodgeCosts[static_cast<std::size_t>(index)] = row["cost"].get<float>();
+		}
+		staminaData.loaded = true;
+	}
 	const Graph swordGraph = graph_of(*sword);
 	const Graph greatswordGraph = graph_of(*greatsword);
 	const Graph hammerGraph = graph_of(*hammer);
@@ -553,6 +740,8 @@ int main(int argc, char** argv)
 	driver_tests(swordGraph, greatswordGraph);
 	parity_tests(actions, tables);
 	strike_tests(actions, tables);
+	stamina_tests(staminaData);
+	driver_dodge_tests(swordGraph, staminaData);
 	std::printf("%d checks, %d failed\n", g_checks, g_failed);
 	return g_failed == 0 ? 0 : 1;
 }

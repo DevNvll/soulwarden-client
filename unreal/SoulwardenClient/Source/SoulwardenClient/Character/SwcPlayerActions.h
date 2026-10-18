@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Combat/SwcMeleeShape.h"
 #include "Components/ActorComponent.h"
+#include "Combat/SwcAttackGraph.h"
 #include "Net/Codec/SwcRepMessages.h"
 
 #include <memory>
@@ -62,6 +63,8 @@ public:
 	void OnSheatheKey();
 	/** The attack button (the left mouse button) went down or up. */
 	void OnAttackButton(bool bDown);
+	/** The dodge key (left Shift). */
+	void OnDodgeKey();
 
 	/** The count of the attack fragments that started, and of the weapon switches of the driver (a log line and a check). */
 	uint32 GetVisitCount() const { return Visits; }
@@ -114,6 +117,8 @@ private:
 	void FillFacts(const FSwcActionFragment& Fragment, const FSwcWeaponActions& Weapon, float Time, FSwcConditionFacts& Facts) const;
 	/** The strikes of a graph fragment whose window has a clock of (From, To]: their shapes to the query. */
 	void QueryStrikes(const FSwcWeaponActions& Weapon, int32 GraphFragment, uint32 VisitNumber, float From, float To);
+	/** The dodge of the driver on the FullBody channel, its root motion and its facing. @return False when no dodge plays. */
+	bool PlayDodge(const swc::combat::Driver::Snapshot& Snapshot, float Since, float DeltaTime);
 	/** The strikes of this frame at its final pose (the delegate of the bone transforms of the mesh). */
 	void OnBonesFinal();
 	/** Draws the shapes of the strikes whose window has the clock (-SwcDrawStrikes). */
@@ -154,6 +159,14 @@ private:
 		bool bQuery = false;
 	};
 	FStrikeWork Work;
+	/** The dodge: its number, the number of a dodge that ended (its fragment or a move key after CanTransition), its fragment. */
+	uint32 DodgeNumber = 0;
+	uint32 DodgeReleased = 0;
+	int32 DodgeFragment = INDEX_NONE;
+	const FSwcWeaponActions* DodgeWeapon = nullptr;
+	bool bDodgePlayed = false;
+	/** The largest speed that the movement keeps at the end of the action (cm/s; 0: no limit). */
+	float CarryLimit = 0.0f;
 	FDelegateHandle BonesHandle;
 	TWeakObjectPtr<USkeletalMeshComponent> BonesMesh;
 	FContactQuery ContactQuery;

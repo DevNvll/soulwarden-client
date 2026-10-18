@@ -96,6 +96,8 @@ struct FSwcWeaponActions
 	/** The fragments of the stance and of its shield: the movement fragment name ("Idle", "Land+Soft") -> fragment. */
 	TMap<FString, int32> Stance;
 	TMap<FString, int32> Offhand;
+	/** The dodge fragments: the fragment of a load class and a direction ("Dodge_Roll_Fast+BackNav"; no tag: forward). */
+	TMap<FString, int32> Dodge;
 	int32 Draw = INDEX_NONE;
 	int32 Sheathe = INDEX_NONE;
 	/** The attack graph (empty: no basic attack), and the fragment of each graph fragment (or INDEX_NONE). */
@@ -190,6 +192,14 @@ public:
 	 */
 	bool RootDelta(const FSwcActionFragment& Fragment, float From, float To, FVector& OutDelta) const;
 
+	/**
+	 * The equip load of armor items (the slots 0 to 4: the whole tenths of each load, gear.h of the backend) and its class by
+	 * the encumbrance row of the player (light below 26 %, medium below 46 %, heavy to 100 % of the maximum, else overburdened).
+	 */
+	swc::combat::LoadClass LoadClassOf(const TArray<FString>& ArmorItems, float& OutLoad) const;
+	/** The stamina and dodge data of the backend copy (stamina-data.json in actions.json). */
+	const swc::combat::StaminaData& GetStaminaData() const { return StaminaData; }
+
 	/** @return A joint of a weapon skeleton in the model of the weapon (Unreal cm, the space map of stage 1.1), or null. */
 	const FTransform* WeaponJoint(const FString& Model, FName Joint) const;
 
@@ -205,4 +215,10 @@ private:
 	TMap<FString, FSwcCondition> Conditions;
 	TMap<FString, int32> ClipIndex;
 	TMap<FString, TMap<FName, FTransform>> WeaponJoints;
+	swc::combat::StaminaData StaminaData;
+	TMap<FString, float> ItemLoads;
+	float LoadMax = 500.0f;
+	float RatioMedium = 26.0f;
+	float RatioHeavy = 46.0f;
+	float RatioOverburdened = 100.0f;
 };

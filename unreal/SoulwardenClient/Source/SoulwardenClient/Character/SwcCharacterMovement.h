@@ -53,6 +53,8 @@ public:
 	 * character, the jump key does nothing, and the strafe turn stops (the action turns the character).
 	 */
 	void SetActionMotion(bool bActive, const FVector& HorizontalVelocity);
+	/** The end of an action: the movement starts from its velocity, at most MaxSpeed (cm/s; 0: no limit). */
+	void EndActionMotion(float MaxSpeed);
 	bool IsActionMotion() const { return bActionMotion; }
 	/** The camera yaw of the input (Unreal degrees) and the move keys (x right, y forward). */
 	double GetCameraYaw() const { return CameraYaw; }

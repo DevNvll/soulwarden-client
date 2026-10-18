@@ -130,6 +130,19 @@ void USwcCharacterMovement::SetActionMotion(bool bActive, const FVector& Horizon
 	ActionVelocity = bActive ? FVector(HorizontalVelocity.X, HorizontalVelocity.Y, 0.0) : FVector::ZeroVector;
 }
 
+void USwcCharacterMovement::EndActionMotion(float MaxSpeed)
+{
+	bActionMotion = false;
+	ActionVelocity = FVector::ZeroVector;
+	if (MaxSpeed > 0.0f)
+	{
+		GroundVelocity = GroundVelocity.GetClampedToMaxSize2D(MaxSpeed);
+		const FVector Horizontal = FVector(Velocity.X, Velocity.Y, 0.0).GetClampedToMaxSize(MaxSpeed);
+		Velocity.X = Horizontal.X;
+		Velocity.Y = Horizontal.Y;
+	}
+}
+
 const FSwcFragment* USwcCharacterMovement::FragmentData(const FString& Name) const
 {
 	return Locomotion.IsValid() ? Locomotion->Fragment(Name) : nullptr;

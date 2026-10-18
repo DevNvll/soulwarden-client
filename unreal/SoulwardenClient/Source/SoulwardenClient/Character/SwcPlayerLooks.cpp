@@ -132,6 +132,11 @@ FString FSwcPlayerLooks::ImportedObject(const FString& Key, const TCHAR* Class) 
 	return Objects != nullptr && Objects->Num() > 0 ? (*Objects)[0]->AsString() : FString();
 }
 
+FString FSwcPlayerLooks::ItemId(uint32 ItemIndex) const
+{
+	return ItemIndex > 0 && Items.IsValidIndex(static_cast<int32>(ItemIndex) - 1) && !Items[ItemIndex - 1].IsEmpty() ? Items[ItemIndex - 1][0] : FString();
+}
+
 FString FSwcPlayerLooks::BaseMesh(bool bFemale) const
 {
 	return ImportedObject(bFemale ? TEXT("base|female") : TEXT("base|male"), TEXT("SkeletalMesh"));
@@ -523,25 +528,30 @@ int32 FSwcPlayerLooks::WriteWanted(const FSwcPlayerLook& Look) const
 		}
 	}
 	const FString Gender = Look.bFemale ? TEXT("Female") : TEXT("Male");
+	// The unarmed pack (the dodge of player.adb) and the pack of each weapon.
+	TArray<FString> PackTags = {TEXT("unarmed")};
 	for (const FSwcGearPart& Part : Look.Gear)
 	{
-		if (Part.bAccessory || Part.Tags.IsEmpty() || Part.PaperdollSlot >= 27)
+		if (!Part.bAccessory && !Part.Tags.IsEmpty() && Part.PaperdollSlot < 27)
 		{
-			continue;
+			PackTags.AddUnique(Part.Tags);
 		}
+	}
+	for (const FString& PartTags : PackTags)
+	{
 		TArray<FString> Tags;
-		Part.Tags.ParseIntoArray(Tags, TEXT(","));
+		PartTags.ParseIntoArray(Tags, TEXT(","));
 		for (FString& Tag : Tags)
 		{
 			Tag = Tag.TrimStartAndEnd().ToLower();
 		}
 		const FString Key = TEXT("clips|") + Gender.ToLower() + TEXT("|") + FString::Join(Tags, TEXT("_"));
-		if (!ImportedObject(Key, TEXT("AnimSequence")).IsEmpty() || KnownClips.Contains(Gender + TEXT("|") + Part.Tags))
+		if (!ImportedObject(Key, TEXT("AnimSequence")).IsEmpty() || KnownClips.Contains(Gender + TEXT("|") + PartTags))
 		{
 			continue;
 		}
-		KnownClips.Add(Gender + TEXT("|") + Part.Tags);
-		WantedClips.Add(MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueString>(Gender), MakeShared<FJsonValueString>(Part.Tags)}));
+		KnownClips.Add(Gender + TEXT("|") + PartTags);
+		WantedClips.Add(MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueString>(Gender), MakeShared<FJsonValueString>(PartTags)}));
 		++Added;
 	}
 	Wanted->SetArrayField(TEXT("clips"), WantedClips);

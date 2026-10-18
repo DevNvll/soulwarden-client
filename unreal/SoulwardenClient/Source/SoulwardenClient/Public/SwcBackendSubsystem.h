@@ -124,6 +124,8 @@ private:
 	/** The actions of the weapons (actions.json, read at the first use) and the attack driver of the session (stage P2.7). */
 	TSharedPtr<FSwcActions> Actions;
 	std::shared_ptr<swc::combat::Driver> AttackDriver;
+	bool bStaminaSet = false;
+	uint32 StaminaRevision = 0;
 	/** The level has no ground at the spawn: the test floor of the movement (Character/SwcTestFloor). */
 	bool bTestFloor = false;
 	bool bWaitForFloor = false;

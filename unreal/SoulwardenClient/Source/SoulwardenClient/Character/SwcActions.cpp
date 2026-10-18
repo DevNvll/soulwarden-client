@@ -293,8 +293,8 @@ bool FSwcActions::Load(FString& OutReport)
 		{
 			Weapon->Tags.Add(Tag->AsString());
 		}
-		Weapon->ClipKey = FString::Join(Weapon->Tags, TEXT("_")).ToLower();
-		for (const TCHAR* Kind : {TEXT("stance"), TEXT("offhand")})
+		Weapon->ClipKey = Weapon->Tags.IsEmpty() ? FString(TEXT("unarmed")) : FString::Join(Weapon->Tags, TEXT("_")).ToLower();
+		for (const TCHAR* Kind : {TEXT("stance"), TEXT("offhand"), TEXT("dodge")})
 		{
 			const TSharedPtr<FJsonObject>* Map = nullptr;
 			if (Info->TryGetObjectField(Kind, Map))
@@ -303,7 +303,9 @@ bool FSwcActions::Load(FString& OutReport)
 				{
 					if (const int32* Index = FragmentIndex.Find(Pair.Value->AsString()))
 					{
-						(FCString::Strcmp(Kind, TEXT("stance")) == 0 ? Weapon->Stance : Weapon->Offhand).Add(FString(Pair.Key.ToView()), *Index);
+						(FCString::Strcmp(Kind, TEXT("stance")) == 0 ? Weapon->Stance : FCString::Strcmp(Kind, TEXT("offhand")) == 0 ? Weapon->Offhand
+																										: Weapon->Dodge)
+							.Add(FString(Pair.Key.ToView()), *Index);
 					}
 				}
 			}
@@ -410,6 +412,68 @@ bool FSwcActions::Load(FString& OutReport)
 						FVector(Number(V[0]), -Number(V[1]), Number(V[2])) * 100.0));
 				}
 			}
+		}
+	}
+	// The stamina and the dodge (stage P2.5): the data of the backend copy, the encumbrance row, the loads of the armor items.
+	if (const TSharedPtr<FJsonObject>* Stamina = nullptr; Document->TryGetObjectField(TEXT("stamina"), Stamina))
+	{
+		const TSharedPtr<FJsonObject> Info = (*Stamina)->GetObjectField(TEXT("data"));
+		const TSharedPtr<FJsonObject> Component = Info->GetObjectField(TEXT("component"));
+		const TSharedPtr<FJsonObject> Vitals = Info->GetObjectField(TEXT("vitals"));
+		const TSharedPtr<FJsonObject> Dodge = Info->GetObjectField(TEXT("dodge"));
+		StaminaData.min = Number(Component->TryGetField(TEXT("min")));
+		StaminaData.max = Number(Component->TryGetField(TEXT("max")), 100.0f);
+		StaminaData.regenRate = Number(Component->TryGetField(TEXT("regenRate")), 33.33f);
+		StaminaData.maxWindedTime = Number(Component->TryGetField(TEXT("maxWindedTime")), 2.0f);
+		StaminaData.regenDelay = Number(Vitals->TryGetField(TEXT("regenDelay")), 1.0f);
+		StaminaData.regenDelayOnEmpty = Number(Vitals->TryGetField(TEXT("regenDelayOnEmpty")), 1.0f);
+		StaminaData.dodgeExitDelay = Number(Dodge->TryGetField(TEXT("regenDelayOnExit")), 1.0f);
+		const TCHAR* Classes[4] = {TEXT("light"), TEXT("medium"), TEXT("heavy"), TEXT("overburdened")};
+		const TSharedPtr<FJsonObject> Load = Info->GetObjectField(TEXT("load"));
+		for (int32 Index = 0; Index < 4; ++Index)
+		{
+			StaminaData.costMult[Index] = Number(Load->GetObjectField(TEXT("costMult"))->TryGetField(Classes[Index]), 1.0f);
+			StaminaData.regenMult[Index] = Number(Load->GetObjectField(TEXT("regenMult"))->TryGetField(Classes[Index]), 1.0f);
+		}
+		for (int32 Index = 0; Index < 3; ++Index)
+		{
+			const TSharedPtr<FJsonObject>* Row = nullptr;
+			if (!Dodge->GetObjectField(TEXT("classes"))->TryGetObjectField(Classes[Index], Row))
+			{
+				continue;
+			}
+			const FString Name = (*Row)->GetStringField(TEXT("fragment"));
+			const TSharedPtr<FJsonObject> Marks = Dodge->GetObjectField(TEXT("fragments"))->GetObjectField(Name);
+			swc::combat::DodgeFragment Fragment;
+			Fragment.name = TCHAR_TO_UTF8(*Name);
+			Fragment.pay = Number(Marks->TryGetField(TEXT("pay")), 0.1f);
+			Fragment.immuneEnd = Number(Marks->GetArrayField(TEXT("immune"))[1], 0.5f);
+			Fragment.canTransition = Number(Marks->TryGetField(TEXT("canTransition")), 0.5f);
+			Fragment.attackCancel = Number(Marks->TryGetField(TEXT("attackCancel")));
+			for (const TSharedPtr<FJsonValue>& Window : Marks->GetArrayField(TEXT("cancel")))
+			{
+				const TArray<TSharedPtr<FJsonValue>>& W = Window->AsArray();
+				swc::combat::DodgeFragment::Window Cancel;
+				Cancel.start = Number(W[0]);
+				if (!W[1]->IsNull())
+				{
+					Cancel.end = Number(W[1]);
+				}
+				Cancel.buffered = W[2]->AsBool();
+				Fragment.cancel.push_back(Cancel);
+			}
+			StaminaData.dodges[Index] = Fragment;
+			StaminaData.dodgeCosts[Index] = Number((*Row)->TryGetField(TEXT("cost")), 45.0f);
+		}
+		StaminaData.loaded = true;
+		const TSharedPtr<FJsonObject> Encumbrance = (*Stamina)->GetObjectField(TEXT("encumbrance"));
+		LoadMax = Number(Encumbrance->TryGetField(TEXT("equipLoadMax")), 500.0f);
+		RatioMedium = Number(Encumbrance->TryGetField(TEXT("ratioMedium")), 26.0f);
+		RatioHeavy = Number(Encumbrance->TryGetField(TEXT("ratioHeavy")), 46.0f);
+		RatioOverburdened = Number(Encumbrance->TryGetField(TEXT("ratioOverburdened")), 100.0f);
+		for (const auto& Pair : (*Stamina)->GetObjectField(TEXT("itemLoads"))->Values)
+		{
+			ItemLoads.Add(FString(Pair.Key.ToView()), Number(Pair.Value));
 		}
 	}
 	// The motion and the facing of the attack actions, and the named conditions.
@@ -531,6 +595,16 @@ const FSwcWeaponActions* FSwcActions::Weapon(const FString& TagText) const
 		}
 	}
 	return nullptr;
+}
+
+swc::combat::LoadClass FSwcActions::LoadClassOf(const TArray<FString>& ArmorItems, float& OutLoad) const
+{
+	OutLoad = 0.0f;
+	for (const FString& Item : ArmorItems)
+	{
+		OutLoad += FMath::FloorToFloat(ItemLoads.FindRef(Item.ToLower()));
+	}
+	return swc::combat::load_class_of(OutLoad, LoadMax, RatioMedium, RatioHeavy, RatioOverburdened);
 }
 
 const FTransform* FSwcActions::WeaponJoint(const FString& Model, FName Joint) const

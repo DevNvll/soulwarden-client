@@ -33,6 +33,7 @@ struct FInputActionValue;
  *   key 1|2|sheathe  one press of the weapon key 1 or 2, or of the sheathe key
  *   attack 1|0       the attack button down or up
  *   click            the attack button down for one frame
+ *   dodge            one press of the dodge key (left Shift)
  * The run ends with -SwcQuitWhen=world and -SwcStay (USwcBackendSubsystem).
  */
 UCLASS()
@@ -80,6 +81,7 @@ private:
 	void OnSheathe(const FInputActionValue& Value);
 	void OnAttack(const FInputActionValue& Value);
 	void OnAttackEnd(const FInputActionValue& Value);
+	void OnDodge(const FInputActionValue& Value);
 	void UseWeapon(uint32 Slot, const TArray<uint32>& Bits);
 	void LoadDrive(const FString& Path);
 	void TickDrive(float DeltaTime);
@@ -108,6 +110,8 @@ private:
 	TObjectPtr<UInputAction> SheatheAction;
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> AttackAction;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> DodgeAction;
 	/** A click of the drive script: the button goes up at the next frame. */
 	bool bDriveClick = false;
 	uint32 PressSerial = 0;

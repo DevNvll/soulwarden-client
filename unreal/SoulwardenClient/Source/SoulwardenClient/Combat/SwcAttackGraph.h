@@ -8,6 +8,8 @@
 #include <string_view>
 #include <vector>
 
+#include "Combat/SwcStamina.h"
+
 // The basic attacks of a melee weapon on the client (stage P2.7): the attack graph of the weapon (the Mannequin fragments
 // of its animation databases and the transitions of its action lists, as the backend reads them: weapon-actions.json of
 // the backend copy, copied into actions.json by tools/convert-player.sh actions), stepped at the input steps of the
@@ -35,6 +37,8 @@ inline constexpr unsigned kBitPressVirtual = 203;
 inline constexpr unsigned kBitShoot = 408;
 inline constexpr unsigned kBitHold = 191;
 inline constexpr unsigned kBitRelease = 567;
+/** The dodge (left Shift): one step for each press, also for a press that the client refuses (protocol notes 4.38). */
+inline constexpr unsigned kBitDodge = 322;
 /** The weapon keys: Use_MainHandSlot_1 and quickslot-weapon1 (slot 24), Use_MainHandSlot_2 and quickslot-weapon2 (slot 25). */
 inline constexpr unsigned kBitsKey1[2] = {9, 40};
 inline constexpr unsigned kBitsKey2[2] = {355, 306};
@@ -69,6 +73,13 @@ struct Transition {
 	int to{-1};
 };
 
+/** A dodge window of a fragment (CanDodgeCancel: at once; CanDodgeBuffer: at the end of the window). */
+struct DodgeWindow {
+	float start{0.0F};
+	float end{-1.0F};
+	bool buffered{false};
+};
+
 struct Fragment {
 	std::string name;
 	/** The end of the animation of the fragment (seconds). 0: not known. */
@@ -79,6 +90,7 @@ struct Fragment {
 	float switchBuffer{-1.0F};
 	float switchAt{-1.0F};
 	std::vector<Transition> transitions;
+	std::vector<DodgeWindow> dodge;
 };
 
 /** The attack graph of one weapon tag set. */
@@ -96,6 +108,9 @@ struct Bits {
 	bool press{false};
 	bool hold{false};
 	bool release{false};
+	/** The dodge input, and whether the stamina can start a dodge now (Stamina::can_dodge; AttackBits::dodgeAllowed). */
+	bool dodge{false};
+	bool dodgeAllowed{true};
 };
 
 /** One visit of a fragment. */
@@ -112,6 +127,8 @@ struct Visit {
 	/** A buffered transition that took a press: its fragment and the end of its window. */
 	int pending{-1};
 	float pendingAt{0.0F};
+	/** A dodge in a buffered dodge window: the end of the window. Below 0: none. */
+	float dodgeAt{-1.0F};
 };
 
 /** @return The clock of a fragment that started at `start`, at the input step `input`: (input - start + 1) / 30 s. */
@@ -149,6 +166,8 @@ public:
 	[[nodiscard]] const Visit* playing() const;
 	/** The last visits (the newest at the back; at most 8). */
 	[[nodiscard]] const std::deque<Visit>& visits() const { return m_visits; }
+	/** @return True one time after a step that permits a dodge (at rest, or a dodge window that ended the fragment). */
+	bool take_dodge();
 
 private:
 	void start_visit(int fragment, std::uint16_t input);
@@ -156,6 +175,7 @@ private:
 	const Graph* m_graph{nullptr};
 	std::deque<Visit> m_visits;
 	std::uint32_t m_count{0};
+	bool m_dodged{false};
 };
 
 /** The weapon switch of a weapon key (Combat::select_weapon and Combat::step_switch of the backend). */
@@ -235,12 +255,41 @@ public:
 		std::uint32_t presses{0};
 		std::uint32_t holds{0};
 		std::uint32_t releases{0};
+		/** The time of the last step on the clock of the steps (s), the predicted stamina, and the dodge (stage P2.5). */
+		double time{0.0};
+		float stamina{0.0F};
+		float staminaMax{0.0F};
+		bool exhausted{false};
+		float winded{0.0F};
+		std::optional<DodgeState> dodge;
+		/** The last dodge request: its verdict and its count; the counts of the dodge bits and of the corrections. */
+		std::optional<DodgeVerdict> lastVerdict;
+		std::uint32_t requests{0};
+		std::uint32_t dodgeBits{0};
+		std::uint32_t corrections{0};
+		std::array<std::uint32_t, kDodgeVerdicts> verdicts{};
 	};
 
 	/** The graph of each weapon slot (24, 25; null: no attack graph) and the weapon in the hand. Resets the sequence. */
 	void set_weapons(const Graph* slot1, const Graph* slot2, std::uint32_t held);
 	/** The attack button went down or up (the game thread). The steps take one event each, in order. */
 	void button(bool down);
+	/** The dodge key (the game thread): one step with the dodge bit for each press. */
+	void dodge_press();
+	/** The stamina data, the equip load class of the character, a world entry (the full stamina). */
+	void set_stamina(const StaminaData& data);
+	void set_load(LoadClass load);
+	void refill();
+	/**
+	 * The Stamina state of the server (its copy of the component): its value, the delay of the regeneration that was left,
+	 * the multiplier of the regeneration, and the steady time of its arrival (ns). The server sends it at a change (a payment,
+	 * the full stamina), thus the driver moves it forward with the regeneration. The client keeps its own prediction (protocol
+	 * notes 4.38); a difference of more than kCorrection from that forward value for kCorrectionTime with no payment in that
+	 * time takes it (a rule of this project: the retail client takes the server copy at a rewind of its movement).
+	 */
+	void set_server_stamina(float value, float regenDelay, float regenMultiplier, std::int64_t atNs);
+	static constexpr float kCorrection = 10.0F;
+	static constexpr double kCorrectionTime = 2.0;
 	/** Called for each input entry (the session thread): adds the attack bits to `actionBits` and steps the sequence. */
 	void step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>& actionBits);
 	[[nodiscard]] Snapshot snapshot() const;
@@ -252,8 +301,23 @@ private:
 	const Graph* m_graphs[2]{nullptr, nullptr};
 	std::deque<bool> m_events;
 	bool m_down{false};
+	unsigned m_dodgePresses{0};
 	Sequence m_sequence;
 	WeaponSwitch m_switch;
+	Stamina m_stamina;
+	bool m_stepped{false};
+	bool m_refill{true};
+	std::uint16_t m_lastInput{0};
+	double m_time{0.0};
+	struct ServerCopy {
+		float value{0.0F};
+		float delay{0.0F};
+		std::int64_t atNs{0};
+	};
+	std::optional<ServerCopy> m_server;
+	double m_differentSince{-1.0};
+	std::uint32_t m_paymentsSeen{0};
+	double m_lastPayment{-100.0};
 	Snapshot m_snapshot;
 };
 

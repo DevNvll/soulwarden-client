@@ -119,6 +119,13 @@ void Sequence::interrupt(std::uint16_t input)
 	}
 }
 
+bool Sequence::take_dodge()
+{
+	const bool dodged = m_dodged;
+	m_dodged = false;
+	return dodged;
+}
+
 const Visit* Sequence::playing() const
 {
 	return !m_visits.empty() && !m_visits.back().ended ? &m_visits.back() : nullptr;
@@ -151,6 +158,10 @@ void Sequence::step(std::uint16_t input, const Bits& bits)
 	for (int loop = 0; loop < kTransitionsInStep; ++loop) {
 		Visit* visit = !m_visits.empty() && !m_visits.back().ended ? &m_visits.back() : nullptr;
 		if (visit == nullptr) {
+			// A dodge input at rest: no fragment of an attack decides it.
+			if (bits.dodge) {
+				m_dodged = true;
+			}
 			if (!bits.press || pressUsed) {
 				return;
 			}
@@ -171,6 +182,41 @@ void Sequence::step(std::uint16_t input, const Bits& bits)
 			visit->ended = true;
 			visit->endInput = input;
 			continue;
+		}
+		// A dodge: at once in a cancel window, at the end of a buffered window; the stamina must be able to start it (a refused
+		// dodge leaves the attack as it is).
+		if (visit->dodgeAt >= 0.0F && t >= visit->dodgeAt - kClockEpsilon) {
+			if (bits.dodgeAllowed) {
+				interrupt(input);
+				m_dodged = true;
+				return;
+			}
+			visit->dodgeAt = -1.0F;
+		}
+		if (bits.dodge && bits.dodgeAllowed) {
+			bool ends = false;
+			for (const DodgeWindow& window : fragment.dodge) {
+				if (!in_window(t, window.start, window.end)) {
+					continue;
+				}
+				// A cancel window that starts with the fragment is no end (the client plays no dodge there).
+				if (!window.buffered && window.start <= kClockEpsilon) {
+					break;
+				}
+				if (!window.buffered || window.end < 0.0F) {
+					ends = true;
+					break;
+				}
+				if (visit->dodgeAt < 0.0F) {
+					visit->dodgeAt = window.end;
+				}
+				break;
+			}
+			if (ends) {
+				interrupt(input);
+				m_dodged = true;
+				return;
+			}
 		}
 		// A buffered transition that took a press: its fragment starts at the end of its window, at its due input step.
 		if (visit->pending >= 0 && t >= visit->pendingAt - kClockEpsilon) {
@@ -335,6 +381,42 @@ void Driver::set_weapons(const Graph* slot1, const Graph* slot2, std::uint32_t h
 	m_snapshot.held = held;
 }
 
+void Driver::dodge_press()
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_dodgePresses = std::min(m_dodgePresses + 1, 8U);
+}
+
+void Driver::set_stamina(const StaminaData& data)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_stamina.set_data(data);
+	m_refill = true;
+}
+
+void Driver::set_load(LoadClass load)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_stamina.set_load(load);
+}
+
+void Driver::refill()
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_refill = true;
+}
+
+void Driver::set_server_stamina(float value, float regenDelay, float regenMultiplier, std::int64_t atNs)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	if (std::isfinite(value) && std::isfinite(regenDelay)) {
+		m_server = ServerCopy{value, std::max(regenDelay, 0.0F), atNs};
+	}
+	if (std::isfinite(regenMultiplier) && regenMultiplier > 0.0F) {
+		m_stamina.set_rate_multiplier(regenMultiplier);
+	}
+}
+
 void Driver::button(bool down)
 {
 	const std::lock_guard<std::mutex> guard(m_lock);
@@ -361,6 +443,44 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 	}
 	// The hold: each step while the button is down, from the step after the press.
 	bits.hold = m_down && !bits.press;
+	// The dodge key: one press for each step.
+	if (m_dodgePresses > 0) {
+		--m_dodgePresses;
+		bits.dodge = true;
+		actionBits.push_back(kBitDodge);
+	}
+	// The clock of the steps (s): 1/30 s for each input number.
+	m_time += m_stepped ? static_cast<double>(steps_between(m_lastInput, input)) / kStepsInSecond : 0.0;
+	m_lastInput = input;
+	m_stepped = true;
+	if (m_refill) {
+		m_refill = false;
+		m_stamina.refill(m_time);
+	}
+	m_stamina.advance(m_time);
+	// The correction from the server copy (a rule of this project, set_server_stamina).
+	if (m_stamina.payments() != m_paymentsSeen) {
+		m_paymentsSeen = m_stamina.payments();
+		m_lastPayment = m_time;
+	}
+	// The server copy moved forward to now: its regeneration after the delay that was left.
+	std::optional<float> server;
+	if (m_server) {
+		const double since = static_cast<double>(nowNs - m_server->atNs) / 1e9;
+		server = std::min(m_stamina.maximum(), m_server->value + m_stamina.rate() * static_cast<float>(std::max(since - m_server->delay, 0.0)));
+	}
+	if (server && std::fabs(*server - m_stamina.value()) > kCorrection && m_time - m_lastPayment > kCorrectionTime) {
+		if (m_differentSince < 0.0) {
+			m_differentSince = m_time;
+		} else if (m_time - m_differentSince >= kCorrectionTime) {
+			m_stamina.correct(m_time, *server);
+			m_differentSince = -1.0;
+			++m_snapshot.corrections;
+		}
+	} else {
+		m_differentSince = -1.0;
+	}
+	bits.dodgeAllowed = m_stamina.can_dodge();
 	if (bits.press) {
 		actionBits.insert(actionBits.end(), {kBitPress, kBitPressVirtual, kBitShoot});
 	}
@@ -380,6 +500,11 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 	Bits checked = bits;
 	const WeaponSwitch::Result result = m_switch.step(input, checked, m_sequence, [this](std::uint32_t slot) { return graph_of(slot); });
 	m_sequence.step(input, checked);
+	// The dodge (Combat::step): the sequence permits it at rest or in a dodge window; with no attack graph each dodge input.
+	std::optional<DodgeVerdict> verdict;
+	if (m_sequence.take_dodge() || (bits.dodge && m_sequence.graph() == nullptr)) {
+		verdict = m_stamina.dodge(m_time);
+	}
 
 	Snapshot& out = m_snapshot;
 	out.input = input;
@@ -394,6 +519,18 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 		out.switchInput = input;
 	}
 	out.lostKeys += result.lost ? 1 : 0;
+	out.time = m_time;
+	out.stamina = m_stamina.value();
+	out.staminaMax = m_stamina.maximum();
+	out.exhausted = m_stamina.exhausted();
+	out.winded = m_stamina.winded(m_time);
+	out.dodge = m_stamina.dodge_state();
+	if (verdict) {
+		out.lastVerdict = verdict;
+		++out.requests;
+	}
+	out.dodgeBits += bits.dodge ? 1 : 0;
+	out.verdicts = m_stamina.verdicts();
 	out.bits = bits;
 	out.presses += bits.press ? 1 : 0;
 	out.holds += bits.hold ? 1 : 0;

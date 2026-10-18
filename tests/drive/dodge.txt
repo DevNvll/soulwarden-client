@@ -1,0 +1,22 @@
+# The dodge and the stamina of stage P2.5 (docs/ACTIONS.md): four dodges 3 s apart (no key: to the rear; forward; left;
+# right), each one with the full stamina again; then four presses 0.73 s apart (the live proof P5 of protocol notes 4.38:
+# payments 45, 45, 10, the fourth press refused, exhausted, the stamina full again about 4.4 s after the third payment).
+# Times in seconds from the possession of the character.
+# tools/dev-run.sh --window --enter NAME --quit-when world --stay 24 -- -SwcDrive=$PWD/tests/drive/dodge.txt
+2.0 dodge
+4.9 move 0 1
+5.0 dodge
+5.6 move 0 0
+7.9 move -1 0
+8.0 dodge
+8.6 move 0 0
+10.9 move 1 0
+11.0 dodge
+11.6 move 0 0
+# The empty stamina: forward rolls (the back rolls of the first try met the wall of the test floor).
+13.9 move 0 1
+14.0 dodge
+14.73 dodge
+15.46 dodge
+16.19 dodge
+16.4 move 0 0

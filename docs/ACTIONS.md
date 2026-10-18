@@ -107,6 +107,51 @@ of the heavy lunge, the box on the greatsword blade). The client: 9 strike windo
 in list 3. The backend: `hit claims of the session: 10 attack input(s), 9 melee contact(s): 0 accepted, 9 refused (9 not
 a creature, ...)`.
 
+## The dodge and the stamina (stage P2.5)
+
+The retail client predicts its own stamina, and the Stamina state of the server does not change the predicted value
+(Soulwarden protocol notes 4.38; `docs/systems/stamina-and-dodge.md`). The server decides each dodge at its input step
+with its own stamina. Thus the client predicts at the same input steps with the same rules: `Combat/SwcStamina` (plain
+C++, the rules of `world/stamina.cpp`) in the driver of the session thread, next to the attack graph.
+
+- The data: `stamina-data.json` and the encumbrance row and the item loads of `perk-data.json` of the backend copy
+  (`actions.json` `stamina`): the maximum 100, the regeneration 33.33 in one second, the delays 1 s, the winded time 2 s,
+  the dodge of each load class (light `Dodge_Roll_Fast` 45, medium `Dodge_Roll` 45, heavy `Dodge_Roll_Slow` 50; the marks:
+  the payment 0.1 s, CanTransition 0.5 s, the windows 0.267 s to 0.5 s buffered and from 0.5 s instant).
+- The load class: the sum of the whole loads (tenths) of the armor items in the paperdoll slots 0 to 4 against the
+  encumbrance row (the maximum 500; light below 26 %, medium below 46 %, heavy to 100 %, else overburdened: no dodge).
+- The rules: a payment stops at 0 and sets the delay of the regeneration; at 0 the character is winded for 2 s and exhausted
+  until the stamina is full; a dodge needs the stamina above 0, no exhausted state, and a load class with a dodge; it pays
+  at its mark 0.1 s; there is no regeneration from its start to its mark CanTransition, then the delay of the exit (1 s).
+  A press while a dodge plays: before the windows a duplicate; in the buffered window the next dodge at the end of the
+  window (one for each window); in the instant window at once.
+- In an attack the attack graph decides the dodge (the dodge windows of the fragment: CanDodgeCancel at once,
+  CanDodgeBuffer at the end of the window, no dodge in a cancel window that starts with the fragment), and each step asks
+  the stamina whether a dodge can start (a refused dodge keeps the attack). The parity test has dodge presses and refused
+  dodges.
+- The input: left Shift, one step with the bit 322 for each press, also for a press that the stamina refuses (live check
+  LS9). The drive command `dodge`.
+- The playback: the dodge fragment of the load class and of the direction of the move keys in the camera frame (no key: to
+  the rear; forward; `LeftNav`, `RightNav`, `BackNav`), of the weapon in the hand or of the unarmed set (the clip pack
+  `unarmed`), on the FullBody channel. At the start the character faces the camera (ApplyAlignRotation). The root track
+  moves it with the motion of the action Dodge of `playeractions_dodge.actionlist`; the facing of that action turns it. The
+  roll ends at the end of its animation, or at a move key after CanTransition: the movement starts from the velocity of the
+  roll, at most `InheritVelocityMaxSpeed` of the action (6 m/s).
+- The HUD: the read path (`USwcBackendSubsystem::GetLocalPlayer`) gives the predicted stamina, thus the stamina bar of the
+  UI track shows the prediction.
+- The correction (a rule of this project; the retail client takes the server copy at a rewind of its movement, which this
+  client does not have): the driver moves the last Stamina state forward with its regeneration (field 3, the delay that was
+  left) and takes it when the prediction differs by more than 10 for 2 s with no payment in that time. The multiplier of the
+  regeneration of the state (field 5) goes into the prediction.
+- The movement capsule of the creatures (the creature track) stops a roll as it stops a walk: no special rule.
+
+Check (development runs, `tests/drive/dodge.txt`, recorded from the window with the HUD and the debug text; evidence in
+`~/Games/soulwarden-client/evidence/P2.5/`): `dodge-light.mp4` (the heavy chest only, 11.0), `dodge-medium.mp4` (with the
+heavy legs, 17.3), `dodge-heavy.mp4` (with the head and the hands, 26.7): four rolls in the four directions, then four
+presses 0.73 s apart. In each run the client and the backend had the same verdicts: light and medium 7 dodges at 45 and
+one press refused (exhausted), heavy 6 dodges at 50 and two presses refused; the stamina full again after the empty
+sequence; no correction; 0 refused position reports.
+
 ## The tests
 
 `tools/test-actions.sh` (no engine) builds `tests/actions/actions_tests.cpp` with the attack sequence of the backend
@@ -121,10 +166,13 @@ a creature, ...)`.
 - the driver: the bits of a click, a hold, and a release; a weapon key at rest;
 - the parity: 3,672 input scripts (the live check inputs and random clicks and holds) for each of the 12 melee graphs:
   the client and the backend start the same fragments at the same steps;
-- the strikes: the damage key, the window, and the count of the shapes of each strike are the ones of the backend.
+- the strikes: the damage key, the window, and the count of the shapes of each strike are the ones of the backend;
+- the stamina and the dodge: the live checks LS5 and LS6 and the live proof P5 of the notes (the payments 45, 45, 10, the
+  fourth press refused, full again 4.4 s after the third payment), the windows of a dodge that plays, the load classes, and
+  the dodge bits of the driver.
 
 ```sh
-tools/test-actions.sh   # 5056 checks, 0 failed
+tools/test-actions.sh   # 5800 checks, 0 failed
 ```
 
 ## Exit check (development runs, 2026-10-18)
@@ -149,8 +197,9 @@ computer, too low for the windows of a chain), `tests/drive/actions.txt`, the pi
   clips (18, `rflail_*_prop`: its chain); the sword and the greatsword have none (particle effects, the damage clips,
   and weapon effects only). The clips of the flail, the bow string, and the firearms need the weapons as skeletal meshes.
 - The melee contacts need the query of the creature track (stage P2.8); the abilities with strikes are not played.
-- The abilities, the dodge, the block, the sprint and air attacks, the stamina, and the overencumbered rule are not
-  played.
+- The abilities, the block, the sprint and air attacks, the stamina payments of the attacks (0 for the reachable graphs),
+  the dodge of the shield (its off-hand fragments), and the overencumbered and encumbered rules (the bag weight: no
+  inventory yet) are not played.
 - Remote players do not play actions (the Slayer map of other players is open).
 - The inferences above (the additive order, the unit of `Decel`, the facing priority, the weapon in the hand at the
   start of an attack).

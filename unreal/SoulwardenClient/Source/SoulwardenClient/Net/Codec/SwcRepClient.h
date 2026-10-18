@@ -94,6 +94,13 @@ public:
         bool hasStamina{false};
         float stamina{0.0F};
         float staminaMax{0.0F};
+        /** Fields 2, 3, and 5 of the stamina state: the winded time and the delay of the regeneration that were left when the
+         *  server wrote it (s), and the multiplier of the regeneration; the steady time of its arrival (ns) and a count. */
+        float staminaWinded{0.0F};
+        float staminaRegenDelay{0.0F};
+        float staminaRegenMultiplier{1.0F};
+        std::int64_t staminaAtNs{0};
+        std::uint32_t staminaRevision{0};
         /** The mana state (slot 47, type 1652, fields 0 and 1, f32). The mana meter of the retail HUD reads this component.
          *  `manaMax` is the base maximum: the current value can be larger (the client maximum has the MaxMana parts of the
          *  attributes, protocol notes 4.5). */

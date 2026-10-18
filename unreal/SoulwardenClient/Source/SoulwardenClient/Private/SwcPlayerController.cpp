@@ -93,6 +93,7 @@ void ASwcPlayerController::SetupInputComponent()
 	Weapon2Action = MakeAction(this, TEXT("IA_Weapon2"), EInputActionValueType::Boolean);
 	SheatheAction = MakeAction(this, TEXT("IA_Sheathe"), EInputActionValueType::Boolean);
 	AttackAction = MakeAction(this, TEXT("IA_AttackPrimary"), EInputActionValueType::Boolean);
+	DodgeAction = MakeAction(this, TEXT("IA_Dodge"), EInputActionValueType::Boolean);
 	MovementContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Movement"));
 	MapAxisKey(MovementContext, MoveAction, EKeys::W, true, false);
 	MapAxisKey(MovementContext, MoveAction, EKeys::S, true, true);
@@ -108,6 +109,7 @@ void ASwcPlayerController::SetupInputComponent()
 	MovementContext->MapKey(Weapon2Action, EKeys::Two);
 	MovementContext->MapKey(SheatheAction, EKeys::Tilde);
 	MovementContext->MapKey(AttackAction, EKeys::LeftMouseButton);
+	MovementContext->MapKey(DodgeAction, EKeys::LeftShift);
 	if (UEnhancedInputComponent* Enhanced = Cast<UEnhancedInputComponent>(InputComponent))
 	{
 		Enhanced->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ASwcPlayerController::OnMove);
@@ -125,6 +127,7 @@ void ASwcPlayerController::SetupInputComponent()
 		Enhanced->BindAction(SheatheAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnSheathe);
 		Enhanced->BindAction(AttackAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnAttack);
 		Enhanced->BindAction(AttackAction, ETriggerEvent::Completed, this, &ASwcPlayerController::OnAttackEnd);
+		Enhanced->BindAction(DodgeAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnDodge);
 	}
 	else
 	{
@@ -288,6 +291,14 @@ void ASwcPlayerController::OnAttackEnd(const FInputActionValue&)
 	}
 }
 
+void ASwcPlayerController::OnDodge(const FInputActionValue&)
+{
+	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
+	{
+		Character->GetActions()->OnDodgeKey();
+	}
+}
+
 void ASwcPlayerController::PlayerTick(float DeltaTime)
 {
 	TickDrive(DeltaTime);
@@ -407,6 +418,10 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 			{
 				Input->StopContinuousInputInjectionForAction(AttackAction);
 			}
+		}
+		else if (Step.Command == TEXT("dodge"))
+		{
+			Input->InjectInputForAction(DodgeAction, FInputActionValue(true), {}, {});
 		}
 		else if (Step.Command == TEXT("camera"))
 		{

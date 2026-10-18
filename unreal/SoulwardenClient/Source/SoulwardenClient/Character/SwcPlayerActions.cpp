@@ -337,6 +337,15 @@ void USwcPlayerActions::OnSheatheKey()
 	}
 }
 
+void USwcPlayerActions::OnDodgeKey()
+{
+	// The bit goes for each press; the stamina of the driver decides the dodge at its step, as the server does.
+	if (Driver)
+	{
+		Driver->dodge_press();
+	}
+}
+
 void USwcPlayerActions::OnAttackButton(bool bDown)
 {
 	if (bDown == bButtonDown)
@@ -518,6 +527,10 @@ void USwcPlayerActions::FillFacts(const FSwcActionFragment& Fragment, const FSwc
 	{
 		Facts.Tags.Add(Tag.ToLower());
 	}
+	if (Weapon.Tags.IsEmpty())
+	{
+		Facts.Tags.Add(TEXT("unarmed"));
+	}
 	const APlayerController* Controller = Cast<APlayerController>(Owner->GetController());
 	const ASwcCameraManager* Camera = Controller != nullptr ? Cast<ASwcCameraManager>(Controller->PlayerCameraManager) : nullptr;
 	Facts.bCameraLock = Camera != nullptr && Camera->IsLocked();
@@ -541,6 +554,10 @@ void USwcPlayerActions::Move(const FSwcActionFragment& Fragment, const FSwcWeapo
 	ASwcPlayerCharacter* Owner = Character();
 	USwcCharacterMovement* Movement = Owner->GetSwcMovement();
 	const FSwcActivity* Activity = Data->Activity(Fragment.Name);
+	if (Activity == nullptr && Fragment.Name.StartsWith(TEXT("Dodge_Roll")))
+	{
+		Activity = Data->Activity(TEXT("Dodge_Roll")); // The action Dodge of playeractions_dodge changes its fragment by the load class.
+	}
 	FSwcConditionFacts Facts;
 	FillFacts(Fragment, Weapon, To, Facts);
 	const FSwcMotionRule Rule = Activity != nullptr ? Data->MotionRule(*Activity, Facts) : FSwcMotionRule();
@@ -612,12 +629,26 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 	const int32 Fragment = Newest != nullptr && Weapon != nullptr && Weapon->GraphFragments.IsValidIndex(Newest->fragment)
 		? Weapon->GraphFragments[Newest->fragment] : INDEX_NONE;
 	const bool bPlays = Newest != nullptr && !Newest->ended && Fragment != INDEX_NONE;
+	// The time since the last input step (at most one step).
+	const float Since = FMath::Clamp(static_cast<float>(SteadyNs() - Snapshot.inputNs) / 1e9f, 0.0f, 1.0f / swc::combat::kStepsInSecond);
+	// The dodge (stage P2.5): the newer of the dodge and the attack visit plays on the FullBody channel.
+	if (Snapshot.dodge && Snapshot.dodge->number != DodgeReleased)
+	{
+		const double AttackStart = bPlays ? Snapshot.time - static_cast<double>(static_cast<std::uint16_t>(Snapshot.input - Newest->start)) / swc::combat::kStepsInSecond : -1.0;
+		if (!bPlays || Snapshot.dodge->start >= AttackStart - 1e-6)
+		{
+			if (PlayDodge(Snapshot, Since, DeltaTime))
+			{
+				return;
+			}
+		}
+	}
 	if (!bPlays)
 	{
 		if (bPlaying)
 		{
 			bPlaying = false;
-			Movement->SetActionMotion(false, FVector::ZeroVector);
+			Movement->EndActionMotion(CarryLimit);
 		}
 		if (Anim != nullptr)
 		{
@@ -625,10 +656,10 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 		}
 		return;
 	}
-	// The clock of the visit at the last input step, and the time since that step (at most one step).
-	const float Since = FMath::Clamp(static_cast<float>(SteadyNs() - Snapshot.inputNs) / 1e9f, 0.0f, 1.0f / swc::combat::kStepsInSecond);
+	// The clock of the visit at the last input step, and the time since that step.
 	float Clock = swc::combat::clock_of(Newest->start, Snapshot.input) + Since;
-	const bool bStart = Newest->number != Visit;
+	const bool bStart = Newest->number != Visit || bDodgePlayed;
+	bDodgePlayed = false;
 	if (bStart)
 	{
 		Visit = Newest->number;
@@ -650,6 +681,7 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 	}
 	Clock = FMath::Max(Clock, LastClock);
 	bPlaying = true;
+	CarryLimit = 0.0f;
 	if (Anim != nullptr)
 	{
 		Anim->SetAction(0, Fragment, Newest->number, Clock);
@@ -667,6 +699,60 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 	Work.From = StrikeClock;
 	Work.To = NextStep;
 	StrikeClock = FMath::Max(StrikeClock, NextStep);
+}
+
+bool USwcPlayerActions::PlayDodge(const swc::combat::Driver::Snapshot& Snapshot, float Since, float DeltaTime)
+{
+	ASwcPlayerCharacter* Owner = Character();
+	USwcPlayerAnimInstance* Anim = Animation();
+	USwcCharacterMovement* Movement = Owner->GetSwcMovement();
+	const swc::combat::DodgeState& Dodge = *Snapshot.dodge;
+	const bool bStart = Dodge.number != DodgeNumber;
+	if (bStart)
+	{
+		// A new dodge: the fragment of its load class and of the direction of the move keys in the camera frame (no key: to the
+		// rear, the trap of docs/systems/stamina-and-dodge.md), of the weapon in the hand or unarmed.
+		DodgeNumber = Dodge.number;
+		static const TCHAR* const Names[] = {TEXT("Dodge_Roll_Fast"), TEXT("Dodge_Roll"), TEXT("Dodge_Roll_Slow")};
+		const FVector2D Keys = Movement->GetMoveInput();
+		const float Angle = Keys.IsNearlyZero() ? 180.0f : FMath::RadiansToDegrees(FMath::Atan2(Keys.X, Keys.Y));
+		const TCHAR* Variant = FMath::Abs(Angle) <= 45.0f ? TEXT("") : FMath::Abs(Angle) >= 135.0f ? TEXT("+BackNav") : Angle > 0.0f ? TEXT("+RightNav") : TEXT("+LeftNav");
+		const FString Key = FString(Names[FMath::Min(static_cast<int32>(Dodge.load), 2)]) + Variant;
+		const FSwcWeaponActions* Drawn = VisualSlot != 0 ? WeaponOf(VisualSlot) : nullptr;
+		const FSwcWeaponActions* Unarmed = Data->Weapon(FString());
+		DodgeWeapon = Drawn != nullptr && Drawn->Dodge.Contains(Key) ? Drawn : Unarmed;
+		DodgeFragment = DodgeWeapon != nullptr ? DodgeWeapon->Dodge.FindRef(Key, INDEX_NONE) : INDEX_NONE;
+		LastClock = 0.0f;
+		// ApplyAlignRotation: the character faces the camera at the start of the dodge (the direction is in the camera frame).
+		Owner->SetActorRotation(FRotator(0.0, Movement->GetCameraYaw(), 0.0));
+		UE_LOG(LogSwcBackend, Log, TEXT("dodge: %u %s (%s), stamina %.1f of %.1f"), Dodge.number, *Key,
+			DodgeFragment != INDEX_NONE ? *Data->Fragments[DodgeFragment].Key : TEXT("no fragment"), Snapshot.stamina, Snapshot.staminaMax);
+	}
+	if (DodgeFragment == INDEX_NONE || DodgeWeapon == nullptr)
+	{
+		return false;
+	}
+	const FSwcActionFragment& Fragment = Data->Fragments[DodgeFragment];
+	const float Clock = FMath::Max(static_cast<float>(Snapshot.time - Dodge.start) + Since, LastClock);
+	// The end: the end of the animation, or a move key after the mark CanTransition (the movement starts again).
+	const float Transition = Fragment.MarkTime(TEXT("CanTransition"), 0.5f);
+	if ((Fragment.Length > 0.0f && Clock >= Fragment.Length) || (Clock >= Transition && !Movement->GetMoveInput().IsNearlyZero()))
+	{
+		DodgeReleased = Dodge.number;
+		return false;
+	}
+	bPlaying = true;
+	bDodgePlayed = true;
+	// The end of the roll: the movement starts from its velocity, at most InheritVelocityMaxSpeed of the action Dodge (6 m/s).
+	const FSwcActivity* DodgeActivity = Data->Activity(TEXT("Dodge_Roll"));
+	CarryLimit = DodgeActivity != nullptr && DodgeActivity->MotionDefault.InheritVelocityMaxSpeed > 0.0f ? DodgeActivity->MotionDefault.InheritVelocityMaxSpeed * 100.0f : 600.0f;
+	if (Anim != nullptr)
+	{
+		Anim->SetAction(0, DodgeFragment, 0x80000000u | Dodge.number, Clock);
+	}
+	Move(Fragment, *DodgeWeapon, LastClock, Clock, bStart, DeltaTime);
+	LastClock = Clock;
+	return true;
 }
 
 void USwcPlayerActions::OnBonesFinal()
