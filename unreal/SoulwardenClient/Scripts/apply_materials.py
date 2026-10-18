@@ -30,11 +30,33 @@ state_path = os.path.join(plugin, "import-state.json")
 state = json.load(open(state_path)) if os.path.isfile(state_path) else {}
 started = time.time()
 unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([sm.ROOT], True)
-specs, _textures = sm.load_specs(content)
-selected = [k for k in specs if (not wanted or wanted in k) and (listed is None or k in listed)]
-sm.log(f"selected {len(selected)} instances")
+specs, textures = sm.load_specs(content)
 report = {"seconds": {}}
-sm.apply_specs(selected, state, force=False, content=content, max_seconds=max_seconds, report=report)
+if os.environ.get("SWC_MATERIALS_PREFETCH") == "1":
+    # Only the textures of the candidate specs (instances-candidate.json): a later deployment of these stages is fast.
+    candidates = json.load(open(os.path.join(content, "materials", "instances-candidate.json")))["instances"]
+    keys = sorted({t for spec in candidates.values() for t in spec.get("textures", {}).values() if t in textures})
+    report.update({"textures": {"imported": 0, "up to date": 0}, "failed": [], "incomplete": False})
+    for n, key in enumerate(keys):
+        if max_seconds and time.time() - started > max_seconds:
+            report["incomplete"] = True
+            break
+        try:
+            done = sm.import_texture(key, textures[key], content, state)
+        except Exception as error:
+            report["failed"].append(f"{key}: {str(error)[:160]}")
+            continue
+        report["textures"]["imported" if done else "up to date"] += 1
+        if done and report["textures"]["imported"] % 100 == 0:
+            unreal.SystemLibrary.collect_garbage()
+            with open(state_path + ".tmp", "w") as handle:
+                json.dump(state, handle, indent=0, sort_keys=True)
+            os.replace(state_path + ".tmp", state_path)
+            sm.log(f"prefetch {n + 1}/{len(keys)} {round(time.time() - started)} s")
+else:
+    selected = [k for k in specs if (not wanted or wanted in k) and (listed is None or k in listed)]
+    sm.log(f"selected {len(selected)} instances")
+    sm.apply_specs(selected, state, force=False, content=content, max_seconds=max_seconds, report=report)
 # import_content.py writes the same file: the lock of tools/apply-materials.sh keeps one writer at a time.
 with open(state_path + ".tmp", "w") as handle:
     json.dump(state, handle, indent=0, sort_keys=True)

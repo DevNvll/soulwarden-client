@@ -976,11 +976,11 @@ def proof_plan(stage: str) -> dict:
             variants[third][legacy] = ({"instance": key, **({"spec": specs[key]} if key in specs else {})}
                                        if "material:" + key in assets else {"spec": specs.get(key), "key": key})
         rows.append({"label": label, "mesh": mesh, "unreal": assets[mesh]["unreal"], "override": override,
-                     "variants": variants})
+                     "columns": list(variants), "variants": variants})   # columns: the order (the file sorts keys)
     plan = {"stage": stage, "rows": rows}
     write_json(out_dir() / f"proof-{stage}.json", plan)
     return {"stage": stage, "rows": [{"label": r["label"], "slots": len(r["variants"]["stage 1.2"]),
-                                      "columns": list(r["variants"])} for r in rows]}
+                                      "columns": r["columns"]} for r in rows]}
 
 
 def proof_sheet(stage: str, evidence: Path | None = None) -> dict:
@@ -1004,7 +1004,7 @@ def proof_sheet(stage: str, evidence: Path | None = None) -> dict:
     y = 0
     for label, tile in tiles:
         draw.text((8, y + 10), label, fill=(230, 230, 230))
-        names = list(plan["rows"][0]["variants"]) if plan["rows"] else []
+        names = plan["rows"][0]["columns"] if plan["rows"] else []
         for i, name in enumerate(names):
             draw.text((tile.width * (2 * i + 1) // 6 - 50, y + 10), name, fill=(230, 200, 120))
         sheet.paste(tile, (0, y + 34))

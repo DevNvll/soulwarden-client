@@ -98,13 +98,19 @@ tools/convert-materials.sh chains      # the exit check: the source chains of th
 ## The material instances (stage M1 and later)
 
 ```sh
-tools/convert-materials.sh instances   # content/materials/instances.json, textures.json
-tools/apply-materials.sh               # the textures, the parents, and the instances (with the import lock)
-tools/convert-materials.sh proof-plan m1 && tools/material-proof.sh m1   # the render check of a stage
+tools/convert-materials.sh instances --candidate m1,m2   # instances.json (deployed), instances-candidate.json, textures.json
+tools/apply-materials.sh               # the textures, the parents, and the instances of instances.json (with the import lock)
+tools/convert-materials.sh proof-plan m2 && tools/material-proof.sh m2   # the render check of a stage
 ```
 
 - One spec for each material key that changes. The spec comes from the render rules of the main source of the key
   (the source of the most mesh slots). The other render keys of the key are in the spec ("other render keys").
+- `instances.json` has the specs of the deployed stages (`material_records.DEPLOYED`): the import pipeline and
+  `tools/apply-materials.sh` apply only this file. `instances-candidate.json` has the specs of the stages under check:
+  only the render check reads it (transient instances in `/SwcGameContent/Test/MaterialProof`). A stage goes into
+  `DEPLOYED` when its check passes.
+- The specs cover each key that has a source, also a key that the manifest does not have yet (for example an override
+  material that the world track imports later): the hook of the import applies its spec at its first import.
 - `Scripts/apply_materials.py` imports the textures of the specs, makes the parents (`Scripts/swc_materials.py`), and
   sets each instance `/SwcGameContent/Materials/KEY` from its spec. The asset path does not change: no mesh import
   and no cell build. The state of each instance is `materials:KEY` in `import-state.json` (the hash of the spec and
@@ -130,3 +136,21 @@ The parent of the Vegetation shader: masked, two sided, the shading model Two Si
 
 Unreal's foliage response is not the same shader as the retail transmission model: a side-by-side check with the
 retail client decides.
+
+### M_SwcSurface and M_SwcSurfaceMasked (stage M2)
+
+The parents of the Illum shader. `M_SwcSurfaceMasked` takes the cutout from the alpha of the diffuse map.
+
+| Output | Value | Source |
+| --- | --- | --- |
+| UV | TexCoord0 x `UVTransform`.rg + `UVTransform`.ba | the TexMod tiling and offset of the diffuse slot |
+| Base color, metallic | `REFLECTANCE_HLSL` of D = diffuse map x `DiffuseColor` and S = specular map x `SpecularColor` | research section 3 |
+| Specular | saturate(luminance(S) / 0.08) | Unreal F0 = 0.08 x Specular |
+| Roughness | 1 - `Smoothness` x gloss | as M_SwcFoliage |
+| Normal | the normal map | |
+
+The F0 split: a dielectric (luminance of S at most 0.08) has the base color D, metallic 0. Above 0.08 the specular input
+is 1, and u = 1 - metallic solves 0.08 u^2 - (s + d) u + d = 0 (s, d: the luminances of S and D). Then the luminances
+of the diffuse color and of F0 stay the same as in the source. The base color goes from S (u = 0: a metal) to D / u.
+Limits: a colored F0 of a dielectric becomes one gray value; the rotation and the oscillators of the TexMod are not
+shown; the normal, gloss, and specular maps use the tiling of the diffuse slot (`instances` counts the differences).

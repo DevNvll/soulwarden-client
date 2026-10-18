@@ -65,9 +65,7 @@ def legacy_instance(name, record):
     return instance
 
 
-parents = {kind: sm.assets.load_asset(f"{sm.BASE}/{name}") for kind, name in
-           (("foliage", "M_SwcFoliage"), ("surface", "M_SwcSurface"), ("surface masked", "M_SwcSurfaceMasked"))
-           if sm.assets.does_asset_exist(f"{sm.BASE}/{name}")}
+parents = {}
 
 
 def spec_instance(name, spec):
@@ -98,11 +96,11 @@ needed = {t for row in plan["rows"] for slots in row["variants"].values() for en
 for key in sorted(needed):
     if key in textures:
         sm.import_texture(key, textures[key], content, state)
-for kind, name in (("foliage", "M_SwcFoliage"), ("surface", "M_SwcSurface"), ("surface masked", "M_SwcSurfaceMasked")):
-    if kind not in parents and any((entry.get("spec") or {}).get("parent") == kind for row in plan["rows"]
-                                   for slots in row["variants"].values() for entry in slots.values()):
-        parents[kind] = (sm.foliage_parent(content, state) if kind == "foliage"
-                         else sm.surface_parent(content, state, masked=kind == "surface masked"))
+# The parents through their versioned functions (a parent of an older version is made again here).
+parents["foliage"] = sm.foliage_parent(content, state)
+parents["surface"] = sm.surface_parent(content, state, masked=False)
+parents["surface masked"] = sm.surface_parent(content, state, masked=True)
+sm.log("parents ready")   # tools/material-proof.sh checks the compile warnings after this line
 with open(state_path + ".tmp", "w") as handle:
     json.dump(state, handle, indent=0, sort_keys=True)
 os.replace(state_path + ".tmp", state_path)
@@ -123,7 +121,7 @@ for row in plan["rows"]:
     bounds = mesh.get_bounds()
     width = max(bounds.box_extent.x, bounds.box_extent.y) * 2.2
     used = {"label": row["label"], "variants": {}}
-    for column, variant in enumerate(row["variants"]):
+    for column, variant in enumerate(row["columns"]):
         xf = unreal.Transform()
         # The camera looks along +Y: +X is on the left of the picture. Left to right: stage 1.2, materials, override.
         xf.translation = unreal.Vector((1 - column) * width, 0.0, 0.0)
@@ -175,7 +173,7 @@ for row in plan["rows"]:
         settings.set_editor_property("override_auto_exposure_apply_physical_camera_exposure", True)
         settings.set_editor_property("auto_exposure_apply_physical_camera_exposure", False)
         settings.set_editor_property("override_auto_exposure_bias", True)
-        settings.set_editor_property("auto_exposure_bias", -1.0)   # the world level (build_world.EXPOSURE_BIAS)
+        settings.set_editor_property("auto_exposure_bias", 1.0)   # the same for all columns (the sky light of a commandlet is dark)
         capture.set_editor_property("post_process_settings", settings)
         target_rt = unreal.RenderingLibrary.create_render_target2d(world, 1800, 900,
                                                                    unreal.TextureRenderTargetFormat.RTF_RGBA8)

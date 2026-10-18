@@ -21,7 +21,8 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "1", "M_SwcSurfaceMasked": "1"}   # the rule of each parent
+PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "2", "M_SwcSurfaceMasked": "2"}   # the rule of each parent
+# (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform; version 1 did not compile)
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
 assets = unreal.EditorAssetLibrary
@@ -216,8 +217,9 @@ def surface_parent(content, state, masked):
     st = unreal.MaterialSamplerType
     coords = node(material, unreal.MaterialExpressionTextureCoordinate, -1600, 0)
     transform = vector(material, "UVTransform", (1.0, 1.0, 0.0, 0.0), -1600, 200)
-    tile = mask(material, transform, "", "rg", -1400, 150)
-    offset = mask(material, transform, "", "ba", -1400, 300)
+    # The default output of a VectorParameter is RGB (three values): the offset needs the RGBA output.
+    tile = mask(material, transform, "RGBA", "rg", -1400, 150)
+    offset = mask(material, transform, "RGBA", "ba", -1400, 300)
     scaled = node(material, unreal.MaterialExpressionMultiply, -1250, 50)
     editing.connect_material_expressions(coords, "", scaled, "A")
     editing.connect_material_expressions(tile, "", scaled, "B")
