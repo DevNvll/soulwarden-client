@@ -1,0 +1,16 @@
+# The keys of stage P2.10 and the cursor owner of the UI (stage P2.2), with tests/drive/menu-hold-ui.txt (-SwcUiDrive; the
+# clock of the UI starts at its world entry, 3 s to 5 s before the possession): the escape menu is open from about 4-6 s to
+# 11-13 s and from about 20-22 s to 28-30 s of this clock. E in the menu does nothing; E after it uses the keg (the routes of
+# tests/drive/menu-hold-routes.txt); the character dies at 17 s; F8 in the menu does nothing; F8 after it sends the give-up.
+# Times in seconds from the possession of the character; the "tick" lines are clock marks of the route script.
+# SWC_DEV_CHARACTER=Swordwarden SWC_STAGE=P2.10 tools/creature-check.sh menu-hold 38 tests/drive/menu-hold-routes.txt \
+#   tests/drive/menu-hold.txt -- -SwcUiDrive=$PWD/tests/drive/menu-hold-ui.txt
+2.0 tick
+3.0 tick
+8.0 interact 1
+9.0 interact 0
+15.0 interact 1
+16.0 interact 0
+17.0 tick
+24.0 respawn
+32.0 respawn

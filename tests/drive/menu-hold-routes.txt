@@ -1,0 +1,5 @@
+# The development routes of tests/drive/menu-hold.txt (stage P2.10): a powder keg 3 m to the north, the death at 17 s. Times
+# in seconds on the clock of the drive script.
+2 heal
+3 fixture powderKeg 0 3 0
+17 hurt 100000

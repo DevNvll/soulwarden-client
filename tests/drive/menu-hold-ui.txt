@@ -1,0 +1,7 @@
+# The escape menu of the UI for tests/drive/menu-hold.txt (stage P2.10): open from 9 s to 16 s and from 25 s to 33 s. Times in
+# seconds from the world entry of the UI.
+9 key escape
+16 key escape
+25 key escape
+33 key escape
+36 end

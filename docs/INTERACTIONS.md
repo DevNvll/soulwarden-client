@@ -55,6 +55,11 @@ give no focus.
 | 3746 | the server ends the use (a command, damage for a timed option, the range, the removal of the source, the death, a travel, a respawn): the client clears the block and sends 2473 at once | protocol notes 4.20, 4.36 (live L7) |
 | The death | the server sends 3746; the client ends the kneel at the death (the action Death: DisableInteractor) | playeractions_death.actionlist |
 
+The key E is a key of the game map `player` (the action `give_up` of `actionmaps.json`; the HUD has its own `ui_interact`).
+While a screen of the UI turns that map off (the escape menu), the input pre-processor of the UI keeps the key from the game
+(stage P2.2), and the controller asks the same rule for an injected key of a drive script (`UiKeyToGame("e")`). Check:
+`tests/drive/menu-hold.txt` with `-SwcUiDrive=tests/drive/menu-hold-ui.txt` (E in the menu: no use; after it: the use).
+
 The prompt of the UI (the text of the option, the ring of the progress) comes in part 2 with the UI track; a development run
 shows the prompt and the progress in the debug text (`E Trigger (powderKeg), 0 %`).
 

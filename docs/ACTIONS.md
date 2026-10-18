@@ -170,6 +170,8 @@ player. `Combat/SwcLife` (plain C++) has the state and the lock of the input; `U
   nothing while the character is dead, while a loading screen shows, while the respawn plays before its mark, and while a
   timed use plays (`USwcPlayerActions::IsInputLocked`; the controller gives the movement no keys).
 - A heal of a dead character (the development route `heal`) has no travel: the respawn plays at once at its place.
+- The development key F8 is in no action map: it does nothing while the UI has the cursor (`USwcUiSubsystem::UiCursor`, the
+  cursor owner of stage P2.2; checked with the escape menu open, `tests/drive/menu-hold.txt`).
 - The timed use of an object (the action DelayedInteraction of `playeractions_interact.actionlist`: the options Trigger,
   PickupBuildable, RevivePlayer) sheathes the weapons at once and plays `Delayed_Interact` (the kneel:
   `unarmed_idle_to_crch_idle`, then the loop `unarmed_crch_bag_idle_field_craft`) while its request lasts

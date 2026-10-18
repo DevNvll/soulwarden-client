@@ -13,6 +13,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
 #include "SwcBackendSubsystem.h"
+#include "UI/SwcUiSubsystem.h"
 #include "SwcCameraManager.h"
 
 namespace
@@ -330,6 +331,13 @@ void ASwcPlayerController::OnAimEnd(const FInputActionValue&)
 
 void ASwcPlayerController::OnGiveUp(const FInputActionValue&)
 {
+	// A development key that no action map binds: it does nothing while the UI has the cursor (a screen of the UI, the cursor
+	// owner of stage P2.2), as the keys of the game maps.
+	if (const USwcUiSubsystem* Ui = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcUiSubsystem>() : nullptr; Ui != nullptr && Ui->UiCursor())
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("life: F8 while the UI has the cursor: no respawn request"));
+		return;
+	}
 	if (USwcBackendSubsystem* Backend = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr)
 	{
 		Backend->RequestRespawn();
@@ -338,6 +346,13 @@ void ASwcPlayerController::OnGiveUp(const FInputActionValue&)
 
 void ASwcPlayerController::OnInteract(const FInputActionValue&)
 {
+	// The key E of the game map "player" (the pre-processor of the UI keeps a real key from the game while that map is off; an
+	// injected key of a drive script asks the same rule).
+	if (USwcUiSubsystem* Ui = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcUiSubsystem>() : nullptr; Ui != nullptr && !Ui->UiKeyToGame(TEXT("e")))
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: E while a screen of the UI holds the key: no use"));
+		return;
+	}
 	if (USwcBackendSubsystem* Backend = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr)
 	{
 		Backend->SetInteractKey(true);
