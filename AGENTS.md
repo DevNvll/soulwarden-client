@@ -125,6 +125,7 @@ tools/dev-run.sh --quit-when characters         # a development run with no wind
 tools/dev-run.sh --window                       # a development run with the client window on the agent desktop
 tools/dev-run.sh --enter --quit-when world      # a development run that enters the world, stays 10 s, and leaves
 tools/test-net.sh                               # the tests of the network codec with bytes of the backend (no engine)
+tools/test-actions.sh                           # the tests of the attack graph and its parity with the backend sequence (no engine)
 tools/convert-ui.sh hud                         # the canvases, scripts, textures, fonts, texts, and game data of the HUD
 tools/test-ui.sh --preview                      # the tests of the UI runtime and the HUD scripts (no engine), a picture
 tools/dev-build.sh --preset NAME                # a build preset of the backend for the dev character (--list)
