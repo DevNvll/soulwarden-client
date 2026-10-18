@@ -136,6 +136,7 @@ tools/convert-creatures.sh convert --near 8880 4250 300   # the creatures near a
 tools/import.sh creature-                       # import the converted creatures into /SwcGameContent
 tools/test-creatures.sh                         # the tests of the creature entity table with states of the backend encoders
 tools/creature-check.sh LABEL STAY ROUTES [DRIVE]   # a video check of the creatures with the development routes
+tools/convert-objects.sh write                  # the objects of the level data for the object layer (docs/OBJECTS.md; meshes: the depleted node meshes)
 ```
 
 The runs and the connection: [docs/NETWORK.md](docs/NETWORK.md).
