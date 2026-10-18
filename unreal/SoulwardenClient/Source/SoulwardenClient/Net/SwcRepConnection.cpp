@@ -128,6 +128,14 @@ void FSwcRepConnection::SetMotion(const std::optional<swc::net::RepClient::Motio
 	Motion = InMotion;
 }
 
+std::vector<swc::net::RepClient::OtherUpdate> FSwcRepConnection::TakeOtherUpdates()
+{
+	FScopeLock Guard(&Lock);
+	std::vector<swc::net::RepClient::OtherUpdate> Out;
+	Out.swap(OtherUpdates);
+	return Out;
+}
+
 FSwcRepConnection::FSnapshot FSwcRepConnection::GetSnapshot() const
 {
 	FScopeLock Guard(&Lock);
@@ -333,6 +341,15 @@ uint32 FSwcRepConnection::Run()
 			for (swc::net::RepClient::Event& Event : Client.take_events())
 			{
 				Events.push_back(std::move(Event));
+			}
+			for (swc::net::RepClient::OtherUpdate& Update : Client.take_other_updates())
+			{
+				OtherUpdates.push_back(std::move(Update));
+			}
+			if (OtherUpdates.size() > swc::net::RepClient::kOtherUpdateLimit)
+			{
+				// The game thread takes them each frame; a long stop of the game thread (a level load) drops the oldest half.
+				OtherUpdates.erase(OtherUpdates.begin(), OtherUpdates.begin() + swc::net::RepClient::kOtherUpdateLimit / 2);
 			}
 		}
 		const bool bEnded = Client.phase() == swc::net::RepClient::Phase::ended;

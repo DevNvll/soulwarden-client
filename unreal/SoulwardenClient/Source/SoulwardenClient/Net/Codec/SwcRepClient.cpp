@@ -349,6 +349,9 @@ void RepClient::on_bundle(std::span<const std::uint8_t> body, Clock::time_point 
     }
     for (const std::uint32_t interest : bundle.stops) {
         m_others.erase(interest);
+        if (m_options.keepOtherRecords) {
+            m_otherUpdates.push_back({true, interest, {}});
+        }
     }
     for (const decoder::Record& record : bundle.records) {
         ++m_counts.records;
@@ -356,8 +359,24 @@ void RepClient::on_bundle(std::span<const std::uint8_t> body, Clock::time_point 
             apply_own(record, now);
         } else {
             apply_other(record);
+            if (m_options.keepOtherRecords) {
+                m_otherUpdates.push_back({false, record.interest, record});
+            }
         }
     }
+    if (m_otherUpdates.size() > kOtherUpdateLimit) {
+        m_otherUpdates.erase(m_otherUpdates.begin(), m_otherUpdates.begin() + static_cast<std::ptrdiff_t>(kOtherUpdateLimit / 2));
+        if (!m_otherOverflow) {
+            m_otherOverflow = true;
+            log(Event::Level::warning, "nobody takes the records of the other entities: the oldest half went away");
+        }
+    }
+}
+
+std::vector<RepClient::OtherUpdate> RepClient::take_other_updates() {
+    std::vector<OtherUpdate> out;
+    out.swap(m_otherUpdates);
+    return out;
 }
 
 void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) {

@@ -36,6 +36,8 @@ public:
         std::string ticketHex;
         /** The input report (type 1589) at 30 Hz from InGame. */
         bool sendInput{true};
+        /** Keep the records and the stops of the other entities for take_other_updates() (the entity table of the creatures). */
+        bool keepOtherRecords{false};
     };
 
     enum class Phase { idle, waitingForRepConnection, waitingForActorGameConnection, waitingForSpawnPoint, waitingForPlayerSpawn, inGame, ended };
@@ -129,6 +131,13 @@ public:
         WorldPosition position;
     };
 
+    /** A record of an interest number that is not 1, or a stop of the control block, in the order of the bundles. */
+    struct OtherUpdate {
+        bool stop{false};
+        std::uint32_t interest{0};
+        soulwarden::backend::tests::Record record;
+    };
+
     struct Counts {
         std::uint64_t messages{0};
         std::uint64_t bundles{0};
@@ -192,6 +201,10 @@ public:
     [[nodiscard]] std::int64_t server_clock_offset_ns() const { return m_serverOffsetNs; }
     [[nodiscard]] bool has_server_clock() const { return m_hasServerClock; }
     std::vector<Event> take_events();
+    /** @return The records and the stops of the other entities since the last call (Options::keepOtherRecords). */
+    std::vector<OtherUpdate> take_other_updates();
+    /** The most updates that wait for take_other_updates(): the oldest half goes away above it (one log line). */
+    static constexpr std::size_t kOtherUpdateLimit = 20000;
 
     /** javelin.alc-server-timeout-for-input of the retail client (protocol notes 4.6). */
     static constexpr auto kMovementStateTimeout = std::chrono::milliseconds(2000);
@@ -233,6 +246,8 @@ private:
     bool m_bundleGap{false};
     OwnEntity m_own;
     std::map<std::uint32_t, OtherEntity> m_others;
+    std::vector<OtherUpdate> m_otherUpdates;
+    bool m_otherOverflow{false};
     Clock::time_point m_lastGameMessage{};
     Clock::time_point m_lastMovementState{};
     bool m_movementStale{false};

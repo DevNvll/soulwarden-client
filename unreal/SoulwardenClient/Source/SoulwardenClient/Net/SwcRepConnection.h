@@ -57,6 +57,8 @@ public:
 	/** @return The log lines of the thread since the last call (with their level). */
 	std::vector<swc::net::RepClient::Event> TakeEvents();
 	FSnapshot GetSnapshot() const;
+	/** @return The records and the stops of the other entities since the last call (Session.keepOtherRecords). */
+	std::vector<swc::net::RepClient::OtherUpdate> TakeOtherUpdates();
 	/** The player of the game thread for the next input reports (swc::net::RepClient::set_motion). */
 	void SetMotion(const std::optional<swc::net::RepClient::Motion>& InMotion);
 
@@ -74,6 +76,7 @@ private:
 	mutable FCriticalSection Lock;
 	/** A std::vector: an event has a std::string, which TArray must not move as raw bytes. */
 	std::vector<swc::net::RepClient::Event> Events;
+	std::vector<swc::net::RepClient::OtherUpdate> OtherUpdates;
 	FSnapshot Snapshot;
 	FString LeaveCause;
 	std::optional<swc::net::RepClient::Motion> Motion;

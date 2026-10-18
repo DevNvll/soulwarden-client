@@ -237,6 +237,9 @@ and "rejected" (1630).
   InGame. A change of the appearance or of the paperdoll builds the body again ([CHARACTER.md](CHARACTER.md)).
 - The records of the other interest numbers (the creatures, the objects, the spells) keep their metadata and position
   for the stages 1.9 and later.
+  With `RepClient::Options::keepOtherRecords` the session also keeps each such record and each stop, in the order of the
+  bundles, for `take_other_updates()`; `USwcBackendSubsystem::TakeOtherUpdates` gives them to the entity table of the
+  creatures ([CREATURES.md](CREATURES.md)).
 - A fragment of a state type that the reader does not know stops the reader for the rest of that bundle; the client
   logs the type one time. The live runs of this stage had none.
 

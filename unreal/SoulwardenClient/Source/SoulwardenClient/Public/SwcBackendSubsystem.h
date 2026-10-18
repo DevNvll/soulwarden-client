@@ -63,6 +63,13 @@ public:
 	uint64 GetServerTimeMicroseconds() const;
 
 	/**
+	 * The read path of the other entities (the entity table of the creatures, Creatures/SwcCreatureSubsystem): the records
+	 * and the stops of the interest numbers that are not 1 since the last call, in the order of the bundles.
+	 * @return False when the client has no connection (the table then clears itself).
+	 */
+	bool TakeOtherUpdates(std::vector<swc::net::RepClient::OtherUpdate>& Out) const;
+
+	/**
 	 * @return The yaw of the camera of the player in degrees, in the convention of the input report (protocol notes 4.7):
 	 *         0 = north (engine +Y), positive = to the left (west), -180 to 180.
 	 */

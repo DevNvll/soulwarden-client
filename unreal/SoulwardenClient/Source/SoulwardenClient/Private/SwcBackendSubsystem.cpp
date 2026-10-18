@@ -234,6 +234,8 @@ void USwcBackendSubsystem::StartConnection(const FSwcLoginToken& Token, const FS
 	const FSwcSteamStub& Identity = Login->GetIdentity();
 	Options.Session.steamId = TCHAR_TO_UTF8(*Identity.SteamId);
 	Options.Session.ticketHex = TCHAR_TO_UTF8(*Identity.GetAuthTicketHex());
+	// The records of the other entities go to the entity table of the creatures (TakeOtherUpdates).
+	Options.Session.keepOtherRecords = true;
 	Connection = MakeShared<FSwcRepConnection>(MoveTemp(Options));
 	if (!Connection->Launch())
 	{
@@ -406,6 +408,16 @@ bool USwcBackendSubsystem::GetLocalPlayer(swc::net::RepClient::OwnEntity& Out) c
 		return false;
 	}
 	Out = Snapshot.Own;
+	return true;
+}
+
+bool USwcBackendSubsystem::TakeOtherUpdates(std::vector<swc::net::RepClient::OtherUpdate>& Out) const
+{
+	if (!Connection.IsValid())
+	{
+		return false;
+	}
+	Out = Connection->TakeOtherUpdates();
 	return true;
 }
 
