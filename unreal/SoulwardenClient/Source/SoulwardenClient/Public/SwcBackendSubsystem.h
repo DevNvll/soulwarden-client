@@ -5,6 +5,7 @@
 #include "Character/SwcCharacterMovement.h"
 #include "Net/Codec/SwcRepClient.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "Tasks/Task.h"
 
 #include <memory>
 
@@ -24,7 +25,9 @@ class FSwcLocomotion;
 class FSwcLoginClient;
 class FSwcPlayerLooks;
 class FSwcRepConnection;
+struct FStreamableHandle;
 struct FSwcLoginToken;
+struct FSwcPlayerTables;
 
 /**
  * The connection to the Soulwarden backend. The client speaks the original wire protocol of the backend
@@ -100,6 +103,16 @@ private:
 	bool TickWorld(float DeltaTime);
 	void ShowOwnEntity();
 	void UpdateLook();
+	/** Starts the read of the player tables on a worker thread (once). */
+	void StartTables();
+	/** Takes the player tables of the worker (it waits for the worker when it has not finished). @return False with no looks. */
+	bool TakeTables();
+	/**
+	 * Before the spawn: when the tables and the appearance of the own entity are there, the assets of the look (the meshes,
+	 * the clips of the movement and of the actions) start to load in the background, while the cells of the place load.
+	 * @return True when the spawn can go on (the assets are loaded, there is nothing to load, or the time limit came).
+	 */
+	bool UpdatePreload();
 	/** Gives the movement its permissions and the connection the player of this frame (the input report). */
 	void UpdatePlayer();
 	void Quit(bool bSucceeded, const TCHAR* Cause);
@@ -118,11 +131,30 @@ private:
 	FTSTicker::FDelegateHandle WorldTicker;
 	TWeakObjectPtr<ASwcPlayerCharacter> Avatar;
 	TWeakObjectPtr<AActor> Camera;
+	/**
+	 * The player tables (the looks with the item catalog, the locomotion of each gender, the actions of the weapons) are read
+	 * on a worker thread from the character list on: the spawn frame does not read them (docs/CHARACTER.md, "The spawn").
+	 */
+	UE::Tasks::TTask<TSharedPtr<FSwcPlayerTables>> TablesTask;
+	bool bTablesTaken = false;
 	TSharedPtr<FSwcPlayerLooks> Looks;
-	/** The locomotion data of each gender (index 0 male, 1 female), read at the first use. */
+	/** The locomotion data of each gender (index 0 male, 1 female). */
 	TSharedPtr<FSwcLocomotion> Locomotions[2];
-	/** The actions of the weapons (actions.json, read at the first use) and the attack driver of the session (stage P2.7). */
+	/** The actions of the weapons (actions.json) and the attack driver of the session (stage P2.7). */
 	TSharedPtr<FSwcActions> Actions;
+	/** The assets of the look of the character, loaded in the background before the spawn (the handle keeps them). */
+	TSharedPtr<FStreamableHandle> Preload;
+	enum class EPreload : uint8 { Waiting, Loading, Done };
+	EPreload PreloadState = EPreload::Waiting;
+	double PreloadSince = 0.0;
+	/** The time of the async loader of the engine before the preload (GAsyncLoadingTimeLimit, GAsyncLoadingUseFullTimeLimit). */
+	float SavedLoadingTimeLimit = 5.0f;
+	int32 SavedLoadingFullTime = 0;
+	/** The cells of the place are loaded (SwcWorldStreaming::IsReadyAt returned true). */
+	bool bCellsReady = false;
+	/** The frames after the spawn: the longest frame of the first seconds (the log of the spawn hitch). */
+	float LongestFrame = 0.0f;
+	bool bFramesLogged = false;
 	std::shared_ptr<swc::combat::Driver> AttackDriver;
 	bool bStaminaSet = false;
 	uint32 StaminaRevision = 0;

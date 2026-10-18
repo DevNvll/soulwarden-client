@@ -85,6 +85,31 @@ color, the face mark, the scar, the tattoo (the layers of the head material), th
 - The subsystem builds the body again at each change of the appearance state or of the paperdoll state.
 - `-SwcView=front` puts the camera 3 m in front of the character at 1.5 m (the pictures of this stage).
 
+## The spawn
+
+The spawn frame reads no table and loads no asset at once:
+
+1. At the character list a worker thread reads the player tables: `looks.json`, `imported.json`, `weapons.json`, the
+   item catalog of the backend copy, `locomotion.json` of each gender, and `actions.json` (about 1.2 s to 1.8 s).
+2. At the in-game phase (the own entity is there, with its appearance and its paperdoll), the subsystem resolves the
+   look and starts an async load of its assets: the base mesh, the parts, the gear, the 49 movement clips, and the
+   clips of the actions of the gender (314 assets for `Swordwarden`). While this load runs, the loading screen shows,
+   and the async loader of the engine has 50 ms in each frame (5 ms is the default of the engine); after it, the
+   default again.
+3. The spawn waits for the cells of the place and for these assets (30 s at most for the assets; after that time the
+   rest loads at once). The handle of the load keeps the assets in memory.
+
+| Measure (development runs, 2026-10-18) | Before | After |
+| --- | --- | --- |
+| The spawn frame (the test floor) | 2.3 s (the tables 0.6 s, the look and the actions data 0.6 s, the 739 action clips 1.1 s) | 0.013 s of work, the longest frame of the next 5 s 0.123 s |
+| The spawn frame (the world level, 8907.75 4248.35 m) | 3.5 s (measure of the world track) | 0.024 s of work, the longest frame of the next 5 s 0.086 s |
+| The spawn after the in-game phase (the test floor) | 3.0 s, then the frame of 2.3 s | 4.1 s (the cells 3.0 s, the assets 4.1 s) |
+| The spawn after the in-game phase (the world level) | | 12.5 s (the cells; the assets 3.4 s) |
+
+The log lines: `character: the player tables: ... on a worker thread`, `character: N asset(s) of the look load in the
+background`, `world: the spawn: ... of work in its frame`, `world: the longest frame of the first 5 s after the spawn`.
+A change of the look after the spawn (a new item) still loads its new meshes at once.
+
 ## The development characters
 
 `tools/dev-run.sh --create SPEC` makes a character with the create request of the retail client before the client

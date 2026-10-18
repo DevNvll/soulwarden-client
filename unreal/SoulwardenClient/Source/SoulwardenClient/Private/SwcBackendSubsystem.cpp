@@ -13,7 +13,10 @@
 #include "Components/CapsuleComponent.h"
 #include "Containers/Ticker.h"
 #include "Creatures/SwcCreatureSubsystem.h"
+#include "Engine/AssetManager.h"
+#include "Engine/CoreSettings.h"
 #include "Engine/Engine.h"
+#include "Engine/StreamableManager.h"
 #include "Engine/World.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/PlayerController.h"
@@ -31,9 +34,28 @@
 
 DEFINE_LOG_CATEGORY(LogSwcBackend);
 
+/** The player tables of the worker thread (USwcBackendSubsystem::StartTables). */
+struct FSwcPlayerTables
+{
+	TSharedPtr<FSwcPlayerLooks> Looks;
+	TSharedPtr<FSwcLocomotion> Locomotions[2];
+	TSharedPtr<FSwcActions> Actions;
+	/** The report of each table: a log line each on the game thread. */
+	TArray<FString> Reports;
+	double Seconds = 0.0;
+};
+
 namespace
 {
 using FPhase = swc::net::RepClient::Phase;
+
+/** The spawn waits at most this time (from the in-game phase) for the assets of the look; then the rest loads at once. */
+constexpr double PreloadLimit = 30.0;
+/** The time after the spawn for the log of its longest frame. */
+constexpr double SpawnFramesTime = 5.0;
+/** The time of the async loader in each frame while the spawn waits for the assets (the loading screen shows): 50 ms in
+ *  place of the 5 ms of the engine (s.AsyncLoadingTimeLimit), with the full time also when the loader waits for a read. */
+constexpr float PreloadLoadingTimeLimit = 50.0f;
 
 /** The distance of the ground value of an input entry in a fall: 10 m at most (protocol notes 4.7). */
 constexpr double MaxAirHeight = 1000.0;
@@ -49,6 +71,19 @@ FString Text(const std::string& Value)
 FString Hex(std::span<const std::uint8_t> Bytes)
 {
 	return Text(swc::net::hex_of(Bytes));
+}
+
+/** The inputs of the look: the appearance state and the paperdoll of the own entity. */
+void LookInputs(const FSwcRepConnection::FSnapshot& Snapshot, TArray<uint8>& OutAppearance, TMap<uint32, uint32>& OutEquipment)
+{
+	if (Snapshot.Own.hasAppearance)
+	{
+		OutAppearance.Append(Snapshot.Own.appearance.data(), static_cast<int32>(Snapshot.Own.appearance.size()));
+	}
+	for (const auto& [Slot, Item] : Snapshot.Own.equipment)
+	{
+		OutEquipment.Add(Slot, Item);
+	}
 }
 } // namespace
 
@@ -100,6 +135,11 @@ void USwcBackendSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void USwcBackendSubsystem::Deinitialize()
 {
+	if (PreloadState == EPreload::Loading)
+	{
+		GAsyncLoadingTimeLimit = SavedLoadingTimeLimit;
+		GAsyncLoadingUseFullTimeLimit = SavedLoadingFullTime;
+	}
 	FTSTicker::RemoveTicker(QuitTimer);
 	FTSTicker::RemoveTicker(WorldTicker);
 	if (Connection.IsValid())
@@ -154,6 +194,8 @@ void USwcBackendSubsystem::OnCharacterList(bool bSucceeded, const FString& Error
 		Quit(true, TEXT("the character list is complete"));
 		return;
 	}
+	// The player tables load on a worker thread while the user selects a character (no read in the spawn frame).
+	StartTables();
 	if (!PlayCharacter.IsEmpty())
 	{
 		const FSwcCharacterInfo* Selected = Session.Characters.FindByPredicate(
@@ -257,7 +299,7 @@ void USwcBackendSubsystem::StartConnection(const FSwcLoginToken& Token, const FS
 	WorldTicker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &USwcBackendSubsystem::TickWorld));
 }
 
-bool USwcBackendSubsystem::TickWorld(float)
+bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 {
 	if (!Connection.IsValid())
 	{
@@ -280,18 +322,39 @@ bool USwcBackendSubsystem::TickWorld(float)
 		}
 	}
 	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
-	// On the world level (World Partition), the character waits for the ground of its place (stage 1.3).
-	if (Snapshot.Phase == FPhase::inGame && !bInGame &&
-		SwcWorldStreaming::IsReadyAt(GetGameInstance()->GetWorld(), SwcEngineToUnreal(Snapshot.Own.position)))
+	// On the world level (World Partition), the character waits for the ground of its place (stage 1.3), and for the assets
+	// of its look, which load in the background at the same time.
+	double SpawnStart = 0.0;
+	if (Snapshot.Phase == FPhase::inGame && !bInGame)
 	{
-		bInGame = true;
-		InGameSince = FPlatformTime::Seconds();
-		ShowOwnEntity();
-		SwcWorldStreaming::Release();   // the character has its own streaming source
+		bCellsReady = bCellsReady || SwcWorldStreaming::IsReadyAt(GetGameInstance()->GetWorld(), SwcEngineToUnreal(Snapshot.Own.position));
+		if (UpdatePreload() && bCellsReady)
+		{
+			bInGame = true;
+			InGameSince = FPlatformTime::Seconds();
+			SpawnStart = InGameSince;
+			ShowOwnEntity();
+			SwcWorldStreaming::Release();   // the character has its own streaming source
+		}
 	}
 	if (bInGame && Snapshot.Own.lookRevision != LookRevision)
 	{
 		UpdateLook();
+	}
+	if (SpawnStart > 0.0)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("world: the spawn: %.3f s of work in its frame (the character, the look, the actions)"),
+			FPlatformTime::Seconds() - SpawnStart);
+	}
+	else if (bInGame && !bFramesLogged)
+	{
+		// The frame of the spawn shows in the time step of the next frame.
+		LongestFrame = FMath::Max(LongestFrame, DeltaTime);
+		if (FPlatformTime::Seconds() - InGameSince >= SpawnFramesTime)
+		{
+			bFramesLogged = true;
+			UE_LOG(LogSwcBackend, Log, TEXT("world: the longest frame of the first %.0f s after the spawn: %.3f s"), SpawnFramesTime, LongestFrame);
+		}
 	}
 	if (bInGame && !bQuitting)
 	{
@@ -486,6 +549,164 @@ float USwcBackendSubsystem::GetCameraYawDegrees() const
 	return static_cast<float>(FMath::RadiansToDegrees(FMath::Atan2(-Forward.X, -Forward.Y)));
 }
 
+void USwcBackendSubsystem::StartTables()
+{
+	if (TablesTask.IsValid())
+	{
+		return;
+	}
+	TablesTask = UE::Tasks::Launch(UE_SOURCE_LOCATION, []
+		{
+			// Only files and JSON here (no UObject): the assets of the tables load on the game thread (UpdatePreload).
+			const double Start = FPlatformTime::Seconds();
+			TSharedPtr<FSwcPlayerTables> Tables = MakeShared<FSwcPlayerTables>();
+			FString Report;
+			Tables->Looks = MakeShared<FSwcPlayerLooks>();
+			if (!Tables->Looks->Load(Report))
+			{
+				Tables->Looks.Reset();
+			}
+			Tables->Reports.Add(Report);
+			for (int32 Gender = 0; Gender < 2; ++Gender)
+			{
+				Report.Reset();
+				Tables->Locomotions[Gender] = MakeShared<FSwcLocomotion>();
+				if (!Tables->Locomotions[Gender]->Load(Gender == 1, Report))
+				{
+					Tables->Locomotions[Gender].Reset();
+				}
+				Tables->Reports.Add(Report);
+			}
+			Report.Reset();
+			Tables->Actions = MakeShared<FSwcActions>();
+			if (!Tables->Actions->Load(Report))
+			{
+				Tables->Actions.Reset();
+			}
+			Tables->Reports.Add(Report);
+			Tables->Seconds = FPlatformTime::Seconds() - Start;
+			return Tables;
+		},
+		UE::Tasks::ETaskPriority::BackgroundNormal);
+}
+
+bool USwcBackendSubsystem::TakeTables()
+{
+	if (!bTablesTaken)
+	{
+		StartTables();
+		const double Start = FPlatformTime::Seconds();
+		const TSharedPtr<FSwcPlayerTables> Tables = TablesTask.GetResult();
+		bTablesTaken = true;
+		for (const FString& Report : Tables->Reports)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("character: %s"), *Report);
+		}
+		UE_LOG(LogSwcBackend, Log, TEXT("character: the player tables: %.2f s on a worker thread, %.3f s of wait on the game thread"),
+			Tables->Seconds, FPlatformTime::Seconds() - Start);
+		Looks = Tables->Looks;
+		Locomotions[0] = Tables->Locomotions[0];
+		Locomotions[1] = Tables->Locomotions[1];
+		Actions = Tables->Actions;
+	}
+	return Looks.IsValid();
+}
+
+bool USwcBackendSubsystem::UpdatePreload()
+{
+	const double Now = FPlatformTime::Seconds();
+	PreloadSince = PreloadSince > 0.0 ? PreloadSince : Now;
+	if (PreloadState == EPreload::Waiting && TablesTask.IsValid() && TablesTask.IsCompleted())
+	{
+		const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
+		if (!Snapshot.Own.hasAppearance)
+		{
+			// No appearance yet: wait for it while the cells load, then go on with no preload.
+			if (bCellsReady)
+			{
+				PreloadState = EPreload::Done;
+			}
+		}
+		else if (!TakeTables())
+		{
+			PreloadState = EPreload::Done;
+		}
+		else
+		{
+			TArray<uint8> Appearance;
+			TMap<uint32, uint32> Equipment;
+			LookInputs(Snapshot, Appearance, Equipment);
+			const FSwcPlayerLook Look = Looks->Resolve(Appearance, Equipment);
+			TSet<FString> Unique;
+			TArray<FSoftObjectPath> Paths;
+			const auto Add = [&Unique, &Paths](const FString& Path)
+			{
+				bool bKnown = false;
+				Unique.Add(Path, &bKnown);
+				if (!Path.IsEmpty() && !bKnown)
+				{
+					Paths.Emplace(Path);
+				}
+			};
+			Add(Looks->BaseMesh(Look.bFemale));
+			Add(Looks->IdleAnimation(Look.bFemale));
+			for (const FSwcLookPart& Part : Look.Parts)
+			{
+				Add(Part.MeshPath);
+			}
+			for (const FSwcGearPart& Part : Look.Gear)
+			{
+				Add(Part.MeshPath);
+			}
+			if (const TSharedPtr<FSwcLocomotion>& Locomotion = Locomotions[Look.bFemale ? 1 : 0])
+			{
+				for (const FSwcClip& Clip : Locomotion->Clips)
+				{
+					Add(Clip.AssetPath);
+				}
+			}
+			if (Actions.IsValid())
+			{
+				TArray<FString> Clips;
+				Actions->ClipAssets(Look.bFemale, Clips);
+				for (const FString& Clip : Clips)
+				{
+					Add(Clip);
+				}
+			}
+			Preload = UAssetManager::GetStreamableManager().RequestAsyncLoad(Paths, FStreamableDelegate(), FStreamableManager::AsyncLoadHighPriority);
+			PreloadState = Preload.IsValid() ? EPreload::Loading : EPreload::Done;
+			if (PreloadState == EPreload::Loading)
+			{
+				SavedLoadingTimeLimit = GAsyncLoadingTimeLimit;
+				SavedLoadingFullTime = GAsyncLoadingUseFullTimeLimit;
+				GAsyncLoadingTimeLimit = FMath::Max(GAsyncLoadingTimeLimit, PreloadLoadingTimeLimit);
+				GAsyncLoadingUseFullTimeLimit = 1;
+			}
+			UE_LOG(LogSwcBackend, Log, TEXT("character: %d asset(s) of the look load in the background (the meshes, the clips of the movement and of the actions)"),
+				Paths.Num());
+		}
+	}
+	const EPreload Before = PreloadState;
+	if (PreloadState == EPreload::Loading && (Preload->HasLoadCompleted() || Preload->WasCanceled()))
+	{
+		PreloadState = EPreload::Done;
+		UE_LOG(LogSwcBackend, Log, TEXT("character: the assets of the look are loaded, %.1f s after the in-game phase"), Now - PreloadSince);
+	}
+	if (PreloadState != EPreload::Done && Now - PreloadSince >= PreloadLimit)
+	{
+		PreloadState = EPreload::Done;
+		UE_LOG(LogSwcBackend, Warning, TEXT("character: the assets of the look are not loaded after %.0f s: the spawn goes on, the rest loads at once"), PreloadLimit);
+	}
+	if (Before == EPreload::Loading && PreloadState == EPreload::Done)
+	{
+		// The time of the loader goes back to the value of the engine for the play.
+		GAsyncLoadingTimeLimit = SavedLoadingTimeLimit;
+		GAsyncLoadingUseFullTimeLimit = SavedLoadingFullTime;
+	}
+	return PreloadState == EPreload::Done;
+}
+
 void USwcBackendSubsystem::UpdateLook()
 {
 	if (!Connection.IsValid() || !Avatar.IsValid())
@@ -494,40 +715,15 @@ void USwcBackendSubsystem::UpdateLook()
 	}
 	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
 	LookRevision = Snapshot.Own.lookRevision;
-	if (!Looks.IsValid())
+	if (!TakeTables())
 	{
-		Looks = MakeShared<FSwcPlayerLooks>();
-		FString Report;
-		const bool bLoaded = Looks->Load(Report);
-		UE_LOG(LogSwcBackend, Log, TEXT("character: %s"), *Report);
-		if (!bLoaded)
-		{
-			return;
-		}
+		return;
 	}
 	TArray<uint8> Appearance;
-	if (Snapshot.Own.hasAppearance)
-	{
-		Appearance.Append(Snapshot.Own.appearance.data(), static_cast<int32>(Snapshot.Own.appearance.size()));
-	}
 	TMap<uint32, uint32> Equipment;
-	for (const auto& [Slot, Item] : Snapshot.Own.equipment)
-	{
-		Equipment.Add(Slot, Item);
-	}
+	LookInputs(Snapshot, Appearance, Equipment);
 	const FSwcPlayerLook Look = Looks->Resolve(Appearance, Equipment);
-	TSharedPtr<FSwcLocomotion>& Locomotion = Locomotions[Look.bFemale ? 1 : 0];
-	if (!Locomotion.IsValid())
-	{
-		Locomotion = MakeShared<FSwcLocomotion>();
-		FString Report;
-		const bool bLoaded = Locomotion->Load(Look.bFemale, Report);
-		UE_LOG(LogSwcBackend, Log, TEXT("character: %s"), *Report);
-		if (!bLoaded)
-		{
-			Locomotion.Reset();
-		}
-	}
+	const TSharedPtr<FSwcLocomotion>& Locomotion = Locomotions[Look.bFemale ? 1 : 0];
 	Avatar->ApplyLook(Look, Looks->BaseMesh(Look.bFemale), Looks->IdleAnimation(Look.bFemale), Locomotion);
 	// The weapon state of the paperdoll state at the start (protocol notes 4.11: the active weapon is the first weapon
 	// slot of activeMap, sheatheMap has the sheathe bit of each weapon); then the keys of the client change it.
@@ -549,17 +745,6 @@ void USwcBackendSubsystem::UpdateLook()
 	}
 	Avatar->SetWeaponState(Active, bDrawn);
 	// The actions of the weapons: the stances, the draw and the sheathe, the attacks (stage P2.7).
-	if (!Actions.IsValid())
-	{
-		Actions = MakeShared<FSwcActions>();
-		FString Report;
-		const bool bLoaded = Actions->Load(Report);
-		UE_LOG(LogSwcBackend, Log, TEXT("character: %s"), *Report);
-		if (!bLoaded)
-		{
-			Actions.Reset();
-		}
-	}
 	if (Actions.IsValid())
 	{
 		Avatar->GetActions()->Setup(Actions, Look.bFemale, AttackDriver);

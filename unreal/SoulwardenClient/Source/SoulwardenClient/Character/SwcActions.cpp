@@ -80,7 +80,9 @@ FSwcMotionRule ReadMotion(const TSharedPtr<FJsonObject>& Attrs, const FSwcMotion
 	{
 		return Out;
 	}
-	Out.Condition = Attrs->GetStringField(TEXT("Name"));
+	// A parameter set with no name has no condition (no warning of the JSON reader).
+	Out.Condition.Reset();
+	Attrs->TryGetStringField(TEXT("Name"), Out.Condition);
 	Out.MotionMultiplier = AttrNumber(Attrs, TEXT("MotionMultiplier"), Base.MotionMultiplier);
 	FString Text;
 	if (Attrs->TryGetStringField(TEXT("Decel"), Text))
