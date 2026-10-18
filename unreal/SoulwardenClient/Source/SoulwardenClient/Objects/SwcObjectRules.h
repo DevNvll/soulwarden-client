@@ -75,6 +75,51 @@ ToolCheck check_tool(std::string_view gatheringType, std::string_view restrictio
  */
 std::string gather_use_kind(std::string_view action, std::string_view toolTags, bool hasTool);
 
+/**
+ * The claims of the LootTracker map of the owner (stage P5.1; protocol notes 4.41, backend chests.md; InstancedLootState): Looted 2 (the
+ * prompt and the light of the loot of a chest go off), NotOnRequiredQuest 4 and Locked 5 (a locked chest). No claim, Initial, Rolled,
+ * and Unlocked: the chest is ready.
+ */
+inline constexpr std::uint32_t kClaimLooted = 2;
+inline constexpr std::uint32_t kClaimNotOnQuest = 4;
+inline constexpr std::uint32_t kClaimLocked = 5;
+enum class ChestState { ready, looted, locked };
+ChestState chest_state(std::optional<std::uint32_t> claim);
+
+/**
+ * The change of the claim of a chest from one map to the next one: the change to Looted is the depletion (an elite chest shows its
+ * depletion effect, a supply chest no change: live check L9 of the backend); the change from Looted to a claim that is not Looted, or to
+ * no claim, is the reset (the server sends the map with no entry at the reset time: live check L8; the light of the loot comes back).
+ * The first map after the world entry has the claims of before the entry: the caller does not use this rule for it.
+ */
+enum class ChestChange { none, depleted, reset };
+ChestChange chest_change(std::optional<std::uint32_t> before, std::optional<std::uint32_t> now);
+
+/**
+ * The line of sight of the prompt of an object with the LOSRayCastCheck of its slice (stage P5.1; the server does not check it: backend
+ * chests.md, owns_sight). An inference (the LOSRayCastCheck entity of the slice is not read): the line goes from the eye (the feet +
+ * kSightEyeMeters) to the aim (the place + kSightAimMeters); a hit within kSightOwnMeters of the aim is the object. A hit on a mesh of the
+ * object itself (own_mesh) does not block: the line goes on behind its box (box_exit). Each other hit blocks the prompt.
+ */
+inline constexpr double kSightEyeMeters = 1.6;
+inline constexpr double kSightAimMeters = 0.5;
+inline constexpr double kSightOwnMeters = 0.75;
+/** A mesh whose origin is this near the place of the object (horizontal; twice that vertical) is a mesh of the object. */
+inline constexpr double kSightOwnOriginMeters = 1.2;
+/** The margin of the box of a mesh for the test "the object is in it" (m). */
+inline constexpr double kSightOwnMarginMeters = 0.25;
+/** The largest size of a mesh of the object (m): a chest, a crate, a well. A house whose box holds the object blocks. */
+inline constexpr double kSightOwnSizeMeters = 4.0;
+
+/** @return True when a hit mesh is a mesh of the object itself: its largest size (with the scale) is at most kSightOwnSizeMeters, and its
+ *  origin is near the place of the object or its box (with the margin) holds the place or the aim. */
+bool own_mesh(double largestSizeMeters, double originPlaneMeters, double originHeightMeters, bool boxHoldsObject);
+
+/** @return The line parameter at which the line from + t x step goes out of the box (min, max) by the slab rule (the nearest exit of the
+ *  three axes; the frame of the box), or no value when the step is zero. */
+std::optional<double> box_exit(const std::array<double, 3>& min, const std::array<double, 3>& max, const std::array<double, 3>& from,
+    const std::array<double, 3>& step);
+
 /** One natural node of the file of a region: the record index (counter = record + 1), the type (an index into the types of the
  *  region: template, row, visual), and the place (engine m). */
 struct NodeRecord {

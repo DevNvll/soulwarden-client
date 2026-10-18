@@ -1,0 +1,17 @@
+# The development routes of the exit check of stage P5.1 (tools/creature-check.sh, tools/lib/dev_world.py) on the clock of
+# tests/creatures/chests.txt. The chests: the supply chest 1ce79c8f (8943.07 4333.97 136.37; the character 2.4 m south), the provision
+# chest 1a3e6e98 on a ledge (8485.8 5292.2 192.9; from 6.5 m north and 7 m below the terrain blocks the line; then 2.4 m south of it
+# on the ledge), and the elite chest fea931b2 in an abandoned house of the town (9598.3 5466.7 175.8; first 7 m west of it outside
+# the west wall of the house, then 2.4 m south of it in the house). The creatures ignore the character.
+1 chest-clear 1ce79c8f-9e60-27f0-c86f-c05d3f011057
+1 chest-clear 1a3e6e98-193e-e63b-c4af-ab41b777d7af
+1 chest-clear fea931b2-a2a0-fcee-401f-064242e1f4fe
+1 ignore on
+1 give WoodT1
+2 travel 8943.07 4331.6 136.8 auto
+30 chest-reset 1ce79c8f-9e60-27f0-c86f-c05d3f011057 6
+50 travel 8485.76 5298.65 186.3 auto
+76 travel 8485.8 5289.8 194.0 off
+90 travel 9592.2 5470.2 175.6 auto
+113 travel 9598.3 5464.3 176.4 off
+128 chests 20

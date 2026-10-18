@@ -5,7 +5,8 @@
 # the damage number with the encoder of the backend (server/rep/combat_messages.cpp), and the shots and the danger areas with the
 # encoders of the Projectile, Spell, PositionInTheWorld, and DelayedEvent states, and the loot bag (server/rep/states), and the
 # objects of the level data (stage P4.1 part 2: the id rules, the GatherableController, Achievement, and Gathering states, the end of a
-# gather use, the node file).
+# gather use, the node file; stage P5.1: the LootTracker state with the claims of chests and a Discarded bag, the chest rules, the rules
+# of the line of sight).
 # The Soulwarden sources are read only; the build output goes to SWC_WORK/build/creature-tests.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"

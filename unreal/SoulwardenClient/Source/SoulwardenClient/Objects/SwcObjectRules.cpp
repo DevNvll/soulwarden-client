@@ -1,5 +1,6 @@
 #include "Objects/SwcObjectRules.h"
 
+#include <algorithm>
 #include <cstring>
 
 namespace swc::objects {
@@ -115,6 +116,48 @@ std::string gather_use_kind(std::string_view action, std::string_view toolTags, 
         }
     }
     return action == "Handcrafting" ? "gather|Handcrafting|" : "gather|None|";
+}
+
+ChestState chest_state(std::optional<std::uint32_t> claim) {
+    if (claim == kClaimLooted) {
+        return ChestState::looted;
+    }
+    if (claim == kClaimLocked || claim == kClaimNotOnQuest) {
+        return ChestState::locked;
+    }
+    return ChestState::ready;
+}
+
+ChestChange chest_change(std::optional<std::uint32_t> before, std::optional<std::uint32_t> now) {
+    const bool wasLooted = before == kClaimLooted;
+    const bool isLooted = now == kClaimLooted;
+    if (isLooted && !wasLooted) {
+        return ChestChange::depleted;
+    }
+    if (wasLooted && !isLooted) {
+        return ChestChange::reset;
+    }
+    return ChestChange::none;
+}
+
+bool own_mesh(double largestSizeMeters, double originPlaneMeters, double originHeightMeters, bool boxHoldsObject) {
+    if (largestSizeMeters > kSightOwnSizeMeters) {
+        return false;
+    }
+    const bool near = originPlaneMeters <= kSightOwnOriginMeters && originHeightMeters <= 2.0 * kSightOwnOriginMeters;
+    return near || boxHoldsObject;
+}
+
+std::optional<double> box_exit(const std::array<double, 3>& min, const std::array<double, 3>& max, const std::array<double, 3>& from,
+    const std::array<double, 3>& step) {
+    std::optional<double> exit;
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        if (step[axis] > 1.0e-9 || step[axis] < -1.0e-9) {
+            const double at = ((step[axis] > 0.0 ? max[axis] : min[axis]) - from[axis]) / step[axis];
+            exit = exit ? std::min(*exit, at) : at;
+        }
+    }
+    return exit;
 }
 
 bool NodeFile::read(std::span<const std::uint8_t> bytes) {

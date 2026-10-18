@@ -132,11 +132,10 @@ UUID, REGION#RECORD, or the G in 16 hexadecimal digits; in a script file "#" sta
   the variant at a small cost. In the layer it costs about 700 own mesh instances within 100 m and a visible change at the edge of
   100 m: not done (a look, not a feel). The world track can take the variants from `content/world-objects/nodes` and `objects.json`
   (or the gathering data of the backend copy).
-- The line of sight of a bound (`bLineOfSight`, for example each chest): the retail client checks it with a ray before it shows the
-  prompt (chests.md); the query gives the mark, and the interactor does not check it yet.
+- The line of sight of a bound (`bLineOfSight`, for example each chest): done in stage P5.1 (below).
 - The requirements of an option (a level, an item, an achievement): the client does not check them; the server refuses.
-- The Idle_VFX of a chest and the depletion effect of an elite chest are not converted (the light is a stand-in). A lore page has no
-  visual. A tree has no fall (the retail client: the trunk falls, the stump stays): the layer swaps the meshes at once.
+- The Idle_VFX of a chest and the depletion effect of an elite chest are not converted (the lights are stand-ins; stage P5.1). A lore
+  page has no visual. A tree has no fall (the retail client: the trunk falls, the stump stays): the layer swaps the meshes at once.
 - The objects of the kind `gatherable` (mostly `master_quest_instanced`) have no prompt; the quests are a later stage.
 - Far nodes (beyond 100 m) show the level state; until the final level pass of the world track that is both meshes of a node.
 - The side-by-side check with the retail client is open.
@@ -182,8 +181,64 @@ evidence `~/Games/soulwarden-client/evidence/P5.2/gathering.mp4`, `gathering-cli
 - The impact of a swing (the mark GatherMomentOfImpact: the wood chips, the sounds) and the position part of InteractionAlignment
   (AlignPositionSpeed) are not in the client.
 - The rank gate has no prompt of the client; the server refusal shows only as the end of the use.
-- The cut trunk of the CutTrunks table is not converted (the fall is a stand-in); the elite chest and the depletion effects.
+- The cut trunk of the CutTrunks table is not converted (the fall is a stand-in), and the depletion effects of the nodes.
 - The gather of another player (the observer action: type 11, not derived by the backend).
+- The side-by-side check with the retail client is open.
+
+## The chests and the loot (stage P5.1)
+
+The sources: Soulwarden `docs/systems/chests.md` (the chest families of stage 3.5b.1) and `loot-bags.md` (the Discarded bag of stage
+3.5b.2), protocol notes 4.41 (read only), and the chest data of the backend copy (`chest-data.json`).
+
+| Part | Rule (source) |
+| --- | --- |
+| The chest data | `objects.json`, the regions: each chest has `[kind, gatherable row, state, name, elite]` (the converter `objects.py`). The names go into the texts of the prompts ("E SUPPLY CACHE", "E ELITE SUPPLY CHEST"). Elite: the kind `elite` of the chest data or the mark `elite` of its gatherable row. |
+| The families | An ordinary chest (supply, provision, alchemy) and an elite chest open the same way: GatherOption (action 14), the Gathering state (type 81) runs the time of the row, Done ends the use (P5.2). The loot goes straight into the bag: there is no container for a chest (chests.md). |
+| The state | The claim of the chest in the LootTracker map of the owner (982, slot 33): Looted 2 removes the prompt; NotOnRequiredQuest 4 and Locked 5 give a locked chest; no claim, Initial, Rolled, and Unlocked: ready (`swc::objects::chest_state`). |
+| The loot light | A point light 0.4 m above each ready chest within 60 m (a stand-in for the Idle_VFX of the variation row: the particles are not converted). It goes off at Looted. A supply chest does not change its mesh (chests.md, live check L9). |
+| The depletion effect | At the change of the claim of an elite chest to Looted (`swc::objects::chest_change`): a light of 4000 cd 1 m above it that fades in 1.5 s (a stand-in for the DepletedFX of the variation row, `cFX_Loot.Chest_Big_Celebration*`). The first LootTracker map after the world entry has the claims of before the entry: no effect for it. |
+| The reset | The server ends the claim at the reset time on the run clock (60 min for an ordinary chest, 82,800 s for an elite chest: chests.md): it sends the map with no entry for the chest (live check L8). The prompt and the light come back at once. |
+| The loot notice | The items that the bag gained (a chest, a node, a bag) as lines "+N ITEM" at the right of the screen for 4 s, and in the log (a stand-in for the notice of the HUD of the UI track; the item id, not its name). |
+| The Discarded bag | A drop from the bag (1838 DropInventoryItems) or from the paperdoll (826 DropPaperdollItem; the writers of the UI track) makes a Discarded bag (LootTracker kind 5) at the feet: only the owner sees it. It is the personal container of a kill bag (the same slice, P4.x): the creature layer shows it, and E (TakeAllOption, action 28) takes all its items. The bag panel of the UI track (P2.4) is not on main yet. |
+| The line of sight | A bound with the mark `lineOfSight` (each chest) has a prompt only when a line from the eye (the feet + 1.6 m) to the aim (the place + 0.5 m) is free (Visibility traces on the level collision: the Landscape and the mesh collision of the cells). A hit within 0.75 m of the aim is the chest. A hit on a mesh of the object itself (at most 4 m, its origin within 1.2 m of the place, or its box holds the place; `swc::objects::own_mesh`) does not block: the line goes on behind its box (`box_exit`). The server does not check it (chests.md, owns_sight). The values are an inference: the LOSRayCastCheck entity of the slice is not read. |
+
+The plain rules are in `Objects/SwcObjectRules` (`chest_state`, `chest_change`, `own_mesh`, `box_exit`), tested by
+`tools/test-creatures.sh` with the LootTracker state of the backend encoder (`chest_states.cpp`: a Looted chest, a Locked chest, and
+a Discarded bag in one map, and the empty map of a reset). The drop bodies (1838, 826) have their tests with the backend readers in
+`tools/test-net.sh` (UI track).
+
+### Check (development run, 2026-10-18)
+
+`tests/creatures/chests.txt` (the drive) and `tests/creatures/chests-routes.txt` (the routes), with
+`SWC_DEV_CHARACTER=Devwarden SWC_STAGE=P5.1 tools/creature-check.sh chests 142 tests/creatures/chests-routes.txt tests/creatures/chests.txt -- -SwcObjectProbe=log -SwcDrop=40:WoodT1`;
+evidence `~/Games/soulwarden-client/evidence/P5.1/chests.mp4`, `chests-client.log`, `chests-backend.log`, the frames `chests-*.png`
+and `sheet-1.png` to `sheet-3.png`. The town has the mesh collision of the world track (r_+04_+02).
+
+- The supply chest 1ce79c8f (the prompt "E SUPPLY CACHE"): the open (2.5 s), the light of the loot goes off, the notice
+  "+24 SandpaperT5". The route `chest-reset ... 6`: the claim resets, the light comes back.
+- The drop (`-SwcDrop=40:WoodT1`): 1838 with 109 WoodT1; the backend makes the Discarded bag at the feet. E at the bag (TakeAllOption,
+  action 28): "+109 WoodT1", the bag ends.
+- The provision chest 1a3e6e98 on a ledge: from below (10.0 m) the terrain blocks the line: "no line of sight: no prompt" (the camera
+  looks at the cliff in this run; the log is the evidence). On the ledge (2.4 m): in sight, the open, "+4 MilkT1".
+- The elite chest fea931b2 in an abandoned house of the town: from 7.1 m west, behind the wall of the house: "no line of sight: no
+  prompt"; E does nothing. In the house (2.4 m): "E ELITE SUPPLY CHEST", the open (5 s), the depletion effect, the light of the loot
+  goes off, the notice (four items). The focus then goes to the lore page next to the chest.
+- The focus skips a chest with no line of sight and takes the next usable object in range: on the ledge, E took a saltpeter node at
+  9.4 m (the server refused it: "not in the range of the object"; see the open points).
+- The backend: 3078 position reports accepted, 0 refused.
+- Tests: `tools/test-creatures.sh` (objects 110, entity 97, effects 94, combat 26): 0 failures.
+
+### Not done, open points (P5.1)
+
+- The particles of the chests (Idle_VFX, DepletedFX) and the sounds: the lights are stand-ins.
+- The loot notice of the HUD (the UI track) and the bag panel of a loot bag (P2.4): the notice lines and the Take All of the prompt
+  are stand-ins until then.
+- The line of sight uses the level collision. The other 48 regions get their mesh collision from the world track region by region;
+  until then the Landscape blocks there and a house does not.
+- A locked chest (a key, a quest) shows no text of its own; the server refuses its open.
+- The range at its edge: the client measures 9.4 m to a node with the range 10 m, the server refused the request ("not in the range of
+  the object"). The server measures from its own copy of the place (a travel, the height); the client has no margin. A point for the
+  interaction rules (P4.1, docs/INTERACTIONS.md).
 - The side-by-side check with the retail client is open.
 
 ## Development aids
@@ -191,4 +246,7 @@ evidence `~/Games/soulwarden-client/evidence/P5.2/gathering.mp4`, `gathering-cli
 | Switch | Effect |
 | --- | --- |
 | `-SwcObjectProbe` | Each 1 s: the nearest object in the log (its ids, its first option), and the bounds within 15 m (green: usable, red: not). |
+| `-SwcObjectProbe=log` | The same log with no spheres, and a line at each change of the line of sight of a bound in range ("in sight", "no line of sight: no prompt"). |
+| `-SwcSightSearch[=SECONDS]` | One time (default 12 s after the world entry): around each chest within 250 m, 12 directions at 3, 5, 7, and 9 m, the stand places with no line of sight, with the mesh that blocks (its size and the distance of its origin). |
+| `-SwcDrop=SECONDS:ITEM` | SECONDS after the world entry: the stack of ITEM (its id) of the bag goes into a Discarded bag (1838). |
 | `-SwcInstanceProbe=METERS` | Each 2 s: hide or show again the level instances within METERS of the pawn. With `-SwcInstanceProbeKeep`: hide them one time and again after each new load (a stream out and in). |

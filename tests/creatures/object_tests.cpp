@@ -4,7 +4,9 @@
 // node, and a natural node; backend test cases IT10 and GAT2), the record of a gathering node with the states that the encoders of
 // the backend make (metadata, Interact, GatherableController: server/rep/states), the Achievement state of the owner
 // (ownership_states.cpp), the Gathering state of the owner (chest_states.cpp) and the end of a gather use (Interact/SwcGatherUse),
-// and the file of the natural nodes (converter/swc_convert/objects.py). tools/test-creatures.sh builds it with the system compiler;
+// the file of the natural nodes (converter/swc_convert/objects.py), and the chests of stage P5.1: the LootTracker state of the owner
+// with the claims of chests and a Discarded bag (chest_states.cpp), the state rule and the change rule of a chest, and the rules of the
+// line of sight of the prompt. tools/test-creatures.sh builds it with the system compiler;
 // the Soulwarden sources are read only.
 
 #include <chrono>
@@ -22,6 +24,7 @@
 #include "server/rep/states/state_codecs.h"
 #include "support/state_decoder.h"
 #include "world/entity.h"
+#include "world/loot_bags.h"
 #include "world/world_clock.h"
 
 namespace {
@@ -372,6 +375,108 @@ void test_node_file() {
 
 } // namespace
 
+// ------------------------------------------------------------------------------------------------------- the chests (P5.1)
+
+backend::world::LootTrackerEntry tracker_entry(const swc::net::ActorId& actor, std::uint32_t state, std::uint32_t kind, float x, float y, float z) {
+    backend::world::LootTrackerEntry entry;
+    entry.actor = actor;
+    entry.state = state;
+    entry.kind = kind;
+    entry.resetTime = 3600000000ULL;   // the reset of an ordinary chest: 60 min (backend chests.md), microseconds
+    entry.lootedTime = state == swc::objects::kClaimLooted ? 1000000000ULL : 0ULL;
+    entry.position = {x, y, z};
+    return entry;
+}
+
+void test_loot_tracker() {
+    TestClock clock;
+    // The supply chest 1ce79c8f of the exit check Looted, the provision chest 1a3e6e98 Locked, and the Discarded bag of a drop (Rolled).
+    const swc::net::ActorId supply = placement("1ce79c8f-9e60-27f0-c86f-c05d3f011057");
+    const swc::net::ActorId provision = placement("1a3e6e98-193e-e63b-c4af-ab41b777d7af");
+    swc::net::ActorId discarded{};
+    discarded[0] = 0x0B;
+    discarded[1] = 0x77;
+    backend::world::Entity player;
+    player.kind = backend::world::EntityKind::player;
+    player.lootTracker = {tracker_entry(supply, swc::objects::kClaimLooted, 0, 8943.07F, 4333.97F, 136.37F),
+        tracker_entry(provision, swc::objects::kClaimLocked, 0, 8485.8F, 5292.2F, 192.9F)};
+    player.bagTracker = {tracker_entry(discarded, backend::world::loot_bag_rules::kRolled, backend::world::loot_bag_rules::kDiscarded, 8943.1F, 4331.6F,
+        136.8F)};
+    rep::PartsRequest request;
+    request.clock = &clock;
+    const std::vector<backend::server::hub::Bytes> parts = rep::encode_loot_tracker_state(player, rep::View::owner, request);
+    check(parts.size() == 1, "one LootTracker state for the owner");
+    const decoder::Fragment fragment = fragment_of(swc::net::kSlotLootTracker, swc::net::kStateLootTracker.index,
+        parts.empty() ? backend::server::hub::Bytes{} : parts.front(), "loot tracker");
+    const auto claims = swc::net::read_loot_tracker(decoder::field_of(fragment, 0, 0));
+    check(claims.has_value() && claims->size() == 3, "the LootTracker reader: the claims of two chests and the entry of a bag (one map)");
+    if (!claims || claims->size() != 3) {
+        return;
+    }
+    const swc::net::LootClaim& looted = (*claims)[0];
+    const swc::net::LootClaim& locked = (*claims)[1];
+    const swc::net::LootClaim& bag = (*claims)[2];
+    check(looted.actor == supply && swc::net::group_of(looted.actor) == swc::net::group_of(supply), "the claim of the supply chest: its actor (G)");
+    check(swc::objects::chest_state(looted.state) == swc::objects::ChestState::looted && looted.lootedTime == 1000000000ULL
+              && looted.resetTime == 3600000000ULL,
+          "the Looted chest: no prompt, no light of the loot; its times");
+    check(locked.actor == provision && swc::objects::chest_state(locked.state) == swc::objects::ChestState::locked, "the Locked chest: a locked prompt");
+    check(bag.kind == backend::world::loot_bag_rules::kDiscarded && bag.state == backend::world::loot_bag_rules::kRolled && bag.actor == discarded,
+          "the Discarded bag of a drop: kind 5, Rolled (the bag shows)");
+    check(std::fabs(bag.place.x - 8943.1F) < 0.001F && std::fabs(bag.place.z - 136.8F) < 0.001F, "the place of the bag (the feet of the character)");
+    check(swc::objects::chest_state(std::nullopt) == swc::objects::ChestState::ready, "a chest with no claim: ready");
+    // The reset: the server sends the map with no entry (live check L8).
+    player.lootTracker.clear();
+    player.bagTracker.clear();
+    request.since = 1;
+    const std::vector<backend::server::hub::Bytes> empty = rep::encode_loot_tracker_state(player, rep::View::owner, request);
+    check(empty.size() == 1, "the empty map after a change");
+    if (empty.size() == 1) {
+        const auto none = swc::net::read_loot_tracker(decoder::field_of(fragment_of(swc::net::kSlotLootTracker, swc::net::kStateLootTracker.index,
+            empty.front(), "loot tracker (empty)"), 0, 0));
+        check(none.has_value() && none->empty(), "the map with no entry: no claim");
+    }
+    check(rep::encode_loot_tracker_state(player, rep::View::observer, request).empty(), "no LootTracker state for an observer");
+}
+
+void test_chest_rules() {
+    using swc::objects::ChestChange;
+    using swc::objects::chest_change;
+    check(swc::objects::chest_state(1U) == swc::objects::ChestState::ready && swc::objects::chest_state(6U) == swc::objects::ChestState::ready,
+          "Rolled and Unlocked: ready");
+    check(swc::objects::chest_state(4U) == swc::objects::ChestState::locked, "NotOnRequiredQuest: locked");
+    check(chest_change(std::nullopt, swc::objects::kClaimLooted) == ChestChange::depleted, "no claim to Looted: the depletion (the elite effect)");
+    check(chest_change(1U, swc::objects::kClaimLooted) == ChestChange::depleted, "Rolled to Looted: the depletion");
+    check(chest_change(swc::objects::kClaimLooted, swc::objects::kClaimLooted) == ChestChange::none, "Looted in two maps: no new effect");
+    check(chest_change(swc::objects::kClaimLooted, std::nullopt) == ChestChange::reset, "Looted to no claim: the reset (the light comes back)");
+    check(chest_change(swc::objects::kClaimLooted, 0U) == ChestChange::reset, "Looted to Initial: the reset");
+    check(chest_change(std::nullopt, swc::objects::kClaimLocked) == ChestChange::none && chest_change(std::nullopt, std::nullopt) == ChestChange::none,
+          "Locked or no claim: no change");
+}
+
+void test_sight_rules() {
+    // A chest mesh (1.2 m) whose origin is at the place of the chest: its own mesh. A crate 1.5 m away whose box does not hold the place: it
+    // blocks. A house (11.7 m, the abandoned house of the exit check) whose box holds the chest: it blocks.
+    check(swc::objects::own_mesh(1.2, 0.0, 0.0, false), "the mesh of the chest at its place: no block");
+    check(swc::objects::own_mesh(3.5, 2.0, 0.0, true), "a small mesh whose box holds the chest: no block");
+    check(!swc::objects::own_mesh(1.2, 1.5, 0.0, false), "a crate 1.5 m away: a block");
+    check(!swc::objects::own_mesh(1.2, 0.5, 2.5, false), "a mesh 2.5 m above the chest: a block");
+    check(!swc::objects::own_mesh(11.7, 0.0, 0.0, true), "a house that holds the chest: a block");
+    // The slab exit: from the centre of a box of 2 x 2 x 2, along +x the exit is at 1; along the diagonal (1, 1, 0) / sqrt 2 at sqrt 2; with no
+    // step no exit.
+    const std::array<double, 3> low{-1.0, -1.0, -1.0};
+    const std::array<double, 3> high{1.0, 1.0, 1.0};
+    const auto straight = swc::objects::box_exit(low, high, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0});
+    check(straight && std::fabs(*straight - 1.0) < 1e-9, "the exit along +x");
+    const double half = std::sqrt(0.5);
+    const auto diagonal = swc::objects::box_exit(low, high, {0.0, 0.0, 0.0}, {half, half, 0.0});
+    check(diagonal && std::fabs(*diagonal - std::sqrt(2.0)) < 1e-9, "the exit along the diagonal");
+    const auto back = swc::objects::box_exit(low, high, {0.5, 0.0, 0.0}, {-1.0, 0.0, 0.0});
+    check(back && std::fabs(*back - 1.5) < 1e-9, "the exit along -x from 0.5");
+    check(!swc::objects::box_exit(low, high, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}).has_value(), "no step: no exit");
+    check(swc::objects::kSightEyeMeters == 1.6 && swc::objects::kSightAimMeters == 0.5, "the eye and the aim of the line");
+}
+
 int main() {
     test_ids();
     test_node_record();
@@ -380,6 +485,9 @@ int main() {
     test_gather_watch();
     test_tool_rule();
     test_node_file();
+    test_loot_tracker();
+    test_chest_rules();
+    test_sight_rules();
     std::printf("objects: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

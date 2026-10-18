@@ -1,5 +1,6 @@
 #include "Objects/SwcObjectSubsystem.h"
 
+#include "CanvasItem.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/SceneComponent.h"
@@ -7,7 +8,11 @@
 #include "Creatures/SwcCreatureData.h"
 #include "Creatures/SwcCreatureSubsystem.h"
 #include "Dom/JsonObject.h"
+#include "Debug/DebugDrawService.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/Canvas.h"
+#include "Engine/Engine.h"
+#include "Engine/Font.h"
 #include "Engine/GameInstance.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -31,6 +36,11 @@ constexpr double UpdateSeconds = 0.2;
  *  the variation row (Loot.Crate_small01 and others; the particles are not converted): a choice of the look, not of the feel. */
 constexpr double ChestLightMeters = 60.0;
 constexpr double ChestLightHeight = 0.4;
+/** The depletion effect of an elite chest (a stand-in for the DepletedFX of its variation row, cFX_Loot.Chest_Big_Celebration*: the
+ *  particles are not converted): a light that fades in BurstSeconds. The loot notice shows a line for LootLineSeconds. */
+constexpr double BurstSeconds = 1.5;
+constexpr float BurstCandelas = 4000.0f;
+constexpr double LootLineSeconds = 4.0;
 /** The fall of a tree (a look stand-in, not a value of the data): the angle grows with the square of the time to FallDegrees in
  *  FallSeconds; the trunk then lies FallHoldSeconds and goes. */
 constexpr double FallSeconds = 2.0;
@@ -43,10 +53,6 @@ constexpr double InstanceHeightCm = 150.0;
 /** The instance index of the node meshes is made again after the character moves this far (cm). */
 constexpr double IndexMoveCm = 2000.0;
 constexpr double VisualMoveCm = 800.0;
-/** The LootTracker claims (protocol notes 4.41; backend docs/systems/chests.md): 2 Looted, 4 NotOnRequiredQuest, 5 Locked. */
-constexpr uint32 ClaimLooted = 2;
-constexpr uint32 ClaimNotOnQuest = 4;
-constexpr uint32 ClaimLocked = 5;
 
 const FName KindNode(TEXT("node"));
 const FName KindNatural(TEXT("naturalNode"));
@@ -54,6 +60,13 @@ const FName KindChest(TEXT("chest"));
 const FName KindGatherable(TEXT("gatherable"));
 const FName KindBody(TEXT("body"));
 
+
+/** @return The claim of a chest in a map of claims (G to the state), or no value. */
+std::optional<uint32> ClaimOf(const TMap<uint64, uint32>& Claims, uint64 Group)
+{
+	const uint32* Claim = Claims.Find(Group);
+	return Claim != nullptr ? std::optional<uint32>(*Claim) : std::nullopt;
+}
 
 uint64 HexNumber(const FString& Text)
 {
@@ -117,11 +130,25 @@ FString Hex64(uint64 Value)
 void USwcObjectSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
-	bProbe = FParse::Param(FCommandLine::Get(), TEXT("SwcObjectProbe"));
+	FString ProbeMode;
+	bProbe = FParse::Param(FCommandLine::Get(), TEXT("SwcObjectProbe")) || FParse::Value(FCommandLine::Get(), TEXT("SwcObjectProbe="), ProbeMode);
+	bProbeDraw = !ProbeMode.Equals(TEXT("log"), ESearchCase::IgnoreCase);
+	bSightSearch = FParse::Param(FCommandLine::Get(), TEXT("SwcSightSearch")) || FParse::Value(FCommandLine::Get(), TEXT("SwcSightSearch="), SightSearchAt);
+	FString Drop;
+	if (FParse::Value(FCommandLine::Get(), TEXT("SwcDrop="), Drop))
+	{
+		FString Seconds;
+		if (Drop.Split(TEXT(":"), &Seconds, &DropItem))
+		{
+			DropAt = FCString::Atod(*Seconds);
+		}
+	}
+	DrawHandle = UDebugDrawService::Register(TEXT("Game"), FDebugDrawDelegate::CreateUObject(this, &USwcObjectSubsystem::DrawLoot));
 }
 
 void USwcObjectSubsystem::Deinitialize()
 {
+	UDebugDrawService::Unregister(DrawHandle);
 	ClearAll(TEXT("the world ends"));
 	Super::Deinitialize();
 }
@@ -141,6 +168,20 @@ void USwcObjectSubsystem::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 	const double Now = FPlatformTime::Seconds();
 	UpdateFalls(Now);
+	for (int32 Index = Bursts.Num() - 1; Index >= 0; --Index)
+	{
+		const double Part = (Now - Bursts[Index].Start) / BurstSeconds;
+		if (Part >= 1.0 || !Bursts[Index].Light.IsValid())
+		{
+			if (Bursts[Index].Light.IsValid())
+			{
+				Bursts[Index].Light->DestroyComponent();
+			}
+			Bursts.RemoveAt(Index);
+			continue;
+		}
+		Bursts[Index].Light->SetIntensity(BurstCandelas * static_cast<float>(1.0 - Part));
+	}
 	if (Now < NextUpdate)
 	{
 		return;
@@ -186,6 +227,10 @@ void USwcObjectSubsystem::Tick(float DeltaTime)
 			ChestClaims = MoveTemp(Claims);
 			++StateRevision;
 		}
+		if (++ClaimMaps == 1)
+		{
+			LastClaims = ChestClaims;   // the claims of before the entry: no depletion effect, no reset line
+		}
 	}
 	if (Own.achievementRevision != SeenAchievementRevision)
 	{
@@ -219,9 +264,15 @@ void USwcObjectSubsystem::Tick(float DeltaTime)
 	UpdateRegions(SwcUnrealToEngine(Center));
 	UpdateVisuals(Center);
 	UpdateChestLights(Center);
+	UpdateLoot(Own, Now);
 	if (bProbe)
 	{
 		DevelopmentAids();
+	}
+	if (bSightSearch && !bSightSearched && !Regions.IsEmpty() && FPlatformTime::Seconds() - WorldSince > SightSearchAt)
+	{
+		bSightSearched = true;
+		SightSearch(Center);
 	}
 }
 
@@ -433,6 +484,12 @@ bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, FRegion& Out)
 		{
 			++Mismatches;
 		}
+		const TArray<TSharedPtr<FJsonValue>>* Chest = nullptr;
+		if (Info->TryGetArrayField(TEXT("chest"), Chest) && Chest->Num() >= 5)
+		{
+			Object.ChestName = (*Chest)[3]->AsString();
+			Object.bElite = (*Chest)[4]->AsBool();
+		}
 		const TArray<TSharedPtr<FJsonValue>>* Gather = nullptr;
 		if (Info->TryGetArrayField(TEXT("gather"), Gather) && Gather->Num() == 2)
 		{
@@ -577,14 +634,14 @@ ESwcWorldObjectState USwcObjectSubsystem::StateOf(FName Kind, uint64 Group) cons
 	}
 	if (Kind == KindChest)
 	{
-		const uint32* Claim = ChestClaims.Find(Group);
-		if (Claim != nullptr && *Claim == ClaimLooted)
+		switch (swc::objects::chest_state(ClaimOf(ChestClaims, Group)))
 		{
+		case swc::objects::ChestState::looted:
 			return ESwcWorldObjectState::Looted;
-		}
-		if (Claim != nullptr && (*Claim == ClaimLocked || *Claim == ClaimNotOnQuest))
-		{
+		case swc::objects::ChestState::locked:
 			return ESwcWorldObjectState::Locked;
+		case swc::objects::ChestState::ready:
+			break;
 		}
 	}
 	return ESwcWorldObjectState::Ready;
@@ -640,7 +697,8 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 	// A gatherable that is not a chest or a node (mostly master_quest_instanced; the backend refuses it) has no prompt.
 	const auto Accept = [&](const FSwcWorldObjectTarget& Target) {
 		return !bUsableOnly
-			|| (!Target.Options.IsEmpty() && Target.bEnabled && Target.State == ESwcWorldObjectState::Ready && Target.Kind != KindGatherable);
+			|| (!Target.Options.IsEmpty() && Target.bEnabled && Target.State == ESwcWorldObjectState::Ready && Target.Kind != KindGatherable
+				&& Target.bInSight);
 	};
 	AddBodies(From, RadiusMeters, bUsableOnly, Out);
 	for (int32 GY = MinY; GY <= MaxY; ++GY)
@@ -675,6 +733,15 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 							// A capital node: the tool of its row; a chest: the default Gather fragment (its action LootContainer has none).
 							FillGather(Target, Object.Kind == KindNode ? Object.Row : -1);
 						}
+						if (Object.Kind == KindChest)
+						{
+							Target.Name = Text(Object.ChestName);
+							Target.bElite = Object.bElite;
+						}
+						if (bUsableOnly && Bound.bLineOfSight)
+						{
+							Target.bInSight = HasSight(From, Bound.EnginePlace);
+						}
 						if (Accept(Target))
 						{
 							Out.Add(MoveTemp(Target));
@@ -707,6 +774,10 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 				FSwcWorldObjectTarget Target;
 				MakeTarget(FString::Printf(TEXT("%s#%u"), *Region->Name, Node.record), KindNatural, swc::objects::actor_of_group(Group), Group, Bound, From, Target);
 				FillGather(Target, Region->Types[Node.type].Row);
+				if (bUsableOnly && Bound.bLineOfSight)
+				{
+					Target.bInSight = HasSight(From, Bound.EnginePlace);
+				}
 				if (Accept(Target))
 				{
 					Out.Add(MoveTemp(Target));
@@ -714,6 +785,59 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 			}
 		}
 	}
+}
+
+bool USwcObjectSubsystem::HasSight(const FVector3d& Feet, const FVector3d& Place) const
+{
+	UWorld* World = GetWorld();
+	if (World == nullptr)
+	{
+		return true;
+	}
+	const FVector Eye = ToUnreal(Feet + FVector3d(0.0, 0.0, swc::objects::kSightEyeMeters));
+	const FVector Target = ToUnreal(Place + FVector3d(0.0, 0.0, swc::objects::kSightAimMeters));
+	const FVector Base = ToUnreal(Place);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SwcObjectSight), false);
+	if (const APlayerController* Controller = World->GetFirstPlayerController(); Controller != nullptr && Controller->GetPawn() != nullptr)
+	{
+		Params.AddIgnoredActor(Controller->GetPawn());
+	}
+	const FVector Direction = (Target - Eye).GetSafeNormal();
+	FVector Start = Eye;
+	for (int32 Step = 0; Step < 4; ++Step)
+	{
+		FHitResult Hit;
+		if (!World->LineTraceSingleByChannel(Hit, Start, Target, ECC_Visibility, Params) || FVector::Dist(Hit.ImpactPoint, Target) <= swc::objects::kSightOwnMeters * 100.0)
+		{
+			return true;
+		}
+		// The meshes of the object itself do not block its own prompt (the level places them at the place of the object; the rule of
+		// swc::objects::own_mesh). The line goes on behind the box of that mesh.
+		const UInstancedStaticMeshComponent* Instances = Cast<UInstancedStaticMeshComponent>(Hit.GetComponent());
+		FTransform Transform;
+		if (Instances == nullptr || Instances->GetStaticMesh() == nullptr || !Instances->GetInstanceTransform(Hit.Item, Transform, true))
+		{
+			return false;
+		}
+		const FBox Local = Instances->GetStaticMesh()->GetBoundingBox().ExpandBy(swc::objects::kSightOwnMarginMeters * 100.0);
+		const bool bHolds = Local.IsInside(Transform.InverseTransformPosition(Base)) || Local.IsInside(Transform.InverseTransformPosition(Target));
+		if (!swc::objects::own_mesh((Local.GetSize() * Transform.GetScale3D().GetAbs()).GetMax() / 100.0, FVector::Dist2D(Transform.GetLocation(), Base) / 100.0,
+				FMath::Abs(Transform.GetLocation().Z - Base.Z) / 100.0, bHolds))
+		{
+			return false;
+		}
+		// The exit of the line from the box in the frame of the instance (the same line parameter: cm along the direction).
+		const FVector From = Transform.InverseTransformPosition(Hit.ImpactPoint);
+		const FVector LocalStep = Transform.InverseTransformVector(Direction);
+		const std::optional<double> Exit = swc::objects::box_exit({Local.Min.X, Local.Min.Y, Local.Min.Z}, {Local.Max.X, Local.Max.Y, Local.Max.Z},
+			{From.X, From.Y, From.Z}, {LocalStep.X, LocalStep.Y, LocalStep.Z});
+		if (!Exit.has_value() || FVector::DotProduct(Target - Hit.ImpactPoint, Direction) <= *Exit)
+		{
+			return true;   // the aim point is in the box of the own mesh
+		}
+		Start = Hit.ImpactPoint + Direction * (FMath::Max(*Exit, 0.0) + 2.0);
+	}
+	return false;
 }
 
 FString USwcObjectSubsystem::Text(const FString& Key) const
@@ -1340,9 +1464,58 @@ void USwcObjectSubsystem::UpdateChestLights(const FVector& Center)
 				Light->RegisterComponent();
 				Light->SetWorldLocation(ToUnreal(Object.EnginePlace + FVector3d(0.0, 0.0, ChestLightHeight)));
 				ChestLights.Add(Object.Group, Light);
+				if (swc::objects::chest_change(ClaimOf(LastClaims, Object.Group), ClaimOf(ChestClaims, Object.Group)) == swc::objects::ChestChange::reset)
+				{
+					// The reset of the claim (the server sends the map with no entry: chests.md, live check L8).
+					UE_LOG(LogSwcObjects, Log, TEXT("objects: chest %s (%s): the claim reset: the light of the loot comes back"), *Object.Key, *Text(Object.ChestName));
+				}
 			}
 		}
 	}
+	// The depletion effect of an elite chest at its change to Looted (live check L9 of the backend: an elite chest shows its depletion
+	// effect, a supply chest no change).
+	for (const TPair<uint64, uint32>& Claim : ChestClaims)
+	{
+		if (swc::objects::chest_change(ClaimOf(LastClaims, Claim.Key), Claim.Value) != swc::objects::ChestChange::depleted)
+		{
+			continue;
+		}
+		const FDataObject* Elite = nullptr;
+		for (int32 GY = swc::objects::grid_cell(From.Y - ChestLightMeters); GY <= swc::objects::grid_cell(From.Y + ChestLightMeters) && Elite == nullptr; ++GY)
+		{
+			for (int32 GX = swc::objects::grid_cell(From.X - ChestLightMeters); GX <= swc::objects::grid_cell(From.X + ChestLightMeters) && Elite == nullptr; ++GX)
+			{
+				const FRegion* Region = Regions.Find(FIntPoint(FloorDiv(GX, PerRegion), FloorDiv(GY, PerRegion)));
+				const TArray<int32>* List = Region != nullptr ? Region->Grid.Find(FIntPoint(GX, GY)) : nullptr;
+				for (const int32 Index : List != nullptr ? *List : TArray<int32>())
+				{
+					const FDataObject& Object = Region->Objects[Index];
+					if (Object.Kind == KindChest && Object.Group == Claim.Key && Object.bElite)
+					{
+						Elite = &Object;
+						break;
+					}
+				}
+			}
+		}
+		AActor* Owner = Elite != nullptr ? VisualActor() : nullptr;
+		if (Owner != nullptr)
+		{
+			UPointLightComponent* Light = NewObject<UPointLightComponent>(Owner);
+			Light->SetMobility(EComponentMobility::Movable);
+			Light->SetIntensityUnits(ELightUnits::Candelas);
+			Light->SetIntensity(BurstCandelas);
+			Light->SetLightColor(FLinearColor(1.0f, 0.85f, 0.5f));
+			Light->SetAttenuationRadius(1000.0f);
+			Light->SetCastShadows(false);
+			Light->SetupAttachment(Owner->GetRootComponent());
+			Light->RegisterComponent();
+			Light->SetWorldLocation(ToUnreal(Elite->EnginePlace + FVector3d(0.0, 0.0, 1.0)));
+			Bursts.Add({Light, FPlatformTime::Seconds()});
+			UE_LOG(LogSwcObjects, Log, TEXT("objects: the elite chest %s (%s): the depletion effect (a stand-in for its DepletedFX)"), *Elite->Key, *Text(Elite->ChestName));
+		}
+	}
+	LastClaims = ChestClaims;
 	for (auto It = ChestLights.CreateIterator(); It; ++It)
 	{
 		if (!Seen.Contains(It.Key()))
@@ -1359,6 +1532,168 @@ void USwcObjectSubsystem::UpdateChestLights(const FVector& Center)
 			It.RemoveCurrent();
 		}
 	}
+}
+
+const FString& USwcObjectSubsystem::ItemName(uint32 Index)
+{
+	if (!bItemsLoaded)
+	{
+		bItemsLoaded = true;
+		// The ids of the item catalog of the backend copy (the item index of the wire is the position + 1).
+		const FString Path = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_GAMEDATA_DIR")), TEXT("item-catalog.json"));
+		FString Json;
+		TSharedPtr<FJsonObject> Catalog;
+		if (FFileHelper::LoadFileToString(Json, *Path) && FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Catalog) && Catalog.IsValid())
+		{
+			for (const TSharedPtr<FJsonValue>& Row : Catalog->GetArrayField(TEXT("items")))
+			{
+				const TArray<TSharedPtr<FJsonValue>>& Values = Row->AsArray();
+				ItemIds.Add(Values.IsEmpty() ? FString() : Values[0]->AsString());
+			}
+		}
+	}
+	static const FString Unknown(TEXT("?"));
+	return Index >= 1 && ItemIds.IsValidIndex(static_cast<int32>(Index) - 1) ? ItemIds[Index - 1] : Unknown;
+}
+
+void USwcObjectSubsystem::UpdateLoot(const swc::net::RepClient::OwnEntity& Own, double Now)
+{
+	if (WorldSince < 0.0)
+	{
+		WorldSince = Now;
+	}
+	// The loot notice: the items that the bag of the character gained (a chest, a node, a bag).
+	if (Own.bagRevision != SeenBagRevision)
+	{
+		SeenBagRevision = Own.bagRevision;
+		TMap<uint32, uint32> Counts;
+		for (const soulwarden::backend::tests::WireItem& Item : Own.bag)
+		{
+			if (!Item.empty())
+			{
+				Counts.FindOrAdd(Item.index) += Item.quantity;
+			}
+		}
+		if (bBagSeeded)
+		{
+			for (const TPair<uint32, uint32>& Pair : Counts)
+			{
+				const uint32 Before = BagCounts.FindRef(Pair.Key);
+				if (Pair.Value > Before)
+				{
+					const FString Line = FString::Printf(TEXT("+%u %s"), Pair.Value - Before, *ItemName(Pair.Key));
+					LootLines.Emplace(Line, Now);
+					UE_LOG(LogSwcObjects, Log, TEXT("objects: the loot notice: %s"), *Line);
+				}
+			}
+		}
+		BagCounts = MoveTemp(Counts);
+		bBagSeeded = true;
+	}
+	LootLines.RemoveAll([Now](const TPair<FString, double>& Line) { return Now - Line.Value > LootLineSeconds; });
+	// The development drop: the stack of an item of the bag into a Discarded bag at the feet (1838; loot-bags.md, live check L7).
+	if (DropAt >= 0.0 && Now - WorldSince >= DropAt)
+	{
+		DropAt = -1.0;
+		for (uint32 Slot = 0; Slot < Own.bag.size(); ++Slot)
+		{
+			const soulwarden::backend::tests::WireItem& Item = Own.bag[Slot];
+			if (!Item.empty() && ItemName(Item.index).Equals(DropItem, ESearchCase::IgnoreCase))
+			{
+				swc::net::DropItemEntry Entry;
+				Entry.slot = Slot;
+				std::copy(Item.instance.begin(), Item.instance.end(), Entry.instance.begin());
+				Entry.quantity = Item.quantity;
+				UGameInstance* GameInstance = GetWorld() != nullptr ? GetWorld()->GetGameInstance() : nullptr;
+				USwcBackendSubsystem* Backend = GameInstance != nullptr ? GameInstance->GetSubsystem<USwcBackendSubsystem>() : nullptr;
+				const bool bSent = Backend != nullptr && Backend->DropItems({Entry});
+				UE_LOG(LogSwcObjects, Log, TEXT("objects: the development drop of %u %s (bag slot %u): %s"), Item.quantity, *DropItem, Slot,
+					bSent ? TEXT("DropInventoryItems 1838 sent") : TEXT("not sent"));
+				return;
+			}
+		}
+		UE_LOG(LogSwcObjects, Warning, TEXT("objects: the development drop: the bag has no %s"), *DropItem);
+	}
+}
+
+void USwcObjectSubsystem::DrawLoot(UCanvas* Canvas, APlayerController* Controller)
+{
+	UFont* Font = GEngine != nullptr ? GEngine->GetMediumFont() : nullptr;
+	if (Canvas == nullptr || Font == nullptr || LootLines.IsEmpty())
+	{
+		return;
+	}
+	// A stand-in for the loot notice of the HUD (the UI track): the lines at the right of the screen.
+	float Y = Canvas->ClipY * 0.55f;
+	for (const TPair<FString, double>& Line : LootLines)
+	{
+		FCanvasTextItem Item(FVector2D(Canvas->ClipX * 0.72f, Y), FText::FromString(Line.Key), Font, FLinearColor(1.0f, 0.9f, 0.6f));
+		Item.EnableShadow(FLinearColor::Black);
+		Canvas->DrawItem(Item);
+		Y += 22.0f;
+	}
+}
+
+void USwcObjectSubsystem::SightSearch(const FVector& Center)
+{
+	UWorld* World = GetWorld();
+	TArray<FSwcWorldObjectTarget> Near;
+	GetObjectsNear(Center, 250.0, Near);
+	int32 Found = 0;
+	for (const FSwcWorldObjectTarget& Target : Near)
+	{
+		if (Target.Kind != KindChest || !Target.bLineOfSight || World == nullptr)
+		{
+			continue;
+		}
+		const FVector3d Place(Target.EnginePlace.x, Target.EnginePlace.y, Target.EnginePlace.z);
+		for (int32 Angle = 0; Angle < 360; Angle += 30)
+		{
+			for (const double Radius : {3.0, 5.0, 7.0, 9.0})
+			{
+				// The ground under the stand place: a line down from 6 m above the chest.
+				const FVector3d Flat = Place + FVector3d(Radius * FMath::Cos(FMath::DegreesToRadians(Angle)), Radius * FMath::Sin(FMath::DegreesToRadians(Angle)), 0.0);
+				FHitResult Ground;
+				if (!World->LineTraceSingleByChannel(Ground, ToUnreal(Flat + FVector3d(0.0, 0.0, 6.0)), ToUnreal(Flat - FVector3d(0.0, 0.0, 12.0)), ECC_Visibility))
+				{
+					continue;
+				}
+				const swc::net::WorldPosition Feet = SwcUnrealToEngine(Ground.ImpactPoint);
+				const FVector3d FeetPlace(Feet.x, Feet.y, Feet.z);
+				if (FVector3d::DistSquared(FeetPlace, Place) > Target.RangeSq)
+				{
+					continue;
+				}
+				// The rule of the prompt (HasSight), and a line to 1.2 m above the object (over the mesh of a chest).
+				const bool bVisibility = HasSight(FeetPlace, Place);
+				FHitResult Hit;
+				const FVector Eye = ToUnreal(FeetPlace + FVector3d(0.0, 0.0, swc::objects::kSightEyeMeters));
+				const FVector Aim = ToUnreal(Place + FVector3d(0.0, 0.0, swc::objects::kSightAimMeters));
+				const FVector High = ToUnreal(Place + FVector3d(0.0, 0.0, 1.2));
+				FHitResult HighHit;
+				const bool bHigh = !World->LineTraceSingleByChannel(HighHit, Eye, High, ECC_Visibility) || FVector::Dist(HighHit.ImpactPoint, High) <= swc::objects::kSightOwnMeters * 100.0;
+				if (bVisibility)
+				{
+					continue;
+				}
+				World->LineTraceSingleByChannel(Hit, Eye, Aim, ECC_Visibility);
+				const UInstancedStaticMeshComponent* HitInstances = Cast<UInstancedStaticMeshComponent>(Hit.GetComponent());
+				FTransform HitTransform;
+				FString MeshText = TEXT("-");
+				if (HitInstances != nullptr && HitInstances->GetStaticMesh() != nullptr && HitInstances->GetInstanceTransform(Hit.Item, HitTransform, true))
+				{
+					const FVector Size = HitInstances->GetStaticMesh()->GetBoundingBox().GetSize() * HitTransform.GetScale3D().GetAbs() / 100.0;
+					MeshText = FString::Printf(TEXT("%s (%.1f x %.1f x %.1f m, origin %.1f m from the object)"), *HitInstances->GetStaticMesh()->GetName(), Size.X, Size.Y, Size.Z,
+						FVector::Dist(HitTransform.GetLocation(), ToUnreal(Place)) / 100.0);
+				}
+				++Found;
+				UE_LOG(LogSwcObjects, Log, TEXT("objects sight search: chest %s (%s): from %.2f %.2f %.2f (%.1f m): blocked by %s %s item %d at %.2f m from the aim; the line to 1.2 m: %s"),
+					*Target.Key, *Target.Name, Feet.x, Feet.y, Feet.z, FVector3d::Dist(FeetPlace, Place), Hit.GetComponent() != nullptr ? *Hit.GetComponent()->GetClass()->GetName() : TEXT("-"),
+					*MeshText, Hit.Item, FVector::Dist(Hit.ImpactPoint, Aim) / 100.0, bHigh ? TEXT("in sight") : TEXT("blocked"));
+			}
+		}
+	}
+	UE_LOG(LogSwcObjects, Log, TEXT("objects sight search: %d place(s) with no line of sight near %d bound(s)"), Found, Near.Num());
 }
 
 void USwcObjectSubsystem::ClearAll(const TCHAR* Cause)
@@ -1387,6 +1722,21 @@ void USwcObjectSubsystem::ClearAll(const TCHAR* Cause)
 		}
 	}
 	Falls.Reset();
+	for (FBurst& Burst : Bursts)
+	{
+		if (Burst.Light.IsValid())
+		{
+			Burst.Light->DestroyComponent();
+		}
+	}
+	Bursts.Reset();
+	LastClaims.Reset();
+	ClaimMaps = 0;
+	BagCounts.Reset();
+	bBagSeeded = false;
+	SeenBagRevision = 0;
+	LootLines.Reset();
+	WorldSince = -1.0;
 	if (Visual.IsValid())
 	{
 		Visual->Destroy();
@@ -1427,10 +1777,29 @@ void USwcObjectSubsystem::DevelopmentAids()
 	const FVector Feet = Pawn->GetActorLocation() - FVector(0.0, 0.0, Pawn->GetSimpleCollisionHalfHeight());
 	TArray<FSwcWorldObjectTarget> Near;
 	GetObjectsNear(Feet, 15.0, Near);
+	const swc::net::WorldPosition FeetEngine = SwcUnrealToEngine(Feet);
 	for (const FSwcWorldObjectTarget& Target : Near)
 	{
-		const bool bUsable = Target.State == ESwcWorldObjectState::Ready && Target.bEnabled && Target.Distance * Target.Distance <= Target.RangeSq;
-		DrawDebugSphere(World, Target.Place, FMath::Min(FMath::Sqrt(Target.RangeSq), 3.0f) * 100.0f, 12, bUsable ? FColor::Green : FColor::Red, false, 1.0f);
+		const bool bInRange = Target.Distance * Target.Distance <= Target.RangeSq;
+		bool bSight = true;
+		if (Target.bLineOfSight && bInRange)
+		{
+			// The line of sight of a bound in range (the prompt needs it): a log line at each change.
+			bSight = HasSight(FVector3d(FeetEngine.x, FeetEngine.y, FeetEngine.z),
+				FVector3d(Target.EnginePlace.x, Target.EnginePlace.y, Target.EnginePlace.z));
+			const bool* Before = ProbeSight.Find(Target.Key);
+			if (Before == nullptr || *Before != bSight)
+			{
+				ProbeSight.Add(Target.Key, bSight);
+				UE_LOG(LogSwcObjects, Log, TEXT("objects probe: %s %s (%s) in range at %.1f m: %s"), *Target.Kind.ToString(), *Target.Key, *Target.Name, Target.Distance,
+					bSight ? TEXT("in sight") : TEXT("no line of sight: no prompt"));
+			}
+		}
+		const bool bUsable = Target.State == ESwcWorldObjectState::Ready && Target.bEnabled && bInRange && bSight;
+		if (bProbeDraw)
+		{
+			DrawDebugSphere(World, Target.Place, FMath::Min(FMath::Sqrt(Target.RangeSq), 3.0f) * 100.0f, 12, bUsable ? FColor::Green : FColor::Red, false, 1.0f);
+		}
 	}
 	FSwcWorldObjectTarget Best;
 	if (FindNearestObject(Feet, Best))

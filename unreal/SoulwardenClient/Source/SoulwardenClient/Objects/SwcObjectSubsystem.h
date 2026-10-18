@@ -87,6 +87,11 @@ struct FSwcWorldObjectTarget
 	FString UseKind;
 	/** A body (the skinning of a dead creature): the interest number of the creature. */
 	uint32 Interest = 0;
+	/** A chest (stage P5.1): an elite chest (its depletion effect, its long reset). */
+	bool bElite = false;
+	/** The line of sight of a bound with m_requiresLineOfSight (the retail client: a ray before the prompt; stage P5.1): false when
+	 *  the world blocks the line from the head of the character to the object. */
+	bool bInSight = true;
 };
 
 /**
@@ -108,8 +113,9 @@ struct FSwcWorldObjectTarget
  * - The query of the player track (Interact/SwcInteractor): FindNearestObject, as FindNearestLootBag of the creature view. The
  *   cost: the grid cells of 64 m near the point, never a scan of the world.
  *
- * Development aid: -SwcObjectProbe logs the nearest object each 1 s and draws the bounds near the character (green: usable, red:
- * not usable).
+ * Development aids: -SwcObjectProbe logs the nearest object each 1 s and draws the bounds near the character (green: usable, red:
+ * not usable; -SwcObjectProbe=log: no drawing), and logs the line of sight of each bound in range that needs it. -SwcDrop=SECONDS:ITEM
+ * drops the stack of an item of the bag (1838) SECONDS after the world entry.
  */
 UCLASS()
 class SOULWARDENCLIENT_API USwcObjectSubsystem : public UTickableWorldSubsystem
@@ -185,6 +191,9 @@ private:
 		/** A capital node: its gathering template and its gatherable row. */
 		int32 Template = -1;
 		int32 Row = -1;
+		/** A chest: its name (a text key) and the elite mark. */
+		FString ChestName;
+		bool bElite = false;
 	};
 	/** A gatherable row of the gathering data (stage P5.2). */
 	struct FGatherRow
@@ -237,6 +246,12 @@ private:
 		/** The gatherable row of the node (a tree falls: GatheringType Chopping). */
 		int32 Row = -1;
 	};
+	/** The depletion effect of an elite chest (a stand-in for its DepletedFX: a light that fades). */
+	struct FBurst
+	{
+		TWeakObjectPtr<UPointLightComponent> Light;
+		double Start = 0.0;
+	};
 	/** A tree that falls at its depletion (a stand-in for the cut trunk of the client: the healthy mesh turns around its base). */
 	struct FFall
 	{
@@ -258,6 +273,12 @@ private:
 	/** bLive: the state changed while the character saw the node (a tree then falls). */
 	void ApplyNode(uint64 Group, FNodeView& View, uint8 State, bool bLive = false);
 	void UpdateFalls(double Now);
+	/** @return False when the world blocks the line from the head of the character at a place (engine m, the feet) to an object. */
+	bool HasSight(const FVector3d& Feet, const FVector3d& Place) const;
+	/** The loot notice (a stand-in for the HUD notice "+N NAME"; stage P5.1) and the development drop of -SwcDrop. */
+	void UpdateLoot(const swc::net::RepClient::OwnEntity& Own, double Now);
+	void DrawLoot(class UCanvas* Canvas, class APlayerController* Controller);
+	const FString& ItemName(uint32 Index);
 	void RestoreNode(FNodeView& View);
 	void UpdateChestLights(const FVector& Center);
 	void ClearAll(const TCHAR* Cause);
@@ -320,10 +341,38 @@ private:
 	TWeakObjectPtr<AActor> Visual;
 	TMap<uint64, TWeakObjectPtr<UPointLightComponent>> ChestLights;
 	TArray<FFall> Falls;
+	TArray<FBurst> Bursts;
+	/** The claim of each chest at the last update (the change to Looted starts the effect of an elite chest). */
+	TMap<uint64, uint32> LastClaims;
+	/** The number of LootTracker maps since the world entry: the first map has the claims of before (no effect, no reset line). */
+	uint32 ClaimMaps = 0;
+	/** The loot notice: the quantity of each item index in the bag at the last revision, the lines and their times. */
+	TMap<uint32, uint32> BagCounts;
+	uint32 SeenBagRevision = 0;
+	bool bBagSeeded = false;
+	TArray<TPair<FString, double>> LootLines;
+	/** The ids of the item catalog (item index - 1). */
+	TArray<FString> ItemIds;
+	bool bItemsLoaded = false;
+	FDelegateHandle DrawHandle;
+	/** -SwcDrop=SECONDS:ITEM: the stack of ITEM goes out of the bag (DropInventoryItems 1838) SECONDS after the world entry. */
+	double DropAt = -1.0;
+	FString DropItem;
+	double WorldSince = -1.0;
 	double NextUpdate = 0.0;
 	double NextProbe = 0.0;
 	bool bConnected = false;
 	bool bProbe = false;
+	/** -SwcObjectProbe=log: the log lines with no drawing. */
+	bool bProbeDraw = true;
+	/** The last sight of each bound in range with the line of sight mark (the probe logs a change). */
+	TMap<FString, bool> ProbeSight;
+	/** -SwcSightSearch[=SECONDS]: one time, the stand places on the ground in the range of each chest within 250 m where the world blocks the
+	 *  line of sight (a development aid for the check of the prompt). */
+	bool bSightSearch = false;
+	bool bSightSearched = false;
+	double SightSearchAt = 12.0;
+	void SightSearch(const FVector& Center);
 	/** The counts for the log. */
 	int32 Depletions = 0;
 	int32 OwnMeshes = 0;
