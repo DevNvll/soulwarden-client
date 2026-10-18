@@ -26,14 +26,16 @@ Each frame the manager takes the entry of the camera action list (the first true
 | Condition | Entry | State | SmoothTime |
 | --- | --- | --- | --- |
 | the character is dead (the dead mark of the vitals state) | `DeathCam` | DeathCamera | 0.10 s |
-| the target lock is on | `Locked_Cam+Stand` | LockedCamera | 0.20 s |
-| the aim (`AimDownSights`: the right mouse button, a ranged weapon or a bow drawn; [MOVEMENT.md](MOVEMENT.md)) | `Aim+Stand` | AimCamera | 0 s |
-| fragment Sprint or Sprint_Start | `Dynamic+Sprint+Stand` | DynamicCamera | 0.30 s |
-| fragment Idle | `Dynamic+Idle+Stand` | MidCamera | 0.30 s |
-| fragment Strafe (run, walk) | `Dynamic+Nav+Stand` | MidCamera | 0.30 s |
-| each other fragment (jump, fall, land) | `Dynamic+Stand` | MidCamera | 0.30 s |
+| the target lock is on | `Locked_Cam+POSTURE` | LockedCamera | 0.20 s |
+| the aim (`AimDownSights`: the right mouse button, a ranged weapon or a bow drawn; [MOVEMENT.md](MOVEMENT.md)) | `Aim+POSTURE` | AimCamera | 0 s |
+| fragment Sprint or Sprint_Start | `Dynamic+Sprint+POSTURE` | DynamicCamera | 0.30 s |
+| fragment Idle | `Dynamic+Idle+POSTURE` | MidCamera | 0.30 s |
+| fragment Strafe (run, walk) | `Dynamic+Nav+POSTURE` | MidCamera | 0.30 s |
+| each other fragment (jump, fall, land) | `Dynamic+POSTURE` | MidCamera | 0.30 s |
 
-The other aim states (crouch, prone, the shooter stance, the siege weapons) are not in the client. The drive command
+POSTURE is `Stand`, `Crouch`, or `Prone` (stage P3.3, [MOVEMENT.md](MOVEMENT.md) "The postures"): the entries of the data
+give MidCameraCrouch, MidCameraProne, and the crouch states of the lock and of the aim. The shooter stance and the siege
+weapons are not in the client. The drive command
 `camera STATE` selects a state for the checks.
 
 A change of state blends each value with SmoothCD: the distance, the offset, the FOV, the pitch limits, and the look

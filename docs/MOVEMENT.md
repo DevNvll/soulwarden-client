@@ -1,6 +1,7 @@
 # The movement of the player
 
-Stage 1.7 (Linear AST-144), with the armed rates and the aim of stage P2.6 (AST-161). The client moves the character of the user with the values of the game data, plays the
+Stage 1.7 (Linear AST-144), with the armed rates and the aim of stage P2.6 (AST-161), and the postures, autorun, and the
+limits of the load and of the statuses of stage P3.3 (AST-176). The client moves the character of the user with the values of the game data, plays the
 original clips of the player with the timings of the Mannequin data, and sends the position of the character in the
 input report. The sources are the research file `~/Games/soulwarden-client/research/feel-values.md` (R2 the movement,
 R3 the animation, R6 the keys) and the Soulwarden protocol notes (4.6, 4.7). Each value in the code has its source
@@ -12,6 +13,7 @@ next to it.
 | --- | --- |
 | `Character/SwcCharacterMovement` | The movement states, the speeds and the rates of the data, the turn rule, the jumps with the root motion of their clips, the landings. A `UCharacterMovementComponent` with its own `CalcVelocity`. |
 | `Character/SwcPlayerAnimInstance` | The animation with no graph asset: the fragment of the movement state, its blend-in time, the blend spaces with the weight grid of the data, the motion parameters with their smoothing. The proxy blends the clips on the worker thread. |
+| `Character/SwcMoveRules` | Plain C++ (no engine; stage P3.3): the motion lists and the conditions of the movement actions, the postures and their transitions, autorun, and the limits of the load and of the statuses. `tools/test-movement.sh` tests it. |
 | `Character/SwcLocomotion` | Reads `SWC_CONTENT/player/locomotion.json` (the fragments, their markers, the blend spaces, the clips, the root track of the jump clips) and the imported clips of the base of each gender. |
 | `Public/SwcPlayerController` | The keys and the mouse look (Enhanced Input, made in code), the pitch limits, and the drive scripts (`-SwcDrive`). |
 | `Character/SwcPlayerCharacter` | The capsule, the mesh, the animation. The camera is in [CAMERA.md](CAMERA.md). |
@@ -112,6 +114,9 @@ tags of the weapon in `actions.json` select them (`USwcPlayerActions::TickCompon
 | Jump | Space | one press |
 | Walk | Left Ctrl | hold |
 | Aim | right mouse button | hold, with a ranged weapon or a bow drawn (stage P2.6) |
+| Crouch | C | a toggle: crouch, or stand from crouch (stage P3.3) |
+| Prone | Z | a toggle: prone, or stand from prone (stage P3.3) |
+| Autorun | `=` | a toggle (stage P3.3, "Autorun" below) |
 | Look | mouse | 0.025° for each mouse count (0.5 × the option sensitivity 0.05 × the sensitivity of the camera state), no smoothing (`bEnableMouseSmoothing=False`) |
 
 The camera, the wheel (zoom), the target lock (middle mouse), and free look (Left Alt) are in [CAMERA.md](CAMERA.md).
@@ -153,7 +158,8 @@ lanes to the right of the facing: lane A at 25 m (a ramp of 30° from 6 m, 10 m 
 `-SwcDrive=FILE` plays a script through the same input actions (Enhanced Input injection; no input tool of the host).
 `tests/drive/movement.txt` walks, sprints, turns, and stops, with a running, a standing, a backward, and a side jump.
 `tests/drive/rules.txt` runs the three lanes of the test floor. The line `SECONDS ability q|r|f [HOLD]` presses a key of the
-bar for HOLD seconds (default 0.1 s; stage P3.5, [ACTIONS.md](ACTIONS.md)).
+bar for HOLD seconds (default 0.1 s; stage P3.5, [ACTIONS.md](ACTIONS.md)). The lines `SECONDS crouch`, `SECONDS prone`,
+and `SECONDS autorun` press the keys C, Z, and `=` (stage P3.3).
 
 The clock of a drive script is the game time of the world (`GetTimeSeconds`). Under load it runs slower than the wall
 clock and the input steps of 1/30 s (the engine clamps a long frame): in the exit run of stage P3.5, 9 s of drive time
@@ -229,6 +235,152 @@ Evidence in `~/Games/soulwarden-client/evidence/P2.6/` (`armed-start-stop.mp4`, 
 - The aim with the bow: "actions: aim on (AimDownSights)", then a walk at 1.48 m/s to 1.65 m/s; after "aim off" the
   sprint starts again.
 
+## The movement modes and the limits (stage P3.3)
+
+The sources are the research file `~/Games/soulwarden-client/research/p33-movement.md` and the Soulwarden documents
+`docs/systems/position.md`, `status-effects.md`, and `stamina-and-dodge.md` (read only).
+
+### The rules of the data
+
+`tools/convert-player.sh movement` writes `SWC_CONTENT/player/movement.json` (`converter/swc_convert/movement.py`):
+
+- The motion lists of the actions Nav_Start, Nav, Nav_Stop, Sprint_Start, and Sprint (14, 17, 2, 8, and 9 conditionals).
+  Each conditional has a condition, the speeds of the three axes, the accelerations, the decelerations, and the
+  Backwards multiplier. The first conditional that holds gives the motion (the order of the data).
+- The facing lists (the turn rate of each conditional) and the 186 named conditions of the movement actions.
+- The movement columns of the 440 status rows: NoNav, NoRun, NoSprint, NoDodge, Stunned, Silenced, MoveSpeedMod,
+  SprintSpeedMod, and the categories.
+
+`swc::move::holds` (`SwcMoveRules`) evaluates the condition tree: And, Or, Not, True, False, IfMannequinTag, IfInput,
+IfMannequinMarker, IfEncumbered, IfCanRun, IfCanSprint, IfCanNav, IfCanDodge, ActionConditionEquipLoadCategory,
+IfPlayerSetting, IfCameraLockActive, IfExternalCondition (Exhausted), MoveSpeed, IfWaterDepth (no water: P4.4), and
+IfNamedCondition. A conditional name with no named condition is a Mannequin tag state (`Crouch`, `Wade+Crouch`).
+
+The speeds of the data (m/s; the tests compare each one with `movement.json`):
+
+| Posture | Sprint | Run (Nav) | Walk |
+| --- | --- | --- | --- |
+| Stand | 5.5 (accel 20; armed start 10) | 3.25 (accel 35; armed 25) | 1.65 (Stand_Walk) |
+| Crouch | 2.5 (start accel 10) | 1.25 (Crouch_Unarmed) | 0.825 (Crouch_Walk: only with a tool or a forced walk) |
+| Prone | 1.25 | 0.375 (accel 1, decel 5) | 0.1875 |
+
+- The order of the data decides two cases: an armed walk with Left Ctrl is `Combat_Nav_Stand_Fast` (3.25 m/s), and an
+  unarmed crouch walk is `Crouch_Unarmed` (1.25 m/s).
+- The turn rates: Nav 0.30, Aiming_Or_Shooting 0.35, Sprint 1.0, Sprint_Start 0.33; the slide 1.0, the dive 0.03.
+
+### The postures
+
+- C toggles `Crouch_Desired` and `Stand_Desired`; Z toggles `Prone_Desired` and `Stand_Desired` (the default key profile).
+- At rest the change plays `Idle_PostureTransition+TO+FromFROM` and holds the movement until its `CanTransition` marker
+  (0, 0, 0.4, 0.5, 0.8125, and 0.667 s; ClearMotion).
+- In a sprint the change plays `Sprint_PostureTransition`: the slide to crouch (2.75 m/s forced, decel 10, then 20 after
+  CanTransition 0.5 s), the dive to prone (0.1 m/s, decel 8, then 30, CanTransition 0.733 s), prone to stand (decel 10,
+  0.833 s), crouch to prone (0.733 s), prone to crouch (0.8125 s). Crouch to stand in a sprint is at once.
+- In a run the change is at once.
+- The capsule half height: stand 81 cm, crouch 58 cm, prone 42 cm. The feet stay. A change to a higher posture needs
+  room (a capsule overlap test).
+- A jump, an attack, and a fall stand the character up first. A draw of the weapon from prone goes to crouch. Prone
+  sheathes the weapon (not a rifle).
+- The fragments and the camera entries have the posture tag (`Sprint+Crouch`, `Idle+Prone`, `MidCameraCrouch`,
+  `MidCameraProne`; [CAMERA.md](CAMERA.md)).
+
+### Autorun
+
+`=` gives a virtual W. It ends at `=`, S, a new press of W, the aim, an attack, or a use of an object (the deactivation
+of the action AutoRun). A, D, a dodge, a jump, and the camera do not end it. Thus autorun gives the normal automatic
+sprint (5.5 m/s; crouch 2.5, prone 1.25).
+
+### The limits
+
+`swc::move::Limits` collects the limits each frame (`USwcBackendSubsystem::UpdateMovementLimits`):
+
+| Limit | Source | Effect |
+| --- | --- | --- |
+| Encumbered | the bag weight (the items of the bag × the weight column of the item catalog) above EncumbranceBaseMax (2000 tenths: 200.0) | no dodge, no ability (the rule U3 of the backend) |
+| The encumbered movement | the bag weight above 1.5 × the limit (300.0) | the condition IfEncumbered of the motion lists: the walk, no sprint, no dodge, no jump; no attack from rest |
+| Overburdened | the equip load above 100 % of 50.0 | no sprint, no dodge, no jump; the run at 3.25 m/s |
+| A status | the movement columns of each status of the status map (slot 44) | NoNav, NoRun, NoSprint, NoDodge (also no jump), Stunned (the fragments r_Stun, r_Stun_Loop, r_Stun_End; no movement, no ability, no attack) |
+| The speed table | key 0x35 of the speed table (slot 43), clamped to 0 to 1.5 | × the speed and the acceleration of Nav and Sprint (not the deceleration); the dodge × min(table, 1); a Slow category: the jump × 0.85 |
+| The server bits | dataBits and moreDataBits of the movement state | can sprint, can run, can navigate, can dodge |
+
+- The bag limit of 1.5 × is an inference from the live checks: the sprint at 200.2, the walk at 300.2.
+- Overburdened is not possible with the items of the game: the heaviest armor set has an equip load of 31.6, and the
+  shields have no equip load. The tests cover it.
+- A rule of this project: the client reads the movement columns of the statuses itself. The reason: the backend never
+  clears the movement permission bits (always 0xC0 0x03). The retail client gets them from the server. A root is
+  NoSprint + NoRun + NoNav.
+- The backend has no NoDodge check in its dodge (open point below).
+
+### The speed table and the road boost
+
+- The speed table (StatMultiplierTable, slot 43, type 1525; [NETWORK.md](NETWORK.md)): key 0x35 (SprintSpeedMod) scales the
+  run and the sprint of the client; key 0x34 (MoveSpeedMod) has no effect (the live checks of the backend). A slow of
+  0.5 gives a sprint of 2.75 m/s.
+- The road boost of the data: the action Traversal_Road_Sprint_Speed_Boost (IfOnRoad >= 0.1, 3 s of standing sprint)
+  applies the status Traversal_RoadSprintBoost_Haste (SprintSpeedMod +0.15, 3 s, DurationMax 3) again each 0.5 s. The
+  status is not client predicted (IsClientPredicted 0): the retail client waits for the speed table of the server. Thus
+  this client does not predict it: the sprint is 5.5 × 1.15 = 6.325 m/s only when the table of the server has 1.15.
+  Until a backend applies the boost, the client has no road boost.
+
+### The road maps
+
+`tools/convert-player.sh roads [NAME...]` (`converter/swc_convert/roads.py`; default: the 49 regions of the main world) writes
+`SWC_CONTENT/roads` (never in git):
+
+| File | Format |
+| --- | --- |
+| `NAME.r8` | 2048 × 2048 bytes, 1 m for each texel; row 0 = north (the smallest Unreal Y), column 0 = west. byte = round(255 × weight), weight = min(1, the sum of the road splat layers). IfOnRoad >= 0.1 is byte >= 26. |
+| `roads.json` | the format, and for each region its file, its road layers (the splat, the priority, the texels), the texels with a road weight, and the texels on a road |
+
+- The texel of the world point (x, y) m in the region r_+rx_+ry: column floor(x) − 2048 rx, row 2047 − (floor(y) − 2048 ry).
+- The source: the region material `jav_newworld_vitaeeterna_X_Y.regionmat` of each region. A road layer has a material in
+  `materials/terrain/roads/` (roads_splat, mountainroads_splat, coastroads_splat, damnedroads_splat). Its splat map is
+  one channel (BC4), 2048 × 2048. The orientation is the orientation of the macro map: in region 4_2 the road splat
+  agrees with the red-green value of the macro map (correlation +0.32; 0.04 or less for each flip or turn).
+- The layer priorities and AffectedTiles (the render tiles of a layer) are not applied. A layer with AffectedTiles 0
+  adds nothing.
+- The result: 28 of the 49 regions have roads; 5.55 km² are on a road. In r_+04_+02: 387,754 texels on a road.
+- An inference: the data does not say if IfOnRoad reads the road weight of the terrain or the cover of a road spline
+  (the RoadsAndRivers module). A backend can use the same maps.
+
+### The tests
+
+`tools/test-movement.sh` builds and runs two programs:
+
+- `tests/movement/movement_tests.cpp`: the speeds of each case against `movement.json` and the values of the research,
+  the posture keys and transitions, autorun, the limits of the load and of the statuses, and the position check of the
+  backend (`world/position_report.cpp`) with the reports of a simulated client: the sprint with the tables 1.0, 1.15, 1.4,
+  1.5, and 0.5, the crouch, the prone, and the slide are accepted; a control at 11 m/s is refused (116 checks).
+- `tests/net/own_state_tests.cpp`: the speed table and the status map of the encoders of the backend
+  (`stat_multiplier_state.cpp`, `status_state.cpp`) into the read path of the client after the golden session of case T2:
+  the slow, the haste (6.325 m/s), the key 0x0B, the neutral table; the root and the stun with their ends, stacks, and
+  potencies, an older stamp, the empty map (27 checks).
+
+### The exit check (development run, 2026-10-18)
+
+`tests/drive/p33-movement.txt` with the routes `tests/drive/p33-movement-routes.txt`: `Swordwarden` at the road junction
+9255 4735 m of r_+04_+02, the sprint along the road to the south-southwest, the turn back, then the other cases. Evidence in
+`~/Games/soulwarden-client/evidence/P3.3/`: `p33-movement.mp4`, `p33-movement-sheet.png` (one picture of each case), the logs,
+and `roads-r_+04_+02.png` (the road map of the region).
+
+| Case | The limits of the client (`move: limits`) | The speed (`move: sample`) |
+| --- | --- | --- |
+| Road haste (the status route again each 2.5 s) | speed table 1.15 | 6.325 m/s (7 samples), on the road |
+| Crouch sprint | `Sprint+Crouch`, `MidCameraCrouch` | 2.500 m/s |
+| Prone sprint | `Sprint+Prone`, `MidCameraProne` | 1.250 m/s |
+| Autorun | "autorun on", then "autorun off (the back key)" | 5.500 m/s |
+| Slow AI_Snare_6sec | speed table 0.50 | 2.750 m/s |
+| Root AI_Root_4sec | nav 0, run 0, sprint 0, jump 0 | W held and a jump press: no movement, no jump |
+| Stun AI_Stun_4sec | nav 0, dodge 0, jump 0, abilities 0, attack 0 | `r_Stun`, no movement |
+| Bag 263.9 of 200.0 | encumbered: dodge 0, abilities 0 | 5.500 m/s; the client refuses the dodge, the backend too ("the bag of the character is over its weight limit") |
+| Bag 363.9 | the movement limit: sprint 0, dodge 0, jump 0, attack 0 | 1.650 m/s (`Stand_Walk`); no jump |
+| Bag 58.9 again | each limit 1 | 5.500 m/s; the dodge plays (`Dodge_Roll_Slow`) |
+
+- The backend: 3,298 position reports accepted, 0 refused; the largest distance in one window 7.798 m in 1 s.
+- The line `move: sample` (each second while the character moves, only in a development run) gives the speeds.
+- Near the end one frame took 5.5 s (`FlushAsyncLoading` at the spawn of a creature). The reports of that frame were
+  accepted.
+
 ## Differences and open points
 
 - Land_Sprint and Land_Roll (root motion after a landing with input) are not played: a landing with input goes on to
@@ -241,7 +393,11 @@ Evidence in `~/Games/soulwarden-client/evidence/P2.6/` (`armed-start-stop.mp4`, 
 - The ground value of an entry in the air is the half float of the distance (an inference from "0 to 10; 10 in a
   fall" of protocol notes 4.7); on the ground the value of the captures (180).
 - TravelSlope is 0.
-- The armed rates of the crouch, the prone, the swim, and the mounts are not in the client. The aim of a magic weapon and
+- The swim and the mounts are not in the client (the swim is stage P4.4). The block key and the shield dodge wait for
+  their contracts in the backend.
+- The backend has no NoDodge check in its dodge, and probably no Silenced check: the client applies both itself.
+- The road boost needs a backend that applies Traversal_RoadSprintBoost_Haste (the road maps above).
+- Prone with a rifle: the client does not sheathe a rifle, but it has no prone aim. The aim of a magic weapon and
   the shooter stance are not in the client: the aim needs a ranged weapon or a bow.
 - A character that runs into a wall changes between Sprint and Sprint_Start each 1.13 s.
 - In the first second after the world entry the engine prepares the clips (the bind pose).
