@@ -637,6 +637,13 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                     ++m_own.storageRevision;
                 }
             }
+        } else if (fragment.slot == kSlotAchievement && fragment.type == kStateAchievement.index) {
+            if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
+                if (auto bytes = read_bit_vector(value)) {
+                    m_own.achievements = std::move(*bytes);
+                    ++m_own.achievementRevision;
+                }
+            }
         } else if (fragment.slot == kSlotPaperdoll && fragment.type == kStatePaperdoll.index) {
             // The owner view: two pairs of parallel lists (the slots with a look, the other slots). An entry is a change
             // of its slot; a slot with no entry keeps its item (client code 0x68382D0).

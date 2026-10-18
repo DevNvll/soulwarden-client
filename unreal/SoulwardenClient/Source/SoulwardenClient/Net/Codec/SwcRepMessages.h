@@ -87,14 +87,17 @@ inline constexpr MessageType kTakeItem{"PlayerTradeComponentServerFacet_TakeItem
 inline constexpr MessageType kStateContainer{"MB::ContainerComponentReplicatedState", "EF1A20F2F6CF439FA1AC63460F803134", 1755};
 inline constexpr MessageType kStateLootTracker{"MB::LootTrackerComponentReplicatedState", "756DEAE5A1F04863BE20B44D871C46A1", 982};
 inline constexpr MessageType kStateGlobalStorage{"MB::GlobalStorageComponentReplicatedState", "37F7555D8476410A9753850945075374", 2938};
+/** The achievements of the owner (stage P4.1 part 2; backend server/rep/states/ownership_states.cpp): field 0 is the byte vector of
+ *  the achievements (the bit of a read lore page). */
+inline constexpr MessageType kStateAchievement{"MB::AchievementComponentReplicatedState", "44528310AAA54E1BB8C168135B81CD06", 3210};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 35> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 36> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
     kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult, kTakeAllItems,
-    kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage};
+    kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -113,6 +116,8 @@ inline constexpr std::uint32_t kSlotBag = 61;
 inline constexpr std::uint32_t kSlotLootTracker = 33;
 inline constexpr std::uint32_t kSlotSelectedContainer = 76;
 inline constexpr std::uint32_t kSlotGlobalStorage = 77;
+/** The Achievement state of the player slice (backend state_codecs.h kAchievementSlot). */
+inline constexpr std::uint32_t kSlotAchievement = 66;
 
 /** The component id of the action list component (slot 16) of the entity RootPlayer of the player slice (game data
  *  slice-ids.json; research ids.md, table of the targets). The facet target of the input report is G + this id. */
@@ -384,6 +389,10 @@ struct StorageKey {
 };
 /** @return The keys of field 0 of a GlobalStorage state (the full form of the map), or no value. */
 std::optional<std::vector<StorageKey>> read_global_storage(std::span<const std::uint8_t> field);
+/** @return The bytes of field 0 of an Achievement state (the full form of the byte vector), or no value. */
+std::optional<std::vector<std::uint8_t>> read_bit_vector(std::span<const std::uint8_t> field);
+/** @return True when the bit `index` of a bit vector is set: byte index >> 3, mask 1 << (index & 7) (backend write_bits). */
+bool has_bit(const std::vector<std::uint8_t>& bytes, std::uint32_t index);
 
 /** The elements of a Container (protocol notes 4.10): one element for each slot; the full vector replaces them, a journal
  *  sets elements (at the length of the vector: a new element at the end). @return False when the value has no form. */

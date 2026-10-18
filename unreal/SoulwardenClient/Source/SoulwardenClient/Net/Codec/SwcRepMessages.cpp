@@ -396,6 +396,27 @@ std::optional<std::vector<StorageKey>> read_global_storage(std::span<const std::
     return keys;
 }
 
+std::optional<std::vector<std::uint8_t>> read_bit_vector(std::span<const std::uint8_t> field) {
+    // The full form of a vector: changes:size (0), version (has:u8, sequence:size64), count:size, the bytes.
+    Reader reader(field);
+    std::uint32_t count = 0;
+    if (!read_map_head(reader, count)) {
+        return std::nullopt;
+    }
+    std::vector<std::uint8_t> bytes;
+    for (std::uint32_t index = 0; index < count && reader.ok(); ++index) {
+        bytes.push_back(reader.u8());
+    }
+    if (!reader.ok()) {
+        return std::nullopt;
+    }
+    return bytes;
+}
+
+bool has_bit(const std::vector<std::uint8_t>& bytes, std::uint32_t index) {
+    return (index >> 3) < bytes.size() && (bytes[index >> 3] & (1U << (index & 7))) != 0;
+}
+
 bool apply_container(std::span<const std::uint8_t> field, std::vector<soulwarden::backend::tests::WireItem>& elements) {
     const soulwarden::backend::tests::WireContainer container = soulwarden::backend::tests::read_container(field);
     if (!container.ok) {
