@@ -14,6 +14,8 @@ Output in SWC_CONTENT/environment:
                         rain, snow, weather, ocean, waterVolume, river), the world matrix (4 x 4, rows, engine m), the shape,
                         the chain of the slices from the placement (an NPC or a camp owns the lights of its slice), and the raw
                         fields of the components (BaseClass1 stays)
+  volumes.json          the volumes of the world for the client in one compact file: the time-of-day volumes (shape, preset,
+                        priority, blend, hour override, sky, color grading) and the fog, rain, snow, weather, and ocean volumes
   sky.json              the sky slices of the presets: their meshes, materials, textures, texture motion, and parameters
   index.json            the counts
 
@@ -536,6 +538,47 @@ def regions_of_world() -> list[str]:
     return sorted({p[len(WORLD + "regions/"):].split("/")[0] for p in source.paks().paths(WORLD + "regions/", "/region.chunks")})
 
 
+VOLUME_KINDS = ("timeOfDay", "fog", "rain", "snow", "weather", "ocean")
+
+
+def shape_entry(shape: dict | None) -> dict | None:
+    """@return The compact shape of a volume for the client: the type and its sizes (m, in the frame of the entity)."""
+    if not shape:
+        return None
+    configuration = shape["fields"].get("Configuration", shape["fields"]) if isinstance(shape["fields"], dict) else {}
+    kind = shape["type"]
+    if kind in ("cylinder", "capsule"):
+        return {"type": kind, "radius": configuration.get("Radius", 0.0), "height": configuration.get("Height", 0.0)}
+    if kind == "sphere":
+        return {"type": kind, "radius": configuration.get("Radius", 0.0)}
+    if kind == "box":
+        return {"type": kind, "dimensions": configuration.get("Dimensions", [0.0, 0.0, 0.0])}
+    if kind == "polygonPrism":
+        prism = find_field(shape["fields"], "PolygonPrism") or {}
+        vertices = find_field(prism, "Vertices") or []
+        if isinstance(vertices, dict):
+            vertices = vertices.get("element", [])
+        return {"type": kind, "height": prism.get("Height", 0.0) if isinstance(prism, dict) else 0.0,
+                "vertices": [v[:2] for v in vertices if isinstance(v, list)]}
+    return {"type": kind}
+
+
+def volume_entry(record: dict, region: str) -> dict:
+    """@return The compact volume of a record for the client (volumes.json): a time-of-day volume with its preset, priority, blend,
+    hour override, sky, and color grading; another kind with its raw fields (stage E3)."""
+    out = {"kind": record["kind"], "region": region, "entity": record["entity"], "matrix": record["matrix"], "shape": shape_entry(record["shape"])}
+    if record["kind"] == "timeOfDay":
+        configuration = record["fields"].get("Configuration", {})
+        out.update({"preset": preset_path(configuration.get("fileName", "")), "priority": configuration.get("Priority", 0),
+                    "blendTime": configuration.get("BlendTime", 0.0), "blendDistance": configuration.get("BlendDistance", 0.0),
+                    "hourOverride": configuration.get("TimeOfDayOverride") if configuration.get("HasTimeOfDayOverride") else None,
+                    "sky": (configuration.get("sliceAsset") or {}).get("product"),
+                    "colorGrading": (configuration.get("ColorGrading") or {}).get("product")})
+    else:
+        out["fields"] = record["fields"]
+    return out
+
+
 def write(names: list[str] | None = None) -> dict:
     out = out_dir()
     (out / "regions").mkdir(parents=True, exist_ok=True)
@@ -546,8 +589,10 @@ def write(names: list[str] | None = None) -> dict:
     walk = Walk()
     index = {"regions": {}, "presets": len(doc_presets), "failures": []}
     sky_paths: set[str] = set()
+    volumes: list[dict] = []
     for name in names or regions_of_world():
         records, counts = region_records(name, walk)
+        volumes += [volume_entry(record, name) for record in records if record["kind"] in VOLUME_KINDS]
         for record in records:
             if record["kind"] == "timeOfDay":
                 configuration = record["fields"].get("Configuration", {})
@@ -558,6 +603,8 @@ def write(names: list[str] | None = None) -> dict:
                                                                   "counts": counts, "records": records}, separators=(",", ":")))
         index["regions"][name] = counts
         print(f"environment: {name} {json.dumps(counts)}", flush=True)
+    (out / "volumes.json").write_text(json.dumps({"space": "engine (m, Z up, right-handed; rows)", "volumes": volumes}, separators=(",", ":")))
+    index["volumes"] = len(volumes)
     (out / "sky.json").write_text(json.dumps(sky(sky_paths), indent=1))
     index["skySlices"] = len(sky_paths)
     index["slicesRead"] = walk.reads
