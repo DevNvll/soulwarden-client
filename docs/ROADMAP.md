@@ -75,28 +75,11 @@ Go or no-go points: after 1.3 (the user flies through the open world: streaming,
 (the client enters the world of the unchanged backend with a character of the user), after 1.8 (the user judges the
 feel of walking and of the camera), and after 1.10.
 
-## Milestone 2: the UI
+## After milestone 1: the parity plan
 
-| Id | Content | Size |
-| --- | --- | --- |
-| 2.1 | Canvas converter: LyShine canvases (binary object streams) -> UMG widgets: transforms, anchors, images and sprites (9-slice), texts with the original fonts and styles, layouts, masks | L |
-| 2.2 | The screen system: the states of the screen manager of the client (open, close, escape, mouse owner, draw layers) | M |
-| 2.3 | The logic of the screens: the decision of R5, then the core screens (inventory, paperdoll, character, map, crafting, death, loot, interaction) | XL |
-
-## Milestone 3: combat feel
-
-Weapons in the hand, the basic attacks from the attack graph of the data, the abilities, the hit reactions, the
-dodge, the stamina, the projectiles, the first effects (a converter of the particle libraries to Niagara for the
-common parameters). The backend already has these systems; the client plays their states and fragments. Size XL.
-
-## Milestone 4: the rest of the world
-
-The grass (`.vegetation`), the water, the time of day from the time of day XML and the world clock of the backend,
-the weather volumes, the other levels (dungeons, arenas, trials). Size XL.
-
-## Later: the look
-
-Master materials (`Illum`, `HumanSkin`, hair, terrain layers, foliage with wind, water), only when the user asks.
+The milestones after milestone 1 come from the parity plan (AST-155): [PARITY.md](PARITY.md). P2 (first fight loop
+and essential UI) is next; then P3 to P9. The earlier milestones 2 to 4 of this file (the UI, combat feel, the rest of
+the world) are now parts of P2, P3, and P4.
 
 ## Research items
 
