@@ -21,6 +21,9 @@ content, and the large cost is the client logic (animation logic, UI, combat cli
 | Identity | The Steam account of the user, read at run time; the Steam authentication functions are stubs. |
 | Characters | The same characters as the retail game: a player run uses the data folder of the user. |
 | Roles | The research thread of AST-135 is the orchestrator of this project; the Soulwarden orchestrator does only the backend. |
+| UI logic (D1) | The original Lua 5.1 scripts run in an embedded Lua 5.1.5 (MIT), with an emulation of the buses that grows screen by screen behind a stub layer that logs each missing call. |
+| First HUD (D2) | Stage 1.10 runs the original HUD scripts (size L); it is the go or no-go point of D1. |
+| Canvases (D3) | The canvases are converted as data, with one runtime widget that follows the LyShine rules. |
 
 ## Status
 
@@ -61,7 +64,7 @@ budget (269 GB free on 2026-10-18).
 | 1.7 | Movement feel: the movement values of the player slice and the client data (speeds, acceleration, turn, jump, sprint, slopes), the input report 1589 at 30 Hz with the position, the locomotion graph from the player clips and the blend spaces | L | 1.6, R2, R6 |
 | 1.8 | Camera feel: the camera values of the client (distance, offsets, lag, field of view, the combat and aim modes) | M | 1.7, R1 |
 | 1.9 | Creatures of the backend in the whole world: records -> slice -> character model, movement interpolation, action fragments -> montages, name plate and health bar | L | 1.5, R3 |
-| 1.10 | First HUD from the converted canvases: health, stamina, mana, the compass, the interaction prompt | M | R4 |
+| 1.10 | First HUD with the original HUD scripts (D1 to D3): the canvas converter as data, the runtime widget, the embedded Lua 5.1.5 with the bus emulation and the stub log, the HUD data from the backend states | L | 1.5, R4, R5 |
 
 Two tracks can run at the same time: the world (1.1 to 1.3) and the connection (1.4, 1.5). They meet at 1.5 (the
 client enters the open world at the place of the character).
@@ -94,6 +97,9 @@ the weather volumes, the other levels (dungeons, arenas, trials). Size XL.
 Master materials (`Illum`, `HumanSkin`, hair, terrain layers, foliage with wind, water), only when the user asks.
 
 ## Research items
+
+R4 and R5 are answered (AST-148, 2026-10-18): `~/Games/soulwarden-client/research/ui.md` (outside the repository),
+with the decisions D1 to D3 above.
 
 R1, R2, R3, and R6 are answered (AST-142, 2026-10-18): `~/Games/soulwarden-client/research/feel-values.md` (outside
 the repository). Its section 3 lists the open points of each stage; most need a side-by-side video with the retail
