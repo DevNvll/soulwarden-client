@@ -7,6 +7,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "ContentStreaming.h"
 #include "Editor.h"
+#include "Engine/CollisionProfile.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -18,6 +19,12 @@
 #include "LandscapeSubsystem.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/FileHelper.h"
+#include "Misc/PackageName.h"
+#include "Misc/Paths.h"
+#include "PhysicsEngine/BodySetup.h"
+#include "Chaos/TriangleMeshImplicitObject.h"
+#include "StaticMeshAttributes.h"
+#include "StaticMeshCompiler.h"
 #include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
 #include "ShaderCompiler.h"
@@ -260,15 +267,51 @@ int32 USwcEditorLibrary::SpawnInstanceActors(const FString& File)
 		return -1;
 	}
 	FSwcReader Reader{Bytes, 4};
-	if (Reader.Read<uint32>() != 1)
+	const uint32 Version = Reader.Read<uint32>();
+	if (Version != 1 && Version != 2)
 	{
 		return -1;
 	}
+	// One entry for each pair (mesh, material override) of the file (version 2; version 1: the mesh alone).
 	TArray<UStaticMesh*> Meshes;
+	TArray<UStaticMesh*> CollisionMeshes;   // the collision of the game of each mesh (P4.1, design 2), or none
+	TArray<TArray<TPair<int32, UMaterialInterface*>>> SlotMaterials;   // the slots that the override changes
+	TMap<FString, UMaterialInterface*> MaterialCache;
+	int32 MissingSlots = 0;
 	const uint32 MeshCount = Reader.Read<uint32>();
 	for (uint32 Index = 0; Index < MeshCount && !Reader.bFailed; ++Index)
 	{
-		Meshes.Add(FindStaticMesh(Reader.Text()));
+		const FString Folder = Reader.Text();
+		UStaticMesh* Mesh = FindStaticMesh(Folder);
+		Meshes.Add(Mesh);
+		// import_content.py section 6: /SwcGameContent/Collision/FOLDER_NAME/C_MESH_NAME.
+		CollisionMeshes.Add(FindStaticMesh(TEXT("/SwcGameContent/Collision/") + FPaths::GetCleanFilename(Folder)));
+		TArray<TPair<int32, UMaterialInterface*>>& Slots = SlotMaterials.AddDefaulted_GetRef();
+		const uint16 SlotCount = Version >= 2 ? Reader.Read<uint16>() : 0;
+		for (uint16 Slot = 0; Slot < SlotCount && !Reader.bFailed; ++Slot)
+		{
+			const FString SlotName = Reader.Text();
+			const FString Key = Reader.Text();
+			UMaterialInterface*& Material = MaterialCache.FindOrAdd(Key);
+			if (!Material)
+			{
+				// import_content.py: the material instance of a material record is /SwcGameContent/Materials/KEY.
+				Material = LoadObject<UMaterialInterface>(nullptr, *FString::Printf(TEXT("/SwcGameContent/Materials/%s.%s"), *Key, *Key), nullptr, LOAD_Quiet | LOAD_NoWarn);
+			}
+			const int32 MaterialIndex = Mesh ? Mesh->GetMaterialIndex(FName(*SlotName)) : INDEX_NONE;
+			if (Material && MaterialIndex != INDEX_NONE)
+			{
+				Slots.Emplace(MaterialIndex, Material);
+			}
+			else
+			{
+				++MissingSlots;
+			}
+		}
+	}
+	if (MissingSlots > 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SWC cells: %d override slots with no slot or no material instance (%s)"), MissingSlots, *File);
 	}
 	const uint32 ActorCount = Reader.Read<uint32>();
 	int32 Spawned = 0;
@@ -320,10 +363,34 @@ int32 USwcEditorLibrary::SpawnInstanceActors(const FString& File)
 			UInstancedStaticMeshComponent* Component = NewObject<UInstancedStaticMeshComponent>(Actor, NAME_None, RF_Transactional);
 			Component->SetMobility(EComponentMobility::Static);
 			Component->SetStaticMesh(Mesh);
+			Component->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);   // the collision is below
+			for (const TPair<int32, UMaterialInterface*>& Slot : SlotMaterials[MeshIndex])
+			{
+				Component->SetMaterial(Slot.Key, Slot.Value);   // the material override of the placements (P4.1)
+			}
 			Component->SetupAttachment(Root);
 			Actor->AddInstanceComponent(Component);
 			Component->RegisterComponent();
 			Component->AddInstances(Transforms, false, true);
+			UStaticMesh* CollisionMesh = MeshIndex < static_cast<uint32>(CollisionMeshes.Num()) ? CollisionMeshes[MeshIndex] : nullptr;
+			if (!CollisionMesh)
+			{
+				continue;   // the game has no collision for this mesh
+			}
+			// The collision of the game: hidden instances of the collision-only mesh at the same transforms.
+			UInstancedStaticMeshComponent* Collision = NewObject<UInstancedStaticMeshComponent>(Actor, NAME_None, RF_Transactional);
+			Collision->SetMobility(EComponentMobility::Static);
+			Collision->SetStaticMesh(CollisionMesh);
+			Collision->SetVisibility(false);
+			Collision->SetHiddenInGame(true);
+			Collision->SetCastShadow(false);
+			Collision->bAffectDistanceFieldLighting = false;
+			Collision->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
+			Collision->ComponentTags.Add(TEXT("SwcCollision"));
+			Collision->SetupAttachment(Root);
+			Actor->AddInstanceComponent(Collision);
+			Collision->RegisterComponent();
+			Collision->AddInstances(Transforms, false, true);
 		}
 		if (!Label.IsEmpty())
 		{
@@ -365,4 +432,189 @@ int32 USwcEditorLibrary::RemoveInstanceComponentsOf(AActor* Actor, const TArray<
 		++Removed;
 	}
 	return Removed;
+}
+
+namespace
+{
+/** Reads a collision file of the converter: the vertices (engine m) and the triangles (engine winding). */
+bool ReadCollisionFile(const FString& File, TArray<FVector3f>& OutVertices, TArray<uint32>& OutIndices)
+{
+	TArray<uint8> Data;
+	if (!FFileHelper::LoadFileToArray(Data, *File) || Data.Num() < 16 || FMemory::Memcmp(Data.GetData(), "SWCC", 4) != 0)
+	{
+		return false;
+	}
+	uint32 Header[3];
+	FMemory::Memcpy(Header, Data.GetData() + 4, sizeof(Header));
+	const int64 VertexCount = Header[1];
+	const int64 TriangleCount = Header[2];
+	if (Header[0] != 1 || Data.Num() != 16 + VertexCount * 12 + TriangleCount * 12)
+	{
+		return false;
+	}
+	OutVertices.SetNumUninitialized(VertexCount);
+	OutIndices.SetNumUninitialized(TriangleCount * 3);
+	FMemory::Memcpy(OutVertices.GetData(), Data.GetData() + 16, VertexCount * 12);
+	FMemory::Memcpy(OutIndices.GetData(), Data.GetData() + 16 + VertexCount * 12, TriangleCount * 12);
+	return true;
+}
+} // namespace
+
+bool USwcEditorLibrary::SetGameCollision(UStaticMesh* Mesh, const FString& File, const FString& CollisionAssetPath)
+{
+	if (!Mesh)
+	{
+		return false;
+	}
+	UStaticMesh* Collision = nullptr;
+	if (!File.IsEmpty())
+	{
+		TArray<FVector3f> Vertices;
+		TArray<uint32> Indices;
+		if (!ReadCollisionFile(File, Vertices, Indices))
+		{
+			return false;
+		}
+		// The space map of stage 1.1: Unreal = diag(100, -100, 100) x engine. The corners keep their order: with the
+		// mirror, the front of a triangle that faces out in the engine space faces out in Unreal too (the complex
+		// collision ignores the back of a triangle; with the order turned, a line down went through each top face).
+		FMeshDescription Description;
+		FStaticMeshAttributes Attributes(Description);
+		Attributes.Register();
+		TVertexAttributesRef<FVector3f> Positions = Attributes.GetVertexPositions();
+		Description.ReserveNewVertices(Vertices.Num());
+		for (const FVector3f& Vertex : Vertices)
+		{
+			const FVertexID Id = Description.CreateVertex();
+			Positions[Id] = FVector3f(Vertex.X * 100.0f, -Vertex.Y * 100.0f, Vertex.Z * 100.0f);
+		}
+		const FPolygonGroupID Group = Description.CreatePolygonGroup();
+		Attributes.GetPolygonGroupMaterialSlotNames()[Group] = TEXT("Collision");
+		int32 Triangles = 0;
+		for (int32 Index = 0; Index + 2 < Indices.Num(); Index += 3)
+		{
+			const uint32 A = Indices[Index], B = Indices[Index + 1], C = Indices[Index + 2];
+			if (A >= uint32(Vertices.Num()) || B >= uint32(Vertices.Num()) || C >= uint32(Vertices.Num()) || A == B || B == C || A == C)
+			{
+				continue;   // a triangle with a repeated vertex has no area
+			}
+			FVertexInstanceID Corners[3] = {Description.CreateVertexInstance(FVertexID(A)), Description.CreateVertexInstance(FVertexID(B)),
+				Description.CreateVertexInstance(FVertexID(C))};
+			Description.CreateTriangle(Group, Corners);
+			++Triangles;
+		}
+		if (Triangles == 0)
+		{
+			return false;
+		}
+		const FString AssetName = FPackageName::GetShortName(CollisionAssetPath);
+		UPackage* Package = CreatePackage(*CollisionAssetPath);
+		Collision = FindObject<UStaticMesh>(Package, *AssetName);
+		if (!Collision)
+		{
+			Collision = NewObject<UStaticMesh>(Package, *AssetName, RF_Public | RF_Standalone);
+			FAssetRegistryModule::AssetCreated(Collision);
+		}
+		Collision->Modify();
+		if (Collision->GetNumSourceModels() == 0)
+		{
+			Collision->AddSourceModel();
+		}
+		FStaticMeshSourceModel& Source = Collision->GetSourceModel(0);
+		Source.BuildSettings.bRecomputeNormals = true;
+		Source.BuildSettings.bRecomputeTangents = false;
+		Source.BuildSettings.bGenerateLightmapUVs = false;
+		Source.BuildSettings.bBuildReversedIndexBuffer = false;
+		Source.BuildSettings.DistanceFieldResolutionScale = 0.0f;   // never drawn: no distance field, no Lumen cards
+		Source.BuildSettings.MaxLumenMeshCards = 0;
+		Collision->bSupportRayTracing = false;
+		Collision->CreateMeshDescription(0, MoveTemp(Description));
+		Collision->CommitMeshDescription(0);
+		FMeshNaniteSettings Nanite = Collision->GetNaniteSettings();
+		Nanite.bEnabled = false;
+		Collision->SetNaniteSettings(Nanite);
+		Collision->SetStaticMaterials({FStaticMaterial(nullptr, TEXT("Collision"), TEXT("Collision"))});
+		Collision->bAllowCPUAccess = true;   // the physics reads the triangles of its render data
+		Collision->Build(true);
+		// The build is async. The cook below reads the triangles of the render data: it must wait for the build, else it
+		// cooks an empty body, and the cache keeps it under the new BodySetupGuid (the key of the cooked physics).
+		FStaticMeshCompilingManager::Get().FinishCompilation({Collision});
+		Collision->MarkPackageDirty();
+	}
+	// The render mesh: no collision. (A render mesh with a ComplexCollisionMesh crashed: its async post-load cooked the
+	// body while the other mesh was still compiling, and GetPhysicsTriMeshDataCheckComplex checks HasValidRenderData.)
+	Mesh->Modify();
+	if (!Mesh->GetBodySetup())
+	{
+		Mesh->CreateBodySetup();
+	}
+	UBodySetup* Body = Mesh->GetBodySetup();
+	Body->Modify();
+	Body->RemoveSimpleCollision();
+	Mesh->ComplexCollisionMesh = nullptr;
+	Body->CollisionTraceFlag = CTF_UseSimpleAsComplex;   // no simple shape: no collision at all
+	Body->InvalidatePhysicsData();
+	Body->CreatePhysicsMeshes();
+	Mesh->SetCustomizedCollision(true);   // a new import keeps this collision
+	Mesh->MarkPackageDirty();
+	if (!Collision)
+	{
+		return true;
+	}
+	// The collision mesh: its own triangles are its collision (the standard path of a static mesh: its post-load has its
+	// render data before its cook). The cells of the level place it, hidden, at the instances of the render mesh.
+	if (!Collision->GetBodySetup())
+	{
+		Collision->CreateBodySetup();
+	}
+	UBodySetup* CollisionBody = Collision->GetBodySetup();
+	CollisionBody->Modify();
+	CollisionBody->RemoveSimpleCollision();
+	CollisionBody->CollisionTraceFlag = CTF_UseComplexAsSimple;
+	CollisionBody->InvalidatePhysicsData();
+	CollisionBody->CreatePhysicsMeshes();
+	Collision->SetCustomizedCollision(true);
+	Collision->MarkPackageDirty();
+	if (CollisionBody->TriMeshGeometries.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SWC collision: %s has no triangles after the cook"), *Collision->GetPathName());
+		return false;
+	}
+	return true;
+}
+
+FString USwcEditorLibrary::DescribeCollision(UStaticMesh* Mesh)
+{
+	if (!Mesh || !Mesh->GetBodySetup())
+	{
+		return TEXT("no mesh or no body");
+	}
+	UBodySetup* Body = Mesh->GetBodySetup();
+	const UStaticMesh* Complex = Mesh->ComplexCollisionMesh;
+	int32 ComplexTriangles = -1;
+	if (Complex && Complex->GetRenderData() && Complex->GetRenderData()->LODResources.Num() > 0)
+	{
+		ComplexTriangles = Complex->GetRenderData()->LODResources[0].GetNumTriangles();
+	}
+	FString MeshId(TEXT("none"));
+	Mesh->GetMeshId(MeshId);
+	FString Cooked;
+	for (const Chaos::FTriangleMeshImplicitObjectPtr& TriMesh : Body->TriMeshGeometries)
+	{
+		if (TriMesh.IsValid())
+		{
+			const Chaos::FAABB3 Box = TriMesh->BoundingBox();
+			Cooked += FString::Printf(TEXT(" [%d triangles, %s to %s]"), TriMesh->Elements().GetNumTriangles(), *FVector(Box.Min()).ToString(), *FVector(Box.Max()).ToString());
+		}
+	}
+	return FString::Printf(TEXT("trace %d, complex %s (%d triangles), render data %d, contains tri data %d, cooked tri meshes %d, simple %d, guid %s, mesh id %s"),
+		int32(Body->CollisionTraceFlag), Complex ? *Complex->GetName() : TEXT("none"), ComplexTriangles, Mesh->GetRenderData() != nullptr,
+		Mesh->ContainsPhysicsTriMeshData(true), Body->TriMeshGeometries.Num(), Body->AggGeom.GetElementCount(),
+		*Body->BodySetupGuid.ToString(), *MeshId.Right(40)) + Cooked;
+}
+
+bool USwcEditorLibrary::DestroyActor(AActor* Actor)
+{
+	UWorld* World = Actor ? Actor->GetWorld() : nullptr;
+	return World && World->EditorDestroyActor(Actor, true);
 }

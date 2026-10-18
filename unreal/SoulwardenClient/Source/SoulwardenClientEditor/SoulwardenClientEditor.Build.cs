@@ -7,6 +7,6 @@ public class SoulwardenClientEditor : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
-		PrivateDependencyModuleNames.AddRange(new string[] { "RenderCore", "RHI", "ImageWrapper", "UnrealEd", "Landscape", "InterchangeCore", "InterchangeFactoryNodes" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "RenderCore", "RHI", "ImageWrapper", "UnrealEd", "Landscape", "InterchangeCore", "InterchangeFactoryNodes", "MeshDescription", "StaticMeshDescription", "PhysicsCore", "Chaos" });
 	}
 }

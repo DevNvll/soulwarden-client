@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Imports the meshes of regions (and their textures and materials) into the shared plugin in short calls of
+# Imports the meshes of regions (and their textures, materials, and collision) into the shared plugin in short calls of
 # tools/import.sh: each call stops after about 8 minutes (--max-seconds) and releases import.lock, and the script waits
 # 15 s before the next call, so that an import of another track gets the lock between two calls.
 # Usage: tools/import-world.sh NAME... | --playable | --all
@@ -24,6 +24,9 @@ assets = json.load(open(os.path.join(content, 'manifest.json')))['assets']
 path = os.path.join(plugin, 'import-state.json')
 state = json.load(open(path)) if os.path.isfile(path) else {}
 left = sum(1 for m in meshes if assets.get(m, {}).get('kind') == 'static' and state.get(m) != assets[m].get('hash'))
+# The collision of the game (import_content.py section 6, COLLISION_VERSION 6): a hash, or none for no physics file.
+left += sum(1 for m in meshes if assets.get(m, {}).get('kind') == 'static' and
+            state.get('collision:' + m) != (assets[m].get('collision') or {}).get('hash', 'none') + ':6')
 left += 1 if 'texture:macro:' + region in assets and 'texture:macro:' + region not in state else 0   # the terrain map
 left += sum(1 for k, e in assets.items() if k.startswith('impostor:' + region + ':') and state.get(k) != e.get('hash'))
 print(left)" \

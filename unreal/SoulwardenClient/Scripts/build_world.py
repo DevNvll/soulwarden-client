@@ -11,7 +11,8 @@ tools/import-world.sh for the regions.
 - SWC_GAME_CONTENT/world-state.json has the regions in the level; a region in it is not made again
   (SWC_WORLD_FORCE=1 makes the level again from no region).
 - A region has three steps (the Landscape, the cell actors, the far meshes); "partial" in the state has the steps
-  that are done. After a step, a call that is older than SWC_WORLD_MAX_SECONDS stops ("incomplete" in the report): the
+  that are done. With SWC_WORLD_CELLS=1, a region in the level whose "cells version" is older than CELLS_VERSION gets
+  new cell actors in two steps (destroy the old ones, spawn the new cells file). After a step, a call that is older than SWC_WORLD_MAX_SECONDS stops ("incomplete" in the report): the
   next call continues. Thus a call holds import.lock for less than 10 minutes (docs/WORLD.md).
 Environment: SWC_CONTENT, SWC_GAME_CONTENT, SWC_WORLD_REGIONS (the region names), SWC_WORLD_LEVEL (another level
 path, for a test), SWC_WORLD_FORCE=1, SWC_WORLD_MAX_SECONDS (default 240).
@@ -37,6 +38,11 @@ tools = unreal.AssetToolsHelpers.get_asset_tools()
 library = unreal.SwcEditorLibrary
 started = time.time()
 MAX_SECONDS = float(os.environ.get("SWC_WORLD_MAX_SECONDS") or 240)   # then the call stops after its current step
+CELLS_AGAIN = os.environ.get("SWC_WORLD_CELLS", "") == "1"
+# The rule of the cell actors: 1 = stage 1.3; 2 = P4.1 (a placement in the cell of its place, the depleted meshes of the
+# gathering nodes left out, the hidden collision instances of the game, no collision on the render instances; 3: a
+# distribution row places the meshes of its variant; 4: the material overrides of the placements, cells file version 2).
+CELLS_VERSION = 4
 unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([ROOT], True)
 manifest = json.load(open(os.path.join(content, "manifest.json")))["assets"]
 state_path = os.path.join(plugin, "world-state.json" if LEVEL.startswith(ROOT) else "world-state-test.json")
@@ -289,9 +295,58 @@ def out_of_time():
     return time.time() - started > MAX_SECONDS
 
 
+def destroy_cells(name):
+    """Destroys the cell actors of a region in the level (a new cells file replaces them). @return The count."""
+    result = unreal.WorldPartitionBlueprintLibrary.get_actor_descs()
+    descs = result[1] if isinstance(result, tuple) else result
+    guids = [d.guid for d in descs if str(d.label).startswith(f"{name} cell ")]
+    if not guids:
+        return 0
+    unreal.WorldPartitionBlueprintLibrary.load_actors(guids)
+    count = 0
+    files = []
+    for actor in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+        if actor.get_actor_label().startswith(f"{name} cell "):
+            package = actor.get_outermost().get_name()   # the external actor package (/SwcGameContent/__ExternalActors__/...)
+            if library.destroy_actor(actor):
+                count += 1
+                files.append(os.path.join(plugin, "Content", package[len(ROOT) + 1:] + ".uasset"))
+    unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+    unreal.SystemLibrary.collect_garbage()
+    # The save of a commandlet keeps the files of destroyed external actors (the next load had them again): delete them.
+    for path in files:
+        if os.path.isfile(path):
+            os.remove(path)
+    return count
+
+
 incomplete = False
 partial = state.setdefault("partial", {})
 for name in regions:
+    done = state["regions"].get(name)
+    if done is not None and CELLS_AGAIN and done.get("cells version", 1) < CELLS_VERSION:
+        if out_of_time():
+            incomplete = True
+            break
+        cells = os.path.join(content, "regions", name, "cells.bin")
+        if "cells destroyed" not in done:
+            phase = time.time()
+            done["cells destroyed"] = destroy_cells(name)
+            save_state()
+            log(f"region {name}: {done['cells destroyed']} old cell actors destroyed ({time.time() - phase:.1f} s)")
+            # The spawn of a large region takes about 5 minutes: it has its own call (import.lock less than 10 minutes).
+            incomplete = True
+            break
+        phase = time.time()
+        done["cell actors"] = library.spawn_instance_actors(cells) if os.path.isfile(cells) else 0
+        unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+        unreal.SystemLibrary.collect_garbage()
+        done["cells seconds"] = round(time.time() - phase, 1)
+        done["cells version"] = CELLS_VERSION
+        done.pop("cells destroyed", None)
+        save_state()
+        log(f"region {name}: cells again {json.dumps(done)}")
+        continue
     if name in state["regions"]:
         log(f"region {name}: in the level")
         continue
@@ -331,7 +386,7 @@ for name in regions:
     impostor_groups = add_impostors(name)
     unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
     unreal.SystemLibrary.collect_garbage()
-    state["regions"][name] = dict(steps, impostors=impostor_groups, **{"empty removed": len(folders),
+    state["regions"][name] = dict(steps, impostors=impostor_groups, **{"empty removed": len(folders), "cells version": CELLS_VERSION,
                                                                       "impostors seconds": round(time.time() - phase, 1)})
     partial.pop(name)
     save_state()

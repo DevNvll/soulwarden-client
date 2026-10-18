@@ -13,6 +13,9 @@ Shared assets (stage 1.2):
 - Static meshes: glTF with no material and no texture import; each slot has the name of a material record, and the
   script gives it that material instance. A mesh with a translucent material has no Nanite.
 - Characters and test assets: the default glTF pipeline (their own materials and textures).
+- Collision (P4.1): a static mesh with a collision file (the physics file of the game) gets its triangles as the
+  complex collision: a collision-only mesh in /SwcGameContent/Collision/STEM_HASH. A mesh with no collision file gets
+  no collision. The state key is "collision:KEY".
 
 Incremental: SWC_GAME_CONTENT/import-state.json keeps the hash of each imported asset. An asset imports again when its
 hash changed (a new conversion) or SWC_IMPORT_FORCE=1.
@@ -43,10 +46,20 @@ state = json.load(open(state_path)) if os.path.isfile(state_path) else {}
 tools = unreal.AssetToolsHelpers.get_asset_tools()
 assets = unreal.EditorAssetLibrary
 editing = unreal.MaterialEditingLibrary
+library = unreal.SwcEditorLibrary
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
 BASE_VERSION = "1"   # the rule of the base materials and of the material instances
-PIPELINE_VERSION = "4"   # the rule of the mesh pipelines (3: SwcMaterialLinkPipeline; 4: no distance field, no cards)
+PIPELINE_VERSION = "5"   # the rule of the mesh pipelines (3: SwcMaterialLinkPipeline; 4: no distance field, no cards;
+                         # 5: no generated collision: section 6 gives the collision of the game)
+COLLISION_VERSION = "6"  # the rule of section 6 (tools/import-world.sh has the same value; 2: the cook waits for the
+                         # build of the collision mesh, version 1 cooked empty bodies; 3: no distance field, no Lumen
+                         # cards, no ray tracing for the collision meshes; 4: the render mesh has no collision and no
+                         # complex collision mesh, the collision mesh has its own collision, the cells place it;
+                         # 5: the corners keep their order, version 4 and before had the collision meshes inside out;
+                         # 6: an old collision mesh is deleted first: a new build of an existing one kept its old
+                         # triangles)
+COLLISION_ROOT = "/SwcGameContent/Collision"
 started = time.time()
 # A commandlet does not scan the content of a plugin: scan it before any question to the asset registry.
 unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([ROOT], True)
@@ -110,6 +123,8 @@ for key, entry in manifest.items():
     if wanted and wanted not in key:
         continue
     selected.add(key)
+# A listed material or texture key (for example the material overrides of the placements: overrides.py) is selected too.
+selected.update(k for k in listed if k in manifest and manifest[k]["kind"] in ("material", "texture"))
 selected = {k for k in selected if k in manifest}
 for key in list(selected):
     for material in manifest[key].get("materials", []):
@@ -201,6 +216,7 @@ def mesh_pipeline(name, nanite):
         meshes.set_editor_property("distance_field_resolution_scale", 0.0)
         meshes.set_editor_property("max_lumen_mesh_cards", 0)
         meshes.set_editor_property("import_skeletal_meshes", False)
+        meshes.set_editor_property("collision", False)   # no 18-DOP: the collision of the game (section 6)
         pipeline.get_editor_property("animation_pipeline").set_editor_property("import_animations", False)
         assets.save_loaded_asset(pipeline)
         state["base:" + name] = PIPELINE_VERSION
@@ -366,6 +382,54 @@ for kind in ("static", "character", "test"):
 flush()
 save_state()
 report["seconds"]["meshes"] = round(time.time() - phase, 1)
+
+# 6. The collision of the game (P4.1, converter/swc_convert/collision.py): a static mesh with a collision file gets its
+# triangles as the complex collision (a collision-only mesh in COLLISION_ROOT); a mesh with none gets no collision (the
+# game has no physics file for it: plants, cloth, small props). Only the mesh asset changes: the cells of the level
+# take the collision of their meshes.
+phase = time.time()
+changed = []
+# A render mesh of version 1 to 3 has a complex collision mesh: its async post-load can cook while that mesh compiles
+# (a crash in GetPhysicsTriMeshDataCheckComplex). Synchronous mesh compilation loads them safely.
+unreal.SystemLibrary.execute_console_command(None, "Editor.AsyncStaticMeshCompilation 0")
+for key in by_kind.get("static", []):
+    if report["incomplete"] or out_of_time():
+        break
+    entry = manifest[key]
+    record = entry.get("collision")
+    wanted_state = (record["hash"] if record else "none") + ":" + COLLISION_VERSION
+    if not force and state.get("collision:" + key) == wanted_state:
+        count("collision", False)
+        continue
+    mesh = first_asset(entry["unreal"], "StaticMesh")
+    if mesh is None:
+        continue   # not imported
+    folder = COLLISION_ROOT + "/" + entry["unreal"].rsplit("/", 1)[1]
+    collision_path = folder + "/C_" + mesh.get_name()
+    if assets.does_asset_exist(collision_path):
+        assets.delete_asset(collision_path)   # a new build of an existing collision mesh kept its old triangles
+    if not library.set_game_collision(mesh, os.path.join(content, record["file"]) if record else "", collision_path):
+        report["failed"].append(f"collision {key}: the collision file cannot be read")
+        continue
+    changed.append((key, wanted_state, mesh.get_path_name(), folder if record else None))
+    if len(changed) >= 50:
+        for done_key, done_state, mesh_path, collision_folder in changed:
+            assets.save_asset(mesh_path, only_if_is_dirty=False)
+            if collision_folder:
+                assets.save_directory(collision_folder, only_if_is_dirty=False, recursive=True)
+            state["collision:" + done_key] = done_state
+            count("collision", True)
+        changed.clear()
+        save_state()
+        unreal.SystemLibrary.collect_garbage()
+for done_key, done_state, mesh_path, collision_folder in changed:
+    assets.save_asset(mesh_path, only_if_is_dirty=False)
+    if collision_folder:
+        assets.save_directory(collision_folder, only_if_is_dirty=False, recursive=True)
+    state["collision:" + done_key] = done_state
+    count("collision", True)
+save_state()
+report["seconds"]["collision"] = round(time.time() - phase, 1)
 report["slots with no material"] = sorted(missing_materials)[:20]
 report["seconds"]["all"] = round(time.time() - started, 1)
 report["failures"] = report["failed"][:20]

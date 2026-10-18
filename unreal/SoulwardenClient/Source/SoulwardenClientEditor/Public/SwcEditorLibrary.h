@@ -61,8 +61,28 @@ public:
 	static int32 RemoveInstanceComponentsOf(AActor* Actor, const TArray<FString>& MeshFolders);
 
 	/** Spawns the instance actors of a file of the converter (converter/swc_convert/cells.py): each actor has one
-	 *  instanced static mesh component for each mesh of its cell, with the instances in world space.
+	 *  instanced static mesh component for each mesh of its cell, with the instances in world space and no collision.
+	 *  A mesh with a collision-only mesh (/SwcGameContent/Collision/FOLDER/C_NAME, P4.1) gets a second component with
+	 *  hidden instances of it at the same transforms (tag SwcCollision): the collision of the game.
 	 *  @return The number of actors, or -1 when the file cannot be read. */
 	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
 	static int32 SpawnInstanceActors(const FString& File);
+
+	/** The collision of the game (P4.1, converter/swc_convert/collision.py). The render mesh gets no collision (no
+	 *  simple shape, no complex collision mesh). With a collision file: a collision-only static mesh at
+	 *  CollisionAssetPath (made from the triangles of the file, no Nanite, never drawn) uses its own triangles as its
+	 *  collision (UseComplexAsSimple); the cells of the level place it, hidden, at the instances of the render mesh. The
+	 *  caller saves the packages. @return False when the file cannot be read or the cook has no triangles. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static bool SetGameCollision(UStaticMesh* Mesh, const FString& File, const FString& CollisionAssetPath);
+
+	/** Destroys an actor of the editor world (the actor subsystem of the editor is not complete in a commandlet); an
+	 *  external actor of World Partition loses its package at the next save. @return False when it cannot. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static bool DestroyActor(AActor* Actor);
+
+	/** @return A text with the collision state of a static mesh (a check of SetGameCollision): the trace flag, the
+	 *  complex collision mesh and its triangles, the cooked triangle meshes and simple shapes, the key of the cook. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static FString DescribeCollision(UStaticMesh* Mesh);
 };
