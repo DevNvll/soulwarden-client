@@ -128,6 +128,7 @@ tools/dev-run.sh --enter --quit-when world      # a development run that enters 
 tools/test-net.sh                               # the tests of the network codec with bytes of the backend (no engine)
 tools/test-actions.sh                           # the tests of the attack graph and its parity with the backend sequence (no engine)
 tools/test-movement.sh                          # the tests of the movement rules, the position check, the speed table and the statuses (no engine)
+tools/test-ranged.sh                            # the tests of the ranged and magic actions, the mana and heal bytes, the parity of the presses (no engine)
 tools/convert-ui.sh hud                         # the canvases, scripts, textures, fonts, texts, and game data of the HUD
 tools/test-ui.sh --preview                      # the tests of the UI runtime and the HUD scripts (no engine), a picture
 tools/dev-build.sh --preset NAME                # a build preset of the backend for the dev character (--list)
