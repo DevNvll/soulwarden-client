@@ -208,6 +208,9 @@ from the Dustmeadow Shrine). Evidence in `~/Games/soulwarden-client/evidence/P2.
 - Note for a route script: a creature with 1 health gives no credit for its kill (no loot), and a creature that ignores the
   character takes no death from a hit; the check uses 100 health and fighting creatures.
 
+The bow, the fire staff, and the life staff have no attack graph in the backend: their basic attacks and abilities come from the
+action lists of the data ([RANGED.md](RANGED.md), stage P3.6).
+
 ## The abilities (stage P3.5, the player part)
 
 The keys of the bar play the abilities of the weapon in the hand from the same graph as the server (Soulwarden protocol
@@ -347,9 +350,9 @@ computer, too low for the windows of a chain), `tests/drive/actions.txt`, the pi
   hits of a cast for `IfAbilityNumHits` (the fields 1 and 2 of the Ability state are not read); the perks of the items for
   the selections and the terms (the client has no perk rows: the artifact of Whirlwind); the cooldown factor of the character
   before the first state of the server (the own end comes from the data until then); the block press (bit 484) has no key.
-- The block, the sprint and air attacks, the stamina payments of the attacks (0 for the reachable graphs),
-  the dodge of the shield (its off-hand fragments), and the overencumbered and encumbered rules (the bag weight: no
-  inventory yet) are not played.
+- The block, the sprint and air attacks, the stamina payments of the attacks (0 for the reachable graphs), and
+  the dodge of the shield (its off-hand fragments) are not played. The limits of the bag weight and of the statuses are in
+  [MOVEMENT.md](MOVEMENT.md) "The limits" (stage P3.3).
 - Remote players do not play actions (the Slayer map of other players is open).
 - The inferences above (the additive order, the unit of `Decel`, the facing priority, the weapon in the hand at the
   start of an attack).

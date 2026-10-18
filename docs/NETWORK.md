@@ -182,7 +182,7 @@ The code has two layers:
 ```text
 POST /prod/game/login/queue/v2            the login token: RepAddress 127.0.0.1:32210 (loopback only, else no start)
 GET  /v1/tls/ca.pem                       the certificate of the backend (management route: no service host)
-check typeindex.json of the game copy     the 14 types of the client must have the indexes of the backend
+check typeindex.json of the game copy     the types of the client must have the indexes of the backend
 UDP socket 127.0.0.1:any -> RepAddress    DTLS 1.2 handshake (cookie exchange of the backend), 10 s at most
 carrier connect request (system 1, version 5), again each 250 ms until the connect ack (system 2)
     WaitingForREPConnection -> WaitingForActorGameConnection
@@ -228,7 +228,7 @@ envelope := flags:u8 present:u8 type:size body        (the client writes flags 0
 The route of a component call is the actor id of the entity (the input report: the own actor id). The registration
 has the route of 16 zero bytes (the backend reads no route for it). `Net/SwcTypeIndex` reads `typeindex.json` of the game
 copy (`SOULWARDEN_GAME_DIR`, read only; 7,052 type ids) and checks the type id at the index of each type of the client
-(`swc::net::kUsedTypes`: 10 message types and 10 state types). A difference stops the world entry: the build of the game
+(`swc::net::kUsedTypes`: 50 types at stage P3.6). A difference stops the world entry: the build of the game
 copy is not the build of the backend (the retail client gets the result -90, `TypeIndexMismatch`).
 
 ### The registration (protocol notes 3.4)
@@ -276,6 +276,9 @@ yaw of the camera of the player (0 = north, positive = to the left, the conventi
 | `dead` | vitals, group 0 field 2 `vitalsData`, bit 0 of its first byte | the character is dead (client getter 0x684AC70) |
 | `hasStamina`, `stamina`, `staminaMax` | stamina (42, 4297), group 0 fields 0 and 1 | f32; the copy of the server: the retail client predicts its stamina itself |
 | `hasMana`, `mana`, `manaMax` | mana (47, 1652), group 0 fields 0 and 1 | f32; the mana meter of the retail HUD reads this component, and it divides the current value by the maximum of the client (the first field 1 plus the MaxMana parts of the attributes): the current value can be larger than field 1 (protocol notes 4.5) |
+| `manaDelay`, `manaRate`, `manaAtNs`, `manaRevision` | mana, group 0 fields 2 and 3 | f32: the delay of the regeneration that is left (s) and the rate of the server (mana/s; 0 at full) (stage P3.6: the server copy of the mana prediction, [RANGED.md](RANGED.md)) |
+| `manaSync`, `manaSyncRevision` | message 4289 `ManaComponentClientFacet_ClientForceSyncServerState` | target, entity (the own entity), current, maximum, delay, rate: four big-endian f32; the rate is the factor 1 + the ManaRate parts; the client copies them into its prediction at once (stage P3.6) |
+| `heals`, `healRevision` | vitals, group 0 field 3 `healthChangeFlags`, bit 1; message 4298 `VitalsComponentClientFacet_OnHealedPlayer` | a heal number of the owner (the new health less the health of the client; each heal is its own state part); 4298: target, entity (the own entity), the Stats id of the healed character, the amount f32 (stage P3.6) |
 | `abilityBars` | ability (46, 185), group 0 field 0 `persistentAbilityData` | for each ability table, in the sequence of the field: the table id, and for each place the ability id (u32, the CRC-32 of the lower-case id text) and its button number |
 | `cooldowns[0..2]` | cooldown timers (45, 2932), group 0 fields 0 to 2 | the map of place N of the bars: ability id, end, minimum end, in microseconds of the server clock; an indefinite cooldown has the end 0xFFFFFFFFFFFFFFFF and the minimum end 0 |
 | `itemCooldowns` | cooldown timers, group 0 field 3 (ccdmap) | the CRC-32 of the lower-case item id, the end in microseconds |
@@ -330,7 +333,10 @@ With the player of the game thread (stage 1.7, `RepClient::set_motion`; [MOVEMEN
   ammunition, the attack at 180, the row). The attack driver gives the attack of a shot of a cast at its step
   (`inputStep`: the throw of Gravity Well, `8E14366B`, the CRC-32 of "gravitywell"); the client writes the origin 1.5 m
   above the position field, the direction of the look, and no receiver (the actor id 0, `G` 0xFFFFFFFF, the category 255
-  at wire 190, as the live client; protocol notes 4.27);
+  at wire 190, as the live client; protocol notes 4.27). Stage P3.6 ([RANGED.md](RANGED.md)): a `ShotRequest` has the attack,
+  the row, the charge, the ammunition, and the origin rule (`forward` m along the look, `up` m above the feet: 1.0 and 1.46 for
+  a basic shot and a ranged ability); the direction goes to the aim point of the camera (`Motion::aimPoint`) when the motion has
+  one;
 - in the air, the ground value: the half float of the distance to the ground (10 m at most; an inference from the
   protocol notes "0 to 10; 10 in a fall").
 
@@ -427,7 +433,9 @@ target lock of the camera takes its targets from them ([CAMERA.md](CAMERA.md)).
   2942 read by the reader of the backend (the targets of the backend fixture), and the readers of the LootTracker, GlobalStorage,
   and Container values (the full vector, a journal that sets and adds slots, an emptied slot).
 - The abilities (stage P3.5): the shot of a cast in list 2 of one entry, read by the input reader of the backend (the origin, the
-  direction of the look, the attack, no receiver), and the ProgressionPoint state of the golden session (no node).
+  direction of the look, the attack, no receiver), and the ProgressionPoint state of the golden session (no node). Stage P3.6: a
+  charged arrow (the origin 1.0 m along the look and 1.46 m up, the direction to the aim point, basic_heavy, bowattack2, the
+  charge 100, DefaultArrow). The mana and the heals are in `tools/test-ranged.sh` ([RANGED.md](RANGED.md)).
 - The bag and the equipment (`tools/test-items.sh`, `tests/net/item_tests.cpp`): after the golden session, the states of the
   encoders of the backend (`encode_container_state`, `encode_paperdoll_state`, `encode_currency_state`,
   `encode_progression_state`) go into the client in state bundles: the bag (an item with its index, quantity, gear score,
