@@ -1,5 +1,6 @@
 #include "Creatures/SwcCreatureSubsystem.h"
 
+#include "Async/Async.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/CapsuleComponent.h"
 #include "CanvasItem.h"
@@ -108,8 +109,8 @@ void USwcCreatureSubsystem::Clear(const TCHAR* Cause)
 {
 	if (Spawned > 0 || !Actors.IsEmpty())
 	{
-		UE_LOG(LogSwcCreatures, Log, TEXT("creatures: %s: %d creature(s) made (%d placeholder(s)), %d removed, %d action(s), %d death(s), %d kind(s), %d damage number(s), %d shot(s), %d area(s), %d loot bag(s)"),
-			Cause, Spawned, Placeholders, Removed, Actions, Deaths, Kinds.Num(), Damages, Shots, Areas, LootBags);
+		UE_LOG(LogSwcCreatures, Log, TEXT("creatures: %s: %d creature(s) made (%d placeholder(s)), %d removed, %d action(s), %d death(s), %d kind(s), %d damage number(s), %d shot(s), %d area(s), %d loot bag(s); the largest spawn work %.1f ms"),
+			Cause, Spawned, Placeholders, Removed, Actions, Deaths, Kinds.Num(), Damages, Shots, Areas, LootBags, SpawnWorkMax * 1000.0);
 	}
 	for (const TPair<uint32, TWeakObjectPtr<ASwcCreature>>& Pair : Actors)
 	{
@@ -160,9 +161,105 @@ void USwcCreatureSubsystem::Spawn(const swc::creatures::Entity& Entity)
 	{
 		return;
 	}
-	Creature->Setup(Library, Entity);
+	const double Start = FPlatformTime::Seconds();
+	// The animation sets of the slice and of its animated weapons: read on a worker thread when the library does not have them; then
+	// the async load of the assets (ASwcCreature::Setup).
+	TArray<FString> Keys;
+	if (const FSwcCreatureSlice* Slice = Library.FindSlice(UTF8_TO_TCHAR(Entity.slice_key().c_str())))
+	{
+		Keys.Add(Slice->AnimationKey);
+		for (const FSwcCreatureWeapon& Weapon : Slice->Weapons)
+		{
+			if (!Weapon.SkeletonMeshPath.IsEmpty())
+			{
+				Keys.AddUnique(Weapon.AnimationKey);
+			}
+		}
+	}
+	Keys.RemoveAll([this](const FString& Key) { return Key.IsEmpty() || Library.HasAnimations(Key); });
+	if (Keys.IsEmpty())
+	{
+		Creature->Setup(Library, Entity, Streamer);
+	}
+	else
+	{
+		Creature->BeginLoading(Entity.serial);
+		const uint32 Interest = Entity.interest;
+		const TWeakObjectPtr<ASwcCreature> Weak(Creature);
+		RequestAnimations(Keys, [this, Weak, Interest]()
+		{
+			const swc::creatures::Entity* Now = Table.find(Interest);
+			if (Weak.IsValid() && Now != nullptr && Now->serial == Weak->GetSerial())
+			{
+				Weak->Setup(Library, *Now, Streamer);
+			}
+		});
+	}
+	const double Work = FPlatformTime::Seconds() - Start;
+	SpawnWorkMax = FMath::Max(SpawnWorkMax, Work);
 	Actors.Add(Entity.interest, Creature);
 	++Spawned;
+	UE_LOG(LogSwcCreatures, Log, TEXT("creature %u: spawn work %.1f ms on the game thread (%s)"), Entity.interest, Work * 1000.0,
+		Creature->IsLoading() ? TEXT("the assets load async") : TEXT("the assets were in memory"));
+	SpawnWatchUntil = FPlatformTime::Seconds() + 3.0;
+	++SpawnWatchCount;
+	double Seconds = 0.0;
+	if (Creature->TakeReady(Seconds))
+	{
+		Ready(Entity, Creature, Seconds);
+	}
+}
+
+void USwcCreatureSubsystem::RequestAnimations(const TArray<FString>& Keys, TFunction<void()> Done)
+{
+	const TSharedRef<int32> Remaining = MakeShared<int32>(Keys.Num());
+	const TSharedRef<TFunction<void()>> Finish = MakeShared<TFunction<void()>>(MoveTemp(Done));
+	for (const FString& Key : Keys)
+	{
+		TArray<TFunction<void()>>* Waiters = AnimationWaiters.Find(Key);
+		const bool bStart = Waiters == nullptr;
+		if (bStart)
+		{
+			Waiters = &AnimationWaiters.Add(Key);
+		}
+		Waiters->Add([Remaining, Finish]()
+		{
+			if (--(*Remaining) == 0)
+			{
+				(*Finish)();
+			}
+		});
+		if (bStart)
+		{
+			const TWeakObjectPtr<USwcCreatureSubsystem> Weak(this);
+			AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [Weak, Key]()
+			{
+				TSharedPtr<FSwcCreatureAnimations> Set = FSwcCreatureLibrary::ParseAnimations(Key);
+				AsyncTask(ENamedThreads::GameThread, [Weak, Key, Set]()
+				{
+					if (USwcCreatureSubsystem* Subsystem = Weak.Get())
+					{
+						Subsystem->OnAnimationsParsed(Key, Set);
+					}
+				});
+			});
+		}
+	}
+}
+
+void USwcCreatureSubsystem::OnAnimationsParsed(const FString& Key, const TSharedPtr<FSwcCreatureAnimations>& Set)
+{
+	Library.AddAnimations(Key, Set);
+	TArray<TFunction<void()>> Waiters;
+	AnimationWaiters.RemoveAndCopyValue(Key, Waiters);
+	for (const TFunction<void()>& Waiter : Waiters)
+	{
+		Waiter();
+	}
+}
+
+void USwcCreatureSubsystem::Ready(const swc::creatures::Entity& Entity, ASwcCreature* Creature, double LoadSeconds)
+{
 	const FString Key = UTF8_TO_TCHAR(Entity.slice_key().c_str());
 	if (!Creature->HasModel())
 	{
@@ -174,15 +271,26 @@ void USwcCreatureSubsystem::Spawn(const swc::creatures::Entity& Entity)
 		}
 	}
 	const auto& Position = Entity.samples.back().position;
-	UE_LOG(LogSwcCreatures, Log, TEXT("creature %u: %s, level %u, health %.0f/%.0f%s, slice %s, %s, at %.2f %.2f %.2f"), Entity.interest,
+	UE_LOG(LogSwcCreatures, Log, TEXT("creature %u: %s, level %u, health %.0f/%.0f%s, slice %s, %s, at %.2f %.2f %.2f (the assets after %.2f s)"), Entity.interest,
 		Entity.hasVitals ? *Library.Name(Entity.categoryId, Entity.vitalsId) : TEXT("(no vitals yet)"), Entity.level, Entity.health, Entity.healthMax,
 		Entity.dead ? TEXT(", dead") : TEXT(""), *Creature->GetSlicePath(), Creature->HasModel() ? TEXT("body") : TEXT("placeholder"), Position.x, Position.y,
-		Position.z);
+		Position.z, LoadSeconds);
 }
 
 void USwcCreatureSubsystem::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	// The frames after a spawn (the work of a spawn must stay small: no load that waits for the async loads).
+	if (SpawnWatchCount > 0)
+	{
+		SpawnWatchMax = FMath::Max(SpawnWatchMax, DeltaTime);
+		if (FPlatformTime::Seconds() > SpawnWatchUntil)
+		{
+			UE_LOG(LogSwcCreatures, Log, TEXT("creatures: the longest frame in the 3 s after %d spawn(s): %.1f ms"), SpawnWatchCount, SpawnWatchMax * 1000.0f);
+			SpawnWatchCount = 0;
+			SpawnWatchMax = 0.0f;
+		}
+	}
 	UGameInstance* GameInstance = GetWorld() != nullptr ? GetWorld()->GetGameInstance() : nullptr;
 	USwcBackendSubsystem* Backend = GameInstance != nullptr ? GameInstance->GetSubsystem<USwcBackendSubsystem>() : nullptr;
 	std::vector<swc::net::RepClient::OtherUpdate> Updates;
@@ -206,6 +314,17 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 		FString Report;
 		Library.Load(Report);
 		UE_LOG(LogSwcCreatures, Log, TEXT("%s"), *Report);
+		TArray<FSoftObjectPath> Common = {FSoftObjectPath(TEXT("/Engine/BasicShapes/Cylinder.Cylinder")),
+			FSoftObjectPath(TEXT("/Engine/EngineDebugMaterials/M_SimpleUnlitTranslucent.M_SimpleUnlitTranslucent"))};
+		for (const TPair<FString, FSwcLootContainer>& Container : Library.GetLootContainers())
+		{
+			if (!Container.Value.MeshPath.IsEmpty())
+			{
+				Common.AddUnique(FSoftObjectPath(Container.Value.MeshPath));
+			}
+		}
+		bCommonReady = false;
+		CommonHandle = Streamer.RequestAsyncLoad(Common, FStreamableDelegate::CreateWeakLambda(this, [this]() { bCommonReady = true; }));
 	}
 	// The server time of the records: the states of the delayed events of a spell count from it.
 	const uint64 ApplyTimeUs = Backend->GetServerTimeMicroseconds();
@@ -339,6 +458,11 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 			}
 		}
 		ASwcCreature* Creature = Actor->Get();
+		double LoadSeconds = 0.0;
+		if (Creature->TakeReady(LoadSeconds))
+		{
+			Ready(Entity, Creature, LoadSeconds);
+		}
 		const FString Action = Creature->UpdateFromEntity(Library, Entity, RenderTimeUs, DeltaTime);
 		if (!Action.IsEmpty())
 		{
@@ -348,7 +472,7 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 		}
 		// The body of a dead creature goes away after the delayed event of its slice (the server keeps the entity).
 		const double DeadSeconds = Creature->GetDeadSeconds();
-		Creature->SetActorHiddenInGame(DeadSeconds > DeadBodySeconds);
+		Creature->SetActorHiddenInGame(Creature->IsLoading() || DeadSeconds > DeadBodySeconds);
 	}
 	if (bDrawVolumes || bVolumeProbe || bLootProbe || bLootModel || bDrawLockPoints)
 	{
@@ -512,7 +636,8 @@ void USwcCreatureSubsystem::SetLootBagHidden(uint32 Interest, bool bHidden)
 
 void USwcCreatureSubsystem::UpdateBag(uint32 Interest, const swc::creatures::Entity& Entity, const FSwcLootContainer& Container)
 {
-	if (!Entity.hasWorldPlace)
+	// The model of a bag comes from the common assets in memory (no load that waits for the async loads).
+	if (!Entity.hasWorldPlace || !bCommonReady)
 	{
 		return;
 	}
@@ -534,7 +659,7 @@ void USwcCreatureSubsystem::UpdateBag(uint32 Interest, const swc::creatures::Ent
 	Bag->SetMobility(EComponentMobility::Movable);
 	// The model of the slice (the sack of the personal loot container; its origin is at its bottom). No collision: the player track
 	// finds the bag through the query, not through a trace.
-	if (UStaticMesh* Mesh = Container.MeshPath.IsEmpty() ? nullptr : LoadObject<UStaticMesh>(nullptr, *Container.MeshPath))
+	if (UStaticMesh* Mesh = Container.MeshPath.IsEmpty() ? nullptr : FindObject<UStaticMesh>(nullptr, *Container.MeshPath))
 	{
 		Bag->GetStaticMeshComponent()->SetStaticMesh(Mesh);
 	}
@@ -664,8 +789,9 @@ void USwcCreatureSubsystem::UpdateEffect(uint32 Interest, const swc::creatures::
 	ASwcEffectActor* Effect = Found != nullptr ? Found->Get() : nullptr;
 	if (Effect == nullptr)
 	{
-		// The slice of the metadata state gives the data of the effect; the Spell state gives the spell row (its key).
-		if (!Entity.hasMetadata)
+		// The slice of the metadata state gives the data of the effect; the Spell state gives the spell row (its key). The shape and
+		// its material are common assets in memory.
+		if (!Entity.hasMetadata || !bCommonReady)
 		{
 			return;
 		}

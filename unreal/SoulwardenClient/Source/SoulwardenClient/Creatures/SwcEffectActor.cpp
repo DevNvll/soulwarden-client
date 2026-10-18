@@ -45,7 +45,7 @@ void ASwcEffectActor::SetColor(const FLinearColor& Color)
 {
 	if (Material == nullptr)
 	{
-		UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr, TranslucentMaterial);
+		UMaterialInterface* Base = FindObject<UMaterialInterface>(nullptr, TranslucentMaterial);   // in memory: the common assets of the creature view
 		if (Base == nullptr)
 		{
 			return;
@@ -64,7 +64,7 @@ void ASwcEffectActor::SetupProjectile(const FSwcProjectileSlice* Slice)
 	{
 		Flight = Slice->Flight;
 	}
-	Shape->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, CylinderMesh));
+	Shape->SetStaticMesh(FindObject<UStaticMesh>(nullptr, CylinderMesh));
 	// The shaft along local Z, its tip at the place of the shot.
 	Shape->SetRelativeScale3D(FVector(ShaftWidth, ShaftWidth, ShaftLength));
 	Shape->SetRelativeLocation(FVector(0.0, 0.0, -ShaftLength * 50.0));
@@ -95,7 +95,7 @@ void ASwcEffectActor::SetupArea(const FSwcSpellSlice* Slice, const FSwcSpellRow*
 	{
 		Radius = Row->Radius;
 	}
-	Shape->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, CylinderMesh));
+	Shape->SetStaticMesh(FindObject<UStaticMesh>(nullptr, CylinderMesh));
 	bSummon = bInSummon || Radius > WidestDisc;
 	if (bSummon)
 	{

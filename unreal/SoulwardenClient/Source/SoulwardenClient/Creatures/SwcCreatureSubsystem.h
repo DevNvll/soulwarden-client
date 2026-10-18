@@ -6,6 +6,7 @@
 #include "Combat/SwcMeleeShape.h"
 #include "Creatures/SwcHitShapes.h"
 #include "Creatures/SwcMeleeContact.h"
+#include "Engine/StreamableManager.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "SwcCreatureSubsystem.generated.h"
 
@@ -166,6 +167,12 @@ public:
 private:
 	void Clear(const TCHAR* Cause);
 	void Spawn(const swc::creatures::Entity& Entity);
+	/** The creature has its body (its assets are in memory): the log line and the wanted list of a slice with no model. */
+	void Ready(const swc::creatures::Entity& Entity, ASwcCreature* Creature, double LoadSeconds);
+	/** Reads the animation sets of keys on a worker thread, then calls Done on the game thread (each key one time). */
+	void RequestAnimations(const TArray<FString>& Keys, TFunction<void()> Done);
+	void OnAnimationsParsed(const FString& Key, const TSharedPtr<FSwcCreatureAnimations>& Set);
+	TMap<FString, TArray<TFunction<void()>>> AnimationWaiters;
 	void DrawPlates(UCanvas* Canvas, APlayerController* Controller);
 	void OnDamage(const swc::net::Bytes& Body);
 	void DrawDamageNumbers(UCanvas* Canvas);
@@ -183,6 +190,18 @@ private:
 
 	swc::creatures::EntityTable Table;
 	uint32 TableRevision = 0;
+	/** The async loads of the assets of the creatures (no load on the game thread waits for the World Partition streaming). */
+	FStreamableManager Streamer;
+	/** The common assets (the engine cylinder and the translucent material of the shots and the areas, the loot container meshes): one
+	 *  async load at the load of the library; a bag or an effect actor waits for it. */
+	TSharedPtr<FStreamableHandle> CommonHandle;
+	bool bCommonReady = false;
+	/** The work of the game thread of each spawn (s) and the largest one, for the log. */
+	double SpawnWorkMax = 0.0;
+	/** The frame watch after a spawn: the longest frame (s) of the next 3 s, for the log. */
+	double SpawnWatchUntil = 0.0;
+	float SpawnWatchMax = 0.0f;
+	int32 SpawnWatchCount = 0;
 	FSwcCreatureLibrary Library;
 	TMap<uint32, TWeakObjectPtr<ASwcCreature>> Actors;
 	/** The loot bags (stage P2.10): the model of the slice at the place of each bag. */

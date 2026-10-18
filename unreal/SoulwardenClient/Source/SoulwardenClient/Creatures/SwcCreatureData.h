@@ -252,6 +252,12 @@ public:
 	const FSwcCreatureSlice* FindSlice(const FString& Key) const { return Slices.Find(Key); }
 	/** @return The animation set of a key (read at the first use), or null. */
 	TSharedPtr<FSwcCreatureAnimations> Animations(const FString& Key);
+	/** The animation sets read: HasAnimations, and AddAnimations of a set that ParseAnimations read on a worker thread (the read of a
+	 *  set takes up to 0.15 s: not on the game thread at a spawn). */
+	bool HasAnimations(const FString& Key) const { return Sets.Contains(Key); }
+	void AddAnimations(const FString& Key, const TSharedPtr<FSwcCreatureAnimations>& Set) { Sets.Add(Key, Set); }
+	/** Reads the animation set of a key (thread-safe: no state of the library). */
+	static TSharedPtr<FSwcCreatureAnimations> ParseAnimations(const FString& Key);
 
 	/** The name plate: the name of the category row, else the name of the vitals row (protocol notes 4.14). */
 	FString Name(uint32 CategoryId, uint32 VitalsId) const;
@@ -265,6 +271,7 @@ public:
 	const FSwcSpellSlice* FindSpell(const FString& Key) const { return Spells.Find(Key); }
 	const FSwcSpellRow* FindSpellRow(uint32 Key) const { return SpellRows.Find(Key); }
 	const FSwcLootContainer* FindLootContainer(const FString& Key) const { return LootContainers.Find(Key); }
+	const TMap<FString, FSwcLootContainer>& GetLootContainers() const { return LootContainers; }
 	const FSwcStatusRow* FindStatusRow(uint32 Index) const { return StatusRows.Find(Index); }
 
 	/** Adds a slice key to SWC_WORK/creatures/wanted.json (tools/convert-creatures.sh wanted). @return True when it is new. */

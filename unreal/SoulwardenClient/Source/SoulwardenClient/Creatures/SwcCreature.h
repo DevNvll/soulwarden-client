@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/StreamableManager.h"
 #include "GameFramework/Actor.h"
 #include "Creatures/SwcEntityTable.h"
 #include "Creatures/SwcHitShapes.h"
@@ -36,8 +37,19 @@ class SOULWARDENCLIENT_API ASwcCreature : public AActor
 public:
 	ASwcCreature();
 
-	/** Makes the body of an entity: the model of its slice, or a placeholder when the slice is not converted. */
-	void Setup(FSwcCreatureLibrary& Library, const swc::creatures::Entity& Entity);
+	/**
+	 * Makes the body of an entity: the model of its slice, or a placeholder when the slice is not converted. The assets (the meshes,
+	 * the weapons, the clips of the animation sets) load async with Streamer: the actor stays hidden and follows its movement until
+	 * they are ready, then the body is made from the assets in memory. No load on the game thread waits for the async loads (a load
+	 * of an asset that is not in memory flushes them: 5.5 s in a run of the player track).
+	 */
+	void Setup(FSwcCreatureLibrary& Library, const swc::creatures::Entity& Entity, FStreamableManager& Streamer);
+	/** The creature waits for its animation sets (read on a worker thread) before Setup: hidden, its movement only. */
+	void BeginLoading(uint64 InSerial);
+	/** @return True while the assets of the body load. */
+	bool IsLoading() const { return bLoading; }
+	/** @return True one time when the body is made (the creature view logs the creature then); Seconds: the time of the load. */
+	bool TakeReady(double& Seconds);
 
 	/**
 	 * Shows the entity at a time of the server clock (the render time: the server time now less the interpolation delay).
@@ -93,6 +105,17 @@ private:
 	};
 
 	void SetupBodyBlock();
+	/** The body from the assets in memory (after the async load). */
+	void FinishSetup();
+	void OnAssetsLoaded();
+	/** The second stage: the other clips of the animation sets, after the body shows. */
+	void LoadRest();
+	void OnRestLoaded();
+	/** The paths of the assets of the body. First: the meshes (the slice, its variants, its weapons) and the clips of the fragments
+	 *  Idle and Move; else: each clip of the animation sets. */
+	void CollectAssets(TArray<FSoftObjectPath>& Out, bool bFirst) const;
+	/** The paths of the second forms of the clips of Paths that are not in memory and whose second form is on the disk. */
+	static void CollectAlternates(const TArray<FSoftObjectPath>& Paths, TArray<FSoftObjectPath>& Out);
 	void ApplyScope(const swc::creatures::Entity& Entity);
 	void ApplyScopeRecord(uint32 Scope, const swc::creatures::Entity& Entity);
 	FString StartScope(uint32 Scope, FScopeState& State, uint64 RenderTimeUs, bool bDead);
@@ -133,6 +156,18 @@ private:
 
 	const FSwcCreatureSlice* Slice = nullptr;
 	TSharedPtr<FSwcCreatureAnimations> Animations;
+	/** The async load of the assets: the library and the manager of the creature view, the handles (they keep the assets in memory),
+	 *  and the marks. */
+	FSwcCreatureLibrary* PendingLibrary = nullptr;
+	FStreamableManager* Streamer = nullptr;
+	TSharedPtr<FStreamableHandle> LoadHandle;
+	TSharedPtr<FStreamableHandle> AlternateHandle;
+	TSharedPtr<FStreamableHandle> RestHandle;
+	TSharedPtr<FStreamableHandle> RestAlternateHandle;
+	bool bLoading = false;
+	bool bReady = false;
+	double LoadStart = 0.0;
+	double LoadSeconds = 0.0;
 	uint64 Serial = 0;
 	FString SlicePath;
 	FString DisplayName;

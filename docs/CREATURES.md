@@ -337,6 +337,28 @@ knockdown (`r_R4_F`), a stagger (`r_R2_F`), and the stun of Shockwave ("Stunned"
 one reaction record; the status map: one status, three stacks, a smaller stamp, an empty list; the vortex; the Beacon
 attachment: 93, 26, and 94 checks).
 
+## The load of the assets (async)
+
+A load of an asset that is not in memory on the game thread waits for all async loads (`FlushAsyncLoading`): with the World
+Partition streaming after a travel that was 489 packages and a frame of 5.5 s at the spawn of a Corrupted Lumberjack (a run of
+the player track). The creature view loads with no wait:
+
+1. The spawn: the actor follows the record and its movement, hidden. The animation sets of the slice and of its animated weapons
+   that the library does not have are read on a worker thread (`FSwcCreatureLibrary::ParseAnimations`; a set takes up to 0.15 s).
+2. The first async request (`FStreamableManager`, high priority): the meshes (the slice, its variants, its weapons) and the clips
+   of the fragments Idle and Move. Then the body is made from the assets in memory (`FindObject`) and shows.
+3. The second async request: the other clips of the sets. The animation instances find them when they come (`RefreshClips`); a
+   clip that is not there yet does not play.
+4. A clip that Interchange named STEM + "Null" + NAME: a second request for its second form, when the package is on the disk.
+
+The common assets (the engine cylinder and the translucent material of the shots and the areas, the loot container meshes) load
+async at the load of the library; a bag or an effect actor waits for them. The log has the work of each spawn on the game thread
+("spawn work ... ms"), the time of the assets ("the assets after ... s"), and the longest frame in the 3 s after a spawn.
+
+Check (development run, 2026-10-18; `asyncspawn`: a travel of 1 km, then three creature kinds that the run never loaded, among
+them the Corrupted Lumberjack, while the cells stream): the spawn work 0.1 ms at most; the bodies after 0.25 s to 0.43 s; the
+longest frame in the 3 s after the spawns 39 ms; no `FlushAsyncLoading` after the world entry.
+
 ## The read path of the other tracks
 
 - `USwcCreatureSubsystem::GetTargets(TArray<FSwcCreatureTarget>&)`: each creature of the table with an actor: its interest

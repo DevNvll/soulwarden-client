@@ -61,6 +61,10 @@ class SOULWARDENCLIENT_API USwcCreatureAnimInstance : public UAnimInstance
 public:
 	/** @param ReferenceBones The bone names of the skeleton mesh in the order of its mesh bone indexes. */
 	void SetAnimations(const TSharedPtr<FSwcCreatureAnimations>& Data);
+	/** @return The second object path of a clip: Interchange names some clips STEM + "Null" + NAME (101 of 5,097 clips of the world). */
+	static FString AlternateClipPath(const FString& AssetPath);
+	/** Finds the clips that were not in memory at SetAnimations (they load after the first ones: ASwcCreature::Setup). */
+	void RefreshClips();
 
 	/**
 	 * Starts a fragment of scope 0. The new fragment blends in over the blend-in time of its first item; the fragments before it

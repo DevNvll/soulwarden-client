@@ -113,6 +113,44 @@ void USwcCreatureAnimInstance::DestroyAnimInstanceProxy(FAnimInstanceProxy* InPr
 	delete static_cast<FSwcCreatureAnimProxy*>(InProxy);
 }
 
+void USwcCreatureAnimInstance::RefreshClips()
+{
+	if (!Animations.IsValid())
+	{
+		return;
+	}
+	for (int32 ClipIndex = 0; ClipIndex < Animations->Clips.Num() && ClipIndex < Sequences.Num(); ++ClipIndex)
+	{
+		const FString& Path = Animations->Clips[ClipIndex].AssetPath;
+		if (Sequences[ClipIndex] != nullptr || Path.IsEmpty())
+		{
+			continue;
+		}
+		UAnimSequence* Sequence = FindObject<UAnimSequence>(nullptr, *Path);
+		if (Sequence == nullptr)
+		{
+			const FString Other = AlternateClipPath(Path);
+			Sequence = Other.IsEmpty() ? nullptr : FindObject<UAnimSequence>(nullptr, *Other);
+		}
+		Sequences[ClipIndex] = Sequence;
+	}
+}
+
+FString USwcCreatureAnimInstance::AlternateClipPath(const FString& AssetPath)
+{
+	FString Folder, Name;
+	AssetPath.Split(TEXT("/"), &Folder, &Name, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+	FString Package, Object;
+	Name.Split(TEXT("."), &Package, &Object);
+	const int32 Cut = Package.Find(TEXT("_"), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+	if (Cut <= 0)
+	{
+		return FString();
+	}
+	const FString Other = Package.Left(Cut) + TEXT("Null") + Package.Mid(Cut);
+	return Folder + TEXT("/") + Other + TEXT(".") + Other;
+}
+
 void USwcCreatureAnimInstance::SetAnimations(const TSharedPtr<FSwcCreatureAnimations>& Data)
 {
 	Animations = Data;
@@ -130,21 +168,12 @@ void USwcCreatureAnimInstance::SetAnimations(const TSharedPtr<FSwcCreatureAnimat
 	for (int32 ClipIndex = 0; ClipIndex < Animations->Clips.Num(); ++ClipIndex)
 	{
 		const FSwcClip& Clip = Animations->Clips[ClipIndex];
-		UAnimSequence* Sequence = Clip.AssetPath.IsEmpty() ? nullptr
-			: LoadObject<UAnimSequence>(nullptr, *Clip.AssetPath, nullptr, LOAD_NoWarn | LOAD_Quiet);
+		// The clips are in memory (the async load of ASwcCreature::Setup): a find, not a load (a load would wait for the async loads).
+		UAnimSequence* Sequence = Clip.AssetPath.IsEmpty() ? nullptr : FindObject<UAnimSequence>(nullptr, *Clip.AssetPath);
 		if (Sequence == nullptr && !Clip.AssetPath.IsEmpty())
 		{
-			// Interchange names some clips STEM + "Null" + NAME (101 of 5,097 clips of the world): the second form.
-			FString Folder, Name;
-			Clip.AssetPath.Split(TEXT("/"), &Folder, &Name, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
-			FString Package, Object;
-			Name.Split(TEXT("."), &Package, &Object);
-			const int32 Cut = Package.Find(TEXT("_"), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
-			if (Cut > 0)
-			{
-				const FString Other = Package.Left(Cut) + TEXT("Null") + Package.Mid(Cut);
-				Sequence = LoadObject<UAnimSequence>(nullptr, *(Folder + TEXT("/") + Other + TEXT(".") + Other), nullptr, LOAD_NoWarn | LOAD_Quiet);
-			}
+			const FString Other = AlternateClipPath(Clip.AssetPath);
+			Sequence = Other.IsEmpty() ? nullptr : FindObject<UAnimSequence>(nullptr, *Other);
 		}
 		Sequences.Add(Sequence);
 		TArray<int32>& MeshBones = ClipMeshBones.AddDefaulted_GetRef();

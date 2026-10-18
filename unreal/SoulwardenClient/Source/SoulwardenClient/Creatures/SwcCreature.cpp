@@ -9,6 +9,7 @@
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMesh.h"
 #include "HAL/PlatformTime.h"
+#include "Misc/PackageName.h"
 #include "Net/SwcSpace.h"
 
 namespace
@@ -88,14 +89,263 @@ void ASwcCreature::SetupBodyBlock()
 	BodyBlock->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 }
 
-void ASwcCreature::Setup(FSwcCreatureLibrary& Library, const swc::creatures::Entity& Entity)
+void ASwcCreature::Setup(FSwcCreatureLibrary& Library, const swc::creatures::Entity& Entity, FStreamableManager& InStreamer)
 {
 	Serial = Entity.serial;
 	const FString Key = UTF8_TO_TCHAR(Entity.slice_key().c_str());
 	Slice = Library.FindSlice(Key);
 	SlicePath = Slice != nullptr ? Slice->Path : Key;
-	USkeletalMesh* SkeletonMesh = Slice != nullptr && !Slice->SkeletonMeshPath.IsEmpty() ? LoadObject<USkeletalMesh>(nullptr, *Slice->SkeletonMeshPath) : nullptr;
-	USkeletalMesh* Mesh = Slice != nullptr && !Slice->MeshPath.IsEmpty() ? LoadObject<USkeletalMesh>(nullptr, *Slice->MeshPath) : nullptr;
+	PendingLibrary = &Library;
+	Streamer = &InStreamer;
+	TArray<FSoftObjectPath> Paths;
+	CollectAssets(Paths, true);
+	Paths.RemoveAll([](const FSoftObjectPath& Path) { return Path.ResolveObject() != nullptr; });
+	if (Paths.IsEmpty())
+	{
+		bLoading = false;
+		LoadSeconds = LoadStart > 0.0 ? FPlatformTime::Seconds() - LoadStart : 0.0;
+		FinishSetup();
+		bReady = true;
+		LoadRest();
+		return;
+	}
+	if (!bLoading)
+	{
+		bLoading = true;
+		LoadStart = FPlatformTime::Seconds();
+	}
+	SetActorHiddenInGame(true);
+	LoadHandle = Streamer->RequestAsyncLoad(Paths, FStreamableDelegate::CreateUObject(this, &ASwcCreature::OnAssetsLoaded),
+		FStreamableManager::AsyncLoadHighPriority);
+}
+
+void ASwcCreature::CollectAssets(TArray<FSoftObjectPath>& Out, bool bFirst) const
+{
+	const auto Add = [&Out](const FString& Path)
+	{
+		if (!Path.IsEmpty())
+		{
+			Out.AddUnique(FSoftObjectPath(Path));
+		}
+	};
+	const auto AddClip = [&Add](const FSwcCreatureAnimations& Set, int32 Clip)
+	{
+		if (Set.Clips.IsValidIndex(Clip))
+		{
+			Add(Set.Clips[Clip].AssetPath);
+		}
+	};
+	const auto AddSpace = [&AddClip](const FSwcCreatureAnimations& Set, int32 Space)
+	{
+		for (const int32 Clip : Set.BlendSpaces.IsValidIndex(Space) ? Set.BlendSpaces[Space].ExampleClips : TArray<int32>())
+		{
+			AddClip(Set, Clip);
+		}
+	};
+	const auto AddItems = [&AddClip, &AddSpace](const FSwcCreatureAnimations& Set, const TArray<FSwcFragmentItem>& Items)
+	{
+		for (const FSwcFragmentItem& Item : Items)
+		{
+			if (Item.Kind == FSwcFragmentItem::EKind::Clip)
+			{
+				AddClip(Set, Item.Index);
+			}
+			else if (Item.Kind == FSwcFragmentItem::EKind::BlendSpace)
+			{
+				AddSpace(Set, Item.Index);
+			}
+			else if (Item.Kind == FSwcFragmentItem::EKind::Comb && Set.Combs.IsValidIndex(Item.Index))
+			{
+				for (const int32 Space : Set.Combs[Item.Index].Spaces)
+				{
+					AddSpace(Set, Space);
+				}
+			}
+		}
+	};
+	// The first clips: the fragments Idle and Move (the body shows with them); else each clip of the set.
+	const auto AddClips = [&](const TSharedPtr<FSwcCreatureAnimations>& Set)
+	{
+		if (!Set.IsValid())
+		{
+			return;
+		}
+		if (!bFirst)
+		{
+			for (const FSwcClip& Clip : Set->Clips)
+			{
+				Add(Clip.AssetPath);
+			}
+			return;
+		}
+		for (const int32 Fragment : {Set->IdleFragment, Set->MoveFragment})
+		{
+			if (const FSwcCreatureFragment* Found = Set->Fragments.Find(Fragment))
+			{
+				AddItems(*Set, Found->Items);
+				for (const TArray<FSwcFragmentItem>& Layer : Found->ExtraLayers)
+				{
+					AddItems(*Set, Layer);
+				}
+			}
+		}
+	};
+	if (bFirst)
+	{
+		Add(PlaceholderMesh);
+	}
+	if (Slice == nullptr || PendingLibrary == nullptr)
+	{
+		return;
+	}
+	if (bFirst)
+	{
+		Add(Slice->SkeletonMeshPath);
+		Add(Slice->MeshPath);
+		for (const TPair<uint32, FString>& Variant : Slice->VariantMeshes)
+		{
+			Add(Variant.Value);
+		}
+	}
+	AddClips(PendingLibrary->Animations(Slice->AnimationKey));
+	for (const FSwcCreatureWeapon& Weapon : Slice->Weapons)
+	{
+		if (bFirst)
+		{
+			Add(Weapon.SkeletonMeshPath);
+			Add(Weapon.BodyMeshPath);
+			Add(Weapon.MeshPath);
+		}
+		if (!Weapon.SkeletonMeshPath.IsEmpty())
+		{
+			AddClips(PendingLibrary->Animations(Weapon.AnimationKey));
+		}
+	}
+}
+
+void ASwcCreature::CollectAlternates(const TArray<FSoftObjectPath>& Paths, TArray<FSoftObjectPath>& Out)
+{
+	for (const FSoftObjectPath& Path : Paths)
+	{
+		if (Path.ResolveObject() != nullptr)
+		{
+			continue;
+		}
+		const FString Other = USwcCreatureAnimInstance::AlternateClipPath(Path.ToString());
+		if (!Other.IsEmpty() && FPackageName::DoesPackageExist(FPackageName::ObjectPathToPackageName(Other)))
+		{
+			Out.AddUnique(FSoftObjectPath(Other));
+		}
+	}
+}
+
+void ASwcCreature::OnAssetsLoaded()
+{
+	// The second form of a clip that Interchange named STEM + "Null" + NAME: one more async request.
+	if (!AlternateHandle.IsValid() && Streamer != nullptr)
+	{
+		TArray<FSoftObjectPath> Paths;
+		CollectAssets(Paths, true);
+		TArray<FSoftObjectPath> Alternates;
+		CollectAlternates(Paths, Alternates);
+		if (!Alternates.IsEmpty())
+		{
+			AlternateHandle = Streamer->RequestAsyncLoad(Alternates, FStreamableDelegate::CreateUObject(this, &ASwcCreature::OnAssetsLoaded),
+				FStreamableManager::AsyncLoadHighPriority);
+			return;
+		}
+	}
+	bLoading = false;
+	LoadSeconds = FPlatformTime::Seconds() - LoadStart;
+	FinishSetup();
+	bReady = true;
+	LoadRest();
+}
+
+void ASwcCreature::LoadRest()
+{
+	if (Streamer == nullptr)
+	{
+		return;
+	}
+	TArray<FSoftObjectPath> Paths;
+	CollectAssets(Paths, false);
+	Paths.RemoveAll([](const FSoftObjectPath& Path) { return Path.ResolveObject() != nullptr; });
+	if (!Paths.IsEmpty())
+	{
+		RestHandle = Streamer->RequestAsyncLoad(Paths, FStreamableDelegate::CreateUObject(this, &ASwcCreature::OnRestLoaded));
+	}
+	else
+	{
+		OnRestLoaded();
+	}
+}
+
+void ASwcCreature::OnRestLoaded()
+{
+	if (!RestAlternateHandle.IsValid() && Streamer != nullptr)
+	{
+		TArray<FSoftObjectPath> Paths;
+		CollectAssets(Paths, false);
+		TArray<FSoftObjectPath> Alternates;
+		CollectAlternates(Paths, Alternates);
+		if (!Alternates.IsEmpty())
+		{
+			RestAlternateHandle = Streamer->RequestAsyncLoad(Alternates, FStreamableDelegate::CreateUObject(this, &ASwcCreature::OnRestLoaded));
+			return;
+		}
+	}
+	// Each animation instance finds the clips that came now.
+	TArray<USkeletalMeshComponent*> Meshes;
+	GetComponents<USkeletalMeshComponent>(Meshes);
+	for (USkeletalMeshComponent* Mesh : Meshes)
+	{
+		if (USwcCreatureAnimInstance* Animation = Cast<USwcCreatureAnimInstance>(Mesh->GetAnimInstance()))
+		{
+			Animation->RefreshClips();
+		}
+	}
+}
+
+void ASwcCreature::BeginLoading(uint64 InSerial)
+{
+	Serial = InSerial;
+	bLoading = true;
+	LoadStart = FPlatformTime::Seconds();
+	SetActorHiddenInGame(true);
+}
+
+bool ASwcCreature::TakeReady(double& Seconds)
+{
+	Seconds = LoadSeconds;
+	const bool bWas = bReady;
+	bReady = false;
+	return bWas;
+}
+
+namespace
+{
+/** @return An asset of a path that is in memory (the async load of ASwcCreature::Setup made it), else a load. */
+template <typename T>
+T* InMemory(const FString& Path)
+{
+	if (Path.IsEmpty())
+	{
+		return nullptr;
+	}
+	if (T* Found = FindObject<T>(nullptr, *Path))
+	{
+		return Found;
+	}
+	return LoadObject<T>(nullptr, *Path);
+}
+} // namespace
+
+void ASwcCreature::FinishSetup()
+{
+	FSwcCreatureLibrary& Library = *PendingLibrary;
+	USkeletalMesh* SkeletonMesh = Slice != nullptr ? InMemory<USkeletalMesh>(Slice->SkeletonMeshPath) : nullptr;
+	USkeletalMesh* Mesh = Slice != nullptr ? InMemory<USkeletalMesh>(Slice->MeshPath) : nullptr;
 	if (SkeletonMesh != nullptr && Mesh != nullptr)
 	{
 		Leader->SetSkeletalMeshAsset(SkeletonMesh);
@@ -124,7 +374,7 @@ void ASwcCreature::Setup(FSwcCreatureLibrary& Library, const swc::creatures::Ent
 				static_cast<float>(Weapon.EngineRotation.Z), static_cast<float>(Weapon.EngineRotation.W)};
 			const FTransform Socket(SwcEngineToUnreal(Turn), SwcEngineToUnreal(Offset));
 			// An animated weapon (the weapon scope): the skeletal mesh of its skeleton file with its animation set, and its body.
-			USkeletalMesh* WeaponSkeleton = Weapon.SkeletonMeshPath.IsEmpty() ? nullptr : LoadObject<USkeletalMesh>(nullptr, *Weapon.SkeletonMeshPath);
+			USkeletalMesh* WeaponSkeleton = InMemory<USkeletalMesh>(Weapon.SkeletonMeshPath);
 			TSharedPtr<FSwcCreatureAnimations> WeaponAnimations = WeaponSkeleton != nullptr ? Library.Animations(Weapon.AnimationKey) : nullptr;
 			if (WeaponSkeleton != nullptr && WeaponAnimations.IsValid())
 			{
@@ -142,7 +392,7 @@ void ASwcCreature::Setup(FSwcCreatureLibrary& Library, const swc::creatures::Ent
 					WeaponAnimation->SetAnimations(WeaponAnimations);
 				}
 				WeaponMeshes.Add(WeaponLeader);
-				USkeletalMesh* WeaponBody = Weapon.BodyMeshPath.IsEmpty() ? nullptr : LoadObject<USkeletalMesh>(nullptr, *Weapon.BodyMeshPath);
+				USkeletalMesh* WeaponBody = InMemory<USkeletalMesh>(Weapon.BodyMeshPath);
 				if (WeaponBody != nullptr && WeaponBody != WeaponSkeleton)
 				{
 					// A different body on the same weapon skeleton follows the pose of the skeleton mesh (Leader Pose).
@@ -158,7 +408,7 @@ void ASwcCreature::Setup(FSwcCreatureLibrary& Library, const swc::creatures::Ent
 				AnimatedWeapons.Add({WeaponLeader, WeaponAnimations});
 				continue;
 			}
-			UStaticMesh* Model = Weapon.MeshPath.IsEmpty() ? nullptr : LoadObject<UStaticMesh>(nullptr, *Weapon.MeshPath);
+			UStaticMesh* Model = InMemory<UStaticMesh>(Weapon.MeshPath);
 			if (Model == nullptr)
 			{
 				continue;
@@ -174,7 +424,7 @@ void ASwcCreature::Setup(FSwcCreatureLibrary& Library, const swc::creatures::Ent
 		bHasModel = true;
 		SetupBodyBlock();
 	}
-	else if (UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, PlaceholderMesh))
+	else if (UStaticMesh* Cylinder = InMemory<UStaticMesh>(PlaceholderMesh))
 	{
 		// The engine cylinder is 1 m high and 1 m wide, with its origin at its center.
 		Placeholder->SetStaticMesh(Cylinder);
@@ -480,7 +730,7 @@ int32 ASwcCreature::PlayWeaponScope(int32 Fragment, float FragmentTime, float Pl
 
 FString ASwcCreature::UpdateFromEntity(FSwcCreatureLibrary& Library, const swc::creatures::Entity& Entity, uint64 RenderTimeUs, float DeltaSeconds)
 {
-	if (!bLooksApplied && Entity.hasVitals)
+	if (!bLooksApplied && Entity.hasVitals && !bLoading)
 	{
 		// The look of the kind: the name of the category row, the creature type, the scale of the base vitals row, and the
 		// material variant of the category row (research creature-visuals.md section 3).
@@ -491,7 +741,7 @@ FString ASwcCreature::UpdateFromEntity(FSwcCreatureLibrary& Library, const swc::
 		SetActorScale3D(FVector(Library.Scale(Entity.vitalsId)));
 		if (const FString* Variant = Slice != nullptr && bHasModel ? Slice->VariantMeshes.Find(Entity.categoryId) : nullptr)
 		{
-			if (USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, **Variant))
+			if (USkeletalMesh* Mesh = InMemory<USkeletalMesh>(*Variant))
 			{
 				ShowBody(Mesh);
 			}
@@ -535,6 +785,11 @@ FString ASwcCreature::UpdateFromEntity(FSwcCreatureLibrary& Library, const swc::
 		DeadAt = FPlatformTime::Seconds();
 		// A dead creature does not block.
 		BodyBlock->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+	// While the assets load: the place only (the actions of the server play from their states when the body is made).
+	if (bLoading)
+	{
+		return FString();
 	}
 	if (Entity.scopeRevision != ScopeRevision)
 	{

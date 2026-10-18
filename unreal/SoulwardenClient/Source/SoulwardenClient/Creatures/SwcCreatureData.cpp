@@ -454,7 +454,12 @@ TSharedPtr<FSwcCreatureAnimations> FSwcCreatureLibrary::Animations(const FString
 	{
 		return *Found;
 	}
-	TSharedPtr<FSwcCreatureAnimations>& Set = Sets.Add(Key);
+	return Sets.Add(Key, ParseAnimations(Key));
+}
+
+TSharedPtr<FSwcCreatureAnimations> FSwcCreatureLibrary::ParseAnimations(const FString& Key)
+{
+	TSharedPtr<FSwcCreatureAnimations> Set;
 	const TSharedPtr<FJsonObject> Document = ReadObject(FPaths::Combine(ContentFolder(), TEXT("creatures/animations"), Key + TEXT(".json")));
 	if (!Document.IsValid())
 	{
