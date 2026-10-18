@@ -52,6 +52,16 @@ worktree. The place is a content plugin outside the repository:
   calls `tools/import.sh --regions NAME --max-seconds 480 --wait 3600` until the region is complete (the import script
   stops after the batch that passes the time) and waits 15 s between two calls: an import of another track that
   waits on the lock (`flock -w`) gets it there.
+- The level build obeys the same rule. A region has three steps (the Landscape, the cell actors, the far meshes).
+  `build_world.py` stops after the step that passes 240 s of work (`SWC_WORLD_MAX_SECONDS`), and
+  `tools/build-world.sh` calls it again until the region is in the level. Each call writes one line to the output
+  with the seconds that it held the lock. A normal call holds it for about 2 minutes. One call (`r_+05_+01`) held it
+  for 17.5 minutes: a Landscape step of 454 s and 5 minutes in the exit of the editor.
+- A long driver (`tools/build-world.sh --import --all`) runs as a detached process (`setsid nohup`) with its output
+  in `~/Games/soulwarden-client/logs/build-world-all.txt`. It has no mark `SWC_DEV_RUN=1`: `tools/dev-stop.sh` does
+  not stop it. Each call reads the scripts of the checkout again. A script change that needs a new C++ function goes
+  in after the build of the module (`r_+03_+01` failed one time: `AttributeError` for a new function of
+  `USwcEditorLibrary` that the module did not have yet). Do not build the module while a call runs.
 - A commandlet does not scan the content of a plugin: a script calls
   `AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(["/SwcGameContent"], True)` first.
 - The derived data cache of the engine (Zen, in `~/.config/Epic/UnrealEngine/Common`) is shared by all checkouts.

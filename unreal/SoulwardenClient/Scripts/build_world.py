@@ -10,8 +10,11 @@ tools/import-world.sh for the regions.
   (regions/NAME/cells.bin, see converter/swc_convert/cells.py).
 - SWC_GAME_CONTENT/world-state.json has the regions in the level; a region in it is not made again
   (SWC_WORLD_FORCE=1 makes the level again from no region).
+- A region has three steps (the Landscape, the cell actors, the far meshes); "partial" in the state has the steps
+  that are done. After a step, a call that is older than SWC_WORLD_MAX_SECONDS stops ("incomplete" in the report): the
+  next call continues. Thus a call holds import.lock for less than 10 minutes (docs/WORLD.md).
 Environment: SWC_CONTENT, SWC_GAME_CONTENT, SWC_WORLD_REGIONS (the region names), SWC_WORLD_LEVEL (another level
-path, for a test), SWC_WORLD_FORCE=1.
+path, for a test), SWC_WORLD_FORCE=1, SWC_WORLD_MAX_SECONDS (default 240).
 """
 import json
 import os
@@ -33,6 +36,7 @@ editing = unreal.MaterialEditingLibrary
 tools = unreal.AssetToolsHelpers.get_asset_tools()
 library = unreal.SwcEditorLibrary
 started = time.time()
+MAX_SECONDS = float(os.environ.get("SWC_WORLD_MAX_SECONDS") or 240)   # then the call stops after its current step
 unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([ROOT], True)
 manifest = json.load(open(os.path.join(content, "manifest.json")))["assets"]
 state_path = os.path.join(plugin, "world-state.json" if LEVEL.startswith(ROOT) else "world-state-test.json")
@@ -281,27 +285,57 @@ for name, done in state["regions"].items():   # the far meshes of a region that 
             unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
             save_state()
             log(f"region {name}: {count} impostor groups")
+def out_of_time():
+    return time.time() - started > MAX_SECONDS
+
+
+incomplete = False
+partial = state.setdefault("partial", {})
 for name in regions:
     if name in state["regions"]:
         log(f"region {name}: in the level")
         continue
+    if out_of_time():
+        incomplete = True
+        break
     folder = os.path.join(content, "regions", name)
-    layout = json.load(open(os.path.join(folder, "landscape.json")))
+    steps = partial.setdefault(name, {})
+    if "landscape" not in steps:
+        layout = json.load(open(os.path.join(folder, "landscape.json")))
+        phase = time.time()
+        landscape = library.create_landscape(os.path.join(folder, layout["file"]), layout["components"],
+                                             layout["quads per component"], unreal.Vector(*layout["location cm"]),
+                                             unreal.Vector(*layout["scale cm"]), region_material(name, parent),
+                                             f"{name} landscape", 2, True)
+        unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+        unreal.SystemLibrary.collect_garbage()
+        steps.update({"landscape": landscape is not None, "landscape seconds": round(time.time() - phase, 1)})
+        save_state()
+        log(f"region {name}: landscape {json.dumps(steps)}")
+        if out_of_time():
+            incomplete = True
+            break
+    if "cell actors" not in steps:
+        phase = time.time()
+        cells = os.path.join(folder, "cells.bin")
+        actors = library.spawn_instance_actors(cells) if os.path.isfile(cells) else 0
+        unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+        unreal.SystemLibrary.collect_garbage()
+        steps.update({"cell actors": actors, "cells seconds": round(time.time() - phase, 1)})
+        save_state()
+        log(f"region {name}: cells {json.dumps(steps)}")
+        if out_of_time():
+            incomplete = True
+            break
     phase = time.time()
-    landscape = library.create_landscape(os.path.join(folder, layout["file"]), layout["components"],
-                                         layout["quads per component"], unreal.Vector(*layout["location cm"]),
-                                         unreal.Vector(*layout["scale cm"]), region_material(name, parent),
-                                         f"{name} landscape", 2, True)
-    landscape_seconds = round(time.time() - phase, 1)
-    cells = os.path.join(folder, "cells.bin")
-    actors = library.spawn_instance_actors(cells) if os.path.isfile(cells) else 0
     impostor_groups = add_impostors(name)
     unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
     unreal.SystemLibrary.collect_garbage()
-    state["regions"][name] = {"landscape": landscape is not None, "cell actors": actors, "impostors": impostor_groups,
-                              "empty removed": len(folders),
-                              "landscape seconds": landscape_seconds, "seconds": round(time.time() - phase, 1)}
+    state["regions"][name] = dict(steps, impostors=impostor_groups, **{"empty removed": len(folders),
+                                                                      "impostors seconds": round(time.time() - phase, 1)})
+    partial.pop(name)
     save_state()
     log(f"region {name}: {json.dumps(state['regions'][name])}")
-report = {"level": LEVEL, "regions in the level": len(state["regions"]), "seconds": round(time.time() - started, 1)}
+report = {"level": LEVEL, "regions in the level": len(state["regions"]), "incomplete": incomplete,
+          "seconds": round(time.time() - started, 1)}
 log("WORLD " + json.dumps(report))
