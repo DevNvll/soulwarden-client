@@ -31,7 +31,7 @@ status=0
 flock "${wait_lock[@]}" -o -E 75 "${SWC_WORK}/unreal/import.lock" \
     systemd-run --user --scope -q -p CPUQuota="${SWC_CPU_QUOTA:-400%}" -p MemoryMax="${SWC_MEMORY_MAX:-12G}" \
     nice -n 10 "${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor-Cmd" "${SWC_UPROJECT}" \
-    -run=pythonscript -script="${SWC_REPO}/unreal/SoulwardenClient/Scripts/import_content.py" \
+    -run=pythonscript -script="${SWC_REPO}/unreal/SoulwardenClient/Scripts/import_content.py" "${SWC_EDITOR_DDC}" \
     -unattended -nullrhi -nosplash -nosound -nopause -stdout > "${SWC_WORK}/logs/import.log" 2>&1 || status=$?
 if [[ ${status} -eq 75 ]]; then
     echo "import: another import holds ${SWC_WORK}/unreal/import.lock" >&2

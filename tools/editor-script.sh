@@ -17,7 +17,7 @@ log="${SWC_WORK}/logs/$(basename "${script}" .py).log"
 status=0
 systemd-run --user --scope -q -p CPUQuota="${SWC_CPU_QUOTA:-400%}" -p MemoryMax="${SWC_MEMORY_MAX:-12G}" \
     nice -n 10 "${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor-Cmd" "${SWC_UPROJECT}" \
-    -run=pythonscript -script="${script}" "${rhi[@]}" \
+    -run=pythonscript -script="${script}" "${SWC_EDITOR_DDC}" "${rhi[@]}" \
     -unattended -nosplash -nosound -nopause -stdout > "${log}" 2>&1 || status=$?
 # Python log lines (Log verbosity) are only in the full log of the project.
 grep -h "SWC " "${SWC_REPO}/unreal/SoulwardenClient/Saved/Logs/SoulwardenClient.log" | cut -c30-400 || true

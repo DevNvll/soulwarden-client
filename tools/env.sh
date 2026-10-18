@@ -22,8 +22,12 @@
 : "${SWC_HTTP_PORT:=32200}"                                        # the HTTP listener of the backend, in the run namespace
 : "${SWC_CLIENT_EXE:=${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor}"       # the client window (game mode)
 : "${SWC_CLIENT_CMD:=${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor-Cmd}"   # the client with no window (-nullrhi)
+# The graph of the derived data cache for the editor commandlets: the file store of the runs before Zen. A run in its
+# network namespace cannot reach Zen and uses only the file store; a Zen hit of a commandlet fills the file store
+# (docs/WORLD.md). This engine is an installed build: its file store is InstalledLocal.
+: "${SWC_EDITOR_DDC:=-ddc=(ProjectPak, InstalledProjectPak, EnginePak=InstalledEnginePak, Local=InstalledLocal, ZenLocal)}"
 SWC_UPROJECT="${SWC_REPO}/unreal/SoulwardenClient/SoulwardenClient.uproject"
 export SWC_REPO SWC_WORK SWC_CONTENT SWC_GAME_CONTENT SOULWARDEN_REPO SOULWARDEN_GAME_DIR UE_ROOT SOULWARDEN_OODLE_LIB \
     SWC_BACKEND_DIR SWC_BACKEND_EXE SWC_GAMEDATA_DIR SWC_PLAYER_DATA SWC_DEV_DATA SOULWARDEN_RELEASES SWC_STEAM_DIR \
-    SWC_HTTP_PORT SWC_CLIENT_EXE SWC_CLIENT_CMD SWC_UPROJECT
+    SWC_HTTP_PORT SWC_CLIENT_EXE SWC_CLIENT_CMD SWC_EDITOR_DDC SWC_UPROJECT
 export PYTHONDONTWRITEBYTECODE=1

@@ -65,6 +65,18 @@ worktree. The place is a content plugin outside the repository:
 - A commandlet does not scan the content of a plugin: a script calls
   `AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(["/SwcGameContent"], True)` first.
 - The derived data cache of the engine (Zen, in `~/.config/Epic/UnrealEngine/Common`) is shared by all checkouts.
+- A run in its network namespace cannot reach Zen: it uses only the file store
+  `~/.config/Epic/UnrealEngine/Common/DerivedDataCache` (docs/NETWORK.md). The default graph of the editor puts Zen
+  before the file store, and a Zen hit does not fill the file store (measured: 40 meshes, 0 new files). Thus a run
+  built the derived data of each new mesh again, and the cells at the place did not load in 30 s.
+- The editor commandlets (`import.sh`, `build-world.sh`, `editor-script.sh`, `warm-cache.sh`) use the graph
+  `SWC_EDITOR_DDC` of `tools/env.sh`: the file store before Zen. A Zen hit then fills the file store with no new build
+  (measured: 40 meshes in 0.5 s, 343 new files). The engine is an installed build: `-ddc=NoZenLocalFallback` uses
+  `Engine/DerivedDataCache`, not the file store of the runs (`InstalledNoZenLocalFallback` uses it, but builds again
+  all the data that is only in Zen).
+- `tools/warm-cache.sh NAME... | --level` fills the file store for content made before: it loads the world level and
+  the meshes of the regions with the renderer (with `-nullrhi` the editor does not cache the render data), in calls of
+  about 5 minutes with import.lock.
 
 Folders of the plugin:
 
@@ -213,6 +225,12 @@ tools/build-world.sh --import --all      # each region: import its content (tool
   Measured with the region import beside it (2026-10-18): the place of the development character 4.6 s, ground =
   the Landscape at 138.24 m (with the sphere of the whole loading range: more than 30 s); a region not in the level
   yet: no ground after 3.0 s.
+- In a development run (the network namespace: only the file store of the derived data cache, see above), measured
+  after `tools/warm-cache.sh` (2026-10-18): the cells of the place load in 13 to 17 s, then the character spawns on
+  the ground. The other cells in 1 km load in the background in about 40 s while the client runs at about 27 frames
+  per second. Before the warm-up, the cells did not load in 30 s. The pictures of `-SwcFrames` slow the client to
+  about 9 frames per second (then the cells of the place do not load in 30 s): for a walk video, capture the agent
+  desktop (`omarchy-agent-desktop screenshot`, about 0.3 s for each picture, no load on the client).
 - The far meshes of the game (`impostors/`, `poi_impostors/` of each region: one mesh for each cell of 128 m) are
   groups of 512 m (`terrain.impostors`, 767 groups, 68.5 million triangles), always loaded, with the tag
   `SwcImpostor` and no collision. The client hides a group while its center is within the loading range of the view

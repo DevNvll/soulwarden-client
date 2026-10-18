@@ -46,7 +46,7 @@ for region in "${regions[@]}"; do
             "${SWC_WORK}/logs/build-world-seconds" \
             systemd-run --user --scope -q -p CPUQuota="${SWC_CPU_QUOTA:-400%}" -p MemoryMax="${SWC_MEMORY_MAX:-16G}" \
             nice -n 10 "${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor-Cmd" "${SWC_UPROJECT}" \
-            -run=pythonscript -script="${SWC_REPO}/unreal/SoulwardenClient/Scripts/build_world.py" \
+            -run=pythonscript -script="${SWC_REPO}/unreal/SoulwardenClient/Scripts/build_world.py" "${SWC_EDITOR_DDC}" \
             -AllowCommandletRendering -RenderOffscreen -unattended -nosplash -nosound -nopause -stdout \
             > "${SWC_WORK}/logs/build-world.log" 2>&1 || status=$?
         echo "$(date -u +%H:%M:%S) ${region} build ${attempt}: status ${status}, $(cat "${SWC_WORK}/logs/build-world-seconds" 2>/dev/null || echo '?') s with the lock; $(grep -ho 'SWC region .*\|SWC WORLD .*' "${editor_log}" | tail -2 | tr '\n' ' ')"
