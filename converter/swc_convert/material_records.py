@@ -57,7 +57,7 @@ RENDER_FLAGS = {
     "%LEAVES", "%GRASS", "%TEMP_VEGETATION", "%PARALLAX_OCCLUSION_MAPPING", "%SILHOUETTE_PARALLAX_OCCLUSION_MAPPING",
     "%OFFSET_BUMP_MAPPING", "%DISPLACEMENT_MAPPING", "%TRANSMITTANCE", "%OVERLAY_MASK", "%COLOR_SAMPLER_OVERLAY_MASK",
     "%ALPHAMASK_DETAILMAP", "%OCCLUSION_MAP", "%TINT_MAP", "%TINT_COLOR_MAP", "%DIRT_MAP", "%FX_DISSOLVE",
-    "%IGNORE_BLEND_VERTEX_ALPHA",
+    "%BLENDLAYER_IGNORE_VERTEX_ALPHA",
 }
 POM_FLAGS = {"%PARALLAX_OCCLUSION_MAPPING", "%SILHOUETTE_PARALLAX_OCCLUSION_MAPPING", "%OFFSET_BUMP_MAPPING",
              "%DISPLACEMENT_MAPPING"}
@@ -865,6 +865,10 @@ def surface_spec(rules: dict, use) -> dict:
     spec["vectors"]["UVTransform"] = uv_transform(maps.get("diffuse", {}).get("uv"))
     spec["scalars"]["Smoothness"] = max(1 / 127, float(rules["shininess"]) / 255)
     flags = set(rules["flags"])
+    if "m3b" in STAGES:
+        m3b(rules, spec, use)
+    if "m4" in STAGES:
+        m4(rules, spec, use)
     if "overlay mask" in maps and "m3a" in STAGES and flags & {"%OVERLAY_MASK", "%COLOR_SAMPLER_OVERLAY_MASK"}:
         # M3a (M3 part 1): the overlay masks (swc_materials.MASK_HLSL). %OVERLAY_MASK wins when both flags are set.
         params = rules["params"]
@@ -889,6 +893,76 @@ def surface_spec(rules: dict, use) -> dict:
         spec["vectors"]["MaskExtra"] = [value("Mask_A_GlossShift"), value("ColorMaskStrength"),
                                         value("ColorMaskOverride"), value("ColorMaskAlphaInf")]
     return spec
+
+
+def m3b(rules: dict, spec: dict, use) -> None:
+    """Adds M3b to a surface spec (swc_materials.surface_parent version 4): the vertex colors (%VERTCOLORS: the albedo
+    x the vertex RGB), the blend layer (%BLENDLAYER: the second diffuse, normal, gloss, specular, the blend mask, the
+    blend factor and falloff, the tiling), the detail map (%DETAIL_MAPPING). Defaults: the shader scripts of the source
+    (blendanddissolve.cfib, illum.cfxb)."""
+    maps, params, flags = rules["textures"], rules["params"], set(rules["flags"])
+
+    def value(name: str, default: float) -> float:
+        v = params.get(name, default)
+        return float(v[0] if isinstance(v, list) else v)
+
+    def color(name: str, default: list[float]) -> list[float]:
+        v = params.get(name, default)
+        v = list(v) if isinstance(v, list) else [float(v)] * 3
+        return (v + [0.0, 0.0, 0.0])[:3] + [1.0]
+
+    if "%VERTCOLORS" in flags:
+        spec["scalars"]["UseVertexColor"] = 1.0
+    switches = {}
+    if "%BLENDLAYER" in flags and "diffuse2" in maps:
+        switches["Blend"] = True
+        spec["textures"]["Diffuse2"] = use(color_texture(maps["diffuse2"]["product"], "base"))
+        if "normal2" in maps:
+            spec["textures"]["Normal2"] = use(color_texture(maps["normal2"]["product"], "normal"))
+        gloss2 = maps.get("gloss2") or ({"product": maps["normal2"]["product"]} if "normal2" in maps
+                                        and source.has(maps["normal2"]["product"] + ".a") else None)
+        if gloss2:
+            spec["textures"]["Gloss2"] = use(linear_texture(gloss2["product"], alpha=source.has(gloss2["product"] + ".a")))
+        if "specular2" in maps:
+            spec["textures"]["Specular2"] = use(data_texture(maps["specular2"]["product"]))
+        if "blend mask" in maps:
+            spec["textures"]["BlendMask"] = use(linear_texture(maps["blend mask"]["product"]))
+        spec["vectors"]["BlendParams"] = [value("BlendFactor", 0.5), value("BlendFalloff", 32.0), 0.0,
+                                          1.0 if "%BLENDLAYER_IGNORE_VERTEX_ALPHA" in flags else 0.0]
+        spec["vectors"]["BlendLayer2Diffuse"] = color("BlendLayer2Diffuse", [1.0, 1.0, 1.0])
+        spec["vectors"]["BlendLayer2Specular"] = color("BlendLayer2Specular", [0.2314, 0.2314, 0.2314])
+        spec["scalars"]["BlendLayer2Smoothness"] = value("BlendLayer2Smoothness", 10.0) / 256.0
+        spec["scalars"]["BlendLayer2Tiling"] = value("BlendLayer2Tiling", 1.0)
+        spec["scalars"]["BlendMaskTiling"] = value("BlendMaskTiling", 1.0)
+    if "%DETAIL_MAPPING" in flags and "detail" in maps:
+        switches["Detail"] = True
+        spec["textures"]["Detail"] = use(color_texture(maps["detail"]["product"], "base"))
+        spec["vectors"]["DetailTransform"] = uv_transform(maps["detail"].get("uv"))
+        spec["vectors"]["DetailScales"] = [value("DetailBumpScale", 0.5), value("DetailDiffuseScale", 0.5),
+                                           value("DetailGlossScale", 0.5),
+                                           1.0 if "%ALPHAMASK_DETAILMAP" in flags else 0.0]
+    if switches:
+        spec["switches"] = switches
+
+
+def m4(rules: dict, spec: dict, use) -> None:
+    """Adds M4 to a surface spec (swc_materials.EMISSIVE_HLSL, surface parent version 5): the Emittance RGB and its
+    fourth value (a multiplier, not an opacity), the emittance map and the intensity map of the Decal slot (raw data:
+    the source samples them with no sRGB lookup), EmittanceMapGamma. Only when the Emittance RGB and A are not zero."""
+    emittance = rules.get("emittance")
+    if not emittance:
+        return
+    maps = rules["textures"]
+    spec.setdefault("switches", {})["Emissive"] = True
+    spec["vectors"]["EmittanceColor"] = list(emittance[:4])
+    has_map = "emittance" in maps
+    if has_map:
+        spec["textures"]["Emittance"] = use(data_texture(maps["emittance"]["product"]))
+    if "emittance intensity" in maps:
+        spec["textures"]["EmissiveIntensity"] = use(data_texture(maps["emittance intensity"]["product"]))
+    gamma = rules["params"].get("EmittanceMapGamma", 1.0)
+    spec["vectors"]["EmittanceParams"] = [float(gamma[0] if isinstance(gamma, list) else gamma), 1.0 if has_map else 0.0,
+                                          0.0, 0.0]
 
 
 def uv_limits(rules: dict) -> list[str]:
@@ -1047,6 +1121,42 @@ PROOF_MESHES = {   # (label, mesh, override material or None: then the third col
            ("boulder", "objects/nature/rock_boulders/boulders_forest/jav_fst_boulder_sm_b.cgf", None),
            ("timber", "objects/crafting/architecture/crafting_structures/baseframe/jav_struc_craft_t2_abnd.cgf", None)],
 }
+
+
+# The render check of M3 and M4 on the meshes of rule 7 of the test import (/SwcGameContent/Test/M3; their slots are
+# the instance keys): the instances as they are now, and the candidate specs.
+M3_TEST = Path.home() / "Games/soulwarden-client/scratch-m3"
+PROOF_M3 = [("plot-shell", "slices/structures/plots/house_plots/ef_msq_2_house_plots/ef_2story_9x15_ab__19224261670.cgf"),
+            ("plot-walls", "slices/structures/plots/house_plots/ef_msq_2_house_plots/ef_2story_9x15_ab__28236438930.cgf"),
+            ("timber", "objects/crafting/architecture/crafting_structures/baseframe/jav_struc_craft_t2_abnd.cgf"),
+            ("lamp", "objects/crafting/props/props_everfall/decor/everfall_lightpole_a.cgf"),
+            ("boulder", "objects/nature/rock_boulders/boulders_forest/jav_fst_boulder_sm_b.cgf")]
+
+
+def proof_plan_test(stage: str) -> dict:
+    """Writes proof-STAGE.json for the meshes of the test import (rule 7): columns "now" and "candidate"."""
+    rows_in = {r["mesh"]: r for r in json.loads((M3_TEST / "list.json").read_text())}
+    folders = {i["file"]: i["folder"] for i in json.loads((M3_TEST / "import-list.json").read_text())}
+    candidates = json.loads((out_dir() / "instances-candidate.json").read_text())["instances"]
+    assets = manifest.load()["assets"]
+    slot_table = json.loads((out_dir() / "slots.json").read_text())["meshes"]
+    rows = []
+    for label, mesh in PROOF_M3:
+        if mesh in rows_in:   # a mesh of the test import: its slots are the instance keys
+            keys, folder = rows_in[mesh]["materials"], folders[rows_in[mesh]["file"]]
+        elif mesh in slot_table:   # a mesh of the plugin (rule 6): its slots are the legacy keys
+            keys, folder = sorted({legacy for _i, legacy, _r in slot_table[mesh]}), assets[mesh]["unreal"]
+        else:
+            continue
+        variants = {"now": {}, "candidate": {}}
+        for key in keys:
+            variants["now"][key] = {"instance": key}
+            variants["candidate"][key] = {"spec": candidates[key]} if key in candidates else {"instance": key}
+        rows.append({"label": label, "mesh": mesh, "unreal": folder, "override": None,
+                     "columns": list(variants), "variants": variants})
+    plan = {"stage": stage, "rows": rows}
+    write_json(out_dir() / f"proof-{stage}.json", plan)
+    return {"stage": stage, "rows": [{"label": r["label"], "slots": len(r["variants"]["now"])} for r in rows]}
 
 
 def proof_plan(stage: str) -> dict:
@@ -1235,7 +1345,8 @@ def main(argv: list[str] | None = None) -> int:
     elif argv[0] == "proof-sheet":
         result = proof_sheet(argv[1] if len(argv) > 1 else "m1")
     elif argv[0] == "proof-plan":
-        result = proof_plan(argv[1] if len(argv) > 1 else "m1")
+        stage = argv[1] if len(argv) > 1 else "m1"
+        result = proof_plan_test(stage) if stage in ("m3", "m4") else proof_plan(stage)
     else:
         mtl = argv[1].lower()
         subs = sub_materials(mtl)

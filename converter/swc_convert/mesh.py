@@ -39,6 +39,23 @@ def load(path: str) -> tuple[cgf.ChunkFile, list[cgf.Mesh]]:
 # 5 = the Opacity map of a masked material is the alpha of its base color; 6 = NoDraw, GeometryBeam, and decal
 # sub-materials are not drawn (materials.not_drawn).
 VERSION = 6
+# Rule 7 (the materials track, stage M3; an option of convert() until the rollout): the vertex colors of the source
+# (COLOR_0) and the slot of each sub-material named by materials.instance_key (one slot for each set of render rules:
+# no collapsed slots, the n_ instances of A1).
+RULE_COLORS = 7
+
+
+def vertex_colors(colors) -> np.ndarray | None:
+    """@return COLOR_0 (n, 4) of the source colors (n, 4) uint8 B, G, R, A (the interleaved vertex of the chunk file):
+    RGBA, the RGB as the linear value whose sRGB encoding is the source byte. Unreal stores a vertex color as sRGB bytes
+    (StaticMeshBuilder: ToFColor(true)) and the material reads those bytes as they are: the material gets the source
+    bytes / 255 (the wind and blend data of the source are not colors). The alpha is linear in both."""
+    if colors is None:
+        return None
+    c = np.asarray(colors, dtype=np.float64)[:, [2, 1, 0, 3]] / 255.0
+    rgb = c[:, :3]
+    c[:, :3] = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+    return c.astype(np.float32)
 
 
 def compact(indices: np.ndarray, *arrays):
@@ -53,15 +70,16 @@ def file_hash(gltf_path: Path) -> str:
     return digest.hexdigest()[:16]
 
 
-def convert(path: str, force: bool = False, write_manifest: bool = True) -> dict:
+def convert(path: str, force: bool = False, write_manifest: bool = True, rule: int = VERSION,
+            out: Path | None = None) -> dict:
     """Converts one static mesh to glTF with shared materials: each glTF material is only the key of a material
     record (materials.shared_material); the textures are their own assets. All chunks are one glTF mesh with one node
     (Interchange makes one static mesh asset for each node). @return A report with the manifest records."""
     path = path.lower()
-    out = out_path(path)
+    out = out or out_path(path)
     if not force and out.is_file():
         entry = manifest.load()["assets"].get(path, {})
-        if entry.get("version") == VERSION:
+        if entry.get("version") == rule:
             return {"mesh": path, "skipped": "up to date"}
     f, meshes = load(path)
     reference = cgf.material_guid(f) or ""
@@ -85,6 +103,7 @@ def convert(path: str, force: bool = False, write_manifest: bool = True) -> dict
         if mesh.tangents is not None:
             tan = mesh.tangents.copy()
             tan[:, :3] = gltf.z_up_to_y_up(mesh.tangents[:, :3])
+        col = vertex_colors(mesh.colors) if rule >= RULE_COLORS else None
         for s in mesh.subsets:
             if s.material not in slots:
                 m = sub_materials[s.material] if 0 <= s.material < len(sub_materials) else None
@@ -94,13 +113,15 @@ def convert(path: str, force: bool = False, write_manifest: bool = True) -> dict
                     record, used = materials.shared_material(m)
                     records[record["name"]] = record
                     textures.update({t["asset"]: t for t in used})
-                    if record["name"] not in by_key:
-                        by_key[record["name"]] = w.material(record["name"])
-                    slots[s.material] = by_key[record["name"]]
+                    name = materials.instance_key(m) if rule >= RULE_COLORS and m is not None else record["name"]
+                    if name not in by_key:
+                        by_key[name] = w.material(name)
+                    slots[s.material] = by_key[name]
             if slots[s.material] == -1:
                 continue   # collision (Nodraw) and shadow proxies are not drawn
-            idx, (p, n, uv, t) = compact(mesh.indices[s.first_index:s.first_index + s.num_indices], pos, nrm, mesh.uvs, tan)
-            prims.append(w.primitive(p, idx, n, uv, t, material=slots[s.material]))
+            idx, (p, n, uv, t, c) = compact(mesh.indices[s.first_index:s.first_index + s.num_indices], pos, nrm,
+                                            mesh.uvs, tan, col)
+            prims.append(w.primitive(p, idx, n, uv, t, material=slots[s.material], colors=c))
             report["triangles"] += len(idx) // 3
             report["vertices"] += len(p)
     if not prims:
@@ -109,8 +130,9 @@ def convert(path: str, force: bool = False, write_manifest: bool = True) -> dict
     w.doc["scenes"][0]["nodes"] = [w.node(name=Path(path).stem, mesh=w.mesh(Path(path).stem, prims))]
     w.save(out)
     translucent = any(r["blend"] == "translucent" for r in records.values())
-    entry = {"kind": "static", "file": str(out.relative_to(env.content_dir())), "version": VERSION,
-             "hash": file_hash(out), "materials": sorted(records), "nanite": not translucent}
+    names = sorted(m["name"] for m in w.doc["materials"]) if rule >= RULE_COLORS else sorted(records)
+    entry = {"kind": "static", "file": str(out.relative_to(env.content_dir())) if out.is_relative_to(env.content_dir())
+             else str(out), "version": rule, "hash": file_hash(out), "materials": names, "nanite": not translucent}
     report.update({"entry": entry, "materials": list(records.values()), "textures": list(textures.values())})
     if write_manifest:
         manifest.add_many(records_of([report]))

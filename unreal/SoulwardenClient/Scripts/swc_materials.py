@@ -21,8 +21,9 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "3", "M_SwcSurfaceMasked": "3", "M_SwcDecal": "1"}   # the rule of each parent
-# (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks)
+PARENT_VERSIONS = {"M_SwcFoliage": "1", "M_SwcSurface": "5", "M_SwcSurfaceMasked": "5", "M_SwcDecal": "1"}   # the rule of each parent
+# (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
+# 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission)
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
 assets = unreal.EditorAssetLibrary
@@ -134,6 +135,11 @@ def base_texture(name, color, channels, value, content, state):
 def white_linear(content, state):
     """@return The default texture of the one-channel parameters: 4 x 4 white, TC_Alpha."""
     return base_texture("T_SwcWhiteLinear", "linear", 1, 255, content, state)
+
+
+def white_data(content, state):
+    """@return The default texture of a linear RGB map (the specular map of the blend layer): white, TC_Masks."""
+    return base_texture("T_SwcWhiteData", "data", 4, 255, content, state)
 
 
 def black_data(content, state):
@@ -249,6 +255,85 @@ def mask(material, source, pin, channels, x, y):
     return node_
 
 
+# M3 (stage M3b): the blend layer, the vertex colors, and the detail map, in the order of the source forward pass
+# (clusterforward_commonzpass): D = diffuse x XML Diffuse -> blend layer -> D x vertex RGB -> detail -> overlay masks.
+# The blend value of the source (shadelib GetLayerBlendingValue): b = saturate(abs(vertex alpha x mask.r x (1 + BlendFactor))
+# ^ BlendFalloff); the vertex alpha is 1 with %BLENDLAYER_IGNORE_VERTEX_ALPHA. P = (BlendFactor, BlendFalloff, unused,
+# IgnoreVertexAlpha).
+BLEND_HLSL = "float a = P.w > 0.5 ? 1.0 : VA; return saturate(pow(abs(a * M * (1.0 + P.x)), P.y));"
+# The detail map of the source (common GetDetailMap: sample.garb x 2 - 1, x (DetailBumpScale, DetailBumpScale,
+# DetailDiffuseScale, DetailGlossScale), x the diffuse alpha with %ALPHAMASK_DETAILMAP): D += D x z, s += s x w.
+# Sc = the three scales, AM = 1 with %ALPHAMASK_DETAILMAP. Output: float4(D, s).
+DETAIL_HLSL = """float4 v = (Det.garb * 2.0 - 1.0) * float4(Sc.x, Sc.x, Sc.y, Sc.z);
+if (AM > 0.5) v *= A;
+return float4(D + D * v.z, G + G * v.w);"""
+# The tangent normal with the detail: N.xy += the detail x y.
+DETAIL_NORMAL_HLSL = """float4 v = (Det.garb * 2.0 - 1.0) * float4(Sc.x, Sc.x, Sc.y, Sc.z);
+if (AM > 0.5) v *= A;
+return normalize(float3(N.xy + v.xy, N.z));"""
+
+
+# M4: the emission of the source (illum.cfxb GetEmittance, fxconstantdefs GetMaterial_Emittance). With an emittance map
+# (Map, raw) and its intensity map (I: the Decal slot, raw; white when the slot is empty): E = Map.rgb x
+# lum(Map.rgb)^(EmittanceMapGamma - 1) x I.rgb x Map.a; with no map, E = 0.5. Output = Emittance RGB x Emittance A
+# x 0.1 (EMITTANCE_TO_ENGINE_LIGHT_SCALE, 1000/10000) x E, when the Emittance RGB is not black; x the global
+# EmissiveScale of MPC_SwcMaterials (the calibration with the Unreal exposure, the environment work).
+# C = EmittanceColor (RGB, A), P = (EmittanceMapGamma, has map, unused, unused).
+EMISSIVE_HLSL = """float3 w = float3(0.2126, 0.7152, 0.0722);
+if (dot(C.rgb, w) <= 0.0) return float3(0.0, 0.0, 0.0);
+float3 e = float3(0.5, 0.5, 0.5);
+if (P.y > 0.5) {
+  e = Map.rgb * pow(max(dot(Map.rgb, w), 1e-6), P.x - 1.0);
+  e *= I.rgb;
+  e *= Map.a;
+}
+return C.rgb * C.a * 0.1 * e * Scale;"""
+
+
+def collection(content, state):
+    """@return MPC_SwcMaterials: the global values of this module (EmissiveScale, default 1)."""
+    name = "MPC_SwcMaterials"
+    path = f"{BASE}/{name}"
+    if assets.does_asset_exist(path) and state.get("base:" + name) == "1":
+        return assets.load_asset(path)
+    if assets.does_asset_exist(path):
+        mpc = assets.load_asset(path)
+    else:
+        mpc = tools.create_asset(name, BASE, unreal.MaterialParameterCollection,
+                                 unreal.MaterialParameterCollectionFactoryNew())
+    value = unreal.CollectionScalarParameter()
+    value.set_editor_property("parameter_name", "EmissiveScale")
+    value.set_editor_property("default_value", 1.0)
+    mpc.set_editor_property("scalar_parameters", [value])
+    assets.save_loaded_asset(mpc)
+    state["base:" + name] = "1"
+    return mpc
+
+
+def switch(material, name, on, off, x, y):
+    node_ = editing.create_material_expression(material, unreal.MaterialExpressionStaticSwitchParameter, x, y)
+    node_.set_editor_property("parameter_name", name)
+    node_.set_editor_property("default_value", False)
+    editing.connect_material_expressions(on[0], on[1], node_, "True")
+    editing.connect_material_expressions(off[0], off[1], node_, "False")
+    return node_
+
+
+def lerp(material, a, b, alpha, x, y):
+    node_ = editing.create_material_expression(material, unreal.MaterialExpressionLinearInterpolate, x, y)
+    editing.connect_material_expressions(a[0], a[1], node_, "A")
+    editing.connect_material_expressions(b[0], b[1], node_, "B")
+    editing.connect_material_expressions(alpha[0], alpha[1], node_, "Alpha")
+    return node_
+
+
+def multiply(material, a, b, x, y):
+    node_ = editing.create_material_expression(material, unreal.MaterialExpressionMultiply, x, y)
+    editing.connect_material_expressions(a[0], a[1], node_, "A")
+    editing.connect_material_expressions(b[0], b[1], node_, "B")
+    return node_
+
+
 def surface_parent(content, state, masked):
     """@return M_SwcSurface (opaque) or M_SwcSurfaceMasked (the cutout is the alpha of the diffuse map): the parents
     of the Illum shader (stage M2). UV = TexCoord0 x UVTransform.rg + UVTransform.ba (the tiling and offset of the
@@ -290,6 +375,69 @@ def surface_parent(content, state, masked):
     s_value = node(material, unreal.MaterialExpressionMultiply, -500, 800)
     editing.connect_material_expressions(gloss, "R", s_value, "A")
     editing.connect_material_expressions(smoothness, "", s_value, "B")
+    # M3b: the blend layer (static switch Blend), the vertex colors (UseVertexColor), the detail map (static switch Detail).
+    normal = sample("Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"), 400)
+    uv2 = multiply(material, (uv, ""), (scalar(material, "BlendLayer2Tiling", 1.0, -1400, 2600), ""), -1250, 2600)
+    uvm = multiply(material, (uv, ""), (scalar(material, "BlendMaskTiling", 1.0, -1400, 2750), ""), -1250, 2750)
+
+    def sample_at(parameter, kind, default, at, y):
+        node_ = sampler(material, parameter, kind, default, -900, y)
+        editing.connect_material_expressions(at, "", node_, "UVs")
+        return node_
+
+    diffuse2 = sample_at("Diffuse2", st.SAMPLERTYPE_COLOR, unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture"), uv2, 2600)
+    normal2 = sample_at("Normal2", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"), uv2, 2850)
+    gloss2 = sample_at("Gloss2", st.SAMPLERTYPE_ALPHA, white, uv2, 3100)
+    spec2 = sample_at("Specular2", st.SAMPLERTYPE_MASKS, white_data(content, state), uv2, 3350)
+    blend_mask = sample_at("BlendMask", st.SAMPLERTYPE_ALPHA, white, uvm, 3600)
+    vertex = node(material, unreal.MaterialExpressionVertexColor, -900, 3850)
+    blend_params = vector(material, "BlendParams", (0.5, 32.0, 0.0, 0.0), -900, 4000)
+    blend_value = custom(material, BLEND_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("M", "VA", "P"), -600, 3600)
+    editing.connect_material_expressions(blend_mask, "R", blend_value, "M")
+    editing.connect_material_expressions(vertex, "A", blend_value, "VA")
+    editing.connect_material_expressions(blend_params, "RGBA", blend_value, "P")
+    tint2 = vector(material, "BlendLayer2Diffuse", (1.0, 1.0, 1.0, 1.0), -900, 4150)
+    spec_tint2 = vector(material, "BlendLayer2Specular", (0.2314, 0.2314, 0.2314, 0.0), -900, 4300)
+    smooth2 = scalar(material, "BlendLayer2Smoothness", 10.0 / 256.0, -900, 4450)   # BlendLayer2Smoothness / 256
+    d2 = multiply(material, (diffuse2, "RGB"), (tint2, "RGB"), -600, 2600)
+    sp2 = multiply(material, (spec2, "RGB"), (spec_tint2, "RGB"), -600, 3350)
+    g2 = multiply(material, (gloss2, "R"), (smooth2, ""), -600, 3100)
+    blended_d = lerp(material, (albedo, ""), (d2, ""), (blend_value, ""), -400, 2600)
+    blended_s = lerp(material, (reflectance, ""), (sp2, ""), (blend_value, ""), -400, 3350)
+    blended_g = lerp(material, (s_value, ""), (g2, ""), (blend_value, ""), -400, 3100)
+    blended_n = lerp(material, (normal, "RGB"), (normal2, "RGB"), (blend_value, ""), -400, 2850)
+    d_b = switch(material, "Blend", (blended_d, ""), (albedo, ""), -250, 2600)
+    s_b = switch(material, "Blend", (blended_s, ""), (reflectance, ""), -250, 3350)
+    g_b = switch(material, "Blend", (blended_g, ""), (s_value, ""), -250, 3100)
+    n_b = switch(material, "Blend", (blended_n, ""), (normal, "RGB"), -250, 2850)
+    one = editing.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, -400, 3850)
+    one.set_editor_property("constant", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
+    use_vertex = scalar(material, "UseVertexColor", 0.0, -400, 4000)
+    vertex_tint = lerp(material, (one, ""), (vertex, "RGB"), (use_vertex, ""), -250, 3850)
+    d_v = multiply(material, (d_b, ""), (vertex_tint, ""), -100, 2600)
+    detail_transform = vector(material, "DetailTransform", (1.0, 1.0, 0.0, 0.0), -1600, 4600)
+    detail_uv = node(material, unreal.MaterialExpressionAdd, -1100, 4600)
+    detail_scaled = multiply(material, (coords, ""), (mask(material, detail_transform, "RGBA", "rg", -1400, 4600), ""), -1250, 4600)
+    editing.connect_material_expressions(detail_scaled, "", detail_uv, "A")
+    editing.connect_material_expressions(mask(material, detail_transform, "RGBA", "ba", -1400, 4750), "", detail_uv, "B")
+    detail_map = sample_at("Detail", st.SAMPLERTYPE_COLOR, unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture"), detail_uv, 4600)
+    detail_scales = vector(material, "DetailScales", (1.0, 1.0, 1.0, 0.0), -900, 4850)   # bump, diffuse, gloss, alpha mask
+    detail_color = custom(material, DETAIL_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT4,
+                          ("D", "G", "Det", "Sc", "A", "AM"), -100, 4600)
+    detail_normal = custom(material, DETAIL_NORMAL_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT3,
+                           ("N", "Det", "Sc", "A", "AM"), -100, 4900)
+    for node_, pins in ((detail_color, (("D", d_v, ""), ("G", g_b, ""))), (detail_normal, (("N", n_b, ""),))):
+        for pin, source, out in pins:
+            editing.connect_material_expressions(source, out, node_, pin)
+        editing.connect_material_expressions(detail_map, "RGBA", node_, "Det")
+        editing.connect_material_expressions(detail_scales, "RGB", node_, "Sc")
+        editing.connect_material_expressions(color, "A", node_, "A")
+        editing.connect_material_expressions(detail_scales, "A", node_, "AM")
+    detail_d = mask(material, detail_color, "", "rgb", 50, 4600)
+    detail_g = mask(material, detail_color, "", "a", 50, 4700)
+    d_final = switch(material, "Detail", (detail_d, ""), (d_v, ""), 200, 2600)
+    g_final = switch(material, "Detail", (detail_g, ""), (g_b, ""), 200, 3100)
+    n_final = switch(material, "Detail", (detail_normal, ""), (n_b, ""), 200, 2850)
     # The overlay masks (M3 part 1): the diffuse color and the smoothness, then the specular color.
     mask_map = sample("MaskTex", st.SAMPLERTYPE_MASKS, black_data(content, state), 1300)
     mode = scalar(material, "MaskMode", 0.0, -1600, 1300)
@@ -301,8 +449,8 @@ def surface_parent(content, state, masked):
               "Ext": vector(material, "MaskExtra", (0.0, 0.0, 0.0, 0.0), -1600, 2200)}
     masked_color = custom(material, MASK_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT4,
                           ("D", "G", "M", "Mode", "CR", "CG", "CB", "Amt", "Ovr", "Ext"), -600, 1300)
-    editing.connect_material_expressions(albedo, "", masked_color, "D")
-    editing.connect_material_expressions(s_value, "", masked_color, "G")
+    editing.connect_material_expressions(d_final, "", masked_color, "D")
+    editing.connect_material_expressions(g_final, "", masked_color, "G")
     editing.connect_material_expressions(mask_map, "RGBA", masked_color, "M")
     editing.connect_material_expressions(mode, "", masked_color, "Mode")
     for pin, source in inputs.items():
@@ -312,7 +460,7 @@ def surface_parent(content, state, masked):
     spec_out = vector(material, "MaskSpecColor", (0.0, 0.0, 0.0, 0.0), -1600, 2350)
     masked_spec = custom(material, MASK_SPEC_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT3,
                          ("S", "SC", "M", "Mode", "Ovr"), -600, 1600)
-    editing.connect_material_expressions(reflectance, "", masked_spec, "S")
+    editing.connect_material_expressions(s_b, "", masked_spec, "S")
     editing.connect_material_expressions(spec_out, "RGB", masked_spec, "SC")
     editing.connect_material_expressions(mask_map, "RGBA", masked_spec, "M")
     editing.connect_material_expressions(mode, "", masked_spec, "Mode")
@@ -329,11 +477,29 @@ def surface_parent(content, state, masked):
     specular = custom(material, SPECULAR_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("S",), -350, 50)
     editing.connect_material_expressions(masked_spec, "", specular, "S")
     editing.connect_material_property(specular, "", MP.MP_SPECULAR)
-    normal = sample("Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"), 400)
-    editing.connect_material_property(normal, "RGB", MP.MP_NORMAL)
+    editing.connect_material_property(n_final, "", MP.MP_NORMAL)
     rough = node(material, unreal.MaterialExpressionOneMinus, -300, 800)
     editing.connect_material_expressions(masked_gloss, "", rough, "")
     editing.connect_material_property(rough, "", MP.MP_ROUGHNESS)
+    # M4: the emission (static switch Emissive).
+    emittance = sample("Emittance", st.SAMPLERTYPE_MASKS, white_data(content, state), 5100)
+    intensity = sample("EmissiveIntensity", st.SAMPLERTYPE_MASKS, white_data(content, state), 5350)
+    emittance_color = vector(material, "EmittanceColor", (0.0, 0.0, 0.0, 0.0), -900, 5600)
+    emittance_params = vector(material, "EmittanceParams", (1.0, 0.0, 0.0, 0.0), -900, 5750)
+    scale = editing.create_material_expression(material, unreal.MaterialExpressionCollectionParameter, -900, 5900)
+    scale.set_editor_property("collection", collection(content, state))
+    scale.set_editor_property("parameter_name", "EmissiveScale")
+    emission = custom(material, EMISSIVE_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT3,
+                      ("Map", "I", "C", "P", "Scale"), -500, 5100)
+    editing.connect_material_expressions(emittance, "RGBA", emission, "Map")
+    editing.connect_material_expressions(intensity, "RGBA", emission, "I")
+    editing.connect_material_expressions(emittance_color, "RGBA", emission, "C")
+    editing.connect_material_expressions(emittance_params, "RGBA", emission, "P")
+    editing.connect_material_expressions(scale, "", emission, "Scale")
+    black = editing.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, -500, 5450)
+    black.set_editor_property("constant", unreal.LinearColor(0.0, 0.0, 0.0, 1.0))
+    emissive = switch(material, "Emissive", (emission, ""), (black, ""), -250, 5100)
+    editing.connect_material_property(emissive, "", MP.MP_EMISSIVE_COLOR)
     if masked:
         material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
         editing.connect_material_property(color, "A", MP.MP_OPACITY_MASK)
@@ -486,6 +652,8 @@ def apply(instance, spec, parents, texture_of):
         editing.set_material_instance_vector_parameter_value(instance, name, unreal.LinearColor(*value))
     for name, value in spec.get("scalars", {}).items():
         editing.set_material_instance_scalar_parameter_value(instance, name, float(value))
+    for name, value in spec.get("switches", {}).items():   # static switches (one shader for each combination)
+        editing.set_material_instance_static_switch_parameter_value(instance, name, bool(value))
     if parent is not None and spec.get("parent") != "decal":
         overrides = instance.get_editor_property("base_property_overrides")
         overrides.set_editor_property("override_two_sided", True)

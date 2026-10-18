@@ -154,3 +154,66 @@ is 1, and u = 1 - metallic solves 0.08 u^2 - (s + d) u + d = 0 (s, d: the lumina
 of the diffuse color and of F0 stay the same as in the source. The base color goes from S (u = 0: a metal) to D / u.
 Limits: a colored F0 of a dielectric becomes one gray value; the rotation and the oscillators of the TexMod are not
 shown; the normal, gloss, and specular maps use the tiling of the diffuse slot (`instances` counts the differences).
+
+### Shared legacy keys and the n_ instances (A1)
+
+One legacy key can serve source materials with different render rules (920 keys). The instance of a legacy key has
+the rules of its main source (the render key of the most mesh slots, `content/materials/keys.json`). Each other
+render key of the key has its own instance `n_` and 10 hex digits of its render key, made by the apply step
+("create" in its spec). `materials.instance_key(element)` gives the key of the instance with the rules of a source
+sub-material: the legacy key for the main rules, else its `n_` key. The override slot map of the world track
+(`overrides.py`) uses it for the override materials (A2), and mesh rule 7 names the mesh slots with it (A3).
+
+### M3a, M3b, M4 in the surface parents
+
+| Part | Parameters | Source |
+| --- | --- | --- |
+| M3a overlay masks | `MaskTex` (the Custom slot, linear RGBA), `MaskMode`, `MaskColorR/G/B`, `MaskAmount`, `MaskOverride`, `MaskExtra`, `MaskSpecColor` | `AddMasking` (charactermasking.cfib) after the diffuse factor |
+| M3b blend layer (static switch `Blend`) | `Diffuse2`, `Normal2`, `Gloss2`, `Specular2`, `BlendMask`, `BlendParams` (BlendFactor, BlendFalloff, -, ignore vertex alpha), `BlendLayer2Diffuse`, `BlendLayer2Specular`, `BlendLayer2Smoothness` (/256), `BlendLayer2Tiling`, `BlendMaskTiling` | b = saturate(abs(vertex alpha x mask.r x (1 + BlendFactor)) ^ BlendFalloff) (shadelib `GetLayerBlendingValue`); lerp of the diffuse, specular, smoothness, and tangent normal |
+| M3b vertex colors | `UseVertexColor` | `%VERTCOLORS`: albedo x vertex RGB |
+| M3b detail (static switch `Detail`) | `Detail`, `DetailTransform`, `DetailScales` (bump, diffuse, gloss, alpha mask) | `GetDetailMap`: sample.garb x 2 - 1; normal.xy += x y; D += D x z; s += s x w |
+| M4 emission (static switch `Emissive`) | `Emittance`, `EmissiveIntensity` (raw data), `EmittanceColor` (RGB, A), `EmittanceParams` (gamma, has map); the global `EmissiveScale` of `MPC_SwcMaterials` | `GetEmittance`: Emittance RGB x A x 0.1 x (map x lum^(gamma - 1) x intensity x map.a, or 0.5) |
+
+The order is the order of the source forward pass: D = diffuse x XML Diffuse, the blend layer, x vertex RGB, the detail,
+the overlay masks, then the F0 split. A static switch makes one shader for each combination that the instances use.
+
+### Mesh rule 7 (M3, an option of `mesh.convert` until the rollout)
+
+- COLOR_0: the source vertex colors (bytes B, G, R, A of the interleaved vertex). Unreal stores a vertex color as sRGB
+  bytes (`StaticMeshBuilder`: `ToFColor(true)`) and the material reads those bytes as they are. The converter writes the
+  linear value whose sRGB encoding is the source byte: the material gets the source byte / 255 (wind and blend data
+  are not colors). The alpha is linear.
+- The slot of each sub-material is named by `materials.instance_key`: one slot for each set of render rules (no
+  collapsed slot, no wrong rules of a shared key).
+- The cost measure on Oxboro (the rebuild set of `r_+04_+02`: 1,924 meshes, 16.9 M triangles) imports into
+  `/SwcGameContent/Test/M3` (`tools/import-gltf-list.sh`), apart from the world.
+
+## The surface layer (S1 with M5)
+
+```sh
+tools/convert-materials.sh decals export NAME...   # roads and decals of regions: content/decals/NAME/layer.json, the road meshes
+tools/import-surface-layer.sh NAME... --max-seconds 300 --wait 7200   # the decal instances and the road meshes (the lock)
+```
+
+- `decals.py` walks the chunk slices and the capital slices (with the slices that they spawn at the start) and reads
+  the roads (a spline component and a road component of one entity) and the projected decals (DecalConfiguration).
+  The world: 24,713 roads, 286,082 decals (240,315 placed: visible, with a material), 658 decal materials.
+- A road is a ribbon mesh: the cubic Bezier of each segment (the vertex, its forward handle, the back handle of the
+  next vertex), the width interpolated between the vertices, rows every SegmentLength, five vertices across, the
+  heights of the Landscape + 4 cm. U = distance / TileLength along the road, V across (the road maps fade their alpha
+  along V). One glTF for each 256 m cell and sort priority; no Nanite (a decal material).
+- A terrain decal (ProjectionType 2) projects straight down: the footprint |X| x |Y|, the depth |Z| x Depth of the
+  entity matrix, the heading of X. Other decals project along their Z axis.
+- `M_SwcDecal`: domain Deferred Decal, blend Translucent (DBuffer color, normal, roughness). Opacity =
+  saturate(pow(DiffuseColor.w x diffuse.a x the decal opacity map x DecalAlphaMult, DecalFalloff)). One opacity for all
+  channels: DecalDiffuseOpacity is a limit.
+- The client: `USwcSurfaceLayer` (a world subsystem) reads `layer.json` of the regions near the view, places the road
+  meshes within 1 km and the decals within their view distance (Max View Distance x View Distance Multiplier, at
+  most 300 m). Opt-in until the cost check at a second dense place: `-SwcSurfaceLayer` or `SWC_SURFACE_LAYER=1`.
+- Open: the dirt road maps have holes in their alpha; the terrain road layer (T1 of the world track) fills them.
+
+## Cost checks
+
+`-SwcFrameStats=SECONDS` (`USwcFrameStats`) logs the p50, p95, and largest frame and GPU time of each window with the
+view place; `tools/convert-materials.sh frames LOG...` gives the median for each place (the first window at a place
+still loads). Run the matched views with no picture capture, the same views with and without the change.

@@ -90,7 +90,7 @@ class Writer:
         return len(self.doc["meshes"]) - 1
 
     def primitive(self, positions, indices, normals=None, uvs=None, tangents=None, joints=None, weights=None,
-                  material: int | None = None) -> dict:
+                  material: int | None = None, colors=None) -> dict:
         attrs = {"POSITION": self.accessor(positions.astype(np.float32), "VEC3", minmax=True)}
         if normals is not None:
             attrs["NORMAL"] = self.accessor(normals.astype(np.float32), "VEC3")
@@ -98,6 +98,8 @@ class Writer:
             attrs["TANGENT"] = self.accessor(tangents.astype(np.float32), "VEC4")
         if uvs is not None:
             attrs["TEXCOORD_0"] = self.accessor(uvs.astype(np.float32), "VEC2")
+        if colors is not None:   # (n, 4) float RGBA, linear (glTF COLOR_0)
+            attrs["COLOR_0"] = self.accessor(colors.astype(np.float32), "VEC4")
         if joints is not None:
             attrs["JOINTS_0"] = self.accessor(joints.astype(np.uint16), "VEC4")
             attrs["WEIGHTS_0"] = self.accessor(weights.astype(np.float32), "VEC4")
