@@ -61,6 +61,8 @@ public:
 	std::vector<swc::net::RepClient::OtherUpdate> TakeOtherUpdates();
 	/** The player of the game thread for the next input reports (swc::net::RepClient::set_motion). */
 	void SetMotion(const std::optional<swc::net::RepClient::Motion>& InMotion);
+	/** Melee contacts for list 3 of the next input entry (swc::net::RepClient::queue_contacts). */
+	void QueueContacts(const std::vector<swc::net::MeleeContactItem>& Contacts);
 
 	// FRunnable
 	virtual uint32 Run() override;
@@ -80,4 +82,5 @@ private:
 	FSnapshot Snapshot;
 	FString LeaveCause;
 	std::optional<swc::net::RepClient::Motion> Motion;
+	std::vector<swc::net::MeleeContactItem> Contacts;
 };

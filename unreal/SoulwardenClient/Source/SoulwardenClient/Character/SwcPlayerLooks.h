@@ -36,6 +36,8 @@ struct FSwcGearPart
 	FString EquipType;
 	/** The Mannequin tags of the weapon (MannequinTag of its weapon row, "1H_Melee,Sword"): its actions (actions.json). */
 	FString Tags;
+	/** The skeleton of the weapon model (the frames of the damage shapes of the weapon, actions.json weaponJoints). */
+	FString Model;
 	/** The key of the converted mesh (weapons.json), and the static mesh when it was imported. */
 	FString MeshKey;
 	FString MeshPath;

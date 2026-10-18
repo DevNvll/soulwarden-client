@@ -295,6 +295,10 @@ With the player of the game thread (stage 1.7, `RepClient::set_motion`; [MOVEMEN
   step after the press while the button is down, the release bit 567. The attack driver adds them at the thread of the
   session (`RepClient::Options::inputStep`, called for each entry with its input number) and steps the attack graph at
   the same input numbers;
+- list 3, the melee contacts (stage P2.8, [ACTIONS.md](ACTIONS.md)): each item 96 bytes (`write_melee_contact`: the
+  provider `0xFFFFFFFF`, the group reference, the receiver reference with its facet target, the point, the normal, and
+  the direction in engine space). The contacts of a frame go into the next entry only (`RepClient::queue_contacts`;
+  `tools/test-net.sh` reads them with the reader of the backend);
 - in the air, the ground value: the half float of the distance to the ground (10 m at most; an inference from the
   protocol notes "0 to 10; 10 in a fall").
 

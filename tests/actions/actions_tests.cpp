@@ -5,7 +5,10 @@
 //
 // Usage: swc-actions-tests ACTIONS_JSON WEAPON_ACTIONS_JSON
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <random>
@@ -406,6 +409,45 @@ void driver_tests(const Graph& sword, const Graph& other)
 	check(snapshot.presses == 2 && snapshot.releases == 2 && snapshot.holds >= 2, "driver: the counts");
 }
 
+/** The strikes of the client (actions.json) are the strikes of the backend: the damage key and the window of each one, and
+ *  the shapes of each strike (stage P2.8: the contacts must come in the windows of the server). */
+void strike_tests(const Json& actions, const backend::gamedata::WeaponActions& tables)
+{
+	int strikes = 0;
+	int shapes = 0;
+	for (const Json& weapon : actions["weapons"]) {
+		if (!weapon.contains("graph")) {
+			continue;
+		}
+		std::string tags;
+		for (const Json& tag : weapon["tags"]) {
+			tags += (tags.empty() ? "" : ",") + tag.get<std::string>();
+		}
+		const backend::gamedata::WeaponActionSet* server = tables.of_tags(tags);
+		if (server == nullptr) {
+			continue;
+		}
+		std::size_t index = 0;
+		for (const Json& item : weapon["graph"]) {
+			const auto& wanted = server->fragments[index++].strikes;
+			const Json& got = item["strikes"];
+			bool same = got.size() == wanted.size();
+			for (std::size_t strike = 0; same && strike < wanted.size(); ++strike) {
+				std::string key = got[strike]["key"].get<std::string>();
+				std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				same = key == wanted[strike].key && std::fabs(got[strike]["start"].get<float>() - wanted[strike].start) < 1e-5F
+					&& std::fabs(got[strike]["end"].get<float>() - wanted[strike].end) < 1e-5F
+					&& got[strike]["shapes"].size() == wanted[strike].shapes.size();
+				shapes += static_cast<int>(wanted[strike].shapes.size());
+				++strikes;
+			}
+			check(same, "the strikes of " + tags + " " + item["name"].get<std::string>() + " are the strikes of the backend");
+		}
+	}
+	check(strikes > 100, "strikes compared: " + std::to_string(strikes));
+	std::printf("strikes: %d with %d shapes\n", strikes, shapes);
+}
+
 /** The parity with the backend: the same steps give the same fragments at the same steps, for each melee weapon. */
 void parity_tests(const Json& actions, const backend::gamedata::WeaponActions& tables)
 {
@@ -510,6 +552,7 @@ int main(int argc, char** argv)
 	switch_tests(swordGraph, greatswordGraph, 12, "sword to greatsword");
 	driver_tests(swordGraph, greatswordGraph);
 	parity_tests(actions, tables);
+	strike_tests(actions, tables);
 	std::printf("%d checks, %d failed\n", g_checks, g_failed);
 	return g_failed == 0 ? 0 : 1;
 }

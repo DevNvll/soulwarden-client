@@ -326,6 +326,46 @@ bool FSwcActions::Load(FString& OutReport)
 				Fragment.switchAt = Switch.Num() == 2 ? Number(Switch[1], -1.0f) : -1.0f;
 				Weapon->Graph.fragments.push_back(Fragment);
 				Weapon->GraphFragments.Add(Item->TryGetStringField(TEXT("fragment"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE);
+				TArray<FSwcStrike>& Strikes = Weapon->Strikes.AddDefaulted_GetRef();
+				const TArray<TSharedPtr<FJsonValue>>* StrikeValues = nullptr;
+				if (Item->TryGetArrayField(TEXT("strikes"), StrikeValues))
+				{
+					for (const TSharedPtr<FJsonValue>& StrikeValue : *StrikeValues)
+					{
+						const TSharedPtr<FJsonObject> StrikeInfo = StrikeValue->AsObject();
+						FSwcStrike& Strike = Strikes.AddDefaulted_GetRef();
+						Strike.Key = StrikeInfo->GetStringField(TEXT("key"));
+						Strike.Start = Number(StrikeInfo->TryGetField(TEXT("start")));
+						Strike.End = Number(StrikeInfo->TryGetField(TEXT("end")));
+						for (const TSharedPtr<FJsonValue>& ShapeValue : StrikeInfo->GetArrayField(TEXT("shapes")))
+						{
+							const TSharedPtr<FJsonObject> ShapeInfo = ShapeValue->AsObject();
+							const FString Type = ShapeInfo->GetStringField(TEXT("type"));
+							if (Type != TEXT("sphere") && Type != TEXT("capsule") && Type != TEXT("box"))
+							{
+								continue; // MeleeAttackShapeCastTypeNone: no shape.
+							}
+							FSwcStrikeShape& Shape = Strike.Shapes.AddDefaulted_GetRef();
+							Shape.Kind = Type == TEXT("sphere") ? FSwcStrikeShape::EKind::Sphere : Type == TEXT("box") ? FSwcStrikeShape::EKind::Box
+																														: FSwcStrikeShape::EKind::Capsule;
+							Shape.Radius = Number(ShapeInfo->TryGetField(TEXT("radius")));
+							Shape.HalfHeight = Number(ShapeInfo->TryGetField(TEXT("halfHeight")));
+							const auto Vector = [&ShapeInfo](const TCHAR* Name)
+							{
+								const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+								return ShapeInfo->TryGetArrayField(Name, Values) && Values->Num() == 3
+									? FVector(Number((*Values)[0]), Number((*Values)[1]), Number((*Values)[2])) : FVector::ZeroVector;
+							};
+							Shape.Box = Vector(TEXT("box"));
+							Shape.Offset = Vector(TEXT("offset"));
+							Shape.Rotation = Vector(TEXT("rotation"));
+							Shape.Joint = FName(*ShapeInfo->GetStringField(TEXT("joint")));
+							Shape.bOffhand = ShapeInfo->GetBoolField(TEXT("offhand"));
+							Shape.bEndAsCenter = ShapeInfo->GetBoolField(TEXT("endAsCenter"));
+							Shape.bNoSight = ShapeInfo->GetBoolField(TEXT("noSight"));
+						}
+					}
+				}
 			}
 			std::size_t Index = 0;
 			for (const TSharedPtr<FJsonValue>& ItemValue : *Graph)
@@ -352,6 +392,25 @@ bool FSwcActions::Load(FString& OutReport)
 			Graphs += Weapon->HasGraph() ? 1 : 0;
 		}
 		Weapons.Add(Weapon);
+	}
+	// The joints of the weapon skeletons: position (m) and rotation (w, x, y, z) in the model, through the space map of
+	// stage 1.1 (the gear places of docs/GEAR.md use the same map).
+	if (const TSharedPtr<FJsonObject>* Objects = nullptr; Document->TryGetObjectField(TEXT("weaponJoints"), Objects))
+	{
+		for (const auto& Model : (*Objects)->Values)
+		{
+			TMap<FName, FTransform>& Joints = WeaponJoints.Add(FString(Model.Key.ToView()).ToLower());
+			for (const auto& Joint : Model.Value->AsObject()->Values)
+			{
+				const TArray<TSharedPtr<FJsonValue>>& V = Joint.Value->AsArray();
+				if (V.Num() == 7)
+				{
+					const FQuat Game(Number(V[4]), Number(V[5]), Number(V[6]), Number(V[3]));
+					Joints.Add(FName(FString(Joint.Key.ToView())), FTransform(FQuat(-Game.X, Game.Y, -Game.Z, Game.W).GetNormalized(),
+						FVector(Number(V[0]), -Number(V[1]), Number(V[2])) * 100.0));
+				}
+			}
+		}
 	}
 	// The motion and the facing of the attack actions, and the named conditions.
 	if (const TSharedPtr<FJsonObject>* Objects = nullptr; Document->TryGetObjectField(TEXT("conditions"), Objects))
@@ -472,6 +531,12 @@ const FSwcWeaponActions* FSwcActions::Weapon(const FString& TagText) const
 		}
 	}
 	return nullptr;
+}
+
+const FTransform* FSwcActions::WeaponJoint(const FString& Model, FName Joint) const
+{
+	const TMap<FName, FTransform>* Joints = WeaponJoints.Find(Model.ToLower());
+	return Joints != nullptr ? Joints->Find(Joint) : nullptr;
 }
 
 const FSwcWeaponActions* FSwcActions::WeaponOfGraph(const swc::combat::Graph* Graph) const

@@ -202,6 +202,30 @@ struct CheckedBundle {
 CheckedBundle read_state_bundle(std::span<const std::uint8_t> body);
 
 /** The input entry of a client (protocol notes 4.7): the fields that this client writes. */
+/**
+ * One melee contact of an input entry (list 3, 96 bytes; protocol notes 4.15; the reader of the backend
+ * server/rep/client_input.cpp read_contact): the receiver of the hit and the geometry of the contact.
+ *
+ *   0 provider:u32 (0xFFFFFFFF: none, each live contact of a sword)
+ *   4 group := actor id:16 bytes G:u64 (the entity group of the receiver)
+ *   28 receiver := actor id:16 bytes G:u64 facet target:u64 (its hit volume: the id rule of 4.2)
+ *   60 point:v3  72 normal:v3  84 direction:v3 (engine space: the point in meters, two unit vectors)
+ */
+struct MeleeContactItem {
+    std::uint32_t provider{0xFFFFFFFFU};
+    ActorId groupActor{};
+    std::uint64_t group{0};
+    ActorId actor{};
+    std::uint64_t entity{0};
+    std::uint64_t facet{0};
+    WorldPosition point;
+    WorldPosition normal;
+    WorldPosition direction;
+};
+inline constexpr std::size_t kMeleeContactSize = 96;
+/** Writes the 96 bytes of one contact. */
+void write_melee_contact(Writer& out, const MeleeContactItem& contact);
+
 struct InputEntry {
     std::uint16_t sequence{1};
     std::uint64_t flags{0};
@@ -220,6 +244,8 @@ struct InputEntry {
     WorldPosition character;
     /** The byte of entry +0x470 after the position (the live client sends it). */
     bool value470{false};
+    /** List 3: the melee contacts of this step (an entry has only its own items). */
+    std::vector<MeleeContactItem> contacts;
 };
 
 /** Flags of an entry of a client in the world that stands on the ground (live captures, backend tests). */

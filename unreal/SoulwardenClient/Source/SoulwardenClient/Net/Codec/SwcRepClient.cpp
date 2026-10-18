@@ -663,6 +663,10 @@ void RepClient::send_input(Clock::time_point now) {
         if (m_options.inputStep) {
             m_options.inputStep(static_cast<std::uint16_t>(entry.sequence), steady_ns(now), entry.actionBits);
         }
+        // The melee contacts of the player: in this entry only (the entry also has the position field).
+        entry.contacts.swap(m_pendingContacts);
+        m_pendingContacts.clear();
+        m_counts.meleeContacts += entry.contacts.size();
     } else {
         m_hasReported = false;
         // The camera of a character at rest at its position, north, no pitch: the camera estimate of the backend keeps

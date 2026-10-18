@@ -55,6 +55,7 @@ public:
 	bool HasWeapon(uint32 Slot) const;
 	/** The gear parts with a mesh, and the physical place of one part (true: the hand). */
 	const TArray<FSwcGearPart>& GetGearParts() const { return GearParts; }
+	UStaticMeshComponent* GetGearComponent(int32 Index) const { return Gear.IsValidIndex(Index) ? Gear[Index].Get() : nullptr; }
 	void PlaceGear(int32 Index, bool bInHand);
 
 	USwcCharacterMovement* GetSwcMovement() const;

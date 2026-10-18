@@ -153,6 +153,8 @@ public:
         std::uint64_t incompleteBundles{0};
         std::uint64_t droppedBundles{0};
         std::uint64_t inputReports{0};
+        /** The melee contacts in list 3 of the input entries (each one in one entry). */
+        std::uint64_t meleeContacts{0};
     };
 
     /** The player of the game thread for the input report (protocol notes 4.7). */
@@ -189,6 +191,8 @@ public:
      * the position of the server and no position field (stage 1.5).
      */
     void set_motion(const std::optional<Motion>& motion) { m_motion = motion; }
+    /** Melee contacts of the player (stage P2.8): they go into list 3 of the next input entry with the player motion. */
+    void queue_contacts(const std::vector<MeleeContactItem>& contacts) { m_pendingContacts.insert(m_pendingContacts.end(), contacts.begin(), contacts.end()); }
 
     [[nodiscard]] Phase phase() const { return m_phase; }
     [[nodiscard]] static const char* phase_name(Phase phase);
@@ -262,6 +266,7 @@ private:
     std::uint16_t m_inputNumber{0};
     std::vector<InputEntry> m_recentInputs;
     std::optional<Motion> m_motion;
+    std::vector<MeleeContactItem> m_pendingContacts;
     /** The position of the last position field (it follows the character at a limited speed: reported_position). */
     bool m_hasReported{false};
     WorldPosition m_reported;

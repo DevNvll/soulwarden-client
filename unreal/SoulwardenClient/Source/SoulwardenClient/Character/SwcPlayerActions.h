@@ -1,17 +1,22 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Combat/SwcMeleeShape.h"
 #include "Components/ActorComponent.h"
+#include "Net/Codec/SwcRepMessages.h"
 
 #include <memory>
+#include <vector>
 
 #include "SwcPlayerActions.generated.h"
 
 class ASwcPlayerCharacter;
 class FSwcActions;
+class USkeletalMeshComponent;
 class USwcPlayerAnimInstance;
 struct FSwcActionFragment;
 struct FSwcConditionFacts;
+struct FSwcStrikeShape;
 struct FSwcWeaponActions;
 
 namespace swc::combat
@@ -28,7 +33,13 @@ class Driver;
  * - the weapon keys and the sheathe key: the draw and the sheathe fragments on the UpperBody channel; each gear part moves
  *   at the mark of its action (unsheathe_weapon, Unsheathe_Offhand, sheathe_weapon); a key of the other weapon waits for
  *   the switch step of the driver (the switch marks of the fragment that plays);
- * - the stance: with the weapon in the hand, the movement fragments of its tag set (and of its shield).
+ * - the stance: with the weapon in the hand, the movement fragments of its tag set (and of its shield);
+ * - the melee contacts (stage P2.8): in each input step in the window of a strike of the attack fragment, the shapes of its
+ *   damage clips at the shown pose go to the contact query of the creatures; one contact for each target for each strike
+ *   goes into list 3 of the next input entry.
+ *
+ * Command line: -SwcDrawStrikes draws the shapes; -SwcContactProbe (development runs) sends one made-up contact for each
+ * strike at the center of its first shape (a receiver that does not exist: the backend refuses it; a check of list 3).
  */
 UCLASS()
 class SOULWARDENCLIENT_API USwcPlayerActions : public UActorComponent
@@ -56,8 +67,19 @@ public:
 	uint32 GetVisitCount() const { return Visits; }
 	uint32 GetSwitchCount() const { return SeenSwitches; }
 
+	/** The melee contact query of the creatures: the contacts of one shape with the hit volumes (the item fields). */
+	using FContactQuery = TFunction<void(const FSwcMeleeShape&, std::vector<swc::net::MeleeContactItem>&)>;
+	void SetContactQuery(FContactQuery Query) { ContactQuery = MoveTemp(Query); }
+	/** @return The contacts of this frame for list 3 of the next input entry. */
+	std::vector<swc::net::MeleeContactItem> TakeContacts();
+	/** The counts of the shapes that went to the query, of the strikes with a shape, and of the contacts. */
+	uint32 GetShapeQueries() const { return ShapeQueries; }
+	uint32 GetStrikeCount() const { return StrikeCount; }
+	uint32 GetContactCount() const { return ContactCount; }
+
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
 	/** A draw or a sheathe on the UpperBody channel. */
@@ -90,6 +112,14 @@ private:
 	void UpdateAttack(float DeltaTime);
 	void Move(const FSwcActionFragment& Fragment, const FSwcWeaponActions& Weapon, float From, float To, bool bStart, float DeltaTime);
 	void FillFacts(const FSwcActionFragment& Fragment, const FSwcWeaponActions& Weapon, float Time, FSwcConditionFacts& Facts) const;
+	/** The strikes of a graph fragment whose window has a clock of (From, To]: their shapes to the query. */
+	void QueryStrikes(const FSwcWeaponActions& Weapon, int32 GraphFragment, uint32 VisitNumber, float From, float To);
+	/** The strikes of this frame at its final pose (the delegate of the bone transforms of the mesh). */
+	void OnBonesFinal();
+	/** Draws the shapes of the strikes whose window has the clock (-SwcDrawStrikes). */
+	void DrawStrikes(const FSwcWeaponActions& Weapon, int32 GraphFragment, float Clock) const;
+	/** @return False when the frame of the shape is not there (no weapon in the hand). */
+	bool ShapeOf(const FSwcStrikeShape& Clip, FSwcMeleeShape& Out) const;
 
 	TSharedPtr<FSwcActions> Data;
 	std::shared_ptr<swc::combat::Driver> Driver;
@@ -111,4 +141,31 @@ private:
 	uint32 SeenSwitches = 0;
 	uint32 SeenLost = 0;
 	bool bButtonDown = false;
+	/** The melee contacts: the query, the contacts of this frame, the targets of each strike of the visit, the last
+	 *  center of each shape (the cast direction), and the counts. */
+	struct FStrikeWork
+	{
+		const FSwcWeaponActions* Weapon = nullptr;
+		int32 GraphFragment = 0;
+		uint32 Visit = 0;
+		float From = 0.0f;
+		float To = 0.0f;
+		float Clock = 0.0f;
+		bool bQuery = false;
+	};
+	FStrikeWork Work;
+	FDelegateHandle BonesHandle;
+	TWeakObjectPtr<USkeletalMeshComponent> BonesMesh;
+	FContactQuery ContactQuery;
+	std::vector<swc::net::MeleeContactItem> Outgoing;
+	TSet<FString> Contacted;
+	TMap<int32, FVector> LastCenters;
+	TSet<int32> StrikesSeen;
+	float StrikeClock = -1.0f;
+	uint32 ShapeQueries = 0;
+	uint32 StrikeCount = 0;
+	uint32 ContactCount = 0;
+	bool bDrawStrikes = false;
+	bool bContactProbe = false;
+	bool bQueryNoted = false;
 };

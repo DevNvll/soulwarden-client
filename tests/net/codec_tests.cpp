@@ -246,6 +246,66 @@ void test_golden_session(const std::string& goldenPath) {
     client.set_motion(motion);
     const std::optional<float> travel = one_step();
     expect(travel && near(*travel, 141.91F, 0.002F), "a travel of 40 m: the position field goes at once");
+    // Two melee contacts (stage P2.8): list 3 of the next entry only; the reader of the backend reads each field.
+    swc::net::MeleeContactItem first_contact;
+    for (std::size_t index = 0; index < 16; ++index) {
+        first_contact.groupActor[index] = static_cast<std::uint8_t>(0x10 + index);
+        first_contact.actor[index] = static_cast<std::uint8_t>(0x30 + index);
+    }
+    first_contact.group = 0x1122334455667788ULL;
+    first_contact.entity = 0x1122334455667799ULL;
+    first_contact.facet = 0x0102030405060708ULL;
+    first_contact.point = {141.5F, 203.25F, 51.0F};
+    first_contact.normal = {0.0F, -1.0F, 0.0F};
+    first_contact.direction = {0.6F, 0.8F, 0.0F};
+    swc::net::MeleeContactItem second_contact = first_contact;
+    second_contact.facet = 0x0A0B0C0D0E0F1011ULL;
+    second_contact.provider = 7;
+    client.queue_contacts({first_contact, second_contact});
+    std::vector<backend::server::rep::InputContact> read;
+    std::size_t entriesWithContacts = 0;
+    for (int step = 0; step < 3; ++step) {
+        serverGot.clear();
+        now += std::chrono::milliseconds(34);
+        for (const Bytes& out : client.tick(now)) {
+            serverView.receive(out);
+        }
+        for (const auto& [channel, frame] : serverGot) {
+            std::span<const std::uint8_t> payload;
+            if (channel != 1 || !backend::server::hub::decode_frame(frame, payload) || payload.size() < 19) {
+                continue;
+            }
+            backend::server::hub::Reader reader(payload.subspan(16));
+            reader.u8();
+            reader.u8();
+            if (reader.size() != 1589) {
+                continue;
+            }
+            if (const auto input = backend::server::rep::read_client_input(payload.subspan(16 + reader.position())); input && !input->steps.empty()) {
+                // The newest entry first: its own items only.
+                if (!input->steps.front().contacts.empty()) {
+                    ++entriesWithContacts;
+                    read = input->steps.front().contacts;
+                }
+                expect(input->tail == backend::server::rep::InputTail::read && input->entries == input->steps.size(),
+                       "the backend reads each entry of a report with contacts");
+            }
+        }
+    }
+    expect(entriesWithContacts == 1 && read.size() == 2, "the two contacts are in list 3 of one entry (" + std::to_string(entriesWithContacts) + " entries)");
+    if (read.size() == 2) {
+        const auto& a = read[0];
+        const auto& b = read[1];
+        expect(a.provider == 0xFFFFFFFFU && b.provider == 7, "the provider of each contact");
+        expect(std::equal(a.groupActor.begin(), a.groupActor.end(), first_contact.groupActor.begin()) && a.group == first_contact.group
+                   && std::equal(a.actor.begin(), a.actor.end(), first_contact.actor.begin()) && a.entity == first_contact.entity,
+               "the group and the receiver references of a contact");
+        expect(a.facet == first_contact.facet && b.facet == second_contact.facet, "the facet target of each contact");
+        expect(near(a.point[0], 141.5F, 0.0001F) && near(a.point[1], 203.25F, 0.0001F) && near(a.point[2], 51.0F, 0.0001F)
+                   && near(a.normal[1], -1.0F, 0.0001F) && near(a.direction[0], 0.6F, 0.0001F) && near(a.direction[1], 0.8F, 0.0001F),
+               "the point, the normal, and the direction of a contact");
+    }
+    expect(client.counts().meleeContacts == 2, "the count of the contacts that went out");
     client.set_motion(std::nullopt);
 
     // The 2 s timer: no movement state for 2 s.

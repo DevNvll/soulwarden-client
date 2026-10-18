@@ -77,6 +77,12 @@ std::uint16_t character_height(float z) {
     return static_cast<std::uint16_t>((clamped - kHeightMin) / kHeightRange * 65535.0F);
 }
 
+void write_vector(Writer& out, const WorldPosition& value) {
+    out.f32(value.x);
+    out.f32(value.y);
+    out.f32(value.z);
+}
+
 void write_input_entry(Writer& w, const InputEntry& entry, const InputEntry* before) {
     std::uint32_t mask = 0;
     Writer fields;
@@ -140,7 +146,10 @@ void write_input_entry(Writer& w, const InputEntry& entry, const InputEntry* bef
     }
     fields.size(0); // The hits of a projectile with no flight.
     fields.size(0); // The shots.
-    fields.size(0); // The melee contacts.
+    fields.size(static_cast<std::uint32_t>(entry.contacts.size())); // The melee contacts.
+    for (const MeleeContactItem& contact : entry.contacts) {
+        write_melee_contact(fields, contact);
+    }
     if ((entry.flags & kInputFlagPosition) != 0) {
         if (entry.hasCharacter) {
             mask |= 1U << bit;
@@ -160,6 +169,18 @@ void write_input_entry(Writer& w, const InputEntry& entry, const InputEntry* bef
 }
 
 } // namespace
+
+void write_melee_contact(Writer& out, const MeleeContactItem& contact) {
+    out.u32(contact.provider);
+    out.raw(contact.groupActor);
+    out.u64(contact.group);
+    out.raw(contact.actor);
+    out.u64(contact.entity);
+    out.u64(contact.facet);
+    write_vector(out, contact.point);
+    write_vector(out, contact.normal);
+    write_vector(out, contact.direction);
+}
 
 std::uint64_t group_of(const ActorId& actor) {
     std::uint64_t value = 0;

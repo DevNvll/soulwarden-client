@@ -128,6 +128,12 @@ void FSwcRepConnection::SetMotion(const std::optional<swc::net::RepClient::Motio
 	Motion = InMotion;
 }
 
+void FSwcRepConnection::QueueContacts(const std::vector<swc::net::MeleeContactItem>& InContacts)
+{
+	FScopeLock Guard(&Lock);
+	Contacts.insert(Contacts.end(), InContacts.begin(), InContacts.end());
+}
+
 std::vector<swc::net::RepClient::OtherUpdate> FSwcRepConnection::TakeOtherUpdates()
 {
 	FScopeLock Guard(&Lock);
@@ -324,6 +330,11 @@ uint32 FSwcRepConnection::Run()
 		{
 			FScopeLock Guard(&Lock);
 			Client.set_motion(Motion);
+			if (!Contacts.empty())
+			{
+				Client.queue_contacts(Contacts);
+				Contacts.clear();
+			}
 		}
 		if (Now >= NextTick)
 		{

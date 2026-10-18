@@ -76,6 +76,37 @@ thread reads a snapshot: the visits, the last step, and the switches.
   starts at its draw mark and ends at its sheathe mark. An attack puts the weapon of its graph into the hand at once
   (an attack with a sheathed weapon, or the kept press of a switch; an inference).
 
+## The melee contacts (stage P2.8, the part of the player track)
+
+The split with the creature track (Linear AST-163): the player track makes the shapes of each strike and puts the contacts
+into list 3 of the input entry; the creature track tests a shape against the hit volumes of the creatures and gives the
+contact fields (`USwcCreatureSubsystem::FindMeleeContacts`).
+
+- The strikes: for each graph fragment, the damage keys, the windows, and the shapes of the backend file (the same as
+  the server), with the rotation offsets and the flags of the CAGE-Damage items of the animation databases (the
+  backend file has no rotation; `actions.json` `graph[].strikes`). `tools/test-actions.sh` compares each strike with the
+  backend: 243 strikes with 302 shapes.
+- The window: in each input step whose clock (of the next entry) is in the window of a strike, each shape of the strike
+  goes to the query. The shapes use the final pose of the frame (the delegate of the bone transforms of the mesh).
+- A shape (`Combat/SwcMeleeShape.h`, `FSwcMeleeShape`, Unreal world space): a sphere, a capsule (its axis on local Z;
+  `HalfLength` is half the segment, without the caps), or a box (the half extents: the values of the data are full
+  dimensions, an inference from the box of the greatsword: 2.0 m on its blade of 1.76 m). The frame is a bone of the
+  player at its pose, or the weapon in the hand (the hand place of docs/GEAR.md on the hand bone) with a joint of the
+  weapon skeleton (`actions.json` `weaponJoints`; an empty joint is the frame of the weapon model, its blade on +Z). The
+  offset and the rotation (about x, then y, then z) go through the space map of stage 1.1. The cast direction is the move
+  of the shape since the step before. `UseEndAsCenter` and the scale of the clips are not applied.
+- One contact for each target for each strike of a fragment visit. The contacts of a frame go into list 3 of the next
+  input entry of the session (`RepClient::queue_contacts`), with the position field.
+- The query is a hook (`USwcPlayerActions::SetContactQuery`): with no query the strikes give no contact.
+- Command line: `-SwcDrawStrikes` draws the shapes; `-SwcContactProbe` sends one made-up contact for each strike (a
+  receiver that does not exist) as a check of list 3.
+
+Check (development run, `-SwcDrawStrikes -SwcContactProbe`, evidence in `~/Games/soulwarden-client/evidence/P2.8-player/`):
+`strike-shapes.png` and `strike-shapes.mp4` (the capsule on the sword blade in the light swings, the forward capsule
+of the heavy lunge, the box on the greatsword blade). The client: 9 strike windows, 25 shapes to the query, 9 contacts
+in list 3. The backend: `hit claims of the session: 10 attack input(s), 9 melee contact(s): 0 accepted, 9 refused (9 not
+a creature, ...)`.
+
 ## The tests
 
 `tools/test-actions.sh` (no engine) builds `tests/actions/actions_tests.cpp` with the attack sequence of the backend
@@ -89,10 +120,11 @@ thread reads a snapshot: the visits, the last step, and the switches.
   the greatsword;
 - the driver: the bits of a click, a hold, and a release; a weapon key at rest;
 - the parity: 3,672 input scripts (the live check inputs and random clicks and holds) for each of the 12 melee graphs:
-  the client and the backend start the same fragments at the same steps.
+  the client and the backend start the same fragments at the same steps;
+- the strikes: the damage key, the window, and the count of the shapes of each strike are the ones of the backend.
 
 ```sh
-tools/test-actions.sh   # 4847 checks, 0 failed
+tools/test-actions.sh   # 5056 checks, 0 failed
 ```
 
 ## Exit check (development runs, 2026-10-18)
@@ -116,7 +148,7 @@ computer, too low for the windows of a chain), `tests/drive/actions.txt`, the pi
 - The weapon clips: in the attachment databases (`playermaleanims_1h_meleeattach.adb`, `_2h_`) only the flail has
   clips (18, `rflail_*_prop`: its chain); the sword and the greatsword have none (particle effects, the damage clips,
   and weapon effects only). The clips of the flail, the bow string, and the firearms need the weapons as skeletal meshes.
-- The melee contacts (list 3 of the input entry) are stage P2.8: the client sends no contact yet.
+- The melee contacts need the query of the creature track (stage P2.8); the abilities with strikes are not played.
 - The abilities, the dodge, the block, the sprint and air attacks, the stamina, and the overencumbered rule are not
   played.
 - Remote players do not play actions (the Slayer map of other players is open).

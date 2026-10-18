@@ -52,6 +52,42 @@ struct FSwcActionClip : FSwcClip
 	TArray<FName> Bones;
 };
 
+/** One shape of a CAGE-Damage clip (the backend file weapon-actions.json with the rotation of the animation database). */
+struct FSwcStrikeShape
+{
+	enum class EKind : uint8
+	{
+		Sphere,
+		Capsule,
+		Box,
+	};
+	EKind Kind = EKind::Capsule;
+	/** Meters: the radius and the half height of the segment of a capsule; the full dimensions of a box (an inference: the
+	 *  box of the greatsword is 2.0 m on the blade of 1.76 m). */
+	float Radius = 0.0f;
+	float HalfHeight = 0.0f;
+	FVector Box = FVector::ZeroVector;
+	/** The offset (engine meters) and the rotation (degrees about x, then y, then z) in the frame of the joint. */
+	FVector Offset = FVector::ZeroVector;
+	FVector Rotation = FVector::ZeroVector;
+	/** A bone of the player skeleton, or a joint of the weapon skeleton (empty: the frame of the weapon). */
+	FName Joint;
+	/** UseOffhandWeapon, UseEndAsCenter, DisableLOSCheck. */
+	bool bOffhand = false;
+	bool bEndAsCenter = false;
+	bool bNoSight = false;
+};
+
+/** The damage clips of one damage key of a fragment: one hit of each target (protocol notes 4.32). */
+struct FSwcStrike
+{
+	FString Key;
+	/** The window on the clock of the fragment (s). */
+	float Start = 0.0f;
+	float End = 0.0f;
+	TArray<FSwcStrikeShape> Shapes;
+};
+
 struct FSwcWeaponActions
 {
 	/** The tags in the case of the tables ("1H_Melee", "Sword"), and the key of the clip pack ("1h_melee_sword"). */
@@ -65,6 +101,8 @@ struct FSwcWeaponActions
 	/** The attack graph (empty: no basic attack), and the fragment of each graph fragment (or INDEX_NONE). */
 	swc::combat::Graph Graph;
 	TArray<int32> GraphFragments;
+	/** The strikes of each graph fragment. */
+	TArray<TArray<FSwcStrike>> Strikes;
 
 	bool HasGraph() const { return !Graph.fragments.empty() && Graph.start >= 0; }
 };
@@ -152,6 +190,9 @@ public:
 	 */
 	bool RootDelta(const FSwcActionFragment& Fragment, float From, float To, FVector& OutDelta) const;
 
+	/** @return A joint of a weapon skeleton in the model of the weapon (Unreal cm, the space map of stage 1.1), or null. */
+	const FTransform* WeaponJoint(const FString& Model, FName Joint) const;
+
 	TArray<FSwcActionFragment> Fragments;
 	TArray<FSwcActionClip> Clips;
 	TArray<FSwcBlendSpace> BlendSpaces;
@@ -163,4 +204,5 @@ private:
 	TMap<FString, FSwcActivity> Activities;
 	TMap<FString, FSwcCondition> Conditions;
 	TMap<FString, int32> ClipIndex;
+	TMap<FString, TMap<FName, FTransform>> WeaponJoints;
 };

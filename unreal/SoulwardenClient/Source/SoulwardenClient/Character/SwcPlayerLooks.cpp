@@ -394,6 +394,7 @@ void FSwcPlayerLooks::ResolveGear(const TMap<uint32, uint32>& Equipment, FSwcPla
 		Part.bAccessory = bAccessory;
 		Part.EquipType = StringField(Data, TEXT("equipType"));
 		Part.Tags = StringField(Data, TEXT("tag"));
+		Part.Model = StringField(Data, TEXT("model"));
 		Part.MeshKey = StringField(Data, TEXT("key"));
 		Part.MeshPath = ImportedObject(Part.MeshKey, TEXT("StaticMesh"));
 		Part.bHideSheathed = FlagField(Data, TEXT("hideSheathed"));

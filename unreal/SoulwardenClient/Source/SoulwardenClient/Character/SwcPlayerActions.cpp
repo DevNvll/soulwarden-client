@@ -6,7 +6,11 @@
 #include "Character/SwcPlayerCharacter.h"
 #include "Combat/SwcAttackGraph.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "DrawDebugHelpers.h"
 #include "GameFramework/PlayerController.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "SwcBackendSubsystem.h"
 #include "SwcCameraManager.h"
 
@@ -44,6 +48,180 @@ USwcPlayerActions::USwcPlayerActions()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.TickGroup = TG_PrePhysics;
+	bDrawStrikes = FParse::Param(FCommandLine::Get(), TEXT("SwcDrawStrikes"));
+	bContactProbe = FParse::Param(FCommandLine::Get(), TEXT("SwcContactProbe"));
+}
+
+std::vector<swc::net::MeleeContactItem> USwcPlayerActions::TakeContacts()
+{
+	std::vector<swc::net::MeleeContactItem> Out;
+	Out.swap(Outgoing);
+	return Out;
+}
+
+bool USwcPlayerActions::ShapeOf(const FSwcStrikeShape& Clip, FSwcMeleeShape& Out) const
+{
+	const ASwcPlayerCharacter* Owner = Character();
+	const USkeletalMeshComponent* Mesh = Owner->GetMesh();
+	// The frame of the joint: a bone of the player at its shown pose, or the weapon in the hand (its model frame, then a
+	// joint of its skeleton).
+	FTransform Joint;
+	if (!Clip.Joint.IsNone() && Mesh->GetBoneIndex(Clip.Joint) != INDEX_NONE)
+	{
+		Joint = Mesh->GetSocketTransform(Clip.Joint, RTS_World);
+	}
+	else
+	{
+		const TArray<FSwcGearPart>& Parts = Owner->GetGearParts();
+		const uint32 Slot = Clip.bOffhand ? VisualSlot + 3 : VisualSlot;
+		const int32 Index = VisualSlot == 0 ? INDEX_NONE
+			: Parts.IndexOfByPredicate([Slot](const FSwcGearPart& Part) { return Part.PaperdollSlot == Slot && !Part.bAccessory; });
+		if (Index == INDEX_NONE || Owner->GetGearComponent(Index) == nullptr)
+		{
+			return false;
+		}
+		// The weapon in the hand: its place on the hand bone at the pose of this frame (the attached component follows the
+		// bone one step later).
+		const FSwcAttachPlace& Hand = Parts[Index].Hand;
+		Joint = Hand.Offset * Mesh->GetSocketTransform(Hand.Bone, RTS_World);
+		if (const FTransform* InModel = !Clip.Joint.IsNone() ? Data->WeaponJoint(Parts[Index].Model, Clip.Joint) : nullptr)
+		{
+			Joint = *InModel * Joint;
+		}
+	}
+	// The offset and the rotation of the clip in the frame of the joint, through the space map of stage 1.1 (x, -y, z; the
+	// rotation about x, then y, then z, as the offsets of the equip database in docs/GEAR.md).
+	const FQuat Game = FQuat(FVector::ZAxisVector, FMath::DegreesToRadians(Clip.Rotation.Z))
+		* FQuat(FVector::YAxisVector, FMath::DegreesToRadians(Clip.Rotation.Y)) * FQuat(FVector::XAxisVector, FMath::DegreesToRadians(Clip.Rotation.X));
+	const FQuat Local = FQuat(-Game.X, Game.Y, -Game.Z, Game.W).GetNormalized();
+	Out.Center = Joint.TransformPosition(FVector(Clip.Offset.X, -Clip.Offset.Y, Clip.Offset.Z) * 100.0);
+	Out.Rotation = (Joint.GetRotation() * Local).GetNormalized();
+	Out.Kind = Clip.Kind == FSwcStrikeShape::EKind::Sphere ? FSwcMeleeShape::EKind::Sphere
+		: Clip.Kind == FSwcStrikeShape::EKind::Box          ? FSwcMeleeShape::EKind::Box
+															 : FSwcMeleeShape::EKind::Capsule;
+	Out.Radius = Clip.Radius * 100.0f;
+	Out.HalfLength = Clip.Kind == FSwcStrikeShape::EKind::Capsule ? Clip.HalfHeight * 100.0f : 0.0f;
+	Out.HalfExtents = Clip.Box * 50.0;
+	Out.Attacker = Owner->GetFeetLocation();
+	Out.Direction = Owner->GetActorForwardVector();
+	Out.bNoSight = Clip.bNoSight;
+	return true;
+}
+
+void USwcPlayerActions::DrawStrikes(const FSwcWeaponActions& Weapon, int32 GraphFragment, float Clock) const
+{
+	if (!Weapon.Strikes.IsValidIndex(GraphFragment))
+	{
+		return;
+	}
+	for (const FSwcStrike& Strike : Weapon.Strikes[GraphFragment])
+	{
+		if (Clock < Strike.Start - swc::combat::kClockEpsilon || Clock > Strike.End + swc::combat::kClockEpsilon)
+		{
+			continue;
+		}
+		for (const FSwcStrikeShape& Clip : Strike.Shapes)
+		{
+			FSwcMeleeShape Shape;
+			if (!ShapeOf(Clip, Shape))
+			{
+				continue;
+			}
+			// One frame: the shape at the pose of this frame.
+			switch (Shape.Kind)
+			{
+			case FSwcMeleeShape::EKind::Sphere:
+				DrawDebugSphere(GetWorld(), Shape.Center, Shape.Radius, 12, FColor::Red, false, -1.0f);
+				break;
+			case FSwcMeleeShape::EKind::Capsule:
+				DrawDebugCapsule(GetWorld(), Shape.Center, Shape.HalfLength + Shape.Radius, Shape.Radius, Shape.Rotation, FColor::Red, false, -1.0f);
+				break;
+			case FSwcMeleeShape::EKind::Box:
+				DrawDebugBox(GetWorld(), Shape.Center, Shape.HalfExtents, Shape.Rotation, FColor::Red, false, -1.0f);
+				break;
+			}
+		}
+	}
+}
+
+void USwcPlayerActions::QueryStrikes(const FSwcWeaponActions& Weapon, int32 GraphFragment, uint32 VisitNumber, float From, float To)
+{
+	if (!Weapon.Strikes.IsValidIndex(GraphFragment))
+	{
+		return;
+	}
+	const TArray<FSwcStrike>& Strikes = Weapon.Strikes[GraphFragment];
+	for (int32 StrikeIndex = 0; StrikeIndex < Strikes.Num(); ++StrikeIndex)
+	{
+		const FSwcStrike& Strike = Strikes[StrikeIndex];
+		// The window of the strike has a clock of this frame: (From, To], To the clock of the next input step.
+		if (To < Strike.Start - swc::combat::kClockEpsilon || From > Strike.End + swc::combat::kClockEpsilon)
+		{
+			continue;
+		}
+		if (!StrikesSeen.Contains(StrikeIndex))
+		{
+			StrikesSeen.Add(StrikeIndex);
+			++StrikeCount;
+		}
+		for (int32 ShapeIndex = 0; ShapeIndex < Strike.Shapes.Num(); ++ShapeIndex)
+		{
+			FSwcMeleeShape Shape;
+			if (!ShapeOf(Strike.Shapes[ShapeIndex], Shape))
+			{
+				continue;
+			}
+			Shape.Visit = VisitNumber;
+			Shape.Strike = StrikeIndex;
+			Shape.Key = Strike.Key;
+			// The cast direction: the move of the shape since the step before.
+			const int32 ShapeKey = StrikeIndex * 64 + ShapeIndex;
+			if (const FVector* Before = LastCenters.Find(ShapeKey); Before != nullptr && !(Shape.Center - *Before).IsNearlyZero(0.1))
+			{
+				Shape.Direction = (Shape.Center - *Before).GetSafeNormal();
+			}
+			LastCenters.Add(ShapeKey, Shape.Center);
+			++ShapeQueries;
+			std::vector<swc::net::MeleeContactItem> Found;
+			if (ContactQuery)
+			{
+				ContactQuery(Shape, Found);
+			}
+			else if (!bQueryNoted)
+			{
+				bQueryNoted = true;
+				UE_LOG(LogSwcBackend, Log, TEXT("attack: no melee contact query of the creatures: the strikes give no contact%s"),
+					bContactProbe ? TEXT(" (the probe sends made-up contacts)") : TEXT(""));
+			}
+			if (bContactProbe && ShapeIndex == 0 && !Contacted.Contains(FString::Printf(TEXT("%u|%d|probe"), VisitNumber, StrikeIndex)))
+			{
+				// A receiver that does not exist (actor id 0, facet 0): the backend refuses the claim (a check of list 3).
+				Contacted.Add(FString::Printf(TEXT("%u|%d|probe"), VisitNumber, StrikeIndex));
+				swc::net::MeleeContactItem Probe;
+				const FVector Point = Shape.Center / 100.0;
+				Probe.point = {static_cast<float>(Point.X), static_cast<float>(-Point.Y), static_cast<float>(Point.Z)};
+				Probe.normal = {0.0F, 0.0F, 1.0F};
+				Probe.direction = {static_cast<float>(Shape.Direction.X), static_cast<float>(-Shape.Direction.Y), static_cast<float>(Shape.Direction.Z)};
+				Found.push_back(Probe);
+			}
+			for (const swc::net::MeleeContactItem& Contact : Found)
+			{
+				// One contact for each target for each strike (the damage key of the fragment visit).
+				const FString Key = FString::Printf(TEXT("%u|%d|%016llx|%016llx"), VisitNumber, StrikeIndex, static_cast<unsigned long long>(Contact.entity),
+					static_cast<unsigned long long>(Contact.facet));
+				if (Contacted.Contains(Key))
+				{
+					continue;
+				}
+				Contacted.Add(Key);
+				Outgoing.push_back(Contact);
+				++ContactCount;
+				UE_LOG(LogSwcBackend, Log, TEXT("attack: contact of visit %u strike %s (%s): entity %016llx facet %016llx at %.2f %.2f %.2f m"), VisitNumber,
+					*Strike.Key, UTF8_TO_TCHAR(Weapon.Graph.fragments[GraphFragment].name.c_str()),
+					static_cast<unsigned long long>(Contact.entity), static_cast<unsigned long long>(Contact.facet), Contact.point.x, Contact.point.y, Contact.point.z);
+			}
+		}
+	}
 }
 
 ASwcPlayerCharacter* USwcPlayerActions::Character() const
@@ -70,6 +248,14 @@ void USwcPlayerActions::Setup(const TSharedPtr<FSwcActions>& InData, bool bInFem
 	if (ASwcPlayerCharacter* Owner = Character())
 	{
 		Owner->GetSwcMovement()->AddTickPrerequisiteComponent(this);
+		// The shapes of the strikes at the final pose of each frame.
+		if (USkeletalMeshComponent* Mesh = BonesMesh.Get())
+		{
+			Mesh->UnregisterOnBoneTransformsFinalizedDelegate(BonesHandle);
+		}
+		BonesMesh = Owner->GetMesh();
+		BonesHandle = Owner->GetMesh()->RegisterOnBoneTransformsFinalizedDelegate(
+			FOnBoneTransformsFinalizedMultiCast::FDelegate::CreateUObject(this, &USwcPlayerActions::OnBonesFinal));
 	}
 }
 
@@ -448,6 +634,10 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 		Visit = Newest->number;
 		++Visits;
 		LastClock = 0.0f;
+		StrikeClock = -1.0f;
+		StrikesSeen.Reset();
+		LastCenters.Reset();
+		Contacted.Reset();
 		const FSwcActionFragment& Data0 = Data->Fragments[Fragment];
 		UE_LOG(LogSwcBackend, Log, TEXT("attack: visit %u %s (%s) at input %u, clock %.3f s, length %.3f s"), Newest->number,
 			UTF8_TO_TCHAR(Weapon->Graph.fragments[Newest->fragment].name.c_str()), *Data0.Key, static_cast<unsigned>(Newest->start), Clock,
@@ -466,6 +656,43 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 	}
 	Move(Data->Fragments[Fragment], *Weapon, LastClock, Clock, bStart, DeltaTime);
 	LastClock = Clock;
+	// The strikes: the clock of the next input step (the contacts of this frame go into that entry). The shapes need the
+	// pose of this frame: they run when the bone transforms of the frame are final (OnBonesFinal).
+	const float NextStep = swc::combat::clock_of(Newest->start, static_cast<std::uint16_t>(Snapshot.input + 1));
+	Work.Weapon = Weapon;
+	Work.GraphFragment = Newest->fragment;
+	Work.Visit = Newest->number;
+	Work.Clock = Clock;
+	Work.bQuery = NextStep > StrikeClock;
+	Work.From = StrikeClock;
+	Work.To = NextStep;
+	StrikeClock = FMath::Max(StrikeClock, NextStep);
+}
+
+void USwcPlayerActions::OnBonesFinal()
+{
+	if (Work.Weapon == nullptr || !Data.IsValid() || Character() == nullptr)
+	{
+		return;
+	}
+	if (Work.bQuery)
+	{
+		QueryStrikes(*Work.Weapon, Work.GraphFragment, Work.Visit, Work.From, Work.To);
+	}
+	if (bDrawStrikes)
+	{
+		DrawStrikes(*Work.Weapon, Work.GraphFragment, Work.Clock);
+	}
+	Work = FStrikeWork();
+}
+
+void USwcPlayerActions::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (USkeletalMeshComponent* Mesh = BonesMesh.Get())
+	{
+		Mesh->UnregisterOnBoneTransformsFinalizedDelegate(BonesHandle);
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)

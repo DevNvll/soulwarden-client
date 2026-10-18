@@ -321,6 +321,12 @@ bool USwcBackendSubsystem::TickWorld(float)
 			UE_LOG(LogSwcBackend, Log, TEXT("world: attacks: %u press(es), %u hold step(s), %u release(s) in the input report; %u fragment visit(s) played, %u weapon switch(es), %u lost key(s)"),
 				Attack.presses, Attack.holds, Attack.releases, Avatar.IsValid() ? Avatar->GetActions()->GetVisitCount() : 0u, Attack.switches,
 				Attack.lostKeys);
+			if (Avatar.IsValid())
+			{
+				const USwcPlayerActions* Actions0 = Avatar->GetActions();
+				UE_LOG(LogSwcBackend, Log, TEXT("world: melee: %u strike window(s), %u shape(s) to the contact query, %u contact(s); %llu contact(s) in list 3 of the input entries"),
+					Actions0->GetStrikeCount(), Actions0->GetShapeQueries(), Actions0->GetContactCount(), static_cast<unsigned long long>(Snapshot.Counts.meleeContacts));
+			}
 		}
 		Connection->Leave(TEXT("the client leaves the world (-SwcQuitWhen=world)"));
 	}
@@ -646,6 +652,11 @@ void USwcBackendSubsystem::UpdatePlayer()
 		Motion.airHeight = static_cast<float>((bHit ? Hit.Distance : MaxAirHeight) / 100.0);
 	}
 	Connection->SetMotion(Motion);
+	// The melee contacts of this frame: list 3 of the next input entry (stage P2.8).
+	if (std::vector<swc::net::MeleeContactItem> Contacts = Avatar->GetActions()->TakeContacts(); !Contacts.empty())
+	{
+		Connection->QueueContacts(Contacts);
+	}
 	if (Movement->GetMoveState() != LastMove)
 	{
 		LastMove = Movement->GetMoveState();
