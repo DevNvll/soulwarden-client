@@ -1,0 +1,32 @@
+# The clock marks of the exit check of stage P2.2 (tests/drive/ui-exit.txt): the player drive does nothing (the
+# "tick" lines are the clock of the routes of tests/drive/ui-exit-routes.txt). Times in seconds from the possession.
+1 tick
+2 tick
+4 tick
+6 tick
+8 tick
+10 tick
+12 tick
+14 tick
+16 tick
+18 tick
+20 tick
+22 tick
+24 tick
+26 tick
+28 tick
+30 tick
+31 tick
+32 tick
+33 tick
+34 tick
+35 tick
+36 tick
+38 tick
+40 tick
+44 tick
+48 tick
+52 tick
+56 tick
+60 tick
+64 tick

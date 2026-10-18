@@ -1,0 +1,21 @@
+# The clock marks of the tooltip check of stage P2.2 (tests/drive/ui-tooltip.txt): the player drive does nothing (the
+# "tick" lines are the clock of the routes of tests/drive/ui-tooltip-routes.txt). Times in seconds from the possession.
+1 tick
+2 tick
+4 tick
+6 tick
+8 tick
+10 tick
+12 tick
+13 tick
+14 tick
+15 tick
+16 tick
+18 tick
+20 tick
+24 tick
+28 tick
+32 tick
+36 tick
+40 tick
+44 tick

@@ -156,10 +156,19 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   uncheck"); a slider takes the value at the point along its track (step, range; the fill and the manipulator anchors);
   a scroll bar moves its handle (size: the part of the content that shows, with a minimum in pixels) and its scroll
   box; a scroll box puts the pivot of its content at the offset, keeps the content over its parent, follows the size of
-  its content each frame, and scrolls by the wheel (the fork step for each notch of 120: an approximation); a text input
-  starts the edit on a release inside, takes typed text at its cursor (maximum length, password character), and ends
+  its content each frame, and scrolls by the wheel (the fork step for each notch of 120: an approximation); a drag
+  of the content moves it (`OnScrollOffsetChanging`), and each release gives `OnScrollOffsetChanged` (O3DE
+  `HandleReleased`); a text input starts the edit on a release inside, takes typed text at its cursor (maximum length, password character), and ends
   with Enter or Escape or a press elsewhere; a drop-down expands (its content goes on top of the canvas at the same
   place) and collapses on a second click, on an option, or on a release outside.
+- The drag hand-off (O3DE `InputPositionUpdate`, `OfferDragHandOff`): a press on an interactable in a scroll box (the
+  world map of the respawn screen: its tiles) gives the drag to the scroll box when the move along the scroll axes is
+  more than the threshold 5 of a contained drag (a squared length, as in O3DE). The scroll box becomes the active
+  interactable. Open point: the hand-off to a slider, a scroll bar, or a draggable.
+- Tooltips: the tooltip setter of a button (`tooltipsetter.luac`) starts at the hover and asks the Tooltip screen
+  (`tooltip.luac` ShowTooltip) after its delay. The dynamic tooltip goes to the cursor (`CursorBus.GetCursorPosition`)
+  and takes the size of its sections: a simple tooltip has the flavor section with the text of
+  `LocalizeWithDataSheetData` (width: the text and 30 px). The end of the hover hides it.
 
 ### Game actions and screen states (swc/actions.lua, swc/manager.lua)
 
@@ -176,8 +185,12 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   state other than HUD with an escapable screen goes back to HUD, and the HUD goes to the state "esc" (1643432462) of
   the escape menu. (The native code of the client does this; the rule comes from the scripts: open point O12.)
 - Screen states: an autohide screen shows in the state of its name and in the states of `Swc.extraScreenStates` (the
-  escape menu: "esc", 2907552185, 921475099, the states that `escapemenu.luac` tests). A shown screen turns off the
-  action maps of its canvas component (`actionMapOverrides`: the escape menu turns off player, movement, camera).
+  escape menu: "esc", 2907552185, 921475099, the states that `escapemenu.luac` tests; the respawn screen: 921475099,
+  the escape menu of the respawn state). A screen of both states of a transition stays, with no transition: the
+  respawn screen stays under the escape menu (`respawn.luac` toggles 921475099 with Escape and takes any other
+  transition out as an error). `ToggleState` and `ExitState` go back to the state before the toggle (else to HUD). A
+  shown screen turns off the action maps of its canvas component (`actionMapOverrides`: the escape menu turns off
+  player, movement, camera).
   `TryShowById` and `TryHideById` show and hide a screen over the state (the popup) with `OnTransitionIn` and
   `OnTransitionOut`; the state does not change.
 - The cursor: the UI needs the pointer while a mouse owner exists (`AddMouseOwner`) or a shown screen has
@@ -186,6 +199,10 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
 - Fixture `escape`: the original EscapeMenu and Popup screens: Escape opens the menu (the cursor, the maps off), exit
   to desktop opens the quit popup over it, Escape closes only the popup, the pointer hovers the menu buttons again,
   Escape goes back to the HUD.
+- Buses: the handlers of a bus have an index by address. An event to an address goes only to the handlers of that
+  address and to the handlers with no address, in the order of their connection. (Before, each event read each
+  handler of the bus: the activation of the 3,992 elements of the respawn screen took 3.9 s, now 0.2 s; the HUD screens
+  of the client load in less than 1 s.) A canvas load that takes more than 0.1 s writes a note with its times.
 
 ### Loading, error, and respawn screens (swc/host.lua)
 
@@ -207,6 +224,7 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   give empty data (no points of interest, no territories, no NPC markers), the group and raid sizes 5 and 10.
 - A bus method that the emulation does not define goes to the script handlers of that bus that have it (an EBus with
   a Lua handler: the popup screen has `UiPopupBus`), else a stub.
+- The data layer gives a data observer the value also when it is false (the end of a death: `IsDead` false).
 
 ### Dynamic lists (swc/dynamic.lua)
 
@@ -297,17 +315,20 @@ to the data layer only when it changes.
 - The widget fills the game viewport (Z order 10).
 - Input (`UI/SwcUiInput.cpp`): a Slate input pre-processor sees each key and mouse event before the game viewport.
   Each key goes to the runtime (its CryInput name: `escape`, `w`, `lshift`, `tilde`); the UI keeps a key from the game
-  when it used it or when `Swc.HostKeyToGame` says no. While the UI needs the pointer, the cursor shows (input mode
+  when it used it or when `Swc.HostKeyToGame` says no. During a harness drive, each key press writes a log line
+  (`ui: key w: it goes to the game`, `the UI used it`, `the UI keeps it from the game`). While the UI needs the pointer, the cursor shows (input mode
   game and UI, no capture) and each mouse event goes to the UI only; a key release and a button release always go to
   the game too (a held key or attack ends). The player controller is not changed: the pre-processor holds its input.
-- Harness input (`-SwcUiDrive=FILE`, `tests/drive/ui-*.txt`): a script of UI input events in the process, through the
-  same entry as Slate (no input tool of the host): key, keydown, keyup, point ELEMENT (an element of a shown canvas by
-  its name), waitfor ELEMENT (the clock stays until it shows), move, click, press, release, drag, wheel, log, end
-  (releases each held key and button). The clock starts at the spawn of the player, as the drive of the player
-  controller: `tools/creature-check.sh` runs the development routes on the same clock (the respawn check:
-  `tests/drive/ui-respawn.txt`). The widget draws
-  a marker at the harness pointer. `tools/ui-check.sh LABEL STAY DRIVE` makes a window run with a drive and records
-  the agent desktop (wf-recorder) into `SWC_WORK/evidence/P2.2`.
+- Harness input (`-SwcUiDrive=FILE`, `tests/drive/ui-*.txt`): a script of UI input events in the process (no input
+  tool of the host): key, keydown, keyup, point ELEMENT (an element of a shown canvas by its name), waitfor ELEMENT
+  (the clock stays until it shows), move, click, press, release, drag, wheel, log, end (releases each held key and
+  button). A key goes through Slate as a key of the keyboard (`FSlateApplication::ProcessKeyDownEvent`): the UI first,
+  then the game viewport and the player controller when the UI does not keep it. The pointer events go to the UI
+  entry of the pre-processor. The clock starts at the spawn of the player, as the drive of the player controller
+  (`tools/creature-check.sh` runs the development routes on the same clock), or at a failed login path. The widget
+  draws a marker at the harness pointer. `tools/ui-check.sh LABEL STAY DRIVE` makes a window run with a drive and
+  records the agent desktop (wf-recorder) into `SWC_WORK/evidence/P2.2`; with `--refused` the login path goes to a
+  closed port of the loopback (`-SwcHttp=127.0.0.1:1`) and the client stops after STAY seconds.
 - Font size: the draw list gives the glyph size in canvas pixels (0.8 of the LyShine size); a Slate size is in points,
   thus Slate gets 0.75 of the glyph size.
 - Additive blend: premultiplied alpha with an alpha of 0 (an approximation).
@@ -355,7 +376,8 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `loader` | The screen loader of the game (`uiloader.luac`) at a world entry, with two allowed screens (Vitals2024, InfoModal): it asks only for canvases of its list (`gamedata/loader.json`, 153 paths), one time each, with the ending `.uicanvas` (105 for the world); it counts each load and failure and sets the state HUD; the HUD screen has no autohide and shows, the menu has autohide and shows only in its state. Each canvas that the game has for the two lists (the UI loader and the 69 canvases of `dynamiccanvasloader.luac`) is converted; 2 paths of the UI loader have no canvas in the game. |
 | `escape` | The original EscapeMenu and Popup screens driven by keys and clicks (`Swc.HostInput`): Escape in the HUD fires `toggleMenuComponent`, the state goes to "esc", the menu shows with the cursor and the maps player, movement, camera off; exit to desktop opens the quit popup over the menu (the state stays; the map ui off); Escape fires `ui_genpop_cancel` and closes only the popup; the pointer hovers a menu button again; Escape gives `OnEscapeKeyPressed` to the menu and the HUD comes back with its maps. Pictures `escape-menu`, `escape-popup`, `escape-focus`. |
 | `loading` | The loading screen of the game (`loadingscreen.luac`) shows and hides with the events of the native code; a refused connection gives the original error popup (`popup.luac` ShowError, `UIError_login_unable_to_connect`) with the cursor, and its OK button closes it. Pictures `loading-start`, `loading-later`, `loading-error`. |
-| `respawn` | The original Respawn screen: the dead mark and a death notice of 5 s queue the state "respawn", the list has "Random Location", the RESPAWN button (on 2 s after the map) gives the host request "respawn 1", the loading screen of the death shows, the revive and its end give the HUD. Pictures `respawn-list`, `respawn-loading`. |
+| `respawn` | The original Respawn screen: the dead mark and a death notice of 5 s queue the state "respawn", the list has "Random Location"; a drag on the world map (a press on a tile, the hand-off to the `MagicMap` scroll box) moves its content by the drag vector, `magicmap.luac` sees the drag and its end; Escape opens the escape menu of the respawn state over the screen and Escape goes back to it; the RESPAWN button (on 2 s after the map) gives the host request "respawn 1", the loading screen of the death shows, the revive and its end give the HUD. Pictures `respawn-list`, `respawn-drag`, `respawn-loading`. |
+| `tooltip` | The original EscapeMenu and Tooltip screens: with the dead mark the menu buttons have the tooltip "@ui_button_disabled_dead"; the hover of a button shows the dynamic tooltip after the delay of its setter, at the cursor, with the English text and the width of the text and its padding; the end of the hover hides it; with the character alive the button has no tooltip. Picture `tooltip-dead`. |
 | `transitions` | The open of the original InfoModal (`OnTransitionIn`, its tweens) and the hover of its button (`button.luac`): each animation that a script starts has the eased value at each frame (60 a second), the final value, and ends after its delay and duration (15 animations; 4 replaced by a new one on the same property, the rule of the gem). The close hides the modal at once (its script has no animation). The ease functions against values of the Penner equations. Pictures `transitions-open-00` to `-24`, `transitions-hover-00` to `-24`, `transitions-close-00`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
@@ -365,6 +387,23 @@ saved. Result: 959 layouts, 1,450 children, 0 differ. Apart: the layouts with th
 the font metrics of the tests (`tests/ui/font_measure.cpp`, stb_truetype, `tests/ui/vendor/stb`): 806 of 907 children
 agree within 1 px (the rest: the integer advances of the CryFont size cache and wraps at the edge); a guard needs 85%.
 Not compared: 2 layouts whose saved child offsets are older than the last edit of their canvas.
+
+Exit check of stage P2.2 (development runs, 2026-10-18; `SWC_WORK/evidence/P2.2`):
+
+```sh
+export SWC_STAGE=P2.2 SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8872:4250:138.25
+tools/creature-check.sh ui-exit 70 tests/drive/ui-exit-routes.txt tests/drive/ui-exit-player.txt -- -SwcUiDrive=$PWD/tests/drive/ui-exit.txt
+tools/creature-check.sh ui-tooltip 50 tests/drive/ui-tooltip-routes.txt tests/drive/ui-tooltip-player.txt -- -SwcUiDrive=$PWD/tests/drive/ui-tooltip.txt
+tools/ui-check.sh ui-refused 45 tests/drive/ui-refused.txt --refused
+```
+
+`ui-exit.mp4`: W moves the character; Escape opens the escape menu (the cursor shows; W stays out of the game);
+exit to desktop opens the nested quit popup; Escape closes only the popup; the pointer hovers the menu buttons again;
+Escape closes the menu (the cursor hides) and W moves the character again; the death gives the respawn screen; two
+drags move its world map; RESPAWN gives the loading screen of the death, then the HUD; `end` releases the held keys W
+and D. `ui-tooltip.mp4`: the escape menu of the respawn state shows the tooltip of a dead character at the cursor;
+Escape goes back to the respawn screen. `ui-refused.mp4`: the error popup of the game with the cursor; OK closes it.
+The UI lines of each run are in `LABEL-ui.txt`.
 
 `tools/dev-build.sh` gives a preset of the backend (`--list` shows them) to the dev character. It uses the
 development routes of the backend (`--dev-commands`): only in a development session, never with the data folder of
@@ -389,8 +428,13 @@ the user ([AGENTS.md](../AGENTS.md), rules).
 - A sliced radial fill clips with lines in canvas space; O3DE clips in viewport space. The angles are the same unless
   the element has a scale that is not uniform.
 - A sprite mask in a sprite mask: only the innermost one applies (LyShine combines the two in the stencil).
-- O13: the dynamic tooltip of the Tooltip screen shows at the pointer (a button with a tooltip: the unstuck cooldown),
-  but its sections and its size are not complete for a description tooltip.
+- O13: the simple tooltip works (the text, the size, the place). `LocalizeWithDataSheetData` gives the localized text;
+  the expressions of the data sheets in a text (`{[...]}`) stay as text. The item tooltip sections (stats, perks,
+  compare) come with the inventory screens (P2.4).
+- O14: after the error popup of a refused connection, the client has no front end (no login screen, no new try): it
+  stays in the empty level.
+- The escape menu over the respawn screen: the draw order of the game (the respawn screen 20, the escape menu 41)
+  puts the menu on top. Its buttons are off while the character is dead (the script).
 - O12: the escape rule and the states of the escape menu are rules of the emulation from the scripts (the native
   screen manager of the client has them). The popup grid list (`simplegriditemlist.luac`) finds no row table in
   `OnInit`: the quit popup works; the split stack popup is not checked.

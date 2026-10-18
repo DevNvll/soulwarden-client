@@ -19,6 +19,11 @@ public:
 
 	/** @return The CryInput name of a key of the action maps ("escape", "w", "lshift", "tilde"), or empty. */
 	static FString CryName(const FKey& Key);
+	/** @return The key of a CryInput name, or EKeys::Invalid. */
+	static FKey KeyOf(const FString& Name);
+
+	/** A log line for each key press (the harness input of the UI): the UI used it, keeps it, or gives it to the game. */
+	bool bLogKeys = false;
 
 	virtual void Tick(const float DeltaTime, FSlateApplication& SlateApp, TSharedRef<ICursor> Cursor) override {}
 	virtual bool HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent) override;

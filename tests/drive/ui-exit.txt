@@ -1,0 +1,48 @@
+# The exit check of stage P2.2: the keys of the game, the escape menu (open), a nested popup, Escape, the return of the
+# focus (to the menu, then to the game), the death and the respawn screen with a drag of its world map, the respawn,
+# and the release of the test input. The keys of this script go through Slate as keys of the keyboard (the input of the
+# UI first, then the game). Times in seconds from the spawn of the player (the clock of tests/drive/ui-exit-player.txt;
+# the death is the route "hurt" of tests/drive/ui-exit-routes.txt at 34 s). A "waitfor" holds the clock of this script
+# until the element shows (the HUD after the screen loader, the respawn button). The first 10 s let the recording of
+# tools/creature-check.sh start (it starts at the line "world: own entity").
+# SWC_STAGE=P2.2 SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8872:4250:138.25 tools/creature-check.sh ui-exit 70 tests/drive/ui-exit-routes.txt tests/drive/ui-exit-player.txt -- -SwcUiDrive=$PWD/tests/drive/ui-exit.txt
+1 waitfor CompassLines 60
+1 log the HUD shows
+12 log the game has the keys: W moves the character
+12 keydown w
+13.5 keyup w
+15 log open: Escape in the HUD
+15 key escape
+16 log W while the escape menu shows
+16 keydown w
+17 keyup w
+18 point ButtonSettings
+19 point ButtonUnstuck
+20 point ButtonExitDesktop
+21 log a nested popup: exit to desktop
+21 click
+23 point ButtonNo
+24 log Escape closes the popup
+24 key escape
+25.5 log the return of the focus to the menu
+25.5 point ButtonHelp
+26.5 point ButtonSettings
+27.5 log Escape closes the menu
+27.5 key escape
+28.5 log the return of the focus to the game: W moves the character
+28.5 keydown w
+30 keyup w
+32 log the death (the route hurt)
+33 waitfor RespawnMapButtonAccept 40
+33 log the respawn screen
+34 log a drag of the world map
+34 drag MagicMap 0.5 0.5 0.3 0.35 1.5
+36.5 drag MagicMap 0.3 0.6 0.6 0.45 1.5
+39 point RespawnMapButtonAccept
+40 log RESPAWN
+40 click
+45 log the HUD after the respawn
+45 keydown w
+46 keydown d
+46.5 log the end: the test input is released
+46.5 end

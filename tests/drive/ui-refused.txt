@@ -1,0 +1,10 @@
+# The exit check of stage P2.2 for a refused connection: the login path of the client goes to a closed port of the
+# loopback, the error popup of the game shows (UIError_login_unable_to_connect) with the cursor, and its OK button
+# closes it. Times in seconds from the error of the login path.
+# SWC_STAGE=P2.2 tools/ui-check.sh ui-refused 45 tests/drive/ui-refused.txt --refused
+3 log a refused connection: the error popup
+4 point ButtonOk
+5.5 log OK closes the popup
+5.5 click
+8 log the end: the test input is released
+8 end

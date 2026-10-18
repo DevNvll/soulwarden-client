@@ -80,6 +80,8 @@ private:
 	void LoadDrive(const FString& Path);
 	void TickDrive();
 	void ReleaseDriveInput();
+	/** A key of the harness input as a key of the keyboard (Slate): the UI first, then the game when the UI does not keep it. */
+	void DriveKey(const FString& Name, bool bDown);
 	bool DrivePointAt(const FString& Element, float FractionX, float FractionY);
 	/** The loading screen of the start, the error UI of the login path, and the requests of the scripts (a respawn). */
 	void UpdateLoadingAndRequests();

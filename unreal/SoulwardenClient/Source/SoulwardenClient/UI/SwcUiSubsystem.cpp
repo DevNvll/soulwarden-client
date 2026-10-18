@@ -425,7 +425,7 @@ void USwcUiSubsystem::LoadDrive(const FString& Path)
 		Drive.Add(MoveTemp(Step));
 	}
 	Drive.StableSort([](const FDriveStep& A, const FDriveStep& B) { return A.Time < B.Time; });
-	UE_LOG(LogSwcUi, Log, TEXT("ui drive: %d step(s) from %s (from the spawn of the player)"), Drive.Num(), *Path);
+	UE_LOG(LogSwcUi, Log, TEXT("ui drive: %d step(s) from %s (from the spawn of the player or the error of the login path)"), Drive.Num(), *Path);
 }
 
 bool USwcUiSubsystem::DrivePointAt(const FString& Element, float FractionX, float FractionY)
@@ -447,16 +447,38 @@ bool USwcUiSubsystem::DrivePointAt(const FString& Element, float FractionX, floa
 	return true;
 }
 
+void USwcUiSubsystem::DriveKey(const FString& Name, bool bDown)
+{
+	const FKey Key = FSwcUiInputProcessor::KeyOf(Name);
+	if (!Key.IsValid() || !FSlateApplication::IsInitialized() || !InputProcessor.IsValid())
+	{
+		UiKey(Name, bDown);
+		return;
+	}
+	// The same path as a key of the keyboard: the input pre-processor of the UI, then the game viewport (the player
+	// controller) when the UI does not keep the key.
+	FSlateApplication& Slate = FSlateApplication::Get();
+	const FKeyEvent Event(Key, Slate.GetModifierKeys(), 0, false, 0, 0);
+	if (bDown)
+	{
+		Slate.ProcessKeyDownEvent(Event);
+	}
+	else
+	{
+		Slate.ProcessKeyUpEvent(Event);
+	}
+}
+
 void USwcUiSubsystem::ReleaseDriveInput()
 {
 	for (const FString& Key : DriveKeysUp)
 	{
-		UiKey(Key, false);
+		DriveKey(Key, false);
 	}
 	DriveKeysUp.Reset();
 	for (const FString& Key : DriveKeysDown)
 	{
-		UiKey(Key, false);
+		DriveKey(Key, false);
 	}
 	DriveKeysDown.Reset();
 	if (bDriveButtonDown)
@@ -474,8 +496,9 @@ void USwcUiSubsystem::ReleaseDriveInput()
 void USwcUiSubsystem::TickDrive()
 {
 	// The clock of the drive starts at the spawn of the player (the end of the loading screen of the start), as the
-	// drive of the player controller (-SwcDrive) starts at the possession: the two scripts agree.
-	if (Drive.IsEmpty() || !bWorldEntered || bStartLoading)
+	// drive of the player controller (-SwcDrive) starts at the possession: the two scripts agree. A failed login path
+	// starts it too (the error UI).
+	if (Drive.IsEmpty() || !((bWorldEntered && !bStartLoading) || bErrorShown))
 	{
 		return;
 	}
@@ -483,12 +506,16 @@ void USwcUiSubsystem::TickDrive()
 	if (DriveStart < 0.0)
 	{
 		DriveStart = Now;
+		if (InputProcessor.IsValid())
+		{
+			InputProcessor->bLogKeys = true;
+		}
 	}
 	const double Time = Now - DriveStart;
 	// A "key" press lasts one frame; a click releases at the next frame.
 	for (const FString& Key : DriveKeysUp)
 	{
-		UiKey(Key, false);
+		DriveKey(Key, false);
 	}
 	DriveKeysUp.Reset();
 	if (bDriveReleaseNext)
@@ -538,17 +565,17 @@ void USwcUiSubsystem::TickDrive()
 		UE_LOG(LogSwcUi, Log, TEXT("ui drive: %.2f s %s %s"), Time, *Step.Command, *FString::Join(Step.Args, TEXT(" ")));
 		if (Step.Command == TEXT("key") && Step.Args.Num() > 0)
 		{
-			UiKey(Step.Args[0], true);
+			DriveKey(Step.Args[0], true);
 			DriveKeysUp.Add(Step.Args[0]);
 		}
 		else if (Step.Command == TEXT("keydown") && Step.Args.Num() > 0)
 		{
-			UiKey(Step.Args[0], true);
+			DriveKey(Step.Args[0], true);
 			DriveKeysDown.Add(Step.Args[0]);
 		}
 		else if (Step.Command == TEXT("keyup") && Step.Args.Num() > 0)
 		{
-			UiKey(Step.Args[0], false);
+			DriveKey(Step.Args[0], false);
 			DriveKeysDown.Remove(Step.Args[0]);
 		}
 		else if (Step.Command == TEXT("point") && Step.Args.Num() > 0)

@@ -82,7 +82,12 @@ local function move(x, y)
     set_hover(latest)
   end
   if valid(input.active) and input.activePressed then
-    Swc.InteractableDrag(input.active, x, y)
+    local taker = Swc.InteractableDrag(input.active, x, y)
+    if taker then
+      -- The drag went to a parent scroll box (O3DE ActiveChanged): it is the active interactable now.
+      input.active = taker
+      input.stayActive = false
+    end
   end
 end
 
@@ -229,9 +234,17 @@ function Swc.HoverInteractable()
   return input.hover or EntityId()
 end
 
--- The cursor of the UI (the fork UiCursorBus): the position of the last input event, in viewport pixels.
+-- The cursor of the UI (the fork UiCursorBus, and CursorBus of the game): the position of the last input event, in
+-- viewport pixels (the client window is the viewport).
+local function cursor_position()
+  return Swc.Vector2.new({x = input.x, y = input.y})
+end
 Swc.Define("UiCursorBus", "Broadcast", {
-  GetUiCursorPosition = function() return Swc.Vector2.new({x = input.x, y = input.y}) end,
+  GetUiCursorPosition = cursor_position,
+})
+Swc.Define("CursorBus", "Broadcast", {
+  GetCursorPosition = cursor_position,
+  GetUiCursorPosition = cursor_position,
 })
 
 --- Each frame: a hover or an active interactable that does not show any more ends (its canvas or element hid).

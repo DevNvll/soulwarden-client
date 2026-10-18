@@ -55,25 +55,91 @@ end
 
 -- ---------------------------------------------------------------------------------------------------------- buses
 
--- The state of each bus: its handlers. A handler is {table, id, connected}.
+-- The state of each bus: its handlers in the order of their connection, and an index of them by address (byId: the
+-- handlers of one address; anyId: the handlers with no address, which get each event). A handler is {table, id,
+-- connected, seq}: seq is its place in the order.
 Swc.busState = {}
 
 local Handler = {}
 Handler.__index = Handler
 
+local handlerSequence = 0
+
+--- The key of an address in the index: an entity id or a value object by its text (their == compares the values),
+--- a string or a number as it is.
+local function id_key(id)
+  local kind = type(id)
+  if kind == "userdata" then
+    return "\1" .. tostring(id)
+  elseif kind == "table" then
+    return "\2" .. tostring(id)
+  end
+  return id
+end
+
+local function remove_handler(list, h)
+  for i = #list, 1, -1 do
+    if list[i] == h then
+      table.remove(list, i)
+    end
+  end
+end
+
+--- Puts a handler into the index of its bus, in the order of seq.
+local function index_add(state, h)
+  local list = state.anyId
+  if h.id ~= nil then
+    local key = id_key(h.id)
+    list = state.byId[key]
+    if not list then
+      list = {}
+      state.byId[key] = list
+    end
+  end
+  local i = #list
+  while i > 0 and list[i].seq > h.seq do
+    i = i - 1
+  end
+  table.insert(list, i + 1, h)
+end
+
+local function index_remove(state, h)
+  if h.id == nil then
+    remove_handler(state.anyId, h)
+    return
+  end
+  local key = id_key(h.id)
+  local list = state.byId[key]
+  if list then
+    remove_handler(list, h)
+    if #list == 0 then
+      state.byId[key] = nil
+    end
+  end
+end
+
+--- Adds a handler at the end of the order of its bus.
+local function append_handler(state, h)
+  handlerSequence = handlerSequence + 1
+  h.seq = handlerSequence
+  table.insert(state.handlers, h)
+  index_add(state, h)
+end
+
+local function drop_handler(state, h)
+  remove_handler(state.handlers, h)
+  index_remove(state, h)
+end
+
 function Handler:Disconnect(id)
   if id ~= nil and self.id ~= nil and self.id ~= id then
     return
   end
-  self.connected = false
   local state = Swc.busState[self.busName]
-  if state then
-    for i = #state.handlers, 1, -1 do
-      if state.handlers[i] == self then
-        table.remove(state.handlers, i)
-      end
-    end
+  if state and self.connected then
+    drop_handler(state, self)
   end
+  self.connected = false
 end
 
 function Handler:IsConnected()
@@ -81,12 +147,18 @@ function Handler:IsConnected()
 end
 
 function Handler:Connect(id)
-  if id ~= nil then
-    self.id = id
-  end
+  local state = Swc.busState[self.busName]
   if not self.connected then
+    if id ~= nil then
+      self.id = id
+    end
     self.connected = true
-    table.insert(Swc.busState[self.busName].handlers, self)
+    append_handler(state, self)
+  elseif id ~= nil then
+    -- A new address of a connected handler: the same place in the order.
+    index_remove(state, self)
+    self.id = id
+    index_add(state, self)
   end
 end
 
@@ -97,7 +169,7 @@ end
 local function state_of(name)
   local state = Swc.busState[name]
   if not state then
-    state = {name = name, handlers = {}}
+    state = {name = name, handlers = {}, byId = {}, anyId = {}}
     Swc.busState[name] = state
   end
   return state
@@ -106,7 +178,7 @@ end
 --- Connects a handler table to a bus. @return The handler (Disconnect, IsConnected).
 function Swc.Connect(name, handlerTable, id)
   local h = setmetatable({busName = name, table = handlerTable, id = id, connected = true}, Handler)
-  table.insert(state_of(name).handlers, h)
+  append_handler(state_of(name), h)
   if Swc.onConnect[name] then
     Swc.onConnect[name](h)
   end
@@ -123,8 +195,27 @@ function Swc.Handlers(name, id)
   if not state then
     return out
   end
-  for _, h in ipairs(state.handlers) do
-    if h.connected and (id == nil or h.id == nil or h.id == id) then
+  if id == nil then
+    for _, h in ipairs(state.handlers) do
+      if h.connected then
+        out[#out + 1] = h
+      end
+    end
+    return out
+  end
+  -- The handlers of the address and the handlers with no address, in the order of their connection.
+  local own, any = state.byId[id_key(id)] or {}, state.anyId
+  local i, j = 1, 1
+  while i <= #own or j <= #any do
+    local h
+    if j > #any or (i <= #own and own[i].seq < any[j].seq) then
+      h = own[i]
+      i = i + 1
+    else
+      h = any[j]
+      j = j + 1
+    end
+    if h.connected then
       out[#out + 1] = h
     end
   end
@@ -156,6 +247,7 @@ function Swc.DropHandlersOf(handlerTable)
       if h.table == handlerTable then
         h.connected = false
         table.remove(state.handlers, i)
+        index_remove(state, h)
       end
     end
   end

@@ -22,12 +22,14 @@ end
 
 --- Loads a canvas and activates its scripts with the LyShine order. @return The canvas id (invalid on a failure).
 function Swc.LoadCanvas(path, drawOrder)
+  local start = swcui.wall_clock()
   local canvas, created = swcui.load_canvas(path)
   if not canvas then
     Swc.Note("canvas " .. tostring(path) .. " did not load: " .. tostring(created))
     return EntityId(), false
   end
   if #created > 0 then
+    local loaded = swcui.wall_clock()
     if drawOrder ~= nil and drawOrder >= 0 then
       swcui.canvas_set(canvas, "drawOrder", drawOrder)
     end
@@ -35,6 +37,11 @@ function Swc.LoadCanvas(path, drawOrder)
     -- The canvas entity activates first (its own script components: the globals canvas has one).
     Swc.ActivateEntity(canvas)
     Swc.ActivateElements(created, swcui.canvas_get(canvas, "root"), true)
+    local done = swcui.wall_clock()
+    if done - start > 0.1 then
+      Swc.Note(string.format("canvas %s: %d elements, load %.2f s, scripts %.2f s", tostring(path), #created,
+        loaded - start, done - loaded))
+    end
   end
   return canvas, true
 end
@@ -125,6 +132,9 @@ end
 Swc.Define("LyShineScriptBindRequestBus", "Broadcast", {
   ScriptLoadCanvas = function(path, autohide, drawOrder) return Swc.LoadScreen(path, autohide, drawOrder) end,
   LocalizeText = function(text) return swcui.localize(tostring(text or "")) end,
+  -- The text with the values of the data sheets. Open point (O13): the expressions of the data sheets ({[...]}) stay
+  -- as text.
+  LocalizeWithDataSheetData = function(text) return swcui.localize(tostring(text or "")) end,
   -- One value: it replaces the first {name} part of the text.
   LocalizeTextWithReplacement = function(text, value)
     local localized = swcui.localize(tostring(text or ""))
@@ -177,9 +187,12 @@ local HUD_STATE = 2702338936
 
 -- The states of a screen that are not the state of its name (the native code of the client knows them; these come
 -- from the scripts): the escape menu shows in "esc" (1643432462) and in the two states that escapemenu.luac tests in
--- OnTransitionIn (2907552185, the escape menu of the main menu level; 921475099, the respawn state).
+-- OnTransitionIn (2907552185, the escape menu of the main menu level; 921475099, the escape menu of the respawn state).
+-- The respawn screen stays in 921475099: respawn.luac toggles that state with Escape (ui_cancel), and its
+-- OnTransitionOut takes a transition out to a state other than its own exit as an error and queues "respawn" again.
 Swc.extraScreenStates = {
   escapemenu = {1643432462, 2907552185, 921475099},
+  respawn = {921475099},
 }
 
 function Swc.SetScreenShown(screen, shown)
@@ -231,7 +244,9 @@ end
 local function transition(from, to)
   for _, screen in pairs(Swc.screens) do
     if screen.autohide then
-      if screen.states[to] then
+      if screen.states[to] and screen.states[from] and screen.shown then
+        -- A screen of the two states stays, with no transition.
+      elseif screen.states[to] then
         swcui.canvas_set(screen.canvas, "enabled", true)
         Swc.SetScreenShown(screen, true)
         send(screen.canvas, "OnTransitionIn", from, to)
@@ -256,19 +271,30 @@ function Swc.SetUiState(state)
   transition(from, state)
 end
 
+-- The state before a toggled state: ToggleState and ExitState go back to it (respawn.luac toggles 921475099, the escape
+-- menu of the respawn state, on and off from the respawn state). Else they go to HUD.
+Swc.stateBefore = {}
+
+local function leave_state(state)
+  local back = Swc.stateBefore[state] or HUD_STATE
+  Swc.stateBefore[state] = nil
+  Swc.SetUiState(back)
+end
+
 Swc.Define("LyShineManagerBus", "Broadcast", {
   SetState = function(state) Swc.SetUiState(state) end,
   QueueState = function(state) Swc.SetUiState(state) end,
   ToggleState = function(state)
     if Swc.uiState == state then
-      Swc.SetUiState(2702338936)
+      leave_state(state)
     else
+      Swc.stateBefore[state] = Swc.uiState ~= HUD_STATE and Swc.uiState or nil
       Swc.SetUiState(state)
     end
   end,
   ExitState = function(state)
     if Swc.uiState == state then
-      Swc.SetUiState(2702338936)   -- the state HUD (the CRC-32 of "hud")
+      leave_state(state)
     end
   end,
   GetCurrentState = function() return Swc.uiState end,

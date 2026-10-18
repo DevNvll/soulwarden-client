@@ -68,7 +68,11 @@ local function deliver(path, value, nodeId, isSet, changed)
   end
   for _, o in pairs(copy) do
     if o.isCallback or changed then
-      local payload = o.isData and value or nodeId
+      -- A data observer gets the value (also false), the other observers get the node.
+      local payload = nodeId
+      if o.isData then
+        payload = value
+      end
       for _, h in ipairs(Swc.Handlers("LyShineDataLayerNotificationsBus")) do
         local fn = h.table.CallCallback
         if type(fn) == "function" then

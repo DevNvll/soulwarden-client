@@ -3,9 +3,11 @@
 #include "InputCoreTypes.h"
 #include "UI/SwcUiSubsystem.h"
 
-FString FSwcUiInputProcessor::CryName(const FKey& Key)
+namespace
 {
-	// The names of the keys in the action maps of the client profile (CryInput; gamedata/actionmaps.json).
+// The names of the keys in the action maps of the client profile (CryInput; gamedata/actionmaps.json).
+const TMap<FKey, FString>& KeyNames()
+{
 	static const TMap<FKey, FString> Names = {
 		{EKeys::Escape, TEXT("escape")}, {EKeys::Enter, TEXT("enter")}, {EKeys::SpaceBar, TEXT("space")},
 		{EKeys::Tab, TEXT("tab")}, {EKeys::BackSpace, TEXT("backspace")}, {EKeys::Delete, TEXT("delete")},
@@ -28,7 +30,13 @@ FString FSwcUiInputProcessor::CryName(const FKey& Key)
 		{EKeys::F5, TEXT("f5")}, {EKeys::F6, TEXT("f6")}, {EKeys::F7, TEXT("f7")}, {EKeys::F8, TEXT("f8")},
 		{EKeys::F9, TEXT("f9")}, {EKeys::F10, TEXT("f10")}, {EKeys::F11, TEXT("f11")}, {EKeys::F12, TEXT("f12")},
 	};
-	if (const FString* Found = Names.Find(Key))
+	return Names;
+}
+} // namespace
+
+FString FSwcUiInputProcessor::CryName(const FKey& Key)
+{
+	if (const FString* Found = KeyNames().Find(Key))
 	{
 		return *Found;
 	}
@@ -40,6 +48,19 @@ FString FSwcUiInputProcessor::CryName(const FKey& Key)
 	return FString();
 }
 
+FKey FSwcUiInputProcessor::KeyOf(const FString& Name)
+{
+	if (const FKey* Found = KeyNames().FindKey(Name))
+	{
+		return *Found;
+	}
+	if (Name.Len() == 1 && FChar::IsAlpha(Name[0]))
+	{
+		return FKey(FName(*Name.ToUpper()));
+	}
+	return EKeys::Invalid;
+}
+
 bool FSwcUiInputProcessor::HandleKeyDownEvent(FSlateApplication&, const FKeyEvent& InKeyEvent)
 {
 	const FString Name = CryName(InKeyEvent.GetKey());
@@ -48,7 +69,13 @@ bool FSwcUiInputProcessor::HandleKeyDownEvent(FSlateApplication&, const FKeyEven
 		return false;
 	}
 	const bool bUsed = Owner->UiKey(Name, true);
-	return bUsed || !Owner->UiKeyToGame(Name);
+	const bool bKept = bUsed || !Owner->UiKeyToGame(Name);
+	if (bLogKeys)
+	{
+		UE_LOG(LogSwcUi, Log, TEXT("ui: key %s: %s"), *Name,
+			bUsed ? TEXT("the UI used it") : bKept ? TEXT("the UI keeps it from the game (its game maps are off)") : TEXT("it goes to the game"));
+	}
+	return bKept;
 }
 
 bool FSwcUiInputProcessor::HandleKeyUpEvent(FSlateApplication&, const FKeyEvent& InKeyEvent)

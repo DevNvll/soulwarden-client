@@ -1,0 +1,24 @@
+# The tooltip check of stage P2.2: the death at 14 s (the route "hurt" of tests/drive/ui-tooltip-routes.txt), then the
+# escape menu of the respawn state (921475099): while the character is dead, the menu buttons have the tooltip of the game
+# "@ui_button_disabled_dead" (escapemenu.luac); a hover shows it at the cursor, the end of the hover hides it. Escape
+# closes the menu: back to the respawn screen; the respawn follows. Times in seconds from the spawn of the player (the clock
+# of tests/drive/ui-tooltip-player.txt).
+# SWC_STAGE=P2.2 SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8872:4250:138.25 tools/creature-check.sh ui-tooltip 50 tests/drive/ui-tooltip-routes.txt tests/drive/ui-tooltip-player.txt -- -SwcUiDrive=$PWD/tests/drive/ui-tooltip.txt
+1 waitfor CompassLines 60
+1 log the HUD shows
+14 log the death (the route hurt)
+15 log Escape: the menu of a dead character
+15 key escape
+16.5 point ButtonSettings
+16.5 log a hover: the tooltip of the game
+18.5 point ButtonUnstuck
+20.5 move 0.12 0.85
+21.5 log the end of the hover hides the tooltip
+22.5 log Escape closes the menu
+22.5 key escape
+24 waitfor RespawnMapButtonAccept 40
+24 log the respawn screen
+26 point RespawnMapButtonAccept
+27 click
+31 log the end: the test input is released
+31 end

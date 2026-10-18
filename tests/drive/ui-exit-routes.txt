@@ -1,0 +1,5 @@
+# The development routes of the exit check of stage P2.2 (tools/creature-check.sh, tools/lib/dev_world.py): the full
+# health, then a damage larger than the health at 34 s (the death). Times in seconds on the clock of the drive script
+# tests/drive/ui-exit-player.txt.
+2 heal
+34 hurt 100000

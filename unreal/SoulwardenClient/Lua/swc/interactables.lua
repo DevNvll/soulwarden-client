@@ -742,8 +742,10 @@ function Swc.InteractableReleased(id, x, y)
     end
   elseif kind == "scrollBox" or kind == "scrollBar" then
     trigger(s, "released", "OnReleased")
-    if s.scrollBox and s.moved then
+    if s.scrollBox then
+      -- O3DE HandleReleased: DoChangedActions after each release (the action and OnScrollOffsetChanged).
       Swc.SendAction(id, s.scrollBox.changed)
+      Swc.Notify("UiScrollBoxNotificationBus", id, "OnScrollOffsetChanged", V2(s.scrollBox.offset[1], s.scrollBox.offset[2]))
     end
     if s.scrollBar and s.moved then
       Swc.SendAction(id, s.scrollBar.changed)
@@ -760,12 +762,69 @@ function Swc.InteractableReleased(id, x, y)
   Swc.UpdateInteractableState(id)
 end
 
+--- The drag distance of a scroll box along its scroll axes (O3DE GetValidDragDistanceInPixels: a squared length, 0 when
+--- the drag is mostly along an axis that does not scroll). The axes are those of the viewport (no rotation).
+local function valid_drag_distance(d, x0, y0, x1, y1)
+  local dx, dy = x1 - x0, y1 - y0
+  local total = dx * dx + dy * dy
+  local vx, vy = d.horizontal and dx or 0, d.vertical and dy or 0
+  local valid = vx * vx + vy * vy
+  if total == 0 or valid / total < 0.5 then
+    return 0
+  end
+  return valid
+end
+
+--- The parent interactable that can take a drag that starts at a point (O3DE FindParentInteractableSupportingDrag): a
+--- scroll box that allows a drag (the fork AllowDragging), handles events, and has the point in its rect. Open point:
+--- the hand-off to a slider, a scroll bar, or a draggable is not emulated.
+local function parent_supporting_drag(id, x, y)
+  local at = swcui.parent(id)
+  while valid(at) do
+    local d = Swc.IState(at).scrollBox
+    if d and d.dragging and swcui.get(at, "interactable.handling") and swcui.contains(at, x, y) then
+      return at
+    end
+    at = swcui.parent(at)
+  end
+  return nil
+end
+
+--- A scroll box takes the drag of a child (O3DE UiScrollBoxComponent::OfferDragHandOff with the threshold 5 of a
+--- contained drag). @return The scroll box that takes it, or nil.
+local function offer_drag_hand_off(box, x0, y0, x, y)
+  local d = Swc.IState(box).scrollBox
+  if valid_drag_distance(d, x0, y0, x, y) > 5 then
+    local p = Swc.IState(box)
+    p.handling = true
+    p.pressed = true
+    p.pressPoint = {x0, y0}
+    p.pressOffset = {d.offset[1], d.offset[2]}
+    p.moved = false
+    return box
+  end
+  local up = parent_supporting_drag(box, x0, y0)
+  return up and offer_drag_hand_off(up, x0, y0, x, y) or nil
+end
+
 --- The cursor moved while an interactable is active (O3DE InputPositionUpdate): a slider, a scroll bar, or a scroll box
---- drags.
+--- drags; a different interactable in a scroll box gives the drag to that scroll box. @return The interactable that
+--- took the drag (the new active interactable), or nil.
 function Swc.InteractableDrag(id, x, y)
   local s = Swc.IState(id)
   if not s.pressed then
-    return
+    return nil
+  end
+  if not (s.slider or s.scrollBar or s.scrollBox or s.kind == "textInput") then
+    local box = parent_supporting_drag(id, s.pressPoint[1], s.pressPoint[2])
+    local taker = box and offer_drag_hand_off(box, s.pressPoint[1], s.pressPoint[2], x, y)
+    if taker then
+      s.pressed = false
+      Swc.UpdateInteractableState(id)
+      Swc.InteractableDrag(taker, x, y)
+      return taker
+    end
+    return nil
   end
   if s.slider and valid(s.slider.trackEntity) then
     Swc.SliderSetValue(id, slider_value_at(s, x, y))
