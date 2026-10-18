@@ -1,0 +1,23 @@
+# The timed use of stage P2.10 (docs/INTERACTIONS.md) with the routes of tests/drive/keg-routes.txt: a powder keg 3 m to the
+# north (the option Trigger "Ignite Fuse", Delay Time 5 s). The key E held 2 s (the release: the cancel 2473), held 5.5 s
+# (the execution at 5 s), held while the server ends the use (3746 at 1 s), and held while the character dies (the death
+# ends the use), then the give-up and the respawn. The "tick" lines do nothing: they are the clock marks of the route script.
+# Times in seconds from the possession of the character.
+# SWC_DEV_CHARACTER=Swordwarden SWC_STAGE=P2.10 tools/creature-check.sh keg 44 tests/drive/keg-routes.txt tests/drive/keg.txt
+2.0 tick
+3.0 tick
+4.0 key 1
+6.0 interact 1
+8.0 interact 0
+10.0 interact 1
+15.5 interact 0
+18.0 interact 1
+19.0 tick
+21.0 interact 0
+24.0 interact 1
+25.0 tick
+27.0 interact 0
+32.0 respawn
+33.0 tick
+36.0 move 0 1
+37.0 move 0 0

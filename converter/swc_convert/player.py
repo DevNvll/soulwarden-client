@@ -10,6 +10,8 @@ Usage (tools/convert-player.sh; output in SWC_CONTENT/player, never in git):
   weapons           weapons.json: the weapon items, their equip types, the bone attachments, the draw and sheathe times.
   actions           actions.json: the stances, the draw and sheathe, and the attack graph of each weapon tag set
                     (actions.py, stage P2.7).
+  interactions      interactions.json: the templates of the server objects that the client uses (the fixtures, the
+                    personal loot bag) from interaction-data.json of the backend copy (actions.py, stage P2.10).
   wanted [FILE]     converts the parts, the weapons, and the clip packs that the client asked for
                     (default SWC_WORK/player/wanted.json, written by the client).
   clips GENDER TAGS the clip pack of one weapon tag set ("1H_Melee,Sword") on the skeleton of a gender.
@@ -856,6 +858,7 @@ def clip_pack(gender: str, tag_text: str, force: bool = False, doc: dict | None 
     if out.is_file() and not force and key in doc["assets"]:
         return {"clips": key, "skipped": "exists"}
     fragment_keys = list(entry["stance"].values()) + list(entry["offhand"].values()) + list(entry.get("dodge", {}).values())
+    fragment_keys += list(entry.get("life", {}).values()) + list(entry.get("use", {}).values())
     fragment_keys += [entry[kind] for kind in ("draw", "sheathe") if kind in entry]
     fragment_keys += [item["fragment"] for item in entry.get("graph", []) if "fragment" in item]
     names = set()
@@ -952,6 +955,7 @@ def main(argv=None) -> int:
     sub.add_parser("camera")
     sub.add_parser("weapons")
     sub.add_parser("actions")
+    sub.add_parser("interactions")
     p = sub.add_parser("base"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("wanted"); p.add_argument("file", nargs="?"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("clips"); p.add_argument("gender", choices=list(GENDERS)); p.add_argument("tags"); p.add_argument("--force", action="store_true")
@@ -969,6 +973,9 @@ def main(argv=None) -> int:
     elif args.command == "actions":
         from . import actions
         result = actions.actions()
+    elif args.command == "interactions":
+        from . import actions
+        result = actions.interactions()
     elif args.command == "base":
         result = base(args.force)
     elif args.command == "wanted":

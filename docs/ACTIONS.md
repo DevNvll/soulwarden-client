@@ -154,6 +154,37 @@ presses 0.73 s apart. In each run the client and the backend had the same verdic
 one press refused (exhausted), heavy 6 dodges at 50 and two presses refused; the stamina full again after the empty
 sequence; no correction; 0 refused position reports.
 
+## The death and the respawn (stage P2.10)
+
+The client plays the death of its own character itself (protocol notes 4.18): the server sends the vitals state with the dead
+mark (bit 0 of `vitalsData`) and the death notice 3950 with the time to the respawn screen (5 s), and no animation state for a
+player. `Combat/SwcLife` (plain C++) has the state and the lock of the input; `USwcPlayerActions` plays it:
+
+| State | Data | The client |
+| --- | --- | --- |
+| Death | the action Death of `playeractions_death.actionlist` (IfDead): SheatheWeapon of the main and the off hand (the tag Unarmed), DisableInteractor, DisableCameraLock, then `r_Death` with the tag Unarmed (`unarmed_death_droptokneesfaceplant`, 4.23 s) | the attack, the aim, and a timed use end; the weapons go to their sheaths at once; the fragment plays on the FullBody channel and holds its last pose; the camera lock ends; the camera state DeathCamera |
+| The give-up | the button "Respawn" of the respawn screen after the time of the notice: the request 1938 with the row "Random Location"; the client shows its loading screen before it sends | until the death screen of the UI track exists: the development key F8 (the drive command `respawn`), refused before the time of the notice |
+| The respawn | the server: 3746, 6709, the movement state with the next teleport number (the nearest travel place), the vitals state with the mark clear, 3954 | the pose of the death holds while the loading screen shows and while the cells of the new place load; then the character goes to the place and the action Respawn plays `Respawn` (`unarmed_crch_idle_to_idle`, 0.733 s); the input is free at its mark CanTransition (0.533 s); the full stamina |
+
+- The lock of the input: the move keys, the jump, the attack, the dodge, the aim, the weapon keys, and the sheathe key do
+  nothing while the character is dead, while a loading screen shows, while the respawn plays before its mark, and while a
+  timed use plays (`USwcPlayerActions::IsInputLocked`; the controller gives the movement no keys).
+- A heal of a dead character (the development route `heal`) has no travel: the respawn plays at once at its place.
+- The timed use of an object (the action DelayedInteraction of `playeractions_interact.actionlist`: the options Trigger,
+  PickupBuildable, RevivePlayer) sheathes the weapons at once and plays `Delayed_Interact` (the kneel:
+  `unarmed_idle_to_crch_idle`, then the loop `unarmed_crch_bag_idle_field_craft`) while its request lasts
+  ([INTERACTIONS.md](INTERACTIONS.md)).
+- The clips are in the clip pack `unarmed` of each gender (`tools/convert-player.sh actions`, `clips Male unarmed`,
+  `clips Female unarmed`, `tools/import-player.sh`).
+
+Check (development runs on the test floor, 2026-10-18; evidence in `~/Games/soulwarden-client/evidence/P2.10/`):
+`death.mp4` with `tests/drive/death.txt` and the routes `tests/drive/death-routes.txt` (`Swordwarden`, the sword in the
+hand, the route `hurt 100000` at 4 s): the death fragment and the weapons in their sheaths at the notice; the move keys, a
+jump, a click, and a dodge while dead gave no movement, no attack, and no dodge bit; the give-up at 8 s (3.9 s after the
+notice) was refused, the give-up at 10 s went out; the travel of 4,080.3 m (teleport number 2) with 3746, 6709, and 3954; the
+cells of the new place in 2.3 s to 3.0 s; the respawn fragment free at 0.56 s to 0.60 s; then a sprint, the draw, and an
+attack. The backend accepted each position report (533, 0 refused) and used no report from the old place.
+
 ## The tests
 
 `tools/test-actions.sh` (no engine) builds `tests/actions/actions_tests.cpp` with the attack sequence of the backend
@@ -171,10 +202,13 @@ sequence; no correction; 0 refused position reports.
 - the strikes: the damage key, the window, and the count of the shapes of each strike are the ones of the backend;
 - the stamina and the dodge: the live checks LS5 and LS6 and the live proof P5 of the notes (the payments 45, 45, 10, the
   fourth press refused, full again 4.4 s after the third payment), the windows of a dodge that plays, the load classes, and
-  the dodge bits of the driver.
+  the dodge bits of the driver;
+- the life (stage P2.10, `Combat/SwcLife`): the death and its lock, the end of a timed use at the death, the hold of the
+  death pose under the loading screen, the respawn and its mark CanTransition, a heal with no travel, the loading screen of a
+  travel.
 
 ```sh
-tools/test-actions.sh   # 5800 checks, 0 failed
+tools/test-actions.sh   # 5834 checks, 0 failed
 ```
 
 A video of the actions: the recording of the agent desktop, not `-SwcFrames` (the rule of the videos in

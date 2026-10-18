@@ -19,6 +19,7 @@
 
 #include "Combat/SwcAttackGraph.h"
 #include "Combat/SwcContactFilter.h"
+#include "Combat/SwcLife.h"
 #include "gamedata/weapon_actions.h"
 #include "world/attack_sequence.h"
 
@@ -597,6 +598,46 @@ void driver_dodge_tests(const Graph& sword, const swc::combat::StaminaData& data
 		"the driver: three dodges and one refused press at rest with the sword (the sequence permits the dodge)");
 }
 
+/**
+ * The life and the input locks (stage P2.10, Combat/SwcLife): the death locks the input and ends a timed use; the respawn
+ * request shows the loading screen; the death pose holds while it shows and while the cells of the new place load; the
+ * respawn fragment frees the input at its mark CanTransition (0.533 s of the fragment Respawn); a timed use locks the input; a
+ * heal of a dead character with no travel respawns at once.
+ */
+void life_tests()
+{
+	using swc::combat::Life;
+	const float respawnMark = 0.53333F;
+	Life life;
+	check(!life.locked() && !life.owns_body(), "the character lives: the input is free");
+	check(life.set_timed_use(true) && life.locked() && life.owns_body(), "a timed use locks the input and owns the body");
+	check(life.set(true, false) == Life::Event::death && life.state() == Life::State::dead, "the dead mark: the death");
+	check(!life.timed_use(), "the death ends the timed use");
+	check(life.locked(), "the dead character: the input is locked");
+	check(!life.set_timed_use(true), "no timed use while dead");
+	check(life.set(true, false) == Life::Event::none, "the dead mark again: no second death");
+	life.advance(10.0F, respawnMark);
+	check(life.state() == Life::State::dead && life.clock() > 4.0F, "the death holds (its clock runs, the pose holds at the end)");
+	// The give-up: the request shows the loading screen; then the vitals state with the mark clear, then the end of the screen.
+	check(life.set(true, true) == Life::Event::none && life.locked(), "the respawn request: the loading screen, still dead");
+	check(life.set(false, true) == Life::Event::waiting && life.state() == Life::State::waiting, "alive again under the loading screen: wait");
+	const float held = life.clock();
+	life.advance(2.0F, respawnMark);
+	check(life.clock() == held && life.locked(), "while waiting the clock holds and the input is locked");
+	check(life.set(false, false) == Life::Event::respawn && life.state() == Life::State::respawning, "the screen ends: the respawn plays");
+	check(life.locked(), "the respawn before its mark: the input is locked");
+	check(life.advance(0.5F, respawnMark) == Life::Event::none && life.locked(), "0.5 s: before CanTransition");
+	check(life.advance(0.05F, respawnMark) == Life::Event::free && !life.locked() && !life.owns_body(), "at CanTransition the input is free");
+	// A heal of a dead character (no travel): the respawn at once.
+	check(life.set(true, false) == Life::Event::death, "a second death");
+	check(life.set(false, false) == Life::Event::respawn, "a heal with no loading screen: the respawn at once");
+	check(life.set(true, false) == Life::Event::death, "a death in the respawn fragment: the death again");
+	// A far travel of a character that lives: the loading screen locks the input, no fragment.
+	Life traveler;
+	check(traveler.set(false, true) == Life::Event::none && traveler.locked() && !traveler.owns_body(), "a loading screen of a travel locks the input");
+	check(traveler.set(false, false) == Life::Event::none && !traveler.locked(), "its end frees it");
+}
+
 /** One contact for each target for each strike (stage P2.8): two steps of one strike with two hit volumes of one creature
  *  give one contact; the next strike, the next visit, and a second creature give their own. */
 void contact_filter_tests()
@@ -758,6 +799,7 @@ int main(int argc, char** argv)
 	parity_tests(actions, tables);
 	strike_tests(actions, tables);
 	contact_filter_tests();
+	life_tests();
 	stamina_tests(staminaData);
 	driver_dodge_tests(swordGraph, staminaData);
 	std::printf("%d checks, %d failed\n", g_checks, g_failed);

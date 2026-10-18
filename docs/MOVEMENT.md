@@ -130,6 +130,16 @@ action bits 14, 43, 416, 542 while W is down ([NETWORK.md](NETWORK.md), "The inp
 | Player run | the world level (stage 1.3) | yes |
 | Player run | the test floor | no: the reports have the camera of a character at rest at the server position, thus the saved place of the character of the user does not change |
 
+## The travel (stage P2.10)
+
+A movement state of the server with a new teleport number (protocol notes 4.16: a respawn, a travel command) moves the
+character: the client takes the place, the rotation (the identity: north), and the look of the state, with no step between
+the two places. The character first waits at its old place with no movement while the cells of the new place load
+(`SwcWorldStreaming::IsReadyAt`, as at the spawn; the input reports have no position field in that time), then it goes to
+the place, and the camera looks north. A place with no ground (a region that is not in the level) gets the test floor. The
+position field then goes to the new place at once (a distance of more than 20 m). The backend used no report from the old
+place in the checks of stage P2.10.
+
 ## The test floor
 
 When the level has no surface below the spawn, the client puts a floor of 100 × 100 m with its top 0.5 m below the

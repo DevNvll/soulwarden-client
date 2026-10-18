@@ -14,6 +14,7 @@ mkdir -p "${out}"
 nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     -I"${module}" -I"${backend}/src" -I"${backend}/vendor" \
     "${SWC_REPO}/tests/actions/actions_tests.cpp" "${module}/Combat/SwcAttackGraph.cpp" "${module}/Combat/SwcStamina.cpp" \
+    "${module}/Combat/SwcLife.cpp" \
     "${backend}/src/world/attack_sequence.cpp" "${backend}/src/gamedata/weapon_actions.cpp" \
     -o "${out}/swc-actions-tests"
 exec "${out}/swc-actions-tests" "${SWC_CONTENT}/player/actions.json" "${gamedata}/weapon-actions.json"

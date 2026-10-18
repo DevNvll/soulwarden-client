@@ -5,6 +5,7 @@
 #include "Combat/SwcMeleeShape.h"
 #include "Components/ActorComponent.h"
 #include "Combat/SwcAttackGraph.h"
+#include "Combat/SwcLife.h"
 #include "Net/Codec/SwcRepMessages.h"
 
 #include <memory>
@@ -38,7 +39,8 @@ class Driver;
  * - the stance: with the weapon in the hand, the movement fragments of its tag set (and of its shield);
  * - the melee contacts (stage P2.8): in each input step in the window of a strike of the attack fragment, the shapes of its
  *   damage clips at the shown pose go to the contact query of the creatures; one contact for each target for each strike
- *   goes into list 3 of the next input entry.
+ *   goes into list 3 of the next input entry;
+ * - the life (stage P2.10): the death plays r_Death and locks the input, the respawn plays Respawn (playeractions_death).
  *
  * Command line: -SwcDrawStrikes draws the shapes; -SwcContactProbe (development runs) sends one made-up contact for each
  * strike at the center of its first shape (a receiver that does not exist: the backend refuses it; a check of list 3).
@@ -72,6 +74,25 @@ public:
 	 *  the aim, not in an attack before its mark CanTransition). */
 	bool IsAiming() const { return bAiming; }
 	bool IsLockAllowed() const { return bLockAllowed; }
+
+	/**
+	 * The life of the character (stage P2.10, docs/ACTIONS.md "The death and the respawn"): the dead mark of the vitals state,
+	 * and the loading screen of a respawn or a far travel (from the request or message 3951 to message 3954). The death
+	 * (the action Death of playeractions_death) sheathes the weapons, plays r_Death with the tag Unarmed, holds it, and locks
+	 * the input; when the character lives again and no loading screen shows, the action Respawn plays the fragment Respawn,
+	 * and the input is free at its mark CanTransition.
+	 */
+	void SetLife(bool bDead, bool bLoading);
+	/**
+	 * A timed use of an object (stage P2.10, the action DelayedInteraction of playeractions_interact: the options Trigger,
+	 * PickupBuildable, RevivePlayer): the weapons go to their sheaths, Delayed_Interact plays (the kneel), and the character
+	 * does not move until the use ends.
+	 */
+	void SetTimedUse(bool bOn);
+	/** @return True while the input of the player does nothing: the death, a loading screen, the respawn before its mark, a
+	 *  timed use. */
+	bool IsInputLocked() const { return LifeState.locked(); }
+	bool IsDead() const { return LifeState.state() == swc::combat::Life::State::dead; }
 
 	/** The count of the attack fragments that started, and of the weapon switches of the driver (a log line and a check). */
 	uint32 GetVisitCount() const { return Visits; }
@@ -132,6 +153,12 @@ private:
 	void DrawStrikes(const FSwcWeaponActions& Weapon, int32 GraphFragment, float Clock) const;
 	/** @return False when the frame of the shape is not there (no weapon in the hand). */
 	bool ShapeOf(const FSwcStrikeShape& Clip, FSwcMeleeShape& Out) const;
+	/** Starts a fragment of the life on the FullBody channel: Kind of the map Life or Use of the unarmed set. */
+	void StartLifeFragment(const TMap<FString, int32> FSwcWeaponActions::* Map, const TCHAR* Kind);
+	/** The death and the timed use: the attack and the aim end, the weapons go to their sheaths at once. */
+	void SheatheForAction();
+	/** The death or the respawn plays: its fragment, no movement. @return False when the character is alive and free. */
+	bool UpdateLife(float DeltaTime);
 
 	TSharedPtr<FSwcActions> Data;
 	std::shared_ptr<swc::combat::Driver> Driver;
@@ -178,6 +205,9 @@ private:
 	bool bAiming = false;
 	bool bLockAllowed = true;
 	bool bAttackBeforeTransition = false;
+	swc::combat::Life LifeState;
+	int32 LifeFragment = INDEX_NONE;
+	uint32 LifeSerial = 0;
 	FDelegateHandle BonesHandle;
 	TWeakObjectPtr<USkeletalMeshComponent> BonesMesh;
 	FContactQuery ContactQuery;

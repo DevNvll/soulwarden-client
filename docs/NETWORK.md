@@ -327,6 +327,38 @@ session: 0.5 m east, 4.0 m south, and 1.65 m above the position of the own entit
 field: the backend then uses its camera estimate, and the camera axis goes through the known position, thus the
 position of the character does not change.
 
+### The life, the travel, and the interactions (stage P2.10; protocol notes 4.16, 4.18, 4.20, 4.35, 4.36)
+
+The component calls of the root entity of the player slice: `target:u64 entity:u64 body`, the target `G + the component id`
+(a 64-bit sum, the carry dropped: Player `DF0CE8C98D27619D`, PlayerCutscene `D49931510E1DD23F`, Interactor
+`6C5718DBFE6DF612`). The client sends its calls on channel 0 (reliable) with the route of the own actor.
+
+| Type | Direction | Body | The client |
+| --- | --- | --- | --- |
+| 3950 OnPlayerDeath | server | `time:f32` (5 s) | `deathNotices`, `respawnScreenTime`, the steady time of the notice; the debug text "YOU DIED: the respawn screen in N s" |
+| 1938 RequestRespawn | client | `random:u8 id:text`: 18 bytes, random 1 and no id ("Random Location") | `RepClient::request_respawn`: only for a dead character after the time of the notice; `loadingScreen` until 3954 |
+| 3951 OnTeleportWithLoadingScreen | server | `kind:u8` | `loadingScreen` |
+| 3954 OnPlayerTeleport | server | none | the loading screen ends |
+| 3746 CancelCurrentInteraction | server | none | the client cancels its committed interaction: the block goes away and 2473 goes out at once (0x490EDA0, 0x4916150) |
+| 6709 OnServerCutsceneEndRequestFinalized | server | none | a count (the end of a lock of the input; the client has no cutscene yet) |
+| 2473 RequestCancelCommittedInteractionFromClient | client | the reference: `actor:16 bytes G:u64 target:u64` (48 bytes) | `RepClient::cancel_interaction` |
+| 3743 ReceiveInteractionResult | server | the reference, `action:u8 result:u8` and 21 bytes (71 bytes) | for the current request only: result 1 accepted; result 2 clears the request (no 2473) |
+
+- The travel: the client takes the place of a movement state of the server only when the low 4 bits of field 31 are not
+  its own teleport number (`takes_travel`; the start number 0, the world entry 1, then `number % 15 + 1`). Each such state
+  is one more `travelRevision`; the subsystem moves the character there after the cells of the new place are loaded (with
+  no position field in that time), north, with the camera north ([MOVEMENT.md](MOVEMENT.md)). A place with no ground gets
+  the test floor.
+- The respawn of the backend: 3746, 6709, the movement state with the next teleport number and the vitals state with the
+  dead mark clear, then 3954 (no 3951).
+- The interaction block (mask bit 8 of an input entry, after the target data): the request of the player while it is
+  current (`RepClient::set_interaction`), 131 bytes with the hold time, empty texts, and no vectors; an older entry with no
+  request after a newer one with a request has bit 8 with the present byte 0 (else the reader of the backend gives it the
+  block of the newer entry). [INTERACTIONS.md](INTERACTIONS.md) has the rules of the use.
+- The objects of the server (a fixture, a loot bag): the client keeps the place of their PositionInTheWorld state (type 13,
+  field 0: `x:f32 y:f32 height:u16` with the height range -100 m to 2000 m, not the range of a movement state) in the
+  snapshot (`FSnapshot::Objects`).
+
 ### The timers of the client contract
 
 | Timer | Rule of the retail client | The client |
@@ -357,6 +389,11 @@ target lock of the camera takes its targets from them ([CAMERA.md](CAMERA.md)).
 - The writers: the registration body, the client frame, the local ticket, and an input report of three entries are
   equal byte for byte to the writers of the made-up client of the backend tests; the input reader of the backend reads
   the report; the facet target of the action list is the value of the research (`90A8748FA3C2AD77` for serial 1).
+- The life, the travel, and the interactions (stage P2.10): the bodies of the backend writers 3950, 3951, 3954, 3746, 6709,
+  3743 (`server/rep/health_messages`, `travel_messages`, `lock_messages`) to the readers of the client; the client bodies 1938
+  and 2473 to the readers of the backend; the interaction block byte for byte as the block of the made-up client, and a
+  report with a request in the newest entry only, read by the input reader of the backend; the teleport numbers of a travel;
+  the ids, the focus, and the use of `Interact/SwcInteraction` ([INTERACTIONS.md](INTERACTIONS.md)).
 - The carrier: the client carrier against the carrier of the backend: the handshake, a reliable message of 3,000 bytes
   in chunks to the server and of 2,500 bytes to the client, an unreliable message, a lost datagram of the server that
   comes again in its order, the 1,038-byte limit, and the disconnect.

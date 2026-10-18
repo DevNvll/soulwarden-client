@@ -9,6 +9,7 @@
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcPlayerLooks.h"
 #include "Character/SwcTestFloor.h"
+#include "Interact/SwcInteractor.h"
 #include "World/SwcWorldStreaming.h"
 #include "Components/CapsuleComponent.h"
 #include "Containers/Ticker.h"
@@ -40,6 +41,7 @@ struct FSwcPlayerTables
 	TSharedPtr<FSwcPlayerLooks> Looks;
 	TSharedPtr<FSwcLocomotion> Locomotions[2];
 	TSharedPtr<FSwcActions> Actions;
+	TSharedPtr<FSwcInteractor> Interactor;
 	/** The report of each table: a log line each on the game thread. */
 	TArray<FString> Reports;
 	double Seconds = 0.0;
@@ -416,6 +418,8 @@ void USwcBackendSubsystem::ShowOwnEntity()
 	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
 	const swc::net::RepClient::OwnEntity& Own = Snapshot.Own;
 	const FVector Feet = SwcEngineToUnreal(Own.position);
+	// The movement state of the world entry is the first travel of the session (teleport number 1, protocol notes 4.16).
+	SeenTravel = Own.travelRevision;
 	UE_LOG(LogSwcBackend, Log, TEXT("world: own entity %s, character %s (%s), position %.2f %.2f %.2f m (Unreal %.0f %.0f %.0f cm), health %.0f of %.0f"),
 		*Hex(Own.actor), *Text(Own.characterId), bPlayerRun ? TEXT("name not in the log of a player run") : *Text(Own.name),
 		Own.position.x, Own.position.y, Own.position.z, Feet.X, Feet.Y, Feet.Z, Own.health, Own.healthMax);
@@ -584,6 +588,13 @@ void USwcBackendSubsystem::StartTables()
 				Tables->Actions.Reset();
 			}
 			Tables->Reports.Add(Report);
+			Report.Reset();
+			Tables->Interactor = MakeShared<FSwcInteractor>();
+			if (!Tables->Interactor->Load(Report))
+			{
+				Tables->Interactor.Reset();
+			}
+			Tables->Reports.Add(Report);
 			Tables->Seconds = FPlatformTime::Seconds() - Start;
 			return Tables;
 		},
@@ -608,6 +619,7 @@ bool USwcBackendSubsystem::TakeTables()
 		Locomotions[0] = Tables->Locomotions[0];
 		Locomotions[1] = Tables->Locomotions[1];
 		Actions = Tables->Actions;
+		Interactor = Tables->Interactor;
 	}
 	return Looks.IsValid();
 }
@@ -836,7 +848,19 @@ void USwcBackendSubsystem::UpdatePlayer()
 		return;
 	}
 	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
+	if (Snapshot.Own.travelRevision != SeenTravel)
+	{
+		SeenTravel = Snapshot.Own.travelRevision;
+		Travel(Snapshot.Own);
+	}
+	if (bTravelWait)
+	{
+		UpdateTravel();
+	}
 	Movement->SetPermissions(Snapshot.Own.dataBits, Snapshot.Own.moreDataBits);
+	// The life of the character (stage P2.10): the dead mark of the vitals state and the loading screen of a respawn or a far
+	// travel (docs/ACTIONS.md "The death and the respawn").
+	Avatar->GetActions()->SetLife(Snapshot.Own.dead, Snapshot.Own.loadingScreen || bTravelWait);
 	if (ASwcCameraManager* CameraManager = Cast<ASwcCameraManager>(Controller->PlayerCameraManager))
 	{
 		// The camera: the dead mark (DeathCamera) and the targets of the target lock: the living creatures at their shown feet
@@ -871,7 +895,7 @@ void USwcBackendSubsystem::UpdatePlayer()
 		Movement->SetMovementMode(MOVE_Falling);
 		UE_LOG(LogSwcBackend, Log, TEXT("world: the test floor is in the scene: the character drops to it"));
 	}
-	if (!bSendPosition)
+	if (!bSendPosition || bTravelWait)
 	{
 		Connection->SetMotion(std::nullopt);
 		return;
@@ -904,6 +928,15 @@ void USwcBackendSubsystem::UpdatePlayer()
 		Motion.airHeight = static_cast<float>((bHit ? Hit.Distance : MaxAirHeight) / 100.0);
 	}
 	Connection->SetMotion(Motion);
+	// The interactions (stage P2.10): the focus at the feet, the key E, the use, and the replies of the session. The death and a
+	// loading screen end a use (DisableInteractor of the action Death); a timed use plays the action DelayedInteraction.
+	if (Interactor.IsValid())
+	{
+		Interactor->SetKey(bInteractKey);
+		Interactor->Update(Snapshot, *Connection, Motion.character, Snapshot.Own.dead || Snapshot.Own.loadingScreen || bTravelWait,
+			FPlatformTime::Seconds());
+		Avatar->GetActions()->SetTimedUse(Interactor->IsTimedUse());
+	}
 	// The server copy of the stamina (the Stamina state): the client keeps its prediction (Driver::set_server_stamina).
 	if (AttackDriver && Snapshot.Own.hasStamina && Snapshot.Own.staminaRevision != StaminaRevision)
 	{
@@ -938,7 +971,119 @@ void USwcBackendSubsystem::UpdatePlayer()
 					Attack.exhausted ? TEXT(", exhausted") : TEXT(""), Attack.winded > 0.0f ? TEXT(", winded") : TEXT(""),
 					Attack.dodge ? Attack.dodge->number : 0u, Attack.lastVerdict ? UTF8_TO_TCHAR(swc::combat::dodge_verdict_text(*Attack.lastVerdict)) : TEXT("none")));
 		}
+		// The life (stage P2.10): the death screen of the UI track comes later; a development key sends the give-up.
+		const swc::net::RepClient::OwnEntity& Own = Snapshot.Own;
+		FString Life = FString::Printf(TEXT("health %.0f of %.0f"), Own.health, Own.healthMax);
+		if (Own.dead && Own.deathNotices > 0)
+		{
+			const int64 Steady = std::chrono::duration_cast<std::chrono::nanoseconds>(swc::net::Clock::now().time_since_epoch()).count();
+			const double Left = Own.respawnScreenTime - static_cast<double>(Steady - Own.deathNoticeNs) / 1e9;
+			Life += Left > 0.0 ? FString::Printf(TEXT(", YOU DIED: the respawn screen in %.0f s"), FMath::CeilToDouble(Left))
+							   : FString(TEXT(", the respawn screen: F8 (development) sends the give-up"));
+		}
+		if (Own.loadingScreen)
+		{
+			Life += TEXT(", loading screen");
+		}
+		if (bTravelWait)
+		{
+			Life += TEXT(", the cells of the place load");
+		}
+		if (Interactor.IsValid())
+		{
+			const FString Prompt = Interactor->DebugText(FPlatformTime::Seconds());
+			if (!Prompt.IsEmpty())
+			{
+				Life += TEXT(", ") + Prompt;
+			}
+		}
+		GEngine->AddOnScreenDebugMessage(static_cast<uint64>(0x5357434C), 1.0f, Own.dead ? FColor::Red : FColor::Green, Life);
 	}
+}
+
+void USwcBackendSubsystem::Travel(const swc::net::RepClient::OwnEntity& Own)
+{
+	ASwcPlayerCharacter* Character = Avatar.Get();
+	UWorld* World = Character != nullptr ? Character->GetWorld() : nullptr;
+	APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	if (Character == nullptr || Controller == nullptr)
+	{
+		return;
+	}
+	// The client copies the movement state of the server to its own state (0x486EA80): the place, the rotation, and the look,
+	// with no step between the two places (protocol notes 4.16). The rotation of a travel is the identity: the character and
+	// the camera look north.
+	const FVector Feet = SwcEngineToUnreal(Own.position);
+	const FQuat Rotation(Own.rotation.x, Own.rotation.y, Own.rotation.z, Own.rotation.w);
+	const FVector North = Rotation.RotateVector(FVector(0.0, 1.0, 0.0));
+	const swc::net::WorldPosition Ahead{Own.position.x + static_cast<float>(North.X), Own.position.y + static_cast<float>(North.Y), Own.position.z};
+	const FVector Forward = (SwcEngineToUnreal(Ahead) - Feet).GetSafeNormal();
+	const double Distance = FVector::Dist(Character->GetFeetLocation(), Feet) / 100.0;
+	// The cells of the new place load first, as at the spawn (the ground check of the place must not meet the character): the
+	// character waits at its old place with no movement, and the input reports have no position field in that time.
+	USwcCharacterMovement* Movement = Character->GetSwcMovement();
+	Movement->StopMovementImmediately();
+	Movement->DisableMovement();
+	bTravelWait = true;
+	TravelSince = FPlatformTime::Seconds();
+	TravelFeet = Feet;
+	TravelForward = Forward;
+	UE_LOG(LogSwcBackend, Log, TEXT("world: a travel of %.1f m to %.2f %.2f %.2f m (teleport number %u): the cells of the place load"),
+		Distance, Own.position.x, Own.position.y, Own.position.z, static_cast<unsigned>(Own.teleportId & 0x0F));
+}
+
+void USwcBackendSubsystem::UpdateTravel()
+{
+	ASwcPlayerCharacter* Character = Avatar.Get();
+	UWorld* World = Character != nullptr ? Character->GetWorld() : nullptr;
+	if (World == nullptr || !SwcWorldStreaming::IsReadyAt(World, TravelFeet))
+	{
+		return;
+	}
+	bTravelWait = false;
+	SwcWorldStreaming::Release();
+	const bool bGround = SwcTestFloor::HasGround(World, TravelFeet);
+	if (!bGround)
+	{
+		// No ground at the new place (a region that is not in the level): the test floor of the movement there.
+		SwcTestFloor::Spawn(World, TravelFeet - FVector(0.0, 0.0, SpawnLift), TravelForward);
+		bWaitForFloor = true;
+	}
+	// The client copies the movement state of the server to its own state (0x486EA80): the place, the rotation, and the look,
+	// with no step between the two places (protocol notes 4.16).
+	Character->SetActorLocationAndRotation(TravelFeet + FVector(0.0, 0.0, Character->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight()),
+		TravelForward.Rotation(), false, nullptr, ETeleportType::TeleportPhysics);
+	if (APlayerController* Controller = World->GetFirstPlayerController())
+	{
+		Controller->SetControlRotation(FRotator(0.0, TravelForward.Rotation().Yaw, 0.0));
+	}
+	if (bGround)
+	{
+		Character->GetSwcMovement()->SetMovementMode(MOVE_Falling);
+	}
+	UE_LOG(LogSwcBackend, Log, TEXT("world: the character is at the place of the travel, %.1f s after it (%s)"), FPlatformTime::Seconds() - TravelSince,
+		bGround ? TEXT("the place has ground: it drops to it") : TEXT("no ground: the test floor of the movement"));
+}
+
+bool USwcBackendSubsystem::RequestRespawn()
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
+	// The death screen shows its button "Respawn" only after the time of the death notice (protocol notes 4.18).
+	const int64 Steady = std::chrono::duration_cast<std::chrono::nanoseconds>(swc::net::Clock::now().time_since_epoch()).count();
+	const double Since = Snapshot.Own.deathNotices > 0 ? static_cast<double>(Steady - Snapshot.Own.deathNoticeNs) / 1e9 : 0.0;
+	if (!Snapshot.Own.dead || Snapshot.Own.loadingScreen || Snapshot.Own.deathNotices == 0 || Since < Snapshot.Own.respawnScreenTime)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("life: no respawn request now (%s)"), !Snapshot.Own.dead ? TEXT("the character lives")
+			: Snapshot.Own.loadingScreen ? TEXT("a loading screen shows") : TEXT("the respawn screen is not there yet"));
+		return false;
+	}
+	Connection->RequestRespawn();
+	UE_LOG(LogSwcBackend, Log, TEXT("life: the give-up: the respawn request (Random Location), %.1f s after the death notice"), Since);
+	return true;
 }
 
 FString USwcBackendSubsystem::GetCameraStateName() const

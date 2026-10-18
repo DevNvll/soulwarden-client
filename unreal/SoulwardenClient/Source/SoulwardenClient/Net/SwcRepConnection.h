@@ -37,6 +37,8 @@ public:
 		int32 OtherEntities = 0;
 		/** The other entities with a position: the interest number and the position (the targets of the target lock). */
 		TArray<TPair<uint32, swc::net::WorldPosition>> Others;
+		/** The objects of the server with a slice and a place (PositionInTheWorld): the fixtures, the loot bags (stage P2.10). */
+		TArray<TPair<uint32, swc::net::RepClient::OtherEntity>> Objects;
 		bool bMovementStale = false;
 		/** The server clock: server nanoseconds = the steady clock of the client in nanoseconds + ServerOffsetNs. */
 		bool bServerClock = false;
@@ -63,6 +65,12 @@ public:
 	void SetMotion(const std::optional<swc::net::RepClient::Motion>& InMotion);
 	/** Melee contacts for list 3 of the next input entry (swc::net::RepClient::queue_contacts). */
 	void QueueContacts(const std::vector<swc::net::MeleeContactItem>& Contacts);
+	/** The respawn request of the death screen (swc::net::RepClient::request_respawn; stage P2.10). */
+	void RequestRespawn();
+	/** The interaction request of the player, or none (swc::net::RepClient::set_interaction). */
+	void SetInteraction(const std::optional<swc::net::InteractionRequest>& Request);
+	/** The client ends its committed interaction: message 2473 (swc::net::RepClient::cancel_interaction). */
+	void CancelInteraction();
 
 	// FRunnable
 	virtual uint32 Run() override;
@@ -83,4 +91,6 @@ private:
 	FString LeaveCause;
 	std::optional<swc::net::RepClient::Motion> Motion;
 	std::vector<swc::net::MeleeContactItem> Contacts;
+	/** The calls of the game thread for the client, in their order (the session thread runs them). */
+	std::vector<std::function<void(swc::net::RepClient&)>> Calls;
 };

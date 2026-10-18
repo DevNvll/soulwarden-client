@@ -303,7 +303,7 @@ void USwcPlayerActions::OnGearChanged()
 void USwcPlayerActions::OnWeaponKey(uint32 Slot)
 {
 	ASwcPlayerCharacter* Owner = Character();
-	if (Owner == nullptr || !Owner->HasWeapon(Slot))
+	if (Owner == nullptr || !Owner->HasWeapon(Slot) || IsInputLocked())
 	{
 		return;
 	}
@@ -325,7 +325,7 @@ void USwcPlayerActions::OnWeaponKey(uint32 Slot)
 void USwcPlayerActions::OnSheatheKey()
 {
 	ASwcPlayerCharacter* Owner = Character();
-	if (Owner != nullptr && Owner->GetActiveWeaponSlot() != 0)
+	if (Owner != nullptr && Owner->GetActiveWeaponSlot() != 0 && !IsInputLocked())
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("weapon: sheathe key: slot %u %s"), Owner->GetActiveWeaponSlot(),
 			Owner->IsWeaponDrawn() ? TEXT("sheathe") : TEXT("draw"));
@@ -336,7 +336,7 @@ void USwcPlayerActions::OnSheatheKey()
 void USwcPlayerActions::OnDodgeKey()
 {
 	// The bit goes for each press; the stamina of the driver decides the dodge at its step, as the server does.
-	if (Driver)
+	if (Driver && !IsInputLocked())
 	{
 		Driver->dodge_press();
 	}
@@ -344,6 +344,10 @@ void USwcPlayerActions::OnDodgeKey()
 
 void USwcPlayerActions::OnAttackButton(bool bDown)
 {
+	if (bDown && IsInputLocked())
+	{
+		return;
+	}
 	if (bDown == bButtonDown)
 	{
 		return;
@@ -780,11 +784,143 @@ void USwcPlayerActions::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
+void USwcPlayerActions::SetLife(bool bDead, bool bLoading)
+{
+	if (bLoading != LifeState.loading())
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("life: the loading screen %s"), bLoading ? TEXT("shows (the input is locked)") : TEXT("ends"));
+	}
+	switch (LifeState.set(bDead, bLoading))
+	{
+	case swc::combat::Life::Event::death:
+		// The action Death: the attack and the aim end; the weapons go to their sheaths (SheatheWeapon of the main and the off
+		// hand, the tag Unarmed); DisableInteractor, DisableCameraLock.
+		SheatheForAction();
+		StartLifeFragment(&FSwcWeaponActions::Life, TEXT("death"));
+		break;
+	case swc::combat::Life::Event::waiting:
+		UE_LOG(LogSwcBackend, Log, TEXT("life: alive again; the pose of the death holds until the loading screen ends"));
+		break;
+	case swc::combat::Life::Event::respawn:
+		// A respawn has the full stamina (Stamina::refill: a revival, a respawn).
+		if (Driver)
+		{
+			Driver->refill();
+		}
+		StartLifeFragment(&FSwcWeaponActions::Life, TEXT("respawn"));
+		break;
+	default:
+		break;
+	}
+}
+
+void USwcPlayerActions::SheatheForAction()
+{
+	ASwcPlayerCharacter* Owner = Character();
+	bButtonDown = false;
+	bAimHeld = false;
+	if (Driver)
+	{
+		Driver->button(false);
+		Driver->set_aim(false);
+		Driver->set_weapons(static_cast<const swc::combat::Graph*>(DriverGraphs[0]), static_cast<const swc::combat::Graph*>(DriverGraphs[1]), DriverHeld);
+	}
+	Upper.Reset();
+	if (Owner != nullptr && Owner->IsWeaponDrawn())
+	{
+		Owner->SetWeaponState(Owner->GetActiveWeaponSlot(), false);
+		OnGearChanged();
+	}
+	if (USwcPlayerAnimInstance* Anim = Animation())
+	{
+		Anim->SetAction(1, INDEX_NONE, 0, 0.0f);
+	}
+	bPlaying = false;
+}
+
+void USwcPlayerActions::SetTimedUse(bool bOn)
+{
+	if (!LifeState.set_timed_use(bOn))
+	{
+		return;
+	}
+	if (bOn)
+	{
+		// The action DelayedInteraction: "Instant Sheathe-All", then Delayed_Interact (the kneel) while the request lasts.
+		SheatheForAction();
+		StartLifeFragment(&FSwcWeaponActions::Use, TEXT("delayed"));
+		return;
+	}
+	if (ASwcPlayerCharacter* Owner = Character())
+	{
+		Owner->GetSwcMovement()->EndActionMotion(0.0f);
+	}
+	if (USwcPlayerAnimInstance* Anim = Animation())
+	{
+		Anim->SetAction(0, INDEX_NONE, 0, 0.0f);
+	}
+	UE_LOG(LogSwcBackend, Log, TEXT("actions: the timed use ends"));
+}
+
+void USwcPlayerActions::StartLifeFragment(const TMap<FString, int32> FSwcWeaponActions::* Map, const TCHAR* Kind)
+{
+	++LifeSerial;
+	const FSwcWeaponActions* Unarmed = Data.IsValid() ? Data->Weapon(FString()) : nullptr;
+	LifeFragment = Unarmed != nullptr ? (Unarmed->*Map).FindRef(Kind, INDEX_NONE) : INDEX_NONE;
+	UE_LOG(LogSwcBackend, Log, TEXT("life: %s, fragment %s"), Kind,
+		LifeFragment != INDEX_NONE ? *Data->Fragments[LifeFragment].Key : TEXT("none (tools/convert-player.sh actions)"));
+}
+
+bool USwcPlayerActions::UpdateLife(float DeltaTime)
+{
+	if (!LifeState.owns_body())
+	{
+		return false;
+	}
+	ASwcPlayerCharacter* Owner = Character();
+	USwcCharacterMovement* Movement = Owner->GetSwcMovement();
+	const FSwcActionFragment* Fragment = LifeFragment != INDEX_NONE ? &Data->Fragments[LifeFragment] : nullptr;
+	const float Length = Fragment != nullptr && Fragment->Length > 0.0f ? Fragment->Length : 0.0f;
+	const float Transition = Fragment != nullptr ? Fragment->MarkTime(TEXT("CanTransition"), Length) : 0.0f;
+	const swc::combat::Life::Event Event = LifeState.advance(DeltaTime, Transition);
+	if (Event == swc::combat::Life::Event::free)
+	{
+		Movement->EndActionMotion(0.0f);
+		if (USwcPlayerAnimInstance* Anim = Animation())
+		{
+			Anim->SetAction(0, INDEX_NONE, 0, 0.0f);
+		}
+		UE_LOG(LogSwcBackend, Log, TEXT("life: the respawn reached CanTransition (%.2f s): the input is free"), LifeState.clock());
+		return false;
+	}
+	// The clips play in place (ReactionMotion has no root track in this client): the character does not move on the ground.
+	Movement->SetActionMotion(true, FVector::ZeroVector);
+	if (USwcPlayerAnimInstance* Anim = Animation())
+	{
+		// A clip that ends holds its last pose (the death lies on the ground until the respawn); the kneel of a timed use loops.
+		const float Clock = LifeState.clock();
+		Anim->SetAction(0, LifeFragment, 0x80000000u | LifeSerial, Length > 0.0f && !LifeState.timed_use() ? FMath::Min(Clock, Length) : Clock);
+	}
+	return true;
+}
+
 void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	if (!Data.IsValid() || Character() == nullptr)
 	{
+		return;
+	}
+	if (UpdateLife(DeltaTime))
+	{
+		// The death or the respawn owns the body: no attack, no aim, no combat rates, no lock.
+		bAiming = false;
+		bLockAllowed = false;
+		Character()->GetSwcMovement()->SetCombat(false, false, false, false);
+		if (Driver)
+		{
+			Driver->set_aim(false);
+		}
 		return;
 	}
 	UpdateAttack(DeltaTime);
@@ -817,7 +953,7 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	{
 		Driver->set_aim(bAiming);
 	}
-	bLockAllowed = !bAiming && !bAttackBeforeTransition;
+	bLockAllowed = !bAiming && !bAttackBeforeTransition && !IsInputLocked();
 	if (USwcPlayerAnimInstance* Anim = Animation())
 	{
 		Anim->SetStance(VisualSlot != 0 ? WeaponOf(VisualSlot) : nullptr, bVisualOffhand);

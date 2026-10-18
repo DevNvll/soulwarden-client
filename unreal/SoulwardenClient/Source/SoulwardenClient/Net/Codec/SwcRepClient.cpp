@@ -292,6 +292,76 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         }
         return;
     }
+    if (message.type == kPlayerDeath.index) {
+        const auto death = read_player_death(message.body);
+        if (!death || death->call.entity != m_own.group) {
+            log(Event::Level::warning, "a death notice (3950) that does not name the own entity");
+            return;
+        }
+        ++m_own.deathNotices;
+        m_own.respawnScreenTime = death->time;
+        m_own.deathNoticeNs = steady_ns(now);
+        char text[96];
+        std::snprintf(text, sizeof(text), "death notice (3950): the respawn screen in %.1f s", static_cast<double>(death->time));
+        log(Event::Level::info, text);
+        return;
+    }
+    if (message.type == kTeleportWithLoadingScreen.index || message.type == kPlayerTeleport.index) {
+        const auto call = read_component_call(message.body);
+        if (!call || call->entity != m_own.group) {
+            return;
+        }
+        if (message.type == kTeleportWithLoadingScreen.index) {
+            m_own.loadingScreen = true;
+            log(Event::Level::info, "teleport with the loading screen (3951)");
+        } else {
+            m_own.loadingScreen = false;
+            ++m_own.teleportNotices;
+            log(Event::Level::info, "player teleport (3954): the loading screen ends");
+        }
+        return;
+    }
+    if (message.type == kCancelCurrentInteraction.index) {
+        const auto call = read_component_call(message.body);
+        if (!call || call->entity != m_own.group) {
+            return;
+        }
+        ++m_own.interactionCancels;
+        // The client cancels its committed interaction and sends 2473 (handler 0x490EDA0, 0x4916150; protocol notes 4.20).
+        if (m_own.interaction) {
+            log(Event::Level::info, "the server ends the interaction (3746): the client cancels it (2473)");
+            cancel_interaction();
+        } else {
+            log(Event::Level::info, "the server ends the interaction (3746): no interaction");
+        }
+        return;
+    }
+    if (message.type == kCutsceneEndFinalized.index) {
+        const auto call = read_component_call(message.body);
+        if (call && call->entity == m_own.group) {
+            ++m_own.lockEnds;
+            log(Event::Level::info, "the end of a lock of the input (6709)");
+        }
+        return;
+    }
+    if (message.type == kInteractionResult.index) {
+        const auto result = read_interaction_result(message.body);
+        // The client compares the reference with its request; a different reference changes nothing (0x49175F0).
+        if (!result || result->call.entity != m_own.group || !m_own.interaction || !(result->reference == m_own.interaction->reference)) {
+            log(Event::Level::info, "an interaction result (3743) for no current request");
+            return;
+        }
+        ++m_own.interactionResults;
+        m_own.lastInteractionResult = result->result;
+        m_own.lastInteractionAction = result->action;
+        log(Event::Level::info, "interaction result (3743): action " + std::to_string(result->action) + ", result "
+                                    + std::to_string(result->result) + (result->result == 1 ? " (accepted)" : " (refused)"));
+        if (result->result != 1) {
+            // A refusal clears the records of the client (protocol notes 4.35); no 2473.
+            m_own.interaction.reset();
+        }
+        return;
+    }
     if (message.type == kKickClient.index || message.type == kPlayerManagerRejected.index) {
         const auto reason = read_reason(message.body);
         end(std::string(message.type == kKickClient.index ? "kicked" : "rejected") + ", reason "
@@ -433,6 +503,15 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
             }
             if (const auto teleport = decoder::field_of(fragment, 0, 31); teleport.size() == 1) {
                 m_own.teleportId = teleport[0];
+                // The client takes the place of a state only when its teleport number is new (protocol notes 4.16, 0x486D89B).
+                if (takes_travel(m_clientTeleport, teleport[0])) {
+                    m_clientTeleport = teleport[0] & 0x0F;
+                    ++m_own.travelRevision;
+                    if (m_phase == Phase::inGame) {
+                        log(Event::Level::info, "own entity: a travel to " + position_text(m_own.position) + " (teleport number "
+                                                    + std::to_string(m_clientTeleport) + ")");
+                    }
+                }
             }
             if (const auto bits = decoder::field_of(fragment, 0, 41); bits.size() == 1) {
                 m_own.dataBits = bits[0];
@@ -606,6 +685,11 @@ void RepClient::apply_other(const decoder::Record& record) {
                 entity.position = read_world_position(position);
                 entity.hasPosition = true;
             }
+        } else if (fragment.type == kStatePositionInTheWorld) {
+            if (const auto place = decoder::field_of(fragment, 0, 0); place.size() == 10) {
+                entity.place = read_object_place(place);
+                entity.hasPlace = true;
+            }
         }
     }
 }
@@ -680,6 +764,10 @@ void RepClient::send_input(Clock::time_point now) {
         if (m_options.inputStep) {
             m_options.inputStep(static_cast<std::uint16_t>(entry.sequence), steady_ns(now), entry.actionBits);
         }
+        // The interaction request: its block in each entry while it is current.
+        if (m_own.interaction) {
+            entry.interaction = interaction_block(*m_own.interaction);
+        }
         // The melee contacts of the player: in this entry only (the entry also has the position field).
         entry.contacts.swap(m_pendingContacts);
         m_pendingContacts.clear();
@@ -711,6 +799,43 @@ void RepClient::send_input(Clock::time_point now) {
         std::snprintf(text, sizeof(text), "first input report (type %u, %zu bytes), target %016llx, entity %016llx", kClientInput.index,
                       body.size(), static_cast<unsigned long long>(target), static_cast<unsigned long long>(m_own.group));
         log(Event::Level::info, text);
+    }
+}
+
+void RepClient::send_call(const MessageType& type, const Bytes& body) {
+    m_carrier.send(kChannelReliable, client_frame(m_own.actor, type.index, body), true);
+}
+
+void RepClient::request_respawn() {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    m_own.loadingScreen = true;
+    send_call(kRequestRespawn, respawn_request_body(m_own.group));
+    log(Event::Level::info, "respawn request (1938): Random Location; the loading screen shows");
+}
+
+void RepClient::set_interaction(const std::optional<InteractionRequest>& request) {
+    if (request.has_value() == m_own.interaction.has_value()
+        && (!request || (request->reference == m_own.interaction->reference && request->optionId == m_own.interaction->optionId))) {
+        return;
+    }
+    m_own.interaction = request;
+    if (request) {
+        log(Event::Level::info, "interaction request: action " + std::to_string(request->action) + ", option "
+                                    + std::to_string(request->optionId) + ", object " + hex_of(request->reference.actor));
+    }
+}
+
+void RepClient::cancel_interaction() {
+    if (!m_own.interaction) {
+        return;
+    }
+    const InteractionReference reference = m_own.interaction->reference;
+    m_own.interaction.reset();
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kCancelCommittedInteraction, interaction_cancel_body(m_own.group, reference));
+        log(Event::Level::info, "interaction cancel (2473): object " + hex_of(reference.actor));
     }
 }
 

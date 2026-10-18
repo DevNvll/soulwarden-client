@@ -34,6 +34,15 @@ from . import player
 ADB_FOLDER = "animations/mannequin/adb/player/"
 ATTACK_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_attack.actionlist"
 DODGE_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_dodge.actionlist"
+# The death and the respawn of the player (stage P2.10, playeractions_death.actionlist): the action Death plays r_Death with
+# the tag Unarmed (it sheathes the weapons and sets Unarmed) and holds it; the action Respawn plays Respawn (the tag Respawn
+# of the death) until the fragment is done.
+DEATH_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_death.actionlist"
+LIFE_FRAGMENTS = {"death": ("r_Death", "Unarmed"), "respawn": ("Respawn", "")}
+# The timed use of an object (stage P2.10, playeractions_interact.actionlist): the action DelayedInteraction (the options
+# Trigger, PickupBuildable, RevivePlayer) sheathes the weapons and plays Delayed_Interact (the kneel) while the request lasts.
+INTERACT_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_interact.actionlist"
+USE_FRAGMENTS = {"delayed": ("Delayed_Interact", "")}
 # The dodge fragments of the load classes (stamina-data.json of the backend copy), with the direction variants of the move keys
 # (no tag: forward). The Prone variants are not used (the backend file lists them as not used).
 DODGE_FRAGMENTS = ("Dodge_Roll_Fast", "Dodge_Roll", "Dodge_Roll_Slow")
@@ -354,8 +363,18 @@ def actions() -> dict:
                     missing.append(f"{key}: {fragment['name']}")
                 out["graph"].append(item)
         weapons.append(out)
-    # The unarmed set: no stance (the fragments of locomotion.json), the dodge of player.adb.
-    weapons.append({"tags": [], "stance": {}, "offhand": {}, "dodge": dodges(set())})
+    # The unarmed set: no stance (the fragments of locomotion.json), the dodge of player.adb, the death and the respawn.
+    life = {}
+    for kind, (name, variant) in LIFE_FRAGMENTS.items():
+        found = find_fragment(name, set(), tag_set(variant), False)
+        if found is not None:
+            life[kind] = record(found[0], found[1], name)
+    use = {}
+    for kind, (name, variant) in USE_FRAGMENTS.items():
+        found = find_fragment(name, set(), tag_set(variant), False)
+        if found is not None:
+            use[kind] = record(found[0], found[1], name)
+    weapons.append({"tags": [], "stance": {}, "offhand": {}, "dodge": dodges(set()), "life": life, "use": use})
     for name in list(clips):
         try:
             clips[name] = clip_info(player.pick(cafs[name]), skeleton, name in root_clips)
@@ -369,7 +388,7 @@ def actions() -> dict:
     perks = json.loads((gamedata_dir() / "perk-data.json").read_text())
     stamina = {"data": json.loads((gamedata_dir() / "stamina-data.json").read_text()), "encumbrance": perks["encumbrance"],
                "itemLoads": {item.lower(): load for item, load in perks["equipLoad"].items()}}
-    doc = {"format": 1, "sources": [player.ADB, ATTACK_ACTIONS, DODGE_ACTIONS, str(gamedata_dir() / "weapon-actions.json"),
+    doc = {"format": 1, "sources": [player.ADB, ATTACK_ACTIONS, DODGE_ACTIONS, DEATH_ACTIONS, INTERACT_ACTIONS, str(gamedata_dir() / "weapon-actions.json"),
                                     str(gamedata_dir() / "stamina-data.json"), str(gamedata_dir() / "perk-data.json")],
            "weapons": weapons, "fragments": fragments, "blendSpaces": blend_spaces, "clips": clips,
            "activities": acts, "conditions": conditions, "weaponJoints": weapon_joints(models), "stamina": stamina}
@@ -378,3 +397,35 @@ def actions() -> dict:
     return {"actions": str(out), "weapon tag sets": len(weapons), "fragments": len(fragments), "blend spaces": len(blend_spaces),
             "clips": len(clips), "clips with a root track": len(root_clips), "clip errors": sum(1 for c in clips.values() if "error" in c),
             "graph fragments with no variant": missing[:10]}
+
+
+def interactions() -> dict:
+    """The interaction data of the server objects that the client uses (stage P2.10): the templates of the fixtures (the powder
+    keg: the timed use Trigger, 5 s) and of the personal loot bag (TakeAllOption, OpenStorageOption) from interaction-data.json of
+    the backend copy (the same data as the server; protocol notes 4.35, 4.36, 4.42). Writes SWC_CONTENT/player/interactions.json:
+    for each template its slice asset and sub id, the root entity id, the slot of PositionInTheWorld, and each Interact bound (its
+    slot, component, entity, place in the frame of the slice, rangeSq) with its options (name, CRC-32 id, action, committed,
+    Delay Time, hold time, option entity). The client makes the ids of an object of the server (K = root XOR G)."""
+    source_path = gamedata_dir() / "interaction-data.json"
+    data = json.loads(source_path.read_text())
+    options = data["options"]
+    wanted = {name: index for name, index in data.get("fixtures", {}).items()}
+    for name, container in data.get("lootContainers", {}).items():
+        wanted["loot:" + name] = container["template"]
+    templates = []
+    for name, index in sorted(wanted.items()):
+        template = data["templates"][index]
+        bounds = []
+        for bound in template["bounds"]:
+            bounds.append({"slot": bound["slot"], "component": bound["component"], "entity": bound["entity"],
+                           "position": bound["position"], "rangeSq": bound["rangeSq"], "capacity": bound["capacity"],
+                           "options": [{"name": options[option]["name"], "id": options[option]["id"], "action": options[option]["action"],
+                                        "committed": options[option]["committed"], "delay": options[option]["delay"],
+                                        "hold": options[option]["hold"], "entity": entity} for option, entity in bound["options"]]})
+        templates.append({"name": name, "slice": template["slice"], "asset": template["asset"], "sub": template["sub"],
+                          "kind": template["kind"], "root": template["root"], "positionSlot": template["slots"]["position"],
+                          "permissionRule": template["permissionRule"], "bounds": bounds})
+    doc = {"format": 1, "source": str(source_path), "templates": templates, "lootContainers": data.get("lootContainers", {})}
+    out = player.player_dir() / "interactions.json"
+    out.write_text(json.dumps(doc, indent=1, sort_keys=True))
+    return {"interactions": str(out), "templates": [t["name"] for t in templates]}

@@ -1,0 +1,7 @@
+# The development routes of the timed use check of stage P2.10 (tools/creature-check.sh, tools/lib/dev_world.py): the full
+# health, a powder keg 3 m to the north of the character (the fixture of the backend, the permission rule 1), the end of the
+# use by the server at 19 s, and the death at 25 s. Times in seconds on the clock of the drive script tests/drive/keg.txt.
+2 heal
+3 fixture powderKeg 0 3 0
+19 cancel
+25 hurt 100000

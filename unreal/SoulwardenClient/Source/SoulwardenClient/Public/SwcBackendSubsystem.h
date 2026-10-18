@@ -23,6 +23,7 @@ class ASwcPlayerCharacter;
 class FSwcActions;
 class FSwcLocomotion;
 class FSwcLoginClient;
+class FSwcInteractor;
 class FSwcPlayerLooks;
 class FSwcRepConnection;
 struct FStreamableHandle;
@@ -80,6 +81,14 @@ public:
 	 * @return False when the client has no connection (the table then clears itself).
 	 */
 	bool TakeOtherUpdates(std::vector<swc::net::RepClient::OtherUpdate>& Out) const;
+	/**
+	 * The give-up of the death screen (stage P2.10): the respawn request of the retail client (1938, "Random Location"), only for a
+	 * dead character after the time of its death notice and with no loading screen. Until the death screen of the UI exists, the
+	 * development key F8 and the drive command "respawn" call it. @return False when no request went out.
+	 */
+	bool RequestRespawn();
+	/** The key E of the interactions (stage P2.10): down or up. */
+	void SetInteractKey(bool bDown) { bInteractKey = bDown; }
 
 	/**
 	 * @return The yaw of the camera of the player in degrees, in the convention of the input report (protocol notes 4.7):
@@ -117,6 +126,10 @@ private:
 	void SetSpawnLoading(bool bOn);
 	/** Gives the movement its permissions and the connection the player of this frame (the input report). */
 	void UpdatePlayer();
+	/** A travel of the server (a movement state with a new teleport number): the character goes to its place, then waits for the
+	 *  cells of that place (stage P2.10, protocol notes 4.16). */
+	void Travel(const swc::net::RepClient::OwnEntity& Own);
+	void UpdateTravel();
 	void Quit(bool bSucceeded, const TCHAR* Cause);
 
 	TSharedPtr<FSwcLoginClient> Login;
@@ -144,6 +157,9 @@ private:
 	TSharedPtr<FSwcLocomotion> Locomotions[2];
 	/** The actions of the weapons (actions.json) and the attack driver of the session (stage P2.7). */
 	TSharedPtr<FSwcActions> Actions;
+	/** The interactions of the player with the objects of the server (stage P2.10) and the key E. */
+	TSharedPtr<FSwcInteractor> Interactor;
+	bool bInteractKey = false;
 	/** The assets of the look of the character, loaded in the background before the spawn (the handle keeps them). */
 	TSharedPtr<FStreamableHandle> Preload;
 	enum class EPreload : uint8 { Waiting, Loading, Done };
@@ -169,5 +185,11 @@ private:
 	/** The movement state of the last log line. */
 	ESwcMove LastMove = ESwcMove::Idle;
 	uint32 LookRevision = MAX_uint32;
+	/** The travel revision of the own entity that the character took, and the wait for the cells of a new place. */
+	uint32 SeenTravel = 0;
+	bool bTravelWait = false;
+	double TravelSince = 0.0;
+	FVector TravelFeet = FVector::ZeroVector;
+	FVector TravelForward = FVector::ForwardVector;
 	FString View;
 };

@@ -95,6 +95,8 @@ void ASwcPlayerController::SetupInputComponent()
 	AttackAction = MakeAction(this, TEXT("IA_AttackPrimary"), EInputActionValueType::Boolean);
 	DodgeAction = MakeAction(this, TEXT("IA_Dodge"), EInputActionValueType::Boolean);
 	AimAction = MakeAction(this, TEXT("IA_Aim"), EInputActionValueType::Boolean);
+	GiveUpAction = MakeAction(this, TEXT("IA_DevGiveUp"), EInputActionValueType::Boolean);
+	InteractAction = MakeAction(this, TEXT("IA_Interact"), EInputActionValueType::Boolean);
 	MovementContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Movement"));
 	MapAxisKey(MovementContext, MoveAction, EKeys::W, true, false);
 	MapAxisKey(MovementContext, MoveAction, EKeys::S, true, true);
@@ -112,6 +114,10 @@ void ASwcPlayerController::SetupInputComponent()
 	MovementContext->MapKey(AttackAction, EKeys::LeftMouseButton);
 	MovementContext->MapKey(DodgeAction, EKeys::LeftShift);
 	MovementContext->MapKey(AimAction, EKeys::RightMouseButton);
+	// A development key (not a key of the retail client): the give-up of the death screen until the UI track has the screen.
+	MovementContext->MapKey(GiveUpAction, EKeys::F8);
+	// The key of the prompt of an object (the retail client: E, "E Ignite Fuse", "E Take All").
+	MovementContext->MapKey(InteractAction, EKeys::E);
 	if (UEnhancedInputComponent* Enhanced = Cast<UEnhancedInputComponent>(InputComponent))
 	{
 		Enhanced->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ASwcPlayerController::OnMove);
@@ -132,6 +138,9 @@ void ASwcPlayerController::SetupInputComponent()
 		Enhanced->BindAction(DodgeAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnDodge);
 		Enhanced->BindAction(AimAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnAim);
 		Enhanced->BindAction(AimAction, ETriggerEvent::Completed, this, &ASwcPlayerController::OnAimEnd);
+		Enhanced->BindAction(GiveUpAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnGiveUp);
+		Enhanced->BindAction(InteractAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnInteract);
+		Enhanced->BindAction(InteractAction, ETriggerEvent::Completed, this, &ASwcPlayerController::OnInteractEnd);
 	}
 	else
 	{
@@ -182,7 +191,7 @@ void ASwcPlayerController::OnLook(const FInputActionValue& Value)
 
 void ASwcPlayerController::OnJump(const FInputActionValue&)
 {
-	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
+	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()); Character != nullptr && !Character->GetActions()->IsInputLocked())
 	{
 		Character->GetSwcMovement()->RequestJump();
 	}
@@ -319,6 +328,30 @@ void ASwcPlayerController::OnAimEnd(const FInputActionValue&)
 	}
 }
 
+void ASwcPlayerController::OnGiveUp(const FInputActionValue&)
+{
+	if (USwcBackendSubsystem* Backend = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr)
+	{
+		Backend->RequestRespawn();
+	}
+}
+
+void ASwcPlayerController::OnInteract(const FInputActionValue&)
+{
+	if (USwcBackendSubsystem* Backend = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr)
+	{
+		Backend->SetInteractKey(true);
+	}
+}
+
+void ASwcPlayerController::OnInteractEnd(const FInputActionValue&)
+{
+	if (USwcBackendSubsystem* Backend = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr)
+	{
+		Backend->SetInteractKey(false);
+	}
+}
+
 void ASwcPlayerController::PlayerTick(float DeltaTime)
 {
 	TickDrive(DeltaTime);
@@ -326,7 +359,8 @@ void ASwcPlayerController::PlayerTick(float DeltaTime)
 	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
 	{
 		const double Yaw = bFreeLook ? FreeLookRotation.Yaw : GetControlRotation().Yaw;
-		Character->GetSwcMovement()->SetInput(MoveInput, Yaw, bWalkHeld);
+		// The death, a loading screen, and the respawn before its mark lock the movement keys (stage P2.10).
+		Character->GetSwcMovement()->SetInput(Character->GetActions()->IsInputLocked() ? FVector2D::ZeroVector : MoveInput, Yaw, bWalkHeld);
 	}
 }
 
@@ -449,6 +483,21 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 			{
 				Input->StopContinuousInputInjectionForAction(AimAction);
 			}
+		}
+		else if (Step.Command == TEXT("interact"))
+		{
+			if (Step.Value.X != 0.0)
+			{
+				Input->StartContinuousInputInjectionForAction(InteractAction, FInputActionValue(true), {}, {});
+			}
+			else
+			{
+				Input->StopContinuousInputInjectionForAction(InteractAction);
+			}
+		}
+		else if (Step.Command == TEXT("respawn"))
+		{
+			Input->InjectInputForAction(GiveUpAction, FInputActionValue(true), {}, {});
 		}
 		else if (Step.Command == TEXT("dodge"))
 		{

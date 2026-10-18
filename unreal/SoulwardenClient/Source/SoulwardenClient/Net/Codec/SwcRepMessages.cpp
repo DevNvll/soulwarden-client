@@ -127,6 +127,15 @@ void write_input_entry(Writer& w, const InputEntry& entry, const InputEntry* bef
         write_position(fields, entry.camera.x, entry.camera.y, camera_height(entry.camera.z));
     }
     fields.u8(3); // The target kind 3: no target data.
+    // Mask bit 8: the interaction block, after the target data (backend client_input.cpp: an entry with no bit 8 has the block
+    // of the newer entry before it in the report; the newest one has no request).
+    if (entry.interaction) {
+        mask |= 0x100;
+        fields.raw(*entry.interaction);
+    } else if (before != nullptr && before->interaction) {
+        mask |= 0x100;
+        fields.u8(0);
+    }
     if ((entry.flags & 0x1) != 0) {
         fields.size64(0);
         fields.size64(0);
@@ -180,6 +189,107 @@ void write_melee_contact(Writer& out, const MeleeContactItem& contact) {
     write_vector(out, contact.point);
     write_vector(out, contact.normal);
     write_vector(out, contact.direction);
+}
+
+Bytes interaction_block(const InteractionRequest& request) {
+    // The fields in the order of the client writer 0x35E67E0 (protocol notes 4.35); the texts empty, no vectors.
+    Writer w;
+    w.u8(1);
+    w.raw(request.reference.actor);
+    w.u64(request.reference.group);
+    w.u64(request.reference.target);
+    w.u8(request.action);
+    w.u8(request.baseAction);
+    w.u64(request.optionEntity);
+    w.u32(0);
+    w.string("");       // +0x48
+    w.u32(0);
+    w.u32(0);
+    w.f32(0.0F);
+    w.u8(request.committed ? 1 : 0);
+    w.string("");       // +0x88 the display key of the object
+    w.string("");
+    w.string("");
+    w.string("");
+    w.f32(request.holdTime);
+    w.u8(0);            // no vectors
+    w.u8(0);            // +0x150
+    w.u32(0);           // +0x154
+    w.u8(0);            // +0x158 requiredItemCount
+    w.u32(request.optionId);
+    w.zeros(16);        // +0x128, +0x44, +0x160, +0x164
+    w.size64(0);        // requiredCurrency
+    w.u32(0);           // +0x170
+    w.size(0);          // requiredLevel
+    w.string("");       // +0x178
+    w.zeros(5);         // +0x1A4, +0x1A8
+    w.u8(0);            // +0x1A9
+    w.u32(0);           // +0x1E8
+    w.string("");       // +0x1C0
+    w.zeros(12);        // +0x1F0, +0x1F8
+    w.u32(0);           // +0x200
+    w.u8(0);            // +0x204
+    return w.data();
+}
+
+Bytes respawn_request_body(std::uint64_t group, bool random, const std::string& id) {
+    Writer w;
+    w.u64(group + kPlayerComponent);
+    w.u64(group);
+    w.u8(random ? 1 : 0);
+    w.string(id);
+    return w.data();
+}
+
+Bytes interaction_cancel_body(std::uint64_t group, const InteractionReference& reference) {
+    Writer w;
+    w.u64(group + kInteractorComponent);
+    w.u64(group);
+    w.raw(reference.actor);
+    w.u64(reference.group);
+    w.u64(reference.target);
+    return w.data();
+}
+
+std::optional<ComponentCall> read_component_call(std::span<const std::uint8_t> body) {
+    Reader reader(body);
+    ComponentCall call;
+    call.target = reader.u64();
+    call.entity = reader.u64();
+    if (!reader.ok()) {
+        return std::nullopt;
+    }
+    return call;
+}
+
+std::optional<PlayerDeath> read_player_death(std::span<const std::uint8_t> body) {
+    Reader reader(body);
+    PlayerDeath death;
+    death.call.target = reader.u64();
+    death.call.entity = reader.u64();
+    death.time = reader.f32();
+    if (!reader.ok()) {
+        return std::nullopt;
+    }
+    return death;
+}
+
+std::optional<InteractionResult> read_interaction_result(std::span<const std::uint8_t> body) {
+    Reader reader(body);
+    InteractionResult result;
+    result.call.target = reader.u64();
+    result.call.entity = reader.u64();
+    for (std::uint8_t& value : result.reference.actor) {
+        value = reader.u8();
+    }
+    result.reference.group = reader.u64();
+    result.reference.target = reader.u64();
+    result.action = reader.u8();
+    result.result = reader.u8();
+    if (!reader.ok()) {
+        return std::nullopt;
+    }
+    return result;
 }
 
 std::uint64_t group_of(const ActorId& actor) {
@@ -410,6 +520,18 @@ WorldPosition read_world_position(std::span<const std::uint8_t> value) {
     position.y = reader.f32();
     position.z = kHeightMin + static_cast<float>(reader.u16()) / 65535.0F * kHeightRange;
     return position;
+}
+
+WorldPosition read_object_place(std::span<const std::uint8_t> value) {
+    WorldPosition out;
+    if (value.size() < 10) {
+        return out;
+    }
+    Reader reader(value);
+    out.x = reader.f32();
+    out.y = reader.f32();
+    out.z = -100.0F + static_cast<float>(reader.u16()) / 65535.0F * 2100.0F;
+    return out;
 }
 
 Quaternion read_quaternion(std::span<const std::uint8_t> value) {

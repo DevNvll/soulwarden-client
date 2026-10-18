@@ -98,6 +98,10 @@ struct FSwcWeaponActions
 	TMap<FString, int32> Offhand;
 	/** The dodge fragments: the fragment of a load class and a direction ("Dodge_Roll_Fast+BackNav"; no tag: forward). */
 	TMap<FString, int32> Dodge;
+	/** The death and the respawn of the unarmed set (stage P2.10, playeractions_death): "death" (r_Death, Unarmed), "respawn". */
+	TMap<FString, int32> Life;
+	/** The use of an object (stage P2.10, playeractions_interact): "delayed" (Delayed_Interact, the timed use: the kneel). */
+	TMap<FString, int32> Use;
 	int32 Draw = INDEX_NONE;
 	int32 Sheathe = INDEX_NONE;
 	/** The attack graph (empty: no basic attack), and the fragment of each graph fragment (or INDEX_NONE). */

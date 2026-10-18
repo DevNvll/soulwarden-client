@@ -91,10 +91,14 @@ void ASwcCameraManager::SelectState(const ASwcPlayerCharacter& Character)
 	// The entry of the camera action list (R1.4.1): the first true condition wins.
 	FString Entry;
 	const FString Fragment = Character.GetSwcMovement()->GetFragment();
-	// DisableCameraLock in the aim: the aim ends the lock.
+	// DisableCameraLock in the aim and in the death (the action Death): they end the lock.
 	if (IsLocked() && Character.GetActions() != nullptr && Character.GetActions()->IsAiming())
 	{
 		Unlock(TEXT("the aim"));
+	}
+	if (IsLocked() && (bDead || (Character.GetActions() != nullptr && Character.GetActions()->IsInputLocked())))
+	{
+		Unlock(TEXT("the death"));
 	}
 	if (bDead)
 	{

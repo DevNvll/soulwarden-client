@@ -134,6 +134,24 @@ void FSwcRepConnection::QueueContacts(const std::vector<swc::net::MeleeContactIt
 	Contacts.insert(Contacts.end(), InContacts.begin(), InContacts.end());
 }
 
+void FSwcRepConnection::RequestRespawn()
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([](swc::net::RepClient& Client) { Client.request_respawn(); });
+}
+
+void FSwcRepConnection::SetInteraction(const std::optional<swc::net::InteractionRequest>& Request)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([Request](swc::net::RepClient& Client) { Client.set_interaction(Request); });
+}
+
+void FSwcRepConnection::CancelInteraction()
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([](swc::net::RepClient& Client) { Client.cancel_interaction(); });
+}
+
 std::vector<swc::net::RepClient::OtherUpdate> FSwcRepConnection::TakeOtherUpdates()
 {
 	FScopeLock Guard(&Lock);
@@ -162,11 +180,16 @@ void FSwcRepConnection::Publish(const swc::net::RepClient& Client, bool bFinishe
 	Snapshot.Counts = Client.counts();
 	Snapshot.OtherEntities = static_cast<int32>(Client.others().size());
 	Snapshot.Others.Reset();
+	Snapshot.Objects.Reset();
 	for (const auto& [Interest, Other] : Client.others())
 	{
 		if (Other.hasPosition)
 		{
 			Snapshot.Others.Emplace(Interest, Other.position);
+		}
+		if (Other.hasPlace)
+		{
+			Snapshot.Objects.Emplace(Interest, Other);
 		}
 	}
 	Snapshot.bMovementStale = Client.movement_stale();
@@ -335,6 +358,11 @@ uint32 FSwcRepConnection::Run()
 				Client.queue_contacts(Contacts);
 				Contacts.clear();
 			}
+			for (const std::function<void(swc::net::RepClient&)>& Call : Calls)
+			{
+				Call(Client);
+			}
+			Calls.clear();
 		}
 		if (Now >= NextTick)
 		{

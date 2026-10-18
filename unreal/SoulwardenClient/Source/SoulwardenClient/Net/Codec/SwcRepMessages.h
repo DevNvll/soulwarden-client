@@ -57,11 +57,33 @@ inline constexpr MessageType kTimeSynch{"REPClient::TimeSynchMsg", "038CD8470653
 /** The damage number of the attacker (protocol notes 4.15; backend server/rep/combat_messages.h): the creature view reads it. */
 inline constexpr MessageType kDamageDealt{"DamageReceiverComponentClientFacet_OnDamageDealt", "07D9175B3AFE4F43A49443005BB1BB4F", 2071};
 
+// The life, the travel, and the interactions of the own character (stage P2.10; protocol notes 4.16, 4.18, 4.20, 4.35, 4.36;
+// backend server/rep/health_messages.h, travel_messages.h, lock_messages.h). Component calls: target:u64 entity:u64 body.
+/** The damage mark of the owner (4.18). */
+inline constexpr MessageType kDamageTaken{"VitalsComponentClientFacet_OnDamage", "290F24ABB20B4A75A961FF765E67A03D", 3601};
+/** The death: the time to the respawn screen (f32, s). */
+inline constexpr MessageType kPlayerDeath{"PlayerComponentClientFacet_OnPlayerDeath", "C9FB82A32A3D480A91BFDC72C0F3A277", 3950};
+/** A far travel: the loading screen (kind:u8). */
+inline constexpr MessageType kTeleportWithLoadingScreen{"PlayerComponentClientFacet_OnTeleportWithLoadingScreen", "8D371AC0B5AD49BC83818DA7943772DB", 3951};
+/** The end of a travel or a respawn: the loading screen ends. */
+inline constexpr MessageType kPlayerTeleport{"PlayerComponentClientFacet_OnPlayerTeleport", "B34A7676EFC1472B86E6130F6AC470C6", 3954};
+/** The respawn request of the death screen (client to server): random:u8 id:text. */
+inline constexpr MessageType kRequestRespawn{"PlayerComponentServerFacet_RequestRespawn", "12A0B32C81384305B122DCF5C1B1F71E", 1938};
+/** The end of a lock of the input (a cutscene, a conversation). */
+inline constexpr MessageType kCutsceneEndFinalized{"PlayerCutsceneComponentClientFacet_OnServerCutsceneEndRequestFinalized", "D19070A4AEA24E0D9585EC073F006828", 6709};
+/** The cancel of the committed interaction by the client (client to server): its reference (32 bytes). */
+inline constexpr MessageType kCancelCommittedInteraction{"InteractorComponentServerFacet_RequestCancelCommittedInteractionFromClient", "44D7E916377940A48EC63FAEA459EE13", 2473};
+/** The server ends the interaction of the client. */
+inline constexpr MessageType kCancelCurrentInteraction{"InteractorComponentClientFacet_CancelCurrentInteraction", "91F8DF17FB504EA3AEBF219B977F194E", 3746};
+/** The reply to an interaction request: the reference, the action, the result (1 accepted, 2 refused). */
+inline constexpr MessageType kInteractionResult{"InteractorComponentClientFacet_ReceiveInteractionResult", "188632B415E649A484A4DD7FEA17B5CF", 3743};
+
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 21> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 30> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
-    kStateMana, kStateAbility, kStateCooldowns};
+    kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
+    kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -78,6 +100,11 @@ inline constexpr std::uint32_t kSlotMana = 47;
 /** The component id of the action list component (slot 16) of the entity RootPlayer of the player slice (game data
  *  slice-ids.json; research ids.md, table of the targets). The facet target of the input report is G + this id. */
 inline constexpr std::uint64_t kActionListComponent = 0x3C591A4EA3C2AD75ULL;
+/** The components of the root entity of the player slice whose facets have the messages of the life, the travel, and the
+ *  interactions (protocol notes 4.16, 4.20, 4.35): the target is G + the component id (a 64-bit sum). */
+inline constexpr std::uint64_t kPlayerComponent = 0xDF0CE8C98D27619DULL;
+inline constexpr std::uint64_t kPlayerCutsceneComponent = 0xD49931510E1DD23FULL;
+inline constexpr std::uint64_t kInteractorComponent = 0x6C5718DBFE6DF612ULL;
 
 using ActorId = std::array<std::uint8_t, 16>;
 
@@ -175,6 +202,10 @@ struct WorldPosition {
     float z{};
 };
 WorldPosition read_world_position(std::span<const std::uint8_t> value);
+/** The place of an object (PositionInTheWorld, field 0): x:f32 y:f32 height:u16, height = -100 + value / 65535 * 2100. */
+WorldPosition read_object_place(std::span<const std::uint8_t> value);
+/** The type of the PositionInTheWorld state (the vendored state reader has it). */
+inline constexpr std::uint32_t kStatePositionInTheWorld = 13;
 
 /** A compressed unit quaternion (protocol notes 4.3). */
 struct Quaternion {
@@ -228,6 +259,72 @@ inline constexpr std::size_t kMeleeContactSize = 96;
 /** Writes the 96 bytes of one contact. */
 void write_melee_contact(Writer& out, const MeleeContactItem& contact);
 
+/**
+ * The reference of an interaction (protocol notes 4.35): the actor of the object, its entity group G, and the facet target of
+ * its Interact bound (the id rule of 4.2: K = root XOR G, target = (entity XOR K) + component).
+ */
+struct InteractionReference {
+    ActorId actor{};
+    std::uint64_t group{0};
+    std::uint64_t target{0};
+    bool operator==(const InteractionReference&) const = default;
+};
+
+/** The fields of an interaction request that the backend reads (the block of mask bit 8 of an input entry). */
+struct InteractionRequest {
+    InteractionReference reference;
+    std::uint8_t action{0};
+    std::uint8_t baseAction{0};
+    /** The option entity: the instance of the option (entity XOR K). */
+    std::uint64_t optionEntity{0};
+    bool committed{true};
+    /** The hold time of a timed option (its Delay Time; the live client sends it, the backend does not read it). */
+    float holdTime{0.0F};
+    /** The CRC-32 of the lower-case option name. */
+    std::uint32_t optionId{0};
+};
+
+/**
+ * @return True when the client takes the place of a movement state of the server (protocol notes 4.16, 0x486D89B): the low 4
+ * bits of field 31 (teleportAndMigrationId) are not the teleport number of the client. The start number of a client is 0; the
+ * world entry has 1; each travel the next number (number % 15 + 1: 1 to 15, never 0); the high 4 bits (the migration) stay out.
+ */
+inline bool takes_travel(std::uint8_t clientNumber, std::uint8_t field) {
+    return (field & 0x0F) != clientNumber;
+}
+
+/** @return The interaction block from its present byte (131 bytes with empty texts and no vectors; backend
+ *  server/rep/client_input.cpp read_interaction). */
+Bytes interaction_block(const InteractionRequest& request);
+
+/** @return The body of RequestRespawn (1938): target (G + Player) entity (G) random:u8 id:text; the row "Random Location" is
+ *  random 1 and an empty id (18 bytes, the live client). */
+Bytes respawn_request_body(std::uint64_t group, bool random = true, const std::string& id = {});
+/** @return The body of RequestCancelCommittedInteractionFromClient (2473, 48 bytes): target (G + Interactor) entity (G) and the
+ *  reference of the interaction. */
+Bytes interaction_cancel_body(std::uint64_t group, const InteractionReference& reference);
+
+/** The head of a component call: target:u64 entity:u64. */
+struct ComponentCall {
+    std::uint64_t target{0};
+    std::uint64_t entity{0};
+};
+std::optional<ComponentCall> read_component_call(std::span<const std::uint8_t> body);
+/** OnPlayerDeath (3950): the call and the time to the respawn screen (s). */
+struct PlayerDeath {
+    ComponentCall call;
+    float time{0.0F};
+};
+std::optional<PlayerDeath> read_player_death(std::span<const std::uint8_t> body);
+/** ReceiveInteractionResult (3743): the call, the reference, the action of the request, the result (1 accepted, 2 refused). */
+struct InteractionResult {
+    ComponentCall call;
+    InteractionReference reference;
+    std::uint8_t action{0};
+    std::uint8_t result{0};
+};
+std::optional<InteractionResult> read_interaction_result(std::span<const std::uint8_t> body);
+
 struct InputEntry {
     std::uint16_t sequence{1};
     std::uint64_t flags{0};
@@ -248,6 +345,9 @@ struct InputEntry {
     bool value470{false};
     /** List 3: the melee contacts of this step (an entry has only its own items). */
     std::vector<MeleeContactItem> contacts;
+    /** The interaction block of mask bit 8 (from its present byte): the request that is current at this step. An entry with
+     *  no request after a newer entry with one has bit 8 with the present byte 0 (else the reader gives it the newer block). */
+    std::optional<Bytes> interaction;
 };
 
 /** Flags of an entry of a client in the world that stands on the ground (live captures, backend tests). */

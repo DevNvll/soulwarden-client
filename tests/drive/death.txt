@@ -1,0 +1,22 @@
+# The death and the respawn of stage P2.10 (docs/ACTIONS.md "The death and the respawn"), with the routes of
+# tests/drive/death-routes.txt: the sword in the hand, the death at 4 s (the route "hurt"), then the move keys, a jump, an
+# attack, and a dodge while dead (the input is locked), the give-up at 10 s (the development key F8: the respawn request
+# of the retail client after the 5 s of the death notice), the respawn at the nearest travel place, and a walk after it.
+# The "tick" lines do nothing: they are the clock marks of the route script (tools/creature-check.sh). Times in seconds
+# from the possession of the character.
+# SWC_DEV_CHARACTER=Swordwarden SWC_STAGE=P2.10 tools/creature-check.sh death 26 tests/drive/death-routes.txt tests/drive/death.txt
+2.0 key 1
+3.0 tick
+4.0 tick
+5.0 move 0 1
+6.0 jump
+6.5 click
+7.0 dodge
+7.5 move 0 0
+8.0 respawn
+10.0 respawn
+12.0 tick
+16.0 move 0 1
+18.0 move 0 0
+18.5 key 1
+20.0 click

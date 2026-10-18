@@ -114,6 +114,25 @@ public:
         float vitalsMana{0.0F};
         float vitalsManaMax{0.0F};
         bool dead{false};
+        /** The life and the travel of the character (stage P2.10; protocol notes 4.16, 4.18, 4.20):
+         *  - the loading screen of the client: from the respawn request (1938) or message 3951 to message 3954;
+         *  - the death notices (3950) with the time to the respawn screen and the steady time of the last one (ns);
+         *  - the travels: one more at each movement state of the server whose teleport number (the low 4 bits of field 31) is not
+         *    the number of the client (the client then takes the place of the state: the world entry, a travel, a respawn);
+         *  - the counts of the messages 3954, 3746 (the server ends the interaction), and 6709 (the end of a lock of the input). */
+        bool loadingScreen{false};
+        std::uint32_t deathNotices{0};
+        float respawnScreenTime{0.0F};
+        std::int64_t deathNoticeNs{0};
+        std::uint32_t travelRevision{0};
+        std::uint32_t teleportNotices{0};
+        std::uint32_t interactionCancels{0};
+        std::uint32_t lockEnds{0};
+        /** The interaction request of the client (the block of the input entries) and the replies 3743 to it. */
+        std::optional<InteractionRequest> interaction;
+        std::uint32_t interactionResults{0};
+        std::uint8_t lastInteractionResult{0};
+        std::uint8_t lastInteractionAction{0};
 
         /** The ability state (slot 46, type 185, field 0 persistentAbilityData): one bar for each ability table, in the
          *  sequence of the field; each place has an ability id (the CRC-32 of the lower-case ability id text) and its
@@ -144,6 +163,10 @@ public:
         std::uint32_t sliceSubId{0};
         bool hasPosition{false};
         WorldPosition position;
+        /** The place of an object of the server (a fixture, a loot bag; stage P2.10): the PositionInTheWorld state (type 13),
+         *  field 0 x:f32 y:f32 height:u16 over -100 m to 2000 m (backend server/rep/states/object_states.cpp). */
+        bool hasPlace{false};
+        WorldPosition place;
     };
 
     /** A record of an interest number that is not 1, a stop of the control block, or a message for the view of the other
@@ -202,6 +225,18 @@ public:
      * the position of the server and no position field (stage 1.5).
      */
     void set_motion(const std::optional<Motion>& motion) { m_motion = motion; }
+    /**
+     * The respawn request of the death screen (stage P2.10; protocol notes 4.18): message 1938 with the row "Random Location"
+     * (random 1, no id). The client shows its loading screen before it sends (loadingScreen until message 3954).
+     */
+    void request_respawn();
+    /**
+     * The interaction request of the player (protocol notes 4.35, 4.36): its block goes into each input entry while it is current.
+     * A new request replaces the request before it. std::nullopt ends it with no message (the use completed, or a refusal).
+     */
+    void set_interaction(const std::optional<InteractionRequest>& request);
+    /** The client ends its committed interaction: the block goes away and message 2473 names its reference. */
+    void cancel_interaction();
     /** Melee contacts of the player (stage P2.8): they go into list 3 of the next input entry with the player motion. */
     void queue_contacts(const std::vector<MeleeContactItem>& contacts) { m_pendingContacts.insert(m_pendingContacts.end(), contacts.begin(), contacts.end()); }
 
@@ -250,6 +285,8 @@ private:
     void apply_other(const soulwarden::backend::tests::Record& record);
     void send_registration();
     void send_input(Clock::time_point now);
+    /** Sends a component call on the reliable channel (the route: the own actor). */
+    void send_call(const MessageType& type, const Bytes& body);
     /** @return The position field of the next entry: the reported position one step nearer to the character. */
     WorldPosition reported_position(const WorldPosition& character);
 
@@ -278,6 +315,8 @@ private:
     std::vector<InputEntry> m_recentInputs;
     std::optional<Motion> m_motion;
     std::vector<MeleeContactItem> m_pendingContacts;
+    /** The teleport number of the client: the low 4 bits of field 31 of the last movement state that it took (0 at the start). */
+    std::uint8_t m_clientTeleport{0};
     /** The position of the last position field (it follows the character at a limited speed: reported_position). */
     bool m_hasReported{false};
     WorldPosition m_reported;

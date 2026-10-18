@@ -296,7 +296,7 @@ bool FSwcActions::Load(FString& OutReport)
 			Weapon->Tags.Add(Tag->AsString());
 		}
 		Weapon->ClipKey = Weapon->Tags.IsEmpty() ? FString(TEXT("unarmed")) : FString::Join(Weapon->Tags, TEXT("_")).ToLower();
-		for (const TCHAR* Kind : {TEXT("stance"), TEXT("offhand"), TEXT("dodge")})
+		for (const TCHAR* Kind : {TEXT("stance"), TEXT("offhand"), TEXT("dodge"), TEXT("life"), TEXT("use")})
 		{
 			const TSharedPtr<FJsonObject>* Map = nullptr;
 			if (Info->TryGetObjectField(Kind, Map))
@@ -305,9 +305,12 @@ bool FSwcActions::Load(FString& OutReport)
 				{
 					if (const int32* Index = FragmentIndex.Find(Pair.Value->AsString()))
 					{
-						(FCString::Strcmp(Kind, TEXT("stance")) == 0 ? Weapon->Stance : FCString::Strcmp(Kind, TEXT("offhand")) == 0 ? Weapon->Offhand
-																										: Weapon->Dodge)
-							.Add(FString(Pair.Key.ToView()), *Index);
+						TMap<FString, int32>& Out = FCString::Strcmp(Kind, TEXT("stance")) == 0 ? Weapon->Stance
+							: FCString::Strcmp(Kind, TEXT("offhand")) == 0                       ? Weapon->Offhand
+							: FCString::Strcmp(Kind, TEXT("dodge")) == 0                         ? Weapon->Dodge
+							: FCString::Strcmp(Kind, TEXT("life")) == 0                          ? Weapon->Life
+																								 : Weapon->Use;
+						Out.Add(FString(Pair.Key.ToView()), *Index);
 					}
 				}
 			}

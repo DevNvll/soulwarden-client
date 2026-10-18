@@ -17,9 +17,13 @@
 #include "Net/Codec/SwcCarrier.h"
 #include "Net/Codec/SwcRepClient.h"
 #include "Net/Codec/SwcRepMessages.h"
+#include "Interact/SwcInteraction.h"
 #include "core/logging/log.h"
 #include "server/carrier/carrier.h"
 #include "server/rep/client_input.h"
+#include "server/rep/health_messages.h"
+#include "server/rep/lock_messages.h"
+#include "server/rep/travel_messages.h"
 #include "support/client_frames.h"
 
 namespace {
@@ -118,6 +122,9 @@ void test_golden_session(const std::string& goldenPath) {
     expect(own.dataBits == 0xC0 && own.moreDataBits == 0x03, "the movement permissions C0 03");
     expect(own.stateId == 0x8000, "the heartbeat state has the id 0x8000");
     expect(own.timeAnchor != 0, "a time anchor");
+    // The first movement state of the session has the teleport number 1: the client takes it (the world entry is a travel).
+    expect((own.teleportId & 0x0F) == 1 && own.travelRevision == 1, "the world entry: teleport number 1, one travel");
+    expect(!own.loadingScreen && own.deathNotices == 0 && !own.dead, "no loading screen, no death notice, the character lives");
     expect(near(own.healthMax, 1000.0F, 0.01F), "the vitals state: maximum health 1000 with no progression tables");
     expect(own.hasAppearance, "the appearance state");
     expect(own.hasMana && near(own.mana, 100.0F, 0.001F) && near(own.manaMax, 100.0F, 0.001F), "the mana state (slot 47): 100 of 100");
@@ -408,6 +415,316 @@ void test_client_writers() {
     expect(swc::net::group_of(actor) + swc::net::kActionListComponent == 0x90A8748FA3C2AD77ULL, "the facet target of the action list");
 }
 
+/**
+ * The life, the travel, and the interactions (stage P2.10): the bodies of the backend writers (server/rep/health_messages,
+ * travel_messages, lock_messages) to the readers of this client; the bodies of this client to the readers of the backend; the
+ * interaction block of the input entries to the input reader of the backend and to the writer of its made-up client.
+ */
+void test_life_messages() {
+    std::printf("the life, the travel, and the interactions against the writers and the readers of the backend\n");
+    namespace rep = backend::server::rep;
+    // A character of serial 1 of the backend: G = 4C554F5300000002 (world/ids.h).
+    const std::uint64_t group = 0x4C554F5300000002ULL;
+
+    const Bytes death = rep::player_death_body(group, 5.0F);
+    const auto readDeath = swc::net::read_player_death(death);
+    expect(death.size() == 20 && readDeath.has_value(), "3950: 20 bytes, the client reads them");
+    if (readDeath) {
+        expect(readDeath->call.entity == group && readDeath->call.target == group + swc::net::kPlayerComponent, "3950: the entity and the target");
+        expect(readDeath->time == 5.0F, "3950: the time to the respawn screen");
+    }
+    const Bytes screen = rep::teleport_screen_body(group);
+    const auto readScreen = swc::net::read_component_call(screen);
+    expect(screen.size() == 17 && readScreen && readScreen->entity == group && readScreen->target == group + swc::net::kPlayerComponent,
+           "3951: the call of the player facet");
+    const Bytes teleport = rep::player_teleport_body(group);
+    const auto readTeleport = swc::net::read_component_call(teleport);
+    expect(teleport.size() == 16 && readTeleport && readTeleport->target == group + swc::net::kPlayerComponent, "3954: the call of the player facet");
+    const Bytes cancel = rep::cancel_interaction_body(group);
+    const auto readCancel = swc::net::read_component_call(cancel);
+    expect(cancel.size() == 16 && readCancel && readCancel->target == group + swc::net::kInteractorComponent, "3746: the call of the interactor facet");
+    const Bytes lock = rep::cutscene_finalized_body(group);
+    const auto readLock = swc::net::read_component_call(lock);
+    expect(lock.size() == 16 && readLock && readLock->target == group + swc::net::kPlayerCutsceneComponent, "6709: the call of the cutscene facet");
+    // The teleport numbers (protocol notes 4.16): the client takes a movement state only with a number that is not its own.
+    expect(swc::net::takes_travel(0, 1), "the world entry: 1 is not the start number 0 of the client");
+    expect(!swc::net::takes_travel(1, 1), "the same number: no travel (the client keeps its prediction)");
+    expect(swc::net::takes_travel(1, 2), "a travel: the next number");
+    expect(!swc::net::takes_travel(2, 0x12), "the high 4 bits (the migration number) are not a part of the number");
+    expect(swc::net::takes_travel(15, 1), "after 15 the number is 1 again (number % 15 + 1)");
+
+    // The facet targets of the research for serial 1: the sum with the carry dropped (not XOR).
+    expect(group + swc::net::kPlayerComponent == 0x2B62381C8D27619FULL && group + swc::net::kInteractorComponent == 0xB8AC682EFE6DF614ULL,
+           "the facet targets of the player and the interactor (a 64-bit sum)");
+
+    // A keg of a fixture: its reference and the option Trigger of the data (interaction-data.json: action 33, delay 5 s).
+    swc::net::InteractionReference keg;
+    for (std::size_t index = 0; index < keg.actor.size(); ++index) {
+        keg.actor[index] = static_cast<std::uint8_t>(index < 8 ? 0x40 + index : 0);
+    }
+    keg.group = swc::net::group_of(keg.actor);
+    keg.target = 0x69F8F60912B6BC1FULL;
+    backend::world::InteractionReference kegBackend;
+    kegBackend.actor = keg.actor;
+    kegBackend.group = keg.group;
+    kegBackend.target = keg.target;
+    for (const bool accepted : {true, false}) {
+        const Bytes result = rep::interaction_result_body(group, kegBackend, 33, accepted);
+        const auto readResult = swc::net::read_interaction_result(result);
+        expect(result.size() == 71 && readResult.has_value(), "3743: 71 bytes, the client reads them");
+        if (readResult) {
+            expect(readResult->call.entity == group && readResult->reference == keg, "3743: the reference of the request");
+            expect(readResult->action == 33 && readResult->result == (accepted ? 1 : 2), "3743: the action and the result");
+        }
+    }
+
+    // The bodies of this client to the readers of the backend.
+    const Bytes respawn = swc::net::respawn_request_body(group);
+    const auto readRespawn = rep::read_respawn_request(respawn);
+    expect(respawn.size() == 18 && readRespawn.has_value(), "1938: 18 bytes (the live client), the backend reads them");
+    if (readRespawn) {
+        expect(readRespawn->call.entity == group && readRespawn->call.target == group + swc::net::kPlayerComponent, "1938: the entity and the target");
+        expect(readRespawn->random && readRespawn->id.empty(), "1938: the row Random Location (random 1, no id)");
+    }
+    const Bytes clientCancel = swc::net::interaction_cancel_body(group, keg);
+    const auto readClientCancel = rep::read_interaction_cancel(clientCancel);
+    expect(clientCancel.size() == 48 && readClientCancel.has_value(), "2473: 48 bytes, the backend reads them");
+    if (readClientCancel) {
+        expect(readClientCancel->entity == group && readClientCancel->target == group + swc::net::kInteractorComponent, "2473: the entity and the target");
+        expect(readClientCancel->reference == kegBackend, "2473: the reference of the interaction");
+    }
+
+    // The interaction block: byte for byte the block of the made-up client of the backend (no hold time there).
+    swc::net::InteractionRequest request;
+    request.reference = keg;
+    request.action = 33;
+    request.baseAction = 33;
+    request.optionEntity = 0x4C54561C65E43ABFULL;
+    request.committed = true;
+    request.optionId = 0x1A6B0F5DU;
+    backend::tests::InteractionBlock block;
+    block.actor = keg.actor;
+    block.group = keg.group;
+    block.target = keg.target;
+    block.action = 33;
+    block.baseAction = 33;
+    block.optionEntity = request.optionEntity;
+    block.committed = true;
+    block.optionId = request.optionId;
+    backend::server::hub::Writer theirs;
+    backend::tests::write_interaction_block(theirs, block);
+    const Bytes ourBlock = swc::net::interaction_block(request);
+    expect(ourBlock == theirs.data() && ourBlock.size() == 131, "the interaction block, byte for byte (131 bytes)");
+
+    // A report of three entries: the newest with the timed request (hold 5 s), the next one with no request (bit 8, present 0), the
+    // oldest with no bit 8. The reader of the backend: a request only in the newest step.
+    request.holdTime = 5.0F;
+    const auto entry_of = [](std::uint16_t sequence) {
+        swc::net::InputEntry entry;
+        entry.sequence = sequence;
+        entry.flags = swc::net::kInputFlagsWorld | swc::net::kInputFlagPosition;
+        entry.actionWords = 20;
+        entry.hasCharacter = true;
+        entry.character = {8880.0F, 4250.0F, 138.2F};
+        entry.camera = {8880.5F, 4246.0F, 139.9F};
+        entry.hasLook = true;
+        return entry;
+    };
+    swc::net::InputEntry newest = entry_of(12);
+    newest.interaction = swc::net::interaction_block(request);
+    const swc::net::InputEntry middle = entry_of(11);
+    const swc::net::InputEntry oldest = entry_of(10);
+    const Bytes report = swc::net::input_report_body({newest, middle, oldest}, group + swc::net::kActionListComponent, group);
+    const auto input = rep::read_client_input(report);
+    expect(input.has_value() && input->steps.size() == 3, "the backend reads the report with the block in each entry");
+    if (input && input->steps.size() == 3) {
+        const auto& steps = input->steps;
+        // The steps of the reader are in the sequence of the input numbers or of the entries: find them by their number.
+        const auto step_of = [&steps](std::uint16_t sequence) -> const rep::InputStep* {
+            for (const rep::InputStep& step : steps) {
+                if (step.sequence == sequence) {
+                    return &step;
+                }
+            }
+            return nullptr;
+        };
+        const rep::InputStep* first = step_of(12);
+        const rep::InputStep* second = step_of(11);
+        const rep::InputStep* third = step_of(10);
+        expect(first && first->interaction.has_value(), "the newest step has the request");
+        if (first && first->interaction) {
+            const rep::InputInteraction& read = *first->interaction;
+            expect(read.actor == keg.actor && read.group == keg.group && read.target == keg.target, "the reference of the block");
+            expect(read.action == 33 && read.baseAction == 33 && read.optionEntity == request.optionEntity && read.optionId == request.optionId,
+                   "the action, the option entity, and the option id");
+            expect(read.committed && read.holdTime == 5.0F, "the committed flag and the hold time");
+        }
+        expect(second && !second->interaction.has_value(), "an older step with bit 8 and the present byte 0 has no request");
+        expect(third && !third->interaction.has_value(), "the oldest step has no request");
+        expect(input->hasCharacter && near(input->characterX, 8880.0F, 0.001F), "the position field of the newest entry after the block");
+    }
+}
+
+/**
+ * The interactions of the client (stage P2.10, Interact/SwcInteraction): the ids of an object of the server (the rule of the
+ * backend, world/interactions.cpp: K = root XOR G), the focus, and the use of an option (the timed use of the powder keg and its
+ * cancels; the hold of the prompt of the loot bag). The templates are the values of interaction-data.json of the backend copy.
+ */
+void test_interactions() {
+    std::printf("the interactions of the client: the ids, the focus, the timed use and its cancels\n");
+    namespace interact = swc::interact;
+    // The powder keg (template 91): root 000178a376a472d6; the Interact bound of slot 10 (component 1da3a6bfd2b6bb1f, entity
+    // 000178b976a472d6, rangeSq 25); the option Trigger (id 443223901, action 33, committed, Delay Time 5 s, option entity
+    // 000061ec53404969).
+    interact::Template keg;
+    keg.name = "powderKeg";
+    keg.asset = {0x30, 0xb6, 0x34, 0x73, 0x6f, 0xd6, 0x53, 0xee, 0xa8, 0x9f, 0x3a, 0x9c, 0x00, 0x45, 0xe0, 0xf7};
+    keg.sub = 2;
+    keg.root = 0x000178a376a472d6ULL;
+    interact::Bound bound;
+    bound.slot = 10;
+    bound.component = 0x1da3a6bfd2b6bb1fULL;
+    bound.entity = 0x000178b976a472d6ULL;
+    bound.rangeSq = 25.0F;
+    interact::Option trigger;
+    trigger.name = "Trigger";
+    trigger.id = 443223901U;
+    trigger.action = 33;
+    trigger.committed = true;
+    trigger.delay = 5.0F;
+    trigger.entity = 0x000061ec53404969ULL;
+    bound.options.push_back(trigger);
+    keg.bounds.push_back(bound);
+    // A keg of the allocator with G = 4C554F5340000100 (the id form of the backend: serial * 2, "SOUL").
+    const swc::net::ActorId actor{0x00, 0x01, 0x00, 0x40, 0x53, 0x4F, 0x55, 0x4C, 0x20, 0x00, 0x00, 0x00, 0x53, 0x4F, 0x55, 0x4C};
+    expect(swc::net::group_of(actor) == 0x4C554F5340000100ULL, "the entity group of the keg");
+    expect(interact::instance_of(keg.root, 0x4C554F5340000100ULL, bound.entity) == 0x4C554F4940000100ULL, "the instance of the Interact entity");
+    const auto request = interact::request_of(keg, bound, trigger, actor);
+    expect(request.reference.target == 0x69F8F60912B6BC1FULL, "the facet target of the bound (the instance + the component)");
+    expect(request.optionEntity == 0x4C54561C65E43ABFULL, "the option entity (XOR K)");
+    expect(request.action == 33 && request.baseAction == 33 && request.committed && request.optionId == 443223901U && request.holdTime == 5.0F,
+           "the action, the base action, the option id, and the hold time of the block");
+
+    // The focus: the keg 3 m from the character (in the range of 5 m), a second keg 6 m away (out of the range).
+    std::vector<interact::Template> templates{keg};
+    interact::Object near_keg{7, actor, keg.asset, 2, {100.0F, 203.0F, 50.0F}};
+    swc::net::ActorId farActor = actor;
+    farActor[0] = 0x02;
+    interact::Object far_keg{8, farActor, keg.asset, 2, {106.0F, 200.0F, 50.0F}};
+    const swc::net::WorldPosition feet{100.0F, 200.0F, 50.0F};
+    const auto focus = interact::focus(templates, {far_keg, near_keg}, feet);
+    expect(focus && focus->interest == 7 && near(focus->distanceSq, 9.0F, 0.01F), "the focus is the keg in the range");
+    expect(!interact::focus(templates, {far_keg}, feet), "no focus out of the range");
+    const swc::net::WorldPosition edge{100.0F, 198.0F, 50.0F};
+    expect(interact::focus(templates, {near_keg}, edge).has_value(), "the range: an equal distance passes (5 m)");
+    if (!focus) {
+        return;
+    }
+
+    // A release before the end of the Delay Time: the cancel 2473, no execution.
+    interact::Use use;
+    use.press(10.0, *focus);
+    auto effects = use.take();
+    expect(use.phase() == interact::Use::Phase::requested && effects.requestChanged && effects.request && effects.request->optionId == trigger.id,
+           "the press: the request at once (no hold time)");
+    use.tick(12.0);
+    expect(near(use.progress(12.0), 0.4F, 0.001F), "the progress of the Delay Time (2 of 5 s)");
+    use.release(12.0);
+    effects = use.take();
+    expect(use.phase() == interact::Use::Phase::idle && effects.cancel && use.executions() == 0, "a release at 2 s: the cancel, no execution");
+
+    // The reply 1 (20 ms after the press), then the end of the Delay Time: the execution at 5 s; the request ends with no message
+    // 0.03 s after it and not before the Delay Time after the reply (the timer of the server starts at its accept).
+    use.press(20.0, *focus);
+    (void)use.take();
+    use.reply(1, 20.02);
+    use.tick(24.99);
+    expect(use.phase() == interact::Use::Phase::requested, "before 5 s the use goes on");
+    use.tick(25.0);
+    effects = use.take();
+    expect(use.executions() == 1 && use.phase() == interact::Use::Phase::executed && !effects.requestChanged, "at 5 s the execution; the request stays");
+    use.tick(25.03);
+    expect(use.phase() == interact::Use::Phase::executed, "0.03 s after the execution: the timer of the server is not due yet (the reply came at 0.02 s)");
+    use.tick(25.05);
+    effects = use.take();
+    expect(use.phase() == interact::Use::Phase::idle && effects.requestChanged && !effects.request && !effects.cancel,
+           "after the Delay Time from the reply: the request ends with no message");
+    use.release(25.5);
+    expect(!use.take().cancel, "the release after the end sends nothing");
+    // A release just after the execution with the reply 1: no cancel, the request ends at its time.
+    use.press(26.0, *focus);
+    (void)use.take();
+    use.reply(1, 26.01);
+    use.tick(31.0);
+    use.release(31.0);
+    effects = use.take();
+    expect(!effects.cancel && use.phase() == interact::Use::Phase::executed, "a release at the execution with the reply 1: no cancel");
+    use.tick(31.05);
+    effects = use.take();
+    expect(use.phase() == interact::Use::Phase::idle && effects.requestChanged && !effects.request, "then the request ends at its time");
+
+    // No reply: after the execution the client keeps its request until the release, then the cancel.
+    use.press(30.0, *focus);
+    (void)use.take();
+    use.tick(35.1);
+    effects = use.take();
+    expect(use.phase() == interact::Use::Phase::executed && !effects.cancel && !effects.requestChanged, "the execution with no reply: the request stays");
+    use.release(36.0);
+    effects = use.take();
+    expect(effects.cancel && use.phase() == interact::Use::Phase::idle, "then the release: the cancel");
+
+    // 3746 during the hold of the key: the use ends (the session client sends 2473 and clears the block itself).
+    use.press(40.0, *focus);
+    (void)use.take();
+    use.tick(41.0);
+    use.server_cancel();
+    effects = use.take();
+    expect(use.phase() == interact::Use::Phase::idle && !effects.cancel && use.serverEnds() == 1, "3746: the use ends, no second cancel");
+    use.tick(45.5);
+    expect(use.executions() == 3, "no execution after the end by the server");
+    use.release(46.0);
+    expect(!use.take().cancel, "the release after the end by the server sends nothing");
+
+    // The reply 2: the request ends (the session client cleared the block).
+    use.press(50.0, *focus);
+    (void)use.take();
+    use.reply(2, 50.02);
+    use.tick(56.0);
+    expect(use.phase() == interact::Use::Phase::idle && use.executions() == 3, "the reply 2: no execution");
+
+    // The death in a timed use: the cancel.
+    use.press(60.0, *focus);
+    (void)use.take();
+    use.abort();
+    expect(use.take().cancel && use.phase() == interact::Use::Phase::idle, "the death in a use: the cancel");
+
+    // The loot bag: TakeAllOption (action 28, no Delay Time, the hold of the prompt 0.5 s).
+    interact::Template bag = keg;
+    bag.bounds[0].options[0].name = "TakeAllOption";
+    bag.bounds[0].options[0].action = 28;
+    bag.bounds[0].options[0].delay = 0.0F;
+    bag.bounds[0].options[0].hold = 0.5F;
+    // The candidate points into the templates: they stay alive while it is used.
+    const std::vector<interact::Template> bagTemplates{bag};
+    const auto bagFocus = interact::focus(bagTemplates, {near_keg}, feet);
+    expect(bagFocus.has_value(), "the focus of the bag");
+    if (bagFocus) {
+        interact::Use take;
+        take.press(70.0, *bagFocus);
+        take.tick(70.3);
+        take.release(70.3);
+        expect(take.requests() == 0 && !take.take().requestChanged, "a release before the hold time: no request");
+        take.press(71.0, *bagFocus);
+        take.tick(71.5);
+        effects = take.take();
+        expect(take.requests() == 1 && effects.request && take.phase() == interact::Use::Phase::executed, "the hold of 0.5 s: the request and the execution");
+        take.reply(1, 71.52);
+        take.tick(71.56);
+        effects = take.take();
+        expect(take.phase() == interact::Use::Phase::idle && effects.requestChanged && !effects.request, "the reply 1: the request ends");
+    }
+}
+
 /** The carrier of this client against the carrier of the backend (apps/backend/src/server/carrier). */
 void test_carrier() {
     std::printf("carrier against the carrier of the backend\n");
@@ -499,6 +816,8 @@ int main(int argc, char** argv) {
     backend::log::set_sink([](const std::string&) {});
     test_golden_session(argv[1]);
     test_client_writers();
+    test_life_messages();
+    test_interactions();
     test_carrier();
     std::printf("Result: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
