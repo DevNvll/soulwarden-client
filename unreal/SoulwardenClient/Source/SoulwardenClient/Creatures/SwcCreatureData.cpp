@@ -664,6 +664,16 @@ FString FSwcCreatureLibrary::Name(uint32 CategoryId, uint32 VitalsId) const
 	return FString::Printf(TEXT("creature %08x"), VitalsId);
 }
 
+FString FSwcCreatureLibrary::CreatureType(uint32 CategoryId, uint32 VitalsId) const
+{
+	const TPair<FString, FString>* Found = Categories.Find(CategoryId);
+	if (Found == nullptr)
+	{
+		Found = VitalsRows.Find(VitalsId);
+	}
+	return Found != nullptr ? Found->Value : FString();
+}
+
 bool FSwcCreatureLibrary::HidesLevel(uint32 CategoryId, uint32 VitalsId) const
 {
 	const TPair<FString, FString>* Found = Categories.Find(CategoryId);

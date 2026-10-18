@@ -1619,7 +1619,7 @@ void USwcObjectSubsystem::UpdateLoot(const swc::net::RepClient::OwnEntity& Own, 
 void USwcObjectSubsystem::DrawLoot(UCanvas* Canvas, APlayerController* Controller)
 {
 	UFont* Font = GEngine != nullptr ? GEngine->GetMediumFont() : nullptr;
-	if (Canvas == nullptr || Font == nullptr || LootLines.IsEmpty())
+	if (Canvas == nullptr || Font == nullptr || LootLines.IsEmpty() || bUiLootNotice)
 	{
 		return;
 	}

@@ -387,6 +387,12 @@ A simple plate on the canvas of the game viewport: the name and the level (no le
 | Dead | the plate goes away 3 s after the dead mark; the body 300 s after it | protocol notes 4.14 (the times: "some seconds", the delayed event of 300 s) |
 | `-SwcPlates=all` | each plate within 40 m (development pictures) | a development aid |
 
+The UI reads the plates (stage WF7, the UI track): `GetPlates` gives each creature with vitals and a marker within 50 m (the
+feet, the name, the marker type of the slice, the creature type of the category row, the level, the health, the dead mark, the
+statuses, the marker flags) with the show rule above in `bShown`, and `GetDamageEvents` gives the damage numbers (the entries and
+the flags of 2071) with a serial. When the UI draws the original plates and numbers it calls `SetUiPlates(true)`: the simple
+plates and numbers of this view go off (default on).
+
 ## Counts and disk
 
 | Set | Slices | Bodies (.cdf) | Skeletons | Spawn points |

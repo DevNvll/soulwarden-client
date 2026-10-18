@@ -65,6 +65,67 @@ struct FSwcLootBag
 	float Distance = 0.0f;
 };
 
+/** One status of a creature at its name plate: the id of the status row and the stacks. */
+struct FSwcPlateStatus
+{
+	FString Id;
+	uint32 Stacks = 0;
+};
+
+/**
+ * The values of the name plate of one creature for the UI (the AiMarker plate of lyshineui/markers/markermanager.dynamicuicanvas,
+ * the UI track; stage WF7): GetPlates gives each creature with vitals and a marker within the range of the plates.
+ */
+struct FSwcCreaturePlate
+{
+	uint32 Interest = 0;
+	/** One more for each new entity of the table (a new record of the same interest number has a new serial). */
+	uint64 Serial = 0;
+	/** The feet (the place of the entity) and the point of the simple plate (above the bounds of the body), Unreal world space. */
+	FVector Feet = FVector::ZeroVector;
+	FVector PlatePoint = FVector::ZeroVector;
+	/** The display name, the marker type of the slice ("Wolf"; empty: none), m_creatureTypeOverride, and the creature type of the
+	 *  category or vitals row (names.json: "Solo", "Critter", "Elite", "Named_Solo+", ...). */
+	FString Name;
+	FString MarkerType;
+	FString CreatureTypeOverride;
+	FString CreatureType;
+	uint32 Level = 0;
+	bool bHidesLevel = false;
+	float Health = 0.0f;
+	float HealthMax = 0.0f;
+	/** One more at each health change that the plate shows (bit 0 of healthChangeFlags). */
+	uint32 HealthRevision = 0;
+	bool bDead = false;
+	/** The time since the dead mark (s), or a negative value. */
+	double DeadSeconds = -1.0;
+	bool bImmune = false;
+	/** The marker of the slice: m_neverShowHealthBar, m_forceDisplayHealthBar, m_verticalOffset (m). */
+	bool bNeverShowHealthBar = false;
+	bool bForceDisplayHealthBar = false;
+	float VerticalOffset = 0.0f;
+	/** The distance from the player (m), and the show rule of the simple plate (the near range, or the crosshair within the angle of
+	 *  the marker of the slice; -SwcPlates=all). */
+	float Distance = 0.0f;
+	bool bShown = false;
+	TArray<FSwcPlateStatus> Statuses;
+};
+
+/** One damage number of the player (the message "on damage dealt", 2071) for the UI: the creature, its point, the entries, and the
+ *  flags (Creatures/SwcDamageMessage.h). */
+struct FSwcDamageEvent
+{
+	/** One more for each event (the first is 1). */
+	uint32 Serial = 0;
+	uint32 Interest = 0;
+	/** The point of the simple damage number at the creature (Unreal world space), with no side offset. */
+	FVector Point = FVector::ZeroVector;
+	uint16 Flags = 0;
+	/** The entries: the number of the damage type on the wire (DamageTypes of combat-tables.json) and the amount. */
+	TArray<TPair<uint8, float>> Entries;
+	double Time = 0.0;
+};
+
 /** A melee contact: the weapon shape of the player touches a hit volume of a creature (FindMeleeContacts). */
 struct FSwcMeleeContact
 {
@@ -158,6 +219,15 @@ public:
 	/** One more at each Tick that applied records (the object layer reads the table again then). */
 	uint32 GetTableRevision() const { return TableRevision; }
 
+	/** The name plates for the UI (stage WF7): each creature with vitals and a marker within the range of the plates (the crosshair
+	 *  range; with -SwcPlates=all also the range of the development plates), with the show rule of the simple plate in bShown. */
+	void GetPlates(TArray<FSwcCreaturePlate>& Out) const;
+	/** The damage numbers for the UI (stage WF7): the events after the serial After (the newest 32 stay). @return The newest serial. */
+	uint32 GetDamageEvents(uint32 After, TArray<FSwcDamageEvent>& Out) const;
+	/** The UI draws the original plates and damage numbers: the simple plates and damage numbers of this subsystem go off (default
+	 *  on). */
+	void SetUiPlates(bool bUi) { bUiPlates = bUi; }
+
 	/** The contact query of the player actions (USwcPlayerActions::SetContactQuery): the items of FindMeleeContacts. */
 	void QueryMeleeContacts(const FSwcMeleeShape& Shape, std::vector<swc::net::MeleeContactItem>& Out) const;
 
@@ -187,6 +257,12 @@ private:
 		bool bKill = false;
 	};
 	TArray<FDamageNumber> DamageNumbers;
+	/** The damage events for the UI, the last serial, and the switch of the simple plates and numbers. */
+	TArray<FSwcDamageEvent> DamageEvents;
+	uint32 DamageSerial = 0;
+	bool bUiPlates = false;
+	/** The show rule of the simple plate (the marker of the slice): Eye and Look of the camera, Own the place of the player. */
+	bool ShowsPlate(const ASwcCreature& Creature, const FVector& Eye, const FVector& Look, const FVector& Own, double& OutDistance) const;
 
 	swc::creatures::EntityTable Table;
 	uint32 TableRevision = 0;

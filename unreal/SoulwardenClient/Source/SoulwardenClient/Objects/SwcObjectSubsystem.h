@@ -138,6 +138,8 @@ public:
 	bool FindNearestObject(const FVector& From, FSwcWorldObjectTarget& Out) const;
 	/** The bounds within a radius (m) of a point, in each state (for a marker or a check). */
 	void GetObjectsNear(const FVector& From, double RadiusMeters, TArray<FSwcWorldObjectTarget>& Out) const;
+	/** The UI shows the original loot ticker (stage WF7): the lines of the loot notice stand-in go off (default on; the log line stays). */
+	void SetUiLootNotice(bool bUi) { bUiLootNotice = bUi; }
 
 	/** The radius of the visuals (m): the interest radius of the server (a record of an object starts at 100 m). */
 	static constexpr double VisualMeters = 100.0;
@@ -351,6 +353,7 @@ private:
 	uint32 SeenBagRevision = 0;
 	bool bBagSeeded = false;
 	TArray<TPair<FString, double>> LootLines;
+	bool bUiLootNotice = false;
 	/** The ids of the item catalog (item index - 1). */
 	TArray<FString> ItemIds;
 	bool bItemsLoaded = false;

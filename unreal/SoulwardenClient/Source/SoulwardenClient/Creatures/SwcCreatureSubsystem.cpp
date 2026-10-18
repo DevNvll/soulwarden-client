@@ -896,9 +896,24 @@ void USwcCreatureSubsystem::OnDamage(const swc::net::Bytes& Body)
 	{
 		return;
 	}
+	const FBoxSphereBounds Bounds = Creature->GetBodyBounds();
+	// The event for the UI (stage WF7): the newest 32 stay.
+	FSwcDamageEvent& Event = DamageEvents.AddDefaulted_GetRef();
+	Event.Serial = ++DamageSerial;
+	Event.Interest = Interest;
+	Event.Point = Bounds.Origin + FVector(0.0, 0.0, Bounds.BoxExtent.Z * 0.6);
+	Event.Flags = Damage->flags;
+	Event.Time = FPlatformTime::Seconds();
+	for (const swc::creatures::DamageEntry& Entry : Damage->entries)
+	{
+		Event.Entries.Emplace(Entry.type, Entry.amount);
+	}
+	if (DamageEvents.Num() > 32)
+	{
+		DamageEvents.RemoveAt(0, DamageEvents.Num() - 32);
+	}
 	// The whole part of the damage (no rounding up: 64.9 shows 64).
 	FDamageNumber& Number = DamageNumbers.AddDefaulted_GetRef();
-	const FBoxSphereBounds Bounds = Creature->GetBodyBounds();
 	// The numbers of one creature in a short time go side by side.
 	int32 Recent = 0;
 	for (const FDamageNumber& Other : DamageNumbers)
@@ -1137,6 +1152,101 @@ bool USwcCreatureSubsystem::GetLockPoint(uint32 Interest, FSwcLockPoint& Out) co
 	return true;
 }
 
+bool USwcCreatureSubsystem::ShowsPlate(const ASwcCreature& Creature, const FVector& Eye, const FVector& Look, const FVector& Own, double& OutDistance) const
+{
+	const double Distance = FVector::Dist(Own, Creature.GetActorLocation()) / 100.0;
+	OutDistance = Distance;
+	// The rule of the marker of the slice (MarkerComponent client facet): the near range, or the crosshair within an angle
+	// that shrinks from the near angle at the near range to the far angle at the shrink distance.
+	const FSwcCreatureSlice* Slice = Creature.GetSlice();
+	const double NearRange = Slice != nullptr ? Slice->NearRange : 6.0;
+	const double NearAngle = Slice != nullptr ? Slice->NearAngle : 0.1309;
+	const double FarAngle = Slice != nullptr ? Slice->FarAngle : 0.0174533;
+	const double Shrink = Slice != nullptr ? FMath::Max(Slice->AngleShrinkDistance, NearRange + 0.1) : 20.0;
+	const FVector Center = Creature.GetActorLocation() + FVector(0.0, 0.0, 80.0 * Creature.GetActorScale3D().Z);
+	const double Angle = FMath::Acos(FMath::Clamp(FVector::DotProduct(Look, (Center - Eye).GetSafeNormal()), -1.0, 1.0));
+	const double Allowed = FMath::Lerp(NearAngle, FarAngle, FMath::Clamp((Distance - NearRange) / (Shrink - NearRange), 0.0, 1.0));
+	return Distance <= NearRange || (Distance <= CrosshairRange && Angle <= Allowed) || (bAllPlates && Distance <= AllPlatesRange);
+}
+
+void USwcCreatureSubsystem::GetPlates(TArray<FSwcCreaturePlate>& Out) const
+{
+	Out.Reset();
+	const APlayerController* Player = GetWorld() != nullptr ? GetWorld()->GetFirstPlayerController() : nullptr;
+	if (Player == nullptr || Player->PlayerCameraManager == nullptr)
+	{
+		return;
+	}
+	const FVector Eye = Player->PlayerCameraManager->GetCameraLocation();
+	const FVector Look = Player->PlayerCameraManager->GetCameraRotation().Vector();
+	const FVector Own = Player->GetPawn() != nullptr ? Player->GetPawn()->GetActorLocation() : Eye;
+	const double Range = bAllPlates ? FMath::Max(CrosshairRange, AllPlatesRange) : CrosshairRange;
+	for (const auto& [Interest, Entity] : Table.entities())
+	{
+		const TWeakObjectPtr<ASwcCreature>* Actor = Actors.Find(Interest);
+		if (Actor == nullptr || !Actor->IsValid() || (*Actor)->IsHidden() || !Entity.hasVitals)
+		{
+			continue;
+		}
+		const ASwcCreature* Creature = Actor->Get();
+		const double DeadSeconds = Creature->GetDeadSeconds();
+		if (DeadSeconds > DeadPlateSeconds || (Entity.hasMarker && !Entity.markerEnabled))
+		{
+			continue;
+		}
+		double Distance = 0.0;
+		const bool bShown = ShowsPlate(*Creature, Eye, Look, Own, Distance);
+		if (Distance > Range)
+		{
+			continue;
+		}
+		const FSwcCreatureSlice* Slice = Creature->GetSlice();
+		FSwcCreaturePlate& Plate = Out.AddDefaulted_GetRef();
+		Plate.Interest = Interest;
+		Plate.Serial = Entity.serial;
+		Plate.Feet = Creature->GetActorLocation();
+		Plate.PlatePoint = Creature->GetPlatePoint();
+		Plate.Name = Creature->GetDisplayName();
+		Plate.CreatureType = Library.CreatureType(Entity.categoryId, Entity.vitalsId);
+		Plate.Level = Entity.level;
+		Plate.bHidesLevel = Creature->HidesLevel();
+		Plate.Health = Entity.health;
+		Plate.HealthMax = Entity.healthMax;
+		Plate.HealthRevision = Entity.healthRevision;
+		Plate.bDead = Entity.dead;
+		Plate.DeadSeconds = DeadSeconds;
+		Plate.bImmune = Entity.immune;
+		if (Slice != nullptr)
+		{
+			Plate.MarkerType = Slice->MarkerType;
+			Plate.CreatureTypeOverride = Slice->CreatureTypeOverride;
+			Plate.bNeverShowHealthBar = Slice->bNeverShowHealthBar;
+			Plate.bForceDisplayHealthBar = Slice->bForceDisplayHealthBar;
+			Plate.VerticalOffset = Slice->VerticalOffset;
+		}
+		Plate.Distance = static_cast<float>(Distance);
+		Plate.bShown = bShown;
+		for (const swc::creatures::Entity::StatusEntry& Status : Entity.statuses)
+		{
+			const FSwcStatusRow* Row = Library.FindStatusRow(Status.index);
+			Plate.Statuses.Add({Row != nullptr ? Row->Id : FString::Printf(TEXT("#%u"), Status.index), Status.stacks});
+		}
+	}
+}
+
+uint32 USwcCreatureSubsystem::GetDamageEvents(uint32 After, TArray<FSwcDamageEvent>& Out) const
+{
+	Out.Reset();
+	for (const FSwcDamageEvent& Event : DamageEvents)
+	{
+		if (Event.Serial > After)
+		{
+			Out.Add(Event);
+		}
+	}
+	return DamageSerial;
+}
+
 void USwcCreatureSubsystem::DrawPlates(UCanvas* Canvas, APlayerController* Controller)
 {
 	if (Canvas == nullptr || GetWorld() == nullptr || Canvas->SceneView == nullptr || Canvas->SceneView->Family == nullptr
@@ -1152,6 +1262,12 @@ void USwcCreatureSubsystem::DrawPlates(UCanvas* Canvas, APlayerController* Contr
 	const FVector Eye = Player->PlayerCameraManager->GetCameraLocation();
 	const FVector Look = Player->PlayerCameraManager->GetCameraRotation().Vector();
 	const FVector Own = Player->GetPawn() != nullptr ? Player->GetPawn()->GetActorLocation() : Eye;
+	if (bUiPlates)
+	{
+		// The UI draws the original plates and numbers (stage WF7).
+		DamageNumbers.Reset();
+		return;
+	}
 	UFont* Font = GEngine != nullptr ? GEngine->GetSmallFont() : nullptr;
 	if (Font == nullptr)
 	{
@@ -1172,19 +1288,9 @@ void USwcCreatureSubsystem::DrawPlates(UCanvas* Canvas, APlayerController* Contr
 			continue;
 		}
 		const FVector Point = Creature->GetPlatePoint();
-		const double Distance = FVector::Dist(Own, Creature->GetActorLocation()) / 100.0;
-		// The rule of the marker of the slice (MarkerComponent client facet): the near range, or the crosshair within an angle
-		// that shrinks from the near angle at the near range to the far angle at the shrink distance.
 		const FSwcCreatureSlice* Slice = Creature->GetSlice();
-		const double NearRange = Slice != nullptr ? Slice->NearRange : 6.0;
-		const double NearAngle = Slice != nullptr ? Slice->NearAngle : 0.1309;
-		const double FarAngle = Slice != nullptr ? Slice->FarAngle : 0.0174533;
-		const double Shrink = Slice != nullptr ? FMath::Max(Slice->AngleShrinkDistance, NearRange + 0.1) : 20.0;
-		const FVector Center = Creature->GetActorLocation() + FVector(0.0, 0.0, 80.0 * Creature->GetActorScale3D().Z);
-		const double Angle = FMath::Acos(FMath::Clamp(FVector::DotProduct(Look, (Center - Eye).GetSafeNormal()), -1.0, 1.0));
-		const double Allowed = FMath::Lerp(NearAngle, FarAngle, FMath::Clamp((Distance - NearRange) / (Shrink - NearRange), 0.0, 1.0));
-		const bool bShow = Distance <= NearRange || (Distance <= CrosshairRange && Angle <= Allowed) || (bAllPlates && Distance <= AllPlatesRange);
-		if (!bShow)
+		double Distance = 0.0;
+		if (!ShowsPlate(*Creature, Eye, Look, Own, Distance))
 		{
 			continue;
 		}

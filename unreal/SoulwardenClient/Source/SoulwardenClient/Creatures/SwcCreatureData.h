@@ -266,6 +266,8 @@ public:
 
 	/** The name plate: the name of the category row, else the name of the vitals row (protocol notes 4.14). */
 	FString Name(uint32 CategoryId, uint32 VitalsId) const;
+	/** @return The creature type of the category row, else of the vitals row ("Solo", "Critter", ...; names.json), or empty. */
+	FString CreatureType(uint32 CategoryId, uint32 VitalsId) const;
 	/** @return True for a creature type with no level mark (Critter: the plate of the rabbit has no level mark). */
 	bool HidesLevel(uint32 CategoryId, uint32 VitalsId) const;
 	/** @return The scale of a creature: CharacterScale of the base row of its vitals row (1 when it is not known). */
