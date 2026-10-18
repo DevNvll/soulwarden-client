@@ -196,7 +196,7 @@ def text_key(value: str) -> str:
     return value[1:].lower() if value.startswith("@") else value.lower()
 
 
-def gathering_tables(folder: Path, gathering: dict) -> dict:
+def gathering_tables(folder: Path, gathering: dict, chest_names: set[str] = frozenset()) -> dict:
     """@return The rows of the gathering (the tool family, the gather action, the rank gate, the time, the name), the tools by
     their item index (the position in item-catalog.json plus 1: the value of the paperdoll; their weapon tags of weapons.json),
     the bodies of the creature slices with skinning, and the texts of the prompts."""
@@ -213,6 +213,9 @@ def gathering_tables(folder: Path, gathering: dict) -> dict:
                      name, list(row.get("unsupported", []))[:1]])
     for kind in TOOL_SLOTS:
         key = f"ui_notool{kind.lower()}"
+        if key in texts:
+            used_texts[key] = texts[key]
+    for key in chest_names:   # the names of the chests (the prompt "E SUPPLY CHEST")
         if key in texts:
             used_texts[key] = texts[key]
     catalog = json.loads((folder / "item-catalog.json").read_text())["items"]
@@ -291,6 +294,7 @@ def write() -> dict:
 
     # The objects of the interaction data, by region.
     achievements = interactions["achievements"]
+    chest_names: set[str] = set()
     by_region: dict[str, list] = {}
     for entry in interactions["objects"]:
         kind = object_kind(entry, chests, capitals)
@@ -322,7 +326,11 @@ def write() -> dict:
                 report["capitalMismatches"] += 1
         elif kind == "chest":
             chest = chests[entry["key"]]
-            out["chest"] = [chest.get("kind", ""), chest.get("gatherable", ""), chest.get("state", "")]
+            gatherable = chest_doc.get("gatherables", {}).get(chest.get("gatherable", ""), {})
+            # [kind, gatherable row, state, name (a text key), elite] (stage P5.1: the prompt, the depletion effect of an elite chest)
+            out["chest"] = [chest.get("kind", ""), chest.get("gatherable", ""), chest.get("state", ""), chest.get("name", ""),
+                            bool(gatherable.get("elite")) or chest.get("kind") == "elite"]
+            chest_names.add(text_key(chest.get("name", "")))
         by_region.setdefault(entry["region"], []).append(out)
         report["objects"] += 1
         report["bounds"] += len(bounds)
@@ -384,7 +392,7 @@ def write() -> dict:
         "templates": [{"root": t["root"], "controllerSlot": t["controllerSlot"], "table": t["table"], "entry": t["entry"],
                        "bound": {k: t["bound"][k] for k in ("entity", "component", "option", "slot", "rangeSq", "translation", "lineOfSight")},
                        "visuals": template_visuals[i], "sliceVisuals": slice_visuals[i]} for i, t in enumerate(templates)],
-        "gathering": gathering_tables(folder, gathering),
+        "gathering": gathering_tables(folder, gathering, chest_names),
         "visuals": [[row[0], row[1], row[3]] for row in visuals.rows],
         "regions": regions,
     }
