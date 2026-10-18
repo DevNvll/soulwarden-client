@@ -37,7 +37,8 @@ public:
         std::string ticketHex;
         /** The input report (type 1589) at 30 Hz from InGame. */
         bool sendInput{true};
-        /** Keep the records and the stops of the other entities for take_other_updates() (the entity table of the creatures). */
+        /** Keep the records and the stops of the other entities, and the damage numbers, for take_other_updates() (the entity
+         *  table of the creatures). */
         bool keepOtherRecords{false};
         /**
          * A step of the input of the player (stage P2.7, docs/ACTIONS.md): called for each input entry with the player motion,
@@ -138,11 +139,14 @@ public:
         WorldPosition position;
     };
 
-    /** A record of an interest number that is not 1, or a stop of the control block, in the order of the bundles. */
+    /** A record of an interest number that is not 1, a stop of the control block, or a message for the view of the other
+     *  entities (the damage number, kDamageDealt: `messageType` is not 0), in the order of the messages. */
     struct OtherUpdate {
         bool stop{false};
         std::uint32_t interest{0};
         soulwarden::backend::tests::Record record;
+        std::uint32_t messageType{0};
+        Bytes message;
     };
 
     struct Counts {

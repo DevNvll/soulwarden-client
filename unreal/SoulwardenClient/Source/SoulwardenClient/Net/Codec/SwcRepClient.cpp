@@ -286,6 +286,12 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         on_bundle(message.body, now);
         return;
     }
+    if (message.type == kDamageDealt.index) {
+        if (m_options.keepOtherRecords) {
+            m_otherUpdates.push_back({false, 0, {}, message.type, message.body});
+        }
+        return;
+    }
     if (message.type == kKickClient.index || message.type == kPlayerManagerRejected.index) {
         const auto reason = read_reason(message.body);
         end(std::string(message.type == kKickClient.index ? "kicked" : "rejected") + ", reason "
