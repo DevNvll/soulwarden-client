@@ -13,6 +13,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
 #include "SwcBackendSubsystem.h"
+#include "UI/SwcKeyBindings.h"
 #include "UI/SwcUiSubsystem.h"
 #include "SwcCameraManager.h"
 
@@ -105,35 +106,15 @@ void ASwcPlayerController::SetupInputComponent()
 	ProneAction = MakeAction(this, TEXT("IA_ProneToggle"), EInputActionValueType::Boolean);
 	AutoRunAction = MakeAction(this, TEXT("IA_AutoRun"), EInputActionValueType::Boolean);
 	MovementContext = NewObject<UInputMappingContext>(this, TEXT("IMC_Movement"));
-	MapAxisKey(MovementContext, MoveAction, EKeys::W, true, false);
-	MapAxisKey(MovementContext, MoveAction, EKeys::S, true, true);
-	MapAxisKey(MovementContext, MoveAction, EKeys::A, false, true);
-	MapAxisKey(MovementContext, MoveAction, EKeys::D, false, false);
-	MovementContext->MapKey(LookAction, EKeys::Mouse2D);
-	MovementContext->MapKey(JumpAction, EKeys::SpaceBar);
-	MovementContext->MapKey(WalkAction, EKeys::LeftControl);
-	MovementContext->MapKey(ZoomAction, EKeys::MouseWheelAxis);
-	MovementContext->MapKey(LockAction, EKeys::MiddleMouseButton);
-	MovementContext->MapKey(FreeLookAction, EKeys::LeftAlt);
-	MovementContext->MapKey(Weapon1Action, EKeys::One);
-	MovementContext->MapKey(Weapon2Action, EKeys::Two);
-	MovementContext->MapKey(SheatheAction, EKeys::Tilde);
-	MovementContext->MapKey(AttackAction, EKeys::LeftMouseButton);
-	MovementContext->MapKey(DodgeAction, EKeys::LeftShift);
-	MovementContext->MapKey(AimAction, EKeys::RightMouseButton);
-	// A development key (not a key of the retail client): the give-up of the death screen until the UI track has the screen.
-	MovementContext->MapKey(GiveUpAction, EKeys::F8);
-	// The key of the prompt of an object (the retail client: E, "E Ignite Fuse", "E Take All").
-	MovementContext->MapKey(InteractAction, EKeys::E);
-	// The keys of the bar of the default profile: Q, R, F (protocol notes 4.22 "The keys": the input numbers 402, 115, 139).
-	MovementContext->MapKey(AbilityActions[0], EKeys::Q);
-	MovementContext->MapKey(AbilityActions[1], EKeys::R);
-	MovementContext->MapKey(AbilityActions[2], EKeys::F);
-	// The keys of the posture and autorun of the default profile: C crouch_toggle, Z prone_toggle, `=` autorun (research
-	// feel-values.md R6.3; p33-movement.md Q1, Q2).
-	MovementContext->MapKey(CrouchAction, EKeys::C);
-	MovementContext->MapKey(ProneAction, EKeys::Z);
-	MovementContext->MapKey(AutoRunAction, EKeys::Equals);
+	MapPlayKeys();
+	// The rebinds of the options screen (stage P2.3): the key table of the client maps the keys again.
+	if (const UGameInstance* GameInstance = GetGameInstance())
+	{
+		if (USwcKeyBindings* Keys = GameInstance->GetSubsystem<USwcKeyBindings>())
+		{
+			Keys->OnChanged.AddUObject(this, &ASwcPlayerController::MapPlayKeys);
+		}
+	}
 	if (UEnhancedInputComponent* Enhanced = Cast<UEnhancedInputComponent>(InputComponent))
 	{
 		Enhanced->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ASwcPlayerController::OnMove);
@@ -169,6 +150,96 @@ void ASwcPlayerController::SetupInputComponent()
 	else
 	{
 		UE_LOG(LogSwcBackend, Error, TEXT("input: the input component is not an Enhanced Input component (Config/DefaultInput.ini)"));
+	}
+}
+
+void ASwcPlayerController::MapPlayKeys()
+{
+	// The keys of the actions of the maps "movement", "camera", "combat", "player", "ui", and "debug" of the default profile
+	// (R6.3, R6.4): the key table of the client (UI/SwcKeyBindings: the action maps of the data, gamedata/actionmaps.json, and
+	// the rebinds of the options screen). The keys in the calls are the defaults of the profile: they apply when the client
+	// has no key table (no converted action maps).
+	const USwcKeyBindings* Keys = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcKeyBindings>() : nullptr;
+	// The check of the defaults: with no rebind, the table must give the default key of each action (one log line).
+	int32 Checked = 0;
+	TArray<FString> Different;
+	const auto Key = [Keys, &Checked, &Different](const TCHAR* Map, const TCHAR* Action, const FKey& Default) -> FKey
+	{
+		const FString Name = Keys != nullptr ? Keys->GetCryKey(Map, Action) : FString();
+		const FKey Result = Name.IsEmpty() ? Default : USwcKeyBindings::KeyOf(Name);
+		if (Keys != nullptr && Keys->OverrideCount() == 0)
+		{
+			++Checked;
+			if (Result != Default)
+			{
+				Different.Add(FString::Printf(TEXT("%s/%s %s (default %s)"), Map, Action, *Result.ToString(), *Default.ToString()));
+			}
+		}
+		return Result;
+	};
+	const auto Map = [this](const UInputAction* Action, const FKey& InKey)
+	{
+		if (InKey.IsValid())
+		{
+			MovementContext->MapKey(Action, InKey);
+		}
+	};
+	MovementContext->UnmapAll();
+	MapAxisKey(MovementContext, MoveAction, Key(TEXT("movement"), TEXT("moveforward"), EKeys::W), true, false);
+	MapAxisKey(MovementContext, MoveAction, Key(TEXT("movement"), TEXT("moveback"), EKeys::S), true, true);
+	MapAxisKey(MovementContext, MoveAction, Key(TEXT("movement"), TEXT("moveleft"), EKeys::A), false, true);
+	MapAxisKey(MovementContext, MoveAction, Key(TEXT("movement"), TEXT("moveright"), EKeys::D), false, false);
+	MovementContext->MapKey(LookAction, EKeys::Mouse2D);
+	Map(JumpAction, Key(TEXT("movement"), TEXT("jump"), EKeys::SpaceBar));
+	Map(WalkAction, Key(TEXT("movement"), TEXT("walk"), EKeys::LeftControl));
+	// The zoom stays on the wheel axis (cam_zoom_in and cam_zoom_out of the map "camera" are the two steps of the wheel).
+	MovementContext->MapKey(ZoomAction, EKeys::MouseWheelAxis);
+	Map(LockAction, Key(TEXT("combat"), TEXT("camera_lock_toggle"), EKeys::MiddleMouseButton));
+	Map(FreeLookAction, Key(TEXT("debug"), TEXT("camera_free_look_activate"), EKeys::LeftAlt));
+	Map(Weapon1Action, Key(TEXT("player"), TEXT("quickslot-weapon1"), EKeys::One));
+	Map(Weapon2Action, Key(TEXT("player"), TEXT("quickslot-weapon2"), EKeys::Two));
+	Map(SheatheAction, Key(TEXT("player"), TEXT("sheathe"), EKeys::Tilde));
+	Map(AttackAction, Key(TEXT("player"), TEXT("attack_primary"), EKeys::LeftMouseButton));
+	Map(DodgeAction, Key(TEXT("player"), TEXT("dodge"), EKeys::LeftShift));
+	// The block and the aim of a ranged weapon have one action here: the key of each (both mouse2 in the profile).
+	const FKey BlockKey = Key(TEXT("player"), TEXT("block"), EKeys::RightMouseButton);
+	const FKey AimKey = Key(TEXT("player"), TEXT("aim_draw"), EKeys::RightMouseButton);
+	Map(AimAction, BlockKey);
+	if (AimKey != BlockKey)
+	{
+		Map(AimAction, AimKey);
+	}
+	// A development key (not a key of the retail client): the give-up of the death screen until the UI track has the screen.
+	MovementContext->MapKey(GiveUpAction, EKeys::F8);
+	// The key of the prompt of an object (the retail client: E, "E Ignite Fuse", "E Take All").
+	Map(InteractAction, Key(TEXT("ui"), TEXT("ui_interact"), EKeys::E));
+	// The keys of the bar of the default profile: Q, R, F (protocol notes 4.22 "The keys": the input numbers 402, 115, 139).
+	Map(AbilityActions[0], Key(TEXT("player"), TEXT("ability1"), EKeys::Q));
+	Map(AbilityActions[1], Key(TEXT("player"), TEXT("ability2"), EKeys::R));
+	Map(AbilityActions[2], Key(TEXT("player"), TEXT("ability3"), EKeys::F));
+	// The keys of the posture and autorun of the default profile: C crouch_toggle, Z prone_toggle, `=` autorun (research
+	// feel-values.md R6.3; p33-movement.md Q1, Q2).
+	Map(CrouchAction, Key(TEXT("movement"), TEXT("crouch_toggle"), EKeys::C));
+	Map(ProneAction, Key(TEXT("movement"), TEXT("prone_toggle"), EKeys::Z));
+	Map(AutoRunAction, Key(TEXT("movement"), TEXT("autorun"), EKeys::Equals));
+	if (Checked > 0)
+	{
+		if (Different.IsEmpty())
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("input: the key table gives the default keys of the profile (%d actions)"), Checked);
+		}
+		else
+		{
+			UE_LOG(LogSwcBackend, Warning, TEXT("input: the key table differs from the default keys: %s"), *FString::Join(Different, TEXT(", ")));
+		}
+	}
+	else if (Keys != nullptr)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("input: the play keys with %d rebind(s) of the options screen"), Keys->OverrideCount());
+	}
+	if (UEnhancedInputLocalPlayerSubsystem* Input = GetLocalPlayer() != nullptr ? ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()) : nullptr)
+	{
+		Input->RequestRebuildControlMappings();
 	}
 }
 

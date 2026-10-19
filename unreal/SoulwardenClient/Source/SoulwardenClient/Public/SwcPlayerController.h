@@ -58,6 +58,8 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
+	/** Maps the keys of the play actions from the key table of the client (UI/SwcKeyBindings), again at each rebind. */
+	void MapPlayKeys();
 	virtual void OnPossess(APawn* InPawn) override;
 
 private:
