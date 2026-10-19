@@ -253,6 +253,11 @@ tools/import-gltf-list.sh ~/Games/soulwarden-client/content/materials/rebuild-im
   `world-build.lock` exclusively when it exists (runs stream these meshes).
 - The instances of the slots (`n_`, `dm_`) must exist first: the import tool applies their specs at the start of
   each call (a spec that is up to date is skipped).
+- The Lumen mesh data (the decision of the user): a main mesh of 1 m or more imports with a mesh distance field
+  (resolution scale 1) and Lumen cards (12), the settings of the Lumen copies of E2 (evidence/E2/lumen):
+  `swc_materials.lumen_pipelines` makes `P_SwcMeshNaniteLumen` and `P_SwcMeshLumen`, copies of the world pipelines
+  with these two values (the world pipelines do not change). Not for the decal companions and not for the far
+  meshes. The item flag `lumen` of `rebuild-import.json` (`material_records.gltf_size`).
 - Then the world track builds the cells with overrides again: the slot names changed (A2b: `overrides.py` names the
   slots with `materials.instance_key`).
 

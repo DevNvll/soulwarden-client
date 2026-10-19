@@ -9,8 +9,10 @@ of the batch). A next call continues:
   is skipped when the import state of the pipeline (SWC_GAME_CONTENT/import-state.json) has its hash and its folder has
   a static mesh. After each batch the state gets the hash of each mesh of the batch, so that tools/import.sh sees them
   as up to date.
-Environment: SWC_GLTF_LIST (a JSON list of {"file", "folder", "nanite"[, "key", "hash"]}), SWC_GLTF_MAX_SECONDS,
-SWC_GLTF_REPORT (the report file), SWC_GAME_CONTENT.
+An item with "lumen": true imports with the Lumen mesh data (swc_materials.lumen_pipelines: a distance field and Lumen
+cards; the M3 rebuild, the decision of the user). SWC_GLTF_FORCE=1 imports each item again (the measure of a test set).
+Environment: SWC_GLTF_LIST (a JSON list of {"file", "folder", "nanite"[, "lumen", "key", "hash", "slots"]}),
+SWC_GLTF_MAX_SECONDS, SWC_GLTF_REPORT (the report file), SWC_GAME_CONTENT, SWC_GLTF_FORCE.
 """
 import json
 import os
@@ -29,8 +31,8 @@ started = time.time()
 unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([sm.ROOT], True)
 link = unreal.new_object(unreal.SwcMaterialLinkPipeline)
 link.set_editor_property("material_folder", sm.ROOT + "/Materials")
-pipelines = {nanite: [unreal.SoftObjectPath(sm.BASE + ("/P_SwcMeshNanite" if nanite else "/P_SwcMesh")),
-                      unreal.SoftObjectPath(link.get_path_name())] for nanite in (True, False)}
+pipelines = {(nanite, False): [unreal.SoftObjectPath(sm.BASE + ("/P_SwcMeshNanite" if nanite else "/P_SwcMesh")),
+                               unreal.SoftObjectPath(link.get_path_name())] for nanite in (True, False)}
 report = {"imported": 0, "up to date": 0, "failed": [], "incomplete": False, "batches": [], "slots with no material": 0}
 batch = []
 state_path = os.path.join(os.environ["SWC_GAME_CONTENT"], "import-state.json")
@@ -53,6 +55,13 @@ def save_state(done):
 
 
 state = load_state()
+force = os.environ.get("SWC_GLTF_FORCE", "") == "1"
+# An item with "lumen": the mesh pipelines with the Lumen mesh data (a distance field and Lumen cards; swc_materials).
+if any(item.get("lumen") for item in items):
+    before_lumen = dict(state)
+    for nanite, path in sm.lumen_pipelines(state).items():
+        pipelines[(nanite, True)] = [unreal.SoftObjectPath(path), unreal.SoftObjectPath(link.get_path_name())]
+    save_state({k: v for k, v in state.items() if before_lumen.get(k) != v})
 # The instances of the slots (the rebuild: the n_ instances of A1 and the dm_ instances of the mesh decal companions)
 # must exist before the link pipeline sets the slots: apply their specs first (a spec that is up to date is skipped).
 slot_keys = sorted({k for item in items for k in item.get("slots", [])})
@@ -99,13 +108,13 @@ for item in items:
         report["incomplete"] = True
         break
     exists = sm.assets.does_directory_exist(item["folder"]) and sm.first_asset(item["folder"], "StaticMesh") is not None
-    if exists and ("key" not in item or state.get(item["key"]) == item["hash"]):
+    if exists and not force and ("key" not in item or state.get(item["key"]) == item["hash"]):
         report["up to date"] += 1
         continue
     parameters = unreal.ImportAssetParameters()
     parameters.set_editor_property("is_automated", True)
     parameters.set_editor_property("replace_existing", True)
-    parameters.set_editor_property("override_pipelines", pipelines[bool(item.get("nanite", True))])
+    parameters.set_editor_property("override_pipelines", pipelines[(bool(item.get("nanite", True)), bool(item.get("lumen")))])
     unreal.InterchangeManager.get_interchange_manager_scripted().import_asset(
         item["folder"], unreal.InterchangeManager.create_source_data(item["file"]), parameters)
     batch.append(item)

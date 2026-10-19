@@ -1446,6 +1446,23 @@ def rebuild_set() -> dict:
     return counts
 
 
+LUMEN_MIN_M = 1.0   # the Lumen mesh data only for a mesh of at least 1 m (the rule of the Lumen copies of E2: a smaller
+                    # mesh is below the detail of the distance fields)
+
+
+def gltf_size(path: Path) -> float:
+    """@return The largest extent (m) of the POSITION bounds of a glTF file (0 when it has none)."""
+    doc = json.loads(path.read_text())
+    lo, hi = None, None
+    for m in doc.get("meshes", []):
+        for p in m["primitives"]:
+            a = doc["accessors"][p["attributes"]["POSITION"]]
+            if "min" in a and "max" in a:
+                lo = a["min"] if lo is None else [min(x, y) for x, y in zip(lo, a["min"])]
+                hi = a["max"] if hi is None else [max(x, y) for x, y in zip(hi, a["max"])]
+    return max(h - l for l, h in zip(lo, hi)) if lo else 0.0
+
+
 def rebuild_one(path: str) -> dict:
     from . import mesh as mesh_module
     try:
@@ -1488,14 +1505,18 @@ def rebuild_convert(workers: int = 4) -> dict:
         for key in (path, entry.get("decals")):
             e = assets.get(key) if key else None
             if e:
-                items.append({"key": key, "hash": e["hash"], "file": str(env.content_dir() / e["file"]),
-                              "folder": e["unreal"], "nanite": e.get("nanite", True), "slots": e.get("slots", [])})
+                file = env.content_dir() / e["file"]
+                # The Lumen mesh data (the decision of the user): the main meshes of 1 m or more; not the companions.
+                lumen = key == path and gltf_size(file) >= LUMEN_MIN_M
+                items.append({"key": key, "hash": e["hash"], "file": str(file), "folder": e["unreal"],
+                              "nanite": e.get("nanite", True), "lumen": lumen, "slots": e.get("slots", [])})
     write_json(out_dir() / "rebuild-import.json", items)
     errors = [r for r in reports if "error" in r]
     companions = [r["companion"] for r in converted if "companion" in r]
     return {"meshes": len(todo), "converted": len(converted), "errors": len(errors),
             "companions": len(companions), "companion triangles": sum(c["triangles"] for c in companions),
-            "mesh decal materials": len(mesh_decals), "decal specs": decal_specs, "first errors": errors[:5], "import list": len(items),
+            "mesh decal materials": len(mesh_decals), "decal specs": decal_specs,
+            "with the Lumen mesh data": sum(1 for i in items if i["lumen"]), "first errors": errors[:5], "import list": len(items),
             "M triangles converted": round(sum(r.get("triangles", 0) for r in converted) / 1e6, 1),
             "seconds": round(time.time() - started, 1)}
 

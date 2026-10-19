@@ -869,6 +869,31 @@ def foliage_parent(content, state):
     return material
 
 
+LUMEN_VERSION = "1"   # the rule of the Lumen mesh pipelines (lumen_pipelines)
+
+
+def lumen_pipelines(state):
+    """@return {nanite: the path of a mesh pipeline with the Lumen mesh data}: P_SwcMeshNaniteLumen and P_SwcMeshLumen, copies
+    of the world pipelines of Scripts/import_content.py (P_SwcMeshNanite, P_SwcMesh: the same settings) with a mesh
+    distance field (resolution scale 1) and Lumen cards (12): the settings of the Lumen copies of the environment work
+    (E2, evidence/E2/lumen; the decision of the user for the M3 rebuild). The world pipelines do not change."""
+    out = {}
+    for nanite, source_name in ((True, "P_SwcMeshNanite"), (False, "P_SwcMesh")):
+        name = source_name + "Lumen"
+        path = f"{BASE}/{name}"
+        if not assets.does_asset_exist(path) or state.get("base:" + name) != LUMEN_VERSION:
+            if assets.does_asset_exist(path):
+                assets.delete_asset(path)
+            pipeline = assets.duplicate_loaded_asset(unreal.load_asset(f"{BASE}/{source_name}"), path)
+            meshes = pipeline.get_editor_property("mesh_pipeline")
+            meshes.set_editor_property("distance_field_resolution_scale", 1.0)
+            meshes.set_editor_property("max_lumen_mesh_cards", 12)
+            assets.save_loaded_asset(pipeline)
+            state["base:" + name] = LUMEN_VERSION
+        out[nanite] = path
+    return out
+
+
 def spec_stamp(spec):
     return INSTANCE_VERSION + ":" + hashlib.sha1(
         json.dumps(spec, sort_keys=True).encode()).hexdigest()[:16]
