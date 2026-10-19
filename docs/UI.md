@@ -822,6 +822,9 @@ Soulwarden evidence of creatures, abilities-crit, fight, loot, loot-bags, gather
   - The pad: the action maps of the converter keep only the keyboard and mouse inputs (the controller tab shows no button
     labels); the id of an input profile is the row number (an inference). The zoom keys stay on the wheel.
   - `javelin.enable-exit-survey` has no reference in the code of the program: not set (its row does not show).
+  - A rebind of the row Jump / Traverse also moves sprint, jump_hold, and moveup to the new key: the key page calls
+    RebindAction for the four actions of the movement map that have Space in the profile data. The retail behavior is not
+    checked yet.
 - The conversation screen (the Talk with a person): not started. The focus of the user (2026-10-19, docs/ROADMAP.md) puts
   the interactions after the world, the graphics, and the gameplay. The retail references are set 5
   (`~/Games/soulwarden/work/evidence/unreal-references/set5-talk/`: the idle and talk views of three persons, the
