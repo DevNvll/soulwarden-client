@@ -93,7 +93,32 @@ local function same(a, b)
   return a == b
 end
 
---- Sets a value (the host and the scripts). @return The node id.
+--- Gives a change below a node to the callbacks of the node (not its plain observers), with the value of the node.
+local function deliver_to_callbacks(nodeId)
+  local n = nodes[nodeId]
+  local list = observers[n.path]
+  if not list then
+    return
+  end
+  local copy = {}
+  for k, o in pairs(list) do
+    if o.isCallback then
+      copy[k] = o
+    end
+  end
+  for _, o in pairs(copy) do
+    for _, h in ipairs(Swc.Handlers("LyShineDataLayerNotificationsBus")) do
+      local fn = h.table.CallCallback
+      if type(fn) == "function" then
+        Swc.Call(fn, h.table, o.id, o.isData and n.value or nodeId, o.isData)
+      end
+    end
+  end
+end
+
+--- Sets a value (the host and the scripts). A change also goes to the callbacks of each parent node: the HUD layout elements
+--- (hudlayoutelement.luac) wait on Hud.ActiveLayout.<Name> and read its table after the layout manager sets each leaf
+--- (uidatalayerinternal.luac SetDataWithTable); the retail HUD shows the places of the layout data. @return The node id.
 function Swc.SetData(path, value)
   local id = node_of(path, true)
   local n = nodes[id]
@@ -101,6 +126,13 @@ function Swc.SetData(path, value)
   n.value = value
   n.hasValue = true
   deliver(n.path, value, id, true, changed)
+  if changed then
+    local parent = n.parent
+    while parent do
+      deliver_to_callbacks(parent)
+      parent = nodes[parent].parent
+    end
+  end
   return id
 end
 

@@ -1,0 +1,24 @@
+# Stage P3.H: the fight HUD in the client (docs/UI.md "The fight HUD"). The HUD at rest, then the draw of weapon 1, the
+# first ability (its cooldown on the bar), the first consumable quick slot (key 3), a dodge (the stamina), and the sheathe.
+# The draw lists of the frames go to the reports (draw NAME) for the comparison with the retail pictures.
+# Times in seconds from the spawn of the player.
+# tools/creature-check.sh p3h-hud 60 tests/drive/p3h-hud-routes.txt -- -SwcUiDrive=$PWD/tests/drive/p3h-hud.txt
+1 waitfor CompassLines 60
+2 waitfor world 180
+6 draw rest
+7 log the draw of weapon 1
+7 key 1
+10 draw drawn
+11 log the first ability
+11 key q
+12 draw ability
+15 log the first consumable quick slot
+15 key 3
+16 draw potion
+19 log a dodge
+19 key lshift
+20 draw dodge
+23 log the sheathe
+23 key tilde
+26 draw sheathed
+30 end

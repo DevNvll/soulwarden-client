@@ -1,0 +1,2 @@
+# The development routes of the fight HUD check of stage P3.H (tools/creature-check.sh): one heal keeps the character full.
+40 heal

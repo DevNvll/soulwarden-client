@@ -298,7 +298,7 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
 | `enums.lua` | The enum values: the client table (`gamedata/enums.json`) first, then the own values for the other names. |
 | `elements.lua` | The script instances, the activation of the elements, clone, destroy, the spawner, the flipbooks. |
 | `lyshine.lua` | The LyShine buses: element, transform, image, text, fader, mask, canvas, spawner, flipbook, image sequence. |
-| `datalayer.lua` | The data layer: nodes by path, observers (on a change), callbacks (on each set or call). |
+| `datalayer.lua` | The data layer: nodes by path, observers (on a change), callbacks (on each set or call). A change also goes to the callbacks of each parent node (stage P3.H: the HUD layout elements wait on `Hud.ActiveLayout.<Name>` and read its table after the layout manager sets each leaf; the retail HUD shows the places of the layout data). |
 | `manager.lua` | The screen loader (`ScriptLoadCanvas`), the UI state machine, the keys, the texts with replacements. |
 | `tween.lua` | The tween engine (`ScriptedEntityTweenerBus`): virtual properties, the easing functions of Penner, timelines. |
 | `game.lua` | The game buses of the HUD: config, abilities, cooldowns, stamina, progression. |
@@ -606,6 +606,13 @@ the client window) and the retail combat capture of set 6 (the list of the UI tr
   `Controls.ReticleColor` (white) and `Controls.ReticleTargetColor` (1, 0.443, 0.443) come from the saved retail options. The
   manager keeps the drawn slot from the events `OnSlotUnsheathed` and `OnSlotSheathed` of `PaperdollEventBus`
   (`Swc.HostActiveWeapon` sends them).
+- The HUD layout (`hudlayoutmanager.luac` of the HUD edit mode canvas): the default layout `hudlayoutdatadefault.luac` sets
+  `Hud.ActiveLayout` (the place of each HUD part, the opacity of the full bars: 0.4). Its places differ from the canvases for
+  some parts: the XP meter is at y -41, the canvas at -49 (5 pixels lower at 660 lines, as in the retail pictures).
+- The fixture `fighthud` takes a picture at 1256 x 660 (`swcui.set_viewport`): the canvas is 2055 x 1080, as in the client
+  window of that size (the engine viewport is in Slate units, 2057 x 1081). Against the retail picture of the same size
+  (abilities-crit `l6-crit-1.png`): the quick slots and the level mark are at the same place (0, 0 pixels), the weapon slots
+  have the same frames.
 - The place of the HUD parts (`tools/lib/hud_compare.py RETAIL.png CLIENT.png FOLDER`): two pictures of one window size; for each
   region the shift and the scale of the client picture where the edges agree best, and a picture of the two regions and their
   edges (retail red, client green). With different content (another build, another heading) the score is low: the edge
@@ -707,8 +714,8 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `census` | The census table (`swc/census.lua`, 164 rows) against the canvases of the game and the two loaders: each template loads with its scripts (the Lua errors of the templates of later stages go to the notes); the original UI loader at a world entry asks for exactly the canvases whose gate is open (76 with the values of the build, 139 with on-demand loading off) in the order of the load groups; the config table asks for exactly its open entries when the flags turn on; the canvas list of the original dynamic loader is the table, and each of its 53 UI states asks for its canvas. |
 | `options` | The original Options screen from the button Settings of the escape menu: the defaults of the client program (the camera shake on, the master volume 100), a label with more text ("Monitor 1"), a picture of each category (Game, Keyboard & Mouse, Controller, Video, Audio, Social, Accessibility, About) and of the two binding tabs; the key page: a click on the jump row starts the listen (the client gets `keybinding 1`), a key that no action has binds the jump (the UI actions use it; the client gets the rebind and the save; the hints get the key), the key of the journal (J) gives the conflict popup, the reset of the page sets the defaults again (`rebind-reset`). Pictures `options-*`. |
 | `fighthud` | The fight HUD screens (Vitals2024, WeaponQuickslots, ConsumableQuickslots, XP, Compass, ReticlesCanvas) with a player of the host calls: two weapons with ability bars, the heart rune, three consumables in the quick slots. The quick slot 1 shows the count 9 and the key 3; the empty slot 3 shows only the key 5; the level 65 shows under the vitals and the XP popup of the spawn is out after 3 s; the weapon slots show the other weapon (key 2) and the heart rune (key G); the reticle of the sword is the melee reticle
-(`ReticleToShow` 3488054177), it shows with the weapon sheathed; a drawn bow gives the bow reticle (2551600555). Pictures `fighthud`,
-`fighthud-bow`. |
+(`ReticleToShow` 3488054177), it shows with the weapon sheathed; a drawn bow gives the bow reticle (2551600555). The HUD edit mode sets the
+default HUD layout. Pictures `fighthud`, `fighthud-bow`, `fighthud-1256` (the window size of the retail pictures). |
 | `loader` | The screen loader of the game (`uiloader.luac`) at a world entry, with two allowed screens (Vitals2024, InfoModal): it asks only for canvases of its list (`gamedata/loader.json`, 153 paths), one time each, with the ending `.uicanvas` (105 for the world); it counts each load and failure and sets the state HUD; the HUD screen has no autohide and shows, the menu has autohide and shows only in its state. Each canvas that the game has for the two lists (the UI loader and the 69 canvases of `dynamiccanvasloader.luac`) is converted; 2 paths of the UI loader have no canvas in the game. |
 | `escape` | The original EscapeMenu and Popup screens driven by keys and clicks (`Swc.HostInput`): Escape in the HUD fires `toggleMenuComponent`, the state goes to "esc", the menu shows with the cursor and the maps player, movement, camera off; exit to desktop opens the quit popup over the menu (the state stays; the map ui off); Escape fires `ui_genpop_cancel` and closes only the popup; the pointer hovers a menu button again; Escape gives `OnEscapeKeyPressed` to the menu and the HUD comes back with its maps. Pictures `escape-menu`, `escape-popup`, `escape-focus`. |
 | `loading` | The loading screen of the game (`loadingscreen.luac`) shows and hides with the events of the native code; a refused connection gives the original error popup (`popup.luac` ShowError, `UIError_login_unable_to_connect`) with the cursor, and its OK button closes it. Pictures `loading-start`, `loading-later`, `loading-error`. |

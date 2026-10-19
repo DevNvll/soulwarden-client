@@ -8,6 +8,9 @@ local consumables = screen("LyShineUI/HUD2024/ConsumableQuickslots/ConsumableQui
 local xp = screen("LyShineUI/HUD2024/XP/XP.uicanvas", 13, true)
 local compass = screen("LyShineUI/Compass/Compass.uicanvas", 14, true)
 local reticles = screen("LyShineUI/HUD2024/Reticles/ReticlesCanvas.uicanvas", 9, true)
+-- The HUD edit mode holds the layout manager (hudlayoutmanager.luac): it sets the default HUD layout (Hud.ActiveLayout: the
+-- places of the HUD parts and the opacity of the full bars), as in the client.
+screen("LyShineUI/HUD2024/EditMode/HudEditMode.uicanvas", 15, true)
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(HUD)
 DynamicBus.UiLoader.Broadcast.OnUiLoadingComplete()
@@ -92,3 +95,12 @@ equal(Swc.GetData("Hud.LocalPlayer.ReticleToShow"), 2551600555, "the reticle of 
 check(UiElementBus.Event.IsEnabled(find(aim, "ReticleBow")) and not UiElementBus.Event.IsEnabled(find(aim, "ReticleMelee")),
   "the bow reticle")
 picture("fighthud-bow")
+
+-- The HUD at the window size of the retail pictures of the Soulwarden evidence (1256 x 660; the canvas is 2055 x 1080 as in
+-- the client window): the sword in the hand, for tools/lib/hud_compare.py.
+Swc.HostEquipment(24, "1hSwordT52")
+Swc.HostActiveWeapon(24, false)
+swcui.set_viewport(1256, 660)
+frames(0.5)
+picture("fighthud-1256")
+swcui.set_viewport(1920, 1080)
