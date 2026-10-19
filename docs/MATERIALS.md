@@ -129,7 +129,7 @@ tools/convert-materials.sh proof-plan m2 && tools/material-proof.sh m2   # the r
   keeps the rules of stage 1.2. A failure of this call goes into the import report; the import continues. Test:
   `tests/converter/test_swc_materials.py` (a stub of the module `unreal`).
 
-### M_SwcFoliage (stage M1)
+### M_SwcFoliage (stage M1; version 3)
 
 The parent of the Vegetation shader: masked, two sided, the shading model Two Sided Foliage.
 
@@ -140,10 +140,16 @@ The parent of the Vegetation shader: masked, two sided, the shading model Two Si
 | Normal | the normal map | |
 | Roughness | 1 - `Smoothness` x gloss; `Smoothness` = max(1/127, `Shininess`/255) | research section 3: the source GGX squares (1 - s), and Unreal squares its Roughness |
 | Specular | luminance(XML `Specular`) / 0.08 | Unreal F0 = 0.08 x Specular |
-| Subsurface color | saturate(`BackDiffuseMultiplier` x transmission.r) x `TransmittanceColor` | the transmission block of the source shader |
+| Subsurface color | saturate(`BackDiffuseMultiplier` x transmission.r) x `TransmittanceColor` x the base color (version 3) | the transmission block of the source shader; the source multiplies all diffuse light, the back light too, by the albedo |
 
-Unreal's foliage response is not the same shader as the retail transmission model: a side-by-side check with the
-retail client decides.
+The source (deferredshading `ThinTranslucencyBRDF`, vegetation.cfxb `frag_custom_end`): the light of a leaf is
+Transmittance x the back term + the front term, and the sum is multiplied by the albedo. The transmission of Unreal
+(`TwoSidedBxDF`: light x WrapNoL x Scatter x SubsurfaceColor) has no base color, so the albedo goes into the subsurface
+color. Versions 1 and 2 did not have it: in the back light the leaves and the grass were near white (the subsurface
+color about 0.6, the albedo about 0.03 linear; T3 first-set1 noon-road-low: L* 61 against 48 of retail, saturation
+0.33 against 0.53). Unreal's Scatter lobe is view dependent (a glow against the sun): kept (the decision of the user).
+`BlendTerrainCol` (the lerp of the diffuse to the terrain color, with distance) is 0 for all ground cover and for all
+but one foliage material: only a fade at the end of the view distance; not done yet (it needs the terrain macro color).
 
 ### M_SwcSurface and M_SwcSurfaceMasked (stage M2)
 
@@ -257,9 +263,18 @@ tools/import-gltf-list.sh ~/Games/soulwarden-client/content/materials/rebuild-im
   (resolution scale 1) and Lumen cards (12), the settings of the Lumen copies of E2 (evidence/E2/lumen):
   `swc_materials.lumen_pipelines` makes `P_SwcMeshNaniteLumen` and `P_SwcMeshLumen`, copies of the world pipelines
   with these two values (the world pipelines do not change). Not for the decal companions and not for the far
-  meshes. The item flag `lumen` of `rebuild-import.json` (`material_records.gltf_size`).
+  meshes. The item flag `lumen` of `rebuild-import.json` (`material_records.gltf_size`). The import is about 5 times
+  slower with them (about 4,100 triangles per second against about 20,000): the decision of the user is to add them
+  later in a background job (after step d), not in the rebuild. 120 Oxboro meshes have them from the first call.
 - Then the world track builds the cells with overrides again: the slot names changed (A2b: `overrides.py` names the
   slots with `materials.instance_key`).
+
+Step c (2026-10-19): 13,505 meshes (163.8 M triangles; with the 131 new cover meshes) and 575 companions, 14,080
+items in 28 calls, 8,232 s of import (Oxboro 742 s, the rest 7,490 s; 7.4 h of wall time with the locks of the other
+tracks), 0 failures. The rebuild folders have 6.86 GB in the plugin (the companions 59 MB); the DDC grew at most
+5.2 GB. 3 material keys had a record but no instance (11 uses): `tools/import.sh --keys` made them, and the 7 meshes
+with these slots imported again. Then M3b and the M4 emission deployed (`DEPLOYED`): 3,616 specs changed (Blend
+1,787, Detail 1,395, UseVertexColor 1,750, Emissive 510).
 
 ### M6 wind (M_SwcFoliage version 2; the stage label m6)
 

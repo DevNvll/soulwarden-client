@@ -753,7 +753,7 @@ def differing_fields(rules: list[dict]) -> list[str]:
 # Scripts/apply_materials.py sets the material instance of the key from its spec (the asset path does not change).
 
 SPEC_VERSION = 3      # the rule of the specs (2: the surface parents of M2; 3: the n_ instances of A1)
-DEPLOYED = ("m1", "m2", "m3a", "glass")  # the stages that passed their check: instances.json (the import pipeline applies it)
+DEPLOYED = ("m1", "m2", "m3a", "glass", "m3b", "m4")  # the stages that passed their check: instances.json (the import pipeline applies it)
 STAGES = DEPLOYED      # the stages of the specs that spec_of() makes now
 LINEAR_VERSION = 1    # the rule of the one-channel PNGs (textures/m1-CAP/: the red channel, or the alpha image)
 CAP = 1024            # the largest size (the cap of the base color and normal maps of stage 1.2)
@@ -1267,7 +1267,9 @@ def proof_plan_test(stage: str) -> dict:
     slot_table = json.loads((out_dir() / "slots.json").read_text())["meshes"]
     rows = []
     for label, mesh in (PROOF_M6 if stage == "m6" else PROOF_M3):
-        if mesh in rows_in:   # a mesh of the test import: its slots are the instance keys
+        if assets.get(mesh, {}).get("version", 0) >= 7:   # after the M3 rebuild: the world mesh of rule 7
+            keys, folder = assets[mesh]["slots"], assets[mesh]["unreal"]
+        elif mesh in rows_in:   # a mesh of the test import: its slots are the instance keys
             keys, folder = rows_in[mesh]["materials"], folders[rows_in[mesh]["file"]]
         elif mesh in slot_table:   # a mesh of the plugin (rule 6): its slots are the legacy keys
             keys, folder = sorted({legacy for _i, legacy, _r in slot_table[mesh]}), assets[mesh]["unreal"]
@@ -1289,6 +1291,41 @@ def proof_plan_test(stage: str) -> dict:
     write_json(out_dir() / f"proof-{stage}.json", plan)
     return {"stage": stage, "rows": [{"label": r["label"], "slots": len(r["variants"][r["columns"][0]]),
                                       "columns": r["columns"]} for r in rows]}
+
+
+# The foliage check (M_SwcFoliage version 3: the back light x the albedo): rule 7 world meshes with the fall overrides of
+# the placements (content/overrides/pairs.json) and of the ground cover (content/cover/pairs.json): the instances as they
+# are now.
+PROOF_FOLIAGE = [("poplar fall01", "objects/nature/veg_trees/trees_forest/poplar/jav_fst_poplartree_full_a.cgf",
+                  "objects/nature/veg_trees/trees_forest/poplar/jav_fst_poplartree_a_fall01_mat.mtl"),
+                 ("pawpaw fall01", "objects/nature/veg_bushes/bushes_forest/pawpaw/jav_fst_pawpawbush_c.cgf",
+                  "objects/nature/veg_bushes/bushes_forest/pawpaw/jav_fst_pawpawbush_a_fall01_mat.mtl"),
+                 ("grass fall01", "objects/nature/veg_grass/grass_forest/mediumgrass/jav_fst_medgrass_a.cgf",
+                  "objects/nature/veg_grass/grass_forest/mediumgrass/jav_fst_grasses_a_fall01_mat.mtl"),
+                 ("grass fall02", "objects/nature/veg_grass/grass_forest/mediumgrass/jav_fst_medgrass_a.cgf",
+                  "objects/nature/veg_grass/grass_forest/mediumgrass/jav_fst_grasses_a_fall02_mat.mtl")]
+
+
+def proof_plan_foliage(stage: str) -> dict:
+    """Writes proof-STAGE.json: the meshes of PROOF_FOLIAGE in their world folders, one column "now" with the instance of
+    the override of each slot."""
+    assets = manifest.load()["assets"]
+    pairs = {}
+    for path in (env.content_dir() / "overrides" / "pairs.json", env.content_dir() / "cover" / "pairs.json"):
+        if path.is_file():
+            pairs.update(json.loads(path.read_text()))
+    rows = []
+    for label, mesh, override in PROOF_FOLIAGE:
+        entry = assets.get(mesh)
+        if not entry:
+            continue
+        slots = entry.get("slots") or entry.get("materials", [])
+        mapping = pairs.get(f"{mesh}|{override}", {}).get("slots", {})
+        variants = {"now": {slot: {"instance": mapping.get(slot, slot)} for slot in slots}}
+        rows.append({"label": label.replace(" ", "-"), "mesh": mesh, "unreal": entry["unreal"], "override": override,
+                     "columns": ["now"], "variants": variants})
+    write_json(out_dir() / f"proof-{stage}.json", {"stage": stage, "rows": rows})
+    return {"stage": stage, "rows": [{"label": r["label"], "slots": r["variants"]["now"]} for r in rows]}
 
 
 def proof_plan(stage: str) -> dict:
@@ -1643,7 +1680,8 @@ def main(argv: list[str] | None = None) -> int:
         result = proof_sheet(argv[1] if len(argv) > 1 else "m1")
     elif argv[0] == "proof-plan":
         stage = argv[1] if len(argv) > 1 else "m1"
-        result = proof_plan_test(stage) if stage in ("m3", "m4", "m6") else proof_plan(stage)
+        result = (proof_plan_test(stage) if stage in ("m3", "m4", "m6") else proof_plan_foliage(stage)
+                  if stage == "foliage" else proof_plan(stage))
     else:
         mtl = argv[1].lower()
         subs = sub_materials(mtl)

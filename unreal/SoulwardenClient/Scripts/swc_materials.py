@@ -21,12 +21,12 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "2", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "3",
+PARENT_VERSIONS = {"M_SwcFoliage": "3", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "3",
                    "M_SwcGlass": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
 # M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals; M_SwcFoliage 2: the wind (M6) and
-# the vertex alpha occlusion)
+# the vertex alpha occlusion; 3: the subsurface color x the albedo, as the back light of the source)
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
 assets = unreal.EditorAssetLibrary
@@ -854,9 +854,14 @@ def foliage_parent(content, state):
     clamp = node(material, unreal.MaterialExpressionSaturate, -450, 900)
     editing.connect_material_expressions(amount, "", clamp, "")
     tint = vector(material, "TransmittanceColor", (1.0, 1.0, 1.0, 1.0), -600, 1100)
-    subsurface = node(material, unreal.MaterialExpressionMultiply, -300, 950)
-    editing.connect_material_expressions(clamp, "", subsurface, "A")
-    editing.connect_material_expressions(tint, "RGB", subsurface, "B")
+    transmittance = node(material, unreal.MaterialExpressionMultiply, -300, 950)
+    editing.connect_material_expressions(clamp, "", transmittance, "A")
+    editing.connect_material_expressions(tint, "RGB", transmittance, "B")
+    # The source multiplies all the diffuse light, the back light too, by the albedo (deferredshading ThinTranslucencyBRDF:
+    # Transmittance x back + front, then x the albedo; vegetation.cfxb frag_custom_end: (ambient + front + back x
+    # cShadingBack) x cDiffuseMap). The transmission of Unreal (TwoSidedBxDF) has no base color: the albedo goes into the
+    # subsurface color. Version 2 and before had no albedo here: the leaves and the grass were near white in the back light.
+    subsurface = multiply(material, (transmittance, ""), (occluded, ""), -150, 950)
     editing.connect_material_property(subsurface, "", MP.MP_SUBSURFACE_COLOR)
     material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
     material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_TWO_SIDED_FOLIAGE)
