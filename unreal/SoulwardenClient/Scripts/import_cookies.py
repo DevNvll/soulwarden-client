@@ -24,6 +24,7 @@ content = os.path.dirname(os.environ["SWC_COOKIES"])
 force = os.environ.get("SWC_COOKIES_FORCE") == "1"
 started = time.time()
 report = {"textures": 0, "up to date": 0, "instances": 0, "failed": []}
+unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([FOLDER], True)   # does_asset_exist needs the scan
 
 
 def log(text):
