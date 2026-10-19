@@ -39,11 +39,30 @@ unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([FOLDER]
 
 CODE = """
 float3 d = normalize(-ViewToPixel);
+// The sky color: the SkyAtmosphere of Unreal, or the sky model of the source (stage E5: SourceSky 1): the dome of the upper half of
+// the sky (u: the azimuth from north to east, v: the zenith angle 0 to 90 degrees; below the horizon the horizon row), its Mie and
+// Rayleigh parts with the phases of the sky shader of the source (skyhdr@skyhdrps), and the night sky gradient, in the units of the
+// source (SourceUnit cd/m2 each).
+float3 sky = Atmosphere;
+if (SourceSky > 0.5)
+{
+    float2 dome = float2(frac(atan2(d.x, -d.y) / 6.28318530718), saturate(acos(clamp(d.z, -1.0, 1.0)) / 1.57079632679));
+    float3 mie = Texture2DSampleLevel(SourceMie, SourceMieSampler, dome, 0).rgb;
+    float3 rayleigh = Texture2DSampleLevel(SourceRayleigh, SourceRayleighSampler, dome, 0).rgb;
+    float cosine = dot(d, normalize(SkySun.xyz));
+    float g = SkySun.w;
+    float g2 = g * g;
+    float miePhase = 1.5 * (1.0 - g2) / (2.0 + g2) * (1.0 + cosine * cosine) / pow(max(1.0 + g2 + 2.0 * g * cosine, 1e-6), 1.5);
+    float rayleighPhase = 0.75 * (1.0 + cosine * cosine);
+    float zenith = saturate(d.z * NightShift.x + NightShift.y);
+    zenith = zenith * (2.0 - zenith);
+    sky = (mie * miePhase + rayleigh * rayleighPhase + NightBase.rgb + NightDelta.rgb * zenith) * SourceUnit;
+}
 float3 c = float3(dot(CelestialX.xyz, d), dot(CelestialY.xyz, d), dot(CelestialZ.xyz, d));
 float dec = asin(clamp(c.z, -1.0, 1.0));
 float ra = atan2(c.x, c.y);
 float2 uv = float2(frac(ra / 6.28318530718), 0.5 - dec / 3.14159265359);
-float3 result = Texture2DSampleLevel(Stars, StarsSampler, uv, 0).rgb * StarIntensity;
+float3 result = sky + Texture2DSampleLevel(Stars, StarsSampler, uv, 0).rgb * StarIntensity;
 float3 m = normalize(MoonDirection.xyz);
 float cosA = dot(d, m);
 if (cosA > 0.0)
@@ -116,9 +135,17 @@ if force or not assets.does_asset_exist(MATERIAL):
     inputs = []
     sources = []
     view = library.create_material_expression(material, unreal.MaterialExpressionCameraVectorWS, -900, -200)
-    for name, node in [("ViewToPixel", view)]:
+    # The SkyAtmosphere of Unreal on the sky mesh (the view luminance): the sky color when SourceSky is 0.
+    atmosphere = library.create_material_expression(material, unreal.MaterialExpressionSkyAtmosphereViewLuminance, -900, -350)
+    for name, node in [("ViewToPixel", view), ("Atmosphere", atmosphere)]:
         inputs.append(name)
         sources.append((node, ""))
+    # The dome of the source sky (the client fills two float textures; a black dummy here).
+    for name, y in (("SourceMie", -500), ("SourceRayleigh", -650)):
+        dome = parameter(material, unreal.MaterialExpressionTextureObjectParameter, name, -900, y)
+        dome.set_editor_property("texture", unreal.load_asset("/Engine/EngineResources/Black.Black"))
+        inputs.append(name)
+        sources.append((dome, ""))
     star_object = parameter(material, unreal.MaterialExpressionTextureObjectParameter, "Stars", -900, 0)
     star_object.set_editor_property("texture", stars)
     moon_object = parameter(material, unreal.MaterialExpressionTextureObjectParameter, "Moon", -900, 150)
@@ -126,12 +153,13 @@ if force or not assets.does_asset_exist(MATERIAL):
     inputs += ["Stars", "Moon"]
     sources += [(star_object, ""), (moon_object, "")]
     y = 300
-    for name in ("CelestialX", "CelestialY", "CelestialZ", "MoonDirection", "MoonColor", "InnerCorona", "OuterCorona"):
+    for name in ("CelestialX", "CelestialY", "CelestialZ", "MoonDirection", "MoonColor", "InnerCorona", "OuterCorona", "SkySun", "NightBase",
+                 "NightDelta", "NightShift"):
         node = parameter(material, unreal.MaterialExpressionVectorParameter, name, -900, y, unreal.LinearColor(0, 0, 0, 0))
         inputs.append(name)
         sources.append((node, "RGBA"))   # the alpha: the scale of a corona (the default pin has RGB only)
         y += 150
-    for name in ("StarIntensity", "MoonSize"):
+    for name in ("StarIntensity", "MoonSize", "SourceSky", "SourceUnit"):
         node = parameter(material, unreal.MaterialExpressionScalarParameter, name, -900, y, 0.0)
         inputs.append(name)
         sources.append((node, ""))
@@ -144,16 +172,17 @@ if force or not assets.does_asset_exist(MATERIAL):
     custom.set_editor_property("inputs", custom_inputs)
     for index, (node, pin) in enumerate(sources):
         library.connect_material_expressions(node, pin, custom, inputs[index])
-    # The SkyAtmosphere of Unreal on the sky mesh (the view luminance) and the disk of the sun (light 0).
-    atmosphere = library.create_material_expression(material, unreal.MaterialExpressionSkyAtmosphereViewLuminance, -300, -100)
+    # The disk of the sun (light 0) of the SkyAtmosphere.
     disk = library.create_material_expression(material, unreal.MaterialExpressionSkyAtmosphereLightDiskLuminance, -300, 0)
-    add1 = library.create_material_expression(material, unreal.MaterialExpressionAdd, 0, 0)
-    add2 = library.create_material_expression(material, unreal.MaterialExpressionAdd, 150, 50)
-    library.connect_material_expressions(atmosphere, "", add1, "A")
-    library.connect_material_expressions(disk, "", add1, "B")
-    library.connect_material_expressions(add1, "", add2, "A")
-    library.connect_material_expressions(custom, "", add2, "B")
-    library.connect_material_property(add2, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    add = library.create_material_expression(material, unreal.MaterialExpressionAdd, 150, 50)
+    library.connect_material_expressions(disk, "", add, "A")
+    library.connect_material_expressions(custom, "", add, "B")
+    library.connect_material_property(add, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    # Each pin of the custom node must have its source (a pin that does not connect fails the compile only at run time).
+    pins = library.get_inputs_for_material_expression(material, custom)
+    missing = [inputs[i] for i in range(len(inputs)) if i >= len(pins) or pins[i] is None]
+    if missing:
+        raise RuntimeError(f"M_SwcSky: pins with no source: {missing}")
     library.recompile_material(material)
     assets.save_loaded_asset(material, only_if_is_dirty=False)
     report["material"] = True

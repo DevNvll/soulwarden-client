@@ -233,6 +233,41 @@ void test_blend_fog_and_stars() {
         const double source = 1.0 / (1.2 * std::exp2(env::source_ev(3.14159265358979 * metered / meterScale, 10.0, 17.0, 1.5)));
         check(near(unreal / source, 1.0, 1e-9), "the exposure of the curve at the EV100 " + std::to_string(ev100));
     }
+    // The sky model of the source (the Everfall noon: "Sky light: Sun intensity" (0.0730, 0.1990, 0.5417) x 100, Rayleigh 0.3, Mie
+    // 4.8, g -0.99, 693 / 596 / 450 nm, the sun 50 degrees high in the south) against a numeric reference (256 even steps on the view
+    // ray, 48 to the sun; the analysis script of E5 step 2b): the zenith (0.009039, 0.044013, 0.345127), 10 degrees above the north
+    // horizon (0.036436, 0.174862, 1.238876), and 5 degrees from the sun (0.189981, 0.545149, 1.793409: the Mie glow).
+    {
+        env::SkyModel sky;
+        const double el = 50.0 * 3.14159265358979 / 180.0;
+        sky.sunToward = {0.0, -std::cos(el), std::sin(el)};
+        sky.sunIntensity = {7.30, 19.90, 54.17};
+        sky.rayleigh = 0.3;
+        sky.mie = 4.8;
+        const auto color = [&](const env::Vec3& v) {
+            const env::SkyParts parts = env::source_sky(sky, v);
+            const double len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+            const double cosine = (v.x * sky.sunToward.x + v.y * sky.sunToward.y + v.z * sky.sunToward.z) / len;
+            const std::array<double, 2> phase = env::source_sky_phases(sky.g, cosine);
+            std::array<double, 3> out{};
+            for (int c = 0; c < 3; ++c) {
+                out[c] = parts.mie[c] * phase[0] + parts.rayleigh[c] * phase[1];
+            }
+            return out;
+        };
+        const std::array<double, 3> zenith = color({0.0, 0.0, 1.0});
+        const std::array<double, 3> north = color({0.0, std::cos(10.0 * 3.14159265358979 / 180.0), std::sin(10.0 * 3.14159265358979 / 180.0)});
+        const std::array<double, 3> zenithRef{0.009039, 0.044013, 0.345127}, northRef{0.036436, 0.174862, 1.238876};
+        const std::array<double, 3> nearSun = color({0.0, -std::cos(45.0 * 3.14159265358979 / 180.0), std::sin(45.0 * 3.14159265358979 / 180.0)});
+        const std::array<double, 3> nearSunRef{0.189981, 0.545149, 1.793409};
+        for (int c = 0; c < 3; ++c) {
+            check(near(zenith[c] / zenithRef[c], 1.0, 0.03), "the sky of the source at the zenith, channel " + std::to_string(c) + ": " + std::to_string(zenith[c]));
+            check(near(north[c] / northRef[c], 1.0, 0.05), "the sky of the source 10 degrees above the horizon, channel " + std::to_string(c) + ": " + std::to_string(north[c]));
+            check(near(nearSun[c] / nearSunRef[c], 1.0, 0.05), "the sky of the source near the sun, channel " + std::to_string(c) + ": " + std::to_string(nearSun[c]));
+        }
+        const std::array<double, 3> below = color({0.0, 1.0, -0.2});
+        check(below[2] > 0.0, "below the horizon: the horizon color");
+    }
     // The stars turn with the sun: the sun is at the celestial e_y at each hour, and the celestial pole is fixed in the sky.
     env::Vec3 pole0{};
     for (int step = 0; step < 24; ++step) {

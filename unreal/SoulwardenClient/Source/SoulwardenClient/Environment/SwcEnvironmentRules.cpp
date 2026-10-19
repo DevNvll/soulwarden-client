@@ -332,4 +332,124 @@ double source_exposure_bias(double ev100, double evMin, double evMax, double aut
     return ev100 - std::log2(1.2) - source_ev(illuminance, evMin, evMax, autoCompensation);
 }
 
+namespace {
+constexpr double kEarthRadius = 6368.0;
+constexpr double kAtmosphere = 100.0;
+constexpr double kRayleighHeight = 7.994;
+constexpr double kMieHeight = 1.2;
+constexpr int kShells = 32;
+
+double shell_height(int index) {
+    const double x = static_cast<double>(index) / static_cast<double>(kShells - 1);
+    return kAtmosphere * std::exp(10.0 * (x - 1.0)) * x;
+}
+
+/** @return The distance along a ray from the radius r0 (km, from the earth center) with the cosine mu to the zenith at which the
+ *  ray reaches the radius r (the outward root), or a negative value. */
+double distance_to_radius(double r0, double mu, double r) {
+    const double b = r0 * mu;
+    const double disc = b * b - (r0 * r0 - r * r);
+    return disc < 0.0 ? -1.0 : -b + std::sqrt(disc);
+}
+
+/** @return The optical depth (Rayleigh, Mie; km) from the radius r0 along the cosine mu to the top, or a negative Rayleigh value
+ *  when the ray hits the earth. */
+std::array<double, 2> optical_depth_up(double r0, double mu) {
+    // The ray hits the earth when it goes down and comes nearer than the earth radius.
+    if (mu < 0.0 && r0 * r0 * (1.0 - mu * mu) < kEarthRadius * kEarthRadius) {
+        return {-1.0, 0.0};
+    }
+    const double h0 = r0 - kEarthRadius;
+    double last = 0.0, sumR = 0.0, sumM = 0.0;
+    double lastR = std::exp(-h0 / kRayleighHeight), lastM = std::exp(-h0 / kMieHeight);
+    // The shells above the start height, then the top.
+    for (int i = 0; i < kShells; ++i) {
+        const double h = h0 + (kAtmosphere - h0) * shell_height(i) / kAtmosphere;
+        const double t = distance_to_radius(r0, mu, kEarthRadius + h);
+        if (t <= last) {
+            continue;
+        }
+        // The height at the distance t (a ray that goes down first passes a lower point: the shells keep the step small).
+        const double r = std::sqrt(r0 * r0 + t * t + 2.0 * r0 * t * mu);
+        const double dR = std::exp(-(r - kEarthRadius) / kRayleighHeight), dM = std::exp(-(r - kEarthRadius) / kMieHeight);
+        sumR += (lastR + dR) * 0.5 * (t - last);
+        sumM += (lastM + dM) * 0.5 * (t - last);
+        last = t;
+        lastR = dR;
+        lastM = dM;
+    }
+    return {sumR, sumM};
+}
+} // namespace
+
+std::array<double, 2> source_sky_phases(double g, double cosine) {
+    g = std::clamp(g, -0.9995, 0.9995);
+    const double g2 = g * g;
+    const double miePart = 1.5 * (1.0 - g2) / (2.0 + g2);
+    // The source looks the phase up with -dot(sky direction, sun direction): with g < 0 the glow is about the sun.
+    const double mie = miePart * (1.0 + cosine * cosine) / std::pow(1.0 + g2 + 2.0 * g * cosine, 1.5);
+    return {mie, 0.75 * (1.0 + cosine * cosine)};
+}
+
+SkyParts source_sky(const SkyModel& model, const Vec3& view) {
+    const double kr = 1e-4 * model.rayleigh, km = 1e-4 * model.mie;
+    std::array<double, 3> inv4{};
+    for (int c = 0; c < 3; ++c) {
+        inv4[c] = std::pow(model.waveLengths[c] * 1e-3, -4.0);
+    }
+    const double horizontal = std::sqrt(view.x * view.x + view.y * view.y);
+    const double mu = std::max(view.z, 0.0) / std::max(std::hypot(horizontal, std::max(view.z, 0.0)), 1e-9);
+    const double sunLength = std::sqrt(model.sunToward.x * model.sunToward.x + model.sunToward.y * model.sunToward.y + model.sunToward.z * model.sunToward.z);
+    const Vec3 sun{model.sunToward.x / sunLength, model.sunToward.y / sunLength, model.sunToward.z / sunLength};
+    // The view direction above the horizon (the dome of the source has the upper half only).
+    const double scale = horizontal > 1e-9 ? std::sqrt(1.0 - mu * mu) / horizontal : 0.0;
+    const Vec3 dir{view.x * scale, view.y * scale, mu};
+    const double r0 = kEarthRadius;
+    std::array<double, 3> intM{}, intR{};
+    double last = 0.0, viewR = 0.0, viewM = 0.0;
+    std::array<double, 3> lastSampleM{}, lastSampleR{};
+    for (int i = 0; i < kShells; ++i) {
+        const double t = distance_to_radius(r0, mu, kEarthRadius + shell_height(i));
+        if (t < 0.0) {
+            continue;
+        }
+        const Vec3 p{dir.x * t, dir.y * t, r0 + dir.z * t};
+        const double r = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+        const double h = r - kEarthRadius;
+        const double dR = std::exp(-h / kRayleighHeight), dM = std::exp(-h / kMieHeight);
+        if (i > 0) {
+            // The optical depth of the view from the viewer to this sample (the trapezoid of the densities).
+            const double prevH = shell_height(i - 1);
+            viewR += (std::exp(-prevH / kRayleighHeight) + dR) * 0.5 * (t - last);
+            viewM += (std::exp(-prevH / kMieHeight) + dM) * 0.5 * (t - last);
+        }
+        const double muSun = (p.x * sun.x + p.y * sun.y + p.z * sun.z) / r;
+        const std::array<double, 2> toSun = optical_depth_up(r, muSun);
+        std::array<double, 3> sampleM{}, sampleR{};
+        if (toSun[0] >= 0.0) {
+            for (int c = 0; c < 3; ++c) {
+                const double tau = 4.0 * kPi * kr * inv4[c] * (toSun[0] + viewR) + 4.0 * kPi * km * (toSun[1] + viewM);
+                const double a = std::exp(-tau);
+                sampleM[c] = dM * a;
+                sampleR[c] = dR * a;
+            }
+        }
+        if (i > 0) {
+            for (int c = 0; c < 3; ++c) {
+                intM[c] += (lastSampleM[c] + sampleM[c]) * 0.5 * (t - last);
+                intR[c] += (lastSampleR[c] + sampleR[c]) * 0.5 * (t - last);
+            }
+        }
+        lastSampleM = sampleM;
+        lastSampleR = sampleR;
+        last = t;
+    }
+    SkyParts out;
+    for (int c = 0; c < 3; ++c) {
+        out.mie[c] = intM[c] * model.sunIntensity[c] * km;
+        out.rayleigh[c] = intR[c] * model.sunIntensity[c] * kr * inv4[c];
+    }
+    return out;
+}
+
 } // namespace swc::environment

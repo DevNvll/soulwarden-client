@@ -314,7 +314,23 @@ The client (`Environment/SwcEnvironmentSubsystem.cpp`, `M_SwcGrade` of `Scripts/
   bounce and the occlusion. The probe is a hazy gray sky over a pine forest: the source shade is gray, not blue. The real-time
   capture of the Unreal sky gave a blue shade by day and almost no ambient by night.
 
-### Check of E5 (steps 1 and 2a, 2026-10-19)
+- The sky color is the sky model of the source (step 2b; `swc.SourceSky 0`: the SkyAtmosphere of Unreal): the single scattering
+  of Nishita of the public engine (SkyLightNishita.cpp, SkyLightManager.cpp: an atmosphere of 100 km over an earth of 6,368 km, the
+  Rayleigh density exp(-h / 7.994 km), the Mie density exp(-h / 1.2 km), Kr and Km 1e-4 times "Sky light: Rayleigh scattering"
+  and "Mie scattering", 1 / lambda^4 of "Sky light: Wavelength (R, G, B)", the light "Sky light: Sun intensity" times its
+  multiplier; `env::source_sky`, tested against a numeric reference) on a dome of the upper half of the sky (64 x 32, made on a
+  worker thread when the sun moves by 0.2 degrees or a value changes), and the sky shader of the game copy (skyhdr@skyhdrps): the
+  Mie part times miePart (1 + c^2) / (1 + g^2 + 2 g c)^1.5, the Rayleigh part times 0.75 (1 + c^2), plus the night sky gradient
+  ("Night sky: Horizon color" to "Zenith color" by "Zenith shift"; the zenith shift rule of the public engine is an inference). By
+  night the model has the direction of the moon (as the source). The sun disk stays the disk of the SkyAtmosphere.
+- The clouds stay the volumetric clouds of Unreal (the decision of the user). Their albedo is the ratio of the cloud sun color of the
+  data (TimeOfDay.cpp: lerp(the sun color x "Cloud shading: Sun light multiplier", "Sun custom color" x its multiplier, its
+  influence)) to the color of the main light, in each channel (`swc.CloudTint`).
+- The time-of-day volumes are selected at the feet of the player, not at the camera (the source: set4-weather/keep-walk-to-door.json,
+  the hour of the keep interior starts when the feet pass y 5923.6 with the camera 4.3 m behind, outside the door). Before, the camera
+  of keep-outside-noon was in the interior box and the view showed the night hour 0.0 of that box.
+
+### Check of E5 (steps 1, 2a, and 2b, 2026-10-19)
 
 The color report of the matched views, band "all" (dE / L* / spread / saturation / dark part), before (the old grade: the curve
 after the balance, the Unreal luminance meter) and after:
@@ -333,6 +349,19 @@ after the balance, the Unreal luminance meter) and after:
 The Unreal luminance meter in the same run (noon-n): 23.5 / +22.2. The real-time capture in the same run: noon-n 10.1, night-n 9.1
 (L* -13.3).
 
+Step 2b (the sky model of the source, the cloud tint, the volumes at the feet), band "all" (step 2a / step 2b):
+
+| View | Step 2a | Step 2b |
+| --- | --- | --- |
+| oxboro-road-sky-noon | 6.2 / +4.5 / +1.9 / -0.075 / -0.022 (the top band 13.6) | 3.2 / +2.4 / -4.2 / -0.033 / -0.026 (the top band 5.3) |
+| oxboro-sky-night | 7.8 / -10.5 / -8.5 / +0.040 / +0.009 (the top band -19 L*) | 2.3 / -2.4 / -3.0 / -0.029 / -0.034 |
+| noon-road-low | 1.9 / -1.1 / -1.2 / -0.047 / -0.020 | 1.7 / -1.2 / -2.7 / -0.017 / -0.020 |
+| keep-outside-noon | 11.4 / +12.2 / +5.9 / +0.212 (the night hour of the interior box) | 10.5 / +13.9 / +7.4 / +0.018 (the noon hour) |
+| fen-outside-south-noon | 3.9 / +4.7 / -1.2 / -0.052 | 7.0 / +3.5 / -3.8 / +0.043 (a clear blue sky: the fen fog is step 3) |
+| noon-n, night-n | 9.1, 4.6 | 9.0, 4.5 |
+
+In the same runs: the SkyAtmosphere of Unreal gave oxboro-road-sky-noon 6.0, the white clouds (`swc.CloudTint 0`) 4.0.
+
 ### Not done, open points (E5)
 
 - The bloom weight of the source (`HDRBloomColor`: the final scene mixes the scene toward the bloom texture by
@@ -341,7 +370,10 @@ The Unreal luminance meter in the same run (noon-n): 23.5 / +22.2. The real-time
 - The day walls are brighter than retail (noon-n top band +17 L*, inn-noon +10) and the day saturation is low (-0.05 to -0.16):
   the sun, the sky, and the interior probes (step 2). The interior probes of the source (for example `settlement_tavern`) are
   not in the client: Lumen and the world probe light the interiors.
-- The sky color of each place and the fen fog and rain: steps 2 and 3.
+- The clear sky of the source model is a deeper blue than the lilac retail sky: the retail sky is mostly the thin cloud layers of
+  the sky slice (Distanceclouds: the cloud sun color and the sky color x SkyColorMultiplier 8 over their masks), and the volumetric
+  clouds of Unreal do not cover the sky in the same way.
+- The fen fog and the rain: step 3.
 
 ## The matched views
 
@@ -398,6 +430,7 @@ client selects its own volumes (stage E3).
 | `swc.LumenTest 0\|1` | The Lumen test copies of the inn and the two houses (`-SwcLumenTest` at the start; `tools/lumen-test.sh` makes them). |
 | `tools/match-view.sh ... --variant VIEW@NAME=COMMAND;...` | One more picture of a view with client console commands (run when the view is in place): a look value or a switch to compare in one run. The next view sets the console variables of the commands back to their values before the first variant (from 2026-10-19). The report and the side-by-side picture have the local lights at the shot and the median GPU time while the view is in place (with `-SwcFrameStats=2`). |
 | `swc.Grade 0\|1`, `swc.GradeDebug 0\|1\|2`, `swc.GradeBloom F`, `swc.GradeBias EV`, `swc.SourceMeter 0\|1` | The color grade of the source or the Unreal tone mapper; a check of the exposed value or of the exposure; the part of the Unreal bloom; an offset of the exposure (a look check); the meter of the source or the Unreal luminance meter (stage E5). |
+| `swc.SourceSky 0\|1`, `swc.CloudTint F` | The sky color of the source model or the SkyAtmosphere of Unreal; the cloud tint of the data (stage E5). |
 | `swc.SkyLightSource 0\|1`, `swc.ProbeScale F` | The ambient: the world probe of the data (1) or the real-time capture of the Unreal sky (0); a look scale of the probe light (stage E5). |
 | `swc.Fog`, `swc.FogColorMode`, `swc.FogLayers`, `swc.FogDensityScale`, `swc.FogDensityScale2`, `swc.VolumetricFog`, `swc.LocalFogScale` | The fog of stage E3 (the help text of each variable has its values). |
 | `swc.Clouds`, `swc.CloudCover`, `swc.CloudBias`, `swc.StarScale`, `swc.MoonScale`, `swc.MoonSize`, `swc.SkyWavelengths`, `swc.SkyRayleigh`, `swc.NightSkyTint` | The clouds, the stars, the moon, and the sky color of stage E3. |

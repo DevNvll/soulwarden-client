@@ -141,8 +141,8 @@ private:
 		double Hour = 0.0;
 		double Weight = 1.0;
 	};
-	/** Updates the weights of the volumes at the camera (engine m) and the layers. */
-	void UpdateBlend(const swc::environment::Vec3& Camera, double WorldHour, double DeltaSeconds);
+	/** Updates the weights of the volumes at a place (engine m: the feet of the player) and the layers. */
+	void UpdateBlend(const swc::environment::Vec3& Place, double WorldHour, double DeltaSeconds);
 	/** @return A variable of the blend at the hour of each layer, or at a fixed hour (>= 0). */
 	double Blended(const TCHAR* Name, double Default, double FixedHour = -1.0) const;
 	std::array<double, 3> BlendedColor(const TCHAR* Name, double FixedHour = -1.0) const;
@@ -167,6 +167,16 @@ private:
 	TWeakObjectPtr<UStaticMeshComponent> SkySphere;
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> SkyMaterial;
+	/** The sky of the source (stage E5 step 2b): the dome of the upper half of the sky (64 azimuths x 32 zenith angles), the Mie and
+	 *  the Rayleigh part (env::source_sky), made on a worker thread when the sun or the values change. */
+	UPROPERTY(Transient)
+	TObjectPtr<class UTexture2D> SourceMie;
+	UPROPERTY(Transient)
+	TObjectPtr<class UTexture2D> SourceRayleigh;
+	/** The values of the last dome (the sun direction, the intensity, Kr, Km, g, the wavelengths) and the dome work in progress. */
+	TArray<double> SourceSkyKey;
+	TSharedPtr<struct FSwcSourceSkyJob, ESPMode::ThreadSafe> SourceSkyJob;
+	void UpdateSourceSky(double Hour, double MoonWeight);
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> CloudMaterial;
 	TWeakObjectPtr<UPostProcessComponent> PrecipitationPost;

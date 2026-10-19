@@ -168,4 +168,39 @@ double source_ev(double illuminance, double evMin, double evMax, double autoComp
  */
 double source_exposure_bias(double ev100, double evMin, double evMax, double autoCompensation, double meterScale);
 
+/**
+ * The sky model of the source (stage E5 step 2b; the public engine: SkyLightNishita.cpp, SkyLightManager.cpp, and the sky shader
+ * of the game copy, skyhdr@skyhdrps): the single scattering of Nishita in an atmosphere of 100 km over an earth of 6368 km, the
+ * Rayleigh density exp(-h / 7.994 km) and the Mie density exp(-h / 1.2 km).
+ */
+struct SkyModel {
+    /** Toward the sun (engine axes, z up, unit). */
+    Vec3 sunToward;
+    /** "Sky light: Sun intensity" times "Sky light: Sun intensity multiplier". */
+    std::array<double, 3> sunIntensity{};
+    /** The data values ("Sky light: Rayleigh scattering", "Mie scattering"); the model uses 1e-4 times them. */
+    double rayleigh = 1.0;
+    double mie = 4.8;
+    /** "Sky light: Sun anisotropy factor" (clamped to +-0.9995). */
+    double g = -0.99;
+    /** "Sky light: Wavelength (R, G, B)" (nm). */
+    std::array<double, 3> waveLengths{693.0, 596.0, 450.0};
+};
+
+/** The two parts of the sky color in a direction (the units of the source: 10,000 cd/m2), each times its in-scattering constant
+ *  and with no phase: the sky color is mie x mie_phase + rayleigh x rayleigh_phase. */
+struct SkyParts {
+    std::array<double, 3> mie{};
+    std::array<double, 3> rayleigh{};
+};
+
+/** @return The two parts of the sky color for a view direction (engine, unit; z up) from the ground: the integral over 32 height
+ *  shells along the view ray (the shell heights of the source: 100 km x exp(10 (x - 1)) x x), the light of the sun through the
+ *  optical depth toward the sun (none where the earth is in the way). Below the horizon: the horizon direction. */
+SkyParts source_sky(const SkyModel& model, const Vec3& view);
+
+/** @return The Mie phase of the source (the phase constants of GetPhaseFunctionConsts: miePart (1 + c^2) / (1 + g^2 + 2 g c)^1.5)
+ *  and the Rayleigh phase 0.75 (1 + c^2) for the cosine c between the view and the direction toward the sun. */
+std::array<double, 2> source_sky_phases(double g, double cosine);
+
 } // namespace swc::environment

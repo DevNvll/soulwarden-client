@@ -1,6 +1,7 @@
 // The regional sky and fog of the environment (stage E3, docs/ENVIRONMENT.md): the blend of the time-of-day presets, the height fog
 // and the volumetric fog, the clouds, and the sky sphere with the stars and the moon. A part of USwcEnvironmentSubsystem.
 
+#include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/LocalFogVolumeComponent.h"
 #include "Components/PostProcessComponent.h"
@@ -10,6 +11,8 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Async/Async.h"
+#include "Engine/Texture2D.h"
 #include "Engine/TextureCube.h"
 #include "Environment/SwcEnvironmentSubsystem.h"
 #include "Environment/SwcWorldTimeSubsystem.h"
@@ -62,6 +65,10 @@ TAutoConsoleVariable<int32> CVarSkyWavelengths(TEXT("swc.SkyWavelengths"), 1,
 	TEXT("The Rayleigh scattering color of the sky from the wavelengths of the data (\"Sky light: Wavelength (R, G, B)\"): 1 on, 0 the Unreal default."));
 TAutoConsoleVariable<float> CVarSkyRayleigh(TEXT("swc.SkyRayleigh"), 0.0f,
 	TEXT("A part of \"Sky light: Rayleigh scattering\" of the data in the Rayleigh scale of the sky (0: the Unreal scale; 1: the scale times the value)."));
+TAutoConsoleVariable<float> CVarCloudTint(TEXT("swc.CloudTint"), 1.0f,
+	TEXT("The albedo of the clouds from the cloud sun color of the data over the main light (stage E5): 1 the data, 0 white."));
+TAutoConsoleVariable<int32> CVarSourceSky(TEXT("swc.SourceSky"), 1,
+	TEXT("The sky color (stage E5): 1 the sky model of the source (the Nishita sky of the data and the night sky gradient), 0 the SkyAtmosphere of Unreal."));
 TAutoConsoleVariable<int32> CVarSkyLightSource(TEXT("swc.SkyLightSource"), 1,
 	TEXT("The sky light (the ambient): 1 the world probe of the data with the time-of-day probe multipliers (stage E5), 0 the real-time capture of the Unreal sky."));
 TAutoConsoleVariable<float> CVarProbeScale(TEXT("swc.ProbeScale"), 1.0f, TEXT("A look scale of the world probe light (1: the units of the source)."));
@@ -115,13 +122,14 @@ FVector UnrealDirection(const env::Vec3& V)
 
 }
 
-void USwcEnvironmentSubsystem::UpdateBlend(const env::Vec3& Camera, double WorldHour, double DeltaSeconds)
+void USwcEnvironmentSubsystem::UpdateBlend(const env::Vec3& Place, double WorldHour, double DeltaSeconds)
 {
-	// The weights of the volumes: the target from the depth of the camera in the shape (the blend distance), moved in the blend time.
+	// The weights of the volumes: the target from the depth of the place (the feet of the player) in the shape (the blend distance),
+	// moved in the blend time.
 	for (size_t I = 0; I < Data->Volumes.size(); ++I)
 	{
 		const env::Volume& Volume = Data->Volumes[I];
-		const double Target = env::volume_weight(Volume, Camera);
+		const double Target = env::volume_weight(Volume, Place);
 		double* Weight = Weights.Find(static_cast<int32>(I));
 		if (Weight == nullptr && Target <= 0.0)
 		{
@@ -472,15 +480,29 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 			const double Unreal = FMath::Clamp(DefaultCloudCover + (Cover - ReferenceCover) * CVarCloudCover.GetValueOnGameThread()
 				+ CVarCloudBias.GetValueOnGameThread(), -1.0, 1.0);
 			CloudMaterial->SetScalarParameterValue(TEXT("Cloud_GlobalCoverage"), static_cast<float>(Unreal));
-			const std::array<double, 3> Custom = BlendedColor(TEXT("Cloud shading: Sun custom color"));
-			const double Largest = FMath::Max3(Custom[0], Custom[1], Custom[2]);
-			const double Influence = FMath::Clamp(Blended(TEXT("Cloud shading: Sun custom color influence"), 0.0), 0.0, 1.0) * 0.5;
-			const FLinearColor Tint = Largest > 1e-6 ? Linear(Custom, 1.0 / Largest) : FLinearColor::White;
-			// By night the data darkens the clouds ("Cloud shading: Sun custom color multiplier": 1.2 at the Everfall noon, 0.05 at
-			// midnight): the albedo of the clouds falls with it (at least 0.15), so that the moonlit clouds do not cover the night sky.
-			const double Noon = FMath::Max(Blended(TEXT("Cloud shading: Sun custom color multiplier"), 1.0, 12.0), 1e-3);
-			const double Dark = FMath::Clamp(Blended(TEXT("Cloud shading: Sun custom color multiplier"), 1.0) / Noon, 0.15, 1.0);
-			CloudMaterial->SetVectorParameterValue(TEXT("Cloud_AlbedoColor"), FMath::Lerp(FLinearColor::White, Tint, static_cast<float>(Influence)) * static_cast<float>(Dark));
+			// The color of the clouds (stage E5): the source lights its cloud layers with the cloud sun color (TimeOfDay.cpp:
+			// lerp(the sun color x "Cloud shading: Sun light multiplier", "Sun custom color" x its multiplier, its influence), in the
+			// units of the source); the Unreal clouds are lit by the main light. The albedo of the clouds is the ratio of the two
+			// colors in each channel (swc.CloudTint 1; 0: white): the pink-lilac clouds of the Everfall noon, dark clouds by night.
+			const UDirectionalLightComponent* Main = MoonWeight >= 0.5 ? Moon.Get() : Sun.Get();
+			FLinearColor Albedo = FLinearColor::White;
+			if (Main != nullptr && Main->Intensity > 0.0f)
+			{
+				const FLinearColor Light = Main->GetLightColor() * (Main->Intensity / static_cast<float>(SourceUnitLuminance * PI));
+				const std::array<double, 3> Custom = Times(BlendedColor(TEXT("Cloud shading: Sun custom color")),
+					Blended(TEXT("Cloud shading: Sun custom color multiplier"), 1.0));
+				const double Influence = FMath::Clamp(Blended(TEXT("Cloud shading: Sun custom color influence"), 0.0), 0.0, 1.0);
+				const double SunPart = Blended(TEXT("Cloud shading: Sun light multiplier"), 1.0);
+				const float Channels[3] = {Light.R, Light.G, Light.B};
+				float Ratio[3];
+				for (int32 C = 0; C < 3; ++C)
+				{
+					const double CloudSun = FMath::Lerp(SunPart * Channels[C], Custom[C], Influence);
+					Ratio[C] = static_cast<float>(FMath::Clamp(CloudSun / FMath::Max(static_cast<double>(Channels[C]), 1e-6), 0.0, 1.5));
+				}
+				Albedo = FMath::Lerp(FLinearColor::White, FLinearColor(Ratio[0], Ratio[1], Ratio[2]), CVarCloudTint.GetValueOnGameThread());
+			}
+			CloudMaterial->SetVectorParameterValue(TEXT("Cloud_AlbedoColor"), Albedo);
 		}
 	}
 	// The sky sphere: the stars turn with the sun; the moon disc and its coronas of the data.
@@ -489,6 +511,7 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 		Mesh->SetWorldLocation(CameraLocation);
 		if (SkyMaterial != nullptr)
 		{
+			UpdateSourceSky(Hour, MoonWeight);
 			const env::Rotation R = env::celestial_from_engine(Hour, Data->SunRotation, Data->Longitude);
 			// The rows of the rotation from the Unreal world (x, -y, z of the engine) to the celestial frame.
 			auto Row = [&R](int Index)
@@ -567,4 +590,114 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 	}
 	SkyText = FString::Printf(TEXT("sky %s, cloud cover %.3f; stars %.2f; rain %.2f, snow %.2f%s"), *SkyName, Cover,
 		Blended(TEXT("Night sky: Star intensity"), 0.0), Rain, Snow, Weather.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" (%s)"), *Weather.TrimStart()));
+}
+
+/** A dome of the source sky on a worker thread: the Mie texels, then the Rayleigh texels, and the done mark. */
+struct FSwcSourceSkyJob
+{
+	TArray<FLinearColor> Texels;
+	TAtomic<bool> bDone{false};
+};
+
+namespace {
+constexpr int32 SourceSkyWidth = 64;
+constexpr int32 SourceSkyHeight = 32;
+
+UTexture2D* MakeSkyDome()
+{
+	UTexture2D* Texture = UTexture2D::CreateTransient(SourceSkyWidth, SourceSkyHeight, PF_A32B32G32R32F);
+	Texture->SRGB = false;
+	Texture->Filter = TF_Bilinear;
+	Texture->AddressX = TA_Wrap;
+	Texture->AddressY = TA_Clamp;
+	Texture->UpdateResource();
+	return Texture;
+}
+
+void FillSkyDome(UTexture2D* Texture, const FLinearColor* Texels)
+{
+	FTexture2DMipMap& Mip = Texture->GetPlatformData()->Mips[0];
+	void* Data = Mip.BulkData.Lock(LOCK_READ_WRITE);
+	FMemory::Memcpy(Data, Texels, sizeof(FLinearColor) * SourceSkyWidth * SourceSkyHeight);
+	Mip.BulkData.Unlock();
+	Texture->UpdateResource();
+}
+} // namespace
+
+void USwcEnvironmentSubsystem::UpdateSourceSky(double Hour, double MoonWeight)
+{
+	// The light of the sky model: the sun by day; by night the moon (the source puts the moon direction into the sky model at night).
+	const env::Vec3 Toward = MoonWeight >= 0.5 ? env::moon_toward(Data->MoonLatitude, Data->MoonLongitude) : env::sun_toward(Hour, Data->SunRotation, Data->Longitude);
+	const std::array<double, 3> Intensity = Times(BlendedColor(TEXT("Sky light: Sun intensity")), Blended(TEXT("Sky light: Sun intensity multiplier"), 100.0));
+	env::SkyModel Model;
+	Model.sunToward = Toward;
+	Model.sunIntensity = Intensity;
+	Model.rayleigh = Blended(TEXT("Sky light: Rayleigh scattering"), 1.0);
+	Model.mie = Blended(TEXT("Sky light: Mie scattering"), 4.8);
+	Model.g = Blended(TEXT("Sky light: Sun anisotropy factor"), -0.99);
+	Model.waveLengths = {Blended(TEXT("Sky light: Wavelength (R)"), 693.0), Blended(TEXT("Sky light: Wavelength (G)"), 596.0),
+		Blended(TEXT("Sky light: Wavelength (B)"), 450.0)};
+	if (SourceMie == nullptr)
+	{
+		SourceMie = MakeSkyDome();
+		SourceRayleigh = MakeSkyDome();
+	}
+	// A finished dome goes into the textures.
+	if (SourceSkyJob.IsValid() && SourceSkyJob->bDone.Load())
+	{
+		FillSkyDome(SourceMie, SourceSkyJob->Texels.GetData());
+		FillSkyDome(SourceRayleigh, SourceSkyJob->Texels.GetData() + SourceSkyWidth * SourceSkyHeight);
+		SourceSkyJob.Reset();
+	}
+	// A new dome when the sun moves by 0.2 degrees or a value changes by 0.5 %.
+	const TArray<double> Key{Toward.x, Toward.y, Toward.z, Intensity[0], Intensity[1], Intensity[2], Model.rayleigh, Model.mie, Model.g,
+		Model.waveLengths[0], Model.waveLengths[1], Model.waveLengths[2]};
+	bool bChanged = SourceSkyKey.Num() != Key.Num();
+	for (int32 I = 0; !bChanged && I < Key.Num(); ++I)
+	{
+		const double Tolerance = I < 3 ? 0.0035 : 0.005 * FMath::Max(1e-3, FMath::Abs(SourceSkyKey[I]));
+		bChanged = FMath::Abs(Key[I] - SourceSkyKey[I]) > Tolerance;
+	}
+	if (bChanged && !SourceSkyJob.IsValid())
+	{
+		SourceSkyKey = Key;
+		TSharedPtr<FSwcSourceSkyJob, ESPMode::ThreadSafe> Job = MakeShared<FSwcSourceSkyJob, ESPMode::ThreadSafe>();
+		SourceSkyJob = Job;
+		Async(EAsyncExecution::ThreadPool, [Model, Job]()
+		{
+			TArray<FLinearColor>& Texels = Job->Texels;
+			Texels.SetNumZeroed(SourceSkyWidth * SourceSkyHeight * 2);
+			for (int32 Y = 0; Y < SourceSkyHeight; ++Y)
+			{
+				// The rows: the zenith angle 0 to 90 degrees (the dome of the source); the columns: the azimuth from north to east.
+				const double Theta = (Y + 0.5) / SourceSkyHeight * 0.5 * PI;
+				for (int32 X = 0; X < SourceSkyWidth; ++X)
+				{
+					const double Phi = (X + 0.5) / SourceSkyWidth * 2.0 * PI;
+					const env::Vec3 View{FMath::Sin(Theta) * FMath::Sin(Phi), FMath::Sin(Theta) * FMath::Cos(Phi), FMath::Cos(Theta)};
+					const env::SkyParts Parts = env::source_sky(Model, View);
+					Texels[Y * SourceSkyWidth + X] = FLinearColor(static_cast<float>(Parts.mie[0]), static_cast<float>(Parts.mie[1]), static_cast<float>(Parts.mie[2]), 1.0f);
+					Texels[SourceSkyWidth * SourceSkyHeight + Y * SourceSkyWidth + X] = FLinearColor(static_cast<float>(Parts.rayleigh[0]),
+						static_cast<float>(Parts.rayleigh[1]), static_cast<float>(Parts.rayleigh[2]), 1.0f);
+				}
+			}
+			Job->bDone = true;
+		});
+	}
+	// The material: the dome, the phases (toward the sun or the moon of the model), and the night sky gradient of the source
+	// (SkyDome_NightSkyColBase = the horizon color, SkyDome_NightSkyColDelta = the zenith color - the horizon color, and the
+	// zenith shift of the public engine: 1 / (shift + 0.1) and 0.1 / (shift + 0.1); an inference from the public CREHDRSky code).
+	const FVector SkySun = UnrealDirection(Toward);
+	SkyMaterial->SetScalarParameterValue(TEXT("SourceSky"), CVarSourceSky.GetValueOnGameThread() != 0 ? 1.0f : 0.0f);
+	SkyMaterial->SetTextureParameterValue(TEXT("SourceMie"), SourceMie);
+	SkyMaterial->SetTextureParameterValue(TEXT("SourceRayleigh"), SourceRayleigh);
+	SkyMaterial->SetVectorParameterValue(TEXT("SkySun"), FLinearColor(SkySun.X, SkySun.Y, SkySun.Z, static_cast<float>(FMath::Clamp(Model.g, -0.9995, 0.9995))));
+	const std::array<double, 3> Horizon = Times(BlendedColor(TEXT("Night sky: Horizon color")), Blended(TEXT("Night sky: Horizon color multiplier"), 0.0));
+	const std::array<double, 3> Zenith = Times(BlendedColor(TEXT("Night sky: Zenith color")), Blended(TEXT("Night sky: Zenith color multiplier"), 0.0));
+	const double Shift = Blended(TEXT("Night sky: Zenith shift"), 0.5);
+	SkyMaterial->SetVectorParameterValue(TEXT("NightBase"), Linear(Horizon));
+	SkyMaterial->SetVectorParameterValue(TEXT("NightDelta"), FLinearColor(static_cast<float>(Zenith[0] - Horizon[0]), static_cast<float>(Zenith[1] - Horizon[1]),
+		static_cast<float>(Zenith[2] - Horizon[2]), 0.0f));
+	SkyMaterial->SetVectorParameterValue(TEXT("NightShift"), FLinearColor(static_cast<float>(1.0 / (Shift + 0.1)), static_cast<float>(0.1 / (Shift + 0.1)), 0.0f, 0.0f));
+	SkyMaterial->SetScalarParameterValue(TEXT("SourceUnit"), static_cast<float>(SourceUnitLuminance));
 }

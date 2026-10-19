@@ -15,6 +15,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Environment/SwcWorldTimeSubsystem.h"
+#include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformTime.h"
@@ -585,10 +586,18 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 		}
 		TurnOffLevelEnvironment();
 	}
-	// The blend at the camera (stage E3): the base preset of the mission, then the time-of-day volumes by priority and weight.
+	// The blend at the feet of the player (stage E3): the base preset of the mission, then the time-of-day volumes by priority and
+	// weight. The source selects the volumes by the place of the player, not of the camera (set4-weather/keep-walk-to-door.json: the
+	// hour of the keep interior starts when the feet pass y 5923.6, with the camera 4.3 m behind, outside the door). With no pawn: the
+	// camera.
 	const FVector CameraLocation = Controller->PlayerCameraManager->GetCameraLocation();
-	const swc::net::WorldPosition Camera = SwcUnrealToEngine(CameraLocation);
-	UpdateBlend(env::Vec3{Camera.x, Camera.y, Camera.z}, Clock->GetHour(), DeltaTime);
+	FVector Selector = CameraLocation;
+	if (const APawn* Pawn = Controller->GetPawn())
+	{
+		Selector = Pawn->GetActorLocation() - FVector(0.0, 0.0, Pawn->GetSimpleCollisionHalfHeight());
+	}
+	const swc::net::WorldPosition Feet = SwcUnrealToEngine(Selector);
+	UpdateBlend(env::Vec3{Feet.x, Feet.y, Feet.z}, Clock->GetHour(), DeltaTime);
 	if (Layers.IsEmpty() || Layers[0].Preset == nullptr)
 	{
 		return;
