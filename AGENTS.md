@@ -194,7 +194,7 @@ tools/convert-persons.sh convert                # the bodies, items, and clips o
 tools/convert-materials.sh audit                # the rich material records, the slot provenance, and the key collisions (docs/MATERIALS.md)
 tools/convert-materials.sh instances           # the specs of the material instances (then tools/apply-materials.sh: the lock, bounded calls)
 tools/material-proof.sh STAGE --wait 7200       # the render check of a materials stage (offscreen; tools/convert-materials.sh proof-plan STAGE first)
-tools/convert-materials.sh decals export NAME   # the roads and decals of regions (then tools/import-surface-layer.sh NAME; the client: -SwcSurfaceLayer)
+tools/convert-materials.sh decals export NAME   # the roads and decals of regions (then tools/import-surface-layer.sh NAME; the client shows it by default, -SwcNoSurfaceLayer turns it off)
 ```
 
 The runs and the connection: [docs/NETWORK.md](docs/NETWORK.md).
