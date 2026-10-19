@@ -1,6 +1,7 @@
 #include "Character/SwcMoveRules.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 
 namespace swc::move {
@@ -183,6 +184,43 @@ bool holds(const Data& data, std::string_view name, const Facts& facts)
 bool holds(const Data& data, const Condition& condition, const Facts& facts)
 {
 	return evaluate(data, condition, facts, 0);
+}
+
+Planar camera_relative_target(Planar direction, Planar speed, float backwards)
+{
+	const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
+	if (length <= 0.0F) {
+		return {};
+	}
+	const Planar unit{direction.x / length, direction.y / length};
+	const float side = unit.x * speed.x;
+	const float ahead = unit.y * speed.y;
+	const float size = std::sqrt(side * side + ahead * ahead);
+	Planar target{unit.x * size, unit.y * size};
+	if (target.y < 0.0F) {
+		const float factor = 1.0F - std::abs(unit.y) * (1.0F - backwards);
+		target.x *= factor;
+		target.y *= factor;
+	}
+	return target;
+}
+
+Planar camera_relative_step(Planar current, Planar target, Planar accel, Planar decel, float seconds)
+{
+	const Planar difference{target.x - current.x, target.y - current.y};
+	const float distance = std::sqrt(difference.x * difference.x + difference.y * difference.y);
+	if (distance <= 0.0F) {
+		return target;
+	}
+	const Planar rate{std::abs(current.x) > std::abs(target.x) ? decel.x : accel.x, std::abs(current.y) > std::abs(target.y) ? decel.y : accel.y};
+	const Planar unit{difference.x / distance, difference.y / distance};
+	const float stepX = rate.x * unit.x;
+	const float stepY = rate.y * unit.y;
+	const float step = std::sqrt(stepX * stepX + stepY * stepY) * seconds;
+	if (step >= distance) {
+		return target;
+	}
+	return {current.x + unit.x * step, current.y + unit.y * step};
 }
 
 const Motion* motion_of(const Data& data, std::string_view action, const Facts& facts)

@@ -60,9 +60,27 @@ game copy --tools/convert-player.sh locomotion--> content/player/locomotion.json
 | Gravity | 9.8 m/s² (the engine default 980 cm/s²) | R2.4.2 |
 | Permissions | dataBits 0x40 can sprint, 0x80 can run; moreDataBits 0x01 can navigate, 0x02 can dodge (a jump needs both of the last two) | protocol notes 4.6 |
 
-The velocity on the ground is the velocity of the data: each axis of the camera frame goes linearly to its target with
-the rate of the state (no friction). A block (a wall, the face of a step) does not reset it: the next move of the
-engine has its full length, which the step-up of the engine needs. The state rules use this speed.
+The velocity on the ground is the velocity of the data, with the rules of CameraRelativeMotion of the client code
+(0x2AA3830; research `~/Games/soulwarden-client/research/nav-speed`; `swc::move::camera_relative_target` and
+`camera_relative_step`, tested by `tools/test-movement.sh`):
+
+- The target is |dir × V| × dir: dir is the unit move input in the yaw frame of the camera, V the speed of the entry on
+  each axis (side, forward). The target has the input direction, also when the two axes have different speeds.
+- A backward target is multiplied as a whole by 1 − |dir.y| × (1 − BackwardsMultiplier): the sprint S gives 0.55 × the
+  speed, the sprint S+D 0.68 × the speed, on both axes.
+- One step each frame along the difference (target − current), with the length |rate × unit difference| × dt, to the
+  target and not past it. The rate of an axis is the deceleration when |current| > |target| on that axis, else the
+  acceleration (no friction).
+- The multiplier of the speed table scales the speed, the acceleration, and the deceleration of the entry.
+
+A block (a wall, the face of a step) does not reset the velocity: the next move of the engine has its full length,
+which the step-up of the engine needs. The state rules use this speed.
+
+The open point (2026-10-18): the retail client runs faster than its data in three cases (`wade-speed.json` of
+set3-swim): the run S 3.99 m/s (data 3.25), the walk 1.99 m/s (data 1.65), and the wade 2.747 m/s (data: the Sprint
+Wade 2.5, the Nav Wade 1.65). No rule of the data or of the motion code that the research read gives these values. A
+retail read of the requested velocity and its activity (`set3-swim/nav-velocity.json`) decides it. Until then the
+client keeps the values of the data.
 
 ## The armed rates and the aim (stage P2.6)
 
@@ -300,7 +318,7 @@ sprint (5.5 m/s; crouch 2.5, prone 1.25).
 | The encumbered movement | the bag weight above 1.5 × the limit (300.0) | the condition IfEncumbered of the motion lists: the walk, no sprint, no dodge, no jump; no attack from rest |
 | Overburdened | the equip load above 100 % of 50.0 | no sprint, no dodge, no jump; the run at 3.25 m/s |
 | A status | the movement columns of each status of the status map (slot 44) | NoNav, NoRun, NoSprint, NoDodge (also no jump), Stunned (the fragments r_Stun, r_Stun_Loop, r_Stun_End; no movement, no ability, no attack) |
-| The speed table | key 0x35 of the speed table (slot 43), clamped to 0 to 1.5 | × the speed and the acceleration of Nav and Sprint (not the deceleration); the dodge × min(table, 1); a Slow category: the jump × 0.85 |
+| The speed table | key 0x35 of the speed table (slot 43), clamped to 0 to 1.5 | × the speed, the acceleration, and the deceleration of Nav and Sprint (CameraRelativeMotion 0x2AA3830); the dodge × min(table, 1); a Slow category: the jump × 0.85 |
 | The server bits | dataBits and moreDataBits of the movement state | can sprint, can run, can navigate, can dodge |
 
 - The bag limit of 1.5 × is an inference from the live checks: the sprint at 200.2, the walk at 300.2.

@@ -113,6 +113,26 @@ struct Facts {
 /** @return The entry of the motion list of an action for the facts: the first Conditional whose condition holds, else the
  *  Default. Null for an action that the data does not have. */
 [[nodiscard]] const Motion* motion_of(const Data& data, std::string_view action, const Facts& facts);
+/** A ground velocity in the yaw frame of the camera (m/s): x side (right), y forward. */
+struct Planar {
+	float x{0.0F};
+	float y{0.0F};
+};
+
+/**
+ * The target velocity of CameraRelativeMotion (the client code 0x2AA3830; research nav-speed): `direction` is the move input in the
+ * yaw frame of the camera (x right, y forward; any length, zero for no input) and `speed` the speed of the entry on each axis with
+ * the multipliers. The target is |dir x speed| x dir, with dir the unit input: its direction is the input direction, also when the
+ * axes have different speeds. A backward target (y < 0) is multiplied as a whole by 1 - |dir.y| x (1 - backwards).
+ * No input: a zero target (the client leaves Nav when the input ends).
+ */
+[[nodiscard]] Planar camera_relative_target(Planar direction, Planar speed, float backwards);
+/**
+ * One step of the velocity to the target (the same code): on each axis the rate is the deceleration when |current| > |target| on
+ * that axis, else the acceleration; the step goes along the difference (target - current) with the length |rate x unit difference|
+ * x seconds, and stops at the target. The multiplier of the speed table scales the acceleration and the deceleration (with the speed).
+ */
+[[nodiscard]] Planar camera_relative_step(Planar current, Planar target, Planar accel, Planar decel, float seconds);
 /** @return The TurnRate of the facing list of an action for the facts (0: no facing data). */
 [[nodiscard]] float facing_of(const Data& data, std::string_view action, const Facts& facts);
 
@@ -208,7 +228,7 @@ struct Limits {
 	[[nodiscard]] bool can_jump() const;
 	[[nodiscard]] bool can_attack_from_rest() const { return !encumbered_movement() && !stunned(); }
 	[[nodiscard]] bool can_use_abilities() const { return !encumbered() && !stunned() && !status(&StatusRow::silenced); }
-	/** @return The multiplier of the speed and the acceleration of Nav and Sprint (the speed table key 0x35, in the limits of
+	/** @return The multiplier of the speed, the acceleration, and the deceleration of Nav and Sprint (the speed table key 0x35, in the limits of
 	 *  StatMultiplierData: 0 to 1.5). The live walks of the backend (stage 3.3b-S2a) found that the key 0x35 changes the run and
 	 *  the sprint of the client, and the key 0x34 changes nothing: the client follows that (the data has MoveSpeedMod for Nav). */
 	[[nodiscard]] float speed_multiplier() const;

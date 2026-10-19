@@ -236,6 +236,59 @@ void speed_tests(const move::Data& data)
 		"the tag state Crouch");
 }
 
+/**
+ * CameraRelativeMotion of the client code (0x2AA3830; research nav-speed): the target |dir x speed| x dir, the backward factor
+ * 1 - |dir.y| x (1 - BackwardsMultiplier) on the whole target, and the step along the difference with the deceleration on an axis
+ * whose current speed is above its target. The multiplier of the speed table scales the deceleration too (SwcCharacterMovement).
+ */
+void motion_rule_tests(const move::Data& data)
+{
+	using move::Planar;
+	using move::Posture;
+	const auto length = [](Planar v) { return std::sqrt(v.x * v.x + v.y * v.y); };
+	// The run (Nav ServerValidatedCanRun, 3.25 on both axes): forward, side, and diagonal have the full speed.
+	const move::Motion& run = *move::motion_of(data, "Nav", facts_of(Posture::stand));
+	const Planar runSpeed{run.speed[0], run.speed[1]};
+	check(near(length(move::camera_relative_target({0.0F, 1.0F}, runSpeed, run.backwards)), 3.25F), "the run W: 3.25 m/s");
+	const Planar diagonal = move::camera_relative_target({1.0F, 1.0F}, runSpeed, run.backwards);
+	check(near(length(diagonal), 3.25F) && near(diagonal.x, diagonal.y), "the run W+D: 3.25 m/s at 45 degrees (the input length does not count)");
+	check(near(length(move::camera_relative_target({0.0F, -1.0F}, runSpeed, run.backwards)), 3.25F) && near(run.backwards, 1.0F),
+		"the run S: 3.25 m/s (BackwardsMultiplier 1.0; the retail run S is 3.99: the open read of nav-velocity.json)");
+	check(near(length(move::camera_relative_target({0.0F, 0.0F}, runSpeed, run.backwards)), 0.0F), "no input: no target");
+	// The sprint (BackwardsMultiplier 0.55): the back key 0.55 x the speed; a back diagonal 1 - 0.7071 x 0.45 of it, on both axes.
+	const move::Motion& sprint = *move::motion_of(data, "Sprint", facts_of(Posture::stand));
+	check(near(sprint.backwards, 0.55F), "the sprint: BackwardsMultiplier 0.55");
+	const Planar sprintSpeed{sprint.speed[0], sprint.speed[1]};
+	const Planar back = move::camera_relative_target({0.0F, -1.0F}, sprintSpeed, sprint.backwards);
+	check(near(back.y, -5.5F * 0.55F) && near(back.x, 0.0F), "the sprint S: 0.55 x 5.5 m/s");
+	const Planar backSide = move::camera_relative_target({1.0F, -1.0F}, sprintSpeed, sprint.backwards);
+	const float factor = 1.0F - std::sqrt(0.5F) * 0.45F;
+	check(near(length(backSide), 5.5F * factor, 1e-3F) && near(backSide.x, -backSide.y, 1e-4F),
+		"the sprint S+D: the factor on the whole target (" + std::to_string(length(backSide)) + " m/s), the direction stays at 45 degrees");
+	check(near(length(move::camera_relative_target({1.0F, 0.0F}, sprintSpeed, sprint.backwards)), 5.5F * (sprint.speed[0] / 5.5F)),
+		"the sprint D: the side speed of the entry");
+	// Different speeds on the axes: the target keeps the input direction (the old rule turned it to the faster axis).
+	const Planar mixed = move::camera_relative_target({1.0F, 1.0F}, {1.0F, 3.0F}, 1.0F);
+	check(near(mixed.x, mixed.y) && near(length(mixed), std::sqrt(5.0F)), "speeds 1 and 3 at 45 degrees: |(0.707, 2.121)| = 2.236 m/s, at 45 degrees");
+	// The step: the acceleration up, the deceleration down, along the difference; it stops at the target.
+	const Planar up = move::camera_relative_step({0.0F, 0.0F}, {0.0F, 3.25F}, {35.0F, 35.0F}, {40.0F, 40.0F}, 0.05F);
+	check(near(up.y, 1.75F) && near(up.x, 0.0F), "the start: 35 m/s2 x 0.05 s");
+	const Planar down = move::camera_relative_step({0.0F, 3.25F}, {0.0F, 0.0F}, {35.0F, 35.0F}, {40.0F, 40.0F}, 0.05F);
+	check(near(down.y, 1.25F), "the stop: 40 m/s2 x 0.05 s (the deceleration: |current| > |target|)");
+	const Planar end = move::camera_relative_step({0.0F, 3.0F}, {0.0F, 3.25F}, {35.0F, 35.0F}, {40.0F, 40.0F}, 0.05F);
+	check(near(end.y, 3.25F), "the step stops at the target");
+	// A turn from W to D at the run: x accelerates (|0| < 3.25), y decelerates (|3.25| > 0); the step goes along (3.25, -3.25).
+	const Planar turn = move::camera_relative_step({0.0F, 3.25F}, {3.25F, 0.0F}, {35.0F, 35.0F}, {40.0F, 40.0F}, 0.01F);
+	const float turnStep = std::sqrt(0.5F * 35.0F * 35.0F + 0.5F * 40.0F * 40.0F) * 0.01F;
+	check(near(turn.x, turnStep * std::sqrt(0.5F), 1e-4F) && near(turn.y, 3.25F - turnStep * std::sqrt(0.5F), 1e-4F),
+		"a turn: one step of |(35, 40) x unit difference| x dt along the difference");
+	// A reverse at the sprint: |current| > |target| on y (5.5 > 3.025): the deceleration.
+	const Planar reverse = move::camera_relative_step({0.0F, 5.5F}, {0.0F, -3.025F}, {20.0F, 20.0F}, {7.0F, 7.0F}, 0.1F);
+	check(near(reverse.y, 5.5F - 0.7F), "a reverse: the deceleration while |current| > |target|");
+	const Planar reverse2 = move::camera_relative_step({0.0F, 1.0F}, {0.0F, -3.025F}, {20.0F, 20.0F}, {7.0F, 7.0F}, 0.1F);
+	check(near(reverse2.y, -1.0F), "a reverse: the acceleration while |current| < |target| (the old rule took the deceleration)");
+}
+
 void limit_tests(const move::Data& data)
 {
 	const auto row = [&data](const char* id) -> const move::StatusRow* {
@@ -411,6 +464,7 @@ int main(int argc, char** argv)
 	}
 	const move::Data data = data_of(Json::parse(file));
 	speed_tests(data);
+	motion_rule_tests(data);
 	limit_tests(data);
 	posture_tests();
 	autorun_tests();

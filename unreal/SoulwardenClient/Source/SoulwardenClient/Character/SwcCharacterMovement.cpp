@@ -867,8 +867,9 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 		break;
 	}
 	// Stage P3.3: the motion list of the data (movement.json): the first Conditional of the action whose condition holds gives
-	// the speed and the rates of each axis; Nav and Sprint have the multiplier of the speed table (the speed and the acceleration,
-	// not the deceleration: ApplyMoveSpeedMultiplier).
+	// the speed and the rates of each axis; Nav and Sprint have the multiplier of the speed table on the speed, the acceleration,
+	// and the deceleration (CameraRelativeMotion 0x2AA3830: the action-context multiplier scales the four vectors of the entry;
+	// research nav-speed).
 	const TCHAR* Action = Move == ESwcMove::SprintStart ? TEXT("Sprint_Start") : Move == ESwcMove::Sprint ? TEXT("Sprint")
 		: Move == ESwcMove::NavStart ? TEXT("Nav_Start") : (Move == ESwcMove::Nav || Move == ESwcMove::Walk) ? TEXT("Nav")
 		: (Move == ESwcMove::Stop || Move == ESwcMove::Idle) ? TEXT("Nav_Stop") : nullptr;
@@ -887,8 +888,8 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 			SpeedSide = Motion->speed[0] * 100.0f * Multiplier;
 			Accel = Motion->accel[1] * 100.0f * Multiplier;
 			AccelSide = Motion->accel[0] * 100.0f * Multiplier;
-			Decel = Motion->decel[1] * 100.0f;
-			DecelSide = Motion->decel[0] * 100.0f;
+			Decel = Motion->decel[1] * 100.0f * Multiplier;
+			DecelSide = Motion->decel[0] * 100.0f * Multiplier;
 			Backwards = Motion->backwards;
 			MotionAction = Action;
 			MotionName = Motion->name.empty() ? FString(TEXT("Default")) : FString(UTF8_TO_TCHAR(Motion->name.c_str()));
@@ -920,9 +921,10 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 	const FVector Forward = Frame.Vector();
 	const FVector Right = FRotationMatrix(Frame).GetUnitAxis(EAxis::Y);
 	const FVector2D Direction = HasMoveInput() && (Speed > 0.0f || SpeedSide > 0.0f) ? Input.GetSafeNormal() : FVector2D::ZeroVector;
-	// The speed of each axis (x side, y forward); a backward input has BackwardsMultiplier (the sprint 0.55).
-	const double AheadSpeed = Direction.Y < 0.0 ? Speed * Backwards : Speed;
-	const FVector Target = Forward * (Direction.Y * AheadSpeed) + Right * (Direction.X * SpeedSide);
+	// The target of CameraRelativeMotion (swc::move::camera_relative_target): |dir x speed| x dir, and a backward target times
+	// 1 - |dir.y| x (1 - BackwardsMultiplier) (the sprint 0.55).
+	const swc::move::Planar Goal = swc::move::camera_relative_target({static_cast<float>(Direction.X), static_cast<float>(Direction.Y)}, {SpeedSide, Speed}, Backwards);
+	const FVector Target = Forward * Goal.y + Right * Goal.x;
 	// The velocity of the data, not the velocity of the last move: a block (a wall, the face of a step) does not reset it,
 	// thus the next move has its full length (the step-up of the engine needs it).
 	FVector Current = GroundVelocity;
@@ -931,15 +933,12 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 	{
 		Current = FVector::ZeroVector; // ClearMotion: "prevent sliding".
 	}
-	const auto Approach = [DeltaTime](double Value, double Goal, double Up, double Down)
-	{
-		const bool bFaster = Goal * Value >= 0.0 && FMath::Abs(Goal) > FMath::Abs(Value);
-		const double Step = (bFaster ? Up : Down) * DeltaTime;
-		return Value < Goal ? FMath::Min(Value + Step, Goal) : FMath::Max(Value - Step, Goal);
-	};
-	const double Side = Approach(FVector::DotProduct(Current, Right), FVector::DotProduct(Target, Right), AccelSide, DecelSide);
-	const double Ahead = Approach(FVector::DotProduct(Current, Forward), FVector::DotProduct(Target, Forward), Accel, Decel);
-	const FVector Result = Forward * Ahead + Right * Side;
+	// One step along the difference to the target (swc::move::camera_relative_step: the deceleration on an axis whose current speed
+	// is above its target, else the acceleration).
+	const swc::move::Planar Next = swc::move::camera_relative_step(
+		{static_cast<float>(FVector::DotProduct(Current, Right)), static_cast<float>(FVector::DotProduct(Current, Forward))}, Goal,
+		{AccelSide, Accel}, {DecelSide, Decel}, DeltaTime);
+	const FVector Result = Forward * Next.y + Right * Next.x;
 	GroundVelocity = Result;
 	Velocity.X = Result.X;
 	Velocity.Y = Result.Y;
