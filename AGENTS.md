@@ -163,6 +163,8 @@ tools/lumen-test.sh --wait 7200                 # the Lumen mesh data test: the 
 tools/convert-water.sh write|check|samples       # the water of the world: the surfaces, the ocean, the materials, the quadtrees (docs/WATER.md)
 tools/import-water.sh                           # the water textures and the base material M_SwcWater (Single Layer Water)
 tools/test-water.sh                             # the tests of the water readers, the depth query, and the depth classes (no engine)
+tools/convert-persons.sh write --near X Y R     # the persons of the settlements, their timelines, lines, and cameras (docs/PERSONS.md; no --near: the world)
+tools/convert-persons.sh convert                # the bodies, items, and clips of the persons (then tools/import-player.sh)
 tools/convert-materials.sh audit                # the rich material records, the slot provenance, and the key collisions (docs/MATERIALS.md)
 tools/convert-materials.sh instances           # the specs of the material instances (then tools/apply-materials.sh: the lock, bounded calls)
 tools/material-proof.sh STAGE --wait 7200       # the render check of a materials stage (offscreen; tools/convert-materials.sh proof-plan STAGE first)
