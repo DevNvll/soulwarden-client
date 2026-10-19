@@ -452,6 +452,7 @@ The notices (`swc/notices.lua`, the bag feed of `swc/items.lua`, `Swc.HostProgre
 - The loot ticker (`lyshineui/hud2024/lootticker/lootticker2024`): a bag slot with the sync cause 1, 6, 20, 25, 37, or 40 (34 for a
   slot that the vector had) and a larger quantity gives `OnLootReceived(slot, the new quantity less the prior quantity)`
   (Soulwarden research loot.md: the gates 0x48DA750 and 0x48E4130); the load of the bag (0x11) and the cause 0 give none. The
+  icon of the item shows the count of the item in the bag (`ContainerRequestBus` `GetItemCount` with the item descriptor). The
   experience: `Hud.LocalPlayer.Progression.Glory` (the total), `PrevRequiredGlory` and `RequiredGlory` (the level table
   `gamedata/xplevels.json`); the ticker takes the first total of the world entry with no line. The flag
   `g_enableNewProgressionTicker` (0x4A3A1F7) and `javelin.xp-multipliers.character` 1.0 come from the settings registration.
@@ -559,7 +560,7 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `loot` | The original CatContainer screen next to NewInventory and EquipmentV3: a bag near the character and Tab give the host request `openloot 57` and the state Container ("LOOT", the loot bag mode); the items of the server show ("2 items", the weight 5.4); LSHIFT and a click on the ore give `take INSTANCE 9`; the answer of the server leaves "1 item"; Take All gives `takeall`; the end of the use closes the panel (the state Inventory). Pictures `loot-panel`, `loot-taken`. |
 | `plates` | The original AiMarker plates (`markermanager.luac`, `marker.luac`, `markerstatuseffect.luac`): the scripts register the types and the pools; two grey wolves of the host get the elements a0 and a1: the near one (5 m) with its name, its level 18, the red bar, and the stun icon on a red square at the middle of the view 1.5 m above its feet; the far one (12.4 m, one half of its health) with the alpha 0.52; at its death the bar empties, and a creature out of the pool hides. Pictures `plates`, `plates-dead`. |
 | `prompt` | The original prompt cards: a loot bag 2 m ahead gives the card "DROPPED ITEMS" with "E Take All" (the hold form) and "T Open" at the screen place of the bag; a hold of one half fills the ring of the key to one half; T gives the request `openloot 57`; a young tree with no axe gives the gatherable card "YOUNG TREE" with the crossed ring, no key, and "No equipped Axe" with the icon of the gathering type; no focus hides the card. Pictures `prompt-bag`, `prompt-hold`, `prompt-tree`. |
-| `notices` | The original damage numbers and loot ticker: 64 slash (white, the slash icon), 132 critical (orange), 85 thrust at a wolf (yellow with the arrow: the weakness of the wolf), 151 strike to the own character (red), a heal "+120" (green); the numbers go back to the pool after their animation; 9 iron ore with the cause 1 give "+9 Iron Ore"; 27 experience give "+27 XP"; the first total gives no line; a load of the bag gives no notice. Pictures `notices-damage`, `notices-loot`, `notices-xp`. |
+| `notices` | The original damage numbers and loot ticker: 64 slash (white, the slash icon), 132 critical (orange), 85 thrust at a wolf (yellow with the arrow: the weakness of the wolf), 151 strike to the own character (red), a heal "+120" (green); the numbers go back to the pool after their animation; 9 iron ore with the cause 1 give "+9 Iron Ore" (the icon: the count in the bag, 9); 5 rawhide while that row shows give "+5"; 27 experience give "+27 XP"; the first total gives no line; a load of the bag gives no notice. Pictures `notices-damage`, `notices-loot`, `notices-xp`. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
 The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,
@@ -609,6 +610,30 @@ the encoders of the backend into the read path, and the requests against the rea
 `tools/dev-build.sh` gives a preset of the backend (`--list` shows them) to the dev character. It uses the
 development routes of the backend (`--dev-commands`): only in a development session, never with the data folder of
 the user ([AGENTS.md](../AGENTS.md), rules).
+
+Exit check of stage WF7 (development runs, 2026-10-18; `SWC_WORK/evidence/WF7`; no debug text: `SWC_DEBUG_LINES=0`):
+
+```sh
+export SWC_STAGE=WF7 SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8872:4250:138.25 SWC_DEBUG_LINES=0
+tools/creature-check.sh wf7-plates 95 tests/drive/wf7-plates-routes.txt tests/drive/wf7-plates-player.txt
+tools/creature-check.sh wf7-fight 110 tests/drive/wf7-fight-routes.txt tests/drive/wf7-fight-player.txt
+tools/creature-check.sh wf7-prompt 160 tests/drive/wf7-prompt-routes.txt tests/drive/wf7-prompt-player.txt -- \
+    -SwcUiDrive=$PWD/tests/drive/wf7-prompt.txt -SwcDrop=90:OreT1
+unset SWC_DEV_PLACE
+tools/creature-check.sh wf7-gathering 170 tests/drive/wf7-gathering-routes.txt tests/creatures/gathering.txt
+tools/match-view.sh set1-oxboro noon-n noon-e dusk-w night-s --out $SWC_WORK/evidence/WF7/matchview --label wf7-matchview
+```
+
+`wf7-plates.mp4`: three grey wolves of level 18 (14 m, 9 m at one half of their health, 4 m stunned): the AiMarker plates (the
+name, the red bar, the level mark, the stun icon on its red square); the far plate fades; the near wolf dies. `wf7-fight.mp4`: the
+swings of the player give the damage numbers of the original canvas at the wolf (white, the yellow numbers with the arrow of the
+weakness to thrust, the orange critical hit of the kill, the lightning part); the bites give the red numbers of the own character;
+the body has the prompt "E GREY WOLF". `wf7-prompt.mp4`: the dropped ore gives the bag card "DROPPED ITEMS", "E Take All", "T Open";
+T opens the panel (OpenStorageOption), Escape closes it (2473), E held takes the items (the ring of the key; TakeAllOption), the
+loot ticker shows the ore. `wf7-gathering.mp4`: the cards of the gathering check of P5.2: "YOUNG TREE" with the crossed ring and
+"No equipped Axe", the tree with the axe, the ore vein, the cranberries, the rabbit body ("E CHALKY RABBIT"), the powder keg
+("Ignite Fuse"). `matchview/`: four views of set 1 with no debug text. The side-by-side pictures `compare-*.png`: retail (the
+Soulwarden evidence of creatures, abilities-crit, fight, loot, loot-bags, gathering) | client.
 
 ## Open points
 

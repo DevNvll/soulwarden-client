@@ -1,0 +1,23 @@
+# The routes of the gathering video of stage WF7 (docs/UI.md, the exit check): a copy of tests/creatures/gathering-routes.txt on the
+# clock of tests/creatures/gathering.txt. One change: the travel at 90 s goes back to the place of the start (9260.89 4179.47; the
+# tree and the ore vein there are depleted at that time and give no prompt), not to 9230 4168. After the level build of
+# 2026-10-18 21:31 the travel to 9230 4168 kept the loading screen (no ground of the place in 80 s; the input stays locked).
+1 respawn 000000000d61e221 1
+1 respawn 000000000d620221 1
+1 respawn 000000000d4ee221 1
+1 respawn 000000000d63e221 1
+1 respawn 000000000d640221 1
+1 tool 1hSickleT1 34
+1 tool 1hSkinningKnifeT1 35
+1 tool 1hPickT1 36
+1 untool 33
+2 travel 9260.89 4179.47 115.6 auto
+30 tool 1hHatchetT1 33
+50 travel 9265.37 4177.35 115.8 off
+66 travel 9244.35 4173.34 115.1 off
+81 respawn 000000000d640221 5
+90 travel 9260.89 4179.47 115.6 off
+93 spawn Rabbit_Snowshoe_3 1.4 1.4 0
+95 kill $1
+106 fixture powderKeg 1.4 -1.4 0
+118 gathering 30
