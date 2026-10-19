@@ -316,8 +316,9 @@ def run(words: list[str], folder: Path) -> object:
 
 
 class DriveClock:
-    """The time of the drive script of the client: the largest time of its lines "drive: SECONDS s COMMAND" in the client log
-    (the drive counts the game time, which is slower than the wall clock while the world loads)."""
+    """The time of the drive script of the client: the largest time of its lines "LogSwcBackend: drive: SECONDS s COMMAND" in
+    the client log (the drive counts the game time, which is slower than the wall clock while the world loads). The lines "ui
+    drive: SECONDS s" of the UI drive are not the clock: the UI drive starts at the spawn, before the possession."""
 
     def __init__(self, log: Path) -> None:
         self.log, self.offset, self.time, self.stopped = log, 0, -1.0, False
@@ -331,7 +332,7 @@ class DriveClock:
             return self.time
         end = data.rfind(b"\n") + 1
         self.offset += end
-        for match in re.finditer(rb"drive: (\d+\.\d+) s ", data[:end]):
+        for match in re.finditer(rb"LogSwcBackend: drive: (\d+\.\d+) s ", data[:end]):
             self.time = max(self.time, float(match.group(1)))
         # The client stopped: its drive clock does not go on.
         self.stopped = self.stopped or b"client: stop" in data[:end]
