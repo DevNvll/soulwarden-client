@@ -139,8 +139,10 @@ is green-yellow in its fog; the shore foam lines of the retail beaches (particle
 
 ## Not done, open points
 
-- The wade speed: the retail wade is 2.73 to 2.79 m/s, the data gives 2.5 m/s (the Wade conditional of Sprint); the equip load gives
-  no factor (all 1). A speed table of 1.1 (SprintSpeedMod) of the retail character would explain it: not known.
+- The wade speed (a gap): the retail wade is 2.73 to 2.79 m/s (set3-swim), the data gives 2.5 m/s (the Wade conditional of Sprint),
+  and the equip load gives no factor (all 1). The client keeps the data value. The backend log of the retail swim run has no line of
+  the speed table; a retail run that reads the speed table (slot 43, key 0x35 SprintSpeedMod) in a wade is requested (decision of
+  the orchestrator, 2026-10-18).
 - The upper body of the wade (`Water_Deep_Upperbody`, `unarmed_walk_water_ub`), Swim_Death (two clips in sequence), the drown of a
   crouch in shallow water (the statuses Breath and Drowning), and the blocks of fishing, gathering, the mounts, and the inventory in
   deep water: not in this stage.
