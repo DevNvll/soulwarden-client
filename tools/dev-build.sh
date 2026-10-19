@@ -6,9 +6,22 @@
 # The session is the session of a development run (tools/lib/session.sh: one network namespace with loopback only, the
 # lock of SWC_DEV_DATA, the made-up identity, the mark SWC_DEV_RUN=1). Its backend has the switch --dev-commands (the
 # development routes; SWC_SESSION_BACKEND_ARGS of session.sh, development sessions only).
+# --list starts no session: it reads the presets from the backend source at the commit of the backend copy (read only).
+# A preset needs SWC_DEV_DATA set before this script (the folder of the track, AGENTS.md): it refuses the default folder.
 set -euo pipefail
+explicit_dev_data="${SWC_DEV_DATA:-}"
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 unset SOULWARDEN_DEV_RUN
+for argument in "$@"; do
+    if [[ "${argument}" == "--list" ]]; then
+        exec python3 -B "${SWC_REPO}/tools/lib/dev_build.py" --list-source
+    fi
+done
+if [[ -z "${explicit_dev_data}" ]]; then
+    echo "dev-build: set SWC_DEV_DATA to the development data folder of your track (~/Games/soulwarden-client/dev-data-TRACK)." >&2
+    echo "dev-build: the default folder is not used: two tracks would share one database." >&2
+    exit 1
+fi
 if [[ "$(realpath -m -- "${SWC_DEV_DATA}")" == "$(realpath -m -- "${SWC_PLAYER_DATA}")" ]]; then
     echo "dev-build: SWC_DEV_DATA is the data folder of the user. A development run never uses it." >&2
     exit 1

@@ -169,7 +169,7 @@ tools/convert-ui.sh items|uistates              # the item data of the inventory
 tools/convert-ui.sh world                       # the canvases and the data of the UI in the world views: plates, prompts, numbers, ticker (stage WF7)
 tools/convert-ui.sh options                     # the Options screen: its canvas, the option defaults of the client program, the input profiles (stage P2.3)
 tools/test-items.sh                             # the tests of the bag and the equipment with the states of the backend encoders (no engine)
-tools/dev-build.sh --preset NAME                # a build preset of the backend for the dev character (--list)
+tools/dev-build.sh --preset NAME                # a build preset for the dev character (SWC_DEV_DATA must be set; --list: read only)
 tools/convert-player.sh tables|base|wanted      # the player character: databases, base skeletons, the parts that a run asked for
 tools/convert-player.sh movement|roads          # the movement rules of the data, the road maps of the regions (stage P3.3)
 tools/import-player.sh                          # import the player base and parts onto one skeleton for each gender

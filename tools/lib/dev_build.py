@@ -5,7 +5,11 @@ of the Soulwarden repository), then runs a command. It runs in the network names
 backend is ready (tools/dev-build.sh). The development database keeps the build for the next runs.
 
 Usage: dev_build.py [--list] [--preset NAME] [--variant NAME] [--character NAME] -- COMMAND...
-  --list        the presets of the backend and their state
+       dev_build.py --list-source
+  --list        the presets of the backend and their state (the backend route: only in a session)
+  --list-source the presets of the backend source at the commit of the backend copy (no session, read only: release.json
+                of SWC_BACKEND_DIR, git show in SOULWARDEN_REPO; tools/dev-build.sh --list). A preset that the game data
+                disables is in the backend log of a session ("presets: the build preset NAME is disabled")
   --preset      the preset (default bow-boltcaster)
   --character   the name of the character (default: the first character of the account)
 
@@ -16,6 +20,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -52,7 +58,41 @@ def characters() -> list[dict]:
     return reply.get("LoginInfoList", {}).get("Characters", [])
 
 
+PRESETS_SOURCE = "apps/backend/src/world/build_presets.cpp"
+
+
+def source_presets() -> int:
+    """Prints the presets of the backend source at the commit of the backend copy: the name, the title, the variants."""
+    backend = os.environ.get("SWC_BACKEND_DIR", "")
+    repository = os.environ.get("SOULWARDEN_REPO", "")
+    try:
+        release = json.load(open(os.path.join(backend, "release.json")))
+    except OSError as error:
+        print(f"dev-build: no release.json in the backend copy {backend} ({error.strerror})", file=sys.stderr)
+        return 1
+    commit = release.get("commit", "")
+    done = subprocess.run(["git", "-C", repository, "show", f"{commit}:{PRESETS_SOURCE}"], capture_output=True, text=True)
+    if done.returncode != 0 or not commit:
+        print(f"dev-build: no {PRESETS_SOURCE} at the commit {commit or '(none)'} of the backend copy: {done.stderr.strip()}", file=sys.stderr)
+        return 1
+    text = done.stdout
+    starts = [m.start() for m in re.finditer(r'preset\.name\s*=\s*"', text)] + [len(text)]
+    print(f"dev-build: the presets of the backend {release.get('version', commit[:7])} (the source; the backend log of a "
+          "session names a preset that the game data disables)")
+    for start, end in zip(starts, starts[1:]):
+        block = text[start:end]
+        name = re.match(r'preset\.name\s*=\s*"([^"]+)"', block).group(1)
+        title = re.search(r'preset\.title\s*=\s*"([^"]*)"', block)
+        variants = re.search(r"preset\.variants\s*=\s*\{(.*?)\};", block, re.S)
+        found = re.findall(r'\{"([^"]+)",\s*"([^"]*)"', variants.group(1)) if variants else []
+        names = ", ".join(f"{v} ({label})" for v, label in found) or "none"
+        print(f"  {name}: {title.group(1) if title else ''}; variants: {names}")
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    if argv[1:] == ["--list-source"]:
+        return source_presets()
     if "--" not in argv:
         print(__doc__, file=sys.stderr)
         return 2
