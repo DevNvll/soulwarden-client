@@ -6,7 +6,8 @@
 #   SWC_SESSION_LOCK   the lock file of that data folder: the session holds it (flock) while the backend runs
 #   SWC_SESSION_SEED   a seed character for an account with no character (development runs), or empty
 # The client runs as the user (the engine refuses to run as root), the backend as the root of the namespace.
-# The status of the script is the status of the client: 3 when the lock is held, 4 when the backend did not start.
+# The status of the script is the status of the client: 3 when the lock is held (or the world lock is not free in
+# SWC_WORLD_RUN_WAIT seconds), 4 when the backend did not start.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../env.sh"
 # The mark of the Soulwarden development runs: never in a process of this project.
@@ -51,6 +52,12 @@ if [[ -n "${SWC_SESSION_LOCK:-}" ]]; then
         exit 3
     fi
 fi
+# The world lock (docs/WORLD.md): shared for the whole run, so that no level build or import deletes or makes again an
+# asset that the client streams. The backend and the client do not get the descriptor (fd 7).
+source "$(dirname "${BASH_SOURCE[0]}")/world-lock.sh"
+mkdir -p "${SWC_WORK}/unreal"
+exec 7>>"${SWC_WORLD_LOCK}"
+world_read_fd 7 || exit 3
 
 health_url="http://127.0.0.1:${SWC_HTTP_PORT}/healthz"
 backend=""
@@ -98,7 +105,7 @@ if [[ -n "${SWC_SESSION_BACKEND_ARGS:-}" ]]; then
 fi
 echo "session: backend $(basename "$(readlink -f "${SWC_BACKEND_DIR}")"), data ${data}" >&2
 env "${backend_environment[@]}" \
-    "${SWC_BACKEND_EXE}" "${backend_arguments[@]}" >>"${data}/logs/backend-launch.log" 2>&1 9>&- &
+    "${SWC_BACKEND_EXE}" "${backend_arguments[@]}" >>"${data}/logs/backend-launch.log" 2>&1 9>&- 7>&- &
 backend=$!
 ready=0
 for ((attempt = 0; attempt < 300; ++attempt)); do
@@ -119,7 +126,7 @@ echo "session: backend ready, client starts" >&2
 set +e
 # No proxy: each request of the client goes to the backend on loopback.
 unshare --user --map-user="${SWC_SESSION_UID}" --map-group="${SWC_SESSION_GID}" -- \
-    env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u SWC_SESSION_BACKEND_ARGS "$@" 9>&-
+    env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u SWC_SESSION_BACKEND_ARGS "$@" 9>&- 7>&-
 status=$?
 set -e
 echo "session: client ended with status ${status}" >&2
