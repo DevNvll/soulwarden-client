@@ -26,6 +26,7 @@
 #include "Net/SwcSpace.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "StaticMeshResources.h"
 #include "SwcBackendSubsystem.h"
 
 namespace
@@ -43,6 +44,8 @@ constexpr float BurstCandelas = 4000.0f;
 constexpr double LootLineSeconds = 4.0;
 /** The fall of a tree (a look stand-in, not a value of the data): the angle grows with the square of the time to FallDegrees in
  *  FallSeconds; the trunk then lies FallHoldSeconds and goes. */
+/** A depleted mesh that does not load (a level build or an import makes it again): the next try of the load (s). */
+constexpr double MeshRetrySeconds = 5.0;
 constexpr double FallSeconds = 2.0;
 constexpr double FallDegrees = 85.0;
 constexpr double FallHoldSeconds = 2.5;
@@ -1078,6 +1081,26 @@ AActor* USwcObjectSubsystem::VisualActor()
 	return Visual.Get();
 }
 
+bool USwcObjectSubsystem::MeshReady(const UStaticMesh* Mesh, const FString& Name)
+{
+	// A null mesh, a mesh that still loads or compiles, or a mesh with no render data cannot go on a component now (SetStaticMesh read
+	// null render data in one crash while a level build ran).
+	bool bReady = Mesh != nullptr && !Mesh->HasAnyFlags(RF_NeedLoad | RF_NeedPostLoad | RF_BeginDestroyed)
+		&& !Mesh->HasAnyInternalFlags(EInternalObjectFlags_AsyncLoading) && !Mesh->IsCompiling();
+	if (bReady)
+	{
+		const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
+		bReady = RenderData != nullptr && RenderData->IsInitialized();
+	}
+	if (!bReady && !NotReadyLogged.Contains(Name))
+	{
+		NotReadyLogged.Add(Name);
+		UE_LOG(LogSwcObjects, Warning, TEXT("objects: the mesh %s is %s: no swap now, the next update tries again (logged one time)"), *Name,
+			Mesh == nullptr ? TEXT("not loaded") : TEXT("not ready (loading, compiling, or no render data)"));
+	}
+	return bReady;
+}
+
 void USwcObjectSubsystem::ApplyNode(uint64 Group, FNodeView& View, uint8 State, bool bLive)
 {
 	USwcLevelInstances* Level = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcLevelInstances>() : nullptr;
@@ -1115,9 +1138,9 @@ void USwcObjectSubsystem::ApplyNode(uint64 Group, FNodeView& View, uint8 State, 
 			{
 				Instance.Component->GetInstanceTransform(Instance.Index, Transform, true);
 				Visible = Instance.Index;
-				if (Instance.Mesh.IsValid())
+				if (Instance.Mesh.IsValid() && MeshReady(Instance.Mesh.Get(), Instance.Mesh->GetPathName()))
 				{
-					FallParts.Emplace(Instance.Mesh.Get(), Transform);
+					FallParts.Emplace(Instance.Mesh.Get(), Transform);   // a part whose mesh is not ready does not fall (a one-time visual)
 				}
 			}
 			Level->SetInstanceHidden(Instance, true);
@@ -1179,14 +1202,23 @@ void USwcObjectSubsystem::ApplyNode(uint64 Group, FNodeView& View, uint8 State, 
 				}
 			}
 			UStaticMesh* Mesh = nullptr;
+			View.bOwnPending = false;
 			if (Chosen != nullptr)
 			{
 				TObjectPtr<UStaticMesh>& Cached = DepletedMeshes.FindOrAdd(Chosen->DepletedMesh);
-				if (Cached == nullptr)
+				const double Now = FPlatformTime::Seconds();
+				double& NextLoad = NextMeshLoad.FindOrAdd(Chosen->DepletedMesh);
+				if (Cached == nullptr && Now >= NextLoad)
 				{
-					Cached = LoadObject<UStaticMesh>(nullptr, *Chosen->DepletedMesh);
+					NextLoad = Now + MeshRetrySeconds;   // a mesh that does not load: at most one try each MeshRetrySeconds
+					Cached = LoadObject<UStaticMesh>(nullptr, *Chosen->DepletedMesh, nullptr, LOAD_NoWarn);
 				}
 				Mesh = Cached;
+				if (!MeshReady(Mesh, Chosen->DepletedMesh))
+				{
+					Mesh = nullptr;
+					View.bOwnPending = true;
+				}
 			}
 			AActor* Owner = Mesh != nullptr ? VisualActor() : nullptr;
 			if (Owner != nullptr)
@@ -1208,6 +1240,10 @@ void USwcObjectSubsystem::ApplyNode(uint64 Group, FNodeView& View, uint8 State, 
 			View.Own->DestroyComponent();
 			View.Own.Reset();
 		}
+		if (!Depleted.IsEmpty() || View.Own.IsValid())
+		{
+			View.bOwnPending = false;
+		}
 		if (bChange)
 		{
 			++Depletions;
@@ -1218,6 +1254,7 @@ void USwcObjectSubsystem::ApplyNode(uint64 Group, FNodeView& View, uint8 State, 
 	else
 	{
 		// Healthy (or no record): the healthy mesh shows again, a depleted level instance at the place hides, the own mesh goes away.
+		View.bOwnPending = false;
 		for (const FSwcMeshInstanceRef& Instance : View.HiddenHealthy)
 		{
 			Level->SetInstanceHidden(Instance, false);
@@ -1349,7 +1386,7 @@ void USwcObjectSubsystem::UpdateVisuals(const FVector& Center)
 		View->bSeen = true;
 		const uint8* Found = NodeStates.Find(Group);
 		const uint8 State = Found != nullptr ? *Found : 0;
-		if (bNew || bIndex || View->AppliedState != State)
+		if (bNew || bIndex || View->AppliedState != State || View->bOwnPending)
 		{
 			ApplyNode(Group, *View, State, !bNew && View->AppliedState != State);
 		}

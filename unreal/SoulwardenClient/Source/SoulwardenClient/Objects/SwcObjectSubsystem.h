@@ -244,6 +244,8 @@ private:
 		TArray<FSwcMeshInstanceRef> HiddenHealthy;
 		TArray<FSwcMeshInstanceRef> HiddenDepleted;
 		TWeakObjectPtr<UStaticMeshComponent> Own;
+		/** The own depleted mesh was not ready (null, loading, or compiling): the next update tries again (MeshReady). */
+		bool bOwnPending = false;
 		bool bSeen = false;
 		/** The gatherable row of the node (a tree falls: GatheringType Chopping). */
 		int32 Row = -1;
@@ -340,6 +342,12 @@ private:
 	uint32 VisualStateRevision = 0;
 	mutable TMap<const UStaticMesh*, FString> MeshFolders;
 	TMap<FString, TObjectPtr<UStaticMesh>> DepletedMeshes;
+	/** The next time (s) to load a depleted mesh that did not load (a mesh that a level build or an import makes again), and the
+	 *  meshes that were not ready once (each logged one time). */
+	TMap<FString, double> NextMeshLoad;
+	TSet<FString> NotReadyLogged;
+	/** @return True when a mesh can go on a component now; else logs it one time. */
+	bool MeshReady(const UStaticMesh* Mesh, const FString& Name);
 	TWeakObjectPtr<AActor> Visual;
 	TMap<uint64, TWeakObjectPtr<UPointLightComponent>> ChestLights;
 	TArray<FFall> Falls;
