@@ -79,6 +79,20 @@ picture("fighthud-potion-cooldown")
 Swc.HostItemCooldown(swcui.crc32("potionhealtht1"), 0)
 frames(0.3)
 check(not has(shown_texts(find(root(consumables), "ConsumableQuickslot")), "29"), "the count goes at the end of the cooldown")
+-- The key 3 (the action quickslot-consumable-1): consumablequickslots.luac checks the item (itemcommon.luac reads its descriptor)
+-- and sends the virtual input Use_Quickslot_1: the client gets the action bit 404 (protocol notes, the consumables).
+while Swc.TakeHostRequest() ~= "" do end
+key("3")
+frames(0.5)
+local pressed = false
+while true do
+  local r = Swc.TakeHostRequest()
+  if r == "" then
+    break
+  end
+  pressed = pressed or r == "press 404"
+end
+check(pressed, "the key 3 uses the item of the quick slot 1: the client presses the action bit 404")
 -- The level and XP meter: the level; the XP popup of the spawn is out.
 local meter = find(root(xp), "XpMeter")
 check(has(shown_texts(meter), "65"), "the level 65 under the vitals: " .. table.concat(shown_texts(meter), ","))

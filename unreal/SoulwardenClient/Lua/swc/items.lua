@@ -801,6 +801,21 @@ local function static_data(itemCrc)
   data.maxStackSize = static.maxStack
   data.IsValid = function() return true end
   data.HasDurabilityEnabled = function() return (static.durability or 0) > 0 end
+  -- The gear score and the fixed perks of the item (itemcommon.luac GetFullDescriptorFromId: the descriptor of an item id; the
+  -- quick slots ask it before a use). The perks: the columns Perk1 to Perk5 of the item row, each the CRC-32 of its id.
+  data.gearScoreOverride = tonumber(static.gearScoreOverride) or 0
+  data.gearScoreRange = {minValue = tonumber(static.minGearScore) or 0, maxValue = tonumber(static.maxGearScore) or 0}
+  local perks = {}
+  for i = 1, 5 do
+    local perk = static["perk" .. i]
+    if perk and perk ~= "" then
+      perks[#perks + 1] = swcui.crc32(string.lower(perk))
+    end
+  end
+  data.GetPerkCount = function() return #perks end
+  data.GetPerkId = function(_, index) return perks[index + 1] or 0 end
+  -- The fixed perks of an item all show (the limit of the perk tier data is for the perks of a gear score).
+  data.CanDisplayAllPerksInUI = function() return true end
   return data
 end
 
@@ -919,6 +934,16 @@ Swc.Define("LocalPlayerUIRequestsBus", "Broadcast", {
     return (active == 24 or active == 25) and NAME_OF_SLOT[active] or "main-hand-option-1"
   end,
   InventoryUseItem = function(bagSlot) request(string.format("use %d", bagSlot)) end,
+  -- A virtual input of a script: the quick slot uses of consumablequickslots.luac (Use_Quickslot_1 to 4) are the action bits
+  -- 404, 117, 140, 513 of the input entry (protocol notes, the consumables; no message): the client presses them (stage P3.H).
+  SendVirtualInput = function(name, pressed)
+    local bit = ({Use_Quickslot_1 = 404, Use_Quickslot_2 = 117, Use_Quickslot_3 = 140, Use_Quickslot_4 = 513})[tostring(name)]
+    if bit and pressed then
+      request(string.format("press %d", bit))
+    elseif not bit then
+      Swc.Note("virtual input with no action bit: " .. tostring(name))
+    end
+  end,
   -- The notifications of the screen notifications.luac (an option of the native code: on).
   AreNotificationsEnabled = function() return true end,
   InventoryDropItem = function(bagSlot, quantity)
