@@ -28,6 +28,8 @@ struct FInputActionValue;
  *   wheel N          one wheel event of N notches (positive: up, the camera nearer)
  *   lock             one press of the target lock key
  *   flick COUNTS     a fast mouse move on X in one frame
+ *   look DX DY       a mouse move of the retail harness in one frame (counts; DY positive down)
+ *   view HEADING PITCH   the camera of a retail sample (degrees: the heading clockwise from north, the pitch positive up)
  *   freelook 1|0     Left Alt down or up
  *   camera STATE     a camera state of gamecamera.xml in place of the state of the action list (none: the action list)
  *   key 1|2|sheathe  one press of the weapon key 1 or 2, or of the sheathe key

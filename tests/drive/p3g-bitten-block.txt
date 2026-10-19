@@ -1,0 +1,42 @@
+# The replay of the retail take player-bitten-block.json (stage P3.G, AST-193; tools/lib/retail_replay.py): the keys of the
+# retail harness at their video times (the first key at 16.8 s of the drive clock, video 16.066 s), a view before
+# each of its 1 part(s). The routes: p3g-bitten-block-routes.txt. Times in seconds from the possession.
+0.900 wheel -1.20
+1.000 tick
+2.000 tick
+3.000 tick
+4.000 tick
+5.000 tick
+6.000 tick
+7.000 tick
+8.000 tick
+9.000 tick
+10.000 tick
+11.000 tick
+12.000 tick
+13.000 tick
+14.000 tick
+14.300 key 2
+15.000 tick
+15.800 view 0.00 -8.02
+16.000 tick
+16.800 aim 1
+17.000 tick
+18.000 tick
+19.000 tick
+20.000 tick
+21.000 tick
+22.000 tick
+23.000 tick
+23.233 move 0 1
+24.000 tick
+24.466 move 0 0
+24.466 move 0 -1
+25.000 tick
+25.700 move 0 0
+26.000 tick
+26.166 aim 0
+27.000 tick
+28.000 tick
+29.000 tick
+30.000 tick

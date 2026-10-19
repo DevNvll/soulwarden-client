@@ -1,0 +1,9 @@
+# The routes of the replay of player-death.json (tests/drive/p3g-death.txt): the hour 12:00, the retail feet, the health 430 (hurt
+# 4900 of 5330), the wolf at its retail offset, the creatures do not ignore the character at 8.0 s. Times on the clock of the drive.
+0.500 ignore on
+0.600 world-time 12:00
+2.500 travel 10013.086 2300.081 40.650
+4.500 heal
+5.000 hurt 4900
+5.500 spawn Wolf_Grey_7 0.00 4.00 0.40 --level 60 --yaw 180
+8.000 ignore off

@@ -1,0 +1,71 @@
+# The replay of the retail take player-move-sheathed-draw-jump.json (stage P3.G, AST-193; tools/lib/retail_replay.py): the keys of the
+# retail harness at their video times (the first key at 6.0 s of the drive clock, video 7.052 s), a view before
+# each of its 3 part(s). The routes: p3g-move-sheathed-draw-jump-routes.txt. Times in seconds from the possession.
+0.900 wheel -1.20
+1.000 tick
+2.000 tick
+3.000 tick
+3.500 key 2
+4.000 tick
+5.000 view 0.00 -7.70
+5.000 tick
+6.000 key sheathe
+6.000 tick
+7.000 tick
+7.100 move 0 1
+8.000 tick
+9.000 tick
+9.400 move 0 0
+10.000 tick
+10.933 move 0 -1
+11.000 tick
+12.000 tick
+12.933 move 0 0
+13.000 tick
+13.866 move 1 0
+14.000 tick
+15.000 tick
+15.566 move 0 0
+16.000 tick
+16.500 move -1 0
+17.000 tick
+18.000 tick
+18.166 move 0 0
+19.000 tick
+20.000 tick
+21.000 tick
+21.466 view 0.00 -7.70
+22.000 tick
+22.466 key 2
+23.000 tick
+23.966 key sheathe
+24.000 tick
+25.000 tick
+25.500 key 2
+26.000 tick
+27.000 tick
+27.033 key sheathe
+28.000 tick
+28.066 move 0 1
+28.666 key 2
+29.000 tick
+29.666 key sheathe
+30.000 tick
+30.666 move 0 0
+31.000 tick
+32.000 tick
+32.933 view 0.00 -7.70
+33.000 tick
+33.933 jump
+34.000 tick
+35.000 tick
+35.533 move 0 1
+36.000 tick
+36.133 jump
+37.000 tick
+38.000 tick
+38.966 move 0 0
+39.000 tick
+40.000 tick
+41.000 tick
+42.000 tick

@@ -1,0 +1,9 @@
+# The routes of the replay of player-dodge-stamina.json (tools/lib/retail_replay.py): the creatures ignore the character (off),
+# the hour 12:00, a travel to the retail feet before each part, the creatures of the take at their retail offsets (level 60).
+# Times on the clock of the drive script.
+0.500 ignore off
+0.600 world-time 12:00
+2.500 travel 10013.086 2300.677 40.669
+12.833 travel 10009.116 2296.260 40.739
+21.966 travel 10009.116 2285.217 40.393
+34.400 travel 10009.116 2268.654 39.411

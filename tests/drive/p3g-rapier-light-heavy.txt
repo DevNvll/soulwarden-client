@@ -1,0 +1,70 @@
+# The replay of the retail take player-rapier-light-heavy.json (stage P3.G, AST-193; tools/lib/retail_replay.py): the keys of the
+# retail harness at their video times (the first key at 6.0 s of the drive clock, video 3.829 s), a view before
+# each of its 4 part(s). The routes: p3g-rapier-light-heavy-routes.txt. Times in seconds from the possession.
+0.900 wheel -1.20
+1.000 tick
+2.000 tick
+3.000 tick
+4.000 tick
+5.000 view 0.00 -7.97
+5.000 tick
+6.000 key 2
+6.000 tick
+7.000 tick
+7.233 attack 1
+7.333 attack 0
+7.866 attack 1
+7.966 attack 0
+8.000 tick
+8.500 attack 1
+8.566 attack 0
+9.000 tick
+10.000 tick
+11.000 tick
+12.000 tick
+13.000 tick
+13.633 view 0.00 -7.97
+14.000 tick
+14.633 attack 1
+14.700 attack 0
+15.000 tick
+15.500 attack 1
+15.600 attack 0
+16.000 tick
+17.000 tick
+17.266 attack 1
+17.333 attack 0
+18.000 tick
+18.433 attack 1
+18.533 attack 0
+19.000 tick
+20.000 tick
+21.000 tick
+22.000 tick
+23.000 tick
+23.933 view 0.00 -7.97
+24.000 tick
+24.933 attack 1
+25.000 tick
+25.366 attack 0
+26.000 tick
+27.000 tick
+27.166 attack 1
+28.000 tick
+28.466 attack 0
+29.000 tick
+30.000 tick
+31.000 tick
+32.000 tick
+33.000 tick
+33.900 view 0.00 -7.97
+34.000 tick
+34.900 attack 1
+34.966 attack 0
+35.000 tick
+35.066 move 0 1
+35.833 move 0 0
+36.000 tick
+37.000 tick
+38.000 tick
+39.000 tick

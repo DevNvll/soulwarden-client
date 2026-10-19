@@ -1,0 +1,114 @@
+# The replay of the retail take player-move-drawn.json (stage P3.G, AST-193; tools/lib/retail_replay.py): the keys of the
+# retail harness at their video times (the first key at 6.0 s of the drive clock, video 3.542 s), a view before
+# each of its 3 part(s). The routes: p3g-move-drawn-routes.txt. Times in seconds from the possession.
+0.900 wheel -1.20
+1.000 tick
+2.000 tick
+3.000 tick
+4.000 tick
+5.000 view 0.00 -8.03
+5.000 tick
+6.000 key 2
+6.000 tick
+7.000 tick
+7.933 move 0 1
+8.000 tick
+9.000 tick
+10.000 tick
+10.233 move 0 0
+11.000 tick
+12.000 tick
+13.000 tick
+13.033 view 0.00 -8.03
+14.000 tick
+14.033 move 0 -1
+15.000 tick
+15.833 move 0 0
+16.000 tick
+16.767 move 1 0
+17.000 tick
+18.000 tick
+18.600 move 0 0
+19.000 tick
+20.000 tick
+20.067 move -1 0
+21.000 tick
+21.867 move 0 0
+22.000 tick
+23.000 tick
+24.000 tick
+24.567 view 0.00 -8.03
+25.000 tick
+25.567 move 0 1
+26.000 tick
+26.067 jump
+27.000 tick
+28.000 tick
+28.333 move 0 0
+29.000 tick
+29.333 look 118.1 0.0
+29.353 look 118.1 0.0
+29.373 look 118.1 0.0
+29.393 look 118.1 0.0
+29.413 look 118.1 0.0
+29.433 look 118.1 0.0
+29.453 look 118.1 0.0
+29.473 look 118.1 0.0
+29.493 look 118.1 0.0
+29.513 look 118.1 0.0
+29.533 look 118.1 0.0
+29.553 look 118.1 0.0
+29.573 look 118.1 0.0
+29.593 look 118.1 0.0
+29.613 look 118.1 0.0
+29.633 look 118.1 0.0
+29.653 look 118.1 0.0
+29.673 look 118.1 0.0
+29.693 look 118.1 0.0
+29.713 look 118.1 0.0
+29.733 look 118.1 0.0
+29.753 look 118.1 0.0
+29.773 look 118.1 0.0
+29.793 look 118.1 0.0
+29.813 look 118.1 0.0
+29.833 look 118.1 0.0
+29.853 look 118.1 0.0
+29.873 look 118.1 0.0
+29.893 look 118.1 0.0
+29.913 look 118.1 0.0
+30.000 tick
+31.000 tick
+31.300 look -118.1 0.0
+31.320 look -118.1 0.0
+31.340 look -118.1 0.0
+31.360 look -118.1 0.0
+31.380 look -118.1 0.0
+31.400 look -118.1 0.0
+31.420 look -118.1 0.0
+31.440 look -118.1 0.0
+31.460 look -118.1 0.0
+31.480 look -118.1 0.0
+31.500 look -118.1 0.0
+31.520 look -118.1 0.0
+31.540 look -118.1 0.0
+31.560 look -118.1 0.0
+31.580 look -118.1 0.0
+31.600 look -118.1 0.0
+31.620 look -118.1 0.0
+31.640 look -118.1 0.0
+31.660 look -118.1 0.0
+31.680 look -118.1 0.0
+31.700 look -118.1 0.0
+31.720 look -118.1 0.0
+31.740 look -118.1 0.0
+31.760 look -118.1 0.0
+31.780 look -118.1 0.0
+31.800 look -118.1 0.0
+31.820 look -118.1 0.0
+31.840 look -118.1 0.0
+31.860 look -118.1 0.0
+31.880 look -118.1 0.0
+32.000 tick
+33.000 tick
+34.000 tick
+35.000 tick

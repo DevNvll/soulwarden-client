@@ -1,0 +1,8 @@
+# The routes of the replay of player-move-drawn.json (tools/lib/retail_replay.py): the creatures ignore the character (off),
+# the hour 12:00, a travel to the retail feet before each part, the creatures of the take at their retail offsets (level 60).
+# Times on the clock of the drive script.
+0.500 ignore off
+0.600 world-time 12:00
+2.500 travel 10013.101 2293.091 40.526
+10.533 travel 10013.101 2305.789 40.862
+22.067 travel 10013.283 2298.593 40.616

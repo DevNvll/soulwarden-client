@@ -1,0 +1,95 @@
+# The replay of the retail take player-dodge-stamina.json (stage P3.G, AST-193; tools/lib/retail_replay.py): the keys of the
+# retail harness at their video times (the first key at 6.0 s of the drive clock, video 3.703 s), a view before
+# each of its 4 part(s). The routes: p3g-dodge-stamina-routes.txt. Times in seconds from the possession.
+0.900 wheel -1.20
+1.000 tick
+2.000 tick
+3.000 tick
+3.500 key 2
+4.000 tick
+5.000 view 0.00 -8.07
+5.000 tick
+6.000 move 0 1
+6.000 dodge
+6.000 tick
+6.066 move 0 0
+7.000 tick
+7.300 move 0 -1
+7.300 dodge
+7.366 move 0 0
+8.000 tick
+8.600 move -1 0
+8.600 dodge
+8.700 move 0 0
+9.000 tick
+9.900 move 1 0
+9.900 dodge
+10.000 move 0 0
+10.000 tick
+11.000 tick
+11.200 dodge
+12.000 tick
+13.000 tick
+14.000 tick
+15.000 tick
+15.333 view 0.00 -8.07
+16.000 tick
+16.333 dodge
+16.700 attack 1
+16.766 attack 0
+17.000 tick
+18.000 tick
+18.300 dodge
+18.633 dodge
+19.000 tick
+20.000 tick
+20.233 attack 1
+20.333 attack 0
+20.500 dodge
+21.000 tick
+22.000 tick
+23.000 tick
+24.000 tick
+24.466 view 0.00 -8.07
+25.000 tick
+25.466 dodge
+26.000 tick
+26.100 dodge
+26.733 dodge
+27.000 tick
+27.366 dodge
+28.000 dodge
+28.000 tick
+28.633 dodge
+29.000 tick
+29.300 dodge
+30.000 tick
+31.000 tick
+32.000 tick
+33.000 tick
+34.000 tick
+35.000 tick
+36.000 tick
+36.900 view 0.00 -8.07
+37.000 tick
+37.900 key sheathe
+38.000 tick
+39.000 tick
+40.000 tick
+40.033 move 0 1
+40.033 dodge
+40.100 move 0 0
+41.000 tick
+41.333 move 0 -1
+41.333 dodge
+41.400 move 0 0
+42.000 tick
+42.633 move -1 0
+42.633 dodge
+42.733 move 0 0
+43.000 tick
+43.966 dodge
+44.000 tick
+45.000 tick
+46.000 tick
+47.000 tick

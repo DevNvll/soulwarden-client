@@ -1,0 +1,8 @@
+# The routes of the replay of player-bow.json (tools/lib/retail_replay.py): the creatures ignore the character (on),
+# the hour 12:00, a travel to the retail feet before each part, the creatures of the take at their retail offsets (level 60).
+# Times on the clock of the drive script.
+0.500 ignore on
+0.600 world-time 12:00
+2.500 travel 10013.086 2300.081 40.650
+4.500 spawn Wolf_Grey_7 0.00 20.00 0.40 --level 60 --yaw 180
+13.766 travel 10013.086 2300.081 40.650

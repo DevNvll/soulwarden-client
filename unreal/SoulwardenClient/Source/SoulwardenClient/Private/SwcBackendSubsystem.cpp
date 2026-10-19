@@ -1264,6 +1264,19 @@ void USwcBackendSubsystem::UpdatePlayer()
 	{
 		Connection->QueueContacts(Contacts);
 	}
+	// The camera with -SwcMoveSamples (stage P3.G, the pitch limits and the arm of the retail camera take): a line when the view turns.
+	static const bool bCameraSamples = FCString::Strfind(FCommandLine::Get(), TEXT("-SwcMoveSamples=")) != nullptr;
+	if (!bPlayerRun && bCameraSamples && Controller->PlayerCameraManager != nullptr)
+	{
+		const FRotator CameraView = Controller->PlayerCameraManager->GetCameraRotation();
+		if (!CameraView.Equals(LastCameraSample, 0.2))
+		{
+			LastCameraSample = CameraView;
+			UE_LOG(LogSwcBackend, Log, TEXT("camera: sample pitch %.2f yaw %.2f, %.2f m from the feet, state %s (world %.3f s)"), FRotator::NormalizeAxis(CameraView.Pitch),
+				FRotator::NormalizeAxis(CameraView.Yaw + 90.0), FVector::Dist(Controller->PlayerCameraManager->GetCameraLocation(), Feet) / 100.0,
+				*GetCameraStateName(), World->GetTimeSeconds());
+		}
+	}
 	if (Movement->GetMoveState() != LastMove)
 	{
 		LastMove = Movement->GetMoveState();
@@ -1271,8 +1284,9 @@ void USwcBackendSubsystem::UpdatePlayer()
 			*Movement->GetFragment(), Movement->GetHorizontalSpeed(), Motion.character.x, Motion.character.y, Motion.character.z);
 	}
 	// A speed sample each second while the character moves (development runs: the speed checks of stage P3.3);
-	// -SwcMoveSamples=SECONDS sets the interval (the time and distance checks of stage P3.G).
-	if (!bPlayerRun && Movement->GetHorizontalSpeed() > 0.05f && World->GetTimeSeconds() >= NextMoveSample)
+	// -SwcMoveSamples=SECONDS sets the interval (the time and distance checks of stage P3.G); also in the air (a standing jump).
+	if (!bPlayerRun && (Movement->GetHorizontalSpeed() > 0.05f || FMath::Abs(Movement->Velocity.Z) > 5.0 || Movement->IsFalling())
+		&& World->GetTimeSeconds() >= NextMoveSample)
 	{
 		static const double SampleInterval = []
 		{
@@ -1281,9 +1295,9 @@ void USwcBackendSubsystem::UpdatePlayer()
 			return FMath::Clamp(Value, 0.02, 10.0);
 		}();
 		NextMoveSample = World->GetTimeSeconds() + SampleInterval;
-		UE_LOG(LogSwcBackend, Log, TEXT("move: sample %s, %s, %.3f m/s, feet %.3f %.3f %.3f m, water class %d depth %.3f m"),
+		UE_LOG(LogSwcBackend, Log, TEXT("move: sample %s, %s, %.3f m/s, feet %.3f %.3f %.3f m, water class %d depth %.3f m (world %.3f s)"),
 			*UEnum::GetValueAsString(LastMove), *Movement->GetMotionName(), Movement->GetHorizontalSpeed(), Motion.character.x, Motion.character.y,
-			Motion.character.z, static_cast<int32>(Movement->GetWaterClass()), Movement->GetWaterDepth());
+			Motion.character.z, static_cast<int32>(Movement->GetWaterClass()), Movement->GetWaterDepth(), World->GetTimeSeconds());
 	}
 	if (!bPlayerRun && GEngine != nullptr && SwcDebugLines())
 	{

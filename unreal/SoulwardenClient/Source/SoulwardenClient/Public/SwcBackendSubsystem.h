@@ -246,6 +246,8 @@ private:
 	ESwcMove LastMove = ESwcMove::Idle;
 	/** The game time of the next speed sample of a development run (stage P3.3). */
 	double NextMoveSample = 0.0;
+	/** The last camera sample of -SwcMoveSamples (the pitch limits of stage P3.G): its rotation. */
+	FRotator LastCameraSample = FRotator::ZeroRotator;
 	uint32 LookRevision = MAX_uint32;
 	/** The travel revision of the own entity that the character took, and the wait for the cells of a new place. */
 	uint32 SeenTravel = 0;

@@ -1,0 +1,11 @@
+# The UI part of the replay of player-death.json (tests/drive/p3g-death.txt): the respawn screen after the death (about 12.4 s),
+# the list of the respawn points (Random Location) and RESPAWN as in player-respawn.json. Times in seconds from the spawn of the
+# player (the clock of the player drive); the clock of this drive stays at the waitfor until the button shows.
+12 waitfor RespawnMapButtonAccept 40
+12 log the respawn screen
+13 point RespawnMapListContent 0.5 0.15
+14.5 point RespawnMapButtonAccept
+15.5 log RESPAWN
+15.5 click
+28 log the HUD after the respawn
+34 end

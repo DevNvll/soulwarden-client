@@ -1,0 +1,51 @@
+# The replay of the retail take player-bow.json (stage P3.G, AST-193; tools/lib/retail_replay.py): the keys of the
+# retail harness at their video times (the first key at 6.0 s of the drive clock, video 3.762 s), a view before
+# each of its 2 part(s). The routes: p3g-bow-routes.txt. Times in seconds from the possession.
+0.900 wheel -1.20
+1.000 tick
+2.000 tick
+3.000 tick
+4.000 tick
+5.000 view 0.00 -2.02
+5.000 tick
+6.000 key 1
+6.000 tick
+7.000 tick
+7.600 aim 1
+8.000 tick
+8.500 attack 1
+9.000 tick
+9.900 attack 0
+10.000 tick
+11.000 tick
+11.266 attack 1
+12.000 tick
+12.200 attack 0
+13.000 tick
+13.566 aim 0
+14.000 tick
+15.000 tick
+16.000 tick
+16.266 view 0.00 -2.02
+17.000 tick
+17.266 aim 1
+17.733 move 0 1
+18.000 tick
+19.000 tick
+19.100 move 0 0
+19.400 move 0 -1
+20.000 tick
+20.766 move 0 0
+21.000 tick
+21.066 move -1 0
+22.000 tick
+22.466 move 0 0
+22.833 aim 0
+23.000 tick
+24.000 tick
+24.166 attack 1
+24.233 attack 0
+25.000 tick
+26.000 tick
+27.000 tick
+28.000 tick

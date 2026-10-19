@@ -1,0 +1,55 @@
+# The replay of the retail take player-death.json of set 6 (stage P3.G, AST-193; made by hand: the take has no keys): a Grey Wolf
+# of level 60 4.0 m north, the character hurt to 430 health, the creatures do not ignore it at 8.0 s (the retail command at video
+# 4.647 s: video = drive - 3.353 s); the two bites kill it; the respawn screen 5 s later; tests/drive/p3g-death-ui.txt clicks
+# RESPAWN (player-respawn.json: a travel of 512 m, no loading screen). The zoom 3.2 of the take (README of set 6).
+# Times in seconds from the possession.
+0.900 wheel -1.20
+1.000 tick
+2.000 tick
+3.000 tick
+4.000 tick
+5.000 tick
+6.000 view 0.00 -8.22
+6.000 tick
+7.000 tick
+8.000 tick
+9.000 tick
+10.000 tick
+11.000 tick
+12.000 tick
+13.000 tick
+14.000 tick
+15.000 tick
+16.000 tick
+17.000 tick
+18.000 tick
+19.000 tick
+20.000 tick
+21.000 tick
+22.000 tick
+23.000 tick
+24.000 tick
+25.000 tick
+26.000 tick
+27.000 tick
+28.000 tick
+29.000 tick
+30.000 tick
+31.000 tick
+32.000 tick
+33.000 tick
+34.000 tick
+35.000 tick
+36.000 tick
+37.000 tick
+38.000 tick
+39.000 tick
+40.000 tick
+41.000 tick
+42.000 tick
+43.000 tick
+44.000 tick
+45.000 tick
+46.000 tick
+47.000 tick
+48.000 tick

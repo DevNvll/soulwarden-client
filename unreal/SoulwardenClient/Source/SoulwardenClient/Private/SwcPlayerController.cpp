@@ -582,10 +582,20 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 			Input->StopContinuousInputInjectionForAction(AbilityActions[Place]);
 		}
 	}
+	// A press and its release in one frame lose the press (the input injection of a frame keeps its last value): a second step of the
+	// same button waits for the next frame (a long frame of the replays of stage P3.G had both clicks of one attack).
+	TSet<FString> Buttons;
 	while (DriveNext < Drive.Num() && Drive[DriveNext].Time <= Time)
 	{
+		const FString& Command = Drive[DriveNext].Command;
+		if ((Command == TEXT("attack") || Command == TEXT("aim") || Command == TEXT("interact")) && Buttons.Contains(Command))
+		{
+			break;
+		}
+		Buttons.Add(Command);
 		const FDriveStep& Step = Drive[DriveNext++];
-		UE_LOG(LogSwcBackend, Log, TEXT("drive: %.2f s %s %s"), Time, *Step.Command, *Step.Text);
+		// The game time at the end (world s): the clock of the move samples (tools/lib/retail_compare.py).
+		UE_LOG(LogSwcBackend, Log, TEXT("drive: %.2f s %s %s (world %.3f s)"), Time, *Step.Command, *Step.Text, GetWorld()->GetTimeSeconds());
 		if (Step.Command == TEXT("move"))
 		{
 			if (Step.Value.IsNearlyZero())
@@ -633,6 +643,16 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 		{
 			// A fast mouse move: these counts in one frame.
 			Input->InjectInputForAction(LookAction, FInputActionValue(FVector2D(Step.Value.X, 0.0)), {}, {});
+		}
+		else if (Step.Command == TEXT("look"))
+		{
+			// A mouse move of the retail harness (tools/hx "look DX DY"; stage P3.G): these counts in one frame, DY positive down.
+			Input->InjectInputForAction(LookAction, FInputActionValue(FVector2D(Step.Value.X, -Step.Value.Y)), {}, {});
+		}
+		else if (Step.Command == TEXT("view"))
+		{
+			// The camera of a retail sample (stage P3.G): the heading (degrees clockwise from north) and the pitch (positive up).
+			SetControlRotation(FRotator(Step.Value.Y, Step.Value.X - 90.0, 0.0));
 		}
 		else if (Step.Command == TEXT("key"))
 		{
