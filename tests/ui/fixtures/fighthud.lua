@@ -69,6 +69,16 @@ local slot1 = shown_texts(find(root(consumables), "ConsumableQuickslot"))
 check(has(slot1, "9") and has(slot1, "3"), "quick slot 1: the count 9 of the health potions and the key 3: " .. table.concat(slot1, ","))
 local slot3 = shown_texts(find(root(consumables), "ConsumableQuickslot3"))
 check(has(slot3, "5") and not has(slot3, "9"), "quick slot 3: empty, the key 5: " .. table.concat(slot3, ","))
+-- A consumable cooldown (Swc.HostItemCooldown: the cooldown state of the backend, field 3): the quick slot shows the seconds,
+-- as the retail take ui-weapon-swap-potion (the potion: 31.2 s).
+Swc.HostItemCooldown(swcui.crc32("potionhealtht1"), 31.2)
+frames(1.2)
+local cooling = shown_texts(find(root(consumables), "ConsumableQuickslot"))
+check(has(cooling, "30") or has(cooling, "29"), "the potion in its cooldown shows the seconds: " .. table.concat(cooling, ","))
+picture("fighthud-potion-cooldown")
+Swc.HostItemCooldown(swcui.crc32("potionhealtht1"), 0)
+frames(0.3)
+check(not has(shown_texts(find(root(consumables), "ConsumableQuickslot")), "29"), "the count goes at the end of the cooldown")
 -- The level and XP meter: the level; the XP popup of the spawn is out.
 local meter = find(root(xp), "XpMeter")
 check(has(shown_texts(meter), "65"), "the level 65 under the vitals: " .. table.concat(shown_texts(meter), ","))

@@ -1168,6 +1168,30 @@ void USwcUiSubsystem::FeedLocalPlayer()
 			It.RemoveCurrent();
 		}
 	}
+	// The cooldowns of the consumables (field 3 of the cooldown state: the CRC-32 of the lower-case item id and the end): the
+	// quick slots show their fill and count (stage P3.H).
+	TSet<uint32> SeenItems;
+	for (const std::pair<std::uint32_t, std::uint64_t>& Item : Own.itemCooldowns)
+	{
+		SeenItems.Add(Item.first);
+		const uint64* Sent = SentItemCooldowns.Find(Item.first);
+		if (Sent != nullptr && *Sent == Item.second)
+		{
+			continue;
+		}
+		SentItemCooldowns.Add(Item.first, Item.second);
+		const double Left = Item.second > NowUs ? static_cast<double>(Item.second - NowUs) / 1e6 : 0.0;
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the cooldown of the item %u: %.2f s"), Item.first, Left);
+		Runtime->call("HostItemCooldown", {FArg::of(static_cast<double>(Item.first)), FArg::of(Left)});
+	}
+	for (auto It = SentItemCooldowns.CreateIterator(); It; ++It)
+	{
+		if (!SeenItems.Contains(It.Key()))
+		{
+			Runtime->call("HostItemCooldown", {FArg::of(static_cast<double>(It.Key())), FArg::of(0.0)});
+			It.RemoveCurrent();
+		}
+	}
 
 	// The compass: the camera yaw (0 north, positive west) and the position of the entity (engine meters).
 	const float Yaw = Backend->GetCameraYawDegrees();

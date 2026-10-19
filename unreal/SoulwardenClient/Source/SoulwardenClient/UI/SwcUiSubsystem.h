@@ -176,6 +176,8 @@ private:
 	bool bSentSheathed = false;
 	TMap<uint32, TArray<uint32>> SentBars;
 	TMap<uint32, uint64> SentCooldowns;
+	/** The consumable cooldowns that the runtime has: the item CRC and the end (server microseconds). */
+	TMap<uint32, uint64> SentItemCooldowns;
 	float SentYaw = 1000.0f;
 	/** The world views: the time of the next occlusion test of the markers, and the switches of the stand-ins. */
 	double NextOcclusionTime = 0.0;

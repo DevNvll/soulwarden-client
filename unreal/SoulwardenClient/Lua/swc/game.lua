@@ -367,9 +367,34 @@ local function cooldown_left(key)
   return math.max(0, cd.ends - Swc.time)
 end
 
+-- The cooldowns of the consumables (stage P3.H; the cooldown state of the backend, field 3: the CRC-32 of the lower-case item
+-- id and the end; the consumable data of an item has this CRC as its id): itemlayout.luac asks the bus at a slot update and waits
+-- on Hud.LocalPlayer.Cooldowns.<item CRC>.TimeRemaining (the fill and the count of the quick slot).
+local itemCooldowns = {}   -- item CRC -> the time of the end (Swc.time)
+
+local function item_cooldown_left(crc)
+  local ends = itemCooldowns[crc]
+  return ends and math.max(0, ends - Swc.time) or 0
+end
+
+--- One consumable cooldown of the client: the item CRC and the seconds that are left (0: it ended).
+function Swc.HostItemCooldown(crc, left)
+  local path = "Hud.LocalPlayer.Cooldowns." .. tostring(crc)
+  if left <= 0 then
+    itemCooldowns[crc] = nil
+    Swc.SetData(path .. ".TimeRemaining", 0)
+    return
+  end
+  itemCooldowns[crc] = Swc.time + left
+  Swc.SetData(path .. ".ItemId", crc)
+  Swc.SetData(path .. ".TimeRemaining", left)
+end
+
 Swc.Define("CooldownTimersComponentBus", "Event", {
   GetAbilityCurrentCooldown = function(_, key) return cooldown_left(key) end,
   IsAbilityOnCooldown = function(_, key) return cooldown_left(key) > 0 end,
+  IsConsumableOnCooldown = function(_, crc) return item_cooldown_left(crc) > 0 end,
+  GetConsumableCooldown = function(_, crc) return item_cooldown_left(crc) end,
 })
 
 -- The stamina of the player: the client predicts it (UiStaminaRequestsBus GetStaminaState); here the value of the

@@ -1,0 +1,16 @@
+# Stage P3.H: the UI drive of the matched views (tests/drive/p3h-views.txt). Times in seconds from the spawn of the player.
+1 waitfor CompassLines 60
+2 waitfor world 180
+6 draw sheathed
+11 draw bow
+14 draw bow-aim
+21 draw rapier
+25 draw sheathed-again
+31 draw hurt
+32 log the potion (key 3)
+32 key 3
+33 draw potion
+38 log the potion in its cooldown
+38 key 3
+39 draw potion-cooldown
+45 end

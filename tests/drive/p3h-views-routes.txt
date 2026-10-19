@@ -1,0 +1,5 @@
+# The development routes of the matched views of stage P3.H (the clock of the player drive): noon (the retail takes set 12:00),
+# the creatures ignore the character, 2500 damage before the potion (the retail take ui-weapon-swap-potion).
+1 world-time 12:00
+1 ignore on
+30 hurt 2500

@@ -1,0 +1,12 @@
+# Stage P3.H: the matched views of the fight HUD with the retail set 6 (docs/UI.md "The fight HUD"): the build bow-boltcaster
+# (tools/dev-build.sh --preset bow-boltcaster), the dry sand of set 3 (SWC_DEV_PLACE=10013:2293:40.3), a window of 1280 x 720.
+# The player drive (this file, times from the possession): sheathed, the bow (key 1), the bow aim (the right button), the rapier
+# (key 2), sheathed again. The UI drive tests/drive/p3h-views-ui.txt takes the draw lists and the potion; the routes
+# tests/drive/p3h-views-routes.txt set the hour, the damage, and a wolf.
+# SWC_GAME_SIZE=1280x720 SWC_DESKTOP_MODE=1304x780@60 tools/creature-check.sh p3h-views 60 tests/drive/p3h-views-routes.txt \
+#   tests/drive/p3h-views.txt -- -SwcUiDrive=$PWD/tests/drive/p3h-views-ui.txt
+8.0 key 1
+12.0 aim 1
+15.0 aim 0
+18.0 key 2
+22.0 key sheathe
