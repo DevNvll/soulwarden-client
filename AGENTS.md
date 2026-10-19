@@ -76,6 +76,11 @@ files at the same time; a shared document (this file, the roadmap) changes only 
   for the world lock before the launch, and its window guard (`tools/lib/window_guard.py`, log `LABEL-window-guard.log`)
   reads `hyprctl clients -j` (read only) for the life of the run: a window of the launch that is not on `__agent:DESKTOP`
   is moved with `omarchy-agent-desktop adopt`, else the run stops. Start window runs only with `tools/dev-run.sh`.
+- The GPU (24 GB) is shared by the clients of all tracks and the retail game processes; a client needs about 6 GB.
+  `tools/dev-run.sh --window` (and `tools/flythrough.sh`) waits after the world lock until the free GPU memory
+  (nvidia-smi, read only) is at least `SWC_GPU_FREE_MIB` (default 9216), with one line each 30 s, and ends with status 3
+  after `SWC_GPU_WAIT` seconds (default 900) (`tools/lib/gpu-gate.sh`). The trap: "Failed to allocate Device Memory"
+  in a client log is the shared GPU, not a client defect, until a run with enough free memory shows the same fault.
 - A process of the Unreal client never has `SOULWARDEN_DEV_RUN=1` in its environment: `tools/dev-stop.sh` of Soulwarden
   stops such processes, and its `--check` fails while one is alive.
 - Retail reference runs (decision of the user, 2026-10-18): an agent of this project may start a development run of

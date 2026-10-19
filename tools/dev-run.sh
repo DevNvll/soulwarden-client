@@ -127,6 +127,10 @@ if ! world_read true; then
     echo "dev-run: the world lock was not free in ${SWC_WORLD_RUN_WAIT:-900} s: no run (status 3)" >&2
     exit 3
 fi
+# Then the GPU memory (tools/lib/gpu-gate.sh): after the lock, so that the run does not hold the GPU while it waits. A run
+# with no window has no renderer (-nullrhi): no gate.
+source "${SWC_REPO}/tools/lib/gpu-gate.sh"
+gpu_wait dev-run || exit 3
 # The agent desktop starts the command with the environment of its compositor: the values go by name. gamescope runs
 # outside the namespace (in a user namespace it refuses /tmp/.X11-unix, which the real root owns); the client in the
 # namespace reaches its X server through the socket file.

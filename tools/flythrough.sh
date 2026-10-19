@@ -31,6 +31,8 @@ rm -f "${log}"
 source "${SWC_REPO}/tools/lib/world-lock.sh"
 mkdir -p "${SWC_WORK}/unreal"
 world_read true || { echo "flythrough: the world lock was not free (a level build or an import)" >&2; exit 3; }
+source "${SWC_REPO}/tools/lib/gpu-gate.sh"   # then the GPU memory (AGENTS.md, the run rules)
+gpu_wait flythrough || exit 3
 if ! omarchy-agent-desktop status "${desktop_id}" >/dev/null 2>&1; then
     omarchy-agent-desktop create "Soulwarden client" --id "${desktop_id}" --mode "${SWC_DESKTOP_MODE:-1280x720@60}" >/dev/null
 fi
