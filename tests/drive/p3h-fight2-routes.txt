@@ -1,0 +1,12 @@
+# The development routes of the second fight run of stage P3.H (on the clock of tests/drive/p3h-fight2.txt): noon; a Grey Wolf
+# of level 60 9 m north (the retail take ui-abilities-bow: its projectile ends after 13.4 m); a second wolf of level 60 3 m
+# north for the rapier; the wolf attacks from 32 s (in the fight the health does not regenerate: the trail of the health bar
+# shows its full time, as in ui-fight-hud); the low health at 40 s (ui-fight-hud); the death at 50 s (player-death: the
+# respawn screen 5 s later).
+1 world-time 12:00
+1 ignore on
+3 spawn Wolf_Grey_7 0 9 0 --level 60
+18 spawn Wolf_Grey_7 0 3 0 --level 60
+32 ignore off
+40 hurt 2500
+50 hurt 99999

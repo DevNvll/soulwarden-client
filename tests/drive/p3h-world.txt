@@ -1,0 +1,12 @@
+# Stage P3.H: the compass and the plates of set 6 (ui-compass-n/e/s/w.png, ui-plate-05m/15m/30m.png) in the client: the build
+# bow-boltcaster, the dry sand of set 3, a window of 1280 x 720. The player drive (this file, times from the possession): the
+# rapier drawn, then four turns of 90 degrees (flick 3600 counts: 0.025 degrees each) for the compass. The UI drive
+# tests/drive/p3h-world-ui.txt takes the draw lists; the routes tests/drive/p3h-world-routes.txt put one Grey Wolf (level 18)
+# 30, 15, and 5 m north of the character, 1.8 m east (the places of the retail stills; the creatures ignore the character).
+# SWC_GAME_SIZE=1280x720 SWC_DESKTOP_MODE=1304x780@60 tools/creature-check.sh p3h-world 60 tests/drive/p3h-world-routes.txt \
+#   tests/drive/p3h-world.txt -- -SwcUiDrive=$PWD/tests/drive/p3h-world-ui.txt
+4.0 key 2
+10.0 flick 3600
+14.0 flick 3600
+18.0 flick 3600
+22.0 flick 3600

@@ -1,0 +1,13 @@
+# Stage P3.H: the UI drive of the second fight run (tests/drive/p3h-fight2.txt). The clock of the UI drive starts at the spawn
+# of the player (before the possession of the player drive), and it stays at each "waitfor" until the element shows: thus the
+# respawn steps wait for the button RESPAWN. The element shows with the map (5.0 s after the death notice); respawn.luac makes it
+# interactive 2 s later (TimingUtils Delay): a click 2 s after the waitfor came 0.02 s too early (the run of 2026-10-19 16:58).
+1 waitfor CompassLines 60
+2 waitfor world 180
+3 waitfor RespawnMapButtonAccept 240
+3 draw respawn-screen
+5 point RespawnMapButtonAccept
+6.5 log RESPAWN
+6.5 click
+16 draw respawned
+24 end

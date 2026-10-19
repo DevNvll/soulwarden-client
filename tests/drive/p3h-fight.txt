@@ -1,0 +1,20 @@
+# Stage P3.H: the fight HUD in the client against the retail takes of set 6 (ui-abilities-bow, ui-fight-hud, ui-damage-numbers,
+# player-death, player-respawn): the build bow-boltcaster, the dry sand of set 3, a window of 1280 x 720. The player drive (this
+# file, times from the possession): the bow and its abilities R (Explosive Arrow), F (Rapid Shot), R in its cooldown; the
+# rapier against a Grey Wolf of level 18 at 4 m (light hits, a heavy hit). The routes (tests/drive/p3h-fight-routes.txt) put
+# the wolf, the damage of the low health and of the death; the UI drive (tests/drive/p3h-fight-ui.txt) takes the draw lists and
+# presses RESPAWN.
+# SWC_GAME_SIZE=1280x720 SWC_DESKTOP_MODE=1304x780@60 tools/creature-check.sh p3h-fight 90 tests/drive/p3h-fight-routes.txt \
+#   tests/drive/p3h-fight.txt -- -SwcUiDrive=$PWD/tests/drive/p3h-fight-ui.txt
+5.0 key 1
+8.0 ability r
+11.0 ability f
+15.0 ability r
+22.0 key 2
+30.0 click
+30.7 click
+31.4 click
+33.0 attack 1
+34.2 attack 0
+36.0 click
+36.7 click

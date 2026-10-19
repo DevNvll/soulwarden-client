@@ -1,0 +1,30 @@
+# Stage P3.H, the second fight run: the fight HUD in the client against the retail takes of set 6 (ui-abilities-bow,
+# ui-damage-numbers, ui-fight-hud, player-death, player-respawn), with the build bow-boltcaster, the dry sand of set 3, and a
+# window of 1280 x 720. The zoom 3.2 (arm 5.2 m) of the first-run videos of set 6 ("The camera zoom" of its README). The bow:
+# R (Explosive Arrow) and F (Rapid Shot) at a Grey Wolf of level 60 at 9 m that ignores the character, R in its cooldown. The
+# rapier at a second wolf at 3 m: a chain of three light hits, a heavy hit, light hits; then the wolf attacks (the bites, the
+# loss of health), the low health, and the death. The routes (tests/drive/p3h-fight2-routes.txt) are on the clock of this
+# file (the "tick" lines are clock marks); the UI drive (tests/drive/p3h-fight2-ui.txt) waits for RESPAWN and presses it.
+# SWC_GAME_SIZE=1280x720 SWC_DESKTOP_MODE=1304x780@60 tools/creature-check.sh p3h-fight2 110 tests/drive/p3h-fight2-routes.txt \
+#   tests/drive/p3h-fight2.txt -- -SwcUiDrive=$PWD/tests/drive/p3h-fight2-ui.txt
+1.0 tick
+2.0 wheel -1.2
+3.0 tick
+5.0 key 1
+8.0 ability r
+11.0 ability f
+15.0 ability r
+18.0 tick
+20.0 key 2
+22.0 click
+22.68 click
+23.36 click
+25.0 attack 1
+26.3 attack 0
+28.5 click
+29.18 click
+31.0 tick
+32.0 tick
+40.0 tick
+50.0 tick
+56.0 tick

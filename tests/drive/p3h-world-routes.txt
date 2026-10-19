@@ -1,0 +1,7 @@
+# The development routes of the compass and plates check of stage P3.H (the clock of the player drive): noon, the creatures
+# ignore the character, one Grey Wolf of level 18 at 30, 15, and 5 m north (1.8 m east), as the retail stills of set 6.
+1 world-time 12:00
+1 ignore on
+28 spawn Wolf_Grey_7 1.8 30 0 --level 18
+34 spawn Wolf_Grey_7 1.8 15 0 --level 18
+40 spawn Wolf_Grey_7 1.8 5 0 --level 18

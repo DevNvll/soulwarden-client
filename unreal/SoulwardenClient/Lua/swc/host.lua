@@ -135,7 +135,10 @@ function Swc.HostAbilityBar(tableCrc, a1, a2, a3)
   Swc.dataBarsChanged = true
 end
 
---- The cooldown of an ability (the cooldown state of the backend): the seconds that are left and the full time.
+--- The cooldown of an ability (the cooldown state of the backend): the seconds that are left and the full time (0: the seconds
+--- that are left at the start). A new end of a running cooldown (the server cuts the cooldowns of the weapon after some hits)
+--- keeps the full time: the fill of the slot (weaponquickslots.luac: GetAbilityCurrentCooldown / GetTotalCooldownTime) then
+--- drops, as in the retail take ui-abilities-bow of set 6 (16 to 14 at the critical hit of Rapid Shot, the fill lower).
 function Swc.HostCooldown(key, left, total)
   if left <= 0 then
     if Swc.player.cooldowns[key] then
@@ -149,7 +152,8 @@ function Swc.HostCooldown(key, left, total)
   if cd and math.abs(cd.ends - ends) < 0.25 then
     return
   end
-  Swc.player.cooldowns[key] = {ends = ends, total = total > 0 and total or left}
+  local running = cd and cd.ends > Swc.time and ends < cd.ends
+  Swc.player.cooldowns[key] = {ends = ends, total = total > 0 and total or running and cd.total or left}
   Swc.Notify("CharacterAbilityNotificationBus", Swc.ids.root, "OnAbilityTriggered", key, left, false)
 end
 

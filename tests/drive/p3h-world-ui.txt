@@ -1,0 +1,12 @@
+# Stage P3.H: the UI drive of the compass and the plates (tests/drive/p3h-world.txt). Times in seconds from the spawn.
+1 waitfor CompassLines 60
+2 waitfor world 180
+8 draw compass-n
+12 draw compass-e
+16 draw compass-s
+20 draw compass-w
+24 draw compass-n2
+32 draw plate-30
+38 draw plate-15
+44 draw plate-05
+50 end

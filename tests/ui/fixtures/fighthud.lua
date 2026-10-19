@@ -150,3 +150,19 @@ frames(9.0)
 local meter70 = find(root(xp), "XpMeter")
 check(not UiElementBus.Event.IsEnabled(meter70) or (swcui.get(meter70, "fader.fade") or 1) < 0.05,
   "the level mark hides at the maximum level 70")
+
+-- A cut of a running cooldown (the server gives a new, earlier end after a critical hit; set 6 ui-abilities-bow: R 16 to 14):
+-- the full time stays, thus the fill of the slot drops (weaponquickslots.luac: the time left / GetTotalCooldownTime).
+local ability = 617453373
+Swc.HostCooldown(ability, 19.7, 0)
+frames(0.5)
+Swc.HostCooldown(ability, 17.0, 0)
+frames(0.1)
+near(CharacterAbilityRequestBus.Event.GetTotalCooldownTime(Swc.ids.root, ability), 19.7, 0.01,
+  "a cut of a running cooldown keeps the full time")
+check(CooldownTimersComponentBus.Event.GetAbilityCurrentCooldown(Swc.ids.root, ability) < 17.0,
+  "the cut gives the new time left")
+Swc.HostCooldown(ability, 0, 0)
+Swc.HostCooldown(ability, 12.0, 0)
+near(CharacterAbilityRequestBus.Event.GetTotalCooldownTime(Swc.ids.root, ability), 12.0, 0.01,
+  "a new cooldown after the end: its own full time")

@@ -595,6 +595,24 @@ the client window) and the retail combat capture of set 6 (the list of the UI tr
 - The screens: the client also loads the consumable quick slots (`hud2024/consumablequickslots`: the slots 3 to 6, the
   paperdoll slots QuickSlot1 to QuickSlot4, 14 to 17, with the item counts and the keys) and the level and XP meter
   (`hud2024/xp`: the level under the vitals; `xpmeter.luac` shows an XP popup at a change and hides it after 1.9 s).
+- The level mark at the maximum level: `xpmeter.luac` hides the meter when the level is at the maximum of the expansion data
+  (`GetOwnedExpansionData().maxCharacterLevel`: `MaxDisplayLevel` of `javelindata_expansions`, 70) and
+  `Hud.LocalPlayer.ProgressionRequestBus.IsConnected` is true (the player spawn sets it). It shows the level up for 6 s, then
+  fades out in 2 s. The retail pictures of set 6 (level 70) show no level mark.
+- The quick slot keys 3 to 6 (`consumablequickslots.luac`): `ItemCommon:GetFullDescriptorFromId` reads the item data (the
+  emulated item data has the gear score override and range and the fixed perks Perk1 to Perk5), then
+  `LocalPlayerUIRequestsBus.SendVirtualInput("Use_Quickslot_1")` to `_4`. `swc/items.lua` gives the host request
+  `press 404`, `117`, `140`, `513` (the action bits of the consumables, protocol notes section 4). The client puts the bits into
+  the next input entry (`ASwcPlayerController::PressVirtualBits`, K3: one press for each input entry; of two presses in one
+  input step only the last one reaches the server).
+- The cooldowns of the consumables: the cooldown state of the read path (field 3: the CRC-32 of the lower-case item id and the
+  end) goes to `Swc.HostItemCooldown(crc, seconds)`: `Hud.LocalPlayer.Cooldowns.<crc>.ItemId` and `.TimeRemaining`
+  (`itemlayout.luac`), and `CooldownTimersComponentBus.IsConsumableOnCooldown` and `GetConsumableCooldown` answer for the
+  consumable id (the item CRC). The slot shows the orange fill and the count.
+- The bow reticle (`reticlebow.luac`): `WeaponAccuracyRequestBus.GetEstimatedInaccuracy` is 1 at rest and 0 in the aim (the
+  client sends the aim from the camera state: `Swc.HostAim`). The bars are at Lerp(18, 26, t) and the dots at Lerp(11, 18, t)
+  from the center: 26 and 18 pixels at rest, 18 and 11 in the aim, as in `ui-crosshair-bow.png` and
+  `ui-crosshair-bow-aim.png` of set 6. The spread model of the native code (the draw time, the move) is not known.
 - The vitals: only the health bar shows its number. The stamina and mana numbers follow the option
   `Video.HudShowVitalsValues`: off (the program and the saved retail options).
 - The reticle (`hud2024/reticles/reticlescanvas`, `reticlesmanager.luac`; the native part: `swc/reticle.lua`):
@@ -617,6 +635,36 @@ the client window) and the retail combat capture of set 6 (the list of the UI tr
   region the shift and the scale of the client picture where the edges agree best, and a picture of the two regions and their
   edges (retail red, client green). With different content (another build, another heading) the score is low: the edge
   picture is then the check.
+- The cut of a running ability cooldown: the server gives a new, earlier end (the cooldowns of the weapon after some critical
+  hits). `Swc.HostCooldown` keeps the full time of the running cooldown, thus the fill of the slot drops, as in retail.
+  Before, the fill started again at full with the new time left.
+
+The check against the retail set 6 (2026-10-19, `~/Games/soulwarden-client/evidence/P3.H/compare`; the client runs
+`p3h-views`, `p3h-world`, `p3h-fight`, `p3h-fight2` at 1280 x 720 with the build bow-boltcaster on the dry sand of set 3; the
+times are from the line of the backend):
+
+| Item | Retail | Client |
+| --- | --- | --- |
+| The reticle (sheathed, rapier, bow, bow aim) | four white ticks; the bow bars 26 and 18 px, 18 and 11 px in the aim | the same (`compare-*.png`) |
+| The HUD places (vitals, weapon slots, abilities, quick slots) | | the same places (`hud_compare.py`) |
+| The level mark at level 70 | no mark | no mark after 047009b (`compare-level-mark.png`) |
+| The cooldown fill of R, F after the cast | 0.29 s (R), 0.28 s (F) | 0.35 s (R), 0.32 s (F) |
+| The cooldown count | R 19, 18, 16 at 0.2, 1, 3 s | the same (`strip-abilities-*.png`) |
+| A cut of the cooldowns at a critical hit | R 16 to 14, the fill drops | the count drops (`strip-cooldown-cut.png`: the fill started again at full); the fix of `HostCooldown` (the fixture `fighthud`, not yet in a run) |
+| A press in the cooldown | refused ("the cooldown runs") | refused; the slot shows the count |
+| The potion (key 3) | heal 2500, the cooldown fill 0.45 s after the use line | heal 2500 (K3, bit 404), the fill after the cooldown state of the server: the count is 1 lower at the same time (`sbs-potion.mp4`) |
+| The health loss of 4400 | the number 0.1 s after the line; the trail stays 0.6 s after the last change, then 0.3 s | the number 0.2 s after the line; the trail the same (`strip-health-trail-*.png`: `multifillmeter.luac` decreaseDelay 0.6, fillAnimTime 0.3) |
+| The damage numbers of the rapier | the two parts of a split hit with the type icons, the lightning number of the perk | the same; a critical hit is orange (`strip-damage-heavy.png`, `sbs-damage.mp4`) |
+| The plates | a plate at 5 m, none at 15 m and 30 m | the same; the plate is about 30 percent wider (open point) |
+| The compass (N, E, S, W) | | the same marks and places (`compare-compass.png`) |
+| The death: the start of the darkening | 1.54 s after the death | 0.35 s after the death |
+| The death: the darkening to the respawn screen | 6.2 s | 6.2 s (`strip-death-*.png`, `sbs-death.mp4`) |
+| The respawn screen | "YOU DIED!", the map, "Random Location", RESPAWN | the same |
+
+`respawn.luac` queues the respawn screen only when both `Hud.LocalPlayer.Vitals.IsDead` and `Hud.LocalPlayer.OnPlayerDeath`
+are set. The retail health bar still showed the health before the death bite 1.4 s after the death line: the native vitals
+of the retail client gave the death late in that take (one take, with still video frames at that time). The client sets
+the two values in the same frame.
 
 ## The data of the backend
 
@@ -715,7 +763,7 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `options` | The original Options screen from the button Settings of the escape menu: the defaults of the client program (the camera shake on, the master volume 100), a label with more text ("Monitor 1"), a picture of each category (Game, Keyboard & Mouse, Controller, Video, Audio, Social, Accessibility, About) and of the two binding tabs; the key page: a click on the jump row starts the listen (the client gets `keybinding 1`), a key that no action has binds the jump (the UI actions use it; the client gets the rebind and the save; the hints get the key), the key of the journal (J) gives the conflict popup, the reset of the page sets the defaults again (`rebind-reset`). Pictures `options-*`. |
 | `fighthud` | The fight HUD screens (Vitals2024, WeaponQuickslots, ConsumableQuickslots, XP, Compass, ReticlesCanvas) with a player of the host calls: two weapons with ability bars, the heart rune, three consumables in the quick slots. The quick slot 1 shows the count 9 and the key 3; the empty slot 3 shows only the key 5; the level 65 shows under the vitals and the XP popup of the spawn is out after 3 s; the weapon slots show the other weapon (key 2) and the heart rune (key G); the reticle of the sword is the melee reticle
 (`ReticleToShow` 3488054177), it shows with the weapon sheathed; a drawn bow gives the bow reticle (2551600555). The HUD edit mode sets the
-default HUD layout. Pictures `fighthud`, `fighthud-bow`, `fighthud-1256` (the window size of the retail pictures). |
+default HUD layout. A cut of a running cooldown keeps its full time. Pictures `fighthud`, `fighthud-bow`, `fighthud-1256` (the window size of the retail pictures). |
 | `loader` | The screen loader of the game (`uiloader.luac`) at a world entry, with two allowed screens (Vitals2024, InfoModal): it asks only for canvases of its list (`gamedata/loader.json`, 153 paths), one time each, with the ending `.uicanvas` (105 for the world); it counts each load and failure and sets the state HUD; the HUD screen has no autohide and shows, the menu has autohide and shows only in its state. Each canvas that the game has for the two lists (the UI loader and the 69 canvases of `dynamiccanvasloader.luac`) is converted; 2 paths of the UI loader have no canvas in the game. |
 | `escape` | The original EscapeMenu and Popup screens driven by keys and clicks (`Swc.HostInput`): Escape in the HUD fires `toggleMenuComponent`, the state goes to "esc", the menu shows with the cursor and the maps player, movement, camera off; exit to desktop opens the quit popup over the menu (the state stays; the map ui off); Escape fires `ui_genpop_cancel` and closes only the popup; the pointer hovers a menu button again; Escape gives `OnEscapeKeyPressed` to the menu and the HUD comes back with its maps. Pictures `escape-menu`, `escape-popup`, `escape-focus`. |
 | `loading` | The loading screen of the game (`loadingscreen.luac`) shows and hides with the events of the native code; a refused connection gives the original error popup (`popup.luac` ShowError, `UIError_login_unable_to_connect`) with the cursor, and its OK button closes it. Pictures `loading-start`, `loading-later`, `loading-error`. |
@@ -884,6 +932,17 @@ Soulwarden evidence of creatures, abilities-crit, fight, loot, loot-bags, gather
   - `Hud.LocalPlayer.HasReticleTarget` is false: the target rule of the native code is not known (`ReticleRayCastDistance` is
     3.0 for the weapons). The `ReticleTargetName` of the sword is `spearHaveTarget` (the throw reticle of the manager); whether
     the native code sets the target name in `ReticleToShow` is not known.
-  - The bow reticle shows no part at rest (its parts show during the aim): a check with the retail picture of a drawn bow (set 6).
   - The action bar (`hud2024/actionbar/actionbar`: the social and chat buttons at the bottom left) is not loaded: not a part of
     the fight HUD.
+  - Not checked against retail: the bites on the character and their numbers (in the two client runs the wolves died before
+    they attacked), the respawn (the RESPAWN click of the UI drive came too early; `tests/drive/p3h-fight2-ui.txt` now clicks
+    later; the retail respawn has no loading screen, the client shows the loading screen of a respawn), the stamina and mana
+    bars in use (`player-dodge-stamina-2`, `ui-abilities-lifestaff`, `ui-mana-empty`), the option pages.
+  - The retail screen gets dark and red at low health and at a hit (a screen effect of the native code, not a canvas): the
+    client has no such effect.
+  - The retail client dims the keys of all quick slots for about 0.5 s at a use (the drink state); the client has no drink
+    state (the drink animation is an item of the player track).
+  - The plate of a creature is about 30 percent wider than in retail at the same distance (the cause is not known: the
+    camera, or the scale of the world view canvas).
+  - The client shows the prompt "E GREY WOLF" over a dead wolf at 3 to 9 m; the retail takes of set 6 show no prompt (their
+    kills gave no loot: "the creatures ignore it").

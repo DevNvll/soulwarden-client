@@ -1,0 +1,15 @@
+# Stage P3.H: the UI drive of the fight HUD check (tests/drive/p3h-fight.txt). Times in seconds from the spawn of the player.
+1 waitfor CompassLines 60
+2 waitfor world 180
+4 draw rest
+7 draw bow
+9 draw ability-r
+13 draw ability-f
+16 draw r-in-cooldown
+32 draw fight
+47 draw low-health
+62 draw death
+68 point text:RESPAWN
+68 click
+78 draw respawned
+85 end

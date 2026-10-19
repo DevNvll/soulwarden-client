@@ -1,0 +1,10 @@
+# The development routes of the fight HUD check of stage P3.H (the clock of the player drive): noon; a Grey Wolf of level 18
+# 4 m north that attacks; 4400 damage (the low health of the retail take ui-fight-hud); the death (the retail take
+# player-death: the respawn screen 5 s later). The run of 2026-10-19 12:05 ran these routes on the clock of the UI drive (the routes
+# tool also read the lines "ui drive: SECONDS s"; fixed): the wolf came at 11 s of the player drive, the damage at 25 s and 40 s.
+1 world-time 12:00
+1 ignore on
+24 spawn Wolf_Grey_7 0 4 0 --level 18
+25 ignore off
+45 hurt 4400
+55 hurt 99999
