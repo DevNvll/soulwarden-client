@@ -12,8 +12,10 @@ option -SwcMatchView=PLAN. For each view the client logs "ready"; this tool move
 client sets the camera of the picture, waits for the streaming, and logs "in place"; this tool sets the world hour of the backend a
 lead time before the hour of the picture (the world-time route); the client waits for the new record, the settle time, and the hour
 of the picture on its own clock, and takes the picture (1280 x 720). Then, for each view: FOLDER/side/VIEW.png (retail | client,
-with the hours and the place), FOLDER/contact-sheet.png, FOLDER/report.json, and the compare of the client clock with the server
-(tools/lib/world_time_compare.py).
+with the hours and the place), FOLDER/contact-sheet.png, FOLDER/report.json, the compare of the client clock with the server
+(tools/lib/world_time_compare.py), and the color report (tools/lib/color_report.py: FOLDER/colors.json, FOLDER/colors.txt with one
+line for each view, FOLDER/color-sheet.png with the numbers next to each picture). tools/match-view.sh --colors FOLDER: the color
+report of an existing folder.
 """
 from __future__ import annotations
 
@@ -30,10 +32,14 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import color_report  # noqa: E402
+
 REPO = Path(__file__).resolve().parents[2]
 REFERENCES = Path.home() / "Games/soulwarden/work/evidence/unreal-references"
 WORK = Path(os.environ.get("SWC_WORK") or Path.home() / "Games/soulwarden-client")
 FONT = "/usr/share/fonts/TTF/DejaVuSans.ttf"
+MONO = "/usr/share/fonts/TTF/DejaVuSansMono.ttf"
 DAY_RATE, NIGHT_RATE = 26.0, 44.0   # game seconds in one real second (backend DayCycle defaults; docs/ENVIRONMENT.md)
 
 
@@ -87,6 +93,19 @@ def view_measures(log: Path, views: list[dict]) -> None:
         by_name[name]["gpuWindows"] = len(values)
 
 
+def world_hour_of(source: dict) -> float | None:
+    """@return The world hour of a view whose client hour is not the world hour (an hour override of an interior): the backend world
+    time after the picture when it differs from the client hour by more than 0.25 h; else no value."""
+    hours = source.get("world_hour") or {}
+    match = re.match(r"(\d+):(\d+):(\d+)", str(hours.get("backend_world_time_after_picture", "")))
+    if not match:
+        return None
+    world = int(match[1]) + int(match[2]) / 60.0 + int(match[3]) / 3600.0
+    client = float(hours.get("client_hour_at_picture", world))
+    difference = abs(world - client) % 24.0
+    return world if min(difference, 24.0 - difference) > 0.25 else None
+
+
 def side_by_side(view: dict, reference: Path, client: Path, out: Path) -> None:
     left = Image.open(reference).convert("RGB").resize((1280, 720))
     right = Image.open(client).convert("RGB").resize((1280, 720)) if client.is_file() else Image.new("RGB", (1280, 720), (60, 20, 20))
@@ -109,12 +128,35 @@ def side_by_side(view: dict, reference: Path, client: Path, out: Path) -> None:
     image.save(out)
 
 
-def contact_sheet(files: list[Path], out: Path, columns: int = 2) -> None:
+def number_panel(lines: list[str], height: int, width: int = 640) -> Image.Image:
+    """@return A panel with the numbers of the color report of a view (the contact sheet)."""
+    panel = Image.new("RGB", (width, height), (19, 25, 34))
+    draw = ImageDraw.Draw(panel)
+    try:
+        mono = ImageFont.truetype(MONO, 15)
+    except OSError:
+        mono = ImageFont.load_default()
+    for index, line in enumerate(lines):
+        draw.text((10, 10 + 22 * index), line, font=mono, fill=(238, 242, 249) if index == 0 else (175, 190, 209))
+    return panel
+
+
+def contact_sheet(files: list[Path], out: Path, columns: int = 2, panels: list[list[str]] | None = None) -> None:
+    """Writes a contact sheet of the side-by-side pictures; with panels, each picture gets a column with the numbers of its color
+    report at its right."""
     if not files:
         return
     tiles = [Image.open(f).convert("RGB") for f in files]
     width = 1280
     tiles = [t.resize((width, int(t.height * width / t.width))) for t in tiles]
+    if panels:
+        joined = []
+        for tile, lines in zip(tiles, panels):
+            row = Image.new("RGB", (width + 640, tile.height), (10, 12, 16))
+            row.paste(tile, (0, 0))
+            row.paste(number_panel(lines, tile.height), (width, 0))
+            joined.append(row)
+        tiles, width, columns = joined, width + 640, 1
     height = max(t.height for t in tiles)
     rows = (len(tiles) + columns - 1) // columns
     sheet = Image.new("RGB", (width * columns, height * rows), (10, 12, 16))
@@ -138,6 +180,14 @@ def main() -> int:
                              "(a look value to compare in one run; the picture VIEW@NAME)")
     parser.add_argument("--character", default=os.environ.get("SWC_DEV_CHARACTER", ""))
     parser.add_argument("--client-args", nargs=argparse.REMAINDER, default=[])
+    if len(sys.argv) == 3 and sys.argv[1] == "--colors":
+        # The color report of an existing folder (the numbers before a change): FOLDER/colors.json, colors.txt.
+        folder = Path(sys.argv[2])
+        colors = color_report.folder_report(folder)
+        sides = [folder / "side" / f"{name}.png" for name in colors if (folder / "side" / f"{name}.png").is_file()]
+        contact_sheet(sides, folder / "color-sheet.png", panels=[color_report.panel_lines(p.stem, colors[p.stem]) for p in sides])
+        print((folder / "colors.txt").read_text(), end="")
+        return 0
     args = parser.parse_args()
     folder = Path(args.set) if Path(args.set).is_dir() else REFERENCES / args.set
     index = json.loads((folder / "index.json").read_text())
@@ -149,8 +199,18 @@ def main() -> int:
     views = []
     for entry in entries:
         source = json.loads((folder / entry["json"]).read_text())
+        view_json = folder / entry["json"]
+        world = world_hour_of(source)
+        if world is not None:
+            # An interior with an hour override (set4-weather keep-inside-noon: the client hour 0.0, the world 12:04): the run sets and
+            # waits for the world hour; the view JSON for the client gets it (views/NAME.json).
+            source["world_hour"]["interior_client_hour"] = source["world_hour"]["client_hour_at_picture"]
+            source["world_hour"]["client_hour_at_picture"] = world
+            (out / "views").mkdir(exist_ok=True)
+            view_json = out / "views" / f"{entry['view']}.json"
+            view_json.write_text(json.dumps(source, indent=1))
         camera = source["camera"]
-        views.append({"name": entry["view"], "json": str(folder / entry["json"]), "reference": str(folder / entry["file"]),
+        views.append({"name": entry["view"], "json": str(view_json), "reference": str(folder / entry["file"]),
                       "out": str(out / "client" / entry["file"]), "place": source.get("place", ""),
                       "feet": [source["feet"]["x"], source["feet"]["y"], source["feet"]["z"]],
                       "camera": [camera["x"], camera["y"], camera["z"]], "heading": camera.get("heading_deg_cw_from_north", 0.0),
@@ -259,6 +319,21 @@ def main() -> int:
         side_by_side(view, Path(view["reference"]), Path(view["out"]), side)
         sides.append(side)
     contact_sheet(sides, out / "contact-sheet.png")
+    # The color report (tools/lib/color_report.py): client against retail, the character masked out of both pictures.
+    colors, panels, written_sides = {}, [], []
+    for view, side in zip(views, sides):
+        if not Path(view["out"]).is_file():
+            continue
+        colors[view["name"]] = color_report.compare(Path(view["out"]), Path(view["reference"]), json.loads(Path(view["json"]).read_text()))
+        view["colorSummary"] = color_report.summary(view["name"], colors[view["name"]])
+        panels.append(color_report.panel_lines(view["name"], colors[view["name"]]))
+        written_sides.append(side)
+    (out / "colors.json").write_text(json.dumps(colors, indent=1))
+    (out / "colors.txt").write_text("".join(v["colorSummary"] + "\n" for v in views if "colorSummary" in v))
+    contact_sheet(written_sides, out / "color-sheet.png", panels=panels)
+    for view in views:
+        if "colorSummary" in view:
+            print("match-view: colors " + view["colorSummary"], flush=True)
     compare = subprocess.run([sys.executable, "-B", str(REPO / "tools/lib/world_time_compare.py"), str(out), args.label], capture_output=True, text=True, check=False)
     (out / "clock-compare.txt").write_text(compare.stdout + compare.stderr)
     report = {"set": str(folder), "run": args.label, "date": datetime.datetime.now().isoformat(timespec="seconds"), "done": done,

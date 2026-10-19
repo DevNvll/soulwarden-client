@@ -276,6 +276,25 @@ the camera, the field of view, the measured world hour), or its name in `~/Games
 | The hour | The client logs `in place`; the tool sets the world hour of the backend 14 real seconds before the hour of the retail picture (the world-time route; the rate of the part of the cycle). The client waits for the new record, the settle time (4 s), and the hour of the picture on its own world clock (1 game second), and takes the picture (a high resolution screenshot of 1280 x 720). |
 | The output | `FOLDER/client/NAME.png`, `FOLDER/side/NAME.png` (retail on the left, client on the right, with the two hours, the feet, the camera, and the field of view), `FOLDER/contact-sheet.png`, `FOLDER/report.json` (the client hour of each picture and its difference from the retail hour), the logs, and `clock-compare.txt` (`tools/lib/world_time_compare.py`: the client clock against the server). |
 
+An interior with an hour override (the client hour is not the world hour, for example the keep of Dunwood: the client hour 0.0 at
+the world hour 12:04) gets the world hour of `backend_world_time_after_picture` of its JSON when it differs from the client hour by
+more than 0.25 h; the client then shows the hour of its volume.
+
+### The color report
+
+`tools/lib/color_report.py` (the decision of the user, 2026-10-19: the colors of the client copy the retail colors). For each view,
+the client picture against its retail picture, for the whole picture and for 3 bands (the top third: the sky or the high walls; the
+middle third; the bottom third: the ground): the mean and the spread of R, G, and B (sRGB), of the luminance (CIE L*), of the
+saturation (HSV), and of the hue (the circular mean weighted by the saturation); the mean CIELAB color; the dark part (L* under 10)
+and the bright part (L* over 90); the differences (client - retail) and the CIEDE2000 distance of the two mean colors. The character
+is masked out of both pictures: the box of its feet and head (2 m high, 0.55 m to each side, a margin of 8 pixels), projected with
+the camera of the JSON. The HUD of the retail pictures is hidden (F10), so it needs no mask. The output: `FOLDER/colors.json`,
+`FOLDER/colors.txt` (one line for each view: the distance, the L* difference, the L* spread difference (the contrast), the
+saturation difference, and the hue difference of each band, and the dark parts), and `FOLDER/color-sheet.png` (each side-by-side
+picture with its numbers). `tools/match-view.sh --colors FOLDER` makes the report for an existing folder (the numbers before a
+change). The ground band differs in most views until the terrain materials of the world track (T1): judge the sky, the walls, and
+the foliage first.
+
 The client picture has the hour of the retail picture. The weather of a retail picture is not measured (null in the set); the
 client selects its own volumes (stage E3).
 
