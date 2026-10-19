@@ -1270,10 +1270,17 @@ void USwcBackendSubsystem::UpdatePlayer()
 		UE_LOG(LogSwcBackend, Log, TEXT("move: %s (fragment %s), %.2f m/s, feet %.3f %.3f %.3f m"), *UEnum::GetValueAsString(LastMove),
 			*Movement->GetFragment(), Movement->GetHorizontalSpeed(), Motion.character.x, Motion.character.y, Motion.character.z);
 	}
-	// A speed sample each second while the character moves (development runs: the speed checks of stage P3.3).
+	// A speed sample each second while the character moves (development runs: the speed checks of stage P3.3);
+	// -SwcMoveSamples=SECONDS sets the interval (the time and distance checks of stage P3.G).
 	if (!bPlayerRun && Movement->GetHorizontalSpeed() > 0.05f && World->GetTimeSeconds() >= NextMoveSample)
 	{
-		NextMoveSample = World->GetTimeSeconds() + 1.0;
+		static const double SampleInterval = []
+		{
+			double Value = 1.0;
+			FParse::Value(FCommandLine::Get(), TEXT("-SwcMoveSamples="), Value);
+			return FMath::Clamp(Value, 0.02, 10.0);
+		}();
+		NextMoveSample = World->GetTimeSeconds() + SampleInterval;
 		UE_LOG(LogSwcBackend, Log, TEXT("move: sample %s, %s, %.3f m/s, feet %.3f %.3f %.3f m, water class %d depth %.3f m"),
 			*UEnum::GetValueAsString(LastMove), *Movement->GetMotionName(), Movement->GetHorizontalSpeed(), Motion.character.x, Motion.character.y,
 			Motion.character.z, static_cast<int32>(Movement->GetWaterClass()), Movement->GetWaterDepth());

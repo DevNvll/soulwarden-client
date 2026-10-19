@@ -1,0 +1,30 @@
+# The movement with the weapon drawn and sheathed (stage P3.G, AST-193; docs/MOVEMENT.md "The native Nav"), with the routes of
+# tests/drive/p3g-move-routes.txt; the camera looks north. The rule: with a weapon in the hand (a combat stance) the run is 4.0 m/s
+# with accel and decel 25 (the native Nav), the sprint 5.5 m/s (Sprint_Start: accel 10 with a weapon). The windows (the drive
+# clock): drawn S 4.2 to 6.7, D 7.2 to 9.7, A 10.2 to 12.7, walk W 13.2 to 15.2, W (sprint) 15.7 to 17.7; sheathed S 21.2 to 23.7,
+# A 24.2 to 26.7, walk W 27.2 to 29.2. The lines "move: sample" of the client log have the speed.
+# SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=10005.8:2291.19:40.5 SWC_STAGE=P3.G \
+#   tools/creature-check.sh p3g-move 34 tests/drive/p3g-move-routes.txt tests/drive/p3g-move.txt
+2.0 key 1
+4.2 move 0 -1
+6.7 move 0 0
+7.2 move 1 0
+9.7 move 0 0
+10.2 move -1 0
+12.7 move 0 0
+13.1 walk 1
+13.2 move 0 1
+15.2 move 0 0
+15.3 walk 0
+15.7 move 0 1
+17.7 move 0 0
+19.0 key sheathe
+21.2 move 0 -1
+23.7 move 0 0
+24.2 move -1 0
+26.7 move 0 0
+27.1 walk 1
+27.2 move 0 1
+29.2 move 0 0
+29.3 walk 0
+31.0 tick
