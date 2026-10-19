@@ -5,16 +5,17 @@
 # Usage: tools/material-proof.sh STAGE [--wait N]
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
+source "${SWC_REPO}/tools/lib/world-lock.sh"   # the world lock first, then import.lock (one order for all the tools)
 export SWC_PROOF_STAGE="${1:?usage: tools/material-proof.sh STAGE [--wait N]}"
 wait_lock=(-n)
 [[ "${2:-}" == "--wait" ]] && wait_lock=(-w "${3:?--wait N}")
 # The test folder of the proof (its level and transient instances) goes away first, under the lock: an editor cannot
 # always delete a level package that a run before made.
-flock "${wait_lock[@]}" -o -E 75 "${SWC_WORK}/unreal/import.lock" \
+world_write "${wait_lock[@]}" flock "${wait_lock[@]}" -o -E 75 "${SWC_WORK}/unreal/import.lock" \
     bash -c 'rm -rf "${SWC_GAME_CONTENT}/Content/Test/MaterialProof" && exec "$@"' _ \
     "${SWC_REPO}/tools/editor-script.sh" material_proof.py --render || status=$?
 if [[ ${status:-0} -eq 75 ]]; then
-    echo "material-proof: another import holds ${SWC_WORK}/unreal/import.lock" >&2
+    echo "material-proof: a run or a writer holds ${SWC_WORLD_LOCK}, or another import holds ${SWC_WORK}/unreal/import.lock" >&2
     exit 1
 fi
 # editor-script.sh ends with status 0; the Python lines are only in the log of the project. The proof is complete
