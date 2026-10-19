@@ -26,6 +26,11 @@ else
 fi
 log="${out}/client.log"
 rm -f "${log}"
+# The world lock (docs/WORLD.md): the client holds it shared for its run (flock -o: the client does not get the
+# descriptor). A wait for a level build or an import ends after SWC_WORLD_RUN_WAIT seconds.
+source "${SWC_REPO}/tools/lib/world-lock.sh"
+mkdir -p "${SWC_WORK}/unreal"
+world_read true || { echo "flythrough: the world lock was not free (a level build or an import)" >&2; exit 3; }
 if ! omarchy-agent-desktop status "${desktop_id}" >/dev/null 2>&1; then
     omarchy-agent-desktop create "Soulwarden client" --id "${desktop_id}" --mode "${SWC_DESKTOP_MODE:-1280x720@60}" >/dev/null
 fi
@@ -33,6 +38,7 @@ fi
 omarchy-agent-desktop run --wait 180 --json "${desktop_id}" -- \
     env SWC_DEV_RUN=1 SWC_RUN=development "SWC_SESSION_DATA=${SWC_DEV_DATA}" \
     gamescope --backend wayland -W "${game_size%x*}" -H "${game_size#*x}" -w "${game_size%x*}" -h "${game_size#*x}" -r 60 -- \
+    flock -s -w "${SWC_WORLD_RUN_WAIT:-900}" -o "${SWC_WORLD_LOCK}" \
     "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" -game -nosound -windowed -ResX="${game_size%x*}" -ResY="${game_size#*x}" \
     -SwcFlythrough="${run_plan}" -abslog="${log}" ${SWC_FLY_EXTRA:+"${SWC_FLY_EXTRA}"} > "${out}/launch.json" 2>&1 || true
 for _ in $(seq 1 1800); do

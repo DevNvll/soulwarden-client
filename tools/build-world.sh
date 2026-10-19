@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the open world level (/SwcGameContent/World/NewWorld) region by region with no window
-# (unreal/SoulwardenClient/Scripts/build_world.py). Each call holds import.lock (the level is in the shared plugin)
+# (unreal/SoulwardenClient/Scripts/build_world.py). Each call holds the world lock exclusively (no run of the client
+# streams the level while a call writes it; tools/lib/world-lock.sh) and import.lock (the level is in the shared plugin)
 # and stops after about 4 minutes of work (SWC_WORLD_MAX_SECONDS; a region has three steps); the script calls again
 # until the region is in the level, and waits 15 s between two calls, so that an import of another track gets the
 # lock. Each call writes one line to the output: the status, the seconds with the lock, and the last region line.
@@ -11,6 +12,7 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 "${SWC_REPO}/tools/content-link.sh"
+source "${SWC_REPO}/tools/lib/world-lock.sh"
 regions=()
 import=0
 for argument in "$@"; do
@@ -44,7 +46,7 @@ render=(-AllowCommandletRendering -RenderOffscreen)
 build_call() {   # build_call REGIONS LABEL
     status=0
     rm -f "${SWC_WORK}/logs/build-world-seconds"
-    SWC_WORLD_REGIONS="$1" flock -w 3600 -o -E 75 "${SWC_WORK}/unreal/import.lock" \
+    SWC_WORLD_REGIONS="$1" world_write -w 3600 flock -w 3600 -o -E 75 "${SWC_WORK}/unreal/import.lock" \
         bash -c 'out="$1"; shift; start=${SECONDS}; status=0; "$@" || status=$?; echo $((SECONDS - start)) > "${out}"; exit ${status}' _ \
         "${SWC_WORK}/logs/build-world-seconds" \
         systemd-run --user --scope -q -p CPUQuota="${SWC_CPU_QUOTA:-400%}" -p MemoryMax="${SWC_MEMORY_MAX:-16G}" \
@@ -78,7 +80,7 @@ for region in "${regions[@]}"; do
     for attempt in $(seq 1 10); do
         status=0
         rm -f "${SWC_WORK}/logs/build-world-seconds"
-        SWC_WORLD_REGIONS="${region}" flock -w 3600 -o -E 75 "${SWC_WORK}/unreal/import.lock" \
+        SWC_WORLD_REGIONS="${region}" world_write -w 3600 flock -w 3600 -o -E 75 "${SWC_WORK}/unreal/import.lock" \
             bash -c 'out="$1"; shift; start=${SECONDS}; status=0; "$@" || status=$?; echo $((SECONDS - start)) > "${out}"; exit ${status}' _ \
             "${SWC_WORK}/logs/build-world-seconds" \
             systemd-run --user --scope -q -p CPUQuota="${SWC_CPU_QUOTA:-400%}" -p MemoryMax="${SWC_MEMORY_MAX:-16G}" \

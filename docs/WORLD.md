@@ -48,10 +48,26 @@ worktree. The place is a content plugin outside the repository:
 - One import at a time: `tools/import.sh` holds `~/Games/soulwarden-client/unreal/import.lock` (`flock -o`: the
   servers that the editor starts do not keep the lock). Do not import while an editor of another checkout has the
   same assets open.
+- The world lock, a readers-writer lock: `~/Games/soulwarden-client/unreal/world-build.lock`
+  (`tools/lib/world-lock.sh`). A run of the client streams the assets of the level: the external actors of the cells,
+  the meshes, the collision meshes. A level build deletes and writes these files. A creature run that read such a
+  file at that time stopped (`ReadFile` errno 2 on an external actor, then the assertion `IsValid` in
+  `UnixPlatformFile.cpp:212`). The rule:
+  - A writer holds the lock exclusively: each call of `tools/build-world.sh`, and each import that deletes assets or
+    makes them again (`tools/import.sh --world`; `--force` and `tools/import-world.sh` use it, because section 6 deletes
+    the old collision mesh). Other writers of streamed assets use it too (the mesh rebuild of the materials track).
+  - A writer takes the world lock first, then import.lock. All tools use this order: no deadlock, and a writer that
+    waits for the runs does not hold import.lock.
+  - A run holds it shared from its start to its end: `tools/lib/session.sh` (thus `tools/dev-run.sh`, `tools/play.sh`,
+    `tools/match-view.sh`, `tools/creature-check.sh`) and `tools/flythrough.sh`. Many runs share it.
+  - A run waits at most `SWC_WORLD_RUN_WAIT` seconds (default 900) for a writer, then ends with status 3. A writer waits
+    at most 3600 s (`tools/build-world.sh`) or the `--wait` time of `tools/import.sh`; then its status is 75.
+  - The backend, the client, and the editor do not get the descriptor of the lock (`flock -o`, `7>&-`): the servers that
+    they start can live after them.
 - A long import releases import.lock at least every 10 minutes. `tools/import-world.sh NAME... | --playable | --all`
-  calls `tools/import.sh --regions NAME --max-seconds 480 --wait 3600` until the region is complete (the import script
-  stops after the batch that passes the time) and waits 15 s between two calls: an import of another track that
-  waits on the lock (`flock -w`) gets it there.
+  calls `tools/import.sh --regions NAME --max-seconds 480 --wait 3600 --world` until the region is complete (the
+  import script stops after the batch that passes the time) and waits 15 s between two calls: an import of another
+  track that waits on the lock (`flock -w`) gets it there.
 - The level build obeys the same rule. A region has three steps (the Landscape, the cell actors, the far meshes).
   `build_world.py` stops after the step that passes 400 s of work (`SWC_WORLD_MAX_SECONDS`), and
   `tools/build-world.sh` calls it again until the region is in the level. Each call writes one line to the output

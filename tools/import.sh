@@ -8,6 +8,8 @@
 #                  tools/convert-objects.sh meshes) and their materials and textures
 #   --max-seconds  stop after the batch that passes N seconds (the report has "incomplete": true; call again)
 #   --wait         wait at most N seconds for the lock (default: fail at once when another import holds it)
+#   --world        also hold the world lock exclusively (an import that deletes or makes again assets that the runs
+#                  stream; --force too): no run of the client while it works (tools/lib/world-lock.sh, docs/WORLD.md)
 # The editor commandlet uses at most SWC_CPU_QUOTA (default 400%: 4 cores) and SWC_MEMORY_MAX (default 12G).
 # One import at a time: the import holds SWC_WORK/unreal/import.lock (all checkouts share the plugin). A long import
 # releases the lock at least every 10 minutes (tools/import-world.sh).
@@ -15,9 +17,11 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 export SWC_IMPORT_FILTER="" SWC_IMPORT_REGIONS="" SWC_IMPORT_KEYS="" SWC_IMPORT_MAX_SECONDS=""
 wait_lock=(-n)
+world=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --force) export SWC_IMPORT_FORCE=1 ;;
+        --force) export SWC_IMPORT_FORCE=1; world=1 ;;
+        --world) world=1 ;;
         --max-seconds) shift; SWC_IMPORT_MAX_SECONDS="$1" ;;
         --keys) shift; SWC_IMPORT_KEYS="$(realpath "$1")" ;;
         --wait) shift; wait_lock=(-w "$1") ;;
@@ -30,14 +34,18 @@ done
 mkdir -p "${SWC_WORK}/logs"
 rm -f "${SWC_CONTENT}/import-report.json"
 status=0
-# flock -o: the editor does not get the descriptor of the lock (its trace and cache servers live after it).
-flock "${wait_lock[@]}" -o -E 75 "${SWC_WORK}/unreal/import.lock" \
+# flock -o: the editor does not get the descriptor of the lock (its trace and cache servers live after it). The world
+# lock comes first, then import.lock (the order of all the tools).
+source "${SWC_REPO}/tools/lib/world-lock.sh"
+world_prefix=()
+[[ ${world} -eq 1 ]] && world_prefix=(world_write "${wait_lock[@]}")
+"${world_prefix[@]}" flock "${wait_lock[@]}" -o -E 75 "${SWC_WORK}/unreal/import.lock" \
     systemd-run --user --scope -q -p CPUQuota="${SWC_CPU_QUOTA:-400%}" -p MemoryMax="${SWC_MEMORY_MAX:-12G}" \
     nice -n 10 "${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor-Cmd" "${SWC_UPROJECT}" \
     -run=pythonscript -script="${SWC_REPO}/unreal/SoulwardenClient/Scripts/import_content.py" "${SWC_EDITOR_DDC}" \
     -unattended -nullrhi -nosplash -nosound -nopause -stdout > "${SWC_WORK}/logs/import.log" 2>&1 || status=$?
 if [[ ${status} -eq 75 ]]; then
-    echo "import: another import holds ${SWC_WORK}/unreal/import.lock" >&2
+    echo "import: another import holds ${SWC_WORK}/unreal/import.lock (or, with --world, a run holds ${SWC_WORLD_LOCK})" >&2
     exit 1
 fi
 # The commandlet ends with status 1 when the log has an error line: the report is the result.

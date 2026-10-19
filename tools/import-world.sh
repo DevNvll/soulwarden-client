@@ -37,7 +37,7 @@ print(left)" \
     fi
     for attempt in $(seq 1 100); do
         status=0
-        "${SWC_REPO}/tools/import.sh" --regions "${region}" --max-seconds "${SWC_IMPORT_CALL_SECONDS:-480}" --wait 3600 \
+        "${SWC_REPO}/tools/import.sh" --regions "${region}" --max-seconds "${SWC_IMPORT_CALL_SECONDS:-480}" --wait 3600 --world \
             > "${SWC_WORK}/logs/import-world-last.json" 2>&1 || status=$?
         summary=$(python3 -B -c "
 import json, sys
