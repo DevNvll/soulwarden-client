@@ -202,7 +202,12 @@ water values:
   (the swim views: the retail ocean is a saturated blue, S 0.79; the client S 0.19);
 - the light of the whole picture: in the light of E5 steps 1 and 2a the whole picture is +27 to +31 L* (set 2); the water follows
   it (+2.6 and +2.9 over the picture in the swim views);
-- the river beds: the client beds under the clear water are light (the terrain material, stage T1); the retail beds are dark mud;
+- the river beds: the client beds under the clear water look light; the retail beds are dark. The layers under the water are
+  the layers of the source (r_+04_+02: `lakes_splat`, the river stones, weight about 0.9 under the water of the two river views
+  and 0.01 on the dry ground, drawn late: order 29 of 33; `lakeedge_splat`, the edge mud, at the edges); no cell under the water
+  falls to the default material, and the macro color under the water is the same as on the dry ground. The river stones are dark
+  (albedo 0.067 linear, gloss 0.14, F0 0.058; the forest soil 0.059). Thus the light beds come from the light of the whole
+  picture; measure them again after E5 step 2b;
 - the ocean Fresnel: the source stops at about 0.59 at a grazing view (FresnelGloss), Unreal goes to 1. At the swim view (about 80
   degrees) the source gives about 0.27, Unreal 0.43. Single Layer Water has no input for it.
 
@@ -215,4 +220,9 @@ water values:
 - The edge fades of the rivers (WidthFadeDist, the length fades), the ocean crest foam (FoamCrestAmount), the vertex waves, the
   caustics, the shore foam particles (`water_on_shore`), and the source reflection cubemaps: not used.
 - 18 volumes are tilted (up to 6.4 degrees); the quadtree cannot tell if their surface tilts. The full matrix is used [inference].
+- The ocean Fresnel: the ocean shader of the source limits the reflection at a grazing view (lerp(0.065, 1, (1 − N·V)^5 /
+  (40 − 39 × FresnelGloss)), FresnelGloss 0.98: at most about 0.59); the Fresnel of Single Layer Water goes to 1. At the swim
+  view (about 80 degrees) the source reflects about 0.27 of the sky, the client about 0.43. Single Layer Water has no input for it
+  (a larger roughness lowers the grazing reflection, but also blurs it). The reflection multiplier of the volumes
+  (RealtimeReflMul 0.9) is not used either.
 - The night views: the light of the client at night is the work of the environment track (E1); the water uses the light of the scene.

@@ -443,3 +443,107 @@ tools/build-world.sh --terrain NAME...  # the Landscape of a region again, with 
 - GPU memory: the three arrays are about 1 GB. Each client of this project needs about 6 GB of the 24 GB GPU; with
   other clients and a retail game process on it, a client stopped with "Failed to allocate Device Memory".
 
+## The ground cover of the game (world fidelity T3)
+
+```sh
+tools/convert.sh cover NAME... | --all   # regions/NAME/cover.bin: the descriptors and the packed records (cover.py)
+```
+
+- `region.vegetation` of a region has the grass, ferns, leaf piles, and small plants of the game: a descriptor table
+  (the mesh, the material override, AutoMerge, Bending / 100) and 128 x 128 tiles of 16 m with groups of packed records
+  (research/terrain.md, section 3). Oxboro: 322 descriptors, 10.3 million records, 159 MB. All 49 regions: about 172
+  million records, 2.8 GB. The cover stays packed on disk: no Landscape Grass, no new scatter, no world partition actor.
+- The tile index is row x 128 + column; the row is the 16 m step north from the south edge of the region (measured:
+  the records of tile 129 are at local x 22.8 to 24.8 m, y 16.8 to 30.9 m).
+- `cover.bin`: the descriptor table in Unreal terms (the object path of the mesh, FOLDER/STEM/StaticMeshes/STEM.STEM;
+  the override slots of `cover/pairs.json` of the materials track; the bending), then the bytes of
+  `region.vegetation` unchanged.
+- The client (`World/SwcGroundCover`, on by default since stage T3: `-SwcNoGroundCover` or `SWC_GROUND_COVER=0` turns
+  it off; `-SwcCoverRange=M`, default 100 m): it reads the file of a region off the game thread (Oxboro 0.5 s), loads the
+  meshes and override materials async, and makes the batches of 4 x 4 tiles (64 m) within the range, the nearest first
+  (two in each update of 0.25 s): one instanced component (HISM) for each descriptor of a batch, with the source
+  transforms (the rotation of the engine space as the cells: the quaternion (-x, y, -z, w)), the override materials,
+  and the bending as the custom primitive data 0 "SwcWind". No collision. Not traced yet (T4): the shadows (off), the
+  fade and the view distance of the source (the end cull distance is the range).
+- Measured at Oxboro (2026-10-19): 16 batches, 786 components, 166,818 instances within 100 m. The cover stands where
+  retail has it (the matched views). Its color is the point of the materials track (M_SwcFoliage: the back light of
+  the source is multiplied by the diffuse color).
+- `swc.GroundCover.Show 0` hides the cover and keeps its batches: one matched-view run gives each view with and without
+  the cover (`tools/match-view.sh SET VIEW --variant VIEW@nocover='swc.GroundCover.Show 0'`).
+
+### The T3 check (2026-10-19)
+
+The matched views of sets 1, 2, and 4 in the light of E5 steps 1 and 2a (main c82e988), with M_SwcFoliage version 3,
+each view with and without the cover in one run (`~/Games/soulwarden-client/evidence/T3/e5-set1`, `e5-set2`, `e5-set4`;
+settle 45 s). In each view the batches were in place before the picture: Oxboro 24 batches, 1,200 components, 254,748
+instances; the rivers 15 batches, 111,892 instances; the fen 21 batches, 141,031 instances.
+
+The bottom band (the ground), CIEDE2000 and the L* difference to retail, with the cover / with no cover, and the
+saturation (retail in the last column):
+
+| View | dE with / no cover | L* with / no cover | Saturation with / no cover / retail |
+| --- | --- | --- | --- |
+| noon-road-low | 10.2 / 17.8 | −10.5 / −19.9 | 0.495 / 0.513 / 0.532 |
+| noon-wall-grass | 10.3 / 6.8 | +12.0 / +7.9 | 0.535 / 0.576 / 0.588 |
+| noon-n | 1.6 / 1.4 | −1.6 / −1.5 | 0.449 / 0.448 / 0.452 |
+| river-forest-noon | 25.2 / 30.6 | +26.4 / +31.4 | 0.466 / 0.362 / 0.631 |
+| river-highlands-noon | 28.7 / 29.4 | +33.3 / +36.2 | 0.392 / 0.196 / 0.458 |
+| fen-inside-noon | 23.7 / 24.6 | +26.4 / +27.0 | 0.267 / 0.233 / 0.647 |
+| fen-outside-noon | 10.5 / 7.3 | +13.2 / −1.1 | 0.450 / 0.293 / 0.515 |
+| fen-outside-south-noon | 11.3 / 5.4 | +14.6 / +6.2 | 0.437 / 0.296 / 0.508 |
+
+What the views show: the cover stands where retail has it in each view (the grass of the fen, the flowers and the tall
+grass of the river banks, the grass of the Oxboro walls); with no cover the ground is bare terrain. The cover brings the
+saturation of the ground near retail in seven of the eight views (river-highlands 0.196 to 0.392, retail 0.458). The
+brightness: the river and fen-inside views are +26 to +36 L* with and without the cover (the light of the whole picture,
+E5 step 2b is open). In noon-wall-grass and the two fen-outside views the cover adds 4 to 14 L*: the client grass is
+lighter than the retail grass. The retail grass is darker near the ground; the client cover has no shadow and no terrain
+color at the foot of the blades (T4 and the materials track: BlendTerrainCol of the source vegetation shader).
+
+The cost (main 047009b with T3, the cover on by default, `evidence/T3/cost-main`): pairs at the end of one run, the
+cover shown and hidden at the same place (`-SwcFrameStats=2`, the median of the 2 s windows while the view is in place).
+noon-road-low: GPU p50 41.3 ms with the cover, 42.0 ms with no cover; noon-wall-grass: 42.5 and 43.2 ms; the frame p50
+42.7 / 43.7 and 42.9 / 43.4 ms. Oxboro: 21 batches, 1,033 components, 215,825 instances within 100 m. Two other clients
+used the GPU at that time (about 42 ms in each view, also with no cover): the cost of the cover is below that noise
+(about 1 ms or less). An exact number needs a quiet GPU window.
+
+The light grass (the remark of the user, 2026-10-19: "the colors still washed out"). The fen views with the light of E5
+step 2b (main 5f83073), one run with test variants (`evidence/T3/2b-set4`), the bottom band L* (retail in brackets):
+
+| View | The cover | No cover | The cover with shadows | The cover with no back light |
+| --- | --- | --- | --- | --- |
+| fen-inside-noon (27.4) | 53.1 | 55.3 | 52.9 | 53.6 |
+| fen-outside-noon (21.2) | 34.5 | 20.2 | 34.5 | 30.4 |
+| fen-outside-south-noon (14.2) | 29.8 | 21.1 | 29.7 | 25.7 |
+
+What the source rules and the numbers show:
+
+- The shadows of the cover (`swc.GroundCover.Shadow 1`): no change (0.0 to 0.2 L*).
+- The back light (`swc.GroundCover.BackLight 0`: BackDiffuseMultiplier 0): 4.1 L* of the 14.3 and 8.7 L* that the cover
+  adds in the two fen-outside views. The source grass of these places is `%LEAVES` (not `%GRASS`): its deferred light is a
+  wrap light on both sides (shadelib `ThinTranslucencyBRDF`: T x saturate((-N.L + w) wn) + saturate((N.L + w) wn), T =
+  saturate(BackDiffuseMultiplier x opacity) x TransmittanceColor), only from the lights; the ambient of the source has no
+  back light. Unreal's two-sided foliage also passes the sky light from the back face through the subsurface color
+  (`DiffuseIndirectComposite.usf`; with `r.Lumen.ScreenProbeGather.TwoSidedFoliageBackfaceDiffuse 0` it adds the subsurface
+  color / pi to the diffuse color instead). In these views the camera looks north and the sun is to the north-west
+  (elevation 47.8 degrees): the faces toward the camera are the back faces, and the back light makes most of their light.
+  A fix is in M_SwcFoliage (the materials track).
+- The albedo: the source cover of fen-outside (the records within 24 m, the 12 largest descriptors, the diffuse map
+  where the alpha passes the cutoff x DiffuseColor, linear) has a luminance of 0.061; the terrain layers under it 0.048
+  (+27 %, mostly green). Thus the cover must make that ground somewhat lighter in the same light (about +3 L* at L* 20).
+- The root darkening of the source grass shader (`cDiffuseMap *= Color0.w`, the vertex alpha): the vertex alpha of the
+  fen grass meshes is 1.0 at the roots and the tips (no darkening in the data). The diffuse colors of the `.mtl` (0.491,
+  0.497) are the linear values of the sRGB bytes 185 and 186: the client multiplies them as linear (right).
+- `NormalViewDependency` (0.3 and 0.5 on these materials) bends the G-buffer normal of the blades toward the camera in the
+  source (clusterforward_commonzpass); M_SwcFoliage does not have it. On the normals of the grass meshes at these views it
+  lowers the front sun term by 15 to 55 % and raises the sky term by 0 to 13 %: a small part, mostly darker.
+- The rest (about +7 L* in fen-outside) is the light of the whole picture: the client has almost no dark part
+  (0.01 to 0.03 against 0.14 and 0.30 in retail; the E5 work of the creature track, the sky occlusion).
+
+The river beds (the open point of the water color check, docs/WATER.md): the layers under the water are the layers of
+the source. In r_+04_+02 `lakes_splat` (the river stones) has a weight of about 0.9 under the water of the two river views
+and 0.01 on the dry ground; `lakeedge_splat` (the edge mud) is at the edges; both have T1 slots (L23, L24). They have a
+slot in each region with their weights (where a plan has them inactive, the region has no weight file for them). No cell
+under the water falls to the default material, and the macro color under the water is the same as on the dry ground.
+The river stones are dark (albedo 0.067 linear, the forest soil 0.059). Thus the light look of the beds comes from the
+light of the whole picture, not from the terrain layers.

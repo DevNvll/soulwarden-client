@@ -20,6 +20,9 @@ Usage (through tools/convert.sh):
                                                     of each mesh -> content/collision (default: all static meshes)
   overrides NAME... | --all                         the material overrides of the placements (P4.1): the slot maps of
                                                     the pairs (mesh, material), their records (after census)
+  cover NAME... | --all                             the ground cover of the regions for the client (T3: region.vegetation,
+                                                    packed, with the meshes and override materials of its descriptors;
+                                                    cover.py; after cover_materials and the import of the cover meshes)
   terrain-plan NAME... | --all                      the terrain material plan of each region (T1: the slots in the order
                                                     of priority, the parameters, the macro sets) and the slices of the
                                                     texture arrays (terrain_material.py; after terrain-layers)
@@ -70,6 +73,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("overrides"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("terrain-layers"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("terrain-plan"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
+    p = sub.add_parser("cover"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("preview"); p.add_argument("kind", choices=["mesh", "character", "region"]); p.add_argument("target")
     p.add_argument("--clip"); p.add_argument("--area", type=float, nargs=3); p.add_argument("--frames", type=float, nargs="*", default=[0, 6.5, 13, 19.5])
     args = parser.parse_args(argv)
@@ -107,6 +111,12 @@ def main(argv=None) -> int:
     elif args.command == "space-proof":
         from . import space
         result = space.sheet() if args.sheet else space.proof(args.name, tuple(args.area))
+    elif args.command == "cover":
+        from . import census, cover
+        names = census.world_regions() if args.all else args.names
+        if not names:
+            parser.error("cover needs region names or --all")
+        result = [cover.write(n) for n in names]
     elif args.command == "terrain-plan":
         from . import census, terrain_material
         names = census.world_regions() if args.all else args.names
