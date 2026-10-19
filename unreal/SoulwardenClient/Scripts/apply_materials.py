@@ -8,7 +8,8 @@ SWC_CONTENT/materials/instances.json and textures.json (converter/swc_convert/ma
    their slots). The state key is "materials:KEY" (the stamp of the spec and of the rules of swc_materials).
 Environment: SWC_CONTENT, SWC_GAME_CONTENT, SWC_MATERIALS_FILTER (a text that the key must contain),
 SWC_MATERIALS_KEYS (a file with a JSON list of material keys), SWC_MATERIALS_MAX_SECONDS (stop after the item that
-passes this time; the report has "incomplete": true, and a next call continues).
+passes this time; the report has "incomplete": true, and a next call continues), SWC_MATERIALS_PART (decals: the specs of
+SWC_CONTENT/decals, for example the dm_ instances of the mesh decal companions; default materials).
 """
 import json
 import os
@@ -26,11 +27,12 @@ wanted = os.environ.get("SWC_MATERIALS_FILTER", "")
 keys_file = os.environ.get("SWC_MATERIALS_KEYS", "")
 listed = set(json.load(open(keys_file))) if keys_file else None
 max_seconds = float(os.environ.get("SWC_MATERIALS_MAX_SECONDS") or 0)
+part = os.environ.get("SWC_MATERIALS_PART") or "materials"
 state_path = os.path.join(plugin, "import-state.json")
 state = json.load(open(state_path)) if os.path.isfile(state_path) else {}
 started = time.time()
 unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([sm.ROOT], True)
-specs, textures = sm.load_specs(content)
+specs, textures = sm.load_specs(content, part)
 report = {"seconds": {}}
 if os.environ.get("SWC_MATERIALS_PREFETCH") == "1":
     # Only the textures of the candidate specs (instances-candidate.json): a later deployment of these stages is fast.
@@ -56,7 +58,7 @@ if os.environ.get("SWC_MATERIALS_PREFETCH") == "1":
 else:
     selected = [k for k in specs if (not wanted or wanted in k) and (listed is None or k in listed)]
     sm.log(f"selected {len(selected)} instances")
-    sm.apply_specs(selected, state, force=False, content=content, max_seconds=max_seconds, report=report)
+    sm.apply_specs(selected, state, force=False, content=content, max_seconds=max_seconds, report=report, part=part)
 # import_content.py writes the same file: the lock of tools/apply-materials.sh keeps one writer at a time.
 with open(state_path + ".tmp", "w") as handle:
     json.dump(state, handle, indent=0, sort_keys=True)

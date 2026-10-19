@@ -34,8 +34,9 @@ ROAD_TYPE = "3700da70407d47a6b7884654edda32a1"
 DECAL_TYPE = "1c2ceaa8786f46848202ca7d940d627b"
 FLOAT_TYPE = "ea2c3e90afbe44d4a90dfaaf79baf93d"
 COMPONENTS, WORLD_TM, NAME, ID = F("Components"), F("m_worldTM"), F("Name"), F("Id")
-VERSION = 4   # the rule of the road and decal records (2: road U along the road, V across; decals of type 2 project down;
-              # 3: the ribbon vertices at most STEP_M apart, along and across; 4: the projected decals use dp_ instances)
+VERSION = 5   # the rule of the road and decal records (2: road U along the road, V across; decals of type 2 project down;
+              # 3: the ribbon vertices at most STEP_M apart, along and across; 4: the projected decals use dp_ instances;
+              # 5: the specs have the reflectance: the specular map and SpecularColor)
 
 
 def out_dir(name: str):
@@ -555,8 +556,11 @@ def specs() -> dict:
             spec["textures"]["Gloss"] = use(mr.linear_texture(product, alpha=source.has(product + ".a")))
         if "decal opacity" in maps:
             spec["textures"]["DecalOpacity"] = use(mr.linear_texture(maps["decal opacity"]["product"]))
+        if "specular" in maps:   # the reflectance of the decal (version 5; M_SwcDecal version 7), as on a surface
+            spec["textures"]["Specular"] = use(mr.color_texture(maps["specular"]["product"], "base"))
         params = rules["params"]
         spec["vectors"]["DiffuseColor"] = list(rules["diffuse"]) + [alpha]
+        spec["vectors"]["SpecularColor"] = list(rules["specular"]) + [1.0]
         spec["vectors"]["UVTransform"] = mr.uv_transform(maps.get("diffuse", {}).get("uv"))
         spec["scalars"]["Smoothness"] = max(1 / 127, float(rules["shininess"]) / 255)
         spec["scalars"]["DecalAlphaMult"] = float(params.get("DecalAlphaMult", 1.0))

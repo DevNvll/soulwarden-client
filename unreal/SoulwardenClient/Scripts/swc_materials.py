@@ -21,13 +21,15 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "3", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "5",
+PARENT_VERSIONS = {"M_SwcFoliage": "3", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "7",
                    "M_SwcGlass": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
 # M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals;
 # 4: the entity color and opacity (DecalColor), the angle fade of the projected decals (static switch Projected);
-# 5: the view bias in the vertex shader without CameraVectorWS (3 and 4 did not compile); M_SwcFoliage 2: the wind (M6) and
+# 5: the view bias in the vertex shader without CameraVectorWS (3 and 4 did not compile); 6: the normal of the
+# projected decals out of the surface (5 had it into the surface); 7: the reflectance of the source decal (the
+# specular map x XML Specular; 6 and before: the default 0.5); M_SwcFoliage 2: the wind (M6) and
 # the vertex alpha occlusion; 3: the subsurface color x the albedo, as the back light of the source)
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
@@ -595,7 +597,16 @@ def decal_parent(content, state):
     tinted = multiply(material, (albedo, ""), (entity, "RGB"), -450, -350)
     editing.connect_material_property(tinted, "", MP.MP_BASE_COLOR)
     normal = sample("Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"), 200)
-    editing.connect_material_property(normal, "RGB", MP.MP_NORMAL)
+    # A projected decal: Unreal turns the tangent normal (x, y, z) into -z X + y Y + x Z of the decal axes
+    # (MaterialTemplate.ush TransformTangentNormalToWorld, DECAL_PRIMITIVE: its decals project along +X). Our X is the
+    # source decal normal, out of the surface (decals.decal_transforms), thus z changes sign: the flat normal points
+    # out, x stays along U (Z) and y along V (Y), as on a mesh. Version 5 had the normals into the surface: no sun on
+    # the decal (the black seaweed of the ocean beach). The road ribbons and the mesh decals use their mesh tangents.
+    flip_z = node(material, unreal.MaterialExpressionConstant3Vector, -450, 300)
+    flip_z.set_editor_property("constant", unreal.LinearColor(1.0, 1.0, -1.0, 1.0))
+    flipped = multiply(material, (normal, "RGB"), (flip_z, ""), -300, 250)
+    projected_normal = switch(material, "Projected", (flipped, ""), (normal, "RGB"), -150, 200)
+    editing.connect_material_property(projected_normal, "", MP.MP_NORMAL)
     gloss = sample("Gloss", st.SAMPLERTYPE_ALPHA, white, 500)
     smoothness = scalar(material, "Smoothness", 0.5, -900, 750)
     s_value = node(material, unreal.MaterialExpressionMultiply, -500, 550)
@@ -604,6 +615,17 @@ def decal_parent(content, state):
     rough = node(material, unreal.MaterialExpressionOneMinus, -300, 550)
     editing.connect_material_expressions(s_value, "", rough, "")
     editing.connect_material_property(rough, "", MP.MP_ROUGHNESS)
+    # The reflectance of the source decal: the zpass encodes all the G-buffer channels of the decal, the reflectance too,
+    # and blends them with the decal alpha (commonzpass EncodeGBuffer, SetGBufferBlending). S = the specular map x XML
+    # Specular, Specular = lum(S) / 0.08 (SPECULAR_HLSL; Metallic stays 0: a limit for a decal above 0.08). Version 6 and
+    # before wrote the Unreal default 0.5 (a reflectance of 0.04; the road decals have 0.01 to 0.02): at a grazing view
+    # the sun specular made the roads and the cobbles pale and gray.
+    spec_map = sample("Specular", st.SAMPLERTYPE_COLOR, unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture"), 650)
+    spec_color = vector(material, "SpecularColor", (0.04, 0.04, 0.04, 1.0), -900, 650)
+    reflectance = multiply(material, (spec_map, "RGB"), (spec_color, "RGB"), -600, 650)
+    specular = custom(material, SPECULAR_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("S",), -350, 650)
+    editing.connect_material_expressions(reflectance, "", specular, "S")
+    editing.connect_material_property(specular, "", MP.MP_SPECULAR)
     opacity_map = sample("DecalOpacity", st.SAMPLERTYPE_ALPHA, white, 900)
     texture_alpha = node(material, unreal.MaterialExpressionMultiply, -750, 950)
     editing.connect_material_expressions(color, "A", texture_alpha, "A")

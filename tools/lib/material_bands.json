@@ -1,0 +1,92 @@
+{
+ "noon-wall-grass": {
+  "reference": "set1-oxboro/noon-wall-grass.png",
+  "boxes": {
+   "stone wall (vertical)": [0.72, 0.95, 0.13, 0.40, 1],
+   "stone wall (lower left)": [0.50, 0.57, 0.36, 0.55, 0],
+   "brick": [0.53, 0.68, 0.02, 0.12, 0],
+   "flint rock": [0.55, 0.64, 0.66, 0.76, 0],
+   "beige boulder": [0.66, 0.73, 0.79, 0.83, 0],
+   "tree crowns": [0.22, 0.40, 0.02, 0.25, 0],
+   "grass (foreground)": [0.05, 0.35, 0.62, 0.80, 0]
+  }
+ },
+ "noon-road-low": {
+  "reference": "set1-oxboro/noon-road-low.png",
+  "boxes": {
+   "rock cliff": [0.60, 0.95, 0.20, 0.50, 0],
+   "castle wall top": [0.70, 0.95, 0.00, 0.08, 0],
+   "road": [0.02, 0.35, 0.62, 0.97, 0],
+   "grass (cover)": [0.66, 0.99, 0.70, 0.95, 0],
+   "tree crowns": [0.10, 0.28, 0.05, 0.35, 0]
+  }
+ },
+ "noon-n": {
+  "reference": "set1-oxboro/noon-n.png",
+  "boxes": {
+   "stone pillar (vertical)": [0.07, 0.12, 0.40, 0.68, 1],
+   "red brick (house)": [0.16, 0.23, 0.03, 0.28, 0],
+   "red brick (low wall)": [0.40, 0.72, 0.56, 0.70, 0],
+   "white brick (house)": [0.86, 0.97, 0.28, 0.37, 0],
+   "stone cap (low wall)": [0.40, 0.72, 0.51, 0.54, 0],
+   "cobblestones": [0.45, 0.95, 0.80, 0.97, 0]
+  }
+ },
+ "noon-e": {
+  "reference": "set1-oxboro/noon-e.png",
+  "boxes": {
+   "stone pillar (vertical)": [0.61, 0.66, 0.05, 0.20, 1],
+   "red brick wall (near)": [0.80, 0.98, 0.30, 0.70, 0],
+   "plaster (half-timbered)": [0.43, 0.47, 0.14, 0.24, 0],
+   "shingle roof": [0.14, 0.27, 0.27, 0.38, 0],
+   "white brick (left)": [0.00, 0.08, 0.05, 0.30, 0],
+   "cobblestones": [0.02, 0.35, 0.75, 0.97, 0],
+   "tree crowns": [0.12, 0.30, 0.02, 0.20, 0]
+  }
+ },
+ "noon-s": {
+  "reference": "set1-oxboro/noon-s.png",
+  "boxes": {
+   "stone pillar (vertical)": [0.02, 0.08, 0.38, 0.55, 1],
+   "brick (low wall)": [0.10, 0.40, 0.42, 0.58, 0],
+   "brick (building)": [0.18, 0.30, 0.02, 0.13, 0],
+   "tree trunk": [0.88, 0.97, 0.10, 0.60, 0],
+   "grass": [0.50, 0.95, 0.65, 0.85, 0],
+   "cobblestones": [0.02, 0.40, 0.88, 0.97, 0]
+  }
+ },
+ "river-forest-noon": {
+  "reference": "set2-water/river-forest-noon.png",
+  "boxes": {
+   "hut wood (left)": [0.26, 0.36, 0.22, 0.36, 0],
+   "hut roof (right)": [0.62, 0.76, 0.21, 0.28, 0],
+   "bridge planks": [0.57, 0.72, 0.45, 0.62, 0],
+   "grass (foreground)": [0.00, 0.35, 0.70, 0.85, 0],
+   "dirt ground": [0.75, 0.98, 0.72, 0.95, 0],
+   "pine crowns": [0.08, 0.20, 0.15, 0.32, 0]
+  }
+ },
+ "cleave-outside-noon": {
+  "reference": "set4-weather/cleave-outside-noon.png",
+  "boxes": {
+   "stone wall (vertical, right)": [0.88, 0.98, 0.05, 0.40, 1],
+   "paved road": [0.55, 0.95, 0.40, 0.60, 0],
+   "ground plants (left)": [0.02, 0.28, 0.62, 0.90, 0]
+  }
+ },
+ "oxboro-road-sky-noon": {
+  "reference": "set4-weather/oxboro-road-sky-noon.png",
+  "boxes": {
+   "dirt road": [0.02, 0.35, 0.75, 0.97, 0],
+   "rock cliff": [0.70, 0.98, 0.25, 0.55, 0],
+   "grass (cover)": [0.65, 0.98, 0.72, 0.95, 0]
+  }
+ },
+ "keep-outside-door-noon": {
+  "reference": "set4-weather/keep-outside-door-noon.png",
+  "boxes": {
+   "stone floor": [0.05, 0.60, 0.75, 0.97, 0],
+   "stone wall (right)": [0.75, 0.98, 0.05, 0.70, 0]
+  }
+ }
+}

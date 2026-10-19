@@ -354,8 +354,7 @@ tools/import-surface-layer.sh NAME... --max-seconds 300 --wait 7200   # the deca
     The DBuffer has no normal yet: the face normal from the derivatives of the world position. The absolute value of
     the dot: the X axis of our decals is the source decal normal (`X = front`), the reverse of the Unreal convention
     (the projection along +X); the box is symmetric, so the projection does not depend on it. Open: the depth fade
-    of the source along the box, and a check of the normal maps of the projected decals with a known wall and floor
-    decal (the sign of the axis).
+    of the source along the box.
   - The Color and the Opacity of the decal entity (`g_DecalDiffuse` of the source; the moss of the wall: 0.25):
     `USwcSurfaceLayer` sets them with `SetDecalColor`, the material reads `DecalColor` (RGB x the base color, A x the
     alpha). Before, the decals had the opacity 1.
@@ -363,6 +362,37 @@ tools/import-surface-layer.sh NAME... --max-seconds 300 --wait 7200   # the deca
     pixel input: versions 3 and 4 did not compile, and Unreal drew the default material on all decals). The render
     check now compiles each parent again after its "parents ready" line, so that such a fault shows.
   - The check (evidence/WF3/m5-cost-quiet/wall-decals-v3-v5.png): the dark rectangles on the wall are gone.
+- `M_SwcDecal` version 6: the normal of the projected decals. Unreal turns the tangent normal (x, y, z) of a projected
+  decal into -z X + y Y + x Z of the decal axes (MaterialTemplate.ush `TransformTangentNormalToWorld` with
+  `DECAL_PRIMITIVE`), because its decals project along +X. Our X is the source decal normal, out of the surface (4,991
+  of the first 5,000 terrain decals of r_+04_+01 have X up). Version 5 thus had the normals into the surface: no sun on
+  the decal, a black patch (the seaweed decals around the rock of the matched view ocean-clear-noon). Version 6 changes
+  the sign of z for the projected decals (static switch `Projected`): the flat normal points out of the surface, x
+  stays along U (Z), y along V (Y), as on a mesh. The road ribbons and the mesh decals use the tangents of their mesh.
+- `M_SwcDecal` version 7 and `decals.py` version 5: the reflectance of the decal. The source zpass encodes all the
+  G-buffer channels of a decal, the reflectance too, and blends them with the decal alpha (commonzpass `EncodeGBuffer`,
+  `SetGBufferBlending`). The specs now have the specular map and SpecularColor (XML Specular), and the parent writes
+  Specular = lum(map x SpecularColor) / 0.08, as the surface parents (Metallic 0: a limit for a decal above 0.08).
+  Before, the DBuffer had the Unreal default 0.5 (a reflectance of 0.04) at the full decal alpha; the road decals of the
+  source have 0.001 to 0.01 (Unreal 0.01 to 0.12). The check (the matched view noon-road-low, evidence/WF3/colors-5f83073/
+  decal-test and colors-c7e668e/decal-test2): the G-buffer of the ribbon was right (the base color 61, 57, 52 against
+  the terrain 52, 48, 43; the normal up; the roughness 0.8 to 0.9), and the light alone was the same with the layer on
+  and off; with no dynamic shadows the ribbon was still pale (208, 189, 169 against 151, 112, 77), with no reflections
+  and with no indirect light too. The extra light was the sun specular of a dark rough surface at a grazing view.
+- The deploy of a decal parent and of the decal specs: `tools/material-proof.sh STAGE` makes the parent of a new version,
+  `tools/import-surface-layer.sh` with all the regions applies the `d_` and `dp_` instances, and
+  `tools/apply-materials.sh dm_ --part decals` the `dm_` instances of the mesh decal companions (versions 6 and 7: 71 and
+  31 specular maps, 660 and 123 instances, no failure).
+- The check of versions 6 and 7 (main c7e668e with the cover, evidence/WF3/colors-c7e668e/decal-v7; the bottom band of
+  the color report and the boxes of `tools/lib/material_bands.json`, client against retail):
+  - noon-road-low: the bottom band dE 1.9, L* +1.9 with the layer (the layer off: dE 0.8; version 5: L* +7.1). The road,
+    sunlit: L* 64.4, C 27.3 against 59.0, 24.4 (dE 5.2; version 5: L* 70.5, C 6.9, dE 14.3); shadowed: dE 3.7.
+  - noon-n: the bottom band dE 11.9, L* +12.3 with the layer (version 5: L* +22.5); the layer off: dE 1.4, but that ground
+    is bare dirt with no cobbles (a mean color near retail by chance). The cobbles have the retail pattern; sunlit L*
+    65.5 against 55.6 (dE 9.3; version 5: 14.0), shadowed 49.5 against 37.7. The whole picture with the layer off is
+    L* +9.5 (the top band +17.3): the rest of the gap is the light of the picture (E5).
+  - ocean-clear-noon: no black patch; the seaweed is olive (149, 143, 95). The bottom band dE 20.2 with the layer, 22.1
+    without (the light of the picture and the water).
 - The material of a dirt road (for example `jav_mnt_road_dirt_traffic_md_decal_a.mtl`) follows the source: the diffuse
   map x XML Diffuse (0.491: no `%TEMP_TERRAIN`), the alpha = the diffuse alpha (and the vertex alpha). Over the pale
   ground of the client it is a dark strip with soft holes; over the road dirt layer of the terrain (`roads_splat`,
@@ -385,6 +415,21 @@ tools/import-surface-layer.sh NAME... --max-seconds 300 --wait 7200   # the deca
   first views are measured first): the cost of the layer is at most about 0.3 ms at Oxboro (597 k road triangles
   within 1 km, about 2,400 decals within 300 m) and within the noise at the river places.
 - Open: the dirt road maps have holes in their alpha; the terrain road layer (T1 of the world track) fills them.
+
+## Material colors (the matched views, sunlit and shadowed apart)
+
+```sh
+python3 -B tools/lib/material_bands.py tools/lib/material_bands.json FOLDER [VIEW...]   # FOLDER: a tools/match-view.sh folder
+```
+
+- `tools/lib/material_bands.json` has, for each matched view, boxes of one material each (fractions of the 1280 x 720
+  picture), and light references (a neutral material of the same orientation, marked 1).
+- In each box, each picture alone is split into a sunlit and a shadowed class by the Otsu threshold of L* (no split when
+  the classes are less than 12 L* apart). The shadow fill of the client (the E5 work) does not move the sunlit values.
+- For each class: the share, L*, the chroma, the hue (CIELAB of the mean linear color), CIEDE2000 client against retail;
+  for the sunlit class the client / retail ratio of the linear RGB, divided by the ratio of the references (the light
+  cast): near 1 in each channel, the material follows the light.
+- Output: FOLDER/material-bands.json and material-bands.txt.
 
 ## Cost checks
 

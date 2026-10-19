@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Applies the material specs of the converter (tools/convert-materials.sh instances) to the material instances of the
 # shared content plugin, with no window (unreal/SoulwardenClient/Scripts/apply_materials.py; docs/MATERIALS.md).
-# Usage: tools/apply-materials.sh [FILTER] [--keys FILE] [--prefetch] [--max-seconds N] [--wait N]
+# Usage: tools/apply-materials.sh [FILTER] [--keys FILE] [--part decals] [--prefetch] [--max-seconds N] [--wait N]
 #   FILTER         a text that the material key must contain
 #   --keys         only the material keys of a JSON list
+#   --part decals  the specs of SWC_CONTENT/decals (the dm_ instances of the mesh decal companions; default materials)
 #   --prefetch     only import the textures of the candidate specs (instances-candidate.json), no instance change
 #   --max-seconds  stop after the item that passes N seconds (the report has "incomplete": true; call again)
 #   --wait         wait at most N seconds for the import lock (default: fail at once when another import holds it)
@@ -12,11 +13,12 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 source "${SWC_REPO}/tools/lib/world-lock.sh"   # the world lock first, then import.lock (one order for all the tools)
-export SWC_MATERIALS_FILTER="" SWC_MATERIALS_KEYS="" SWC_MATERIALS_MAX_SECONDS="" SWC_MATERIALS_PREFETCH=""
+export SWC_MATERIALS_FILTER="" SWC_MATERIALS_KEYS="" SWC_MATERIALS_MAX_SECONDS="" SWC_MATERIALS_PREFETCH="" SWC_MATERIALS_PART=""
 wait_lock=(-n)
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --keys) shift; SWC_MATERIALS_KEYS="$(realpath "$1")" ;;
+        --part) shift; SWC_MATERIALS_PART="$1" ;;
         --prefetch) SWC_MATERIALS_PREFETCH=1 ;;
         --max-seconds) shift; SWC_MATERIALS_MAX_SECONDS="$1" ;;
         --wait) shift; wait_lock=(-w "$1") ;;
