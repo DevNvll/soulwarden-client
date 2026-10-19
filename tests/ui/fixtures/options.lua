@@ -61,6 +61,8 @@ equal(LyShineManagerBus.Broadcast.GetCurrentState(), OPTIONS, "the button Settin
 equal(Swc.GetData("Hud.LocalPlayer.Options.Controls.CameraShake"), true, "the camera shake: on (the default of the program)")
 equal(Swc.GetData("Hud.LocalPlayer.Options.Audio.MasterVolume"), 100, "the master volume: 100 (the default of the program)")
 
+equal(Swc.GetData("Hud.LocalPlayer.Options.Video.MaxFov"), 70, "the maximum field of view (the retail picture)")
+equal(Swc.GetData("Hud.LocalPlayer.Options.Localization.LanguageOption"), "system-language", "the text language (the retail picture)")
 equal(LyShineScriptBindRequestBus.Broadcast.LocalizeText("@ui_monitor_name 1"), "Monitor 1",
   "a label with more text: the label is localized, the rest stays")
 

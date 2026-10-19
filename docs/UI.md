@@ -445,8 +445,14 @@ The values (`swc/options.lua`):
   the defaults (217 of 217). The component binds each data node to a member (`lea rdx, [rsi+X]`; the struct is at 0x128 from
   `rsi`): 138 nodes by their binding, 42 by the words of their name. Examples: the master volume 100, the camera shake on,
   the field of view 57, the horizontal look sensitivity 0.05, the vertical smoothing 60, the quality 3.
-- The values of this client: the resolution of the viewport (a list of one), one monitor, the window mode Windowed, the
-  language `en-us` (decision D2 of the parity plan), no voice device, no cross-play.
+- The values of this client: the resolution of the viewport (a list of one), one monitor, the window mode Windowed, no
+  voice device, no cross-play. The text language "Use System Language" (`system-language`) and the list of the languages of
+  the game copy, the audio language English; the range of the field of view 40 to 70 (the native code sets these nodes at
+  run time: the values come from the retail reference pictures of set 1, `settings-game-camera.png` and
+  `settings-video-display.png`: the label 70, and the minimum from the place of the knob at 57).
+- The rows of the features of the display device (the resolution scaling, DLSS frame generation, Reflex) do not show: this
+  client has no such feature (`GetFsrSupported` and the others are false). The retail client shows them on a device with
+  the feature (the picture of set 1).
 - A row whose node has no default from the program gets the neutral value of its row at the end of the UI load (a toggle
   off, a slider at its minimum, a drop-down at its first item): 35 nodes; the log line `options: ...` lists them (the
   accessibility and subtitle rows, the voice and stream rows, the chat rows, some control rows).

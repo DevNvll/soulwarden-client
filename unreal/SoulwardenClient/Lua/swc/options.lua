@@ -54,12 +54,22 @@ end
 set_display()
 Swc.SetData(PREFIX .. "Video.SelectedDisplayIndex", 0)
 Swc.SetData(PREFIX .. "Video.SupportedMonitors.Count", 1)
-Swc.SetData(PREFIX .. "Localization.LanguageList.0.Id", "en-us")
+-- The text languages: "Use System Language" (the value of the retail reference picture, set 1 settings-game-camera.png), then
+-- the languages of the game copy (its localization folders). The audio language: English (the retail picture).
+local languages = {"system-language", "en-us", "de-de", "es-es", "es-mx", "fr-fr", "it-it", "pl-pl", "pt-br"}
+for i, id in ipairs(languages) do
+  Swc.SetData(PREFIX .. "Localization.LanguageList." .. (i - 1) .. ".Id", id)
+end
 Swc.SetData(PREFIX .. "Localization.LanguageAudioList.0.Id", "en-us")
-Swc.SetData(PREFIX .. "Localization.LanguageOption", "en-us")
+Swc.SetData(PREFIX .. "Localization.LanguageOption", "system-language")
 Swc.SetData(PREFIX .. "Localization.LanguageAudio", "en-us")
 Swc.SetData(PREFIX .. "Localization.Language", "en-us")
 Swc.SetData(PREFIX .. "CrossplayEnable.Enable", false)
+-- The range of the field of view (the native code sets the nodes at run time; no value in the code): the retail reference
+-- picture of set 1 (settings-video-display.png) shows the maximum 70, and the knob at 57 sits at 0.564 of the track: the
+-- minimum 40.
+Swc.SetData(PREFIX .. "Video.MinFov", 40)
+Swc.SetData(PREFIX .. "Video.MaxFov", 70)
 -- The tutorial classification: the drop-down of the screen reads a node with no prefix (options.luac).
 Swc.SetData("PlayerTutorials.ClassificationThreshold", field("m_playerTutorialsClassificationThreshold", 0))
 
