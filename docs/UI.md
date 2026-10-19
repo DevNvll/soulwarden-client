@@ -877,7 +877,10 @@ Soulwarden evidence of creatures, abilities-crit, fight, loot, loot-bags, gather
 - The fight HUD (stage P3.H):
   - The name of the place under the compass (`PoiName` of `compass.luac`: "OXBORO" in the retail pictures) needs the territory
     of the player (`TerritoryDefinitionsDataManagerBus`, the area events `OnUiTriggerAreaEventEntered`). The backend sends no
-    territory; the retail client finds it from the area data of the world. The client has no such data yet.
+    territory; the retail client finds it from the area data of the world, and no track converts the territory or POI area
+    shapes yet. The plan: a converter item writes the trigger areas of the slices with their shapes and their territory, area,
+    and POI ids (the slice walk of `converter/swc_convert/decals.py`); the client fires the area events from the position of the
+    character by the rule of the game data (not by the nearest landmark).
   - `Hud.LocalPlayer.HasReticleTarget` is false: the target rule of the native code is not known (`ReticleRayCastDistance` is
     3.0 for the weapons). The `ReticleTargetName` of the sword is `spearHaveTarget` (the throw reticle of the manager); whether
     the native code sets the target name in `ReticleToShow` is not known.
