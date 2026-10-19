@@ -182,6 +182,7 @@ tools/creature-check.sh LABEL STAY ROUTES [DRIVE]   # a video check of the creat
 tools/convert-objects.sh write                  # the objects of the level data for the object layer (docs/OBJECTS.md; meshes: the depleted node meshes)
 tools/convert-environment.sh write              # the environment data: the mission, the time presets, the lights and volumes of each region, the sky (check: the E0 proof)
 tools/match-view.sh SET [VIEW...]               # the matched views of a set of retail references: client pictures, side-by-side pictures, a contact sheet
+tools/match-view.sh SET VIEW --variant VIEW@NAME='CVAR VALUE;...'   # one more picture with console values; the next view sets those values back (from 2026-10-19; before, they stayed on)
 tools/test-environment.sh                       # the tests of the world clock, the environment rules, the local light rules, and the environment reader (no engine)
 tools/convert-environment.sh cookies            # the projector textures of the local lights (then tools/import-cookies.sh: the lock)
 tools/lumen-test.sh --wait 7200                 # the Lumen mesh data test: the inn and two houses with distance fields and cards (client: swc.LumenTest 1)

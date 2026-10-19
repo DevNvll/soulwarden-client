@@ -183,6 +183,75 @@ void test_volumes() {
     check(env::select_volume(volumes, {0.0, 0.0, 0.0}) == -1, "no volume: -1");
 }
 
+void test_blend_fog_and_stars() {
+    // The depth and the weight of a volume (stage E3).
+    env::Volume cylinder;
+    cylinder.shape = env::Volume::Shape::cylinder;
+    cylinder.matrix = {1, 0, 0, 100, 0, 1, 0, 200, 0, 0, 1, 50, 0, 0, 0, 1};
+    cylinder.inverse = env::inverse_of(cylinder.matrix);
+    cylinder.radius = 350.0;
+    cylinder.height = 400.0;
+    check(near(env::inside_depth(cylinder, {100, 200, 50}), 200.0, 1e-9), "the center of a cylinder: the depth to the caps");
+    check(near(env::inside_depth(cylinder, {440, 200, 50}), 10.0, 1e-9), "10 m inside the side");
+    check(near(env::inside_depth(cylinder, {460, 200, 50}), -10.0, 1e-9), "10 m outside the side");
+    check(env::volume_weight(cylinder, {440, 200, 50}) == 1.0 && env::volume_weight(cylinder, {460, 200, 50}) == 0.0,
+          "no blend distance: 1 inside, 0 outside");
+    cylinder.blendDistance = 50.0;
+    check(near(env::volume_weight(cylinder, {440, 200, 50}), 0.2, 1e-9), "a blend distance of 50 m: 10 m inside gives 0.2");
+    check(env::volume_weight(cylinder, {100, 200, 50}) == 1.0, "deep inside: 1");
+    env::Volume box;
+    box.shape = env::Volume::Shape::box;
+    box.matrix = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    box.inverse = env::inverse_of(box.matrix);
+    box.dimensions = {20.0, 10.0, 8.0};
+    check(near(env::inside_depth(box, {0, 0, 0}), 4.0, 1e-9) && near(env::inside_depth(box, {9, 0, 0}), 1.0, 1e-9), "the depth in a box");
+    env::Volume prism;
+    prism.shape = env::Volume::Shape::polygonPrism;
+    prism.matrix = box.matrix;
+    prism.inverse = box.inverse;
+    prism.height = 5.0;
+    prism.vertices = {{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+    check(near(env::inside_depth(prism, {5, 5, 2}), 2.0, 1e-9) && near(env::inside_depth(prism, {5, 1, 2.5}), 1.0, 1e-9)
+          && env::inside_depth(prism, {12, 5, 2}) < 0.0, "the depth in a polygon prism");
+    check(near(env::approach_weight(0.0, 1.0, 8.0, 2.0), 0.25, 1e-12) && near(env::approach_weight(1.0, 0.0, 8.0, 2.0), 0.75, 1e-12)
+          && env::approach_weight(0.3, 1.0, 0.0, 0.1) == 1.0 && env::approach_weight(0.9, 1.0, 8.0, 2.0) == 1.0,
+          "the weight goes to the target in the blend time");
+    // The height falloff of the fog: the Everfall layers 0.05 at 0 m and 0.02 at 400 m.
+    check(near(env::fog_height_falloff(0.05, 0.02, 0.0, 400.0), std::log2(2.5) / 400.0 * 10.0, 1e-12), "the fog falloff of two layers");
+    check(env::fog_height_falloff(0.05, 0.05, 0.0, 400.0) == 0.0 && env::fog_height_falloff(0.05, 0.02, 400.0, 0.0) == 0.0, "no falloff");
+    // The eye adaptation of the source (HDRFinalScenePS): the noon sun of the data, the night moon of Everfall, a dark scene at the bound.
+    check(near(env::source_ev(100000.0, 5.0, 17.0, 1.5), std::log2(100000.0 * 100.0 / 330.0) - (std::log10(100001.0) - 3.0) / 2.0 * 1.5, 1e-12),
+          "the EV of the source at noon");
+    check(near(env::source_ev(100000.0, 5.0, 17.0, 1.5), 13.387, 1e-3), "the EV of the source at noon, 13.39");
+    check(near(env::source_ev(5000.0, 10.0, 17.0, 1.5), 10.041, 1e-3), "the EV of the source with the moon of 5,000 lux");
+    check(env::source_ev(100.0, 10.0, 17.0, 1.5) == 10.0 && env::source_ev(1e9, 5.0, 17.0, 1.5) == 17.0, "the EV bounds of the source");
+    // The Unreal bias curve gives the exposure of the source: 0.18 x 2^bias / M = 1 / (1.2 x 2^EV) with E = pi x M / meterScale.
+    for (double ev100 = -4.0; ev100 <= 16.0; ev100 += 0.5) {
+        const double meterScale = 0.1882;
+        const double metered = 0.18 * std::exp2(ev100);
+        const double unreal = 0.18 * std::exp2(env::source_exposure_bias(ev100, 10.0, 17.0, 1.5, meterScale)) / metered;
+        const double source = 1.0 / (1.2 * std::exp2(env::source_ev(3.14159265358979 * metered / meterScale, 10.0, 17.0, 1.5)));
+        check(near(unreal / source, 1.0, 1e-9), "the exposure of the curve at the EV100 " + std::to_string(ev100));
+    }
+    // The stars turn with the sun: the sun is at the celestial e_y at each hour, and the celestial pole is fixed in the sky.
+    env::Vec3 pole0{};
+    for (int step = 0; step < 24; ++step) {
+        const double hour = step + 0.37;
+        const env::Rotation r = env::celestial_from_engine(hour, 215.0, 130.0);
+        const env::Vec3 sun = env::rotate(r, env::sun_toward(hour, 215.0, 130.0));
+        check(near(sun.x, 0.0, 1e-9) && near(sun.y, 1.0, 1e-9) && near(sun.z, 0.0, 1e-9), "the sun is at ra 0, dec 0 at " + std::to_string(hour));
+        // The pole in the engine space: the transpose times e_z.
+        const env::Vec3 pole{r[2][0], r[2][1], r[2][2]};
+        if (step == 0) {
+            pole0 = pole;
+        }
+        check(near(pole.x, pole0.x, 1e-9) && near(pole.y, pole0.y, 1e-9) && near(pole.z, pole0.z, 1e-9), "the celestial pole is fixed");
+    }
+    check(pole0.z > 0.5, "the celestial pole is above the horizon");
+    const env::Vec3 sirius = env::star_vector(6.753, -16.71);
+    check(near(sirius.x * sirius.x + sirius.y * sirius.y + sirius.z * sirius.z, 1.0, 1e-12) && sirius.z < 0.0, "a star vector is a unit vector");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -190,6 +259,7 @@ int main(int argc, char** argv) {
     test_sun_path(argc > 2 ? argv[2] : "");
     test_edges_and_lights();
     test_volumes();
+    test_blend_fog_and_stars();
     std::printf("environment rules: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

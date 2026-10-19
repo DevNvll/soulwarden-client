@@ -12,6 +12,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/FileManager.h"
+#include "HAL/IConsoleManager.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformTime.h"
 #include "HighResScreenshot.h"
@@ -154,6 +155,17 @@ bool USwcMatchViewSubsystem::LoadPlan(const FString& Path)
 void USwcMatchViewSubsystem::Begin(int32 Index)
 {
 	Current = Index;
+	// Each view starts from the values before the variants: the console variables of the earlier variants go back first (the
+	// time of the travel and the settle lets the exposure follow).
+	for (const TPair<FString, FString>& Saved : VariantBase)
+	{
+		if (IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(*Saved.Key))
+		{
+			Variable->Set(*Saved.Value, ECVF_SetByConsole);
+			UE_LOG(LogSwcEnvironment, Log, TEXT("matchview: %s back to %s"), *Saved.Key, *Saved.Value);
+		}
+	}
+	VariantBase.Reset();
 	StepSince = FPlatformTime::Seconds();
 	QuietSince = -1.0;
 	PlacedSince = -1.0;
@@ -316,6 +328,13 @@ void USwcMatchViewSubsystem::Tick(float DeltaTime)
 		StepSince = Now;
 		for (const FString& Command : View.Commands)
 		{
+			// The value of a console variable before the first change of the variants (the next view sets it back).
+			FString Name = Command.TrimStartAndEnd();
+			Name.Split(TEXT(" "), &Name, nullptr);
+			if (const IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(*Name); Variable != nullptr && !VariantBase.Contains(Name))
+			{
+				VariantBase.Add(Name, Variable->GetString());
+			}
 			const bool bDone = GEngine != nullptr && GEngine->Exec(GetWorld(), *Command);
 			UE_LOG(LogSwcEnvironment, Log, TEXT("matchview: view %d %s: command \"%s\"%s"), Current + 1, *View.Name, *Command, bDone ? TEXT("") : TEXT(" (not run)"));
 		}

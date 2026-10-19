@@ -77,6 +77,8 @@ private:
 	void Shoot();
 
 	TArray<FView> Views;
+	/** The console variables that the variant commands changed, with their values before the first change. */
+	TMap<FString, FString> VariantBase;
 	int32 Current = -1;
 	EStep Step = EStep::Idle;
 	double StepSince = 0.0;

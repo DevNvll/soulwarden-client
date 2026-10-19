@@ -7,9 +7,14 @@
 #include "SwcEnvironmentSubsystem.generated.h"
 
 class UDirectionalLightComponent;
+class UExponentialHeightFogComponent;
+class UMaterialInstanceDynamic;
 class UPostProcessComponent;
+class USceneComponent;
 class USkyAtmosphereComponent;
 class USkyLightComponent;
+class UStaticMeshComponent;
+class UVolumetricCloudComponent;
 
 /**
  * The runtime environment of the world (stage E1, docs/ENVIRONMENT.md): the sun, the moon, and the sky of the world clock. The decision
@@ -30,14 +35,33 @@ class USkyLightComponent;
  *   record and a fade with the sun below the horizon (full at 4 degrees below it): the moon comes when the physical sun goes.
  * - A SkyAtmosphere (Unreal defaults; by night its sky luminance is scaled by a factor that the moon fades in: a look choice), and a
  *   SkyLight with a real-time capture of the sky at intensity 1.
- * - The exposure: an unbound post process over the fixed exposure of the level: the Unreal auto exposure with the bounds EV100 3 to
- *   16 and a compensation of -2.5 by night (a night look). Stage E5 refines it.
- * The level actors of the world track (its sun, sky atmosphere, and sky light) are turned off while this environment runs; its fog
- * and its ocean stay.
+ * - The exposure and the color grade (stage E5; the decision of the user, 2026-10-19: the color result copies retail): the Unreal auto
+ *   exposure with the EV bounds and the auto compensation of the data (MeterAlbedo in the source file), and M_SwcGrade in place of
+ *   the Unreal tone mapper: the film curve, the saturation, the color balance, and the photo filter of the data.
+ * Stage E3 (the regional sky and fog; Environment/SwcEnvironmentSky.cpp):
+ * - The blend: the base preset of the mission, then the time-of-day volumes at the camera by priority, each with a weight from its
+ *   blend distance (the depth inside its shape) that moves in its blend time; each variable is the blend of the layers, all at one
+ *   hour: the world hour moved to the hour override of each volume by its weight (as the retail client blends the hour).
+ * - The fog: an exponential height fog of Unreal with the data as inputs (the two fog sets of the preset: the legacy layers and the
+ *   second set of the volumetric fog), its color from the SkyAtmosphere of Unreal (the Unreal way: the fog colors and the sun glow
+ *   of the data burned the views; swc.FogColorMode), and the volumetric fog of Unreal with the albedo and the anisotropy of the data.
+ * - The sky: a sky sphere around the camera with M_SwcSky (tools/import-sky.sh): the SkyAtmosphere of Unreal, the stars of the
+ *   engine catalog turning with the sun, the moon disc and its coronas of the data; by night the sky has the hue of the night horizon
+ *   color of the data.
+ * - The clouds: the volumetric clouds of Unreal (the engine material) with the cover of the sky slice of the preset (its cloud masks)
+ *   and the cloud shading color of the data.
+ * - The fog volumes of the data: local fog volumes of Unreal (a sphere over the box; a flat box is a thin height layer in it).
+ * - The rain and the snow: a post-process material (M_SwcPrecipitation: the rain layer texture of the source falling over the
+ *   screen, the snowflakes of the engine) with the amount of the rain and snow volumes of the data at the camera.
+ * The level actors of the world track (its sun, sky atmosphere, sky light, height fog, and clouds) are turned off while this
+ * environment runs; its ocean stays.
  *
  * Development aids: -SwcEnvironmentProbe logs the state each 1 s (else each 60 s and at each change of the preset); -SwcNoEnvironment
  * keeps the environment of the level; -SwcNightSky=FACTOR and -SwcNightExposure=EV change the two look values of the night;
- * -SwcAmbientOnly turns the sun and the moon off (a check of the ambient).
+ * -SwcAmbientOnly turns the sun and the moon off (a check of the ambient); the console variables swc.Fog, swc.FogColorMode,
+ * swc.FogLayers, swc.FogDensityScale, swc.FogDensityScale2, swc.VolumetricFog, swc.Clouds, swc.CloudCover, swc.CloudBias, swc.StarScale,
+ * swc.MoonScale, swc.MoonSize, swc.NightSkyTint, swc.RainScale, swc.SnowScale, swc.DropLight, swc.LocalFogScale change the look values of E3 at run
+ * time (the variants of the matched views).
  */
 UCLASS()
 class SOULWARDENCLIENT_API USwcEnvironmentSubsystem : public UTickableWorldSubsystem
@@ -66,6 +90,37 @@ public:
 		/** Each preset: its variables by name (the first variable of a name). */
 		TMap<FString, TMap<FString, swc::environment::Curve>> Presets;
 		std::vector<swc::environment::Volume> Volumes;
+		/** The cloud cover of each sky slice (sky/sky.json of tools/convert-environment.sh sky), and the sky of the mission. */
+		TMap<FString, double> SkyCovers;
+		FString MissionSky;
+		/** The world probe of the outdoor ambient (stage E5; probes.json of tools/convert-environment.sh probes): the name of its cube
+		 *  texture (T_SwcProbe_NAME), its DiffuseMultiplier, and its TODInfluence (the part of the time-of-day probe multipliers). */
+		FString WorldProbe;
+		double WorldProbeDiffuse = 1.0;
+		double WorldProbeTodInfluence = 1.0;
+		/** A rain or snow volume (stage E3): the full amount within the inner radius (m, horizontal), 0 at the outer radius, within
+		 *  the half height about the center (a capsule or a cylinder; no shape: no limit). */
+		struct FPrecipitation
+		{
+			swc::environment::Vec3 Center;
+			double Inner = 0.0;
+			double Outer = 0.0;
+			double HalfHeight = 1e9;
+			double Amount = 0.0;
+			bool bSnow = false;
+			FString Name;
+		};
+		TArray<FPrecipitation> Precipitation;
+		/** A fog volume of the data (stage E3): the box of its entity (m), its color (COLOR), and its density (GlobalDensity). */
+		struct FFogVolume
+		{
+			swc::environment::Vec3 Center;
+			swc::environment::Vec3 Size;
+			std::array<double, 3> Color{1.0, 1.0, 1.0};
+			double Density = 0.0;
+			FString Name;
+		};
+		TArray<FFogVolume> FogVolumes;
 		FString Report;
 		bool bOk = false;
 	};
@@ -76,6 +131,24 @@ private:
 	void TurnOffLevelEnvironment();
 	double Value(const TMap<FString, swc::environment::Curve>& Preset, const TCHAR* Name, double Time, double Default) const;
 	std::array<double, 3> Color(const TMap<FString, swc::environment::Curve>& Preset, const TCHAR* Name, double Time) const;
+
+	/** One preset of the blend (stage E3): the base preset of the mission, then the time-of-day volumes at the camera by priority. */
+	struct FLayer
+	{
+		const TMap<FString, swc::environment::Curve>* Preset = nullptr;
+		FString Name;
+		int32 Volume = -1;
+		double Hour = 0.0;
+		double Weight = 1.0;
+	};
+	/** Updates the weights of the volumes at the camera (engine m) and the layers. */
+	void UpdateBlend(const swc::environment::Vec3& Camera, double WorldHour, double DeltaSeconds);
+	/** @return A variable of the blend at the hour of each layer, or at a fixed hour (>= 0). */
+	double Blended(const TCHAR* Name, double Default, double FixedHour = -1.0) const;
+	std::array<double, 3> BlendedColor(const TCHAR* Name, double FixedHour = -1.0) const;
+	void CreateSkyAndFog(AActor* Owner, USceneComponent* Root);
+	/** Updates the fog, the sky, the clouds, and the precipitation; MainLux is the illuminance of the sun or the moon on the ground. */
+	void UpdateSkyAndFog(double Hour, const FVector& CameraLocation, double MoonWeight, double MainLux);
 
 	TSharedPtr<FData, ESPMode::ThreadSafe> Data;
 	bool bLoading = false;
@@ -89,13 +162,50 @@ private:
 	TWeakObjectPtr<USkyAtmosphereComponent> Atmosphere;
 	TWeakObjectPtr<USkyLightComponent> SkyLight;
 	TWeakObjectPtr<UPostProcessComponent> Exposure;
+	TWeakObjectPtr<UExponentialHeightFogComponent> Fog;
+	TWeakObjectPtr<UVolumetricCloudComponent> Clouds;
+	TWeakObjectPtr<UStaticMeshComponent> SkySphere;
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> SkyMaterial;
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> CloudMaterial;
+	TWeakObjectPtr<UPostProcessComponent> PrecipitationPost;
+	/** The local fog volumes of Unreal for the fog volumes of the data (by index), and the density scale that they have. */
+	TArray<TWeakObjectPtr<class ULocalFogVolumeComponent>> LocalFogs;
+	double LocalFogScaleApplied = -1.0;
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> PrecipitationMaterial;
+	/** The default cover of the cloud material (the cover of the Everfall sky maps to it). */
+	float DefaultCloudCover = 0.5f;
+	TArray<FLayer> Layers;
+	/** The weight of each time-of-day volume in the blend (by its index). */
+	TMap<int32, double> Weights;
+	/** The hour of the blend: the world hour moved to the hour overrides of the volumes by their weights. */
+	double EffectiveHour = 12.0;
+	FString LayerText;
+	FString SkyText;
+	/** The layer text of the last log line. */
 	FString PresetName;
-	int32 VolumeIndex = -2;
 	double NextLog = 0.0;
 	double NextRecapture = 0.0;
 	/** The two look values of the night: the sky luminance factor (-SwcNightSky=FACTOR) and the compensation of the exposure
 	 *  (-SwcNightExposure=EV), both faded in with the moon. */
 	double NightSkyFactor = 0.2;
-	double NightExposure = -2.5;
+	/** The night compensation of E1 (a look value): 0 since the decision of the user to copy the retail colors (the exposure of the
+	 *  source sets the night; -SwcNightExposure=EV for a compare). */
+	double NightExposure = 0.0;
+	/** The bias curve of the auto compensation of the source, and the "EV Auto compensation" that it has. */
+	UPROPERTY()
+	TObjectPtr<class UCurveFloat> ExposureCurve;
+	/** The rule of the curve: EV Min, EV Max, the auto compensation, and the meter scale (0: the luminance meter). */
+	FVector4 CurveRule = FVector4(0.0, 0.0, 0.0, -1.0);
+	/** The color grade of the source (M_SwcGrade: the tone mapper of the source in place of the Unreal one). */
+	TWeakObjectPtr<UPostProcessComponent> GradePost;
+	/** The cube of the world probe (stage E5): the sky light shows it with the multipliers of the data (swc.SkyLightSource 1). */
+	UPROPERTY(Transient)
+	TObjectPtr<class UTextureCube> WorldProbe;
+	int32 SkyLightMode = -1;
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> GradeMaterial;
 	double NightFactor = 0.0;
 };

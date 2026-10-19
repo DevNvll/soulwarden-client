@@ -1,7 +1,7 @@
 """The environment of the world (stage E0, docs/ENVIRONMENT.md; research ~/Games/soulwarden-client/research/world-environment.md):
 the data of the time of day, the sky, the fog, the weather, and the local lights, read from the game copy (read only).
 
-Usage: python3 -B -m swc_convert.environment write [--regions NAME...] | cookies | check | sample PRESET HOUR [NAME...]
+Usage: python3 -B -m swc_convert.environment write [--regions NAME...] | cookies | sky | probes | check | sample PRESET HOUR [NAME...]
 
 Output in SWC_CONTENT/environment:
   mission.json          the Environment element of the main-world mission (levels/newworld_vitaeeterna/level.pak: the
@@ -21,6 +21,17 @@ Output in SWC_CONTENT/environment:
                         place of the slice root (the static place of the NPC)
   cookies/NAME.png      the projector textures of the lights (the command cookies, after write; the mip of at most 512 pixels),
   cookies.json          and their list: the game path of each texture, its PNG, its size, and its DXGI format
+  sky/stars.png         the star catalog of the engine (engineassets/sky/stars.dat; the command sky): an equirectangular map of the
+                        celestial sphere (u: the right ascension 0 to 24 h, v: the declination +90 to -90 degrees), each star a small
+                        spot of its color and brightness (sRGB)
+  sky/moon.png          the moon texture of the mission (Moon/@Texture)
+  sky/rainfall.png, sky/snowflakes.png  the rain layer texture and the snowflake atlas of the engine (the precipitation of E3)
+  sky/sky.json          the stars, the moon, and the cloud cover of each sky slice (the cloud masks of its dome layers: 1 - the
+                        product of (1 - the mean of each mask))
+  probes/NAME.hdr       the world probes of the outdoor ambient (the command probes, stage E5): the radiance cubemap (BC6H, mip 0)
+                        of each probe whose box covers the world, as a long-lat Radiance picture in the units of the source (the
+                        light unit 10,000 cd/m2 is the client's), u = the longitude (east at 0.75, north at 0.5), v = up to down
+  probes.json           their list: the cubemap, the picture, the diffuse and specular multipliers, the TOD influence, the boxes
   volumes.json          the volumes of the world for the client in one compact file: the time-of-day volumes (shape, preset,
                         priority, blend, hour override, sky, color grading) and the fog, rain, snow, weather, and ocean volumes
   sky.json              the sky slices of the presets: their meshes, materials, textures, texture motion, and parameters
@@ -749,12 +760,206 @@ def cookies() -> dict:
     return {"cookies": len(table), "failures": failures}
 
 
+STAR_MAP = (4096, 2048)
+
+
+def read_stars(data: bytes) -> list[tuple[float, float, tuple[int, int, int], int]]:
+    """@return The stars of engineassets/sky/stars.dat: "STAR", the version 0x00010001, the count, then 12 bytes each: the right
+    ascension (float32, hours), the declination (float32, degrees), and the bytes red, green, blue, and brightness (255 the
+    brightest). The first two stars are Sirius (6.75 h, -16.7) and Canopus (6.40 h, -52.7)."""
+    if data[:4] != b"STAR":
+        raise ValueError("not a star catalog")
+    version, count = struct.unpack_from("<II", data, 4)
+    if version != 0x00010001 or len(data) < 12 + 12 * count:
+        raise ValueError(f"star catalog version {version:#x} or size {len(data)}")
+    stars = []
+    for i in range(count):
+        ra, dec = struct.unpack_from("<ff", data, 12 + 12 * i)
+        r, g, b, brightness = data[12 + 12 * i + 8:12 + 12 * i + 12]
+        stars.append((ra, dec, (r, g, b), brightness))
+    return stars
+
+
+def star_map(stars: list, size: tuple[int, int] = STAR_MAP) -> np.ndarray:
+    """@return A linear RGB map (height, width, 3) of the stars: a Gaussian spot of 0.7 texel (wider in u by 1 / cos(declination)) with
+    the color of the star times its brightness / 255."""
+    width, height = size
+    out = np.zeros((height, width, 3), dtype=np.float32)
+    sigma = 0.7
+    for ra, dec, color, brightness in stars:
+        u = (ra % 24.0) / 24.0 * width
+        v = (90.0 - dec) / 180.0 * height
+        stretch = 1.0 / max(math.cos(math.radians(dec)), 0.05)
+        su = sigma * stretch
+        x0, x1 = int(math.floor(u - 3 * su)), int(math.ceil(u + 3 * su))
+        y0, y1 = max(int(math.floor(v - 3 * sigma)), 0), min(int(math.ceil(v + 3 * sigma)), height - 1)
+        xs = np.arange(x0, x1 + 1)
+        ys = np.arange(y0, y1 + 1)
+        weight = np.exp(-0.5 * (((xs[None, :] + 0.5 - u) / su) ** 2 + ((ys[:, None] + 0.5 - v) / sigma) ** 2))
+        value = np.array(color, dtype=np.float32) / 255.0 * (brightness / 255.0)
+        out[np.ix_(ys, xs % width)] += weight[:, :, None] * value[None, None, :]
+    return out
+
+
+def to_srgb8(linear: np.ndarray) -> np.ndarray:
+    x = np.clip(linear, 0.0, 1.0)
+    return np.round(np.where(x <= 0.0031308, 12.92 * x, 1.055 * np.power(x, 1 / 2.4) - 0.055) * 255).astype(np.uint8)
+
+
+def sky_cover(slice_entry: dict) -> tuple[float, list]:
+    """@return The cloud cover of a sky slice (1 - the product of (1 - the mean of each cloud mask of its dome layers)) and the
+    layers (the mask, its mean, the sky color multiplier)."""
+    from . import dds
+    layers, clear = [], 1.0
+    for mesh in slice_entry.get("meshes", []):
+        for sub in mesh.get("subMaterials", []):
+            for texture in sub.get("textures", []):
+                if texture.get("Map") != "Diffuse":
+                    continue
+                path = texture["File"].lower().replace("\\", "/")
+                try:
+                    data, w, h, fmt = dds.join(source.read, path, 256)
+                    mean = float(np.asarray(dds.to_image(data, w, h, fmt).convert("L"), dtype=np.float32).mean() / 255.0)
+                except Exception:   # a source texture that is not in the game copy (.tif): no layer
+                    continue
+                multiplier = (sub.get("parameters") or [{}])[0].get("SkyColorMultiplier")
+                layers.append({"mask": path, "mean": round(mean, 4), "skyColorMultiplier": multiplier})
+                clear *= 1.0 - mean
+    return (round(1.0 - clear, 4) if layers else 0.0), layers
+
+
+def sky() -> dict:
+    """Writes sky/stars.png, sky/moon.png, and sky/sky.json (stage E3)."""
+    from PIL import Image
+    from . import dds
+    out = out_dir() / "sky"
+    out.mkdir(parents=True, exist_ok=True)
+    stars = read_stars(source.read("engineassets/sky/stars.dat"))
+    Image.fromarray(to_srgb8(star_map(stars)), "RGB").save(out / "stars.png")
+    mission = json.loads((out_dir() / "mission.json").read_text())
+    moon_path = ((mission.get("environment") or {}).get("Moon") or {}).get("Texture", "textures/skys/night/moon_full.dds").lower()
+    data, w, h, fmt = dds.join(source.read, moon_path, 512)
+    dds.to_image(data, w, h, fmt).convert("RGBA").save(out / "moon.png")
+    # The precipitation (stage E3): the rain layer texture of the rain stage of the source and the snowflake atlas (2 x 2).
+    for path, name in (("textures/rain/rainfall.dds", "rainfall.png"), ("engineassets/textures/snowflakes.dds", "snowflakes.png")):
+        pdata, pw, ph, pfmt = dds.join(source.read, path, 512)
+        dds.to_image(pdata, pw, ph, pfmt).convert("RGBA").save(out / name)
+    skies = {}
+    for name, entry in json.loads((out_dir() / "sky.json").read_text()).items():
+        cover, layers = sky_cover(entry)
+        skies[name] = {"cover": cover, "layers": layers}
+    doc = {"stars": {"png": "sky/stars.png", "count": len(stars), "size": list(STAR_MAP), "source": "engineassets/sky/stars.dat",
+                     "frame": "u: right ascension 0 to 24 h; v: declination +90 to -90 degrees"},
+           "moon": {"png": "sky/moon.png", "source": moon_path, "size": [w, h]},
+           "rain": {"png": "sky/rainfall.png", "source": "textures/rain/rainfall.dds"},
+           "snow": {"png": "sky/snowflakes.png", "source": "engineassets/textures/snowflakes.dds", "atlas": [2, 2]}, "skies": skies}
+    (out / "sky.json").write_text(json.dumps(doc, indent=1))
+    return {"stars": len(stars), "moon": moon_path, "skies": {k.split("/")[-1]: v["cover"] for k, v in skies.items()}}
+
+
+# The world probes (stage E5): a probe box larger than this (m3) covers the world (the outdoor ambient of the source).
+WORLD_PROBE_VOLUME = 1.0e12
+PROBE_SIZE = (512, 256)
+
+
+def cube_face_lookup(faces: list, direction: np.ndarray) -> np.ndarray:
+    """@return The texels of a cube (6 faces in the D3D order and layout, the D3D z axis up: the world probes of the source) for
+    the unit directions (N x 3: east, north, up), bilinear in the face."""
+    x, y, z = direction[:, 0], direction[:, 1], direction[:, 2]
+    ax, ay, az = np.abs(x), np.abs(y), np.abs(z)
+    face = np.where((ax >= ay) & (ax >= az), np.where(x > 0, 0, 1), np.where(ay >= az, np.where(y > 0, 2, 3), np.where(z > 0, 4, 5)))
+    ma = np.choose(face, [ax, ax, ay, ay, az, az])
+    sc = np.choose(face, [-z, z, x, x, x, -x])
+    tc = np.choose(face, [-y, -y, z, -z, -y, -y])
+    size = faces[0].shape[0]
+    s = np.clip((sc / ma + 1.0) * 0.5 * size - 0.5, 0.0, size - 1.0)
+    t = np.clip((tc / ma + 1.0) * 0.5 * size - 0.5, 0.0, size - 1.0)
+    s0, t0 = np.floor(s).astype(int), np.floor(t).astype(int)
+    s1, t1 = np.minimum(s0 + 1, size - 1), np.minimum(t0 + 1, size - 1)
+    fs, ft = (s - s0)[:, None], (t - t0)[:, None]
+    stack = np.stack(faces)
+    return (stack[face, t0, s0] * (1 - fs) * (1 - ft) + stack[face, t0, s1] * fs * (1 - ft)
+            + stack[face, t1, s0] * (1 - fs) * ft + stack[face, t1, s1] * fs * ft)
+
+
+def write_hdr(path: Path, rgb: np.ndarray) -> None:
+    """Writes a Radiance picture (flat RGBE scanlines, the top row first)."""
+    height, width, _ = rgb.shape
+    peak = rgb.max(axis=2)
+    mantissa, exponent = np.frexp(np.maximum(peak, 1e-32))
+    scale = np.where(peak > 1e-32, mantissa * 256.0 / np.maximum(peak, 1e-32), 0.0)
+    out = np.zeros((height, width, 4), np.uint8)
+    out[..., :3] = np.clip(rgb * scale[..., None], 0, 255).astype(np.uint8)
+    out[..., 3] = np.where(peak > 1e-32, exponent + 128, 0).astype(np.uint8)
+    # A flat pixel must not look like a run mark (1, 1, 1) or like the start of a run-length scanline (2, 2).
+    green, blue = out[..., 1], out[..., 2]
+    blue[(out[..., 0] == 1) & (green == 1) & (blue == 1)] = 2
+    green[(out[..., 0] == 2) & (green == 2)] = 3
+    path.write_bytes(f"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y {height} +X {width}\n".encode() + out.tobytes())
+
+
+def probes() -> dict:
+    """Writes probes/NAME.hdr and probes.json: the world probes of the outdoor ambient (stage E5)."""
+    from . import bc6h
+    found: dict[str, dict] = {}
+    for path in sorted((out_dir() / "regions").glob("*.json")):
+        for record in json.loads(path.read_text())["records"]:
+            if record.get("kind") != "probe":
+                continue
+            config = record["fields"]["LightConfiguration"]
+            area = config.get("Area X,Y,Z") or [0.0, 0.0, 0.0]
+            if area[0] * area[1] * area[2] < WORLD_PROBE_VOLUME:
+                continue
+            cubemap = config["CubemapTexture"].replace("\\", "/").lower()
+            entry = found.setdefault(cubemap, {"cubemap": cubemap, "diffuseMultiplier": config.get("DiffuseMultiplier", 1.0),
+                                               "specMultiplier": config.get("SpecMultiplier", 1.0), "todInfluence": config.get("TODInfluence", 1.0),
+                                               "boxes": []})
+            entry["boxes"].append({"region": path.stem, "place": record["place"], "area": area, "priority": config.get("SortPriority", 0)})
+    folder = out_dir() / "probes"
+    folder.mkdir(parents=True, exist_ok=True)
+    width, height = PROBE_SIZE
+    u = (np.arange(width) + 0.5) / width
+    v = (np.arange(height) + 0.5) / height
+    longitude, polar = np.meshgrid((2.0 * u - 1.0) * math.pi, v * math.pi)
+    direction = np.stack([np.sin(polar) * np.sin(longitude), np.sin(polar) * np.cos(longitude), np.cos(polar)], -1).reshape(-1, 3)
+    for cubemap, entry in found.items():
+        base = source.read(cubemap)
+        size = struct.unpack_from("<I", base, 16)[0]
+        face_bytes = max(1, size // 4) ** 2 * 16
+        # Mip 0 of the six faces: the split file of that size (the source keeps the larger mips in NAME.dds.1 to .N).
+        data = None
+        for split in range(8, 0, -1):
+            if source.has(f"{cubemap}.{split}"):
+                part = source.read(f"{cubemap}.{split}")
+                data = part if len(part) == 6 * face_bytes else None
+                break
+        if data is None and len(base) >= 148 + 6 * face_bytes:
+            data = base[148:148 + 6 * face_bytes]
+        if data is None:
+            entry["error"] = "no mip 0 of six faces"
+            continue
+        faces = [bc6h.decode(data[f * face_bytes:(f + 1) * face_bytes], size, size) for f in range(6)]
+        picture = cube_face_lookup(faces, direction).reshape(height, width, 3)
+        name = Path(cubemap).stem
+        write_hdr(folder / f"{name}.hdr", picture)
+        entry.update({"hdr": f"probes/{name}.hdr", "size": [width, height], "faceSize": size,
+                      "faceMeans": {label: [round(float(c), 4) for c in face.reshape(-1, 3).mean(0)] for label, face in
+                                    zip(("+east", "-east", "+north", "-north", "+up", "-up"), faces)}})
+    doc = {"rule": "the outdoor ambient of the source: the radiance of the probe x 10,000 cd/m2 x its DiffuseMultiplier x the time-of-day "
+                   "'Environment Probe Diffuse Multiplier' (by its TODInfluence) x 'Environment Probe Multiplier'",
+           "world": list(found.values())}
+    (out_dir() / "probes.json").write_text(json.dumps(doc, indent=1))
+    return {Path(k).stem: {"boxes": len(v["boxes"]), "up": v.get("faceMeans", {}).get("+up")} for k, v in found.items()}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="swc-environment", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("write")
     p.add_argument("--regions", nargs="*")
     sub.add_parser("cookies")
+    sub.add_parser("sky")
+    sub.add_parser("probes")
     p = sub.add_parser("volumes")
     p.add_argument("x", type=float)
     p.add_argument("y", type=float)
@@ -771,6 +976,10 @@ def main(argv=None) -> int:
         print(json.dumps(write(args.regions), indent=1))
     elif args.command == "cookies":
         print(json.dumps(cookies(), indent=1))
+    elif args.command == "sky":
+        print(json.dumps(sky(), indent=1))
+    elif args.command == "probes":
+        print(json.dumps(probes(), indent=1))
     elif args.command == "volumes":
         print(json.dumps(time_volumes_at((args.x, args.y, args.z)), indent=1))
     elif args.command == "table":

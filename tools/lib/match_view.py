@@ -106,6 +106,15 @@ def world_hour_of(source: dict) -> float | None:
     return world if min(difference, 24.0 - difference) > 0.25 else None
 
 
+def client_ended(launch: Path) -> bool:
+    """@return True when the launch of the run has ended (the status file of the agent desktop has an exit code)."""
+    try:
+        status = Path(json.loads(launch.read_text())["status"])
+        return json.loads(status.read_text()).get("exitCode") is not None
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 def side_by_side(view: dict, reference: Path, client: Path, out: Path) -> None:
     left = Image.open(reference).convert("RGB").resize((1280, 720))
     right = Image.open(client).convert("RGB").resize((1280, 720)) if client.is_file() else Image.new("RGB", (1280, 720), (60, 20, 20))
@@ -177,7 +186,8 @@ def main() -> int:
                         help="VIEW=HH:MM[,HH:MM...]: more views of a reference view at other world hours (the left side: its retail picture)")
     parser.add_argument("--variant", action="append", default=[],
                         help="VIEW@NAME=COMMAND[;COMMAND...]: one more picture of a view with client console commands run when it is in place "
-                             "(a look value to compare in one run; the picture VIEW@NAME)")
+                             "(a look value to compare in one run; the picture VIEW@NAME). The next view sets the console variables of the "
+                             "commands back to their values before the first variant")
     parser.add_argument("--character", default=os.environ.get("SWC_DEV_CHARACTER", ""))
     parser.add_argument("--client-args", nargs=argparse.REMAINDER, default=[])
     if len(sys.argv) == 3 and sys.argv[1] == "--colors":
@@ -271,7 +281,10 @@ def main() -> int:
     print(f"match-view: {len(views)} view(s), run {args.label}, stay at most {stay} s", flush=True)
     by_name = {v["name"]: v for v in views}
     position, started, done, ignored = 0, time.monotonic(), False, False
-    while time.monotonic() - started < stay + 120 and not done:
+    ended = False
+    while time.monotonic() - started < stay + 120 and not done and not ended:
+        # The client is gone (a crash, or the launch ended): no more lines come; the run does not hold the world lock for nothing.
+        ended = client_ended(WORK / "logs" / "dev-run" / f"{args.label}-launch.json")
         if not log.is_file():
             time.sleep(1)
             continue
@@ -304,6 +317,9 @@ def main() -> int:
                     print(f"match-view: {view['name']}: picture {match[6]} (client {view.get('clientClock')}, retail {clock(view['targetHour'])})", flush=True)
             if "matchview: done" in line:
                 done = True
+            if "=== Critical error: ===" in line:
+                print("match-view: the client stopped with a critical error (see the client log)", flush=True)
+                ended = True
         time.sleep(0.5)
     time.sleep(3)
     subprocess.run([str(REPO / "tools/dev-stop.sh")], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)

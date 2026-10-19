@@ -103,6 +103,8 @@ struct Volume {
     std::string sky;
     int priority{0};
     double blendTime{0.0};
+    /** The distance of the blend inside the edge (m; 0: no distance blend). */
+    double blendDistance{0.0};
     bool hasHourOverride{false};
     double hourOverride{0.0};
 };
@@ -113,5 +115,57 @@ std::array<double, 16> inverse_of(const std::array<double, 16>& m);
 bool contains(const Volume& volume, const Vec3& point);
 /** @return The index of the volume that holds a point with the highest priority (the first one of a tie), or -1. */
 int select_volume(const std::vector<Volume>& volumes, const Vec3& point);
+
+/** @return The depth of a point in the shape of a volume (m in the frame of its entity; positive inside, negative outside): the
+ *  distance to the nearest face of a box, to the side or the caps of a cylinder, to the surface of a sphere or a capsule, to the
+ *  nearest edge or cap of a polygon prism. */
+double inside_depth(const Volume& volume, const Vec3& point);
+
+/** @return The target weight of a volume at a point (stage E3): with a blend distance, the depth / the blend distance (0 to 1); else
+ *  1 inside and 0 outside. */
+double volume_weight(const Volume& volume, const Vec3& point);
+
+/** @return The weight one step later: it goes to the target at the rate 1 / the blend time of the volume (at once with no blend
+ *  time). */
+double approach_weight(double weight, double target, double blendTime, double deltaSeconds);
+
+/**
+ * @return The height falloff of the Unreal height fog (the property: log2 units per cm x 1000) for two fog layers of the data: the
+ * density at the bottom height and the density at the top height (the density falls by the ratio between the two heights). 0 when
+ * the layers do not fall.
+ */
+double fog_height_falloff(double bottomDensity, double topDensity, double bottomHeight, double topHeight);
+
+/** The rotation of the celestial frame (stage E3): a 3 x 3 matrix in rows. */
+using Rotation = std::array<std::array<double, 3>, 3>;
+
+/**
+ * @return The rotation from the engine space to the celestial frame of the stars at an hour: the inverse of the sun path rotation of
+ * sun_toward, turned half about the sun (the celestial pole is the axis of the sun path, the north pole +z above the horizon; the sun
+ * is at the right ascension 0 h and the declination 0). The
+ * celestial frame: x = cos(dec) sin(ra), y = cos(dec) cos(ra), z = sin(dec). An inference of this client (the public engine rule of
+ * the star rotation is not known): the stars turn with the sun.
+ */
+Rotation celestial_from_engine(double hour, double sunRotationDegrees, double longitudeDegrees);
+
+/** @return The unit vector of a star of the catalog (right ascension in hours, declination in degrees) in the celestial frame. */
+Vec3 star_vector(double rightAscensionHours, double declinationDegrees);
+
+/** @return A rotation times a vector. */
+Vec3 rotate(const Rotation& rotation, const Vec3& v);
+
+/**
+ * @return The EV of the eye adaptation of the source (stage E5; the final scene shader of the game copy, HDRFinalScenePS) for the
+ * illuminance E (lux) of the scene: log2(E x 100 / 330) - (clamp(log10(E + 1), 0.1, 5.2) - 3) / 2 x the auto compensation, clamped
+ * to the EV bounds. The exposure of the source is 1 / (1.2 x 2^EV).
+ */
+double source_ev(double illuminance, double evMin, double evMax, double autoCompensation);
+
+/**
+ * @return The bias (EV) of the Unreal exposure curve at its EV100 that gives the exposure of the source: Unreal sets the exposure
+ * 0.18 x 2^bias / M with the mean metered value M = 0.18 x 2^EV100, and the illuminance of the source is E = pi x M / meterScale
+ * (the meter that ignores the materials: M = L / albedo x meterScale).
+ */
+double source_exposure_bias(double ev100, double evMin, double evMax, double autoCompensation, double meterScale);
 
 } // namespace swc::environment

@@ -3,16 +3,20 @@
 #include "Async/Async.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Components/ExponentialHeightFogComponent.h"
 #include "Components/PostProcessComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
+#include "Components/VolumetricCloudComponent.h"
 #include "Creatures/SwcCreatureData.h"
+#include "Curves/CurveFloat.h"
 #include "Dom/JsonObject.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Environment/SwcWorldTimeSubsystem.h"
 #include "GameFramework/PlayerController.h"
+#include "HAL/IConsoleManager.h"
 #include "HAL/PlatformTime.h"
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
@@ -29,19 +33,48 @@ namespace env = swc::environment;
 
 /** The log of the state (s); -SwcEnvironmentProbe: each 1 s. */
 constexpr double LogSeconds = 60.0;
-/** The histogram of the auto exposure (log2 of the luminance, cd/m2): wide enough for the 100,000 lux sun of the data. */
+/** The histogram of the auto exposure (log2 of the metered value): wide enough for the 100,000 lux sun of the data. */
 constexpr float HistogramLogMin = -6.0f;
 constexpr float HistogramLogMax = 16.0f;
-/** The bounds of the auto exposure (EV100; the decision of the user: the Unreal exposure for a readable picture, stage E5 refines
- *  it): a twilight and a night adapt, a noon does not burn out. */
-constexpr double ExposureMinEv = 3.0;
-constexpr double ExposureMaxEv = 16.0;
+/** The exposure of the source (stage E5; the decision of the user, 2026-10-19: the color result copies retail): the final scene shader
+ *  of the game copy (HDRFinalScenePS, shaders/cache/d3d11/cgpshaders/hdrpostprocess@hdrfinalsceneps.fxcb) meters the illuminance
+ *  E = pi x L / albedo of each pixel (the albedo of the G-buffer, at least 0.01; 0.2 for the sky; HDRSampleLumInitialPS), takes the
+ *  geometric mean, and sets EV = log2(E x 100 / 330) - (clamp(log10(E + 1), 0.1, 5.2) - 3) / 2 x "EV Auto compensation", clamped to
+ *  "EV Min" and "EV Max"; the exposure is 1 / (1.2 x 2^EV). The Unreal meter that ignores the materials
+ *  (r.AutoExposure.IgnoreMaterials) meters M = L / albedo x lerp(0.18, 1, 0.01) with the Rec. 709 weights
+ *  (r.AutoExposure.LuminanceMethod 2), so E = pi x M / MeterScale. Unreal sets the exposure 0.18 x 2^bias / mean M, and evaluates its
+ *  bias curve at EV100 = log2(mean M / 0.18): the curve holds the whole rule of the source (env::source_exposure_bias; the bounds of
+ *  Unreal stay wide). With the Unreal luminance meter (swc.SourceMeter 0) the mean luminance stands for E = pi x L / 0.18. */
 /** The moon fades in as the sun goes below the horizon: full at this angle (degrees) below it. */
 constexpr double TwilightDegrees = 4.0;
-/** The luminance of an EV100 (cd/m2): 2^EV x 12.5 / 100. */
-float LuminanceOfEv(double Ev)
+/** @return The scale of the Unreal meter that ignores the materials (its luminance scale over the albedo, with its albedo floor). */
+double MeterScale()
 {
-	return static_cast<float>(FMath::Pow(2.0, Ev) * 0.125);
+	const IConsoleVariable* Scale = IConsoleManager::Get().FindConsoleVariable(TEXT("r.AutoExposure.IgnoreMaterials.LuminanceScale"));
+	const IConsoleVariable* Floor = IConsoleManager::Get().FindConsoleVariable(TEXT("r.AutoExposure.IgnoreMaterials.MinBaseColorLuminance"));
+	return FMath::Lerp(Scale != nullptr ? Scale->GetFloat() : 0.18, 1.0, Floor != nullptr ? Floor->GetFloat() : 0.01);
+}
+
+/** The bias of the grade exposure (EV, a look scale; 0: the rule of the source). */
+TAutoConsoleVariable<float> CVarGradeBias(TEXT("swc.GradeBias"), 0.0f, TEXT("An offset of the exposure of the source rule (EV)."));
+/** The meter of the exposure: 1 the source (the albedo ignored), 0 the Unreal luminance (a check). */
+TAutoConsoleVariable<int32> CVarSourceMeter(TEXT("swc.SourceMeter"), 1,
+	TEXT("The meter of the exposure: 1 the illuminance as the source meters it (r.AutoExposure.IgnoreMaterials), 0 the scene luminance."));
+
+/** Sets the console variables of the source meter (the engine reads them each frame). */
+void ApplySourceMeter(bool bSourceMeter)
+{
+	auto Set = [](const TCHAR* Name, int32 Value)
+	{
+		if (IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Name))
+		{
+			Variable->Set(Value, ECVF_SetByCode);
+		}
+	};
+	Set(TEXT("r.AutoExposure.IgnoreMaterials"), bSourceMeter ? 1 : 0);
+	Set(TEXT("r.AutoExposure.IgnoreMaterials.UsePrecalculatedIlluminance"), 0);   // the luminance over the albedo, as the source
+	Set(TEXT("r.AutoExposure.LuminanceMethod"), 2);                                 // the Rec. 709 weights of the source
+	Set(TEXT("r.EyeAdaptation.ExposureCompensationCurveLUT.NumSamples"), 256);      // the bends of the rule at the EV bounds
 }
 
 TSharedPtr<FJsonObject> ReadJson(const FString& Path)
@@ -170,6 +203,7 @@ env::Volume ReadVolume(const TSharedPtr<FJsonObject>& Object)
 	Volume.preset = TCHAR_TO_UTF8(*Object->GetStringField(TEXT("preset")));
 	Volume.priority = static_cast<int>(NumberOf(Object, TEXT("priority"), 0.0));
 	Volume.blendTime = NumberOf(Object, TEXT("blendTime"), 0.0);
+	Volume.blendDistance = NumberOf(Object, TEXT("blendDistance"), 0.0);
 	const TSharedPtr<FJsonValue> Override = Object->TryGetField(TEXT("hourOverride"));
 	Volume.hasHourOverride = Override.IsValid() && Override->Type == EJson::Number;
 	Volume.hourOverride = Volume.hasHourOverride ? Override->AsNumber() : 0.0;
@@ -179,6 +213,84 @@ env::Volume ReadVolume(const TSharedPtr<FJsonObject>& Object)
 		Volume.sky = TCHAR_TO_UTF8(*Sky);
 	}
 	return Volume;
+}
+
+/** @return A rain or snow volume of volumes.json (stage E3). The rain: InnerRadius, OuterRadius, and Amount of "Rain Options"; the
+ *  snow: the Radius of "Snow Options" (the amount falls in its last 10 %) and the amount SnowFlakeCount / 1000 x SnowFallBrightness / 3
+ *  (an inference of this client: the source draws SnowFlakeCount flakes with that brightness). A disabled volume has no amount. */
+USwcEnvironmentSubsystem::FData::FPrecipitation ReadPrecipitation(const TSharedPtr<FJsonObject>& Object, bool bSnow)
+{
+	USwcEnvironmentSubsystem::FData::FPrecipitation Out;
+	Out.bSnow = bSnow;
+	Out.Name = Object->GetStringField(TEXT("entity"));
+	const TArray<TSharedPtr<FJsonValue>>& Rows = Object->GetArrayField(TEXT("matrix"));
+	if (Rows.Num() >= 3)
+	{
+		Out.Center = {Rows[0]->AsArray()[3]->AsNumber(), Rows[1]->AsArray()[3]->AsNumber(), Rows[2]->AsArray()[3]->AsNumber()};
+	}
+	const TSharedPtr<FJsonObject>* Shape = nullptr;
+	if (Object->TryGetObjectField(TEXT("shape"), Shape) && Shape != nullptr && (*Shape)->HasField(TEXT("height")))
+	{
+		Out.HalfHeight = NumberOf(*Shape, TEXT("height"), 2e9) / 2.0;
+	}
+	const TSharedPtr<FJsonObject>* Fields = nullptr;
+	if (!Object->TryGetObjectField(TEXT("fields"), Fields) || Fields == nullptr)
+	{
+		return Out;
+	}
+	bool bEnabled = true;
+	(*Fields)->TryGetBoolField(TEXT("Enabled"), bEnabled);
+	const TSharedPtr<FJsonObject>* Options = nullptr;
+	if (!bEnabled || !(*Fields)->TryGetObjectField(bSnow ? TEXT("Snow Options") : TEXT("Rain Options"), Options) || Options == nullptr)
+	{
+		return Out;
+	}
+	if (bSnow)
+	{
+		Out.Outer = NumberOf(*Options, TEXT("Radius"), 0.0);
+		Out.Inner = Out.Outer * 0.9;
+		Out.Amount = NumberOf(*Options, TEXT("SnowFlakeCount"), 0.0) / 1000.0 * NumberOf(*Options, TEXT("SnowFallBrightness"), 1.0) / 3.0;
+	}
+	else
+	{
+		Out.Inner = NumberOf(*Options, TEXT("InnerRadius"), 0.0);
+		Out.Outer = FMath::Max(NumberOf(*Options, TEXT("OuterRadius"), 0.0), Out.Inner);
+		Out.Amount = NumberOf(*Options, TEXT("Amount"), 0.0);
+	}
+	return Out;
+}
+
+/** Adds a fog volume of volumes.json (stage E3): the box of its shape, the COLOR, and the GlobalDensity of its FogVolumeConfiguration. */
+void ReadFogVolume(const TSharedPtr<FJsonObject>& Object, TArray<USwcEnvironmentSubsystem::FData::FFogVolume>& Out)
+{
+	const TSharedPtr<FJsonObject>* Shape = nullptr;
+	const TSharedPtr<FJsonObject>* Fields = nullptr;
+	const TSharedPtr<FJsonObject>* Configuration = nullptr;
+	const TArray<TSharedPtr<FJsonValue>>* Dimensions = nullptr;
+	if (!Object->TryGetObjectField(TEXT("shape"), Shape) || Shape == nullptr || !(*Shape)->TryGetArrayField(TEXT("dimensions"), Dimensions)
+		|| Dimensions->Num() != 3 || !Object->TryGetObjectField(TEXT("fields"), Fields) || Fields == nullptr
+		|| !(*Fields)->TryGetObjectField(TEXT("FogVolumeConfiguration"), Configuration) || Configuration == nullptr)
+	{
+		return;
+	}
+	USwcEnvironmentSubsystem::FData::FFogVolume Volume;
+	Volume.Name = Object->GetStringField(TEXT("entity"));
+	const TArray<TSharedPtr<FJsonValue>>& Rows = Object->GetArrayField(TEXT("matrix"));
+	if (Rows.Num() >= 3)
+	{
+		Volume.Center = {Rows[0]->AsArray()[3]->AsNumber(), Rows[1]->AsArray()[3]->AsNumber(), Rows[2]->AsArray()[3]->AsNumber()};
+	}
+	Volume.Size = {(*Dimensions)[0]->AsNumber(), (*Dimensions)[1]->AsNumber(), (*Dimensions)[2]->AsNumber()};
+	Volume.Density = NumberOf(*Configuration, TEXT("GlobalDensity"), 0.0);
+	const TArray<TSharedPtr<FJsonValue>>* Color = nullptr;
+	if ((*Configuration)->TryGetArrayField(TEXT("COLOR"), Color) && Color->Num() >= 3)
+	{
+		Volume.Color = {(*Color)[0]->AsNumber(), (*Color)[1]->AsNumber(), (*Color)[2]->AsNumber()};
+	}
+	if (Volume.Density > 0.0)
+	{
+		Out.Add(Volume);
+	}
 }
 
 /** @return The data of SWC_CONTENT/environment (a worker thread). */
@@ -220,14 +332,59 @@ TSharedPtr<USwcEnvironmentSubsystem::FData, ESPMode::ThreadSafe> LoadData(const 
 	for (const TSharedPtr<FJsonValue>& Value : Volumes->GetArrayField(TEXT("volumes")))
 	{
 		const TSharedPtr<FJsonObject> Object = Value->AsObject();
-		if (Object.IsValid() && Object->GetStringField(TEXT("kind")) == TEXT("timeOfDay"))
+		if (!Object.IsValid())
+		{
+			continue;
+		}
+		const FString Kind = Object->GetStringField(TEXT("kind"));
+		if (Kind == TEXT("timeOfDay"))
 		{
 			Out->Volumes.push_back(ReadVolume(Object));
 		}
+		else if (Kind == TEXT("rain") || Kind == TEXT("snow"))
+		{
+			Out->Precipitation.Add(ReadPrecipitation(Object, Kind == TEXT("snow")));
+		}
+		else if (Kind == TEXT("fog"))
+		{
+			ReadFogVolume(Object, Out->FogVolumes);
+		}
+	}
+	// The cloud cover of each sky slice (stage E3; tools/convert-environment.sh sky).
+	if (const TSharedPtr<FJsonObject> Sky = ReadJson(FPaths::Combine(Folder, TEXT("sky"), TEXT("sky.json"))))
+	{
+		const TSharedPtr<FJsonObject>* Skies = nullptr;
+		if (Sky->TryGetObjectField(TEXT("skies"), Skies))
+		{
+			for (const auto& Pair : (*Skies)->Values)
+			{
+				Out->SkyCovers.Add(FString(Pair.Key), NumberOf(Pair.Value->AsObject(), TEXT("cover"), 0.0));
+			}
+		}
+	}
+	// The world probe of the outdoor ambient (stage E5; tools/convert-environment.sh probes): the first one (the world has one).
+	if (const TSharedPtr<FJsonObject> Probes = ReadJson(FPaths::Combine(Folder, TEXT("probes.json"))))
+	{
+		const TArray<TSharedPtr<FJsonValue>>* World = nullptr;
+		if (Probes->TryGetArrayField(TEXT("world"), World))
+		{
+			for (const TSharedPtr<FJsonValue>& Value : *World)
+			{
+				const TSharedPtr<FJsonObject> Probe = Value->AsObject();
+				FString Picture;
+				if (Probe.IsValid() && Probe->TryGetStringField(TEXT("hdr"), Picture))
+				{
+					Out->WorldProbe = FPaths::GetBaseFilename(Picture);
+					Out->WorldProbeDiffuse = NumberOf(Probe, TEXT("diffuseMultiplier"), 1.0);
+					Out->WorldProbeTodInfluence = NumberOf(Probe, TEXT("todInfluence"), 1.0);
+					break;
+				}
+			}
+		}
 	}
 	Out->bOk = true;
-	Out->Report = FString::Printf(TEXT("environment: %d preset(s), %d time-of-day volume(s); the sun rotation %.1f, longitude %.1f; the moon %.1f %.1f size %.2f (%.0f ms)"),
-		Out->Presets.Num(), static_cast<int32>(Out->Volumes.size()), Out->SunRotation, Out->Longitude, Out->MoonLatitude, Out->MoonLongitude, Out->MoonSize,
+	Out->Report = FString::Printf(TEXT("environment: %d preset(s), %d time-of-day volume(s), %d sky cover(s), %d fog volume(s); the sun rotation %.1f, longitude %.1f; the moon %.1f %.1f size %.2f (%.0f ms)"),
+		Out->Presets.Num(), static_cast<int32>(Out->Volumes.size()), Out->SkyCovers.Num(), Out->FogVolumes.Num(), Out->SunRotation, Out->Longitude, Out->MoonLatitude, Out->MoonLongitude, Out->MoonSize,
 		(FPlatformTime::Seconds() - Start) * 1000.0);
 	return Out;
 }
@@ -310,6 +467,7 @@ bool USwcEnvironmentSubsystem::CreateEnvironment()
 		Light->SetAtmosphereSunLight(true);
 		Light->SetAtmosphereSunLightIndex(Index);
 		Light->SetCastShadows(true);
+		Light->bCastCloudShadows = true;   // the volumetric clouds shade the ground (stage E3: the overcast light of the rain skies)
 		Light->SetupAttachment(Root);
 		Light->RegisterComponent();
 		return Light;
@@ -341,9 +499,18 @@ bool USwcEnvironmentSubsystem::CreateEnvironment()
 	Settings.bOverride_HistogramLogMax = true;
 	Settings.HistogramLogMin = HistogramLogMin;
 	Settings.HistogramLogMax = HistogramLogMax;
+	// The source takes the mean of all pixels: the widest window of Unreal; the bounds of Unreal stay wide (the curve has the EV bounds).
+	Settings.bOverride_AutoExposureLowPercent = true;
+	Settings.bOverride_AutoExposureHighPercent = true;
+	Settings.AutoExposureLowPercent = 1.0f;
+	Settings.AutoExposureHighPercent = 99.0f;
+	Settings.AutoExposureMinBrightness = FMath::Exp2(HistogramLogMin) / 0.18f;
+	Settings.AutoExposureMaxBrightness = FMath::Exp2(HistogramLogMax) / 0.18f;
 	Post->SetupAttachment(Root);
 	Post->RegisterComponent();
 	Exposure = Post;
+	Moon->SetAtmosphereSunDiskColorScale(FLinearColor::Black);   // the moon disc is the texture of the sky material (stage E3)
+	CreateSkyAndFog(Owner, Root);
 	Actor = Owner;
 	return true;
 }
@@ -360,7 +527,8 @@ void USwcEnvironmentSubsystem::TurnOffLevelEnvironment()
 		TInlineComponentArray<UActorComponent*> Components(*It);
 		for (UActorComponent* Component : Components)
 		{
-			if ((Component->IsA<UDirectionalLightComponent>() || Component->IsA<USkyAtmosphereComponent>() || Component->IsA<USkyLightComponent>())
+			if ((Component->IsA<UDirectionalLightComponent>() || Component->IsA<USkyAtmosphereComponent>() || Component->IsA<USkyLightComponent>()
+					|| Component->IsA<UExponentialHeightFogComponent>() || Component->IsA<UVolumetricCloudComponent>())
 				&& Component->IsRegistered())
 			{
 				Component->UnregisterComponent();
@@ -368,7 +536,7 @@ void USwcEnvironmentSubsystem::TurnOffLevelEnvironment()
 			}
 		}
 	}
-	UE_LOG(LogSwcEnvironment, Log, TEXT("environment: %d sun, sky, and sky light component(s) of the level turned off (the fog and the ocean of the level stay)"), Count);
+	UE_LOG(LogSwcEnvironment, Log, TEXT("environment: %d sun, sky, sky light, fog, and cloud component(s) of the level turned off (the ocean of the level stays)"), Count);
 }
 
 double USwcEnvironmentSubsystem::Value(const TMap<FString, env::Curve>& Preset, const TCHAR* Name, double Time, double Default) const
@@ -417,33 +585,25 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 		}
 		TurnOffLevelEnvironment();
 	}
-	// The preset at the camera: the time-of-day volume of the highest priority, else the base preset of the mission.
-	const swc::net::WorldPosition Camera = SwcUnrealToEngine(Controller->PlayerCameraManager->GetCameraLocation());
-	const int32 Index = env::select_volume(Data->Volumes, env::Vec3{Camera.x, Camera.y, Camera.z});
-	const env::Volume* Volume = Index >= 0 ? &Data->Volumes[static_cast<size_t>(Index)] : nullptr;
-	const FString Name = Volume != nullptr ? FString(UTF8_TO_TCHAR(Volume->preset.c_str())) : FString(TEXT("mission"));
-	const TMap<FString, env::Curve>* Preset = Data->Presets.Find(Name);
-	if (Preset == nullptr)
-	{
-		Preset = Data->Presets.Find(TEXT("mission"));
-	}
-	if (Preset == nullptr)
+	// The blend at the camera (stage E3): the base preset of the mission, then the time-of-day volumes by priority and weight.
+	const FVector CameraLocation = Controller->PlayerCameraManager->GetCameraLocation();
+	const swc::net::WorldPosition Camera = SwcUnrealToEngine(CameraLocation);
+	UpdateBlend(env::Vec3{Camera.x, Camera.y, Camera.z}, Clock->GetHour(), DeltaTime);
+	if (Layers.IsEmpty() || Layers[0].Preset == nullptr)
 	{
 		return;
 	}
-	const double Hour = Volume != nullptr && Volume->hasHourOverride ? Volume->hourOverride : Clock->GetHour();
-	const double Time = env::curve_time(Hour);
+	const double Hour = EffectiveHour;
 	const swc::net::TimeRecord& Record = Clock->GetRecord();
 	const env::Edges Edges = env::edges_of(Record.dawnTime, Record.dawnDuration, Record.duskTime, Record.duskDuration, Record.dayLength);
 	const env::LightMultipliers Multipliers = env::light_multipliers(Hour, Edges);
 	// The sun (the Unreal way, the decision of the user): always on, on the path of the data, with the noon "Sun intensity" and "Sun
 	// color" of the preset; the atmosphere makes the sunrise, the sunset, and the twilight. The moon keeps the data: its direction,
 	// the night "Sun intensity" and "Sun color" of the hour, and the fade at the visual dawn and dusk of the record.
-	const double Noon = env::curve_time(12.0);
-	const double SunLux = bAmbientOnly ? 0.0 : FMath::Max(0.0, Value(*Preset, TEXT("Sun intensity"), Noon, 100000.0));
-	const env::LightColor SunColor = env::light_color(Color(*Preset, TEXT("Sun color"), Noon));
-	const double MoonLux = bAmbientOnly ? 0.0 : FMath::Max(0.0, Value(*Preset, TEXT("Sun intensity"), Time, 0.0));
-	const env::LightColor MoonColor = env::light_color(Color(*Preset, TEXT("Sun color"), Time));
+	const double SunLux = bAmbientOnly ? 0.0 : FMath::Max(0.0, Blended(TEXT("Sun intensity"), 100000.0, 12.0));
+	const env::LightColor SunColor = env::light_color(BlendedColor(TEXT("Sun color"), 12.0));
+	const double MoonLux = bAmbientOnly ? 0.0 : FMath::Max(0.0, Blended(TEXT("Sun intensity"), 0.0));
+	const env::LightColor MoonColor = env::light_color(BlendedColor(TEXT("Sun color")));
 	const env::Vec3 SunToward = env::sun_toward(Hour, Data->SunRotation, Data->Longitude);
 	const env::Vec3 MoonToward = env::moon_toward(Data->MoonLatitude, Data->MoonLongitude);
 	// The weight of the moon: the fade of the source at the visual dawn and dusk of the record, or the sun below the horizon (0 at the
@@ -469,31 +629,45 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 		Light->SetLightColor(Linear(MoonColor));
 		Light->SetVisibility(MoonWeight > 0.0);
 	}
-	// The night sky: the atmosphere lit by the moon is a day sky; the factor darkens it as the moon fades in (a look choice).
-	if (USkyAtmosphereComponent* Sky = Atmosphere.Get())
-	{
-		const float Factor = static_cast<float>(FMath::Lerp(1.0, NightSkyFactor, MoonWeight));
-		Sky->SetSkyLuminanceFactor(FLinearColor(Factor, Factor, Factor));
-	}
-	// The Unreal auto exposure with wide bounds; by night a darker compensation keeps a night look.
-	const double Compensation = FMath::Lerp(0.0, NightExposure, MoonWeight);
+	// The exposure of the source: the EV bounds and the auto compensation of the data, in the bias curve of Unreal.
+	const double EvMin = Blended(TEXT("EV Min"), 5.0);
+	const double EvMax = Blended(TEXT("EV Max"), 17.0);
+	const double AutoCompensation = Blended(TEXT("EV Auto compensation"), 1.5);
+	const double Compensation = CVarGradeBias.GetValueOnGameThread() + FMath::Lerp(0.0, NightExposure, MoonWeight);
 	if (UPostProcessComponent* Post = Exposure.Get())
 	{
-		Post->Settings.AutoExposureMinBrightness = LuminanceOfEv(ExposureMinEv);
-		Post->Settings.AutoExposureMaxBrightness = LuminanceOfEv(ExposureMaxEv);
 		Post->Settings.AutoExposureBias = static_cast<float>(Compensation);
+		const bool bSourceMeter = CVarSourceMeter.GetValueOnGameThread() != 0;
+		const FVector4 Rule(EvMin, EvMax, AutoCompensation, bSourceMeter ? MeterScale() : 0.0);
+		if (ExposureCurve == nullptr || !Rule.Equals(CurveRule, 0.005))
+		{
+			ApplySourceMeter(bSourceMeter);
+			// The bias curve of Unreal over the metered EV100 (each 0.25 EV over the range of its curve table, -10 to 20). A new curve
+			// object each time: the renderer bakes the table again only for a new curve object (a key change of the same object
+			// is seen only in the editor).
+			ExposureCurve = NewObject<UCurveFloat>(this);
+			for (double Ev = -10.0; Ev <= 20.0; Ev += 0.25)
+			{
+				const FKeyHandle Key = ExposureCurve->FloatCurve.AddKey(static_cast<float>(Ev),
+					static_cast<float>(env::source_exposure_bias(Ev, EvMin, EvMax, AutoCompensation, bSourceMeter ? MeterScale() : 0.18)));
+				ExposureCurve->FloatCurve.SetKeyInterpMode(Key, RCIM_Linear);
+			}
+			CurveRule = Rule;
+			Post->Settings.bOverride_AutoExposureBiasCurve = true;
+			Post->Settings.AutoExposureBiasCurve = ExposureCurve;
+		}
 	}
+	const double MainLux = SunLux * FMath::Max(0.0, SunToward.z) + MoonLux * MoonWeight;
+	UpdateSkyAndFog(Hour, CameraLocation, MoonWeight, MainLux);
 	const double Now = FPlatformTime::Seconds();
-	if (Name != PresetName || Index != VolumeIndex || Now >= NextLog)
+	if (LayerText != PresetName || Now >= NextLog)
 	{
 		NextLog = Now + (bProbe ? 1.0 : LogSeconds);
-		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: hour %.4f%s, preset %s%s; sun %.0f lux, elevation %.1f (toward %.3f %.3f %.3f), color %.3f %.3f %.3f; "
-			"moon %.0f lux x %.3f, color %.3f %.3f %.3f; night sky %.2f; exposure EV100 %.1f to %.1f, compensation %.2f"),
-			Hour, Volume != nullptr && Volume->hasHourOverride ? TEXT(" (the hour override of the volume)") : TEXT(""), *Name,
-			Volume != nullptr ? *FString::Printf(TEXT(" (volume %d, priority %d)"), Index, Volume->priority) : TEXT(" (no volume: the mission)"),
-			SunLux, Elevation, SunToward.x, SunToward.y, SunToward.z, SunColor.color[0], SunColor.color[1], SunColor.color[2],
-			MoonLux, MoonWeight, MoonColor.color[0], MoonColor.color[1], MoonColor.color[2], NightSkyFactor, ExposureMinEv, ExposureMaxEv, Compensation);
-		PresetName = Name;
-		VolumeIndex = Index;
+		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: hour %.4f%s, presets %s; sun %.0f lux, elevation %.1f (toward %.3f %.3f %.3f), color %.3f %.3f %.3f; "
+			"moon %.0f lux x %.3f, color %.3f %.3f %.3f; night sky %.2f; exposure EV of the source %.1f to %.1f, bias %.2f; %s"),
+			Hour, FMath::Abs(Hour - Clock->GetHour()) > 1e-6 ? *FString::Printf(TEXT(" (the world hour %.4f with the hour overrides)"), Clock->GetHour()) : TEXT(""),
+			*LayerText, SunLux, Elevation, SunToward.x, SunToward.y, SunToward.z, SunColor.color[0], SunColor.color[1], SunColor.color[2],
+			MoonLux, MoonWeight, MoonColor.color[0], MoonColor.color[1], MoonColor.color[2], NightSkyFactor, EvMin, EvMax, Compensation, *SkyText);
+		PresetName = LayerText;
 	}
 }

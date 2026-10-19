@@ -9,6 +9,13 @@ The sources: Soulwarden `docs/systems/world-time-and-weather.md` and the protoco
 `~/Games/soulwarden/work/research/world-time.md` (section 2: the client code of the time), and the backend encoders
 (`apps/backend/src/server/rep/time_messages.cpp`, `world/world_time.cpp`).
 
+## The decisions of the user
+
+| Date | Decision | Rule for this document |
+| --- | --- | --- |
+| 2026-10-18 | "The lighting of the unreal game seems better. Let's keep what Unreal does better like Unreal." | The content follows the retail client (the hour, the sun and moon path, the light sources of the data); the technique is Unreal (Lumen, its shadows and reflections, the volumetric clouds, the physical sky as the base). |
+| 2026-10-19 | "The original game colors should be copied to the client." (docs/ROADMAP.md) | The color result copies retail: the exposure level, the film response, the black level, the color grade and the source LUTs, the white balance, the saturation, and the sky, fog, sun, and moon colors of the time-of-day data of the place. Only the technique stays Unreal. Where the Unreal sky gives other colors than the data, the data tints or drives it. The check is the color report of the matched views ("The color report"): the numbers before and after in each report. This decision makes void the statements "not the EV bounds and the film curve of the source" (E1) and the look choices of the exposure of E1. |
+
 ## The world clock
 
 The world has one day and night cycle. The backend owns it; the client calculates the time of day itself from one record and its
@@ -121,7 +128,7 @@ it looks better. The retail pictures are the reference for the places, the times
 | The moon | A movable directional light, atmosphere light 1, at the fixed direction of the Moon element (latitude 240, longitude 35: toward 0.410, 0.709, 0.574), with the "Sun intensity" and "Sun color" of the hour (the night values of the data: 3,000 lux at 18:30 to 5,000 lux at midnight, a blue color). Its weight is the larger of the fade of the public engine (CTimeOfDay::UpdateEnvLighting) with the visual edges of the record (by night 1; out in the first half of the visual dawn, 6.0 to 6.1833; in with the second half of the visual dusk, 19.1833 to 19.3667) and a fade with the sun below the horizon (0 at the sunset, 1 at 4 degrees below it): the moon comes when the physical sun goes (the night values of "Sun intensity" start at 18:05, just after the sunset of the path at 18:00). Its source angle is the Size of the element as degrees (0.8; an inference). |
 | The sky | A SkyAtmosphere with the Unreal defaults: the sunrise, the sunset, and the twilight come from its transmittance and its sky. By night its sky luminance is scaled by 0.2, faded in with the moon (a look choice: the atmosphere lit by the moon is a day sky; `-SwcNightSky=FACTOR`). The stars, the moon texture, the clouds, and the fog are stage E3. |
 | The ambient | A SkyLight with a real-time capture of the sky at intensity 1: it follows the sky (also the twilight after the sunset) with no capture event. |
-| The exposure | An unbound post process over the fixed exposure of the level: the Unreal auto exposure (histogram) with the bounds EV100 3 to 16 and a compensation of -2.5 by night, faded in with the moon (a night look; `-SwcNightExposure=EV`). Stage E5 refines it; the user judges the look. |
+| The exposure | An unbound post process over the fixed exposure of the level (the volume of the world track). Stage E5 replaced the E1 rule (the Unreal auto exposure with the bounds EV100 3 to 16 and a night compensation of -2.5): the meter and the EV rule of the source (see "The exposure and the color grade"). `-SwcNightExposure=EV` stays as a look offset by night (default 0). |
 | The level | The sun, the sky atmosphere, and the sky light of the level of the world track are turned off while the runtime environment runs; its fog and its ocean stay (stages E3 and E4). |
 
 The Unreal way kept on purpose (the decision of the user):
@@ -132,7 +139,8 @@ The Unreal way kept on purpose (the decision of the user):
   with the source rule the scene was black from 18:50 to 19:11 (the twilight of the physical sky is over).
 - The sky is the SkyAtmosphere, not the sky shader and the night sky colors of the source; the ambient is the real-time sky light and
   Lumen, not the baked probes and their multipliers.
-- The exposure is the Unreal auto exposure with wide bounds, not the EV bounds and the film curve of the source.
+- The exposure is the Unreal auto exposure with wide bounds, not the EV bounds and the film curve of the source. (Void since the decision
+  of 2026-10-19: stage E5 copies the exposure and the grade of the source.)
 
 ### Check of E1
 
@@ -261,6 +269,80 @@ track owns the import settings).
 - The moonlit walls are brighter than in the retail pictures (the balance of the moon and the exposure: stages E1 and E5); the
   probes stay replaced by the sky light and Lumen (the decision of the user).
 
+## The sky, the clouds, the fog, and the weather (stage E3)
+
+The client makes these parts in `Environment/SwcEnvironmentSky.cpp` from the blended time-of-day values of the place (the region
+preset and the local time-of-day volumes, each with its weight from the blend distance and the blend time; a volume with an hour
+override moves the hour of its part toward that hour by its weight).
+
+| Part | Rule |
+| --- | --- |
+| The sky | The SkyAtmosphere of Unreal (the technique), with the Rayleigh color from "Sky light: Wavelength (R, G, B)" (the ratio (B / lambda)^4 of each channel; the Unreal default 0.175, 0.41, 1 is the ratio of 680, 550, and 440 nm). A sky sphere with `M_SwcSky` adds the stars of the engine catalog (`engineassets/sky/stars.dat`), the moon texture of the mission, and its two coronas, turned with the sun path (an inference: the stars turn with the sun). |
+| The clouds | The volumetric clouds of the engine (`m_SimpleVolumetricCloud_Inst`). The cover of the sky slice of the place (`sky/sky.json`: 1 - the product of (1 - the mean of each cloud mask of its dome)) changes the coverage of the cloud material from the Everfall sky (0.6663) up and down (`swc.CloudCover`, `swc.CloudBias`: look values). |
+| The fog | The height fog of Unreal with the legacy fog layers and the "Volumetric fog 2" layers of the data as its two layers (the density and the height falloff from the two densities of each set; `fog_height_falloff`). The fog color is the color of the SkyAtmosphere by default (`swc.FogColorMode 0`): the fog colors of the data at 10,000 cd/m2 a unit made the far view white. The fog volumes of the data are Unreal local fog volumes. |
+| The rain and the snow | A post-process material before the tone mapping (`M_SwcPrecipitation`): three layers of the rain texture of the source, and the snowflakes of the engine atlas. The amount comes from the rain and snow volumes of the data at the camera (the full amount in the inner radius, 0 at the outer radius); the drops have a part of the light of a white surface (`swc.DropLight`). |
+
+## The exposure and the color grade (stage E5)
+
+The decision of 2026-10-19: the client copies the colors of the source. The rules come from the compiled HDR shaders of the game copy
+(`shaders/cache/d3d11/*.fxcb`: CPCK files with LZSS entries; each entry is a DXBC shader with its constant names, read with a local
+reader, no game content in git):
+
+| Shader | Rule |
+| --- | --- |
+| `hdrpostprocess@hdrsampleluminitialps` | The meter: the illuminance E = pi x L / albedo of each pixel (L the Rec. 709 luminance of the scene, the albedo the Rec. 709 luminance of the G-buffer color, at least 0.01; 0.2 where the G-buffer has no color: the sky). The geometric mean of the screen, smoothed in time. |
+| `hdrpostprocess@hdrfinalsceneps` | EV = log2(E x 100 / 330) - (clamp(log10(E + 1), 0.1, 5.2) - 3) / 2 x "EV Auto compensation", clamped to "EV Min" and "EV Max"; the exposure is 1 / (1.2 x 2^EV) (E in lux: the scene unit is 10,000 cd/m2). Then the saturation ("Saturation": a mix with the Rec. 709 luminance) and the color balance ("Color balance": a multiply), both before the curve; the film curve of Hable (A = 0.22 x "Film curve shoulder scale", B = 0.3 x "midtones scale", C = 0.1, D = 0.2, E = 0.01 x "toe scale", F = 0.3, over its value at "Film curve whitepoint"); the exact sRGB encoding; the sun shafts (a screen blend); the color chart. |
+| `posteffectsgame@combinecolorgradingwithcolorchartps` | The photo filter in the color chart: an overlay of "Filters: photofilter color" by the luminance of the sRGB value (2 x l x color under 0.5; color + (2 x l - 1) x (1 - color) over it), mixed in by saturate(l x "Filters: photofilter density"). |
+
+The color chart of 181 of the 182 time-of-day volumes is `textures/colorcharts/default_cch.dds`, an exact identity chart (one quest
+volume has its own chart). Thus no chart is copied.
+
+The client (`Environment/SwcEnvironmentSubsystem.cpp`, `M_SwcGrade` of `Scripts/import_sky.py`):
+
+- The meter is the Unreal meter that ignores the materials (`r.AutoExposure.IgnoreMaterials 1`, the luminance over the base color
+  times lerp(0.18, 1, 0.01)), with the Rec. 709 weights (`r.AutoExposure.LuminanceMethod 2`) and the widest window (1 % to 99 %).
+  The bias curve of the Unreal auto exposure holds the whole rule of the source (`env::source_exposure_bias`, tested): at the
+  metered EV100 of Unreal, the bias gives 1 / (1.2 x 2^EV). The bounds of Unreal stay wide. The renderer bakes the curve into a
+  table only for a new curve object: the client makes a new curve when the rule changes (a change of the keys was not seen).
+- `M_SwcGrade` replaces the tone mapper: the scene times the exposure, then the source order (saturation and balance, curve, sRGB,
+  photo filter). The bloom is the bloom of Unreal (PostProcessInput2), added as the Unreal tone mapper adds it.
+- The ambient is the world probe of the source: `environmentprobe_thinpine_world02_cm` (two boxes of 100 km, the outdoor ambient of
+  the world), a BC6H radiance cube (`tools/convert-environment.sh probes`: `converter/swc_convert/bc6h.py`, checked against the
+  8-bit decoder of Pillow on all ten modes of the file; a long-lat Radiance picture; then `tools/import-sky.sh`). The sky light shows
+  it (a specified cube, with its lower half: the ground of the probe) at 10,000 cd/m2 a unit times its DiffuseMultiplier and the
+  time-of-day "Environment Probe Diffuse Multiplier" (1 by day, 0.15 by night) and "Environment Probe Multiplier". Lumen adds the
+  bounce and the occlusion. The probe is a hazy gray sky over a pine forest: the source shade is gray, not blue. The real-time
+  capture of the Unreal sky gave a blue shade by day and almost no ambient by night.
+
+### Check of E5 (steps 1 and 2a, 2026-10-19)
+
+The color report of the matched views, band "all" (dE / L* / spread / saturation / dark part), before (the old grade: the curve
+after the balance, the Unreal luminance meter) and after:
+
+| View | Before | Step 1 (the source grade) | Step 2a (the world probe) |
+| --- | --- | --- | --- |
+| noon-n | 19.3 / +17.8 / -1.8 / +0.060 / -0.041 | 9.6 / +5.5 / +0.6 / +0.123 / -0.038 | 9.1 / +9.7 / -0.3 / -0.073 / -0.040 |
+| inn-noon | 20.7 / +20.8 / -8.1 / -0.054 / -0.209 | 12.4 / +12.5 / -5.6 / -0.006 / -0.199 | 13.0 / +14.2 / -4.2 / -0.159 / -0.189 |
+| oxboro-road-sky-noon | 16.1 / +14.4 / -1.9 / -0.018 / -0.031 | 5.8 / +3.0 / +4.9 / +0.032 / -0.013 | 6.2 / +4.5 / +1.9 / -0.075 / -0.022 |
+| night-n | 8.1 / -11.6 / -5.4 / +0.257 / +0.540 | 9.1 / -13.2 / -7.9 / +0.317 / +0.571 | 4.6 / -0.0 / +0.2 / -0.074 / +0.069 |
+| noon-road-low | | | 1.9 / -1.1 / -1.2 / -0.047 / -0.020 |
+| noon-wall-grass | | | 5.7 / +5.4 / -0.8 / -0.058 / -0.050 |
+| night-road-low | | | 0.9 / -0.8 / -1.6 / -0.041 / -0.021 |
+| night-e | | | 8.3 / +9.0 / +5.6 / -0.086 / -0.213 |
+
+The Unreal luminance meter in the same run (noon-n): 23.5 / +22.2. The real-time capture in the same run: noon-n 10.1, night-n 9.1
+(L* -13.3).
+
+### Not done, open points (E5)
+
+- The bloom weight of the source (`HDRBloomColor`: the final scene mixes the scene toward the bloom texture by
+  saturate(HDRBloomColor)) is not known: the client keeps the bloom of Unreal (about 2 L* at noon-n).
+- The final scene multiplies the exposure by a texture `t7` at the screen coordinates. An inference: the vignette of the source.
+- The day walls are brighter than retail (noon-n top band +17 L*, inn-noon +10) and the day saturation is low (-0.05 to -0.16):
+  the sun, the sky, and the interior probes (step 2). The interior probes of the source (for example `settlement_tavern`) are
+  not in the client: Lumen and the world probe light the interiors.
+- The sky color of each place and the fen fog and rain: steps 2 and 3.
+
 ## The matched views
 
 `tools/match-view.sh SET [VIEW...] [--out FOLDER] [--label LABEL]` (`tools/lib/match_view.py`, client `Environment/SwcMatchView`)
@@ -314,6 +396,12 @@ client selects its own volumes (stage E3).
 | `-SwcNoLocalLights`, `-SwcNoCookies`, `-SwcLightShadows=none\|source\|all` | No local lights; no cookies; the shadows of the local lights. |
 | `swc.LightScale F`, `swc.LocalLights 0\|1`, `swc.LightShadows 0\|1\|2` | Console variables: the look scale of the local lights (`-SwcLightScale=F` at the start), the local lights hidden or on (a compare of the cost in one run), the shadows of the local lights (none, the source flags, all). |
 | `swc.LumenTest 0\|1` | The Lumen test copies of the inn and the two houses (`-SwcLumenTest` at the start; `tools/lumen-test.sh` makes them). |
-| `tools/match-view.sh ... --variant VIEW@NAME=COMMAND;...` | One more picture of a view with client console commands (run when the view is in place): a look value or a switch to compare in one run. The report and the side-by-side picture have the local lights at the shot and the median GPU time while the view is in place (with `-SwcFrameStats=2`). |
+| `tools/match-view.sh ... --variant VIEW@NAME=COMMAND;...` | One more picture of a view with client console commands (run when the view is in place): a look value or a switch to compare in one run. The next view sets the console variables of the commands back to their values before the first variant (from 2026-10-19). The report and the side-by-side picture have the local lights at the shot and the median GPU time while the view is in place (with `-SwcFrameStats=2`). |
+| `swc.Grade 0\|1`, `swc.GradeDebug 0\|1\|2`, `swc.GradeBloom F`, `swc.GradeBias EV`, `swc.SourceMeter 0\|1` | The color grade of the source or the Unreal tone mapper; a check of the exposed value or of the exposure; the part of the Unreal bloom; an offset of the exposure (a look check); the meter of the source or the Unreal luminance meter (stage E5). |
+| `swc.SkyLightSource 0\|1`, `swc.ProbeScale F` | The ambient: the world probe of the data (1) or the real-time capture of the Unreal sky (0); a look scale of the probe light (stage E5). |
+| `swc.Fog`, `swc.FogColorMode`, `swc.FogLayers`, `swc.FogDensityScale`, `swc.FogDensityScale2`, `swc.VolumetricFog`, `swc.LocalFogScale` | The fog of stage E3 (the help text of each variable has its values). |
+| `swc.Clouds`, `swc.CloudCover`, `swc.CloudBias`, `swc.StarScale`, `swc.MoonScale`, `swc.MoonSize`, `swc.SkyWavelengths`, `swc.SkyRayleigh`, `swc.NightSkyTint` | The clouds, the stars, the moon, and the sky color of stage E3. |
+| `swc.RainScale`, `swc.SnowScale`, `swc.DropLight` | The rain and the snow of stage E3. |
+| `tools/convert-environment.sh sky\|probes`, `tools/import-sky.sh` | The stars, the moon, the rain and snow textures, and the world probes; then the textures, the sky, precipitation, and grade materials, and the probe cubes (the import lock). |
 | `tools/convert-environment.sh cookies`, `tools/import-cookies.sh` | The projector textures of the lights: the PNGs, then the textures, the light function material, and the material instances (the import lock). |
 | `tools/lib/world_time_compare.py FOLDER LABEL` | The compare of the client clock (the log lines of `-SwcWorldTimeProbe`) with the records, the phase edges, and the reads of the server in one run; exit status 1 above 1 game second. |

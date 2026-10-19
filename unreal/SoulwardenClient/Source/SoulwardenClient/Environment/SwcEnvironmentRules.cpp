@@ -227,6 +227,90 @@ bool contains(const Volume& volume, const Vec3& point) {
     return false;
 }
 
+double inside_depth(const Volume& volume, const Vec3& point) {
+    const Vec3 p = transform(volume.inverse, point);
+    switch (volume.shape) {
+    case Volume::Shape::cylinder:
+        return std::min(volume.radius - std::hypot(p.x, p.y), volume.height / 2.0 - std::fabs(p.z));
+    case Volume::Shape::sphere:
+        return volume.radius - std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+    case Volume::Shape::box:
+        return std::min({volume.dimensions[0] / 2.0 - std::fabs(p.x), volume.dimensions[1] / 2.0 - std::fabs(p.y),
+                         volume.dimensions[2] / 2.0 - std::fabs(p.z)});
+    case Volume::Shape::capsule: {
+        const double z = std::clamp(p.z, -volume.height / 2.0 + volume.radius, volume.height / 2.0 - volume.radius);
+        return volume.radius - std::sqrt(p.x * p.x + p.y * p.y + (p.z - z) * (p.z - z));
+    }
+    case Volume::Shape::polygonPrism: {
+        const std::size_t n = volume.vertices.size();
+        if (n < 3) {
+            return -1e9;
+        }
+        double edge = 1e18;
+        for (std::size_t i = 0, j = n - 1; i < n; j = i++) {
+            const double ax = volume.vertices[j][0], ay = volume.vertices[j][1];
+            const double bx = volume.vertices[i][0], by = volume.vertices[i][1];
+            const double dx = bx - ax, dy = by - ay;
+            const double length2 = dx * dx + dy * dy;
+            const double t = length2 > 0.0 ? std::clamp(((p.x - ax) * dx + (p.y - ay) * dy) / length2, 0.0, 1.0) : 0.0;
+            edge = std::min(edge, std::hypot(p.x - (ax + t * dx), p.y - (ay + t * dy)));
+        }
+        const double horizontal = in_polygon(p.x, p.y, volume.vertices) ? edge : -edge;
+        return std::min({horizontal, p.z, volume.height - p.z});
+    }
+    case Volume::Shape::none:
+        break;
+    }
+    return -1e9;
+}
+
+double volume_weight(const Volume& volume, const Vec3& point) {
+    const double depth = inside_depth(volume, point);
+    if (volume.blendDistance > 0.0) {
+        return std::clamp(depth / volume.blendDistance, 0.0, 1.0);
+    }
+    return depth >= 0.0 ? 1.0 : 0.0;
+}
+
+double approach_weight(double weight, double target, double blendTime, double deltaSeconds) {
+    if (blendTime <= 0.0) {
+        return target;
+    }
+    const double step = deltaSeconds / blendTime;
+    return weight < target ? std::min(target, weight + step) : std::max(target, weight - step);
+}
+
+double fog_height_falloff(double bottomDensity, double topDensity, double bottomHeight, double topHeight) {
+    if (bottomDensity <= 0.0 || topDensity <= 0.0 || topHeight <= bottomHeight || topDensity >= bottomDensity) {
+        return 0.0;
+    }
+    const double perMeter = std::log2(bottomDensity / topDensity) / (topHeight - bottomHeight);
+    return perMeter / 100.0 * 1000.0;   // log2 units per cm, times 1000 (the property of the Unreal height fog)
+}
+
+Rotation celestial_from_engine(double hour, double sunRotationDegrees, double longitudeDegrees) {
+    // sun_toward: the engine direction is S x M^T x e_y with M = Rz(angle) Rx(pi/2 - longitude) Ry(-rotation) (row vectors) and
+    // S the axes (x, -z, y). The celestial frame has the sun at e_y: celestial = M x S^T x engine.
+    const double angle = (hour + 12.0) / 24.0 * 2.0 * kPi;
+    const Matrix m = multiply(multiply(rotation_z(angle), rotation_x(0.5 * kPi - radians(longitudeDegrees))), rotation_y(radians(-sunRotationDegrees)));
+    const Matrix sT{{{1, 0, 0}, {0, 0, 1}, {0, -1, 0}}};
+    // A half turn about the sun axis (e_y): the north celestial pole (+z) is the pole above the horizon (this sun path has the
+    // other pole below it), and the star field keeps its hand.
+    const Matrix half{{{-1, 0, 0}, {0, 1, 0}, {0, 0, -1}}};
+    return multiply(half, multiply(m, sT));
+}
+
+Vec3 star_vector(double rightAscensionHours, double declinationDegrees) {
+    const double ra = rightAscensionHours / 12.0 * kPi;
+    const double dec = radians(declinationDegrees);
+    return {std::cos(dec) * std::sin(ra), std::cos(dec) * std::cos(ra), std::sin(dec)};
+}
+
+Vec3 rotate(const Rotation& r, const Vec3& v) {
+    return {r[0][0] * v.x + r[0][1] * v.y + r[0][2] * v.z, r[1][0] * v.x + r[1][1] * v.y + r[1][2] * v.z,
+            r[2][0] * v.x + r[2][1] * v.y + r[2][2] * v.z};
+}
+
 int select_volume(const std::vector<Volume>& volumes, const Vec3& point) {
     int best = -1;
     for (std::size_t i = 0; i < volumes.size(); ++i) {
@@ -235,6 +319,17 @@ int select_volume(const std::vector<Volume>& volumes, const Vec3& point) {
         }
     }
     return best;
+}
+
+double source_ev(double illuminance, double evMin, double evMax, double autoCompensation) {
+    const double ev = std::log2(std::max(illuminance, 1e-6) * 100.0 / 330.0)
+        - (std::clamp(std::log10(illuminance + 1.0), 0.1, 5.2) - 3.0) / 2.0 * autoCompensation;
+    return std::clamp(ev, evMin, evMax);
+}
+
+double source_exposure_bias(double ev100, double evMin, double evMax, double autoCompensation, double meterScale) {
+    const double illuminance = kPi * 0.18 * std::exp2(ev100) / meterScale;
+    return ev100 - std::log2(1.2) - source_ev(illuminance, evMin, evMax, autoCompensation);
 }
 
 } // namespace swc::environment
