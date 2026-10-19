@@ -133,6 +133,12 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   the glyph em not (1.041). The saved line heights are the size or the size + 1 (the rounding of the size cache).
 - The draw list has one text item for each piece (its font, its color, the glyph size, the spacing in 1/1000 of the
   glyph size) and one mesh for each inline image (in the first pass of the font effect only).
+- The client (SwcUiSlate.cpp) measures and draws a text with a spacing as a shaped glyph line: it shapes with no Slate
+  spacing and adds the spacing to the advances (after each glyph but the last; the part of a pixel goes on to the next
+  glyph). Slate itself applies `LetterSpacing` only in its shaper, in points (0.75 of the value) and in whole pixels for
+  each glyph, and not in the font measure or in `MakeText` (until stage WF7 the client drew all spacings as 0: the titles
+  of the prompt cards were narrow next to the retail pictures). A text with no spacing keeps the font measure and
+  `MakeText`.
 - The default cell of a text: the widest line with no wrap (+ 0.01 with wrap) and the height of the wrapped lines.
 
 ### Layouts (Layout.cpp)

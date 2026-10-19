@@ -2,6 +2,7 @@
 
 #include "Engine/Texture2D.h"
 #include "Fonts/CompositeFont.h"
+#include "Fonts/FontCache.h"
 #include "Fonts/FontMeasure.h"
 #include "Framework/Application/SlateApplication.h"
 #include "ImageCore.h"
@@ -238,15 +239,54 @@ FSlateFontInfo FSwcUiResources::Font(const std::string& File, float PixelSize, f
 	return Info;
 }
 
+FShapedGlyphSequenceRef FSwcUiResources::Shape(const std::string& FontFile, float PixelSize, float LetterSpacing, const FString& Text, float Scale)
+{
+	const FString Key = FString::Printf(TEXT("%s|%.3f|%.3f|%.4f|"), *ToFString(FontFile), PixelSize, LetterSpacing, Scale) + Text;
+	if (const FShapedGlyphSequenceRef* Found = ShapedLines.Find(Key))
+	{
+		return *Found;
+	}
+	const TSharedRef<FSlateFontCache> FontCache = FSlateApplication::Get().GetRenderer()->GetFontCache();
+	FShapedGlyphSequenceRef Line = FontCache->ShapeBidirectionalText(Text, Font(FontFile, PixelSize, 0.0f), Scale,
+		TextBiDi::ETextDirection::LeftToRight, GetDefaultTextShapingMethod());
+	const TArray<FShapedGlyphEntry>& Glyphs = Line->GetGlyphsToRender();
+	if (!FMath::IsNearlyZero(LetterSpacing) && Glyphs.Num() > 1)
+	{
+		TArray<FShapedGlyphEntry> Spaced = Glyphs;
+		const float Step = LetterSpacing / 1000.0f * PixelSize * Scale;
+		for (int32 Index = 0; Index + 1 < Spaced.Num(); ++Index)
+		{
+			const int32 Add = FMath::RoundToInt(Step * static_cast<float>(Index + 1)) - FMath::RoundToInt(Step * static_cast<float>(Index));
+			Spaced[Index].XAdvance = static_cast<int16>(FMath::Clamp(Spaced[Index].XAdvance + Add, -32768, 32767));
+		}
+		Line = MakeShared<const FShapedGlyphSequence>(MoveTemp(Spaced), Line->GetTextBaseline(), Line->GetMaxTextHeight(), Line->GetFontMaterial(),
+			Line->IsMaterialStencil(), Line->GetFontOutlineSettings(), FShapedGlyphSequence::FSourceTextRange(0, Text.Len()));
+	}
+	// A line of a font that still loads has no glyphs yet: it shapes again in the next frame.
+	if (!Line->IsDirty() && Line->GetGlyphsToRender().Num() > 0)
+	{
+		if (ShapedLines.Num() >= 4096)
+		{
+			ShapedLines.Reset();
+		}
+		ShapedLines.Add(Key, Line);
+	}
+	return Line;
+}
+
 float FSwcUiResources::width(const std::string& FontFile, float Size, float LetterSpacing, std::string_view Text)
 {
 	if (!FSlateApplication::IsInitialized() || Text.empty())
 	{
 		return static_cast<float>(Text.size()) * Size * 0.5f;
 	}
-	const TSharedRef<FSlateFontMeasure> Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
 	const FString Line = UTF8_TO_TCHAR(std::string(Text).c_str());
-	return static_cast<float>(Measure->Measure(Line, Font(FontFile, Size, LetterSpacing)).X);
+	if (!FMath::IsNearlyZero(LetterSpacing))
+	{
+		return static_cast<float>(Shape(FontFile, Size, LetterSpacing, Line, 1.0f)->GetMeasuredWidth());
+	}
+	const TSharedRef<FSlateFontMeasure> Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
+	return static_cast<float>(Measure->Measure(Line, Font(FontFile, Size, 0.0f)).X);
 }
 
 float FSwcUiResources::line_height(const std::string& FontFile, float Size)
@@ -373,8 +413,20 @@ int32 SSwcUiCanvas::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 			const FLinearColor Tint(FColor(static_cast<uint8>(FMath::Clamp(Item.color.r, 0.0f, 1.0f) * 255.0f),
 				static_cast<uint8>(FMath::Clamp(Item.color.g, 0.0f, 1.0f) * 255.0f), static_cast<uint8>(FMath::Clamp(Item.color.b, 0.0f, 1.0f) * 255.0f),
 				static_cast<uint8>(FMath::Clamp(Item.color.a, 0.0f, 1.0f) * 255.0f)));
-			FSlateDrawElement::MakeText(OutDrawElements, ++Layer, Line.ToPaintGeometry(), UTF8_TO_TCHAR(Item.text.c_str()), FontInfo,
-				ESlateDrawEffect::None, Tint);
+			if (FMath::IsNearlyZero(Item.letterSpacing))
+			{
+				FSlateDrawElement::MakeText(OutDrawElements, ++Layer, Line.ToPaintGeometry(), UTF8_TO_TCHAR(Item.text.c_str()), FontInfo,
+					ESlateDrawEffect::None, Tint);
+				break;
+			}
+			// The character spacing: the glyphs shaped at the drawn scale (the font rasterizes at that size).
+			const FShapedGlyphSequenceRef Glyphs = Resources->Shape(Item.fontFile, Item.fontSize, Item.letterSpacing, UTF8_TO_TCHAR(Item.text.c_str()),
+				Line.GetAccumulatedLayoutTransform().GetScale());
+			if (Glyphs->GetGlyphsToRender().Num() > 0)
+			{
+				FSlateDrawElement::MakeShapedText(OutDrawElements, ++Layer, Line.ToPaintGeometry(), Glyphs, ESlateDrawEffect::None, Tint,
+					FLinearColor::Transparent);
+			}
 			break;
 		}
 		case swc::ui::DrawItem::Kind::push_clip:

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Fonts/ShapedTextFwd.h"
 #include "Fonts/SlateFontInfo.h"
 #include "Styling/SlateBrush.h"
 #include "UObject/StrongObjectPtr.h"
@@ -41,6 +42,15 @@ public:
 	const FSlateBrush* MaskedBrush(const std::string& File, const std::string& MaskFile, float AlphaTest, bool bAdditive, bool& bOutWait);
 	/** @return The font of a font file at a size in canvas pixels. */
 	FSlateFontInfo Font(const std::string& File, float PixelSize, float LetterSpacing);
+	/**
+	 * @return The glyphs of a text line (a font size in canvas pixels, shaped at a layout scale) with the character spacing
+	 * (LetterSpacing: 1/1000 of the font size) after each glyph but the last, as the layout of the runtime measures it.
+	 * Slate applies FSlateFontInfo::LetterSpacing only in its shaper, in points (0.75 of the pixel value) and in whole
+	 * pixels for each glyph (a small spacing is 0); the font measure and MakeText do not apply it. Thus this client
+	 * shapes with no spacing and adds the spacing to the advances (the part of a pixel goes on to the next glyph). The
+	 * lines stay for the next frames (cleared at 4096 lines).
+	 */
+	FShapedGlyphSequenceRef Shape(const std::string& FontFile, float PixelSize, float LetterSpacing, const FString& Text, float Scale);
 
 	// swc::ui::TextMeasure
 	virtual float width(const std::string& FontFile, float Size, float LetterSpacing, std::string_view Text) override;
@@ -72,6 +82,7 @@ private:
 	TStrongObjectPtr<UMaterialInterface> MaskMaterials[2];
 	bool bMaskMaterialFailed[2] = {false, false};
 	TMap<FString, TSharedPtr<FStandaloneCompositeFont>> Fonts;
+	TMap<FString, FShapedGlyphSequenceRef> ShapedLines;
 };
 
 /**
