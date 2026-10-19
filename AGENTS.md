@@ -84,11 +84,15 @@ files at the same time; a shared document (this file, the roadmap) changes only 
   `tools/dev-run.sh --window` (and `tools/flythrough.sh`) takes, in this order: the world lock, a run slot, then the
   free GPU memory (`tools/lib/gpu-gate.sh`). The slots: `SWC_RUN_SLOTS` (default 2) client runs that render at a time,
   each with a lock on `~/Games/soulwarden-client/unreal/run-slot-N.lock` for its whole life (the session holds it; the
-  lock ends with the process, also with `tools/dev-stop.sh`); the run log shows "run slot N". Then the free memory
-  (nvidia-smi, read only) must be at least `SWC_GPU_FREE_MIB` (default 9216): it covers the retail runs and the
-  programs of the user, which take no slot. Each wait logs one line each 30 s and ends with status 3 after
+  lock ends with the process, also with `tools/dev-stop.sh`); the run log shows "run slot N". A live retail development
+  run (a process with `SOULWARDEN_DEV_RUN=1`, read only from `/proc/PID/environ`) counts as one slot: next to it, only
+  `SWC_RUN_SLOTS` - 1 clients of this project render. The count and the take are in one short hold of
+  `run-slot-gate.lock`. Then the free memory (nvidia-smi, read only) must be at least `SWC_GPU_FREE_MIB` (default 9216):
+  it covers the programs of the user, which take no slot. Each wait logs one line each 30 s and ends with status 3 after
   `SWC_GPU_WAIT` seconds (default 900). A memory check alone has a race: two runs saw the same free memory and both
-  started (2026-10-19). The trap: "Failed to allocate Device Memory"
+  started (2026-10-19). Free memory at the start is not enough next to a retail run: a client passed the 9 GB check and
+  had a Vulkan out-of-memory fault at frame 1, because a retail capture (about 4 GB) ran and the two other clients grew to
+  7 to 8 GB after their start (2026-10-19). The trap: "Failed to allocate Device Memory"
   in a client log is the shared GPU, not a client defect, until a run with enough free memory shows the same fault.
 - A process of the Unreal client never has `SOULWARDEN_DEV_RUN=1` in its environment: `tools/dev-stop.sh` of Soulwarden
   stops such processes, and its `--check` fails while one is alive.
