@@ -46,6 +46,13 @@ check(table.concat(rows, "|"):find(swcui.localize("@ui_respawn_random_location")
   and swcui.localize("@ui_respawn_random_location") or "Random Location", 1, true) ~= nil,
   "the list has the row of a random location (" .. table.concat(rows, "|") .. ")")
 picture("respawn-list")
+-- The screen at the window size of the retail picture of the death (the Soulwarden evidence, fight L2-death-screen-time-0: 1256 x
+-- 660; stage P3.H).
+swcui.set_viewport(1256, 660)
+frames(0.3)
+picture("respawn-1256")
+swcui.set_viewport(1920, 1080)
+frames(0.3)
 
 -- A drag of the world map (magicmap.luac on the UiScrollBox MagicMap): the content follows the cursor, the script sees
 -- OnScrollOffsetChanging (isDragging) and, at the release, OnScrollOffsetChanged (the end of the drag).
