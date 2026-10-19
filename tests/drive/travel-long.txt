@@ -1,0 +1,7 @@
+# The drive of the check of a long travel (docs/MOVEMENT.md, the open point of the long travel), with the routes of
+# tests/drive/travel-long-routes.txt: no input; the run stays until the
+# new place is there. Times in seconds from the possession.
+# SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8833.2:4251.1:137.0 SWC_STAGE=travel \
+#   tools/creature-check.sh travel-long 120 tests/drive/travel-long-routes.txt tests/drive/travel-long.txt
+5.0 tick
+110.0 tick

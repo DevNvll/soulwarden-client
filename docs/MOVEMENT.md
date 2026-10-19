@@ -110,6 +110,19 @@ Open points of the native Nav: the branch from a sprint (accel 20, the velocity 
 keeps key 0x35 (the live walks of the backend). Both were 1.0 in each retail read. The other native actions (Sprint,
 Nav_Start, Nav_Stop, crouch, prone, swim) can also differ from the XML.
 
+### Open point: the long travel (2026-10-19)
+
+The world track saw a travel of a long distance wait 24 s for its new place with a cold disk cache: about 1,100 packages of
+the world entry were in the queue, and the cells of the new place loaded behind them. The idea: during the cell wait of a
+travel of more than 200 m, the client stops the streaming source of the character (the old place asks for no more cells;
+the source of `SwcWorldStreaming::IsReadyAt` at the new place has the highest priority) and starts it again at the
+arrival. A first version was measured and then removed (not on main): six alternating runs of `tests/drive/travel-long.txt`
+(a travel of 426.7 m to shrine_40292, 3 s after the world entry; warm disk cache, the shared machine): the wait from the
+travel to the arrival was 6.4, 5.8, and 7.1 s with the source kept, and 5.8, 5.7, and 18.0 s with the source stopped. Two
+earlier runs with the source stopped, under a load of 25 to 30, took 63.2 s and more than 44 s. There is no clear gain:
+the spread of the shared machine is larger than the difference. A measurement with a cold disk cache (a cache drop needs
+root) on a quiet machine decides it.
+
 ## The armed rates and the aim (stage P2.6)
 
 With a weapon in the hand (drawn), the conditional rates of the movement action lists replace the unarmed rates. The

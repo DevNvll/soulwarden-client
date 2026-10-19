@@ -1,0 +1,6 @@
+# The routes of the check of a long travel (docs/MOVEMENT.md, the open point of the long travel): the creatures ignore the
+# character, then 3 s after the possession (the packages of the world entry still load) a travel of 422 m from Oxboro to the shrine
+# shrine_40292 (8525.9 4540.0 200.7). The client log line "world: the character is at the place of the travel, N s after it" is the
+# wait. Times on the clock of the drive script.
+0.5 ignore on
+3.0 travel 8525.9 4540.0 200.7
