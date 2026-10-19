@@ -82,6 +82,46 @@ character, its capsule, and the position of its input reports do not move.
 
 ## Not done, open points
 
+The Talk work stops here (the priority of the user, 2026-10-19: the world, the graphics, and the gameplay fidelity first; the
+interactions later). The retail reference of the Talk is set 5
+(`~/Games/soulwarden/work/evidence/unreal-references/set5-talk/`, README.md with the time lines). Its results that the client
+does not have yet:
+
+- The open: the retail client opens the Talk at the key, with no hold (an 80 ms tap; the request 0.13 s after the key; the hold
+  0.5 s of OpenConversation in the data does not apply). The picture goes black 0.07 to 0.22 s after the key with no fade-out,
+  stays black 0.40 to 0.53 s, and fades in to the Talk camera in 0.55 to 0.65 s; the subtitle and the keys fade in 0.40 to 0.45 s
+  after the black. A first version (the open at the key, black 0.48 s, the fade-in 0.60 s, the camera after the end) is on the
+  local branch `talk-set5-wip`; it is not checked in a run.
+- The end: no fade; the first world frame comes 0.08 to 0.16 s after the key; 6705, then 2473; the input is free about 0.1 s
+  after the key. The player camera keeps the heading and the pitch of the Talk camera; the body keeps its heading until the first
+  move, which turns it to the camera heading. Escape also opens the game menu bar.
+- The prompt: the retail prompt of a person shows only near it (2.07 m for the commander, 2.56 m for the artificer, 2.98 m for
+  Giacomo; none from the street below the deck of the commander): a trigger area, not the range of 5 m that the client uses.
+- The persons of client spawners (the artificer): the retail client shows the prompt and sends the request; the backend replies
+  3743 result 2 ("no object of the data has this reference"), the client sends 6705 0.02 s later (no 2473), shows one black frame,
+  and no conversation screen. The fields of the retail request (backend logs of development runs; level-data ids, the same in each
+  run):
+
+  | Person | Actor | G | Target | Option entity | Option | Reply |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | 0407a_Commander | 4388a748b22e58760000000000000000 | 76582eb248a78843 | ab709fc1bb40ad99 | 76582eb448a78843 | 507cac68 | 3743 result 1 |
+  | 0405a_ArtificerPetrowski | b7a7a8a0101431950000000000000000 | 95311410a0a8a7b7 | ca4985201341cd0d | 95311412a0a8a7b7 | 507cac68 | 3743 result 2 |
+
+  The actor is G in the other byte order, then 8 zero bytes; the option entity is G with 2 added to its high 32-bit word. The
+  block has the slice name after the byte 0x40 ("0407_Commander", "0405a_ArtificerPetrowski"; the byte before 0x40 is the length
+  of the name + 1); the block of the artificer has 4 more bytes at its end (ef5b4fe0). The rule of G and of the target of a
+  spawner child is not known yet.
+- The colors of the persons (the idle pictures of set 5 with their cameras): the retail hair is black (the commander, Giacomo)
+  and dark brown (the artificer), the skin and the items are darker, and the armor of the commander has gold and steel parts.
+  The causes that the research found: the player pipeline uses only the diffuse and the normal map of a .mtl. Thus (1) the hair
+  tint of the mask of the material is not applied (the commander: `female_hairstyle_short_blacka.mtl`, Mask_R 1 and Mask_R_Color
+  0.048); the hair material of the artificer has no mask color (the source of her hair color is not known); (2) the specular map,
+  which has the color of a metal in this material model, is not used: the metal parts show the matte diffuse color. The skin
+  texture of the commander is the l4 tone (a medium tan); the check of the skin needs the color report of the person band.
+- The clips (a visual check of set 5): the commander lowers her head after the black, then her arms, and makes open-hand gestures
+  from about 3 s into the line; after the end she lowers her arms in about 0.4 s. Giacomo points forward with the right arm for
+  about 1 s, then puts his hands on his hips (also after the end).
+
 - The conversation screen (the line, the keys E Next and Escape Back, the HUD hidden): the UI track, with the original canvas and
   scripts. The hooks: `GetConversationLine`, `EndConversation`. Until then E ends the conversation.
 - The next lines of a conversation tree, the services of a person (the shops, the stations, the missions): later stages.
