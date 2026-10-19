@@ -151,6 +151,26 @@ color about 0.6, the albedo about 0.03 linear; T3 first-set1 noon-road-low: L* 6
 `BlendTerrainCol` (the lerp of the diffuse to the terrain color, with distance) is 0 for all ground cover and for all
 but one foliage material: only a fade at the end of the view distance; not done yet (it needs the terrain macro color).
 
+The back light comes only from the lights in the source: `ThinTranslucencyBRDF` is in the deferred light, and the
+ambient of the source has no back term. Unreal's Lumen also gathers the indirect light of the back face and adds
+SubsurfaceColor x that light (`DiffuseIndirectComposite.usf`); the material cannot turn it off (one subsurface color
+for the direct and the indirect light). Thus the project sets `r.Lumen.ScreenProbeGather.TwoSidedFoliageBackfaceDiffuse=0`
+(DefaultEngine.ini `[SystemSettings]`, above the scalability group GlobalIlluminationQuality 3, which sets 1). Unreal
+then adds SubsurfaceColor / pi to the diffuse color of the indirect light (a limit: about a third of the old indirect
+back light for a blade with the same light on its two faces). The check (the matched views with the cover, main
+c7e668e, evidence/WF3/colors-c7e668e/backlight; the bottom band L*, retail in brackets):
+
+| Variant | fen-outside-noon (21.2) | fen-outside-south-noon (14.2) |
+| --- | --- | --- |
+| Before (the gather of the back face) | 38.8 | 35.6 |
+| `TwoSidedFoliageBackfaceDiffuse 0` | 37.0 | 33.9 |
+| All back light off (`swc.GroundCover.BackLight 0`) | 35.0 | |
+| No indirect light | 36.1 | |
+| No indirect light, no back light | 33.4 | |
+
+In luminance, the back light of fen-outside-noon is 0.019: the direct part 0.012 (kept, as the source), the indirect
+part about 0.007; the setting removes it. The rest of the gap is the light of the whole picture (E5).
+
 ### M_SwcSurface and M_SwcSurfaceMasked (stage M2)
 
 The parents of the Illum shader. `M_SwcSurfaceMasked` takes the cutout from the alpha of the diffuse map.
