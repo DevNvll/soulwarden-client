@@ -25,6 +25,45 @@ Swc.config = {
   ["javelin.gear-set-storage-enable-store-attributes"] = true,  -- 0x6174607
   ["javelin.gear-set-storage-hotkeys-enabled"] = true,          -- 0x617426A
   ["javelin.umbral-upgrade-required-tier"] = 5,                 -- 0x617F3F9
+  -- The gates of the two screen loaders (stage P2.3; docs/UI.md "The census"): the defaults of the registration of
+  -- the settings (UIFeatures: the records at image RVA 0x4A3A1F7 to 0x4A3B1FA; javelin: the setters of 0x616C670 and
+  -- the others). The backend gives no other document (a 404 leaves the defaults; docs/NETWORK.md step 6).
+  ["UIFeatures.enable-on-demand-canvas-loading"] = true,       -- 0x4A3B08E
+  ["UIFeatures.enableBoxOpeningPopup"] = true,                 -- 0x4A3A500
+  ["UIFeatures.enable-control-hints-screen"] = true,           -- 0x4A3B1FA
+  ["UIFeatures.enable-enhanced-dialogue"] = true,              -- 0x4A3AF4C
+  ["UIFeatures.enable-hud-paperdoll-status"] = false,          -- 0x4A3B1B4
+  ["UIFeatures.enableQueueHud"] = true,                        -- 0x4A3A84B
+  ["UIFeatures.enable-target-lock-ui"] = true,                 -- 0x4A3B0D4
+  ["UIFeatures.enable-territory-incentives-screen"] = true,    -- 0x4A3AA0A
+  ["UIFeatures.g_uiEnableStyleGuide"] = false,                 -- 0x4A3A805
+  ["UIFeatures.housingImprovements"] = false,                  -- 0x4A3ABCD
+  ["javelin.enable-all-dungeons"] = true,                      -- 0x617B13D
+  ["javelin.enable-barbershop"] = true,                        -- 0x61850C4
+  ["javelin.enable-charms-feature"] = true,                    -- 0x618247E
+  ["javelin.enable-faction-changing"] = true,                  -- 0x617669E
+  ["javelin.enable-ftue-v2"] = true,                           -- 0x616DFE1
+  ["javelin.enable-game-mode-arena-3v3"] = true,               -- 0x617B3F6
+  ["javelin.enable-game-mode-capture-the-flag"] = true,        -- 0x617B93F
+  ["javelin.enable-game-mode-duels"] = true,                   -- 0x617B099
+  ["javelin.enable-game-mode-outpost-rush"] = true,            -- 0x617B0C2
+  ["javelin.enable-group-finder"] = true,                      -- 0x617E014
+  ["javelin.enable-in-game-survey"] = false,                   -- 0x1083315
+  ["javelin.enable-journal"] = true,                           -- 0x616EB98
+  ["javelin.enable-make-good-notification"] = true,            -- 0x616F183
+  ["javelin.enable-mtx-storeV2"] = true,                       -- 0x6184C56
+  ["javelin.enable-p2p-trading"] = true,                       -- 0x617E9F4
+  ["javelin.enable-pug-finder"] = true,                        -- 0x617E0BB
+  ["javelin.enable-ready-up-feature"] = true,                  -- 0x61862F5
+  ["javelin.enable-transmog"] = true,                          -- 0x6183860
+  ["javelin.faction-control.enabled"] = true,                  -- 0x61726E2
+  ["javelin.faction-influence-v2-enabled"] = true,             -- 0x616FFD7
+  ["javelin.news-modal.enable-in-game-news-screen"] = true,    -- 0x6187488
+  ["javelin.player-tutorials.enabled"] = true,                 -- 0x6184A3B
+  ["javelin.seasons-consumable-tokens-enabled"] = true,        -- 0x61770E2
+  ["javelin.seasons-rewards.enabled"] = true,                  -- 0x617341A
+  ["javelin.siege.enable-warboard"] = true,                    -- 0x6172569
+  ["javelin.social.enable-player-inspect"] = true,             -- 0x61755FF
 }
 
 function Swc.SetConfig(name, value)

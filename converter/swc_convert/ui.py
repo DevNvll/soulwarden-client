@@ -1372,9 +1372,11 @@ def convert_loader() -> dict:
     string constants of uiloader.luac (its AddScreen list; the loader picks the screens of the level), "dynamic": the
     ones of dynamiccanvasloader.luac (it loads a canvas when the game asks for it). For each list, KEYNotInGame has the
     paths with no canvas in the game (the retail loader fails on them too) and KEYNotConverted the paths that are not
-    converted. The loader fixture (tests/ui/fixtures/loader.lua) checks the run of the loaders against these lists."""
+    converted. The loader fixture (tests/ui/fixtures/loader.lua) checks the run of the loaders against these lists.
+    "canvases": each canvas of the game (the census of stage P2.3: tests/ui/fixtures/census.lua checks the table
+    Lua/swc/census.lua against it)."""
     in_game = {path[:-len(".dynamicuicanvas")] for path in source.paks().paths("lyshineui/", ".dynamicuicanvas")}
-    result: dict = {}
+    result: dict = {"canvases": sorted(in_game)}
     for key, script in LOADER_SCRIPTS.items():
         main = luabc.load((out_dir() / "scripts" / script).read_bytes())
         paths = sorted({c.lower() for c in luabc.string_constants(main) if LOADER_PATH.match(c.lower())})

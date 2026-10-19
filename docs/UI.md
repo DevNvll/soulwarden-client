@@ -320,7 +320,7 @@ Rules of the emulation:
 - Script properties: the converter keeps the property keys as CRC-32. The runtime finds each key of the `Properties`
   table of the script by its CRC-32. An array property starts at index 0. An empty array is an empty table.
 - Screen loader: the globals canvas runs `uiloader`, which asks for each screen with `ScriptLoadCanvas`. The runtime
-  loads only the screens of the stage (the four HUD screens). For the other screens it sends
+  loads only the screens of the done stages (the class "active" of the census, below). For the other screens it sends
   `OnCanvasLoadingFailed`, and the loader continues. The loader then sets the state HUD (CRC-32 of "hud").
 - State machine: a screen with "autohide" has a state of its own (the CRC-32 of its name) and shows only in that state.
   The other screens get `OnTransitionIn` when the new state is HUD, else `OnTransitionOut`.
@@ -376,6 +376,54 @@ Rules of the emulation:
 - The notifications (`lyshineui/notifications/notification`, the screen of `notifications.luac`): the script is the
   handler of `UiNotificationsBus`; `AreNotificationsEnabled` is true. A minor notification shows after the pause of
   the queue (`SecondsBetweenNotifications`, 1.5 s).
+
+## The census (stage P2.3)
+
+`swc/census.lua` has one row for each of the 164 canvases of the game (`tools/convert-ui.sh loader`: the list
+"canvases" of `gamedata/loader.json`). A row has the class, the feature family and the stage of the parity plan
+([PARITY.md](PARITY.md); the research map of AST-155, appendix A), and each way that the retail client loads the canvas:
+
+| Way | Source | What decides the load |
+| --- | --- | --- |
+| `ui` | the UI loader (`uiloader.luac` `AddScreen`, 152 calls) | the load group (1 to 9, one group in each tick) and the gate of the entry |
+| `config` | the config table of the UI loader (31 flags, 36 canvases) | after the preload, a flag that turns true (`OnConfigChanged`); an `onDemand` entry only with on-demand loading off |
+| `dynamic` | the dynamic canvas loader (`dynamiccanvasloader.luac` `canvasInfos`, 69 entries) | a UI state (it waits for the canvas), a trigger state (no wait), a flag, an interact card, an event |
+| `native` | the client program (the path is in the program) | the front end, the video screen, the benchmark |
+| `script` | another script | the loading screen (`globals.luac`), the grey box of the virtual cursor (a constant false) |
+
+The gates: the on-demand loading (`UIFeatures.enable-on-demand-canvas-loading`), 36 other flags of the settings, the
+console (`sys_DeactivateConsole` 0: never in a retail client), the editor, a tutorial level, and the data node
+`UIFeatures.housingImprovements`. The values are the defaults of the build (`Swc.config` in `swc/game.lua`, each with
+its image RVA): the backend gives no other configuration document, so the retail client keeps these defaults on this
+backend. On-demand loading is on in the build: the UI loader asks for 76 canvases at a world entry (139 with it off),
+and the dynamic canvas loader loads the others when the game asks for them.
+
+The classes (2026-10-19):
+
+| Class | Rule | Count |
+| --- | --- | --- |
+| active | this client loads it in the world (`HudScreens` of `UI/SwcUiSubsystem.cpp`, the globals, the loading screen) | 20 |
+| stage | the retail client can load it on this backend with the values of the build; a later stage owns it | 125 |
+| service | a public online service (F89): the store (3), the news, the survey, the report, the feedback, the voice chat, the legal screen; no such service on this computer | 9 |
+| debug | a diagnostic or editor screen (F90): the logger, the full-screen assert, the style guide, the benchmark (2), the editor tester of the fly-out menu, the grey box of the virtual cursor; their gates are off in a retail client | 7 |
+| dormant | no gate opens with the values of the build: the housing tips (`housingImprovements` false), the paperdoll status (`enable-hud-paperdoll-status` false), the first QTE (the build has `enable-ftue-v2` true: `qte_v2`) | 3 |
+
+- Three paths of the UI loader are not canvases (`census.paths`, class "stale"): `hud/readyup/readyupprompt` (an old
+  path of the ready-up prompt: group 8, arena 3v3 and on-demand loading off; the dynamic loader owns the canvas
+  `readyup/readyupprompt`: research open point O13), `readyup` of the config table (a folder), and
+  `inventory/schematicsopeningpopup` of the config table (a misspelled path; `inventory/schematicopeningpopup` has its own
+  entries). The retail loaders fail on them too.
+- The research map gave `hud/generator` the family F90; its script is a station screen (the fuel, the time to make an
+  item, the output): class stage, F57.
+- The dynamic canvas loader itself (`dynamiccanvasloader/dynamiccanvasloader`, group 1 with on-demand loading on) is
+  class stage: the client loads it with the first stage that has a dynamic screen.
+
+The fixture `census` checks the table (below, "Checks"): the rows against the canvases of the game; each template loads
+with its scripts (the element tree of the converted canvas below its root: some files have entities that no element
+lists; LyShine does not use them); the requests of the original UI loader at a world entry against the gates of the
+table, in the order of the load groups, with the values of the build and with on-demand loading off; the config table
+when its flags turn on (both values); the canvas list of the original dynamic loader and the load of the canvas of each of
+its 53 UI states.
 
 ## The world views (stage WF7)
 
@@ -556,6 +604,7 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `controls` | The original InfoModal: the hover of its button (`button.luac`) and its press, which closes the modal (the button of the game acts on the press). Then original slices spawned into the modal with their scripts: a slider (a drag sets 50; typed 25 in its text input with Enter sets 25), a toggle (two radio buttons in a group), a check box, a drop-down (its list of 12 items cloned from a prototype by `dropdown.luac`, the expand, the wheel scroll). Pictures `controls-button-normal`, `-hover`, `controls-slider`, `controls-textinput`, `controls-dropdown-open`, `-scrolled`. |
 | `lists` | The original ReusableScoreboard screen shows the test data of its own script (`GetDummyColumnData`, `GetDummyRowsData`, 60 rows) in its dynamic scroll box: the content has the size of all rows, only the visible rows have copies, the script fills each copy; the wheel scrolls (rows 7 to 18 show). Pictures `lists-top`, `lists-scrolled`. |
 | `visuals` | The HUD screens WeaponQuickslots, ReticlesCanvas, Vitals2024, and Compass with their scripts in the HUD state. The fixture shows the parts that need game events and sets the fill amounts through `UiImageBus` (0, 0.25, 0.5, 0.75, 1): the area of each mesh against the O3DE geometry for a radial fill (the combo points, also from 60 degrees), a counter-clockwise radial fill (the channel ring), a sliced radial fill (the hint ring of the heart rune), a counter-clockwise corner fill (the heat meter), a linear fill (the turret health), an edge fill (the reload ring, set through the bus). The heart rune hexagon and the compass give their sprite mask to the meshes below them. Pictures `visuals-fills-0` to `-100`, `visuals-masks`. |
+| `census` | The census table (`swc/census.lua`, 164 rows) against the canvases of the game and the two loaders: each template loads with its scripts (the Lua errors of the templates of later stages go to the notes); the original UI loader at a world entry asks for exactly the canvases whose gate is open (76 with the values of the build, 139 with on-demand loading off) in the order of the load groups; the config table asks for exactly its open entries when the flags turn on; the canvas list of the original dynamic loader is the table, and each of its 53 UI states asks for its canvas. |
 | `loader` | The screen loader of the game (`uiloader.luac`) at a world entry, with two allowed screens (Vitals2024, InfoModal): it asks only for canvases of its list (`gamedata/loader.json`, 153 paths), one time each, with the ending `.uicanvas` (105 for the world); it counts each load and failure and sets the state HUD; the HUD screen has no autohide and shows, the menu has autohide and shows only in its state. Each canvas that the game has for the two lists (the UI loader and the 69 canvases of `dynamiccanvasloader.luac`) is converted; 2 paths of the UI loader have no canvas in the game. |
 | `escape` | The original EscapeMenu and Popup screens driven by keys and clicks (`Swc.HostInput`): Escape in the HUD fires `toggleMenuComponent`, the state goes to "esc", the menu shows with the cursor and the maps player, movement, camera off; exit to desktop opens the quit popup over the menu (the state stays; the map ui off); Escape fires `ui_genpop_cancel` and closes only the popup; the pointer hovers a menu button again; Escape gives `OnEscapeKeyPressed` to the menu and the HUD comes back with its maps. Pictures `escape-menu`, `escape-popup`, `escape-focus`. |
 | `loading` | The loading screen of the game (`loadingscreen.luac`) shows and hides with the events of the native code; a refused connection gives the original error popup (`popup.luac` ShowError, `UIError_login_unable_to_connect`) with the cursor, and its OK button closes it. Pictures `loading-start`, `loading-later`, `loading-error`. |
