@@ -461,12 +461,18 @@ Duration = setmetatable({}, {
 
 -- ----------------------------------------------------------------------------------------------------------- Math
 
+-- The float epsilon of the engine (AZ::Constants::FloatEpsilon, the smallest step of a float at 1; a native constant of the
+-- script context; options.luac compares a range with it).
+FloatEpsilon = 1.1920929e-07
+
 Math = setmetatable({
   CreateCrc32 = function(text) return swcui.crc32(string.lower(tostring(text))) end,
   Clamp = function(v, lo, hi) return math.min(math.max(v, lo), hi) end,
   Lerp = function(a, b, t) return a + (b - a) * t end,
   Sign = function(v) if v > 0 then return 1 elseif v < 0 then return -1 end return 0 end,
   Round = function(v) return math.floor(v + 0.5) end,
+  Ceil = function(v) return math.ceil(v) end,
+  Floor = function(v) return math.floor(v) end,
   RadToDeg = function(v) return v * 180 / math.pi end,
   DegToRad = function(v) return v * math.pi / 180 end,
   IsClose = function(a, b, tolerance) return math.abs(a - b) <= (tolerance or 0.001) end,

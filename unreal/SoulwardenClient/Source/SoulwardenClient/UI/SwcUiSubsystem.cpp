@@ -61,6 +61,8 @@ const char* const HudScreens[] = {
 	"lyshineui/hud2024/lootticker/lootticker2024",
 	// The notifications (the minor messages of the inventory, the loot).
 	"lyshineui/notifications/notification",
+	// The options screen (stage P2.3): its categories, the key page (the rebinds go to the key table of the client).
+	"lyshineui/options/options",
 };
 
 /** The world level name of the HUD scripts (the level crc tells them the front end and the tutorial levels). */

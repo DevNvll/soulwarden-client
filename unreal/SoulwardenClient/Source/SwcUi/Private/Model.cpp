@@ -1211,6 +1211,15 @@ std::string Model::localize(const std::string& text) const {
     const_cast<Model*>(this)->load_texts();
     const auto found = m_texts.find(lower(text.substr(1)));
     if (found == m_texts.end()) {
+        // A label with more text after a space ("@ui_monitor_name 1"): the label is localized, the rest stays (the
+        // localization of the engine replaces the @ label of a longer text).
+        const std::size_t space = text.find(' ');
+        if (space != std::string::npos && space > 1) {
+            const std::string label = localize(text.substr(0, space));
+            if (label != text.substr(0, space)) {
+                return label + text.substr(space);
+            }
+        }
         return text;
     }
     // The text files have "\n" (a backslash and n) for a new line.

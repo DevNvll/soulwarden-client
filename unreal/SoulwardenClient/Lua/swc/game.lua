@@ -64,7 +64,52 @@ Swc.config = {
   ["javelin.seasons-rewards.enabled"] = true,                  -- 0x617341A
   ["javelin.siege.enable-warboard"] = true,                    -- 0x6172569
   ["javelin.social.enable-player-inspect"] = true,             -- 0x61755FF
+  -- The flags of the options screen (stage P2.3): the categories, the key page.
+  ["UIFeatures.g_uiEnableAccessibilitySettings"] = true,       -- 0x4A39C78
+  ["UIFeatures.g_allowUnboundKeys"] = true,                    -- 0x4A3A332
+  ["UIFeatures.ignoreKeybindConflicts"] = false,               -- 0x4A3A523
+  ["javelin.social.enable-streamermode-blocking"] = true,      -- 0x616D904
+  ["javelin.allow-controller-remapping"] = true,               -- 0x616C9E6
+  ["javelin.enable-hotkey-targeted-healing"] = true,           -- 0x10831ED
+  ["javelin.mount-character-relative-hotkeys-enabled"] = true, -- 0x1083771
+  ["javelin.pvp-spectator-cam-enabled"] = true,                -- 0x6180DF1
+  -- The flags of the rows of the options screen (the rows with a flag that is false do not show; javelin.enable-exit-survey
+  -- has no reference in the code: not set).
+  ["UIFeatures.enable-gena"] = true,                           -- 0x4A3A40B
+  ["UIFeatures.enable-hud-2024-customization"] = true,         -- 0x4A3B06B
+  ["UIFeatures.enable-hud-2024-layouts"] = true,               -- 0x4A3B002
+  ["UIFeatures.enable-hud-2024-margin"] = true,                -- 0x4A3B025
+  ["UIFeatures.enable-hud-2024-scale"] = true,                 -- 0x4A3B048
+  ["UIFeatures.enable-subtitles-v2"] = true,                   -- 0x4A3AF29
+  ["UIFeatures.enable-tts"] = true,                            -- 0x4A3A3E8
+  ["UIFeatures.enableNameplateSlider"] = true,                 -- 0x4A3A8B4
+  ["UIFeatures.enableReticleColorPicker"] = true,              -- 0x4A3A954
+  ["UIFeatures.g_enableCrossplayFeature"] = true,              -- 0x4A3B21D
+  ["UIFeatures.g_enableTwitchSpotlight"] = true,               -- 0x4A39FEA
+  ["UIFeatures.g_enableTwitchSubArmy"] = true,                 -- 0x4A3A00D
+  ["UIFeatures.g_uiBandwidthModeSetting"] = true,              -- 0x4A3A63B
+  ["UIFeatures.g_uiEnableAdvancedVideoSettings"] = true,       -- 0x4A3A16B
+  ["UIFeatures.g_uiEnableBrightnessSettings"] = true,          -- 0x4A39BC9
+  ["UIFeatures.g_uiEnableContrastSettings"] = true,            -- 0x4A39BEC
+  ["UIFeatures.g_uiEnableFPSSettings"] = true,                 -- 0x4A3A1B1
+  ["UIFeatures.g_uiEnableGammaSettings"] = false,              -- 0x4A39BA6
+  ["UIFeatures.g_uiEnableHeadphoneSpatialization"] = true,     -- 0x4A3A1D4
+  ["UIFeatures.g_uiEnableLanguageSettings"] = true,            -- 0x4A39B60
+  ["UIFeatures.g_uiEnableMotionBlurSettings"] = false,         -- 0x4A39B83
+  ["UIFeatures.g_uiEnableReticleAlwaysShowing"] = true,        -- 0x4A39B1A
+  ["javelin.enable-menu-vibration"] = false,                   -- 0x617EB19
+  ["javelin.enable-premium-emotes"] = true,                    -- 0x616CBA9
+  ["javelin.group-marker-priority-enabled"] = true,            -- 0x61769A1
+  ["javelin.pvp-reward-track-enabled"] = true,                 -- 0x6173DEB
 }
+
+-- The UIFeatures settings are also data nodes of the data layer (the scripts read some as data: the key page,
+-- UIFeatures.ignoreKeybindConflicts and g_allowUnboundKeys; the UI loader, housingImprovements).
+for name, value in pairs(Swc.config) do
+  if string.sub(name, 1, 11) == "UIFeatures." then
+    Swc.SetData(name, value)
+  end
+end
 
 function Swc.SetConfig(name, value)
   Swc.config[name] = value

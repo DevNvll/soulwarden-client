@@ -44,7 +44,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from . import datasheet, dds, env, luabc, source, uienums
+from . import datasheet, dds, env, luabc, optiondefaults, source, uienums
 from .source import field_id, number, parse, real, text
 
 # The canvases of the first HUD (stage 1.10): the globals (the loader of the screens), the vitals, the weapon and
@@ -1361,6 +1361,35 @@ def convert_enums() -> dict:
             "natives": len(natives)}
 
 
+# -------------------------------------------------------------------------------------------------------------- options
+
+OPTIONS_CANVASES = ["lyshineui/options/options.dynamicuicanvas"]
+OPTIONS_TEXTURE_FOLDERS = ["lyshineui/images/options/"]
+# A texture that the scripts of the screen set by path (the arrows of a slider row).
+OPTIONS_TEXTURES = ["lyshineui/images/attributes/modifierleftarrow.dds"]
+
+
+def convert_options() -> dict:
+    """The Options screen (stage P2.3): its canvas and textures, and gamedata/options.json: the defaults of the options
+    data of the client program (optiondefaults.py: the fields of SerializedOptionsData, their defaults, and the data
+    nodes Hud.LocalPlayer.Options.* that the component binds to them)."""
+    program = Path(os.environ["SOULWARDEN_GAME_DIR"]) / "Bin64" / "NewWorld.exe"
+    options = optiondefaults.read_option_defaults(program)
+    target = out_dir() / "gamedata"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "options.json").write_text(json.dumps(options, indent=0, sort_keys=True))
+    # The input profiles of the controller tab (InputProfileDataManagerRequestBus GetAllInputProfileData).
+    profiles = [{"displayName": r["DisplayName"], "displayString": r["DisplayString"], "path": r["Path"],
+                 "isRebindable": bool(r["Rebindable"])} for r in datasheet.load("javelindata_inputprofiles.datasheet").rows()]
+    (target / "inputprofiles.json").write_text(json.dumps(profiles, indent=0))
+    canvases = convert_canvases(OPTIONS_CANVASES)
+    textures = set(canvases.pop("textures")) | set(OPTIONS_TEXTURES)
+    for folder in OPTIONS_TEXTURE_FOLDERS:
+        textures |= set(folder_textures(folder))
+    return {"fields": len(options["fields"]), "nodes": len(options["nodes"]), "unknown": len(options["unknown"]),
+            "input profiles": len(profiles), "canvases": canvases, "textures": convert_textures(textures)}
+
+
 # -------------------------------------------------------------------------------------------------------------- loaders
 
 LOADER_SCRIPTS = {"screens": "lyshineui/uiloader.luac", "dynamic": "lyshineui/dynamiccanvasloader/dynamiccanvasloader.luac"}
@@ -1494,6 +1523,7 @@ def main(argv=None) -> int:
     sub.add_parser("actionmaps")
     sub.add_parser("texture-index")
     sub.add_parser("world")
+    sub.add_parser("options")
     args = parser.parse_args(argv)
     if args.command == "hud":
         result = hud(args.force)
@@ -1534,6 +1564,8 @@ def main(argv=None) -> int:
         result = convert_texture_index()
     elif args.command == "world":
         result = convert_world()
+    elif args.command == "options":
+        result = convert_options()
     else:
         result = convert_text()
     print(json.dumps(result, indent=1, default=str))

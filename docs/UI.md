@@ -48,6 +48,8 @@ tools/convert-ui.sh enums                  # gamedata/enums.json: the enum value
 tools/convert-ui.sh loader                 # gamedata/loader.json: the canvases that the two loaders name
 tools/convert-ui.sh actionmaps             # gamedata/actionmaps.json: the action maps of the client profile
 tools/convert-ui.sh texture-index          # textures/index.json: sizes, borders, cells (no pixels)
+tools/convert-ui.sh options                # the Options screen: its canvas and textures, gamedata/options.json (the defaults
+                                           # of the options data of the client program), gamedata/inputprofiles.json
 ```
 
 - Canvas (`.dynamicuicanvas`) and UI slice (`.dynamicslice`): an AZ object stream. A field id is the CRC-32 of the
@@ -402,8 +404,8 @@ The classes (2026-10-19):
 
 | Class | Rule | Count |
 | --- | --- | --- |
-| active | this client loads it in the world (`HudScreens` of `UI/SwcUiSubsystem.cpp`, the globals, the loading screen) | 20 |
-| stage | the retail client can load it on this backend with the values of the build; a later stage owns it | 125 |
+| active | this client loads it in the world (`HudScreens` of `UI/SwcUiSubsystem.cpp`, the globals, the loading screen) | 21 |
+| stage | the retail client can load it on this backend with the values of the build; a later stage owns it | 124 |
 | service | a public online service (F89): the store (3), the news, the survey, the report, the feedback, the voice chat, the legal screen; no such service on this computer | 9 |
 | debug | a diagnostic or editor screen (F90): the logger, the full-screen assert, the style guide, the benchmark (2), the editor tester of the fly-out menu, the grey box of the virtual cursor; their gates are off in a retail client | 7 |
 | dormant | no gate opens with the values of the build: the housing tips (`housingImprovements` false), the paperdoll status (`enable-hud-paperdoll-status` false), the first QTE (the build has `enable-ftue-v2` true: `qte_v2`) | 3 |
@@ -424,6 +426,60 @@ lists; LyShine does not use them); the requests of the original UI loader at a w
 table, in the order of the load groups, with the values of the build and with on-demand loading off; the config table
 when its flags turn on (both values); the canvas list of the original dynamic loader and the load of the canvas of each of
 its 53 UI states.
+
+## The options screen and the keys (stage P2.3)
+
+The original Options screen (`lyshineui/options/options`, `options.luac`, the row scripts `optionslistitem.luac` and
+`keybindinglistitem.luac`) opens from the button Settings of the escape menu (the state Options). Its rows build at
+`UiMainMenuBus` `OnAuthComplete(true)`: the retail client sends it at the login; the emulation sends it at the end of the
+load of the UI loader (`UILoadingNotificationBus` `OnUILoadingComplete`; `Swc.AuthComplete`). Three tabs: Settings (eight
+categories: Game, Keyboard & Mouse, Controller, Video, Audio, Social, Accessibility, About; the flags of the build show all
+eight), Keyboard & Mouse Bindings, Controller Bindings.
+
+The values (`swc/options.lua`):
+
+- The data nodes `Hud.LocalPlayer.Options.*` take the defaults of the options data of the client program
+  (`tools/convert-ui.sh options`, `converter/swc_convert/optiondefaults.py`, a static read; no code runs): the AZ reflection of
+  `SerializedOptionsData` gives the fields (the offset and the type of each: `mov r8d, OFFSET`, the name, `call Field<T>`;
+  217 fields with a type), its factory gives the constructor (image VA 0x14457BB80), and the stores of the constructor give
+  the defaults (217 of 217). The component binds each data node to a member (`lea rdx, [rsi+X]`; the struct is at 0x128 from
+  `rsi`): 138 nodes by their binding, 42 by the words of their name. Examples: the master volume 100, the camera shake on,
+  the field of view 57, the horizontal look sensitivity 0.05, the vertical smoothing 60, the quality 3.
+- The values of this client: the resolution of the viewport (a list of one), one monitor, the window mode Windowed, the
+  language `en-us` (decision D2 of the parity plan), no voice device, no cross-play.
+- A row whose node has no default from the program gets the neutral value of its row at the end of the UI load (a toggle
+  off, a slider at its minimum, a drop-down at its first item): 35 nodes; the log line `options: ...` lists them (the
+  accessibility and subtitle rows, the voice and stream rows, the chat rows, some control rows).
+- `OptionsDataBus`: the reads of the screen; `Reset<Category>Settings` sets the values of the rows of the category again.
+  `Set*` and `SerializeOptions` are stubs: the screen sets the nodes itself; the options other than the keys are not saved and
+  do not change the client in this stage (P6.9).
+- Facts of the scripts that the emulation follows: a text `@label more` localizes the label and keeps the rest (the monitor
+  "Monitor 1"); the global `FloatEpsilon` (the float epsilon of the engine) and `Math.Ceil`, `Math.Floor`; with no game pad
+  `GetCurrentGamepadIdentifier` is `eGPINone` (the screen shows the default pad picture); the input profiles of the
+  controller tab come from `javelindata_inputprofiles.datasheet` (the id is the row number and the current profile is the
+  first one: an inference; the pad is outside the device scope).
+
+The keys (`swc/keys.lua`, `UI/SwcKeyBindings`, the player controller):
+
+- A key is a CryInput name ("w", "lshift", "mouse1", "mwheel_up"): the first keyboard or mouse input of an action in the
+  action maps of the profile (`gamedata/actionmaps.json`), with the rebinds on top. The scripts get the names
+  (`GetKeybind`, `GetKeybindByDevice`, `GetActionInputName`) and make the text themselves (an `@cc_` text, else the name);
+  `GetKeybindLocStringByDevice` and `GetKeybindWithoutHold` give the text; `GetActionInMapByKey` gives the actions of a map
+  with a key (the conflict check of the key page).
+- The key page: a click on a row starts the listen (`LyShineManagerBus` `SetIsKeybinding(true)`; the client then sends the
+  mouse buttons and the wheel as keys); each key of the host goes to `KeyInputNotificationBus`; the release of the key ends
+  the listen; a key with no conflict rebinds the actions of the row (`GameRequestsBus` `RebindAction`, then
+  `SaveRebindData`); a conflict gives the popup of the screen ("Change binding").
+- The client (`USwcKeyBindings`, a game instance subsystem) keeps the same table: the defaults from the action maps (345
+  actions), the rebinds of the requests `rebind MAP ACTION KEY`, the save at `rebind-save` to
+  `SWC_WORK/settings/<the name of the session data folder>/rebindings.json` (no user id; never in the data folder of the
+  backend), the reset at `rebind-reset` (the file goes: an inference, the screen calls no save after its reset). At the
+  start the UI gets the saved rebinds (`Swc.HostKeyBindings`).
+- The player controller maps the keys of its play actions from the table (`ASwcPlayerController::MapPlayKeys`: the four
+  moves, jump, walk, target lock, free look, the two weapons, sheathe, attack, dodge, block and aim, interact, the three
+  abilities, crouch, prone, autorun), again at each rebind. With no rebind it checks each key against the default of the
+  profile (the log line "the key table gives the default keys of the profile (22 actions)"). F8 (a development key), the
+  mouse look, and the zoom on the wheel stay fixed.
 
 ## The world views (stage WF7)
 
@@ -605,6 +661,7 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `lists` | The original ReusableScoreboard screen shows the test data of its own script (`GetDummyColumnData`, `GetDummyRowsData`, 60 rows) in its dynamic scroll box: the content has the size of all rows, only the visible rows have copies, the script fills each copy; the wheel scrolls (rows 7 to 18 show). Pictures `lists-top`, `lists-scrolled`. |
 | `visuals` | The HUD screens WeaponQuickslots, ReticlesCanvas, Vitals2024, and Compass with their scripts in the HUD state. The fixture shows the parts that need game events and sets the fill amounts through `UiImageBus` (0, 0.25, 0.5, 0.75, 1): the area of each mesh against the O3DE geometry for a radial fill (the combo points, also from 60 degrees), a counter-clockwise radial fill (the channel ring), a sliced radial fill (the hint ring of the heart rune), a counter-clockwise corner fill (the heat meter), a linear fill (the turret health), an edge fill (the reload ring, set through the bus). The heart rune hexagon and the compass give their sprite mask to the meshes below them. Pictures `visuals-fills-0` to `-100`, `visuals-masks`. |
 | `census` | The census table (`swc/census.lua`, 164 rows) against the canvases of the game and the two loaders: each template loads with its scripts (the Lua errors of the templates of later stages go to the notes); the original UI loader at a world entry asks for exactly the canvases whose gate is open (76 with the values of the build, 139 with on-demand loading off) in the order of the load groups; the config table asks for exactly its open entries when the flags turn on; the canvas list of the original dynamic loader is the table, and each of its 53 UI states asks for its canvas. |
+| `options` | The original Options screen from the button Settings of the escape menu: the defaults of the client program (the camera shake on, the master volume 100), a label with more text ("Monitor 1"), a picture of each category (Game, Keyboard & Mouse, Controller, Video, Audio, Social, Accessibility, About) and of the two binding tabs; the key page: a click on the jump row starts the listen (the client gets `keybinding 1`), a key that no action has binds the jump (the UI actions use it; the client gets the rebind and the save; the hints get the key), the key of the journal (J) gives the conflict popup, the reset of the page sets the defaults again (`rebind-reset`). Pictures `options-*`. |
 | `loader` | The screen loader of the game (`uiloader.luac`) at a world entry, with two allowed screens (Vitals2024, InfoModal): it asks only for canvases of its list (`gamedata/loader.json`, 153 paths), one time each, with the ending `.uicanvas` (105 for the world); it counts each load and failure and sets the state HUD; the HUD screen has no autohide and shows, the menu has autohide and shows only in its state. Each canvas that the game has for the two lists (the UI loader and the 69 canvases of `dynamiccanvasloader.luac`) is converted; 2 paths of the UI loader have no canvas in the game. |
 | `escape` | The original EscapeMenu and Popup screens driven by keys and clicks (`Swc.HostInput`): Escape in the HUD fires `toggleMenuComponent`, the state goes to "esc", the menu shows with the cursor and the maps player, movement, camera off; exit to desktop opens the quit popup over the menu (the state stays; the map ui off); Escape fires `ui_genpop_cancel` and closes only the popup; the pointer hovers a menu button again; Escape gives `OnEscapeKeyPressed` to the menu and the HUD comes back with its maps. Pictures `escape-menu`, `escape-popup`, `escape-focus`. |
 | `loading` | The loading screen of the game (`loadingscreen.luac`) shows and hides with the events of the native code; a refused connection gives the original error popup (`popup.luac` ShowError, `UIError_login_unable_to_connect`) with the cursor, and its OK button closes it. Pictures `loading-start`, `loading-later`, `loading-error`. |
@@ -749,3 +806,11 @@ Soulwarden evidence of creatures, abilities-crit, fight, loot, loot-bags, gather
     visibility is set; `hudcanvasdefault.luac` has the same error form.
   - The rule of the queued tweens comes from the scripts (damagenumber.luac, button.luac); the code of the gem is not in the game
     files.
+- The census and the options (stage P2.3):
+  - The dynamic canvas loader does not load in the client (no screen of its list is in a done stage); the fixture runs it.
+  - 35 option nodes have no default from the program (their neutral value shows; the log lists them); the options other
+    than the keys are not saved and do not change the client (P6.9). The version of the About page is the text of this
+    client.
+  - The pad: the action maps of the converter keep only the keyboard and mouse inputs (the controller tab shows no button
+    labels); the id of an input profile is the row number (an inference). The zoom keys stay on the wheel.
+  - `javelin.enable-exit-survey` has no reference in the code of the program: not set (its row does not show).

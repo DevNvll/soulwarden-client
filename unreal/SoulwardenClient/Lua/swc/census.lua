@@ -324,7 +324,7 @@ census.canvases = {
   ["oldworldguilds/owmissionboard"] = {class = "stage", feature = "F64", stage = "P5.9",
     ui = {{group = 3, gate = {od = false}}},
     dynamic = {{name = "OWMissionBoard", gate = {}, states = {2609973752}, triggerStates = {3537282420}}}},
-  ["options/options"] = {class = "stage", feature = "F03", stage = "P2.3, P6.9",
+  ["options/options"] = {class = "active", feature = "F03", stage = "P2.3, P6.9",
     ui = {{group = 1, gate = {}}}},
   ["pinging/pingingv2"] = {class = "stage", feature = "F80", stage = "P8.3",
     ui = {{group = 8, gate = {}}}},

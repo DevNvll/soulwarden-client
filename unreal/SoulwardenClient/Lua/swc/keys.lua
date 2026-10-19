@@ -174,6 +174,8 @@ Swc.Define("LyShineManagerBus", "Broadcast", {
     Swc.hostRequests[#Swc.hostRequests + 1] = "keybinding " .. (K.binding and "1" or "0")
   end,
   IsKeybinding = function() return K.binding end,
+  -- No game pad (the device scope of this stage): gamepadcustomdata.luac then shows the default pad picture.
+  GetCurrentGamepadIdentifier = function() return eGPINone end,
 })
 
 Swc.Define("GameRequestsBus", "Broadcast", {
