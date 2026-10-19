@@ -356,6 +356,8 @@ TMap<FName, float> USwcWaterSubsystem::OceanValues(int32 Material, const TShared
 	Out.Add(TEXT("FogColorB"), FogColor.Z);
 	Out.Add(TEXT("FogScale"), FogScale);
 	Out.Add(TEXT("Density"), FogDensity);
+	// The reflection: the Fresnel of the ocean shader (water.cfx: WaterSpec0 0.065) as F0 = 0.08 x Specular.
+	Out.Add(TEXT("Specular"), 0.065f / 0.08f);
 	return Out;
 }
 
@@ -390,6 +392,8 @@ UMaterialInstanceDynamic* USwcWaterSubsystem::MakeMaterial(const swc::water::Bod
 	Material->SetVectorParameterValue(TEXT("FogColor"), FLinearColor(Body.fog[0], Body.fog[1], Body.fog[2], 1.0f));
 	Material->SetScalarParameterValue(TEXT("FogScale"), Body.scale);
 	Material->SetScalarParameterValue(TEXT("Density"), Body.density);
+	// The reflection: the Fresnel of the water volume shader (watervolume.cfx: FresnelBias 0.05, power 5) as F0 = 0.08 x Specular.
+	Material->SetScalarParameterValue(TEXT("Specular"), 0.05f / 0.08f);
 	ApplyOverrides(Material);
 	return Material;
 }

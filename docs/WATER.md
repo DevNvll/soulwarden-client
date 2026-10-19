@@ -60,15 +60,40 @@ fountains in a river, raised river parts.
   - the waves: the wave normal map of the source shaders (`engineassets/textures/oceanwaves_ddn.dds`, an inference of the research:
     the .mtl files have no normal map slot) at two scales, moved by the wind (the ocean, the volumes: world UV) or along the river
     (the UV of the river mesh, WaterFlowSpeed of the .mtl); Tilling, DetailTilling, NormalsScale, DetailNormalsScale of the .mtl;
-  - the light in the water: the hue of the source fog color, its brightness (the largest component × the color scale ×
-    FogLightScale), and the extinction (the fog density × ExtinctionScale): scattering = extinction × albedo, absorption =
-    extinction × (1 − albedo);
+  - the light in the water (see "The light in the water"): albedo = FogColor × FogColorScale × 4 (FogLightScale), extinction =
+    the fog density per meter (ExtinctionScale 0.01: Unreal counts the path in centimeters), scattering = extinction × albedo,
+    absorption = extinction × (1 − albedo), the isotropic phase (PhaseG 0);
+  - the reflection: the Fresnel of the source shaders as the Specular input (F0 = 0.08 × Specular): 0.625 (F0 0.05) for the volumes
+    and the rivers, 0.8125 (F0 0.065) for the ocean;
   - the foam of the source (FoamAmount, FoamTilling, FoamSoftIntersectionFactor, the foam map `engineassets/shading/waterfoam.dds`)
     where the water behind the surface is shallow (SceneDepthWithoutWater); the opacity of Single Layer Water is the foam.
-- Calibration (the matched views of `set2-water`): `-SwcWater=Name=Value,...` sets parameters of each instance with no import.
-  The values of the parent: NormalStrength 0.04, FogLightScale 15, ExtinctionScale 0.4, Roughness 0.02 (the calibrations cal-a to
-  cal-f in `~/Games/soulwarden-client/evidence/WF5/`: a smaller normal strength gives the calm mirror rivers of the retail views; a
-  larger light scale gives milky rivers).
+- Calibration: `-SwcWater=Name=Value,...` sets parameters of each instance with no import. NormalStrength 0.04 and Roughness 0.02
+  come from the calibrations cal-a to cal-f (`~/Games/soulwarden-client/evidence/WF5/`: a smaller normal strength gives the calm
+  mirror rivers of the retail views). The light values of these calibrations (FogLightScale 15, ExtinctionScale 0.4 per centimeter)
+  are replaced by the rule of the source shaders (2026-10-19).
+
+### The light in the water
+
+The source shaders (research `world-materials/shader-text/watervolume.cfxb.txt` and `water.cfxb.txt`, the pixel shaders):
+
+- refraction = lerp(cFogColorDensity.xyz, refraction, exp2(−cFogColorDensity.w × the path in the water)); the path is the length
+  of the view ray from the surface to the scene behind it;
+- for a water volume, cFogColorDensity.xyz = FogColor × FogColorScale × the sun color (FogColorAffectedBySun: true in 334 of the
+  345 river components, research `world-environment/river-components.json`), and cFogColorDensity.w = 1.4427 × the fog density:
+  exp(−density × the path in meters) [inference: the engine code of CREWaterVolume; the shader text has only the uniform];
+- the source diffuse has no 1 / π (shadelib `DiffuseBRDF`, `BurleyBRDF`): a white surface in the sun is the sun color;
+- final = lerp(refraction, reflection, Fresnel): the water volume Fresnel is 0.05 + 0.95 × (1 − N·V)^5 (FresnelBias), the ocean
+  Fresnel is lerp(0.065, 1, (1 − N·V)^5 / (40 − 39 × FresnelGloss)) (WaterSpec0, FresnelGloss 0.98: at most about 0.59). The
+  reflection of the volumes is the screen reflection × RealtimeReflMul (0.9 or 1.0), else the cube × EnvCubeReflMul.
+
+Single Layer Water of Unreal (`SingleLayerWaterShading.ush`): the water color = albedo × (the phase × the sun illuminance + the
+ambient illuminance / 4π) × (1 − T) + T × the scene behind, with T = exp(−extinction × the depth behind the surface in
+centimeters). A white diffuse surface is E / π; with the isotropic phase 1 / 4π, the deep color of the source (FogColor ×
+FogColorScale of the white surface) is albedo = 4 × FogColor × FogColorScale. Not the same as the source: Unreal adds the ambient
+light to the scattering, darkens the scene behind by the path of the light from the surface down to it, and its Fresnel has no
+reflection multiplier (RealtimeReflMul 0.9 is not used) and goes to 1 at a grazing view (the ocean of the source stops at about
+0.59). Bodies with FogColor × FogColorScale above 0.25 (a white fog with scale 1: some small volumes) ask for an albedo above 1;
+it stops at 1.
 
 ## The depth classes
 
@@ -137,6 +162,49 @@ is green-yellow in its fog; the shore foam lines of the retail beaches (particle
 | Shallow to VeryShallow, VeryShallow to None | 0.887 to 0.903 m, 0.182 to 0.198 m | 0.90 m, 0.19 m |
 | The wade speed | 2.73 to 2.79 m/s | 2.75 m/s (the native Nav) |
 | The run | 5.40 to 5.50 m/s | 5.50 m/s |
+
+## The water color check (2026-10-19)
+
+The retail water of the rivers is dark and reflective; the client water was a light, clear turquoise. The cause: the light values
+of the calibrations (FogLightScale 15, ExtinctionScale 0.4) were chosen by eye, and Unreal counts the extinction per centimeter:
+an extinction of 0.2 per centimeter made the water an opaque, bright medium. The rule of the source shaders ("The light in the
+water") replaces them.
+
+The measure: `python3 -B tools/lib/water_part.py LABEL=FOLDER,...` on the folders of `tools/match-view.sh`: the color report of the
+water pixels only (the view rays that meet the water surface of the quadtree before the terrain), and the L* difference of the
+water minus the L* difference of the whole picture (the water against the light of the whole picture). The views: the four noon
+views of `set2-water` and the two swim pictures of `set3-swim` (the set folder `evidence/water-color/set3-views`: the two pictures
+with view names; its swim-nav.json is made from the nearest sample of the retail swim-nav.json). Evidence:
+`~/Games/soulwarden-client/evidence/water-color/` (e5-before: the old values as `-SwcWater` arguments; e5-rule: the source rule).
+
+The light of E5 steps 1 and 2a (main c82e988), the water dE (CIEDE2000) and the water dL − all dL:
+
+| View | Old values | Source rule |
+| --- | --- | --- |
+| river-forest-noon | 39.6, +11.4 | 30.5, +4.5 |
+| river-highlands-noon | 53.1, +19.7 | 45.0, +14.7 |
+| ocean-clear-noon | 34.2, +8.2 | 36.5, +9.1 |
+| ocean-storm-noon | 31.5, +4.1 | 39.2, +9.8 |
+| swim-idle | 48.7, +6.5 | 43.9, +2.9 |
+| swim-nav | 49.4, +6.5 | 44.0, +2.6 |
+| The mean of the 6 views | 42.8, +9.4 | 39.8, +7.3 |
+
+In the light before E5 (the four views of set 2): the mean water dE 27.2 (old values) and 24.4 (source rule); the rivers 33.6 to
+24.6 and 47.8 to 39.3, the ocean 15.5 to 19.4 and 12.0 to 14.3.
+
+What the numbers show: with the source rule, the rivers are clear. The bed shows through near the bank, and the reflection of the
+sky makes most of the color, as in retail. The rivers and the deep ocean of the swim views come nearer to retail. The two coast
+views go farther: with the old values the coast water was an opaque cyan medium, near the turquoise of the retail coast by chance;
+now it is clear and shows the light sand and the reflection of the near white client sky. The rest of the difference is not in the
+water values:
+
+- the sky: the client sky is near white and hazy (E5 step 2b is open), the retail sky is blue or purple; the clear water reflects it
+  (the swim views: the retail ocean is a saturated blue, S 0.79; the client S 0.19);
+- the light of the whole picture: in the light of E5 steps 1 and 2a the whole picture is +27 to +31 L* (set 2); the water follows
+  it (+2.6 and +2.9 over the picture in the swim views);
+- the river beds: the client beds under the clear water are light (the terrain material, stage T1); the retail beds are dark mud;
+- the ocean Fresnel: the source stops at about 0.59 at a grazing view (FresnelGloss), Unreal goes to 1. At the swim view (about 80
+  degrees) the source gives about 0.27, Unreal 0.43. Single Layer Water has no input for it.
 
 ## Not done, open points
 

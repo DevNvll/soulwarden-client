@@ -13,7 +13,10 @@ the user, 2026-10-18: the content follows the source, the rendering uses what Un
 - the foam of the source (FoamAmount, FoamTilling, FoamSoftIntersectionFactor) at the shore: the depth of the water behind the
   surface (SceneDepthWithoutWater);
 - the color: the water fog of the source (FogColor, density, color scale) gives the scattering and the absorption of Single
-  Layer Water (FogLightScale: the light of the source fog color, a calibration of the matched views).
+  Layer Water by the rule of the source shaders (watervolume.cfx, water.cfx: refraction = lerp(fog color x sun, refraction,
+  exp(-density x the view path in the water)); docs/WATER.md "The light in the water");
+- the reflection: the Fresnel of the source shaders as the Specular input (F0 = 0.08 x Specular): 0.05 for the volumes
+  and the rivers (FresnelBias of watervolume.cfx), 0.065 for the ocean (WaterSpec0 of water.cfx).
 Environment: SWC_CONTENT, SWC_IMPORT_FORCE=1 (make each asset again).
 """
 import json
@@ -30,7 +33,7 @@ force = os.environ.get("SWC_IMPORT_FORCE", "") == "1"
 WATER = "/SwcGameContent/Water"
 TEXTURES = WATER + "/Textures"
 # The rule of the parent: a new value makes it again.
-PARENT_VERSION = "5"
+PARENT_VERSION = "6"
 
 assets = unreal.EditorAssetLibrary
 editing = unreal.MaterialEditingLibrary
@@ -86,11 +89,13 @@ return normalize(float3(xy, 1.0));"""
 FOAM_HLSL = """float depth = max(Below - Pixel, 0.0) * 0.01;
 float shore = 1.0 - saturate(depth / max(Soft, 0.01));
 return saturate(shore * F.r * Amount * FoamScale);"""
-# The light in the water from the water fog of the source: the hue of the fog color, its brightness (the largest component x the
-# color scale x FogLightScale), and the extinction (the fog density x ExtinctionScale). Scattering = extinction x albedo,
-# absorption = extinction x (1 - albedo): the channels of the hue go farther in the water.
-ALBEDO_HLSL = """float m = max(max(Fog.r, Fog.g), max(Fog.b, 0.0001));
-return saturate(Fog.rgb / m * saturate(m * FogScale * FogLightScale));"""
+# The light in the water from the water fog of the source shaders: the deep water color is FogColor x FogColorScale x the sun
+# color (FogColorAffectedBySun), and a white diffuse surface in the sun is the sun color (the source diffuse has no 1 / pi:
+# shadelib DiffuseBRDF). In Unreal a white diffuse surface is E / pi and deep water with the isotropic phase (PhaseG 0) is
+# albedo x E / (4 pi): albedo = FogColor x FogColorScale x 4 (FogLightScale). The extinction is the fog density per meter
+# (CREWaterVolume: exp2(-1.4427 x density x the path)); Unreal counts the path in centimeters (ExtinctionScale 0.01).
+# Scattering = extinction x albedo, absorption = extinction x (1 - albedo).
+ALBEDO_HLSL = "return saturate(Fog.rgb * FogScale * FogLightScale);"
 SCATTERING_HLSL = "return Density * ExtinctionScale * " + "A;"
 ABSORPTION_HLSL = "return Density * ExtinctionScale * (1.0 - A) + MinAbsorption;"
 
@@ -113,8 +118,8 @@ def make_parent(waves, foam):
         ("UseMeshUV", 0.0), ("UVScale", 0.1), ("Tilling", 1.0), ("DetailTilling", 2.0), ("NormalsScale", 0.5),
         ("DetailNormalsScale", 0.5), ("NormalStrength", 0.04), ("FlowSpeed", 0.0), ("FlowScale", 0.25), ("WaveSpeed", 1.0), ("WindDirection", 0.0),
         ("WindScale", 0.02), ("FoamAmount", 0.0), ("FoamTilling", 1.0), ("FoamSoftIntersectionFactor", 1.0), ("FoamScale", 0.15),
-        ("Density", 0.5), ("FogScale", 1.0), ("FogLightScale", 15.0), ("ExtinctionScale", 0.4), ("MinAbsorption", 0.01), ("PhaseG", 0.1),
-        ("Roughness", 0.02), ("FoamRoughness", 0.6)])}
+        ("Density", 0.5), ("FogScale", 1.0), ("FogLightScale", 4.0), ("ExtinctionScale", 0.01), ("MinAbsorption", 0.0), ("PhaseG", 0.0),
+        ("Roughness", 0.02), ("FoamRoughness", 0.6), ("Specular", 0.625)])}
     fog = sm.vector(material, "FogColor", (0.03, 0.09, 0.11, 1.0), -1800, 1500)
 
     def uv_node(rate, turn, offset, tiling, y):
@@ -183,6 +188,7 @@ def make_parent(waves, foam):
     connect(p["FoamRoughness"], "", roughness, "FoamRoughness")
     connect(foam_amount, "", roughness, "Foam")
     editing.connect_material_property(roughness, "", MP.MP_ROUGHNESS)
+    editing.connect_material_property(p["Specular"], "", MP.MP_SPECULAR)
 
     # The light in the water: Single Layer Water from the water fog of the source.
     output = sm.node(material, unreal.MaterialExpressionSingleLayerWaterMaterialOutput, 200, 700)
