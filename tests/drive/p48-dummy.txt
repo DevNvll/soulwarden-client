@@ -1,0 +1,14 @@
+# The Talk with 1225_Giacomo_EF (stage P4.8, docs/PERSONS.md "The Talk"): a two-shot preset. The real character hides, and the dummy
+# of the player stands 1.3 m in front of the person (0.25 m to the side), turned to it, with no weapons. E for 0.8 s opens the
+# conversation, E ends it, W walks away after the answer 6709. With the routes of tests/drive/p48-dummy-routes.txt. Times in
+# seconds from the possession.
+# SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8891.73:4141.55:136.0 SWC_STAGE=P4.8 \
+#   tools/creature-check.sh p48-dummy 22 tests/drive/p48-dummy-routes.txt tests/drive/p48-dummy.txt
+5.0 tick
+6.0 interact 1
+6.8 interact 0
+12.0 interact 1
+12.1 interact 0
+14.0 move 0 1
+15.5 move 0 0
+17.0 tick

@@ -19,6 +19,8 @@ namespace
 constexpr double BagHideDelay = 1.5;
 /** GatherResource: the action of GatherOption (interaction-data.json), a timed use of the server (a node, a chest). */
 constexpr uint8 GatherAction = 14;
+/** OpenConversation: the action of the option of a person (interaction-data.json, option 17: action 63, committed, hold 0.5 s). */
+constexpr uint8 ConversationAction = 63;
 
 const TCHAR* GatherStepName(swc::interact::GatherWatch::Step Step)
 {
@@ -153,6 +155,13 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		SeenCancels = Own.interactionCancels;
 		SeenResults = Own.interactionResults;
 	}
+	// The answers 6709: the first one after the 6705 frees the input (the lock of a conversation).
+	const swc::interact::Conversation::Phase TalkBefore = Talk.phase();
+	Talk.update(Own.lockEnds);
+	if (TalkBefore == swc::interact::Conversation::Phase::closing && Talk.phase() == swc::interact::Conversation::Phase::closed)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: the answer 6709: the input of the character is free again"));
+	}
 	// The replies and the ends of the session first: they belong to the request that is out now.
 	if (Own.interactionCancels != SeenCancels)
 	{
@@ -160,6 +169,11 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		if (Use.phase() != swc::interact::Use::Phase::idle)
 		{
 			UE_LOG(LogSwcBackend, Log, TEXT("interact: the server ended the use of %s (3746)"), UTF8_TO_TCHAR(Use.option().name.c_str()));
+			if (bUseTalk && Talk.scene())
+			{
+				UE_LOG(LogSwcBackend, Log, TEXT("interact: the conversation closes (the session client sent 2473; the client sends 6705)"));
+				Talk.server_ended();
+			}
 		}
 		Use.server_cancel();
 	}
@@ -168,7 +182,14 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		SeenResults = Own.interactionResults;
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: the reply to %s: %s"), UTF8_TO_TCHAR(Use.option().name.c_str()),
 			Own.lastInteractionResult == 1 ? TEXT("accepted") : TEXT("refused"));
+		const bool bTalkReply = bUseTalk && Use.phase() != swc::interact::Use::Phase::idle;
 		Use.reply(Own.lastInteractionResult, Now);
+		if (bTalkReply && Own.lastInteractionResult != 1 && Talk.scene())
+		{
+			// A refusal clears the records of the client: the conversation closes at once (6705, no 2473; Soulwarden interactions.md).
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the conversation is refused: it closes (6705, no 2473)"));
+			Talk.refused();
+		}
 	}
 	// The focus: the objects of the server with a place.
 	std::vector<swc::interact::Object> Objects;
@@ -242,6 +263,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 	{
 		bUseBag = false;
 		bUseGather = false;
+		bUseTalk = false;
 		Focus = bLocked ? std::nullopt : swc::interact::focus(Templates, Objects, Reported);
 		FocusName = Focus ? FString(UTF8_TO_TCHAR(Focus->object->name.c_str())) : FString();
 		bFocusBag = false;
@@ -296,6 +318,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		// option: ReadLore of a lore page, GatherOption of a node or a chest. The ids and the request come from the layer.
 		bFocusGather = false;
 		bFocusNoTool = false;
+		bFocusTalk = false;
 		USwcObjectSubsystem* Layer = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcObjectSubsystem>() : nullptr;
 		FSwcWorldObjectTarget Object;
 		if (!bLocked && Layer != nullptr && Layer->FindNearestObject(From, Object) && !Object.Options.IsEmpty()
@@ -316,6 +339,8 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			bFocusBag = false;
 			bFocusGather = ObjectOption.action == GatherAction;
 			bFocusNoTool = Object.bToolMissing;
+			bFocusTalk = ObjectOption.action == ConversationAction;
+			FocusKey = Object.Key;
 			FocusUseKind = Object.UseKind;
 			FocusTool = Object.ToolItem != 0 ? Object.ToolSlot : 0;
 			FocusPrompt = FSwcInteractPrompt();
@@ -394,10 +419,27 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 	}
 	if (bLocked)
 	{
+		if (Talk.scene())
+		{
+			// The death or a loading screen ends the conversation: 6705 (the abort of the use sends 2473).
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the conversation closes (the death or a loading screen)"));
+			Talk.server_ended();
+		}
 		Use.abort();
 	}
-	// The key E. A gather with no tool for its row sends nothing (protocol notes 4.44, live check L6: no request in the log).
-	if (bKeyDown && !bKeyWas && Focus && !bLocked && bFocusNoTool)
+	// The key E. In a conversation it ends the conversation (a client rule until the conversation screen of the UI: docs/PERSONS.md).
+	// A gather with no tool for its row sends nothing (protocol notes 4.44, live check L6: no request in the log).
+	if ((bKeyDown && !bKeyWas && Talk.scene()) || (bPendingTalkEnd && Talk.scene()))
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: %s in the conversation: the player ends it (6705, then 2473)"), bPendingTalkEnd ? TEXT("the UI") : TEXT("E"));
+		Talk.player_close();
+		Use.finish();
+	}
+	else if (bKeyDown && !bKeyWas && Talk.locked())
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: E while the input waits for the answer 6709: no use"));
+	}
+	else if (bKeyDown && !bKeyWas && Focus && !bLocked && bFocusNoTool)
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: E at %s: no request (the tool rule of the client)"), *FocusName);
 	}
@@ -406,8 +448,9 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: E at %s (interest %u, %.2f m of %.2f m): %s, action %u, delay %.1f s, hold %.1f s"), *FocusName,
 			Focus->interest, FMath::Sqrt(Focus->distanceSq), FMath::Sqrt(Focus->rangeSq), UTF8_TO_TCHAR(Focus->option->name.c_str()), Focus->option->action,
 			Focus->option->delay, Focus->option->hold);
-		// A bag and a gather keep their request until their source ends them (the Looted claim; the Gathering state).
-		Use.press(Now, *Focus, bFocusBag || bFocusGather);
+		// A bag, a gather, and a conversation keep their request until their source ends them (the Looted claim; the Gathering
+		// state; the end of the conversation).
+		Use.press(Now, *Focus, bFocusBag || bFocusGather || bFocusTalk);
 		UsePlace = SwcEngineToUnreal(Focus->place);
 		if (bFocusBag)
 		{
@@ -421,12 +464,18 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			UseTool = FocusTool;
 			Gather.start(Now, Snapshot.Own.gathering);
 		}
+		if (bFocusTalk)
+		{
+			bUseTalk = true;
+			TalkKey = FocusKey;
+		}
 	}
 	else if (!bKeyDown && bKeyWas)
 	{
 		Use.release(Now);
 	}
 	bKeyWas = bKeyDown;
+	bPendingTalkEnd = false;
 	// A hold whose character went out of the range ends with no request: the server would refuse it (it measures at the request).
 	if (Use.moved(Reported))
 	{
@@ -434,12 +483,24 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			UTF8_TO_TCHAR(Use.option().name.c_str()), FMath::Sqrt(swc::interact::distance_sq(Reported, Use.place())), FMath::Sqrt(Use.rangeSq()));
 		bUseBag = false;
 		bUseGather = false;
+		bUseTalk = false;
 	}
 	const uint32 Executions = Use.executions();
 	Use.tick(Now);
 	if (Use.executions() != Executions)
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: the execution of %s"), UTF8_TO_TCHAR(Use.option().name.c_str()));
+		if (bUseTalk)
+		{
+			// The client opens the conversation at its request, before any reply (protocol notes 4.35).
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the conversation opens (object %s): the input of the character is blocked"), *TalkKey);
+			Talk.open();
+		}
+	}
+	// The end of a conversation first: 6705, then 2473 (the order of the retail client, 2 ms between them).
+	if (Talk.take().endCutscene)
+	{
+		Connection.EndCutscene();
 	}
 	const swc::interact::Use::Effects Effects = Use.take();
 	if (Effects.requestChanged)
@@ -487,7 +548,8 @@ void FSwcInteractor::UpdateLootedBags(const swc::net::RepClient::OwnEntity& Own,
 
 bool FSwcInteractor::GetPrompt(double Now, FSwcInteractPrompt& Out) const
 {
-	if (!Focus)
+	// No prompt in a conversation and until the answer 6709 (the conversation screen replaces it).
+	if (!Focus || Talk.locked())
 	{
 		Out = FSwcInteractPrompt();
 		return false;
@@ -502,6 +564,10 @@ bool FSwcInteractor::GetPrompt(double Now, FSwcInteractPrompt& Out) const
 
 FString FSwcInteractor::DebugText(double Now) const
 {
+	if (Talk.locked())
+	{
+		return Talk.scene() ? FString(TEXT("conversation (E ends it)")) : FString(TEXT("the conversation ended: the input waits for 6709"));
+	}
 	if (!Focus)
 	{
 		return FString();

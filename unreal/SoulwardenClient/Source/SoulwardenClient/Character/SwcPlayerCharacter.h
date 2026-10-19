@@ -68,6 +68,13 @@ public:
 	USwcRangedView* GetRangedView() const { return RangedView; }
 	/** The feet of the character (the bottom of the capsule). */
 	FVector GetFeetLocation() const;
+	/**
+	 * Stage P4.8 (docs/PERSONS.md "The Talk"): the dummy of the player in a two-shot conversation. The body (the leader mesh, its
+	 * parts, its gear) stands at a place (the feet, Unreal world space) with a facing (Unreal yaw); the gear hides for a dummy with
+	 * no weapons. Null: the body goes back to the character. The character (the capsule, the position of the input reports) does
+	 * not move.
+	 */
+	void SetDummy(const FVector* Feet, double Yaw = 0.0, bool bArmed = false);
 
 private:
 	UPROPERTY()

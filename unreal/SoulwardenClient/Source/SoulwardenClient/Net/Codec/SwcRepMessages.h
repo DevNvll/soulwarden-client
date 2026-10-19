@@ -77,6 +77,9 @@ inline constexpr MessageType kPlayerTeleport{"PlayerComponentClientFacet_OnPlaye
 inline constexpr MessageType kRequestRespawn{"PlayerComponentServerFacet_RequestRespawn", "12A0B32C81384305B122DCF5C1B1F71E", 1938};
 /** The end of a lock of the input (a cutscene, a conversation). */
 inline constexpr MessageType kCutsceneEndFinalized{"PlayerCutsceneComponentClientFacet_OnServerCutsceneEndRequestFinalized", "D19070A4AEA24E0D9585EC073F006828", 6709};
+/** The end of a cutscene of the client (a conversation; stage P4.8): the server answers 6709, which frees the input of the character
+ *  (protocol notes 4.20; backend server/rep/lock_messages.h). */
+inline constexpr MessageType kCutsceneEnded{"PlayerCutsceneComponentServerFacet_OnClientCutsceneEnded", "CE7B5A7ECD894626B0A17FEE3F37D1A8", 6705};
 /** The cancel of the committed interaction by the client (client to server): its reference (32 bytes). */
 inline constexpr MessageType kCancelCommittedInteraction{"InteractorComponentServerFacet_RequestCancelCommittedInteractionFromClient", "44D7E916377940A48EC63FAEA459EE13", 2473};
 /** The server ends the interaction of the client. */
@@ -133,14 +136,14 @@ inline constexpr MessageType kManaForceSync{"ManaComponentClientFacet_ClientForc
 inline constexpr MessageType kHealedPlayer{"VitalsComponentClientFacet_OnHealedPlayer", "6F1EB843106A427AA09E61BC50DD82F2", 4298};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 54> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 55> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
     kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult, kTakeAllItems,
     kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints, kStateGathering, kEquipItem,
     kUnequipItem, kSwapItems, kEquipItemFail, kUseItem, kDropInventoryItems, kDropPaperdollItem, kStateCurrency, kStateSpeedTable,
-    kStateStatuses, kTimeRequest, kTimeAndPhase, kDayPhase, kStateProgression, kManaForceSync, kHealedPlayer};
+    kStateStatuses, kTimeRequest, kTimeAndPhase, kDayPhase, kStateProgression, kManaForceSync, kHealedPlayer, kCutsceneEnded};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -429,6 +432,8 @@ Bytes interaction_block(const InteractionRequest& request);
 /** @return The body of RequestRespawn (1938): target (G + Player) entity (G) random:u8 id:text; the row "Random Location" is
  *  random 1 and an empty id (18 bytes, the live client). */
 Bytes respawn_request_body(std::uint64_t group, bool random = true, const std::string& id = {});
+/** @return The body of OnClientCutsceneEnded (6705, 16 bytes): target (G + PlayerCutscene) and entity (G) of the character. */
+Bytes cutscene_ended_body(std::uint64_t group);
 /** @return The body of RequestCancelCommittedInteractionFromClient (2473, 48 bytes): target (G + Interactor) entity (G) and the
  *  reference of the interaction. */
 Bytes interaction_cancel_body(std::uint64_t group, const InteractionReference& reference);

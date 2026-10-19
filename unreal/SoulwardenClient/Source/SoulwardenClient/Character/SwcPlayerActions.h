@@ -95,8 +95,11 @@ public:
 	 */
 	void SetTimedUse(bool bOn, const FString& Kind = TEXT("delayed"), uint32 ToolSlot = 0, const FVector* FacePlace = nullptr);
 	/** @return True while the input of the player does nothing: the death, a loading screen, the respawn before its mark, a
-	 *  timed use. */
-	bool IsInputLocked() const { return LifeState.locked(); }
+	 *  timed use, a conversation until the answer 6709. */
+	bool IsInputLocked() const { return LifeState.locked() || bConversation; }
+	/** Stage P4.8 (docs/PERSONS.md "The Talk"): a conversation blocks the input of the character from its open to the answer 6709
+	 *  (FSwcInteractor, swc::interact::Conversation). */
+	void SetConversation(bool bOn) { bConversation = bOn; }
 	/** The lock of the actions (attacks, abilities, weapon keys, dodge): the life lock, and the swim (stage WF5). The movement keys
 	 *  stay free in a swim. */
 	bool IsActionLocked() const { return IsInputLocked() || bSwimming; }
@@ -216,6 +219,8 @@ private:
 	bool bProneSheathe = false;
 	bool bSwimming = false;
 	bool bSwimUnsheathe = false;
+	/** A conversation (SetConversation). */
+	bool bConversation = false;
 	uint32 NodesRevision = MAX_uint32;
 	TSet<uint32> LearnedNodes;
 	/** The strikes with no row for the learned nodes that the query skipped. */

@@ -51,6 +51,27 @@ USwcCharacterMovement* ASwcPlayerCharacter::GetSwcMovement() const
 	return Cast<USwcCharacterMovement>(GetCharacterMovement());
 }
 
+void ASwcPlayerCharacter::SetDummy(const FVector* Feet, double Yaw, bool bArmed)
+{
+	if (Feet != nullptr)
+	{
+		GetMesh()->SetWorldLocationAndRotation(*Feet, FRotator(0.0, Yaw + MeshYaw, 0.0));
+		for (const TObjectPtr<UStaticMeshComponent>& Component : Gear)
+		{
+			if (Component != nullptr && !bArmed)
+			{
+				Component->SetVisibility(false);
+			}
+		}
+		return;
+	}
+	GetMesh()->SetRelativeLocationAndRotation(FVector(0.0, 0.0, -CapsuleHalfHeight), FRotator(0.0, MeshYaw, 0.0));
+	for (int32 Index = 0; Index < Gear.Num(); ++Index)
+	{
+		PlaceGear(Index, GearInHand.IsValidIndex(Index) && GearInHand[Index]);
+	}
+}
+
 FVector ASwcPlayerCharacter::GetFeetLocation() const
 {
 	return GetActorLocation() - FVector(0.0, 0.0, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());

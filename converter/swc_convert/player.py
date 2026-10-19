@@ -759,7 +759,9 @@ def weapon(key: str, skins: list, force: bool = False, doc: dict | None = None) 
     w = gltf.Writer()
     prims = []
     for skin_path, mtl in skins:
-        f = cgf.read_chunks(source.read(skin_path))
+        # A static mesh (.cgf; the items of the persons, stage P4.8) can have its streams in the .cgfheap file (mesh.py).
+        heap = source.read(skin_path + "heap") if source.has(skin_path + "heap") else None
+        f = cgf.read_chunks(source.read(skin_path), heap)
         mesh = cgf.read_mesh(f, f.of_type(cgf.T_MESH)[0])
         subs = []
         if mtl:

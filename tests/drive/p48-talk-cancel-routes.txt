@@ -1,0 +1,7 @@
+# The routes of the Talk check with the end by the server (stage P4.8, tests/drive/p48-talk-cancel.txt): the routes of
+# tests/drive/p48-talk-routes.txt, then the server ends the interaction of the character (3746) in the conversation. Times on
+# the clock of the drive script.
+0.5 ignore on
+0.6 world-time 12:00
+0.8 travel 8836.2 4248.0 137.0
+10.0 cancel

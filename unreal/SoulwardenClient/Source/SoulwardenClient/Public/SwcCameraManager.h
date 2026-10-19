@@ -37,6 +37,12 @@ public:
 	/** A camera state that replaces the state of the action list (drive scripts; empty: none). */
 	void SetForcedState(const FString& State);
 	void SetDead(bool bInDead) { bDead = bInDead; }
+	/**
+	 * The camera of a conversation (stage P4.8, docs/PERSONS.md "The Talk"): a cut to the camera of the line (Unreal world space) and
+	 * its vertical FOV (degrees), in place of the state camera; the state camera goes on below it. bOn false: the cut back.
+	 */
+	void SetSceneView(bool bOn, const FVector& Location = FVector::ZeroVector, const FVector& LookAt = FVector::ZeroVector, float VerticalFov = 0.0f);
+	bool HasSceneView() const { return bScene; }
 	/** The entities of the backend that the target lock can take, each frame. */
 	void SetLockCandidates(TArray<FSwcLockCandidate>&& InCandidates) { Candidates = MoveTemp(InCandidates); }
 	/** Development runs draw a marker at each candidate (the creatures have no model before stage 1.9). */
@@ -122,4 +128,9 @@ private:
 	TArray<TPair<double, float>> LockMouse;
 	double LockMouseIgnoreUntil = 0.0;
 	FRotator LastRotation = FRotator::ZeroRotator;
+	/** The camera of a conversation (SetSceneView). */
+	bool bScene = false;
+	FVector SceneLocation = FVector::ZeroVector;
+	FRotator SceneRotation = FRotator::ZeroRotator;
+	float SceneFov = 0.0f;
 };

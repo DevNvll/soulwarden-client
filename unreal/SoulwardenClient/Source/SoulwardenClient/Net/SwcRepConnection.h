@@ -84,6 +84,8 @@ public:
 	void SetInteraction(const std::optional<swc::net::InteractionRequest>& Request);
 	/** The client ends its committed interaction: message 2473 (swc::net::RepClient::cancel_interaction). */
 	void CancelInteraction();
+	/** The end of a cutscene of the client (a conversation): message 6705 (swc::net::RepClient::end_cutscene). */
+	void EndCutscene();
 
 	// FRunnable
 	virtual uint32 Run() override;

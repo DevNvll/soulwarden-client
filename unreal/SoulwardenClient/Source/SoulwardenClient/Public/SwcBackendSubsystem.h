@@ -116,6 +116,11 @@ public:
 	uint32 GetOpenLootBag() const;
 	/** The prompt of the focus for the UI (stage WF7; FSwcInteractor::GetPrompt). @return False with no focus. */
 	bool GetInteractPrompt(FSwcInteractPrompt& Out) const;
+	/** The line of the conversation of the player ("SPEAKER: TEXT"; stage P4.8, docs/PERSONS.md), empty with no conversation: the
+	 *  conversation screen of the UI comes later. */
+	const FString& GetConversationLine() const { return ConversationLine; }
+	/** The conversation screen of the UI ends the conversation (its Back key; its Next key at the last line): 6705, then 2473. */
+	void EndConversation();
 
 	/**
 	 * @return The yaw of the camera of the player in degrees, in the convention of the input report (protocol notes 4.7):
@@ -200,6 +205,8 @@ private:
 	/** The interactions of the player with the objects of the server (stage P2.10) and the key E. */
 	TSharedPtr<FSwcInteractor> Interactor;
 	bool bInteractKey = false;
+	FString ConversationLine;
+	bool bDummyShown = false;
 	/** The assets of the look of the character, loaded in the background before the spawn (the handle keeps them). */
 	TSharedPtr<FStreamableHandle> Preload;
 	enum class EPreload : uint8 { Waiting, Loading, Done };

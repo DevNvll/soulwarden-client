@@ -201,6 +201,11 @@ void ASwcPlayerController::OnLook(const FInputActionValue& Value)
 {
 	const FVector2D Counts = Value.Get<FVector2D>();
 	ASwcCameraManager* Camera = GetSwcCamera();
+	if (Camera != nullptr && Camera->HasSceneView())
+	{
+		// The camera of a conversation does not turn (stage P4.8).
+		return;
+	}
 	if (Camera != nullptr && Camera->IsLocked())
 	{
 		// The target lock turns the camera; a fast mouse move switches the target.

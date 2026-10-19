@@ -17,6 +17,7 @@
 #include "Net/Codec/SwcCarrier.h"
 #include "Net/Codec/SwcRepClient.h"
 #include "Net/Codec/SwcRepMessages.h"
+#include "Interact/SwcConversation.h"
 #include "Interact/SwcInteraction.h"
 #include "core/logging/log.h"
 #include "server/carrier/carrier.h"
@@ -586,6 +587,13 @@ void test_life_messages() {
     const Bytes lock = rep::cutscene_finalized_body(group);
     const auto readLock = swc::net::read_component_call(lock);
     expect(lock.size() == 16 && readLock && readLock->target == group + swc::net::kPlayerCutsceneComponent, "6709: the call of the cutscene facet");
+    // Stage P4.8: the end of the cutscene of a conversation (6705): the reader of the backend (rep_session handle_cutscene_ended reads a
+    // component call of the PlayerCutscene facet of the character); the same layout as the answer 6709 of the backend.
+    const Bytes ended = swc::net::cutscene_ended_body(group);
+    const auto readEnded = rep::read_component_call(ended);
+    expect(ended.size() == 16 && readEnded && readEnded->target == group + rep::kPlayerCutsceneComponent && readEnded->entity == group && ended == lock
+               && swc::net::kCutsceneEnded.index == rep::kTypeCutsceneEnded,
+           "6705: the call of the cutscene facet of the character, read by the backend (the bytes of its 6709)");
     // The teleport numbers (protocol notes 4.16): the client takes a movement state only with a number that is not its own.
     expect(swc::net::takes_travel(0, 1), "the world entry: 1 is not the start number 0 of the client");
     expect(!swc::net::takes_travel(1, 1), "the same number: no travel (the client keeps its prediction)");
@@ -1149,6 +1157,99 @@ void test_carrier() {
     expect(server.state() == backend::server::carrier::State::disconnected, "the carrier disconnect of the client");
 }
 
+/**
+ * Stage P4.8 (docs/PERSONS.md "The Talk"): the conversation of the client with the use of OpenConversation, in the order of the
+ * interactor (Interact/SwcInteractor.cpp): the request at the end of the hold opens it; the ends send 6705 first, then 2473 only for
+ * the end by the player; the input stays blocked until the next answer 6709 (the count of the session client). The camera point of
+ * the commander of Oxboro against the live camera of the retail client (research p48-talk/camera-check.txt).
+ */
+void test_conversation() {
+    std::printf("the conversation (stage P4.8)\n");
+    using swc::interact::Conversation;
+    using swc::interact::Use;
+    // OpenConversation of the interaction data (option 17): action 63, committed, no Delay Time, hold 0.5 s.
+    swc::interact::Option talkOption;
+    talkOption.name = "OpenConversation";
+    talkOption.action = 63;
+    talkOption.committed = true;
+    talkOption.hold = 0.5F;
+    swc::interact::Candidate candidate;
+    candidate.option = &talkOption;
+    candidate.rangeSq = 25.0F;
+    // One run of the interactor order: press, the hold, then the open at the execution.
+    const auto start = [&](Use& use, Conversation& talk, std::uint32_t lockEnds) {
+        talk.update(lockEnds);
+        use.press(0.0, candidate, true);
+        use.tick(0.49);
+        const bool noEarly = use.phase() == Use::Phase::holding;
+        const std::uint32_t executions = use.executions();
+        use.tick(0.5);
+        if (use.executions() != executions) {
+            talk.open();
+        }
+        const Use::Effects effects = use.take();
+        return noEarly && effects.requestChanged && effects.request.has_value() && talk.scene() && talk.locked();
+    };
+    {
+        Use use;
+        Conversation talk;
+        expect(start(use, talk, 3), "the request at the end of the hold (0.5 s) opens the conversation: the scene, the lock");
+        use.release(0.6);
+        use.reply(1, 0.6);
+        use.tick(10.0);
+        expect(use.phase() == Use::Phase::executed && !use.take().requestChanged && talk.scene(),
+               "the release and the reply 1 keep the request and the conversation (the block stays in each input entry)");
+        // E in the conversation: player_close, then the finish of the use (the order of the effects: 6705, then 2473).
+        talk.update(3);
+        talk.player_close();
+        use.finish();
+        const Conversation::Effects ends = talk.take();
+        const Use::Effects useEnds = use.take();
+        expect(ends.endCutscene && ends.cancelInteraction && useEnds.cancel && !useEnds.request, "the end by the player: 6705 and 2473");
+        expect(!talk.scene() && talk.locked(), "after the 6705: no scene (the camera is free), the input stays blocked");
+        talk.update(3);
+        expect(talk.locked() && !talk.take().endCutscene, "no answer: the lock stays, and no second 6705");
+        talk.update(4);
+        expect(!talk.locked() && talk.phase() == Conversation::Phase::closed, "the answer 6709 (the count 3 to 4) frees the input");
+    }
+    {
+        Use use;
+        Conversation talk;
+        expect(start(use, talk, 7), "a second conversation opens");
+        use.reply(2, 0.6);
+        talk.refused();
+        const Conversation::Effects ends = talk.take();
+        const Use::Effects useEnds = use.take();
+        expect(use.phase() == Use::Phase::idle && ends.endCutscene && !ends.cancelInteraction && !useEnds.cancel,
+               "the refusal (3743 result 2, the person of a client spawner): 6705, no 2473");
+        talk.update(8);
+        expect(!talk.locked(), "the answer 6709 frees the input after the refusal");
+    }
+    {
+        Use use;
+        Conversation talk;
+        expect(start(use, talk, 0), "a third conversation opens");
+        use.server_cancel();
+        talk.server_ended();
+        const Conversation::Effects ends = talk.take();
+        expect(use.phase() == Use::Phase::idle && ends.endCutscene && !ends.cancelInteraction && !use.take().cancel,
+               "the end by the server (3746; the session client sent 2473): 6705");
+        talk.player_close();
+        expect(!talk.take().endCutscene, "a close after the end sends nothing");
+        talk.update(1);
+        expect(!talk.locked(), "the answer 6709 frees the input");
+    }
+    // The commander of Oxboro (0407a_Commander, yaw 205 degrees): the preset NSL_FAC_MED_SNGL_LA, origin (0.5, 2.3, 0.5) in her frame;
+    // the live camera of the retail client at 8836.71 4243.79 137.04 (the height of the live camera has the ground of the run).
+    const swc::interact::ScenePoint camera =
+        swc::interact::scene_point({8836.1943359375, 4246.087890625, 136.48809814453125}, 205.0, {0.5, 2.3, 0.5});
+    expect(std::hypot(camera.x - 8836.71, camera.y - 4243.79) < 0.01 && std::abs(camera.z - 137.04) < 0.06,
+           "the camera of the commander: 0.00 m from the live retail camera in the horizontal plane");
+    const swc::interact::ScenePoint side = swc::interact::scene_point({0.0, 0.0, 0.0}, 90.0, {1.0, 0.0, 0.0});
+    const swc::interact::ScenePoint front = swc::interact::scene_point({0.0, 0.0, 0.0}, 90.0, {0.0, 1.0, 0.0});
+    expect(std::abs(side.y - 1.0) < 1e-9 && std::abs(front.x + 1.0) < 1e-9, "the frame at yaw 90: the side axis is +y, the forward axis is -x");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1161,6 +1262,7 @@ int main(int argc, char** argv) {
     test_client_writers();
     test_life_messages();
     test_interactions();
+    test_conversation();
     test_loot();
     test_carrier();
     std::printf("Result: %d checks, %d failed\n", g_checks, g_failures);

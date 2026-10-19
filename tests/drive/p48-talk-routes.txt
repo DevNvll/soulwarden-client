@@ -1,0 +1,6 @@
+# The routes of the Talk checks of stage P4.8 (tests/drive/p48-talk.txt): the creatures ignore the character, the hour 12:00, and
+# a short travel to the start place, 1.9 m north of the commander (0407a_Commander) (the lore pages near her are 3.0 m and 4.1 m from it: she
+# is the focus). After a travel the character and the camera look north. Times on the clock of the drive script.
+0.5 ignore on
+0.6 world-time 12:00
+0.8 travel 8836.2 4248.0 137.0

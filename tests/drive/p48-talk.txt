@@ -1,0 +1,19 @@
+# The Talk with the commander of Oxboro (0407a_Commander) (stage P4.8, docs/PERSONS.md "The Talk"), with the routes of
+# tests/drive/p48-talk-routes.txt (the start 1.9 m north of her). The camera turns to the south to her; E for 0.8 s (the hold of
+# OpenConversation is 0.5 s): the request, the conversation (the camera of the line, the hidden character, the lock); W in the
+# conversation does nothing; E ends it (6705, then 2473); the answer 6709 frees the input; W walks away. Times in seconds from the
+# possession.
+# SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8836.2:4248.0:137.0 SWC_STAGE=P4.8 \
+#   tools/creature-check.sh p48-talk 24 tests/drive/p48-talk-routes.txt tests/drive/p48-talk.txt
+3.0 turn 180
+4.0 turn 0
+5.0 tick
+6.0 interact 1
+6.8 interact 0
+9.0 move 0 1
+10.0 move 0 0
+13.0 interact 1
+13.1 interact 0
+15.0 move 0 1
+16.5 move 0 0
+18.0 tick

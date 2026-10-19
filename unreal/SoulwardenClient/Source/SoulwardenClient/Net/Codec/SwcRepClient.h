@@ -369,6 +369,8 @@ public:
     void set_interaction(const std::optional<InteractionRequest>& request);
     /** The client ends its committed interaction: the block goes away and message 2473 names its reference. */
     void cancel_interaction();
+    /** The end of a cutscene of the client (a conversation; stage P4.8): message 6705. The server answers 6709 (lockEnds). */
+    void end_cutscene();
     /** The take of all the items of the open bag (2939), and of one item instance with a quantity (2942): the server moves them into
      *  the bag of the character; the answer is the states of the slots 61, 76, 77, and 33 (protocol notes 4.42). */
     void take_all_items();

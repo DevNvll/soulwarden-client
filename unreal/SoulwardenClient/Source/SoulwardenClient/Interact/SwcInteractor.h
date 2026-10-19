@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Interact/SwcConversation.h"
 #include "Interact/SwcGatherUse.h"
 #include "Interact/SwcInteraction.h"
 #include "Net/SwcRepConnection.h"
@@ -62,6 +63,11 @@ struct FSwcInteractPrompt
  * (USwcObjectSubsystem::FindNearestObject) gives the nearest bound in range of a lore page, a chest, a node, a station; it is the focus
  * when it is nearer than the focus above. GatherOption (a node, a chest) is a timed use of the server: the request stays until the
  * Gathering state ends the work (swc::interact::GatherWatch), then the client ends the use (2473).
+ *
+ * The Talk (stage P4.8, docs/PERSONS.md "The Talk"): OpenConversation (action 63, committed, hold 0.5 s) of a person of the object
+ * layer (kind npc) keeps its request until the end of the conversation (swc::interact::Conversation). The conversation opens at the
+ * request; E in the conversation ends it (6705, then 2473); a refusal (3743 result 2) and the end by the server (3746) close it with
+ * 6705. The input of the character stays blocked until the answer 6709.
  */
 class FSwcInteractor
 {
@@ -102,6 +108,12 @@ public:
 	void CloseBag() { bPendingClose = true; }
 	/** The interest of the bag whose panel use runs (0: none). */
 	uint32 GetOpenBag() const { return OpenBagInterest; }
+	/** The conversation (stage P4.8), and the key of the object of its person (the placement UUID: USwcPersonSubsystem::FindByInteraction). */
+	const swc::interact::Conversation& GetConversation() const { return Talk; }
+	const FString& GetConversationKey() const { return TalkKey; }
+	/** The conversation screen of the UI ends the conversation (its Back key, Escape; its Next key at the last line): the next Update
+	 *  ends it as the key E does (6705, then 2473). */
+	void EndConversation() { bPendingTalkEnd = true; }
 
 private:
 	/** The Looted claims: the model of each bag hides HideMeshDelay after the claim. */
@@ -146,4 +158,11 @@ private:
 	bool bPendingClose = false;
 	uint32 OpenBagInterest = 0;
 	swc::interact::Option OpenOption;
+	/** The Talk: the focus is a person with OpenConversation (its object key), the use is a conversation, and the conversation. */
+	bool bFocusTalk = false;
+	FString FocusKey;
+	bool bUseTalk = false;
+	bool bPendingTalkEnd = false;
+	FString TalkKey;
+	swc::interact::Conversation Talk;
 };

@@ -17,7 +17,7 @@ nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     -I"${module}" -I"${vendor}/src" -I"${vendor}/tests" -I"${backend}/src" -I"${backend}/tests" \
     "${SWC_REPO}/tests/net/codec_tests.cpp" \
     "${module}/Net/Codec/SwcCarrier.cpp" "${module}/Net/Codec/SwcRepMessages.cpp" "${module}/Net/Codec/SwcRepClient.cpp" \
-    "${module}/Interact/SwcInteraction.cpp" \
+    "${module}/Interact/SwcInteraction.cpp" "${module}/Interact/SwcConversation.cpp" \
     "${vendor}/src/server/hub/wire.cpp" \
     "${backend}/src/server/carrier/carrier.cpp" "${backend}/src/server/rep/client_input.cpp" \
     "${backend}/src/server/rep/health_messages.cpp" "${backend}/src/server/rep/lock_messages.cpp" \

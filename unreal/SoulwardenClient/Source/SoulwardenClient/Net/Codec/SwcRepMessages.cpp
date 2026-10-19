@@ -269,6 +269,13 @@ Bytes respawn_request_body(std::uint64_t group, bool random, const std::string& 
     return w.data();
 }
 
+Bytes cutscene_ended_body(std::uint64_t group) {
+    Writer w;
+    w.u64(group + kPlayerCutsceneComponent);
+    w.u64(group);
+    return w.data();
+}
+
 Bytes interaction_cancel_body(std::uint64_t group, const InteractionReference& reference) {
     Writer w;
     w.u64(group + kInteractorComponent);

@@ -201,6 +201,12 @@ void FSwcRepConnection::CancelInteraction()
 	Calls.push_back([](swc::net::RepClient& Client) { Client.cancel_interaction(); });
 }
 
+void FSwcRepConnection::EndCutscene()
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([](swc::net::RepClient& Client) { Client.end_cutscene(); });
+}
+
 std::vector<swc::net::RepClient::OtherUpdate> FSwcRepConnection::TakeOtherUpdates()
 {
 	FScopeLock Guard(&Lock);

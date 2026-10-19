@@ -1,0 +1,6 @@
+# The routes of the person checks of stage P4.8 (tests/drive/p48-persons.txt, p48-talk.txt): the creatures ignore the character, the
+# hour 12:00, and a short travel to the start place (after a travel the character and the camera look north). Times on the clock of
+# the drive script.
+0.5 ignore on
+0.6 world-time 12:00
+0.8 travel 8833.2 4251.1 137.0

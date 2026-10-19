@@ -11,6 +11,7 @@
 #include "Character/SwcRangedView.h"
 #include "Character/SwcTestFloor.h"
 #include "Interact/SwcInteractor.h"
+#include "Persons/SwcPersonSubsystem.h"
 #include "SwcDebugLines.h"
 #include "World/SwcWorldStreaming.h"
 #include "Components/CapsuleComponent.h"
@@ -1198,6 +1199,54 @@ void USwcBackendSubsystem::UpdatePlayer()
 		Interactor->Update(Snapshot, *Connection, Motion.character, Snapshot.Own.dead || Snapshot.Own.loadingScreen || bTravelWait || Movement->IsSwimming(),
 			FPlatformTime::Seconds(), World->GetSubsystem<USwcCreatureSubsystem>());
 		Avatar->GetActions()->SetTimedUse(Interactor->IsTimedUse(), Interactor->GetUseKind(), Interactor->GetUseTool(), Interactor->GetUsePlace());
+		// The Talk (stage P4.8, docs/PERSONS.md): the input lock until the answer 6709, the camera of the line (a cut), and the
+		// HidePlayerAvatar mark of its preset.
+		const swc::interact::Conversation& Talk = Interactor->GetConversation();
+		Avatar->GetActions()->SetConversation(Talk.locked());
+		USwcPersonSubsystem* Persons = World->GetSubsystem<USwcPersonSubsystem>();
+		if (Persons != nullptr)
+		{
+			// The clips of the talk timelines of the person: the greet and the interact loop in the scene, the bye at its end.
+			Persons->SetTalking(Interactor->GetConversationKey(), Talk.scene());
+		}
+		const FSwcPerson* Person = Talk.scene() && Persons != nullptr ? Persons->FindByInteraction(Interactor->GetConversationKey()) : nullptr;
+		const FSwcPerson::FLine* Line = Person != nullptr && Person->Line.bValid ? &Person->Line : nullptr;
+		if (Talk.scene() && Line == nullptr && ConversationLine.IsEmpty())
+		{
+			ConversationLine = TEXT("?");
+			UE_LOG(LogSwcBackend, Warning, TEXT("interact: no line and no camera for the person of %s (persons.json)"), *Interactor->GetConversationKey());
+		}
+		if (ASwcCameraManager* CameraManager = Cast<ASwcCameraManager>(Controller->PlayerCameraManager))
+		{
+			CameraManager->SetSceneView(Line != nullptr, Line != nullptr ? Line->Camera : FVector::ZeroVector, Line != nullptr ? Line->LookAt : FVector::ZeroVector,
+				Line != nullptr ? Line->Fov : 0.0f);
+		}
+		// HidePlayerAvatar hides the character; a two-shot preset shows the dummy of the player in its place.
+		if (const bool bHide = Line != nullptr && Line->bHidePlayer && !Line->bDummy; Avatar->IsHidden() != bHide)
+		{
+			Avatar->SetActorHiddenInGame(bHide);
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the character is %s (HidePlayerAvatar of the camera of the line)"), bHide ? TEXT("hidden") : TEXT("shown again"));
+		}
+		const bool bDummy = Line != nullptr && Line->bDummy;
+		if (bDummy)
+		{
+			Avatar->SetDummy(&Line->DummyFeet, Line->DummyYaw, Line->bDummyArmed);
+		}
+		if (bDummy != bDummyShown)
+		{
+			bDummyShown = bDummy;
+			if (!bDummy)
+			{
+				Avatar->SetDummy(nullptr);
+			}
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: %s"), bDummy ? *FString::Printf(TEXT("the dummy of the player at %.2f %.2f %.2f m, yaw %.1f"), Line->DummyFeet.X / 100.0,
+				-Line->DummyFeet.Y / 100.0, Line->DummyFeet.Z / 100.0, Line->DummyYaw) : TEXT("the body goes back to the character"));
+		}
+		if (Line != nullptr && ConversationLine.IsEmpty())
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the conversation with %s (%s)"), *Person->Name, *Person->NpcId);
+		}
+		ConversationLine = Line != nullptr ? FString::Printf(TEXT("%s: %s"), *Line->Speaker, *Line->Text) : Talk.scene() ? ConversationLine : FString();
 	}
 	// The server copy of the stamina (the Stamina state): the client keeps its prediction (Driver::set_server_stamina).
 	if (AttackDriver && Snapshot.Own.hasStamina && Snapshot.Own.staminaRevision != StaminaRevision)
@@ -1271,6 +1320,10 @@ void USwcBackendSubsystem::UpdatePlayer()
 			if (!Prompt.IsEmpty())
 			{
 				Life += TEXT(", ") + Prompt;
+			}
+			if (!ConversationLine.IsEmpty())
+			{
+				Life += TEXT("\n") + ConversationLine;
 			}
 		}
 		GEngine->AddOnScreenDebugMessage(static_cast<uint64>(0x5357434C), 1.0f, Own.dead ? FColor::Red : FColor::Green, Life);
@@ -1433,6 +1486,14 @@ void USwcBackendSubsystem::OpenLootBag(uint32 Interest)
 	if (Interactor.IsValid())
 	{
 		Interactor->OpenBag(Interest);
+	}
+}
+
+void USwcBackendSubsystem::EndConversation()
+{
+	if (Interactor.IsValid())
+	{
+		Interactor->EndConversation();
 	}
 }
 

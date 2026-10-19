@@ -1,0 +1,6 @@
+# The routes of the Talk check with a two-shot preset (stage P4.8, tests/drive/p48-dummy.txt): the creatures ignore the character,
+# the hour 12:00, and a short travel to the start place, 2 m in front of 1225_Giacomo_EF (8890.44 4143.08 135.13, yaw -140; the
+# preset NSR_MNP_COW_2SHT_OTS_Primary with the dummy of the player). Times on the clock of the drive script.
+0.5 ignore on
+0.6 world-time 12:00
+0.8 travel 8891.73 4141.55 136.0

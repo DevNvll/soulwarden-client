@@ -1195,6 +1195,13 @@ void RepClient::cancel_interaction() {
     }
 }
 
+void RepClient::end_cutscene() {
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kCutsceneEnded, cutscene_ended_body(m_own.group));
+        log(Event::Level::info, "the end of the cutscene (6705): the input stays blocked until 6709");
+    }
+}
+
 std::uint64_t RepClient::server_time_ns(Clock::time_point now) const {
     return m_hasServerClock ? static_cast<std::uint64_t>(steady_ns(now) + m_serverOffsetNs) : 0;
 }

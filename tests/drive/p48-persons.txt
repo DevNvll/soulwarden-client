@@ -1,0 +1,9 @@
+# A look at the persons of Oxboro (stage P4.8, docs/PERSONS.md), with the routes of tests/drive/p48-routes.txt (the creatures
+# ignore the character, the hour 12:00, a travel to the start: the camera looks north): the start 5 m north and 3 m west of the commander (0407a_Commander) (8836.2 4246.1 136.5, a direct person with the
+# interaction data); the camera turns to the south to her. Times in seconds from the possession.
+# SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=8833.2:4251.1:137.0 SWC_STAGE=P4.8 \
+#   tools/creature-check.sh p48-persons 16 tests/drive/p48-routes.txt tests/drive/p48-persons.txt
+3.0 turn 180
+4.0 turn 0
+5.0 tick
+12.0 tick
