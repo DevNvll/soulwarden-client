@@ -5,7 +5,8 @@
 #                         [--seconds N] [--label TEXT] [-- CLIENT ARGUMENTS]
 #   (default)   the client with no window and no sound (-nullrhi -nosound) in the foreground; it stops after
 #               --seconds (default 120). Logs: SWC_WORK/logs/dev-run/LABEL-client.log, SWC_DEV_DATA/logs/backend.log.
-#   --window    the client window on the own agent desktop "soulwarden-client-dev" or SWC_AGENT_DESKTOP (gamescope, no sound). The script
+#   --window    the client window on the own agent desktop "soulwarden-client-dev" or SWC_AGENT_DESKTOP (gamescope, no sound; a window
+#               guard keeps it there: tools/lib/window_guard.py). The script
 #               returns when the window shows; tools/dev-stop.sh stops the run.
 #   --enter     after the character list the client enters the world with the first character (-SwcPlay=first).
 #   --enter NAME            the same with the character NAME.
@@ -119,6 +120,13 @@ fi
 if ! omarchy-agent-desktop status "${desktop_id}" >/dev/null 2>&1; then
     omarchy-agent-desktop create "Soulwarden client" --id "${desktop_id}" --mode "${SWC_DESKTOP_MODE:-1280x720@60}" >/dev/null
 fi
+# The world lock first (tools/lib/world-lock.sh): a session that waits for a level build or an import shows its window only
+# after it, too late for the window wait of the agent desktop; such a window went to the workspace of the user (2026-10-19).
+source "${SWC_REPO}/tools/lib/world-lock.sh"
+if ! world_read true; then
+    echo "dev-run: the world lock was not free in ${SWC_WORLD_RUN_WAIT:-900} s: no run (status 3)" >&2
+    exit 3
+fi
 # The agent desktop starts the command with the environment of its compositor: the values go by name. gamescope runs
 # outside the namespace (in a user namespace it refuses /tmp/.X11-unix, which the real root owns); the client in the
 # namespace reaches its X server through the socket file.
@@ -129,3 +137,8 @@ omarchy-agent-desktop run --wait "${SWC_WINDOW_WAIT:-180}" --json "${desktop_id}
     "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" "${client_arguments[@]}" -windowed -ResX="${game_size%x*}" -ResY="${game_size#*x}" "$@" \
     >"${logs}/${label}-launch.json" 2>&1 || true
 cat "${logs}/${label}-launch.json"
+# The window guard for the life of the run (tools/lib/window_guard.py): a window of the launch that is not on the agent desktop is
+# moved there (omarchy-agent-desktop adopt), else the run stops. Its log: LABEL-window-guard.log.
+rm -f "${logs}/${label}-window-guard.log"
+setsid nohup python3 -B "${SWC_REPO}/tools/lib/window_guard.py" "${desktop_id}" "${logs}/${label}-launch.json" \
+    "${logs}/${label}-window-guard.log" >/dev/null 2>&1 < /dev/null &

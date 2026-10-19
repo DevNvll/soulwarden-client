@@ -70,6 +70,12 @@ files at the same time; a shared document (this file, the roadmap) changes only 
 - Parallel tracks: each track uses its own development data folder (`SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-TRACK`)
   and its own agent desktop (`SWC_AGENT_DESKTOP=soulwarden-client-TRACK`), so that the runs of two tracks do not wait
   for one lock. Each run has its own network namespace: the ports do not collide.
+- A window run never shows on a workspace of the user. The trap (2026-10-19): the agent desktop places a window only in the
+  wait of `omarchy-agent-desktop run --wait` (at most 300 s); a session that waits first for the world lock shows its
+  gamescope window too late, and that window goes to the focused workspace of the user. `tools/dev-run.sh --window` waits
+  for the world lock before the launch, and its window guard (`tools/lib/window_guard.py`, log `LABEL-window-guard.log`)
+  reads `hyprctl clients -j` (read only) for the life of the run: a window of the launch that is not on `__agent:DESKTOP`
+  is moved with `omarchy-agent-desktop adopt`, else the run stops. Start window runs only with `tools/dev-run.sh`.
 - A process of the Unreal client never has `SOULWARDEN_DEV_RUN=1` in its environment: `tools/dev-stop.sh` of Soulwarden
   stops such processes, and its `--check` fails while one is alive.
 - Retail reference runs (decision of the user, 2026-10-18): an agent of this project may start a development run of
