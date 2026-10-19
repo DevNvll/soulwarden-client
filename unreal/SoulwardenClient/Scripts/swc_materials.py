@@ -21,11 +21,13 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "3", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "3",
+PARENT_VERSIONS = {"M_SwcFoliage": "3", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "5",
                    "M_SwcGlass": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
-# M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals; M_SwcFoliage 2: the wind (M6) and
+# M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals;
+# 4: the entity color and opacity (DecalColor), the angle fade of the projected decals (static switch Projected);
+# 5: the view bias in the vertex shader without CameraVectorWS (3 and 4 did not compile); M_SwcFoliage 2: the wind (M6) and
 # the vertex alpha occlusion; 3: the subsurface color x the albedo, as the back light of the source)
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
@@ -538,11 +540,22 @@ def surface_parent(content, state, masked):
 # decal opacity map x DecalAlphaMult, DecalFalloff)). Unreal has one opacity for the color, the normal, and the roughness
 # of a DBuffer decal: DecalDiffuseOpacity (the color alone) is a limit.
 DECAL_ALPHA_HLSL = "return saturate(pow(max(A * O * Mult, 0.0), Falloff));"
+# The angle fade of a projected decal (deferredshading.cfxb getDecalAttenuation): smoothstep(0.55, 1, dot(the normal of the
+# receiving surface, the normal of the decal)); 0 for a surface more than about 57 degrees from it (the walls under a
+# ground decal). The DBuffer has no normal yet: the face normal from the derivatives of the world position. The local
+# X axis of our decals is the source decal normal (decals.decal_transforms: X = front); the absolute value: the fade
+# does not depend on the sign of the axis (a limit: a face turned away from the decal, under an overhang, is not
+# rejected). A = the alpha before the fade, P = the world position, X = the decal X axis in world space.
+DECAL_ANGLE_HLSL = """float3 n = normalize(cross(ddy(P), ddx(P)));
+float d = abs(dot(n, normalize(X)));
+return A * smoothstep(0.55, 1.0, clamp(d, 0.55, 1.0));"""
 # The view bias of a mesh decal (the road ribbons, the mesh decal companions): the vertex moves toward the camera along
 # its view ray (no shift on the screen, only the depth), 0 within 20 m (a foot on the road is not painted), then 4 mm for
 # each meter, at most 1 m: the Landscape LOD can rise above the ribbon far away. The source has its own decal depth
 # remedy (PerFrame_DecalZFightingRemedy). A projected decal does not use a world position offset.
-DECAL_BIAS_HLSL = "return clamp((D - 2000.0) * 0.004, 0.0, 100.0);"
+DECAL_BIAS_HLSL = """float3 d = C - P;
+float l = length(d);
+return d / max(l, 1.0) * clamp((l - 2000.0) * 0.004, 0.0, 100.0);"""
 
 
 def decal_parent(content, state):
@@ -576,7 +589,11 @@ def decal_parent(content, state):
     albedo = node(material, unreal.MaterialExpressionMultiply, -600, -300)
     editing.connect_material_expressions(color, "RGB", albedo, "A")
     editing.connect_material_expressions(diffuse, "RGB", albedo, "B")
-    editing.connect_material_property(albedo, "", MP.MP_BASE_COLOR)
+    # The color and the opacity of the decal entity (DecalConfiguration Color, Opacity: g_DecalDiffuse of the source;
+    # USwcSurfaceLayer sets them with SetDecalColor; white for the mesh decals).
+    entity = node(material, unreal.MaterialExpressionDecalColor, -900, -550)
+    tinted = multiply(material, (albedo, ""), (entity, "RGB"), -450, -350)
+    editing.connect_material_property(tinted, "", MP.MP_BASE_COLOR)
     normal = sample("Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"), 200)
     editing.connect_material_property(normal, "RGB", MP.MP_NORMAL)
     gloss = sample("Gloss", st.SAMPLERTYPE_ALPHA, white, 500)
@@ -595,7 +612,22 @@ def decal_parent(content, state):
     # off for the projected decals and the roads).
     vertex = node(material, unreal.MaterialExpressionVertexColor, -900, 1450)
     with_vertex = multiply(material, (texture_alpha, ""), (vertex, "A"), -600, 1100)
-    alpha = switch(material, "UseVertexAlpha", (with_vertex, ""), (texture_alpha, ""), -500, 950)
+    vertex_alpha = switch(material, "UseVertexAlpha", (with_vertex, ""), (texture_alpha, ""), -500, 950)
+    entity_alpha = multiply(material, (vertex_alpha, ""), (entity, "A"), -420, 1000)
+    # A projected decal (static switch Projected; the dp_ instances): the angle fade of the source deferred decal
+    # (DECAL_ANGLE_HLSL). The road ribbons and the mesh decals have no projection axis: off.
+    position_ws = node(material, unreal.MaterialExpressionWorldPosition, -1300, 1500)
+    axis = node(material, unreal.MaterialExpressionConstant3Vector, -1500, 1700)
+    axis.set_editor_property("constant", unreal.LinearColor(1.0, 0.0, 0.0, 1.0))
+    axis_ws = node(material, unreal.MaterialExpressionTransform, -1300, 1700)
+    axis_ws.set_editor_property("transform_source_type", unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_LOCAL)
+    axis_ws.set_editor_property("transform_type", unreal.MaterialVectorCoordTransform.TRANSFORM_WORLD)
+    editing.connect_material_expressions(axis, "", axis_ws, "")
+    angle = custom(material, DECAL_ANGLE_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("A", "P", "X"), -1000, 1500)
+    editing.connect_material_expressions(entity_alpha, "", angle, "A")
+    editing.connect_material_expressions(position_ws, "", angle, "P")
+    editing.connect_material_expressions(axis_ws, "", angle, "X")
+    alpha = switch(material, "Projected", (angle, ""), (entity_alpha, ""), -800, 1100)
     mult = scalar(material, "DecalAlphaMult", 1.0, -900, 1150)
     falloff = scalar(material, "DecalFalloff", 1.0, -900, 1300)
     opacity = custom(material, DECAL_ALPHA_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1,
@@ -605,15 +637,12 @@ def decal_parent(content, state):
     editing.connect_material_expressions(mult, "", opacity, "Mult")
     editing.connect_material_expressions(falloff, "", opacity, "Falloff")
     editing.connect_material_property(opacity, "", MP.MP_OPACITY)
+    # The view bias in the vertex shader: CameraVectorWS is a pixel input (version 3 and 4 did not compile).
     camera = node(material, unreal.MaterialExpressionCameraPositionWS, -900, 1700)
     position = node(material, unreal.MaterialExpressionWorldPosition, -900, 1800)
-    distance = node(material, unreal.MaterialExpressionDistance, -700, 1750)
-    editing.connect_material_expressions(camera, "", distance, "A")
-    editing.connect_material_expressions(position, "", distance, "B")
-    bias = custom(material, DECAL_BIAS_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("D",), -500, 1750)
-    editing.connect_material_expressions(distance, "", bias, "D")
-    toward = node(material, unreal.MaterialExpressionCameraVectorWS, -500, 1900)
-    offset = multiply(material, (toward, ""), (bias, ""), -300, 1800)
+    offset = custom(material, DECAL_BIAS_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT3, ("C", "P"), -500, 1750)
+    editing.connect_material_expressions(camera, "", offset, "C")
+    editing.connect_material_expressions(position, "", offset, "P")
     editing.connect_material_property(offset, "", MP.MP_WORLD_POSITION_OFFSET)
     material.set_editor_property("material_domain", unreal.MaterialDomain.MD_DEFERRED_DECAL)
     material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)

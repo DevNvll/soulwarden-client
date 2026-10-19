@@ -15,7 +15,7 @@ struct FStreamableHandle;
  * region (converter/swc_convert/decals.py); tools/import-surface-layer.sh imports the road meshes and the decal
  * materials into /SwcGameContent. This subsystem streams them near the view: the road meshes of the cells within
  * RoadRangeCm, the decals within their view distance (Max View Distance x View Distance Multiplier of the source).
- * Opt-in until the check of stage S1 passes: -SwcSurfaceLayer or SWC_SURFACE_LAYER=1 (-SwcNoSurfaceLayer turns it off).
+ * On by default (the M5 cost check); -SwcNoSurfaceLayer or SWC_SURFACE_LAYER=0 turns it off; swc.SurfaceLayer 0 hides it.
  */
 UCLASS()
 class SOULWARDENCLIENT_API USwcSurfaceLayer : public UTickableWorldSubsystem
@@ -48,6 +48,7 @@ private:
 		FVector Size = FVector::OneVector;        // half sizes, cm (X: the projection axis)
 		int32 SortPriority = 0;
 		double RangeCm = 0.0;
+		FLinearColor Color = FLinearColor::White;   // the entity Color, its alpha x the entity Opacity (M_SwcDecal DecalColor)
 		TWeakObjectPtr<UDecalComponent> Component;
 	};
 

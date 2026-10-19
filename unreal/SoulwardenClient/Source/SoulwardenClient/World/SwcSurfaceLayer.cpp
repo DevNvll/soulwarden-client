@@ -10,6 +10,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/PlayerController.h"
+#include "HAL/IConsoleManager.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformTime.h"
 #include "Materials/MaterialInterface.h"
@@ -33,6 +34,11 @@ constexpr double MaxDecalRangeCm = 30000.0;
 /** A region side (engine 2,048 m) in Unreal cm; region r_+X_+Y covers Unreal X [X, X + 1) and Y (-(Y + 1), -Y] sides. */
 constexpr double RegionCm = 204800.0;
 constexpr double UpdateSeconds = 0.5;
+
+/** 1: the layer shows its road meshes and decals; 0: it removes them (a cost check in one run: tools/match-view.sh
+ * --variant VIEW@off=swc.SurfaceLayer 0). Only when the layer is on (-SwcSurfaceLayer). */
+TAutoConsoleVariable<int32> CVarSurfaceLayer(TEXT("swc.SurfaceLayer"), 1,
+	TEXT("The road and decal layer of the materials track: 1 shows it, 0 removes the road meshes and the decals."));
 
 FString ContentFolder()
 {
@@ -73,10 +79,10 @@ TStatId USwcSurfaceLayer::GetStatId() const
 void USwcSurfaceLayer::OnWorldBeginPlay(UWorld& World)
 {
 	Super::OnWorldBeginPlay(World);
-	// Opt-in until the check of stage S1 passes: -SwcSurfaceLayer (or SWC_SURFACE_LAYER=1); -SwcNoSurfaceLayer turns it off.
-	bEnabled = (FParse::Param(FCommandLine::Get(), TEXT("SwcSurfaceLayer"))
-				|| FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_SURFACE_LAYER")) == TEXT("1"))
-		&& !FParse::Param(FCommandLine::Get(), TEXT("SwcNoSurfaceLayer"));
+	// On by default (the M5 cost check: at most about 0.3 ms of GPU time at Oxboro, docs/MATERIALS.md); -SwcNoSurfaceLayer
+	// or SWC_SURFACE_LAYER=0 turns it off (-SwcSurfaceLayer stays accepted). swc.SurfaceLayer 0 hides it in a run.
+	bEnabled = !FParse::Param(FCommandLine::Get(), TEXT("SwcNoSurfaceLayer"))
+		&& FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_SURFACE_LAYER")) != TEXT("0");
 	Folder = ContentFolder();
 	UE_LOG(LogSwcSurface, Log, TEXT("surface: layer %s (%s)"), bEnabled ? TEXT("on") : TEXT("off"), *Folder);
 }
@@ -146,6 +152,19 @@ bool USwcSurfaceLayer::ReadRegion(const FIntPoint& Key, FRegion& Region) const
 		Entry.Transform = FTransform(Quat, ReadVector(Decal, TEXT("location")));
 		Entry.Size = ReadVector(Decal, TEXT("size"));
 		Entry.SortPriority = static_cast<int32>(Decal->GetNumberField(TEXT("sort priority")));
+		// The Color and the Opacity of the DecalConfiguration (the source multiplies the decal alpha by them:
+		// deferredshading.cfxb DecalPassPS, g_DecalDiffuse).
+		const TArray<TSharedPtr<FJsonValue>>* Color = nullptr;
+		if (Decal->TryGetArrayField(TEXT("color"), Color) && Color->Num() >= 4)
+		{
+			Entry.Color = FLinearColor((*Color)[0]->AsNumber(), (*Color)[1]->AsNumber(), (*Color)[2]->AsNumber(),
+				(*Color)[3]->AsNumber());
+		}
+		double Opacity = 1.0;
+		if (Decal->TryGetNumberField(TEXT("opacity"), Opacity))
+		{
+			Entry.Color.A *= static_cast<float>(Opacity);
+		}
 		double FadeM = 0.0;
 		Entry.RangeCm = Decal->TryGetNumberField(TEXT("fade m"), FadeM) && FadeM > 0.0
 			? FMath::Min(FadeM * 100.0, MaxDecalRangeCm) : DefaultDecalRangeCm;
@@ -190,12 +209,13 @@ void USwcSurfaceLayer::Update(const FVector& View)
 	}
 	RoadsShown = 0;
 	DecalsShown = 0;
+	const bool bShow = CVarSurfaceLayer.GetValueOnGameThread() != 0;
 	for (TPair<FIntPoint, FRegion>& Pair : Regions)
 	{
 		FRegion& Region = Pair.Value;
 		for (FRoad& Road : Region.Roads)
 		{
-			const bool bNear = FVector::Dist2D(Road.Center, View) < RoadRangeCm;
+			const bool bNear = bShow && FVector::Dist2D(Road.Center, View) < RoadRangeCm;
 			UStaticMeshComponent* Component = Road.Component.Get();
 			if (!bNear)
 			{
@@ -235,7 +255,7 @@ void USwcSurfaceLayer::Update(const FVector& View)
 		}
 		for (FDecal& Decal : Region.Decals)
 		{
-			const bool bNear = FVector::Dist(Decal.Transform.GetLocation(), View) < Decal.RangeCm;
+			const bool bNear = bShow && FVector::Dist(Decal.Transform.GetLocation(), View) < Decal.RangeCm;
 			UDecalComponent* Component = Decal.Component.Get();
 			if (!bNear)
 			{
@@ -260,6 +280,7 @@ void USwcSurfaceLayer::Update(const FVector& View)
 			New->SetDecalMaterial(Material);
 			New->DecalSize = Decal.Size;
 			New->SortOrder = Decal.SortPriority;
+			New->SetDecalColor(Decal.Color);
 			New->SetWorldTransform(Decal.Transform);
 			New->RegisterComponent();
 			Decal.Component = New;

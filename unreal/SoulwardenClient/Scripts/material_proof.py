@@ -103,6 +103,10 @@ parents["surface masked"] = sm.surface_parent(content, state, masked=True)
 parents["glass"] = sm.glass_parent(content, state)
 parents["decal"] = sm.decal_parent(content, state)   # the roads, the projected decals, the mesh decals
 sm.log("parents ready")   # tools/material-proof.sh checks the compile warnings after this line
+# Each parent compiles again after the line: a failure of its final compile is in the checked part of the log (a parent
+# that the functions above made compiles while its graph is built; those lines come before the line).
+for parent in parents.values():
+    sm.editing.recompile_material(parent)
 with open(state_path + ".tmp", "w") as handle:
     json.dump(state, handle, indent=0, sort_keys=True)
 os.replace(state_path + ".tmp", state_path)

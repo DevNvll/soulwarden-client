@@ -34,8 +34,8 @@ ROAD_TYPE = "3700da70407d47a6b7884654edda32a1"
 DECAL_TYPE = "1c2ceaa8786f46848202ca7d940d627b"
 FLOAT_TYPE = "ea2c3e90afbe44d4a90dfaaf79baf93d"
 COMPONENTS, WORLD_TM, NAME, ID = F("Components"), F("m_worldTM"), F("Name"), F("Id")
-VERSION = 3   # the rule of the road and decal records (2: road U along the road, V across; decals of type 2 project down;
-              # 3: the ribbon vertices at most STEP_M apart, along and across)
+VERSION = 4   # the rule of the road and decal records (2: road U along the road, V across; decals of type 2 project down;
+              # 3: the ribbon vertices at most STEP_M apart, along and across; 4: the projected decals use dp_ instances)
 
 
 def out_dir(name: str):
@@ -477,7 +477,9 @@ def decal_transforms(decals: list[dict], materials: dict) -> list[dict]:
         box[:3, 3] = m[:3, :3] @ np.asarray(d["offset"] or [0.0, 0.0, 0.0]) + m[:3, 3]
         t = space.unreal_transform(box)
         distance = d["max view distance"]
-        out.append({"entity": d["entity"], "material": key, "location": t["location"], "rotation": t["rotation"],
+        # A projected decal has its own instance dp_ (the same spec, the static switch Projected: the angle fade of the
+        # source); the road ribbons keep d_.
+        out.append({"entity": d["entity"], "material": "dp_" + key[2:], "location": t["location"], "rotation": t["rotation"],
                     "size": [abs(v) * 100.0 for v in t["scale"]], "sort priority": int(d["sort priority"] or 0),
                     "fade m": float(distance) * float(d["view distance multiplier"] or 1.0) if distance else None,
                     "opacity": d["opacity"], "color": d["color"], "projection": d["projection"],
@@ -530,6 +532,9 @@ def specs() -> dict:
     for key, m in mesh_materials.items():
         record = mr.source_record(m["mtl"], m["index"], mr.sub_materials(m["mtl"])[m["index"]])
         rows.append((key, m, m["index"], mr.render_rules(record), True))
+    projected = set()
+    for path in folder.glob("r_*/layer.json"):
+        projected |= {d["material"] for d in json.loads(path.read_text()).get("decals", [])}
     for key, m, index, rules, on_mesh in sorted(rows, key=lambda row: row[0]):
         maps = rules["textures"]
         record = mr.source_record(m["mtl"], index, mr.sub_materials(m["mtl"])[index])
@@ -557,6 +562,8 @@ def specs() -> dict:
         spec["scalars"]["DecalAlphaMult"] = float(params.get("DecalAlphaMult", 1.0))
         spec["scalars"]["DecalFalloff"] = float(params.get("DecalFalloff", 1.0))
         out[key] = spec
+        if "dp_" + key[2:] in projected:   # the projected decals of the layer: the same spec, the angle fade on
+            out["dp_" + key[2:]] = {**spec, "switches": {**spec.get("switches", {}), "Projected": True}}
     from . import manifest
     for key, record in textures.items():
         record["unreal"] = manifest.unreal_folder("texture", key)

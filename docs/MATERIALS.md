@@ -346,6 +346,23 @@ tools/import-surface-layer.sh NAME... --max-seconds 300 --wait 7200   # the deca
 - `M_SwcDecal` version 3 moves the vertices of a mesh decal toward the camera along their view rays (no shift on the
   screen): 0 within 20 m, then 4 mm for each meter, at most 1 m (the Landscape LOD far away). A projected decal does
   not use it.
+- `M_SwcDecal` version 4 and 5 (the matched view noon-wall-grass with the layer on: the moss decals at the foot of the town
+  wall made dark gray rectangles on the wall):
+  - The angle fade of the source deferred decal (deferredshading.cfxb `getDecalAttenuation`): the alpha x
+    smoothstep(0.55, 1, dot(the normal of the receiving surface, the decal normal)), for the projected decals only
+    (static switch `Projected`: the `dp_` instances of `decals.specs`; the road ribbons and the mesh decals keep `d_`).
+    The DBuffer has no normal yet: the face normal from the derivatives of the world position. The absolute value of
+    the dot: the X axis of our decals is the source decal normal (`X = front`), the reverse of the Unreal convention
+    (the projection along +X); the box is symmetric, so the projection does not depend on it. Open: the depth fade
+    of the source along the box, and a check of the normal maps of the projected decals with a known wall and floor
+    decal (the sign of the axis).
+  - The Color and the Opacity of the decal entity (`g_DecalDiffuse` of the source; the moss of the wall: 0.25):
+    `USwcSurfaceLayer` sets them with `SetDecalColor`, the material reads `DecalColor` (RGB x the base color, A x the
+    alpha). Before, the decals had the opacity 1.
+  - Version 5: the view bias of the mesh decals in the vertex shader from the camera position (`CameraVectorWS` is a
+    pixel input: versions 3 and 4 did not compile, and Unreal drew the default material on all decals). The render
+    check now compiles each parent again after its "parents ready" line, so that such a fault shows.
+  - The check (evidence/WF3/m5-cost-quiet/wall-decals-v3-v5.png): the dark rectangles on the wall are gone.
 - The material of a dirt road (for example `jav_mnt_road_dirt_traffic_md_decal_a.mtl`) follows the source: the diffuse
   map x XML Diffuse (0.491: no `%TEMP_TERRAIN`), the alpha = the diffuse alpha (and the vertex alpha). Over the pale
   ground of the client it is a dark strip with soft holes; over the road dirt layer of the terrain (`roads_splat`,
@@ -358,7 +375,15 @@ tools/import-surface-layer.sh NAME... --max-seconds 300 --wait 7200   # the deca
   channels: DecalDiffuseOpacity is a limit.
 - The client: `USwcSurfaceLayer` (a world subsystem) reads `layer.json` of the regions near the view, places the road
   meshes within 1 km and the decals within their view distance (Max View Distance x View Distance Multiplier, at
-  most 300 m). Opt-in until the cost check at a second dense place: `-SwcSurfaceLayer` or `SWC_SURFACE_LAYER=1`.
+  most 300 m). On by default since the M5 cost check; `-SwcNoSurfaceLayer` or `SWC_SURFACE_LAYER=0` turns it off,
+  the console variable `swc.SurfaceLayer 0` hides it in a run.
+- The M5 cost check (2026-10-19, two quiet GPU windows: no other client, no import; `-SwcFrameStats=5`, the median GPU
+  p50 of the 5 s windows while a view is in place; the layer on, then off with `swc.SurfaceLayer 0`, then on again in
+  one run). GPU p50 ms, on / off: noon-road-low 7.82 / 7.46, 7.89 / 7.59, 8.50 and 8.35 / 8.13; noon-wall-grass
+  8.38 / 8.12, 8.34 / 8.14, 9.72 and 8.63 / 8.81; river-forest-noon 9.65 / 10.10, 11.60 and 10.55 / 11.01;
+  river-highlands-noon 10.19 / 9.97, 11.02 and 10.08 / 10.47. The GPU time falls by up to 1 ms within a run (the
+  first views are measured first): the cost of the layer is at most about 0.3 ms at Oxboro (597 k road triangles
+  within 1 km, about 2,400 decals within 300 m) and within the noise at the river places.
 - Open: the dirt road maps have holes in their alpha; the terrain road layer (T1 of the world track) fills them.
 
 ## Cost checks
