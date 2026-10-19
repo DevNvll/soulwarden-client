@@ -609,10 +609,11 @@ to the data layer only when it changes.
   the game too (a held key or attack ends). The player controller is not changed: the pre-processor holds its input.
 - Harness input (`-SwcUiDrive=FILE`, `tests/drive/ui-*.txt`): a script of UI input events in the process (no input
   tool of the host): key, keydown, keyup, point ELEMENT (an element of a shown canvas by its name), waitfor ELEMENT
-  (the clock stays until it shows), move, click, press, release, drag, wheel, log, end (releases each held key and
-  button). An element name `text:LABEL` is a shown element with that text (after the localization; "_" for a space);
+  (the clock stays until it shows), move, click, press, release, drag, wheel, log, draw NAME (the draw list of the frame:
+  `REPORTS/draw-NAME.json`), end (releases each held key and button). An element name `text:LABEL` is a shown element with that text (after the localization; "_" for a space);
   `item:ITEMID` is a shown item cell of the item (the canvas of the highest draw order first); `loot:N` is the item cell N of
-  the panel of an open bag; `lootbag` is shown while a loot bag is near the character (a waitfor mark). A key goes through Slate as a key of the keyboard (`FSlateApplication::ProcessKeyDownEvent`): the UI first,
+  the panel of an open bag; `lootbag` is shown while a loot bag is near the character (a waitfor mark); `world` is shown while no
+  loading screen shows (stage P2.3: the HUD elements exist under the loading screen). A key goes through Slate as a key of the keyboard (`FSlateApplication::ProcessKeyDownEvent`): the UI first,
   then the game viewport and the player controller when the UI does not keep it. The pointer events go to the UI
   entry of the pre-processor. The clock starts at the spawn of the player, as the drive of the player controller
   (`tools/creature-check.sh` runs the development routes on the same clock), or at a failed login path. The widget

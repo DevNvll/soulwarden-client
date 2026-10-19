@@ -1,0 +1,3 @@
+# The development routes of the options check of stage P2.3 (tools/creature-check.sh): none needed; one heal keeps the character
+# full (the check is the UI drive tests/drive/p23-options.txt).
+30 heal

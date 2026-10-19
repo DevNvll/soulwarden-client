@@ -1021,6 +1021,14 @@ void USwcUiSubsystem::TickDrive()
 		{
 			UE_LOG(LogSwcUi, Log, TEXT("ui drive: mark: %s"), Step.Args.Num() > 0 ? *Step.Args[0] : TEXT(""));
 		}
+		else if (Step.Command == TEXT("draw") && Step.Args.Num() > 0)
+		{
+			// The draw list of this frame (REPORTS/draw-NAME.json; a software picture: swc_convert.uipreview).
+			const FString File = FPaths::Combine(ReportDir, FString::Printf(TEXT("draw-%s.json"), *Step.Args[0]));
+			FFileHelper::SaveStringToFile(FString(UTF8_TO_TCHAR(swc::ui::draw_list_json(DrawList).c_str())), *File,
+				FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+			UE_LOG(LogSwcUi, Log, TEXT("ui drive: the draw list of the frame: %s"), *File);
+		}
 		else if (Step.Command == TEXT("end"))
 		{
 			ReleaseDriveInput();

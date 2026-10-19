@@ -345,6 +345,14 @@ function Swc.HostPointOf(name, fx, fy)
     end
     return ""
   end
+  -- "world": the world shows (no loading screen; a waitfor mark of the drives).
+  if name == "world" then
+    if Swc.loading and Swc.loading.shown then
+      return ""
+    end
+    local w, h = swcui.viewport()
+    return string.format("%.1f %.1f", (w or 1920) / 2, (h or 1080) / 2)
+  end
   local canvases = {}
   for _, screen in pairs(Swc.screens) do
     if swcui.canvas_get(screen.canvas, "enabled") then

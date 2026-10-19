@@ -1,0 +1,63 @@
+# Stage P2.3: the options screen and the keys for play (the exit check; docs/UI.md "The options screen and the keys"). The UI
+# drive sends its keys through Slate (the UI first, then the game) and clicks the original elements. Escape opens the escape
+# menu, the button Settings opens the options screen; each category of the settings tab shows for 3 s; the tab of the keyboard
+# and mouse bindings; a click on the jump row and the key Insert bind the jump to Insert (a key that no action of the page has);
+# Escape goes back to the world (from the options screen the escape rule closes the screen and the escape menu); Insert jumps
+# (the player controller maps the key again), Space does not; the reset of the key page (Restore Defaults, Yes) sets the
+# defaults again: Space jumps.
+# Times in seconds from the spawn of the player.
+# export SWC_STAGE=P2.3 SWC_DEV_CHARACTER=Devwarden
+# tools/creature-check.sh p23-options 150 tests/drive/p23-options-routes.txt -- -SwcUiDrive=$PWD/tests/drive/p23-options.txt
+1 waitfor CompassLines 60
+2 waitfor world 180
+6 log Escape opens the escape menu
+6 key escape
+9 point text:Settings
+9 click
+12 draw first
+13 point text:Game
+13 click
+16 point text:Keyboard_&_Mouse
+16 click
+19 point text:Controller
+19 click
+22 point text:Video
+22 click
+25 point text:Audio
+25 click
+28 point text:Social
+28 click
+31 point text:Accessibility
+31 click
+34 point text:About
+34 click
+37 point text:Controller_Bindings
+37 click
+38 draw controller-bindings
+40 point text:Keyboard_&_Mouse_Bindings
+40 click
+42 draw keys
+44 log a click on the jump row starts the listen
+44 point text:Jump_/_Traverse
+44 click
+47 log Insert binds the jump
+47 key insert
+51 key escape
+57 log Insert jumps
+57 key insert
+61 log Space does not jump
+61 key space
+65 log the reset of the key page
+65 key escape
+68 point text:Settings
+68 click
+71 point text:Keyboard_&_Mouse_Bindings
+71 click
+74 point text:Restore_Defaults
+74 click
+77 point text:Yes
+77 click
+80 key escape
+86 log Space jumps again
+86 key space
+90 end
