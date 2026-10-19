@@ -316,9 +316,21 @@ tools/import-surface-layer.sh NAME... --max-seconds 300 --wait 7200   # the deca
   the roads (a spline component and a road component of one entity) and the projected decals (DecalConfiguration).
   The world: 24,713 roads, 286,082 decals (240,315 placed: visible, with a material), 658 decal materials.
 - A road is a ribbon mesh: the cubic Bezier of each segment (the vertex, its forward handle, the back handle of the
-  next vertex), the width interpolated between the vertices, rows every SegmentLength, five vertices across, the
-  heights of the Landscape + 4 cm. U = distance / TileLength along the road, V across (the road maps fade their alpha
-  along V). One glTF for each 256 m cell and sort priority; no Nanite (a decal material).
+  next vertex), the width interpolated between the vertices, the heights of the Landscape + 4 cm. The vertices are at
+  most 1 m apart, along and across (the Landscape grid; the source road builder clips its mesh to the terrain units).
+  With rows every SegmentLength (2 m) and five vertices across, 22 % of the ribbon triangles were under the ground,
+  and the mesh decal failed the depth test there (straight-edged patches of the ground in the matched view
+  noon-road-low); with 1 m, 0.55 % of the 1,222 Oxboro ribbons (p99.9 2.2 cm), 760 k triangles. U = distance /
+  TileLength along the road, V across (the road maps fade their alpha along V). One glTF for each 256 m cell and sort
+  priority; no Nanite (a decal material).
+- `M_SwcDecal` version 3 moves the vertices of a mesh decal toward the camera along their view rays (no shift on the
+  screen): 0 within 20 m, then 4 mm for each meter, at most 1 m (the Landscape LOD far away). A projected decal does
+  not use it.
+- The material of a dirt road (for example `jav_mnt_road_dirt_traffic_md_decal_a.mtl`) follows the source: the diffuse
+  map x XML Diffuse (0.491: no `%TEMP_TERRAIN`), the alpha = the diffuse alpha (and the vertex alpha). Over the pale
+  ground of the client it is a dark strip with soft holes; over the road dirt layer of the terrain (`roads_splat`,
+  `jav_fst_terrain_roaddirt_a_nw.mtl`; T1 of the world track) it blends into the dirt, as in retail
+  (evidence/WF3/s1/road-check). Not shown: POM and the specular map of the road material.
 - A terrain decal (ProjectionType 2) projects straight down: the footprint |X| x |Y|, the depth |Z| x Depth of the
   entity matrix, the heading of X. Other decals project along their Z axis.
 - `M_SwcDecal`: domain Deferred Decal, blend Translucent (DBuffer color, normal, roughness). Opacity =

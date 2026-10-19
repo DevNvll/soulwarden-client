@@ -34,7 +34,8 @@ ROAD_TYPE = "3700da70407d47a6b7884654edda32a1"
 DECAL_TYPE = "1c2ceaa8786f46848202ca7d940d627b"
 FLOAT_TYPE = "ea2c3e90afbe44d4a90dfaaf79baf93d"
 COMPONENTS, WORLD_TM, NAME, ID = F("Components"), F("m_worldTM"), F("Name"), F("Id")
-VERSION = 2   # the rule of the road and decal records (2: road U along the road, V across; decals of type 2 project down)
+VERSION = 3   # the rule of the road and decal records (2: road U along the road, V across; decals of type 2 project down;
+              # 3: the ribbon vertices at most STEP_M apart, along and across)
 
 
 def out_dir(name: str):
@@ -254,8 +255,13 @@ def scan(names: list[str]) -> dict:
 # The road ribbon (the geometry of the road builder of the source, rebuilt): research/settlements.md section 8 states the
 # assumptions (the standard cubic Bezier of each segment, the width interpolated between the vertices).
 SAMPLES = 64          # Bezier samples of each spline segment before the resampling by distance
-ACROSS = 5            # vertices across the road (0, 1/4, 1/2, 3/4, 1 of the width)
+ACROSS = 5            # the least count of vertices across the road (0, 1/4, 1/2, 3/4, 1 of the width)
 LIFT_M = 0.04         # the ribbon over the terrain (the source draws the road as a decal on the terrain)
+# The vertices of the ribbon at most 1 m apart, along and across: the grid of the Landscape. The source road builder
+# clips its mesh to the terrain units, so the road follows the ground. With rows every SegmentLength (2 m) and 5
+# vertices across, 22 % of the ribbon triangles of 400 Oxboro roads were under the ground (p99 0.23 m: the mesh decal
+# fails the depth test there, and the ground shows through in straight-edged patches); with 1 m, 1.0 % (p99 below 0).
+STEP_M = 1.0
 
 
 def centerline(road: dict) -> tuple[np.ndarray, np.ndarray] | None:
@@ -326,8 +332,9 @@ class Heights:
 
 
 def ribbon(road: dict, heights: Heights) -> dict | None:
-    """@return The ribbon of a road in engine space: positions (rows x ACROSS, 3), uvs, and the distances along the
-    road. Rows every SegmentLength (and the end); u = distance / TileLength, v goes across (0..1)."""
+    """@return The ribbon of a road in engine space: positions (rows x across, 3), uvs, and the distances along the
+    road. Rows every SegmentLength or STEP_M (the smaller; and the end), the vertices across at most STEP_M apart;
+    u = distance / TileLength, v goes across (0..1)."""
     line = centerline(road)
     if line is None:
         return None
@@ -338,14 +345,14 @@ def ribbon(road: dict, heights: Heights) -> dict | None:
     segment = float(road["segment length"] or 2.0)
     if length < 1e-3:
         return None
-    rows = np.unique(np.concatenate([np.arange(0.0, length, segment), [length]]))
+    rows = np.unique(np.concatenate([np.arange(0.0, length, min(segment, STEP_M)), [length]]))
     cx = np.interp(rows, distance, points[:, 0])
     cy = np.interp(rows, distance, points[:, 1])
     w = np.interp(rows, distance, widths)
     tangent = np.gradient(np.stack([cx, cy], 1), axis=0)
     tangent /= np.maximum(np.linalg.norm(tangent, axis=1, keepdims=True), 1e-9)
     right = np.stack([tangent[:, 1], -tangent[:, 0]], 1)   # the right of the direction of travel, horizontal
-    u = np.linspace(0.0, 1.0, ACROSS)
+    u = np.linspace(0.0, 1.0, max(ACROSS, int(np.ceil(float(w.max()) / STEP_M)) + 1))
     px = cx[:, None] + right[:, 0:1] * (u[None, :] - 0.5) * w[:, None]
     py = cy[:, None] + right[:, 1:2] * (u[None, :] - 0.5) * w[:, None]
     pz = heights(px, py) + LIFT_M
@@ -401,7 +408,7 @@ def write_roads(name: str, roads: list[dict], heights: Heights, materials: dict)
         rb = ribbon(road, heights)
         if rb is None or np.isnan(rb["positions"]).any():
             continue
-        mid = rb["positions"][len(rb["rows"]) // 2, ACROSS // 2]
+        mid = rb["positions"][len(rb["rows"]) // 2, rb["positions"].shape[1] // 2]
         cell = (int(np.floor(mid[0] / CELL_M)), int(np.floor(mid[1] / CELL_M)))
         groups.setdefault((cell, int(road["sort priority"] or 0)), []).append((key, rb, road))
     records = []
@@ -411,11 +418,11 @@ def write_roads(name: str, roads: list[dict], heights: Heights, materials: dict)
         slots: dict[str, int] = {}
         prims = []
         for key, rb, road in parts:
-            rows = len(rb["rows"])
+            rows, across = rb["positions"].shape[:2]
             pos = (rb["positions"].reshape(-1, 3) - origin).astype(np.float32)
             uv = rb["uv"].reshape(-1, 2).astype(np.float32)
-            quads = [(r * ACROSS + c, (r + 1) * ACROSS + c, r * ACROSS + c + 1, (r + 1) * ACROSS + c + 1)
-                     for r in range(rows - 1) for c in range(ACROSS - 1)]
+            quads = [(r * across + c, (r + 1) * across + c, r * across + c + 1, (r + 1) * across + c + 1)
+                     for r in range(rows - 1) for c in range(across - 1)]
             # Two triangles of each quad, with the face toward +Z (engine space, right handed).
             idx = np.array([[a, c, b, c, d, b] for a, b, c, d in quads], dtype=np.uint32).ravel()
             normals = np.tile(np.array([0.0, 0.0, 1.0], np.float32), (len(pos), 1))

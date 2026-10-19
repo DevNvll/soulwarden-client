@@ -21,11 +21,11 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "2", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "2",
+PARENT_VERSIONS = {"M_SwcFoliage": "2", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "3",
                    "M_SwcGlass": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
-# M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; M_SwcFoliage 2: the wind (M6) and
+# M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals; M_SwcFoliage 2: the wind (M6) and
 # the vertex alpha occlusion)
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
@@ -538,6 +538,11 @@ def surface_parent(content, state, masked):
 # decal opacity map x DecalAlphaMult, DecalFalloff)). Unreal has one opacity for the color, the normal, and the roughness
 # of a DBuffer decal: DecalDiffuseOpacity (the color alone) is a limit.
 DECAL_ALPHA_HLSL = "return saturate(pow(max(A * O * Mult, 0.0), Falloff));"
+# The view bias of a mesh decal (the road ribbons, the mesh decal companions): the vertex moves toward the camera along
+# its view ray (no shift on the screen, only the depth), 0 within 20 m (a foot on the road is not painted), then 4 mm for
+# each meter, at most 1 m: the Landscape LOD can rise above the ribbon far away. The source has its own decal depth
+# remedy (PerFrame_DecalZFightingRemedy). A projected decal does not use a world position offset.
+DECAL_BIAS_HLSL = "return clamp((D - 2000.0) * 0.004, 0.0, 100.0);"
 
 
 def decal_parent(content, state):
@@ -600,6 +605,16 @@ def decal_parent(content, state):
     editing.connect_material_expressions(mult, "", opacity, "Mult")
     editing.connect_material_expressions(falloff, "", opacity, "Falloff")
     editing.connect_material_property(opacity, "", MP.MP_OPACITY)
+    camera = node(material, unreal.MaterialExpressionCameraPositionWS, -900, 1700)
+    position = node(material, unreal.MaterialExpressionWorldPosition, -900, 1800)
+    distance = node(material, unreal.MaterialExpressionDistance, -700, 1750)
+    editing.connect_material_expressions(camera, "", distance, "A")
+    editing.connect_material_expressions(position, "", distance, "B")
+    bias = custom(material, DECAL_BIAS_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("D",), -500, 1750)
+    editing.connect_material_expressions(distance, "", bias, "D")
+    toward = node(material, unreal.MaterialExpressionCameraVectorWS, -500, 1900)
+    offset = multiply(material, (toward, ""), (bias, ""), -300, 1800)
+    editing.connect_material_property(offset, "", MP.MP_WORLD_POSITION_OFFSET)
     material.set_editor_property("material_domain", unreal.MaterialDomain.MD_DEFERRED_DECAL)
     material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
     editing.recompile_material(material)
