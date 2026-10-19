@@ -200,6 +200,18 @@ The mask of an additive clip has only the bones with rotation keys (AST-197). Th
 items are normalized, and their sum (0.7 for the R0 reactions) multiplies the weight of the layer. The run option
 `-SwcAdditiveCheck` logs the largest rotation of each additive layer (`creature: additive check: ...`).
 
+- Check (development run, 2026-10-19; `SWC_WORK/evidence/AST-197/ast197-final.mp4`, the side-by-side video with the retail
+  take `creature-wolf-fight` of set 6: `sbs-ast197-wolf-hits.mp4`): the additive reactions of the four sides (fragments 35 to
+  38: the clips `wolf_r0_l`, `wolf_r0_b`, `wolf_r0_r`), the full-body reactions R2 of the four sides (15 to 18), the death in
+  an additive reaction, the additive reactions in the attacks of the wolf, two staggers, and two knockdowns. The wolf stays
+  upright; the knockdown turns and falls as its clip `r_R4_F` wants. The check lines have no `bind_root_jnt`; the largest
+  rotation is on `bind_head_look_jnt` (79.1 degrees, a bone with no skin weight), else 26.4 degrees (an ear). The control runs: `ast197-before` (the old
+  masks, the old weight: 96.6 degrees) and `ast197-all` (the old masks, the new weight: 84.4 degrees, the wolf stood
+  vertical): the mask is the cause. The same fault was in other sets: the combat pose of the Corrupted Sailors
+  (`drowned_grenadier_combat_idle_pose_add`, a layer at weight 1) had 90 degrees on `Forearm_right_twist` (one position key, no
+  rotation key). A conversion of the animation sets with this converter removes it; the client reads the masks at the load
+  (no import).
+
 ## The weapon scope (stage P2.9)
 
 The controller of a creature has the scopes `Weapon` (context `WeaponContext`) and `OffHandWeapon`. A fragment whose
@@ -435,6 +447,9 @@ tools/creature-check.sh creatures-world 80 tests/creatures/fight.txt tests/drive
 # Stage P2.8: the melee contacts with the sword character of docs/GEAR.md, on the street west of the start place.
 export SWC_STAGE=P2.8 SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=8872:4250:138.25
 tools/creature-check.sh exit8 50 tests/creatures/p28.txt tests/drive/p28.txt -- -SwcFarContact
+# AST-197: the hit reactions of the Grey Wolf from its four sides, the death in an additive reaction, the stagger, the knockdown.
+export SWC_STAGE=AST-197 SWC_DEV_DATA=~/Games/soulwarden-client/dev-data SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=10013.1:2293.09:40.5
+tools/creature-check.sh ast197-final 99 tests/drive/ast197-wolf-routes.txt tests/drive/ast197-wolf.txt -- -SwcAdditiveCheck
 ```
 
 `tools/creature-check.sh` starts a window run with the development routes (`SWC_SESSION_BACKEND_ARGS=--dev-commands`), runs

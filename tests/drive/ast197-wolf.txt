@@ -1,0 +1,263 @@
+# AST-197: hits on Grey Wolves of level 60 from their four sides (the additive reactions R0 of scope 4 and the full-body reactions
+# R2), the death in an additive reaction, a wolf that fights (the additive reactions in its attacks), then the stagger and the
+# knockdown of the route effect. The routes: tests/drive/ast197-wolf-routes.txt. The client argument -SwcAdditiveCheck logs the
+# largest rotation of each additive layer. Times in seconds from the possession; view: the heading (clockwise from north), the pitch
+# (a steep camera: the wolf shows over the character). The facing of a teleport comes about 0.3 s after its route: thus two views,
+# 0.6 s and 1.0 s after a travel.
+1.000 tick
+2.000 tick
+3.000 tick
+3.500 key 2
+4.000 tick
+5.000 tick
+5.000 view 0.00 -30.00
+6.000 tick
+7.000 tick
+7.000 attack 1
+7.080 attack 0
+7.620 attack 1
+7.700 attack 0
+8.000 tick
+8.240 attack 1
+8.320 attack 0
+8.860 attack 1
+8.940 attack 0
+9.000 tick
+9.480 attack 1
+9.560 attack 0
+10.000 tick
+10.100 attack 1
+10.180 attack 0
+10.720 attack 1
+10.800 attack 0
+11.000 tick
+11.340 attack 1
+11.420 attack 0
+11.960 attack 1
+12.000 tick
+12.040 attack 0
+12.580 attack 1
+12.660 attack 0
+13.000 tick
+14.000 tick
+15.000 tick
+15.700 view 0.00 -30.00
+16.000 tick
+16.100 view 0.00 -30.00
+17.000 tick
+18.000 tick
+18.000 attack 1
+18.080 attack 0
+18.620 attack 1
+18.700 attack 0
+19.000 tick
+19.240 attack 1
+19.320 attack 0
+19.860 attack 1
+19.940 attack 0
+20.000 tick
+21.000 tick
+21.000 view 270.00 -30.00
+21.400 view 270.00 -30.00
+21.600 attack 1
+21.680 attack 0
+22.000 tick
+22.220 attack 1
+22.300 attack 0
+22.840 attack 1
+22.920 attack 0
+23.000 tick
+23.460 attack 1
+23.540 attack 0
+24.000 tick
+24.080 attack 1
+24.160 attack 0
+24.700 attack 1
+24.780 attack 0
+25.000 tick
+25.320 attack 1
+25.400 attack 0
+25.940 attack 1
+26.000 tick
+26.020 attack 0
+27.000 tick
+27.700 view 0.00 -30.00
+28.000 tick
+28.100 view 0.00 -30.00
+29.000 tick
+30.000 tick
+30.000 attack 1
+30.080 attack 0
+30.620 attack 1
+30.700 attack 0
+31.000 tick
+31.240 attack 1
+31.320 attack 0
+31.860 attack 1
+31.940 attack 0
+32.000 tick
+33.000 tick
+33.000 view 90.00 -30.00
+33.400 view 90.00 -30.00
+33.600 attack 1
+33.680 attack 0
+34.000 tick
+34.220 attack 1
+34.300 attack 0
+34.840 attack 1
+34.920 attack 0
+35.000 tick
+35.460 attack 1
+35.540 attack 0
+36.000 tick
+36.080 attack 1
+36.160 attack 0
+36.700 attack 1
+36.780 attack 0
+37.000 tick
+37.320 attack 1
+37.400 attack 0
+37.940 attack 1
+38.000 tick
+38.020 attack 0
+39.000 tick
+39.700 view 0.00 -30.00
+40.000 tick
+40.100 view 0.00 -30.00
+41.000 tick
+42.000 tick
+42.000 attack 1
+42.080 attack 0
+42.620 attack 1
+42.700 attack 0
+43.000 tick
+43.240 attack 1
+43.320 attack 0
+43.860 attack 1
+43.940 attack 0
+44.000 tick
+44.480 attack 1
+44.560 attack 0
+45.000 tick
+45.100 attack 1
+45.180 attack 0
+45.720 attack 1
+45.800 attack 0
+46.000 tick
+46.340 attack 1
+46.420 attack 0
+46.960 attack 1
+47.000 tick
+47.040 attack 0
+47.580 attack 1
+47.660 attack 0
+48.000 tick
+48.200 attack 1
+48.280 attack 0
+48.820 attack 1
+48.900 attack 0
+49.000 tick
+50.000 tick
+50.700 view 0.00 -30.00
+51.000 tick
+51.100 view 0.00 -30.00
+52.000 tick
+53.000 tick
+53.000 attack 1
+53.080 attack 0
+53.620 attack 1
+53.700 attack 0
+54.000 tick
+54.240 attack 1
+54.320 attack 0
+55.000 tick
+56.000 tick
+56.200 view 0.00 -30.00
+56.600 view 0.00 -30.00
+57.000 tick
+58.000 tick
+58.500 attack 1
+58.580 attack 0
+59.000 tick
+59.120 attack 1
+59.200 attack 0
+59.740 attack 1
+59.820 attack 0
+60.000 tick
+61.000 tick
+62.000 tick
+62.200 view 0.00 -30.00
+62.600 view 0.00 -30.00
+63.000 tick
+64.000 tick
+65.000 tick
+65.000 attack 1
+65.080 attack 0
+65.620 attack 1
+65.700 attack 0
+66.000 tick
+66.240 attack 1
+66.320 attack 0
+66.860 attack 1
+66.940 attack 0
+67.000 tick
+67.480 attack 1
+67.560 attack 0
+68.000 tick
+68.100 attack 1
+68.180 attack 0
+68.720 attack 1
+68.800 attack 0
+69.000 tick
+69.340 attack 1
+69.420 attack 0
+69.960 attack 1
+70.000 tick
+70.040 attack 0
+70.580 attack 1
+70.660 attack 0
+71.000 tick
+71.200 attack 1
+71.280 attack 0
+71.820 attack 1
+71.900 attack 0
+72.000 tick
+72.440 attack 1
+72.520 attack 0
+73.000 tick
+73.060 attack 1
+73.140 attack 0
+73.680 attack 1
+73.760 attack 0
+74.000 tick
+74.300 attack 1
+74.380 attack 0
+74.920 attack 1
+75.000 tick
+75.000 attack 0
+75.540 attack 1
+75.620 attack 0
+76.000 tick
+76.160 attack 1
+76.240 attack 0
+77.000 tick
+78.000 tick
+79.000 tick
+80.000 tick
+81.000 tick
+82.000 tick
+83.000 tick
+84.000 tick
+85.000 tick
+86.000 tick
+87.000 tick
+88.000 tick
+89.000 tick
+90.000 tick
+91.000 tick
+92.000 tick
+93.000 tick
+94.000 tick
+95.000 tick
+96.000 tick
+97.000 tick

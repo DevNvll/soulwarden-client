@@ -1,0 +1,55 @@
+# The routes of tests/drive/ast197-wolf.txt (AST-197): the hour 12:00, the sand of set 3, the creatures ignore the character (a wolf
+# stands). For each part a new Grey Wolf of level 60 2.6 m north of the character (0.4 m above the floor, as the retail commands of
+# set 6) with the yaw of the part. The additive reaction (scope 4) plays in the reaction limit (after a chain of three reactions) and
+# in an attack of the wolf. The parts: the front; its left and its right side (four hits from the front for the limit, then the
+# character 1.9 m to the side of the wolf: three pushes move the wolf 1.7 m to 2.6 m north); its back (no heal: the wolf dies in the
+# additive reaction); the full-body reactions of its left and right side; a wolf that fights; the stagger and the knockdown of the
+# route effect. Times on the clock of the drive script.
+0.500 ignore on
+0.600 world-time 12:00
+2.500 travel 10013.086 2300.081 40.650
+5.500 spawn Wolf_Grey_7 0.00 2.60 0.40 --level 60 --yaw 180   # the front
+9.500 health $1 100%
+13.500 health $1 100%
+14.900 remove $1
+15.100 travel 10013.086 2300.081 40.650
+16.500 spawn Wolf_Grey_7 0.00 2.60 0.40 --level 60 --yaw 180   # its left side (the character east of it)
+20.400 travel 10014.986 2304.681 40.650
+20.500 health $2 100%
+24.500 health $2 100%
+26.900 remove $2
+27.100 travel 10013.086 2300.081 40.650
+28.500 spawn Wolf_Grey_7 0.00 2.60 0.40 --level 60 --yaw 180   # its right side (the character west of it)
+32.400 travel 10011.186 2304.681 40.650
+32.500 health $3 100%
+36.500 health $3 100%
+38.900 remove $3
+39.100 travel 10013.086 2300.081 40.650
+40.500 spawn Wolf_Grey_7 0.00 2.60 0.40 --level 60 --yaw 0   # the back
+49.900 remove $4
+50.100 travel 10013.086 2300.081 40.650
+51.500 spawn Wolf_Grey_7 0.00 2.60 0.40 --level 60 --yaw 90   # its left side, full body
+55.400 remove $5
+55.500 health $5 100%
+55.600 travel 10013.086 2300.081 40.650
+57.000 spawn Wolf_Grey_7 0.00 2.60 0.40 --level 60 --yaw 270   # its right side, full body
+59.500 health $5 100%
+61.000 health $6 100%
+61.400 remove $6
+61.600 travel 10013.086 2300.081 40.650
+63.000 spawn Wolf_Grey_7 0.00 2.60 0.40 --level 60 --yaw 180   # the fight
+64.000 ignore off
+65.000 health $6 100%
+67.000 heal
+67.200 health $7 100%
+71.000 heal
+71.200 health $7 100%
+75.000 heal
+75.200 health $7 100%
+77.500 ignore on
+78.000 heal
+78.500 health $7 100%
+80.000 effect $7 stagger
+84.000 effect $7 knockdown
+89.000 effect $7 stagger
+93.000 effect $7 knockdown
