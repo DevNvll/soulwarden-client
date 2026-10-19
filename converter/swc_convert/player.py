@@ -68,7 +68,10 @@ LOCOMOTION_FRAGMENTS = {"Idle": ["", "Crouch", "Prone"], "Strafe": ["", "Crouch"
                                                    "Crouch+FromProne", "Prone+FromCrouch"],
                         "Sprint_PostureTransition": ["Crouch+FromStand", "Crouch+FromStand+LeftNav", "Crouch+FromStand+RightNav",
                                                      "Prone+FromStand", "Stand+FromProne", "Crouch+FromProne", "Prone+FromCrouch"],
-                        "r_Stun": [""], "r_Stun_Loop": [""], "r_Stun_End": [""]}
+                        "r_Stun": [""], "r_Stun_Loop": [""], "r_Stun_End": [""],
+                        # Stage WF5: the swim (playeractions_swim: Swim_Idle, the clip unarmed_swim_idle; Swim_Nav, the blend space
+                        # swim_nav_blend with MoveSpeed and TurnSpeed; research wf5-swim/swim-fragments.json).
+                        "Swim_Idle": [""], "Swim_Nav": [""]}
 # The fragments with root motion: the jumps move the character with the root bone of their clip until the marker
 # Enable_Gravity (research feel-values.md R2.4.1, R2.8.4). locomotion.json keeps the root track of their clips.
 ROOT_MOTION_FRAGMENTS = {"Jump", "Jump_Standing"}
