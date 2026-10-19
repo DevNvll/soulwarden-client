@@ -31,8 +31,10 @@ rm -f "${log}"
 source "${SWC_REPO}/tools/lib/world-lock.sh"
 mkdir -p "${SWC_WORK}/unreal"
 world_read true || { echo "flythrough: the world lock was not free (a level build or an import)" >&2; exit 3; }
-source "${SWC_REPO}/tools/lib/gpu-gate.sh"   # then the GPU memory (AGENTS.md, the run rules)
+source "${SWC_REPO}/tools/lib/gpu-gate.sh"   # then a run slot and the GPU memory (AGENTS.md, the run rules)
+run_slot_take flythrough || exit 3
 gpu_wait flythrough || exit 3
+slot_lock="${SWC_WORK}/unreal/run-slot-${SWC_RUN_SLOT}.lock"
 if ! omarchy-agent-desktop status "${desktop_id}" >/dev/null 2>&1; then
     omarchy-agent-desktop create "Soulwarden client" --id "${desktop_id}" --mode "${SWC_DESKTOP_MODE:-1280x720@60}" >/dev/null
 fi
@@ -40,9 +42,10 @@ fi
 omarchy-agent-desktop run --wait 180 --json "${desktop_id}" -- \
     env SWC_DEV_RUN=1 SWC_RUN=development "SWC_SESSION_DATA=${SWC_DEV_DATA}" \
     gamescope --backend wayland -W "${game_size%x*}" -H "${game_size#*x}" -w "${game_size%x*}" -h "${game_size#*x}" -r 60 -- \
-    flock -s -w "${SWC_WORLD_RUN_WAIT:-900}" -o "${SWC_WORLD_LOCK}" \
+    flock -s -w "${SWC_WORLD_RUN_WAIT:-900}" -o "${SWC_WORLD_LOCK}" flock -s -w 30 -o "${slot_lock}" \
     "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" -game -nosound -windowed -ResX="${game_size%x*}" -ResY="${game_size#*x}" \
-    -SwcFlythrough="${run_plan}" -abslog="${log}" ${SWC_FLY_EXTRA:+"${SWC_FLY_EXTRA}"} > "${out}/launch.json" 2>&1 || true
+    -SwcFlythrough="${run_plan}" -abslog="${log}" ${SWC_FLY_EXTRA:+"${SWC_FLY_EXTRA}"} > "${out}/launch.json" 2>&1 6>&- || true
+run_slot_release   # the client holds the slot (flock above) for its run
 for _ in $(seq 1 1800); do
     grep -q "SWC FLYTHROUGH\|Critical error" "${log}" 2>/dev/null && break
     sleep 1

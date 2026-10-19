@@ -77,9 +77,14 @@ files at the same time; a shared document (this file, the roadmap) changes only 
   reads `hyprctl clients -j` (read only) for the life of the run: a window of the launch that is not on `__agent:DESKTOP`
   is moved with `omarchy-agent-desktop adopt`, else the run stops. Start window runs only with `tools/dev-run.sh`.
 - The GPU (24 GB) is shared by the clients of all tracks and the retail game processes; a client needs about 6 GB.
-  `tools/dev-run.sh --window` (and `tools/flythrough.sh`) waits after the world lock until the free GPU memory
-  (nvidia-smi, read only) is at least `SWC_GPU_FREE_MIB` (default 9216), with one line each 30 s, and ends with status 3
-  after `SWC_GPU_WAIT` seconds (default 900) (`tools/lib/gpu-gate.sh`). The trap: "Failed to allocate Device Memory"
+  `tools/dev-run.sh --window` (and `tools/flythrough.sh`) takes, in this order: the world lock, a run slot, then the
+  free GPU memory (`tools/lib/gpu-gate.sh`). The slots: `SWC_RUN_SLOTS` (default 2) client runs that render at a time,
+  each with a lock on `~/Games/soulwarden-client/unreal/run-slot-N.lock` for its whole life (the session holds it; the
+  lock ends with the process, also with `tools/dev-stop.sh`); the run log shows "run slot N". Then the free memory
+  (nvidia-smi, read only) must be at least `SWC_GPU_FREE_MIB` (default 9216): it covers the retail runs and the
+  programs of the user, which take no slot. Each wait logs one line each 30 s and ends with status 3 after
+  `SWC_GPU_WAIT` seconds (default 900). A memory check alone has a race: two runs saw the same free memory and both
+  started (2026-10-19). The trap: "Failed to allocate Device Memory"
   in a client log is the shared GPU, not a client defect, until a run with enough free memory shows the same fault.
 - A process of the Unreal client never has `SOULWARDEN_DEV_RUN=1` in its environment: `tools/dev-stop.sh` of Soulwarden
   stops such processes, and its `--check` fails while one is alive.

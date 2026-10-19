@@ -127,10 +127,13 @@ if ! world_read true; then
     echo "dev-run: the world lock was not free in ${SWC_WORLD_RUN_WAIT:-900} s: no run (status 3)" >&2
     exit 3
 fi
-# Then the GPU memory (tools/lib/gpu-gate.sh): after the lock, so that the run does not hold the GPU while it waits. A run
-# with no window has no renderer (-nullrhi): no gate.
+# Then a run slot and the GPU memory (tools/lib/gpu-gate.sh): after the lock, so that the run does not hold the GPU while it
+# waits. A run with no window has no renderer (-nullrhi): no gate. The session holds the slot for the life of the run
+# (SWC_RUN_SLOT); this script releases its own hold after the launch.
 source "${SWC_REPO}/tools/lib/gpu-gate.sh"
+run_slot_take dev-run || exit 3
 gpu_wait dev-run || exit 3
+run_environment+=("SWC_RUN_SLOT=${SWC_RUN_SLOT}")
 # The agent desktop starts the command with the environment of its compositor: the values go by name. gamescope runs
 # outside the namespace (in a user namespace it refuses /tmp/.X11-unix, which the real root owns); the client in the
 # namespace reaches its X server through the socket file.
@@ -139,7 +142,8 @@ omarchy-agent-desktop run --wait "${SWC_WINDOW_WAIT:-180}" --json "${desktop_id}
     gamescope --backend wayland -W "${game_size%x*}" -H "${game_size#*x}" -w "${game_size%x*}" -h "${game_size#*x}" -r 60 -- \
     "${SWC_REPO}/tools/lib/session.sh" -- "${client_prefix[@]}" \
     "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" "${client_arguments[@]}" -windowed -ResX="${game_size%x*}" -ResY="${game_size#*x}" "$@" \
-    >"${logs}/${label}-launch.json" 2>&1 || true
+    >"${logs}/${label}-launch.json" 2>&1 6>&- || true
+run_slot_release
 cat "${logs}/${label}-launch.json"
 # The window guard for the life of the run (tools/lib/window_guard.py): a window of the launch that is not on the agent desktop is
 # moved there (omarchy-agent-desktop adopt), else the run stops. Its log: LABEL-window-guard.log.

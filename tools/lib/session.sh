@@ -58,6 +58,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/world-lock.sh"
 mkdir -p "${SWC_WORK}/unreal"
 exec 7>>"${SWC_WORLD_LOCK}"
 world_read_fd 7 || exit 3
+# The run slot of a run that renders (tools/lib/gpu-gate.sh, SWC_RUN_SLOT from tools/dev-run.sh --window): a shared lock on
+# fd 6 for the whole run; the backend and the client do not get the descriptor.
+if [[ -n "${SWC_RUN_SLOT:-}" ]]; then
+    exec 6>>"${SWC_WORK}/unreal/run-slot-${SWC_RUN_SLOT}.lock"
+    flock -s -w 30 6 || echo "session: the run slot ${SWC_RUN_SLOT} could not be held" >&2
+    echo "session: run slot ${SWC_RUN_SLOT}" >&2
+fi
 
 health_url="http://127.0.0.1:${SWC_HTTP_PORT}/healthz"
 backend=""
@@ -105,7 +112,7 @@ if [[ -n "${SWC_SESSION_BACKEND_ARGS:-}" ]]; then
 fi
 echo "session: backend $(basename "$(readlink -f "${SWC_BACKEND_DIR}")"), data ${data}" >&2
 env "${backend_environment[@]}" \
-    "${SWC_BACKEND_EXE}" "${backend_arguments[@]}" >>"${data}/logs/backend-launch.log" 2>&1 9>&- 7>&- &
+    "${SWC_BACKEND_EXE}" "${backend_arguments[@]}" >>"${data}/logs/backend-launch.log" 2>&1 9>&- 7>&- 6>&- &
 backend=$!
 ready=0
 for ((attempt = 0; attempt < 300; ++attempt)); do
@@ -126,7 +133,7 @@ echo "session: backend ready, client starts" >&2
 set +e
 # No proxy: each request of the client goes to the backend on loopback.
 unshare --user --map-user="${SWC_SESSION_UID}" --map-group="${SWC_SESSION_GID}" -- \
-    env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u SWC_SESSION_BACKEND_ARGS "$@" 9>&- 7>&-
+    env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u SWC_SESSION_BACKEND_ARGS "$@" 9>&- 7>&- 6>&-
 status=$?
 set -e
 echo "session: client ended with status ${status}" >&2
