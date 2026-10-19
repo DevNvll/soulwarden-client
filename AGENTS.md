@@ -179,6 +179,9 @@ tools/convert-creatures.sh markers              # the marker type of each creatu
 tools/import.sh creature-                       # import the converted creatures into /SwcGameContent
 tools/test-creatures.sh                         # the tests of the creature entity table with states of the backend encoders
 tools/creature-check.sh LABEL STAY ROUTES [DRIVE]   # a video check of the creatures with the development routes
+python3 -B tools/lib/retail_replay.py TAKE.json tests/drive/p3g-NAME [--weapon 1|2] [--zoom M]   # a client replay of a retail take (stage P3.G)
+python3 -B tools/lib/retail_compare.py TAKE.json CLIENT_LOG --backend BACKEND_LOG   # the values of a replay against its take
+python3 -B tools/lib/side_by_side.py TAKE.json RETAIL.mp4 CLIENT_LOG CLIENT.mp4 RECORDER_START OUT.mp4 --part A B TEXT   # the side-by-side video
 tools/convert-objects.sh write                  # the objects of the level data for the object layer (docs/OBJECTS.md; meshes: the depleted node meshes)
 tools/convert-environment.sh write              # the environment data: the mission, the time presets, the lights and volumes of each region, the sky (check: the E0 proof)
 tools/match-view.sh SET [VIEW...]               # the matched views of a set of retail references: client pictures, side-by-side pictures, a contact sheet
