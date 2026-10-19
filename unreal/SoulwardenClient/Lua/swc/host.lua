@@ -86,7 +86,6 @@ function Swc.PlayerSpawned()
   Swc.SetData("Hud.LocalPlayer.CombatStatus.IsInCombat", false)
   Swc.SetData("Hud.LocalPlayer.StatusEffects.IsSilenced", false)
   Swc.SetData("Hud.LocalPlayer.IsInCutscene", false)
-  Swc.SetData("Hud.LocalPlayer.Options.Video.HudShowVitalsValues", true)
   Swc.StartAfflictions()
   Swc.SetData("Hud.LocalPlayer.OnLocalPlayerSet", true)
   -- The marker component of the local player is set: markermanager.luac registers the marker types and the pools (swc/markers.lua).

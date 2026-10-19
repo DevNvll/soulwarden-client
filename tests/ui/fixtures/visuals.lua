@@ -28,6 +28,13 @@ local function at(canvas, ...)
   return id
 end
 
+-- The values of the vitals: the health value shows (healthmeter.luac); the stamina and mana values follow the option
+-- HudShowVitalsValues: off (the default of the client program, and the saved options of the retail client).
+equal(Swc.GetData("Hud.LocalPlayer.Options.Video.HudShowVitalsValues"), false, "the option of the vitals values: off")
+check(not UiElementBus.Event.IsEnabled(at(vitals, "StaminaMeter", "ValueText")), "no stamina value (the retail HUD)")
+check(not UiElementBus.Event.IsEnabled(at(vitals, "ManaMeter", "ValueText")), "no mana value")
+check(UiElementBus.Event.IsEnabled(at(vitals, "HealthMeter", "ValueText")), "the health value shows")
+
 --- Shows an element: it and its parents enabled, their faders at full.
 local function reveal(id)
   local e = id

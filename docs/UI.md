@@ -441,11 +441,20 @@ The values (`swc/options.lua`):
 
 - The data nodes `Hud.LocalPlayer.Options.*` take the defaults of the options data of the client program
   (`tools/convert-ui.sh options`, `converter/swc_convert/optiondefaults.py`, a static read; no code runs): the AZ reflection of
-  `SerializedOptionsData` gives the fields (the offset and the type of each: `mov r8d, OFFSET`, the name, `call Field<T>`;
-  217 fields with a type), its factory gives the constructor (image VA 0x14457BB80), and the stores of the constructor give
-  the defaults (217 of 217). The component binds each data node to a member (`lea rdx, [rsi+X]`; the struct is at 0x128 from
-  `rsi`): 138 nodes by their binding, 42 by the words of their name. Examples: the master volume 100, the camera shake on,
-  the field of view 57, the horizontal look sensitivity 0.05, the vertical smoothing 60, the quality 3.
+  `SerializedOptionsData` gives the fields (the offset and the type of each: `mov r8d, OFFSET` and the name in either
+  order, then `call Field<T>`; 221 fields with a type), its factory gives the constructor (image VA 0x14457BB80), and the
+  stores of the constructor give the defaults (221 of 221). The component binds each data node to a member
+  (`lea rdx, [rsi+X]`; the struct is at 0x128 from `rsi`): 140 nodes by their binding, 42 by the words of their name.
+  Examples: the master volume 100, the camera shake on, the field of view 57, the horizontal look sensitivity 0.05, the
+  vertical smoothing 60, the quality 3, the vitals values off (the stamina and mana bars show no number; the health number
+  always shows: `healthmeter.luac`).
+- A check of the defaults (stage P3.H): the saved options of the retail client (the development prefix of the Soulwarden
+  project, `usersettings_*.javsave`, 17 profiles; read only) have the value of the program for 206 of the 221 fields. The
+  other 15 are changes of the development runs (the window size, the camera zoom, the master volume 0, the first-launch
+  flags, two accessibility toggles, the pad dead zones, the upscaling mode). 30 saved fields have no default in the read:
+  16 have a type that the reader does not decode (a color, a string, an unsigned number; for example the reticle colors:
+  white, and 1, 0.443, 0.443 on a target), 14 have a registration form that the reader does not find (mostly
+  enumerations: the window mode, the voice chat modes, the text size options).
 - The values of this client: the resolution of the viewport (a list of one), one monitor, the window mode Windowed, no
   voice device, no cross-play. The text language "Use System Language" (`system-language`) and the list of the languages of
   the game copy, the audio language English; the range of the field of view 40 to 70 (the native code sets these nodes at
@@ -556,7 +565,8 @@ The prompt cards (`swc/interact.lua`; the canvas `lyshineui/markers/unifiedinter
 The notices (`swc/notices.lua`, the bag feed of `swc/items.lua`, `Swc.HostProgression`):
 
 - The damage numbers (the canvas `lyshineui/hud/damagenumbers/damagenumbers`, `damagenumber.luac`): a pool of copies of the template
-  (`DamageNumberContainerV2`: the option UseNewDamageNumbers is on, the floating numbers; an inference from the retail pictures); a
+  (`DamageNumberContainerV2`: the option UseNewDamageNumbers is on, the floating numbers: the default of the program and the
+  saved retail options); a
   copy goes to the screen point of its target, gets `OnCombinedDamageDisplayed` (the entries with the name of the damage type of
   `gamedata/damagetypes.json`, the special number for a critical hit or a ranged headshot that can crit, the weakness and the
   absorption of the vitals row of the creature of `gamedata/defenses.json`), and comes back to the pool at `OnAnimDone`. The
@@ -805,8 +815,7 @@ Soulwarden evidence of creatures, abilities-crit, fight, loot, loot-bags, gather
     creatures first, then the nearest). The marker data `VerticalOffset` (m_verticalOffset of the slice) is not written.
   - The read path has no threat of a creature (`IsTargetingPlayer` is false: no threat mark) and no creature stamina (the
     stamina bar of a plate hides).
-  - The option UseNewDamageNumbers (the floating numbers) is on: its native default is not known (the retail pictures show
-    floating numbers). The status texts of the damage numbers (`OnStatusEffectDisplayed`, ShowTextInDamageNumbers) and the
+  - The status texts of the damage numbers (`OnStatusEffectDisplayed`, ShowTextInDamageNumbers) and the
     generic numbers are not fed.
   - The gather work bar of the HUD ("29.3 remaining") is a different element; the circle timer of a gatherable card is not fed.
   - The loot ticker: the mastery line (+N War Hammer Mastery) needs the categorical progression state (not in the read path).

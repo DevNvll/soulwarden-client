@@ -50,5 +50,26 @@ class ConstructorStores(unittest.TestCase):
                          optiondefaults._words("Hud.LocalPlayer.Options.Controls.CameraSensitivityHorizontalADS"))
 
 
+
+class RegistrationCall(unittest.TestCase):
+    """The call of a field registration after its `lea rdx, NAME` (the forms of the reflection of the client)."""
+
+    def test_move_before_the_lea(self):
+        # mov r8d, 0x23A; movdqa [rbp+0x7A0], xmm0; lea rdx, NAME; mov rcx, rax; call
+        code = b"\x41\xB8\x3A\x02\x00\x00" + b"\x66\x0F\x7F\x85\xA0\x07\x00\x00" + b"\x48\x8D\x15\x00\x00\x00\x00" \
+            + b"\x48\x8B\xC8" + b"\xE8\x00\x00\x00\x00"
+        self.assertEqual(optiondefaults._registration_call(code, 21), 24)
+
+    def test_move_after_the_lea(self):
+        # lea rdx, NAME; mov r8d, 0x230; mov rcx, rax; call (m_hudShowVitalsValues)
+        code = b"\x48\x8D\x15\x00\x00\x00\x00" + b"\x41\xB8\x30\x02\x00\x00" + b"\x48\x8B\xC8" + b"\xE8\x00\x00\x00\x00"
+        self.assertEqual(optiondefaults._registration_call(code, 7), 16)
+
+    def test_other_this_register_and_no_call(self):
+        # lea rdx, NAME; mov rcx, rsi; call
+        self.assertEqual(optiondefaults._registration_call(b"\x48\x8D\x15\x00\x00\x00\x00\x48\x8B\xCE\xE8\x00\x00\x00\x00", 7), 10)
+        # lea rdx, NAME; ret: not a registration
+        self.assertIsNone(optiondefaults._registration_call(b"\x48\x8D\x15\x00\x00\x00\x00\xC3\xCC\xCC\xCC\xCC", 7))
+
 if __name__ == "__main__":
     unittest.main()

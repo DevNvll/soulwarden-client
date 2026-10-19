@@ -2,9 +2,9 @@
 screen (the data nodes Hud.LocalPlayer.Options.*). It does not run code. Output: gamedata/options.json (converted content,
 never in git).
 
-1. The fields: the AZ reflection of SerializedOptionsData registers each field with `mov r8d, OFFSET`, `lea rdx, NAME`,
-   `call Field<T>`. The call target gives the type (the targets of three known fields: m_cameraShake bool,
-   m_masterVolume int, m_gamma float).
+1. The fields: the AZ reflection of SerializedOptionsData registers each field with `mov r8d, OFFSET` and `lea rdx, NAME`
+   (in either order), then `call Field<T>`. The call target gives the type (the targets of three known fields:
+   m_cameraShake bool, m_masterVolume int, m_gamma float).
 2. The defaults: the factory of the class (the first code address after the class name in the reflection) constructs a
    stack object with the constructor (its first call). The constructor stores the defaults: `mov [this+disp], imm`
    (byte, word, dword, qword) and stores of the zero register (rbp after `xor ebp, ebp`; r15 while it is a copy of
@@ -37,6 +37,28 @@ def _code_end(data: bytes, start: int, limit: int) -> int:
     return start + limit
 
 
+def _registration_call(data: bytes, i: int) -> int | None:
+    """@return The offset of the `call` after the `lea rdx, NAME` of a registration (i: the byte after the lea), or None.
+    The instructions between them: `mov r8d, imm32` (41 B8), `mov rcx, REG` (48/49 8B C8-CF), `movdqa [rbp+disp32], xmm0`
+    (66 0F 7F 85), `lea r9, [rbp+disp32]` (4C 8D 8D), `xorps xmm0, xmm0` (0F 57 C0)."""
+    for _ in range(6):
+        if data[i] == 0xE8:
+            return i
+        if data[i:i + 2] == b"\x41\xB8":
+            i += 6
+        elif data[i] in (0x48, 0x49) and data[i + 1] == 0x8B and 0xC8 <= data[i + 2] <= 0xCF:
+            i += 3
+        elif data[i:i + 3] == b"\x0F\x57\xC0":
+            i += 3
+        elif data[i:i + 4] == b"\x66\x0F\x7F\x85":
+            i += 8
+        elif data[i:i + 3] == b"\x4C\x8D\x8D":
+            i += 7
+        else:
+            return None
+    return None
+
+
 def read_fields(program: Program) -> list[dict]:
     """@return The reflected fields of SerializedOptionsData: name, offset, and the call target of the registration."""
     data = program.data
@@ -46,24 +68,34 @@ def read_fields(program: Program) -> list[dict]:
     fields: list[dict] = []
     for ref in refs:
         start = program.offset(ref)
-        for m in re.finditer(rb"\x41\xB8(....)", data[start:start + 0x5000], re.S):
-            i = start + m.start()
-            offset = struct.unpack_from("<I", m.group(1))[0]
-            for j in range(i + 6, i + 0x20):
-                if data[j] == 0x48 and data[j + 1] == 0x8D and data[j + 2] == 0x15:
-                    target = program.rva(j) + 7 + struct.unpack_from("<i", data, j + 3)[0]
-                    if target not in names:
-                        off = program.offset(target)
-                        names[target] = data[off:data.index(b"\0", off)].decode("latin1") if off else ""
-                    name = names[target]
-                    call = None
-                    for k in range(j + 7, j + 0x10):
-                        if data[k] == 0xE8:
-                            call = program.rva(k) + 5 + struct.unpack_from("<i", data, k + 1)[0]
-                            break
-                    if name.startswith("m_") and call is not None:
-                        fields.append({"name": name, "offset": offset, "call": call})
-                    break
+        end = start + 0x5000
+        # Each registration: `lea rdx, NAME` and `mov r8d, OFFSET` in either order (the compiler puts some moves after the
+        # lea), then `call Field<T>`. The move of a field is between the call of the field before and its own call.
+        previous_call_end = start
+        j = start
+        while j < end:
+            if not (data[j] == 0x48 and data[j + 1] == 0x8D and data[j + 2] == 0x15):
+                j += 1
+                continue
+            call_at = _registration_call(data, j + 7)
+            if call_at is None:
+                j += 1
+                continue
+            target = program.rva(j) + 7 + struct.unpack_from("<i", data, j + 3)[0]
+            if target not in names:
+                off = program.offset(target)
+                names[target] = data[off:data.index(b"\0", off)].decode("latin1") if off else ""
+            name = names[target]
+            offset = None
+            for m in re.finditer(rb"\x41\xB8(....)", data[previous_call_end:call_at], re.S):
+                at = previous_call_end + m.start()
+                if at + 6 <= j or at >= j + 7:  # not inside the lea
+                    offset = struct.unpack_from("<I", m.group(1))[0]
+            call = program.rva(call_at) + 5 + struct.unpack_from("<i", data, call_at + 1)[0]
+            if name.startswith("m_") and offset is not None:
+                fields.append({"name": name, "offset": offset, "call": call})
+            previous_call_end = call_at + 5
+            j = call_at + 5
         if len(fields) > 100:
             return fields
         fields = []
