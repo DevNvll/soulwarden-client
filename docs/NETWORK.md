@@ -319,6 +319,9 @@ With the player of the game thread (stage 1.7, `RepClient::set_motion`; [MOVEMEN
   than one step, and the backend refuses a step above 20 m/s (`world/position_report.h`). These speeds are decisions
   of an agent, below the limits of the backend; after a long frame the field follows the feet some steps later. The
   snapshot has the last field (`FSnapshot::Reported`): the range of an interaction is from the next one;
+- the depth class of the feet (mask bit 3, a u8: 1 VeryShallow, 2 Shallow, 3 Deep) when it is above None, and in a swim the water
+  below the feet as the ground distance (mask bit 4), as the retail client sends them (stage WF5, [WATER.md](WATER.md); the backend
+  reads the byte and does not use it);
 - the camera position of the camera of the player, and the look (mask bit 6): the yaw in radians from north to the
   left, the pitch in radians, positive down;
 - the action bits 14, 43, 416, 542 of the W key while it is down (the backend reads bit 14), with the rest bits; the

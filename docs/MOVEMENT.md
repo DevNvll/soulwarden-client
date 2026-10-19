@@ -322,6 +322,10 @@ sprint (5.5 m/s; crouch 2.5, prone 1.25).
   this client does not predict it: the sprint is 5.5 × 1.15 = 6.325 m/s only when the table of the server has 1.15.
   Until a backend applies the boost, the client has no road boost.
 
+### The water
+
+The depth classes, the wade (the Wade conditionals of the data), and the swim are in [WATER.md](WATER.md) (stage WF5).
+
 ### The road maps
 
 `tools/convert-player.sh roads [NAME...]` (`converter/swc_convert/roads.py`; default: the 49 regions of the main world) writes
