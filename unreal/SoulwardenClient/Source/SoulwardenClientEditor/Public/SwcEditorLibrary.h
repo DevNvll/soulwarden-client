@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/TextureDefines.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "SwcEditorLibrary.generated.h"
 
@@ -10,6 +11,9 @@ class USceneCaptureComponent2D;
 class UStaticMesh;
 
 /** Helpers for the editor scripts of the world track (Python: unreal.SwcEditorLibrary). Editor only. */
+class UTexture2DArray;
+class UTexture2D;
+
 UCLASS()
 class SOULWARDENCLIENTEDITOR_API USwcEditorLibrary : public UBlueprintFunctionLibrary
 {
@@ -44,6 +48,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
 	static AActor* CreateLandscape(const FString& RawFile, int32 ComponentsPerSide, int32 QuadsPerSection, const FVector& Location,
 		const FVector& Scale, UMaterialInterface* Material, const FString& Label, int32 GridSize = 2, bool bAlwaysLoaded = true);
+
+	/** Makes (or makes again) the texture array asset PackagePath (/Game/.../NAME) from its slices (textures of one size and
+	 *  source format), with the compression of the array and its sRGB flag, and saves it (world fidelity T1: the
+	 *  terrain arrays). The factory of the editor does not show its slice list to Python. @return The array or null. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static UTexture2DArray* CreateTextureArray(const FString& PackagePath, const TArray<UTexture2D*>& Slices,
+		TEnumAsByte<TextureCompressionSettings> Compression, bool bSRGB);
+
+	/** CreateLandscape with target layers (world fidelity T1): for each layer a name (L00, L01, ...: the rank of the
+	 *  layer in the order of priority of the region) and a weight file (2,041 x 2,041 u8 for 8 x 8 components of 255
+	 *  quads: the vertex grid, row 0 = north, as the height file). Each layer has a layer info asset
+	 *  LayerInfoFolder/LI_NAME with no weight blend (the raw weights: the source splats are independent). @return The
+	 *  Landscape, or null when a file has a wrong size. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static AActor* CreateLandscapeWithLayers(const FString& RawFile, int32 ComponentsPerSide, int32 QuadsPerSection,
+		const FVector& Location, const FVector& Scale, UMaterialInterface* Material, const FString& Label, int32 GridSize,
+		bool bAlwaysLoaded, const TArray<FString>& LayerNames, const TArray<FString>& LayerFiles, const FString& LayerInfoFolder);
 
 	/** Sets the cell size and the loading range (cm) of the main runtime partition of the World Partition of the editor
 	 *  world (a runtime hash set; the members are private: reflection). @return False when the world has none. */

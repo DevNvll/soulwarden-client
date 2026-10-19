@@ -45,6 +45,12 @@ CELLS_AGAIN = os.environ.get("SWC_WORLD_CELLS", "") == "1"
 # distribution row places the meshes of its variant; 4: the material overrides of the placements, cells file version 2;
 # 5: the instances of the instanced mesh components of the slices, S0 of research/settlements.md).
 CELLS_VERSION = 5
+# The terrain material of the game (world fidelity T1, SWC_WORLD_TERRAIN=1): a region with a terrain plan with slots
+# gets its Landscape again, with one target layer for each slot (the raw weights of its splat) and the material instance
+# MI_SwcTerrain_NAME (tools/import-terrain.sh). Version 1: the macro color map only (M_SwcLandscape).
+TERRAIN_AGAIN = os.environ.get("SWC_WORLD_TERRAIN", "") == "1"
+TERRAIN_VERSION = 2
+TERRAIN = ROOT + "/Terrain"
 CELL_CHUNK = 8   # cell actors in one spawn step of the cells again (about 1 minute for the dense town of Oxboro)
 unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous([ROOT], True)
 manifest = json.load(open(os.path.join(content, "manifest.json")))["assets"]
@@ -369,10 +375,62 @@ def check_bounds(name):
             "largest distance of a bounds center from its cell center (m)": round(far, 1)}
 
 
+def landscape_again(name):
+    """Destroys the Landscape of a region (the Landscape actor and its streaming proxies, and their files) and makes it
+    again with the target layers of its terrain plan. @return A report, or None when the region has no plan with slots."""
+    plan_path = os.path.join(content, "regions", name, "terrain-plan.json")
+    if not os.path.isfile(plan_path):
+        return None
+    plan = json.load(open(plan_path))
+    instance_path = f"{TERRAIN}/Regions/{name}/MI_SwcTerrain_{name}"
+    if not plan["slots"]:
+        return None
+    if not assets.does_asset_exist(instance_path):
+        return {"landscape": False, "error": "no material instance: run tools/import-terrain.sh --regions " + name}
+    folder = os.path.join(content, "regions", name)
+    layout = json.load(open(os.path.join(folder, "landscape.json")))
+    phase = time.time()
+    files = []
+    removed = 0
+    for actor in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+        label = actor.get_actor_label()
+        if label in (f"{name} landscape", f"{name} landscape proxy"):
+            package = actor.get_outermost().get_name()
+            if library.destroy_actor(actor):
+                removed += 1
+                if package.startswith(ROOT + "/__ExternalActors__/"):
+                    files.append(os.path.join(plugin, "Content", package[len(ROOT) + 1:] + ".uasset"))
+    unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+    unreal.SystemLibrary.collect_garbage()
+    for path in files:
+        if os.path.isfile(path):
+            os.remove(path)
+    names = [slot["slot"] for slot in plan["slots"]]
+    weights = [os.path.join(folder, slot["weights"]) for slot in plan["slots"]]
+    landscape = library.create_landscape_with_layers(os.path.join(folder, layout["file"]), layout["components"],
+                                                     layout["quads per component"], unreal.Vector(*layout["location cm"]),
+                                                     unreal.Vector(*layout["scale cm"]), assets.load_asset(instance_path),
+                                                     f"{name} landscape", 2, True, names, weights, f"{TERRAIN}/LayerInfo")
+    unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+    unreal.SystemLibrary.collect_garbage()
+    return {"landscape": landscape is not None, "old actors removed": removed, "layers": len(names),
+            "terrain seconds": round(time.time() - phase, 1)}
+
+
 incomplete = False
 partial = state.setdefault("partial", {})
 for name in regions:
     done = state["regions"].get(name)
+    if done is not None and TERRAIN_AGAIN and done.get("terrain version", 1) < TERRAIN_VERSION:
+        if out_of_time():
+            incomplete = True
+            break
+        result = landscape_again(name)
+        if result is None or result["landscape"]:
+            done["terrain version"] = TERRAIN_VERSION   # (None: no layer list, the macro Landscape stays)
+        save_state()
+        log(f"region {name}: terrain again {json.dumps(result)}")
+        continue
     if done is not None and CELLS_AGAIN and done.get("cells version", 1) < CELLS_VERSION:
         cells = os.path.join(content, "regions", name, "cells.bin")
         total = library.count_instance_actors(cells) if os.path.isfile(cells) else 0

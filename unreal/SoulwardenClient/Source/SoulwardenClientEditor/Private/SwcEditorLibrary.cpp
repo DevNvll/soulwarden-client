@@ -10,16 +10,20 @@
 #include "Engine/CollisionProfile.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/Texture2D.h"
+#include "Engine/Texture2DArray.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
 #include "Landscape.h"
 #include "LandscapeInfo.h"
+#include "LandscapeLayerInfoObject.h"
 #include "LandscapeStreamingProxy.h"
 #include "LandscapeSubsystem.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
+#include "UObject/SavePackage.h"
 #include "Misc/Paths.h"
 #include "PhysicsEngine/BodySetup.h"
 #include "Chaos/TriangleMeshImplicitObject.h"
@@ -115,10 +119,80 @@ AActor* USwcEditorLibrary::SpawnMeshActor(UStaticMesh* Mesh, const FTransform& T
 AActor* USwcEditorLibrary::CreateLandscape(const FString& RawFile, int32 ComponentsPerSide, int32 QuadsPerSection, const FVector& Location,
 	const FVector& Scale, UMaterialInterface* Material, const FString& Label, int32 GridSize, bool bAlwaysLoaded)
 {
+	return CreateLandscapeWithLayers(RawFile, ComponentsPerSide, QuadsPerSection, Location, Scale, Material, Label, GridSize,
+		bAlwaysLoaded, TArray<FString>(), TArray<FString>(), FString());
+}
+
+namespace
+{
+/** @return The layer info asset Folder/LI_NAME (made and saved when it does not exist): no weight blend. */
+ULandscapeLayerInfoObject* FindOrCreateLayerInfo(const FString& Folder, const FString& LayerName)
+{
+	const FString AssetName = TEXT("LI_") + LayerName;
+	const FString PackageName = Folder / AssetName;
+	if (ULandscapeLayerInfoObject* Existing = LoadObject<ULandscapeLayerInfoObject>(nullptr, *(PackageName + TEXT(".") + AssetName), nullptr,
+		LOAD_Quiet | LOAD_NoWarn))
+	{
+		return Existing;
+	}
+	UPackage* Package = CreatePackage(*PackageName);
+	ULandscapeLayerInfoObject* Info = NewObject<ULandscapeLayerInfoObject>(Package, FName(*AssetName), RF_Public | RF_Standalone | RF_Transactional);
+	Info->SetLayerName(FName(*LayerName), false);
+	Info->SetBlendMethod(ELandscapeTargetLayerBlendMethod::None, false);
+	FAssetRegistryModule::AssetCreated(Info);
+	Package->MarkPackageDirty();
+	FSavePackageArgs Arguments;
+	Arguments.TopLevelFlags = RF_Public | RF_Standalone;
+	UPackage::SavePackage(Package, Info, *FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension()), Arguments);
+	return Info;
+}
+} // namespace
+
+UTexture2DArray* USwcEditorLibrary::CreateTextureArray(const FString& PackagePath, const TArray<UTexture2D*>& Slices,
+	TEnumAsByte<TextureCompressionSettings> Compression, bool bSRGB)
+{
+	if (Slices.IsEmpty() || Slices.Contains(nullptr))
+	{
+		return nullptr;
+	}
+	const FString AssetName = FPackageName::GetLongPackageAssetName(PackagePath);
+	UPackage* Package = CreatePackage(*PackagePath);
+	Package->FullyLoad();
+	UTexture2DArray* Array = FindObject<UTexture2DArray>(Package, *AssetName);
+	if (!Array)
+	{
+		Array = NewObject<UTexture2DArray>(Package, FName(*AssetName), RF_Public | RF_Standalone | RF_Transactional);
+		FAssetRegistryModule::AssetCreated(Array);
+	}
+	Array->PreEditChange(nullptr);
+	Array->SourceTextures.Reset();
+	for (UTexture2D* Slice : Slices)
+	{
+		Array->SourceTextures.Add(Slice);
+	}
+	Array->CompressionSettings = Compression;
+	Array->SRGB = bSRGB;
+	if (!Array->CheckArrayTexturesCompatibility() || !Array->UpdateSourceFromSourceTextures(true))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SWC texture array %s: the slices are not compatible (size or source format)"), *PackagePath);
+		return nullptr;
+	}
+	Array->PostEditChange();
+	Package->MarkPackageDirty();
+	FSavePackageArgs Arguments;
+	Arguments.TopLevelFlags = RF_Public | RF_Standalone;
+	UPackage::SavePackage(Package, Array, *FPackageName::LongPackageNameToFilename(PackagePath, FPackageName::GetAssetPackageExtension()), Arguments);
+	return Array;
+}
+
+AActor* USwcEditorLibrary::CreateLandscapeWithLayers(const FString& RawFile, int32 ComponentsPerSide, int32 QuadsPerSection,
+	const FVector& Location, const FVector& Scale, UMaterialInterface* Material, const FString& Label, int32 GridSize,
+	bool bAlwaysLoaded, const TArray<FString>& LayerNames, const TArray<FString>& LayerFiles, const FString& LayerInfoFolder)
+{
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	const int32 Size = ComponentsPerSide * QuadsPerSection + 1;
 	TArray<uint8> Bytes;
-	if (!World || !FFileHelper::LoadFileToArray(Bytes, *RawFile) || Bytes.Num() != Size * Size * 2)
+	if (!World || !FFileHelper::LoadFileToArray(Bytes, *RawFile) || Bytes.Num() != Size * Size * 2 || LayerNames.Num() != LayerFiles.Num())
 	{
 		return nullptr;
 	}
@@ -127,8 +201,27 @@ AActor* USwcEditorLibrary::CreateLandscape(const FString& RawFile, int32 Compone
 	FMemory::Memcpy(Heights.GetData(), Bytes.GetData(), Bytes.Num());   // little-endian, as the platform
 	TMap<FGuid, TArray<uint16>> HeightDataPerLayers;
 	HeightDataPerLayers.Add(FGuid(), MoveTemp(Heights));
+	// The target layers: the raw weights on the vertex grid (the same rows and columns as the heights).
+	TArray<FLandscapeImportLayerInfo> ImportLayers;
+	for (int32 Index = 0; Index < LayerNames.Num(); ++Index)
+	{
+		FLandscapeImportLayerInfo Layer{FName(*LayerNames[Index])};
+		if (!FFileHelper::LoadFileToArray(Layer.LayerData, *LayerFiles[Index]) || Layer.LayerData.Num() != Size * Size)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("SWC landscape: the weight file %s has not %d x %d bytes"), *LayerFiles[Index], Size, Size);
+			return nullptr;
+		}
+		Layer.LayerInfo = FindOrCreateLayerInfo(LayerInfoFolder, LayerNames[Index]);
+		Layer.SourceFilePath = LayerFiles[Index];
+		ImportLayers.Add(MoveTemp(Layer));
+	}
+	TArray<ULandscapeLayerInfoObject*> LayerInfos;
+	for (const FLandscapeImportLayerInfo& Layer : ImportLayers)
+	{
+		LayerInfos.Add(Layer.LayerInfo);
+	}
 	TMap<FGuid, TArray<FLandscapeImportLayerInfo>> MaterialLayerDataPerLayers;
-	MaterialLayerDataPerLayers.Add(FGuid(), TArray<FLandscapeImportLayerInfo>());
+	MaterialLayerDataPerLayers.Add(FGuid(), MoveTemp(ImportLayers));
 
 	ALandscape* Landscape = World->SpawnActor<ALandscape>(Location, FRotator::ZeroRotator);
 	Landscape->LandscapeMaterial = Material;
@@ -143,6 +236,16 @@ AActor* USwcEditorLibrary::CreateLandscape(const FString& RawFile, int32 Compone
 	if (Info)
 	{
 		Info->UpdateLayerInfoMap(Landscape);
+		// The target layers of the Landscape (the steps of the New Landscape tool after its import).
+		for (ULandscapeLayerInfoObject* LayerInfo : LayerInfos)
+		{
+			Landscape->AddTargetLayer(LayerInfo->GetLayerName(), FLandscapeTargetLayerSettings(LayerInfo));
+			const int32 LayerIndex = Info->GetLayerInfoIndex(LayerInfo->GetLayerName());
+			if (LayerIndex != INDEX_NONE)
+			{
+				Info->Layers[LayerIndex].LayerInfoObj = LayerInfo;
+			}
+		}
 		ULandscapeSubsystem* Landscapes = World->GetSubsystem<ULandscapeSubsystem>();
 		if (Landscapes && Landscapes->IsGridBased())
 		{

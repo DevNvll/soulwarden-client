@@ -9,6 +9,8 @@
 # Usage: tools/build-world.sh NAME... | --playable | --all  [--force: make the level again]
 #   [--import: before each region, tools/import-world.sh REGION (its meshes, textures, materials)]
 #   [--cells: a region in the level gets new cell actors when its cells version is old (build_world.py CELLS_VERSION)]
+#   [--terrain: a region in the level gets its Landscape again with the target layers of its terrain plan (T1;
+#    build_world.py TERRAIN_VERSION; tools/import-terrain.sh first)]
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 "${SWC_REPO}/tools/content-link.sh"
@@ -20,6 +22,7 @@ for argument in "$@"; do
         --force) export SWC_WORLD_FORCE=1 ;;
         --import) import=1 ;;
         --cells) export SWC_WORLD_CELLS=1 ;;
+        --terrain) export SWC_WORLD_TERRAIN=1 ;;
         --all|--playable)
             mapfile -t -O "${#regions[@]}" regions < <(cd "${SWC_REPO}/converter" && python3 -B -c "
 import sys
@@ -30,10 +33,10 @@ print('\n'.join(census.world_regions() if sys.argv[1] == 'all' else census.playa
 done
 [[ ${#regions[@]} -gt 0 ]] || { echo "usage: tools/build-world.sh NAME... | --playable | --all [--force]" >&2; exit 1; }
 mkdir -p "${SWC_WORK}/logs"
-in_level() {   # with --cells: in the level with cell actors of the current rule (CELLS_VERSION 5 of build_world.py)
+in_level() {   # with --cells or --terrain: in the level with the current rule (CELLS_VERSION 5, TERRAIN_VERSION 2)
     [[ -f "${SWC_GAME_CONTENT}/world-state.json" ]] && \
-        python3 -B -c "import json,sys; r = json.load(open(sys.argv[1]))['regions'].get(sys.argv[2]); sys.exit(0 if r is not None and (sys.argv[3] != '1' or r.get('cells version', 1) >= 5) else 1)" \
-            "${SWC_GAME_CONTENT}/world-state.json" "$1" "${SWC_WORLD_CELLS:-}"
+        python3 -B -c "import json,sys; r = json.load(open(sys.argv[1]))['regions'].get(sys.argv[2]); sys.exit(0 if r is not None and (sys.argv[3] != '1' or r.get('cells version', 1) >= 5) and (sys.argv[4] != '1' or r.get('terrain version', 1) >= 2) else 1)" \
+            "${SWC_GAME_CONTENT}/world-state.json" "$1" "${SWC_WORLD_CELLS:-}" "${SWC_WORLD_TERRAIN:-}"
 }
 editor_log="${SWC_REPO}/unreal/SoulwardenClient/Saved/Logs/SoulwardenClient.log"
 # The Landscape step needs the renderer (the edit layers of the Landscape use the GPU). The cells again need no renderer:
@@ -41,7 +44,7 @@ editor_log="${SWC_REPO}/unreal/SoulwardenClient/Saved/Logs/SoulwardenClient.log"
 # 106 shader maps, a chunk of 8 actors in 73 to 201 s). The bounds of a cell actor come from the saved bounds of its
 # meshes (build_world.py checks them).
 render=(-AllowCommandletRendering -RenderOffscreen)
-[[ -n "${SWC_WORLD_CELLS:-}" ]] && render=(-nullrhi)
+[[ -n "${SWC_WORLD_CELLS:-}" && -z "${SWC_WORLD_TERRAIN:-}" ]] && render=(-nullrhi)
 # One call of build_world.py for the regions (SWC_WORLD_REGIONS) with import.lock; sets `status`, writes one line.
 build_call() {   # build_call REGIONS LABEL
     status=0
@@ -60,13 +63,22 @@ build_call() {   # build_call REGIONS LABEL
     fi
     sleep 15   # another track that waits on the lock gets it now
 }
-if [[ -n "${SWC_WORLD_CELLS:-}" ]]; then
-    # The cells again: each call works on the regions that are left, in order, until its time limit.
+if [[ -n "${SWC_WORLD_CELLS:-}" || -n "${SWC_WORLD_TERRAIN:-}" ]]; then
+    # The cells or the terrain again: each call works on the regions that are left, in order, until its time limit.
+    previous=""
     for attempt in $(seq 1 300); do
         left=()
         for region in "${regions[@]}"; do in_level "${region}" || left+=("${region}"); done
         [[ ${#left[@]} -eq 0 ]] && break
-        build_call "${left[*]}" "cells call ${attempt} (${#left[@]} regions left, from ${left[0]})"
+        progress="$(md5sum < "${SWC_GAME_CONTENT}/world-state.json" 2>/dev/null)"
+        if [[ "${progress}" == "${previous}" ]]; then
+            # A call that changed nothing in the level state (for example a region with no material instance, or a
+            # wrong region name): stop, so that the calls do not hold the world lock again and again.
+            echo "build-world: the last call made no progress (${#left[@]} regions left, from ${left[0]}); see ${editor_log}" >&2
+            exit 1
+        fi
+        previous="${progress}"
+        build_call "${left[*]}" "$([[ -n "${SWC_WORLD_TERRAIN:-}" ]] && echo terrain || echo cells) call ${attempt} (${#left[@]} regions left, from ${left[0]})"
         [[ ${status} -eq 0 ]] || break
     done
     exit 0

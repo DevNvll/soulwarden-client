@@ -396,3 +396,50 @@ materials track).
   to 3. Check of the converter on `r_+04_+02` (a temporary folder): the census gives the same arrays as before and
   the new `wind`; the version 3 file has the same instances of each mesh in each actor as the version 2 file (64
   actors, 188,681 instances; 175 entries with wind, 8,021 instances).
+
+## The terrain material of the game (world fidelity T1)
+
+```sh
+tools/convert.sh terrain-layers --all   # T0: the layer lists, the splats (2,048 and 2,041 grids), the macro maps, the textures
+tools/convert.sh terrain-plan --all     # the plan of each region and the slices of the texture arrays
+tools/import-terrain.sh                 # the arrays, M_SwcTerrain, and MI_SwcTerrain_REGION of each region with layers
+tools/build-world.sh --terrain NAME...  # the Landscape of a region again, with one target layer for each slot
+```
+
+- The game composes the layers of a region into its terrain tiles (`TerrainTileCompositePS`): the diffuse, gloss,
+  specular, material height, and normal of each layer material; the macro color overlays the diffuse
+  (`OverlayBlend`, after its saturation changes toward its luminance), the macro gloss overlays the gloss, the macro
+  normal adds to the detail normal; the alpha of a layer is the height blend of its splat
+  (`GetTerrainMaterialLayerBlendingValue`). The splats are independent weights (no normalization).
+- The draw order is the list order of the region material, not the Priority: at the bed of the highland river of
+  Oxboro the gravel splat (Priority 17) is 1.0 and the lake layers (Priority 10 and 15) come after it in the list. In
+  the order of Priority the gravel covered the river.
+- `converter/swc_convert/terrain_material.py`: the plan (`regions/NAME/terrain-plan.json`: the base material, then the
+  active layers in list order as slots L00, L01, ...; their textures and parameters; the macro sets of the world
+  material), the reference composite (numpy, the formulas of the game; the offline check), and the slices of three
+  texture arrays (one slice for each of the 72 terrain materials, 2,048 x 2,048): albedo (sRGB), normal (BC5), masks
+  (BC7: R gloss, G height, B specular).
+- `M_SwcTerrain` (`Scripts/import_terrain.py`): the base material at alpha 1, then 57 slots (the largest list), each a
+  Landscape layer switch around a custom node with the composite of the game; then the distance fade to the macro
+  maps (500 m, a blend of 50 m: preset 7) and the Unreal outputs (roughness = 1 - gloss, specular = reflectance /
+  0.08). A slot that a Landscape component does not have is pruned. The Landscape of a region has one target layer
+  for each slot (`USwcEditorLibrary::CreateLandscapeWithLayers`, the layer infos `/SwcGameContent/Terrain/LayerInfo/LI_Lnn`
+  with no weight blend: the raw weights).
+- The color spaces of the upload of the source values are not traced. The instance has the readings as parameters
+  (`Readings`: the decode of the diffuse and specular maps; `Macro Near Scales` w: the decode of the macro color map).
+  The rule (the decision of the user, 2026-10-19): the reading that gives the retail ground colors in the matched
+  views (the bottom band of the color report).
+- Measured at Oxboro (2026-10-19), the bottom band of the color report, client against retail (CIEDE2000), before
+  (the macro color map only) and after (the literal reading: all maps decoded from sRGB, the values of the game as
+  linear): noon-road-low 25.3 -> 2.9 (L* 76.1 -> 49.9, retail 47.8), noon-wall-grass 15.0 -> 5.9, river-forest-noon
+  42.1 -> 14.2, river-highlands-noon 24.2 -> 22.5; the mean 26.7 -> 11.3. The rest in the river views is the water
+  (the clear water shows the bed) and the ground cover of the banks (T3).
+- All 28 regions with a layer list have the layered Landscape (2026-10-19; 21 regions have an empty list: the macro
+  Landscape stays). The bottom band of sets 1, 2, and 4 (11 noon views), the mean CIEDE2000 24.5 -> 15.5:
+  noon-road-low 25.3 -> 5.8, noon-wall-grass 15.0 -> 4.4, noon-n 14.2 -> 16.0 (the retail ground there is the cobblestone
+  road of the surface layer, S1), river-forest 42.1 -> 22.5, river-highlands 24.2 -> 24.3, ocean-clear 7.7 -> 11.8,
+  ocean-storm 18.2 -> 19.4, cleave-outside 22.2 -> 9.9, cleave-inside 34.2 -> 13.8, fen-outside 39.8 -> 21.4,
+  fen-inside 26.6 -> 21.0. The rest of the river, beach, and fen views is the water and the ground cover (T3).
+- GPU memory: the three arrays are about 1 GB. Each client of this project needs about 6 GB of the 24 GB GPU; with
+  other clients and a retail game process on it, a client stopped with "Failed to allocate Device Memory".
+
