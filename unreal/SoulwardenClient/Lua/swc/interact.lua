@@ -210,18 +210,15 @@ Swc.Define("UnifiedInteractOptionsComponentRequestsBus", "Event", {
     if not parent then
       return
     end
-    local children = swcui.children(parent)
-    -- The template: the first child (off in the canvas). The other children of the canvas are not rows of the native data.
-    local template = children[1]
-    for i = 2, #children do
-      local known = false
-      for _, row in ipairs(state.list) do
-        known = known or row == children[i]
-      end
-      if not known then
-        UiElementBus.Event.SetIsEnabled(children[i], false)
+    -- The rows: the children of the group in the canvas first (the template, off in the canvas, and the other rows), then copies of
+    -- the template. The layout of the group counts the rows that are off (no "visible only" flag): the rows of the options come
+    -- first, the rows that are not used stay off after them (the retail card has the first row right under the title).
+    if #state.list == 0 then
+      for i, c in ipairs(swcui.children(parent)) do
+        state.list[i] = c
       end
     end
+    local template = state.list[1]
     for i, option in ipairs(options or {}) do
       local row = state.list[i]
       if not row then
