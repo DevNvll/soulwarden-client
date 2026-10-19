@@ -59,6 +59,10 @@ Swc.HostBagSlot(1, "OreT1", 9, 0, 0, 0, "{00000011-0000-0000-0000-000000000011}"
 frames(1.0)
 check(Swc.HostPointOf("text:Iron Ore") ~= "", "the loot ticker: Iron Ore")
 check(Swc.HostPointOf("text:9") ~= "", "the icon of the ticker: the count of the item in the bag (9)")
+-- A second loot of more than 1 while the row of the ore shows: the ticker compares the descriptors (MatchesDescriptor).
+Swc.HostBagSlot(3, "RawhideT1", 5, 0, 0, 0, "{00000013-0000-0000-0000-000000000013}", 0, 3, 1, "")
+frames(1.0)
+check(Swc.HostPointOf("text:+5") ~= "", "a second loot while a row shows: +5 rawhide")
 picture("notices-loot")
 frames(6.0)
 check(Swc.HostPointOf("text:Iron Ore") == "", "the line of the ticker goes after its time")

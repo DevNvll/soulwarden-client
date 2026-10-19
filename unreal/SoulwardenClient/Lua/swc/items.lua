@@ -365,6 +365,10 @@ Swc.ItemDescriptor = Swc.ValueClass({
     MatchesDescriptorExactly = function(self, other)
       return other ~= nil and other.itemId == self.itemId and other.gearScore == self.gearScore
     end,
+    -- The same item and gear score (the loot ticker adds a loot to the row of the same item; the native rule is not known).
+    MatchesDescriptor = function(self, other)
+      return other ~= nil and other.itemId == self.itemId and (other.gearScore or 0) == (self.gearScore or 0)
+    end,
     HasItemClass = function(self, class) return Swc.ItemHasClass(Swc.ItemStatic(self.itemId), class) end,
     UsesRarity = function(self) return uses_rarity(Swc.ItemStatic(self.itemId)) end,
     GetRarityLevel = function(self) return rarity_of(Swc.ItemStatic(self.itemId), self.perks) end,
