@@ -1,7 +1,7 @@
 """The environment of the world (stage E0, docs/ENVIRONMENT.md; research ~/Games/soulwarden-client/research/world-environment.md):
 the data of the time of day, the sky, the fog, the weather, and the local lights, read from the game copy (read only).
 
-Usage: python3 -B -m swc_convert.environment write [--regions NAME...] | check | sample PRESET HOUR [NAME...]
+Usage: python3 -B -m swc_convert.environment write [--regions NAME...] | cookies | check | sample PRESET HOUR [NAME...]
 
 Output in SWC_CONTENT/environment:
   mission.json          the Environment element of the main-world mission (levels/newworld_vitaeeterna/level.pak: the
@@ -14,6 +14,13 @@ Output in SWC_CONTENT/environment:
                         rain, snow, weather, ocean, waterVolume, river), the world matrix (4 x 4, rows, engine m), the shape,
                         the chain of the slices from the placement (an NPC or a camp owns the lights of its slice), and the raw
                         fields of the components (BaseClass1 stays)
+  lights/REGION.json    the visible lights of the region for the client (stage E2): the type (point, spot, rect), the place, the +X
+                        axis (the direction of a spot and of a rect) and the +Z axis, the color, the multipliers, the range, the
+                        bulb, the field of view, the size, the cookie, the start state, the shadow flag, the animation, the view
+                        distance cap; a light of an NPC slice has the slice, its matrix in the frame of that slice, and the
+                        place of the slice root (the static place of the NPC)
+  cookies/NAME.png      the projector textures of the lights (the command cookies, after write; the mip of at most 512 pixels),
+  cookies.json          and their list: the game path of each texture, its PNG, its size, and its DXGI format
   volumes.json          the volumes of the world for the client in one compact file: the time-of-day volumes (shape, preset,
                         priority, blend, hour override, sky, color grading) and the fog, rain, snow, weather, and ocean volumes
   sky.json              the sky slices of the presets: their meshes, materials, textures, texture motion, and parameters
@@ -378,7 +385,7 @@ class Walk:
                 self.slices[path] = None
         return self.slices[path]
 
-    def place(self, path: str, matrix: np.ndarray, origin: str, chain: tuple, out: list, seen: set) -> None:
+    def place(self, path: str, matrix: np.ndarray, origin: str, chain: tuple, out: list, seen: set, roots: tuple = ()) -> None:
         if len(chain) > MAX_DEPTH or path in chain:
             return
         key = (path, tuple(np.round(matrix[:3, :].ravel(), 4)))
@@ -390,17 +397,23 @@ class Walk:
             return
         records, spawners = item
         chain = chain + (path,)
+        roots = roots + (matrix,)
+        owner = next((i for i, c in enumerate(chain) if "/characters/" in c), None)   # an NPC slice owns the lights below it
         for index, record in enumerate(records):
             world = matrix @ record["matrix"]
             for kind, components in record["components"].items():
                 for component in components:
-                    out.append({"kind": light_kind(component) if kind == "light" else kind, "origin": origin, "chain": list(chain),
-                                "entity": record["entity"], "index": index, "matrix": np.round(world, 6).tolist(),
-                                "place": np.round(world[:3, 3], 4).tolist(), "shape": record["shape"], "fields": component})
+                    entry = {"kind": light_kind(component) if kind == "light" else kind, "origin": origin, "chain": list(chain),
+                             "entity": record["entity"], "index": index, "matrix": np.round(world, 6).tolist(),
+                             "place": np.round(world[:3, 3], 4).tolist(), "shape": record["shape"], "fields": component}
+                    if kind == "light" and owner is not None:
+                        entry["npc"] = {"slice": chain[owner], "local": np.round(np.linalg.inv(roots[owner]) @ world, 6).tolist(),
+                                        "root": np.round(roots[owner][:3, 3], 4).tolist()}
+                    out.append(entry)
         if origin == "chunk":
             return   # the spawners of a chunk slice are not followed (region.py and the research census)
         for child, local in spawners:
-            self.place(child, matrix @ local, "nested", chain, out, seen)
+            self.place(child, matrix @ local, "nested", chain, out, seen, roots)
 
 
 def region_records(name: str, walk: Walk) -> tuple[list, dict]:
@@ -538,6 +551,41 @@ def regions_of_world() -> list[str]:
     return sorted({p[len(WORLD + "regions/"):].split("/")[0] for p in source.paks().paths(WORLD + "regions/", "/region.chunks")})
 
 
+LIGHT_TYPES = {0: "point", 1: "rect", 2: "spot"}
+NEVER = 0xFFFFFFFF
+
+
+def light_entry(record: dict) -> dict | None:
+    """@return The compact light of a record for the client (lights/REGION.json; stage E2), or no value for a probe or a hidden light
+    (Visible false: the light rigs of the mission NPC masters and the helpers of the level design). The direction of a projector and of
+    an area light is the +X axis of the entity (the data: 988 of the 1,335 projectors of r_+04_+02 have +X down)."""
+    configuration = record["fields"].get("LightConfiguration", {})
+    kind = LIGHT_TYPES.get(configuration.get("LightType"))
+    if kind is None or not configuration.get("Visible", True):
+        return None
+    m = np.array(record["matrix"])
+    axis_x = m[:3, 0] / (np.linalg.norm(m[:3, 0]) or 1.0)
+    axis_z = m[:3, 2] / (np.linalg.norm(m[:3, 2]) or 1.0)
+    rng = configuration.get({"point": "PointMaxDistance", "spot": "ProjectorDistance", "rect": "AreaMaxDistance"}[kind], 0.0)
+    cookie = (configuration.get("ProjectorTexture") or {}).get("BaseClass1", {}).get("AssetPath", "") if kind == "spot" else ""
+    out = {"type": kind, "p": [round(v, 4) for v in m[:3, 3].tolist()], "x": [round(v, 5) for v in axis_x.tolist()],
+           "z": [round(v, 5) for v in axis_z.tolist()], "color": [round(v, 6) for v in (configuration.get("COLOR") or [1, 1, 1])[:3]],
+           "diffuse": configuration.get("DiffuseMultiplier", 1.0), "spec": configuration.get("SpecMultiplier", 1.0), "range": rng,
+           "bulb": configuration.get("PointAttenuationBulbSize" if kind != "spot" else "ProjectorAttenuationBulbSize", 0.0),
+           "fov": configuration.get("ProjectorFOV", 90.0), "w": configuration.get("AreaWidth", 0.0), "h": configuration.get("AreaHeight", 0.0),
+           "cookie": cookie if cookie and "spot_default" not in cookie else "", "on": bool(configuration.get("OnInitially", True)),
+           "shadow": configuration.get("CastShadowsSpec", NEVER) != NEVER,
+           "anim": [configuration.get("AnimIndex", 0), configuration.get("AnimSpeed", 1.0), configuration.get("AnimPhase", 0.0),
+                    bool(configuration.get("AnimPhaseRandom", False))],
+           "cap": configuration.get("ViewDistanceCap", 0.0) if configuration.get("ViewDistanceCapEnabled") else 0.0,
+           "volumetric": bool(configuration.get("VolumetricFog", False)), "origin": record["origin"], "slice": record["chain"][-1]}
+    if "npc" in record:
+        out["npc"] = record["npc"]["slice"]
+        out["local"] = record["npc"]["local"]
+        out["root"] = record["npc"]["root"]
+    return out
+
+
 VOLUME_KINDS = ("timeOfDay", "fog", "rain", "snow", "weather", "ocean")
 
 
@@ -601,6 +649,11 @@ def write(names: list[str] | None = None) -> dict:
                     sky_paths.add(slice_asset.get("product") or slice_asset.get("hint"))
         (out / "regions" / f"{name}.json").write_text(json.dumps({"region": name, "space": "engine (m, Z up, right-handed; rows)",
                                                                   "counts": counts, "records": records}, separators=(",", ":")))
+        lights = [entry for entry in (light_entry(record) for record in records if record["kind"] == "light") if entry is not None]
+        (out / "lights").mkdir(exist_ok=True)
+        (out / "lights" / f"{name}.json").write_text(json.dumps({"region": name, "space": "engine (m, Z up, right-handed)", "lights": lights},
+                                                                separators=(",", ":")))
+        counts["lightsVisible"] = len(lights)
         index["regions"][name] = counts
         print(f"environment: {name} {json.dumps(counts)}", flush=True)
     (out / "volumes.json").write_text(json.dumps({"space": "engine (m, Z up, right-handed; rows)", "volumes": volumes}, separators=(",", ":")))
@@ -663,11 +716,45 @@ def write_table(preset: dict, out: Path) -> dict:
     return {"file": str(out), "values": count}
 
 
+COOKIE_SIZE = 512
+
+
+def cookie_key(path: str) -> str:
+    """@return The game path of a projector texture (lower case, no @assets@ prefix)."""
+    path = path.lower().replace("\\", "/")
+    return path[len("@assets@/"):] if path.startswith("@assets@/") else path
+
+
+def cookies() -> dict:
+    """Decodes the projector textures of the lights of lights/REGION.json (stage E2) to cookies/NAME.png and writes cookies.json."""
+    from . import dds
+    import hashlib
+    out = out_dir()
+    paths = set()
+    for file in sorted((out / "lights").glob("*.json")):
+        paths.update(cookie_key(light["cookie"]) for light in json.loads(file.read_text())["lights"] if light.get("cookie"))
+    (out / "cookies").mkdir(exist_ok=True)
+    table, failures = {}, []
+    for path in sorted(paths):
+        try:
+            data, w, h, fmt = dds.join(source.read, path, COOKIE_SIZE)
+            image = dds.to_image(data, w, h, fmt)
+        except Exception as error:   # a missing or an unknown texture: the light stays with no cookie
+            failures.append(f"{path}: {str(error)[:100]}")
+            continue
+        name = f"{Path(path).stem}_{hashlib.sha1(path.encode()).hexdigest()[:6]}"
+        image.save(out / "cookies" / f"{name}.png")
+        table[path] = {"png": f"cookies/{name}.png", "name": name, "size": [w, h], "format": fmt, "mode": image.mode}
+    (out / "cookies.json").write_text(json.dumps({"cookies": table, "failures": failures}, indent=1))
+    return {"cookies": len(table), "failures": failures}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="swc-environment", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("write")
     p.add_argument("--regions", nargs="*")
+    sub.add_parser("cookies")
     p = sub.add_parser("volumes")
     p.add_argument("x", type=float)
     p.add_argument("y", type=float)
@@ -682,6 +769,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.command == "write":
         print(json.dumps(write(args.regions), indent=1))
+    elif args.command == "cookies":
+        print(json.dumps(cookies(), indent=1))
     elif args.command == "volumes":
         print(json.dumps(time_volumes_at((args.x, args.y, args.z)), indent=1))
     elif args.command == "table":

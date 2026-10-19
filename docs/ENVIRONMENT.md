@@ -164,6 +164,103 @@ the left.
 - The local lights and the probes of interiors: stage E2. The exposure: stage E5.
 - The optional retail clamp of the sun path (research, open point 2): the noon shadows agree with the public rule.
 
+## The local lights (stage E2)
+
+`Environment/SwcLocalLights` (`USwcLocalLightSubsystem`, the runtime) with the plain rules of `Environment/SwcLocalLightRules`
+(tested by `tools/test-environment.sh`). The data: `tools/convert-environment.sh write` writes `lights/REGION.json` (the compact
+lights of each region), and `tools/convert-environment.sh cookies` writes the projector textures; `tools/import-cookies.sh` imports
+them. The decision of the user (2026-10-18): the places, the colors, and the ranges come from the data; shadows may be on where
+they look better and cost little.
+
+| Part | Rule (source) |
+| --- | --- |
+| The data | The light components of the placement walk of E0 (the chunks, the capitals, the slices that they spawn at the start): the type (`LightType` 0 point, 1 area, 2 projector; 3, the probes, are not lights), the place, the +X axis (the direction of a projector and of an area light: 988 of the 1,335 projectors of r_+04_+02 have +X down) and the +Z axis, `COLOR`, `DiffuseMultiplier`, `SpecMultiplier`, the range (`PointMaxDistance`, `ProjectorDistance`, `AreaMaxDistance`), the bulb (`PointAttenuationBulbSize`, `ProjectorAttenuationBulbSize`), `ProjectorFOV`, `AreaWidth` and `AreaHeight`, the projector texture, `OnInitially`, the shadow flag (`CastShadowsSpec` not `0xFFFFFFFF`, EngineSpec Never), the animation, and the view distance cap. A light with `Visible` false is not in the file (the light rigs of the mission NPC masters and the helpers of the level design). The world: 76,723 visible lights (57,323 point, 16,394 projector, 3,006 area), 1,383 with the shadow flag, 149 in NPC slices; 863 in 300 m about the Oxboro point. The research counts 76,717 visible lights that are on at the start; the client keeps a light that is off at the start (`OnInitially` false) off. |
+| The intensity | The source attenuation of the bulb size r is 1 / (1 + d / r)^2 at the distance d from the bulb surface, that is r^2 / D^2 at the distance D from the center: the falloff of an Unreal sphere light with the source radius r. The light unit of the public engine is 10,000 cd/m2 (`RENDERER_LIGHT_UNIT_SCALE`; `TimeOfDay.cpp`: the illuminance of the sun / 10,000 / pi is its render color, and the diffuse shading of the source has no 1 / pi). So a point light and a spot light have pi x 10,000 x `DiffuseMultiplier` x r^2 candela (r at least 0.01 m), with `COLOR` (linear) as the light color; an area light has the same surface luminance (10,000 x `DiffuseMultiplier` cd/m2) over its area. The attenuation radius is the range. `SpecMultiplier` is the specular scale (an inference: the multiplier of the specular of the light). A look scale multiplies all intensities: 3 by default (the Unreal way, a look choice): with the moon of the data (3,000 to 5,000 lux by night, E1) and the auto exposure, the scale 1 gave lamp pools that were weaker than in the retail night pictures (night-n: the gate lamps, the pillar faces, the ground), 3 gave about the balance of the retail pictures, and 10 made the windows glare (`-SwcLightScale=`, console variable `swc.LightScale`). |
+| The types | A point light is an Unreal point light. A projector is a spot light along +X with the outer cone `ProjectorFOV` / 2 (the full angle of the source) and no inner cone. An area light is a rect light along +X (`AreaWidth` x `AreaHeight`) with no barn doors (it lights its whole front half space). |
+| The cookies | A projector with a texture (not the default spot texture) gets a light function: the material instance of its texture (`/SwcGameContent/Environment/Cookies`, parent `M_SwcCookie`: the texture on the emissive color). Unreal maps the UV of the light function of a spot light from one side of the outer cone to the other, that is over the frustum of `ProjectorFOV`. 44 textures (2 textures of the data are not in the game copy: 13 lights have no cookie). The textures are linear (the source formats are BC4 and BC2 UNORM). |
+| The streaming | All lights are read on a worker thread at the start. The static lights are in a grid of 64 m cells. Each 0.25 s, a light comes in its draw distance plus 10 m and goes at its draw distance plus 30 m (at most 128 new lights in one update, the nearest first). The draw distance is 25 times the range, at least 50 m and at most 250 m, and not more than the view distance cap of the source; Unreal fades the light in the last 20 % of it (a choice of this client for the cost: the source rule of the view distance is in the client code). |
+| The shadows | The source flags (`-SwcLightShadows=none|source|all`). |
+| The owners | A light in an NPC slice follows its creature: a creature of the same slice path near the static place of the slice root (30 m) gets the light, attached with its matrix in the frame of the slice. A light with no such creature stays off. The camp lights are static props of the level data (the fires, the lanterns of the camps): always on. |
+| The hour | No switch by the hour: the data has none (`TODInfluence` alone is not a switch; research), and the retail pictures show the lamps on at noon and at night. `USwcEnvironmentSubsystem::GetNightFactor()` (0 by day, 1 by night: the weight of the moon) is a read value for the emissive of the fixtures (the materials track, stage M4). |
+| The light styles | `AnimIndex` and `AnimSpeed` select a light style of the client code (no table in the data): the lights are steady. |
+| The emissive of the fixtures | The materials track (stage M4) owns the emissive materials. The agreement (2026-10-18, through the orchestrator): the light unit of the lights is 10,000 cd/m2 for one source unit, and the emissive of M4 uses the same look factor: it reads the console variable `swc.LightScale` (3), so that a fixture and its light stay in balance. |
+
+The Unreal way kept on purpose (the decision of the user):
+
+- The intensity has a look scale of 3 over the light unit of the source (see above). The places, the colors, and the ranges are the
+  data.
+- The shadows are the source flags (13 lights in 300 m about Oxboro). All shadows on (`swc.LightShadows 2`) changed little in the
+  check views (the inn is about the same; in the lane the windows of the houses glow less) for about 0.4 ms in the lane and 2.6 ms
+  in the inn against no local lights: an option for the user, not the default.
+- The probes (`LightType` 3: the authored fill and reflection of the interiors, for example the blue-white probe of the tavern) are
+  not lights of the client: the ambient is the real-time sky light and Lumen (E1). So the inn walls are more orange than in the
+  retail pictures (the source adds a cool fill to the warm lights).
+- The lights are steady (no light styles), and they do not switch by the hour.
+
+### Check of E2
+
+`tools/match-view.sh set1-oxboro inn-noon inn-night noon-n night-n night-e night-s night-w night-road-low night-wall-grass` with
+the variants (`--variant`) of the Lumen test, of the lights hidden, and of all shadows, and `-SwcFrameStats=2`; evidence
+`~/Games/soulwarden-client/evidence/E2/` (`check/`: the side-by-side pictures with the light counts and the GPU time in their
+caption, the contact sheet, `report.json`, the logs; `tries/`: the first tries and the look scales 1, 3, and 10).
+
+- The data: 76,717 lights of 49 regions (76,572 static, 145 of NPC slices, 6 off at the start) and 44 cookies, read in 1.9 to 2.6 s
+  on a worker thread.
+- The inn at night (inn-night): the room is lit warm by its candles, its fireplace, and its accent lights, near the retail picture;
+  the walls are more orange (no probe fill; the exposure is stage E5). At noon (inn-noon) the lights add their warm accents to the
+  daylight, as in the retail picture.
+- The lane at night (night-n, night-e, night-s, night-w): the lamps of the gate pillars and the lane light the pillar faces and the
+  ground at the places of the retail pictures (night-w: the pools of the gate lamps; night-e: the light at the door of the house).
+  The moonlit walls are much brighter than in the retail pictures: the moon of the data and the exposure (stages E1 and E5).
+- The outdoor views (night-road-low, night-wall-grass) have no local light near the camera: they do not change.
+- The counts at the shot (the active lights near the camera; "in the view": the active lights whose range is in the view cone and
+  the draw distance, also behind walls): inn-night 605 active (312 point, 221 spot, 72 rect; 16 with a cookie), 278 in the view,
+  8 with shadows (4 in the view); night-n 565 active, 52 in the view, 8 shadows (1 in the view); night-e 568, 272 in the view, 8 (5);
+  night-s 571, 204, 8 (4); night-w 575, 76, 8 (0); night-road-low 370, 100, 7 (0); night-wall-grass 403, 160, 7 (5). No NPC light
+  was bound: the backend sends no town NPC now (only the creatures).
+- The cost (the GPU time of the frame statistics, the median while the view is in place; the first minutes of a run have about
+  40 ms while the world streams, so only pairs near in time compare): inn-night 7.0 ms with the lights hidden, 8.0 ms with the
+  lights (the second run), 10.0 ms with all shadows (the first run, against 7.4 ms hidden); night-n 7.6 ms hidden, 8.1 ms with the
+  lights, 8.5 ms with all shadows.
+- Tests: `tools/test-environment.sh`: the light rules (66 checks: the Unreal sphere light equals the source attenuation at 36
+  points, the rect light, the draw distance, the grid, the owner rule, the matrix of a bound light), the reader of the lights (4 more
+  tests), and the tests of E0 and E1: 0 failures.
+
+### The Lumen mesh data test
+
+The world meshes have no mesh distance field and no Lumen cards (`import_content.py`: the build was 6 times slower with them). The
+test (`tools/lumen-test.sh`, `tools/lib/lumen_test.py`, `Scripts/lumen_test_copies.py`; the import settings of the world do not
+change): the meshes of the inn of Oxboro (14 m about 8908, 4210) and of the two houses at the north side of the spawn lane (8877,
+4267 and 8891, 4273), 1 m or larger, imported again from their glTF files into `/SwcGameContent/Test/E2` with the world pipeline
+(PIPELINE_VERSION 5) and a distance field (resolution scale 1) and Lumen cards (12). `swc.LumenTest 1` puts the copies on all the
+components that use these meshes (the house kit is shared: 891 to 909 components in the town), `0` gives the world meshes back; the
+client waits for the distance fields and the cards after a swap. Evidence `~/Games/soulwarden-client/evidence/E2/lumen/`
+(`pairs-without-with.png`: each view without and with, taken one after the other; `copies-report.json`).
+
+| Measure | Result |
+| --- | --- |
+| The set | 124 meshes (105 of the inn, 12 of each house; 117 Nanite); 58 meshes under 1 m are not copied (below the detail of the distance fields). |
+| The build cost | The import and the save of the 124 meshes with the distance fields and the cards: 99 s (batches of 16; 0.8 s for each mesh, 44.5 s for the last batch of 12 large merged meshes of the inn), 108 s for the commandlet. The client built 2 large distance fields again at the first swap (2.7 s each; 1.4 and 1.6 MB, 126 cubed sparse fields). The world track measured 80 s against 14 s for 20 meshes with and without. |
+| The inn at night (inn-night) | No visible change (the mean brightness of the picture 35.1 and 35.2 of 255): the local lights light the room; the bounce of Lumen is small. |
+| The inn at noon (inn-noon) | The walls are warmer and the picture is 4 % darker (110 to 105): with the distance fields the walls stop the sky light that came through them, so the warm local lights are the main light; the window glass reflects the room. The retail picture has whiter walls with warm accents (its probe fill). |
+| The lane (noon-n, night-n) | Small local changes only (the doors and the windows of the houses). |
+| The GPU time | No measurable change: inn-noon 7.43 ms without, 7.65 ms with; noon-n 5.89 and 5.85 ms; night-n 7.36 and 7.30 ms (pairs one after the other, the second run). |
+
+The result is for the user: the mesh data corrects the light leaks of the interiors at a small cost on the GPU and a build of
+about 1 s for each mesh; the look at night does not depend on it. A world rebuild with it is the decision of the user (the world
+track owns the import settings).
+
+### Not done, open points (E2)
+
+- No NPC light was bound in the check: the backend sends no town NPC now (only the creatures), so the 145 lights of NPC slices stay
+  off. The binding rule is tested with the rules (`owns_lights`).
+- The light styles (`AnimIndex`: the flicker of the fires) are in the client code, not in the data: the lights are steady.
+- The orientation of an asymmetric cookie (a window, a chandelier) is not checked against a retail picture (the map of the space
+  mirrors Y).
+- The draw distance is a rule of this client (the source rule is in the client code).
+- The moonlit walls are brighter than in the retail pictures (the balance of the moon and the exposure: stages E1 and E5); the
+  probes stay replaced by the sky light and Lumen (the decision of the user).
+
 ## The matched views
 
 `tools/match-view.sh SET [VIEW...] [--out FOLDER] [--label LABEL]` (`tools/lib/match_view.py`, client `Environment/SwcMatchView`)
@@ -194,4 +291,10 @@ client selects its own volumes (stage E3).
 | `-SwcMatchView=PLAN.json` | The matched views of a plan (tools/match-view.sh). |
 | `tools/convert-environment.sh volumes X Y Z` | The time-of-day volumes that hold a place (engine m), the highest priority first. |
 | `tools/convert-environment.sh sample PRESET HOUR [NAME...]` | The values of a preset at an hour. |
+| `-SwcLightProbe` | The log line of the local lights each 1 s (else each 30 s): the active lights by type, the bound and the cookie lights, the lights in the view, the shadows. |
+| `-SwcNoLocalLights`, `-SwcNoCookies`, `-SwcLightShadows=none\|source\|all` | No local lights; no cookies; the shadows of the local lights. |
+| `swc.LightScale F`, `swc.LocalLights 0\|1`, `swc.LightShadows 0\|1\|2` | Console variables: the look scale of the local lights (`-SwcLightScale=F` at the start), the local lights hidden or on (a compare of the cost in one run), the shadows of the local lights (none, the source flags, all). |
+| `swc.LumenTest 0\|1` | The Lumen test copies of the inn and the two houses (`-SwcLumenTest` at the start; `tools/lumen-test.sh` makes them). |
+| `tools/match-view.sh ... --variant VIEW@NAME=COMMAND;...` | One more picture of a view with client console commands (run when the view is in place): a look value or a switch to compare in one run. The report and the side-by-side picture have the local lights at the shot and the median GPU time while the view is in place (with `-SwcFrameStats=2`). |
+| `tools/convert-environment.sh cookies`, `tools/import-cookies.sh` | The projector textures of the lights: the PNGs, then the textures, the light function material, and the material instances (the import lock). |
 | `tools/lib/world_time_compare.py FOLDER LABEL` | The compare of the client clock (the log lines of `-SwcWorldTimeProbe`) with the records, the phase edges, and the reads of the server in one run; exit status 1 above 1 game second. |

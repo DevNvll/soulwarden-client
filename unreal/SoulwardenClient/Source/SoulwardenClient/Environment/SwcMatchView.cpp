@@ -6,6 +6,7 @@
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
+#include "Environment/SwcLocalLights.h"
 #include "Environment/SwcWorldTimeSubsystem.h"
 #include "GameFramework/HUD.h"
 #include "GameFramework/Pawn.h"
@@ -136,6 +137,14 @@ bool USwcMatchViewSubsystem::LoadPlan(const FString& Path)
 		View.Roll = Camera->HasField(TEXT("roll_deg")) ? Camera->GetNumberField(TEXT("roll_deg")) : 0.0;
 		View.VerticalFov = Camera->GetObjectField(TEXT("fov"))->GetNumberField(TEXT("vertical_deg"));
 		View.TargetHour = Source->GetObjectField(TEXT("world_hour"))->GetNumberField(TEXT("client_hour_at_picture"));
+		const TArray<TSharedPtr<FJsonValue>>* Commands = nullptr;
+		if (Entry->TryGetArrayField(TEXT("commands"), Commands))
+		{
+			for (const TSharedPtr<FJsonValue>& Command : *Commands)
+			{
+				View.Commands.Add(Command->AsString());
+			}
+		}
 		Views.Add(MoveTemp(View));
 	}
 	UE_LOG(LogSwcEnvironment, Log, TEXT("matchview: plan %s: %d view(s), %dx%d, settle %.1f s"), *Path, Views.Num(), Width, Height, SettleSeconds);
@@ -207,6 +216,12 @@ void USwcMatchViewSubsystem::Shoot()
 	}
 	Step = EStep::Shot;
 	StepSince = FPlatformTime::Seconds();
+	if (const USwcLocalLightSubsystem* Lights = GetWorld()->GetSubsystem<USwcLocalLightSubsystem>())
+	{
+		const FSwcLocalLightStats Stats = Lights->GetStats();
+		UE_LOG(LogSwcEnvironment, Log, TEXT("match view %s: local lights at the shot: %d active (%d point, %d spot, %d rect; %d bound; %d with a cookie), %d in the view; shadows %d (%d in the view)"),
+			*View.Name, Stats.Active, Stats.Points, Stats.Spots, Stats.Rects, Stats.Bound, Stats.Cookies, Stats.InView, Stats.Shadows, Stats.ShadowsInView);
+	}
 }
 
 void USwcMatchViewSubsystem::Tick(float DeltaTime)
@@ -299,6 +314,11 @@ void USwcMatchViewSubsystem::Tick(float DeltaTime)
 		}
 		Step = EStep::InPlace;
 		StepSince = Now;
+		for (const FString& Command : View.Commands)
+		{
+			const bool bDone = GEngine != nullptr && GEngine->Exec(GetWorld(), *Command);
+			UE_LOG(LogSwcEnvironment, Log, TEXT("matchview: view %d %s: command \"%s\"%s"), Current + 1, *View.Name, *Command, bDone ? TEXT("") : TEXT(" (not run)"));
+		}
 		const swc::net::WorldPosition PawnPlace = SwcUnrealToEngine(Pawn != nullptr ? Pawn->GetActorLocation() : FVector::ZeroVector);
 		UE_LOG(LogSwcEnvironment, Log, TEXT("matchview: view %d %s: in place%s (server %.3f %.3f %.3f; pawn %.3f %.3f %.3f, yaw %.2f; camera pitch %.2f yaw %.2f, roll of the reference %.3f; %s, %d package(s) loading)"),
 			Current + 1, *View.Name, bTimeout ? TEXT(" after the timeout") : TEXT(""), Own.position.x, Own.position.y, Own.position.z, PawnPlace.x, PawnPlace.y, PawnPlace.z,

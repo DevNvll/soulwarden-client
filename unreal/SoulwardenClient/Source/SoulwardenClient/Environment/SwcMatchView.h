@@ -64,6 +64,9 @@ private:
 		double VerticalFov = 57.0;
 		/** The hour of the retail picture (the measured hour of the client). */
 		double TargetHour = 12.0;
+		/** The console commands of a variant of the view (tools/match-view.sh --variant), run when the view is in place: a look
+		 *  value to compare in one run. */
+		TArray<FString> Commands;
 	};
 	enum class EStep : uint8 { Idle, Ready, InPlace, Settle, Shot, Done };
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The matched views of the fidelity checks (docs/ENVIRONMENT.md, "The matched views"; tools/match-view.sh).
 
-Usage: python3 -B tools/lib/match_view.py SET [VIEW...] [--out FOLDER] [--label LABEL] [--settle S] [--lead S]
+Usage: python3 -B tools/lib/match_view.py SET [VIEW...] [--out FOLDER] [--label LABEL] [--settle S] [--lead S] [--hours VIEW=HH:MM,...] [--variant VIEW@NAME=COMMAND;...]
 
 SET: a folder of retail references (index.json and, for each picture, NAME.png and NAME.json: the feet, the camera, the field of
 view, the measured world hour), or its name in ~/Games/soulwarden/work/evidence/unreal-references. VIEW: the views to run (default:
@@ -64,12 +64,39 @@ def set_hour(target: float, lead_seconds: float) -> str:
     return clock((target - lead_seconds * rate / 3600.0) % 24.0)
 
 
+def view_measures(log: Path, views: list[dict]) -> None:
+    """Adds to each view the counts of the local lights at its picture (stage E2) and the median GPU time of the frame statistics
+    (-SwcFrameStats=SECONDS) while the view is in place, when the client log has them."""
+    by_name = {v["name"]: v for v in views}
+    gpu: dict[str, list[float]] = {}
+    current = None
+    for line in log.read_text(errors="replace").splitlines() if log.is_file() else []:
+        match = re.search(r"matchview: view \d+ (\S+): (in place|picture)", line)
+        if match:
+            current = match[1] if match[2] == "in place" else None
+            continue
+        match = re.search(r"match view (\S+): local lights at the shot: (.*)", line)
+        if match and match[1] in by_name:
+            by_name[match[1]]["lights"] = match[2].strip()
+        match = re.search(r"SWC FRAMES (\{.*\})", line)
+        if match and current in by_name:
+            gpu.setdefault(current, []).append(float(json.loads(match[1])["gpu p50 ms"]))
+    for name, values in gpu.items():
+        values.sort()
+        by_name[name]["gpuP50Ms"] = values[len(values) // 2]
+        by_name[name]["gpuWindows"] = len(values)
+
+
 def side_by_side(view: dict, reference: Path, client: Path, out: Path) -> None:
     left = Image.open(reference).convert("RGB").resize((1280, 720))
     right = Image.open(client).convert("RGB").resize((1280, 720)) if client.is_file() else Image.new("RGB", (1280, 720), (60, 20, 20))
-    image = Image.new("RGB", (2560, 790), (19, 25, 34))
-    image.paste(left, (0, 70))
-    image.paste(right, (1280, 70))
+    extra = "  |  ".join(part for part in (f"local lights: {view['lights']}" if view.get("lights") else "",
+                                           f"GPU p50 {view['gpuP50Ms']:.1f} ms (median of {view['gpuWindows']} windows in place)" if "gpuP50Ms" in view else "",
+                                           f"commands: {'; '.join(view['commands'])}" if view.get("commands") else "") if part)
+    top = 100 if extra else 70
+    image = Image.new("RGB", (2560, 720 + top), (19, 25, 34))
+    image.paste(left, (0, top))
+    image.paste(right, (1280, top))
     draw = ImageDraw.Draw(image)
     feet = view["feet"]
     draw.text((14, 8), f"{view['name']}  |  retail (left), client (right)  |  {view.get('place', '')}", font=font(22), fill=(238, 242, 249))
@@ -77,6 +104,8 @@ def side_by_side(view: dict, reference: Path, client: Path, out: Path) -> None:
     draw.text((14, 40), f"hour: retail {retail_hour}, client {view.get('clientClock', '-')}  |  feet {feet[0]:.2f} {feet[1]:.2f} {feet[2]:.2f}  |  "
                         f"camera {view['camera'][0]:.2f} {view['camera'][1]:.2f} {view['camera'][2]:.2f}, heading {view['heading']:.1f}, pitch {view['pitch']:.1f}  |  "
                         f"vertical FOV {view['fov']:g}", font=font(17), fill=(175, 190, 209))
+    if extra:
+        draw.text((14, 68), extra, font=font(17), fill=(214, 196, 150))
     image.save(out)
 
 
@@ -104,6 +133,9 @@ def main() -> int:
     parser.add_argument("--lead", type=float, default=14.0, help="real seconds from the hour command to the hour of the picture")
     parser.add_argument("--hours", action="append", default=[],
                         help="VIEW=HH:MM[,HH:MM...]: more views of a reference view at other world hours (the left side: its retail picture)")
+    parser.add_argument("--variant", action="append", default=[],
+                        help="VIEW@NAME=COMMAND[;COMMAND...]: one more picture of a view with client console commands run when it is in place "
+                             "(a look value to compare in one run; the picture VIEW@NAME)")
     parser.add_argument("--character", default=os.environ.get("SWC_DEV_CHARACTER", ""))
     parser.add_argument("--client-args", nargs=argparse.REMAINDER, default=[])
     args = parser.parse_args()
@@ -151,9 +183,19 @@ def main() -> int:
                           "feet": [derived["feet"]["x"], derived["feet"]["y"], derived["feet"]["z"]], "camera": [camera["x"], camera["y"], camera["z"]],
                           "heading": camera.get("heading_deg_cw_from_north", 0.0), "pitch": camera.get("pitch_deg_positive_up", 0.0),
                           "fov": camera["fov"]["vertical_deg"], "targetHour": hour})
+    # Variants of a view: the same place and hour, with console commands of the client (the left side: its retail picture).
+    for spec in args.variant:
+        label, _, commands = spec.partition("=")
+        name = label.partition("@")[0]
+        base = next((v for v in views if v["name"] == name), None)
+        if base is None:
+            print(f"match-view: no view {name} for --variant (name it in the views)", flush=True)
+            continue
+        views.append(dict(base, name=label, out=str(out / "client" / f"{label}.png"), commands=[c.strip() for c in commands.split(";") if c.strip()]))
     plan = out / "plan.json"
     plan.write_text(json.dumps({"settle": args.settle, "width": 1280, "height": 720,
-                                "views": [{"name": v["name"], "json": v["json"], "out": v["out"]} for v in views]}, indent=1))
+                                "views": [{"name": v["name"], "json": v["json"], "out": v["out"], "commands": v.get("commands", [])} for v in views]},
+                               indent=1))
     for view in views:
         Path(view["out"]).unlink(missing_ok=True)
     # The run: the window on the own agent desktop, the development routes of the backend.
@@ -210,6 +252,7 @@ def main() -> int:
     backend = Path(os.environ.get("SWC_DEV_DATA") or WORK / "dev-data") / "logs" / "backend.log"
     if backend.is_file():
         shutil.copy(backend, out / f"{args.label}-backend.log")
+    view_measures(out / f"{args.label}-client.log", views)
     sides = []
     for view in views:
         side = out / "side" / Path(view["out"]).name

@@ -51,6 +51,10 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	virtual TStatId GetStatId() const override;
 
+	/** @return The night factor (0 by day, 1 by night): the weight of the moon. A read value for the emissive of the fixtures (the
+	 *  local lights of stage E2 do not switch by the hour: the data has no switch). */
+	double GetNightFactor() const { return NightFactor; }
+
 	/** The data of the environment (the result of the worker thread). */
 	struct FData
 	{
@@ -93,4 +97,5 @@ private:
 	 *  (-SwcNightExposure=EV), both faded in with the moon. */
 	double NightSkyFactor = 0.2;
 	double NightExposure = -2.5;
+	double NightFactor = 0.0;
 };

@@ -32,5 +32,9 @@ if [[ -f "${SWC_CONTENT}/environment/presets.json" ]]; then
     (cd "${SWC_REPO}/converter" && python3 -B -m swc_convert.environment table libs/timeofday/zones/everfall_a.xml "${table}" >/dev/null)
 fi
 "${out}/swc-environment-rules-tests" "${table}" "${HOME}/Games/soulwarden-client/research/world-environment/proof-metadata.json"
+# The rules of the local lights (stage E2): the intensity against the source attenuation, the draw distance, the grid, the owner.
+nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -I"${module}" \
+    "${SWC_REPO}/tests/environment/local_light_tests.cpp" "${module}/Environment/SwcLocalLightRules.cpp" -o "${out}/swc-local-light-tests"
+"${out}/swc-local-light-tests"
 cd "${SWC_REPO}"
 exec python3 -B -m unittest discover -s tests/environment -p "test_*.py"

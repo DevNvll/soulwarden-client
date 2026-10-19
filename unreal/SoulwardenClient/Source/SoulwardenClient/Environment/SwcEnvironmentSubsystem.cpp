@@ -451,6 +451,7 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	// at 18:05, just after the sunset of the path at 18:00).
 	const double Elevation = FMath::RadiansToDegrees(FMath::Asin(FMath::Clamp(SunToward.z, -1.0, 1.0)));
 	const double MoonWeight = FMath::Max(Multipliers.moon, FMath::Clamp(-Elevation / TwilightDegrees, 0.0, 1.0));
+	NightFactor = MoonWeight;
 	auto Linear = [](const env::LightColor& In)
 	{
 		return FLinearColor(static_cast<float>(In.color[0]), static_cast<float>(In.color[1]), static_cast<float>(In.color[2]));

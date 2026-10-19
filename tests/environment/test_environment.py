@@ -139,3 +139,55 @@ class Paths(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Lights(unittest.TestCase):
+    """The compact lights of lights/REGION.json (stage E2)."""
+
+    @staticmethod
+    def record(configuration: dict, matrix=None, npc=None) -> dict:
+        record = {"kind": "light", "origin": "nested", "chain": ["a.dynamicslice", "b.dynamicslice"],
+                  "matrix": (np.eye(4) if matrix is None else matrix).tolist(), "fields": {"LightConfiguration": configuration}}
+        if npc is not None:
+            record["npc"] = npc
+        return record
+
+    def test_a_projector_points_along_its_x_axis(self):
+        m = np.eye(4)
+        m[:3, :3] = [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]   # +X down
+        m[:3, 3] = [10.0, 20.0, 5.0]
+        light = environment.light_entry(self.record({"LightType": 2, "COLOR": [1.0, 0.5, 0.25], "DiffuseMultiplier": 2.5,
+                                                     "ProjectorDistance": 15.0, "ProjectorFOV": 60.0, "CastShadowsSpec": 1,
+                                                     "ProjectorTexture": {"BaseClass1": {"AssetPath": "textures/lights/x.dds"}}}, m))
+        self.assertEqual(light["type"], "spot")
+        self.assertEqual(light["x"], [0.0, 0.0, -1.0])
+        self.assertEqual(light["p"], [10.0, 20.0, 5.0])
+        self.assertEqual((light["range"], light["fov"], light["diffuse"]), (15.0, 60.0, 2.5))
+        self.assertTrue(light["shadow"])
+        self.assertEqual(light["cookie"], "textures/lights/x.dds")
+        self.assertEqual(light["slice"], "b.dynamicslice")
+
+    def test_types_ranges_and_defaults(self):
+        point = environment.light_entry(self.record({"LightType": 0, "PointMaxDistance": 4.0, "PointAttenuationBulbSize": 0.6,
+                                                     "CastShadowsSpec": 0xFFFFFFFF}))
+        self.assertEqual((point["type"], point["range"], point["bulb"], point["shadow"]), ("point", 4.0, 0.6, False))
+        self.assertEqual(point["cookie"], "")
+        area = environment.light_entry(self.record({"LightType": 1, "AreaMaxDistance": 6.0, "AreaWidth": 1.5, "AreaHeight": 3.0}))
+        self.assertEqual((area["type"], area["range"], area["w"], area["h"]), ("rect", 6.0, 1.5, 3.0))
+        spot = environment.light_entry(self.record({"LightType": 2, "ProjectorTexture": {"BaseClass1": {"AssetPath": "textures/lights/spot_default.dds"}}}))
+        self.assertEqual(spot["cookie"], "", "the default spot texture is no cookie")
+        capped = environment.light_entry(self.record({"LightType": 0, "ViewDistanceCapEnabled": True, "ViewDistanceCap": 80.0}))
+        self.assertEqual(capped["cap"], 80.0)
+
+    def test_probes_and_hidden_lights_are_out(self):
+        self.assertIsNone(environment.light_entry(self.record({"LightType": 3})))
+        self.assertIsNone(environment.light_entry(self.record({"LightType": 0, "Visible": False})))
+        off = environment.light_entry(self.record({"LightType": 0, "OnInitially": False}))
+        self.assertFalse(off["on"], "a light that is off at the start stays in the data")
+
+    def test_a_light_of_an_npc_slice_keeps_its_owner(self):
+        npc = {"slice": "slices/characters/mission/npc_0422_innkeep.dynamicslice", "local": np.eye(4).tolist(), "root": [1.0, 2.0, 3.0]}
+        light = environment.light_entry(self.record({"LightType": 0}, npc=npc))
+        self.assertEqual(light["npc"], npc["slice"])
+        self.assertEqual((light["local"], light["root"]), (npc["local"], [1.0, 2.0, 3.0]))
+        self.assertNotIn("npc", environment.light_entry(self.record({"LightType": 0})))
