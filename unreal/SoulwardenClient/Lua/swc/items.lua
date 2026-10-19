@@ -621,6 +621,7 @@ function Swc.HostPaperdollItem(slot, itemId, quantity, gearScore, durability, ma
   Swc.player.paperdoll[slot] = item.static and item or nil
   Swc.player.equipment[slot] = item.static and item.static.key or nil
   Swc.Notify("PaperdollEventBus", Swc.ids.paperdoll, "OnPaperdollSlotUpdate", slot, item, action or 0)
+  Swc.UpdateReticle()
 end
 
 --- One paperdoll slot with only an item id (the look; the fixtures and the HUD tests).

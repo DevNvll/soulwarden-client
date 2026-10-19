@@ -246,7 +246,7 @@ census.canvases = {
     ui = {{group = 8, gate = {}}}},
   ["hud2024/paperdollstatus/paperdollstatuscanvas"] = {class = "dormant", feature = "F07", stage = "P2.4, P2.5, P3.2",
     ui = {{group = 5, gate = {flags = {"UIFeatures.enable-hud-paperdoll-status"}}}}},
-  ["hud2024/reticles/reticlescanvas"] = {class = "stage", feature = "F07", stage = "P2.4, P2.5, P3.2",
+  ["hud2024/reticles/reticlescanvas"] = {class = "active", feature = "F07", stage = "P2.4, P2.5, P3.2",
     ui = {{group = 4, gate = {}}}},
   ["hud2024/vitals/vitals2024"] = {class = "active", feature = "F07", stage = "P2.4, P2.5, P3.2",
     ui = {{group = 1, gate = {}}}},

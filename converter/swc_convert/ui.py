@@ -876,7 +876,9 @@ def convert_gamedata() -> dict:
                      tableNameId of lyshineui/skills/weaponmastery/weaponmasterydata.luac)
     weapons.json     item id (lower case) -> the weapon definition of its ItemStatsRef (javelindata_itemdefinitions_weapons
                      and _runes): WeaponMasteryCategoryId (the ability table), IsShieldCompatible, ManaCostId, MannequinTag,
-                     TierNumber, EquipAbility (the heart rune), and the Name and Description keys of the item
+                     TierNumber, EquipAbility (the heart rune), ReticleName and ReticleTargetName (the reticle of the
+                     HUD: reticlesmanager.luac takes the CRC-32 of the lower-case name), and the Name and Description keys
+                     of the item
     afflictions.json the affliction rows (javelindata_afflictions): IntID, AfflictionID, Max, IsGlobalAffliction, ColorHex
                      (AARRGGBB), Icon, and the two tooltip keys
     """
@@ -925,7 +927,8 @@ def convert_gamedata() -> dict:
                 "mannequinTags": [t.strip() for t in (weapon.get("MannequinTag") or "").split(",") if t.strip()],
                 "tier": number_or_none(weapon.get("TierNumber")) or 0,
             }
-            for key, column in (("equipAbility", "EquipAbility"), ("name", "Name"), ("description", "Description")):
+            for key, column in (("equipAbility", "EquipAbility"), ("name", "Name"), ("description", "Description"),
+                                ("reticle", "ReticleName"), ("reticleTarget", "ReticleTargetName")):
                 if row.get(column) or weapon.get(column):
                     weapons[row["ItemID"].lower()][key] = row.get(column) or weapon.get(column)
     target = out_dir() / "gamedata"

@@ -106,6 +106,19 @@ function Swc.HostActiveWeapon(slot, sheathed)
   if changed and slot then
     Swc.SetData("Hud.LocalPlayer.Equipment.ActiveWeaponSlot", slot)
   end
+  -- The sheathe events of the paperdoll (reticlesmanager.luac keeps the drawn slot from them: a drawn bow shows the bow
+  -- reticle, a sheathed weapon the default reticle).
+  local drawn = (slot and not sheathed) and slot or nil
+  if Swc.player.drawnSlot ~= drawn then
+    if Swc.player.drawnSlot then
+      Swc.Notify("PaperdollEventBus", Swc.ids.paperdoll, "OnSlotSheathed", Swc.player.drawnSlot)
+    end
+    Swc.player.drawnSlot = drawn
+    if drawn then
+      Swc.Notify("PaperdollEventBus", Swc.ids.paperdoll, "OnSlotUnsheathed", drawn)
+    end
+  end
+  Swc.UpdateReticle()
 end
 
 --- The ability bar of one ability table (the ability state of the backend): the three ability keys (0: empty).

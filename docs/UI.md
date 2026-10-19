@@ -405,8 +405,8 @@ The classes (2026-10-19):
 
 | Class | Rule | Count |
 | --- | --- | --- |
-| active | this client loads it in the world (`HudScreens` of `UI/SwcUiSubsystem.cpp`, the globals, the loading screen; stage P3.H adds the consumable quick slots and the XP meter) | 23 |
-| stage | the retail client can load it on this backend with the values of the build; a later stage owns it | 122 |
+| active | this client loads it in the world (`HudScreens` of `UI/SwcUiSubsystem.cpp`, the globals, the loading screen; stage P3.H adds the consumable quick slots, the XP meter, and the reticles) | 24 |
+| stage | the retail client can load it on this backend with the values of the build; a later stage owns it | 121 |
 | service | a public online service (F89): the store (3), the news, the survey, the report, the feedback, the voice chat, the legal screen; no such service on this computer | 9 |
 | debug | a diagnostic or editor screen (F90): the logger, the full-screen assert, the style guide, the benchmark (2), the editor tester of the fly-out menu, the grey box of the virtual cursor; their gates are off in a retail client | 7 |
 | dormant | no gate opens with the values of the build: the housing tips (`housingImprovements` false), the paperdoll status (`enable-hud-paperdoll-status` false), the first QTE (the build has `enable-ftue-v2` true: `qte_v2`) | 3 |
@@ -597,6 +597,15 @@ the client window) and the retail combat capture of set 6 (the list of the UI tr
   (`hud2024/xp`: the level under the vitals; `xpmeter.luac` shows an XP popup at a change and hides it after 1.9 s).
 - The vitals: only the health bar shows its number. The stamina and mana numbers follow the option
   `Video.HudShowVitalsValues`: off (the program and the saved retail options).
+- The reticle (`hud2024/reticles/reticlescanvas`, `reticlesmanager.luac`; the native part: `swc/reticle.lua`):
+  `Hud.LocalPlayer.ReticleToShow` is the CRC-32 of the lower-case `ReticleName` of the active weapon (the weapon data,
+  `gamedata/weapons.json`: melee, spear, bow, pistol, rifle, blunderbuss; the manager maps melee 3488054177, bow 2551600555,
+  rifle 3151297237, spear 2677968547, and the names `...HaveTarget` of `ReticleTargetName` to its reticles; an other name gives
+  the melee reticle). The option `Controls.AlwaysShowReticle` is on (the program default): the reticle also shows while the
+  weapon is sheathed, as in the retail pictures (four white ticks at the screen center). The colors
+  `Controls.ReticleColor` (white) and `Controls.ReticleTargetColor` (1, 0.443, 0.443) come from the saved retail options. The
+  manager keeps the drawn slot from the events `OnSlotUnsheathed` and `OnSlotSheathed` of `PaperdollEventBus`
+  (`Swc.HostActiveWeapon` sends them).
 - The place of the HUD parts (`tools/lib/hud_compare.py RETAIL.png CLIENT.png FOLDER`): two pictures of one window size; for each
   region the shift and the scale of the client picture where the edges agree best, and a picture of the two regions and their
   edges (retail red, client green). With different content (another build, another heading) the score is low: the edge
@@ -697,7 +706,9 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `visuals` | The HUD screens WeaponQuickslots, ReticlesCanvas, Vitals2024, and Compass with their scripts in the HUD state. The fixture shows the parts that need game events and sets the fill amounts through `UiImageBus` (0, 0.25, 0.5, 0.75, 1): the area of each mesh against the O3DE geometry for a radial fill (the combo points, also from 60 degrees), a counter-clockwise radial fill (the channel ring), a sliced radial fill (the hint ring of the heart rune), a counter-clockwise corner fill (the heat meter), a linear fill (the turret health), an edge fill (the reload ring, set through the bus). The heart rune hexagon and the compass give their sprite mask to the meshes below them. Pictures `visuals-fills-0` to `-100`, `visuals-masks`. |
 | `census` | The census table (`swc/census.lua`, 164 rows) against the canvases of the game and the two loaders: each template loads with its scripts (the Lua errors of the templates of later stages go to the notes); the original UI loader at a world entry asks for exactly the canvases whose gate is open (76 with the values of the build, 139 with on-demand loading off) in the order of the load groups; the config table asks for exactly its open entries when the flags turn on; the canvas list of the original dynamic loader is the table, and each of its 53 UI states asks for its canvas. |
 | `options` | The original Options screen from the button Settings of the escape menu: the defaults of the client program (the camera shake on, the master volume 100), a label with more text ("Monitor 1"), a picture of each category (Game, Keyboard & Mouse, Controller, Video, Audio, Social, Accessibility, About) and of the two binding tabs; the key page: a click on the jump row starts the listen (the client gets `keybinding 1`), a key that no action has binds the jump (the UI actions use it; the client gets the rebind and the save; the hints get the key), the key of the journal (J) gives the conflict popup, the reset of the page sets the defaults again (`rebind-reset`). Pictures `options-*`. |
-| `fighthud` | The fight HUD screens (Vitals2024, WeaponQuickslots, ConsumableQuickslots, XP, Compass) with a player of the host calls: two weapons with ability bars, the heart rune, three consumables in the quick slots. The quick slot 1 shows the count 9 and the key 3; the empty slot 3 shows only the key 5; the level 65 shows under the vitals and the XP popup of the spawn is out after 3 s; the weapon slots show the other weapon (key 2) and the heart rune (key G). Picture `fighthud`. |
+| `fighthud` | The fight HUD screens (Vitals2024, WeaponQuickslots, ConsumableQuickslots, XP, Compass, ReticlesCanvas) with a player of the host calls: two weapons with ability bars, the heart rune, three consumables in the quick slots. The quick slot 1 shows the count 9 and the key 3; the empty slot 3 shows only the key 5; the level 65 shows under the vitals and the XP popup of the spawn is out after 3 s; the weapon slots show the other weapon (key 2) and the heart rune (key G); the reticle of the sword is the melee reticle
+(`ReticleToShow` 3488054177), it shows with the weapon sheathed; a drawn bow gives the bow reticle (2551600555). Pictures `fighthud`,
+`fighthud-bow`. |
 | `loader` | The screen loader of the game (`uiloader.luac`) at a world entry, with two allowed screens (Vitals2024, InfoModal): it asks only for canvases of its list (`gamedata/loader.json`, 153 paths), one time each, with the ending `.uicanvas` (105 for the world); it counts each load and failure and sets the state HUD; the HUD screen has no autohide and shows, the menu has autohide and shows only in its state. Each canvas that the game has for the two lists (the UI loader and the 69 canvases of `dynamiccanvasloader.luac`) is converted; 2 paths of the UI loader have no canvas in the game. |
 | `escape` | The original EscapeMenu and Popup screens driven by keys and clicks (`Swc.HostInput`): Escape in the HUD fires `toggleMenuComponent`, the state goes to "esc", the menu shows with the cursor and the maps player, movement, camera off; exit to desktop opens the quit popup over the menu (the state stays; the map ui off); Escape fires `ui_genpop_cancel` and closes only the popup; the pointer hovers a menu button again; Escape gives `OnEscapeKeyPressed` to the menu and the HUD comes back with its maps. Pictures `escape-menu`, `escape-popup`, `escape-focus`. |
 | `loading` | The loading screen of the game (`loadingscreen.luac`) shows and hides with the events of the native code; a refused connection gives the original error popup (`popup.luac` ShowError, `UIError_login_unable_to_connect`) with the cursor, and its OK button closes it. Pictures `loading-start`, `loading-later`, `loading-error`. |
@@ -856,3 +867,13 @@ Soulwarden evidence of creatures, abilities-crit, fight, loot, loot-bags, gather
   the interactions after the world, the graphics, and the gameplay. The retail references are set 5
   (`~/Games/soulwarden/work/evidence/unreal-references/set5-talk/`: the idle and talk views of three persons, the
   conversation screen, a refused talk; its README).
+- The fight HUD (stage P3.H):
+  - The name of the place under the compass (`PoiName` of `compass.luac`: "OXBORO" in the retail pictures) needs the territory
+    of the player (`TerritoryDefinitionsDataManagerBus`, the area events `OnUiTriggerAreaEventEntered`). The backend sends no
+    territory; the retail client finds it from the area data of the world. The client has no such data yet.
+  - `Hud.LocalPlayer.HasReticleTarget` is false: the target rule of the native code is not known (`ReticleRayCastDistance` is
+    3.0 for the weapons). The `ReticleTargetName` of the sword is `spearHaveTarget` (the throw reticle of the manager); whether
+    the native code sets the target name in `ReticleToShow` is not known.
+  - The bow reticle shows no part at rest (its parts show during the aim): a check with the retail picture of a drawn bow (set 6).
+  - The action bar (`hud2024/actionbar/actionbar`: the social and chat buttons at the bottom left) is not loaded: not a part of
+    the fight HUD.

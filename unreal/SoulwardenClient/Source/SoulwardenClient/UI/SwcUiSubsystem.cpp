@@ -63,9 +63,10 @@ const char* const HudScreens[] = {
 	"lyshineui/notifications/notification",
 	// The options screen (stage P2.3): its categories, the key page (the rebinds go to the key table of the client).
 	"lyshineui/options/options",
-	// The fight HUD (stage P3.H): the consumable quick slots (3 to 6), the level and XP meter under the vitals.
+	// The fight HUD (stage P3.H): the consumable quick slots (3 to 6), the level and XP meter under the vitals, the reticle.
 	"lyshineui/hud2024/consumablequickslots/consumablequickslots",
 	"lyshineui/hud2024/xp/xp",
+	"lyshineui/hud2024/reticles/reticlescanvas",
 };
 
 /** The world level name of the HUD scripts (the level crc tells them the front end and the tutorial levels). */

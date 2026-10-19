@@ -1,12 +1,13 @@
 -- The fight HUD fixture (stage P3.H; docs/UI.md "The fight HUD"): the HUD screens of a fight with their original scripts and
--- the host calls of the client: the vitals, the weapon slots, the consumable quick slots, the level and XP meter, the compass.
--- Pictures: fighthud.
+-- the host calls of the client: the vitals, the weapon slots, the consumable quick slots, the level and XP meter, the compass, the
+-- reticle. Pictures: fighthud, fighthud-bow.
 local HUD = 2702338936
 local vitals = screen("LyShineUI/HUD2024/Vitals/Vitals2024.uicanvas", 12, true)
 local weapons = screen("LyShineUI/HUD2024/WeaponQuickslots/WeaponQuickslots.uicanvas", 10, true)
 local consumables = screen("LyShineUI/HUD2024/ConsumableQuickslots/ConsumableQuickslots.uicanvas", 11, true)
 local xp = screen("LyShineUI/HUD2024/XP/XP.uicanvas", 13, true)
 local compass = screen("LyShineUI/Compass/Compass.uicanvas", 14, true)
+local reticles = screen("LyShineUI/HUD2024/Reticles/ReticlesCanvas.uicanvas", 9, true)
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(HUD)
 DynamicBus.UiLoader.Broadcast.OnUiLoadingComplete()
@@ -72,3 +73,22 @@ check(not UiElementBus.Event.IsEnabled(find(meter, "DeltaXpBg")), "no XP popup a
 -- The weapon slots: the other weapon above the active one, with its key 2.
 local weaponTexts = shown_texts(root(weapons))
 check(has(weaponTexts, "2") and has(weaponTexts, "g"), "the other weapon (key 2) and the heart rune (key G): " .. table.concat(weaponTexts, ","))
+
+-- The reticle (swc/reticle.lua): the ReticleName of the active weapon (the sword: melee). The option AlwaysShowReticle is on:
+-- the reticle also shows while the weapon is sheathed (the retail pictures).
+local aim = find(root(reticles), "AimPositioner")
+equal(Swc.GetData("Hud.LocalPlayer.ReticleToShow"), 3488054177, "the reticle of the sword: CRC-32 of melee")
+check(UiElementBus.Event.IsEnabled(find(root(reticles), "ReticlesManager")), "the reticle shows")
+check(UiElementBus.Event.IsEnabled(find(aim, "ReticleMelee")) and not UiElementBus.Event.IsEnabled(find(aim, "ReticleBow")),
+  "the melee reticle")
+Swc.HostActiveWeapon(24, true)
+frames(0.3)
+check(UiElementBus.Event.IsEnabled(find(root(reticles), "ReticlesManager")), "the reticle shows with the weapon sheathed")
+-- A bow in the active slot: the bow reticle.
+Swc.HostEquipment(24, "2hBow_BrevisT5")
+Swc.HostActiveWeapon(24, false)
+frames(0.5)
+equal(Swc.GetData("Hud.LocalPlayer.ReticleToShow"), 2551600555, "the reticle of the bow: CRC-32 of bow")
+check(UiElementBus.Event.IsEnabled(find(aim, "ReticleBow")) and not UiElementBus.Event.IsEnabled(find(aim, "ReticleMelee")),
+  "the bow reticle")
+picture("fighthud-bow")
