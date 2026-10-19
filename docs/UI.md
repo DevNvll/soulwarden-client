@@ -405,8 +405,8 @@ The classes (2026-10-19):
 
 | Class | Rule | Count |
 | --- | --- | --- |
-| active | this client loads it in the world (`HudScreens` of `UI/SwcUiSubsystem.cpp`, the globals, the loading screen) | 21 |
-| stage | the retail client can load it on this backend with the values of the build; a later stage owns it | 124 |
+| active | this client loads it in the world (`HudScreens` of `UI/SwcUiSubsystem.cpp`, the globals, the loading screen; stage P3.H adds the consumable quick slots and the XP meter) | 23 |
+| stage | the retail client can load it on this backend with the values of the build; a later stage owns it | 122 |
 | service | a public online service (F89): the store (3), the news, the survey, the report, the feedback, the voice chat, the legal screen; no such service on this computer | 9 |
 | debug | a diagnostic or editor screen (F90): the logger, the full-screen assert, the style guide, the benchmark (2), the editor tester of the fly-out menu, the grey box of the virtual cursor; their gates are off in a retail client | 7 |
 | dormant | no gate opens with the values of the build: the housing tips (`housingImprovements` false), the paperdoll status (`enable-hud-paperdoll-status` false), the first QTE (the build has `enable-ftue-v2` true: `qte_v2`) | 3 |
@@ -585,6 +585,23 @@ The notices (`swc/notices.lua`, the bag feed of `swc/items.lua`, `Swc.HostProgre
   `g_enableNewProgressionTicker` (0x4A3A1F7) and `javelin.xp-multipliers.character` 1.0 come from the settings registration.
 - When the UI runs, the simple heal numbers (`SetUiHealNumbers`) and the loot lines of the object layer (`SetUiLootNotice`) go off.
 
+## The fight HUD (stage P3.H)
+
+The HUD of a fight against the retail client (Linear AST-194): the vitals, the ability bar, the weapon slots, the crosshair, the
+damage numbers, the creature plates, the compass, the death and respawn screens. The retail references: the pictures of the
+Soulwarden evidence (`~/Games/soulwarden/work/evidence/`: fight, hit, abilities, abilities-crit; many at 1256 x 660, the size of
+the client window) and the retail combat capture of set 6 (the list of the UI track).
+
+- The screens: the client also loads the consumable quick slots (`hud2024/consumablequickslots`: the slots 3 to 6, the
+  paperdoll slots QuickSlot1 to QuickSlot4, 14 to 17, with the item counts and the keys) and the level and XP meter
+  (`hud2024/xp`: the level under the vitals; `xpmeter.luac` shows an XP popup at a change and hides it after 1.9 s).
+- The vitals: only the health bar shows its number. The stamina and mana numbers follow the option
+  `Video.HudShowVitalsValues`: off (the program and the saved retail options).
+- The place of the HUD parts (`tools/lib/hud_compare.py RETAIL.png CLIENT.png FOLDER`): two pictures of one window size; for each
+  region the shift and the scale of the client picture where the edges agree best, and a picture of the two regions and their
+  edges (retail red, client green). With different content (another build, another heading) the score is low: the edge
+  picture is then the check.
+
 ## The data of the backend
 
 `USwcUiSubsystem` reads `USwcBackendSubsystem::GetLocalPlayer` each frame and calls the host functions. A value goes
@@ -680,6 +697,7 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `visuals` | The HUD screens WeaponQuickslots, ReticlesCanvas, Vitals2024, and Compass with their scripts in the HUD state. The fixture shows the parts that need game events and sets the fill amounts through `UiImageBus` (0, 0.25, 0.5, 0.75, 1): the area of each mesh against the O3DE geometry for a radial fill (the combo points, also from 60 degrees), a counter-clockwise radial fill (the channel ring), a sliced radial fill (the hint ring of the heart rune), a counter-clockwise corner fill (the heat meter), a linear fill (the turret health), an edge fill (the reload ring, set through the bus). The heart rune hexagon and the compass give their sprite mask to the meshes below them. Pictures `visuals-fills-0` to `-100`, `visuals-masks`. |
 | `census` | The census table (`swc/census.lua`, 164 rows) against the canvases of the game and the two loaders: each template loads with its scripts (the Lua errors of the templates of later stages go to the notes); the original UI loader at a world entry asks for exactly the canvases whose gate is open (76 with the values of the build, 139 with on-demand loading off) in the order of the load groups; the config table asks for exactly its open entries when the flags turn on; the canvas list of the original dynamic loader is the table, and each of its 53 UI states asks for its canvas. |
 | `options` | The original Options screen from the button Settings of the escape menu: the defaults of the client program (the camera shake on, the master volume 100), a label with more text ("Monitor 1"), a picture of each category (Game, Keyboard & Mouse, Controller, Video, Audio, Social, Accessibility, About) and of the two binding tabs; the key page: a click on the jump row starts the listen (the client gets `keybinding 1`), a key that no action has binds the jump (the UI actions use it; the client gets the rebind and the save; the hints get the key), the key of the journal (J) gives the conflict popup, the reset of the page sets the defaults again (`rebind-reset`). Pictures `options-*`. |
+| `fighthud` | The fight HUD screens (Vitals2024, WeaponQuickslots, ConsumableQuickslots, XP, Compass) with a player of the host calls: two weapons with ability bars, the heart rune, three consumables in the quick slots. The quick slot 1 shows the count 9 and the key 3; the empty slot 3 shows only the key 5; the level 65 shows under the vitals and the XP popup of the spawn is out after 3 s; the weapon slots show the other weapon (key 2) and the heart rune (key G). Picture `fighthud`. |
 | `loader` | The screen loader of the game (`uiloader.luac`) at a world entry, with two allowed screens (Vitals2024, InfoModal): it asks only for canvases of its list (`gamedata/loader.json`, 153 paths), one time each, with the ending `.uicanvas` (105 for the world); it counts each load and failure and sets the state HUD; the HUD screen has no autohide and shows, the menu has autohide and shows only in its state. Each canvas that the game has for the two lists (the UI loader and the 69 canvases of `dynamiccanvasloader.luac`) is converted; 2 paths of the UI loader have no canvas in the game. |
 | `escape` | The original EscapeMenu and Popup screens driven by keys and clicks (`Swc.HostInput`): Escape in the HUD fires `toggleMenuComponent`, the state goes to "esc", the menu shows with the cursor and the maps player, movement, camera off; exit to desktop opens the quit popup over the menu (the state stays; the map ui off); Escape fires `ui_genpop_cancel` and closes only the popup; the pointer hovers a menu button again; Escape gives `OnEscapeKeyPressed` to the menu and the HUD comes back with its maps. Pictures `escape-menu`, `escape-popup`, `escape-focus`. |
 | `loading` | The loading screen of the game (`loadingscreen.luac`) shows and hides with the events of the native code; a refused connection gives the original error popup (`popup.luac` ShowError, `UIError_login_unable_to_connect`) with the cursor, and its OK button closes it. Pictures `loading-start`, `loading-later`, `loading-error`. |
