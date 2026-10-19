@@ -994,12 +994,15 @@ function Swc.InitInteractive(id)
   end
 end
 
---- Each frame: a scroll box follows the size of its content (its bars and its constraint).
+--- Each frame: a scroll box follows the size of its content (its bars and its constraint). Only on an enabled canvas: O3DE
+--- does not update a disabled canvas (UiCanvasComponent UpdateCanvas), thus its scroll boxes get the size changes at the
+--- first frame that shows it (the tabs of options.luac: the script moves the tall tab group, then sets its height at
+--- OnAuthComplete; a constraint between the two moves the group away).
 function Swc.TickInteractables()
   for k, id in pairs(scrollBoxes) do
     if not swcui.exists(id) then
       scrollBoxes[k] = nil
-    else
+    elseif swcui.canvas_get(swcui.canvas_of(id), "enabled") then
       local d = Swc.IState(id).scrollBox
       local c = content_rects(d)
       if c then

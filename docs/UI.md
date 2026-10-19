@@ -186,7 +186,8 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   uncheck"); a slider takes the value at the point along its track (step, range; the fill and the manipulator anchors);
   a scroll bar moves its handle (size: the part of the content that shows, with a minimum in pixels) and its scroll
   box; a scroll box puts the pivot of its content at the offset, keeps the content over its parent, follows the size of
-  its content each frame, and scrolls by the wheel (the fork step for each notch of 120: an approximation); a drag
+  its content each frame while its canvas is enabled (O3DE does not update a disabled canvas: a hidden screen gets the
+  size changes at the first frame that shows it), and scrolls by the wheel (the fork step for each notch of 120: an approximation); a drag
   of the content moves it (`OnScrollOffsetChanging`), and each release gives `OnScrollOffsetChanged` (O3DE
   `HandleReleased`); a text input starts the edit on a release inside, takes typed text at its cursor (maximum length, password character), and ends
   with Enter or Escape or a press elsewhere; a drop-down expands (its content goes on top of the canvas at the same

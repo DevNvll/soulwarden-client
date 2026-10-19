@@ -18,6 +18,9 @@ screen("LyShineUI/Options/Options.uicanvas", 40)
 screen("LyShineUI/Popup/Popup.uicanvas", 60)
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(2702338936)
+-- The order of the client: frames between the load of the screens and the end of the UI load (the hidden options screen
+-- gets no scroll box update: its tab group keeps the place of tabbedlist.luac).
+frames(0.5)
 DynamicBus.UiLoader.Broadcast.OnUiLoadingComplete()
 Swc.AuthComplete()
 frames(0.5)
@@ -56,6 +59,15 @@ equal(LyShineManagerBus.Broadcast.GetCurrentState(), ESC, "Escape opens the esca
 click_text("Settings")
 frames(0.5)
 equal(LyShineManagerBus.Broadcast.GetCurrentState(), OPTIONS, "the button Settings opens the options screen")
+-- The tab row is in its mask (tabbedlist.luac puts the tab group 180 below the top of the mask; out of the mask the tabs
+-- do not show and get no click).
+local function y_of(point)
+  return tonumber(point:match("^%S+ (%S+)$") or "")
+end
+local tabY = y_of(Swc.HostPointOf("text:Keyboard & Mouse Bindings"))
+local maskTop, maskBottom = y_of(Swc.HostPointOf("TabbedListHeaderMask", 0.5, 0)), y_of(Swc.HostPointOf("TabbedListHeaderMask", 0.5, 1))
+check(tabY and maskTop and maskBottom and tabY > maskTop and tabY < maskBottom,
+  string.format("the tab row shows in its mask: y %s in %s to %s", tostring(tabY), tostring(maskTop), tostring(maskBottom)))
 
 -- The values of the client program.
 equal(Swc.GetData("Hud.LocalPlayer.Options.Controls.CameraShake"), true, "the camera shake: on (the default of the program)")
