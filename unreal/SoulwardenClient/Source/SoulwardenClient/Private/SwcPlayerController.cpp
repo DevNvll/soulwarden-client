@@ -710,3 +710,9 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 		Input->InjectInputForAction(LookAction, FInputActionValue(DriveTurn * DeltaTime / LookDegreesPerCount), {}, {});
 	}
 }
+
+void ASwcPlayerController::PressVirtualBits(const TArray<uint32>& Bits)
+{
+	PressBits = Bits;
+	++PressSerial;
+}

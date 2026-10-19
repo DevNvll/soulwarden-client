@@ -47,6 +47,15 @@ class SOULWARDENCLIENT_API ASwcPlayerController : public APlayerController
 public:
 	ASwcPlayerController();
 
+	/**
+	 * A virtual input of a UI script with action bits for the input report (stage P3.H, K3): the quick slot uses of
+	 * consumablequickslots.luac (SendVirtualInput Use_Quickslot_1 to 4: the bits 404, 117, 140, 513; protocol notes, the
+	 * consumables). The press replaces the bits of the press before it, as a weapon key does: the motion carries one press
+	 * (PressSerial and PressBits) for each input entry of the session, thus of two presses in one input step (1/30 s) only the
+	 * last one reaches the server (a weapon key and a quick slot key at the same time lose the first one).
+	 */
+	void PressVirtualBits(const TArray<uint32>& Bits);
+
 	virtual void PlayerTick(float DeltaTime) override;
 
 	ASwcCameraManager* GetSwcCamera() const;

@@ -26,6 +26,7 @@
 #include "SceneView.h"
 #include "GameFramework/Pawn.h"
 #include "SwcBackendSubsystem.h"
+#include "SwcPlayerController.h"
 #include "SwcDebugLines.h"
 #include "UI/SwcUiInput.h"
 #include "UI/SwcKeyBindings.h"
@@ -754,6 +755,24 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 		else if (Request.rfind("rebind", 0) == 0 || Request.rfind("keybinding ", 0) == 0)
 		{
 			HandleKeyRequest(UTF8_TO_TCHAR(Request.c_str()));
+		}
+		else if (Request.rfind("press ", 0) == 0)
+		{
+			// A virtual input of a script with its action bits (swc/items.lua SendVirtualInput: the quick slot keys), in the
+			// next input entry (K3: ASwcPlayerController::PressVirtualBits).
+			TArray<FString> Parts;
+			FString(UTF8_TO_TCHAR(Request.c_str())).ParseIntoArray(Parts, TEXT(" "));
+			TArray<uint32> Bits;
+			for (int32 Index = 1; Index < Parts.Num(); ++Index)
+			{
+				Bits.Add(static_cast<uint32>(FCString::Atoi(*Parts[Index])));
+			}
+			ASwcPlayerController* Player = GetGameInstance() != nullptr ? Cast<ASwcPlayerController>(GetGameInstance()->GetFirstLocalPlayerController()) : nullptr;
+			if (Player != nullptr && Bits.Num() > 0)
+			{
+				Player->PressVirtualBits(Bits);
+			}
+			UE_LOG(LogSwcUi, Log, TEXT("ui: a virtual input of a script (%hs): %s"), Request.c_str(), Player != nullptr ? TEXT("pressed") : TEXT("no player"));
 		}
 		else
 		{
