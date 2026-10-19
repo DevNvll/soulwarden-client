@@ -6,6 +6,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "SwcBackendSubsystem.h"
+#include "Water/SwcWaterSubsystem.h"
 
 namespace
 {
@@ -77,6 +78,25 @@ constexpr float SoftLandHold = 0.0f;
 constexpr float NormalLandHold = 0.167f;
 constexpr float HardLandHold = 0.5f;
 constexpr float LandIdleTime = 0.5f;
+/** Stage WF5, the swim (docs/WATER.md). The feet of a swimmer stay 1.400 m below the water surface, in Swim_Idle and Swim_Nav,
+ *  with no bob; the swim starts at the step at which the feet reach that depth (the measurement of the retail client:
+ *  ~/Games/soulwarden/work/evidence/unreal-references/set3-swim/swim-heights.json, result.swimmer_height, swim_start). */
+constexpr float SwimFeetDepth = 1.400f;
+/** The exit: the floor pushes the feet up while the swim goes on; the exit action starts at 1.29 m below the surface (1.2893 and
+ *  1.2901 m), and the wade 0.5 s later (swim-heights.json, result.swim_exit). */
+constexpr float SwimExitDepth = 1.29f;
+constexpr float SwimExitTime = 0.5f;
+/** Swim_Nav: CharacterRelativeMovement, forward only, 3.0 m/s, accel 3.0, decel 130 m/s^2, no gravity, no speed multiplier
+ *  [D playeractions_swim; research wf5-swim/swim-rules.json]; measured 3.0 m/s (swim-heights.json, result.speeds_m_s). */
+constexpr float SwimSpeed = 300.0f;
+constexpr float SwimAccel = 300.0f;
+constexpr float SwimDecel = 13000.0f;
+/** The body turns to the direction of the input: InputRelativeFacing TurnRate 0.10 for each 1/30 s, exponential [D
+ *  playeractions_swim]; measured: heading 0 to 90 in about 1.3 s (swim-heights.json, result.body_turn_in_the_swim). */
+constexpr float SwimTurnRate = 0.10f;
+/** After the entry the feet go back to the swim height: 1.3 cm below it, then 0.6 cm 0.4 s later (swim-heights.json,
+ *  result.swim_entry_with_no_key): a return of about 1.7 for each second [inference from those samples]. */
+constexpr float SwimReturnRate = 1.7f;
 
 /** @return The angle of the input in the camera frame in degrees: 0 forward, positive to the right. */
 float InputAngle(const FVector2D& Move)
@@ -143,6 +163,13 @@ void USwcCharacterMovement::CancelAutoRun(const TCHAR* Cause)
 
 void USwcCharacterMovement::TogglePosture(bool bProne)
 {
+	if (bProne && (IsSwimming() || WaterClass >= swc::water::DepthClass::veryShallow))
+	{
+		// No prone in the water: ToggleProne needs IfWaterDepth LessThan Shallow, and prone goes to crouch at VeryShallow (research
+		// wf5-swim/water-uses.json).
+		UE_LOG(LogSwcBackend, Log, TEXT("move: the key Z: no prone in the water"));
+		return;
+	}
 	if (bProne)
 	{
 		Posture.toggle_prone();
@@ -222,6 +249,7 @@ swc::move::Facts USwcCharacterMovement::MakeFacts() const
 	}
 	Limits.apply(Facts);
 	Facts.moveSpeed = static_cast<float>(GroundVelocity.Size2D() / 100.0);
+	Facts.waterDepth = static_cast<std::uint8_t>(WaterClass);
 	return Facts;
 }
 
@@ -323,6 +351,11 @@ FString USwcCharacterMovement::GetBaseFragment() const
 		return ActiveTransition ? FString(UTF8_TO_TCHAR(ActiveTransition->fragment.c_str())) : FString(TEXT("Idle"));
 	case ESwcMove::Stun:
 		return StunPhase == EStun::Start ? TEXT("r_Stun") : StunPhase == EStun::End ? TEXT("r_Stun_End") : TEXT("r_Stun_Loop");
+	case ESwcMove::Swim:
+		// Swim_Nav with a move input (AnyNavInput), else Swim_Idle [D playeractions_swim].
+		return HasMoveInput() ? TEXT("Swim_Nav") : TEXT("Swim_Idle");
+	case ESwcMove::SwimExit:
+		return TEXT("Swim_Nav");
 	default:
 		return TEXT("Idle");
 	}
@@ -355,6 +388,7 @@ void USwcCharacterMovement::TickComponent(float DeltaTime, ELevelTick TickType, 
 {
 	StateTime += DeltaTime;
 	SkipSprintStartLeft = FMath::Max(SkipSprintStartLeft - DeltaTime, 0.0f);
+	UpdateWater();
 	UpdateState(DeltaTime);
 	Turn(DeltaTime);
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
@@ -413,6 +447,11 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 	if (MovementMode == MOVE_None)
 	{
 		// The client holds the character (the test floor is not in the physics scene yet).
+		bJumpRequested = false;
+		return;
+	}
+	if (UpdateSwim())
+	{
 		bJumpRequested = false;
 		return;
 	}
@@ -476,8 +515,9 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 	{
 		bJumpRequested = false;
 		// A jump needs the ground, IfCanNav and IfCanDodge, not IfEncumbered, not Overburdened [D playeractions_traversal]; from
-		// crouch or prone it stands the character up first (Jump sets Stand; with room above).
-		if (Limits.can_jump() && HasRoomFor(swc::move::Posture::stand))
+		// crouch or prone it stands the character up first (Jump sets Stand; with room above). No jump in a wade (IfWaterDepth
+		// LessThan Shallow of Jump, Jump_Diagonal, Standing_Jump; research wf5-swim/water-uses.json).
+		if (Limits.can_jump() && HasRoomFor(swc::move::Posture::stand) && WaterClass < swc::water::DepthClass::shallow)
 		{
 			if (Posture.posture() != swc::move::Posture::stand)
 			{
@@ -497,6 +537,9 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 	// The speed of the sprint threshold (MoveSpeed 4 m/s) with the multiplier of the speed table: a slowed sprint (2.75 m/s with
 	// 0.5) stays a sprint (an inference; with the plain threshold the state went between Sprint and Sprint_Start).
 	const float SprintThreshold = SprintMinimumSpeed * FMath::Min(Limits.speed_multiplier(), 1.0f);
+	// A wade has no Sprint_Start: the sprint starts at once at the speed of the Wade conditional (2.5 m/s), below the threshold (research
+	// wf5-swim/swim-rules.json; the retail wade action starts at the change to Shallow: set3-swim/swim-heights.json).
+	const bool bWade = WaterClass >= swc::water::DepthClass::shallow;
 	// The aim (AimDownSights) has no sprint (Sprint_Start needs "not ADS"); the walk key has none (Sprint_Start: not walk); no
 	// IfCanSprint (NoSprint, the server bit), IfEncumbered, or Overburdened: no sprint [D playeractions_sprint].
 	if (bWalkHeld || !Limits.can_run() || bAiming)
@@ -508,14 +551,14 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 		const bool bStart = Move == ESwcMove::Idle || Move == ESwcMove::Stop || Move == ESwcMove::Land;
 		SetMove(bStart ? ESwcMove::NavStart : (Move == ESwcMove::NavStart && Speed < NavSpeed * 0.98f ? ESwcMove::NavStart : ESwcMove::Nav));
 	}
-	else if (Move == ESwcMove::Sprint && (Speed >= SprintThreshold - 1.0f || bLowPosture))
+	else if (Move == ESwcMove::Sprint && (Speed >= SprintThreshold - 1.0f || bLowPosture || bWade))
 	{
 		SetMove(ESwcMove::Sprint);
 	}
 	else if (Move == ESwcMove::SprintStart)
 	{
 		// The sprint of crouch and prone has no speed threshold (the State conditions of Sprint accept the tag Crouch or Prone).
-		if (Speed >= SprintThreshold - 1.0f || StateTime >= SprintStartMaximumTime || bLowPosture)
+		if (Speed >= SprintThreshold - 1.0f || StateTime >= SprintStartMaximumTime || bLowPosture || bWade)
 		{
 			SetMove(ESwcMove::Sprint);
 		}
@@ -523,7 +566,7 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 	else
 	{
 		// SkipSprintStartTimer after a dodge: the sprint at once.
-		SetMove(SkipSprintStartLeft > 0.0f ? ESwcMove::Sprint : ESwcMove::SprintStart);
+		SetMove(SkipSprintStartLeft > 0.0f || bWade ? ESwcMove::Sprint : ESwcMove::SprintStart);
 	}
 }
 
@@ -682,6 +725,16 @@ void USwcCharacterMovement::Turn(float DeltaTime)
 {
 	// Strafe mode: while the character moves, it turns to the camera yaw, step = (1 - (1 - r)^(30 dt)) x the remaining angle
 	// (CameraRelativeFacing, C 0x2A919A0). At idle and in the air it does not turn.
+	if (CharacterOwner != nullptr && IsSwimming() && HasMoveInput())
+	{
+		// The swim: the body turns to the direction of the input in the camera frame (InputRelativeFacing 0.10).
+		const double Target = CameraYaw + InputAngle(Input);
+		const float SwimAlpha = 1.0f - FMath::Pow(1.0f - SwimTurnRate, 30.0f * DeltaTime);
+		FRotator Rotation = CharacterOwner->GetActorRotation();
+		Rotation.Yaw += FMath::FindDeltaAngleDegrees(Rotation.Yaw, Target) * SwimAlpha;
+		CharacterOwner->SetActorRotation(FRotator(0.0, Rotation.Yaw, 0.0));
+		return;
+	}
 	if (CharacterOwner == nullptr || bActionMotion || !HasMoveInput() || IsFalling() || IsFlying() || Move == ESwcMove::Land
 		|| Move == ESwcMove::Stun || (Move == ESwcMove::PostureTransition && !(ActiveTransition && ActiveTransition->sprint)))
 	{
@@ -737,6 +790,11 @@ void USwcCharacterMovement::JumpVelocity(float DeltaTime)
 
 void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool bFluid, float BrakingDeceleration)
 {
+	if (Move == ESwcMove::Swim && DeltaTime > 0.0f)
+	{
+		SwimVelocity(DeltaTime);
+		return;
+	}
 	if (bRootMotion && JumpClip != nullptr && DeltaTime > 0.0f)
 	{
 		JumpVelocity(DeltaTime);
@@ -885,6 +943,104 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 	GroundVelocity = Result;
 	Velocity.X = Result.X;
 	Velocity.Y = Result.Y;
+}
+
+void USwcCharacterMovement::UpdateWater()
+{
+	const UWorld* World = GetWorld();
+	const USwcWaterSubsystem* Water = World != nullptr ? World->GetSubsystem<USwcWaterSubsystem>() : nullptr;
+	if (CharacterOwner == nullptr || Water == nullptr || !Water->IsLoaded() || CharacterOwner->GetCapsuleComponent() == nullptr)
+	{
+		WaterClass = swc::water::DepthClass::none;
+		FeetDepth = 0.0f;
+		bInWater = false;
+		return;
+	}
+	// The feet: the bottom of the capsule (the position field of the input report), engine m.
+	const FVector Feet = CharacterOwner->GetActorLocation() - FVector(0.0, 0.0, CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+	const double X = Feet.X / 100.0;
+	const double Y = -Feet.Y / 100.0;
+	const std::optional<swc::water::Sample> Sample = Water->GetWaterAt(X, Y);
+	const swc::water::DepthClass Before = WaterClass;
+	WaterClass = swc::water::depth_class(Sample, static_cast<float>(Feet.Z / 100.0), &FeetDepth);
+	bInWater = Sample.has_value() && Feet.Z / 100.0 >= Sample->floor;
+	WaterSurface = Sample ? Sample->surface : 0.0;
+	if (WaterClass >= swc::water::DepthClass::veryShallow && !IsSwimming()
+		&& (Posture.posture() == swc::move::Posture::prone || Posture.desired() == swc::move::Posture::prone))
+	{
+		// Prone goes to crouch in the water (VeryShallow or deeper).
+		Posture.force(swc::move::Posture::crouch);
+		ApplyCapsule(swc::move::Posture::crouch);
+	}
+	if (WaterClass != Before)
+	{
+		static const TCHAR* Names[] = {TEXT("None"), TEXT("VeryShallow"), TEXT("Shallow"), TEXT("Deep")};
+		UE_LOG(LogSwcBackend, Log, TEXT("move: water class %s (the feet %.2f m below the surface %.2f m)"), Names[static_cast<int32>(WaterClass)],
+			FeetDepth, WaterSurface);
+	}
+}
+
+bool USwcCharacterMovement::UpdateSwim()
+{
+	if (Move == ESwcMove::SwimExit)
+	{
+		// The exit action holds 0.5 s, then the wade (the ground states with the Wade conditionals of the data).
+		if (StateTime < SwimExitTime)
+		{
+			return true;
+		}
+		SetMove(ESwcMove::Idle);
+		return false;
+	}
+	if (Move == ESwcMove::Swim)
+	{
+		if (!bInWater || FeetDepth <= SwimExitDepth)
+		{
+			// The floor pushed the feet up (or the water ends): the exit, with gravity again.
+			SetMovementMode(MOVE_Walking);
+			SetMove(ESwcMove::SwimExit);
+			UE_LOG(LogSwcBackend, Log, TEXT("move: the swim ends (the feet %.3f m below the surface)"), FeetDepth);
+		}
+		return true;
+	}
+	// The start: on the ground or in a fall (a jump goes to the fall first), when the feet reach the swim depth.
+	if (!bInWater || FeetDepth < SwimFeetDepth || Move == ESwcMove::Jump || bActionMotion || MovementMode == MOVE_None)
+	{
+		return false;
+	}
+	ActiveTransition.reset();
+	if (Posture.posture() != swc::move::Posture::stand || Posture.pending())
+	{
+		Posture.force(swc::move::Posture::stand);
+		ApplyCapsule(swc::move::Posture::stand);
+	}
+	CancelAutoRun(TEXT("the swim"));
+	bJumped = false;
+	bStandingJump = false;
+	bRootMotion = false;
+	Velocity.Z = 0.0;
+	SetMovementMode(MOVE_Flying);
+	SetMove(ESwcMove::Swim);
+	UE_LOG(LogSwcBackend, Log, TEXT("move: the swim starts (the feet %.3f m below the surface %.2f m)"), FeetDepth, WaterSurface);
+	return true;
+}
+
+void USwcCharacterMovement::SwimVelocity(float DeltaTime)
+{
+	// Forward in the facing of the character (AlignVelocity), to 3.0 m/s with an input, else the stop of 130 m/s^2.
+	const FVector Ahead = CharacterOwner != nullptr ? CharacterOwner->GetActorForwardVector().GetSafeNormal2D() : FVector::ForwardVector;
+	const double Current = FMath::Max(0.0, FVector::DotProduct(FVector(Velocity.X, Velocity.Y, 0.0), Ahead));
+	const double Target = HasMoveInput() && Limits.can_nav() ? SwimSpeed : 0.0;
+	const double Next = Current < Target ? FMath::Min(Current + SwimAccel * DeltaTime, Target) : FMath::Max(Current - SwimDecel * DeltaTime, Target);
+	GroundVelocity = Ahead * Next;
+	Velocity.X = GroundVelocity.X;
+	Velocity.Y = GroundVelocity.Y;
+	// The height: the feet back to 1.400 m below the surface (a floor above that height stops the move down).
+	const double HalfHeight = CharacterOwner != nullptr && CharacterOwner->GetCapsuleComponent() != nullptr
+		? CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.0;
+	const double FeetZ = (CharacterOwner != nullptr ? CharacterOwner->GetActorLocation().Z : 0.0) - HalfHeight;
+	const double TargetZ = (WaterSurface - SwimFeetDepth) * 100.0;
+	Velocity.Z = (TargetZ - FeetZ) * SwimReturnRate;
 }
 
 void USwcCharacterMovement::OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode)

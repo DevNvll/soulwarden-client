@@ -97,6 +97,9 @@ struct Facts {
 	bool exhausted{false};
 	/** MoveSpeed: the horizontal speed (m/s). */
 	float moveSpeed{0.0F};
+	/** IfWaterDepth: the depth class of the feet (stage WF5: 0 None, 1 VeryShallow, 2 Shallow, 3 Deep; the enum WaterDepth of the
+	 *  retail client, research wf5-swim/swim-rules.json). */
+	std::uint8_t waterDepth{0};
 	/** IfPlayerSetting: the settings that are on (the default keyboard: LockedStrafeMovement, TargetLockStrafe,
 	 *  SprintStrafeMovement, AttackFacing, Swimming). */
 	std::set<std::string> settings{"LockedStrafeMovement", "TargetLockStrafe", "SprintStrafeMovement", "AttackFacing", "Swimming"};

@@ -97,6 +97,15 @@ public:
 	/** @return True while the input of the player does nothing: the death, a loading screen, the respawn before its mark, a
 	 *  timed use. */
 	bool IsInputLocked() const { return LifeState.locked(); }
+	/** The lock of the actions (attacks, abilities, weapon keys, dodge): the life lock, and the swim (stage WF5). The movement keys
+	 *  stay free in a swim. */
+	bool IsActionLocked() const { return IsInputLocked() || bSwimming; }
+	/**
+	 * Stage WF5 (docs/WATER.md): the swim of the movement. At its start both hands sheathe at once with no clip, and while it lasts no
+	 * attack, ability, weapon key, or dodge starts (playeractions_swim; player.grid: only Reaction, Death, Respawn); after it the
+	 * weapon draws again with its animation (AutoUnsheathe).
+	 */
+	void SetSwimming(bool bSwim);
 	/** Left Ctrl (self_target): bit 430 in each input step while it is down (stage P3.6). */
 	void SetSelfTarget(bool bDown);
 	bool IsDead() const { return LifeState.state() == swc::combat::Life::State::dead; }
@@ -205,6 +214,8 @@ private:
 	uint32 CollidedVisit = 0;
 	/** The sheathe of the weapon at the posture prone (stage P3.3), one time. */
 	bool bProneSheathe = false;
+	bool bSwimming = false;
+	bool bSwimUnsheathe = false;
 	uint32 NodesRevision = MAX_uint32;
 	TSet<uint32> LearnedNodes;
 	/** The strikes with no row for the learned nodes that the query skipped. */

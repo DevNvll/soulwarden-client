@@ -575,6 +575,9 @@ struct InputEntry {
     std::uint16_t sequence{1};
     std::uint64_t flags{0};
     int permissions{-1};
+    /** The depth class of the character (mask bit 3, entry +0x28, u8: 1 VeryShallow, 2 Shallow, 3 Deep; stage WF5): the retail
+     *  client sets the bit only for a class above None (set3-swim/swim-wire.json). -1: no field. */
+    int depthClass{-1};
     int groundDistance{-1};
     unsigned actionWords{0};
     std::vector<unsigned> actionBits;

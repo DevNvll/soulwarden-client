@@ -986,6 +986,9 @@ void RepClient::send_input(Clock::time_point now) {
         if (m_motion->airHeight >= 0.0F) {
             entry.groundDistance = half_bits(std::min(m_motion->airHeight, kMaxAirHeight));
         }
+        if (m_motion->depthClass > 0) {
+            entry.depthClass = m_motion->depthClass;
+        }
         if (m_motion->forward && !m_movementStale) {
             entry.actionBits.insert(entry.actionBits.end(), kForwardActionBits.begin(), kForwardActionBits.end());
         }

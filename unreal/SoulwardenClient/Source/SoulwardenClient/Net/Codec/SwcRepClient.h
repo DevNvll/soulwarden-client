@@ -329,8 +329,10 @@ public:
         float pitch{0.0F};
         /** The forward key is down: the action bits of W. */
         bool forward{false};
-        /** The distance to the ground below the feet in meters while the character is in the air; negative on the ground. */
+        /** The distance to the ground below the feet in meters while the character is in the air or swims; negative on the ground. */
         float airHeight{-1.0F};
+        /** The depth class of the feet (0 None to 3 Deep; stage WF5): the field of mask bit 3 when it is above None. */
+        std::uint8_t depthClass{0};
         /** The action bits of the last key press (a weapon key): one entry has them, at each new serial. */
         std::uint32_t pressSerial{0};
         std::vector<unsigned> pressBits;

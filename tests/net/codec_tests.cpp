@@ -225,6 +225,37 @@ void test_golden_session(const std::string& goldenPath) {
         expect(moved->forward, "the backend reads the forward key (action bit 14)");
         expect(moved->entries == 5 && moved->steps.size() == 5, "the backend reads the 5 entries of the report to their end");
     }
+    // Stage WF5: a swimmer has the depth class byte (mask bit 3; the retail client: 2 in a swim, set3-swim/swim-wire.json) and the
+    // water below its feet (mask bit 4). The reader of the backend reads them and the fields after them.
+    motion.depthClass = 2;
+    motion.airHeight = 1.25F;
+    client.set_motion(motion);
+    serverGot.clear();
+    for (int step = 0; step < 4; ++step) {
+        now += std::chrono::milliseconds(34);
+        for (const Bytes& out : client.tick(now)) {
+            serverView.receive(out);
+        }
+    }
+    std::optional<backend::server::rep::ClientInput> swimming;
+    for (const auto& [channel, frame] : serverGot) {
+        std::span<const std::uint8_t> payload;
+        if (channel != 1 || !backend::server::hub::decode_frame(frame, payload) || payload.size() < 19) {
+            continue;
+        }
+        backend::server::hub::Reader reader(payload.subspan(16));
+        reader.u8();
+        reader.u8();
+        if (reader.size() == 1589) {
+            swimming = backend::server::rep::read_client_input(payload.subspan(16 + reader.position()));
+        }
+    }
+    expect(swimming && swimming->hasCharacter && near(swimming->characterX, 101.25F, 0.001F) && swimming->hasLook && swimming->forward
+               && swimming->entries == 5 && swimming->steps.size() == 5 && swimming->tail == backend::server::rep::InputTail::read,
+           "the depth class byte (mask bit 3) and the ground distance: the backend reads each entry to its end");
+    motion.depthClass = 0;
+    motion.airHeight = -1.0F;
+    client.set_motion(motion);
     // A long frame of the game thread (the world level check): the character moved 0.66 m between two steps. The position
     // field goes to it at 10 m/s at most (0.333 m in one step), under the 20 m/s of the backend for one step; a travel of
     // more than 20 m goes at once.

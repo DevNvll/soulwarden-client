@@ -1,0 +1,13 @@
+# The check of the wade and the swim of stage WF5 (docs/WATER.md), with the routes of tests/drive/interact-range-routes.txt (the
+# creatures ignore the character): the place and the keys of the retail video set3-swim/swim-walk-in-out (the east beach of the
+# starting beach, y 2291, the ocean at 40 m): the camera to the north and 10 degrees down; the key D (a strafe to the east on land
+# and in the wade, a swim with the body turned to the east) from 3.0 s to 15.0 s, a rest, the key A from 18.8 s to 31.2 s.
+# SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=10005.8:2291.19:40.5 SWC_STAGE=WF5 \
+#   tools/creature-check.sh wf5-swim 36 tests/drive/interact-range-routes.txt tests/drive/wf5-swim.txt
+1.0 pitch -20
+1.5 pitch 0
+3.0 move 1 0
+15.0 move 0 0
+18.8 move -1 0
+31.2 move 0 0
+34.0 tick

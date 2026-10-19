@@ -1,0 +1,8 @@
+# The flow and wave video of stage WF5 (docs/WATER.md), with the routes of tests/drive/wf5-noon-routes.txt (the hour 12:00): the camera still for
+# 12 s at the place of the matched view river-forest-noon (set2-water: BrightWoods_River_Forest_AB, the camera to the north and 10
+# degrees down). The river flows along its spline (the UV of the river mesh, WaterFlowSpeed of its material).
+# SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=10041.7471:4267.1777:124.3 SWC_STAGE=WF5 \
+#   tools/creature-check.sh wf5-flow 20 tests/drive/wf5-noon-routes.txt tests/drive/wf5-flow.txt
+1.0 pitch -20
+1.5 pitch 0
+16.0 tick

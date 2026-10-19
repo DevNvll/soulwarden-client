@@ -1,0 +1,10 @@
+# The wave video of stage WF5 (docs/WATER.md), with the routes of tests/drive/wf5-noon-routes.txt (the hour 12:00): the camera still for 12 s at
+# the place of the matched view ocean-storm-noon (set2-water: the south beach of the large key of Cutlass Keys, in the storm cylinder
+# CutlassKeys_Storm_Heavy_TOD_40mOcean_A: ocean_roughwater01, wind speed 70; the camera at heading 150 and 5 degrees down).
+# SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=6700.03:160.09:40.7 SWC_STAGE=WF5 \
+#   tools/creature-check.sh wf5-waves 20 tests/drive/wf5-noon-routes.txt tests/drive/wf5-waves.txt
+1.0 turn 150
+2.0 turn 0
+2.2 pitch -10
+2.7 pitch 0
+16.0 tick

@@ -216,6 +216,21 @@ void speed_tests(const move::Data& data)
 	check(near(move::facing_of(data, "Nav", aim), 0.35F), "Nav facing with the aim 0.35");
 	check(near(move::facing_of(data, "Sprint", facts_of(Posture::stand)), 1.0F), "Sprint facing 1.0");
 	check(near(move::facing_of(data, "Sprint_Start", facts_of(Posture::stand)), 0.33F), "Sprint_Start facing 0.33");
+	// Stage WF5, the wade (IfWaterDepth GreaterThanOrEqual Shallow and the setting Swimming): the first conditional of Nav, Nav_Start,
+	// and Sprint; it wins over the armed and the walk entries. VeryShallow changes nothing.
+	const auto in_water = [](move::Facts facts, std::uint8_t depth) {
+		facts.waterDepth = depth;
+		return facts;
+	};
+	expect_motion(data, "Sprint", in_water(facts_of(Posture::stand), 2), "Wade", 2.5F, 20.0F, "the sprint in a wade");
+	expect_motion(data, "Sprint", in_water(facts_of(Posture::stand, axe), 2), "Wade", 2.5F, 20.0F, "the armed sprint in a wade");
+	expect_motion(data, "Nav", in_water(facts_of(Posture::stand), 2), "Wade", 1.65F, 10.0F, "the run in a wade");
+	expect_motion(data, "Nav_Start", in_water(facts_of(Posture::stand, {}, {"walk"}), 2), "Wade", 1.65F, 10.0F, "the run start in a wade");
+	expect_motion(data, "Sprint", in_water(facts_of(Posture::crouch), 2), "Wade+Crouch", 1.75F, 20.0F, "the crouch sprint in a wade");
+	expect_motion(data, "Sprint", in_water(facts_of(Posture::stand), 1), "ServerValidatedCanSprint", 5.5F, 20.0F, "VeryShallow: the sprint");
+	expect_motion(data, "Sprint", in_water(facts_of(Posture::stand), 3), "Wade", 2.5F, 20.0F, "Deep: the wade conditional too");
+	check(move::holds(data, "Wade", in_water(facts_of(Posture::stand), 2)) && !move::holds(data, "Wade", in_water(facts_of(Posture::stand), 1)),
+		"the named condition Wade: Shallow or deeper");
 	// A tag state name: "Wade+Crouch" is a named condition; "Crouch" is a tag state.
 	check(move::holds(data, "Crouch", facts_of(Posture::crouch)) && !move::holds(data, "Crouch", facts_of(Posture::stand)),
 		"the tag state Crouch");

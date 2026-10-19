@@ -95,6 +95,10 @@ void write_input_entry(Writer& w, const InputEntry& entry, const InputEntry* bef
         mask |= 0x02;
         fields.u8(static_cast<std::uint8_t>(entry.permissions));
     }
+    if (entry.depthClass > 0) {
+        mask |= 0x08;
+        fields.u8(static_cast<std::uint8_t>(entry.depthClass));
+    }
     if (entry.groundDistance >= 0) {
         mask |= 0x10;
         fields.u16(static_cast<std::uint16_t>(entry.groundDistance));

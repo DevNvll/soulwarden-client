@@ -348,7 +348,7 @@ void USwcPlayerActions::SetSelfTarget(bool bDown)
 void USwcPlayerActions::OnWeaponKey(uint32 Slot)
 {
 	ASwcPlayerCharacter* Owner = Character();
-	if (Owner == nullptr || !Owner->HasWeapon(Slot) || IsInputLocked())
+	if (Owner == nullptr || !Owner->HasWeapon(Slot) || IsActionLocked())
 	{
 		return;
 	}
@@ -375,7 +375,7 @@ void USwcPlayerActions::OnWeaponKey(uint32 Slot)
 void USwcPlayerActions::OnSheatheKey()
 {
 	ASwcPlayerCharacter* Owner = Character();
-	if (Owner != nullptr && Owner->GetActiveWeaponSlot() != 0 && !IsInputLocked())
+	if (Owner != nullptr && Owner->GetActiveWeaponSlot() != 0 && !IsActionLocked())
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("weapon: sheathe key: slot %u %s"), Owner->GetActiveWeaponSlot(),
 			Owner->IsWeaponDrawn() ? TEXT("sheathe") : TEXT("draw"));
@@ -383,10 +383,55 @@ void USwcPlayerActions::OnSheatheKey()
 	}
 }
 
+void USwcPlayerActions::SetSwimming(bool bSwim)
+{
+	ASwcPlayerCharacter* Owner = Character();
+	if (bSwim == bSwimming || Owner == nullptr)
+	{
+		return;
+	}
+	if (bSwim)
+	{
+		if (bButtonDown)
+		{
+			OnAttackButton(false);
+		}
+		bSwimUnsheathe = Owner->IsWeaponDrawn() && Owner->GetActiveWeaponSlot() != 0;
+		if (bSwimUnsheathe)
+		{
+			// Both hands sheathe at once, with no clip (the tags Unarmed and AutoUnsheathe of playeractions_swim).
+			Upper.Reset();
+			for (uint32 Other = 24; Other <= 26; ++Other)
+			{
+				PlaceSlot(Other, false, true, true);
+			}
+			Owner->SetLogicalWeaponState(Owner->GetActiveWeaponSlot(), false);
+			UE_LOG(LogSwcBackend, Log, TEXT("weapon: the swim sheathes slot %u at once"), Owner->GetActiveWeaponSlot());
+		}
+		bSwimming = true;
+		return;
+	}
+	bSwimming = false;
+	if (bSwimUnsheathe)
+	{
+		bSwimUnsheathe = false;
+		UE_LOG(LogSwcBackend, Log, TEXT("weapon: the end of the swim draws slot %u (AutoUnsheathe)"), Owner->GetActiveWeaponSlot());
+		Request(Owner->GetActiveWeaponSlot(), true);
+	}
+}
+
 void USwcPlayerActions::OnDodgeKey()
 {
-	// The bit goes for each press; the stamina of the driver decides the dodge at its step, as the server does.
-	if (Driver && !IsInputLocked())
+	// The bit goes for each press; the stamina of the driver decides the dodge at its step, as the server does. No dodge in a wade or
+	// a swim (Dodge, Dodge_Stunlock, CanDodgeCancel need IfWaterDepth LessThan Shallow; research wf5-swim/water-uses.json).
+	const ASwcPlayerCharacter* Owner = Character();
+	const USwcCharacterMovement* Movement = Owner != nullptr ? Cast<USwcCharacterMovement>(Owner->GetCharacterMovement()) : nullptr;
+	if (Movement != nullptr && !Movement->CanDodgeInWater())
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("dodge: no dodge in the water"));
+		return;
+	}
+	if (Driver && !IsActionLocked())
 	{
 		Driver->dodge_press();
 	}
@@ -407,7 +452,7 @@ void USwcPlayerActions::SetLearnedNodes(uint32 Revision, const std::vector<std::
 
 void USwcPlayerActions::OnAbilityKey(uint32 Place, bool bDown)
 {
-	if (Place >= 3 || (bDown && IsInputLocked()) || bAbilityDown[Place] == bDown)
+	if (Place >= 3 || (bDown && IsActionLocked()) || bAbilityDown[Place] == bDown)
 	{
 		return;
 	}
@@ -420,7 +465,7 @@ void USwcPlayerActions::OnAbilityKey(uint32 Place, bool bDown)
 
 void USwcPlayerActions::OnAttackButton(bool bDown)
 {
-	if (bDown && IsInputLocked())
+	if (bDown && IsActionLocked())
 	{
 		return;
 	}
@@ -1196,7 +1241,7 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	if (Driver)
 	{
 		// The right button of a ranged program goes to its player as it is (aim_draw, block_active_virtual of the data).
-		Driver->set_aim(Ranged.program ? bAimHeld && !IsInputLocked() : bAiming);
+		Driver->set_aim(Ranged.program ? bAimHeld && !IsActionLocked() : bAiming);
 	}
 	bLockAllowed = !bAiming && !bAttackBeforeTransition && !IsInputLocked();
 	if (USwcPlayerAnimInstance* Anim = Animation())

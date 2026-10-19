@@ -1172,7 +1172,11 @@ void USwcBackendSubsystem::UpdatePlayer()
 			Motion.pressBits.push_back(Bit);
 		}
 	}
-	if (Movement->IsFalling())
+	// The depth class of the feet (stage WF5; mask bit 3), and in a swim the water below the feet (the ground distance of the retail
+	// client: set3-swim/swim-heights.json, water_below_feet_m).
+	Motion.depthClass = static_cast<uint8>(Movement->GetWaterClass());
+	Character->GetActions()->SetSwimming(Movement->IsSwimming());
+	if (Movement->IsFalling() || Movement->IsSwimming())
 	{
 		FHitResult Hit;
 		const bool bHit = World->LineTraceSingleByChannel(Hit, Feet, Feet - FVector(0.0, 0.0, MaxAirHeight), ECC_WorldStatic);
@@ -1190,7 +1194,8 @@ void USwcBackendSubsystem::UpdatePlayer()
 	if (Interactor.IsValid())
 	{
 		Interactor->SetKey(bInteractKey);
-		Interactor->Update(Snapshot, *Connection, Motion.character, Snapshot.Own.dead || Snapshot.Own.loadingScreen || bTravelWait,
+		// A swim blocks the interactions (only Reaction, Death, and Respawn can start in a swim: player.grid; research wf5-swim).
+		Interactor->Update(Snapshot, *Connection, Motion.character, Snapshot.Own.dead || Snapshot.Own.loadingScreen || bTravelWait || Movement->IsSwimming(),
 			FPlatformTime::Seconds(), World->GetSubsystem<USwcCreatureSubsystem>());
 		Avatar->GetActions()->SetTimedUse(Interactor->IsTimedUse(), Interactor->GetUseKind(), Interactor->GetUseTool(), Interactor->GetUsePlace());
 	}
@@ -1220,8 +1225,9 @@ void USwcBackendSubsystem::UpdatePlayer()
 	if (!bPlayerRun && Movement->GetHorizontalSpeed() > 0.05f && World->GetTimeSeconds() >= NextMoveSample)
 	{
 		NextMoveSample = World->GetTimeSeconds() + 1.0;
-		UE_LOG(LogSwcBackend, Log, TEXT("move: sample %s, %s, %.3f m/s, feet %.3f %.3f %.3f m"), *UEnum::GetValueAsString(LastMove),
-			*Movement->GetMotionName(), Movement->GetHorizontalSpeed(), Motion.character.x, Motion.character.y, Motion.character.z);
+		UE_LOG(LogSwcBackend, Log, TEXT("move: sample %s, %s, %.3f m/s, feet %.3f %.3f %.3f m, water class %d depth %.3f m"),
+			*UEnum::GetValueAsString(LastMove), *Movement->GetMotionName(), Movement->GetHorizontalSpeed(), Motion.character.x, Motion.character.y,
+			Motion.character.z, static_cast<int32>(Movement->GetWaterClass()), Movement->GetWaterDepth());
 	}
 	if (!bPlayerRun && GEngine != nullptr && SwcDebugLines())
 	{

@@ -129,9 +129,14 @@ bool evaluate(const Data& data, const Condition& condition, const Facts& facts, 
 		return compare(facts.moveSpeed, attr(condition, "ComparisonType"), std::strtof(attr(condition, "Value").c_str(), nullptr));
 	}
 	if (type == "IfWaterDepth") {
-		// No water in this client yet (the swim is stage P4.4): the depth is None.
+		// The depth class of the feet against the value of the condition (stage WF5; the comparison codes of the retail reader, client
+		// code 0x2C5B350: Equal, LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual; no comparison: Equal).
+		const std::string value = attr(condition, "WaterDepth");
+		const int wanted = value == "VeryShallow" ? 1 : value == "Shallow" ? 2 : value == "Deep" ? 3 : 0;
+		const int water = facts.waterDepth;
 		const std::string comparison = attr(condition, "Comparison");
-		return attr(condition, "WaterDepth") == "None" && (comparison == "Equal" || comparison == "LessThanOrEqual" || comparison.empty());
+		return comparison == "LessThan" ? water < wanted : comparison == "LessThanOrEqual" ? water <= wanted : comparison == "GreaterThan" ? water > wanted
+			: comparison == "GreaterThanOrEqual" ? water >= wanted : water == wanted;
 	}
 	if (type == "IfNamedCondition" || type == "IfCondition") {
 		return named(data, attr(condition, "ConditionName"), facts, depth + 1);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Water/SwcWaterData.h"
 #include "Character/SwcMoveRules.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
@@ -30,6 +31,9 @@ enum class ESwcMove : uint8
 	PostureTransition,
 	/** A stun of a status of the server (stage P3.3): r_Stun, r_Stun_Loop while it lasts, then r_Stun_End. */
 	Stun,
+	/** Stage WF5 (docs/WATER.md): the swim (Swim_Idle, Swim_Nav) and its exit to the wade. */
+	Swim,
+	SwimExit,
 };
 
 /**
@@ -116,6 +120,15 @@ public:
 	 */
 	uint32 GetCreatureBlocks() const { return CreatureBlocks; }
 
+	/** Stage WF5 (docs/WATER.md): the depth class of the feet (the rule of the retail client; the input report has it), the depth
+	 *  of the feet below the water surface (m; 0 with no water), and the swim. A swim or a wade blocks the jump, the dodge, and
+	 *  prone; the swim also blocks the attacks, the abilities, and the interactions (playeractions_swim, player.grid). */
+	swc::water::DepthClass GetWaterClass() const { return WaterClass; }
+	float GetWaterDepth() const { return FeetDepth; }
+	bool IsSwimming() const { return Move == ESwcMove::Swim || Move == ESwcMove::SwimExit; }
+	/** @return True when the data permits a dodge in the water now (no wade, no swim). */
+	bool CanDodgeInWater() const { return !IsSwimming() && WaterClass < swc::water::DepthClass::shallow; }
+
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void CalcVelocity(float DeltaTime, float Friction, bool bFluid, float BrakingDeceleration) override;
@@ -133,6 +146,12 @@ protected:
 	void ApplyCapsule(swc::move::Posture Target);
 	/** The stun of a status: @return True while the stun holds the character. */
 	bool UpdateStun();
+	/** Stage WF5: the depth class and the depth of the feet at the water of their cell (USwcWaterSubsystem). */
+	void UpdateWater();
+	/** The swim: its start, its hold, and its exit. @return True while the swim holds the movement state. */
+	bool UpdateSwim();
+	/** The velocity of the swim: forward in the facing of the character, and back to the swim height. */
+	void SwimVelocity(float DeltaTime);
 	virtual void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;
 
 private:
@@ -204,4 +223,10 @@ private:
 	FString MotionName;
 	FString MotionAction;
 	FString LastMotionLog;
+	/** Stage WF5. */
+	swc::water::DepthClass WaterClass = swc::water::DepthClass::none;
+	float FeetDepth = 0.0f;
+	bool bInWater = false;
+	/** The water surface of the cell of the feet (engine m). */
+	double WaterSurface = 0.0;
 };
