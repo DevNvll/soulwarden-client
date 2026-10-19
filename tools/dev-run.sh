@@ -122,8 +122,12 @@ if ! omarchy-agent-desktop status "${desktop_id}" >/dev/null 2>&1; then
 fi
 # The world lock first (tools/lib/world-lock.sh): a session that waits for a level build or an import shows its window only
 # after it, too late for the window wait of the agent desktop; such a window went to the workspace of the user (2026-10-19).
+# This script holds a shared lock (fd 5) through the launch, so that no writer gets the lock between this check and the
+# lock of the session (a test that released the lock at once let an import in: 2026-10-19 02:43). The session takes its
+# own shared lock with no wait (SWC_WORLD_HELD=1); then this script releases its hold.
 source "${SWC_REPO}/tools/lib/world-lock.sh"
-if ! world_read true; then
+exec 5>>"${SWC_WORLD_LOCK}"
+if ! world_read_fd 5; then
     echo "dev-run: the world lock was not free in ${SWC_WORLD_RUN_WAIT:-900} s: no run (status 3)" >&2
     exit 3
 fi
@@ -133,7 +137,7 @@ fi
 source "${SWC_REPO}/tools/lib/gpu-gate.sh"
 run_slot_take dev-run || exit 3
 gpu_wait dev-run || exit 3
-run_environment+=("SWC_RUN_SLOT=${SWC_RUN_SLOT}")
+run_environment+=("SWC_RUN_SLOT=${SWC_RUN_SLOT}" "SWC_WORLD_HELD=1")
 # The agent desktop starts the command with the environment of its compositor: the values go by name. gamescope runs
 # outside the namespace (in a user namespace it refuses /tmp/.X11-unix, which the real root owns); the client in the
 # namespace reaches its X server through the socket file.
@@ -142,7 +146,8 @@ omarchy-agent-desktop run --wait "${SWC_WINDOW_WAIT:-180}" --json "${desktop_id}
     gamescope --backend wayland -W "${game_size%x*}" -H "${game_size#*x}" -w "${game_size%x*}" -h "${game_size#*x}" -r 60 -- \
     "${SWC_REPO}/tools/lib/session.sh" -- "${client_prefix[@]}" \
     "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" "${client_arguments[@]}" -windowed -ResX="${game_size%x*}" -ResY="${game_size#*x}" "$@" \
-    >"${logs}/${label}-launch.json" 2>&1 6>&- || true
+    >"${logs}/${label}-launch.json" 2>&1 5>&- 6>&- || true
+exec 5>&-   # the session holds its own world lock now
 run_slot_release
 cat "${logs}/${label}-launch.json"
 # The window guard for the life of the run (tools/lib/window_guard.py): a window of the launch that is not on the agent desktop is

@@ -57,12 +57,22 @@ fi
 source "$(dirname "${BASH_SOURCE[0]}")/world-lock.sh"
 mkdir -p "${SWC_WORK}/unreal"
 exec 7>>"${SWC_WORLD_LOCK}"
-world_read_fd 7 || exit 3
+if [[ "${SWC_WORLD_HELD:-}" == "1" ]]; then
+    # tools/dev-run.sh holds a shared lock through the launch: the session takes its own at once, with no wait (also not
+    # for a writer marker). A wait here would show the window after the window wait of the agent desktop, on a workspace
+    # of the user: no client.
+    if ! flock -s -n 7; then
+        echo "session: the world lock is not free, but tools/dev-run.sh holds it through the launch: no client (status 3)" >&2
+        exit 3
+    fi
+else
+    world_read_fd 7 || exit 3
+fi
 # The run slot of a run that renders (tools/lib/gpu-gate.sh, SWC_RUN_SLOT from tools/dev-run.sh --window): a shared lock on
 # fd 6 for the whole run; the backend and the client do not get the descriptor.
 if [[ -n "${SWC_RUN_SLOT:-}" ]]; then
     exec 6>>"${SWC_WORK}/unreal/run-slot-${SWC_RUN_SLOT}.lock"
-    flock -s -w 30 6 || echo "session: the run slot ${SWC_RUN_SLOT} could not be held" >&2
+    flock -s -n 6 || echo "session: the run slot ${SWC_RUN_SLOT} could not be held" >&2   # dev-run.sh holds it through the launch
     echo "session: run slot ${SWC_RUN_SLOT}" >&2
 fi
 
@@ -133,7 +143,7 @@ echo "session: backend ready, client starts" >&2
 set +e
 # No proxy: each request of the client goes to the backend on loopback.
 unshare --user --map-user="${SWC_SESSION_UID}" --map-group="${SWC_SESSION_GID}" -- \
-    env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u SWC_SESSION_BACKEND_ARGS "$@" 9>&- 7>&- 6>&-
+    env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u SWC_SESSION_BACKEND_ARGS -u SWC_WORLD_HELD "$@" 9>&- 7>&- 6>&-
 status=$?
 set -e
 echo "session: client ended with status ${status}" >&2

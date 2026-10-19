@@ -76,6 +76,10 @@ files at the same time; a shared document (this file, the roadmap) changes only 
   for the world lock before the launch, and its window guard (`tools/lib/window_guard.py`, log `LABEL-window-guard.log`)
   reads `hyprctl clients -j` (read only) for the life of the run: a window of the launch that is not on `__agent:DESKTOP`
   is moved with `omarchy-agent-desktop adopt`, else the run stops. Start window runs only with `tools/dev-run.sh`.
+  The trap of the lock gap (2026-10-19 02:43): a check that takes the shared world lock and releases it at once lets an
+  import in before the session takes its own lock; the session then waits inside gamescope, and its window comes after
+  the window wait. Thus `tools/dev-run.sh` holds the shared lock (and the run slot) through the launch, and the session
+  takes its own at once (`SWC_WORLD_HELD=1`); a session that would have to wait ends with status 3 and opens no client.
 - The GPU (24 GB) is shared by the clients of all tracks and the retail game processes; a client needs about 6 GB.
   `tools/dev-run.sh --window` (and `tools/flythrough.sh`) takes, in this order: the world lock, a run slot, then the
   free GPU memory (`tools/lib/gpu-gate.sh`). The slots: `SWC_RUN_SLOTS` (default 2) client runs that render at a time,
