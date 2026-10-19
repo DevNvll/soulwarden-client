@@ -717,12 +717,14 @@ Swc.Define("ContainerRequestBus", "Event", {
   CanTransferItems = function() return true end,
   CheckItemClassCompatibility = function() return true end,
   ContainsSalvageableItem = function() return false end,
-  GetItemCount = function(id, itemCrc)
+  -- The scripts give an item descriptor (the count of its item id; the loot ticker shows it on the icon), else an item id.
+  GetItemCount = function(id, item)
+    local itemId = type(item) == "number" and item or (item and item.itemId)
     local container = container_of(id)
     local n = 0
     for i = 0, (container and container.count or 0) - 1 do
       local slot = container.slots[i]
-      if slot and slot.static and slot.static.crc == itemCrc then
+      if slot and slot.static and slot.static.crc == itemId then
         n = n + (slot.quantity or 0)
       end
     end
