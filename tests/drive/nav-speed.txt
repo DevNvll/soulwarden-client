@@ -1,0 +1,35 @@
+# The check of the native Nav against the retail run set3-swim/wade-speed.json (docs/MOVEMENT.md "The native Nav"), with the routes
+# of tests/drive/nav-speed-routes.txt. The tests and the retail speeds (m/s): dry W, camera east (5.49 to 5.51, the sprint); dry S,
+# camera west (3.94; target 4.0); dry Left Ctrl + W, camera west (1.97; target 2.0); wade W, camera north (2.747); wade S (2.747);
+# wade Left Ctrl + W (1.646); wade W with Space from 1.2 s (2.747). The lines "move: sample" of the client log have the speed.
+# Times in seconds from the possession.
+# SWC_DEV_CHARACTER=Devwarden SWC_DEV_PLACE=10005.8:2291.19:40.5 SWC_STAGE=nav-speed \
+#   tools/creature-check.sh nav-speed 60 tests/drive/nav-speed-routes.txt tests/drive/nav-speed.txt
+3.0 turn 90
+4.0 turn 0
+4.2 move 0 1
+7.5 move 0 0
+11.0 turn -90
+12.0 turn 0
+12.2 move 0 -1
+15.5 move 0 0
+19.0 turn -90
+20.0 turn 0
+20.1 walk 1
+20.2 move 0 1
+23.5 move 0 0
+23.6 walk 0
+27.0 move 0 1
+30.5 move 0 0
+35.0 move 0 -1
+38.5 move 0 0
+43.0 walk 1
+43.1 move 0 1
+46.5 move 0 0
+46.6 walk 0
+51.0 move 0 1
+52.2 jump
+52.5 jump
+53.0 jump
+54.5 move 0 0
+57.0 tick

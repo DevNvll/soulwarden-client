@@ -41,8 +41,8 @@ game copy --tools/convert-player.sh locomotion--> content/player/locomotion.json
 | --- | --- | --- |
 | Sprint | 5.5 m/s, accel 20 m/s², decel 20 m/s²; the default with forward or side input | R2, `playeractions_sprint` |
 | Sprint_Start | accel 20 m/s² unarmed (10 with a weapon, below); to Sprint at 4 m/s or after 1.13 s | R2 |
-| Run (Nav) | 3.25 m/s, accel 35 m/s² (Nav_Start 12), decel 35 m/s²; only with backward input or with no "can sprint" | R2, `playeractions_nav` |
-| Walk | 1.65 m/s, 25 / 25 m/s²; Left Ctrl held, or no "can run" | R2, `Stand_Walk` |
+| Run (Nav) | 4.0 m/s on each axis (backward too), accel 12 m/s² until 1.65 m/s, then 35, decel 35; only with backward input, with no "can sprint", or in a wade (see "The native Nav") | native Nav 0x1423FC970 |
+| Walk | Left Ctrl held: max(0.5 S, min(S, 1.65)) of the speed S of the native Nav: 2.0 m/s dry, 1.65 m/s in a wade; no "can run": 3.25 m/s until 1.65 m/s, then 1.65 | native Nav 0x1423FC970 |
 | Stop | 40 m/s² unarmed (12 with a melee or magic weapon, below) | R2, `Nav_Stop` |
 | Input angles | forward cone 110° (sprint), backward the rest (run); dead zone 0.2 | R2, `playerinput_navigation` |
 | ClearMotion | velocity cleared when the input turns more than 80° (Sprint_Start) or 125° (Sprint) from it | R2 |
@@ -76,11 +76,39 @@ The velocity on the ground is the velocity of the data, with the rules of Camera
 A block (a wall, the face of a step) does not reset the velocity: the next move of the engine has its full length,
 which the step-up of the engine needs. The state rules use this speed.
 
-The open point (2026-10-18): the retail client runs faster than its data in three cases (`wade-speed.json` of
-set3-swim): the run S 3.99 m/s (data 3.25), the walk 1.99 m/s (data 1.65), and the wade 2.747 m/s (data: the Sprint
-Wade 2.5, the Nav Wade 1.65). No rule of the data or of the motion code that the research read gives these values. A
-retail read of the requested velocity and its activity (`set3-swim/nav-velocity.json`) decides it. Until then the
-client keeps the values of the data.
+### The native Nav (2026-10-19)
+
+The retail client does not run the motion list of `playeractions_nav.actionlist` for Nav: it runs a compiled copy of the
+action (the run function 0x1423FC970, build 1.400.6031.6004151; research `~/Games/soulwarden-client/research/nav-speed-2`).
+The XML in the pak is older. The retail read of the requested velocity (`set3-swim/nav-velocity.json`) confirms each value:
+the run S 4.0 m/s, the walk 2.0 m/s, the wade W, S, and Space 2.75 m/s, the wade walk 1.65 m/s (the label CamRelMotion in
+layer state 26). `swc::move::native_nav` (`SwcMoveRules`, 19 checks of `tools/test-movement.sh`) has the rule for the
+states Nav_Start, Nav, and Walk of the client; the first branch that holds gives the speed S and the rates:
+
+| Branch | S (m/s) | Accel, decel (m/s²) |
+| --- | --- | --- |
+| The start value: the flag "can run" (the constant ctx+0x318 of the action context 0x141924130); no flag | 4.0; 3.25 | 35, 35 |
+| The bag over 1.5 × its limit; over its limit | 0.625; 1.65 | 10, 10 |
+| The wade (Shallow or deeper, the setting Swimming, not blocking) | 2.75 | 10, 10 |
+| Dry: crouch; prone | 1.25; 0.625 | 10, 10; 1, 5 |
+| Dry: the flame thrower; the aim or a shot | 2.75; 1.65 | 12, 35 |
+| Dry: a combat stance (a weapon in the hand) | S | 25, 25 |
+| Dry: a charged aim, the hip fire walk; the block | 1.65; 2.0 | 25, 25 |
+| Dry: below 1.65 m/s (the start) | S | 12, 35 |
+| Dry: running with "can run"; with no "can run" | S; 1.65 | 35, 35; 25, 25 |
+| Then the walk key | max(0.5 S, min(S, 1.65)) | no change |
+
+The target goes to CameraRelativeMotion with the speed S on each axis and BackwardsMultiplier 1.0. A wade has no sprint:
+each move in the wade is this Nav (the retail wade W is in layer state 26). The named conditions of the data select the
+branches of the weapons and the block [inference of the research: the native checks are functions with no names]. The
+labels of the two dry tests alternate around 4.0 and 2.0 by ±0.27 %: an error of the yaw quaternion of the retail client
+(polynomial sin and cos), not copied.
+
+Open points of the native Nav: the branch from a sprint (accel 20, the velocity kept up to 5.25 m/s) and a slow crouch
+(0.625 m/s) are not in the client (their conditions are not known). The hip fire of the bow and the aim of the hatchet
+(2.25 m/s) have no condition in the data. The native code names MoveSpeedMod (key 0x34) as the multiplier; the client
+keeps key 0x35 (the live walks of the backend). Both were 1.0 in each retail read. The other native actions (Sprint,
+Nav_Start, Nav_Stop, crouch, prone, swim) can also differ from the XML.
 
 ## The armed rates and the aim (stage P2.6)
 
@@ -278,7 +306,7 @@ The speeds of the data (m/s; the tests compare each one with `movement.json`):
 
 | Posture | Sprint | Run (Nav) | Walk |
 | --- | --- | --- | --- |
-| Stand | 5.5 (accel 20; armed start 10) | 3.25 (accel 35; armed 25) | 1.65 (Stand_Walk) |
+| Stand | 5.5 (accel 20; armed start 10) | 3.25 (accel 35; armed 25); the client: the native Nav, 4.0 | 1.65 (Stand_Walk); the client: 2.0 |
 | Crouch | 2.5 (start accel 10) | 1.25 (Crouch_Unarmed) | 0.825 (Crouch_Walk: only with a tool or a forced walk) |
 | Prone | 1.25 | 0.375 (accel 1, decel 5) | 0.1875 |
 

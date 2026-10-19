@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
 #include <cstdlib>
 
 namespace swc::move {
@@ -184,6 +185,56 @@ bool holds(const Data& data, std::string_view name, const Facts& facts)
 bool holds(const Data& data, const Condition& condition, const Facts& facts)
 {
 	return evaluate(data, condition, facts, 0);
+}
+
+NavMotion native_nav(const Data& data, const Facts& facts, bool overloaded, bool encumbered, bool walk)
+{
+	// The speed of the action context: run 4.0 (ctx+0x318), and 3.25 with no flag "can run" (0x1423FC970).
+	const float start = facts.canRun ? 4.0F : 3.25F;
+	NavMotion out{start, 35.0F, 35.0F, "start"};
+	const auto any = [&](std::initializer_list<std::string_view> names) {
+		for (const std::string_view name : names) {
+			if (holds(data, name, facts)) {
+				return true;
+			}
+		}
+		return false;
+	};
+	const bool blocking = holds(data, "Block_Nav_Speed", facts);
+	const bool crouch = facts.tags.count("Crouch") != 0;
+	const bool prone = facts.tags.count("Prone") != 0;
+	if (overloaded) {
+		out = {0.625F, 10.0F, 10.0F, "the bag over 1.5 x its limit"};
+	} else if (encumbered) {
+		out = {1.65F, 10.0F, 10.0F, "the bag over its limit"};
+	} else if (facts.waterDepth >= 2 && facts.settings.count("Swimming") != 0 && !blocking) {
+		out = {2.75F, 10.0F, 10.0F, "wade"};
+	} else if (crouch) {
+		out = {1.25F, 10.0F, 10.0F, "crouch"};
+	} else if (prone) {
+		out = {0.625F, 1.0F, 5.0F, "prone"};
+	} else if (holds(data, "FireStaff_FlameThrower_MoveSpeed", facts)) {
+		out = {2.75F, 12.0F, 35.0F, "flame thrower"};
+	} else if (holds(data, "Aiming_Or_Shooting", facts)) {
+		out = {1.65F, 12.0F, 35.0F, "aim or shoot"};
+	} else if (any({"Combat_Nav_Stand", "Combat_Nav_Stand_Slow", "Combat_Nav_Stand_Fast"})) {
+		out = {start, 25.0F, 25.0F, "combat stance"};
+	} else if (any({"Bow_ChargedAim", "Combat_Nav_MagicGauntlet_ChargedAim", "Stand_Walk_Hipfire"})) {
+		out = {1.65F, 25.0F, 25.0F, "charged aim"};
+	} else if (blocking) {
+		out = {2.0F, 25.0F, 25.0F, "block"};
+	} else if (facts.moveSpeed < 1.65F) {
+		// The context tag "running" is set at 1.65 m/s: before it the start rate.
+		out = {start, 12.0F, 35.0F, "start rate"};
+	} else if (facts.canRun) {
+		out = {start, 35.0F, 35.0F, "run"};
+	} else {
+		out = {1.65F, 25.0F, 25.0F, "no run"};
+	}
+	if (walk) {
+		out.speed = std::max(0.5F * out.speed, std::min(out.speed, 1.65F));
+	}
+	return out;
 }
 
 Planar camera_relative_target(Planar direction, Planar speed, float backwards)

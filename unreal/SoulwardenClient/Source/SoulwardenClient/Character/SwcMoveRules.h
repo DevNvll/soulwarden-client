@@ -113,6 +113,32 @@ struct Facts {
 /** @return The entry of the motion list of an action for the facts: the first Conditional whose condition holds, else the
  *  Default. Null for an action that the data does not have. */
 [[nodiscard]] const Motion* motion_of(const Data& data, std::string_view action, const Facts& facts);
+/** The speed and the rates of the native Nav (m/s, m/s2), and the name of its branch (for the log). */
+struct NavMotion {
+	float speed{0.0F};
+	float accel{0.0F};
+	float decel{0.0F};
+	const char* branch{""};
+};
+
+/**
+ * The native Nav of the retail client (the compiled action, run function 0x1423FC970, build 1.400.6031.6004151; research nav-speed-2
+ * RESULT.md): the retail client runs this code for Nav, not the motion list of playeractions_nav.actionlist (the XML of the pak is
+ * older). The first branch that holds gives the speed S and the rates; then the walk key; the result goes to CameraRelativeMotion
+ * with Speed (S, S, S), MinSpeed 0.5 S, and BackwardsMultiplier 1.0 (the backward speed is the forward speed).
+ *   start       S = 4.0 with the flag "can run" (the constant ctx+0x318 of the action context 0x141924130), else 3.25; 35, 35
+ *   load        the bag over 1.5 x its limit: 0.625; over its limit: 1.65; 10, 10
+ *   wade        the depth class Shallow or deeper and the setting Swimming, not blocking: 2.75; 10, 10
+ *   dry         crouch 1.25 (10, 10); prone 0.625 (1, 5); the flame thrower 2.75 (12, 35); aim or shoot 1.65 (12, 35); a combat
+ *               stance S (25, 25); a charged aim or a hip fire walk 1.65 (25, 25); the block 2.0 (25, 25); not yet 1.65 m/s:
+ *               S (12, 35); running with "can run": S (35, 35); else 1.65 (25, 25)
+ *   walk key    S = max(0.5 S, min(S, 1.65))
+ * The named conditions of the data select the branches of the weapons and the block (FireStaff_FlameThrower_MoveSpeed,
+ * Aiming_Or_Shooting, Combat_Nav_Stand*, Bow_ChargedAim, Combat_Nav_MagicGauntlet_ChargedAim, Stand_Walk_Hipfire,
+ * Block_Nav_Speed) [inference of the research: the native checks are functions with no names].
+ */
+[[nodiscard]] NavMotion native_nav(const Data& data, const Facts& facts, bool overloaded, bool encumbered, bool walk);
+
 /** A ground velocity in the yaw frame of the camera (m/s): x side (right), y forward. */
 struct Planar {
 	float x{0.0F};

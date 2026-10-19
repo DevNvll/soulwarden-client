@@ -537,8 +537,9 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 	// The speed of the sprint threshold (MoveSpeed 4 m/s) with the multiplier of the speed table: a slowed sprint (2.75 m/s with
 	// 0.5) stays a sprint (an inference; with the plain threshold the state went between Sprint and Sprint_Start).
 	const float SprintThreshold = SprintMinimumSpeed * FMath::Min(Limits.speed_multiplier(), 1.0f);
-	// A wade has no Sprint_Start: the sprint starts at once at the speed of the Wade conditional (2.5 m/s), below the threshold (research
-	// wf5-swim/swim-rules.json; the retail wade action starts at the change to Shallow: set3-swim/swim-heights.json).
+	// A wade has no sprint: each move in Shallow water is the Nav of the retail client (layer state 26, the native Nav at 2.75 m/s;
+	// set3-swim/nav-velocity.json, wade-speed.json: the default move, the backward move, and Space have the same speed). A sprint
+	// that comes into the wade goes to Nav (the D sprint of set3-swim/swim-walk-in-out: 5.5 m/s, then 2.75 m/s in the wade).
 	const bool bWade = WaterClass >= swc::water::DepthClass::shallow;
 	// The aim (AimDownSights) has no sprint (Sprint_Start needs "not ADS"); the walk key has none (Sprint_Start: not walk); no
 	// IfCanSprint (NoSprint, the server bit), IfEncumbered, or Overburdened: no sprint [D playeractions_sprint].
@@ -546,19 +547,19 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 	{
 		SetMove(ESwcMove::Walk);
 	}
-	else if (bBackward || !Limits.can_sprint())
+	else if (bBackward || !Limits.can_sprint() || bWade)
 	{
 		const bool bStart = Move == ESwcMove::Idle || Move == ESwcMove::Stop || Move == ESwcMove::Land;
 		SetMove(bStart ? ESwcMove::NavStart : (Move == ESwcMove::NavStart && Speed < NavSpeed * 0.98f ? ESwcMove::NavStart : ESwcMove::Nav));
 	}
-	else if (Move == ESwcMove::Sprint && (Speed >= SprintThreshold - 1.0f || bLowPosture || bWade))
+	else if (Move == ESwcMove::Sprint && (Speed >= SprintThreshold - 1.0f || bLowPosture))
 	{
 		SetMove(ESwcMove::Sprint);
 	}
 	else if (Move == ESwcMove::SprintStart)
 	{
 		// The sprint of crouch and prone has no speed threshold (the State conditions of Sprint accept the tag Crouch or Prone).
-		if (Speed >= SprintThreshold - 1.0f || StateTime >= SprintStartMaximumTime || bLowPosture || bWade)
+		if (Speed >= SprintThreshold - 1.0f || StateTime >= SprintStartMaximumTime || bLowPosture)
 		{
 			SetMove(ESwcMove::Sprint);
 		}
@@ -566,7 +567,7 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 	else
 	{
 		// SkipSprintStartTimer after a dodge: the sprint at once.
-		SetMove(SkipSprintStartLeft > 0.0f || bWade ? ESwcMove::Sprint : ESwcMove::SprintStart);
+		SetMove(SkipSprintStartLeft > 0.0f ? ESwcMove::Sprint : ESwcMove::SprintStart);
 	}
 }
 
@@ -878,7 +879,20 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 	float DecelSide = Decel;
 	float Backwards = 1.0f;
 	const swc::move::Data* Data = Rules();
-	if (Data != nullptr && Action != nullptr)
+	if (Data != nullptr && (Move == ESwcMove::NavStart || Move == ESwcMove::Nav || Move == ESwcMove::Walk))
+	{
+		// Nav, Nav_Start, and the walk: the native Nav of the retail client (swc::move::native_nav, 0x1423FC970), not the motion list of
+		// the XML: the same speed on each axis, BackwardsMultiplier 1.0, and the multiplier of the speed table on the speed and the rates.
+		const swc::move::NavMotion Native = swc::move::native_nav(*Data, MakeFacts(), Limits.encumbered_movement(), Limits.encumbered(), bWalkHeld);
+		const float Multiplier = Limits.speed_multiplier();
+		Speed = SpeedSide = Native.speed * 100.0f * Multiplier;
+		Accel = AccelSide = Native.accel * 100.0f * Multiplier;
+		Decel = DecelSide = Native.decel * 100.0f * Multiplier;
+		Backwards = 1.0f;
+		MotionAction = TEXT("Nav (native)");
+		MotionName = UTF8_TO_TCHAR(Native.branch);
+	}
+	else if (Data != nullptr && Action != nullptr)
 	{
 		if (const swc::move::Motion* Motion = swc::move::motion_of(*Data, TCHAR_TO_UTF8(Action), MakeFacts()))
 		{

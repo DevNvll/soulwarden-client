@@ -83,9 +83,10 @@ the class is 2 (Shallow): the feet are 1.400 m deep. The ground distance (mask b
 
 ## The wade (Shallow)
 
-- The movement data: the named condition `Wade` (IfWaterDepth GreaterThanOrEqual Shallow and the setting Swimming) is the first
-  conditional of Nav and Nav_Start (1.65 m/s, accel 10) and of Sprint (2.5 m/s, accel 20; with crouch 1.75). It wins over the armed
-  and the walk entries. A wade has no Sprint_Start.
+- The wade is the native Nav of the retail client (docs/MOVEMENT.md, "The native Nav"): 2.75 m/s for each key (the default move,
+  the back key, Space), accel and decel 10 m/s², the walk key 1.65 m/s; no sprint in a wade (the retail wade W is in layer state 26,
+  `set3-swim/nav-velocity.json`). The motion lists of the XML (the Wade conditionals of Nav, 1.65 m/s, and of Sprint, 2.5 m/s) are
+  older than the compiled action.
 - No jump, no dodge, no prone in a wade (IfWaterDepth LessThan Shallow of these actions; research `water-uses.json`). At
   VeryShallow prone goes to crouch.
 
@@ -134,15 +135,11 @@ is green-yellow in its fog; the shore foam lines of the retail beaches (particle
 | The swim speed | 3.0 m/s | 3.000 m/s |
 | The swim exit | 1.289 to 1.290 m, the wade 0.5 s later | 1.289 m, 0.5 s |
 | Shallow to VeryShallow, VeryShallow to None | 0.887 to 0.903 m, 0.182 to 0.198 m | 0.90 m, 0.19 m |
-| The wade speed | 2.73 to 2.79 m/s | 2.50 m/s (the data) |
+| The wade speed | 2.73 to 2.79 m/s | 2.75 m/s (the native Nav) |
 | The run | 5.40 to 5.50 m/s | 5.50 m/s |
 
 ## Not done, open points
 
-- The wade speed (a gap): the retail wade is 2.73 to 2.79 m/s (set3-swim), the data gives 2.5 m/s (the Wade conditional of Sprint),
-  and the equip load gives no factor (all 1). The client keeps the data value. The backend log of the retail swim run has no line of
-  the speed table; a retail run that reads the speed table (slot 43, key 0x35 SprintSpeedMod) in a wade is requested (decision of
-  the orchestrator, 2026-10-18).
 - The upper body of the wade (`Water_Deep_Upperbody`, `unarmed_walk_water_ub`), Swim_Death (two clips in sequence), the drown of a
   crouch in shallow water (the statuses Breath and Drowning), and the blocks of fishing, gathering, the mounts, and the inventory in
   deep water: not in this stage.

@@ -289,6 +289,59 @@ void motion_rule_tests(const move::Data& data)
 	check(near(reverse2.y, -1.0F), "a reverse: the acceleration while |current| < |target| (the old rule took the deceleration)");
 }
 
+/**
+ * The native Nav of the retail client (swc::move::native_nav, 0x1423FC970; research nav-speed-2): the CamRelMotion targets of the
+ * retail read set3-swim/nav-velocity.json: dry S 4.0, dry walk 2.0, wade W, S, and Space 2.75, wade walk 1.65 (the labels of the
+ * dry tests alternate around these values: a numeric artefact of the retail yaw quaternion, not copied). Then the other branches.
+ */
+void native_nav_tests(const move::Data& data)
+{
+	using move::Posture;
+	const auto nav = [&](move::Facts facts, float speed, std::uint8_t depth = 0, bool walk = false, bool overloaded = false, bool encumbered = false) {
+		facts.moveSpeed = speed;
+		facts.waterDepth = depth;
+		return move::native_nav(data, facts, overloaded, encumbered, walk);
+	};
+	const auto expect = [](const move::NavMotion& motion, float speed, float accel, float decel, const std::string& what) {
+		check(near(motion.speed, speed) && near(motion.accel, accel) && near(motion.decel, decel),
+			what + ": " + std::to_string(motion.speed) + " m/s, " + std::to_string(motion.accel) + " / " + std::to_string(motion.decel) + " (" + motion.branch + ")");
+	};
+	const move::Facts stand = facts_of(Posture::stand);
+	// The retail tests (the run at speed: the context tag "running").
+	expect(nav(stand, 3.9F), 4.0F, 35.0F, 35.0F, "dry S (retail 4.0)");
+	expect(nav(stand, 2.0F, 0, true), 2.0F, 35.0F, 35.0F, "dry walk: max(2.0, min(4.0, 1.65)) (retail 2.0)");
+	expect(nav(stand, 2.7F, 2), 2.75F, 10.0F, 10.0F, "wade W, S, Space (retail 2.75)");
+	expect(nav(stand, 1.6F, 2, true), 1.65F, 10.0F, 10.0F, "wade walk: max(1.375, min(2.75, 1.65)) (retail 1.65)");
+	expect(nav(stand, 0.0F, 3), 2.75F, 10.0F, 10.0F, "Deep (before the swim): the wade branch");
+	expect(nav(stand, 0.0F, 1), 4.0F, 12.0F, 35.0F, "VeryShallow: dry, the start rate");
+	// The back key has the speed of the forward key (BackwardsMultiplier 1.0 of the call of the API).
+	const move::NavMotion run = nav(stand, 3.9F);
+	const move::Planar back = move::camera_relative_target({0.0F, -1.0F}, {run.speed, run.speed}, 1.0F);
+	check(near(back.y, -4.0F), "the back key: 4.0 m/s");
+	// The start: 12 m/s2 until 1.65 m/s, then 35.
+	expect(nav(stand, 1.6F), 4.0F, 12.0F, 35.0F, "the start rate below 1.65 m/s");
+	expect(nav(stand, 1.65F), 4.0F, 35.0F, 35.0F, "the run at 1.65 m/s");
+	// No flag "can run": the start 3.25, then 1.65 when running.
+	move::Facts noRun = stand;
+	noRun.canRun = false;
+	expect(nav(noRun, 1.0F), 3.25F, 12.0F, 35.0F, "no run: the start to 3.25");
+	expect(nav(noRun, 2.0F), 1.65F, 25.0F, 25.0F, "no run, running: 1.65");
+	// The load, before the wade.
+	expect(nav(stand, 3.0F, 2, false, false, true), 1.65F, 10.0F, 10.0F, "the bag over its limit (also in a wade)");
+	expect(nav(stand, 3.0F, 0, false, true, true), 0.625F, 10.0F, 10.0F, "the bag over 1.5 x its limit");
+	// The postures and the weapons.
+	expect(nav(facts_of(Posture::crouch), 1.0F), 1.25F, 10.0F, 10.0F, "crouch");
+	expect(nav(facts_of(Posture::prone), 0.3F), 0.625F, 1.0F, 5.0F, "prone");
+	expect(nav(facts_of(Posture::stand, {"2H_Melee", "GreatAxe"}), 3.0F), 4.0F, 25.0F, 25.0F, "a combat stance (an axe)");
+	move::Facts aim = facts_of(Posture::stand, {"Bow"});
+	aim.tags.insert("AimDownSights");
+	expect(nav(aim, 1.0F), 1.65F, 12.0F, 35.0F, "the aim");
+	move::Facts block = facts_of(Posture::stand, {"1H_Melee", "Sword"});
+	block.tags.insert("Blocking");
+	expect(nav(block, 1.0F, 2), 2.0F, 25.0F, 25.0F, "the block (also in a wade: the wade branch needs no block)");
+	expect(nav(facts_of(Posture::stand, {"2H_Melee", "GreatAxe"}), 3.0F, 0, true), 2.0F, 25.0F, 25.0F, "a combat stance with the walk key: 2.0");
+}
+
 void limit_tests(const move::Data& data)
 {
 	const auto row = [&data](const char* id) -> const move::StatusRow* {
@@ -465,6 +518,7 @@ int main(int argc, char** argv)
 	const move::Data data = data_of(Json::parse(file));
 	speed_tests(data);
 	motion_rule_tests(data);
+	native_nav_tests(data);
 	limit_tests(data);
 	posture_tests();
 	autorun_tests();
