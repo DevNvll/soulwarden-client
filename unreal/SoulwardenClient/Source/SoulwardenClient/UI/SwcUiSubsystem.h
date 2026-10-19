@@ -61,6 +61,8 @@ public:
 	bool UiKeyToGame(const FString& Name);
 	/** @return True while the UI has the cursor (the pointer events go to the UI only). */
 	bool UiCursor() const { return bCursorWanted; }
+	/** @return True while the key page of the options screen binds a key (the mouse buttons and the wheel go as keys). */
+	bool UiKeybinding() const { return bKeybinding; }
 	/** The pointer at a position of the screen (Slate screen space). */
 	void UiPointer(FVector2D ScreenPosition);
 	bool UiButton(const TCHAR* Button, bool bDown);
@@ -100,6 +102,7 @@ private:
 	void FeedNumbers(const swc::net::RepClient::OwnEntity& Own, class USwcCreatureSubsystem* Creatures, const FVector& Eye, const FRotator& View);
 	/** A request of the inventory scripts ("equip BAG SLOT QUANTITY INSTANCE", "use SLOT", ...) to the backend subsystem. */
 	void HandleItemRequest(const FString& Request, class USwcBackendSubsystem* Backend);
+	void HandleKeyRequest(const FString& Request);
 
 	TUniquePtr<swc::ui::Runtime> Runtime;
 	TSharedPtr<FSwcUiResources> Resources;
@@ -114,6 +117,7 @@ private:
 	double LoadingHoldUntil = 0.0;
 	uint32 SentDeathNotices = 0;
 	bool bCursorWanted = false;
+	bool bKeybinding = false;
 	bool bCursorApplied = false;
 
 	struct FDriveStep

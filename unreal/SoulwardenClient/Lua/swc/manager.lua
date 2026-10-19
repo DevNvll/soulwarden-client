@@ -474,18 +474,6 @@ Swc.Define("LyShineManagerBus", "Broadcast", {
   GetControllerMapScan = function() return {controllerMapScanSpeed_X = 1, controllerMapScanSpeed_Y = 1} end,
   SetMapScrollTimerBetweenSteps = function() end,
   UpdateVirtualCursorSettings = function() end,
-  IsKeybindBound = function(action) return Swc.Keybind(action) ~= nil end,
-  GetKeybind = function(action, actionMap) return Swc.Keybind(action, actionMap) or "" end,
-  -- The input name of the key of an action (a CryInput name: "q", "mouse1"); the hint shows an icon for a mouse button.
-  GetActionInputName = function(action, actionMap)
-    local key = Swc.Keybind(action, actionMap)
-    return key and string.lower(key) or ""
-  end,
-  GetActionInputNameByDevice = function(action, actionMap)
-    local key = Swc.Keybind(action, actionMap)
-    return key and string.lower(key) or ""
-  end,
-  GetKeybindWithoutHold = function(action, actionMap) return Swc.Keybind(action, actionMap) or "" end,
   GetLastActionInputDevice = function() return eAID_KeyboardMouse end,
   IsActionHoldWithTriggerDelay = function() return false end,
 })

@@ -27,6 +27,7 @@
 #include "SwcBackendSubsystem.h"
 #include "SwcDebugLines.h"
 #include "UI/SwcUiInput.h"
+#include "UI/SwcKeyBindings.h"
 #include "UI/SwcUiSlate.h"
 
 DEFINE_LOG_CATEGORY(LogSwcUi);
@@ -89,6 +90,7 @@ void USwcUiSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 	Collection.InitializeDependency<USwcBackendSubsystem>();
+	Collection.InitializeDependency<USwcKeyBindings>();
 	FString Mode;
 	FParse::Value(FCommandLine::Get(), TEXT("SwcUi="), Mode);
 	if (GIsEditor || Mode == TEXT("off"))
@@ -151,6 +153,11 @@ void USwcUiSubsystem::Start()
 		return;
 	}
 	Runtime->call("Boot");
+	// The rebinds that the client kept (UI/SwcKeyBindings: the file of the options screen) go to the key table of the scripts.
+	if (const USwcKeyBindings* Keys = GetGameInstance()->GetSubsystem<USwcKeyBindings>())
+	{
+		Runtime->call("HostKeyBindings", {FArg::of(Utf8(Keys->OverrideLines()))});
+	}
 	// The loading screen of the game (globals.luac registers it) from the start to the spawn of the player.
 	Runtime->call("HostLoading", {FArg::of(true), FArg::of(std::string(WorldLevelName)), FArg::of(std::string("eLoadingScreenIds_LEVEL1"))});
 	bStartLoading = true;
@@ -729,10 +736,44 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 			}
 			UE_LOG(LogSwcUi, Log, TEXT("ui: the respawn screen asks for a respawn (%hs): %s"), Request.c_str(), bSent ? TEXT("sent") : TEXT("not sent"));
 		}
+		else if (Request.rfind("rebind", 0) == 0 || Request.rfind("keybinding ", 0) == 0)
+		{
+			HandleKeyRequest(UTF8_TO_TCHAR(Request.c_str()));
+		}
 		else
 		{
 			HandleItemRequest(UTF8_TO_TCHAR(Request.c_str()), Backend);
 		}
+	}
+}
+
+/** The key requests of the options screen (swc/keys.lua): "rebind MAP ACTION KEY" ("-": no key), "rebind-save",
+ *  "rebind-reset", "keybinding 1|0" (the key page listens for a key: the mouse buttons and the wheel go as keys). */
+void USwcUiSubsystem::HandleKeyRequest(const FString& Request)
+{
+	USwcKeyBindings* Keys = GetGameInstance()->GetSubsystem<USwcKeyBindings>();
+	TArray<FString> Parts;
+	Request.ParseIntoArray(Parts, TEXT(" "));
+	if (Parts[0] == TEXT("keybinding"))
+	{
+		bKeybinding = Parts.Num() > 1 && Parts[1] == TEXT("1");
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the key page %s"), bKeybinding ? TEXT("listens for a key") : TEXT("ends its listen"));
+	}
+	else if (Keys == nullptr)
+	{
+		UE_LOG(LogSwcUi, Warning, TEXT("ui: no key table: %s"), *Request);
+	}
+	else if (Parts[0] == TEXT("rebind") && Parts.Num() == 4)
+	{
+		Keys->Rebind(Parts[1], Parts[2], Parts[3] == TEXT("-") ? FString(TEXT(" ")) : Parts[3]);
+	}
+	else if (Parts[0] == TEXT("rebind-save"))
+	{
+		Keys->Save();
+	}
+	else if (Parts[0] == TEXT("rebind-reset"))
+	{
+		Keys->Reset();
 	}
 }
 

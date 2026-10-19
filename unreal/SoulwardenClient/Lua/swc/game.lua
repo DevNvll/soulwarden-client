@@ -186,39 +186,6 @@ Swc.Define("ObjectivesComponentRequestBus", "Event", {
 -- The end of the last combat (a time point in the past: not in combat; quitgamepopup.luac).
 Swc.SetData("Hud.LocalPlayer.CombatStatus.InCombatTimePoint", Swc.TimePoint.new({seconds = 0}))
 
--- ------------------------------------------------------------------------------------------------- the key names
-
--- The default keys of the client (defaultprofile.xml; research feel-values.md R6.3): the hints of the HUD show them.
-Swc.keys = {
-  ability1 = "Q", ability2 = "R", ability3 = "F", rune_ability = "G", reload = "R",
-  ["quickslot-weapon1"] = "1", ["quickslot-weapon2"] = "2",
-  ["quickslot-consumable-1"] = "3", ["quickslot-consumable-2"] = "4", ["quickslot-consumable-3"] = "5",
-  ["quickslot-consumable-4"] = "6", sheathe = "~", dodge = "Left Shift", jump = "Space", ui_interact = "E",
-  toggleInventoryWindow = "Tab", toggleMapComponent = "M", toggleSkillsComponent = "K", toggleMenuComponent = "Escape",
-  mount_summon = "X", target_tag = "B",
-}
-
---- @return The key name of an action: the table above, else the first key of the action in the action maps of the data (a map name
---- first, then each map; actionmaps.json: ui_interact_sec is "t"), in upper case.
-function Swc.Keybind(action, actionMap)
-  if action == nil then
-    return nil
-  end
-  if Swc.keys[action] then
-    return Swc.keys[action]
-  end
-  local maps = actionMap and {actionMap} or Swc.actionMapOrder or {}
-  for _, mapName in ipairs(maps) do
-    local map = Swc.actionMaps and Swc.actionMaps[mapName]
-    for _, a in ipairs(map and map.actions or {}) do
-      if a.name == action and a.inputs and a.inputs[1] and a.inputs[1].key and #a.inputs[1].key == 1 then
-        return string.upper(a.inputs[1].key)
-      end
-    end
-  end
-  return nil
-end
-
 -- ------------------------------------------------------------------------------------------------- the local player
 
 -- The entities of the local player that the HUD addresses (the client gives their ids in the data layer paths

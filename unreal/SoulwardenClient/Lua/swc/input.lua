@@ -154,6 +154,8 @@ local function editing()
 end
 
 local function key(name, down)
+  -- The raw keys of the native input (KeyInputNotificationBus; the key page of the options screen listens while it binds).
+  Swc.Notify("KeyInputNotificationBus", nil, down and "OnKeyPressed" or "OnKeyReleased", name)
   if editing() then
     -- A text input that edits takes the keys (no game action).
     if down then
