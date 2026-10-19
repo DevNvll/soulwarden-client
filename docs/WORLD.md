@@ -255,8 +255,12 @@ tools/build-world.sh --import --all      # each region: import its content (tool
   near the place. The place of the server is the authority: its Z is about 0.5 m above the feet. A ground near the
   place is at most 1.5 m below it. A ground farther below (for example the Landscape 2.06 m below the floor of the inn
   of Oxboro) means that the cells of the floor are not there yet: the wait goes on, and the character does not fall.
-  With no ground at all (the line hits nothing), the wait gives up 3 s after the cells (the player code then uses its
-  test floor). The limit is 90 s; after it the character spawns (a place in the air, or with no mesh there). Then
+  When the cells are loaded and the place still has no ground near it 3 s later (no ground at all, or only a ground
+  far below: a place in the air), the wait ends: the character drops to the ground below, or the player code uses its
+  test floor when the line hits nothing. Example: the development route `90 travel 9230 4168 116.0` is 4.43 m above
+  the Landscape with no mesh there; before this rule (2026-10-19) that wait went on to the limit. The limit is 90 s
+  for cells that do not load. While it waits, the client logs a line each 5 s: the state of the cells and the first
+  surface below the place. Then
   the player track uses that ground (no test floor), and the input reports carry the position. The spawn code that
   calls the wait (`SwcBackendSubsystem`) is shared with the player track.
 - `-SwcGroundTest=X,Y,Z;...` (engine m, no backend) runs that wait for each place and logs the time and the ground.
