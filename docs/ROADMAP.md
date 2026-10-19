@@ -12,8 +12,8 @@ content, and the large cost is the client logic (animation logic, UI, combat cli
 | Question of the research | Decision |
 | --- | --- |
 | Port or not | A parallel project (this repository); the Soulwarden project continues with the retail client. |
-| The terms risk | Personal project, local only. |
-| Where the code goes | A local git repository, no remote. |
+| The terms risk | Personal project. Public source code since 2026-10-19: no game data, no converted content, no imported asset in the repository. |
+| Where the code goes | A local git repository until 2026-10-19; then public on GitHub (github.com/DevNvll/soulwarden-client, MIT). |
 | For whom | The user only: the content is converted and imported on this computer. |
 | Connection | The Soulwarden backend with no change: the client speaks its original wire protocol (option (a)). |
 | Fidelity | The feel of the gameplay and the UI must match. The look could differ until 2026-10-18. |

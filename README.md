@@ -9,6 +9,14 @@ gameplay and the UI must match the retail client.
 Read [AGENTS.md](AGENTS.md) first (the rules and the workflows). The plan is in [docs/ROADMAP.md](docs/ROADMAP.md),
 the design in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Game data and legal
+
+This repository has only source code, scripts, tests, and documents. It has no game data: no texture, mesh, map,
+sound, or script of the game. The converter reads your own game copy on your computer, and the converted and
+imported content stays outside the repository. You need your own copy of New World (Steam app 1063730, client build
+1.400.6031.6004151). This project is not affiliated with or endorsed by Amazon Games. New World is a trademark of its
+owner. The backend is the Soulwarden project (github.com/DevNvll/soulwarden).
+
 ## Needs
 
 - The game copy in `~/Games/soulwarden/game` (read only).
@@ -27,4 +35,6 @@ tools/editor.sh             # open the editor
 
 ## Status
 
-Stage P0 (foundation) is done. Next: milestone 1, "enter the open world" (docs/ROADMAP.md).
+Milestone 1 (the open world, the connection, the character, the creatures, the first HUD) is done. The first fight
+loop (P2), parts of the combat families (P3), and the world fidelity work (the terrain, the materials, the light,
+the water) are in progress. The order and the status are in docs/ROADMAP.md and docs/PARITY.md.

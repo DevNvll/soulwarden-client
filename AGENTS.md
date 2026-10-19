@@ -11,7 +11,10 @@ This file has the rules and the common workflows. The plan is in [docs/ROADMAP.m
 
 ## Decisions of the user (2026-10-18)
 
-- The project is personal. The git repository is local only: no remote, no push.
+- The project is personal. The repository is public on GitHub (github.com/DevNvll/soulwarden-client, MIT, decision of the
+  user, 2026-10-19). Only the orchestrator pushes `main`; the tracks never push. Never commit game data, converted
+  content, imported assets, evidence, logs, or a private value. The author of each commit is DevNvll with the GitHub
+  noreply address (the config of this repository).
 - The client uses the Soulwarden backend, with no change of the backend. This project builds only the client.
 - The look can be different from the retail client for now (the default look of Unreal is acceptable).
 - The feel of the gameplay and the UI must match the retail client.
@@ -21,7 +24,7 @@ This file has the rules and the common workflows. The plan is in [docs/ROADMAP.m
 - The client uses the same characters as the retail game: a player run uses the data folder of the user.
 
 The roles (decision of the user, 2026-10-18): the T3 thread of the research AST-135 is the orchestrator of this
-project. The Soulwarden orchestrator (thread 02915e32-02d5-4ff1-a796-cc7c5cf30798) does only the backend.
+project. The Soulwarden orchestrator does only the backend.
 
 Tracking: the Linear project "Soulwarden Client" (P-AST-7, team Astarteslabs) is the source of truth for the order
 and the status of the work: one issue for each stage. A stage thread sets its issue to In Progress at its start and
@@ -114,7 +117,7 @@ files at the same time; a shared document (this file, the roadmap) changes only 
 - Evidence: pictures and videos of each stage in `~/Games/soulwarden-client/evidence/STAGE/`. A movement or an
   animation needs a video.
 - Documents use short sentences and simple words (ASD-STE100 Simplified Technical English).
-- Commit only when the user asks or a stage is complete and checked. No remote.
+- Commit only when the user asks or a stage is complete and checked. The tracks do not push; the orchestrator pushes `main`.
 
 ## Common workflows
 
