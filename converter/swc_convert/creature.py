@@ -703,9 +703,10 @@ T_MOTION = 0x3002
 
 def clip_info(path: str, bones_by_id: dict | None = None) -> dict:
     """@return The length, the move speed, the additive bit (chunk 0x3002: flags bit 0 is additive, research feel-values.md
-    R3.2.9, open point O4; an additive clip has the identity rotation in its first frame: its keys are differences), and the
-    bones of the skeleton that the clip animates (not the root: the clips play in place). A layer after the first one of a
-    variant changes only these bones."""
+    R3.2.9, open point O4; the rotation keys of an additive clip are differences near the identity), and the bones of the skeleton
+    that the clip animates (not the root: the clips play in place). A layer after the first one of a variant changes only these
+    bones. An additive clip lists only the bones with rotation keys (AST-197: the client adds only the rotations of an additive
+    clip; a bone with position keys alone gets the bind rotation from the glTF import, and the Grey Wolf turned 90 degrees)."""
     chunks = cgf.read_chunks(source.read(path))
     clip = anim.read_clip(chunks)
     motion = [c for c in chunks.chunks if c.type == T_MOTION][0].data
@@ -715,7 +716,8 @@ def clip_info(path: str, bones_by_id: dict | None = None) -> dict:
             "moveSpeed": round(clip.move_speed, 4), "additive": bool(flags & 1)}
     if bones_by_id is not None:
         info["bones"] = sorted(bones_by_id[cid].name for cid, c in clip.controllers.items()
-                               if cid in bones_by_id and bones_by_id[cid].parent >= 0 and (len(c.rotations) or len(c.positions)))
+                               if cid in bones_by_id and bones_by_id[cid].parent >= 0
+                               and (len(c.rotations) or (len(c.positions) and not info["additive"])))
     return info
 
 

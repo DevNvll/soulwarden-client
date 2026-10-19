@@ -43,6 +43,8 @@ struct FSwcCreatureAnimProxy : public FAnimInstanceProxy
 
 	TArray<FSwcCreatureClipSample> Base;
 	TArray<FSwcCreaturePoseLayer> Layers;
+	/** The time of the last line of -SwcAdditiveCheck of this creature (AST-197). */
+	double LastAdditiveCheck = 0.0;
 };
 
 /**

@@ -4,7 +4,11 @@
 #include "AnimationRuntime.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Creatures/SwcCreatureData.h"
+#include "Creatures/SwcCreatureSubsystem.h"
 #include "Engine/SkeletalMesh.h"
+#include "HAL/PlatformTime.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 namespace
 {
@@ -12,6 +16,14 @@ namespace
 constexpr float MinimumWeight = 0.005f;
 /** A layer below this weight goes away. */
 constexpr float LayerMinimum = 0.001f;
+
+/** -SwcAdditiveCheck (AST-197): a log line with the largest rotation of an additive layer and its bone, at most each 0.25 s for each
+ * creature. */
+bool AdditiveCheck()
+{
+	static const bool bOn = FParse::Param(FCommandLine::Get(), TEXT("SwcAdditiveCheck"));
+	return bOn;
+}
 
 /** Blends the samples of one list into a pose (the weights add up to 1). @return False with no sample. */
 bool BlendSamples(const TArray<FSwcCreatureClipSample>& Samples, const FPoseContext& Output, FCompactPose& OutPose, FBlendedCurve& OutCurve,
@@ -78,6 +90,8 @@ bool FSwcCreatureAnimProxy::Evaluate(FPoseContext& Output)
 		{
 			continue;
 		}
+		float LargestAngle = 0.0f;
+		int32 LargestBone = INDEX_NONE;
 		for (const int32 MeshBone : Layer.MeshBones)
 		{
 			const FCompactPoseBoneIndex Index = Bones.MakeCompactPoseIndex(FMeshPoseBoneIndex(MeshBone));
@@ -93,10 +107,25 @@ bool FSwcCreatureAnimProxy::Evaluate(FPoseContext& Output)
 				// on top of the rotation of the pose. The translations of such clips are 0 or not keyed: they are not added.
 				const FQuat Delta = FQuat::Slerp(FQuat::Identity, Value.GetRotation(), Layer.Weight);
 				Target.SetRotation((Delta * Target.GetRotation()).GetNormalized());
+				if (const float Angle = FMath::RadiansToDegrees(Delta.GetAngle()); Angle > LargestAngle)
+				{
+					LargestAngle = Angle;
+					LargestBone = MeshBone;
+				}
 			}
 			else
 			{
 				Target.BlendWith(Value, Layer.Weight);
+			}
+		}
+		if (Layer.bAdditive && AdditiveCheck() && LargestBone != INDEX_NONE)
+		{
+			const double Now = FPlatformTime::Seconds();
+			if (Now - LastAdditiveCheck >= 0.25)
+			{
+				LastAdditiveCheck = Now;
+				UE_LOG(LogSwcCreatures, Log, TEXT("creature: additive check: the largest rotation %.1f degrees on %s (layer weight %.2f, %d bones)"),
+					LargestAngle, *Bones.GetReferenceSkeleton().GetBoneName(LargestBone).ToString(), Layer.Weight, Layer.MeshBones.Num());
 			}
 		}
 	}
@@ -467,6 +496,11 @@ void USwcCreatureAnimInstance::AddPoseLayers(const FLayer& Layer, float Weight, 
 		{
 			return;
 		}
+		float Strength = 0.0f;
+		for (const TPair<UAnimSequence*, FSwcCreatureClipSample>& Pair : Merged)
+		{
+			Strength += Pair.Value.Weight >= MinimumWeight ? Pair.Value.Weight : 0.0f;
+		}
 		FSwcCreaturePoseLayer& Pose = Out.AddDefaulted_GetRef();
 		Pose.Samples = Normalize(Merged);
 		Pose.Weight = Weight;
@@ -478,6 +512,12 @@ void USwcCreatureAnimInstance::AddPoseLayers(const FLayer& Layer, float Weight, 
 			{
 				Bones.Append(ClipMeshBones[Clip]);
 			}
+		}
+		if (Pose.bAdditive)
+		{
+			// The weight of the items of an additive layer is its strength (the R0 reactions of the wolf: 0.7): the normalized samples
+			// would make it 1 (AST-197).
+			Pose.Weight *= FMath::Min(Strength, 1.0f);
 		}
 		Pose.MeshBones = Bones.Array();
 		Pose.MeshBones.Sort();

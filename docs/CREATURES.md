@@ -193,6 +193,13 @@ an overlay over the pose of scope 0. It blends in with the blend-in of its first
 fragment at its end or when the mask has no bit of its scope. A layer after the first one of a variant changes only the
 bones that its clips animate; an additive clip (keys that are differences from the identity) adds its rotations.
 
+The mask of an additive clip has only the bones with rotation keys (AST-197). The R0 clips of the wolf (`wolf_r0_b`, `_l`,
+`_r`) have only translation keys on `bind_root_jnt`. The glTF import fills the rotation of such a bone with its bind rotation
+(120.5 degrees), and the client added it as a difference: a hit turned the wolf 90 degrees onto its side (run
+`ast197-before`: 96.6 degrees on `bind_root_jnt`). The client also keeps the weight of an additive layer: the samples of its
+items are normalized, and their sum (0.7 for the R0 reactions) multiplies the weight of the layer. The run option
+`-SwcAdditiveCheck` logs the largest rotation of each additive layer (`creature: additive check: ...`).
+
 ## The weapon scope (stage P2.9)
 
 The controller of a creature has the scopes `Weapon` (context `WeaponContext`) and `OffHandWeapon`. A fragment whose
