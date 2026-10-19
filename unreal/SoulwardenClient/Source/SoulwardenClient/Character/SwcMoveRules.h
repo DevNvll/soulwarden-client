@@ -160,6 +160,12 @@ inline constexpr float kStopFirstFrame = 1.0F / 30.0F;
  * not in the code. The first frame of a stop has the rate of the action before it (kStopFirstFrame).
  */
 [[nodiscard]] float native_stop_decel(float speedAtRequest);
+/**
+ * @return The NavType tag of a Nav_Stop request (AST-199; research p3g-move 2): 2 Sprint, 1 Run, 0 Walk. The Nav sets Sprint from 5.0
+ * m/s (|v|^2 >= 25), Run from 2.1 m/s (|v|^2 >= 4.41), else Walk; the Sprint queues Nav_Stop with Sprint above 5.0 m/s, else Run.
+ * The tag selects the Nav_Stop fragment (the braking clips: unarmed_run_stop_blend, unarmed_sprint_stop_v2_blend) [D playeractions_nav].
+ */
+[[nodiscard]] int nav_stop_tag(float speedAtRequest, bool fromSprint);
 
 /** A ground velocity in the yaw frame of the camera (m/s): x side (right), y forward. */
 struct Planar {

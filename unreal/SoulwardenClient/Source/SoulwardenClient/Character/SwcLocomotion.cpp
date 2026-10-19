@@ -117,6 +117,27 @@ FVector FSwcClip::RootAt(float Time) const
 	return FVector(Last.Y, Last.Z, Last.W);
 }
 
+float FSwcLocomotion::Length(const FSwcFragment& Fragment) const
+{
+	float Duration = 0.0f;
+	if (Clips.IsValidIndex(Fragment.Clip))
+	{
+		Duration = Clips[Fragment.Clip].Duration;
+	}
+	else if (BlendSpaces.IsValidIndex(Fragment.BlendSpace))
+	{
+		const FSwcBlendSpace& Space = BlendSpaces[Fragment.BlendSpace];
+		for (int32 Example = 0; Example < Space.ExampleClips.Num(); ++Example)
+		{
+			if (Clips.IsValidIndex(Space.ExampleClips[Example]))
+			{
+				Duration = FMath::Max(Duration, Clips[Space.ExampleClips[Example]].Duration / FMath::Max(Space.ExampleScales[Example], 0.01f));
+			}
+		}
+	}
+	return Duration / FMath::Max(Fragment.Speed, 0.01f);
+}
+
 namespace
 {
 float Float(const TSharedPtr<FJsonValue>& Value)

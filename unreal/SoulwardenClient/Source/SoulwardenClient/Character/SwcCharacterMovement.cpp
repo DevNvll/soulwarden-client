@@ -345,8 +345,33 @@ float USwcCharacterMovement::GetHorizontalSpeed() const
 	return static_cast<float>(Velocity.Size2D() / 100.0);
 }
 
+namespace
+{
+/** The NavType tags of Nav_Stop (AST-199). */
+const TCHAR* const NavTypeTags[3] = {TEXT("Walk"), TEXT("Run"), TEXT("Sprint")};
+} // namespace
+
+float USwcCharacterMovement::NavStopLength() const
+{
+	if (StopNavType == INDEX_NONE)
+	{
+		return 0.0f;
+	}
+	if (NavStopLengths[StopNavType] > 0.0f)
+	{
+		return NavStopLengths[StopNavType];
+	}
+	// The unarmed fragment: its mark NavStop_Exit (the walk: 0.33 s), else its end (the run 0.733 s, the sprint 1.5 s).
+	const FSwcFragment* Fragment = FragmentData(FString(TEXT("Nav_Stop+")) + NavTypeTags[StopNavType]);
+	return Fragment != nullptr ? Fragment->Marker(TEXT("NavStop_Exit"), Locomotion->Length(*Fragment)) : 0.0f;
+}
+
 FString USwcCharacterMovement::GetBaseFragment() const
 {
+	if ((Move == ESwcMove::Stop || Move == ESwcMove::Idle) && StopNavType != INDEX_NONE && StopFragmentTime < NavStopLength())
+	{
+		return FString(TEXT("Nav_Stop+")) + NavTypeTags[StopNavType];
+	}
 	switch (Move)
 	{
 	case ESwcMove::SprintStart:
@@ -423,6 +448,17 @@ void USwcCharacterMovement::SetMove(ESwcMove Next)
 		StopDecelAtRequest = swc::move::native_stop_decel(Speed) * 100.0f;
 		StopFirstDecel = StopDecelAtRequest;
 	}
+	// AST-199: the fragment Nav_Stop with the NavType tag of the speed at its request (swc::move::nav_stop_tag). It plays on after the
+	// motion ends (Idle) until the end of its fragment; a move, a jump, or a posture change ends it.
+	if (Next == ESwcMove::Stop && (IsSprint(Move) || IsNav(Move)) && Posture.posture() == swc::move::Posture::stand)
+	{
+		StopNavType = swc::move::nav_stop_tag(Speed, IsSprint(Move));
+		StopFragmentTime = 0.0f;
+	}
+	else if (Next != ESwcMove::Stop && Next != ESwcMove::Idle)
+	{
+		StopNavType = INDEX_NONE;
+	}
 	Move = Next;
 	StateTime = 0.0f;
 }
@@ -430,6 +466,7 @@ void USwcCharacterMovement::SetMove(ESwcMove Next)
 void USwcCharacterMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	StateTime += DeltaTime;
+	StopFragmentTime += DeltaTime;
 	SprintActionTime += DeltaTime;
 	NavActionTime += DeltaTime;
 	SkipSprintStartLeft = FMath::Max(SkipSprintStartLeft - DeltaTime, 0.0f);

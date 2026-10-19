@@ -132,7 +132,11 @@ def main(argv: list[str]) -> int:
         place_at = min([start] + [t for t, _ in commands]) if index == 0 else start
         feet_sample = sample_before(samples, place_at - 0.05)
         feet = feet_sample["feet"]
-        travel_at = 2.5 if index == 0 else max(0.8, drive_time(start) - 3.5)
+        # A later part: 3.5 s before its first key, but not in the stop of the part before it (AST-199: the Nav_Stop of a sprint
+        # plays 1.5 s after its key-up; the travel waits 1.6 s after the last key before the part) and at least 2.0 s before the part
+        # (the view 1.0 s before it; a creature 2.0 s after the travel).
+        last_key = max((k["video_s"] for k in keys if k["video_s"] < start), default=start)
+        travel_at = 2.5 if index == 0 else max(0.8, drive_time(start) - 3.5, min(drive_time(last_key) + 1.6, drive_time(start) - 2.0))
         routes.append((travel_at, f"travel {feet[0]:.3f} {feet[1]:.3f} {feet[2] + 0.4:.3f}"))
         drive.append((round(drive_time(start) - 1.0, 3), f"view {feet_sample['camera_heading']:.2f} {feet_sample['camera_pitch']:.2f}"))
         # The creature of this part: the creature whose first row is before the next part (a new wolf before each part).

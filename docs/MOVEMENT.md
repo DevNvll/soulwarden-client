@@ -128,6 +128,30 @@ The retail requested velocity of set 6 (`set6-combat/player-move-drawn.json`, `p
 Sprint_Start fragment of the weapon in the hand (`SetSprintStartTransition`). The checks: `native_sprint_stop_tests` of
 `tools/test-movement.sh`. Not copied: the retail cap 5.4973 (an `rsqrtps` artefact) and the frame-time excess of 0.1 %.
 
+The braking animation (AST-199): the action Nav_Stop plays the fragment `Nav_Stop` with the NavType tag of its request
+(`swc::move::nav_stop_tag`: the Nav sets Sprint from 5.0 m/s, Run from 2.1 m/s, else Walk; the Sprint sets Sprint above 5.0
+m/s, else Run). The action ends when its fragment is done or at the mark `NavStop_Exit` [D playeractions_nav]. Thus the
+fragment plays on after the motion ends:
+
+| Variant | Unarmed (player.adb; also the sheathed weapon) | Rapier (player_rapier.adb) | Time |
+| --- | --- | --- | --- |
+| Walk | `unarmed_idle` | `cmbt_walk_stop_1h_f` + `rapier_pose_add` | 0.33 s (`NavStop_Exit`); the rapier 0.733 s |
+| Run | `unarmed_run_stop_blend` (TravelAngle: front, left, right, back) | `cmbt_walk_stop_1h_f` + `rapier_pose_add` | 0.733 s |
+| Sprint | `unarmed_sprint_stop_v2_blend` (TravelAngle: front, the two front sides, left, right) | `rswrd_sprint_stop_blend` + `rapier_sprint_stop_blend` | 1.5 s |
+
+`USwcCharacterMovement` keeps the fragment `Nav_Stop+TAG` in the states Stop and Idle for that time (the motion does not
+change); a move input, a jump, or a posture change ends it. `USwcPlayerActions` gives the lengths of the Nav_Stop fragments of
+the weapon in the hand (`SetNavStopLengths`), else the unarmed fragments of `locomotion.json` apply. Not copied: the marks
+PreventNav and ResumeNav (0.1 s; a move input in that time does not start the Nav in retail [inference, research p3g-move 2]).
+
+Check (development runs, 2026-10-19; `SWC_WORK/evidence/AST-199/`): the replays of the set 6 takes `player-move-drawn` and
+`player-move-sheathed-draw-jump` play `Nav_Stop+Sprint` at each stop of a sprint (forward, right, left) and `Nav_Stop+Run` at
+the stop of the run back, drawn and sheathed. The side-by-side videos `sbs-ast199-stop-drawn.mp4` and
+`sbs-ast199-stop-sheathed.mp4` show the braking of both clients. The replay tool (`tools/lib/retail_replay.py`) now travels to
+the retail feet 1.6 s after the last key of the part before (before, its travel came 0.4 s after a key-up and cut the stop).
+The content: `tools/convert-player.sh locomotion`, `actions`, `base --force`, `clips Male 1H_Melee,Rapier --force` (and Female),
+`tools/import-player.sh`.
+
 ### Open point: the long travel (2026-10-19)
 
 The world track saw a travel of a long distance wait 24 s for its new place with a cold disk cache: about 1,100 packages of

@@ -83,6 +83,8 @@ public:
 	bool Load(bool bFemale, FString& OutReport);
 
 	const FSwcFragment* Fragment(const FString& Name) const { return Fragments.Find(Name); }
+	/** @return The end of a fragment that plays once (s): its clip, or the longest example of its blend space (AST-199: Nav_Stop). */
+	float Length(const FSwcFragment& Fragment) const;
 
 	TArray<FSwcClip> Clips;
 	/** The movement rules of the data (stage P3.3; SWC_CONTENT/player/movement.json, tools/convert-player.sh movement): empty

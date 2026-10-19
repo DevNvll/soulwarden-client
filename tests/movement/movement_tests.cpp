@@ -387,6 +387,12 @@ void native_sprint_stop_tests()
 		++steps;
 	}
 	check(steps == 9, "the stop of a sprint: 9 steps of 0.6 after the first frame (retail 9), " + std::to_string(steps));
+	// AST-199: the NavType tag of the Nav_Stop request (the fragment of the braking clips).
+	check(move::nav_stop_tag(5.497F, true) == 2 && move::nav_stop_tag(4.9F, true) == 1 && move::nav_stop_tag(1.0F, true) == 1,
+		"Nav_Stop of a Sprint: Sprint above 5.0 m/s, else Run");
+	check(move::nav_stop_tag(5.0F, false) == 2 && move::nav_stop_tag(4.0F, false) == 1 && move::nav_stop_tag(2.1F, false) == 1
+			&& move::nav_stop_tag(2.0F, false) == 0,
+		"Nav_Stop of a Nav: Sprint from 5.0 m/s, Run from 2.1 m/s, else Walk");
 }
 
 void limit_tests(const move::Data& data)

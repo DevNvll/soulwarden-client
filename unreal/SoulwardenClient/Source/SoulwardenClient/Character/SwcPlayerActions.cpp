@@ -43,6 +43,34 @@ double TurnYaw(double Yaw, double Target, const FSwcFacingRule& Rule, float Delt
 	const double Step = Rule.TurnRate * DeltaTime;
 	return Yaw + FMath::Clamp(Delta, -Step, Step);
 }
+
+/** The time that a Nav_Stop fragment plays (AST-199): its mark NavStop_Exit, else the end of the item of layer 0 (its clip, or the
+ *  longest example of its blend space: IfFragmentDone of the action Nav_Stop) [D playeractions_nav]. */
+float NavStopLength(const FSwcActions& Data, const FSwcActionFragment& Fragment)
+{
+	if (Fragment.Layers.IsEmpty() || Fragment.Layers[0].IsEmpty())
+	{
+		return 0.0f;
+	}
+	const FSwcActionItem& Item = Fragment.Layers[0].Last();
+	float Duration = 0.0f;
+	if (Data.Clips.IsValidIndex(Item.Clip))
+	{
+		Duration = FMath::Max(Data.Clips[Item.Clip].Duration - Item.Start, 0.0f);
+	}
+	else if (Data.BlendSpaces.IsValidIndex(Item.BlendSpace))
+	{
+		const FSwcBlendSpace& Space = Data.BlendSpaces[Item.BlendSpace];
+		for (int32 Example = 0; Example < Space.ExampleClips.Num(); ++Example)
+		{
+			if (Data.Clips.IsValidIndex(Space.ExampleClips[Example]))
+			{
+				Duration = FMath::Max(Duration, Data.Clips[Space.ExampleClips[Example]].Duration / FMath::Max(Space.ExampleScales[Example], 0.01f));
+			}
+		}
+	}
+	return Fragment.MarkTime(TEXT("NavStop_Exit"), Item.At + Duration / FMath::Max(Item.Speed, 0.01f));
+}
 } // namespace
 
 USwcPlayerActions::USwcPlayerActions()
@@ -1428,6 +1456,15 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	// weapon, 1.4 s for the others; research p3g-move adb-sprint-start.txt), else the unarmed fragment.
 	const int32* SprintStart = Drawn != nullptr ? Drawn->Stance.Find(TEXT("Sprint_Start")) : nullptr;
 	Character()->GetSwcMovement()->SetSprintStartTransition(SprintStart != nullptr ? Data->Fragments[*SprintStart].MarkTime(TEXT("TransitionInstant"), 0.0f) : 0.0f);
+	// The lengths of the Nav_Stop fragments of the weapon in the hand (AST-199; the NavType tags Walk, Run, Sprint), else the unarmed ones.
+	float StopLengths[3] = {0.0f, 0.0f, 0.0f};
+	const TCHAR* const NavTypes[3] = {TEXT("Nav_Stop+Walk"), TEXT("Nav_Stop+Run"), TEXT("Nav_Stop+Sprint")};
+	for (int32 Type = 0; Type < 3; ++Type)
+	{
+		const int32* Stop = Drawn != nullptr ? Drawn->Stance.Find(NavTypes[Type]) : nullptr;
+		StopLengths[Type] = Stop != nullptr ? NavStopLength(*Data, Data->Fragments[*Stop]) : 0.0f;
+	}
+	Character()->GetSwcMovement()->SetNavStopLengths(StopLengths[0], StopLengths[1], StopLengths[2]);
 	// Prone sheathes the weapons, but a rifle (the musket): the transitions to prone set Unarmed and AutoUnsheathe [D idleposetransition].
 	const bool bProne = Character()->GetSwcMovement()->GetPosture() == swc::move::Posture::prone;
 	if (bProne && Drawn != nullptr && !Has({TEXT("Rifle")}) && Character()->IsWeaponDrawn() && !bProneSheathe)

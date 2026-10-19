@@ -84,6 +84,16 @@ public:
 	/** The CAGE-TransitionInstant of the Sprint_Start fragment of the weapon in the hand (s; 0 or less: the unarmed fragment). */
 	void SetSprintStartTransition(float Seconds) { SprintStartTransition = Seconds; }
 	/**
+	 * The lengths of the Nav_Stop fragments of the weapon in the hand (AST-199; s; the NavType tags Walk, Run, Sprint; 0 or less: the
+	 * unarmed fragment of locomotion.json). Nav_Stop plays to the end of its fragment or to its mark NavStop_Exit [D playeractions_nav].
+	 */
+	void SetNavStopLengths(float Walk, float Run, float Sprint)
+	{
+		NavStopLengths[0] = Walk;
+		NavStopLengths[1] = Run;
+		NavStopLengths[2] = Sprint;
+	}
+	/**
 	 * The block (stage P3.G, docs/ACTIONS.md "The block"): the tag Blocking of the movement data (the native Nav at 2.0 m/s,
 	 * 25 / 25 m/s^2; the condition SprintDisabled: no sprint). The start of a block clears the motion (ClearMotion of
 	 * Block_UpperBody) [D playeractions_block].
@@ -232,6 +242,13 @@ private:
 	float StopDecelAtRequest = 2500.0f;
 	float StopFirstDecel = 2500.0f;
 	float LastMoveDecel = 2500.0f;
+	/** AST-199: the NavType tag of the Nav_Stop fragment that plays (0 Walk, 1 Run, 2 Sprint; INDEX_NONE: none), its time, and the
+	 *  lengths of the Nav_Stop fragments of the weapon in the hand (SetNavStopLengths). */
+	int32 StopNavType = INDEX_NONE;
+	float StopFragmentTime = 0.0f;
+	float NavStopLengths[3] = {0.0f, 0.0f, 0.0f};
+	/** @return The length of the Nav_Stop fragment that plays (s). */
+	float NavStopLength() const;
 	bool bAiming = false;
 	bool bBlocking = false;
 	float SkipSprintStartLeft = 0.0f;

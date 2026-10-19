@@ -64,7 +64,10 @@ STANCE_FRAGMENTS = {"Idle": ["", "Crouch", "Blocking", "Aim", "ChargedAim"], "St
                     "Sprint": ["", "Crouch"], "Sprint_Start": ["", "Crouch"],
                     "Fall": ["ForwardNav", ""],
                     "Land": ["Soft", "Normal", "Hard"], "Jump": ["ForwardNav", "BackNav", "LeftNav", "RightNav", ""],
-                    "Jump_Standing": [""]}
+                    "Jump_Standing": [""],
+                    # AST-199: the stop (Nav_Stop with the NavType tag at its request; the rapier: cmbt_walk_stop_1h_f with the pose layer
+                    # rapier_pose_add, the sprint rswrd_sprint_stop_blend with rapier_sprint_stop_blend).
+                    "Nav_Stop": ["Walk", "Run", "Sprint"]}
 # The context tags that a fragment of a settled stance can have.
 CONTEXT_TAGS = {"stand"}
 MOTION_ACTIVITIES = ("AnimationDrivenMotion", "CameraRelativeFacing", "InputRelativeFacing")
