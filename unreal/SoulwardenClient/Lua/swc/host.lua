@@ -82,6 +82,9 @@ function Swc.PlayerSpawned()
   Swc.SetData("Hud.LocalPlayer.HudComponent.EventNotificationEntityId", ids.eventNotification)
   Swc.SetData("Hud.LocalPlayer.Currency.Amount", Swc.player.coin or 0)
   Swc.SetData("Hud.LocalPlayer.Vitals.ComponentIsActive", true)
+  -- The progression of the player is connected (xpmeter.luac then compares the level with the maximum level: the meter hides at
+  -- the maximum level, as in the retail HUD at level 70, set 6).
+  Swc.SetData("Hud.LocalPlayer.ProgressionRequestBus.IsConnected", true)
   Swc.SetData("Hud.LocalPlayer.Mounts.IsMounted", false)
   Swc.SetData("Hud.LocalPlayer.CombatStatus.IsInCombat", false)
   Swc.SetData("Hud.LocalPlayer.StatusEffects.IsSilenced", false)

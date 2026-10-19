@@ -293,8 +293,10 @@ local function expansion_name(value)
 end
 local function expansion_data(id)
   local row = expansion_row(id) or {}
+  -- maxCharacterLevel (xpmeter.luac: the XP meter hides at the maximum level): the table has only MaxDisplayLevel (an inference:
+  -- the native field takes it; the retail HUD at level 70 of Expansion2023 shows no level mark, set 6 ui-crosshair-rapier.png).
   return {name = row.name or "", maxEquipGS = row.maxEquipGS or 0, maxCraftGS = row.maxCraftGS or 0,
-          maxDisplayLevel = row.maxDisplayLevel or 0}
+          maxDisplayLevel = row.maxDisplayLevel or 0, maxCharacterLevel = row.maxDisplayLevel or 0}
 end
 Swc.Define("PlayerComponentRequestsBus", "Event", {
   IsExpansionOwnerScript = function(_, id)

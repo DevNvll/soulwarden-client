@@ -141,3 +141,12 @@ swcui.set_viewport(1256, 660)
 frames(0.5)
 picture("fighthud-1256")
 swcui.set_viewport(1920, 1080)
+
+-- The maximum level (the level cap of the backend copy, the expansion Expansion2023: 70): xpmeter.luac shows the level up for
+-- 6 s, then fades the meter out in 2 s (the retail HUD at level 70 shows no level mark, set 6 ui-crosshair-rapier.png).
+Swc.HostLevelCap(70)
+Swc.HostProgression(70, 99999)
+frames(9.0)
+local meter70 = find(root(xp), "XpMeter")
+check(not UiElementBus.Event.IsEnabled(meter70) or (swcui.get(meter70, "fader.fade") or 1) < 0.05,
+  "the level mark hides at the maximum level 70")
