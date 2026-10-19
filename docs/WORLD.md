@@ -60,6 +60,9 @@ worktree. The place is a content plugin outside the repository:
     waits for the runs does not hold import.lock.
   - A run holds it shared from its start to its end: `tools/lib/session.sh` (thus `tools/dev-run.sh`, `tools/play.sh`,
     `tools/match-view.sh`, `tools/creature-check.sh`) and `tools/flythrough.sh`. Many runs share it.
+  - A waiting writer goes first. flock gives a shared lock to a new run while a writer waits, and a stream of runs kept
+    the writers waiting more than 25 min (2026-10-19). Thus a writer writes a marker (`world-build.writers/ID`, the
+    process id of its shell) while it waits and works, and a new run waits while a marker of a live process is there.
   - A run waits at most `SWC_WORLD_RUN_WAIT` seconds (default 900) for a writer, then ends with status 3. A writer waits
     at most 3600 s (`tools/build-world.sh`) or the `--wait` time of `tools/import.sh`; then its status is 75.
   - The backend, the client, and the editor do not get the descriptor of the lock (`flock -o`, `7>&-`): the servers that
