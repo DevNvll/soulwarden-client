@@ -149,6 +149,7 @@ tools/convert-ui.sh hud                         # the canvases, scripts, texture
 tools/test-ui.sh --preview                      # the tests of the UI runtime and the HUD scripts (no engine), a picture
 tools/convert-ui.sh items|uistates              # the item data of the inventory screens, the UI state table (stage P2.4)
 tools/convert-ui.sh world                       # the canvases and the data of the UI in the world views: plates, prompts, numbers, ticker (stage WF7)
+tools/convert-ui.sh options                     # the Options screen: its canvas, the option defaults of the client program, the input profiles (stage P2.3)
 tools/test-items.sh                             # the tests of the bag and the equipment with the states of the backend encoders (no engine)
 tools/dev-build.sh --preset NAME                # a build preset of the backend for the dev character (--list)
 tools/convert-player.sh tables|base|wanted      # the player character: databases, base skeletons, the parts that a run asked for
