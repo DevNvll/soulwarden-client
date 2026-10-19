@@ -67,11 +67,29 @@ public:
 	void SetActionMotion(bool bActive, const FVector& HorizontalVelocity);
 	/** The end of an action: the movement starts from its velocity, at most MaxSpeed (cm/s; 0: no limit). */
 	void EndActionMotion(float MaxSpeed);
+	/** ClearMotion of the data: the horizontal velocity is 0 at once. */
+	void ClearMotion();
 	/**
-	 * The weapon in the hand (stage P2.6, docs/MOVEMENT.md): the armed rates of the sprint start (a melee, ranged, or bow
-	 * weapon), of the run (also a magic weapon), and of the stop (a melee or magic weapon); the aim walks and has no sprint.
+	 * The weapon (stage P2.6, docs/MOVEMENT.md): bInArmedNav, the combat stance of the run with no movement data (a weapon in the
+	 * active slot); the aim walks and has no sprint. The sprint and the stop have no weapon rule (the native actions, research
+	 * p3g-move).
 	 */
-	void SetCombat(bool bInArmedSprint, bool bInArmedNav, bool bInArmedStop, bool bInAiming);
+	void SetCombat(bool bInArmedNav, bool bInAiming);
+	/**
+	 * The tags of the weapon of the active weapon slot, drawn or sheathed (empty: no weapon): the combat stance of the native Nav
+	 * reads the item of that slot, not the drawn state (research p3g-move 4; the retail sheathed run back: 25 m/s^2,
+	 * set6-combat/player-move-sheathed-draw-jump.json).
+	 */
+	void SetStanceTags(const TArray<FString>& Tags) { StanceTags = Tags; }
+	/** The CAGE-TransitionInstant of the Sprint_Start fragment of the weapon in the hand (s; 0 or less: the unarmed fragment). */
+	void SetSprintStartTransition(float Seconds) { SprintStartTransition = Seconds; }
+	/**
+	 * The block (stage P3.G, docs/ACTIONS.md "The block"): the tag Blocking of the movement data (the native Nav at 2.0 m/s,
+	 * 25 / 25 m/s^2; the condition SprintDisabled: no sprint). The start of a block clears the motion (ClearMotion of
+	 * Block_UpperBody) [D playeractions_block].
+	 */
+	void SetBlocking(bool bInBlocking);
+	bool IsBlocking() const { return bBlocking; }
 	/** The exit of a dodge: the sprint at once for 0.85 s (SkipSprintStartTimer). */
 	void SkipSprintStart();
 
@@ -156,6 +174,8 @@ protected:
 
 private:
 	void SetMove(ESwcMove Next);
+	/** The time of Sprint_Start to Sprint (s): the weapon fragment, else the mark of the unarmed fragment. */
+	float SprintStartEnd() const;
 	void UpdateState(float DeltaTime);
 	void Turn(float DeltaTime);
 	void StartJump(bool bInput);
@@ -199,10 +219,21 @@ private:
 	FVector GroundVelocity = FVector::ZeroVector;
 	bool bActionMotion = false;
 	FVector ActionVelocity = FVector::ZeroVector;
-	bool bArmedSprint = false;
 	bool bArmedNav = false;
-	bool bArmedStop = false;
+	TArray<FString> StanceTags;
+	float SprintStartTransition = 0.0f;
+	/** The time in the native Sprint (Sprint_Start and Sprint) and in the native Nav (Nav_Start, Nav, the walk), and the context tag
+	 *  "running" at the first Nav frame. */
+	float SprintActionTime = 0.0f;
+	float NavActionTime = 0.0f;
+	bool bNavRunningAtStart = false;
+	/** Nav_Stop: its deceleration from the request, the deceleration of the action before it for its first frame, and the last
+	 *  deceleration of a move (cm/s^2). */
+	float StopDecelAtRequest = 2500.0f;
+	float StopFirstDecel = 2500.0f;
+	float LastMoveDecel = 2500.0f;
 	bool bAiming = false;
+	bool bBlocking = false;
 	float SkipSprintStartLeft = 0.0f;
 	uint32 CreatureBlocks = 0;
 	/** Stage P3.3. */

@@ -66,6 +66,8 @@ public:
 	void SetActions(const TSharedPtr<FSwcActions>& Data, bool bFemale);
 	/** The stance of the weapon in the hand (null: unarmed), and the fragments of its shield. */
 	void SetStance(const FSwcWeaponActions* Weapon, bool bOffhand);
+	/** The variant of the stance fragments ("+Aim", "+ChargedAim"; empty: none), when the stance has it (stage P3.G). */
+	void SetStanceVariant(const TCHAR* Variant) { StanceVariant = Variant; }
 	/**
 	 * The fragment of an action channel (0: the attack; 1: the draw or the sheathe) at a time of its clock. A new serial
 	 * starts the fragment again; Fragment INDEX_NONE ends the channel (the last fragment blends out).
@@ -121,6 +123,7 @@ private:
 	TSharedPtr<FSwcActions> Actions;
 	const FSwcWeaponActions* Stance = nullptr;
 	bool bOffhandStance = false;
+	const TCHAR* StanceVariant = TEXT("");
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UAnimSequence>> Sequences;
 	/** The clip assets of the action data (loaded at the first use), and the mesh bones of each clip. */

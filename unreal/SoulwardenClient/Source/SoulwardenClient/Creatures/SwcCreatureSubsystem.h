@@ -25,6 +25,11 @@ struct FSwcCreatureTarget
 	FVector Position = FVector::ZeroVector;
 	bool bDead = false;
 	FVector LockPoint = FVector::ZeroVector;
+	/** The homing segment of an attack (stage P3.G, research p3g-collision): the axis of the body capsule of the slice, the offset
+	 *  +- the segment length x the axis in the frame of the creature (Unreal world space; the wolf: 0.8 m behind to 1.0 m in front of
+	 *  its center); with no capsule both are the position. */
+	FVector AxisA = FVector::ZeroVector;
+	FVector AxisB = FVector::ZeroVector;
 };
 
 /** The lock point of a creature for the camera (stage P3.5): the point (Unreal world space), and the pitch limits of the observer of

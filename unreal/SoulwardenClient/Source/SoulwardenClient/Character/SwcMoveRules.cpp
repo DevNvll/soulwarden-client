@@ -223,8 +223,8 @@ NavMotion native_nav(const Data& data, const Facts& facts, bool overloaded, bool
 		out = {1.65F, 25.0F, 25.0F, "charged aim"};
 	} else if (blocking) {
 		out = {2.0F, 25.0F, 25.0F, "block"};
-	} else if (facts.moveSpeed < 1.65F) {
-		// The context tag "running" is set at 1.65 m/s: before it the start rate.
+	} else if (!facts.navRunning) {
+		// The context tag "running": before it the start rate (a start from rest: 12 m/s2 to 4.0 m/s in 0.333 s).
 		out = {start, 12.0F, 35.0F, "start rate"};
 	} else if (facts.canRun) {
 		out = {start, 35.0F, 35.0F, "run"};
@@ -235,6 +235,25 @@ NavMotion native_nav(const Data& data, const Facts& facts, bool overloaded, bool
 		out.speed = std::max(0.5F * out.speed, std::min(out.speed, 1.65F));
 	}
 	return out;
+}
+
+NavMotion native_sprint(const Facts& facts, float seconds)
+{
+	NavMotion out{facts.canSprint ? 5.5F : 4.0F, 20.0F, 20.0F, facts.canSprint ? "sprint" : "sprint, no can sprint"};
+	if (facts.tags.count("Crouch") != 0) {
+		out = {2.5F, 20.0F, 20.0F, "crouch"};
+	} else if (facts.tags.count("Prone") != 0) {
+		out = {1.25F, 20.0F, 20.0F, "prone"};
+	}
+	if (seconds > out.speed / out.accel) {
+		out.accel = 100.0F;
+	}
+	return out;
+}
+
+float native_stop_decel(float speedAtRequest)
+{
+	return speedAtRequest > 5.0F ? 18.0F : 25.0F;
 }
 
 Planar camera_relative_target(Planar direction, Planar speed, float backwards)

@@ -456,7 +456,14 @@ void USwcPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	SwcSmoothCD(TurnSpeed, TurnSpeedRate, Movement->GetTurnSpeed(), TurnConvergeTime, DeltaSeconds);
 
 	// The fragment of the movement state: the stance of the weapon in the hand, else the unarmed fragment of locomotion.json.
-	const FString Fragment = Movement->GetFragment();
+	FString Fragment = Movement->GetFragment();
+	// The variant of the stance (stage P3.G): the block (Idle+Blocking, Strafe+Blocking: rswrd_block_idle and rswrd_block_strafe_blend
+	// of a 1H melee weapon), the aim of a bow (+Aim: the half draw, +ChargedAim: the full draw), when the weapon has one.
+	const TCHAR* Variant = Movement->IsBlocking() ? TEXT("+Blocking") : StanceVariant;
+	if (Variant != nullptr && *Variant != 0 && Stance != nullptr && Stance->Stance.Contains(Fragment + Variant))
+	{
+		Fragment += Variant;
+	}
 	const int32* StanceFragment = Stance != nullptr && Actions.IsValid() ? Stance->Stance.Find(Fragment) : nullptr;
 	const int32 Action = StanceFragment != nullptr ? *StanceFragment : INDEX_NONE;
 	const int32* OffhandFragment = Action != INDEX_NONE && bOffhandStance ? Stance->Offhand.Find(Fragment) : nullptr;

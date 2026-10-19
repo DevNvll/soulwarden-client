@@ -297,8 +297,10 @@ void motion_rule_tests(const move::Data& data)
 void native_nav_tests(const move::Data& data)
 {
 	using move::Posture;
+	// The context tag "running" from the speed: the test of the first Nav frame (1.65 m/s; the movement also sets it after 0.5 s).
 	const auto nav = [&](move::Facts facts, float speed, std::uint8_t depth = 0, bool walk = false, bool overloaded = false, bool encumbered = false) {
 		facts.moveSpeed = speed;
+		facts.navRunning = speed >= 1.65F;
 		facts.waterDepth = depth;
 		return move::native_nav(data, facts, overloaded, encumbered, walk);
 	};
@@ -340,6 +342,51 @@ void native_nav_tests(const move::Data& data)
 	block.tags.insert("Blocking");
 	expect(nav(block, 1.0F, 2), 2.0F, 25.0F, 25.0F, "the block (also in a wade: the wade branch needs no block)");
 	expect(nav(facts_of(Posture::stand, {"2H_Melee", "GreatAxe"}), 3.0F, 0, true), 2.0F, 25.0F, 25.0F, "a combat stance with the walk key: 2.0");
+	// The combat stance of the rapier from rest: 25 / 25 also before "running" (the retail S and its stop: 25 m/s2,
+	// set6-combat/player-move-drawn.json).
+	expect(nav(facts_of(Posture::stand, {"1H_Melee", "Rapier"}), 0.0F), 4.0F, 25.0F, 25.0F, "the rapier stance from rest");
+	// "Running" after 0.5 s in the Nav at any speed (research p3g-move 5): a start from rest is 12 m/s2 to 4.0 m/s.
+	move::Facts late = stand;
+	late.moveSpeed = 0.5F;
+	late.navRunning = true;
+	expect(move::native_nav(data, late, false, false, false), 4.0F, 35.0F, 35.0F, "running after 0.5 s in the Nav");
+	move::Facts early = stand;
+	early.moveSpeed = 3.0F;
+	early.navRunning = false;
+	expect(move::native_nav(data, early, false, false, false), 4.0F, 12.0F, 35.0F, "3.0 m/s, not yet running: the start rate");
+}
+
+/**
+ * The native Sprint and Nav_Stop (research p3g-move, the retail ramps of set6-combat/player-move-drawn.json and
+ * player-move-sheathed-draw-jump.json: the sprint start 0.6665 m/s each 1/30 s drawn and sheathed, the stop of a sprint 0.667 then
+ * 0.600 each step, the stop of a run back 0.833 each step).
+ */
+void native_sprint_stop_tests()
+{
+	using move::Posture;
+	const auto expect = [](const move::NavMotion& motion, float speed, float accel, float decel, const std::string& what) {
+		check(near(motion.speed, speed) && near(motion.accel, accel) && near(motion.decel, decel),
+			what + ": " + std::to_string(motion.speed) + " m/s, " + std::to_string(motion.accel) + " / " + std::to_string(motion.decel) + " (" + motion.branch + ")");
+	};
+	expect(move::native_sprint(facts_of(Posture::stand), 0.0F), 5.5F, 20.0F, 20.0F, "the sprint start (each weapon)");
+	expect(move::native_sprint(facts_of(Posture::stand, {"1H_Melee", "Rapier"}), 0.1F), 5.5F, 20.0F, 20.0F, "the rapier drawn: no accel 10");
+	expect(move::native_sprint(facts_of(Posture::stand), 0.3F), 5.5F, 100.0F, 20.0F, "after S / 20 = 0.275 s: accel 100");
+	expect(move::native_sprint(facts_of(Posture::crouch), 0.0F), 2.5F, 20.0F, 20.0F, "the crouch sprint");
+	expect(move::native_sprint(facts_of(Posture::prone), 0.0F), 1.25F, 20.0F, 20.0F, "the prone sprint");
+	move::Facts noSprint = facts_of(Posture::stand);
+	noSprint.canSprint = false;
+	expect(move::native_sprint(noSprint, 0.0F), 4.0F, 20.0F, 20.0F, "no can sprint: 4.0");
+	check(near(move::native_stop_decel(5.497F), 18.0F) && near(move::native_stop_decel(4.0F), 25.0F) && near(move::native_stop_decel(5.0F), 25.0F),
+		"Nav_Stop: 18 above 5.0 m/s, else 25");
+	// The steps of the retail stop of a sprint at 30 steps each second: the first frame at 20, then 18 to 0 in 9 steps.
+	float speed = 5.4973F;
+	speed -= 20.0F / 30.0F;
+	int steps = 0;
+	while (speed > 0.0F) {
+		speed = std::max(speed - move::native_stop_decel(5.4973F) / 30.0F, 0.0F);
+		++steps;
+	}
+	check(steps == 9, "the stop of a sprint: 9 steps of 0.6 after the first frame (retail 9), " + std::to_string(steps));
 }
 
 void limit_tests(const move::Data& data)
@@ -519,6 +566,7 @@ int main(int argc, char** argv)
 	speed_tests(data);
 	motion_rule_tests(data);
 	native_nav_tests(data);
+	native_sprint_stop_tests();
 	limit_tests(data);
 	posture_tests();
 	autorun_tests();

@@ -969,7 +969,19 @@ void USwcCreatureSubsystem::GetTargets(TArray<FSwcCreatureTarget>& Out) const
 		const TWeakObjectPtr<ASwcCreature>* Actor = Actors.Find(Interest);
 		if (Actor != nullptr && Actor->IsValid())
 		{
-			Out.Add({Interest, (*Actor)->GetActorLocation(), Entity.dead, (*Actor)->GetLockPoint()});
+			const ASwcCreature& Creature = **Actor;
+			FSwcCreatureTarget& Target = Out.Add_GetRef({Interest, Creature.GetActorLocation(), Entity.dead, Creature.GetLockPoint()});
+			Target.AxisA = Target.AxisB = Target.Position;
+			if (const FSwcCreatureSlice* Slice = Creature.GetSlice(); Slice != nullptr && Slice->bHasCapsule)
+			{
+				// The frame of the creature (x right, y front, z up) in the frame of the actor (X front, Y right, Z up), m to cm.
+				const auto ToActor = [](const FVector& Engine) { return FVector(Engine.Y, Engine.X, Engine.Z) * 100.0; };
+				const FTransform Frame(FRotator(0.0, Creature.GetActorRotation().Yaw, 0.0), Target.Position);
+				const FVector Offset = ToActor(Slice->CapsuleOffset);
+				const FVector Axis = ToActor(Slice->CapsuleAxis).GetSafeNormal() * Slice->CapsuleHeight * 100.0;
+				Target.AxisA = Frame.TransformPosition(Offset - Axis);
+				Target.AxisB = Frame.TransformPosition(Offset + Axis);
+			}
 		}
 	}
 }

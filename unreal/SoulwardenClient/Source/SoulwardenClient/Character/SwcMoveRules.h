@@ -97,6 +97,9 @@ struct Facts {
 	bool exhausted{false};
 	/** MoveSpeed: the horizontal speed (m/s). */
 	float moveSpeed{0.0F};
+	/** The context tag "running" of the native Nav (0x1423FD0B8; research p3g-move 5): set at the first Nav frame at 1.65 m/s or
+	 *  more, or after 0.5 s in the Nav; not later by the speed. */
+	bool navRunning{false};
 	/** IfWaterDepth: the depth class of the feet (stage WF5: 0 None, 1 VeryShallow, 2 Shallow, 3 Deep; the enum WaterDepth of the
 	 *  retail client, research wf5-swim/swim-rules.json). */
 	std::uint8_t waterDepth{0};
@@ -130,14 +133,33 @@ struct NavMotion {
  *   load        the bag over 1.5 x its limit: 0.625; over its limit: 1.65; 10, 10
  *   wade        the depth class Shallow or deeper and the setting Swimming, not blocking: 2.75; 10, 10
  *   dry         crouch 1.25 (10, 10); prone 0.625 (1, 5); the flame thrower 2.75 (12, 35); aim or shoot 1.65 (12, 35); a combat
- *               stance S (25, 25); a charged aim or a hip fire walk 1.65 (25, 25); the block 2.0 (25, 25); not yet 1.65 m/s:
- *               S (12, 35); running with "can run": S (35, 35); else 1.65 (25, 25)
+ *               stance S (25, 25); a charged aim or a hip fire walk 1.65 (25, 25); the block 2.0 (25, 25); not "running"
+ *               (Facts::navRunning): S (12, 35); running with "can run": S (35, 35); else 1.65 (25, 25)
  *   walk key    S = max(0.5 S, min(S, 1.65))
  * The named conditions of the data select the branches of the weapons and the block (FireStaff_FlameThrower_MoveSpeed,
  * Aiming_Or_Shooting, Combat_Nav_Stand*, Bow_ChargedAim, Combat_Nav_MagicGauntlet_ChargedAim, Stand_Walk_Hipfire,
- * Block_Nav_Speed) [inference of the research: the native checks are functions with no names].
+ * Block_Nav_Speed) [inference of the research: the native checks are functions with no names]. The combat stance reads the item
+ * of the active weapon slot, not the drawn state (research p3g-move 4): the caller gives the tags of that weapon, drawn or
+ * sheathed.
  */
 [[nodiscard]] NavMotion native_nav(const Data& data, const Facts& facts, bool overloaded, bool encumbered, bool walk);
+
+/**
+ * The native Sprint of the retail client (Sprint_Start and Sprint are one compiled action, 0x142401C40; research p3g-move 3): S 5.5
+ * with "can sprint" (ctx+0x31C), else 4.0 (ctx+0x318); crouch 2.5, prone 1.25; accel 20 and decel 20 for each weapon (the XML
+ * "Stand+Armed" accel 10 is not in the code); the accel is 100 when the time in the action is more than S / 20 (0x142403149).
+ * `seconds`: the time in the action (from the start of Sprint_Start or of a direct Sprint).
+ */
+[[nodiscard]] NavMotion native_sprint(const Facts& facts, float seconds);
+
+/** The time in the action Nav_Stop that keeps the rate of the action before it: one frame of the retail client (1/30 s). */
+inline constexpr float kStopFirstFrame = 1.0F / 30.0F;
+/**
+ * @return The deceleration of the native Nav_Stop (m/s2; 0x1423FCC1F, research p3g-move 2): 18 when the request has the NavType tag
+ * Sprint (the speed at the request above 5.0 m/s), else 25. The XML values of Nav_Stop (40, 12 with a melee or magic weapon) are
+ * not in the code. The first frame of a stop has the rate of the action before it (kStopFirstFrame).
+ */
+[[nodiscard]] float native_stop_decel(float speedAtRequest);
 
 /** A ground velocity in the yaw frame of the camera (m/s): x side (right), y forward. */
 struct Planar {

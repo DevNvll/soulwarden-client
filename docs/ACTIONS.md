@@ -65,6 +65,16 @@ thread reads a snapshot: the visits, the last step, and the switches.
   `AnimationDrivenMotion` that holds, in the frame of the character. `InheritVelocity` keeps the velocity at the start
   (`InheritVelocityMaxSpeed` at most), and `Decel` takes it to 0 (the unit m/s² is an inference). The move keys do
   not move the character while an attack plays.
+- The homing of an attack (stage P3.G; research `~/Games/soulwarden-client/research/p3g-collision/report.md`): the
+  `Procedural type="Homing"` clips of the fragment (`actions.json` `homing`; the rapier and the sword: from 0.067 s to
+  0.40 or 0.43 s, MoveToDistance 1, MoveToDuration 0.2, MaxMoveDistance 4.25, Radius 3.75, MaxAngle 45, Height 5,
+  TurnRate 0.4). At the start of a clip the client takes the creature in Radius, MaxAngle of the facing, and Height (the
+  score distance / Radius + angle / MaxAngle: an inference) and its point T, the nearest point of the homing segment of
+  the creature (the axis of the body capsule of the slice, the offset ± its length; the wolf: 1.0 m in front of its
+  center). While the clip runs the root motion stops: the character moves on a smoothstep to 1 m before T in
+  MoveToDuration (at most MaxMoveDistance, no upward motion) and turns to T with TurnRate. With no target the root motion
+  plays on (an inference). The retail rapier chain on a wolf 2.6 m away (`set6-combat/player-rapier-light-heavy.json`)
+  stops 2.00 to 2.02 m from the wolf; the client stops at 2.00 m (`USwcPlayerActions::MoveHoming`).
 - The facing of an attack: `CameraRelativeFacing` (the first conditional that holds) turns the character to the camera
   yaw; else `InputRelativeFacing` turns it to the move keys. An exponential rate is the share of the remaining angle in
   each step of 1/30 s; else degrees in each second. The priority of the two is an inference.
@@ -137,8 +147,9 @@ C++, the rules of `world/stamina.cpp`) in the driver of the session thread, next
   the rear; forward; `LeftNav`, `RightNav`, `BackNav`), of the weapon in the hand or of the unarmed set (the clip pack
   `unarmed`), on the FullBody channel. At the start the character faces the camera (ApplyAlignRotation). The root track
   moves it with the motion of the action Dodge of `playeractions_dodge.actionlist`; the facing of that action turns it. The
-  roll ends at the end of its animation, or at a move key after CanTransition: the movement starts from the velocity of the
-  roll, at most `InheritVelocityMaxSpeed` of the action (6 m/s).
+  roll ends at its mark CanTransition (0.5 s; stage P3.G: the retail rolls of `set6-combat/player-dodge-stamina-2.json` end
+  there with or without a move key, 0.297 m each step, then the next state): with a move key the movement starts from the
+  velocity of the roll, at most `InheritVelocityMaxSpeed` of the action (6 m/s); with no move key the character stops at once.
 - The HUD: the read path (`USwcBackendSubsystem::GetLocalPlayer`) gives the predicted stamina, thus the stamina bar of the
   UI track shows the prediction.
 - The correction (a rule of this project; the retail client takes the server copy at a rewind of its movement, which this
@@ -153,6 +164,29 @@ heavy legs, 17.3), `dodge-heavy.mp4` (with the head and the hands, 26.7): four r
 presses 0.73 s apart. In each run the client and the backend had the same verdicts: light and medium 7 dodges at 45 and
 one press refused (exhausted), heavy 6 dodges at 50 and two presses refused; the stamina full again after the empty
 sequence; no correction; 0 refused position reports.
+
+## The block (stage P3.G)
+
+The right mouse button with a melee weapon (the tags 1H_Melee, 2H_Melee, MagicStaff, Ice of `playeractions_block`) raises the
+weapon: the action Block_UpperBody plays `Block_UpperBody_Raise` (the rapier: `rswrd_block_start` of `player_1h_melee.adb`, speed
+2.0), then Block_Continue_UpperBody holds `Block_UpperBody` while the button is down, on the UpperBody channel. Both set the tag
+Blocking: the stand and the move use the Blocking variants of the stance (`Idle+Blocking` `rswrd_block_idle`, `Strafe+Blocking`
+`rswrd_block_strafe_blend`; the converter takes them from the next database of the chain), the native Nav takes the branch of the
+block (2.0 m/s, 25 / 25 m/s²), and the condition SprintDisabled holds (no sprint). The start clears the motion (ClearMotion). The
+block lasts at least Block_ForceBlock_Timer (0.3 s, the status table of the backend copy). A sheathed melee weapon of the active
+slot goes to the hand at once (Trigger_From_Sheathed). No block in an attack, a dodge, prone, with the stamina at 0 or exhausted,
+or in the life lock. `USwcPlayerActions::UpdateBlock`.
+
+The input: the retail client sends the same bits for the right button with each weapon (the bow aim and the rapier block of set
+6): at the press `aim_draw_press_virtual`, `aim_draw`, `aim_draw_active_virtual`, `ui_back_radial`, `aim_draw_press`,
+`aim_draw_release_virtual`, `block`, `block_active_virtual`, `fishing_reset`, `block_depressed`, `rotate_character_start`,
+`block_press_virtual` (484), `rotate_character_start_hold`, `musicnote_chord_2`; in each next step while it is down `aim_draw`,
+`aim_draw_active_virtual`, `block_active_virtual`, `block_depressed`, `mount_stop`, `rotate_character_start_hold`,
+`mount_stop_virtual`; at the release `unbind_key`, `rotate_character_end`, `aim_draw_release`. The driver of the client sends
+them (`swc::combat::kBitsRightPress`, `kBitsRightHeld`, `kBitsRightRelease`; the press is the block literal of the transitions).
+
+The backend has no block rule: a blocked bite makes its full damage (the retail take shows the same). The retail character has
+no reaction to a bite (see "Open point: the hit reaction of the own character").
 
 ## The death and the respawn (stage P2.10)
 
@@ -341,8 +375,51 @@ computer, too low for the windows of a chain), `tests/drive/actions.txt`, the pi
   at input 627. The backend counts (`/v1/dev/world`, `basicAttacks`): 16 visits, 1 end by a change of the weapon; the
   client had 16 visits too. 654 position reports accepted, 0 refused.
 
+## The fight check of stage P3.G (set 6, 2026-10-19)
+
+The retail takes of set 6 (`~/Games/soulwarden/work/evidence/unreal-references/set6-combat/player-*.json`, the preset
+bow-boltcaster, level 70) go into the client as replays (development runs, the same preset, the own agent desktop):
+
+- `tools/lib/retail_replay.py TAKE.json tests/drive/p3g-NAME`: a drive script and a route script from a take: the keys at the
+  input step of the retail input report that shows them (the harness time can be late), the look of the harness with the same
+  angles in the same steps (0.0984 degrees for each unit of the harness), the zoom option of the take, a travel to the retail feet
+  before each part, the creatures 0.4 m above the floor at their retail offsets, the ignore commands of the take at their times.
+- `tools/lib/retail_compare.py TAKE.json CLIENT_LOG --backend BACKEND_LOG`: the move segments (the steady speed, the time to
+  90 %, the stop distance from the key up), the backend events of both sides on one clock (hits, dodges, stamina payments,
+  refused dodges, shots, arrows, bites, the death), the dodge distance in 0.6 s, the camera pitch limits.
+- `tools/lib/side_by_side.py`: the retail video and the client video side by side, the same time from the first key, a line of
+  text with the values of each part. The videos: `~/Games/soulwarden-client/evidence/P3.G/sbs-*.mp4`.
+
+| Item | Retail | Client |
+| --- | --- | --- |
+| W, rapier drawn: speed, to 90 %, stop distance | 5.49 m/s, 0.27 s, 0.73 m | 5.48 m/s, 0.27 s, 0.74 m |
+| S drawn | 3.99 m/s, 0.17 s, 0.26 m | 3.99 m/s, 0.17 s, 0.26 m |
+| D, A drawn: stop distance | 0.73, 0.72 m | 0.75, 0.71 m |
+| W sheathed | 5.47 m/s, 0.27 s, 0.72 m | 5.45 m/s, 0.24 s, 0.70 m |
+| S sheathed (the combat stance of the active slot) | 3.99 m/s, 0.26 m | 3.96 m/s, 0.24 m |
+| Standing jump: apex | 1.18 m at 0.57 s | 1.18 m at 0.55 s |
+| Run jump: apex | 1.04 m at 0.47 s | 0.73 m at 0.25 s (open point) |
+| Rapier light chain: the stop of the homing | 2.00 to 2.02 m from the wolf | 2.00 m |
+| Rapier hits (Strike2, Strike3, the late clicks, the full heavy) | 2.51, 2.98, 10.13, 13.07, 22.01 s | 2.72, 2.99, 10.22, 13.12, 22.12 s |
+| Dodges: time, stamina 45 at 0.10 s, distance in 0.6 s | 4.15, 4.48, 4.48 m | within 0.05 s; 4.11, 4.25, 4.43 m |
+| Exhausted: refused dodges | 5 and 2 | the same, within 0.07 s |
+| Block: the move in the block | 1.91 m/s (2.0) | 1.96 m/s |
+| Bow: the full draw, the arrow | 18.3 m in 188 ms, a hit | 17.9 m in 182 ms, a hit |
+| Bow: the aim walk W, S, A | 1.59, 1.63, 1.62 m/s | 1.59, 1.59, 1.63 m/s |
+| Camera: the pitch limits; the distance at −70° in the aim and at +60° | −70 to 60°; 2.70, 1.08 m | −69.9 to 60°; 2.73, 1.10 m |
+| Death: from the first bite to the death | 3.32 s | 3.27 s |
+
 ## Open points
 
+- Stage P3.G (set 6): the run jump of the retail client is higher and longer (apex 1.04 m at 0.47 s, 0.8 s in the air) than the
+  root track of `unarmed_jump_sprintleap` (0.71 m at 0.30 s); its rule is not known (a research stopped). The first strike of
+  the rapier chain hits at 2.0 m in the client, not in retail (the shape of the strike or the hit volumes of the wolf). The
+  retail wolf blocks the character 0.1 m farther than its capsule (1.77 m, no source in the data). The aim pose of the bow does
+  not follow the camera pitch. The interaction prompt (a FLINT node) shows in the bow aim; retail shows none. The body of a
+  sheathed character turns back to the camera at a stop; retail keeps the turn. The respawn shows a loading screen in the client
+  until the cells of the new place load (about 24 s on the shared machine); retail shows none with this backend. The retail
+  death video shows the fall 1 to 2 s later than the client (the clock of that video is not sure). A press and a release in one
+  long frame of a replay lost the press (the drive keeps the second step of a button for the next frame).
 - The weapon clips: in the attachment databases (`playermaleanims_1h_meleeattach.adb`, `_2h_`) only the flail has
   clips (18, `rflail_*_prop`: its chain); the sword and the greatsword have none (particle effects, the damage clips,
   and weapon effects only). The clips of the flail, the bow string, and the firearms need the weapons as skeletal meshes.

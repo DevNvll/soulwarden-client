@@ -11,14 +11,14 @@
 namespace
 {
 // The values of the game data (research feel-values.md R2; m/s and m/s^2, here cm). [D] = action lists of the player.
-/** Sprint (default forward movement, also side input in strafe mode): 5.5 m/s, 20 / 20 m/s^2 [D playeractions_sprint]. */
+/** Sprint (default forward movement, also side input in strafe mode): 5.5 m/s, 20 / 20 m/s^2 for each weapon (the native Sprint,
+ *  swc::move::native_sprint; with no movement data). */
 constexpr float SprintSpeed = 550.0f;
 constexpr float SprintAccel = 2000.0f;
 constexpr float SprintDecel = 2000.0f;
-/** Sprint_Start: the sprint speed with 20 m/s^2 unarmed (10 with a weapon drawn) [D]. It becomes Sprint at 4 m/s or after 1.13 s. */
-constexpr float SprintStartAccel = 2000.0f;
-constexpr float SprintMinimumSpeed = 400.0f;
-constexpr float SprintStartMaximumTime = 1.13f;
+/** Sprint_Start becomes Sprint at the CAGE-TransitionInstant of its fragment: 1.4 s when the data has no mark (the stand fragments of
+ *  player.adb and of the weapons, research p3g-move adb-sprint-start.txt). */
+constexpr float DefaultSprintStartEnd = 1.4f;
 /** Run (Nav, backward input or sprint blocked): 3.25 m/s, 35 / 35 m/s^2 unarmed; Nav_Start 12 / 35 [D playeractions_nav]. */
 constexpr float NavSpeed = 325.0f;
 constexpr float NavAccel = 3500.0f;
@@ -27,14 +27,10 @@ constexpr float NavDecel = 3500.0f;
 /** Walk (Left Ctrl, or no "can run"): 1.65 m/s, 25 / 25 m/s^2 [D Stand_Walk]. */
 constexpr float WalkSpeed = 165.0f;
 constexpr float WalkAccel = 2500.0f;
-/** Stop (Nav_Stop, no input): 40 m/s^2 unarmed (12 with a melee or magic weapon) [D]. */
-constexpr float StopDecel = 4000.0f;
-/** The rates with a weapon drawn (stage P2.6) [D]: Sprint_Start `Stand+Armed` (1H/2H melee, 1H/2H ranged, bow) 10 / 20 m/s^2;
- *  Nav and Nav_Start `Combat_Nav_Stand` (also the magic weapons; the first conditional that holds, before NavStart) 25 / 25;
- *  Nav_Stop `CombatNav+Melee`, `CombatNav+Magic` 12 m/s^2. */
-constexpr float ArmedSprintStartAccel = 1000.0f;
+/** Stop (Nav_Stop, no input): the native Nav_Stop, 25 m/s^2 (18 from a sprint above 5.0 m/s; swc::move::native_stop_decel). */
+constexpr float StopDecel = 2500.0f;
+/** The rate of the combat stance (a weapon in the active slot, drawn or sheathed; with no movement data): 25 / 25 m/s^2. */
 constexpr float ArmedNavAccel = 2500.0f;
-constexpr float ArmedStopDecel = 1200.0f;
 /** SkipSprintStartTimer (0.85 s) of the exit of a dodge: the sprint at once, no Sprint_Start [D playeractions_dodge]. */
 constexpr float SkipSprintStartTime = 0.85f;
 /** The input angles of strafe mode: forward within 110 degrees of the camera forward (sprint); the rest is backward (run) [D]. */
@@ -239,6 +235,11 @@ swc::move::Facts USwcCharacterMovement::MakeFacts() const
 		Facts.tags.insert("Aim");
 		Facts.tags.insert("AimDownSights");
 	}
+	if (bBlocking)
+	{
+		// The block (Block_Nav_Speed, SprintDisabled, Combat_Nav_Stand "not Blocking").
+		Facts.tags.insert("Blocking");
+	}
 	if (AutoRun.on())
 	{
 		Facts.tags.insert("AutoRun");
@@ -283,16 +284,32 @@ void USwcCharacterMovement::SetActionMotion(bool bActive, const FVector& Horizon
 	ActionVelocity = bActive ? FVector(HorizontalVelocity.X, HorizontalVelocity.Y, 0.0) : FVector::ZeroVector;
 }
 
-void USwcCharacterMovement::SetCombat(bool bInArmedSprint, bool bInArmedNav, bool bInArmedStop, bool bInAiming)
+void USwcCharacterMovement::SetCombat(bool bInArmedNav, bool bInAiming)
 {
-	bArmedSprint = bInArmedSprint;
 	bArmedNav = bInArmedNav;
-	bArmedStop = bInArmedStop;
 	if (bInAiming && !bAiming)
 	{
 		CancelAutoRun(TEXT("the aim"));
 	}
 	bAiming = bInAiming;
+}
+
+void USwcCharacterMovement::SetBlocking(bool bInBlocking)
+{
+	if (bInBlocking && !bBlocking)
+	{
+		// ClearMotion of Block_UpperBody: the block starts from rest.
+		ClearMotion();
+		CancelAutoRun(TEXT("the block"));
+	}
+	bBlocking = bInBlocking;
+}
+
+void USwcCharacterMovement::ClearMotion()
+{
+	GroundVelocity = FVector::ZeroVector;
+	Velocity.X = 0.0;
+	Velocity.Y = 0.0;
 }
 
 void USwcCharacterMovement::SkipSprintStart()
@@ -377,16 +394,44 @@ FString USwcCharacterMovement::GetFragment() const
 
 void USwcCharacterMovement::SetMove(ESwcMove Next)
 {
-	if (Next != Move)
+	if (Next == Move)
 	{
-		Move = Next;
-		StateTime = 0.0f;
+		return;
 	}
+	const auto IsSprint = [](ESwcMove State) { return State == ESwcMove::SprintStart || State == ESwcMove::Sprint; };
+	const auto IsNav = [](ESwcMove State) { return State == ESwcMove::NavStart || State == ESwcMove::Nav || State == ESwcMove::Walk; };
+	const float Speed = static_cast<float>(GroundVelocity.Size2D() / 100.0);
+	// The clocks of the native actions: Sprint_Start and Sprint are one action (research p3g-move 3), Nav_Start, Nav, and the walk
+	// one action (the context tag "running": the speed at its first frame, or 0.5 s in it).
+	if (IsSprint(Next) && !IsSprint(Move))
+	{
+		SprintActionTime = 0.0f;
+	}
+	if (IsNav(Next) && !IsNav(Move))
+	{
+		NavActionTime = 0.0f;
+		bNavRunningAtStart = Speed >= 1.65f;
+	}
+	// Nav_Stop: the rate of its request (the speed before the first frame), and one frame with the rate of the action before it.
+	if ((Next == ESwcMove::Stop || Next == ESwcMove::Idle) && (IsSprint(Move) || IsNav(Move)))
+	{
+		StopDecelAtRequest = swc::move::native_stop_decel(Speed) * 100.0f;
+		StopFirstDecel = LastMoveDecel;
+	}
+	else if (Next == ESwcMove::Stop || Next == ESwcMove::Idle)
+	{
+		StopDecelAtRequest = swc::move::native_stop_decel(Speed) * 100.0f;
+		StopFirstDecel = StopDecelAtRequest;
+	}
+	Move = Next;
+	StateTime = 0.0f;
 }
 
 void USwcCharacterMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	StateTime += DeltaTime;
+	SprintActionTime += DeltaTime;
+	NavActionTime += DeltaTime;
 	SkipSprintStartLeft = FMath::Max(SkipSprintStartLeft - DeltaTime, 0.0f);
 	UpdateWater();
 	UpdateState(DeltaTime);
@@ -534,41 +579,54 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 	}
 	const bool bBackward = FMath::Abs(InputAngle(Input)) > ForwardConeDegrees;
 	const bool bLowPosture = Posture.posture() != swc::move::Posture::stand;
-	// The speed of the sprint threshold (MoveSpeed 4 m/s) with the multiplier of the speed table: a slowed sprint (2.75 m/s with
-	// 0.5) stays a sprint (an inference; with the plain threshold the state went between Sprint and Sprint_Start).
-	const float SprintThreshold = SprintMinimumSpeed * FMath::Min(Limits.speed_multiplier(), 1.0f);
 	// A wade has no sprint: each move in Shallow water is the Nav of the retail client (layer state 26, the native Nav at 2.75 m/s;
 	// set3-swim/nav-velocity.json, wade-speed.json: the default move, the backward move, and Space have the same speed). A sprint
 	// that comes into the wade goes to Nav (the D sprint of set3-swim/swim-walk-in-out: 5.5 m/s, then 2.75 m/s in the wade).
 	const bool bWade = WaterClass >= swc::water::DepthClass::shallow;
 	// The aim (AimDownSights) has no sprint (Sprint_Start needs "not ADS"); the walk key has none (Sprint_Start: not walk); no
-	// IfCanSprint (NoSprint, the server bit), IfEncumbered, or Overburdened: no sprint [D playeractions_sprint].
+	// IfCanSprint (NoSprint, the server bit), IfEncumbered, or Overburdened: no sprint [D playeractions_sprint]. The block has no
+	// sprint (SprintDisabled: the tag Blocking): its move is the Nav (the retail block W and S: layer state 26, 2.0 m/s,
+	// set6-combat/player-bitten-block.json).
 	if (bWalkHeld || !Limits.can_run() || bAiming)
 	{
 		SetMove(ESwcMove::Walk);
 	}
-	else if (bBackward || !Limits.can_sprint() || bWade)
+	else if (bBackward || !Limits.can_sprint() || bWade || bBlocking)
 	{
 		const bool bStart = Move == ESwcMove::Idle || Move == ESwcMove::Stop || Move == ESwcMove::Land;
 		SetMove(bStart ? ESwcMove::NavStart : (Move == ESwcMove::NavStart && Speed < NavSpeed * 0.98f ? ESwcMove::NavStart : ESwcMove::Nav));
 	}
-	else if (Move == ESwcMove::Sprint && (Speed >= SprintThreshold - 1.0f || bLowPosture))
+	else if (Move == ESwcMove::Sprint)
 	{
+		// The native Sprint keeps its fragment while the sprint holds (no speed test; research p3g-move 3.5).
 		SetMove(ESwcMove::Sprint);
 	}
 	else if (Move == ESwcMove::SprintStart)
 	{
-		// The sprint of crouch and prone has no speed threshold (the State conditions of Sprint accept the tag Crouch or Prone).
-		if (Speed >= SprintThreshold - 1.0f || StateTime >= SprintStartMaximumTime || bLowPosture)
+		// Sprint_Start goes to Sprint at its CAGE-TransitionInstant (1.4 s for the stand fragments of the data; research p3g-move 3.4:
+		// the native code has no time or speed limit); crouch and prone have the Sprint fragment at once.
+		if (StateTime >= SprintStartEnd() || bLowPosture)
 		{
 			SetMove(ESwcMove::Sprint);
 		}
 	}
 	else
 	{
-		// SkipSprintStartTimer after a dodge: the sprint at once.
-		SetMove(SkipSprintStartLeft > 0.0f ? ESwcMove::Sprint : ESwcMove::SprintStart);
+		// The Sprint fragment at once (research p3g-move 3.3): SkipSprintStartTimer after a dodge, crouch or prone, a stand speed of
+		// 4.02 m/s or more (|v|^2 >= 16.1604, 0x14807F1A8); else Sprint_Start.
+		const bool bDirect = SkipSprintStartLeft > 0.0f || bLowPosture || Speed * Speed >= 161604.0f;
+		SetMove(bDirect ? ESwcMove::Sprint : ESwcMove::SprintStart);
 	}
+}
+
+float USwcCharacterMovement::SprintStartEnd() const
+{
+	if (SprintStartTransition > 0.0f)
+	{
+		return SprintStartTransition;
+	}
+	const FSwcFragment* Fragment = FragmentData(TEXT("Sprint_Start"));
+	return Fragment != nullptr ? Fragment->Marker(TEXT("TransitionInstant"), DefaultSprintStartEnd) : DefaultSprintStartEnd;
 }
 
 bool USwcCharacterMovement::UpdateStun()
@@ -833,13 +891,14 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 	// The target and the rates of the state; each axis of the camera frame moves linearly to its target (research R2.8.2).
 	float Speed = 0.0f;
 	float Accel = 0.0f;
-	float Decel = bArmedStop ? ArmedStopDecel : StopDecel;
+	// Nav_Stop (Stop, Idle): the native stop (swc::move::native_stop_decel), the first frame with the rate of the action before it.
+	float Decel = StateTime < swc::move::kStopFirstFrame ? StopFirstDecel : StopDecelAtRequest;
 	float ClearDegrees = 0.0f;
 	switch (Move)
 	{
 	case ESwcMove::SprintStart:
 		Speed = SprintSpeed;
-		Accel = bArmedSprint ? ArmedSprintStartAccel : SprintStartAccel;
+		Accel = SprintAccel;
 		Decel = SprintDecel;
 		ClearDegrees = SprintStartClearDegrees;
 		break;
@@ -883,7 +942,18 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 	{
 		// Nav, Nav_Start, and the walk: the native Nav of the retail client (swc::move::native_nav, 0x1423FC970), not the motion list of
 		// the XML: the same speed on each axis, BackwardsMultiplier 1.0, and the multiplier of the speed table on the speed and the rates.
-		const swc::move::NavMotion Native = swc::move::native_nav(*Data, MakeFacts(), Limits.encumbered_movement(), Limits.encumbered(), bWalkHeld);
+		// The combat stance reads the weapon of the active slot, drawn or sheathed (research p3g-move 4); the context tag "running".
+		swc::move::Facts NavFacts = MakeFacts();
+		if (WeaponTags.IsEmpty() && !StanceTags.IsEmpty())
+		{
+			NavFacts.tags.erase("Unarmed");
+			for (const FString& Tag : StanceTags)
+			{
+				NavFacts.tags.insert(TCHAR_TO_UTF8(*Tag));
+			}
+		}
+		NavFacts.navRunning = bNavRunningAtStart || NavActionTime >= 0.5f;
+		const swc::move::NavMotion Native = swc::move::native_nav(*Data, NavFacts, Limits.encumbered_movement(), Limits.encumbered(), bWalkHeld);
 		const float Multiplier = Limits.speed_multiplier();
 		Speed = SpeedSide = Native.speed * 100.0f * Multiplier;
 		Accel = AccelSide = Native.accel * 100.0f * Multiplier;
@@ -891,6 +961,26 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 		Backwards = 1.0f;
 		MotionAction = TEXT("Nav (native)");
 		MotionName = UTF8_TO_TCHAR(Native.branch);
+	}
+	else if (Data != nullptr && (Move == ESwcMove::SprintStart || Move == ESwcMove::Sprint))
+	{
+		// Sprint_Start and Sprint: the native Sprint (swc::move::native_sprint, 0x142401C40): 20 / 20 m/s^2 for each weapon, 100 after
+		// S / 20 in the action; the BackwardsMultiplier of the motion list (0.55).
+		const swc::move::NavMotion Native = swc::move::native_sprint(MakeFacts(), SprintActionTime);
+		const float Multiplier = Limits.speed_multiplier();
+		Speed = SpeedSide = Native.speed * 100.0f * Multiplier;
+		Accel = AccelSide = Native.accel * 100.0f * Multiplier;
+		Decel = DecelSide = Native.decel * 100.0f * Multiplier;
+		const swc::move::Motion* Motion = swc::move::motion_of(*Data, TCHAR_TO_UTF8(Action), MakeFacts());
+		Backwards = Motion != nullptr ? Motion->backwards : 0.55f;
+		MotionAction = TEXT("Sprint (native)");
+		MotionName = UTF8_TO_TCHAR(Native.branch);
+	}
+	else if (Data != nullptr && (Move == ESwcMove::Stop || Move == ESwcMove::Idle))
+	{
+		DecelSide = Decel;
+		MotionAction = TEXT("Nav_Stop (native)");
+		MotionName = StateTime < swc::move::kStopFirstFrame ? TEXT("the first frame") : StopDecelAtRequest < 2000.0f ? TEXT("Sprint") : TEXT("Run");
 	}
 	else if (Data != nullptr && Action != nullptr)
 	{
@@ -956,6 +1046,10 @@ void USwcCharacterMovement::CalcVelocity(float DeltaTime, float Friction, bool b
 	GroundVelocity = Result;
 	Velocity.X = Result.X;
 	Velocity.Y = Result.Y;
+	if (Move == ESwcMove::SprintStart || Move == ESwcMove::Sprint || Move == ESwcMove::NavStart || Move == ESwcMove::Nav || Move == ESwcMove::Walk)
+	{
+		LastMoveDecel = Decel;
+	}
 }
 
 void USwcCharacterMovement::UpdateWater()

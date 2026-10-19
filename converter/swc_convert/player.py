@@ -471,8 +471,9 @@ def read_blend_space(path: str) -> dict:
 
 
 def fragment_markers(fragment: ET.Element) -> dict:
-    """The named markers of a fragment (procedural CAGE-Named, for example Enable_Gravity): name -> time in seconds from
-    the start of the fragment (the sum of the ExitTime values of the Blend elements of its layer before it)."""
+    """The named markers of a fragment (procedural CAGE-Named, for example Enable_Gravity; a CAGE-TransitionInstant as
+    TransitionInstant): name -> time in seconds from the start of the fragment (the sum of the ExitTime values of the Blend
+    elements of its layer before it)."""
     markers = {}
     for layer in fragment.findall("ProcLayer"):
         time = 0.0
@@ -483,6 +484,9 @@ def fragment_markers(fragment: ET.Element) -> dict:
                 name = item.find("ProceduralParams/Name")
                 if name is not None and name.get("value"):
                     markers.setdefault(name.get("value"), round(time, 5))
+            elif item.tag == "Procedural" and item.get("type") == "CAGE-TransitionInstant":
+                # Stage P3.G: the instant change to the next action (Sprint_Start to Sprint at 1.4 s; research p3g-move 3.4).
+                markers.setdefault("TransitionInstant", round(time, 5))
     return markers
 
 
@@ -857,7 +861,7 @@ def clip_key(tags: list[str]) -> str:
 
 
 def clip_pack(gender: str, tag_text: str, force: bool = False, doc: dict | None = None) -> dict:
-    """Converts the clips of one weapon tag set of actions.json (its stance, off-hand, draw, sheathe, attack, and ranged
+    """Converts the clips of one weapon tag set of actions.json (its stance, off-hand, draw, sheathe, block, attack, and ranged
     fragments, with the clips of their blend spaces) into clips/<gender>/<key>/clips.gltf: the skeleton of the gender
     and one animation for each clip, the root bone locked (the client moves the character with the root track of
     actions.json: AnimationDrivenMotion). Unreal imports the animations onto the skeleton of the base."""
@@ -877,6 +881,7 @@ def clip_pack(gender: str, tag_text: str, force: bool = False, doc: dict | None 
     fragment_keys = list(entry["stance"].values()) + list(entry["offhand"].values()) + list(entry.get("dodge", {}).values())
     fragment_keys += list(entry.get("life", {}).values()) + list(entry.get("use", {}).values())
     fragment_keys += [entry[kind] for kind in ("draw", "sheathe") if kind in entry]
+    fragment_keys += list(entry.get("block", {}).values())
     fragment_keys += [item["fragment"] for item in entry.get("graph", []) if "fragment" in item]
     # The ranged and magic actions (stage P3.6): each variant of the fragments of the ranged program.
     fragment_keys += [variant["fragment"] for variants in entry.get("ranged", {}).get("fragments", {}).values() for variant in variants]

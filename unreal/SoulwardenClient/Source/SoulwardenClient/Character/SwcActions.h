@@ -30,6 +30,23 @@ struct FSwcActionItem
 	float ClipTime(float Time, float Duration) const;
 };
 
+/** A Homing procedural clip of a fragment (stage P3.G, research p3g-collision): the move of an attack to its target; the root motion
+ *  stops while it runs. Times in s from the start of the fragment (End below 0: the end of the fragment); distances in m. */
+struct FSwcHoming
+{
+	float Start = 0.0f;
+	float End = -1.0f;
+	bool bMoveToTarget = false;
+	float MoveToDistance = 1.0f;
+	float MoveToDuration = 0.2f;
+	float MaxMoveDistance = 0.0f;
+	float Radius = 0.0f;
+	float MaxAngle = 0.0f;
+	float Height = 0.0f;
+	float TurnRate = 0.0f;
+	bool bAllowUpwards = false;
+};
+
 struct FSwcActionFragment
 {
 	FString Key;
@@ -38,6 +55,7 @@ struct FSwcActionFragment
 	float BlendOut = 0.2f;
 	TArray<TArray<FSwcActionItem>> Layers;
 	std::vector<swc::combat::Mark> Marks;
+	TArray<FSwcHoming> Homing;
 	/** The end of the animation (s): the last item of layer 0 (an empty item: its start). Below 0: a loop. */
 	float Length = -1.0f;
 
@@ -115,6 +133,9 @@ struct FSwcWeaponActions
 	TMap<FString, int32> Use;
 	int32 Draw = INDEX_NONE;
 	int32 Sheathe = INDEX_NONE;
+	/** The block (stage P3.G, playeractions_block): the raise (Block_UpperBody_Raise) and the hold (Block_UpperBody) of the upper body. */
+	int32 BlockRaise = INDEX_NONE;
+	int32 BlockLoop = INDEX_NONE;
 	/** The attack graph (empty: no basic attack), and the fragment of each graph fragment (or INDEX_NONE). */
 	swc::combat::Graph Graph;
 	TArray<int32> GraphFragments;

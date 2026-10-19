@@ -76,7 +76,7 @@ mana costs. Mannequin compares the fragment names with no case (`Attack_Start_Ch
 | 555, 203, 408 | attack_primary, _virtual, attack_shoot | the press of the left button |
 | 315 (bow), 191 (staffs) | aim_shoot_hold, attack_primary_hold | each step while the left button is down (the live bow sends no 191; the backend takes the charge from the press to the release) |
 | 567 | attack_primary_release | the release |
-| 126 | aim_draw | each step while the right button is down |
+| 126 and the other bits of the right button | aim_draw, block, rotate_character_start, ... | stage P3.G: the bits of the bindings of the right button as the retail client sends them for each weapon (the press, each step while it is down, the release; [ACTIONS.md](ACTIONS.md) "The block") |
 | 430 | self_target | each step while Left Ctrl is down (also the walk of the default profile) |
 | the keys of the bar | ability1 to 3 | stage P3.5 ([ACTIONS.md](ACTIONS.md)); the press gives the ability input of the data (IfActiveAbilityMoveName) |
 
@@ -193,4 +193,7 @@ scripts `tests/drive/p36-bow.txt`, `p36-wall.txt`, and `p36-life.txt` (their com
 - The paperdoll state of the backend does not follow a weapon switch (the HUD rule above covers it on the client).
 - The self cast of Divine Embrace: the backend casts it at the key with bit 430 but heals nobody ("no target that the data
   permits", no payment).
-- The side-by-side check with the retail client waits for the approval of the user.
+- The side-by-side check with the retail client (stage P3.G, set 6 `player-bow`): the shots and the arrows match (18.3 / 17.9 m in
+  188 / 190 ms, a hit; the shot times within 0.1 s); the aim walk 1.59 / 1.55 m/s. The aim stance of the bow (the tags Aim and
+  ChargedAim of the ranged player: the stance variants Idle and Strafe `Bow+Aim`, `Bow+ChargedAim` of `player_bow.adb`) came with
+  stage P3.G. The opinion of the user is open.

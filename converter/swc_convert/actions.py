@@ -57,7 +57,11 @@ DODGE_VARIANTS = ("", "BackNav", "LeftNav", "RightNav")
 # The locomotion fragments of a stance, with the variant tags of each (the unarmed set of locomotion.json).
 # Stage P3.3: the crouch variants (a weapon has crouch fragments: 1H_Melee, 2H_Melee, the bow, the magic weapons, the shields;
 # research p33-movement.md Q1); a weapon with no crouch fragment uses the unarmed one of locomotion.json.
-STANCE_FRAGMENTS = {"Idle": ["", "Crouch"], "Strafe": ["", "Crouch"], "Sprint": ["", "Crouch"], "Sprint_Start": ["", "Crouch"],
+# Stage P3.G: the block variants of Idle and Strafe (tag Blocking: the stand and the move of the block, rswrd_block_idle and
+# rswrd_block_strafe_blend of a 1H melee weapon), and the aim variants of a bow (Aim: bow_Aim_HalfDrw_Idle and
+# bow_aim_halfdrw_strafe_blend; ChargedAim: the full draw).
+STANCE_FRAGMENTS = {"Idle": ["", "Crouch", "Blocking", "Aim", "ChargedAim"], "Strafe": ["", "Crouch", "Blocking", "Aim", "ChargedAim"],
+                    "Sprint": ["", "Crouch"], "Sprint_Start": ["", "Crouch"],
                     "Fall": ["ForwardNav", ""],
                     "Land": ["Soft", "Normal", "Hard"], "Jump": ["ForwardNav", "BackNav", "LeftNav", "RightNav", ""],
                     "Jump_Standing": [""]}
@@ -84,13 +88,17 @@ def adb_chain(tags: set[str]) -> list[str]:
 
 # The posture tags: a variant with one of them takes only a fragment with it (else the stand fragment is no crouch fragment).
 POSTURE_TAGS = {"crouch", "prone"}
+# The tags that a variant takes only in a fragment with them: the postures, the block, and the aim (stage P3.G: the rapier has no Idle
+# with Blocking in player_rapier.adb; the variant is the 1H_Melee+Blocking fragment of player_1h_melee.adb, the next database of the
+# chain).
+REQUIRED_TAGS = POSTURE_TAGS | {"blocking", "aim", "chargedaim"}
 
 
 def find_fragment(name: str, tags: set[str], extra: set[str], offhand: bool) -> tuple[str, ET.Element] | None:
     """The fragment variant of the first database of the chain that has one: the variant with the most tags, each of them
     in the tags, the extra tags, or the context tags. offhand: the variants of the Offhand scope (tag Offhand). A posture tag
-    of the extra tags must be in the fragment."""
-    required = extra & POSTURE_TAGS
+    or the block tag of the extra tags must be in the fragment."""
+    required = extra & REQUIRED_TAGS
     for adb in adb_chain(tags):
         node = player.adb_root(adb).find(f"FragmentList/{name}")
         best = None
@@ -105,9 +113,45 @@ def find_fragment(name: str, tags: set[str], extra: set[str], offhand: bool) -> 
     return None
 
 
+# The parameters of a Homing procedural clip that the client uses (stage P3.G, research p3g-collision: the move to the target of
+# an attack: the root motion stops while it runs).
+HOMING_PARAMS = {"MoveToTarget": bool, "MoveToDistance": float, "MoveToDuration": float, "MoveToVelocity": float,
+                 "MaxMoveDistance": float, "Radius": float, "MaxAngle": float, "Height": float, "TurnRate": float,
+                 "UseExponential": bool, "AllowUpwardsMovement": bool}
+
+
+def homing_of(fragment: ET.Element) -> list[dict]:
+    """The Homing procedural clips of a fragment: start and end (seconds; the end None: to the end of the fragment) and the
+    parameters of HOMING_PARAMS (the names with a lower-case first letter)."""
+    out = []
+    for layer in fragment.findall("ProcLayer"):
+        time = 0.0
+        open_clip = None
+        for item in layer:
+            if item.tag == "Blend":
+                time += float(item.get("ExitTime", 0))
+                continue
+            if item.tag != "Procedural":
+                continue
+            if open_clip is not None:
+                open_clip["end"] = round(time, 5)
+                out.append(open_clip)
+                open_clip = None
+            if item.get("type") == "Homing":
+                open_clip = {"start": round(time, 5), "end": None}
+                for name, kind in HOMING_PARAMS.items():
+                    value = item.find(f"ProceduralParams/{name}")
+                    if value is not None and value.get("value") is not None:
+                        text = value.get("value")
+                        open_clip[name[0].lower() + name[1:]] = text.lower() == "true" if kind is bool else float(text)
+        if open_clip is not None:
+            out.append(open_clip)
+    return out
+
+
 def markers_of(fragment: ET.Element) -> list[list]:
-    """The CAGE-Named markers of a fragment: [name, start, end] (seconds; end None: to the end of the fragment). A marker
-    lasts to the next procedural item of its layer."""
+    """The CAGE-Named markers of a fragment: [name, start, end] (seconds; end None: to the end of the fragment), and a
+    CAGE-TransitionInstant as the marker TransitionInstant. A marker lasts to the next procedural item of its layer."""
     out = []
     for layer in fragment.findall("ProcLayer"):
         time = 0.0
@@ -125,6 +169,9 @@ def markers_of(fragment: ET.Element) -> list[list]:
             name = item.find("ProceduralParams/Name")
             if item.get("type") == "CAGE-Named" and name is not None and name.get("value"):
                 open_marker = [name.get("value"), round(time, 5), None]
+            elif item.get("type") == "CAGE-TransitionInstant":
+                # Stage P3.G: the instant change to the next action (Sprint_Start to Sprint at 1.4 s; research p3g-move 3.4).
+                open_marker = ["TransitionInstant", round(time, 5), None]
         if open_marker is not None:
             out.append(open_marker)
     return out
@@ -343,6 +390,8 @@ def actions() -> dict:
                             root_clips.add(item["clip"])
             fragments[key] = {"adb": adb, "name": name, "tags": element.get("Tags") or "",
                               "blendOut": float(element.get("BlendOutDuration") or 0.2), "layers": layers, "markers": markers_of(element)}
+            if homing := homing_of(element):
+                fragments[key]["homing"] = homing
         return key
 
     def dodges(tags: set[str]) -> dict:
@@ -376,6 +425,15 @@ def actions() -> dict:
         out = {"tags": entry["tags"], "stance": stance(tags, False),
                "offhand": stance(tags | {"offhand", "shield_oh"}, True), "dodge": dodges(tags)}
         timing = weapons_doc["timings"].get(",".join(entry["tags"])) or {}
+        # The block (stage P3.G; playeractions_block: the action Block_UpperBody raises the weapon with Block_UpperBody_Raise, then
+        # Block_Continue_UpperBody holds it with Block_UpperBody while the block key is down; both set the tag Blocking).
+        block = {}
+        for kind, fragment_name in (("raise", "Block_UpperBody_Raise"), ("loop", "Block_UpperBody")):
+            found = find_fragment(fragment_name, tags, set(), False)
+            if found is not None:
+                block[kind] = record(found[0], found[1], fragment_name)
+        if block:
+            out["block"] = block
         for kind, fragment_name in (("draw", "Unsheathe_UpperBody"), ("sheathe", "Sheathe_UpperBody")):
             data = timing.get(kind)
             if data:

@@ -76,6 +76,8 @@ public:
 	 *  the aim, not in an attack before its mark CanTransition). */
 	bool IsAiming() const { return bAiming; }
 	bool IsLockAllowed() const { return bLockAllowed; }
+	/** The block of a melee weapon plays (stage P3.G, docs/ACTIONS.md "The block"). */
+	bool IsBlocking() const { return bBlocking; }
 
 	/**
 	 * The life of the character (stage P2.10, docs/ACTIONS.md "The death and the respawn"): the dead mark of the vitals state,
@@ -169,8 +171,12 @@ private:
 	/** The weapon of a slot goes to the hand at once (an attack starts), the other weapons to their sheaths. */
 	void DrawAtOnce(uint32 Slot);
 	void UpdateUpper(double Now);
+	/** The block (the actions Block_UpperBody and Block_Continue_UpperBody of playeractions_block): its start and its end. */
+	void UpdateBlock(double Now);
 	void UpdateAttack(float DeltaTime);
 	void Move(const FSwcActionFragment& Fragment, const FSwcWeaponActions& Weapon, float From, float To, bool bStart, float DeltaTime);
+	/** The Homing clip of an attack fragment at a clock (stage P3.G). @return True when it moves the character (no root motion). */
+	bool MoveHoming(const FSwcActionFragment& Fragment, float Clock, float DeltaTime);
 	void FillFacts(const FSwcActionFragment& Fragment, const FSwcWeaponActions& Weapon, float Time, FSwcConditionFacts& Facts) const;
 	/** The strikes of a graph fragment whose window has a clock of (From, To]: their shapes to the query. */
 	void QueryStrikes(const FSwcWeaponActions& Weapon, int32 GraphFragment, uint32 VisitNumber, float From, float To);
@@ -244,9 +250,25 @@ private:
 	int32 DodgeFragment = INDEX_NONE;
 	const FSwcWeaponActions* DodgeWeapon = nullptr;
 	bool bDodgePlayed = false;
+	/** The Homing clip that runs: its fragment and clip, its target point, its start, and its goal (Unreal world space). */
+	const FSwcActionFragment* HomingFragment = nullptr;
+	int32 HomingClip = INDEX_NONE;
+	bool bHomingTarget = false;
+	FVector HomingPoint = FVector::ZeroVector;
+	FVector HomingStart = FVector::ZeroVector;
+	FVector HomingGoal = FVector::ZeroVector;
+	/** The dodge ended with no move key: the motion stops at the end of the action. */
+	bool bDodgeStop = false;
 	/** The largest speed that the movement keeps at the end of the action (cm/s; 0: no limit). */
 	float CarryLimit = 0.0f;
 	bool bAimHeld = false;
+	/** The block: it plays, its start (game time), the end of Block_ForceBlock_Timer (the shortest block), its weapon slot, the serial
+	 *  of its fragments on the UpperBody channel. */
+	bool bBlocking = false;
+	double BlockStart = 0.0;
+	double BlockForceUntil = 0.0;
+	uint32 BlockSlot = 0;
+	uint32 BlockSerial = 0;
 	/** The serial of the last fragment of the ranged scope that started (stage P3.6). */
 	uint32 RangedSerial = 0;
 	bool bAiming = false;

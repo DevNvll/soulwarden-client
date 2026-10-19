@@ -64,6 +64,18 @@ inline constexpr unsigned kBitsAbilityHold[3] = {39, 332, 207};
 inline constexpr unsigned kBitsAbilityRelease[3] = {211, 196, 172};
 /** The block press (block_press_virtual, the right pointer button): a literal of the transitions inside Charge. */
 inline constexpr unsigned kBitBlock = 484;
+/**
+ * The right pointer button (stage P3.G): the bits of its bindings as the retail client sends them, the same for each weapon
+ * (set6-combat/player-bow.json and player-bitten-block.json; the names of the input table, research combat-actions input-bits.json).
+ * The step of the press: aim_draw_press_virtual, aim_draw, aim_draw_active_virtual, ui_back_radial, aim_draw_press,
+ * aim_draw_release_virtual, block, block_active_virtual, fishing_reset, block_depressed, rotate_character_start, block_press_virtual,
+ * rotate_character_start_hold, musicnote_chord_2. Each next step while it is down: aim_draw, aim_draw_active_virtual,
+ * block_active_virtual, block_depressed, mount_stop, rotate_character_start_hold, mount_stop_virtual. The step after the release:
+ * unbind_key, rotate_character_end, aim_draw_release.
+ */
+inline constexpr unsigned kBitsRightPress[] = {68, 126, 135, 199, 214, 263, 286, 307, 376, 466, 471, 484, 490, 491};
+inline constexpr unsigned kBitsRightHeld[] = {126, 135, 307, 466, 468, 490, 586};
+inline constexpr unsigned kBitsRightRelease[] = {183, 202, 562};
 
 /** The input that a transition needs (gamedata::AttackInput of the backend). */
 enum class Input : std::uint8_t {
@@ -487,6 +499,9 @@ public:
 			std::uint32_t serial{0};
 			float clock{0.0F};
 			bool aimDownSights{false};
+			/** The Mannequin tags Aim and ChargedAim of the ranged player (the aim stance of the bow: the half draw and the full draw). */
+			bool aim{false};
+			bool chargedAim{false};
 			bool forceWalk{false};
 			std::string targeting;
 			std::string channel;
@@ -543,6 +558,9 @@ public:
 	void dodge_press();
 	/** The aim (the game thread): the aim bit in each step while it is on. */
 	void set_aim(bool aim);
+	/** The right button (the game thread): the bits of its bindings at its press, while it is down, and at its release (kBitsRight*);
+	 *  the press is the block press of the transitions (block_press_virtual). While it is down the aim bit is one of its bits. */
+	void set_right_button(bool down);
 	/** The ranged program of each weapon slot (24, 25; null: none) and their shared data (stage P3.6). A change resets the player. */
 	void set_ranged(const ranged::Program* slot1, const ranged::Program* slot2, const ranged::Shared* shared);
 	/** Left Ctrl (the game thread): the self-target bit in each step while it is down. */
@@ -615,6 +633,8 @@ private:
 	bool m_down{false};
 	unsigned m_dodgePresses{0};
 	bool m_aim{false};
+	bool m_right{false};
+	bool m_rightWas{false};
 	Sequence m_sequence;
 	WeaponSwitch m_switch;
 	Stamina m_stamina;

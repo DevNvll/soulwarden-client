@@ -502,6 +502,25 @@ bool FSwcActions::Load(FString& OutReport)
 					Fragment.Marks.push_back({TCHAR_TO_UTF8(*Row[0]->AsString()), Number(Row[1]), Row[2]->IsNull() ? -1.0f : Number(Row[2])});
 				}
 			}
+			if (const TArray<TSharedPtr<FJsonValue>>* Homing = nullptr; Info->TryGetArrayField(TEXT("homing"), Homing))
+			{
+				for (const TSharedPtr<FJsonValue>& ClipValue : *Homing)
+				{
+					const TSharedPtr<FJsonObject> Clip = ClipValue->AsObject();
+					FSwcHoming& Out = Fragment.Homing.AddDefaulted_GetRef();
+					Out.Start = Number(Clip->TryGetField(TEXT("start")));
+					Out.End = Number(Clip->TryGetField(TEXT("end")), -1.0f);
+					Out.bMoveToTarget = Clip->HasTypedField<EJson::Boolean>(TEXT("moveToTarget")) && Clip->GetBoolField(TEXT("moveToTarget"));
+					Out.MoveToDistance = Number(Clip->TryGetField(TEXT("moveToDistance")), 1.0f);
+					Out.MoveToDuration = Number(Clip->TryGetField(TEXT("moveToDuration")), 0.2f);
+					Out.MaxMoveDistance = Number(Clip->TryGetField(TEXT("maxMoveDistance")));
+					Out.Radius = Number(Clip->TryGetField(TEXT("radius")));
+					Out.MaxAngle = Number(Clip->TryGetField(TEXT("maxAngle")));
+					Out.Height = Number(Clip->TryGetField(TEXT("height")));
+					Out.TurnRate = Number(Clip->TryGetField(TEXT("turnRate")));
+					Out.bAllowUpwards = Clip->HasTypedField<EJson::Boolean>(TEXT("allowUpwardsMovement")) && Clip->GetBoolField(TEXT("allowUpwardsMovement"));
+				}
+			}
 			// The length: the end of the last item of layer 0 (the rule of the backend, protocol notes 4.32).
 			if (!Fragment.Layers.IsEmpty() && !Fragment.Layers[0].IsEmpty())
 			{
@@ -556,6 +575,12 @@ bool FSwcActions::Load(FString& OutReport)
 		FString Key;
 		Weapon->Draw = Info->TryGetStringField(TEXT("draw"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE;
 		Weapon->Sheathe = Info->TryGetStringField(TEXT("sheathe"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE;
+		// The block (stage P3.G): Block_UpperBody_Raise and Block_UpperBody of the tag set.
+		if (const TSharedPtr<FJsonObject>* Block = nullptr; Info->TryGetObjectField(TEXT("block"), Block))
+		{
+			Weapon->BlockRaise = (*Block)->TryGetStringField(TEXT("raise"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE;
+			Weapon->BlockLoop = (*Block)->TryGetStringField(TEXT("loop"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE;
+		}
 		if (const TArray<TSharedPtr<FJsonValue>>* Graph = nullptr; Info->TryGetArrayField(TEXT("graph"), Graph))
 		{
 			// The graph of the backend copy (the same reader as tests/actions/actions_tests.cpp).

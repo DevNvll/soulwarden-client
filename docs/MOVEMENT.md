@@ -39,11 +39,11 @@ game copy --tools/convert-player.sh locomotion--> content/player/locomotion.json
 
 | Value | Data | Source |
 | --- | --- | --- |
-| Sprint | 5.5 m/s, accel 20 m/s², decel 20 m/s²; the default with forward or side input | R2, `playeractions_sprint` |
-| Sprint_Start | accel 20 m/s² unarmed (10 with a weapon, below); to Sprint at 4 m/s or after 1.13 s | R2 |
+| Sprint | 5.5 m/s, accel 20 m/s² (100 after 0.275 s in the action), decel 20 m/s², for each weapon; the default with forward or side input (see "The native Sprint and Nav_Stop") | native Sprint 0x142401C40 |
+| Sprint_Start | the same rates; to Sprint at the CAGE-TransitionInstant of its fragment (1.4 s; 1.3667 s with a 1H ranged weapon); the Sprint fragment at once at 4.02 m/s or more, in crouch or prone, and after a dodge | native Sprint, ADB |
 | Run (Nav) | 4.0 m/s on each axis (backward too), accel 12 m/s² until 1.65 m/s, then 35, decel 35; only with backward input, with no "can sprint", or in a wade (see "The native Nav") | native Nav 0x1423FC970 |
 | Walk | Left Ctrl held: max(0.5 S, min(S, 1.65)) of the speed S of the native Nav: 2.0 m/s dry, 1.65 m/s in a wade; no "can run": 3.25 m/s until 1.65 m/s, then 1.65 | native Nav 0x1423FC970 |
-| Stop | 40 m/s² unarmed (12 with a melee or magic weapon, below) | R2, `Nav_Stop` |
+| Stop | the native Nav_Stop: 25 m/s² (18 from more than 5.0 m/s); its first frame (1/30 s) has the rate of the action before it | native Nav 0x1423FCC1F |
 | Input angles | forward cone 110° (sprint), backward the rest (run); dead zone 0.2 | R2, `playerinput_navigation` |
 | ClearMotion | velocity cleared when the input turns more than 80° (Sprint_Start) or 125° (Sprint) from it | R2 |
 | Turn rule | strafe mode: alpha = 1 − (1 − r)^(30·dt) to the camera yaw while moving; r = 0.30 run, 1.0 sprint, 0.33 sprint start; no turn at idle or in the air | R2.8.3, C 0x2A919A0 |
@@ -92,9 +92,9 @@ states Nav_Start, Nav, and Walk of the client; the first branch that holds gives
 | The wade (Shallow or deeper, the setting Swimming, not blocking) | 2.75 | 10, 10 |
 | Dry: crouch; prone | 1.25; 0.625 | 10, 10; 1, 5 |
 | Dry: the flame thrower; the aim or a shot | 2.75; 1.65 | 12, 35 |
-| Dry: a combat stance (a weapon in the hand) | S | 25, 25 |
+| Dry: a combat stance (a weapon in the active weapon slot, drawn or sheathed) | S | 25, 25 |
 | Dry: a charged aim, the hip fire walk; the block | 1.65; 2.0 | 25, 25 |
-| Dry: below 1.65 m/s (the start) | S | 12, 35 |
+| Dry: not "running" (the context tag: set at the first Nav frame at 1.65 m/s or more, or after 0.5 s in the Nav) | S | 12, 35 |
 | Dry: running with "can run"; with no "can run" | S; 1.65 | 35, 35; 25, 25 |
 | Then the walk key | max(0.5 S, min(S, 1.65)) | no change |
 
@@ -109,6 +109,24 @@ Open points of the native Nav: the branch from a sprint (accel 20, the velocity 
 (2.25 m/s) have no condition in the data. The native code names MoveSpeedMod (key 0x34) as the multiplier; the client
 keeps key 0x35 (the live walks of the backend). Both were 1.0 in each retail read. The other native actions (Sprint,
 Nav_Start, Nav_Stop, crouch, prone, swim) can also differ from the XML.
+
+### The native Sprint and Nav_Stop (stage P3.G, 2026-10-19)
+
+The retail Sprint_Start and Sprint are one compiled action (0x142401C40), and Nav_Stop runs in the native Nav while its
+fragment plays (research `~/Games/soulwarden-client/research/p3g-move/report.md`, a static read of the build 1.400.6031.6004151).
+The retail requested velocity of set 6 (`set6-combat/player-move-drawn.json`, `player-move-sheathed-draw-jump.json`) agrees:
+
+| Rule | Value | Retail read (30 input steps each second) |
+| --- | --- | --- |
+| Sprint start, rapier drawn and sheathed | accel 20 m/s² (`swc::move::native_sprint`; the XML `Stand+Armed` accel 10 is not in the code) | +0.6665 m/s each step to 5.497 |
+| Sprint_Start to Sprint | the CAGE-TransitionInstant of the fragment: 1.4 s (the converter writes it as the mark `TransitionInstant`) | action 2553 for 41 steps, then 1566 |
+| Stop of a sprint | first frame 20 (the Sprint with no input), then 18 (the NavType tag Sprint: above 5.0 m/s at the request) | 5.497, 4.830, then −0.600 each step |
+| Stop of a run back (4.0 m/s) | first frame 25 (the combat stance), then 25 | −0.833 each step |
+| Run back, rapier sheathed | the combat stance 25 / 25: the weapon of the active slot, not the drawn state | +0.833 each step to 4.0 |
+
+`USwcPlayerActions` gives the movement the tags of the weapon of the active slot (`SetStanceTags`) and the transition of the
+Sprint_Start fragment of the weapon in the hand (`SetSprintStartTransition`). The checks: `native_sprint_stop_tests` of
+`tools/test-movement.sh`. Not copied: the retail cap 5.4973 (an `rsqrtps` artefact) and the frame-time excess of 0.1 %.
 
 ### Open point: the long travel (2026-10-19)
 
@@ -131,9 +149,10 @@ tags of the weapon in `actions.json` select them (`USwcPlayerActions::TickCompon
 
 | Phase | Unarmed | Armed | Condition of the data |
 | --- | --- | --- | --- |
-| Sprint_Start | 20 m/s² | 10 m/s² | `Stand+Armed`: 1H or 2H melee, 1H or 2H ranged, bow |
-| Nav_Start, Nav (accel / decel) | 12 / 35, 35 / 35 m/s² | 25 / 25 m/s² | `Combat_Nav_Stand`: also the magic weapons (the first conditional that holds, before NavStart) |
-| Nav_Stop | 40 m/s² | 12 m/s² | `CombatNav+Melee`, `CombatNav+Magic` (no change for a ranged weapon) |
+| Nav_Start, Nav (accel / decel) | 12 / 35, 35 / 35 m/s² | 25 / 25 m/s² | `Combat_Nav_Stand`: also the magic weapons; the weapon of the active slot, drawn or sheathed (stage P3.G) |
+
+Stage P3.G: the XML rates of Sprint_Start (`Stand+Armed` 10 m/s²) and of Nav_Stop (`CombatNav+Melee`, `CombatNav+Magic`
+12 m/s²) are not in the retail code: the sprint and the stop have no weapon rule (see "The native Sprint and Nav_Stop").
 
 - The sprint speed (5.5 m/s), the run speed (3.25 m/s), and the walk do not change with a weapon.
 - The aim (`AimDownSights`, the right mouse button held, a 1H or 2H ranged weapon or a bow in the hand, no attack):
@@ -458,12 +477,11 @@ and `roads-r_+04_+02.png` (the road map of the region).
 - The ground value of an entry in the air is the half float of the distance (an inference from "0 to 10; 10 in a
   fall" of protocol notes 4.7); on the ground the value of the captures (180).
 - TravelSlope is 0.
-- The swim and the mounts are not in the client (the swim is stage P4.4). The block key and the shield dodge wait for
-  their contracts in the backend.
+- The mounts are not in the client. The block plays in the client (stage P3.G, docs/ACTIONS.md "The block"); the backend has
+  no block rule. The shield dodge waits for its contract in the backend.
 - The backend has no NoDodge check in its dodge, and probably no Silenced check: the client applies both itself.
 - The road boost needs a backend that applies Traversal_RoadSprintBoost_Haste (the road maps above).
 - Prone with a rifle: the client does not sheathe a rifle, but it has no prone aim. The aim of a magic weapon and
   the shooter stance are not in the client: the aim needs a ranged weapon or a bow.
-- A character that runs into a wall changes between Sprint and Sprint_Start each 1.13 s.
 - In the first second after the world entry the engine prepares the clips (the bind pose).
 - The side-by-side check with the retail client (research R2.9) is open, also for the armed rates of stage P2.6.

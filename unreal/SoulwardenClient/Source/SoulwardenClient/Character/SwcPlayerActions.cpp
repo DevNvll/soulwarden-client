@@ -5,6 +5,7 @@
 #include "Character/SwcPlayerAnimInstance.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "Combat/SwcAttackGraph.h"
+#include "Creatures/SwcCreatureSubsystem.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DrawDebugHelpers.h"
@@ -572,6 +573,70 @@ void USwcPlayerActions::DrawAtOnce(uint32 Slot)
 	Owner->SetLogicalWeaponState(Slot, true);
 }
 
+void USwcPlayerActions::UpdateBlock(double Now)
+{
+	ASwcPlayerCharacter* Owner = Character();
+	USwcCharacterMovement* Movement = Owner != nullptr ? Owner->GetSwcMovement() : nullptr;
+	if (Movement == nullptr || !Data.IsValid())
+	{
+		return;
+	}
+	// The weapons of the block: the tags 1H_Melee, 2H_Melee, MagicStaff, Ice of Block_UpperBody (a void gauntlet blocks only with
+	// TEMP_WeaponMaster: no block here), with the fragments of the block [D playeractions_block].
+	const auto CanBlockWith = [](const FSwcWeaponActions* Weapon)
+	{
+		return Weapon != nullptr && Weapon->BlockRaise != INDEX_NONE && Weapon->Tags.ContainsByPredicate([](const FString& Tag)
+		{
+			return Tag.Equals(TEXT("1H_Melee"), ESearchCase::IgnoreCase) || Tag.Equals(TEXT("2H_Melee"), ESearchCase::IgnoreCase)
+				|| Tag.Equals(TEXT("MagicStaff"), ESearchCase::IgnoreCase) || Tag.Equals(TEXT("Ice"), ESearchCase::IgnoreCase);
+		});
+	};
+	const swc::combat::Driver::Snapshot Snapshot = Driver ? Driver->snapshot() : swc::combat::Driver::Snapshot();
+	const bool bDodging = Snapshot.dodge && Snapshot.dodge->number != DodgeReleased;
+	// The conditions of Block_UpperBody: block_active_virtual (the right button held), no prone, the stamina above 0 and no
+	// Exhausted, alive; an attack, a dodge, or a draw on the UpperBody channel holds the block back (the client keeps one action).
+	const bool bFree = !IsActionLocked() && !bPlaying && !bDodging && Movement->GetPosture() != swc::move::Posture::prone
+		&& Snapshot.stamina > 0.0f && !Snapshot.exhausted;
+	if (bBlocking)
+	{
+		// The end: the button up after Block_ForceBlock_Timer (0.3 s, the status of the data); also the end of the conditions.
+		const FSwcWeaponActions* Weapon = VisualSlot == BlockSlot ? WeaponOf(BlockSlot) : nullptr;
+		const bool bRelease = !bAimHeld && Now >= BlockForceUntil;
+		if (bRelease || !bFree || !CanBlockWith(Weapon))
+		{
+			bBlocking = false;
+			UE_LOG(LogSwcBackend, Log, TEXT("actions: block off after %.3f s (%s)"), Now - BlockStart,
+				bRelease ? TEXT("the button up") : !bFree ? TEXT("an action or a state ends it") : TEXT("no weapon of the block"));
+		}
+	}
+	else if (bAimHeld && bFree && Upper.IsEmpty())
+	{
+		uint32 Slot = 0;
+		if (Owner->IsWeaponDrawn() && CanBlockWith(WeaponOf(VisualSlot)))
+		{
+			Slot = VisualSlot;
+		}
+		else if (!Owner->IsWeaponDrawn() && CanBlockWith(WeaponOf(Owner->GetActiveWeaponSlot())))
+		{
+			// Trigger_From_Sheathed: the block of a sheathed melee weapon draws it at once (SheatheWeapon UnSheathe of Block_UpperBody).
+			Slot = Owner->GetActiveWeaponSlot();
+			DrawAtOnce(Slot);
+		}
+		if (Slot != 0)
+		{
+			bBlocking = true;
+			BlockSlot = Slot;
+			BlockStart = Now;
+			// Block_ForceBlock_Timer: 0.3 s (the status table of the backend copy, ability-data.json).
+			BlockForceUntil = Now + 0.3;
+			++BlockSerial;
+			UE_LOG(LogSwcBackend, Log, TEXT("actions: block on, slot %u: %s, then %s"), Slot, *Data->Fragments[WeaponOf(Slot)->BlockRaise].Key,
+				WeaponOf(Slot)->BlockLoop != INDEX_NONE ? *Data->Fragments[WeaponOf(Slot)->BlockLoop].Key : TEXT("(no hold fragment)"));
+		}
+	}
+	Movement->SetBlocking(bBlocking);
+}
+
 void USwcPlayerActions::UpdateUpper(double Now)
 {
 	USwcPlayerAnimInstance* Anim = Animation();
@@ -633,7 +698,18 @@ void USwcPlayerActions::UpdateUpper(double Now)
 		}
 		++Index;
 	}
-	if (Anim != nullptr)
+	if (Anim != nullptr && Shown == nullptr && bBlocking)
+	{
+		// The block on the UpperBody channel: Block_UpperBody_Raise to its end, then Block_UpperBody (Block_Continue_UpperBody)
+		// while the block lasts. Serials of their own (the high bits): never the serial of a draw.
+		const FSwcWeaponActions* Weapon = WeaponOf(BlockSlot);
+		const float Clock = static_cast<float>(Now - BlockStart);
+		const float RaiseLength = Weapon != nullptr ? Data->Fragments[Weapon->BlockRaise].Length : 0.0f;
+		const bool bRaise = Weapon != nullptr && (Clock < RaiseLength || Weapon->BlockLoop == INDEX_NONE);
+		const int32 Fragment = Weapon == nullptr ? INDEX_NONE : bRaise ? Weapon->BlockRaise : Weapon->BlockLoop;
+		Anim->SetAction(1, Fragment, 0xC0000000u | (BlockSerial << 1) | (bRaise ? 0u : 1u), bRaise ? Clock : Clock - RaiseLength);
+	}
+	else if (Anim != nullptr)
 	{
 		Anim->SetAction(1, Shown != nullptr ? Shown->Fragment : INDEX_NONE, Shown != nullptr ? Shown->Serial : 0, ShownClock);
 	}
@@ -699,6 +775,16 @@ void USwcPlayerActions::Move(const FSwcActionFragment& Fragment, const FSwcWeapo
 		const double Step = Rule.Decel[Axis] * 100.0 * DeltaTime;
 		Inherited[Axis] = Inherited[Axis] > 0.0 ? FMath::Max(Inherited[Axis] - Step, 0.0) : FMath::Min(Inherited[Axis] + Step, 0.0);
 	}
+	if (bStart)
+	{
+		HomingFragment = nullptr;
+	}
+	// The Homing clip of the fragment (stage P3.G, research p3g-collision): while it runs and has a target, the root motion stops and
+	// the character moves to the target in MoveToDuration.
+	if (MoveHoming(Fragment, To, DeltaTime))
+	{
+		return;
+	}
 	FVector Root = FVector::ZeroVector;
 	Data->RootDelta(Fragment, From, To, Root);
 	if (Fragment.Name.StartsWith(TEXT("Dodge_Roll")))
@@ -730,6 +816,86 @@ void USwcPlayerActions::Move(const FSwcActionFragment& Fragment, const FSwcWeapo
 		Yaw = TurnYaw(Yaw, Target, *Input, DeltaTime);
 	}
 	Owner->SetActorRotation(FRotator(0.0, Yaw, 0.0));
+}
+
+bool USwcPlayerActions::MoveHoming(const FSwcActionFragment& Fragment, float Clock, float DeltaTime)
+{
+	ASwcPlayerCharacter* Owner = Character();
+	USwcCharacterMovement* Movement = Owner->GetSwcMovement();
+	int32 ClipIndex = INDEX_NONE;
+	for (int32 Index = 0; Index < Fragment.Homing.Num(); ++Index)
+	{
+		const FSwcHoming& Clip = Fragment.Homing[Index];
+		const float End = Clip.End >= 0.0f ? Clip.End : (Fragment.Length > 0.0f ? Fragment.Length : TNumericLimits<float>::Max());
+		if (Clip.bMoveToTarget && Clock >= Clip.Start && Clock < End)
+		{
+			ClipIndex = Index;
+		}
+	}
+	if (ClipIndex == INDEX_NONE)
+	{
+		return false;
+	}
+	const FSwcHoming& Clip = Fragment.Homing[ClipIndex];
+	const FVector Feet = Owner->GetActorLocation();
+	if (HomingFragment != &Fragment || HomingClip != ClipIndex)
+	{
+		// The start: the target in Radius, MaxAngle of the facing, and Height (the score: the distance / Radius + the angle / MaxAngle, the
+		// weights 1 of the data; an inference of the research), its point T on the homing segment of the creature, the goal 1 m before T
+		// (MoveToDistance), at most MaxMoveDistance from the start.
+		HomingFragment = &Fragment;
+		HomingClip = ClipIndex;
+		bHomingTarget = false;
+		TArray<FSwcCreatureTarget> Targets;
+		if (const USwcCreatureSubsystem* Creatures = GetWorld()->GetSubsystem<USwcCreatureSubsystem>())
+		{
+			Creatures->GetTargets(Targets);
+		}
+		const FVector Ahead = Owner->GetActorForwardVector().GetSafeNormal2D();
+		float Best = TNumericLimits<float>::Max();
+		for (const FSwcCreatureTarget& Target : Targets)
+		{
+			const FVector Point = FMath::ClosestPointOnSegment(Feet, Target.AxisA, Target.AxisB);
+			const FVector To2D = (Point - Feet) * FVector(1.0, 1.0, 0.0);
+			const float Distance = static_cast<float>(To2D.Size() / 100.0);
+			const float Angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(Ahead, To2D.GetSafeNormal()), -1.0, 1.0)));
+			if (Target.bDead || Distance > Clip.Radius || Angle > Clip.MaxAngle || FMath::Abs(Point.Z - Feet.Z) / 100.0 > Clip.Height)
+			{
+				continue;
+			}
+			const float Score = Distance / FMath::Max(Clip.Radius, 0.01f) + Angle / FMath::Max(Clip.MaxAngle, 0.01f);
+			if (Score < Best)
+			{
+				Best = Score;
+				bHomingTarget = true;
+				HomingPoint = Point;
+			}
+		}
+		HomingStart = Feet;
+		if (bHomingTarget)
+		{
+			const FVector Toward = ((HomingPoint - Feet) * FVector(1.0, 1.0, 0.0)).GetSafeNormal();
+			const FVector Goal = HomingPoint - Toward * Clip.MoveToDistance * 100.0;
+			HomingGoal = Feet + ((Goal - Feet) * FVector(1.0, 1.0, 0.0)).GetClampedToMaxSize(Clip.MaxMoveDistance * 100.0);
+			UE_LOG(LogSwcBackend, Log, TEXT("attack: homing of %s at %.3f s: a target %.2f m away, the goal %.2f m from it"), *Fragment.Name, Clock,
+				FVector::Dist2D(Feet, HomingPoint) / 100.0, FVector::Dist2D(HomingGoal, HomingPoint) / 100.0);
+		}
+	}
+	if (!bHomingTarget)
+	{
+		return false;
+	}
+	// The smoothstep from the start to the goal in MoveToDuration (no upward motion: horizontal only), then no motion to the end of the
+	// clip; the turn to the target point (TurnRate, exponential: the fraction for each 1/30 s).
+	const float X = FMath::Clamp((Clock - Clip.Start) / FMath::Max(Clip.MoveToDuration, 0.001f), 0.0f, 1.0f);
+	const FVector Wanted = HomingStart + (HomingGoal - HomingStart) * (X * X * (3.0f - 2.0f * X));
+	const FVector Step = (Wanted - Feet) * FVector(1.0, 1.0, 0.0);
+	Movement->SetActionMotion(true, DeltaTime > 0.0f ? Step / DeltaTime : FVector::ZeroVector);
+	const double TargetYaw = FMath::RadiansToDegrees(FMath::Atan2(HomingPoint.Y - Feet.Y, HomingPoint.X - Feet.X));
+	const float Alpha = Clip.TurnRate >= 1.0f ? 1.0f : 1.0f - FMath::Pow(1.0f - Clip.TurnRate, 30.0f * DeltaTime);
+	const double Yaw = Owner->GetActorRotation().Yaw;
+	Owner->SetActorRotation(FRotator(0.0, Yaw + FMath::FindDeltaAngleDegrees(Yaw, TargetYaw) * Alpha, 0.0));
+	return true;
 }
 
 void USwcPlayerActions::UpdateAttack(float DeltaTime)
@@ -821,12 +987,20 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 			}
 		}
 	}
+	const bool bStopNow = bDodgeStop;
+	bDodgeStop = false;
 	if (!bPlays)
 	{
 		if (bPlaying)
 		{
 			bPlaying = false;
 			Movement->EndActionMotion(CarryLimit);
+			if (bStopNow)
+			{
+				// The end of a dodge with no move key: the character stops at once (the retail dodges of set6-combat/
+				// player-dodge-stamina-2.json: 0.297 m each step to CanTransition, then no motion).
+				Movement->ClearMotion();
+			}
 		}
 		// The fragment of the ranged scope (stage P3.6) on the FullBody channel: its clips are upper-body clips, the legs keep the
 		// movement; no root motion. A start ends autorun and draws the weapon of the program (an attack with a sheathed weapon).
@@ -949,11 +1123,15 @@ bool USwcPlayerActions::PlayDodge(const swc::combat::Driver::Snapshot& Snapshot,
 	}
 	const FSwcActionFragment& Fragment = Data->Fragments[DodgeFragment];
 	const float Clock = FMath::Max(static_cast<float>(Snapshot.time - Dodge.start) + Since, LastClock);
-	// The end: the end of the animation, or a move key after the mark CanTransition (the movement starts again).
+	// The end: the mark CanTransition (the action Dodge ends at IfFragmentDone and CanTransition; the retail dodges end at 0.5 s with
+	// or without a move key: set6-combat/player-dodge-stamina-2.json, the root track x FastRoll_Translation 1.15 to 0.5 s, then the
+	// next state), or the end of the animation. With no move key the character stops at once; with a key the movement goes on
+	// (SkipSprintStartTimer: the sprint at once).
 	const float Transition = Fragment.MarkTime(TEXT("CanTransition"), 0.5f);
-	if ((Fragment.Length > 0.0f && Clock >= Fragment.Length) || (Clock >= Transition && !Movement->GetMoveInput().IsNearlyZero()))
+	if ((Fragment.Length > 0.0f && Clock >= Fragment.Length) || Clock >= Transition)
 	{
 		DodgeReleased = Dodge.number;
+		bDodgeStop = Movement->GetMoveInput().IsNearlyZero();
 		Movement->SkipSprintStart();
 		return false;
 	}
@@ -1186,7 +1364,9 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 		// The death or the respawn owns the body: no attack, no aim, no combat rates, no lock.
 		bAiming = false;
 		bLockAllowed = false;
-		Character()->GetSwcMovement()->SetCombat(false, false, false, false);
+		bBlocking = false;
+		Character()->GetSwcMovement()->SetBlocking(false);
+		Character()->GetSwcMovement()->SetCombat(false, false);
 		Character()->GetSwcMovement()->SetWeaponTags({});
 		if (Driver)
 		{
@@ -1195,6 +1375,7 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 		return;
 	}
 	UpdateAttack(DeltaTime);
+	UpdateBlock(GetWorld()->GetTimeSeconds());
 	UpdateUpper(GetWorld()->GetTimeSeconds());
 	// The weapon in the hand: the armed rates of the movement and the aim of a ranged weapon (stage P2.6, the tags of the
 	// conditions Stand+Armed, Combat_Nav_Stand, CombatNav+Melee, CombatNav+Magic of the action lists).
@@ -1210,9 +1391,21 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 		}
 		return false;
 	};
-	const bool bArmedSprint = Has({TEXT("1H_Melee"), TEXT("2H_Melee"), TEXT("1H_Ranged"), TEXT("2H_Ranged"), TEXT("Bow")});
-	const bool bArmedNav = bArmedSprint || Has({TEXT("MagicGauntlet"), TEXT("MagicStaff")});
-	const bool bArmedStop = Has({TEXT("1H_Melee"), TEXT("2H_Melee"), TEXT("MagicGauntlet"), TEXT("MagicStaff")});
+	// The weapon of the active slot, drawn or sheathed: the combat stance of the native Nav (research p3g-move 4: the item of the
+	// active weapon slot, not the drawn state).
+	const uint32 ActiveSlot = Character()->GetActiveWeaponSlot();
+	const FSwcWeaponActions* Active = ActiveSlot != 0 && Character()->HasWeapon(ActiveSlot) ? WeaponOf(ActiveSlot) : nullptr;
+	const bool bArmedNav = Active != nullptr && Active->Tags.ContainsByPredicate([](const FString& Tag)
+	{
+		for (const TCHAR* Name : {TEXT("1H_Melee"), TEXT("2H_Melee"), TEXT("1H_Ranged"), TEXT("2H_Ranged"), TEXT("Bow"), TEXT("MagicGauntlet"), TEXT("MagicStaff")})
+		{
+			if (Tag.Equals(Name, ESearchCase::IgnoreCase))
+			{
+				return true;
+			}
+		}
+		return false;
+	});
 	const bool bWasAiming = bAiming;
 	bAiming = bAimHeld && !bPlaying && Has({TEXT("1H_Ranged"), TEXT("2H_Ranged"), TEXT("Bow")});
 	// The ranged actions (stage P3.6): the aim is the tag AimDownSights of the actions of the data (the bow aims from the ready fragment
@@ -1226,9 +1419,15 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("actions: aim %s"), bAiming ? TEXT("on (AimDownSights)") : TEXT("off"));
 	}
-	Character()->GetSwcMovement()->SetCombat(bArmedSprint, bArmedNav, bArmedStop, bAiming || (Ranged.program && Ranged.forceWalk));
-	// The tags of the weapon in the hand for the conditions of the movement data (stage P3.3; unarmed: none).
+	Character()->GetSwcMovement()->SetCombat(bArmedNav, bAiming || (Ranged.program && Ranged.forceWalk));
+	// The tags of the weapon in the hand for the conditions of the movement data (stage P3.3; unarmed: none), and of the weapon of
+	// the active slot for the combat stance.
 	Character()->GetSwcMovement()->SetWeaponTags(Drawn != nullptr ? Drawn->Tags : TArray<FString>());
+	Character()->GetSwcMovement()->SetStanceTags(Active != nullptr ? Active->Tags : TArray<FString>());
+	// The end of Sprint_Start: the CAGE-TransitionInstant of the stance fragment of the weapon in the hand (1.3667 s for a 1H ranged
+	// weapon, 1.4 s for the others; research p3g-move adb-sprint-start.txt), else the unarmed fragment.
+	const int32* SprintStart = Drawn != nullptr ? Drawn->Stance.Find(TEXT("Sprint_Start")) : nullptr;
+	Character()->GetSwcMovement()->SetSprintStartTransition(SprintStart != nullptr ? Data->Fragments[*SprintStart].MarkTime(TEXT("TransitionInstant"), 0.0f) : 0.0f);
 	// Prone sheathes the weapons, but a rifle (the musket): the transitions to prone set Unarmed and AutoUnsheathe [D idleposetransition].
 	const bool bProne = Character()->GetSwcMovement()->GetPosture() == swc::move::Posture::prone;
 	if (bProne && Drawn != nullptr && !Has({TEXT("Rifle")}) && Character()->IsWeaponDrawn() && !bProneSheathe)
@@ -1242,10 +1441,16 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	{
 		// The right button of a ranged program goes to its player as it is (aim_draw, block_active_virtual of the data).
 		Driver->set_aim(Ranged.program ? bAimHeld && !IsActionLocked() : bAiming);
+		// The bits of the right button (each weapon, as the retail client: the aim of the bow and the block of the rapier send the
+		// same bits, set6-combat/player-bow.json and player-bitten-block.json).
+		Driver->set_right_button(bAimHeld && !IsInputLocked());
 	}
 	bLockAllowed = !bAiming && !bAttackBeforeTransition && !IsInputLocked();
 	if (USwcPlayerAnimInstance* Anim = Animation())
 	{
 		Anim->SetStance(VisualSlot != 0 ? WeaponOf(VisualSlot) : nullptr, bVisualOffhand);
+		// The aim stance of the bow (the tags Aim and ChargedAim of the ranged player: player_bow.adb Idle and Strafe Bow+Aim,
+		// Bow+ChargedAim).
+		Anim->SetStanceVariant(Ranged.program && Ranged.chargedAim ? TEXT("+ChargedAim") : Ranged.program && Ranged.aim ? TEXT("+Aim") : TEXT(""));
 	}
 }

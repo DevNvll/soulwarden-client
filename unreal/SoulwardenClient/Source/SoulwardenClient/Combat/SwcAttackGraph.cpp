@@ -713,6 +713,12 @@ void Driver::set_aim(bool aim)
 	m_aim = aim;
 }
 
+void Driver::set_right_button(bool down)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_right = down;
+}
+
 void Driver::set_ranged(const ranged::Program* slot1, const ranged::Program* slot2, const ranged::Shared* shared)
 {
 	const std::lock_guard<std::mutex> guard(m_lock);
@@ -812,9 +818,21 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 	}
 	// The hold: each step while the button is down, from the step after the press.
 	bits.hold = m_down && !bits.press;
-	if (m_aim) {
-		actionBits.push_back(kBitAim);
+	// The right button: the bits of its bindings (the press step has block_press_virtual, the block literal of the transitions).
+	if (m_right && !m_rightWas) {
+		actionBits.insert(actionBits.end(), std::begin(kBitsRightPress), std::end(kBitsRightPress));
+		bits.block = true;
+	} else if (m_right) {
+		actionBits.insert(actionBits.end(), std::begin(kBitsRightHeld), std::end(kBitsRightHeld));
+	} else {
+		if (m_rightWas) {
+			actionBits.insert(actionBits.end(), std::begin(kBitsRightRelease), std::end(kBitsRightRelease));
+		}
+		if (m_aim) {
+			actionBits.push_back(kBitAim);
+		}
 	}
+	m_rightWas = m_right;
 	// The dodge key: one press for each step.
 	if (m_dodgePresses > 0) {
 		--m_dodgePresses;
@@ -1142,6 +1160,8 @@ void Driver::step_ranged(std::uint16_t input, std::int64_t nowNs, const Bits& bi
 	out.serial = playing.serial;
 	out.clock = playing.clock;
 	out.aimDownSights = m_ranged.aim_down_sights();
+	out.aim = m_ranged.tags().count("aim") != 0;
+	out.chargedAim = m_ranged.tags().count("chargedaim") != 0;
 	out.forceWalk = m_ranged.force_walk();
 	out.targeting = m_ranged.targeting();
 	out.channel = m_ranged.channel();
