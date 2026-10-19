@@ -36,9 +36,8 @@ source "${SWC_REPO}/tools/lib/gpu-gate.sh"   # then a run slot and the GPU memor
 run_slot_take flythrough || exit 3
 gpu_wait flythrough || exit 3
 slot_lock="${SWC_WORK}/unreal/run-slot-${SWC_RUN_SLOT}.lock"
-if ! omarchy-agent-desktop status "${desktop_id}" >/dev/null 2>&1; then
-    omarchy-agent-desktop create "Soulwarden client" --id "${desktop_id}" --mode "${SWC_DESKTOP_MODE:-1280x720@60}" >/dev/null
-fi
+source "${SWC_REPO}/tools/lib/agent-desktop.sh"   # a stale desktop with no window is made again
+desktop_ready flythrough "${desktop_id}" || exit 3
 # The marks of a development run: tools/dev-stop.sh stops it (SWC_DEV_RUN=1 and the own data folder).
 omarchy-agent-desktop run --wait 180 --json "${desktop_id}" -- \
     env SWC_DEV_RUN=1 SWC_RUN=development "SWC_SESSION_DATA=${SWC_DEV_DATA}" \

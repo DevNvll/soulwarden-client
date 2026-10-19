@@ -117,9 +117,8 @@ if ! command -v gamescope >/dev/null 2>&1 || ! command -v omarchy-agent-desktop 
     echo "dev-run: gamescope or omarchy-agent-desktop was not found: no window run (the client never opens on the desktop of the user)." >&2
     exit 1
 fi
-if ! omarchy-agent-desktop status "${desktop_id}" >/dev/null 2>&1; then
-    omarchy-agent-desktop create "Soulwarden client" --id "${desktop_id}" --mode "${SWC_DESKTOP_MODE:-1280x720@60}" >/dev/null
-fi
+source "${SWC_REPO}/tools/lib/agent-desktop.sh"   # a stale desktop with no window is made again
+desktop_ready dev-run "${desktop_id}" || exit 3
 # The world lock first (tools/lib/world-lock.sh): a session that waits for a level build or an import shows its window only
 # after it, too late for the window wait of the agent desktop; such a window went to the workspace of the user (2026-10-19).
 # This script holds a shared lock (fd 5) through the launch, so that no writer gets the lock between this check and the

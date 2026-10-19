@@ -76,6 +76,10 @@ files at the same time; a shared document (this file, the roadmap) changes only 
   for the world lock before the launch, and its window guard (`tools/lib/window_guard.py`, log `LABEL-window-guard.log`)
   reads `hyprctl clients -j` (read only) for the life of the run: a window of the launch that is not on `__agent:DESKTOP`
   is moved with `omarchy-agent-desktop adopt`, else the run stops. Start window runs only with `tools/dev-run.sh`.
+  A stale agent desktop (2026-10-19: its headless output showed a normal workspace, and the launch was refused): before a
+  launch, `tools/dev-run.sh` and `tools/flythrough.sh` read `omarchy-agent-desktop status --json` (`tools/lib/agent-desktop.sh`);
+  a stale or offline desktop with no window is removed (`cleanup`) and made again; with windows, the run ends with status 3
+  and changes nothing.
   The trap of the lock gap (2026-10-19 02:43): a check that takes the shared world lock and releases it at once lets an
   import in before the session takes its own lock; the session then waits inside gamescope, and its window comes after
   the window wait. Thus `tools/dev-run.sh` holds the shared lock (and the run slot) through the launch, and the session
