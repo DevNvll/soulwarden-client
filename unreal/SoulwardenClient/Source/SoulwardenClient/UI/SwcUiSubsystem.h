@@ -121,6 +121,8 @@ private:
 	bool bCursorApplied = false;
 	/** The size of the window in pixels that the runtime has (HostDisplay: the resolution rows of the options screen). */
 	FIntPoint SentDisplay = FIntPoint::ZeroValue;
+	/** The aim state that the runtime has (HostAim). */
+	bool bSentAim = false;
 
 	struct FDriveStep
 	{

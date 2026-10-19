@@ -6,7 +6,12 @@
 --     (the manager shows its default, the melee reticle).
 --   * The colors of the options Controls.ReticleColor and Controls.ReticleTargetColor: the saved options of the retail client
 --     (white; 1, 0.443, 0.443 on a target). The static reader of the program does not decode a color field.
---   * Hud.LocalPlayer.HasReticleTarget: false (open point: the target rule of the native code and ReticleRayCastDistance).
+--   * Hud.LocalPlayer.HasReticleTarget: false (open point: the target rule of the native code and ReticleRayCastDistance). The
+--     retail stills of set 6 show the white reticle on a wolf at 10 m (ui-crosshair-on-creature.png).
+--   * WeaponAccuracyRequestBus GetEstimatedInaccuracy: 1 at rest, 0 in the aim (the client sends the aim: Swc.HostAim). The
+--     bow reticle (reticlebow.luac) puts its bars at Lerp(18, 26, t) and its dots at Lerp(11, 18, t) from the center: the
+--     retail stills of set 6 show 26 and 18 at rest (ui-crosshair-bow.png) and 18 and 11 in the aim (ui-crosshair-bow-aim.png).
+--     The spread model of the native code (the draw, the move) is not known.
 -- The manager shows the reticle also while the weapon is sheathed: the option AlwaysShowReticle is on (the program default).
 
 local Swc = Swc
@@ -29,3 +34,14 @@ function Swc.UpdateReticle()
     Swc.SetData("Hud.LocalPlayer.ReticleToShow", crc)
   end
 end
+
+local aiming = false
+
+--- The aim of the player (the client: the camera state of the aim).
+function Swc.HostAim(on)
+  aiming = on and true or false
+end
+
+Swc.Define("WeaponAccuracyRequestBus", "Event", {
+  GetEstimatedInaccuracy = function() return aiming and 0 or 1 end,
+})

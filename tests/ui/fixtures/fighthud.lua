@@ -94,7 +94,20 @@ frames(0.5)
 equal(Swc.GetData("Hud.LocalPlayer.ReticleToShow"), 2551600555, "the reticle of the bow: CRC-32 of bow")
 check(UiElementBus.Event.IsEnabled(find(aim, "ReticleBow")) and not UiElementBus.Event.IsEnabled(find(aim, "ReticleMelee")),
   "the bow reticle")
+-- The bow reticle at rest and in the aim (swc/reticle.lua: the inaccuracy 1 and 0): the bars and the dots at the places of the
+-- retail stills of set 6 (ui-crosshair-bow.png, ui-crosshair-bow-aim.png), white.
+local bow = find(aim, "ReticleBow")
+near(math.abs(UiTransformBus.Event.GetLocalPositionY(find(bow, "Top"))), 26, 0.5, "the bow bar at rest: 26 from the center")
+near(math.abs(UiTransformBus.Event.GetLocalPositionX(find(bow, "Right"))), 18, 0.5, "the bow dot at rest: 18 from the center")
+local white = UiImageBus.Event.GetColor(find(bow, "Center"))
+check(white and white.r > 0.99 and white.g > 0.99 and white.b > 0.99, "the bow reticle is white (the option ReticleColor)")
 picture("fighthud-bow")
+Swc.HostAim(true)
+frames(0.5)
+near(math.abs(UiTransformBus.Event.GetLocalPositionY(find(bow, "Top"))), 18, 0.5, "the bow bar in the aim: 18 from the center")
+near(math.abs(UiTransformBus.Event.GetLocalPositionX(find(bow, "Right"))), 11, 0.5, "the bow dot in the aim: 11 from the center")
+picture("fighthud-bow-aim")
+Swc.HostAim(false)
 
 -- The HUD at the window size of the retail pictures of the Soulwarden evidence (1256 x 660; the canvas is 2055 x 1080 as in
 -- the client window): the sword in the hand, for tools/lib/hud_compare.py.

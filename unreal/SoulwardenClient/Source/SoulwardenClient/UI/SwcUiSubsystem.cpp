@@ -20,6 +20,7 @@
 #include "Character/SwcRangedView.h"
 #include "Objects/SwcObjectSubsystem.h"
 #include "Camera/PlayerCameraManager.h"
+#include "SwcCameraManager.h"
 #include "Creatures/SwcCreatureSubsystem.h"
 #include "Engine/LocalPlayer.h"
 #include "SceneView.h"
@@ -1175,6 +1176,15 @@ void USwcUiSubsystem::FeedLocalPlayer()
 		SentYaw = Yaw;
 		Runtime->call("HostView", {FArg::of(static_cast<double>(Yaw)), FArg::of(Own.position.x), FArg::of(Own.position.y),
 									FArg::of(Own.position.z)});
+	}
+	// The aim of the player (the camera state AimCamera): the bow reticle takes the spread of its bars from it (swc/reticle.lua).
+	const APlayerController* Player = GetGameInstance() != nullptr ? GetGameInstance()->GetFirstLocalPlayerController() : nullptr;
+	const ASwcCameraManager* Camera = Player != nullptr ? Cast<ASwcCameraManager>(Player->PlayerCameraManager) : nullptr;
+	const bool bAim = Camera != nullptr && Camera->GetStateName().StartsWith(TEXT("Aim"));
+	if (bAim != bSentAim)
+	{
+		bSentAim = bAim;
+		Runtime->call("HostAim", {FArg::of(bAim)});
 	}
 	Runtime->call("HostCommit");
 }
