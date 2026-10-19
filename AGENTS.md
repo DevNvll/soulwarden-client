@@ -154,7 +154,9 @@ tools/creature-check.sh LABEL STAY ROUTES [DRIVE]   # a video check of the creat
 tools/convert-objects.sh write                  # the objects of the level data for the object layer (docs/OBJECTS.md; meshes: the depleted node meshes)
 tools/convert-environment.sh write              # the environment data: the mission, the time presets, the lights and volumes of each region, the sky (check: the E0 proof)
 tools/match-view.sh SET [VIEW...]               # the matched views of a set of retail references: client pictures, side-by-side pictures, a contact sheet
-tools/test-environment.sh                       # the tests of the world clock (backend time messages and day cycle) and of the environment reader (no engine)
+tools/test-environment.sh                       # the tests of the world clock, the environment rules, the local light rules, and the environment reader (no engine)
+tools/convert-environment.sh cookies            # the projector textures of the local lights (then tools/import-cookies.sh: the lock)
+tools/lumen-test.sh --wait 7200                 # the Lumen mesh data test: the inn and two houses with distance fields and cards (client: swc.LumenTest 1)
 tools/convert-water.sh write|check|samples       # the water of the world: the surfaces, the ocean, the materials, the quadtrees (docs/WATER.md)
 tools/import-water.sh                           # the water textures and the base material M_SwcWater (Single Layer Water)
 tools/test-water.sh                             # the tests of the water readers, the depth query, and the depth classes (no engine)
