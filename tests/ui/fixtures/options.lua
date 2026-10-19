@@ -74,6 +74,10 @@ equal(Swc.GetData("Hud.LocalPlayer.Options.Controls.CameraShake"), true, "the ca
 equal(Swc.GetData("Hud.LocalPlayer.Options.Audio.MasterVolume"), 100, "the master volume: 100 (the default of the program)")
 
 equal(Swc.GetData("Hud.LocalPlayer.Options.Video.MaxFov"), 70, "the maximum field of view (the retail picture)")
+-- The resolution rows: the client window in pixels (the client gives it; the viewport of the runtime is in Slate units).
+Swc.HostDisplay(1280, 720)
+equal(Swc.GetData("Hud.LocalPlayer.Options.Video.Resolution.Width"), 1280, "the resolution: the width of the client window")
+equal(Swc.GetData("Hud.LocalPlayer.Options.Video.SupportedResolutions.0").y, 720, "the resolution list: the client window")
 equal(Swc.GetData("Hud.LocalPlayer.Options.Localization.LanguageOption"), "system-language", "the text language (the retail picture)")
 equal(LyShineScriptBindRequestBus.Broadcast.LocalizeText("@ui_monitor_name 1"), "Monitor 1",
   "a label with more text: the label is localized, the rest stays")

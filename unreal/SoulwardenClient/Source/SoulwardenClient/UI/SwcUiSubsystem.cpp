@@ -570,6 +570,14 @@ bool USwcUiSubsystem::Tick(float DeltaTime)
 	{
 		const FVector2f Size = Widget->GetLastSize();
 		Runtime->set_viewport(FMath::Max(Size.X, 1.0f), FMath::Max(Size.Y, 1.0f));
+		// The viewport of the runtime is in Slate units (after the DPI scale); the options screen shows the window in pixels.
+		const FVector2D Pixels = Widget->GetLastGeometry().GetAbsoluteSize();
+		const FIntPoint Display(FMath::RoundToInt(Pixels.X), FMath::RoundToInt(Pixels.Y));
+		if (Display.X > 0 && Display.Y > 0 && Display != SentDisplay)
+		{
+			SentDisplay = Display;
+			Runtime->call("HostDisplay", {FArg::of(static_cast<double>(Display.X)), FArg::of(static_cast<double>(Display.Y))});
+		}
 	}
 	FeedLocalPlayer();
 	TickDrive();

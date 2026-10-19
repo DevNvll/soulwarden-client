@@ -2,7 +2,7 @@
 -- screen (options.luac).
 --   * The data nodes Hud.LocalPlayer.Options.*: the defaults of the options data of the client program (tools/convert-ui.sh
 --     options: gamedata/options.json; the constructor of SerializedOptionsData and the bindings of the nodes), then the
---     values of this client (the display, the language, no voice device).
+--     values of this client (the display: the window in pixels, Swc.HostDisplay; the language, no voice device).
 --   * A node with no known default gets the neutral value of its row at the end of the UI load (a toggle off, a slider at
 --     its minimum, a drop-down at its first item): the list goes to the log (open point of docs/UI.md; stage P6.9).
 --   * OptionsDataBus: the reads of the screen; a reset of a category sets the values of its rows again. The other calls
@@ -38,9 +38,15 @@ end
 
 -- The values of this client: the display of the run, the language of the game (decision D2 of the parity plan: the
 -- game language), no voice device, no cross-play.
---- The resolution: the viewport of the run (before it has a size: the window size of the defaults of the program).
+--- The resolution: the size of the client window in pixels (Swc.HostDisplay), else the viewport of the runtime (before it
+--- has a size: the window size of the defaults of the program).
 local function set_display()
-  local w, h = swcui.viewport()
+  local w, h
+  if O.display then
+    w, h = O.display[1], O.display[2]
+  else
+    w, h = swcui.viewport()
+  end
   if not w or w <= 0 or not h or h <= 0 then
     w, h = field("m_windowWidth", 1920), field("m_windowHeight", 1080)
   end
@@ -52,6 +58,13 @@ local function set_display()
   Swc.SetData(PREFIX .. "Video.SupportedResolutions.0", Vector2(w, h))
 end
 set_display()
+
+--- The size of the client window in pixels (the client: its viewport of the runtime is in Slate units, after the DPI scale).
+function Swc.HostDisplay(w, h)
+  O.display = {w, h}
+  set_display()
+end
+
 Swc.SetData(PREFIX .. "Video.SelectedDisplayIndex", 0)
 Swc.SetData(PREFIX .. "Video.SupportedMonitors.Count", 1)
 -- The text languages: "Use System Language" (the value of the retail reference picture, set 1 settings-game-camera.png), then

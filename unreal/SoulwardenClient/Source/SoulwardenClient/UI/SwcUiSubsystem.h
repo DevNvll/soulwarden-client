@@ -119,6 +119,8 @@ private:
 	bool bCursorWanted = false;
 	bool bKeybinding = false;
 	bool bCursorApplied = false;
+	/** The size of the window in pixels that the runtime has (HostDisplay: the resolution rows of the options screen). */
+	FIntPoint SentDisplay = FIntPoint::ZeroValue;
 
 	struct FDriveStep
 	{
