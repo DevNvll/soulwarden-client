@@ -357,3 +357,28 @@ computer, too low for the windows of a chain), `tests/drive/actions.txt`, the pi
 - The inferences above (the additive order, the unit of `Decel`, the facing priority, the weapon in the hand at the
   start of an attack).
 - The side-by-side check with the retail client waits for the approval of the user.
+- The hit reaction of the own character (stage P3.G; research `~/Games/soulwarden-client/research/p3g-reaction/RESULT.md`,
+  a static analysis of the retail client 1.400.6031.6004151). The decision is with the user; until then the client is as the
+  retail client on this backend: no reaction of the own character.
+  - The retail rule: the message 3601 (DamageTaken) does not start the reaction; its handler (0x686C6A0) drives only the HUD
+    (the red mark, the red edge, the number). The trigger is the state ReactionTracking (slot 31, type 1927) that the server
+    sends to the owner: a counter, the attacker, the damage table and row, the direction, the impact, the stun breakout, the
+    flags, and the attacker level. Its apply function (0x683D910) writes the power (`PowerLevel`), the hit stun (`HitStun`,
+    frames of 1/30 s), and the decay into the damage context. The reaction actions have `ServerStarted="true"`: a new counter
+    lets the client start the reaction locally (0x2A66E50, 0x48731C0), with the first row of `PlayerReactionTableHarness`
+    whose power and angle hold (front −45° to 45°, right 45° to 135°, left −135° to −45°, back the rest). A creature 10 or
+    more levels above the character makes a power-0 hit a power-1 hit with a hit stun of 20 frames.
+  - The Soulwarden backend sends only 3601 and the vitals state (no ReactionTracking, no action, no stun status). Thus the
+    retail client on this backend shows no reaction of its own character either. A client run (a grey wolf of level 70,
+    `tests/drive/p3g-rapier.txt`): 7 damage marks, no reaction.
+  - The reactions of the data: a wolf bite (`Attack_01_Bite`, power 0, HitStun 20) plays `UpperBodyReaction` `r_R0_F`
+    (`unarmed_r0_f`, an additive upper-body clip of 0.567 s, no input block, a push of 1.0 m from the wolf, no sprint for
+    0.5 to 0.85 s by the load); a lunge (power 2) plays `Reaction` `r_R2_*` (0.667 s, no move until the end, a push of 2.5 m);
+    a knockdown (power 4) plays `Reaction_Knockdown` `r_R4_*` (about 2.27 s, a push of 5 m). The pushes come from
+    `ReactionMotion`, not from the root motion of the clips.
+  - The options: (a) a backend change: the backend sends ReactionTracking to the hit character with the row of the attack;
+    then the retail client and this client play the reaction by the same rule. (b) A client rule with no backend change: the
+    client makes the damage context itself from 3601 and the attack record of the source creature (the damage row of the
+    data: `PowerLevel`, `HitStun`, `ImpactDistance*`, `ImpactDecayRate`, `NoReaction`), then plays the table; the retail
+    client on this backend does not do this, and a push of 4 to 5 m (power 4) is more than the position check of the backend
+    allows in one tick (0.667 m). (c) No reaction, as now.
