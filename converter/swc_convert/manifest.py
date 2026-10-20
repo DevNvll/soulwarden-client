@@ -61,9 +61,19 @@ def add(kind: str, asset: str, gltf: Path) -> None:
     add_many({asset: {"kind": kind, "file": str(gltf.relative_to(env.content_dir()))}})
 
 
+# The fields of an entry that another step writes (collision.py: the collision file of the physics file of the mesh). A new
+# conversion of the asset does not make them, so a replaced entry keeps them. Before (AST-206): a new conversion of a mesh
+# removed its "collision" record, and the next import deleted its collision mesh (5,599 meshes lost the record, 115
+# collision meshes were deleted: the platform of the Shrine of the Lion, a stone at a travel place).
+KEPT_FIELDS = ("collision",)
+
+
 def add_many(entries: dict[str, dict]) -> None:
-    """Adds or replaces entries (asset key -> entry with its kind) and writes the manifest one time."""
+    """Adds or replaces entries (asset key -> entry with its kind) and writes the manifest one time. A replaced entry of
+    the same kind keeps the KEPT_FIELDS of the old entry when the new entry does not have them."""
     doc = load()
     for asset, entry in entries.items():
-        doc["assets"][asset] = {**entry, "unreal": unreal_folder(entry["kind"], asset)}
+        old = doc["assets"].get(asset, {})
+        kept = {k: old[k] for k in KEPT_FIELDS if k in old and k not in entry and old.get("kind") == entry["kind"]}
+        doc["assets"][asset] = {**entry, **kept, "unreal": unreal_folder(entry["kind"], asset)}
     save(doc)

@@ -111,7 +111,7 @@ The mesh (`tools/convert-player.sh wanted`, `tools/import-player.sh`): a weapon 
 string bone `bowStringPull2_jnt` is only in the bow skins; the clips animate it); the bind pose of a bone is the bind of the first
 skin that has it. All skins are one mesh (the string skin of `SkinOverride2` is a second section). The clips are animations of
 the same file, with no root lock. The import makes a new skeleton for each weapon (no automatic skeleton: never the player
-skeleton), no physics asset, and sets the skeletal mesh usage on the base materials of the content plugin. A static mesh of an
+skeleton), no physics asset, and gives the materials their usage flags ("The weapon materials" below). A static mesh of an
 earlier import of the weapon is deleted first. A weapon that was converted as a static mesh before becomes a skeletal mesh when
 `tools/convert-player.sh wanted` gets its item again (the manifest has the flag `skeletal`).
 
@@ -139,6 +139,28 @@ the draw key to the end of the second release), `frames/zoom-sheet.png`, `frames
 Artifact_Set1_2hBow (slot 24) is a skeletal mesh with 24 of 24 weapon clips". In both clients the string goes to the hand in the
 ready fragment (the half draw), stays at the hand in the charge and the full hold, and goes back to the bow in the first frames of
 the release. The opinion of the user is open.
+
+## The weapon materials (AST-206)
+
+The glTF pipeline of `tools/import-player.sh` makes each material of a weapon or a tool an instance of the Interchange master
+`/InterchangeAssets/gltf/M_Default`. That master is a content of the installed engine, and the editor does not save it. Thus its
+usage flags cannot be set: the weapon meshes are Nanite meshes (the bow and the flail are also skeletal meshes), the client
+compiled the shaders of these instances at each start, and the client log had "missing usage flag Nanite! Default Material will
+be used in game" for each weapon (`tools/fix-usage-flags.sh` found 22 of them; the spear of the development character too).
+
+The rule (`import_player.py`, `weapon_usage`): each material instance of a weapon whose base material is outside the content plugin
+gets the project copy of that base, `/SwcGameContent/Player/Materials/NAME_Weapon` (now only `M_Default_Weapon`), with the usage
+flags of `WEAPON_USAGES` (Nanite, skeletal mesh). The copy has the same graph and parameters, and the instances keep their
+parameters: the look does not change. A base material in the content plugin gets the flags. Each new import of a weapon gets this
+pass; a weapon with no mark `_usage` (`WEAPON_USAGE`) in `imported.json` gets it one time with no new import.
+
+The check (2026-10-20): `tools/import-player.sh` gave the usage pass to the 25 weapons of the manifest and made
+`M_Default_Weapon`. The offscreen picture of all weapons (`work/ast-206/weapon_sheet.py`) before and after the change is the same
+to the pixel (`~/Games/soulwarden-client/evidence/AST-206/before/weapons-sheet.png` and `after/weapons-sheet.png`); after the change
+all 25 weapons have the base `M_Default_Weapon` with both flags (`after/weapons.json`). The old static mesh of the bow `wep_ran2h_bowt2`
+(the manifest key with `|03e69eb3`, before the skeletal bow) has no material (the grid material of the engine): an open point.
+The client log of a world entry with the preset `bow-boltcaster` (`ast206-gear-c1`: the bow and the rapier) has no line "missing
+usage flag" (before: the bow and the rapier had one each in each run).
 
 ## The cloth parts
 

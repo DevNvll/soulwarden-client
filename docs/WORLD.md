@@ -373,7 +373,7 @@ in it from earlier runs there; the new work of the commandlet was the editor sha
 cannot read). Thus the warm-up of the other 36 regions (7,521 new meshes, some hours) was not done: the first run in a region
 fills the file store. The entry after the warm-up (`lv-shrine-c1`): the cells within 150 m were in at about 40 s (the engine still
 built 52 assets and 43 shader jobs at 21 s: the meshes and the materials of the region for the client), then the place had no
-ground within 1.5 m (the platform has no collision, see the open points), and the wait ended 43.2 s after its start.
+ground within 1.5 m (the platform had no collision: its collision mesh was deleted, see "The collision of the game", AST-206), and the wait ended 43.2 s after its start.
 `warm_cache.py` counts its limit of 300 s from the end of the level load (the level load alone took more
 than 300 s in a new checkout, and then each call warmed one batch of 200 meshes).
 
@@ -383,16 +383,15 @@ lines of the client logs, sets the flags on the base materials, and saves them (
 logs of 2026-10-19 and 20 had 24 materials with no Nanite flag. The 2 world materials are instances of `M_SwcGlass`: its flag is
 set and saved. The 22 weapons and tools of the character (the Interchange import of AST-202; the spear of the development
 character too) are instances of the Interchange glTF master `/InterchangeAssets/gltf/M_Default`, a content of the installed
-engine that the editor does not save: they still draw the default material (a decision: a project copy of that master for
-the weapon import, or no Nanite on these small meshes).
+engine that the editor does not save. Since AST-206 the player import moves them to the project copy `M_Default_Weapon` with the
+Nanite and skeletal mesh flags (docs/GEAR.md "The weapon materials").
 
 Open points: a creature of a kind that is not in memory shows 0.2 to 1.9 s after its record (its assets load async; a preload of
-the creature kinds of a region needs their list in the client data); the import of the weapons should set the Nanite flag; the
+the creature kinds of a region needs their list in the client data); the
 cells within 150 m are now the longest part of the wait (48 s in the first gated run: the uncooked meshes of the
 cells build from the DDC); the always-loaded Landscape of the 49 regions is about 12 s of `LoadMap` (a second runtime grid
 moves it out of `LoadMap`, but the visible terrain must still load before the screen ends, so the gain is only the overlap with
-the login; not done); the stone platform of the Shrine of the Lion has no collision in the client (the character spawns at 44.55 m
-and drops into it to the Landscape at 41.4 m: one of the colliders that the cells and the collision chunks do not place yet); a cooked build removes the registry, the World Partition streaming generation (12 s at each start), the
+the login; not done); a cooked build removes the registry, the World Partition streaming generation (12 s at each start), the
 editor PostLoad, and the DDC builds (the estimate is the next step).
 
 ## The collision of the game (P4.1 part 1)
@@ -428,6 +427,26 @@ tools/build-world.sh --cells NAME...      # new cell actors with the collision i
   - A new build of an existing collision mesh kept its old triangles: section 6 deletes the old asset first.
   - The save of a commandlet keeps the files of destroyed external actors (the next load had them again):
     `build_world.py` deletes the files of the cell actors that it destroys.
+  - The record `"collision"` of a mesh in the manifest is the input of section 6: with no record, section 6 deletes the
+    collision mesh (state `none:6`). Only `collision.py` writes the record. A new conversion of a mesh replaced its whole
+    entry (`manifest.add_many`), so the record went away, and the next import deleted the collision mesh. The cells keep the
+    path of the deleted asset: the place lost its collision with no change of a cell or a level file (AST-206). Thus
+    `manifest.add_many` keeps the fields of `KEPT_FIELDS` ("collision") of the old entry when the new entry has the same kind
+    and does not have them (`tests/converter/test_manifest_fields.py`). After a mesh conversion, `tools/convert.sh collision`
+    is not necessary for the record; run it when a physics file changes.
+    The count (2026-10-20, before the repair): 5,599 static meshes with a collision file had no record. 115 of them had their
+    collision mesh deleted already (an empty folder in `Collision/`; 126,504 placements in 27 regions, for example
+    `jav_struc_ruins_column_c_cap_ai`: the platform of the Shrine of the Lion and the stone at the travel place 8525.9 4540.0;
+    pirate planks; ruins arches). The other 5,484 still had their collision mesh: the next import of their region would have
+    deleted it. The repair: `tools/convert.sh collision` (all records again), then `tools/import.sh --keys KEYS --world` with the
+    115 keys (section 6 made the 115 collision meshes again, at the same paths: the cells did not change). A check of the
+    state: no folder of `Collision/` is empty, and each static mesh with a collision file has a record and the import state
+    `HASH:COLLISION_VERSION`.
+    The check (development runs, evidence `~/Games/soulwarden-client/evidence/AST-206/`): the world entry at the shrine
+    (`ast206-shrine-c1.mp4`) lands at 42.47 m on the platform (cell 5 7; before: 41.39 m, the Landscape); the travel of 426.7 m
+    (`ast206-travel-c1.mp4`) lands at 200.475 m on the stone (`ISM_189` of r_+04_+02 cell 1 1, as on 2026-10-19 23:49; before:
+    1.62 m lower). `tools/convert.sh collision-chunks` again gave the same 93,437 colliders: the chunks of these meshes were
+    written before the deletion.
 - Check: the ground test (`-SwcGroundTest`) logs each static surface on its line with its mesh. At the Inn of Oxboro
   (r_+04_+02): the floor 139.89 m (C_everfall_floor_9x15_a), the foundation 139.88 m, the porch 140.14 m.
 - The collision chunks (AST-201, 2026-10-20). The game merges the render meshes of a part of a region (CoATGen) into the mesh
@@ -451,7 +470,9 @@ tools/build-world.sh --cells NAME...      # new cell actors with the collision i
   the cells can take these colliders (a cell build of the world track).
 - During a loading screen the batches build at the place of the character, and the screen ends only when the batches within
   150 m are built (the loading gate of the world track (docs/WORLD.md "The loading")). Open point (a cell build): move these colliders into the cells, also the
-  1,094 colliders of meshes with no collision mesh and the 3,793 primitive shapes that the chunks do not place.
+  1,094 colliders of meshes with no collision mesh and the 3,793 primitive shapes that the chunks do not place. The 1,094 are not
+  the fault of the manifest record (AST-206): their meshes have no entry in the manifest (they are only in the merged chunks, for
+  example `everfall_living_story_pillar_a` and the collision-only `barricade_*_col`), so no collision mesh is made for them.
 
 ## Gathering nodes in the level (P4.1)
 

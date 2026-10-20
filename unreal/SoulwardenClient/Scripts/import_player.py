@@ -14,6 +14,13 @@ level and the client load the same assets.
   skeleton, its skeletal mesh (no physics asset, no mesh distance field, no Lumen cards), and its clips as animations on that
   skeleton. A static weapon of an earlier import in its folder is deleted first. The client plays the clips in step with the
   fragments of the player (docs/GEAR.md "The weapon clips").
+- The materials of a weapon (AST-206): the glTF pipeline makes instances of the Interchange master
+  /InterchangeAssets/gltf/M_Default, a content of the installed engine that the editor does not save. Its usage flags (Nanite,
+  skeletal mesh) cannot be set, so the instances compiled their shaders at each start and drew the default material of the
+  engine. Each instance with a base material outside the content plugin gets the project copy of that base,
+  /SwcGameContent/Player/Materials/NAME_Weapon, with the usage flags of WEAPON_USAGES (the same parameters: the look does not
+  change). A base material in the content plugin gets the flags. A weapon with no mark WEAPON_USAGE in imported.json gets this
+  pass one time, also with no new import.
 - A clip pack (stage P2.7): the clips of one weapon tag set as animations on the skeleton of the base of its gender (a copy
   of the glTF asset pipeline with that skeleton and "import only animations"). The client plays them on the base.
 
@@ -40,8 +47,12 @@ PIPELINES = "/SwcGameContent/Player/Pipelines"
 # The mark of the weapon pipeline with no mesh distance field and no Lumen cards (a weapon with an older mark imports again).
 WEAPON_PIPELINE = "no-distance-field-1"
 WEAPON_SKELETAL_PIPELINE = "skeletal-3"
-# The copies of base materials of other places for the skeletal weapons (with the skeletal mesh usage).
-SKELETAL_MATERIALS = "/SwcGameContent/Player/Materials"
+# The project copies of the base materials of other places for the weapons (with the usage flags of WEAPON_USAGES).
+WEAPON_MATERIALS = "/SwcGameContent/Player/Materials"
+# The usage flags of the weapon materials: the weapon meshes are Nanite meshes (static and skeletal), the bow and the flail are
+# skeletal meshes (the lines "missing usage flag" of the client logs, tools/fix-usage-flags.sh). The mark of this rule.
+WEAPON_USAGES = ("used_with_nanite", "used_with_skeletal_mesh")
+WEAPON_USAGE = "nanite-skeletal-1"
 # A commandlet does not scan the content of a plugin: scan it before any question to the asset registry.
 unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(["/SwcGameContent"], True)
 
@@ -108,12 +119,12 @@ def weapon_skeletal_pipeline():
     return unreal.SoftObjectPath(pipeline.get_path_name())
 
 
-def skeletal_usage(destination):
-    """Sets the skeletal mesh usage on the materials of a skeletal weapon (a material with no usage flag for its mesh compiles its
-    shaders again at each start of the editor). A material instance takes the flag from its base material. A base material with the
-    flag stays. A base material in the content plugin gets the flag; a base material of another place (the glTF M_Default of the
-    Interchange plugin) is not changed: the instance gets a copy of it in the content plugin with the flag (the same parameters).
-    @return The base materials that got a copy."""
+def weapon_usage(destination):
+    """Gives the materials of a weapon the usage flags of WEAPON_USAGES (a material with no usage flag for its mesh compiles its
+    shaders again at each start and draws the default material of the engine). A material instance takes the flags from its base
+    material. A base material in the content plugin gets the flags; a base material of another place (the glTF M_Default of the
+    Interchange plugin, which the editor does not save) is not changed: the instance gets its project copy in WEAPON_MATERIALS
+    with the flags (the same parameters). @return The base materials that got a copy."""
     copied = []
     found = objects_in(destination)
     for path in found.get("Material", []) + found.get("MaterialInstanceConstant", []):
@@ -122,24 +133,23 @@ def skeletal_usage(destination):
         base = material.get_base_material() if instance else material
         if base is None:
             continue
-        if base.get_editor_property("used_with_skeletal_mesh"):
-            continue
+        new = False
         if instance and not base.get_path_name().startswith("/SwcGameContent/"):
-            copy_path = f"{SKELETAL_MATERIALS}/{base.get_name()}_Skeletal"
+            copy_path = f"{WEAPON_MATERIALS}/{base.get_name()}_Weapon"
             copy = unreal.load_asset(copy_path) if assets.does_asset_exist(copy_path) else None
             if copy is None:
                 copy = assets.duplicate_loaded_asset(base, copy_path)
-                copy.set_editor_property("used_with_skeletal_mesh", True)
-                unreal.MaterialEditingLibrary.recompile_material(copy)
-                assets.save_loaded_asset(copy)
+                new = True
             copied.append(base.get_path_name())
             unreal.MaterialEditingLibrary.set_material_instance_parent(material, copy)
-            assets.save_loaded_asset(material)
+            assets.save_loaded_asset(material, False)
             base = copy
-        if not base.get_editor_property("used_with_skeletal_mesh"):
-            base.set_editor_property("used_with_skeletal_mesh", True)
+        missing = [name for name in WEAPON_USAGES if not base.get_editor_property(name)]
+        for name in missing:
+            base.set_editor_property(name, True)
+        if missing or new:
             unreal.MaterialEditingLibrary.recompile_material(base)
-            assets.save_loaded_asset(base)
+            assets.save_loaded_asset(base, False)
     return sorted(set(copied))
 
 
@@ -178,7 +188,7 @@ def import_file(path, destination, pipelines=None):
     assets.save_directory(destination, only_if_is_dirty=False, recursive=True)
 
 
-done, skipped, failed = 0, 0, []
+done, skipped, failed, usage_done = 0, 0, [], 0
 usage_others = set()
 order = {"base": 0, "part": 1, "weapon": 2, "clips": 3}
 skeletons = {}
@@ -198,6 +208,10 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
         skipped += 1
         if kind == "base":
             skeletons[entry["gender"]] = known["Skeleton"][0]
+        if kind == "weapon" and known.get("_usage") != WEAPON_USAGE:
+            usage_others.update(weapon_usage(destination))
+            known["_usage"] = WEAPON_USAGE
+            usage_done += 1
         continue
     if kind == "part":
         gender = entry["gender"]
@@ -222,11 +236,12 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
         if "StaticMesh" in objects_in(destination):
             assets.delete_directory(destination)
         import_file(path, destination, [pipelines["weapon-skeletal"], unreal.SoftObjectPath(GLTF_MATERIALS)])
-        usage_others.update(skeletal_usage(destination))
     else:
         if "weapon" not in pipelines:
             pipelines["weapon"] = weapon_pipeline()
         import_file(path, destination, [pipelines["weapon"], unreal.SoftObjectPath(GLTF_MATERIALS)])
+    if kind == "weapon":
+        usage_others.update(weapon_usage(destination))
     found = objects_in(destination)
     wanted = {"base": "Skeleton", "part": "SkeletalMesh", "weapon": "SkeletalMesh" if skeletal else "StaticMesh",
               "clips": "AnimSequence"}[kind]
@@ -236,6 +251,7 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
     found["_source"] = stamp
     if kind == "weapon":
         found["_pipeline"] = mark
+        found["_usage"] = WEAPON_USAGE
     imported["assets"][key] = found
     if kind == "base":
         skeletons[entry["gender"]] = found["Skeleton"][0]
@@ -244,7 +260,7 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
 with open(imported_path, "w") as handle:
     json.dump(imported, handle, indent=1, sort_keys=True)
 report = {"imported": done, "skipped (exists)": skipped, "failed": len(failed), "failures": failed[:20],
-          "base materials copied for the skeletal weapons": sorted(usage_others)}
+          "weapons with the usage pass only": usage_done, "base materials copied for the weapons": sorted(usage_others)}
 with open(os.path.join(player, "import-report.json"), "w") as handle:
     json.dump(report, handle, indent=1)
 unreal.log("SWC PLAYER IMPORT " + json.dumps(report))
