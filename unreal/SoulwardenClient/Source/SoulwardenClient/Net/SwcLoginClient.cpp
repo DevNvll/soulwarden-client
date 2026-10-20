@@ -164,12 +164,22 @@ void FSwcLoginClient::RequestChannel()
 				{
 					continue;
 				}
+				FSwcRegionInfo& RegionInfo = Session.Regions.AddDefaulted_GetRef();
+				RegionInfo.RegionId = Member.Key;
+				if (!(*Region)->TryGetStringField(TEXT("localizedName"), RegionInfo.Name))
+				{
+					(*Region)->TryGetStringField(TEXT("displayName"), RegionInfo.Name);
+				}
 				for (const TSharedPtr<FJsonValue>& Value : *Apis)
 				{
 					const TSharedPtr<FJsonObject>* Api = nullptr;
 					if (!Value->TryGetObject(Api))
 					{
 						continue;
+					}
+					if (RegionInfo.AwsRegion.IsEmpty())
+					{
+						(*Api)->TryGetStringField(TEXT("awsRegion"), RegionInfo.AwsRegion);
 					}
 					const FString Tag = (*Api)->GetStringField(TEXT("clientTag"));
 					const FString Host = HostOf((*Api)->GetStringField(TEXT("apiEndpoint")));
@@ -321,49 +331,128 @@ void FSwcLoginClient::RequestLoginInfo()
 		GatewayHeaders(), FString(), FString(),
 		[this](int32 Status, const FString& Reply)
 		{
-			const TSharedPtr<FJsonObject> Document = Status == 200 ? ParseObject(Reply) : nullptr;
-			const TSharedPtr<FJsonObject>* List = nullptr;
-			if (!Document.IsValid() || !Document->TryGetObjectField(TEXT("LoginInfoList"), List))
+			if (!ReadLoginInfo(Status, Reply))
 			{
 				Fail(FString::Printf(TEXT("login information: status %d %s"), Status, *Excerpt(Reply)));
 				return;
 			}
-			const TArray<TSharedPtr<FJsonValue>>* Worlds = nullptr;
-			if ((*List)->TryGetArrayField(TEXT("Worlds"), Worlds))
-			{
-				for (const TSharedPtr<FJsonValue>& Value : *Worlds)
-				{
-					const TSharedPtr<FJsonObject>* World = nullptr;
-					if (Value->TryGetObject(World))
-					{
-						FSwcWorldInfo& Info = Session.Worlds.AddDefaulted_GetRef();
-						Info.WorldId = (*World)->GetStringField(TEXT("WorldId"));
-						Info.Name = (*World)->GetStringField(TEXT("WorldName"));
-						Info.Status = (*World)->GetStringField(TEXT("WorldStatus"));
-						Info.Type = (*World)->GetStringField(TEXT("WorldType"));
-						Info.Version = (*World)->GetStringField(TEXT("WorldVersion"));
-					}
-				}
-			}
-			const TArray<TSharedPtr<FJsonValue>>* Characters = nullptr;
-			if ((*List)->TryGetArrayField(TEXT("Characters"), Characters))
-			{
-				for (const TSharedPtr<FJsonValue>& Value : *Characters)
-				{
-					const TSharedPtr<FJsonObject>* Character = nullptr;
-					if (Value->TryGetObject(Character))
-					{
-						FSwcCharacterInfo& Info = Session.Characters.AddDefaulted_GetRef();
-						Info.CharacterId = (*Character)->GetStringField(TEXT("CharacterId"));
-						Info.Name = (*Character)->GetStringField(TEXT("Name"));
-						Info.WorldId = (*Character)->GetStringField(TEXT("WorldId"));
-						(*Character)->TryGetBoolField(TEXT("FtueCompleted"), Info.bFtueCompleted);
-						(*Character)->TryGetStringField(TEXT("PublishedData"), Info.PublishedData);
-					}
-				}
-			}
 			Succeed();
 		});
+}
+
+void FSwcLoginClient::RefreshLoginInfo(FDone Done)
+{
+	if (OnRefreshDone || Session.Hosts.Gateway.IsEmpty())
+	{
+		Done(false, OnRefreshDone ? TEXT("a refresh of the login information runs") : TEXT("no login session"));
+		return;
+	}
+	OnRefreshDone = MoveTemp(Done);
+	Send(TEXT("GET"), Session.Hosts.Gateway, FString::Printf(TEXT("/prod/game/getlogininfo?channelId=%s"), ChannelId),
+		GatewayHeaders(), FString(), FString(),
+		[this](int32 Status, const FString& Reply)
+		{
+			const bool bRead = ReadLoginInfo(Status, Reply);
+			FDone Callback = MoveTemp(OnRefreshDone);
+			OnRefreshDone = nullptr;
+			Callback(bRead, bRead ? FString() : FString::Printf(TEXT("login information: status %d"), Status));
+		});
+}
+
+bool FSwcLoginClient::ReadLoginInfo(int32 Status, const FString& Reply)
+{
+	const TSharedPtr<FJsonObject> Document = Status == 200 ? ParseObject(Reply) : nullptr;
+	const TSharedPtr<FJsonObject>* List = nullptr;
+	if (!Document.IsValid() || !Document->TryGetObjectField(TEXT("LoginInfoList"), List))
+	{
+		return false;
+	}
+	Session.Worlds.Reset();
+	Session.Characters.Reset();
+	Session.NameReservations.Reset();
+	(*List)->TryGetNumberField(TEXT("MaxChannelCharacters"), Session.MaxChannelCharacters);
+	const TArray<TSharedPtr<FJsonValue>>* Worlds = nullptr;
+	if ((*List)->TryGetArrayField(TEXT("Worlds"), Worlds))
+	{
+		for (const TSharedPtr<FJsonValue>& Value : *Worlds)
+		{
+			const TSharedPtr<FJsonObject>* World = nullptr;
+			if (Value->TryGetObject(World))
+			{
+				FSwcWorldInfo& Info = Session.Worlds.AddDefaulted_GetRef();
+				Info.WorldId = (*World)->GetStringField(TEXT("WorldId"));
+				Info.Name = (*World)->GetStringField(TEXT("WorldName"));
+				Info.Status = (*World)->GetStringField(TEXT("WorldStatus"));
+				Info.Type = (*World)->GetStringField(TEXT("WorldType"));
+				Info.Version = (*World)->GetStringField(TEXT("WorldVersion"));
+				(*World)->TryGetStringField(TEXT("PublicName"), Info.PublicName);
+				(*World)->TryGetStringField(TEXT("WorldSet"), Info.WorldSet);
+				(*World)->TryGetStringField(TEXT("TransferToRegion"), Info.TransferToRegion);
+				(*World)->TryGetNumberField(TEXT("PublicStatusCode"), Info.PublicStatusCode);
+				(*World)->TryGetNumberField(TEXT("MaxAccountCharacters"), Info.MaxAccountCharacters);
+				(*World)->TryGetBoolField(TEXT("IsFull"), Info.bIsFull);
+				(*World)->TryGetBoolField(TEXT("IsRecommended"), Info.bIsRecommended);
+				const TSharedPtr<FJsonObject>* Metrics = nullptr;
+				if ((*World)->TryGetObjectField(TEXT("WorldMetrics"), Metrics))
+				{
+					(*Metrics)->TryGetNumberField(TEXT("QueueSize"), Info.QueueSize);
+					(*Metrics)->TryGetNumberField(TEXT("QueueWaitTimeSec"), Info.QueueWaitTimeSec);
+					(*Metrics)->TryGetNumberField(TEXT("WorldAgeDays"), Info.WorldAgeDays);
+					(*Metrics)->TryGetStringField(TEXT("WorldPopulationStatus"), Info.PopulationStatus);
+				}
+			}
+		}
+	}
+	const TArray<TSharedPtr<FJsonValue>>* Characters = nullptr;
+	if ((*List)->TryGetArrayField(TEXT("Characters"), Characters))
+	{
+		for (const TSharedPtr<FJsonValue>& Value : *Characters)
+		{
+			const TSharedPtr<FJsonObject>* Character = nullptr;
+			if (Value->TryGetObject(Character))
+			{
+				FSwcCharacterInfo& Info = Session.Characters.AddDefaulted_GetRef();
+				Info.CharacterId = (*Character)->GetStringField(TEXT("CharacterId"));
+				Info.Name = (*Character)->GetStringField(TEXT("Name"));
+				Info.WorldId = (*Character)->GetStringField(TEXT("WorldId"));
+				(*Character)->TryGetStringField(TEXT("PersonaId"), Info.PersonaId);
+				(*Character)->TryGetBoolField(TEXT("FtueCompleted"), Info.bFtueCompleted);
+				(*Character)->TryGetBoolField(TEXT("MustRename"), Info.bMustRename);
+				(*Character)->TryGetBoolField(TEXT("NeedsTransfer"), Info.bNeedsTransfer);
+				(*Character)->TryGetBoolField(TEXT("IsFreshStart"), Info.bIsFreshStart);
+				(*Character)->TryGetBoolField(TEXT("IsNameLatent"), Info.bIsNameLatent);
+				(*Character)->TryGetStringField(TEXT("CreatedDate"), Info.CreatedDate);
+				(*Character)->TryGetStringField(TEXT("ModifiedDate"), Info.ModifiedDate);
+				(*Character)->TryGetStringField(TEXT("NameModifiedDate"), Info.NameModifiedDate);
+				(*Character)->TryGetStringField(TEXT("PublishedData"), Info.PublishedData);
+				// The document is ASCII base64: its UTF-8 bytes are the text (the bytes of the visualsBlob come after the base64 and
+				// the zlib, open point FE4).
+				const FTCHARToUTF8 Text(*Info.PublishedData);
+				Info.MenuStatus = swc::menu::Decode(std::string_view(Text.Get(), Text.Length()), Info.Menu);
+				if (Info.MenuStatus != swc::menu::Status::Ok && Info.MenuStatus != swc::menu::Status::Empty)
+				{
+					UE_LOG(LogSwcBackend, Warning, TEXT("login: the menu document of a character (%d bytes): %hs"), Info.PublishedData.Len(),
+						swc::menu::StatusText(Info.MenuStatus));
+				}
+			}
+		}
+	}
+	const TArray<TSharedPtr<FJsonValue>>* Names = nullptr;
+	if ((*List)->TryGetArrayField(TEXT("NameReservations"), Names))
+	{
+		for (const TSharedPtr<FJsonValue>& Value : *Names)
+		{
+			const TSharedPtr<FJsonObject>* Name = nullptr;
+			if (Value->TryGetObject(Name))
+			{
+				FSwcNameReservation& Info = Session.NameReservations.AddDefaulted_GetRef();
+				(*Name)->TryGetStringField(TEXT("Name"), Info.Name);
+				(*Name)->TryGetStringField(TEXT("WorldId"), Info.WorldId);
+				(*Name)->TryGetStringField(TEXT("Region"), Info.Region);
+			}
+		}
+	}
+	return true;
 }
 
 void FSwcLoginClient::RequestLoginToken(const FString& CharacterId, FTokenDone Done)

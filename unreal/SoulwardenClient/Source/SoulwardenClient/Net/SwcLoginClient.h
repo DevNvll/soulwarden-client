@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Menu/SwcMenuDocument.h"
 #include "Net/SwcSteamStub.h"
 #include "Templates/SharedPointer.h"
 
@@ -12,9 +13,21 @@ struct FSwcCharacterInfo
 	FString CharacterId;
 	FString Name;
 	FString WorldId;
+	/** The persona of the account: an account identity. It stays in memory, never in a log line (docs/FRONTEND.md "Rules"). */
+	FString PersonaId;
 	bool bFtueCompleted = false;
-	/** The menu document of the character (protocol notes 2.2.5). The menu body of a later stage reads it. */
+	/** The menu flags and dates of the row (the character metadata of the menu, docs/FRONTEND.md "Data read by the menu"). */
+	bool bMustRename = false;
+	bool bNeedsTransfer = false;
+	bool bIsFreshStart = false;
+	bool bIsNameLatent = false;
+	FString CreatedDate;
+	FString ModifiedDate;
+	FString NameModifiedDate;
+	/** The menu document of the character (protocol notes 2.2.5), and its values (stage F1: Menu/SwcMenuDocument.h). */
 	FString PublishedData;
+	swc::menu::Status MenuStatus = swc::menu::Status::Empty;
+	swc::menu::FDocument Menu;
 };
 
 /** One world of the login information. The client checks these values (protocol notes 2, client code 0x6423730). */
@@ -25,6 +38,35 @@ struct FSwcWorldInfo
 	FString Status;
 	FString Type;
 	FString Version;
+	/** The values of the world list of the menu (worldlistcommon.luac WorldVectorToTable). */
+	FString PublicName;
+	FString WorldSet;
+	FString TransferToRegion;
+	int32 PublicStatusCode = 0;
+	int32 MaxAccountCharacters = 0;
+	bool bIsFull = false;
+	bool bIsRecommended = false;
+	int32 QueueSize = 0;
+	int32 QueueWaitTimeSec = 0;
+	int32 WorldAgeDays = 0;
+	FString PopulationStatus;
+};
+
+/** One region of the channel document (a member with publicApis[]): the region list of the menu (GetRegionList). */
+struct FSwcRegionInfo
+{
+	FString RegionId;
+	/** The localized name key ("@mm_us_east"), else the display name. */
+	FString Name;
+	FString AwsRegion;
+};
+
+/** One reserved name of the login information (NameReservations: worldlistcommon.luac CharacterNameVectorToTable). */
+struct FSwcNameReservation
+{
+	FString Name;
+	FString WorldId;
+	FString Region;
 };
 
 /**
@@ -71,6 +113,10 @@ struct FSwcAccountSession
 	TMap<FString, bool> RemoteSettings;
 	TArray<FSwcWorldInfo> Worlds;
 	TArray<FSwcCharacterInfo> Characters;
+	TArray<FSwcRegionInfo> Regions;
+	TArray<FSwcNameReservation> NameReservations;
+	/** MaxChannelCharacters of the login information: the characters of the account in the channel. */
+	int32 MaxChannelCharacters = 0;
 };
 
 /**
@@ -98,6 +144,12 @@ public:
 
 	/** Runs the login path to the character list. */
 	void Start(FDone Done);
+
+	/**
+	 * GET /prod/game/getlogininfo again (the refresh of the menu): the worlds, the characters, and the reserved names of the
+	 * session get the new reply. Needs a done Start. One refresh at a time: a second call while one runs fails at once.
+	 */
+	void RefreshLoginInfo(FDone Done);
 
 	/** POST /prod/game/login/queue/v2: the login token of a character (protocol notes 2.1 step 5). Needs a done Start. */
 	void RequestLoginToken(const FString& CharacterId, FTokenDone Done);
@@ -127,6 +179,8 @@ private:
 	void RequestEntitlementList();
 	void RequestRemoteConfiguration();
 	void RequestLoginInfo();
+	/** Reads a reply of getlogininfo into the session. @return False for a reply with no LoginInfoList. */
+	bool ReadLoginInfo(int32 Status, const FString& Reply);
 	void Fail(const FString& Error);
 	void Succeed();
 
@@ -138,4 +192,5 @@ private:
 	FSwcSteamStub Identity;
 	FSwcAccountSession Session;
 	FDone OnDone;
+	FDone OnRefreshDone;
 };

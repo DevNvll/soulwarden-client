@@ -462,3 +462,25 @@ git. Do not claim retail parity from these static findings. [P; project rules]
 
 The foundation is specified. No client feature was implemented or tested live.
 Only this document changes in the research branch. The scene and script records remain outside git.
+
+## Implementation
+
+### F1, the menu data (2026-10-20)
+
+- `Menu/SwcMenuDocument.{h,cpp}` reads PublishedData: base64, zlib (the zlib of the engine), a JSON reader that keeps the bytes
+  of each text, and the PlayerSaveData object stream. It gives the 12 appearance names, the player, company, entity class,
+  crest, and backstory texts, the map `equipment` (key, appearance CRC, item name, four dye bytes), `currentLevel`,
+  `currency`, `position`, and `worldId`. An unknown key and a nonempty item name stay in the result: the look decides (FE5).
+- The limits (FE4): text 512 KiB, inflated document 256 KiB, visualsBlob and one value 64 KiB, depth 16, 4096 elements, 32
+  equipment entries. A status tells the fault (no text, bad base64, bad zlib, too large, bad JSON, no visualsBlob, bad stream).
+- `tools/test-menu.sh` (no engine, with the address and undefined-behavior sanitizers): 85 checks with the documents of the
+  backend writer (`make_menu_document`, read only): male and female, levels 1 and 60, every appearance name, all five armor
+  slots, appearance ids with zero and high bytes, a name with high bytes, a quote, and a backslash, no weapon entry (the
+  writer drops slot 7), real deflate blocks, an other member order with spaces, the agreement with the backend reader, and the
+  faults: empty, too large, bad base64, cut zlib, a zlib bomb, cut and bad JSON, no visualsBlob, an escape above 0xFF, each
+  cut of the object stream, a byte after the end, a large size field, too deep elements, an element with no mark.
+- `FSwcLoginClient` keeps the menu values of each character (persona in memory only, the menu flags and dates, the decoded
+  document), the world values of the menu, the regions of the channel document, the reserved names, and
+  `MaxChannelCharacters`. `RefreshLoginInfo` asks for the list again (one refresh at a time).
+- A run with the backend copy (`dev-run.sh --quit-when characters`, the development character of the UI track): the log line
+  of the character gives "menu document ok (level 70, male, 5 clothing entries)".

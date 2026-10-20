@@ -189,9 +189,12 @@ void USwcBackendSubsystem::OnCharacterList(bool bSucceeded, const FString& Error
 	for (int32 Index = 0; Index < Session.Characters.Num(); ++Index)
 	{
 		const FSwcCharacterInfo& Character = Session.Characters[Index];
-		UE_LOG(LogSwcBackend, Log, TEXT("login: character %d: %s, id %s, world %s, menu document %s"), Index + 1,
-			bPlayerRun ? TEXT("(name not in the log of a player run)") : *Character.Name, *Character.CharacterId, *Character.WorldId,
-			Character.PublishedData.IsEmpty() ? TEXT("no") : TEXT("yes"));
+		// The menu document (stage F1): its status, the level of the screen, the body, and the count of the clothing entries.
+		const swc::menu::FDocument& Menu = Character.Menu;
+		UE_LOG(LogSwcBackend, Log, TEXT("login: character %d: %s, id %s, world %s, menu document %hs (level %lld, %hs, %d clothing entr%s)"),
+			Index + 1, bPlayerRun ? TEXT("(name not in the log of a player run)") : *Character.Name, *Character.CharacterId,
+			*Character.WorldId, swc::menu::StatusText(Character.MenuStatus), static_cast<long long>(Menu.DisplayLevel()),
+			Menu.IsFemale() ? "female" : "male", static_cast<int32>(Menu.Equipment.size()), Menu.Equipment.size() == 1 ? TEXT("y") : TEXT("ies"));
 	}
 	if (QuitWhen == TEXT("characters"))
 	{
