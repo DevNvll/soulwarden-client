@@ -711,6 +711,9 @@ def decal_parent(content, state):
     editing.connect_material_property(offset, "", MP.MP_WORLD_POSITION_OFFSET)
     material.set_editor_property("material_domain", unreal.MaterialDomain.MD_DEFERRED_DECAL)
     material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    # The mesh decal companions of the cells are instanced components: with no flag the engine drew its default material
+    # (a flat gray band on the moldings and the tree trunks, AST-203).
+    material.set_editor_property("used_with_instanced_static_meshes", True)
     editing.recompile_material(material)
     assets.save_loaded_asset(material)
     state["base:" + name] = PARENT_VERSIONS[name]
