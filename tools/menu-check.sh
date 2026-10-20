@@ -26,16 +26,8 @@ if [[ -n "${SWC_DEV_CHARACTER:-}" && -n "${SWC_DEV_PLACE:-}" ]]; then
 fi
 "${SWC_REPO}/tools/dev-run.sh" --window "${create[@]}" --label "${label}" -- -SwcQuitAfter="${seconds}" "$@" \
     >"${SWC_WORK}/logs/dev-run/${label}-launch.log" 2>&1
-for ((i = 0; i < 240; ++i)); do
-    grep -q 'the front end: the landing screen' "${log}" 2>/dev/null && break
-    grep -q 'client: stop' "${log}" 2>/dev/null && break
-    sleep 1
-done
-if ! grep -q 'the front end: the landing screen' "${log}" 2>/dev/null; then
-    echo "menu-check: no landing screen in 240 s (${log})" >&2
-    "${SWC_REPO}/tools/dev-stop.sh" >/dev/null 2>&1 || true
-    exit 1
-fi
+# The recording starts when the window shows (dev-run.sh returns then): the video has the first camera sequence of the landing
+# screen (IntroToCharacter plays at its first transition, stage F4).
 output=$(omarchy-agent-desktop status --json "${desktop}" | python3 -c "import json,sys; print(json.load(sys.stdin)['desktop']['output'])")
 if [[ ! "${output}" =~ ^AGENT-[0-9]+$ ]]; then
     echo "menu-check: the desktop ${desktop} has no agent output (${output})" >&2
@@ -45,6 +37,17 @@ fi
 date +%s.%N >"${evidence}/${label}-video-start.txt"
 wf-recorder -y -o "${output}" -c libx264 -r 30 -f "${evidence}/${label}.mp4" >"${SWC_WORK}/logs/dev-run/${label}-recorder.log" 2>&1 &
 recorder=$!
+for ((i = 0; i < 240; ++i)); do
+    grep -q 'the front end: the landing screen' "${log}" 2>/dev/null && break
+    grep -q 'client: stop' "${log}" 2>/dev/null && break
+    sleep 1
+done
+if ! grep -q 'the front end: the landing screen' "${log}" 2>/dev/null; then
+    echo "menu-check: no landing screen in 240 s (${log})" >&2
+    kill -INT "${recorder}" 2>/dev/null || true
+    "${SWC_REPO}/tools/dev-stop.sh" >/dev/null 2>&1 || true
+    exit 1
+fi
 for ((i = 0; i < seconds + 120; ++i)); do
     grep -q 'client: stop' "${log}" 2>/dev/null && break
     sleep 1

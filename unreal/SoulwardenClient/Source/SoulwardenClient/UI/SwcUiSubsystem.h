@@ -128,6 +128,9 @@ private:
 	FString PreviewCharacter;
 	bool bPreviewDirty = false;
 	void UpdatePreview(class USwcBackendSubsystem* Backend);
+	/** The menu idle clip of each gender (male, female): its AnimSequence of the imported list, or empty. */
+	static TArray<FString> FindMenuClips(const FString& ImportedPath);
+	TArray<FString> MenuClips = {FString(), FString()};
 	void EndPreview();
 	bool bErrorShown = false;
 	bool bSentLoadingScreen = false;

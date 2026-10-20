@@ -1,0 +1,12 @@
+# Stage F4 of docs/FRONTEND.md: the UI drive of the NightHaven scene (tools/menu-check.sh f4-scene 100 -- -SwcUiDrive=FILE).
+# The clock starts at the landing screen. IntroToCharacter plays in the first second; the scene meshes load in about 10 s.
+# The two development characters of the UI track: a click on each row, with time for the load of each body.
+1 waitfor CharacterList 60
+3 draw landing
+14 point text:Menuwarden
+14.5 click
+20 draw select-second
+24 point text:Devwarden
+24.5 click
+30 draw select-first
+34 end

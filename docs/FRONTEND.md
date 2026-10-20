@@ -568,3 +568,53 @@ Only this document changes in the research branch. The scene and script records 
   name `hairstyle12f`, which the database does not have: the first entry ("None") and a note. `evidence/F3/compare/sbs-preview*.png`:
   the retail picture B6-04 and the two client bodies; the place and the size of the body agree. The scene, its lights, and its
   idle clip are stage F4.
+
+### F4, the NightHaven scene and its camera (2026-10-20)
+
+- The converter (`converter/swc_convert/frontend.py`, `tools/convert-frontend.sh`):
+  - `clips` adds the menu idle CAF to the player pipeline: the clip pack `clips|GENDER|menu` of both genders (the female
+    uses the male CAF, as `player_shared.chrparams` gives). Then `tools/import-player.sh`.
+  - `scene [--radius M]` reads `mission0.entities_xml` of the level pack and writes `SWC_CONTENT/frontend/nighthaven.json`
+    (outside git): the named entities (Player Entity, TOD, Main_layer, MainCamera, the two camera placements) with their
+    world and local matrices and their parents; the camera fields; the six sequences (the tracks of each entity node, the
+    spline keys with their flags and tangents); the TOD entity; the static meshes within 60 m of the Player Entity; the
+    lights within 40 m (the source fields as text); a ground patch.
+  - The meshes: 522 placements of 184 meshes. The fog volumes, the effect meshes, and the sky dome are left out (47). Each
+    placement has the object path of the imported asset (`objects.imported_mesh`: the import shortens long names and
+    changes some characters; the stem rule found only 349 of 522). The meshes are shared world content (the world tools
+    convert and import them; the wanted list is empty).
+  - The ground patch: 121 x 121 heights at 1 m from the terrain of `coatlicue/nw_frontend_base`, with one color from its
+    macro map.
+- `Menu/SwcMenuCurves` (plain C++) is the tangent update and the evaluation of the native study (FE7): the tangent modes,
+  the reach limit, and the Bezier time solve. `tools/test-menu.sh` checks them with the keys of `IntroToCharacter`.
+- `ASwcMenuPreview` loads the record after its spawn:
+  - The scene meshes load asynchronously. Each one is a movable component of the actor. A static part cannot attach to the
+    movable root; then its world place is lost (the first run had all parts near the world origin).
+  - `menu sequence NAME` plays a sequence of the record on the camera (MainCamera under Main_layer; the game rotation
+    Rz Ry Rx; a camera looks along its Y axis). `menu sequence-stop NAME` stops it. `swc/frontend.lua` sends them at
+    `PlaySequenceByName` and `StopSequence` of the script. The fixture `frontend`: the transition plays
+    `IntroToCharacter`, a queued sequence, the level load plays it again, and it ends after its 1 s (67 checks).
+  - The body plays the menu idle clip of its gender (the pack of `content/player/imported.json`; else the world idle).
+- The lights (`Menu/SwcMenuLights.h`): four lights of the rig have bulbs of 0.5 m to 30 m within 2 m to 15 m of the body. The
+  world rule (r^2 / D^2 from the center) is exact only far from the bulb; at the body it gave up to 9 times the source
+  light. The menu reads the source attenuation 1 / (1 + d / r)^2 with d from the center of the light (it stays below 1 in
+  the bulb) and matches the candela at the body (1 m above the Player Entity) when the light reaches it, else at the middle
+  of its range. The probes, the hidden cubemap entity, and the area light are not made (27 of 31 records). The lights are
+  off by default (`swc.MenuLights` 0; `-SwcMenuLights` turns them on): see the first open point.
+- The runs (`tests/drive/f4-scene-ui.txt`): `f4-scene2` (the lights on) and `f4-scene3` (the lights off). The record loads
+  with the landing screen; `IntroToCharacter` plays two times (as the script calls it); the 522 meshes show about 10 s after
+  the landing; the female body and the male body have 6 of 6 parts. `evidence/F4/compare/sbs-scene.png`: the framing agrees
+  with B6-04 (the tent at the left, the body in the middle with the same size, the house at the upper right).
+- Open points:
+  - The environment of the menu (the main fault of the look). The client environment (docs/ENVIRONMENT.md) runs only after
+    the first record of the world clock. The front end has the environment of the level: the engine sun and a fixed
+    exposure (docs/WORLD.md). The candela of the lights and the emittance of the materials (`EmissiveScale` = 10,000 x
+    `swc.LightScale`, docs/MATERIALS.md) are physical units: with the lights on, the bodies are white; with them off, the
+    windows and some plants glow. The fix is the client environment in the menu: the converted preset
+    `libs/timeofday/frontend/nw_frontend_nighthaven.xml` at the hour override 16.7 of the TOD entity. That is a change of
+    `Environment/` (a request to the orchestrator). Then `swc.MenuLights` goes to 1.
+  - The ground is a flat-color patch at the terrain heights. The terrain of `nw_frontend_base` with its materials is world
+    work.
+  - The subset is 60 m: the dome at the upper left of B6-04 is outside it. The campfire effect, the probes, and the area
+    light are not made. The material overrides of the placements are not applied.
+  - FE7: the axis of the FOV; the callers of `Idle` and `OnPlay`.

@@ -383,12 +383,15 @@ Swc.Define("TransformBus", "Event", {
 local SEQUENCE_SECONDS = {IntroStart = 3, IntroToCharacter = 1, CharacterToIntro = 1, EstablishingToCharacter = 1,
   Idle = 36, OnPlay = 2}
 Swc.Define("CinematicRequestBus", "Broadcast", {
+  -- The host plays the camera tracks of the sequence (the preview camera, stage F4): "menu sequence NAME".
   PlaySequenceByName = function(name)
     F.sequences[name] = {left = SEQUENCE_SECONDS[name] or 0}
+    request("menu sequence " .. tostring(name))
   end,
   StopSequence = function(name)
     if F.sequences[name] then
       F.sequences[name] = nil
+      request("menu sequence-stop " .. tostring(name))
       Swc.Notify("CinematicEventBus", nil, "OnCinematicStateChanged", name, eMovieEvent_Stopped or 2)
     end
   end,

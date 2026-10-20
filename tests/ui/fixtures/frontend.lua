@@ -64,6 +64,19 @@ check(swcui.canvas_get(landing, "enabled"), "the landing screen shows")
 equal(#requests("menu list"), 0, "no list request before the account is ready (the end of the UI load is not the account event)")
 check(not L.authSuccess, "the landing script has no auth success")
 
+-- The camera sequence of the fresh landing (stage F4): the transition to the character select panel plays IntroToCharacter
+-- (landingscreenv2.luac: CINEMATIC_LANDING_TO_CHARACTER) and queues it for the end of the menu level load; the host plays its
+-- camera tracks ("menu sequence NAME"), and the end event comes after its time range (1 s).
+equal(requests("menu sequence")[1], "menu sequence IntroToCharacter", "the transition plays the camera sequence IntroToCharacter")
+check(L.queueIntroCinematic == true, "the sequence is queued for the end of the menu level load")
+Swc.hostRequests = {}
+Swc.HostMenuLevelLoaded()
+frames(0.1)
+equal(requests("menu sequence")[1], "menu sequence IntroToCharacter", "the end of the level load plays the queued sequence")
+check(F.sequences.IntroToCharacter ~= nil, "the sequence runs")
+frames(1.0)
+check(F.sequences.IntroToCharacter == nil and L.isIntroCinematicCompleted == true, "the sequence ends after its time range (1 s)")
+
 -- The account is ready: the list request. Order 1: the list, then the CMS data, then the regions.
 F.hold.cms, F.hold.regions = true, true
 Swc.HostMenuAccount(true, true)

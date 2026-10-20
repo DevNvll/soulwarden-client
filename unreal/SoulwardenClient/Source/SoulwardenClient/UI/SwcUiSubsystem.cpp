@@ -852,6 +852,14 @@ void USwcUiSubsystem::UpdateMenu(USwcBackendSubsystem* Backend)
 		Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		ASwcMenuPreview* Actor = World->SpawnActor<ASwcMenuPreview>(FVector(303139.87, -204736.01, 8407.22), FRotator::ZeroRotator, Parameters);
 		Preview = Actor;
+		if (Actor != nullptr)
+		{
+			// The scene record (stage F4): the Player Entity, MainCamera, and the camera sequences of the NightHaven scene.
+			FString Content = FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_CONTENT"));
+			Content = Content.IsEmpty() ? FPaths::Combine(WorkDir(), TEXT("content")) : Content;
+			Actor->LoadScene(FPaths::Combine(Content, TEXT("frontend/nighthaven.json")));
+			MenuClips = FindMenuClips(FPaths::Combine(Content, TEXT("player/imported.json")));
+		}
 		if (APlayerController* Controller = World->GetFirstPlayerController(); Controller != nullptr && Actor != nullptr)
 		{
 			Controller->SetViewTarget(Actor);
@@ -981,7 +989,44 @@ void USwcUiSubsystem::UpdatePreview(USwcBackendSubsystem* Backend)
 	const int32 Wanted = Looks->WriteWanted(Look);
 	UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the look of %s: %s, %d part(s), %d armor row(s), %d new wanted part(s)"), *PreviewCharacter,
 		Look.bFemale ? TEXT("female") : TEXT("male"), Look.Parts.Num(), Armor.Num(), Wanted);
-	Preview->ShowLook(Look, Looks->BaseMesh(Look.bFemale), Looks->IdleAnimation(Look.bFemale));
+	// The idle of the Player Entity: the menu clip unarmed_idle_loadingscreen (SimpleAnimationComponent; tools/convert-frontend.sh
+	// clips), else the idle of the world.
+	const FString& MenuClip = MenuClips[Look.bFemale ? 1 : 0];
+	Preview->ShowLook(Look, Looks->BaseMesh(Look.bFemale), MenuClip.IsEmpty() ? Looks->IdleAnimation(Look.bFemale) : MenuClip);
+}
+
+TArray<FString> USwcUiSubsystem::FindMenuClips(const FString& ImportedPath)
+{
+	// imported.json: the assets of the clip packs "clips|male|menu" and "clips|female|menu" (AnimSequence object paths).
+	TArray<FString> Out = {FString(), FString()};
+	FString Text;
+	TSharedPtr<FJsonObject> Doc;
+	const TSharedPtr<FJsonObject>* Assets = nullptr;
+	if (!FFileHelper::LoadFileToString(Text, *ImportedPath) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Doc)
+		|| !Doc.IsValid() || !Doc->TryGetObjectField(TEXT("assets"), Assets))
+	{
+		return Out;
+	}
+	for (int32 Gender = 0; Gender < 2; ++Gender)
+	{
+		const TSharedPtr<FJsonObject>* Pack = nullptr;
+		const TArray<TSharedPtr<FJsonValue>>* Clips = nullptr;
+		if ((*Assets)->TryGetObjectField(Gender == 0 ? TEXT("clips|male|menu") : TEXT("clips|female|menu"), Pack)
+			&& (*Pack)->TryGetArrayField(TEXT("AnimSequence"), Clips))
+		{
+			// The pack has the one menu clip (the import names its asset after the pack), else the clip of that name.
+			for (const TSharedPtr<FJsonValue>& Clip : *Clips)
+			{
+				if (Clips->Num() == 1 || Clip->AsString().Contains(TEXT("unarmed_idle_loadingscreen")))
+				{
+					Out[Gender] = Clip->AsString();
+				}
+			}
+		}
+	}
+	UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the menu clip: male %s, female %s"), Out[0].IsEmpty() ? TEXT("no") : TEXT("yes"),
+		Out[1].IsEmpty() ? TEXT("no") : TEXT("yes"));
+	return Out;
 }
 
 void USwcUiSubsystem::EndPreview()
@@ -1035,6 +1080,24 @@ void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsy
 		PreviewCharacter = Parts.IsValidIndex(2) ? Parts[2] : FString();
 		bPreviewDirty = true;
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: %s"), *Request);
+	}
+	else if (Kind == TEXT("sequence") || Kind == TEXT("sequence-stop"))
+	{
+		// The camera sequences of the landing screen (CinematicRequestBus): the camera tracks of MainCamera (stage F4).
+		const FString Name = Parts.IsValidIndex(2) ? Parts[2] : FString();
+		bool bPlayed = false;
+		if (Preview.IsValid())
+		{
+			if (Kind == TEXT("sequence"))
+			{
+				bPlayed = Preview->PlaySequence(Name);
+			}
+			else
+			{
+				Preview->StopSequence(Name);
+			}
+		}
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: %s%s"), *Request, Kind == TEXT("sequence") && !bPlayed ? TEXT(" (no camera track)") : TEXT(""));
 	}
 	else if (Kind == TEXT("show"))
 	{

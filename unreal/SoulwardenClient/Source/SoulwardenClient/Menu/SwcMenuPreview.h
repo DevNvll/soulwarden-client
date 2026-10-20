@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Character/SwcPlayerLooks.h"
+#include "Menu/SwcMenuCurves.h"
 #include "GameFramework/Actor.h"
 #include "SwcMenuPreview.generated.h"
 
@@ -41,9 +42,43 @@ public:
 	int32 RequestedGeneration() const { return Requested; }
 	/** Sets the horizontal FOV of the camera from the vertical FOV of the menu camera and the aspect of the viewport. */
 	void UpdateFov(float Aspect);
+	/**
+	 * Reads the menu scene record (SWC_CONTENT/frontend/nighthaven.json, tools/convert-frontend.sh scene): the place and the
+	 * rotation of the Player Entity, MainCamera (its world transform at the start, its FOV and clip planes, its parent), and the
+	 * tracks of the camera sequences. @return False with no record (then the fixed character view stays).
+	 */
+	bool LoadScene(const FString& Path);
+	/** Plays a camera sequence of the scene from its start (CinematicRequestBus PlaySequenceByName of the landing screen). At its
+	 *  end the camera keeps the last pose. @return False for a sequence with no MainCamera track. */
+	bool PlaySequence(const FString& Name);
+	void StopSequence(const FString& Name);
+	virtual void Tick(float DeltaSeconds) override;
 
 private:
 	void Build(int32 Generation, FSwcPlayerLook Look, FString BaseMesh, FString IdleAnimation);
+	/** Places the camera at a game world position and Euler angles (degrees; the rotation Rz Ry Rx of the game). */
+	void PlaceCamera(const FVector& GameWorld, const FVector& EulerDegrees);
+	/** The bounded scene subset of the record: the static meshes (an asynchronous load), the ground patch, and the lights. */
+	void BuildScene(const TSharedPtr<class FJsonObject>& Doc);
+	void BuildGround(const TSharedPtr<class FJsonObject>& Ground);
+	void BuildLights(const TArray<TSharedPtr<class FJsonValue>>& Lights);
+
+	UPROPERTY()
+	TArray<TObjectPtr<UActorComponent>> SceneParts;
+	TSharedPtr<FStreamableHandle> SceneLoading;
+
+	struct FSequence
+	{
+		float End = 0.0f;
+		/** PX, PY, PZ, RX, RY, RZ of MainCamera: local to its parent (Main_layer). */
+		swc::menu::FCurve Tracks[6];
+	};
+	TMap<FString, FSequence> Sequences;
+	/** The Player Entity in game world space (m), and the translation of the parent of MainCamera. */
+	FVector PlayerWorld = FVector::ZeroVector;
+	FVector CameraParent = FVector::ZeroVector;
+	FString Playing;
+	float PlayTime = 0.0f;
 
 	UPROPERTY()
 	TObjectPtr<USceneComponent> Root;

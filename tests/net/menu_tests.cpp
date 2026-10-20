@@ -2,14 +2,19 @@
 // writer of the backend (state/creation_data.cpp make_menu_document) and its readers. The names and ids are made up. No capture
 // of the user. Build and run: tools/test-menu.sh. The Soulwarden sources are read only.
 
+#include <array>
+#include <cmath>
 #include <cstdio>
+#include <initializer_list>
 #include <cstring>
 #include <string>
 #include <vector>
 
 #include <zlib.h>
 
+#include "Menu/SwcMenuCurves.h"
 #include "Menu/SwcMenuDocument.h"
+#include "Menu/SwcMenuLights.h"
 #include "core/encoding/base64.h"
 #include "state/creation_data.h"
 
@@ -239,12 +244,119 @@ void test_keys() {
            "an other key stays in the result");
 }
 
+/** A track from the keys of the scene: {time, flags, value, dsx, dsy, ddx, ddy} (research frontend-native.md "Full curve
+ *  parameters"; the value x is the time). */
+menu::FCurve track(std::initializer_list<std::array<float, 7>> keys) {
+    menu::FCurve curve;
+    for (const auto& k : keys) {
+        menu::FCurveKey key;
+        key.Time = k[0];
+        key.Flags = static_cast<int>(k[1]);
+        key.Value[0] = k[0];
+        key.Value[1] = k[2];
+        key.Ds[0] = k[3];
+        key.Ds[1] = k[4];
+        key.Dd[0] = k[5];
+        key.Dd[1] = k[6];
+        curve.Keys.push_back(key);
+    }
+    menu::UpdateTangents(curve.Keys);
+    return curve;
+}
+
+bool near(float a, float b, float tolerance) { return std::fabs(a - b) <= tolerance; }
+
+void test_curves() {
+    std::printf("the camera curves of the scene\n");
+    // IntroToCharacter, MainCamera PX: custom, unified custom, custom (flags 9, 73, 9).
+    const menu::FCurve px = track({{0.0f, 9, 2019.7952881f, 1.0f, 0.0f, 0.3229508f, -0.0817871f},
+                                   {0.5f, 73, 2016.0875244f, 0.1278689f, -2.4478760f, 0.1278688f, -2.4478760f},
+                                   {1.0f, 9, 2012.5168457f, 0.3311476f, -0.0817871f, 0.3333333f, 0.0f}});
+    expect(near(menu::Evaluate(px, 0.0f), 2019.7952881f, 1e-4f) && near(menu::Evaluate(px, 1.0f), 2012.5168457f, 1e-4f),
+           "IntroToCharacter PX: the first and the last key");
+    expect(near(menu::Evaluate(px, 0.5f), 2016.0875244f, 1e-3f), "IntroToCharacter PX: the middle key at 0.5 s");
+    expect(near(menu::Evaluate(px, -1.0f), 2019.7952881f, 1e-4f) && near(menu::Evaluate(px, 2.0f), 2012.5168457f, 1e-4f),
+           "the time is clamped to the keys");
+    bool falling = true;
+    float before = menu::Evaluate(px, 0.0f);
+    for (int step = 1; step <= 100; ++step) {
+        const float value = menu::Evaluate(px, step / 100.0f);
+        falling = falling && value <= before + 1e-4f;
+        before = value;
+    }
+    expect(falling, "IntroToCharacter PX falls from the establishing view to the character view");
+    expect(near(menu::Evaluate(px, 0.49999f), menu::Evaluate(px, 0.50001f), 2e-3f), "the curve is continuous at the middle key");
+    // The segment values follow the Bezier rule: at 0.25 s the value is between the two keys of its segment.
+    const float quarter = menu::Evaluate(px, 0.25f);
+    expect(quarter < 2019.7952881f && quarter > 2016.0875244f, "IntroToCharacter PX at 0.25 s is in its segment");
+    // IntroToCharacter RZ: the yaw turns from 131.9 to 31.5 degrees.
+    const menu::FCurve rz = track({{0.0f, 9, 131.8981476f, 0.9883155f, -0.1327572f, 0.2352459f, 1.1283569f},
+                                   {0.5f, 73, 101.0836563f, 0.1229508f, -26.8651962f, 0.1229500f, -26.8651943f},
+                                   {1.0f, 9, 31.5f, 0.3278689f, 1.1283703f, 0.3281250f, 0.0f}});
+    expect(near(menu::Evaluate(rz, 1.0f), 31.5f, 1e-4f) && near(menu::Evaluate(rz, 0.5f), 101.0836563f, 1e-3f),
+           "IntroToCharacter RZ: 101.08 at 0.5 s, 31.5 at the end");
+    // OnPlay PX: zero in and custom out (flags 10), then linear (flags 100: the linear flag controls the tangent, not the
+    // serialized vector (0, 0)).
+    const menu::FCurve play = track({{0.0f, 10, 2012.5168457f, 0.6666667f, 0.0f, 1.1926298f, 0.0f},
+                                     {2.0f, 100, 2012.3645020f, 0.6666667f, -0.0507812f, 0.0f, 0.0f}});
+    expect(near(menu::Evaluate(play, 2.0f), 2012.3645020f, 1e-4f), "OnPlay PX: the last key");
+    expect(near(play.Keys[1].Ds[0], 2.0f / 3.0f, 1e-5f) && near(play.Keys[1].Ds[1], (2012.3645020f - 2012.5168457f) / 3.0f, 1e-5f),
+           "a linear incoming tangent is (P[i] - P[i-1]) / 3");
+    const float half = menu::Evaluate(play, 1.0f);
+    expect(half < 2012.5168457f && half > 2012.3645020f, "OnPlay PX at 1 s is between its keys");
+    // CharacterToIntro RX: zero/zero, unified custom, zero/custom (flags 18, 73, 10).
+    const menu::FCurve rx = track({{0.0f, 18, -3.5f, 0.168f, 0.0f, 0.168f, 0.0f},
+                                   {0.504f, 73, -0.3438407f, 0.1490820f, 1.6138157f, 0.1469187f, 1.5903972f},
+                                   {1.0f, 10, 4.4692678f, 0.1653333f, 0.0f, 0.0024671f, -0.0009970f}});
+    expect(near(rx.Keys[0].Dd[0], 0.504f / 3.0f, 1e-5f) && rx.Keys[0].Dd[1] == 0.0f, "a zero outgoing tangent: a third of the span, flat");
+    expect(near(menu::Evaluate(rx, 0.504f), -0.3438407f, 1e-3f) && near(menu::Evaluate(rx, 1.0f), 4.4692678f, 1e-4f),
+           "CharacterToIntro RX: the middle key and the end");
+    // An auto interior key (CharacterToIntro PY, flags 10, 0, 18): (P[i+1] - P[i-1]) / 3 split by the relative time spans.
+    const menu::FCurve py = track({{0.0f, 10, 3745.4516602f, 0.1666667f, 0.0f, 0.28f, 0.0f},
+                                   {0.5f, 0, 3743.0751953f, 0.1666667f, 0.0033366f, 0.1666667f, 0.0033366f},
+                                   {1.0f, 18, 3745.4716797f, 0.1666667f, 0.0f, 0.1666667f, 0.0f}});
+    const float dy = (3745.4716797f - 3745.4516602f) / 3.0f;
+    expect(near(py.Keys[1].Ds[0], 1.0f / 6.0f, 1e-5f) && near(py.Keys[1].Ds[1], dy * 0.5f, 1e-5f) && near(py.Keys[1].Dd[1], dy * 0.5f, 1e-5f),
+           "an auto interior key splits (P[i+1] - P[i-1]) / 3 by the time spans");
+    expect(near(menu::Evaluate(py, 0.5f), 3743.0751953f, 1e-3f), "CharacterToIntro PY: the auto key at 0.5 s");
+    // A custom tangent that reaches past its span is scaled (the time-reach limit), and a step holds the value.
+    const menu::FCurve reach = track({{0.0f, 9, 0.0f, 0.0f, 0.0f, 3.0f, 6.0f}, {1.0f, 9, 1.0f, 0.5f, 0.5f, 0.5f, 0.5f}});
+    expect(near(reach.Keys[0].Dd[0], 1.0f, 1e-6f) && near(reach.Keys[0].Dd[1], 2.0f, 1e-6f), "the time-reach limit scales the tangent");
+    const menu::FCurve step = track({{0.0f, 3 << 3, 5.0f, 0, 0, 0, 0}, {1.0f, 0, 9.0f, 0, 0, 0, 0}});
+    expect(menu::Evaluate(step, 0.7f) == 5.0f, "a step key holds its value");
+    menu::FCurve empty;
+    empty.Default = 7.0f;
+    expect(menu::Evaluate(empty, 0.3f) == 7.0f, "a track with no key gives its default");
+}
+
 } // namespace
+
+void test_lights() {
+    std::printf("the lights of the scene\n");
+    const double pi = 3.14159265358979323846;
+    // Far from the bulb, the candela of the world rule (pi x 10,000 x diffuse x r^2).
+    const double far = menu::LightCandela(1.5, 0.05, 50.0);
+    expect(std::fabs(far / (pi * 10000.0 * 1.5 * 0.05 * 0.05) - 1.0) < 0.002, "far from the bulb: the world rule");
+    // At the reference distance, the Unreal falloff I / D^2 is the source illuminance pi x 10,000 x diffuse / (1 + D / r)^2.
+    for (const double bulb : {0.5, 2.0, 30.0}) {
+        const double d = 1.6;
+        const double lux = menu::LightCandela(1.0, bulb, d) / (d * d);
+        const double source = pi * 10000.0 / ((1.0 + d / bulb) * (1.0 + d / bulb));
+        expect(std::fabs(lux / source - 1.0) < 1e-9, "the source illuminance at the reference distance");
+    }
+    // In a large bulb the illuminance stays below the one of the bulb surface (r^2 / D^2 would give 4 times it at D = r / 2).
+    expect(menu::LightCandela(1.0, 30.0, 15.0) / (15.0 * 15.0) < pi * 10000.0, "in the bulb: bounded");
+    expect(menu::LightReference(1.2, 2.3) == 1.2 && menu::LightReference(26.0, 20.0) == 10.0, "the reference distance");
+    expect(menu::LightSourceRadius(30.0, 14.0) == 7.0 && menu::LightSourceRadius(0.05, 2.0) == 0.05 &&
+               menu::LightSourceRadius(0.0, 2.0) == 0.01, "the source radius");
+}
 
 int main() {
     test_round_trip();
     test_faults();
     test_keys();
+    test_curves();
+    test_lights();
     std::printf("menu tests: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }
