@@ -152,7 +152,7 @@ level (its engine sun and its fixed exposure), and the physical units of the men
 | The calls | `USwcEnvironmentSubsystem::SetMenuScene` (the menu preview, when it reads the scene record) and `ClearMenuScene` (the end of the preview actor: the token of PLAY). While the mode is set, the runtime does not wait for the world clock. After it, the runtime keeps its last state until the first record of the world (the loading screen covers it). |
 | The preset | The preset of the TOD entity of the menu scene (`libs/timeofday/frontend/nw_frontend_nighthaven.xml`, in `presets.json`) is the one layer. It has all 127 variables of the mission, so it gives the same values as the base of the menu mission with this preset at weight 1. No time-of-day volume of the world is used. |
 | The hour | The hour override of the TOD entity (16.7), fixed. The edges of dawn and dusk are the defaults of the time record (06:00 and 19:00): at 16.7 both lights have the multipliers of the day. |
-| The sun and the moon | The Lighting and Moon elements of the menu mission (`levels/nw_frontend_nighthaven/level.pak:mission_mission0.xml`): SunRotation 190, Longitude 110, the moon size 0.5. The world mission has 215, 130, and 0.8, and the preset has no sun path, so the scene record carries them (`tools/convert-frontend.sh scene`: "environment"). |
+| The sun and the moon | The Lighting and Moon elements of the menu mission (`levels/nw_frontend_nighthaven/level.pak:mission_mission0.xml`): SunRotation 190, Longitude 110, the moon size 0.5, and the dawn and dusk fields of the night delay (DawnTime 355, DawnDuration 10, DuskTime 365, DuskDuration 10). The world mission has 215, 130, and 0.8, and the preset has no sun path, so the scene record carries them (`tools/convert-frontend.sh scene`: "environment"). |
 | The sky | The cloud cover of the sky slice of the TOD entity (`slices/sky/skydome_tropicalstorm_post_a.dynamicslice`, in `sky/sky.json`). Each layer of the blend now has its sky slice (a volume layer: the slice of its volume; the base layer of the world: none, as before). |
 | The probes | The environment probes of the menu level (two, with `frontendv2_cm.dds`; the scene record "probes" and "cubes" of `tools/convert-frontend.sh scene`, the cube imported by `tools/import-sky.sh`) replace the local probes of the world, always (in the world the local probes stay a test, `swc.LocalProbes`). Its scene probe has a box of 5 km: the world probe gets no weight at the scene. `USwcEnvironmentSubsystem::ReadLocalProbe` reads both record lists (2026-10-20, stage F4b). |
 | The rules | All rules of E1 to E5 are the ones of the world (the sun, the sky, the source fog, the exposure, the grade). The world probe, the fog volumes, and the precipitation are the data of the world at the camera place. |
@@ -191,7 +191,12 @@ the left.
 
 - The stars, the moon texture, the clouds, the regional sky, the fog, and the blend of the time-of-day volumes: stage E3.
 - The local lights and the probes of interiors: stage E2. The exposure: stage E5.
-- The optional retail clamp of the sun path (research, open point 2): the noon shadows agree with the public rule.
+- The night delay of the sun path (the retail clamp of open point 2; from 2026-10-20, research e5-menu-probe.md):
+  `e_TimeOfDay_NightDelay` 0.7 h (`swc.NightDelay`). Strictly inside the daylight interval (a = dawnStart, b = duskEnd), the sun
+  path takes the hour a + d + q x (b - a - 2 d), q = (hour - a) / (b - a), d = min(delay, (b - a) / 4); the curves keep the
+  hour (`env::sun_path_hour`, tested). At noon it changes little (with the default edges 6:00 and 19:22, 12:00 -> 12:04). The
+  menu takes the dawn and dusk fields of its mission (DawnTime 355, DawnDuration 10, DuskTime 365, DuskDuration 10 minutes:
+  5:50 to 18:10, `env::mission_edges`): at 16.7 h the sun is 25.72 degrees high (it was 18.28), toward -0.901, 0.002, 0.434.
 
 ## The local lights (stage E2)
 
@@ -537,7 +542,54 @@ fog off only 21.6 / +24.3, both off 15.5 / +13.2. Without the sheets the trees (
 are near retail; the house wall is lighter (29.4 against 22.5), the ground under the flowers is pale gray-green (retail: dark brown),
 the flower petals are cream-white, and the fire is a white flare. Evidence: `~/Games/soulwarden-client/evidence/E5/audit/`.
 
+### Step 3: the local probes of each pixel and the SSAO test (switches, off; 2026-10-20)
+
+- `swc.LocalProbes 2`: a pass after the base pass (module `SwcShaders`, loaded at PostConfigInit: `Shaders/Private/SwcLocalProbes.usf`,
+  `Source/SwcShaders`; the view extension `Environment/SwcProbeShading.cpp`) multiplies the material AO of G-buffer C by the light
+  of the local probes of the pixel over the world probe (research e5-local-probes.md: the order by the low byte of the priority,
+  the radius, and the record; the fade of each box; the remaining weight to the world probe; the ambient cube of each diffuse cube,
+  probes.json "diffuseMeans"), at most 1. The nearest 64 probes within `swc.LocalProbeReach` (500 m) go to the pass. It runs with
+  no fault (the G-buffer targets found, 21 probes at noon-n) and changes nothing in the six views: their pixels are in no box.
+- `swc.Ssao 1`: the post-process AO values of research e5-ssdo.md (intensity 1, power 2, a world radius of 480 cm, bias 0,
+  static fraction 0, quality 50), with `r.Lumen.DiffuseIndirect.SSAO 1` and `r.Lumen.ScreenProbeGather.ShortRangeAO 0` in the
+  same set. noon-n 6.7 -> 4.3, the keep 5.2 -> 4.9 (the dark part 0.25 -> 0.33, retail 0.36); swim-idle 16.8 -> 19.4 and the
+  menu 17.4 -> 19.1 are worse: the meter takes back about 77 % of a light change (the slope of the EV rule), and the parts with
+  no AO (the unlit water, the additive sheets) become lighter. Not a default.
+- The level of the ambient: `swc.ProbeScale 0.5` gives noon-n 6.7 -> 2.9 but not the open views, and Lumen GI off changes
+  nothing; so it is not one global gain. At matched exposure the displayed ratio is mostly the albedo ratio; noon-n is about 1.44
+  times too bright in the sun and 2.1 times in the shade.
+
 ### Not done, open points (E5)
+
+The E5 queue stopped on 2026-10-20 (the decision of the user: the next focus is a playable game). These items wait, in this
+order of their expected effect on the whole picture:
+
+- The materials against the light at noon-n: about 1.44 times too bright in the sun and 2.1 times in the shade at matched
+  exposure (the meter takes back about 77 % of a light change, so the displayed ratio is mostly the albedo ratio). The next
+  measure: an albedo view in the meter probe (the mean G-buffer diffuse of the wall and street parts in source units) against
+  the source texels of the same materials (decode x tint x the diffuse factor of their records).
+- The fog sheets of the menu (M_SwcBeam version 5, research beach-sheet-inputs.md): the sheets within 30 m of the Player Entity
+  still add about 10 L* (the menu 15.7 / +18.0, with no sheets 13.5 / +8.3); the haze over the house is the strongest. Open: the
+  live LOD at B6-04, the vertex wave, the air fog branch, and the alpha channels of the other sheet materials.
+- The cobble decal of the surface layer (research e5-surface-decal.md): POM (height bias 0.5, displacement 0.02 UV), the road
+  tangent frame from the road direction and the terrain normal, the white vertex RGB and the vertex alpha at the road ends, the
+  blend of albedo and F0 in their square-root encoding. Its blue (R, G, B 0.90, 1.03, 1.17 against retail at equal luminance)
+  stays with less ambient: probably the missing reflection occlusion of the source at a grazing view.
+- The SSDO of the source as a pass (research e5-ssdo.md): the probe diffuse part (min(material AO, saturate(1 - a x 2)^2) with
+  the color bleed), the reflection part (saturate(1 - a x 3)^2 and the grazing term), and the direct-light part (a change of the
+  lighting). The Unreal SSAO test (`swc.Ssao 1`) helps the town and harms the water views and the menu.
+- The menu: the diffuse light of the probes per pixel. The client samples the diffuse light of the probe cube by the world normal
+  (the sky light, within 2 % of the _diff cube of the source) and adds no world ambient (weight 0); only the character probe box
+  (2 x 2 x 2.5 m, the RGB factor 0.248, 0.808, 1.024 against 0.286, 0.808, 1.079 of the scene probe) is not per pixel. Also the
+  pale ground under the flowers, the cream flower petals, the white flare of the fire, and the sun shafts.
+- The sky color and the sun shafts of the source (research color-pipeline.md section 6: the shafts as a screen blend after the
+  sRGB encode); the menu sky is pink-lilac against a warm brown with shafts in B6-04.
+- The coast fog (research e5-coast-fog.md: the source ramp on the density, the zenith rule).
+- The storm sky of Cutlass Keys (research e5-distance-clouds.md: the five Distanceclouds dome layers over the source base sky;
+  the Unreal volumetric clouds off for the source sky slices).
+- The numbers of AST-192.
+- Outside E5: the window glass (flat light gray against dark with the room and reflections: the materials) and the swim water
+  (light teal against deep blue, a strong mirror: AST-200).
 
 - The final scene multiplies the exposure by a texture `t7` at the screen coordinates. An inference: the vignette of the source.
 - The day walls are brighter than retail (noon-n top band +17 L*, inn-noon +10) and the day saturation is low (-0.05 to -0.16):

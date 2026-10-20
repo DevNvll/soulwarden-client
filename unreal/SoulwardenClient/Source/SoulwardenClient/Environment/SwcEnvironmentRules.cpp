@@ -143,6 +143,25 @@ Vec3 moon_toward(double latitudeDegrees, double longitudeDegrees) {
     return normalized({std::sin(longitude) * std::cos(latitude), std::sin(longitude) * std::sin(latitude), std::cos(longitude)});
 }
 
+double sun_path_hour(double hour, double dawnStart, double duskEnd, double nightDelay) {
+    const double span = duskEnd - dawnStart;
+    if (nightDelay <= 0.0 || span <= 0.0 || hour <= dawnStart || hour >= duskEnd) {
+        return hour;
+    }
+    const double q = (hour - dawnStart) / span;
+    const double d = std::min(nightDelay, span / 4.0);
+    return dawnStart + d + q * (span - 2.0 * d);
+}
+
+Edges mission_edges(double dawnMinutes, double dawnDurationMinutes, double duskMinutes, double duskDurationMinutes) {
+    Edges out;
+    out.dawnStart = (dawnMinutes - dawnDurationMinutes / 2.0) / 60.0;
+    out.dawnEnd = (dawnMinutes + dawnDurationMinutes / 2.0) / 60.0;
+    out.duskStart = 12.0 + (duskMinutes - duskDurationMinutes / 2.0) / 60.0;
+    out.duskEnd = 12.0 + (duskMinutes + duskDurationMinutes / 2.0) / 60.0;
+    return out;
+}
+
 Edges edges_of(std::uint32_t dawnTime, std::uint32_t dawnDuration, std::uint32_t duskTime, std::uint32_t duskDuration, std::uint32_t dayLength) {
     Edges out;
     const std::uint32_t factor = dayLength > 0 ? (dawnTime + 86400U - duskTime) / dayLength : 22U;

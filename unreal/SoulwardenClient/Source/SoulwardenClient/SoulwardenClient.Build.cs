@@ -15,6 +15,8 @@ public class SoulwardenClient : ModuleRules
 		AddEngineThirdPartyPrivateStaticDependencies(Target, "zlib");
 		// The UI (docs/UI.md): the runtime of the module SwcUi (the canvases and Lua), drawn with Slate.
 		PrivateDependencyModuleNames.AddRange(new string[] { "SwcUi", "Slate", "SlateCore", "RHI", "RenderCore", "ImageCore", "Renderer" });
+		// The global shaders of the client (Source/SwcShaders, loaded at PostConfigInit): the local probes of each pixel (stage E5).
+		PrivateDependencyModuleNames.Add("SwcShaders");
 		// The water surfaces (docs/WATER.md): static meshes built at run time from mesh descriptions.
 		PrivateDependencyModuleNames.AddRange(new string[] { "MeshDescription", "StaticMeshDescription" });
 		// The particle effects (docs/PARTICLES.md): the Niagara systems of the importer, played by Effects/SwcEffects.

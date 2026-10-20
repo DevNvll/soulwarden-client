@@ -17,6 +17,7 @@
 #include "Dom/JsonObject.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Environment/SwcProbeShading.h"
 #include "Environment/SwcWorldTimeSubsystem.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -61,6 +62,9 @@ double MeterScale()
 
 /** The bias of the grade exposure (EV, a look scale; 0: the rule of the source). */
 TAutoConsoleVariable<float> CVarGradeBias(TEXT("swc.GradeBias"), 0.0f, TEXT("An offset of the exposure of the source rule (EV)."));
+TAutoConsoleVariable<float> CVarNightDelay(TEXT("swc.NightDelay"), 0.7f,
+	TEXT("The night delay of the sun path (hours; e_TimeOfDay_NightDelay of the source, default 0.7; research e5-menu-probe.md): the sun ")
+	TEXT("path runs from dawnStart + delay to duskEnd - delay; the curves of the time of day keep the hour. 0: the hour."));
 TAutoConsoleVariable<int32> CVarSunSource(TEXT("swc.SunSource"), 1,
 	TEXT("The sun light (stage E5, research/color-pipeline.md rule 7): 1 the \"Sun intensity\" and \"Sun color\" of the hour (the source), the light ")
 	TEXT("color divided by the ground transmittance of the atmosphere (the ground gets the source sun), 0 at the moon (the default); 0 the noon values, ")
@@ -69,6 +73,10 @@ TAutoConsoleVariable<int32> CVarSunSource(TEXT("swc.SunSource"), 1,
 TAutoConsoleVariable<int32> CVarSourceMeter(TEXT("swc.SourceMeter"), 2,
 	TEXT("The meter of the exposure: 2 the source meter of the frame (Environment/SwcMeterProbe: E = pi L / the G-buffer albedo, the geometric mean) ")
 	TEXT("corrects the target of 1; 1 the illuminance of the Unreal meter that ignores the materials (r.AutoExposure.IgnoreMaterials); 0 the scene luminance."));
+TAutoConsoleVariable<int32> CVarSsao(TEXT("swc.Ssao"), 0,
+	TEXT("A test of the screen-space AO (stage E5 step 3, research/e5-ssdo.md): 1 the AO values of the post process for the SSAO of Lumen ")
+	TEXT("(intensity 1, power 2, a world radius of 480 cm, bias 0, static fraction 0, quality 50; set r.Lumen.DiffuseIndirect.SSAO 1 and ")
+	TEXT("r.Lumen.ScreenProbeGather.ShortRangeAO 0 with it); 0 the values of Unreal."));
 
 /** Sets the console variables of the source meter (the engine reads them each frame). */
 void ApplySourceMeter(bool bSourceMeter)
@@ -389,6 +397,7 @@ TSharedPtr<USwcEnvironmentSubsystem::FData, ESPMode::ThreadSafe> LoadData(const 
 					Out->WorldProbe = FPaths::GetBaseFilename(Picture);
 					Out->WorldProbeDiffuse = NumberOf(Probe, TEXT("diffuseMultiplier"), 1.0);
 					Out->WorldProbeTodInfluence = NumberOf(Probe, TEXT("todInfluence"), 1.0);
+					USwcEnvironmentSubsystem::ReadCubeFaces(Probe, Out->WorldProbeFaces);
 					const TSharedPtr<FJsonObject>* Faces = nullptr;
 					if (Probe->TryGetObjectField(TEXT("faceMeans"), Faces) && Faces != nullptr)
 					{
@@ -420,9 +429,9 @@ TSharedPtr<USwcEnvironmentSubsystem::FData, ESPMode::ThreadSafe> LoadData(const 
 		const TArray<TSharedPtr<FJsonValue>>* Local = nullptr;
 		if (Probes->TryGetObjectField(TEXT("cubes"), Cubes) && Cubes != nullptr && Probes->TryGetArrayField(TEXT("local"), Local))
 		{
-			for (const TSharedPtr<FJsonValue>& Value : *Local)
+			for (int32 Index = 0; Index < Local->Num(); ++Index)
 			{
-				const TSharedPtr<FJsonObject> Probe = Value->AsObject();
+				const TSharedPtr<FJsonObject> Probe = (*Local)[Index]->AsObject();
 				const TSharedPtr<FJsonObject>* Cube = nullptr;
 				FString CubeName, Picture;
 				if (!Probe.IsValid() || !Probe->TryGetStringField(TEXT("cubemap"), CubeName) || !(*Cubes)->TryGetObjectField(CubeName, Cube)
@@ -433,6 +442,8 @@ TSharedPtr<USwcEnvironmentSubsystem::FData, ESPMode::ThreadSafe> LoadData(const 
 				USwcEnvironmentSubsystem::FData::FLocalProbe Item;
 				if (USwcEnvironmentSubsystem::ReadLocalProbe(Probe, Picture, Item))
 				{
+					USwcEnvironmentSubsystem::ReadCubeFaces(*Cube, Item.Faces);
+					Item.Order = Index;
 					Out->LocalProbes.Add(MoveTemp(Item));
 				}
 			}
@@ -508,6 +519,26 @@ bool USwcEnvironmentSubsystem::ReadLocalProbe(const TSharedPtr<FJsonObject>& Pro
 	return true;
 }
 
+bool USwcEnvironmentSubsystem::ReadCubeFaces(const TSharedPtr<FJsonObject>& Cube, std::array<double, 6>& Out)
+{
+	const TSharedPtr<FJsonObject>* Means = nullptr;
+	if (!Cube.IsValid() || !Cube->TryGetObjectField(TEXT("diffuseMeans"), Means) || Means == nullptr)
+	{
+		return false;
+	}
+	const TCHAR* Names[6] = {TEXT("+east"), TEXT("-east"), TEXT("+north"), TEXT("-north"), TEXT("+up"), TEXT("-up")};
+	for (int32 Face = 0; Face < 6; ++Face)
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Mean = nullptr;
+		if (!(*Means)->TryGetArrayField(Names[Face], Mean) || Mean == nullptr || Mean->Num() != 3)
+		{
+			return false;
+		}
+		Out[Face] = 0.2126 * (*Mean)[0]->AsNumber() + 0.7152 * (*Mean)[1]->AsNumber() + 0.0722 * (*Mean)[2]->AsNumber();
+	}
+	return true;
+}
+
 void USwcEnvironmentSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -534,6 +565,7 @@ void USwcEnvironmentSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 void USwcEnvironmentSubsystem::Deinitialize()
 {
 	SwcLoadingGate::Unregister(GetWorld(), TEXT("meter"));
+	SwcProbeShading::SetList(FSwcProbeShadingList());
 	if (Actor.IsValid())
 	{
 		Actor->Destroy();
@@ -772,7 +804,9 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	// The menu has no record: the default edges of the clock (06:00 and 19:00; the menu hour 16.7 is far from both).
 	static const swc::net::TimeRecord NoRecord;
 	const swc::net::TimeRecord& Record = bMenu ? NoRecord : Clock->GetRecord();
-	const env::Edges Edges = env::edges_of(Record.dawnTime, Record.dawnDuration, Record.duskTime, Record.duskDuration, Record.dayLength);
+	// The menu: the dawn and dusk fields of its mission (research e5-menu-probe.md), else the default edges.
+	const env::Edges Edges = bMenu && Menu->bMissionEdges ? env::mission_edges(Menu->DawnTime, Menu->DawnDuration, Menu->DuskTime, Menu->DuskDuration)
+		: env::edges_of(Record.dawnTime, Record.dawnDuration, Record.duskTime, Record.duskDuration, Record.dayLength);
 	const env::LightMultipliers Multipliers = env::light_multipliers(Hour, Edges);
 	// The sun (stage E5, the decision of 2026-10-20; research/color-pipeline.md rule 7): the "Sun intensity" and "Sun color" of the
 	// hour (the source has one light with these keys: the sun by day and the moon by night), on the ground as the source has it
@@ -786,7 +820,9 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	const double MoonLux = bAmbientOnly ? 0.0 : FMath::Max(0.0, Blended(TEXT("Sun intensity"), 0.0));
 	const env::LightColor MoonColor = env::light_color(BlendedColor(TEXT("Sun color")));
 	const FCelestial Bodies = Celestial();
-	const env::Vec3 SunToward = env::sun_toward(Hour, Bodies.SunRotation, Bodies.Longitude);
+	// The sun path takes the night delay of the source; the curves keep the hour.
+	SunPathHour = env::sun_path_hour(Hour, Edges.dawnStart, Edges.duskEnd, FMath::Max(0.0f, CVarNightDelay.GetValueOnGameThread()));
+	const env::Vec3 SunToward = env::sun_toward(SunPathHour, Bodies.SunRotation, Bodies.Longitude);
 	const env::Vec3 MoonToward = env::moon_toward(Bodies.MoonLatitude, Bodies.MoonLongitude);
 	// The weight of the moon: the fade of the source at the visual dawn and dusk of the record, or the sun below the horizon (0 at the
 	// sunset, 1 at TwilightDegrees below it): the moon comes when the physical sun goes (the night values of "Sun intensity" start
@@ -880,6 +916,19 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 		}
 		// The bloom mix of the source: in meter 2 the target has the factor 1 - w; else the bias takes it.
 		Post->Settings.AutoExposureBias = static_cast<float>(Compensation + MeterCorrection + (MeterMode == 2 ? 0.0 : FMath::Log2(1.0 - BloomMix)));
+		// The AO test (swc.Ssao 1): the first SSAO values of the SSDO study (its table "The values for the client").
+		const bool bSsao = CVarSsao.GetValueOnGameThread() != 0;
+		FPostProcessSettings& Ao = Post->Settings;
+		Ao.bOverride_AmbientOcclusionIntensity = Ao.bOverride_AmbientOcclusionPower = Ao.bOverride_AmbientOcclusionRadiusInWS = bSsao;
+		Ao.bOverride_AmbientOcclusionRadius = Ao.bOverride_AmbientOcclusionBias = Ao.bOverride_AmbientOcclusionStaticFraction = bSsao;
+		Ao.bOverride_AmbientOcclusionQuality = bSsao;
+		Ao.AmbientOcclusionIntensity = 1.0f;
+		Ao.AmbientOcclusionPower = 2.0f;
+		Ao.AmbientOcclusionRadiusInWS = true;
+		Ao.AmbientOcclusionRadius = 480.0f;   // cm: the outer projection of r_ssdoRadius 1.2 m in the single full-size pass (section 6)
+		Ao.AmbientOcclusionBias = 0.0f;
+		Ao.AmbientOcclusionStaticFraction = 0.0f;
+		Ao.AmbientOcclusionQuality = 50.0f;
 		const bool bSourceMeter = MeterMode != 0;
 		const FVector4 Rule(EvMin, EvMax, AutoCompensation, bSourceMeter ? MeterScale() : 0.0);
 		if (ExposureCurve == nullptr || !Rule.Equals(CurveRule, 0.005))

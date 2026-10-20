@@ -87,6 +87,20 @@ void test_sun_path(const char* path) {
     // The research model at noon (proof-metadata.json): toward the light -0.368688, 0.526541, 0.766044 with SunRotation 215, Longitude 130.
     const env::Vec3 noon = env::sun_toward(12.0, 215.0, 130.0);
     check(near(noon.x, -0.368688, 1e-5) && near(noon.y, 0.526541, 1e-5) && near(noon.z, 0.766044, 1e-5), "the sun at noon (the research model)");
+    // The night delay of the sun path (research e5-menu-probe.md): the menu mission (DawnTime 355, DawnDuration 10, DuskTime 365,
+    // DuskDuration 10 minutes) at the hour override 16.7000008 gives the hour 16.166487 and the sun 25.72 degrees high.
+    const env::Edges menuEdges = env::mission_edges(355.0, 10.0, 365.0, 10.0);
+    check(near(menuEdges.dawnStart, 5.833333, 1e-6) && near(menuEdges.dawnEnd, 6.0, 1e-9) && near(menuEdges.duskStart, 18.0, 1e-9)
+              && near(menuEdges.duskEnd, 18.166667, 1e-6),
+        "the edges of the menu mission (each window centered on its time, the dusk + 12 h)");
+    const double menuSunHour = env::sun_path_hour(16.7000008, menuEdges.dawnStart, menuEdges.duskEnd, 0.7);
+    check(near(menuSunHour, 16.166487, 1e-5), "the night delay of the sun path at the menu hour");
+    const env::Vec3 menuSun = env::sun_toward(menuSunHour, 190.0, 110.0);
+    check(near(menuSun.x, -0.900940, 1e-5) && near(menuSun.y, 0.001518, 1e-5) && near(menuSun.z, 0.433941, 1e-5),
+        "the menu sun of the source (25.72 degrees high)");
+    check(env::sun_path_hour(4.0, 6.0, 19.0, 0.7) == 4.0 && env::sun_path_hour(12.0, 6.0, 18.0, 0.7) == 12.0
+              && env::sun_path_hour(10.0, 6.0, 18.0, 0.0) == 10.0,
+        "the night delay: none at night, none at the middle of a symmetric day, none for a zero delay");
     const env::Vec3 midnight = env::sun_toward(0.0, 215.0, 130.0);
     check(midnight.z < 0.0, "the sun at midnight is below the horizon");
     const env::Vec3 moon = env::moon_toward(240.0, 35.0);

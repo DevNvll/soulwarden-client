@@ -225,6 +225,10 @@ void ASwcMenuPreview::SetEnvironment(const TSharedPtr<FJsonObject>& Doc)
 	Values->TryGetNumberField(TEXT("moonLatitude"), Scene.MoonLatitude);
 	Values->TryGetNumberField(TEXT("moonLongitude"), Scene.MoonLongitude);
 	Values->TryGetNumberField(TEXT("moonSize"), Scene.MoonSize);
+	// The edges of the sun path (the dawn and dusk fields of the menu mission, minutes): the night delay of the source.
+	Scene.bMissionEdges = Values->TryGetNumberField(TEXT("dawnTime"), Scene.DawnTime) && Values->TryGetNumberField(TEXT("duskTime"), Scene.DuskTime);
+	Values->TryGetNumberField(TEXT("dawnDuration"), Scene.DawnDuration);
+	Values->TryGetNumberField(TEXT("duskDuration"), Scene.DuskDuration);
 	// The environment probes of the scene (stage F4b): the record form of the local probes of probes.json, with their cube pictures.
 	const TArray<TSharedPtr<FJsonValue>>* Probes = nullptr;
 	const TSharedPtr<FJsonObject>* Cubes = nullptr;

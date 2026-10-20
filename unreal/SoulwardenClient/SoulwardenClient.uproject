@@ -5,6 +5,11 @@
 	"Description": "Personal client for the Soulwarden backend (local project)",
 	"Modules": [
 		{
+			"Name": "SwcShaders",
+			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit"
+		},
+		{
 			"Name": "SoulwardenClient",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"

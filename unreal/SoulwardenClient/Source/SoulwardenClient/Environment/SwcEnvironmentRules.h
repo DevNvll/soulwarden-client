@@ -65,6 +65,16 @@ struct Edges {
  *  an integer division) / 3600 hours. */
 Edges edges_of(std::uint32_t dawnTime, std::uint32_t dawnDuration, std::uint32_t duskTime, std::uint32_t duskDuration, std::uint32_t dayLength);
 
+/** @return The hour of the sun path with the night delay of the source (e_TimeOfDay_NightDelay, default 0.7 h; research
+ *  e5-menu-probe.md): strictly inside the daylight interval (dawnStart, duskEnd) and for a positive delay, effectiveHour = a + d +
+ *  q x (b - a - 2 d) with q = (hour - a) / (b - a) and d = min(delay, (b - a) / 4); else the hour. Only the sun path takes it: the
+ *  curves of the time of day keep the hour. */
+double sun_path_hour(double hour, double dawnStart, double duskEnd, double nightDelay);
+
+/** @return The edges of a mission (the Lighting element of a level mission: DawnTime, DawnDuration, DuskTime, DuskDuration in
+ *  minutes; the dusk with the 12-hour offset of the engine): each window centered on its time (the retail loader). */
+Edges mission_edges(double dawnMinutes, double dawnDurationMinutes, double duskMinutes, double duskDurationMinutes);
+
 /**
  * The multipliers of the two directional lights at an hour (the public engine, CTimeOfDay::UpdateEnvLighting): by night the dominant
  * light is the moon (1); in the first half of the dawn the moon fades out, in the second half the sun fades in; by day the sun (1);

@@ -15,6 +15,7 @@
 #include "Engine/Texture2D.h"
 #include "Engine/TextureCube.h"
 #include "Environment/SwcEnvironmentSubsystem.h"
+#include "Environment/SwcProbeShading.h"
 #include "Environment/SwcWorldTimeSubsystem.h"
 #include "HAL/IConsoleManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -79,7 +80,9 @@ TAutoConsoleVariable<int32> CVarSkyLightSource(TEXT("swc.SkyLightSource"), 1,
 	TEXT("The sky light (the ambient): 1 the world probe of the data with the time-of-day probe multipliers (stage E5), 0 the real-time capture of the Unreal sky."));
 TAutoConsoleVariable<float> CVarProbeScale(TEXT("swc.ProbeScale"), 1.0f, TEXT("A look scale of the world probe light (1: the units of the source)."));
 TAutoConsoleVariable<int32> CVarLocalProbes(TEXT("swc.LocalProbes"), 0,
-	TEXT("The local probes of the source (stage E5 step b, a test): 1 the sky light blends the world probe with the local probes at the camera by the weights of the source (the source selects them per pixel); 0 the world probe only."));
+	TEXT("The local probes of the source (stage E5, a test): 2 the probes of each pixel (a pass after the base pass scales the material AO by the light of the probes of the pixel over the world probe); 1 the sky light blends the world probe with the local probes at the camera by the weights of the source; 0 the world probe only."));
+TAutoConsoleVariable<float> CVarLocalProbeReach(TEXT("swc.LocalProbeReach"), 500.0f,
+	TEXT("swc.LocalProbes 2: the probes whose box sphere is within this distance of the camera (m); the nearest 64 go to the pass."));
 TAutoConsoleVariable<int32> CVarNightSkyTint(TEXT("swc.NightSkyTint"), 1,
 	TEXT("The night sky: 1 the hue of the night horizon color of the data, 0 the color of the SkyAtmosphere."));
 
@@ -396,6 +399,7 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 			UpdateLocalProbes(Ambient, CameraLocation, SourceUnitLuminance * Data->WorldProbeDiffuse * Diffuse * CVarProbeScale.GetValueOnGameThread(),
 				Linear(BlendedColor(TEXT("Environment Probe Multiplier"))));
 		}
+		UpdatePixelProbes(CameraLocation, Mode == 1 ? Linear(BlendedColor(TEXT("Environment Probe Multiplier"))) : FLinearColor::Black);
 	}
 	// The height fog: the legacy layers of the data (the bottom and the top density at their heights) and the second set (the
 	// "Volumetric fog 2" layers) as the two layers of the Unreal height fog, with look scales of the density.
@@ -723,7 +727,7 @@ void USwcEnvironmentSubsystem::UpdateSourceSky(double Hour, double MoonWeight)
 {
 	// The light of the sky model: the sun by day; by night the moon (the source puts the moon direction into the sky model at night).
 	const FCelestial Bodies = Celestial();
-	const env::Vec3 Toward = MoonWeight >= 0.5 ? env::moon_toward(Bodies.MoonLatitude, Bodies.MoonLongitude) : env::sun_toward(Hour, Bodies.SunRotation, Bodies.Longitude);
+	const env::Vec3 Toward = MoonWeight >= 0.5 ? env::moon_toward(Bodies.MoonLatitude, Bodies.MoonLongitude) : env::sun_toward(SunPathHour, Bodies.SunRotation, Bodies.Longitude);
 	const std::array<double, 3> Intensity = Times(BlendedColor(TEXT("Sky light: Sun intensity")), Blended(TEXT("Sky light: Sun intensity multiplier"), 100.0));
 	env::SkyModel Model;
 	Model.sunToward = Toward;
@@ -921,7 +925,7 @@ void USwcEnvironmentSubsystem::UpdateLocalProbes(USkyLightComponent* Ambient, co
 	// The local probes of the world (a test, swc.LocalProbes), or the probes of the menu scene in the menu mode (stage F4b of
 	// docs/FRONTEND.md: always; its scene probe has a box of 5 km, the probe of the whole menu level).
 	const TArray<FData::FLocalProbe>& LocalProbes = Menu.IsSet() ? Menu->Probes : Data->LocalProbes;
-	if (CVarLocalProbes.GetValueOnGameThread() != 0 || Menu.IsSet())
+	if (CVarLocalProbes.GetValueOnGameThread() == 1 || Menu.IsSet())
 	{
 		const env::Vec3 At{CameraLocation.X / 100.0, -CameraLocation.Y / 100.0, CameraLocation.Z / 100.0};
 		for (int32 Index = 0; Index < LocalProbes.Num(); ++Index)
@@ -1002,4 +1006,106 @@ void USwcEnvironmentSubsystem::UpdateLocalProbes(USkyLightComponent* Ambient, co
 	Ambient->SetIntensity(static_cast<float>(Total));
 	const double Scale = Total > 0.0 ? 1.0 / Total : 1.0;
 	Ambient->SetLightColor(Multiplier * FLinearColor(static_cast<float>(Tint[0] * Scale), static_cast<float>(Tint[1] * Scale), static_cast<float>(Tint[2] * Scale)));
+}
+
+void USwcEnvironmentSubsystem::UpdatePixelProbes(const FVector& CameraLocation, const FLinearColor& Multiplier)
+{
+	// The local probes of each pixel (stage E5 step 3, research/e5-local-probes.md): the probes near the camera go to the pass after
+	// the base pass in the order of the light list of the source. Off (an empty list) in the menu mode, with the real-time sky
+	// light (no world probe: Multiplier black), and for swc.LocalProbes 0 and 1.
+	FSwcProbeShadingList List;
+	const double Gain = 0.2126 * Multiplier.R + 0.7152 * Multiplier.G + 0.0722 * Multiplier.B;
+	if (CVarLocalProbes.GetValueOnGameThread() != 2 || Menu.IsSet() || !Data.IsValid() || Gain <= 0.0)
+	{
+		SwcProbeShading::SetList(MoveTemp(List));
+		return;
+	}
+	// The time-of-day gain of a probe: lerp(1, G x D, TODInfluence), G the luminance of "Environment Probe Multiplier" and D
+	// "Environment Probe Diffuse Multiplier" (the CPU rule of the source). The source unit and swc.ProbeScale are in both the world
+	// and the local light: the ratio of the pass has no need of them.
+	const double TodGain = Gain * Blended(TEXT("Environment Probe Diffuse Multiplier"), 1.0);
+	auto Faces = [](const std::array<double, 6>& F, double Scale, FVector3f& Positive, FVector3f& Negative)
+	{
+		// The source axes east, north, up are Unreal +X, -Y, +Z.
+		Positive = FVector3f(static_cast<float>(F[0] * Scale), static_cast<float>(F[3] * Scale), static_cast<float>(F[4] * Scale));
+		Negative = FVector3f(static_cast<float>(F[1] * Scale), static_cast<float>(F[2] * Scale), static_cast<float>(F[5] * Scale));
+	};
+	const double WorldScale = Data->WorldProbeDiffuse * FMath::Lerp(1.0, TodGain, Data->WorldProbeTodInfluence);
+	Faces(Data->WorldProbeFaces, WorldScale, List.WorldPositive, List.WorldNegative);
+	double WorldMean = 0.0;
+	for (double F : Data->WorldProbeFaces)
+	{
+		WorldMean += F * WorldScale / 6.0;
+	}
+	// The nearest probes (the gap from the camera to the box sphere), then the order of the source: the higher priority first (its
+	// low byte), then the smaller radius (the length of Area / 2), then the higher entity id (here the later record).
+	struct FNear
+	{
+		int32 Index;
+		double Gap;
+	};
+	TArray<FNear> Near;
+	const env::Vec3 At{CameraLocation.X / 100.0, -CameraLocation.Y / 100.0, CameraLocation.Z / 100.0};
+	const double Reach = CVarLocalProbeReach.GetValueOnGameThread();
+	for (int32 Index = 0; Index < Data->LocalProbes.Num(); ++Index)
+	{
+		const FData::FLocalProbe& Probe = Data->LocalProbes[Index];
+		const double Dx = At.x - Probe.Center.x, Dy = At.y - Probe.Center.y, Dz = At.z - Probe.Center.z;
+		const double Gap = FMath::Max(0.0, FMath::Sqrt(Dx * Dx + Dy * Dy + Dz * Dz) - Probe.Radius);
+		const bool bLight = Probe.Faces[0] + Probe.Faces[1] + Probe.Faces[2] + Probe.Faces[3] + Probe.Faces[4] + Probe.Faces[5] > 0.0;
+		if (Gap <= Reach && bLight)
+		{
+			Near.Add({Index, Gap});
+		}
+	}
+	Near.Sort([](const FNear& A, const FNear& B) { return A.Gap < B.Gap; });
+	const int32 Found = Near.Num();
+	Near.SetNum(FMath::Min(Near.Num(), FSwcProbeShadingList::MaxProbes));
+	Near.Sort([this](const FNear& A, const FNear& B)
+	{
+		const FData::FLocalProbe& PA = Data->LocalProbes[A.Index];
+		const FData::FLocalProbe& PB = Data->LocalProbes[B.Index];
+		if ((PA.Priority & 0xFF) != (PB.Priority & 0xFF))
+		{
+			return (PA.Priority & 0xFF) > (PB.Priority & 0xFF);
+		}
+		if (FMath::Abs(PA.Radius - PB.Radius) > UE_KINDA_SMALL_NUMBER)
+		{
+			return PA.Radius < PB.Radius;
+		}
+		return PA.Order > PB.Order;
+	});
+	int32 Brighter = 0;
+	for (const FNear& Item : Near)
+	{
+		const FData::FLocalProbe& Probe = Data->LocalProbes[Item.Index];
+		FSwcProbeShadingProbe& Out = List.Probes.AddDefaulted_GetRef();
+		Out.Center = FVector(Probe.Center.x * 100.0, -Probe.Center.y * 100.0, Probe.Center.z * 100.0);
+		for (int32 Row = 0; Row < 3; ++Row)
+		{
+			Out.Rows[Row] = FVector3f(static_cast<float>(Probe.Rows[Row].x / 100.0), static_cast<float>(-Probe.Rows[Row].y / 100.0),
+				static_cast<float>(Probe.Rows[Row].z / 100.0));
+		}
+		// AttenuationFalloffMax in 1/255 steps, at least 0.001 (the light setup of the source).
+		Out.Falloff = static_cast<float>(FMath::Max(FMath::RoundToDouble(255.0 * Probe.Falloff) / 255.0, 0.001));
+		const double Color = 0.2126 * Probe.Color[0] + 0.7152 * Probe.Color[1] + 0.0722 * Probe.Color[2];
+		const double Scale = Color * FMath::Lerp(1.0, TodGain, Probe.TodInfluence);
+		Faces(Probe.Faces, Scale, Out.Positive, Out.Negative);
+		double Mean = 0.0;
+		for (double F : Probe.Faces)
+		{
+			Mean += F * Scale / 6.0;
+		}
+		Brighter += Mean > WorldMean ? 1 : 0;
+	}
+	const double Now = FPlatformTime::Seconds();
+	if (Now >= NextPixelProbeLog)
+	{
+		NextPixelProbeLog = Now + 5.0;
+		const FData::FLocalProbe* First = Near.IsEmpty() ? nullptr : &Data->LocalProbes[Near[0].Index];
+		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the local probes of the pixels: %d of %d within %.0f m, %d with more light than the world probe (the AO cannot add it); the first %s (priority %d, radius %.1f m)"),
+			List.Probes.Num(), Found, Reach, Brighter, First != nullptr ? *First->Cube : TEXT("none"), First != nullptr ? First->Priority & 0xFF : 0,
+			First != nullptr ? First->Radius : 0.0);
+	}
+	SwcProbeShading::SetList(MoveTemp(List));
 }

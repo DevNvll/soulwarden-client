@@ -106,6 +106,9 @@ public:
 		double WorldProbeTodInfluence = 1.0;
 		/** The mean radiance of the four side faces of the world probe (the units of the source): the ambient of the far fog. */
 		std::array<double, 3> WorldProbeHorizon{0.3, 0.33, 0.35};
+		/** The ambient cube of the world probe (probes.json "diffuseMeans": the Rec. 709 luminance of the mean of each face of its
+		 *  diffuse cube, in the order +east, -east, +north, -north, +up, -up): the light of the pixels with no local probe. */
+		std::array<double, 6> WorldProbeFaces{1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 		/** A local probe of the source (stage E5 step b; probes.json "local"): its box (the center in the units of the source, m,
 		 *  and the rows that give the box space -1 to 1: the unit axes of the entity over the half sizes of Area X,Y,Z), the order
 		 *  (SortPriority, then the smaller box first), the fade at its edge (AttenuationFalloffMax), its color (COLOR x
@@ -121,6 +124,10 @@ public:
 			std::array<double, 3> Color{1.0, 1.0, 1.0};
 			double TodInfluence = 1.0;
 			FString Cube;
+			/** The ambient cube of its diffuse cube (as WorldProbeFaces; all 0 when the cube has no means: no light of its own). */
+			std::array<double, 6> Faces{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+			/** The place of the record in probes.json: the last key of the order (a stand-in for the entity id of the source). */
+			int32 Order = 0;
 		};
 		TArray<FLocalProbe> LocalProbes;
 		/** A rain or snow volume (stage E3): the full amount within the inner radius (m, horizontal), 0 at the outer radius, within
@@ -157,6 +164,9 @@ public:
 	/** Reads a local probe in the record form of probes.json "local" (also the probes of the menu scene) with the name of its cube
 	 *  picture (T_SwcProbe_NAME). @return False for a record with no place, area, or rows. */
 	static bool ReadLocalProbe(const TSharedPtr<class FJsonObject>& Probe, const FString& Picture, FData::FLocalProbe& Out);
+	/** Reads the ambient cube of a cube record of probes.json ("diffuseMeans": the luminance of each face mean, in the order of
+	 *  WorldProbeFaces). @return False when the record has no means. */
+	static bool ReadCubeFaces(const TSharedPtr<class FJsonObject>& Cube, std::array<double, 6>& Out);
 
 	/** The environment of the menu scene (the scene record of tools/convert-frontend.sh scene: "environment"). */
 	struct FMenuScene
@@ -172,6 +182,13 @@ public:
 		double MoonLatitude = 240.0;
 		double MoonLongitude = 35.0;
 		double MoonSize = 0.8;
+		/** The dawn and dusk fields of the Lighting element of the menu mission (minutes; the dusk with the 12-hour offset of the
+		 *  engine): the edges of the sun path in the menu (the night delay); a record with no fields keeps the default edges. */
+		bool bMissionEdges = false;
+		double DawnTime = 360.0;
+		double DawnDuration = 0.0;
+		double DuskTime = 420.0;
+		double DuskDuration = 0.0;
 		/** The environment probes of the menu scene, in place of the local probes of the world (stage F4b). */
 		TArray<FData::FLocalProbe> Probes;
 	};
@@ -183,13 +200,13 @@ public:
 	/** @return B of the particle effects: the evaluated "Particle Brightness Multiplier" of the scene preset with the volume blend and
 	 *  the clock (particle-rules2.md a; the later of two entries with that name wins, as the file order of the source). */
 	double ParticleBrightness() const { return Blended(TEXT("Particle Brightness Multiplier"), 1.0); }
-	/** The exposure rule of the source at the place: "EV Min", "EV Max", and "EV Auto compensation" of the blend (the meter probe). */
 	/** The source sun of the hour on the ground (swc.SunSource 1): "Sun color" / its Rec. 709 luminance x "Sun intensity" (lux), the
 	 *  one light of the source (the moon keys at night); A = 1 when set, 0 with swc.SunSource 0 (then a user takes the Unreal light). */
 	FLinearColor GetSourceSunLight() const
 	{
 		return SourceSunLight;
 	}
+	/** The exposure rule of the source at the place: "EV Min", "EV Max", and "EV Auto compensation" of the blend (the meter probe). */
 	FVector GetExposureRule() const
 	{
 		return FVector(Blended(TEXT("EV Min"), 5.0), Blended(TEXT("EV Max"), 17.0), Blended(TEXT("EV Auto compensation"), 1.5));
@@ -312,6 +329,8 @@ private:
 	/** The ground transmittance of the atmosphere toward the sun of the last frame (swc.SunSource 1; for the environment log line). */
 	FLinearColor SunTransmittance = FLinearColor::White;
 	FLinearColor SourceSunLight = FLinearColor::Transparent;
+	/** The hour of the sun path of the last frame (the night delay of the source: env::sun_path_hour), for the sky. */
+	double SunPathHour = 12.0;
 	/** The bloom mix of the source (swc.SourceBloom 1): w of exposure x ((1 - w) x scene + w x blur); 0 when off. */
 	double BloomMix = 0.0;
 	/** The cubes of the local probes (stage E5 step b), loaded at their first use; the cube of the blend and its fraction. */
@@ -320,6 +339,10 @@ private:
 	FString ProbeBlendCube;
 	/** The local probes at the camera for the probe log line. */
 	FString ProbeText;
+	/** The local probes of each pixel (swc.LocalProbes 2): the probes near the camera, in the order of the source, for the pass
+	 *  after the base pass (Environment/SwcProbeShading.cpp). */
+	void UpdatePixelProbes(const FVector& CameraLocation, const FLinearColor& Multiplier);
+	double NextPixelProbeLog = 0.0;
 	void UpdateLocalProbes(class USkyLightComponent* Ambient, const FVector& CameraLocation, double WorldIntensity, const FLinearColor& Multiplier);
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> GradeMaterial;

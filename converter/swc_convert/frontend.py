@@ -586,7 +586,11 @@ def environment(tod: dict | None, mission: bytes | None = None) -> dict:
     return {"preset": preset_path(tod.get("FileName", "")) if tod.get("FileName") else "", "hour": hour, "sky": slice_hint,
             "sunRotation": number(lighting, "SunRotation", 215.0), "longitude": number(lighting, "Longitude", 130.0),
             "moonLatitude": number(moon, "Latitude", 240.0), "moonLongitude": number(moon, "Longitude", 35.0),
-            "moonSize": number(moon, "Size", 0.8), "source": f"{LEVEL_PAK}:mission_mission0.xml"}
+            "moonSize": number(moon, "Size", 0.8),
+            # The edges of the sun path (minutes; the dusk with the 12-hour offset of the engine): the night delay of the source.
+            "dawnTime": number(lighting, "DawnTime", 360.0), "dawnDuration": number(lighting, "DawnDuration", 0.0),
+            "duskTime": number(lighting, "DuskTime", 420.0), "duskDuration": number(lighting, "DuskDuration", 0.0),
+            "source": f"{LEVEL_PAK}:mission_mission0.xml"}
 
 
 def water_level() -> float:

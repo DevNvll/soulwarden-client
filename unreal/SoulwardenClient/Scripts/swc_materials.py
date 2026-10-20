@@ -22,7 +22,7 @@ import unreal
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
 PARENT_VERSIONS = {"M_SwcFoliage": "3", "M_SwcSurface": "8", "M_SwcSurfaceMasked": "8", "M_SwcDecal": "7",
-                   "M_SwcGlass": "1", "M_SwcBeam": "4",
+                   "M_SwcGlass": "1", "M_SwcBeam": "5",
                    "M_SwcSurfaceTranslucent": "8"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
@@ -145,11 +145,6 @@ def base_texture(name, color, channels, value, content, state):
     assets.save_loaded_asset(texture)
     state["base:" + name] = "1"
     return texture
-
-
-def flat_data(content, state):
-    """@return The default of the turbulence color of M_SwcBeam: the flat normal (0.5, 0.5, 1) as RGBA data, TC_Masks."""
-    return base_texture("T_SwcFlatData", "data", 4, (128, 128, 255, 255), content, state)
 
 
 def white_linear(content, state):
@@ -862,16 +857,16 @@ for (int k = 0; k < 8; k++) {
   r += v * g.x * g.y * g.z;
 }
 return 2.0 * r - 0.25;"""
-# The UV of the base map: the TexMod tiling and offset (UVT), and the stretch oscillators of U and V (type 5;
-# O = rate U, rate V, amplitude U, amplitude V): (uv - 0.5) x (1 + amplitude x sin(2 pi rate t)) + 0.5 (an inference of
-# the CryEngine TexMod rule; the exact timing is an open point of the study).
-BEAM_BASE_UV_HLSL = """float2 uv = UV * UVT.xy + UVT.zw;
+# The shared UV of BeamPS (version 5, research beach-sheet-inputs.md "Shared UV order"): UV0 turned by uvRot turns (R), then
+# the stretch oscillators of the TexMod (type 5, about UV zero, not about 0.5; O = rate U, rate V, amplitude U, amplitude V:
+# 1 + amplitude x sin(2 pi rate t)), then the static tiling and offset of the TexMod (UVT). The base map samples it (x
+# baseUVScale 1); the dust map samples the same UV (below). The vertical color gradient keeps the original UV0.y (BEAM_VS_HLSL).
+BEAM_BASE_UV_HLSL = """float a = R * 6.2831853;
+float2 r = float2(UV.x * cos(a) - UV.y * sin(a), UV.y * cos(a) + UV.x * sin(a));
 float2 s = 1.0 + O.zw * sin(6.2831853 * O.xy * T);
-return (uv - 0.5) * s + 0.5;"""
-# The dust UV (BeamPS): the UV turned by uvRot turns, x dustUVScale, + the noise coordinate xy x dustTimeScale.
-BEAM_DUST_UV_HLSL = """float a = R * 6.2831853;
-float2 uv = float2(UV.x * cos(a) - UV.y * sin(a), UV.x * sin(a) + UV.y * cos(a));
-return uv * DS + NR.xy * DT;"""
+return r * s * UVT.xy + UVT.zw;"""
+# The dust UV (BeamPS): the shared UV x dustUVScale + the noise coordinate xy x dustTimeScale (its scroll; no second TexMod).
+BEAM_DUST_UV_HLSL = "return U * DS + NR.xy * DT;"
 # The turbulence UV: ((0.17 f, f) x 0.5 + 0.5) x turbStrength.
 BEAM_TURB_UV_HLSL = "return (float2(0.17 * f, f) * 0.5 + 0.5) * TS;"
 # The color and the alpha (BeamPS). F: the depth fade in source metres: min(saturate(s x min(zs - z, h, z)),
@@ -1027,16 +1022,17 @@ def beam_parent(content, state):
     editing.connect_material_expressions(nr, "", f, "NR")
     uvt = vector(material, "UVTransform", (1.0, 1.0, 0.0, 0.0), -1800, 1250)
     osc = vector(material, "BaseOscillator", (0.0, 0.0, 0.0, 0.0), -1800, 1400)
-    base_uv = custom(material, BEAM_BASE_UV_HLSL, cf.CMOT_FLOAT2, ("UV", "UVT", "O", "T"), -1500, 1250)
+    rot = scalar(material, "uvRot", 0.0, -1800, 1550)
+    base_uv = custom(material, BEAM_BASE_UV_HLSL, cf.CMOT_FLOAT2, ("UV", "R", "UVT", "O", "T"), -1500, 1250)
     editing.connect_material_expressions(coords, "", base_uv, "UV")
+    editing.connect_material_expressions(rot, "", base_uv, "R")
     editing.connect_material_expressions(uvt, "RGBA", base_uv, "UVT")
     editing.connect_material_expressions(osc, "RGBA", base_uv, "O")
     editing.connect_material_expressions(time, "", base_uv, "T")
-    rot = scalar(material, "uvRot", 0.0, -1800, 1550)
     dust_scale = scalar(material, "dustUVScale", 0.6, -1800, 1650)
     dust_time = scalar(material, "dustTimeScale", 1.0, -1800, 1750)
-    dust_uv = custom(material, BEAM_DUST_UV_HLSL, cf.CMOT_FLOAT2, ("UV", "R", "DS", "DT", "NR"), -1500, 1550)
-    for pin, source in {"UV": coords, "R": rot, "DS": dust_scale, "DT": dust_time, "NR": nr}.items():
+    dust_uv = custom(material, BEAM_DUST_UV_HLSL, cf.CMOT_FLOAT2, ("U", "DS", "DT", "NR"), -1500, 1550)
+    for pin, source in {"U": base_uv, "DS": dust_scale, "DT": dust_time, "NR": nr}.items():
         editing.connect_material_expressions(source, "", dust_uv, pin)
     turb_strength = scalar(material, "turbStrength", 1.0, -1800, 1850)
     turb_uv = custom(material, BEAM_TURB_UV_HLSL, cf.CMOT_FLOAT2, ("f", "TS"), -1500, 1850)
@@ -1046,9 +1042,10 @@ def beam_parent(content, state):
     editing.connect_material_expressions(base_uv, "", base, "UVs")
     dust = sampler(material, "Dust", st.SAMPLERTYPE_COLOR, white_color, -1200, 1550)
     editing.connect_material_expressions(dust_uv, "", dust, "UVs")
-    # The turbulence color: no texture in the slot gives the flat normal (0.5, 0.5, 1) of the source default
-    # (an inference: the default of an empty normal slot of CryEngine).
-    turb = sampler(material, "Turbulence", st.SAMPLERTYPE_MASKS, flat_data(content, state), -1200, 1850)
+    # The turbulence color: an empty Bumpmap slot samples engineassets/textures/white_ddn.dds raw (signed BC5, about
+    # (0.0045, 0.0045, 0); research beach-sheet-inputs.md): black (version 5; version 4 had the flat normal (0.5, 0.5, 1),
+    # which made the dust term 10 to 13 times too strong at a near beach sheet).
+    turb = sampler(material, "Turbulence", st.SAMPLERTYPE_MASKS, black_data(content, state), -1200, 1850)
     editing.connect_material_expressions(turb_uv, "", turb, "UVs")
     # The depth inputs and the globals.
     pixel_depth = node(material, unreal.MaterialExpressionPixelDepth, -1200, 2100)

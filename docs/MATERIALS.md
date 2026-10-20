@@ -259,7 +259,9 @@ The GeometryBeam shader of the source (the fog sheets and fog cards, the fog sph
   record of a beam is translucent: no Nanite. A world mesh with a beam slot in another folder keeps its rule until a
   conversion with rule 8 (world work). The overrides (`overrides.VERSION` 3) and the audit see the beam slots.
 - The spec (`material_records.beam_spec`, family `beam`): the base map (Diffuse, sRGB) with the stretch oscillators of its
-  TexMod, the dust map (Specular, sRGB), the turbulence color (Bumpmap; no map: the flat normal, an inference), the XML
+  TexMod, the dust map (Specular, sRGB), the turbulence color (Bumpmap; no map: black, version 5 of the parent: the empty slot
+  samples engineassets/textures/white_ddn.dds raw, signed BC5, about (0.0045, 0.0045, 0), research beach-sheet-inputs.md;
+  version 4 had the flat normal (0.5, 0.5, 1), which made the dust term of a near beach sheet 10 to 13 times too strong), the XML
   Diffuse and Opacity, the public parameters (the main `PublicParams`, not the `MaterialLayers` entry), and the flags
   (`BeamFlags`: `%NOISE`, `%APPLY_SUN_COLOR`, `%ENABLE_FADEOUT`, `%VERTICAL_GRADIENT`; `BeamFlags2`: `%UV_VIGNETTING`,
   `%GRADIENT_ALPHA`, `%APPLY_FOG_COLOR`).
@@ -286,6 +288,9 @@ The GeometryBeam shader of the source (the fog sheets and fog cards, the fog sph
   (the light gave about 4.48, 3.53, 4.72: the pink haze): the menu 21.8 / +24.4 -> 17.4 / +20.4 (dE / L*, with the menu ground of
   543638c). The sheets within 30 m of the Player Entity make all of the rest (`swc.MenuBeamBand 1`: 17.2 / +20.1; `2`, the far
   sheets only: 13.3 / +8.6; no sheets: 13.5 / +8.3); open: the rule that fades them in the source.
+- Version 5 of the parent (2026-10-20): the shared UV of the source (research beach-sheet-inputs.md): UV0 turned by uvRot,
+  then the stretch of the TexMod about UV zero, then its tiling and offset; the dust map samples the same UV x dustUVScale +
+  the noise scroll (version 4 scaled about 0.5, did not turn the base map, and did not stretch the dust map).
 - Version 1 and 2 of the parent did not compile (a wrong pin of the VertexColor node): Unreal drew the default material,
   a wall of gray squares in the menu (2026-10-20, 15:43 to 16:13 UTC). After an import, grep the client log for "Failed to
   compile".

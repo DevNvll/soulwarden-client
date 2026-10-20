@@ -1,0 +1,76 @@
+// The local environment probes of the source for each pixel (stage E5 step 3 of docs/ENVIRONMENT.md;
+// research/e5-local-probes.md; the pass: Source/SwcShaders/Private/SwcLocalProbePass.cpp).
+//
+// The source (tiledshading.cfib ApplyProbe) takes the probes of a pixel in the order of its light list: each probe takes its fade
+// of the weight that the probes before it left, and the world probe (a box of 100 km, the last in the list) takes the rest. The
+// output is the light of that blend over the light of the world probe alone (the luminance of the diffuse ambient cube toward the
+// normal), at most 1. The blend state multiplies the material AO in G-buffer C by it.
+
+#include "/Engine/Private/Common.ush"
+
+Texture2D SceneDepth;
+Texture2D GBufferA;
+Texture2D GBufferB;
+uint ProbeCount;
+float4 WorldPositive;
+float4 WorldNegative;
+// Each probe: the center (translated world, cm) and the falloff; the three rows of the box space (1/cm); the light toward +X, +Y,
+// +Z; the light toward -X, -Y, -Z.
+float4 Probes[MAX_PROBES * PROBE_STRIDE];
+
+// The light of an ambient cube toward the unit normal N: the squared components weight the faces on the side of N.
+float CubeLight(float3 N, float3 Positive, float3 Negative)
+{
+	return dot(N * N, lerp(Negative, Positive, step(0.0, N)));
+}
+
+// shadelib MapCubeToSphere of the source: a point of the cube -1 to 1 to the unit ball.
+float3 MapCubeToSphere(float3 V)
+{
+	const float3 V2 = V * V;
+	return V * sqrt(max(0.0, 1.0 - 0.5 * V2.yzx - 0.5 * V2.zxy + 0.333 * V2.yzx * V2.zxy));
+}
+
+// The fade of a probe (GetAttenuation and smoothstep_opt of the source; env::probe_fade of the client).
+float ProbeFade(float3 BoxSpace, float Falloff)
+{
+	if (any(abs(BoxSpace) >= 1.0))
+	{
+		return 0.0;
+	}
+	const float3 S = MapCubeToSphere(BoxSpace);
+	const float X = saturate(saturate(1.0 - dot(S, S)) / max(Falloff, 1e-6));
+	return X * X * (3.0 - 2.0 * X);
+}
+
+void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
+{
+	OutColor = float4(0.0, 0.0, 0.0, 1.0);
+	if (any(SvPosition.xy < View.ViewRectMin.xy) || any(SvPosition.xy >= View.ViewRectMin.xy + View.ViewSizeAndInvSize.xy))
+	{
+		return;
+	}
+	const int3 Pixel = int3(SvPosition.xy, 0);
+	const float DeviceZ = SceneDepth.Load(Pixel).r;
+	// The sky (reversed Z), and the unlit pixels (shading model 0 in the low 4 bits of G-buffer B alpha).
+	if (DeviceZ <= 0.0 || ((uint)round(GBufferB.Load(Pixel).a * 255.0) & 0xF) == 0)
+	{
+		return;
+	}
+	const float3 N = normalize(GBufferA.Load(Pixel).xyz * 2.0 - 1.0);
+	const float3 Position = SvPositionToTranslatedWorld(float4(SvPosition.xy, DeviceZ, 1.0));
+	float Used = 0.0;
+	float Light = 0.0;
+	for (uint Index = 0; Index < ProbeCount && Used < 1.0; ++Index)
+	{
+		const uint Base = Index * PROBE_STRIDE;
+		const float3 D = Position - Probes[Base].xyz;
+		const float Fade = ProbeFade(float3(dot(Probes[Base + 1].xyz, D), dot(Probes[Base + 2].xyz, D), dot(Probes[Base + 3].xyz, D)),
+			Probes[Base].w);
+		const float Weight = (1.0 - Used) * Fade;
+		Light += Weight * CubeLight(N, Probes[Base + 4].xyz, Probes[Base + 5].xyz);
+		Used += Weight;
+	}
+	const float World = max(CubeLight(N, WorldPositive.xyz, WorldNegative.xyz), 1e-6);
+	OutColor.a = saturate((Light + saturate(1.0 - Used) * World) / World);
+}
