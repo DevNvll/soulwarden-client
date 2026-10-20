@@ -51,7 +51,7 @@ CELLS_AGAIN = os.environ.get("SWC_WORLD_CELLS", "") == "1"
 # gathering nodes left out, the hidden collision instances of the game, no collision on the render instances; 3: a
 # distribution row places the meshes of its variant; 4: the material overrides of the placements, cells file version 2;
 # 5: the instances of the instanced mesh components of the slices, S0 of research/settlements.md).
-CELLS_VERSION = 5
+CELLS_VERSION = 6   # 6: the cells files of version 3 (the wind flag: the custom data SwcWind; the decal companions)
 # The terrain material of the game (world fidelity T1, SWC_WORLD_TERRAIN=1): a region with a terrain plan with slots
 # gets its Landscape again, with one target layer for each slot (the raw weights of its splat) and the material instance
 # MI_SwcTerrain_NAME (tools/import-terrain.sh). Version 1: the macro color map only (M_SwcLandscape).
@@ -346,6 +346,29 @@ def far_grid():
     return moved
 
 
+def far_grid_off():
+    """The far grid back to always loaded (AST-203: in the cooked and the uncooked client the far grid streamed slower than
+    LoadMap loads it: the world entry 43.5 s -> 57.9 s cooked). Loads the spatially loaded proxies and far mesh groups first.
+    @return The number of actors moved."""
+    result = unreal.WorldPartitionBlueprintLibrary.get_actor_descs()
+    descs = result[1] if isinstance(result, tuple) else result
+    guids = [d.guid for d in descs if str(d.label).endswith(" landscape proxy") or " impostors " in str(d.label)]
+    if guids:
+        unreal.WorldPartitionBlueprintLibrary.load_actors(guids)
+    moved = 0
+    for actor in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+        far = isinstance(actor, unreal.LandscapeStreamingProxy) or unreal.Name("SwcImpostor") in actor.get_editor_property("tags")
+        if far and str(actor.get_editor_property("runtime_grid")) == FAR_GRID:
+            library.set_runtime_grid(actor, unreal.Name("None"))
+            library.set_spatially_loaded(actor, False)
+            moved += 1
+    unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+    state.pop("far grid", None)
+    save_state()
+    log(f"far grid {FAR_GRID} off: {moved} actors always loaded again ({len(guids)} descriptors loaded)")
+    return moved
+
+
 def destroy_cells(name):
     """Destroys the cell actors of a region in the level (a new cells file replaces them). @return The count."""
     result = unreal.WorldPartitionBlueprintLibrary.get_actor_descs()
@@ -555,8 +578,10 @@ for name in regions:
     partial.pop(name)
     save_state()
     log(f"region {name}: {json.dumps(state['regions'][name])}")
-if not incomplete:
-    far_grid()
+if os.environ.get("SWC_WORLD_FAR_OFF") == "1":
+    far_grid_off()
+elif not incomplete and state.get("far grid"):
+    far_grid()   # the new regions of a level that has the far grid
 # The bounds of the regions that have the current cells and no bounds file yet, from their saved descriptors.
 bounds_folder = os.path.join(os.environ.get("SWC_WORK", os.path.expanduser("~/Games/soulwarden-client")), "logs", "cell-bounds")
 for name, done in state["regions"].items():

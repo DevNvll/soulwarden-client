@@ -12,7 +12,8 @@
 #   [--terrain: a region in the level gets its Landscape again with the target layers of its terrain plan (T1;
 #    build_world.py TERRAIN_VERSION; tools/import-terrain.sh first)]
 #   [--far-grid: only the far grid step (the Landscape proxies and the far mesh groups into the runtime grid SwcFar of
-#    build_world.py; SWC_WORLD_FAR_RANGE cm, default 20 km), one call with no region]
+#    build_world.py; SWC_WORLD_FAR_RANGE cm, default 20 km), one call with no region; --far-grid-off: back to always loaded
+#    (the far grid streamed slower than LoadMap, docs/WORLD.md "The far grid")]
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 "${SWC_REPO}/tools/content-link.sh"
@@ -27,6 +28,7 @@ for argument in "$@"; do
         --cells) export SWC_WORLD_CELLS=1 ;;
         --terrain) export SWC_WORLD_TERRAIN=1 ;;
         --far-grid) far_only=1 ;;
+        --far-grid-off) far_only=1; export SWC_WORLD_FAR_OFF=1 ;;
         --all|--playable)
             mapfile -t -O "${#regions[@]}" regions < <(cd "${SWC_REPO}/converter" && python3 -B -c "
 import sys
@@ -37,10 +39,12 @@ print('\n'.join(census.world_regions() if sys.argv[1] == 'all' else census.playa
 done
 [[ ${#regions[@]} -gt 0 || ${far_only} -eq 1 ]] || { echo "usage: tools/build-world.sh NAME... | --playable | --all [--force]" >&2; exit 1; }
 mkdir -p "${SWC_WORK}/logs"
-in_level() {   # with --cells or --terrain: in the level with the current rule (CELLS_VERSION 5, TERRAIN_VERSION 2)
+# The cells version of the current rule (build_world.py CELLS_VERSION).
+cells_version="$(grep -oP '^CELLS_VERSION = \K[0-9]+' "${SWC_REPO}/unreal/SoulwardenClient/Scripts/build_world.py")"
+in_level() {   # with --cells or --terrain: in the level with the current rule (CELLS_VERSION, TERRAIN_VERSION 2)
     [[ -f "${SWC_GAME_CONTENT}/world-state.json" ]] && \
-        python3 -B -c "import json,sys; r = json.load(open(sys.argv[1]))['regions'].get(sys.argv[2]); sys.exit(0 if r is not None and (sys.argv[3] != '1' or r.get('cells version', 1) >= 5) and (sys.argv[4] != '1' or r.get('terrain version', 1) >= 2) else 1)" \
-            "${SWC_GAME_CONTENT}/world-state.json" "$1" "${SWC_WORLD_CELLS:-}" "${SWC_WORLD_TERRAIN:-}"
+        python3 -B -c "import json,sys; r = json.load(open(sys.argv[1]))['regions'].get(sys.argv[2]); sys.exit(0 if r is not None and (sys.argv[3] != '1' or r.get('cells version', 1) >= int(sys.argv[5])) and (sys.argv[4] != '1' or r.get('terrain version', 1) >= 2) else 1)" \
+            "${SWC_GAME_CONTENT}/world-state.json" "$1" "${SWC_WORLD_CELLS:-}" "${SWC_WORLD_TERRAIN:-}" "${cells_version}"
 }
 editor_log="${SWC_REPO}/unreal/SoulwardenClient/Saved/Logs/SoulwardenClient.log"
 # The Landscape step needs the renderer (the edit layers of the Landscape use the GPU). The cells again need no renderer:
@@ -52,6 +56,8 @@ render=(-AllowCommandletRendering -RenderOffscreen)
 # One call of build_world.py for the regions (SWC_WORLD_REGIONS) with import.lock; sets `status`, writes one line.
 build_call() {   # build_call REGIONS LABEL
     status=0
+    # The RAM rule: an Unreal process starts only with 14 GB or more available.
+    until [ "$(free -g | awk '/Mem:/{print $7}')" -ge 14 ]; do sleep 30; done
     rm -f "${SWC_WORK}/logs/build-world-seconds"
     SWC_WORLD_REGIONS="$1" world_write -w 3600 flock -w 3600 -o -E 75 "${SWC_WORK}/unreal/import.lock" \
         bash -c 'out="$1"; shift; start=${SECONDS}; status=0; "$@" || status=$?; echo $((SECONDS - start)) > "${out}"; exit ${status}' _ \

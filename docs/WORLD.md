@@ -457,8 +457,19 @@ the uncooked runs are c2 and c3 of "The loading"; video `evidence/loading/sbs-en
 | The light after the screen | luma within 2 to 3 % | luma within 2 % (71.0 to 72.6), exposure within 0.14 EV |
 | The longest frame in the 5 s after the spawn | 0.08 s | 0.145 s |
 
-The rest of the cooked world entry: LoadMap 11.3 s (the 784 Landscape proxies: a second runtime grid would move them out of
-LoadMap), about 10 s of the login and the character list, the wait of 18.5 s (the cells within 150 m, the systems, the light).
+The rest of the cooked world entry: LoadMap 11.3 s (the 784 Landscape proxies), about 10 s of the login and the character
+list, the wait of 18.5 s (the cells within 150 m, the systems, the light).
+
+The far grid (a trial of 2026-10-20, taken back): `tools/build-world.sh --far-grid` put the 1,188 Landscape proxies and far
+mesh groups into a second runtime grid `SwcFar` (cells of 2,048 m, a loading range of 20 km, priority 10) in place of always
+loaded, and the gate waited for that grid within its range. LoadMap became short (cooked 11.3 s -> 1.4 s, editor binary
+22.7 s -> 4.3 s), but the wait of the screen became longer by more: the far cells load only after the cells of the main grid
+(0 of 49 far cells for 41 s, then all 49 in about 30 s), and each big proxy goes into the world in slices of the engine
+(`s.LevelStreamingActorsUpdateTimeLimit`). Cooked: the wait 18.5 s -> 48.6 s, the spawn 43.5 s -> 57.9 s, PLAY 14.0 s -> 28.3 s;
+a larger streaming time in each frame during the screen (300 ms) gave no gain (the wait 58.1 s, PLAY 37.2 s). Editor binary:
+the spawn 80.9 to 93.5 s, a hitch of 3.5 s. Late content stayed 0. Thus `tools/build-world.sh --far-grid-off` made the
+actors always loaded again; the code (`EnsureRuntimeGrid`, `SetRuntimeGrid`, the far grid check of the gate) stays, with
+no effect while the level has no far grid.
 
 A new cook after a change (the rule): an import, a converter change of the content, or a change of the client code (Source,
 Lua, Config) makes the cooked build old; `tools/play.sh` then uses the editor binary (and says why) until `tools/cook.sh` runs
@@ -626,6 +637,15 @@ materials track).
   to 3. Check of the converter on `r_+04_+02` (a temporary folder): the census gives the same arrays as before and
   the new `wind`; the version 3 file has the same instances of each mesh in each actor as the version 2 file (64
   actors, 188,681 instances; 175 entries with wind, 8,021 instances).
+- The level (2026-10-20): until then the 49 `cells.bin` files were version 2, thus no cell actor had `SwcWind`. The
+  files are now version 3 (337,486 wind instances), and `build_world.py` `CELLS_VERSION` 6 makes the cell actors of
+  each region again (`tools/build-world.sh --cells`: calls of about 4 to 8 min, the world lock is free between them).
+- The check (`evidence/wind/wind-river1-*.mp4`, river-forest-noon against the retail video of the same camera): the
+  plants of the client do not move. The mean frame difference in the plant areas: retail 1.8 to 11.9, client 0.4 to
+  0.9 (the noise of the video). The cause is not the cells: the deployed specs of the materials track
+  (`content/materials/instances.json`) have no static switch `Wind` (M6 is only in `instances-candidate.json`, 622
+  specs), and the switch is off by default, thus `M_SwcFoliage` has no world position offset. The motion comes with
+  the deploy of M6.
 
 ## The terrain material of the game (world fidelity T1)
 
