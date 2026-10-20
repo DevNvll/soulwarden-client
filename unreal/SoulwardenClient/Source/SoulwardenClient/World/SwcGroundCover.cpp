@@ -410,6 +410,11 @@ bool USwcGroundCover::BuildBatch(const FIntPoint& Batch, FBatch& Out)
 		Component->SetCastShadow(bShadow);   // off until T4 (swc.GroundCover.Shadow)
 		Component->InstanceEndCullDistance = static_cast<int32>(RangeCm);
 		Component->SetDefaultCustomPrimitiveDataFloat(0, Descriptor.Bending);   // "SwcWind" (E1)
+		static const IConsoleVariable* WindEvaluate = IConsoleManager::Get().FindConsoleVariable(TEXT("swc.Wind.Evaluate"));
+		if (Descriptor.Bending > 0.0f && WindEvaluate != nullptr && WindEvaluate->GetInt() == 0)
+		{
+			Component->SetEvaluateWorldPositionOffset(false);   // the cost test of the wind (swc.Wind.Evaluate)
+		}
 		for (const TPair<FName, FSoftObjectPath>& Slot : Descriptor.Slots)
 		{
 			const int32 Index = Mesh->GetMaterialIndex(Slot.Key);

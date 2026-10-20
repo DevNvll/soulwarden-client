@@ -653,6 +653,10 @@ materials track).
   bending is a static offset (the wind x the bend, no time term: the source makes the bend vector on the CPU each
   frame, and that rule is not traced), and only the detail bending (175 specs with `%DETAIL_BENDING`) moves with the
   time. The motion needs the CPU wind rule of the source (the bend vector of an instance in time).
+- The cost test: `swc.Wind.Evaluate 0` turns off the world position offset of each mesh component with `SwcWind` above 0
+  (Nanite and the virtual shadow maps then treat it as static), `1` turns it on again; components that stream in after
+  the change keep the default, and the ground cover reads it for each new batch (matched-view variants, for example
+  `--variant 'VIEW@off=swc.Wind.Evaluate 0;ProfileGPU'`).
 
 ## The terrain material of the game (world fidelity T1)
 

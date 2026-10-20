@@ -5,6 +5,8 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "HAL/IConsoleManager.h"
+#include "UObject/UObjectIterator.h"
 #include "HAL/PlatformTime.h"
 #include "GameFramework/PlayerController.h"
 #include "Misc/CommandLine.h"
@@ -41,6 +43,32 @@ constexpr double ImpostorNearCm = 25600.0;
 constexpr double ImpostorGroupRadiusCm = 36204.0;
 /** The runtime grid of the Landscape proxies and the far mesh groups (Scripts/build_world.py, FAR_GRID). */
 const FName FarGrid(TEXT("SwcFar"));
+
+/** A test switch of the cost of the wind (docs/WORLD.md "The wind flag"): 0 turns off the world position offset of each mesh
+ * component with the wind (SwcWind, the custom primitive data 0, above 0), so Nanite and the virtual shadow maps treat it as
+ * static; 1 turns it on again. Components that stream in after the change keep the default (on); the ground cover reads it
+ * for each new batch. */
+void SetWindEvaluate(IConsoleVariable* Variable)
+{
+	const bool bOn = Variable->GetInt() != 0;
+	int32 Changed = 0;
+	for (TObjectIterator<UStaticMeshComponent> It; It; ++It)
+	{
+		UStaticMeshComponent* Component = *It;
+		const UWorld* World = Component->GetWorld();
+		const TArray<float>& Data = Component->GetDefaultCustomPrimitiveData().Data;
+		if (World != nullptr && World->IsGameWorld() && Data.Num() > 0 && Data[0] > 0.0f &&
+			Component->bEvaluateWorldPositionOffset != bOn)
+		{
+			Component->SetEvaluateWorldPositionOffset(bOn);
+			++Changed;
+		}
+	}
+	UE_LOG(LogSwcWorldTools, Log, TEXT("world: swc.Wind.Evaluate %d: %d components with the wind changed"), bOn ? 1 : 0, Changed);
+}
+TAutoConsoleVariable<int32> CVarWindEvaluate(TEXT("swc.Wind.Evaluate"), 1,
+	TEXT("1: the wind moves the vegetation (the world position offset); 0: off for each component with the wind (a cost test)."),
+	FConsoleVariableDelegate::CreateStatic(&SetWindEvaluate));
 } // namespace
 
 bool USwcWorldSubsystem::ImpostorHidden(const AActor* Impostor, const FVector& View) const
