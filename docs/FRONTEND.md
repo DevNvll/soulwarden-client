@@ -727,5 +727,27 @@ has another look). Before F4b (K4, the menu mode): ΔE 24.3 (top 16.2, middle 30
   L* +46.9 -> +32.7); the ground is a dark green-gray of grass and soil.
 - Step 5, the campfire: not done. The 16 particle components near the scene need a runtime of the effects, which the client
   does not have.
+- The ground under the feet (the note of the user: green, no brown dirt): the splats of r_+01_+00 at the Player Entity (0.6 m
+  south of the region border) are the forest soil 255, the forest grass 254, and the field grass 235, in this list order:
+  by the data the field grass (green) is on top there, and the composite is green. The textures are correct (the rocky dirt
+  base and the forest soil are brown, the forest grass is grass with dirt and leaves, the field grass is green); the forest
+  grass has a macro saturation of 2.0. The orientation of the bake agrees with the heights (the props stand on the ground)
+  and with the export rule (row 0 = north). The menu level pak has no terrain of its own (11 files). Open: why retail
+  shows brown dirt there (the ground cover of the terrain, its leaves and stones, is not in the menu; T3 of the world).
+- The decals: the 10 projected decals within 60 m (the dirt patches of the camp, a moss patch, symbols) by the rule of the
+  world surface layer (`decals.decal_transforms`: the `dp_` instances, all imported). Two dirt decals name their material
+  with no `.mtl` ending (the record adds it). Only 3 are in the view, at the campfire, mostly behind the character list
+  panel; none is under the feet (run `f4b-d1`).
+- The backdrop of B6-04 (the second note of the user: a large pale figure with red streaks and a cyan ring above the trees):
+  the cards of the FTUE vista. `Vista_Mountain` (`objects/landmarks/ftue_vista/ftue_vista.cgf`, a card of 6.6 m at the scale
+  114, 2,484 m away) is the mountain with the red lava streaks; `Fute_level_Vortex` (`ftue_level_vortex.cgf`, 60.5 m at the
+  scale 13.6, 3,136 m) is the cyan ring; two fog sheets (`Vista_Clouds` at 862 m and `Vortex_Fog` at 2,467 m, both
+  `jav_fogsheet_a` at the scales 114 and 201) make the mountain pale. The far part missed them (it stopped at 400 m, and it
+  used the radius of the glTF with no scale). The rule now: from 60 m to 400 m a radius x scale of 5 m or more; beyond, up to
+  the far clip of MainCamera (8,000 m), an angular radius of 0.05 rad or more; both in the view. The two meshes are
+  converted and imported (after the cook). The mountain card has its instance spec and shows (run `f4b-v2`: ΔE 18.9, top
+  8.6). The vortex card waits (`VISTA_WAITING`): its material is an emissive translucent card with no instance spec, and its
+  plain import is an opaque dark card over the sky (run `f4b-v1`, top 11.3). The vortex material and the fog sheets are the
+  materials work of AST-207. `evidence/F4b/compare/backdrop-crop.png`, `feet-crop.png`.
 - After these steps (with the composite ground): ΔE 18.4. The client is still brighter (L* +19.9), less saturated (-0.12), and colder than B6-04, with
   less fog and no dark parts (the dark part 0.00 against 0.23).

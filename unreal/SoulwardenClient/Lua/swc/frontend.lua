@@ -214,6 +214,14 @@ end
 --- A failed login of the selected character (no login token): the connection state 0 and the error text in the data node
 --- MainMenu.LastError (the data callback of landingscreenv2.luac shows the popup "@mm_connectionfailed" with the text; its OK
 --- resets the screen, and PLAY can try again).
+-- The delete of a character (stage F8): the landing screen asks with its hold-to-accept popup, then calls
+-- UiCharacterServiceRequestBus DeactivateCharacter(id) in the callback of its server spinner: the host request "menu delete ID"
+-- (the host sends DELETE /prod/game/characters/ID). The host answers with Swc.HostMenuDeleteResult(id, ok):
+-- UiCharacterServiceNotificationBus DeactivateCharacterResult, after which the landing screen asks for its list again.
+function Swc.HostMenuDeleteResult(characterId, ok)
+  Swc.Notify("UiCharacterServiceNotificationBus", nil, "DeactivateCharacterResult", ok and true or false, tostring(characterId or ""))
+end
+
 function Swc.HostMenuLoginFailed(text)
   F.connection = 0
   Swc.SetData("MainMenu.LastError", text or "@mm_loginservices_UnableToConnectError")
@@ -411,6 +419,10 @@ Swc.Define("JavelinCameraRequestBus", "Broadcast", {
   EnableDepthOfField = function() end,
   SetDepthOfField = function() end,
   ResetDepthOfField = function() end,
+})
+
+Swc.Define("UiCharacterServiceRequestBus", "Broadcast", {
+  DeactivateCharacter = function(characterId) request("menu delete " .. tostring(characterId or "")) end,
 })
 
 Swc.Define("GameRequestsBus", "Broadcast", {

@@ -182,6 +182,114 @@ answer(five)
 frames(0.5)
 equal(L.selectedCharacterId, "c-3", "the host selection c-3 again")
 
+-- Stage F8: the delete of a character. OnCharacterDeletePressed (the delete of the options of a row) opens the popup of the
+-- script with the hold-to-accept buttons; No and a short hold send nothing; a full hold of Yes closes the popup, shows the server
+-- spinner, and its callback calls DeactivateCharacter once ("menu delete ID"); the result of the host makes the script ask for
+-- its list again.
+local function popup_root()
+  for _, canvas in ipairs(swcui.canvases and swcui.canvases() or {}) do
+    if string.find(string.lower(swcui.canvas_get(canvas, "path") or ""), "popup/popup", 1, true) then
+      return canvas, swcui.canvas_get(canvas, "root")
+    end
+  end
+end
+local popupCanvas, popupTop = popup_root()
+local function hold(id, seconds)
+  move_to(id)
+  Swc.HostInput("button", "left", true)
+  frames(seconds)
+  Swc.HostInput("button", "left", false)
+  frames(0.1)
+end
+local function deletes()
+  return requests("menu delete")
+end
+Swc.hostRequests = {}
+L:OnCharacterDeletePressed()
+frames(0.5)
+check(popupCanvas ~= nil and swcui.canvas_get(popupCanvas, "enabled"), "delete: the popup of the script shows")
+-- The hold buttons: the elements ButtonYes and ButtonNo of ButtonHolderYesNoHold (the script fields ButtonYesHold, ButtonNoHold).
+local holdHolder = popupTop and find(popupTop, "ButtonHolderYesNoHold")
+local yesHold, noHold = holdHolder and find(holdHolder, "ButtonYes"), holdHolder and find(holdHolder, "ButtonNo")
+check(yesHold ~= nil and swcui.enabled_in_hierarchy(yesHold), "delete: the hold-to-accept Yes button shows")
+picture("frontend-delete")
+if noHold then
+  click(noHold)
+end
+frames(0.5)
+equal(#deletes(), 0, "delete: No sends nothing")
+check(not swcui.canvas_get(popupCanvas, "enabled"), "delete: No closes the popup")
+L:OnCharacterDeletePressed()
+frames(0.5)
+if yesHold then
+  hold(yesHold, 0.3)
+end
+frames(0.5)
+equal(#deletes(), 0, "delete: a short hold of Yes (0.3 s) sends nothing")
+check(swcui.canvas_get(popupCanvas, "enabled"), "delete: after a short hold the popup stays")
+if yesHold then
+  hold(yesHold, 3.0)
+end
+frames(2.0)
+local sent = deletes()
+equal(#sent, 1, "delete: a full hold of Yes sends one request")
+equal(sent[1], "menu delete c-3", "delete: the request has the selected id")
+check(not swcui.canvas_get(popupCanvas, "enabled"), "delete: the popup closes after the hold")
+Swc.hostRequests = {}
+Swc.HostMenuDeleteResult("c-3", true)
+frames(0.5)
+check(#requests("menu list") >= 1, "delete: the result makes the script ask for its list")
+answer({five[1], five[2], five[4], five[5]})
+frames(0.5)
+equal(#L.currentCharacterData, 4, "delete: the list has 4 rows after the delete")
+check(L.selectedCharacterId ~= "c-3" and L.selectedCharacterId ~= "", "delete: an other character is selected (" .. tostring(L.selectedCharacterId) .. ")")
+equal(#deletes(), 0, "delete: no second request")
+-- A failed delete (also the refusal of a character of an other account: the backend answers 404): the list keeps the row.
+Swc.hostRequests = {}
+L:OnCharacterDeletePressed()
+frames(0.5)
+if yesHold then
+  hold(yesHold, 3.0)
+end
+frames(2.0)
+local failedId = string.match(deletes()[1] or "", "^menu delete (.+)$")
+check(failedId ~= nil, "delete: the second delete sends its request")
+Swc.hostRequests = {}
+Swc.HostMenuDeleteResult(failedId, false)
+frames(0.5)
+check(#requests("menu list") >= 1, "a failed delete: the script asks for its list")
+answer({five[1], five[2], five[4], five[5]})
+frames(0.5)
+equal(#L.currentCharacterData, 4, "a failed delete: the row stays")
+check(L.PlayButton:IsEnabled(), "a failed delete: PLAY is enabled again")
+-- The delete of the last character: the list is empty after the refresh (no rows, no preview, no login).
+L:RefreshWorldList()
+frames(0.1)
+answer({five[2]})
+frames(0.5)
+equal(#L.currentCharacterData, 1, "the last character: one row")
+Swc.hostRequests = {}
+L:OnCharacterDeletePressed()
+frames(0.5)
+if yesHold then
+  hold(yesHold, 3.0)
+end
+frames(2.0)
+equal(deletes()[1], "menu delete c-2", "the last character: its delete request")
+Swc.HostMenuDeleteResult("c-2", true)
+frames(0.5)
+answer({})
+frames(0.5)
+equal(#L.currentCharacterData, 0, "the last character: no row after the delete")
+check(not F.previewShown, "the last character: the preview is hidden")
+-- Back to the five rows for the checks below (the selection c-3 by the host).
+Swc.HostMenuSelected("c-3")
+L:RefreshWorldList()
+frames(0.1)
+answer(five)
+frames(0.5)
+equal(L.selectedCharacterId, "c-3", "the five rows and c-3 again")
+
 -- Options and back: options.luac ExitScreen goes to the escape menu of the main menu (MainMenuEsc), Escape there to the
 -- landing screen.
 L:LandingOptions()

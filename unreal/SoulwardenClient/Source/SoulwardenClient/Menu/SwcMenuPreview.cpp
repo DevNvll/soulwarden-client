@@ -15,6 +15,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "SwcBackendSubsystem.h"
+#include "Components/DecalComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/SpotLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -288,8 +289,49 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 			Placements.Add(MoveTemp(Placement));
 		}
 	}
+	// The projected decals of the scene (stage F4b: the dirt patches of the camp), in the form of the world surface layer
+	// (decals.decal_transforms: the dp_ instance, the box, the sort priority, the color and the opacity).
+	struct FDecalPlacement
+	{
+		FSoftObjectPath Material;
+		FTransform Transform;
+		FVector Size;
+		int32 SortOrder = 0;
+		FLinearColor Color = FLinearColor::White;
+	};
+	TArray<FDecalPlacement> Decals;
+	const TArray<TSharedPtr<FJsonValue>>* DecalRecords = nullptr;
+	if (Doc->TryGetArrayField(TEXT("decals"), DecalRecords))
+	{
+		for (const TSharedPtr<FJsonValue>& Value : *DecalRecords)
+		{
+			const TSharedPtr<FJsonObject> Item = Value->AsObject();
+			const FString Key = Item->GetStringField(TEXT("material"));
+			const TArray<TSharedPtr<FJsonValue>>& L = Item->GetArrayField(TEXT("location"));
+			const TArray<TSharedPtr<FJsonValue>>& R = Item->GetArrayField(TEXT("rotation"));
+			const TArray<TSharedPtr<FJsonValue>>& S = Item->GetArrayField(TEXT("size"));
+			FDecalPlacement Decal;
+			Decal.Material = FSoftObjectPath(FString::Printf(TEXT("/SwcGameContent/Materials/%s.%s"), *Key, *Key));
+			Decal.Transform = FTransform(FQuat(R[0]->AsNumber(), R[1]->AsNumber(), R[2]->AsNumber(), R[3]->AsNumber()),
+				FVector(L[0]->AsNumber(), L[1]->AsNumber(), L[2]->AsNumber()));
+			Decal.Size = FVector(S[0]->AsNumber(), S[1]->AsNumber(), S[2]->AsNumber());
+			Decal.SortOrder = static_cast<int32>(Item->GetNumberField(TEXT("sort priority")));
+			const TArray<TSharedPtr<FJsonValue>>* Color = nullptr;
+			if (Item->TryGetArrayField(TEXT("color"), Color) && Color->Num() >= 4)
+			{
+				Decal.Color = FLinearColor((*Color)[0]->AsNumber(), (*Color)[1]->AsNumber(), (*Color)[2]->AsNumber(), (*Color)[3]->AsNumber());
+			}
+			double Opacity = 1.0;
+			if (Item->TryGetNumberField(TEXT("opacity"), Opacity))
+			{
+				Decal.Color.A *= static_cast<float>(Opacity);
+			}
+			Paths.AddUnique(Decal.Material);
+			Decals.Add(MoveTemp(Decal));
+		}
+	}
 	TWeakObjectPtr<ASwcMenuPreview> Self(this);
-	const auto Place = [Self, Placements, NotConverted]()
+	const auto Place = [Self, Placements, Decals, NotConverted]()
 	{
 		ASwcMenuPreview* Preview = Self.Get();
 		if (Preview == nullptr)
@@ -333,8 +375,27 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 			Preview->SceneParts.Add(Component);
 			++Shown;
 		}
-		UE_LOG(LogSwcBackend, Log, TEXT("menu: the scene meshes: %d shown, %d not imported, %d not converted; the material overrides: %d slot(s) set, %d not imported"),
-			Shown, Missing, NotConverted, SlotsSet, SlotsMissing);
+		int32 DecalsShown = 0;
+		for (const FDecalPlacement& Decal : Decals)
+		{
+			UMaterialInterface* Material = Cast<UMaterialInterface>(Decal.Material.ResolveObject());
+			if (Material == nullptr)
+			{
+				continue;
+			}
+			UDecalComponent* Component = NewObject<UDecalComponent>(Preview);
+			Component->SetupAttachment(Preview->GetRootComponent());
+			Component->SetDecalMaterial(Material);
+			Component->DecalSize = Decal.Size;
+			Component->SortOrder = Decal.SortOrder;
+			Component->SetDecalColor(Decal.Color);
+			Component->SetWorldTransform(Decal.Transform);
+			Component->RegisterComponent();
+			Preview->SceneParts.Add(Component);
+			++DecalsShown;
+		}
+		UE_LOG(LogSwcBackend, Log, TEXT("menu: the scene meshes: %d shown, %d not imported, %d not converted; the material overrides: %d slot(s) set, %d not imported; %d of %d decal(s)"),
+			Shown, Missing, NotConverted, SlotsSet, SlotsMissing, DecalsShown, Decals.Num());
 		Preview->bScenePlaced = true;
 	};
 	SceneLoading = Paths.Num() > 0 ? UAssetManager::GetStreamableManager().RequestAsyncLoad(Paths, Place) : nullptr;

@@ -37,6 +37,15 @@ SKIPPED = ("objects/volumetrics/", "objects/vfx/", "objects/sky/")
 # the aspect of the client window 1256 x 660).
 FAR_RADIUS = 400.0
 FAR_MIN_SIZE = 5.0
+# The vista (the backdrop of B6-04: the large pale figure and the cyan vortex are cards of 6.6 m and 60.5 m at the scales 114 and
+# 13.6, 2.5 and 3.1 km away): beyond FAR_RADIUS up to the far clip of MainCamera (8,000 m), a placement with an angular radius
+# (the bounding radius x the scale of the placement / the distance) of VISTA_MIN_ANGLE (rad) or more, in the view.
+VISTA_RADIUS = 8000.0
+VISTA_MIN_ANGLE = 0.05
+# Vista meshes that wait for their material: the cyan vortex (ftue_level_vortex_mat_matgroup.mtl: an Illum card with an emittance
+# map, Emittance 0.17 0.67 1 x 80, Opacity 0.65) has no instance spec, and its plain import is an opaque dark card over the sky
+# (run f4b-v1). The emission rule and the specs are the materials work of AST-207.
+VISTA_WAITING = ("objects/landmarks/ftue_vista_vortex/",)
 VIEW_ASPECT = 1256.0 / 660.0
 # The lights of the subset: within this radius of the Player Entity (m).
 LIGHT_RADIUS = 40.0
@@ -213,6 +222,43 @@ def _cgf(asset: str) -> str | None:
     guid, _, sub = head[4:].partition("}:")
     path = source.product(source.guid_bytes(guid), int(sub or "0", 16) if sub and not sub.isdigit() else int(sub or "0"), ".cgf")
     return path
+
+
+def _decal(components) -> dict | None:
+    """@return The fields of a projected decal (DecalComponent) in the record form of decals.decal_record."""
+    for component in components:
+        if component.get("name") != "DecalComponent":
+            continue
+        v = {n.get("field"): n.get("value") for n in component.iter() if n.get("value") is not None}
+        numbers = lambda key, count: [float(x) for x in v[key].split()[:count]] if v.get(key) else None
+        number = lambda key, default: float(v[key]) if v.get(key) not in (None, "") else default
+        material = (v.get("AssetPath") or "").replace("\\", "/").lower()
+        if material and not material.endswith(".mtl"):
+            material += ".mtl"   # two dirt decals of the camp name their material with no ending
+        return {"visible": v.get("Visible", "true") == "true", "projection": int(number("ProjectionType", 0)),
+                "material": material or None, "sort priority": int(number("SortPriority", 0)),
+                "depth": number("Depth", 1.0), "offset": numbers("Offset", 3), "color": numbers("Color", 4),
+                "opacity": number("Opacity", 1.0), "deferred": v.get("Deferred") == "true",
+                "max view distance": number("Max View Distance", 0.0) or None, "view distance multiplier": number("View Distance Multiplier", 1.0),
+                "min spec": None}
+    return None
+
+
+def menu_decals(found: list[dict], player: list[float], radius: float) -> list[dict]:
+    """@return The projected decals of the scene within `radius` of the Player Entity in Unreal space, by the rule of the world
+    surface layer (decals.decal_transforms: the dp_ instance of the material, the projection box, the sort priority, the color
+    and the opacity); stage F4b (the dirt patches under the camp)."""
+    import numpy as np
+    from . import decals
+    records = []
+    for d in found:
+        if math.dist(d["world"][9:12], player) > radius:
+            continue
+        w = d["world"]
+        m = np.eye(4)
+        m[:3, 0], m[:3, 1], m[:3, 2], m[:3, 3] = w[0:3], w[3:6], w[6:9], w[9:12]
+        records.append({**{k: v for k, v in d.items() if k != "world"}, "matrix": m.tolist()})
+    return decals.decal_transforms(records, {})
 
 
 def _light(components) -> dict | None:
@@ -434,7 +480,7 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
     data = read_from_archive(LEVEL_PAK, ENTITIES)
     entities, sequences, ids = {}, {}, {}
     tod = None
-    meshes, lights = [], []
+    meshes, lights, decals_found = [], [], []
     for _, element in ET.iterparse(__import__("io").BytesIO(data), events=("end",)):
         if element.get("name") != "AZ::Entity":
             continue
@@ -449,6 +495,11 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
                     entities[name]["camera"] = camera
             if ident:
                 ids[ident] = name
+            decal = _decal(components)
+            if decal is not None:
+                world = _transform(components).get("world")
+                if world and len(world) == 12:
+                    decals_found.append({"entity": name, "world": world, **decal})
             light = _light(components)
             if light is not None:
                 world = _transform(components).get("world")
@@ -489,15 +540,17 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
     for item in meshes:
         position = item["world"][9:12]
         distance = math.dist(position, player)
-        if distance > FAR_RADIUS:
+        if distance > VISTA_RADIUS:
             continue
         path = _cgf(item["asset"])
         if not path:
             continue
         if distance > radius:
-            entry = known.get(path)
-            size = mesh_radius(entry)
-            if size < FAR_MIN_SIZE or not in_view(camera, position, size) or path.startswith(SKIPPED):
+            w = item["world"]
+            scale = max(math.hypot(*w[0:3]), math.hypot(*w[3:6]), math.hypot(*w[6:9]))
+            size = mesh_radius(known.get(path)) * scale
+            wanted_far = size >= FAR_MIN_SIZE if distance <= FAR_RADIUS else size / distance >= VISTA_MIN_ANGLE
+            if not wanted_far or not in_view(camera, position, size) or path.startswith(SKIPPED + VISTA_WAITING):
                 continue
             far += 1
         if path.startswith(SKIPPED):
@@ -532,7 +585,8 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
            "environment": {**environment(tod), **dict(zip(("probes", "cubes"),
                                                            menu_probes([l for l in lights if math.dist(l["world"][9:12], player) <= LIGHT_RADIUS])))},
            "menuClip": {"path": MENU_CLIP, "name": MENU_CLIP_NAME}, "radius": radius, "meshes": placements,
-           "far": far, "skipped": skipped, "wanted": sorted(wanted), "notImported": sorted(f for f, a in assets.items() if not a),
+           "far": far, "skipped": skipped, "wanted": sorted(wanted),
+           "decals": menu_decals(decals_found, player, radius), "notImported": sorted(f for f, a in assets.items() if not a),
            "lights": [l for l in lights if math.dist(l["world"][9:12], player) <= LIGHT_RADIUS],
            "ground": ground(player)}
     out_dir().mkdir(parents=True, exist_ok=True)
