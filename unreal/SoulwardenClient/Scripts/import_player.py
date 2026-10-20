@@ -67,6 +67,34 @@ def objects_in(folder):
     return out
 
 
+# The material instances of the glTF pipeline: the parent for each alpha mode of a glTF material (Interchange plugin; each one
+# is M_Default with its blend mode, and M_Default has the skeletal usage).
+GLTF_PARENTS = "/InterchangeAssets/gltf/MaterialInstances/MI_Default_"
+GLTF_ALPHA = {"OPAQUE": "Opaque", "MASK": "Mask", "BLEND": "Blend"}
+
+
+def gltf_alpha_parents(path, destination):
+    """Sets the parent of each glTF material instance of a part to the instance of its alpha mode. A reimport onto the same
+    assets keeps the old parent: the head layers (player.py HEAD_LAYER) stayed MI_Default_Opaque after the converter made them
+    BLEND. Only an instance whose parent is a MI_Default_ instance changes. @return The number of changed instances."""
+    modes = {}
+    for material in json.load(open(path)).get("materials", []):
+        suffix = "_DS" if material.get("doubleSided") else ""
+        modes[material.get("name", "")] = GLTF_PARENTS + GLTF_ALPHA.get(material.get("alphaMode", "OPAQUE"), "Opaque") + suffix
+    changed = 0
+    for asset_path in objects_in(destination).get("MaterialInstanceConstant", []):
+        instance = unreal.load_asset(asset_path)
+        wanted = modes.get(instance.get_name())
+        parent = instance.get_editor_property("parent")
+        if wanted is None or parent is None or not parent.get_path_name().startswith(GLTF_PARENTS):
+            continue
+        if parent.get_path_name().split(".")[0] != wanted:
+            unreal.MaterialEditingLibrary.set_material_instance_parent(instance, unreal.load_asset(wanted))
+            assets.save_loaded_asset(instance, only_if_is_dirty=False)
+            changed += 1
+    return changed
+
+
 def part_pipeline(gender, skeleton):
     """@return The soft path of the pipeline of the parts of one gender (an asset under /SwcGameContent/Player)."""
     path = f"{PIPELINES}/PartAssets_{gender}"
@@ -188,7 +216,7 @@ def import_file(path, destination, pipelines=None):
     assets.save_directory(destination, only_if_is_dirty=False, recursive=True)
 
 
-done, skipped, failed, usage_done = 0, 0, [], 0
+done, skipped, failed, usage_done, parents_done = 0, 0, [], 0, 0
 usage_others = set()
 order = {"base": 0, "part": 1, "weapon": 2, "clips": 3}
 skeletons = {}
@@ -208,6 +236,8 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
         skipped += 1
         if kind == "base":
             skeletons[entry["gender"]] = known["Skeleton"][0]
+        if kind == "part":
+            parents_done += gltf_alpha_parents(path, destination)
         if kind == "weapon" and known.get("_usage") != WEAPON_USAGE:
             usage_others.update(weapon_usage(destination))
             known["_usage"] = WEAPON_USAGE
@@ -221,6 +251,7 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
         if gender not in pipelines:
             pipelines[gender] = part_pipeline(gender, unreal.load_asset(skeletons[gender]))
         import_file(path, destination, [pipelines[gender], unreal.SoftObjectPath(GLTF_MATERIALS)])
+        parents_done += gltf_alpha_parents(path, destination)
     elif kind == "clips":
         gender = entry["gender"]
         if gender not in skeletons:
@@ -260,7 +291,8 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
 with open(imported_path, "w") as handle:
     json.dump(imported, handle, indent=1, sort_keys=True)
 report = {"imported": done, "skipped (exists)": skipped, "failed": len(failed), "failures": failed[:20],
-          "weapons with the usage pass only": usage_done, "base materials copied for the weapons": sorted(usage_others)}
+          "weapons with the usage pass only": usage_done, "base materials copied for the weapons": sorted(usage_others),
+          "part materials with a new alpha parent": parents_done}
 with open(os.path.join(player, "import-report.json"), "w") as handle:
     json.dump(report, handle, indent=1)
 unreal.log("SWC PLAYER IMPORT " + json.dumps(report))

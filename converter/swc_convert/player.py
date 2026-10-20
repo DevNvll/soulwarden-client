@@ -86,6 +86,22 @@ BASE_SLOT = "shirt1"
 # The player assets are in the shared content plugin of the imported content (tools/content-link.sh), with the world.
 UNREAL_ROOT = "/SwcGameContent/Player"
 OLD_UNREAL_ROOT = "/Game/Imported/Player"
+# The transparent layers of a head material group (shader Illum, XML Opacity under 1, no AlphaTest): the lashes and the eye
+# shadow, by name (the source spellings lashes_mat, lahses_mat, eyes_ao_mat, eyes_AO_mat, eye_ao_mat). The game blends
+# them with the alpha of their diffuse (research gear.md "Eyes, face marks, scars, and tattoos": distinct head, lashes, and
+# eye-occlusion sub-materials). Opaque, the black eye shadow covered the iris of the head texture. 1,179 of the 1,196
+# transparent Illum sub-materials of the looks are these layers; the others (glows, glass, embers) stay as before.
+HEAD_LAYER = re.compile(r"(lashes|lahses|eyes?_ao)_mat", re.IGNORECASE)
+
+
+def head_layer(material: ET.Element) -> bool:
+    """@return True for a transparent layer of a head (HEAD_LAYER): the glTF output blends it."""
+    try:
+        opacity = float(material.get("Opacity", "1"))
+    except ValueError:
+        return False
+    return (material.get("Shader", "") == "Illum" and opacity < 1.0 and not material.get("AlphaTest")
+            and HEAD_LAYER.fullmatch(material.get("Name", "")) is not None)
 
 # Field ids of the creation databases (CRC-32 of the lower-case field name; meaning from the dumps of the files).
 F_NAME = 0x5E237E06
@@ -399,7 +415,7 @@ class Skeleton:
                 files = info["files"]
                 mi = w.material(info["name"], materials.relative(files["base"], out) if "base" in files else None,
                                 materials.relative(files["normal"], out) if "normal" in files else None,
-                                blend=materials.is_glass(subs[s.material]))
+                                blend=materials.is_glass(subs[s.material]) or head_layer(subs[s.material]))
             idx = mesh.indices[s.first_index:s.first_index + s.num_indices]
             prims.append(w.primitive(pos, idx, nrm, mesh.uvs, None, joints, mesh.weights, mi))
         return prims, {"skin": skin_path, "material": mtl, "vertices": len(mesh.positions), "triangles": len(mesh.indices) // 3,

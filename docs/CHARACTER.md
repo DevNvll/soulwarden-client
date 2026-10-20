@@ -25,6 +25,12 @@ client (a run) --writes--> SWC_WORK/player/wanted.json   (the parts that a chara
 - `tools/import-player.sh` imports a base with the default glTF pipeline (skeleton, skeletal mesh, physics asset, clip),
   and each part with a copy of the glTF asset pipeline that has the skeleton of the base of its gender
   (`/SwcGameContent/Player/Pipelines/PartAssets_<Gender>`): no new skeleton, no physics asset, no clip.
+- The transparent layers of a head (shader Illum, XML Opacity under 1: `lashes_mat`, `eyes_ao_mat` and their other
+  spellings, 1,179 of the 1,196 transparent Illum sub-materials of the looks; `player.py` HEAD_LAYER) are BLEND in the glTF
+  output: the game blends them with the alpha of their diffuse. Before (to 2026-10-20) they were opaque: black lash cards
+  around the eyes and a black eye shadow over the eyeball. A reimport keeps the material instances of a part, so the import
+  sets the parent of each glTF instance to the `MI_Default_` instance of its alpha mode (`gltf_alpha_parents`, also for a
+  part that it skips).
 - The player conversion has its own manifest (`content/player/manifest.json`) and its own import script
   (`Scripts/import_player.py`): the shared import of the world content does not import a part with no skeleton.
 - The parts of a character come on demand. Each part of the databases and of the 8,928 armor rows is too much to
