@@ -134,5 +134,23 @@ class MenuEnvironment(unittest.TestCase):
         self.assertEqual((out["preset"], out["sky"], out["hour"]), ("", "", 15.5))
 
 
+class FarPart(unittest.TestCase):
+    # A made-up camera at the origin that looks along +Y (its X axis to the right, Z up).
+    CAMERA = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0, 0.0, 0.0]
+
+    def test_in_view(self):
+        self.assertTrue(frontend.in_view(self.CAMERA, [0.0, 100.0, 0.0], 5.0))
+        # The horizontal half angle is about 44.7 degrees: at 100 m ahead the edge is 99 m to the side (and 7 m more for 5 m).
+        self.assertTrue(frontend.in_view(self.CAMERA, [95.0, 100.0, 0.0], 5.0))
+        self.assertFalse(frontend.in_view(self.CAMERA, [130.0, 100.0, 0.0], 5.0))
+        self.assertFalse(frontend.in_view(self.CAMERA, [0.0, -100.0, 0.0], 5.0))     # behind the camera
+        self.assertFalse(frontend.in_view(self.CAMERA, [0.0, 100.0, 90.0], 5.0))     # above the vertical FOV of 55 degrees
+        self.assertTrue(frontend.in_view(self.CAMERA, [0.0, 100.0, 90.0], 50.0))     # a large mesh at the edge
+
+    def test_mesh_radius_of_no_file(self):
+        self.assertEqual(frontend.mesh_radius(None), 0.0)
+        self.assertEqual(frontend.mesh_radius({"kind": "empty"}), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

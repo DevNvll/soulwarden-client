@@ -414,19 +414,6 @@ TSharedPtr<USwcEnvironmentSubsystem::FData, ESPMode::ThreadSafe> LoadData(const 
 		const TArray<TSharedPtr<FJsonValue>>* Local = nullptr;
 		if (Probes->TryGetObjectField(TEXT("cubes"), Cubes) && Cubes != nullptr && Probes->TryGetArrayField(TEXT("local"), Local))
 		{
-			auto NumbersOf = [](const TSharedPtr<FJsonObject>& Object, const TCHAR* Name, TArray<double>& Values)
-			{
-				Values.Reset();
-				const TArray<TSharedPtr<FJsonValue>>* Array = nullptr;
-				if (Object->TryGetArrayField(Name, Array))
-				{
-					for (const TSharedPtr<FJsonValue>& Item : *Array)
-					{
-						Values.Add(Item->AsNumber());
-					}
-				}
-			};
-			TArray<double> Place, Area, Color, Row;
 			for (const TSharedPtr<FJsonValue>& Value : *Local)
 			{
 				const TSharedPtr<FJsonObject> Probe = Value->AsObject();
@@ -437,44 +424,11 @@ TSharedPtr<USwcEnvironmentSubsystem::FData, ESPMode::ThreadSafe> LoadData(const 
 				{
 					continue;
 				}
-				NumbersOf(Probe, TEXT("place"), Place);
-				NumbersOf(Probe, TEXT("area"), Area);
-				NumbersOf(Probe, TEXT("color"), Color);
-				const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
-				if (Place.Num() != 3 || Area.Num() != 3 || !Probe->TryGetArrayField(TEXT("rows"), Rows) || Rows->Num() != 3)
-				{
-					continue;
-				}
 				USwcEnvironmentSubsystem::FData::FLocalProbe Item;
-				Item.Center = {Place[0], Place[1], Place[2]};
-				// The box space: the unit axes of the entity (the columns of its matrix) over the half sizes of the area.
-				std::array<std::array<double, 3>, 3> M{};
-				for (int32 R = 0; R < 3; ++R)
+				if (USwcEnvironmentSubsystem::ReadLocalProbe(Probe, Picture, Item))
 				{
-					const TArray<TSharedPtr<FJsonValue>>& Values = (*Rows)[R]->AsArray();
-					for (int32 C = 0; C < 3 && C < Values.Num(); ++C)
-					{
-						M[R][C] = Values[C]->AsNumber();
-					}
+					Out->LocalProbes.Add(MoveTemp(Item));
 				}
-				for (int32 Axis = 0; Axis < 3; ++Axis)
-				{
-					const double Length = FMath::Max(FMath::Sqrt(M[0][Axis] * M[0][Axis] + M[1][Axis] * M[1][Axis] + M[2][Axis] * M[2][Axis]), 1e-9);
-					const double Half = FMath::Max(Area[Axis] * 0.5, 1e-3);
-					Item.Rows[Axis] = {M[0][Axis] / Length / Half, M[1][Axis] / Length / Half, M[2][Axis] / Length / Half};
-				}
-				Item.Radius = 0.5 * FMath::Sqrt(Area[0] * Area[0] + Area[1] * Area[1] + Area[2] * Area[2]);
-				Item.Volume = Area[0] * Area[1] * Area[2];
-				Item.Priority = static_cast<int32>(NumberOf(Probe, TEXT("priority"), 0.0));
-				Item.Falloff = NumberOf(Probe, TEXT("falloff"), 1.0);
-				const double Diffuse = NumberOf(Probe, TEXT("diffuseMultiplier"), 1.0);
-				for (int32 C = 0; C < 3; ++C)
-				{
-					Item.Color[C] = (C < Color.Num() ? Color[C] : 1.0) * Diffuse;
-				}
-				Item.TodInfluence = NumberOf(Probe, TEXT("todInfluence"), 1.0);
-				Item.Cube = FPaths::GetBaseFilename(Picture);
-				Out->LocalProbes.Add(MoveTemp(Item));
 			}
 		}
 	}
@@ -491,6 +445,61 @@ FRotator LightRotation(const env::Vec3& Toward)
 	return FVector(-Toward.x, Toward.y, -Toward.z).Rotation();   // engine (x, y, z) to Unreal (x, -y, z), then the opposite
 }
 
+}
+
+/** @return A local probe of the record form of probes.json "local" (the world, and the probes of the menu scene). */
+bool USwcEnvironmentSubsystem::ReadLocalProbe(const TSharedPtr<FJsonObject>& Probe, const FString& Picture, FData::FLocalProbe& Out)
+{
+	auto NumbersOf = [](const TSharedPtr<FJsonObject>& Object, const TCHAR* Name, TArray<double>& Values)
+	{
+		Values.Reset();
+		const TArray<TSharedPtr<FJsonValue>>* Array = nullptr;
+		if (Object->TryGetArrayField(Name, Array))
+		{
+			for (const TSharedPtr<FJsonValue>& Item : *Array)
+			{
+				Values.Add(Item->AsNumber());
+			}
+		}
+	};
+	TArray<double> Place, Area, Color;
+	NumbersOf(Probe, TEXT("place"), Place);
+	NumbersOf(Probe, TEXT("area"), Area);
+	NumbersOf(Probe, TEXT("color"), Color);
+	const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+	if (Place.Num() != 3 || Area.Num() != 3 || !Probe->TryGetArrayField(TEXT("rows"), Rows) || Rows->Num() != 3)
+	{
+		return false;
+	}
+	Out.Center = {Place[0], Place[1], Place[2]};
+	// The box space: the unit axes of the entity (the columns of its matrix) over the half sizes of the area.
+	std::array<std::array<double, 3>, 3> M{};
+	for (int32 R = 0; R < 3; ++R)
+	{
+		const TArray<TSharedPtr<FJsonValue>>& Values = (*Rows)[R]->AsArray();
+		for (int32 C = 0; C < 3 && C < Values.Num(); ++C)
+		{
+			M[R][C] = Values[C]->AsNumber();
+		}
+	}
+	for (int32 Axis = 0; Axis < 3; ++Axis)
+	{
+		const double Length = FMath::Max(FMath::Sqrt(M[0][Axis] * M[0][Axis] + M[1][Axis] * M[1][Axis] + M[2][Axis] * M[2][Axis]), 1e-9);
+		const double Half = FMath::Max(Area[Axis] * 0.5, 1e-3);
+		Out.Rows[Axis] = {M[0][Axis] / Length / Half, M[1][Axis] / Length / Half, M[2][Axis] / Length / Half};
+	}
+	Out.Radius = 0.5 * FMath::Sqrt(Area[0] * Area[0] + Area[1] * Area[1] + Area[2] * Area[2]);
+	Out.Volume = Area[0] * Area[1] * Area[2];
+	Out.Priority = static_cast<int32>(NumberOf(Probe, TEXT("priority"), 0.0));
+	Out.Falloff = NumberOf(Probe, TEXT("falloff"), 1.0);
+	const double Diffuse = NumberOf(Probe, TEXT("diffuseMultiplier"), 1.0);
+	for (int32 C = 0; C < 3; ++C)
+	{
+		Out.Color[C] = (C < Color.Num() ? Color[C] : 1.0) * Diffuse;
+	}
+	Out.TodInfluence = NumberOf(Probe, TEXT("todInfluence"), 1.0);
+	Out.Cube = FPaths::GetBaseFilename(Picture);
+	return true;
 }
 
 void USwcEnvironmentSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -639,8 +648,8 @@ void USwcEnvironmentSubsystem::SetMenuScene(const FMenuScene& Scene)
 {
 	Menu = Scene;
 	Weights.Reset();   // the volumes of the world have no part in the menu
-	UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the menu mode: the preset %s at the hour %.2f, the sky %s, the sun rotation %.1f, longitude %.1f, the moon size %.2f"),
-		*Scene.Preset, Scene.Hour, Scene.Sky.IsEmpty() ? TEXT("(none)") : *Scene.Sky, Scene.SunRotation, Scene.Longitude, Scene.MoonSize);
+	UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the menu mode: the preset %s at the hour %.2f, the sky %s, the sun rotation %.1f, longitude %.1f, the moon size %.2f, %d probe(s)"),
+		*Scene.Preset, Scene.Hour, Scene.Sky.IsEmpty() ? TEXT("(none)") : *Scene.Sky, Scene.SunRotation, Scene.Longitude, Scene.MoonSize, Scene.Probes.Num());
 }
 
 void USwcEnvironmentSubsystem::ClearMenuScene()

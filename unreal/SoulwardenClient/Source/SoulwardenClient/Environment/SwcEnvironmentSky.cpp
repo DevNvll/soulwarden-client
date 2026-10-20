@@ -883,12 +883,15 @@ void USwcEnvironmentSubsystem::UpdateLocalProbes(USkyLightComponent* Ambient, co
 		double Fade;
 	};
 	TArray<FHit> Hits;
-	if (CVarLocalProbes.GetValueOnGameThread() != 0)
+	// The local probes of the world (a test, swc.LocalProbes), or the probes of the menu scene in the menu mode (stage F4b of
+	// docs/FRONTEND.md: always; its scene probe has a box of 5 km, the probe of the whole menu level).
+	const TArray<FData::FLocalProbe>& LocalProbes = Menu.IsSet() ? Menu->Probes : Data->LocalProbes;
+	if (CVarLocalProbes.GetValueOnGameThread() != 0 || Menu.IsSet())
 	{
 		const env::Vec3 At{CameraLocation.X / 100.0, -CameraLocation.Y / 100.0, CameraLocation.Z / 100.0};
-		for (int32 Index = 0; Index < Data->LocalProbes.Num(); ++Index)
+		for (int32 Index = 0; Index < LocalProbes.Num(); ++Index)
 		{
-			const FData::FLocalProbe& Probe = Data->LocalProbes[Index];
+			const FData::FLocalProbe& Probe = LocalProbes[Index];
 			const env::Vec3 D{At.x - Probe.Center.x, At.y - Probe.Center.y, At.z - Probe.Center.z};
 			if (D.x * D.x + D.y * D.y + D.z * D.z > Probe.Radius * Probe.Radius)
 			{
@@ -903,10 +906,10 @@ void USwcEnvironmentSubsystem::UpdateLocalProbes(USkyLightComponent* Ambient, co
 		}
 		// The order of the list: the higher SortPriority first, then the smaller box (an inference until the light list of the source
 		// is read; the world probe has priority 0 and the largest box, so it is last).
-		Hits.Sort([this](const FHit& A, const FHit& B)
+		Hits.Sort([&LocalProbes](const FHit& A, const FHit& B)
 		{
-			const FData::FLocalProbe& PA = Data->LocalProbes[A.Index];
-			const FData::FLocalProbe& PB = Data->LocalProbes[B.Index];
+			const FData::FLocalProbe& PA = LocalProbes[A.Index];
+			const FData::FLocalProbe& PB = LocalProbes[B.Index];
 			return PA.Priority != PB.Priority ? PA.Priority > PB.Priority : PA.Volume < PB.Volume;
 		});
 	}
@@ -925,7 +928,7 @@ void USwcEnvironmentSubsystem::UpdateLocalProbes(USkyLightComponent* Ambient, co
 	ProbeText = FString::Printf(TEXT(" world %.2f"), ProbeWeights.back());
 	for (int32 Hit = 0; Hit < Hits.Num(); ++Hit)
 	{
-		const FData::FLocalProbe& Probe = Data->LocalProbes[Hits[Hit].Index];
+		const FData::FLocalProbe& Probe = LocalProbes[Hits[Hit].Index];
 		const double Luminance = FMath::Max(0.2126 * Probe.Color[0] + 0.7152 * Probe.Color[1] + 0.0722 * Probe.Color[2], 1e-6);
 		const double Light = ProbeWeights[Hit] * SourceUnitLuminance * Luminance * FMath::Lerp(1.0, TodDiffuse, Probe.TodInfluence)
 			* CVarProbeScale.GetValueOnGameThread();
@@ -945,7 +948,7 @@ void USwcEnvironmentSubsystem::UpdateLocalProbes(USkyLightComponent* Ambient, co
 	UTextureCube* Cube = nullptr;
 	if (Best >= 0)
 	{
-		const FString& Name = Data->LocalProbes[Best].Cube;
+		const FString& Name = LocalProbes[Best].Cube;
 		if (const TObjectPtr<UTextureCube>* Found = ProbeCubes.Find(Name))
 		{
 			Cube = Found->Get();
@@ -960,7 +963,7 @@ void USwcEnvironmentSubsystem::UpdateLocalProbes(USkyLightComponent* Ambient, co
 	}
 	const float Fraction = Cube != nullptr && Total > 0.0 ? static_cast<float>(Local / Total) : 0.0f;
 	Ambient->SetCubemapBlend(WorldProbe.Get(), Cube, Fraction);
-	ProbeBlendCube = Cube != nullptr ? Data->LocalProbes[Best].Cube : FString();
+	ProbeBlendCube = Cube != nullptr ? LocalProbes[Best].Cube : FString();
 	Ambient->SetIntensity(static_cast<float>(Total));
 	const double Scale = Total > 0.0 ? 1.0 / Total : 1.0;
 	Ambient->SetLightColor(Multiplier * FLinearColor(static_cast<float>(Tint[0] * Scale), static_cast<float>(Tint[1] * Scale), static_cast<float>(Tint[2] * Scale)));

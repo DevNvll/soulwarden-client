@@ -203,6 +203,26 @@ void ASwcMenuPreview::SetEnvironment(const TSharedPtr<FJsonObject>& Doc)
 	Values->TryGetNumberField(TEXT("moonLatitude"), Scene.MoonLatitude);
 	Values->TryGetNumberField(TEXT("moonLongitude"), Scene.MoonLongitude);
 	Values->TryGetNumberField(TEXT("moonSize"), Scene.MoonSize);
+	// The environment probes of the scene (stage F4b): the record form of the local probes of probes.json, with their cube pictures.
+	const TArray<TSharedPtr<FJsonValue>>* Probes = nullptr;
+	const TSharedPtr<FJsonObject>* Cubes = nullptr;
+	// -SwcNoMenuProbes: no menu probes (the world probe as before; a compare of the colors).
+	if (!FParse::Param(FCommandLine::Get(), TEXT("SwcNoMenuProbes")) && Values->TryGetArrayField(TEXT("probes"), Probes)
+		&& Values->TryGetObjectField(TEXT("cubes"), Cubes))
+	{
+		for (const TSharedPtr<FJsonValue>& Value : *Probes)
+		{
+			const TSharedPtr<FJsonObject> Probe = Value->AsObject();
+			const TSharedPtr<FJsonObject>* Cube = nullptr;
+			FString Cubemap, Picture;
+			USwcEnvironmentSubsystem::FData::FLocalProbe Item;
+			if (Probe.IsValid() && Probe->TryGetStringField(TEXT("cubemap"), Cubemap) && (*Cubes)->TryGetObjectField(Cubemap, Cube)
+				&& (*Cube)->TryGetStringField(TEXT("hdr"), Picture) && USwcEnvironmentSubsystem::ReadLocalProbe(Probe, Picture, Item))
+			{
+				Scene.Probes.Add(MoveTemp(Item));
+			}
+		}
+	}
 	Environment->SetMenuScene(Scene);
 }
 

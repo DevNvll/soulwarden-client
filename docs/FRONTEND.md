@@ -682,3 +682,33 @@ has another look). Before F4b (K4, the menu mode): ΔE 24.3 (top 16.2, middle 30
   at the right is red as in retail, the house is darker. The dye flowers with the override "blackwhite" render white and
   bright (in retail they are dark): a point of their material instance (`m_8bdd69912d`, the materials track). The 68 pairs
   are at the slot map version 2 (A2/A2b) in the shared `pairs.json`; the world pairs are still at version 1.
+- Step 2, the probes of the menu level (an extension of K4; docs/ENVIRONMENT.md "The menu mode"): the scene converter reads
+  the two environment probes (lights of type 3: `EnvironmentProbe`, a box of 5 km, priority 20, and
+  `EnvironmentProbe_Character`, 2 x 2 x 2.5 m, priority 25, a green-white tint), both with `frontendv2_cm.dds`, in the record
+  form of the local probes of `probes.json`, and makes the cube picture with `environment.probe_picture`;
+  `tools/import-sky.sh` imports it (`T_SwcProbe_frontendv2_frontendv2_cm`). The menu mode uses these probes in place of the
+  local probes of the world (always; in the world the local probes stay a test). `-SwcNoMenuProbes` turns them off for a
+  compare. The runs `f4b-2a` (off) and `f4b-2b` (on): ΔE 21.8 -> 20.9 (middle 28.1 -> 25.3, bottom 35.7 -> 30.9, top
+  9.4 -> 12.3); the hue difference +68 -> +38 degrees (less green); L* stays +23.6. The world path: the beach pictures of
+  main and of this step differ by 2.5 of 255 (the clouds and the water), with the same environment values in the log.
+- Step 3, the fog cards: not done. The 34 fog sheets (`objects/volumetrics/jav_fogsheet_a`) and the 8 fog cards are
+  `kind: empty` in the manifest: mesh rule 6 leaves out their volumetric fog materials (not drawn). They need a material rule
+  of the materials track first. The menu level has no fog volume component; its fog is the preset fog of the menu mode.
+- The dye flowers: the override "blackwhite" is the retail one, and its instance spec (`m_8bdd69912d`: the base texture, the
+  dark red tint 0.53 0.18 0.18, the emission with the alpha 135.68 of the data, 17 times the base flower) is applied. The
+  flowers glow white because of the emission rule: with `-SwcLightScale=0.3` (`EmissiveScale` 3,000 in place of 30,000,
+  run `f4b-2c`) they do not glow, but they are still cream; in B6-04 the petals are dark brown with cream rims. The emissive
+  map is imported as linear data (`@data`); if the source reads it as sRGB, the emission is about 10 times too strong in the
+  dark parts. A point of the materials track (it changes all emissive instances).
+- Step 4, the far part of the scene: the placements from 60 m to 400 m with a mesh of a bounding radius of 5 m or more (the
+  union of the POSITION bounds of its glTF), in the view of the character camera (the vertical FOV 55 degrees, the aspect of
+  the window): 481 more placements (1,003). The dome and the spires at the upper left show as in B6-04; the scene is ready
+  17.5 s after the spawn. The run `f4b-4`: ΔE 20.9 -> 20.3 (top 12.3 -> 10.1).
+- The ground of `nw_frontend_base`: 4 regions of 2,048 m (r_+00_+00 to r_+01_+01). The world draws its terrain as one Unreal
+  Landscape for each region, built in the editor (docs/WORLD.md): a Landscape of the menu terrain is world work. A smaller
+  part: a runtime ground mesh of about 300 m about the scene from the heights, with the macro color map (no detail layers).
+  The 10 ground decals near the scene need the surface layer of the world (its import).
+- Step 5, the campfire: not done. The 16 particle components near the scene need a runtime of the effects, which the client
+  does not have.
+- After these steps: ΔE 20.3. The client is still brighter (L* +21.7), less saturated (-0.13), and colder than B6-04, with
+  less fog and no dark parts (the dark part 0.00 against 0.23).

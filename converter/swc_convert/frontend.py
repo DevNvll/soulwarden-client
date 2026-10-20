@@ -15,6 +15,7 @@ sequences (no auto start: all six scene records have Flags 0).
 from __future__ import annotations
 
 import json
+import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -31,6 +32,12 @@ SCENE_RADIUS = 60.0
 # Meshes that the subset leaves out: the fog volumes (their volumetric materials), the meshes of particle effects, and the sky
 # dome (the sky of the client is its environment).
 SKIPPED = ("objects/volumetrics/", "objects/vfx/", "objects/sky/")
+# The far part of the subset (stage F4b step 4: the dome and the spires of B6-04): placements from SCENE_RADIUS to FAR_RADIUS (m)
+# with a mesh of a bounding radius of FAR_MIN_SIZE (m) or more, in the view of the character camera (the vertical FOV 55 degrees,
+# the aspect of the client window 1256 x 660).
+FAR_RADIUS = 400.0
+FAR_MIN_SIZE = 5.0
+VIEW_ASPECT = 1256.0 / 660.0
 # The lights of the subset: within this radius of the Player Entity (m).
 LIGHT_RADIUS = 40.0
 # The ground of the menu: the Coatlicue world of the menu (MainMenuCoatOverride coatlicue/NW_Frontend_Base of the schedule row,
@@ -42,6 +49,8 @@ GROUND_HALF = 60
 LIGHT_FIELDS = ("LightType", "Visible", "OnInitially", "Color", "DiffuseMultiplier", "SpecMultiplier", "PointMaxDistance",
                 "PointAttenuationBulbSize", "ProjectorDistance", "ProjectorAttenuationBulbSize", "ProjectorFOV", "AreaWidth",
                 "AreaHeight", "AreaMaxDistance", "CastShadowsSpec", "VolumetricFog")
+# The fields of an environment probe (a light of type 3; environment.probes reads the same fields of LightConfiguration).
+PROBE_FIELDS = ("Area X,Y,Z", "SortPriority", "CubemapTexture", "AttenuationFalloffMax", "TodInfluence", "AffectsThisAreaOnly")
 NAMED = ("Player Entity", "MainCamera", "CharacterCameraPlacement", "EstablishingCameraPlacement", "Main_layer", "TOD")
 # The CAnimParamType of the compound tracks: Position (1) and Rotation (2); the sub tracks are X, Y, Z.
 TRACK_NAMES = {"Position": "P", "Rotation": "R"}
@@ -207,8 +216,78 @@ def _light(components) -> dict | None:
         if component.get("name") != "LightComponent":
             continue
         values = {n.get("field"): n.get("value") for n in component.iter() if n.get("value") is not None}
-        return {k: values[k] for k in LIGHT_FIELDS if k in values}
+        return {k: values[k] for k in LIGHT_FIELDS + PROBE_FIELDS if k in values}
     return None
+
+
+_RADII: dict[str, float] = {}
+
+
+def mesh_radius(entry: dict | None) -> float:
+    """@return The bounding radius (m) of a converted mesh: half the diagonal of the union of the POSITION bounds of its glTF."""
+    if not entry or not entry.get("file") or not entry["file"].endswith(".gltf"):
+        return 0.0
+    if entry["file"] not in _RADII:
+        lo, hi = [math.inf] * 3, [-math.inf] * 3
+        try:
+            doc = json.loads((env.content_dir() / entry["file"]).read_text())
+            for m in doc.get("meshes", []):
+                for primitive in m.get("primitives", []):
+                    accessor = doc["accessors"][primitive["attributes"]["POSITION"]]
+                    lo = [min(a, b) for a, b in zip(lo, accessor.get("min", lo))]
+                    hi = [max(a, b) for a, b in zip(hi, accessor.get("max", hi))]
+        except (OSError, ValueError, KeyError, IndexError):
+            pass
+        _RADII[entry["file"]] = 0.5 * math.dist(lo, hi) if all(map(math.isfinite, lo + hi)) else 0.0
+    return _RADII[entry["file"]]
+
+
+def in_view(camera: list[float], position: list[float], size: float) -> bool:
+    """@return True when a sphere (the place, the radius in m) is in the view of a camera (the 12 floats of its world matrix: a camera
+    looks along its Y axis, Z is up) with the vertical FOV of MainCamera and the aspect VIEW_ASPECT."""
+    import math as m
+    v = [position[i] - camera[9 + i] for i in range(3)]
+    axis = lambda a: camera[3 * a:3 * a + 3]
+    dot = lambda a, b: sum(x * y for x, y in zip(a, b))
+    forward, right, up = dot(v, axis(1)), dot(v, axis(0)), dot(v, axis(2))
+    tan_v = m.tan(m.radians(55.0 / 2.0))
+    tan_h = tan_v * VIEW_ASPECT
+    return (forward > -size and abs(right) <= forward * tan_h + size * m.sqrt(1 + tan_h * tan_h)
+            and abs(up) <= forward * tan_v + size * m.sqrt(1 + tan_v * tan_v))
+
+
+def menu_probes(lights: list[dict]) -> tuple[list[dict], dict]:
+    """@return The environment probes of the menu scene (the lights of type 3 that are on) in the record form of the local probes
+    of probes.json (environment.probes: the place, the rows of the entity matrix, the area, the order, the cube, the color, the
+    multipliers, the edge fade, the TOD influence), and the cube picture of each cubemap (environment.probe_picture:
+    environment/probes/NAME.hdr; tools/import-sky.sh imports it as T_SwcProbe_NAME). The menu mode of the client environment
+    uses them in place of the local probes of the world (docs/ENVIRONMENT.md "The menu mode")."""
+    import math
+    import numpy as np
+    from . import environment
+    number = lambda values, key, default: float(values.get(key, default))
+    out = []
+    for light in lights:
+        if light.get("LightType") != "3" or light.get("Visible") == "false" or light.get("OnInitially") == "false":
+            continue
+        w = light["world"]
+        area = [float(x) for x in light.get("Area X,Y,Z", "0 0 0").split()]
+        out.append({"name": light["name"], "place": w[9:12], "rows": [[w[0], w[3], w[6]], [w[1], w[4], w[7]], [w[2], w[5], w[8]]],
+                    "area": area, "priority": int(number(light, "SortPriority", 0)),
+                    "cubemap": light.get("CubemapTexture", "").replace("\\", "/").lower(),
+                    "color": [float(x) for x in light.get("Color", "1 1 1").split()[:3]],
+                    "diffuseMultiplier": number(light, "DiffuseMultiplier", 1.0), "specMultiplier": number(light, "SpecMultiplier", 1.0),
+                    "falloff": number(light, "AttenuationFalloffMax", 0.0), "todInfluence": number(light, "TodInfluence", 1.0),
+                    "affectsThisAreaOnly": light.get("AffectsThisAreaOnly") == "true"})
+    folder = environment.out_dir() / "probes"
+    folder.mkdir(parents=True, exist_ok=True)
+    width, height = environment.PROBE_SIZE
+    u = (np.arange(width) + 0.5) / width
+    v = (np.arange(height) + 0.5) / height
+    longitude, polar = np.meshgrid((2.0 * u - 1.0) * math.pi, v * math.pi)
+    direction = np.stack([np.sin(polar) * np.sin(longitude), np.sin(polar) * np.cos(longitude), np.cos(polar)], -1).reshape(-1, 3)
+    cubes = {cubemap: environment.probe_picture(cubemap, folder, direction) for cubemap in sorted({p["cubemap"] for p in out})}
+    return out, cubes
 
 
 def ground(player: list[float]) -> dict:
@@ -338,13 +417,22 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
     known = manifest.load()["assets"]
     player = entities.get("Player Entity", {}).get("world", [0.0] * 12)[9:12]
     placements, wanted, skipped = [], set(), 0
+    camera = entities.get("CharacterCameraPlacement", {}).get("world") or [1, 0, 0, 0, 1, 0, 0, 0, 1, *player]
+    far = 0
     for item in meshes:
         position = item["world"][9:12]
-        if math.dist(position, player) > radius:
+        distance = math.dist(position, player)
+        if distance > FAR_RADIUS:
             continue
         path = _cgf(item["asset"])
         if not path:
             continue
+        if distance > radius:
+            entry = known.get(path)
+            size = mesh_radius(entry)
+            if size < FAR_MIN_SIZE or not in_view(camera, position, size) or path.startswith(SKIPPED):
+                continue
+            far += 1
         if path.startswith(SKIPPED):
             skipped += 1
             continue
@@ -374,9 +462,10 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
         item["slots"] = slot_maps.get(overrides.pair_key(item["mesh"], item["material"]), {}).get("slots", {}) if item["material"] else {}
     doc = {"format": 1, "source": f"{LEVEL_PAK}:{ENTITIES}", "entities": entities, "sequences": sequences, "tod": tod,
            "overrides": {k: v for k, v in override_report.items() if k != "error examples"},
-           "environment": environment(tod),
+           "environment": {**environment(tod), **dict(zip(("probes", "cubes"),
+                                                           menu_probes([l for l in lights if math.dist(l["world"][9:12], player) <= LIGHT_RADIUS])))},
            "menuClip": {"path": MENU_CLIP, "name": MENU_CLIP_NAME}, "radius": radius, "meshes": placements,
-           "skipped": skipped, "wanted": sorted(wanted), "notImported": sorted(f for f, a in assets.items() if not a),
+           "far": far, "skipped": skipped, "wanted": sorted(wanted), "notImported": sorted(f for f, a in assets.items() if not a),
            "lights": [l for l in lights if math.dist(l["world"][9:12], player) <= LIGHT_RADIUS],
            "ground": ground(player)}
     out_dir().mkdir(parents=True, exist_ok=True)

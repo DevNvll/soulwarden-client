@@ -84,26 +84,6 @@ public:
 	 *  local lights of stage E2 do not switch by the hour: the data has no switch). */
 	double GetNightFactor() const { return NightFactor; }
 
-	/** The environment of the menu scene (the scene record of tools/convert-frontend.sh scene: "environment"). */
-	struct FMenuScene
-	{
-		/** The preset of the TOD entity (a key of presets.json) and its fixed hour (the hour override). */
-		FString Preset;
-		double Hour = 12.0;
-		/** The sky slice of the TOD entity (its cloud cover; empty: no cloud dome). */
-		FString Sky;
-		/** The Lighting and Moon elements of the mission of the menu level. */
-		double SunRotation = 215.0;
-		double Longitude = 130.0;
-		double MoonLatitude = 240.0;
-		double MoonLongitude = 35.0;
-		double MoonSize = 0.8;
-	};
-	/** Sets the menu mode: the environment runs with no record of the world clock, with the menu scene. */
-	void SetMenuScene(const FMenuScene& Scene);
-	/** Clears the menu mode: the environment waits for the world clock again (it keeps its last state until the first record). */
-	void ClearMenuScene();
-	bool IsMenuScene() const { return Menu.IsSet(); }
 
 	/** The data of the environment (the result of the worker thread). */
 	struct FData
@@ -173,6 +153,33 @@ public:
 		FString Report;
 		bool bOk = false;
 	};
+
+	/** Reads a local probe in the record form of probes.json "local" (also the probes of the menu scene) with the name of its cube
+	 *  picture (T_SwcProbe_NAME). @return False for a record with no place, area, or rows. */
+	static bool ReadLocalProbe(const TSharedPtr<class FJsonObject>& Probe, const FString& Picture, FData::FLocalProbe& Out);
+
+	/** The environment of the menu scene (the scene record of tools/convert-frontend.sh scene: "environment"). */
+	struct FMenuScene
+	{
+		/** The preset of the TOD entity (a key of presets.json) and its fixed hour (the hour override). */
+		FString Preset;
+		double Hour = 12.0;
+		/** The sky slice of the TOD entity (its cloud cover; empty: no cloud dome). */
+		FString Sky;
+		/** The Lighting and Moon elements of the mission of the menu level. */
+		double SunRotation = 215.0;
+		double Longitude = 130.0;
+		double MoonLatitude = 240.0;
+		double MoonLongitude = 35.0;
+		double MoonSize = 0.8;
+		/** The environment probes of the menu scene, in place of the local probes of the world (stage F4b). */
+		TArray<FData::FLocalProbe> Probes;
+	};
+	/** Sets the menu mode: the environment runs with no record of the world clock, with the menu scene. */
+	void SetMenuScene(const FMenuScene& Scene);
+	/** Clears the menu mode: the environment waits for the world clock again (it keeps its last state until the first record). */
+	void ClearMenuScene();
+	bool IsMenuScene() const { return Menu.IsSet(); }
 
 private:
 	void StartLoad();

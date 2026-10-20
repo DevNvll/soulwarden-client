@@ -411,6 +411,11 @@ if os.path.exists(probe_doc):
     probe_list = json.load(open(probe_doc))
     # The world probes, then the cubes of the local probes (step b; BC6H: 35 cubes).
     entries = [(entry, False) for entry in probe_list["world"]] + [(entry, True) for entry in probe_list.get("cubes", {}).values()]
+    # The cubes of the probes of the menu scene (SWC_CONTENT/frontend/nighthaven.json "environment": tools/convert-frontend.sh scene;
+    # docs/ENVIRONMENT.md "The menu mode"): the same pictures in environment/probes.
+    menu_doc = os.path.join(os.path.dirname(content), "frontend", "nighthaven.json")
+    if os.path.exists(menu_doc):
+        entries += [(entry, True) for entry in json.load(open(menu_doc)).get("environment", {}).get("cubes", {}).values()]
     for entry, compressed in entries:
         if "hdr" not in entry:
             continue
