@@ -321,6 +321,25 @@ tools/build-world.sh --cells NAME...      # new cell actors with the collision i
     `build_world.py` deletes the files of the cell actors that it destroys.
 - Check: the ground test (`-SwcGroundTest`) logs each static surface on its line with its mesh. At the Inn of Oxboro
   (r_+04_+02): the floor 139.89 m (C_everfall_floor_9x15_a), the foundation 139.88 m, the porch 140.14 m.
+- The collision chunks (AST-201, 2026-10-20). The game merges the render meshes of a part of a region (CoATGen) into the mesh
+  chunks of `coatgen/HASH/NAME_mesh_chunk_X_Y_Z` (merged meshes and instanced meshes). A merged .cgf has no physics chunk and no
+  .rnr: the collision of the part is its collision chunk `NAME_collision_chunk_X_Y_Z` (chunkType 2 of `region.chunks`), one
+  collider for each piece, the physics file of its mesh at its place. `region.py` skips these chunks (no render mesh), so the
+  merged structures (decks, stairs, house walls, fences) had no collision: the character walked on the ground under the stairs of
+  a deck, the planks at its hips. 30 regions have 1,174,821 such colliders of 5,741 meshes; 5,022 of the meshes have a
+  collision mesh of section 6 (1,096,001 colliders). Most colliders are also a placement of the level (the instanced pieces):
+  the cells have their collision.
+
+  ```sh
+  tools/convert.sh collision-chunks [REGION...]   # content/regions/NAME/collision-chunks.bin (no import, no cell build)
+  ```
+
+  `converter/swc_convert/collision_chunks.py` writes the other colliders (r_+04_+02: 7,240 of 47,559, 463 meshes; 39 colliders
+  of meshes with no collision mesh, 162 primitive shapes are not in it yet). The client places them at run time
+  (`World/SwcCollisionChunks`): each batch of 128 m within 200 m of the character gets one hidden instanced component for each
+  collision mesh, with the settings of the collision instances of the cells (BlockAll, tag `SwcCollision`). The batches within
+  160 m load their meshes at once, so the collision is there at the world entry; `-SwcNoCollisionChunks` turns it off. Later,
+  the cells can take these colliders (a cell build of the world track).
 
 ## Gathering nodes in the level (P4.1)
 

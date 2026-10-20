@@ -1,0 +1,9 @@
+# The routes of tests/drive/ast201-stairs.txt (AST-201): the hour 12:00, a travel 1.5 m before the foot of the next stairs (in
+# its uphill direction, 0.5 m above its foot). Times on the clock of the drive script.
+# the walkway of the supply stockpile deck, on the line of the user picture (north): the start place of the run, 9363.540 4775.750 135.200
+0.500 ignore on
+0.600 world-time 12:00
+1.000 heal
+16.500 travel 9358.572 4779.569 133.400   # A: the stairs of the walkway (uphill to the east, foot 9360.07 4779.49 132.90)
+30.500 travel 9383.278 4775.861 133.440   # B: the stairs 16 m to the east (uphill to the west, foot 9381.78 4775.94 132.94)
+44.500 travel 9374.480 4830.780 138.180   # C: the stairs 53 m to the north-east (uphill to the east, foot 9375.98 4830.78 137.68)

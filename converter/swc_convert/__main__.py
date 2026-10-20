@@ -18,6 +18,8 @@ Usage (through tools/convert.sh):
                                                     --sheet: the pictures side by side after Scripts/space_proof.py
   collision [PATH...]                               the game collision of the static meshes (P4.1): the physics file
                                                     of each mesh -> content/collision (default: all static meshes)
+  collision-chunks [REGION...]                      the colliders of the collision chunks of the merged structures
+                                                    (AST-201) -> content/regions/NAME/collision-chunks.bin (default: all)
   overrides NAME... | --all                         the material overrides of the placements (P4.1): the slot maps of
                                                     the pairs (mesh, material), their records (after census)
   cover NAME... | --all                             the ground cover of the regions for the client (T3: region.vegetation,
@@ -70,6 +72,7 @@ def main(argv=None) -> int:
     p.add_argument("--workers", type=int, default=4); p.add_argument("--force", action="store_true")
     p = sub.add_parser("space-proof"); p.add_argument("name", nargs="?", default=PROOF_REGION); p.add_argument("--area", type=float, nargs=3, default=list(PROOF_AREA)); p.add_argument("--sheet", action="store_true")
     p = sub.add_parser("collision"); p.add_argument("paths", nargs="*")
+    p = sub.add_parser("collision-chunks"); p.add_argument("regions", nargs="*")
     p = sub.add_parser("overrides"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("terrain-layers"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("terrain-plan"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
@@ -138,6 +141,9 @@ def main(argv=None) -> int:
     elif args.command == "collision":
         from . import collision
         result = collision.convert_all([p.lower() for p in args.paths] or None)
+    elif args.command == "collision-chunks":
+        from . import collision_chunks
+        result = collision_chunks.write_all(args.regions or None)
     elif args.command == "manifest":
         result = manifest.refresh()
     elif args.command == "proofs":
