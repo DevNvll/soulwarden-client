@@ -17,6 +17,7 @@
 #include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "World/SwcLoadingGate.h"
 
 DEFINE_LOG_CATEGORY(LogSwcPersons);
 
@@ -254,13 +255,14 @@ void USwcPersonSubsystem::Load()
 
 bool USwcPersonSubsystem::GetViewLocation(FVector& Out) const
 {
-	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
-	if (Controller == nullptr || Controller->PlayerCameraManager == nullptr)
-	{
-		return false;
-	}
-	Out = Controller->PlayerCameraManager->GetCameraLocation();
-	return true;
+	// The loading gate (docs/WORLD.md "The loading"): during a loading screen the place of the character, else the camera.
+	return SwcLoadingGate::GetView(GetWorld(), Out);
+}
+
+void USwcPersonSubsystem::Deinitialize()
+{
+	SwcLoadingGate::Unregister(GetWorld(), TEXT("persons"));
+	Super::Deinitialize();
 }
 
 void USwcPersonSubsystem::Tick(float DeltaTime)
@@ -270,6 +272,18 @@ void USwcPersonSubsystem::Tick(float DeltaTime)
 	{
 		bLoadTried = true;
 		Load();
+		// The loading gate: the visible persons within the spawn distance of the place of a loading screen have their actor
+		// (body, items, idle clip) before the screen ends.
+		SwcLoadingGate::Register(GetWorld(), TEXT("persons"), [this](const FVector& Place, FString& Why)
+		{
+			int32 Missing = 0;
+			for (const FSwcPerson& Person : Persons)
+			{
+				Missing += !Person.Actor.IsValid() && Person.bVisible && !Person.BodyPath.IsEmpty() && FVector::Dist(Place, Person.Place) <= SpawnDistance;
+			}
+			Why = FString::Printf(TEXT("%d person(s) to spawn"), Missing);
+			return Missing == 0;
+		});
 	}
 	for (FSwcPerson& Person : Persons)
 	{
@@ -277,12 +291,14 @@ void USwcPersonSubsystem::Tick(float DeltaTime)
 	}
 	const double Now = FPlatformTime::Seconds();
 	FVector View;
-	if (Persons.IsEmpty() || Now < NextUpdate || !GetViewLocation(View))
+	FVector Place;
+	const bool bScreen = SwcLoadingGate::GetPlace(GetWorld(), Place);   // a loading screen: all near persons in each frame
+	if (Persons.IsEmpty() || (!bScreen && Now < NextUpdate) || !GetViewLocation(View))
 	{
 		return;
 	}
 	NextUpdate = Now + 0.25;
-	int32 Budget = SpawnsPerUpdate;
+	int32 Budget = bScreen ? TNumericLimits<int32>::Max() : SpawnsPerUpdate;
 	for (FSwcPerson& Person : Persons)
 	{
 		const double Distance = FVector::Dist(View, Person.Place);

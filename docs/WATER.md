@@ -52,6 +52,8 @@ fountains in a river, raised river parts.
 
 - Each surface is a static mesh made at run time (`UStaticMesh::BuildFromMeshDescriptions`), with its own dynamic instance of
   `M_SwcWaterSource`. The surfaces near the view build first (at most 6 in a frame, in 3 km); they stay. No collision, no shadow.
+  During a loading screen the view is the place of the character, and the screen ends only when the surfaces within 150 m
+  are built (the loading gate of the world track (docs/WORLD.md "The loading"); a river surface came 0.4 s after the screen before).
 - The ocean is a flat grid of 20 km at the ocean level that follows the view in steps of 312.5 m. The override of the place of the
   view (its cylinder or box) changes its values in its transition time.
 - The ocean plane of the world level (the world track's `M_SwcOcean`) hides with no collision while it is in the level: a character

@@ -1,5 +1,7 @@
 #include "Environment/SwcEnvironmentSubsystem.h"
 
+#include "World/SwcLoadingGate.h"
+
 #include "Async/Async.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/DirectionalLightComponent.h"
@@ -718,13 +720,21 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	// camera.
 	const FVector CameraLocation = Controller->PlayerCameraManager->GetCameraLocation();
 	FVector Selector = CameraLocation;
-	if (const APawn* Pawn = Controller->GetPawn())
+	// The loading gate (docs/WORLD.md "The loading"): during a loading screen the volumes of the place of the character, with no
+	// blend from another place (the sky and the light changed 6 to 10 s after the screen ended).
+	FVector Place;
+	const bool bScreen = SwcLoadingGate::GetPlace(World, Place);
+	if (bScreen)
+	{
+		Selector = Place;
+	}
+	else if (const APawn* Pawn = Controller->GetPawn())
 	{
 		Selector = Pawn->GetActorLocation() - FVector(0.0, 0.0, Pawn->GetSimpleCollisionHalfHeight());
 	}
 	const swc::net::WorldPosition Feet = SwcUnrealToEngine(Selector);
 	const double WorldHour = bMenu ? Menu->Hour : Clock->GetHour();
-	UpdateBlend(env::Vec3{Feet.x, Feet.y, Feet.z}, WorldHour, DeltaTime);
+	UpdateBlend(env::Vec3{Feet.x, Feet.y, Feet.z}, WorldHour, bScreen ? 1.0e6f : DeltaTime);
 	if (Layers.IsEmpty() || Layers[0].Preset == nullptr)
 	{
 		return;

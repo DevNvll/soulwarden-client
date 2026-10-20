@@ -97,6 +97,7 @@ class SOULWARDENCLIENT_API USwcPersonSubsystem : public UTickableWorldSubsystem
 public:
 	virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;
 	virtual void Tick(float DeltaTime) override;
+	virtual void Deinitialize() override;
 	virtual TStatId GetStatId() const override;
 
 	const TArray<FSwcPerson>& GetPersons() const { return Persons; }

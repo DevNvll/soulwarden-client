@@ -354,6 +354,8 @@ tools/import-surface-layer.sh NAME... --max-seconds 300 --wait 7200   # the deca
 
 - `decals.py` walks the chunk slices and the capital slices (with the slices that they spawn at the start) and reads
   the roads (a spline component and a road component of one entity) and the projected decals (DecalConfiguration).
+- The loading (2026-10-20, the loading gate of the world track (docs/WORLD.md "The loading")): during a loading screen the layer updates at the place of the
+  character in each frame, and the screen ends only when the roads within 300 m and the decals within 150 m are shown.
   The world: 24,713 roads, 286,082 decals (240,315 placed: visible, with a material), 658 decal materials.
 - A road is a ribbon mesh: the cubic Bezier of each segment (the vertex, its forward handle, the back handle of the
   next vertex), the width interpolated between the vertices, the heights of the Landscape + 4 cm. The vertices are at

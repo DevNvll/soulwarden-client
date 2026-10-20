@@ -22,6 +22,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "StaticMeshAttributes.h"
+#include "World/SwcLoadingGate.h"
 
 DEFINE_LOG_CATEGORY(LogSwcWater);
 
@@ -159,6 +160,18 @@ void USwcWaterSubsystem::Tick(float DeltaTime)
 	{
 		bLoadTried = true;
 		Load();
+		// The loading gate (docs/WORLD.md "The loading"): the water surfaces within the near radius of the place of a loading
+		// screen are built before it ends.
+		SwcLoadingGate::Register(GetWorld(), TEXT("water"), [this](const FVector& Place, FString& Why)
+		{
+			int32 Missing = 0;
+			for (const FBodyEntry& Entry : Bodies)
+			{
+				Missing += !Entry.bBuilt && FVector::Dist(Place, Entry.Center) - Entry.Radius <= SwcLoadingGate::NearCm;
+			}
+			Why = FString::Printf(TEXT("%d surface(s) to build"), Missing);
+			return Missing == 0;
+		});
 	}
 	FVector View;
 	if (!bLoaded || !GetViewLocation(View))
@@ -353,22 +366,14 @@ void USwcWaterSubsystem::Load()
 
 bool USwcWaterSubsystem::GetViewLocation(FVector& Out) const
 {
-	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
-	if (Controller == nullptr)
-	{
-		return false;
-	}
-	if (Controller->PlayerCameraManager != nullptr)
-	{
-		Out = Controller->PlayerCameraManager->GetCameraLocation();
-		return true;
-	}
-	if (const APawn* Pawn = Controller->GetPawn())
-	{
-		Out = Pawn->GetActorLocation();
-		return true;
-	}
-	return false;
+	// The loading gate: during a loading screen the place of the character, else the camera (no view before the character).
+	return SwcLoadingGate::GetView(GetWorld(), Out);
+}
+
+void USwcWaterSubsystem::Deinitialize()
+{
+	SwcLoadingGate::Unregister(GetWorld(), TEXT("water"));
+	Super::Deinitialize();
 }
 
 TMap<FName, float> USwcWaterSubsystem::OceanValues(int32 Material, const TSharedPtr<FJsonObject>& Animation, const FVector3f& FogColor, float FogScale,

@@ -181,4 +181,4 @@ fi
 export SWC_RUN=player
 export SWC_SESSION_DATA="${SWC_PLAYER_DATA}" SWC_SESSION_LOCK="${SWC_PLAYER_DATA}/run.lock" SWC_SESSION_SEED=""
 exec "${SWC_REPO}/tools/lib/session.sh" -- \
-    "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" -game -SwcConnect -abslog="${logs}/client-${stamp}.log" "$@"
+    "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" -game -SwcConnect -abslog="${logs}/client-${stamp}.log" "${SWC_CLIENT_ARGS[@]}" "$@"

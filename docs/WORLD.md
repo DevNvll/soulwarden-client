@@ -286,6 +286,106 @@ tools/build-world.sh --import --all      # each region: import its content (tool
   a streaming source; it logs the frame rate and the streaming each second, can write a picture every N frames, and
   ends the client with a summary line. `terrain.flythrough_plan` writes a plan from a route.
 
+## The loading (AST-203, 2026-10-20)
+
+The work of the priority of the user (2026-10-20: "prioritize optimizations on loading terrain"), with the rule of the user of the
+same day: when a loading screen ends (the world entry, a travel, a respawn), all content near the character is there and
+visible; no object appears, changes its mesh, or changes its material in view after it.
+
+The measure (development runs of Devwarden, one Unreal process at a time; the tools in `~/Games/soulwarden-client/work/world`:
+`entry.sh`, `entry-video.sh`, `timeline.py`, `export.sh` (an Insights trace exported with no window), `cold_cache.py` (the page
+cache of our files dropped with `posix_fadvise`, no root)). The world entry from the process start to the spawn, before: 94.9 s
+(the first run after a restart): the start to `LoadMap` 9 s, `LoadMap` 26.7 s, the wait for the Asset Registry 23.2 s, the
+start of the environment and the UI 8 s, the login 4 s, the cells of the place 23.3 s.
+
+The causes and the changes:
+
+| Cause | Change | Gain |
+| --- | --- | --- |
+| The Asset Registry: the editor binary in -game scans all 76,197 files with no cache (-game reads a cache, never writes one); the engine init waits for it | `-AssetGatherAll=false` (`SWC_CLIENT_ARGS` of `tools/env.sh`; the client code makes no registry query) | 23 s |
+| Zen: in its network namespace a client finds the Zen server of a host commandlet but cannot reach it (30.1 s wait) | the client DDC graph with no ZenLocal (`SWC_CLIENT_DDC`; the file store has the data) | 0 to 30 s |
+| The async loader: an uncooked client has no loading thread; it loads only in its slice of the game thread | 300 ms in each frame during the loading screen (`SwcBackendSubsystem`, from 50 ms) | the wait 24.9 -> 19.6 s |
+| The start screen of the UI ended when the controller had any pawn: the engine spawned a default pawn at the origin, 25 s before the character (the user saw the world load) | no default pawn (`SwcGameMode`) | the screen ends at the spawn |
+| The content systems loaded after the screen, near the camera (at the origin before the spawn): the ground cover, the persons, the creatures, the surface layer, the water surfaces, the collision chunks, the time-of-day blend of the environment, and the engine work (shader jobs, assets that build, textures that stream) | the loading gate (below) | the late content within 150 m in the 10 s after the screen: 1 -> 0 (see the check) |
+| The ground cover built two batches in one update (a frame of 2.4 s) | a time budget (4 ms in play, 50 ms during a screen) | the longest frame in the 5 s after the spawn: 1.0 to 2.6 s -> 0.17 s |
+| The camera stayed at the origin of the world (the world entry) or at the old place (a travel) during the screen: the eye adaptation, Lumen, the sky capture, and the fog started at the place only at the spawn, and the streaming source of the player loaded the cells about the origin | a camera at the place during the screen and the light check (below) | the mean luma of the video from 0.5 to 10 s after the screen: before -25 % (p1, day) and +10 % in the first 2.5 s (gate3); after within 2 % (the shrine) and 3 % (the road start); the exposure after the screen within 0.07 to 0.25 EV |
+| The far meshes hid by their distance alone: bare ground up to 1 km until the cells came | a group hides when the cells under it are in the world | the cells within 300 m / 500 m / 1,000 m in the world after the screen: before 17.9 / 35.7 / 50.5 s (the sprint); after 3.9 / 5.2 / 8.3 s (the world entry), 1.9 / 3.6 / 6.0 s (the shrine), 0.2 / 1.9 / 7.9 s (the travel) |
+| The wait of a travel had the 5 ms slice of the engine | 300 ms in each frame during the wait of a travel or a respawn | the travel of 426.7 m: 9.5 s -> 3.7 s (with the cells of the entry place already loaded) |
+
+The loading gate (`World/SwcLoadingGate`, `SwcWorldStreaming::IsReadyAt`): during a loading screen the place of the character is
+the view of the content systems (`SwcLoadingGate::GetView`), so they load in parallel with the cells. Each system registers a
+check "ready near this place" (`SwcLoadingGate::Register`): the ground cover (its batches within its range plus 16 m: the camera
+arm and the first steps; without it a travel built one batch at 100 to 142 m 0.6 s after the screen), the persons (the
+visible persons within 150 m have their actor), the creatures (the creatures within 150 m show their body), the surface layer
+(the roads within 300 m, the decals within 150 m), the water (the surfaces within 150 m), the collision chunks (the batches
+within 150 m). The wait ends when the cells within 150 m are loaded (a streaming source of 150 m, the highest priority), the
+place has ground, every check is ready, and the engine work is done (`SwcLoadingGate::EngineReady`: no shader job, no asset
+that builds, no texture that streams; at most 20 s more). The objects (the gathering nodes) already build at the place of the
+server before the spawn. The environment selects its time-of-day volumes at the place of the screen with no blend from
+another place.
+
+The light (the rule of 2026-10-20: the light is settled when the screen ends). Before, the camera stayed at the origin of the
+world during the screen of the world entry (no character yet) and at the old place during a travel, so the eye adaptation,
+Lumen, the real-time sky capture, and the volumetric fog started to work at the place only at the spawn (F5: the beach was dark
+at the spawn and much brighter 10 s later). Now the streaming source actor of the wait has a camera at the place (3.5 m behind
+and 2 m above the feet, along the facing of the server, 10 degrees down), and it is the view of the player during the wait (a
+travel: from 1 s after its start, when the loading screen of the UI shows), with an eye adaptation of 20 EV per second (the
+camera settings; the engine default is 3 up and 1 down). The wait also needs 12 frames at the place with an exposure within
+0.05 EV (`SwcLoadingGate::GetLight`: a scene view extension reads the exposure and the mean scene luminance of the game view;
+at most 10 s after the content; the rule "3 s after the cells with no ground near the place" also waits for the engine work and the
+light: a travel ended 3.7 s after the cells while the collision of its floor still built, and the character fell 1.62 m). The
+source of the player controller is at that camera too: the cells of its loading range
+start to load at the place behind the screen. During the wait of a travel or a respawn the loader also has 300 ms in each frame.
+
+The results (development runs of 2026-10-20, `work/world/runs.sh`; late content within 150 m in the 10 s after the screen):
+
+| Run | Wait of the screen | Late content | Notes |
+| --- | --- | --- | --- |
+| The world entry at the road start (`lv-entry-c1`) | 32.7 s (74.5 s from the process start; gate3 81.9 s) | 0 | the light settled in 102 frames at the place |
+| The world entry through the front end, PLAY (`lv-front-c1`) | 27.9 s | 0 | the same gate and light as `-SwcPlay` |
+| The world entry at the Shrine of the Lion (`lv-shrine-c1`) | 43.2 s | 0 | see the shrine below |
+| The long travel of 426.7 m (`lv-travel-c1`) | 3.7 s | 0 | |
+| The 60 s sprint along the road (`lv-road-c1`, 75 s window) | 44.8 s | 7 | all 7: creatures of a kind not in memory (below); frames p50 12.8 ms, p95 23 ms |
+| The world entry with `-SwcGateRing=300` (`lv-ring300-c1`) | 43.8 s | 0 | +11 s for the cells within 300 m, which come 3.9 s after the screen without it: not used |
+
+The far meshes (`USwcWorldSubsystem`): a group of 512 m within the loading range of 1,024 m hid by its distance alone, so the
+ground there was bare until its cells came (the cells within 300 m were all in the world 17.9 s after the screen, within 500 m
+35.7 s, within 1,000 m 50.5 s: the sprint run). Now a group hides when the cells under it are in the world (a World Partition
+query of the part of the group within the range), at once when it is within 256 m of the view. The view is the place of the
+screen during a screen.
+
+The check (`World/SwcLateContentProbe`, `-SwcLateProbe[=SECONDS]`): at the end of each loading screen it takes the visible
+primitive components within 400 m of the character, then for 10 s logs each component within 150 m that becomes visible, changes
+its mesh, or changes a material ("late: ..."), and the engine work at the start and the end ("late content: N", 0 is the target).
+A new component beyond its draw distance from the camera (or the end cull distance of its instances: the ground cover culls at
+100 m) draws nothing and does not count; when the character comes near it, that is the draw distance, not a late load. The
+distance of an instanced component is the one of its nearest instance (the bounds of a new instanced component are a coarse
+sphere; some included the origin of the world). A new creature or effect of the server is an "entity": the server sends it at
+its interest radius (`interestRadius` of the creature data); it is listed, not counted. A creature that shows after its record
+(its assets load) counts. The probe also logs the light each second ("late: light": the exposure and the mean scene
+luminance) and the times when the cells within 300 m, 500 m, and 1,000 m are in the world.
+
+The Shrine of the Lion (9716 1881, region r_+04_+00; a fact of the UI track: its cells did not load in 44 s, at the dry sand
+in about 12 s). The region was not in `warm-state.json` (13 of the 49 regions were warmed on 2026-10-18), so the first entry built
+the derived data that the file store did not have (79 textures and about 850 assets in the first 26 s of the wait). The warm-up
+of r_+04_+00 (`tools/warm-cache.sh r_+04_+00`): 6 calls, about 45 min, and the file store grew by only 68 MB (most of the data was
+in it from earlier runs there; the new work of the commandlet was the editor shader maps of the materials, in Zen, which the runs
+cannot read). Thus the warm-up of the other 36 regions (7,521 new meshes, some hours) was not done: the first run in a region
+fills the file store. The entry after the warm-up (`lv-shrine-c1`): the cells within 150 m were in at about 40 s (the engine still
+built 52 assets and 43 shader jobs at 21 s: the meshes and the materials of the region for the client), then the place had no
+ground within 1.5 m (the platform has no collision, see the open points), and the wait ended 43.2 s after its start.
+`warm_cache.py` counts its limit of 300 s from the end of the level load (the level load alone took more
+than 300 s in a new checkout, and then each call warmed one batch of 200 meshes).
+
+Open points: a creature of a kind that is not in memory shows 0.2 to 1.9 s after its record (its assets load async; a preload of
+the creature kinds of a region needs their list in the client data); the import of the weapons should set the Nanite flag; the
+cells within 150 m are now the longest part of the wait (48 s in the first gated run: the uncooked meshes of the
+cells build from the DDC); the always-loaded Landscape of the 49 regions is about 12 s of `LoadMap` (a second runtime grid
+moves it out of `LoadMap`, but the visible terrain must still load before the screen ends, so the gain is only the overlap with
+the login; not done); the stone platform of the Shrine of the Lion has no collision in the client (the character spawns at 44.55 m
+and drops into it to the Landscape at 41.4 m: one of the colliders that the cells and the collision chunks do not place yet); a cooked build removes the registry, the World Partition streaming generation (12 s at each start), the
+editor PostLoad, and the DDC builds (the estimate is the next step).
+
 ## The collision of the game (P4.1 part 1)
 
 The game has the collision of a mesh in its physics file: the path of the `.cgf` with `.rnr`. It has boxes, spheres,
@@ -340,6 +440,9 @@ tools/build-world.sh --cells NAME...      # new cell actors with the collision i
   collision mesh, with the settings of the collision instances of the cells (BlockAll, tag `SwcCollision`). The batches within
   160 m load their meshes at once, so the collision is there at the world entry; `-SwcNoCollisionChunks` turns it off. Later,
   the cells can take these colliders (a cell build of the world track).
+- During a loading screen the batches build at the place of the character, and the screen ends only when the batches within
+  150 m are built (the loading gate of the world track (docs/WORLD.md "The loading")). Open point (a cell build): move these colliders into the cells, also the
+  1,094 colliders of meshes with no collision mesh and the 3,793 primitive shapes that the chunks do not place.
 
 ## Gathering nodes in the level (P4.1)
 

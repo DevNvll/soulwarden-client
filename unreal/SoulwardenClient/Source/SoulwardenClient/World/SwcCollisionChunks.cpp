@@ -16,6 +16,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
+#include "World/SwcLoadingGate.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSwcCollision, Log, All);
 
@@ -68,6 +69,49 @@ void USwcCollisionChunks::OnWorldBeginPlay(UWorld& World)
 	bEnabled = !FParse::Param(FCommandLine::Get(), TEXT("SwcNoCollisionChunks"));
 	Folder = ContentFolder();
 	UE_LOG(LogSwcCollision, Log, TEXT("collision: the collision chunks %s, range %.0f m (%s)"), bEnabled ? TEXT("on") : TEXT("off"), RangeCm / 100.0, *Folder);
+	if (bEnabled)
+	{
+		// The loading gate (docs/WORLD.md "The loading"): the collider batches within the near radius of the place of a loading
+		// screen are built before it ends (their regions read, their meshes loaded).
+		SwcLoadingGate::Register(&World, TEXT("collision"), [this](const FVector& Place, FString& Why)
+		{
+			int32 Missing = 0;
+			bool bRegions = true;
+			const double EngineX = Place.X / 100.0;
+			const double EngineY = -Place.Y / 100.0;
+			const double NearM = SwcLoadingGate::NearCm / 100.0;
+			for (int32 RX = FMath::FloorToInt((EngineX - NearM) / RegionMeters); RX <= FMath::FloorToInt((EngineX + NearM) / RegionMeters); ++RX)
+			{
+				for (int32 RY = FMath::FloorToInt((EngineY - NearM) / RegionMeters); RY <= FMath::FloorToInt((EngineY + NearM) / RegionMeters); ++RY)
+				{
+					const FRegion* Region = Regions.Find(FIntPoint(RX, RY));
+					if (Region == nullptr || (!Region->bNoFile && (!Region->Data.IsValid() || !*Region->bRead)))
+					{
+						bRegions = false;
+						continue;
+					}
+					if (Region->bNoFile)
+					{
+						continue;
+					}
+					for (const TPair<FIntPoint, TArray<FInstance>>& Pair : Region->Data->Batches)
+					{
+						const FVector Center((Pair.Key.X + 0.5) * BatchCm, (Pair.Key.Y + 0.5) * BatchCm, Place.Z);
+						const FBatch* Batch = Batches.Find(Pair.Key);
+						Missing += FVector::Dist2D(Center, Place) <= SwcLoadingGate::NearCm + BatchCm * 0.71 && (Batch == nullptr || !Batch->bBuilt);
+					}
+				}
+			}
+			Why = FString::Printf(TEXT("%d collider batch(es) to build%s"), Missing, bRegions ? TEXT("") : TEXT(", regions to read"));
+			return bRegions && Missing == 0;
+		});
+	}
+}
+
+void USwcCollisionChunks::Deinitialize()
+{
+	SwcLoadingGate::Unregister(GetWorld(), TEXT("collision"));
+	Super::Deinitialize();
 }
 
 bool USwcCollisionChunks::ReadRegionFile(const FString& Path, FRegionData& Data)
@@ -309,13 +353,17 @@ void USwcCollisionChunks::Tick(float DeltaTime)
 	{
 		return;
 	}
-	// The place of the character (its pawn), else the camera.
-	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
-	if (Controller == nullptr || (Controller->GetPawn() == nullptr && Controller->PlayerCameraManager == nullptr))
+	// The place of the character: during a loading screen the place where it will be (the loading gate), else its pawn.
+	FVector Place;
+	if (!SwcLoadingGate::GetPlace(GetWorld(), Place))
 	{
-		return;
+		const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
+		if (Controller == nullptr || Controller->GetPawn() == nullptr)
+		{
+			return;
+		}
+		Place = Controller->GetPawn()->GetActorLocation();
 	}
-	const FVector Place = Controller->GetPawn() != nullptr ? Controller->GetPawn()->GetActorLocation() : Controller->PlayerCameraManager->GetCameraLocation();
 	const FIntPoint Here(FMath::FloorToInt(Place.X / BatchCm), FMath::FloorToInt(Place.Y / BatchCm));
 	const double Now = FPlatformTime::Seconds();
 	if (Now < NextUpdate && bNearReady && Here == LastHere)

@@ -1,5 +1,7 @@
 #include "World/SwcSurfaceLayer.h"
 
+#include "World/SwcLoadingGate.h"
+
 #include "Camera/PlayerCameraManager.h"
 #include "Components/DecalComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -85,6 +87,36 @@ void USwcSurfaceLayer::OnWorldBeginPlay(UWorld& World)
 		&& FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_SURFACE_LAYER")) != TEXT("0");
 	Folder = ContentFolder();
 	UE_LOG(LogSwcSurface, Log, TEXT("surface: layer %s (%s)"), bEnabled ? TEXT("on") : TEXT("off"), *Folder);
+	if (bEnabled)
+	{
+		// The loading gate (docs/WORLD.md "The loading"): the roads and the decals in range of the place of a loading screen
+		// are shown before it ends.
+		SwcLoadingGate::Register(&World, TEXT("surface"), [this](const FVector& Place, FString& Why)
+		{
+			int32 Roads = 0;
+			int32 Decals = 0;
+			for (const TPair<FIntPoint, FRegion>& Pair : Regions)
+			{
+				for (const FRoad& Road : Pair.Value.Roads)
+				{
+					// The roads near the character (a road mesh is a chunk of its region: its center within twice the near radius).
+					Roads += !Road.Component.IsValid() && FVector::Dist2D(Road.Center, Place) < 2.0 * SwcLoadingGate::NearCm;
+				}
+				for (const FDecal& Decal : Pair.Value.Decals)
+				{
+					Decals += !Decal.Component.IsValid() && FVector::Dist(Decal.Transform.GetLocation(), Place) < FMath::Min(Decal.RangeCm, SwcLoadingGate::NearCm);
+				}
+			}
+			Why = FString::Printf(TEXT("%d road(s), %d decal(s) to show"), Roads, Decals);
+			return Roads == 0 && Decals == 0 && UpdatedAt.Equals(Place, 1.0);
+		});
+	}
+}
+
+void USwcSurfaceLayer::Deinitialize()
+{
+	SwcLoadingGate::Unregister(GetWorld(), TEXT("surface"));
+	Super::Deinitialize();
 }
 
 AActor* USwcSurfaceLayer::OwnerActor()
@@ -296,20 +328,24 @@ void USwcSurfaceLayer::Tick(float DeltaTime)
 	{
 		return;
 	}
+	// The loading gate: during a loading screen the layer builds at the place of the character in each frame.
+	FVector Place;
+	const bool bScreen = SwcLoadingGate::GetPlace(GetWorld(), Place);
 	const double Now = FPlatformTime::Seconds();
-	if (Now < NextUpdate)
+	if (!bScreen && Now < NextUpdate)
 	{
 		return;
 	}
 	NextUpdate = Now + UpdateSeconds;
-	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
-	if (Controller == nullptr || Controller->PlayerCameraManager == nullptr)
+	FVector View;
+	if (!SwcLoadingGate::GetView(GetWorld(), View))
 	{
 		return;
 	}
 	const int32 Roads = RoadsShown;
 	const int32 Decals = DecalsShown;
-	Update(Controller->PlayerCameraManager->GetCameraLocation());
+	Update(View);
+	UpdatedAt = View;
 	if (Roads != RoadsShown || Decals != DecalsShown)
 	{
 		UE_LOG(LogSwcSurface, Log, TEXT("surface: %d road meshes, %d decals near the view"), RoadsShown, DecalsShown);

@@ -1,5 +1,6 @@
 #include "SwcBackendSubsystem.h"
 
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "Camera/CameraActor.h"
 #include "Character/SwcCharacterMovement.h"
 #include "Character/SwcActions.h"
@@ -61,8 +62,21 @@ constexpr double SpawnFramesTime = 5.0;
 /** The time of the async loader in each frame from the in-game phase to the spawn (the loading screen shows; the assets of
  *  the look and the cells of the place load): 50 ms in place of the 5 ms of the engine (s.AsyncLoadingTimeLimit), with the
  *  full time also when the loader waits for a read (s.AsyncLoadingUseFullTimeLimit). Measured by the world track: the cells
- *  of the place in 7.1 s and 7.7 s, against 9.8 s and 8.4 s with 50 ms only until the assets of the look were loaded. */
-constexpr float SpawnLoadingTimeLimit = 50.0f;
+ *  of the place in 7.1 s and 7.7 s, against 9.8 s and 8.4 s with 50 ms only until the assets of the look were loaded.
+ *  300 ms since 2026-10-20 (the loading work, docs/WORLD.md "The loading"): the uncooked client has no loading thread, so
+ *  the loader works only in this slice of the game thread; the wait to the spawn 24.9 s -> 19.6 s, the assets of the look
+ *  13.1 s -> 7.5 s (the loading screen then runs at about 3 frames per second). Also in the wait of a travel or a respawn
+ *  (its loading screen). */
+constexpr float SpawnLoadingTimeLimit = 300.0f;
+
+/** @return The facing of the own entity in Unreal space: the rotation of the movement state turns north (engine +Y) about the vertical axis. */
+FVector OwnForward(const swc::net::RepClient::OwnEntity& Own)
+{
+	const FQuat Rotation(Own.rotation.x, Own.rotation.y, Own.rotation.z, Own.rotation.w);
+	const FVector North = Rotation.RotateVector(FVector(0.0, 1.0, 0.0));
+	const swc::net::WorldPosition Ahead{Own.position.x + static_cast<float>(North.X), Own.position.y + static_cast<float>(North.Y), Own.position.z};
+	return (SwcEngineToUnreal(Ahead) - SwcEngineToUnreal(Own.position)).GetSafeNormal();
+}
 
 /** The distance of the ground value of an input entry in a fall: 10 m at most (protocol notes 4.7). */
 constexpr double MaxAirHeight = 1000.0;
@@ -349,6 +363,7 @@ void USwcBackendSubsystem::StartConnection(const FSwcLoginToken& Token, const FS
 
 bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(SwcBackend_TickWorld);   // the loading work: the time of the core tickers in a trace
 	if (!Connection.IsValid())
 	{
 		return false;
@@ -376,7 +391,8 @@ bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 	if (Snapshot.Phase == FPhase::inGame && !bInGame)
 	{
 		SetSpawnLoading(true);
-		bCellsReady = bCellsReady || SwcWorldStreaming::IsReadyAt(GetGameInstance()->GetWorld(), SwcEngineToUnreal(Snapshot.Own.position));
+		bCellsReady = bCellsReady || SwcWorldStreaming::IsReadyAt(GetGameInstance()->GetWorld(), SwcEngineToUnreal(Snapshot.Own.position), 90.0,
+			OwnForward(Snapshot.Own));
 		if (UpdatePreload() && bCellsReady)
 		{
 			SetSpawnLoading(false);
@@ -489,11 +505,7 @@ void USwcBackendSubsystem::ShowOwnEntity()
 	{
 		return;
 	}
-	// The facing of the entity: the rotation of the movement state turns north (engine +Y) about the vertical axis.
-	const FQuat Rotation(Own.rotation.x, Own.rotation.y, Own.rotation.z, Own.rotation.w);
-	const FVector North = Rotation.RotateVector(FVector(0.0, 1.0, 0.0));
-	const swc::net::WorldPosition Ahead{Own.position.x + static_cast<float>(North.X), Own.position.y + static_cast<float>(North.Y), Own.position.z};
-	const FVector Forward = (SwcEngineToUnreal(Ahead) - Feet).GetSafeNormal();
+	const FVector Forward = OwnForward(Own);
 	// The level has no ground yet (the world level comes in stage 1.3): the test floor of the movement.
 	bTestFloor = !SwcTestFloor::HasGround(World, Feet);
 	if (bTestFloor)
@@ -1013,7 +1025,7 @@ void USwcBackendSubsystem::SetSpawnLoading(bool bOn)
 		GAsyncLoadingUseFullTimeLimit = SavedLoadingFullTime;
 	}
 	UE_LOG(LogSwcBackend, Log, TEXT("world: the async loader has %.0f ms in each frame%s"), GAsyncLoadingTimeLimit,
-		bOn ? TEXT(" until the spawn (the cells of the place and the assets of the look load)") : TEXT(" again (the spawn)"));
+		bOn ? TEXT(" during the loading screen (the cells of the place and the assets of the look load)") : TEXT(" again (the end of the screen)"));
 }
 
 void USwcBackendSubsystem::UpdateLook()
@@ -1423,6 +1435,7 @@ void USwcBackendSubsystem::Travel(const swc::net::RepClient::OwnEntity& Own)
 	Movement->StopMovementImmediately();
 	Movement->DisableMovement();
 	bTravelWait = true;
+	SetSpawnLoading(true);   // the loading screen of the travel: the cells of the new place load as at the world entry
 	TravelSince = FPlatformTime::Seconds();
 	TravelFeet = Feet;
 	TravelForward = Forward;
@@ -1434,11 +1447,12 @@ void USwcBackendSubsystem::UpdateTravel()
 {
 	ASwcPlayerCharacter* Character = Avatar.Get();
 	UWorld* World = Character != nullptr ? Character->GetWorld() : nullptr;
-	if (World == nullptr || !SwcWorldStreaming::IsReadyAt(World, TravelFeet))
+	if (World == nullptr || !SwcWorldStreaming::IsReadyAt(World, TravelFeet, 90.0, TravelForward))
 	{
 		return;
 	}
 	bTravelWait = false;
+	SetSpawnLoading(false);
 	SwcWorldStreaming::Release();
 	const bool bGround = SwcTestFloor::HasGround(World, TravelFeet);
 	if (!bGround)

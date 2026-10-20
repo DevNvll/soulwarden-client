@@ -33,6 +33,7 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;
 	virtual void Tick(float DeltaTime) override;
+	virtual void Deinitialize() override;
 	virtual TStatId GetStatId() const override;
 
 	/** @return The water at a point (engine m): the quadtree, or the ocean where it has no water (swc::water::with_ocean). */

@@ -25,6 +25,7 @@
 #include "SceneInterface.h"
 #include "SceneView.h"
 #include "SwcBackendSubsystem.h"
+#include "World/SwcLoadingGate.h"
 
 DEFINE_LOG_CATEGORY(LogSwcCreatures);
 
@@ -93,11 +94,25 @@ void USwcCreatureSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	bDrawLockPoints = FParse::Param(FCommandLine::Get(), TEXT("SwcLockPoints"));
 	bMotionProbe = FParse::Param(FCommandLine::Get(), TEXT("SwcCreatureProbe"));
 	DrawHandle = UDebugDrawService::Register(TEXT("Game"), FDebugDrawDelegate::CreateUObject(this, &USwcCreatureSubsystem::DrawPlates));
+	// The loading gate (docs/WORLD.md "The loading"): the creatures within the near radius of the place of a loading screen show
+	// their body (the first async load) before the screen ends.
+	SwcLoadingGate::Register(GetWorld(), TEXT("creatures"), [this](const FVector& Place, FString& Why)
+	{
+		int32 Loading = 0;
+		for (const TPair<uint32, TWeakObjectPtr<ASwcCreature>>& Pair : Actors)
+		{
+			const ASwcCreature* Creature = Pair.Value.Get();
+			Loading += Creature != nullptr && Creature->IsLoading() && FVector::Dist(Creature->GetActorLocation(), Place) <= SwcLoadingGate::NearCm;
+		}
+		Why = FString::Printf(TEXT("%d creature(s) loading"), Loading);
+		return Loading == 0;
+	});
 }
 
 void USwcCreatureSubsystem::Deinitialize()
 {
 	UDebugDrawService::Unregister(DrawHandle);
+	SwcLoadingGate::Unregister(GetWorld(), TEXT("creatures"));
 	Clear(TEXT("the world ends"));
 	Super::Deinitialize();
 }

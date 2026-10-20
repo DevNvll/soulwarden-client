@@ -28,6 +28,7 @@ class SOULWARDENCLIENT_API USwcGroundCover : public UTickableWorldSubsystem
 
 public:
 	virtual void OnWorldBeginPlay(UWorld& World) override;
+	virtual void Deinitialize() override;
 	virtual void Tick(float DeltaTime) override;
 	virtual TStatId GetStatId() const override;
 
@@ -66,7 +67,9 @@ private:
 	static bool ReadRegionFile(const FString& Path, FRegionData& Data);
 	FRegion& RegionAt(const FIntPoint& Key);
 	bool BuildBatch(const FIntPoint& Batch, FBatch& Out);
-	void Update(const FVector& View);
+	void Update(const FVector& View, double MarginM, double Budget);
+	/** The batches within the range of View (plus MarginM) that are not built, the nearest first. */
+	void WantedBatches(const FVector& View, double MarginM, TArray<TPair<double, FIntPoint>>& Wanted) const;
 	AActor* OwnerActor();
 	void ApplyBackLight(UHierarchicalInstancedStaticMeshComponent* Component);
 
@@ -80,6 +83,7 @@ private:
 	bool bEnabled = false;
 	bool bShown = true;
 	bool bShadow = false;
+	double LongestBuild = 0.0;   // seconds, since the last report line
 	float BackLight = 1.0f;
 	/** The dynamic instances of the back light test, by the original material. */
 	UPROPERTY()

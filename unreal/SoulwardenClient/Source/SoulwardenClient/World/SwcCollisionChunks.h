@@ -25,6 +25,7 @@ class SOULWARDENCLIENT_API USwcCollisionChunks : public UTickableWorldSubsystem
 public:
 	virtual void OnWorldBeginPlay(UWorld& World) override;
 	virtual void Tick(float DeltaTime) override;
+	virtual void Deinitialize() override;
 	virtual TStatId GetStatId() const override;
 
 protected:

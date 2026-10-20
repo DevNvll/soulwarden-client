@@ -12,7 +12,11 @@
 #include "UnrealClient.h"
 #include "Net/SwcSpace.h"
 #include "World/SwcFlythrough.h"
+#include "World/SwcLoadingGate.h"
 #include "World/SwcWorldStreaming.h"
+#include "WorldPartition/WorldPartitionRuntimeCell.h"
+#include "WorldPartition/WorldPartitionStreamingSource.h"
+#include "WorldPartition/WorldPartitionSubsystem.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSwcWorldTools, Log, All);
 
@@ -30,27 +34,52 @@ namespace
 {
 /** The loading range of the main runtime partition of the world level (Scripts/build_world.py, RANGE_CM). */
 constexpr double LoadingRangeCm = 102400.0;
+/** A group of far meshes nearer than this to the view is hidden at once (never a far mesh near the character). */
+constexpr double ImpostorNearCm = 25600.0;
+/** The half diagonal of a group of 512 m. */
+constexpr double ImpostorGroupRadiusCm = 36204.0;
 } // namespace
 
 void USwcWorldSubsystem::UpdateImpostors()
 {
+	// The view of the loading gate: during a loading screen the place of the character (the far meshes there are hidden before
+	// the screen ends; the camera is at the origin of the world before the spawn), else the camera (also of a flythrough).
 	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
-	if (Controller == nullptr || Controller->PlayerCameraManager == nullptr || Impostors.IsEmpty())
+	FVector View;
+	if (!SwcLoadingGate::GetView(GetWorld(), View))
 	{
-		return;
+		if (Controller == nullptr || Controller->PlayerCameraManager == nullptr)
+		{
+			return;
+		}
+		View = Controller->PlayerCameraManager->GetCameraLocation();
 	}
-	const FVector View = Controller->PlayerCameraManager->GetCameraLocation();
+	// A group within the loading range hides when the cells of the World Partition under it are in the world (before, it hid by
+	// the distance alone: the ground there was bare until its cells came, up to 50 s after the loading screen; AST-203), at once
+	// when it is near the view. A group beyond the range shows.
+	const UWorldPartitionSubsystem* Partition = GetWorld()->GetSubsystem<UWorldPartitionSubsystem>();
 	for (const TWeakObjectPtr<AActor>& Actor : Impostors)
 	{
-		if (AActor* Impostor = Actor.Get())
+		AActor* Impostor = Actor.Get();
+		if (Impostor == nullptr)
 		{
-			FVector Origin, Extent;
-			Impostor->GetActorBounds(false, Origin, Extent);
-			const bool bNear = FVector::Dist2D(Origin, View) < LoadingRangeCm;
-			if (Impostor->IsHidden() != bNear)
-			{
-				Impostor->SetActorHiddenInGame(bNear);
-			}
+			continue;
+		}
+		FVector Origin, Extent;
+		Impostor->GetActorBounds(false, Origin, Extent);
+		const double Distance = FVector::Dist2D(Origin, View);
+		bool bHide = Distance < LoadingRangeCm;
+		if (bHide && !Impostor->IsHidden() && Partition != nullptr && Distance - ImpostorGroupRadiusCm > ImpostorNearCm)
+		{
+			// The part of the group within the range: a sphere about its center (the cells beyond the range never load).
+			FWorldPartitionStreamingQuerySource Query(FVector(Origin.X, Origin.Y, View.Z));
+			Query.bUseGridLoadingRange = false;
+			Query.Radius = static_cast<float>(FMath::Clamp(LoadingRangeCm - Distance, 100.0, ImpostorGroupRadiusCm));
+			bHide = Partition->IsStreamingCompleted(EWorldPartitionRuntimeCellState::Activated, {Query}, false);
+		}
+		if (Impostor->IsHidden() != bHide)
+		{
+			Impostor->SetActorHiddenInGame(bHide);
 		}
 	}
 }

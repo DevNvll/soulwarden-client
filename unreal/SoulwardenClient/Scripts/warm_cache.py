@@ -4,8 +4,8 @@ A development run in its network namespace cannot reach Zen and uses only the fi
 SWC_EDITOR_DDC (the file store before Zen), each Zen hit of this commandlet fills the file store: no new build. The
 script loads the world level (its always loaded actors: the Landscapes and the far meshes) and the static meshes of
 each region (with their materials and textures), and waits for their derived data. It needs the renderer (with
--nullrhi the editor does not cache the render data). After a batch that passes SWC_WARM_MAX_SECONDS, the call stops
-("incomplete" in the report); the next call continues. SWC_GAME_CONTENT/warm-state.json has the meshes done for
+-nullrhi the editor does not cache the render data). After a batch that passes SWC_WARM_MAX_SECONDS of work on the meshes
+(after the level load), the call stops ("incomplete" in the report); the next call continues. SWC_GAME_CONTENT/warm-state.json has the meshes done for
 each region.
 Environment: SWC_CONTENT, SWC_GAME_CONTENT, SWC_WARM_REGIONS (the region names), SWC_WARM_MAX_SECONDS (default 300).
 """
@@ -54,6 +54,9 @@ phase = time.time()
 unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).load_level(LEVEL)
 library.finish_compilation()
 log(f"warm: level {LEVEL} in {time.time() - phase:.1f} s")
+# The limit counts the work on the meshes, from here: the level load alone took more than 300 s (2026-10-20: the shader maps of
+# the Landscapes of a new checkout), and then each call warmed only one batch.
+work_started = time.time()
 incomplete = False
 loaded = 0
 for name in regions:
@@ -62,7 +65,7 @@ for name in regions:
     keys += sorted(key for key in manifest if key.startswith(f"impostor:{name}:"))
     done = state.get(name, 0)
     while done < len(keys):
-        if time.time() - started > MAX_SECONDS:
+        if time.time() - work_started > MAX_SECONDS:
             incomplete = True
             break
         phase = time.time()

@@ -25,6 +25,7 @@ class SOULWARDENCLIENT_API USwcSurfaceLayer : public UTickableWorldSubsystem
 public:
 	virtual void OnWorldBeginPlay(UWorld& World) override;
 	virtual void Tick(float DeltaTime) override;
+	virtual void Deinitialize() override;
 	virtual TStatId GetStatId() const override;
 
 protected:
@@ -62,6 +63,7 @@ private:
 
 	bool ReadRegion(const FIntPoint& Key, FRegion& Region) const;
 	void Update(const FVector& View);
+	FVector UpdatedAt = FVector(TNumericLimits<double>::Max());   // the view of the last update (the loading gate)
 	AActor* OwnerActor();
 
 	TMap<FIntPoint, FRegion> Regions;

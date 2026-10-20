@@ -103,6 +103,9 @@ the folder, the name is the file stem; the first entry of a name wins).
 
 ## The view
 
+- The loading (2026-10-20, the loading gate of the world track (docs/WORLD.md "The loading")): the screen of the world entry, a travel, or a respawn ends only when
+  the creature actors within 150 m of the place of the character show their body (the first async load is complete).
+
 - Interpolation: the actor shows the samples at the render time = the server clock now less 0.25 s (the backend sends a
   movement state for each step of 200 ms of a way). Between two samples: linear position, slerp of the rotation. After a
   pause (more than 0.4 s between two samples) a step starts 200 ms before its state. After the last sample the creature

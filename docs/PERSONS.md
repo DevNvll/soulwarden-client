@@ -39,6 +39,11 @@ tools/test-net.sh                                     # the conversation and the
 Oxboro (`write --near 8880 4250 300`): 48 persons, 39 visible for a new character, 33 with Talk, 4 with interaction data, 32 with
 a line and a camera preset, 39 bodies, 6 items, 47 clips (the idle and the talk timelines).
 
+The loading (2026-10-20, the loading gate of the world track (docs/WORLD.md "The loading")): during a loading screen the persons spawn at the place of the character
+(all near persons in each frame, no budget), and the screen ends only when the visible persons within the spawn distance
+(150 m) have their actor. In play the spawn distance is still 150 m with synchronous loads (open point: async loads and a
+larger distance, so that a person does not appear at 150 m in view).
+
 ## The Talk
 
 The key E at a person with interaction data (the object layer, kind `npc`): the option OpenConversation (action 63, committed,

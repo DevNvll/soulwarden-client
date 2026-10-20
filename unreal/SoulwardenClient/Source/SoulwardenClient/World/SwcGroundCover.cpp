@@ -18,6 +18,8 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
+#include "World/SwcLoadingGate.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSwcCover, Log, All);
 
@@ -31,7 +33,12 @@ constexpr int32 BatchesPerRegion = Tiles / BatchTiles;
 constexpr double RegionM = 2048.0;
 constexpr double PackedToM = 2048.0 / 65535.0;   // the x, y, and z of a record
 constexpr double UpdateSeconds = 0.25;
-constexpr int32 BuildsPerUpdate = 2;      // batches made in one update (each is a few thousand instances)
+constexpr double BuildBudgetSeconds = 0.004;   // the batches of one update in play: the nearest always, more within 4 ms (the
+                                               // loading work: two batches in one update made frames of up to 2.4 s)
+constexpr double ScreenBudgetSeconds = 0.05;   // during a loading screen: each frame, 50 ms (the cover near the place is
+                                               // built before the screen ends: the loading gate)
+constexpr double ScreenMarginM = 16.0;         // during a screen the reach is this much more: the camera arm and the first steps
+                                               // after the screen (a travel built one batch at 100 to 142 m in the first 0.6 s)
 
 TAutoConsoleVariable<int32> CVarShow(TEXT("swc.GroundCover.Show"), 1,
 	TEXT("1: the ground cover is visible; 0: hidden, the batches stay (a matched view with and without the cover: "
@@ -139,6 +146,46 @@ void USwcGroundCover::OnWorldBeginPlay(UWorld& World)
 	RangeCm = FMath::Clamp(RangeM, 16.0, 1000.0) * 100.0;
 	Folder = ContentFolder();
 	UE_LOG(LogSwcCover, Log, TEXT("cover: ground cover %s, range %.0f m (%s)"), bEnabled ? TEXT("on") : TEXT("off"), RangeCm / 100.0, *Folder);
+	if (bEnabled)
+	{
+		// The loading gate: the batches within the range of the place of a loading screen are built before it ends.
+		SwcLoadingGate::Register(&World, TEXT("cover"), [this](const FVector& Place, FString& Why)
+		{
+			TArray<TPair<double, FIntPoint>> Wanted;
+			WantedBatches(Place, ScreenMarginM, Wanted);
+			Why = FString::Printf(TEXT("%d batch(es) to build"), Wanted.Num());
+			return Wanted.IsEmpty();
+		});
+	}
+}
+
+void USwcGroundCover::Deinitialize()
+{
+	SwcLoadingGate::Unregister(GetWorld(), TEXT("cover"));
+	Super::Deinitialize();
+}
+
+void USwcGroundCover::WantedBatches(const FVector& View, double MarginM, TArray<TPair<double, FIntPoint>>& Wanted) const
+{
+	const double ViewX = View.X / 100.0;
+	const double ViewY = -View.Y / 100.0;
+	const double Reach = RangeCm / 100.0 + BatchM * 0.75 + MarginM;   // the batch center can be 0.71 batch from its farthest point
+	const int32 MinX = FMath::FloorToInt((ViewX - Reach) / BatchM);
+	const int32 MaxX = FMath::FloorToInt((ViewX + Reach) / BatchM);
+	const int32 MinY = FMath::FloorToInt((ViewY - Reach) / BatchM);
+	const int32 MaxY = FMath::FloorToInt((ViewY + Reach) / BatchM);
+	for (int32 X = MinX; X <= MaxX; ++X)
+	{
+		for (int32 Y = MinY; Y <= MaxY; ++Y)
+		{
+			const double Distance = FMath::Sqrt(FMath::Square((X + 0.5) * BatchM - ViewX) + FMath::Square((Y + 0.5) * BatchM - ViewY));
+			if (Distance <= Reach && !Batches.Contains(FIntPoint(X, Y)))
+			{
+				Wanted.Emplace(Distance, FIntPoint(X, Y));
+			}
+		}
+	}
+	Wanted.Sort([](const TPair<double, FIntPoint>& A, const TPair<double, FIntPoint>& B) { return A.Key < B.Key; });
 }
 
 AActor* USwcGroundCover::OwnerActor()
@@ -248,6 +295,12 @@ USwcGroundCover::FRegion& USwcGroundCover::RegionAt(const FIntPoint& Key)
 				}
 			}
 		}
+		if (Paths.IsEmpty())
+		{
+			// No mesh in the region (r_+00_+00: the ocean): no request, no batch (a request with no asset gives no handle).
+			Region.bNoFile = true;
+			return Region;
+		}
 		Region.Assets = UAssetManager::GetStreamableManager().RequestAsyncLoad(Paths);
 		UE_LOG(LogSwcCover, Log, TEXT("cover: region r_+%02d_+%02d: %d meshes and materials load"), Key.X, Key.Y, Paths.Num());
 	}
@@ -256,6 +309,7 @@ USwcGroundCover::FRegion& USwcGroundCover::RegionAt(const FIntPoint& Key)
 
 bool USwcGroundCover::BuildBatch(const FIntPoint& Batch, FBatch& Out)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(SwcGroundCover_BuildBatch);
 	const FIntPoint RegionKey(FMath::FloorToInt(static_cast<double>(Batch.X) / BatchesPerRegion),
 		FMath::FloorToInt(static_cast<double>(Batch.Y) / BatchesPerRegion));
 	if (RegionKey.X < 0 || RegionKey.Y < 0)
@@ -381,8 +435,9 @@ void USwcGroundCover::ApplyBackLight(UHierarchicalInstancedStaticMeshComponent* 
 	}
 }
 
-void USwcGroundCover::Update(const FVector& View)
+void USwcGroundCover::Update(const FVector& View, double MarginM, double Budget)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(SwcGroundCover_Update);
 	const double ViewX = View.X / 100.0;
 	const double ViewY = -View.Y / 100.0;
 	const double Range = RangeCm / 100.0;
@@ -406,32 +461,20 @@ void USwcGroundCover::Update(const FVector& View)
 	}
 	// Make the missing batches within the range, the nearest first.
 	TArray<TPair<double, FIntPoint>> Wanted;
-	const int32 MinX = FMath::FloorToInt((ViewX - Reach) / BatchM);
-	const int32 MaxX = FMath::FloorToInt((ViewX + Reach) / BatchM);
-	const int32 MinY = FMath::FloorToInt((ViewY - Reach) / BatchM);
-	const int32 MaxY = FMath::FloorToInt((ViewY + Reach) / BatchM);
-	for (int32 X = MinX; X <= MaxX; ++X)
-	{
-		for (int32 Y = MinY; Y <= MaxY; ++Y)
-		{
-			const double Distance = FMath::Sqrt(FMath::Square((X + 0.5) * BatchM - ViewX) + FMath::Square((Y + 0.5) * BatchM - ViewY));
-			if (Distance <= Reach && !Batches.Contains(FIntPoint(X, Y)))
-			{
-				Wanted.Emplace(Distance, FIntPoint(X, Y));
-			}
-		}
-	}
-	Wanted.Sort([](const TPair<double, FIntPoint>& A, const TPair<double, FIntPoint>& B) { return A.Key < B.Key; });
+	WantedBatches(View, MarginM, Wanted);
 	int32 Built = 0;
+	const double Start = FPlatformTime::Seconds();
 	for (const TPair<double, FIntPoint>& Item : Wanted)
 	{
-		if (Built >= BuildsPerUpdate)
+		if (Built > 0 && FPlatformTime::Seconds() - Start > Budget)
 		{
 			break;
 		}
+		const double BatchStart = FPlatformTime::Seconds();
 		FBatch Batch;
 		if (BuildBatch(Item.Value, Batch))
 		{
+			LongestBuild = FMath::Max(LongestBuild, FPlatformTime::Seconds() - BatchStart);
 			Batches.Add(Item.Value, MoveTemp(Batch));
 			++Built;
 		}
@@ -483,18 +526,22 @@ void USwcGroundCover::Tick(float DeltaTime)
 		}
 		UE_LOG(LogSwcCover, Log, TEXT("cover: shadows %d, back light x %.2f"), bShadow ? 1 : 0, BackLight);
 	}
+	// During a loading screen the cover builds at the place of the character (the loading gate) in each frame; in play it
+	// builds near the camera each 0.25 s with a small budget.
+	FVector Place;
+	const bool bScreen = SwcLoadingGate::GetPlace(GetWorld(), Place);
 	const double Now = FPlatformTime::Seconds();
-	if (Now < NextUpdate)
+	if (!bScreen && Now < NextUpdate)
 	{
 		return;
 	}
 	NextUpdate = Now + UpdateSeconds;
-	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
-	if (Controller == nullptr || Controller->PlayerCameraManager == nullptr)
+	FVector View;
+	if (!SwcLoadingGate::GetView(GetWorld(), View))
 	{
-		return;
+		return;   // no place and no character yet (the camera is at the origin of the world)
 	}
-	Update(Controller->PlayerCameraManager->GetCameraLocation());
+	Update(View, bScreen ? ScreenMarginM : 0.0, bScreen ? ScreenBudgetSeconds : BuildBudgetSeconds);
 	if (Now >= NextReport)
 	{
 		NextReport = Now + 10.0;
@@ -505,6 +552,8 @@ void USwcGroundCover::Tick(float DeltaTime)
 			Instances += Pair.Value.Instances;
 			Components += Pair.Value.Components.Num();
 		}
-		UE_LOG(LogSwcCover, Log, TEXT("cover: %d batches, %d components, %d instances"), Batches.Num(), Components, Instances);
+		UE_LOG(LogSwcCover, Log, TEXT("cover: %d batches, %d components, %d instances; the longest batch build %.1f ms"), Batches.Num(),
+			Components, Instances, LongestBuild * 1000.0);
+		LongestBuild = 0.0;
 	}
 }

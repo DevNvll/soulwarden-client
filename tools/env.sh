@@ -26,8 +26,13 @@
 # network namespace cannot reach Zen and uses only the file store; a Zen hit of a commandlet fills the file store
 # (docs/WORLD.md). This engine is an installed build: its file store is InstalledLocal.
 : "${SWC_EDITOR_DDC:=-ddc=(ProjectPak, InstalledProjectPak, EnginePak=InstalledEnginePak, Local=InstalledLocal, ZenLocal)}"
+# The start options of the client (the loading work, docs/WORLD.md "The loading"): the DDC graph with no ZenLocal (in its
+# network namespace a client cannot reach the Zen server of a host commandlet and waited 30 s for it; the file store has
+# the data), and no scan of all assets at the start (-game read 76,197 files with no cache; the engine init waited 23 s).
+: "${SWC_CLIENT_DDC:=-ddc=(ProjectPak, InstalledProjectPak, EnginePak=InstalledEnginePak, Local=InstalledLocal)}"
+SWC_CLIENT_ARGS=("${SWC_CLIENT_DDC}" -AssetGatherAll=false)
 SWC_UPROJECT="${SWC_REPO}/unreal/SoulwardenClient/SoulwardenClient.uproject"
 export SWC_REPO SWC_WORK SWC_CONTENT SWC_GAME_CONTENT SOULWARDEN_REPO SOULWARDEN_GAME_DIR UE_ROOT SOULWARDEN_OODLE_LIB \
     SWC_BACKEND_DIR SWC_BACKEND_EXE SWC_GAMEDATA_DIR SWC_PLAYER_DATA SWC_DEV_DATA SOULWARDEN_RELEASES SWC_STEAM_DIR \
-    SWC_HTTP_PORT SWC_CLIENT_EXE SWC_CLIENT_CMD SWC_EDITOR_DDC SWC_UPROJECT
+    SWC_HTTP_PORT SWC_CLIENT_EXE SWC_CLIENT_CMD SWC_EDITOR_DDC SWC_CLIENT_DDC SWC_UPROJECT
 export PYTHONDONTWRITEBYTECODE=1

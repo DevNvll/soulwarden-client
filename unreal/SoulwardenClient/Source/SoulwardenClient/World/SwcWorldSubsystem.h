@@ -10,7 +10,8 @@
  * -SwcGroundTest=X,Y,Z;X,Y,Z (engine m) runs the wait of the spawn (SwcWorldStreaming::IsReadyAt) for each place,
  * logs the result and the time, and ends the client (a check with no backend).
  * The far meshes of the game (actors with the tag SwcImpostor, always loaded) show only where the World Partition
- * cells are not loaded: a group is hidden while its center is within the loading range of the view.
+ * cells are not loaded: a group within the loading range of the view (the place of a loading screen, else the camera) hides
+ * when the cells under it are in the world, and at once when it is within 256 m of the view.
  */
 UCLASS()
 class SOULWARDENCLIENT_API USwcWorldSubsystem : public UTickableWorldSubsystem

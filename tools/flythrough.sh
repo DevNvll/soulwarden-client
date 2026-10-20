@@ -43,7 +43,7 @@ omarchy-agent-desktop run --wait 180 --json "${desktop_id}" -- \
     env SWC_DEV_RUN=1 SWC_RUN=development "SWC_SESSION_DATA=${SWC_DEV_DATA}" \
     gamescope --backend wayland -W "${game_size%x*}" -H "${game_size#*x}" -w "${game_size%x*}" -h "${game_size#*x}" -r 60 -- \
     flock -s -n -o "${SWC_WORLD_LOCK}" flock -s -n -o "${slot_lock}" \
-    "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" -game -nosound -windowed -ResX="${game_size%x*}" -ResY="${game_size#*x}" \
+    "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" -game -nosound -windowed -ResX="${game_size%x*}" -ResY="${game_size#*x}" "${SWC_CLIENT_ARGS[@]}" \
     -SwcFlythrough="${run_plan}" -abslog="${log}" ${SWC_FLY_EXTRA:+"${SWC_FLY_EXTRA}"} > "${out}/launch.json" 2>&1 5>&- 6>&- || true
 exec 5>&-          # the client holds its own world lock (flock above) for its run
 run_slot_release   # and its slot

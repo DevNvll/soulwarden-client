@@ -69,7 +69,7 @@ fi
 exec 8>&-
 
 client_log="${logs}/${label}-client.log"
-client_arguments=(-game -nosound -SwcConnect -abslog="${client_log}")
+client_arguments=(-game -nosound -SwcConnect -abslog="${client_log}" "${SWC_CLIENT_ARGS[@]}")
 if [[ -n "${quit_when}" ]]; then
     client_arguments+=(-SwcQuitWhen="${quit_when}")
 fi

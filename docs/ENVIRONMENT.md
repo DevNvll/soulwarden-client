@@ -388,6 +388,11 @@ The client (`Environment/SwcEnvironmentSubsystem.cpp`, `M_SwcGrade` of `Scripts/
   cube and the cube of the strongest local probe; off by default: one cube for the whole view does not make the per-pixel result,
   for example the dark wall and the lit floor of keep-outside-noon).
 
+- The contrast step: `r.EyeAdaptation.CachedLightingPreExposure=8` (DefaultEngine.ini; the engine default 4 gives the safe range
+  of the cached lighting EV -8 to 12, and the day exposure of the client is about EV 12 to 13: the red warning of the engine).
+  Check (2026-10-20): the matched view noon-road-low with 8 and with 4 has the same picture (mean luma 119.7 and 119.3); a day
+  run with the screen messages on (the Shrine of the Lion, EV 11.7 to 12.3) shows no warning with 8.
+
 ### Check of E5 (steps 1, 2a, and 2b, 2026-10-19)
 
 The color report of the matched views, band "all" (dE / L* / spread / saturation / dark part), before (the old grade: the curve
