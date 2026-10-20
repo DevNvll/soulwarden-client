@@ -41,8 +41,11 @@ files at the same time; a shared document (this file, the roadmap) changes only 
 - All traffic stays on this computer. The backend listens only on loopback. The client connects only to
   127.0.0.1 (`USwcBackendSubsystem` refuses a different host). A run of the client and its backend uses a network
   namespace with loopback only.
-- No Steam id, account name, persona name, or character name of the user goes into a file of the repository. A log
-  line shows only the last 4 digits of a Steam id.
+- The repository is public (decision of the user, 2026-10-20: "the only privacy concern is the public repo"): no
+  personal key, credential, token, or data of the user from this computer goes into a file or a commit message of the
+  repository (no Steam id, account name, persona name, character name of the user, home folder path, or database
+  content). Outside the repository (the logs, the databases, the development data, the evidence, the research files,
+  the reports, Linear) these data can be used and shown as they are; no masking is necessary.
 - No game content goes into git: no game file, no converted file (glTF, PNG, JSON of the game), no imported asset
   (`unreal/SoulwardenClient/Content/Imported/` is ignored), no text or picture of the game, no game log, no capture.
   Converted content stays in `~/Games/soulwarden-client/content`.
@@ -51,7 +54,8 @@ files at the same time; a shared document (this file, the roadmap) changes only 
     the same characters as the retail game), with the `run.lock` of the Soulwarden launcher. While a player run holds
     the lock, a release of the Soulwarden project waits (status 3), as when the user plays the retail game.
   - A development run (agents): its own data folder (`~/Games/soulwarden-client/dev-data`) with a seed character.
-    A development run never opens the data folder of the user.
+    A development run never writes to the data folder of the user. It can use a copy of the database of the user (for
+    example the characters of the user for a test) in its own data folder.
   - Only a development session can give its backend extra arguments (`SWC_SESSION_BACKEND_ARGS` of
     `tools/lib/session.sh`, for example `--dev-commands` for the development routes; `tools/dev-build.sh`) with the mark
     `SOULWARDEN_HARNESS=1` for the backend process alone; session.sh refuses them for the data folder of the user.
@@ -66,7 +70,7 @@ files at the same time; a shared document (this file, the roadmap) changes only 
   database. The Soulwarden orchestrator tells this project when a backend commit changes the schema version.
 - The Steam account: read only the Steam id and the persona name of the most recent login of the Steam installation
   (`config/loginusers.vdf`, as the Soulwarden launcher does). Never open a Steam credential. The two values go to
-  the client in its environment, never into a file; a log line shows only the last 4 digits of the Steam id.
+  the client in its environment, never into a file of the repository.
 - Parallel tracks: each track uses its own development data folder (`SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-TRACK`)
   and its own agent desktop (`SWC_AGENT_DESKTOP=soulwarden-client-TRACK`), so that the runs of two tracks do not wait
   for one lock. Each run has its own network namespace: the ports do not collide.
