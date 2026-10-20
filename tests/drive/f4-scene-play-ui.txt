@@ -1,0 +1,16 @@
+# Stage F4 of docs/FRONTEND.md with the menu mode of the environment (docs/ENVIRONMENT.md): the NightHaven scene with its lights,
+# the two development characters, then PLAY: the menu mode ends at the token and the world environment starts at the first record
+# of the world clock (tools/menu-check.sh f4-menu-mode 170 -- -SwcUiDrive=FILE). The clock starts at the landing screen.
+1 waitfor CharacterList 60
+3 draw landing
+14 point text:Menuwarden
+14.5 click
+20 draw select-second
+24 point text:Devwarden
+24.5 click
+30 draw select-first
+33 point PlayButton
+33.5 click
+35 waitfor world 180
+41 draw hud
+46 end

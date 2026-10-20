@@ -1,0 +1,8 @@
+# The development routes of the world check of the menu mode of the environment (docs/ENVIRONMENT.md, stage F4 of docs/FRONTEND.md):
+# the world entry of the first development character, the hour 12:00 two seconds after the entry, a read of the world time later.
+# The pictures before and after the change compare the world path (the same hour, the same place, the same camera).
+# SWC_DEV_CHARACTER=Devwarden SWC_STAGE=K4 SWC_DEBUG_LINES=0 tools/creature-check.sh k4-world 30 tests/environment/menu-mode-world-routes.txt
+1 ignore on
+2 world-time 12:00
+4 world-time
+20 world-time

@@ -56,6 +56,11 @@ class UVolumetricCloudComponent;
  * The level actors of the world track (its sun, sky atmosphere, sky light, height fog, and clouds) are turned off while this
  * environment runs; its ocean stays.
  *
+ * The menu mode (stage F4 of docs/FRONTEND.md): the front end has no world clock. While the menu sets SetMenuScene (the token of PLAY
+ * clears it), the environment runs with no record of the world clock: the preset of the TOD entity of the menu scene at its fixed hour is
+ * the one layer (no time-of-day volumes of the world), with the sun path, the moon, and the sky slice of the menu level. All rules of
+ * E1 to E5 are the ones of the world.
+ *
  * Development aids: -SwcEnvironmentProbe logs the state each 1 s (else each 60 s and at each change of the preset); -SwcNoEnvironment
  * keeps the environment of the level; -SwcNightSky=FACTOR and -SwcNightExposure=EV change the two look values of the night;
  * -SwcAmbientOnly turns the sun and the moon off (a check of the ambient); the console variables swc.Fog, swc.FogColorMode,
@@ -78,6 +83,27 @@ public:
 	/** @return The night factor (0 by day, 1 by night): the weight of the moon. A read value for the emissive of the fixtures (the
 	 *  local lights of stage E2 do not switch by the hour: the data has no switch). */
 	double GetNightFactor() const { return NightFactor; }
+
+	/** The environment of the menu scene (the scene record of tools/convert-frontend.sh scene: "environment"). */
+	struct FMenuScene
+	{
+		/** The preset of the TOD entity (a key of presets.json) and its fixed hour (the hour override). */
+		FString Preset;
+		double Hour = 12.0;
+		/** The sky slice of the TOD entity (its cloud cover; empty: no cloud dome). */
+		FString Sky;
+		/** The Lighting and Moon elements of the mission of the menu level. */
+		double SunRotation = 215.0;
+		double Longitude = 130.0;
+		double MoonLatitude = 240.0;
+		double MoonLongitude = 35.0;
+		double MoonSize = 0.8;
+	};
+	/** Sets the menu mode: the environment runs with no record of the world clock, with the menu scene. */
+	void SetMenuScene(const FMenuScene& Scene);
+	/** Clears the menu mode: the environment waits for the world clock again (it keeps its last state until the first record). */
+	void ClearMenuScene();
+	bool IsMenuScene() const { return Menu.IsSet(); }
 
 	/** The data of the environment (the result of the worker thread). */
 	struct FData
@@ -163,7 +189,20 @@ private:
 		int32 Volume = -1;
 		double Hour = 0.0;
 		double Weight = 1.0;
+		/** The sky slice of the layer (the slice of its volume, or of the menu scene; empty: none). */
+		FString Sky;
 	};
+	/** The sun path and the moon of the mission: the world mission, or the menu level in the menu mode. */
+	struct FCelestial
+	{
+		double SunRotation = 215.0;
+		double Longitude = 130.0;
+		double MoonLatitude = 240.0;
+		double MoonLongitude = 35.0;
+		double MoonSize = 0.8;
+	};
+	FCelestial Celestial() const;
+	TOptional<FMenuScene> Menu;
 	/** Updates the weights of the volumes at a place (engine m: the feet of the player) and the layers. */
 	void UpdateBlend(const swc::environment::Vec3& Place, double WorldHour, double DeltaSeconds);
 	/** @return A variable of the blend at the hour of each layer, or at a fixed hour (>= 0). */

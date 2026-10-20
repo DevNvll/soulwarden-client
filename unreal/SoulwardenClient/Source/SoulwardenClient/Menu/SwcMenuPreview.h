@@ -53,8 +53,13 @@ public:
 	bool PlaySequence(const FString& Name);
 	void StopSequence(const FString& Name);
 	virtual void Tick(float DeltaSeconds) override;
+	/** Clears the menu mode of the environment (the token of PLAY removes the actor). */
+	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 
 private:
+	/** Sets the menu mode of the client environment from the record ("environment": the preset and the hour of the TOD entity, the
+	 *  sun path and the moon of the menu level). */
+	void SetEnvironment(const TSharedPtr<class FJsonObject>& Doc);
 	void Build(int32 Generation, FSwcPlayerLook Look, FString BaseMesh, FString IdleAnimation);
 	/** Places the camera at a game world position and Euler angles (degrees; the rotation Rz Ry Rx of the game). */
 	void PlaceCamera(const FVector& GameWorld, const FVector& EulerDegrees);

@@ -18,6 +18,7 @@
 #include "Components/SpotLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Environment/SwcEnvironmentSubsystem.h"
 #include "Environment/SwcLocalLightRules.h"
 #include "Menu/SwcMenuLights.h"
 #include "MeshDescription.h"
@@ -34,11 +35,10 @@ constexpr double CameraYaw = -121.5;
 constexpr double BodyYaw = 147.8817902;
 /** The vertical FOV of MainCamera (degrees). */
 constexpr double VerticalFov = 55.0;
-/** The lights of the scene: their candela are physical units for the environment of the client, which runs only after the first
- *  record of the world clock; the front end has the environment of the level (its engine sun and its fixed exposure), and the
- *  lights burn the bodies white (the run f4-scene2). Off until the environment runs in the menu; -SwcMenuLights turns them on. */
-TAutoConsoleVariable<int32> CVarMenuLights(TEXT("swc.MenuLights"), 0,
-	TEXT("The lights of the menu scene (stage F4): 0 off (the default while the menu has the environment of the level), 1 on."));
+/** The lights of the scene: their candela are physical units for the environment of the client (its menu mode, SetEnvironment). With
+ *  the environment of the level (its engine sun and its fixed exposure) they burned the bodies white (the run f4-scene2). */
+TAutoConsoleVariable<int32> CVarMenuLights(TEXT("swc.MenuLights"), 1,
+	TEXT("The lights of the menu scene (stage F4): 1 on (the default), 0 off (a compare; -SwcNoMenuLights at the start)."));
 } // namespace
 
 ASwcMenuPreview::ASwcMenuPreview()
@@ -177,8 +177,40 @@ bool ASwcMenuPreview::LoadScene(const FString& Path)
 	}
 	UE_LOG(LogSwcBackend, Log, TEXT("menu: the scene record: the Player Entity at %.2f %.2f %.2f m, %d camera sequence(s)"), PlayerWorld.X,
 		PlayerWorld.Y, PlayerWorld.Z, Sequences.Num());
+	SetEnvironment(Doc);
 	BuildScene(Doc);
 	return true;
+}
+
+void ASwcMenuPreview::SetEnvironment(const TSharedPtr<FJsonObject>& Doc)
+{
+	const TSharedPtr<FJsonObject>* Record = nullptr;
+	USwcEnvironmentSubsystem* Environment = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcEnvironmentSubsystem>() : nullptr;
+	if (Environment == nullptr || !Doc->TryGetObjectField(TEXT("environment"), Record))
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("menu: no environment in the scene record (tools/convert-frontend.sh scene): the environment of the level"));
+		return;
+	}
+	const TSharedPtr<FJsonObject>& Values = *Record;
+	USwcEnvironmentSubsystem::FMenuScene Scene;
+	Scene.Preset = Values->GetStringField(TEXT("preset"));
+	Scene.Sky = Values->GetStringField(TEXT("sky"));
+	Values->TryGetNumberField(TEXT("hour"), Scene.Hour);
+	Values->TryGetNumberField(TEXT("sunRotation"), Scene.SunRotation);
+	Values->TryGetNumberField(TEXT("longitude"), Scene.Longitude);
+	Values->TryGetNumberField(TEXT("moonLatitude"), Scene.MoonLatitude);
+	Values->TryGetNumberField(TEXT("moonLongitude"), Scene.MoonLongitude);
+	Values->TryGetNumberField(TEXT("moonSize"), Scene.MoonSize);
+	Environment->SetMenuScene(Scene);
+}
+
+void ASwcMenuPreview::EndPlay(const EEndPlayReason::Type Reason)
+{
+	if (USwcEnvironmentSubsystem* Environment = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcEnvironmentSubsystem>() : nullptr)
+	{
+		Environment->ClearMenuScene();
+	}
+	Super::EndPlay(Reason);
 }
 
 void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
@@ -351,9 +383,9 @@ void ASwcMenuPreview::BuildGround(const TSharedPtr<FJsonObject>& Ground)
 void ASwcMenuPreview::BuildLights(const TArray<TSharedPtr<FJsonValue>>& Lights)
 {
 	namespace env = swc::environment;
-	if (FParse::Param(FCommandLine::Get(), TEXT("SwcMenuLights")))
+	if (FParse::Param(FCommandLine::Get(), TEXT("SwcNoMenuLights")))
 	{
-		CVarMenuLights->Set(1, ECVF_SetByCommandline);
+		CVarMenuLights->Set(0, ECVF_SetByCommandline);
 	}
 	const bool bLightsOn = CVarMenuLights.GetValueOnGameThread() != 0;
 	int32 Made = 0;

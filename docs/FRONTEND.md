@@ -600,19 +600,25 @@ Only this document changes in the research branch. The scene and script records 
   light. The menu reads the source attenuation 1 / (1 + d / r)^2 with d from the center of the light (it stays below 1 in
   the bulb) and matches the candela at the body (1 m above the Player Entity) when the light reaches it, else at the middle
   of its range. The probes, the hidden cubemap entity, and the area light are not made (27 of 31 records). The lights are
-  off by default (`swc.MenuLights` 0; `-SwcMenuLights` turns them on): see the first open point.
+  on (`swc.MenuLights` 1; `-SwcNoMenuLights` turns them off for a compare).
+- The environment of the menu (K4, 2026-10-20; docs/ENVIRONMENT.md, "The menu mode"): the client environment runs only after
+  the first record of the world clock, and the front end has no world session. Before K4 the menu had the environment of the
+  level (the engine sun and a fixed exposure), and the physical units of the lights and of the emittance burned the image
+  white (the runs `f4-scene2` and `f4-scene3`). Now the preview sets the menu mode of the environment when it reads the
+  scene record ("environment": the preset and the hour 16.7 of the TOD entity, its sky slice, the sun path and the moon of
+  the menu mission) and clears it when it ends (the token of PLAY). The run `f4-menu-mode`
+  (`tests/drive/f4-scene-play-ui.txt`): the menu mode with the sun at 18 degrees, the lights on, both bodies with their
+  colors, PLAY, the end of the menu mode at the token, and the world environment at the first record (the beach as
+  before). `evidence/F4/compare/sbs-menu-mode.png`: the exposure is correct; the image is brighter and colder than B6-04,
+  with less fog (a look point).
 - The runs (`tests/drive/f4-scene-ui.txt`): `f4-scene2` (the lights on) and `f4-scene3` (the lights off). The record loads
   with the landing screen; `IntroToCharacter` plays two times (as the script calls it); the 522 meshes show about 10 s after
   the landing; the female body and the male body have 6 of 6 parts. `evidence/F4/compare/sbs-scene.png`: the framing agrees
   with B6-04 (the tent at the left, the body in the middle with the same size, the house at the upper right).
 - Open points:
-  - The environment of the menu (the main fault of the look). The client environment (docs/ENVIRONMENT.md) runs only after
-    the first record of the world clock. The front end has the environment of the level: the engine sun and a fixed
-    exposure (docs/WORLD.md). The candela of the lights and the emittance of the materials (`EmissiveScale` = 10,000 x
-    `swc.LightScale`, docs/MATERIALS.md) are physical units: with the lights on, the bodies are white; with them off, the
-    windows and some plants glow. The fix is the client environment in the menu: the converted preset
-    `libs/timeofday/frontend/nw_frontend_nighthaven.xml` at the hour override 16.7 of the TOD entity. That is a change of
-    `Environment/` (a request to the orchestrator). Then `swc.MenuLights` goes to 1.
+  - The look of the menu next to B6-04: brighter, colder, and with less fog. The probes of the menu level are not
+    converted (the ambient is the world probe), and the material overrides of the placements are not applied (some plants
+    have other colors).
   - The ground is a flat-color patch at the terrain heights. The terrain of `nw_frontend_base` with its materials is world
     work.
   - The subset is 60 m: the dome at the upper left of B6-04 is outside it. The campfire effect, the probes, and the area

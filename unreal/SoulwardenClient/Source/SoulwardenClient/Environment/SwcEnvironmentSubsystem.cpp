@@ -568,7 +568,7 @@ bool USwcEnvironmentSubsystem::CreateEnvironment()
 	};
 	Sun = MakeLight(TEXT("SwcSun"), 0);
 	Moon = MakeLight(TEXT("SwcMoon"), 1);
-	Moon->SetLightSourceAngle(static_cast<float>(Data->MoonSize));   // an inference: the Size of the Moon element as degrees
+	Moon->SetLightSourceAngle(static_cast<float>(Celestial().MoonSize));   // an inference: the Size of the Moon element as degrees
 	USkyAtmosphereComponent* Sky = NewObject<USkyAtmosphereComponent>(Owner, TEXT("SwcSkyAtmosphere"));
 	Sky->SetupAttachment(Root);   // the physical sky of Unreal: the sunrise, the sunset, and the twilight come from the atmosphere
 	Sky->RegisterComponent();
@@ -633,6 +633,37 @@ void USwcEnvironmentSubsystem::TurnOffLevelEnvironment()
 	UE_LOG(LogSwcEnvironment, Log, TEXT("environment: %d sun, sky, sky light, fog, and cloud component(s) of the level turned off (the ocean of the level stays)"), Count);
 }
 
+void USwcEnvironmentSubsystem::SetMenuScene(const FMenuScene& Scene)
+{
+	Menu = Scene;
+	Weights.Reset();   // the volumes of the world have no part in the menu
+	UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the menu mode: the preset %s at the hour %.2f, the sky %s, the sun rotation %.1f, longitude %.1f, the moon size %.2f"),
+		*Scene.Preset, Scene.Hour, Scene.Sky.IsEmpty() ? TEXT("(none)") : *Scene.Sky, Scene.SunRotation, Scene.Longitude, Scene.MoonSize);
+}
+
+void USwcEnvironmentSubsystem::ClearMenuScene()
+{
+	if (Menu.IsSet())
+	{
+		Menu.Reset();
+		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the menu mode ends (the world clock again)"));
+	}
+}
+
+USwcEnvironmentSubsystem::FCelestial USwcEnvironmentSubsystem::Celestial() const
+{
+	FCelestial Out;
+	if (Menu.IsSet())
+	{
+		Out = {Menu->SunRotation, Menu->Longitude, Menu->MoonLatitude, Menu->MoonLongitude, Menu->MoonSize};
+	}
+	else if (Data.IsValid())
+	{
+		Out = {Data->SunRotation, Data->Longitude, Data->MoonLatitude, Data->MoonLongitude, Data->MoonSize};
+	}
+	return Out;
+}
+
 double USwcEnvironmentSubsystem::Value(const TMap<FString, env::Curve>& Preset, const TCHAR* Name, double Time, double Default) const
 {
 	const env::Curve* Curve = Preset.Find(Name);
@@ -667,7 +698,9 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	UWorld* World = GetWorld();
 	const USwcWorldTimeSubsystem* Clock = World->GetSubsystem<USwcWorldTimeSubsystem>();
 	APlayerController* Controller = World->GetFirstPlayerController();
-	if (Clock == nullptr || !Clock->HasWorldTime() || Controller == nullptr || Controller->PlayerCameraManager == nullptr)
+	// The menu mode needs no record of the world clock (its hour is fixed).
+	const bool bMenu = Menu.IsSet();
+	if ((!bMenu && (Clock == nullptr || !Clock->HasWorldTime())) || Controller == nullptr || Controller->PlayerCameraManager == nullptr)
 	{
 		return;   // before the first record of the world clock: the environment of the level
 	}
@@ -690,13 +723,16 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 		Selector = Pawn->GetActorLocation() - FVector(0.0, 0.0, Pawn->GetSimpleCollisionHalfHeight());
 	}
 	const swc::net::WorldPosition Feet = SwcUnrealToEngine(Selector);
-	UpdateBlend(env::Vec3{Feet.x, Feet.y, Feet.z}, Clock->GetHour(), DeltaTime);
+	const double WorldHour = bMenu ? Menu->Hour : Clock->GetHour();
+	UpdateBlend(env::Vec3{Feet.x, Feet.y, Feet.z}, WorldHour, DeltaTime);
 	if (Layers.IsEmpty() || Layers[0].Preset == nullptr)
 	{
 		return;
 	}
 	const double Hour = EffectiveHour;
-	const swc::net::TimeRecord& Record = Clock->GetRecord();
+	// The menu has no record: the default edges of the clock (06:00 and 19:00; the menu hour 16.7 is far from both).
+	static const swc::net::TimeRecord NoRecord;
+	const swc::net::TimeRecord& Record = bMenu ? NoRecord : Clock->GetRecord();
 	const env::Edges Edges = env::edges_of(Record.dawnTime, Record.dawnDuration, Record.duskTime, Record.duskDuration, Record.dayLength);
 	const env::LightMultipliers Multipliers = env::light_multipliers(Hour, Edges);
 	// The sun (the Unreal way, the decision of the user): always on, on the path of the data, with the noon "Sun intensity" and "Sun
@@ -706,8 +742,9 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	const env::LightColor SunColor = env::light_color(BlendedColor(TEXT("Sun color"), 12.0));
 	const double MoonLux = bAmbientOnly ? 0.0 : FMath::Max(0.0, Blended(TEXT("Sun intensity"), 0.0));
 	const env::LightColor MoonColor = env::light_color(BlendedColor(TEXT("Sun color")));
-	const env::Vec3 SunToward = env::sun_toward(Hour, Data->SunRotation, Data->Longitude);
-	const env::Vec3 MoonToward = env::moon_toward(Data->MoonLatitude, Data->MoonLongitude);
+	const FCelestial Bodies = Celestial();
+	const env::Vec3 SunToward = env::sun_toward(Hour, Bodies.SunRotation, Bodies.Longitude);
+	const env::Vec3 MoonToward = env::moon_toward(Bodies.MoonLatitude, Bodies.MoonLongitude);
 	// The weight of the moon: the fade of the source at the visual dawn and dusk of the record, or the sun below the horizon (0 at the
 	// sunset, 1 at TwilightDegrees below it): the moon comes when the physical sun goes (the night values of "Sun intensity" start
 	// at 18:05, just after the sunset of the path at 18:00).
@@ -727,6 +764,7 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	if (UDirectionalLightComponent* Light = Moon.Get())
 	{
 		Light->SetWorldRotation(LightRotation(MoonToward));
+		Light->SetLightSourceAngle(static_cast<float>(Bodies.MoonSize));   // the menu level has its own moon size
 		Light->SetIntensity(static_cast<float>(MoonLux * MoonWeight * MoonColor.intensityFactor));
 		Light->SetLightColor(Linear(MoonColor));
 		Light->SetVisibility(MoonWeight > 0.0);
@@ -767,7 +805,7 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 		NextLog = Now + (bProbe ? 1.0 : LogSeconds);
 		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: hour %.4f%s, presets %s; sun %.0f lux, elevation %.1f (toward %.3f %.3f %.3f), color %.3f %.3f %.3f; "
 			"moon %.0f lux x %.3f, color %.3f %.3f %.3f; night sky %.2f; exposure EV of the source %.1f to %.1f, bias %.2f; %s"),
-			Hour, FMath::Abs(Hour - Clock->GetHour()) > 1e-6 ? *FString::Printf(TEXT(" (the world hour %.4f with the hour overrides)"), Clock->GetHour()) : TEXT(""),
+			Hour, bMenu ? TEXT(" (the menu mode)") : FMath::Abs(Hour - WorldHour) > 1e-6 ? *FString::Printf(TEXT(" (the world hour %.4f with the hour overrides)"), WorldHour) : TEXT(""),
 			*LayerText, SunLux, Elevation, SunToward.x, SunToward.y, SunToward.z, SunColor.color[0], SunColor.color[1], SunColor.color[2],
 			MoonLux, MoonWeight, MoonColor.color[0], MoonColor.color[1], MoonColor.color[2], NightSkyFactor, EvMin, EvMax, Compensation, *SkyText);
 		PresetName = LayerText;

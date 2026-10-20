@@ -129,6 +129,20 @@ FVector UnrealDirection(const env::Vec3& V)
 
 void USwcEnvironmentSubsystem::UpdateBlend(const env::Vec3& Place, double WorldHour, double DeltaSeconds)
 {
+	// The menu mode: the preset of the menu scene is the one layer, at its fixed hour (no volumes of the world).
+	if (Menu.IsSet())
+	{
+		Layers.Reset();
+		FLayer Base;
+		Base.Preset = Data->Presets.Find(Menu->Preset);
+		Base.Name = FPaths::GetBaseFilename(Menu->Preset);
+		Base.Hour = WorldHour;
+		Base.Sky = Menu->Sky;
+		Layers.Add(Base);
+		LayerText = Base.Preset != nullptr ? FString::Printf(TEXT("%s (the menu)"), *Base.Name) : FString::Printf(TEXT("%s (the menu; not in presets.json)"), *Menu->Preset);
+		EffectiveHour = WorldHour;
+		return;
+	}
 	// The weights of the volumes: the target from the depth of the place (the feet of the player) in the shape (the blend distance),
 	// moved in the blend time.
 	for (size_t I = 0; I < Data->Volumes.size(); ++I)
@@ -179,6 +193,7 @@ void USwcEnvironmentSubsystem::UpdateBlend(const env::Vec3& Place, double WorldH
 		Layer.Name = FPaths::GetBaseFilename(Name);
 		Layer.Volume = Index;
 		Layer.Weight = Weights[Index];
+		Layer.Sky = UTF8_TO_TCHAR(Volume.sky.c_str());
 		Layers.Add(Layer);
 		LayerText += FString::Printf(TEXT(" + %s (volume %d, priority %d%s) %.2f"), *Layer.Name, Index, Volume.priority,
 			Volume.hasHourOverride ? *FString::Printf(TEXT(", hour %.2f"), Volume.hourOverride) : TEXT(""), Layer.Weight);
@@ -497,15 +512,10 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 	FString SkyName = TEXT("the mission sky (no cloud dome)");
 	for (const FLayer& Layer : Layers)
 	{
-		if (Layer.Volume < 0)
-		{
-			continue;
-		}
-		const std::string& SkySlice = Data->Volumes[static_cast<size_t>(Layer.Volume)].sky;
-		if (const double* SkyCover = SkySlice.empty() ? nullptr : Data->SkyCovers.Find(UTF8_TO_TCHAR(SkySlice.c_str())))
+		if (const double* SkyCover = Layer.Sky.IsEmpty() ? nullptr : Data->SkyCovers.Find(Layer.Sky))
 		{
 			Cover += (*SkyCover - Cover) * Layer.Weight;
-			SkyName = FPaths::GetBaseFilename(UTF8_TO_TCHAR(SkySlice.c_str()));
+			SkyName = FPaths::GetBaseFilename(Layer.Sky);
 		}
 	}
 	if (UVolumetricCloudComponent* Cloud = Clouds.Get())
@@ -549,7 +559,8 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 		if (SkyMaterial != nullptr)
 		{
 			UpdateSourceSky(Hour, MoonWeight);
-			const env::Rotation R = env::celestial_from_engine(Hour, Data->SunRotation, Data->Longitude);
+			const FCelestial Bodies = Celestial();
+			const env::Rotation R = env::celestial_from_engine(Hour, Bodies.SunRotation, Bodies.Longitude);
 			// The rows of the rotation from the Unreal world (x, -y, z of the engine) to the celestial frame.
 			auto Row = [&R](int Index)
 			{
@@ -560,10 +571,10 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 			SkyMaterial->SetVectorParameterValue(TEXT("CelestialZ"), Row(2));
 			SkyMaterial->SetScalarParameterValue(TEXT("StarIntensity"),
 				static_cast<float>(FMath::Max(0.0, Blended(TEXT("Night sky: Star intensity"), 0.0)) * CVarStarScale.GetValueOnGameThread()));
-			const FVector MoonDirection = UnrealDirection(env::moon_toward(Data->MoonLatitude, Data->MoonLongitude));
+			const FVector MoonDirection = UnrealDirection(env::moon_toward(Bodies.MoonLatitude, Bodies.MoonLongitude));
 			SkyMaterial->SetVectorParameterValue(TEXT("MoonDirection"), FLinearColor(MoonDirection.X, MoonDirection.Y, MoonDirection.Z, 0.0f));
 			SkyMaterial->SetScalarParameterValue(TEXT("MoonSize"),
-				static_cast<float>(FMath::Tan(FMath::DegreesToRadians(Data->MoonSize * CVarMoonSize.GetValueOnGameThread()))));
+				static_cast<float>(FMath::Tan(FMath::DegreesToRadians(Bodies.MoonSize * CVarMoonSize.GetValueOnGameThread()))));
 			const double MoonScale = CVarMoonScale.GetValueOnGameThread();
 			SkyMaterial->SetVectorParameterValue(TEXT("MoonColor"),
 				Linear(Times(BlendedColor(TEXT("Night sky: Moon color")), Blended(TEXT("Night sky: Moon color multiplier"), 0.0)), MoonScale));
@@ -676,7 +687,8 @@ void FillSkyDome(UTexture2D* Texture, const FLinearColor* Texels)
 void USwcEnvironmentSubsystem::UpdateSourceSky(double Hour, double MoonWeight)
 {
 	// The light of the sky model: the sun by day; by night the moon (the source puts the moon direction into the sky model at night).
-	const env::Vec3 Toward = MoonWeight >= 0.5 ? env::moon_toward(Data->MoonLatitude, Data->MoonLongitude) : env::sun_toward(Hour, Data->SunRotation, Data->Longitude);
+	const FCelestial Bodies = Celestial();
+	const env::Vec3 Toward = MoonWeight >= 0.5 ? env::moon_toward(Bodies.MoonLatitude, Bodies.MoonLongitude) : env::sun_toward(Hour, Bodies.SunRotation, Bodies.Longitude);
 	const std::array<double, 3> Intensity = Times(BlendedColor(TEXT("Sky light: Sun intensity")), Blended(TEXT("Sky light: Sun intensity multiplier"), 100.0));
 	env::SkyModel Model;
 	Model.sunToward = Toward;

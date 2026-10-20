@@ -142,6 +142,26 @@ The Unreal way kept on purpose (the decision of the user):
 - The exposure is the Unreal auto exposure with wide bounds, not the EV bounds and the film curve of the source. (Void since the decision
   of 2026-10-19: stage E5 copies the exposure and the grade of the source.)
 
+### The menu mode (2026-10-20, stage F4 of docs/FRONTEND.md)
+
+The front end has no world session, so it has no record of the world clock. Before this mode, the menu had the environment of the
+level (its engine sun and its fixed exposure), and the physical units of the menu lights and of the emittance burned the image white.
+
+| Part | Rule |
+| --- | --- |
+| The calls | `USwcEnvironmentSubsystem::SetMenuScene` (the menu preview, when it reads the scene record) and `ClearMenuScene` (the end of the preview actor: the token of PLAY). While the mode is set, the runtime does not wait for the world clock. After it, the runtime keeps its last state until the first record of the world (the loading screen covers it). |
+| The preset | The preset of the TOD entity of the menu scene (`libs/timeofday/frontend/nw_frontend_nighthaven.xml`, in `presets.json`) is the one layer. It has all 127 variables of the mission, so it gives the same values as the base of the menu mission with this preset at weight 1. No time-of-day volume of the world is used. |
+| The hour | The hour override of the TOD entity (16.7), fixed. The edges of dawn and dusk are the defaults of the time record (06:00 and 19:00): at 16.7 both lights have the multipliers of the day. |
+| The sun and the moon | The Lighting and Moon elements of the menu mission (`levels/nw_frontend_nighthaven/level.pak:mission_mission0.xml`): SunRotation 190, Longitude 110, the moon size 0.5. The world mission has 215, 130, and 0.8, and the preset has no sun path, so the scene record carries them (`tools/convert-frontend.sh scene`: "environment"). |
+| The sky | The cloud cover of the sky slice of the TOD entity (`slices/sky/skydome_tropicalstorm_post_a.dynamicslice`, in `sky/sky.json`). Each layer of the blend now has its sky slice (a volume layer: the slice of its volume; the base layer of the world: none, as before). |
+| The rules | All rules of E1 to E5 are the ones of the world (the sun, the sky, the source fog, the exposure, the grade). The world probe, the local probes, the fog volumes, and the precipitation are the data of the world at the camera place. The probes of the menu level (`frontendv2_cm.dds`) are not converted. |
+
+The check (2026-10-20): `tools/test-environment.sh` and `tools/test-ui.sh` pass. The world path: two world entries at the beach of
+the first development character, with the hour 12:00 two seconds after the entry (`tests/environment/menu-mode-world-routes.txt`),
+before and after the change: the same hour, presets, sun, exposure, and sky slice in the log, and the pictures differ only by
+noise (a mean difference of 1.9 of 255, on the water and the clouds; `evidence/K4/world-before-after.png`). The menu: the run
+`f4-menu-mode` of docs/FRONTEND.md.
+
 ### Check of E1
 
 `tools/match-view.sh set1-oxboro noon-n night-n noon-road-low dusk-road-low night-road-low --hours

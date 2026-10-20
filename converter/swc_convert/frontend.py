@@ -260,6 +260,28 @@ def ground(player: list[float]) -> dict:
             "player height": round(height(player[0], player[1]), 3)}
 
 
+def environment(tod: dict | None, mission: bytes | None = None) -> dict:
+    """@return The environment of the menu scene for the menu mode of the client environment (docs/ENVIRONMENT.md): the preset of
+    the TOD entity (the key of presets.json, environment.preset_path), its hour (the hour override, else the hour of the menu
+    mission), its sky slice (the hint of SliceAsset: the cloud cover of sky.json), and the Lighting and Moon elements of the menu
+    mission (its sun path is not the one of the world mission: SunRotation 190 and Longitude 110, not 215 and 130)."""
+    from .environment import preset_path
+    root = ET.fromstring(mission if mission is not None else read_from_archive(LEVEL_PAK, "mission_mission0.xml"))
+    elements = {e.tag: dict(e.attrib) for e in (root.find("Environment") if root.find("Environment") is not None else [])}
+    mission_tod = root.find("TimeOfDay")
+    hour = float(mission_tod.get("Time", "12")) if mission_tod is not None else 12.0
+    tod = tod or {}
+    if tod.get("HasTimeOfDayOverride") == "true" and tod.get("TimeOfDayOverride"):
+        hour = float(tod["TimeOfDayOverride"])
+    slice_hint = (tod.get("SliceAsset") or "").partition("hint={")[2].rstrip("}")
+    lighting, moon = elements.get("Lighting", {}), elements.get("Moon", {})
+    number = lambda values, key, default: float(values.get(key, default))
+    return {"preset": preset_path(tod.get("FileName", "")) if tod.get("FileName") else "", "hour": hour, "sky": slice_hint,
+            "sunRotation": number(lighting, "SunRotation", 215.0), "longitude": number(lighting, "Longitude", 130.0),
+            "moonLatitude": number(moon, "Latitude", 240.0), "moonLongitude": number(moon, "Longitude", 35.0),
+            "moonSize": number(moon, "Size", 0.8), "source": f"{LEVEL_PAK}:mission_mission0.xml"}
+
+
 def scene(radius: float = SCENE_RADIUS) -> dict:
     """Writes SWC_CONTENT/frontend/nighthaven.json."""
     import math
@@ -299,7 +321,7 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
                 elif component.get("name") == "TimeOfDayPOIComponent":
                     values = {n.get("field"): n.get("value") for n in component.iter() if n.get("value") is not None}
                     tod = {k: values.get(k) for k in ("FileName", "Priority", "BlendTime", "BlendDistance", "OverrideHour",
-                                                      "Hour", "TimeOfDayOverride") if k in values}
+                                                      "Hour", "HasTimeOfDayOverride", "TimeOfDayOverride", "SliceAsset") if k in values}
         # The nested entities of a slice are inside this one: keep nothing of it after the read.
         for child in list(element):
             element.remove(child)
@@ -342,6 +364,7 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
                            "stem": Path(entry["file"]).stem if entry else "", "material": item["material"],
                            "location": transform["location"], "rotation": transform["rotation"], "scale": transform["scale"]})
     doc = {"format": 1, "source": f"{LEVEL_PAK}:{ENTITIES}", "entities": entities, "sequences": sequences, "tod": tod,
+           "environment": environment(tod),
            "menuClip": {"path": MENU_CLIP, "name": MENU_CLIP_NAME}, "radius": radius, "meshes": placements,
            "skipped": skipped, "wanted": sorted(wanted), "notImported": sorted(f for f, a in assets.items() if not a),
            "lights": [l for l in lights if math.dist(l["world"][9:12], player) <= LIGHT_RADIUS],
@@ -351,6 +374,7 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
     path.write_text(json.dumps(doc, indent=1))
     return {"file": str(path), "entities": sorted(entities), "sequences": {k: [v["start"], v["end"], sorted(v["nodes"])]
                                                                             for k, v in sequences.items()}, "tod": tod,
+            "environment": doc["environment"],
             "meshes": len(placements), "unique": len({p["mesh"] for p in placements}), "skipped": skipped, "wanted": len(wanted),
             "lights": len(doc["lights"]), "ground": {k: v for k, v in doc["ground"].items() if k != "heights"}}
 

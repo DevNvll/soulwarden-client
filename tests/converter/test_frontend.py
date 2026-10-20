@@ -114,5 +114,25 @@ class SceneReader(unittest.TestCase):
         self.assertEqual((tracks["PZ"]["default"], tracks["PZ"]["keys"]), (30.0, []))
 
 
+class MenuEnvironment(unittest.TestCase):
+    MISSION = (b'<Mission><Environment><Lighting SunRotation="191" Longitude="111"/><Moon Latitude="241" Longitude="36" Size="0.4"/>'
+               b'</Environment><TimeOfDay Time="15.5"/></Mission>')
+
+    def test_override(self):
+        tod = {"FileName": "Libs\\TimeOfDay\\Made\\Made_Up.xml", "HasTimeOfDayOverride": "true", "TimeOfDayOverride": "16.25",
+               "SliceAsset": "id={0}:2,type={1},hint={slices/sky/made_up_sky.dynamicslice}"}
+        out = frontend.environment(tod, self.MISSION)
+        self.assertEqual((out["preset"], out["hour"], out["sky"]), ("libs/timeofday/made/made_up.xml", 16.25, "slices/sky/made_up_sky.dynamicslice"))
+        self.assertEqual((out["sunRotation"], out["longitude"], out["moonLatitude"], out["moonLongitude"], out["moonSize"]),
+                         (191.0, 111.0, 241.0, 36.0, 0.4))
+
+    def test_no_override(self):
+        # With no hour override, the hour of the mission; with no TOD entity, no preset and no sky.
+        out = frontend.environment({"FileName": "Libs/TimeOfDay/x.xml", "HasTimeOfDayOverride": "false", "TimeOfDayOverride": "3"}, self.MISSION)
+        self.assertEqual(out["hour"], 15.5)
+        out = frontend.environment(None, self.MISSION)
+        self.assertEqual((out["preset"], out["sky"], out["hour"]), ("", "", 15.5))
+
+
 if __name__ == "__main__":
     unittest.main()
