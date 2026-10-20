@@ -368,6 +368,11 @@ for kind in ("static", "character", "test"):
             if kind == "static":
                 import_file(path, folder, pipelines[bool(entry.get("nanite", True))])
             else:
+                # The default glTF pipeline reuses the material instances of an earlier import (bReuseExistingMaterials):
+                # a new color factor or alpha mode of the glTF (the creature bodies, stage P3.C) did not come in. Remove them.
+                for stale in assets.list_assets(folder, recursive=True):
+                    if "/Materials/" in stale:
+                        assets.delete_asset(stale.split(".")[0])
                 import_file(path, folder)
         except Exception as error:
             report["failed"].append(f"{key}: {str(error)[:120]}")

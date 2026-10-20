@@ -1,0 +1,52 @@
+# Stage P3.C, item 1: the drive of the wolf fight (tests/creatures/p3c-wolf-fight.txt) on the timeline of the retail take
+# set6-combat/creature-wolf-fight.mp4 (the aggro at 18 s here, at 12.0 s there): the camera to the east and 6 degrees down, then
+# W 0.9 s (4.7 s after the aggro), the travel to station 3 (the routes), the draw (key 1), the target lock, three light attacks, one heavy attack (a hold of
+# 1 s), and light attacks to the death of the wolf. The tick lines are the clock marks of the routes. turn and pitch: degrees
+# each second.
+1.0 turn 90
+2.0 turn 0
+2.2 pitch -6
+3.2 pitch 0
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 tick
+9.0 tick
+10.0 tick
+11.0 tick
+12.0 tick
+13.0 tick
+14.0 tick
+15.0 tick
+16.0 tick
+17.0 tick
+18.0 tick
+22.70 move 0 1
+23.60 move 0 0
+35.95 tick
+37.56 key 1
+38.00 tick
+38.20 lock
+38.50 tick
+38.73 click
+39.33 click
+39.93 click
+40.00 tick
+41.39 attack 1
+42.00 tick
+42.39 attack 0
+43.93 click
+44.00 tick
+44.53 click
+45.13 click
+45.73 click
+46.00 tick
+46.33 click
+46.93 click
+47.53 click
+48.00 tick
+48.13 click
+48.73 click
+49.33 click
+62.0 tick

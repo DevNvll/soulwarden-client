@@ -301,10 +301,13 @@ private:
 	int32 Areas = 0;
 	FDelegateHandle DrawHandle;
 	bool bAllPlates = false;
+	bool bNoPlates = false;
 	bool bFarContacts = false;
 	float FarContactFrom = 0.0f;
 	bool bDrawVolumes = false;
 	bool bVolumeProbe = false;
+	bool bMotionProbe = false;
+	double NextMotionProbe = 0.0;
 	bool bLootProbe = false;
 	bool bLootModel = false;
 	bool bDrawLockPoints = false;

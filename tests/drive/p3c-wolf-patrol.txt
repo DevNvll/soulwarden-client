@@ -1,0 +1,66 @@
+# Stage P3.C, item 6: the drive of the patrol (tests/creatures/p3c-wolf-patrol.txt): the camera 8 degrees right of north
+# and 9 degrees down, then no input.
+3.00 turn 8
+4.00 turn 0
+4.20 pitch -9
+5.20 pitch 0
+6.00 tick
+8.00 tick
+10.00 tick
+12.00 tick
+14.00 tick
+16.00 tick
+18.00 tick
+20.00 tick
+22.00 tick
+24.00 tick
+26.00 tick
+28.00 tick
+30.00 tick
+32.00 tick
+34.00 tick
+36.00 tick
+38.00 tick
+40.00 tick
+42.00 tick
+44.00 tick
+46.00 tick
+48.00 tick
+50.00 tick
+52.00 tick
+54.00 tick
+56.00 tick
+58.00 tick
+60.00 tick
+62.00 tick
+64.00 tick
+66.00 tick
+68.00 tick
+70.00 tick
+72.00 tick
+74.00 tick
+76.00 tick
+78.00 tick
+80.00 tick
+82.00 tick
+84.00 tick
+86.00 tick
+88.00 tick
+90.00 tick
+92.00 tick
+94.00 tick
+96.00 tick
+98.00 tick
+100.00 tick
+102.00 tick
+104.00 tick
+106.00 tick
+108.00 tick
+110.00 tick
+112.00 tick
+114.00 tick
+116.00 tick
+118.00 tick
+120.00 tick
+122.00 tick
+124.00 tick

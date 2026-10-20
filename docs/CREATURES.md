@@ -492,6 +492,47 @@ The backend counts: 8 attack inputs, 7 contacts, 6 accepted, 1 refused ("too far
 refused. The additive reaction of scope 4 (`Reaction_Additive`, r_R0_F) plays in the runs `melee3` and `exit4`. The codec
 tests: `tools/test-creatures.sh` (63 and 26 checks), with the bytes of the backend.
 
+## The fight against the retail client (stage P3.C)
+
+The references: the takes of `~/Games/soulwarden/work/evidence/unreal-references/set6-combat` (a video and its JSON: the backend
+lines and the creature rows of the server at 20 Hz). The client runs use the same places and the same timeline
+(`tests/creatures/p3c-*.txt` and `tests/drive/p3c-*.txt`: the wolf fight, the skeleton fight, the leash, the turn, the patrol,
+the rabbit). `-SwcCreatureProbe` writes the shown place, yaw, and fragments of each creature within 60 m at 20 Hz into the client
+log. `tools/lib/creature_compare.py RETAIL.json LABEL [--video OUT.mp4]` gives the values of both sides (the aggro distance, the
+moves, the attacks, the reactions, the death; for the client also the shown speed, the yaw rate, the fragment of each attack and
+its delay after the server start) and a side-by-side video (the client half without the top bar and the border of the agent
+desktop). `SWC_PLATES=none` (`-SwcPlates=none`) with `-SwcUi=off` shows no plate and no damage number, as F10 in the retail takes.
+
+The fixes:
+
+- The color of the bodies: the converter writes the Diffuse of the material as the base color factor (linear; the grey wolf
+  `wolf_fur` and `wolf_body` 0.491) and AlphaTest as the alpha cutoff (the fur cards: 0.3). The default glTF pipeline of Unreal
+  keeps the material instances of an earlier import (bReuseExistingMaterials): `import_content.py` removes the material assets
+  of a character before its import. Before, the grey wolf was white. The wolf against the ground under it now (the luminance of
+  the side video, 1 s after the aggro): retail 2.18, client 1.88. The client scene is brighter than retail (stage E5).
+- The facing: the creature faces the rotation of the newest server state at once (the retail body turns at each server state;
+  set 6 creature-wolf-turn). Before, the client turned between two states over one sample step. The place stays on the delayed
+  time line.
+
+Check (development run, 2026-10-20, main c5ba0ae, `SWC_WORK/evidence/P3.C/p3c-wolf-fight-4.mp4` and `-side.mp4`): the server
+gives the same attacks and cadence as the retail take (the aggro at 11.0 m; Bite at 1.03, 4.10, 7.19 s, Lunge at 10.25 s; retail
+1.02, 4.12, 7.21, 10.49 s). The shown attacks start 0.25 to 0.30 s after the server start.
+
+```sh
+export SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-creatures SWC_AGENT_DESKTOP=soulwarden-client-creatures
+SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=8875.08:4349.07:135.82 SWC_STAGE=P3.C SWC_PLATES=none SWC_DEBUG_LINES=0 \
+  tools/creature-check.sh p3c-wolf-fight 64 tests/creatures/p3c-wolf-fight.txt tests/drive/p3c-wolf-fight.txt \
+  -- -SwcCreatureProbe -SwcUi=off
+python3 -B tools/lib/creature_compare.py ~/Games/soulwarden/work/evidence/unreal-references/set6-combat/creature-wolf-fight.json \
+  p3c-wolf-fight --video ~/Games/soulwarden-client/evidence/P3.C/p3c-wolf-fight-side.mp4
+```
+
+Open points of P3.C: the timing of the actions (retail starts the action and the facing at once and the place about 0.4 s
+later; the client shows the action 0.25 to 0.30 s after the server start: to confirm with more takes before a change); the Idle
+of 0.22 s before r_Death after a cut lunge is a record of the server (not a client fault); the side-by-side videos of the
+other five items; the start facing of the camera of the wolf fight drive changed between two runs (one run looked 30 degrees
+to the right).
+
 ## Differences and open points
 
 - Not shown yet: the procedural clips (sounds, effects, the death material, the dissolve), the effects of the game for the shots

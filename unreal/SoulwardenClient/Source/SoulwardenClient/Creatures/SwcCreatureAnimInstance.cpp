@@ -274,6 +274,21 @@ void USwcCreatureAnimInstance::Stop()
 	Overlays.Reset();
 }
 
+FString USwcCreatureAnimInstance::DescribePose() const
+{
+	TArray<FString> Parts;
+	for (const FLayer& Layer : Layers)
+	{
+		Parts.Add(FString::Printf(TEXT("f%d t%.2f x%.2f w%.2f"), Layer.Fragment, Layer.Time, Layer.Scale, Layer.Weight));
+	}
+	for (const FOverlay& Overlay : Overlays)
+	{
+		Parts.Add(FString::Printf(TEXT("scope %d f%d t%.2f x%.2f w%.2f%s"), Overlay.Scope, Overlay.Layer.Fragment, Overlay.Layer.Time, Overlay.Layer.Scale,
+			Overlay.Weight, Overlay.bStopping ? TEXT(" out") : TEXT("")));
+	}
+	return Parts.IsEmpty() ? FString(TEXT("no fragment")) : FString::Join(Parts, TEXT(" + "));
+}
+
 void USwcCreatureAnimInstance::SetMotion(float InMoveSpeed, float InTurnSpeed, float InTravelAngle)
 {
 	MoveSpeed = InMoveSpeed;

@@ -1,0 +1,6 @@
+# Stage P3.C, item 6 (docs/CREATURES.md): the patrol wolf of the spawn point near 8815 4319 (set6-combat/creature-wolf-patrol.mp4,
+# route 10584 of creatures.json of the backend): the character stands 6 to 8 m south of the route (8812.11 4313.38), the creatures
+# ignore it, and the camera watches four walks (about 115 s). Times on the clock of the drive tests/drive/p3c-wolf-patrol.txt.
+# SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=8812.11:4313.38:140.17 SWC_STAGE=P3.C tools/creature-check.sh p3c-wolf-patrol 135 \
+#   tests/creatures/p3c-wolf-patrol.txt tests/drive/p3c-wolf-patrol.txt -- -SwcCreatureProbe
+1 ignore on

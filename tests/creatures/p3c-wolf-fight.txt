@@ -1,0 +1,25 @@
+# Stage P3.C, item 1 (docs/CREATURES.md): the grey wolf of the retail reference set6-combat/creature-wolf-fight.mp4, with the same
+# places and the same timeline. The character (Swordwarden) stands at 8875.08 4349.07 (SWC_DEV_PLACE) and the creatures ignore it;
+# the remote test character Axewarden (the "Remote" of the retail set, level 70 as there) stands 10 m east and 1.5 m south; the wolf Wolf_Grey_7
+# comes 12.5 m south of the character, 10 m east, facing north, and stands (idle) until the creatures stop to ignore Axewarden:
+# then it takes Axewarden as its target in its vision (11 m in the retail take), runs to it, and bites with no input of the
+# player. Times on the clock of the drive tests/drive/p3c-wolf-fight.txt; offsets in m east, north; yaw: 0 north.
+# SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=8875.08:4349.07:135.82 SWC_STAGE=P3.C tools/creature-check.sh p3c-wolf-fight 64 \
+#   tests/creatures/p3c-wolf-fight.txt tests/drive/p3c-wolf-fight.txt -- -SwcCreatureProbe
+1 level 60
+1 level 70 Axewarden
+2 heal
+3 ignore on
+3 place Axewarden 10 -1.5
+3.5 level 70 Axewarden
+4 heal Axewarden
+4 ignore on Axewarden
+5 spawn Wolf_Grey_7 10 -12.5 0.5 --yaw 0
+18 ignore off Axewarden
+# Station 3 of the retail take (its feet 8883.04 4346.54, 2 m west of the wolf), 17.95 s after the aggro: the drive turn is not
+# exact (a turn of 90 degrees gave 72), so a travel with no loading screen puts the character there.
+35.95 travel 8883.04 4346.54 135.69 off
+# The sword of Swordwarden (1hSwordT2, the attributes of the character) makes about 110 to 210 damage, the retail build 192 to
+# 374: the wolf died at the seventh hit there. Its health 970 before the first hit here: the sum of the first seven hits of the
+# client (977), so that it dies at the seventh hit too.
+38.5 health $1 970

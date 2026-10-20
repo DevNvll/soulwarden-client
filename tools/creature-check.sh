@@ -25,7 +25,8 @@ mkdir -p "${evidence}"
 rm -f "${log}"
 # The debug text lines: the frames of a video are found by them (off by default from stage WF7). SWC_DEBUG_LINES=0: no debug text
 # (the videos of the normal look).
-client_arguments=(-SwcPlates=all)
+# SWC_PLATES: the name plates of the creatures (default all; none: the videos of the retail compare, with -SwcUi=off as F10 there).
+client_arguments=(-SwcPlates="${SWC_PLATES:-all}")
 [[ "${SWC_DEBUG_LINES:-1}" == 1 ]] && client_arguments+=(-SwcDebugLines)
 [[ -n "${drive}" ]] && client_arguments+=(-SwcDrive="$(realpath "${drive}")")
 enter=(--enter)
@@ -49,6 +50,8 @@ if [[ ! "${output}" =~ ^AGENT-[0-9]+$ ]]; then
     "${SWC_REPO}/tools/dev-stop.sh" >/dev/null 2>&1 || true
     exit 1
 fi
+# The wall time of the start of the recording (the side-by-side videos of stage P3.C: tools/lib/creature_compare.py --video).
+date +%s.%N >"${evidence}/${label}-video-start.txt"
 wf-recorder -y -o "${output}" -c libx264 -r 30 -f "${evidence}/${label}.mp4" >"${SWC_WORK}/logs/dev-run/${label}-recorder.log" 2>&1 &
 recorder=$!
 # With a drive script, the routes go on the clock of the drive (its lines "drive: SECONDS s" in the client log): the times

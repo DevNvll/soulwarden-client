@@ -1,0 +1,13 @@
+# Stage P3.C, item 5 (docs/CREATURES.md): the turn of set6-combat/creature-wolf-turn.mp4: Wolf_Grey_7 3 m north of the character
+# (Swordwarden at 8882.08 4342.08, the sword drawn), facing it (engine yaw 180); the creatures ignore the character until 8 s (the
+# aggro: the wolf comes to 1.6 m and bites); then the character walks a half circle about the wolf (the drive), and the wolf
+# turns to follow it. Times on the clock of the drive tests/drive/p3c-wolf-turn.txt; offsets in m east, north.
+# SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=8882.08:4342.08:135.54 SWC_STAGE=P3.C tools/creature-check.sh p3c-wolf-turn 40 \
+#   tests/creatures/p3c-wolf-turn.txt tests/drive/p3c-wolf-turn.txt -- -SwcCreatureProbe
+1 level 60
+2 heal
+3 ignore on
+4 spawn Wolf_Grey_7 0 3 0.4 --yaw 180
+8 ignore off
+14 heal
+20 heal

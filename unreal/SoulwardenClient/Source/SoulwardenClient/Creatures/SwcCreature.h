@@ -66,6 +66,9 @@ public:
 	const FSwcCreatureSlice* GetSlice() const { return Slice; }
 	/** @return The point of the name plate: above the bounds of the body. */
 	FVector GetPlatePoint() const;
+	/** @return The probe text of this frame (-SwcCreatureProbe): the place (engine m), the yaw (engine degrees: counterclockwise from
+	 *  north, as the server yaw), the motion parameters of the blend spaces, and the fragments of the pose. */
+	FString ProbeText() const;
 	/** The time since the death mark (s), or a negative value. */
 	double GetDeadSeconds() const;
 	/** Adds the hit volumes of the slice at the pose of this frame (the bones of the leader), in Unreal world space (cm). A

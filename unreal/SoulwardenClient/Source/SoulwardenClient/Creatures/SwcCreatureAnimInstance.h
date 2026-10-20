@@ -89,6 +89,9 @@ public:
 	void SetMotion(float InMoveSpeed, float InTurnSpeed, float InTravelAngle);
 
 	int32 GetFragment() const { return Layers.IsEmpty() ? INDEX_NONE : Layers.Last().Fragment; }
+	/** @return The fragments of the pose (the creature probe, -SwcCreatureProbe): each layer and overlay with its fragment, time
+	 *  (s), playback scale, and weight. */
+	FString DescribePose() const;
 	float GetFragmentTime() const { return Layers.IsEmpty() ? 0.0f : Layers.Last().Time; }
 
 protected:

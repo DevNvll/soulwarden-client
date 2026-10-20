@@ -1,0 +1,66 @@
+# Stage P3.C, item 3: the drive of the skeleton fight (tests/creatures/p3c-skeleton-fight.txt) on the timeline of the retail
+# take set6-combat/creature-skeleton-fight.mp4 (the aggro at 18 s here, at 12.41 s there): the camera east and 6 degrees down, W 0.9 s
+# (7.97 s after the aggro), the travel to station 3 (the routes, 34.1 s after the aggro), the draw, the lock, three light attacks,
+# one heavy attack (a hold of 1 s), six light attacks, and one light attack at the health 5 (the death). turn, pitch: degrees each second.
+3.00 turn 90
+4.00 turn 0
+4.20 pitch -6
+5.20 pitch 0
+6.00 tick
+8.00 tick
+10.00 tick
+12.00 tick
+14.00 tick
+16.00 tick
+18.00 tick
+20.00 tick
+22.00 tick
+24.00 tick
+25.97 move 0 1
+26.87 move 0 0
+28.00 tick
+30.00 tick
+32.00 tick
+34.00 tick
+36.00 tick
+38.00 tick
+40.00 tick
+42.00 tick
+44.00 tick
+46.00 tick
+48.00 tick
+50.00 tick
+52.00 tick
+52.10 tick
+53.88 key 1
+54.00 tick
+54.30 lock
+55.04 click
+55.68 click
+56.00 tick
+56.28 click
+57.78 attack 1
+58.00 tick
+58.78 attack 0
+60.00 tick
+60.28 click
+60.90 click
+61.52 click
+62.00 tick
+62.14 click
+62.76 click
+63.00 tick
+63.38 click
+63.60 tick
+64.00 click
+66.00 tick
+68.00 tick
+70.00 tick
+72.00 tick
+74.00 tick
+76.00 tick
+78.00 tick
+80.00 tick
+82.00 tick
+84.00 tick
+86.00 tick

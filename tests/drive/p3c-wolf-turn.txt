@@ -1,0 +1,29 @@
+# Stage P3.C, item 5: the drive of the turn (tests/creatures/p3c-wolf-turn.txt): the draw, the camera 30 degrees to the left
+# (heading 330) and 8 degrees down; 4.16 s after the aggro the half circle of the retail take: the walk key, strafe right (D),
+# and the camera to the left at 21 degrees each second (about 180 degrees in 8.5 s).
+1.00 key 1
+3.00 turn -30
+4.00 turn 0
+4.20 pitch -8
+5.20 pitch 0
+6.00 tick
+8.00 tick
+10.00 tick
+12.00 tick
+12.16 move 1 0
+12.16 walk 1
+12.17 turn -21
+14.00 tick
+16.00 tick
+18.00 tick
+20.00 tick
+20.66 move 0 0
+20.66 walk 0
+20.67 turn 0
+22.00 tick
+24.00 tick
+26.00 tick
+28.00 tick
+30.00 tick
+32.00 tick
+34.00 tick

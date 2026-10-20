@@ -1,0 +1,28 @@
+# Stage P3.C, item 4: the drive of the rabbit (tests/creatures/p3c-rabbit.txt) on the timeline of the retail take (the rabbit
+# spawns at 4 s here, about 2 s before the take there): the camera east and 8 degrees down, W 0.35 s, W 0.25 s, the draw, the camera
+# 30 degrees to the right, one light attack.
+3.00 turn 90
+4.00 turn 0
+4.20 pitch -8
+5.20 pitch 0
+6.00 tick
+8.00 tick
+10.00 tick
+12.00 tick
+12.70 move 0 1
+13.05 move 0 0
+14.00 tick
+14.90 move 0 1
+15.15 move 0 0
+16.00 tick
+18.00 tick
+18.90 key 1
+19.90 turn 45
+20.00 tick
+20.57 turn 0
+20.60 click
+22.00 tick
+24.00 tick
+26.00 tick
+28.00 tick
+30.00 tick

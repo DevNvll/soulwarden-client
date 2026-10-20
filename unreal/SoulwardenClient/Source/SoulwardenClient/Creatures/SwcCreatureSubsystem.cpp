@@ -45,6 +45,9 @@ constexpr double ContactMargin = 50.0;
  *  nearer than the point by more than the slack is a wall. */
 constexpr double WallLineHeight = 100.0;
 constexpr double WallSlack = 5.0;
+/** The creature probe (-SwcCreatureProbe): the creatures within this distance (m) of the character, each 0.05 s. */
+constexpr double MotionProbeRange = 60.0;
+constexpr double MotionProbeSeconds = 0.05;
 /** The range of the development contact -SwcFarContact (m): beyond the reach of the server (3.5 m + 1.5 m). */
 constexpr double FarContactMin = 6.0;
 constexpr double FarContactMax = 10.0;
@@ -77,7 +80,10 @@ void USwcCreatureSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 	FString Plates;
-	bAllPlates = FParse::Value(FCommandLine::Get(), TEXT("SwcPlates="), Plates) && Plates == TEXT("all");
+	FParse::Value(FCommandLine::Get(), TEXT("SwcPlates="), Plates);
+	bAllPlates = Plates == TEXT("all");
+	// -SwcPlates=none: no plate and no damage number of the creatures (the videos of the retail compare: -SwcUi=off as F10 there).
+	bNoPlates = Plates == TEXT("none");
 	// -SwcFarContact, or -SwcFarContact=SECONDS: from that time of the world.
 	bFarContacts = FParse::Param(FCommandLine::Get(), TEXT("SwcFarContact")) || FParse::Value(FCommandLine::Get(), TEXT("SwcFarContact="), FarContactFrom);
 	bDrawVolumes = FParse::Param(FCommandLine::Get(), TEXT("SwcHitVolumes"));
@@ -85,6 +91,7 @@ void USwcCreatureSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	bLootProbe = FParse::Param(FCommandLine::Get(), TEXT("SwcLootProbe"));
 	bLootModel = FParse::Param(FCommandLine::Get(), TEXT("SwcLootModel"));
 	bDrawLockPoints = FParse::Param(FCommandLine::Get(), TEXT("SwcLockPoints"));
+	bMotionProbe = FParse::Param(FCommandLine::Get(), TEXT("SwcCreatureProbe"));
 	DrawHandle = UDebugDrawService::Register(TEXT("Game"), FDebugDrawDelegate::CreateUObject(this, &USwcCreatureSubsystem::DrawPlates));
 }
 
@@ -426,6 +433,25 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 		return;
 	}
 	const uint64 RenderTimeUs = ServerNowUs - static_cast<uint64>(InterpolationDelaySeconds * 1.0e6);
+	// The creature probe (-SwcCreatureProbe): each creature near the character, 20 times each second (the rate of the retail references).
+	const double ProbeNow = FPlatformTime::Seconds();
+	const bool bProbeNow = bMotionProbe && ProbeNow >= NextMotionProbe;
+	FVector ProbeCenter = FVector::ZeroVector;
+	if (bProbeNow)
+	{
+		NextMotionProbe = FMath::Max(NextMotionProbe + MotionProbeSeconds, ProbeNow);
+		const APlayerController* ProbePlayer = GetWorld() != nullptr ? GetWorld()->GetFirstPlayerController() : nullptr;
+		const APawn* ProbePawn = ProbePlayer != nullptr ? ProbePlayer->GetPawn() : nullptr;
+		ProbeCenter = ProbePawn != nullptr ? ProbePawn->GetActorLocation() : FVector::ZeroVector;
+		// The camera of the frame (the projection of a creature into the video: engine m, the heading clockwise from north, the pitch).
+		if (ProbePlayer != nullptr && ProbePlayer->PlayerCameraManager != nullptr)
+		{
+			const swc::net::WorldPosition Eye = SwcUnrealToEngine(ProbePlayer->PlayerCameraManager->GetCameraLocation());
+			const FRotator View = ProbePlayer->PlayerCameraManager->GetCameraRotation();
+			UE_LOG(LogSwcCreatures, Log, TEXT("creature probe camera: %.3f %.3f %.3f, heading %.2f, pitch %.2f, fov %.2f"), Eye.x, Eye.y, Eye.z,
+				FRotator::ClampAxis(View.Yaw + 90.0), View.Pitch, ProbePlayer->PlayerCameraManager->GetFOVAngle());
+		}
+	}
 	for (const auto& [Interest, Entity] : Table.entities())
 	{
 		// A loot bag: the slice of a loot container of the data.
@@ -469,6 +495,10 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 			++Actions;
 			Kinds.Add(Creature->GetDisplayName());
 			UE_LOG(LogSwcCreatures, Log, TEXT("creature %u: %s: %s"), Interest, *Creature->GetDisplayName(), *Action);
+		}
+		if (bProbeNow && !Creature->IsLoading() && FVector::DistSquared(Creature->GetActorLocation(), ProbeCenter) <= FMath::Square(MotionProbeRange * 100.0))
+		{
+			UE_LOG(LogSwcCreatures, Log, TEXT("creature probe: %u %s: %s"), Interest, *Creature->GetDisplayName(), *Creature->ProbeText());
 		}
 		// The body of a dead creature goes away after the delayed event of its slice (the server keeps the entity).
 		const double DeadSeconds = Creature->GetDeadSeconds();
@@ -1274,9 +1304,9 @@ void USwcCreatureSubsystem::DrawPlates(UCanvas* Canvas, APlayerController* Contr
 	const FVector Eye = Player->PlayerCameraManager->GetCameraLocation();
 	const FVector Look = Player->PlayerCameraManager->GetCameraRotation().Vector();
 	const FVector Own = Player->GetPawn() != nullptr ? Player->GetPawn()->GetActorLocation() : Eye;
-	if (bUiPlates)
+	if (bUiPlates || bNoPlates)
 	{
-		// The UI draws the original plates and numbers (stage WF7).
+		// The UI draws the original plates and numbers (stage WF7), or no plate at all (-SwcPlates=none).
 		DamageNumbers.Reset();
 		return;
 	}

@@ -594,6 +594,17 @@ def read_database(path: str, extra: frozenset = frozenset(), depth: int = 0, out
     return out
 
 
+def diffuse_factor(text: str) -> tuple:
+    """@return The base color factor of a material from its Diffuse attribute (one value or "r,g,b"; linear), white when it has none."""
+    try:
+        values = [float(v) for v in str(text).split(",") if v.strip()]
+    except ValueError:
+        values = []
+    if len(values) == 1:
+        values = values * 3
+    return (*values[:3], 1.0) if len(values) >= 3 else (1.0, 1.0, 1.0, 1.0)
+
+
 def select_variant(variants: list[dict], tags: set[str]) -> tuple[dict | None, int]:
     """@return The variant of a tag state and its index: the variant with the most tags whose tags are all in the state, the
     first one of the files at a tie (the rule of the Soulwarden tools; research feel-values.md R3.2.5, open point O1). A
@@ -902,10 +913,17 @@ class Skeleton:
                         continue
                     info = materials.describe(subs[s.material], max_texture)
                     files = info["files"]
+                    # The Diffuse color of the material (linear: dog_matgroup.mtl Diffuse 0.491 on the grey wolf) multiplies the
+                    # diffuse texture, and AlphaTest cuts the fur cards (stage P3.C: the wolf was 2 times too bright).
+                    factor, alpha_mask = diffuse_factor(info["diffuse"]), None
+                    try:
+                        alpha_mask = float(info["alphaTest"]) if info["alphaTest"] and float(info["alphaTest"]) > 0.0 else None
+                    except ValueError:
+                        alpha_mask = None
                     mi = w.material(info["name"] or attachment["name"],
                                     materials.relative(files["base"], out) if "base" in files else None,
                                     materials.relative(files["normal"], out) if "normal" in files else None,
-                                    blend=materials.is_glass(subs[s.material]))
+                                    factor=factor, alpha_mask=alpha_mask, blend=materials.is_glass(subs[s.material]))
                 idx = mesh.indices[s.first_index:s.first_index + s.num_indices]
                 prims.append(w.primitive(pos, idx, nrm, mesh.uvs, None, joints, mesh.weights, mi))
             report.append({"skin": attachment["skin"], "vertices": len(mesh.positions), "triangles": len(mesh.indices) // 3})

@@ -1,0 +1,23 @@
+# Stage P3.C, item 3 (docs/CREATURES.md): the skeleton of set6-combat/creature-skeleton-fight.mp4 and creature-skeleton-death.mp4 with
+# the places and the timeline of the retail takes: Skeleton_Club_23 12.5 m south and 10 m east of the character (Swordwarden at
+# 8875.08 4349.07; the creatures ignore it), the remote test character Axewarden (level 70) 10 m east and 1.5 m south as its target
+# from 18 s (the aggro); the skeleton runs to it and attacks it with no input of the player for 34 s; then the player at station 3
+# of the retail take (a travel), the draw, the lock, three light attacks, one heavy attack, light attacks; the health of the
+# skeleton then goes to 5 and one more light attack kills it (the death take of the retail set: a hit from behind at 6.7 health).
+# Times on the clock of the drive tests/drive/p3c-skeleton-fight.txt; offsets in m east, north; yaw: 0 north.
+# SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=8875.08:4349.07:135.82 SWC_STAGE=P3.C tools/creature-check.sh p3c-skeleton-fight 92 \
+#   tests/creatures/p3c-skeleton-fight.txt tests/drive/p3c-skeleton-fight.txt -- -SwcCreatureProbe
+1 level 60
+1 level 70 Axewarden
+2 heal
+3 ignore on
+3 place Axewarden 10 -1.5
+3.5 level 70 Axewarden
+4 heal Axewarden
+4 ignore on Axewarden
+5 spawn Skeleton_Club_23 10 -12.5 0.5 --yaw 0
+18 ignore off Axewarden
+30 heal Axewarden
+45 heal Axewarden
+52.1 travel 8882.67 4346.56 135.69 off
+63 health $1 5

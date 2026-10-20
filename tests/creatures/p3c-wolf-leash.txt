@@ -1,0 +1,14 @@
+# Stage P3.C, item 2 (docs/CREATURES.md): the leash of set6-combat/creature-wolf-leash.mp4: Wolf_Grey_7 4 m west and 2.5 m north of the
+# character (Swordwarden at 8849.19 4346.65, its weapon sheathed), facing the character (engine yaw 238); the creatures ignore the
+# character until 8 s (the aggro: the wolf takes it in its vision at about 5 m and bites); the character runs east (the drive); at
+# about 70 m from its anchor the wolf loses its target and runs back (immune). Times on the clock of the drive
+# tests/drive/p3c-wolf-leash.txt; offsets in m east, north.
+# SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=8849.19:4346.65:138.2 SWC_STAGE=P3.C tools/creature-check.sh p3c-wolf-leash 50 \
+#   tests/creatures/p3c-wolf-leash.txt tests/drive/p3c-wolf-leash.txt -- -SwcCreatureProbe
+1 level 60
+2 heal
+3 ignore on
+4 spawn Wolf_Grey_7 -4 2.5 0.5 --yaw 238
+8 ignore off
+14 heal
+20 heal

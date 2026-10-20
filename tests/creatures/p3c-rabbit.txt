@@ -1,0 +1,8 @@
+# Stage P3.C, item 4 (docs/CREATURES.md): the rabbit of set6-combat/creature-rabbit.mp4: Rabbit_Snowshoe_3 4 m east and 1 m south of
+# the character (Swordwarden at 8879.07 4346.07), facing north; it stands (the backend has no flee for it); the character walks to it in
+# two steps, draws the sword, and kills it with one light attack. Times on the clock of the drive tests/drive/p3c-rabbit.txt.
+# SWC_DEV_CHARACTER=Swordwarden SWC_DEV_PLACE=8879.07:4346.07:135.67 SWC_STAGE=P3.C tools/creature-check.sh p3c-rabbit 36 \
+#   tests/creatures/p3c-rabbit.txt tests/drive/p3c-rabbit.txt -- -SwcCreatureProbe
+1 level 60
+2 heal
+4 spawn Rabbit_Snowshoe_3 4 -1 0.3 --yaw 0

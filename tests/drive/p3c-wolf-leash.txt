@@ -1,0 +1,30 @@
+# Stage P3.C, item 2: the drive of the leash (tests/creatures/p3c-wolf-leash.txt): the camera north (the start) and 6
+# degrees down; 1.6 s after the aggro the character runs east (the key D: strafe right) for 12.6 s as in the retail take; then the
+# camera turns to the west (180 degrees in 2 s) and follows the wolf back.
+4.00 tick
+4.20 pitch -6
+5.20 pitch 0
+6.00 tick
+8.00 tick
+9.60 move 1 0
+10.00 tick
+12.00 tick
+14.00 tick
+16.00 tick
+18.00 tick
+20.00 tick
+22.00 tick
+22.20 move 0 0
+24.00 tick
+24.30 turn -90
+26.00 tick
+26.30 turn 0
+28.00 tick
+30.00 tick
+32.00 tick
+34.00 tick
+36.00 tick
+38.00 tick
+40.00 tick
+42.00 tick
+44.00 tick

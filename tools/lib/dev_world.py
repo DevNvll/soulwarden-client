@@ -16,7 +16,7 @@ Usage (tools/creature-world.sh):
   health ID VALUE|PERCENT%           the health of a creature
   action ID NAME [SECONDS]           an action of the action table of the slice of a creature
   heal [NAME]                        the health of the character (or of a character NAME; a dead one lives again)
-  level N                            the level of the character (its health grows with it)
+  level N [NAME]                     the level of the character, or of a character NAME (its health grows with it)
   ignore on|off [NAME]               the creatures ignore the character (on) or not (or a character NAME)
   loot on|off                        each kill of the character drops loot (on; stage 3.5b.2: a loot bag) or the normal roll
   bags                               the loot bags of the character
@@ -243,8 +243,9 @@ def run(words: list[str], folder: Path) -> object:
     if command == "action" and len(rest) in (2, 3):
         seconds = f"&seconds={float(rest[2])}" if len(rest) == 3 else ""
         return request(folder, "POST", f"/v1/dev/creatures/action?creature={rest[0]}&action={rest[1]}{seconds}")
-    if command == "level" and len(rest) == 1:
-        return request(folder, "POST", f"/v1/dev/progress/level?character={character(folder)}&level={int(rest[0])}")
+    if command == "level" and len(rest) in (1, 2):
+        who = character_named(folder, rest[1]) if len(rest) > 1 else character(folder)
+        return request(folder, "POST", f"/v1/dev/progress/level?character={who}&level={int(rest[0])}")
     if command == "heal":
         who = character_named(folder, rest[0]) if rest else character(folder)
         return request(folder, "POST", f"/v1/dev/world/heal?character={who}")

@@ -527,11 +527,13 @@ double ASwcCreature::GetDeadSeconds() const
 void ASwcCreature::SampleMotion(const swc::creatures::Entity& Entity, uint64 RenderTimeUs, FVector& OutPosition, FQuat& OutRotation) const
 {
 	const auto& Samples = Entity.samples;
-	const auto Rotation = [](const swc::creatures::MovementSample& Sample) { return SwcEngineToUnreal(Sample.rotation); };
+	// The facing: the rotation of the newest state at once, with no turn between the states and no delay (stage P3.C: the retail
+	// creature turns its body at each server state and faces the new way before its place follows; set 6 creature-wolf-turn, the
+	// frame yaw of the retail video against the backend states). The place stays on the delayed time line below.
+	OutRotation = SwcEngineToUnreal(Samples.back().rotation);
 	if (Samples.size() == 1 || static_cast<int64>(RenderTimeUs) <= static_cast<int64>(Samples.front().timeUs))
 	{
 		OutPosition = SwcEngineToUnreal(Samples.front().position);
-		OutRotation = Rotation(Samples.front());
 		if (Samples.size() == 1)
 		{
 			return;
@@ -540,7 +542,6 @@ void ASwcCreature::SampleMotion(const swc::creatures::Entity& Entity, uint64 Ren
 	if (RenderTimeUs >= Samples.back().timeUs)
 	{
 		OutPosition = SwcEngineToUnreal(Samples.back().position);
-		OutRotation = Rotation(Samples.back());
 		return;
 	}
 	for (std::size_t Index = 1; Index < Samples.size(); ++Index)
@@ -563,7 +564,6 @@ void ASwcCreature::SampleMotion(const swc::creatures::Entity& Entity, uint64 Ren
 		const double Alpha = FMath::Clamp(static_cast<double>(static_cast<int64>(RenderTimeUs) - Start) / static_cast<double>(static_cast<int64>(B.timeUs) - Start),
 			0.0, 1.0);
 		OutPosition = FMath::Lerp(SwcEngineToUnreal(A.position), SwcEngineToUnreal(B.position), Alpha);
-		OutRotation = FQuat::Slerp(Rotation(A), Rotation(B), Alpha);
 		return;
 	}
 }
@@ -726,6 +726,17 @@ int32 ASwcCreature::PlayWeaponScope(int32 Fragment, float FragmentTime, float Pl
 		++Playing;
 	}
 	return Playing;
+}
+
+FString ASwcCreature::ProbeText() const
+{
+	const swc::net::WorldPosition At = SwcUnrealToEngine(GetActorLocation());
+	// The actor faces its +X; the Unreal yaw -90 is north (engine +Y): the engine yaw is the Unreal yaw + 90.
+	const double EngineYaw = FRotator::ClampAxis(GetActorRotation().Yaw + 90.0);
+	const USwcCreatureAnimInstance* Animation = Leader != nullptr ? Cast<USwcCreatureAnimInstance>(Leader->GetAnimInstance()) : nullptr;
+	return FString::Printf(TEXT("at %.3f %.3f %.3f, yaw %.1f, move %.2f m/s, turn %.0f deg/s, travel %.0f deg%s; %s"), At.x, At.y, At.z, EngineYaw,
+		MoveSpeed, FMath::RadiansToDegrees(TurnSpeed), FMath::RadiansToDegrees(TravelAngle), bDead ? TEXT(", dead") : TEXT(""),
+		Animation != nullptr ? *Animation->DescribePose() : TEXT("no body"));
 }
 
 FString ASwcCreature::UpdateFromEntity(FSwcCreatureLibrary& Library, const swc::creatures::Entity& Entity, uint64 RenderTimeUs, float DeltaSeconds)
