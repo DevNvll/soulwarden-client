@@ -173,6 +173,12 @@ void USwcEffectSubsystem::OnWorldBeginPlay(UWorld& World)
 	bWorld = !FParse::Param(FCommandLine::Get(), TEXT("SwcNoEffects")) && FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_EFFECTS")) != TEXT("0")
 		&& !Types.IsEmpty();
 	FParse::Value(FCommandLine::Get(), TEXT("SwcEffectTest="), TestSpec);
+	// -SwcEffectEmission=X sets swc.Effects.Emission at the start (a check with a different unit of the emission terms).
+	float Emission = 0.0f;
+	if (FParse::Value(FCommandLine::Get(), TEXT("SwcEffectEmission="), Emission))
+	{
+		CVarEmission->Set(Emission, ECVF_SetByCommandline);
+	}
 	UE_LOG(LogSwcEffects, Log, TEXT("effects: %d system(s), the world placements %s, the largest view %.0f m (%s)"), Types.Num(),
 		bWorld ? TEXT("on") : TEXT("off"), MaxViewCm / 100.0, *Folder());
 	if (bWorld)

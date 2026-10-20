@@ -257,3 +257,35 @@ changed. The measurement of the menu: the top 5 % of the fire region is orange (
 neutral white. [I] The common cause is the HDR to display step of the client (the filmic tone curve of Unreal turns very bright colors
 white; the retail picture keeps their hue) and the exposure of the menu, not the material data: a question for the color pipeline (E5).
 
+### The HDR diagnostic of the fire (2026-10-20)
+
+The question of the orchestrator: is the white core of the fire a particle unit fault, an exposure fault, or both. The tool:
+`tools/lib/particle_hdr_diag.py` (the source formula of a flame pixel, its display value after the source exposure and the source Hable
+curve of research/color-pipeline.md 7, and the HDR inverted from display pixels through the same curve). `-SwcEffectEmission=X` sets
+swc.Effects.Emission at the start of a run.
+
+| Measure | Torch post, Oxboro 23:00 | Menu campfire, 16.7 h |
+| --- | --- | --- |
+| The meter (swc.SourceMeter 2) | source EV 10.11, applied EV 10.11 (EV Min) | source EV 11.35, applied EV 11.35 |
+| Source formula of the core, 10,000 cd/m2 per unit | (194k, 33k, 2k) cd/m2, F 0.70: X (146, 25, 1.6) -> white | Flame_1 (88k, 44k, 7k), F 1.5: X (28, 14, 2) -> white |
+| Retail display of the core (equivalent HDR) | (244, 220, 185), about (1630, 690, 360) cd/m2 | (234, 188, 91), about (2450, 885, 231) cd/m2 |
+| Client display of the core, unit 1 | (237, 223, 208), about (1160, 740, 530) cd/m2 | (235, 235, 235): at the top of the display (no inverse) |
+| Client with unit 0.01 (`unit-test.png`) | the flame nearly gone; the torch head still bright | the white blob stays: it is not the particles |
+
+The result:
+- The exposure: the applied EV is the EV of the source rule in both shots. The meter is not the cause in these shots (whether its source E
+  agrees with the retail meter is a question for the creature track).
+- The torch flame: with unit 1 its core has the retail brightness within about 1.4 (R and G); it has more blue (paler). The particle unit
+  stays 1. The large values of the formula are not seen in either picture: the sprites cover the pixels thinly.
+- The torch head: it is lit white by the point light of the torch slice, not by the sprites (unit 0.01 keeps it) and not by an emission
+  (`jav_crft_torches_mat` has none). The light is 0.22 m from the emitter, inside the head: diffuse 2, range 6 m, bulb 0.6 m. The client
+  makes it an Unreal sphere light with the source radius 0.6 m (Environment/SwcLocalLightRules: the bulb as the source radius), which
+  lights the outer faces of the head from the parts of the sphere outside it: about pi x 10,000 x 2 = 63,000 lux, X about 4.5 at EV 10.11,
+  white. In the source the light is a point with the bulb only in its attenuation; the outer faces of the head face away from it
+  (N.L < 0) and stay dark [I]. This is a rule of the local lights (the environment track).
+- The menu campfire: the white blob is the Illum emission of the coal meshes (unit 0.01 keeps it). The coal map under its mask is deep
+  orange (linear (0.645, 0.069, 0.016)); the rule gives about 20 x 0.645 x I = 6 source units in R for the log pile embers: X_R about 20
+  at EV 11.35 (white with G about 2), and the coal pit 30 units (no %EMITTANCE_MAP: the constant 0.5). Retail shows these at an
+  equivalent X_R of about 1 to 3. Thus the Illum emission of these materials is about 5 to 10 times above the retail picture at the same
+  EV: a question for the shared emission rule (the materials track), not for the particles.
+
