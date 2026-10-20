@@ -1,12 +1,16 @@
 #include "Water/SwcWaterSubsystem.h"
 
 #include "Camera/PlayerCameraManager.h"
+#include "Components/DecalComponent.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Components/SceneCaptureComponentCube.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/TextureCube.h"
+#include "Engine/TextureRenderTargetCube.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
@@ -30,6 +34,10 @@ namespace
 {
 /** The source water material of tools/import-water.sh (Scripts/water_materials.py; AST-200, docs/WATER.md). */
 const TCHAR* ParentPath = TEXT("/SwcGameContent/Water/M_SwcWaterSource.M_SwcWaterSource");
+/** The decal material of the shore foam (water_on_shore_decal.mtl; Scripts/water_materials.py). */
+const TCHAR* ShorePath = TEXT("/SwcGameContent/Water/M_SwcShoreFoam.M_SwcShoreFoam");
+/** The shore foam emitters get their decals in this view distance (m; the last level of detail of the effects is 110 m). */
+constexpr double ShoreRange = 120.0;
 /** A surface builds when the view is this near to it (cm), at most BuildsPerTick in one tick (decisions of the client). */
 constexpr double BuildRange = 300000.0;
 constexpr int32 BuildsPerTick = 6;
@@ -194,9 +202,10 @@ void USwcWaterSubsystem::Tick(float DeltaTime)
 			}
 		}
 	}
-	UpdateSkyCube();
+	UpdateSkyCube(View);
 	UpdateBodies(View);
 	UpdateOcean(View, DeltaTime);
+	UpdateShore(View);
 	const double Now = FPlatformTime::Seconds();
 	if (Now >= NextWorldOceanCheck && WorldOceanChecks < 30)
 	{
@@ -352,6 +361,7 @@ void USwcWaterSubsystem::Load()
 		UE_LOG(LogSwcWater, Log, TEXT("water: %d parameter value(s) of -SwcWater for each instance: %s"), CalibrationValues.Num(), *Values);
 	}
 	Parent = LoadObject<UMaterialInterface>(nullptr, ParentPath);
+	LoadShore(Folder);
 	FActorSpawnParameters Spawn;
 	Spawn.ObjectFlags |= RF_Transient;
 	WaterActor = GetWorld()->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, Spawn);
@@ -362,6 +372,222 @@ void USwcWaterSubsystem::Load()
 	UE_LOG(LogSwcWater, Log, TEXT("water: %d volumes, %d rivers, %d quadtrees, %d materials, %d ocean overrides, ocean at %.1f m, %s%s"), Volumes, Rivers,
 		Trees.Num(), Materials.Num(), Overrides.Num(), OceanLevel, Parent ? TEXT("material M_SwcWaterSource") : TEXT("no material M_SwcWaterSource (tools/import-water.sh): no surface"),
 		Faults ? *FString::Printf(TEXT(", %d file fault(s)"), Faults) : TEXT(""));
+}
+
+namespace
+{
+swc::water::Curve CurveOf(const TSharedPtr<FJsonObject>& Object)
+{
+	swc::water::Curve Out;
+	if (!Object.IsValid())
+	{
+		return Out;
+	}
+	Out.base = NumberOf(Object, TEXT("base"), 1.0f);
+	Out.random = NumberOf(Object, TEXT("random"), 0.0f);
+	const TArray<TSharedPtr<FJsonValue>>* Keys = nullptr;
+	if (Object->TryGetArrayField(TEXT("keys"), Keys))
+	{
+		for (const TSharedPtr<FJsonValue>& Value : *Keys)
+		{
+			const TArray<TSharedPtr<FJsonValue>>& Key = Value->AsArray();
+			swc::water::CurveKey K;
+			K.t = static_cast<float>(Key[0]->AsNumber());
+			K.v = static_cast<float>(Key[1]->AsNumber());
+			// The keys of water.py: [t, v, d (the slope to the right), s (the slope to the left), flags]; no slope: 0.
+			K.out = Key[2]->IsNull() ? 0.0f : static_cast<float>(Key[2]->AsNumber());
+			K.in = Key[3]->IsNull() ? 0.0f : static_cast<float>(Key[3]->AsNumber());
+			Out.keys.push_back(K);
+		}
+	}
+	return Out;
+}
+
+FVector3f VectorOf(const TSharedPtr<FJsonObject>& Object, const TCHAR* Key)
+{
+	const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+	if (Object.IsValid() && Object->TryGetArrayField(Key, Values) && Values->Num() >= 3)
+	{
+		return FVector3f((*Values)[0]->AsNumber(), (*Values)[1]->AsNumber(), (*Values)[2]->AsNumber());
+	}
+	return FVector3f::ZeroVector;
+}
+
+/** @return The engine m vector of the source as an Unreal vector (cm, Y to the south). */
+FVector ToUnreal(const FVector3d& V, double Scale = 100.0)
+{
+	return FVector(V.X * Scale, -V.Y * Scale, V.Z * Scale);
+}
+} // namespace
+
+void USwcWaterSubsystem::LoadShore(const FString& Folder)
+{
+	const TSharedPtr<FJsonObject> Shore = ReadJson(FPaths::Combine(Folder, TEXT("shore.json")));
+	if (!Shore.IsValid())
+	{
+		UE_LOG(LogSwcWater, Log, TEXT("water: no shore.json (tools/convert-water.sh shore): no shore foam"));
+		return;
+	}
+	const TSharedPtr<FJsonObject> Material = Shore->GetObjectField(TEXT("material"));
+	const FVector3f Tint = VectorOf(Material, TEXT("tint"));
+	ShoreTint = FLinearColor(Tint.X, Tint.Y, Tint.Z, 1.0f);
+	ShoreOpacity = NumberOf(Material, TEXT("opacity"), 0.7f);
+	TMap<FString, int32> EffectIndex;
+	for (const auto& Pair : Shore->GetObjectField(TEXT("effects"))->Values)
+	{
+		TArray<FShoreSheet> Sheets;
+		for (const TSharedPtr<FJsonValue>& Value : Pair.Value->AsObject()->GetArrayField(TEXT("sheets")))
+		{
+			const TSharedPtr<FJsonObject> Info = Value->AsObject();
+			FShoreSheet Sheet;
+			Sheet.Delay = NumberOf(Info, TEXT("delay"), 0.0f);
+			Sheet.Life = NumberOf(Info, TEXT("life"), 5.0f);
+			Sheet.Offset = VectorOf(Info, TEXT("offset"));
+			Sheet.RandomOffset = VectorOf(Info, TEXT("randomOffset"));
+			Sheet.AngleZ = VectorOf(Info, TEXT("angles")).Z;
+			Sheet.Thickness = NumberOf(Info, TEXT("thickness"), 0.5f);
+			Sheet.SizeX = CurveOf(Info->GetObjectField(TEXT("sizeX")));
+			Sheet.SizeY = CurveOf(Info->GetObjectField(TEXT("sizeY")));
+			Sheet.Alpha = CurveOf(Info->GetObjectField(TEXT("alpha")));
+			for (const TSharedPtr<FJsonValue>& Key : Info->GetArrayField(TEXT("color")))
+			{
+				const TArray<TSharedPtr<FJsonValue>>& K = Key->AsArray();
+				Sheet.Color.Add(FVector4f(K[0]->AsNumber(), K[1]->AsNumber(), K[2]->AsNumber(), K[3]->AsNumber()));
+			}
+			for (const TSharedPtr<FJsonValue>& Range : Info->GetArrayField(TEXT("ranges")))
+			{
+				const TArray<TSharedPtr<FJsonValue>>& R = Range->AsArray();
+				Sheet.Ranges.Add(FVector2f(R[0]->AsNumber(), R[1]->AsNumber()));
+			}
+			Sheets.Add(MoveTemp(Sheet));
+		}
+		EffectIndex.Add(FString(Pair.Key), ShoreEffects.Add(MoveTemp(Sheets)));
+	}
+	for (const TSharedPtr<FJsonValue>& Value : Shore->GetArrayField(TEXT("emitters")))
+	{
+		const TSharedPtr<FJsonObject> Info = Value->AsObject();
+		const int32* Effect = EffectIndex.Find(Info->GetStringField(TEXT("effect")));
+		if (Effect == nullptr || !Info->GetBoolField(TEXT("visible")))
+		{
+			continue;
+		}
+		const TArray<TSharedPtr<FJsonValue>>& Rows = Info->GetArrayField(TEXT("matrix"));
+		double M[3][4];
+		for (int32 Row = 0; Row < 3; ++Row)
+		{
+			const TArray<TSharedPtr<FJsonValue>>& Cells = Rows[Row]->AsArray();
+			for (int32 Column = 0; Column < 4; ++Column)
+			{
+				M[Row][Column] = Cells[Column]->AsNumber();
+			}
+		}
+		FShoreEmitter Emitter;
+		Emitter.Effect = *Effect;
+		Emitter.AxisX = FVector3d(M[0][0], M[1][0], M[2][0]);
+		Emitter.AxisY = FVector3d(M[0][1], M[1][1], M[2][1]);
+		Emitter.AxisZ = FVector3d(M[0][2], M[1][2], M[2][2]);
+		Emitter.Place = FVector3d(M[0][3], M[1][3], M[2][3]);
+		ShoreEmitters.Add(Emitter);
+	}
+	ShoreMaterial = LoadObject<UMaterialInterface>(nullptr, ShorePath);
+	UE_LOG(LogSwcWater, Log, TEXT("water: %d shore foam emitters of %d effects%s"), ShoreEmitters.Num(), ShoreEffects.Num(),
+		ShoreMaterial ? TEXT("") : TEXT(", no material M_SwcShoreFoam (tools/import-water.sh): no shore foam"));
+}
+
+void USwcWaterSubsystem::UpdateShore(const FVector& View)
+{
+	if (ShoreMaterial == nullptr || WaterActor == nullptr)
+	{
+		return;
+	}
+	const double Seconds = GetWorld()->GetTimeSeconds();
+	const FVector3d ViewM(View.X / 100.0, -View.Y / 100.0, View.Z / 100.0);
+	for (int32 EmitterIndex = 0; EmitterIndex < ShoreEmitters.Num(); ++EmitterIndex)
+	{
+		FShoreEmitter& Emitter = ShoreEmitters[EmitterIndex];
+		const double Distance = (Emitter.Place - ViewM).Size();
+		const TArray<FShoreSheet>& Sheets = ShoreEffects[Emitter.Effect];
+		if (Emitter.FirstDecal == INDEX_NONE)
+		{
+			if (Distance > ShoreRange)
+			{
+				continue;
+			}
+			Emitter.FirstDecal = ShoreDecals.Num();
+			for (int32 S = 0; S < Sheets.Num(); ++S)
+			{
+				UDecalComponent* Decal = NewObject<UDecalComponent>(WaterActor);
+				UMaterialInstanceDynamic* Instance = UMaterialInstanceDynamic::Create(ShoreMaterial, WaterActor);
+				Instance->SetVectorParameterValue(TEXT("Tint"), ShoreTint);
+				Decal->SetDecalMaterial(Instance);
+				Decal->SetupAttachment(WaterActor->GetRootComponent());
+				Decal->SetVisibility(false);
+				Decal->RegisterComponent();
+				ShoreDecals.Add(Decal);
+				ShoreInstances.Add(Instance);
+			}
+		}
+		for (int32 S = 0; S < Sheets.Num(); ++S)
+		{
+			const FShoreSheet& Sheet = Sheets[S];
+			UDecalComponent* Decal = ShoreDecals[Emitter.FirstDecal + S];
+			UMaterialInstanceDynamic* Instance = ShoreInstances[Emitter.FirstDecal + S];
+			bool bShow = false;
+			for (const FVector2f& Range : Sheet.Ranges)
+			{
+				bShow |= Distance >= Range.X && Distance < Range.Y;
+			}
+			std::int64_t Cycle = 0;
+			const float Age = swc::water::sheet_age(Seconds, Sheet.Delay, Sheet.Life, &Cycle);
+			if (!bShow || Age < 0.0f)
+			{
+				Decal->SetVisibility(false);
+				continue;
+			}
+			const auto Random = [&](std::uint32_t Channel) { return swc::water::sheet_random(static_cast<std::uint32_t>(EmitterIndex), S, Cycle, Channel); };
+			// The sheet: the emitter frame turned by LocalInitAngles z about its z axis; it lies along x (the shore line) and runs up the
+			// beach along +y from its pivot (PivotY 1: the pivot at its edge); the sizes are radii (the half sizes of the source particles)
+			// [inference: the axes from the ground of the 178 emitters: +y is the land in 176].
+			const double A = FMath::DegreesToRadians(static_cast<double>(Sheet.AngleZ));
+			const FVector3d SheetX = Emitter.AxisX * FMath::Cos(A) + Emitter.AxisY * FMath::Sin(A);
+			const FVector3d SheetY = -Emitter.AxisX * FMath::Sin(A) + Emitter.AxisY * FMath::Cos(A);
+			const FVector3d Jitter(Sheet.RandomOffset.X * (2.0f * Random(3) - 1.0f), Sheet.RandomOffset.Y * (2.0f * Random(4) - 1.0f), 0.0);
+			const FVector3d Origin = Emitter.Place + Emitter.AxisX * (Sheet.Offset.X + Jitter.X) + Emitter.AxisY * (Sheet.Offset.Y + Jitter.Y)
+				+ Emitter.AxisZ * Sheet.Offset.Z;
+			const float HalfX = Sheet.SizeX.value(Age, Random(1));
+			const float HalfY = Sheet.SizeY.value(Age, Random(2));
+			const FVector3d Center = Origin + SheetY * HalfY;
+			// The decal projects along its x axis (down); its y and z axes are the sheet x and the sheet y (the front of the foam, the top of
+			// the texture, at the land end).
+			const FVector Down = ToUnreal(-Emitter.AxisZ, 1.0);
+			const FVector Across = ToUnreal(SheetX, 1.0);
+			Decal->SetWorldLocationAndRotation(ToUnreal(Center), FRotationMatrix::MakeFromXY(Down, Across).Rotator());
+			// The depth of the projection: the Thickness of the effect, at least 1 m to each side (the beach rises up to the end of the sheet).
+			Decal->DecalSize = FVector(FMath::Max(Sheet.Thickness, 1.0f) * 100.0, HalfX * 100.0, HalfY * 100.0);
+			Decal->MarkRenderStateDirty();
+			FVector4f Color(0.0f, 1.0f, 1.0f, 1.0f);
+			if (Sheet.Color.Num() == 1 || (Sheet.Color.Num() > 0 && Age <= Sheet.Color[0].X))
+			{
+				Color = Sheet.Color[0];
+			}
+			else if (Sheet.Color.Num() > 1)
+			{
+				Color = Sheet.Color.Last();
+				for (int32 K = 0; K + 1 < Sheet.Color.Num(); ++K)
+				{
+					if (Age <= Sheet.Color[K + 1].X)
+					{
+						const float U = (Age - Sheet.Color[K].X) / FMath::Max(Sheet.Color[K + 1].X - Sheet.Color[K].X, 1e-4f);
+						Color = FMath::Lerp(Sheet.Color[K], Sheet.Color[K + 1], U);
+						break;
+					}
+				}
+			}
+			Instance->SetVectorParameterValue(TEXT("Color"), FLinearColor(Color.Y, Color.Z, Color.W, 1.0f));
+			Instance->SetScalarParameterValue(TEXT("Opacity"), ShoreOpacity * FMath::Clamp(Sheet.Alpha.value(Age, 0.5f), 0.0f, 1.0f));
+			Decal->SetVisibility(true);
+		}
+	}
 }
 
 bool USwcWaterSubsystem::GetViewLocation(FVector& Out) const
@@ -403,11 +629,10 @@ TMap<FName, float> USwcWaterSubsystem::OceanValues(int32 Material, const TShared
 	Out.Add(TEXT("ReflectionScale"), Param(TEXT("ReflectionScale"), 0.2f));
 	Out.Add(TEXT("Specular"), Param(TEXT("Specular"), 0.42f));
 	Out.Add(TEXT("Gloss"), Param(TEXT("Gloss"), 1.0f));
-	// The sky fallback of the reflection trace (SkyCubemapParams.x) and the simple surface fog after the ocean fog pass: the research does
-	// not prove these branches for the ocean [U]; the retail swim views show the sky in the near water and only the head of the swimmer
-	// above a blue surface (AST-200 check p1h: both on). The environment cube of the material x ReflectionScale stays under the trace.
+	// The sky fallback of the reflection trace: SkyCubemapParams.x = 1 for the ocean (its render parameter +0x68 is 1); the full ocean path
+	// clears the simple surface fog (cFogColorDensity 0) (research water-uploads.md 2).
 	Out.Add(TEXT("SkyFallback"), 1.0f);
-	Out.Add(TEXT("SurfaceFog"), 1.0f);
+	Out.Add(TEXT("SurfaceFog"), 0.0f);
 	Out.Add(TEXT("CubeGain"), SourceUnit);
 	Out.Add(TEXT("FoamAmount"), Param(TEXT("FoamAmount"), 0.5f));
 	Out.Add(TEXT("FoamTilling"), Param(TEXT("FoamTilling"), 1.0f));
@@ -475,38 +700,101 @@ UMaterialInstanceDynamic* USwcWaterSubsystem::MakeMaterial(const swc::water::Bod
 	{
 		Material->SetTextureParameterValue(TEXT("SkyCube"), SkyCube);
 	}
+	Material->SetVectorParameterValue(TEXT("SunColor"), SunColor);
 	ApplyOverrides(Material);
 	SurfaceMaterials.Add(Material);
 	return Material;
 }
 
-void USwcWaterSubsystem::UpdateSkyCube()
+void USwcWaterSubsystem::UpdateSkyCube(const FVector& View)
 {
-	// The sky fallback of the reflection: the cube of the sky light of the environment (the world probe of the source, docs/ENVIRONMENT.md);
-	// the material multiplies it by the color and intensity of the sky light (View.SkyLightColor).
-	UTextureCube* Found = nullptr;
-	for (TObjectIterator<USkyLightComponent> It; It; ++It)
+	// The sky cube of the reflection ($SkyCubemap of the source: the sky rendered in six directions with the sky fog; research
+	// water-uploads.md 3): a capture of only the sky sphere of the environment (with the atmosphere, the clouds, and the fog of the scene)
+	// at the view, once in each second (a decision of the client), 128 texels, HDR.
+	const double Now = FPlatformTime::Seconds();
+	static const bool bNoCapture = FParse::Param(FCommandLine::Get(), TEXT("SwcNoSkyCapture"));
+	if (SkyCapture == nullptr && !bNoCapture)
 	{
-		if (It->GetWorld() == GetWorld() && It->IsVisible() && It->Cubemap != nullptr)
+		UStaticMeshComponent* Sphere = nullptr;
+		for (TObjectIterator<UStaticMeshComponent> It; It; ++It)
 		{
-			Found = It->Cubemap;
-			break;
+			if (It->GetWorld() == GetWorld() && It->GetName() == TEXT("SwcSkySphere"))
+			{
+				Sphere = *It;
+				break;
+			}
+		}
+		if (Sphere == nullptr)
+		{
+			return;   // the environment makes its sky later
+		}
+		UTextureRenderTargetCube* Target = NewObject<UTextureRenderTargetCube>(WaterActor);
+		Target->bHDR = true;
+		Target->Init(128, PF_FloatRGBA);
+		SkyCapture = NewObject<USceneCaptureComponentCube>(WaterActor, TEXT("SwcWaterSkyCapture"));
+		SkyCapture->TextureTarget = Target;
+		SkyCapture->bCaptureEveryFrame = false;
+		SkyCapture->bCaptureOnMovement = false;
+		SkyCapture->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
+		SkyCapture->ShowOnlyComponents.Add(Sphere);
+		// A fixed exposure: the scene color of the capture in absolute luminance (no eye adaptation of the capture view).
+		SkyCapture->ShowFlags.SetEyeAdaptation(false);
+		SkyCapture->PostProcessSettings.bOverride_AutoExposureMethod = true;
+		SkyCapture->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+		SkyCapture->PostProcessSettings.bOverride_AutoExposureBias = true;
+		SkyCapture->PostProcessSettings.AutoExposureBias = 0.0f;
+		SkyCapture->PostProcessSettings.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
+		SkyCapture->PostProcessSettings.AutoExposureApplyPhysicalCameraExposure = false;
+		SkyCapture->PostProcessBlendWeight = 1.0f;
+		SkyCapture->SetupAttachment(WaterActor->GetRootComponent());
+		SkyCapture->RegisterComponent();
+		SkyCube = Target;
+		UE_LOG(LogSwcWater, Log, TEXT("water: the sky cube of the reflection is a capture of the sky (%s), 128 texels, each 1 s"), *Sphere->GetName());
+		SurfaceMaterials.RemoveAll([](const TObjectPtr<UMaterialInstanceDynamic>& Instance) { return Instance == nullptr; });
+		for (UMaterialInstanceDynamic* Instance : SurfaceMaterials)
+		{
+			Instance->SetTextureParameterValue(TEXT("SkyCube"), SkyCube);
+		}
+		if (OceanMaterial != nullptr)
+		{
+			OceanMaterial->SetTextureParameterValue(TEXT("SkyCube"), SkyCube);
+		}
+		NextSkyCapture = 0.0;
+	}
+	if (SkyCapture != nullptr && Now >= NextSkyCapture)
+	{
+		NextSkyCapture = Now + 1.0;
+		SkyCapture->SetWorldLocation(View);
+		SkyCapture->CaptureScene();
+	}
+	// The sun color of the source for the water (the stored time-of-day RGB at the luminance of the light): the brightest visible
+	// directional light, its color x intensity / pi (Unreal luminance; the light has no atmosphere transmittance here).
+	const UDirectionalLightComponent* Main = nullptr;
+	for (TObjectIterator<UDirectionalLightComponent> It; It; ++It)
+	{
+		if (It->GetWorld() == GetWorld() && It->IsVisible() && (Main == nullptr || It->Intensity > Main->Intensity))
+		{
+			Main = *It;
 		}
 	}
-	if (Found == nullptr || Found == SkyCube)
+	const FLinearColor Sun = Main != nullptr ? Main->GetLightColor() * (Main->Intensity / UE_PI) : FLinearColor::Black;
+	const FLinearColor Value(Sun.R, Sun.G, Sun.B, Main != nullptr ? 1.0f : 0.0f);
+	if (!Value.Equals(SunColor, FMath::Max(0.005f * SunColor.GetMax(), 1e-3f)))
 	{
-		return;
-	}
-	SkyCube = Found;
-	UE_LOG(LogSwcWater, Log, TEXT("water: the sky cube of the reflection is %s"), *Found->GetName());
-	SurfaceMaterials.RemoveAll([](const TObjectPtr<UMaterialInstanceDynamic>& Instance) { return Instance == nullptr; });
-	for (UMaterialInstanceDynamic* Instance : SurfaceMaterials)
-	{
-		Instance->SetTextureParameterValue(TEXT("SkyCube"), SkyCube);
+		SunColor = Value;
+		UE_LOG(LogSwcWater, Log, TEXT("water: the sun color %.1f %.1f %.1f (%s, intensity %.1f)"), SunColor.R, SunColor.G, SunColor.B,
+			Main != nullptr ? *Main->GetName() : TEXT("no light"), Main != nullptr ? Main->Intensity : 0.0f);
+		for (UMaterialInstanceDynamic* Instance : SurfaceMaterials)
+		{
+			if (Instance != nullptr)
+			{
+				Instance->SetVectorParameterValue(TEXT("SunColor"), SunColor);
+			}
+		}
 	}
 	if (OceanMaterial != nullptr)
 	{
-		OceanMaterial->SetTextureParameterValue(TEXT("SkyCube"), SkyCube);
+		OceanMaterial->SetVectorParameterValue(TEXT("SunColor"), SunColor);
 	}
 }
 

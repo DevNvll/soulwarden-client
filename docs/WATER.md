@@ -78,21 +78,21 @@ Unreal sun E / pi (`View.DirectionalLightColor`).
 | Coordinates | A river: q = (along, across) of the mesh UV [inference: the adapter of the research], B.xy = q Tilling - f t (0.25, 0), B.zw = (2 q Tilling - f t (1, 0)) DetailTilling. A volume: the mesh UV (the world m x SurfaceUScale, SurfaceVScale). The ocean: the world m x 0.005, the detail axes swapped, max(2, DetailTilling). | V-VS, O-VS |
 | Normals | b = W(B.xy / 4) + W(B.xy); b.xy += W(B.zw).xy x DetailNormalsScale; b.xy x= NormalsScale x NormalStrength. W is still the static `oceanwaves_ddn` (the source field is generated at run time). NormalStrength 0.05 is a calibration of the client (0.15 gave sun glints that retail does not have). | V 0026-0044, O 0054-0077 |
 | Volume water term | Cfog + T (Cbehind - Cfog), T = exp(-density x the view path in the water, m), Cfog = FogColor x FogColorScale x the sun color (FogColorAffectedBySun: true). | V 0158-0166, CPU 0x5EB8818 |
-| Ocean water term | k = 1.4427 density; j = k (d.z - 1); I = (2^(j L) - 1) / j; T = 2^(-k (L + the depth of the scene point under the surface)); Cdeep I + Cshallow T sat(0.1 L) + Cbehind T, with Cdeep = FogColor x fogColorMultiplier x the sun and Cshallow = nearFogColor x the sun. Then the simple surface fog of the same fog block (SurfaceFog 1). | Ocean-fog 0013-0041 |
-| Fog colors | FogColor and nearFogColor of the data are sRGB-authored (bytes / 255): the material decodes them to linear (FogSrgb 1) [inference; better in each test view: ocean-clear water dE 15.4 against 23.3, river-highlands 24.2 against 28.0]. | test p1e |
+| Ocean water term | k = 1.4427 density; j = k (d.z - 1); I = (2^(j L) - 1) / j; T = 2^(-k (L + the depth of the scene point under the surface)); Cdeep I + Cshallow T sat(0.1 L) + Cbehind T, with Cdeep = FogColor x fogColorMultiplier x the sun and Cshallow = nearFogColor x the sun. The full ocean path clears the simple surface fog (cFogColorDensity 0: SurfaceFog 0). | Ocean-fog 0013-0041, water-uploads.md 2 |
+| Fog colors and sun | The stored float RGB of FogColor and nearFogColor, with no sRGB decode (FogSrgb 0). The sun color S: the time-of-day sun RGB as stored (the client sun light: its color x intensity / pi, `SunColor`; no transmittance of the Unreal atmosphere). | water-uploads.md 1 |
 | Reflection | A screen-space trace of the opaque scene: the reflection normal mix(up, N, 0.3) (volumes) or mix(up, N, ReflectionBumpScale) (the ocean); 64 steps in the screen with a jitter, 2000 m, the thickness min(5 m, depth / 20), 16 binary steps; no hit on the far plane or in front of the surface; the alpha min(sat((0.6 - k) / 0.25), 0.95), k = dot(abs(forward), N). The sky fallback fills 1 - alpha. The volumes: (the scene x alpha + the sky) x RealtimeReflMul. The ocean: mix(the material cube x ReflectionScale, the trace, alpha), the RGBA of the trace clamped to one source unit. No history filter yet. | V-refl, O 0142 onward |
-| Sky | The rendered sky of the screen where the reflected ray ends in the sky or leaves the screen at its top edge (LiveSky 1, a decision of the client: the source `$SkyCubemap` has an unknown content); else the cube of the sky light (the world probe) x the sky light color, with the direction above the horizon (the probe has ground under it). | research "The screen-space trace" |
+| Sky | SkyCubemapParams.x = 1 for the ocean and the volumes. The sky cube: a scene capture of only the sky (the sky sphere `SwcSkySphere` with the atmosphere, the clouds, and the fog) at the view, 128 texels, HDR, each 1 s (the capture rate is a decision of the client); the reflection direction, mip 0, gain 1. A trace coordinate outside the screen ends the trace with no hit: the sky fills it. No screen-edge fade of a hit. | water-uploads.md 3, 4 |
 | Sun | sat(N.L) x ((p0 / 2 pi + 1 / pi) mu^p0 + (p1 / 2 pi + 1 / pi) mu^p1) x Specular x the sun, p0 = 4 x 255 g, p1 = 0.5 x 255 g, g = Shininess / 255. | V 0047-0059, O 0547-0554 |
 | Fresnel | Volumes: sat(0.05 + 0.95 (1 - NoV)^5); the blend x the soft edge a x sat(zS - 0.33). The ocean: 0.065 + 0.935 (1 - NoV)^5 / (40 - 39 FresnelGloss) (0.59 at a grazing view), x a. | V 0168-0175, O 0555-0561 |
 | Soft edge | a = sat(SoftIntersectionFactor x q), q = the view-depth gap behind the surface (m); the refraction offset N.xy x RefractionBumpScale x a (an offset onto a nearer surface takes the pixel itself). | V 0121-0157 |
 
 The ocean values: the .mtl of the ocean material (Tilling 32, NormalsScale 1.5, SoftIntersectionFactor 1.2, RefractionBumpScale 0.6,
 ReflectionBumpScale 0.1, FresnelGloss 0.98, ReflectionScale 0.2, Specular 0.423, Shininess 255), the fog of the override (the
-starting beach: FogColor 3, 35, 60 / 255, multiplier 0.07, density 0.3, near color 1, 26, 30 / 255), and the environment cube
-`environmentcube_worldocean_cm` (`T_SwcWater_OceanCube`, x 10,000 cd/m2). The sky fallback and the surface fog of the ocean are not
-proved by the research [U]. The retail swim views show the sky in the near water and only the head of the swimmer above a blue
-surface; with both on, the legs of the client swimmer fade into the water (test p1h). Without the surface fog the body under the
-surface keeps about 30 % of its light and looks as if it is over the water.
+starting beach: FogColor 0.0118, 0.137, 0.235, multiplier 0.07, density 0.3, near color 0.0039, 0.102, 0.118), and the environment
+cube `environmentcube_worldocean_cm` (`T_SwcWater_OceanCube`, x 10,000 cd/m2) under the trace. The rules of the sky, the fog colors,
+and the surface fog come from the second study `~/Games/soulwarden-client/research/water-uploads.md` (2026-10-20); they replace the
+choices by the pictures of part 1 (FogSrgb 1, SurfaceFog 1, the screen sky sample). Not done yet: the view-direction bend of the trace
+and the river reflection history (0.75 current + 0.25 previous).
 
 ### The check of the reflection and the color (2026-10-20)
 
@@ -115,11 +115,57 @@ near water, and the swimmer is under the surface. Open:
 
 - The scene light: the whole client picture is lighter than retail (the E5 contrast work, paused): the river beds and the sky in the
   reflections are too light. The storm coast has a black sky in the client (an environment fault); the ocean reflects it.
-- The fog colors (sRGB or linear), the ocean sky fallback, and the ocean surface fog are choices by the pictures, not by a traced
-  rule (a brief for a static study is in the report of AST-200).
-- The reflection trace has smears at the sides of the screen where a ray runs a long way in the screen; no history filter.
+- Part 1 had choices by the pictures (sRGB fog colors, the ocean surface fog, the screen sky); part 2 replaces them by the rules of
+  water-uploads.md. The part-1 trace also had blocks and bars at the sides of the screen: they came from the world probe at mip 0
+  in the sky fallback (a probe of a forest place with its sun), not from the trace hits; the captured sky cube removes them.
 - The normal field of the source (generated at run time), the ocean displacement and crest foam, the caustics, the river edge fades.
 - The swim pose: the client swimmer is upright (the feet 1.4 m deep); the retail swimmer lies near the surface.
+
+### The rules of the second study and the shore foam (part 2, 2026-10-20)
+
+The same views with the rules of water-uploads.md (evidence `part2-set2`, `part2-set3`, `part2-water-part.txt`,
+`part2-side-sheet.png`):
+
+| View | Water dE, part 1 | Water dE, part 2 | Water L* (retail) | Saturation (retail) |
+| --- | --- | --- | --- | --- |
+| river-forest-noon | 16.8 | 21.4 | 52.8 (28.9) | 0.302 (0.369) |
+| river-highlands-noon | 20.8 | 25.1 | 48.6 (22.5) | 0.345 (0.334) |
+| ocean-clear-noon | 18.1 | 30.2 | 66.5 (36.7) | 0.243 (0.430) |
+| ocean-storm-noon | 10.3 | 1.1 | 27.5 (28.6) | 0.383 (0.375) |
+| swim-idle | 8.0 | 26.9 | 51.9 (24.4) | 0.401 (0.788) |
+| swim-nav | 7.1 | 23.8 | 47.7 (21.7) | 0.454 (0.741) |
+| The mean of the 6 views | 13.5 | 21.4 | | |
+
+The source rules make the water lighter than the picture choices of part 1: the reflected sky of the client (the capture of its sky)
+and the scene light are lighter than retail (the E5 contrast work), and with one water fog the body under the surface keeps more of
+its light. The storm coast now agrees (dE 1.1). No block and no bar is left in the six views.
+
+The shore foam (research water-shader.md "Shore particles and decals"; `tools/convert-water.sh shore`, SWC_CONTENT/water/shore.json):
+
+- The emitters: the placed particle emitters (component 65bc817a, the effect name crc:56249fe1 / crc:701787f5) of
+  Env_Island.Water.ShoreFoamWaveDecal, _wide, and _narrow: 178 emitters in r_+03_+01, r_+04_+00, and r_+04_+01 (95 in r_+04_+01, as
+  in the research). Their local +y points to the land (the ground rises along +y at 176 of the 178).
+- The sheets: the root and the children with Facing "Decal" of libs/particles/env_island.xml: the spawn delay, the life 5 s
+  (Count 1, Continuous: one sheet at a time), LocalSpawnPosOffset and its random part, LocalInitAngles z, the SizeX, SizeY, Alpha, and
+  Color curves by the particle age, and the level of detail (the base particle under the first LodParticle distance, then each level:
+  for example ShoreFoamWaveDecal 0 to 60 m, its random sheet 0 to 30 m and 60 to 100 m). The splash children are not used.
+- The curves: a key has t, v, d (the slope to its right), s (the slope to its left); a cubic Hermite curve between keys, 0 for a slope
+  that is not written [inference: the spline evaluator of the engine]; the value = base x (1 + Random x (2 r - 1)) x the curve, r new for
+  each sheet cycle (`swc::water::Curve`, `sheet_age`, `sheet_random`; tests in `tools/test-water.sh`).
+- The placement [inference]: the sheet lies along the local x (the shore line), turned by its z angle; it runs up the beach along +y
+  from its pivot (PivotY 1), with the sizes as half sizes; the front of the foam (the texture top) is at the land end.
+- The decal `M_SwcShoreFoam` (water_on_shore_decal.mtl): the diffuse water_o_ondeck001 with its alpha x Diffuse (0.578, 0.784, 1) x
+  the age color; the opacity the texture alpha x DecalDiffuseOpacity 0.7 x the age alpha; the normal water_o_onshore_001; Specular
+  0.0212. The projection depth: the Thickness, at least 1 m to each side. The decals are made for the emitters in 120 m.
+- The foam band of the water shader (part 1) stays: with the ocean values its strength is about 4 % in the first 0.42 m of the depth
+  gap, so the visible beach foam comes from the decals.
+
+Videos (before the rules of the second study; the foam and the swim are the same): `evidence/AST-200/ast200-shore.mp4` (the shore line
+of the starting beach with the foam sheets in their 5 s cycles; the camera faces along the beach) and `ast200-swim.mp4` (the swim in
+the bay: the cliff reflections, the waves, the swimmer under the surface). Drives: `tests/drive/ast200-shore*.txt`, `ast200-swim*.txt`.
+
+Open: the splash children of the shore effects, the exact particle spline and random rules, the older `water_on_shore` particle
+effect of the dungeon volumes, the ocean crest foam (the displacement), the caustics, the trace bend and the river reflection history.
 
 ## The depth classes
 

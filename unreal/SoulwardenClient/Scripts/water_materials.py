@@ -43,7 +43,7 @@ WATER = "/SwcGameContent/Water"
 TEXTURES = WATER + "/Textures"
 PARENT = "M_SwcWaterSource"
 # The rule of the parent: a new value makes it again.
-PARENT_VERSION = "8"
+PARENT_VERSION = "15"
 
 assets = unreal.EditorAssetLibrary
 editing = unreal.MaterialEditingLibrary
@@ -129,8 +129,8 @@ WATER_HLSL = """const float UNIT = 10000.0;   // cd/m2 of one radiance unit of t
 const float PI_ = 3.14159265;
 float3 up = float3(0.0, 0.0, 1.0);
 bool ocean = Kind > 0.5;
-// FogSrgb 1: the fog colors of the data are sRGB-authored (bytes / 255) and decode to linear [inference: the setter of the component
-// is not traced; research water-shader.md "The ocean water-fog pass"].
+// FogSrgb 0 (the rule): the fog colors are the stored float RGB of the data, with no sRGB decode (research water-uploads.md 1); 1 is a
+// test value only.
 float3 FogLin = FogSrgb > 0.5 ? (FogColor <= 0.04045 ? FogColor / 12.92 : pow((FogColor + 0.055) / 1.055, 2.4)) : FogColor;
 float3 NearLin = FogSrgb > 0.5 ? (NearFogColor <= 0.04045 ? NearFogColor / 12.92 : pow((NearFogColor + 0.055) / 1.055, 2.4)) : NearFogColor;
 float3 V = Parameters.CameraVector;
@@ -140,7 +140,9 @@ float zS = Parameters.ScreenPosition.w;
 float zB = CalcSceneDepth(uv) + 0.0 * SceneDepthIn;
 float q = max(zB - zS, 0.0) * 0.01;            // the view-depth gap behind the surface, m
 float a = saturate(Soft * q);                  // SoftIntersectionFactor (per m)
-float3 Sun = View.DirectionalLightColor.rgb;    // the sun color of the source x UNIT
+// The sun color of the source x UNIT: the time-of-day sun RGB as stored, at the luminance of the sun light (SunColor of the client:
+// the light color x its intensity / pi, without the transmittance of the Unreal atmosphere; research water-uploads.md 1).
+float3 Sun = SunColor.a > 0.5 ? clamp(SunColor.rgb, 0.0, 1.0e5) : View.DirectionalLightColor.rgb;
 float3 Ls = normalize(View.DirectionalLightDirection.xyz);
 float sunUnit = dot(Sun, float3(0.2126, 0.7152, 0.0722)) / UNIT;
 
@@ -235,7 +237,8 @@ if (tHit >= 0.0)
         float rayDepth = 1.0 / lerp(iw0, iw1, mid);
         if (rayDepth > CalcSceneDepth(vp * toBuffer + rectMin)) { hi = mid; } else { lo = mid; }
     }
-    float2 hitUV = lerp(v0, v1, hi) * toBuffer + rectMin;
+    float2 hitV = lerp(v0, v1, hi);
+    float2 hitUV = hitV * toBuffer + rectMin;
     hitDepth = CalcSceneDepth(hitUV);
     // A hit on the far plane (the sky) or in front of the surface (a body in front of the water) is no hit.
     if (hitDepth < 1.0e7 && hitDepth >= zS - 1.0)
@@ -245,39 +248,31 @@ if (tHit >= 0.0)
         ssr = float4(DecodeSceneColorForMaterialNode(hitUV) * alpha, alpha);
     }
 }
+// The cube under the trace: the ocean its material cube x ReflectionScale (mip 6 - 6 g, g = gloss x max(1 - distance / 250, 0.5)); the
+// volumes the sky cube. The sky fallback (SkyCubemapParams.x 1 for the ocean and the volumes, research water-uploads.md 2 and 3): the
+// sky cube of the client (a capture of only the sky in six directions: the sky sphere, the atmosphere, the clouds, the fog), the
+// reflection direction, mip 0, x SkyGain (1). A trace that leaves the screen fails and gets the sky.
+float camDist = zS * 0.01 / cosV;   // the camera distance, m
+float gCube = MaterialGloss * max(1.0 - camDist / 250.0, 0.5);
+float3 SkyRadiance = TextureCubeSampleLevel(SkyCube, SkyCubeSampler, R, 0.0).rgb;
+// A texel that is not finite (the exponent bits all set; a bit test, safe with fast math) gives 0.
+bool skyBad = any((asuint(SkyRadiance) & 0x7f800000u) == 0x7f800000u);
+SkyRadiance = skyBad ? float3(0.0, 0.0, 0.0) : SkyRadiance * SkyGain;
+float3 Cenv = ocean ? TextureCubeSampleLevel(OceanCube, OceanCubeSampler, R, 6.0 - 6.0 * gCube).rgb * ReflScale * CubeGain : SkyRadiance;
 if (SkyFallback > 0.5)
 {
-    // The sky: the rendered sky of the screen where the reflected direction is in the screen (LiveSky 1, a decision of the client:
-    // $SkyCubemap of the source is a sky cube of unknown content), else the cube of the sky light (the world probe).
-    // The world probe has the ground of its place under its horizon: a sky direction stays above it.
-    float3 Rsky = normalize(float3(R.xy, max(R.z, 0.15)));
-    float3 sky = TextureCubeSampleLevel(SkyCube, SkyCubeSampler, Rsky, 0.0).rgb * View.SkyLightColor.rgb * SkyGain;
-    // The end of the ray in the screen: the end point, or the point where the ray leaves the screen.
-    float2 dv = v1 - v0;
-    float2 tx = (dv > 0.0 ? (1.0 - v0) : -v0) / (abs(dv) > 1e-6 ? dv : 1e-6);
-    float tEnd = min(1.0, min(tx.x, tx.y));
-    float2 vEnd = lerp(v0, v1, saturate(tEnd * 0.995));
-    float2 skyUV = vEnd * toBuffer + rectMin;
-    // Only an end in the screen or at its top edge (a side edge gives one column of pixels to all the rays of that side).
-    bool topExit = tEnd >= 1.0 || (tx.y <= tx.x && dv.y < 0.0);
-    if (LiveSky > 0.5 && topExit && all(vEnd >= 0.0) && all(vEnd <= 1.0) && CalcSceneDepth(skyUV) >= 1.0e7)
-    {
-        sky = DecodeSceneColorForMaterialNode(skyUV) * SkyGain;
-    }
+    float3 sky = SkyRadiance;
     ssr = float4(ssr.rgb + sky * (1.0 - ssr.a), 1.0);
 }
 float3 Crefl;
 if (!ocean)
 {
     // Cur = mix(Ccube x EnvCubeReflMul, ssr x RealtimeReflMul, a); the box cube of the material is under the sky fallback.
-    float3 Ccube = TextureCubeSampleLevel(SkyCube, SkyCubeSampler, R, 6.0 - 6.0 * MaterialGloss).rgb * View.SkyLightColor.rgb * Spec;
-    Crefl = lerp(Ccube * CubeMul, ssr.rgb * ReflMul, saturate(ssr.a));
+    Crefl = lerp(Cenv * Spec * CubeMul, ssr.rgb * ReflMul, saturate(ssr.a));
 }
 else
 {
-    float dist = zS * 0.01 / cosV;   // the camera distance, m
-    float g = MaterialGloss * max(1.0 - dist / 250.0, 0.5);
-    float3 Ccube = TextureCubeSampleLevel(OceanCube, OceanCubeSampler, R, 6.0 - 6.0 * g).rgb * ReflScale * CubeGain;
+    float3 Ccube = Cenv;
     float4 r = saturate(ssr / float4(UNIT.xxx, 1.0)) * float4(UNIT.xxx, 1.0);   // the source clamps the RGBA to 0..1
     Crefl = dot(V, N) > 0.0 ? lerp(Ccube, r.rgb, r.a) : float3(0.0, 0.0, 0.0);
 }
@@ -331,13 +326,17 @@ if (Debug > 0.5 && Debug < 1.5) { C = float3(a, s, saturate(f * 4.0)) * white; }
 if (Debug > 1.5 && Debug < 2.5) { C = Crefl + Csun; }
 if (Debug > 2.5 && Debug < 3.5) { C = Cw; }
 if (Debug > 4.5 && Debug < 5.5) { C = float3(Tw, saturate(Lw / 20.0), saturate(q / 5.0)) * white; }
-if (Debug > 5.5) { C = Cb; }
+if (Debug > 5.5 && Debug < 6.5) { C = Cb; }
+// 7: the sky cube in the reflection direction, log10 of its luminance / 8 (magenta: not a finite value).
+float skyLum = dot(SkyRadiance, float3(0.2126, 0.7152, 0.0722));
+if (Debug > 6.5) { C = skyBad ? float3(2000.0, 0.0, 2000.0) : saturate(log10(max(skyLum, 1e-6)) / 8.0).xxx * 2000.0; }
 if (Debug > 3.5 && Debug < 4.5) { C = float3(tHit >= 0.0 ? 1.0 : 0.0, ssr.a, saturate(hitDepth / 10000.0)) * white; }
-return C;"""
+// A value that is not finite must not reach the temporal history of the frame (it stays there): 0.
+return any((asuint(C) & 0x7f800000u) == 0x7f800000u) ? float3(0.0, 0.0, 0.0) : min(C, 6.0e4);"""
 WATER_INPUTS = ["Nts", "FoamUV", "Time", "FoamData", "Gloss", "OceanCube", "SkyCube", "SceneColorIn", "SceneDepthIn", "Kind", "FogColor",
                 "NearFogColor", "FogScale", "Density", "SunAffected", "Soft", "RefrBump", "ReflBump", "FresnelGloss", "ReflScale", "ReflMul",
                 "CubeMul", "Spec", "MaterialGloss", "SkyFallback", "SkyGain", "CubeGain", "FoamAmount", "FoamTilling", "FoamSoft",
-                "FoamCrest", "FoamTransition", "WindDirection", "WaveSpeed", "WindScale", "Debug", "FogSrgb", "LiveSky", "SurfaceFog"]
+                "FoamCrest", "FoamTransition", "WindDirection", "WaveSpeed", "WindScale", "Debug", "FogSrgb", "SurfaceFog", "SunColor"]
 # The parameters of the instances (name: the default; the client sets the values of the data). Each pin of WATER_HLSL that has a
 # parameter of another name maps here.
 PIN_PARAMETER = {"Soft": "SoftIntersectionFactor", "RefrBump": "RefractionBumpScale", "ReflBump": "ReflectionBumpScale",
@@ -350,7 +349,7 @@ SCALARS = [("Kind", 0.0), ("UseMeshUV", 0.0), ("UVScale", 0.1), ("Tilling", 1.0)
            ("SoftIntersectionFactor", 1.0), ("RefractionBumpScale", 0.1), ("ReflectionBumpScale", 0.1), ("FresnelGloss", 0.98),
            ("ReflectionScale", 0.2), ("RealtimeReflMul", 0.9), ("EnvCubeReflMul", 1.5), ("Specular", 0.0497), ("Gloss", 1.0),
            ("SkyFallback", 1.0), ("SkyGain", 1.0), ("CubeGain", 10000.0), ("FoamAmount", 0.0), ("FoamTilling", 1.0),
-           ("FoamSoftIntersectionFactor", 1.0), ("FoamCrestAmount", 0.0), ("FoamTransitionSpeed", 5.0), ("Debug", 0.0), ("FogSrgb", 1.0), ("LiveSky", 1.0), ("SurfaceFog", 0.0)]
+           ("FoamSoftIntersectionFactor", 1.0), ("FoamCrestAmount", 0.0), ("FoamTransitionSpeed", 5.0), ("Debug", 0.0), ("FogSrgb", 0.0), ("SurfaceFog", 0.0)]
 
 
 def make_parent(textures):
@@ -417,8 +416,10 @@ def make_parent(textures):
     connect(scene_depth, "", water, "SceneDepthIn")
     connect(fog, "", water, "FogColor")
     connect(near, "", water, "NearFogColor")
+    sun = sm.vector(material, "SunColor", (0.0, 0.0, 0.0, 0.0), -2200, 1400)
+    connect(sun, "RGBA", water, "SunColor")
     for pin in WATER_INPUTS[9:]:
-        if pin in ("FogColor", "NearFogColor"):
+        if pin in ("FogColor", "NearFogColor", "SunColor"):
             continue
         connect(p[PIN_PARAMETER.get(pin, pin)], "", water, pin)
     editing.connect_material_property(water, "", MP.MP_EMISSIVE_COLOR)
@@ -431,6 +432,56 @@ def make_parent(textures):
     report["material"] = True
 
 
+SHORE = "M_SwcShoreFoam"
+SHORE_VERSION = "1"
+
+
+def make_shore(textures):
+    """M_SwcShoreFoam: the decal of the shore foam sheets (materials/climax/vfx/water_on_shore_decal.mtl, Shader Illum with DECAL and
+    NORMAL_MAP: the diffuse water_o_ondeck001 with its alpha x Diffuse 0.578, 0.784, 1 (Tint), the normal water_o_onshore_001,
+    DecalDiffuseOpacity 0.7, Specular 0.0212, Shininess 255). The client sets for each sheet the color and the opacity of its particle
+    age (Color, Opacity = 0.7 x the Alpha curve; Water/SwcWaterSubsystem UpdateShore). The texture top (v 0, the front of the foam)
+    is at the land end of the sheet: the decal z axis is the sheet y."""
+    path = f"{WATER}/{SHORE}"
+    if assets.does_asset_exist(path) and state.get("shore") == SHORE_VERSION:
+        return
+    if assets.does_asset_exist(path):
+        assets.delete_asset(path)
+    material = tools.create_asset(SHORE, WATER, unreal.Material, unreal.MaterialFactoryNew())
+    material.set_editor_property("material_domain", unreal.MaterialDomain.MD_DEFERRED_DECAL)
+    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    tint = sm.vector(material, "Tint", (0.57758057, 0.78353792, 1.0, 1.0), -900, -300)
+    color = sm.vector(material, "Color", (0.88, 0.886, 0.886, 1.0), -900, -200)
+    opacity = sm.scalar(material, "Opacity", 0.7, -900, 400)
+    flip = sm.scalar(material, "FlipV", 0.0, -1300, 0)
+    coordinate = sm.node(material, unreal.MaterialExpressionTextureCoordinate, -1300, -100)
+    uv = sm.custom(material, "return float2(UV.x, lerp(UV.y, 1.0 - UV.y, FlipV));", unreal.CustomMaterialOutputType.CMOT_FLOAT2, ["UV", "FlipV"], -1100, -50)
+    connect(coordinate, "", uv, "UV")
+    connect(flip, "", uv, "FlipV")
+    diffuse = sm.sampler(material, "Diffuse", ST.SAMPLERTYPE_COLOR, textures["shoreFoam"], -900, 0)
+    normal = sm.sampler(material, "Normal", ST.SAMPLERTYPE_NORMAL, textures["shoreNormal"], -900, 250)
+    connect(uv, "", diffuse, "UVs")
+    connect(uv, "", normal, "UVs")
+    base = sm.custom(material, "return D.rgb * Tint.rgb * Color.rgb;", unreal.CustomMaterialOutputType.CMOT_FLOAT3, ["D", "Tint", "Color"], -500, -150)
+    connect(diffuse, "RGBA", base, "D")
+    connect(tint, "", base, "Tint")
+    connect(color, "", base, "Color")
+    alpha = sm.custom(material, "return saturate(D.a * Opacity);", unreal.CustomMaterialOutputType.CMOT_FLOAT1, ["D", "Opacity"], -500, 300)
+    connect(diffuse, "RGBA", alpha, "D")
+    connect(opacity, "", alpha, "Opacity")
+    editing.connect_material_property(base, "", MP.MP_BASE_COLOR)
+    editing.connect_material_property(alpha, "", MP.MP_OPACITY)
+    editing.connect_material_property(normal, "RGB", MP.MP_NORMAL)
+    specular = sm.scalar(material, "Specular", 0.021219011 / 0.08, -500, 500)
+    roughness = sm.scalar(material, "Roughness", 0.1, -500, 560)
+    editing.connect_material_property(specular, "", MP.MP_SPECULAR)
+    editing.connect_material_property(roughness, "", MP.MP_ROUGHNESS)
+    editing.recompile_material(material)
+    assets.save_loaded_asset(material)
+    state["shore"] = SHORE_VERSION
+    report["shore"] = True
+
+
 try:
     textures = {role: import_texture(role, record) for role, record in index["textures"].items()}
     textures.update({role: import_texture(role, record) for role, record in index.get("sourceTextures", {}).items()})
@@ -438,6 +489,8 @@ try:
     if missing:
         raise RuntimeError(f"no source textures {missing} in water.json: run tools/convert-water.sh source-textures")
     make_parent(textures)
+    if "shoreFoam" in textures and "shoreNormal" in textures:
+        make_shore(textures)
 except Exception as error:   # the report has the fault; the commandlet ends
     report["failed"].append(str(error))
 with open(state_path, "w") as handle:

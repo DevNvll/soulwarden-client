@@ -94,6 +94,40 @@ DepthClass depth_class(const std::optional<Sample>& water, float feetZ, float* d
  */
 std::optional<Sample> with_ocean(const std::optional<Sample>& leaf, float oceanLevel);
 
+/**
+ * A particle parameter of the source library by the particle age (the particle libraries, libs/particles: "8.5,Random=0.2,ParticleAge=(...)"; water.py
+ * parse_curve): the base value, the random part, and the keys (t, v, the in slope s and the out slope d when they are written:
+ * the Alpha of ShoreFoamWaveDecal rises 0 to 1 in 0.23 with d = 4.32 at its first key, its SizeY falls with s = -0.345 at its last).
+ * The value is a cubic Hermite curve between two keys with the out slope of the first and the in slope of the second; a slope that
+ * is not written is 0 [inference: the spline evaluator of the engine is not known; research water-shader.md U]. Before the first key
+ * and after the last key the value is the value of that key; no key: 1.
+ */
+struct CurveKey {
+    float t{0.0F};
+    float v{0.0F};
+    float in{0.0F};
+    float out{0.0F};
+};
+struct Curve {
+    float base{1.0F};
+    float random{0.0F};
+    std::vector<CurveKey> keys;
+    /** @return The curve value at the age (0 to 1), not times the base. */
+    [[nodiscard]] float at(float age) const;
+    /** @return base x (1 + random x (2 r - 1)) x at(age); r in 0..1 is the random value of the particle. */
+    [[nodiscard]] float value(float age, float r) const;
+};
+
+/**
+ * The age of a continuous emitter with one particle (Count 1, Continuous): a particle starts at SpawnDelay and lives ParticleLifeTime
+ * seconds, the next one starts when it dies. @return The age (0 to 1) at the time `seconds` and the number of the particle in
+ * `cycle` (for its random values), or -1 before the delay.
+ */
+float sheet_age(double seconds, float delay, float life, std::int64_t* cycle = nullptr);
+
+/** @return A random value in 0..1 for a particle (an integer hash of the emitter, the sheet, and the cycle). */
+float sheet_random(std::uint32_t emitter, std::uint32_t sheet, std::int64_t cycle, std::uint32_t channel);
+
 /** @return The region (x, y numbers) of a name r_+X_+Y, or none. */
 std::optional<std::pair<int, int>> region_of(const std::string& name);
 

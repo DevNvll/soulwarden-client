@@ -159,6 +159,30 @@ int main(int argc, char** argv)
 		check(swc::water::with_ocean(river, 40.0F)->surface == 123.25F, "a leaf with water keeps its surface");
 	}
 	check(!swc::water::region_of("x") && swc::water::region_of("r_+04_+02") == std::pair<int, int>{4, 2}, "the region of a name");
+	std::printf("the shore foam sheets (the particle curves of env_island.xml)\n");
+	{
+		// The Alpha of Water.ShoreFoamWaveDecal: (d=4.32,s=4.32,flags=9; t=0.23,v=1; t=0.67,v=1; t=1,s=-2.97).
+		swc::water::Curve alpha;
+		alpha.keys = {{0.0F, 0.0F, 4.3220334F, 4.3220334F}, {0.23F, 1.0F, 0.0F, 0.0F}, {0.67F, 1.0F, 0.0F, 0.0F}, {1.0F, 0.0F, -2.9651165F, 0.0F}};
+		check(alpha.at(0.0F) == 0.0F && alpha.at(0.23F) == 1.0F && alpha.at(0.5F) == 1.0F && std::fabs(alpha.at(1.0F)) < 1e-6F,
+			"the alpha curve: 0 at the start, 1 from 0.23 to 0.67, 0 at the end");
+		check(alpha.at(0.1F) > 0.3F && alpha.at(0.1F) < 0.9F && alpha.at(0.85F) > 0.2F && alpha.at(0.85F) < 0.9F, "the alpha curve rises and falls between its keys");
+		// The SizeY of the sheet: 6, Random=0.2, (v=0.698, d=0.604; t=0.604, v=1; t=1, v=0.827, s=-0.345).
+		// A key: d is the slope to its right (out), s the slope to its left (in).
+		swc::water::Curve size{6.0F, 0.2F, {{0.0F, 0.698F, 0.0F, 0.60392153F}, {0.604F, 1.0F, 0.0F, 0.0F}, {1.0F, 0.827F, -0.3450979F, 0.0F}}};
+		check(size.at(0.3F) > 0.698F && size.at(0.3F) < 1.0F && size.at(0.8F) < 1.0F && size.at(0.8F) > 0.827F, "the size grows to 1 and goes back");
+		check(std::fabs(size.value(0.604F, 0.5F) - 6.0F) < 1e-5F && std::fabs(size.value(0.0F, 1.0F) - 6.0F * 1.2F * 0.698F) < 1e-5F,
+			"a size: the base x (1 + random x (2 r - 1)) x the curve");
+		swc::water::Curve none;
+		check(none.at(0.4F) == 1.0F, "no key: 1");
+		std::int64_t cycle = -1;
+		check(swc::water::sheet_age(1.0, 1.5F, 5.0F) < 0.0F && std::fabs(swc::water::sheet_age(4.0, 1.5F, 5.0F, &cycle) - 0.5F) < 1e-6F && cycle == 0
+				&& std::fabs(swc::water::sheet_age(9.0, 1.5F, 5.0F, &cycle) - 0.5F) < 1e-6F && cycle == 1,
+			"the age of a continuous sheet: none before its delay, then 5 s cycles");
+		const float r0 = swc::water::sheet_random(3, 1, 7, 0);
+		check(r0 >= 0.0F && r0 < 1.0F && r0 == swc::water::sheet_random(3, 1, 7, 0) && r0 != swc::water::sheet_random(3, 1, 8, 0),
+			"the random value of a particle: 0 to 1, the same for the same particle, new for the next cycle");
+	}
 	std::printf("%d checks, %d failed\n", g_checks, g_failures);
 	return g_failures == 0 ? 0 : 1;
 }

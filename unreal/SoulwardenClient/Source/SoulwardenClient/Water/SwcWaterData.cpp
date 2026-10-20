@@ -1,5 +1,6 @@
 #include "Water/SwcWaterData.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -192,6 +193,61 @@ std::optional<std::pair<int, int>> region_of(const std::string& name)
         return std::nullopt;
     }
     return std::pair<int, int>{x, y};
+}
+
+float Curve::at(float age) const
+{
+    if (keys.empty()) {
+        return 1.0F;
+    }
+    if (age <= keys.front().t) {
+        return keys.front().v;
+    }
+    for (std::size_t i = 0; i + 1 < keys.size(); ++i) {
+        const CurveKey& a = keys[i];
+        const CurveKey& b = keys[i + 1];
+        if (age <= b.t) {
+            const float span = b.t - a.t;
+            if (span <= 0.0F) {
+                return b.v;
+            }
+            const float u = (age - a.t) / span;
+            const float u2 = u * u;
+            const float u3 = u2 * u;
+            return (2.0F * u3 - 3.0F * u2 + 1.0F) * a.v + (u3 - 2.0F * u2 + u) * span * a.out + (-2.0F * u3 + 3.0F * u2) * b.v
+                + (u3 - u2) * span * b.in;
+        }
+    }
+    return keys.back().v;
+}
+
+float Curve::value(float age, float r) const
+{
+    return base * (1.0F + random * (2.0F * r - 1.0F)) * at(age);
+}
+
+float sheet_age(double seconds, float delay, float life, std::int64_t* cycle)
+{
+    if (life <= 0.0F || seconds < delay) {
+        return -1.0F;
+    }
+    const double t = (seconds - delay) / life;
+    const double whole = std::floor(t);
+    if (cycle != nullptr) {
+        *cycle = static_cast<std::int64_t>(whole);
+    }
+    return static_cast<float>(t - whole);
+}
+
+float sheet_random(std::uint32_t emitter, std::uint32_t sheet, std::int64_t cycle, std::uint32_t channel)
+{
+    std::uint64_t h = 1469598103934665603ULL;
+    for (const std::uint64_t part : {static_cast<std::uint64_t>(emitter), static_cast<std::uint64_t>(sheet), static_cast<std::uint64_t>(cycle),
+             static_cast<std::uint64_t>(channel)}) {
+        h = (h ^ part) * 1099511628211ULL;
+        h ^= h >> 29;
+    }
+    return static_cast<float>((h >> 40) & 0xFFFFFFULL) / static_cast<float>(0x1000000);
 }
 
 } // namespace swc::water

@@ -1,0 +1,5 @@
+# The routes of the swim video of AST-200 (tests/drive/ast200-swim.txt): the creatures ignore the character, the travel to the place of the
+# matched view, the world time 12:00. Times on the clock of the drive script.
+0.5 ignore on
+1.0 travel 10087.39 2291.98 38.6 auto
+2.0 world-time 12:00

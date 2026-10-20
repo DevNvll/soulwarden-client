@@ -1,0 +1,10 @@
+# The shore foam video of AST-200 (docs/WATER.md), with the routes of tests/drive/ast200-shore-routes.txt (the travel and the hour 12:00; the drive starts after the loading screen of the travel): the camera still for
+# 14 s at the place of the matched view ocean-clear-noon (set2-water: the east beach of the starting beach; the camera at heading 90 and
+# 5 degrees down), over the shore foam sheets of the emitters Env_Island.Water.ShoreFoamWaveDecal* (5 s cycles).
+# SWC_STAGE=AST-200 \
+#   tools/creature-check.sh ast200-shore 46 tests/drive/ast200-shore-routes.txt tests/drive/ast200-shore.txt
+25.0 turn 90
+26.0 turn 0
+26.2 pitch -10
+26.7 pitch 0
+42.0 tick

@@ -1,0 +1,10 @@
+# The swim video of AST-200 (docs/WATER.md), with the routes of tests/drive/ast200-swim-routes.txt (the travel and the hour 12:00; the drive starts after the loading screen of the travel): the camera still for 14 s
+# at the place of the swim view swim-idle (set3-swim: the swimmer at 38.6 m in the bay of the starting beach; heading 0, 10 degrees down),
+# then a swim forward for 4 s: the waves, the reflections of the cliffs, the swimmer under the surface.
+# SWC_STAGE=AST-200 \
+#   tools/creature-check.sh ast200-swim 50 tests/drive/ast200-swim-routes.txt tests/drive/ast200-swim.txt
+26.2 pitch -10
+27.2 pitch 0
+40.0 move 1 0
+44.0 move 0 0
+46.0 tick

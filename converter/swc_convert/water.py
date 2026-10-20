@@ -343,7 +343,10 @@ TEXTURES = {"waves": ("engineassets/textures/oceanwaves_ddn.dds", "normal"),
 # has sRGBLookup=false; the import "data": linear RGBA, the value in R), the gloss map of the ocean (the same), and the environment cube of the clear ocean material (the Radiance
 # picture of mip 0, long-lat, in the units of the source, as the world probes of environment.py).
 SOURCE_TEXTURES = {"foamData": ("engineassets/shading/waterfoam.dds", "data"),
-                   "gloss": ("engineassets/textures/water_gloss.dds", "data")}
+                   "gloss": ("engineassets/textures/water_gloss.dds", "data"),
+                   # The shore foam decals (materials/climax/vfx/water_on_shore_decal.mtl: Diffuse with the alpha, Bumpmap).
+                   "shoreFoam": ("textures/climax/vfx/water_o_ondeck001_1x1.dds", "srgb"),
+                   "shoreNormal": ("textures/climax/vfx/water_o_onshore_001_1x1_ddn.dds", "normal")}
 OCEAN_CUBE = "textures/cubemaps/newworld_vitaeeterna/environmentcube_worldocean_cm.dds"
 
 
@@ -405,6 +408,189 @@ def source_textures(names: list[str]) -> dict:
     temporary.write_text(json.dumps(index, indent=1))
     temporary.replace(out / "water.json")
     return {role: {k: v for k, v in record.items() if k in ("file", "size", "faceMeans")} for role, record in index["sourceTextures"].items()}
+
+
+# The shore foam of the beaches (AST-200, research water-shader.md "Shore particles and decals"): the placed particle emitters
+# (ParticleComponent, the effect name in crc:56249fe1 / crc:701787f5) of the effects Env_Island.Water.ShoreFoamWaveDecal, _wide, and
+# _narrow, and the decal sheets of these effects in the particle library (libs/particles/env_island.xml: the root and the children
+# with Facing="Decal", their spawn settings, the curves by the particle age, and the level of detail by distance). The splash
+# children (Facing "Camera", the splash bits) are not used yet.
+PARTICLE_COMPONENT = bytes.fromhex("65bc817aabf6440fad4f581c40f92795")
+SHORE_MARK = b"ShoreFoamWaveDecal"
+SHORE_LIBRARY = "libs/particles/env_island.xml"
+
+
+def shore_records(data: bytes) -> list[dict]:
+    """@return The entities of a slice with a shore foam emitter (the record form of environment.entity_records, kind "shore")."""
+    from . import environment as E
+    if SHORE_MARK not in data:
+        return []
+    out = []
+    for root in source.parse(data):
+        for entity in source.walk(root):
+            components = entity.child(E.COMPONENTS)
+            if components is None or any(c.child(E.ENTITIES) is not None for c in components.children):
+                continue
+            matrix = np.eye(4)
+            found = []
+            for component in components.children:
+                tm = component.child(E.WORLD_TM)
+                if tm is not None and tm.value is not None and len(tm.value) == 48:
+                    matrix = E.az_matrix(tm.value)
+                if component.type_id == PARTICLE_COMPONENT:
+                    fields = E.decode(component)
+                    name = find_effect(fields)
+                    if name and "ShoreFoamWaveDecal" in name:
+                        found.append(fields)
+            if found:
+                out.append({"entity": source.text(entity.child(E.NAME)) if entity.child(E.NAME) is not None else "", "matrix": matrix,
+                            "components": {"shore": found}, "shape": None})
+    return out
+
+
+def find_effect(fields) -> str:
+    """@return The effect name of a decoded particle component (crc:56249fe1 / crc:701787f5), or ""."""
+    emitter = fields.get("crc:56249fe1") if isinstance(fields, dict) else None
+    value = emitter.get("crc:701787f5") if isinstance(emitter, dict) else None
+    return value if isinstance(value, str) else ""
+
+
+def parse_curve(text: str) -> dict:
+    """@return A particle parameter of the library: {"base", "random", "keys": [[t, v, in slope or None, out slope or None, flags]]}.
+    Form: "8.5,Random=0.2,ParticleAge=(v=0.573,d=0.43,flags=32;t=1,v=1,s=0.43,flags=36)"; a key has t (default 0), v (default
+    0), d and s (the slopes, when written), flags."""
+    out = {"base": 1.0, "random": 0.0, "keys": []}
+    head, _, curve = text.partition("ParticleAge=(")
+    for part in head.split(","):
+        part = part.strip()
+        if part.startswith("Random="):
+            out["random"] = float(part[7:])
+        elif part and "=" not in part:
+            out["base"] = float(part)
+    if curve:
+        for key in curve.rstrip(")").split(";"):
+            values = {"t": 0.0, "v": 0.0}
+            for item in key.split(","):
+                name, _, number = item.partition("=")
+                if name.strip() in ("t", "v", "d", "s", "flags") and number:
+                    values[name.strip()] = float(number)
+            out["keys"].append([values["t"], values["v"], values.get("d"), values.get("s"), int(values.get("flags", 0))])
+    return out
+
+
+def parse_vector(text: str) -> list[float]:
+    """@return x, y, z of "x=-3,z=15" (a missing axis is 0)."""
+    axes = {"x": 0.0, "y": 0.0, "z": 0.0}
+    for item in (text or "").split(","):
+        name, _, number = item.partition("=")
+        if name.strip() in axes and number:
+            axes[name.strip()] = float(number)
+    return [axes["x"], axes["y"], axes["z"]]
+
+
+def parse_color_curve(text: str) -> list[list[float]]:
+    """@return The keys [t, r, g, b] of a color by the particle age ("ParticleAge=(t=0.208,v=(x=0.88,y=0.886,z=0.886);t=0.808,v=(...))");
+    a constant color "(x=..,y=..,z=..)" is one key at t 0; no color: white."""
+    import re
+    keys = []
+    for part in re.findall(r"(?:t=([\d.]+),)?v=\(x=([\d.]+),y=([\d.]+),z=([\d.]+)\)", text or ""):
+        keys.append([float(part[0] or 0.0), float(part[1]), float(part[2]), float(part[3])])
+    if not keys:
+        match = re.search(r"\(x=([\d.]+),y=([\d.]+),z=([\d.]+)\)", text or "")
+        keys = [[0.0] + [float(v) for v in match.groups()]] if match else [[0.0, 1.0, 1.0, 1.0]]
+    return keys
+
+
+def shore_effects(names: set[str]) -> dict:
+    """@return The decal sheets of each effect of the library: the spawn settings, the curves, and the distance ranges of the level of
+    detail in which the sheet shows (the base particle below the first LodParticle distance, then the variant of each level)."""
+    root = ET.fromstring(source.read(SHORE_LIBRARY).decode("utf-8", "replace"))
+    library = root.get("Name", "Env_Island")
+    effects = {}
+    for particles in root.iter("Particles"):
+        name = f"{library}.{particles.get('Name')}"
+        if name not in names:
+            continue
+        sheets = []
+        children = particles.find("Childs")
+        for node in [particles] + (list(children) if children is not None else []):
+            params = node.find("Params").attrib
+            if params.get("Facing") != "Decal":
+                continue
+            lods = [(float(lod.get("Distance")), lod.find("Particle/Params").get("Enabled", "true") != "false")
+                    for lod in node.findall("LODs/LevelOfDetail/LodParticle")]
+            edges = [0.0] + [d for d, _ in lods] + [1.0e9]
+            states = [params.get("Enabled", "true") != "false"] + [on for _, on in lods]
+            ranges = [[edges[i], edges[i + 1]] for i, on in enumerate(states) if on]
+            sheets.append({"name": node.get("Name"), "delay": float(params.get("SpawnDelay", "0")), "life": float(params.get("ParticleLifeTime", "5")),
+                           "offset": parse_vector(params.get("LocalSpawnPosOffset", "")), "randomOffset": parse_vector(params.get("LocalSpawnPosRandomOffset", "")),
+                           "angles": parse_vector(params.get("LocalInitAngles", "")), "speed": float(params.get("Speed", "0")),
+                           "pivotY": float(params.get("PivotY", "0")), "thickness": float(params.get("Thickness", "0.5")),
+                           "sizeX": parse_curve(params.get("SizeX", "1")), "sizeY": parse_curve(params.get("SizeY", "1")),
+                           "alpha": parse_curve(params.get("Alpha", "1")), "color": parse_color_curve(params.get("Color", "")), "ranges": ranges,
+                           "material": params.get("Material", ""), "texture": params.get("Texture", "")})
+        effects[name] = {"sheets": sheets}
+    return effects
+
+
+class ShoreWalk:
+    """The placement walk of environment.py with the shore records in place of the environment records."""
+
+    def __new__(cls):
+        from . import environment as E
+
+        class Walk(E.Walk):
+            def slice(self, path: str):
+                if path not in self.slices:
+                    try:
+                        data = source.read(path)
+                        self.reads += 1
+                        spawners = []
+                        if E.SPAWNER_MARK in data:
+                            for spawner in E.read_slice(data).spawners:
+                                if spawner.slice is not None and spawner.on_start:
+                                    child = source.product(spawner.slice[0], spawner.slice[1], ".dynamicslice")
+                                    if child:
+                                        spawners.append((child, E.rows4(spawner.matrix)))
+                        self.slices[path] = (shore_records(data), spawners)
+                    except Exception as error:   # a slice that the reader cannot read: it has no shore record
+                        self.failures.append(f"{path}: {str(error)[:120]}")
+                        self.slices[path] = None
+                return self.slices[path]
+        return Walk()
+
+
+def shore(names: list[str]) -> dict:
+    """Writes water/shore.json: the shore foam emitters of the regions (the effect, the world matrix in engine m, the emitter color)
+    and the decal sheets of their effects."""
+    from . import environment as E
+    walk = ShoreWalk()
+    emitters = []
+    for name in names:
+        try:
+            records, _ = E.region_records(name, walk)
+        except Exception as error:   # a region with no chunk file
+            walk.failures.append(f"{name}: {str(error)[:120]}")
+            continue
+        for record in records:
+            fields = record["fields"]
+            emitter = fields.get("crc:56249fe1", {})
+            emitters.append({"region": name, "effect": find_effect(fields), "matrix": record["matrix"], "visible": bool(emitter.get("Visible", True)),
+                             "color": [float(c) for c in (emitter.get("COLOR") or [1.0, 1.0, 1.0, 1.0])[:3]], "chain": record["chain"][-1]})
+    effects = shore_effects({e["effect"] for e in emitters})
+    out = env.content_dir() / "water"
+    doc = {"rule": "research water-shader.md 'Shore particles and decals'; the matrix rows are engine m (Z up)", "library": SHORE_LIBRARY,
+           "material": {"path": "materials/climax/vfx/water_on_shore_decal.mtl", "diffuse": "textures/climax/vfx/water_o_ondeck001_1x1.dds",
+                        "normal": "textures/climax/vfx/water_o_onshore_001_1x1_ddn.dds", "tint": [0.57758057, 0.78353792, 1.0],
+                        "opacity": 0.7, "falloff": 0.8, "specular": 0.021219011},
+           "effects": effects, "emitters": emitters}
+    temporary = out / "shore.json.part"
+    temporary.write_text(json.dumps(doc, indent=1))
+    temporary.replace(out / "shore.json")
+    counts: dict[str, int] = {}
+    for e in emitters:
+        counts[e["effect"]] = counts.get(e["effect"], 0) + 1
+    return {"emitters": len(emitters), "effects": counts, "regions": sorted({e["region"] for e in emitters}), "failures": len(walk.failures)}
 
 
 def write(names: list[str]) -> dict:
@@ -632,12 +818,12 @@ def main(argv=None) -> int:
     import argparse
     parser = argparse.ArgumentParser(prog="python3 -B -m swc_convert.water")
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ("write", "check", "samples", "source-textures"):
+    for command in ("write", "check", "samples", "source-textures", "shore"):
         p = sub.add_parser(command)
         p.add_argument("names", nargs="*")
     args = parser.parse_args(argv)
     names = args.names or census.world_regions()
-    run = {"write": write, "check": check, "samples": samples, "source-textures": source_textures}[args.command]
+    run = {"write": write, "check": check, "samples": samples, "source-textures": source_textures, "shore": shore}[args.command]
     print(json.dumps(run(names), indent=1))
     return 0
 
