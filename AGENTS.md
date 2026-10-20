@@ -160,6 +160,7 @@ tools/backend-update.sh [RELEASE]               # copy the backend and its game 
 tools/import.sh [FILTER] [--force]              # import the converted content into /Game/Imported (no window)
 tools/editor.sh                                 # open the editor (only when the user asks)
 tools/play.sh --check                           # check the player run, start nothing (only the user starts tools/play.sh)
+tools/cook.sh [--map /Game/PATH/MAP]           # cook and stage the client (docs/WORLD.md "The cooked build"; the lock, 20 GB scope); then tools/dev-run.sh --cooked
 tools/dev-run.sh --quit-when characters         # a development run with no window: the login path to the character list
 tools/dev-run.sh --window                       # a development run with the client window on the agent desktop
 tools/dev-run.sh --enter --quit-when world      # a development run that enters the world, stays 10 s, and leaves
