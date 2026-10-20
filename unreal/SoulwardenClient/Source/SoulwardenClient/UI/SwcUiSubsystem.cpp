@@ -9,6 +9,7 @@
 #include "HAL/FileManager.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformProcess.h"
+#include "Misc/App.h"
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
@@ -135,9 +136,31 @@ void USwcUiSubsystem::Start()
 		ReportDir = FPaths::Combine(WorkDir(), TEXT("logs/ui"));
 	}
 	IFileManager::Get().MakeDirectory(*ReportDir, true);
+	ContentDir = Content;
+	if (!StartRuntime())
+	{
+		return;
+	}
+	LoadItemCatalog();
+	UE_LOG(LogSwcUi, Log, TEXT("ui: the runtime started (Lua 5.1.5, the original scripts of the game)"));
+	Ticker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &USwcUiSubsystem::Tick));
+	if (FSlateApplication::IsInitialized())
+	{
+		InputProcessor = MakeShared<FSwcUiInputProcessor>(this);
+		FSlateApplication::Get().RegisterInputPreProcessor(InputProcessor);
+	}
+	FString DrivePath;
+	if (FParse::Value(FCommandLine::Get(), TEXT("SwcUiDrive="), DrivePath))
+	{
+		LoadDrive(DrivePath);
+	}
+	PostLoadMap = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &USwcUiSubsystem::OnPostLoadMap);
+}
 
+bool USwcUiSubsystem::StartRuntime()
+{
 	swc::ui::Runtime::Options Options;
-	Options.contentDir = Utf8(FPaths::Combine(Content, TEXT("ui")));
+	Options.contentDir = Utf8(FPaths::Combine(ContentDir, TEXT("ui")));
 	Options.luaDir = Utf8(FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectDir(), TEXT("Lua"))));
 	Options.reportDir = Utf8(ReportDir);
 	FString Screens;
@@ -152,10 +175,13 @@ void USwcUiSubsystem::Start()
 	if (!FPaths::DirectoryExists(UTF8_TO_TCHAR(Options.contentDir.c_str())))
 	{
 		UE_LOG(LogSwcUi, Warning, TEXT("ui: no converted UI content in %hs (tools/convert-ui.sh hud): no UI"), Options.contentDir.c_str());
-		return;
+		return false;
 	}
 	Runtime = MakeUnique<swc::ui::Runtime>(MoveTemp(Options));
-	Resources = MakeShared<FSwcUiResources>();
+	if (!Resources.IsValid())
+	{
+		Resources = MakeShared<FSwcUiResources>();
+	}
 	Runtime->set_text_measure(Resources.Get());
 	std::string Error;
 	if (!Runtime->start(&Error))
@@ -163,7 +189,7 @@ void USwcUiSubsystem::Start()
 		UE_LOG(LogSwcUi, Error, TEXT("ui: the Lua runtime did not start: %hs"), Error.c_str());
 		FlushLog();
 		Runtime.Reset();
-		return;
+		return false;
 	}
 	Runtime->call("Boot");
 	// The rebinds that the client kept (UI/SwcKeyBindings: the file of the options screen) go to the key table of the scripts.
@@ -175,24 +201,96 @@ void USwcUiSubsystem::Start()
 	Runtime->call("HostLoading", {FArg::of(true), FArg::of(std::string(WorldLevelName)), FArg::of(std::string("eLoadingScreenIds_LEVEL1"))});
 	bStartLoading = true;
 	FlushLog();
-	LoadItemCatalog();
-	UE_LOG(LogSwcUi, Log, TEXT("ui: the runtime started (Lua 5.1.5, the original scripts of the game)"));
-	Ticker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &USwcUiSubsystem::Tick));
-	if (FSlateApplication::IsInitialized())
+	return true;
+}
+
+void USwcUiSubsystem::OnPostLoadMap(UWorld* LoadedWorld)
+{
+	// The return to the character selection (stage F6 of docs/FRONTEND.md): after the level load of a return, the screens start
+	// again as at the start of the client (the start loading screen, then the landing screen with a new list).
+	const USwcBackendSubsystem* Backend = GetGameInstance()->GetSubsystem<USwcBackendSubsystem>();
+	if (Backend == nullptr || Backend->GetMenuReturns() == SeenMenuReturns)
 	{
-		InputProcessor = MakeShared<FSwcUiInputProcessor>(this);
-		FSlateApplication::Get().RegisterInputPreProcessor(InputProcessor);
+		return;
 	}
-	FString DrivePath;
-	if (FParse::Value(FCommandLine::Get(), TEXT("SwcUiDrive="), DrivePath))
+	SeenMenuReturns = Backend->GetMenuReturns();
+	UE_LOG(LogSwcUi, Log, TEXT("ui: the return to the menu (%d): the screens start again"), SeenMenuReturns);
+	if (Runtime.IsValid())
 	{
-		LoadDrive(DrivePath);
+		// The reports of the runtime that ends: a copy with the number of the return (the next runtime writes the same names).
+		WriteReports();
+		for (const TCHAR* Name : {TEXT("ui-errors.txt"), TEXT("ui-log.txt"), TEXT("ui-stubs.txt")})
+		{
+			const FString From = FPaths::Combine(ReportDir, Name);
+			IFileManager::Get().Copy(*FPaths::Combine(ReportDir, FString::Printf(TEXT("%s-%d.%s"), *FPaths::GetBaseFilename(Name), SeenMenuReturns,
+				*FPaths::GetExtension(Name))), *From);
+		}
 	}
+	Runtime.Reset();
+	ResetSession();
+	DrawList = swc::ui::DrawList();
+	StartRuntime();
+}
+
+void USwcUiSubsystem::ResetSession()
+{
+	bStartLoading = false;
+	bMenuStarted = false;
+	bMenuListPending = false;
+	bMenuListAgain = false;
+	bMenuLogin = false;
+	SentMenuConnection = 0;
+	MenuError.Reset();
+	MenuErrorAt = 0.0;
+	MenuSpawnTime = 0.0;
+	MenuSmoothSince = -1.0;
+	Preview.Reset();
+	PreviewCharacter.Reset();
+	BuiltCharacter.Reset();
+	bPreviewDirty = false;
+	MenuClips = {FString(), FString()};
+	bErrorShown = false;
+	bSentLoadingScreen = false;
+	bLoadingForDeath = false;
+	LoadingHoldUntil = 0.0;
+	SentDeathNotices = 0;
+	bCursorWanted = false;
+	bKeybinding = false;
+	bCursorApplied = false;
+	SentDisplay = FIntPoint::ZeroValue;
+	bSentAim = false;
+	bWorldEntered = false;
+	SentBag.Reset();
+	SentPaperdoll.Reset();
+	SentBagRevision = ~0u;
+	SentPaperdollRevision = ~0u;
+	SentEquipFails = 0;
+	SentCoin = -1;
+	SentLevel = -1;
+	SentLoot.Reset();
+	SentLootRevision = ~0u;
+	SentNearBags.Reset();
+	NextBagsTime = 0.0;
+	SentOpenBag = 0;
+	AskedOpenBag = 0;
+	AskedOpenTime = 0.0;
+	SentActiveSlot = -2;
+	bSentSheathed = false;
+	SentBars.Reset();
+	SentCooldowns.Reset();
+	SentItemCooldowns.Reset();
+	SentYaw = 1000.0f;
+	NextOcclusionTime = 0.0;
+	bStandInsOff = false;
+	SentDamageSerial = 0;
+	SentOwnDamages = ~0u;
+	SentHeals = ~0u;
 }
 
 void USwcUiSubsystem::Deinitialize()
 {
 	FTSTicker::RemoveTicker(Ticker);
+	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMap);
 	if (InputProcessor.IsValid() && FSlateApplication::IsInitialized())
 	{
 		FSlateApplication::Get().UnregisterInputPreProcessor(InputProcessor);
@@ -826,15 +924,57 @@ void USwcUiSubsystem::UpdateMenu(USwcBackendSubsystem* Backend)
 		}
 		return;
 	}
+	// The error of a world connection that ended with no leave (stage F6): the landing screen shows MainMenu.LastError only more
+	// than 5 s after its init (landingscreenv2.luac), so the error goes 5.5 s after the menu start.
+	if (bMenuStarted && !MenuError.IsEmpty() && FPlatformTime::Seconds() >= MenuErrorAt)
+	{
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the world connection ended (%s): the landing screen shows the error"), *MenuError);
+		MenuError.Reset();
+		Runtime->call("HostMenuLoginFailed", {FArg::of(std::string("@mm_connectionfailed"))});
+	}
 	if (bMenuStarted || !Backend->IsFrontEnd() || Backend->GetAccountSession() == nullptr)
 	{
 		return;
 	}
+	// The scene first, under the start loading screen: the preview actor, its scene record, and the menu mode of the environment.
+	// The landing screen starts when the meshes of the scene are placed (an asynchronous load of about 10 s; else the landing
+	// showed over an empty view, run f6-return6) and after 0.5 s of frames shorter than 0.25 s: the first frames of the
+	// environment of a new level are long (the sky mesh, the local lights: one frame of 10 s after a return to the menu, run
+	// f6-return3; a limit of 0.1 s held it for 30 s while the clients of other tracks used the shared machine, run f6-return5).
+	// At most 30 s after the spawn.
+	const double Now = FPlatformTime::Seconds();
+	if (MenuSpawnTime <= 0.0)
+	{
+		SpawnPreview();
+		MenuSpawnTime = Now;
+		MenuSmoothSince = -1.0;
+		return;
+	}
+	if (Now - MenuSpawnTime < 30.0)
+	{
+		if (FApp::GetDeltaTime() > 0.25 || (Preview.IsValid() && !Preview->IsScenePlaced()))
+		{
+			MenuSmoothSince = -1.0;
+			return;
+		}
+		MenuSmoothSince = MenuSmoothSince < 0.0 ? Now : MenuSmoothSince;
+		if (Now - MenuSmoothSince < 0.5)
+		{
+			return;
+		}
+	}
+	UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the menu scene is ready after %.1f s"), Now - MenuSpawnTime);
 	bMenuStarted = true;
+	MenuError = Backend->GetEnterError();
+	MenuErrorAt = FPlatformTime::Seconds() + 5.5;
 	const FSwcAccountSession& Session = *Backend->GetAccountSession();
 	// The loading screen of the start ends: the landing screen of the game shows (the native load of the main menu).
 	bStartLoading = false;
 	Runtime->call("HostLoading", {FArg::of(false)});
+	if (!LastSelected.IsEmpty())
+	{
+		Runtime->call("HostMenuSelected", {FArg::of(Utf8(LastSelected))});
+	}
 	Runtime->call("HostMenuStart");
 	for (int32 Index = 0; Index < Session.Regions.Num(); ++Index)
 	{
@@ -844,6 +984,15 @@ void USwcUiSubsystem::UpdateMenu(USwcBackendSubsystem* Backend)
 	}
 	// The login path is complete: the account token and the entitlement list came (FE9: the account event, not the UI load).
 	Runtime->call("HostMenuAccount", {FArg::of(true), FArg::of(true)});
+	// The menu scene is stage F4: no level loads now, thus its load is complete (the landing screen plays its queued camera
+	// sequence at this event).
+	Runtime->call("HostMenuLevelLoaded");
+	UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the landing screen (%d character(s), %d world(s), %d region(s))"), Session.Characters.Num(),
+		Session.Worlds.Num(), Session.Regions.Num());
+}
+
+void USwcUiSubsystem::SpawnPreview()
+{
 	// The character of the menu (stage F3): its actor at the place of the Player Entity of the NightHaven scene (game 3031.3987,
 	// 2047.3601, 84.0722 m; the scene itself is stage F4), and its camera as the view of the player.
 	if (UWorld* World = GEngine != nullptr && GEngine->GameViewport != nullptr ? GEngine->GameViewport->GetWorld() : nullptr)
@@ -865,11 +1014,6 @@ void USwcUiSubsystem::UpdateMenu(USwcBackendSubsystem* Backend)
 			Controller->SetViewTarget(Actor);
 		}
 	}
-	// The menu scene is stage F4: no level loads now, thus its load is complete (the landing screen plays its queued camera
-	// sequence at this event).
-	Runtime->call("HostMenuLevelLoaded");
-	UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the landing screen (%d character(s), %d world(s), %d region(s))"), Session.Characters.Num(),
-		Session.Worlds.Num(), Session.Regions.Num());
 }
 
 void USwcUiSubsystem::SendMenuList(USwcBackendSubsystem* Backend)
@@ -945,6 +1089,7 @@ void USwcUiSubsystem::UpdatePreview(USwcBackendSubsystem* Backend)
 	{
 		// No character or no valid menu document: no body (no stale parts of the character before).
 		Preview->Clear();
+		BuiltCharacter = PreviewCharacter;
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: no body for %s (%hs)"), *PreviewCharacter,
 			Character != nullptr ? swc::menu::StatusText(Character->MenuStatus) : "not in the list");
 		return;
@@ -993,6 +1138,7 @@ void USwcUiSubsystem::UpdatePreview(USwcBackendSubsystem* Backend)
 	// clips), else the idle of the world.
 	const FString& MenuClip = MenuClips[Look.bFemale ? 1 : 0];
 	Preview->ShowLook(Look, Looks->BaseMesh(Look.bFemale), MenuClip.IsEmpty() ? Looks->IdleAnimation(Look.bFemale) : MenuClip);
+	BuiltCharacter = PreviewCharacter;
 }
 
 TArray<FString> USwcUiSubsystem::FindMenuClips(const FString& ImportedPath)
@@ -1041,7 +1187,7 @@ void USwcUiSubsystem::EndPreview()
 
 /** The requests of the landing screen (swc/frontend.lua): "menu list" (GetLoginInfoLists: a refresh of the list), "menu preview
  *  ID" (SetVisibleCharacter), "menu show 1|0" (the preview character shows or hides), "menu login ID TYPE" (RequestLogin),
- *  "menu quit" (RequestDisconnect to the desktop), "menu loading" and "menu intro" (later stages). */
+ *  "menu quit DESTINATION" (RequestDisconnect: the desktop, or the return to the character selection), "menu loading" and "menu intro" (later stages). */
 void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsystem* Backend)
 {
 	TArray<FString> Parts;
@@ -1050,6 +1196,7 @@ void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsy
 	if (Kind == TEXT("list"))
 	{
 		// One refresh at a time: a request during a refresh gets the next list too.
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: menu list (a refresh of getlogininfo)%s"), bMenuListPending ? TEXT(", after the one that runs") : TEXT(""));
 		if (bMenuListPending)
 		{
 			bMenuListAgain = true;
@@ -1076,8 +1223,15 @@ void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsy
 	}
 	else if (Kind == TEXT("preview"))
 	{
-		// SetVisibleCharacter: the body of the selected character (UpdatePreview, when the look tables are there).
-		PreviewCharacter = Parts.IsValidIndex(2) ? Parts[2] : FString();
+		// SetVisibleCharacter: the body of the selected character (UpdatePreview, when the look tables are there). The landing screen
+		// selects the same character again each 30 s (and after each list): the body of that character stays.
+		const FString Id = Parts.IsValidIndex(2) ? Parts[2] : FString();
+		LastSelected = Id.IsEmpty() ? LastSelected : Id;
+		if (Id == BuiltCharacter && Id == PreviewCharacter && !bPreviewDirty)
+		{
+			return;
+		}
+		PreviewCharacter = Id;
 		bPreviewDirty = true;
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: %s"), *Request);
 	}
@@ -1136,6 +1290,16 @@ void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsy
 	}
 	else if (Kind == TEXT("quit"))
 	{
+		// RequestDisconnect(destination): eExitGameDestination_Desktop 0 quits; MainMenu 1 and AttractScreen 2 (this client has
+		// no attract screen) go back to the character selection from the world (stage F6).
+		const int32 Destination = Parts.IsValidIndex(2) ? FCString::Atoi(*Parts[2]) : 0;
+		if (Destination != 0 && Backend != nullptr && Backend->HasConnection())
+		{
+			UE_LOG(LogSwcUi, Log, TEXT("ui: the return to the character selection (the destination %d)"), Destination);
+			Runtime->call("HostLoading", {FArg::of(true), FArg::of(std::string(WorldLevelName)), FArg::of(std::string("eLoadingScreenIds_LEVEL1"))});
+			Backend->ReturnToMenu();
+			return;
+		}
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: quit to the desktop"));
 		FPlatformMisc::RequestExit(false, TEXT("the front end: quit"));
 	}
@@ -1343,9 +1507,12 @@ void USwcUiSubsystem::TickDrive()
 			}
 			UE_LOG(LogSwcUi, Log, TEXT("ui drive: %.2f s waitfor %s: %s after %.1f s"), Wait.Time, *Wait.Args[0],
 				Point.empty() ? TEXT("not shown (the limit)") : TEXT("shown"), Now - DriveWaitStart);
+			// The clock goes on from the time of the wait (also when the element shows at once after a pause of the drive, as
+			// the level load of a return to the menu): the next steps start in the next frame with that clock.
+			DriveStart = Now - Wait.Time;
 			DriveWaitStart = -1.0;
 			++DriveNext;
-			continue;
+			return;
 		}
 		const FDriveStep& Step = Drive[DriveNext++];
 		const auto Arg = [&Step](int32 I, float Default) { return Step.Args.IsValidIndex(I) ? FCString::Atof(*Step.Args[I]) : Default; };

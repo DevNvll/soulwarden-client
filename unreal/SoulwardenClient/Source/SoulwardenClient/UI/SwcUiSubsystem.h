@@ -114,6 +114,15 @@ private:
 	TSharedPtr<SSwcUiCanvas> Widget;
 	swc::ui::DrawList DrawList;
 	FTSTicker::FDelegateHandle Ticker;
+	/** The content folder (SWC_CONTENT), the start of the runtime (also after a return to the menu), and the return (stage F6). */
+	FString ContentDir;
+	bool StartRuntime();
+	void OnPostLoadMap(UWorld* LoadedWorld);
+	/** Sets the state of one run of the screens back to the start (the members from bStartLoading to SentHeals, except the widget):
+	 *  a new member of that state goes into this function too. */
+	void ResetSession();
+	FDelegateHandle PostLoadMap;
+	int32 SeenMenuReturns = 0;
 	TSharedPtr<class FSwcUiInputProcessor> InputProcessor;
 	bool bStartLoading = false;
 	/** The front end: the landing screen started; a list refresh runs; the screen asked for the list again during it. */
@@ -123,9 +132,20 @@ private:
 	/** The front end: the login of the selected character runs (stage F5); the connection state sent to the screen. */
 	bool bMenuLogin = false;
 	int32 SentMenuConnection = 0;
+	/** The error of a world connection that ended with no leave, for the landing screen after the return, and its time. */
+	FString MenuError;
+	double MenuErrorAt = 0.0;
+	/** The spawn of the preview actor before the menu start, and the start of the run of short frames after it. */
+	void SpawnPreview();
+	double MenuSpawnTime = 0.0;
+	double MenuSmoothSince = -1.0;
 	/** The character of the main menu (stage F3): the actor, the id of the selected character, and a new selection to show. */
 	TWeakObjectPtr<class ASwcMenuPreview> Preview;
 	FString PreviewCharacter;
+	/** The character of the built (or cleared) body of the preview. */
+	FString BuiltCharacter;
+	/** The last selected character: it stays over a return to the menu (ResetSession keeps it; stage F6). */
+	FString LastSelected;
 	bool bPreviewDirty = false;
 	void UpdatePreview(class USwcBackendSubsystem* Backend);
 	/** The menu idle clip of each gender (male, female): its AnimSequence of the imported list, or empty. */

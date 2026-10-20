@@ -624,3 +624,44 @@ Only this document changes in the research branch. The scene and script records 
   - The subset is 60 m: the dome at the upper left of B6-04 is outside it. The campfire effect, the probes, and the area
     light are not made. The material overrides of the placements are not applied.
   - FE7: the axis of the FOV; the callers of `Idle` and `OnPlay`.
+
+### F6, the return to the character selection (2026-10-20)
+
+- The path of the scripts: the escape menu button "Exit to Main Menu" (the element `ButtonExitMainMenu`; the script field is
+  `ButtonExitMainNemu`) shows the quit popup of the popup screen (its module `quitgamepopup.luac`, with its countdown in
+  combat). Yes calls `GameRequestsBus.RequestDisconnect(eExitGameDestination_MainMenu)`. `swc/frontend.lua` gives
+  "menu quit DESTINATION": 0 quits; 1, and 2 (the attract screen, which this client does not have), go back to the
+  character selection from the world.
+- `USwcBackendSubsystem::ReturnToMenu`: the carrier disconnect. When the connection ends, `ResetWorldSession` sets each
+  member of one world entry back to its start value, and `OpenMenuLevel` loads the level of the world again: its actors and
+  its world subsystems start new, as the retail client loads its menu level. In the front end, a world connection that ends
+  with no leave goes back too. Its cause is the entry error: the landing screen shows `@mm_connectionfailed` 5.5 s after
+  the menu start (the script shows `MainMenu.LastError` only more than 5 s after the init of the screen).
+- `USwcUiSubsystem`: after the level load of a return (`PostLoadMapWithWorld`), the Lua runtime starts again by the start
+  path of the client (the start loading screen), and `ResetSession` sets the state of one run of the screens back. The
+  widget, the resources, the input processor, the item catalog, and the drive stay. The reports of the runtime that ends
+  are kept with the number of the return (`ui-errors-N.txt`, `ui-log-N.txt`, `ui-stubs-N.txt`).
+- The selection by id: the host keeps the last selected character over the return and gives it to the new runtime before
+  its first list (`Swc.HostMenuSelected`; the FE10 path writes it to `MainMenu.NewCharacterId` when the list has it). The
+  landing screen selects the same character again each 30 s and after each list: the body of that character stays (before,
+  the client built it again each time).
+- The menu shows when its scene is ready. The preview actor, its scene record, and the menu mode of the environment come
+  first, under the start loading screen. The landing screen starts when the meshes of the scene are placed and after 0.5 s
+  of frames shorter than 0.25 s, at most 30 s after the spawn. Before this rule, after a return, one frame of 10 s (the sky
+  mesh and the local lights of the environment of the new level) froze the landing screen, and the landing screen showed
+  over an empty view while the meshes loaded.
+- The UI drive: when a "waitfor" ends, the clock goes on from the time of that step (after a long pause, the next steps
+  ran all at once).
+- The run `f6-return7` (`tests/drive/f6-return-ui.txt`): the first development character enters the world; Escape,
+  Exit to Main Menu, the quit popup, Yes; the carrier disconnect and the end of the connection in 0.14 s; the level load
+  (39 s) and the scene (13.6 s); the landing screen with the played character selected; the second development character,
+  PLAY, and the world at the place of that character. `evidence/F6/compare/f6-flow.png` and `f6-return7.mp4`.
+- Tests: the fixture `escape` (30 checks: the exit to the main menu, the quit popup, Yes, one request "menu quit 1"); the
+  fixture `frontend` (69 checks: the host selection).
+- Open points:
+  - The return takes about 1 min: the level load (36 s to 105 s on the shared computer), then the scene. The retail time
+    is not measured.
+  - A world connection that ends with no leave: the path is in the code, but no run tested it.
+  - Each world entry has 3 Lua errors of the HUD 2024 scripts (`hudcanvasdefault` SetIsVisible, `lootticker2024canvas`;
+    also in F5). The state changes of the escape menu give more of the same kind.
+  - A refused authentication at the start (before the account) still has no new try (O14 in docs/UI.md).

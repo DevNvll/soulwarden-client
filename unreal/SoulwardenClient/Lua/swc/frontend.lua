@@ -24,7 +24,11 @@
 --     A refresh keeps the selection by its id (open point FE10): before the list result of a refresh, the module writes the
 --     selected id to MainMenu.NewCharacterId, which SelectDefaultCharacter reads first.
 --   * Play: GameRequestsBus RequestLogin(id, worldType) gives "menu login ID TYPE" (stage F5); GetConnectionStatus gives the
---     numbers of the table of landingscreenv2.luac (Swc.HostMenuConnection). RequestDisconnect gives "menu quit".
+--     numbers of the table of landingscreenv2.luac (Swc.HostMenuConnection). RequestDisconnect(destination) gives
+--     "menu quit DESTINATION" (eExitGameDestination: 0 the desktop; 1 the main menu: from the world, the return to the
+--     character selection, stage F6).
+--     The quit popup of the escape menu (UiPopupBus ShowQuitGamePopup) is the module quitgamepopup.luac of the popup screen
+--     (its countdown in combat); at Yes the escape menu calls RequestDisconnect(eExitGameDestination_MainMenu).
 --   * The camera sequences: CinematicRequestBus PlaySequenceByName ends with OnCinematicStateChanged(name, Stopped) after the
 --     serialized time range of the sequence of the NightHaven scene (docs/FRONTEND.md "Animation and sequences"; the start
 --     policy is open point FE7).
@@ -243,6 +247,12 @@ F.canvases = {}
 
 --- The start of the front end: the menu screens load, the end of the UI load goes to the options screen only (FE9), and the
 --- state LandingScreen shows the landing screen. The host then sends the regions and the account state.
+-- The selection over a return to the menu (stage F6): the host gives the id of the last selected character to the new
+-- runtime before its first list; HostMenuListEnd writes it to MainMenu.NewCharacterId when the list has it (the rule of FE10).
+function Swc.HostMenuSelected(characterId)
+  F.selectedId = tostring(characterId or "")
+end
+
 function Swc.HostMenuStart()
   F.menu = true
   if #F.canvases == 0 then
@@ -417,7 +427,7 @@ Swc.Define("GameRequestsBus", "Broadcast", {
   RequestLogin = function(characterId, worldType)
     request("menu login " .. tostring(characterId) .. " " .. tostring(worldType or ""))
   end,
-  RequestDisconnect = function() request("menu quit") end,
+  RequestDisconnect = function(destination) request("menu quit " .. tostring(destination or 0)) end,
   OpenSteamStoreOverlay = function() end,
   TextToSpeech = function() end,
   -- The channel of the channel document of the backend ("channelName": "Retail").

@@ -115,6 +115,14 @@ public:
 	void RefreshCharacterList(TFunction<void(bool bSucceeded)> Done);
 	/** @return True from EnterWorld to the reply of the login queue (the login token). */
 	bool IsEnteringWorld() const { return bEnteringWorld; }
+	/**
+	 * Leaves the world and goes back to the character selection (stage F6 of docs/FRONTEND.md; RequestDisconnect with the
+	 * destination MainMenu): the carrier disconnect, then the level again with the front end. In the front end, a world
+	 * connection that ends with no leave goes back too, and its cause is the entry error of the landing screen.
+	 */
+	void ReturnToMenu();
+	/** @return The count of the returns to the menu (the UI starts its screens again after the level load of each one). */
+	int32 GetMenuReturns() const { return MenuReturns; }
 	/** @return True while the client has a connection to the game server (after the login token). */
 	bool HasConnection() const { return Connection.IsValid(); }
 	/** @return The error of the last EnterWorld of the front end (no login token), else empty. */
@@ -191,6 +199,13 @@ private:
 	 */
 	void UpdateMovementLimits(const swc::net::RepClient::OwnEntity& Own);
 	void Quit(bool bSucceeded, const TCHAR* Cause);
+	/** Sets the state of the world session back to the start (each member below that one world entry changes), so that the
+	 *  next entry starts as the first one. A new member of the world session goes into this function too. */
+	void ResetWorldSession();
+	/** The return to the menu: loads the level of the world again (its actors and its world subsystems start new). */
+	void OpenMenuLevel();
+	bool bReturning = false;
+	int32 MenuReturns = 0;
 
 	TSharedPtr<FSwcLoginClient> Login;
 	FString LoginError;

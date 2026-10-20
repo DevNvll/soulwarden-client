@@ -1,0 +1,32 @@
+# Stage F6 of docs/FRONTEND.md: the return to the character selection and a second entry (tools/menu-check.sh f6-return 260 --
+# -SwcUiDrive=FILE). The clock starts at the landing screen; a "waitfor" holds it until the element shows (CompassLines: the
+# HUD of the world, which loads under the loading screen; world: no loading screen; CharacterList: the landing screen). The
+# first development character enters the world; Escape, the exit to the main menu, Yes in the quit popup: the carrier
+# disconnect, the level again, the landing screen with a new list (the selection by id). Then the second development
+# character enters the world.
+1 waitfor CharacterList 60
+3 draw landing
+14 point text:Devwarden
+14.5 click
+17 point PlayButton
+17.5 click
+19 waitfor CompassLines 180
+19.5 waitfor world 120
+24 draw world
+25 key escape
+27 point ButtonExitMainMenu
+27.5 click
+29.5 draw quit-popup
+30 point ButtonYes
+30.5 click
+32 waitfor CharacterList 180
+35 draw landing-again
+45 point text:Menuwarden
+45.5 click
+51 draw second-selected
+53 point PlayButton
+53.5 click
+55 waitfor CompassLines 180
+55.5 waitfor world 120
+60 draw world-again
+64 end

@@ -167,6 +167,21 @@ answer({five[5], five[4], five[3], five[2], five[1]})
 frames(0.5)
 equal(L.selectedCharacterId, "c-3", "a refresh with a new order keeps the selected character")
 
+-- The selection over a return to the menu (stage F6): the host gives the id of the last selected character before the first
+-- list of the new runtime (Swc.HostMenuSelected); the list selects that character, not the last played one (c-2).
+Swc.HostMenuSelected("c-4")
+L:RefreshWorldList()
+frames(0.1)
+answer(five)
+frames(0.5)
+equal(L.selectedCharacterId, "c-4", "the host selection c-4 (not the last played c-2)")
+Swc.HostMenuSelected("c-3")
+L:RefreshWorldList()
+frames(0.1)
+answer(five)
+frames(0.5)
+equal(L.selectedCharacterId, "c-3", "the host selection c-3 again")
+
 -- Options and back: options.luac ExitScreen goes to the escape menu of the main menu (MainMenuEsc), Escape there to the
 -- landing screen.
 L:LandingOptions()
@@ -299,5 +314,6 @@ answer({}, {})
 frames(0.5)
 equal(#L.selectableWorldList, 0, "no world: no selectable world")
 equal(#requests("menu login"), 0, "no login request with no character")
+
 
 equal(Swc.errorCount or 0, 0, "no Lua error")

@@ -48,6 +48,8 @@ public:
 	 * tracks of the camera sequences. @return False with no record (then the fixed character view stays).
 	 */
 	bool LoadScene(const FString& Path);
+	/** @return True when the meshes of the scene are placed (or the scene has no record): the menu can show (stage F6). */
+	bool IsScenePlaced() const { return bScenePlaced; }
 	/** Plays a camera sequence of the scene from its start (CinematicRequestBus PlaySequenceByName of the landing screen). At its
 	 *  end the camera keeps the last pose. @return False for a sequence with no MainCamera track. */
 	bool PlaySequence(const FString& Name);
@@ -71,6 +73,7 @@ private:
 	UPROPERTY()
 	TArray<TObjectPtr<UActorComponent>> SceneParts;
 	TSharedPtr<FStreamableHandle> SceneLoading;
+	bool bScenePlaced = false;
 
 	struct FSequence
 	{

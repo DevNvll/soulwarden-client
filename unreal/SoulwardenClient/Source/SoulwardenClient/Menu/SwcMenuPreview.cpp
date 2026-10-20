@@ -104,6 +104,7 @@ bool ASwcMenuPreview::LoadScene(const FString& Path)
 	if (!FFileHelper::LoadFileToString(Text, *Path) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Doc) || !Doc.IsValid())
 	{
 		UE_LOG(LogSwcBackend, Warning, TEXT("menu: no scene record %s (tools/convert-frontend.sh scene): the fixed character view"), *Path);
+		bScenePlaced = true;
 		return false;
 	}
 	const TSharedPtr<FJsonObject>* Entities = nullptr;
@@ -119,6 +120,7 @@ bool ASwcMenuPreview::LoadScene(const FString& Path)
 	if (Player.Num() != 12 || Cam.Num() != 12)
 	{
 		UE_LOG(LogSwcBackend, Warning, TEXT("menu: the scene record has no Player Entity or MainCamera"));
+		bScenePlaced = true;
 		return false;
 	}
 	// The actor stands at the feet of the Player Entity; the body has its rotation (with its small tilt).
@@ -280,6 +282,7 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 			++Shown;
 		}
 		UE_LOG(LogSwcBackend, Log, TEXT("menu: the scene meshes: %d shown, %d not imported, %d not converted"), Shown, Missing, NotConverted);
+		Preview->bScenePlaced = true;
 	};
 	SceneLoading = Paths.Num() > 0 ? UAssetManager::GetStreamableManager().RequestAsyncLoad(Paths, Place) : nullptr;
 	if (!SceneLoading.IsValid())

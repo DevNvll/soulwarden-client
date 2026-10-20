@@ -68,3 +68,35 @@ check(not swcui.canvas_get(menu, "enabled"), "the escape menu hides")
 check(not Swc.HostCursor(), "no cursor in the HUD")
 check(Swc.ActionMapOn("movement") and Swc.ActionMapOn("camera") and Swc.ActionMapOn("player"), "the maps are on again")
 note("actions: " .. table.concat(Swc.actionLog, ", "))
+
+-- The return to the character selection (stage F6 of docs/FRONTEND.md): the exit to the main menu opens the quit popup of the
+-- popup screen (its module quitgamepopup.luac), and Yes gives RequestDisconnect(eExitGameDestination_MainMenu): the host request
+-- "menu quit 1". No request before Yes.
+local function quit_requests()
+  local out = {}
+  for _, r in ipairs(Swc.hostRequests) do
+    if r:find("^menu quit") then out[#out + 1] = r end
+  end
+  return out
+end
+key("escape")
+frames(0.6)
+equal(state(), ESC, "Escape in the HUD again: the escape menu")
+local main = find(swcui.canvas_get(menu, "root"), "ButtonExitMainMenu")   -- the script field is ButtonExitMainNemu
+check(main ~= nil, "the menu has its exit to the main menu button")
+if main then
+  click(main)
+  frames(0.6)
+end
+check(swcui.canvas_get(popup, "enabled"), "the exit to the main menu opens the quit popup")
+equal(#quit_requests(), 0, "no quit request before Yes")
+picture("escape-quit-main")
+local yes = find(swcui.canvas_get(popup, "root"), "ButtonYes")
+check(yes ~= nil, "the quit popup has its Yes button")
+if yes then
+  click(yes)
+  frames(0.6)
+end
+local quits = quit_requests()
+equal(#quits, 1, "Yes: one quit request")
+equal(quits[1], "menu quit " .. tostring(eExitGameDestination_MainMenu), "the quit request goes to the main menu (destination 1)")

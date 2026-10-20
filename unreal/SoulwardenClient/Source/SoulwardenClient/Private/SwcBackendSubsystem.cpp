@@ -7,6 +7,7 @@
 #include "Character/SwcLocomotion.h"
 #include "Character/SwcPlayerActions.h"
 #include "Combat/SwcAttackGraph.h"
+#include "Kismet/GameplayStatics.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcPlayerLooks.h"
 #include "Character/SwcRangedView.h"
@@ -481,6 +482,16 @@ bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 		if (!QuitWhen.IsEmpty())
 		{
 			Quit(bLeft, bLeft ? TEXT("the client left the world") : TEXT("the connection ended before the planned leave"));
+		}
+		else if (bFrontEnd)
+		{
+			// The return to the character selection (stage F6 of docs/FRONTEND.md): a planned leave, or a connection that ended with
+			// no leave (its cause goes to the landing screen as the entry error).
+			const FString Error = bReturning ? FString() : FString::Printf(TEXT("the connection ended: %s"), *Snapshot.EndCause);
+			WorldTicker.Reset();   // this ticker ends with the false below
+			ResetWorldSession();
+			EnterError = Error;
+			OpenMenuLevel();
 		}
 		return false;
 	}
@@ -1629,6 +1640,84 @@ FString USwcBackendSubsystem::GetCameraStateName() const
 	const APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
 	const ASwcCameraManager* CameraManager = Controller != nullptr ? Cast<ASwcCameraManager>(Controller->PlayerCameraManager) : nullptr;
 	return CameraManager != nullptr ? CameraManager->GetStateName() : FString();
+}
+
+void USwcBackendSubsystem::ReturnToMenu()
+{
+	if (!bFrontEnd || !Connection.IsValid() || bReturning)
+	{
+		return;
+	}
+	bReturning = true;
+	UE_LOG(LogSwcBackend, Log, TEXT("world: the return to the character selection: the carrier disconnect"));
+	Connection->Leave(TEXT("the player goes back to the character selection"));
+}
+
+void USwcBackendSubsystem::ResetWorldSession()
+{
+	SetSpawnLoading(false);
+	Connection.Reset();
+	bEnteringWorld = false;
+	EnterError.Reset();
+	InGameSince = 0.0;
+	bInGame = false;
+	bQuitting = false;
+	Avatar.Reset();
+	Camera.Reset();
+	bInteractKey = false;
+	ConversationLine.Reset();
+	bDummyShown = false;
+	if (Preload.IsValid())
+	{
+		Preload->CancelHandle();
+	}
+	Preload.Reset();
+	PreloadState = EPreload::Waiting;
+	PreloadSince = 0.0;
+	bCellsReady = false;
+	LongestFrame = 0.0f;
+	bFramesLogged = false;
+	AttackDriver.reset();
+	bStaminaSet = false;
+	StaminaRevision = 0;
+	SentBars = {};
+	NodesRevision = 0;
+	SentCooldowns.clear();
+	BagRevision = MAX_uint32;
+	BagWeight = 0;
+	EquipLoadClass = 0;
+	LastLimits.Reset();
+	ManaRevision = MAX_uint32;
+	ManaSyncRevision = 0;
+	LastHealth = 0.0f;
+	bTestFloor = false;
+	bWaitForFloor = false;
+	bSendPosition = false;
+	LastMove = ESwcMove::Idle;
+	NextMoveSample = 0.0;
+	LastCameraSample = FRotator::ZeroRotator;
+	LookRevision = MAX_uint32;
+	SeenTravel = 0;
+	bTravelWait = false;
+	TravelSince = 0.0;
+	TravelFeet = FVector::ZeroVector;
+	TravelForward = FVector::ForwardVector;
+	bReturning = false;
+}
+
+void USwcBackendSubsystem::OpenMenuLevel()
+{
+	UWorld* World = GetGameInstance() != nullptr ? GetGameInstance()->GetWorld() : nullptr;
+	if (World == nullptr)
+	{
+		Quit(false, TEXT("no world for the return to the menu"));
+		return;
+	}
+	++MenuReturns;
+	const FString Map = UWorld::RemovePIEPrefix(World->GetOutermost()->GetName());
+	UE_LOG(LogSwcBackend, Log, TEXT("world: the return to the menu (%d): the level %s again%s"), MenuReturns, *Map,
+		EnterError.IsEmpty() ? TEXT("") : TEXT(" with the entry error"));
+	UGameplayStatics::OpenLevel(World, FName(*Map));
 }
 
 void USwcBackendSubsystem::Quit(bool bSucceeded, const TCHAR* Cause)
