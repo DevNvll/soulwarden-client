@@ -338,6 +338,13 @@ def ocean_override(record: dict) -> dict:
 TEXTURES = {"waves": ("engineassets/textures/oceanwaves_ddn.dds", "normal"),
             "foamNormal": ("engineassets/shading/waterfoam2_ddn.dds", "normal"),
             "foam": ("engineassets/shading/waterfoam.dds", "srgb")}
+# The inputs of the source water shader (AST-200, docs/WATER.md "The source water shader"; research water-shader.md), in their own
+# key of water.json ("sourceTextures": a reader of the first key does not see them): the foam map as linear data (its shader sampler
+# has sRGBLookup=false; the import "data": linear RGBA, the value in R), the gloss map of the ocean (the same), and the environment cube of the clear ocean material (the Radiance
+# picture of mip 0, long-lat, in the units of the source, as the world probes of environment.py).
+SOURCE_TEXTURES = {"foamData": ("engineassets/shading/waterfoam.dds", "data"),
+                   "gloss": ("engineassets/textures/water_gloss.dds", "data")}
+OCEAN_CUBE = "textures/cubemaps/newworld_vitaeeterna/environmentcube_worldocean_cm.dds"
 
 
 def write_textures(out) -> dict:
@@ -356,6 +363,48 @@ def write_textures(out) -> dict:
         image.save(folder / f"{name}.png")
         records[role] = {"source": path, "file": f"water/textures/{name}.png", "name": name, "color": color, "size": [w, h]}
     return records
+
+
+def write_source_textures(out) -> dict:
+    """Writes the inputs of the source water shader into water/textures (SOURCE_TEXTURES as PNG with the values of the source, the
+    ocean cube as a Radiance picture). @return Their records for water.json "sourceTextures"."""
+    import math
+    from . import dds, environment
+    from PIL import Image
+    folder = out / "textures"
+    folder.mkdir(parents=True, exist_ok=True)
+    records = {}
+    for role, (path, color) in SOURCE_TEXTURES.items():
+        data, w, h, fmt = dds.join(source.read, path, 1024)
+        image = dds.to_image(data, w, h, fmt)
+        image = image.convert("RGB") if color == "normal" else image.convert("RGBA")
+        name = "T_SwcWater_" + role[0].upper() + role[1:]
+        image.save(folder / f"{name}.png")
+        records[role] = {"source": path, "file": f"water/textures/{name}.png", "name": name, "color": color, "size": [w, h]}
+    faces = environment.cube_faces(OCEAN_CUBE)
+    if faces is not None:
+        width, height = environment.PROBE_SIZE
+        u = (np.arange(width) + 0.5) / width
+        v = (np.arange(height) + 0.5) / height
+        longitude, polar = np.meshgrid((2.0 * u - 1.0) * math.pi, v * math.pi)
+        direction = np.stack([np.sin(polar) * np.sin(longitude), np.sin(polar) * np.cos(longitude), np.cos(polar)], -1).reshape(-1, 3)
+        name = "T_SwcWater_OceanCube"
+        environment.write_hdr(folder / f"{name}.hdr", environment.cube_face_lookup(faces, direction).reshape(height, width, 3))
+        records["oceanCube"] = {"source": OCEAN_CUBE, "file": f"water/textures/{name}.hdr", "name": name, "color": "hdr",
+                                "size": [width, height], "faceSize": faces[0].shape[0], "faceMeans": environment.face_means(faces)}
+    return records
+
+
+def source_textures(names: list[str]) -> dict:
+    """Adds (or makes again) the key "sourceTextures" of water.json; the surfaces and the other keys stay."""
+    out = env.content_dir() / "water"
+    index = json.loads((out / "water.json").read_text())
+    index["sourceTextures"] = write_source_textures(out)
+    # One rename: the clients of all tracks read this file at their start.
+    temporary = out / "water.json.part"
+    temporary.write_text(json.dumps(index, indent=1))
+    temporary.replace(out / "water.json")
+    return {role: {k: v for k, v in record.items() if k in ("file", "size", "faceMeans")} for role, record in index["sourceTextures"].items()}
 
 
 def write(names: list[str]) -> dict:
@@ -444,7 +493,8 @@ def write(names: list[str]) -> dict:
     textures = write_textures(out)
     index = {"format": {"mesh": MESH_VERSION, "tree": TREE_VERSION, "space": "engine m, Z up", "regionSize": REGION_SIZE,
                         "flags": {"gatherable": 1, "fishable": 2, "fresh": 4, "salt": 8}},
-             "ocean": ocean, "materials": materials, "textures": textures, "regions": regions, "duplicates": duplicates, "skipped": totals["skipped"]}
+             "ocean": ocean, "materials": materials, "textures": textures, "sourceTextures": write_source_textures(out), "regions": regions,
+             "duplicates": duplicates, "skipped": totals["skipped"]}
     (out / "water.json").write_text(json.dumps(index, indent=1))
     return {"regions": len(regions), "volumes": totals["volumes"], "rivers": totals["rivers"], "duplicates": len(duplicates),
             "skipped": len(totals["skipped"]), "ocean overrides": len(ocean["overrides"]), "materials": len(materials),
@@ -582,12 +632,12 @@ def main(argv=None) -> int:
     import argparse
     parser = argparse.ArgumentParser(prog="python3 -B -m swc_convert.water")
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ("write", "check", "samples"):
+    for command in ("write", "check", "samples", "source-textures"):
         p = sub.add_parser(command)
         p.add_argument("names", nargs="*")
     args = parser.parse_args(argv)
     names = args.names or census.world_regions()
-    run = {"write": write, "check": check, "samples": samples}[args.command]
+    run = {"write": write, "check": check, "samples": samples, "source-textures": source_textures}[args.command]
     print(json.dumps(run(names), indent=1))
     return 0
 

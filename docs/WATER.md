@@ -2,9 +2,10 @@
 
 Stage WF5 (Linear AST-187): the water of the world (the ocean, the water volumes, the rivers) and the wade and the swim of the
 player. The content follows the source: the ocean level, the water shapes, the river curves and widths, the flow, the water kinds,
-and the depth rules. The rendering is the Unreal way (decision of the user, 2026-10-18): Single Layer Water with the reflections,
-the refraction, and the light in the water of Unreal. The source colors, the source density, and the source foam are its inputs.
-The retail water pictures are the reference for the places, the shapes, and the colors, not for the shader look.
+and the depth rules. The rendering follows the water shaders of the source (decision of the user, 2026-10-20, AST-200: "the
+water shader is not matching retail and its missing the foam in shallow waters"; it replaces the decision of 2026-10-18, "the
+rendering is the Unreal way"): the look of the water must match the retail pictures, also the foam in the shallow water and the
+shore foam. See "The source water shader".
 
 The research: `~/Games/soulwarden-client/research/wf5/` (the shapes, the curves, the materials, the quadtree) and
 `~/Games/soulwarden-client/research/wf5-swim/` (the depth classes, the wade, the swim). The retail measurements:
@@ -15,7 +16,7 @@ The research: `~/Games/soulwarden-client/research/wf5/` (the shapes, the curves,
 | Part | Job |
 | --- | --- |
 | `converter/swc_convert/water.py`, `tools/convert-water.sh` | The surfaces of each region, the ocean and its overrides, the materials, the textures, and the quadtree of each region into `SWC_CONTENT/water`. `check`: the surfaces against the quadtree. `samples`: the points of the reader test. |
-| `Scripts/water_materials.py`, `tools/import-water.sh` | The three water textures and the base material `/SwcGameContent/Water/M_SwcWater` (Single Layer Water). |
+| `Scripts/water_materials.py`, `tools/import-water.sh` | The water textures and the source water material `/SwcGameContent/Water/M_SwcWaterSource` (translucent, unlit, the source formulas in a Custom node). |
 | `Water/SwcWaterData` | Plain C++ (tested by `tools/test-water.sh`): the readers of the files, the quadtree query, the depth class rule, the ocean rule. |
 | `Water/SwcWaterSubsystem` | The surfaces near the view (static meshes made at run time), the ocean that follows the view with its local overrides, the queries of the movement. |
 | `Character/SwcCharacterMovement` | The depth class of the feet, the wade, and the swim. |
@@ -26,7 +27,8 @@ The research: `~/Games/soulwarden-client/research/wf5/` (the shapes, the curves,
 tools/convert-water.sh write      # needs the environment records (tools/convert-environment.sh write)
 tools/convert-water.sh check      # the surfaces against the quadtree
 tools/convert-water.sh samples    # the points of tools/test-water.sh
-tools/import-water.sh             # the textures and M_SwcWater
+tools/convert-water.sh source-textures   # the inputs of the source shader: the linear foam map, the gloss map, the ocean cube
+tools/import-water.sh             # the textures and M_SwcWaterSource
 tools/test-water.sh               # the readers, the query, the depth classes
 ```
 
@@ -49,51 +51,73 @@ fountains in a river, raised river parts.
 ## The rendering
 
 - Each surface is a static mesh made at run time (`UStaticMesh::BuildFromMeshDescriptions`), with its own dynamic instance of
-  `M_SwcWater`. The surfaces near the view build first (at most 6 in a frame, in 3 km); they stay. No collision, no shadow.
+  `M_SwcWaterSource`. The surfaces near the view build first (at most 6 in a frame, in 3 km); they stay. No collision, no shadow.
 - The ocean is a flat grid of 20 km at the ocean level that follows the view in steps of 312.5 m. The override of the place of the
-  view (its cylinder or box) changes its values in its transition time. The strength of its wave normals is the wave size of the
-  source (WavesSize: 0.08 the mission, 0.15 the beaches, 0.3 the storm), the speed WavesSpeed × (1 + WindSpeed / 50), the
-  direction WindDirection [inference: mappings of the client].
+  view (its cylinder or box) changes its values in its transition time.
 - The ocean plane of the world level (the world track's `M_SwcOcean`) hides with no collision while it is in the level: a character
   walked on it at 40.000 m.
-- `M_SwcWater` (Single Layer Water):
-  - the waves: the wave normal map of the source shaders (`engineassets/textures/oceanwaves_ddn.dds`, an inference of the research:
-    the .mtl files have no normal map slot) at two scales, moved by the wind (the ocean, the volumes: world UV) or along the river
-    (the UV of the river mesh, WaterFlowSpeed of the .mtl); Tilling, DetailTilling, NormalsScale, DetailNormalsScale of the .mtl;
-  - the light in the water (see "The light in the water"): albedo = FogColor × FogColorScale × 4 (FogLightScale), extinction =
-    the fog density per meter (ExtinctionScale 0.01: Unreal counts the path in centimeters), scattering = extinction × albedo,
-    absorption = extinction × (1 − albedo), the isotropic phase (PhaseG 0);
-  - the reflection: the Fresnel of the source shaders as the Specular input (F0 = 0.08 × Specular): 0.625 (F0 0.05) for the volumes
-    and the rivers, 0.8125 (F0 0.065) for the ocean;
-  - the foam of the source (FoamAmount, FoamTilling, FoamSoftIntersectionFactor, the foam map `engineassets/shading/waterfoam.dds`)
-    where the water behind the surface is shallow (SceneDepthWithoutWater); the opacity of Single Layer Water is the foam.
-- Calibration: `-SwcWater=Name=Value,...` sets parameters of each instance with no import. NormalStrength 0.04 and Roughness 0.02
-  come from the calibrations cal-a to cal-f (`~/Games/soulwarden-client/evidence/WF5/`: a smaller normal strength gives the calm
-  mirror rivers of the retail views). The light values of these calibrations (FogLightScale 15, ExtinctionScale 0.4 per centimeter)
-  are replaced by the rule of the source shaders (2026-10-19).
+- `-SwcWater=Name=Value,...` (the command line) and `swc.WaterParams Name=Value,...` (the console, also in match-view variants) set
+  values of each instance. `Debug=N` shows a part: 1 the soft edge a, the foam gap s, the foam f; 2 the reflection with the sun; 3 the
+  water term; 4 the trace; 5 the transmittance T, the path, the depth gap; 6 the scene behind the water. A variant value stays for
+  the next variants of the run (only Debug goes back to 0).
 
-### The light in the water
+## The source water shader (AST-200, 2026-10-20)
 
-The source shaders (research `world-materials/shader-text/watervolume.cfxb.txt` and `water.cfxb.txt`, the pixel shaders):
+The study: `~/Games/soulwarden-client/research/water-shader.md` (GPT-6.1-Sol; the retail shaders water.cfx, watervolume.cfx,
+WaterFogVolume, WaterReflPS, and the CPU uploads). The material `M_SwcWaterSource` is translucent and unlit; one Custom node has the
+source formulas. It reads the opaque scene behind the water (the scene color and the scene depth of the translucency pass). Unreal
+applies the air fog to its output. Single Layer Water could not do it: its composite adds its own reflection (EnvBRDF), its own
+Fresnel, and its own light in the water. Units: one radiance unit of the source is 10,000 cd/m2; the sun color of the source is the
+Unreal sun E / pi (`View.DirectionalLightColor`).
 
-- refraction = lerp(cFogColorDensity.xyz, refraction, exp2(−cFogColorDensity.w × the path in the water)); the path is the length
-  of the view ray from the surface to the scene behind it;
-- for a water volume, cFogColorDensity.xyz = FogColor × FogColorScale × the sun color (FogColorAffectedBySun: true in 334 of the
-  345 river components, research `world-environment/river-components.json`), and cFogColorDensity.w = 1.4427 × the fog density:
-  exp(−density × the path in meters) [inference: the engine code of CREWaterVolume; the shader text has only the uniform];
-- the source diffuse has no 1 / π (shadelib `DiffuseBRDF`, `BurleyBRDF`): a white surface in the sun is the sun color;
-- final = lerp(refraction, reflection, Fresnel): the water volume Fresnel is 0.05 + 0.95 × (1 − N·V)^5 (FresnelBias), the ocean
-  Fresnel is lerp(0.065, 1, (1 − N·V)^5 / (40 − 39 × FresnelGloss)) (WaterSpec0, FresnelGloss 0.98: at most about 0.59). The
-  reflection of the volumes is the screen reflection × RealtimeReflMul (0.9 or 1.0), else the cube × EnvCubeReflMul.
+| Part | Rule | Source |
+| --- | --- | --- |
+| Kinds | Kind 0: the water volumes and the rivers (watervolume.cfx); Kind 1: the ocean (water.cfx, WaterFogVolume/OceanInto). | research "The rule for the client" |
+| Coordinates | A river: q = (along, across) of the mesh UV [inference: the adapter of the research], B.xy = q Tilling - f t (0.25, 0), B.zw = (2 q Tilling - f t (1, 0)) DetailTilling. A volume: the mesh UV (the world m x SurfaceUScale, SurfaceVScale). The ocean: the world m x 0.005, the detail axes swapped, max(2, DetailTilling). | V-VS, O-VS |
+| Normals | b = W(B.xy / 4) + W(B.xy); b.xy += W(B.zw).xy x DetailNormalsScale; b.xy x= NormalsScale x NormalStrength. W is still the static `oceanwaves_ddn` (the source field is generated at run time). NormalStrength 0.05 is a calibration of the client (0.15 gave sun glints that retail does not have). | V 0026-0044, O 0054-0077 |
+| Volume water term | Cfog + T (Cbehind - Cfog), T = exp(-density x the view path in the water, m), Cfog = FogColor x FogColorScale x the sun color (FogColorAffectedBySun: true). | V 0158-0166, CPU 0x5EB8818 |
+| Ocean water term | k = 1.4427 density; j = k (d.z - 1); I = (2^(j L) - 1) / j; T = 2^(-k (L + the depth of the scene point under the surface)); Cdeep I + Cshallow T sat(0.1 L) + Cbehind T, with Cdeep = FogColor x fogColorMultiplier x the sun and Cshallow = nearFogColor x the sun. Then the simple surface fog of the same fog block (SurfaceFog 1). | Ocean-fog 0013-0041 |
+| Fog colors | FogColor and nearFogColor of the data are sRGB-authored (bytes / 255): the material decodes them to linear (FogSrgb 1) [inference; better in each test view: ocean-clear water dE 15.4 against 23.3, river-highlands 24.2 against 28.0]. | test p1e |
+| Reflection | A screen-space trace of the opaque scene: the reflection normal mix(up, N, 0.3) (volumes) or mix(up, N, ReflectionBumpScale) (the ocean); 64 steps in the screen with a jitter, 2000 m, the thickness min(5 m, depth / 20), 16 binary steps; no hit on the far plane or in front of the surface; the alpha min(sat((0.6 - k) / 0.25), 0.95), k = dot(abs(forward), N). The sky fallback fills 1 - alpha. The volumes: (the scene x alpha + the sky) x RealtimeReflMul. The ocean: mix(the material cube x ReflectionScale, the trace, alpha), the RGBA of the trace clamped to one source unit. No history filter yet. | V-refl, O 0142 onward |
+| Sky | The rendered sky of the screen where the reflected ray ends in the sky or leaves the screen at its top edge (LiveSky 1, a decision of the client: the source `$SkyCubemap` has an unknown content); else the cube of the sky light (the world probe) x the sky light color, with the direction above the horizon (the probe has ground under it). | research "The screen-space trace" |
+| Sun | sat(N.L) x ((p0 / 2 pi + 1 / pi) mu^p0 + (p1 / 2 pi + 1 / pi) mu^p1) x Specular x the sun, p0 = 4 x 255 g, p1 = 0.5 x 255 g, g = Shininess / 255. | V 0047-0059, O 0547-0554 |
+| Fresnel | Volumes: sat(0.05 + 0.95 (1 - NoV)^5); the blend x the soft edge a x sat(zS - 0.33). The ocean: 0.065 + 0.935 (1 - NoV)^5 / (40 - 39 FresnelGloss) (0.59 at a grazing view), x a. | V 0168-0175, O 0555-0561 |
+| Soft edge | a = sat(SoftIntersectionFactor x q), q = the view-depth gap behind the surface (m); the refraction offset N.xy x RefractionBumpScale x a (an offset onto a nearer surface takes the pixel itself). | V 0121-0157 |
 
-Single Layer Water of Unreal (`SingleLayerWaterShading.ush`): the water color = albedo × (the phase × the sun illuminance + the
-ambient illuminance / 4π) × (1 − T) + T × the scene behind, with T = exp(−extinction × the depth behind the surface in
-centimeters). A white diffuse surface is E / π; with the isotropic phase 1 / 4π, the deep color of the source (FogColor ×
-FogColorScale of the white surface) is albedo = 4 × FogColor × FogColorScale. Not the same as the source: Unreal adds the ambient
-light to the scattering, darkens the scene behind by the path of the light from the surface down to it, and its Fresnel has no
-reflection multiplier (RealtimeReflMul 0.9 is not used) and goes to 1 at a grazing view (the ocean of the source stops at about
-0.59). Bodies with FogColor × FogColorScale above 0.25 (a white fog with scale 1: some small volumes) ask for an albedo above 1;
-it stops at 1.
+The ocean values: the .mtl of the ocean material (Tilling 32, NormalsScale 1.5, SoftIntersectionFactor 1.2, RefractionBumpScale 0.6,
+ReflectionBumpScale 0.1, FresnelGloss 0.98, ReflectionScale 0.2, Specular 0.423, Shininess 255), the fog of the override (the
+starting beach: FogColor 3, 35, 60 / 255, multiplier 0.07, density 0.3, near color 1, 26, 30 / 255), and the environment cube
+`environmentcube_worldocean_cm` (`T_SwcWater_OceanCube`, x 10,000 cd/m2). The sky fallback and the surface fog of the ocean are not
+proved by the research [U]. The retail swim views show the sky in the near water and only the head of the swimmer above a blue
+surface; with both on, the legs of the client swimmer fade into the water (test p1h). Without the surface fog the body under the
+surface keeps about 30 % of its light and looks as if it is over the water.
+
+### The check of the reflection and the color (2026-10-20)
+
+The matched views (`tools/match-view.sh`; evidence `~/Games/soulwarden-client/evidence/AST-200/`, `part1-set2`, `part1-set3`), the
+water dE and the water L* by `tools/lib/water_part.py` (`part1-water-part.txt`), against the E5 step 3 values
+(`evidence/E5/step3-final/water-part.txt`). Two runs of the same code can differ by about 4 dE (the clouds and the sky).
+
+| View | Water dE, step 3 | Water dE, AST-200 | Water L* (retail) | Saturation (retail) |
+| --- | --- | --- | --- | --- |
+| river-forest-noon | 26.5 | 16.8 | 48.4 (28.9) | 0.311 (0.369) |
+| river-highlands-noon | 38.1 | 20.8 | 45.6 (22.5) | 0.361 (0.334) |
+| ocean-clear-noon | 31.4 | 18.1 | 54.1 (36.7) | 0.269 (0.430) |
+| ocean-storm-noon | 2.1 | 10.3 | 15.0 (28.6) | 0.505 (0.375) |
+| swim-idle | 38.5 | 8.0 | 31.2 (24.4) | 0.479 (0.788) |
+| swim-nav | 37.0 | 7.1 | 29.6 (21.7) | 0.487 (0.741) |
+| The mean of the 6 views | 28.9 | 13.5 | | |
+
+What the pictures show: the cliffs, the banks, and the houses reflect in the water; the swim water is deep blue with the sky in the
+near water, and the swimmer is under the surface. Open:
+
+- The scene light: the whole client picture is lighter than retail (the E5 contrast work, paused): the river beds and the sky in the
+  reflections are too light. The storm coast has a black sky in the client (an environment fault); the ocean reflects it.
+- The fog colors (sRGB or linear), the ocean sky fallback, and the ocean surface fog are choices by the pictures, not by a traced
+  rule (a brief for a static study is in the report of AST-200).
+- The reflection trace has smears at the sides of the screen where a ray runs a long way in the screen; no history filter.
+- The normal field of the source (generated at run time), the ocean displacement and crest foam, the caustics, the river edge fades.
+- The swim pose: the client swimmer is upright (the feet 1.4 m deep); the retail swimmer lies near the surface.
 
 ## The depth classes
 
@@ -165,6 +189,8 @@ is green-yellow in its fog; the shore foam lines of the retail beaches (particle
 
 ## The water color check (2026-10-19)
 
+(History: the check of the Single Layer Water material before AST-200; see "The source water shader" for the rule now.)
+
 The retail water of the rivers is dark and reflective; the client water was a light, clear turquoise. The cause: the light values
 of the calibrations (FogLightScale 15, ExtinctionScale 0.4) were chosen by eye, and Unreal counts the extinction per centimeter:
 an extinction of 0.2 per centimeter made the water an opaque, bright medium. The rule of the source shaders ("The light in the
@@ -217,12 +243,7 @@ water values:
   crouch in shallow water (the statuses Breath and Drowning), and the blocks of fishing, gathering, the mounts, and the inventory in
   deep water: not in this stage.
 - The exit action (0.5 s) plays Swim_Nav and has no motion of its own: its retail motion is not known.
-- The edge fades of the rivers (WidthFadeDist, the length fades), the ocean crest foam (FoamCrestAmount), the vertex waves, the
-  caustics, the shore foam particles (`water_on_shore`), and the source reflection cubemaps: not used.
+- The edge fades of the rivers (WidthFadeDist, the length fades), the ocean crest foam (FoamCrestAmount), the vertex waves, and the
+  caustics: not used (AST-200 open points).
 - 18 volumes are tilted (up to 6.4 degrees); the quadtree cannot tell if their surface tilts. The full matrix is used [inference].
-- The ocean Fresnel: the ocean shader of the source limits the reflection at a grazing view (lerp(0.065, 1, (1 − N·V)^5 /
-  (40 − 39 × FresnelGloss)), FresnelGloss 0.98: at most about 0.59); the Fresnel of Single Layer Water goes to 1. At the swim
-  view (about 80 degrees) the source reflects about 0.27 of the sky, the client about 0.43. Single Layer Water has no input for it
-  (a larger roughness lowers the grazing reflection, but also blurs it). The reflection multiplier of the volumes
-  (RealtimeReflMul 0.9) is not used either.
 - The night views: the light of the client at night is the work of the environment track (E1); the water uses the light of the scene.

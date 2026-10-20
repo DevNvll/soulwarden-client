@@ -19,7 +19,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogSwcWater, Log, All);
  * The water of the world (stage WF5, docs/WATER.md): the surfaces of the water volumes and the rivers of the source (the data of
  * tools/convert-water.sh, SWC_CONTENT/water), the ocean at the ocean level with its local overrides, and the water queries of the
  * movement (the water quadtree of each region). The content follows the source; the rendering is Single Layer Water (the base
- * material /SwcGameContent/Water/M_SwcWater of tools/import-water.sh) with one dynamic instance for each surface.
+ * material /SwcGameContent/Water/M_SwcWaterSource of tools/import-water.sh) with one dynamic instance for each surface.
  *
  * The surfaces build near the view (static meshes made at run time; a few each frame) and stay. The ocean is a flat grid at the
  * ocean level that follows the view. With no base material the surfaces do not show, and the queries still work.
@@ -79,14 +79,18 @@ private:
 	void UpdateOcean(const FVector& View, float DeltaTime);
 	void HideWorldOcean();
 	UStaticMesh* BuildMesh(const swc::water::Body& Body, const FVector& Center, UMaterialInterface* Material) const;
-	UMaterialInstanceDynamic* MakeMaterial(const swc::water::Body& Body) const;
+	UMaterialInstanceDynamic* MakeMaterial(const swc::water::Body& Body);
+	/** Sets the sky cube of the reflection (the cube of the sky light) on the instances when it changes. */
+	void UpdateSkyCube();
 	/** The parameters of the ocean material instance for a material of the source, its animation, and its fog. */
 	TMap<FName, float> OceanValues(int32 Material, const TSharedPtr<class FJsonObject>& Animation, const FVector3f& FogColor, float FogScale,
-		float FogDensity) const;
+		float FogDensity, const FVector3f& NearFogColor) const;
 	bool GetViewLocation(FVector& Out) const;
 
 	/** The parameter values of -SwcWater=Name=Value,... for each instance (the calibration of the matched views; docs/WATER.md). */
 	TMap<FName, float> CalibrationValues;
+	/** The last value of swc.WaterParams. */
+	FString ConsoleParams;
 	void ApplyOverrides(UMaterialInstanceDynamic* Material) const;
 
 	bool bLoaded = false;
@@ -117,4 +121,9 @@ private:
 	TObjectPtr<UStaticMeshComponent> Ocean;
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> OceanMaterial;
+	/** The instances of the surfaces (for the sky cube) and the sky cube now. */
+	UPROPERTY()
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> SurfaceMaterials;
+	UPROPERTY()
+	TObjectPtr<class UTextureCube> SkyCube;
 };

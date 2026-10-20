@@ -1,13 +1,16 @@
 #include "Water/SwcWaterSubsystem.h"
 
 #include "Camera/PlayerCameraManager.h"
+#include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/TextureCube.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
+#include "HAL/IConsoleManager.h"
 #include "HAL/PlatformMisc.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
@@ -24,8 +27,8 @@ DEFINE_LOG_CATEGORY(LogSwcWater);
 
 namespace
 {
-/** The base water material of tools/import-water.sh (Scripts/water_materials.py). */
-const TCHAR* ParentPath = TEXT("/SwcGameContent/Water/M_SwcWater.M_SwcWater");
+/** The source water material of tools/import-water.sh (Scripts/water_materials.py; AST-200, docs/WATER.md). */
+const TCHAR* ParentPath = TEXT("/SwcGameContent/Water/M_SwcWaterSource.M_SwcWaterSource");
 /** A surface builds when the view is this near to it (cm), at most BuildsPerTick in one tick (decisions of the client). */
 constexpr double BuildRange = 300000.0;
 constexpr int32 BuildsPerTick = 6;
@@ -34,10 +37,34 @@ constexpr float DrawDistance = 500000.0f;
 /** The ocean grid: 64 x 64 cells of 312.5 m (20 km) that follow the view in steps of one cell (no move of its world UV). */
 constexpr int32 OceanCells = 64;
 constexpr double OceanCell = 31250.0;
-/** The scale of the world UV of each source shader (UV for each m before Tilling; a calibration of the matched views): the
- *  Tilling of the ocean (shader Water: 32) and of the volumes (shader WaterVolume: 0.8) are not in one unit. */
-constexpr float VolumeUVScale = 0.1f;
-constexpr float OceanUVScale = 0.004f;
+/** The texture coordinates of a water volume: the mesh UV of the converter (the world m x SurfaceUScale, SurfaceVScale), as the
+ *  source mesh UV q of watervolume.cfx (B.xy = q x Tilling). The ocean uses the world m x 0.005 of water.cfx (in the material). */
+constexpr float VolumeUVScale = 1.0f;
+/** The slope of the static wave normal texture in the source normal sum (a calibration of the client: the source normal field is
+ *  generated at run time and is flatter than oceanwaves_ddn; -SwcWater=NormalStrength=X). */
+constexpr float NormalStrength = 0.05f;
+/** The radiance of one source unit (cd/m2; docs/ENVIRONMENT.md): the gain of the environment cube of the ocean material. */
+constexpr float SourceUnit = 10000.0f;
+
+/** Parameter values for each water instance at run time (the calibration and the debug views of the matched views: match-view
+ *  --variant VIEW@NAME='swc.WaterParams Debug=3'); the same form as -SwcWater, added to its values. */
+TAutoConsoleVariable<FString> CVarWaterParams(TEXT("swc.WaterParams"), TEXT(""),
+	TEXT("Water material values for each instance, Name=Value,... (docs/WATER.md; Debug=1..4 the debug views)."));
+
+void ParseValues(const FString& Values, TMap<FName, float>& Out)
+{
+	TArray<FString> Pairs;
+	Values.ParseIntoArray(Pairs, TEXT(","));
+	for (const FString& Pair : Pairs)
+	{
+		FString Name;
+		FString Number;
+		if (Pair.TrimStartAndEnd().Split(TEXT("="), &Name, &Number))
+		{
+			Out.Add(FName(*Name), FCString::Atof(*Number));
+		}
+	}
+}
 
 FString ContentFolder()
 {
@@ -138,6 +165,23 @@ void USwcWaterSubsystem::Tick(float DeltaTime)
 	{
 		return;
 	}
+	const FString Params = CVarWaterParams.GetValueOnGameThread();
+	if (Params != ConsoleParams)
+	{
+		ConsoleParams = Params;
+		// A debug view ends when the variable no longer names it (match-view sets the variable back after a variant).
+		CalibrationValues.Add(TEXT("Debug"), 0.0f);
+		ParseValues(Params, CalibrationValues);
+		UE_LOG(LogSwcWater, Log, TEXT("water: swc.WaterParams %s"), *Params);
+		for (UMaterialInstanceDynamic* Instance : SurfaceMaterials)
+		{
+			if (Instance != nullptr)
+			{
+				ApplyOverrides(Instance);
+			}
+		}
+	}
+	UpdateSkyCube();
 	UpdateBodies(View);
 	UpdateOcean(View, DeltaTime);
 	const double Now = FPlatformTime::Seconds();
@@ -164,6 +208,18 @@ void USwcWaterSubsystem::Load()
 		FMaterialRecord Record;
 		Record.Path = Info->GetStringField(TEXT("path"));
 		Record.Shader = Info->GetStringField(TEXT("shader"));
+		// The root values of the .mtl: Specular (the reflectance of the sun lobes and of the material cube) and Shininess (the gloss
+		// g = Shininess / 255).
+		FString Text;
+		TArray<FString> Parts;
+		if (Info->TryGetStringField(TEXT("specular"), Text) && Text.ParseIntoArray(Parts, TEXT(",")) >= 3)
+		{
+			Record.Params.Add(TEXT("Specular"), FCString::Atof(*Parts[1]));
+		}
+		if (Info->TryGetStringField(TEXT("shininess"), Text))
+		{
+			Record.Params.Add(TEXT("Gloss"), FMath::Clamp(FCString::Atof(*Text) / 255.0f, 0.0f, 1.0f));
+		}
 		const TSharedPtr<FJsonObject>* Params = nullptr;
 		if (Info->TryGetObjectField(TEXT("params"), Params))
 		{
@@ -184,7 +240,7 @@ void USwcWaterSubsystem::Load()
 	const TSharedPtr<FJsonObject> BaseFog = OceanInfo->GetObjectField(TEXT("fog"));
 	OceanBase = OceanValues(static_cast<int32>(OceanInfo->GetNumberField(TEXT("material"))), OceanInfo->GetObjectField(TEXT("animation")),
 		ColorOf(BaseFog, TEXT("Ocean fog color"), FVector3f(0.005f, 0.01f, 0.012f)), NumberOf(BaseFog, TEXT("Ocean fog color multiplier"), 1.0f),
-		NumberOf(BaseFog, TEXT("Ocean fog density"), 0.6f));
+		NumberOf(BaseFog, TEXT("Ocean fog density"), 0.6f), FVector3f::ZeroVector);
 	for (const TSharedPtr<FJsonValue>& Value : OceanInfo->GetArrayField(TEXT("overrides")))
 	{
 		const TSharedPtr<FJsonObject> Info = Value->AsObject();
@@ -223,7 +279,7 @@ void USwcWaterSubsystem::Load()
 			Animation->SetField(Key.StartsWith(TEXT("animation")) ? Key.Mid(9) : Key, Pair.Value);
 		}
 		Override.Values = OceanValues(Override.Material, Animation, ColorOf(Fog, TEXT("FogColor"), FVector3f(0.005f, 0.01f, 0.012f)),
-			NumberOf(Fog, TEXT("fogColorMultiplier"), 1.0f), NumberOf(Fog, TEXT("fogDensity"), 0.6f));
+			NumberOf(Fog, TEXT("fogColorMultiplier"), 1.0f), NumberOf(Fog, TEXT("fogDensity"), 0.6f), ColorOf(Fog, TEXT("nearFogColor"), FVector3f::ZeroVector));
 		Overrides.Add(MoveTemp(Override));
 	}
 	// The surfaces and the quadtrees of the regions.
@@ -279,17 +335,7 @@ void USwcWaterSubsystem::Load()
 	FString Values;
 	if (FParse::Value(FCommandLine::Get(), TEXT("-SwcWater="), Values, false))
 	{
-		TArray<FString> Pairs;
-		Values.ParseIntoArray(Pairs, TEXT(","));
-		for (const FString& Pair : Pairs)
-		{
-			FString Name;
-			FString Number;
-			if (Pair.Split(TEXT("="), &Name, &Number))
-			{
-				CalibrationValues.Add(FName(*Name), FCString::Atof(*Number));
-			}
-		}
+		ParseValues(Values, CalibrationValues);
 		UE_LOG(LogSwcWater, Log, TEXT("water: %d parameter value(s) of -SwcWater for each instance: %s"), CalibrationValues.Num(), *Values);
 	}
 	Parent = LoadObject<UMaterialInterface>(nullptr, ParentPath);
@@ -301,7 +347,7 @@ void USwcWaterSubsystem::Load()
 	Root->RegisterComponent();
 	bLoaded = true;
 	UE_LOG(LogSwcWater, Log, TEXT("water: %d volumes, %d rivers, %d quadtrees, %d materials, %d ocean overrides, ocean at %.1f m, %s%s"), Volumes, Rivers,
-		Trees.Num(), Materials.Num(), Overrides.Num(), OceanLevel, Parent ? TEXT("material M_SwcWater") : TEXT("no material M_SwcWater (tools/import-water.sh): no surface"),
+		Trees.Num(), Materials.Num(), Overrides.Num(), OceanLevel, Parent ? TEXT("material M_SwcWaterSource") : TEXT("no material M_SwcWaterSource (tools/import-water.sh): no surface"),
 		Faults ? *FString::Printf(TEXT(", %d file fault(s)"), Faults) : TEXT(""));
 }
 
@@ -326,38 +372,53 @@ bool USwcWaterSubsystem::GetViewLocation(FVector& Out) const
 }
 
 TMap<FName, float> USwcWaterSubsystem::OceanValues(int32 Material, const TSharedPtr<FJsonObject>& Animation, const FVector3f& FogColor, float FogScale,
-	float FogDensity) const
+	float FogDensity, const FVector3f& NearFogColor) const
 {
 	const TMap<FName, float> None;
 	const TMap<FName, float>& Params = Materials.IsValidIndex(Material) ? Materials[Material].Params : None;
 	const auto Param = [&Params](const TCHAR* Name, float Default) { const float* Found = Params.Find(FName(Name)); return Found ? *Found : Default; };
 	TMap<FName, float> Out;
-	// The waves: the normals of the source material (Tilling, NormalsScale of ocean_flatwater01 / ocean_roughwater01) and the
-	// animation of the mission or of the override (WavesSpeed, WindSpeed, WindDirection in radians). The mapping of the speeds is a
-	// decision of the client [inference]: the waves move at WavesSpeed x (1 + WindSpeed / 50).
-	const float Tilling = Param(TEXT("Tilling"), 32.0f);
-	const float Normals = Param(TEXT("NormalsScale"), 1.5f);
+	// The ocean rule of water.cfx (Kind 1; research water-shader.md) with the values of the source material (ocean_flatwater01,
+	// ocean_roughwater01: .mtl PublicParams, Specular, Shininess). The waves move with the animation of the mission or of the
+	// override (WavesSpeed, WindSpeed, WindDirection in radians): WavesSpeed x (1 + WindSpeed / 50) [inference: a mapping of the
+	// client; the CPU map of OceanParams is not known].
+	Out.Add(TEXT("Kind"), 1.0f);
 	Out.Add(TEXT("UseMeshUV"), 0.0f);
-	Out.Add(TEXT("UVScale"), OceanUVScale);
-	Out.Add(TEXT("Tilling"), Tilling);
-	Out.Add(TEXT("DetailTilling"), Tilling * 2.3f);
-	Out.Add(TEXT("NormalsScale"), Normals * 0.5f);
-	Out.Add(TEXT("DetailNormalsScale"), Normals * 0.3f);
+	Out.Add(TEXT("Tilling"), Param(TEXT("Tilling"), 32.0f));
+	Out.Add(TEXT("DetailTilling"), Param(TEXT("DetailTilling"), 3.0f));
+	Out.Add(TEXT("NormalsScale"), Param(TEXT("NormalsScale"), 1.5f));
+	Out.Add(TEXT("DetailNormalsScale"), Param(TEXT("DetailNormalsScale"), 0.5f));
+	Out.Add(TEXT("NormalStrength"), NormalStrength);
 	Out.Add(TEXT("WaveSpeed"), FMath::Max(0.05f, NumberOf(Animation, TEXT("WavesSpeed"), 1.0f)) * (1.0f + NumberOf(Animation, TEXT("WindSpeed"), 1.0f) / 50.0f));
-	// The strength of the wave normals is the wave size of the source (WavesSize: 0.08 the mission, 0.15 the beaches, 0.3 the storm of
-	// Cutlass Keys), at least the calm value of the rivers (0.04) [inference: a mapping of the client].
-	Out.Add(TEXT("NormalStrength"), FMath::Clamp(NumberOf(Animation, TEXT("WavesSize"), 0.08f), 0.04f, 0.5f));
 	Out.Add(TEXT("WindDirection"), NumberOf(Animation, TEXT("WindDirection"), 0.0f));
+	Out.Add(TEXT("SoftIntersectionFactor"), Param(TEXT("SoftIntersectionFactor"), 1.0f));
+	Out.Add(TEXT("RefractionBumpScale"), Param(TEXT("RefractionBumpScale"), 0.1f));
+	Out.Add(TEXT("ReflectionBumpScale"), Param(TEXT("ReflectionBumpScale"), 0.1f));
+	Out.Add(TEXT("FresnelGloss"), Param(TEXT("FresnelGloss"), 0.98f));
+	Out.Add(TEXT("ReflectionScale"), Param(TEXT("ReflectionScale"), 0.2f));
+	Out.Add(TEXT("Specular"), Param(TEXT("Specular"), 0.42f));
+	Out.Add(TEXT("Gloss"), Param(TEXT("Gloss"), 1.0f));
+	// The sky fallback of the reflection trace (SkyCubemapParams.x) and the simple surface fog after the ocean fog pass: the research does
+	// not prove these branches for the ocean [U]; the retail swim views show the sky in the near water and only the head of the swimmer
+	// above a blue surface (AST-200 check p1h: both on). The environment cube of the material x ReflectionScale stays under the trace.
+	Out.Add(TEXT("SkyFallback"), 1.0f);
+	Out.Add(TEXT("SurfaceFog"), 1.0f);
+	Out.Add(TEXT("CubeGain"), SourceUnit);
 	Out.Add(TEXT("FoamAmount"), Param(TEXT("FoamAmount"), 0.5f));
-	Out.Add(TEXT("FoamTilling"), Param(TEXT("FoamTilling"), 1.0f) * 10.0f);
+	Out.Add(TEXT("FoamTilling"), Param(TEXT("FoamTilling"), 1.0f));
 	Out.Add(TEXT("FoamSoftIntersectionFactor"), Param(TEXT("FoamSoftIntersectionFactor"), 1.0f));
+	Out.Add(TEXT("FoamCrestAmount"), Param(TEXT("FoamCrestAmount"), 0.0f));
+	Out.Add(TEXT("FoamTransitionSpeed"), Param(TEXT("FoamTransitionSpeed"), 5.0f));
+	// The water fog of the ocean pass (WaterFogVolume/OceanInto): the deep color FogColor x fogColorMultiplier and the shallow color
+	// nearFogColor, both x the sun color; the density per m.
 	Out.Add(TEXT("FogColorR"), FogColor.X);
 	Out.Add(TEXT("FogColorG"), FogColor.Y);
 	Out.Add(TEXT("FogColorB"), FogColor.Z);
+	Out.Add(TEXT("NearFogColorR"), NearFogColor.X);
+	Out.Add(TEXT("NearFogColorG"), NearFogColor.Y);
+	Out.Add(TEXT("NearFogColorB"), NearFogColor.Z);
 	Out.Add(TEXT("FogScale"), FogScale);
 	Out.Add(TEXT("Density"), FogDensity);
-	// The reflection: the Fresnel of the ocean shader (water.cfx: WaterSpec0 0.065) as F0 = 0.08 x Specular.
-	Out.Add(TEXT("Specular"), 0.065f / 0.08f);
 	return Out;
 }
 
@@ -369,33 +430,79 @@ void USwcWaterSubsystem::ApplyOverrides(UMaterialInstanceDynamic* Material) cons
 	}
 }
 
-UMaterialInstanceDynamic* USwcWaterSubsystem::MakeMaterial(const swc::water::Body& Body) const
+UMaterialInstanceDynamic* USwcWaterSubsystem::MakeMaterial(const swc::water::Body& Body)
 {
 	UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Parent, WaterActor);
 	const TMap<FName, float> None;
 	const TMap<FName, float>& Params = Materials.IsValidIndex(Body.material) ? Materials[Body.material].Params : None;
 	const auto Param = [&Params](const TCHAR* Name, float Default) { const float* Found = Params.Find(FName(Name)); return Found ? *Found : Default; };
-	// The values of the source material (.mtl PublicParams of the shader WaterVolume) and of the body (the water fog of its
-	// component: FogColor, fogDensity / WaterFogDensity, fogColorMultiplier / FogColorScale).
+	// The volume rule of watervolume.cfx (Kind 0; research water-shader.md) with the values of the source material (.mtl
+	// PublicParams of the shader WaterVolume, Specular, Shininess) and of the body (the water fog of its component: FogColor,
+	// fogDensity / WaterFogDensity, fogColorMultiplier / FogColorScale; FogColorAffectedBySun is true in 334 of the 345 river components
+	// and is not in the body file: true).
 	const bool bRiver = Body.kind == swc::water::Kind::river;
+	Material->SetScalarParameterValue(TEXT("Kind"), 0.0f);
 	Material->SetScalarParameterValue(TEXT("UseMeshUV"), bRiver ? 1.0f : 0.0f);
 	Material->SetScalarParameterValue(TEXT("UVScale"), VolumeUVScale);
 	Material->SetScalarParameterValue(TEXT("Tilling"), Param(TEXT("Tilling"), 1.0f));
 	Material->SetScalarParameterValue(TEXT("DetailTilling"), Param(TEXT("DetailTilling"), 2.0f));
 	Material->SetScalarParameterValue(TEXT("NormalsScale"), Param(TEXT("NormalsScale"), 0.5f));
 	Material->SetScalarParameterValue(TEXT("DetailNormalsScale"), Param(TEXT("DetailNormalsScale"), 0.5f));
+	Material->SetScalarParameterValue(TEXT("NormalStrength"), NormalStrength);
 	Material->SetScalarParameterValue(TEXT("FlowSpeed"), bRiver ? Param(TEXT("WaterFlowSpeed"), 0.0f) : 0.0f);
 	Material->SetScalarParameterValue(TEXT("WaveSpeed"), bRiver ? 0.0f : 0.3f);
+	Material->SetScalarParameterValue(TEXT("SoftIntersectionFactor"), Param(TEXT("SoftIntersectionFactor"), 1.0f));
+	// The literal constants of watervolume.cfx: the refraction offset 0.1, the reflection normal 0.3 (in the material).
+	Material->SetScalarParameterValue(TEXT("RefractionBumpScale"), 0.1f);
+	Material->SetScalarParameterValue(TEXT("Specular"), Param(TEXT("Specular"), 0.05f));
+	Material->SetScalarParameterValue(TEXT("Gloss"), Param(TEXT("Gloss"), 1.0f));
+	Material->SetScalarParameterValue(TEXT("RealtimeReflMul"), Param(TEXT("RealtimeReflMul"), 1.0f));
+	Material->SetScalarParameterValue(TEXT("EnvCubeReflMul"), Param(TEXT("EnvCubeReflMul"), 1.0f));
+	Material->SetScalarParameterValue(TEXT("SkyFallback"), 1.0f);
+	Material->SetScalarParameterValue(TEXT("SunAffected"), 1.0f);
 	Material->SetScalarParameterValue(TEXT("FoamAmount"), Param(TEXT("FoamAmount"), 0.0f));
 	Material->SetScalarParameterValue(TEXT("FoamTilling"), Param(TEXT("FoamTilling"), 1.0f));
 	Material->SetScalarParameterValue(TEXT("FoamSoftIntersectionFactor"), Param(TEXT("FoamSoftIntersectionFactor"), 1.0f));
 	Material->SetVectorParameterValue(TEXT("FogColor"), FLinearColor(Body.fog[0], Body.fog[1], Body.fog[2], 1.0f));
 	Material->SetScalarParameterValue(TEXT("FogScale"), Body.scale);
 	Material->SetScalarParameterValue(TEXT("Density"), Body.density);
-	// The reflection: the Fresnel of the water volume shader (watervolume.cfx: FresnelBias 0.05, power 5) as F0 = 0.08 x Specular.
-	Material->SetScalarParameterValue(TEXT("Specular"), 0.05f / 0.08f);
+	if (SkyCube != nullptr)
+	{
+		Material->SetTextureParameterValue(TEXT("SkyCube"), SkyCube);
+	}
 	ApplyOverrides(Material);
+	SurfaceMaterials.Add(Material);
 	return Material;
+}
+
+void USwcWaterSubsystem::UpdateSkyCube()
+{
+	// The sky fallback of the reflection: the cube of the sky light of the environment (the world probe of the source, docs/ENVIRONMENT.md);
+	// the material multiplies it by the color and intensity of the sky light (View.SkyLightColor).
+	UTextureCube* Found = nullptr;
+	for (TObjectIterator<USkyLightComponent> It; It; ++It)
+	{
+		if (It->GetWorld() == GetWorld() && It->IsVisible() && It->Cubemap != nullptr)
+		{
+			Found = It->Cubemap;
+			break;
+		}
+	}
+	if (Found == nullptr || Found == SkyCube)
+	{
+		return;
+	}
+	SkyCube = Found;
+	UE_LOG(LogSwcWater, Log, TEXT("water: the sky cube of the reflection is %s"), *Found->GetName());
+	SurfaceMaterials.RemoveAll([](const TObjectPtr<UMaterialInstanceDynamic>& Instance) { return Instance == nullptr; });
+	for (UMaterialInstanceDynamic* Instance : SurfaceMaterials)
+	{
+		Instance->SetTextureParameterValue(TEXT("SkyCube"), SkyCube);
+	}
+	if (OceanMaterial != nullptr)
+	{
+		OceanMaterial->SetTextureParameterValue(TEXT("SkyCube"), SkyCube);
+	}
 }
 
 UStaticMesh* USwcWaterSubsystem::BuildMesh(const swc::water::Body& Body, const FVector& Center, UMaterialInterface* Material) const
@@ -563,6 +670,10 @@ void USwcWaterSubsystem::UpdateOcean(const FVector& View, float DeltaTime)
 			}
 		}
 		OceanMaterial = UMaterialInstanceDynamic::Create(Parent, WaterActor);
+		if (SkyCube != nullptr)
+		{
+			OceanMaterial->SetTextureParameterValue(TEXT("SkyCube"), SkyCube);
+		}
 		UStaticMesh* Mesh = BuildMesh(Grid, FVector::ZeroVector, OceanMaterial);
 		Meshes.Add(Mesh);
 		Ocean = NewObject<UStaticMeshComponent>(WaterActor);
@@ -614,13 +725,16 @@ void USwcWaterSubsystem::UpdateOcean(const FVector& View, float DeltaTime)
 	}
 	for (const TPair<FName, float>& Pair : OceanNow)
 	{
-		if (!Pair.Key.ToString().StartsWith(TEXT("FogColor")))
+		const FString Key = Pair.Key.ToString();
+		if (!Key.StartsWith(TEXT("FogColor")) && !Key.StartsWith(TEXT("NearFogColor")))
 		{
 			OceanMaterial->SetScalarParameterValue(Pair.Key, Pair.Value);
 		}
 	}
 	OceanMaterial->SetVectorParameterValue(TEXT("FogColor"), FLinearColor(OceanNow.FindRef(TEXT("FogColorR")), OceanNow.FindRef(TEXT("FogColorG")),
 		OceanNow.FindRef(TEXT("FogColorB")), 1.0f));
+	OceanMaterial->SetVectorParameterValue(TEXT("NearFogColor"), FLinearColor(OceanNow.FindRef(TEXT("NearFogColorR")), OceanNow.FindRef(TEXT("NearFogColorG")),
+		OceanNow.FindRef(TEXT("NearFogColorB")), 1.0f));
 	ApplyOverrides(OceanMaterial);
 }
 
