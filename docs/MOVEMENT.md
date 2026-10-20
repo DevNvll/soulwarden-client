@@ -141,8 +141,7 @@ fragment plays on after the motion ends:
 
 `USwcCharacterMovement` keeps the fragment `Nav_Stop+TAG` in the states Stop and Idle for that time (the motion does not
 change); a move input, a jump, or a posture change ends it. `USwcPlayerActions` gives the lengths of the Nav_Stop fragments of
-the weapon in the hand (`SetNavStopLengths`), else the unarmed fragments of `locomotion.json` apply. Not copied: the marks
-PreventNav and ResumeNav (0.1 s; a move input in that time does not start the Nav in retail [inference, research p3g-move 2]).
+the weapon in the hand (`SetNavStopLengths`), else the unarmed fragments of `locomotion.json` apply.
 
 Check (development runs, 2026-10-19; `SWC_WORK/evidence/AST-199/`): the replays of the set 6 takes `player-move-drawn` and
 `player-move-sheathed-draw-jump` play `Nav_Stop+Sprint` at each stop of a sprint (forward, right, left) and `Nav_Stop+Run` at
@@ -151,6 +150,19 @@ the stop of the run back, drawn and sheathed. The side-by-side videos `sbs-ast19
 the retail feet 1.6 s after the last key of the part before (before, its travel came 0.4 s after a key-up and cut the stop).
 The content: `tools/convert-player.sh locomotion`, `actions`, `base --force`, `clips Male 1H_Melee,Rapier --force` (and Female),
 `tools/import-player.sh`.
+
+The marks PreventNav and ResumeNav (AST-204): each Nav_Stop fragment has the mark PreventNav at 0 and the mark ResumeNav at 0.1
+s (unarmed: the run and the sprint; the unarmed walk 0.167 s), 0.133 s (the 2H weapons, the staffs, the spear; the sprint of the
+ranged weapons and of the dagger), or 0.167 s (the walk of the ranged weapons, the club, the 2H melee, the warhammer) [D ADB;
+the converted fragments of `actions.json` and `locomotion.json`]. The native Nav queues Strafe from Nav_Stop only when its
+markers are clear [inference, research p3g-move 2]. Thus a move input between the two marks does not start the Nav: the stop
+continues. An input that is held at ResumeNav starts the Nav then; an input after ResumeNav starts it at once
+(`swc::move::nav_stop_holds_input`). A jump is not held. `USwcPlayerActions` gives the marks of the fragments of the weapon in
+the hand (`SetNavStopHold`), else the marks of the unarmed fragments of `locomotion.json` apply. The log lines: "move:
+Nav_Stop+TAG holds the move input at T s (PreventNav)" and "move: the Nav starts at T s in Nav_Stop+TAG". The check: the AST-204
+checks of `native_sprint_stop_tests` (`tools/test-movement.sh`), and the drive `tests/drive/ast204-stop-press.txt` (a press 0.05
+s and a press 0.2 s after the stop of a sprint and of a run back; `SWC_WORK/evidence/AST-204/`). No take of set 6 has a quick
+move press after a stop: no side-by-side video.
 
 ### Open point: the long travel (2026-10-19)
 

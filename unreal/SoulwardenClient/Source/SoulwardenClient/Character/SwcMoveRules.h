@@ -166,6 +166,13 @@ inline constexpr float kStopFirstFrame = 1.0F / 30.0F;
  * The tag selects the Nav_Stop fragment (the braking clips: unarmed_run_stop_blend, unarmed_sprint_stop_v2_blend) [D playeractions_nav].
  */
 [[nodiscard]] int nav_stop_tag(float speedAtRequest, bool fromSprint);
+/**
+ * @return True when the fragment Nav_Stop holds a move input at `seconds` in it (AST-204): from its mark PreventNav to its mark
+ * ResumeNav (unarmed: the run and the sprint 0 to 0.1 s, the walk 0 to 0.167 s; a 2H sprint 0 to 0.133 s) [D playeractions_nav].
+ * The native Nav queues Strafe from Nav_Stop only when its markers are clear [inference, research p3g-move 2]; an input that is
+ * held at ResumeNav starts the Nav then. A fragment with no ResumeNav (resumeNav <= preventNav) holds nothing.
+ */
+[[nodiscard]] bool nav_stop_holds_input(float seconds, float preventNav, float resumeNav);
 
 /** A ground velocity in the yaw frame of the camera (m/s): x side (right), y forward. */
 struct Planar {

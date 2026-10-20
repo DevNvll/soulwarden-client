@@ -94,6 +94,14 @@ public:
 		NavStopLengths[2] = Sprint;
 	}
 	/**
+	 * The marks PreventNav and ResumeNav of the Nav_Stop fragments of the weapon in the hand (AST-204; s, the starts; the NavType tags
+	 * Walk, Run, Sprint as SetNavStopLengths). Between the two marks a move input does not start the Nav [D playeractions_nav].
+	 */
+	void SetNavStopHold(int32 NavType, float PreventNav, float ResumeNav)
+	{
+		NavStopHolds[NavType] = FVector2f(PreventNav, ResumeNav);
+	}
+	/**
 	 * The block (stage P3.G, docs/ACTIONS.md "The block"): the tag Blocking of the movement data (the native Nav at 2.0 m/s,
 	 * 25 / 25 m/s^2; the condition SprintDisabled: no sprint). The start of a block clears the motion (ClearMotion of
 	 * Block_UpperBody) [D playeractions_block].
@@ -249,6 +257,12 @@ private:
 	float NavStopLengths[3] = {0.0f, 0.0f, 0.0f};
 	/** @return The length of the Nav_Stop fragment that plays (s). */
 	float NavStopLength() const;
+	/** AST-204: the marks PreventNav and ResumeNav of the Nav_Stop fragments of the weapon in the hand (SetNavStopHold), and the first
+	 *  time in the fragment that held a move input (a negative value: none). */
+	FVector2f NavStopHolds[3] = {FVector2f::ZeroVector, FVector2f::ZeroVector, FVector2f::ZeroVector};
+	float NavStopHeldAt = -1.0f;
+	/** @return True when the Nav_Stop fragment that plays holds a move input now (swc::move::nav_stop_holds_input). */
+	bool NavStopHoldsInput() const;
 	bool bAiming = false;
 	bool bBlocking = false;
 	float SkipSprintStartLeft = 0.0f;

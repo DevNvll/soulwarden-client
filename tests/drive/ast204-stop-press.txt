@@ -1,0 +1,23 @@
+# AST-204: the marks PreventNav and ResumeNav of Nav_Stop. On the flat sand of set 3: a sprint forward, the stop, a press of W
+# 0.05 s after the key-up (in PreventNav: the Nav starts at ResumeNav 0.1 s); a stop and a press 0.2 s after it (after ResumeNav: the
+# Nav at once); the same two with a run back (S, Nav_Stop+Run). The log lines "move: Nav_Stop+TAG holds the move input" and "move:
+# the Nav starts at T s in Nav_Stop+TAG". The routes: tests/drive/ast204-stop-press-routes.txt. Times in seconds from the
+# possession; view: the heading (clockwise from north), the pitch.
+1.000 tick
+2.000 tick
+4.000 view 0.00 -8.00
+5.000 move 0 1
+8.000 move 0 0
+8.050 move 0 1
+9.500 move 0 0
+9.700 move 0 1
+11.000 move 0 0
+13.000 tick
+14.500 view 0.00 -8.00
+15.000 move 0 -1
+17.000 move 0 0
+17.050 move 0 -1
+18.500 move 0 0
+18.700 move 0 -1
+20.000 move 0 0
+22.000 tick

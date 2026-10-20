@@ -1,0 +1,7 @@
+# The routes of tests/drive/ast204-stop-press.txt (AST-204): the hour 12:00, the start place on the dry sand of set 3 (the retail
+# take player-move-drawn), and the same place again before the run back. Times on the clock of the drive script.
+0.500 ignore on
+0.600 world-time 12:00
+1.000 heal
+3.000 travel 10013.101 2293.091 40.526
+13.500 travel 10013.101 2305.789 40.862

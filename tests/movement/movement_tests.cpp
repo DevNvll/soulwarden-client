@@ -393,6 +393,26 @@ void native_sprint_stop_tests()
 	check(move::nav_stop_tag(5.0F, false) == 2 && move::nav_stop_tag(4.0F, false) == 1 && move::nav_stop_tag(2.1F, false) == 1
 			&& move::nav_stop_tag(2.0F, false) == 0,
 		"Nav_Stop of a Nav: Sprint from 5.0 m/s, Run from 2.1 m/s, else Walk");
+	// AST-204: the marks PreventNav and ResumeNav of Nav_Stop (player.adb: the run 0 to 0.1 s, the walk 0 to 0.16667 s).
+	check(move::nav_stop_holds_input(0.0F, 0.0F, 0.1F) && move::nav_stop_holds_input(0.099F, 0.0F, 0.1F)
+			&& !move::nav_stop_holds_input(0.1F, 0.0F, 0.1F) && !move::nav_stop_holds_input(0.5F, 0.0F, 0.1F),
+		"Nav_Stop+Run holds a move input from PreventNav 0 to ResumeNav 0.1 s");
+	check(move::nav_stop_holds_input(0.15F, 0.0F, 0.16667F) && !move::nav_stop_holds_input(0.17F, 0.0F, 0.16667F),
+		"Nav_Stop+Walk holds a move input to ResumeNav 0.167 s");
+	check(!move::nav_stop_holds_input(0.0F, 0.0F, 0.0F), "a Nav_Stop fragment with no ResumeNav holds nothing");
+	// A press at 0.05 s in the stop (30 steps each second): the Nav starts at the first step at or after ResumeNav; a press at 0.2 s
+	// starts it at once.
+	const auto navStart = [](float press) {
+		for (int step = 1; step < 60; ++step) {
+			const float seconds = static_cast<float>(step) / 30.0F;
+			if (seconds >= press && !move::nav_stop_holds_input(seconds, 0.0F, 0.1F)) {
+				return seconds;
+			}
+		}
+		return -1.0F;
+	};
+	check(near(navStart(0.05F), 0.1F, 0.034F) && navStart(0.05F) >= 0.1F, "a press at 0.05 s: the Nav at ResumeNav, " + std::to_string(navStart(0.05F)));
+	check(near(navStart(0.2F), 0.2F, 0.034F), "a press at 0.2 s: the Nav at once, " + std::to_string(navStart(0.2F)));
 }
 
 void limit_tests(const move::Data& data)

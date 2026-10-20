@@ -264,6 +264,11 @@ int nav_stop_tag(float speedAtRequest, bool fromSprint)
 	return speedAtRequest >= 5.0F ? 2 : speedAtRequest >= 2.1F ? 1 : 0;
 }
 
+bool nav_stop_holds_input(float seconds, float preventNav, float resumeNav)
+{
+	return seconds >= preventNav && seconds < resumeNav;
+}
+
 Planar camera_relative_target(Planar direction, Planar speed, float backwards)
 {
 	const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);

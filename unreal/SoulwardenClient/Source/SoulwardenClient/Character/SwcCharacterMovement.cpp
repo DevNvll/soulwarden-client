@@ -366,6 +366,23 @@ float USwcCharacterMovement::NavStopLength() const
 	return Fragment != nullptr ? Fragment->Marker(TEXT("NavStop_Exit"), Locomotion->Length(*Fragment)) : 0.0f;
 }
 
+bool USwcCharacterMovement::NavStopHoldsInput() const
+{
+	if ((Move != ESwcMove::Stop && Move != ESwcMove::Idle) || StopNavType == INDEX_NONE)
+	{
+		return false;
+	}
+	// The weapon fragment (its length is set), else the unarmed fragment of locomotion.json.
+	FVector2f Hold = NavStopHolds[StopNavType];
+	if (NavStopLengths[StopNavType] <= 0.0f)
+	{
+		const FSwcFragment* Fragment = FragmentData(FString(TEXT("Nav_Stop+")) + NavTypeTags[StopNavType]);
+		Hold = Fragment != nullptr ? FVector2f(Fragment->Marker(TEXT("PreventNav"), 0.0f), Fragment->Marker(TEXT("ResumeNav"), 0.0f))
+			: FVector2f::ZeroVector;
+	}
+	return swc::move::nav_stop_holds_input(StopFragmentTime, Hold.X, Hold.Y);
+}
+
 FString USwcCharacterMovement::GetBaseFragment() const
 {
 	if ((Move == ESwcMove::Stop || Move == ESwcMove::Idle) && StopNavType != INDEX_NONE && StopFragmentTime < NavStopLength())
@@ -454,9 +471,23 @@ void USwcCharacterMovement::SetMove(ESwcMove Next)
 	{
 		StopNavType = swc::move::nav_stop_tag(Speed, IsSprint(Move));
 		StopFragmentTime = 0.0f;
+		NavStopHeldAt = -1.0f;
 	}
 	else if (Next != ESwcMove::Stop && Next != ESwcMove::Idle)
 	{
+		if (StopNavType != INDEX_NONE && (IsSprint(Next) || IsNav(Next)) && StopFragmentTime < NavStopLength())
+		{
+			// AST-204: the line of the check (the input log of a stop with a quick move press).
+			if (NavStopHeldAt >= 0.0f)
+			{
+				UE_LOG(LogSwcBackend, Log, TEXT("move: the Nav starts at %.3f s in Nav_Stop+%s (the input held from %.3f s to ResumeNav)"),
+					StopFragmentTime, NavTypeTags[StopNavType], NavStopHeldAt);
+			}
+			else
+			{
+				UE_LOG(LogSwcBackend, Log, TEXT("move: the Nav starts at %.3f s in Nav_Stop+%s"), StopFragmentTime, NavTypeTags[StopNavType]);
+			}
+		}
 		StopNavType = INDEX_NONE;
 	}
 	Move = Next;
@@ -609,7 +640,15 @@ void USwcCharacterMovement::UpdateState(float DeltaTime)
 			return;
 		}
 	}
-	if (!bInput)
+	// AST-204: the fragment Nav_Stop holds a move input from its mark PreventNav to its mark ResumeNav; an input that is held at
+	// ResumeNav starts the Nav then [D playeractions_nav; inference, research p3g-move 2].
+	const bool bHeld = bInput && NavStopHoldsInput();
+	if (bHeld && NavStopHeldAt < 0.0f)
+	{
+		NavStopHeldAt = StopFragmentTime;
+		UE_LOG(LogSwcBackend, Log, TEXT("move: Nav_Stop+%s holds the move input at %.3f s (PreventNav)"), NavTypeTags[StopNavType], StopFragmentTime);
+	}
+	if (!bInput || bHeld)
 	{
 		SetMove(Speed > 2.0f ? ESwcMove::Stop : ESwcMove::Idle);
 		return;

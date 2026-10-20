@@ -1463,6 +1463,9 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	{
 		const int32* Stop = Drawn != nullptr ? Drawn->Stance.Find(NavTypes[Type]) : nullptr;
 		StopLengths[Type] = Stop != nullptr ? NavStopLength(*Data, Data->Fragments[*Stop]) : 0.0f;
+		// AST-204: the marks PreventNav and ResumeNav of the fragment (a move input between them does not start the Nav).
+		Character()->GetSwcMovement()->SetNavStopHold(Type, Stop != nullptr ? Data->Fragments[*Stop].MarkTime(TEXT("PreventNav"), 0.0f) : 0.0f,
+			Stop != nullptr ? Data->Fragments[*Stop].MarkTime(TEXT("ResumeNav"), 0.0f) : 0.0f);
 	}
 	Character()->GetSwcMovement()->SetNavStopLengths(StopLengths[0], StopLengths[1], StopLengths[2]);
 	// Prone sheathes the weapons, but a rifle (the musket): the transitions to prone set Unarmed and AutoUnsheathe [D idleposetransition].
