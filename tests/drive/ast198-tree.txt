@@ -1,0 +1,49 @@
+# AST-198: the entry and the exit of the prompt of a tree (the sphere 1.8 m of its bound, not the range of 10 m): a
+# slow walk to it from the east (the walk key), a stop, a walk back out; two times.
+# The line "focus: ..." of -SwcDebugLines shows the distance from the point of the character to the centre of the bound; the log
+# line "interact: focus" has the distance at each change. Times in seconds from the possession; view: the heading (clockwise
+# from north), the pitch.
+# The start place: 9432.49 4477.97 114.03, 5.5 m east of the tree. The routes: tests/drive/ast198-tree-routes.txt.
+1.000 tick
+2.000 tick
+3.000 tick
+3.500 key 2
+4.000 tick
+4.100 view 270.00 -12.00
+4.500 view 270.00 -12.00
+5.000 tick
+5.500 view 270.00 -12.00
+6.000 tick
+6.000 view 270.00 -12.00
+6.500 walk 1
+6.500 move 0 1
+7.000 tick
+8.000 tick
+9.000 tick
+10.000 tick
+11.000 tick
+11.000 move 0 0
+11.600 move 0 -1
+12.000 tick
+13.000 tick
+14.000 tick
+15.000 tick
+15.600 move 0 0
+15.800 walk 0
+16.000 tick
+16.500 walk 1
+16.500 move 0 1
+17.000 tick
+18.000 tick
+19.000 tick
+20.000 tick
+21.000 tick
+21.000 move 0 0
+21.600 move 0 -1
+22.000 tick
+23.000 tick
+24.000 tick
+25.000 tick
+25.600 move 0 0
+25.800 walk 0
+26.000 tick

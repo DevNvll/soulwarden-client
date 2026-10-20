@@ -1,0 +1,15 @@
+# The routes of tests/drive/ast198-body.txt (AST-198): the tools of the gathering (the prompt of a body needs the skinning
+# knife), the loot of each kill, the hour 12:00. Times on the clock of the drive script.
+0.500 ignore on
+0.600 world-time 12:00
+1.000 tool 1hHatchetT1 33
+1.500 tool 1hPickT1 36
+2.000 tool 1hSkinningKnifeT1 35
+2.500 loot on
+3.000 heal
+5.000 spawn Wolf_Grey_7 0.00 3.00 0.40 --yaw 180
+6.000 ignore off
+9.000 heal
+16.000 ignore on
+16.500 heal
+34.000 untool 35

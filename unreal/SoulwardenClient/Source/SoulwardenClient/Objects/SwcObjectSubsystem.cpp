@@ -343,6 +343,7 @@ bool USwcObjectSubsystem::LoadTables(FString& OutReport)
 		Template.RangeSq = static_cast<float>(Bound->GetNumberField(TEXT("rangeSq")));
 		Template.bLineOfSight = Bound->GetBoolField(TEXT("lineOfSight"));
 		Template.Translation = ReadPlace(Bound->GetArrayField(TEXT("translation")));
+		ReadShape(Info, Template.Shape);
 		MaxRangeMeters = FMath::Max(MaxRangeMeters, FMath::Sqrt(static_cast<double>(Template.RangeSq)));
 		for (const TSharedPtr<FJsonValue>& Index : Info->GetArrayField(TEXT("visuals")))
 		{
@@ -369,11 +370,12 @@ bool USwcObjectSubsystem::LoadTables(FString& OutReport)
 		{
 			const TArray<TSharedPtr<FJsonValue>>& Row = Value->AsArray();
 			FNodeType Type;
-			if (Row.Num() == 3)
+			if (Row.Num() >= 3)
 			{
 				Type.Template = static_cast<int32>(Row[0]->AsNumber());
 				Type.Row = static_cast<int32>(Row[1]->AsNumber());
 				Type.Visual = static_cast<int32>(Row[2]->AsNumber());
+				Type.Radius = Row.Num() >= 4 ? static_cast<float>(Row[3]->AsNumber()) : -1.0f;
 			}
 			Types.Add(Type);
 		}
@@ -508,6 +510,7 @@ bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, FRegion& Out)
 			Bound.EnginePlace = ReadPlace(BoundInfo->GetArrayField(TEXT("position")));
 			Bound.RangeSq = static_cast<float>(BoundInfo->GetNumberField(TEXT("rangeSq")));
 			Bound.bLineOfSight = BoundInfo->GetBoolField(TEXT("lineOfSight"));
+			ReadShape(BoundInfo, Bound.Shape);
 			MaxRangeMeters = FMath::Max(MaxRangeMeters, FMath::Sqrt(static_cast<double>(Bound.RangeSq)));
 			Bound.LoreBit = static_cast<int32>(BoundInfo->GetIntegerField(TEXT("lore")));
 			for (const TSharedPtr<FJsonValue>& OptionValue : BoundInfo->GetArrayField(TEXT("options")))
@@ -663,6 +666,7 @@ void USwcObjectSubsystem::MakeTarget(const FString& Key, FName Kind, const swc::
 	Out.Place = ToUnreal(Bound.EnginePlace);
 	Out.RangeSq = Bound.RangeSq;
 	Out.bLineOfSight = Bound.bLineOfSight;
+	Out.Shape = Bound.Shape;
 	Out.Options.Reset();
 	for (const TPair<int32, uint64>& Pair : Bound.Options)
 	{
@@ -724,8 +728,9 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 						{
 							continue;   // the cell of another bound of the object
 						}
-						const double DistanceSq = FVector3d::DistSquared(From, Bound.EnginePlace);
-						if (DistanceSq > (bUsableOnly ? static_cast<double>(Bound.RangeSq) : RadiusMeters * RadiusMeters))
+						// The prompt: the candidate shape of the bound has the point of the character (AST-198), not its range.
+						if (bUsableOnly ? !InShape(Bound, swc::net::Quaternion{0.0F, 0.0F, 0.0F, 1.0F}, From)
+										: FVector3d::DistSquared(From, Bound.EnginePlace) > RadiusMeters * RadiusMeters)
 						{
 							continue;
 						}
@@ -762,8 +767,15 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 				const FTemplate& Template = Templates[Region->Types[Node.type].Template];
 				FBound Bound;
 				Bound.EnginePlace = FVector3d(Node.x, Node.y, Node.z) + Template.Translation;
-				const double DistanceSq = FVector3d::DistSquared(From, Bound.EnginePlace);
-				if (DistanceSq > (bUsableOnly ? static_cast<double>(Template.RangeSq) : RadiusMeters * RadiusMeters))
+				Bound.RangeSq = Template.RangeSq;
+				// The shape of the slice with the sphere radius of the variant (the small iron vein: 3 m, not the 2 m of its slice).
+				Bound.Shape = Template.Shape;
+				if (Region->Types[Node.type].Radius > 0.0f && Bound.Shape.type == swc::interact::Shape::Type::sphere)
+				{
+					Bound.Shape.radius = Region->Types[Node.type].Radius;
+				}
+				if (bUsableOnly ? !InShape(Bound, swc::net::Quaternion{0.0F, 0.0F, 0.0F, 1.0F}, From)
+								: FVector3d::DistSquared(From, Bound.EnginePlace) > RadiusMeters * RadiusMeters)
 				{
 					continue;
 				}
@@ -771,7 +783,6 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 				const swc::objects::BoundIds Ids = swc::objects::bound_ids(Template.Root, Group, Template.BoundEntity, Template.Component, Template.OptionEntity);
 				Bound.Slot = Template.Slot;
 				Bound.Target = Ids.target;
-				Bound.RangeSq = Template.RangeSq;
 				Bound.bLineOfSight = Template.bLineOfSight;
 				Bound.Options.Emplace(GatherOptionIndex, Ids.optionEntity);
 				FSwcWorldObjectTarget Target;
@@ -897,10 +908,15 @@ void USwcObjectSubsystem::AddBodies(const FVector3d& From, double RadiusMeters, 
 		}
 		const FTemplate& Template = Templates[Body->Key];
 		const swc::net::WorldPosition& Feet = Entity.samples.back().position;
+		const swc::net::Quaternion& Turn = Entity.samples.back().rotation;
 		FBound Bound;
-		Bound.EnginePlace = FVector3d(Feet.x, Feet.y, Feet.z) + Template.Translation;
-		const double DistanceSq = FVector3d::DistSquared(From, Bound.EnginePlace);
-		if (DistanceSq > (bUsableOnly ? static_cast<double>(Template.RangeSq) : RadiusMeters * RadiusMeters))
+		// The bound in the frame of the creature (the body of the wolf: the box 2.5 m, 1 m above the feet; AST-198).
+		const float Offset[3]{static_cast<float>(Template.Translation.X), static_cast<float>(Template.Translation.Y), static_cast<float>(Template.Translation.Z)};
+		const swc::net::WorldPosition Place = swc::interact::transform_point(Feet, Turn, Offset);
+		Bound.EnginePlace = FVector3d(Place.x, Place.y, Place.z);
+		Bound.RangeSq = Template.RangeSq;
+		Bound.Shape = Template.Shape;
+		if (bUsableOnly ? !InShape(Bound, Turn, From) : FVector3d::DistSquared(From, Bound.EnginePlace) > RadiusMeters * RadiusMeters)
 		{
 			continue;
 		}
@@ -909,7 +925,6 @@ void USwcObjectSubsystem::AddBodies(const FVector3d& From, double RadiusMeters, 
 		const swc::objects::BoundIds Ids = swc::objects::bound_ids(Template.Root, Group, Template.BoundEntity, Template.Component, Template.OptionEntity);
 		Bound.Slot = Template.Slot;
 		Bound.Target = Ids.target;
-		Bound.RangeSq = Template.RangeSq;
 		Bound.bLineOfSight = Template.bLineOfSight;
 		Bound.Options.Emplace(GatherOptionIndex, Ids.optionEntity);
 		FSwcWorldObjectTarget Target;
@@ -955,6 +970,81 @@ bool USwcObjectSubsystem::FindNearestObject(const FVector& From, FSwcWorldObject
 	}
 	Out = *Best;
 	return true;
+}
+
+bool USwcObjectSubsystem::FindFocusObject(const FVector& From, const float Camera[3], const float Forward[3], FSwcWorldObjectTarget& Out,
+	float& OutScore) const
+{
+	if (!bTablesLoaded)
+	{
+		return false;
+	}
+	const swc::net::WorldPosition Engine = SwcUnrealToEngine(From);
+	TArray<FSwcWorldObjectTarget> Found;
+	AddTargets(FVector3d(Engine.x, Engine.y, Engine.z), MaxRangeMeters, true, Found);
+	const FSwcWorldObjectTarget* Best = nullptr;
+	for (const FSwcWorldObjectTarget& Target : Found)
+	{
+		// The retail score (0x490FED0): a strictly smaller score replaces the best one; an equal score keeps the first.
+		const float Place[3]{Target.EnginePlace.x, Target.EnginePlace.y, Target.EnginePlace.z};
+		float Score = 0.0f;
+		if (swc::interact::line_score(Camera, Forward, Place, Score) && (Best == nullptr || Score < OutScore))
+		{
+			Best = &Target;
+			OutScore = Score;
+		}
+	}
+	if (Best == nullptr)
+	{
+		return false;
+	}
+	Out = *Best;
+	return true;
+}
+
+void USwcObjectSubsystem::ReadShape(const TSharedPtr<FJsonObject>& Info, swc::interact::Shape& Out)
+{
+	Out = swc::interact::Shape();
+	const TSharedPtr<FJsonObject>* Shape = nullptr;
+	if (!Info.IsValid() || !Info->TryGetObjectField(TEXT("shape"), Shape) || !Shape->IsValid())
+	{
+		return;
+	}
+	const FString Type = (*Shape)->GetStringField(TEXT("type"));
+	using EType = swc::interact::Shape::Type;
+	Out.type = Type == TEXT("sphere") ? EType::sphere : Type == TEXT("box") ? EType::box : Type == TEXT("capsule") ? EType::capsule
+		: Type == TEXT("cylinder") ? EType::cylinder : EType::none;
+	double Number = 0.0;
+	if ((*Shape)->TryGetNumberField(TEXT("radius"), Number))
+	{
+		Out.radius = static_cast<float>(Number);
+	}
+	if ((*Shape)->TryGetNumberField(TEXT("height"), Number))
+	{
+		Out.height = static_cast<float>(Number);
+	}
+	const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+	if ((*Shape)->TryGetArrayField(TEXT("dimensions"), Values) && Values->Num() == 3)
+	{
+		for (int32 Axis = 0; Axis < 3; ++Axis)
+		{
+			Out.dimensions[Axis] = static_cast<float>((*Values)[Axis]->AsNumber());
+		}
+	}
+	if ((*Shape)->TryGetArrayField(TEXT("basis"), Values) && Values->Num() == 9)
+	{
+		for (int32 Index = 0; Index < 9; ++Index)
+		{
+			Out.basis[Index] = static_cast<float>((*Values)[Index]->AsNumber());
+		}
+	}
+}
+
+bool USwcObjectSubsystem::InShape(const FBound& Bound, const swc::net::Quaternion& Rotation, const FVector3d& Point)
+{
+	return swc::interact::contains(Bound.Shape, swc::net::WorldPosition{static_cast<float>(Bound.EnginePlace.X), static_cast<float>(Bound.EnginePlace.Y),
+		static_cast<float>(Bound.EnginePlace.Z)}, Rotation, swc::net::WorldPosition{static_cast<float>(Point.X), static_cast<float>(Point.Y),
+		static_cast<float>(Point.Z)}, Bound.RangeSq);
 }
 
 void USwcObjectSubsystem::GetObjectsNear(const FVector& From, double RadiusMeters, TArray<FSwcWorldObjectTarget>& Out) const

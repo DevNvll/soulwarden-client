@@ -718,6 +718,74 @@ void test_life_messages() {
  * backend, world/interactions.cpp: K = root XOR G), the focus, and the use of an option (the timed use of the powder keg and its
  * cancels; the hold of the prompt of the loot bag). The templates are the values of interaction-data.json of the backend copy.
  */
+// AST-198: the candidate shape of a bound (research prompt-range.md: the sphere 0xCC2BE0 strict, the box 0xCC21F0 inclusive) and the focus
+// score of the camera line (0x490FED0: the squared distance to the forward line, no score at or behind the camera plane, the first of
+// equal scores).
+void shape_and_score_tests()
+{
+    namespace interact = swc::interact;
+    const swc::net::Quaternion none{0.0F, 0.0F, 0.0F, 1.0F};
+    const swc::net::WorldPosition tree{10.0F, 20.0F, 5.0F};
+    interact::Shape sphere;
+    sphere.type = interact::Shape::Type::sphere;
+    sphere.radius = 1.8F;
+    expect(interact::contains(sphere, tree, none, {11.79F, 20.0F, 5.0F}, 100.0F) && !interact::contains(sphere, tree, none, {11.81F, 20.0F, 5.0F}, 100.0F),
+           "the tree sphere 1.8 m: 1.79 m in, 1.81 m out (not the range of 10 m)");
+    expect(!interact::contains(sphere, {0.0F, 0.0F, 0.0F}, none, {0.0F, 1.8F, 0.0F}, 100.0F), "the sphere: an equal distance is out (strict)");
+    interact::Shape box;
+    box.type = interact::Shape::Type::box;
+    box.dimensions[0] = box.dimensions[1] = box.dimensions[2] = 2.5F;
+    const swc::net::WorldPosition body{0.0F, 0.0F, 1.0F};
+    expect(interact::contains(box, body, none, {1.25F, 0.0F, 0.0F}, 100.0F) && !interact::contains(box, body, none, {1.26F, 0.0F, 0.0F}, 100.0F),
+           "the wolf box 2.5 m: 1.25 m in (an equal value is in), 1.26 m out");
+    expect(interact::contains(box, body, none, {1.2F, 1.2F, 0.0F}, 100.0F), "the wolf box: the corner at 1.70 m is in");
+    const float half = 0.5F * 0.7853982F;
+    const swc::net::Quaternion turned{0.0F, 0.0F, std::sin(half), std::cos(half)};
+    expect(!interact::contains(box, body, none, {1.7F, 0.0F, 0.0F}, 100.0F) && interact::contains(box, body, turned, {1.7F, 0.0F, 0.0F}, 100.0F),
+           "the box turns with its creature: 1.7 m on the axis is out, at 45 degrees it is in (the corner)");
+    box.basis[0] = box.basis[4] = 0.5F;
+    expect(!interact::contains(box, body, none, {1.0F, 0.0F, 0.0F}, 100.0F) && interact::contains(box, body, none, {0.6F, 0.0F, 0.0F}, 100.0F),
+           "the basis of the bound scales its box (0.5: half 0.625 m)");
+    interact::Shape capsule;
+    capsule.type = interact::Shape::Type::capsule;
+    capsule.radius = 1.0F;
+    capsule.height = 4.0F;
+    expect(interact::contains(capsule, {0.0F, 0.0F, 0.0F}, none, {0.0F, 0.0F, 1.9F}, 25.0F) && !interact::contains(capsule, {0.0F, 0.0F, 0.0F}, none, {0.9F, 0.0F, 1.9F}, 25.0F),
+           "the capsule: its cap at the end of its height");
+    const interact::Shape nothing;
+    expect(interact::contains(nothing, tree, none, {15.0F, 20.0F, 5.0F}, 25.0F) && !interact::contains(nothing, tree, none, {15.1F, 20.0F, 5.0F}, 25.0F),
+           "no shape: the range of the use is the area");
+    const float camera[3]{0.0F, 0.0F, 0.0F};
+    const float forward[3]{0.0F, 1.0F, 0.0F};
+    float score = -1.0F;
+    const float off[3]{1.0F, 5.0F, 0.0F};
+    const float behind[3]{0.0F, -1.0F, 0.0F};
+    const float plane[3]{1.0F, 0.0F, 0.0F};
+    expect(interact::line_score(camera, forward, off, score) && near(score, 1.0F, 1.0e-6F), "the score: the squared distance to the forward line");
+    expect(!interact::line_score(camera, forward, behind, score) && !interact::line_score(camera, forward, plane, score),
+           "no score at or behind the camera plane");
+    // Two kegs in their areas: the nearer one 1 m to the side of the line, the farther one on the line: the farther one has the focus.
+    interact::Template keg;
+    keg.asset = swc::net::ActorId{0x05};
+    keg.sub = 2;
+    interact::Bound bound;
+    bound.rangeSq = 25.0F;
+    interact::Option use;
+    use.name = "Trigger";
+    bound.options.push_back(use);
+    keg.bounds.push_back(bound);
+    const std::vector<interact::Template> templates{keg};
+    const interact::Object side{1, swc::net::ActorId{0x01}, keg.asset, 2, {1.0F, 2.0F, 0.0F}};
+    const interact::Object ahead{2, swc::net::ActorId{0x02}, keg.asset, 2, {0.0F, 4.0F, 0.0F}};
+    const interact::Object twin{3, swc::net::ActorId{0x03}, keg.asset, 2, {0.0F, 3.0F, 0.0F}};
+    const float back[3]{0.0F, -4.0F, 1.5F};
+    const float level[3]{0.0F, 0.0F, 1.5F};
+    const auto onLine = interact::focus(templates, {side, ahead}, {0.0F, 0.0F, 0.0F}, level, forward);
+    expect(onLine && onLine->interest == 2, "the focus: the bound on the camera line, not the nearest one");
+    const auto first = interact::focus(templates, {ahead, twin}, {0.0F, 0.0F, 0.0F}, back, forward);
+    expect(first && first->interest == 2, "the focus: an equal score keeps the first bound");
+}
+
 void test_interactions() {
     std::printf("the interactions of the client: the ids, the focus, the timed use and its cancels\n");
     namespace interact = swc::interact;
@@ -760,11 +828,15 @@ void test_interactions() {
     farActor[0] = 0x02;
     interact::Object far_keg{8, farActor, keg.asset, 2, {106.0F, 200.0F, 50.0F}};
     const swc::net::WorldPosition feet{100.0F, 200.0F, 50.0F};
-    const auto focus = interact::focus(templates, {far_keg, near_keg}, feet);
+    // The camera 4 m behind the character, to the north (AST-198: the focus score is the distance to its forward line).
+    const float camera[3]{100.0F, 196.0F, 51.5F};
+    const float north[3]{0.0F, 1.0F, 0.0F};
+    const auto focus = interact::focus(templates, {far_keg, near_keg}, feet, camera, north);
     expect(focus && focus->interest == 7 && near(focus->distanceSq, 9.0F, 0.01F), "the focus is the keg in the range");
-    expect(!interact::focus(templates, {far_keg}, feet), "no focus out of the range");
+    expect(!interact::focus(templates, {far_keg}, feet, camera, north), "no focus out of the range");
     const swc::net::WorldPosition edge{100.0F, 198.0F, 50.0F};
-    expect(interact::focus(templates, {near_keg}, edge).has_value(), "the range: an equal distance passes (5 m)");
+    expect(interact::focus(templates, {near_keg}, edge, camera, north).has_value(), "the range: an equal distance passes (5 m)");
+    shape_and_score_tests();
     if (!focus) {
         return;
     }
@@ -854,7 +926,7 @@ void test_interactions() {
     bag.bounds[0].options[0].hold = 0.5F;
     // The candidate points into the templates: they stay alive while it is used.
     const std::vector<interact::Template> bagTemplates{bag};
-    const auto bagFocus = interact::focus(bagTemplates, {near_keg}, feet);
+    const auto bagFocus = interact::focus(bagTemplates, {near_keg}, feet, camera, north);
     expect(bagFocus.has_value(), "the focus of the bag");
     if (bagFocus) {
         interact::Use take;
@@ -907,7 +979,7 @@ void test_interactions() {
     const std::vector<interact::Template> campTemplates{camp};
     interact::Object turned = near_keg;
     turned.rotation = swc::net::Quaternion{0.0F, 0.0F, 1.0F, 0.0F};
-    const auto campFocus = interact::focus(campTemplates, {turned}, feet);
+    const auto campFocus = interact::focus(campTemplates, {turned}, feet, camera, north);
     expect(campFocus && near(campFocus->place.y, 203.835F, 1.0e-4F) && near(campFocus->distanceSq, 3.835F * 3.835F, 1.0e-3F),
            "the bound of a camp turned by 180 degrees: north of its origin");
     const float local[3]{0.0F, -0.835F, 0.0F};

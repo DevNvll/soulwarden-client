@@ -50,8 +50,10 @@ if [[ ! "${output}" =~ ^AGENT-[0-9]+$ ]]; then
     "${SWC_REPO}/tools/dev-stop.sh" >/dev/null 2>&1 || true
     exit 1
 fi
-# The wall time of the start of the recording (the side-by-side videos of stage P3.C: tools/lib/creature_compare.py --video).
+# The wall time of the start of the recording (the side-by-side videos of stage P3.C: tools/lib/creature_compare.py --video; the same
+# time in LABEL-recorder-start.txt for tools/lib/side_by_side.py).
 date +%s.%N >"${evidence}/${label}-video-start.txt"
+cp "${evidence}/${label}-video-start.txt" "${evidence}/${label}-recorder-start.txt"
 wf-recorder -y -o "${output}" -c libx264 -r 30 -f "${evidence}/${label}.mp4" >"${SWC_WORK}/logs/dev-run/${label}-recorder.log" 2>&1 &
 recorder=$!
 # With a drive script, the routes go on the clock of the drive (its lines "drive: SECONDS s" in the client log): the times

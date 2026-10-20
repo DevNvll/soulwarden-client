@@ -35,16 +35,60 @@ the option entity `4C54561C65E43ABF`. In the live check the backend accepted eac
 
 ## The focus
 
-The focus is the nearest Interact bound of an object with a template in its range (the rule of the server: "The range",
-below; `rangeSq` 25 m² for the keg and the loot bag). The option of the focus is the first option of the bound. The place of
-a bound is the place of the bound in the frame of the slice, turned by the rotation of its object and moved to its place
-(PositionInTheWorld, fields 0 and 1; the bound of a camp is 0.84 m from the origin of its slice). The death and a loading
-screen give no focus.
+AST-198 (research `~/Games/soulwarden-client/research/prompt-range.md`, a static study of the retail client): the area of the
+prompt is not the validation range. Each Interact bound has a candidate shape of its own in its slice, and the range (`rangeSq`)
+is only the check of the use ("The range", below).
+
+- The candidates: the bounds whose shape has the point of the character (the position field of the next report, as the
+  range check). `swc::interact::contains`: a sphere is strict (retail `IsPointInside` 0xCC2BE0: distance² < radius²), a box is
+  inclusive (0xCC21F0: half of `Dimensions` on each axis), a capsule or a cylinder stands on its local z. The shape turns with
+  its object (a server child, the body of a creature) and with the basis of the bound in its slice (rotation, scale).
+- The focus: of the candidates of the three sources (the fixtures of the server, the loot bags, the objects of the level data
+  with the bodies), the bound with the smallest score of the camera line (`swc::interact::line_score`, retail 0x490FED0): the
+  squared distance from the bound to the forward line of the camera; no score for a bound at or behind the camera plane; an
+  equal score keeps the first one. Thus a farther bound on the camera line wins over a nearer one beside it.
+- The option of the focus is the first option of the bound. The place of a bound is the place of the bound in the frame of the
+  slice, turned by the rotation of its object and moved to its place (PositionInTheWorld, fields 0 and 1; the bound of a camp is
+  0.84 m from the origin of its slice). The death and a loading screen give no focus.
+
+| Bound (the data of the converter, `converter/swc_convert/bounds.py`) | Shape | Range (the use) |
+| --- | --- | --- |
+| A tree (`master_tree`, the entity Healthy; AspenTree_c, poplars, beeches) | sphere 1.8 m (the variant column InteractionRadius; IronwoodTree_a 3.5 m) | 10 m |
+| An iron vein (`master_minerals`) | sphere of the variant: Vein_Iron_a 5 m, _b 4 m, _c 3 m (the slice has 2 m) | 10 m |
+| A plant (`master_plants`) | sphere 1.8 m (Hemp_a 1.5 m) | 10 m |
+| A chest (`master_lootcontainer`) | sphere 3 m, line of sight | 10 m |
+| The body of a Grey Wolf (`wolf_grey`, GatherBound) | box 2.5 x 2.5 x 2.5 m, 1 m above the feet, turned with the wolf | 10 m |
+| The personal loot bag (`instanced_loot_container`, Interaction) | box 2 x 2 x 2 m (axis-aligned: the view has no yaw of the bag) | 5 m |
+| The powder keg | box 2 x 2 x 3 m | 5 m |
+
+Check (development runs, 2026-10-20; `SWC_WORK/evidence/AST-198/ast198-prompt-check.mp4`, the parts of the runs
+`ast198-chest-iron`, `ast198-tree`, `ast198-body`; drives `tests/drive/ast198-*.txt`): a slow walk (2 m/s, 6.7 cm each frame) into
+each shape and out. The log line `interact: focus` gives the distance at each change (the first frame inside):
+
+| Object | Shape | The prompt shows at | Before AST-198 |
+| --- | --- | --- | --- |
+| Chest LootLargeT1 | sphere 3 m | 2.99 m (two times) | 10 m |
+| Small iron vein Vein_Iron_c | sphere 3 m (variant) | 3.00 m | 10 m |
+| Beech tree | sphere 1.8 m | 1.73 m in 3D (the feet 0.8 m above the root), 1.53 m horizontal | 10 m |
+| Dead Grey Wolf (knife in slot 35) | box 2.5 m, 1 m above the feet | 1.19 m to 1.24 m horizontal (5 times) | 10 m |
+| Loot bag (no knife: no body prompt) | box 2 m | 0.94 m to 0.99 m (4 times) | 5 m |
+
+A living wolf that bites the character for 6 s has no prompt; the prompt of its body shows 0.5 s after its death. With the knife,
+the body and the bag are both candidates, and the body has the smaller camera line score (its centre is 1 m higher): the bag shows
+only with no body prompt. Retail has a Take All priority switch for this case (its default is not known).
+
+Not copied (the open points of the study): the player proxy of the trigger path of retail (the bodies, the bag, the stations:
+the client uses the point test of the marker path for both); the marker activation of the trees, the ore, and the chests (a
+larger Marker sphere); the Take All priority switch; the forced focus; the arc (off on each sampled bound). A placement object
+of the layers keeps the basis of its bound in its slice, not the rotation of its placement (the data has no rotation of a
+placement; a sphere and a standing capsule do not need it). The study names the type b0c6aa97 a capsule (the forge
+InteractBound1), the navigation reader of the vendor folder names it a cylinder: `bounds.py` keeps the type id.
 
 ## The range
 
 The rule of the server (backend `world/interactions.cpp`, `Interactions::check`; Soulwarden `docs/systems/interactions.md`).
-The client uses the same rule for the focus, the prompt, and the hold (`swc::interact::in_range`).
+The client uses the same rule for the hold and the request (`swc::interact::in_range`); the prompt uses the candidate shape ("The
+focus", above).
 
 | Part | Rule | Source |
 | --- | --- | --- |

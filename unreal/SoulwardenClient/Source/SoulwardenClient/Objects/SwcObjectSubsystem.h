@@ -58,6 +58,8 @@ struct FSwcWorldObjectTarget
 	swc::net::WorldPosition EnginePlace;
 	float RangeSq = 0.0f;
 	bool bLineOfSight = false;
+	/** The candidate shape of the bound (AST-198): the area of the prompt. */
+	swc::interact::Shape Shape;
 	TArray<FSwcWorldObjectOption> Options;
 	/** The server state, and the Enabled mark of the Interact state of a record of the object (true with no record). */
 	ESwcWorldObjectState State = ESwcWorldObjectState::Ready;
@@ -136,6 +138,14 @@ public:
 	 * @return False when no bound is in range.
 	 */
 	bool FindNearestObject(const FVector& From, FSwcWorldObjectTarget& Out) const;
+	/**
+	 * The focus of the prompt (AST-198; research prompt-range.md): of the bounds that the character can use and whose candidate shape has
+	 * the point of the character (swc::interact::contains; not the validation range), the bound with the smallest camera line score
+	 * (swc::interact::line_score; camera and forward in engine m). @return False with no candidate.
+	 */
+	bool FindFocusObject(const FVector& From, const float Camera[3], const float Forward[3], FSwcWorldObjectTarget& Out, float& OutScore) const;
+	/** Reads the candidate shape of a bound of the converted data (objects.json, interactions.json: "shape"); no shape: type none. */
+	static void ReadShape(const TSharedPtr<FJsonObject>& Info, swc::interact::Shape& Out);
 	/** The bounds within a radius (m) of a point, in each state (for a marker or a check). */
 	void GetObjectsNear(const FVector& From, double RadiusMeters, TArray<FSwcWorldObjectTarget>& Out) const;
 	/** The UI shows the original loot ticker (stage WF7): the lines of the loot notice stand-in go off (default on; the log line stays). */
@@ -161,6 +171,8 @@ private:
 		float RangeSq = 0.0f;
 		bool bLineOfSight = false;
 		FVector3d Translation = FVector3d::ZeroVector;
+		/** The candidate shape of the bound in its slice (AST-198). */
+		swc::interact::Shape Shape;
 		/** The visuals of the variation table of the template (a capital node), and the visuals of the meshes of its slice: the level
 		 *  places these default meshes at each node of the slice, not the meshes of the variant of the record. */
 		TArray<int32> Visuals;
@@ -179,6 +191,8 @@ private:
 		FVector3d EnginePlace = FVector3d::ZeroVector;
 		float RangeSq = 0.0f;
 		bool bLineOfSight = false;
+		/** The candidate shape of the bound (AST-198): the area of the prompt; RangeSq is the check of the use. */
+		swc::interact::Shape Shape;
 		TArray<TPair<int32, uint64>> Options;
 		int32 LoreBit = -1;
 	};
@@ -221,6 +235,8 @@ private:
 		int32 Template = -1;
 		int32 Row = -1;
 		int32 Visual = -1;
+		/** The sphere radius of the variant (InteractionRadius; AST-198), else -1: the radius of the slice. */
+		float Radius = -1.0f;
 	};
 	struct FRegion
 	{
@@ -306,6 +322,8 @@ private:
 	TArray<FOptionRow> Options;
 	/** The index of GatherOption in the options (the option of each natural node). */
 	int32 GatherOptionIndex = 0;
+	/** @return True when the candidate shape of a bound (turned by the rotation of its object) has a point (engine m; AST-198). */
+	static bool InShape(const FBound& Bound, const swc::net::Quaternion& Rotation, const FVector3d& Point);
 	/** The largest range of a bound of the loaded data (m): the radius of the cells of FindNearestObject. */
 	double MaxRangeMeters = 0.0;
 	TArray<FTemplate> Templates;

@@ -11,7 +11,12 @@
 #include "Creatures/SwcCreatureSubsystem.h"
 #include "Net/SwcSpace.h"
 #include "Objects/SwcObjectSubsystem.h"
+#include "Camera/PlayerCameraManager.h"
+#include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 #include "SwcBackendSubsystem.h"
+#include "SwcDebugLines.h"
+#include "Engine/Engine.h"
 
 namespace
 {
@@ -114,6 +119,7 @@ bool FSwcInteractor::Load(FString& OutReport)
 				Bound.position[Axis] = static_cast<float>(Position[Axis]->AsNumber());
 			}
 			Bound.rangeSq = static_cast<float>(BoundInfo->GetNumberField(TEXT("rangeSq")));
+			USwcObjectSubsystem::ReadShape(BoundInfo, Bound.shape);
 			for (const TSharedPtr<FJsonValue>& OptionValue : BoundInfo->GetArrayField(TEXT("options")))
 			{
 				const TSharedPtr<FJsonObject> OptionInfo = OptionValue->AsObject();
@@ -144,6 +150,28 @@ bool FSwcInteractor::Load(FString& OutReport)
 		LootTemplate ? TEXT("the personal loot bag") : TEXT("no loot bag"), Options, *Path);
 	return !Templates.empty() || LootTemplate.has_value();
 }
+
+namespace
+{
+/** The shape of a bound for the focus line (AST-198). */
+FString ShapeText(const swc::interact::Shape& Shape)
+{
+	using EType = swc::interact::Shape::Type;
+	switch (Shape.type)
+	{
+	case EType::sphere:
+		return FString::Printf(TEXT("sphere %.2f m"), Shape.radius);
+	case EType::box:
+		return FString::Printf(TEXT("box %.2f x %.2f x %.2f m"), Shape.dimensions[0], Shape.dimensions[1], Shape.dimensions[2]);
+	case EType::capsule:
+		return FString::Printf(TEXT("capsule %.2f m, height %.2f m"), Shape.radius, Shape.height);
+	case EType::cylinder:
+		return FString::Printf(TEXT("cylinder %.2f m, height %.2f m"), Shape.radius, Shape.height);
+	default:
+		return TEXT("no shape: the range");
+	}
+}
+} // namespace
 
 void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRepConnection& Connection, const swc::net::WorldPosition& Feet,
 	bool bLocked, double Now, USwcCreatureSubsystem* Creatures)
@@ -259,13 +287,34 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 	// The range of the server is from the position field of the report that has the request (docs/INTERACTIONS.md "The range"):
 	// the next field, from the last one and the feet, as the server reads it. The focus, the prompt, and the hold use it.
 	const swc::net::WorldPosition Reported = swc::net::position_field(swc::net::RepClient::next_reported(Snapshot.Reported, Feet));
+	// The camera of the focus score (AST-198; retail 0x490FED0): its place and its forward vector in engine m. With no camera: a
+	// camera 1.6 m above the character, to the north.
+	float Camera[3]{Reported.x, Reported.y, Reported.z + 1.6f};
+	float Forward[3]{0.0f, 1.0f, 0.0f};
+	const UWorld* World = Creatures != nullptr ? Creatures->GetWorld() : nullptr;
+	if (const APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr; Controller != nullptr && Controller->PlayerCameraManager != nullptr)
+	{
+		const FVector Location = Controller->PlayerCameraManager->GetCameraLocation();
+		const swc::net::WorldPosition At = SwcUnrealToEngine(Location);
+		const swc::net::WorldPosition Ahead = SwcUnrealToEngine(Location + Controller->PlayerCameraManager->GetCameraRotation().Vector() * 100.0);
+		const FVector3f Direction = FVector3f(Ahead.x - At.x, Ahead.y - At.y, Ahead.z - At.z).GetSafeNormal();
+		Camera[0] = At.x;
+		Camera[1] = At.y;
+		Camera[2] = At.z;
+		Forward[0] = Direction.X;
+		Forward[1] = Direction.Y;
+		Forward[2] = Direction.Z;
+	}
 	if (Use.phase() == swc::interact::Use::Phase::idle)
 	{
 		bUseBag = false;
 		bUseGather = false;
 		bUseTalk = false;
-		Focus = bLocked ? std::nullopt : swc::interact::focus(Templates, Objects, Reported);
+		// The candidates of the three sources (the fixtures of the server, the bags, the objects of the level data) have the point of the
+		// character in their shape (AST-198; research prompt-range.md); the focus is the smallest camera line score of all of them.
+		Focus = bLocked ? std::nullopt : swc::interact::focus(Templates, Objects, Reported, Camera, Forward);
 		FocusName = Focus ? FString(UTF8_TO_TCHAR(Focus->object->name.c_str())) : FString();
+		FocusShape = Focus ? TEXT("a fixture of the server") : FString();
 		bFocusBag = false;
 		FocusPrompt = FSwcInteractPrompt();
 		if (Focus)
@@ -276,12 +325,32 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			FocusPrompt.Options.Emplace(UTF8_TO_TCHAR(Focus->option->name.c_str()), Focus->option->hold);
 			FocusPrompt.Place = SwcEngineToUnreal(Focus->place);
 		}
-		// The nearest bag in range with an enabled bound and no Looted claim: its first option (TakeAllOption).
+		// The bag with an enabled bound and no Looted claim whose box has the point of the character (the Interaction entity of the bag:
+		// 2 x 2 x 2 m, axis-aligned: the view has no yaw of the bag), with the smallest camera line score; its range (5 m) is the check of
+		// the use. Its first option (TakeAllOption).
 		FSwcLootBag Bag;
+		float BagScore = 0.0f;
+		bool bBag = false;
 		const FVector From(SwcEngineToUnreal(Reported));
-		if (!bLocked && LootTemplate && !LootTemplate->bounds.empty() && Creatures != nullptr && Creatures->FindNearestLootBag(From, Bag)
-			&& !IsLooted(Own, Bag.Actor) && Bag.bEnabled && !Bag.Options.IsEmpty() && swc::interact::in_range(Reported, Bag.EnginePlace, Bag.RangeSq)
-			&& (!Focus || swc::interact::distance_sq(Reported, Bag.EnginePlace) < Focus->distanceSq))
+		if (!bLocked && LootTemplate && !LootTemplate->bounds.empty() && Creatures != nullptr)
+		{
+			TArray<FSwcLootBag> Bags;
+			Creatures->GetLootBags(From, Bags);
+			for (const FSwcLootBag& Each : Bags)
+			{
+				const float Place[3]{Each.EnginePlace.x, Each.EnginePlace.y, Each.EnginePlace.z};
+				float Score = 0.0f;
+				if (Each.bEnabled && Each.InteractSlot != 0 && !Each.Options.IsEmpty() && !IsLooted(Own, Each.Actor)
+					&& swc::interact::contains(LootTemplate->bounds.front().shape, Each.EnginePlace, swc::net::Quaternion{0.0F, 0.0F, 0.0F, 1.0F}, Reported, Each.RangeSq)
+					&& swc::interact::line_score(Camera, Forward, Place, Score) && (!bBag || Score < BagScore))
+				{
+					Bag = Each;
+					BagScore = Score;
+					bBag = true;
+				}
+			}
+		}
+		if (bBag && (!Focus || BagScore < Focus->score))
 		{
 			// The options of the bag of the creature view are in the order of the bound of the data (the key of a pair is the index of
 			// the option in the options of interaction-data.json, not its CRC-32 id): the first one is TakeAllOption.
@@ -301,8 +370,10 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 				Candidate.place = Bag.EnginePlace;
 				Candidate.distanceSq = swc::interact::distance_sq(Reported, Bag.EnginePlace);
 				Candidate.rangeSq = Bag.RangeSq;
+				Candidate.score = BagScore;
 				Focus = Candidate;
 				FocusName = TEXT("loot bag");
+				FocusShape = ShapeText(LootTemplate->bounds.front().shape);
 				bFocusBag = true;
 				FocusPrompt = FSwcInteractPrompt();
 				FocusPrompt.Kind = FSwcInteractPrompt::EKind::Bag;
@@ -321,9 +392,9 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		bFocusTalk = false;
 		USwcObjectSubsystem* Layer = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcObjectSubsystem>() : nullptr;
 		FSwcWorldObjectTarget Object;
-		if (!bLocked && Layer != nullptr && Layer->FindNearestObject(From, Object) && !Object.Options.IsEmpty()
-			&& swc::interact::in_range(Reported, Object.EnginePlace, Object.RangeSq)
-			&& (!Focus || swc::interact::distance_sq(Reported, Object.EnginePlace) < Focus->distanceSq))
+		float ObjectScore = 0.0f;
+		if (!bLocked && Layer != nullptr && Layer->FindFocusObject(From, Camera, Forward, Object, ObjectScore) && !Object.Options.IsEmpty()
+			&& (!Focus || ObjectScore < Focus->score))
 		{
 			ObjectOption = Object.Options[0].Option;
 			swc::interact::Candidate Candidate;
@@ -332,11 +403,13 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Candidate.place = Object.EnginePlace;
 			Candidate.distanceSq = swc::interact::distance_sq(Reported, Object.EnginePlace);
 			Candidate.rangeSq = Object.RangeSq;
+			Candidate.score = ObjectScore;
 			Focus = Candidate;
 			// The prompt of a gather has the name of the row and, with no tool, the refusal ("YOUNG TREE  No equipped Axe").
 			FocusName = Object.Name.IsEmpty() ? FString::Printf(TEXT("%s %s"), *Object.Kind.ToString(), *Object.Key)
 				: Object.bToolMissing ? FString::Printf(TEXT("%s  %s"), *Object.Name.ToUpper(), *Object.RefusalText) : Object.Name.ToUpper();
 			bFocusBag = false;
+			FocusShape = ShapeText(Object.Shape);
 			bFocusGather = ObjectOption.action == GatherAction;
 			bFocusNoTool = Object.bToolMissing;
 			bFocusTalk = ObjectOption.action == ConversationAction;
@@ -357,6 +430,29 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			// The text key of the refusal: the rule of the object layer (ui_notool + the gathering type).
 			FocusPrompt.RefusalKey = Object.bToolMissing ? TEXT("ui_notool") + Object.GatheringType.ToLower() : FString();
 			FocusPrompt.Place = SwcEngineToUnreal(Object.EnginePlace);
+		}
+	}
+	// AST-198: the focus for the checks: a log line at each change (the distance from the point of the character to the centre of the
+	// bound, its horizontal part, and the shape), and the same line on the screen with -SwcDebugLines.
+	if (Use.phase() == swc::interact::Use::Phase::idle)
+	{
+		FString Line = TEXT("none");
+		if (Focus)
+		{
+			const float Dx = Reported.x - Focus->place.x;
+			const float Dy = Reported.y - Focus->place.y;
+			Line = FString::Printf(TEXT("%s, %.2f m from the bound centre, horizontal %.2f m (%s)"), *FocusName, FMath::Sqrt(Focus->distanceSq),
+				FMath::Sqrt(Dx * Dx + Dy * Dy), *FocusShape);
+		}
+		const FString Key = Focus ? FString::Printf(TEXT("%s %.1f %.1f"), *FocusName, Focus->place.x, Focus->place.y) : FString();
+		if (Key != LastFocusLine)
+		{
+			LastFocusLine = Key;
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: focus %s"), *Line);
+		}
+		if (GEngine != nullptr && SwcDebugLines())
+		{
+			GEngine->AddOnScreenDebugMessage(static_cast<uint64>(0x53574650), 1.0f, FColor::Orange, TEXT("focus: ") + Line);
 		}
 	}
 	// The bag panel of the UI (stage P2.4): the open with OpenStorageOption, and the close (2473).

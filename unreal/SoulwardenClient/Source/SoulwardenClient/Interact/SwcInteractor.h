@@ -125,6 +125,9 @@ private:
 	swc::interact::Use Use;
 	std::optional<swc::interact::Candidate> Focus;
 	FString FocusName;
+	/** The focus line of the checks (AST-198): the shape of the focus, and the line of the last log. */
+	FString FocusShape;
+	FString LastFocusLine;
 	bool bKeyDown = false;
 	bool bKeyWas = false;
 	uint32 SeenCancels = 0;

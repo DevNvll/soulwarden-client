@@ -290,7 +290,10 @@ sends the record of a bag only to its eligible characters: each bag of the table
   - `USwcCreatureSubsystem::FindNearestLootBag(From, FSwcLootBag&)`: the nearest bag whose Interact bound is enabled (the
     Interact state) and whose 3D distance from `From` (the place of the character in its input report, Unreal cm) is not more
     than the range of the bound (the check of the server: the squared distance against `m_interactRangeSq`).
-  - `GetLootBags(From, TArray<FSwcLootBag>&)`: each bag with its distance.
+  - `GetLootBags(From, TArray<FSwcLootBag>&)`: each bag with its distance. The prompt of the player track (AST-198) takes each bag
+    whose candidate box (2 x 2 x 2 m: the Interaction entity of `instanced_loot_container`, the shape of `player/interactions.json`)
+    has the point of the character, then the smallest camera line score (docs/INTERACTIONS.md "The focus"); the range of 5 m is only
+    the check of the use. `FindNearestLootBag` stays for the development aid.
   - `FSwcLootBag`: the interest number, the actor id and G of the bag (the reference of the interaction request), the place
     (Unreal and engine space), the rarity, the slot of the Interact state, the facet target of the bound ((entity XOR root XOR
     G) + component: the rule of a server child, backend `Interactions::spawn`), the range, the Enabled mark, and the options (the

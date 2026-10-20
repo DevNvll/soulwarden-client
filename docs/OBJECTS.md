@@ -95,9 +95,11 @@ Only within 100 m of the character (the interest radius of the server: a record 
 
 ## The query
 
-`USwcObjectSubsystem::FindNearestObject(From, FSwcWorldObjectTarget&)`, as `FindNearestLootBag` of the creature view: the nearest
-bound with an option in its range (the 3D squared distance, equal passes: the backend check), Enabled, and Ready (not a depleted
-node, not a Looted or Locked chest). A gathering object that is not a chest and not a node (mostly `master_quest_instanced`, which
+`USwcObjectSubsystem::FindFocusObject(From, Camera, Forward, FSwcWorldObjectTarget&, Score)` (AST-198; docs/INTERACTIONS.md "The
+focus"): of the bounds with an option whose candidate shape has the point (the shape of the bound in its slice: `objects.json`
+templates and region bounds "shape", the sphere radius of the variant of a natural node in the 4th value of its region type; not the
+range), Enabled, and Ready (not a depleted node, not a Looted or Locked chest), the bound with the smallest camera line score. The
+range stays the check of the use. `FindNearestObject` (the nearest of these candidates) stays for the development aids. A gathering object that is not a chest and not a node (mostly `master_quest_instanced`, which
 the backend refuses) has no prompt. The result has the key, the kind, the actor, G, the slot, the facet target, the place, the
 range, the state, the lore bit and its read mark, and each option with its ready request (`swc::net::InteractionRequest`).
 `GetObjectsNear` gives the bounds within a radius in each state.

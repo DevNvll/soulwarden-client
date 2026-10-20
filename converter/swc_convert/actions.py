@@ -36,6 +36,7 @@ import zlib
 from pathlib import Path
 
 from . import anim, cgf, datasheet, source
+from .bounds import BoundShapes
 from . import gather_actions, player, ranged
 
 ADB_FOLDER = "animations/mannequin/adb/player/"
@@ -555,6 +556,7 @@ def interactions() -> dict:
     for name, container in data.get("lootContainers", {}).items():
         wanted["loot:" + name] = container["template"]
     templates = []
+    shapes = BoundShapes()
     for name, index in sorted(wanted.items()):
         template = data["templates"][index]
         bounds = []
@@ -564,6 +566,10 @@ def interactions() -> dict:
                            "options": [{"name": options[option]["name"], "id": options[option]["id"], "action": options[option]["action"],
                                         "committed": options[option]["committed"], "delay": options[option]["delay"],
                                         "hold": options[option]["hold"], "entity": entity} for option, entity in bound["options"]]})
+            # AST-198: the candidate shape of the bound (the bag: the box 2 x 2 x 2 m of its Interaction entity; the range is the use check).
+            shape = shapes.shape(template["slice"], entity=bound["entity"])
+            if shape is not None:
+                bounds[-1]["shape"] = shape
         templates.append({"name": name, "slice": template["slice"], "asset": template["asset"], "sub": template["sub"],
                           "kind": template["kind"], "root": template["root"], "positionSlot": template["slots"]["position"],
                           "permissionRule": template["permissionRule"], "bounds": bounds})

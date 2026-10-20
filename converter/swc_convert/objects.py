@@ -45,6 +45,7 @@ from pathlib import Path
 import numpy as np
 
 from . import datasheet, env, source
+from .bounds import BoundShapes
 from . import manifest as shared_manifest
 from .character import norm
 from .creature import gamedata_dir
@@ -267,7 +268,8 @@ def write() -> dict:
     capitals = gathering["capitals"]
     templates = gathering["templates"]
     report: dict = {"objects": 0, "bounds": 0, "nodes": 0, "kinds": {}, "actorMismatches": 0, "capitalMismatches": 0,
-                    "capitalsChecked": 0, "regions": 0}
+                    "capitalsChecked": 0, "regions": 0, "boundsWithShape": 0}
+    shapes = BoundShapes()
 
     # The visuals of the variants of each gathering template (its variation table).
     tables = {t["table"] for t in templates if t["table"]}
@@ -308,6 +310,11 @@ def write() -> dict:
             bounds.append({"slot": bound["slot"], "component": bound["component"], "position": bound["position"], "rangeSq": bound["rangeSq"],
                            "lineOfSight": bound["lineOfSight"], "options": bound["options"], "target": bound["target"],
                            "lore": achievements[bound["lore"]][1] if bound["lore"] >= 0 else -1})
+            # AST-198: the candidate shape of the bound (its own shape in its slice; the range is only the use check).
+            shape = shapes.shape(entry["slice"], component=bound["component"])
+            if shape is not None:
+                bounds[-1]["shape"] = shape
+                report["boundsWithShape"] += 1
         if not bounds:
             continue
         out = {"key": entry["key"], "kind": kind, "actor": entry["actor"], "position": entry["position"], "bounds": bounds}
@@ -344,12 +351,17 @@ def write() -> dict:
         types = []
         for template_index, row, variant in entry["types"]:
             visual = -1
+            # AST-198: the sphere radius of the variant (the column InteractionRadius: the variation action "Change Sphere Shape Radius" of
+            # the bound entity; the small iron vein 3 m, not the 2 m of its slice); -1: the radius of the slice.
+            radius = -1.0
             if template_index >= 0 and row >= 0:
                 table_rows = rows_by_table.get(templates[template_index]["table"], {})
                 found = table_rows.get(str(variant).lower())
                 if found is not None:
                     visual = visuals.of(str(found.get("StartMesh", "")), str(found.get("DepletedMesh", "")))
-            types.append([template_index, row, visual])
+                    if found.get("InteractionRadius") not in (None, ""):
+                        radius = round(float(found["InteractionRadius"]), 5)
+            types.append([template_index, row, visual, radius])
         nodes = np.zeros(0, dtype=NODE)
         swgn = folder / entry["file"]
         if entry["records"] > 0 and swgn.is_file():
@@ -391,12 +403,15 @@ def write() -> dict:
         "gatherOption": gather_option,
         "templates": [{"root": t["root"], "controllerSlot": t["controllerSlot"], "table": t["table"], "entry": t["entry"],
                        "bound": {k: t["bound"][k] for k in ("entity", "component", "option", "slot", "rangeSq", "translation", "lineOfSight")},
+                       "shape": shapes.shape(t["slice"], entity=t["bound"]["entity"]),
                        "visuals": template_visuals[i], "sliceVisuals": slice_visuals[i]} for i, t in enumerate(templates)],
         "gathering": gathering_tables(folder, gathering, chest_names),
         "visuals": [[row[0], row[1], row[3]] for row in visuals.rows],
         "regions": regions,
     }
     write_atomic(out_dir() / "objects.json", json.dumps(doc, separators=(",", ":")).encode())
+    report["templatesWithShape"] = sum(1 for t in doc["templates"] if t["shape"])
+    report["shapeSlicesMissing"] = len(shapes.missing)
     report["visuals"] = len(visuals.rows)
     report["visualsWithStart"] = sum(1 for r in visuals.rows if r[2])
     report["visualsWithImportedDepleted"] = sum(1 for r in visuals.rows if r[3])

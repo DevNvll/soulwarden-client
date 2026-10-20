@@ -28,14 +28,32 @@ struct Option {
     std::uint64_t entity{0};
 };
 
+/**
+ * The candidate shape of an Interact bound (AST-198; research prompt-range.md): retail admits a bound as a prompt candidate when the
+ * player point is in this shape (the marker path: the cached player transform point; the trigger path: a point callback), not by its
+ * validation range. The shape is centred on the place of the bound; the basis is the 3 x 3 part of the transform of the bound entity
+ * in its slice (rows; its rotation and scale). Type none: the data has no shape (the range rule of the use is the area).
+ */
+struct Shape {
+    enum class Type : std::uint8_t { none, sphere, box, capsule, cylinder };
+    Type type{Type::none};
+    float radius{0.0F};
+    /** The height of a capsule or a cylinder along its local z (m). */
+    float height{0.0F};
+    /** The full sizes of a box (m; Dimensions). */
+    float dimensions[3]{0.0F, 0.0F, 0.0F};
+    float basis[9]{1.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F, 0.0F, 1.0F};
+};
+
 /** One Interact bound of a template: its component, its entity in the slice, its place in the frame of the slice, its range. */
 struct Bound {
     std::uint32_t slot{0};
     std::uint64_t component{0};
     std::uint64_t entity{0};
     float position[3]{0.0F, 0.0F, 0.0F};
-    /** The squared 3D range (m^2; m_interactRangeSq; equal passes). */
+    /** The squared 3D range (m^2; m_interactRangeSq; equal passes): the check of the use, not the area of the prompt. */
     float rangeSq{0.0F};
+    Shape shape;
     std::vector<Option> options;
 };
 
@@ -78,6 +96,22 @@ bool in_range(const swc::net::WorldPosition& character, const swc::net::WorldPos
  */
 swc::net::WorldPosition transform_point(const swc::net::WorldPosition& place, const swc::net::Quaternion& rotation, const float local[3]);
 
+/**
+ * @return True when a point is in the candidate shape of a bound (AST-198): the point goes into the frame of the shape (the rotation of
+ * the object, then the basis of the bound). A sphere is strict (retail IsPointInside 0xCC2BE0: distance^2 < radius^2), a box is
+ * inclusive (0xCC21F0: half of Dimensions on each axis); a capsule or a cylinder stands on its local z. With no shape: in_range.
+ */
+bool contains(const Shape& shape, const swc::net::WorldPosition& center, const swc::net::Quaternion& rotation, const swc::net::WorldPosition& point,
+    float rangeSq);
+
+/**
+ * The score of the focus of retail (0x490FED0; research prompt-range.md "Retail focus"): with the camera position C, its unit forward
+ * vector F, and the place of the bound B: t = dot(B - C, F); a bound with t <= 0 (at or behind the camera plane) has no score; else the
+ * score is the squared distance from B to the forward line, |C + t F - B|^2. The smallest score wins; an equal score keeps the first.
+ * @return False with no score.
+ */
+bool line_score(const float camera[3], const float forward[3], const float place[3], float& score);
+
 /** A usable option of a bound of an object near the player. */
 struct Candidate {
     std::uint32_t interest{0};
@@ -89,16 +123,20 @@ struct Candidate {
     swc::net::WorldPosition place;
     float distanceSq{0.0F};
     float rangeSq{0.0F};
+    /** The focus score of the camera line (line_score). */
+    float score{0.0F};
 };
 
 /** @return The request of an option of a bound of an object (the ids of the object from its actor). */
 swc::net::InteractionRequest request_of(const Template& object, const Bound& bound, const Option& option, const swc::net::ActorId& actor);
 
 /**
- * @return The option of the nearest bound in its range (in_range) of the first option of each bound, or no value. The place of a
- * bound is its place in the frame of the slice, turned and moved by the rotation and the place of its object (transform_point).
+ * @return The first option of the bound with the smallest camera line score (line_score) whose shape has the point of the character
+ * (contains), or no value. The place of a bound is its place in the frame of the slice, turned and moved by the rotation and the place
+ * of its object (transform_point). The camera is in engine m.
  */
-std::optional<Candidate> focus(const std::vector<Template>& templates, const std::vector<Object>& objects, const swc::net::WorldPosition& character);
+std::optional<Candidate> focus(const std::vector<Template>& templates, const std::vector<Object>& objects, const swc::net::WorldPosition& character,
+    const float camera[3], const float forward[3]);
 
 /**
  * The use of one option by the player (the client side of protocol notes 4.35 and 4.36):

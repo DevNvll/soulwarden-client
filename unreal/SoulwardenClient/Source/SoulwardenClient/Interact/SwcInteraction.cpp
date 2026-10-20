@@ -1,6 +1,7 @@
 #include "Interact/SwcInteraction.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace swc::interact {
 
@@ -56,7 +57,59 @@ swc::net::WorldPosition transform_point(const swc::net::WorldPosition& place, co
                                    place.z + local[2] + 2.0F * (w * cz + dz)};
 }
 
-std::optional<Candidate> focus(const std::vector<Template>& templates, const std::vector<Object>& objects, const swc::net::WorldPosition& character) {
+bool contains(const Shape& shape, const swc::net::WorldPosition& center, const swc::net::Quaternion& rotation, const swc::net::WorldPosition& point,
+    float rangeSq) {
+    if (shape.type == Shape::Type::none) {
+        return in_range(point, center, rangeSq);
+    }
+    // Into the frame of the object: the inverse rotation (the conjugate) of the offset.
+    const float offset[3]{point.x - center.x, point.y - center.y, point.z - center.z};
+    const swc::net::Quaternion inverse{-rotation.x, -rotation.y, -rotation.z, rotation.w};
+    const swc::net::WorldPosition turned = transform_point(swc::net::WorldPosition{0.0F, 0.0F, 0.0F}, inverse, offset);
+    // Into the frame of the bound: the inverse of its basis (rows: world = basis * local).
+    const float* m = shape.basis;
+    const float det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
+    if (std::abs(det) < 1e-9F) {
+        return false;
+    }
+    const float inv[9]{(m[4] * m[8] - m[5] * m[7]) / det, (m[2] * m[7] - m[1] * m[8]) / det, (m[1] * m[5] - m[2] * m[4]) / det,
+        (m[5] * m[6] - m[3] * m[8]) / det, (m[0] * m[8] - m[2] * m[6]) / det, (m[2] * m[3] - m[0] * m[5]) / det,
+        (m[3] * m[7] - m[4] * m[6]) / det, (m[1] * m[6] - m[0] * m[7]) / det, (m[0] * m[4] - m[1] * m[3]) / det};
+    const float v[3]{turned.x, turned.y, turned.z};
+    const float x = inv[0] * v[0] + inv[1] * v[1] + inv[2] * v[2];
+    const float y = inv[3] * v[0] + inv[4] * v[1] + inv[5] * v[2];
+    const float z = inv[6] * v[0] + inv[7] * v[1] + inv[8] * v[2];
+    switch (shape.type) {
+    case Shape::Type::sphere:
+        return x * x + y * y + z * z < shape.radius * shape.radius;
+    case Shape::Type::box:
+        return std::abs(x) <= shape.dimensions[0] * 0.5F && std::abs(y) <= shape.dimensions[1] * 0.5F && std::abs(z) <= shape.dimensions[2] * 0.5F;
+    case Shape::Type::capsule: {
+        // The height is the full length; the segment of the centres is the height less the two caps.
+        const float half = std::max(shape.height * 0.5F - shape.radius, 0.0F);
+        const float dz = std::max(std::abs(z) - half, 0.0F);
+        return x * x + y * y + dz * dz <= shape.radius * shape.radius;
+    }
+    case Shape::Type::cylinder:
+        return std::abs(z) <= shape.height * 0.5F && x * x + y * y <= shape.radius * shape.radius;
+    default:
+        return false;
+    }
+}
+
+bool line_score(const float camera[3], const float forward[3], const float place[3], float& score) {
+    const float d[3]{place[0] - camera[0], place[1] - camera[1], place[2] - camera[2]};
+    const float t = d[0] * forward[0] + d[1] * forward[1] + d[2] * forward[2];
+    if (t <= 0.0F) {
+        return false;
+    }
+    const float e[3]{camera[0] + t * forward[0] - place[0], camera[1] + t * forward[1] - place[1], camera[2] + t * forward[2] - place[2]};
+    score = e[0] * e[0] + e[1] * e[1] + e[2] * e[2];
+    return true;
+}
+
+std::optional<Candidate> focus(const std::vector<Template>& templates, const std::vector<Object>& objects, const swc::net::WorldPosition& character,
+    const float camera[3], const float forward[3]) {
     std::optional<Candidate> best;
     for (const Object& object : objects) {
         const auto found = std::find_if(templates.begin(), templates.end(),
@@ -69,8 +122,10 @@ std::optional<Candidate> focus(const std::vector<Template>& templates, const std
                 continue;
             }
             const swc::net::WorldPosition place = transform_point(object.place, object.rotation, bound.position);
-            const float distanceSq = distance_sq(character, place);
-            if (!in_range(character, place, bound.rangeSq) || (best && distanceSq >= best->distanceSq)) {
+            const float point[3]{place.x, place.y, place.z};
+            float score = 0.0F;
+            if (!contains(bound.shape, place, object.rotation, character, bound.rangeSq) || !line_score(camera, forward, point, score)
+                || (best && score >= best->score)) {
                 continue;
             }
             Candidate candidate;
@@ -79,8 +134,9 @@ std::optional<Candidate> focus(const std::vector<Template>& templates, const std
             candidate.option = &bound.options.front();
             candidate.request = request_of(*found, bound, bound.options.front(), object.actor);
             candidate.place = place;
-            candidate.distanceSq = distanceSq;
+            candidate.distanceSq = distance_sq(character, place);
             candidate.rangeSq = bound.rangeSq;
+            candidate.score = score;
             best = candidate;
         }
     }
