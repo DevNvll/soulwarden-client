@@ -7,6 +7,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "zlib.h"
 
 namespace
 {
@@ -184,6 +185,12 @@ FString FSwcPlayerLooks::IdleAnimation(bool bFemale) const
 
 FSwcPlayerLook FSwcPlayerLooks::Resolve(const TArray<uint8>& Appearance, const TMap<uint32, uint32>& Equipment) const
 {
+	return ResolveRows(Appearance, Equipment, nullptr);
+}
+
+FSwcPlayerLook FSwcPlayerLooks::ResolveRows(const TArray<uint8>& Appearance, const TMap<uint32, uint32>& Equipment,
+	const TMap<uint32, FString>* ArmorRows) const
+{
 	FSwcPlayerLook Look;
 	const auto Byte = [&Appearance](int32 Index) { return Appearance.IsValidIndex(Index) ? static_cast<int32>(Appearance[Index]) : 0; };
 	// Field 0 playerGender: 0 Male, 1 Female (protocol notes 4.5).
@@ -252,24 +259,44 @@ FSwcPlayerLook FSwcPlayerLooks::Resolve(const TArray<uint8>& Appearance, const T
 	// The armor of the paperdoll slots 0 to 4 (research menu-equipment.md, equipment.md 6.1).
 	const TSharedPtr<FJsonObject> Armor = ObjectField(Looks, TEXT("armor"));
 	bool bHideLegs = false;
-	for (uint32 PaperdollSlot = 0; PaperdollSlot < UE_ARRAY_COUNT(VisualSlots); ++PaperdollSlot)
+	// The name of the armor appearance row of a slot: from the item of the wire and the item catalog (the world), or from the rows
+	// of the menu document (ResolveMenu, AST-196 F3). @return False for a slot with no armor.
+	const auto ArmorRowName = [this, &Equipment, ArmorRows, &Look](uint32 PaperdollSlot, FString& OutName, FString& OutItem)
 	{
+		if (ArmorRows != nullptr)
+		{
+			const FString* Name = ArmorRows->Find(PaperdollSlot);
+			OutName = Name != nullptr ? *Name : FString();
+			OutItem = TEXT("(menu document)");
+			return Name != nullptr;
+		}
 		const uint32* ItemIndex = Equipment.Find(PaperdollSlot);
 		if (ItemIndex == nullptr || *ItemIndex == 0)
 		{
-			continue;
+			return false;
 		}
 		if (!Items.IsValidIndex(static_cast<int32>(*ItemIndex) - 1))
 		{
 			Look.Notes.Add(FString::Printf(TEXT("paperdoll slot %u: item index %u is not in the item catalog"), PaperdollSlot, *ItemIndex));
-			continue;
+			return false;
 		}
 		const TArray<FString>& Item = Items[*ItemIndex - 1];
-		const FString& AppearanceName = Item[Look.bFemale ? 2 : 1];
+		OutName = Item[Look.bFemale ? 2 : 1];
+		OutItem = Item[0];
+		return true;
+	};
+	for (uint32 PaperdollSlot = 0; PaperdollSlot < UE_ARRAY_COUNT(VisualSlots); ++PaperdollSlot)
+	{
+		FString AppearanceName;
+		FString ItemName;
+		if (!ArmorRowName(PaperdollSlot, AppearanceName, ItemName))
+		{
+			continue;
+		}
 		const TSharedPtr<FJsonObject> Row = ObjectField(Armor, AppearanceName);
 		if (!Row.IsValid())
 		{
-			Look.Notes.Add(FString::Printf(TEXT("paperdoll slot %u: item %s has no armor appearance (%s)"), PaperdollSlot, *Item[0],
+			Look.Notes.Add(FString::Printf(TEXT("paperdoll slot %u: item %s has no armor appearance (%s)"), PaperdollSlot, *ItemName,
 				AppearanceName.IsEmpty() ? TEXT("no name") : *AppearanceName));
 			continue;
 		}
@@ -335,6 +362,90 @@ FSwcPlayerLook FSwcPlayerLooks::Resolve(const TArray<uint8>& Appearance, const T
 		Slot.Value.MeshPath = ImportedObject(Slot.Value.Skin + TEXT("|") + Slot.Value.Material, TEXT("SkeletalMesh"));
 		Look.Parts.Add(Slot.Value);
 	}
+	return Look;
+}
+
+namespace
+{
+/** @return The index of the entry with the name in a list of looks.json, or -1. */
+int32 IndexOfName(const TArray<TSharedPtr<FJsonValue>>* List, const FString& Name)
+{
+	if (List != nullptr)
+	{
+		for (int32 Index = 0; Index < List->Num(); ++Index)
+		{
+			const TSharedPtr<FJsonObject> Item = (*List)[Index]->AsObject();
+			if (Item.IsValid() && StringField(Item, TEXT("name")).Equals(Name, ESearchCase::IgnoreCase))
+			{
+				return Index;
+			}
+		}
+	}
+	return -1;
+}
+} // namespace
+
+FSwcPlayerLook FSwcPlayerLooks::ResolveMenu(const TArray<FString>& AppearanceNames, const TMap<uint32, uint32>& ArmorCrcs) const
+{
+	TArray<FString> Notes;
+	const auto Name = [&AppearanceNames](int32 Field) { return AppearanceNames.IsValidIndex(Field) ? AppearanceNames[Field] : FString(); };
+	// The names of the creation databases (gender, race, skinTone, hairstyle, facialHair, hairColor, facialHairColor) to the
+	// indexes of the appearance state: the lists of looks.json. A name that is not there gives the first entry (the rule of
+	// Entry) and a note. The eye color, the face mark, the scar, and the tattoo are not in looks.json (no part of the look).
+	TArray<uint8> Appearance;
+	Appearance.SetNumZeroed(12);
+	const bool bFemale = Name(0).Equals(TEXT("Female"), ESearchCase::IgnoreCase);
+	Appearance[0] = bFemale ? 1 : 0;
+	const TSharedPtr<FJsonObject> Gender = ObjectField(ObjectField(Looks, TEXT("genders")), bFemale ? TEXT("Female") : TEXT("Male"));
+	const auto Index = [&Notes, &Appearance](int32 Field, const TArray<TSharedPtr<FJsonValue>>* List, const FString& Value, const TCHAR* What)
+	{
+		const int32 Found = IndexOfName(List, Value);
+		if (Found < 0 && !Value.IsEmpty() && !Value.Equals(TEXT("None"), ESearchCase::IgnoreCase))
+		{
+			Notes.Add(FString::Printf(TEXT("menu document: the %s %s is not in looks.json (the first entry)"), What, *Value));
+		}
+		Appearance[Field] = static_cast<uint8>(FMath::Clamp(Found, 0, 255));
+		return Found;
+	};
+	const TArray<TSharedPtr<FJsonValue>>* Races = ArrayField(Gender, TEXT("races"));
+	const TSharedPtr<FJsonObject> Race = Entry(Races, FMath::Max(0, Index(1, Races, Name(1), TEXT("race"))));
+	const TSharedPtr<FJsonObject> HairSet = ObjectField(ObjectField(Looks, TEXT("hairSets")), StringField(Race, TEXT("hair")));
+	const TSharedPtr<FJsonObject> FacialSet = ObjectField(ObjectField(Looks, TEXT("hairSets")), StringField(Race, TEXT("facial")));
+	Index(2, ArrayField(ObjectField(Looks, TEXT("toneSets")), StringField(Race, TEXT("tones"))), Name(2), TEXT("skin tone"));
+	Index(3, ArrayField(HairSet, TEXT("styles")), Name(3), TEXT("hairstyle"));
+	Index(4, ArrayField(FacialSet, TEXT("styles")), Name(4), TEXT("facial hair"));
+	Index(5, ArrayField(HairSet, TEXT("colors")), Name(5), TEXT("hair color"));
+	const TArray<TSharedPtr<FJsonValue>>* FacialColors = ArrayField(FacialSet, TEXT("colors"));
+	Index(6, FacialColors != nullptr && FacialColors->Num() > 0 ? FacialColors : ArrayField(HairSet, TEXT("colors")), Name(6), TEXT("facial hair color"));
+
+	// The armor rows by the CRC-32 of the lower-case row name (the appearanceId of the map `equipment`, research
+	// frontend-native.md FE5). An unknown or zero CRC: no armor in that slot (the naked part of the slot) and a note; no item.
+	if (ArmorByCrc.Num() == 0)
+	{
+		if (const TSharedPtr<FJsonObject> Armor = ObjectField(Looks, TEXT("armor")))
+		{
+			for (const auto& Row : Armor->Values)
+			{
+				const FTCHARToUTF8 Lower(*FString(Row.Key.ToView()).ToLower());
+				ArmorByCrc.Add(static_cast<uint32>(crc32(0, reinterpret_cast<const Bytef*>(Lower.Get()), Lower.Length())), FString(Row.Key.ToView()));
+			}
+		}
+	}
+	TMap<uint32, FString> Rows;
+	for (const TPair<uint32, uint32>& Slot : ArmorCrcs)
+	{
+		const FString* Row = ArmorByCrc.Find(Slot.Value);
+		if (Slot.Value == 0 || Row == nullptr)
+		{
+			Notes.Add(FString::Printf(TEXT("menu document: paperdoll slot %u: %s appearance id %08x: no armor"), Slot.Key,
+				Slot.Value == 0 ? TEXT("the zero") : TEXT("an unknown"), Slot.Value));
+			continue;
+		}
+		Rows.Add(Slot.Key, *Row);
+	}
+	FSwcPlayerLook Look = ResolveRows(Appearance, TMap<uint32, uint32>(), &Rows);
+	Notes.Append(Look.Notes);
+	Look.Notes = MoveTemp(Notes);
 	return Look;
 }
 

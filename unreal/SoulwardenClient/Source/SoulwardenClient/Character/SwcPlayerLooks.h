@@ -85,6 +85,12 @@ public:
 	bool Load(FString& OutReport);
 
 	FSwcPlayerLook Resolve(const TArray<uint8>& Appearance, const TMap<uint32, uint32>& Equipment) const;
+	/**
+	 * The look of the menu preview (AST-196 F3, docs/FRONTEND.md): the 12 appearance names of the menu document (the names of the
+	 * creation databases: gender first) and the armor appearance ids of its map `equipment` by paperdoll slot (hat 0, shirt 1,
+	 * gloves 2, pants 3, boots 4; the CRC-32 of the lower-case name of an armor row). The same rules as Resolve; no gear.
+	 */
+	FSwcPlayerLook ResolveMenu(const TArray<FString>& AppearanceNames, const TMap<uint32, uint32>& ArmorCrcs) const;
 	/** @return The item id of an item index of the wire (item-catalog.json), or an empty text. */
 	FString ItemId(uint32 ItemIndex) const;
 	/** @return The weight of one item of an item index of the wire in tenths (the column weight of item-catalog.json: the rule of
@@ -104,6 +110,8 @@ public:
 private:
 	FString ImportedObject(const FString& Key, const TCHAR* Class) const;
 	TArray<FString> ImportedObjects(const FString& Key, const TCHAR* Class) const;
+	/** The shared code of Resolve and ResolveMenu: `ArmorRows` (the armor row name by paperdoll slot) replaces the item names. */
+	FSwcPlayerLook ResolveRows(const TArray<uint8>& Appearance, const TMap<uint32, uint32>& Equipment, const TMap<uint32, FString>* ArmorRows) const;
 	void ResolveGear(const TMap<uint32, uint32>& Equipment, FSwcPlayerLook& Look, TMap<FName, FSwcLookPart>& Slots) const;
 	FSwcAttachPlace Place(bool bFemale, const FString& Attachment, const TSharedPtr<FJsonObject>& Side, const TCHAR* Kind) const;
 
@@ -113,4 +121,6 @@ private:
 	/** Item index - 1 -> [id, armorAppearanceM, armorAppearanceF]. */
 	TArray<TArray<FString>> Items;
 	TArray<int32> Weights;
+	/** The armor row names by the CRC-32 of their lower-case name (ResolveMenu; made at its first call). */
+	mutable TMap<uint32, FString> ArmorByCrc;
 };

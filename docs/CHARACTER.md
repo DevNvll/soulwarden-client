@@ -70,6 +70,21 @@ Not applied yet (a warning line in the log for each one): `HideLegs` (the rule i
 `AppearanceCDF` (2,205 rows; for example the cape of the Ranger and the skirt of the Magus are `.cloth` files), the eye
 color, the face mark, the scar, the tattoo (the layers of the head material), the dye of an item, the weapons.
 
+### The menu input of the resolver (AST-196 F3)
+
+`FSwcPlayerLooks::ResolveMenu(names, armor ids)` makes the look of the character of the main menu from its menu document
+(docs/FRONTEND.md "Equipment in the preview"), with the same rules as `Resolve`:
+
+- The appearance names (`Male`/`Female`, `face07`, `skin09`, `hairstyle12m`, ...) become the indexes of the lists of
+  `looks.json` (races, the tones of the race, the hair and facial hair styles and colors). A name that a list does not have
+  gives entry 0 and a note (rule 1). The eye color, the face mark, the scar, and the tattoo are not in `looks.json`.
+- The armor appearance ids of the map `equipment` (the keys `hat`, `shirt`, `gloves`, `pants`, `boots` are the paperdoll slots
+  0 to 4) are the CRC-32 of the lower-case name of an armor row. The resolver finds the row by a CRC map of the armor keys of
+  `looks.json` (made at the first call); it uses no item (research frontend-native.md FE5). A zero or unknown id gives no armor
+  in that slot (the naked part) and a note. The menu has no weapons.
+- `Resolve` keeps its signature and its behavior: both methods call the same code, and only the source of the armor row
+  name differs (the item catalog for the world, the CRC map for the menu).
+
 ## The character in Unreal (`Character/SwcPlayerCharacter`)
 
 - `ASwcPlayerCharacter` is an `ACharacter`. Its mesh is the base of the gender: the leader. It has the skeleton and the
