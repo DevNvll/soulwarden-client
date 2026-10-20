@@ -19,8 +19,13 @@ log="${SWC_WORK}/logs/dev-run/${label}-client.log"
 mkdir -p "${evidence}"
 rm -f "${log}"
 create=()
-[[ -n "${SWC_DEV_CHARACTER:-}" && -n "${SWC_DEV_PLACE:-}" ]] && create=(--create "name=${SWC_DEV_CHARACTER},place=${SWC_DEV_PLACE}")
-"${SWC_REPO}/tools/dev-run.sh" --window "${create[@]}" --label "${label}" -- -SwcQuitAfter="${seconds}" "$@" >/dev/null
+if [[ -n "${SWC_DEV_CHARACTER:-}" && -n "${SWC_DEV_PLACE:-}" ]]; then
+    # The place route is a development command of the backend.
+    export SWC_SESSION_BACKEND_ARGS="--dev-commands"
+    create=(--create "name=${SWC_DEV_CHARACTER},place=${SWC_DEV_PLACE}")
+fi
+"${SWC_REPO}/tools/dev-run.sh" --window "${create[@]}" --label "${label}" -- -SwcQuitAfter="${seconds}" "$@" \
+    >"${SWC_WORK}/logs/dev-run/${label}-launch.log" 2>&1
 for ((i = 0; i < 240; ++i)); do
     grep -q 'the front end: the landing screen' "${log}" 2>/dev/null && break
     grep -q 'client: stop' "${log}" 2>/dev/null && break

@@ -113,6 +113,12 @@ public:
 	const FSwcAccountSession* GetAccountSession() const;
 	/** The refresh of the landing screen: GET getlogininfo again (FSwcLoginClient::RefreshLoginInfo). */
 	void RefreshCharacterList(TFunction<void(bool bSucceeded)> Done);
+	/** @return True from EnterWorld to the reply of the login queue (the login token). */
+	bool IsEnteringWorld() const { return bEnteringWorld; }
+	/** @return True while the client has a connection to the game server (after the login token). */
+	bool HasConnection() const { return Connection.IsValid(); }
+	/** @return The error of the last EnterWorld of the front end (no login token), else empty. */
+	const FString& GetEnterError() const { return EnterError; }
 	/** @return True while the cells of a new place load after a travel or a respawn (the UI keeps its loading screen). */
 	bool IsWaitingForCells() const { return bTravelWait; }
 	/** The key E of the interactions (stage P2.10): down or up. */
@@ -193,6 +199,9 @@ private:
 	FString PlayCharacter;
 	/** A character list with no -SwcPlay: the front end of the UI (IsFrontEnd). */
 	bool bFrontEnd = false;
+	/** EnterWorld: the login queue request runs; the error of a failed request of the front end. */
+	bool bEnteringWorld = false;
+	FString EnterError;
 	float StaySeconds = 10.0f;
 	double InGameSince = 0.0;
 	bool bInGame = false;

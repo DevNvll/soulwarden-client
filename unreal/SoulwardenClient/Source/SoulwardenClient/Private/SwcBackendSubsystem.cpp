@@ -246,7 +246,7 @@ void USwcBackendSubsystem::RefreshCharacterList(TFunction<void(bool bSucceeded)>
 
 void USwcBackendSubsystem::EnterWorld(const FString& CharacterId)
 {
-	if (!Login.IsValid() || Connection.IsValid())
+	if (!Login.IsValid() || Connection.IsValid() || bEnteringWorld)
 	{
 		return;
 	}
@@ -259,12 +259,22 @@ void USwcBackendSubsystem::EnterWorld(const FString& CharacterId)
 	}
 	UE_LOG(LogSwcBackend, Log, TEXT("world: %s"), *Report);
 	UE_LOG(LogSwcBackend, Log, TEXT("world: login queue for character %s"), *CharacterId);
+	// One login at a time (the PLAY of the front end); a failure in the front end keeps the client open (stage F5 of
+	// docs/FRONTEND.md: the landing screen shows the error, and PLAY can try again).
+	bEnteringWorld = true;
+	EnterError.Reset();
 	Login->RequestLoginToken(CharacterId,
 		[this](bool bSucceeded, const FSwcLoginToken& Token, const FString& Error)
 		{
+			bEnteringWorld = false;
 			if (!bSucceeded)
 			{
 				UE_LOG(LogSwcBackend, Error, TEXT("world: %s"), *Error);
+				if (bFrontEnd)
+				{
+					EnterError = Error.IsEmpty() ? FString(TEXT("no login token")) : Error;
+					return;
+				}
 				Quit(false, TEXT("no login token"));
 				return;
 			}

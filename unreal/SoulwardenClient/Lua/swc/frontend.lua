@@ -207,6 +207,14 @@ function Swc.HostMenuListEnd(maxCharacters)
     F.maxCharacters, {})
 end
 
+--- A failed login of the selected character (no login token): the connection state 0 and the error text in the data node
+--- MainMenu.LastError (the data callback of landingscreenv2.luac shows the popup "@mm_connectionfailed" with the text; its OK
+--- resets the screen, and PLAY can try again).
+function Swc.HostMenuLoginFailed(text)
+  F.connection = 0
+  Swc.SetData("MainMenu.LastError", text or "@mm_loginservices_UnableToConnectError")
+end
+
 --- The connection state of the login of the selected character (the numbers of the table of landingscreenv2.luac:
 --- 0 Disconnected ... 14 InGame).
 function Swc.HostMenuConnection(status)

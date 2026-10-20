@@ -120,6 +120,9 @@ private:
 	bool bMenuStarted = false;
 	bool bMenuListPending = false;
 	bool bMenuListAgain = false;
+	/** The front end: the login of the selected character runs (stage F5); the connection state sent to the screen. */
+	bool bMenuLogin = false;
+	int32 SentMenuConnection = 0;
 	bool bErrorShown = false;
 	bool bSentLoadingScreen = false;
 	bool bLoadingForDeath = false;

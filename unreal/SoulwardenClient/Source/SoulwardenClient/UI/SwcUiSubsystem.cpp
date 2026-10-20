@@ -18,6 +18,7 @@
 #include "Creatures/SwcCreature.h"
 #include "Interact/SwcInteractor.h"
 #include "Character/SwcRangedView.h"
+#include "Character/SwcPlayerCharacter.h"
 #include "Objects/SwcObjectSubsystem.h"
 #include "Camera/PlayerCameraManager.h"
 #include "SwcCameraManager.h"
@@ -720,12 +721,13 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the login path failed (%s): the error UI shows"), *Backend->GetLoginError());
 		Runtime->call("HostConnectionError");
 	}
-	// The end of the loading screen of the start: the player has its character.
+	// The end of the loading screen of the start: the player has its character (the player character of the client, not the
+	// default pawn of the map: the spawn waits for the cells of the place).
 	if (bStartLoading && bWorldEntered && GEngine != nullptr && GEngine->GameViewport != nullptr)
 	{
 		UWorld* World = GEngine->GameViewport->GetWorld();
 		APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
-		if (Controller != nullptr && Controller->GetPawn() != nullptr)
+		if (Controller != nullptr && Cast<ASwcPlayerCharacter>(Controller->GetPawn()) != nullptr)
 		{
 			bStartLoading = false;
 			Runtime->call("HostLoading", {FArg::of(false)});
@@ -791,6 +793,36 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 
 void USwcUiSubsystem::UpdateMenu(USwcBackendSubsystem* Backend)
 {
+	if (bMenuLogin)
+	{
+		// The login of PLAY (stage F5): the connection states of the table of landingscreenv2.luac (3 QueueGameLogin while the
+		// login queue request runs, 10 WaitingForREPConnection after the token, 14 InGame), or the error of the request.
+		const FString& Error = Backend->GetEnterError();
+		if (!Error.IsEmpty())
+		{
+			bMenuLogin = false;
+			SentMenuConnection = 0;
+			Runtime->call("HostMenuLoginFailed", {FArg::of(std::string("@mm_loginservices_UnableToConnectError"))});
+			UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the login failed (%s): the landing screen shows the error"), *Error);
+			return;
+		}
+		const int32 Status = Backend->HasConnection() ? 10 : 3;
+		if (Status != SentMenuConnection)
+		{
+			SentMenuConnection = Status;
+			Runtime->call("HostMenuConnection", {FArg::of(static_cast<double>(Status))});
+			if (Status == 10)
+			{
+				// The token came: the menu ends, the loading screen of the world shows until the possession of the character.
+				bMenuLogin = false;
+				Runtime->call("HostMenuEnd");
+				Runtime->call("HostLoading", {FArg::of(true), FArg::of(std::string(WorldLevelName)), FArg::of(std::string("eLoadingScreenIds_LEVEL1"))});
+				bStartLoading = true;
+				UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the login token came; the loading screen of the world shows"));
+			}
+		}
+		return;
+	}
 	if (bMenuStarted || !Backend->IsFrontEnd() || Backend->GetAccountSession() == nullptr)
 	{
 		return;
@@ -899,6 +931,33 @@ void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsy
 	else if (Kind == TEXT("preview") || Kind == TEXT("show"))
 	{
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: %s"), *Request);
+	}
+	else if (Kind == TEXT("login"))
+	{
+		// "menu login ID TYPE": the PLAY of the landing screen. The id must be a character of the current account list; one login
+		// at a time. The world type (OpenWorld or FTUE) is not in the login queue request (the native RequestLogin sends an empty
+		// world id: research character-creation.md 4.1).
+		const FString CharacterId = Parts.IsValidIndex(2) ? Parts[2] : FString();
+		const FSwcAccountSession* Session = Backend->GetAccountSession();
+		const bool bKnown = Session != nullptr
+			&& Session->Characters.ContainsByPredicate([&CharacterId](const FSwcCharacterInfo& Character) { return Character.CharacterId == CharacterId; });
+		if (bMenuLogin || Backend->IsEnteringWorld() || Backend->HasConnection())
+		{
+			UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: a login runs; PLAY again is ignored"));
+		}
+		else if (!bKnown)
+		{
+			UE_LOG(LogSwcUi, Warning, TEXT("ui: the front end: the character %s is not in the account list: no login"), *CharacterId);
+			Runtime->call("HostMenuLoginFailed", {FArg::of(std::string("@mm_loginservices_UnableToConnectError"))});
+		}
+		else
+		{
+			bMenuLogin = true;
+			SentMenuConnection = 0;
+			UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: PLAY with the character %s (%s)"), *CharacterId,
+				Parts.IsValidIndex(3) ? *Parts[3] : TEXT(""));
+			Backend->EnterWorld(CharacterId);
+		}
 	}
 	else if (Kind == TEXT("quit"))
 	{

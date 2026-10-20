@@ -522,3 +522,25 @@ Only this document changes in the research branch. The scene and script records 
 - The run `f2-landing` (the two development characters of the UI track, 1256 x 660): the landing screen, a click on each row,
   the refreshes of the regions (30 s) and of the list (60 s). The side-by-side picture with the retail picture B6-04 of the
   Soulwarden evidence has the same panels, places, and sizes. The background is the empty default level (stage F4).
+
+### F5, Play and the world entry (2026-10-20)
+
+- `menu login ID TYPE` (the `RequestLogin` of PLAY): `USwcUiSubsystem` checks that the id is a character of the current
+  account list and that no login runs, then calls `USwcBackendSubsystem::EnterWorld(id)`. A selection alone sends no login.
+  The world type (OpenWorld or FTUE) is not in the login queue request: the native `RequestLogin` sends an empty world id.
+- The connection states of the table of the script: 3 (QueueGameLogin: "@mm_authenticating") while the login queue request
+  runs, 10 (WaitingForREPConnection: "@mm_connecting") after the token. At the token the menu ends (`Swc.HostMenuEnd`: the menu
+  screens unload) and the loading screen of the world shows (LEVEL1); it ends at the possession of the player character
+  (`ASwcPlayerCharacter`), not of the default pawn of the map: the spawn waits for the cells of the place. Then the screen
+  loader of the world and the HUD start as with `-SwcPlay` (which stays the automated bypass).
+- A failed login token in the front end does not stop the client: `USwcBackendSubsystem` keeps the error
+  (`GetEnterError`), and `Swc.HostMenuLoginFailed` writes `MainMenu.LastError`. The data callback of the script shows the popup
+  "@mm_connectionfailed" (more than 5 s after its start or its last error popup), and its OK resets the screen and asks for the
+  list again; PLAY can try again. A character id that is not in the list gets the same error.
+- The fixture `frontend` (62 checks) adds: the failed login, the popup and its OK, the list refresh, PLAY again; the world type
+  FTUE; no login for a character that must be renamed (the rename popup of the script). The wall clock of the emulation follows
+  the fixture time there (the 5 s rule of the popup).
+- The run `f5-play` (`tools/menu-check.sh`, the place of the development character at the dry sand): a click on a row, PLAY,
+  the connection label, the token after 3.8 s, the loading screen for 12.6 s (the cells of the place), the spawn, and the HUD.
+  `evidence/F5/compare/f5-flow.png` has six frames of the video.
+- Not done in F5 (F6): the return to the menu, a second entry, the retry of a failed connection after the token.

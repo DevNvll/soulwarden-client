@@ -10,6 +10,10 @@
 --   * Options and back, the exit state and back, Enter (frontEndContinue): Play gives one login request of the selected id.
 -- Pictures: frontend-list, frontend-select, frontend-empty.
 local LANDING, OPTIONS, MAIN_ESC = 3881446394, 2717041095, 2907552185
+-- The wall clock of the emulation follows the time of the fixture (the frames are faster than the real time): the landing
+-- script shows the error popup only when more than 5 s passed since its start or its last error popup.
+local wallBase = os.time()
+os.time = function() return wallBase + math.floor(Swc.time) end
 local F = Swc.frontend
 F.menu = true
 local landing = screen("LyShineUI/Main Menu/LandingScreenV2.uicanvas", 5)
@@ -39,7 +43,8 @@ local function answer(characters, worlds, maxCharacters)
     Swc.HostMenuWorld(w, "Made World", "Made World", "set1", "ACTIVE", "OpenWorld", "1", 0, 6, 0, 1, "", 0, 0, "low")
   end
   for _, c in ipairs(characters) do
-    Swc.HostMenuCharacter(c[1], "persona-x", WORLD, c[2], c[3], 0, 1, 2, 3, c[4], 1, 0, 0, 0, 0)
+    -- c[5]: the first-time experience is not complete (FTUE); c[6]: the character must be renamed.
+    Swc.HostMenuCharacter(c[1], "persona-x", WORLD, c[2], c[3], 0, 1, 2, 3, c[4], c[5] and 0 or 1, c[6] and 1 or 0, 0, 0, 0)
   end
   Swc.HostMenuListEnd(maxCharacters or 6)
 end
@@ -188,6 +193,81 @@ frames(0.2)
 local logins = requests("menu login")
 equal(#logins, 1, "Enter and a click give one login request")
 equal(logins[1], "menu login c-3 OpenWorld", "the login of the selected id, world type OpenWorld")
+
+-- Stage F5: a failed login (the host has no login token): the popup of the error, its OK, and PLAY again.
+Swc.HostMenuConnection(3)
+frames(0.2)
+check(L.currentState == L.STATE_CONNECTING_TO_GAME, "the login runs (the state of the script)")
+Swc.HostMenuLoginFailed("@mm_loginservices_UnableToConnectError")
+frames(1.0)
+local popupRoot = nil
+for _, canvas in ipairs(swcui.canvases and swcui.canvases() or {}) do
+  if string.find(string.lower(swcui.canvas_get(canvas, "path") or ""), "popup/popup", 1, true) then
+    popupRoot = swcui.canvas_get(canvas, "root")
+  end
+end
+local function find_text(id, label)
+  for _, c in ipairs(swcui.children(id)) do
+    if swcui.enabled_in_hierarchy(c) then
+      local text = swcui.get(c, "text.text")
+      if text and (text == label or swcui.localize(text) == label) then
+        return c
+      end
+      local found = find_text(c, label)
+      if found then
+        return found
+      end
+    end
+  end
+  return nil
+end
+local ok = find_text(popupRoot or swcui.canvas_get(landing, "root"), "OK")
+check(ok ~= nil, "the error popup shows its OK button")
+Swc.hostRequests = {}
+if ok then
+  click(ok)
+end
+frames(0.5)
+check(not L.playButtonClicked, "OK resets the landing screen (PLAY can try again)")
+check(#requests("menu list") >= 1, "OK asks for the list again (ResetScreenAfterError: AutoRefreshWorldList)")
+answer({five[5], five[4], five[3], five[2], five[1]})
+frames(0.5)
+check(L.PlayButton:IsEnabled(), "PLAY is enabled after the refresh")
+Swc.hostRequests = {}
+key("enter")
+frames(0.2)
+equal(requests("menu login")[1], "menu login c-3 OpenWorld", "PLAY again after the error: a new login request")
+
+-- The world type FTUE for a character with no complete first-time experience; no login for a character that must be renamed.
+L.playButtonClicked = false
+L:ResetScreenAfterError(true)
+L:RefreshWorldList()
+frames(0.1)
+answer({{"c-6", "Zeta Made", 0, 10, true}, {"c-7", "Eta Made", 9, 900, false, true}})
+frames(0.5)
+equal(L.selectedCharacterId, "c-6", "the last played character c-6")
+Swc.hostRequests = {}
+key("enter")
+frames(0.2)
+equal(requests("menu login")[1], "menu login c-6 FTUE", "the world type FTUE")
+-- The login of c-6 fails: OK of the popup refreshes the list, then the second row.
+Swc.HostMenuLoginFailed("@mm_loginservices_UnableToConnectError")
+frames(0.5)
+local ok2 = find_text(popupRoot or swcui.canvas_get(landing, "root"), "OK")
+Swc.hostRequests = {}
+if ok2 then
+  click(ok2)
+end
+frames(0.3)
+answer({{"c-6", "Zeta Made", 0, 10, true}, {"c-7", "Eta Made", 9, 900, false, true}})
+frames(0.5)
+click(find(swcui.children(list)[2], "CharacterInfoHolder"))
+frames(0.3)
+equal(L.selectedCharacterId, "c-7", "the second row c-7 (must rename)")
+Swc.hostRequests = {}
+key("enter")
+frames(0.3)
+equal(#requests("menu login"), 0, "no login for a character that must be renamed (the rename popup of the script)")
 
 -- A new account state: no character, then no world (a second landing screen run).
 L.playButtonClicked = false

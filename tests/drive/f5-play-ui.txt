@@ -1,0 +1,14 @@
+# Stage F5 of docs/FRONTEND.md: PLAY from the landing screen (tools/menu-check.sh f5-play 150 -- -SwcUiDrive=FILE). The clock
+# starts at the landing screen. A click on the row of the first development character, then PLAY: the connection label, the
+# loading screen of the world, and the HUD after the spawn.
+1 waitfor CharacterList 60
+3 draw landing
+4 point text:Devwarden
+4.5 click
+6 draw selected
+7 point PlayButton
+7.5 click
+8.5 draw connecting
+9 waitfor world 180
+15 draw hud
+20 end
