@@ -47,6 +47,7 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UMaterialParameterCollection> Effects;
+	int32 AppliedFade = -1;   // swc.Foliage.CameraFade as set in VegCameraFade
 
 	float Applied = -1.0f;
 	double NextEffects = 0.0;

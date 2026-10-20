@@ -14,6 +14,10 @@ DEFINE_LOG_CATEGORY_STATIC(LogSwcMaterialScale, Log, All);
 // The scale of the GeometryBeam effects (M_SwcBeam, AST-207): BeamScale of MPC_SwcEffects (its asset default 0).
 static TAutoConsoleVariable<float> CVarBeamScale(TEXT("swc.BeamScale"), 1.0f,
 	TEXT("The scale of the GeometryBeam fog sheets and cards (M_SwcBeam); 0 hides them."));
+// The camera fade of the vegetation (M_SwcFoliage version 4; research/ground-cover.md "Camera fade"): the method of
+// VegCameraFade of MPC_SwcMaterials (the start 2 m and the end 3 m stay).
+static TAutoConsoleVariable<int32> CVarCameraFade(TEXT("swc.Foliage.CameraFade"), 1,
+	TEXT("1: the vegetation near the render camera dissolves (2 to 3 m, the source rule); 0: off (a before and after test)."));
 
 bool USwcMaterialScale::DoesSupportWorldType(const EWorldType::Type WorldType) const
 {
@@ -116,6 +120,15 @@ void USwcMaterialScale::Tick(float DeltaTime)
 	if (!Collection)
 	{
 		return;
+	}
+	if (const int32 Fade = CVarCameraFade.GetValueOnGameThread() != 0 ? 1 : 0; Fade != AppliedFade)
+	{
+		UMaterialParameterCollectionInstance* Instance = GetWorld()->GetParameterCollectionInstance(Collection);
+		if (Instance && Instance->SetVectorParameterValue(TEXT("VegCameraFade"), FLinearColor(static_cast<float>(Fade), 2.0f, 3.0f, 0.0f)))
+		{
+			UE_LOG(LogSwcMaterialScale, Log, TEXT("SWC material scale: the camera fade of the vegetation %d"), Fade);
+			AppliedFade = Fade;
+		}
 	}
 	const float Scale = SourceUnitNits * LightScale();
 	if (FMath::IsNearlyEqual(Scale, Applied))

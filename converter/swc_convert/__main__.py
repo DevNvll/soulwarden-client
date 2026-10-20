@@ -38,6 +38,7 @@ Output: SWC_CONTENT (default ~/Games/soulwarden-client/content). Previews: ~/Gam
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import sys
 
@@ -122,7 +123,14 @@ def main(argv=None) -> int:
         names = census.world_regions() if args.all else args.names
         if not names:
             parser.error("cover needs region names or --all")
-        result = [cover.write(n, args.terrain) for n in names]
+        jobs = int(os.environ.get("SWC_COVER_JOBS", "3"))
+        if len(names) > 1 and jobs > 1:
+            # The blockers of a region take about 2 min (cover_areas.py); the regions are independent.
+            import multiprocessing
+            with multiprocessing.get_context("fork").Pool(jobs) as pool:
+                result = pool.starmap(cover.write, [(n, args.terrain) for n in names])
+        else:
+            result = [cover.write(n, args.terrain) for n in names]
     elif args.command == "terrain-plan":
         from . import census, terrain_material
         names = census.world_regions() if args.all else args.names

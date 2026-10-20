@@ -9,7 +9,11 @@ Output: regions/NAME/cover.bin (little-endian): "SWCV", u32 version 1, u32 descr
 UTF-8 object path of the static mesh (FOLDER/STEM/StaticMeshes/STEM.STEM, found in the plugin on disk; empty when the mesh
 is not imported: the client skips it), u16 slot count and for each slot the slot name and the material key of the
 override (cover/pairs.json of cover_materials.py; each u16 length + UTF-8), f32 bending (the custom primitive data 0 "SwcWind" of the components), u8 AutoMerge; then u64 length and the
-bytes of region.vegetation, unchanged (its tile offsets count from the start of these bytes).
+bytes of region.vegetation, unchanged (its tile offsets count from the start of these bytes). After those bytes (from
+2026-10-20; a client before it reads none of it, so the version stays 1): the claimed sample slots (cover_areas.py: the
+vegetation blockers of the level claim the slots, and a record draws only when its slot is free; research/ground-cover.md):
+u32 tile count, then each tile: u16 tile index (tileY x 128 + tileX) and 128 bytes, bit N (byte N / 8, bit N % 8) set when
+the ordinal N is claimed. The menu terrain has no claims yet (count 0).
 """
 from __future__ import annotations
 
@@ -18,7 +22,7 @@ import os
 import struct
 from pathlib import Path
 
-from . import cover_materials, env, manifest, region, source
+from . import cover_areas, cover_materials, env, manifest, region, source
 
 VERSION = 1
 # The terrains with ground cover: the folder of the terrain in the game data and the content folder of its regions. The world
@@ -81,6 +85,14 @@ def write(name: str, terrain: str = "newworld_vitaeeterna") -> dict:
             out += text(slot) + text(key)
         out += struct.pack("<fB", float(d["bending"]), int(d["autoMerge"]))
     out += struct.pack("<Q", len(data)) + data
+    claims: dict[int, bytes] = {}
+    if terrain == "newworld_vitaeeterna":
+        areas, slots = cover_areas.write(name)
+        claims = cover_areas.tile_bits(slots)
+        report.update({"blockers": areas["blockers"], "claimed slots": areas["claimed slots"], "tiles with claims": len(claims)})
+    out += struct.pack("<I", len(claims))
+    for tile, bits in sorted(claims.items()):
+        out += struct.pack("<H", tile) + bits
     target = env.content_dir() / regions / name / "cover.bin"
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_suffix(".tmp")   # the client can read the file: atomic

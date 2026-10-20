@@ -657,6 +657,19 @@ materials track).
   (Nanite and the virtual shadow maps then treat it as static), `1` turns it on again; components that stream in after
   the change keep the default, and the ground cover reads it for each new batch (matched-view variants, for example
   `--variant 'VIEW@off=swc.Wind.Evaluate 0;ProfileGPU'`).
+- The cost of the deployed switch (cooked, 2026-10-20, a drive that switches `swc.Wind.Evaluate` each 17 s, frame
+  windows 3 to 15 s after each switch): the road start GPU p50 8.44 to 8.66 ms with the wind, 8.32 to 9.11 ms without;
+  the river forest 11.53 and 11.77 ms with, 11.66 and 11.91 ms without. The difference is below the noise (about
+  0.3 ms), so `m6` stays deployed.
+- Open point (deferred by the user on 2026-10-20: the visual fidelity work ends here): the motion by the rule of
+  research/wind-bend.md. The main bend has two timed waves and a damped wind state (the damping by the radius of the
+  object); the weather sets a shared gain; the wind comes from the active environment preset (the river view (1, 1, 0),
+  the mission fallback (1, 0, 0), not normalized); ReceiveWindBasedOnMaterial, ReceiveWind, and WindBendScale stay
+  separate; the detail bending for %DETAIL_BENDING, %GRASS, or %LEAVES with the three detail values of the material;
+  the detail first, then the main bend with B.z = 2 x length(b) x mainScale (in place of 1 / the mesh height); one
+  continuous clock and the previous time for the motion vectors; the same displacement in the visible, depth, and
+  shadow passes; B.xy in local space before the instance matrix; a maximum offset in cm. Then the wind video again
+  and the cost with and without.
 
 ## The terrain material of the game (world fidelity T1)
 
@@ -742,6 +755,36 @@ tools/convert.sh cover NAME... --terrain nw_frontend_base   # the menu terrain: 
   end, with `-SwcMenuCover` only (a test: docs/FRONTEND.md, the menu cover).
 - `swc.GroundCover.Show 0` hides the cover and keeps its batches: one matched-view run gives each view with and without
   the cover (`tools/match-view.sh SET VIEW --variant VIEW@nocover='swc.GroundCover.Show 0'`).
+
+### The rule of the source (2026-10-20, research/ground-cover.md)
+
+The user: "far too much grass in Oxboro" (grass over the paths and the yards). The packed records of region.vegetation are
+not the final list: retail lets the vegetation areas of the level claim the sample slots of a sector first, and a blocker
+claims a slot with no mesh; a baked record draws only when its slot is still free.
+
+- The slot of a record: its tile and the u16 ordinal of its bytes 12 to 13 (the lattice of 32 x 32 points of 0.5 m in the
+  tile, X-major). The whole file has no duplicate tile and ordinal.
+- `converter/swc_convert/cover_areas.py`: the blockers of a region from the inputs of the placements (the static chunks,
+  the capitals, the startup child slices): an entity with the blocker component and a shape (box, cylinder, sphere,
+  polygon prism; the compound shapes are counted, not used), its world transform, and the flags `Priority`, `AreaType`,
+  `PlacementModeTypeFlag`, `InheritBehavior`, `UseRelativeUVW` (`regions/NAME/cover-blockers.json`). A slot is claimed when
+  its lattice point at the terrain height (bilinear) is in a shape. Check against the study: 7,821 records within 30 m of
+  8944.4, 4185.2 (Oxboro), 4,674 after the blockers (the study: the same two numbers).
+- `cover.bin` keeps version 1; after the source bytes it has the claimed slots of each tile (128 bytes, bit = ordinal), so
+  a client before it reads the file as before. All 49 regions (`tools/convert.sh cover --all`, 3 workers, 295 s): 86,700
+  blockers, 10.9 million claimed slots of 172.8 million records.
+- The client leaves out a record of a claimed slot (`swc.GroundCover.Blockers 0` draws all records: a before and after
+  test). At the user's place: 21 batches, 44,626 records left out (16.7 % within the range).
+- The camera fade (`M_SwcFoliage` version 4, `MPC_SwcMaterials` `VegCameraFade` = method 1, start 2 m, end 3 m): a fragment
+  of the vegetation dissolves near the render camera, with a screen-space gradient noise, in the opacity mask (thus also
+  in the depth pass). `swc.Foliage.CameraFade 0` turns it off (a test).
+  Check (river forest, the camera pitched up so that the arm puts it low in the grass): the mean gray difference of
+  the pictures with and without the fade is 13.3, against 1.1 to 1.3 for two pictures with no change; with the camera
+  at the normal height (about 3 m) no cover is within 3 m, and the pictures are the same.
+- Not yet (open points of the study): the filter chain and the priorities of the areas, the areas that place their own
+  meshes (the short green grass of some yards), the grass shrink from 51.2 m to 128 m and the range of 128 m, the LOD
+  transition at 30 to 32 m (the cover meshes are Nanite), the touch bending near the character. The shadows of the cover
+  stay off (the shadow preset 7 of the source).
 
 ### The T3 check (2026-10-19)
 

@@ -21,7 +21,7 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "3", "M_SwcSurface": "8", "M_SwcSurfaceMasked": "8", "M_SwcDecal": "7",
+PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "8", "M_SwcSurfaceMasked": "8", "M_SwcDecal": "7",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
                    "M_SwcSurfaceTranslucent": "8"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
@@ -32,7 +32,7 @@ PARENT_VERSIONS = {"M_SwcFoliage": "3", "M_SwcSurface": "8", "M_SwcSurfaceMasked
 # 5: the view bias in the vertex shader without CameraVectorWS (3 and 4 did not compile); 6: the normal of the
 # projected decals out of the surface (5 had it into the surface); 7: the reflectance of the source decal (the
 # specular map x XML Specular; 6 and before: the default 0.5); M_SwcFoliage 2: the wind (M6) and
-# the vertex alpha occlusion; 3: the subsurface color x the albedo, as the back light of the source)
+# the vertex alpha occlusion; 3: the subsurface color x the albedo, as the back light of the source; 4: the camera fade)
 # The parent asset of each spec parent (apply_specs: a stale parent is made again).
 PARENT_NAMES = {"foliage": "M_SwcFoliage", "surface": "M_SwcSurface", "surface masked": "M_SwcSurfaceMasked",
                 "surface translucent": "M_SwcSurfaceTranslucent", "decal": "M_SwcDecal", "glass": "M_SwcGlass",
@@ -311,11 +311,11 @@ return C.rgb * C.a * 0.1 * e * Scale;"""
 def collection(content, state):
     """@return MPC_SwcMaterials: the global values of this module. EmissiveScale (default 1; at run time
     USwcMaterialScale), WindVector (M6: the global wind of the level data, EnvState WindVector of the mission, in Unreal
-    axes: SWC_CONTENT/materials/globals.json; its length is the wind strength). An existing parameter keeps its id (the
-    materials refer to it)."""
+    axes: SWC_CONTENT/materials/globals.json; its length is the wind strength), VegCameraFade (the method, the start and the
+    end distance in m of the camera fade of the vegetation). An existing parameter keeps its id (the materials refer to it)."""
     name = "MPC_SwcMaterials"
     path = f"{BASE}/{name}"
-    if assets.does_asset_exist(path) and state.get("base:" + name) == "2":
+    if assets.does_asset_exist(path) and state.get("base:" + name) == "3":
         return assets.load_asset(path)
     if assets.does_asset_exist(path):
         mpc = assets.load_asset(path)
@@ -341,9 +341,16 @@ def collection(content, state):
         value.set_editor_property("parameter_name", "WindVector")
         value.set_editor_property("default_value", unreal.LinearColor(*wind, 0.0))
         vectors.append(value)
+    # The camera fade of the vegetation (research/ground-cover.md "Camera fade": vegCameraFadeParams = method 1, start 2 m,
+    # end 3 m, the defaults of the cvars of the source).
+    if not any(str(v.get_editor_property("parameter_name")) == "VegCameraFade" for v in vectors):
+        value = unreal.CollectionVectorParameter()
+        value.set_editor_property("parameter_name", "VegCameraFade")
+        value.set_editor_property("default_value", unreal.LinearColor(1.0, 2.0, 3.0, 0.0))
+        vectors.append(value)
     mpc.set_editor_property("vector_parameters", vectors)
     assets.save_loaded_asset(mpc)
-    state["base:" + name] = "2"
+    state["base:" + name] = "3"
     return mpc
 
 
@@ -1176,11 +1183,42 @@ def wind_parent_graph(material, content, state):
     editing.connect_material_property(moving, "", MP.MP_WORLD_POSITION_OFFSET)
 
 
+# The camera fade of the source vegetation (common.cfib GetCameraDissolveOpacity, research/ground-cover.md "Camera fade"):
+# D the 3D distance (cm) of the pixel to the render camera, S the pixel position, F = VegCameraFade (the method, the start
+# and the end in m). A fragment with opacity o = saturate((d - start) / (end - start)) at or below 0.99 is discarded where
+# the screen-space gradient noise is above o. The mask goes into the opacity mask, so the depth pass has the same cutout.
+CAMERA_FADE_HLSL = """float d = D * 0.01;
+float o = saturate((d - F.y) / max(F.z - F.y, 0.001));
+float n = frac(52.9829189 * frac(dot(floor(S), float2(0.06711056, 0.00583715))));
+return (F.x > 0.0 && o <= 0.99 && n > o) ? 0.0 : 1.0;"""
+
+
+def camera_fade(material, content, state, x, y):
+    """@return The node of the camera fade mask (1 = keep, 0 = discard) of CAMERA_FADE_HLSL."""
+    world = node(material, unreal.MaterialExpressionWorldPosition, x - 600, y)
+    camera = node(material, unreal.MaterialExpressionCameraPositionWS, x - 600, y + 100)
+    delta = node(material, unreal.MaterialExpressionSubtract, x - 400, y)
+    editing.connect_material_expressions(world, "", delta, "A")
+    editing.connect_material_expressions(camera, "", delta, "B")
+    distance = node(material, unreal.MaterialExpressionLength, x - 250, y)
+    editing.connect_material_expressions(delta, "", distance, "")
+    screen = node(material, unreal.MaterialExpressionScreenPosition, x - 400, y + 200)
+    fade = node(material, unreal.MaterialExpressionCollectionParameter, x - 400, y + 350)
+    fade.set_editor_property("collection", collection(content, state))
+    fade.set_editor_property("parameter_name", "VegCameraFade")
+    mask = custom(material, CAMERA_FADE_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("D", "S", "F"), x, y)
+    editing.connect_material_expressions(distance, "", mask, "D")
+    editing.connect_material_expressions(screen, "PixelPosition", mask, "S")
+    editing.connect_material_expressions(fade, "", mask, "F")
+    return mask
+
+
 def foliage_parent(content, state):
     """@return M_SwcFoliage (made again when its version in PARENT_VERSIONS changes; its instances keep their parameters).
     Version 2: the world position offset of the source wind (WIND_HLSL; no motion while SwcWind, the custom primitive
     data 0, is 0) and the vertex alpha occlusion of the Vegetation shader (the diffuse and the specular x the vertex
-    alpha; white with no vertex colors)."""
+    alpha; white with no vertex colors). Version 4: the camera fade of the source vegetation in the opacity mask
+    (camera_fade; the ground cover rule of research/ground-cover.md)."""
     name = "M_SwcFoliage"
     material, white = parent_asset(name, content, state)
     if material is None:
@@ -1195,7 +1233,9 @@ def foliage_parent(content, state):
     vertex = node(material, unreal.MaterialExpressionVertexColor, -900, -500)
     occluded = multiply(material, (albedo, ""), (vertex, "A"), -350, -250)   # the vertex alpha occlusion of the source
     editing.connect_material_property(occluded, "", MP.MP_BASE_COLOR)
-    editing.connect_material_property(color, "A", MP.MP_OPACITY_MASK)
+    near = camera_fade(material, content, state, -500, -900)
+    opacity = multiply(material, (color, "A"), (near, ""), -250, -700)
+    editing.connect_material_property(opacity, "", MP.MP_OPACITY_MASK)
     normal = sampler(material, "Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"),
                      -900, 150)
     editing.connect_material_property(normal, "RGB", MP.MP_NORMAL)

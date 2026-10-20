@@ -56,6 +56,7 @@ private:
 		int64 Source = 0;          // the start of the bytes of region.vegetation in Bytes
 		TArray<FDescriptor> Descriptors;
 		TArray<uint32> TileOffsets;   // 128 x 128, from Source
+		TArray<int32> ClaimOffsets;   // 128 x 128: the offset in Bytes of the 128 bytes of the claimed slots of a tile, or -1
 	};
 	struct FRegion
 	{
@@ -93,6 +94,8 @@ private:
 	bool bShown = true;
 	bool bShadow = false;
 	double LongestBuild = 0.0;   // seconds, since the last report line
+	int64 ClaimedRecords = 0;    // the records of claimed slots that the batches left out (the vegetation blockers)
+	bool bBlockers = true;       // swc.GroundCover.Blockers
 	float BackLight = 1.0f;
 	/** The dynamic instances of the back light test, by the original material. */
 	UPROPERTY()

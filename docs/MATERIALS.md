@@ -425,6 +425,14 @@ Deployed on 2026-10-20 (the world track, the decision of the orchestrator): `DEP
 and `BendDetail`). The video against retail shows almost no motion: see docs/WORLD.md "The wind flag" (the main
 bending has no time term).
 
+## The camera fade of the vegetation (M_SwcFoliage version 4, 2026-10-20)
+
+`camera_fade` of swc_materials.py: the source helper `GetCameraDissolveOpacity` (common.cfib; research/ground-cover.md
+"Camera fade"): d = the 3D distance of the pixel to the render camera, o = saturate((d - 2) / (3 - 2)), a fragment with
+o <= 0.99 is discarded where the noise frac(52.9829189 x frac(dot(pixel, (0.06711056, 0.00583715)))) is above o. The mask
+multiplies the opacity mask (the depth pass has the same cutout). The values: `VegCameraFade` of `MPC_SwcMaterials`
+(version 3; method 1, start 2 m, end 3 m); `swc.Foliage.CameraFade 0` sets the method 0 (no fade).
+
 ## The ground cover (for T3 of the world track)
 
 ```sh

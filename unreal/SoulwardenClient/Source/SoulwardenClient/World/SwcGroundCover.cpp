@@ -50,6 +50,9 @@ TAutoConsoleVariable<int32> CVarShadow(TEXT("swc.GroundCover.Shadow"), 0,
 	TEXT("1: the ground cover casts shadows; 0: no shadows (the default until stage T4)."));
 TAutoConsoleVariable<float> CVarBackLight(TEXT("swc.GroundCover.BackLight"), 1.0f,
 	TEXT("A scale of BackDiffuseMultiplier of the cover materials (a test of the back light; 1: the instances as they are)."));
+TAutoConsoleVariable<int32> CVarBlockers(TEXT("swc.GroundCover.Blockers"), 1,
+	TEXT("1: a record of a slot that a vegetation blocker of the level claims does not draw (the claims of cover.bin, research/"
+		 "ground-cover.md); 0: all records (a before and after test; the batches build again)."));
 
 FString ContentFolder()
 {
@@ -273,6 +276,28 @@ bool USwcGroundCover::ReadRegionFile(const FString& Path, FRegionData& Data)
 	}
 	Data.TileOffsets.SetNumUninitialized(Tiles * Tiles);
 	FMemory::Memcpy(Data.TileOffsets.GetData(), Data.Bytes.GetData() + Data.Source + 8, Tiles * Tiles * 4);
+	// After the source bytes (a file of 2026-10-20 or later): the sample slots that the vegetation blockers of the level claim
+	// (converter cover.py and cover_areas.py; research/ground-cover.md). A record draws only when the slot of its ordinal is free.
+	Data.ClaimOffsets.Init(-1, Tiles * Tiles);
+	if (Data.Source + static_cast<int64>(Length) + 4 <= Data.Bytes.Num())
+	{
+		Reader.Offset = Data.Source + static_cast<int64>(Length);
+		const uint32 Claims = Reader.Read<uint32>();
+		for (uint32 Claim = 0; Claim < Claims && !Reader.bFailed; ++Claim)
+		{
+			const uint16 Tile = Reader.Read<uint16>();
+			if (Tile >= Tiles * Tiles || Reader.Offset + 128 > Data.Bytes.Num())
+			{
+				return false;
+			}
+			Data.ClaimOffsets[Tile] = static_cast<int32>(Reader.Offset);
+			Reader.Offset += 128;
+		}
+		if (Reader.bFailed)
+		{
+			return false;
+		}
+	}
 	return true;
 }
 
@@ -385,9 +410,17 @@ bool USwcGroundCover::BuildBatch(const FIntPoint& Batch, FBatch& Out)
 				if (Descriptor < Data.Descriptors.Num() && Data.Descriptors[Descriptor].Mesh.IsValid())
 				{
 					TArray<FTransform>& Transforms = ByDescriptor.FindOrAdd(Descriptor);
+					const int32 Claims = Data.ClaimOffsets.IsEmpty() ? -1 : Data.ClaimOffsets[TileY * Tiles + TileX];
 					for (uint16 Record = 0; Record < Count; ++Record)
 					{
-						Transforms.Add(RecordTransform(Data.Bytes.GetData() + Offset + 16 * Record, RegionKey));
+						const uint8* Bytes = Data.Bytes.GetData() + Offset + 16 * Record;
+						const uint16 Ordinal = static_cast<uint16>(Bytes[12] | (Bytes[13] << 8));   // the sample slot of the tile
+						if (bBlockers && Claims >= 0 && Ordinal < 1024 && (Data.Bytes[Claims + Ordinal / 8] & (1 << (Ordinal % 8))) != 0)
+						{
+							++ClaimedRecords;
+							continue;   // a blocker of the level has this slot
+						}
+						Transforms.Add(RecordTransform(Bytes, RegionKey));
 					}
 				}
 				Offset += 16 * static_cast<int64>(Count);
@@ -533,6 +566,22 @@ void USwcGroundCover::Tick(float DeltaTime)
 		}
 		UE_LOG(LogSwcCover, Log, TEXT("cover: %s"), bShown ? TEXT("shown") : TEXT("hidden"));
 	}
+	if (const bool bWantBlockers = CVarBlockers.GetValueOnGameThread() != 0; bWantBlockers != bBlockers)
+	{
+		bBlockers = bWantBlockers;
+		for (TPair<FIntPoint, FBatch>& Batch : Batches)
+		{
+			for (const TWeakObjectPtr<UHierarchicalInstancedStaticMeshComponent>& Component : Batch.Value.Components)
+			{
+				if (Component.IsValid())
+				{
+					Component->DestroyComponent();
+				}
+			}
+		}
+		Batches.Reset();   // they build again with the new rule
+		UE_LOG(LogSwcCover, Log, TEXT("cover: the vegetation blockers %s"), bBlockers ? TEXT("on") : TEXT("off"));
+	}
 	const bool bWantShadow = CVarShadow.GetValueOnGameThread() != 0;
 	const float WantBackLight = CVarBackLight.GetValueOnGameThread();
 	if (bWantShadow != bShadow || WantBackLight != BackLight)
@@ -586,8 +635,8 @@ void USwcGroundCover::Tick(float DeltaTime)
 			Instances += Pair.Value.Instances;
 			Components += Pair.Value.Components.Num();
 		}
-		UE_LOG(LogSwcCover, Log, TEXT("cover: %d batches, %d components, %d instances; the longest batch build %.1f ms"), Batches.Num(),
-			Components, Instances, LongestBuild * 1000.0);
+		UE_LOG(LogSwcCover, Log, TEXT("cover: %d batches, %d components, %d instances; the longest batch build %.1f ms; %lld records of claimed slots left out since the start"),
+			Batches.Num(), Components, Instances, LongestBuild * 1000.0, ClaimedRecords);
 		LongestBuild = 0.0;
 	}
 }
