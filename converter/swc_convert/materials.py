@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -23,11 +24,43 @@ SLOTS = {"Diffuse": "base", "Bumpmap": "normal", "Specular": "specular", "Emitta
 NOT_DRAWN_SHADERS = {"nodraw", "geometrybeam"}   # collision (both spellings are in the game data), light beams
 
 
-def not_drawn(material: ET.Element) -> bool:
+# Illum sub-materials that the client draws alpha blended (AST-207; M_SwcSurfaceTranslucent: the diffuse alpha x the XML
+# Opacity), by name. Empty: the mechanism for the vortex card of the menu vista (Opacity 0.65, no AlphaTest), which a later
+# maelstrom thread does (research maelstrom.md). The general rule of an Illum material with Opacity under 1 and no AlphaTest
+# is open: 720 sources of the world have it, many with Opacity 0, and they draw opaque.
+BLENDED_ILLUM: frozenset = frozenset()
+
+
+def is_blended_illum(material: ET.Element | None) -> bool:
+    return material is not None and material.get("Shader", "") == "Illum" and material.get("Name", "") in BLENDED_ILLUM
+
+
+def is_beam(material: ET.Element | None) -> bool:
+    """A mesh effect of the shader GeometryBeam (the fog sheets and cards, the light beams, the fog spheres): mesh rule
+    8 draws it with the parent M_SwcBeam (AST-207, docs/MATERIALS.md "M_SwcBeam"). Not a procedural light beam
+    (%USE_AS_BEAMPROC: the beam of a light, with its own geometry): it stays not drawn."""
+    return (material is not None and material.get("Shader", "").lower() == "geometrybeam"
+            and "%USE_AS_BEAMPROC" not in material.get("StringGenMask", "").upper())
+
+
+# The name of a shadow proxy (AST-207): a sub-material that the game uses only to cast the shadow of its mesh. The source
+# data has no flag for it (no MTL_FLAG_NODRAW 0x400; the spruces mark their bark and branches MTL_FLAG_NOSHADOW 0x20 and
+# not the proxy, but most proxies of the world have siblings that cast shadows): the name is the only sign. "Shadow",
+# "shadow2", "shadow_a", "Shadow Proxy", "Shadoww_Proxy_01a", "..._mat__shadow" (coatgen), not "shadowbox".
+SHADOW_PROXY = re.compile(r"(^|_)shadoww?(\d*|_[a-z]|[ _]?prox(y|ie)[a-z0-9_]*)$")
+
+
+def is_shadow_proxy(material: ET.Element | None) -> bool:
+    return material is not None and bool(SHADOW_PROXY.search(material.get("Name", "").strip().lower()))
+
+
+def not_drawn(material: ET.Element, beams: bool = False) -> bool:
     """A sub-material that the client does not draw as a surface: Nodraw or NoDraw (collision), a shadow proxy (it only
-    casts shadows), a light beam or fog volume (GeometryBeam), or a decal (%DECAL: the game draws it over another
-    surface; as a surface of its own it would hide that surface)."""
-    return (material.get("Shader", "").lower() in NOT_DRAWN_SHADERS or "shadow_proxy" in material.get("Name", "").lower()
+    casts shadows), a light beam or fog volume (GeometryBeam; `beams`: mesh rule 8 draws it, is_beam), or a decal
+    (%DECAL: the game draws it over another surface; as a surface of its own it would hide that surface)."""
+    if beams and is_beam(material):
+        return False
+    return (material.get("Shader", "").lower() in NOT_DRAWN_SHADERS or is_shadow_proxy(material)
             or "%DECAL" in material.get("StringGenMask", "").upper())
 
 
@@ -153,6 +186,8 @@ def shared_material(material: ET.Element | None, normal_map: bool = True) -> tup
         if is_glass(material):
             rules["blend"] = "translucent"
             rules["factor"] = [0.8, 0.85, 0.9, 0.25]
+        elif is_beam(material):   # an additive mesh effect (no Nanite; its spec sets the parent M_SwcBeam)
+            rules["blend"] = "translucent"
         else:
             try:
                 cutoff = float(material.get("AlphaTest", "0") or 0)

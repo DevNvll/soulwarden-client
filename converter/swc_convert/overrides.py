@@ -24,8 +24,9 @@ from pathlib import Path
 
 from . import census, cgf, env, manifest, materials, mesh
 
-VERSION = 2   # the rule of the slot maps (with materials.TEXTURE_VERSION and the material keys of materials.py;
-              # 2: the instance keys of materials.instance_key for the slots and the overrides, A2 and A2b)
+VERSION = 3   # the rule of the slot maps (with materials.TEXTURE_VERSION and the material keys of materials.py;
+              # 2: the instance keys of materials.instance_key for the slots and the overrides, A2 and A2b;
+              # 3: the GeometryBeam slots of mesh rule 8, AST-207)
 
 
 def out_dir() -> Path:
@@ -54,11 +55,11 @@ def slot_map(pair: tuple[str, str]) -> dict:
     used = sorted({s.material for m in meshes for s in m.subsets})
     for index in used:
         default = defaults[index] if 0 <= index < len(defaults) else None
-        if default is not None and materials.not_drawn(default):
-            continue   # no slot (mesh rule 6)
+        if default is not None and materials.not_drawn(default, beams=True):
+            continue   # no slot (mesh rule 6; a GeometryBeam slot of mesh rule 8 is a slot)
         slot = materials.instance_key(default)
         replacement = overrides[index] if 0 <= index < len(overrides) else None
-        if replacement is None or materials.not_drawn(replacement):
+        if replacement is None or materials.not_drawn(replacement, beams=True):
             continue   # the slot keeps its material
         record, textures = materials.shared_material(replacement)
         records[record["asset"]] = record

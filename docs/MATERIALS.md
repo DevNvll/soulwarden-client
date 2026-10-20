@@ -54,8 +54,8 @@ scripts of the research (section 3).
 | [1] Custom, SecondSmoothness, Specular2, SubSurface | normal2, gloss2, specular2, height2 | `%BLENDLAYER` | normal / linear |
 | Opacity | Vegetation: transmission. Illum: blend mask (`%BLENDLAYER`), decal opacity (`%DECAL`), transmission (`%TRANSMITTANCE`) | see the role | linear |
 | Heightmap | height | a POM, offset bump, or displacement flag | linear |
-| Emittance | emittance | `%EMITTANCE_MAP` | raw (no sRGB lookup) |
-| Decal | emittance intensity | `%EMITTANCE_MAP` or `%EMISSIVE_DECAL` | raw |
+| Emittance | emittance | `%EMITTANCE_MAP` | the color space of the file (AST-207) |
+| Decal | emittance intensity | `%EMITTANCE_MAP` or `%EMISSIVE_DECAL` | the color space of the file |
 | Occlusion | occlusion | `%OCCLUSION_MAP` | linear |
 | Environment | none (Unreal reflections) | never | - |
 
@@ -65,8 +65,16 @@ color (`%TINT_COLOR_MAP`), Diffuse the dirt (`%DIRT_MAP`), SecondSmoothness the 
 The sRGB decode: a source sampler with `sRGBLookup = true` (diffuse, specular, detail, the diffuse of the blend
 layer, the glass tint maps) decodes sRGB only when the file is sRGB: an `_SRGB` DXGI format, or the flag 0x800 in the
 second reserved word of a legacy header (`material_records.file_srgb`; the two agree in all 4,478 files of these roles).
-A sampler without it (the blend mask, the gloss, the overlay mask, the emission, the second normal, gloss, and
-specular) reads the values as they are. The detail maps are linear files (383 of 385): they import as linear data
+A sampler without it (the blend mask, the gloss, the overlay mask, the second normal, gloss, and specular) reads the
+values as they are. Exception, the emission (AST-207, GPT-6.1-Sol study `research/emission-fogcards.md`): the Illum
+shader samples the Emittance and Decal intensity maps through the default view of the texture. The retail loader puts
+the sRGB flag of the file into that view (the DDS flag 0x800 or an `_SRGB` format), also with no `sRGBLookup`. Thus an
+sRGB emission file is decoded (RGB only; the alpha stays linear), and a linear file stays linear. The converter gives an
+sRGB emission file as an sRGB texture (the shared base texture) on the Color samplers `EmittanceSrgb` and `IntensitySrgb`,
+and a linear file as `@data` on `Emittance` and `EmissiveIntensity` (`material_records.m4`; surface parent version 8). A
+decoded PNG as data (`@data-decoded`, the first try) lost the dark values: the BC compression of near-black data gave the
+dye flowers a green cast. Before AST-207 all emission
+maps were raw: the dark values were 10 to 13 times too large (the dye flowers of the menu glowed white). The detail maps are linear files (383 of 385): they import as linear data
 (`texture:PRODUCT@data`; the 2 sRGB files as `@data-decoded`, with the decoded RGB). Limit: 8 diffuse and 4 specular
 files are linear (mostly default textures); they import as sRGB.
 
@@ -206,7 +214,7 @@ sub-material: the legacy key for the main rules, else its `n_` key. The override
 | M3b blend layer (static switch `Blend`) | `Diffuse2`, `Normal2`, `Gloss2`, `Specular2`, `BlendMask`, `BlendParams` (BlendFactor, BlendFalloff, -, ignore vertex alpha), `BlendLayer2Diffuse`, `BlendLayer2Specular`, `BlendLayer2Smoothness` (/256), `BlendLayer2Tiling`, `BlendMaskTiling` | b = saturate(abs(vertex alpha x mask.r x (1 + BlendFactor)) ^ BlendFalloff) (shadelib `GetLayerBlendingValue`); lerp of the diffuse, specular, smoothness, and tangent normal |
 | M3b vertex colors | `UseVertexColor` | `%VERTCOLORS`: albedo x vertex RGB |
 | M3b detail (static switch `Detail`) | `Detail` (linear data), `DetailTransform`, `DetailScales` (bump, diffuse, gloss, alpha mask) | `GetDetailMap`: sample.garb x 2 - 1; normal.xy += x y; D += D x z; s += s x w |
-| M4 emission (static switch `Emissive`) | `Emittance`, `EmissiveIntensity` (raw data), `EmittanceColor` (RGB, A), `EmittanceParams` (gamma, has map); the global `EmissiveScale` of `MPC_SwcMaterials` | `GetEmittance`: Emittance RGB x A x 0.1 x (map x lum^(gamma - 1) x intensity x map.a, or 0.5) |
+| M4 emission (static switch `Emissive`) | `Emittance`, `EmissiveIntensity` (linear files, `@data`), `EmittanceSrgb`, `IntensitySrgb` (sRGB files, Color samplers), `EmittanceTransform`, `IntensityTransform` (the UV of each map, version 7), `EmittanceColor` (RGB, A), `EmittanceParams` (gamma, has map, the emittance map is sRGB, the intensity map is sRGB); the global `EmissiveScale` of `MPC_SwcMaterials` | `GetEmittance`: Emittance RGB x A x 0.1 x (map x lum^(gamma - 1) x intensity x map.a, or 0.5); no multiply by the diffuse or the tint |
 
 The order is the order of the source forward pass: D = diffuse x XML Diffuse, the blend layer, x vertex RGB, the detail,
 the overlay masks, then the F0 split. A static switch makes one shader for each combination that the instances use.
@@ -238,6 +246,78 @@ Opacity + the specular. Thus TransmittanceColor = tint, Opacity = c + a - c x a,
 dirt x a) / Opacity. Unreal also squares the Fresnel loss and darkens the tint at grazing views (a better model; the
 decision of the user to keep what Unreal does better). Limits: no refraction offset (`BumpScale`), no back light
 (`BackLightScale`).
+
+### M_SwcBeam and mesh rule 8 (AST-207, the stage label `beam`)
+
+The GeometryBeam shader of the source (the fog sheets and fog cards, the fog spheres; the GPT-6.1-Sol study
+`research/emission-fogcards.md`, "The rule for the client" 2). Before AST-207 the mesh rule 6 dropped these materials as
+"not drawn": the 34 fog sheets and 8 fog cards of the menu scene were `empty`.
+
+- Mesh rule 8 (`mesh.RULE_BEAMS`): rule 7, and a GeometryBeam sub-material is drawn (`materials.is_beam`; the procedural
+  light beams of `%USE_AS_BEAMPROC` stay not drawn). The default rule of the meshes of `mesh.BEAM_FOLDERS`
+  (`objects/volumetrics/`, `objects/vfx/mesh/`). The vertex RGBA of the source goes into the glTF (rule 7). The material
+  record of a beam is translucent: no Nanite. A world mesh with a beam slot in another folder keeps its rule until a
+  conversion with rule 8 (world work). The overrides (`overrides.VERSION` 3) and the audit see the beam slots.
+- The spec (`material_records.beam_spec`, family `beam`): the base map (Diffuse, sRGB) with the stretch oscillators of its
+  TexMod, the dust map (Specular, sRGB), the turbulence color (Bumpmap; no map: the flat normal, an inference), the XML
+  Diffuse and Opacity, the public parameters (the main `PublicParams`, not the `MaterialLayers` entry), and the flags
+  (`BeamFlags`: `%NOISE`, `%APPLY_SUN_COLOR`, `%ENABLE_FADEOUT`, `%VERTICAL_GRADIENT`; `BeamFlags2`: `%UV_VIGNETTING`,
+  `%GRADIENT_ALPHA`, `%APPLY_FOG_COLOR`).
+- The parent (`swc_materials.beam_parent`): Additive, Unlit, two sided, the depth test on, no depth write. The vertex
+  shader (`BEAM_VS_HLSL`, two vertex interpolators) makes the angular fade q = saturate(dot(W, N)^2 x
+  viewDependencyFactor)^2, B = FinalMultiplier x vertex RGBA x Diffuse x q, the color gradient lerp(StartColor, EndColor,
+  u) and the vertex alpha curve, and the coordinate of the noise (the object position in source metres x (0.05, 0.05, 0.1)
+  + the time x the noise speed). The pixel shader (`BEAM_PS_HLSL`): the source noise volume (`engineassets/textures/
+  noise3d.dds`, 64^3 A8, as the tiles of `T_SwcNoise3D`, trilinear with wrap), the dust and turbulence scrolls, the depth
+  fade F = min(saturate(s x min(zs - z, h, z)), saturate(s x (z - zn))) in source metres (s = SoftIntersectionFactor,
+  h = the height above the water plane `WaterLevel` 40 m, zn = `NearClip` 0.1 m), the sun tint and the normalized fog tint,
+  x (1 + AmbStrength), and the alpha min(base.r, base.a) x the UV vignette x (1 - exp2(-k B.a^2)). The source blend is
+  SRC_ALPHA, ONE: the parent gives RGB x alpha as the emissive color, with opacity 1, x `EmissiveScale` x `BeamScale`. The
+  conversion of the source units is 10,000 cd/m2 with no look scale: the light of the sheets comes from the sun and the
+  ambient of the source, not from a local light, so `USwcMaterialScale` sets `BeamScale` = `swc.BeamScale` (default 1) /
+  `swc.LightScale`. The asset default of `BeamScale` is 0: a client without this code draws no beams. The fog of the scene
+  attenuates the result (Unreal translucency fog).
+- `MPC_SwcEffects` (`USwcMaterialScale`, 4 times in a second): `SunColorSource` = the main directional light color x its
+  intensity / pi / 10,000 (the source units; the luminance of the water work), `FogColorSource` = the inscattering color
+  of the height fog. Its own collection: a new parameter of `MPC_SwcMaterials` would compile all the world materials again.
+- Version 1 and 2 of the parent did not compile (a wrong pin of the VertexColor node): Unreal drew the default material,
+  a wall of gray squares in the menu (2026-10-20, 15:43 to 16:13 UTC). After an import, grep the client log for "Failed to
+  compile".
+- The menu check (AST-207, f120 of the drive f4-scene-ui against B6-04): with no sheets (`swc.BeamScale 0`) ΔE 18.1, L*
+  +18.1 (before AST-207: 18.45, +19.9); with the sheets ΔE 28.5, L* +32.0 (with the look scale 3 in the conversion, the
+  first try: ΔE 38.9, L* +42.1). The sheets make the mountain pale and the lava two thin streams, as in retail, but the haze
+  is too bright and too thick. The scene without sheets is already about 3.4 times too bright (L* 38.6 against 20.5), and
+  the additive sheets scale with it: the exposure of the menu is the next point (not a value of the sheets).
+- Limits: no `%RECEIVE_SHADOWS` (the shadow samples; no menu material has it), no vertex deformation wave, no LOD fade;
+  the relative view distance of `%ENABLE_FADEOUT` is the camera distance / `MaxViewDistance` 200 m (an inference); the
+  TexMod stretch timing is an inference; the water plane is the world ocean level.
+- `%ENABLE_FADEOUT`: the relative view distance is the camera distance / min(`MaxViewDistance` 8,000 m, `ViewDistRatio`
+  60 x the bounding radius of the object): the CryEngine rule of `e_ViewDistRatio` (an inference). Thus a vista sheet of
+  the menu (scale 114 to 201, 0.9 to 2.5 km away) does not fade; a fixed distance of 200 m (version 1) hid them.
+- The menu scene (`frontend.py`): a mesh of `objects/volumetrics/` or `objects/vfx/` is in the subset only when it is a
+  static mesh of rule 8; a mesh of `mesh.BEAM_FOLDERS` of an older rule goes to the wanted list. The override materials of
+  the scene are audit sources ("menu override"), so that their slot keys have specs.
+
+### M_SwcSurfaceTranslucent (AST-207, a mechanism with no use yet)
+
+An Illum sub-material of `materials.BLENDED_ILLUM` (by name; empty now) is alpha blended: its render rules have the blend
+`translucent` and the XML Opacity, its spec is the surface spec (with M4) on `M_SwcSurfaceTranslucent` (the surface parent,
+Translucent, Surface ForwardShading; opacity = the diffuse alpha x `Opacity`), and its mesh has no Nanite. It is for the
+vortex card of the menu vista (`FTUE_level_vortex_mat`: Opacity 0.65, no AlphaTest, an emittance map), which a later
+maelstrom thread does (research `maelstrom.md`; the second card has a Distanceclouds override). The general rule is open: 720
+Illum sources of the world have an Opacity under 1 and no AlphaTest (many with Opacity 0), and they draw opaque.
+### Shadow proxies (AST-207)
+
+A sub-material that the game uses only to cast the shadow of its mesh (the "Shadow" sub-material 4 of the spruces:
+Illum, Specular 1, AlphaTest 0.3, the branch texture) is not drawn (`materials.is_shadow_proxy`, in `materials.not_drawn`).
+The source data has no flag for it (no `MTL_FLAG_NODRAW` 0x400; the spruces mark their bark and branches
+`MTL_FLAG_NOSHADOW` 0x20 and not the proxy, but most of the 807 "shadow" sub-materials of the records have siblings that
+cast shadows): the name is the only sign. The rule: the lower-case name ends in `shadow`, `shadoww`, `shadow` + digits,
+`shadow_` + one letter, or `shadow proxy` / `shadow_proxy` / `shadoww_proxy` and a suffix ("Shadow", "shadow2",
+"shadow_a", "..._mat__shadow", "Shadoww_Proxy_01a"; not "shadowbox"). Before, only "shadow_proxy" matched: the F0 split
+made the spruce proxies white metal (white glittering patches in the trees). The proxy is not kept as a shadow caster:
+in Unreal the bark and branches cast the shadow. The 19 spruce meshes are converted and imported again (rule 7); the other
+meshes with a proxy change at their next conversion.
 
 ### Mesh rule 7 (M3, an option of `mesh.convert` until the rollout)
 

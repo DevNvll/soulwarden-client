@@ -63,6 +63,9 @@ RENDER_FLAGS = {
     "%OFFSET_BUMP_MAPPING", "%DISPLACEMENT_MAPPING", "%TRANSMITTANCE", "%OVERLAY_MASK", "%COLOR_SAMPLER_OVERLAY_MASK",
     "%ALPHAMASK_DETAILMAP", "%OCCLUSION_MAP", "%TINT_MAP", "%TINT_COLOR_MAP", "%DIRT_MAP", "%FX_DISSOLVE",
     "%BLENDLAYER_IGNORE_VERTEX_ALPHA",
+    # GeometryBeam (AST-207, swc_materials.beam_parent)
+    "%NOISE", "%APPLY_SUN_COLOR", "%APPLY_FOG_COLOR", "%ENABLE_FADEOUT", "%VERTICAL_GRADIENT", "%GRADIENT_ALPHA",
+    "%UV_VIGNETTING", "%RECEIVE_SHADOWS",
 }
 POM_FLAGS = {"%PARALLAX_OCCLUSION_MAPPING", "%SILHOUETTE_PARALLAX_OCCLUSION_MAPPING", "%OFFSET_BUMP_MAPPING",
              "%DISPLACEMENT_MAPPING"}
@@ -84,18 +87,23 @@ PARAMS = {
     "bending": ("bendDetailFrequency", "bendDetailLeafAmplitude", "bendDetailBranchAmplitude"),
     "glass": ("TintColor", "TintCloudiness", "BumpScale", "BumpMapTile", "BackLightScale", "CloudinessReducesGloss",
               "BlurAmount", "RoughnessBoost", "RoughnessMaxFootprint", "FogColor", "FogDensity", "FogCutoffEnd"),
+    "beam": ("StartColor", "EndColor", "FinalMultiplier", "SoftIntersectionFactor", "viewDependencyFactor",
+             "fadingFeaturing", "baseUVScale", "dustUVScale", "dustTimeScale", "turbStrength", "turbRatio", "uvRot",
+             "BackgroudAlphaNoiseSpeedX", "BackgroudAlphaNoiseSpeedY", "BackgroudAlphaNoiseSpeedZ", "SunColorInfluence",
+             "FogColorInfluence", "FadeOutDistance", "uvVigFeaturing", "AmbStrength"),
 }
 
 # Color spaces of the sampler roles (research section 3, "sRGB rules"): srgb = sRGB RGB and linear alpha; normal = the
-# normal map compression; linear = data; raw = the source sampler has no sRGB lookup (emittance).
+# normal map compression; linear = data; file = the color space of the file (the emission maps, AST-207; the detail).
 # The color space of each role (the sRGBLookup of the source sampler). A sampler with sRGBLookup decodes sRGB only for
 # an sRGB file (file_srgb): the detail maps are linear files (383 of 385: data_texture), and 8 diffuse and 4 specular
 # files are linear (a limit: they are imported as sRGB).
 COLOR = {"diffuse": "srgb", "normal": "normal", "gloss": "linear", "specular": "srgb", "detail": "file",
          "diffuse2": "srgb", "normal2": "normal", "gloss2": "linear", "specular2": "linear", "blend mask": "linear",
          "overlay mask": "data", "transmission": "linear", "decal opacity": "linear", "height": "linear",
-         "height2": "linear", "emittance": "raw", "emittance intensity": "raw", "occlusion": "linear",
-         "tint mask": "srgb", "tint color": "srgb", "dirt": "srgb", "cloud gloss": "linear"}
+         "height2": "linear", "emittance": "file", "emittance intensity": "file", "occlusion": "linear",
+         "tint mask": "srgb", "tint color": "srgb", "dirt": "srgb", "cloud gloss": "linear", "dust": "srgb",
+         "turbulence": "file"}
 
 
 def number(text: str):
@@ -180,6 +188,11 @@ def role_of(shader: str, slot: str, flags: set[str]) -> tuple[str | None, str]:
                  "Diffuse": ("dirt", "%DIRT_MAP") if "%DIRT_MAP" in flags else (None, "no %DIRT_MAP"),
                  "SecondSmoothness": ("cloud gloss", "always")}
         return table.get(slot, (None, "not a glass slot"))
+    if s == "geometrybeam":   # BeamPS: the base, the dust (the $Specular sampler), the turbulence color ($NormalMap)
+        table = {"Diffuse": ("diffuse", "always"),
+                 "Specular": ("dust", "%NOISE") if "%NOISE" in flags else (None, "no %NOISE"),
+                 "Bumpmap": ("turbulence", "%NOISE") if "%NOISE" in flags else (None, "no %NOISE")}
+        return table.get(slot, (None, "not a GeometryBeam slot"))
     if slot == "Diffuse":
         return "diffuse", "always"
     if slot == "Bumpmap":
@@ -230,9 +243,10 @@ def role_of(shader: str, slot: str, flags: set[str]) -> tuple[str | None, str]:
 
 
 def family_of(shader: str) -> str:
-    """@return The family of a shader: illum, vegetation, glass, or other (effects, hair, skin: legacy rules)."""
+    """@return The family of a shader: illum, vegetation, glass, beam (GeometryBeam), or other (effects, hair, skin:
+    legacy rules)."""
     s = shader.lower()
-    return s if s in ("illum", "vegetation", "glass") else "other"
+    return "beam" if s == "geometrybeam" else s if s in ("illum", "vegetation", "glass") else "other"
 
 
 def source_record(mtl: str, index: int, element: ET.Element | None) -> dict:
@@ -278,7 +292,9 @@ def source_record(mtl: str, index: int, element: ET.Element | None) -> dict:
 
 def blend_of(record: dict) -> tuple[str, float | None]:
     """@return (opaque, masked, or translucent; the cutoff) of a record, with the rules of materials.shared_material."""
-    if record["shader"] == "Glass":
+    if record["shader"] == "Glass" or record["shader"].lower() == "geometrybeam":
+        return "translucent", None
+    if record["name"] in materials.BLENDED_ILLUM and record["family"] == "illum":   # AST-207: the alpha blended vista card
         return "translucent", None
     cutoff = record["lighting"].get("AlphaTest", 0.0)
     cutoff = cutoff if isinstance(cutoff, float) else 0.0
@@ -321,7 +337,7 @@ def render_rules(record: dict, normal_map: bool = True) -> dict:
           "mask": bool(flags & {"%OVERLAY_MASK", "%COLOR_SAMPLER_OVERLAY_MASK"}),
           "transmission": record["family"] == "vegetation" or "%TRANSMITTANCE" in flags,
           "leaves": record["family"] == "vegetation", "bending": "%DETAIL_BENDING" in flags,
-          "glass": record["family"] == "glass"}
+          "glass": record["family"] == "glass", "beam": record["family"] == "beam"}
     params = {}
     for feature, names in PARAMS.items():
         if on[feature]:
@@ -361,7 +377,7 @@ def sub_materials(mtl: str) -> tuple:
     return tuple(subs) if subs is not None else (root,)
 
 
-def primitive_slots(mesh: str, gltf_file: Path) -> list[tuple[int, str]] | None:
+def primitive_slots(mesh: str, gltf_file: Path, rule: int = 6) -> list[tuple[int, str]] | None:
     """@return The (source sub-material index, glTF material name) of each primitive of a converted mesh, in the order
     of mesh.convert (the mesh chunks, their subsets, no subset that is not drawn), or None when the primitives do not
     match the subsets (the index counts are the check). Only the chunk headers: no .cgfheap."""
@@ -379,7 +395,7 @@ def primitive_slots(mesh: str, gltf_file: Path) -> list[tuple[int, str]] | None:
         for i in range(count):
             _fi, ni, _fv, _nv, mat = struct.unpack_from("<5i", sub, 16 + i * 36)
             m = subs[mat] if 0 <= mat < len(subs) else None
-            if m is not None and materials.not_drawn(m):
+            if m is not None and materials.not_drawn(m, beams=rule >= 8):   # mesh rule 8 draws GeometryBeam
                 continue
             order.append((mat, ni))
     doc = json.loads(gltf_file.read_text())
@@ -413,11 +429,11 @@ def texture_check(product: str, alpha: bool = False) -> str | None:
     return None
 
 
-def mesh_slots(item: tuple[str, str]) -> tuple[str, list | None, str | None]:
+def mesh_slots(item: tuple[str, str, int]) -> tuple[str, list | None, str | None]:
     """@return (mesh, its primitive slots or None, an error) for a worker process."""
-    mesh, gltf_file = item
+    mesh, gltf_file, rule = item
     try:
-        return mesh, primitive_slots(mesh, env.content_dir() / gltf_file), None
+        return mesh, primitive_slots(mesh, env.content_dir() / gltf_file, rule), None
     except Exception as error:
         return mesh, None, str(error)[:120]
 
@@ -591,7 +607,8 @@ def audit(workers: int = 4) -> dict:
     from concurrent.futures import ProcessPoolExecutor
     started = time.time()
     assets = manifest.load()["assets"]
-    meshes = sorted((k, e["file"]) for k, e in assets.items() if e["kind"] == "static" and k.endswith(".cgf"))
+    meshes = sorted((k, e["file"], e.get("version", 6)) for k, e in assets.items()
+                    if e["kind"] == "static" and k.endswith(".cgf"))
     sources: dict[str, dict] = {}           # "mtl#index" -> {"legacy", "far legacy", "render", "record", "use"}
     rules_of: dict[str, dict] = {}          # render key -> render rules
     slots: dict[str, list] = {}             # mesh -> [[source index, legacy key, render key], ...]
@@ -599,7 +616,7 @@ def audit(workers: int = 4) -> dict:
 
     def add_source(mtl: str, index: int, element, use: str, normal_map: bool = True) -> dict | None:
         name = f"{mtl}#{index}"
-        if element is not None and materials.not_drawn(element):
+        if element is not None and materials.not_drawn(element, beams=True):   # a beam: mesh rule 8, M_SwcBeam
             return None
         if name not in sources:
             record = source_record(mtl, index, element)
@@ -641,6 +658,13 @@ def audit(workers: int = 4) -> dict:
             continue
         for index, element in enumerate(sub_materials(mtl)):
             add_source(mtl, index, element, "component override")
+    # The override materials of the menu scene (AST-207: the fog sheets of the vista; content/frontend/nighthaven.json).
+    scene = env.content_dir() / "frontend" / "nighthaven.json"
+    if scene.is_file():
+        for mtl in sorted({m["material"] for m in json.loads(scene.read_text())["meshes"] if m.get("material")}):
+            if source.has(mtl):
+                for index, element in enumerate(sub_materials(mtl)):
+                    add_source(mtl, index, element, "menu override")
     from . import cover_materials
     if (cover_materials.out_dir() / "descriptors.json").is_file():   # the overrides of the ground cover (T3)
         for mtl in cover_materials.cover_mtls():
@@ -753,7 +777,7 @@ def differing_fields(rules: list[dict]) -> list[str]:
 # Scripts/apply_materials.py sets the material instance of the key from its spec (the asset path does not change).
 
 SPEC_VERSION = 3      # the rule of the specs (2: the surface parents of M2; 3: the n_ instances of A1)
-DEPLOYED = ("m1", "m2", "m3a", "glass", "m3b", "m4")  # the stages that passed their check: instances.json (the import pipeline applies it)
+DEPLOYED = ("m1", "m2", "m3a", "glass", "m3b", "m4", "beam")  # the stages that passed their check: instances.json (the import pipeline applies it)
 STAGES = DEPLOYED      # the stages of the specs that spec_of() makes now
 LINEAR_VERSION = 1    # the rule of the one-channel PNGs (textures/m1-CAP/: the red channel, or the alpha image)
 CAP = 1024            # the largest size (the cap of the base color and normal maps of stage 1.2)
@@ -849,6 +873,15 @@ def spec_of(rules: dict, legacy: dict, textures: dict) -> dict | None:
 
     if rules["family"] == "glass" and "glass" in STAGES:
         return glass_spec(rules, use)
+    if rules["family"] == "beam" and "beam" in STAGES:
+        return beam_spec(rules, use)
+    if rules["family"] == "illum" and rules["blend"] == "translucent" and "m4" in STAGES:
+        # An alpha blended Illum material (materials.BLENDED_ILLUM): M_SwcSurfaceTranslucent, opacity = the diffuse alpha x
+        # the XML Opacity.
+        spec = surface_spec(rules, use)
+        spec["parent"] = "surface translucent"
+        spec["scalars"]["Opacity"] = float(rules.get("opacity", 1.0))
+        return spec
     if rules["blend"] not in ("masked", "opaque"):
         return None
     if rules["blend"] == "opaque" and not (rules["family"] == "illum" and "m2" in STAGES):
@@ -1004,9 +1037,15 @@ def m3b(rules: dict, spec: dict, use) -> None:
 
 
 def m4(rules: dict, spec: dict, use) -> None:
-    """Adds M4 to a surface spec (swc_materials.EMISSIVE_HLSL, surface parent version 5): the Emittance RGB and its
-    fourth value (a multiplier, not an opacity), the emittance map and the intensity map of the Decal slot (raw data:
-    the source samples them with no sRGB lookup), EmittanceMapGamma. Only when the Emittance RGB and A are not zero."""
+    """Adds M4 to a surface spec (swc_materials.EMISSIVE_HLSL, surface parent version 7): the Emittance RGB and its
+    fourth value (a multiplier, not an opacity), the emittance map and the intensity map of the Decal slot, each with its
+    own UV transform (the source _TCMMatrixEmittance and _TCMMatrixEmissiveMultiplier), EmittanceMapGamma. Only when the
+    Emittance RGB and A are not zero. The color space of the two maps is the color space of the file (AST-207): the
+    source samples them through the default view of the texture, which is sRGB for an sRGB file (the flag 0x800 or an
+    _SRGB format, file_srgb), also with no sRGBLookup. An sRGB file is an sRGB texture (the shared base texture: the GPU
+    decodes the RGB, the alpha stays linear) on the Color samplers EmittanceSrgb and IntensitySrgb (EmittanceParams z and
+    w = 1); a linear file is linear data (`@data`) on Emittance and EmissiveIntensity. A decoded PNG as data (`@data-decoded`)
+    lost the dark values: the BC compression of near-black data gave a green cast."""
     emittance = rules.get("emittance")
     if not emittance:
         return
@@ -1014,13 +1053,21 @@ def m4(rules: dict, spec: dict, use) -> None:
     spec.setdefault("switches", {})["Emissive"] = True
     spec["vectors"]["EmittanceColor"] = list(emittance[:4])
     has_map = "emittance" in maps
-    if has_map:
-        spec["textures"]["Emittance"] = use(data_texture(maps["emittance"]["product"]))
-    if "emittance intensity" in maps:
-        spec["textures"]["EmissiveIntensity"] = use(data_texture(maps["emittance intensity"]["product"]))
+    srgb = [0.0, 0.0]
+    for i, (role, parameter, srgb_parameter, transform) in enumerate((
+            ("emittance", "Emittance", "EmittanceSrgb", "EmittanceTransform"),
+            ("emittance intensity", "EmissiveIntensity", "IntensitySrgb", "IntensityTransform"))):
+        if role in maps:
+            product = maps[role]["product"]
+            if file_srgb(product):
+                spec["textures"][srgb_parameter] = use(color_texture(product, "base"))
+                srgb[i] = 1.0
+            else:
+                spec["textures"][parameter] = use(data_texture(product))
+            spec["vectors"][transform] = uv_transform(maps[role].get("uv"))
     gamma = rules["params"].get("EmittanceMapGamma", 1.0)
     spec["vectors"]["EmittanceParams"] = [float(gamma[0] if isinstance(gamma, list) else gamma), 1.0 if has_map else 0.0,
-                                          0.0, 0.0]
+                                          *srgb]
 
 
 def glass_spec(rules: dict, use) -> dict:
@@ -1057,6 +1104,86 @@ def glass_spec(rules: dict, use) -> dict:
     spec["scalars"]["CloudinessReducesGloss"] = value("CloudinessReducesGloss", 0.0)
     spec["scalars"]["BumpMapTile"] = value("BumpMapTile", 1.0)
     spec["scalars"]["Smoothness"] = max(1 / 127, float(rules["shininess"]) / 255)
+    return spec
+
+
+# The defaults of the GeometryBeam parameters (the shader of a material with no value; most materials set them all).
+BEAM_DEFAULTS = {"StartColor": [1.0, 1.0, 1.0, 1.0], "EndColor": [1.0, 1.0, 1.0, 1.0], "FinalMultiplier": 1.0,
+                 "SoftIntersectionFactor": 1.0, "viewDependencyFactor": 2.0, "fadingFeaturing": 0.55, "baseUVScale": 1.0,
+                 "dustUVScale": 0.6, "dustTimeScale": 1.0, "turbStrength": 1.0, "turbRatio": 0.55, "uvRot": 0.0,
+                 "BackgroudAlphaNoiseSpeedX": 0.1, "BackgroudAlphaNoiseSpeedY": 0.05, "BackgroudAlphaNoiseSpeedZ": 0.15,
+                 "SunColorInfluence": 0.5, "FogColorInfluence": 0.0, "FadeOutDistance": 0.2, "uvVigFeaturing": 0.0,
+                 "AmbStrength": 0.12}
+
+
+NOISE_VOLUME = "engineassets/textures/noise3d.dds"   # the Noise3D of GeometryBeam: 64 x 64 x 64, A8 (the first mip)
+
+
+def noise_picture() -> Path:
+    """Writes SWC_CONTENT/materials/base/T_SwcNoise3D.png (once): the 64 slices of the source noise volume in a square of
+    8 x 8 tiles (512 x 512, gray; the slice z at the tile (z mod 8, z div 8)). swc_materials.beam_parent imports it with
+    no mips and reads it with Load: BEAM_NOISE_HLSL makes the trilinear sample with wrap of the source sampler."""
+    out = out_dir() / "base" / "T_SwcNoise3D.png"
+    if not out.is_file():
+        import numpy as np
+        from PIL import Image
+        data = source.read(NOISE_VOLUME)
+        flags, size = struct.unpack_from("<I", data, 80)[0], struct.unpack_from("<I", data, 88)[0]
+        height, width, depth = struct.unpack_from("<I", data, 12)[0], struct.unpack_from("<I", data, 16)[0], \
+            struct.unpack_from("<I", data, 24)[0]
+        if (flags, size, width, height, depth) != (2, 8, 64, 64, 64):
+            raise ValueError(f"{NOISE_VOLUME}: not a 64^3 A8 volume")
+        volume = np.frombuffer(data, np.uint8, 64 ** 3, 128).reshape(64, 64, 64)   # z, y, x
+        sheet = volume.reshape(8, 8, 64, 64).transpose(0, 2, 1, 3).reshape(512, 512)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(sheet, "L").save(out)
+    return out
+
+
+def beam_spec(rules: dict, use) -> dict:
+    """@return The spec of a GeometryBeam material (AST-207, swc_materials.beam_parent: Additive, Unlit, two sided): the
+    base map (Diffuse, sRGB) with the oscillators of its TexMod, the dust map (Specular, sRGB), the turbulence color
+    (Bumpmap; none: the flat normal default), the XML Diffuse and Opacity, the public parameters (BEAM_DEFAULTS for a
+    missing one; the main PublicParams, not the MaterialLayers entry), and the flags of the shader (BeamFlags: %NOISE,
+    %APPLY_SUN_COLOR, %ENABLE_FADEOUT, %VERTICAL_GRADIENT; BeamFlags2: %UV_VIGNETTING, %GRADIENT_ALPHA, %APPLY_FOG_COLOR).
+    Limits: %RECEIVE_SHADOWS (the shadow samples) and the vertex deformation wave are not in the parent."""
+    maps, params, flags = rules["textures"], rules["params"], set(rules["flags"])
+
+    def value(name: str):
+        v = params.get(name, BEAM_DEFAULTS[name])
+        if isinstance(BEAM_DEFAULTS[name], list):
+            v = list(v) if isinstance(v, list) else [float(v)] * 3
+            return (v + [1.0, 1.0, 1.0, 1.0])[:4]
+        return float(v[0] if isinstance(v, list) else v)
+
+    spec = {"parent": "beam", "textures": {}, "vectors": {}, "scalars": {}, "two sided": True}
+    if "diffuse" in maps:
+        spec["textures"]["BaseColor"] = use(color_texture(maps["diffuse"]["product"], "base"))
+    if "dust" in maps:
+        spec["textures"]["Dust"] = use(color_texture(maps["dust"]["product"], "base"))
+    if "turbulence" in maps:
+        product = maps["turbulence"]["product"]
+        spec["textures"]["Turbulence"] = use(data_texture(product, decode=file_srgb(product)))
+    mod = (maps.get("diffuse", {}).get("uv") or {}).get("mod", {})
+    # The oscillators of the base map: the type, the rate, and the amplitude of U and V (type 5: the stretch).
+    spec["vectors"]["BaseOscillator"] = [float(mod.get("TexMod_UOscillatorRate", 0.0)) if mod.get("TexMod_UOscillatorType") == 5 else 0.0,
+                                         float(mod.get("TexMod_VOscillatorRate", 0.0)) if mod.get("TexMod_VOscillatorType") == 5 else 0.0,
+                                         float(mod.get("TexMod_UOscillatorAmplitude", 0.0)) if mod.get("TexMod_UOscillatorType") == 5 else 0.0,
+                                         float(mod.get("TexMod_VOscillatorAmplitude", 0.0)) if mod.get("TexMod_VOscillatorType") == 5 else 0.0]
+    spec["vectors"]["UVTransform"] = uv_transform(maps.get("diffuse", {}).get("uv"))
+    spec["vectors"]["DiffuseColor"] = rules["diffuse"] + [float(rules.get("opacity", 1.0))]
+    spec["vectors"]["StartColor"] = value("StartColor")
+    spec["vectors"]["EndColor"] = value("EndColor")
+    spec["vectors"]["NoiseSpeed"] = [value("BackgroudAlphaNoiseSpeedX"), value("BackgroudAlphaNoiseSpeedY"),
+                                     value("BackgroudAlphaNoiseSpeedZ"), 0.0]
+    spec["vectors"]["BeamFlags"] = [1.0 if f in flags else 0.0 for f in ("%NOISE", "%APPLY_SUN_COLOR", "%ENABLE_FADEOUT",
+                                                                         "%VERTICAL_GRADIENT")]
+    spec["vectors"]["BeamFlags2"] = [1.0 if f in flags else 0.0 for f in ("%UV_VIGNETTING", "%GRADIENT_ALPHA",
+                                                                          "%APPLY_FOG_COLOR")] + [0.0]
+    for name in ("FinalMultiplier", "SoftIntersectionFactor", "viewDependencyFactor", "fadingFeaturing", "baseUVScale",
+                 "dustUVScale", "dustTimeScale", "turbStrength", "turbRatio", "uvRot", "SunColorInfluence",
+                 "FogColorInfluence", "FadeOutDistance", "uvVigFeaturing", "AmbStrength"):
+        spec["scalars"][name] = value(name)
     return spec
 
 
@@ -1197,6 +1324,8 @@ def instances(candidate: tuple[str, ...] = ()) -> dict:
                           "with other render keys": sum(1 for s in specs.values() if s.get("other render keys")),
                           "UV limits": limits, "errors": len(errors), "first errors": dict(list(errors.items())[:5])}
     STAGES = DEPLOYED
+    if "beam" in DEPLOYED:
+        noise_picture()
     for key, record in textures.items():
         record["unreal"] = manifest.unreal_folder("texture", key)
     write_json(out_dir() / "textures.json", {"version": SPEC_VERSION, "textures": textures})
@@ -1457,6 +1586,13 @@ def rebuild_set() -> dict:
     census_file = env.content_dir() / "census" / "meshes.json"
     census = {r["mesh"]: r for r in json.loads(census_file.read_text())} if census_file.is_file() else {}
     parts: dict[str, set] = {"collapsed": set(), "A3": set(), "vertex data": set(), "mesh decals": set(decal_meshes())}
+    # The override materials of the menu scene (AST-207: the fog sheets of the vista; content/frontend/nighthaven.json).
+    scene = env.content_dir() / "frontend" / "nighthaven.json"
+    if scene.is_file():
+        for mtl in sorted({m["material"] for m in json.loads(scene.read_text())["meshes"] if m.get("material")}):
+            if source.has(mtl):
+                for index, element in enumerate(sub_materials(mtl)):
+                    add_source(mtl, index, element, "menu override")
     from . import cover_materials
     if (cover_materials.out_dir() / "descriptors.json").is_file():
         parts["cover"] = set(cover_materials.cover_meshes())   # the bend data of the wind (the vertex colors)

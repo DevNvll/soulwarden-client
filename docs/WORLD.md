@@ -118,8 +118,9 @@ Folders of the plugin:
   10 hex digits of the hash of its rules: two meshes with the same rules use one material. Each record is one
   `MaterialInstanceConstant` of a base material. The look was not a goal until 2026-10-18 (no specular, gloss, or emissive map); now world fidelity is a goal (docs/ROADMAP.md).
 - Not drawn (`materials.not_drawn`): the shaders Nodraw and NoDraw (collision; both spellings are in the game data),
-  GeometryBeam (light beams, fog spheres), shadow proxies, and decals (`%DECAL`: the game draws them over another
-  surface). A mesh with nothing to draw is `empty` in the manifest (no asset, no placement). A masked material with
+  GeometryBeam (light beams, fog spheres; mesh rule 8 draws them, docs/MATERIALS.md "M_SwcBeam"), shadow proxies (by name,
+  docs/MATERIALS.md "Shadow proxies"), and
+  decals (`%DECAL`: the game draws them over another surface). A mesh with nothing to draw is `empty` in the manifest (no asset, no placement). A masked material with
   an Opacity map has that map as the alpha of its base color.
 - Static mesh: a glTF with no texture; each glTF material is a key. The pipeline `P_SwcMeshNanite` (a copy of the
   glTF pipeline of the engine) makes no material and no texture; the pipeline `SwcMaterialLinkPipeline` (C++, editor

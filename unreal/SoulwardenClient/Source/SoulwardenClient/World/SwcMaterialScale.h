@@ -13,6 +13,11 @@ class UMaterialParameterCollection;
  * EmissiveScale = 10,000 cd/m2 x the look scale of the local lights (the console variable swc.LightScale of the
  * environment work, default 3), so that a fixture and its light stay in balance. A change of swc.LightScale applies
  * at the next frame.
+ *
+ * The effects (AST-207): /SwcGameContent/Base/MPC_SwcEffects of M_SwcBeam (the GeometryBeam fog sheets and cards):
+ * SunColorSource = the sun color of the source in its engine units (the main directional light: its color x its
+ * intensity / pi, the luminance of the water work, / SourceUnitNits) and FogColorSource = the inscattering color of the
+ * height fog (M_SwcBeam normalizes it). Four times in a second.
  */
 UCLASS()
 class SOULWARDENCLIENT_API USwcMaterialScale : public UTickableWorldSubsystem
@@ -35,8 +40,14 @@ protected:
 private:
 	float LightScale() const;
 
+	void ApplyEffects();
+
 	UPROPERTY()
 	TObjectPtr<UMaterialParameterCollection> Collection;
 
+	UPROPERTY()
+	TObjectPtr<UMaterialParameterCollection> Effects;
+
 	float Applied = -1.0f;
+	double NextEffects = 0.0;
 };

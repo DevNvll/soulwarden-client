@@ -29,9 +29,12 @@ MENU_CLIP_NAME = "unarmed_idle_loadingscreen"
 # The entities of the scene that the client reads by name.
 # The radius of the bounded scene subset around the Player Entity (m): the camp, its props, and the near trees and walls.
 SCENE_RADIUS = 60.0
-# Meshes that the subset leaves out: the fog volumes (their volumetric materials), the meshes of particle effects, and the sky
-# dome (the sky of the client is its environment).
-SKIPPED = ("objects/volumetrics/", "objects/vfx/", "objects/sky/")
+# Meshes that the subset leaves out: the sky dome (the sky of the client is its environment).
+SKIPPED = ("objects/sky/",)
+# The folders of the mesh effects: the subset has such a mesh only when it is converted with mesh rule 8 (the GeometryBeam fog
+# sheets and cards, AST-207: a static mesh); a mesh of mesh.BEAM_FOLDERS of an older rule goes to the wanted list; the other
+# meshes of particle effects stay out.
+EFFECTS = ("objects/volumetrics/", "objects/vfx/")
 # The far part of the subset (stage F4b step 4: the dome and the spires of B6-04): placements from SCENE_RADIUS to FAR_RADIUS (m)
 # with a mesh of a bounding radius of FAR_MIN_SIZE (m) or more, in the view of the character camera (the vertical FOV 55 degrees,
 # the aspect of the client window 1256 x 660).
@@ -42,9 +45,8 @@ FAR_MIN_SIZE = 5.0
 # (the bounding radius x the scale of the placement / the distance) of VISTA_MIN_ANGLE (rad) or more, in the view.
 VISTA_RADIUS = 8000.0
 VISTA_MIN_ANGLE = 0.05
-# Vista meshes that wait for their material: the cyan vortex (ftue_level_vortex_mat_matgroup.mtl: an Illum card with an emittance
-# map, Emittance 0.17 0.67 1 x 80, Opacity 0.65) has no instance spec, and its plain import is an opaque dark card over the sky
-# (run f4b-v1). The emission rule and the specs are the materials work of AST-207.
+# Vista meshes that wait for their material: the cyan vortex (two cards: an Illum card with an emittance map and Opacity 0.65, and
+# a Distanceclouds override; research maelstrom.md) is the work of a later maelstrom thread, not AST-207.
 VISTA_WAITING = ("objects/landmarks/ftue_vista_vortex/",)
 VIEW_ASPECT = 1256.0 / 660.0
 # The lights of the subset: within this radius of the Player Entity (m).
@@ -530,6 +532,7 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
     # path of the imported asset (the import shortens a long name and changes some characters: objects.imported_mesh).
     import numpy as np
     from . import manifest, space
+    from .mesh import BEAM_FOLDERS, RULE_BEAMS
     from .objects import imported_mesh
     assets: dict[str, str] = {}
     known = manifest.load()["assets"]
@@ -545,18 +548,23 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
         path = _cgf(item["asset"])
         if not path:
             continue
+        entry = known.get(path)
+        effect = path.startswith(EFFECTS)
+        drawn_effect = effect and entry is not None and entry.get("kind") == "static" and entry.get("version", 0) >= RULE_BEAMS
         if distance > radius:
             w = item["world"]
             scale = max(math.hypot(*w[0:3]), math.hypot(*w[3:6]), math.hypot(*w[6:9]))
-            size = mesh_radius(known.get(path)) * scale
+            size = mesh_radius(entry) * scale
             wanted_far = size >= FAR_MIN_SIZE if distance <= FAR_RADIUS else size / distance >= VISTA_MIN_ANGLE
-            if not wanted_far or not in_view(camera, position, size) or path.startswith(SKIPPED + VISTA_WAITING):
+            if (not wanted_far or not in_view(camera, position, size) or path.startswith(SKIPPED + VISTA_WAITING)
+                    or (effect and not drawn_effect)):
                 continue
             far += 1
-        if path.startswith(SKIPPED):
+        if path.startswith(SKIPPED) or (effect and not drawn_effect):
             skipped += 1
+            if path.startswith(BEAM_FOLDERS) and (entry is None or entry.get("version", 0) < RULE_BEAMS):
+                wanted.add(path)
             continue
-        entry = known.get(path)
         if entry is None:
             wanted.add(path)
         # The matrix of the scene: the three axis columns, then the translation (game metres); the Unreal transform by the space

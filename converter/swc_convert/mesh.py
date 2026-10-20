@@ -45,6 +45,11 @@ VERSION = 6
 # (COLOR_0) and the slot of each sub-material named by materials.instance_key (one slot for each set of render rules:
 # no collapsed slots, the n_ instances of A1).
 RULE_COLORS = 7
+# Rule 8 (AST-207): rule 7, and the GeometryBeam sub-materials are drawn (materials.is_beam: the fog sheets and cards, the
+# light beams; their slots get the parent M_SwcBeam by their spec; no Nanite). The default rule of the meshes of
+# BEAM_FOLDERS; a world mesh with a beam slot elsewhere keeps its rule until a conversion with rule 8.
+RULE_BEAMS = 8
+BEAM_FOLDERS = ("objects/volumetrics/", "objects/vfx/mesh/")
 
 
 @functools.lru_cache(maxsize=1)
@@ -60,7 +65,7 @@ def is_mesh_decal(material) -> bool:
     not a GeometryBeam (materials.not_drawn leaves all decals out of the main mesh)."""
     return (material is not None and "%DECAL" in material.get("StringGenMask", "").upper()
             and material.get("Shader", "").lower() not in materials.NOT_DRAWN_SHADERS
-            and "shadow_proxy" not in material.get("Name", "").lower())
+            and not materials.is_shadow_proxy(material))
 
 
 def decal_key(mtl: str, index: int, material) -> str:
@@ -77,7 +82,10 @@ def companion_key(path: str) -> str:
 
 
 def rule_for(path: str, rule: int = VERSION) -> int:
-    """@return The rule of a conversion: rule 7 for a mesh of the M3 rebuild when the caller asks for the default rule."""
+    """@return The rule of a conversion: rule 7 for a mesh of the M3 rebuild and rule 8 for a mesh of BEAM_FOLDERS when
+    the caller asks for the default rule."""
+    if rule == VERSION and path.lower().startswith(BEAM_FOLDERS):
+        return RULE_BEAMS
     return RULE_COLORS if rule == VERSION and path.lower() in rule7_meshes() else rule
 
 
@@ -148,7 +156,7 @@ def convert(path: str, force: bool = False, write_manifest: bool = True, rule: i
         for s in mesh.subsets:
             if s.material not in slots:
                 m = sub_materials[s.material] if 0 <= s.material < len(sub_materials) else None
-                if m is not None and materials.not_drawn(m):
+                if m is not None and materials.not_drawn(m, beams=rule >= RULE_BEAMS):
                     slots[s.material] = -1
                 else:
                     record, used = materials.shared_material(m)
@@ -179,7 +187,8 @@ def convert(path: str, force: bool = False, write_manifest: bool = True, rule: i
     out.parent.mkdir(parents=True, exist_ok=True)
     w.doc["scenes"][0]["nodes"] = [w.node(name=Path(path).stem, mesh=w.mesh(Path(path).stem, prims))]
     w.save(out)
-    translucent = any(r["blend"] == "translucent" for r in records.values())
+    translucent = any(r["blend"] == "translucent" for r in records.values()) or any(
+        materials.is_blended_illum(m) for i, m in enumerate(sub_materials) if slots.get(i, -1) != -1)
     # "materials": the keys of the material records (the import pipeline makes and sets their instances); rule 7 also
     # gives "slots": the slot names (the instance keys; an n_ instance has no record: swc_materials makes it).
     entry = {"kind": "static", "file": str(out.relative_to(env.content_dir())) if out.is_relative_to(env.content_dir())

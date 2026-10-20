@@ -21,16 +21,22 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "3", "M_SwcSurface": "6", "M_SwcSurfaceMasked": "6", "M_SwcDecal": "7",
-                   "M_SwcGlass": "1"}   # the rule of each parent
+PARENT_VERSIONS = {"M_SwcFoliage": "3", "M_SwcSurface": "8", "M_SwcSurfaceMasked": "8", "M_SwcDecal": "7",
+                   "M_SwcGlass": "1", "M_SwcBeam": "4",
+                   "M_SwcSurfaceTranslucent": "8"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
+# 7: the UV transforms of the emittance and intensity maps (AST-207); 8: the sRGB emission files on Color samplers;
 # M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals;
 # 4: the entity color and opacity (DecalColor), the angle fade of the projected decals (static switch Projected);
 # 5: the view bias in the vertex shader without CameraVectorWS (3 and 4 did not compile); 6: the normal of the
 # projected decals out of the surface (5 had it into the surface); 7: the reflectance of the source decal (the
 # specular map x XML Specular; 6 and before: the default 0.5); M_SwcFoliage 2: the wind (M6) and
 # the vertex alpha occlusion; 3: the subsurface color x the albedo, as the back light of the source)
+# The parent asset of each spec parent (apply_specs: a stale parent is made again).
+PARENT_NAMES = {"foliage": "M_SwcFoliage", "surface": "M_SwcSurface", "surface masked": "M_SwcSurfaceMasked",
+                "surface translucent": "M_SwcSurfaceTranslucent", "decal": "M_SwcDecal", "glass": "M_SwcGlass",
+                "beam": "M_SwcBeam"}
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
 assets = unreal.EditorAssetLibrary
@@ -106,7 +112,8 @@ def import_texture(key, record, content, state):
 
 def base_texture(name, color, channels, value, content, state):
     """@return A default texture of this module (4 x 4 pixels of one value; a sampler needs a default texture of its own
-    type): `channels` 1 (a grayscale PNG) or 4 (RGBA), imported with the settings of `color`."""
+    type): `channels` 1 (a grayscale PNG) or 4 (RGBA), imported with the settings of `color`; `value` one byte for all
+    channels, or a tuple of the four bytes."""
     path = f"{BASE}/{name}"
     if assets.does_asset_exist(path) and state.get("base:" + name) == "1":
         return assets.load_asset(path)
@@ -119,7 +126,8 @@ def base_texture(name, color, channels, value, content, state):
 
         def chunk(kind, data):
             return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-        raw = b"".join(b"\x00" + bytes([value]) * (4 * channels) for _ in range(4))
+        pixel = bytes(value) if isinstance(value, tuple) else bytes([value]) * channels   # one value, or RGBA
+        raw = b"".join(b"\x00" + pixel * 4 for _ in range(4))
         kind = 0 if channels == 1 else 6
         with open(png, "wb") as handle:
             handle.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 4, 4, 8, kind, 0, 0, 0))
@@ -137,6 +145,11 @@ def base_texture(name, color, channels, value, content, state):
     assets.save_loaded_asset(texture)
     state["base:" + name] = "1"
     return texture
+
+
+def flat_data(content, state):
+    """@return The default of the turbulence color of M_SwcBeam: the flat normal (0.5, 0.5, 1) as RGBA data, TC_Masks."""
+    return base_texture("T_SwcFlatData", "data", 4, (128, 128, 255, 255), content, state)
 
 
 def white_linear(content, state):
@@ -290,10 +303,12 @@ return normalize(float3(N.xy + v.xy, N.z));"""
 EMISSIVE_HLSL = """float3 w = float3(0.2126, 0.7152, 0.0722);
 if (dot(C.rgb, w) <= 0.0) return float3(0.0, 0.0, 0.0);
 float3 e = float3(0.5, 0.5, 0.5);
+float4 M = P.z > 0.5 ? MapS : Map;
+float4 In = P.w > 0.5 ? IS : I;
 if (P.y > 0.5) {
-  e = Map.rgb * pow(max(dot(Map.rgb, w), 1e-6), P.x - 1.0);
-  e *= I.rgb;
-  e *= Map.a;
+  e = M.rgb * pow(max(dot(M.rgb, w), 1e-6), P.x - 1.0);
+  e *= In.rgb;
+  e *= M.a;
 }
 return C.rgb * C.a * 0.1 * e * Scale;"""
 
@@ -361,11 +376,13 @@ def multiply(material, a, b, x, y):
     return node_
 
 
-def surface_parent(content, state, masked):
-    """@return M_SwcSurface (opaque) or M_SwcSurfaceMasked (the cutout is the alpha of the diffuse map): the parents
-    of the Illum shader (stage M2). UV = TexCoord0 x UVTransform.rg + UVTransform.ba (the tiling and offset of the
-    diffuse slot); base color, metallic, and specular from REFLECTANCE_HLSL; roughness 1 - Smoothness x gloss."""
-    name = "M_SwcSurfaceMasked" if masked else "M_SwcSurface"
+def surface_parent(content, state, masked, translucent=False):
+    """@return M_SwcSurface (opaque), M_SwcSurfaceMasked (the cutout is the alpha of the diffuse map), or
+    M_SwcSurfaceTranslucent (AST-207: an alpha blended Illum material, material_records.BLENDED_ILLUM; the opacity is
+    the alpha of the diffuse map x the XML Opacity): the parents of the Illum shader (stage M2). UV = TexCoord0 x
+    UVTransform.rg + UVTransform.ba (the tiling and offset of the diffuse slot); base color, metallic, and specular from
+    REFLECTANCE_HLSL; roughness 1 - Smoothness x gloss."""
+    name = "M_SwcSurfaceTranslucent" if translucent else "M_SwcSurfaceMasked" if masked else "M_SwcSurface"
     material, white = parent_asset(name, content, state)
     if material is None:
         return assets.load_asset(f"{BASE}/{name}")
@@ -509,17 +526,37 @@ def surface_parent(content, state, masked):
     editing.connect_material_expressions(masked_gloss, "", rough, "")
     editing.connect_material_property(rough, "", MP.MP_ROUGHNESS)
     # M4: the emission (static switch Emissive).
-    emittance = sample("Emittance", st.SAMPLERTYPE_MASKS, white_data(content, state), 5100)
-    intensity = sample("EmissiveIntensity", st.SAMPLERTYPE_MASKS, white_data(content, state), 5350)
+    # Version 7 (AST-207): each map has its own UV transform (the source _TCMMatrixEmittance and
+    # _TCMMatrixEmissiveMultiplier); the converter gives the decoded RGB of an sRGB file (`@data-decoded`).
+    def transformed(parameter, y):
+        t = vector(material, parameter, (1.0, 1.0, 0.0, 0.0), -1600, y)
+        scaled_ = multiply(material, (coords, ""), (mask(material, t, "RGBA", "rg", -1400, y), ""), -1250, y)
+        at = node(material, unreal.MaterialExpressionAdd, -1100, y)
+        editing.connect_material_expressions(scaled_, "", at, "A")
+        editing.connect_material_expressions(mask(material, t, "RGBA", "ba", -1400, y + 100), "", at, "B")
+        return at
+
+    emittance = sample_at("Emittance", st.SAMPLERTYPE_MASKS, white_data(content, state),
+                          transformed("EmittanceTransform", 5100), 5100)
+    intensity = sample_at("EmissiveIntensity", st.SAMPLERTYPE_MASKS, white_data(content, state),
+                          transformed("IntensityTransform", 5350), 5350)
+    # Version 8: the sRGB files on Color samplers (EmittanceParams z, w = 1; the GPU decodes the RGB).
+    white_color = unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture")
+    emittance_srgb = sample_at("EmittanceSrgb", st.SAMPLERTYPE_COLOR, white_color, transformed("EmittanceTransform", 5100),
+                               5200)
+    intensity_srgb = sample_at("IntensitySrgb", st.SAMPLERTYPE_COLOR, white_color, transformed("IntensityTransform", 5350),
+                               5450)
     emittance_color = vector(material, "EmittanceColor", (0.0, 0.0, 0.0, 0.0), -900, 5600)
     emittance_params = vector(material, "EmittanceParams", (1.0, 0.0, 0.0, 0.0), -900, 5750)
     scale = editing.create_material_expression(material, unreal.MaterialExpressionCollectionParameter, -900, 5900)
     scale.set_editor_property("collection", collection(content, state))
     scale.set_editor_property("parameter_name", "EmissiveScale")
     emission = custom(material, EMISSIVE_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT3,
-                      ("Map", "I", "C", "P", "Scale"), -500, 5100)
+                      ("Map", "MapS", "I", "IS", "C", "P", "Scale"), -500, 5100)
     editing.connect_material_expressions(emittance, "RGBA", emission, "Map")
+    editing.connect_material_expressions(emittance_srgb, "RGBA", emission, "MapS")
     editing.connect_material_expressions(intensity, "RGBA", emission, "I")
+    editing.connect_material_expressions(intensity_srgb, "RGBA", emission, "IS")
     editing.connect_material_expressions(emittance_color, "RGBA", emission, "C")
     editing.connect_material_expressions(emittance_params, "RGBA", emission, "P")
     editing.connect_material_expressions(scale, "", emission, "Scale")
@@ -527,7 +564,13 @@ def surface_parent(content, state, masked):
     black.set_editor_property("constant", unreal.LinearColor(0.0, 0.0, 0.0, 1.0))
     emissive = switch(material, "Emissive", (emission, ""), (black, ""), -250, 5100)
     editing.connect_material_property(emissive, "", MP.MP_EMISSIVE_COLOR)
-    if masked:
+    if translucent:
+        opacity = multiply(material, (color, "A"), (scalar(material, "Opacity", 1.0, -600, 5900), ""), -250, 5900)
+        editing.connect_material_property(opacity, "", MP.MP_OPACITY)
+        material.set_editor_property("translucency_lighting_mode",
+                                     unreal.TranslucencyLightingMode.TLM_SURFACE_PER_PIXEL_LIGHTING)
+        material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    elif masked:
         material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
         editing.connect_material_property(color, "A", MP.MP_OPACITY_MASK)
     material.set_editor_property("used_with_nanite", True)
@@ -784,6 +827,277 @@ def glass_parent(content, state):
     return material
 
 
+# M_SwcBeam (AST-207): the GeometryBeam shader of the source (geometrybeam.cfxb BeamVS and BeamPS; research
+# emission-fogcards.md). The vertex part (BeamVS): V = the vertex RGBA x the XML Diffuse and Opacity (DC), W = the direction
+# to the camera, N = the world normal; q = saturate(dot(W, N)^2 x viewDependencyFactor)^2; B = FinalMultiplier x V x q;
+# B.rgb x= lerp(StartColor, EndColor, u) with u = saturate(U), or V with %VERTICAL_GRADIENT (F1.w); %GRADIENT_ALPHA (F2.y):
+# B.a x= 1 - u. The vertex colors: the source bytes / 255 (mesh.vertex_colors).
+BEAM_VS_HLSL = """float3 w = normalize(W);
+float d = dot(w, normalize(N));
+float q = saturate(d * d * VD);
+q *= q;
+float4 B = FM * float4(VC, VA) * DC * q;
+float u = saturate(F1.w > 0.5 ? UV.y : UV.x);
+B.rgb *= lerp(SC.rgb, EC.rgb, u);
+if (F2.y > 0.5) B.a *= 1.0 - u;
+return B;"""
+# The coordinate of the 3D noise (BeamVS): the object position in source metres (Unreal local cm, Y mirrored) x
+# (0.05, 0.05, 0.1) + the time x BackgroudAlphaNoiseSpeedXYZ (S).
+BEAM_NOISE_VS_HLSL = """float3 p = LP * float3(0.01, -0.01, 0.01);
+return p * float3(0.05, 0.05, 0.1) + T * S.xyz;"""
+# The Noise3D sample of the source (a 64^3 A8 volume, a wrapping linear sampler, its alpha): eight Loads of the tiles of
+# T_SwcNoise3D (material_records.noise_picture) and the trilinear weights. f = 2 x noise - 0.25 (not saturated).
+BEAM_NOISE_HLSL = """float3 p = NR * 64.0 - 0.5;
+float3 i = floor(p);
+float3 t = p - i;
+float r = 0.0;
+for (int k = 0; k < 8; k++) {
+  int3 o = int3(k & 1, (k >> 1) & 1, k >> 2);
+  int3 c = (int3(i) + o) & 63;
+  float v = Tex.Load(int3((c.z & 7) * 64 + c.x, (c.z >> 3) * 64 + c.y, 0)).r;
+  float3 g = lerp(1.0 - t, t, float3(o));
+  r += v * g.x * g.y * g.z;
+}
+return 2.0 * r - 0.25;"""
+# The UV of the base map: the TexMod tiling and offset (UVT), and the stretch oscillators of U and V (type 5;
+# O = rate U, rate V, amplitude U, amplitude V): (uv - 0.5) x (1 + amplitude x sin(2 pi rate t)) + 0.5 (an inference of
+# the CryEngine TexMod rule; the exact timing is an open point of the study).
+BEAM_BASE_UV_HLSL = """float2 uv = UV * UVT.xy + UVT.zw;
+float2 s = 1.0 + O.zw * sin(6.2831853 * O.xy * T);
+return (uv - 0.5) * s + 0.5;"""
+# The dust UV (BeamPS): the UV turned by uvRot turns, x dustUVScale, + the noise coordinate xy x dustTimeScale.
+BEAM_DUST_UV_HLSL = """float a = R * 6.2831853;
+float2 uv = float2(UV.x * cos(a) - UV.y * sin(a), UV.x * sin(a) + UV.y * cos(a));
+return uv * DS + NR.xy * DT;"""
+# The turbulence UV: ((0.17 f, f) x 0.5 + 0.5) x turbStrength.
+BEAM_TURB_UV_HLSL = "return (float2(0.17 * f, f) * 0.5 + 0.5) * TS;"
+# The color and the alpha (BeamPS). F: the depth fade in source metres: min(saturate(s x min(zs - z, h, z)),
+# saturate(s x (z - zn))); zs the scene depth, z the depth of the sheet, h the height above the water plane (WL m), zn the
+# near clip. The sun: x lerp(1, the source sun color, SunColorInfluence) (%APPLY_SUN_COLOR, F1.y); the fog: x lerp(1,
+# the fog color / max(lum, 1e-4), FogColorInfluence) (%APPLY_FOG_COLOR, F2.z). With %NOISE (F1.x): the dust lerp(D, T x
+# 0.5 (T.r T.g + T.b), turbRatio) and the noise f; else 1. RGB = base.rgb x color x dust x F x (1 + AmbStrength) x f
+# (no %RECEIVE_SHADOWS: the shadow term is 1). The alpha: min(base.r, base.a) x the UV vignette (%UV_VIGNETTING, F2.x:
+# exp2(-uvVigFeaturing x length(frac(UV x baseUVScale) x 2 - 1)^2)) x (1 - exp2(-k B.a^2)), k = fadingFeaturing, x
+# saturate((1 - the relative view distance) / FadeOutDistance) with %ENABLE_FADEOUT (F1.z; the relative distance: the
+# camera distance / the maximum view distance of the object, min(MD, VDR x the bounding radius OR): the CryEngine rule of
+# e_ViewDistRatio, default 60, an inference; MD 8,000 m is the far clip of the menu camera). The blend of the source is SRC_ALPHA, ONE: the output is RGB x alpha (premultiplied, the
+# Additive parent has opacity 1), in source units (x Scale: EmissiveScale, cd/m2 x swc.LightScale).
+BEAM_PS_HLSL = """float3 lw = float3(0.2126, 0.7152, 0.0722);
+float z = PD * 0.01;
+float zs = SD * 0.01;
+float h = WZ * 0.01 - WL;
+float F = min(saturate(SI * min(min(zs - z, h), z)), saturate(SI * (z - ZN)));
+float3 color = B.rgb;
+if (F1.y > 0.5) color *= lerp(float3(1.0, 1.0, 1.0), Sun.rgb, SCI);
+if (F2.z > 0.5) color *= lerp(float3(1.0, 1.0, 1.0), Fog.rgb / max(dot(Fog.rgb, lw), 0.0001), FCI);
+float3 dust = float3(1.0, 1.0, 1.0);
+float n = 1.0;
+if (F1.x > 0.5) {
+  float3 t = Turb.rgb;
+  t *= 0.5 * (t.r * t.g + t.b);
+  dust = lerp(Dust.rgb, t, TR);
+  n = f;
+}
+float3 rgb = Base.rgb * color * dust * F * (1.0 + AMB) * n;
+float a = min(Base.r, Base.a);
+if (F2.x > 0.5) {
+  float2 v = frac(UV * BUS) * 2.0 - 1.0;
+  a *= exp2(-VIG * dot(v, v));
+}
+float k = FF;
+if (F1.z > 0.5) k *= saturate((1.0 - CD / max(min(MD * 100.0, VDR * OR), 1.0)) / max(FOD, 0.0001));
+a *= 1.0 - exp2(-k * B.a * B.a);
+a = saturate(a);
+return float4(max(rgb, 0.0) * a * Scale * BS, a);"""
+
+
+def effects_collection(content, state):
+    """@return MPC_SwcEffects: the global values of M_SwcBeam, set at run time by USwcMaterialScale: SunColorSource (the
+    sun color of the source in its units: the color x the intensity / pi of the main directional light / 10,000) and
+    FogColorSource (the inscattering color of the height fog). Its own collection: MPC_SwcMaterials stays (a new parameter
+    of a collection compiles all its materials again)."""
+    name = "MPC_SwcEffects"
+    path = f"{BASE}/{name}"
+    if assets.does_asset_exist(path) and state.get("base:" + name) == "2":
+        return assets.load_asset(path)
+    mpc = assets.load_asset(path) if assets.does_asset_exist(path) else tools.create_asset(
+        name, BASE, unreal.MaterialParameterCollection, unreal.MaterialParameterCollectionFactoryNew())
+    vectors = list(mpc.get_editor_property("vector_parameters"))
+    for parameter, default in (("SunColorSource", (1.0, 1.0, 1.0, 0.0)), ("FogColorSource", (1.0, 1.0, 1.0, 0.0))):
+        if not any(str(v.get_editor_property("parameter_name")) == parameter for v in vectors):
+            value = unreal.CollectionVectorParameter()
+            value.set_editor_property("parameter_name", parameter)
+            value.set_editor_property("default_value", unreal.LinearColor(*default))
+            vectors.append(value)
+    mpc.set_editor_property("vector_parameters", vectors)
+    # BeamScale (version 2): the scale of M_SwcBeam, set by USwcMaterialScale from swc.BeamScale; the asset default 0 keeps the
+    # beams out of the runs of a client without that code.
+    scalars = list(mpc.get_editor_property("scalar_parameters"))
+    if not any(str(v.get_editor_property("parameter_name")) == "BeamScale" for v in scalars):
+        value = unreal.CollectionScalarParameter()
+        value.set_editor_property("parameter_name", "BeamScale")
+        value.set_editor_property("default_value", 0.0)
+        scalars.append(value)
+        mpc.set_editor_property("scalar_parameters", scalars)
+    assets.save_loaded_asset(mpc)
+    state["base:" + name] = "2"
+    return mpc
+
+
+def noise_texture(content, state):
+    """@return T_SwcNoise3D: the tiles of the source noise volume (material_records.noise_picture), gray, no mips, no
+    streaming, no compression (BEAM_NOISE_HLSL reads mip 0 with Load)."""
+    name = "T_SwcNoise3D"
+    path = f"{BASE}/{name}"
+    if assets.does_asset_exist(path) and state.get("base:" + name) == "1":
+        return assets.load_asset(path)
+    task = unreal.AssetImportTask()
+    task.set_editor_property("filename", os.path.join(content, "materials", "base", name + ".png"))
+    task.set_editor_property("destination_path", BASE)
+    task.set_editor_property("destination_name", name)
+    task.set_editor_property("automated", True)
+    task.set_editor_property("save", True)
+    task.set_editor_property("replace_existing", True)
+    tools.import_asset_tasks([task])
+    texture = assets.load_asset(path)
+    texture.set_editor_property("srgb", False)
+    texture.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_GRAYSCALE)
+    texture.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
+    texture.set_editor_property("never_stream", True)
+    texture.set_editor_property("filter", unreal.TextureFilter.TF_NEAREST)
+    texture.set_editor_property("lod_group", unreal.TextureGroup.TEXTUREGROUP_WORLD)
+    assets.save_loaded_asset(texture)
+    state["base:" + name] = "1"
+    return texture
+
+
+def beam_parent(content, state):
+    """@return M_SwcBeam: the parent of the GeometryBeam shader (AST-207): Additive, Unlit, two sided, the depth test
+    on, no depth write (translucent), the fog of the scene on the result; BEAM_VS_HLSL and the noise coordinate in the
+    vertex shader (vertex interpolators), BEAM_PS_HLSL in the pixel shader. Not a fog volume and no surface light."""
+    name = "M_SwcBeam"
+    material, _white = parent_asset(name, content, state)
+    if material is None:
+        return assets.load_asset(f"{BASE}/{name}")
+    st = unreal.MaterialSamplerType
+    white_color = unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture")
+    cf = unreal.CustomMaterialOutputType
+    coords = node(material, unreal.MaterialExpressionTextureCoordinate, -2400, 0)
+    # The vertex part.
+    vertex = node(material, unreal.MaterialExpressionVertexColor, -2400, -600)
+    normal = node(material, unreal.MaterialExpressionVertexNormalWS, -2400, -450)
+    camera = node(material, unreal.MaterialExpressionCameraPositionWS, -2600, -350)
+    world = node(material, unreal.MaterialExpressionWorldPosition, -2600, -250)
+    toward = node(material, unreal.MaterialExpressionSubtract, -2400, -300)
+    editing.connect_material_expressions(camera, "", toward, "A")
+    editing.connect_material_expressions(world, "", toward, "B")
+    diffuse = vector(material, "DiffuseColor", (1.0, 1.0, 1.0, 1.0), -2400, -150)
+    start = vector(material, "StartColor", (1.0, 1.0, 1.0, 1.0), -2400, 0)
+    end = vector(material, "EndColor", (1.0, 1.0, 1.0, 1.0), -2400, 150)
+    flags = vector(material, "BeamFlags", (0.0, 0.0, 0.0, 0.0), -2400, 300)
+    flags2 = vector(material, "BeamFlags2", (0.0, 0.0, 0.0, 0.0), -2400, 450)
+    final = scalar(material, "FinalMultiplier", 1.0, -2400, 600)
+    view_dep = scalar(material, "viewDependencyFactor", 2.0, -2400, 700)
+    beam_vs = custom(material, BEAM_VS_HLSL, cf.CMOT_FLOAT4,
+                     ("VC", "VA", "N", "W", "UV", "DC", "SC", "EC", "F1", "F2", "FM", "VD"), -2000, -300)
+    for pin, (source, out) in {"VC": (vertex, ""), "VA": (vertex, "A"), "N": (normal, ""), "W": (toward, ""), "UV": (coords, ""),
+                               "DC": (diffuse, "RGBA"), "SC": (start, "RGBA"), "EC": (end, "RGBA"),
+                               "F1": (flags, "RGBA"), "F2": (flags2, "RGBA"), "FM": (final, ""),
+                               "VD": (view_dep, "")}.items():
+        editing.connect_material_expressions(source, out, beam_vs, pin)
+    b = node(material, unreal.MaterialExpressionVertexInterpolator, -1800, -300)
+    editing.connect_material_expressions(beam_vs, "", b, "VS")
+    local = node(material, unreal.MaterialExpressionPreSkinnedPosition, -2400, 850)
+    time = node(material, unreal.MaterialExpressionTime, -2400, 950)
+    speed = vector(material, "NoiseSpeed", (0.1, 0.05, 0.15, 0.0), -2400, 1050)
+    noise_vs = custom(material, BEAM_NOISE_VS_HLSL, cf.CMOT_FLOAT3, ("LP", "T", "S"), -2000, 900)
+    editing.connect_material_expressions(local, "", noise_vs, "LP")
+    editing.connect_material_expressions(time, "", noise_vs, "T")
+    editing.connect_material_expressions(speed, "RGB", noise_vs, "S")
+    nr = node(material, unreal.MaterialExpressionVertexInterpolator, -1800, 900)
+    editing.connect_material_expressions(noise_vs, "", nr, "VS")
+    # The pixel part: the noise, the three UVs, the three samples.
+    noise_object = node(material, unreal.MaterialExpressionTextureObject, -1800, 1100)
+    noise_object.set_editor_property("texture", noise_texture(content, state))
+    f = custom(material, BEAM_NOISE_HLSL, cf.CMOT_FLOAT1, ("Tex", "NR"), -1500, 1000)
+    editing.connect_material_expressions(noise_object, "", f, "Tex")
+    editing.connect_material_expressions(nr, "", f, "NR")
+    uvt = vector(material, "UVTransform", (1.0, 1.0, 0.0, 0.0), -1800, 1250)
+    osc = vector(material, "BaseOscillator", (0.0, 0.0, 0.0, 0.0), -1800, 1400)
+    base_uv = custom(material, BEAM_BASE_UV_HLSL, cf.CMOT_FLOAT2, ("UV", "UVT", "O", "T"), -1500, 1250)
+    editing.connect_material_expressions(coords, "", base_uv, "UV")
+    editing.connect_material_expressions(uvt, "RGBA", base_uv, "UVT")
+    editing.connect_material_expressions(osc, "RGBA", base_uv, "O")
+    editing.connect_material_expressions(time, "", base_uv, "T")
+    rot = scalar(material, "uvRot", 0.0, -1800, 1550)
+    dust_scale = scalar(material, "dustUVScale", 0.6, -1800, 1650)
+    dust_time = scalar(material, "dustTimeScale", 1.0, -1800, 1750)
+    dust_uv = custom(material, BEAM_DUST_UV_HLSL, cf.CMOT_FLOAT2, ("UV", "R", "DS", "DT", "NR"), -1500, 1550)
+    for pin, source in {"UV": coords, "R": rot, "DS": dust_scale, "DT": dust_time, "NR": nr}.items():
+        editing.connect_material_expressions(source, "", dust_uv, pin)
+    turb_strength = scalar(material, "turbStrength", 1.0, -1800, 1850)
+    turb_uv = custom(material, BEAM_TURB_UV_HLSL, cf.CMOT_FLOAT2, ("f", "TS"), -1500, 1850)
+    editing.connect_material_expressions(f, "", turb_uv, "f")
+    editing.connect_material_expressions(turb_strength, "", turb_uv, "TS")
+    base = sampler(material, "BaseColor", st.SAMPLERTYPE_COLOR, white_color, -1200, 1250)
+    editing.connect_material_expressions(base_uv, "", base, "UVs")
+    dust = sampler(material, "Dust", st.SAMPLERTYPE_COLOR, white_color, -1200, 1550)
+    editing.connect_material_expressions(dust_uv, "", dust, "UVs")
+    # The turbulence color: no texture in the slot gives the flat normal (0.5, 0.5, 1) of the source default
+    # (an inference: the default of an empty normal slot of CryEngine).
+    turb = sampler(material, "Turbulence", st.SAMPLERTYPE_MASKS, flat_data(content, state), -1200, 1850)
+    editing.connect_material_expressions(turb_uv, "", turb, "UVs")
+    # The depth inputs and the globals.
+    pixel_depth = node(material, unreal.MaterialExpressionPixelDepth, -1200, 2100)
+    scene_depth = node(material, unreal.MaterialExpressionSceneDepth, -1200, 2200)
+    world_z = mask(material, world, "", "b", -1200, 2300)
+    camera_distance = node(material, unreal.MaterialExpressionDistance, -1200, 2400)
+    editing.connect_material_expressions(camera, "", camera_distance, "A")
+    object_position = node(material, unreal.MaterialExpressionObjectPositionWS, -1400, 2450)
+    editing.connect_material_expressions(object_position, "", camera_distance, "B")
+    effects = effects_collection(content, state)
+    sun = node(material, unreal.MaterialExpressionCollectionParameter, -1200, 2550)
+    sun.set_editor_property("collection", effects)
+    sun.set_editor_property("parameter_name", "SunColorSource")
+    fog = node(material, unreal.MaterialExpressionCollectionParameter, -1200, 2650)
+    fog.set_editor_property("collection", effects)
+    fog.set_editor_property("parameter_name", "FogColorSource")
+    scale = node(material, unreal.MaterialExpressionCollectionParameter, -1200, 2750)
+    scale.set_editor_property("collection", collection(content, state))
+    scale.set_editor_property("parameter_name", "EmissiveScale")
+    beam_scale = node(material, unreal.MaterialExpressionCollectionParameter, -1200, 2850)
+    beam_scale.set_editor_property("collection", effects)
+    beam_scale.set_editor_property("parameter_name", "BeamScale")
+    pins = {"BS": (beam_scale, ""), "B": (b, ""), "Base": (base, "RGBA"), "Dust": (dust, "RGBA"), "Turb": (turb, "RGBA"), "f": (f, ""),
+            "UV": (coords, ""), "PD": (pixel_depth, ""), "SD": (scene_depth, ""), "WZ": (world_z, ""),
+            "CD": (camera_distance, ""), "OR": (node(material, unreal.MaterialExpressionObjectRadius, -1400, 2350), ""),
+            "Sun": (sun, ""), "Fog": (fog, ""), "Scale": (scale, ""),
+            "F1": (flags, "RGBA"), "F2": (flags2, "RGBA")}
+    for i, (pin, parameter, default) in enumerate((
+            ("SI", "SoftIntersectionFactor", 1.0), ("WL", "WaterLevel", 40.0), ("ZN", "NearClip", 0.1),
+            ("SCI", "SunColorInfluence", 0.5), ("FCI", "FogColorInfluence", 0.0), ("TR", "turbRatio", 0.55),
+            ("AMB", "AmbStrength", 0.12), ("BUS", "baseUVScale", 1.0), ("VIG", "uvVigFeaturing", 0.0),
+            ("FF", "fadingFeaturing", 0.55), ("FOD", "FadeOutDistance", 0.2), ("MD", "MaxViewDistance", 8000.0),
+            ("VDR", "ViewDistRatio", 60.0))):
+        pins[pin] = (scalar(material, parameter, default, -1600, 2100 + 100 * i), "")
+    color = custom(material, BEAM_PS_HLSL, cf.CMOT_FLOAT4, tuple(pins), -700, 1500)
+    for pin, (source, out) in pins.items():
+        editing.connect_material_expressions(source, out, color, pin)
+    emissive = mask(material, color, "", "rgb", -400, 1500)
+    editing.connect_material_property(emissive, "", MP.MP_EMISSIVE_COLOR)
+    one = node(material, unreal.MaterialExpressionConstant, -400, 1650)
+    one.set_editor_property("r", 1.0)
+    editing.connect_material_property(one, "", MP.MP_OPACITY)
+    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_ADDITIVE)
+    material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    material.set_editor_property("two_sided", True)
+    material.set_editor_property("used_with_instanced_static_meshes", True)
+    editing.recompile_material(material)
+    assets.save_loaded_asset(material)
+    state["base:" + name] = PARENT_VERSIONS[name]
+    return material
+
+
 # M6: the wind of the source (modificatorvt.cfib: _DetailBending, SimpleWindNoise, _MainBending), in the engine space of the
 # source (meters; Unreal (x, -y, z) x 100). LP, LN: the local position (cm) and normal of the vertex; VC: the vertex
 # color (the bend data of the source: R the leaf edge, G the branch phase, B 1 - the branch amplitude); OP: the instance
@@ -1026,7 +1340,11 @@ def apply_specs(keys, state, force=True, content=None, max_seconds=0.0, report=N
     specs, textures = load_specs(content, part)
     todo = plan(keys, specs, state, force)
     report["instances"]["up to date"] += len({k for k in keys if (k.split(":", 1)[-1]) in specs}) - len(todo)
-    if not todo:
+    # A parent of a selected spec with a new version in PARENT_VERSIONS is made again also when no instance changes.
+    names = {k.split(":", 1)[-1] for k in keys} & set(specs)
+    stale = {specs[n].get("parent") for n in names} & {kind for kind, parent in PARENT_NAMES.items()
+                                                         if state.get("base:" + parent) != PARENT_VERSIONS[parent]}
+    if not todo and not stale:
         return report
 
     def out_of_time():
@@ -1048,7 +1366,7 @@ def apply_specs(keys, state, force=True, content=None, max_seconds=0.0, report=N
         report["textures"]["imported" if done else "up to date"] += 1
         if done and report["textures"]["imported"] % 50 == 0:
             unreal.SystemLibrary.collect_garbage()
-    wanted = {specs[name].get("parent") for name in todo}
+    wanted = {specs[name].get("parent") for name in todo} | stale
     parents = {}
     if "foliage" in wanted:
         parents["foliage"] = foliage_parent(content, state)
@@ -1056,10 +1374,14 @@ def apply_specs(keys, state, force=True, content=None, max_seconds=0.0, report=N
         parents["surface"] = surface_parent(content, state, masked=False)
     if "surface masked" in wanted:
         parents["surface masked"] = surface_parent(content, state, masked=True)
+    if "surface translucent" in wanted:
+        parents["surface translucent"] = surface_parent(content, state, masked=False, translucent=True)
     if "decal" in wanted:
         parents["decal"] = decal_parent(content, state)
     if "glass" in wanted:
         parents["glass"] = glass_parent(content, state)
+    if "beam" in wanted:
+        parents["beam"] = beam_parent(content, state)
     for blend, name in (("opaque", "M_SwcOpaque"), ("masked", "M_SwcMasked"), ("translucent", "M_SwcTranslucent")):
         if "legacy " + blend in wanted:   # the base parents of stage 1.2 (import_content.py): an n_ instance of old rules
             parents["legacy " + blend] = assets.load_asset(f"{BASE}/{name}")

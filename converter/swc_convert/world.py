@@ -22,7 +22,7 @@ def convert_one(path: str) -> dict:
 def stale(paths: list[str], force: bool) -> list[str]:
     """@return The meshes that need a conversion (missing, an older rule, or forced)."""
     assets = manifest.load()["assets"]
-    return [p for p in paths if force or assets.get(p, {}).get("version") != mesh.VERSION
+    return [p for p in paths if force or assets.get(p, {}).get("version") != mesh.rule_for(p)
             or not mesh.out_path(p).is_file()]
 
 
@@ -39,7 +39,7 @@ def convert_meshes(paths: list[str], workers: int = 4, force: bool = False) -> d
     records = mesh.records_of(reports)
     # A mesh with no drawn triangles (only collision, decals, or light beams) is "empty": no asset, no placement.
     empty = [r["mesh"] for r in reports if "no drawn triangles" in r.get("error", "")]
-    records.update({path: {"kind": "empty", "version": mesh.VERSION} for path in empty})
+    records.update({path: {"kind": "empty", "version": mesh.rule_for(path)} for path in empty})
     if records:
         manifest.add_many(records)
     failures = {r["mesh"]: r["error"] for r in reports if "error" in r and r["mesh"] not in empty}
