@@ -437,7 +437,7 @@ The fixes of the full cook:
 - The map: the cooker reads `GameDefaultMap` from the config files of the target platform, not from the command line. The whole
   world is the default map; `tools/cook.sh --map MAP` writes a temporary `Config/Linux/LinuxEngine.ini` for a test level.
 - The content that the client loads by path: `DirectoriesToAlwaysCook` of DefaultGame.ini (Base, Characters, Collision,
-  Environment, Materials, Meshes, Player, Roads, SwcUi, Water of the plugin; BasicShapes, EngineSky, EngineDebugMaterials of the
+  Environment, Materials, Particles, Meshes, Player, Roads, Terrain/Menu, SwcUi, Water of the plugin; BasicShapes, EngineSky, EngineDebugMaterials of the
   engine), and `DirectoriesToAlwaysStageAsNonUFS` for `Lua/`. The data of the converters stays in `SWC_CONTENT` (the client reads it
   by the environment, also in the cooked build).
 - The memory: a scope of 20 GB (`SWC_COOK_MEMORY_MAX`); the cooker collects garbage at 14,000 MiB (`MemoryMaxUsedPhysical`; it
