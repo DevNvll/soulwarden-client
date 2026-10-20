@@ -331,6 +331,16 @@ The client (`Environment/SwcEnvironmentSubsystem.cpp`, `M_SwcGrade` of `Scripts/
   The bias curve of the Unreal auto exposure holds the whole rule of the source (`env::source_exposure_bias`, tested): at the
   metered EV100 of Unreal, the bias gives 1 / (1.2 x 2^EV). The bounds of Unreal stay wide. The renderer bakes the curve into a
   table only for a new curve object: the client makes a new curve when the rule changes (a change of the keys was not seen).
+- The source meter of the frame corrects that meter (`swc.SourceMeter 2`, the default from 2026-10-20;
+  `Environment/SwcMeterProbe.cpp`). Each 0.25 s an asynchronous readback copies the scene color after the depth of field (with
+  the water, the fog, and the translucency) and G-buffer B and C; the render thread reads each sixth pixel in each direction. E is
+  pi x L / the albedo with the denominator of `research/e5-meter-water.md`: the larger of the Rec. 709 luminance of the diffuse
+  color (the base color x (1 - metallic)) and of the reflectance (lerp(0.08 x specular, the base color, metallic)), at least 0.01;
+  0.2 where the diffuse luminance is 0 (the sky). G-buffer C is an sRGB target (the probe decodes it). Under the translucent water
+  the G-buffer is the ground. The bias of the Unreal exposure is a closed loop: each new measure adds 0.1 x (the applied EV - the
+  EV of the source rule for that E), 0.5 while a loading screen shows; the applied EV comes from the exposure of the frame. The
+  loading gate has a check "meter": a screen ends only when four measures in a row are within 0.05 EV. `swc.SourceMeter 1` is the
+  Unreal meter alone with the source curve, 0 the Unreal luminance.
 - `M_SwcGrade` replaces the tone mapper: the scene times the exposure, then the source order (saturation and balance, curve, sRGB,
   photo filter). The bloom is the bloom of Unreal (PostProcessInput2), added as the Unreal tone mapper adds it.
 - The ambient is the world probe of the source: `environmentprobe_thinpine_world02_cm` (two boxes of 100 km, the outdoor ambient of
@@ -449,6 +459,42 @@ steps 1 and 2a the mean was 39.8 and +7.3, before the cover and the decal change
 `~/Games/soulwarden-client/evidence/E5/step3-final/` (the side pictures, `translucent-pairs.png`, `water-part.txt`, `colors.json`),
 `step3-fog/`, `step3-rain/`.
 
+### Check of the source meter (2026-10-20)
+
+The six views of the meter step, whole picture dE / L*: `swc.SourceMeter 1` (the matrix runs on b451e15) against 2 (run `level4`
+on main ce819e5, the far-grid level; the same numbers within 0.3 dE on b451e15), and the difference of the applied EV and the EV
+of the source rule at the picture:
+
+| View | Meter 1 | Meter 2 | Gap at the picture | Dark part, client / retail |
+| --- | --- | --- | --- | --- |
+| noon-n | 13.5 / +14.0 | 9.7 / +10.2 | -0.04 EV | 0.01 / 0.04 |
+| noon-road-low | 3.9 / +3.9 | 1.8 / +0.1 | -0.03 EV | 0.03 / 0.03 |
+| keep-outside-noon | 10.4 / +13.8 | 6.1 / +7.4 | -0.09 EV | 0.16 / 0.36 |
+| fen-outside-south-noon | 9.1 / +10.4 | 4.1 / +4.8 | 0.00 EV | 0.03 / 0.12 |
+| ocean-clear-noon | 25.0 / +24.9 | 6.1 / +4.8 | -0.20 EV | 0.00 / 0.03 |
+| swim-idle | 27.2 / +26.2 | 19.1 / +18.5 | -0.05 EV | 0.00 / 0.01 |
+
+The water views of set 2 (`tools/lib/water_part.py`, run `water5` and `level4`): the mean water dE 28.9 -> 13.9, the water dL -
+all dL +4.8 -> +4.9 (the water stays lighter than the scene by the same part). The whole pictures: river-forest-noon 23.1 / +24.9
+-> 9.0 / +10.4, river-highlands-noon 25.3 / +28.4 -> 11.4 / +13.3, swim-nav 41.3 / +40.4 -> 16.9 / +17.6; ocean-storm-noon
+stays 10.0 / -12.6 (the black storm sky). The cost (pairs at the same place late in one run, `-SwcFrameStats=5`): GPU p50 +0.0
+to +0.4 ms, frame p50 +0.1 to +0.2 ms, the same frame maximums; no readback was dropped. The gate: in the travels of the matched
+views the gate ended at all six screens with the meter check passed. After a screen the exposure moved 0.03 to 0.27 EV in 10 s:
+the matched view sets its own camera after the screen (the ocean: the mean scene luminance 1,417 -> 1,098 cd/m2), and the meter
+follows the scene. Evidence: `~/Games/soulwarden-client/evidence/E5/meter-final/` (crops of the same parts, retail | client, at
+2.5x: `crops-VIEW.png`; `overview.png`, `colors.json`, `water-part.txt`).
+
+The menu landing (`tools/menu-check.sh` with a drive that only waits, main 4a6c1ba, `swc.BeamScale 1`; the frame 40 s after the
+landing against B6-04 with the mask of the UI panels and the character): meter 1 dE 27.5 / L* +30.9, meter 2 22.2 / +25.2, meter 2
+with `swc.LightScale 1` 19.9 / +21.8. The bias of meter 2 settles at -0.43 EV. The menu stays too bright: the fog sheets are a pale
+cream haze over the trees and the house, the tent has no light and shade of the trees, the fire is a white flare, and the flower
+petals and the ground are pale (`evidence/E5/meter-menu/crops-menu-a.png`).
+
+The differences that remain in the crops: the window glass of noon-n is flat light gray (retail: dark, with the room and
+reflections); the cobbles are cool gray with less depth in the gaps (retail: warm beige-brown with dark gaps); the right wall and
+the floor of the keep are lit (retail: black shade; the priority-2 box of a dark interior probe, step 3); the swim water is light
+teal with a strong mirror of the island (retail: deep blue, a faint reflection); the far cliffs of the swim view are more hazed.
+
 ### Not done, open points (E5)
 
 - The bloom weight of the source (`HDRBloomColor`: the final scene mixes the scene toward the bloom texture by
@@ -525,7 +571,7 @@ client selects its own volumes (stage E3).
 | `swc.LightScale F`, `swc.LocalLights 0\|1`, `swc.LightShadows 0\|1\|2` | Console variables: the look scale of the local lights (`-SwcLightScale=F` at the start), the local lights hidden or on (a compare of the cost in one run), the shadows of the local lights (none, the source flags, all). |
 | `swc.LumenTest 0\|1` | The Lumen test copies of the inn and the two houses (`-SwcLumenTest` at the start; `tools/lumen-test.sh` makes them). |
 | `tools/match-view.sh ... --variant VIEW@NAME=COMMAND;...` | One more picture of a view with client console commands (run when the view is in place): a look value or a switch to compare in one run. The next view sets the console variables of the commands back to their values before the first variant (from 2026-10-19). The report and the side-by-side picture have the local lights at the shot and the median GPU time while the view is in place (with `-SwcFrameStats=2`). |
-| `swc.Grade 0\|1`, `swc.GradeDebug 0\|1\|2`, `swc.GradeBloom F`, `swc.GradeBias EV`, `swc.SourceMeter 0\|1` | The color grade of the source or the Unreal tone mapper; a check of the exposed value or of the exposure; the part of the Unreal bloom; an offset of the exposure (a look check); the meter of the source or the Unreal luminance meter (stage E5). |
+| `swc.Grade 0\|1`, `swc.GradeDebug 0\|1\|2`, `swc.GradeBloom F`, `swc.GradeBias EV`, `swc.SourceMeter 0\|1\|2` | The color grade of the source or the Unreal tone mapper; a check of the exposed value or of the exposure; the part of the Unreal bloom; an offset of the exposure (a look check); the meter: 2 the source meter of the frame (the default), 1 the Unreal meter with the source curve, 0 the Unreal luminance (stage E5). |
 | `swc.SourceSky 0\|1`, `swc.CloudTint F` | The sky color of the source model or the SkyAtmosphere of Unreal; the cloud tint of the data (stage E5). |
 | `swc.SkyLightSource 0\|1`, `swc.ProbeScale F` | The ambient: the world probe of the data (1) or the real-time capture of the Unreal sky (0); a look scale of the probe light (stage E5). |
 | `swc.Fog`, `swc.FogColorMode`, `swc.FogLayers`, `swc.FogDensityScale`, `swc.FogDensityScale2`, `swc.VolumetricFog`, `swc.LocalFogScale` | The fog of stage E3 (the help text of each variable has its values). |

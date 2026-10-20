@@ -180,6 +180,11 @@ public:
 	/** Clears the menu mode: the environment waits for the world clock again (it keeps its last state until the first record). */
 	void ClearMenuScene();
 	bool IsMenuScene() const { return Menu.IsSet(); }
+	/** The exposure rule of the source at the place: "EV Min", "EV Max", and "EV Auto compensation" of the blend (the meter probe). */
+	FVector GetExposureRule() const
+	{
+		return FVector(Blended(TEXT("EV Min"), 5.0), Blended(TEXT("EV Max"), 17.0), Blended(TEXT("EV Auto compensation"), 1.5));
+	}
 
 private:
 	void StartLoad();
@@ -287,6 +292,14 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<class UTextureCube> WorldProbe;
 	int32 SkyLightMode = -1;
+	/** The bias (EV) that moves the target of the Unreal meter to the source meter of the frame (swc.SourceMeter 2), and the serial of
+	 *  the last measure of the meter probe. */
+	double MeterCorrection = 0.0;
+	uint32 MeterSerial = 0;
+	double NextMeterLog = 0.0;
+	/** The last difference of the applied EV and the source EV, and the count of measures in a row within 0.05 EV. */
+	double MeterGap = 0.0;
+	int32 MeterSettled = 0;
 	/** The cubes of the local probes (stage E5 step b), loaded at their first use; the cube of the blend and its fraction. */
 	UPROPERTY(Transient)
 	TMap<FString, TObjectPtr<class UTextureCube>> ProbeCubes;

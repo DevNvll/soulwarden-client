@@ -1,4 +1,5 @@
 #include "Environment/SwcEnvironmentSubsystem.h"
+#include "Environment/SwcMeterProbe.h"
 
 #include "World/SwcLoadingGate.h"
 
@@ -60,9 +61,10 @@ double MeterScale()
 
 /** The bias of the grade exposure (EV, a look scale; 0: the rule of the source). */
 TAutoConsoleVariable<float> CVarGradeBias(TEXT("swc.GradeBias"), 0.0f, TEXT("An offset of the exposure of the source rule (EV)."));
-/** The meter of the exposure: 1 the source (the albedo ignored), 0 the Unreal luminance (a check). */
-TAutoConsoleVariable<int32> CVarSourceMeter(TEXT("swc.SourceMeter"), 1,
-	TEXT("The meter of the exposure: 1 the illuminance as the source meters it (r.AutoExposure.IgnoreMaterials), 0 the scene luminance."));
+/** The meter of the exposure: 2 the source meter measured on the frame, 1 the Unreal meter that ignores the albedo, 0 the Unreal luminance. */
+TAutoConsoleVariable<int32> CVarSourceMeter(TEXT("swc.SourceMeter"), 2,
+	TEXT("The meter of the exposure: 2 the source meter of the frame (Environment/SwcMeterProbe: E = pi L / the G-buffer albedo, the geometric mean) ")
+	TEXT("corrects the target of 1; 1 the illuminance of the Unreal meter that ignores the materials (r.AutoExposure.IgnoreMaterials); 0 the scene luminance."));
 
 /** Sets the console variables of the source meter (the engine reads them each frame). */
 void ApplySourceMeter(bool bSourceMeter)
@@ -510,10 +512,24 @@ void USwcEnvironmentSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	bAmbientOnly = FParse::Param(FCommandLine::Get(), TEXT("SwcAmbientOnly"));
 	FParse::Value(FCommandLine::Get(), TEXT("SwcNightExposure="), NightExposure);
 	FParse::Value(FCommandLine::Get(), TEXT("SwcNightSky="), NightSkyFactor);
+	// The loading gate (AST-203): a screen ends only when the source meter has set the exposure of the place (swc.SourceMeter 2).
+	if (!bDisabled)
+	{
+		SwcLoadingGate::Register(GetWorld(), TEXT("meter"), [this](const FVector& Place, FString& Why)
+		{
+			if (CVarSourceMeter.GetValueOnGameThread() != 2 || MeterSettled >= 4)
+			{
+				return true;
+			}
+			Why = FString::Printf(TEXT("the exposure is %.2f EV from the source meter"), MeterGap);
+			return false;
+		});
+	}
 }
 
 void USwcEnvironmentSubsystem::Deinitialize()
 {
+	SwcLoadingGate::Unregister(GetWorld(), TEXT("meter"));
 	if (Actor.IsValid())
 	{
 		Actor->Destroy();
@@ -795,8 +811,38 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	const double Compensation = CVarGradeBias.GetValueOnGameThread() + FMath::Lerp(0.0, NightExposure, MoonWeight);
 	if (UPostProcessComponent* Post = Exposure.Get())
 	{
-		Post->Settings.AutoExposureBias = static_cast<float>(Compensation);
-		const bool bSourceMeter = CVarSourceMeter.GetValueOnGameThread() != 0;
+		// The source meter of the frame (swc.SourceMeter 2, stage E5): the Unreal meter ignores the albedo but meters it in its own way
+		// (the histogram window, its albedo floor, the reflectance). Each measure of the frame (each 0.25 s, an asynchronous readback)
+		// adds a tenth of the difference of the applied EV and the EV of the source rule to the bias: the exposure goes to the source
+		// rule, slower than the eye adaptation of Unreal (no swing). While a loading screen shows, half of the difference: the gate
+		// (the check "meter") ends the screen when four measures in a row are within 0.05 EV.
+		const int32 MeterMode = CVarSourceMeter.GetValueOnGameThread();
+		SwcMeterProbe::SetWatch(MeterMode == 2);
+		SwcMeterProbe::FResult Measure;
+		if (MeterMode != 2)
+		{
+			MeterCorrection = 0.0;
+		}
+		else if (SwcMeterProbe::GetLatest(Measure) && Measure.Serial != MeterSerial && Measure.Exposure > 0.0 && Measure.SourceE > 0.0)
+		{
+			MeterSerial = Measure.Serial;
+			// The applied exposure as an EV of the source rule: exposure = 1 / (1.2 x 2^EV); a positive bias makes the picture brighter.
+			const double AppliedEv = -FMath::Log2(1.2 * Measure.Exposure);
+			const double SourceEv = env::source_ev(Measure.SourceE, EvMin, EvMax, AutoCompensation);
+			FVector ScreenPlace;
+			const double Gain = SwcLoadingGate::GetPlace(GetWorld(), ScreenPlace) ? 0.5 : 0.1;
+			MeterGap = AppliedEv - SourceEv;
+			MeterSettled = FMath::Abs(MeterGap) < 0.05 ? MeterSettled + 1 : 0;
+			MeterCorrection = FMath::Clamp(MeterCorrection + Gain * MeterGap, -6.0, 6.0);
+			if (FPlatformTime::Seconds() >= NextMeterLog)
+			{
+				NextMeterLog = FPlatformTime::Seconds() + 2.0;
+				UE_LOG(LogSwcEnvironment, Log, TEXT("meter: the source E %.0f lux (EV %.2f), the applied EV %.2f, the bias %+.2f EV; measure %u, %u dropped"),
+					Measure.SourceE, SourceEv, AppliedEv, MeterCorrection, Measure.Serial, Measure.Dropped);
+			}
+		}
+		Post->Settings.AutoExposureBias = static_cast<float>(Compensation + MeterCorrection);
+		const bool bSourceMeter = MeterMode != 0;
 		const FVector4 Rule(EvMin, EvMax, AutoCompensation, bSourceMeter ? MeterScale() : 0.0);
 		if (ExposureCurve == nullptr || !Rule.Equals(CurveRule, 0.005))
 		{

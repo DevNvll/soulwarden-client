@@ -6,7 +6,9 @@
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
+#include "Environment/SwcEnvironmentSubsystem.h"
 #include "Environment/SwcLocalLights.h"
+#include "Environment/SwcMeterProbe.h"
 #include "Environment/SwcWorldTimeSubsystem.h"
 #include "GameFramework/HUD.h"
 #include "GameFramework/Pawn.h"
@@ -228,6 +230,12 @@ void USwcMatchViewSubsystem::Shoot()
 	}
 	Step = EStep::Shot;
 	StepSince = FPlatformTime::Seconds();
+	// The meter of the source on the frame of the shot next to the exposure of Unreal (stage E5, the light level).
+	if (const USwcEnvironmentSubsystem* Environment = GetWorld()->GetSubsystem<USwcEnvironmentSubsystem>())
+	{
+		const FVector Rule = Environment->GetExposureRule();
+		SwcMeterProbe::Request(View.Name, Rule.X, Rule.Y, Rule.Z);
+	}
 	if (const USwcLocalLightSubsystem* Lights = GetWorld()->GetSubsystem<USwcLocalLightSubsystem>())
 	{
 		const FSwcLocalLightStats Stats = Lights->GetStats();

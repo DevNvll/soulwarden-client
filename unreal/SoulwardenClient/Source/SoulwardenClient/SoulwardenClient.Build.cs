@@ -14,7 +14,7 @@ public class SoulwardenClient : ModuleRules
 		// The zlib of the engine: the menu document of a character (Menu/SwcMenuDocument.cpp, docs/FRONTEND.md stage F1).
 		AddEngineThirdPartyPrivateStaticDependencies(Target, "zlib");
 		// The UI (docs/UI.md): the runtime of the module SwcUi (the canvases and Lua), drawn with Slate.
-		PrivateDependencyModuleNames.AddRange(new string[] { "SwcUi", "Slate", "SlateCore", "RHI", "RenderCore", "ImageCore" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "SwcUi", "Slate", "SlateCore", "RHI", "RenderCore", "ImageCore", "Renderer" });
 		// The water surfaces (docs/WATER.md): static meshes built at run time from mesh descriptions.
 		PrivateDependencyModuleNames.AddRange(new string[] { "MeshDescription", "StaticMeshDescription" });
 		// The folder Net/ of the connection ("Net/SwcLoginClient.h"), and the vendored wire codec and state reader of
