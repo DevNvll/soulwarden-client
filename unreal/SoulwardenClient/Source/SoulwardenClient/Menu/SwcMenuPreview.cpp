@@ -762,11 +762,15 @@ void ASwcMenuPreview::Build(int32 Generation, FSwcPlayerLook Look, FString BaseM
 	{
 		Leader->PlayAnimation(Idle, true);
 	}
+	// A part that is not converted or not imported: its name in the log (a body with no torso, 2026-10-20: the chest of the
+	// default clothing was only in the wanted list).
+	TArray<FString> Missing;
 	for (const FSwcLookPart& Part : Look.Parts)
 	{
 		USkeletalMesh* Mesh = Part.MeshPath.IsEmpty() ? nullptr : LoadObject<USkeletalMesh>(nullptr, *Part.MeshPath);
 		if (Mesh == nullptr)
 		{
+			Missing.Add(FPaths::GetBaseFilename(Part.Skin));
 			continue;
 		}
 		USkeletalMeshComponent* Component = NewObject<USkeletalMeshComponent>(this);
@@ -790,6 +794,11 @@ void ASwcMenuPreview::Build(int32 Generation, FSwcPlayerLook Look, FString BaseM
 	}
 	UE_LOG(LogSwcBackend, Log, TEXT("menu: the preview body %d: %d part(s) of %d (%s)"), Generation, Parts.Num(), Look.Parts.Num(),
 		Look.bFemale ? TEXT("female") : TEXT("male"));
+	if (Missing.Num() > 0)
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("menu: the preview body %d: not imported: %s (tools/convert-player.sh wanted, then tools/import-player.sh)"),
+			Generation, *FString::Join(Missing, TEXT(", ")));
+	}
 }
 
 void ASwcMenuPreview::Clear()

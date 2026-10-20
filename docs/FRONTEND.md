@@ -787,7 +787,10 @@ has another look). Before F4b (K4, the menu mode): ΔE 24.3 (top 16.2, middle 30
   - The hold time of the retail popup is not measured.
   - Change World (the free world transfer) is not tested; the backend has no world transfer.
   - A new development character with the default archetype clothing showed a head and legs with no torso in the preview
-    (the first frame of `f8-flow.png`): not checked yet.
+    (the first frame of `f8-flow.png`). The cause: its chest part (`male_sellsword_chest`) was in the wanted list
+    (`player/wanted.json`) since the first F8 run, but not converted; the preview skipped it with no message, and the look
+    line counts only new wanted parts. After `tools/convert-player.sh wanted` and `tools/import-player.sh` the body has 6
+    of 6 parts (run `torso1`). The preview now logs each part that it cannot load ("not imported: NAME").
 
 ### The fog sheets of the menu: the place of the haze (2026-10-20)
 

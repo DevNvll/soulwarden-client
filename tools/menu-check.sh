@@ -7,6 +7,7 @@
 #   LABEL    the name of the video and of the logs in SWC_WORK/evidence/STAGE (SWC_STAGE, default F2)
 #   SECONDS  the client stops after this time (-SwcQuitAfter)
 # SWC_DEV_CHARACTER and SWC_DEV_PLACE (X:Y:Z, engine m): the place of that character at the start (as tools/creature-check.sh).
+# SWC_DEV_SPEC: more keys of the create spec of tools/lib/dev_character.py (gender, race, hair, gear, unequip; a new character only).
 # Never for the data folder of the user (tools/dev-run.sh refuses it).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
@@ -22,7 +23,7 @@ create=()
 if [[ -n "${SWC_DEV_CHARACTER:-}" && -n "${SWC_DEV_PLACE:-}" ]]; then
     # The place route is a development command of the backend.
     export SWC_SESSION_BACKEND_ARGS="--dev-commands"
-    create=(--create "name=${SWC_DEV_CHARACTER},place=${SWC_DEV_PLACE}")
+    create=(--create "name=${SWC_DEV_CHARACTER},place=${SWC_DEV_PLACE}${SWC_DEV_SPEC:+,${SWC_DEV_SPEC}}")
 fi
 "${SWC_REPO}/tools/dev-run.sh" --window "${create[@]}" --label "${label}" -- -SwcQuitAfter="${seconds}" "$@" \
     >"${SWC_WORK}/logs/dev-run/${label}-launch.log" 2>&1
