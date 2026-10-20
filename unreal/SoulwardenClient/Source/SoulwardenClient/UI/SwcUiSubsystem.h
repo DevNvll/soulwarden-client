@@ -103,6 +103,11 @@ private:
 	/** A request of the inventory scripts ("equip BAG SLOT QUANTITY INSTANCE", "use SLOT", ...) to the backend subsystem. */
 	void HandleItemRequest(const FString& Request, class USwcBackendSubsystem* Backend);
 	void HandleKeyRequest(const FString& Request);
+	/** The front end (stage F2 of docs/FRONTEND.md, swc/frontend.lua): the landing screen after a character list with no
+	 *  -SwcPlay, the list answers, and the requests "menu ..." of the landing screen. */
+	void UpdateMenu(class USwcBackendSubsystem* Backend);
+	void SendMenuList(class USwcBackendSubsystem* Backend);
+	void HandleMenuRequest(const FString& Request, class USwcBackendSubsystem* Backend);
 
 	TUniquePtr<swc::ui::Runtime> Runtime;
 	TSharedPtr<FSwcUiResources> Resources;
@@ -111,6 +116,10 @@ private:
 	FTSTicker::FDelegateHandle Ticker;
 	TSharedPtr<class FSwcUiInputProcessor> InputProcessor;
 	bool bStartLoading = false;
+	/** The front end: the landing screen started; a list refresh runs; the screen asked for the list again during it. */
+	bool bMenuStarted = false;
+	bool bMenuListPending = false;
+	bool bMenuListAgain = false;
 	bool bErrorShown = false;
 	bool bSentLoadingScreen = false;
 	bool bLoadingForDeath = false;

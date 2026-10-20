@@ -484,3 +484,41 @@ Only this document changes in the research branch. The scene and script records 
   `MaxChannelCharacters`. `RefreshLoginInfo` asks for the list again (one refresh at a time).
 - A run with the backend copy (`dev-run.sh --quit-when characters`, the development character of the UI track): the log line
   of the character gives "menu document ok (level 70, male, 5 clothing entries)".
+
+### F2, the offline landing (2026-10-20)
+
+- `Lua/swc/frontend.lua` is the native part of LandingScreenV2 (the original canvas and scripts), with the rules of the
+  native study `~/Games/soulwarden-client/research/frontend-native.md`:
+  - The account (FE9): `Swc.HostMenuAccount(authorized, entitlements)` sends `UiMainMenuBus.OnAuthComplete`, then
+    `EntitlementNotificationBus.OnEntitlementsReady` (the order of the login path). In the front end, the end of the UI load
+    (`swc/options.lua`) goes only to the options screen.
+  - The list: `GetLoginInfoLists` gives the host request `menu list`; the host sends the worlds, the characters, the reserved
+    names, and `OnLoginInfoListResult` with the native classes `WorldMetadata`, `CharacterMetadata`, `CharacterNameData`.
+    `GetRegionList` gives `OnClusterListResult` (`RegionMetadata`, latency 0 ms on loopback) in the next frame.
+  - The world CMS data (FE2): `RetrieveCMSData(eCMSDataType_Worlds, true)` gives `UiMainMenuBus.OnWorldCMSDataSet` with an
+    empty local result of the shape that the script reads, in the next frame.
+  - The menu level (FE1): `GetMainMenuLevelName` gives the explicit override `NW_Frontend_NightHaven` (the schedule row
+    `EventNightHaven_Frontend`; the setting `javelin.frontend-level-name` has the native default `NW_Frontend_Settlement`).
+    `Swc.HostMenuLevelLoaded` sends `OnLevelLoadComplete`: the landing screen plays its queued `IntroToCharacter` then.
+  - The selection: `SetVisibleCharacter(id)` gives `menu preview ID`; `TransformBus.SetWorldZ` of the preview entity gives
+    `menu show 1` or `menu show 0`. A refresh keeps the selection by its id (FE10: the selected id goes to
+    `MainMenu.NewCharacterId` before the list result, the first rule of `SelectDefaultCharacter`).
+  - Play: `RequestLogin(id, type)` gives `menu login ID TYPE` (stage F5). `RequestDisconnect` gives `menu quit`.
+  - The settings of the registration: `UIFeatures.mm-server-refresh-time-s` 60 (the auto refresh of the list),
+    `javelin.schedule-frontend-level-enable`, `javelin.enable-remote-pending-world-merges`, and
+    `javelin.set-initial-region-id-from-landing-screen` true. The pending world merges (the data call 225285239) are empty.
+  - No public service: the store, invites, Twitch, rewards, news, and surveys give explicit local results.
+- The emulation also changed: a radio group gives no destroyed element as its state, the Escape fallback of the HUD does not act
+  in the front end (the screens handle Escape with their `ui_cancel` handlers), and `Swc.errorCount` counts the Lua errors.
+- The behavior of the original script: `SelectCharacter` hides the preview and gives the id to the host; the selection of the
+  world of the character (`SelectServer`) shows the preview again in the same call. The check of 0.25 s later keeps it.
+  Escape on the options in the main menu goes to `MainMenuEsc` (options.luac `ExitScreen`), Escape there to the landing.
+  The landing screen asks for the list again at each transition in, each 30 s for the regions, and each 60 s for the list.
+- The fixture `frontend` (52 checks) has the exit checks of the plan. All 1552 checks of `tools/test-ui.sh` pass.
+- The client: with no `-SwcPlay`, `USwcBackendSubsystem::IsFrontEnd()` is true after the list; `USwcUiSubsystem` ends the
+  loading screen of the start, loads the menu screens (`Swc.HostMenuStart`), sends the regions of the channel document and the
+  account, and answers each `menu list` with a refresh of getlogininfo (one at a time). The UI drive clock starts at the
+  landing screen. `tools/menu-check.sh LABEL SECONDS` records a window run of the front end.
+- The run `f2-landing` (the two development characters of the UI track, 1256 x 660): the landing screen, a click on each row,
+  the refreshes of the regions (30 s) and of the list (60 s). The side-by-side picture with the retail picture B6-04 of the
+  Soulwarden evidence has the same panels, places, and sizes. The background is the empty default level (stage F4).

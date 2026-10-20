@@ -23,6 +23,7 @@ class ASwcPlayerCharacter;
 class FSwcActions;
 class FSwcLocomotion;
 class FSwcLoginClient;
+struct FSwcAccountSession;
 class FSwcInteractor;
 struct FSwcInteractPrompt;
 class FSwcPlayerLooks;
@@ -105,6 +106,13 @@ public:
 	bool TakeItem(const swc::net::ItemInstanceId& Instance, uint32 Quantity);
 	/** @return The error of the login path when it failed (a refused connection), else empty: the UI shows its error popup. */
 	const FString& GetLoginError() const { return LoginError; }
+	/** The front end (stage F2 of docs/FRONTEND.md): true after a character list with no -SwcPlay; the landing screen of the UI
+	 *  then shows the list, and its Play calls EnterWorld. */
+	bool IsFrontEnd() const { return bFrontEnd; }
+	/** @return The account of the login path (the worlds, the characters, the regions), or nullptr before the character list. */
+	const FSwcAccountSession* GetAccountSession() const;
+	/** The refresh of the landing screen: GET getlogininfo again (FSwcLoginClient::RefreshLoginInfo). */
+	void RefreshCharacterList(TFunction<void(bool bSucceeded)> Done);
 	/** @return True while the cells of a new place load after a travel or a respawn (the UI keeps its loading screen). */
 	bool IsWaitingForCells() const { return bTravelWait; }
 	/** The key E of the interactions (stage P2.10): down or up. */
@@ -183,6 +191,8 @@ private:
 	bool bPlayerRun = true;
 	FString QuitWhen;
 	FString PlayCharacter;
+	/** A character list with no -SwcPlay: the front end of the UI (IsFrontEnd). */
+	bool bFrontEnd = false;
 	float StaySeconds = 10.0f;
 	double InGameSince = 0.0;
 	bool bInGame = false;

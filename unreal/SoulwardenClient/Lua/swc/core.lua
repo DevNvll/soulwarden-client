@@ -47,6 +47,8 @@ function Swc.Call(fn, ...)
     return fn(unpack(args, 1, args.n))
   end, traceback))
   if not results[1] then
+    -- The count of the Lua errors of the run (a fixture checks it).
+    Swc.errorCount = (Swc.errorCount or 0) + 1
     swcui.log("error", tostring(results[2]))
     return false
   end

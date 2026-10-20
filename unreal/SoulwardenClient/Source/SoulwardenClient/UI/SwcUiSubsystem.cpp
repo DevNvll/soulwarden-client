@@ -26,6 +26,7 @@
 #include "SceneView.h"
 #include "GameFramework/Pawn.h"
 #include "SwcBackendSubsystem.h"
+#include "Net/SwcLoginClient.h"
 #include "SwcPlayerController.h"
 #include "SwcDebugLines.h"
 #include "UI/SwcUiInput.h"
@@ -47,6 +48,8 @@ const char* const HudScreens[] = {
 	"lyshineui/hud2024/editmode/hudeditmode",
 	"lyshineui/escapemenu/escapemenu",
 	"lyshineui/popup/popup",
+	// The front end (stage F2 of docs/FRONTEND.md): the landing screen of the main menu (a native load, swc/frontend.lua).
+	"lyshineui/main menu/landingscreenv2",
 	"lyshineui/respawn/respawn",
 	"lyshineui/tooltip/tooltip",
 	// The inventory (stage P2.4): the bag, the equipment, the weight of the action bar, the action menu of an item.
@@ -728,6 +731,7 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 			Runtime->call("HostLoading", {FArg::of(false)});
 		}
 	}
+	UpdateMenu(Backend);
 	// The requests of the scripts: a respawn of the respawn screen (respawn.luac TriggerRespawn).
 	for (int32 Guard = 0; Guard < 8; ++Guard)
 	{
@@ -751,6 +755,10 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 				LoadingHoldUntil = FPlatformTime::Seconds() + 1.0;
 			}
 			UE_LOG(LogSwcUi, Log, TEXT("ui: the respawn screen asks for a respawn (%hs): %s"), Request.c_str(), bSent ? TEXT("sent") : TEXT("not sent"));
+		}
+		else if (Request.rfind("menu ", 0) == 0)
+		{
+			HandleMenuRequest(UTF8_TO_TCHAR(Request.c_str()), Backend);
 		}
 		else if (Request.rfind("rebind", 0) == 0 || Request.rfind("keybinding ", 0) == 0)
 		{
@@ -778,6 +786,128 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 		{
 			HandleItemRequest(UTF8_TO_TCHAR(Request.c_str()), Backend);
 		}
+	}
+}
+
+void USwcUiSubsystem::UpdateMenu(USwcBackendSubsystem* Backend)
+{
+	if (bMenuStarted || !Backend->IsFrontEnd() || Backend->GetAccountSession() == nullptr)
+	{
+		return;
+	}
+	bMenuStarted = true;
+	const FSwcAccountSession& Session = *Backend->GetAccountSession();
+	// The loading screen of the start ends: the landing screen of the game shows (the native load of the main menu).
+	bStartLoading = false;
+	Runtime->call("HostLoading", {FArg::of(false)});
+	Runtime->call("HostMenuStart");
+	for (int32 Index = 0; Index < Session.Regions.Num(); ++Index)
+	{
+		const FSwcRegionInfo& Region = Session.Regions[Index];
+		Runtime->call("HostMenuRegion", {FArg::of(Utf8(Region.RegionId)), FArg::of(Utf8(Region.Name)), FArg::of(Utf8(Region.AwsRegion)),
+										  FArg::of(Index == 0)});
+	}
+	// The login path is complete: the account token and the entitlement list came (FE9: the account event, not the UI load).
+	Runtime->call("HostMenuAccount", {FArg::of(true), FArg::of(true)});
+	// The menu scene is stage F4: no level loads now, thus its load is complete (the landing screen plays its queued camera
+	// sequence at this event).
+	Runtime->call("HostMenuLevelLoaded");
+	UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the landing screen (%d character(s), %d world(s), %d region(s))"), Session.Characters.Num(),
+		Session.Worlds.Num(), Session.Regions.Num());
+}
+
+void USwcUiSubsystem::SendMenuList(USwcBackendSubsystem* Backend)
+{
+	const FSwcAccountSession* Session = Backend->GetAccountSession();
+	if (Session == nullptr)
+	{
+		return;
+	}
+	Runtime->call("HostMenuListBegin");
+	for (const FSwcWorldInfo& World : Session->Worlds)
+	{
+		Runtime->call("HostMenuWorld", {FArg::of(Utf8(World.WorldId)), FArg::of(Utf8(World.Name)), FArg::of(Utf8(World.PublicName)),
+										 FArg::of(Utf8(World.WorldSet)), FArg::of(Utf8(World.Status)), FArg::of(Utf8(World.Type)),
+										 FArg::of(Utf8(World.Version)), FArg::of(static_cast<double>(World.PublicStatusCode)),
+										 FArg::of(static_cast<double>(World.MaxAccountCharacters)), FArg::of(World.bIsFull),
+										 FArg::of(World.bIsRecommended), FArg::of(Utf8(World.TransferToRegion)),
+										 FArg::of(static_cast<double>(World.QueueSize)), FArg::of(static_cast<double>(World.QueueWaitTimeSec)),
+										 FArg::of(Utf8(World.PopulationStatus))});
+	}
+	const FDateTime Now = FDateTime::UtcNow();
+	for (const FSwcCharacterInfo& Character : Session->Characters)
+	{
+		// The seconds since the last change of the row (the last played character of GetLastPlayedCharacterIndex); 0: not known.
+		FDateTime Modified;
+		double Elapsed = 0.0;
+		if (FDateTime::ParseIso8601(*Character.ModifiedDate, Modified))
+		{
+			Elapsed = FMath::Max(1.0, (Now - Modified).GetTotalSeconds());
+		}
+		const bool bMenu = Character.MenuStatus == swc::menu::Status::Ok;
+		const swc::menu::FDocument& Menu = Character.Menu;
+		Runtime->call("HostMenuCharacter", {FArg::of(Utf8(Character.CharacterId)), FArg::of(Utf8(Character.PersonaId)),
+											 FArg::of(Utf8(Character.WorldId)), FArg::of(Utf8(Character.Name)),
+											 FArg::of(bMenu ? static_cast<double>(Menu.CurrentLevel) : 0.0), FArg::of(bMenu ? Menu.Currency : 0.0),
+											 FArg::of(Menu.Position[0]), FArg::of(Menu.Position[1]), FArg::of(Menu.Position[2]), FArg::of(Elapsed),
+											 FArg::of(Character.bFtueCompleted), FArg::of(Character.bMustRename), FArg::of(Character.bNeedsTransfer),
+											 FArg::of(Character.bIsFreshStart), FArg::of(Character.bIsNameLatent)});
+	}
+	for (const FSwcNameReservation& Name : Session->NameReservations)
+	{
+		Runtime->call("HostMenuName", {FArg::of(Utf8(Name.Name)), FArg::of(Utf8(Name.WorldId)), FArg::of(Utf8(Name.Region))});
+	}
+	Runtime->call("HostMenuListEnd", {FArg::of(static_cast<double>(Session->MaxChannelCharacters))});
+	UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the character list to the landing screen (%d character(s))"), Session->Characters.Num());
+}
+
+/** The requests of the landing screen (swc/frontend.lua): "menu list" (GetLoginInfoLists: a refresh of the list), "menu preview
+ *  ID" (SetVisibleCharacter), "menu show 1|0" (the preview character shows or hides), "menu login ID TYPE" (RequestLogin),
+ *  "menu quit" (RequestDisconnect to the desktop), "menu loading" and "menu intro" (later stages). */
+void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsystem* Backend)
+{
+	TArray<FString> Parts;
+	Request.ParseIntoArray(Parts, TEXT(" "));
+	const FString Kind = Parts.IsValidIndex(1) ? Parts[1] : FString();
+	if (Kind == TEXT("list"))
+	{
+		// One refresh at a time: a request during a refresh gets the next list too.
+		if (bMenuListPending)
+		{
+			bMenuListAgain = true;
+			return;
+		}
+		bMenuListPending = true;
+		TWeakObjectPtr<USwcUiSubsystem> Self(this);
+		TWeakObjectPtr<USwcBackendSubsystem> WeakBackend(Backend);
+		Backend->RefreshCharacterList([Self, WeakBackend](bool bSucceeded)
+			{
+				if (!Self.IsValid() || !WeakBackend.IsValid() || !Self->Runtime)
+				{
+					return;
+				}
+				Self->bMenuListPending = false;
+				// A failed refresh keeps the list of the session (the script waits for its three flags).
+				Self->SendMenuList(WeakBackend.Get());
+				if (Self->bMenuListAgain)
+				{
+					Self->bMenuListAgain = false;
+					Self->HandleMenuRequest(TEXT("menu list"), WeakBackend.Get());
+				}
+			});
+	}
+	else if (Kind == TEXT("preview") || Kind == TEXT("show"))
+	{
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: %s"), *Request);
+	}
+	else if (Kind == TEXT("quit"))
+	{
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: quit to the desktop"));
+		FPlatformMisc::RequestExit(false, TEXT("the front end: quit"));
+	}
+	else
+	{
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: %s (not in this stage)"), *Request);
 	}
 }
 
@@ -920,8 +1050,8 @@ void USwcUiSubsystem::TickDrive()
 {
 	// The clock of the drive starts at the spawn of the player (the end of the loading screen of the start), as the
 	// drive of the player controller (-SwcDrive) starts at the possession: the two scripts agree. A failed login path
-	// starts it too (the error UI).
-	if (Drive.IsEmpty() || !((bWorldEntered && !bStartLoading) || bErrorShown))
+	// starts it too (the error UI), and the start of the front end (the landing screen, stage F2).
+	if (Drive.IsEmpty() || !((bWorldEntered && !bStartLoading) || bErrorShown || bMenuStarted))
 	{
 		return;
 	}

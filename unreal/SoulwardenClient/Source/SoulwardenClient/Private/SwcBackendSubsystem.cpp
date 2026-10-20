@@ -215,7 +215,33 @@ void USwcBackendSubsystem::OnCharacterList(bool bSucceeded, const FString& Error
 			return;
 		}
 		EnterWorld(Selected->CharacterId);
+		return;
 	}
+	// No -SwcPlay: the front end of the UI shows the list (stage F2 of docs/FRONTEND.md).
+	bFrontEnd = true;
+	UE_LOG(LogSwcBackend, Log, TEXT("login: the front end: the landing screen shows the character list"));
+}
+
+const FSwcAccountSession* USwcBackendSubsystem::GetAccountSession() const
+{
+	return Login.IsValid() && LoginError.IsEmpty() ? &Login->GetSession() : nullptr;
+}
+
+void USwcBackendSubsystem::RefreshCharacterList(TFunction<void(bool bSucceeded)> Done)
+{
+	if (!Login.IsValid())
+	{
+		Done(false);
+		return;
+	}
+	Login->RefreshLoginInfo([Done = MoveTemp(Done)](bool bSucceeded, const FString& Error)
+		{
+			if (!bSucceeded)
+			{
+				UE_LOG(LogSwcBackend, Warning, TEXT("login: the refresh of the character list failed: %s"), *Error);
+			}
+			Done(bSucceeded);
+		});
 }
 
 void USwcBackendSubsystem::EnterWorld(const FString& CharacterId)

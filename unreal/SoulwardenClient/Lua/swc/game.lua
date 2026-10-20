@@ -25,6 +25,14 @@ Swc.config = {
   ["javelin.gear-set-storage-enable-store-attributes"] = true,  -- 0x6174607
   ["javelin.gear-set-storage-hotkeys-enabled"] = true,          -- 0x617426A
   ["javelin.umbral-upgrade-required-tier"] = 5,                 -- 0x617F3F9
+  -- The front end (stage F2, docs/FRONTEND.md; the registration addresses of research frontend-native.md, config-register.txt):
+  -- the auto refresh of the world list each 60 s, the menu level and its schedule (FE1), the pending world merges of the
+  -- login information, the region of the landing screen.
+  ["UIFeatures.mm-server-refresh-time-s"] = 60,                 -- 0x616ED5E
+  ["javelin.frontend-level-name"] = "NW_Frontend_Settlement",   -- 0x616DF4B
+  ["javelin.schedule-frontend-level-enable"] = true,            -- 0x618244B
+  ["javelin.enable-remote-pending-world-merges"] = true,        -- 0x6186715
+  ["javelin.set-initial-region-id-from-landing-screen"] = true, -- 0x6186CEF
   -- The gates of the two screen loaders (stage P2.3; docs/UI.md "The census"): the defaults of the registration of
   -- the settings (UIFeatures: the records at image RVA 0x4A3A1F7 to 0x4A3B1FA; javelin: the setters of 0x616C670 and
   -- the others). The backend gives no other document (a 404 leaves the defaults; docs/NETWORK.md step 6).

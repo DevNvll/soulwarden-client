@@ -283,7 +283,7 @@ census.canvases = {
     ui = {{group = 1, gate = {console = true}}}},
   ["main menu/charactercreation"] = {class = "stage", feature = "F02", stage = "P3.1",
     native = true},
-  ["main menu/landingscreenv2"] = {class = "stage", feature = "F02", stage = "P3.1",
+  ["main menu/landingscreenv2"] = {class = "active", feature = "F02", stage = "F2 (AST-196)",
     native = true},
   ["main menu/legalscreen"] = {class = "service", feature = "F89", stage = "P2.3, gate D1",
     native = true},

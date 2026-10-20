@@ -189,7 +189,15 @@ function Swc.AuthComplete()
     Swc.Note(string.format("options: %d nodes with the default of the client program, %d with the neutral value of their row: %s",
       known, n, table.concat(names, ", ")))
   end
-  Swc.Notify("UiMainMenuBus", nil, "OnAuthComplete", true)
+  if Swc.frontend and Swc.frontend.menu then
+    -- The front end (open point FE9 of docs/FRONTEND.md): the end of the UI load is not the account event; only the
+    -- options screen gets it. The landing screen gets OnAuthComplete from the account state (Swc.HostMenuAccount).
+    if script and type(script.OnAuthComplete) == "function" then
+      Swc.Call(script.OnAuthComplete, script, true)
+    end
+  else
+    Swc.Notify("UiMainMenuBus", nil, "OnAuthComplete", true)
+  end
 end
 
 Swc.Connect("UILoadingNotificationBus", {

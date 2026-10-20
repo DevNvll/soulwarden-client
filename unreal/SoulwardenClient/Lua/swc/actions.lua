@@ -146,6 +146,11 @@ local function escape_rule()
     DynamicBus.EscapeKeyNotificationBus.Broadcast.OnEscapeKeyPressed()
     return true
   end
+  -- The front end has no HUD: the screens of the main menu handle Escape with their ui_cancel handlers (the landing screen,
+  -- the options: ExitScreen to the state MainMenuEsc). The native rule of the main menu is not known.
+  if Swc.frontend and Swc.frontend.menu then
+    return false
+  end
   local state = LyShineManagerBus.Broadcast.GetCurrentState()
   if state == HUD_STATE then
     LyShineManagerBus.Broadcast.SetState(ESC_STATE)

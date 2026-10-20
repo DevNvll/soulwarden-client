@@ -1096,7 +1096,11 @@ Swc.Define("UiRadioButtonBus", "Event", {
 })
 
 Swc.Define("UiRadioButtonGroupBus", "Event", {
-  GetState = function(group) return group_state(group).checked or EntityId() end,
+  -- A checked radio button that the list destroyed (a list rebuilt with fewer rows) is no state.
+  GetState = function(group)
+    local checked = group_state(group).checked
+    return checked and valid(checked) and checked or EntityId()
+  end,
   SetState = function(group, radio, on) Swc.RadioGroupSet(group, radio, on, false) end,
   AddRadioButton = function(group, radio) Swc.RadioGroupAdd(group, radio) end,
   RemoveRadioButton = function(group, radio)

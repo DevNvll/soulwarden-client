@@ -1,0 +1,11 @@
+# Stage F2 of docs/FRONTEND.md: the UI drive of the landing screen (tools/menu-check.sh f2-landing 100 -- -SwcUiDrive=FILE).
+# The clock starts at the landing screen. The two development characters of the UI track: a click on each row.
+1 waitfor CharacterList 60
+3 draw landing
+5 point text:Menuwarden
+5.5 click
+8 draw select-second
+10 point text:Devwarden
+10.5 click
+13 draw select-first
+16 end

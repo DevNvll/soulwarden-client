@@ -13,6 +13,9 @@ function Swc.Tick(dt)
   Swc.Notify("TickBus", nil, "OnTick", dt, Swc.ScriptTimePoint.new({seconds = Swc.time}))
   Swc.TickInteractables()
   Swc.InputTick()
+  if Swc.FrontendTick then
+    Swc.FrontendTick(dt)
+  end
 end
 
 --- Sends one event to each handler table of some buses one time (a script that connects to two of them gets it once).
