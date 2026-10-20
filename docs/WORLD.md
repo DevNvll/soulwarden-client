@@ -377,6 +377,15 @@ ground within 1.5 m (the platform has no collision, see the open points), and th
 `warm_cache.py` counts its limit of 300 s from the end of the level load (the level load alone took more
 than 300 s in a new checkout, and then each call warmed one batch of 200 meshes).
 
+The usage flags (`tools/fix-usage-flags.sh`, `Scripts/usage_flags.py`): a material with no usage flag for its mesh is drawn with
+the default material of the engine ("missing usage flag Nanite! Default Material will be used in game"). The tool reads these
+lines of the client logs, sets the flags on the base materials, and saves them (the world lock and the import lock). The client
+logs of 2026-10-19 and 20 had 24 materials with no Nanite flag. The 2 world materials are instances of `M_SwcGlass`: its flag is
+set and saved. The 22 weapons and tools of the character (the Interchange import of AST-202; the spear of the development
+character too) are instances of the Interchange glTF master `/InterchangeAssets/gltf/M_Default`, a content of the installed
+engine that the editor does not save: they still draw the default material (a decision: a project copy of that master for
+the weapon import, or no Nanite on these small meshes).
+
 Open points: a creature of a kind that is not in memory shows 0.2 to 1.9 s after its record (its assets load async; a preload of
 the creature kinds of a region needs their list in the client data); the import of the weapons should set the Nanite flag; the
 cells within 150 m are now the longest part of the wait (48 s in the first gated run: the uncooked meshes of the
