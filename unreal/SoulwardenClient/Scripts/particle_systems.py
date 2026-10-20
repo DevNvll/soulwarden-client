@@ -8,7 +8,7 @@ source values. The assets are made from the game copy: they go to the shared con
 - M_SwcParticleAlpha (Translucent) and M_SwcParticleAdditive (Additive): unlit sprite materials (the stage 2 fire). The color of a
   sprite is the atlas sample (ParticleSubUV: the frame blend of the renderer) x the particle color (the source color x the age color x
   EmissiveLighting x the glow of the .mtl: the HDR color of the builder) x Tint (the Color of the placement: a material binding of
-  User.SwcTint) x EmissionUnit (0.1: the source emission unit, docs/MATERIALS.md M4) x EmissiveScale of MPC_SwcMaterials (10,000 cd/m2 x
+  User.SwcTint) x Ambient (EmissiveLighting), plus the glow term; x EmissionUnit (1: source shader units) x EmissiveScale of MPC_SwcMaterials (10,000 cd/m2 x
   swc.LightScale at run time). The opacity is the atlas alpha x the particle alpha x AlphaScale x the soft fade (static switch Soft:
   1 - exp(-d^2 K) of the scene depth gap d in m, the source rule of ApplySoftIntersection, K = SoftK). The additive material
   multiplies the color by the opacity (the non-alpha path of the source).
@@ -28,7 +28,7 @@ import swc_materials as sm  # noqa: E402
 content = os.environ["SWC_CONTENT"]
 force = os.environ.get("SWC_IMPORT_FORCE", "") == "1"
 ROOT = "/SwcGameContent/Particles"
-PARENT_VERSION = "2"
+PARENT_VERSION = "3"
 
 assets = unreal.EditorAssetLibrary
 editing = unreal.MaterialEditingLibrary
@@ -71,16 +71,18 @@ def import_texture(record):
 
 
 def particle_collection():
-    """@return MPC_SwcParticles: EmissionUnit (the scale of the source emission values to engine units; default 0.1, the M4 rule of
-    docs/MATERIALS.md; at run time swc.Effects.Emission, Effects/SwcParticleEffects)."""
+    """@return MPC_SwcParticles: EmissionUnit (the scale of the source shader units to the engine units of EmissiveScale; default 1:
+    the two color terms are in source shader units, particle-rules.md 1; at run time swc.Effects.Emission)."""
     name = "MPC_SwcParticles"
     path = f"{ROOT}/{name}"
-    if assets.does_asset_exist(path):
+    if assets.does_asset_exist(path) and state.get("collection:" + name) == "2":
         return assets.load_asset(path)
-    mpc = tools.create_asset(name, ROOT, unreal.MaterialParameterCollection, unreal.MaterialParameterCollectionFactoryNew())
+    mpc = assets.load_asset(path) if assets.does_asset_exist(path) else \
+        tools.create_asset(name, ROOT, unreal.MaterialParameterCollection, unreal.MaterialParameterCollectionFactoryNew())
+    state["collection:" + name] = "2"
     value = unreal.CollectionScalarParameter()
     value.set_editor_property("parameter_name", "EmissionUnit")
-    value.set_editor_property("default_value", 0.1)
+    value.set_editor_property("default_value", 1.0)
     mpc.set_editor_property("scalar_parameters", [value])
     assets.save_loaded_asset(mpc)
     return mpc
@@ -127,25 +129,40 @@ def parent(name, additive, lit=False):
     one = sm.node(material, unreal.MaterialExpressionConstant, -900, 1600)
     one.set_editor_property("r", 1.0)
     soft = sm.switch(material, "Soft", (fade, ""), (one, ""), -650, 1400)
-    # The color and the opacity.
-    rgb = sm.multiply(material, (atlas, "RGB"), (color, ""), -800, 100)
-    rgb = sm.multiply(material, (rgb, ""), (tint, "RGB"), -600, 150)
-    rgb = sm.multiply(material, (rgb, ""), (unit, ""), -450, 200)
-    rgb = sm.multiply(material, (rgb, ""), (scale, ""), -300, 250)
+    # The opacity: the atlas alpha x the particle alpha (one fade, particle-rules.md 2) x AlphaScale x the soft fade.
     alpha = sm.multiply(material, (atlas, "A"), (color, "A"), -800, 500)
     alpha = sm.multiply(material, (alpha, ""), (alpha_scale, ""), -600, 550)
     alpha = sm.multiply(material, (alpha, ""), (soft, ""), -450, 600)
     clamp = sm.node(material, unreal.MaterialExpressionSaturate, -300, 600)
     editing.connect_material_expressions(alpha, "", clamp, "")
+    # The two terms of the source shader (particle-rules.md 1), in source units x EmissionUnit x EmissiveScale:
+    # ambient = the atlas RGB x the particle color x Tint x Ambient (EmissiveLighting); glow = the opacity x the atlas RGB x the glow map
+    # (the Detail slot at the same atlas frame) x GlowColor (0.1 x Emittance.rgb x Emittance.a; no particle color, no tint).
+    ambient = sm.multiply(material, (atlas, "RGB"), (color, ""), -800, 100)
+    ambient = sm.multiply(material, (ambient, ""), (tint, "RGB"), -600, 150)
+    ambient = sm.multiply(material, (ambient, ""), (sm.scalar(material, "Ambient", 0.0, -800, 250), ""), -450, 150)
+    glow_map = sm.node(material, unreal.MaterialExpressionTextureSampleParameterSubUV, -1200, -500)
+    glow_map.set_editor_property("parameter_name", "Glow")
+    glow_map.set_editor_property("blend", True)
+    glow_map.set_editor_property("texture", atlas.get_editor_property("texture"))
+    glow = sm.multiply(material, (atlas, "RGB"), (glow_map, "RGB"), -800, -500)
+    glow = sm.multiply(material, (glow, ""), (sm.vector(material, "GlowColor", (0.0, 0.0, 0.0, 0.0), -1000, -650), "RGB"), -600, -500)
+    glow = sm.multiply(material, (glow, ""), (clamp, ""), -450, -500)
+    rgb = sm.node(material, unreal.MaterialExpressionAdd, -300, 100)
+    editing.connect_material_expressions(ambient, "", rgb, "A")
+    editing.connect_material_expressions(glow, "", rgb, "B")
+    rgb = sm.multiply(material, (rgb, ""), (unit, ""), -200, 200)
+    rgb = sm.multiply(material, (rgb, ""), (scale, ""), -100, 250)
     if additive:
-        rgb = sm.multiply(material, (rgb, ""), (clamp, ""), -150, 300)
+        # The non-alpha path of the source multiplies the final RGB by the final alpha [R].
+        rgb = sm.multiply(material, (rgb, ""), (clamp, ""), -50, 300)
     if lit:
-        # Lit: the base color is the sprite color x Diffuse (DiffuseLighting); the emission x Emissive (EmissiveLighting).
+        # Lit: the scene light term, the base color = the sprite color x Tint x Diffuse (DiffuseLighting; the light volume of Unreal at
+        # each vertex in place of the source light volume and probe, an approximation).
         base = sm.multiply(material, (atlas, "RGB"), (color, ""), -800, -200)
         base = sm.multiply(material, (base, ""), (tint, "RGB"), -600, -200)
         base = sm.multiply(material, (base, ""), (sm.scalar(material, "Diffuse", 1.0, -800, -350), ""), -450, -200)
         editing.connect_material_property(base, "", MP.MP_BASE_COLOR)
-        rgb = sm.multiply(material, (rgb, ""), (sm.scalar(material, "Emissive", 0.0, -450, 350), ""), -150, 300)
     editing.connect_material_property(rgb, "", MP.MP_EMISSIVE_COLOR)
     editing.connect_material_property(clamp, "", MP.MP_OPACITY)
     editing.recompile_material(material)
@@ -155,25 +172,29 @@ def parent(name, additive, lit=False):
     return material
 
 
-def instance(parent_material, texture_asset, additive, soft, lit=None):
-    """lit: None, or (Diffuse, Emissive) of a lit emitter."""
-    name = "MI_" + texture_asset[2:] + ("_Add" if additive else ("_Lit" if lit else "_Alpha")) + ("_Soft" if soft else "")
-    if lit:
-        name += "_D%g_E%g" % lit
-        name = name.replace(".", "p")
+def instance(parent_material, spec, additive):
+    """One instance for each look: the atlas, the glow map, the blend, the soft fade, and the values of the two color terms."""
+    import hashlib
+    values = {"atlas": spec["texture"], "glow": spec.get("glowTexture") or spec["texture"], "soft": bool(spec["soft"]),
+              "ambient": spec["ambient"], "glowColor": spec["glowColor"], "diffuse": spec["diffuse"] if spec.get("lit") else None,
+              "parent": parent_material.get_name()}
+    digest = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:8]
+    name = "MI_" + spec["texture"][2:] + ("_Add" if additive else ("_Lit" if spec.get("lit") else "_Alpha")) + "_" + digest
     path = f"{ROOT}/Materials/{name}"
-    key = f"{PARENT_VERSION}:{texture_asset}:{additive}:{soft}:{lit}"
+    key = f"{PARENT_VERSION}:{digest}"
     if assets.does_asset_exist(path) and state.get("instance:" + name) == key:
         return path + "." + name
     if not assets.does_asset_exist(path):
         tools.create_asset(name, f"{ROOT}/Materials", unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
     mi = assets.load_asset(path)
     editing.set_material_instance_parent(mi, parent_material)
-    editing.set_material_instance_texture_parameter_value(mi, "Atlas", assets.load_asset(f"{ROOT}/Textures/{texture_asset}"))
-    editing.set_material_instance_static_switch_parameter_value(mi, "Soft", bool(soft))
-    if lit:
-        editing.set_material_instance_scalar_parameter_value(mi, "Diffuse", float(lit[0]))
-        editing.set_material_instance_scalar_parameter_value(mi, "Emissive", float(lit[1]))
+    editing.set_material_instance_texture_parameter_value(mi, "Atlas", assets.load_asset(f"{ROOT}/Textures/{values['atlas']}"))
+    editing.set_material_instance_texture_parameter_value(mi, "Glow", assets.load_asset(f"{ROOT}/Textures/{values['glow']}"))
+    editing.set_material_instance_static_switch_parameter_value(mi, "Soft", values["soft"])
+    editing.set_material_instance_scalar_parameter_value(mi, "Ambient", float(values["ambient"]))
+    editing.set_material_instance_vector_parameter_value(mi, "GlowColor", unreal.LinearColor(*values["glowColor"], 0.0))
+    if values["diffuse"] is not None:
+        editing.set_material_instance_scalar_parameter_value(mi, "Diffuse", float(values["diffuse"]))
     editing.update_material_instance(mi)
     assets.save_loaded_asset(mi)
     state["instance:" + name] = key
@@ -193,8 +214,7 @@ def build_system(record, parents):
         spec = dict(emitter)
         if spec["enabled"]:
             additive = spec["blend"] == "additive"
-            lit = (spec["diffuse"], spec["color"]["emissive"]) if spec.get("lit") else None
-            spec["materialPath"] = instance(parents["lit" if lit else additive], spec["texture"], additive, spec["soft"], lit)
+            spec["materialPath"] = instance(parents["lit" if spec.get("lit") else additive], spec, additive)
             base = "".join(c if c.isalnum() else "_" for c in spec["name"])
             unique = base
             n = 1

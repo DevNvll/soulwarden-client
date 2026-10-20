@@ -24,6 +24,7 @@
 #include "Stateless/Modules/NiagaraStatelessModule_ScaleSpriteSize.h"
 #include "Stateless/Modules/NiagaraStatelessModule_ShapeLocation.h"
 #include "Stateless/Modules/NiagaraStatelessModule_SolveVelocitiesAndForces.h"
+#include "Stateless/Modules/NiagaraStatelessModule_SpriteFacingAndAlignment.h"
 #include "Stateless/Modules/NiagaraStatelessModule_SpriteRotationRate.h"
 #include "Stateless/Modules/NiagaraStatelessModule_SubUVAnimation.h"
 #include "Stateless/NiagaraStatelessEmitter.h"
@@ -251,7 +252,9 @@ namespace
 			Noise->NoiseStrength = float(Turbulence);
 		}
 		Module<UNiagaraStatelessModule_SolveVelocitiesAndForces>(Emitter);
-		Module<UNiagaraStatelessModule_ApplyOwnerScaleToAttributes>(Emitter);
+		// The component scale is S = GlobalSizeScale x the placement scale [R, particle-rules.md 5]: the local space scales the offsets and
+		// the speeds; this module scales the sprite size. (The local space also scales the gravity, which the source does not: open.)
+		Module<UNiagaraStatelessModule_ApplyOwnerScaleToAttributes>(Emitter)->SystemScaleData.bScaleInitialSpriteSize = true;
 		const double CameraOffset = Number(Spec, TEXT("cameraOffset"));
 		if (CameraOffset != 0.0)
 		{
@@ -290,9 +293,16 @@ namespace
 		{
 			SetRange(Module<UNiagaraStatelessModule_SpriteRotationRate>(Emitter)->RotationRateDistribution, Rate);
 		}
-		// CameraX (upright, a candle): the custom alignment of the stateless module drew nothing in the first check (2026-10-20); the
-		// sprite faces the camera with its height up the screen [approximation: the source keeps it upright in the world].
+		// CameraX (upright, a candle): the particle keeps its local Z and turns about it to the camera [R, particle-rules.md 3]: the
+		// custom alignment along the local up.
 		const FString Facing = Spec->GetStringField(TEXT("facing"));
+		if (Facing == TEXT("upright"))
+		{
+			UNiagaraStatelessModule_SpriteFacingAndAlignment* Align = Module<UNiagaraStatelessModule_SpriteFacingAndAlignment>(Emitter);
+			Align->bSpriteFacingEnabled = false;
+			Align->bSpriteAlignmentEnabled = true;
+			Align->SpriteAlignment.InitConstant(FVector3f::ZAxisVector);
+		}
 
 		// The atlas: the frames from FirstTile, one cycle per life (fps 0) or a loop at fps, or a random variant.
 		const TSharedPtr<FJsonObject> Atlas = Child(Spec, TEXT("atlas"));
@@ -335,7 +345,8 @@ namespace
 		{
 			return FString::Printf(TEXT("%s: no material %s"), *Name, *Spec->GetStringField(TEXT("materialPath")));
 		}
-		Renderer->Alignment = Facing == TEXT("velocity") ? ENiagaraSpriteAlignment::VelocityAligned : ENiagaraSpriteAlignment::Unaligned;
+		Renderer->Alignment = Facing == TEXT("velocity") ? ENiagaraSpriteAlignment::VelocityAligned
+		                    : (Facing == TEXT("upright") ? ENiagaraSpriteAlignment::CustomAlignment : ENiagaraSpriteAlignment::Unaligned);
 		Renderer->FacingMode = ENiagaraSpriteFacingMode::FaceCamera;
 		Renderer->SubImageSize = FVector2D(Tiles[0], Tiles[1]);
 		Renderer->bSubImageBlend = Atlas->GetBoolField(TEXT("blend"));

@@ -89,9 +89,11 @@ go into the modules directly. A root with Alpha 0 (the campfire root) is a contr
 | --- | --- |
 | Count, ParticleLifeTime, Continuous | Spawn rate Count / life [R: the nominal rate], or a burst of Count; the life range |
 | SpawnDelay, EmitterLifeTime, PulsePeriod | The loop delay, a single loop, the loop duration |
-| SizeX, SizeY (half sizes), MaintainAspectRatio | InitializeParticle sprite size 2 x size x 100 cm (the source quad is -1..1 [R]); ScaleSpriteSize: the age curves (32 samples) |
-| OrientToVelocity | The velocity-aligned sprite; SizeX is the length along the velocity [R: "Particle X axis aligned to velocity"]; the flame atlases have the flame along V |
-| Color, Alpha, EmissiveLighting | The particle color: base x random x EmissiveLighting (HDR); ScaleColor: the age color and alpha curves |
+| SizeX, SizeY (half sizes), MaintainAspectRatio | InitializeParticle sprite size 2 x size x 100 cm, SizeX the width (U), SizeY the height (V) (the source quad is -1..1 [R]); MaintainAspectRatio: the height is the width x the aspect of the atlas cell [I]; ScaleSpriteSize: the age curves (32 samples) |
+| OrientToVelocity | The velocity-aligned sprite: SizeY and V along the velocity [R, particle-rules.md 3]; no sprite rotation [I] |
+| Facing CameraX | The custom alignment along the local Z (the sprite turns about the upright axis to the camera) [R] |
+| Color, Alpha | The particle color: base x random; ScaleColor: the age color and alpha curves; the alpha is one fade (no erosion) [R] |
+| EmissiveLighting, DiffuseLighting, Material Emittance with GLOW_MAP | The two color terms of the material (below) [R, particle-rules.md 1] |
 | Speed, EmitAngle, FocusAngle, FocusGravityDir | AddVelocity in a cone about local +Z [R: "default (Z axis)"]; EmitAngle Random sets the inner angle [R]; FocusAngle widens the cone [I] |
 | GravityScale, Acceleration, AirResistance | GravityForce -9.8 x scale m/s2 [R] plus the acceleration; Drag (the stateless solver is exponential, as the source GPU path) |
 | Turbulence3DSpeed | CurlNoiseForce strength [I: not the source rule] |
@@ -102,11 +104,23 @@ go into the modules directly. A root with Alpha 0 (the campfire root) is a contr
 | SoftParticle | The static switch Soft: 1 - exp(-d^2 K), d the scene depth gap in m (the source rule of ApplySoftIntersection [R]; K = 1 [I]) |
 | BlendType, DiffuseLighting | The material: Additive -> `M_SwcParticleAdditive`; alpha with DiffuseLighting > 0 -> `M_SwcParticleLit` (translucent, lit by the light volume at each vertex, no direction); else `M_SwcParticleAlpha` |
 
-The materials: the color is the atlas sample (sRGB) x the particle color x Tint (the Color of the placement) x EmissionUnit x
-EmissiveScale of `MPC_SwcMaterials` (10,000 cd/m2 x swc.LightScale at run time); the opacity is the atlas alpha x the particle alpha x
-AlphaScale x the soft fade. The additive material multiplies the color by the opacity (the non-alpha path of the source [R]). The lit
-material has the base color x Diffuse and the emission x Emissive (the light and the emittance of the source [R]). EmissionUnit is
-0.1 (the M4 rule of docs/MATERIALS.md: a source emission value is in kcd/m2); `swc.Effects.Emission` sets it at run time.
+The materials follow the two color terms of the source particle shader (`~/Games/soulwarden-client/research/particle-rules.md`, from the
+brief of 2026-10-20) [R]:
+
+```text
+opacity  = saturate(atlas.a x particle alpha x AlphaScale x soft fade)
+ambient  = atlas.rgb x particle color x Tint x Ambient                 (Ambient = EmissiveLighting)
+glow     = opacity x atlas.rgb x glow map.rgb x GlowColor              (GlowColor = 0.1 x Emittance.rgb x Emittance.a of the .mtl
+                                                                        with GLOW_MAP; the glow map is the Detail slot at the same
+                                                                        atlas frame; no particle color, no tint)
+emissive = (ambient + glow) x EmissionUnit x EmissiveScale             (additive: x opacity, the non-alpha path)
+base     = atlas.rgb x particle color x Tint x Diffuse                 (M_SwcParticleLit only: the scene light term, DiffuseLighting)
+```
+
+EmissionUnit (`MPC_SwcParticles`, `swc.Effects.Emission`) is 1: the terms are in source shader units, and EmissiveScale of
+`MPC_SwcMaterials` is 10,000 cd/m2 x swc.LightScale (1 since E5). For the torch: Ambient 100, GlowColor (5, 0.857, 0). Not done: the
+time-of-day factor F = 1 + (B - 1) x TodBrightnessInfluence (B, the global particle brightness, is not traced: F = 1), the light of the
+source light volume and probe (the lit material uses the translucency light volume of Unreal), the SDF UV warp and mask.
 
 The textures: the diffuse map of the `.mtl` of the Material attribute, else the Texture attribute (a `.tif` name is the `.dds`
 product). A file that is sRGB keeps its bytes; a linear file is encoded to sRGB for the import (all particle atlases sample as sRGB).
@@ -122,8 +136,14 @@ product). A file that is sRGB keeps its bytes; a linear file is encoded to sRGB 
   within the view distance of its effect (the outer LOD bound; 50 m when the effect has no LOD end [I]) and goes back to the pool
   beyond 1.1 x that distance. A placement with Visible or Enable false waits for its owner (stage 7). The same effect at the same
   place twice (a slice placed two times) is one placement.
-- View Distance Multiplier (0.04 to 0.2 on the torches) is not applied: its source rule (the view distance of a particle emitter of
-  the engine) is not traced. With it as a factor of the LOD bound, a torch would stop at 4 to 20 m.
+- The view distance of an emitter (particle-rules.md 4 [R]): Dmax = screen height / vertical FOV x max(e_ParticlesMinDrawPixels, 0.125)
+  x M x S x V, M the largest half size x ViewDistanceAdjust of the effect (systems.json "maxSize"), S = GlobalSizeScale x the placement
+  scale, V the View Distance Multiplier; the LOD bounds are not multiplied by V. The rule is in the code but off by default
+  (`swc.Effects.MinDrawPixels` 0): with the public default 0.5 it gives 9.5 m for the town hall torch (M 0.4 m, S 0.7, V 0.1), and the
+  retail take retail-torch2 shows that torch at about 23 m. The inputs P and M need a trace.
+- GlobalSizeScale x the placement scale is the component scale: the local space scales the offsets and the speeds, and
+  ApplyOwnerScaleToAttributes (bScaleInitialSpriteSize) the sprite size [R: particle-rules.md 5]. The local space also scales the
+  gravity, which the source does not (open).
 - The loading gate (AST-203): the check "effects" waits until each placement within `SwcLoadingGate::NearCm` (150 m) of the place
   and within its range has its component and has run 1 s. Thus no flame grows after a loading screen.
 - `-SwcNoEffects` or `SWC_EFFECTS=0` turns the world placements off; `swc.Effects.Show 0` hides the effects; `swc.Effects.Test
@@ -181,3 +201,24 @@ cell and material family). With the source LOD bands, the inn has 58 running sys
 - The menu: 5 of the 16 near components start (the campfire and the candles); the teleport auras, the fireflies, the gnats, the leaves,
   and the fog plumes wait for their stages.
 - The cooked build: the systems load by path from `/SwcGameContent/Particles` (DirectoriesToAlwaysCook, the world track).
+
+### The fire fix with the brief (2026-10-20, second round)
+
+The rules of `research/particle-rules.md` in the converter, the materials, and the builder: the half sizes with SizeY along the
+velocity (no exchange of the axes), the two color terms (the ambient term with EmissiveLighting, the glow term of the Detail map with
+0.1 x Emittance), the custom alignment of CameraX, the owner scale of the sprite size, and the view distance rule (off by default).
+
+The takes: `p2c-torch.mp4` (the torch posts at 23:00, then the inn candles), `p2e-menu-on.mp4` and `p2e-menu-off.mp4` (the menu with
+and without the effects: `-ExecCmds="swc.Effects.Show 0"`). The side-by-side videos: `sbs-torch-post-b.mp4`, `sbs-torch-wall-b.mp4` (3x;
+the client camera of this take is a few degrees off, so the client crop has its own place), `sbs-candles-b.mp4`, `sbs-campfire-b.mp4`
+and `sbs-campfire-c.mp4`; the still crops `torches-x3.png`, `candles-x2.png`, and `campfire-x2.png` (retail, client off, client on).
+
+| Effect | Now | Difference with retail |
+| --- | --- | --- |
+| Torch | An orange-yellow flame with a bright core (the ambient term 100 and the glow (5, 0.86, 0)). | The client flame is about half the size and sits in the torch head; retail has a larger flame above the head. |
+| Candles | Small upright flames above the candles (they did not show before: CameraX now keeps the sprite upright). | The client flames are about 1.5 times smaller; retail has a whiter core. |
+| Campfire flames | Short, broad orange flames over the logs (SizeX across, SizeY along the velocity). | Near retail in shape; the client logs still have the white emission streaks (the materials track). |
+| Campfire smoke and sparks | A faint red haze over the flames. | Retail has a thick dark-red plume up to the tent top and sparks in it: the lit smoke needs the source light terms (stage 3), the sparks the motion blur (stage 7). |
+
+The open rules for the next round: the time-of-day brightness B, the inputs P and M of the view distance, the size difference of the
+torch and the candle flames (a factor of about 1.5 to 2 with the half-size rule), and the gravity under the component scale.

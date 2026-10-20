@@ -150,13 +150,6 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
              if continuous else {"type": "burst", "amount": [int(round(v)) for v in random_range(count_base, count["random"])]})
     facing = str(p["Facing"])
     velocity_aligned = flag(p.get("OrientToVelocity", "false"))
-    # The size (cm, full sprite) and its age curves.
-    sx, sy = field(p, "SizeX"), field(p, "SizeY")
-    if flag(p.get("MaintainAspectRatio", "true")):
-        sy = sx
-    size = {"x": random_range(2 * 100 * sx["base"], sx["random"]),
-            "y": random_range(2 * 100 * sy["base"], sy["random"]),
-            "curveX": sample(sx["age"], SAMPLES), "curveY": sample(sy["age"], SAMPLES)}
     alpha = field(p, "Alpha")
     alpha_base = alpha["base"]
     color = parse_value(p["Color"])
@@ -181,13 +174,35 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         if diffuse not in textures:
             textures[diffuse] = texture(diffuse, tex_out)
         tex = textures[diffuse]["asset"]
-    # The glow of a GLOW_MAP material (fire_torch_idle: Emittance (1, 0.17, 0) x 50, the [2] Custom map) is not used: as a factor of
-    # the color it made the torch red where the retail torch is orange-yellow (check p2-torch1, 2026-10-20); the native upload
-    # of the glow is not traced (research "A torch").
-    glow = [1.0, 1.0, 1.0]
-    if mtl and not mtl.get("missing") and ("GLOW_MAP" in mtl.get("flags", []) or "SIGNED_DISTANCE_FIELD_2D" in mtl.get("flags", [])):
+    # The size (cm, full sprite: the source size is a half size [R, particle-rules.md 3]) and its age curves. SizeX is the width (U),
+    # SizeY the height (V); with OrientToVelocity the height follows the velocity [R]. MaintainAspectRatio: the height is the width x
+    # the aspect of the atlas cell [I: the rule names square cells; the 8 x 4 cells of fire_l_rising002 are twice as tall as wide].
+    sx, sy = field(p, "SizeX"), field(p, "SizeY")
+    cell = 1.0
+    if tex and textures[diffuse]["size"][0] > 0:
+        w, h = textures[diffuse]["size"]
+        cell = (h / tiles[1]) / (w / tiles[0])
+    y_factor = 1.0
+    if flag(p.get("MaintainAspectRatio", "true")):
+        sy, y_factor = sx, cell
+    size = {"x": random_range(2 * 100 * sx["base"], sx["random"]),
+            "y": random_range(2 * 100 * sy["base"] * y_factor, sy["random"]),
+            "curveX": sample(sx["age"], SAMPLES), "curveY": sample(sy["age"], SAMPLES)}
+    # The two color terms of the source particle shader (particle-rules.md 1) [R]: the ambient term Ambient = EmissiveLighting (+ the scene
+    # light x DiffuseLighting: the lit material) x the particle color x the diffuse map, and the glow term diffuseAlpha x diffuse x glow map
+    # (the Detail slot, at the same atlas frame) x ParticleEmissiveColor = 0.1 x Emittance.rgb x Emittance.a of the material (GLOW_MAP).
+    glow_color = [0.0, 0.0, 0.0]
+    glow_tex = None
+    if mtl and not mtl.get("missing") and "GLOW_MAP" in mtl.get("flags", []) and len(mtl["emittance"]) >= 4:
+        glow_color = [round(0.1 * c * mtl["emittance"][3], 6) for c in mtl["emittance"][:3]]
+        detail = product(mtl["textures"].get("Detail", ""))
+        if detail:
+            if detail not in textures:
+                textures[detail] = texture(detail, tex_out)
+            glow_tex = textures[detail]["asset"]
+    if mtl and not mtl.get("missing") and "SIGNED_DISTANCE_FIELD_2D" in mtl.get("flags", []):
         unsupported["Material"] = {"status": "approx", "raw": p.get("Material", ""),
-                                   "note": "the diffuse map only: the glow map and its Emittance, the 2D signed distance field, and the UV motion are not used"}
+                                   "note": "the 2D signed distance field (a small UV warp and a mask) and the source UV motion are not used"}
     blend = str(p["BlendType"])
     # The motion (cm, s).
     speed = range_cm(p, "Speed")
@@ -205,10 +220,6 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
     rangles = vector(p.get("LocalRandomAngles", ""))
     rate_y = field(p, "RotationRateY")
     pivot = [number(p.get("PivotX", "0")), number(p.get("PivotY", "0"))]
-    if velocity_aligned:
-        # The particle X axis follows the velocity [R]; the sprite of Unreal has its height (y) along the velocity, and the flame
-        # atlases have the flame along V (the aspect of the 8 x 4 tiles of fire_l_rising002 is the SizeX : SizeY of Flame_1).
-        size = {"x": size["y"], "y": size["x"], "curveX": size["curveY"], "curveY": size["curveX"]}
     diffuse = number(p["DiffuseLighting"], 1.0)
     lit = blend != "Additive" and diffuse > 0.0
     bands, notes = lod_bands(node)
@@ -223,10 +234,14 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         "spawn": spawn, "delay": number(p.get("SpawnDelay", "0")), "emitterLife": number(p.get("EmitterLifeTime", "0")),
         "pulse": number(p.get("PulsePeriod", "0")), "life": life_range, "meanLife": mean_life,
         "size": size, "alpha": {"base": random_range(alpha_base, alpha["random"]), "curve": sample(alpha["age"], SAMPLES)},
-        "lit": lit, "diffuse": diffuse,
+        "lit": lit, "diffuse": diffuse, "ambient": emissive, "glowColor": glow_color, "glowTexture": glow_tex,
+        "tod": number(p.get("TodBrightnessInfluence", "1"), 1.0),
+        # The largest half size (m) x ViewDistanceAdjust: M of the view distance of the emitter (particle-rules.md 4) [R].
+        "maxHalfSize": max(size["x"][1] * max(size["curveX"]), size["y"][1] * max(size["curveY"])) / 200.0,
+        "viewAdjust": number(p.get("ViewDistanceAdjust", "1"), 1.0),
         "color": {"base": rgb, "random": float(color_rand) if isinstance(color_rand, float) else 0.0,
                   "curve": sample_color(color_keys(age["keys"]) if isinstance(age, dict) and "keys" in age else None, SAMPLES),
-                  "emissive": emissive, "glow": glow},
+                  "emissive": 1.0, "glow": [1.0, 1.0, 1.0]},
         "blend": "additive" if blend == "Additive" else ("alpha" if blend in ("AlphaBased", "") else blend.lower()),
         "texture": tex, "atlas": atlas, "material": mtl,
         "facing": "velocity" if velocity_aligned else {"Camera": "camera", "CameraX": "upright", "Free": "free"}.get(facing, "camera"),
@@ -274,7 +289,9 @@ def system(key: str, libs: Libraries, tex_out: Path, textures: dict) -> dict:
     if any(e["distance"]["max"] == 0.0 for e in shown):
         view = max(view, DEFAULT_VIEW)
     asset = "NS_" + key.replace(".", "_").replace("-", "_")
-    return {"key": lib["nodes"][index]["key"], "library": lib["path"], "exact": exact, "asset": asset, "view": view,
+    # M: the largest particle size of the effect x its ViewDistanceAdjust (m), for Dmax = (screen height / vertical FOV) x P x M x S x V.
+    max_size = max([e["maxHalfSize"] * e["viewAdjust"] for e in shown] + [0.0])
+    return {"key": lib["nodes"][index]["key"], "library": lib["path"], "exact": exact, "asset": asset, "view": view, "maxSize": round(max_size, 5),
             "emitters": emitters, "hash": None}
 
 

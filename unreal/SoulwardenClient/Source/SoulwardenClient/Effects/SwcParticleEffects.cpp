@@ -5,6 +5,7 @@
 #include "Dom/JsonObject.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
 #include "Kismet/KismetMaterialLibrary.h"
@@ -33,17 +34,23 @@ constexpr double ReleaseFactor = 1.1;          // a component goes back to the p
 constexpr double WarmSeconds = 1.0;            // a loading screen waits until the effects near the place ran this long
 constexpr double DefaultViewCm = 5000.0;       // the view distance of an effect with no LOD end (systems.json gives it)
 
-TAutoConsoleVariable<float> CVarEmission(TEXT("swc.Effects.Emission"), 0.1f,
-	TEXT("The scale of the source emission values (EmissiveLighting) to the engine units of MPC_SwcMaterials EmissiveScale (0.1: the M4 "
-		 "rule of docs/MATERIALS.md; the calibration of docs/PARTICLES.md)."));
+TAutoConsoleVariable<float> CVarEmission(TEXT("swc.Effects.Emission"), 1.0f,
+	TEXT("The scale of the source particle shader units (the ambient and the glow terms, particle-rules.md 1) to the engine units of "
+		 "MPC_SwcMaterials EmissiveScale (1: one engine unit of 10,000 cd/m2 x swc.LightScale)."));
+
+// The view distance rule of an emitter (particle-rules.md 4) is off by default: with the public default 0.5 and M 0.4 m it gives 9.5 m for a
+// torch of the Oxboro town hall (V 0.1, S 0.7), and the retail take retail-torch2 shows that torch at about 23 m (docs/PARTICLES.md).
+TAutoConsoleVariable<float> CVarMinDrawPixels(TEXT("swc.Effects.MinDrawPixels"), 0.0f,
+	TEXT("e_ParticlesMinDrawPixels of the view distance of an emitter: Dmax = screen height / vertical FOV x max(this, 0.125) x M x S x V "
+		 "(particle-rules.md 4). 0 (the default): the rule is off, the LOD bounds only."));
 
 TAutoConsoleVariable<int32> CVarShow(TEXT("swc.Effects.Show"), 1,
 	TEXT("1: the particle effects are visible; 0: hidden (the components stay; a matched view with and without the effects)."));
 
-// swc.Effects.Test KEY,COUNT[,DISTANCE_M[,SCALE]]: COUNT copies of an effect in a grid in front of the camera (a matched view variant:
+// swc.Effects.Test KEY,COUNT[,DISTANCE_M[,SCALE[,RIGHT_M]]]: COUNT copies of an effect in a grid on the ground in front of the character (a matched view variant:
 // --variant VIEW@NAME="swc.Effects.Test Bld_Global_Ambience.Candle01,9,2"); swc.Effects.Test with no argument removes them.
 FAutoConsoleCommandWithWorldAndArgs CommandTest(TEXT("swc.Effects.Test"),
-	TEXT("KEY,COUNT[,DISTANCE_M[,SCALE]]: copies of an effect in front of the camera; no argument: remove them."),
+	TEXT("KEY,COUNT[,DISTANCE_M[,SCALE[,RIGHT_M]]]: copies of an effect in front of the camera; no argument: remove them."),
 	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 	{
 		if (USwcEffectSubsystem* Effects = World != nullptr ? World->GetSubsystem<USwcEffectSubsystem>() : nullptr)
@@ -206,6 +213,7 @@ void USwcEffectSubsystem::LoadTypes()
 		Type.Key = System->GetStringField(TEXT("key"));
 		Type.Path = FSoftObjectPath(FString::Printf(TEXT("/SwcGameContent/Particles/Systems/%s.%s"), *Asset, *Asset));
 		Type.ViewCm = System->GetNumberField(TEXT("view"));
+		Type.MaxSize = System->HasField(TEXT("maxSize")) ? System->GetNumberField(TEXT("maxSize")) : 0.0;
 		if (Type.ViewCm <= 0.0)
 		{
 			Type.ViewCm = DefaultViewCm;
@@ -392,7 +400,8 @@ TArray<UNiagaraComponent*> USwcEffectSubsystem::StartList(const FString& File, d
 	return Out;
 }
 
-bool USwcEffectSubsystem::ReadRegion(const FString& Path, const TMap<FString, int32>& Keys, const TArray<double>& Views, FRegionData& Out)
+bool USwcEffectSubsystem::ReadRegion(const FString& Path, const TMap<FString, int32>& Keys, const TArray<double>& Views,
+                                     const TArray<double>& Sizes, FRegionData& Out)
 {
 	FString Text;
 	TSharedPtr<FJsonObject> Doc;
@@ -424,9 +433,10 @@ bool USwcEffectSubsystem::ReadRegion(const FString& Path, const TMap<FString, in
 		}
 		Placement.Type = *Type;
 		Placement.Settings = SettingsOf(Settings);
-		// The range is the view distance of the effect (the outer LOD bound). View Distance Multiplier (0.04 to 0.2 on the torches)
-		// is not applied: its source rule (the particle view distance of the engine) is not traced (docs/PARTICLES.md).
+		// The range: the outer LOD bound (not multiplied by V), and the view distance of the emitter with M x S x V (RangeOf).
 		Placement.RangeCm = Views[*Type];
+		Placement.SizeM = Sizes[*Type] * Placement.Settings.SizeScale * Placement.Transform.GetScale3D().GetAbsMax()
+			* Placement.Settings.ViewDistanceMultiplier;
 		Out.Cells.FindOrAdd(CellOf(L)).Add(Out.Placements.Num());
 		Out.Placements.Add(MoveTemp(Placement));
 	}
@@ -440,9 +450,11 @@ bool USwcEffectSubsystem::RegionsNear(const FVector& View, double ReachCm, TArra
 	const double Y = -View.Y / 100.0;
 	const double Reach = ReachCm / 100.0;
 	TArray<double> Views;
+	TArray<double> Sizes;
 	for (const FType& Type : Types)
 	{
 		Views.Add(Type.ViewCm);
+		Sizes.Add(Type.MaxSize);
 	}
 	for (int32 RX = FMath::FloorToInt((X - Reach) / RegionM); RX <= FMath::FloorToInt((X + Reach) / RegionM); ++RX)
 	{
@@ -469,9 +481,9 @@ bool USwcEffectSubsystem::RegionsNear(const FVector& View, double ReachCm, TArra
 				TSharedPtr<FRegionData, ESPMode::ThreadSafe> Data = Region.Data;
 				TSharedPtr<FThreadSafeBool, ESPMode::ThreadSafe> bRead = Region.bRead;
 				TMap<FString, int32> Keys = TypeIndex;
-				Async(EAsyncExecution::ThreadPool, [Path, Keys, Views, Data, bRead]()
+				Async(EAsyncExecution::ThreadPool, [Path, Keys, Views, Sizes, Data, bRead]()
 				{
-					ReadRegion(Path, Keys, Views, *Data);
+					ReadRegion(Path, Keys, Views, Sizes, *Data);
 					*bRead = true;
 				});
 			}
@@ -517,7 +529,7 @@ void USwcEffectSubsystem::Update(const FVector& View, int32 Budget)
 				for (const int32 Index : *Cell)
 				{
 					FPlacement& Placement = Data.Placements[Index];
-					if (Placement.Component.IsValid() || FVector::Dist(Placement.Transform.GetLocation(), View) > Placement.RangeCm)
+					if (Placement.Component.IsValid() || FVector::Dist(Placement.Transform.GetLocation(), View) > RangeOf(Placement))
 					{
 						continue;
 					}
@@ -550,13 +562,22 @@ void USwcEffectSubsystem::Update(const FVector& View, int32 Budget)
 			It.RemoveCurrent();
 			continue;
 		}
-		if (FVector::Dist(Placement.Transform.GetLocation(), View) > Placement.RangeCm * ReleaseFactor)
+		if (FVector::Dist(Placement.Transform.GetLocation(), View) > RangeOf(Placement) * ReleaseFactor)
 		{
 			Release(Placement.Type, Placement.Component.Get(), true);
 			Placement.Component = nullptr;
 			It.RemoveCurrent();
 		}
 	}
+}
+
+double USwcEffectSubsystem::RangeOf(const FPlacement& Placement) const
+{
+	if (PixelsPerRadian <= 0.0 || Placement.SizeM <= 0.0)
+	{
+		return Placement.RangeCm;
+	}
+	return FMath::Min(Placement.RangeCm, PixelsPerRadian * Placement.SizeM * 100.0);
 }
 
 bool USwcEffectSubsystem::ReadyNear(const FVector& Place, FString& Why)
@@ -577,7 +598,7 @@ bool USwcEffectSubsystem::ReadyNear(const FVector& Place, FString& Why)
 		{
 			const double D2 = FVector::DistSquared(Placement.Transform.GetLocation(), Place);
 			const FType& Type = Types[Placement.Type];
-			if (D2 > Near2 || D2 > FMath::Square(Placement.RangeCm) || (Type.bTried && Type.System == nullptr))
+			if (D2 > Near2 || D2 > FMath::Square(RangeOf(Placement)) || (Type.bTried && Type.System == nullptr))
 			{
 				continue;
 			}
@@ -624,6 +645,7 @@ void USwcEffectSubsystem::SpawnTest(const FString& Spec)
 	const double DistanceCm = Parts.Num() > 2 ? FCString::Atod(*Parts[2]) * 100.0 : 500.0;
 	FSwcEffectSettings Settings;
 	Settings.SizeScale = Parts.Num() > 3 ? FCString::Atof(*Parts[3]) : 1.0f;
+	const double SideCm = Parts.Num() > 4 ? FCString::Atod(*Parts[4]) * 100.0 : 0.0;
 	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
 	if (Controller == nullptr || Controller->PlayerCameraManager == nullptr || Controller->GetPawn() == nullptr)
 	{
@@ -644,7 +666,10 @@ void USwcEffectSubsystem::SpawnTest(const FString& Spec)
 	int32 Placed = 0;
 	for (int32 I = 0; I < Count; ++I)
 	{
-		const FVector Location = Camera + Forward * (DistanceCm + (I / Side) * 100.0) + Right * ((I % Side) - Side / 2) * 100.0 - FVector(0, 0, 50.0);
+		// On the ground in front of the character (its feet: the capsule bottom), in the direction of the camera.
+		const APawn* Pawn = Controller->GetPawn();
+		const FVector Feet = Pawn->GetActorLocation() - FVector(0.0, 0.0, Pawn->GetSimpleCollisionHalfHeight());
+		const FVector Location = Feet + Forward * (DistanceCm + (I / Side) * 100.0) + Right * (((I % Side) - Side / 2) * 100.0 + SideCm);
 		if (UNiagaraComponent* Component = Start(Key, FTransform(Location), Settings))
 		{
 			TestComponents.Add(Component);
@@ -713,6 +738,22 @@ void USwcEffectSubsystem::Tick(float DeltaTime)
 	if (!SwcLoadingGate::GetView(GetWorld(), View))
 	{
 		return;
+	}
+	// The view distance rule: the pixels per radian of the screen height x P (particle-rules.md 4).
+	const float MinPixels = CVarMinDrawPixels.GetValueOnGameThread();
+	PixelsPerRadian = 0.0;
+	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
+	if (MinPixels > 0.0f && Controller != nullptr && Controller->PlayerCameraManager != nullptr)
+	{
+		int32 Width = 0, Height = 0;
+		Controller->GetViewportSize(Width, Height);
+		const double Aspect = Height > 0 ? double(Width) / double(Height) : 16.0 / 9.0;
+		const double Horizontal = FMath::DegreesToRadians(double(Controller->PlayerCameraManager->GetFOVAngle()));
+		const double Vertical = 2.0 * FMath::Atan(FMath::Tan(Horizontal * 0.5) / Aspect);
+		if (Height > 0 && Vertical > 0.0)
+		{
+			PixelsPerRadian = double(Height) / Vertical * FMath::Max(double(MinPixels), 0.125);
+		}
 	}
 	Update(View, bScreen ? MAX_int32 : PlayBudget);
 }

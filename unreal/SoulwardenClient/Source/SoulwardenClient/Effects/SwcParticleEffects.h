@@ -77,6 +77,7 @@ private:
 		FString Key;
 		FSoftObjectPath Path;
 		double ViewCm = 0.0;
+		double MaxSize = 0.0;   // M (m): the largest half size x ViewDistanceAdjust
 		bool bTried = false;
 		TObjectPtr<UNiagaraSystem> System = nullptr;
 		TArray<TWeakObjectPtr<UNiagaraComponent>> Pool;
@@ -86,7 +87,8 @@ private:
 		FTransform Transform;
 		int32 Type = INDEX_NONE;
 		FSwcEffectSettings Settings;
-		double RangeCm = 0.0;
+		double RangeCm = 0.0;   // the outer LOD bound
+		double SizeM = 0.0;     // M x S x V (m) of the view distance rule
 		TWeakObjectPtr<UNiagaraComponent> Component;
 		double StartedAt = 0.0;
 	};
@@ -111,10 +113,15 @@ private:
 	UNiagaraComponent* Acquire(int32 Type);
 	void Release(int32 Type, UNiagaraComponent* Component, bool bKill);
 	AActor* OwnerActor();
-	static bool ReadRegion(const FString& Path, const TMap<FString, int32>& Keys, const TArray<double>& Views, FRegionData& Out);
+	static bool ReadRegion(const FString& Path, const TMap<FString, int32>& Keys, const TArray<double>& Views, const TArray<double>& Sizes,
+	                       FRegionData& Out);
 	/** The regions near View (started when needed). @return False while a region near View is still read. */
 	bool RegionsNear(const FVector& View, double ReachCm, TArray<FRegionData*>& Out);
 	void Update(const FVector& View, int32 Budget);
+	/** @return The range (cm) of a placement: the outer LOD bound and the view distance of the emitter (particle-rules.md 4). */
+	double RangeOf(const FPlacement& Placement) const;
+	/** The screen height / the vertical field of view (pixels per radian) x P of the view distance rule (0: the rule is off). */
+	double PixelsPerRadian = 0.0;
 	bool ReadyNear(const FVector& Place, FString& Why);
 	void SpawnTest(const FString& Spec);
 
