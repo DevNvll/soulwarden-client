@@ -394,6 +394,41 @@ moves it out of `LoadMap`, but the visible terrain must still load before the sc
 the login; not done); a cooked build removes the registry, the World Partition streaming generation (12 s at each start), the
 editor PostLoad, and the DDC builds (the estimate is the next step).
 
+### The cooked build: the estimate of one region (AST-203, 2026-10-20)
+
+A test level with the region r_+04_+02 only (`/Game/Imported/CookTest/CookTest` in a worktree, git ignores it; `build_world.py` with
+`SWC_WORLD_LEVEL` in one call: a second call does not find a level under `/Game` because the commandlet scans only
+`/SwcGameContent`, and it makes the level again), then the game target (`tools/build.sh game`) and UAT BuildCookRun of that map
+(Linux, Development, staged with IoStore). Work scripts: `~/Games/soulwarden-client/work/world/cooktest-*.sh`.
+
+| Item | Value |
+| --- | --- |
+| The test level (landscape, 64 cells, 32 far mesh groups) | 470 s, 121 actor files, 126 MB |
+| The cook and the stage, cold cache | 1,521 s (25 min; the last 15 min: shader maps, for example the Landscape material) |
+| The same, warm cache | 149 s |
+| Packages | 10,364 (the cells of World Partition and their dependencies) |
+| Disk | cooked 4.4 GB, staged 3.2 GB (IoStore: 2.85 GB of the project, 0.32 GB of the engine) |
+| Shaders | 3,094 shader jobs compiled; the library: 287 unique shader maps of 910 assets, 5,224 unique shaders (34 MB) |
+| Memory of the cook | about 13 GB (a cook that took the whole world went to 26 GB of virtual memory and the OOM killer stopped it in its 16 GB scope) |
+| World entry on the test level, uncooked (`-SwcNoSurfaceLayer`) | engine init 11.6 s, the spawn 34.6 s after the process start (the wait 23.0 s), LoadMap 0.43 s |
+| World entry on the test level, cooked | engine init 3.1 s, the in-game phase at 10.5 s, the cells within 150 m in 5 to 10 s of the wait: about 17 to 20 s to the spawn (the wait itself went to its limit: the water material is not cooked) |
+
+The full world, uncooked, takes 70 to 87 s to the spawn (LoadMap 21 to 25 s: the 784 Landscape proxies that are always loaded).
+
+What a full cook needs:
+- The game target does not compile: `UI/SwcUiSlate.cpp` calls editor functions (`FTextureCompilingManager`,
+  `FMaterialResource::IsCompilationFinished`, `UMaterialInterface::ForceRecompileForRendering`) with no `WITH_EDITOR` guard (the
+  test used a temporary guard).
+- `bUseZenStore=False` (the local Zen server did not start for the cook: "Failed to delete oplog on the ZenServer") or a Zen server.
+- `GameDefaultMap` decides what the cooker takes: the command line value did not reach it (with `NewWorld` it took the whole world).
+- The content that the client loads by path is not in the cook of a map: the roads and decals, the ground cover meshes, the meshes
+  of the collision chunks, the water material, the player, the creatures, the persons, the UI materials
+  (`DirectoriesToAlwaysCook`), and the files that the client reads from the project folder (`Lua/`: not staged).
+- The memory: a cook of the whole world needs more than 16 GB (the RAM rule: a quiet machine).
+- The estimate of the full world: the plugin content is about 36 GB uncooked (meshes 10.0 GB, textures 9.0 GB, characters 5.9 GB,
+  level actors 4.4 GB, terrain 3.6 GB, player 2.8 GB); r_+04_+02 has 3,172 of the 17,389 meshes of the level. A full cook and stage:
+  about 45 to 65 GB of disk, 1.5 to 3 h with a cold cache.
+
 ## The collision of the game (P4.1 part 1)
 
 The game has the collision of a mesh in its physics file: the path of the `.cgf` with `.rnr`. It has boxes, spheres,
