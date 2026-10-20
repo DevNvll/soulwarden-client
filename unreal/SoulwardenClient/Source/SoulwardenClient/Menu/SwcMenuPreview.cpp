@@ -223,6 +223,9 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 	{
 		FSoftObjectPath Mesh;
 		FTransform Transform;
+		/** The material overrides (docs/WORLD.md "Material overrides of the placements"): slot name -> the material instance of
+		 *  its key (/SwcGameContent/Materials/KEY.KEY, as the cells of the world). */
+		TArray<TPair<FName, FSoftObjectPath>> Slots;
 	};
 	TArray<FPlacement> Placements;
 	TArray<FSoftObjectPath> Paths;
@@ -249,6 +252,17 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 			Placement.Transform = FTransform(FQuat(R[0]->AsNumber(), R[1]->AsNumber(), R[2]->AsNumber(), R[3]->AsNumber()),
 				FVector(L[0]->AsNumber(), L[1]->AsNumber(), L[2]->AsNumber()), FVector(S[0]->AsNumber(), S[1]->AsNumber(), S[2]->AsNumber()));
 			Paths.AddUnique(Placement.Mesh);
+			const TSharedPtr<FJsonObject>* Slots = nullptr;
+			if (Item->TryGetObjectField(TEXT("slots"), Slots))
+			{
+				for (const auto& Slot : (*Slots)->Values)
+				{
+					const FString Key = Slot.Value->AsString();
+					const FSoftObjectPath Material(FString::Printf(TEXT("/SwcGameContent/Materials/%s.%s"), *Key, *Key));
+					Placement.Slots.Emplace(FName(*Slot.Key), Material);
+					Paths.AddUnique(Material);
+				}
+			}
 			Placements.Add(MoveTemp(Placement));
 		}
 	}
@@ -262,6 +276,8 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 		}
 		int32 Shown = 0;
 		int32 Missing = 0;
+		int32 SlotsSet = 0;
+		int32 SlotsMissing = 0;
 		for (const FPlacement& Placement : Placements)
 		{
 			UStaticMesh* Mesh = Cast<UStaticMesh>(Placement.Mesh.ResolveObject());
@@ -275,13 +291,28 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 			Component->SetMobility(EComponentMobility::Movable);
 			Component->SetupAttachment(Preview->GetRootComponent());
 			Component->SetStaticMesh(Mesh);
+			for (const TPair<FName, FSoftObjectPath>& Slot : Placement.Slots)
+			{
+				UMaterialInterface* Material = Cast<UMaterialInterface>(Slot.Value.ResolveObject());
+				const int32 Index = Mesh->GetMaterialIndex(Slot.Key);
+				if (Material != nullptr && Index != INDEX_NONE)
+				{
+					Component->SetMaterial(Index, Material);
+					++SlotsSet;
+				}
+				else
+				{
+					++SlotsMissing;
+				}
+			}
 			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Component->SetWorldTransform(Placement.Transform);
 			Component->RegisterComponent();
 			Preview->SceneParts.Add(Component);
 			++Shown;
 		}
-		UE_LOG(LogSwcBackend, Log, TEXT("menu: the scene meshes: %d shown, %d not imported, %d not converted"), Shown, Missing, NotConverted);
+		UE_LOG(LogSwcBackend, Log, TEXT("menu: the scene meshes: %d shown, %d not imported, %d not converted; the material overrides: %d slot(s) set, %d not imported"),
+			Shown, Missing, NotConverted, SlotsSet, SlotsMissing);
 		Preview->bScenePlaced = true;
 	};
 	SceneLoading = Paths.Num() > 0 ? UAssetManager::GetStreamableManager().RequestAsyncLoad(Paths, Place) : nullptr;

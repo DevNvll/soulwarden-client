@@ -77,9 +77,6 @@ def slot_map(pair: tuple[str, str]) -> dict:
 def convert(names: list[str], workers: int = 4) -> dict:
     """Makes the slot maps of the override pairs of the regions (only the new ones), writes the records to the manifest,
     and writes the key list. @return A report."""
-    out_dir().mkdir(parents=True, exist_ok=True)
-    path = out_dir() / "pairs.json"
-    known = json.loads(path.read_text()) if path.is_file() else {}
     wanted: set[tuple[str, str]] = set()
     for name in names:
         data = census.load_placements(name)
@@ -89,6 +86,15 @@ def convert(names: list[str], workers: int = 4) -> dict:
         for m, o in set(zip(data["mesh"].tolist(), data["material"].tolist())):
             if o:
                 wanted.add((str(meshes[m]), str(overrides[o])))
+    return {"regions": len(names), **add_pairs(wanted, workers)}
+
+
+def add_pairs(wanted: set[tuple[str, str]], workers: int = 4) -> dict:
+    """Makes the slot maps of the pairs (mesh, override material) that pairs.json does not have in this version, writes their
+    records to the manifest, and writes the key list (also for the menu scene: frontend.py). @return A report."""
+    out_dir().mkdir(parents=True, exist_ok=True)
+    path = out_dir() / "pairs.json"
+    known = json.loads(path.read_text()) if path.is_file() else {}
     todo = sorted(p for p in wanted if known.get(pair_key(*p), {}).get("version") != VERSION)
     if workers > 1 and len(todo) > 1:
         with ProcessPoolExecutor(max_workers=workers) as pool:
@@ -108,7 +114,7 @@ def convert(names: list[str], workers: int = 4) -> dict:
     keys = sorted({"material:" + key for row in known.values() for key in row.get("slots", {}).values()})
     (out_dir() / "material-keys.json").write_text(json.dumps(keys, indent=0))
     errors = [row for row in rows if "error" in row]
-    return {"regions": len(names), "pairs": len(wanted), "new pairs": len(todo), "errors": len(errors),
+    return {"pairs": len(wanted), "new pairs": len(todo), "errors": len(errors),
             "error examples": [(r["pair"], r["error"]) for r in errors[:5]],
             "pairs with a slot change": sum(1 for p in wanted if known.get(pair_key(*p), {}).get("slots")),
             "merged slots": sum(r.get("merged slots", 0) for r in rows), "material keys": len(keys),

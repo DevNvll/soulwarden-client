@@ -665,3 +665,20 @@ Only this document changes in the research branch. The scene and script records 
   - Each world entry has 3 Lua errors of the HUD 2024 scripts (`hudcanvasdefault` SetIsVisible, `lootticker2024canvas`;
     also in F5). The state changes of the escape menu give more of the same kind.
   - A refused authentication at the start (before the account) still has no new try (O14 in docs/UI.md).
+
+### F4b, the look of the menu scene against B6-04 (2026-10-20)
+
+The measure: the color report (`tools/lib/color_report.py`: CIEDE2000, L*, saturation, and hue of three bands) of a client
+picture with the second row selected against B6-04, with a mask of the UI panels and the character (the retail character
+has another look). Before F4b (K4, the menu mode): ΔE 24.3 (top 16.2, middle 30.6, bottom 30.6); the client is brighter
+(L* 46.7 against 20.5), greener (hue +63 degrees), and less saturated (0.275 against 0.393).
+
+- Step 1, the material overrides of the placements (the world rule, docs/WORLD.md "Material overrides of the placements"):
+  238 of the 522 placements have an override (`Material Override Asset` of the mesh render node; 68 pairs). The scene
+  converter makes their slot maps with `overrides.add_pairs` (the pair part of `overrides.convert`; the world uses the same
+  function) and writes the slots of each placement; the preview loads the material instances with the meshes and sets
+  each slot by its name (`/SwcGameContent/Materials/KEY`, as the cells of the world). The run `f4b-1`: 484 slots set,
+  14 not imported (2 `n_` instance keys of the materials track). ΔE 21.8 (top 9.4, middle 28.1, bottom 35.7): the maple
+  at the right is red as in retail, the house is darker. The dye flowers with the override "blackwhite" render white and
+  bright (in retail they are dark): a point of their material instance (`m_8bdd69912d`, the materials track). The 68 pairs
+  are at the slot map version 2 (A2/A2b) in the shared `pairs.json`; the world pairs are still at version 1.

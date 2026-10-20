@@ -363,7 +363,17 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
         placements.append({"mesh": path, "unreal": folder, "asset": assets.get(folder, ""),
                            "stem": Path(entry["file"]).stem if entry else "", "material": item["material"],
                            "location": transform["location"], "rotation": transform["rotation"], "scale": transform["scale"]})
+    # The material overrides of the placements (the world rule of docs/WORLD.md "Material overrides of the placements"): the slot
+    # map of each pair (mesh, override material) from overrides.py (pairs.json, the manifest records, the key list for
+    # tools/import.sh --keys); each placement gets its slots {slot: material key}.
+    from . import overrides
+    pairs = {(item["mesh"], item["material"]) for item in placements if item["material"] and item["unreal"]}
+    override_report = overrides.add_pairs(pairs)
+    slot_maps = json.loads((overrides.out_dir() / "pairs.json").read_text())
+    for item in placements:
+        item["slots"] = slot_maps.get(overrides.pair_key(item["mesh"], item["material"]), {}).get("slots", {}) if item["material"] else {}
     doc = {"format": 1, "source": f"{LEVEL_PAK}:{ENTITIES}", "entities": entities, "sequences": sequences, "tod": tod,
+           "overrides": {k: v for k, v in override_report.items() if k != "error examples"},
            "environment": environment(tod),
            "menuClip": {"path": MENU_CLIP, "name": MENU_CLIP_NAME}, "radius": radius, "meshes": placements,
            "skipped": skipped, "wanted": sorted(wanted), "notImported": sorted(f for f, a in assets.items() if not a),
@@ -374,7 +384,8 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
     path.write_text(json.dumps(doc, indent=1))
     return {"file": str(path), "entities": sorted(entities), "sequences": {k: [v["start"], v["end"], sorted(v["nodes"])]
                                                                             for k, v in sequences.items()}, "tod": tod,
-            "environment": doc["environment"],
+            "environment": doc["environment"], "overrides": override_report,
+            "placements with an override slot": sum(1 for item in placements if item["slots"]),
             "meshes": len(placements), "unique": len({p["mesh"] for p in placements}), "skipped": skipped, "wanted": len(wanted),
             "lights": len(doc["lights"]), "ground": {k: v for k, v in doc["ground"].items() if k != "heights"}}
 
