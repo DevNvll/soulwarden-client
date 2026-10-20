@@ -7,6 +7,7 @@
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StreamableManager.h"
 #include "HAL/IConsoleManager.h"
+#include "ImageUtils.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Dom/JsonObject.h"
 #include "Misc/CommandLine.h"
@@ -99,6 +100,7 @@ FRotator RotationOf(const FVector& Forward, const FVector& Up)
 
 bool ASwcMenuPreview::LoadScene(const FString& Path)
 {
+	SceneContent = FPaths::GetPath(FPaths::GetPath(Path));   // CONTENT/frontend/nighthaven.json
 	FString Text;
 	TSharedPtr<FJsonObject> Doc;
 	if (!FFileHelper::LoadFileToString(Text, *Path) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Doc) || !Doc.IsValid())
@@ -354,8 +356,9 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 
 void ASwcMenuPreview::BuildGround(const TSharedPtr<FJsonObject>& Ground)
 {
-	// The heights of the menu world about the Player Entity (1 m apart, row 0 = the smallest y), as one static mesh with one color:
-	// the mean color of the macro map under the camp. The terrain layers of the menu world are an open point (docs/FRONTEND.md F4).
+	// The heights of the menu world about the Player Entity (1 m apart, row 0 = the smallest y; 301 x 301 m), as one static mesh
+	// with the macro color picture of the square (stage F4b; row 0 = north), loaded at run time, on M_SwcSurface; with no picture,
+	// the mean color of the macro map. The detail layers of the terrain are an open point (docs/FRONTEND.md F4b).
 	const int32 Size = static_cast<int32>(Ground->GetNumberField(TEXT("size")));
 	const TArray<TSharedPtr<FJsonValue>>& Heights = Ground->GetArrayField(TEXT("heights"));
 	const TArray<TSharedPtr<FJsonValue>>& Origin = Ground->GetArrayField(TEXT("origin"));
@@ -394,7 +397,7 @@ void ASwcMenuPreview::BuildGround(const TSharedPtr<FJsonObject>& Ground)
 			const FVector GameNormal = FVector(-(Height(I + 1, J) - Height(I - 1, J)) / (2.0 * Step),
 				-(Height(I, J + 1) - Height(I, J - 1)) / (2.0 * Step), 1.0).GetSafeNormal();
 			Normals[Instance] = FVector3f(ToUnrealAxis(GameNormal));
-			UVs.Set(Instance, 0, FVector2f(static_cast<float>(I) / (Size - 1), static_cast<float>(J) / (Size - 1)));
+			UVs.Set(Instance, 0, FVector2f(static_cast<float>(I) / (Size - 1), 1.0f - static_cast<float>(J) / (Size - 1)));
 			Instances[J * Size + I] = Instance;
 		}
 	}
@@ -404,15 +407,34 @@ void ASwcMenuPreview::BuildGround(const TSharedPtr<FJsonObject>& Ground)
 		{
 			const FVertexInstanceID A = Instances[J * Size + I], B = Instances[J * Size + I + 1];
 			const FVertexInstanceID C = Instances[(J + 1) * Size + I], D = Instances[(J + 1) * Size + I + 1];
-			// Counterclockwise from above in game space; the mirror of y (Unreal space) gives the order of an upward face.
-			Description.CreateTriangle(Group, {A, C, B});
-			Description.CreateTriangle(Group, {B, C, D});
+			// The order of an upward face in Unreal space (the mirror of y). The order A, C, B was culled from above: the ground did not
+			// show in any run of F4 (the body stood over the fog, run f4b-g2).
+			Description.CreateTriangle(Group, {A, B, C});
+			Description.CreateTriangle(Group, {B, D, C});
 		}
 	}
-	UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
-	UMaterialInstanceDynamic* Material = Base != nullptr ? UMaterialInstanceDynamic::Create(Base, this) : nullptr;
-	if (Material != nullptr)
+	UMaterialInstanceDynamic* Material = nullptr;
+	FString Picture;
+	if (Ground->TryGetStringField(TEXT("picture"), Picture))
 	{
+		UTexture2D* Texture = FImageUtils::ImportFileAsTexture2D(FPaths::Combine(SceneContent, Picture));
+		UMaterialInterface* Surface = LoadObject<UMaterialInterface>(nullptr, TEXT("/SwcGameContent/Base/M_SwcSurface.M_SwcSurface"), nullptr, LOAD_NoWarn);
+		if (Texture != nullptr && Surface != nullptr)
+		{
+			// The parameters of the Illum parent (docs/MATERIALS.md M2): the picture as the diffuse map, a dielectric F0 of 0.04, and a
+			// rough surface (a choice of this client: the macro map has no specular or gloss map).
+			Material = UMaterialInstanceDynamic::Create(Surface, this);
+			Material->SetTextureParameterValue(TEXT("BaseColor"), Texture);
+			Material->SetVectorParameterValue(TEXT("DiffuseColor"), FLinearColor::White);
+			Material->SetVectorParameterValue(TEXT("SpecularColor"), FLinearColor(0.04f, 0.04f, 0.04f, 1.0f));
+			Material->SetScalarParameterValue(TEXT("Smoothness"), 0.2f);
+		}
+		UE_LOG(LogSwcBackend, Log, TEXT("menu: the ground: 301 x 301 m, the macro picture %s"), Material != nullptr ? TEXT("on M_SwcSurface") : TEXT("did not load (one color)"));
+	}
+	UMaterialInterface* Base = Material == nullptr ? LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")) : nullptr;
+	if (Base != nullptr)
+	{
+		Material = UMaterialInstanceDynamic::Create(Base, this);
 		Material->SetVectorParameterValue(TEXT("Color"), FLinearColor::FromSRGBColor(FColor(
 			static_cast<uint8>(Color[0]->AsNumber() * 255.0), static_cast<uint8>(Color[1]->AsNumber() * 255.0), static_cast<uint8>(Color[2]->AsNumber() * 255.0))));
 	}

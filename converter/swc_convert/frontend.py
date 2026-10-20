@@ -44,7 +44,9 @@ LIGHT_RADIUS = 40.0
 # research frontend-native.md FE1): a square of its heights around the Player Entity, 1 m apart.
 GROUND_WORLD = "sharedassets/coatlicue/nw_frontend_base/regions/"
 GROUND_MACRO = "materials/terrain/nw_frontend_base/nw_frontend_base_{rx}_{ry}/nw_frontend_base_{rx}.{ry}.macro_diff.dds"
-GROUND_HALF = 60
+GROUND_HALF = 150
+# The macro color picture of the ground (stage F4b): GROUND_PICTURE x GROUND_PICTURE pixels over the square of the heights.
+GROUND_PICTURE = 512
 # The light fields of LightComponent that the client reads.
 LIGHT_FIELDS = ("LightType", "Visible", "OnInitially", "Color", "DiffuseMultiplier", "SpecMultiplier", "PointMaxDistance",
                 "PointAttenuationBulbSize", "ProjectorDistance", "ProjectorAttenuationBulbSize", "ProjectorFOV", "AreaWidth",
@@ -321,22 +323,44 @@ def ground(player: list[float]) -> dict:
     ox, oy = round(player[0]) - GROUND_HALF, round(player[1]) - GROUND_HALF
     size = 2 * GROUND_HALF + 1
     heights = [round(height(ox + i, oy + j), 3) for j in range(size) for i in range(size)]
-    color = [0.5, 0.5, 0.5]
-    rx, ry = int(player[0] // 2048), int(player[1] // 2048)
-    base = GROUND_MACRO.format(rx=rx, ry=ry)
-    if source.has(base):
-        data, w, h, fmt = dds.join(source.read, base, 512)
-        image = np.asarray(dds.to_image(data, w, h, fmt).convert("RGB"), dtype=np.float64) / 255.0
-        # The pixels of the square (row 0 = north, the rule of the landscape maps).
-        u0 = int((ox - rx * 2048) / 2048 * w)
-        u1 = int((ox + size - rx * 2048) / 2048 * w) + 1
-        v0 = int((2048 - (oy + size - ry * 2048)) / 2048 * h)
-        v1 = int((2048 - (oy - ry * 2048)) / 2048 * h) + 1
-        patch = image[max(v0, 0):max(v1, 1), max(u0, 0):max(u1, 1)]
-        if patch.size:
-            color = [round(float(c), 4) for c in patch.reshape(-1, 3).mean(axis=0)]
-    return {"origin": [ox, oy], "step": 1.0, "size": size, "heights": heights, "color": color, "macro": base,
-            "player height": round(height(player[0], player[1]), 3)}
+    # The macro color picture of the square (stage F4b): the macro maps of the regions (2,048 pixels for 2,048 m, row 0 = north, the
+    # rule of the landscape maps), sampled bilinear at the centers of GROUND_PICTURE x GROUND_PICTURE pixels; row 0 = north.
+    from PIL import Image
+    macros: dict = {}
+    def macro(rx: int, ry: int):
+        if (rx, ry) not in macros:
+            base = GROUND_MACRO.format(rx=rx, ry=ry)
+            macros[(rx, ry)] = None
+            if source.has(base):
+                data, w, h, fmt = dds.join(source.read, base, 2048)
+                macros[(rx, ry)] = np.asarray(dds.to_image(data, w, h, fmt).convert("RGB"), dtype=np.float64) / 255.0
+        return macros[(rx, ry)]
+    n = GROUND_PICTURE
+    span = float(size - 1)
+    xs = ox + (np.arange(n) + 0.5) / n * span
+    ys = oy + span - (np.arange(n) + 0.5) / n * span   # row 0 = north (the largest y)
+    picture = np.full((n, n, 3), 0.5)
+    gx, gy = np.meshgrid(xs, ys)
+    for (rx, ry) in {(int(x // 2048), int(y // 2048)) for x in (xs[0], xs[-1]) for y in (ys[0], ys[-1])}:
+        image = macro(rx, ry)
+        if image is None:
+            continue
+        h, w = image.shape[:2]
+        inside = (gx // 2048 == rx) & (gy // 2048 == ry)
+        u = np.clip((gx - rx * 2048) / 2048 * w - 0.5, 0, w - 1.001)
+        v = np.clip((2048 - (gy - ry * 2048)) / 2048 * h - 0.5, 0, h - 1.001)
+        u0, v0 = u.astype(int), v.astype(int)
+        fu, fv = (u - u0)[..., None], (v - v0)[..., None]
+        sample = (image[v0, u0] * (1 - fu) * (1 - fv) + image[v0, u0 + 1] * fu * (1 - fv)
+                  + image[v0 + 1, u0] * (1 - fu) * fv + image[v0 + 1, u0 + 1] * fu * fv)
+        picture[inside] = sample[inside]
+    out = env.content_dir() / "frontend" / "ground-macro.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(np.clip(picture * 255.0 + 0.5, 0, 255).astype(np.uint8)).save(out)
+    color = [round(float(c), 4) for c in picture.reshape(-1, 3).mean(axis=0)]
+    return {"origin": [ox, oy], "step": 1.0, "size": size, "heights": heights, "color": color,
+            "macro": GROUND_MACRO.format(rx=int(player[0] // 2048), ry=int(player[1] // 2048)),
+            "picture": str(out.relative_to(env.content_dir())), "player height": round(height(player[0], player[1]), 3)}
 
 
 def environment(tod: dict | None, mission: bytes | None = None) -> dict:

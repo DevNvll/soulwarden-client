@@ -74,6 +74,8 @@ private:
 	TArray<TObjectPtr<UActorComponent>> SceneParts;
 	TSharedPtr<FStreamableHandle> SceneLoading;
 	bool bScenePlaced = false;
+	/** The content folder of the scene record (its pictures). */
+	FString SceneContent;
 
 	struct FSequence
 	{

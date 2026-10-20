@@ -705,9 +705,18 @@ has another look). Before F4b (K4, the menu mode): ΔE 24.3 (top 16.2, middle 30
   the window): 481 more placements (1,003). The dome and the spires at the upper left show as in B6-04; the scene is ready
   17.5 s after the spawn. The run `f4b-4`: ΔE 20.9 -> 20.3 (top 12.3 -> 10.1).
 - The ground of `nw_frontend_base`: 4 regions of 2,048 m (r_+00_+00 to r_+01_+01). The world draws its terrain as one Unreal
-  Landscape for each region, built in the editor (docs/WORLD.md): a Landscape of the menu terrain is world work. A smaller
-  part: a runtime ground mesh of about 300 m about the scene from the heights, with the macro color map (no detail layers).
-  The 10 ground decals near the scene need the surface layer of the world (its import).
+  Landscape for each region, built in the editor (docs/WORLD.md): a Landscape of the menu terrain is world work. The 10
+  ground decals near the scene need the surface layer of the world (its import).
+- The runtime ground mesh: 301 x 301 m about the scene (1 m apart) from the heights, with a 512 x 512 picture of the macro
+  color maps of the square (bilinear, over the border of the two regions at y 2,048, row 0 = north;
+  `content/frontend/ground-macro.png`), loaded at run time (`FImageUtils`) as the diffuse map of a dynamic instance of
+  `M_SwcSurface` (F0 0.04, smoothness 0.2: a choice of this client). The triangles of the ground had the order of a downward
+  face: the ground did not show in any run of F4 (the body stood over the fog; the blue under the plants was the fog).
+  The run `f4b-g3`: the ground shows, but it is pale, as the world terrain with the macro map only (docs/WORLD.md T0, the
+  first Oxboro measure): ΔE 20.3 -> 22.8 (bottom 31.9 -> 42.4, L* +46.9). In the game the macro color is an overlay on the
+  composite of the detail layers (the dirt and the grass of the splats); the macro alone is the far fallback. The next
+  step is that composite: the terrain layer converter for `nw_frontend_base` (it reads only the world terrain now) and a
+  baked picture of the square with `terrain_material.composite`.
 - Step 5, the campfire: not done. The 16 particle components near the scene need a runtime of the effects, which the client
   does not have.
 - After these steps: ΔE 20.3. The client is still brighter (L* +21.7), less saturated (-0.13), and colder than B6-04, with
