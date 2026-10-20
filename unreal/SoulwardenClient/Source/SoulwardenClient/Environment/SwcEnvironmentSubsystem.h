@@ -300,6 +300,10 @@ private:
 	/** The last difference of the applied EV and the source EV, and the count of measures in a row within 0.05 EV. */
 	double MeterGap = 0.0;
 	int32 MeterSettled = 0;
+	/** The ground transmittance of the atmosphere toward the sun of the last frame (swc.SunSource 1; for the environment log line). */
+	FLinearColor SunTransmittance = FLinearColor::White;
+	/** The bloom mix of the source (swc.SourceBloom 1): w of exposure x ((1 - w) x scene + w x blur); 0 when off. */
+	double BloomMix = 0.0;
 	/** The cubes of the local probes (stage E5 step b), loaded at their first use; the cube of the blend and its fraction. */
 	UPROPERTY(Transient)
 	TMap<FString, TObjectPtr<class UTextureCube>> ProbeCubes;

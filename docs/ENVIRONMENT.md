@@ -124,7 +124,7 @@ it looks better. The retail pictures are the reference for the places, the times
 | The data | `SWC_CONTENT/environment` (stage E0: `mission.json`, `presets.json`, `volumes.json`), read on a worker thread at the start (about 0.45 s). |
 | The preset | The time-of-day volume at the camera with the highest priority (the first one of a tie), with its hour override; else the base TimeOfDay of the main-world mission. At the Oxboro feet: `everfall_a.xml`. The blend between volumes (priority, blend time, distance) is stage E3. |
 | The hour | The world clock (`USwcWorldTimeSubsystem::GetHour`, steps of one game second); the time of a curve is `float32(hour) x float32(1/24)`. |
-| The sun | A movable directional light, atmosphere light 0, always on, on the sun path of the public engine with the mission angles (SunRotation 215, Longitude 130): the angle (hour + 12) / 24 x 2 pi about Z, the longitude about X, the rotation about Y, then the axes (x, -z, y). The sun rises at 06:00 and sets at 18:00; at noon it is toward -0.369, 0.527, 0.766 (north-west, 50 degrees high). The retail noon pictures agree: in noon-road-low (camera to the west) the shadow of the character goes to the east-south; in noon-wall-grass the sun lights a wall face to the north-west. Its illuminance and color are the noon "Sun intensity" (100,000 lux in Everfall) and "Sun color" of the preset (the color with its luminance kept, Rec. 709). |
+| The sun | A movable directional light, atmosphere light 0, always on, on the sun path of the public engine with the mission angles (SunRotation 215, Longitude 130): the angle (hour + 12) / 24 x 2 pi about Z, the longitude about X, the rotation about Y, then the axes (x, -z, y). The sun rises at 06:00 and sets at 18:00; at noon it is toward -0.369, 0.527, 0.766 (north-west, 50 degrees high). The retail noon pictures agree: in noon-road-low (camera to the west) the shadow of the character goes to the east-south; in noon-wall-grass the sun lights a wall face to the north-west. Its illuminance and color are the "Sun intensity" and "Sun color" of the hour (from 2026-10-20, `swc.SunSource 1`; stage E5): the light color over the ground transmittance of the atmosphere toward the sun, so that the ground gets the source sun (C / Y(C) x E, no transmittance); the sun fades out as the moon fades in. Before (`swc.SunSource 0`): the noon values (100,000 lux in Everfall), and the atmosphere made the sunrise and the sunset. |
 | The moon | A movable directional light, atmosphere light 1, at the fixed direction of the Moon element (latitude 240, longitude 35: toward 0.410, 0.709, 0.574), with the "Sun intensity" and "Sun color" of the hour (the night values of the data: 3,000 lux at 18:30 to 5,000 lux at midnight, a blue color). Its weight is the larger of the fade of the public engine (CTimeOfDay::UpdateEnvLighting) with the visual edges of the record (by night 1; out in the first half of the visual dawn, 6.0 to 6.1833; in with the second half of the visual dusk, 19.1833 to 19.3667) and a fade with the sun below the horizon (0 at the sunset, 1 at 4 degrees below it): the moon comes when the physical sun goes (the night values of "Sun intensity" start at 18:05, just after the sunset of the path at 18:00). Its source angle is the Size of the element as degrees (0.8; an inference). |
 | The sky | A SkyAtmosphere with the Unreal defaults: the sunrise, the sunset, and the twilight come from its transmittance and its sky. By night its sky luminance is scaled by 0.2, faded in with the moon (a look choice: the atmosphere lit by the moon is a day sky; `-SwcNightSky=FACTOR`). The stars, the moon texture, the clouds, and the fog are stage E3. |
 | The ambient | A SkyLight with a real-time capture of the sky at intensity 1: it follows the sky (also the twilight after the sunset) with no capture event. |
@@ -216,8 +216,9 @@ they look better and cost little.
 
 The Unreal way kept on purpose (the decision of the user):
 
-- The intensity has a look scale of 3 over the light unit of the source (see above). The places, the colors, and the ranges are the
-  data.
+- The intensity had a look scale of 3 over the light unit of the source (see above). From 2026-10-20 `swc.LightScale` is 1 (stage E5,
+  research/color-pipeline.md rule 6: one conversion for the whole scene; it also scales the Illum emission). The places, the colors,
+  and the ranges are the data.
 - The shadows are the source flags (13 lights in 300 m about Oxboro). All shadows on (`swc.LightShadows 2`) changed little in the
   check views (the inn is about the same; in the lane the windows of the houses glow less) for about 0.4 ms in the lane and 2.6 ms
   in the inn against no local lights: an option for the user, not the default.
@@ -342,7 +343,13 @@ The client (`Environment/SwcEnvironmentSubsystem.cpp`, `M_SwcGrade` of `Scripts/
   loading gate has a check "meter": a screen ends only when four measures in a row are within 0.05 EV. `swc.SourceMeter 1` is the
   Unreal meter alone with the source curve, 0 the Unreal luminance.
 - `M_SwcGrade` replaces the tone mapper: the scene times the exposure, then the source order (saturation and balance, curve, sRGB,
-  photo filter). The bloom is the bloom of Unreal (PostProcessInput2), added as the Unreal tone mapper adds it.
+  photo filter). The bloom is the mix of the source (`swc.SourceBloom 1`, from 2026-10-20; research/color-pipeline.md section 6):
+  exposure x ((1 - w) x scene + w x blur) with w = saturate("Bloom amount" x 0.3 x 0.125), 0.045 at Everfall noon and 0.138 in the
+  menu. The Unreal bloom is the blur, with a gain of 1: the Gaussian stages 3 and 4 (sigma = the view width x size % / 1156: 8.7 and
+  17 pixels at 1,256) with the weights 0.917 and 0.083 (the two blur images of the source, 0.0174 and 0.192 over their sum), no
+  threshold, no lens flare. The grade adds it with the scale w / (1 - w), and the meter target has the factor 1 - w. An inference:
+  the source blurs at a quarter of the screen (its 15-tap binomial kernel, sigma 2.12 taps), and the larger weight goes to the smaller
+  blur. `swc.SourceBloom 0` is the Unreal bloom added (0.09 of a blur: the tints x 0.675 / 6).
 - The ambient is the world probe of the source: `environmentprobe_thinpine_world02_cm` (two boxes of 100 km, the outdoor ambient of
   the world), a BC6H radiance cube (`tools/convert-environment.sh probes`: `converter/swc_convert/bc6h.py`, checked against the
   8-bit decoder of Pillow on all ten modes of the file; a long-lat Radiance picture; then `tools/import-sky.sh`). The sky light shows
@@ -495,10 +502,35 @@ reflections); the cobbles are cool gray with less depth in the gaps (retail: war
 the floor of the keep are lit (retail: black shade; the priority-2 box of a dark interior probe, step 3); the swim water is light
 teal with a strong mirror of the island (retail: deep blue, a faint reflection); the far cliffs of the swim view are more hazed.
 
+### Check of the sun of the hour, the bloom mix, and the light scale 1 (2026-10-20)
+
+The audit items 1 to 3 of `research/color-pipeline.md` as the new defaults (`swc.SunSource 1`, `swc.SourceBloom 1`,
+`swc.LightScale 1`), whole picture dE / L*, before (run `level5`, main 2f8501c) and after (run `defaults1`):
+
+| View | Before | After |
+| --- | --- | --- |
+| noon-n | 9.7 / +10.2 | 6.7 / +7.2 |
+| noon-road-low | 1.6 / +0.2 | 2.6 / -1.5 |
+| keep-outside-noon | 6.1 / +7.4 (dark part 0.16) | 5.2 / +4.6 (0.25; retail 0.36) |
+| fen-outside-south-noon | 4.2 / +4.9 | 3.9 / +4.2 |
+| ocean-clear-noon | 6.4 / +5.2 | 3.0 / +3.0 |
+| swim-idle | 18.8 / +17.7 | 16.9 / +18.1 |
+| the menu (B6-04, masked) | 22.2 / +25.2 | 21.8 / +24.4 |
+
+Each item alone (run `audit2`, the six views in one run): the bloom mix gives most of the change (noon-n 8.7 -> 6.7, fen 4.1 ->
+2.7). The sun of the hour changes little at noon (ocean-clear: the saturation difference -0.067 -> -0.009, the hue -32 -> +1
+degree; swim-idle L* +17.8 -> +20.6). `swc.LightScale 1` changes the day views by 0.1 to 0.4 dE. In the menu the bloom mix gives
+22.2 -> 20.2, and the sun of the hour 22.2 -> 23.6. The old sun of the menu was the noon color times the transmittance of the
+atmosphere at 18.3 degrees (0.797, 0.659, 0.389): on the ground (1, 0.741, 0.321), more orange than the source (1, 0.651, 0.514)
+and about 20 % weaker. With the source sun the haze of the menu is pink-lilac: the fog sheets (GeometryBeam) take the sun color.
+
+The fog sheets make half of the excess of the menu: `swc.BeamScale 0` gives 14.5 / +12.9 (the top band -0.2 L*), the volumetric
+fog off only 21.6 / +24.3, both off 15.5 / +13.2. Without the sheets the trees (18.7 against 19.5) and the tent (28.7 against 32.2)
+are near retail; the house wall is lighter (29.4 against 22.5), the ground under the flowers is pale gray-green (retail: dark brown),
+the flower petals are cream-white, and the fire is a white flare. Evidence: `~/Games/soulwarden-client/evidence/E5/audit/`.
+
 ### Not done, open points (E5)
 
-- The bloom weight of the source (`HDRBloomColor`: the final scene mixes the scene toward the bloom texture by
-  saturate(HDRBloomColor)) is not known: the client keeps the bloom of Unreal (about 2 L* at noon-n).
 - The final scene multiplies the exposure by a texture `t7` at the screen coordinates. An inference: the vignette of the source.
 - The day walls are brighter than retail (noon-n top band +17 L*, inn-noon +10) and the day saturation is low (-0.05 to -0.16):
   the sun, the sky, and the interior probes (step 2). The interior probes of the source (for example `settlement_tavern`) are
@@ -571,7 +603,7 @@ client selects its own volumes (stage E3).
 | `swc.LightScale F`, `swc.LocalLights 0\|1`, `swc.LightShadows 0\|1\|2` | Console variables: the look scale of the local lights (`-SwcLightScale=F` at the start), the local lights hidden or on (a compare of the cost in one run), the shadows of the local lights (none, the source flags, all). |
 | `swc.LumenTest 0\|1` | The Lumen test copies of the inn and the two houses (`-SwcLumenTest` at the start; `tools/lumen-test.sh` makes them). |
 | `tools/match-view.sh ... --variant VIEW@NAME=COMMAND;...` | One more picture of a view with client console commands (run when the view is in place): a look value or a switch to compare in one run. The next view sets the console variables of the commands back to their values before the first variant (from 2026-10-19). The report and the side-by-side picture have the local lights at the shot and the median GPU time while the view is in place (with `-SwcFrameStats=2`). |
-| `swc.Grade 0\|1`, `swc.GradeDebug 0\|1\|2`, `swc.GradeBloom F`, `swc.GradeBias EV`, `swc.SourceMeter 0\|1\|2` | The color grade of the source or the Unreal tone mapper; a check of the exposed value or of the exposure; the part of the Unreal bloom; an offset of the exposure (a look check); the meter: 2 the source meter of the frame (the default), 1 the Unreal meter with the source curve, 0 the Unreal luminance (stage E5). |
+| `swc.Grade 0\|1`, `swc.GradeDebug 0\|1\|2`, `swc.GradeBloom F`, `swc.SourceBloom 0\|1`, `swc.GradeBias EV`, `swc.SourceMeter 0\|1\|2`, `swc.SunSource 0\|1` | The color grade of the source or the Unreal tone mapper; a check of the exposed value or of the exposure; the part of the Unreal bloom; an offset of the exposure (a look check); the meter: 2 the source meter of the frame (the default), 1 the Unreal meter with the source curve, 0 the Unreal luminance; the bloom mix of the source (1, the default) or the Unreal bloom added (0); the sun of the hour (1, the default) or the noon sun of E1 (0) (stage E5). |
 | `swc.SourceSky 0\|1`, `swc.CloudTint F` | The sky color of the source model or the SkyAtmosphere of Unreal; the cloud tint of the data (stage E5). |
 | `swc.SkyLightSource 0\|1`, `swc.ProbeScale F` | The ambient: the world probe of the data (1) or the real-time capture of the Unreal sky (0); a look scale of the probe light (stage E5). |
 | `swc.Fog`, `swc.FogColorMode`, `swc.FogLayers`, `swc.FogDensityScale`, `swc.FogDensityScale2`, `swc.VolumetricFog`, `swc.LocalFogScale` | The fog of stage E3 (the help text of each variable has its values). |

@@ -29,12 +29,12 @@ namespace
 
 namespace env = swc::environment;
 
-/** The look scale of the intensities (-SwcLightScale= sets it at the start; a change applies to the active lights). The default 3 is a
- *  look choice (the Unreal way): the balance of the lamps against the moon and the sky of the retail night pictures of Oxboro (the
- *  matched views at the scales 1, 3, and 10; docs/ENVIRONMENT.md). */
-constexpr float DefaultLookScale = 3.0f;
+/** The look scale of the intensities (-SwcLightScale= sets it at the start; a change applies to the active lights). The default 1 is
+ *  the source unit (stage E5, research/color-pipeline.md rule 6: one conversion for the whole scene, the decision of 2026-10-20); 3 was
+ *  the look choice of stage E2 (the lamps against the moon and the sky of the retail night pictures of Oxboro). */
+constexpr float DefaultLookScale = 1.0f;
 TAutoConsoleVariable<float> CVarLightScale(TEXT("swc.LightScale"), DefaultLookScale,
-	TEXT("The look scale of the local lights (stage E2; 1: the source light unit; 3: the default look)."));
+	TEXT("The look scale of the local lights and the Illum emission (1: the source light unit, the default; 3: the look of stage E2)."));
 /** The local lights on (1) or hidden (0): a compare of the cost in one run. */
 TAutoConsoleVariable<int32> CVarLocalLights(TEXT("swc.LocalLights"), 1, TEXT("The local lights of stage E2: 1 on, 0 hidden."));
 /** The shadows of the local lights: 0 none, 1 the source flags (the default), 2 all (-SwcLightShadows=none|source|all at the start). */

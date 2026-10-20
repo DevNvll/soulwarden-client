@@ -222,7 +222,7 @@ the overlay masks, then the F0 split. A static switch makes one shader for each 
 The unit of the emission (M4, agreed with the environment work E2): the source Emittance A is in kcd/m2, and
 `GetMaterial_Emittance` (x 0.1) gives engine units of 10,000 cd/m2 (`RENDERER_LIGHT_UNIT_SCALE`). The Unreal scene
 color is in cd/m2. The client subsystem `USwcMaterialScale` sets `EmissiveScale` = 10,000 x `swc.LightScale` (the
-look scale of the local lights, default 3), so that a fixture and its light stay in balance. The local lights of the
+look scale of the local lights, default 1 from 2026-10-20, before 3), so that a fixture and its light stay in balance. The local lights of the
 data do not switch by the hour (E2): the fixtures stay on. The asset default of `EmissiveScale` is 1 (the offline
 render checks).
 

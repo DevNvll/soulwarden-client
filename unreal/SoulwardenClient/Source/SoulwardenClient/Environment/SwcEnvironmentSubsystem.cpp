@@ -61,6 +61,10 @@ double MeterScale()
 
 /** The bias of the grade exposure (EV, a look scale; 0: the rule of the source). */
 TAutoConsoleVariable<float> CVarGradeBias(TEXT("swc.GradeBias"), 0.0f, TEXT("An offset of the exposure of the source rule (EV)."));
+TAutoConsoleVariable<int32> CVarSunSource(TEXT("swc.SunSource"), 1,
+	TEXT("The sun light (stage E5, research/color-pipeline.md rule 7): 1 the \"Sun intensity\" and \"Sun color\" of the hour (the source), the light ")
+	TEXT("color divided by the ground transmittance of the atmosphere (the ground gets the source sun), 0 at the moon (the default); 0 the noon values, ")
+	TEXT("the atmosphere makes the sunrise and the sunset (E1)."));
 /** The meter of the exposure: 2 the source meter measured on the frame, 1 the Unreal meter that ignores the albedo, 0 the Unreal luminance. */
 TAutoConsoleVariable<int32> CVarSourceMeter(TEXT("swc.SourceMeter"), 2,
 	TEXT("The meter of the exposure: 2 the source meter of the frame (Environment/SwcMeterProbe: E = pi L / the G-buffer albedo, the geometric mean) ")
@@ -770,11 +774,15 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	const swc::net::TimeRecord& Record = bMenu ? NoRecord : Clock->GetRecord();
 	const env::Edges Edges = env::edges_of(Record.dawnTime, Record.dawnDuration, Record.duskTime, Record.duskDuration, Record.dayLength);
 	const env::LightMultipliers Multipliers = env::light_multipliers(Hour, Edges);
-	// The sun (the Unreal way, the decision of the user): always on, on the path of the data, with the noon "Sun intensity" and "Sun
-	// color" of the preset; the atmosphere makes the sunrise, the sunset, and the twilight. The moon keeps the data: its direction,
-	// the night "Sun intensity" and "Sun color" of the hour, and the fade at the visual dawn and dusk of the record.
-	const double SunLux = bAmbientOnly ? 0.0 : FMath::Max(0.0, Blended(TEXT("Sun intensity"), 100000.0, 12.0));
-	const env::LightColor SunColor = env::light_color(BlendedColor(TEXT("Sun color"), 12.0));
+	// The sun (stage E5, the decision of 2026-10-20; research/color-pipeline.md rule 7): the "Sun intensity" and "Sun color" of the
+	// hour (the source has one light with these keys: the sun by day and the moon by night), on the ground as the source has it
+	// (swc.SunSource 1). swc.SunSource 0 is the sun of stage E1 (the decision of the user then): the noon values, and the atmosphere
+	// makes the sunrise, the sunset, and the twilight. The moon keeps the data: its direction, the night "Sun intensity" and "Sun
+	// color" of the hour, and the fade at the visual dawn and dusk of the record.
+	const bool bSunSource = CVarSunSource.GetValueOnGameThread() != 0;
+	const double SunHour = bSunSource ? -1.0 : 12.0;
+	const double SunLux = bAmbientOnly ? 0.0 : FMath::Max(0.0, Blended(TEXT("Sun intensity"), 100000.0, SunHour));
+	const env::LightColor SunColor = env::light_color(BlendedColor(TEXT("Sun color"), SunHour));
 	const double MoonLux = bAmbientOnly ? 0.0 : FMath::Max(0.0, Blended(TEXT("Sun intensity"), 0.0));
 	const env::LightColor MoonColor = env::light_color(BlendedColor(TEXT("Sun color")));
 	const FCelestial Bodies = Celestial();
@@ -793,8 +801,30 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	if (UDirectionalLightComponent* Light = Sun.Get())
 	{
 		Light->SetWorldRotation(LightRotation(SunToward));
-		Light->SetIntensity(static_cast<float>(SunLux * SunColor.intensityFactor));
-		Light->SetLightColor(Linear(SunColor));
+		if (bSunSource)
+		{
+			// The atmosphere of Unreal dims and colors the sun light on the ground by its transmittance toward the sun; the source sun has
+			// no such term (Csun = SunColor / Y(SunColor) x SunLux / (N pi)). The light color over that transmittance (at least 0.05 a
+			// channel) gives the source color and lux on the ground; the largest channel goes into the intensity (the light color is
+			// 8-bit). The sun fades out as the moon (the same keys at night) fades in.
+			const USkyAtmosphereComponent* Sky = Atmosphere.Get();
+			const FLinearColor Transmittance = Sky != nullptr ? const_cast<USkyAtmosphereComponent*>(Sky)->GetAtmosphereTransmitanceOnGroundAtPlanetTop(Light) : FLinearColor::White;
+			std::array<double, 3> Outside{};
+			double Largest = 1e-9;
+			for (int32 C = 0; C < 3; ++C)
+			{
+				Outside[C] = SunColor.color[C] / FMath::Max(static_cast<double>(Transmittance.Component(C)), 0.05);
+				Largest = FMath::Max(Largest, Outside[C]);
+			}
+			Light->SetIntensity(static_cast<float>(SunLux * SunColor.intensityFactor * Largest * (1.0 - MoonWeight)));
+			Light->SetLightColor(FLinearColor(static_cast<float>(Outside[0] / Largest), static_cast<float>(Outside[1] / Largest), static_cast<float>(Outside[2] / Largest)));
+			SunTransmittance = Transmittance;
+		}
+		else
+		{
+			Light->SetIntensity(static_cast<float>(SunLux * SunColor.intensityFactor));
+			Light->SetLightColor(Linear(SunColor));
+		}
 	}
 	if (UDirectionalLightComponent* Light = Moon.Get())
 	{
@@ -828,7 +858,8 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 			MeterSerial = Measure.Serial;
 			// The applied exposure as an EV of the source rule: exposure = 1 / (1.2 x 2^EV); a positive bias makes the picture brighter.
 			const double AppliedEv = -FMath::Log2(1.2 * Measure.Exposure);
-			const double SourceEv = env::source_ev(Measure.SourceE, EvMin, EvMax, AutoCompensation);
+			// The target: the EV of the source rule, with the factor 1 - w of the bloom mix (swc.SourceBloom 1) in the exposure.
+			const double SourceEv = env::source_ev(Measure.SourceE, EvMin, EvMax, AutoCompensation) - FMath::Log2(1.0 - BloomMix);
 			FVector ScreenPlace;
 			const double Gain = SwcLoadingGate::GetPlace(GetWorld(), ScreenPlace) ? 0.5 : 0.1;
 			MeterGap = AppliedEv - SourceEv;
@@ -841,7 +872,8 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 					Measure.SourceE, SourceEv, AppliedEv, MeterCorrection, Measure.Serial, Measure.Dropped);
 			}
 		}
-		Post->Settings.AutoExposureBias = static_cast<float>(Compensation + MeterCorrection);
+		// The bloom mix of the source: in meter 2 the target has the factor 1 - w; else the bias takes it.
+		Post->Settings.AutoExposureBias = static_cast<float>(Compensation + MeterCorrection + (MeterMode == 2 ? 0.0 : FMath::Log2(1.0 - BloomMix)));
 		const bool bSourceMeter = MeterMode != 0;
 		const FVector4 Rule(EvMin, EvMax, AutoCompensation, bSourceMeter ? MeterScale() : 0.0);
 		if (ExposureCurve == nullptr || !Rule.Equals(CurveRule, 0.005))
@@ -868,10 +900,11 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	if (LayerText != PresetName || Now >= NextLog)
 	{
 		NextLog = Now + (bProbe ? 1.0 : LogSeconds);
-		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: hour %.4f%s, presets %s; sun %.0f lux, elevation %.1f (toward %.3f %.3f %.3f), color %.3f %.3f %.3f; "
+		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: hour %.4f%s, presets %s; sun %.0f lux%s, elevation %.1f (toward %.3f %.3f %.3f), color %.3f %.3f %.3f; "
 			"moon %.0f lux x %.3f, color %.3f %.3f %.3f; night sky %.2f; exposure EV of the source %.1f to %.1f, bias %.2f; %s"),
 			Hour, bMenu ? TEXT(" (the menu mode)") : FMath::Abs(Hour - WorldHour) > 1e-6 ? *FString::Printf(TEXT(" (the world hour %.4f with the hour overrides)"), WorldHour) : TEXT(""),
-			*LayerText, SunLux, Elevation, SunToward.x, SunToward.y, SunToward.z, SunColor.color[0], SunColor.color[1], SunColor.color[2],
+			*LayerText, SunLux, bSunSource ? *FString::Printf(TEXT(" (the hour; the transmittance %.3f %.3f %.3f)"), SunTransmittance.R, SunTransmittance.G, SunTransmittance.B) : TEXT(" (noon)"),
+			Elevation, SunToward.x, SunToward.y, SunToward.z, SunColor.color[0], SunColor.color[1], SunColor.color[2],
 			MoonLux, MoonWeight, MoonColor.color[0], MoonColor.color[1], MoonColor.color[2], NightSkyFactor, EvMin, EvMax, Compensation, *SkyText);
 		PresetName = LayerText;
 	}

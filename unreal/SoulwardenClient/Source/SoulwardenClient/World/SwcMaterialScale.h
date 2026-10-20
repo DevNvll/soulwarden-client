@@ -32,7 +32,7 @@ public:
 	/** One engine unit of the source in cd/m2 (RENDERER_LIGHT_UNIT_SCALE of the source renderer). */
 	static constexpr float SourceUnitNits = 10000.0f;
 	/** The look scale when swc.LightScale does not exist (its default in the environment work). */
-	static constexpr float DefaultLightScale = 3.0f;
+	static constexpr float DefaultLightScale = 1.0f;
 
 protected:
 	virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;

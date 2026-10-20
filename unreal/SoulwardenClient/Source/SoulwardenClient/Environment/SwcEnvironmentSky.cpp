@@ -64,6 +64,9 @@ TAutoConsoleVariable<int32> CVarGradeDebug(TEXT("swc.GradeDebug"), 0,
 	TEXT("A check of the inputs of the grade: 1 the exposed value only (no curve, no grade), 2 the exposure (0.5 + log2 / 32)."));
 TAutoConsoleVariable<float> CVarGradeBloom(TEXT("swc.GradeBloom"), 1.0f,
 	TEXT("The part of the Unreal bloom in the grade: 1 as the Unreal tone mapper adds it, 0 no bloom."));
+TAutoConsoleVariable<int32> CVarSourceBloom(TEXT("swc.SourceBloom"), 1,
+	TEXT("The bloom (stage E5, research/color-pipeline.md section 6): 1 the mix of the source, exposure x ((1 - w) x scene + w x blur) with ")
+	TEXT("w = saturate(\"Bloom amount\" x 0.3 x 0.125) and the Unreal bloom as a blur of gain 1 (the default); 0 the Unreal bloom added (swc.GradeBloom)."));
 TAutoConsoleVariable<int32> CVarSkyWavelengths(TEXT("swc.SkyWavelengths"), 1,
 	TEXT("The Rayleigh scattering color of the sky from the wavelengths of the data (\"Sky light: Wavelength (R, G, B)\"): 1 on, 0 the Unreal default."));
 TAutoConsoleVariable<float> CVarSkyRayleigh(TEXT("swc.SkyRayleigh"), 0.0f,
@@ -603,7 +606,39 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 			Photo.A = static_cast<float>(FMath::Clamp(Blended(TEXT("Filters: photofilter density"), 0.0), 0.0, 1.0));
 			GradeMaterial->SetVectorParameterValue(TEXT("PhotoFilter"), Photo);
 			GradeMaterial->SetScalarParameterValue(TEXT("Debug"), static_cast<float>(CVarGradeDebug.GetValueOnGameThread()));
-			GradeMaterial->SetScalarParameterValue(TEXT("BloomScale"), CVarGradeBloom.GetValueOnGameThread());
+			// The source mixes a blur of the HDR scene with the scene before the curve: w = saturate(BloomAmount x 0.3 x 0.125) (0.045 at
+			// Everfall noon). The grade adds the bloom input times BloomScale: with the bloom as a blur of gain 1 (below), w / (1 - w),
+			// and the exposure target of the meter takes the factor 1 - w (UpdateEnvironment).
+			const bool bSourceBloom = CVarSourceBloom.GetValueOnGameThread() != 0;
+			BloomMix = bSourceBloom ? FMath::Clamp(Blended(TEXT("Bloom amount"), 0.0) * 0.3 * 0.125, 0.0, 0.99) : 0.0;
+			GradeMaterial->SetScalarParameterValue(TEXT("BloomScale"), bSourceBloom ? static_cast<float>(BloomMix / (1.0 - BloomMix)) : CVarGradeBloom.GetValueOnGameThread());
+			if (UPostProcessComponent* BloomPost = Exposure.Get())
+			{
+				// The blur of the source: its 15-tap kernel (the binomial C(18, k), sigma 2.12 taps) on a quarter of the screen is a
+				// Gaussian of about 8.5 pixels at 1,256 pixels (an inference: the audit leaves the scale open); its two images (the weights
+				// 0.0174 and 0.192 over their sum) as the stages 3 and 4 of the Unreal bloom (sigma = the view width x size % / 1156: 2 x 4
+				// and 3.9 x 4 % give 8.7 and 17 pixels at 1,256). A stage adds its Gaussian times tint x intensity / 6: the tints are 6 x
+				// the weights, the gain is 1. No threshold, no lens flare, no dirt mask.
+				FPostProcessSettings& Bloom = BloomPost->Settings;
+				Bloom.bOverride_BloomMethod = Bloom.bOverride_BloomIntensity = Bloom.bOverride_BloomThreshold = Bloom.bOverride_BloomSizeScale = bSourceBloom;
+				Bloom.bOverride_Bloom1Size = Bloom.bOverride_Bloom2Size = Bloom.bOverride_Bloom3Size = bSourceBloom;
+				Bloom.bOverride_Bloom4Size = Bloom.bOverride_Bloom5Size = Bloom.bOverride_Bloom6Size = bSourceBloom;
+				Bloom.bOverride_Bloom3Tint = Bloom.bOverride_Bloom4Tint = Bloom.bOverride_BloomGaussianIntensity = bSourceBloom;
+				Bloom.bOverride_LensFlareIntensity = Bloom.bOverride_BloomDirtMaskIntensity = bSourceBloom;
+				Bloom.BloomMethod = EBloomMethod::BM_SOG;
+				Bloom.BloomIntensity = 1.0f;
+				Bloom.BloomGaussianIntensity = 1.0f;
+				Bloom.BloomThreshold = -1.0f;
+				Bloom.BloomSizeScale = 4.0f;
+				Bloom.Bloom1Size = Bloom.Bloom2Size = Bloom.Bloom5Size = Bloom.Bloom6Size = 0.0f;
+				Bloom.Bloom3Size = 2.0f;
+				Bloom.Bloom4Size = 3.9f;
+				const float Small = 0.0174f / (0.0174f + 0.192f);
+				Bloom.Bloom3Tint = FLinearColor::White * (6.0f * (1.0f - Small));
+				Bloom.Bloom4Tint = FLinearColor::White * (6.0f * Small);
+				Bloom.LensFlareIntensity = 0.0f;
+				Bloom.BloomDirtMaskIntensity = 0.0f;
+			}
 		}
 	}
 	// The rain and the snow at the camera: the largest amount of the volumes (the full amount within the inner radius).
