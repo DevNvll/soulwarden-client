@@ -15,6 +15,9 @@ Writes SWC_CONTENT/player/actions.json (tools/convert-player.sh actions):
   rotation offsets and the flags of their CAGE-Damage items (the backend file has no rotation); weaponJoints: the joints of
   the weapon skeletons of the melee weapons (the frames of the shapes of the weapon).
 - blendSpaces: the blend spaces of the layers.
+- weaponScope (AST-202): for each weapon tag set, the attachment database of its weapon (AnimDbPath), the weapon record of each
+  fragment record of the main hand that owns the scope Weapon or WeaponTransition (playermalecontrollerdefs.xml), and the weapon
+  clips of these records (in clips with "prop": true; their bones are the bones of the weapon skeletons). docs/GEAR.md.
 - ranged (stage P3.6, ranged.py): for the bow, the fire staff, and the life staff, the actions, the fragments with their timed
   items, the abilities, and the named conditions of the action lists; the shared part: the shot rules with their flight, the
   weapon profiles, and the spells of the spell tables.
@@ -71,6 +74,12 @@ STANCE_FRAGMENTS = {"Idle": ["", "Crouch", "Blocking", "Aim", "ChargedAim"], "St
                     "Nav_Stop": ["Walk", "Run", "Sprint"]}
 # The context tags that a fragment of a settled stance can have.
 CONTEXT_TAGS = {"stand"}
+# AST-202 (research weapon-props.md "Retail playback rule"): the controller of the player. A fragment owns its scopes (FragmentDefs,
+# with the tag overrides); the scopes Weapon and WeaponTransition are in the context WeaponContext, which reads the attachment
+# database of the weapon (AnimDbPath of its weapon row). The weapon clips are under the prop folder.
+CONTROLLER_DEFS = ADB_FOLDER + "playermalecontrollerdefs.xml"
+WEAPON_SCOPES = ("Weapon", "WeaponTransition")
+PROP_FOLDER = "animations/gameplay/prop/weapons/"
 MOTION_ACTIVITIES = ("AnimationDrivenMotion", "CameraRelativeFacing", "InputRelativeFacing")
 
 
@@ -115,6 +124,46 @@ def find_fragment(name: str, tags: set[str], extra: set[str], offhand: bool) -> 
         if best is not None:
             return adb, best[1]
     return None
+
+
+def scope_table() -> dict[str, tuple[str, list]]:
+    """The scopes of each fragment of the controller (lower-case name -> (the default scopes, [(override tags, scopes)]))."""
+    root = ET.fromstring(source.read(CONTROLLER_DEFS).decode("utf-8", "replace"))
+    return {fragment.tag.lower(): (fragment.get("scopes") or "", [(tag_set(o.get("tags") or ""), o.get("scopes") or "")
+                                                                  for o in fragment.findall("Override")])
+            for fragment in root.find("FragmentDefs")}
+
+
+def scopes_of(table: dict, name: str, tags: set[str]) -> list[str]:
+    """The scopes of a fragment for a tag state: the first override (in the order of the file) whose tags the state has, else the
+    default scopes. The order rule is an inference (the overrides of the file go from the most tags to the fewest)."""
+    default, overrides = table.get(name.lower(), ("", []))
+    scopes = next((text for need, text in overrides if need <= tags), default)
+    return [scope for scope in scopes.split("+") if scope]
+
+
+def weapon_variant(adb: str, name: str, tags: set[str]) -> ET.Element | None:
+    """The variant of a fragment (no case) of a weapon database for a tag state: the variant with the most tags, each one in the
+    state (the first of equal variants: the order of the file; research weapon-props.md, the option policy is [U])."""
+    best = None
+    fragment_list = player.adb_root(adb).find("FragmentList")
+    for node in fragment_list if fragment_list is not None else []:
+        if node.tag.lower() != name.lower():
+            continue
+        for fragment in node:
+            names = tag_set(fragment.get("Tags") or "")
+            if names <= tags and (best is None or len(names) > best[0]):
+                best = (len(names), fragment)
+    return best[1] if best is not None else None
+
+
+def body_records(out: dict) -> list[str]:
+    """The fragment records of a weapon tag set that its main hand plays (not the off-hand fragments of a shield)."""
+    keys = list(out["stance"].values()) + list(out["dodge"].values()) + list(out.get("block", {}).values())
+    keys += [out[kind] for kind in ("draw", "sheathe") if kind in out]
+    keys += [item["fragment"] for item in out.get("graph", []) if "fragment" in item]
+    keys += [variant["fragment"] for variants in out.get("ranged", {}).get("fragments", {}).values() for variant in variants]
+    return list(dict.fromkeys(keys))
 
 
 # The parameters of a Homing procedural clip that the client uses (stage P3.G, research p3g-collision: the move to the target of
@@ -344,13 +393,14 @@ def list_activities(root: ET.Element, out: dict) -> None:
         out[fragment] = entry
 
 
-def clip_info(path: str, skeleton: player.Skeleton, root: bool) -> dict:
-    """The duration, the flags, the animated bones, and (root) the root track of a clip."""
+def clip_info(path: str, skeleton: player.Skeleton, root: bool, names: dict[int, str] | None = None) -> dict:
+    """The duration, the flags, the animated bones, and (root) the root track of a clip. names: the bones of the controllers (a
+    weapon clip: the bones of the weapon skeletons; else the player skeleton)."""
     f = cgf.read_chunks(source.read(path))
     motion = [c for c in f.chunks if c.type == anim.T_MOTION][0].data
     flags = struct.unpack_from("<I", motion, 0)[0]
     clip = anim.read_clip(f)
-    names = {b.controller_id: b.name for b in skeleton.bones}
+    names = names if names is not None else {b.controller_id: b.name for b in skeleton.bones}
     out = {"path": path, "duration": round((clip.end - clip.start) * clip.secs_per_frame, 5), "flags": flags,
            "additive": bool(flags & 1), "bones": sorted(names[c] for c in clip.controllers if c in names)}
     xform = clip.controllers.get(zlib.crc32(b"Xform"))
@@ -370,12 +420,21 @@ def actions() -> dict:
     mana_costs = {row[0].lower(): row[1] for row in json.loads((gamedata_dir() / "ability-data.json").read_text())["manaCosts"]}
     cafs, space_files = player.stem_index(".caf"), player.stem_index(".bspace")
     spaces_lower = {name.lower(): paths for name, paths in space_files.items()}
+    # The weapon clips (AST-202): the clips of the prop folder by their lower-case file stem.
+    props: dict[str, list[str]] = {}
+    for name in source.paks().entries:
+        if name.startswith(PROP_FOLDER) and name.endswith(".caf"):
+            props.setdefault(Path(name).stem.lower(), []).append(name)
+    scopes = scope_table()
     skeleton = player.Skeleton("Male")
-    fragments, blend_spaces, clips, root_clips = {}, {}, {}, set()
+    fragments, blend_spaces, clips, root_clips, prop_clips = {}, {}, {}, set(), set()
 
     def add_clip(name: str) -> None:
         if name and name not in clips and name in cafs:
             clips[name] = None
+        elif name and name not in clips and name in props:
+            clips[name] = None
+            prop_clips.add(name)
 
     def add_space(name: str) -> None:
         if name not in blend_spaces:
@@ -490,6 +549,24 @@ def actions() -> dict:
         if key.lower() in {k.lower() for k in ranged.RANGED_SETS}:
             ranged_key = next(k for k in ranged.RANGED_SETS if k.lower() == key.lower())
             out["ranged"] = ranged.weapon(ranged_key, tags, record, find_fragment, tag_set, adb_chain, mana_costs, cooldowns)
+        # The weapon scopes (AST-202, research weapon-props.md "The rule for the client" 2 and 3): for each fragment record of the
+        # main hand that owns Weapon or WeaponTransition for its tags, the variant of the same fragment in the attachment database
+        # of the weapon (the tags of the weapon, of the body record, and the context tags; these scopes add no tag). The body and
+        # the weapon records are separate: their clips and blend times differ.
+        weapon_db = next((player.norm(item["animDb"]) for item in weapons_doc["items"].values()
+                          if item.get("tag", "").lower() == ",".join(entry["tags"]).lower() and item.get("animDb")), None)
+        if weapon_db and source.has(weapon_db):
+            records = {}
+            for body_key in body_records(out):
+                body = fragments[body_key]
+                state = tags | tag_set(body["tags"]) | CONTEXT_TAGS
+                owned = [scope for scope in scopes_of(scopes, body["name"], state) if scope in WEAPON_SCOPES]
+                element = weapon_variant(weapon_db, body["name"], state) if owned else None
+                if element is not None:
+                    records[body_key] = {"record": record(weapon_db, element, body["name"]), "scopes": owned}
+            names = {item["clip"] for value in records.values() for layer in fragments[value["record"]]["layers"]
+                     for item in layer if item.get("clip") in props}
+            out["weaponScope"] = {"adb": weapon_db, "records": records, "clips": sorted(names)}
         weapons.append(out)
     # The unarmed set: no stance (the fragments of locomotion.json), the dodge of player.adb, the death and the respawn.
     life = {}
@@ -505,9 +582,22 @@ def actions() -> dict:
     # The gather fragments (stage P5.2, the creature track: converter/swc_convert/gather_actions.py): "gather|ACTION|TOOLTAGS".
     use.update(gather_actions.fragments(record, find_fragment, tag_set))
     weapons.append({"tags": [], "stance": {}, "offhand": {}, "dodge": dodges(set()), "life": life, "use": use})
+    # The bones of the weapon clips: the controllers of the skeletons of the weapons whose attachment database has weapon records.
+    prop_names: dict[int, str] = {}
+    scope_tags = {",".join(w["tags"]).lower() for w in weapons if w.get("weaponScope", {}).get("clips")}
+    looks = {item["model"]: [skin for skin, _ in item["skins"]] for item in weapons_doc["items"].values()
+             if item.get("tag", "").lower() in scope_tags and item.get("model", "").endswith(".chr")}
+    for model, skins in sorted(looks.items()):
+        try:
+            prop_names.update({b.controller_id: b.name for b in player.Skeleton.weapon(model, skins).bones})
+        except Exception:   # a skeleton that does not read: its clips list fewer bones
+            continue
     for name in list(clips):
         try:
-            clips[name] = clip_info(player.pick(cafs[name]), skeleton, name in root_clips)
+            if name in prop_clips:
+                clips[name] = {**clip_info(sorted(props[name])[0], skeleton, False, prop_names), "prop": True}
+            else:
+                clips[name] = clip_info(player.pick(cafs[name]), skeleton, name in root_clips)
         except Exception as error:   # a clip that does not read: the client plays no clip for it
             clips[name] = {"error": str(error)[:120]}
     ranged.finish([w["ranged"] for w in weapons if "ranged" in w], fragments, clips)
@@ -526,7 +616,7 @@ def actions() -> dict:
     perks = json.loads((gamedata_dir() / "perk-data.json").read_text())
     stamina = {"data": json.loads((gamedata_dir() / "stamina-data.json").read_text()), "encumbrance": perks["encumbrance"],
                "itemLoads": {item.lower(): load for item, load in perks["equipLoad"].items()}}
-    doc = {"format": 1, "sources": [player.ADB, ATTACK_ACTIONS, DODGE_ACTIONS, DEATH_ACTIONS, INTERACT_ACTIONS, gather_actions.GATHER_ACTIONS, ABILITY_ACTIONS + "*",
+    doc = {"format": 1, "sources": [player.ADB, CONTROLLER_DEFS, ATTACK_ACTIONS, DODGE_ACTIONS, DEATH_ACTIONS, INTERACT_ACTIONS, gather_actions.GATHER_ACTIONS, ABILITY_ACTIONS + "*",
                                     datasheet.TABLES_FOLDER + "javelindata_spelltable_*", str(gamedata_dir() / "weapon-actions.json"), str(gamedata_dir() / "ability-data.json"),
                                     str(gamedata_dir() / "stamina-data.json"), str(gamedata_dir() / "perk-data.json")],
            "weapons": weapons, "fragments": fragments, "blendSpaces": blend_spaces, "clips": clips,
@@ -538,7 +628,7 @@ def actions() -> dict:
     out = player.player_dir() / "actions.json"
     out.write_text(json.dumps(doc, indent=1, sort_keys=True))
     return {"actions": str(out), "weapon tag sets": len(weapons), "fragments": len(fragments), "blend spaces": len(blend_spaces),
-            "clips": len(clips), "clips with a root track": len(root_clips), "clip errors": sum(1 for c in clips.values() if "error" in c),
+            "clips": len(clips), "weapon clips": len(prop_clips), "clips with a root track": len(root_clips), "clip errors": sum(1 for c in clips.values() if "error" in c),
             "graph fragments with no variant": missing[:10]}
 
 

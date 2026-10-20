@@ -309,6 +309,31 @@ class Skeleton:
         self.bones = cgf.read_bones(cgf.read_chunks(source.read(self.path)))
         self.index_of = {b.name: b.index for b in self.bones}
 
+    @classmethod
+    def weapon(cls, model: str, skins: list[str]) -> "Skeleton":
+        """The skeleton of a weapon (AST-202, research weapon-props.md "The rule for the client" 1): the bones of its model (.chr)
+        and each bone of its skins that the model does not have (the bow string bone bowStringPull2_jnt is only in the skins; the
+        clips animate it). The bind pose of a bone is the bind of the first skin that has it (the mesh of the skin is in that
+        pose), else the bind of the model."""
+        self = cls.__new__(cls)
+        self.path = model
+        found = [cgf.read_bones(cgf.read_chunks(source.read(model)))]
+        found += [cgf.read_bones(cgf.read_chunks(source.read(skin))) for skin in skins]
+        order: list[tuple[str, int, str | None]] = []
+        bind: dict[str, tuple] = {}
+        for bones in found:
+            for b in bones:
+                if b.name not in {name for name, _, _ in order}:
+                    order.append((b.name, b.controller_id, bones[b.parent].name if b.parent >= 0 else None))
+        for bones in found[1:] + found[:1]:
+            for b in bones:
+                bind.setdefault(b.name, (b.b2w, b.w2b))
+        index = {name: i for i, (name, _, _) in enumerate(order)}
+        self.bones = [cgf.Bone(i, name, cid, index[parent] if parent in index else -1, *bind[name])
+                      for i, (name, cid, parent) in enumerate(order)]
+        self.index_of = index
+        return self
+
     def write(self, w: gltf.Writer) -> tuple[int, list[int]]:
         """Adds the bone nodes and the skin 0. @return (index of the first bone node, root nodes)."""
         first = len(w.doc["nodes"])
@@ -329,6 +354,14 @@ class Skeleton:
 
     def add_skin(self, w: gltf.Writer, skin_path: str, mtl: str, out: Path, name: str, max_texture: int) -> dict:
         """Adds one skin attachment as a mesh node of the skin 0. @return A report."""
+        prims, report = self.skin_primitives(w, skin_path, mtl, out, max_texture)
+        if prims:
+            node = w.node(name=name, mesh=w.mesh(name, prims), skin=0)
+            w.doc["scenes"][0]["nodes"].append(node)
+        return report
+
+    def skin_primitives(self, w: gltf.Writer, skin_path: str, mtl: str, out: Path, max_texture: int) -> tuple[list, dict]:
+        """The primitives of one skin attachment on this skeleton. @return (primitives, a report)."""
         f = cgf.read_chunks(source.read(skin_path))
         mesh = cgf.read_mesh(f, f.of_type(cgf.T_MESH)[0])
         # A bone of the skin that the base skeleton does not have (the simulation bones of a cloth skin) takes the weight
@@ -369,11 +402,8 @@ class Skeleton:
                                 blend=materials.is_glass(subs[s.material]))
             idx = mesh.indices[s.first_index:s.first_index + s.num_indices]
             prims.append(w.primitive(pos, idx, nrm, mesh.uvs, None, joints, mesh.weights, mi))
-        if prims:
-            node = w.node(name=name, mesh=w.mesh(name, prims), skin=0)
-            w.doc["scenes"][0]["nodes"].append(node)
-        return {"skin": skin_path, "material": mtl, "vertices": len(mesh.positions), "triangles": len(mesh.indices) // 3,
-                "sections": len(prims), "frozen bones": sorted(missing)}
+        return prims, {"skin": skin_path, "material": mtl, "vertices": len(mesh.positions), "triangles": len(mesh.indices) // 3,
+                       "sections": len(prims), "frozen bones": sorted(missing)}
 
     def add_clip(self, w: gltf.Writer, first: int, clip_path: str, name: str | None = None, root_lock: bool = False) -> dict:
         """Adds one clip as a glTF animation. root_lock: no track for the root bone (Xform carries the motion of a clip;
@@ -755,15 +785,56 @@ def weapons() -> dict:
     return {"weapons": str(out), "items": len(items), "meshes": len({entry["key"] for entry in items.values()})}
 
 
-def weapon(key: str, skins: list, force: bool = False, doc: dict | None = None) -> dict:
-    """Converts one weapon look (its skins, with no skeleton) into a static mesh glTF."""
+def weapon_clips(actions_doc: dict, tag_text: str) -> dict[str, str]:
+    """@return The weapon clips of a weapon tag text ("Bow,LongBow"; actions.json weaponScope: the clips of the weapon records of
+    its attachment database) -> the path of each clip."""
+    wanted_tags = [tag.strip().lower() for tag in tag_text.split(",") if tag.strip()]
+    entry = next((w for w in actions_doc["weapons"] if [tag.lower() for tag in w["tags"]] == wanted_tags), None)
+    names = (entry or {}).get("weaponScope", {}).get("clips", [])
+    clips = actions_doc["clips"]
+    return {name: clips[name]["path"] for name in names if "path" in clips.get(name, {})}
+
+
+def weapon(key: str, skins: list, force: bool = False, doc: dict | None = None, model: str = "", clips: dict | None = None) -> dict:
+    """Converts one weapon look into a glTF. A weapon with weapon clips (AST-202: the bow string, the flail chain) is a skeletal
+    mesh: the skeleton of its model and its skins (Skeleton.weapon), one mesh of all its skins, and its clips as animations (no
+    root lock: the weapon has no root motion). Else it is one static mesh of its skins in the bind pose (a sword: its attachment
+    database has no clip; a musket: no clip either, research weapon-props.md "Musket")."""
     folder = unreal_folder("Weapons", key.split("|", 1)[1])
     out = player_dir() / "weapons" / (folder.rsplit("/", 1)[-1] + ".gltf")
     own = doc is None
     doc = doc if doc is not None else load_manifest()
-    if out.is_file() and not force and key in doc["assets"]:
+    skeletal = bool(clips) and model.endswith(".chr")
+    known = doc["assets"].get(key, {})
+    if out.is_file() and not force and known and bool(known.get("skeletal")) == skeletal:
         return {"weapon": key, "skipped": "exists"}
     out.parent.mkdir(parents=True, exist_ok=True)
+    if skeletal:
+        skeleton = Skeleton.weapon(model, [skin for skin, _ in skins])
+        w = gltf.Writer()
+        first, roots = skeleton.write(w)
+        prims, reports = [], []
+        for skin_path, mtl in skins:
+            more, report = skeleton.skin_primitives(w, skin_path, mtl, out, 1024)
+            prims += more
+            reports.append(report)
+        if not prims:
+            raise ValueError("no drawn section")
+        name = "SK_" + folder.rsplit("/", 1)[-1]
+        w.doc["scenes"][0]["nodes"].append(w.node(name=name, mesh=w.mesh(name, prims), skin=0))
+        w.doc["scenes"][0]["nodes"] += roots
+        failed = {}
+        for clip_name, path in sorted(clips.items()):
+            try:
+                skeleton.add_clip(w, first, path, clip_name)
+            except Exception as error:   # a clip that does not read: the weapon keeps its pose for it
+                failed[clip_name] = str(error)[:120]
+        w.save(out)
+        doc["assets"][key] = {"kind": "weapon", "skeletal": True, "file": str(out.relative_to(env.content_dir())), "unreal": folder}
+        if own:
+            save_manifest(doc)
+        return {"weapon": key, "bones": len(skeleton.bones), "sections": len(prims), "clips": len(clips) - len(failed), "failed": failed,
+                "frozen bones": sorted({b for r in reports for b in r["frozen bones"]})}
     w = gltf.Writer()
     prims = []
     for skin_path, mtl in skins:
@@ -957,11 +1028,15 @@ def wanted(path: str | None = None, force: bool = False) -> dict:
             failed[skin] = str(error)[:160]
     if request.get("weapons"):
         table = json.loads((player_dir() / "weapons.json").read_text())["items"]
+        actions_file = player_dir() / "actions.json"
+        actions_doc = json.loads(actions_file.read_text()) if actions_file.is_file() else {"weapons": [], "clips": {}}
         for item in request["weapons"]:
             entry = table.get(item)
             for look in ([entry] + ([entry["accessory"]] if "accessory" in entry else [])) if entry else []:
+                # The weapon clips of the tags of the item (not of its accessory: the quiver has no clip).
+                clips = weapon_clips(actions_doc, entry.get("tag", "")) if look is entry and not look.get("playerModel") else {}
                 try:
-                    weapon(look["key"], look["skins"], force, doc)
+                    weapon(look["key"], look["skins"], force, doc, look.get("model", ""), clips)
                     done += 1
                 except Exception as error:   # a weapon that does not convert: the client shows no mesh for it
                     failed[look["key"]] = str(error)[:160]

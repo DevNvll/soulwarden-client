@@ -135,6 +135,19 @@ FString FSwcPlayerLooks::ImportedObject(const FString& Key, const TCHAR* Class) 
 	return Objects != nullptr && Objects->Num() > 0 ? (*Objects)[0]->AsString() : FString();
 }
 
+TArray<FString> FSwcPlayerLooks::ImportedObjects(const FString& Key, const TCHAR* Class) const
+{
+	TArray<FString> Out;
+	if (const TArray<TSharedPtr<FJsonValue>>* Objects = ArrayField(ObjectField(ObjectField(Imported, TEXT("assets")), Key), Class))
+	{
+		for (const TSharedPtr<FJsonValue>& Value : *Objects)
+		{
+			Out.Add(Value->AsString());
+		}
+	}
+	return Out;
+}
+
 FString FSwcPlayerLooks::ItemId(uint32 ItemIndex) const
 {
 	return ItemIndex > 0 && Items.IsValidIndex(static_cast<int32>(ItemIndex) - 1) && !Items[ItemIndex - 1].IsEmpty() ? Items[ItemIndex - 1][0] : FString();
@@ -409,7 +422,17 @@ void FSwcPlayerLooks::ResolveGear(const TMap<uint32, uint32>& Equipment, FSwcPla
 		Part.Tags = StringField(Data, TEXT("tag"));
 		Part.Model = StringField(Data, TEXT("model"));
 		Part.MeshKey = StringField(Data, TEXT("key"));
-		Part.MeshPath = ImportedObject(Part.MeshKey, TEXT("StaticMesh"));
+		// A weapon with weapon clips is a skeletal mesh (AST-202), else a static mesh.
+		Part.MeshPath = ImportedObject(Part.MeshKey, TEXT("SkeletalMesh"));
+		Part.bSkeletal = !Part.MeshPath.IsEmpty();
+		if (Part.bSkeletal)
+		{
+			Part.ClipPaths = ImportedObjects(Part.MeshKey, TEXT("AnimSequence"));
+		}
+		else
+		{
+			Part.MeshPath = ImportedObject(Part.MeshKey, TEXT("StaticMesh"));
+		}
 		Part.bHideSheathed = FlagField(Data, TEXT("hideSheathed"));
 		Part.bAlwaysVisible = StringField(Data, TEXT("sheathMode")) == TEXT("ALWAYS_VISIBLE");
 		if (FlagField(Data, TEXT("playerModel")))

@@ -7,6 +7,7 @@
 #include "Character/SwcPlayerAnimInstance.h"
 #include "Character/SwcPlayerLooks.h"
 #include "Character/SwcRangedView.h"
+#include "Character/SwcWeaponAnimInstance.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -56,7 +57,7 @@ void ASwcPlayerCharacter::SetDummy(const FVector* Feet, double Yaw, bool bArmed)
 	if (Feet != nullptr)
 	{
 		GetMesh()->SetWorldLocationAndRotation(*Feet, FRotator(0.0, Yaw + MeshYaw, 0.0));
-		for (const TObjectPtr<UStaticMeshComponent>& Component : Gear)
+		for (const TObjectPtr<UMeshComponent>& Component : Gear)
 		{
 			if (Component != nullptr && !bArmed)
 			{
@@ -88,7 +89,7 @@ void ASwcPlayerCharacter::ApplyLook(const FSwcPlayerLook& Look, const FString& B
 		}
 	}
 	Parts.Reset();
-	for (UStaticMeshComponent* Mesh : Gear)
+	for (UMeshComponent* Mesh : Gear)
 	{
 		if (Mesh != nullptr)
 		{
@@ -143,23 +144,45 @@ void ASwcPlayerCharacter::ApplyLook(const FSwcPlayerLook& Look, const FString& B
 		}
 		Parts.Add(Component);
 	}
-	// The gear: one static mesh for each weapon and accessory with a mesh; SetWeaponState places them.
+	// The gear: one mesh for each weapon and accessory with a mesh; SetWeaponState places them. A weapon with weapon clips is a
+	// skeletal mesh with the weapon animation (AST-202): it updates after the base (its leader gives the weapon visits).
 	for (const FSwcGearPart& Part : Look.Gear)
 	{
-		UStaticMesh* Mesh = Part.MeshPath.IsEmpty() ? nullptr : LoadObject<UStaticMesh>(nullptr, *Part.MeshPath);
-		if (Mesh == nullptr || !Part.Sheathed.IsValid() || !Part.Hand.IsValid())
+		if (!Part.Sheathed.IsValid() || !Part.Hand.IsValid())
 		{
 			continue;
 		}
-		UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>(this);
-		Component->SetupAttachment(GetMesh(), Part.Sheathed.Bone);
-		Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		Component->RegisterComponent();
-		Component->SetStaticMesh(Mesh);
+		UMeshComponent* Component = nullptr;
+		if (USkeletalMesh* Skeletal = Part.bSkeletal ? LoadObject<USkeletalMesh>(nullptr, *Part.MeshPath) : nullptr)
+		{
+			USkeletalMeshComponent* Weapon = NewObject<USkeletalMeshComponent>(this);
+			Weapon->SetupAttachment(GetMesh(), Part.Sheathed.Bone);
+			Weapon->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Weapon->RegisterComponent();
+			Weapon->SetSkeletalMesh(Skeletal);
+			Weapon->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+			Weapon->SetAnimInstanceClass(USwcWeaponAnimInstance::StaticClass());
+			Weapon->AddTickPrerequisiteComponent(GetMesh());
+			Component = Weapon;
+		}
+		else if (UStaticMesh* Static = !Part.bSkeletal && !Part.MeshPath.IsEmpty() ? LoadObject<UStaticMesh>(nullptr, *Part.MeshPath) : nullptr)
+		{
+			UStaticMeshComponent* Weapon = NewObject<UStaticMeshComponent>(this);
+			Weapon->SetupAttachment(GetMesh(), Part.Sheathed.Bone);
+			Weapon->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Weapon->RegisterComponent();
+			Weapon->SetStaticMesh(Static);
+			Component = Weapon;
+		}
+		if (Component == nullptr)
+		{
+			continue;
+		}
 		Gear.Add(Component);
 		GearParts.Add(Part);
 	}
 	GearInHand.Init(false, Gear.Num());
+	GearAnimationData.Init(nullptr, Gear.Num());
 	SetWeaponState(ActiveWeaponSlot, bWeaponDrawn);
 }
 
@@ -171,7 +194,7 @@ bool ASwcPlayerCharacter::HasWeapon(uint32 Slot) const
 void ASwcPlayerCharacter::PlaceGear(int32 Index, bool bInHand)
 {
 	const FSwcGearPart& Part = GearParts[Index];
-	UStaticMeshComponent* Component = Gear[Index];
+	UMeshComponent* Component = Gear[Index];
 	const FSwcAttachPlace& Place = bInHand ? Part.Hand : Part.Sheathed;
 	GearInHand[Index] = bInHand;
 	Component->AttachToComponent(GetMesh(), FAttachmentTransformRules::KeepRelativeTransform, Place.Bone);
@@ -200,6 +223,32 @@ void ASwcPlayerCharacter::SetToolInHand(uint32 Slot)
 		if (PartSlot >= 33 && PartSlot <= 36 && !GearParts[Index].bAccessory)
 		{
 			PlaceGear(Index, PartSlot == Slot);
+		}
+	}
+}
+
+void ASwcPlayerCharacter::SetAnimatedWeapon(uint32 Slot, const TSharedPtr<FSwcActions>& Data, USwcPlayerAnimInstance* Leader)
+{
+	for (int32 Index = 0; Index < Gear.Num(); ++Index)
+	{
+		const USkeletalMeshComponent* Weapon = Cast<USkeletalMeshComponent>(Gear[Index]);
+		USwcWeaponAnimInstance* Animation = Weapon != nullptr ? Cast<USwcWeaponAnimInstance>(Weapon->GetAnimInstance()) : nullptr;
+		if (Animation == nullptr)
+		{
+			continue;
+		}
+		const FSwcGearPart& Part = GearParts[Index];
+		if (GearAnimationData[Index] != Data.Get())
+		{
+			GearAnimationData[Index] = Data.Get();
+			Animation->Setup(Data, Part.MeshPath, Part.ClipPaths);
+			UE_LOG(LogSwcBackend, Log, TEXT("weapon: %s (slot %u) is a skeletal mesh with %d of %d weapon clips"), *Part.Item, Part.PaperdollSlot,
+				Animation->GetClipCount(), Part.ClipPaths.Num());
+		}
+		const bool bFollow = Slot != 0 && Part.PaperdollSlot == Slot && !Part.bAccessory;
+		if (bFollow != Animation->HasLeader())
+		{
+			Animation->SetLeader(bFollow ? Leader : nullptr);
 		}
 	}
 }

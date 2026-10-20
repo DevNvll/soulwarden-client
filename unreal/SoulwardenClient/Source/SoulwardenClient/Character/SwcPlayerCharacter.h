@@ -5,9 +5,11 @@
 #include "GameFramework/Character.h"
 #include "SwcPlayerCharacter.generated.h"
 
+class FSwcActions;
 class FSwcLocomotion;
+class UMeshComponent;
 class USkeletalMeshComponent;
-class UStaticMeshComponent;
+class USwcPlayerAnimInstance;
 class USwcCharacterMovement;
 class USwcPlayerActions;
 class USwcRangedView;
@@ -59,8 +61,15 @@ public:
 	bool HasWeapon(uint32 Slot) const;
 	/** The gear parts with a mesh, and the physical place of one part (true: the hand). */
 	const TArray<FSwcGearPart>& GetGearParts() const { return GearParts; }
-	UStaticMeshComponent* GetGearComponent(int32 Index) const { return Gear.IsValidIndex(Index) ? Gear[Index].Get() : nullptr; }
+	/** The component of a gear part: a static mesh, or a skeletal mesh for a weapon with weapon clips (AST-202). */
+	UMeshComponent* GetGearComponent(int32 Index) const { return Gear.IsValidIndex(Index) ? Gear[Index].Get() : nullptr; }
 	void PlaceGear(int32 Index, bool bInHand);
+	/**
+	 * The weapon scope (AST-202, docs/GEAR.md "The weapon clips"): the skeletal weapon of a weapon slot (the slot of the stance of
+	 * the player animation; 0: none) plays the weapon visits of the player animation; the other skeletal weapons are in their bind
+	 * pose. Each frame, from the actions of the player.
+	 */
+	void SetAnimatedWeapon(uint32 Slot, const TSharedPtr<FSwcActions>& Data, USwcPlayerAnimInstance* Leader);
 
 	USwcCharacterMovement* GetSwcMovement() const;
 	USwcPlayerActions* GetActions() const { return Actions; }
@@ -80,7 +89,9 @@ private:
 	UPROPERTY()
 	TArray<TObjectPtr<USkeletalMeshComponent>> Parts;
 	UPROPERTY()
-	TArray<TObjectPtr<UStaticMeshComponent>> Gear;
+	TArray<TObjectPtr<UMeshComponent>> Gear;
+	/** The action data that the weapon animation of each skeletal gear part has (Setup again at a new data). */
+	TArray<const FSwcActions*> GearAnimationData;
 	TArray<FSwcGearPart> GearParts;
 	/** The physical place of each gear part (true: the hand). */
 	TArray<bool> GearInHand;

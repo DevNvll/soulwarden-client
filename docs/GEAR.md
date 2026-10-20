@@ -26,8 +26,8 @@ Rules of the export (gear.md, "From a paperdoll entry to a weapon"):
 
 The weapon meshes come on demand, as the parts: the client writes the items with no mesh into the wanted list
 (`"weapons"`), `tools/convert-player.sh wanted` converts them, and `tools/import-player.sh` imports them into
-`/SwcGameContent/Player/Weapons`. A weapon is one static mesh of its skins in the bind pose of its skeleton (no weapon
-clip plays yet).
+`/SwcGameContent/Player/Weapons`. A weapon with weapon clips (the bow, the flail) is a skeletal mesh with its clips; each other
+weapon is one static mesh of its skins in the bind pose of its skeleton ("The weapon clips" below).
 
 ## The places
 
@@ -74,6 +74,72 @@ of the equip database (rotation about x, then y, then z). Both go through the sp
 - The inactive weapons stay in their sheath places; a weapon with `HideMainWeaponMeshWhileSheathed` is hidden there; an
   accessory with `SheathMode` `ALWAYS_VISIBLE` stays visible.
 
+## The weapon clips
+
+AST-202 (research `~/Games/soulwarden-client/research/weapon-props.md`, "The rule for the client"). The bow string, the bow
+limbs, and the flail chain move with clips of the weapon. These clips play on the weapon, not on the player.
+
+The data (`tools/convert-player.sh actions`, `actions.json`):
+
+- The controller of the player (`playermalecontrollerdefs.xml`) gives the scopes of each fragment, with the tag overrides (the
+  first override whose tags the state has; the order rule is an inference). The scopes `Weapon` and `WeaponTransition` are in the
+  context `WeaponContext`. This context reads the attachment database of the weapon: `AnimDbPath` of its weapon row
+  (`playermaleanims_bowattach.adb`, `playermaleanims_1h_meleeattach.adb`).
+- For each fragment record of the main hand (stance, dodge, block, draw, sheathe, attack graph, ranged program) that owns one of
+  these scopes for its tags, the converter selects the variant of the same fragment in the attachment database: the tags of the
+  weapon, of the body record, and `Stand`; the variant with the most tags (the first one of equal variants). The body record and
+  the weapon record are separate: their clips, start times, speeds, and blend times differ.
+- `weapons[].weaponScope`: `adb`, `records` (body record key -> `{record, scopes}`), and `clips` (the weapon clips of the
+  records). The weapon clips are in `clips` with `"prop": true` (the prop folder `animations/gameplay/prop/weapons/`; the bones
+  are the bones of the weapon skeletons).
+
+| Fragment (bow, tags `Bow`) | Weapon clip | Start / speed / blend-in |
+| --- | --- | --- |
+| `Bow_ReadyWeapon_UpperBody` | `bow_idle_to_aim_halfdrw_prop` | 0 / 1 / 0.067 s |
+| `Bow_Charge_UpperBody` | `bow_aim_halfdrw_to_fulldrw_prop` | 0 / 2 / 0.2 s |
+| `Bow_Aim_UpperBody` (`ChargedAim`) | `bow_aim_halfdrw_idle_prop` (`bow_aim_fulldrw_idle_prop`), a loop | 0 / 1 / 0.5 s |
+| `Bow_Shoot_UpperBody`, `Bow_Shoot_Charged` | `bow_aim_halfdrw_release_prop`, `bow_aim_fulldrw_release_prop` | 0 / 1 / 0.034 s |
+| `Sheathe_UpperBody` `From_Bow` (`WeaponTransition`) | `bow_aim_halfdrw_to_idle_prop` | 0.5 / 1 / 0.1 s |
+| `Unsheathe_UpperBody`; `Idle`, `Strafe` with `Aim` or `ChargedAim` | none | the aim action keeps the string pose |
+
+The counts: the bow 48 records (24 clips), the flail 47 records (15 clips: the movement owns `Weapon` for `1H_Melee+Flail`). The
+sword, the great weapons, the spear, the staffs, and the firearms have weapon records with no clip (damage clips, effects); the
+musket has no weapon clip in the data, and the client does not invent one.
+
+The mesh (`tools/convert-player.sh wanted`, `tools/import-player.sh`): a weapon whose tags have weapon clips and whose model is a
+`.chr` is a skeletal glTF. Its skeleton has the bones of the model and each bone of its skins that the model does not have (the
+string bone `bowStringPull2_jnt` is only in the bow skins; the clips animate it); the bind pose of a bone is the bind of the first
+skin that has it. All skins are one mesh (the string skin of `SkinOverride2` is a second section). The clips are animations of
+the same file, with no root lock. The import makes a new skeleton for each weapon (no automatic skeleton: never the player
+skeleton), no physics asset, and sets the skeletal mesh usage on the base materials of the content plugin. A static mesh of an
+earlier import of the weapon is deleted first. A weapon that was converted as a static mesh before becomes a skeletal mesh when
+`tools/convert-player.sh wanted` gets its item again (the manifest has the flag `skeletal`).
+
+The client:
+
+- `FSwcActions` reads `weaponScope` into `FSwcWeaponActions::WeaponRecords` (body fragment -> weapon record).
+- `USwcPlayerAnimInstance` writes the weapon visits of each frame: for each fragment of the stance and of the two action
+  channels whose weapon record exists, the record with the time and the weight of the body fragment. Thus the weapon clip starts
+  at the same fragment visit and runs on the same clock (`clipTime = start + elapsed x speed`; a loop wraps). A fragment covers
+  the fragments before it on its channel only after the blend-in of its body record and of its weapon record (the half draw loop
+  blends in for 0.5 s).
+- The weapon is a `USkeletalMeshComponent` with `USwcWeaponAnimInstance`. Its update comes after the update of the base (a tick
+  prerequisite). The weapon of the slot of the stance follows the visits of the player animation: the clip of each item of each
+  layer, with its blend-in from the item before it, overrides the animated bones of the clip over the bind pose. Other weapons
+  stay in their bind pose. The hand and sheath places do not change.
+
+The check: `tools/test-actions.sh` (`weapon_scope_tests`: the bow rows above, the sheathe scope, no record for the draw and the
+aim walk, the string bone in the full hold clip, the same clip time for body and weapon at 0.5 s of the charge, the flail idle and
+first attack, no clip for the sword and the musket), and the side-by-side video with the retail client.
+
+The video check (development run, 2026-10-20; `Devwarden` with the preset `bow-boltcaster`, the replay `tests/drive/p3g-bow.txt` of
+the set 6 take `player-bow`; `SWC_STAGE=AST-202 tools/creature-check.sh ast202-bow 32 tests/drive/p3g-bow-routes.txt
+tests/drive/p3g-bow.txt`). Evidence in `~/Games/soulwarden-client/evidence/AST-202/`: `sbs-ast202-bow.mp4` (retail and client from
+the draw key to the end of the second release), `frames/zoom-sheet.png`, `frames/release-sheet.png`. The client log has "weapon:
+Artifact_Set1_2hBow (slot 24) is a skeletal mesh with 24 of 24 weapon clips". In both clients the string goes to the hand in the
+ready fragment (the half draw), stays at the hand in the charge and the full hold, and goes back to the bow in the first frames of
+the release. The opinion of the user is open.
+
 ## The cloth parts
 
 An armor row with its own character file (`AppearanceCDF`) can have `CA_CLOTH` attachments: a cape or a skirt. The
@@ -108,7 +174,10 @@ tools/dev-run.sh --window --enter Swordwarden --quit-when world --stay 27 -- -Sw
 ## Open points
 
 - The draw and sheathe body clips and the stances of the weapons play from stage P2.7 ([ACTIONS.md](ACTIONS.md)). The
-  weapon clips (the flail chain, the bow string, the moving parts of the firearms) do not play.
+  weapon clips of the bow and the flail play from AST-202. Open: the strike shapes of the flail use the bind pose of its
+  joints (`weaponJoints`), not the shown chain; the equal-tag options of a weapon record take the first one (the retail option
+  rule is not known); the other bows and flails become skeletal when they are converted again; a native correction of the string
+  (a hand follow) is not proved (weapon-props.md [U]).
 - The visibility of the inactive weapons, the accessory fallback of a bow with no accessory row, the nocked arrow, the
   side of an asymmetric gauntlet, and the gauntlet body replacement (forearm skins) are open (gear.md, open points).
 - The dyes, the eye color, the face marks, the scars, and the tattoos need material parameters and mask textures

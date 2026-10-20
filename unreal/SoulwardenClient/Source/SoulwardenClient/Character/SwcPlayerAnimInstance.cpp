@@ -50,11 +50,18 @@ void BlendSamples(const TArray<FSwcPoseSample>& Samples, FPoseContext& Context, 
 
 bool FSwcPlayerAnimProxy::Evaluate(FPoseContext& Output)
 {
-	if (Samples.IsEmpty())
+	if (Samples.IsEmpty() && Overlays.IsEmpty())
 	{
 		return false;
 	}
-	BlendSamples(Samples, Output, Output.Pose, Output.Curve, Output.CustomAttributes);
+	if (Samples.IsEmpty())
+	{
+		Output.ResetToRefPose();
+	}
+	else
+	{
+		BlendSamples(Samples, Output, Output.Pose, Output.Curve, Output.CustomAttributes);
+	}
 	// The overlays in their order: an override layer moves its bones to its pose with its weight; an additive layer adds
 	// its rotation (q = slerp(1, delta, w) x q; the additive clips of the player data have rotations only; the order of
 	// the product is an inference, research feel-values.md R3.2.9).
@@ -436,6 +443,7 @@ void USwcPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	{
 		Samples.Reset();
 		Overlays.Reset();
+		WeaponVisits.Reset();
 		return;
 	}
 	// The motion parameters: speed (m/s), the direction of the travel to the facing (radians, positive to the left), and
@@ -483,6 +491,7 @@ void USwcPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	{
 		Samples.Reset();
 		Overlays.Reset();
+		WeaponVisits.Reset();
 		return;
 	}
 	FLayer& Top = Layers.Last();
@@ -593,17 +602,15 @@ void USwcPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 					Layer.Weight = BlendOut > 0.001f ? Layer.Weight - DeltaSeconds / BlendOut : 0.0f;
 				}
 			}
-			// A fragment that blended in fully covers the ones before it.
+			// A fragment that blended in fully covers the ones before it (AST-202: also its weapon record, whose blend-in can be
+			// longer: the half draw loop of the bow 0.5 s).
 			for (int32 Index = Played.Num() - 1; Index > 0; --Index)
 			{
-				const FSwcActionFragment& Data = Actions->Fragments[Played[Index].Fragment];
-				float FullIn = 0.0f;
-				for (const TArray<FSwcActionItem>& Items : Data.Layers)
+				float FullIn = FSwcActions::FullIn(Actions->Fragments[Played[Index].Fragment]);
+				const int32 Record = Stance != nullptr ? Stance->WeaponRecord(Played[Index].Fragment) : INDEX_NONE;
+				if (Record != INDEX_NONE)
 				{
-					if (!Items.IsEmpty() && Items[0].Weight > 0.0f)
-					{
-						FullIn = FMath::Max(FullIn, Items[0].At + Items[0].BlendIn);
-					}
+					FullIn = FMath::Max(FullIn, FSwcActions::FullIn(Actions->Fragments[Record]));
 				}
 				if (Played[Index].Time >= FullIn)
 				{
@@ -615,6 +622,33 @@ void USwcPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 			for (const FActionLayer& Layer : Played)
 			{
 				AddOverlays(Actions->Fragments[Layer.Fragment], 0, Layer.Time, -1.0f, Layer.Weight);
+			}
+		}
+	}
+	// The weapon scope (AST-202): the weapon record of each fragment, on the clock and with the weight of the fragment. The fragments
+	// of the stance (the movement: the flail idle and strafe) have weights that sum to 1: each one blends over the ones before it
+	// with its share of the weights up to it; the action channels go over them with their own weights.
+	WeaponVisits.Reset();
+	if (Actions.IsValid() && Stance != nullptr && !Stance->WeaponRecords.IsEmpty())
+	{
+		float StanceSum = 0.0f;
+		for (const FLayer& Layer : Layers)
+		{
+			StanceSum += Layer.Weight;
+			const int32 Record = Layer.Action != INDEX_NONE ? Stance->WeaponRecord(Layer.Action) : INDEX_NONE;
+			if (Record != INDEX_NONE && StanceSum > 0.0f)
+			{
+				WeaponVisits.Add({Record, Layer.Elapsed, Layer.Weight / StanceSum});
+			}
+		}
+		for (const int32 Channel : {1, 0})
+		{
+			for (const FActionLayer& Layer : Channels[Channel])
+			{
+				if (const int32 Record = Stance->WeaponRecord(Layer.Fragment); Record != INDEX_NONE)
+				{
+					WeaponVisits.Add({Record, Layer.Time, Layer.Weight});
+				}
 			}
 		}
 	}

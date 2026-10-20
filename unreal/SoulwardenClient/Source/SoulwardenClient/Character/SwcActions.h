@@ -66,7 +66,9 @@ struct FSwcActionFragment
 struct FSwcActionClip : FSwcClip
 {
 	bool bAdditive = false;
-	/** The animated bones (the controllers of the clip on the player skeleton). */
+	/** A weapon clip (AST-202: a clip of the prop folder; it plays on the skeleton of the weapon, not of the player). */
+	bool bProp = false;
+	/** The animated bones (the controllers of the clip on the player skeleton, or on the weapon skeletons for a weapon clip). */
 	TArray<FName> Bones;
 };
 
@@ -142,7 +144,16 @@ struct FSwcWeaponActions
 	/** The strikes of each graph fragment. */
 	TArray<TArray<FSwcStrike>> Strikes;
 
+	/**
+	 * The weapon scopes (AST-202, docs/GEAR.md "The weapon clips"): a fragment of the main hand that owns the scope Weapon or
+	 * WeaponTransition for its tags -> the record of the same fragment in the attachment database of the weapon (its clip plays on
+	 * the weapon, on the clock of the fragment).
+	 */
+	TMap<int32, int32> WeaponRecords;
+
 	bool HasGraph() const { return !Graph.fragments.empty() && Graph.start >= 0; }
+	/** @return The weapon record of a fragment, or INDEX_NONE. */
+	int32 WeaponRecord(int32 Fragment) const { return WeaponRecords.FindRef(Fragment, INDEX_NONE); }
 	/** The ranged program of a bow, a fire staff, or a life staff (stage P3.6, Combat/SwcRanged; null: none). */
 	TSharedPtr<swc::ranged::Program> Ranged;
 };
@@ -242,6 +253,10 @@ public:
 
 	/** The shared data of the ranged programs (stage P3.6: the shot rules with their flight, the spells, the mana costs). */
 	const swc::ranged::Shared& GetRangedShared() const { return RangedData; }
+	/** @return The clip of a clip name (lower case), or INDEX_NONE. */
+	int32 ClipOf(const FString& Name) const { return ClipIndex.FindRef(Name, INDEX_NONE); }
+	/** @return The time from the start of a fragment to the end of the blend-in of its first item with a weight (all layers). */
+	static float FullIn(const FSwcActionFragment& Fragment);
 	/** @return The fragment of a record key of actions.json (a variant of a ranged fragment), or INDEX_NONE. */
 	int32 FragmentOfRecord(const FString& Record) const { return RecordIndex.FindRef(Record, INDEX_NONE); }
 

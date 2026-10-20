@@ -38,9 +38,12 @@ struct FSwcGearPart
 	FString Tags;
 	/** The skeleton of the weapon model (the frames of the damage shapes of the weapon, actions.json weaponJoints). */
 	FString Model;
-	/** The key of the converted mesh (weapons.json), and the static mesh when it was imported. */
+	/** The key of the converted mesh (weapons.json), and the mesh when it was imported: a static mesh, or a skeletal mesh for a
+	 *  weapon with weapon clips (AST-202: the bow, the flail) with the clip assets on its skeleton. */
 	FString MeshKey;
 	FString MeshPath;
+	bool bSkeletal = false;
+	TArray<FString> ClipPaths;
 	FSwcAttachPlace Sheathed;
 	FSwcAttachPlace Hand;
 	bool bAccessory = false;
@@ -100,6 +103,7 @@ public:
 
 private:
 	FString ImportedObject(const FString& Key, const TCHAR* Class) const;
+	TArray<FString> ImportedObjects(const FString& Key, const TCHAR* Class) const;
 	void ResolveGear(const TMap<uint32, uint32>& Equipment, FSwcPlayerLook& Look, TMap<FName, FSwcLookPart>& Slots) const;
 	FSwcAttachPlace Place(bool bFemale, const FString& Attachment, const TSharedPtr<FJsonObject>& Side, const TCHAR* Kind) const;
 

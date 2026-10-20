@@ -360,6 +360,19 @@ float FSwcActionItem::ClipTime(float Time, float Duration) const
 	return bLoop ? FMath::Fmod(Value, Duration) : FMath::Min(Value, Duration);
 }
 
+float FSwcActions::FullIn(const FSwcActionFragment& Fragment)
+{
+	float Out = 0.0f;
+	for (const TArray<FSwcActionItem>& Items : Fragment.Layers)
+	{
+		if (!Items.IsEmpty() && Items[0].Weight > 0.0f)
+		{
+			Out = FMath::Max(Out, Items[0].At + Items[0].BlendIn);
+		}
+	}
+	return Out;
+}
+
 float FSwcActionFragment::MarkTime(const TCHAR* MarkName, float Default) const
 {
 	for (const swc::combat::Mark& Mark : Marks)
@@ -395,6 +408,7 @@ bool FSwcActions::Load(FString& OutReport)
 			}
 			Clip.Duration = Number(Info->TryGetField(TEXT("duration")));
 			Clip.bAdditive = Info->GetBoolField(TEXT("additive"));
+			Clip.bProp = Info->HasTypedField<EJson::Boolean>(TEXT("prop")) && Info->GetBoolField(TEXT("prop"));
 			for (const TSharedPtr<FJsonValue>& Bone : Info->GetArrayField(TEXT("bones")))
 			{
 				Clip.Bones.Add(FName(*Bone->AsString()));
@@ -580,6 +594,23 @@ bool FSwcActions::Load(FString& OutReport)
 		{
 			Weapon->BlockRaise = (*Block)->TryGetStringField(TEXT("raise"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE;
 			Weapon->BlockLoop = (*Block)->TryGetStringField(TEXT("loop"), Key) ? FragmentIndex.FindRef(Key, INDEX_NONE) : INDEX_NONE;
+		}
+		// The weapon scopes (AST-202): the body record -> the weapon record of the attachment database.
+		if (const TSharedPtr<FJsonObject>* Scope = nullptr; Info->TryGetObjectField(TEXT("weaponScope"), Scope))
+		{
+			if (const TSharedPtr<FJsonObject>* Records = nullptr; (*Scope)->TryGetObjectField(TEXT("records"), Records))
+			{
+				for (const auto& Pair : (*Records)->Values)
+				{
+					const int32 Body = FragmentIndex.FindRef(FString(Pair.Key.ToView()), INDEX_NONE);
+					const TSharedPtr<FJsonObject> Entry = Pair.Value->AsObject();
+					const int32 Record = Entry.IsValid() ? FragmentIndex.FindRef(Entry->GetStringField(TEXT("record")), INDEX_NONE) : INDEX_NONE;
+					if (Body != INDEX_NONE && Record != INDEX_NONE)
+					{
+						Weapon->WeaponRecords.Add(Body, Record);
+					}
+				}
+			}
 		}
 		if (const TArray<TSharedPtr<FJsonValue>>* Graph = nullptr; Info->TryGetArrayField(TEXT("graph"), Graph))
 		{

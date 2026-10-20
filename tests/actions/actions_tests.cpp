@@ -342,6 +342,118 @@ void marker_order_tests(const Json& actions)
 		"sword swing: its translation mark at 0.1 s");
 }
 
+/**
+ * The weapon scopes (AST-202, research weapon-props.md): the converter selects for each fragment of the main hand that owns the
+ * scope Weapon or WeaponTransition (the controller FragmentDefs with the tag overrides) the variant of the same fragment in the
+ * attachment database of the weapon, apart from the body record. The client plays its clip on the weapon on the clock of the
+ * body fragment.
+ */
+void weapon_scope_tests(const Json& actions)
+{
+	const auto entry = [&actions](const std::string& tags) -> const Json* {
+		for (const Json& item : actions["weapons"]) {
+			std::string text;
+			for (const Json& tag : item["tags"]) {
+				text += (text.empty() ? "" : ",") + tag.get<std::string>();
+			}
+			if (text == tags) {
+				return &item;
+			}
+		}
+		return nullptr;
+	};
+	const Json& fragments = actions["fragments"];
+	// The first item of layer 0 of the weapon record of a body record, or null.
+	const auto item_of = [&](const Json& weapon, const std::string& body) -> const Json* {
+		const Json& records = weapon["weaponScope"]["records"];
+		if (!records.contains(body)) {
+			return nullptr;
+		}
+		const Json& layers = fragments[records[body]["record"].get<std::string>()]["layers"];
+		return layers.empty() || layers[0].empty() ? nullptr : &layers[0][0];
+	};
+	const auto scopes_of = [&](const Json& weapon, const std::string& body) {
+		std::string out;
+		for (const Json& scope : weapon["weaponScope"]["records"][body]["scopes"]) {
+			out += (out.empty() ? "" : "+") + scope.get<std::string>();
+		}
+		return out;
+	};
+	const auto near = [](const Json& value, double wanted) { return std::fabs(value.get<double>() - wanted) < 1e-4; };
+	const Json* bow = entry("Bow,LongBow");
+	check(bow != nullptr && bow->contains("weaponScope"), "the bow has weapon scopes");
+	if (bow != nullptr && bow->contains("weaponScope")) {
+		check((*bow)["weaponScope"]["adb"] == "animations/mannequin/adb/playermaleanims_bowattach.adb", "bow: the weapon database is its AnimDbPath");
+		// The table of weapon-props.md "Which bow fragments have a weapon clip": clip, start, speed, blend-in, loop.
+		struct Row {
+			const char* body;
+			const char* clip;
+			double start, speed, blendIn;
+			bool loop;
+		};
+		const Row rows[] = {
+			{"player_bow.adb|Bow_ReadyWeapon_UpperBody|Bow", "bow_idle_to_aim_halfdrw_prop", 0.0, 1.0, 0.066950694, false},
+			{"player_bow.adb|Bow_Charge_UpperBody|Bow", "bow_aim_halfdrw_to_fulldrw_prop", 0.0, 2.0, 0.2, false},
+			{"player_bow.adb|Bow_Aim_UpperBody|Bow", "bow_aim_halfdrw_idle_prop", 0.0, 1.0, 0.5007934, true},
+			{"player_bow.adb|Bow_Aim_UpperBody|Bow+ChargedAim", "bow_aim_fulldrw_idle_prop", 0.0, 1.0, 0.50058854, true},
+			{"player_bow.adb|Bow_Shoot_UpperBody|Bow", "bow_aim_halfdrw_release_prop", 0.0, 1.0, 0.033684462, false},
+			{"player_bow.adb|Bow_Shoot_Charged|Bow", "bow_aim_fulldrw_release_prop", 0.0, 1.0, 0.0341039, false},
+			{"player_bow.adb|Bow_Reload_UpperBody|Bow", "bow_aim_halfdrw_reload_prop", 0.0, 1.0, 0.2, false},
+			{"player_bow.adb|Bow_Reload_Charged_UpperBody|Bow", "bow_aim_fulldrw_reload_prop", 0.0, 1.0, 0.2, false},
+			{"player_bow.adb|Bow_Lower_UpperBody|Bow", "bow_aim_halfdrw_to_idle_prop", 0.2, 1.0, 0.07, false},
+			{"player.adb|Sheathe_UpperBody|From_Bow", "bow_aim_halfdrw_to_idle_prop", 0.5, 1.0, 0.10079399, false},
+		};
+		for (const Row& row : rows) {
+			const Json* item = item_of(*bow, row.body);
+			check(item != nullptr && (*item)["clip"] == row.clip && near((*item)["start"], row.start) && near((*item)["speed"], row.speed)
+					&& near((*item)["blendIn"], row.blendIn) && (*item)["loop"] == row.loop,
+				std::string("bow weapon record of ") + row.body + ": " + row.clip);
+		}
+		check(scopes_of(*bow, "player.adb|Sheathe_UpperBody|From_Bow") == "WeaponTransition", "bow sheathe: the scope WeaponTransition");
+		check(scopes_of(*bow, "player_bow.adb|Bow_Aim_UpperBody|Bow") == "Weapon", "bow aim: the scope Weapon");
+		// The draw has no weapon animation entry; the aim walk (Idle and Strafe with Aim or ChargedAim) installs no bow clip: the aim
+		// action keeps the string pose.
+		check(item_of(*bow, (*bow)["draw"].get<std::string>()) == nullptr, "bow draw: no weapon record");
+		for (const char* name : {"Idle", "Strafe", "Idle+Aim", "Strafe+Aim", "Idle+ChargedAim", "Strafe+ChargedAim"}) {
+			const Json& stance = (*bow)["stance"];
+			check(!stance.contains(name) || !(*bow)["weaponScope"]["records"].contains(stance[name].get<std::string>()),
+				std::string("bow stance ") + name + ": no weapon record");
+		}
+		// The string bone of the skins only (bowStringPull2_jnt) has the tracks of the pull.
+		const Json& hold = actions["clips"]["bow_aim_fulldrw_idle_prop"];
+		const bool pull = std::find(hold["bones"].begin(), hold["bones"].end(), Json("bowStringPull2_jnt")) != hold["bones"].end();
+		check(hold.value("prop", false) && pull && near(hold["duration"], 1.66667), "bow full hold: a weapon clip of 1.667 s with bowStringPull2_jnt");
+		// The same clock: at 0.5 s of the charge the body and the weapon clip are both at 1.0 s (each one at its speed 2).
+		const Json* charge = item_of(*bow, "player_bow.adb|Bow_Charge_UpperBody|Bow");
+		const Json& body = fragments["player_bow.adb|Bow_Charge_UpperBody|Bow"]["layers"][0][0];
+		if (charge != nullptr) {
+			const double weaponTime = (*charge)["start"].get<double>() + 0.5 * (*charge)["speed"].get<double>();
+			const double bodyTime = body["start"].get<double>() + 0.5 * body["speed"].get<double>();
+			check(std::fabs(weaponTime - 1.0) < 1e-4 && std::fabs(bodyTime - 1.0) < 1e-4, "bow charge: body and weapon clip at 1.0 s at 0.5 s");
+		}
+	}
+	// The flail: the movement owns the scope Weapon (the overrides of 1H_Melee+Flail), and the attacks have the chain clips.
+	const Json* flail = entry("1H_Melee,Flail");
+	check(flail != nullptr && flail->contains("weaponScope"), "the flail has weapon scopes");
+	if (flail != nullptr && flail->contains("weaponScope")) {
+		const Json* idle = item_of(*flail, (*flail)["stance"]["Idle"].get<std::string>());
+		check(idle != nullptr && (*idle)["clip"] == "rflail_idle_prop", "flail idle: rflail_idle_prop");
+		for (const Json& item : (*flail)["graph"]) {
+			if (item["name"] == "Attack_Primary") {
+				const Json* swing = item_of(*flail, item["fragment"].get<std::string>());
+				check(swing != nullptr && (*swing)["clip"] == "rflail_prim_c1_prop" && near((*swing)["start"], 0.37) && near((*swing)["blendIn"], 0.18449999),
+					"flail Attack_Primary: rflail_prim_c1_prop from 0.37 s");
+			}
+		}
+	}
+	// No weapon clip for the sword (its attachment database has damage clips and effects only) and for the musket (research
+	// weapon-props.md "Musket": its attachment database has no Animation element): their weapons stay static meshes.
+	for (const char* tags : {"1H_Melee,Sword", "2H_Ranged,Rifle"}) {
+		const Json* weapon = entry(tags);
+		check(weapon != nullptr && (!weapon->contains("weaponScope") || (*weapon)["weaponScope"]["clips"].empty()), std::string(tags) + ": no weapon clip");
+	}
+}
+
 /** The weapon switch (protocol notes 4.32, live checks SW-L1 to SW-L3) with two graphs of the data. */
 void switch_tests(const Graph& oldGraph, const Graph& newGraph, int pressStep, const std::string& what)
 {
@@ -1287,6 +1399,7 @@ int main(int argc, char** argv)
 	const Graph greataxeGraph = graph_of(*greataxe);
 	sword_order_tests(swordGraph);
 	marker_order_tests(actions);
+	weapon_scope_tests(actions);
 	switch_tests(hammerGraph, greataxeGraph, 18, "war hammer to great axe");
 	switch_tests(swordGraph, greatswordGraph, 12, "sword to greatsword");
 	driver_tests(swordGraph, greatswordGraph);

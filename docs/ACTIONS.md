@@ -420,9 +420,9 @@ bow-boltcaster, level 70) go into the client as replays (development runs, the s
   until the cells of the new place load (about 24 s on the shared machine); retail shows none with this backend. The retail
   death video shows the fall 1 to 2 s later than the client (the clock of that video is not sure). A press and a release in one
   long frame of a replay lost the press (the drive keeps the second step of a button for the next frame).
-- The weapon clips: in the attachment databases (`playermaleanims_1h_meleeattach.adb`, `_2h_`) only the flail has
-  clips (18, `rflail_*_prop`: its chain); the sword and the greatsword have none (particle effects, the damage clips,
-  and weapon effects only). The clips of the flail, the bow string, and the firearms need the weapons as skeletal meshes.
+- The weapon clips (AST-202): the bow and the flail play their weapon clips on skeletal weapons, on the clock of the body
+  fragment ([GEAR.md](GEAR.md) "The weapon clips"). The sword and the greatsword have no weapon clip (particle effects, the damage
+  clips, and weapon effects only); the musket has none either. Open: the flail strike shapes use the bind pose of its joints.
 - The abilities (stage P3.5): the homing of Wrecking Ball and the pull strike of Reap that only the server makes (later); the
   hits of a cast for `IfAbilityNumHits` (the fields 1 and 2 of the Ability state are not read); the perks of the items for
   the selections and the terms (the client has no perk rows: the artifact of Whirlwind); the cooldown factor of the character

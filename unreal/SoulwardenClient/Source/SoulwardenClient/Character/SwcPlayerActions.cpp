@@ -1486,6 +1486,8 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	if (USwcPlayerAnimInstance* Anim = Animation())
 	{
 		Anim->SetStance(VisualSlot != 0 ? WeaponOf(VisualSlot) : nullptr, bVisualOffhand);
+		// The weapon scope (AST-202): the weapon of the stance plays the weapon records of the fragments.
+		Character()->SetAnimatedWeapon(VisualSlot, Data, Anim);
 		// The aim stance of the bow (the tags Aim and ChargedAim of the ranged player: player_bow.adb Idle and Strafe Bow+Aim,
 		// Bow+ChargedAim).
 		Anim->SetStanceVariant(Ranged.program && Ranged.chargedAim ? TEXT("+ChargedAim") : Ranged.program && Ranged.aim ? TEXT("+Aim") : TEXT(""));

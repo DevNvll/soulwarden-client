@@ -34,7 +34,18 @@ struct FSwcPoseOverlay
 	TArray<int32> Bones;
 };
 
-/** The worker part of the anim instance: it blends the samples of the frame (no animation graph asset). */
+/** One visit of the weapon scope (AST-202): a weapon record (a fragment of the action data), its time, and its weight. */
+struct FSwcWeaponVisit
+{
+	int32 Fragment = INDEX_NONE;
+	float Time = 0.0f;
+	float Weight = 0.0f;
+};
+
+/**
+ * The worker part of the anim instance: it blends the samples of the frame (no animation graph asset). With no sample and with
+ * overlays (a weapon: USwcWeaponAnimInstance) the overlays go over the bind pose.
+ */
 struct FSwcPlayerAnimProxy : public FAnimInstanceProxy
 {
 	FSwcPlayerAnimProxy() = default;
@@ -76,6 +87,12 @@ public:
 
 	/** The samples of the last update. */
 	const TArray<FSwcPoseSample>& GetSamples() const { return Samples; }
+	/**
+	 * The weapon scope of the last update (AST-202, docs/GEAR.md "The weapon clips"): for each fragment of the stance and of the
+	 * action channels whose weapon has a weapon record for it, the record with the time and the weight of the fragment, in the
+	 * order of the overlays (the stance, then the draw or the sheathe, then the attack). USwcWeaponAnimInstance plays them.
+	 */
+	const TArray<FSwcWeaponVisit>& GetWeaponVisits() const { return WeaponVisits; }
 	int32 GetOverlayCount() const { return Overlays.Num(); }
 
 protected:
@@ -136,6 +153,7 @@ private:
 	TArray<FActionLayer> Channels[2];
 	TArray<FSwcPoseSample> Samples;
 	TArray<FSwcPoseOverlay> Overlays;
+	TArray<FSwcWeaponVisit> WeaponVisits;
 	/** The motion parameters (SmoothCD state: value and velocity). */
 	float MoveSpeed = 0.0f;
 	float MoveSpeedRate = 0.0f;
