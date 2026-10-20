@@ -15,6 +15,11 @@ that passes it; call again):
   (Unreal 0.5 = a reflectance of 0.04), the normal (tangent space: X east, Y south, as the Landscape).
 - region:NAME: the macro maps of the region and its material instance MI_SwcTerrain_NAME (the parameters of the slots
   of regions/NAME/terrain-plan.json).
+- mesh material: M_SwcTerrainMesh, the same composite for a mesh (the menu ground of docs/FRONTEND.md): MESH_SLOTS slots
+  with no Landscape switch, the weights of the slots from the textures Weights 0 and Weights 1 (RGBA: four slots each),
+  and the macro maps and the weights over a square of Ground Size metres from the corner (not a region of 2,048 m).
+- menu: the pictures of the menu ground (content/frontend/terrain/menu: the weights, the macro maps of the square;
+  converter/swc_convert/frontend.py ground_terrain) and the instance /SwcGameContent/Terrain/Menu/MI_SwcTerrainMenu.
 """
 import json
 import os
@@ -29,6 +34,10 @@ ROLES = {"albedo": "TA_SwcTerrainAlbedo", "normal": "TA_SwcTerrainNormal", "mask
 MATERIAL = TERRAIN + "/M_SwcTerrain"
 MATERIAL_VERSION = "3"   # 2: the default of the macro normal loads (unreal.load_asset: /Engine/EngineMaterials/FlatNormal);
                          # 3: the vector parameters give RGBA to the custom nodes (the default output is RGB)
+MESH_MATERIAL = TERRAIN + "/M_SwcTerrainMesh"
+MESH_MATERIAL_VERSION = "1"
+MESH_SLOTS = 8   # two weight textures
+MENU = TERRAIN + "/Menu"
 
 assets = unreal.EditorAssetLibrary
 editing = unreal.MaterialEditingLibrary
@@ -79,6 +88,9 @@ def texture_settings(texture, kind):
         texture.set_editor_property("srgb", False)
         texture.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_NORMALMAP)
         texture.set_editor_property("lod_group", unreal.TextureGroup.TEXTUREGROUP_WORLD_NORMAL_MAP)
+    elif kind == "weights":
+        texture.set_editor_property("srgb", False)
+        texture.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_VECTOR_DISPLACEMENTMAP)
     elif kind == "data fast":
         texture.set_editor_property("srgb", False)
         texture.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_DEFAULT)
@@ -237,11 +249,21 @@ def connect(a, a_out, b, b_in):
 
 
 def step_material():
-    if state.get("material") == MATERIAL_VERSION and assets.does_asset_exist(MATERIAL):
+    return build_material(MATERIAL, "material", MATERIAL_VERSION, SLOTS, mesh=False)
+
+
+def step_mesh_material():
+    return build_material(MESH_MATERIAL, "mesh material", MESH_MATERIAL_VERSION, MESH_SLOTS, mesh=True)
+
+
+def build_material(path, key, version, slots, mesh):
+    """M_SwcTerrain (mesh False: the Landscape layer weights and switches, the macro maps of a region of 2,048 m) or
+    M_SwcTerrainMesh (mesh True: the weights from two textures, the macro maps over Ground Size metres)."""
+    if state.get(key) == version and assets.does_asset_exist(path):
         return {"made": False}
-    if assets.does_asset_exist(MATERIAL):
-        assets.delete_asset(MATERIAL)
-    material = tools.create_asset("M_SwcTerrain", TERRAIN, unreal.Material, unreal.MaterialFactoryNew())
+    if assets.does_asset_exist(path):
+        assets.delete_asset(path)
+    material = tools.create_asset(path.rsplit("/", 1)[1], TERRAIN, unreal.Material, unreal.MaterialFactoryNew())
     F4, F3, F1 = (unreal.CustomMaterialOutputType.CMOT_FLOAT4, unreal.CustomMaterialOutputType.CMOT_FLOAT3,
                   unreal.CustomMaterialOutputType.CMOT_FLOAT1)
     arrays = {}
@@ -276,8 +298,15 @@ def step_material():
     local.set_editor_property("const_b", 100.0)
     connect(truncate, "", local, "A")
     macro_uv = editing.create_material_expression(material, unreal.MaterialExpressionDivide, -2550, -900)
-    macro_uv.set_editor_property("const_b", 2048.0)
     connect(local, "", macro_uv, "A")
+    if mesh:
+        ground_size = editing.create_material_expression(material, unreal.MaterialExpressionScalarParameter, -2700, -950)
+        ground_size.set_editor_property("parameter_name", "Ground Size")
+        ground_size.set_editor_property("default_value", 2048.0)
+        ground_size.set_editor_property("group", "Region")
+        connect(ground_size, "", macro_uv, "B")
+    else:
+        macro_uv.set_editor_property("const_b", 2048.0)
     # The macro maps of the region.
     st = unreal.MaterialSamplerType
     samples = {}
@@ -347,9 +376,28 @@ def step_material():
     zero1.set_editor_property("r", 0.0)
     base = layer("Base", one, one, None, x)
     current = ((base, ""), (base, "S1Out"))
-    for slot in range(SLOTS):
+    weight_maps = []
+    if mesh:
+        # The weights of the mesh: four slots in each texture (R, G, B, A), on the grid of the macro maps.
+        for i in range((slots + 3) // 4):
+            node = editing.create_material_expression(material, unreal.MaterialExpressionTextureSampleParameter2D, -2400, -400 + 220 * i)
+            node.set_editor_property("parameter_name", f"Weights {i}")
+            node.set_editor_property("sampler_type", st.SAMPLERTYPE_LINEAR_COLOR)
+            node.set_editor_property("texture", unreal.load_asset("/Engine/EngineResources/Black"))
+            node.set_editor_property("group", "Region")
+            connect(macro_uv, "", node, "UVs")
+            weight_maps.append(node)
+    for slot in range(slots):
         name = f"L{slot:02d}"
         x += 400
+        if mesh:
+            weight = editing.create_material_expression(material, unreal.MaterialExpressionComponentMask, x, 300)
+            for c in ("r", "g", "b", "a"):
+                weight.set_editor_property(c, c == "rgba"[slot % 4])
+            connect(weight_maps[slot // 4], "RGBA", weight, "")
+            node = layer(name, zero1, weight, current, x)
+            current = ((node, ""), (node, "S1Out"))
+            continue
         weight = editing.create_material_expression(material, unreal.MaterialExpressionLandscapeLayerSample, x, 300)
         weight.set_editor_property("parameter_name", name)
         weight.set_editor_property("preview_weight", 0.0)
@@ -387,9 +435,9 @@ def step_material():
     editing.connect_material_property(final, "", mp.MP_NORMAL)
     editing.recompile_material(material)
     assets.save_loaded_asset(material)
-    state["material"] = MATERIAL_VERSION
+    state[key] = version
     save_state()
-    return {"made": True, "slots": SLOTS}
+    return {"made": True, "slots": slots}
 
 
 def import_macro(name, role, kind):
@@ -446,12 +494,62 @@ def step_region(name):
     return {"region": name, "slots": len(plan["slots"]), "instance": path}
 
 
+def step_menu():
+    """The instance of the menu ground: MI_SwcTerrainMenu on M_SwcTerrainMesh with the pictures and values of the ground
+    record of frontend/nighthaven.json (terrain)."""
+    step_mesh_material()
+    record = json.load(open(os.path.join(content, "frontend", "nighthaven.json")))["ground"]["terrain"]
+    index = json.load(open(os.path.join(content, "terrain", "arrays", "index.json")))["slices"]
+    if len(record["slots"]) > MESH_SLOTS:
+        raise RuntimeError(f"the menu ground has {len(record['slots'])} slots, the mesh material {MESH_SLOTS}")
+    textures = {}
+    for i, path in enumerate(record["weights"]):
+        textures[f"Weights {i}"] = (path, "weights", f"T_MenuWeights_{i}")
+    for role, kind in (("color", "data fast"), ("normal", "normal"), ("gloss", "data")):
+        textures[f"Macro {role.capitalize()}"] = (record["macro"][role], kind, f"T_MenuMacro_{role}")
+    path = f"{MENU}/MI_SwcTerrainMenu"
+    instance = assets.load_asset(path) if assets.does_asset_exist(path) else tools.create_asset(
+        "MI_SwcTerrainMenu", MENU, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+    instance.set_editor_property("parent", assets.load_asset(MESH_MATERIAL))
+    for label, (picture, kind, name) in textures.items():
+        texture = import_png(os.path.join(content, picture), MENU, name)
+        texture_settings(texture, kind)
+        assets.save_loaded_asset(texture)
+        editing.set_material_instance_texture_parameter_value(instance, label, texture)
+    set_vector = editing.set_material_instance_vector_parameter_value
+    x0, north = record["corner"]
+    set_vector(instance, "Region Corner", unreal.LinearColor(float(x0), -float(north), 0, 0))
+    editing.set_material_instance_scalar_parameter_value(instance, "Ground Size", float(record["size"]))
+    params = record["macro params"]
+    for label, key in (("Near", "foreground"), ("Far", "background")):
+        p = params[key]
+        set_vector(instance, f"Macro {label} Color", unreal.LinearColor(*p["color"], 1.0))
+        set_vector(instance, f"Macro {label} Scales", unreal.LinearColor(p["color scale"], p["gloss scale"], p["normal scale"], 1.0))
+    set_vector(instance, "Fade", unreal.LinearColor(500.0, 50.0, params["background"]["specular reflectance"], 0.0))
+    set_vector(instance, "Readings", unreal.LinearColor(1.0, 1.0, 0.0, 0.0))
+    named = ([dict(record["base"], slot="Base")] if record.get("base") else []) + [dict(s, slot=f"L{i:02d}") for i, s in enumerate(record["slots"])]
+    for slot in named:
+        s = slot["slot"]
+        set_vector(instance, f"{s} A", unreal.LinearColor(float(index[slot["material"]]), slot["tile"][0], slot["tile"][1], slot["gloss scale"]))
+        set_vector(instance, f"{s} B", unreal.LinearColor(*slot["diffuse color"], slot["specular color"][0]))
+        set_vector(instance, f"{s} C", unreal.LinearColor(slot["height scale"], slot["height offset"], slot["blend factor"], slot["blend falloff"]))
+        set_vector(instance, f"{s} D", unreal.LinearColor(slot["macro blend"], slot["macro gloss blend"], slot["macro saturation"],
+                                                         params["foreground"]["normal scale"]))
+    editing.update_material_instance(instance)
+    assets.save_loaded_asset(instance)
+    return {"menu": path, "slots": len(record["slots"])}
+
+
 if step == "slices":
     report = step_slices()
 elif step == "arrays":
     report = step_arrays()
 elif step == "material":
     report = step_material()
+elif step == "mesh material":
+    report = step_mesh_material()
+elif step == "menu":
+    report = step_menu()
 elif step.startswith("region:"):
     report = step_region(step.split(":", 1)[1])
 elif step.startswith("regions:"):

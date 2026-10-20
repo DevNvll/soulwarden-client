@@ -3,8 +3,9 @@
 # slices and the three texture arrays, the master material M_SwcTerrain, and the material instance of each region.
 # Each call holds the world lock (exclusive: the assets can be in the level) and import.lock, works at most about
 # 400 s (SWC_TERRAIN_MAX_SECONDS), and the script calls again until the step is complete; 15 s between two calls.
-# Usage: tools/import-terrain.sh [--slices] [--arrays] [--material] [--regions NAME...]   (no option: all, with the
-#        regions that have a terrain plan with slots)
+# Usage: tools/import-terrain.sh [--slices] [--arrays] [--material] [--regions NAME...] [--menu]   (no option: all, with
+#        the regions that have a terrain plan with slots; --menu: M_SwcTerrainMesh and the instance of the menu ground,
+#        after tools/convert-frontend.sh scene)
 # Before: tools/convert.sh terrain-plan --all (the plans and the array slices).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
@@ -16,9 +17,10 @@ while [[ $# -gt 0 ]]; do
         --slices) steps+=(slices) ;;
         --arrays) steps+=(arrays) ;;
         --material) steps+=(material) ;;
+        --menu) steps+=(menu) ;;
         --regions) shift; names=(); while [[ $# -gt 0 && "$1" != --* ]]; do names+=("$1"); shift; done
                    steps+=("regions:$(IFS=,; echo "${names[*]}")"); continue ;;
-        *) echo "usage: tools/import-terrain.sh [--slices] [--arrays] [--material] [--regions NAME...]" >&2; exit 1 ;;
+        *) echo "usage: tools/import-terrain.sh [--slices] [--arrays] [--material] [--regions NAME...] [--menu]" >&2; exit 1 ;;
     esac
     shift
 done

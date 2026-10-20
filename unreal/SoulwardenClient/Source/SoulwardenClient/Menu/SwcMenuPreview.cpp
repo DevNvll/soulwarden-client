@@ -567,6 +567,12 @@ void ASwcMenuPreview::BuildGround(const TSharedPtr<FJsonObject>& Ground)
 		}
 		UE_LOG(LogSwcBackend, Log, TEXT("menu: the ground: 301 x 301 m, the picture %s %s"), *Picture, Material != nullptr ? TEXT("on M_SwcSurface") : TEXT("did not load (one color)"));
 	}
+	// The terrain material of the world at the tiling of the layers (M_SwcTerrainMesh: the layer textures, the height blend of the
+	// splats, the macro overlay; tools/import-terrain.sh --menu). The bake above stays the fallback (-SwcMenuGroundBake).
+	UMaterialInterface* Terrain = FParse::Param(FCommandLine::Get(), TEXT("SwcMenuGroundBake")) ? nullptr
+		: LoadObject<UMaterialInterface>(nullptr, TEXT("/SwcGameContent/Terrain/Menu/MI_SwcTerrainMenu.MI_SwcTerrainMenu"), nullptr, LOAD_NoWarn);
+	UE_LOG(LogSwcBackend, Log, TEXT("menu: the ground material: %s"), Terrain != nullptr ? TEXT("MI_SwcTerrainMenu (the layers of the terrain)")
+		: TEXT("the bake (no MI_SwcTerrainMenu, or -SwcMenuGroundBake)"));
 	UMaterialInterface* Base = Material == nullptr ? LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")) : nullptr;
 	if (Base != nullptr)
 	{
@@ -575,7 +581,7 @@ void ASwcMenuPreview::BuildGround(const TSharedPtr<FJsonObject>& Ground)
 			static_cast<uint8>(Color[0]->AsNumber() * 255.0), static_cast<uint8>(Color[1]->AsNumber() * 255.0), static_cast<uint8>(Color[2]->AsNumber() * 255.0))));
 	}
 	UStaticMesh* Mesh = NewObject<UStaticMesh>(this);
-	Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, TEXT("Ground")));
+	Mesh->GetStaticMaterials().Add(FStaticMaterial(Terrain != nullptr ? Terrain : static_cast<UMaterialInterface*>(Material), TEXT("Ground")));
 	UStaticMesh::FBuildMeshDescriptionsParams Params;
 	Params.bFastBuild = true;
 	Params.bMarkPackageDirty = false;

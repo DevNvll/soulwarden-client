@@ -858,3 +858,28 @@ clear, and the haze starts in the distance (AST-207 shows the GeometryBeam sheet
   instance (`m_9f48903ea9`, M_SwcFoliage, the mask from the alpha of the plain base map, 16 % above the cutoff 0.32) is
   right. Seven thin grass records stand 0.3 to 1.2 m in front of the camera (AutoMerge 1); B6-04 shows none there. The
   descriptor has no distance field; the rule is not known (open).
+
+### The menu ground with the layers of the terrain (2026-10-20)
+
+The user: "in retail the ground have texture, client doesn't". The bake of the composite (1,024 px over 301 m, 0.29 m for
+each pixel) was smooth.
+
+- The converter (`frontend.ground_terrain`, in the ground record as `terrain`): the layers of the two menu regions with
+  weight in the square, in the list order (both regions have the same order and the same values for each material: the
+  converter checks it), only the ones with a slice in the texture arrays of the world: forest soil, forest grass, field
+  grass, two rock cliffs, and the base rocky dirt. The three coast sand layers of r_+01_+00 have no slice; they lie 97 to
+  130 m from the character, out of the view: skipped (no change of the shared arrays). The pictures on one 1 m grid of the
+  square (row 0 = north): `frontend/terrain/menu/weights-0.png` and `weights-1.png` (the bilinear splat weights at the
+  pixel centers) and `macro-{color,normal,gloss}.png` (the pixels of the macro maps of the regions).
+- The material: `M_SwcTerrainMesh` (docs/WORLD.md) and the instance `/SwcGameContent/Terrain/Menu/MI_SwcTerrainMenu`
+  (`tools/import-terrain.sh --menu`: the slices of the array index, the plan values, the corner 2881, -2198, Ground Size
+  301). `ASwcMenuPreview` draws the ground with it when it loads; else the bake (`-SwcMenuGroundBake` for a comparison).
+- Run `ground1`: the ground has the texture of the layers at their tiling (the grass, the soil), no compile failure.
+  Crops at 3x: `evidence/F8/fair/ground1-feet-x3.png`, `ground1-ground-left-x3.png` (retail | the bake | the layers).
+- Open: the color at the feet. The weights there are soil 1.00, forest grass 1.00, field grass 0.93: the field grass
+  covers (the height blend), and the ground is green; B6-04 shows brown soil with pebbles there. The dirt decals of the
+  camp ("Decal - Dirt", footprint 2.9 m) lie by the fire, not at the feet. The level has dynamic vegetation components
+  (VegetationMixedGradientLayer, a surface mask filter): not read yet. The splat decode of the menu terrain is the next
+  check.
+- The cooked build: `/SwcGameContent/Terrain` is not in DirectoriesToAlwaysCook; the menu instance loads by path, so a
+  cooked menu shows the bake until the folder (or the instance) is in the cook list.

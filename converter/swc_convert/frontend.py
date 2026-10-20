@@ -418,10 +418,119 @@ def ground(player: list[float]) -> dict:
         albedo = ground_albedo(ox, oy, size)
     except (OSError, ValueError, KeyError) as error:
         albedo = {"error": str(error)[:160]}
+    # The terrain material of the world at the tiling of the layers (M_SwcTerrainMesh, tools/import-terrain.sh menu): the bake
+    # above stays the fallback.
+    try:
+        terrain = ground_terrain(ox, oy, size)
+    except (OSError, ValueError, KeyError) as error:
+        terrain = {"error": str(error)[:160]}
     return {"origin": [ox, oy], "step": 1.0, "size": size, "heights": heights, "color": color,
             "macro": GROUND_MACRO.format(rx=int(player[0] // 2048), ry=int(player[1] // 2048)),
             "picture": albedo.get("picture") or str(out.relative_to(env.content_dir())), "macro picture": str(out.relative_to(env.content_dir())),
-            "composite": {k: v for k, v in albedo.items() if k != "picture"}, "player height": round(height(player[0], player[1]), 3)}
+            "composite": {k: v for k, v in albedo.items() if k != "picture"}, "player height": round(height(player[0], player[1]), 3),
+            "terrain": terrain}
+
+
+def ground_terrain(ox: int, oy: int, size: int) -> dict:
+    """The inputs of the terrain material of the world for the menu ground mesh (M_SwcTerrainMesh; docs/WORLD.md "The terrain
+    material of the game"): the layers of the regions under the square that have weight there, in the list order of the
+    regions (the same order and the same values in both menu regions: checked here), and pictures on one grid of 1 m pixels
+    (row 0 = north; pixel (i, j) covers the metre east of ox + i and south of the north edge oy + size - j):
+    terrain/menu/weights-N.png (RGBA, the weights of four slots, the bilinear value of the splats of layers/SPLAT.r8 at the
+    pixel center) and terrain/menu/macro-{color,normal,gloss}.png (the pixels of the macro maps of the regions).
+    @return The record: the corner (x, the north edge y; m), the size, the slots (material, splat, the plan values), the
+    base, the macro params, and the picture paths."""
+    import numpy as np
+    from PIL import Image
+    from . import terrain_layers
+    terrain = terrain_layers.TERRAINS["nw_frontend_base"]
+    regions_dir = env.content_dir() / terrain.regions
+    north = oy + size
+    keys = [(rx, ry) for rx in range(ox // 2048, (ox + size - 1) // 2048 + 1) for ry in range(oy // 2048, (north - 1) // 2048 + 1)]
+    plans = {k: json.loads((regions_dir / f"r_+{k[0]:02d}_+{k[1]:02d}" / "terrain-plan.json").read_text()) for k in keys}
+    # The pixel centers in game metres.
+    xs = ox + np.arange(size) + 0.5
+    ys = north - np.arange(size) - 0.5
+    gx, gy = np.meshgrid(xs, ys)
+
+    def per_region(read) -> np.ndarray:
+        out = np.zeros((size, size) + read(None, None, None, None).shape[2:], dtype=np.float64)
+        for (rx, ry), plan in plans.items():
+            inside = (gx // 2048 == rx) & (gy // 2048 == ry)
+            if inside.any():
+                out[inside] = read(rx, ry, plan, inside)[inside]
+        return out
+
+    def splat(rx, ry, plan, inside, name):
+        if rx is None:
+            return np.zeros((size, size))
+        path = regions_dir / f"r_+{rx:02d}_+{ry:02d}" / "layers" / f"{name}.r8"
+        if not path.is_file():
+            return np.zeros((size, size))
+        w = np.fromfile(path, np.uint8).reshape(2048, 2048)[::-1].astype(np.float64) / 255.0   # row 0 = south: w[ly, lx]
+        lx, ly = np.clip(gx - rx * 2048, 0, 2047.0), np.clip(gy - ry * 2048, 0, 2047.0)
+        x0, y0 = np.minimum(lx.astype(int), 2046), np.minimum(ly.astype(int), 2046)
+        fx, fy = lx - x0, ly - y0
+        return (w[y0, x0] * (1 - fx) * (1 - fy) + w[y0, x0 + 1] * fx * (1 - fy) + w[y0 + 1, x0] * (1 - fx) * fy
+                + w[y0 + 1, x0 + 1] * fx * fy)
+
+    # The slots: the union of the region lists in their order, only the layers with weight in the square and a slice in the
+    # texture arrays of the world (terrain/arrays/index.json). The three coast sand layers of r_+01_+00 have no slice; they
+    # lie 97 to 130 m from the character, out of the view of MainCamera: skipped (no change of the shared arrays).
+    slices = json.loads((env.content_dir() / "terrain" / "arrays" / "index.json").read_text())["slices"]
+    skipped = []
+    values = ("tile", "diffuse color", "specular color", "gloss scale", "height scale", "height offset", "blend factor",
+              "blend falloff", "macro blend", "macro gloss blend", "macro saturation")
+    slots, weights = [], []
+    for plan in plans.values():
+        for slot in plan["slots"]:
+            if any(s["material"] == slot["material"] for s in slots):
+                continue
+            w = per_region(lambda rx, ry, p, inside, s=slot: splat(rx, ry, p, inside, Path(s["weights"]).stem if rx is None else
+                                                              next((x["splat"] for x in p["slots"] if x["material"] == s["material"]), "")))
+            if w.max() <= 0.0:
+                continue
+            if slot["material"] not in slices:
+                skipped.append(slot["material"])
+                continue
+            slots.append({"material": slot["material"], "splat": slot["splat"], **{k: slot[k] for k in values}})
+            weights.append(w)
+    for plan in plans.values():
+        for slot in plan["slots"]:
+            same = next((s for s in slots if s["material"] == slot["material"]), None)
+            if same is not None and any(same[k] != slot[k] for k in values):
+                raise ValueError(f"the values of {slot['material']} differ between the menu regions")
+    order = [[s["material"] for s in plan["slots"] if any(s["material"] == x["material"] for x in slots)] for plan in plans.values()]
+    for o in order:
+        if o != [s["material"] for s in slots if s["material"] in o]:
+            raise ValueError(f"the slot order differs between the menu regions: {order}")
+    out_dir = env.content_dir() / "frontend" / "terrain" / "menu"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pictures = []
+    for n in range(0, len(weights), 4):
+        packed = np.zeros((size, size, 4))
+        for c, w in enumerate(weights[n:n + 4]):
+            packed[..., c] = w
+        path = out_dir / f"weights-{n // 4}.png"
+        Image.fromarray(np.clip(packed * 255.0 + 0.5, 0, 255).astype(np.uint8), "RGBA").save(path)
+        pictures.append(str(path.relative_to(env.content_dir())))
+    macro = {}
+    for role in ("color", "normal", "gloss"):
+        def read(rx, ry, plan, inside, role=role):
+            if rx is None:
+                return np.zeros((size, size, 4))
+            image = np.asarray(Image.open(regions_dir / f"r_+{rx:02d}_+{ry:02d}" / plan["macro"][role]).convert("RGBA"), dtype=np.float64)
+            col = np.clip((gx - rx * 2048).astype(int), 0, 2047)
+            row = np.clip(2047 - (gy - ry * 2048).astype(int), 0, 2047)
+            return image[row, col]
+        picture = per_region(read)
+        path = out_dir / f"macro-{role}.png"
+        Image.fromarray(np.clip(picture + 0.5, 0, 255).astype(np.uint8), "RGBA").save(path)
+        macro[role] = str(path.relative_to(env.content_dir()))
+    first = next(iter(plans.values()))
+    return {"corner": [ox, north], "size": size, "slots": slots, "skipped (no array slice)": skipped, "weights": pictures, "macro": macro,
+            "base": {"material": first["base"]["material"], **{k: first["base"][k] for k in values}} if first.get("base") else None,
+            "macro params": first["macro params"]}
 
 
 def ground_albedo(ox: float, oy: float, size: int, pixels: int = GROUND_ALBEDO) -> dict:

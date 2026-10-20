@@ -635,6 +635,7 @@ tools/convert.sh terrain-layers NAME... --terrain nw_frontend_base   # the terra
 tools/convert.sh terrain-plan --all     # the plan of each region and the slices of the texture arrays
 tools/import-terrain.sh                 # the arrays, M_SwcTerrain, and MI_SwcTerrain_REGION of each region with layers
 tools/build-world.sh --terrain NAME...  # the Landscape of a region again, with one target layer for each slot
+tools/import-terrain.sh --menu          # M_SwcTerrainMesh and MI_SwcTerrainMenu: the menu ground (docs/FRONTEND.md)
 ```
 
 - The game composes the layers of a region into its terrain tiles (`TerrainTileCompositePS`): the diffuse, gloss,
@@ -671,6 +672,10 @@ tools/build-world.sh --terrain NAME...  # the Landscape of a region again, with 
   road of the surface layer, S1), river-forest 42.1 -> 22.5, river-highlands 24.2 -> 24.3, ocean-clear 7.7 -> 11.8,
   ocean-storm 18.2 -> 19.4, cleave-outside 22.2 -> 9.9, cleave-inside 34.2 -> 13.8, fen-outside 39.8 -> 21.4,
   fen-inside 26.6 -> 21.0. The rest of the river, beach, and fen views is the water and the ground cover (T3).
+- `M_SwcTerrainMesh` (the step `mesh material`): the same builder and the same composite for a mesh, the menu ground of
+  docs/FRONTEND.md: 8 slots with no Landscape switch, the weights from the textures `Weights 0` and `Weights 1` (RGBA,
+  four slots each), the macro maps and the weights over `Ground Size` metres from the corner. M_SwcTerrain is not made
+  again (its version stays 3; its file, the region instances, and the arrays are the same bytes after the menu import).
 - GPU memory: the three arrays are about 1 GB. Each client of this project needs about 6 GB of the 24 GB GPU; with
   other clients and a retail game process on it, a client stopped with "Failed to allocate Device Memory".
 
