@@ -222,3 +222,7 @@ and `sbs-campfire-c.mp4`; the still crops `torches-x3.png`, `candles-x2.png`, an
 
 The open rules for the next round: the time-of-day brightness B, the inputs P and M of the view distance, the size difference of the
 torch and the candle flames (a factor of about 1.5 to 2 with the half-size rule), and the gravity under the component scale.
+
+After the rebase on E5 (swc.LightScale 1), take `p2f-torch.mp4` (`torch-candles-lightscale1.png`: retail left, client right): the candle
+flames show, orange, a little smaller than retail; the torch flame is paler (pink-white) and about half the size of the retail flame.
+
