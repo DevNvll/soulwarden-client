@@ -8,8 +8,11 @@
 #   - the release backend copy (SWC_BACKEND_DIR), which must be the current release of the user (shared database
 #     schema: a newer backend migrates the database, and then the retail game refuses it);
 #   - one network namespace with loopback only for the backend and the client (tools/lib/session.sh).
-# Usage: tools/play.sh [--check] [-- CLIENT ARGUMENTS]
-#   --check   checks everything and starts nothing. Status 0: a start can begin now.
+# Usage: tools/play.sh [--check] [--cooked | --uncooked] [-- CLIENT ARGUMENTS]
+#   --check     checks everything and starts nothing. Status 0: a start can begin now.
+#   (default)   the cooked build of tools/cook.sh when it is current (no import and no client code change after the cook;
+#               tools/lib/cooked.sh), else the editor binary with the project; a line says which one and why.
+#   --cooked    the cooked build also when it is older than the content or the code; --uncooked: the editor binary.
 # SWC_STEAM_ID=<17 digits> (with SWC_PERSONA_NAME) selects a different Steam id; SWC_STEAM_ID=local selects the
 # fallback identity of the Soulwarden hook.
 set -euo pipefail
@@ -17,11 +20,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 unset SOULWARDEN_DEV_RUN SWC_DEV_RUN
 
 check_only=0
-if [[ "${1:-}" == "--check" ]]; then
-    check_only=1
+build=auto
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --check) check_only=1 ;;
+        --cooked) build=cooked ;;
+        --uncooked) build=uncooked ;;
+        --) shift; break ;;
+        *) break ;;
+    esac
     shift
-fi
-[[ "${1:-}" == "--" ]] && shift
+done
 
 failures=0
 report() { # report ok|FAIL TEXT
@@ -107,12 +116,24 @@ else
     report ok "the backend copy is the current release of the user"
 fi
 
-# 3. The client: the engine and the module of the project.
-module="${SWC_REPO}/unreal/SoulwardenClient/Binaries/Linux/libUnrealEditor-SoulwardenClient.so"
-if [[ -x "${SWC_CLIENT_EXE}" && -f "${module}" ]]; then
-    report ok "client ${SWC_CLIENT_EXE##*/} with the module of the project"
+# 3. The client: the cooked build when it is current (or --cooked), else the engine and the module of the project.
+source "${SWC_REPO}/tools/lib/cooked.sh"
+cooked_line="$(cooked_state)" && cooked_current=1 || cooked_current=0
+client=("${SWC_CLIENT_EXE}" "${SWC_UPROJECT}")
+if [[ "${build}" == "cooked" || ( "${build}" == "auto" && ${cooked_current} -eq 1 ) ]]; then
+    if [[ -x "${cooked_binary}" ]]; then
+        client=("${cooked_binary}" SoulwardenClient)
+        report ok "client: the cooked build (${cooked_line})"
+    else
+        report FAIL "no cooked build in ${cooked_dir} (run tools/cook.sh)"
+    fi
 else
-    report FAIL "no client: ${SWC_CLIENT_EXE} or ${module} is missing (run tools/build.sh editor)"
+    module="${SWC_REPO}/unreal/SoulwardenClient/Binaries/Linux/libUnrealEditor-SoulwardenClient.so"
+    if [[ -x "${SWC_CLIENT_EXE}" && -f "${module}" ]]; then
+        report ok "client ${SWC_CLIENT_EXE##*/} with the module of the project (cooked build: ${cooked_line})"
+    else
+        report FAIL "no client: ${SWC_CLIENT_EXE} or ${module} is missing (run tools/build.sh editor)"
+    fi
 fi
 # The imported content and the world level (the default map): the shared content plugin (docs/WORLD.md).
 if "${SWC_REPO}/tools/content-link.sh" && [[ -f "${SWC_GAME_CONTENT}/Content/World/NewWorld.umap" ]]; then
@@ -181,4 +202,4 @@ fi
 export SWC_RUN=player
 export SWC_SESSION_DATA="${SWC_PLAYER_DATA}" SWC_SESSION_LOCK="${SWC_PLAYER_DATA}/run.lock" SWC_SESSION_SEED=""
 exec "${SWC_REPO}/tools/lib/session.sh" -- \
-    "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" -game -SwcConnect -abslog="${logs}/client-${stamp}.log" "${SWC_CLIENT_ARGS[@]}" "$@"
+    "${client[@]}" -game -SwcConnect -abslog="${logs}/client-${stamp}.log" "${SWC_CLIENT_ARGS[@]}" "$@"

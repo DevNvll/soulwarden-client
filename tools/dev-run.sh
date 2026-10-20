@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # A development run (agents): the backend copy and the client in one network namespace with loopback only, on the own
 # data folder SWC_DEV_DATA (never the data folder of the user), with a made-up Steam identity and a seed character.
-# Usage: tools/dev-run.sh [--window] [--enter [NAME]] [--create SPEC]... [--seed NAME] [--quit-when characters|world] [--stay S]
+# Usage: tools/dev-run.sh [--window] [--cooked] [--enter [NAME]] [--create SPEC]... [--seed NAME] [--quit-when characters|world] [--stay S]
 #                         [--seconds N] [--label TEXT] [-- CLIENT ARGUMENTS]
 #   (default)   the client with no window and no sound (-nullrhi -nosound) in the foreground; it stops after
 #               --seconds (default 120). Logs: SWC_WORK/logs/dev-run/LABEL-client.log, SWC_DEV_DATA/logs/backend.log.
 #   --window    the client window on the own agent desktop "soulwarden-client-dev" or SWC_AGENT_DESKTOP (gamescope, no sound; a window
 #               guard keeps it there: tools/lib/window_guard.py). The script
 #               returns when the window shows; tools/dev-stop.sh stops the run.
+#   --cooked    the staged build of tools/cook.sh (SWC_COOKED; tools/lib/cooked.sh) in place of the editor binary with the
+#               project (a line says when it is older than the content or the code; the development runs stay uncooked by default).
 #   --enter     after the character list the client enters the world with the first character (-SwcPlay=first).
 #   --enter NAME            the same with the character NAME.
 #   --create SPEC           before the client starts, the create request of the retail client makes a character
@@ -21,6 +23,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 unset SOULWARDEN_DEV_RUN
 
 window=0
+cooked="${SWC_DEV_COOKED:-0}"   # SWC_DEV_COOKED=1: the same as --cooked (for the check scripts that call dev-run)
 enter=""
 creates=()
 stay=""
@@ -31,6 +34,7 @@ label="run"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --window) window=1 ;;
+        --cooked) cooked=1 ;;
         --enter)
             enter=first
             if [[ $# -gt 1 && "$2" != --* ]]; then enter="$2"; shift; fi ;;
@@ -69,6 +73,15 @@ fi
 exec 8>&-
 
 client_log="${logs}/${label}-client.log"
+client_window=("${SWC_CLIENT_EXE}" "${SWC_UPROJECT}")
+client_nowindow=("${SWC_CLIENT_CMD}" "${SWC_UPROJECT}")
+if [[ ${cooked} -eq 1 ]]; then
+    source "${SWC_REPO}/tools/lib/cooked.sh"
+    [[ -x "${cooked_binary}" ]] || { echo "dev-run: no cooked build in ${cooked_dir} (tools/cook.sh)" >&2; exit 2; }
+    echo "dev-run: $(cooked_state)" >&2 || true
+    client_window=("${cooked_binary}" SoulwardenClient)
+    client_nowindow=("${cooked_binary}" SoulwardenClient)
+fi
 client_arguments=(-game -nosound -SwcConnect -abslog="${client_log}" "${SWC_CLIENT_ARGS[@]}")
 if [[ -n "${quit_when}" ]]; then
     client_arguments+=(-SwcQuitWhen="${quit_when}")
@@ -97,7 +110,7 @@ if [[ "${window}" == "0" ]]; then
     echo "dev-run: client with no window, ${seconds} s at most, log ${client_log}" >&2
     set +e
     env "${run_environment[@]}" "${SWC_REPO}/tools/lib/session.sh" -- "${client_prefix[@]}" \
-        timeout --kill-after=15 "${seconds}" "${SWC_CLIENT_CMD}" "${SWC_UPROJECT}" "${client_arguments[@]}" \
+        timeout --kill-after=15 "${seconds}" "${client_nowindow[@]}" "${client_arguments[@]}" \
         -nullrhi -unattended -nosplash "$@" >"${logs}/${label}-console.log" 2>&1
     status=$?
     set -e
@@ -144,7 +157,7 @@ omarchy-agent-desktop run --wait "${SWC_WINDOW_WAIT:-180}" --json "${desktop_id}
     env "${run_environment[@]}" \
     gamescope --backend wayland -W "${game_size%x*}" -H "${game_size#*x}" -w "${game_size%x*}" -h "${game_size#*x}" -r 60 -- \
     "${SWC_REPO}/tools/lib/session.sh" -- "${client_prefix[@]}" \
-    "${SWC_CLIENT_EXE}" "${SWC_UPROJECT}" "${client_arguments[@]}" -windowed -ResX="${game_size%x*}" -ResY="${game_size#*x}" "$@" \
+    "${client_window[@]}" "${client_arguments[@]}" -windowed -ResX="${game_size%x*}" -ResY="${game_size#*x}" "$@" \
     >"${logs}/${label}-launch.json" 2>&1 5>&- 6>&- || true
 exec 5>&-   # the session holds its own world lock now
 run_slot_release

@@ -61,6 +61,18 @@ tools/import.sh                # import the converted content into the content p
 tools/dev-run.sh --window --enter   # a development run: the backend and the client, into the world
 ```
 
+The cooked build loads much faster (the world entry about 44 s against 70 to 87 s with the editor binary):
+
+```sh
+tools/cook.sh                  # cook and stage the whole world (cold: about 45 min; again with no change: 2.5 min)
+tools/play.sh                  # the player run: the cooked build when it is current, else the editor binary
+tools/dev-run.sh --window --cooked --enter   # a development run with the cooked build
+```
+
+After an import, a converter change of the content, or a change of the client code (Source, Lua, Config), the cooked build
+is old: `tools/play.sh` uses the editor binary (and says why) until `tools/cook.sh` runs again. See docs/WORLD.md "The
+cooked build".
+
 The whole world needs more steps (the census, the region conversion, the world build, the creatures, the UI, the
 materials, the environment). [AGENTS.md](AGENTS.md) lists each tool in its section "Common workflows", and
 [docs/WORLD.md](docs/WORLD.md) describes the world pipeline.

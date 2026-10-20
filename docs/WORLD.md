@@ -394,7 +394,9 @@ moves it out of `LoadMap`, but the visible terrain must still load before the sc
 the login; not done); a cooked build removes the registry, the World Partition streaming generation (12 s at each start), the
 editor PostLoad, and the DDC builds (the estimate is the next step).
 
-### The cooked build: the estimate of one region (AST-203, 2026-10-20)
+### The cooked build (AST-203, 2026-10-20)
+
+The estimate of one region came first.
 
 A test level with the region r_+04_+02 only (`/Game/Imported/CookTest/CookTest` in a worktree, git ignores it; `build_world.py` with
 `SWC_WORLD_LEVEL` in one call: a second call does not find a level under `/Game` because the commandlet scans only
@@ -415,19 +417,59 @@ A test level with the region r_+04_+02 only (`/Game/Imported/CookTest/CookTest` 
 
 The full world, uncooked, takes 70 to 87 s to the spawn (LoadMap 21 to 25 s: the 784 Landscape proxies that are always loaded).
 
-What a full cook needs:
-- The game target does not compile: `UI/SwcUiSlate.cpp` calls editor functions (`FTextureCompilingManager`,
-  `FMaterialResource::IsCompilationFinished`, `UMaterialInterface::ForceRecompileForRendering`) with no `WITH_EDITOR` guard (the
-  test used a temporary guard).
-- `bUseZenStore=False` (the local Zen server did not start for the cook: "Failed to delete oplog on the ZenServer") or a Zen server.
-- `GameDefaultMap` decides what the cooker takes: the command line value did not reach it (with `NewWorld` it took the whole world).
-- The content that the client loads by path is not in the cook of a map: the roads and decals, the ground cover meshes, the meshes
-  of the collision chunks, the water material, the player, the creatures, the persons, the UI materials
-  (`DirectoriesToAlwaysCook`), and the files that the client reads from the project folder (`Lua/`: not staged).
-- The memory: a cook of the whole world needs more than 16 GB (the RAM rule: a quiet machine).
-- The estimate of the full world: the plugin content is about 36 GB uncooked (meshes 10.0 GB, textures 9.0 GB, characters 5.9 GB,
-  level actors 4.4 GB, terrain 3.6 GB, player 2.8 GB); r_+04_+02 has 3,172 of the 17,389 meshes of the level. A full cook and stage:
-  about 45 to 65 GB of disk, 1.5 to 3 h with a cold cache.
+The full cook (2026-10-20, `tools/cook.sh`; the fixes that it needed are in the list below):
+
+| Item | Value |
+| --- | --- |
+| Cook and stage of the whole world, cold cache | 2,518 s (42 min; 12 cores at nice 10; with 4 cores the shader compile was the limit) |
+| Packages | 64,686 |
+| Disk | the staged build 15.9 GB (`SWC_COOKED`, default `~/Games/soulwarden-client/cooked`), the cooked files of the checkout 29.1 GB (`Saved/Cooked`, for the next incremental cook) |
+| Shaders | 606 unique shader maps of 5,277 assets, 10,766 unique shaders of 18,800 (71 MB of the project, 89 MB global) |
+| The next cook with no change (incremental) | 149 s: 0 packages cooked, 64,677 skipped, then the stage |
+
+The fixes of the full cook:
+- The game target: `UI/SwcUiSlate.cpp` calls editor functions (`FTextureCompilingManager`, `FMaterialResource::IsCompilationFinished`,
+  `UMaterialInterface::ForceRecompileForRendering`) only in an editor build (`WITH_EDITOR`; a cooked game has the platform data
+  of a texture at once and the shaders of the cook).
+- `bUseZenStore=False` (DefaultGame.ini): the cook writes loose files (the local Zen server did not start for a cook: "Failed to
+  delete oplog on the ZenServer"; a store in Zen also needs that server at each stage).
+- The map: the cooker reads `GameDefaultMap` from the config files of the target platform, not from the command line. The whole
+  world is the default map; `tools/cook.sh --map MAP` writes a temporary `Config/Linux/LinuxEngine.ini` for a test level.
+- The content that the client loads by path: `DirectoriesToAlwaysCook` of DefaultGame.ini (Base, Characters, Collision,
+  Environment, Materials, Meshes, Player, Roads, SwcUi, Water of the plugin; BasicShapes, EngineSky, EngineDebugMaterials of the
+  engine), and `DirectoriesToAlwaysStageAsNonUFS` for `Lua/`. The data of the converters stays in `SWC_CONTENT` (the client reads it
+  by the environment, also in the cooked build).
+- The memory: a scope of 20 GB (`SWC_COOK_MEMORY_MAX`); the cooker collects garbage at 14,000 MiB (`MemoryMaxUsedPhysical`; it
+  sees the memory of the computer, not of its scope).
+
+The cooked client against the editor binary (development runs of 2026-10-20 at the road start, `work/world/runs-cooked.sh`;
+the uncooked runs are c2 and c3 of "The loading"; video `evidence/loading/sbs-entry-cooked.mp4`: both entries from the launch):
+
+| Item | Editor binary | Cooked |
+| --- | --- | --- |
+| The world entry: the process start to the spawn | 69.9 to 87.0 s | 43.5 s |
+| The engine init (LoadMap) | 32.5 to 34.6 s (20.8 to 22.7 s) | 15.5 s (11.3 s: the Landscape that is always loaded) |
+| The wait of the screen at the world entry | 29.8 to 46.2 s | 18.5 s |
+| PLAY of the front end: the wait | 27.9 to 32.4 s | 14.0 s |
+| The travel of 426.7 m | 3.7 to 3.8 s | 2.7 s |
+| Late content within 150 m in the 10 s after the screen | 0 | 0 (entry, PLAY, travel) |
+| The light after the screen | luma within 2 to 3 % | luma within 2 % (71.0 to 72.6), exposure within 0.14 EV |
+| The longest frame in the 5 s after the spawn | 0.08 s | 0.145 s |
+
+The rest of the cooked world entry: LoadMap 11.3 s (the 784 Landscape proxies: a second runtime grid would move them out of
+LoadMap), about 10 s of the login and the character list, the wait of 18.5 s (the cells within 150 m, the systems, the light).
+
+A new cook after a change (the rule): an import, a converter change of the content, or a change of the client code (Source,
+Lua, Config) makes the cooked build old; `tools/play.sh` then uses the editor binary (and says why) until `tools/cook.sh` runs
+again. The cook is incremental: it cooks only the packages that changed and their dependents, and stages again (149 s with no
+change); a change of materials also compiles their shader maps (the shaders were most of the 42 min of the cold cook). The
+development runs stay uncooked (fast work); a check of the cooked build: `tools/dev-run.sh --cooked`.
+
+The runs: `tools/dev-run.sh --cooked` (or `SWC_DEV_COOKED=1` for the check scripts) starts the staged build in place of the
+editor binary with the project; the development runs stay uncooked by default (fast work). `tools/play.sh` takes the cooked
+build when it is current (`tools/lib/cooked.sh`: no import after the cook (the state files of the plugin and the manifest of the
+converters) and the same client code (a hash of Source, Lua, Config)); else the editor binary, with a line that says why
+(`--cooked` and `--uncooked` force one).
 
 ## The collision of the game (P4.1 part 1)
 

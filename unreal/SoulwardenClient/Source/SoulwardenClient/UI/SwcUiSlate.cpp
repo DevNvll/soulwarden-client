@@ -145,8 +145,11 @@ UTexture2D* FSwcUiResources::MaterialTexture(const std::string& File)
 		FailedTextures.Add(Path);
 		return nullptr;
 	}
+#if WITH_EDITOR
+	// An editor build compiles the texture async; a cooked game has its platform data at once.
 	UTexture* Built[] = {Texture};
 	FTextureCompilingManager::Get().FinishCompilation(Built);
+#endif
 	FTexture Entry;
 	Entry.Texture.Reset(Texture);
 	Entry.LoadTime = FPlatformTime::Seconds();
@@ -171,12 +174,14 @@ UMaterialInterface* FSwcUiResources::MaskMaterial(bool bAdditive)
 		// The client is an uncooked game run: a shader map from the cache can miss the Slate shaders of a custom
 		// vertex mesh, and the engine compiles a missing shader only while a compile of the map runs. Then a recompile
 		// makes the full map (the next runs load it from the cache).
+#if WITH_EDITOR   // a cooked game has the shaders of the cook
 		const FMaterialResource* Resource = Material->GetMaterialResource(GMaxRHIShaderPlatform);
 		if (Resource != nullptr && Resource->IsCompilationFinished() && !Resource->IsGameThreadShaderMapComplete())
 		{
 			UE_LOG(LogSwcUiSlate, Log, TEXT("ui: the mask material %s has an incomplete shader map: it compiles again"), Path);
 			Material->ForceRecompileForRendering();
 		}
+#endif
 	}
 	return MaskMaterials[Index].Get();
 }
