@@ -50,4 +50,5 @@ private:
 
 	float Applied = -1.0f;
 	double NextEffects = 0.0;
+	double NextEffectsLog = 0.0;
 };

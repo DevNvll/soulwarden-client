@@ -325,6 +325,14 @@ reader, no game content in git):
 The color chart of 181 of the 182 time-of-day volumes is `textures/colorcharts/default_cch.dds`, an exact identity chart (one quest
 volume has its own chart). Thus no chart is copied.
 
+The other controls of the chart (audit item 4, 2026-10-20; `research/e5-chart-controls.md`): the supported baseline has identity
+levels (0, 255, 1, 0, 255), the chart brightness, contrast, and saturation 1, the saturation offset 0, and no selective color. The
+merged chart differs from identity only by the photo filter of the time-of-day preset, applied once after the sRGB encode: that is
+what `M_SwcGrade` does (the code of the saved asset is the code of `Scripts/import_sky.py`). The time-of-day presets have no other
+control of the grade ("Filters: grain" and "HDR dynamic power factor" are 0 in all 160 presets). The cinematic chart and the
+transient grades (whisper, injury, spell, spyglass) belong to their effect groups and are not in the world grade. Open: the 16-cube
+bake of the source (its interpolation and its 8-bit steps) for an exact chart parity.
+
 The client (`Environment/SwcEnvironmentSubsystem.cpp`, `M_SwcGrade` of `Scripts/import_sky.py`):
 
 - The meter is the Unreal meter that ignores the materials (`r.AutoExposure.IgnoreMaterials 1`, the luminance over the base color

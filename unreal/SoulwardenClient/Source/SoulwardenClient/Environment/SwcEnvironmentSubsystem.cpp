@@ -819,9 +819,15 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 			Light->SetIntensity(static_cast<float>(SunLux * SunColor.intensityFactor * Largest * (1.0 - MoonWeight)));
 			Light->SetLightColor(FLinearColor(static_cast<float>(Outside[0] / Largest), static_cast<float>(Outside[1] / Largest), static_cast<float>(Outside[2] / Largest)));
 			SunTransmittance = Transmittance;
+			// The same light for the effects (MPC_SwcEffects of World/SwcMaterialScale.cpp: the sun of the fog sheets): the source sun on
+			// the ground, not the light before the atmosphere.
+			const double Ground = SunLux * SunColor.intensityFactor;
+			SourceSunLight = FLinearColor(static_cast<float>(SunColor.color[0] * Ground), static_cast<float>(SunColor.color[1] * Ground),
+				static_cast<float>(SunColor.color[2] * Ground), 1.0f);
 		}
 		else
 		{
+			SourceSunLight = FLinearColor::Transparent;
 			Light->SetIntensity(static_cast<float>(SunLux * SunColor.intensityFactor));
 			Light->SetLightColor(Linear(SunColor));
 		}

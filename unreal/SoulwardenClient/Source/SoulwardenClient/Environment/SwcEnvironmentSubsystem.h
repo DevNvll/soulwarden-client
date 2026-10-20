@@ -181,6 +181,12 @@ public:
 	void ClearMenuScene();
 	bool IsMenuScene() const { return Menu.IsSet(); }
 	/** The exposure rule of the source at the place: "EV Min", "EV Max", and "EV Auto compensation" of the blend (the meter probe). */
+	/** The source sun of the hour on the ground (swc.SunSource 1): "Sun color" / its Rec. 709 luminance x "Sun intensity" (lux), the
+	 *  one light of the source (the moon keys at night); A = 1 when set, 0 with swc.SunSource 0 (then a user takes the Unreal light). */
+	FLinearColor GetSourceSunLight() const
+	{
+		return SourceSunLight;
+	}
 	FVector GetExposureRule() const
 	{
 		return FVector(Blended(TEXT("EV Min"), 5.0), Blended(TEXT("EV Max"), 17.0), Blended(TEXT("EV Auto compensation"), 1.5));
@@ -302,6 +308,7 @@ private:
 	int32 MeterSettled = 0;
 	/** The ground transmittance of the atmosphere toward the sun of the last frame (swc.SunSource 1; for the environment log line). */
 	FLinearColor SunTransmittance = FLinearColor::White;
+	FLinearColor SourceSunLight = FLinearColor::Transparent;
 	/** The bloom mix of the source (swc.SourceBloom 1): w of exposure x ((1 - w) x scene + w x blur); 0 when off. */
 	double BloomMix = 0.0;
 	/** The cubes of the local probes (stage E5 step b), loaded at their first use; the cube of the blend and its fraction. */

@@ -277,9 +277,15 @@ The GeometryBeam shader of the source (the fog sheets and fog cards, the fog sph
   ambient of the source, not from a local light, so `USwcMaterialScale` sets `BeamScale` = `swc.BeamScale` (default 1) /
   `swc.LightScale`. The asset default of `BeamScale` is 0: a client without this code draws no beams. The fog of the scene
   attenuates the result (Unreal translucency fog).
-- `MPC_SwcEffects` (`USwcMaterialScale`, 4 times in a second): `SunColorSource` = the main directional light color x its
-  intensity / pi / 10,000 (the source units; the luminance of the water work), `FogColorSource` = the inscattering color
-  of the height fog. Its own collection: a new parameter of `MPC_SwcMaterials` would compile all the world materials again.
+- `MPC_SwcEffects` (`USwcMaterialScale`, 4 times in a second): `SunColorSource` = the source sun of the hour on the ground
+  (from 2026-10-20, with `swc.SunSource 1`: "Sun color" / its luminance x "Sun intensity" / pi / 10,000, research/beam-scale.md;
+  the sun light of Unreal holds the light before its atmosphere, bluer and stronger at a low sun), else the main directional
+  light color x its intensity / pi / 10,000 (the source units; the luminance of the water work), `FogColorSource` = the
+  inscattering color of the height fog. Its own collection: a new parameter of `MPC_SwcMaterials` would compile all the world
+  materials again. The log has the value each 10 s ("the sun of the effects"). In the menu at 16.7 h it is 3.573, 2.325, 1.838
+  (the light gave about 4.48, 3.53, 4.72: the pink haze): the menu 21.8 / +24.4 -> 17.4 / +20.4 (dE / L*, with the menu ground of
+  543638c). The sheets within 30 m of the Player Entity make all of the rest (`swc.MenuBeamBand 1`: 17.2 / +20.1; `2`, the far
+  sheets only: 13.3 / +8.6; no sheets: 13.5 / +8.3); open: the rule that fades them in the source.
 - Version 1 and 2 of the parent did not compile (a wrong pin of the VertexColor node): Unreal drew the default material,
   a wall of gray squares in the menu (2026-10-20, 15:43 to 16:13 UTC). After an import, grep the client log for "Failed to
   compile".

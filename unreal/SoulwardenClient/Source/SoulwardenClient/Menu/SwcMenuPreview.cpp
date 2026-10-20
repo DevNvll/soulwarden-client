@@ -48,6 +48,9 @@ constexpr double FovAspect = 16.0 / 9.0;
  *  the environment of the level (its engine sun and its fixed exposure) they burned the bodies white (the run f4-scene2). */
 TAutoConsoleVariable<int32> CVarMenuLights(TEXT("swc.MenuLights"), 1,
 	TEXT("The lights of the menu scene (stage F4): 1 on (the default), 0 off (a compare; -SwcNoMenuLights at the start)."));
+/** A test of the fog sheets (stage E5): the sheets of a band of distance from the Player Entity only (read when the scene loads). */
+TAutoConsoleVariable<int32> CVarMenuBeamBand(TEXT("swc.MenuBeamBand"), 0,
+	TEXT("A test of the fog sheets of the menu scene (stage E5): 0 all (the default), 1 only the sheets within 30 m of the Player Entity, 2 only the sheets beyond."));
 } // namespace
 
 ASwcMenuPreview::ASwcMenuPreview()
@@ -419,6 +422,7 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 				}
 			}
 			// The fog sheets and cards (the parent M_SwcBeam): one dynamic instance for each material, with the water level.
+			bool bBeam = false;
 			for (int32 Index = 0; bWaterLevel && Index < Component->GetNumMaterials(); ++Index)
 			{
 				UMaterialInterface* Material = Component->GetMaterial(Index);
@@ -436,9 +440,16 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 				}
 				Component->SetMaterial(Index, Beam);
 				++BeamSlots;
+				bBeam = true;
 			}
 			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Component->SetWorldTransform(Placement.Transform);
+			const int32 Band = CVarMenuBeamBand.GetValueOnGameThread();
+			if (bBeam && Band != 0)
+			{
+				const bool bNear = FVector::Dist(Placement.Transform.GetLocation(), Preview->GetActorLocation()) < 3000.0;
+				Component->SetVisibility(Band == 1 ? bNear : !bNear);
+			}
 			Component->RegisterComponent();
 			Preview->SceneParts.Add(Component);
 			++Shown;

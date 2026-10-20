@@ -3,6 +3,7 @@
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Engine/World.h"
+#include "Environment/SwcEnvironmentSubsystem.h"
 #include "UObject/UObjectIterator.h"
 #include "HAL/IConsoleManager.h"
 #include "Materials/MaterialParameterCollection.h"
@@ -74,14 +75,28 @@ void USwcMaterialScale::ApplyEffects()
 			break;
 		}
 	}
-	const FLinearColor Sun = Main ? Main->GetLightColor() * (Main->Intensity / UE_PI / SourceUnitNits) : FLinearColor::Black;
+	// The sun of the sheets: the source sun of the hour on the ground (swc.SunSource 1: research/beam-scale.md, the sun input
+	// Csun = SunColor / Y x SunLux / (N pi)); else the brightest visible directional light. The sun light of Unreal holds the light
+	// before its atmosphere (its color over the ground transmittance), which is bluer and stronger at a low sun.
+	const USwcEnvironmentSubsystem* Environment = World->GetSubsystem<USwcEnvironmentSubsystem>();
+	const FLinearColor Source = Environment != nullptr ? Environment->GetSourceSunLight() : FLinearColor::Transparent;
+	const bool bSource = Source.A > 0.0f;
+	const FLinearColor Sun = bSource ? FLinearColor(Source.R, Source.G, Source.B) * (1.0f / UE_PI / SourceUnitNits)
+		: Main ? Main->GetLightColor() * (Main->Intensity / UE_PI / SourceUnitNits) : FLinearColor::Black;
 	// M_SwcBeam multiplies by EmissiveScale (10,000 cd/m2 x swc.LightScale). The light of the sheets comes from the sun and the
 	// ambient of the source (%APPLY_SUN_COLOR, AmbStrength), not from a local light: the source rule is 10,000 cd/m2 for one
 	// source unit with no look scale, so BeamScale removes swc.LightScale (research emission-fogcards.md, "one shared conversion").
 	const float Look = LightScale();
 	Instance->SetScalarParameterValue(TEXT("BeamScale"),
 		Look > 0.0f ? FMath::Max(0.0f, CVarBeamScale.GetValueOnGameThread()) / Look : 0.0f);
-	Instance->SetVectorParameterValue(TEXT("SunColorSource"), FLinearColor(Sun.R, Sun.G, Sun.B, Main ? 1.0f : 0.0f));
+	Instance->SetVectorParameterValue(TEXT("SunColorSource"), FLinearColor(Sun.R, Sun.G, Sun.B, bSource || Main ? 1.0f : 0.0f));
+	if (World->GetTimeSeconds() >= NextEffectsLog)
+	{
+		NextEffectsLog = World->GetTimeSeconds() + 10.0;
+		UE_LOG(LogSwcMaterialScale, Log, TEXT("SWC material scale: the sun of the effects %.4f %.4f %.4f (%s), BeamScale %.3f"), Sun.R, Sun.G, Sun.B,
+			bSource ? TEXT("the source sun of the hour") : Main ? TEXT("the brightest directional light") : TEXT("none"),
+			Look > 0.0f ? FMath::Max(0.0f, CVarBeamScale.GetValueOnGameThread()) / Look : 0.0f);
+	}
 	const FLinearColor Inscatter = Fog ? Fog->FogInscatteringLuminance : FLinearColor::White;
 	Instance->SetVectorParameterValue(TEXT("FogColorSource"), FLinearColor(Inscatter.R, Inscatter.G, Inscatter.B, Fog ? 1.0f : 0.0f));
 }
