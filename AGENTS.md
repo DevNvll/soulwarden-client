@@ -172,6 +172,9 @@ tools/test-ui.sh --preview                      # the tests of the UI runtime an
 tools/convert-ui.sh items|uistates              # the item data of the inventory screens, the UI state table (stage P2.4)
 tools/convert-ui.sh world                       # the canvases and the data of the UI in the world views: plates, prompts, numbers, ticker (stage WF7)
 tools/convert-ui.sh options                     # the Options screen: its canvas, the option defaults of the client program, the input profiles (stage P2.3)
+tools/test-menu.sh                              # the tests of the menu document reader, the camera curves, and the light rule of the menu scene (no engine)
+tools/convert-frontend.sh clips|scene           # the menu idle clip (then tools/import-player.sh) and the record of the NightHaven scene (docs/FRONTEND.md F4)
+tools/menu-check.sh LABEL SECONDS -- ARGS       # a window run of the front end, recorded (docs/FRONTEND.md; the drives in tests/drive/f*-ui.txt)
 tools/test-items.sh                             # the tests of the bag and the equipment with the states of the backend encoders (no engine)
 tools/dev-build.sh --preset NAME                # a build preset for the dev character (SWC_DEV_DATA must be set; --list: read only)
 tools/convert-player.sh tables|base|wanted      # the player character: databases, base skeletons, the parts that a run asked for
