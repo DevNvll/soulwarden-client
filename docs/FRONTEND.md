@@ -836,10 +836,14 @@ clear, and the haze starts in the distance (AST-207 shows the GeometryBeam sheet
 - Menuwarden had `hairstyle12f`, a name that is not in `female.hairstyledb` (its names end in "m" for both genders): no
   hair. It is made again with `hairstyle12m` (the same face, skin, colors, and archetype); its hair part is converted and
   imported (the picture comes with the next menu run).
-- The character in the frame: with the same camera place (MainCamera) the background stands at the same places as in
-  B6-04 (the tent, the dome, the flowers within a few percent), but the retail character is about 14 % taller and its feet
-  are lower. A character about 0.3 m nearer to the camera (or a larger body) gives this. Open: the place of the Player
-  Entity, the root of the menu clip, the body scale.
+- The character in the frame: on a 50 px grid the retail background is 1.07 to 1.09 larger than in the client (the dome,
+  the lamp post, from the center of the frame), and the retail character 1.14. The menu clip does not move the body (the
+  pelvis stays at its rest place). A camera that keeps the horizontal field of its 16:9 frame (55 degrees vertical at
+  16:9 = 85.6 degrees horizontal) gives 51.9 degrees vertical at 1256 x 660: 1.070. The client used 55 degrees vertical at
+  each aspect; now it keeps the 16:9 horizontal field (`ASwcMenuPreview::UpdateFov`; an inference, FE7 open). The rest of
+  the body ratio (about 1.065) fits the taller pointed hood of retail. Run `fov1`: the character is 580 px tall as in
+  B6-04, and the dome, the lamp post, and the tent apex stand within about 5 px (`evidence/F8/fair/fov1-grid.png`).
+  Menuwarden has its hair (7 of 7 parts).
 - The menu cover (a test, `-SwcMenuCover`): `tools/convert.sh cover r_+01_+00 r_+01_+01 --terrain nw_frontend_base`
   (21 descriptors, 236,005 records, all meshes imported, all overrides with a slot map; the world cover files stay the
   same byte for byte). In the menu the cover has no pawn view: the preview gives the place of the Player Entity
@@ -848,3 +852,9 @@ clear, and the haze starts in the distance (AST-207 shows the GeometryBeam sheet
   show (the pile mesh is 17 cm tall and the records sit 1 to 2 cm under the menu ground: not hidden by the ground; their
   material is the next check), and thin grass stands in front of the camera where B6-04 has none.
   `evidence/F8/fair/feet-cover2-x2.png`. Thus the menu cover stays off by default.
+- The cover at the feet: no leaf pile stands at the feet (the nearest is 2.6 m from the character; 972 leaf piles are in
+  the view at 6.5 to 25 m, most behind the tent, the character, and the props). The brown under the retail feet is the
+  soil of the terrain: the open point of the layer order of the terrain composite (the field grass on top). The leaf pile
+  instance (`m_9f48903ea9`, M_SwcFoliage, the mask from the alpha of the plain base map, 16 % above the cutoff 0.32) is
+  right. Seven thin grass records stand 0.3 to 1.2 m in front of the camera (AutoMerge 1); B6-04 shows none there. The
+  descriptor has no distance field; the rule is not known (open).

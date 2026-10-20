@@ -36,8 +36,12 @@ constexpr double CameraPitch = -3.5;
 constexpr double CameraYaw = -121.5;
 /** The body yaw -147.88 degrees of the game: the Unreal yaw of the mesh is its negative (the native mesh faces game +Y). */
 constexpr double BodyYaw = 147.8817902;
-/** The vertical FOV of MainCamera (degrees). */
+/** The FOV of MainCamera (degrees): vertical for a 16:9 frame. The horizontal field stays the same at another window aspect
+ *  (85.6 degrees): at the 1256 x 660 window of B6-04 the background of retail is 1.07 to 1.09 larger than with 55 degrees
+ *  vertical (the dome, the lamp post; this rule gives 1.070). An inference from the matched picture; the native code is open
+ *  (FE7). */
 constexpr double VerticalFov = 55.0;
+constexpr double FovAspect = 16.0 / 9.0;
 /** The lights of the scene: their candela are physical units for the environment of the client (its menu mode, SetEnvironment). With
  *  the environment of the level (its engine sun and its fixed exposure) they burned the bodies white (the run f4-scene2). */
 TAutoConsoleVariable<int32> CVarMenuLights(TEXT("swc.MenuLights"), 1,
@@ -712,8 +716,9 @@ void ASwcMenuPreview::UpdateFov(float Aspect)
 {
 	if (Aspect > 0.0f)
 	{
+		// The horizontal field of the 16:9 frame (VerticalFov): the same at each window aspect (Unreal keeps the horizontal FOV).
 		const double Half = FMath::DegreesToRadians(VerticalFov * 0.5);
-		Camera->SetFieldOfView(static_cast<float>(FMath::RadiansToDegrees(2.0 * FMath::Atan(FMath::Tan(Half) * Aspect))));
+		Camera->SetFieldOfView(static_cast<float>(FMath::RadiansToDegrees(2.0 * FMath::Atan(FMath::Tan(Half) * FovAspect))));
 	}
 }
 
