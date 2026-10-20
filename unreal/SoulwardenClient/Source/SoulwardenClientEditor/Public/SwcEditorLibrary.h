@@ -125,4 +125,10 @@ public:
 	 *  complex collision mesh and its triangles, the cooked triangle meshes and simple shapes, the key of the cook. */
 	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
 	static FString DescribeCollision(UStaticMesh* Mesh);
+
+	/** Builds the emitters of a particle system (AST-210, docs/PARTICLES.md "The systems"; SwcParticleBuilder.cpp): one stateless
+	 *  emitter for each enabled emitter of the record of systems.json (with "emitterName" and "materialPath"), the user parameters
+	 *  of a placement, then the compile. The system is new (no emitters). @return The errors, or an empty text. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static FString BuildParticleSystem(UObject* System, const FString& SpecJson);
 };

@@ -17,6 +17,8 @@ public class SoulwardenClient : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[] { "SwcUi", "Slate", "SlateCore", "RHI", "RenderCore", "ImageCore", "Renderer" });
 		// The water surfaces (docs/WATER.md): static meshes built at run time from mesh descriptions.
 		PrivateDependencyModuleNames.AddRange(new string[] { "MeshDescription", "StaticMeshDescription" });
+		// The particle effects (docs/PARTICLES.md): the Niagara systems of the importer, played by Effects/SwcEffects.
+		PrivateDependencyModuleNames.AddRange(new string[] { "Niagara" });
 		// The folder Net/ of the connection ("Net/SwcLoginClient.h"), and the vendored wire codec and state reader of
 		// the Soulwarden backend ("server/hub/wire.h", "support/state_decoder.h"; Net/Vendor/soulwarden/NOTICE.md).
 		PrivateIncludePaths.Add(ModuleDirectory);

@@ -72,6 +72,8 @@ private:
 
 	UPROPERTY()
 	TArray<TObjectPtr<UActorComponent>> SceneParts;
+	/** The particle effects of the scene (Effects/SwcEffects: pooled components, stopped at the end). */
+	TArray<TWeakObjectPtr<class UNiagaraComponent>> SceneEffects;
 	TSharedPtr<FStreamableHandle> SceneLoading;
 	bool bScenePlaced = false;
 	/** The content folder of the scene record (its pictures). */

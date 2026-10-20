@@ -17,6 +17,8 @@
 #include "SwcBackendSubsystem.h"
 #include "World/SwcGroundCover.h"
 #include "Components/DecalComponent.h"
+#include "Effects/SwcParticleEffects.h"
+#include "NiagaraComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/SpotLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -253,6 +255,14 @@ void ASwcMenuPreview::EndPlay(const EEndPlayReason::Type Reason)
 	{
 		Cover->SetRegionsFolder(FString());
 	}
+	if (USwcEffectSubsystem* Effects = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcEffectSubsystem>() : nullptr)
+	{
+		for (const TWeakObjectPtr<UNiagaraComponent>& Effect : SceneEffects)
+		{
+			Effects->Stop(Effect.Get(), true);
+		}
+	}
+	SceneEffects.Reset();
 	Super::EndPlay(Reason);
 }
 
@@ -366,7 +376,9 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 		(*CameraRecord)->TryGetNumberField(TEXT("near"), NearClip);
 	}
 	TWeakObjectPtr<ASwcMenuPreview> Self(this);
-	const auto Place = [Self, Placements, Decals, NotConverted, bWaterLevel, WaterLevel, NearClip]()
+	// The particle effects of the scene (AST-210, docs/PARTICLES.md): the list of the particle converter within the radius.
+	const double EffectRadius = Doc->HasField(TEXT("radius")) ? Doc->GetNumberField(TEXT("radius")) : 60.0;
+	const auto Place = [Self, Placements, Decals, NotConverted, bWaterLevel, WaterLevel, NearClip, EffectRadius]()
 	{
 		ASwcMenuPreview* Preview = Self.Get();
 		if (Preview == nullptr)
@@ -452,6 +464,13 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 		}
 		UE_LOG(LogSwcBackend, Log, TEXT("menu: the scene meshes: %d shown, %d not imported, %d not converted; the material overrides: %d slot(s) set, %d not imported; %d of %d decal(s); the fog sheets: %d slot(s), %d material(s) with the water level %.1f m and the near clip %.2f m"),
 			Shown, Missing, NotConverted, SlotsSet, SlotsMissing, DecalsShown, Decals.Num(), BeamSlots, BeamMaterials.Num(), WaterLevel, NearClip);
+		if (USwcEffectSubsystem* Effects = Preview->GetWorld()->GetSubsystem<USwcEffectSubsystem>())
+		{
+			for (UNiagaraComponent* Effect : Effects->StartList(FPaths::Combine(USwcEffectSubsystem::Folder(), TEXT("menu.json")), EffectRadius))
+			{
+				Preview->SceneEffects.Add(Effect);
+			}
+		}
 		Preview->bScenePlaced = true;
 	};
 	SceneLoading = Paths.Num() > 0 ? UAssetManager::GetStreamableManager().RequestAsyncLoad(Paths, Place) : nullptr;

@@ -556,6 +556,11 @@ void ASwcPlayerController::LoadDrive(const FString& Path)
 		Step.Text = Words.Num() > 2 ? Words[2] : FString();
 		Step.Value.X = Words.Num() > 2 ? FCString::Atof(*Words[2]) : 0.0;
 		Step.Value.Y = Words.Num() > 3 ? FCString::Atof(*Words[3]) : 0.0;
+		if (Step.Command == TEXT("exec") && Words.Num() > 2)
+		{
+			// A console line (a test switch of a check, for example "swc.Effects.Test KEY,COUNT"): the rest of the line.
+			Step.Text = FString::Join(TArrayView<const FString>(Words).RightChop(2), TEXT(" "));
+		}
 	}
 	Drive.StableSort([](const FDriveStep& A, const FDriveStep& B) { return A.Time < B.Time; });
 	UE_LOG(LogSwcBackend, Log, TEXT("drive: %d step(s) in %s"), Drive.Num(), *Path);
@@ -653,6 +658,10 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 		{
 			// The camera of a retail sample (stage P3.G): the heading (degrees clockwise from north) and the pitch (positive up).
 			SetControlRotation(FRotator(Step.Value.Y, Step.Value.X - 90.0, 0.0));
+		}
+		else if (Step.Command == TEXT("exec"))
+		{
+			ConsoleCommand(Step.Text);
 		}
 		else if (Step.Command == TEXT("key"))
 		{
