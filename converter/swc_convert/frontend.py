@@ -54,6 +54,10 @@ LIGHT_RADIUS = 40.0
 # The ground of the menu: the Coatlicue world of the menu (MainMenuCoatOverride coatlicue/NW_Frontend_Base of the schedule row,
 # research frontend-native.md FE1): a square of its heights around the Player Entity, 1 m apart.
 GROUND_WORLD = "sharedassets/coatlicue/nw_frontend_base/regions/"
+# The terrain record of the menu terrain: its oceanLevel (78 m; the world: 40 m) is the water plane of the menu level. The fog
+# sheets of the source fade with the height above it (research emission-fogcards.md, the fade F: h): the client M_SwcBeam
+# takes it as WaterLevel.
+GROUND_TERRAIN = "sharedassets/coatlicue/nw_frontend_base/terrain.json"
 GROUND_MACRO = "materials/terrain/nw_frontend_base/nw_frontend_base_{rx}_{ry}/nw_frontend_base_{rx}.{ry}.macro_diff.dds"
 GROUND_HALF = 150
 # The macro color picture of the ground (stage F4b): GROUND_PICTURE x GROUND_PICTURE pixels over the square of the heights.
@@ -476,6 +480,12 @@ def environment(tod: dict | None, mission: bytes | None = None) -> dict:
             "moonSize": number(moon, "Size", 0.8), "source": f"{LEVEL_PAK}:mission_mission0.xml"}
 
 
+def water_level() -> float:
+    """@return The height of the water plane of the menu level in metres (GROUND_TERRAIN oceanLevel)."""
+    from . import source
+    return float(json.loads(source.read(GROUND_TERRAIN).decode("utf-8"))["oceanLevel"])
+
+
 def scene(radius: float = SCENE_RADIUS) -> dict:
     """Writes SWC_CONTENT/frontend/nighthaven.json."""
     import math
@@ -590,7 +600,7 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
         item["slots"] = slot_maps.get(overrides.pair_key(item["mesh"], item["material"]), {}).get("slots", {}) if item["material"] else {}
     doc = {"format": 1, "source": f"{LEVEL_PAK}:{ENTITIES}", "entities": entities, "sequences": sequences, "tod": tod,
            "overrides": {k: v for k, v in override_report.items() if k != "error examples"},
-           "environment": {**environment(tod), **dict(zip(("probes", "cubes"),
+           "environment": {**environment(tod), "waterLevel": water_level(), **dict(zip(("probes", "cubes"),
                                                            menu_probes([l for l in lights if math.dist(l["world"][9:12], player) <= LIGHT_RADIUS])))},
            "menuClip": {"path": MENU_CLIP, "name": MENU_CLIP_NAME}, "radius": radius, "meshes": placements,
            "far": far, "skipped": skipped, "wanted": sorted(wanted),

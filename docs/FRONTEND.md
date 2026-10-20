@@ -788,3 +788,36 @@ has another look). Before F4b (K4, the menu mode): ΔE 24.3 (top 16.2, middle 30
   - Change World (the free world transfer) is not tested; the backend has no world transfer.
   - A new development character with the default archetype clothing showed a head and legs with no torso in the preview
     (the first frame of `f8-flow.png`): not checked yet.
+
+### The fog sheets of the menu: the place of the haze (2026-10-20)
+
+The user: in the client the haze is right in front of the camera; in B6-04 the near trees, the tent, and the character are
+clear, and the haze starts in the distance (AST-207 shows the GeometryBeam sheets from 4a6c1ba).
+
+- The near sheets: 42 sheets stand within 40 m of the camera, 29 of them within 13 m (MainCamera at 3032.5 2045.5 85.2 m): 31 `jav_fogsheet_a`
+  (a vertical plane of 6.6 x 4.3 m, scale 1.7 to 3.7, z scale larger) and 8 `fx_fogcard_02` with the override
+  `fogsheet_foggybeach_cool` (s = 0.03, FinalMultiplier 0.43), and 3 sheets of `fogsheet_azoth_blue_pithota_mat`. The
+  source entities have no hide flag (Visible, MaxViewDistance 500 m): retail draws them.
+- The checks of M_SwcBeam against the source shader text: z is the view depth in metres (v2.w), zs the depth texture x the
+  far distance, s the value of each material (the instance has 0.03), the normal VertexNormalWS (the non-uniform scale is
+  right), the colour space of both maps sRGB (BC1 and BC3 sRGB files), the scale chain 10,000 cd/m2 for one source unit
+  (EmissiveScale 30,000 x BeamScale 1/3). The one difference: h used the world ocean level 40 m; the menu level has 78 m
+  (docs/MATERIALS.md, M_SwcBeam).
+- The fix: the scene record has `environment.waterLevel` (78 m) and the near clip of MainCamera (0.2 m) is read from its
+  camera; `ASwcMenuPreview` sets both on one dynamic instance of each beam material of the scene.
+- The haze added over the scene (linear light, the client with no sheets as the base; retail as it is):
+
+  | Part | Retail | No sheets | Sheets, water 40 m | Water 78 m | Water 78 m, BeamScale 0.29 |
+  | --- | --- | --- | --- | --- | --- |
+  | Trees behind the tent | 0.037 | 0.043 | +0.231 | +0.135 | +0.070 |
+  | Castle and gargoyles | 0.037 | 0.093 | +0.168 | +0.111 | +0.052 |
+  | Backdrop mountain | 0.155 | 0.094 | +0.417 | +0.385 | +0.217 |
+  | Sky left | 0.121 | 0.093 | +0.390 | +0.299 | +0.171 |
+
+  BeamScale 0.29 is 1/3.4, the measured over-brightness of the menu (a test of the exposure work, not a setting). With it,
+  the tent and the trees behind it are clear, as in B6-04. `evidence/F8/beams/water2-*.png` (retail | 4a6c1ba | water
+  78 m | water 78 m and 0.29), runs `beams-water1`, `beams-water2`.
+- Open points: the far haze stays too strong (the backdrop: +0.217 at 0.29 against about +0.06 in retail); the client
+  frames the mountain larger and lower (the camera, FE7); the meaning of `PerFrame_WaterLevel.z` and the sun colour input
+  of `%APPLY_SUN_COLOR` (the client: 100,000 lux / pi / 10,000 = 3.18; the menu preset: 80,259 lux and a sun colour
+  multiplier of 6.4) need a static study of the retail program.

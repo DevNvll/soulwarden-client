@@ -330,8 +330,25 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 			Decals.Add(MoveTemp(Decal));
 		}
 	}
+	// The water plane of the menu level (the oceanLevel of its terrain: 78 m; the world: 40 m). The fog sheets of the source fade
+	// with the height above it (M_SwcBeam WaterLevel, research emission-fogcards.md): with the world value the sheets in front
+	// of the camp drew at full strength, and a thick haze stood a few metres in front of the camera.
+	double WaterLevel = 0.0;
+	const TSharedPtr<FJsonObject>* EnvironmentRecord = nullptr;
+	const bool bWaterLevel = Doc->TryGetObjectField(TEXT("environment"), EnvironmentRecord)
+		&& (*EnvironmentRecord)->TryGetNumberField(TEXT("waterLevel"), WaterLevel);
+	// The near clip of the menu camera (MainCamera: 0.2 m; the parent default 0.1 m): the near fade of the sheets, s x (z - zn).
+	double NearClip = 0.1;
+	const TSharedPtr<FJsonObject>* EntityRecords = nullptr;
+	const TSharedPtr<FJsonObject>* MainCamera = nullptr;
+	const TSharedPtr<FJsonObject>* CameraRecord = nullptr;
+	if (Doc->TryGetObjectField(TEXT("entities"), EntityRecords) && (*EntityRecords)->TryGetObjectField(TEXT("MainCamera"), MainCamera)
+		&& (*MainCamera)->TryGetObjectField(TEXT("camera"), CameraRecord))
+	{
+		(*CameraRecord)->TryGetNumberField(TEXT("near"), NearClip);
+	}
 	TWeakObjectPtr<ASwcMenuPreview> Self(this);
-	const auto Place = [Self, Placements, Decals, NotConverted]()
+	const auto Place = [Self, Placements, Decals, NotConverted, bWaterLevel, WaterLevel, NearClip]()
 	{
 		ASwcMenuPreview* Preview = Self.Get();
 		if (Preview == nullptr)
@@ -342,6 +359,8 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 		int32 Missing = 0;
 		int32 SlotsSet = 0;
 		int32 SlotsMissing = 0;
+		int32 BeamSlots = 0;
+		TMap<UMaterialInterface*, UMaterialInstanceDynamic*> BeamMaterials;
 		for (const FPlacement& Placement : Placements)
 		{
 			UStaticMesh* Mesh = Cast<UStaticMesh>(Placement.Mesh.ResolveObject());
@@ -369,6 +388,25 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 					++SlotsMissing;
 				}
 			}
+			// The fog sheets and cards (the parent M_SwcBeam): one dynamic instance for each material, with the water level.
+			for (int32 Index = 0; bWaterLevel && Index < Component->GetNumMaterials(); ++Index)
+			{
+				UMaterialInterface* Material = Component->GetMaterial(Index);
+				const UMaterial* Base = Material != nullptr ? Material->GetBaseMaterial() : nullptr;
+				if (Base == nullptr || Base->GetFName() != FName(TEXT("M_SwcBeam")))
+				{
+					continue;
+				}
+				UMaterialInstanceDynamic*& Beam = BeamMaterials.FindOrAdd(Material);
+				if (Beam == nullptr)
+				{
+					Beam = UMaterialInstanceDynamic::Create(Material, Preview);
+					Beam->SetScalarParameterValue(TEXT("WaterLevel"), static_cast<float>(WaterLevel));
+					Beam->SetScalarParameterValue(TEXT("NearClip"), static_cast<float>(NearClip));
+				}
+				Component->SetMaterial(Index, Beam);
+				++BeamSlots;
+			}
 			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Component->SetWorldTransform(Placement.Transform);
 			Component->RegisterComponent();
@@ -394,8 +432,8 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 			Preview->SceneParts.Add(Component);
 			++DecalsShown;
 		}
-		UE_LOG(LogSwcBackend, Log, TEXT("menu: the scene meshes: %d shown, %d not imported, %d not converted; the material overrides: %d slot(s) set, %d not imported; %d of %d decal(s)"),
-			Shown, Missing, NotConverted, SlotsSet, SlotsMissing, DecalsShown, Decals.Num());
+		UE_LOG(LogSwcBackend, Log, TEXT("menu: the scene meshes: %d shown, %d not imported, %d not converted; the material overrides: %d slot(s) set, %d not imported; %d of %d decal(s); the fog sheets: %d slot(s), %d material(s) with the water level %.1f m and the near clip %.2f m"),
+			Shown, Missing, NotConverted, SlotsSet, SlotsMissing, DecalsShown, Decals.Num(), BeamSlots, BeamMaterials.Num(), WaterLevel, NearClip);
 		Preview->bScenePlaced = true;
 	};
 	SceneLoading = Paths.Num() > 0 ? UAssetManager::GetStreamableManager().RequestAsyncLoad(Paths, Place) : nullptr;

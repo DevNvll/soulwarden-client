@@ -294,6 +294,14 @@ The GeometryBeam shader of the source (the fog sheets and fog cards, the fog sph
 - `%ENABLE_FADEOUT`: the relative view distance is the camera distance / min(`MaxViewDistance` 8,000 m, `ViewDistRatio`
   60 x the bounding radius of the object): the CryEngine rule of `e_ViewDistRatio` (an inference). Thus a vista sheet of
   the menu (scale 114 to 201, 0.9 to 2.5 km away) does not fade; a fixed distance of 200 m (version 1) hid them.
+- The water plane and the near clip of the menu (2026-10-20, the UI track): the source shader takes h = the world z -
+  `PerFrame_WaterLevel.z` (`geometrybeam@beamps-397e1691` 0022; v5 is the absolute world position, `beamvs` 0042) and
+  z - `PerView_NearFarClipDist.x`. The menu terrain has its own ocean level, 78 m (`nw_frontend_base/terrain.json`; the
+  world 40 m), and the menu camera has a near clip of 0.2 m. The scene record has `environment.waterLevel`, and
+  `ASwcMenuPreview` gives each M_SwcBeam material of its parts one dynamic instance with `WaterLevel` and `NearClip`
+  (the parent and the world stay). The sheets in front of the camp (42 within 40 m of the camera, most with the material
+  `fogsheet_foggybeach_cool`, s = 0.03) lost about 40 % of their light. That `.z` holds the ocean level is still the
+  inference of the study.
 - The menu scene (`frontend.py`): a mesh of `objects/volumetrics/` or `objects/vfx/` is in the subset only when it is a
   static mesh of rule 8; a mesh of `mesh.BEAM_FOLDERS` of an older rule goes to the wanted list. The override materials of
   the scene are audit sources ("menu override"), so that their slot keys have specs.
