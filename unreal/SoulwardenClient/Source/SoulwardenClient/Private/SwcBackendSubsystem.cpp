@@ -242,6 +242,21 @@ const FSwcAccountSession* USwcBackendSubsystem::GetAccountSession() const
 	return Login.IsValid() && LoginError.IsEmpty() ? &Login->GetSession() : nullptr;
 }
 
+void USwcBackendSubsystem::DeleteCharacter(const FString& CharacterId, TFunction<void(bool bDeleted)> Done)
+{
+	if (!Login.IsValid() || Connection.IsValid())
+	{
+		Done(false);
+		return;
+	}
+	Login->DeleteCharacter(CharacterId, [CharacterId, Done = MoveTemp(Done)](bool bDeleted, int32 Status)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("login: the delete of character %s: status %d%s"), *CharacterId, Status,
+				bDeleted ? TEXT(" (deleted)") : TEXT(" (not deleted)"));
+			Done(bDeleted);
+		});
+}
+
 void USwcBackendSubsystem::RefreshCharacterList(TFunction<void(bool bSucceeded)> Done)
 {
 	if (!Login.IsValid())

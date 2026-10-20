@@ -273,6 +273,21 @@ end
 -- the item cell N of the panel of an open bag; "lootbag" (Swc.HostPointOf) is a loot bag near the character; a different name
 -- is the first element with the name.
 local function drive_target(root, name, canvas)
+  -- in:LABEL:NAME: the first shown element NAME in the nearest ancestor of the text LABEL that has one (an element of one row of
+  -- a list, as the options button of the row of a character: stage F8).
+  local inLabel, inName = name:match("^in:([^:]+):(.+)$")
+  if inLabel then
+    local text = drive_target(root, "text:" .. inLabel, canvas)
+    local parent = text and swcui.parent(text)
+    while parent and parent:IsValid() do
+      local found = swcui.find_descendant(parent, inName)
+      if found and found:IsValid() and swcui.enabled_in_hierarchy(found) then
+        return found
+      end
+      parent = swcui.parent(parent)
+    end
+    return nil
+  end
   -- A label of the drive files has "_" for each space (the steps split at spaces).
   local label = name:match("^text:(.+)$")
   label = label and label:gsub("_", " ")
@@ -306,7 +321,27 @@ local function drive_target(root, name, canvas)
     return scan(root)
   end
   if not label and not item then
-    return swcui.find_descendant(root, name)
+    -- The first element with the name; when it is hidden, the first shown one (two popups of one canvas can have buttons with
+    -- the same name: ButtonYes of ButtonHolderYesNo and of ButtonHolderYesNoHold).
+    local first = swcui.find_descendant(root, name)
+    if not first or not first:IsValid() or swcui.enabled_in_hierarchy(first) then
+      return first
+    end
+    local function shown(id)
+      for _, c in ipairs(swcui.children(id)) do
+        if swcui.enabled_in_hierarchy(c) then
+          if swcui.name(c) == name then
+            return c
+          end
+          local found = shown(c)
+          if found then
+            return found
+          end
+        end
+      end
+      return nil
+    end
+    return shown(root) or first
   end
   local static = item and Swc.ItemStatic(item)
   local function scan(id)

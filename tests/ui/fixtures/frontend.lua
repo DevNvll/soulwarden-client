@@ -204,8 +204,24 @@ end
 local function deletes()
   return requests("menu delete")
 end
+-- The path of the player: the options button of the row ("...", MoreInfoButton), then Delete in its list.
+local function click_point(name)
+  local p = Swc.HostPointOf(name)
+  local x, y = p:match("([%d%.]+) ([%d%.]+)")
+  if not x then
+    return false
+  end
+  Swc.HostInput("move", tonumber(x), tonumber(y))
+  Swc.HostInput("button", "left", true)
+  frames(0.05)
+  Swc.HostInput("button", "left", false)
+  frames(0.3)
+  return true
+end
 Swc.hostRequests = {}
-L:OnCharacterDeletePressed()
+check(click_point("in:Gamma_Made:MoreInfoButton"), "delete: the options button of the row of c-3 shows")
+check(Swc.HostPointOf("DeleteButton") ~= "", "delete: the options of the row show Delete")
+check(click_point("DeleteButton"), "delete: a click on Delete")
 frames(0.5)
 check(popupCanvas ~= nil and swcui.canvas_get(popupCanvas, "enabled"), "delete: the popup of the script shows")
 -- The hold buttons: the elements ButtonYes and ButtonNo of ButtonHolderYesNoHold (the script fields ButtonYesHold, ButtonNoHold).

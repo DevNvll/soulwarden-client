@@ -1187,7 +1187,8 @@ void USwcUiSubsystem::EndPreview()
 
 /** The requests of the landing screen (swc/frontend.lua): "menu list" (GetLoginInfoLists: a refresh of the list), "menu preview
  *  ID" (SetVisibleCharacter), "menu show 1|0" (the preview character shows or hides), "menu login ID TYPE" (RequestLogin),
- *  "menu quit DESTINATION" (RequestDisconnect: the desktop, or the return to the character selection), "menu loading" and "menu intro" (later stages). */
+ *  "menu quit DESTINATION" (RequestDisconnect: the desktop, or the return to the character selection), "menu delete ID"
+ *  (DeactivateCharacter, stage F8), "menu loading" and "menu intro" (later stages). */
 void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsystem* Backend)
 {
 	TArray<FString> Parts;
@@ -1260,6 +1261,34 @@ void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsy
 			Preview->SetBodyVisible(Parts.IsValidIndex(2) && Parts[2] == TEXT("1"));
 		}
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: %s"), *Request);
+	}
+	else if (Kind == TEXT("delete"))
+	{
+		// "menu delete ID": DeactivateCharacter of the landing screen after its hold-to-accept popup (stage F8). The id must be a
+		// character of the current account list (the backend also refuses a character of an other account: 404). The result goes
+		// to the script (DeactivateCharacterResult), which asks for its list again.
+		const FString CharacterId = Parts.IsValidIndex(2) ? Parts[2] : FString();
+		const FSwcAccountSession* Session = Backend->GetAccountSession();
+		const bool bKnown = Session != nullptr
+			&& Session->Characters.ContainsByPredicate([&CharacterId](const FSwcCharacterInfo& Character) { return Character.CharacterId == CharacterId; });
+		if (!bKnown || bMenuLogin || Backend->IsEnteringWorld() || Backend->HasConnection())
+		{
+			UE_LOG(LogSwcUi, Warning, TEXT("ui: the front end: no delete of %s (%s)"), *CharacterId,
+				!bKnown ? TEXT("not in the account list") : TEXT("a login runs"));
+			Runtime->call("HostMenuDeleteResult", {FArg::of(Utf8(CharacterId)), FArg::of(false)});
+			return;
+		}
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the delete of %s"), *CharacterId);
+		TWeakObjectPtr<USwcUiSubsystem> Self(this);
+		Backend->DeleteCharacter(CharacterId, [Self, CharacterId, Generation = SeenMenuReturns](bool bDeleted)
+			{
+				USwcUiSubsystem* Ui = Self.Get();
+				if (Ui == nullptr || !Ui->Runtime.IsValid() || Ui->SeenMenuReturns != Generation)
+				{
+					return;   // the screens started again in the meantime (a return to the menu): the old result is not shown
+				}
+				Ui->Runtime->call("HostMenuDeleteResult", {FArg::of(Utf8(CharacterId)), FArg::of(bDeleted)});
+			});
 	}
 	else if (Kind == TEXT("login"))
 	{

@@ -113,6 +113,8 @@ public:
 	const FSwcAccountSession* GetAccountSession() const;
 	/** The refresh of the landing screen: GET getlogininfo again (FSwcLoginClient::RefreshLoginInfo). */
 	void RefreshCharacterList(TFunction<void(bool bSucceeded)> Done);
+	/** Deletes a character of the account (stage F8: the landing screen). Done gets true when the backend deleted it. */
+	void DeleteCharacter(const FString& CharacterId, TFunction<void(bool bDeleted)> Done);
 	/** @return True from EnterWorld to the reply of the login queue (the login token). */
 	bool IsEnteringWorld() const { return bEnteringWorld; }
 	/**

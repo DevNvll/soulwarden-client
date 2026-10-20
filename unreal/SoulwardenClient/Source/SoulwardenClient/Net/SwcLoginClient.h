@@ -151,6 +151,13 @@ public:
 	 */
 	void RefreshLoginInfo(FDone Done);
 
+	/**
+	 * DELETE /prod/game/characters/ID (the delete of a character of the landing screen, stage F8 of docs/FRONTEND.md; the native
+	 * chain of DeactivateCharacter). Done gets true for the reply 200; else the status (404: no character of this account;
+	 * 409 or 500: not deleted or not complete). Needs a done Start.
+	 */
+	void DeleteCharacter(const FString& CharacterId, TFunction<void(bool bDeleted, int32 Status)> Done);
+
 	/** POST /prod/game/login/queue/v2: the login token of a character (protocol notes 2.1 step 5). Needs a done Start. */
 	void RequestLoginToken(const FString& CharacterId, FTokenDone Done);
 

@@ -751,3 +751,40 @@ has another look). Before F4b (K4, the menu mode): ΔE 24.3 (top 16.2, middle 30
   materials work of AST-207. `evidence/F4b/compare/backdrop-crop.png`, `feet-crop.png`.
 - After these steps (with the composite ground): ΔE 18.4. The client is still brighter (L* +19.9), less saturated (-0.12), and colder than B6-04, with
   less fog and no dark parts (the dark part 0.00 against 0.23).
+
+### F8, the delete of a character (2026-10-20)
+
+- The path of the scripts: the options button of a row (the element `MoreInfoButton` of `charactercreatebutton.luac`; the
+  element `CharacterMoreInfoButton` is the level icon) shows the options of the row: Change World and Delete Character
+  (`DeleteButton`). Delete calls `OnCharacterDeletePressed`: `RequestPopupWithParams` with `holdToAccept` and
+  `buttonsYesNo` (the title `DeletePopupTitle`, the text `mm_deletecharwarning` with the name of the character). The popup
+  screen shows its hold buttons (`ButtonYes` and `ButtonNo` of `ButtonHolderYesNoHold`). Yes after a full hold:
+  `selectedCharacterIndex` -1, the server spinner, and its callback calls
+  `UiCharacterServiceRequestBus.DeactivateCharacter(selectedCharacterId)`.
+- `swc/frontend.lua`: `DeactivateCharacter` gives "menu delete ID"; `Swc.HostMenuDeleteResult(id, ok)` sends
+  `DeactivateCharacterResult(ok, id)` of `UiCharacterServiceNotificationBus`, and the script asks for its list again.
+- The native data call `Game.GetFreeTransferCooldown` (the CRC 771443387 of the lower-case path, with the character id,
+  when the options of a row show) gives a Duration of 0 s: the backend has no world transfer. Before, the call gave the id
+  back, and `charactercreatebutton.luac` had 7 Lua errors (`ToSeconds` of a text).
+- The host: `USwcUiSubsystem` takes "menu delete ID" only for an id of the list of the account and while no login runs;
+  else the result is false at once. `USwcBackendSubsystem::DeleteCharacter` refuses while a world connection is open;
+  `USwcLoginClient::DeleteCharacter` sends `DELETE /prod/game/characters/{id}` with the gateway headers. Status 200 is a
+  delete (the backend gives `{}`); 404 (an unknown id or a character of another account) and each other status are a
+  failure. A result that comes after a return to the menu does not go to the new runtime.
+- The UI drive: the element name `in:LABEL:NAME` (a button of one row of a list, docs/UI.md).
+- The text measure: the popup showed "deleteDeletewarden?" (no space before the colored name). The client measured the
+  text at scale 1 and Slate drew it at the DPI scale of the window (docs/UI.md, the text measure).
+- The run `f8-delete4` (`tests/drive/f8-delete-ui.txt`, the made-up development character Deletewarden; 2026-10-20 17:19
+  UTC, on e7b2583 with the clean shared content): the row, its options, Delete, the popup; a hold of 0.5 s sends nothing;
+  a hold of 3.5 s sends one DELETE (1.3 s after the press: the hold time of the popup and the spinner), status 200; the
+  list again with 2 characters and the next character selected; 0 Lua errors. `evidence/F8/compare/f8-flow.png`,
+  `f8-delete4.mp4`, `popup-before-after.png`.
+- Tests: the fixture `frontend` (94 checks; the F8 part: the path of the player through the options of the row, the popup,
+  No, a hold of 0.3 s, a hold of 3 s, one request, the refresh and the new selection, a failed delete, the last character).
+- Open points:
+  - No retail picture of the delete popup: the layout comes from the original canvas, the text from the original
+    localization. The wraps of the popup text follow the drawn widths now; the retail wraps are not checked.
+  - The hold time of the retail popup is not measured.
+  - Change World (the free world transfer) is not tested; the backend has no world transfer.
+  - A new development character with the default archetype clothing showed a head and legs with no torso in the preview
+    (the first frame of `f8-flow.png`): not checked yet.

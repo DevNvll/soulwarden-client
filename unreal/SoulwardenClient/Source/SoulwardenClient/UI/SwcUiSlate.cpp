@@ -286,12 +286,13 @@ float FSwcUiResources::width(const std::string& FontFile, float Size, float Lett
 		return static_cast<float>(Text.size()) * Size * 0.5f;
 	}
 	const FString Line = UTF8_TO_TCHAR(std::string(Text).c_str());
+	// The width at the drawn scale, in canvas units.
 	if (!FMath::IsNearlyZero(LetterSpacing))
 	{
-		return static_cast<float>(Shape(FontFile, Size, LetterSpacing, Line, 1.0f)->GetMeasuredWidth());
+		return static_cast<float>(Shape(FontFile, Size, LetterSpacing, Line, MeasureScale)->GetMeasuredWidth()) / MeasureScale;
 	}
 	const TSharedRef<FSlateFontMeasure> Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
-	return static_cast<float>(Measure->Measure(Line, Font(FontFile, Size, 0.0f)).X);
+	return static_cast<float>(Measure->Measure(Line, Font(FontFile, Size, 0.0f), MeasureScale).X) / MeasureScale;
 }
 
 float FSwcUiResources::line_height(const std::string& FontFile, float Size)
@@ -334,6 +335,7 @@ int32 SSwcUiCanvas::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeo
 		return LayerId;
 	}
 	const FSlateRenderTransform ToWindow = AllottedGeometry.GetAccumulatedRenderTransform();
+	Resources->SetMeasureScale(AllottedGeometry.GetAccumulatedLayoutTransform().GetScale());
 	FSlateRenderer* Renderer = FSlateApplication::Get().GetRenderer();
 	int32 Layer = LayerId;
 	TArray<FSlateVertex> Vertices;

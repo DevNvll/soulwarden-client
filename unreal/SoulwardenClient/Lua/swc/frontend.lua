@@ -68,6 +68,10 @@ Swc.frontend = F
 -- The pending world merges of the account (a native data call of landingscreenv2.luac and worldlistdatahandler.luac by the
 -- CRC 225285239): none, as the PendingWorldMerges [] of the login information of the backend.
 Swc.callValues[225285239] = function() return {} end
+-- The cooldown of the free world transfer of a character (Game.GetFreeTransferCooldown: a native data call of
+-- charactercreatebutton.luac by the CRC 771443387 with the character id, when the row options show): a Duration. The
+-- backend has no world transfer: no cooldown.
+Swc.callValues[771443387] = function() return Swc.Duration.new({seconds = 0}) end
 
 local function request(text)
   Swc.hostRequests[#Swc.hostRequests + 1] = text

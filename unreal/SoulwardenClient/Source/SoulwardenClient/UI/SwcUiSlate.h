@@ -57,6 +57,12 @@ public:
 	virtual float line_height(const std::string& FontFile, float Size) override;
 	virtual float ascent(const std::string& FontFile, float Size) override;
 
+	/**
+	 * The scale of the canvas units in the drawn pixels (the DPI scale of the window: 0.61 at a height of 660 pixels). The
+	 * paint sets it; the text measure uses it, because the font rasterizes at the drawn size: its hinted advances are
+	 * wider than the advances at scale 1 (before, a piece after a space of another color touched the word before it).
+	 */
+	void SetMeasureScale(float InScale) { MeasureScale = FMath::Max(InScale, 0.01f); }
 	int32 TextureCount() const { return Textures.Num(); }
 
 private:
@@ -83,6 +89,7 @@ private:
 	bool bMaskMaterialFailed[2] = {false, false};
 	TMap<FString, TSharedPtr<FStandaloneCompositeFont>> Fonts;
 	TMap<FString, FShapedGlyphSequenceRef> ShapedLines;
+	float MeasureScale = 1.0f;
 };
 
 /**

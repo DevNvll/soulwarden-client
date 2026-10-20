@@ -1,6 +1,7 @@
 #include "Net/SwcLoginClient.h"
 
 #include "Dom/JsonObject.h"
+#include "GenericPlatform/GenericPlatformHttp.h"
 #include "HttpModule.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
@@ -356,6 +357,21 @@ void FSwcLoginClient::RefreshLoginInfo(FDone Done)
 			FDone Callback = MoveTemp(OnRefreshDone);
 			OnRefreshDone = nullptr;
 			Callback(bRead, bRead ? FString() : FString::Printf(TEXT("login information: status %d"), Status));
+		});
+}
+
+void FSwcLoginClient::DeleteCharacter(const FString& CharacterId, TFunction<void(bool bDeleted, int32 Status)> Done)
+{
+	if (Session.Hosts.Gateway.IsEmpty())
+	{
+		Done(false, 0);
+		return;
+	}
+	Send(TEXT("DELETE"), Session.Hosts.Gateway, FString::Printf(TEXT("/prod/game/characters/%s"), *FGenericPlatformHttp::UrlEncode(CharacterId)),
+		GatewayHeaders(), FString(), FString(),
+		[Done = MoveTemp(Done)](int32 Status, const FString& Reply)
+		{
+			Done(Status == 200, Status);
 		});
 }
 
