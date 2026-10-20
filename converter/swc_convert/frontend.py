@@ -47,6 +47,8 @@ GROUND_MACRO = "materials/terrain/nw_frontend_base/nw_frontend_base_{rx}_{ry}/nw
 GROUND_HALF = 150
 # The macro color picture of the ground (stage F4b): GROUND_PICTURE x GROUND_PICTURE pixels over the square of the heights.
 GROUND_PICTURE = 512
+# The albedo picture of the terrain composite over the same square (stage F4b): GROUND_ALBEDO x GROUND_ALBEDO pixels (0.29 m).
+GROUND_ALBEDO = 1024
 # The light fields of LightComponent that the client reads.
 LIGHT_FIELDS = ("LightType", "Visible", "OnInitially", "Color", "DiffuseMultiplier", "SpecMultiplier", "PointMaxDistance",
                 "PointAttenuationBulbSize", "ProjectorDistance", "ProjectorAttenuationBulbSize", "ProjectorFOV", "AreaWidth",
@@ -358,9 +360,50 @@ def ground(player: list[float]) -> dict:
     out.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(np.clip(picture * 255.0 + 0.5, 0, 255).astype(np.uint8)).save(out)
     color = [round(float(c), 4) for c in picture.reshape(-1, 3).mean(axis=0)]
+    # The composite of the terrain (the detail layers of the splats under the macro overlay; the macro picture alone is the far
+    # fallback of the game and was pale: run f4b-g3): the albedo picture of the square.
+    try:
+        albedo = ground_albedo(ox, oy, size)
+    except (OSError, ValueError, KeyError) as error:
+        albedo = {"error": str(error)[:160]}
     return {"origin": [ox, oy], "step": 1.0, "size": size, "heights": heights, "color": color,
             "macro": GROUND_MACRO.format(rx=int(player[0] // 2048), ry=int(player[1] // 2048)),
-            "picture": str(out.relative_to(env.content_dir())), "player height": round(height(player[0], player[1]), 3)}
+            "picture": albedo.get("picture") or str(out.relative_to(env.content_dir())), "macro picture": str(out.relative_to(env.content_dir())),
+            "composite": {k: v for k, v in albedo.items() if k != "picture"}, "player height": round(height(player[0], player[1]), 3)}
+
+
+def ground_albedo(ox: float, oy: float, size: int, pixels: int = GROUND_ALBEDO) -> dict:
+    """Writes frontend/ground-albedo.png: the albedo of the terrain composite of the game (terrain_material.composite, the
+    literal reading of docs/WORLD.md T0) over the square of the ground, from the regions of nw_frontend_base (their layer data
+    and plans are made when they are not there: terrain_layers --terrain nw_frontend_base). Row 0 = north. @return The
+    picture path and the coverage of the layers of each region."""
+    import numpy as np
+    from PIL import Image
+    from . import terrain_layers, terrain_material
+    terrain = terrain_layers.TERRAINS["nw_frontend_base"]
+    span = float(size - 1)
+    step = span / pixels
+    xs = (ox + (np.arange(pixels) + 0.5) * step)
+    ys = (oy + span - (np.arange(pixels) + 0.5) * step)   # row 0 = north
+    gx, gy = np.meshgrid(xs, ys)
+    regions = {(int(x // 2048), int(y // 2048)) for x in (xs[0], xs[-1]) for y in (ys[0], ys[-1])}
+    picture = np.zeros((pixels, pixels, 3), np.float32)
+    report = {}
+    for rx, ry in sorted(regions):
+        name = f"r_+{rx:02d}_+{ry:02d}"
+        if not terrain_material.plan_path(name, terrain).is_file():
+            terrain_layers.export_region(name, terrain)
+            terrain_material.plan(name, terrain)
+        result = terrain_material.composite(name, (ox, oy, ox + span, oy + span), step, terrain=terrain)
+        albedo = result["albedo"][:pixels, :pixels]
+        inside = (gx // 2048 == rx) & (gy // 2048 == ry)
+        picture[inside] = albedo[inside]
+        report[name] = result["coverage"]
+    out = env.content_dir() / "frontend" / "ground-albedo.png"
+    srgb = terrain_material.linear_to_srgb(np.clip(picture, 0.0, 1.0))
+    Image.fromarray(np.clip(srgb * 255.0 + 0.5, 0, 255).astype(np.uint8)).save(out)
+    return {"picture": str(out.relative_to(env.content_dir())), "pixels": pixels, "step m": round(step, 4),
+            "mean linear albedo": [round(float(c), 4) for c in picture.reshape(-1, 3).mean(axis=0)], "coverage": report}
 
 
 def environment(tod: dict | None, mission: bytes | None = None) -> dict:

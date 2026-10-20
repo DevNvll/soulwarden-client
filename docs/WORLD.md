@@ -588,6 +588,7 @@ materials track).
 
 ```sh
 tools/convert.sh terrain-layers --all   # T0: the layer lists, the splats (2,048 and 2,041 grids), the macro maps, the textures
+tools/convert.sh terrain-layers NAME... --terrain nw_frontend_base   # the terrain of the menu level (content/frontend/terrain; F4b)
 tools/convert.sh terrain-plan --all     # the plan of each region and the slices of the texture arrays
 tools/import-terrain.sh                 # the arrays, M_SwcTerrain, and MI_SwcTerrain_REGION of each region with layers
 tools/build-world.sh --terrain NAME...  # the Landscape of a region again, with one target layer for each slot

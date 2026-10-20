@@ -29,6 +29,7 @@ import json
 import re
 import struct
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +38,23 @@ from PIL import Image
 from . import dds, env, source
 
 WORLDMAT = "materials/terrain/newworld_vitaeeterna/jav_newworld_vitaeeterna.worldmat"
+
+
+@dataclass(frozen=True)
+class Terrain:
+    """A terrain of the game: its world material, and the content folders of its regions and of its table of layer
+    materials. The textures of the layer materials are shared (terrain/textures, written once for each product)."""
+    worldmat: str
+    regions: str
+    table: str
+
+
+# The world (the default of each function), and the terrain of the main menu level (stage F4b of docs/FRONTEND.md: the
+# ground of the menu scene; its own folders, so that no file of the world changes).
+WORLD = Terrain(WORLDMAT, "regions", "terrain/materials.json")
+TERRAINS = {"newworld_vitaeeterna": WORLD,
+            "nw_frontend_base": Terrain("materials/terrain/nw_frontend_base/nw_frontend_base.worldmat", "frontend/terrain/regions",
+                                        "frontend/terrain/materials.json")}
 VERSION = 1
 SIZE = 2048
 VERTICES = 2041
@@ -84,9 +102,9 @@ def dds_meta(path: str, alpha: bool = False) -> dict:
     return {"width": width, "height": height, "dxgi": fmt, "mips": struct.unpack_from("<I", head, 28)[0]}
 
 
-def region_materials() -> dict[str, str]:
+def region_materials(terrain: Terrain = WORLD) -> dict[str, str]:
     """@return For each region name (r_+XX_+YY) its .regionmat (the Regions table of the world material)."""
-    root = ET.fromstring(source.read(WORLDMAT))[0]
+    root = ET.fromstring(source.read(terrain.worldmat))[0]
     table = next(node for node in root if node.get("field") == "Regions")
     out = {}
     for entry in table:
@@ -101,10 +119,10 @@ def splat_name(path: str) -> str:
     return path.rsplit("/", 1)[-1].rsplit(".dds", 1)[0].split(".", 2)[-1]
 
 
-def region_layers(name: str) -> dict:
+def region_layers(name: str, terrain: Terrain = WORLD) -> dict:
     """@return The layer list of a region (in the order of the source), its default material, and its macro maps."""
-    path = region_materials().get(name)
-    out = {"region": name, "version": VERSION, "worldmat": WORLDMAT, "regionmat": path, "layers": []}
+    path = region_materials(terrain).get(name)
+    out = {"region": name, "version": VERSION, "worldmat": terrain.worldmat, "regionmat": path, "layers": []}
     if not path:
         return out
     root = ET.fromstring(source.read(path))[0]
@@ -216,10 +234,10 @@ def splat_weights(path: str) -> np.ndarray | None:
     return np.clip(np.rint(array * 255), 0, 255).astype(np.uint8)
 
 
-def export_region(name: str) -> dict:
+def export_region(name: str, terrain: Terrain = WORLD) -> dict:
     """Writes the terrain material data of one region and the records of its materials. @return A report."""
-    info = region_layers(name)
-    folder = content() / "regions" / name
+    info = region_layers(name, terrain)
+    folder = content() / terrain.regions / name
     (folder / "layers").mkdir(parents=True, exist_ok=True)
     (folder / "landscape-layers").mkdir(parents=True, exist_ok=True)
     report = {"region": name, "layers": len(info["layers"]), "weights": 0, "placeholders": 0, "errors": []}
@@ -244,7 +262,7 @@ def export_region(name: str) -> dict:
     # The Landscape grid needs the shared edge of the east, north, and northeast neighbors (the same splat name).
     neighbors = {}
     for key, (dx, dy) in {"east": (1, 0), "north": (0, 1), "corner": (1, 1)}.items():
-        other = region_layers(neighbor(name, dx, dy))
+        other = region_layers(neighbor(name, dx, dy), terrain)
         neighbors[key] = {layer["name"]: layer["splat"] for layer in other["layers"] if layer.get("splat")}
     for layer in info["layers"]:
         weights = own.get(layer["name"])
@@ -269,7 +287,7 @@ def export_region(name: str) -> dict:
                     "landscape weights": f"{VERTICES} x {VERTICES} u8, row 0 = north (the vertices of landscape.r16)"}
     (folder / "layers.json").write_text(json.dumps(info, indent=1))
     # The records of the layer materials (terrain/materials.json, one write).
-    table_path = content() / "terrain" / "materials.json"
+    table_path = content() / terrain.table
     table_path.parent.mkdir(parents=True, exist_ok=True)
     table = json.loads(table_path.read_text()) if table_path.is_file() else {"version": VERSION, "materials": {}}
     wanted = {layer["material"] for layer in info["layers"] if layer.get("material")}

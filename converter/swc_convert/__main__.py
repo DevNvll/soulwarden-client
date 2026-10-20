@@ -30,7 +30,8 @@ Usage (through tools/convert.sh):
                                                     texture arrays (terrain_material.py; after terrain-layers)
   terrain-layers NAME... | --all                    the terrain materials of the game (world fidelity T0): the layer
                                                     lists, the splats (2,048 and 2,041 grids), the macro maps, the
-                                                    layer materials and their full textures (terrain_layers.py)
+                                                    layer materials and their full textures (terrain_layers.py);
+                                                    --terrain nw_frontend_base: the terrain of the menu (its folders)
   preview mesh PATH | character CDF [--clip CAF] | region NAME --area X Y SIZE
 Output: SWC_CONTENT (default ~/Games/soulwarden-client/content). Previews: ~/Games/soulwarden-client/previews.
 """
@@ -75,6 +76,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("collision-chunks"); p.add_argument("regions", nargs="*")
     p = sub.add_parser("overrides"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("terrain-layers"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
+    p.add_argument("--terrain", default="newworld_vitaeeterna", help="the terrain: newworld_vitaeeterna (the world) or nw_frontend_base")
     p = sub.add_parser("terrain-plan"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("cover"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("preview"); p.add_argument("kind", choices=["mesh", "character", "region"]); p.add_argument("target")
@@ -131,7 +133,7 @@ def main(argv=None) -> int:
         names = census.world_regions() if args.all else args.names
         if not names:
             parser.error("terrain-layers needs region names or --all")
-        result = [terrain_layers.export_region(n) for n in names]
+        result = [terrain_layers.export_region(n, terrain_layers.TERRAINS[args.terrain]) for n in names]
     elif args.command == "overrides":
         from . import census, overrides
         names = census.world_regions() if args.all else args.names

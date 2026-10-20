@@ -714,10 +714,18 @@ has another look). Before F4b (K4, the menu mode): ΔE 24.3 (top 16.2, middle 30
   face: the ground did not show in any run of F4 (the body stood over the fog; the blue under the plants was the fog).
   The run `f4b-g3`: the ground shows, but it is pale, as the world terrain with the macro map only (docs/WORLD.md T0, the
   first Oxboro measure): ΔE 20.3 -> 22.8 (bottom 31.9 -> 42.4, L* +46.9). In the game the macro color is an overlay on the
-  composite of the detail layers (the dirt and the grass of the splats); the macro alone is the far fallback. The next
-  step is that composite: the terrain layer converter for `nw_frontend_base` (it reads only the world terrain now) and a
-  baked picture of the square with `terrain_material.composite`.
+  composite of the detail layers (the dirt and the grass of the splats); the macro alone is the far fallback.
+- The terrain composite of the ground: `tools/convert.sh terrain-layers NAME... --terrain nw_frontend_base` (the terrain
+  parameter of `terrain_layers.py` and `terrain_material.py`: the world material, the regions folder, and the material table
+  of a terrain; the world is the default) writes the layer data of the menu terrain to `content/frontend/terrain`. The scene
+  converter makes it for the regions of the square when it is not there (r_+01_+00: a rocky dirt base and 8 layers;
+  r_+01_+01: 7), and bakes the albedo of `terrain_material.composite` (the literal reading of docs/WORLD.md T0: the detail
+  layers with the height blend of their splats, under the macro overlay) over the square: 1,024 x 1,024 pixels (0.29 m),
+  each pixel from its own region, sRGB (`content/frontend/ground-albedo.png`; about 1 min). The world check: the outputs of
+  region r_+04_+02 (the 55 files of terrain-layers, and its terrain-plan.json) of the code before and after are the same
+  byte for byte, and a composite of 20 x 20 m at Oxboro is equal. The run `f4b-g4`: ΔE 22.8 -> 18.4 (bottom 42.4 -> 28.1,
+  L* +46.9 -> +32.7); the ground is a dark green-gray of grass and soil.
 - Step 5, the campfire: not done. The 16 particle components near the scene need a runtime of the effects, which the client
   does not have.
-- After these steps: ΔE 20.3. The client is still brighter (L* +21.7), less saturated (-0.13), and colder than B6-04, with
+- After these steps (with the composite ground): ΔE 18.4. The client is still brighter (L* +19.9), less saturated (-0.12), and colder than B6-04, with
   less fog and no dark parts (the dark part 0.00 against 0.23).

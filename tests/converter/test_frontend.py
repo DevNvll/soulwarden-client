@@ -152,5 +152,27 @@ class FarPart(unittest.TestCase):
         self.assertEqual(frontend.mesh_radius({"kind": "empty"}), 0.0)
 
 
+class TerrainParameter(unittest.TestCase):
+    """The terrain parameter of terrain_layers and terrain_material (stage F4b): the world is the default, with the paths of
+    before; the terrain of the menu has its own folders (no file of the world changes)."""
+
+    def test_world_default(self):
+        import inspect
+        from swc_convert import terrain_layers, terrain_material
+        world = terrain_layers.WORLD
+        self.assertEqual((world.worldmat, world.regions, world.table),
+                         ("materials/terrain/newworld_vitaeeterna/jav_newworld_vitaeeterna.worldmat", "regions", "terrain/materials.json"))
+        self.assertIs(terrain_layers.TERRAINS["newworld_vitaeeterna"], world)
+        for function in (terrain_layers.export_region, terrain_layers.region_layers, terrain_material.plan, terrain_material.composite,
+                         terrain_material.plan_path):
+            self.assertIs(inspect.signature(function).parameters["terrain"].default, world)
+        self.assertEqual(terrain_material.plan_path("r_+04_+02").parts[-3:], ("regions", "r_+04_+02", "terrain-plan.json"))
+
+    def test_menu_folders(self):
+        from swc_convert import terrain_layers
+        menu = terrain_layers.TERRAINS["nw_frontend_base"]
+        self.assertTrue(menu.regions.startswith("frontend/") and menu.table.startswith("frontend/"))
+
+
 if __name__ == "__main__":
     unittest.main()

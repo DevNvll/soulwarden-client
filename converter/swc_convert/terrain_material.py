@@ -47,11 +47,11 @@ def numbers(text: str | None, count: int, default: float) -> list[float]:
     return (values + [default] * count)[:count]
 
 
-def world_macro_params() -> dict:
+def world_macro_params(terrain: terrain_layers.Terrain = terrain_layers.WORLD) -> dict:
     """@return The two macro parameter sets of the world material (BackgroundMacroMaterialParams and
     ForegroundMacroMaterialParams: MacroColorScale, MacroColor, MacroGlossScale, MacroNormalScale,
     MacroSpecularReflectance) and the parallax values (POM*)."""
-    root = ET.fromstring(source.read(terrain_layers.WORLDMAT))[0]
+    root = ET.fromstring(source.read(terrain.worldmat))[0]
     out = {}
     for node in root:
         field = node.get("field")
@@ -86,11 +86,12 @@ def material_values(record: dict) -> dict:
             "macro saturation": public["g_macroDiffuseSaturation"]}
 
 
-def plan(name: str) -> dict:
-    """Writes regions/NAME/terrain-plan.json. @return The plan (no slots for a region with an empty layer list)."""
-    folder = env.content_dir() / "regions" / name
+def plan(name: str, terrain: terrain_layers.Terrain = terrain_layers.WORLD) -> dict:
+    """Writes regions/NAME/terrain-plan.json (the regions folder of the terrain). @return The plan (no slots for a region
+    with an empty layer list)."""
+    folder = env.content_dir() / terrain.regions / name
     layers = json.loads((folder / "layers.json").read_text())
-    table = json.loads((env.content_dir() / "terrain" / "materials.json").read_text())["materials"]
+    table = json.loads((env.content_dir() / terrain.table).read_text())["materials"]
     # The active layers: a weight file (not a placeholder), a priority below 255, and some weight.
     active = [l for l in layers.get("layers", []) if l.get("landscape weights") and l.get("priority", 255) != 255
               and l.get("nonzero", 0) > 0 and l.get("material") in table]
@@ -101,7 +102,7 @@ def plan(name: str) -> dict:
     out = {"region": name, "version": VERSION, "origin m": [rx * 2048.0, ry * 2048.0], "size m": 2048.0,
            "slots": [], "base": None, "macro": {r: (layers.get("macro", {}).get(r) or {}).get("file") for r in
                                                ("color", "normal", "gloss")},
-           "macro params": world_macro_params(), "custom macro params": layers.get("custom macro params")}
+           "macro params": world_macro_params(terrain), "custom macro params": layers.get("custom macro params")}
     default = layers.get("default material")
     if default in table:
         out["base"] = material_values(table[default])
@@ -137,8 +138,8 @@ def plan_all(names: list[str]) -> dict:
     return report
 
 
-def plan_path(name: str) -> Path:
-    return env.content_dir() / "regions" / name / "terrain-plan.json"
+def plan_path(name: str, terrain: terrain_layers.Terrain = terrain_layers.WORLD) -> Path:
+    return env.content_dir() / terrain.regions / name / "terrain-plan.json"
 
 
 # The reference of the composite (the offline check of the Unreal material; numpy, no engine). Engine meters, the plan of
@@ -196,14 +197,14 @@ def load_png(relative: str | None, kind: str) -> np.ndarray | None:
 
 def composite(name: str, area: tuple[float, float, float, float], step: float = 0.1, macro_srgb: bool = True,
               macro_set: str = "foreground", detail_srgb: bool = True, spec_srgb: bool = True,
-              near_color: float | None = None) -> dict:
+              near_color: float | None = None, terrain: terrain_layers.Terrain = terrain_layers.WORLD) -> dict:
     """The tile composite of the game for an area (x0, y0, x1, y1, engine m) of a region at `step` m: the base material,
     then the slots in their order, each with its height blend alpha (source-over). The readings of the color spaces (not
     traced in the source): macro_srgb, detail_srgb, spec_srgb (True: decode the map from sRGB, its DXGI format; False:
     the raw values), near_color (another value of the macro color factor). @return The linear albedo (h, w, 3),
     the gloss, the normal (h, w, 3; tangent space: x east, y south), the reflectance, and the coverage of each slot."""
-    p = json.loads(plan_path(name).read_text())
-    folder = env.content_dir() / "regions" / name
+    p = json.loads(plan_path(name, terrain).read_text())
+    folder = env.content_dir() / terrain.regions / name
     ox, oy = p["origin m"]
     x0, y0, x1, y1 = area
     xs = np.arange(x0, x1, step) + step / 2
@@ -211,11 +212,11 @@ def composite(name: str, area: tuple[float, float, float, float], step: float = 
     x, y = np.meshgrid(xs, ys)
     rpx, rpy = (x - ox) / 2048 * 2048, (1 - (y - oy) / 2048) * 2048
     params = p["macro params"][macro_set]
-    macro_color = load_png("regions/" + name + "/" + p["macro"]["color"], "color" if macro_srgb else "data")
+    macro_color = load_png(f"{terrain.regions}/{name}/{p['macro']['color']}", "color" if macro_srgb else "data")
     factor = np.array([near_color] * 3 if near_color is not None else params["color"], np.float32)
     macro_color = sample(macro_color, rpx, rpy, False) * factor * params["color scale"]
-    macro_gloss = sample(load_png("regions/" + name + "/" + p["macro"]["gloss"], "data"), rpx, rpy, False) * params["gloss scale"]
-    mn = sample(load_png("regions/" + name + "/" + p["macro"]["normal"], "data"), rpx, rpy, False)[..., :2] * 2 - 1
+    macro_gloss = sample(load_png(f"{terrain.regions}/{name}/{p['macro']['gloss']}", "data"), rpx, rpy, False) * params["gloss scale"]
+    mn = sample(load_png(f"{terrain.regions}/{name}/{p['macro']['normal']}", "data"), rpx, rpy, False)[..., :2] * 2 - 1
     macro_normal = np.concatenate([mn, np.full(mn.shape[:2] + (1,), 1.0 / params["normal scale"])], 2)
     macro_normal /= np.linalg.norm(macro_normal, axis=2, keepdims=True)
     luminance = (macro_color @ np.array([0.2126, 0.7152, 0.0722], np.float32))[..., None]

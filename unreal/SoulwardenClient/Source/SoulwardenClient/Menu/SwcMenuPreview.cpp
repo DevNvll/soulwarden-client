@@ -357,8 +357,8 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 void ASwcMenuPreview::BuildGround(const TSharedPtr<FJsonObject>& Ground)
 {
 	// The heights of the menu world about the Player Entity (1 m apart, row 0 = the smallest y; 301 x 301 m), as one static mesh
-	// with the macro color picture of the square (stage F4b; row 0 = north), loaded at run time, on M_SwcSurface; with no picture,
-	// the mean color of the macro map. The detail layers of the terrain are an open point (docs/FRONTEND.md F4b).
+	// with the albedo picture of the terrain composite of the square (stage F4b; row 0 = north; else the macro color picture),
+	// loaded at run time, on M_SwcSurface; with no picture, the mean color of the macro map.
 	const int32 Size = static_cast<int32>(Ground->GetNumberField(TEXT("size")));
 	const TArray<TSharedPtr<FJsonValue>>& Heights = Ground->GetArrayField(TEXT("heights"));
 	const TArray<TSharedPtr<FJsonValue>>& Origin = Ground->GetArrayField(TEXT("origin"));
@@ -429,7 +429,7 @@ void ASwcMenuPreview::BuildGround(const TSharedPtr<FJsonObject>& Ground)
 			Material->SetVectorParameterValue(TEXT("SpecularColor"), FLinearColor(0.04f, 0.04f, 0.04f, 1.0f));
 			Material->SetScalarParameterValue(TEXT("Smoothness"), 0.2f);
 		}
-		UE_LOG(LogSwcBackend, Log, TEXT("menu: the ground: 301 x 301 m, the macro picture %s"), Material != nullptr ? TEXT("on M_SwcSurface") : TEXT("did not load (one color)"));
+		UE_LOG(LogSwcBackend, Log, TEXT("menu: the ground: 301 x 301 m, the picture %s %s"), *Picture, Material != nullptr ? TEXT("on M_SwcSurface") : TEXT("did not load (one color)"));
 	}
 	UMaterialInterface* Base = Material == nullptr ? LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")) : nullptr;
 	if (Base != nullptr)
