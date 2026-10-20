@@ -33,6 +33,13 @@ LEVEL = os.environ.get("SWC_WORLD_LEVEL") or ROOT + "/World/NewWorld"
 WORLD = LEVEL.rsplit("/", 1)[0]   # the folder of the level and of its terrain materials
 CELL_CM = 25600                   # 256 m: the cells of the converter (cells.py)
 RANGE_CM = 102400                 # the meshes load within 1,024 m of a streaming source
+# The far grid (AST-203): the Landscape proxies and the far mesh groups stream in their own runtime grid of a region per cell, so
+# that LoadMap does not load all of them (they were always loaded: about 11 s of LoadMap in the cooked client). The client waits
+# for the far grid within its loading range before a loading screen ends (World/SwcWorldSubsystem).
+FAR_GRID = "SwcFar"
+FAR_CELL_CM = 204800              # 2,048 m: one region
+FAR_RANGE_CM = int(os.environ.get("SWC_WORLD_FAR_RANGE") or 2000000)   # 20 km: the whole world (the terrain to the horizon)
+FAR_PRIORITY = 10                 # after the main grid (a lower value loads first)
 assets = unreal.EditorAssetLibrary
 editing = unreal.MaterialEditingLibrary
 tools = unreal.AssetToolsHelpers.get_asset_tools()
@@ -309,6 +316,36 @@ def out_of_time():
     return time.time() - started > MAX_SECONDS
 
 
+def load_labels(labels):
+    """Loads the spatially loaded actors of the level with these labels (the editor loads only the always loaded ones)."""
+    result = unreal.WorldPartitionBlueprintLibrary.get_actor_descs()
+    descs = result[1] if isinstance(result, tuple) else result
+    guids = [d.guid for d in descs if str(d.label) in labels]
+    if guids:
+        unreal.WorldPartitionBlueprintLibrary.load_actors(guids)
+
+
+def far_grid():
+    """Puts the Landscape proxies and the far mesh groups that are loaded and always loaded into the far grid (spatially
+    loaded); makes or updates the grid. @return The number of actors moved."""
+    key = {"cell cm": FAR_CELL_CM, "range cm": FAR_RANGE_CM, "priority": FAR_PRIORITY}
+    moved = 0
+    for actor in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+        far = isinstance(actor, unreal.LandscapeStreamingProxy) or unreal.Name("SwcImpostor") in actor.get_editor_property("tags")
+        if far and str(actor.get_editor_property("runtime_grid")) != FAR_GRID:
+            library.set_runtime_grid(actor, FAR_GRID)
+            moved += 1
+    if moved or state.get("far grid") != key:
+        if not library.ensure_runtime_grid(FAR_GRID, FAR_CELL_CM, FAR_RANGE_CM, FAR_PRIORITY):
+            log("far grid: the level has no runtime hash set")
+            return 0
+        unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
+        state["far grid"] = key
+        save_state()
+        log(f"far grid {FAR_GRID}: {moved} actors moved, {json.dumps(key)}")
+    return moved
+
+
 def destroy_cells(name):
     """Destroys the cell actors of a region in the level (a new cells file replaces them). @return The count."""
     result = unreal.WorldPartitionBlueprintLibrary.get_actor_descs()
@@ -392,6 +429,8 @@ def landscape_again(name):
     phase = time.time()
     files = []
     removed = 0
+    # The proxies of the far grid are spatially loaded: load them first (else they stay, and the new Landscape doubles them).
+    load_labels({f"{name} landscape", f"{name} landscape proxy"})
     for actor in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
         label = actor.get_actor_label()
         if label in (f"{name} landscape", f"{name} landscape proxy"):
@@ -516,6 +555,8 @@ for name in regions:
     partial.pop(name)
     save_state()
     log(f"region {name}: {json.dumps(state['regions'][name])}")
+if not incomplete:
+    far_grid()
 # The bounds of the regions that have the current cells and no bounds file yet, from their saved descriptors.
 bounds_folder = os.path.join(os.environ.get("SWC_WORK", os.path.expanduser("~/Games/soulwarden-client")), "logs", "cell-bounds")
 for name, done in state["regions"].items():

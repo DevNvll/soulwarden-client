@@ -76,6 +76,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
 	static void SetSpatiallyLoaded(AActor* Actor, bool bSpatiallyLoaded);
 
+	/** Adds a runtime partition (a grid of the runtime hash set of the World Partition of the editor world) with the name Name,
+	 *  or updates it: the cell size and the loading range (cm), and the priority (a lower value loads first). The members are
+	 *  private: reflection. @return False when the world has no runtime hash set. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static bool EnsureRuntimeGrid(FName Name, int32 CellSize, int32 LoadingRange, int32 Priority);
+
+	/** Puts an actor into the runtime grid Grid (spatially loaded) of its World Partition level; NAME_None: the main grid. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
+	static void SetRuntimeGrid(AActor* Actor, FName Grid);
+
 	/** Removes the instanced static mesh components of an actor whose mesh is in one of the folders (for example the
 	 *  meshes that a new converter rule made empty). @return The number of removed components. */
 	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")

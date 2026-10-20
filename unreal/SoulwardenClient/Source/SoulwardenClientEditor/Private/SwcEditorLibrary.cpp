@@ -617,6 +617,76 @@ void USwcEditorLibrary::SetSpatiallyLoaded(AActor* Actor, bool bSpatiallyLoaded)
 	}
 }
 
+bool USwcEditorLibrary::EnsureRuntimeGrid(FName Name, int32 CellSize, int32 LoadingRange, int32 Priority)
+{
+	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	UWorldPartition* Partition = World ? World->GetWorldPartition() : nullptr;
+	UObject* Hash = Partition ? Partition->RuntimeHash.Get() : nullptr;
+	FArrayProperty* Partitions = Hash ? FindFProperty<FArrayProperty>(Hash->GetClass(), TEXT("RuntimePartitions")) : nullptr;
+	FStructProperty* Desc = Partitions ? CastField<FStructProperty>(Partitions->Inner) : nullptr;
+	FNameProperty* DescName = Desc ? FindFProperty<FNameProperty>(Desc->Struct, TEXT("Name")) : nullptr;
+	FClassProperty* DescClass = Desc ? FindFProperty<FClassProperty>(Desc->Struct, TEXT("Class")) : nullptr;
+	FObjectProperty* MainLayer = Desc ? FindFProperty<FObjectProperty>(Desc->Struct, TEXT("MainLayer")) : nullptr;
+	UClass* GridClass = FindObject<UClass>(nullptr, TEXT("/Script/Engine.RuntimePartitionLHGrid"));
+	if (!DescName || !DescClass || !MainLayer || !GridClass)
+	{
+		return false;
+	}
+	Hash->Modify();
+	FScriptArrayHelper Array(Partitions, Partitions->ContainerPtrToValuePtr<void>(Hash));
+	int32 Found = INDEX_NONE;
+	for (int32 Index = 0; Index < Array.Num(); ++Index)
+	{
+		if (DescName->GetPropertyValue_InContainer(Array.GetRawPtr(Index)) == Name)
+		{
+			Found = Index;
+		}
+	}
+	if (Found == INDEX_NONE)
+	{
+		Found = Array.AddValue();
+		DescName->SetPropertyValue_InContainer(Array.GetRawPtr(Found), Name);
+		DescClass->SetPropertyValue_InContainer(Array.GetRawPtr(Found), GridClass);
+		UObject* Layer = NewObject<UObject>(Hash, GridClass, NAME_None, RF_Transactional);
+		MainLayer->SetObjectPropertyValue_InContainer(Array.GetRawPtr(Found), Layer);
+	}
+	UObject* Layer = MainLayer->GetObjectPropertyValue_InContainer(Array.GetRawPtr(Found));
+	if (!Layer)
+	{
+		return false;
+	}
+	Layer->Modify();
+	if (FNameProperty* LayerName = FindFProperty<FNameProperty>(Layer->GetClass(), TEXT("Name")))
+	{
+		LayerName->SetPropertyValue_InContainer(Layer, Name);
+	}
+	if (FUInt32Property* Size = FindFProperty<FUInt32Property>(Layer->GetClass(), TEXT("CellSize")))
+	{
+		Size->SetPropertyValue_InContainer(Layer, static_cast<uint32>(CellSize));
+	}
+	if (FIntProperty* Range = FindFProperty<FIntProperty>(Layer->GetClass(), TEXT("LoadingRange")))
+	{
+		Range->SetPropertyValue_InContainer(Layer, LoadingRange);
+	}
+	if (FIntProperty* Order = FindFProperty<FIntProperty>(Layer->GetClass(), TEXT("Priority")))
+	{
+		Order->SetPropertyValue_InContainer(Layer, Priority);
+	}
+	Hash->MarkPackageDirty();
+	World->GetWorldSettings()->MarkPackageDirty();
+	return true;
+}
+
+void USwcEditorLibrary::SetRuntimeGrid(AActor* Actor, FName Grid)
+{
+	if (Actor)
+	{
+		Actor->Modify();
+		Actor->SetIsSpatiallyLoaded(true);
+		Actor->SetRuntimeGrid(Grid);
+	}
+}
+
 int32 USwcEditorLibrary::RemoveInstanceComponentsOf(AActor* Actor, const TArray<FString>& MeshFolders)
 {
 	if (!Actor)

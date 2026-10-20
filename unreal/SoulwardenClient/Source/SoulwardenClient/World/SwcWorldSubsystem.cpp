@@ -2,6 +2,7 @@
 
 #include "Camera/PlayerCameraManager.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/Level.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "HAL/PlatformTime.h"
@@ -38,46 +39,82 @@ constexpr double LoadingRangeCm = 102400.0;
 constexpr double ImpostorNearCm = 25600.0;
 /** The half diagonal of a group of 512 m. */
 constexpr double ImpostorGroupRadiusCm = 36204.0;
+/** The runtime grid of the Landscape proxies and the far mesh groups (Scripts/build_world.py, FAR_GRID). */
+const FName FarGrid(TEXT("SwcFar"));
 } // namespace
 
-void USwcWorldSubsystem::UpdateImpostors()
+bool USwcWorldSubsystem::ImpostorHidden(const AActor* Impostor, const FVector& View) const
 {
-	// The view of the loading gate: during a loading screen the place of the character (the far meshes there are hidden before
-	// the screen ends; the camera is at the origin of the world before the spawn), else the camera (also of a flythrough).
-	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
-	FVector View;
-	if (!SwcLoadingGate::GetView(GetWorld(), View))
-	{
-		if (Controller == nullptr || Controller->PlayerCameraManager == nullptr)
-		{
-			return;
-		}
-		View = Controller->PlayerCameraManager->GetCameraLocation();
-	}
 	// A group within the loading range hides when the cells of the World Partition under it are in the world (before, it hid by
 	// the distance alone: the ground there was bare until its cells came, up to 50 s after the loading screen; AST-203), at once
 	// when it is near the view. A group beyond the range shows.
 	const UWorldPartitionSubsystem* Partition = GetWorld()->GetSubsystem<UWorldPartitionSubsystem>();
+	FVector Origin, Extent;
+	Impostor->GetActorBounds(false, Origin, Extent);
+	const double Distance = FVector::Dist2D(Origin, View);
+	bool bHide = Distance < LoadingRangeCm;
+	if (bHide && !Impostor->IsHidden() && Partition != nullptr && Distance - ImpostorGroupRadiusCm > ImpostorNearCm)
+	{
+		// The part of the group within the range: a sphere about its center (the cells beyond the range never load).
+		FWorldPartitionStreamingQuerySource Query(FVector(Origin.X, Origin.Y, View.Z));
+		Query.bUseGridLoadingRange = false;
+		Query.Radius = static_cast<float>(FMath::Clamp(LoadingRangeCm - Distance, 100.0, ImpostorGroupRadiusCm));
+		bHide = Partition->IsStreamingCompleted(EWorldPartitionRuntimeCellState::Activated, {Query}, false);
+	}
+	return bHide;
+}
+
+bool USwcWorldSubsystem::GetImpostorView(FVector& View) const
+{
+	// The view of the loading gate: during a loading screen the place of the character (the far meshes there are hidden before
+	// the screen ends; the camera is at the origin of the world before the spawn), else the camera (also of a flythrough).
+	if (SwcLoadingGate::GetView(GetWorld(), View))
+	{
+		return true;
+	}
+	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
+	if (Controller == nullptr || Controller->PlayerCameraManager == nullptr)
+	{
+		return false;
+	}
+	View = Controller->PlayerCameraManager->GetCameraLocation();
+	return true;
+}
+
+void USwcWorldSubsystem::AddLevelImpostors(ULevel* Level, UWorld* World)
+{
+	// The far mesh groups stream in the far grid: a new group gets its state at once (it must not show for a frame near the view).
+	if (World != GetWorld() || Level == nullptr)
+	{
+		return;
+	}
+	FVector View;
+	const bool bView = GetImpostorView(View);
+	for (AActor* Actor : Level->Actors)
+	{
+		if (Actor != nullptr && Actor->ActorHasTag(TEXT("SwcImpostor")))
+		{
+			Impostors.AddUnique(Actor);
+			if (bView && Actor->IsHidden() != ImpostorHidden(Actor, View))
+			{
+				Actor->SetActorHiddenInGame(!Actor->IsHidden());
+			}
+		}
+	}
+}
+
+void USwcWorldSubsystem::UpdateImpostors()
+{
+	FVector View;
+	if (!GetImpostorView(View))
+	{
+		return;
+	}
+	Impostors.RemoveAll([](const TWeakObjectPtr<AActor>& Actor) { return !Actor.IsValid(); });   // the far grid unloads groups
 	for (const TWeakObjectPtr<AActor>& Actor : Impostors)
 	{
 		AActor* Impostor = Actor.Get();
-		if (Impostor == nullptr)
-		{
-			continue;
-		}
-		FVector Origin, Extent;
-		Impostor->GetActorBounds(false, Origin, Extent);
-		const double Distance = FVector::Dist2D(Origin, View);
-		bool bHide = Distance < LoadingRangeCm;
-		if (bHide && !Impostor->IsHidden() && Partition != nullptr && Distance - ImpostorGroupRadiusCm > ImpostorNearCm)
-		{
-			// The part of the group within the range: a sphere about its center (the cells beyond the range never load).
-			FWorldPartitionStreamingQuerySource Query(FVector(Origin.X, Origin.Y, View.Z));
-			Query.bUseGridLoadingRange = false;
-			Query.Radius = static_cast<float>(FMath::Clamp(LoadingRangeCm - Distance, 100.0, ImpostorGroupRadiusCm));
-			bHide = Partition->IsStreamingCompleted(EWorldPartitionRuntimeCellState::Activated, {Query}, false);
-		}
-		if (Impostor->IsHidden() != bHide)
+		if (const bool bHide = ImpostorHidden(Impostor, View); Impostor->IsHidden() != bHide)
 		{
 			Impostor->SetActorHiddenInGame(bHide);
 		}
@@ -139,6 +176,13 @@ void USwcWorldSubsystem::Tick(float DeltaTime)
 	}
 }
 
+void USwcWorldSubsystem::Deinitialize()
+{
+	FWorldDelegates::LevelAddedToWorld.Remove(LevelAddedHandle);
+	SwcLoadingGate::Unregister(GetWorld(), TEXT("far grid"));
+	Super::Deinitialize();
+}
+
 void USwcWorldSubsystem::OnWorldBeginPlay(UWorld& World)
 {
 	Super::OnWorldBeginPlay(World);
@@ -153,6 +197,20 @@ void USwcWorldSubsystem::OnWorldBeginPlay(UWorld& World)
 	{
 		UE_LOG(LogSwcWorldTools, Log, TEXT("world: %d groups of far meshes (shown beyond %.0f m)"), Impostors.Num(), LoadingRangeCm / 100.0);
 	}
+	LevelAddedHandle = FWorldDelegates::LevelAddedToWorld.AddUObject(this, &USwcWorldSubsystem::AddLevelImpostors);
+	// The loading gate: the far grid (the Landscape proxies and the far mesh groups) within its loading range of the place is in
+	// the world before the screen ends (no bare horizon after it). A level with no far grid: no cell, ready at once.
+	SwcLoadingGate::Register(&World, TEXT("far grid"), [this](const FVector& Place, FString& Why)
+	{
+		const UWorldPartitionSubsystem* Partition = GetWorld()->GetSubsystem<UWorldPartitionSubsystem>();
+		FWorldPartitionStreamingQuerySource Query(Place);
+		Query.bUseGridLoadingRange = true;
+		Query.TargetGrids.Add(FarGrid);
+		Query.TargetBehavior = EStreamingSourceTargetBehavior::Include;
+		const bool bReady = Partition == nullptr || Partition->IsStreamingCompleted(EWorldPartitionRuntimeCellState::Activated, {Query}, false);
+		Why = TEXT("the Landscape and the far meshes of the loading range load");
+		return bReady;
+	});
 	if (FParse::Value(FCommandLine::Get(), TEXT("-SwcFrames="), FrameFolder))
 	{
 		FParse::Value(FCommandLine::Get(), TEXT("-SwcFramesEvery="), FrameEvery);

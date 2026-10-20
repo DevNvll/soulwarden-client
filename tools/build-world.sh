@@ -11,18 +11,22 @@
 #   [--cells: a region in the level gets new cell actors when its cells version is old (build_world.py CELLS_VERSION)]
 #   [--terrain: a region in the level gets its Landscape again with the target layers of its terrain plan (T1;
 #    build_world.py TERRAIN_VERSION; tools/import-terrain.sh first)]
+#   [--far-grid: only the far grid step (the Landscape proxies and the far mesh groups into the runtime grid SwcFar of
+#    build_world.py; SWC_WORLD_FAR_RANGE cm, default 20 km), one call with no region]
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 "${SWC_REPO}/tools/content-link.sh"
 source "${SWC_REPO}/tools/lib/world-lock.sh"
 regions=()
 import=0
+far_only=0
 for argument in "$@"; do
     case "${argument}" in
         --force) export SWC_WORLD_FORCE=1 ;;
         --import) import=1 ;;
         --cells) export SWC_WORLD_CELLS=1 ;;
         --terrain) export SWC_WORLD_TERRAIN=1 ;;
+        --far-grid) far_only=1 ;;
         --all|--playable)
             mapfile -t -O "${#regions[@]}" regions < <(cd "${SWC_REPO}/converter" && python3 -B -c "
 import sys
@@ -31,7 +35,7 @@ print('\n'.join(census.world_regions() if sys.argv[1] == 'all' else census.playa
         *) regions+=("${argument}") ;;
     esac
 done
-[[ ${#regions[@]} -gt 0 ]] || { echo "usage: tools/build-world.sh NAME... | --playable | --all [--force]" >&2; exit 1; }
+[[ ${#regions[@]} -gt 0 || ${far_only} -eq 1 ]] || { echo "usage: tools/build-world.sh NAME... | --playable | --all [--force]" >&2; exit 1; }
 mkdir -p "${SWC_WORK}/logs"
 in_level() {   # with --cells or --terrain: in the level with the current rule (CELLS_VERSION 5, TERRAIN_VERSION 2)
     [[ -f "${SWC_GAME_CONTENT}/world-state.json" ]] && \
@@ -63,6 +67,11 @@ build_call() {   # build_call REGIONS LABEL
     fi
     sleep 15   # another track that waits on the lock gets it now
 }
+if [[ ${far_only} -eq 1 ]]; then
+    render=(-nullrhi)
+    build_call "" "far grid"
+    exit "${status}"
+fi
 if [[ -n "${SWC_WORLD_CELLS:-}" || -n "${SWC_WORLD_TERRAIN:-}" ]]; then
     # The cells or the terrain again: each call works on the regions that are left, in order, until its time limit.
     previous=""
