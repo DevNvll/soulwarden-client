@@ -197,8 +197,8 @@ tools/test-environment.sh                       # the tests of the world clock, 
 tools/convert-environment.sh cookies            # the projector textures of the local lights (then tools/import-cookies.sh: the lock)
 tools/lumen-test.sh --wait 7200                 # the Lumen mesh data test: the inn and two houses with distance fields and cards (client: swc.LumenTest 1)
 tools/convert-water.sh write|check|samples       # the water of the world: the surfaces, the ocean, the materials, the quadtrees (docs/WATER.md)
-tools/convert-water.sh source-textures          # the inputs of the source water shader: the linear foam map, the gloss map, the ocean cube
-tools/import-water.sh                           # the water textures and the source water material M_SwcWaterSource
+tools/convert-water.sh source-textures|shore    # the inputs of the source water shader; the shore foam emitters and their sheets (shore.json)
+tools/import-water.sh                           # the water textures, the source water material M_SwcWaterSource, the shore foam decal M_SwcShoreFoam
 tools/test-water.sh                             # the tests of the water readers, the depth query, and the depth classes (no engine)
 tools/convert-persons.sh write --near X Y R     # the persons of the settlements, their timelines, lines, and cameras (docs/PERSONS.md; no --near: the world)
 tools/convert-persons.sh convert                # the bodies, items, and clips of the persons (then tools/import-player.sh)
