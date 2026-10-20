@@ -883,3 +883,34 @@ each pixel) was smooth.
   check.
 - The cooked build: `/SwcGameContent/Terrain` is not in DirectoriesToAlwaysCook; the menu instance loads by path, so a
   cooked menu shows the bake until the folder (or the instance) is in the cook list.
+
+### The end of the visual work of the menu (2026-10-20)
+
+The decision of the user: the current visual work ends; the next focus is a functional game. This is the last re-measure,
+after the light of the creature track (9431b4e: the sun of the hour, the bloom mix, swc.LightScale 1; 1d4cf60: the source
+sun of the hour for the fog sheets), on e268677 with all the menu steps of this file.
+
+- Runs `final1` and `final1-nobeams` (`swc.BeamScale 0`), the fair2 drive, the color report against B6-04 (CIEDE2000 of
+  the bands, the UI and the character masked): all 15.6 (18.4 was the best of F4b), top 15.2, middle 19.3, bottom 17.5.
+  With no fog sheets: all 12.1, top 7.6, middle 17.6, bottom 15.8.
+- The haze added by the sheets (linear light; retail / no sheets / now): the trees behind the tent 0.037 / 0.025 / +0.105,
+  the castle 0.037 / 0.051 / +0.126, the backdrop 0.155 / 0.091 / +0.212, the sky 0.121 / 0.101 / +0.097, the ground at
+  the feet 0.033 / 0.041 / +0.016. Retail adds about 0.06 at the backdrop and nearly nothing over the near trees.
+- Close crops (retail | before | now): `evidence/F8/final/close-{backdrop,camp-fog,right-trees,flowers,feet,head}.png`,
+  `final1-sbs.png`; the eyes of Menuwarden `close-eyes-menuwarden.png`.
+
+Open points of the menu look (not worked on now):
+
+| Point | State |
+| --- | --- |
+| The haze of the fog sheets | 2 to 5 times too strong over the near trees and the backdrop after the exposure work; the depth rule follows the source (the water plane 78 m, the near clip). The source sun of the hour comes from E5. |
+| The color of the scene | Colder (green-cyan) and flatter than B6-04: the tent is gray-green with no leaf shadows (retail beige with sun shafts). |
+| The soil at the feet | Green field grass (its weight is 0.93 in the data) where B6-04 has brown soil and pebbles. Next checks: the splat decode of the menu terrain, the dynamic vegetation and surface mask components of the level. |
+| The ground cover of the menu | Off by default (`-SwcMenuCover`). The near thin grass needs the camera fade of research/ground-cover.md (the world track; the menu camera as the fade place). The leaf piles: their reason for not showing is open. |
+| The stones near the feet | Light gray-white in the client, dark brown-gray in retail (the light and the material). |
+| The eyes | Pale white with no visible iris (the head layers blend now; the eyeball texture is right). |
+| The light on the character | Flat; retail has a warm key light from the left with soft shadows. |
+| The vortex card and the rock column | AST-209 (the material of the vortex and the rock cards of Vista_Mountain). |
+| The fair character | The nearest gear of the item icons; the retail outfit (a black hood with an eye mask, larger shoulder plates) is not found. |
+| The camera | The 16:9 horizontal field is an inference (FE7: the native code is open). |
+| The cooked menu ground | `/SwcGameContent/Terrain` is not in the cook list: a cooked menu shows the bake. |
