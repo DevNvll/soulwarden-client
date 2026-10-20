@@ -30,6 +30,13 @@ public:
 	virtual void OnWorldBeginPlay(UWorld& World) override;
 	virtual void Deinitialize() override;
 	virtual void Tick(float DeltaTime) override;
+	/**
+	 * The folder of the cover files (REGIONS/r_+XX_+YY/cover.bin). The menu scene sets the folder of the terrain of the main
+	 * menu level (SWC_CONTENT/frontend/terrain/regions, docs/FRONTEND.md F4b) with its view place (the menu has no pawn, so
+	 * the view of the loading gate is not there), and an empty text at its end: the world folder again, with no fixed view.
+	 * The batches and the regions that are read go; the next update reads the regions of the new folder.
+	 */
+	void SetRegionsFolder(const FString& RegionsFolder, const TOptional<FVector>& FixedView = TOptional<FVector>());
 	virtual TStatId GetStatId() const override;
 
 protected:
@@ -77,6 +84,8 @@ private:
 	TMap<FIntPoint, FBatch> Batches;
 	TWeakObjectPtr<AActor> Owner;
 	FString Folder;
+	/** The view of the menu scene (SetRegionsFolder): used when there is no loading place and no pawn. */
+	TOptional<FVector> FixedView;
 	double RangeCm = 10000.0;
 	double NextUpdate = 0.0;
 	double NextReport = 0.0;

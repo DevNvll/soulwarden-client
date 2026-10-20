@@ -79,6 +79,7 @@ def main(argv=None) -> int:
     p.add_argument("--terrain", default="newworld_vitaeeterna", help="the terrain: newworld_vitaeeterna (the world) or nw_frontend_base")
     p = sub.add_parser("terrain-plan"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("cover"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
+    p.add_argument("--terrain", default="newworld_vitaeeterna")
     p = sub.add_parser("preview"); p.add_argument("kind", choices=["mesh", "character", "region"]); p.add_argument("target")
     p.add_argument("--clip"); p.add_argument("--area", type=float, nargs=3); p.add_argument("--frames", type=float, nargs="*", default=[0, 6.5, 13, 19.5])
     args = parser.parse_args(argv)
@@ -121,7 +122,7 @@ def main(argv=None) -> int:
         names = census.world_regions() if args.all else args.names
         if not names:
             parser.error("cover needs region names or --all")
-        result = [cover.write(n) for n in names]
+        result = [cover.write(n, args.terrain) for n in names]
     elif args.command == "terrain-plan":
         from . import census, terrain_material
         names = census.world_regions() if args.all else args.names

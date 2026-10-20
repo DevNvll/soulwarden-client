@@ -678,6 +678,7 @@ tools/build-world.sh --terrain NAME...  # the Landscape of a region again, with 
 
 ```sh
 tools/convert.sh cover NAME... | --all   # regions/NAME/cover.bin: the descriptors and the packed records (cover.py)
+tools/convert.sh cover NAME... --terrain nw_frontend_base   # the menu terrain: frontend/terrain/regions/NAME/cover.bin
 ```
 
 - `region.vegetation` of a region has the grass, ferns, leaf piles, and small plants of the game: a descriptor table
@@ -699,6 +700,10 @@ tools/convert.sh cover NAME... | --all   # regions/NAME/cover.bin: the descripto
 - Measured at Oxboro (2026-10-19): 16 batches, 786 components, 166,818 instances within 100 m. The cover stands where
   retail has it (the matched views). Its color is the point of the materials track (M_SwcFoliage: the back light of
   the source is multiplied by the diffuse color).
+- The menu scene (stage F4b of docs/FRONTEND.md): `cover.TERRAINS` has the terrain of the main menu level; its files go to
+  `frontend/terrain/regions` (no world file changes: the cover of r_+04_+02 and r_+03_+02 written again is the same byte
+  for byte). `ASwcMenuPreview` sets that folder with `USwcGroundCover::SetRegionsFolder` and the world folder again at its
+  end, with `-SwcMenuCover` only (a test: docs/FRONTEND.md, the menu cover).
 - `swc.GroundCover.Show 0` hides the cover and keeps its batches: one matched-view run gives each view with and without
   the cover (`tools/match-view.sh SET VIEW --variant VIEW@nocover='swc.GroundCover.Show 0'`).
 

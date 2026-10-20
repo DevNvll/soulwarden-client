@@ -824,3 +824,27 @@ clear, and the haze starts in the distance (AST-207 shows the GeometryBeam sheet
   frames the mountain larger and lower (the camera, FE7); the meaning of `PerFrame_WaterLevel.z` and the sun colour input
   of `%APPLY_SUN_COLOR` (the client: 100,000 lux / pi / 10,000 = 3.18; the menu preset: 80,259 lux and a sun colour
   multiplier of 6.4) need a static study of the retail program.
+
+### The fair character, the camera, and the menu cover (2026-10-20)
+
+- The development characters of the side-by-side are made-up and their specs stay outside the repository
+  (`SWC_WORK/work/frontend/characters.txt`; `tools/menu-check.sh` takes them in `SWC_DEV_SPEC`). Fairwarden has the visible
+  kind of gear of B6-04, found by the item icons (items.tsv, no picture of the user): the pointed hood XIXth Hunter's Hood
+  (`f_huntress_t5_head`) and the Amrine Guard set (`f_graverobberheavy_*`: teal-gray shoulder plates, a cross strap, brown
+  belts). It is not the same outfit: the retail hood is black with an eye mask and larger; the shoulder plates are larger;
+  the retail leather is dark. `evidence/F8/fair/fair-body-sbs.png`.
+- Menuwarden had `hairstyle12f`, a name that is not in `female.hairstyledb` (its names end in "m" for both genders): no
+  hair. It is made again with `hairstyle12m` (the same face, skin, colors, and archetype); its hair part is converted and
+  imported (the picture comes with the next menu run).
+- The character in the frame: with the same camera place (MainCamera) the background stands at the same places as in
+  B6-04 (the tent, the dome, the flowers within a few percent), but the retail character is about 14 % taller and its feet
+  are lower. A character about 0.3 m nearer to the camera (or a larger body) gives this. Open: the place of the Player
+  Entity, the root of the menu clip, the body scale.
+- The menu cover (a test, `-SwcMenuCover`): `tools/convert.sh cover r_+01_+00 r_+01_+01 --terrain nw_frontend_base`
+  (21 descriptors, 236,005 records, all meshes imported, all overrides with a slot map; the world cover files stay the
+  same byte for byte). In the menu the cover has no pawn view: the preview gives the place of the Player Entity
+  (`USwcGroundCover::SetRegionsFolder`). Run `fair2`: 16 batches, 200,492 instances. The tiles at the character have mostly
+  maple leaf piles (fall), thin autumn grass, and oak branches: the brown of B6-04. In the client the leaf piles do not
+  show (the pile mesh is 17 cm tall and the records sit 1 to 2 cm under the menu ground: not hidden by the ground; their
+  material is the next check), and thin grass stands in front of the camera where B6-04 has none.
+  `evidence/F8/fair/feet-cover2-x2.png`. Thus the menu cover stays off by default.

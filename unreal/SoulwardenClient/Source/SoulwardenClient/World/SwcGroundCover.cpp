@@ -159,6 +159,31 @@ void USwcGroundCover::OnWorldBeginPlay(UWorld& World)
 	}
 }
 
+void USwcGroundCover::SetRegionsFolder(const FString& RegionsFolder, const TOptional<FVector>& InFixedView)
+{
+	const FString Wanted = RegionsFolder.IsEmpty() ? ContentFolder() : RegionsFolder;
+	FixedView = InFixedView;
+	if (Wanted == Folder)
+	{
+		return;
+	}
+	for (TPair<FIntPoint, FBatch>& Batch : Batches)
+	{
+		for (const TWeakObjectPtr<UHierarchicalInstancedStaticMeshComponent>& Component : Batch.Value.Components)
+		{
+			if (Component.IsValid())
+			{
+				Component->DestroyComponent();
+			}
+		}
+	}
+	Batches.Reset();
+	Regions.Reset();
+	Folder = Wanted;
+	NextUpdate = 0.0;
+	UE_LOG(LogSwcCover, Log, TEXT("cover: the regions of %s"), *Folder);
+}
+
 void USwcGroundCover::Deinitialize()
 {
 	SwcLoadingGate::Unregister(GetWorld(), TEXT("cover"));
@@ -539,7 +564,11 @@ void USwcGroundCover::Tick(float DeltaTime)
 	FVector View;
 	if (!SwcLoadingGate::GetView(GetWorld(), View))
 	{
-		return;   // no place and no character yet (the camera is at the origin of the world)
+		if (!FixedView.IsSet())
+		{
+			return;   // no place and no character yet (the camera is at the origin of the world)
+		}
+		View = FixedView.GetValue();   // the menu scene
 	}
 	Update(View, bScreen ? ScreenMarginM : 0.0, bScreen ? ScreenBudgetSeconds : BuildBudgetSeconds);
 	if (Now >= NextReport)

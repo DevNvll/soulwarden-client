@@ -15,6 +15,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "SwcBackendSubsystem.h"
+#include "World/SwcGroundCover.h"
 #include "Components/DecalComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/SpotLightComponent.h"
@@ -184,6 +185,15 @@ bool ASwcMenuPreview::LoadScene(const FString& Path)
 		PlayerWorld.Y, PlayerWorld.Z, Sequences.Num());
 	SetEnvironment(Doc);
 	BuildScene(Doc);
+	// The ground cover of the menu terrain (the leaves, the grass, and the stones at the feet: region.vegetation of
+	// nw_frontend_base, tools/convert.sh cover NAME --terrain nw_frontend_base). A test for now (-SwcMenuCover): the leaf
+	// piles do not show, and thin grass stands in front of the camera where B6-04 has none (docs/FRONTEND.md F4b, the cover).
+	const FString CoverFolder = FPaths::Combine(SceneContent, TEXT("frontend/terrain/regions"));
+	USwcGroundCover* Cover = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcGroundCover>() : nullptr;
+	if (Cover != nullptr && FParse::Param(FCommandLine::Get(), TEXT("SwcMenuCover")) && FPaths::DirectoryExists(CoverFolder))
+	{
+		Cover->SetRegionsFolder(CoverFolder, GetActorLocation());
+	}
 	return true;
 }
 
@@ -234,6 +244,10 @@ void ASwcMenuPreview::EndPlay(const EEndPlayReason::Type Reason)
 	if (USwcEnvironmentSubsystem* Environment = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcEnvironmentSubsystem>() : nullptr)
 	{
 		Environment->ClearMenuScene();
+	}
+	if (USwcGroundCover* Cover = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcGroundCover>() : nullptr)
+	{
+		Cover->SetRegionsFolder(FString());
 	}
 	Super::EndPlay(Reason);
 }

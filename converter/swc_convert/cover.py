@@ -21,6 +21,11 @@ from pathlib import Path
 from . import cover_materials, env, manifest, region, source
 
 VERSION = 1
+# The terrains with ground cover: the folder of the terrain in the game data and the content folder of its regions. The world
+# is the default; the terrain of the main menu level writes to its own folder, so that no file of the world changes (stage F4b
+# of docs/FRONTEND.md: the leaves and stones at the feet of the menu character).
+TERRAINS = {"newworld_vitaeeterna": (region.WORLD, "regions"),
+            "nw_frontend_base": ("sharedassets/coatlicue/nw_frontend_base/", "frontend/terrain/regions")}
 
 
 def text(value: str) -> bytes:
@@ -40,13 +45,15 @@ def object_path(folder: str) -> str:
     return f"{package}.{asset.stem}"
 
 
-def write(name: str) -> dict:
-    """Writes regions/NAME/cover.bin. @return A report (None for a region with no region.vegetation)."""
-    path = region.WORLD + "regions/" + name + "/region.vegetation"
+def write(name: str, terrain: str = "newworld_vitaeeterna") -> dict:
+    """Writes REGIONS/NAME/cover.bin (REGIONS: the content folder of the terrain, TERRAINS). @return A report (cover False for
+    a region with no region.vegetation)."""
+    level, regions = TERRAINS[terrain]
+    path = level + "regions/" + name + "/region.vegetation"
     if not source.has(path):
         return {"region": name, "cover": False}
     data = source.read(path)
-    table = cover_materials.descriptors(name)["descriptors"]
+    table = cover_materials.descriptors(name, level)["descriptors"]
     assets = manifest.load()["assets"]
     pairs_path = cover_materials.out_dir() / "pairs.json"
     pairs = json.loads(pairs_path.read_text()) if pairs_path.is_file() else {}
@@ -74,7 +81,7 @@ def write(name: str) -> dict:
             out += text(slot) + text(key)
         out += struct.pack("<fB", float(d["bending"]), int(d["autoMerge"]))
     out += struct.pack("<Q", len(data)) + data
-    target = env.content_dir() / "regions" / name / "cover.bin"
+    target = env.content_dir() / regions / name / "cover.bin"
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_suffix(".tmp")   # the client can read the file: atomic
     temporary.write_bytes(bytes(out))

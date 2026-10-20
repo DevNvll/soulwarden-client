@@ -36,11 +36,12 @@ def region_names() -> list[str]:
                    if p.startswith(prefix) and p.endswith("/region.vegetation")})
 
 
-def descriptors(name: str) -> dict:
+def descriptors(name: str, level: str | None = None) -> dict:
     """@return The descriptor table of one region.vegetation and the record count of each descriptor (the group headers
-    of all tiles; the 16-byte records are skipped). Layout: research/terrain.md, section 3."""
+    of all tiles; the 16-byte records are skipped). Layout: research/terrain.md, section 3. level: the folder of the
+    terrain in the game data (the world when None; cover.TERRAINS)."""
     from . import region as region_module
-    data = source.read(region_module.WORLD + "regions/" + name + "/region.vegetation")
+    data = source.read((level or region_module.WORLD) + "regions/" + name + "/region.vegetation")
     tile, size, _opaque = struct.unpack_from("<HHI", data, 0)
     tiles = (size // tile) ** 2
     offsets = struct.unpack_from(f"<{tiles}I", data, 8)
