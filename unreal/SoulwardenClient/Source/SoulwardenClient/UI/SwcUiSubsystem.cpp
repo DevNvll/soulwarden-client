@@ -155,6 +155,16 @@ void USwcUiSubsystem::Start()
 		LoadDrive(DrivePath);
 	}
 	PostLoadMap = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &USwcUiSubsystem::OnPostLoadMap);
+	// The return that keeps the world (AST-203): no level load, the backend tells the end of the session.
+	if (USwcBackendSubsystem* Backend = GetGameInstance()->GetSubsystem<USwcBackendSubsystem>())
+	{
+		SessionEnd = Backend->OnWorldSessionEnd.AddUObject(this, &USwcUiSubsystem::OnWorldSessionEnd);
+	}
+}
+
+void USwcUiSubsystem::OnWorldSessionEnd()
+{
+	OnPostLoadMap(nullptr);   // the same start of the screens as after the level load of a return
 }
 
 bool USwcUiSubsystem::StartRuntime()
@@ -206,8 +216,9 @@ bool USwcUiSubsystem::StartRuntime()
 
 void USwcUiSubsystem::OnPostLoadMap(UWorld* LoadedWorld)
 {
-	// The return to the character selection (stage F6 of docs/FRONTEND.md): after the level load of a return, the screens start
-	// again as at the start of the client (the start loading screen, then the landing screen with a new list).
+	// The return to the character selection (stage F6 of docs/FRONTEND.md): after a return (the world stays, or with the fallback
+	// after the level load), the screens start again as at the start of the client (the start loading screen, then the landing
+	// screen with a new list).
 	const USwcBackendSubsystem* Backend = GetGameInstance()->GetSubsystem<USwcBackendSubsystem>();
 	if (Backend == nullptr || Backend->GetMenuReturns() == SeenMenuReturns)
 	{
@@ -291,6 +302,10 @@ void USwcUiSubsystem::Deinitialize()
 {
 	FTSTicker::RemoveTicker(Ticker);
 	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMap);
+	if (USwcBackendSubsystem* Backend = GetGameInstance()->GetSubsystem<USwcBackendSubsystem>())
+	{
+		Backend->OnWorldSessionEnd.Remove(SessionEnd);
+	}
 	if (InputProcessor.IsValid() && FSlateApplication::IsInitialized())
 	{
 		FSlateApplication::Get().UnregisterInputPreProcessor(InputProcessor);

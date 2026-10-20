@@ -181,6 +181,8 @@ class SOULWARDENCLIENT_API USwcCreatureSubsystem : public UTickableWorldSubsyste
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
+	/** The end of a world session on a return to the menu that keeps the world (USwcBackendSubsystem::OnWorldSessionEnd). */
+	void OnWorldSessionEnd();
 	virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;
 	virtual void Tick(float DeltaTime) override;
 	virtual TStatId GetStatId() const override;
@@ -240,6 +242,7 @@ public:
 	static constexpr double InterpolationDelaySeconds = 0.25;
 
 private:
+	FDelegateHandle SessionEnd;
 	void Clear(const TCHAR* Cause);
 	void Spawn(const swc::creatures::Entity& Entity);
 	/** The creature has its body (its assets are in memory): the log line and the wanted list of a slice with no model. */

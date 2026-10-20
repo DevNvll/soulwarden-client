@@ -28,6 +28,7 @@
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformTime.h"
+#include "HAL/IConsoleManager.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Net/SwcLoginClient.h"
@@ -55,6 +56,11 @@ struct FSwcPlayerTables
 namespace
 {
 using FPhase = swc::net::RepClient::Phase;
+
+/** The fallback of the return to the menu (AST-203): 1 loads the level of the world again, as before the return that keeps the
+ *  world (also the command-line option -SwcReturnReload). */
+TAutoConsoleVariable<int32> CVarReturnReload(TEXT("swc.Menu.ReturnReload"), 0,
+	TEXT("1: the return to the menu loads the level of the world again (the fallback); 0: the world stays (the default)."));
 
 /** The spawn waits at most this time (from the in-game phase) for the assets of the look; then the rest loads at once. */
 constexpr double PreloadLimit = 30.0;
@@ -504,6 +510,10 @@ bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 			// no leave (its cause goes to the landing screen as the entry error).
 			const FString Error = bReturning ? FString() : FString::Printf(TEXT("the connection ended: %s"), *Snapshot.EndCause);
 			WorldTicker.Reset();   // this ticker ends with the false below
+			if (!ReturnReloads())
+			{
+				EndWorldActors();   // the pawn and the view actor of the session (before ResetWorldSession forgets them)
+			}
 			ResetWorldSession();
 			EnterError = Error;
 			OpenMenuLevel();
@@ -1729,10 +1739,43 @@ void USwcBackendSubsystem::OpenMenuLevel()
 		return;
 	}
 	++MenuReturns;
+	if (!ReturnReloads())
+	{
+		// The world stays (AST-203: the level again took 16 s cooked and 81 s in the editor binary): the subsystems clear the
+		// actors of the session, and the UI starts its screens and the menu scene again in this world.
+		UE_LOG(LogSwcBackend, Log, TEXT("world: the return to the menu (%d): the world stays%s"), MenuReturns,
+			EnterError.IsEmpty() ? TEXT("") : TEXT(" with the entry error"));
+		OnWorldSessionEnd.Broadcast();
+		return;
+	}
 	const FString Map = UWorld::RemovePIEPrefix(World->GetOutermost()->GetName());
 	UE_LOG(LogSwcBackend, Log, TEXT("world: the return to the menu (%d): the level %s again%s"), MenuReturns, *Map,
 		EnterError.IsEmpty() ? TEXT("") : TEXT(" with the entry error"));
 	UGameplayStatics::OpenLevel(World, FName(*Map));
+}
+
+bool USwcBackendSubsystem::ReturnReloads() const
+{
+	static const bool bOption = FParse::Param(FCommandLine::Get(), TEXT("SwcReturnReload"));
+	return bOption || CVarReturnReload.GetValueOnGameThread() != 0;
+}
+
+void USwcBackendSubsystem::EndWorldActors()
+{
+	UWorld* World = GetGameInstance() != nullptr ? GetGameInstance()->GetWorld() : nullptr;
+	APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	if (Controller != nullptr && Controller->GetPawn() != nullptr)
+	{
+		Controller->UnPossess();
+	}
+	if (Avatar.IsValid())
+	{
+		Avatar->Destroy();
+	}
+	if (Camera.IsValid())
+	{
+		Camera->Destroy();
+	}
 }
 
 void USwcBackendSubsystem::Quit(bool bSucceeded, const TCHAR* Cause)

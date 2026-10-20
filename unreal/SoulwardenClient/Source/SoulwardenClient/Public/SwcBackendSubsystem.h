@@ -13,6 +13,9 @@
 
 DECLARE_LOG_CATEGORY_EXTERN(LogSwcBackend, Log, All);
 
+/** The end of a world session on a return to the menu that keeps the world (the subsystems clear the actors of the session). */
+DECLARE_MULTICAST_DELEGATE(FSwcWorldSessionEnd);
+
 namespace swc::combat
 {
 class Driver;
@@ -123,8 +126,12 @@ public:
 	 * connection that ends with no leave goes back too, and its cause is the entry error of the landing screen.
 	 */
 	void ReturnToMenu();
-	/** @return The count of the returns to the menu (the UI starts its screens again after the level load of each one). */
+	/** @return The count of the returns to the menu (the UI starts its screens again after each one). */
 	int32 GetMenuReturns() const { return MenuReturns; }
+	/** A return to the menu that keeps the world (the default; swc.Menu.ReturnReload 1 or -SwcReturnReload: the level again):
+	 *  the subsystems with actors of the session clear them, the UI starts its screens again. Broadcast after the count of
+	 *  the return goes up. */
+	FSwcWorldSessionEnd OnWorldSessionEnd;
 	/** @return True while the client has a connection to the game server (after the login token). */
 	bool HasConnection() const { return Connection.IsValid(); }
 	/** @return The error of the last EnterWorld of the front end (no login token), else empty. */
@@ -204,8 +211,13 @@ private:
 	/** Sets the state of the world session back to the start (each member below that one world entry changes), so that the
 	 *  next entry starts as the first one. A new member of the world session goes into this function too. */
 	void ResetWorldSession();
-	/** The return to the menu: loads the level of the world again (its actors and its world subsystems start new). */
+	/** The return to the menu: keeps the world (the pawn and the view actor go, OnWorldSessionEnd), or with the fallback loads the
+	 *  level of the world again (its actors and its world subsystems start new). */
 	void OpenMenuLevel();
+	/** @return True when the return to the menu loads the level again (swc.Menu.ReturnReload 1 or -SwcReturnReload). */
+	bool ReturnReloads() const;
+	/** The return that keeps the world: the pawn of the player and the view actor of the session go. */
+	void EndWorldActors();
 	bool bReturning = false;
 	int32 MenuReturns = 0;
 

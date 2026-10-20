@@ -127,6 +127,8 @@ class SOULWARDENCLIENT_API USwcObjectSubsystem : public UTickableWorldSubsystem
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
+	/** The end of a world session on a return to the menu that keeps the world (USwcBackendSubsystem::OnWorldSessionEnd). */
+	void OnWorldSessionEnd();
 	virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;
 	virtual void Tick(float DeltaTime) override;
 	virtual TStatId GetStatId() const override;
@@ -157,6 +159,7 @@ public:
 	static constexpr double RegionMeters = 300.0;
 
 private:
+	FDelegateHandle SessionEnd;
 	struct FOptionRow
 	{
 		swc::interact::Option Option;

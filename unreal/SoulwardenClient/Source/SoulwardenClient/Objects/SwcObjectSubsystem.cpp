@@ -133,6 +133,14 @@ FString Hex64(uint64 Value)
 void USwcObjectSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	// The return to the menu that keeps the world (AST-203): the actors of the session go at its end.
+	if (UGameInstance* Instance = GetWorld() != nullptr ? GetWorld()->GetGameInstance() : nullptr)
+	{
+		if (USwcBackendSubsystem* Backend = Instance->GetSubsystem<USwcBackendSubsystem>())
+		{
+			SessionEnd = Backend->OnWorldSessionEnd.AddUObject(this, &USwcObjectSubsystem::OnWorldSessionEnd);
+		}
+	}
 	FString ProbeMode;
 	bProbe = FParse::Param(FCommandLine::Get(), TEXT("SwcObjectProbe")) || FParse::Value(FCommandLine::Get(), TEXT("SwcObjectProbe="), ProbeMode);
 	bProbeDraw = !ProbeMode.Equals(TEXT("log"), ESearchCase::IgnoreCase);
@@ -151,9 +159,21 @@ void USwcObjectSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void USwcObjectSubsystem::Deinitialize()
 {
+	if (UGameInstance* Instance = GetWorld() != nullptr ? GetWorld()->GetGameInstance() : nullptr)
+	{
+		if (USwcBackendSubsystem* Backend = Instance->GetSubsystem<USwcBackendSubsystem>())
+		{
+			Backend->OnWorldSessionEnd.Remove(SessionEnd);
+		}
+	}
 	UDebugDrawService::Unregister(DrawHandle);
 	ClearAll(TEXT("the world ends"));
 	Super::Deinitialize();
+}
+
+void USwcObjectSubsystem::OnWorldSessionEnd()
+{
+	ClearAll(TEXT("the session ends"));
 }
 
 bool USwcObjectSubsystem::DoesSupportWorldType(const EWorldType::Type WorldType) const

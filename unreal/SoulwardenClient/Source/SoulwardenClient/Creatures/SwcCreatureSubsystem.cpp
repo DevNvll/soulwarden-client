@@ -80,6 +80,14 @@ const FLinearColor ImmuneFill(0.55f, 0.55f, 0.55f, 1.0f);
 void USwcCreatureSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	// The return to the menu that keeps the world (AST-203): the actors of the session go at its end.
+	if (UGameInstance* Instance = GetWorld() != nullptr ? GetWorld()->GetGameInstance() : nullptr)
+	{
+		if (USwcBackendSubsystem* Backend = Instance->GetSubsystem<USwcBackendSubsystem>())
+		{
+			SessionEnd = Backend->OnWorldSessionEnd.AddUObject(this, &USwcCreatureSubsystem::OnWorldSessionEnd);
+		}
+	}
 	FString Plates;
 	FParse::Value(FCommandLine::Get(), TEXT("SwcPlates="), Plates);
 	bAllPlates = Plates == TEXT("all");
@@ -111,10 +119,22 @@ void USwcCreatureSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void USwcCreatureSubsystem::Deinitialize()
 {
+	if (UGameInstance* Instance = GetWorld() != nullptr ? GetWorld()->GetGameInstance() : nullptr)
+	{
+		if (USwcBackendSubsystem* Backend = Instance->GetSubsystem<USwcBackendSubsystem>())
+		{
+			Backend->OnWorldSessionEnd.Remove(SessionEnd);
+		}
+	}
 	UDebugDrawService::Unregister(DrawHandle);
 	SwcLoadingGate::Unregister(GetWorld(), TEXT("creatures"));
 	Clear(TEXT("the world ends"));
 	Super::Deinitialize();
+}
+
+void USwcCreatureSubsystem::OnWorldSessionEnd()
+{
+	Clear(TEXT("the session ends"));
 }
 
 bool USwcCreatureSubsystem::DoesSupportWorldType(const EWorldType::Type WorldType) const

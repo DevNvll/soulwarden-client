@@ -118,10 +118,13 @@ private:
 	FString ContentDir;
 	bool StartRuntime();
 	void OnPostLoadMap(UWorld* LoadedWorld);
+	/** The return to the menu that keeps the world (USwcBackendSubsystem::OnWorldSessionEnd): as OnPostLoadMap. */
+	void OnWorldSessionEnd();
 	/** Sets the state of one run of the screens back to the start (the members from bStartLoading to SentHeals, except the widget):
 	 *  a new member of that state goes into this function too. */
 	void ResetSession();
 	FDelegateHandle PostLoadMap;
+	FDelegateHandle SessionEnd;
 	int32 SeenMenuReturns = 0;
 	TSharedPtr<class FSwcUiInputProcessor> InputProcessor;
 	bool bStartLoading = false;
