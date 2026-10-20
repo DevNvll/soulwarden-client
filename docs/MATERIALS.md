@@ -421,6 +421,9 @@ The source (modificatorvt.cfib `_VTBending`, `_DetailBending`, `_MainBending`; v
 
 Check: `tools/material-proof.sh m6` (the rule 7 test meshes with `SwcWind` 0, 1, 4: the bend in a still picture);
 the motion needs a video side by side with a retail development video.
+Deployed on 2026-10-20 (the world track, the decision of the orchestrator): `DEPLOYED` has `m6` (only the switch `Wind`
+and `BendDetail`). The video against retail shows almost no motion: see docs/WORLD.md "The wind flag" (the main
+bending has no time term).
 
 ## The ground cover (for T3 of the world track)
 

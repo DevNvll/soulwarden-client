@@ -646,6 +646,13 @@ materials track).
   (`content/materials/instances.json`) have no static switch `Wind` (M6 is only in `instances-candidate.json`, 622
   specs), and the switch is off by default, thus `M_SwcFoliage` has no world position offset. The motion comes with
   the deploy of M6.
+- The deploy of the M6 wind alone (2026-10-20, the decision of the orchestrator): `material_records.DEPLOYED` has `m6`;
+  the specs changed only by the switch `Wind` and `BendDetail` (611 keys; 395 instances applied, 216 keys with no asset
+  yet). All 49 regions have cells version 6. The video again (`evidence/wind/wind-river2-still.mp4`): the motion is still
+  near zero (tree crowns 0.43, retail 3.95; the near grass 1.19, retail 11.91). The cause is the M6 rule: the main
+  bending is a static offset (the wind x the bend, no time term: the source makes the bend vector on the CPU each
+  frame, and that rule is not traced), and only the detail bending (175 specs with `%DETAIL_BENDING`) moves with the
+  time. The motion needs the CPU wind rule of the source (the bend vector of an instance in time).
 
 ## The terrain material of the game (world fidelity T1)
 
