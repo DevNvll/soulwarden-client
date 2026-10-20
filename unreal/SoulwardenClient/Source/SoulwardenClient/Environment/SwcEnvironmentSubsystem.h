@@ -98,6 +98,25 @@ public:
 		FString WorldProbe;
 		double WorldProbeDiffuse = 1.0;
 		double WorldProbeTodInfluence = 1.0;
+		/** The mean radiance of the four side faces of the world probe (the units of the source): the ambient of the far fog. */
+		std::array<double, 3> WorldProbeHorizon{0.3, 0.33, 0.35};
+		/** A local probe of the source (stage E5 step b; probes.json "local"): its box (the center in the units of the source, m,
+		 *  and the rows that give the box space -1 to 1: the unit axes of the entity over the half sizes of Area X,Y,Z), the order
+		 *  (SortPriority, then the smaller box first), the fade at its edge (AttenuationFalloffMax), its color (COLOR x
+		 *  DiffuseMultiplier), its TODInfluence, and the name of its cube texture (T_SwcProbe_NAME). */
+		struct FLocalProbe
+		{
+			swc::environment::Vec3 Center;
+			std::array<swc::environment::Vec3, 3> Rows;
+			double Radius = 0.0;
+			double Volume = 0.0;
+			int32 Priority = 0;
+			double Falloff = 1.0;
+			std::array<double, 3> Color{1.0, 1.0, 1.0};
+			double TodInfluence = 1.0;
+			FString Cube;
+		};
+		TArray<FLocalProbe> LocalProbes;
 		/** A rain or snow volume (stage E3): the full amount within the inner radius (m, horizontal), 0 at the outer radius, within
 		 *  the half height about the center (a capsule or a cylinder; no shape: no limit). */
 		struct FPrecipitation
@@ -107,6 +126,10 @@ public:
 			double Outer = 0.0;
 			double HalfHeight = 1e9;
 			double Amount = 0.0;
+			/** The rain drops of the data (the scene rain of the source): RainDropsAmount, RainDropsLighting, RainDropsSpeed. */
+			double DropsAmount = 1.0;
+			double DropsLighting = 1.0;
+			double DropsSpeed = 1.0;
 			bool bSnow = false;
 			FString Name;
 		};
@@ -177,6 +200,9 @@ private:
 	TArray<double> SourceSkyKey;
 	TSharedPtr<struct FSwcSourceSkyJob, ESPMode::ThreadSafe> SourceSkyJob;
 	void UpdateSourceSky(double Hour, double MoonWeight);
+	/** The fog of the source (stage E5 step 3): the second fog set of the data on the height fog and the volumetric fog of Unreal. */
+	void UpdateSourceFog(class UExponentialHeightFogComponent* HeightFog, const FVector& CameraLocation, double Global, double Bottom, double Top,
+		double BottomDensity, double TopDensity);
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> CloudMaterial;
 	TWeakObjectPtr<UPostProcessComponent> PrecipitationPost;
@@ -215,6 +241,13 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<class UTextureCube> WorldProbe;
 	int32 SkyLightMode = -1;
+	/** The cubes of the local probes (stage E5 step b), loaded at their first use; the cube of the blend and its fraction. */
+	UPROPERTY(Transient)
+	TMap<FString, TObjectPtr<class UTextureCube>> ProbeCubes;
+	FString ProbeBlendCube;
+	/** The local probes at the camera for the probe log line. */
+	FString ProbeText;
+	void UpdateLocalProbes(class USkyLightComponent* Ambient, const FVector& CameraLocation, double WorldIntensity, const FLinearColor& Multiplier);
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> GradeMaterial;
 	double NightFactor = 0.0;

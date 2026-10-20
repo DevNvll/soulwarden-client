@@ -203,4 +203,17 @@ SkyParts source_sky(const SkyModel& model, const Vec3& view);
  *  and the Rayleigh phase 0.75 (1 + c^2) for the cosine c between the view and the direction toward the sun. */
 std::array<double, 2> source_sky_phases(double g, double cosine);
 
+/** @return The point of the unit ball for a point of the cube -1 to 1 (shadelib MapCubeToSphere of the source). */
+Vec3 map_cube_to_sphere(const Vec3& v);
+
+/** @return The fade of a local probe of the source at a point in its box space (each axis -1 to 1 inside; 0 outside): the tiled
+ *  shading of the source (tiledshading.cfib ApplyProbe, shadelib GetAttenuation and smoothstep_opt): saturate(1 - |s|^2) with s
+ *  the point on the unit ball, then smoothstep(saturate(that / falloffMax)), times the uniform attenuation of the probe. */
+double probe_fade(const Vec3& boxSpace, double falloffMax, double uniform);
+
+/** @return The weights of the probes at a point, in the order of the light list: each probe takes its fade of the part that the
+ *  probes before it left (weight = (1 - sum) x fade), and the list stops at a sum of 1 (ApplyProbe). The rest (1 - the sum) is
+ *  the last value. */
+std::vector<double> probe_weights(const std::vector<double>& fades);
+
 } // namespace swc::environment

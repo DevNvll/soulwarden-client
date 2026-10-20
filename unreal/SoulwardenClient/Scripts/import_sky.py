@@ -189,20 +189,61 @@ if force or not assets.does_asset_exist(MATERIAL):
 PRECIPITATION = FOLDER + "/M_SwcPrecipitation"
 PRECIPITATION_CODE = """
 float aspect = ViewSize.x / max(ViewSize.y, 1.0);
-float veil = 0.0;
+float3 result = Scene.rgb;
 if (RainAmount > 0.0)
 {
-    float rain = 0.0;
+    // The scene rain of the source (the static study ~/Games/soulwarden-client/research/e5-source-rain.md: posteffectsgame
+    // SceneRainVS/PS and NewWorld.exe): N = clamp(int(Amount + 1e-4), 1, 3) layers on a rain cone about the camera (the middle band
+    // a cylinder of the radius ((i + 1) D)^1.5 m with D = 0.5 x r_RainDistMultiplier 2, the height 4 (1 + i / max(N - 1, 1)) m, the
+    // end bands to a radius of 0.01 at the mesh z +-1). For each layer: the alpha is (rainfall.r(1.5 cone.yz + anim) |nx|^4 +
+    // rainfall.r(3 cone.xz + anim) |ny|^4) x the soft depth fade saturate(2 (the opaque distance - the cone distance)) x the vertical
+    // fade g (1 - ... ) with g = saturate(0.5 - 0.5 mesh z) (0.5 at the eye height); anim = RainDropsSpeed x time x (0.1, 1.25). The
+    // streak light is Amount x RainDropsAmount x H (H the geometric mean of the scene luminance; here the illuminance E of the EV
+    // rule of the exposure x 0.18 / pi: an inference) + RainDropsLighting x the bloom sample of the source (no bloom input here: 0);
+    // an alpha blend for each layer. Open: the rain occlusion map of the source (a top-down depth map; no occlusion here).
+    float ev = -log2(max(1.2 * Exposure, 1e-12));
+    float E = exp2(ev) * 3.3;
+    [unroll] for (int k = 0; k < 4; ++k)
+    {
+        E = exp2(ev + (clamp(log10(E + 1.0), 0.1, 5.2) - 3.0) * 0.5 * AutoCompensation) * 3.3;
+    }
+    float3 drop = RainAmount * RainDrops.x * (E * 0.18 / 3.14159265);
+    float rayLength = max(length(Ray), 1e-3);
+    float opaque = rayLength / 100.0;
+    float3 d = Ray / rayLength;
+    float horizontal = max(length(d.xy), 1e-4);
+    float2 n = d.xy / horizontal;
+    float rise = d.z / horizontal;
+    float2 w = pow(abs(n), 4.0);
+    float2 anim = RainDrops.z * Time * float2(0.1, 1.25);
+    int layers = clamp((int)(RainAmount + 0.0001), 1, 3);
     [unroll] for (int i = 0; i < 3; ++i)
     {
-        float scale = 1.2 + 0.9 * i;
-        float2 p = float2(UV.x * aspect + UV.y * 0.12, UV.y) * scale;
-        p.y -= Time * (1.6 + 0.5 * i);
-        p.x += 0.37 * i;
-        rain += Texture2DSample(Rainfall, RainfallSampler, p).r * (0.55 - 0.15 * i);
+        if (i < layers)
+        {
+            float radius = pow((float)(i + 1), 1.5);
+            float height = 4.0 * (1.0 + (layers > 1 ? (float)i / (float)(layers - 1) : 0.0));
+            float meshZ = radius * rise / height;
+            float along = radius;
+            if (abs(meshZ) > 0.33)
+            {
+                // The end bands: the radius falls from 1 at |z| 0.33 to 0.01 at |z| 1 (times the layer radius).
+                float slope = 0.99 / 0.67;
+                float az = radius * (1.0 + 0.33 * slope) / (height / max(abs(rise), 1e-4) + radius * slope);
+                meshZ = sign(rise) * min(az, 1.0);
+                along = abs(meshZ) * height / max(abs(rise), 1e-4);
+            }
+            float3 cone = float3(n * along, meshZ * height);
+            float soft = saturate(2.0 * (opaque - along / horizontal));
+            float g = saturate(0.5 - 0.5 * meshZ);
+            float vertical = g * saturate(10.0 * (1.0 - g));
+            float a = (Texture2DSample(Rainfall, RainfallSampler, 1.5 * cone.yz + anim).r * w.x
+                + Texture2DSample(Rainfall, RainfallSampler, 3.0 * cone.xz + anim).r * w.y) * soft * vertical;
+            result = lerp(result, drop, a);
+        }
     }
-    veil += rain * RainAmount;
 }
+float veil = 0.0;
 if (SnowAmount > 0.0)
 {
     // Sparse small flakes: a cell holds a flake when its hash is under the amount; the flake (the luminance of the atlas) is a third
@@ -231,10 +272,10 @@ if (SnowAmount > 0.0)
     veil += flakes;
 }
 float a = saturate(veil) * saturate(Depth / 200.0);
-return lerp(Scene.rgb, DropLight.rgb, a);
+return lerp(result, DropLight.rgb, a);
 """
 if force or not assets.does_asset_exist(PRECIPITATION):
-    rainfall = texture("T_SwcRainfall", doc["rain"]["png"], False, False)
+    rainfall = texture("T_SwcRainfall", doc["rain"]["png"], True, False)   # rainfall.dds is BC1 sRGB: the alpha is the linear value
     snowflakes = texture("T_SwcSnowflakes", doc["snow"]["png"], True, True)
     if assets.does_asset_exist(PRECIPITATION):
         assets.delete_asset(PRECIPITATION)
@@ -258,9 +299,16 @@ if force or not assets.does_asset_exist(PRECIPITATION):
     rain_amount = parameter(post, unreal.MaterialExpressionScalarParameter, "RainAmount", -900, 500, 0.0)
     snow_amount = parameter(post, unreal.MaterialExpressionScalarParameter, "SnowAmount", -900, 600, 0.0)
     drop_light = parameter(post, unreal.MaterialExpressionVectorParameter, "DropLight", -900, 700, unreal.LinearColor(0, 0, 0, 0))
+    drops = parameter(post, unreal.MaterialExpressionVectorParameter, "RainDrops", -900, 800, unreal.LinearColor(1, 1, 1, 0))
+    compensation = parameter(post, unreal.MaterialExpressionScalarParameter, "AutoCompensation", -900, 900, 1.5)
+    exposure = library.create_material_expression(post, unreal.MaterialExpressionEyeAdaptation, -900, 1000)
+    # The view ray of the pixel: its world position relative to the camera (cm; the rain cone of the source is about the camera).
+    ray = library.create_material_expression(post, unreal.MaterialExpressionWorldPosition, -900, 1100)
+    ray.set_editor_property("world_position_shader_offset", unreal.WorldPositionIncludedOffsets.WPT_CAMERA_RELATIVE)
     pins = [("Scene", scene, "Color"), ("Depth", depth, ""), ("UV", uv, ""), ("Time", clock, ""), ("ViewSize", size, ""),
             ("Rainfall", rain_object, ""), ("Snowflakes", flake_object, ""), ("RainAmount", rain_amount, ""),
-            ("SnowAmount", snow_amount, ""), ("DropLight", drop_light, "")]
+            ("SnowAmount", snow_amount, ""), ("DropLight", drop_light, ""), ("RainDrops", drops, "RGBA"),
+            ("AutoCompensation", compensation, ""), ("Exposure", exposure, ""), ("Ray", ray, "")]
     pin_inputs = []
     for name, _, _ in pins:
         item = unreal.CustomInput()
@@ -273,6 +321,10 @@ if force or not assets.does_asset_exist(PRECIPITATION):
     library.recompile_material(post)
     assets.save_loaded_asset(post, only_if_is_dirty=False)
     report["precipitation"] = True
+    sources = library.get_inputs_for_material_expression(post, code)
+    missing = [pins[i][0] for i in range(len(pins)) if i >= len(sources) or sources[i] is None]
+    if missing:
+        raise RuntimeError(f"M_SwcPrecipitation: pins with no source: {missing}")
 # The color grade of the source (stage E5; the decision of the user: the client colors copy the retail colors): a post-process
 # material that replaces the tone mapper of Unreal. It copies the final scene shader of the game copy (HDRFinalScenePS of
 # shaders/cache/d3d11/cgpshaders/hdrpostprocess@hdrfinalsceneps.fxcb, read with its constant names) and the photo filter of its
@@ -351,18 +403,22 @@ if force or not assets.does_asset_exist(GRADE):
         raise RuntimeError(f"M_SwcGrade: a pin of the custom node has no source: {report['grade pins']}")
 # The world probes of the outdoor ambient (stage E5): the long-lat Radiance pictures of probes.json (tools/convert-environment.sh
 # probes) as cube textures /SwcGameContent/Environment/Probes/T_SwcProbe_NAME (HDR, linear). The client puts the probe into its sky
-# light (a specified cubemap) with the multipliers of the data.
+# light (a specified cubemap) with the multipliers of the data. The cubes of the local probes (step b) are BC6H.
 PROBES = FOLDER + "/Probes"
 probe_doc = os.path.join(content, "probes.json")
 report["probes"] = []
 if os.path.exists(probe_doc):
-    for entry in json.load(open(probe_doc))["world"]:
+    probe_list = json.load(open(probe_doc))
+    # The world probes, then the cubes of the local probes (step b; BC6H: 35 cubes).
+    entries = [(entry, False) for entry in probe_list["world"]] + [(entry, True) for entry in probe_list.get("cubes", {}).values()]
+    for entry, compressed in entries:
         if "hdr" not in entry:
             continue
         name = "T_SwcProbe_" + os.path.splitext(os.path.basename(entry["hdr"]))[0]
         path = f"{PROBES}/{name}"
-        if assets.does_asset_exist(path) and not force:
-            report["probes"].append(name)
+        if name in report["probes"] or (assets.does_asset_exist(path) and not force):
+            if name not in report["probes"]:
+                report["probes"].append(name)
             continue
         task = unreal.AssetImportTask()
         task.set_editor_property("filename", os.path.join(content, entry["hdr"]))
@@ -376,7 +432,8 @@ if os.path.exists(probe_doc):
         if not isinstance(cube, unreal.TextureCube):
             raise RuntimeError(f"{path}: the import gave {type(cube).__name__}, not a TextureCube")
         cube.set_editor_property("srgb", False)
-        cube.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_HDR)
+        cube.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_HDR_COMPRESSED if compressed
+                                 else unreal.TextureCompressionSettings.TC_HDR)
         cube.set_editor_property("never_stream", True)
         assets.save_loaded_asset(cube, only_if_is_dirty=False)
         report["probes"].append(name)

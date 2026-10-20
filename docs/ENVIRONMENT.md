@@ -254,6 +254,12 @@ client waits for the distance fields and the cards after a swap. Evidence `~/Gam
 | The lane (noon-n, night-n) | Small local changes only (the doors and the windows of the houses). |
 | The GPU time | No measurable change: inn-noon 7.43 ms without, 7.65 ms with; noon-n 5.89 and 5.85 ms; night-n 7.36 and 7.30 ms (pairs one after the other, the second run). |
 
+`--views VIEW.json... [--radius M]` (stage E5, the matrix of the black of the shadows) also copies the meshes near the camera of
+matched views (in front of the camera or within 15 m, up to the radius, default 80 m; not objects/volumetrics/). The five matrix
+views gave 787 meshes, 626 copies (161 under 1 m), built in 740 s. With the copies, the walls of the lane noon-n match retail (the
+middle band dE 11.9 to 0.9); the courtyard of keep-outside-noon gets black (a floor slab 40 m above closes the sky for Lumen; the
+source lights it with the world probe and a local probe). Evidence: `~/Games/soulwarden-client/evidence/E5/matrix/`.
+
 The result is for the user: the mesh data corrects the light leaks of the interiors at a small cost on the GPU and a build of
 about 1 s for each mesh; the look at night does not depend on it. A world rebuild with it is the decision of the user (the world
 track owns the import settings).
@@ -279,8 +285,8 @@ override moves the hour of its part toward that hour by its weight).
 | --- | --- |
 | The sky | The SkyAtmosphere of Unreal (the technique), with the Rayleigh color from "Sky light: Wavelength (R, G, B)" (the ratio (B / lambda)^4 of each channel; the Unreal default 0.175, 0.41, 1 is the ratio of 680, 550, and 440 nm). A sky sphere with `M_SwcSky` adds the stars of the engine catalog (`engineassets/sky/stars.dat`), the moon texture of the mission, and its two coronas, turned with the sun path (an inference: the stars turn with the sun). |
 | The clouds | The volumetric clouds of the engine (`m_SimpleVolumetricCloud_Inst`). The cover of the sky slice of the place (`sky/sky.json`: 1 - the product of (1 - the mean of each cloud mask of its dome)) changes the coverage of the cloud material from the Everfall sky (0.6663) up and down (`swc.CloudCover`, `swc.CloudBias`: look values). |
-| The fog | The height fog of Unreal with the legacy fog layers and the "Volumetric fog 2" layers of the data as its two layers (the density and the height falloff from the two densities of each set; `fog_height_falloff`). The fog color is the color of the SkyAtmosphere by default (`swc.FogColorMode 0`): the fog colors of the data at 10,000 cd/m2 a unit made the far view white. The fog volumes of the data are Unreal local fog volumes. |
-| The rain and the snow | A post-process material before the tone mapping (`M_SwcPrecipitation`): three layers of the rain texture of the source, and the snowflakes of the engine atlas. The amount comes from the rain and snow volumes of the data at the camera (the full amount in the inner radius, 0 at the outer radius); the drops have a part of the light of a white surface (`swc.DropLight`). |
+| The fog | The "Volumetric fog 2" set of the data by the rule of the source (stage E5 step 3, below; `swc.SourceFog 0`: the fog of E3, the height fog of Unreal with the legacy fog layers and the "Volumetric fog 2" layers as its two layers and the color of the SkyAtmosphere). The fog volumes of the data are Unreal local fog volumes. |
+| The rain and the snow | A post-process material before the tone mapping (`M_SwcPrecipitation`): the scene rain of the source (stage E5 step 3, below) and the snowflakes of the engine atlas. The amount comes from the rain and snow volumes of the data at the camera (the full amount in the inner radius, 0 at the outer radius); the flakes have a part of the light of a white surface (`swc.DropLight`). |
 
 ## The exposure and the color grade (stage E5)
 
@@ -330,6 +336,38 @@ The client (`Environment/SwcEnvironmentSubsystem.cpp`, `M_SwcGrade` of `Scripts/
   the hour of the keep interior starts when the feet pass y 5923.6 with the camera 4.3 m behind, outside the door). Before, the camera
   of keep-outside-noon was in the interior box and the view showed the night hour 0.0 of that box.
 
+- The fog is the "Volumetric fog 2" of the source (step 3; the static study `~/Games/soulwarden-client/research/e5-source-fog.md`
+  of the retail fog shaders and NewWorld.exe). The source: the density rho = "Global fog density" x 0.01 x exp of the line through
+  ln("Fog layer density (bottom)") at "Fog height (bottom)" and ln(the top density) at "Fog height (top)"; the extinction e x rho
+  ("Extinction factor"); the light s x rho x [Ce x E + B] ("In-scattering factor"; Ce "Fog albedo color (entities)"; E the probes
+  of the fog cell, the diffuse cube in the ray direction / 12.566; B two sun lobes of the Schlick phase (1 - k^2) / (12.566
+  (1 - k mu)^2): "Fog albedo color (atmosphere)" with its anisotropy x (1 - blend x mode) and "Fog albedo color (sun radial)" with
+  its anisotropy x blend; the sun color S = the sun color over its luminance x the sun lux / (10,000 pi)); the light of the cells
+  fades in from "Ramp start" to "Ramp end". The atmosphere color (blue in everfall_a) is a sun lobe, not an ambient color; the
+  purple far haze of the Brightwood river is that blue lobe in the warm color balance and the purple photo filter of the grade.
+  The client is the stock Unreal fit of section 5 of the study: the albedo Ce; the density 10 e rho / ln2^2 and the extinction
+  scale 2 ln2^2 (the extinction of both Unreal fog paths); the max opacity "Final density clamp"; the ramp in the near fade-in of
+  the volumetric fog; the scattering intensity of the sun and the moon s / (e pi), with the override of the light colors by the
+  fog (the directional inscattering color: the normal sun color x the sum of the lobe colors / (Ce x the luminance of the sun
+  light)); one Henyey-Greenstein g, the mean cosine of the two Schlick lobes weighted by their light; the fog inscattering color
+  (the analytical tail, and the ambient of the volume) the world probe (the mean of its side faces) x its multipliers x Ce /
+  12.566; no height fog part of the SkyAtmosphere. With the Lumen translucency volume, the Unreal fog takes its ambient from that
+  volume with no gain (much brighter than the source term): the client turns it off (`r.Lumen.TranslucencyVolume.Enable=0`,
+  DefaultEngine.ini; translucent materials then use the sky light).
+- The rain is the scene rain of the source (step 3; the static study `e5-source-rain.md`): N = clamp(int(Amount + 1e-4), 1, 3)
+  layers on the rain cone about the camera (one mesh: the middle band a cylinder of the radius ((i + 1) D)^1.5 m, D = 0.5 x
+  r_RainDistMultiplier 2: 1 m and 2.83 m; the height 4 (1 + i / max(N - 1, 1)) m; the end bands narrow to 0.01 of the radius at
+  the mesh z +-1). The alpha of a layer: rainfall.r (sRGB decoded) at 1.5 cone.yz and at 3 cone.xz (plus RainDropsSpeed x time x
+  (0.1, 1.25)), weighted by |nx|^4 and |ny|^4 (n the horizontal direction), times the soft depth fade saturate(2 x (the opaque
+  distance - the cone distance)) and the vertical fade g (1 - ...) with g = saturate(0.5 - 0.5 mesh z) (0.5 at the eye height).
+  The streak light: Amount x RainDropsAmount x H, then an alpha blend for each layer. The fen volume has the Amount 2.5: 2 layers.
+- The local probes (step b, in work): `tools/convert-environment.sh probes` also writes the 1835 local probes of the data (the box,
+  the order, the color, the multipliers, the edge fade, the box projection, the vis area switches) and the pictures of their 35
+  cubes; `tools/import-sky.sh` imports the cubes (BC6H). The source selects the probes for each pixel (the static study
+  `e5-local-probes.md`). The client has a test of the weights at the camera (`swc.LocalProbes 1`: the sky light blends the world
+  cube and the cube of the strongest local probe; off by default: one cube for the whole view does not make the per-pixel result,
+  for example the dark wall and the lit floor of keep-outside-noon).
+
 ### Check of E5 (steps 1, 2a, and 2b, 2026-10-19)
 
 The color report of the matched views, band "all" (dE / L* / spread / saturation / dark part), before (the old grade: the curve
@@ -362,6 +400,29 @@ Step 2b (the sky model of the source, the cloud tint, the volumes at the feet), 
 
 In the same runs: the SkyAtmosphere of Unreal gave oxboro-road-sky-noon 6.0, the white clouds (`swc.CloudTint 0`) 4.0.
 
+Step 3 (the source fog and the source rain, the Lumen translucency volume off; main 19db33a), band "all" (dE / L* / saturation)
+and the top band dE, the old fog (`swc.SourceFog 0` with the Lumen translucency volume on) in the same run:
+
+| View | The old fog | Step 3 |
+| --- | --- | --- |
+| noon-n | 13.6 / +14.0 / -0.119 | 13.5 / +14.0 / -0.115 |
+| river-forest-noon | 23.2 / +24.3 / -0.096, top 19.3 | 22.6 / +24.5 / -0.090, top 24.8 (the purple haze over the far bank only) |
+| keep-outside-noon | 10.5 / +13.9 / +0.018 | 10.4 / +13.8 / +0.021 |
+| fen-inside-noon (rain) | 15.4 / +17.5 / -0.164, top 30.3 | 4.8 / -4.9 / -0.098, top 11.0 |
+| fen-outside-south-noon | 9.7 / +9.8 / +0.071, top 13.3 (S +0.229) | 9.1 / +10.4 / -0.032, top 4.9 (S +0.003) |
+
+The same code in a second run (main c5ba0ae) gave fen-inside-noon 3.0 / +2.0, top 3.9 (L* -4.0 against -14.1): the storm sky (the
+moving clouds) changes the top band from run to run. In that run, the foliage back face of Lumen on again (the setting of main
+19db33a, `r.Lumen.ScreenProbeGather.TwoSidedFoliageBackfaceDiffuse 1`) gave 9.2 / +10.3: the earlier result 2.4 / +0.1 (before
+19db33a) is not comparable. The Lumen translucency volume on and off (inn-night, noon-n): the same numbers (9.6 and 9.7, 13.5 and
+13.5) and no visible change of a translucent material (the window glass, the lanterns). The water part (`tools/lib/water_part.py`,
+the four noon views of set 2 and the two swim views, docs/WATER.md "The water color check"): the mean water dE 28.9, the water dL -
+all dL +4.8 (river-forest 26.5, river-highlands 38.1, ocean-clear 31.4, ocean-storm 2.1, swim-idle 38.5, swim-nav 37.0; after E5
+steps 1 and 2a the mean was 39.8 and +7.3, before the cover and the decal changes of the other tracks). The swim views stay light
+(the water L* 61 to 63 against 22 to 24) and gray (S 0.36 to 0.39 against 0.74 to 0.79). Evidence:
+`~/Games/soulwarden-client/evidence/E5/step3-final/` (the side pictures, `translucent-pairs.png`, `water-part.txt`, `colors.json`),
+`step3-fog/`, `step3-rain/`.
+
 ### Not done, open points (E5)
 
 - The bloom weight of the source (`HDRBloomColor`: the final scene mixes the scene toward the bloom texture by
@@ -373,7 +434,16 @@ In the same runs: the SkyAtmosphere of Unreal gave oxboro-road-sky-noon 6.0, the
 - The clear sky of the source model is a deeper blue than the lilac retail sky: the retail sky is mostly the thin cloud layers of
   the sky slice (Distanceclouds: the cloud sun color and the sky color x SkyColorMultiplier 8 over their masks), and the volumetric
   clouds of Unreal do not cover the sky in the same way.
-- The fen fog and the rain: step 3.
+- The rain occlusion of the source (a top-down depth map of the occluders in a 64 m box about the camera, integrated along each
+  view ray from 1 to 64 m, `SceneRainOccAccumulate`) is not in the client: the client streaks are more visible than retail over
+  the tower and the trees of fen-inside-noon.
+- The streak light H of the rain is the geometric mean of the scene luminance in the source. The client takes the illuminance E of
+  the EV rule of the exposure x 0.18 / pi (an inference: the mean albedo of the meter; Unreal keeps the metered luminance only in
+  the eye adaptation buffer, z).
+- The second term of the streak light (RainDropsLighting x the bloom texture of the source) is 0: the post-process material has no
+  bloom input before the tone mapping.
+- The radial sun lobe of the far fog: Unreal shares the directional inscattering color of the height fog with the override of the
+  volume, so the far tail has no correct radial lobe (section 5 of the fog study).
 
 ## The matched views
 

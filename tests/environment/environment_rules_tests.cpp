@@ -287,6 +287,26 @@ void test_blend_fog_and_stars() {
     check(near(sirius.x * sirius.x + sirius.y * sirius.y + sirius.z * sirius.z, 1.0, 1e-12) && sirius.z < 0.0, "a star vector is a unit vector");
 }
 
+void test_probes() {
+    // The cube corners go onto the unit ball; the center and the faces keep their length.
+    const env::Vec3 corner = env::map_cube_to_sphere({1.0, 1.0, 1.0});
+    check(near(corner.x * corner.x + corner.y * corner.y + corner.z * corner.z, 1.0, 2e-3), "a cube corner is on the unit ball");
+    const env::Vec3 face = env::map_cube_to_sphere({1.0, 0.0, 0.0});
+    check(near(face.x, 1.0, 1e-12), "a face center is on the unit ball");
+    // The fade: 1 at the center, 0 at the box faces and outside, and a hard edge for a small falloff.
+    check(near(env::probe_fade({0.0, 0.0, 0.0}, 0.5, 1.0), 1.0, 1e-12), "the probe fade at the center");
+    check(env::probe_fade({1.0, 0.0, 0.0}, 0.5, 1.0) == 0.0 && env::probe_fade({0.2, -1.2, 0.0}, 0.5, 1.0) == 0.0, "no fade outside the box");
+    check(near(env::probe_fade({0.5, 0.0, 0.0}, 0.01, 1.0), 1.0, 1e-12), "a falloff of 0.01: full weight at half the box");
+    // At half the box on one axis: 1 - 0.25 = 0.75 of the edge value; with the falloff 1: smoothstep(0.75).
+    check(near(env::probe_fade({0.5, 0.0, 0.0}, 1.0, 1.0), 0.75 * 0.75 * (3.0 - 1.5), 1e-12), "the smoothstep of the fade");
+    check(near(env::probe_fade({0.0, 0.0, 0.0}, 0.5, 0.4), 0.4, 1e-12), "the uniform attenuation");
+    // The order: the first probe takes its fade, the next ones take the rest; the last value is the rest for the world probe.
+    const std::vector<double> w = env::probe_weights({0.6, 0.5, 1.0});
+    check(near(w[0], 0.6, 1e-12) && near(w[1], 0.2, 1e-12) && near(w[2], 0.2, 1e-12) && near(w[3], 0.0, 1e-12), "the weights in the list order");
+    const std::vector<double> none = env::probe_weights({});
+    check(none.size() == 1 && near(none[0], 1.0, 1e-12), "no probe: the world probe only");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -295,6 +315,7 @@ int main(int argc, char** argv) {
     test_edges_and_lights();
     test_volumes();
     test_blend_fog_and_stars();
+    test_probes();
     std::printf("environment rules: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

@@ -257,6 +257,9 @@ USwcEnvironmentSubsystem::FData::FPrecipitation ReadPrecipitation(const TSharedP
 		Out.Inner = NumberOf(*Options, TEXT("InnerRadius"), 0.0);
 		Out.Outer = FMath::Max(NumberOf(*Options, TEXT("OuterRadius"), 0.0), Out.Inner);
 		Out.Amount = NumberOf(*Options, TEXT("Amount"), 0.0);
+		Out.DropsAmount = NumberOf(*Options, TEXT("RainDropsAmount"), 1.0);
+		Out.DropsLighting = NumberOf(*Options, TEXT("RainDropsLighting"), 1.0);
+		Out.DropsSpeed = NumberOf(*Options, TEXT("RainDropsSpeed"), 1.0);
 	}
 	return Out;
 }
@@ -378,8 +381,98 @@ TSharedPtr<USwcEnvironmentSubsystem::FData, ESPMode::ThreadSafe> LoadData(const 
 					Out->WorldProbe = FPaths::GetBaseFilename(Picture);
 					Out->WorldProbeDiffuse = NumberOf(Probe, TEXT("diffuseMultiplier"), 1.0);
 					Out->WorldProbeTodInfluence = NumberOf(Probe, TEXT("todInfluence"), 1.0);
+					const TSharedPtr<FJsonObject>* Faces = nullptr;
+					if (Probe->TryGetObjectField(TEXT("faceMeans"), Faces) && Faces != nullptr)
+					{
+						std::array<double, 3> Sum{0.0, 0.0, 0.0};
+						int32 Count = 0;
+						for (const TCHAR* Face : {TEXT("+east"), TEXT("-east"), TEXT("+north"), TEXT("-north")})
+						{
+							const TArray<TSharedPtr<FJsonValue>>* Mean = nullptr;
+							if ((*Faces)->TryGetArrayField(Face, Mean) && Mean != nullptr && Mean->Num() == 3)
+							{
+								for (int32 C = 0; C < 3; ++C)
+								{
+									Sum[C] += (*Mean)[C]->AsNumber();
+								}
+								++Count;
+							}
+						}
+						if (Count > 0)
+						{
+							Out->WorldProbeHorizon = {Sum[0] / Count, Sum[1] / Count, Sum[2] / Count};
+						}
+					}
 					break;
 				}
+			}
+		}
+		// The local probes (stage E5 step b): the ones with a cube picture.
+		const TSharedPtr<FJsonObject>* Cubes = nullptr;
+		const TArray<TSharedPtr<FJsonValue>>* Local = nullptr;
+		if (Probes->TryGetObjectField(TEXT("cubes"), Cubes) && Cubes != nullptr && Probes->TryGetArrayField(TEXT("local"), Local))
+		{
+			auto NumbersOf = [](const TSharedPtr<FJsonObject>& Object, const TCHAR* Name, TArray<double>& Values)
+			{
+				Values.Reset();
+				const TArray<TSharedPtr<FJsonValue>>* Array = nullptr;
+				if (Object->TryGetArrayField(Name, Array))
+				{
+					for (const TSharedPtr<FJsonValue>& Item : *Array)
+					{
+						Values.Add(Item->AsNumber());
+					}
+				}
+			};
+			TArray<double> Place, Area, Color, Row;
+			for (const TSharedPtr<FJsonValue>& Value : *Local)
+			{
+				const TSharedPtr<FJsonObject> Probe = Value->AsObject();
+				const TSharedPtr<FJsonObject>* Cube = nullptr;
+				FString CubeName, Picture;
+				if (!Probe.IsValid() || !Probe->TryGetStringField(TEXT("cubemap"), CubeName) || !(*Cubes)->TryGetObjectField(CubeName, Cube)
+					|| Cube == nullptr || !(*Cube)->TryGetStringField(TEXT("hdr"), Picture))
+				{
+					continue;
+				}
+				NumbersOf(Probe, TEXT("place"), Place);
+				NumbersOf(Probe, TEXT("area"), Area);
+				NumbersOf(Probe, TEXT("color"), Color);
+				const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+				if (Place.Num() != 3 || Area.Num() != 3 || !Probe->TryGetArrayField(TEXT("rows"), Rows) || Rows->Num() != 3)
+				{
+					continue;
+				}
+				USwcEnvironmentSubsystem::FData::FLocalProbe Item;
+				Item.Center = {Place[0], Place[1], Place[2]};
+				// The box space: the unit axes of the entity (the columns of its matrix) over the half sizes of the area.
+				std::array<std::array<double, 3>, 3> M{};
+				for (int32 R = 0; R < 3; ++R)
+				{
+					const TArray<TSharedPtr<FJsonValue>>& Values = (*Rows)[R]->AsArray();
+					for (int32 C = 0; C < 3 && C < Values.Num(); ++C)
+					{
+						M[R][C] = Values[C]->AsNumber();
+					}
+				}
+				for (int32 Axis = 0; Axis < 3; ++Axis)
+				{
+					const double Length = FMath::Max(FMath::Sqrt(M[0][Axis] * M[0][Axis] + M[1][Axis] * M[1][Axis] + M[2][Axis] * M[2][Axis]), 1e-9);
+					const double Half = FMath::Max(Area[Axis] * 0.5, 1e-3);
+					Item.Rows[Axis] = {M[0][Axis] / Length / Half, M[1][Axis] / Length / Half, M[2][Axis] / Length / Half};
+				}
+				Item.Radius = 0.5 * FMath::Sqrt(Area[0] * Area[0] + Area[1] * Area[1] + Area[2] * Area[2]);
+				Item.Volume = Area[0] * Area[1] * Area[2];
+				Item.Priority = static_cast<int32>(NumberOf(Probe, TEXT("priority"), 0.0));
+				Item.Falloff = NumberOf(Probe, TEXT("falloff"), 1.0);
+				const double Diffuse = NumberOf(Probe, TEXT("diffuseMultiplier"), 1.0);
+				for (int32 C = 0; C < 3; ++C)
+				{
+					Item.Color[C] = (C < Color.Num() ? Color[C] : 1.0) * Diffuse;
+				}
+				Item.TodInfluence = NumberOf(Probe, TEXT("todInfluence"), 1.0);
+				Item.Cube = FPaths::GetBaseFilename(Picture);
+				Out->LocalProbes.Add(MoveTemp(Item));
 			}
 		}
 	}

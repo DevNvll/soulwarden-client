@@ -452,4 +452,32 @@ SkyParts source_sky(const SkyModel& model, const Vec3& view) {
     return out;
 }
 
+Vec3 map_cube_to_sphere(const Vec3& v) {
+    const double x2 = v.x * v.x, y2 = v.y * v.y, z2 = v.z * v.z;
+    return {v.x * std::sqrt(std::max(0.0, 1.0 - 0.5 * y2 - 0.5 * z2 + 0.333 * y2 * z2)),
+            v.y * std::sqrt(std::max(0.0, 1.0 - 0.5 * z2 - 0.5 * x2 + 0.333 * z2 * x2)),
+            v.z * std::sqrt(std::max(0.0, 1.0 - 0.5 * x2 - 0.5 * y2 + 0.333 * x2 * y2))};
+}
+
+double probe_fade(const Vec3& boxSpace, double falloffMax, double uniform) {
+    if (std::abs(boxSpace.x) >= 1.0 || std::abs(boxSpace.y) >= 1.0 || std::abs(boxSpace.z) >= 1.0) {
+        return 0.0;
+    }
+    const Vec3 s = map_cube_to_sphere(boxSpace);
+    const double edge = std::clamp(1.0 - (s.x * s.x + s.y * s.y + s.z * s.z), 0.0, 1.0);
+    const double x = std::clamp(edge / std::max(falloffMax, 1e-6), 0.0, 1.0);
+    return x * x * (3.0 - 2.0 * x) * uniform;
+}
+
+std::vector<double> probe_weights(const std::vector<double>& fades) {
+    std::vector<double> out(fades.size() + 1, 0.0);
+    double sum = 0.0;
+    for (std::size_t i = 0; i < fades.size() && sum < 1.0; ++i) {
+        out[i] = (1.0 - sum) * std::clamp(fades[i], 0.0, 1.0);
+        sum += out[i];
+    }
+    out.back() = std::max(0.0, 1.0 - sum);
+    return out;
+}
+
 } // namespace swc::environment

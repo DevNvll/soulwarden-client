@@ -38,6 +38,9 @@ TAutoConsoleVariable<float> CVarFogDensityScale(TEXT("swc.FogDensityScale"), 0.1
 TAutoConsoleVariable<float> CVarFogDensityScale2(TEXT("swc.FogDensityScale2"), 0.0144f,
 	TEXT("The second fog density property for one unit of the global density of the second fog set of the data (0.0144: the density as per km)."));
 TAutoConsoleVariable<int32> CVarVolumetricFog(TEXT("swc.VolumetricFog"), 1, TEXT("The volumetric fog of Unreal: 1 on, 0 off."));
+TAutoConsoleVariable<int32> CVarSourceFog(TEXT("swc.SourceFog"), 1,
+	TEXT("The fog (stage E5 step 3): 1 the \"Volumetric fog 2\" set of the data by the rule of the source; 0 the fog of stage E3 (swc.FogLayers, swc.FogColorMode)."));
+TAutoConsoleVariable<float> CVarSourceFogScale(TEXT("swc.SourceFogScale"), 1.0f, TEXT("A look scale of the density of the source fog (1: the source)."));
 TAutoConsoleVariable<int32> CVarClouds(TEXT("swc.Clouds"), 1, TEXT("The volumetric clouds of Unreal: 1 on, 0 off."));
 TAutoConsoleVariable<float> CVarCloudCover(TEXT("swc.CloudCover"), 2.0f,
 	TEXT("The change of the coverage of the cloud material for one unit of the cloud cover of the data above the Everfall sky."));
@@ -49,10 +52,10 @@ TAutoConsoleVariable<float> CVarMoonScale(TEXT("swc.MoonScale"), 15000.0f,
 	TEXT("The luminance (cd/m2) of the moon disc and its coronas for one unit of their colors of the data."));
 TAutoConsoleVariable<float> CVarMoonSize(TEXT("swc.MoonSize"), 3.5f,
 	TEXT("The angular radius of the moon disc in degrees for one unit of the Size of the Moon element of the mission."));
-TAutoConsoleVariable<float> CVarRainScale(TEXT("swc.RainScale"), 0.06f, TEXT("The rain veil for one unit of the rain Amount of the data."));
+TAutoConsoleVariable<float> CVarRainScale(TEXT("swc.RainScale"), 1.0f, TEXT("The rain amount of the data times this (1: the source; 0: no rain)."));
 TAutoConsoleVariable<float> CVarSnowScale(TEXT("swc.SnowScale"), 1.0f, TEXT("The snow veil for one unit of the snow amount of the data."));
 TAutoConsoleVariable<float> CVarDropLight(TEXT("swc.DropLight"), 0.25f,
-	TEXT("The luminance of the rain drops and the flakes: this part of the luminance of a white surface in the light of the sun or the moon."));
+	TEXT("The luminance of the snowflakes: this part of the luminance of a white surface in the light of the sun or the moon."));
 TAutoConsoleVariable<float> CVarLocalFogScale(TEXT("swc.LocalFogScale"), 0.01f,
 	TEXT("The extinction (1/m) of a fog volume for one unit of its GlobalDensity of the data."));
 TAutoConsoleVariable<int32> CVarGrade(TEXT("swc.Grade"), 1,
@@ -72,6 +75,8 @@ TAutoConsoleVariable<int32> CVarSourceSky(TEXT("swc.SourceSky"), 1,
 TAutoConsoleVariable<int32> CVarSkyLightSource(TEXT("swc.SkyLightSource"), 1,
 	TEXT("The sky light (the ambient): 1 the world probe of the data with the time-of-day probe multipliers (stage E5), 0 the real-time capture of the Unreal sky."));
 TAutoConsoleVariable<float> CVarProbeScale(TEXT("swc.ProbeScale"), 1.0f, TEXT("A look scale of the world probe light (1: the units of the source)."));
+TAutoConsoleVariable<int32> CVarLocalProbes(TEXT("swc.LocalProbes"), 0,
+	TEXT("The local probes of the source (stage E5 step b, a test): 1 the sky light blends the world probe with the local probes at the camera by the weights of the source (the source selects them per pixel); 0 the world probe only."));
 TAutoConsoleVariable<int32> CVarNightSkyTint(TEXT("swc.NightSkyTint"), 1,
 	TEXT("The night sky: 1 the hue of the night horizon color of the data, 0 the color of the SkyAtmosphere."));
 
@@ -336,11 +341,11 @@ void USwcEnvironmentSubsystem::CreateSkyAndFog(AActor* Owner, USceneComponent* R
 		Post->RegisterComponent();
 		GradePost = Post;
 	}
-	UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the height fog, %d local fog volume(s), %s, %s, %d rain and snow volume(s)%s, %s (stage E3, E5)"), LocalFogs.Num(),
+	UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the height fog, %d local fog volume(s), %s, %s, %d rain and snow volume(s)%s, %s, %d local probes (stage E3, E5)"), LocalFogs.Num(),
 		Clouds.IsValid() ? *FString::Printf(TEXT("the volumetric clouds (the default cover %.3f)"), DefaultCloudCover) : TEXT("no clouds (no engine cloud material)"),
 		SkySphere.IsValid() ? TEXT("the sky sphere with the stars and the moon") : TEXT("no sky sphere (tools/import-sky.sh)"),
 		Data->Precipitation.Num(), PrecipitationPost.IsValid() ? TEXT("") : TEXT(" (no precipitation material: tools/import-sky.sh)"),
-		GradePost.IsValid() ? TEXT("the color grade of the source") : TEXT("no color grade (tools/import-sky.sh)"));
+		GradePost.IsValid() ? TEXT("the color grade of the source") : TEXT("no color grade (tools/import-sky.sh)"), Data->LocalProbes.Num());
 }
 
 void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& CameraLocation, double MoonWeight, double MainLux)
@@ -370,8 +375,8 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 		if (Mode == 1)
 		{
 			const double Diffuse = FMath::Lerp(1.0, Blended(TEXT("Environment Probe Diffuse Multiplier"), 1.0), Data->WorldProbeTodInfluence);
-			Ambient->SetIntensity(static_cast<float>(SourceUnitLuminance * Data->WorldProbeDiffuse * Diffuse * CVarProbeScale.GetValueOnGameThread()));
-			Ambient->SetLightColor(Linear(BlendedColor(TEXT("Environment Probe Multiplier"))));
+			UpdateLocalProbes(Ambient, CameraLocation, SourceUnitLuminance * Data->WorldProbeDiffuse * Diffuse * CVarProbeScale.GetValueOnGameThread(),
+				Linear(BlendedColor(TEXT("Environment Probe Multiplier"))));
 		}
 	}
 	// The height fog: the legacy layers of the data (the bottom and the top density at their heights) and the second set (the
@@ -390,31 +395,63 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 		const double Top2 = Blended(TEXT("Volumetric fog 2: Fog height (top)"), 700.0);
 		const double BottomDensity2 = Blended(TEXT("Volumetric fog 2: Fog layer density (bottom)"), 1.0);
 		const double TopDensity2 = Blended(TEXT("Volumetric fog 2: Fog layer density (top)"), 0.0001);
-		HeightFog->SetWorldLocation(FVector(CameraLocation.X, CameraLocation.Y, BottomHeight * 100.0));
-		HeightFog->SetFogDensity((Sets & 1) != 0 ? static_cast<float>(BottomDensity * CVarFogDensityScale.GetValueOnGameThread()) : 0.0f);
-		HeightFog->SetFogHeightFalloff(static_cast<float>(FMath::Max(0.001, env::fog_height_falloff(BottomDensity, TopDensity, BottomHeight, TopHeight))));
-		FExponentialHeightFogData Second;
-		Second.FogDensity = (Sets & 2) != 0 ? static_cast<float>(Global2 * BottomDensity2 * CVarFogDensityScale2.GetValueOnGameThread()) : 0.0f;
-		Second.FogHeightFalloff = static_cast<float>(FMath::Max(0.001, env::fog_height_falloff(BottomDensity2, TopDensity2, Bottom2, Top2)));
-		Second.FogHeightOffset = static_cast<float>((Bottom2 - BottomHeight) * 100.0);
-		HeightFog->SetSecondFogData(Second);
-		// The color: at the camera height between the bottom and the top color of the data.
-		const double T = TopHeight > BottomHeight ? FMath::Clamp((CameraZ - BottomHeight) / (TopHeight - BottomHeight), 0.0, 1.0) : 0.0;
-		const std::array<double, 3> Bottom = Times(BlendedColor(TEXT("Fog color")), Blended(TEXT("Fog color multiplier"), 1.0));
-		const std::array<double, 3> Top = Times(BlendedColor(TEXT("Fog color (top)")), Blended(TEXT("Fog color (top) multiplier"), 1.0));
-		const std::array<double, 3> FogColor = Mix(Bottom, Top, T);
-		const std::array<double, 3> Radial = Times(BlendedColor(TEXT("Fog color (radial)")), Blended(TEXT("Fog color (radial) multiplier"), 1.0));
-		const double Lobe = Blended(TEXT("Fog radial lobe"), 0.5);
-		const int32 Mode = CVarFogColorMode.GetValueOnGameThread();
-		HeightFog->SetFogInscatteringColor(Mode == 1 ? Linear(FogColor, SourceUnitLuminance) : FLinearColor::Black);
-		HeightFog->SetSkyAtmosphereAmbientContributionColorScale(Mode == 0 ? FLinearColor::White : Mode == 2 ? Hue(FogColor) : FLinearColor::Black);
-		HeightFog->SetDirectionalInscatteringColor(Mode == 1 ? Linear(Radial, SourceUnitLuminance) : FLinearColor::Black);
-		HeightFog->SetFogCutoffDistance(static_cast<float>(FogCutoff));
-		HeightFog->SetDirectionalInscatteringExponent(static_cast<float>(4.0 / FMath::Max(1.0 - Lobe, 0.05)));
-		// The volumetric fog of Unreal with the albedo and the anisotropy of the entities of the second set.
 		HeightFog->SetVolumetricFog(bOn && CVarVolumetricFog.GetValueOnGameThread() != 0);
-		HeightFog->SetVolumetricFogAlbedo(Linear(BlendedColor(TEXT("Volumetric fog 2: Fog albedo color (entities)"))).ToFColor(true));
-		HeightFog->SetVolumetricFogScatteringDistribution(static_cast<float>(FMath::Clamp(Blended(TEXT("Volumetric fog 2: Anisotropy factor (entities)"), 0.5), -0.9, 0.9)));
+		if (CVarSourceFog.GetValueOnGameThread() != 0)
+		{
+			UpdateSourceFog(HeightFog, CameraLocation, Global2, Bottom2, Top2, BottomDensity2, TopDensity2);
+		}
+		else
+		{
+			HeightFog->SetWorldLocation(FVector(CameraLocation.X, CameraLocation.Y, BottomHeight * 100.0));
+			HeightFog->SetStartDistance(0.0f);
+			HeightFog->SetVolumetricFogStartDistance(0.0f);
+			HeightFog->SetVolumetricFogNearFadeInDistance(0.0f);
+			HeightFog->SetVolumetricFogExtinctionScale(1.0f);
+			HeightFog->SetFogMaxOpacity(1.0f);
+			if (HeightFog->bOverrideLightColorsWithFogInscatteringColors)
+			{
+				HeightFog->bOverrideLightColorsWithFogInscatteringColors = false;
+				HeightFog->MarkRenderStateDirty();
+			}
+			if (USkyAtmosphereComponent* Sky = Atmosphere.Get())
+			{
+				Sky->SetHeightFogContribution(1.0f);
+			}
+			HeightFog->SetFogDensity((Sets & 1) != 0 ? static_cast<float>(BottomDensity * CVarFogDensityScale.GetValueOnGameThread()) : 0.0f);
+			HeightFog->SetFogHeightFalloff(static_cast<float>(FMath::Max(0.001, env::fog_height_falloff(BottomDensity, TopDensity, BottomHeight, TopHeight))));
+			FExponentialHeightFogData Second;
+			Second.FogDensity = (Sets & 2) != 0 ? static_cast<float>(Global2 * BottomDensity2 * CVarFogDensityScale2.GetValueOnGameThread()) : 0.0f;
+			Second.FogHeightFalloff = static_cast<float>(FMath::Max(0.001, env::fog_height_falloff(BottomDensity2, TopDensity2, Bottom2, Top2)));
+			Second.FogHeightOffset = static_cast<float>((Bottom2 - BottomHeight) * 100.0);
+			HeightFog->SetSecondFogData(Second);
+			// The color: at the camera height between the bottom and the top color of the data.
+			const double T = TopHeight > BottomHeight ? FMath::Clamp((CameraZ - BottomHeight) / (TopHeight - BottomHeight), 0.0, 1.0) : 0.0;
+			const std::array<double, 3> Bottom = Times(BlendedColor(TEXT("Fog color")), Blended(TEXT("Fog color multiplier"), 1.0));
+			const std::array<double, 3> Top = Times(BlendedColor(TEXT("Fog color (top)")), Blended(TEXT("Fog color (top) multiplier"), 1.0));
+			const std::array<double, 3> FogColor = Mix(Bottom, Top, T);
+			const std::array<double, 3> Radial = Times(BlendedColor(TEXT("Fog color (radial)")), Blended(TEXT("Fog color (radial) multiplier"), 1.0));
+			const double Lobe = Blended(TEXT("Fog radial lobe"), 0.5);
+			const int32 Mode = CVarFogColorMode.GetValueOnGameThread();
+			HeightFog->SetFogInscatteringColor(Mode == 1 ? Linear(FogColor, SourceUnitLuminance) : FLinearColor::Black);
+			HeightFog->SetSkyAtmosphereAmbientContributionColorScale(Mode == 0 ? FLinearColor::White : Mode == 2 ? Hue(FogColor) : FLinearColor::Black);
+			HeightFog->SetDirectionalInscatteringColor(Mode == 1 ? Linear(Radial, SourceUnitLuminance) : FLinearColor::Black);
+			HeightFog->SetFogCutoffDistance(static_cast<float>(FogCutoff));
+			HeightFog->SetDirectionalInscatteringExponent(static_cast<float>(4.0 / FMath::Max(1.0 - Lobe, 0.05)));
+			// The volumetric fog of Unreal with the albedo and the anisotropy of the entities of the second set.
+			HeightFog->SetVolumetricFogAlbedo(Linear(BlendedColor(TEXT("Volumetric fog 2: Fog albedo color (entities)"))).ToFColor(true));
+			HeightFog->SetVolumetricFogScatteringDistribution(static_cast<float>(FMath::Clamp(Blended(TEXT("Volumetric fog 2: Anisotropy factor (entities)"), 0.5), -0.9, 0.9)));
+			for (UDirectionalLightComponent* Light : {Sun.Get(), Moon.Get()})
+			{
+				if (Light != nullptr)
+				{
+					Light->SetVolumetricScatteringIntensity(1.0f);
+				}
+			}
+			if (USkyLightComponent* Ambient = SkyLight.Get())
+			{
+				Ambient->SetVolumetricScatteringIntensity(1.0f);
+			}
+		}
 		HeightFog->SetVolumetricFogDistance(static_cast<float>(FMath::Min(Blended(TEXT("Volumetric fog 2: Maximum range of ray-marching"), 1024.0) * 100.0, VolumetricFogMaxDistance)));
 	}
 	// The fog volumes of the data (their look scale applies at a change).
@@ -562,6 +599,7 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 	const env::Vec3 At{CameraLocation.X / 100.0, -CameraLocation.Y / 100.0, CameraZ};
 	double Rain = 0.0;
 	double Snow = 0.0;
+	const FData::FPrecipitation* RainVolume = nullptr;
 	FString Weather;
 	for (const FData::FPrecipitation& Volume : Data->Precipitation)
 	{
@@ -572,24 +610,35 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 		}
 		const double Weight = Volume.Outer > Volume.Inner ? FMath::Clamp((Volume.Outer - Horizontal) / (Volume.Outer - Volume.Inner), 0.0, 1.0) : 1.0;
 		double& Amount = Volume.bSnow ? Snow : Rain;
+		if (!Volume.bSnow && Weight * Volume.Amount > Rain)
+		{
+			RainVolume = &Volume;
+		}
 		Amount = FMath::Max(Amount, Weight * Volume.Amount);
 		Weather += FString::Printf(TEXT(" %s %s %.2f"), Volume.bSnow ? TEXT("snow") : TEXT("rain"), *Volume.Name, Weight);
 	}
 	if (UPostProcessComponent* Post = PrecipitationPost.Get())
 	{
+		// The rain: the scene rain of the source (posteffectsgame@scenerainps; PostProcessRain.cpp, CSceneRain): the amount of the
+		// volume at the camera, its drops amount, lighting, and speed, and the EV rule of the exposure (the adapted luminance).
 		const double RainVeil = Rain * CVarRainScale.GetValueOnGameThread();
 		const double SnowVeil = Snow * CVarSnowScale.GetValueOnGameThread();
 		Post->bEnabled = RainVeil > 0.0 || SnowVeil > 0.0;
 		if (Post->bEnabled && PrecipitationMaterial != nullptr)
 		{
 			PrecipitationMaterial->SetScalarParameterValue(TEXT("RainAmount"), static_cast<float>(RainVeil));
+			PrecipitationMaterial->SetVectorParameterValue(TEXT("RainDrops"), RainVolume != nullptr
+				? FLinearColor(static_cast<float>(RainVolume->DropsAmount), static_cast<float>(RainVolume->DropsLighting), static_cast<float>(RainVolume->DropsSpeed), 0.0f)
+				: FLinearColor(1.0f, 1.0f, 1.0f, 0.0f));
+			PrecipitationMaterial->SetScalarParameterValue(TEXT("AutoCompensation"), static_cast<float>(Blended(TEXT("EV Auto compensation"), 1.5)));
 			PrecipitationMaterial->SetScalarParameterValue(TEXT("SnowAmount"), static_cast<float>(SnowVeil));
 			const float Light = static_cast<float>(MainLux / PI * CVarDropLight.GetValueOnGameThread());
 			PrecipitationMaterial->SetVectorParameterValue(TEXT("DropLight"), FLinearColor(Light, Light, Light, 0.0f));
 		}
 	}
-	SkyText = FString::Printf(TEXT("sky %s, cloud cover %.3f; stars %.2f; rain %.2f, snow %.2f%s"), *SkyName, Cover,
-		Blended(TEXT("Night sky: Star intensity"), 0.0), Rain, Snow, Weather.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" (%s)"), *Weather.TrimStart()));
+	SkyText = FString::Printf(TEXT("sky %s, cloud cover %.3f; stars %.2f; rain %.2f, snow %.2f%s; probes%s"), *SkyName, Cover,
+		Blended(TEXT("Night sky: Star intensity"), 0.0), Rain, Snow, Weather.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" (%s)"), *Weather.TrimStart()),
+		ProbeText.IsEmpty() ? TEXT(" world 1.00") : *ProbeText);
 }
 
 /** A dome of the source sky on a worker thread: the Mie texels, then the Rayleigh texels, and the done mark. */
@@ -700,4 +749,207 @@ void USwcEnvironmentSubsystem::UpdateSourceSky(double Hour, double MoonWeight)
 		static_cast<float>(Zenith[2] - Horizon[2]), 0.0f));
 	SkyMaterial->SetVectorParameterValue(TEXT("NightShift"), FLinearColor(static_cast<float>(1.0 / (Shift + 0.1)), static_cast<float>(0.1 / (Shift + 0.1)), 0.0f, 0.0f));
 	SkyMaterial->SetScalarParameterValue(TEXT("SourceUnit"), static_cast<float>(SourceUnitLuminance));
+}
+
+void USwcEnvironmentSubsystem::UpdateSourceFog(UExponentialHeightFogComponent* HeightFog, const FVector& CameraLocation, double Global, double Bottom, double Top,
+	double BottomDensity, double TopDensity)
+{
+	// The volumetric fog of the source (stage E5 step 3; the static study ~/Games/soulwarden-client/research/e5-source-fog.md:
+	// the retail fog shaders and NewWorld.exe, sections 1 to 3) and its stock Unreal fit (section 5):
+	// - the density rho = GlobalDensity x 0.01 x exp of the line through ln(the bottom density) at the bottom height and ln(the top
+	//   density) at the top height; the extinction e x rho, the light J = s x rho x [Ce x E + B] (s "In-scattering factor", e
+	//   "Extinction factor", Ce "Fog albedo color (entities)", E the probes of the fog cell / 12.566, B the two sun lobes);
+	// - B = S x [Ca x P(k1) x (1 - blend x mode) + Cr x P(k2) x blend], P the Schlick phase (1 - k^2) / (12.566 (1 - k mu)^2),
+	//   S = the sun color / its luminance x the sun lux / (10000 pi) (the source unit is 10,000 cd/m2);
+	// - the ramp: the light of the cells fades in from "Ramp start" to "Ramp end" (the camera distance).
+	// The Unreal fit: the albedo Ce, the extinction of the two Unreal paths (the density 10 e rho / ln2^2, the extinction scale
+	// 2 ln2^2), the sun scattering intensity s / (e pi) with the override of the light colors (the directional inscattering color
+	// nSun x V / (Ce x Y(the sun proxy color)), V the sum of the lobe colors), one Henyey-Greenstein g (the mean cosine of the two
+	// Schlick lobes by their light). The fog ambient of Unreal is the Lumen translucency volume (no gain); without that volume
+	// (r.Lumen.TranslucencyVolume.Enable 0) the override takes the fog inscattering color x the sky light scattering intensity s / e.
+	const double Extinction = FMath::Max(Blended(TEXT("Volumetric fog 2: Extinction factor"), 1.0), 1e-4);
+	const double InScattering = Blended(TEXT("Volumetric fog 2: In-scattering factor"), 1.0);
+	const double DensityBottom = FMath::Clamp(BottomDensity, 1e-5, 1.0);
+	const double DensityTop = FMath::Clamp(TopDensity, 1e-5, 1.0);
+	const double TopHeight = FMath::Max(Top, Bottom + 1.0);
+	const double Ln2Squared = FMath::Square(UE_LN2);
+	const double RhoBottom = Global * 0.01 * DensityBottom;
+	HeightFog->SetWorldLocation(FVector(CameraLocation.X, CameraLocation.Y, Bottom * 100.0));
+	HeightFog->SetFogDensity(static_cast<float>(FMath::Min(10.0 * Extinction * RhoBottom / Ln2Squared * CVarSourceFogScale.GetValueOnGameThread(), 10.0)));
+	HeightFog->SetVolumetricFogExtinctionScale(static_cast<float>(2.0 * Ln2Squared));
+	HeightFog->SetFogHeightFalloff(static_cast<float>(FMath::Max(0.001, env::fog_height_falloff(DensityBottom, DensityTop, Bottom, TopHeight))));
+	HeightFog->SetFogMaxOpacity(static_cast<float>(FMath::Clamp(Blended(TEXT("Volumetric fog 2: Final density clamp"), 1.0), 0.0, 1.0)));
+	FExponentialHeightFogData Second;
+	Second.FogDensity = 0.0f;
+	HeightFog->SetSecondFogData(Second);
+	const double RampStart = FMath::Max(0.0, Blended(TEXT("Volumetric fog 2: Ramp start"), 0.0));
+	const double RampEnd = FMath::Max(RampStart + 0.1, Blended(TEXT("Volumetric fog 2: Ramp end"), 100.0));
+	HeightFog->SetStartDistance(static_cast<float>(RampStart * 100.0));
+	HeightFog->SetVolumetricFogStartDistance(static_cast<float>(RampStart * 100.0));
+	HeightFog->SetVolumetricFogNearFadeInDistance(static_cast<float>((RampEnd - RampStart) * 100.0));
+	const std::array<double, 3> Entities = BlendedColor(TEXT("Volumetric fog 2: Fog albedo color (entities)"));
+	// FLinearColor(FColor) of the fog proxy decodes sRGB.
+	HeightFog->SetVolumetricFogAlbedo(Linear(Entities).ToFColor(true));
+	// The sun lobes: the light of the fog is the sun by day and the moon by night (the stronger visible light).
+	UDirectionalLightComponent* Main = nullptr;
+	for (UDirectionalLightComponent* Light : {Sun.Get(), Moon.Get()})
+	{
+		if (Light != nullptr && Light->IsVisible() && (Main == nullptr || Light->Intensity > Main->Intensity))
+		{
+			Main = Light;
+		}
+	}
+	auto Luminance = [](double R, double G, double B) { return 0.212671 * R + 0.715160 * G + 0.072169 * B; };
+	const FLinearColor Color = Main != nullptr ? Main->GetLightColor() : FLinearColor::White;
+	const double ColorY = FMath::Max(Luminance(Color.R, Color.G, Color.B), 1e-6);
+	const std::array<double, 3> Normal{Color.R / ColorY, Color.G / ColorY, Color.B / ColorY};
+	const double ProxyY = FMath::Max(ColorY * (Main != nullptr ? Main->Intensity : 0.0), 1e-6);
+	const double Blend = FMath::Clamp(Blended(TEXT("Volumetric fog 2: Blend factor for sun scattering"), 0.5), 0.0, 1.0);
+	const double Mode = FMath::Clamp(Blended(TEXT("Volumetric fog 2: Blend mode for sun scattering"), 0.0), 0.0, 1.0);
+	const std::array<double, 3> AtmosphereLobe = Times(BlendedColor(TEXT("Volumetric fog 2: Fog albedo color (atmosphere)")), 1.0 - Blend * Mode);
+	const std::array<double, 3> RadialLobe = Times(BlendedColor(TEXT("Volumetric fog 2: Fog albedo color (sun radial)")), Blend);
+	FLinearColor Directional;
+	for (int32 C = 0; C < 3; ++C)
+	{
+		Directional.Component(C) = static_cast<float>(Normal[C] * (AtmosphereLobe[C] + RadialLobe[C]) / (FMath::Max(Entities[C], 1e-4) * ProxyY));
+	}
+	Directional.A = 1.0f;
+	HeightFog->SetDirectionalInscatteringColor(Directional);
+	if (!HeightFog->bOverrideLightColorsWithFogInscatteringColors)
+	{
+		HeightFog->bOverrideLightColorsWithFogInscatteringColors = true;
+		HeightFog->MarkRenderStateDirty();
+	}
+	for (UDirectionalLightComponent* Light : {Sun.Get(), Moon.Get()})
+	{
+		if (Light != nullptr)
+		{
+			Light->SetVolumetricScatteringIntensity(static_cast<float>(InScattering / (Extinction * PI)));
+		}
+	}
+	// The mean cosine of a Schlick lobe: 1/k + (1 - k^2) / (2 k^2) ln((1 - k) / (1 + k)) (0 at k 0).
+	auto MeanCosine = [](double K)
+	{
+		K = FMath::Clamp(K, -0.99999, 0.99999);
+		return FMath::Abs(K) < 1e-4 ? 0.0 : 1.0 / K + (1.0 - K * K) / (2.0 * K * K) * FMath::Loge((1.0 - K) / (1.0 + K));
+	};
+	const double WeightAtmosphere = Luminance(Normal[0] * AtmosphereLobe[0], Normal[1] * AtmosphereLobe[1], Normal[2] * AtmosphereLobe[2]);
+	const double WeightRadial = Luminance(Normal[0] * RadialLobe[0], Normal[1] * RadialLobe[1], Normal[2] * RadialLobe[2]);
+	const double G = (WeightAtmosphere * MeanCosine(Blended(TEXT("Volumetric fog 2: Anisotropy factor (atmosphere)"), 0.0))
+		+ WeightRadial * MeanCosine(Blended(TEXT("Volumetric fog 2: Anisotropy factor (sun radial)"), 0.95))) / FMath::Max(WeightAtmosphere + WeightRadial, 1e-6);
+	HeightFog->SetVolumetricFogScatteringDistribution(static_cast<float>(FMath::Clamp(G, -0.9, 0.9)));
+	// The ambient: the world probe (the mean radiance of its side faces x its multipliers) x Ce / 12.566 in the fog inscattering
+	// color (the analytical tail of the source; with the override also the sky term of the volume without the Lumen volume).
+	if (USkyLightComponent* Ambient = SkyLight.Get())
+	{
+		Ambient->SetVolumetricScatteringIntensity(static_cast<float>(InScattering / Extinction));
+	}
+	const double Diffuse = FMath::Lerp(1.0, Blended(TEXT("Environment Probe Diffuse Multiplier"), 1.0), Data->WorldProbeTodInfluence) * Data->WorldProbeDiffuse;
+	const FLinearColor ProbeMultiplier = Linear(BlendedColor(TEXT("Environment Probe Multiplier")));
+	const double AmbientScale = SourceUnitLuminance * Diffuse / 12.566;
+	HeightFog->SetFogInscatteringColor(FLinearColor(static_cast<float>(AmbientScale * Data->WorldProbeHorizon[0] * Entities[0] * ProbeMultiplier.R),
+		static_cast<float>(AmbientScale * Data->WorldProbeHorizon[1] * Entities[1] * ProbeMultiplier.G),
+		static_cast<float>(AmbientScale * Data->WorldProbeHorizon[2] * Entities[2] * ProbeMultiplier.B)));
+	HeightFog->SetSkyAtmosphereAmbientContributionColorScale(FLinearColor::Black);
+	HeightFog->SetFogCutoffDistance(static_cast<float>(FogCutoff));
+	if (USkyAtmosphereComponent* Sky = Atmosphere.Get())
+	{
+		Sky->SetHeightFogContribution(0.0f);
+	}
+}
+
+void USwcEnvironmentSubsystem::UpdateLocalProbes(USkyLightComponent* Ambient, const FVector& CameraLocation, double WorldIntensity, const FLinearColor& Multiplier)
+{
+	// The local probes (stage E5 step b; tiledshading.cfib ApplyProbe of the source): each pixel takes the probes of its tile in the
+	// list order, each with its fade of the part that is left, and the world probe takes the rest. The client takes the weights at
+	// the camera (one place for the whole view, as the feet rule of the time-of-day volumes): the sky light blends the world cube with
+	// the cube of the local probe of the largest light (SetCubemapBlend: no new capture for a new fraction), the intensity is the sum
+	// of the weighted lights, and the color is their weighted tint.
+	struct FHit
+	{
+		int32 Index;
+		double Fade;
+	};
+	TArray<FHit> Hits;
+	if (CVarLocalProbes.GetValueOnGameThread() != 0)
+	{
+		const env::Vec3 At{CameraLocation.X / 100.0, -CameraLocation.Y / 100.0, CameraLocation.Z / 100.0};
+		for (int32 Index = 0; Index < Data->LocalProbes.Num(); ++Index)
+		{
+			const FData::FLocalProbe& Probe = Data->LocalProbes[Index];
+			const env::Vec3 D{At.x - Probe.Center.x, At.y - Probe.Center.y, At.z - Probe.Center.z};
+			if (D.x * D.x + D.y * D.y + D.z * D.z > Probe.Radius * Probe.Radius)
+			{
+				continue;
+			}
+			auto Dot = [&D](const env::Vec3& Row) { return Row.x * D.x + Row.y * D.y + Row.z * D.z; };
+			const double Fade = env::probe_fade({Dot(Probe.Rows[0]), Dot(Probe.Rows[1]), Dot(Probe.Rows[2])}, Probe.Falloff, 1.0);
+			if (Fade > 0.0)
+			{
+				Hits.Add({Index, Fade});
+			}
+		}
+		// The order of the list: the higher SortPriority first, then the smaller box (an inference until the light list of the source
+		// is read; the world probe has priority 0 and the largest box, so it is last).
+		Hits.Sort([this](const FHit& A, const FHit& B)
+		{
+			const FData::FLocalProbe& PA = Data->LocalProbes[A.Index];
+			const FData::FLocalProbe& PB = Data->LocalProbes[B.Index];
+			return PA.Priority != PB.Priority ? PA.Priority > PB.Priority : PA.Volume < PB.Volume;
+		});
+	}
+	std::vector<double> Fades;
+	for (const FHit& Hit : Hits)
+	{
+		Fades.push_back(Hit.Fade);
+	}
+	const std::vector<double> ProbeWeights = env::probe_weights(Fades);
+	const double TodDiffuse = Blended(TEXT("Environment Probe Diffuse Multiplier"), 1.0);
+	double Total = ProbeWeights.back() * WorldIntensity;
+	double Local = 0.0;
+	std::array<double, 3> Tint{Total, Total, Total};
+	int32 Best = -1;
+	double BestLight = 0.0;
+	ProbeText = FString::Printf(TEXT(" world %.2f"), ProbeWeights.back());
+	for (int32 Hit = 0; Hit < Hits.Num(); ++Hit)
+	{
+		const FData::FLocalProbe& Probe = Data->LocalProbes[Hits[Hit].Index];
+		const double Luminance = FMath::Max(0.2126 * Probe.Color[0] + 0.7152 * Probe.Color[1] + 0.0722 * Probe.Color[2], 1e-6);
+		const double Light = ProbeWeights[Hit] * SourceUnitLuminance * Luminance * FMath::Lerp(1.0, TodDiffuse, Probe.TodInfluence)
+			* CVarProbeScale.GetValueOnGameThread();
+		Total += Light;
+		Local += Light;
+		for (int32 C = 0; C < 3; ++C)
+		{
+			Tint[C] += Light * Probe.Color[C] / Luminance;
+		}
+		if (Light > BestLight)
+		{
+			BestLight = Light;
+			Best = Hits[Hit].Index;
+		}
+		ProbeText += FString::Printf(TEXT(" %s %.2f"), *Probe.Cube, ProbeWeights[Hit]);
+	}
+	UTextureCube* Cube = nullptr;
+	if (Best >= 0)
+	{
+		const FString& Name = Data->LocalProbes[Best].Cube;
+		if (const TObjectPtr<UTextureCube>* Found = ProbeCubes.Find(Name))
+		{
+			Cube = Found->Get();
+		}
+		else
+		{
+			const FString Asset = TEXT("T_SwcProbe_") + Name;
+			Cube = LoadObject<UTextureCube>(nullptr, *FString::Printf(TEXT("/SwcGameContent/Environment/Probes/%s.%s"), *Asset, *Asset), nullptr, LOAD_NoWarn);
+			ProbeCubes.Add(Name, Cube);
+			UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the local probe cube %s%s"), *Asset, Cube != nullptr ? TEXT("") : TEXT(" is not imported (tools/import-sky.sh)"));
+		}
+	}
+	const float Fraction = Cube != nullptr && Total > 0.0 ? static_cast<float>(Local / Total) : 0.0f;
+	Ambient->SetCubemapBlend(WorldProbe.Get(), Cube, Fraction);
+	ProbeBlendCube = Cube != nullptr ? Data->LocalProbes[Best].Cube : FString();
+	Ambient->SetIntensity(static_cast<float>(Total));
+	const double Scale = Total > 0.0 ? 1.0 / Total : 1.0;
+	Ambient->SetLightColor(Multiplier * FLinearColor(static_cast<float>(Tint[0] * Scale), static_cast<float>(Tint[1] * Scale), static_cast<float>(Tint[2] * Scale)));
 }

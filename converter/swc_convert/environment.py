@@ -31,7 +31,11 @@ Output in SWC_CONTENT/environment:
   probes/NAME.hdr       the world probes of the outdoor ambient (the command probes, stage E5): the radiance cubemap (BC6H, mip 0)
                         of each probe whose box covers the world, as a long-lat Radiance picture in the units of the source (the
                         light unit 10,000 cd/m2 is the client's), u = the longitude (east at 0.75, north at 0.5), v = up to down
-  probes.json           their list: the cubemap, the picture, the diffuse and specular multipliers, the TOD influence, the boxes
+                        and of each cubemap of the local probes (step b)
+  probes.json           world: the world probes (the cubemap, the picture, the diffuse and specular multipliers, the TOD influence,
+                        the boxes); local: each local probe (its box: the place, the rows of the entity matrix, Area X,Y,Z; the
+                        priority, the color, the multipliers, the edge falloff, the box projection, the vis area switches);
+                        cubes: the picture of each cubemap of the local probes and the face means of its radiance and diffuse cubes
   volumes.json          the volumes of the world for the client in one compact file: the time-of-day volumes (shape, preset,
                         priority, blend, hour override, sky, color grading) and the fog, rain, snow, weather, and ocean volumes
   sky.json              the sky slices of the presets: their meshes, materials, textures, texture motion, and parameters
@@ -898,19 +902,83 @@ def write_hdr(path: Path, rgb: np.ndarray) -> None:
     path.write_bytes(f"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y {height} +X {width}\n".encode() + out.tobytes())
 
 
-def probes() -> dict:
-    """Writes probes/NAME.hdr and probes.json: the world probes of the outdoor ambient (stage E5)."""
+FACE_LABELS = ("+east", "-east", "+north", "-north", "+up", "-up")
+
+
+def cube_faces(cubemap: str):
+    """@return The six faces of mip 0 of a BC6H cubemap of the source, or no value."""
     from . import bc6h
+    base = source.read(cubemap)
+    size = struct.unpack_from("<I", base, 16)[0]
+    face_bytes = max(1, size // 4) ** 2 * 16
+    # Mip 0 of the six faces: the split file of that size (the source keeps the larger mips in NAME.dds.1 to .N).
+    data = None
+    for split in range(8, 0, -1):
+        if source.has(f"{cubemap}.{split}"):
+            part = source.read(f"{cubemap}.{split}")
+            data = part if len(part) == 6 * face_bytes else None
+            break
+    if data is None and len(base) >= 148 + 6 * face_bytes:
+        data = base[148:148 + 6 * face_bytes]
+    if data is None:
+        return None
+    return [bc6h.decode(data[f * face_bytes:(f + 1) * face_bytes], size, size) for f in range(6)]
+
+
+def face_means(faces: list) -> dict:
+    return {label: [round(float(c), 4) for c in face.reshape(-1, 3).mean(0)] for label, face in zip(FACE_LABELS, faces)}
+
+
+def probe_name(cubemap: str) -> str:
+    """@return The picture name of a cubemap: its file name in textures/cubemaps/world, else its folder and file name (the same file
+    name is in more than one folder: environmentprobe1_cm in 7)."""
+    path = Path(cubemap)
+    return path.stem if path.parent.name == "world" else f"{path.parent.name}_{path.stem}"
+
+
+def probe_picture(cubemap: str, folder: Path, direction: np.ndarray) -> dict:
+    """Writes probes/NAME.hdr (the radiance of mip 0, long-lat) and @return its entry; the face means of the diffuse cube of the source
+    (NAME_diff.dds, 32 x 32: the radiance convolved with the cosine over pi, within 2 % of the mean of the radiance cube; the cube
+    that the tiled shading of the source samples for the ambient, tiledshading.cfib AddProbeDiffuse)."""
+    faces = cube_faces(cubemap)
+    if faces is None:
+        return {"error": "no mip 0 of six faces"}
+    width, height = PROBE_SIZE
+    name = probe_name(cubemap)
+    write_hdr(folder / f"{name}.hdr", cube_face_lookup(faces, direction).reshape(height, width, 3))
+    entry = {"hdr": f"probes/{name}.hdr", "size": [width, height], "faceSize": faces[0].shape[0], "faceMeans": face_means(faces)}
+    diffuse = cubemap.removesuffix(".dds") + "_diff.dds"
+    if source.has(diffuse):
+        diffuse_faces = cube_faces(diffuse)
+        if diffuse_faces is not None:
+            entry["diffuseMeans"] = face_means(diffuse_faces)
+    return entry
+
+
+def probes() -> dict:
+    """Writes probes/NAME.hdr and probes.json: the world probes of the outdoor ambient and the local probes (stage E5)."""
     found: dict[str, dict] = {}
+    local: list[dict] = []
     for path in sorted((out_dir() / "regions").glob("*.json")):
         for record in json.loads(path.read_text())["records"]:
             if record.get("kind") != "probe":
                 continue
             config = record["fields"]["LightConfiguration"]
             area = config.get("Area X,Y,Z") or [0.0, 0.0, 0.0]
-            if area[0] * area[1] * area[2] < WORLD_PROBE_VOLUME:
-                continue
             cubemap = config["CubemapTexture"].replace("\\", "/").lower()
+            if area[0] * area[1] * area[2] < WORLD_PROBE_VOLUME:
+                # A local probe (step b): its box (the rows of the entity matrix and the Area X,Y,Z), its order, its multipliers, the
+                # fade at its edge, the box projection, and the vis area switches; the rule of the weights is in the client.
+                local.append({"region": path.stem, "place": record["place"], "rows": [row[:3] for row in record["matrix"][:3]],
+                              "area": area, "priority": config.get("SortPriority", 0), "cubemap": cubemap,
+                              "color": (config.get("COLOR") or [1.0, 1.0, 1.0])[:3], "diffuseMultiplier": config.get("DiffuseMultiplier", 1.0),
+                              "specMultiplier": config.get("SpecMultiplier", 1.0), "falloff": config.get("AttenuationFalloffMax", 0.0),
+                              "boxProject": bool(config.get("BoxProject")),
+                              "boxSize": [config.get("BoxWidth", 1.0), config.get("BoxLength", 1.0), config.get("BoxHeight", 1.0)],
+                              "todInfluence": config.get("TODInfluence", 1.0), "on": bool(config.get("Visible", True) and config.get("OnInitially", True)),
+                              "affectsThisAreaOnly": bool(config.get("AffectsThisAreaOnly")), "ignoreVisAreas": bool(config.get("IgnoreVisAreas")),
+                              "indoorOnly": bool(config.get("IndoorOnly"))})
+                continue
             entry = found.setdefault(cubemap, {"cubemap": cubemap, "diffuseMultiplier": config.get("DiffuseMultiplier", 1.0),
                                                "specMultiplier": config.get("SpecMultiplier", 1.0), "todInfluence": config.get("TODInfluence", 1.0),
                                                "boxes": []})
@@ -923,33 +991,19 @@ def probes() -> dict:
     longitude, polar = np.meshgrid((2.0 * u - 1.0) * math.pi, v * math.pi)
     direction = np.stack([np.sin(polar) * np.sin(longitude), np.sin(polar) * np.cos(longitude), np.cos(polar)], -1).reshape(-1, 3)
     for cubemap, entry in found.items():
-        base = source.read(cubemap)
-        size = struct.unpack_from("<I", base, 16)[0]
-        face_bytes = max(1, size // 4) ** 2 * 16
-        # Mip 0 of the six faces: the split file of that size (the source keeps the larger mips in NAME.dds.1 to .N).
-        data = None
-        for split in range(8, 0, -1):
-            if source.has(f"{cubemap}.{split}"):
-                part = source.read(f"{cubemap}.{split}")
-                data = part if len(part) == 6 * face_bytes else None
-                break
-        if data is None and len(base) >= 148 + 6 * face_bytes:
-            data = base[148:148 + 6 * face_bytes]
-        if data is None:
-            entry["error"] = "no mip 0 of six faces"
-            continue
-        faces = [bc6h.decode(data[f * face_bytes:(f + 1) * face_bytes], size, size) for f in range(6)]
-        picture = cube_face_lookup(faces, direction).reshape(height, width, 3)
-        name = Path(cubemap).stem
-        write_hdr(folder / f"{name}.hdr", picture)
-        entry.update({"hdr": f"probes/{name}.hdr", "size": [width, height], "faceSize": size,
-                      "faceMeans": {label: [round(float(c), 4) for c in face.reshape(-1, 3).mean(0)] for label, face in
-                                    zip(("+east", "-east", "+north", "-north", "+up", "-up"), faces)}})
+        entry.update(probe_picture(cubemap, folder, direction))
+    cubes = {}
+    for cubemap in sorted({probe["cubemap"] for probe in local}):
+        cubes[cubemap] = probe_picture(cubemap, folder, direction) if source.has(cubemap) else {"error": "no cubemap in the source"}
     doc = {"rule": "the outdoor ambient of the source: the radiance of the probe x 10,000 cd/m2 x its DiffuseMultiplier x the time-of-day "
                    "'Environment Probe Diffuse Multiplier' (by its TODInfluence) x 'Environment Probe Multiplier'",
-           "world": list(found.values())}
-    (out_dir() / "probes.json").write_text(json.dumps(doc, indent=1))
-    return {Path(k).stem: {"boxes": len(v["boxes"]), "up": v.get("faceMeans", {}).get("+up")} for k, v in found.items()}
+           "world": list(found.values()), "local": local, "cubes": cubes}
+    # One rename: the clients of all tracks read this file at their start.
+    temporary = out_dir() / "probes.json.part"
+    temporary.write_text(json.dumps(doc, indent=1))
+    temporary.replace(out_dir() / "probes.json")
+    return {"world": {Path(k).stem: {"boxes": len(v["boxes"]), "up": v.get("faceMeans", {}).get("+up")} for k, v in found.items()},
+            "local": len(local), "cubes": len(cubes), "errors": {Path(k).stem: v["error"] for k, v in cubes.items() if "error" in v}}
 
 
 def main(argv=None) -> int:
