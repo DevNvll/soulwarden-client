@@ -879,6 +879,15 @@ void USwcBackendSubsystem::StartTables()
 		UE::Tasks::ETaskPriority::BackgroundNormal);
 }
 
+const FSwcPlayerLooks* USwcBackendSubsystem::GetPlayerLooks()
+{
+	if (!bTablesTaken && (!TablesTask.IsValid() || !TablesTask.IsCompleted()))
+	{
+		return nullptr;
+	}
+	return TakeTables() ? Looks.Get() : nullptr;
+}
+
 bool USwcBackendSubsystem::TakeTables()
 {
 	if (!bTablesTaken)

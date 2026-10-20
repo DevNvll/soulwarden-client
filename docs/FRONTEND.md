@@ -544,3 +544,27 @@ Only this document changes in the research branch. The scene and script records 
   the connection label, the token after 3.8 s, the loading screen for 12.6 s (the cells of the place), the spawn, and the HUD.
   `evidence/F5/compare/f5-flow.png` has six frames of the video.
 - Not done in F5 (F6): the return to the menu, a second entry, the retry of a failed connection after the token.
+
+### F3, the look of the selected character (2026-10-20)
+
+- `Menu/SwcMenuPreview` (`ASwcMenuPreview`) is the character of the main menu: an actor of its own, with no world pawn and no
+  paperdoll. The base of the gender is the leader (not drawn; the idle clip); each part follows its pose (Leader Pose), as the
+  world character. The look comes from `FSwcPlayerLooks::ResolveMenu` (the menu input of the resolver, docs/CHARACTER.md).
+- `menu preview ID` makes the look of that character when the look tables are there (`USwcBackendSubsystem::GetPlayerLooks`,
+  no wait in a frame): the 12 names and the armor ids of its menu document. An invalid document or an id that is not in the
+  list clears the body (no stale parts). A map key that is not hat, shirt, gloves, pants, or boots, a nonempty item name, and a
+  nonzero dye are not applied yet (a log line each). The missing parts go to the wanted list (`tools/convert-player.sh wanted`,
+  `tools/import-player.sh`).
+- The assets load asynchronously. A new selection cancels the load before it, and a load that ends after a newer request is
+  not shown: an old body never replaces a new one (the run `f3-switch`: the click on the second row while the first body
+  loads; only the second body shows).
+- `menu show 1|0` shows or hides the parts (the landing screen moves the body to the menu height or to Z -1000).
+- The place and the camera: the actor stands at the place of the Player Entity of the NightHaven scene (game 3031.3987,
+  2047.3601, 84.0722 m) with its yaw (-147.88 degrees); its camera is the end key of `IntroToCharacter` relative to the feet
+  (1.118, -1.908, 1.078 m; pitch -3.5, yaw 31.5 degrees), and it is the view of the player controller in the menu. The FOV is
+  the vertical 55 degrees of MainCamera (the fork axis is open, FE7). The token of PLAY removes the actor.
+- The run `f3-preview` (the two development characters of the UI track): the female body (6 of 6 parts, 4 armor rows of the
+  ranger start) and the male body (6 of 6 parts, 5 armor rows). The made-up spec of the female character has the hairstyle
+  name `hairstyle12f`, which the database does not have: the first entry ("None") and a note. `evidence/F3/compare/sbs-preview*.png`:
+  the retail picture B6-04 and the two client bodies; the place and the size of the body agree. The scene, its lights, and its
+  idle clip are stage F4.

@@ -119,6 +119,8 @@ public:
 	bool HasConnection() const { return Connection.IsValid(); }
 	/** @return The error of the last EnterWorld of the front end (no login token), else empty. */
 	const FString& GetEnterError() const { return EnterError; }
+	/** @return The look tables of the player (the menu preview of stage F3), or null while their worker task runs (no wait). */
+	const FSwcPlayerLooks* GetPlayerLooks();
 	/** @return True while the cells of a new place load after a travel or a respawn (the UI keeps its loading screen). */
 	bool IsWaitingForCells() const { return bTravelWait; }
 	/** The key E of the interactions (stage P2.10): down or up. */

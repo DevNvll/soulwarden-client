@@ -1,0 +1,8 @@
+# Stage F3 of docs/FRONTEND.md: a change of the selection while the body of the first selection loads (tools/menu-check.sh
+# f3-switch 40 -- -SwcUiDrive=FILE). The default selection loads its assets; a click on the other row: the older body
+# must not replace the newer one (the click at 5.6 s: after the look tables, while the assets of the first body load).
+0 waitfor CharacterList 60
+5.0 point text:Devwarden
+5.6 click
+12 draw switched
+16 end

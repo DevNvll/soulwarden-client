@@ -28,6 +28,7 @@
 #include "GameFramework/Pawn.h"
 #include "SwcBackendSubsystem.h"
 #include "Net/SwcLoginClient.h"
+#include "Menu/SwcMenuPreview.h"
 #include "SwcPlayerController.h"
 #include "SwcDebugLines.h"
 #include "UI/SwcUiInput.h"
@@ -793,6 +794,7 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 
 void USwcUiSubsystem::UpdateMenu(USwcBackendSubsystem* Backend)
 {
+	UpdatePreview(Backend);
 	if (bMenuLogin)
 	{
 		// The login of PLAY (stage F5): the connection states of the table of landingscreenv2.luac (3 QueueGameLogin while the
@@ -815,6 +817,7 @@ void USwcUiSubsystem::UpdateMenu(USwcBackendSubsystem* Backend)
 			{
 				// The token came: the menu ends, the loading screen of the world shows until the possession of the character.
 				bMenuLogin = false;
+				EndPreview();
 				Runtime->call("HostMenuEnd");
 				Runtime->call("HostLoading", {FArg::of(true), FArg::of(std::string(WorldLevelName)), FArg::of(std::string("eLoadingScreenIds_LEVEL1"))});
 				bStartLoading = true;
@@ -841,6 +844,19 @@ void USwcUiSubsystem::UpdateMenu(USwcBackendSubsystem* Backend)
 	}
 	// The login path is complete: the account token and the entitlement list came (FE9: the account event, not the UI load).
 	Runtime->call("HostMenuAccount", {FArg::of(true), FArg::of(true)});
+	// The character of the menu (stage F3): its actor at the place of the Player Entity of the NightHaven scene (game 3031.3987,
+	// 2047.3601, 84.0722 m; the scene itself is stage F4), and its camera as the view of the player.
+	if (UWorld* World = GEngine != nullptr && GEngine->GameViewport != nullptr ? GEngine->GameViewport->GetWorld() : nullptr)
+	{
+		FActorSpawnParameters Parameters;
+		Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		ASwcMenuPreview* Actor = World->SpawnActor<ASwcMenuPreview>(FVector(303139.87, -204736.01, 8407.22), FRotator::ZeroRotator, Parameters);
+		Preview = Actor;
+		if (APlayerController* Controller = World->GetFirstPlayerController(); Controller != nullptr && Actor != nullptr)
+		{
+			Controller->SetViewTarget(Actor);
+		}
+	}
 	// The menu scene is stage F4: no level loads now, thus its load is complete (the landing screen plays its queued camera
 	// sequence at this event).
 	Runtime->call("HostMenuLevelLoaded");
@@ -893,6 +909,91 @@ void USwcUiSubsystem::SendMenuList(USwcBackendSubsystem* Backend)
 	UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the character list to the landing screen (%d character(s))"), Session->Characters.Num());
 }
 
+void USwcUiSubsystem::UpdatePreview(USwcBackendSubsystem* Backend)
+{
+	if (!Preview.IsValid())
+	{
+		return;
+	}
+	if (Widget.IsValid())
+	{
+		const FVector2f Size = Widget->GetLastSize();
+		Preview->UpdateFov(Size.Y > 0.0f ? Size.X / Size.Y : 0.0f);
+	}
+	if (!bPreviewDirty)
+	{
+		return;
+	}
+	const FSwcPlayerLooks* Looks = Backend->GetPlayerLooks();
+	const FSwcAccountSession* Session = Backend->GetAccountSession();
+	if (Looks == nullptr || Session == nullptr)
+	{
+		return;
+	}
+	bPreviewDirty = false;
+	const FSwcCharacterInfo* Character = Session->Characters.FindByPredicate(
+		[this](const FSwcCharacterInfo& Info) { return Info.CharacterId == PreviewCharacter; });
+	if (Character == nullptr || Character->MenuStatus != swc::menu::Status::Ok)
+	{
+		// No character or no valid menu document: no body (no stale parts of the character before).
+		Preview->Clear();
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: no body for %s (%hs)"), *PreviewCharacter,
+			Character != nullptr ? swc::menu::StatusText(Character->MenuStatus) : "not in the list");
+		return;
+	}
+	// The appearance names and the armor appearance ids of the menu document (the keys hat, shirt, gloves, pants, boots are the
+	// paperdoll slots 0 to 4; an other key is no part of the menu look: research frontend-native.md FE5).
+	TArray<FString> Names;
+	for (const std::string& Name : Character->Menu.Appearance)
+	{
+		Names.Add(UTF8_TO_TCHAR(Name.c_str()));
+	}
+	static const char* const Keys[] = {"hat", "shirt", "gloves", "pants", "boots"};
+	TMap<uint32, uint32> Armor;
+	TArray<FString> Other;
+	for (const swc::menu::FEquipment& Entry : Character->Menu.Equipment)
+	{
+		int32 Slot = INDEX_NONE;
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(Keys); ++Index)
+		{
+			Slot = Entry.Slot == Keys[Index] ? Index : Slot;
+		}
+		if (Slot == INDEX_NONE)
+		{
+			Other.Add(UTF8_TO_TCHAR(Entry.Slot.c_str()));
+			continue;
+		}
+		if (!Entry.ItemName.empty() || (Entry.bHasDyes && (Entry.Dyes[0] | Entry.Dyes[1] | Entry.Dyes[2] | Entry.Dyes[3]) != 0))
+		{
+			UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: %hs: an item name or a dye that the menu look does not apply yet"), Entry.Slot.c_str());
+		}
+		Armor.Add(static_cast<uint32>(Slot), Entry.AppearanceId);
+	}
+	const FSwcPlayerLook Look = Looks->ResolveMenu(Names, Armor);
+	for (const FString& Note : Look.Notes)
+	{
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: look: %s"), *Note);
+	}
+	if (Other.Num() > 0)
+	{
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: look: map keys with no part of the menu look: %s"), *FString::Join(Other, TEXT(", ")));
+	}
+	const int32 Wanted = Looks->WriteWanted(Look);
+	UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the look of %s: %s, %d part(s), %d armor row(s), %d new wanted part(s)"), *PreviewCharacter,
+		Look.bFemale ? TEXT("female") : TEXT("male"), Look.Parts.Num(), Armor.Num(), Wanted);
+	Preview->ShowLook(Look, Looks->BaseMesh(Look.bFemale), Looks->IdleAnimation(Look.bFemale));
+}
+
+void USwcUiSubsystem::EndPreview()
+{
+	if (Preview.IsValid())
+	{
+		Preview->Destroy();
+	}
+	Preview.Reset();
+	bPreviewDirty = false;
+}
+
 /** The requests of the landing screen (swc/frontend.lua): "menu list" (GetLoginInfoLists: a refresh of the list), "menu preview
  *  ID" (SetVisibleCharacter), "menu show 1|0" (the preview character shows or hides), "menu login ID TYPE" (RequestLogin),
  *  "menu quit" (RequestDisconnect to the desktop), "menu loading" and "menu intro" (later stages). */
@@ -928,8 +1029,19 @@ void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsy
 				}
 			});
 	}
-	else if (Kind == TEXT("preview") || Kind == TEXT("show"))
+	else if (Kind == TEXT("preview"))
 	{
+		// SetVisibleCharacter: the body of the selected character (UpdatePreview, when the look tables are there).
+		PreviewCharacter = Parts.IsValidIndex(2) ? Parts[2] : FString();
+		bPreviewDirty = true;
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: %s"), *Request);
+	}
+	else if (Kind == TEXT("show"))
+	{
+		if (Preview.IsValid())
+		{
+			Preview->SetBodyVisible(Parts.IsValidIndex(2) && Parts[2] == TEXT("1"));
+		}
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: %s"), *Request);
 	}
 	else if (Kind == TEXT("login"))

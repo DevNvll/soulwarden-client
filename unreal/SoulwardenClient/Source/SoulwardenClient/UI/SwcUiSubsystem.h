@@ -123,6 +123,12 @@ private:
 	/** The front end: the login of the selected character runs (stage F5); the connection state sent to the screen. */
 	bool bMenuLogin = false;
 	int32 SentMenuConnection = 0;
+	/** The character of the main menu (stage F3): the actor, the id of the selected character, and a new selection to show. */
+	TWeakObjectPtr<class ASwcMenuPreview> Preview;
+	FString PreviewCharacter;
+	bool bPreviewDirty = false;
+	void UpdatePreview(class USwcBackendSubsystem* Backend);
+	void EndPreview();
 	bool bErrorShown = false;
 	bool bSentLoadingScreen = false;
 	bool bLoadingForDeath = false;
