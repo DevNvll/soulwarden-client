@@ -136,14 +136,13 @@ product). A file that is sRGB keeps its bytes; a linear file is encoded to sRGB 
   within the view distance of its effect (the outer LOD bound; 50 m when the effect has no LOD end [I]) and goes back to the pool
   beyond 1.1 x that distance. A placement with Visible or Enable false waits for its owner (stage 7). The same effect at the same
   place twice (a slice placed two times) is one placement.
-- The view distance of an emitter (particle-rules.md 4 [R]): Dmax = screen height / vertical FOV x max(e_ParticlesMinDrawPixels, 0.125)
-  x M x S x V, M the largest half size x ViewDistanceAdjust of the effect (systems.json "maxSize"), S = GlobalSizeScale x the placement
-  scale, V the View Distance Multiplier; the LOD bounds are not multiplied by V. The rule is in the code but off by default
-  (`swc.Effects.MinDrawPixels` 0): with the public default 0.5 it gives 9.5 m for the town hall torch (M 0.4 m, S 0.7, V 0.1), and the
-  retail take retail-torch2 shows that torch at about 23 m. The inputs P and M need a trace.
-- GlobalSizeScale x the placement scale is the component scale: the local space scales the offsets and the speeds, and
-  ApplyOwnerScaleToAttributes (bScaleInitialSpriteSize) the sprite size [R: particle-rules.md 5]. The local space also scales the
-  gravity, which the source does not (open).
+- The view distance of an emitter (particle-rules2.md b [R]): Dmax = screen height / vertical FOV x max(e_ParticlesMinDrawPixels, 0.125)
+  x M x S x V, M the largest SizeX or SizeY base x ViewDistanceAdjust over the emitters (systems.json "maxSize"; the torch 0.4 m),
+  S = GlobalSizeScale x the placement scale, V the View Distance Multiplier; P = `swc.Effects.MinDrawPixels`, 1.0 (the registered and
+  shipped default; 0 turns the rule off). The LOD bounds are not multiplied by V. Not done: the per-particle pixel fade.
+- GlobalSizeScale x the placement scale is the component scale. The stateless simulation space has no scale: ApplyOwnerScaleToAttributes
+  applies S to the initial speed and the sprite size, and the forces keep their world values (particle-rules2.md d) [R]. Open: the spawn
+  offsets under S.
 - The loading gate (AST-203): the check "effects" waits until each placement within `SwcLoadingGate::NearCm` (150 m) of the place
   and within its range has its component and has run 1 s. Thus no flame grows after a loading screen.
 - `-SwcNoEffects` or `SWC_EFFECTS=0` turns the world placements off; `swc.Effects.Show 0` hides the effects; `swc.Effects.Test
@@ -225,4 +224,36 @@ torch and the candle flames (a factor of about 1.5 to 2 with the half-size rule)
 
 After the rebase on E5 (swc.LightScale 1), take `p2f-torch.mp4` (`torch-candles-lightscale1.png`: retail left, client right): the candle
 flames show, orange, a little smaller than retail; the torch flame is paler (pink-white) and about half the size of the retail flame.
+
+### The second round (2026-10-20, particle-rules2.md)
+
+The rules: B, the evaluated "Particle Brightness Multiplier" of the scene preset (`USwcEnvironmentSubsystem::ParticleBrightness`), goes to
+TodBrightness of `MPC_SwcParticles`; each material instance has TodInfluence (the torch 0.5, the candles 1); the materials multiply both
+color terms by F = 1 + (B - 1) x TodInfluence (r_ParticlesTOD 2). The aspect of the atlas cell reduces one axis (aspectX = min(cellW/cellH,
+1), aspectY = min(cellH/cellW, 1)). The stretch of a velocity-aligned sprite is in its height curve (2 x speed x min(Stretch(age), age),
+the mean speed of the source force rule, S = 1) [I: the stateless emitter has no geometric stretch]. The view distance rule is on with P
+1.0. The forces are not scaled by S.
+
+The run values: B 1.5 in the menu (16.7 h; the brief 1.5), B 0.5 in Oxboro at 00:54 (the brief: 0.4 at 23:00).
+
+The takes: `p2g-torch.mp4`, `p2g-menu.mp4`; the side-by-side videos `sbs-torch-post-g.mp4`, `sbs-torch-wall-g.mp4` (3x),
+`sbs-candles-g.mp4`; the crops `fire-round2-x3.png` (the two torches 3x, the candles) and `campfire-round2-x2.png`.
+
+| Effect | Now | Difference with retail |
+| --- | --- | --- |
+| Torch | A longer flame (the stretch), F 0.75 at night. | The bright flame is pale (near white) where retail is orange-yellow; it still sits in the torch head. |
+| Candles | Small orange upright flames. | About 1.5 times smaller (open in the brief too). |
+| Menu campfire | With B 1.5 a bright white-yellow blob over the logs. | Retail has orange flames and orange logs, and a dark-red smoke plume. |
+
+The campfire logs (the request of the orchestrator): the menu fire meshes are `jav_prp_fireplacepile_round` (instance `n_532218a1e5`,
+`jav_prp_fireplacepile_mat#1`: Emittance (1, 1, 1) x 200, the sRGB coal map `jav_prp_coalpile_diff` with its alpha as the mask, the
+linear intensity map `jav_prp_forge_noise_mask` at 2 x 2) and `jav_prp_rock_pit_coals` (instance `n_4056f40760`, the material
+`jav_prp_rockcoals_mat` "Rock": Emittance (0.98, 0.46, 0.18) x 600 with an Emittance map but no `%EMITTANCE_MAP` flag, thus the
+constant 0.5: 30 source units over the whole pit). The checks (an editor script and the files): the coal map is sRGB and decoded
+(EmittanceSrgb, sRGB, TC_Default with alpha, alpha mean 0.049), the intensity file is linear and sampled raw, the instance values
+are those of the rule (research/emission-fogcards.md). Thus the map, the alpha, and the color space are right, and no shared rule was
+changed. The measurement of the menu: the top 5 % of the fire region is orange (224, 165, 78) in retail and a neutral white
+(235, 235, 234) in the client; the whole client scene is about 1.4 times brighter (mean 129 against 91). The torch flame shows the same
+neutral white. [I] The common cause is the HDR to display step of the client (the filmic tone curve of Unreal turns very bright colors
+white; the retail picture keeps their hue) and the exposure of the menu, not the material data: a question for the color pipeline (E5).
 

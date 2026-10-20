@@ -20,6 +20,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "UObject/UObjectIterator.h"
+#include "Environment/SwcEnvironmentSubsystem.h"
 #include "World/SwcLoadingGate.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSwcEffects, Log, All);
@@ -38,11 +39,10 @@ TAutoConsoleVariable<float> CVarEmission(TEXT("swc.Effects.Emission"), 1.0f,
 	TEXT("The scale of the source particle shader units (the ambient and the glow terms, particle-rules.md 1) to the engine units of "
 		 "MPC_SwcMaterials EmissiveScale (1: one engine unit of 10,000 cd/m2 x swc.LightScale)."));
 
-// The view distance rule of an emitter (particle-rules.md 4) is off by default: with the public default 0.5 and M 0.4 m it gives 9.5 m for a
-// torch of the Oxboro town hall (V 0.1, S 0.7), and the retail take retail-torch2 shows that torch at about 23 m (docs/PARTICLES.md).
-TAutoConsoleVariable<float> CVarMinDrawPixels(TEXT("swc.Effects.MinDrawPixels"), 0.0f,
+// The view distance of an emitter (particle-rules2.md b): P = max(e_ParticlesMinDrawPixels, 0.125), the registered and shipped default 1.0.
+TAutoConsoleVariable<float> CVarMinDrawPixels(TEXT("swc.Effects.MinDrawPixels"), 1.0f,
 	TEXT("e_ParticlesMinDrawPixels of the view distance of an emitter: Dmax = screen height / vertical FOV x max(this, 0.125) x M x S x V "
-		 "(particle-rules.md 4). 0 (the default): the rule is off, the LOD bounds only."));
+		 "(particle-rules2.md b; 1.0 the shipped default, 1.5 in some quality groups). 0 turns the rule off (the LOD bounds only)."));
 
 TAutoConsoleVariable<int32> CVarShow(TEXT("swc.Effects.Show"), 1,
 	TEXT("1: the particle effects are visible; 0: hidden (the components stay; a matched view with and without the effects)."));
@@ -690,6 +690,24 @@ void USwcEffectSubsystem::Tick(float DeltaTime)
 		for (UNiagaraComponent* Component : Components)
 		{
 			Component->SetVisibility(bShown);
+		}
+	}
+	// B of the time-of-day factor (particle-rules2.md a): the evaluated preset value of the scene.
+	if (Collection != nullptr)
+	{
+		if (const USwcEnvironmentSubsystem* Environment = GetWorld()->GetSubsystem<USwcEnvironmentSubsystem>())
+		{
+			const float Brightness = static_cast<float>(Environment->ParticleBrightness());
+			if (FMath::Abs(Brightness - AppliedBrightness) > 1.0e-3f)
+			{
+				UKismetMaterialLibrary::SetScalarParameterValue(GetWorld(), Collection, TEXT("TodBrightness"), Brightness);
+				if (FMath::Abs(Brightness - LoggedBrightness) > 0.05f)
+				{
+					UE_LOG(LogSwcEffects, Log, TEXT("effects: the particle brightness B %.3f"), Brightness);
+					LoggedBrightness = Brightness;
+				}
+				AppliedBrightness = Brightness;
+			}
 		}
 	}
 	if (const float Emission = CVarEmission.GetValueOnGameThread(); Emission != AppliedEmission)

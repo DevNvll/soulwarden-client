@@ -28,7 +28,7 @@ import swc_materials as sm  # noqa: E402
 content = os.environ["SWC_CONTENT"]
 force = os.environ.get("SWC_IMPORT_FORCE", "") == "1"
 ROOT = "/SwcGameContent/Particles"
-PARENT_VERSION = "3"
+PARENT_VERSION = "4"
 
 assets = unreal.EditorAssetLibrary
 editing = unreal.MaterialEditingLibrary
@@ -75,15 +75,18 @@ def particle_collection():
     the two color terms are in source shader units, particle-rules.md 1; at run time swc.Effects.Emission)."""
     name = "MPC_SwcParticles"
     path = f"{ROOT}/{name}"
-    if assets.does_asset_exist(path) and state.get("collection:" + name) == "2":
+    if assets.does_asset_exist(path) and state.get("collection:" + name) == "3":
         return assets.load_asset(path)
     mpc = assets.load_asset(path) if assets.does_asset_exist(path) else \
         tools.create_asset(name, ROOT, unreal.MaterialParameterCollection, unreal.MaterialParameterCollectionFactoryNew())
-    state["collection:" + name] = "2"
-    value = unreal.CollectionScalarParameter()
-    value.set_editor_property("parameter_name", "EmissionUnit")
-    value.set_editor_property("default_value", 1.0)
-    mpc.set_editor_property("scalar_parameters", [value])
+    state["collection:" + name] = "3"
+    scalars = []
+    for parameter, default in (("EmissionUnit", 1.0), ("TodBrightness", 1.0)):
+        value = unreal.CollectionScalarParameter()
+        value.set_editor_property("parameter_name", parameter)
+        value.set_editor_property("default_value", default)
+        scalars.append(value)
+    mpc.set_editor_property("scalar_parameters", scalars)
     assets.save_loaded_asset(mpc)
     return mpc
 
@@ -151,6 +154,15 @@ def parent(name, additive, lit=False):
     rgb = sm.node(material, unreal.MaterialExpressionAdd, -300, 100)
     editing.connect_material_expressions(ambient, "", rgb, "A")
     editing.connect_material_expressions(glow, "", rgb, "B")
+    # The time-of-day factor F = 1 + (B - 1) x TodInfluence on both terms (r_ParticlesTOD 2; particle-rules2.md a): B is TodBrightness of
+    # MPC_SwcParticles (the evaluated "Particle Brightness Multiplier" of the scene preset, set at run time), TodInfluence of the instance.
+    tod_b = sm.node(material, unreal.MaterialExpressionCollectionParameter, -1200, 1750)
+    tod_b.set_editor_property("collection", particle_collection())
+    tod_b.set_editor_property("parameter_name", "TodBrightness")
+    tod_f = sm.custom(material, "return 1.0 + (B - 1.0) * I;", unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("B", "I"), -900, 1750)
+    editing.connect_material_expressions(tod_b, "", tod_f, "B")
+    editing.connect_material_expressions(sm.scalar(material, "TodInfluence", 1.0, -1200, 1900), "", tod_f, "I")
+    rgb = sm.multiply(material, (rgb, ""), (tod_f, ""), -250, 180)
     rgb = sm.multiply(material, (rgb, ""), (unit, ""), -200, 200)
     rgb = sm.multiply(material, (rgb, ""), (scale, ""), -100, 250)
     if additive:
@@ -162,6 +174,7 @@ def parent(name, additive, lit=False):
         base = sm.multiply(material, (atlas, "RGB"), (color, ""), -800, -200)
         base = sm.multiply(material, (base, ""), (tint, "RGB"), -600, -200)
         base = sm.multiply(material, (base, ""), (sm.scalar(material, "Diffuse", 1.0, -800, -350), ""), -450, -200)
+        base = sm.multiply(material, (base, ""), (tod_f, ""), -350, -200)
         editing.connect_material_property(base, "", MP.MP_BASE_COLOR)
     editing.connect_material_property(rgb, "", MP.MP_EMISSIVE_COLOR)
     editing.connect_material_property(clamp, "", MP.MP_OPACITY)
@@ -177,6 +190,7 @@ def instance(parent_material, spec, additive):
     import hashlib
     values = {"atlas": spec["texture"], "glow": spec.get("glowTexture") or spec["texture"], "soft": bool(spec["soft"]),
               "ambient": spec["ambient"], "glowColor": spec["glowColor"], "diffuse": spec["diffuse"] if spec.get("lit") else None,
+              "tod": spec.get("tod", 1.0),
               "parent": parent_material.get_name()}
     digest = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:8]
     name = "MI_" + spec["texture"][2:] + ("_Add" if additive else ("_Lit" if spec.get("lit") else "_Alpha")) + "_" + digest
@@ -193,6 +207,7 @@ def instance(parent_material, spec, additive):
     editing.set_material_instance_static_switch_parameter_value(mi, "Soft", values["soft"])
     editing.set_material_instance_scalar_parameter_value(mi, "Ambient", float(values["ambient"]))
     editing.set_material_instance_vector_parameter_value(mi, "GlowColor", unreal.LinearColor(*values["glowColor"], 0.0))
+    editing.set_material_instance_scalar_parameter_value(mi, "TodInfluence", float(values["tod"]))
     if values["diffuse"] is not None:
         editing.set_material_instance_scalar_parameter_value(mi, "Diffuse", float(values["diffuse"]))
     editing.update_material_instance(mi)

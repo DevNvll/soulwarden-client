@@ -252,9 +252,15 @@ namespace
 			Noise->NoiseStrength = float(Turbulence);
 		}
 		Module<UNiagaraStatelessModule_SolveVelocitiesAndForces>(Emitter);
-		// The component scale is S = GlobalSizeScale x the placement scale [R, particle-rules.md 5]: the local space scales the offsets and
-		// the speeds; this module scales the sprite size. (The local space also scales the gravity, which the source does not: open.)
-		Module<UNiagaraStatelessModule_ApplyOwnerScaleToAttributes>(Emitter)->SystemScaleData.bScaleInitialSpriteSize = true;
+		// The component scale is S = GlobalSizeScale x the placement scale [R, particle-rules.md 5, particle-rules2.md d]: the stateless
+		// simulation space has no scale, and this module applies S to the initial speed and the sprite size; the forces (gravity, the
+		// acceleration) keep their world values (bScaleForces stays off).
+		{
+			FNiagaraStatelessSystemScaleBuildData& Scale = Module<UNiagaraStatelessModule_ApplyOwnerScaleToAttributes>(Emitter)->SystemScaleData;
+			Scale.bScaleInitialSpriteSize = true;
+			Scale.bScaleInitialVelocity = true;
+			Scale.bScaleForces = false;
+		}
 		const double CameraOffset = Number(Spec, TEXT("cameraOffset"));
 		if (CameraOffset != 0.0)
 		{

@@ -141,5 +141,7 @@ private:
 	UPROPERTY()
 	TObjectPtr<class UMaterialParameterCollection> Collection;
 	float AppliedEmission = -1.0f;
+	float AppliedBrightness = -1.0f;
+	float LoggedBrightness = -1.0f;
 	bool bTestDone = false;
 };

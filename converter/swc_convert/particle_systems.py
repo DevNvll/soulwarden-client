@@ -174,19 +174,18 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         if diffuse not in textures:
             textures[diffuse] = texture(diffuse, tex_out)
         tex = textures[diffuse]["asset"]
-    # The size (cm, full sprite: the source size is a half size [R, particle-rules.md 3]) and its age curves. SizeX is the width (U),
-    # SizeY the height (V); with OrientToVelocity the height follows the velocity [R]. MaintainAspectRatio: the height is the width x
-    # the aspect of the atlas cell [I: the rule names square cells; the 8 x 4 cells of fire_l_rising002 are twice as tall as wide].
+    # The size (cm, full sprite: the source size is a half size [R, particle-rules.md 3, particle-rules2.md c]) and its age curves. SizeX
+    # is the width (U), SizeY the height (V); with OrientToVelocity the height follows the velocity [R]. The atlas cell aspect reduces one
+    # axis: aspectX = min(cellW / cellH, 1), aspectY = min(cellH / cellW, 1) [R]. MaintainAspectRatio copies only the X random to Y [R]
+    # (the client draws the two randoms apart: open).
     sx, sy = field(p, "SizeX"), field(p, "SizeY")
     cell = 1.0
     if tex and textures[diffuse]["size"][0] > 0:
         w, h = textures[diffuse]["size"]
-        cell = (h / tiles[1]) / (w / tiles[0])
-    y_factor = 1.0
-    if flag(p.get("MaintainAspectRatio", "true")):
-        sy, y_factor = sx, cell
-    size = {"x": random_range(2 * 100 * sx["base"], sx["random"]),
-            "y": random_range(2 * 100 * sy["base"] * y_factor, sy["random"]),
+        cell = (w / tiles[0]) / (h / tiles[1])
+    aspect_x, aspect_y = min(cell, 1.0), min(1.0 / cell, 1.0)
+    size = {"x": random_range(2 * 100 * sx["base"] * aspect_x, sx["random"]),
+            "y": random_range(2 * 100 * sy["base"] * aspect_y, sy["random"]),
             "curveX": sample(sx["age"], SAMPLES), "curveY": sample(sy["age"], SAMPLES)}
     # The two color terms of the source particle shader (particle-rules.md 1) [R]: the ambient term Ambient = EmissiveLighting (+ the scene
     # light x DiffuseLighting: the lit material) x the particle color x the diffuse map, and the glow term diffuseAlpha x diffuse x glow map
@@ -220,6 +219,23 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
     rangles = vector(p.get("LocalRandomAngles", ""))
     rate_y = field(p, "RotationRateY")
     pivot = [number(p.get("PivotX", "0")), number(p.get("PivotY", "0"))]
+    # The stretch of a velocity-aligned sprite (particle-rules2.md c) [R]: the long axis grows by 2 x speed x T, T = min(Stretch(age),
+    # the particle age in s). The stateless emitter has no geometric stretch: the converter adds it to the height curve with the mean
+    # speed of the source force rule (v = a/k + (v0 - a/k) e^-kt along the emit axis, S = 1) [I].
+    stretch_p = field(p, "Stretch")
+    if velocity_aligned and stretch_p["base"] > 0 and size["y"][1] > 0 and mean_life > 0:
+        stretch_curve = sample(stretch_p["age"], SAMPLES)
+        v0 = sum(speed) / 2 / 100.0
+        a_up = (-GRAVITY * (g[0] + g[1]) / 2) + accel[2]
+        k = sum(random_range(drag["base"] or 0.0, drag["random"])) / 2
+        height_m = size["y"][1] / 100.0
+        curve = []
+        for i, value in enumerate(size["curveY"]):
+            t = i / (SAMPLES - 1) * mean_life
+            v = (a_up / k + (v0 - a_up / k) * math.exp(-k * t)) if k > 0 else v0 + a_up * t
+            T = min(stretch_p["base"] * stretch_curve[i], t)
+            curve.append(round(value + 2 * abs(v) * T / height_m, 5))
+        size["curveY"] = curve
     diffuse = number(p["DiffuseLighting"], 1.0)
     lit = blend != "Additive" and diffuse > 0.0
     bands, notes = lod_bands(node)
@@ -228,7 +244,6 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
     max_m = bands[-1][1] if bands else 0.0
     if far > 0:
         max_m = min(max_m, far)
-    stretch = field(p, "Stretch")
     return {
         "key": node["key"], "name": node["name"], "enabled": bool(bands) and alpha_base > 0 and tex is not None,
         "spawn": spawn, "delay": number(p.get("SpawnDelay", "0")), "emitterLife": number(p.get("EmitterLifeTime", "0")),
@@ -237,7 +252,7 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         "lit": lit, "diffuse": diffuse, "ambient": emissive, "glowColor": glow_color, "glowTexture": glow_tex,
         "tod": number(p.get("TodBrightnessInfluence", "1"), 1.0),
         # The largest half size (m) x ViewDistanceAdjust: M of the view distance of the emitter (particle-rules.md 4) [R].
-        "maxHalfSize": max(size["x"][1] * max(size["curveX"]), size["y"][1] * max(size["curveY"])) / 200.0,
+        "maxHalfSize": max(sx["base"], sy["base"]),
         "viewAdjust": number(p.get("ViewDistanceAdjust", "1"), 1.0),
         "color": {"base": rgb, "random": float(color_rand) if isinstance(color_rand, float) else 0.0,
                   "curve": sample_color(color_keys(age["keys"]) if isinstance(age, dict) and "keys" in age else None, SAMPLES),
@@ -245,7 +260,7 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         "blend": "additive" if blend == "Additive" else ("alpha" if blend in ("AlphaBased", "") else blend.lower()),
         "texture": tex, "atlas": atlas, "material": mtl,
         "facing": "velocity" if velocity_aligned else {"Camera": "camera", "CameraX": "upright", "Free": "free"}.get(facing, "camera"),
-        "pivot": pivot, "stretch": stretch["base"] or 0.0,
+        "pivot": pivot, "stretch": stretch_p["base"] if velocity_aligned else 0.0,
         "soft": flag(p.get("SoftParticle", "false")), "sort": number(p.get("SortOffset", "0")),
         "cameraOffset": number(p.get("CameraDistanceOffset", "0")) * 100.0,
         "localSpace": str(p.get("MoveRelEmitter", "No")) == "Yes",

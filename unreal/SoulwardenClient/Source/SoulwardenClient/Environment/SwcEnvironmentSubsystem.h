@@ -180,6 +180,9 @@ public:
 	/** Clears the menu mode: the environment waits for the world clock again (it keeps its last state until the first record). */
 	void ClearMenuScene();
 	bool IsMenuScene() const { return Menu.IsSet(); }
+	/** @return B of the particle effects: the evaluated "Particle Brightness Multiplier" of the scene preset with the volume blend and
+	 *  the clock (particle-rules2.md a; the later of two entries with that name wins, as the file order of the source). */
+	double ParticleBrightness() const { return Blended(TEXT("Particle Brightness Multiplier"), 1.0); }
 	/** The exposure rule of the source at the place: "EV Min", "EV Max", and "EV Auto compensation" of the blend (the meter probe). */
 	/** The source sun of the hour on the ground (swc.SunSource 1): "Sun color" / its Rec. 709 luminance x "Sun intensity" (lux), the
 	 *  one light of the source (the moon keys at night); A = 1 when set, 0 with swc.SunSource 0 (then a user takes the Unreal light). */
