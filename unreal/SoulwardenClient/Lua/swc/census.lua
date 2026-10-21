@@ -140,7 +140,7 @@ census.canvases = {
     dynamic = {{name = "Guild", gate = {}, states = {1967160747}, triggerStates = {}}}},
   ["helpbar/helpbar"] = {class = "stage", feature = "F04", stage = "P6.9",
     ui = {{group = 8, gate = {}}}},
-  ["hitindicator/hitindicator"] = {class = "stage", feature = "F30", stage = "P2.9, P3.6",
+  ["hitindicator/hitindicator"] = {class = "active", feature = "F30", stage = "P2.9, P3.6, MVP-I",
     ui = {{group = 5, gate = {}}}},
   ["housing/homepurchase"] = {class = "stage", feature = "F65", stage = "P6.2",
     ui = {{group = 8, gate = {od = false}}},

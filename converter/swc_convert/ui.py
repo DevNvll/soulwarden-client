@@ -1029,7 +1029,7 @@ def convert_world() -> dict:
     canvases = convert_canvases(WORLD_CANVASES)
     textures = set(canvases.pop("textures"))
     for folder in ("lyshineui/images/markers/", "lyshineui/images/status/", "lyshineui/images/icons/tooltip/",
-                   "lyshineui/images/icons/gatherables/"):
+                   "lyshineui/images/icons/gatherables/", "lyshineui/images/hitindicator/"):
         textures |= set(folder_textures(folder))
     return {"status rows": len(statuses), "on the plates": sum(1 for e in statuses.values() if e["nameplate"]),
             "damage types": len(damage_types), "interact options": len(options), "defenses": len(defenses), "levels": len(levels),
@@ -1089,10 +1089,12 @@ def convert_defenses() -> dict:
 
 
 # The canvases of the UI in the world views (stage WF7): the markers (the AI plates), the prompt cards, the damage numbers, the loot
-# ticker.
+# ticker; the hit indicator (stage MVP-I).
 WORLD_CANVASES = ["lyshineui/markers/markermanager.dynamicuicanvas", "lyshineui/markers/unifiedinteract.dynamicuicanvas",
                   "lyshineui/hud/damagenumbers/damagenumbers.dynamicuicanvas",
-                  "lyshineui/hud2024/lootticker/lootticker2024.dynamicuicanvas"]
+                  "lyshineui/hud2024/lootticker/lootticker2024.dynamicuicanvas",
+                  # Stage MVP-I: the hit indicator (the red edge and the arrow of a hit on the own character).
+                  "lyshineui/hitindicator/hitindicator.dynamicuicanvas"]
 
 
 # The columns of the item definitions that the inventory screens use (javelindata_itemdefinitions_master_*), with their

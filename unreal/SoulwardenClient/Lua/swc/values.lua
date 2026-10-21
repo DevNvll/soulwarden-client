@@ -480,6 +480,9 @@ Math = setmetatable({
   Floor = function(v) return math.floor(v) end,
   RadToDeg = function(v) return v * 180 / math.pi end,
   DegToRad = function(v) return v * math.pi / 180 end,
+  -- hitindicatoredge.luac SetDirection (the place of the edge on the screen border).
+  Tan = function(v) return math.tan(v) end,
+  Sqrt = function(v) return math.sqrt(v) end,
   IsClose = function(a, b, tolerance) return math.abs(a - b) <= (tolerance or 0.001) end,
   -- The text of a value for a log line (respawn.luac logs the state of a transition).
   GetDebugString = function(v) return tostring(v) end,

@@ -35,6 +35,7 @@ Swc.Load("swc.loot")      -- the loot bags near the character and the panel of a
 Swc.Load("swc.markers")   -- the markers in the world: the AI plates (the native part of the marker manager)
 Swc.Load("swc.interact")  -- the prompt cards of the focus (the native part of the interactor)
 Swc.Load("swc.notices")   -- the damage numbers and the heal numbers (the native part of the damage numbers)
+Swc.Load("swc.hitindicator") -- the hit indicator: the edge and the arrow of a hit on the own character (the native OnDamage)
 Swc.Load("swc.reticle")   -- the reticle data of the HUD (the reticle of the active weapon, the reticle colors)
 Swc.Load("swc.host")      -- the calls of the host: Swc.Tick, Swc.Boot, Swc.EnterWorld, the player data
 Swc.Load("swc.frontend")  -- the front end: the native part of the landing screen (docs/FRONTEND.md stage F2)

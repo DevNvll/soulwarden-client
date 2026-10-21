@@ -495,8 +495,8 @@ The classes (2026-10-19):
 
 | Class | Rule | Count |
 | --- | --- | --- |
-| active | this client loads it in the world (`HudScreens` of `UI/SwcUiSubsystem.cpp`, the globals, the loading screen; stage P3.H adds the consumable quick slots, the XP meter, and the reticles; stage F2 the landing screen of the front end, docs/FRONTEND.md) | 25 |
-| stage | the retail client can load it on this backend with the values of the build; a later stage owns it | 120 |
+| active | this client loads it in the world (`HudScreens` of `UI/SwcUiSubsystem.cpp`, the globals, the loading screen; stage P3.H adds the consumable quick slots, the XP meter, and the reticles; stage F2 the landing screen of the front end, docs/FRONTEND.md; stage MVP-I the hit indicator) | 26 |
+| stage | the retail client can load it on this backend with the values of the build; a later stage owns it | 119 |
 | service | a public online service (F89): the store (3), the news, the survey, the report, the feedback, the voice chat, the legal screen; no such service on this computer | 9 |
 | debug | a diagnostic or editor screen (F90): the logger, the full-screen assert, the style guide, the benchmark (2), the editor tester of the fly-out menu, the grey box of the virtual cursor; their gates are off in a retail client | 7 |
 | dormant | no gate opens with the values of the build: the housing tips (`housingImprovements` false), the paperdoll status (`enable-hud-paperdoll-status` false), the first QTE (the build has `enable-ftue-v2` true: `qte_v2`) | 3 |
@@ -736,6 +736,24 @@ the client window) and the retail combat capture of set 6 (the list of the UI tr
 - The cut of a running ability cooldown: the server gives a new, earlier end (the cooldowns of the weapon after some critical
   hits). `Swc.HostCooldown` keeps the full time of the running cooldown, thus the fill of the slot drops, as in retail.
   Before, the fill started again at full with the new time left.
+- The hit indicator (stage MVP-I; `lyshineui/hitindicator/hitindicator`, `hitindicatormanager.luac`, `hitindicatoredge.luac`,
+  `hitindicatorarrow.luac`; the native part: `swc/hitindicator.lua`): at each hit on the own character (message 3601) a red edge
+  of the screen in the direction of the source and a red arrow near the center that points to it, as in the retail take set 6
+  `ui-fight-hud.mp4`. The native call `VitalsComponentNotificationBus.OnDamage` on the root entity of the HUD has 8 arguments (the
+  use in the bytecode of the manager): 2 the damage as a part of the maximum health (no hit below the epsilon; the edge sprite and
+  its opacity by thresholds; the edge shows 0.9 to 1.6 s), 3 the place of the source (nil or x + y + z < 0.5: the edge at 90
+  degrees, no arrow), 4 the angle of the edge, 5 true: no arrow, 7 true: no indicator. The client sends 5 and 7 false.
+  - The angle: the screen convention of the arrow script (`math.atan2` of the canvas points; 0 right, 90 down, 180 left, 270 up):
+    the source in the frame of the camera heading from the feet of the avatar (the right part on x, the back part on y). The native
+    rule is not known (an inference). The edge script gives no place at some exact angles (0 and 225 in the fixture): an exact
+    multiple of 45 degrees gets 0.01 degrees more.
+  - The place of the own character: the feet of the avatar. The own entity place of the server and `Hud.LocalPlayer.Position` of
+    `Swc.HostView` (sent only with a new heading) were seconds old in the live check, and a wolf bites from 1.5 m: the edge showed on
+    the wrong side. `Swc.HostHit` also sets `Hud.LocalPlayer.Position` (the arrow projects it).
+  - `LyShineManagerBus.ProjectToScreen(position, bool, bool)`: the canvas point (1080 lines) of a world point; a point behind the
+    camera gets a far point in the direction of its place in the frame of the camera heading (the native rule is not known).
+  - Retail shows no screen effect for the low health state itself (set 6, from 813 to 676 of 5,330): the health bar gets its warning
+    (the hatched background, `healthmeter.luac`), which the client already shows (`strip-health-trail-1.png` of P3.H).
 
 The check against the retail set 6 (2026-10-19, `~/Games/soulwarden-client/evidence/P3.H/compare`; the client runs
 `p3h-views`, `p3h-world`, `p3h-fight`, `p3h-fight2` at 1280 x 720 with the build bow-boltcaster on the dry sand of set 3; the

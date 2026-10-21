@@ -29,6 +29,7 @@
 #include "SceneView.h"
 #include "GameFramework/Pawn.h"
 #include "SwcBackendSubsystem.h"
+#include "Net/SwcSpace.h"
 #include "Net/SwcLoginClient.h"
 #include "Combat/SwcBackendSupport.h"
 #include "Menu/SwcMenuPreview.h"
@@ -73,6 +74,8 @@ const char* const HudScreens[] = {
 	"lyshineui/markers/unifiedinteract",
 	"lyshineui/hud/damagenumbers/damagenumbers",
 	"lyshineui/hud2024/lootticker/lootticker2024",
+	// The fight feedback (stage MVP-I): the hit indicator (the red edge and the arrow toward the source of a hit).
+	"lyshineui/hitindicator/hitindicator",
 	// The notifications (the minor messages of the inventory, the loot).
 	"lyshineui/notifications/notification",
 	// The options screen (stage P2.3): its categories, the key page (the rebinds go to the key table of the client).
@@ -2041,6 +2044,22 @@ void USwcUiSubsystem::FeedNumbers(const swc::net::RepClient::OwnEntity& Own, USw
 			Entries += FString::Printf(TEXT("%s%u:%.2f:%.3f"), Entries.IsEmpty() ? TEXT("") : TEXT(","), Entry.type, Entry.amount, Entry.part > 0.0f ? Entry.part : 1.0f);
 		}
 		Send(TEXT("player"), 0, OwnPoint, Own.damages[Index].message.flags, 0.0, 0, Entries);
+		// The hit indicator (swc/hitindicator.lua): the part of the maximum health, the place of the source, and the place of the feet of
+		// the avatar (engine meters; the own entity place of the server and the place of HostView can be seconds old, and a creature
+		// bites from 1.5 m).
+		const swc::net::DamageTaken& Hit = Own.damages[Index].message;
+		if ((Hit.flags & swc::net::DamageTaken::kHasPlace) != 0)
+		{
+			const swc::net::WorldPosition FeetEngine = SwcUnrealToEngine(Feet);
+			Runtime->call("HostHit", {FArg::of(static_cast<double>(Hit.part)), FArg::of(static_cast<double>(Hit.from[0])),
+				FArg::of(static_cast<double>(Hit.from[1])), FArg::of(static_cast<double>(Hit.from[2])),
+				FArg::of(static_cast<double>(FeetEngine.x)), FArg::of(static_cast<double>(FeetEngine.y)),
+				FArg::of(static_cast<double>(FeetEngine.z))});
+		}
+		else
+		{
+			Runtime->call("HostHit", {FArg::of(static_cast<double>(Hit.part))});
+		}
 	}
 	SentOwnDamages = Own.damageRevision;
 	const uint32 NewHeals = FMath::Min<uint32>(Own.healRevision - SentHeals, static_cast<uint32>(Own.heals.size()));
