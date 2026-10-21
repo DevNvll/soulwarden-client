@@ -83,6 +83,7 @@ function Swc.PlayerSpawned()
   Swc.SetData("Hud.LocalPlayer.HudComponent.CraftingEntityId", ids.crafting)
   Swc.SetData("Hud.LocalPlayer.HudComponent.VitalsEntityId", ids.vitals)
   Swc.SetData("Hud.LocalPlayer.HudComponent.EventNotificationEntityId", ids.eventNotification)
+  Swc.SetData("Hud.LocalPlayer.HudComponent.GatheringEntityId", ids.gathering)
   Swc.SetData("Hud.LocalPlayer.Currency.Amount", Swc.player.coin or 0)
   Swc.SetData("Hud.LocalPlayer.Vitals.ComponentIsActive", true)
   -- The progression of the player is connected (xpmeter.luac then compares the level with the maximum level: the meter hides at

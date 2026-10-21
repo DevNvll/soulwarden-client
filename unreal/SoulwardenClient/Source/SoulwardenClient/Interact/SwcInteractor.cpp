@@ -841,6 +841,7 @@ bool FSwcInteractor::GetPrompt(double Now, FSwcInteractPrompt& Out) const
 		: Use.phase() == swc::interact::Use::Phase::executed ? TEXT("done") : TEXT("idle");
 	// A gather: the progress ring of the work (the Gathering state), not of the request (as DebugText).
 	Out.Progress = bUseGather && Gather.step() == swc::interact::GatherWatch::Step::running ? Gather.progress(Now) : Use.progress(Now);
+	Out.WorkTime = bUseGather && Gather.step() == swc::interact::GatherWatch::Step::running ? static_cast<float>(Gather.work_time()) : 0.0f;
 	return Out.Kind != FSwcInteractPrompt::EKind::None;
 }
 

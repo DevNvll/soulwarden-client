@@ -1,0 +1,9 @@
+# The work ring of the gather card (AST-231): tools/creature-check.sh ast231-ring 45 THIS tests/drive/ast231-ring.txt, with a copy of
+# the user's database in First Light (the places of tests/drive/mvpf-gather-routes.txt; a travel faces north).
+#   3 s the boulder (record 12890, Mining 0, the pick): the ring steps down at each moment of impact of the swing
+#  22 s the herb (record 13212, Harvesting 0, the sickle): the ring empties with the work
+1 heal
+1.5 ignore on
+1.5 tool 1hSickleT5 34
+3 travel 8731.0 1144.0 100.4 off
+22 travel 8732.0 1136.0 100.3 off

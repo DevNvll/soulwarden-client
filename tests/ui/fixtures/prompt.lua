@@ -5,7 +5,7 @@
 -- axe: the gatherable card "Gather" with the refusal "No equipped Axe". An iron vein with the pick and Mining under the gate of the row
 -- (stage MVP-F): "Requires Mining skill" and the level circle of the required rank. A bush with a full bag: "Requires available
 -- inventory space". An inn keeper: its name, its title, and Talk (AST-231). Then no focus: the card hides.
--- Pictures: prompt-bag, prompt-hold, prompt-tree, prompt-lowskill, prompt-fullbag, prompt-person.
+-- Pictures: prompt-bag, prompt-hold, prompt-tree, prompt-lowskill, prompt-work, prompt-fullbag, prompt-person.
 local cards = screen("LyShineUI/Markers/UnifiedInteract.uicanvas", 12, true)
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(2702338936)
@@ -79,6 +79,41 @@ frames(0.4)
 check(Swc.HostPointOf("text:Requires Mining skill") ~= "", "the rank refusal: Requires Mining skill")
 check(Swc.HostPointOf("text:100") ~= "", "the level circle has the required rank 100")
 picture("prompt-lowskill")
+
+-- A hardwood tree with the axe in its work (AST-231): the work ring of the card (OnGatheringStart, OnAmountChanged, and for Chopping the
+-- steps at the moments of impact OnMomentOfImpact; then OnGatheringEnd at the end of the work).
+local function chop(phase, progress, work, impacts)
+  return prompt("object", "r_+04_+02#1237", "naturalNode", "Hardwood Tree", 300, 40, 0, phase, progress, 0, "Chopping", "",
+    "GatherOption:0") .. "\t\t" .. string.format("%.2f\t%d", work, impacts)
+end
+local function ring()
+  for _, card in ipairs(Swc.prompt.shownCards()) do
+    local circle = find(card, "CircleProgress")
+    if circle and swcui.enabled_in_hierarchy(circle) then
+      return swcui.get(circle, "image.fillAmount")
+    end
+  end
+  return nil
+end
+Swc.HostPrompt(chop("idle", 0, 0, 0))
+frames(0.6)
+Swc.HostPrompt(chop("idle", 0, 0, 0))
+frames(0.3)
+equal(ring(), nil, "no work: no ring")
+Swc.HostPrompt(chop("done", 0.05, 4.0, 0))
+frames(0.4)
+near(ring() or -1, 1.0, 0.01, "the start of the work: a full ring")
+for i = 1, 30 do
+  Swc.HostPrompt(chop("done", 0.05 + i * 0.01, 4.0, i >= 10 and 1 or 0))
+  frames(1 / 30)
+end
+frames(0.4)
+local after = ring() or -1
+check(after > 0.5 and after < 0.95, "the first impact steps the ring down (" .. string.format("%.2f", after) .. ")")
+picture("prompt-work")
+Swc.HostPrompt(chop("idle", 0, 0, 0))
+frames(0.4)
+equal(ring(), nil, "the end of the work: the ring hides")
 
 -- A bush with a full bag (the capacity 2 for the test, both slots used; the backend has 500): the original warning of the bag
 -- (IsAtItemCapacity).

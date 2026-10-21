@@ -544,6 +544,7 @@ Swc.ids.itemRepair = EntityId("6005173470066573575")
 Swc.ids.crafting = EntityId("6005173470066573576")
 Swc.ids.vitals = EntityId("6005173470066573577")
 Swc.ids.eventNotification = EntityId("6005173470066573578")
+Swc.ids.gathering = EntityId("6005173470066573579")
 
 Swc.player.bag = {count = 0, slots = {}}       -- bag slot (0 ...) -> ItemSlot
 Swc.player.paperdoll = {}                       -- paperdoll slot -> ItemSlot

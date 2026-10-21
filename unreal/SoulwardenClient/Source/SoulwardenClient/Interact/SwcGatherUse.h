@@ -33,6 +33,8 @@ public:
     [[nodiscard]] double end_time() const { return m_end; }
     /** @return The part of the work that passed (0 to 1; the progress ring of the prompt). */
     [[nodiscard]] float progress(double now) const;
+    /** @return The time of the work (s; the Success to the end; 0 before the Success). */
+    [[nodiscard]] double work_time() const { return m_step == Step::waiting ? 0.0 : m_end - m_begin; }
 
 private:
     Step m_step{Step::waiting};

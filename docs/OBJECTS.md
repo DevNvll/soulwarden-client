@@ -213,11 +213,18 @@ refusal and the full bag cards.
   sickle (+4 HerbT1), the axe (+19 WoodT1, the fall), the knife (a rabbit body: +1 MeatGameT1, +4 RawhideT1); the boulder Depleted
   and Healthy again; the key S cancels the cranberries (the server: "ended before its time: the client cancelled it (2473)").
   Run `mvpf-fullbag4`: 500 used slots, the card warning, the server "the bag has no place ... no item, the node stays".
-- The work ring: the retail card shows a ring around the key during the work ("o FLINT", live check L3 of the backend); this client
-  shows the key. The card has the events of the native gathering component (UiGatheringComponentNotificationsBus on
-  Hud.LocalPlayer.HudComponent.GatheringEntityId: OnGatheringStart with gatherableBind.gatherableAmount {timeRemaining, totalTime,
-  timeRemainingAtStart}, OnGatheringEnd; UiGatherableComponentNotificationsBus: OnAmountChanged). A first try showed that only some
-  cards of the pool connect the bus and that the shown card hides in the work phase of the fixture: open.
+- The work ring (AST-231): the retail card shows a ring in place of the key during the work ("o BOULDER", Soulwarden evidence
+  gathering/implement/F-07-mining-sheet.png: the ring empties in steps). The card (unifiedinteractcard.luac) connects
+  UiGatheringComponentNotificationsBus on Hud.LocalPlayer.HudComponent.GatheringEntityId (Swc.ids.gathering) and needs the flag
+  UIFeatures.g_uiEnableNewGatherTimer true (with false, OnGatheringStart hides the card). swc/interact.lua sends OnGatheringStart at
+  the start of the work of the Gathering state (gatherableAmount: a full node, the time of the work), OnAmountChanged on the node
+  each frame (the part of the work), OnMomentOfImpact at each moment of impact of the swing, and OnGatheringEnd at the end. The card
+  moves the ring by the amount for most types, and only at the impacts for Chopping and Mining (gatheringImpactTypes). The impacts
+  come from `USwcPlayerActions::GetGatherImpacts` (the mark GatherMomentOfImpact of the Gather fragment that plays again in the work:
+  0.867 s of 1.7 s for the pick). The prompt line has the time of the work (field 17) and the impacts (field 18).
+- Check run `ast231-ring4` (evidence AST-231, ast231-ring-crops.png: retail | client): the boulder (Mining, 3.64 s, 2 impacts): the
+  full ring, a step with the flash and the tail at each impact, the key E at the end; the herbs (Cutting, 1.60 s): the ring empties
+  with the work.
 - A place for a check: the character must be in the bound shape of the node (1.2 m from a hardwood tree or a cranberry bush;
   2 m was outside), and a development travel shows the loading screen of the client (about 3 s, also for 15 m).
 - No retail rank refusal picture exists (the backend live checks had rank 0); the reference is the original card.

@@ -45,6 +45,10 @@ Swc.config = {
   ["UIFeatures.enable-target-lock-ui"] = true,                 -- 0x4A3B0D4
   ["UIFeatures.enable-territory-incentives-screen"] = true,    -- 0x4A3AA0A
   ["UIFeatures.g_uiEnableStyleGuide"] = false,                 -- 0x4A3A805
+  -- The work ring of the gather card (AST-231): unifiedinteractcard.luac OnGatheringStart hides the card when this flag is false, and
+  -- plays the ring when it is true. The retail client shows the ring (Soulwarden evidence gathering/implement/F-07-mining-sheet.png:
+  -- "o BOULDER", the ring empties in steps): thus true. The native default is not read (no registration address).
+  ["UIFeatures.g_uiEnableNewGatherTimer"] = true,
   ["UIFeatures.housingImprovements"] = false,                  -- 0x4A3ABCD
   ["javelin.enable-all-dungeons"] = true,                      -- 0x617B13D
   ["javelin.enable-barbershop"] = true,                        -- 0x61850C4

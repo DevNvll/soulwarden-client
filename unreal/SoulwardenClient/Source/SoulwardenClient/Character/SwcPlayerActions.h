@@ -153,6 +153,8 @@ public:
 	uint32 GetStrikeCount() const { return StrikeCount; }
 	uint32 GetSkippedStrikes() const { return SkippedStrikes; }
 	uint32 GetContactCount() const { return ContactCount; }
+	/** The moments of impact of the swings of the gather in its work (AST-231: the work ring of the card); 0 with no gather. */
+	int32 GetGatherImpacts() const;
 
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;

@@ -1788,7 +1788,9 @@ bool USwcBackendSubsystem::GetInteractPrompt(FSwcInteractPrompt& Out) const
 		Out = FSwcInteractPrompt();
 		return false;
 	}
-	return Interactor->GetPrompt(FPlatformTime::Seconds(), Out);
+	const bool bShown = Interactor->GetPrompt(FPlatformTime::Seconds(), Out);
+	Out.Impacts = Out.WorkTime > 0.0f && Avatar.IsValid() ? Avatar->GetActions()->GetGatherImpacts() : 0;
+	return bShown;
 }
 
 bool USwcBackendSubsystem::TakeAllItems()

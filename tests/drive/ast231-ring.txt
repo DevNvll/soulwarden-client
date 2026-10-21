@@ -1,0 +1,53 @@
+# The player drive of the work ring check of AST-231 (routes tests/drive/ast231-ring-routes.txt): E at the boulder, E at the herb.
+1.0 tick
+2.0 tick
+3.0 tick
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 tick
+9.0 tick
+9.1 pitch -20
+9.4 pitch 0
+9.5 interact 1
+10.0 tick
+10.5 interact 0
+11.0 tick
+12.0 tick
+13.0 tick
+14.0 tick
+15.0 tick
+16.0 tick
+17.0 tick
+18.0 tick
+19.0 tick
+20.0 tick
+21.0 tick
+22.0 tick
+23.0 tick
+24.0 tick
+25.0 tick
+26.0 tick
+27.0 tick
+28.0 tick
+28.1 pitch -20
+28.4 pitch 0
+28.5 interact 1
+29.0 tick
+29.5 interact 0
+30.0 tick
+31.0 tick
+32.0 tick
+33.0 tick
+34.0 tick
+35.0 tick
+36.0 tick
+37.0 tick
+38.0 tick
+39.0 tick
+40.0 tick
+41.0 tick
+42.0 tick
+43.0 tick
+44.0 tick

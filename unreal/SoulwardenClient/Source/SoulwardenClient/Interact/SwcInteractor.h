@@ -33,6 +33,10 @@ struct FSwcInteractPrompt
 	FName ObjectKind;
 	/** The name of the focus: the name of the row of an object, the template name of a fixture (empty for a bag). */
 	FString Name;
+	/** A gather in its work (AST-231, the work ring of the card): the time of the work (s; 0: no work), and the moments of impact of the
+	 *  swings so far (GatherMomentOfImpact of the Gather fragment; USwcPlayerActions::GetGatherImpacts). */
+	float WorkTime = 0.0f;
+	int32 Impacts = 0;
 	/** The title of a person under its name (AST-231: the card reads NpcComponentRequestBus GetNpcData title; empty: none). */
 	FString Title;
 	/** The options of the prompt in the order of the bound (the first one is the option of the key E; for a bag the second one,

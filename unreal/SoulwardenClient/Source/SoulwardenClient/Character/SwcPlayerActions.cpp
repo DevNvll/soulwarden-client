@@ -1664,3 +1664,21 @@ void USwcPlayerActions::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 		Anim->SetStanceVariant(Ranged.program && Ranged.chargedAim ? TEXT("+ChargedAim") : Ranged.program && Ranged.aim ? TEXT("+Aim") : TEXT(""));
 	}
 }
+
+int32 USwcPlayerActions::GetGatherImpacts() const
+{
+	// The Gather fragment plays again while the work lasts (UpdateLife): one moment of impact in each play, at the start of its mark
+	// GatherMomentOfImpact (player_axe.adb Axe+Chopping 0.467 s of 1.167 s, player_pick.adb 2H_Melee+Pick+Mining 0.867 s of 1.7 s).
+	if (!LifeState.timed_use() || !TimedUseKind.StartsWith(TEXT("gather|")) || LifeFragment == INDEX_NONE)
+	{
+		return 0;
+	}
+	const FSwcActionFragment& Fragment = Data->Fragments[LifeFragment];
+	const float Impact = Fragment.MarkTime(TEXT("GatherMomentOfImpact"), -1.0f);
+	const float Clock = LifeState.clock();
+	if (Fragment.Length <= 0.0f || Impact < 0.0f || Clock < Impact)
+	{
+		return 0;
+	}
+	return 1 + FMath::FloorToInt32((Clock - Impact) / Fragment.Length);
+}

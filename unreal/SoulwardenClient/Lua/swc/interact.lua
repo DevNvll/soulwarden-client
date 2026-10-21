@@ -19,7 +19,8 @@ local Swc = Swc
 
 local P = {focus = nil, rows = {}, options = nil, infos = {}}
 Swc.prompt = P
-Swc.Handled("UiInteractorComponentNotificationsBus", "UnifiedInteractOptionNotificationsBus")
+Swc.Handled("UiInteractorComponentNotificationsBus", "UnifiedInteractOptionNotificationsBus", "UiGatheringComponentNotificationsBus",
+  "UiGatherableComponentNotificationsBus")
 
 local function option_data()
   if not P.options then
@@ -63,7 +64,8 @@ end
 
 --- The prompt of the frame: tab-separated fields (kind none|bag|object|fixture, id, object kind, name, the place x y z in Unreal cm,
 --- phase idle|hold|use|done, progress 0..1, tool missing 0|1, gathering type, refusal key, options "NAME:HOLD,...", rank missing
---- 0|1, the required rank of the row, the title of a person).
+--- 0|1, the required rank of the row, the title of a person, the time of the work of a gather (s; 0: no work), the moments of
+--- impact of its swings).
 local function parse_prompt(line)
   local f = {}
   for field in string.gmatch((line or "") .. "\t", "([^\t]*)\t") do
@@ -75,7 +77,8 @@ local function parse_prompt(line)
   local focus = {kind = f[1], id = f[2], objectKind = f[3], name = f[4], x = tonumber(f[5]) or 0, y = tonumber(f[6]) or 0,
                  z = tonumber(f[7]) or 0, phase = f[8], progress = tonumber(f[9]) or 0, toolMissing = f[10] == "1",
                  gatheringType = f[11], refusalKey = f[12], options = {}, rankMissing = f[14] == "1",
-                 requiredRank = tonumber(f[15] or "") or 0, title = f[16] or ""}
+                 requiredRank = tonumber(f[15] or "") or 0, title = f[16] or "", workTime = tonumber(f[17] or "") or 0,
+                 impacts = tonumber(f[18] or "") or 0}
   for name, hold in string.gmatch(f[13], "([^,:]+):([%d.]+)") do
     focus.options[#focus.options + 1] = {name = name, hold = tonumber(hold) or 0}
   end
@@ -414,6 +417,42 @@ local function place(focus)
     Vector2(sx * w / view.width, sy * h / view.height))
 end
 
+-- The work ring of a gather (AST-231; unifiedinteractcard.luac, the native gathering component): a gatherable card connects
+-- UiGatheringComponentNotificationsBus on Hud.LocalPlayer.HudComponent.GatheringEntityId. The work of the Gathering state starts the
+-- ring (OnGatheringStart with the amount of the node: a full node, the time of the work), the part of the work that passed moves it
+-- (UiGatherableComponentNotificationsBus OnAmountChanged on the node), each moment of impact of a swing steps it for Chopping and
+-- Mining (OnMomentOfImpact), and the end of the work hides it (OnGatheringEnd).
+local function update_work(focus)
+  local work = P.work
+  local active = focus and focus.kind == "object" and focus.workTime > 0
+  if work and (not active or work.key ~= focus.key) then
+    P.work = nil
+    Swc.Notify("UiGatheringComponentNotificationsBus", Swc.ids.gathering, "OnGatheringEnd")
+    Swc.Note("work ring: the end of the work (" .. work.impacts .. " impact(s))")
+    work = nil
+  end
+  if not active then
+    return
+  end
+  local total = focus.workTime
+  local remaining = math.max(0, total * (1 - focus.progress))
+  if not work then
+    work = {key = focus.key, node = entity_of(focus), impacts = 0}
+    P.work = work
+    Swc.Notify("UiGatheringComponentNotificationsBus", Swc.ids.gathering, "OnGatheringStart", {
+      gatheringType = swcui.crc32(string.lower(focus.gatheringType or "")),
+      gatherableBind = {gatherableEntityId = work.node,
+                        gatherableAmount = {timeRemaining = total, totalTime = total, timeRemainingAtStart = total}},
+    })
+    Swc.Note(string.format("work ring: the work of %s (%s, %.2f s)", focus.name, focus.gatheringType or "", total))
+  end
+  Swc.Notify("UiGatherableComponentNotificationsBus", work.node, "OnAmountChanged", {timeRemaining = remaining, totalTime = total})
+  while work.impacts < focus.impacts do
+    work.impacts = work.impacts + 1
+    Swc.Notify("UiGatheringComponentNotificationsBus", Swc.ids.gathering, "OnMomentOfImpact")
+  end
+end
+
 function Swc.HostPrompt(line)
   local focus = parse_prompt(line)
   local old = P.focus
@@ -430,6 +469,7 @@ function Swc.HostPrompt(line)
     place(focus)
     update_rows(focus)
   end
+  update_work(focus)
 end
 
 -- The key T (the action ui_interact_sec of the map "ui"; actionmaps.json): the second option of the focus. For a bag it is
