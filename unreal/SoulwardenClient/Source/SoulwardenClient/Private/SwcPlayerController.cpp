@@ -533,6 +533,11 @@ void ASwcPlayerController::PlayerTick(float DeltaTime)
 		const double Yaw = bFreeLook ? FreeLookRotation.Yaw : GetControlRotation().Yaw;
 		// The death, a loading screen, and the respawn before its mark lock the movement keys (stage P2.10).
 		Character->GetSwcMovement()->SetInput(Character->GetActions()->IsInputLocked() ? FVector2D::ZeroVector : MoveInput, Yaw, bWalkHeld);
+		// The raw move keys for the interactions (a move key ends a gather; the backend subsystem gives them to the interactor).
+		if (USwcBackendSubsystem* Backend = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr)
+		{
+			Backend->SetMoveKeys(!MoveInput.IsNearlyZero());
+		}
 	}
 }
 

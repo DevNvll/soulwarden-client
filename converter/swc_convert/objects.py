@@ -213,9 +213,10 @@ def gathering_tables(folder: Path, gathering: dict, chest_names: set[str] = froz
         rows.append([row["id"], row["type"], extra.get("action", "None"), row["restriction"], row["tradeskill"], row["level"], row["time"],
                      name, list(row.get("unsupported", []))[:1]])
     for kind in TOOL_SLOTS:
-        key = f"ui_notool{kind.lower()}"
-        if key in texts:
-            used_texts[key] = texts[key]
+        # The refusals of the prompt: no tool (ui_notool<type>) and a rank under the gate of the row (ui_lowskill<type>, stage MVP-F).
+        for key in (f"ui_notool{kind.lower()}", f"ui_lowskill{kind.lower()}"):
+            if key in texts:
+                used_texts[key] = texts[key]
     for key in chest_names:   # the names of the chests (the prompt "E SUPPLY CHEST")
         if key in texts:
             used_texts[key] = texts[key]

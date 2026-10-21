@@ -179,13 +179,33 @@ evidence `~/Games/soulwarden-client/evidence/P5.2/gathering.mp4`, `gathering-cli
 
 ### Not done, open points (P5.2)
 
-- The move keys stay locked during a gather (the lock of a timed use); the retail input Stop_Gathering (Continue_Gather) ends it.
+- Closed by stage MVP-F (below): the move keys during a gather, the rank gate of the prompt.
 - The impact of a swing (the mark GatherMomentOfImpact: the wood chips, the sounds) and the position part of InteractionAlignment
   (AlignPositionSpeed) are not in the client.
-- The rank gate has no prompt of the client; the server refusal shows only as the end of the use.
 - The cut trunk of the CutTrunks table is not converted (the fall is a stand-in), and the depletion effects of the nodes.
 - The gather of another player (the observer action: type 11, not derived by the backend).
 - The side-by-side check with the retail client is open.
+
+## The gathering gaps (stage MVP-F)
+
+Linear AST-221 (MVP order 12). The sources: Soulwarden `docs/systems/gathering.md` and the live checks of its stage 3.6a
+(`~/Games/soulwarden/work/evidence/gathering/implement/LIVE-CHECKS.md`), the original script
+`lyshineui/hud/unifiedinteractcard/gatheringtooladditionalinfo.luac`, and `playeractions_gather.actionlist`.
+
+| Part | Rule (source) |
+| --- | --- |
+| The rank gate | A row with a Tradeskill and RequiredTradeskillLevel above 0 needs that rank (gathering.md). The object layer reads the ranks of the owner (the CategoricalProgression state, slot 65, type 911; the CRC-32 of the lower-case trade skill name) and marks the target (`bRankMissing`, `RequiredRank`). The client sends no request, as for a missing tool; the server checks the gate again. |
+| The text of a refusal | The prompt line of the UI has two more fields (the rank refusal, the required rank). The card fills the gather info of the original script with `hasTradeskillRank` false and `requiredRank`: the script shows "Requires Mining skill" (`ui_lowskill` + the gathering type) and the level circle with the required rank, as it shows "No equipped Axe" for no tool. |
+| A full bag | `ContainerRequestBus.IsAtItemCapacity` is true at 500 used slots (kMaxContainerSlots of the backend, `world/item.h`; the bag of the backend grows up to that count). The script then shows "Requires available inventory space". The key E stays: the server owns the result (a full bag is refused at the completion: Failure and 3746, no item, the node stays). |
+| The cancel | A move key that goes down during the work of a gather ends it: the client sends 2473, and the server ends the work with Failure and no item (live check L4 of the backend stage 3.6a: "A walk (S) during the ring: the client sends 2473 and the ring stops"). The player controller gives the raw move keys to the interactor (`USwcBackendSubsystem::SetMoveKeys`); the movement itself stays locked for the frame of the key. |
+| The depleted meshes | `USwcObjectSubsystem::DepletedMeshes` is a `UPROPERTY` (Transient): as a plain map it kept a pointer to a mesh that the garbage collector removed, and a node update after a travel read freed memory (a crash of a check run). |
+
+### Check (development run)
+
+`tests/drive/mvpf-gather.txt` (the drive) and `tests/drive/mvpf-gather-routes.txt` (the routes), with a copy of the user's database
+in `dev-data-mvpc` (the level 70 character: Logging 2, Harvesting 0, Mining 0, Skinning 0; the T5 pick and axe; the routes give the
+T5 sickle and knife) and the character in First Light near 8728 1145. The fixture `prompt` of `tools/test-ui.sh` has the rank
+refusal and the full bag cards.
 
 ## The chests and the loot (stage P5.1)
 

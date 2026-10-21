@@ -1,0 +1,29 @@
+# The development routes of the MVP-F gathering check (stage MVP-F, Linear AST-221): tools/creature-check.sh mvpf-gather 160
+# THIS tests/drive/mvpf-gather.txt, with a copy of the user's database and the character in First Light near 8728 1145 (region
+# r_+04_+00). Each place is south of its node (2 m in First Light, 1.2 m at Oxboro: the character must be in the bound shape) (a travel faces north), at the node height + 0.5 m; each travel shows the loading
+# screen of the client (about 3 s near, 18 s far), and the drive presses E 6.5 s after it (20 s after the far travel). The T5 sickle
+# and knife go into their slots; the pick and the axe of the character stay. The times are on the clock of the player drive.
+#   3 s the mythril vein (capital node, Mining 205): the rank refusal
+#  13 s the Mycodendra tree (record 12801, Logging 200): the rank refusal
+#  23 s the Mycodendra bush (record 12966, Harvesting 200): the rank refusal
+#  33 s the boulder (record 12890, Mining 0): the pick, Done, Depleted; at 44 s its return in 6 s (G 00000000064b6021)
+#  53 s the herb (record 13212, Harvesting 0): the sickle, Done
+#  63 s Oxboro (the place of the P5.2 check): the tree 27406 (Logging 0): the axe, Done, the fall
+#  95 s a rabbit body 2 m north: the knife (Dressing)
+# 113 s the cranberries 27423: E, then the key S in the work: the cancel (2473), Failure
+1 heal
+1.5 ignore on
+1.5 tool 1hSickleT5 34
+1.5 tool 1hSkinningKnifeT5 35
+3 travel 8723.8 1149.0 102.2 off
+13 travel 8746.0 1140.5 97.8 off
+23 travel 8739.2 1134.7 99.6 off
+33 travel 8731.0 1144.0 100.4 off
+44 respawn 00000000064b6021 6
+53 travel 8732.0 1136.0 100.3 off
+63 travel 9258.5 4178.3 115.7 auto
+95 travel 9230 4168 112.6 off
+100 spawn Rabbit_Snowshoe_3 0 1.5 0
+102 kill $1
+113 travel 9245.5 4173.3 115.1 off
+140 gathering 30

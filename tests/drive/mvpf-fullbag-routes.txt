@@ -1,0 +1,9 @@
+# The bag limit check of stage MVP-F (Linear AST-221): tools/creature-check.sh mvpf-fullbag 40 THIS tests/drive/mvpf-fullbag.txt,
+# with a copy of the user's database whose bag has 500 used slots (the limit of the backend, kMaxContainerSlots; the copy script of
+# the work folder fills it). The herb 13212 in First Light: the card shows "Requires available inventory space"; E starts the work;
+# the server refuses the result at the completion (Failure, 3746: no item, the node stays).
+1 heal
+1.5 ignore on
+# the sickle is in slot 34 of the copy (the tool route needs a free bag slot)
+3 travel 8732.0 1136.0 100.3 off
+35 gathering 30

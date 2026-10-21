@@ -150,6 +150,8 @@ public:
 	bool RequestTravel(const FVector& LandmarkMeters);
 	/** The key E of the interactions (stage P2.10): down or up. */
 	void SetInteractKey(bool bDown) { bInteractKey = bDown; }
+	/** The move keys of the player (any one down; the raw keys, also while the movement is locked): a new one ends a gather. */
+	void SetMoveKeys(bool bDown) { bMoveKeys = bDown; }
 	/** The bag panel of the UI (stage P2.4): the open of a loot bag of the creature view (its interest) with OpenStorageOption, the
 	 *  close of the panel (2473), and the bag of the panel use (0: none). FSwcInteractor does the use. */
 	void OpenLootBag(uint32 Interest);
@@ -283,6 +285,7 @@ private:
 	/** The interactions of the player with the objects of the server (stage P2.10) and the key E. */
 	TSharedPtr<FSwcInteractor> Interactor;
 	bool bInteractKey = false;
+	bool bMoveKeys = false;
 	FString ConversationLine;
 	bool bDummyShown = false;
 	/** The assets of the look of the character, loaded in the background before the spawn (the handle keeps them). */

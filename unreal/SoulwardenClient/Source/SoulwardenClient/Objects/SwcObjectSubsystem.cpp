@@ -1,4 +1,5 @@
 #include "Objects/SwcObjectSubsystem.h"
+#include "Combat/SwcAttackGraph.h"
 
 #include "CanvasItem.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -277,6 +278,12 @@ void USwcObjectSubsystem::Tick(float DeltaTime)
 		{
 			Equipment.Add(Slot, Found->second);
 		}
+	}
+	// The trade skill ranks (the rank gate of the gathering rows).
+	TradeRanks.Reset();
+	for (const auto& [Id, Rank] : Own.ranks)
+	{
+		TradeRanks.Add(Id, Rank.rank);
 	}
 	// The place of the character: the pawn (the prediction of the client), else the place of the server.
 	const APlayerController* Controller = World->GetFirstPlayerController();
@@ -909,7 +916,12 @@ void USwcObjectSubsystem::FillGather(FSwcWorldObjectTarget& Out, int32 Row) cons
 	Out.ToolItem = Check.hasTool ? SlotItem : 0;
 	Out.ToolTags = Check.hasTool ? Tool->Tags : FString();
 	Out.bToolMissing = Check.missing;
-	Out.RefusalText = Check.missing ? Text(TEXT("ui_notool") + Entry.Type.ToLower()) : FString();
+	// The rank gate (gathering.md: the trade skill of the row at RequiredTradeskillLevel or more).
+	const int32 Rank = Entry.Tradeskill.IsEmpty() ? 0 : TradeRanks.FindRef(swc::combat::progression_id(TCHAR_TO_UTF8(*Entry.Tradeskill)));
+	Out.RequiredRank = Entry.Level;
+	Out.bRankMissing = !Entry.Tradeskill.IsEmpty() && Entry.Level > 0 && Rank < Entry.Level;
+	Out.RefusalText = Check.missing ? Text(TEXT("ui_notool") + Entry.Type.ToLower())
+		: Out.bRankMissing ? Text(TEXT("ui_lowskill") + Entry.Type.ToLower()) : FString();
 	Out.UseKind = UTF8_TO_TCHAR(swc::objects::gather_use_kind(TCHAR_TO_UTF8(*Entry.Action), TCHAR_TO_UTF8(*Out.ToolTags), Check.hasTool).c_str());
 }
 

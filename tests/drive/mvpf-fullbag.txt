@@ -1,0 +1,44 @@
+# The player drive of the bag limit check of stage MVP-F (routes tests/drive/mvpf-fullbag-routes.txt): E at the herb 6.5 s after
+# the travel, and again 8 s later (the node stays after the refusal).
+1.0 tick
+2.0 tick
+3.0 tick
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 tick
+9.0 tick
+9.5 interact 1
+10.0 tick
+10.5 interact 0
+11.0 tick
+12.0 tick
+13.0 tick
+14.0 tick
+15.0 tick
+16.0 tick
+17.0 tick
+17.5 interact 1
+18.0 tick
+18.5 interact 0
+19.0 tick
+20.0 tick
+21.0 tick
+22.0 tick
+23.0 tick
+24.0 tick
+25.0 tick
+26.0 tick
+27.0 tick
+28.0 tick
+29.0 tick
+30.0 tick
+31.0 tick
+32.0 tick
+33.0 tick
+34.0 tick
+35.0 tick
+36.0 tick
+37.0 tick
+38.0 tick

@@ -84,6 +84,11 @@ struct FSwcWorldObjectTarget
 	FString ToolTags;
 	bool bToolMissing = false;
 	FString RefusalText;
+	/** The rank gate of the row (RequiredTradeskillLevel of its Tradeskill): the rank of the character is lower. The client sends no
+	 *  request (as for a missing tool) and the card shows "Requires Mining skill" with the required rank (gatheringtooladditionalinfo
+	 *  .luac: hasTradeskillRank, requiredRank, ui_lowskill + the gathering type). The server checks the gate again (gathering.md). */
+	bool bRankMissing = false;
+	int32 RequiredRank = 0;
 	/** The use fragment of the player for the work ("gather|ACTION|TOOLTAGS": the use fragments of actions.json), empty for a use
 	 *  that is not a gather. */
 	FString UseKind;
@@ -343,6 +348,8 @@ private:
 	TMap<FString, TPair<int32, int32>> Bodies;
 	TMap<FString, FString> Texts;
 	TMap<uint32, uint32> Equipment;
+	/** The trade skill ranks of the owner (the CategoricalProgression state: the CRC-32 of the lower-case id to the rank). */
+	TMap<uint32, int32> TradeRanks;
 	TMap<FIntPoint, FRegion> Regions;
 
 	/** The states of the records of the objects (by G): the node state, the Enabled marks of the Interact states by slot. */
@@ -364,6 +371,9 @@ private:
 	FVector VisualCenter = FVector(1.0e12);
 	uint32 VisualStateRevision = 0;
 	mutable TMap<const UStaticMesh*, FString> MeshFolders;
+	/** The depleted meshes that the layer loaded (a UPROPERTY: the garbage collector keeps them; a plain map kept a pointer to a mesh
+	 *  that the collector removed, and the next node update read freed memory: the crash of the MVP-F run, 2026-10-21). */
+	UPROPERTY(Transient)
 	TMap<FString, TObjectPtr<UStaticMesh>> DepletedMeshes;
 	/** The next time (s) to load a depleted mesh that did not load (a mesh that a level build or an import makes again), and the
 	 *  meshes that were not ready once (each logged one time). */

@@ -1379,6 +1379,7 @@ void USwcBackendSubsystem::UpdatePlayer()
 	if (Interactor.IsValid())
 	{
 		Interactor->SetKey(bInteractKey);
+		Interactor->SetMoveKeys(bMoveKeys);
 		// A swim blocks the interactions (only Reaction, Death, and Respawn can start in a swim: player.grid; research wf5-swim).
 		Interactor->Update(Snapshot, *Connection, Motion.character, Snapshot.Own.dead || Snapshot.Own.loadingScreen || bTravelWait || Movement->IsSwimming(),
 			FPlatformTime::Seconds(), World->GetSubsystem<USwcCreatureSubsystem>());

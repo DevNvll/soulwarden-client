@@ -247,6 +247,14 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Use.finish();
 		}
 	}
+	// The cancel of a gather by the player: a move key that goes down during the work (live check L4 of the backend stage 3.6a).
+	const bool bMoveKeyDown = bMoveKeys && !bMoveKeysWas;
+	bMoveKeysWas = bMoveKeys;
+	if (bMoveKeyDown && bUseGather && (Use.phase() == swc::interact::Use::Phase::requested || Use.phase() == swc::interact::Use::Phase::executed))
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: a move key in the work: the client ends the gather (2473)"));
+		Use.finish();
+	}
 	// A gather or an open (GatherOption): the request stays until the Gathering state ends the work (Done, Failure) or its time passed.
 	if (bUseGather && Use.phase() != swc::interact::Use::Phase::idle)
 	{
@@ -411,11 +419,12 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Focus = Candidate;
 			// The prompt of a gather has the name of the row and, with no tool, the refusal ("YOUNG TREE  No equipped Axe").
 			FocusName = Object.Name.IsEmpty() ? FString::Printf(TEXT("%s %s"), *Object.Kind.ToString(), *Object.Key)
-				: Object.bToolMissing ? FString::Printf(TEXT("%s  %s"), *Object.Name.ToUpper(), *Object.RefusalText) : Object.Name.ToUpper();
+				: Object.bToolMissing || Object.bRankMissing ? FString::Printf(TEXT("%s  %s"), *Object.Name.ToUpper(), *Object.RefusalText) : Object.Name.ToUpper();
 			bFocusBag = false;
 			FocusShape = ShapeText(Object.Shape);
 			bFocusGather = ObjectOption.action == GatherAction;
-			bFocusNoTool = Object.bToolMissing;
+			// No tool or a rank under the gate of the row: E sends nothing (the server would refuse; the card says why).
+			bFocusNoTool = Object.bToolMissing || Object.bRankMissing;
 			bFocusTalk = ObjectOption.action == ConversationAction;
 			FocusKey = Object.Key;
 			FocusUseKind = Object.UseKind;
@@ -432,7 +441,10 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			FocusPrompt.bToolMissing = Object.bToolMissing;
 			FocusPrompt.GatheringType = Object.GatheringType;
 			// The text key of the refusal: the rule of the object layer (ui_notool + the gathering type).
-			FocusPrompt.RefusalKey = Object.bToolMissing ? TEXT("ui_notool") + Object.GatheringType.ToLower() : FString();
+			FocusPrompt.RefusalKey = Object.bToolMissing ? TEXT("ui_notool") + Object.GatheringType.ToLower()
+				: Object.bRankMissing ? TEXT("ui_lowskill") + Object.GatheringType.ToLower() : FString();
+			FocusPrompt.bRankMissing = Object.bRankMissing;
+			FocusPrompt.RequiredRank = Object.RequiredRank;
 			FocusPrompt.Place = SwcEngineToUnreal(Object.EnginePlace);
 		}
 		// The persons with the option OpenConversation and no npc object of the interaction data (the persons of client spawners and of
@@ -586,9 +598,19 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: E while the input waits for the answer 6709: no use"));
 	}
+	else if (bKeyDown && !bKeyWas && !Focus)
+	{
+		// A press with no focus: the state of the search (a check of a run: why no prompt).
+		USwcObjectSubsystem* Probe = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcObjectSubsystem>() : nullptr;
+		FSwcWorldObjectTarget Nearest;
+		const bool bNearest = Probe != nullptr && Probe->FindNearestObject(SwcEngineToUnreal(Feet), Nearest);
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: E with no focus (locked %d, use phase %d, feet %.1f %.1f %.1f; the nearest object %s)"), bLocked ? 1 : 0,
+			static_cast<int32>(Use.phase()), Feet.x, Feet.y, Feet.z,
+			bNearest ? *FString::Printf(TEXT("%s at %.1f m"), *Nearest.Name, Nearest.Distance) : TEXT("none"));
+	}
 	else if (bKeyDown && !bKeyWas && Focus && !bLocked && bFocusNoTool)
 	{
-		UE_LOG(LogSwcBackend, Log, TEXT("interact: E at %s: no request (the tool rule of the client)"), *FocusName);
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: E at %s: no request (the tool or rank rule of the client)"), *FocusName);
 	}
 	else if (bKeyDown && !bKeyWas && Focus && !bLocked)
 	{

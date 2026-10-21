@@ -62,7 +62,8 @@ local function entity_of(focus)
 end
 
 --- The prompt of the frame: tab-separated fields (kind none|bag|object|fixture, id, object kind, name, the place x y z in Unreal cm,
---- phase idle|hold|use|done, progress 0..1, tool missing 0|1, gathering type, refusal key, options "NAME:HOLD,...").
+--- phase idle|hold|use|done, progress 0..1, tool missing 0|1, gathering type, refusal key, options "NAME:HOLD,...", rank missing
+--- 0|1, the required rank of the row).
 local function parse_prompt(line)
   local f = {}
   for field in string.gmatch((line or "") .. "\t", "([^\t]*)\t") do
@@ -73,12 +74,13 @@ local function parse_prompt(line)
   end
   local focus = {kind = f[1], id = f[2], objectKind = f[3], name = f[4], x = tonumber(f[5]) or 0, y = tonumber(f[6]) or 0,
                  z = tonumber(f[7]) or 0, phase = f[8], progress = tonumber(f[9]) or 0, toolMissing = f[10] == "1",
-                 gatheringType = f[11], refusalKey = f[12], options = {}}
+                 gatheringType = f[11], refusalKey = f[12], options = {}, rankMissing = f[14] == "1",
+                 requiredRank = tonumber(f[15] or "") or 0}
   for name, hold in string.gmatch(f[13], "([^,:]+):([%d.]+)") do
     focus.options[#focus.options + 1] = {name = name, hold = tonumber(hold) or 0}
   end
   -- A new refusal state (the tool came into the paperdoll) is a new focus: the card fills its rows again.
-  focus.key = focus.kind .. ":" .. focus.id .. (focus.toolMissing and ":refused" or "")
+  focus.key = focus.kind .. ":" .. focus.id .. (focus.toolMissing and ":refused" or "") .. (focus.rankMissing and ":lowskill" or "")
   return focus
 end
 
@@ -97,7 +99,8 @@ local function option_list(focus)
   for i, o in ipairs(focus.options) do
     local record = option_data()[o.name] or {}
     list[i] = {name = o.name, label = record.label or o.name, hold = o.hold, slot = i, requiredLevel = 0, requiredAchievement = 0,
-               refused = i == 1 and focus.toolMissing, additionalInfo = record.additionalInfo, gatheringType = focus.gatheringType}
+               refused = i == 1 and (focus.toolMissing or focus.rankMissing), additionalInfo = record.additionalInfo,
+               gatheringType = focus.gatheringType, rankMissing = focus.rankMissing, requiredRank = focus.requiredRank}
   end
   return list
 end
@@ -159,7 +162,10 @@ local function additional_info(row, option)
   end
   Swc.Notify("UiInteractOptionAdditionalInfoRequestsBus", state.element, "PopulateGatheringToolAdditionalInfo", {
     itemDescriptor = ItemDescriptor(), gatheringType = swcui.crc32(string.lower(option.gatheringType)), requiredNumGatherers = 0,
-    hasTradeskillRank = true, isInRequiredFaction = true, hasControllingFactionPaidUpkeep = true, requiredRank = 0,
+    -- The rank gate of the row (the client rule of the object layer: the trade skill rank of the owner against
+    -- RequiredTradeskillLevel): the script shows "Requires Mining skill" and the level circle of the required rank.
+    hasTradeskillRank = not option.rankMissing, isInRequiredFaction = true, hasControllingFactionPaidUpkeep = true,
+    requiredRank = option.requiredRank or 0,
     requiredFaction = eFactionType_None, isFFARestricted = false,
   })
   Swc.Notify("UnifiedInteractOptionNotificationsBus", row, "OnAdditionalInfoChanged", ADDITIONAL_GATHER, state.element)

@@ -565,6 +565,9 @@ local function update_weight()
   Swc.SetData("Hud.LocalPlayer.Inventory.TotalInventorySlotsUsed", used)
 end
 
+-- The item capacity of the bag (kMaxContainerSlots of the backend, world/item.h). A test can set a smaller value.
+Swc.bagCapacity = 500
+
 --- The size of the bag of the backend (the slots of the Container; the vector never shrinks in the world).
 function Swc.HostBagSize(count)
   local bag = Swc.player.bag
@@ -609,6 +612,8 @@ function Swc.HostBagSlot(slot, itemId, quantity, gearScore, durability, maxDurab
   end
   local item = Swc.NewItemSlot("bag", slot, values_of(itemId, quantity, gearScore, durability, maxDurability, instance, flags,
                                                       chrono, action, perks))
+  -- The slot holds an item of the backend, also one that the item data of the client does not have (the bag capacity counts it).
+  item.occupied = itemId ~= nil and itemId ~= "" and (tonumber(quantity) or 0) > 0
   Swc.player.bag.slots[slot] = item
   if item.static and (LOOT_CAUSES[action or 0] or (action == 34 and existed)) then
     local prior = before and before.itemId == item.itemId and before.quantity or 0
@@ -730,7 +735,21 @@ Swc.Define("ContainerRequestBus", "Event", {
   -- FullWhenEncumbered of the weight limits (2 for the player; newinventory.luac multiplies the maximum with it).
   GetFullWhenEncumberedModifier = function(id) return id == Swc.ids.inventory and Swc.player.fullWhenEncumbered or 1 end,
   HasSpaceForItems = function() return true end,
-  IsAtItemCapacity = function() return false end,
+  -- The bag is at its item capacity: 500 used slots (kMaxContainerSlots of the backend, world/item.h: the bag of the backend grows
+  -- up to that count, and a gather or a chest whose result has no place is refused). gatheringtooladditionalinfo.luac then shows
+  -- "Requires available inventory space".
+  IsAtItemCapacity = function(id)
+    local container = container_of(id)
+    local used = 0
+    for i = 0, (container and container.count or 0) - 1 do
+      local slot = container.slots[i]
+      -- Each slot with an item counts, also an item that the item data of the client does not have (the backend counts it).
+      if slot and (slot.static or slot.occupied) then
+        used = used + 1
+      end
+    end
+    return used >= Swc.bagCapacity
+  end,
   CanTransferItems = function() return true end,
   CheckItemClassCompatibility = function() return true end,
   ContainsSalvageableItem = function() return false end,

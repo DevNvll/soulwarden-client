@@ -43,6 +43,9 @@ struct FSwcInteractPrompt
 	bool bToolMissing = false;
 	FString GatheringType;
 	FString RefusalKey;
+	/** The rank of the character is under the gate of the row (E sends nothing), and the required rank of the row. */
+	bool bRankMissing = false;
+	int32 RequiredRank = 0;
 	/** The place of the focus (Unreal world space). */
 	FVector Place = FVector::ZeroVector;
 };
@@ -76,6 +79,9 @@ public:
 	bool Load(FString& OutReport);
 	/** The key E went down or up. */
 	void SetKey(bool bDown) { bKeyDown = bDown; }
+	/** The move keys of the player (any of them down). A move key that goes down during a gather ends the work: the client sends 2473
+	 *  (Soulwarden gathering stage 3.6a, live check L4: "a walk (S) during the ring: the client sends 2473 and the ring stops"). */
+	void SetMoveKeys(bool bDown) { bMoveKeys = bDown; }
 	/**
 	 * One frame: the focus at the feet of the character (engine m), the key, the timers, the replies and the ends of the session,
 	 * and the effects for the connection. bLocked: the player cannot use an object now (the death, a loading screen).
@@ -130,6 +136,8 @@ private:
 	FString LastFocusLine;
 	bool bKeyDown = false;
 	bool bKeyWas = false;
+	bool bMoveKeys = false;
+	bool bMoveKeysWas = false;
 	uint32 SeenCancels = 0;
 	uint32 SeenResults = 0;
 	bool bSeeded = false;
