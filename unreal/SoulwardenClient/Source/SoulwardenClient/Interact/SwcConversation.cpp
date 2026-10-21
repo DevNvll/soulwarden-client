@@ -13,6 +13,37 @@ ScenePoint scene_point(const ScenePoint& place, double yawDegrees, const ScenePo
     return {place.x + local.x * c - local.y * s, place.y + local.x * s + local.y * c, place.z + local.z};
 }
 
+bool presence_visible(bool hasSwap, const std::vector<int>& rule, const std::vector<std::uint8_t>& achievements, bool showOnLocked)
+{
+    if (!hasSwap) {
+        return true;
+    }
+    std::vector<bool> stack;
+    bool valid = true;
+    for (const int code : rule) {
+        if (code == kPresenceNot) {
+            if (stack.empty()) {
+                valid = false;
+                break;
+            }
+            stack.back() = !stack.back();
+        } else if (code == kPresenceAnd || code == kPresenceOr) {
+            if (stack.size() < 2) {
+                valid = false;
+                break;
+            }
+            const bool b = stack.back();
+            stack.pop_back();
+            stack.back() = code == kPresenceAnd ? (stack.back() && b) : (stack.back() || b);
+        } else {
+            const std::size_t index = code >= 0 ? static_cast<std::size_t>(code) : 0;
+            stack.push_back(code >= 0 && index / 8 < achievements.size() && ((achievements[index / 8] >> (index % 8)) & 1) != 0);
+        }
+    }
+    const bool value = valid && stack.size() == 1 && stack.back();
+    return value != showOnLocked;
+}
+
 void Conversation::open()
 {
     m_phase = Phase::open;

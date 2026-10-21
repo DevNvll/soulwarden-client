@@ -1,6 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+
+#include <vector>
 #include "Subsystems/WorldSubsystem.h"
 
 #include "SwcPersonSubsystem.generated.h"
@@ -11,6 +13,9 @@ class USkeletalMeshComponent;
 class UStaticMesh;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogSwcPersons, Log, All);
+
+/** The prefix of the Talk key of a person with no npc object of the interaction data (the key of persons.json follows). */
+inline const TCHAR* const PersonTalkPrefix = TEXT("person:");
 
 /** One person of the level data (SWC_CONTENT/persons/persons.json; stage P4.8, docs/PERSONS.md). */
 struct FSwcPerson
@@ -46,7 +51,11 @@ struct FSwcPerson
 		FTransform Offset;
 	};
 	TArray<FItem> Items;
-	/** The presence for a character with no achievement of a swap (the rule of the converter). */
+	/** The presence (swc::interact::presence_visible): the swap expression in postfix order (persons.json "presenceRule"), the
+	 *  ShowOnAchievementLocked mark, and the value for the Achievement state of the character. */
+	bool bHasSwap = false;
+	bool bShowOnLocked = false;
+	std::vector<int> PresenceRule;
 	bool bVisible = true;
 	/** The key of the npc object of the interaction data (a Talk with a reply 1), or empty. */
 	FString InteractionKey;
@@ -57,6 +66,8 @@ struct FSwcPerson
 	struct FLine
 	{
 		bool bValid = false;
+		/** The localization key of the line (persons.json "line"; the dialogue of the conversation screen). */
+		FString LineKey;
 		FString Speaker;
 		FString Text;
 		FVector Camera = FVector::ZeroVector;
@@ -101,8 +112,15 @@ public:
 	virtual TStatId GetStatId() const override;
 
 	const TArray<FSwcPerson>& GetPersons() const { return Persons; }
-	/** @return The person of an npc object key of the interaction data, or null. */
+	/** @return The person of an npc object key of the interaction data (or of PersonTalkPrefix + a key of persons.json), or null. */
 	const FSwcPerson* FindByInteraction(const FString& Key) const;
+	/**
+	 * @return The nearest shown person with the option OpenConversation and no npc object of the interaction data (a person of a
+	 * client spawner, a person of a capital child) within a distance of a point (Unreal cm), or null.
+	 */
+	const FSwcPerson* FindTalkWithNoData(const FVector& Point, double Distance) const;
+	/** @return The person of a key of persons.json, or null. */
+	const FSwcPerson* FindByKey(const FString& Key) const;
 	/** @return The nearest person within a distance of a point (Unreal cm), or null. */
 	const FSwcPerson* FindNear(const FVector& Point, double Distance) const;
 	/**
@@ -120,7 +138,12 @@ private:
 	void UpdateTalk(FSwcPerson& Person);
 	bool GetViewLocation(FVector& Out) const;
 
+	/** The presence of each person for the Achievement state of the local character (at the entry and at each change of the state).
+	 *  @return False before the first state. */
+	bool UpdatePresence();
 	bool bLoadTried = false;
+	bool bPresenceKnown = false;
+	uint32 SeenAchievementRevision = 0;
 	TArray<FSwcPerson> Persons;
 	double NextUpdate = 0.0;
 	int32 Spawned = 0;

@@ -32,6 +32,7 @@ import struct
 import uuid
 import xml.etree.ElementTree as ET
 import zlib
+from pathlib import Path
 
 import numpy as np
 
@@ -284,6 +285,11 @@ class Tables:
         data = json.loads((creature.gamedata_dir() / "interaction-data.json").read_text())
         self.npc_objects = {o["key"]: o for o in data["objects"] if o["kind"] == "npc"}
         self.meta = self._metadata()
+        # The achievement bits (javelindata_achievements AchievementIndex: the bit of the Achievement state of the character, the rule
+        # of the backend interactions.md) and the non-persisted achievements (an id with "*": an objective flow of a quest).
+        sheet = datasheet.Sheet(source.read(datasheet.TABLES_FOLDER + "javelindata_achievements.datasheet"))
+        self.achievement_bits = {str(r["AchievementID"]).lower(): int(r["AchievementIndex"]) for r in sheet.rows()
+                                 if r.get("AchievementID") and r.get("AchievementIndex") not in (None, "")}
 
     def text(self, key) -> str:
         return self.loc.get(str(key or "").lstrip("@").lower(), "") if key else ""
@@ -413,8 +419,13 @@ def resolve(found: list, tables: Tables) -> list:
         own_variant = next((n.get("variant") for n in npc if n.get("variant")), "")
         variant = top.get("variant") or own_variant
         row = tables.rows.get(str(table).lower(), {}).get(str(variant).lower()) if table else None
-        row = row or {}
         npc_key = next((n.get("npcKey") for n in npc if n.get("npcKey")), "")
+        if row is None and not table and npc_key:
+            # A slice with an NpcComponent and no variation data (the commander of Oxboro, 0407a_Commander): the row of the
+            # variation tables whose VariantID is the NPC id gives its body and its timelines [inference; the retail commander
+            # plays the lean of malek_standing_ambient of that row (user check, 2026-10-21), not the generic idle of the slice].
+            row = next((rows[npc_key.lower()] for rows in tables.rows.values() if npc_key.lower() in rows), None)
+        row = row or {}
         npc_id = str(row.get("NPCId") or npc_key or "")
         data = tables.npcdata.get(npc_id.lower(), {})
         cdf = norm(row.get("CharacterDefinition")) or item["templateCdf"]
@@ -449,6 +460,7 @@ def resolve(found: list, tables: Tables) -> list:
             "conversationStates": [data.get(f"ConversationStateId{i}") for i in range(1, 11) if data.get(f"ConversationStateId{i}")],
             "swap": (presence or {}).get("swap") or row.get("SwapAchievementId", ""),
             "showOnLocked": bool((presence or {}).get("showOnLocked", False)), "presence": presence is not None,
+            "presenceRule": presence_rule((presence or {}).get("swap") or row.get("SwapAchievementId", ""), tables.achievement_bits),
             "interactionData": tables.npc_objects[item["placement"]]["key"] if len(item["chain"]) == 1 and item["placement"] in tables.npc_objects else None,
         })
     return persons
@@ -565,15 +577,70 @@ def timeline_clips(persons: list) -> dict:
     return out
 
 
-def visible(person: dict) -> bool:
-    """The presence for a character with no achievement of a swap: a person with no swap shows; a swap with ShowOnAchievementLocked
-    shows while the achievement is locked (research p48-persons, presence.json) [the runtime has the same rule with the
-    achievements of the character]."""
-    return not person["swap"] or person["showOnLocked"]
+def presence_rule(text: str, bits: dict) -> list:
+    """@return The swap expression of a person in postfix order: a bit of the Achievement state (an int >= 0), -1 for an achievement
+    that the character cannot have (a non-persisted achievement "*Name": the objective flow of a quest, which the backend does not
+    keep; an unknown id), "!" (not), "&" (and), "|" (or). The data uses the operators !, &&, || and parentheses (887 expressions of
+    the world; one expression is a timeline path: no known id, thus false) [the precedence ! > && > || is an inference]."""
+    import re
+    tokens = re.findall(r"&&|\|\||!|\(|\)|\*?[A-Za-z0-9_]+|\S", text or "")
+    out: list = []
+    ops: list = []
+    rank = {"!": 3, "&": 2, "|": 1}
+    for token in tokens:
+        token = {"&&": "&", "||": "|"}.get(token, token)
+        if token == "(":
+            ops.append(token)
+        elif token == ")":
+            while ops and ops[-1] != "(":
+                out.append(ops.pop())
+            if ops:
+                ops.pop()
+        elif token in rank:
+            while ops and ops[-1] != "(" and token != "!" and rank[ops[-1]] >= rank[token]:
+                out.append(ops.pop())
+            ops.append(token)
+        elif re.fullmatch(r"[A-Za-z0-9_]+", token):
+            out.append(bits.get(token.lower(), -1))
+        else:
+            out.append(-1)   # a non-persisted achievement, or a token of no id
+    while ops:
+        token = ops.pop()
+        if token != "(":
+            out.append(token)
+    return out
 
 
-def write(near: tuple[float, float, float] | None = None) -> dict:
-    """Writes SWC_CONTENT/persons/persons.json: the persons of the main world (or within a radius of a point: x y radius)."""
+def evaluate(rule: list, bits: set) -> bool:
+    """@return The value of a presence rule for the achievement bits of a character (a malformed rule is false)."""
+    stack: list = []
+    for token in rule:
+        if token == "!":
+            if not stack:
+                return False
+            stack.append(not stack.pop())
+        elif token in ("&", "|"):
+            if len(stack) < 2:
+                return False
+            b, a = stack.pop(), stack.pop()
+            stack.append((a and b) if token == "&" else (a or b))
+        else:
+            stack.append(token >= 0 and token in bits)
+    return len(stack) == 1 and stack[0]
+
+
+def visible(person: dict, bits: set | None = None) -> bool:
+    """The presence (research p48-persons, presence.json): a person with no swap shows; else it shows while its swap expression is
+    true, or while it is false with ShowOnAchievementLocked [the runtime has the same rule with the Achievement state of the
+    character]. With no bits: a character with no achievement of a swap."""
+    if not person["swap"]:
+        return True
+    return evaluate(person["presenceRule"], bits or set()) != person["showOnLocked"]
+
+
+def write(near: tuple[float, float, float] | None = None, out_file: str | None = None) -> dict:
+    """Writes SWC_CONTENT/persons/persons.json (or out_file): the persons of the main world (or within a radius of a point: x y
+    radius)."""
     names = census.world_regions()
     if near is not None:
         # Only the regions under the circle (2048 m regions; a spawner child stays near its spawner).
@@ -589,8 +656,8 @@ def write(near: tuple[float, float, float] | None = None) -> dict:
     persons = resolve(found, tables)
     conversations(persons)
     timelines = timeline_clips(persons)
-    out = env.content_dir() / "persons"
-    out.mkdir(parents=True, exist_ok=True)
+    target = Path(out_file) if out_file else env.content_dir() / "persons" / "persons.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
     bodies = sorted({p["cdf"] for p in persons})
     items = sorted({(i["mesh"], i["material"]) for p in persons for i in p["look"]["items"]}
                    | {(p["attachedMesh"], "") for p in persons if p["attachedMesh"]})
@@ -598,14 +665,14 @@ def write(near: tuple[float, float, float] | None = None) -> dict:
                     if c["file"].endswith(".caf")})
     doc = {"format": 1, "skeletonGender": GENDER, "persons": persons, "timelines": timelines,
            "wanted": {"bodies": bodies, "items": [list(i) for i in items], "clips": clips}}
-    (out / "persons.json").write_text(json.dumps(doc, indent=1))
+    target.write_text(json.dumps(doc, indent=1))
     return {"persons": len(persons), "visible for a new character": sum(1 for p in persons if visible(p)),
             "with talk": sum(1 for p in persons if p["interact"] and "OpenConversation" in (p["interact"].get("options") or [])),
             "with interaction data": sum(1 for p in persons if p["interactionData"]),
             "with a conversation line": sum(1 for p in persons if p.get("conversation") and p["conversation"].get("text")),
             "with a camera preset": sum(1 for p in persons if p.get("conversation") and (p["conversation"].get("camera") or {}).get("preset")),
             "bodies": len(bodies), "items": len(items),
-            "clips": len(clips), "timelines": len(timelines), "file": str(out / "persons.json")}
+            "clips": len(clips), "timelines": len(timelines), "file": str(target)}
 
 
 # ------------------------------------------------------------------------------------------------- the player pipeline (Unreal)
@@ -634,12 +701,17 @@ def body(cdf: str, look: dict, force: bool = False, doc: dict | None = None) -> 
     w = gltf.Writer()
     _, roots = skeleton.write(w)
     reports = []
-    for skin, material in look["skins"]:
+    missing = []
+    skins = list(look["skins"]) + [(cloth_render_skin(binding), material) for binding, material in look["cloth"]]
+    for skin, material in skins:
+        if not skin:
+            continue
+        if not source.has(skin):
+            missing.append(skin)   # a skin of the .cdf that is not in the game copy (9 bodies): the body has no such part
+            continue
         reports.append(skeleton.add_skin(w, skin, material, path, "SK_" + skin.rsplit("/", 1)[-1].split(".")[0], 1024))
-    for binding, material in look["cloth"]:
-        render = cloth_render_skin(binding)
-        if render:
-            reports.append(skeleton.add_skin(w, render, material, path, "SK_" + render.rsplit("/", 1)[-1].split(".")[0], 1024))
+    if not reports:
+        raise ValueError("no skin of the body is in the game copy: " + ", ".join(missing))
     # One mesh node with the primitives of each skin: Unreal makes one skeletal mesh for each mesh node of a glTF.
     nodes = w.doc["nodes"]
     scene = w.doc["scenes"][0]["nodes"]
@@ -656,7 +728,7 @@ def body(cdf: str, look: dict, force: bool = False, doc: dict | None = None) -> 
     w.doc["scenes"][0]["nodes"] += roots
     w.save(path)
     doc["assets"][key] = {"kind": "part", "gender": GENDER, "file": str(path.relative_to(env.content_dir())), "unreal": folder}
-    return {"body": cdf, "skins": len(reports)}
+    return {"body": cdf, "skins": len(reports), **({"missing": missing} if missing else {})}
 
 
 def clip_pack(files: list, force: bool = False, doc: dict | None = None) -> dict:
@@ -703,7 +775,8 @@ def convert(force: bool = False) -> dict:
             report["failed"][mesh] = str(error)[:160]
     report["clips"] = clip_pack(doc_persons["wanted"]["clips"], force, manifest)
     player.save_manifest(manifest)
-    return {"bodies": len(report["bodies"]), "items": len(report["items"]), "clips": report["clips"], "failed": report["failed"]}
+    return {"bodies": len(report["bodies"]), "items": len(report["items"]), "clips": report["clips"], "failed": report["failed"],
+            "missing skins": {b["body"]: b["missing"] for b in report["bodies"] if b.get("missing")}}
 
 
 def main(argv=None) -> int:
@@ -712,10 +785,11 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("write")
     p.add_argument("--near", nargs=3, type=float, metavar=("X", "Y", "RADIUS"))
+    p.add_argument("--out", help="the output file (default SWC_CONTENT/persons/persons.json)")
     p = sub.add_parser("convert")
     p.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
-    result = write(tuple(args.near) if args.near else None) if args.command == "write" else convert(args.force)
+    result = write(tuple(args.near) if args.near else None, args.out) if args.command == "write" else convert(args.force)
     print(json.dumps(result, indent=1))
     return 0
 

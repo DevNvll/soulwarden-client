@@ -1320,6 +1320,20 @@ void test_conversation() {
     const swc::interact::ScenePoint side = swc::interact::scene_point({0.0, 0.0, 0.0}, 90.0, {1.0, 0.0, 0.0});
     const swc::interact::ScenePoint front = swc::interact::scene_point({0.0, 0.0, 0.0}, 90.0, {0.0, 1.0, 0.0});
     expect(std::abs(side.y - 1.0) < 1e-9 && std::abs(front.x + 1.0) < 1e-9, "the frame at yaw 90: the side axis is +y, the forward axis is -x");
+
+    // The presence of a person (persons.json "presenceRule"): "a && !b" with a = bit 9 and b = bit 2, "*Quest" is -1.
+    using namespace swc::interact;
+    const std::vector<int> rule{9, 2, kPresenceNot, kPresenceAnd};
+    const std::vector<std::uint8_t> none{};
+    const std::vector<std::uint8_t> bitA{0x00, 0x02};
+    const std::vector<std::uint8_t> bitsAB{0x04, 0x02};
+    expect(presence_visible(false, {}, none, false), "the presence: no swap shows");
+    expect(!presence_visible(true, rule, none, false) && presence_visible(true, rule, bitA, false) && !presence_visible(true, rule, bitsAB, false),
+           "the presence: a && !b with the achievement bits");
+    expect(presence_visible(true, rule, none, true) && !presence_visible(true, rule, bitA, true), "the presence: ShowOnAchievementLocked");
+    expect(presence_visible(true, {kPresenceFalse, kPresenceNot}, bitsAB, false) && !presence_visible(true, {kPresenceFalse}, bitsAB, false),
+           "the presence: a non-persisted achievement is false");
+    expect(!presence_visible(true, {kPresenceAnd}, bitsAB, false), "the presence: a malformed rule is false");
 }
 
 } // namespace

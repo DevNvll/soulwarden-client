@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
 // The Talk of the client (stage P4.8, docs/PERSONS.md "The Talk"; research ~/Games/soulwarden-client/research/p48-talk/; the Soulwarden
 // docs/systems/travel-and-conversations.md and protocol notes 4.20). Plain C++ with no engine header: tools/test-net.sh tests it.
@@ -28,6 +29,20 @@ struct ScenePoint {
  * the live camera of the retail client in the horizontal plane (research p48-talk/camera-check.txt).
  */
 ScenePoint scene_point(const ScenePoint& place, double yawDegrees, const ScenePoint& local);
+
+/** The codes of a presence rule (persons.json "presenceRule", postfix order): a bit of the Achievement state (>= 0), an achievement
+ *  that the character cannot have (-1: a non-persisted quest objective, an unknown id), not, and, or. */
+constexpr int kPresenceFalse = -1;
+constexpr int kPresenceNot = -2;
+constexpr int kPresenceAnd = -3;
+constexpr int kPresenceOr = -4;
+
+/**
+ * The presence of a person (docs/PERSONS.md "The persons of the level data"): a person with no swap shows; else it shows while its
+ * swap expression is true for the Achievement bytes of the character, or while it is false with ShowOnAchievementLocked. A malformed
+ * rule is false.
+ */
+bool presence_visible(bool hasSwap, const std::vector<int>& rule, const std::vector<std::uint8_t>& achievements, bool showOnLocked);
 
 class Conversation {
 public:

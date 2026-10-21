@@ -13,6 +13,8 @@
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformMisc.h"
 #include "Interact/SwcConversation.h"
+#include "SwcBackendSubsystem.h"
+#include "Engine/GameInstance.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
@@ -205,7 +207,19 @@ void USwcPersonSubsystem::Load()
 				Person.Items.Add(Entry);
 			}
 		}
-		Person.bVisible = Info->GetStringField(TEXT("swap")).IsEmpty() || Info->GetBoolField(TEXT("showOnLocked"));
+		Person.bHasSwap = !Info->GetStringField(TEXT("swap")).IsEmpty();
+		Person.bShowOnLocked = Info->GetBoolField(TEXT("showOnLocked"));
+		const TArray<TSharedPtr<FJsonValue>>* Rule = nullptr;
+		if (Info->TryGetArrayField(TEXT("presenceRule"), Rule))
+		{
+			for (const TSharedPtr<FJsonValue>& Code : *Rule)
+			{
+				const FString Op = Code->Type == EJson::String ? Code->AsString() : FString();
+				Person.PresenceRule.push_back(Op == TEXT("!") ? swc::interact::kPresenceNot : Op == TEXT("&") ? swc::interact::kPresenceAnd
+					: Op == TEXT("|") ? swc::interact::kPresenceOr : Op.IsEmpty() ? static_cast<int>(Code->AsNumber()) : swc::interact::kPresenceFalse);
+			}
+		}
+		Person.bVisible = swc::interact::presence_visible(Person.bHasSwap, Person.PresenceRule, {}, Person.bShowOnLocked);
 		FString Interaction;
 		Person.InteractionKey = Info->TryGetStringField(TEXT("interactionData"), Interaction) ? Interaction : FString();
 		const TSharedPtr<FJsonObject>* Interact = nullptr;
@@ -227,6 +241,7 @@ void USwcPersonSubsystem::Load()
 			const swc::interact::ScenePoint LookAt = LookAtValues.Num() >= 3 ? ReadPoint(LookAtValues) : swc::interact::ScenePoint{0.0, 0.0, Origin.z};
 			const auto ToUnreal = [](const swc::interact::ScenePoint& Point) { return FVector(Point.x * 100.0, -Point.y * 100.0, Point.z * 100.0); };
 			Person.Line.bValid = true;
+			Person.Line.LineKey = (*Conversation)->GetStringField(TEXT("line"));
 			Person.Line.Speaker = (*Conversation)->GetStringField(TEXT("speaker"));
 			Person.Line.Text = (*Conversation)->GetStringField(TEXT("text"));
 			Person.Line.Camera = ToUnreal(swc::interact::scene_point(Feet, EngineYaw, Origin));
@@ -276,6 +291,11 @@ void USwcPersonSubsystem::Tick(float DeltaTime)
 		// (body, items, idle clip) before the screen ends.
 		SwcLoadingGate::Register(GetWorld(), TEXT("persons"), [this](const FVector& Place, FString& Why)
 		{
+			if (!bPresenceKnown)
+			{
+				Why = TEXT("the presence waits for the Achievement state of the character");
+				return false;
+			}
 			int32 Missing = 0;
 			for (const FSwcPerson& Person : Persons)
 			{
@@ -288,6 +308,10 @@ void USwcPersonSubsystem::Tick(float DeltaTime)
 	for (FSwcPerson& Person : Persons)
 	{
 		UpdateTalk(Person);
+	}
+	if (!UpdatePresence())
+	{
+		return;
 	}
 	const double Now = FPlatformTime::Seconds();
 	FVector View;
@@ -313,6 +337,40 @@ void USwcPersonSubsystem::Tick(float DeltaTime)
 			Spawn(Person);
 		}
 	}
+}
+
+bool USwcPersonSubsystem::UpdatePresence()
+{
+	const UGameInstance* GameInstance = GetWorld() != nullptr ? GetWorld()->GetGameInstance() : nullptr;
+	const USwcBackendSubsystem* Backend = GameInstance != nullptr ? GameInstance->GetSubsystem<USwcBackendSubsystem>() : nullptr;
+	swc::net::RepClient::OwnEntity Own;
+	if (Backend == nullptr || !Backend->GetLocalPlayer(Own))
+	{
+		return bPresenceKnown;
+	}
+	if (bPresenceKnown && Own.achievementRevision == SeenAchievementRevision)
+	{
+		return true;
+	}
+	bPresenceKnown = true;
+	SeenAchievementRevision = Own.achievementRevision;
+	int32 Shown = 0;
+	int32 Changed = 0;
+	for (FSwcPerson& Person : Persons)
+	{
+		const bool bNow = swc::interact::presence_visible(Person.bHasSwap, Person.PresenceRule, Own.achievements, Person.bShowOnLocked);
+		Changed += bNow != Person.bVisible;
+		Person.bVisible = bNow;
+		Shown += bNow;
+		if (!bNow && Person.Actor.IsValid())
+		{
+			Person.Actor->Destroy();
+			Person.Actor.Reset();
+		}
+	}
+	UE_LOG(LogSwcPersons, Log, TEXT("persons: the presence for the Achievement state (%d byte(s), revision %u): %d of %d persons show, %d changed"),
+		static_cast<int32>(Own.achievements.size()), Own.achievementRevision, Shown, Persons.Num(), Changed);
+	return true;
 }
 
 void USwcPersonSubsystem::Spawn(FSwcPerson& Person)
@@ -389,7 +447,7 @@ bool USwcPersonSubsystem::Play(FSwcPerson& Person, const FSwcPerson::FClip& Clip
 
 void USwcPersonSubsystem::SetTalking(const FString& InteractionKey, bool bTalking)
 {
-	FSwcPerson* Person = Persons.FindByPredicate([&InteractionKey](const FSwcPerson& Each) { return !InteractionKey.IsEmpty() && Each.InteractionKey == InteractionKey; });
+	FSwcPerson* Person = const_cast<FSwcPerson*>(FindByInteraction(InteractionKey));
 	if (Person == nullptr)
 	{
 		return;
@@ -440,7 +498,33 @@ void USwcPersonSubsystem::UpdateTalk(FSwcPerson& Person)
 
 const FSwcPerson* USwcPersonSubsystem::FindByInteraction(const FString& Key) const
 {
+	// A person with no npc object (USwcInteractor: the Talk key "person:" + the key of persons.json).
+	if (Key.StartsWith(PersonTalkPrefix))
+	{
+		return FindByKey(Key.Mid(FCString::Strlen(PersonTalkPrefix)));
+	}
 	return Persons.FindByPredicate([&Key](const FSwcPerson& Person) { return !Key.IsEmpty() && Person.InteractionKey == Key; });
+}
+
+const FSwcPerson* USwcPersonSubsystem::FindTalkWithNoData(const FVector& Point, double Distance) const
+{
+	const FSwcPerson* Best = nullptr;
+	double BestDistance = Distance;
+	for (const FSwcPerson& Person : Persons)
+	{
+		const double D = FVector::Dist(Point, Person.Place);
+		if (Person.bTalk && Person.InteractionKey.IsEmpty() && Person.bVisible && Person.Actor.IsValid() && D <= BestDistance)
+		{
+			Best = &Person;
+			BestDistance = D;
+		}
+	}
+	return Best;
+}
+
+const FSwcPerson* USwcPersonSubsystem::FindByKey(const FString& Key) const
+{
+	return Persons.FindByPredicate([&Key](const FSwcPerson& Person) { return Person.Key == Key; });
 }
 
 const FSwcPerson* USwcPersonSubsystem::FindNear(const FVector& Point, double Distance) const
