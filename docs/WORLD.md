@@ -395,6 +395,26 @@ moves it out of `LoadMap`, but the visible terrain must still load before the sc
 the login; not done); a cooked build removes the registry, the World Partition streaming generation (12 s at each start), the
 editor PostLoad, and the DDC builds (the estimate is the next step).
 
+### The return to the menu (F6, AST-203, 2026-10-20)
+
+Before, the return loaded the level of the world again (UGameplayStatics::OpenLevel on the same map): the old world was torn
+down and purged, the map package loaded again, the editor binary ran GenerateStreaming again, and the always-loaded actors and
+the impostor meshes came again. The landing screen came 93.4 s (editor binary) or 17.5 s (cooked) after the return.
+
+Now the world stays: `USwcBackendSubsystem` removes the pawn and the view actor of the session, counts the return, and
+broadcasts `OnWorldSessionEnd`; `USwcUiSubsystem` starts its screens and the menu scene again (the body of its OnPostLoadMap),
+and `USwcCreatureSubsystem` and `USwcObjectSubsystem` clear the actors of the session (the creatures, the effect actors of the
+server, the loot bags; the depleted nodes, the chest lights). The view goes to the menu scene, and the streaming follows it.
+The fallback: `swc.Menu.ReturnReload 1` or `-SwcReturnReload` (the level again, as before).
+
+| From the return to the landing screen | Editor binary | Cooked |
+| --- | --- | --- |
+| The level again (before; the fallback) | 93.4 s | 17.5 s (18.6 s) |
+| The world stays | 2.1 s | 1.8 s |
+
+The menu scene is ready 1.0 to 1.1 s after the return; the second PLAY enters the world (the cells of the place after 4.5 s
+cooked); late content 0 after both entries (runs ret-u2, ret-c2, ret-c3 of `work/world/return.sh`).
+
 ### The cooked build (AST-203, 2026-10-20)
 
 The estimate of one region came first.
