@@ -182,6 +182,8 @@ tools/dev-build.sh --preset NAME                # a build preset for the dev cha
 tools/convert-player.sh tables|base|wanted      # the player character: databases, base skeletons, the parts that a run asked for
 tools/convert-player.sh movement|roads          # the movement rules of the data, the road maps of the regions (stage P3.3)
 tools/import-player.sh                          # import the player base and parts onto one skeleton for each gender
+tools/convert-player.sh all-looks               # the wanted list of all the looks a player can equip (SWC_WORK/player/wanted-all.json; AST-215)
+tools/prepare-looks.sh [--only K]               # convert and import that list in chunks, a background job (the lock is free between the calls; logs/prepare-looks)
 tools/dev-stop.sh                               # stop the development runs on the own SWC_DEV_DATA (--all: of all tracks)
 tools/convert-creatures.sh convert --near 8880 4250 300   # the creatures near a place (--all: the world; wanted: the client list)
 tools/convert-creatures.sh markers              # the marker type of each creature slice (the plates of the UI; no import)
