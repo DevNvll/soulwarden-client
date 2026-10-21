@@ -1,11 +1,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Creatures/SwcCreatureData.h"
 #include "Creatures/SwcEffects.h"
 #include "GameFramework/Actor.h"
 #include "SwcEffectActor.generated.h"
 
 class UMaterialInstanceDynamic;
+class UNiagaraComponent;
 class UStaticMeshComponent;
 struct FSwcProjectileSlice;
 struct FSwcSpellRow;
@@ -13,9 +15,15 @@ struct FSwcSpellSlice;
 
 /**
  * A shot or a danger area of a creature (stage P2.9, docs/CREATURES.md): an entity of the server with a Projectile state, or with
- * the states of a spell. The look is simple and readable (the effects of the game are for a later stage): a shot is a thin
- * shaft along its flight; a danger area is a flat disc of the size of its volume on the ground, orange for the warning and red
- * for the danger. The times and the places are the ones of the server (Creatures/SwcEffects.h).
+ * the states of a spell. The times and the places are the ones of the server (Creatures/SwcEffects.h).
+ *
+ * AST-230 (docs/EFFECTS.md, the slice effect player): the particle entities of the slice play their effects at the root of the actor
+ * with their transform in the slice: an entity that is active at the start plays from the start of the spell (a shot: from its launch);
+ * an activate (2) or deactivate (3) delayed event of the slice that targets the entity starts or stops it at its due time (the event
+ * times of the server: swc::creatures::event_due_us). A deactivation stops the emission (Kill On Deactivate: the particles go too). A
+ * late observer does not start an event burst older than LateBurstSeconds. A hostile area shows only its particles (the decision of
+ * the user of 2026-10-21, "Match retail now": no ground warning; the stand-in column is gone). A shot with a particle effect shows no
+ * shaft. A spell of a character and a summon keep their disc and pillar of stage P2.9 with their particles.
  */
 UCLASS(Transient)
 class SOULWARDENCLIENT_API ASwcEffectActor : public AActor
@@ -45,9 +53,13 @@ public:
 	/** The radius of the danger area (m). */
 	float GetRadius() const { return Radius; }
 
+protected:
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
 private:
 	void SetColor(const FLinearColor& Color);
-	void SetColumnColor(const FLinearColor& Color);
+	/** AST-230: starts and stops the particle entities at a server time. @return The text of the starts and the stops for the log. */
+	FString UpdateParticles(const swc::creatures::SpellParts* Parts, uint64 StartUs, uint64 RenderTimeUs);
 	/** Sets the colors again when the exposure of the frame changed by more than 10 percent (stage MVP-I). */
 	void FollowExposure();
 
@@ -57,15 +69,14 @@ private:
 	TObjectPtr<UStaticMeshComponent> Shape;
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> Material;
-	/** Stage MVP-I: a low translucent column over the disc of a hostile area (the disc alone hides under the ground cover). */
-	UPROPERTY()
-	TObjectPtr<UStaticMeshComponent> Column;
-	UPROPERTY()
-	TObjectPtr<UMaterialInstanceDynamic> ColumnMaterial;
 	/** The colors before the exposure scale, and the scale of the last set. */
 	FLinearColor ShapeColor = FLinearColor::White;
-	FLinearColor ColumnColor = FLinearColor::White;
 	double AppliedScale = 1.0;
+	/** AST-230: the particle entities of the slice, their components, and their state (on or off). */
+	TArray<FSwcSliceParticle> Particles;
+	TArray<TWeakObjectPtr<UNiagaraComponent>> ParticleComponents;
+	TArray<bool> ParticleOn;
+	bool bShaft = true;
 
 	uint64 Serial = 0;
 	bool bArea = false;

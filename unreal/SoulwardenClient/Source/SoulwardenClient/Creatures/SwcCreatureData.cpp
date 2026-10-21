@@ -326,6 +326,32 @@ void FSwcCreatureLibrary::LoadEffects(const FString& Folder)
 		}
 		return Out;
 	};
+	// AST-230: the particle entities of a slice.
+	const auto Particles = [](const TSharedPtr<FJsonObject>& Entry, TArray<FSwcSliceParticle>& Out)
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+		if (!Entry->TryGetArrayField(TEXT("particles"), Values))
+		{
+			return;
+		}
+		for (const TSharedPtr<FJsonValue>& Value : *Values)
+		{
+			const TSharedPtr<FJsonObject> Part = Value->AsObject();
+			FSwcSliceParticle& Item = Out.AddDefaulted_GetRef();
+			Item.Entity = Part->GetStringField(TEXT("entity"));
+			Item.Effect = Part->GetStringField(TEXT("effect"));
+			bool bActive = true;
+			Item.bActive = !Part->TryGetBoolField(TEXT("active"), bActive) || bActive;
+			Item.Transform = USwcEffectSubsystem::PlacementTransform(Part->GetArrayField(TEXT("matrix")));
+			const TSharedPtr<FJsonObject>* Settings = nullptr;
+			if (Part->TryGetObjectField(TEXT("settings"), Settings))
+			{
+				Item.Settings = USwcEffectSubsystem::PlacementSettings(*Settings);
+				bool bKill = false;
+				Item.bKillOnDeactivate = (*Settings)->TryGetBoolField(TEXT("Kill On Deactivate"), bKill) && bKill;
+			}
+		}
+	};
 	const TSharedPtr<FJsonObject>* Objects = nullptr;
 	if (Document->TryGetObjectField(TEXT("projectiles"), Objects))
 	{
@@ -341,6 +367,7 @@ void FSwcCreatureLibrary::LoadEffects(const FString& Folder)
 			}
 			Slice.Flight.flyingLifetime = Number(Entry, TEXT("flyingLifetime"), 0.0f);
 			Slice.Flight.stuckLifetime = Number(Entry, TEXT("stuckLifetime"), 0.0f);
+			Particles(Entry, Slice.Particles);
 			Projectiles.Add(FString(Pair.Key.ToView()), Slice);
 		}
 	}
@@ -377,6 +404,7 @@ void FSwcCreatureLibrary::LoadEffects(const FString& Folder)
 				Slice.Volume.activeAfter = Number(*Volume, TEXT("activeAfter"), 0.0f);
 				Slice.Volume.inactiveAfter = Number(*Volume, TEXT("inactiveAfter"), -1.0f);
 			}
+			Particles(Entry, Slice.Particles);
 			Spells.Add(FString(Pair.Key.ToView()), MoveTemp(Slice));
 		}
 	}

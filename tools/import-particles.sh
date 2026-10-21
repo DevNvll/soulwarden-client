@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Imports the particle textures, materials, and systems (AST-210, docs/PARTICLES.md) into /SwcGameContent/Particles, with no
 # window (Scripts/particle_systems.py). Make the data first: tools/convert-particles.sh systems.
-# Usage: tools/import-particles.sh [--force]
+# Usage: tools/import-particles.sh [--force]   (each call stops new work after SWC_IMPORT_SECONDS, default 480; call again for the rest)
 # The editor commandlet uses at most SWC_CPU_QUOTA (default 400%: 4 cores) and SWC_MEMORY_MAX (default 12G).
 # One import at a time: the import waits for SWC_WORK/unreal/import.lock (the lock of tools/import.sh; 30 min at most).
 set -euo pipefail

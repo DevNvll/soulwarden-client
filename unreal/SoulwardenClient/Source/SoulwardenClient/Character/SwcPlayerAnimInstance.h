@@ -6,6 +6,7 @@
 #include "SwcPlayerAnimInstance.generated.h"
 
 class FSwcActions;
+class FSwcFragmentEffects;
 class FSwcLocomotion;
 class UAnimSequence;
 struct FSwcActionFragment;
@@ -97,6 +98,7 @@ public:
 
 protected:
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+	virtual void NativeUninitializeAnimation() override;
 	virtual FAnimInstanceProxy* CreateAnimInstanceProxy() override;
 	virtual void DestroyAnimInstanceProxy(FAnimInstanceProxy* InProxy) override;
 
@@ -124,6 +126,8 @@ private:
 		bool bEnding = false;
 	};
 
+	/** AST-230: the visual clips of an action fragment on its clock (Effects/SwcFragmentEffects), with the weapon in the main hand. */
+	void UpdateEffects(int32 Channel, int32 Fragment, uint32 Serial, float Time);
 	void AddSamples(const FLayer& Layer, TMap<UAnimSequence*, FSwcPoseSample>& Out) const;
 	/** @return The motion parameter values of a blend space. */
 	TArray<float> ParamValues(const FSwcBlendSpace& Space) const;
@@ -151,6 +155,7 @@ private:
 	mutable TMap<int32, TArray<int32>> BoneCache;
 	TArray<FLayer> Layers;
 	TArray<FActionLayer> Channels[2];
+	TSharedPtr<FSwcFragmentEffects> FragmentEffects;
 	TArray<FSwcPoseSample> Samples;
 	TArray<FSwcPoseOverlay> Overlays;
 	TArray<FSwcWeaponVisit> WeaponVisits;

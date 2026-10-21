@@ -39,7 +39,7 @@ import xml.etree.ElementTree as ET
 import zlib
 from pathlib import Path
 
-from . import anim, cgf, datasheet, source
+from . import anim, cgf, datasheet, skill_effects, source
 from .bounds import BoundShapes
 from . import gather_actions, player, ranged
 
@@ -475,6 +475,9 @@ def actions() -> dict:
                               "blendOut": float(element.get("BlendOutDuration") or 0.2), "layers": layers, "markers": markers_of(element)}
             if homing := homing_of(element):
                 fragments[key]["homing"] = homing
+            # AST-230: the visual clips of the fragment on its clock (skill_effects.effects_of; docs/EFFECTS.md).
+            if effects := skill_effects.effects_of(element):
+                fragments[key]["effects"] = effects
         return key
 
     def dodges(tags: set[str]) -> dict:
@@ -644,6 +647,11 @@ def actions() -> dict:
            "consumables": consumable_tags(),
            "weapons": weapons, "fragments": fragments, "blendSpaces": blend_spaces, "clips": clips,
            "activities": acts, "conditions": conditions, "weaponJoints": weapon_joints(models), "stamina": stamina,
+           # AST-230 (docs/EFFECTS.md): the weapon effect groups, the weapon effect id of each tag set, and the effect helpers of the
+           # weapon character files (the CA_BONE attachments vfx_*) by the lower-case path of the file.
+           "weaponEffects": {**skill_effects.weapon_scripts(), "ids": skill_effects.WEAPON_EFFECT_IDS},
+           "weaponHelpers": {item["mesh"].lower(): helpers for item in weapons_doc["items"].values()
+                             if item.get("mesh", "").endswith(".cdf") and (helpers := skill_effects.weapon_helpers(item["mesh"]))},
            "ranged": {**ranged.flights(json.loads((gamedata_dir() / "projectile-data.json").read_text())),
                       "manaCosts": {name: value for name, value in mana_costs.items()},
                       "spells": {name: row for name, row in ranged.spells().items()

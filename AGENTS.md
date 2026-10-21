@@ -213,6 +213,7 @@ tools/material-proof.sh STAGE --wait 7200       # the render check of a material
 tools/convert-materials.sh decals export NAME   # the roads and decals of regions (then tools/import-surface-layer.sh NAME; the client shows it by default, -SwcNoSurfaceLayer turns it off)
 tools/convert.sh cover NAME... | --all          # the ground cover of the regions (regions/NAME/cover.bin; the client shows it by default, -SwcNoGroundCover turns it off; docs/WORLD.md T3)
 tools/convert-particles.sh library|menu|placements|names|report|systems|check   # the particle effects: the libraries, the placements, the support report, the systems (docs/PARTICLES.md)
+tools/convert-particles.sh skills                # the effect keys of the skills and the creature spells (after convert-player.sh actions and convert-creatures.sh effects; docs/EFFECTS.md)
 tools/import-particles.sh [--force]             # the particle atlases, materials, and Niagara systems (the lock; then the client plays them near the view)
 ```
 

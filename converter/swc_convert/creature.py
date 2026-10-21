@@ -43,7 +43,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import anim, cgf, datasheet, env, gltf, materials, source
+from . import anim, cgf, datasheet, env, gltf, materials, skill_effects, source
 from . import manifest as shared_manifest
 from . import mesh as shared_mesh
 from .character import mat_to_quat, norm, to_y_up
@@ -1457,7 +1457,8 @@ def write_effects() -> dict:
                    m_flyingLifetime and m_stuckLifetime (s)
       spells       the delayed events (slot, delay, type: 0 trigger, 2 activate, 3 deactivate; target entity), and the first
                    detection volume (the danger area): its shape (sphere, cylinder, or none: the shape of the spell row), its
-                   sizes (m), and its active time from the start (s; -1: never)
+                   sizes (m), and its active time from the start (s; -1: never); the particle entities of a projectile and a
+                   spell slice ("particles": skill_effects.slice_particles; AST-230)
       spellRows    ShapeTypes and Radius (m) of each spell row of the spell tables
       lootContainers  the loot bags (loot_containers)
       statusRows   the status rows at a name plate (status_rows)"""
@@ -1473,7 +1474,7 @@ def write_effects() -> dict:
     for path, speed, _extra, _time_max, accel, flying, stuck in projectiles["slices"]:
         if path in by_path:
             out["projectiles"][by_path[path]] = {"path": path, "speed": speed, "accel": accel, "flyingLifetime": flying,
-                                                 "stuckLifetime": stuck}
+                                                 "stuckLifetime": stuck, "particles": skill_effects.slice_particles(path)}
     for entry in spells["slices"]:
         volume = None
         for name, radius, active, shape, shape_radius, height, offset, inactive, *_rest in entry.get("volumes", []):
@@ -1482,7 +1483,7 @@ def write_effects() -> dict:
             break
         out["spells"][f"{entry['asset']}:{entry['sub']}"] = {
             "path": entry["path"], "events": [[event[0], event[1], event[2], event[3]] for event in entry.get("events", [])],
-            "volume": volume}
+            "volume": volume, "particles": skill_effects.slice_particles(entry["path"])}
     for path in sorted(p for p in source.paks().entries if p.startswith(datasheet.TABLES_FOLDER) and p.endswith(".datasheet")
                        and "spelltable" in p):
         try:

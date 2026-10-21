@@ -185,6 +185,135 @@ def parent(name, additive, lit=False):
     return material
 
 
+MESH_PARENT_VERSION = "2"
+
+
+def mesh_parent():
+    """M_SwcParticleMesh (AST-230): the Illum material of a mesh particle (the swipes). Translucent, lit by the translucency light
+    volume at each vertex (no direction; as M_SwcParticleLit), two-sided. The source Illum terms (docs/MATERIALS.md, docs/EFFECTS.md):
+    base color = the diffuse map x Diffuse x the vertex color x the particle color x Tint; emission = Emittance RGB x Emittance A x 0.1 x
+    the emittance map RGB x EmissiveScale of MPC_SwcMaterials (the unit rule of the world materials, M4); opacity = the diffuse alpha x
+    Opacity x the vertex alpha x the particle alpha x AlphaScale. The UV of each map: TexCoord x tile + offset of its TexMod (no
+    oscillator). Not done: the dissolve (MaterialDissolve), the Illum specular."""
+    name = "M_SwcParticleMesh"
+    path = f"{ROOT}/{name}"
+    if assets.does_asset_exist(path) and state.get("parent:" + name) == MESH_PARENT_VERSION:
+        return assets.load_asset(path)
+    if assets.does_asset_exist(path):
+        material = assets.load_asset(path)
+        editing.delete_all_material_expressions(material)
+    else:
+        material = tools.create_asset(name, ROOT, unreal.Material, unreal.MaterialFactoryNew())
+    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
+    material.set_editor_property("translucency_lighting_mode", unreal.TranslucencyLightingMode.TLM_VOLUMETRIC_PER_VERTEX_NON_DIRECTIONAL)
+    material.set_editor_property("two_sided", True)
+    editing.set_material_usage(material, unreal.MaterialUsage.MATUSAGE_NIAGARA_MESH_PARTICLES)
+    default_tex = assets.load_asset(f"{ROOT}/Textures/{index['textures'][next(iter(index['textures']))]['asset']}")
+    uv = sm.node(material, unreal.MaterialExpressionTextureCoordinate, -1700, 0)
+
+    def mapped(parameter, transform, y):
+        xf = sm.vector(material, transform, (1.0, 1.0, 0.0, 0.0), -1700, y + 150)
+        # The "" output of a vector parameter is its RGB: the offset V comes from its A output.
+        code = sm.custom(material, "return UV * T.xy + float2(T.z, W);", unreal.CustomMaterialOutputType.CMOT_FLOAT2, ("UV", "T", "W"),
+                         -1450, y)
+        editing.connect_material_expressions(uv, "", code, "UV")
+        editing.connect_material_expressions(xf, "", code, "T")
+        editing.connect_material_expressions(xf, "A", code, "W")
+        sample = sm.sampler(material, parameter, unreal.MaterialSamplerType.SAMPLERTYPE_COLOR, default_tex, -1200, y)
+        editing.connect_material_expressions(code, "", sample, "UVs")
+        return sample
+    diffuse = mapped("Diffuse", "DiffuseTransform", 0)
+    emit_map = mapped("Emittance", "EmittanceTransform", 500)
+    color = sm.node(material, unreal.MaterialExpressionParticleColor, -1200, 900)
+    vertex = sm.node(material, unreal.MaterialExpressionVertexColor, -1200, 1100)
+    tint = sm.vector(material, "Tint", (1.0, 1.0, 1.0, 1.0), -1200, 1300)
+    diffuse_color = sm.vector(material, "DiffuseColor", (1.0, 1.0, 1.0, 1.0), -1200, 1450)
+    emit_color = sm.vector(material, "EmittanceColor", (0.0, 0.0, 0.0, 0.0), -1200, 1600)
+    opacity = sm.scalar(material, "Opacity", 1.0, -1200, 1750)
+    alpha_scale = sm.scalar(material, "AlphaScale", 1.0, -1200, 1850)
+    scale = sm.node(material, unreal.MaterialExpressionCollectionParameter, -1200, 1950)
+    scale.set_editor_property("collection", sm.collection(content, state))
+    scale.set_editor_property("parameter_name", "EmissiveScale")
+    base = sm.multiply(material, (diffuse, "RGB"), (diffuse_color, "RGB"), -800, 0)
+    base = sm.multiply(material, (base, ""), (vertex, ""), -650, 50)
+    base = sm.multiply(material, (base, ""), (color, ""), -500, 100)
+    base = sm.multiply(material, (base, ""), (tint, "RGB"), -350, 150)
+    emit = sm.custom(material, "return C * I * 0.1 * M * S;", unreal.CustomMaterialOutputType.CMOT_FLOAT3, ("C", "I", "M", "S"), -700, 500)
+    editing.connect_material_expressions(emit_color, "", emit, "C")
+    editing.connect_material_expressions(emit_color, "A", emit, "I")
+    editing.connect_material_expressions(emit_map, "RGB", emit, "M")
+    editing.connect_material_expressions(scale, "", emit, "S")
+    alpha = sm.custom(material, "return saturate(D * O * V * P * A);", unreal.CustomMaterialOutputType.CMOT_FLOAT1,
+                      ("D", "O", "V", "P", "A"), -700, 900)
+    for source_node, output, pin in ((diffuse, "A", "D"), (opacity, "", "O"), (vertex, "A", "V"), (color, "A", "P"), (alpha_scale, "", "A")):
+        editing.connect_material_expressions(source_node, output, alpha, pin)
+    editing.connect_material_property(base, "", MP.MP_BASE_COLOR)
+    editing.connect_material_property(emit, "", MP.MP_EMISSIVE_COLOR)
+    editing.connect_material_property(alpha, "", MP.MP_OPACITY)
+    editing.recompile_material(material)
+    assets.save_loaded_asset(material)
+    state["parent:" + name] = MESH_PARENT_VERSION
+    report["materials"] += 1
+    return material
+
+
+def mesh_instance(parent_material, spec):
+    """One instance of M_SwcParticleMesh for each look of a mesh particle."""
+    import hashlib
+    illum = spec["illum"]
+    values = {"diffuse": spec["texture"], "emittance": illum.get("emittanceMap") or spec["texture"],
+              "emit": illum["emittance"] if illum.get("emittanceMap") else [0.0, 0.0, 0.0, 0.0],
+              "diffuseColor": illum["diffuseColor"], "opacity": illum["opacity"],
+              "dt": illum["diffuseTransform"], "et": illum["emittanceTransform"]}
+    digest = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:8]
+    name = "MI_" + spec["texture"][2:] + "_Mesh_" + digest
+    path = f"{ROOT}/Materials/{name}"
+    key = f"{MESH_PARENT_VERSION}:{digest}"
+    if assets.does_asset_exist(path) and state.get("instance:" + name) == key:
+        return path + "." + name
+    if not assets.does_asset_exist(path):
+        tools.create_asset(name, f"{ROOT}/Materials", unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+    mi = assets.load_asset(path)
+    editing.set_material_instance_parent(mi, parent_material)
+    editing.set_material_instance_texture_parameter_value(mi, "Diffuse", assets.load_asset(f"{ROOT}/Textures/{values['diffuse']}"))
+    editing.set_material_instance_texture_parameter_value(mi, "Emittance", assets.load_asset(f"{ROOT}/Textures/{values['emittance']}"))
+    editing.set_material_instance_vector_parameter_value(mi, "EmittanceColor", unreal.LinearColor(*values["emit"]))
+    editing.set_material_instance_vector_parameter_value(mi, "DiffuseColor", unreal.LinearColor(*values["diffuseColor"], 1.0))
+    editing.set_material_instance_vector_parameter_value(mi, "DiffuseTransform", unreal.LinearColor(*values["dt"]))
+    editing.set_material_instance_vector_parameter_value(mi, "EmittanceTransform", unreal.LinearColor(*values["et"]))
+    editing.set_material_instance_scalar_parameter_value(mi, "Opacity", float(values["opacity"]))
+    editing.update_material_instance(mi)
+    assets.save_loaded_asset(mi)
+    state["instance:" + name] = key
+    report["instances"] += 1
+    return path + "." + name
+
+
+def import_mesh(record):
+    """The static mesh of a mesh particle, in its own folder /SwcGameContent/Particles/Meshes/SM_* (the mesh pipeline P_SwcMesh of the
+    content import: no Nanite, no new material, no texture; the Niagara mesh renderer sets the material). Interchange builds the mesh
+    on worker threads: the save of the folder waits for it (the rule of import_content.py). @return Its object path."""
+    folder = f"{ROOT}/Meshes/{record['asset']}"
+    path = os.path.join(content, record["file"])
+    stamp = sm.file_stamp(path)
+    mesh = sm.first_asset(folder, "StaticMesh") if assets.does_directory_exist(folder) else None
+    if mesh is None or state.get("mesh:" + record["asset"]) != stamp:
+        parameters = unreal.ImportAssetParameters()
+        parameters.set_editor_property("is_automated", True)
+        parameters.set_editor_property("replace_existing", True)
+        parameters.set_editor_property("override_pipelines", [unreal.SoftObjectPath(sm.BASE + "/P_SwcMesh")])
+        unreal.InterchangeManager.get_interchange_manager_scripted().import_asset(
+            folder, unreal.InterchangeManager.create_source_data(path), parameters)
+        assets.save_directory(folder, only_if_is_dirty=False, recursive=True)
+        mesh = sm.first_asset(folder, "StaticMesh")
+        if mesh is None:
+            raise RuntimeError(f"{record['asset']}: no static mesh after the import")
+        state["mesh:" + record["asset"]] = stamp
+        report["meshes"] = report.get("meshes", 0) + 1
+    return mesh.get_path_name()
+
+
 def instance(parent_material, spec, additive):
     """One instance for each look: the atlas, the glow map, the blend, the soft fade, and the values of the two color terms."""
     import hashlib
@@ -227,9 +356,13 @@ def build_system(record, parents):
     used = set()
     for emitter in record["emitters"]:
         spec = dict(emitter)
-        if spec["enabled"]:
+        if spec["enabled"] and spec.get("renderer") == "mesh":
+            spec["meshPath"] = import_mesh(spec["mesh"])
+            spec["materialPath"] = mesh_instance(parents["mesh"], spec)
+        elif spec["enabled"]:
             additive = spec["blend"] == "additive"
             spec["materialPath"] = instance(parents["lit" if spec.get("lit") else additive], spec, additive)
+        if spec["enabled"]:
             base = "".join(c if c.isalnum() else "_" for c in spec["name"])
             unique = base
             n = 1
@@ -254,16 +387,27 @@ def build_system(record, parents):
     report["systems"] += 1
 
 
+# AST-230: a time budget for each call (the import lock is shared; SWC_IMPORT_SECONDS, default 480 s): the work left waits for the next
+# call (the state file keeps what is done).
+import time  # noqa: E402
+deadline = time.time() + float(os.environ.get("SWC_IMPORT_SECONDS", "480"))
+report["deferred"] = 0
 try:
     for record in index["textures"].values():
+        if time.time() > deadline:
+            report["deferred"] += 1
+            continue
         try:
             import_texture(record)
         except Exception as error:
             report["failed"].append(f"texture {record['asset']}: {str(error)[:200]}")
     parents = {False: parent("M_SwcParticleAlpha", False), True: parent("M_SwcParticleAdditive", True),
-               "lit": parent("M_SwcParticleLit", False, lit=True)}
+               "lit": parent("M_SwcParticleLit", False, lit=True), "mesh": mesh_parent()}
     for record in index["systems"]:
         if record.get("missing"):
+            continue
+        if time.time() > deadline:
+            report["deferred"] += 1
             continue
         try:
             build_system(record, parents)

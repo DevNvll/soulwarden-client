@@ -5,6 +5,8 @@
 
 #include "SwcParticleEffects.generated.h"
 
+class FJsonObject;
+class FJsonValue;
 class UNiagaraComponent;
 class UNiagaraSystem;
 class USceneComponent;
@@ -44,8 +46,17 @@ public:
 	 *  @return The component, or null when the effect has no system. */
 	UNiagaraComponent* Start(const FString& Effect, const FTransform& Transform, const FSwcEffectSettings& Settings,
 	                         USceneComponent* Parent = nullptr);
+	/**
+	 * AST-230: starts an effect at a socket of a component (a bone of a skeletal mesh; NAME_None: the component). Relative is in the frame
+	 * of the socket (its scale is the placement scale). bFollow (EmitterFollows): the effect stays attached; else it starts at the world
+	 * place of the socket and stays there. @return The component, or null when the effect has no system.
+	 */
+	UNiagaraComponent* StartAttached(const FString& Effect, USceneComponent* Parent, FName Socket, const FTransform& Relative, bool bFollow,
+	                                 const FSwcEffectSettings& Settings);
 	/** Stops the emission; bKill also removes the living particles. The component goes back to the pool. */
 	void Stop(UNiagaraComponent* Component, bool bKill = false);
+	/** AST-230 (KeepEmitterActive): the component goes back to the pool and stays active until its system ends (at most KeepSeconds). */
+	void Keep(UNiagaraComponent* Component);
 	/** Starts the effect again from its beginning. */
 	static void Restart(UNiagaraComponent* Component);
 	/** Sets the placement values of a running effect. */
@@ -62,6 +73,9 @@ public:
 
 	/** The folder SWC_CONTENT/particles. */
 	static FString Folder();
+	/** The Unreal transform of a source placement matrix (rows 3 x 4, m), and the values of a placement settings object. */
+	static FTransform PlacementTransform(const TArray<TSharedPtr<FJsonValue>>& Matrix);
+	static FSwcEffectSettings PlacementSettings(const TSharedPtr<FJsonObject>& Settings);
 
 	virtual void OnWorldBeginPlay(UWorld& World) override;
 	virtual void Deinitialize() override;
@@ -131,6 +145,8 @@ private:
 	TSet<TPair<FIntPoint, int32>> Active;   // (region, placement) with a component
 	TWeakObjectPtr<AActor> Owner;
 	TArray<TWeakObjectPtr<UNiagaraComponent>> Started;   // the components of Start (the frame report)
+	/** The kept components (Keep) and the time of their keep: an endless system stops after KeepSeconds (a value of this client). */
+	TMap<TWeakObjectPtr<UNiagaraComponent>, double> Kept;
 	double MaxViewCm = 0.0;
 	double NextUpdate = 0.0;
 	double NextReport = 0.0;

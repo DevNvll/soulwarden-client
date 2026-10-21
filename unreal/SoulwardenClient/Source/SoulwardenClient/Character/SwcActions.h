@@ -47,6 +47,71 @@ struct FSwcHoming
 	bool bAllowUpwards = false;
 };
 
+/**
+ * A visual clip of a fragment (AST-230, actions.json "effects"; docs/EFFECTS.md): a ParticleEffect or a WeaponEffects group on the clock
+ * of the fragment (the other types are kept for the log). The position (m) and the rotation (radians, x first, then y, then z) are in the
+ * frame of the joint of the game.
+ */
+struct FSwcEffectClip
+{
+	enum class EKind : uint8
+	{
+		Particle,
+		WeaponGroup,
+		Other,
+	};
+	EKind Kind = EKind::Other;
+	FString Type;
+	int32 Layer = 0;
+	int32 Clip = 0;
+	float Start = 0.0f;
+	/** Below 0: the end of the fragment. */
+	float End = -1.0f;
+	/** The effect key (Particle) or the group name (WeaponGroup). */
+	FString Name;
+	FName Joint;
+	FName Attachment;
+	FVector Position = FVector::ZeroVector;
+	FVector Rotation = FVector::ZeroVector;
+	float Scale = 1.0f;
+	float AlphaScale = 1.0f;
+	float TimeScale = 1.0f;
+	FLinearColor Tint = FLinearColor::White;
+	/** EmitterFollows, KillOnExit, KeepEmitterActive. */
+	bool bFollow = true;
+	bool bKill = false;
+	bool bKeep = false;
+	FString Condition;
+	/** OptionOnEnter and OptionOnExit of a weapon group (Enable, Disable). */
+	FString Enter;
+	FString Exit;
+};
+
+/** A particle entry of a weapon effect group (actions.json weaponEffects: the weapon effect scripts; docs/EFFECTS.md). */
+struct FSwcWeaponEffectEntry
+{
+	FString Particle;
+	/** jointName: a joint of the owner (bOnOwner) or of the weapon; attachmentName: a helper of the weapon file. */
+	FName Joint;
+	FName Attachment;
+	/** positionOffset (m), rotationDeg (degrees), scale: given only with all three (WeaponEffectBase:StartParticle). */
+	bool bOffset = false;
+	FVector Position = FVector::ZeroVector;
+	FVector RotationDeg = FVector::ZeroVector;
+	float Scale = 1.0f;
+	bool bFollow = true;
+	bool bKill = false;
+	bool bOnOwner = false;
+};
+
+/** A helper of a weapon file (a CA_BONE attachment, vfx_*): its bone and its transform in the frame of the bone (game m, w x y z). */
+struct FSwcWeaponHelper
+{
+	FName Bone;
+	FVector Position = FVector::ZeroVector;
+	FQuat Rotation = FQuat::Identity;
+};
+
 struct FSwcActionFragment
 {
 	FString Key;
@@ -56,6 +121,8 @@ struct FSwcActionFragment
 	TArray<TArray<FSwcActionItem>> Layers;
 	std::vector<swc::combat::Mark> Marks;
 	TArray<FSwcHoming> Homing;
+	/** The visual clips (AST-230). */
+	TArray<FSwcEffectClip> Effects;
 	/** The end of the animation (s): the last item of layer 0 (an empty item: its start). Below 0: a loop. */
 	float Length = -1.0f;
 
@@ -263,6 +330,14 @@ public:
 	/** @return A joint of a weapon skeleton in the model of the weapon (Unreal cm, the space map of stage 1.1), or null. */
 	const FTransform* WeaponJoint(const FString& Model, FName Joint) const;
 
+	/**
+	 * AST-230: the entries of a weapon effect group for a weapon tag text ("1H_Melee,Sword"; no case) and an element (Default, Fire,
+	 * Arcane, Void, Lightning, Ice, Nature): the script of the row of its weapon effect id. @return Null when the group is not there.
+	 */
+	const TArray<FSwcWeaponEffectEntry>* WeaponEffectGroup(const FString& TagText, const FString& Element, const FString& Group) const;
+	/** @return The helpers of a weapon file (its .cdf path; no case), or null. */
+	const TMap<FName, FSwcWeaponHelper>* WeaponHelpers(const FString& CdfPath) const { return Helpers.Find(CdfPath.ToLower()); }
+
 	TArray<FSwcActionFragment> Fragments;
 	/** Stage MVP-E: the MannequinTag of each consumable (the item id in lower case; javelindata_itemdefinitions_consumables): the
 	 *  variant of the fragment Use ("use|POSTURE|TAG" of the use map of the unarmed set). */
@@ -278,6 +353,11 @@ private:
 	TMap<FString, FSwcCondition> Conditions;
 	TMap<FString, int32> ClipIndex;
 	TMap<FString, TMap<FName, FTransform>> WeaponJoints;
+	/** AST-230: script -> group -> entries; weapon effect id -> element -> script; lower-case tag text -> weapon effect id; the helpers. */
+	TMap<FString, TMap<FString, TArray<FSwcWeaponEffectEntry>>> EffectScripts;
+	TMap<FString, TMap<FString, FString>> EffectTable;
+	TMap<FString, FString> EffectIds;
+	TMap<FString, TMap<FName, FSwcWeaponHelper>> Helpers;
 	swc::combat::StaminaData StaminaData;
 	swc::ranged::Shared RangedData;
 	TMap<FString, int32> RecordIndex;

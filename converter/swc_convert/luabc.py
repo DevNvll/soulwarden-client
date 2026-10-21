@@ -107,3 +107,126 @@ def globals_used(main: Proto) -> tuple[set[str], set[str]]:
 def string_constants(main: Proto) -> list[str]:
     """@return Each string constant of the chunk and its functions, in order."""
     return [k for proto in main.walk() for k in proto.constants if isinstance(k, str)]
+
+
+# --------------------------------------------------------------------------------------------- the run of a table script
+
+class Table:
+    """A Lua table of run_tables: the hash part and the array part (index 1 is items[0])."""
+
+    def __init__(self) -> None:
+        self.hash: dict = {}
+        self.items: list = []
+
+    def get(self, key):
+        if isinstance(key, float) and key.is_integer() and 1 <= key <= len(self.items):
+            return self.items[int(key) - 1]
+        return self.hash.get(key)
+
+    def set(self, key, value) -> None:
+        if isinstance(key, float) and key.is_integer() and 1 <= key <= len(self.items) + 1:
+            if int(key) == len(self.items) + 1:
+                self.items.append(value)
+            else:
+                self.items[int(key) - 1] = value
+            return
+        self.hash[key] = value
+
+    def plain(self):
+        """@return The table as Python values: a list (array part only) or a dict (the hash part, then the items by index)."""
+        def conv(v):
+            return v.plain() if isinstance(v, Table) else v
+        if self.items and not self.hash:
+            return [conv(v) for v in self.items]
+        out = {str(k): conv(v) for k, v in self.hash.items()}
+        out.update({str(i + 1): conv(v) for i, v in enumerate(self.items)})
+        return out
+
+
+class Symbol(str):
+    """A value that the run does not know (a global or a field of an unknown value): its dotted name."""
+
+
+def run_tables(main: Proto, calls: dict | None = None, limit: int = 200000):
+    """Runs the main function of a chunk that builds tables (the weapon effect scripts: no loop, no branch on data). The known
+    calls: `calls` maps a global name to a Python function of the arguments; any other global is a Symbol; a field of a Symbol is
+    the Symbol "NAME.FIELD"; a call of a Symbol returns nothing; a closure is the Symbol "function". Only the opcodes of such
+    scripts are run (lopcodes.h of Lua 5.1.5); another opcode raises ValueError. @return The values of the first RETURN."""
+    calls = calls or {}
+    regs: list = [None] * 256
+    consts = main.constants
+    globals_: dict = {}
+    pc = 0
+    steps = 0
+
+    def rk(x):
+        return consts[x & 0xFF] if x & 0x100 else regs[x]
+
+    def index(obj, key):
+        if isinstance(obj, Table):
+            return obj.get(key)
+        if isinstance(obj, Symbol):
+            return Symbol(f"{obj}.{key}")
+        return None
+
+    while pc < len(main.code):
+        steps += 1
+        if steps > limit:
+            raise ValueError("Lua run: too many steps")
+        ins = main.code[pc]
+        pc += 1
+        op, a = ins & 0x3F, (ins >> 6) & 0xFF
+        c, b, bx = (ins >> 14) & 0x1FF, (ins >> 23) & 0x1FF, ins >> 14
+        if op == 0:                                    # MOVE
+            regs[a] = regs[b]
+        elif op == 1:                                  # LOADK
+            regs[a] = consts[bx]
+        elif op == 2:                                  # LOADBOOL
+            regs[a] = bool(b)
+            if c:
+                pc += 1
+        elif op == 3:                                  # LOADNIL
+            for r in range(a, b + 1):
+                regs[r] = None
+        elif op == 5:                                  # GETGLOBAL
+            name = consts[bx]
+            regs[a] = globals_[name] if name in globals_ else Symbol(name)
+        elif op == 6:                                  # GETTABLE
+            regs[a] = index(regs[b], rk(c))
+        elif op == 7:                                  # SETGLOBAL
+            globals_[consts[bx]] = regs[a]
+        elif op == 9:                                  # SETTABLE
+            if isinstance(regs[a], Table):
+                regs[a].set(rk(b), rk(c))
+        elif op == 10:                                 # NEWTABLE
+            regs[a] = Table()
+        elif op == 11:                                 # SELF
+            regs[a + 1] = regs[b]
+            regs[a] = index(regs[b], rk(c))
+        elif op == 18:                                 # UNM
+            regs[a] = -regs[b] if isinstance(regs[b], float) else None
+        elif op == 28:                                 # CALL
+            func = regs[a]
+            count = (b - 1) if b else 0
+            args = [regs[a + 1 + i] for i in range(count)]
+            result = None
+            if isinstance(func, Symbol) and str(func) in calls:
+                result = calls[str(func)](*args)
+            regs[a] = result
+            for r in range(a + 1, a + max(c - 1, 1)):
+                regs[r] = None
+        elif op == 30:                                 # RETURN
+            return [regs[a + i] for i in range(b - 1)] if b else [regs[a]]
+        elif op == 34:                                 # SETLIST (50 fields to a flush)
+            if c == 0:
+                c = main.code[pc]
+                pc += 1
+            for i in range(1, b + 1):
+                regs[a].set(float((c - 1) * 50 + i), regs[a + i])
+        elif op == 35:                                 # CLOSE
+            pass
+        elif op == 36:                                 # CLOSURE (its upvalue moves follow; a function value is a Symbol)
+            regs[a] = Symbol("function")
+        else:
+            raise ValueError(f"Lua run: opcode {op} at {pc - 1}")
+    return []

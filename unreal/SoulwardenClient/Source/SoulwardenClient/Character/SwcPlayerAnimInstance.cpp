@@ -5,6 +5,9 @@
 #include "Character/SwcActions.h"
 #include "Character/SwcCharacterMovement.h"
 #include "Character/SwcLocomotion.h"
+#include "Character/SwcPlayerCharacter.h"
+#include "Character/SwcPlayerLooks.h"
+#include "Effects/SwcFragmentEffects.h"
 #include "Character/SwcSmooth.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
@@ -151,12 +154,58 @@ void USwcPlayerAnimInstance::SetStance(const FSwcWeaponActions* Weapon, bool bOf
 	bOffhandStance = bOffhand;
 }
 
+void USwcPlayerAnimInstance::UpdateEffects(int32 Channel, int32 Fragment, uint32 Serial, float Time)
+{
+	if (!Actions.IsValid())
+	{
+		return;
+	}
+	if (!FragmentEffects.IsValid())
+	{
+		FragmentEffects = MakeShared<FSwcFragmentEffects>();
+	}
+	FSwcEffectOwner Owner;
+	Owner.World = GetWorld();
+	Owner.Body = GetSkelMeshComponent();
+	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetOwningActor()))
+	{
+		const TArray<FSwcGearPart>& Parts = Character->GetGearParts();
+		for (int32 Index = 0; Index < Parts.Num(); ++Index)
+		{
+			if (Parts[Index].PaperdollSlot == Character->GetActiveWeaponSlot() && !Parts[Index].bAccessory)
+			{
+				Owner.Weapon = Character->GetGearComponent(Index);
+				Owner.WeaponTags = Parts[Index].Tags;
+				// The mesh key "weapon|FILE.cdf|HASH" (weapons.json) names the weapon file of the helpers.
+				TArray<FString> Fields;
+				Parts[Index].MeshKey.ParseIntoArray(Fields, TEXT("|"));
+				Owner.WeaponFile = Fields.Num() > 1 ? Fields[1] : FString();
+				break;
+			}
+		}
+	}
+	const bool bValid = Fragment != INDEX_NONE && Actions->Fragments.IsValidIndex(Fragment);
+	const int32 Record = bValid && Stance != nullptr ? Stance->WeaponRecord(Fragment) : INDEX_NONE;
+	FragmentEffects->Update(*Actions, Owner, Channel, bValid ? &Actions->Fragments[Fragment] : nullptr,
+		Actions->Fragments.IsValidIndex(Record) ? &Actions->Fragments[Record] : nullptr, Serial, Time);
+}
+
+void USwcPlayerAnimInstance::NativeUninitializeAnimation()
+{
+	if (FragmentEffects.IsValid())
+	{
+		FragmentEffects->StopAll(GetWorld());
+	}
+	Super::NativeUninitializeAnimation();
+}
+
 void USwcPlayerAnimInstance::SetAction(int32 Channel, int32 Fragment, uint32 Serial, float Time)
 {
 	if (Channel < 0 || Channel > 1)
 	{
 		return;
 	}
+	UpdateEffects(Channel, Fragment, Serial, Time);
 	TArray<FActionLayer>& Layers0 = Channels[Channel];
 	if (Fragment == INDEX_NONE || !Actions.IsValid() || !Actions->Fragments.IsValidIndex(Fragment))
 	{

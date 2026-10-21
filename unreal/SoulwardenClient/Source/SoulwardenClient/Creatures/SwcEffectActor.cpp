@@ -2,7 +2,10 @@
 
 #include "Components/StaticMeshComponent.h"
 #include "Creatures/SwcCreatureData.h"
+#include "Effects/SwcParticleEffects.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/World.h"
+#include "NiagaraComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Environment/SwcMeterProbe.h"
@@ -28,14 +31,9 @@ const FLinearColor FriendlyActiveColor(0.2f, 0.85f, 1.0f, 0.45f);
 constexpr double PillarWidth = 0.6;
 constexpr double PillarHeight = 2.0;
 constexpr double WidestDisc = 8.0;
-/** The light of a hostile area (the decision of the user, 2026-10-21: "Match retail now"). Retail draws no warning on the ground; it
- *  shows the light effect of the spell at its hit time (the strike of the shaman: a column of light at its danger time; Soulwarden
- *  evidence creature-areas s1-fresh). Until the particle stage the client shows a bright column at the danger time only (at least
- *  0.3 s, the danger minimum of the area), and no disc and nothing in the warning. A spell of a character and a summon keep their
- *  disc and pillar. Values of this client. */
-constexpr double ColumnHeight = 4.0;
-constexpr double ColumnWidth = 1.0;   // m: a bolt, not the width of the area (a column of the area width veiled the screen near it)
-const FLinearColor ColumnFlashColor(1.0f, 0.95f, 0.8f, 0.6f);
+/** AST-230: an observer that sees a spell later than this after an activation event does not start its effect (an old burst; a value
+ *  of this client, docs/EFFECTS.md). An entity that is active from the start of the spell (a field) starts at any time. */
+constexpr double LateBurstSeconds = 0.5;
 /** Stage MVP-I: the unlit colors follow the exposure of the frame. The scene has physical light units (an exposure of about
  *  1/(1.2 x 2^13.7) at noon), and an unlit color of 1.0 drew near black (the disc of the strike in mvpi-area1). The color is
  *  DisplayLevel / exposure: about the same brightness on the screen at day and at night. The exposure: the last measure of the
@@ -64,28 +62,85 @@ ASwcEffectActor::ASwcEffectActor()
 	Shape->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Shape->SetCastShadow(false);
 	Shape->SetVisibility(false);
-	Column = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Column"));
-	Column->SetupAttachment(Root);
-	Column->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Column->SetCastShadow(false);
-	Column->SetVisibility(false);
 }
 
-void ASwcEffectActor::SetColumnColor(const FLinearColor& Color)
+void ASwcEffectActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	if (ColumnMaterial == nullptr)
+	// The particles of the slice end with its entity; their tails finish.
+	if (USwcEffectSubsystem* Effects = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcEffectSubsystem>() : nullptr)
 	{
-		UMaterialInterface* Base = FindObject<UMaterialInterface>(nullptr, TranslucentMaterial);
-		if (Base == nullptr)
+		for (const TWeakObjectPtr<UNiagaraComponent>& Component : ParticleComponents)
 		{
-			return;
+			if (Component.IsValid())
+			{
+				Effects->Stop(Component.Get(), false);
+			}
 		}
-		ColumnMaterial = UMaterialInstanceDynamic::Create(Base, this);
-		Column->SetMaterial(0, ColumnMaterial);
 	}
-	ColumnColor = Color;
-	ColumnMaterial->SetVectorParameterValue(TEXT("Color"), Exposed(Color, ExposureScale()));
-	ColumnMaterial->SetScalarParameterValue(TEXT("Opacity"), Color.A);
+	ParticleComponents.Reset();
+	Super::EndPlay(EndPlayReason);
+}
+
+FString ASwcEffectActor::UpdateParticles(const swc::creatures::SpellParts* Parts, uint64 StartUs, uint64 RenderTimeUs)
+{
+	FString Text;
+	USwcEffectSubsystem* Effects = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcEffectSubsystem>() : nullptr;
+	if (Effects == nullptr || Particles.IsEmpty())
+	{
+		return Text;
+	}
+	ParticleComponents.SetNum(Particles.Num());
+	ParticleOn.SetNum(Particles.Num());
+	const auto Add = [&Text](const FString& Line) { Text += (Text.IsEmpty() ? TEXT("") : TEXT("; ")) + Line; };
+	for (int32 Index = 0; Index < Particles.Num(); ++Index)
+	{
+		const FSwcSliceParticle& Part = Particles[Index];
+		bool bOn = Part.bActive && RenderTimeUs >= StartUs;
+		uint64 Changed = StartUs;
+		if (Parts != nullptr)
+		{
+			const std::string Target = TCHAR_TO_UTF8(*Part.Entity);
+			for (const swc::creatures::SpellEventData& Event : Events)
+			{
+				if (Event.target != Target || (Event.type != 2 && Event.type != 3))
+				{
+					continue;
+				}
+				const uint64 Due = swc::creatures::event_due_us(*Parts, Event, StartUs);
+				if (Due <= RenderTimeUs && Due >= Changed)
+				{
+					bOn = Event.type == 2;
+					Changed = Due;
+				}
+			}
+		}
+		const double Since = (static_cast<double>(RenderTimeUs) - static_cast<double>(StartUs)) / 1.0e6;
+		if (bOn && !ParticleOn[Index])
+		{
+			ParticleOn[Index] = true;
+			const double Late = static_cast<double>(RenderTimeUs - Changed) / 1.0e6;
+			if (Changed > StartUs && Late > LateBurstSeconds)
+			{
+				Add(FString::Printf(TEXT("the effect %s of %s: an old activation (%.2f s), not started"), *Part.Effect, *Part.Entity, Late));
+				continue;
+			}
+			UNiagaraComponent* Component = Effects->StartAttached(Part.Effect, Root, NAME_None, Part.Transform, true, Part.Settings);
+			ParticleComponents[Index] = Component;
+			Add(FString::Printf(TEXT("the effect %s of %s at %.2f s%s"), *Part.Effect, *Part.Entity, Since,
+				Component != nullptr ? TEXT("") : TEXT(" (no system)")));
+		}
+		else if (!bOn && ParticleOn[Index])
+		{
+			ParticleOn[Index] = false;
+			if (UNiagaraComponent* Component = ParticleComponents[Index].Get())
+			{
+				Effects->Stop(Component, Part.bKillOnDeactivate);
+			}
+			ParticleComponents[Index] = nullptr;
+			Add(FString::Printf(TEXT("the effect %s of %s stops at %.2f s"), *Part.Effect, *Part.Entity, Since));
+		}
+	}
+	return Text;
 }
 
 void ASwcEffectActor::SetColor(const FLinearColor& Color)
@@ -104,10 +159,6 @@ void ASwcEffectActor::SetColor(const FLinearColor& Color)
 	AppliedScale = ExposureScale();
 	Material->SetVectorParameterValue(TEXT("Color"), Exposed(Color, AppliedScale));
 	Material->SetScalarParameterValue(TEXT("Opacity"), Color.A);
-	if (ColumnMaterial != nullptr)
-	{
-		ColumnMaterial->SetVectorParameterValue(TEXT("Color"), Exposed(ColumnColor, AppliedScale));
-	}
 }
 
 void ASwcEffectActor::FollowExposure()
@@ -125,7 +176,11 @@ void ASwcEffectActor::SetupProjectile(const FSwcProjectileSlice* Slice)
 	if (Slice != nullptr)
 	{
 		Flight = Slice->Flight;
+		Particles = Slice->Particles;
 	}
+	// A shot with a particle effect of the game shows that effect, not the shaft.
+	USwcEffectSubsystem* Effects = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcEffectSubsystem>() : nullptr;
+	bShaft = !Particles.ContainsByPredicate([Effects](const FSwcSliceParticle& Part) { return Effects != nullptr && Effects->HasEffect(Part.Effect); });
 	Shape->SetStaticMesh(FindObject<UStaticMesh>(nullptr, CylinderMesh));
 	// The shaft along local Z, its tip at the place of the shot.
 	Shape->SetRelativeScale3D(FVector(ShaftWidth, ShaftWidth, ShaftLength));
@@ -142,6 +197,7 @@ void ASwcEffectActor::SetupArea(const FSwcSpellSlice* Slice, const FSwcSpellRow*
 		Events = Slice->Events;
 		bHasVolume = Slice->bHasVolume;
 		Volume = Slice->Volume;
+		Particles = Slice->Particles;
 	}
 	// The size of the area: the sphere or the cylinder of the volume of the slice; a volume with no shape takes the shape of the
 	// spell row (ShapeTypes Sphere, Radius: the lightning strike).
@@ -168,13 +224,6 @@ void ASwcEffectActor::SetupArea(const FSwcSpellSlice* Slice, const FSwcSpellRow*
 	{
 		Shape->SetRelativeScale3D(FVector(Radius * 2.0, Radius * 2.0, DiscHeight));
 		Shape->SetRelativeLocation(FVector(0.0, 0.0, DiscHeight * 50.0));
-		if (!bFriendly)
-		{
-			Column->SetStaticMesh(FindObject<UStaticMesh>(nullptr, CylinderMesh));
-			Column->SetRelativeScale3D(FVector(ColumnWidth, ColumnWidth, ColumnHeight));
-			Column->SetRelativeLocation(FVector(0.0, 0.0, ColumnHeight * 50.0));
-			SetColumnColor(ColumnFlashColor);
-		}
 	}
 	SetColor(bFriendly ? FriendlyWarningColor : WarningColor);
 }
@@ -197,10 +246,16 @@ FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, 
 		}
 		SetActorLocationAndRotation(SwcEngineToUnreal(Place), FRotationMatrix::MakeFromZ(LastDirection).ToQuat());
 		// The shot shows from its launch on the render clock.
-		Shape->SetVisibility(Shot.hasLaunch ? RenderTimeUs >= Shot.launchUs : Shot.collided);
+		const bool bLaunched = Shot.hasLaunch ? RenderTimeUs >= Shot.launchUs : Shot.collided;
+		Shape->SetVisibility(bShaft && bLaunched);
+		if (bLaunched)
+		{
+			Text = UpdateParticles(nullptr, Shot.hasLaunch ? Shot.launchUs : RenderTimeUs, RenderTimeUs);
+		}
 		if (bNowHeld && !bHeld)
 		{
-			Text = FString::Printf(TEXT("the shot holds at the contact %.2f %.2f %.2f"), Shot.contact.x, Shot.contact.y, Shot.contact.z);
+			Text += FString::Printf(TEXT("%sthe shot holds at the contact %.2f %.2f %.2f"), Text.IsEmpty() ? TEXT("") : TEXT("; "),
+				Shot.contact.x, Shot.contact.y, Shot.contact.z);
 		}
 		bHeld = bNowHeld;
 		return Text;
@@ -229,10 +284,10 @@ FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, 
 														  : swc::creatures::AreaTimes{swc::creatures::spell_start_us(Parts, Events), 0, 0};
 		const swc::creatures::AreaPhase Phase = swc::creatures::area_phase(Times, RenderTimeUs);
 		const bool bStarted = RenderTimeUs >= Times.startUs;
-		// A hostile area: no disc, the column of light in the danger only (the decision of the user above).
+		// A hostile area: no disc; only the particle entities of its slice (the decision of the user, AST-230).
 		const bool bHostile = !bSummon && !bFriendly;
 		Shape->SetVisibility(bStarted && !bHostile && (bSummon || (Phase != swc::creatures::AreaPhase::ended && Radius > 0.0f)));
-		Column->SetVisibility(bStarted && bHostile && Phase == swc::creatures::AreaPhase::danger && Radius > 0.0f);
+		const FString ParticleText = UpdateParticles(&Parts, Times.startUs, RenderTimeUs);
 		const int32 PhaseIndex = bStarted ? static_cast<int32>(Phase) : -1;
 		if (PhaseIndex != LastPhase)
 		{
@@ -259,6 +314,10 @@ FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, 
 			{
 				Text.Reset();
 			}
+		}
+		if (!ParticleText.IsEmpty())
+		{
+			Text += (Text.IsEmpty() ? TEXT("") : TEXT("; ")) + ParticleText;
 		}
 		return Text;
 	}

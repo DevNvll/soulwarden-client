@@ -1,0 +1,4 @@
+# The UI drive of the first effect check of MVP-L: the waits for the world; the actions are in tests/drive/mvpl-chain.txt.
+1 waitfor CompassLines 60
+2 waitfor world 180
+90 end

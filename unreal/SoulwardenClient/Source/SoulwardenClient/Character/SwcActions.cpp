@@ -40,6 +40,72 @@ float Number(const TSharedPtr<FJsonValue>& Value, float Default = 0.0f)
 	return Value.IsValid() && Value->Type == EJson::Number ? static_cast<float>(Value->AsNumber()) : Default;
 }
 
+/** @return A vector of three numbers of a JSON field (or Default). */
+FVector Vector3Of(const TSharedPtr<FJsonObject>& Object, const TCHAR* Field, const FVector& Default = FVector::ZeroVector)
+{
+	const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+	if (!Object->TryGetArrayField(Field, Values) || Values->Num() != 3)
+	{
+		return Default;
+	}
+	return FVector(Number((*Values)[0]), Number((*Values)[1]), Number((*Values)[2]));
+}
+
+bool FlagOf(const TSharedPtr<FJsonObject>& Object, const TCHAR* Field, bool bDefault = false)
+{
+	bool bValue = bDefault;
+	return Object->TryGetBoolField(Field, bValue) ? bValue : bDefault;
+}
+
+/** AST-230: the visual clips of a fragment record (actions.json "effects"; docs/EFFECTS.md). */
+void ReadEffects(const TSharedPtr<FJsonObject>& Info, TArray<FSwcEffectClip>& Out)
+{
+	const TArray<TSharedPtr<FJsonValue>>* Effects = nullptr;
+	if (!Info->TryGetArrayField(TEXT("effects"), Effects))
+	{
+		return;
+	}
+	for (const TSharedPtr<FJsonValue>& Value : *Effects)
+	{
+		const TSharedPtr<FJsonObject> Data = Value->AsObject();
+		FSwcEffectClip& Clip = Out.AddDefaulted_GetRef();
+		Clip.Type = Data->GetStringField(TEXT("type"));
+		Clip.Kind = Clip.Type == TEXT("ParticleEffect") ? FSwcEffectClip::EKind::Particle
+		          : (Clip.Type == TEXT("WeaponEffects") ? FSwcEffectClip::EKind::WeaponGroup : FSwcEffectClip::EKind::Other);
+		Clip.Layer = static_cast<int32>(Number(Data->TryGetField(TEXT("layer"))));
+		Clip.Clip = static_cast<int32>(Number(Data->TryGetField(TEXT("clip"))));
+		Clip.Start = Number(Data->TryGetField(TEXT("start")));
+		Clip.End = Number(Data->TryGetField(TEXT("end")), -1.0f);
+		Data->TryGetStringField(Clip.Kind == FSwcEffectClip::EKind::WeaponGroup ? TEXT("group") : TEXT("effect"), Clip.Name);
+		FString Text;
+		if (Data->TryGetStringField(TEXT("joint"), Text) && !Text.IsEmpty())
+		{
+			Clip.Joint = FName(*Text);
+		}
+		if (Data->TryGetStringField(TEXT("attachment"), Text) && !Text.IsEmpty())
+		{
+			Clip.Attachment = FName(*Text);
+		}
+		Clip.Position = Vector3Of(Data, TEXT("position"));
+		Clip.Rotation = Vector3Of(Data, TEXT("rotation"));
+		Clip.Scale = Number(Data->TryGetField(TEXT("scale")), 1.0f);
+		Clip.AlphaScale = Number(Data->TryGetField(TEXT("alphaScale")), 1.0f);
+		Clip.TimeScale = Number(Data->TryGetField(TEXT("timeScale")), 1.0f);
+		const FVector Tint = Vector3Of(Data, TEXT("tint"), FVector::OneVector);
+		Clip.Tint = FLinearColor(float(Tint.X), float(Tint.Y), float(Tint.Z));
+		Clip.bFollow = FlagOf(Data, TEXT("follow"), true);
+		Clip.bKill = FlagOf(Data, TEXT("kill"));
+		Clip.bKeep = FlagOf(Data, TEXT("keep"));
+		Data->TryGetStringField(TEXT("condition"), Clip.Condition);
+		Data->TryGetStringField(TEXT("enter"), Clip.Enter);
+		Data->TryGetStringField(TEXT("exit"), Clip.Exit);
+		if (Clip.Kind == FSwcEffectClip::EKind::Other)
+		{
+			Data->TryGetStringField(Clip.Type == TEXT("SpawnSlice") ? TEXT("slice") : (Clip.Type == TEXT("RunFxScript") ? TEXT("script") : TEXT("spell")), Clip.Name);
+		}
+	}
+}
+
 /** @return The progression ids of a list of names of actions.json (stage P3.5: the nodes and the perks of a condition). */
 std::vector<std::uint32_t> IdsOf(const TSharedPtr<FJsonValue>& Value)
 {
@@ -523,6 +589,7 @@ bool FSwcActions::Load(FString& OutReport)
 					Fragment.Marks.push_back({TCHAR_TO_UTF8(*Row[0]->AsString()), Number(Row[1]), Row[2]->IsNull() ? -1.0f : Number(Row[2])});
 				}
 			}
+			ReadEffects(Info, Fragment.Effects);
 			if (const TArray<TSharedPtr<FJsonValue>>* Homing = nullptr; Info->TryGetArrayField(TEXT("homing"), Homing))
 			{
 				for (const TSharedPtr<FJsonValue>& ClipValue : *Homing)
@@ -812,6 +879,79 @@ bool FSwcActions::Load(FString& OutReport)
 			}
 		}
 	}
+	// AST-230 (docs/EFFECTS.md): the weapon effect groups of the scripts, the script of each weapon effect id and element, the weapon effect
+	// id of each tag set, and the helpers of the weapon files.
+	if (const TSharedPtr<FJsonObject>* Effects = nullptr; Document->TryGetObjectField(TEXT("weaponEffects"), Effects))
+	{
+		if (const TSharedPtr<FJsonObject>* Scripts = nullptr; (*Effects)->TryGetObjectField(TEXT("scripts"), Scripts))
+		{
+			for (const auto& Script : (*Scripts)->Values)
+			{
+				TMap<FString, TArray<FSwcWeaponEffectEntry>>& Groups = EffectScripts.Add(FString(Script.Key.ToView()));
+				for (const auto& Group : Script.Value->AsObject()->Values)
+				{
+					TArray<FSwcWeaponEffectEntry>& Entries = Groups.Add(FString(Group.Key.ToView()));
+					for (const TSharedPtr<FJsonValue>& EntryValue : Group.Value->AsArray())
+					{
+						const TSharedPtr<FJsonObject> Data = EntryValue->AsObject();
+						FSwcWeaponEffectEntry& Entry = Entries.AddDefaulted_GetRef();
+						Data->TryGetStringField(TEXT("particleName"), Entry.Particle);
+						FString Text;
+						if (Data->TryGetStringField(TEXT("jointName"), Text) && !Text.IsEmpty())
+						{
+							Entry.Joint = FName(*Text);
+						}
+						if (Data->TryGetStringField(TEXT("attachmentName"), Text) && !Text.IsEmpty())
+						{
+							Entry.Attachment = FName(*Text);
+						}
+						Entry.bOffset = Data->HasField(TEXT("positionOffset")) && Data->HasField(TEXT("rotationDeg")) && Data->HasField(TEXT("scale"));
+						Entry.Position = Vector3Of(Data, TEXT("positionOffset"));
+						Entry.RotationDeg = Vector3Of(Data, TEXT("rotationDeg"));
+						Entry.Scale = Number(Data->TryGetField(TEXT("scale")), 1.0f);
+						FString Follow;
+						Entry.bFollow = !Data->TryGetStringField(TEXT("followType"), Follow) || Follow == TEXT("EmitterFollow");
+						Entry.bKill = FlagOf(Data, TEXT("killOnStop"));
+						Entry.bOnOwner = FlagOf(Data, TEXT("playOnOwner"));
+					}
+				}
+			}
+		}
+		if (const TSharedPtr<FJsonObject>* Table = nullptr; (*Effects)->TryGetObjectField(TEXT("table"), Table))
+		{
+			for (const auto& Row : (*Table)->Values)
+			{
+				TMap<FString, FString>& Elements = EffectTable.Add(FString(Row.Key.ToView()).ToLower());
+				for (const auto& Element : Row.Value->AsObject()->Values)
+				{
+					Elements.Add(FString(Element.Key.ToView()), Element.Value->AsString());
+				}
+			}
+		}
+		if (const TSharedPtr<FJsonObject>* Ids = nullptr; (*Effects)->TryGetObjectField(TEXT("ids"), Ids))
+		{
+			for (const auto& Id : (*Ids)->Values)
+			{
+				EffectIds.Add(FString(Id.Key.ToView()).ToLower(), Id.Value->AsString().ToLower());
+			}
+		}
+	}
+	if (const TSharedPtr<FJsonObject>* Files = nullptr; Document->TryGetObjectField(TEXT("weaponHelpers"), Files))
+	{
+		for (const auto& File : (*Files)->Values)
+		{
+			TMap<FName, FSwcWeaponHelper>& Out = Helpers.Add(FString(File.Key.ToView()).ToLower());
+			for (const auto& Helper : File.Value->AsObject()->Values)
+			{
+				const TSharedPtr<FJsonObject> Data = Helper.Value->AsObject();
+				FSwcWeaponHelper& Entry = Out.Add(FName(FString(Helper.Key.ToView())));
+				Entry.Bone = FName(*Data->GetStringField(TEXT("bone")));
+				Entry.Position = Vector3Of(Data, TEXT("position"));
+				const TArray<TSharedPtr<FJsonValue>>& Q = Data->GetArrayField(TEXT("rotation"));
+				Entry.Rotation = Q.Num() == 4 ? FQuat(Number(Q[1]), Number(Q[2]), Number(Q[3]), Number(Q[0])) : FQuat::Identity;
+			}
+		}
+	}
 	// The shared data of the ranged programs (stage P3.6): the shot rules with their flight, the spells, the mana costs, the weapons.
 	if (const TSharedPtr<FJsonObject>* Ranged = nullptr; Document->TryGetObjectField(TEXT("ranged"), Ranged))
 	{
@@ -1018,6 +1158,15 @@ const FTransform* FSwcActions::WeaponJoint(const FString& Model, FName Joint) co
 {
 	const TMap<FName, FTransform>* Joints = WeaponJoints.Find(Model.ToLower());
 	return Joints != nullptr ? Joints->Find(Joint) : nullptr;
+}
+
+const TArray<FSwcWeaponEffectEntry>* FSwcActions::WeaponEffectGroup(const FString& TagText, const FString& Element, const FString& Group) const
+{
+	const FString* Id = EffectIds.Find(TagText.ToLower());
+	const TMap<FString, FString>* Elements = Id != nullptr ? EffectTable.Find(*Id) : nullptr;
+	const FString* Script = Elements != nullptr ? Elements->Find(Element) : nullptr;
+	const TMap<FString, TArray<FSwcWeaponEffectEntry>>* Groups = Script != nullptr ? EffectScripts.Find(*Script) : nullptr;
+	return Groups != nullptr ? Groups->Find(Group) : nullptr;
 }
 
 const FSwcWeaponActions* FSwcActions::WeaponOfGraph(const swc::combat::Graph* Graph) const

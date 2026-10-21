@@ -1,0 +1,63 @@
+# The look check of MVP-L (AST-230): the steps of tests/drive/mvpl-chain.txt with the particles 20 times slower (swc.Effects.TimeScale
+# 0.05: a check value; the game time does not change) for the shape and the place of the short effects (the swipes, the strike).
+1.0 turn 90
+2.0 turn 0
+3.0 tick
+3.5 exec swc.Effects.TimeScale 0.05
+4.0 tick
+5.0 tick
+6.0 key 2
+7.0 tick
+8.0 click
+8.8 click
+9.6 click
+10.0 tick
+11.0 tick
+12.0 attack 1
+12.9 attack 0
+13.0 tick
+14.0 tick
+15.0 click
+15.8 click
+16.6 click
+17.0 tick
+18.0 tick
+19.0 tick
+19.5 exec swc.Effects.TimeScale 0.1
+20.0 key 1
+21.0 tick
+22.0 tick
+23.0 click
+24.0 tick
+25.0 tick
+26.0 aim 1
+27.0 attack 1
+27.1 attack 0
+28.0 tick
+28.5 aim 0
+29.0 tick
+30.0 tick
+31.0 tick
+32.0 tick
+33.0 tick
+34.0 pitch -30
+35.0 tick
+36.0 tick
+37.0 tick
+38.0 tick
+39.0 tick
+40.0 tick
+41.0 tick
+42.0 tick
+43.0 tick
+44.0 tick
+45.0 tick
+46.0 tick
+47.0 tick
+48.0 tick
+49.0 tick
+50.0 tick
+51.0 tick
+52.0 tick
+53.0 tick
+54.0 tick

@@ -506,7 +506,9 @@ def particle_records(data: bytes) -> list[dict]:
                 if component.type_id == PARTICLE_COMPONENT:
                     found.append(named(E.decode(component)))
             if found:
+                active = entity.child(source.field_id("IsRuntimeActive"))
                 out.append({"entity": source.text(entity.child(E.NAME)) if entity.child(E.NAME) is not None else "",
+                            "active": bool(active.value[0]) if active is not None and active.value else None,
                             "matrix": matrix, "components": {"particle": found}, "shape": None})
     return out
 
@@ -720,12 +722,13 @@ def report() -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="swc_convert.particles")
-    parser.add_argument("command", choices=["library", "placements", "menu", "names", "report", "systems", "check", "all"])
+    parser.add_argument("command", choices=["library", "placements", "menu", "names", "report", "skills", "systems", "check", "all"])
     parser.add_argument("names", nargs="*")
     args = parser.parse_args(argv)
     from . import particle_systems as ps
+    from . import skill_effects
     commands = {"library": library, "placements": lambda: placements(args.names or None), "menu": menu, "names": names,
-                "report": report, "systems": lambda: ps.systems(args.names or None), "check": ps.check}
+                "report": report, "skills": skill_effects.manifest, "systems": lambda: ps.systems(args.names or None), "check": ps.check}
     if args.command == "all":
         result = {c: commands[c]() for c in ("library", "menu", "placements", "names", "report", "systems", "check")}
     else:

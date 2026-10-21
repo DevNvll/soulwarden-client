@@ -1,0 +1,19 @@
+# The development routes of the first effect check of MVP-L (AST-230; docs/EFFECTS.md; drive tests/drive/mvpl-chain.txt): a copy of the
+# user's database (the bow in slot 24; the sword and the shield are given into the free bag slots 26 and 27 and go to slot 25 and its off
+# hand 28). Noon; the creatures ignore the character until the strike of the shaman. Times on the clock of the player drive; offsets in
+# m east, north.
+1 world-time 12:00
+1 ignore on
+1.5 heal
+2 give 1hSwordT5 600
+2.5 give 1hShieldAT5 600
+3.5 equip 26 25
+4 equip 27 28
+5 spawn Wolf_Grey_7 2.5 0 0 --yaw 90 --level 70
+19 spawn Wolf_Grey_7 12 0 0 --yaw 90 --level 70
+33 spawn Undead_Shaman:6 9 -4 0 --yaw 90
+34 heal
+35 ignore off
+37 area $3
+43 area $3
+49 area $3

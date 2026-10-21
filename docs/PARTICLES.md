@@ -344,7 +344,8 @@ The decision of the user (2026-10-20): finish the current visual work, and do th
   the smoke of the torch and the bonfire, the dark smoke; the wind of the level in the gravity; the soft particle factor 1 / Softness^2;
   no refraction materials) is not in main. It is a patch in the particle work folder (`work/particles/stage3.patch`). The shared
   systems.json has the stage 2 list again.
-- Stages 4 to 7: the waterfalls, the shore splash children, the leaves and the insects, the ability and weapon effects.
+- Stages 4 to 6: the waterfalls, the shore splash children, the leaves and the insects. Stage 7, the ability and weapon effects: AST-230,
+  docs/EFFECTS.md (the skill keys, the mesh particles, the fragment and slice effect players).
 - The fire look: the campfire flames are short and faint against retail; the candle flames are about 1.5 times smaller than retail;
   the torch flame is paler than retail (more blue).
 - The TexMod oscillators of the coal noise (no formula), and the light styles (AnimIndex 23 of the torch: the client lights are steady).

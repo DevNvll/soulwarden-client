@@ -8,6 +8,8 @@
 #include "Dom/JsonObject.h"
 #include "Materials/MaterialInterface.h"
 #include "NiagaraEmitterHandle.h"
+#include "Engine/StaticMesh.h"
+#include "NiagaraMeshRendererProperties.h"
 #include "NiagaraSpriteRendererProperties.h"
 #include "NiagaraSystem.h"
 #include "Serialization/JsonReader.h"
@@ -20,6 +22,9 @@
 #include "Stateless/Modules/NiagaraStatelessModule_Drag.h"
 #include "Stateless/Modules/NiagaraStatelessModule_GravityForce.h"
 #include "Stateless/Modules/NiagaraStatelessModule_InitializeParticle.h"
+#include "Stateless/Modules/NiagaraStatelessModule_InitialMeshOrientation.h"
+#include "Stateless/Modules/NiagaraStatelessModule_MeshRotationRate.h"
+#include "Stateless/Modules/NiagaraStatelessModule_ScaleMeshSize.h"
 #include "Stateless/Modules/NiagaraStatelessModule_ScaleColor.h"
 #include "Stateless/Modules/NiagaraStatelessModule_ScaleSpriteSize.h"
 #include "Stateless/Modules/NiagaraStatelessModule_ShapeLocation.h"
@@ -341,6 +346,89 @@ namespace
 			{
 				SubUV->AnimationMode = ENSMSubUVAnimation_Mode::Linear;
 			}
+		}
+
+		// A mesh particle (AST-230, Geometry of the source): the mesh renderer with its material, the mesh scale and its age curves, the
+		// start orientation (an Unreal quaternion of the converter) and the rotation rate (roll, pitch, yaw in degrees/s) with the age
+		// curve of the rate. The particles live in the local space of the component (the stateless emitter), as MoveRelEmitter Yes.
+		if (Spec->GetStringField(TEXT("renderer")) == TEXT("mesh"))
+		{
+			UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *Spec->GetStringField(TEXT("meshPath")));
+			UMaterialInterface* MeshMaterial = LoadObject<UMaterialInterface>(nullptr, *Spec->GetStringField(TEXT("materialPath")));
+			if (Mesh == nullptr || MeshMaterial == nullptr)
+			{
+				return FString::Printf(TEXT("%s: no mesh %s or material %s"), *Name, *Spec->GetStringField(TEXT("meshPath")),
+					*Spec->GetStringField(TEXT("materialPath")));
+			}
+			const TSharedPtr<FJsonObject> MeshScale = Child(Spec, TEXT("meshScale"));
+			const FVector3f ScaleMin(float(Numbers(MeshScale, TEXT("x"))[0]), float(Numbers(MeshScale, TEXT("y"))[0]), float(Numbers(MeshScale, TEXT("z"))[0]));
+			const FVector3f ScaleMax(float(Numbers(MeshScale, TEXT("x"))[1]), float(Numbers(MeshScale, TEXT("y"))[1]), float(Numbers(MeshScale, TEXT("z"))[1]));
+			SetRangeVector3(Init->MeshScaleDistribution, ScaleMin, ScaleMax);
+			const TSharedPtr<FJsonObject> MeshCurve = Child(Spec, TEXT("meshScaleCurve"));
+			UNiagaraStatelessModule_ScaleMeshSize* ScaleMesh = Module<UNiagaraStatelessModule_ScaleMeshSize>(Emitter);
+			ScaleMesh->ScaleDistribution.Mode = ENiagaraDistributionMode::NonUniformCurve;
+#if WITH_EDITORONLY_DATA
+			ScaleMesh->ScaleDistribution.ChannelCurves = {SampleCurve(Numbers(MeshCurve, TEXT("x"))), SampleCurve(Numbers(MeshCurve, TEXT("y"))),
+			                                              SampleCurve(Numbers(MeshCurve, TEXT("z")))};
+			ScaleMesh->ScaleDistribution.UpdateValuesFromDistribution();
+#endif
+			const TArray<double> QuatValues = Numbers(Spec, TEXT("meshQuat"));
+			if (QuatValues.Num() == 4)
+			{
+				const FRotator Start = FQuat(QuatValues[0], QuatValues[1], QuatValues[2], QuatValues[3]).GetNormalized().Rotator();
+				UNiagaraStatelessModule_InitialMeshOrientation* Orientation = Module<UNiagaraStatelessModule_InitialMeshOrientation>(Emitter);
+				const FVector3f Rotation(float(Start.Roll), float(Start.Pitch), float(Start.Yaw));
+				SetRangeVector3(Orientation->Rotation, Rotation, Rotation);
+			}
+			const FVector3f RateValue = Vec3(Numbers(Spec, TEXT("meshRate")));
+			if (!RateValue.IsNearlyZero())
+			{
+				UNiagaraStatelessModule_MeshRotationRate* MeshRate = Module<UNiagaraStatelessModule_MeshRotationRate>(Emitter);
+				SetRangeVector3(MeshRate->RotationRateDistribution, RateValue, RateValue);
+				const TArray<double> RateCurve = Numbers(Spec, TEXT("meshRateCurve"));
+				bool bCurve = false;
+				for (const double Value : RateCurve)
+				{
+					bCurve |= FMath::Abs(Value - 1.0) > 1e-4;
+				}
+				MeshRate->bUseRateScale = bCurve;
+#if WITH_EDITORONLY_DATA
+				if (bCurve)
+				{
+					MeshRate->RateScaleDistribution.Mode = ENiagaraDistributionMode::NonUniformCurve;
+					MeshRate->RateScaleDistribution.ChannelCurves = {SampleCurve(RateCurve), SampleCurve(RateCurve), SampleCurve(RateCurve)};
+					MeshRate->RateScaleDistribution.UpdateValuesFromDistribution();
+				}
+#endif
+			}
+			UNiagaraMeshRendererProperties* MeshRenderer = NewObject<UNiagaraMeshRendererProperties>(Emitter, TEXT("Renderer"), RF_Transactional);
+			MeshRenderer->Meshes.Empty();
+			FNiagaraMeshRendererMeshProperties& Entry = MeshRenderer->Meshes.AddDefaulted_GetRef();
+			Entry.Mesh = Mesh;
+			MeshRenderer->bOverrideMaterials = true;
+			FNiagaraMeshMaterialOverride& Override = MeshRenderer->OverrideMaterials.AddDefaulted_GetRef();
+			Override.ExplicitMat = MeshMaterial;
+			MeshRenderer->FacingMode = ENiagaraMeshFacingMode::Default;
+			MeshRenderer->SortMode = ENiagaraSortMode::ViewDepth;
+			MeshRenderer->bCastShadows = false;
+			for (const TPair<FName, FName>& Binding : {TPair<FName, FName>(TEXT("Tint"), TEXT("User.SwcTint")),
+			                                          TPair<FName, FName>(TEXT("AlphaScale"), TEXT("User.SwcAlphaScale"))})
+			{
+				FNiagaraMaterialAttributeBinding& Attribute = MeshRenderer->MaterialParameters.AttributeBindings.AddDefaulted_GetRef();
+				Attribute.MaterialParameterName = Binding.Key;
+				Attribute.NiagaraVariable = Binding.Key == TEXT("Tint")
+					? FNiagaraVariableBase(FNiagaraTypeDefinition::GetColorDef(), Binding.Value)
+					: FNiagaraVariableBase(FNiagaraTypeDefinition::GetFloatDef(), Binding.Value);
+			}
+			Emitter->AddRenderer(MeshRenderer, FGuid());
+			// The bounds: the mesh at its largest scale.
+			const double Reach = Mesh->GetBounds().SphereRadius * FMath::Max3(ScaleMax.X, ScaleMax.Y, ScaleMax.Z) * 1.5
+				+ Vec3(Numbers(Spec, TEXT("offset"))).GetAbsMax() + Extent.GetMax();
+			*Member<FBox>(Emitter, TEXT("FixedBounds")) = FBox(FVector(-Reach), FVector(Reach));
+			Emitter->PostEditChange();
+			FNiagaraEmitterHandle MeshHandle(*Emitter);
+			System->AddEmitterHandleDirect(MeshHandle);
+			return FString();
 		}
 
 		// The renderer: the sprite, its material, its alignment, the atlas grid, the pivot, the sort, the material bindings of

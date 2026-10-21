@@ -73,6 +73,11 @@ def material(path: str) -> dict | None:
     if root.find("SubMaterials") is not None:
         root = root.find("SubMaterials")[0]
     textures = {t.get("Map", ""): t.get("File", "") for t in root.findall("Textures/Texture")}
+    texmods = {}
+    for t in root.findall("Textures/Texture"):
+        mod = t.find("TexMod")
+        if mod is not None:
+            texmods[t.get("Map", "")] = {k: float(mod.get(k)) for k in ("TileU", "TileV", "OffsetU", "OffsetV") if mod.get(k) is not None}
 
     def floats(text: str) -> list[float]:
         return [float(v) for v in (text or "").split(",") if v.strip()]
@@ -80,7 +85,7 @@ def material(path: str) -> dict | None:
     return {"path": name, "shader": root.get("Shader", ""), "flags": [f for f in root.get("StringGenMask", "").split("%") if f],
             "diffuse": product(textures.get("Diffuse", "")), "textures": textures,
             "diffuseColor": floats(root.get("Diffuse", "1,1,1,1"))[:3], "emittance": floats(root.get("Emittance", "0,0,0,0")),
-            "opacity": float(root.get("Opacity", "1"))}
+            "opacity": float(root.get("Opacity", "1")), "texmods": texmods}
 
 
 def texture(product_path: str, out: Path) -> dict:
@@ -244,7 +249,7 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
     max_m = bands[-1][1] if bands else 0.0
     if far > 0:
         max_m = min(max_m, far)
-    return {
+    record = {
         "key": node["key"], "name": node["name"], "enabled": bool(bands) and alpha_base > 0 and tex is not None,
         "spawn": spawn, "delay": number(p.get("SpawnDelay", "0")), "emitterLife": number(p.get("EmitterLifeTime", "0")),
         "pulse": number(p.get("PulsePeriod", "0")), "life": life_range, "meanLife": mean_life,
@@ -280,6 +285,114 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
                      "bands": [[a, b if math.isfinite(b) else None] for a, b in bands]},
         "notes": notes, "unsupported": unsupported,
     }
+    record["renderer"] = "sprite"
+    if mtl and not mtl.get("missing") and "REFRACTION" in mtl.get("flags", []):
+        # A refraction material (the distortion of the swipes): no refraction path yet (plan step 6).
+        record["enabled"] = False
+        record["notes"].append("refraction material: not drawn (AST-230 plan step 6)")
+    if facing == "Decal":
+        record["renderer"] = "decal"
+        record["enabled"] = False
+        record["notes"].append("Facing Decal: the decal renderer is not built yet (AST-230 plan step 6)")
+    geometry = str(p.get("Geometry", "") or "")
+    if geometry:
+        record.update(mesh_fields(p, geometry, mtl, textures, tex_out))
+        unsupported.pop("Geometry", None)
+        if record["mesh"] is None:
+            record["enabled"] = False
+            record["notes"].append(f"Geometry {geometry}: no mesh")
+        else:
+            record["enabled"] = bool(bands) and alpha_base > 0
+    return record
+
+
+def cry_quat(degrees: list[float]) -> list[float]:
+    """@return The rotation of CryEngine Euler angles in degrees (x first, then y, then z: Quat::CreateRotationXYZ) as an Unreal quaternion
+    (x, y, z, w) through the space map (x, -y, z): the axis (x, y, z) of the game is (-x, y, -z) in Unreal (space.py, stage 1.1)."""
+    def axis(i: int, a: float) -> np.ndarray:
+        q = np.zeros(4)
+        q[i] = math.sin(a / 2)
+        q[3] = math.cos(a / 2)
+        return q
+
+    def mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:   # a x b: b first (x, y, z, w)
+        ax, ay, az, aw = a
+        bx, by, bz, bw = b
+        return np.array([aw * bx + ax * bw + ay * bz - az * by, aw * by - ax * bz + ay * bw + az * bx,
+                         aw * bz + ax * by - ay * bx + az * bw, aw * bw - ax * bx - ay * by - az * bz])
+    r = [math.radians(v) for v in degrees]
+    q = mul(axis(2, r[2]), mul(axis(1, r[1]), axis(0, r[0])))
+    return [round(float(v), 6) for v in (-q[0], q[1], -q[2], q[3])]
+
+
+PARTICLE_MESH_VERSION = 1
+
+
+def particle_mesh(geometry: str, out: Path) -> dict | None:
+    """Writes the glTF of the geometry of a mesh particle (all drawn subsets as one primitive with one material slot; positions,
+    normals, UVs, vertex colors) and @return its record, or None when the file does not read."""
+    from . import gltf, mesh as mesh_module
+    path = geometry.lower().replace("\\", "/")
+    if not source.has(path):
+        return None
+    name = Path(path).stem
+    gltf_path = out / f"m{PARTICLE_MESH_VERSION}" / (path.rsplit(".", 1)[0] + ".gltf")
+    asset = "SM_" + "_".join(Path(path).parts[-2:]).rsplit(".", 1)[0].replace(".", "_").replace("-", "_")
+    if not gltf_path.is_file():
+        try:
+            _, meshes = mesh_module.load(path)
+        except Exception:
+            return None
+        w = gltf.Writer()
+        slot = w.material("particle")
+        prims = []
+        for m in meshes:
+            pos = gltf.z_up_to_y_up(m.positions)
+            nrm = gltf.z_up_to_y_up(m.normals) if m.normals is not None else None
+            col = mesh_module.vertex_colors(m.colors)
+            for subset in m.subsets:
+                idx, (pp, nn, uv, _t, cc) = mesh_module.compact(m.indices[subset.first_index:subset.first_index + subset.num_indices],
+                                                                pos, nrm, m.uvs, None, col)
+                prims.append(w.primitive(pp, idx, nn, uv, None, material=slot, colors=cc))
+        if not prims:
+            return None
+        w.doc["scenes"][0]["nodes"] = [w.node(name=name, mesh=w.mesh(name, prims))]
+        gltf_path.parent.mkdir(parents=True, exist_ok=True)
+        w.save(gltf_path)
+    return {"source": path, "file": str(gltf_path.relative_to(env.content_dir())), "asset": asset}
+
+
+def mesh_fields(p: dict, geometry: str, mtl: dict | None, textures: dict, tex_out: Path) -> dict:
+    """@return The fields of a mesh particle (Geometry): the mesh, its scale (SizeX, SizeY, SizeZ: the scale of the mesh [I]; no
+    half size), the start orientation (InitAngles, degrees) and the rotation rate (RotationRateX/Y/Z, degrees/s, with the age curve
+    of the Z rate), and the Illum values of its material: the diffuse map, the emittance map (its TexMod tiling and offset; no
+    oscillator), the Diffuse and Emittance colors, and the Opacity."""
+    mesh = particle_mesh(geometry, tex_out.parent / "meshes")
+    sizes = {axis: field(p, "Size" + axis.upper()) for axis in "xyz"}
+    rates = [field(p, f"RotationRate{a}") for a in "XYZ"]
+    angles = vector(p.get("InitAngles", "") or p.get("LocalInitAngles", ""))
+    out = {"renderer": "mesh", "mesh": mesh,
+           "meshScale": {axis: random_range(sizes[axis]["base"] if sizes[axis]["base"] else 1.0, sizes[axis]["random"]) for axis in "xyz"},
+           "meshScaleCurve": {axis: sample(sizes[axis]["age"], SAMPLES) for axis in "xyz"},
+           "meshQuat": cry_quat(angles),
+           # The Unreal rotator rates (roll, pitch, yaw) of the game rates about x, y, z: all three change sign under the space map.
+           "meshRate": [-(r["base"] or 0.0) for r in rates],
+           "meshRateCurve": sample(rates[2]["age"], SAMPLES)}
+    illum = {"shader": (mtl or {}).get("shader", ""), "diffuseColor": (mtl or {}).get("diffuseColor", [1.0, 1.0, 1.0]),
+             "emittance": ((mtl or {}).get("emittance", []) + [0.0, 0.0, 0.0, 0.0])[:4], "opacity": (mtl or {}).get("opacity", 1.0),
+             "emittanceMap": None, "emittanceTransform": [1.0, 1.0, 0.0, 0.0], "diffuseTransform": [1.0, 1.0, 0.0, 0.0]}
+    if mtl and not mtl.get("missing"):
+        for slot, key in (("Emittance", "emittanceMap"),):
+            product_path = product(mtl["textures"].get(slot, ""))
+            if product_path:
+                if product_path not in textures:
+                    textures[product_path] = texture(product_path, tex_out)
+                illum[key] = textures[product_path]["asset"]
+        for slot, key in (("Emittance", "emittanceTransform"), ("Diffuse", "diffuseTransform")):
+            mod = mtl.get("texmods", {}).get(slot, {})
+            illum[key] = [mod.get("TileU", 1.0), mod.get("TileV", 1.0), mod.get("OffsetU", 0.0), mod.get("OffsetV", 0.0)]
+    out["illum"] = illum
+    return out
 
 
 def system(key: str, libs: Libraries, tex_out: Path, textures: dict) -> dict:
@@ -317,7 +430,9 @@ def systems(keys: list[str] | None = None) -> dict:
     out = out_dir()
     textures: dict[str, dict] = {}
     result = []
-    for key in keys or STAGE2:
+    # The default list: the stage 2 fire and the resolved keys of skill-effects.json (AST-230, tools/convert-particles.sh skills).
+    from .skill_effects import build_keys
+    for key in keys or list(dict.fromkeys(STAGE2 + build_keys())):
         record = system(key, libs, out / "textures", textures)
         record["hash"] = hashlib.sha256((CONVERTER_VERSION + json.dumps(record, sort_keys=True, default=str)).encode()).hexdigest()[:16]
         result.append(record)

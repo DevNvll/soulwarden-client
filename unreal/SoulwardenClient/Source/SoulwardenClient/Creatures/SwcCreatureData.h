@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Character/SwcLocomotion.h"
 #include "Creatures/SwcEffects.h"
+#include "Effects/SwcParticleEffects.h"
 
 /**
  * The converted creature content (tools/convert-creatures.sh, tools/import-creatures.sh; docs/CREATURES.md), read from
@@ -187,10 +188,23 @@ struct FSwcCreatureSlice
 };
 
 /** The effect data (effects.json; stage P2.9): a projectile slice, a spell slice, a spell row. */
+/** A particle entity of a projectile or spell slice (AST-230, effects.json "particles"; docs/EFFECTS.md): the entity name (the target of the
+ *  delayed events), the effect, its runtime active flag at the start, its transform in the slice, and its placement values. */
+struct FSwcSliceParticle
+{
+	FString Entity;
+	FString Effect;
+	bool bActive = true;
+	FTransform Transform;
+	FSwcEffectSettings Settings;
+	bool bKillOnDeactivate = false;
+};
+
 struct FSwcProjectileSlice
 {
 	FString Path;
 	swc::creatures::ProjectileFlight Flight;
+	TArray<FSwcSliceParticle> Particles;
 };
 
 struct FSwcSpellSlice
@@ -199,6 +213,7 @@ struct FSwcSpellSlice
 	std::vector<swc::creatures::SpellEventData> Events;
 	bool bHasVolume = false;
 	swc::creatures::SpellVolumeData Volume;
+	TArray<FSwcSliceParticle> Particles;
 };
 
 struct FSwcSpellRow

@@ -49,6 +49,9 @@ TAutoConsoleVariable<float> CVarMinDrawPixels(TEXT("swc.Effects.MinDrawPixels"),
 	TEXT("e_ParticlesMinDrawPixels of the view distance of an emitter: Dmax = screen height / vertical FOV x max(this, 0.125) x M x S x V "
 		 "(particle-rules2.md b; 1.0 the shipped default, 1.5 in some quality groups). 0 turns the rule off (the LOD bounds only)."));
 
+// AST-230: a check value: the time scale of the effects that start (0.1: the particles play 10 times slower; the game time does not change).
+TAutoConsoleVariable<float> CVarTimeScale(TEXT("swc.Effects.TimeScale"), 1.0f,
+	TEXT("A check value (AST-230): the time scale of each effect that starts (1: the data)."));
 TAutoConsoleVariable<int32> CVarShow(TEXT("swc.Effects.Show"), 1,
 	TEXT("1: the particle effects are visible; 0: hidden (the components stay; a matched view with and without the effects)."));
 
@@ -155,6 +158,16 @@ FIntPoint CellOf(const FVector& Location)
 	return FIntPoint(FMath::FloorToInt(Location.X / CellCm), FMath::FloorToInt(Location.Y / CellCm));
 }
 } // namespace
+
+FTransform USwcEffectSubsystem::PlacementTransform(const TArray<TSharedPtr<FJsonValue>>& Matrix)
+{
+	return Matrix.Num() == 12 ? UnrealTransform(Matrix) : FTransform::Identity;
+}
+
+FSwcEffectSettings USwcEffectSubsystem::PlacementSettings(const TSharedPtr<FJsonObject>& Settings)
+{
+	return SettingsOf(Settings);
+}
 
 FString USwcEffectSubsystem::Folder()
 {
@@ -284,13 +297,32 @@ UNiagaraComponent* USwcEffectSubsystem::Acquire(int32 Type)
 	{
 		return nullptr;
 	}
+	// A pooled component whose system still runs (a tail that finishes, or a kept emitter; AST-230) is not taken: its particles stay. A
+	// component of an attached effect goes back to the owner of the pool when it is taken again (the source keeps the attachment of
+	// an emitter until it is dead).
 	TArray<TWeakObjectPtr<UNiagaraComponent>>& Pool = Types[Type].Pool;
-	while (!Pool.IsEmpty())
+	for (int32 Index = Pool.Num() - 1; Index >= 0; --Index)
 	{
-		if (UNiagaraComponent* Component = Pool.Pop().Get())
+		UNiagaraComponent* Component = Pool[Index].Get();
+		if (Component == nullptr)
 		{
-			return Component;
+			Pool.RemoveAtSwap(Index);
+			continue;
 		}
+		if (Component->IsActive())
+		{
+			continue;
+		}
+		Pool.RemoveAtSwap(Index);
+		Kept.Remove(Component);
+		USceneComponent* Root = OwnerActor()->GetRootComponent();
+		if (Component->GetAttachParent() != Root)
+		{
+			Component->AttachToComponent(Root, FAttachmentTransformRules::KeepWorldTransform);
+			Component->SetUsingAbsoluteLocation(true);
+			Component->SetUsingAbsoluteRotation(true);
+		}
+		return Component;
 	}
 	UNiagaraComponent* Component = NewObject<UNiagaraComponent>(OwnerActor());
 	Component->SetAutoActivate(false);
@@ -332,7 +364,7 @@ void USwcEffectSubsystem::SetParameters(UNiagaraComponent* Component, const FSwc
 	Component->SetVariableLinearColor(TEXT("User.SwcTint"), Settings.Tint);
 	Component->SetVariableFloat(TEXT("User.SwcAlphaScale"), Settings.AlphaScale);
 	Component->SetWorldScale3D(PlacementScale * double(Settings.SizeScale));
-	Component->SetCustomTimeDilation(Settings.TimeScale);
+	Component->SetCustomTimeDilation(Settings.TimeScale * FMath::Max(CVarTimeScale.GetValueOnGameThread(), 0.001f));
 }
 
 void USwcEffectSubsystem::Restart(UNiagaraComponent* Component)
@@ -358,6 +390,49 @@ UNiagaraComponent* USwcEffectSubsystem::Start(const FString& Effect, const FTran
 	Component->Activate(true);
 	Started.Add(Component);
 	return Component;
+}
+
+UNiagaraComponent* USwcEffectSubsystem::StartAttached(const FString& Effect, USceneComponent* Parent, FName Socket, const FTransform& Relative,
+                                                      bool bFollow, const FSwcEffectSettings& Settings)
+{
+	const int32 Type = TypeOf(Effect);
+	UNiagaraComponent* Component = Type != INDEX_NONE && Parent != nullptr ? Acquire(Type) : nullptr;
+	if (Component == nullptr)
+	{
+		return nullptr;
+	}
+	if (bFollow)
+	{
+		Component->SetUsingAbsoluteLocation(false);
+		Component->SetUsingAbsoluteRotation(false);
+		Component->AttachToComponent(Parent, FAttachmentTransformRules::KeepRelativeTransform, Socket);
+		Component->SetRelativeLocationAndRotation(Relative.GetLocation(), Relative.GetRotation());
+	}
+	else
+	{
+		const FTransform World = Relative * Parent->GetSocketTransform(Socket);
+		Component->SetWorldLocationAndRotation(World.GetLocation(), World.GetRotation());
+	}
+	SetParameters(Component, Settings, Relative.GetScale3D());
+	Component->Activate(true);
+	Started.Add(Component);
+	return Component;
+}
+
+void USwcEffectSubsystem::Keep(UNiagaraComponent* Component)
+{
+	if (Component == nullptr)
+	{
+		return;
+	}
+	UNiagaraSystem* Asset = Component->GetAsset();
+	const int32 Type = Types.IndexOfByPredicate([Asset](const FType& T) { return T.System == Asset; });
+	Started.Remove(Component);
+	if (Types.IsValidIndex(Type))
+	{
+		Types[Type].Pool.Add(Component);
+	}
+	Kept.Add(Component, FPlatformTime::Seconds());
 }
 
 void USwcEffectSubsystem::Stop(UNiagaraComponent* Component, bool bKill)
@@ -693,6 +768,25 @@ void USwcEffectSubsystem::SpawnTest(const FString& Spec)
 void USwcEffectSubsystem::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	// AST-230: a kept emitter (KeepEmitterActive) that still runs after KeepSeconds stops its emission (an endless system).
+	if (!Kept.IsEmpty())
+	{
+		constexpr double KeepSeconds = 10.0;
+		const double Now = FPlatformTime::Seconds();
+		for (auto It = Kept.CreateIterator(); It; ++It)
+		{
+			UNiagaraComponent* Component = It->Key.Get();
+			if (Component == nullptr || !Component->IsActive())
+			{
+				It.RemoveCurrent();
+			}
+			else if (Now - It->Value > KeepSeconds)
+			{
+				Component->Deactivate();
+				It.RemoveCurrent();
+			}
+		}
+	}
 	if (const bool bShow = CVarShow.GetValueOnGameThread() != 0; bShow != bShown && Owner.IsValid())
 	{
 		bShown = bShow;
