@@ -21,16 +21,41 @@ The status of each part is in [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/PARIT
 
 ## Screenshots
 
+The text at the top left of some pictures is the debug overlay of a development run.
+
+The character selection menu in the camp scene.
+
+![The character selection menu](docs/screenshots/character-select.webp)
+
 A level 70 character with a bow in the open world, with the HUD of the original UI scripts (the compass, the
-consumable quick slots, the health bar, and the weapon abilities). The text at the top left is the debug overlay of a
-development run.
+consumable quick slots, the health bar, and the weapon abilities).
 
 ![A character with a bow in the open world](docs/screenshots/world-bow.webp)
 
-The inventory and the equipment of the same character, drawn from the original UI canvas and scripts with the item
-data of the server.
+A great axe attack on a level 70 wolf of the server. The HUD shows the health of the target and the damage numbers.
+
+![A great axe attack on a wolf](docs/screenshots/great-axe.webp)
+
+Oxboro at night. The torch posts light the grass and the buildings.
+
+![Oxboro at night](docs/screenshots/oxboro-night.webp)
+
+A character at the shore, with the water and the wet sand below the cliffs.
+
+![A character at the shore](docs/screenshots/shore.webp)
+
+A wooden bridge to the buildings of a forest settlement, with their reflections in the river.
+
+![A bridge in a forest settlement](docs/screenshots/forest-bridge.webp)
+
+The inventory and the equipment of a character, drawn from the original UI canvas and scripts with the item data of
+the server.
 
 ![The inventory and the equipment](docs/screenshots/inventory.webp)
+
+The respawn screen, with the map and the respawn points.
+
+![The respawn screen](docs/screenshots/respawn.webp)
 
 ## Game data and legal
 
