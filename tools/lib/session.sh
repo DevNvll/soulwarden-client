@@ -106,7 +106,7 @@ if [[ -n "${SWC_SESSION_SEED:-}" ]]; then
     backend_arguments+=(--seed-character "${SWC_SESSION_SEED}")
 fi
 # The backend gets no identity of the client and no diagnostics switch of the Soulwarden harness.
-backend_environment=(-u SWC_STEAM_ID -u SWC_PERSONA_NAME -u SOULWARDEN_HARNESS -u SOULWARDEN_ADMIN_TOKEN)
+backend_environment=(-u SWC_STEAM_ID -u SWC_PERSONA_NAME -u SOULWARDEN_HARNESS)
 # Development sessions only: SWC_SESSION_BACKEND_ARGS gives the backend extra arguments (for example --dev-commands, the
 # development routes of the backend: tools/dev-build.sh), and its process alone gets the mark SOULWARDEN_HARNESS=1 that
 # the backend needs for them. Never for the data folder of the user (a player run; tools/play.sh does not set it).
@@ -120,8 +120,15 @@ if [[ -n "${SWC_SESSION_BACKEND_ARGS:-}" ]]; then
     backend_environment+=(SOULWARDEN_HARNESS=1)
     echo "session: development backend arguments: ${SWC_SESSION_BACKEND_ARGS}" >&2
 fi
+# The admin routes of the backend (/admin/v1, for the account of the Steam id of the client; the travel of the world map, stage
+# MVP-C): a new random token for each session, in the environments of the backend and of the client only (no file, no log
+# line, no command line). The backend takes the Steam id of the client (the fallback identity when the client has none).
+# The token goes by a prefix assignment of the shell (the environment), never as an argument of a command.
+admin_token="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+admin_steam_id="${SWC_STEAM_ID:-}"
+[[ "${admin_steam_id}" == "local" ]] && admin_steam_id=""
 echo "session: backend $(basename "$(readlink -f "${SWC_BACKEND_DIR}")"), data ${data}" >&2
-env "${backend_environment[@]}" \
+SOULWARDEN_ADMIN_TOKEN="${admin_token}" SOULWARDEN_ADMIN_STEAM_ID="${admin_steam_id}" env "${backend_environment[@]}" \
     "${SWC_BACKEND_EXE}" "${backend_arguments[@]}" >>"${data}/logs/backend-launch.log" 2>&1 9>&- 7>&- 6>&- &
 backend=$!
 ready=0
@@ -142,7 +149,7 @@ echo "session: backend ready, client starts" >&2
 
 set +e
 # No proxy: each request of the client goes to the backend on loopback.
-unshare --user --map-user="${SWC_SESSION_UID}" --map-group="${SWC_SESSION_GID}" -- \
+SWC_ADMIN_TOKEN="${admin_token}" unshare --user --map-user="${SWC_SESSION_UID}" --map-group="${SWC_SESSION_GID}" -- \
     env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u SWC_SESSION_BACKEND_ARGS -u SWC_WORLD_HELD "$@" 9>&- 7>&- 6>&-
 status=$?
 set -e

@@ -55,6 +55,8 @@ const char* const HudScreens[] = {
 	// The front end (stage F2 of docs/FRONTEND.md): the landing screen of the main menu (a native load, swc/frontend.lua).
 	"lyshineui/main menu/landingscreenv2",
 	"lyshineui/respawn/respawn",
+	// The world map (stage MVP-C): M opens the state Map (magicmap.luac and its layers; the map data of swc/worldmap.lua).
+	"lyshineui/worldmap/magicmap",
 	"lyshineui/tooltip/tooltip",
 	// The inventory (stage P2.4): the bag, the equipment, the weight of the action bar, the action menu of an item.
 	"lyshineui/inventory/newinventory",
@@ -909,7 +911,8 @@ bool USwcUiSubsystem::UiButton(const TCHAR* Button, bool bDown)
 
 bool USwcUiSubsystem::UiWheel(float Delta)
 {
-	return CallInput({FArg::of(std::string("wheel")), FArg::of(static_cast<double>(Delta))});
+	// The unit of CryInput: 120 for each step of the wheel (Slate gives 1); the scroll boxes and the actions of the wheel use it.
+	return CallInput({FArg::of(std::string("wheel")), FArg::of(static_cast<double>(Delta) * 120.0)});
 }
 
 void USwcUiSubsystem::UpdateCursor()
@@ -997,6 +1000,16 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 				LoadingHoldUntil = FPlatformTime::Seconds() + 1.0;
 			}
 			UE_LOG(LogSwcUi, Log, TEXT("ui: the respawn screen asks for a respawn (%hs): %s"), Request.c_str(), bSent ? TEXT("sent") : TEXT("not sent"));
+		}
+		else if (Request.rfind("travel ", 0) == 0)
+		{
+			// "travel shrine POI X Y Z" (swc/worldmap.lua: the Yes of the shrine popup of the map): the travel command of the
+			// backend to the place at the landmark position (USwcBackendSubsystem::RequestTravel).
+			TArray<FString> Parts;
+			FString(UTF8_TO_TCHAR(Request.c_str())).ParseIntoArray(Parts, TEXT(" "));
+			const bool bSent = Parts.Num() >= 6 && Backend->RequestTravel(FVector(FCString::Atod(*Parts[3]), FCString::Atod(*Parts[4]),
+				FCString::Atod(*Parts[5])));
+			UE_LOG(LogSwcUi, Log, TEXT("ui: the map asks for a travel (%hs): %s"), Request.c_str(), bSent ? TEXT("sent") : TEXT("not sent"));
 		}
 		else if (Request.rfind("menu ", 0) == 0)
 		{
@@ -1829,6 +1842,10 @@ void USwcUiSubsystem::FeedLocalPlayer()
 										FArg::of(std::string(bLoadingForDeath ? "eLoadingScreenIds_DEATH" : "eLoadingScreenIds_LEVEL1"))});
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the loading screen of %s %s"), bLoadingForDeath ? TEXT("a respawn") : TEXT("a travel"),
 			bSentLoadingScreen ? TEXT("shows") : TEXT("ends"));
+		if (bSentLoadingScreen && !bLoadingForDeath)
+		{
+			Runtime->call("HostTravelStarts", {});
+		}
 		if (!bSentLoadingScreen)
 		{
 			bLoadingForDeath = false;

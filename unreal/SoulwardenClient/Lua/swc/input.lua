@@ -199,7 +199,11 @@ function Swc.HostInput(kind, a, b)
     end
     used = Swc.CursorWanted()
   elseif kind == "wheel" then
+    -- The canvas and the action maps both get the wheel (two systems of the native input): the scroll box under the
+    -- cursor, and the actions of the wheel keys with the signed value (magicmap.luac zooms with ui_scroll_up and
+    -- ui_scroll_down).
     wheel(a)
+    Swc.FireWheelActions(a)
     used = Swc.CursorWanted()
   elseif kind == "key" then
     used = key(a, b)
@@ -272,6 +276,9 @@ end
 -- of the screen, after the localization); "item:ITEMID" is a shown item cell (itemdraggable.luac) of the item; "loot:N" is
 -- the item cell N of the panel of an open bag; "lootbag" (Swc.HostPointOf) is a loot bag near the character; a different name
 -- is the first element with the name.
+-- The walks below go down only into shown elements: the own flag of an element (swcui.enabled) is enough, and a walk is linear
+-- (enabled_in_hierarchy for each element walked up to the root each time: a waitfor of a hidden element through the respawn
+-- screen with the world map took seconds in each frame).
 local function drive_target(root, name, canvas)
   -- in:LABEL:NAME: the first shown element NAME in the nearest ancestor of the text LABEL that has one (an element of one row of
   -- a list, as the options button of the row of a character: stage F8).
@@ -301,7 +308,7 @@ local function drive_target(root, name, canvas)
     local count = 0
     local function scan(id)
       for _, c in ipairs(swcui.children(id)) do
-        if swcui.enabled_in_hierarchy(c) then
+        if swcui.enabled(c) then
           for _, inst in ipairs(Swc.components[tostring(c)] or {}) do
             if (inst.__swcScript or ""):find("itemdraggable.luac", 1, true) and inst.ItemLayout and (inst.ItemLayout.itemId or 0) ~= 0 then
               count = count + 1
@@ -329,7 +336,7 @@ local function drive_target(root, name, canvas)
     end
     local function shown(id)
       for _, c in ipairs(swcui.children(id)) do
-        if swcui.enabled_in_hierarchy(c) then
+        if swcui.enabled(c) then
           if swcui.name(c) == name then
             return c
           end
@@ -346,7 +353,7 @@ local function drive_target(root, name, canvas)
   local static = item and Swc.ItemStatic(item)
   local function scan(id)
     for _, c in ipairs(swcui.children(id)) do
-      if swcui.enabled_in_hierarchy(c) then
+      if swcui.enabled(c) then
         if label then
           local text = swcui.get(c, "text.text")
           if text and (text == label or swcui.localize(text) == label) then
@@ -387,6 +394,24 @@ function Swc.HostPointOf(name, fx, fy)
     end
     local w, h = swcui.viewport()
     return string.format("%.1f %.1f", (w or 1920) / 2, (h or 1080) / 2)
+  end
+  -- "shrine:POI": the icon of a shrine on the world map (fasttravelicon.luac with the point of interest POI in its icon data).
+  local poi = tonumber(string.match(name, "^shrine:(%d+)$") or "")
+  if poi then
+    for _, screen in pairs(Swc.screens) do
+      if swcui.canvas_get(screen.canvas, "enabled") then
+        local layer = swcui.find_descendant(swcui.canvas_get(screen.canvas, "root"), "FastTravelLayer")
+        for _, icon in ipairs(layer and layer:IsValid() and swcui.children(layer) or {}) do
+          for _, instance in ipairs(Swc.components[tostring(icon)] or {}) do
+            if instance.iconData and instance.iconData.index == poi and swcui.enabled_in_hierarchy(icon) then
+              local x0, y0, _, _, x2, y2 = swcui.viewport_points(icon)
+              return string.format("%.1f %.1f", (x0 + x2) / 2, (y0 + y2) / 2)
+            end
+          end
+        end
+      end
+    end
+    return ""
   end
   local canvases = {}
   for _, screen in pairs(Swc.screens) do

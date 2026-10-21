@@ -44,6 +44,7 @@ tools/convert-ui.sh gamedata               # gamedata/abilities.json, weapons.js
 tools/convert-ui.sh items                  # gamedata/items.tsv, perks.tsv, consumables.tsv, weaponstats.tsv, armorstats.tsv,
                                            # encumbrance.json, itemrules.json (the inventory screens, stage P2.4)
 tools/convert-ui.sh uistates               # gamedata/uistates.json: the UI state table (libs/ui/uistates.xml)
+tools/convert-ui.sh worldmap               # the world map: gamedata/worldmap.json, the canvas MagicMap, all map tiles and images
 tools/convert-ui.sh enums                  # gamedata/enums.json: the enum values of the client program
 tools/convert-ui.sh loader                 # gamedata/loader.json: the canvases that the two loaders name
 tools/convert-ui.sh actionmaps             # gamedata/actionmaps.json: the action maps of the client profile
@@ -261,10 +262,51 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   (`Hud.LocalPlayer.HomePoints.Count` 0) the list has the one row "Random Location". RESPAWN calls
   `LocalPlayerUIRequestsBus.RequestRespawn(random, homeId)`: a host request (`Swc.TakeHostRequest`) that the client
   gives to `USwcBackendSubsystem::RequestRespawn(bRandom, HomeId)`. The screen holds the world map: the map buses
-  give empty data (no points of interest, no territories, no NPC markers), the group and raid sizes 5 and 10.
+  give the data of the world map (below; no NPC markers), the group and raid sizes 5 and 10.
 - A bus method that the emulation does not define goes to the script handlers of that bus that have it (an EBus with
   a Lua handler: the popup screen has `UiPopupBus`), else a stub.
 - The data layer gives a data observer the value also when it is false (the end of a death: `IsDead` false).
+
+### The world map and the travel (swc/worldmap.lua, stage MVP-C)
+
+Linear AST-213. `tools/convert-ui.sh worldmap` writes the data and the textures; the fixture `worldmap` is the test.
+
+- The screen: the original canvas `lyshineui/worldmap/magicmap` (MagicMap: magicmap.luac and its layers) in the state "Map"
+  (2477632187) of the state table. The key M (`toggleMapComponent`, map ui) goes to an original script that toggles the state;
+  the emulation has no rule of its own. The map data of the script itself (`NewWorld_VitaeEterna`: the bounds 2014, 10496,
+  12324 x 10496 m, the zoom levels 1 to 7) gives the tiles: `lyshineui/worldtiles/newworld_vitaeeterna/map_lL_yYYY_xXXX`,
+  3,031 tiles of 8 levels (all converted, 2.8 GB).
+- The wheel: the canvas and the action maps both get it, as in the native input. A step is 120 (the CryInput unit; the client
+  multiplies the Slate step by 120). The map zooms with the actions `ui_scroll_up` and `ui_scroll_down` and the signed value
+  (`Swc.FireWheelActions`). Space (`centerMap`) centers the map on the player.
+- The data (`gamedata/worldmap.json`, `converter/swc_convert/worldmap.py`):
+  - the definitions of 1,357 territories, areas, and points of interest (javelindata_territorydefinitions and
+    pointofinterestdefinitions/*): each column in the name of the native class (lower camel case; an icon column also with
+    "Path": `mapIconPath`);
+  - 1,195 shapes: the polygon prisms of the slices that the territory master slice names (tracts.json
+    `territoryMasterSlicePath`: zones/territorybounds, 19 zones/areabounds_*, 23 territories/r_*_pois), in world meters;
+  - 1,769 landmarks: TerritoryLandmarks of the region metadata (type, territory ids, position). The 133 spirit shrines
+    (type 27) and the 28 inn respawn points (type 20) are the 161 places of the backend place list (each one within 0.5 m).
+- The buses (swc/worldmap.lua): MapComponentBus (the territories with their box, the points of interest, the settlements,
+  the shrine ids, the landmarks of a territory and a type, the territories that contain a position, the smallest one),
+  TerritoryDefinitionsDataManagerBus (the definition, with HasPoiTag), LandClaimRequestBus (the territory of a position; no
+  owner, no governance). `Hud.LocalPlayer.IsLandClaimManagerAvailable` true makes the 16 territory overlays. The host
+  position (`Swc.HostView`) updates `Hud.LocalPlayer.CurrentAreaTerritory.SmallestContainingId`, `.ClaimKey`,
+  `EnteredTerritoryId`, and `ExitedTerritoryId` after each move of 2 m or more.
+- The rules of the fixed backend: no discovery (each point of interest is discovered and charted), no wars, races, raids,
+  outposts, claims, missions, or companies (empty lists).
+- The travel: the original shrine flow (fasttravelicon.luac: a click on a shrine, the flyout with "Fast Travel", the Yes/No
+  popup, `PlayerHousingClientRequestBus.RequestFastTravelToTerritory`). The backend has no fast travel of the game (no fee, no
+  cooldown, no discovery, no inn recall): the costs are 0 and the check gives Success, or IsDead for a dead character. The
+  request goes to the client as `travel shrine POI X Y Z` (the landmark position). The client
+  (`USwcBackendSubsystem::RequestTravel`, Private/SwcBackendTravel.cpp) takes the backend place at that position (the place list
+  `GET /admin/v1/catalog/places`; the backend ids are not the map ids: the map shrine 40293 is the backend place
+  shrine_40292) and sends the admin command `travel` (`POST /admin/v1/commands`). The session (tools/lib/session.sh) gives one
+  new random token to the backend (SOULWARDEN_ADMIN_TOKEN, with SOULWARDEN_ADMIN_STEAM_ID of the client) and to the client
+  (SWC_ADMIN_TOKEN) in the environment only; the client removes it from its environment, and no log line has it. The backend
+  then moves the character as for each travel (3951, the movement state with a new teleport number, 3954), and the client
+  keeps its loading gate until the cells of the place are there.
+- The drive target `shrine:POI` (Swc.HostPointOf) is the map icon of a shrine.
 
 ### Dynamic lists (swc/dynamic.lua)
 

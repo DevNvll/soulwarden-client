@@ -1,0 +1,50 @@
+# Stage MVP-C (Linear AST-213): the exit check of the world map, the travel, and the respawn (docs/UI.md "The world map and the
+# travel"). tools/creature-check.sh mvpc-travel 210 tests/drive/mvpc-travel-routes.txt -- -SwcUiDrive=FILE. The clock starts
+# when the world shows. M opens the map at the player; the wheel zooms out to the world; a click on the Marauder Shrine of
+# Everfall (POI 40293, about 2.3 km from Queensport), Fast Travel, Yes: the travel command of the backend; the loading screen
+# until the cells of the place are there; M shows the map at the new place. The routes move the character to Oxboro and kill
+# it; the respawn screen with its map; RESPAWN; the backend puts the character at the nearest travel place (the Inn of Oxboro);
+# M shows the map there. The copy of the database must have the character away from the Marauder Shrine (a travel to the own
+# shrine sends nothing).
+0 waitfor world 240
+3 key m
+5 draw map-open
+6 move 0.5 0.5
+6.2 wheel -1
+6.8 wheel -1
+7.4 wheel -1
+8.0 wheel -1
+8.6 wheel -1
+9.2 wheel -1
+10.5 draw map-world
+11 point shrine:40293
+11.5 click
+13 draw flyout
+14 point text:Fast_Travel
+14.5 click
+16 draw popup
+17 point ButtonYes
+17.5 click
+25 waitfor world 120
+29 key m
+30.5 move 0.5 0.5
+31 wheel 1
+31.6 wheel 1
+32.2 wheel 1
+33 key space
+35 draw map-arrived
+38 key m
+40 waitfor RespawnMapButtonAccept 240
+44 draw respawn
+45 point RespawnMapButtonAccept
+45.5 click
+52 waitfor world 120
+56 key m
+57.5 move 0.5 0.5
+58 wheel 1
+58.6 wheel 1
+59.2 wheel 1
+60 key space
+62 draw map-respawned
+66 key m
+70 end

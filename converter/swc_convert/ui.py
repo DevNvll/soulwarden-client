@@ -17,6 +17,8 @@ Usage (tools/convert-ui.sh; output in SWC_CONTENT/ui, never in git):
   world                   the data of the UI in the world views (stage WF7): the status rows of the plates and of the damage
                           numbers -> gamedata/statuseffects.json, the damage types -> gamedata/damagetypes.json, the
                           canvases of the markers, the prompt cards, the damage numbers, and the loot ticker, and their textures
+  worldmap                the world map (stage MVP-C): gamedata/worldmap.json (swc_convert/worldmap.py: the territory and POI
+                          definitions, shapes, and landmarks), the canvas MagicMap, the map tiles of all levels, the map images
 
 The canvas form (research ~/Games/soulwarden-client/research/ui.md, section 2): a binary object stream with one
 SliceComponent; its Entities list has the canvas entity and one entity for each element. The converter keeps each
@@ -44,7 +46,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from . import datasheet, dds, env, luabc, optiondefaults, source, uienums
+from . import datasheet, dds, env, luabc, optiondefaults, source, uienums, worldmap
 from .source import field_id, number, parse, real, text
 
 # The canvases of the first HUD (stage 1.10): the globals (the loader of the screens), the vitals, the weapon and
@@ -1393,6 +1395,23 @@ def convert_options() -> dict:
             "input profiles": len(profiles), "canvases": canvases, "textures": convert_textures(textures)}
 
 
+# ------------------------------------------------------------------------------------------------------------ world map
+
+WORLDMAP_CANVASES = ["lyshineui/worldmap/magicmap.dynamicuicanvas"]
+# The tiles of all zoom levels (magicmap.luac and maptile.luac make their paths at run time: about 3,000 files, 2.8 GB), the
+# map icons and overlays, and the icons of the map buttons.
+WORLDMAP_TEXTURE_FOLDERS = ["lyshineui/worldtiles/newworld_vitaeeterna/", "lyshineui/images/map/", "lyshineui/images/icons/worldmap/"]
+
+
+def convert_worldmap(force: bool) -> dict:
+    data = worldmap.convert()
+    canvases = convert_canvases(WORLDMAP_CANVASES)
+    textures = set(canvases.pop("textures"))
+    for folder in WORLDMAP_TEXTURE_FOLDERS:
+        textures |= set(folder_textures(folder))
+    return {"data": data, "canvases": canvases, "textures": convert_textures(textures, force)}
+
+
 # -------------------------------------------------------------------------------------------------------------- loaders
 
 LOADER_SCRIPTS = {"screens": "lyshineui/uiloader.luac", "dynamic": "lyshineui/dynamiccanvasloader/dynamiccanvasloader.luac"}
@@ -1527,6 +1546,7 @@ def main(argv=None) -> int:
     sub.add_parser("texture-index")
     sub.add_parser("world")
     sub.add_parser("options")
+    p = sub.add_parser("worldmap"); p.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "hud":
         result = hud(args.force)
@@ -1569,6 +1589,8 @@ def main(argv=None) -> int:
         result = convert_world()
     elif args.command == "options":
         result = convert_options()
+    elif args.command == "worldmap":
+        result = convert_worldmap(args.force)
     else:
         result = convert_text()
     print(json.dumps(result, indent=1, default=str))

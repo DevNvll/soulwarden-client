@@ -140,6 +140,14 @@ public:
 	const FSwcPlayerLooks* GetPlayerLooks();
 	/** @return True while the cells of a new place load after a travel or a respawn (the UI keeps its loading screen). */
 	bool IsWaitingForCells() const { return bTravelWait; }
+	/**
+	 * The travel of the world map (stage MVP-C, Linear AST-213; Private/SwcBackendTravel.cpp): the admin command "travel" of the
+	 * backend (the routes /admin/v1 with the token of the session, SWC_ADMIN_TOKEN) to the backend place nearest to a landmark
+	 * of the map (game meters; a shrine of the map is a place of the backend place list). The backend then moves the character
+	 * (the movement state with a new teleport number, messages 3951 and 3954): the usual travel path and its loading gate.
+	 * @return False when no request went out (no token, not in the world, dead, a travel that runs, no place within 5 m).
+	 */
+	bool RequestTravel(const FVector& LandmarkMeters);
 	/** The key E of the interactions (stage P2.10): down or up. */
 	void SetInteractKey(bool bDown) { bInteractKey = bDown; }
 	/** The bag panel of the UI (stage P2.4): the open of a loot bag of the creature view (its interest) with OpenStorageOption, the
@@ -172,6 +180,19 @@ public:
 	int32 HttpPort = 32200;
 
 private:
+	/** The travel of the world map (SwcBackendTravel.cpp): the token of the admin routes, the character of the world, the places. */
+	struct FTravelPlace
+	{
+		FString Id;
+		FVector Position = FVector::ZeroVector;
+	};
+	void ReadAdminToken();
+	void SendTravel(const FVector& LandmarkMeters);
+	FString AdminToken;
+	FString WorldCharacterId;
+	TArray<FTravelPlace> TravelPlaces;
+	bool bTravelRequest = false;
+
 	void OnCharacterList(bool bSucceeded, const FString& Error);
 	void StartConnection(const FSwcLoginToken& Token, const FString& CertificatePem);
 	bool TickWorld(float DeltaTime);

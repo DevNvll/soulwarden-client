@@ -1,0 +1,8 @@
+# The development routes of the MVP-C exit check (tools/creature-check.sh mvpc-travel 210; tests/drive/mvpc-travel-ui.txt): the
+# creatures ignore the character (the arrival is not a fight); after the travel of the map, a development travel to Oxboro (the
+# place of the Soulwarden travel notes: 8866 4250 137.9; 450 m from the shrine, with its loading screen), then a damage larger
+# than the health (the death). The nearest backend place of that spot is the Inn of Oxboro (60 m): the respawn goes there.
+1 heal
+1.5 ignore on
+85 travel 8866 4250 137.9
+125 hurt 100000

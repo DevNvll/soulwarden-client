@@ -185,26 +185,7 @@ Swc.Define("GameRequestsBus", "Broadcast", {
   ResetActionMaps = function() end,
 })
 
--- The world map data of the client (MapComponentBus): none in this stage. The respawn screen holds the world map
--- (magicmap.luac and its layers): the lists are empty, the territory ids 0, the tests false.
-Swc.Define("MapComponentBus", "Broadcast", {
-  GetSimplePOIs = function() return {} end,
-  GetTerritories = function() return {} end,
-  GetAllLandmarksByType = function() return {} end,
-  GetOutposts = function() return {} end,
-  GetFastTravelPointPOIIds = function() return {} end,
-  GetContainingTerritories = function() return {} end,
-  GetSettlements = function() return {} end,
-  GetLandmarksInTerritory = function() return {} end,
-  GetClaims = function() return {} end,
-  GetSmallestContainingTerritory = function() return 0 end,
-  GetContainingTerritory = function() return 0 end,
-  GetTractAtPosition = function() return "" end,
-  WorldPosToTerritoryLoRes = function() return 0 end,
-  IsDynamicPoiObjectiveComplete = function() return false end,
-  HasDynamicPoiObjective = function() return false end,
-  GetMedianPoiLevel = function() return 0 end,
-})
+-- The world map data (MapComponentBus and the territory buses): swc/worldmap.lua.
 
 -- The group and the raid sizes of the game (5 members in a group, 10 groups in a raid); the map layers make their
 -- icons from them (markerslayer.luac). No position of the raid members.

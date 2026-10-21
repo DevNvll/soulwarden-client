@@ -165,6 +165,12 @@ function Swc.HostView(yawDegrees, x, y, z)
   Swc.SetData("Hud.LocalPlayer.PlayerHeading", math.rad(yawDegrees))
   if x ~= nil then
     Swc.SetData("Hud.LocalPlayer.Position", Swc.Vector3.new({x = x, y = y, z = z}))
+    -- The territory of the position (swc/worldmap.lua): again after a move of 2 m or more.
+    local last = Swc.mapPlace
+    if last == nil or math.abs(last[1] - x) + math.abs(last[2] - y) >= 2 then
+      Swc.mapPlace = {x, y}
+      Swc.MapPosition(x, y, z)
+    end
   end
 end
 
@@ -317,6 +323,20 @@ function Swc.HostLoading(on, levelName, screenType)
       swcui.canvas_set(l.canvas, "enabled", false)
     end
     Swc.Note("the loading screen hides")
+  end
+end
+
+--- The start of a travel (the loading screen of a travel in the world; stage MVP-C): the screens of the old place close (the
+--- bag, the loot panel, the map, a menu), and the HUD state is current. A death needs no rule: the state Respawn of the
+--- state table closes the lower and the higher states. The interactor ends a conversation at message 3746 of the server.
+function Swc.HostTravelStarts()
+  local hud = 2702338936
+  for _ = 1, 8 do
+    local state = LyShineManagerBus.Broadcast.GetCurrentState()
+    if state == hud or state == 0 or state == nil then
+      return
+    end
+    LyShineManagerBus.Broadcast.ExitState(state)
   end
 end
 

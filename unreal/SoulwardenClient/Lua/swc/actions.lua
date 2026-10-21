@@ -180,6 +180,28 @@ end
 
 Swc.actionLog = {}   -- the last actions (the tests read it)
 
+--- A step of the wheel (the CryInput unit: 120 for each step, positive up): the actions of the key mwheel_up or mwheel_down
+--- get the signed value, as the native input gives it.
+function Swc.FireWheelActions(delta)
+  delta = tonumber(delta) or 0
+  if delta == 0 then
+    return false
+  end
+  local used = false
+  for _, a in ipairs(actions_of(delta > 0 and "mwheel_up" or "mwheel_down", true)) do
+    if not filtered(a.name) then
+      for _, h in ipairs(Swc.Handlers("CryActionNotificationsBus", a.name)) do
+        local fn = h.connected and h.table.OnCryAction
+        if type(fn) == "function" then
+          local ok, result = Swc.Call(fn, h.table, a.name, delta)
+          used = used or (ok and result == true)
+        end
+      end
+    end
+  end
+  return used
+end
+
 --- One key of the host: the actions of the key go to their handlers (OnCryAction). @return True when a handler used an
 --- action (returned true) or the escape rule ran.
 function Swc.FireActions(key, down)

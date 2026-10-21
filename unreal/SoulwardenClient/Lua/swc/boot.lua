@@ -26,6 +26,7 @@ Swc.Load("swc.interactables") -- buttons, check boxes, radio buttons, sliders, s
 Swc.Load("swc.input")     -- the input of the UI: hover, press, release, drag, wheel, keys, text
 Swc.Load("swc.dynamic")   -- the dynamic lists: the dynamic layout and the dynamic scroll box
 Swc.Load("swc.game")      -- the game buses that the first HUD reads
+Swc.Load("swc.worldmap")  -- the world map data: territories, points of interest, landmarks, the shrine travel
 Swc.Load("swc.keys")      -- the keys of the actions: the queries, the rebinds of the options screen, the key events
 Swc.Load("swc.options")   -- the options data: the defaults of the client program, the reads of the options screen
 Swc.Load("swc.items")     -- the items: static data, item slots, the bag, the paperdoll, the containers, the requests

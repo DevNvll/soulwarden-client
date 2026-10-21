@@ -119,6 +119,7 @@ void LookInputs(const FSwcRepConnection::FSnapshot& Snapshot, TArray<uint8>& Out
 void USwcBackendSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	ReadAdminToken();
 	FString Value;
 	if (FParse::Value(FCommandLine::Get(), TEXT("SwcHttp="), Value))
 	{
@@ -296,6 +297,7 @@ void USwcBackendSubsystem::EnterWorld(const FString& CharacterId)
 	}
 	UE_LOG(LogSwcBackend, Log, TEXT("world: %s"), *Report);
 	UE_LOG(LogSwcBackend, Log, TEXT("world: login queue for character %s"), *CharacterId);
+	WorldCharacterId = CharacterId;
 	// One login at a time (the PLAY of the front end); a failure in the front end keeps the client open (stage F5 of
 	// docs/FRONTEND.md: the landing screen shows the error, and PLAY can try again).
 	bEnteringWorld = true;
