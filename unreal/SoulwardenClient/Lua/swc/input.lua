@@ -378,7 +378,14 @@ local function drive_target(root, name, canvas)
   return scan(root)
 end
 
+-- The named targets of other modules ("PREFIX:ARG" -> function(ARG) returns "x y" or ""): swc/crafting.lua "recipe:ID".
+Swc.driveTargets = Swc.driveTargets or {}
+
 function Swc.HostPointOf(name, fx, fy)
+  local prefix, arg = string.match(name, "^([%a_]+):(.+)$")
+  if prefix and Swc.driveTargets[prefix] then
+    return Swc.driveTargets[prefix](arg) or ""
+  end
   -- "lootbag": a loot bag is near the character (Swc.HostLootBags); the point is the middle of the viewport (a waitfor mark).
   if name == "lootbag" then
     if Swc.loot and next(Swc.loot.bags) ~= nil then

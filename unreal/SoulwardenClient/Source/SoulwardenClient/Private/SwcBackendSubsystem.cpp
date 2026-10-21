@@ -1730,6 +1730,28 @@ bool USwcBackendSubsystem::GetCraftingStation(FString& OutKey, bool& bOutFee, FS
 	return Interactor.IsValid() && Interactor->GetStation(OutKey, bOutFee, OutName);
 }
 
+bool USwcBackendSubsystem::RequestCraft(uint32 Recipe, uint32 Quantity, uint32 Fee, uint16 GearScore, const TArray<uint32>& PerkItems, uint8 Upgrade,
+	const TArray<uint32>& Items)
+{
+	FString Key;
+	FString Name;
+	bool bFee = false;
+	if (!Connection.IsValid() || !bInGame || !GetCraftingStation(Key, bFee, Name))
+	{
+		return false;
+	}
+	swc::net::CraftRequest Request;
+	Request.recipe = Recipe;
+	Request.quantity = Quantity;
+	Request.coinFee = Fee;
+	Request.gearScore = GearScore;
+	Request.perkItems.assign(PerkItems.GetData(), PerkItems.GetData() + PerkItems.Num());
+	Request.upgrade = Upgrade;
+	Request.items.assign(Items.GetData(), Items.GetData() + Items.Num());
+	Connection->RequestCraft(Request);
+	return true;
+}
+
 void USwcBackendSubsystem::EndCraftingStation()
 {
 	if (Interactor.IsValid())

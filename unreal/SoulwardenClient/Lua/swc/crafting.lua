@@ -17,6 +17,17 @@ local C = Swc.crafting
 -- CheckPinButton reads javelin.enable-objectives; the Soulwarden evidence crafting/37a I3-02, 37b I1-01, 37c I2-01). The backend has no
 -- objectives: a pin adds nothing (ObjectivesComponentRequestBus is a stub).
 Swc.config["javelin.enable-objectives"] = true
+-- The crafting settings of the client (their registration with the defaults: research scratch/melee-mode/raw-all-defaults.txt, the
+-- addresses): the whole count in one request (crafting-enable-craft-all-override true, 0x617139E; Soulwarden live check L10b), 4 perk item
+-- controls (0x6171372), the first-craft bonus x3 (0x6171316, 0x617133F), 10,000 jobs (max-crafting-jobs 0x2710, 0x6171240), no skip of the
+-- craft roll (0x616F6B2), the post-cap trade skills (0x616F593).
+Swc.config["javelin.crafting-enable-craft-all-override"] = true
+Swc.config["javelin.crafting-max-num-perk-items"] = 4
+Swc.config["javelin.crafting-enable-first-craft-bonus"] = true
+Swc.config["javelin.crafting-first-craft-bonus-exp-multiplier"] = 3.0
+Swc.config["javelin.max-crafting-jobs"] = 10000
+Swc.config["javelin.always-skip-craft-roll"] = false
+Swc.config["javelin.enable-post-cap-trade-skills"] = true
 
 local data
 --- @return The crafting data (loaded at the first use: about 4 MB).
@@ -210,9 +221,27 @@ C.RecipeData = Swc.ValueClass({
       local name = recipe and recipe.expansion or ""
       return name ~= "" and (_G["eExpansionId_" .. name] or 1) or (eExpansionId_None or 0)
     end,
+    -- UnlockedAchievementBlocksRecrafting and UnlockedAchievementID (the backend has no unlock rule: such a recipe has a cause).
+    GetUnlockedAchievementBlocksRecrafting = function(self)
+      local recipe = recipe_of(self.id)
+      local value = recipe and tostring(recipe.unlockBlocksRecrafting or "") or ""
+      return value == "true" or value == "TRUE" or value == "1"
+    end,
+    GetUnlockedAchievementId = function(self)
+      local recipe = recipe_of(self.id)
+      return recipe and recipe.unlockedAchievement ~= "" and swcui.crc32(string.lower(recipe.unlockedAchievement)) or 0
+    end,
     GetSkipGrantItemsDescription = function(self)
       local recipe = recipe_of(self.id)
       return recipe and recipe.skipGrantDesc or ""
+    end,
+    GetSkipGrantItemsTitle = function(self)
+      local recipe = recipe_of(self.id)
+      return recipe and recipe.skipGrantTitle or ""
+    end,
+    GetSkipGrantItemsBody = function(self)
+      local recipe = recipe_of(self.id)
+      return recipe and recipe.skipGrantBody or ""
     end,
     GetSkipGrantItems = function(self)
       local recipe = recipe_of(self.id)
@@ -400,7 +429,13 @@ C.RankData = rank_data
 local function progression_data(id)
   local d = D()
   local row = type(id) == "number" and d.progressionsByCrc[id] or d.progressions[tostring(id or "")]
+  -- maxRank: Expansion01MaxLevel with the owned expansion, else MaxLevel; postSkillCapSkill: the progression id of the post-cap skill.
+  local maxRank = row and row.maxLevel or 0
+  if row and (row.expansion01MaxLevel or 0) > 0 and Swc.OwnsExpansion and Swc.OwnsExpansion() then
+    maxRank = row.expansion01MaxLevel
+  end
   return {isValid = row ~= nil, categoricalProgressionId = row and crc(row.id) or 0, displayName = row and row.displayName or "",
+          maxRank = maxRank, postSkillCapSkill = row and row.postCap ~= "" and crc(row.postCap) or 0,
           maxLevel = row and row.maxLevel or 0, rankTableId = row and crc(row.rankTable) or 0, iconPath = row and row.icon or "",
           expansion01MaxLevel = row and row.expansion01MaxLevel or 0}
 end
@@ -920,5 +955,96 @@ Swc.Define("CategoricalProgressionRequestBus", "Event", {
       return row.expansion01MaxLevel
     end
     return row.maxLevel or 0
+  end,
+})
+
+-- ---------------------------------------------------------------------------------------------------------- the request
+
+--- @return The values of a vector of the scripts (vector_Crc32: a Lua table) as a comma list ("-" when empty).
+local function crc_list(list)
+  local parts = {}
+  for _, value in ipairs(type(list) == "table" and list or {}) do
+    parts[#parts + 1] = string.format("%d", tonumber(value) or 0)
+  end
+  return #parts > 0 and table.concat(parts, ",") or "-"
+end
+
+--- craftingscreenv4.luac OnCraftClicked: CraftRecipe(recipe id, count, perk items, upgrade level, the selected items, the gear score
+--- roll). The client writes request 2997 (protocol notes 4.50): the fee claim is the rule of the client (C.Fee: the native adds it), the
+--- gear score claim is the roll of the quality bar, each ingredient is one entry with the CRC-32 of its selected item (0 for a currency
+--- ingredient: live check L5c). The host request: "craft RECIPE COUNT FEE GEARSCORE UPGRADE PERKS ITEMS".
+local function craft(id, count, perks, upgrade, selected, gearScore)
+  local recipe = recipe_of(id)
+  if not recipe or not C.station then
+    Swc.Note("crafting: CraftRecipe with no recipe or no station (" .. tostring(id) .. ")")
+    return
+  end
+  count = math.max(1, math.floor(tonumber(count) or 1))
+  local items = {}
+  local chosen = selection(recipe, selected)
+  for index, ingredient in ipairs(recipe.ingredients or {}) do
+    items[index] = ingredient[1] == "Currency" and 0 or crc(chosen[index])
+  end
+  local fee = C.Fee(recipe, count)
+  local score = math.max(0, math.min(10000, math.floor((tonumber(gearScore) or 0) + 0.5)))
+  local line = string.format("craft %d %d %d %d %d %s %s", recipe.crc, count, fee, score, math.floor(tonumber(upgrade) or 0), crc_list(perks),
+    crc_list(items))
+  C.lastRequest = line
+  Swc.hostRequests[#Swc.hostRequests + 1] = line
+  Swc.Note("crafting: " .. line .. " (" .. recipe.id .. ")")
+end
+
+--- The host: a craft progress 2993 (the recipe id, the completed jobs, the jobs of the batch; the stop form: no recipe, 0 of 0). The handler
+--- of the client gives the counts to CraftingEventBus OnCraftingCountUpdate (craftingscreenv4.luac: the expected item updates of a batch).
+function Swc.HostCraftProgress(recipe, completed, total)
+  C.progress = {recipe = recipe or "", completed = completed or 0, total = total or 0}
+  Swc.Notify("CraftingEventBus", Swc.ids.crafting, "OnCraftingCountUpdate", completed or 0, total or 0)
+end
+Swc.Handled("CraftingEventBus")
+
+Swc.Define("CraftingRequestBus", "Broadcast", {CraftRecipe = craft})
+
+-- The drive target "recipe:ID" (the UI drives of the checks): the middle of the shown row of the recipe tree (craftingtreeviewitem.luac
+-- with the recipe in its entry data).
+Swc.driveTargets = Swc.driveTargets or {}
+Swc.driveTargets.recipe = function(id)
+  for key, instances in pairs(Swc.components or {}) do
+    for _, instance in ipairs(instances) do
+      local entry = type(instance) == "table" and rawget(instance, "entryData")
+      local data = type(entry) == "table" and entry.recipeData
+      if data and data.id == id and instance.entityId and swcui.enabled_in_hierarchy(instance.entityId) then
+        local x0, y0, _, _, x2, y2 = swcui.viewport_points(instance.entityId)
+        return string.format("%.1f %.1f", (x0 + x2) / 2, (y0 + y2) / 2)
+      end
+    end
+  end
+  return ""
+end
+
+-- The perk buckets of an item (the columns PerkBucket1 to PerkBucket5 of the item tables; crafting.json `perkBuckets`: the type and the
+-- chance of each bucket). The upgrade of a perk place (the Azoth upgrade G covers it) adds the chance modifier of its type, 1.0 for the
+-- Perk, Attribute, and Gem types of the player base attributes (docs/systems/crafting.md, stage 3.7c: a guarantee).
+local PERK_TYPES = {Generated = ePerkType_Generated or 0, Gem = ePerkType_Gem or 1, Inherent = ePerkType_Inherent or 2,
+                    OffensiveCharm = ePerkType_OffensiveCharm or 3, DefensiveCharm = ePerkType_DefensiveCharm or 4,
+                    SkillCharm = ePerkType_SkillCharm or 5}
+local function bucket_of(itemCrc, index)
+  local static = Swc.ItemStatic(itemCrc)
+  local name = static and static["perkBucket" .. tostring(index)]
+  return name and name ~= "" and D().perkBuckets and D().perkBuckets[name] or nil
+end
+Swc.Define("ItemDataManagerBus", "Broadcast", {
+  -- The craft mods (perk items) for a procedural result: part 5 of the stage (the backend rule Crafting::extras). Until then: none (the
+  -- screen lists no craft mod).
+  GetCompatiblePerkResourceIds = function() return {} end,
+  GetPerkBucketType = function(itemCrc, index)
+    local bucket = bucket_of(itemCrc, index)
+    return bucket and PERK_TYPES[bucket[1]] or (ePerkType_Invalid or 6)
+  end,
+  GetPerkChance = function(itemCrc, index, upgraded)
+    local bucket = bucket_of(itemCrc, index)
+    if not bucket then
+      return 0
+    end
+    return math.min(1, (bucket[2] or 0) + (upgraded and 1.0 or 0))
   end,
 })

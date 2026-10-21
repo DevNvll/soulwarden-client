@@ -68,6 +68,24 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
 - A recipe with RequiredExpansion: IsRecipeExpansionUnlocked is false (the backend refuses it: CraftVerdict::expansion); the screen
   shows its expansion row red.
 
+## The craft (part 2)
+
+- CRAFT (craftingscreenv4.luac OnCraftClicked) calls CraftingRequestBus CraftRecipe(recipe, count, perk items, upgrade, the selected
+  items, the gear score roll). `swc/crafting.lua` writes the host request "craft RECIPE COUNT FEE GEARSCORE UPGRADE PERKS ITEMS", and
+  the client sends 2997: the fee claim of the client rule (`C.Fee`; the native adds it), the gear score claim of the quality bar, one
+  entry for each ingredient (type Item, quantity 1, the CRC-32 of the selected item; 0 for a currency ingredient).
+- The settings of the client that the screens read (their registration defaults: research `scratch/melee-mode/raw-all-defaults.txt`):
+  javelin.crafting-enable-craft-all-override true (the whole count in one request), crafting-max-num-perk-items 4,
+  crafting-enable-first-craft-bonus true, crafting-first-craft-bonus-exp-multiplier 3, max-crafting-jobs 10,000, always-skip-craft-roll
+  false, enable-post-cap-trade-skills true; javelin.enable-objectives true (the button Pin Recipe of the retail screen).
+- The result: the bag slot updates of the server with the cause ItemCreated (3) go to ContainerEventBus OnSlotUpdate (the screen shows
+  the result 2 s after the last one); each progress 2993 goes to CraftingEventBus OnCraftingCountUpdate; a progress whose completed
+  count reaches its total (also the stop form 0 of 0) makes the client send 2999 (the handler of the client, protocol notes 4.50).
+- The state 205 (slot 63): the cooldown windows and the gear score bonus of the statuses go to `Swc.HostCraftCooldowns` and
+  `Swc.HostCraftBonus` (UI/SwcUiCrafting) at each change.
+- The perk rows of a procedural result: the bucket type and the chance of each PerkBucket column of the output (the backend copy
+  perk-data.json `buckets` in crafting.json); an upgrade place gets the modifier 1.0.
+
 ## The checks
 
 - `tools/test-ui.sh --fixture crafting`: the open with a level 70 character, the station header, the recipe list, Escape (one request
@@ -77,6 +95,10 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
 - Development runs (evidence `MVP-J/`): `mvpj-stations1` (the forge, the smelter, the woodshop of the settlement near the first test
   place: each E opens the screen and the server accepts the use), `mvpj-esc3` (E, the screen "FORGE TIER 5" with the recipe list, the
   Azoth and the coin of the copy of the user's character, Escape: 2473, the use ends, the prompt shows again).
+- `mvpj-craft3` (part 2; a copy of the user's character with a kit: 8,000 Iron Ore, T5 materials, Weaponsmithing 150): at the smelter the
+  search "Iron Ingot", its row, CRAFT: one 2997 (count 1, fee 1), the progress 1 of 1, 2999, the result screen "IRON INGOT"; at the
+  forge the Orichalcum Great Axe: one 2997 (fee 449, gear score 520), the server makes the axe with the gear score 520 and three perks.
+- The UI drives use the drive target "recipe:ID" (the shown row of a recipe) and the drive command "text" (the search box).
 
 ## The differences from retail (part 1)
 
@@ -84,4 +106,5 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
   sharp.
 - The forge itself (the template child `craftingstation_t5_blacksmith_complete`, a second server child) has no body in the client:
   the client shows no server object body (a gap of the world view).
+- The craft mods (perk items) of a procedural result are not listed yet (GetCompatiblePerkResourceIds: part 5).
 - The storage search (7044) is not sent: the backend answers it with no result, and the screen shows the bag only.

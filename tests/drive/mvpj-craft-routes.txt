@@ -1,0 +1,6 @@
+# The crafts of stage MVP-J part 2: tools/creature-check.sh mvpj-craft 130 THIS tests/drive/mvpj-craft.txt --
+# -SwcUiDrive=tests/drive/mvpj-craft-ui.txt, with a copy of the user's database at the smelter (8849.9 4258.5 138.4) and the craft kit of
+# the copy script (8,000 Iron Ore, T5 ingots, timber, leather; Weaponsmithing 150). The forge: 0.8 m south of its bound.
+1 heal
+1.5 ignore on
+62 travel 8859.3 4258.9 138.4 off

@@ -68,3 +68,82 @@ Swc.HostStation("close")
 frames(1.0)
 check(LyShineManagerBus.Broadcast.GetCurrentState() ~= CRAFTING, "the close of the client leaves the state")
 equal(#requests(), 0, "the close of the client gives no request")
+
+-- The craft request (CraftRecipe of craftingscreenv4.luac OnCraftClicked) at the smelter: one host request with the recipe CRC, the
+-- count, the fee claim of the client rule, the gear score claim, the upgrade, no perk item, and the item of each ingredient.
+Swc.HostStation("open", "Smelting5", true, "@SmeltingT5_MasterName")
+frames(2.0)
+requests()
+CraftingRequestBus.Broadcast.CraftRecipe("IngotT2", 3, {}, 0, {}, 0)
+local craft = requests()
+local recipe = Swc.crafting.Recipe("IngotT2")
+local expected = string.format("craft %d 3 %d 0 0 - %d", crc("IngotT2"), Swc.crafting.Fee(recipe, 3), crc("OreT1"))
+equal(craft[1], expected, "the craft request of 3 Iron Ingots (" .. tostring(craft[1]) .. ")")
+check(Swc.crafting.Fee(recipe, 3) >= 1, "a recipe with UseCraftingTax at a station with a fee costs at least 1")
+-- A currency ingredient is the item 0 (live check L5c).
+local currency
+for id, r in pairs(Swc.crafting.Data().recipes) do
+  for _, ingredient in ipairs(r.ingredients) do
+    if ingredient[1] == "Currency" and not currency then currency = id end
+  end
+end
+note("a recipe with a currency ingredient: " .. tostring(currency))
+-- The progress of the server goes to CraftingEventBus (the expected item updates of a batch).
+Swc.HostCraftProgress("IngotT2", 3, 3)
+equal(Swc.crafting.progress.completed, 3, "the progress 3 of 3 reaches the client state")
+Swc.HostStation("close")
+frames(0.5)
+
+-- The full path of the screen at the smelter: the search "Iron Ingot", the row, CRAFT (one request of one job), then the result of the
+-- server: the new stack with the cause ItemCreated (3) and the progress 1 of 1; the result screen shows the item 2 s after it.
+Swc.HostStation("open", "Smelting5", true, "@SmeltingT5_MasterName")
+frames(4.0)
+requests()
+local root = swcui.canvas_get(crafting, "root")
+click(find(root, "FilterInputField"))
+type_text("Iron Ingot")
+frames(1.5)
+local at = Swc.HostPointOf("recipe:IngotT2")
+check(at ~= "", "the search shows the row of Iron Ingot")
+local x, y = string.match(at, "(%S+) (%S+)")
+Swc.HostInput("move", tonumber(x), tonumber(y))
+Swc.HostInput("button", "left", true)
+Swc.HostInput("button", "left", false)
+frames(1.0)
+picture("crafting-iron-ingot")
+click(find(root, "CraftButton"))
+frames(0.5)
+local sent = requests()
+equal(sent[1], string.format("craft %d 1 %d 0 0 - %d", crc("IngotT2"), Swc.crafting.Fee(Swc.crafting.Recipe("IngotT2"), 1), crc("OreT1")),
+  "CRAFT gives one request of one Iron Ingot (" .. tostring(sent[1]) .. ")")
+Swc.HostBagSlot(3, crc("OreT1"), 28, 0, 0, 0, "4", 0, 0, 0, "")
+Swc.HostBagSlot(4, crc("IngotT2"), 1, 0, 0, 0, "5", 0, 0, 3, "")
+Swc.HostCraftProgress("IngotT2", 1, 1)
+frames(4.0)
+picture("crafting-result")
+
+-- A procedural recipe at the forge: the Orichalcum Great Axe (Weaponsmithing 150) with T5 materials; the screen shows its craft gear
+-- score and its perk rows, and CRAFT gives one request with the gear score claim of the quality bar.
+Swc.HostStation("close")
+frames(0.5)
+Swc.HostStation("open", "Blacksmith5", true, "@BlacksmithT5_MasterName")
+frames(4.0)
+requests()
+click(find(root, "FilterInputField"))
+type_text("Orichalcum Great Axe")
+frames(2.0)
+local axe = Swc.HostPointOf("recipe:Procedural_2hGreatAxeT5")
+check(axe ~= "", "the search shows the row of the Orichalcum Great Axe")
+local ax, ay = string.match(axe, "(%S+) (%S+)")
+if ax then
+  Swc.HostInput("move", tonumber(ax), tonumber(ay))
+  Swc.HostInput("button", "left", true)
+  Swc.HostInput("button", "left", false)
+end
+frames(1.0)
+picture("crafting-axe")
+click(find(root, "CraftButton"))
+frames(0.5)
+local axeRequest = requests()[1] or ""
+note("the axe request: " .. axeRequest)
+check(axeRequest:find("^craft " .. crc("Procedural_2hGreatAxeT5") .. " 1 ") ~= nil, "CRAFT gives one request of the axe")

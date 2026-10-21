@@ -697,12 +697,7 @@ void USwcUiSubsystem::FeedOwnerStates(const swc::net::RepClient::OwnEntity& Own)
 		};
 		Runtime->call("HostOwnership", {FArg::of(Bits(Own.achievements)), FArg::of(Bits(Own.entitlements)), FArg::of(Own.entitlementsReceived)});
 	}
-	if (Own.craftRevision != SentCraftRevision && Own.craftRevision != 0)
-	{
-		SentCraftRevision = Own.craftRevision;
-		UE_LOG(LogSwcUi, Log, TEXT("ui: the craft state: %d recipe cooldown window(s), %d craft gear score bonus(es) (no craft screen yet)"),
-			static_cast<int32>(Own.craftCooldowns.size()), static_cast<int32>(Own.craftGearBonus.size()));
-	}
+	// The craft state (slot 63) and the craft progress: UI/SwcUiCrafting (stage MVP-J).
 }
 
 void USwcUiSubsystem::FeedLoot(const swc::net::RepClient::OwnEntity& Own, USwcBackendSubsystem* Backend)
@@ -1772,6 +1767,11 @@ void USwcUiSubsystem::TickDrive()
 			DriveKey(Step.Args[0], true);
 			DriveKeysUp.Add(Step.Args[0]);
 		}
+		else if (Step.Command == TEXT("text") && Step.Args.Num() > 0)
+		{
+			// The text of the arguments (one space between them) into the text input that edits (the search of the crafting screen).
+			CallInput({FArg::of(std::string("text")), FArg::of(Utf8(FString::Join(Step.Args, TEXT(" "))))});
+		}
 		else if (Step.Command == TEXT("keydown") && Step.Args.Num() > 0)
 		{
 			DriveKey(Step.Args[0], true);
@@ -1912,6 +1912,7 @@ void USwcUiSubsystem::FeedLocalPlayer()
 	// The bag, the paperdoll items (the item index of the wire in the item catalog of the backend copy), the level, the coin.
 	FeedItems(Own);
 	FeedOwnerStates(Own);
+	CraftingScreen.Feed(*Runtime, Own);
 	FeedLoot(Own, Backend);
 	FeedWorld(Own);
 	int32 Active = -1;

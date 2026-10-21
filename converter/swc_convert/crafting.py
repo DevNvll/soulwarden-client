@@ -118,6 +118,10 @@ def convert(out_dir: Path) -> dict:
            "progressions": progressions, "ranks": ranks}
     for key in ("currencies", "rankGearScore", "materials", "resources", "perkGeneration", "achievements"):
         doc[key] = data.get(key, {})
+    # The perk buckets of the items (the backend copy perk-data.json `buckets`: the type and the chance of each bucket): the rows of the
+    # perks of a procedural result (ItemDataManagerBus GetPerkBucketType, GetPerkChance).
+    perks = json.loads((gamedata_dir() / "perk-data.json").read_text())
+    doc["perkBuckets"] = {name: [bucket[0], bucket[1]] for name, bucket in perks.get("buckets", {}).items()}
     target = out_dir / "gamedata"
     target.mkdir(parents=True, exist_ok=True)
     (target / "crafting.json").write_text(json.dumps(doc, separators=(",", ":"), sort_keys=True))

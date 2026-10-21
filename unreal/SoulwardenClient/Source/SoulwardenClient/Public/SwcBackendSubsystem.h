@@ -179,6 +179,11 @@ public:
 	bool GetCraftingStation(FString& OutKey, bool& bOutFee, FString& OutName) const;
 	/** The crafting screen ends the station use (its Escape, its exit): 2473. */
 	void EndCraftingStation();
+	/** The craft request of the crafting screen (2997; protocol notes 4.50): the recipe CRC, the count, the claims of the fee and of the
+	 *  gear score, the perk items, the upgrade level, and the CRC of the selected item of each ingredient (0: a currency). @return False
+	 *  with no connection or no open station. */
+	bool RequestCraft(uint32 Recipe, uint32 Quantity, uint32 Fee, uint16 GearScore, const TArray<uint32>& PerkItems, uint8 Upgrade,
+		const TArray<uint32>& Items);
 
 	/**
 	 * @return The yaw of the camera of the player in degrees, in the convention of the input report (protocol notes 4.7):

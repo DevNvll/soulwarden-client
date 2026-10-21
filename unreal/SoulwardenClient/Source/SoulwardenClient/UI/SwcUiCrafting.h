@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Net/Codec/SwcRepClient.h"
 
 namespace swc::ui { class Runtime; }
 class USwcBackendSubsystem;
@@ -15,9 +16,14 @@ class USwcBackendSubsystem;
 struct FSwcUiCrafting
 {
 	void Update(swc::ui::Runtime& Runtime, USwcBackendSubsystem& Backend);
+	/** The craft state of the owner (slot 63: the cooldown windows and the gear score bonus of the statuses) at each change, and each craft
+	 *  progress 2993 (Swc.HostCraftCooldowns, Swc.HostCraftBonus, Swc.HostCraftProgress). */
+	void Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::OwnEntity& Own);
 	/** @return True when the request of the scripts was a crafting request (it is handled). */
 	static bool HandleRequest(const FString& Request, USwcBackendSubsystem& Backend);
 
 private:
 	FString ShownKey;
+	uint32 SentCraftRevision = 0;
+	uint32 SentProgresses = 0;
 };
