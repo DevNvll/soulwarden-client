@@ -141,9 +141,15 @@ inline constexpr MessageType kStateStatuses{"MB::StatusEffectsComponentReplicate
  *  id of the healed character, amount). */
 inline constexpr MessageType kManaForceSync{"ManaComponentClientFacet_ClientForceSyncServerState", "07C85A72F95645FB98529E92A516DB7A", 4289};
 inline constexpr MessageType kHealedPlayer{"VitalsComponentClientFacet_OnHealedPlayer", "6F1EB843106A427AA09E61BC50DD82F2", 4298};
+/** The crafting (stage MVP-J; protocol notes 4.50; backend server/rep/crafting_messages.h): the craft request of the crafting screen
+ *  (2997), the stop of the client (2999), and the progress of the batch (2993). The facet is the Crafting component
+ *  (Crafting/f7c1e949-...) of the entity Crafting of the player slice. */
+inline constexpr MessageType kCraftRequest{"CraftingComponentServerFacet_SetCraftingDetails", "3EFA65A308B046769D1A281DFA62A1DD", 2997};
+inline constexpr MessageType kCraftCancel{"CraftingComponentServerFacet_CancelCrafting", "224CAC458FD2476987AF9DF2111C4CFE", 2999};
+inline constexpr MessageType kCraftProgress{"CraftingComponentClientFacet_OnCraftingProgressUpdate", "867CAB308E9E4124A59D2E9835F90E35", 2993};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 60> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 63> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
@@ -151,7 +157,7 @@ inline constexpr std::array<MessageType, 60> kUsedTypes{kRegistrationRequestV3, 
     kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints, kStateGathering, kEquipItem,
     kUnequipItem, kSwapItems, kEquipItemFail, kUseItem, kDropInventoryItems, kDropPaperdollItem, kStateCurrency, kStateSpeedTable,
     kStateStatuses, kTimeRequest, kTimeAndPhase, kDayPhase, kStateProgression, kManaForceSync, kHealedPlayer, kCutsceneEnded,
-    kStateAttribute, kStateCategorical, kStateCharge, kStateCrafting, kStateEntitlement};
+    kStateAttribute, kStateCategorical, kStateCharge, kStateCrafting, kStateEntitlement, kCraftRequest, kCraftCancel, kCraftProgress};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -213,6 +219,10 @@ inline constexpr std::uint64_t kInventoryEntity = 0xE97EBAF556467A3AULL;
 inline constexpr std::uint64_t kInventoryContainer = 0x76258CC02DF25991ULL;
 inline constexpr std::uint64_t kPaperdollComponent = 0xA4682AF2564E7814ULL;
 inline constexpr std::uint64_t kItemDropComponent = 0xE39A2483DC525915ULL;
+/** The entity Crafting of the player slice and its component Crafting/f7c1e949-1ae0-410f-b36e-6226843fd706 (slice-ids.json): the facet
+ *  of the craft request, the stop, and the progress (backend kCraftingComponentName). */
+inline constexpr std::uint64_t kCraftingEntity = 0xE97EBAF656467A3AULL;
+inline constexpr std::uint64_t kCraftingComponent = 0x065458AB26042E65ULL;
 
 using ActorId = std::array<std::uint8_t, 16>;
 
@@ -453,12 +463,44 @@ Bytes cutscene_ended_body(std::uint64_t group);
  *  reference of the interaction. */
 Bytes interaction_cancel_body(std::uint64_t group, const InteractionReference& reference);
 
+/**
+ * The craft request of the crafting screen (2997; protocol notes 4.50): the recipe (CRC-32 of the lower-case id), the count of the
+ * batch, the claims of the client (the fee in hundredths of a coin, the craft gear score), the perk items (the CRC-32 of each item id),
+ * the Azoth upgrade level, and one entry for each ingredient of the recipe in its order (type 1 Item, quantity 1, the CRC-32 of the
+ * selected item; 0 for a currency ingredient: live check L5c).
+ */
+struct CraftRequest {
+    std::uint32_t recipe{0};
+    std::uint32_t quantity{0};
+    std::uint32_t coinFee{0};
+    std::uint16_t gearScore{0};
+    std::vector<std::uint32_t> perkItems;
+    std::uint8_t upgrade{0};
+    std::vector<std::uint32_t> items;
+};
+/** @return The body of SetCraftingDetails (2997): target (the Crafting facet) entity (G), then the request (the knife of live check L3:
+ *  51 bytes with the prefix). */
+Bytes craft_request_body(std::uint64_t group, const CraftRequest& request);
+/** @return The body of CancelCrafting (2999, 16 bytes): target (the Crafting facet) and entity (G). */
+Bytes craft_cancel_body(std::uint64_t group);
+/** @return The facet target of the Crafting component of the character with the entity group G. */
+std::uint64_t crafting_target(std::uint64_t group);
+
 /** The head of a component call: target:u64 entity:u64. */
 struct ComponentCall {
     std::uint64_t target{0};
     std::uint64_t entity{0};
 };
 std::optional<ComponentCall> read_component_call(std::span<const std::uint8_t> body);
+/** OnCraftingProgressUpdate (2993): the call, the recipe id text, the completed jobs, and the jobs of the batch. The stop form is an empty
+ *  recipe with 0 of 0. */
+struct CraftProgress {
+    ComponentCall call;
+    std::string recipe;
+    std::uint32_t completed{0};
+    std::uint32_t total{0};
+};
+std::optional<CraftProgress> read_craft_progress(std::span<const std::uint8_t> body);
 /** OnPlayerDeath (3950): the call and the time to the respawn screen (s). */
 struct PlayerDeath {
     ComponentCall call;

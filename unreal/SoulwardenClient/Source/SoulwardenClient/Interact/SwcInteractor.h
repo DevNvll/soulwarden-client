@@ -124,6 +124,17 @@ public:
 	void EndConversation() { bPendingTalkEnd = true; }
 	/** The conversation screen of the UI shows: the key E is its Next key (the screen ends the conversation at the last line). */
 	void SetConversationScreen(bool bShown) { bConversationScreen = bShown; }
+	/** The crafting station of the use whose screen shows (stage MVP-J): its Assembly key, the fee flag, and its name key. @return False
+	 *  with no open station. */
+	bool GetStation(FString& OutKey, bool& bOutFee, FString& OutName) const
+	{
+		OutKey = StationKey;
+		bOutFee = bStationFee;
+		OutName = StationName;
+		return bStationOpen;
+	}
+	/** The crafting screen ends the station use (its Escape, its exit): the next Update sends 2473. */
+	void EndStation() { bPendingStationEnd = true; }
 
 private:
 	/** The Looted claims: the model of each bag hides HideMeshDelay after the claim. */
@@ -188,4 +199,12 @@ private:
 	bool bConversationScreen = false;
 	FString TalkKey;
 	swc::interact::Conversation Talk;
+	/** The station use (stage MVP-J): the focus is a station, the use is a station use, its screen shows, and the end by the screen. */
+	bool bFocusStation = false;
+	bool bUseStation = false;
+	bool bStationOpen = false;
+	bool bPendingStationEnd = false;
+	FString StationKey;
+	bool bStationFee = false;
+	FString StationName;
 };

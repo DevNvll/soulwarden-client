@@ -412,6 +412,25 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         }
         return;
     }
+    if (message.type == kCraftProgress.index) {
+        const auto progress = read_craft_progress(message.body);
+        if (!progress || progress->call.entity != m_own.group) {
+            return;
+        }
+        m_own.craftRecipe = progress->recipe;
+        m_own.craftCompleted = progress->completed;
+        m_own.craftTotal = progress->total;
+        ++m_own.craftProgresses;
+        log(Event::Level::info, "craft progress (2993): " + (progress->recipe.empty() ? std::string("the stop form") : progress->recipe) + ", "
+                                    + std::to_string(progress->completed) + " of " + std::to_string(progress->total));
+        // The handler of the client (0x2E602A0) stops its local crafting when the completed count reaches the total (also the stop form
+        // 0 of 0) and sends 2999 (live checks L3, L10b: 11 ms after each final progress).
+        if (progress->completed >= progress->total) {
+            send_call(kCraftCancel, craft_cancel_body(m_own.group));
+            log(Event::Level::info, "the batch ended: the client sends the stop (2999)");
+        }
+        return;
+    }
     if (message.type == kCutsceneEndFinalized.index) {
         const auto call = read_component_call(message.body);
         if (call && call->entity == m_own.group) {
@@ -1241,6 +1260,25 @@ void RepClient::on_world_time(const ServerMessage& message) {
 
 void RepClient::send_call(const MessageType& type, const Bytes& body) {
     m_carrier.send(kChannelReliable, client_frame(m_own.actor, type.index, body), true);
+}
+
+void RepClient::request_craft(const CraftRequest& request) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kCraftRequest, craft_request_body(m_own.group, request));
+    log(Event::Level::info, "craft request (2997): recipe " + std::to_string(request.recipe) + ", count " + std::to_string(request.quantity)
+                                + ", fee " + std::to_string(request.coinFee) + ", gear score " + std::to_string(request.gearScore) + ", "
+                                + std::to_string(request.perkItems.size()) + " perk item(s), upgrade " + std::to_string(request.upgrade) + ", "
+                                + std::to_string(request.items.size()) + " entr" + (request.items.size() == 1 ? "y" : "ies"));
+}
+
+void RepClient::cancel_craft() {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kCraftCancel, craft_cancel_body(m_own.group));
+    log(Event::Level::info, "the client stops the batch (2999)");
 }
 
 void RepClient::request_respawn(bool random, const std::string& id) {

@@ -189,6 +189,12 @@ public:
         std::uint32_t interactionResults{0};
         std::uint8_t lastInteractionResult{0};
         std::uint8_t lastInteractionAction{0};
+        /** The crafting (stage MVP-J; protocol notes 4.50): the last progress 2993 of a batch (the recipe id, the completed jobs, the
+         *  jobs of the batch; the stop form: no recipe, 0 of 0) and the count of the progress messages. */
+        std::string craftRecipe;
+        std::uint32_t craftCompleted{0};
+        std::uint32_t craftTotal{0};
+        std::uint32_t craftProgresses{0};
         /** The loot of the owner (stage P2.10; protocol notes 4.10, 4.41, 4.42), each with a count of its changes:
          *  - the bag of the character (the Container of slot 61): one element for each slot (an empty slot: quantity 0);
          *  - the LootTracker (slot 33): the claims of the chests and of the bags (Rolled shows a bag, Looted hides it);
@@ -436,6 +442,11 @@ public:
     void cancel_interaction();
     /** The end of a cutscene of the client (a conversation; stage P4.8): message 6705. The server answers 6709 (lockEnds). */
     void end_cutscene();
+    /** The craft request of the crafting screen (stage MVP-J; protocol notes 4.50): message 2997. The server answers with the item
+     *  records and the progress 2993, or with the stop form (a refusal). */
+    void request_craft(const CraftRequest& request);
+    /** The stop of a batch by the client (the cancel of the crafting screen): message 2999. The completed jobs stay. */
+    void cancel_craft();
     /** The take of all the items of the open bag (2939), and of one item instance with a quantity (2942): the server moves them into
      *  the bag of the character; the answer is the states of the slots 61, 76, 77, and 33 (protocol notes 4.42). */
     void take_all_items();

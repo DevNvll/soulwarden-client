@@ -19,6 +19,9 @@ Usage (tools/convert-ui.sh; output in SWC_CONTENT/ui, never in git):
                           canvases of the markers, the prompt cards, the damage numbers, and the loot ticker, and their textures
   worldmap                the world map (stage MVP-C): gamedata/worldmap.json (swc_convert/worldmap.py: the territory and POI
                           definitions, shapes, and landmarks), the canvas MagicMap, the map tiles of all levels, the map images
+  crafting                the crafting screens (stage MVP-J): gamedata/crafting.json (swc_convert/crafting.py: the recipes with the
+                          causes of the backend, the categories, the stations, the rank tables), the canvases CraftingScreenV4 and
+                          StationProperties, and their textures
 
 The canvas form (research ~/Games/soulwarden-client/research/ui.md, section 2): a binary object stream with one
 SliceComponent; its Entities list has the canvas entity and one entity for each element. The converter keeps each
@@ -46,7 +49,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from . import datasheet, dds, env, luabc, optiondefaults, source, uienums, worldmap
+from . import crafting, datasheet, dds, env, luabc, optiondefaults, source, uienums, worldmap
 from .source import field_id, number, parse, real, text
 
 # The canvases of the first HUD (stage 1.10): the globals (the loader of the screens), the vitals, the weapon and
@@ -1468,6 +1471,22 @@ def convert_worldmap(force: bool) -> dict:
     return {"data": data, "canvases": canvases, "textures": convert_textures(textures, force)}
 
 
+# ------------------------------------------------------------------------------------------------------------- crafting
+
+CRAFTING_CANVASES = ["lyshineui/crafting/craftingscreenv4.dynamicuicanvas", "lyshineui/stationproperties/stationproperties.dynamicuicanvas"]
+# The images that the crafting scripts name at run time (the station and category icons, the trade skill icons, the craft roll).
+CRAFTING_TEXTURE_FOLDERS = ["lyshineui/images/crafting/", "lyshineui/images/icons/stations/", "lyshineui/images/icons/tradeskills/", "lyshineui/images/icons/crafting/"]
+
+
+def convert_crafting(force: bool) -> dict:
+    data = crafting.convert(out_dir())
+    canvases = convert_canvases(CRAFTING_CANVASES)
+    textures = set(canvases.pop("textures"))
+    for folder in CRAFTING_TEXTURE_FOLDERS:
+        textures |= set(folder_textures(folder))
+    return {"data": data, "canvases": canvases, "textures": convert_textures(textures, force)}
+
+
 # -------------------------------------------------------------------------------------------------------------- loaders
 
 LOADER_SCRIPTS = {"screens": "lyshineui/uiloader.luac", "dynamic": "lyshineui/dynamiccanvasloader/dynamiccanvasloader.luac"}
@@ -1603,6 +1622,7 @@ def main(argv=None) -> int:
     sub.add_parser("world")
     sub.add_parser("options")
     p = sub.add_parser("worldmap"); p.add_argument("--force", action="store_true")
+    p = sub.add_parser("crafting"); p.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "hud":
         result = hud(args.force)
@@ -1647,6 +1667,8 @@ def main(argv=None) -> int:
         result = convert_options()
     elif args.command == "worldmap":
         result = convert_worldmap(args.force)
+    elif args.command == "crafting":
+        result = convert_crafting(args.force)
     else:
         result = convert_text()
     print(json.dumps(result, indent=1, default=str))

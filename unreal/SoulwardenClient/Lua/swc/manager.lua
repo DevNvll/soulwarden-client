@@ -119,13 +119,20 @@ Swc.cvars = {
   sys_DeactivateConsole = 1,
 }
 
--- The localized text of a key with its {name} parts replaced (the formula parts {[...]} stay).
+-- The localized text of a key with its {name} parts replaced (the formula parts {[...]} stay). A value that is a key ("@ui_smelting")
+-- gets its text, and a name with no value is removed: the retail crafting screen shows "+132 Smelting" for ui_craft_bonus
+-- "+{amount} {bonus} {bonus2}" with the values amount and bonus "@ui_smelting" (Soulwarden evidence crafting/37b I1-01).
 local function replace(text, map)
   return (text:gsub("{([%w_%.]+)}", function(name)
     local value = map[name]
-    if value ~= nil then
-      return tostring(value)
+    if value == nil then
+      return ""
     end
+    value = tostring(value)
+    if value:sub(1, 1) == "@" then
+      return swcui.localize(value)
+    end
+    return value
   end))
 end
 
@@ -247,6 +254,9 @@ function Swc.SetScreenShown(screen, shown)
     return
   end
   screen.shown = shown
+  -- The open state of a screen in the data layer (uidatalayerinternal.luac GetIsScreenOpenDatapath; the native screen manager sets
+  -- it, basescreeninternal.luac clears it at its shutdown): craftingtreeview.luac drops its loaded recipes when its screen is closed.
+  Swc.SetData("Hud.LocalPlayer.Screens." .. tostring(screen.name) .. ".IsScreenEnabled", shown)
   for map in pairs(overrides_of(screen)) do
     Swc.mapOverrides[map] = math.max(0, (Swc.mapOverrides[map] or 0) + (shown and 1 or -1))
   end

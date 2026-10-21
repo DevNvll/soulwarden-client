@@ -22,6 +22,7 @@
 #include "core/logging/log.h"
 #include "server/carrier/carrier.h"
 #include "server/rep/client_input.h"
+#include "server/rep/crafting_messages.h"
 #include "server/rep/health_messages.h"
 #include "server/rep/item_requests.h"
 #include "server/rep/lock_messages.h"
@@ -1338,6 +1339,65 @@ void test_conversation() {
 
 } // namespace
 
+// Stage MVP-J: the craft request (2997), the stop (2999), and the progress (2993) with the readers and the writers of the backend
+// (server/rep/crafting_messages.cpp), and the knife request of live check L3 of the backend stage 3.7a (protocol notes 4.50).
+void test_crafting() {
+    std::printf("the crafting messages against the writers and the readers of the backend\n");
+    namespace rep = backend::server::rep;
+    const std::uint64_t group = 0x1122334455667788ULL;
+    swc::net::CraftRequest knife;
+    knife.recipe = 0xA546F7C5U;    // CRC-32 of "1hskinningknifet1"
+    knife.quantity = 1;
+    knife.coinFee = 1;
+    knife.gearScore = 100;
+    knife.items = {0x0C9280C8U, 0x8A914427U};    // FlintT1, WoodT1
+    const Bytes body = swc::net::craft_request_body(group, knife);
+    const Bytes live{0xA5, 0x46, 0xF7, 0xC5, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x64, 0x00, 0x00, 0x02, 0x01, 0x00, 0x00,
+                     0x00, 0x01, 0x0C, 0x92, 0x80, 0xC8, 0x01, 0x00, 0x00, 0x00, 0x01, 0x8A, 0x91, 0x44, 0x27};
+    expect(body.size() == 16 + live.size() && std::equal(live.begin(), live.end(), body.begin() + 16),
+           "2997: the knife request after the call head is the body of live check L3 (35 bytes, 51 with the head)");
+    std::uint64_t entity = 0;
+    const auto read = rep::read_craft_request(body, entity);
+    expect(read.has_value(), "2997: the backend reads the request of the client");
+    if (read) {
+        expect(entity == group && read->target == swc::net::crafting_target(group), "2997: the entity and the target of the Crafting facet");
+        expect(read->recipe == knife.recipe && read->quantity == 1 && read->coinFee == 1 && read->gearScore == 100 && read->upgrade == 0
+                   && read->perkItems.empty(), "2997: the recipe, the count, the claims, no perk item, no upgrade");
+        expect(read->ingredients.size() == 2 && read->ingredients[0].type == 1 && read->ingredients[0].quantity == 1
+                   && read->ingredients[0].item == 0x0C9280C8U && read->ingredients[1].item == 0x8A914427U,
+               "2997: one entry of the type Item and the quantity 1 for each ingredient, in the order of the recipe");
+    }
+    // A batch with perk items, an upgrade, and a currency entry (item 0).
+    swc::net::CraftRequest axe;
+    axe.recipe = 0x9F8F3EDAU;
+    axe.quantity = 10;
+    axe.coinFee = 4490;
+    axe.gearScore = 600;
+    axe.perkItems = {0x12345678U};
+    axe.upgrade = 4;
+    axe.items = {0x11111111U, 0x22222222U, 0U};
+    const auto readAxe = rep::read_craft_request(swc::net::craft_request_body(group, axe), entity);
+    expect(readAxe && readAxe->quantity == 10 && readAxe->coinFee == 4490 && readAxe->gearScore == 600 && readAxe->perkItems.size() == 1
+               && readAxe->perkItems[0] == 0x12345678U && readAxe->upgrade == 4 && readAxe->ingredients.size() == 3 && readAxe->ingredients[2].item == 0,
+           "2997: a batch with a perk item, the upgrade 4, and a currency entry (item 0), read by the backend");
+    const Bytes cancel = swc::net::craft_cancel_body(group);
+    const auto readCancel = rep::read_facet_call(cancel);
+    expect(cancel.size() == 16 && readCancel && readCancel->entity == group && readCancel->target == swc::net::crafting_target(group),
+           "2999: 16 bytes, the call of the Crafting facet, read by the backend");
+    const Bytes progress = rep::craft_progress_body(swc::net::crafting_target(group), group, "1hSkinningKnifeT1", 1, 1);
+    const auto readProgress = swc::net::read_craft_progress(progress);
+    expect(progress.size() == 42 && readProgress && readProgress->call.entity == group && readProgress->recipe == "1hSkinningKnifeT1"
+               && readProgress->completed == 1 && readProgress->total == 1,
+           "2993: the progress of the backend (42 bytes for the knife, 1 of 1), read by the client");
+    const Bytes stop = rep::craft_progress_body(swc::net::crafting_target(group), group, "", 0, 0);
+    const auto readStop = swc::net::read_craft_progress(stop);
+    expect(stop.size() == 25 && readStop && readStop->recipe.empty() && readStop->completed == 0 && readStop->total == 0,
+           "2993: the stop form of the backend (25 bytes, no recipe, 0 of 0), read by the client");
+    expect(swc::net::kCraftRequest.index == rep::kTypeCraftRequest && swc::net::kCraftCancel.index == rep::kTypeCraftCancel
+               && swc::net::kCraftProgress.index == rep::kTypeCraftProgress,
+           "the type numbers of 2997, 2999, 2993 are the numbers of the backend");
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) {
         std::fprintf(stderr, "usage: swc-net-tests GOLDEN_FILE\n");
@@ -1349,6 +1409,7 @@ int main(int argc, char** argv) {
     test_life_messages();
     test_interactions();
     test_conversation();
+    test_crafting();
     test_loot();
     test_carrier();
     std::printf("Result: %d checks, %d failed\n", g_checks, g_failures);

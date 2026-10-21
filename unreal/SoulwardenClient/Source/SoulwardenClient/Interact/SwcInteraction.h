@@ -64,6 +64,11 @@ struct Template {
     std::uint32_t sub{0};
     std::uint64_t root{0};
     std::vector<Bound> bounds;
+    /** A crafting station (stage MVP-J): the Assembly key of the use (m_craftingStationEntry: "Blacksmith5"; empty for another object),
+     *  the fee flag (m_chargeCraftingFee), and the name key of the station ("@BlacksmithT5_MasterName"). */
+    std::string station;
+    bool stationFee{false};
+    std::string interactName;
 };
 
 /** @return The instance id of an entity of the slice of an object with the entity group G (protocol notes 4.2: K = root XOR G). */

@@ -286,6 +286,54 @@ Bytes interaction_cancel_body(std::uint64_t group, const InteractionReference& r
     return w.data();
 }
 
+std::uint64_t crafting_target(std::uint64_t group) {
+    // The rule of protocol notes 4.2: the instance of the entity (entity XOR root XOR G) plus the component id.
+    return (kCraftingEntity ^ kPlayerSliceRoot ^ group) + kCraftingComponent;
+}
+
+Bytes craft_request_body(std::uint64_t group, const CraftRequest& request) {
+    Writer w;
+    w.u64(crafting_target(group));
+    w.u64(group);
+    w.u32(request.recipe);
+    w.u32(request.quantity);
+    w.u32(request.coinFee);
+    w.u16(request.gearScore);
+    w.size(static_cast<std::uint32_t>(request.perkItems.size()));
+    for (const std::uint32_t perk : request.perkItems) {
+        w.u32(perk);
+    }
+    w.u8(request.upgrade);
+    w.size(static_cast<std::uint32_t>(request.items.size()));
+    for (const std::uint32_t item : request.items) {
+        w.u8(1);       // eIngredientType_Item (the client converts each selection to an item entry: 0x5BA9FB0)
+        w.u32(1);      // the quantity of an entry (the server takes the quantities of the recipe)
+        w.u32(item);
+    }
+    return w.data();
+}
+
+Bytes craft_cancel_body(std::uint64_t group) {
+    Writer w;
+    w.u64(crafting_target(group));
+    w.u64(group);
+    return w.data();
+}
+
+std::optional<CraftProgress> read_craft_progress(std::span<const std::uint8_t> body) {
+    Reader reader(body);
+    CraftProgress progress;
+    progress.call.target = reader.u64();
+    progress.call.entity = reader.u64();
+    progress.recipe = reader.string();
+    progress.completed = reader.u32();
+    progress.total = reader.u32();
+    if (!reader.ok()) {
+        return std::nullopt;
+    }
+    return progress;
+}
+
 std::optional<ComponentCall> read_component_call(std::span<const std::uint8_t> body) {
     Reader reader(body);
     ComponentCall call;

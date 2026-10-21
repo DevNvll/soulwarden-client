@@ -171,6 +171,11 @@ public:
 	FString GetConversationSceneKey() const;
 	/** The conversation screen shows or hides (UI/SwcUiConversation): while it shows, E is its Next key, not the end. */
 	void SetConversationScreenShown(bool bShown);
+	/** The crafting station of the use whose crafting screen shows (stage MVP-J, docs/CRAFTING.md): its Assembly key ("Blacksmith5"),
+	 *  the fee flag, and its name key. @return False with no open station. */
+	bool GetCraftingStation(FString& OutKey, bool& bOutFee, FString& OutName) const;
+	/** The crafting screen ends the station use (its Escape, its exit): 2473. */
+	void EndCraftingStation();
 
 	/**
 	 * @return The yaw of the camera of the player in degrees, in the convention of the input report (protocol notes 4.7):

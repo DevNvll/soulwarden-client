@@ -8,6 +8,7 @@
 #include "SwcUi/Runtime.h"
 #include "Net/Codec/SwcRepClient.h"
 #include "UI/SwcUiConversation.h"
+#include "UI/SwcUiCrafting.h"
 
 #include "SwcUiSubsystem.generated.h"
 
@@ -116,6 +117,8 @@ private:
 	TUniquePtr<swc::ui::Runtime> Runtime;
 	/** The conversation screen (stage MVP-H): UI/SwcUiConversation. */
 	FSwcUiConversation Conversation;
+	/** The crafting screen (stage MVP-J): UI/SwcUiCrafting. */
+	FSwcUiCrafting CraftingScreen;
 	TSharedPtr<FSwcUiResources> Resources;
 	TSharedPtr<SSwcUiCanvas> Widget;
 	swc::ui::DrawList DrawList;

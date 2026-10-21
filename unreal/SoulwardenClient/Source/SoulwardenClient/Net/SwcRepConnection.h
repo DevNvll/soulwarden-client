@@ -86,6 +86,9 @@ public:
 	void CancelInteraction();
 	/** The end of a cutscene of the client (a conversation): message 6705 (swc::net::RepClient::end_cutscene). */
 	void EndCutscene();
+	/** The craft request of the crafting screen (2997) and the stop of a batch by the client (2999): stage MVP-J. */
+	void RequestCraft(const swc::net::CraftRequest& Request);
+	void CancelCraft();
 
 	// FRunnable
 	virtual uint32 Run() override;

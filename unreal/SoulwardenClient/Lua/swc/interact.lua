@@ -114,6 +114,9 @@ local function focus_data(focus)
     GetOwnershipBind = function()
       return {ownershipBindEntityId = EntityId(), GetOwnership = function() return {} end}
     end,
+    -- The vitals of a structure (stationproperties.luac OnInteractFocus): a station of a settlement has none.
+    GetHealthBind = function() return {vitalsStatBindEntityId = EntityId()} end,
+    supportsCustomName = false,
   }
 end
 

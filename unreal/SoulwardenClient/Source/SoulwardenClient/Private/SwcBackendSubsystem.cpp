@@ -1715,6 +1715,19 @@ void USwcBackendSubsystem::SetConversationScreenShown(bool bShown)
 	}
 }
 
+bool USwcBackendSubsystem::GetCraftingStation(FString& OutKey, bool& bOutFee, FString& OutName) const
+{
+	return Interactor.IsValid() && Interactor->GetStation(OutKey, bOutFee, OutName);
+}
+
+void USwcBackendSubsystem::EndCraftingStation()
+{
+	if (Interactor.IsValid())
+	{
+		Interactor->EndStation();
+	}
+}
+
 void USwcBackendSubsystem::EndConversation()
 {
 	if (Interactor.IsValid())

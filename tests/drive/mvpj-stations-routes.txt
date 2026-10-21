@@ -1,0 +1,9 @@
+# The stations of the settlement near the first test place (stage MVP-J part 1): tools/creature-check.sh mvpj-stations 110 THIS
+# tests/drive/mvpj-stations.txt -- -SwcUiDrive=tests/drive/mvpj-stations-ui.txt, with a copy of the user's database. The character
+# stands 0.8 m south of a bound of each station (capsules of 1.5 to 2 m): the forge Blacksmith5 (bound 8859.32 4259.69), the smelter
+# Smelting5 (bound 8849.95 4259.29), the woodshop Carpentry3 (decision D1: the _t2 slice, bound 8838.86 4254.34).
+1 heal
+1.5 ignore on
+28 travel 8859.3 4258.9 138.4 off
+56 travel 8849.9 4258.5 138.4 off
+84 travel 8838.9 4253.5 138.3 off

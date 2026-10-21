@@ -1,0 +1,11 @@
+# The UI drive of the station check of stage MVP-J part 1 (times from the spawn of the player; the player drive presses E at 35, 63,
+# 91 s): Escape 9 s after each E closes the crafting screen (the client sends 2473).
+1 waitfor CompassLines 60
+2 waitfor world 180
+46 log Escape at the forge
+46 key escape
+74 log Escape at the smelter
+74 key escape
+102 log Escape at the woodshop
+102 key escape
+108 end

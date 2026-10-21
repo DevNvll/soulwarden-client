@@ -207,6 +207,18 @@ void FSwcRepConnection::EndCutscene()
 	Calls.push_back([](swc::net::RepClient& Client) { Client.end_cutscene(); });
 }
 
+void FSwcRepConnection::RequestCraft(const swc::net::CraftRequest& Request)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([Request](swc::net::RepClient& Client) { Client.request_craft(Request); });
+}
+
+void FSwcRepConnection::CancelCraft()
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([](swc::net::RepClient& Client) { Client.cancel_craft(); });
+}
+
 std::vector<swc::net::RepClient::OtherUpdate> FSwcRepConnection::TakeOtherUpdates()
 {
 	FScopeLock Guard(&Lock);

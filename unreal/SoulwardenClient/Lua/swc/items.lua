@@ -373,6 +373,34 @@ Swc.ItemDescriptor = Swc.ValueClass({
     CanDisplayAllPerksInUI = function() return true end,
     HasGem = function() return false end,
     GetCoreDamageForOwner = function(self) return core_damage(Swc.ItemStatic(self.itemId), self.gearScore or 0) end,
+    -- staticitemdatamanager.luac GetTooltipDisplayInfo with a second descriptor (the crafting screen: the result before its craft).
+    GetCoreDamage = function(self) return core_damage(Swc.ItemStatic(self.itemId), self.gearScore or 0) end,
+    GetGearScoreRangeMod = function() return 0 end,
+    GetDurability = function() return 0 end,
+    -- The item slot part of a tooltip of a descriptor (staticitemdatamanager.luac reads it from the descriptor of a craft result).
+    GetWeight = function(self)
+      local static = Swc.ItemStatic(self.itemId)
+      return static and (static.weight or 0) * math.max(1, self.quantity or 0) or 0
+    end,
+    GetMaxDurability = function(self)
+      local static = Swc.ItemStatic(self.itemId)
+      return static and static.durability or 0
+    end,
+    GetItemType = function(self)
+      local static = Swc.ItemStatic(self.itemId)
+      return static and static.itemType or ""
+    end,
+    GetItemDescriptor = function(self) return self end,
+    IsEquipped = function() return false end,
+    IsBoundToPlayer = function() return false end,
+    IsBindOnEquip = function(self)
+      local static = Swc.ItemStatic(self.itemId)
+      return static ~= nil and (static.bindOnEquip or 0) == 1
+    end,
+    IsConfirmDestroy = function() return false end,
+    IsNonRemovableFromPlayer = function() return false end,
+    HasEntitlements = function() return false end,
+    GetPerkActiveFlag = function() return true end,
     GetEstimatedConsumablePotency = function() return 0 end,
     MatchesDescriptorExactly = function(self, other)
       return other ~= nil and other.itemId == self.itemId and other.gearScore == self.gearScore
@@ -412,7 +440,7 @@ end
 Swc.ItemSlot = Swc.ValueClass({
   name = "ItemSlot",
   fields = {"itemId", "slot", "quantity", "gearScore", "durability", "maxDurability", "instance", "flags", "perks",
-            "container", "chrono", "action", "static"},
+            "container", "chrono", "action", "static", "occupied"},
   methods = {
     IsValid = function(self) return self.static ~= nil and (self.quantity or 0) > 0 end,
     IsEquipped = function(self) return self.container == "paperdoll" and self.static ~= nil end,
@@ -832,6 +860,9 @@ local function static_data(itemCrc)
   data.maxStackSize = static.maxStack
   data.IsValid = function() return true end
   data.HasDurabilityEnabled = function() return (static.durability or 0) > 0 end
+  -- The icons (craftingrecipepanel.luac SetHeader: the large icon of the result).
+  data.GetIconPath = function() return static.icon or "" end
+  data.GetHiResIconPath = function() return static.hiresIcon ~= nil and static.hiresIcon ~= "" and static.hiresIcon or static.icon or "" end
   -- The gear score and the fixed perks of the item (itemcommon.luac GetFullDescriptorFromId: the descriptor of an item id; the
   -- quick slots ask it before a use). The perks: the columns Perk1 to Perk5 of the item row, each the CRC-32 of its id.
   data.gearScoreOverride = tonumber(static.gearScoreOverride) or 0

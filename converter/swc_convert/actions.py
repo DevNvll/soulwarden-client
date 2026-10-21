@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import struct
 import xml.etree.ElementTree as ET
 import zlib
@@ -654,6 +655,18 @@ def actions() -> dict:
             "graph fragments with no variant": missing[:10]}
 
 
+STATION_NAME = re.compile(rb"@[A-Za-z0-9]+_MasterName")
+
+
+def station_name(slice_path: str) -> str:
+    """@return The name key of a station slice ("@BlacksmithT5_MasterName"): the one MasterName text of the slice (the name of its
+    Interact component). A slice with no such text or with two of them stops the tool."""
+    names = sorted({m.decode() for m in STATION_NAME.findall(source.read(slice_path))})
+    if len(names) != 1:
+        raise ValueError(f"the station slice {slice_path} has {len(names)} MasterName texts: {names}")
+    return names[0]
+
+
 def interactions() -> dict:
     """The interaction data of the server objects that the client uses (stage P2.10): the templates of the fixtures (the powder
     keg: the timed use Trigger, 5 s) and of the personal loot bag (TakeAllOption, OpenStorageOption) from interaction-data.json of
@@ -667,6 +680,13 @@ def interactions() -> dict:
     wanted = {name: index for name, index in data.get("fixtures", {}).items()}
     for name, container in data.get("lootContainers", {}).items():
         wanted["loot:" + name] = container["template"]
+    # Stage MVP-J: the crafting stations of the settlements (the server children of the placements, `spawned`; decision D1 of the
+    # backend: the template of a child is its runtime variant). A camp stays out: the retail client hides OpenCraftingOption of a camp
+    # (Soulwarden interactions.md, live check L5; docs/CRAFTING.md "The gaps").
+    for child in data.get("spawned", []):
+        template = data["templates"][child["template"]]
+        if template["kind"] == "craftingStation" and template.get("assembly") and not template["assembly"]["key"].startswith("Camp"):
+            wanted["station:" + template["slice"].rsplit("/", 1)[-1].removesuffix(".dynamicslice")] = child["template"]
     templates = []
     shapes = BoundShapes()
     for name, index in sorted(wanted.items()):
@@ -682,9 +702,16 @@ def interactions() -> dict:
             shape = shapes.shape(template["slice"], entity=bound["entity"])
             if shape is not None:
                 bounds[-1]["shape"] = shape
-        templates.append({"name": name, "slice": template["slice"], "asset": template["asset"], "sub": template["sub"],
-                          "kind": template["kind"], "root": template["root"], "positionSlot": template["slots"]["position"],
-                          "permissionRule": template["permissionRule"], "bounds": bounds})
+        entry = {"name": name, "slice": template["slice"], "asset": template["asset"], "sub": template["sub"],
+                 "kind": template["kind"], "root": template["root"], "positionSlot": template["slots"]["position"],
+                 "permissionRule": template["permissionRule"], "bounds": bounds}
+        if name.startswith("station:"):
+            # The station facts of a use (the Assembly key m_craftingStationEntry, the fee flag m_chargeCraftingFee) and the name of the
+            # station (the text key "@BlacksmithT5_MasterName" of the slice: the prompt "FORGE TIER 5" and Hud.LocalPlayer.InteractName,
+            # which stationproperties.luac reads for its header and its trade skills).
+            entry["assembly"] = {"key": template["assembly"]["key"], "fee": bool(template["assembly"]["fee"])}
+            entry["interactName"] = station_name(template["slice"])
+        templates.append(entry)
     doc = {"format": 1, "source": str(source_path), "templates": templates, "lootContainers": data.get("lootContainers", {})}
     out = player.player_dir() / "interactions.json"
     out.write_text(json.dumps(doc, indent=1, sort_keys=True))

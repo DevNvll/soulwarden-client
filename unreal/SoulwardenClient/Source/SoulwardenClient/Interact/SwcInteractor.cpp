@@ -28,6 +28,8 @@ constexpr double BagHideDelay = 1.5;
 constexpr uint8 GatherAction = 14;
 /** OpenConversation: the action of the option of a person (interaction-data.json, option 17: action 63, committed, hold 0.5 s). */
 constexpr uint8 ConversationAction = 63;
+/** OpenCraftingOption and OpenCraftingOptionLevel60: the action of a station (interaction-data.json: action 20, committed, hold 0.5 s). */
+constexpr uint8 StationAction = 20;
 /** The prompt distance of a person with no npc object (m): the retail prompts of persons show at 2.07 to 2.98 m (set 5 of the
  *  Talk: the commander, the artificer, Giacomo); a client rule until the trigger area of a person is read. */
 constexpr double PersonTalkRange = 3.0;
@@ -141,6 +143,14 @@ bool FSwcInteractor::Load(FString& OutReport)
 			}
 			Template.bounds.push_back(Bound);
 		}
+		// A crafting station (stage MVP-J): its Assembly and its name key.
+		const TSharedPtr<FJsonObject>* Assembly = nullptr;
+		if (Info->TryGetObjectField(TEXT("assembly"), Assembly))
+		{
+			Template.station = TCHAR_TO_UTF8(*(*Assembly)->GetStringField(TEXT("key")));
+			Template.stationFee = (*Assembly)->GetBoolField(TEXT("fee"));
+			Template.interactName = TCHAR_TO_UTF8(*Info->GetStringField(TEXT("interactName")));
+		}
 		// The personal loot bag: its focus comes from the bag entities of the creature view, not from the objects of the snapshot.
 		if (Template.name.rfind("loot:", 0) == 0)
 		{
@@ -216,6 +226,11 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: the reply to %s: %s"), UTF8_TO_TCHAR(Use.option().name.c_str()),
 			Own.lastInteractionResult == 1 ? TEXT("accepted") : TEXT("refused"));
 		const bool bTalkReply = bUseTalk && Use.phase() != swc::interact::Use::Phase::idle;
+		if (bUseStation && Use.phase() != swc::interact::Use::Phase::idle && Own.lastInteractionResult != 1 && bStationOpen)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the station use is refused: the crafting screen closes"));
+			bStationOpen = false;
+		}
 		Use.reply(Own.lastInteractionResult, Now);
 		if (bTalkReply && Own.lastInteractionResult != 1 && Talk.scene())
 		{
@@ -323,6 +338,12 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		bUseBag = false;
 		bUseGather = false;
 		bUseTalk = false;
+		if (bStationOpen)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the station use ended: the crafting screen closes"));
+			bStationOpen = false;
+		}
+		bUseStation = false;
 		// The candidates of the three sources (the fixtures of the server, the bags, the objects of the level data) have the point of the
 		// character in their shape (AST-198; research prompt-range.md); the focus is the smallest camera line score of all of them.
 		Focus = bLocked ? std::nullopt : swc::interact::focus(Templates, Objects, Reported, Camera, Forward);
@@ -330,11 +351,14 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		FocusShape = Focus ? TEXT("a fixture of the server") : FString();
 		bFocusBag = false;
 		FocusPrompt = FSwcInteractPrompt();
+		// A crafting station of a settlement (stage MVP-J): a server child with an Assembly; its option OpenCraftingOption keeps its
+		// request while the crafting screen shows.
+		bFocusStation = Focus && !Focus->object->station.empty() && Focus->option->action == StationAction;
 		if (Focus)
 		{
 			FocusPrompt.Kind = FSwcInteractPrompt::EKind::Fixture;
 			FocusPrompt.Interest = Focus->interest;
-			FocusPrompt.Name = FocusName;
+			FocusPrompt.Name = Focus->object->interactName.empty() ? FocusName : FString(UTF8_TO_TCHAR(Focus->object->interactName.c_str()));
 			FocusPrompt.Options.Emplace(UTF8_TO_TCHAR(Focus->option->name.c_str()), Focus->option->hold);
 			FocusPrompt.Place = SwcEngineToUnreal(Focus->place);
 		}
@@ -385,6 +409,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 				Candidate.rangeSq = Bag.RangeSq;
 				Candidate.score = BagScore;
 				Focus = Candidate;
+				bFocusStation = false;
 				FocusName = TEXT("loot bag");
 				FocusShape = ShapeText(LootTemplate->bounds.front().shape);
 				bFocusBag = true;
@@ -442,6 +467,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Candidate.rangeSq = Object.RangeSq;
 			Candidate.score = ObjectScore;
 			Focus = Candidate;
+			bFocusStation = false;
 			// The prompt of a gather has the name of the row and, with no tool, the refusal ("YOUNG TREE  No equipped Axe").
 			FocusName = Object.Name.IsEmpty() ? FString::Printf(TEXT("%s %s"), *Object.Kind.ToString(), *Object.Key)
 				: Object.bToolMissing || Object.bRankMissing ? FString::Printf(TEXT("%s  %s"), *Object.Name.ToUpper(), *Object.RefusalText) : Object.Name.ToUpper();
@@ -504,6 +530,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Candidate.distanceSq = swc::interact::distance_sq(Reported, Candidate.place);
 			Candidate.rangeSq = PersonTalkRange * PersonTalkRange;
 			Focus = Candidate;
+			bFocusStation = false;
 			FocusName = TalkPerson->Name.ToUpper();
 			bFocusBag = false;
 			FocusShape = TEXT("person");
@@ -633,6 +660,17 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		}
 		Use.abort();
 	}
+	// The crafting screen ends the station use (its Escape, its exit button): the client sends 2473 (protocol notes 4.36: "Escape: the
+	// client sends 2473 with the reference").
+	if (bPendingStationEnd)
+	{
+		bPendingStationEnd = false;
+		if (bUseStation && Use.phase() != swc::interact::Use::Phase::idle)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the crafting screen ends the station use (2473)"));
+			Use.finish();
+		}
+	}
 	// The key E. In a conversation with no conversation screen it ends the conversation (with the screen, E is its Next key).
 	// A gather with no tool for its row sends nothing (protocol notes 4.44, live check L6: no request in the log).
 	if ((bKeyDown && !bKeyWas && Talk.scene() && !bConversationScreen) || (bPendingTalkEnd && Talk.scene()))
@@ -640,6 +678,10 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: %s in the conversation: the player ends it (6705, then 2473)"), bPendingTalkEnd ? TEXT("the UI") : TEXT("E"));
 		Talk.player_close();
 		Use.finish();
+	}
+	else if (bKeyDown && !bKeyWas && bStationOpen)
+	{
+		// The crafting screen has the input (its own key actions).
 	}
 	else if (bKeyDown && !bKeyWas && Talk.locked())
 	{
@@ -666,7 +708,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Focus->option->delay, Focus->option->hold);
 		// A bag, a gather, and a conversation keep their request until their source ends them (the Looted claim; the Gathering
 		// state; the end of the conversation).
-		Use.press(Now, *Focus, bFocusBag || bFocusGather || bFocusTalk);
+		Use.press(Now, *Focus, bFocusBag || bFocusGather || bFocusTalk || bFocusStation);
 		UsePlace = SwcEngineToUnreal(Focus->place);
 		if (bFocusBag)
 		{
@@ -685,6 +727,13 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			bUseTalk = true;
 			TalkKey = FocusKey;
 		}
+		if (bFocusStation)
+		{
+			bUseStation = true;
+			StationKey = UTF8_TO_TCHAR(Focus->object->station.c_str());
+			bStationFee = Focus->object->stationFee;
+			StationName = UTF8_TO_TCHAR(Focus->object->interactName.c_str());
+		}
 	}
 	else if (!bKeyDown && bKeyWas)
 	{
@@ -700,6 +749,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		bUseBag = false;
 		bUseGather = false;
 		bUseTalk = false;
+		bUseStation = false;
 	}
 	const uint32 Executions = Use.executions();
 	Use.tick(Now);
@@ -711,6 +761,13 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			// The client opens the conversation at its request, before any reply (protocol notes 4.35).
 			UE_LOG(LogSwcBackend, Log, TEXT("interact: the conversation opens (object %s): the input of the character is blocked"), *TalkKey);
 			Talk.open();
+		}
+		if (bUseStation)
+		{
+			// The client opens the crafting screen at its request (the station facts of the client: 0x2E6A440, 0x2E61E00; protocol notes
+			// 4.36); a refusal (3743 result 2) and the end of the use (3746, 2473, the death, a loading screen) close it.
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the crafting screen opens: %s (%s, fee %d)"), *StationKey, *StationName, bStationFee ? 1 : 0);
+			bStationOpen = true;
 		}
 	}
 	// The end of a conversation first: 6705, then 2473 (the order of the retail client, 2 ms between them).
@@ -764,8 +821,8 @@ void FSwcInteractor::UpdateLootedBags(const swc::net::RepClient::OwnEntity& Own,
 
 bool FSwcInteractor::GetPrompt(double Now, FSwcInteractPrompt& Out) const
 {
-	// No prompt in a conversation and until the answer 6709 (the conversation screen replaces it).
-	if (!Focus || Talk.locked())
+	// No prompt in a conversation and until the answer 6709 (the conversation screen replaces it), and none at an open station.
+	if (!Focus || Talk.locked() || bStationOpen)
 	{
 		Out = FSwcInteractPrompt();
 		return false;
