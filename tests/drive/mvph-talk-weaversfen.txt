@@ -1,0 +1,10 @@
+# A Talk check of stage MVP-H (docs/PERSONS.md "The conversation screen"): the commander of Weaver's Fen (0307_Commander), the key Escape (Back). The start place 1.9 m in front of the person
+# (the database copy of the run); the view to the person; E for 0.8 s: the request, the scene, the conversation screen; the UI
+# drive tests/drive/mvph-talk-weaversfen-ui.txt presses Escape at 12 s: the screen ends the conversation (6705, then 2473); the answer 6709
+# frees the input; W walks away. Times in seconds from the possession.
+4.0 view 337.1 -6
+6.0 interact 1
+6.8 interact 0
+16.0 move 0 1
+17.2 move 0 0
+19.0 view 337.1 -6

@@ -170,6 +170,8 @@ V3 = Swc.ValueClass({
       return l
     end,
     Clone = function(self) return V3.new({x = self.x, y = self.y, z = self.z}) end,
+    -- AZ::Vector3::CrossZAxis: the cross product with the z axis (conversationscreenv2.luac GetNpcLookAtPosition).
+    CrossZAxis = function(self) return V3.new({x = self.y, y = -self.x, z = 0}) end,
     IsZero = function(self) return self.x == 0 and self.y == 0 and self.z == 0 end,
   },
   ops = {
@@ -199,6 +201,9 @@ Vector3 = setmetatable({}, {
     if key == "CreateAxisX" then return function(s) return V3.new({x = s or 1, y = 0, z = 0}) end end
     if key == "CreateAxisY" then return function(s) return V3.new({x = 0, y = s or 1, z = 0}) end end
     if key == "CreateAxisZ" then return function(s) return V3.new({x = 0, y = 0, z = s or 1}) end end
+    -- A method in the static form of the behavior context: Vector3.Normalize(v) is v:Normalize().
+    local method = V3.methods and V3.methods[key]
+    if method then return method end
     Swc.Stub("value member", "Vector3." .. tostring(key))
     return nil
   end,

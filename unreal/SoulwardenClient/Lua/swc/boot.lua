@@ -38,3 +38,4 @@ Swc.Load("swc.notices")   -- the damage numbers and the heal numbers (the native
 Swc.Load("swc.reticle")   -- the reticle data of the HUD (the reticle of the active weapon, the reticle colors)
 Swc.Load("swc.host")      -- the calls of the host: Swc.Tick, Swc.Boot, Swc.EnterWorld, the player data
 Swc.Load("swc.frontend")  -- the front end: the native part of the landing screen (docs/FRONTEND.md stage F2)
+Swc.Load("swc.conversation") -- the conversation screen: its state, the npc data, the end request (docs/PERSONS.md)

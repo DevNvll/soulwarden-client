@@ -1,0 +1,97 @@
+-- The conversation fixture (stage MVP-H, Linear AST-223): the original ConversationScreenV2 (conversationscreenv2.luac) with
+-- the state of swc/conversation.lua. The client opens a Talk with a person of one line: the screen state, the subtitle
+-- "SPEAKER: TEXT", the key hints. E (ui_interact) at the last line closes the screen and gives one request "conversation end";
+-- Escape does the same; the close of the client (a refusal) closes the screen at once with no request.
+-- Pictures: conversation-open.
+local HUD, CONVERSATION = 2702338936, 4203137545
+-- The canvas: in the game swc/conversation.lua loads it at the first conversation (the screen list of the client allows it; the
+-- runtime of a fixture allows no loader screen, so the fixture loads it first, and the module must not load a second copy).
+local conversation = screen("LyShineUI/Conversation/ConversationScreenV2.uicanvas", 20)
+local helpbar = screen("LyShineUI/HelpBar/HelpBar.uicanvas", 30)
+Swc.PlayerSpawned()
+LyShineManagerBus.Broadcast.SetState(HUD)
+DynamicBus.UiLoader.Broadcast.OnUiLoadingComplete()
+Swc.HostVitals(5330, 5330, 100, 100, 100, 100, false)
+frames(0.3)
+local root
+
+local function requests()
+  local out = {}
+  for _ = 1, 8 do
+    local r = Swc.TakeHostRequest()
+    if r == "" then break end
+    out[#out + 1] = r
+  end
+  return out
+end
+
+local function open()
+  Swc.HostConversation("open", "r_+04_+02:abc:1:8836.19,4246.09", "Zeng Lingyun", "08_sq_zeng_greet_00", "Zeng Lingyun", "")
+  frames(1.5)
+end
+
+-- The open.
+open()
+equal(#DynamicBus.ConversationScreenV2.handlers, 1, "one conversation screen after the open (no second load)")
+root = swcui.canvas_get(conversation, "root")
+equal(LyShineManagerBus.Broadcast.GetCurrentState(), CONVERSATION, "the open sets the state ConversationScreenV2")
+check(swcui.canvas_get(conversation, "enabled"), "the conversation screen shows")
+local body = swcui.get(find(root, "BodyText"), "text.text") or ""
+note("the body text: " .. body)
+check(body:find("Zeng Lingyun", 1, true) ~= nil and body:find("The Empress needs all the allies", 1, true) ~= nil,
+  "the subtitle has the speaker and the line")
+frames(2.0)
+local function shown(name)
+  local id = find(root, name)
+  return id ~= nil and swcui.enabled_in_hierarchy(id)
+end
+note("hints: center " .. tostring(shown("CenterHintContainer")) .. " exit " .. tostring(shown("ExitHintContainer"))
+  .. " " .. tostring(shown("ExitButtonContainer")) .. " options " .. tostring(shown("ConversationOptionsHolder")))
+check(shown("CenterHintContainer"), "the hint E Next shows")
+do
+  local hb = swcui.canvas_get(helpbar, "root")
+  local texts = {}
+  local function walk(id, depth)
+    if depth > 12 then return end
+    local t = swcui.has(id, "text") and swcui.get(id, "text.text")
+    if t and t ~= "" and swcui.enabled_in_hierarchy(id) then texts[#texts + 1] = swcui.name(id) .. "=" .. t end
+    for _, c in ipairs(swcui.children(id)) do walk(c, depth + 1) end
+  end
+  walk(hb, 0)
+  note("helpbar enabled " .. tostring(swcui.canvas_get(helpbar, "enabled")) .. ": " .. table.concat(texts, "; "))
+end
+picture("conversation-open")
+
+-- E at the last line: the screen closes and asks for the end of the conversation one time.
+requests()
+key("e")
+frames(1.0)
+local r = requests()
+equal(#r, 1, "E gives one request")
+equal(r[1], "conversation end", "the request is the end of the conversation")
+check(LyShineManagerBus.Broadcast.GetCurrentState() ~= CONVERSATION, "E closes the screen state")
+Swc.HostConversation("close")
+frames(0.5)
+
+-- Escape (Back): the same end.
+open()
+equal(LyShineManagerBus.Broadcast.GetCurrentState(), CONVERSATION, "the second open sets the state again")
+requests()
+key("escape")
+frames(1.0)
+r = requests()
+equal(#r, 1, "Escape gives one request")
+equal(r[1], "conversation end", "the request of Escape is the end of the conversation")
+check(LyShineManagerBus.Broadcast.GetCurrentState() ~= CONVERSATION, "Escape closes the screen state")
+Swc.HostConversation("close")
+frames(0.5)
+
+-- The close of the client (a refusal 3743 result 2): the screen closes at once, no request.
+open()
+requests()
+Swc.HostConversation("close")
+frames(0.5)
+r = requests()
+equal(#r, 0, "the close of the client gives no request")
+check(LyShineManagerBus.Broadcast.GetCurrentState() ~= CONVERSATION, "the close of the client closes the screen state")
+equal(LyShineManagerBus.Broadcast.GetCurrentState(), HUD, "the state is HUD again")

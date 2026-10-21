@@ -1,0 +1,4 @@
+# The routes of the Talk checks of stage MVP-H (tests/drive/mvph-talk-*.txt): the creatures ignore the character, the hour 12:00.
+# The start place is in the database copy of the run (1.9 m in front of the person). Times on the clock of the drive.
+0.5 ignore on
+0.6 world-time 12:00

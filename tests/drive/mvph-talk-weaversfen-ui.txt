@@ -1,0 +1,4 @@
+# The UI drive of tests/drive/mvph-talk-weaversfen.txt: the key Escape in the conversation screen. Times from the spawn of the player.
+12.0 log the key Escape in the conversation screen
+12.0 key Escape
+26 end
