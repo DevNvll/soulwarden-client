@@ -2,7 +2,9 @@
 # Builds and runs the tests of the attack graph of the client (tests/actions; stage P2.7) with the system C++ compiler: the
 # action order and the marker order with the converted data (SWC_CONTENT/player/actions.json), and the parity with the
 # attack sequence of the backend (its sources, read only) on the same input steps. The backend reads the graph file of the
-# backend copy (SWC_GAMEDATA_DIR/weapon-actions.json). The build output goes to SWC_WORK/build/actions-tests.
+# backend copy (SWC_GAMEDATA_DIR/weapon-actions.json). The supported-action list of the client (Combat/SwcBackendSupport.h) against
+# kRules of world/abilities.cpp and kDetonateAbility of world/runes.h of the backend source. The build output goes to
+# SWC_WORK/build/actions-tests.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 compiler="${CXX:-clang++}"
@@ -17,4 +19,5 @@ nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     "${module}/Combat/SwcLife.cpp" \
     "${backend}/src/world/attack_sequence.cpp" "${backend}/src/gamedata/weapon_actions.cpp" \
     -o "${out}/swc-actions-tests"
-exec "${out}/swc-actions-tests" "${SWC_CONTENT}/player/actions.json" "${gamedata}/weapon-actions.json"
+exec "${out}/swc-actions-tests" "${SWC_CONTENT}/player/actions.json" "${gamedata}/weapon-actions.json" \
+    "${backend}/src/world/abilities.cpp" "${backend}/src/world/runes.h"

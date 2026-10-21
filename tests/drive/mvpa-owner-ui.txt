@@ -1,0 +1,26 @@
+# Stage MVP-A (Linear AST-214; docs/ACTIONS.md "The supported-action list", docs/UI.md "The owner states"): the UI drive of the live
+# check with a copy of the user's database in the own data folder (the level 70 character: a bow with Penetrating Shot, Explosive
+# Arrow, Rapid Shot; a rapier with Evade, Flourish, Fleche; the Bile Bomb rune). Times in seconds from the spawn of the player.
+# SWC_DEV_DATA=.../dev-data-mvpa SWC_STAGE=mvp-a SWC_GAME_SIZE=1280x720 SWC_DESKTOP_MODE=1304x780@60 \
+#   tools/creature-check.sh mvpa-owner 60 tests/drive/mvpa-owner-routes.txt -- -SwcUiDrive=$PWD/tests/drive/mvpa-owner-ui.txt
+1 waitfor CompassLines 60
+2 waitfor world 180
+4 log the bow (key 1): three abilities with a rule of the backend
+4 key 1
+8 draw bow
+9 log Q of the bow: Penetrating Shot (a rule: it plays, the server cooldown)
+9 key q
+15 log the rapier (key 2): Evade, Flourish, Fleche have no rule (the slots dim)
+15 key 2
+19 draw rapier
+20 log Q of the rapier: Evade (no rule: no bit, no clip, no cooldown)
+20 key q
+23 log R of the rapier: Flourish (no rule)
+23 key r
+26 log F of the rapier: Fleche (no rule)
+26 key f
+30 log the inventory (Tab): the attributes of the attribute state
+30 key tab
+35 draw inventory
+40 key tab
+44 end

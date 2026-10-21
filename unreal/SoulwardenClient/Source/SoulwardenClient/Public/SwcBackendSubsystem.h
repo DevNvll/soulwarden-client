@@ -277,6 +277,7 @@ private:
 	/** The bars, the revision of the learned nodes, and the cooldown entries (ability, end in server us) that the driver has. */
 	std::array<std::array<uint32, 3>, 2> SentBars{};
 	uint32 NodesRevision = 0;
+	uint32 HitRevision = 0;
 	std::vector<std::pair<std::uint32_t, std::uint64_t>> SentCooldowns;
 	/** The movement limits (stage P3.3): the bag weight and its revision, the equip load class, the log of the last limits. */
 	uint32 BagRevision = MAX_uint32;

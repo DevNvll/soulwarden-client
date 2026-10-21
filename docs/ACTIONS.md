@@ -279,7 +279,8 @@ The rules (`Combat/SwcAttackGraph`, plain C++; `Driver` on the thread of the ses
   block input of the step, the fragment that plays, and the collision of the character. The client sees its collision: a
   block of the movement by the body of a creature in a fragment (an inference: only a creature; the retail input
   `character_collided` is not described). The server does not see it, and it takes the transition at the match of the
-  contact. The hits of a cast (`IfAbilityNumHits`) are 0 on the client (only Whirlwind with Unending Winds reads them).
+  contact. The hits of a cast (`IfAbilityNumHits`; only Whirlwind with Unending Winds reads them) are the hit count of the
+  ability in the Ability state (fields 1 and 2, stage MVP-A: `Driver::set_ability_hits`); 0 before the server sends one.
 - The cooldown: the client starts its own cooldown at a press that it plays, with the time of the data (the setter of the
   retail client runs at the press), and it does not play a press in its own cooldown. The countdown of the HUD comes only
   from the cooldown state of the server (slot 45; the UI track). The own cooldown only blocks a press. The correction: the
@@ -319,6 +320,55 @@ server; the creature track shows them ([CREATURES.md](CREATURES.md)).
 - The reset of the server at 29.5 s: the bar has no countdown, and F in the own cooldown of Path of Destiny played nothing.
 - The counts: 8 presses (6 played, 2 in the own cooldown), 24 hits, 10 melee contacts (10 accepted), 1 shot, 1,349 position
   reports accepted (0 refused).
+
+## The supported-action list (stage MVP-A, Linear AST-214)
+
+The client plays, sends, and shows an action only when the fixed backend has a rule for it. An action with no rule gives no false
+success, heal, cooldown, or damage result. The list is a copy of the backend source (read only) in `Combat/SwcBackendSupport.h`:
+`world/abilities.cpp` `kRules` (the abilities with a cast plan) and `world/runes.h` `kDetonateAbility`. `tools/test-actions.sh`
+reads the two backend files and compares them with the copy: a new rule of the backend fails the test until the copy has it.
+
+The active abilities of the five weapons of the MVP (16 of 30 have a rule):
+
+| Weapon | Supported (a cast plan of the backend) | Unavailable (no cast plan) |
+| --- | --- | --- |
+| Sword and shield | none | Reverse Stab, Whirling Blade, Leaping Strike, Shield Bash, Shield Rush, Defiant Stance (`Ability_Sword_FinalStand`) |
+| Rapier | Riposte | Tondo (`Ability_Rapier_Slash`), Flurry, Flourish and Finish, Fleche (`Ability_Rapier_Aerial_Lunge_Intro`), Evade (`Ability_Rapier_Evasion`) |
+| Bow | Penetrating Shot, Explosive Arrow (`Ability_Bow_SplinterShot`), Rapid Shot | Poison Shot, Evade Shot, Rain of Arrows |
+| Great axe | Charge, Reap, Execute, Whirlwind, Maelstrom, Gravity Well | none |
+| War hammer | Wrecking Ball, Shockwave, Path of Destiny, Mighty Gavel, Armor Breaker, Clear Out | none |
+
+The rule of the client for an unavailable ability:
+
+- The driver (`Driver::set_supported_abilities` with the set of `supported_abilities()`; `USwcBackendSubsystem` sets it at each
+  world entry) keeps the key up: no press, hold, or release bit goes to the server, no fragment plays, and no own cooldown
+  starts. The verdict of the press is `PressVerdict::unsupported`; the log line is `ability: key Q (place 0) ... no rule of the
+  backend (not sent)`, and the counts at the end of a session have "N with no rule of the backend". The keys of the bow go
+  through the same gate before the ranged program.
+- The HUD shows the slot disabled with the original rule of `weaponquickslots.luac`: its `GetIsAbilityEnabled` (a silenced or
+  mounted character, no mana, no shield) gets one more condition through a script hook (`swc/owner.lua`, `Swc.scriptHooks`):
+  an ability that is not in the list of the host (`Swc.HostSupportedAbilities`) is not enabled. The slot then dims (the Dimmer
+  of `weaponabilityslot.luac`, opacity 70 percent), and a press of its key plays the disabled flash of the slot
+  (`OnTryUseDisabledAbility`). The retail client has no text for this case: the client shows none.
+- The cooldown state of the server is the only source of a cooldown on the HUD: an ability with no rule never gets one.
+
+The other actions of the list:
+
+| Action | Backend rule | Client |
+| --- | --- | --- |
+| Heart rune | Only `Ability_Rune_Detonate` activates (the key G, input bit 450, with a full charge). Bile Bomb and each other rune ability have no rule (`docs/systems/passive-rules.md` of the backend). | The charge (slot 48) fills the rune icon of the HUD. G is not in the input map yet (order 11 of the MVP plan); `rune_supported()` is the gate for it. The equipped rune stays: the client does not change it to hide the limit. |
+| Block | No block rule, no shield damage reduction, no grit, no hit reaction of the own character. | The right button plays the block pose only (see "The block"); the server damage is unchanged. No HUD value shows a block result. |
+| Travel | The admin travel command of the backend and the nearest-place respawn. No retail shrine travel, discovery, fee, inn binding, or inn recall. | Incoming travel and respawn work. The travel selector is the work of the UI track (order 7). |
+| Recipes | Crafting state 205 and the requests 2997 / 2999. The backend refuses the recipes with a RequiredExpansion field and the recipes with conditions that it does not support: of the 8,294 rows of the copied crafting data, 1,917 have no export cause, 149 of them with an expansion field, thus at most 1,768 are candidates before the rank, station, material, and fee checks (research `mvp-gaps.md`, E11). | No craft screen yet (order 14). The client reads the craft state (the cooldown windows and the gear score bonuses) and makes no item locally. |
+| Consumables | Use from a quick slot (bits 404, 117, 140, 513) and Use of the bag (2917); the server owns the item loss, the heal, the statuses, and the shared cooldowns. | The quick slots show the server cooldowns (stage P3.H). |
+
+Exit check of stage MVP-A (2026-10-20): `tools/test-actions.sh` (the copy against kRules and kDetonateAbility, 16 of 30, the gate of
+the driver), `tools/test-movement.sh` (the owner states of the backend encoders into the client: 64 checks), `tools/test-ui.sh`
+(fixture `ownerstates`: 25 checks). A development run with a copy of the user's database in its own data folder (the level 70
+character: a bow and a rapier with Evade, Flourish, Fleche; drive `tests/drive/mvpa-owner-ui.txt`): with the rapier in the hand the
+three slots dim, each key logs "no rule of the backend (not sent)", and the backend counts one ability press in the session (the
+bow); the equipment screen shows STR 50, DEX 456, INT 5, FOC 5, CON 19 (the points of the database plus the minimum 5) and the Azoth
+2,500 / 2,500. Evidence: `~/Games/soulwarden-client/evidence/mvp-a/` (`mvpa-owner2.mp4`, `hud-compare.png`, `full2-34.png`).
 
 ## The tests
 
@@ -424,7 +474,7 @@ bow-boltcaster, level 70) go into the client as replays (development runs, the s
   fragment ([GEAR.md](GEAR.md) "The weapon clips"). The sword and the greatsword have no weapon clip (particle effects, the damage
   clips, and weapon effects only); the musket has none either. Open: the flail strike shapes use the bind pose of its joints.
 - The abilities (stage P3.5): the homing of Wrecking Ball and the pull strike of Reap that only the server makes (later); the
-  hits of a cast for `IfAbilityNumHits` (the fields 1 and 2 of the Ability state are not read); the perks of the items for
+  perks of the items for
   the selections and the terms (the client has no perk rows: the artifact of Whirlwind); the cooldown factor of the character
   before the first state of the server (the own end comes from the data until then); the block press (bit 484) has no key.
 - The block, the sprint and air attacks, the stamina payments of the attacks (0 for the reachable graphs), and

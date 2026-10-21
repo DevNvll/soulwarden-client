@@ -29,6 +29,7 @@ Swc.Load("swc.game")      -- the game buses that the first HUD reads
 Swc.Load("swc.keys")      -- the keys of the actions: the queries, the rebinds of the options screen, the key events
 Swc.Load("swc.options")   -- the options data: the defaults of the client program, the reads of the options screen
 Swc.Load("swc.items")     -- the items: static data, item slots, the bag, the paperdoll, the containers, the requests
+Swc.Load("swc.owner")     -- the owner states: attributes, ranks, point pools, rune charge, ownership, the supported abilities
 Swc.Load("swc.loot")      -- the loot bags near the character and the panel of an open bag
 Swc.Load("swc.markers")   -- the markers in the world: the AI plates (the native part of the marker manager)
 Swc.Load("swc.interact")  -- the prompt cards of the focus (the native part of the interactor)

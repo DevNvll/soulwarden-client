@@ -55,6 +55,13 @@ inline constexpr MessageType kStateAbility{"MB::AbilityComponentReplicatedState"
 inline constexpr MessageType kStateCooldowns{"MB::CooldownTimersComponentReplicatedState", "6D45EB2095FE442096C53F9367A3FC5C", 2932};
 /** The weapon trees of the owner (stage P3.5: the learned nodes for the conditions of the abilities; protocol notes 4.13). */
 inline constexpr MessageType kStatePoints{"MB::ProgressionPointReplicatedState", "F7B56641F8C341A983B213AC4F9843F9", 3681};
+/** The owner states of the read path of stage MVP-A (protocol notes 4.12, 4.13, 4.23, 4.51, 4.52; backend server/rep/states): the
+ *  attributes, the mastery and trade skill ranks, the heart rune charge, the craft state, and the entitlements of the account. */
+inline constexpr MessageType kStateAttribute{"MB::AttributeComponentReplicatedState", "464EBD37105F47908C59C46EBB4C57A6", 129};
+inline constexpr MessageType kStateCategorical{"MB::CategoricalProgressionReplicatedState", "9D621862D7F944B09A64E3ED8A154AE1", 911};
+inline constexpr MessageType kStateCharge{"MB::ChargeComponentReplicatedState", "0EF6EEBDCBBB48EFB88F99BF2B0F8A1A", 5257};
+inline constexpr MessageType kStateCrafting{"MB::CraftingComponentReplicatedState", "FD24C20BFB9549F89BB0DEC472F0B6EA", 205};
+inline constexpr MessageType kStateEntitlement{"MB::EntitlementComponentReplicatedState", "FEAFABE862194C4A9269261D1E76878E", 3133};
 inline constexpr MessageType kTimeSynch{"REPClient::TimeSynchMsg", "038CD847065342439A26936E3BD7F312", 335};
 /** The world time (protocol notes 4.43; Net/Codec/SwcWorldTime.h): the request of the client, the record, and the phase. */
 inline constexpr MessageType kTimeRequest{"TimeComponentServerFacet_SyncToClient", "5AFEA4119BF64DBEAF48B8CB7EE0F6A3", 4248};
@@ -136,14 +143,15 @@ inline constexpr MessageType kManaForceSync{"ManaComponentClientFacet_ClientForc
 inline constexpr MessageType kHealedPlayer{"VitalsComponentClientFacet_OnHealedPlayer", "6F1EB843106A427AA09E61BC50DD82F2", 4298};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 55> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 60> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
     kRequestRespawn, kCutsceneEndFinalized, kCancelCommittedInteraction, kCancelCurrentInteraction, kInteractionResult, kTakeAllItems,
     kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints, kStateGathering, kEquipItem,
     kUnequipItem, kSwapItems, kEquipItemFail, kUseItem, kDropInventoryItems, kDropPaperdollItem, kStateCurrency, kStateSpeedTable,
-    kStateStatuses, kTimeRequest, kTimeAndPhase, kDayPhase, kStateProgression, kManaForceSync, kHealedPlayer, kCutsceneEnded};
+    kStateStatuses, kTimeRequest, kTimeAndPhase, kDayPhase, kStateProgression, kManaForceSync, kHealedPlayer, kCutsceneEnded,
+    kStateAttribute, kStateCategorical, kStateCharge, kStateCrafting, kStateEntitlement};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -175,6 +183,13 @@ inline constexpr std::uint32_t kSlotGathering = 36;
 inline constexpr std::uint32_t kSlotCurrency = 60;
 /** The level and the experience of the character (the Progression component). */
 inline constexpr std::uint32_t kSlotProgression = 70;
+/** The owner states of stage MVP-A (backend state_codecs.h): the Attribute of the entity RootPlayer, the CategoricalProgression of
+ *  the entity GameEvents, the ChargeComponent (the heart rune), the Crafting component, and the Entitlement component. */
+inline constexpr std::uint32_t kSlotAttribute = 27;
+inline constexpr std::uint32_t kSlotCategorical = 65;
+inline constexpr std::uint32_t kSlotCharge = 48;
+inline constexpr std::uint32_t kSlotCrafting = 63;
+inline constexpr std::uint32_t kSlotEntitlement = 19;
 
 /** The component id of the action list component (slot 16) of the entity RootPlayer of the player slice (game data
  *  slice-ids.json; research ids.md, table of the targets). The facet target of the input report is G + this id. */

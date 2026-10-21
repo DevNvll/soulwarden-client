@@ -90,6 +90,9 @@ private:
 	void UpdateLoadingAndRequests();
 	/** The bag, the items of the paperdoll, the level, and the coin of the read path (stage P2.4; docs/UI.md). */
 	void FeedItems(const swc::net::RepClient::OwnEntity& Own);
+	/** The owner states of stage MVP-A (docs/UI.md "The owner states"): the supported abilities, the attributes, the ranks, the point
+	 *  pools, the heart rune charge, the achievements and the entitlements. Each one at a change of its revision. */
+	void FeedOwnerStates(const swc::net::RepClient::OwnEntity& Own);
 	/** The loot bags near the character, the items of the open bag (the selected Container, slot 76), and the end of the use of
 	 *  the bag panel (stage P2.4; docs/UI.md). */
 	void FeedLoot(const swc::net::RepClient::OwnEntity& Own, class USwcBackendSubsystem* Backend);
@@ -207,6 +210,14 @@ private:
 	uint32 SentEquipFails = 0;
 	int64 SentCoin = -1;
 	int64 SentLevel = -1;
+	bool bSentSupport = false;
+	uint32 SentAttributeRevision = ~0u;
+	uint32 SentRankRevision = ~0u;
+	uint32 SentNodesRevision = ~0u;
+	uint32 SentChargeRevision = ~0u;
+	uint32 SentAchievementRevision = ~0u;
+	uint32 SentEntitlementRevision = ~0u;
+	uint32 SentCraftRevision = ~0u;
 	/** The bag panel: the items of the open bag, the bags near the character ("INTEREST:DISTANCESQ ..."), the bag of the panel use,
 	 *  and the open that the scripts asked for (its bag and its time: no use after 1 s closes the panel). */
 	TArray<FString> SentLoot;

@@ -85,11 +85,20 @@ function Swc.ResolveProperties(definitions, raw)
 end
 
 --- @return The base table of a component script (its main chunk runs one time: the require cache of the client).
+-- The hooks of the emulation on a script table (module name -> function(base)): they run one time, after the main chunk of the
+-- script. A hook replaces a method only where a native rule of the client has no script form (swc/owner.lua: the abilities with no
+-- rule of the backend).
+Swc.scriptHooks = Swc.scriptHooks or {}
+
 function Swc.ScriptBase(path)
   local name = Swc.ModuleName(path)
   local base = package.loaded[name]
   if base == nil then
     base = require(name)
+    local hook = Swc.scriptHooks[name]
+    if hook and type(base) == "table" then
+      hook(base)
+    end
   end
   if type(base) ~= "table" then
     error("script " .. path .. " gave no table", 0)

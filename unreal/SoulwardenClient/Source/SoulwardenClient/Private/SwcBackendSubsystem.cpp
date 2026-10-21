@@ -7,6 +7,7 @@
 #include "Character/SwcLocomotion.h"
 #include "Character/SwcPlayerActions.h"
 #include "Combat/SwcAttackGraph.h"
+#include "Combat/SwcBackendSupport.h"
 #include "Kismet/GameplayStatics.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcPlayerLooks.h"
@@ -363,6 +364,8 @@ void USwcBackendSubsystem::StartConnection(const FSwcLoginToken& Token, const FS
 	Options.Session.keepOtherRecords = true;
 	// The attack input and the attack graph at the input steps of the session thread (stage P2.7, docs/ACTIONS.md).
 	AttackDriver = std::make_shared<swc::combat::Driver>();
+	// The supported-action list of the fixed backend (stage MVP-A): a key of an ability with no cast plan sends nothing.
+	AttackDriver->set_supported_abilities(swc::combat::supported_abilities());
 	Options.Session.inputStep = [Driver = AttackDriver](std::uint16_t Input, std::int64_t SteadyNs, std::vector<unsigned>& Bits, std::vector<swc::net::ShotRequest>& Shots)
 	{
 		std::vector<swc::combat::Shot> Made;
@@ -483,8 +486,8 @@ bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 					Actions0->GetStrikeCount(), Actions0->GetSkippedStrikes(), Actions0->GetShapeQueries(), Actions0->GetContactCount(),
 					static_cast<unsigned long long>(Snapshot.Counts.meleeContacts));
 			}
-			UE_LOG(LogSwcBackend, Log, TEXT("world: abilities: %u press(es) of the keys of the bar: %u played, %u in the own cooldown, %u with no window, %u with no ability, %u refused by the load or a status; %u shot(s) of a cast, %llu in list 2 of the input entries; %u end(s) of the server taken; %u collision step(s); %u dodge press(es) refused by the load or a status"),
-				Attack.abilityPresses, Attack.pressVerdicts[0], Attack.pressVerdicts[2], Attack.pressVerdicts[3], Attack.pressVerdicts[1], Attack.pressVerdicts[4],
+			UE_LOG(LogSwcBackend, Log, TEXT("world: abilities: %u press(es) of the keys of the bar: %u played, %u in the own cooldown, %u with no window, %u with no ability, %u refused by the load or a status, %u with no rule of the backend; %u shot(s) of a cast, %llu in list 2 of the input entries; %u end(s) of the server taken; %u collision step(s); %u dodge press(es) refused by the load or a status"),
+				Attack.abilityPresses, Attack.pressVerdicts[0], Attack.pressVerdicts[2], Attack.pressVerdicts[3], Attack.pressVerdicts[1], Attack.pressVerdicts[4], Attack.pressVerdicts[5],
 				Attack.shots, static_cast<unsigned long long>(Snapshot.Counts.shots), Attack.cooldownCorrections, Attack.collisions, Attack.limitedDodges);
 			const USwcRangedView* RangedView = Avatar.IsValid() ? Avatar->GetRangedView() : nullptr;
 			UE_LOG(LogSwcBackend, Log, TEXT("world: ranged: %u shot(s), %u cast(s), %u ability start(s), %u mana payment(s) (%u refused), mana %.1f of %.1f, %u correction(s); %u own projectile(s), %u hit(s); %u ground target(s); %u heal number(s); %u unknown leaf value(s) [%s], %u action(s) ended by the time rule"),
@@ -817,6 +820,13 @@ void USwcBackendSubsystem::UpdateAbilities(const swc::net::RepClient::OwnEntity&
 		NodesRevision = Own.nodesRevision;
 		AttackDriver->set_facts(std::set<std::uint32_t>(Own.learnedNodes.begin(), Own.learnedNodes.end()), {});
 		UE_LOG(LogSwcBackend, Log, TEXT("ability: %d learned node(s) of the weapon trees (the ProgressionPoint state)"), static_cast<int32>(Own.learnedNodes.size()));
+	}
+	// The hit counts of the tracked abilities (slot 46, fields 1 and 2): IfAbilityNumHits of the cast that plays.
+	if (Own.hitRevision != HitRevision)
+	{
+		HitRevision = Own.hitRevision;
+		AttackDriver->set_ability_hits(Own.abilityHits);
+		UE_LOG(LogSwcBackend, Log, TEXT("ability: the hit counts of %d tracked abilit(ies) (the ability state, fields 1 and 2)"), static_cast<int32>(Own.abilityHits.size()));
 	}
 	// The cooldowns of the server: the end of the own cooldown of the client (Driver::set_server_cooldowns).
 	std::vector<std::pair<std::uint32_t, std::uint64_t>> Cooldowns;
@@ -1707,6 +1717,7 @@ void USwcBackendSubsystem::ResetWorldSession()
 	StaminaRevision = 0;
 	SentBars = {};
 	NodesRevision = 0;
+	HitRevision = 0;
 	SentCooldowns.clear();
 	BagRevision = MAX_uint32;
 	BagWeight = 0;

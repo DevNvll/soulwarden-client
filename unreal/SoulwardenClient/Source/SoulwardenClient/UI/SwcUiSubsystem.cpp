@@ -29,6 +29,7 @@
 #include "GameFramework/Pawn.h"
 #include "SwcBackendSubsystem.h"
 #include "Net/SwcLoginClient.h"
+#include "Combat/SwcBackendSupport.h"
 #include "Menu/SwcMenuPreview.h"
 #include "SwcPlayerController.h"
 #include "SwcDebugLines.h"
@@ -278,6 +279,14 @@ void USwcUiSubsystem::ResetSession()
 	SentEquipFails = 0;
 	SentCoin = -1;
 	SentLevel = -1;
+	bSentSupport = false;
+	SentAttributeRevision = ~0u;
+	SentRankRevision = ~0u;
+	SentNodesRevision = ~0u;
+	SentChargeRevision = ~0u;
+	SentAchievementRevision = ~0u;
+	SentEntitlementRevision = ~0u;
+	SentCraftRevision = ~0u;
 	SentLoot.Reset();
 	SentLootRevision = ~0u;
 	SentNearBags.Reset();
@@ -327,6 +336,35 @@ void USwcUiSubsystem::Deinitialize()
 
 void USwcUiSubsystem::LoadItemCatalog()
 {
+	// The cap of the Azoth balance (the game data of the backend copy: crafting-data.json `currencies`, Azoth_Currency `cap`; stage
+	// MVP-A). The file is large (the recipes): only the object of the currencies is parsed.
+	{
+		FString Crafting;
+		const FString CraftingPath = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_GAMEDATA_DIR")), TEXT("crafting-data.json"));
+		const int32 Key = FFileHelper::LoadFileToString(Crafting, *CraftingPath) ? Crafting.Find(TEXT("\"currencies\"")) : INDEX_NONE;
+		const int32 Open = Key != INDEX_NONE ? Crafting.Find(TEXT("{"), ESearchCase::CaseSensitive, ESearchDir::FromStart, Key) : INDEX_NONE;
+		int32 Close = INDEX_NONE;
+		for (int32 Index = Open, Depth = 0; Open != INDEX_NONE && Index < Crafting.Len(); ++Index)
+		{
+			Depth += Crafting[Index] == TEXT('{') ? 1 : Crafting[Index] == TEXT('}') ? -1 : 0;
+			if (Depth == 0)
+			{
+				Close = Index;
+				break;
+			}
+		}
+		TSharedPtr<FJsonObject> Currencies;
+		const TSharedPtr<FJsonObject>* Azoth = nullptr;
+		if (Close != INDEX_NONE && FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Crafting.Mid(Open, Close - Open + 1)), Currencies) &&
+			Currencies.IsValid() && Currencies->TryGetObjectField(TEXT("Azoth_Currency"), Azoth) && (*Azoth)->HasTypedField<EJson::Number>(TEXT("cap")))
+		{
+			Runtime->call("HostAzothCap", {FArg::of((*Azoth)->GetNumberField(TEXT("cap")))});
+		}
+		else
+		{
+			UE_LOG(LogSwcUi, Warning, TEXT("ui: no Azoth cap in %s: the inventory shows the Azoth balance with no cap"), *CraftingPath);
+		}
+	}
 	// The level cap of the character (the game data of the backend copy: progression-tables.json levelCap).
 	{
 		FString Progression;
@@ -529,6 +567,94 @@ void USwcUiSubsystem::FeedItems(const swc::net::RepClient::OwnEntity& Own)
 	{
 		SentCoin = static_cast<int64>(Own.coin);
 		Runtime->call("HostCoin", {FArg::of(static_cast<double>(Own.coin))});
+	}
+}
+
+void USwcUiSubsystem::FeedOwnerStates(const swc::net::RepClient::OwnEntity& Own)
+{
+	// The abilities with a cast plan of the backend (Combat/SwcBackendSupport.h): the HUD shows the other slots disabled.
+	if (!bSentSupport)
+	{
+		bSentSupport = true;
+		std::string Text;
+		for (const std::uint32_t Id : swc::combat::supported_abilities())
+		{
+			Text += std::to_string(Id) + " ";
+		}
+		Runtime->call("HostSupportedAbilities", {FArg::of(Text)});
+	}
+	// The attributes (slot 27): the base value, the bonus, and the spent points of each CharacterAttributeType, and the free points.
+	if (Own.hasAttributes && Own.attributeRevision != SentAttributeRevision)
+	{
+		SentAttributeRevision = Own.attributeRevision;
+		const swc::net::RepClient::OwnEntity::Attributes& A = Own.attributes;
+		std::vector<FArg> Args;
+		for (const std::array<std::uint32_t, 5>* Part : {&A.base, &A.bonus, &A.spent})
+		{
+			for (const std::uint32_t Value : *Part)
+			{
+				Args.push_back(FArg::of(static_cast<double>(Value)));
+			}
+		}
+		Args.push_back(FArg::of(static_cast<double>(A.unspent)));
+		Runtime->call("HostAttributes", Args);
+		UE_LOG(LogSwcUi, Log, TEXT("ui: attributes (base + bonus): CON %u+%u FOC %u+%u STR %u+%u DEX %u+%u INT %u+%u, %u free point(s)"),
+			A.base[0], A.bonus[0], A.base[1], A.bonus[1], A.base[2], A.bonus[2], A.base[3], A.bonus[3], A.base[4], A.bonus[4], A.unspent);
+	}
+	// The ranks of the weapon masteries and the trade skills (slot 65): "id rank points" lines.
+	if (Own.rankRevision != SentRankRevision && Own.rankRevision != 0)
+	{
+		SentRankRevision = Own.rankRevision;
+		std::string Text;
+		for (const auto& [Id, Rank] : Own.ranks)
+		{
+			Text += std::to_string(Id) + " " + std::to_string(Rank.rank) + " " + std::to_string(Rank.points) + "\n";
+		}
+		Runtime->call("HostRanks", {FArg::of(Text)});
+		UE_LOG(LogSwcUi, Log, TEXT("ui: %d mastery and trade skill rank(s) (the CategoricalProgression state)"), static_cast<int32>(Own.ranks.size()));
+	}
+	// The point pools of the weapon trees (slot 67): "pool free" lines.
+	if (Own.nodesRevision != SentNodesRevision && Own.nodesRevision != 0)
+	{
+		SentNodesRevision = Own.nodesRevision;
+		std::string Text;
+		for (const auto& [Pool, Free] : Own.pointPools)
+		{
+			Text += std::to_string(Pool) + " " + std::to_string(Free) + "\n";
+		}
+		Runtime->call("HostPointPools", {FArg::of(Text)});
+	}
+	// The heart rune charge (slot 48): the HUD fills the icon of the rune (Hud.LocalPlayer.Vitals.ChargePercent).
+	if (Own.hasCharge && Own.chargeRevision != SentChargeRevision)
+	{
+		SentChargeRevision = Own.chargeRevision;
+		Runtime->call("HostCharge", {FArg::of(static_cast<double>(Own.chargePercent))});
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the heart rune charge %u percent"), Own.chargePercent);
+	}
+	// The achievements of the character (slot 66) and the entitlements of the account (slot 19): the indexes of the set bits.
+	if (Own.achievementRevision != SentAchievementRevision || Own.entitlementRevision != SentEntitlementRevision)
+	{
+		SentAchievementRevision = Own.achievementRevision;
+		SentEntitlementRevision = Own.entitlementRevision;
+		const auto Bits = [](const std::vector<std::uint8_t>& Bytes)
+		{
+			std::string Text;
+			for (std::size_t Index = 0; Index < Bytes.size() * 8; ++Index)
+			{
+				if ((Bytes[Index >> 3] & (1u << (Index & 7))) != 0)
+				{
+					Text += std::to_string(Index) + " ";
+				}
+			}
+			return Text;
+		};
+		Runtime->call("HostOwnership", {FArg::of(Bits(Own.achievements)), FArg::of(Bits(Own.entitlements)), FArg::of(Own.entitlementsReceived)});
+	}
+	if (Own.craftRevision != SentCraftRevision && Own.craftRevision != 0)
+	{
+		SentCraftRevision = Own.craftRevision;
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the craft state: %d recipe cooldown window(s), %d craft gear score bonus(es) (no craft screen yet)"),
+			static_cast<int32>(Own.craftCooldowns.size()), static_cast<int32>(Own.craftGearBonus.size()));
 	}
 }
 
@@ -1701,6 +1827,7 @@ void USwcUiSubsystem::FeedLocalPlayer()
 
 	// The bag, the paperdoll items (the item index of the wire in the item catalog of the backend copy), the level, the coin.
 	FeedItems(Own);
+	FeedOwnerStates(Own);
 	FeedLoot(Own, Backend);
 	FeedWorld(Own);
 	int32 Active = -1;

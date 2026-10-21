@@ -306,6 +306,7 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
 | `manager.lua` | The screen loader (`ScriptLoadCanvas`), the UI state machine, the keys, the texts with replacements. |
 | `tween.lua` | The tween engine (`ScriptedEntityTweenerBus`): virtual properties, the easing functions of Penner, timelines. |
 | `game.lua` | The game buses of the HUD: config, abilities, cooldowns, stamina, progression. |
+| `owner.lua` | The owner states (stage MVP-A): the attributes, the ranks, the point pools, the rune charge, the achievements and the entitlements, the supported abilities (see "The owner states"). |
 | `items.lua` | The items (stage P2.4): the static data, the item stats, the item slots and descriptors of the bag and of the paperdoll, the containers, the item data, the requests of the bag and of the equipment, the weight. |
 | `host.lua` | The calls of the client: boot, enter the world, the data of the player, the tick. |
 | `frontend.lua` | The front end (stage F2, docs/FRONTEND.md): the native part of the landing screen (the account, the list, the regions, the world CMS data, the selection, the preview requests, the login request, the camera sequence ends) and the value classes WorldMetadata, CharacterMetadata, CharacterNameData, RegionMetadata. |
@@ -384,6 +385,22 @@ Rules of the emulation:
 - The notifications (`lyshineui/notifications/notification`, the screen of `notifications.luac`): the script is the
   handler of `UiNotificationsBus`; `AreNotificationsEnabled` is true. A minor notification shows after the pause of
   the queue (`SecondsBetweenNotifications`, 1.5 s).
+
+## The owner states (swc/owner.lua, stage MVP-A)
+
+`USwcUiSubsystem::FeedOwnerStates` sends the owner states of the read path ([NETWORK.md](NETWORK.md) "The read path of the own
+entity") at each change of their revision; `swc/owner.lua` keeps them and gives them to the original scripts:
+
+| Host call | State | What the scripts read |
+| --- | --- | --- |
+| `HostSupportedAbilities(text)` | the supported-action list ([ACTIONS.md](ACTIONS.md) "The supported-action list") | `weaponquickslots.luac` `GetIsAbilityEnabled` (a script hook): an ability with no rule of the backend shows disabled |
+| `HostAttributes(base x5, bonus x5, spent x5, free)` | attribute (27) | `AttributeRequestBus` `GetAttributeBaseLevel`, `GetAttributeBonusLevel` (the rows of the equipment screen, `equipmentstatrow.luac`); `Hud.LocalPlayer.Attributes.<Name>.Spent` tells the rows to read again (a new bonus with the same points sets the path two times) |
+| `HostRanks(text)` | categorical progression (65) | `CategoricalProgressionRequestBus` `GetRank`, `GetProgression` (a new state replaces the map) |
+| `HostPointPools(text)` | progression points (67) | `Swc.owner.pools` (the skill tree screen is not loaded yet) |
+| `HostCharge(percent)` | charge (48) | `Hud.LocalPlayer.Vitals.ChargePercent` (0 to 1; `heartgemslot.luac`) |
+| `HostOwnership(achievements, entitlements, received)` | achievement (66), entitlement (19) | `PlayerComponentRequestsBus` `IsExpansionOwnerScript` and `GetOwnedExpansionData` read the achievement Expansion_2023_Unlock (bit 11979; before the first state, the grant policy of the backend: owned); `AchievementRequestBus` `IsAchievementUnlocked` of that achievement |
+
+The craft state goes to the log only (no craft screen yet). The fixture `ownerstates` checks each call with the original scripts.
 
 ## The census (stage P2.3)
 
@@ -871,8 +888,8 @@ Soulwarden evidence of creatures, abilities-crit, fight, loot, loot-bags, gather
 - The mana meter divides by the maximum of the client (field 1 plus the MaxMana parts). The value can be more than
   the maximum.
 - The mana cost of an ability comes from the mana cost table by AbilityID (an approximation).
-- The heart rune slot shows the icon of the rune. Its charge (`Hud.LocalPlayer.Vitals.ChargePercent`) has no source in
-  the read path of the backend yet, thus the slot does not show the charge.
+- The heart rune slot shows the icon of the rune and its charge (stage MVP-A). The key G (input bit 450) is not in the input map
+  yet: the slot plays no activation, also for the supported rune Detonate (order 11 of the MVP plan).
 - A sliced radial fill clips with lines in canvas space; O3DE clips in viewport space. The angles are the same unless
   the element has a scale that is not uniform.
 - A sprite mask in a sprite mask: only the innermost one applies (LyShine combines the two in the stencil).

@@ -531,6 +531,79 @@ std::vector<RepClient::OtherUpdate> RepClient::take_other_updates() {
     return out;
 }
 
+std::optional<RepClient::OwnEntity::Attributes> RepClient::read_attributes(const decoder::Fragment& fragment) {
+    // Field 0: count:size (type:u32 value:u32)*; field 1: the map attributeBonuses in the full form (type:u32 value:u32 entries);
+    // field 2: the placing bonuses (empty); field 3: unspent:u32 ignoreBackstory:u8 hasRespec:u8 count:size (type:u32 points:u32)*
+    // behavior:u32 (backend attribute_state.cpp). The vendored reader checks the form of the four fields.
+    const std::array<std::span<const std::uint8_t>, 4> fields{decoder::field_of(fragment, 0, 0), decoder::field_of(fragment, 0, 1),
+                                                              decoder::field_of(fragment, 0, 2), decoder::field_of(fragment, 0, 3)};
+    const decoder::WireAttributes wire = decoder::read_attributes(fields);
+    if (!wire.ok) {
+        return std::nullopt;
+    }
+    OwnEntity::Attributes out;
+    for (const auto& [type, value] : wire.values) {
+        if (type < out.base.size()) {
+            out.base[type] = value;
+        }
+    }
+    for (const auto& [type, points] : wire.spent) {
+        if (type < out.spent.size()) {
+            out.spent[type] = points;
+        }
+    }
+    out.unspent = wire.unspent;
+    Reader bonuses(fields[1]);
+    const auto count = decoder::progress_wire::read_full_form(bonuses);
+    for (std::uint32_t index = 0; count && index < *count && bonuses.ok(); ++index) {
+        const std::uint32_t type = bonuses.u32();
+        const std::uint32_t value = bonuses.u32();
+        if (type < out.bonus.size()) {
+            out.bonus[type] = value;
+        }
+    }
+    if (!count || !bonuses.ok() || bonuses.left() != 0) {
+        return std::nullopt;
+    }
+    return out;
+}
+
+bool RepClient::apply_crafting(const decoder::Fragment& fragment) {
+    // Field 0: the cooldown map, {recipeCrc:u32 used:u8 end:u64}*; field 1: the gear score bonus map, {skillCode:u8 bonus:u16}*. Both in
+    // the full form (backend crafting_state.cpp, readers 0x2E897C0 and 0x2E89910: 100 and 21 entries at most).
+    const auto cooldownBytes = decoder::field_of(fragment, 0, 0);
+    const auto bonusBytes = decoder::field_of(fragment, 0, 1);
+    if (cooldownBytes.empty() || bonusBytes.empty()) {
+        return false;
+    }
+    Reader cooldowns(cooldownBytes);
+    Reader bonuses(bonusBytes);
+    const auto cooldownCount = decoder::progress_wire::read_full_form(cooldowns);
+    const auto bonusCount = decoder::progress_wire::read_full_form(bonuses);
+    if (!cooldownCount || !bonusCount || *cooldownCount > 100 || *bonusCount > 21) {
+        return false;
+    }
+    std::vector<OwnEntity::CraftCooldown> windows;
+    for (std::uint32_t index = 0; index < *cooldownCount && cooldowns.ok(); ++index) {
+        OwnEntity::CraftCooldown window;
+        window.recipe = cooldowns.u32();
+        window.used = cooldowns.u8();
+        window.wallEndNs = cooldowns.u64();
+        windows.push_back(window);
+    }
+    std::map<std::uint8_t, std::uint16_t> gear;
+    for (std::uint32_t index = 0; index < *bonusCount && bonuses.ok(); ++index) {
+        const std::uint8_t code = bonuses.u8();
+        gear[code] = bonuses.u16();
+    }
+    if (!cooldowns.ok() || !bonuses.ok() || cooldowns.left() != 0 || bonuses.left() != 0) {
+        return false;
+    }
+    m_own.craftCooldowns = std::move(windows);
+    m_own.craftGearBonus = std::move(gear);
+    return true;
+}
+
 void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) {
     bool newPosition = false;
     for (const decoder::Fragment& fragment : record.fragments) {
@@ -677,6 +750,26 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                     }
                 }
             }
+            // Fields 1 and 2: the hit counts of the tracked abilities, two parallel lists in the full form (stage 3.3b-M2).
+            const auto hits = decoder::field_of(fragment, 0, 1);
+            const auto ids = decoder::field_of(fragment, 0, 2);
+            if (!hits.empty() && !ids.empty()) {
+                Reader hitReader(hits);
+                Reader idReader(ids);
+                const auto hitCount = decoder::progress_wire::read_full_form(hitReader);
+                const auto idCount = decoder::progress_wire::read_full_form(idReader);
+                if (hitCount && idCount && *hitCount == *idCount) {
+                    std::map<std::uint32_t, std::uint8_t> map;
+                    for (std::uint32_t index = 0; index < *idCount && idReader.ok(); ++index) {
+                        const std::uint8_t count = hitReader.u8();
+                        map[idReader.u32()] = count;
+                    }
+                    if (hitReader.ok() && idReader.ok() && hitReader.left() == 0 && idReader.left() == 0) {
+                        m_own.abilityHits = std::move(map);
+                        ++m_own.hitRevision;
+                    }
+                }
+            }
         } else if (fragment.slot == kSlotSpeedTable && fragment.type == kStateSpeedTable.index) {
             // A full table (group 1 field 0): deltaCount:size 0, hasSequence:u8, sequence:size64, count:size, entries of key:u8
             // value:i32 (big-endian, the multiplier times 10000) m_syncVitals:u8 (backend stat_multiplier_state.cpp).
@@ -731,6 +824,10 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
             if (!fields[3].empty()) {
                 const decoder::WirePools pools = decoder::read_pools(fields);
                 if (pools.ok) {
+                    m_own.pointPools.clear();
+                    for (const decoder::WirePool& pool : pools.pools) {
+                        m_own.pointPools[pool.id] = pool.free;
+                    }
                     m_own.learnedNodes.clear();
                     for (const decoder::WireNode& node : pools.nodes) {
                         if (node.level > 0) {
@@ -855,6 +952,49 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                     m_own.coin = *coin;
                     m_own.hasCoin = true;
                 }
+            }
+        } else if (fragment.slot == kSlotAttribute && fragment.type == kStateAttribute.index) {
+            if (auto attributes = read_attributes(fragment)) {
+                m_own.attributes = *attributes;
+                m_own.hasAttributes = true;
+                ++m_own.attributeRevision;
+            } else {
+                log(Event::Level::warning, "the attribute state does not have its form");
+            }
+        } else if (fragment.slot == kSlotCategorical && fragment.type == kStateCategorical.index) {
+            const decoder::WireRanks ranks = decoder::read_ranks({decoder::field_of(fragment, 0, 0), decoder::field_of(fragment, 0, 1),
+                                                                  decoder::field_of(fragment, 0, 2)});
+            if (!ranks.ok) {
+                log(Event::Level::warning, "the categorical progression state does not have its form");
+            } else if (m_own.rankRevision == 0 || ranks.sequence >= m_own.rankStamp) {
+                m_own.ranks.clear();
+                for (const decoder::WireRank& entry : ranks.entries) {
+                    m_own.ranks[entry.id] = {entry.rank, entry.points};
+                }
+                m_own.rankStamp = ranks.sequence;
+                ++m_own.rankRevision;
+            }
+        } else if (fragment.slot == kSlotCharge && fragment.type == kStateCharge.index) {
+            if (const auto value = decoder::field_of(fragment, 0, 0); value.size() == 1) {
+                m_own.chargePercent = std::min<std::uint8_t>(value[0], 100);
+                m_own.hasCharge = true;
+                ++m_own.chargeRevision;
+            }
+        } else if (fragment.slot == kSlotCrafting && fragment.type == kStateCrafting.index) {
+            if (apply_crafting(fragment)) {
+                ++m_own.craftRevision;
+            } else {
+                log(Event::Level::warning, "the crafting state does not have its form");
+            }
+        } else if (fragment.slot == kSlotEntitlement && fragment.type == kStateEntitlement.index) {
+            if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
+                if (auto bytes = read_bit_vector(value)) {
+                    m_own.entitlements = std::move(*bytes);
+                    ++m_own.entitlementRevision;
+                }
+            }
+            if (const auto value = decoder::field_of(fragment, 0, 2); value.size() == 1) {
+                m_own.entitlementsReceived = value[0] != 0;
             }
         }
     }

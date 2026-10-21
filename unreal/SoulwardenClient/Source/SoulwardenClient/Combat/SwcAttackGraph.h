@@ -300,8 +300,11 @@ enum class PressVerdict : std::uint8_t {
 	/** The limits of the load or of a status (stage P3.3): the bag over its limit, a stun, a silence (the backend refuses the
 	 *  press of an encumbered character too: CastVerdict encumbered). */
 	limited,
+	/** No cast plan of the backend for the ability (stage MVP-A, Combat/SwcBackendSupport.h): the client sends no bit of the key,
+	 *  plays nothing, and starts no cooldown. The HUD shows the slot disabled (weaponquickslots.luac GetIsAbilityEnabled). */
+	unsupported,
 };
-inline constexpr std::size_t kPressVerdicts = 5;
+inline constexpr std::size_t kPressVerdicts = 6;
 [[nodiscard]] const char* press_verdict_text(PressVerdict verdict);
 
 /** The start of an ability (AttackSequences::start_ability of the backend). */
@@ -592,6 +595,15 @@ public:
 	void set_bars(const std::array<std::uint32_t, 3>& slot1, const std::array<std::uint32_t, 3>& slot2);
 	/** The learned nodes of the character (the ProgressionPoint state, slot 67) and the ability rows of the perks of its items. */
 	void set_facts(std::set<std::uint32_t> nodes, std::set<std::uint32_t> perks);
+	/**
+	 * The abilities that the backend plays (stage MVP-A; Combat/SwcBackendSupport.h supported_abilities). A press of a key whose ability
+	 * is not in the set sends no bit, plays nothing, and starts no cooldown (PressVerdict::unsupported). An empty set: no limit (the
+	 * parity tests of the attack graph).
+	 */
+	void set_supported_abilities(std::set<std::uint32_t> abilities);
+	/** The hit counts of the tracked abilities (the ability state, slot 46, fields 1 and 2): the condition IfAbilityNumHits of the cast
+	 *  that plays reads the count of its ability. */
+	void set_ability_hits(std::map<std::uint32_t, std::uint8_t> hits);
 	/** The character collided in a frame of the game thread (character_collided): the next step sees it. */
 	void collided();
 	/** A key of the bar went down or up (the place 0 to 2; the game thread). The steps take one event of each key in each step. */
@@ -654,6 +666,8 @@ private:
 	/** The keys of the bar: the events of each key, its state, and the bar of each weapon slot. */
 	std::array<std::deque<bool>, 3> m_keyEvents;
 	std::array<bool, 3> m_keyDown{};
+	std::set<std::uint32_t> m_supported;
+	std::map<std::uint32_t, std::uint8_t> m_abilityHits;
 	std::array<std::array<std::uint32_t, 3>, 2> m_bars{};
 	Facts m_facts;
 	bool m_collided{false};

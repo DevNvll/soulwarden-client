@@ -270,7 +270,8 @@ local function armor_attributes(static, gearScore)
 end
 
 -- The expansions (itemrules.json: javelindata_expansions). The backend gives each player the expansion Expansion2023 (its
--- entitlements: the owned expansion of the client).
+-- entitlements: the owned expansion of the client). The client tests the achievement Expansion_2023_Unlock of the character
+-- (image RVA 0x684B340; backend world/ownership.h): swc/owner.lua Swc.OwnsExpansion.
 local OWNED_EXPANSION = "Expansion2023"
 local function expansion_row(id)
   for _, row in ipairs(rules.expansions or {}) do
@@ -301,9 +302,9 @@ end
 Swc.Define("PlayerComponentRequestsBus", "Event", {
   IsExpansionOwnerScript = function(_, id)
     local name = expansion_name(id)
-    return name == "None" or name == OWNED_EXPANSION
+    return name == "None" or (name == OWNED_EXPANSION and Swc.OwnsExpansion())
   end,
-  GetOwnedExpansionData = function() return expansion_data(OWNED_EXPANSION) end,
+  GetOwnedExpansionData = function() return expansion_data(Swc.OwnsExpansion() and OWNED_EXPANSION or "None") end,
   GetExpansionData = function(_, id) return expansion_data(expansion_name(id)) end,
 })
 
@@ -1056,11 +1057,7 @@ function Swc.StartAfflictions()
     Swc.SetData(base .. ".IsGlobal", row.global)
   end
 end
--- The trade skill and mount skill ranks (the CategoricalProgression state is not in the read path: open point).
-Swc.Define("CategoricalProgressionRequestBus", "Event", {
-  GetRank = function() return 0 end,
-  GetProgression = function() return 0 end,
-})
+-- The trade skill and mount skill ranks: swc/owner.lua (the CategoricalProgression state).
 
 -- The other values that the inventory screens read. A value of the client that the backend does not give.
 Swc.Define("ClientCurrencyRequestBus", "Broadcast", {
@@ -1089,9 +1086,7 @@ Swc.Define("ObjectivesDataManagerBus", "Broadcast", {
     return {id = id, title = "", description = "", IsValid = function() return false end}
   end,
 })
-Swc.Define("AchievementRequestBus", "Event", {
-  IsAchievementUnlocked = function() return false end,
-})
+-- The achievements (AchievementRequestBus): swc/owner.lua (the Achievement state).
 Swc.Define("ItemDataManagerBus", "Broadcast", {
   GetAmmoType = function() return 0 end,
 })

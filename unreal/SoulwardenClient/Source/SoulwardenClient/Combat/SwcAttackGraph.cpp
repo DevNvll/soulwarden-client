@@ -147,6 +147,8 @@ const char* press_verdict_text(PressVerdict verdict)
 		return "no window";
 	case PressVerdict::limited:
 		return "the load or a status";
+	case PressVerdict::unsupported:
+		return "no rule of the backend (not sent)";
 	}
 	return "?";
 }
@@ -655,6 +657,18 @@ void Driver::set_facts(std::set<std::uint32_t> nodes, std::set<std::uint32_t> pe
 	m_facts.perks = std::move(perks);
 }
 
+void Driver::set_supported_abilities(std::set<std::uint32_t> abilities)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_supported = std::move(abilities);
+}
+
+void Driver::set_ability_hits(std::map<std::uint32_t, std::uint8_t> hits)
+{
+	const std::lock_guard<std::mutex> guard(m_lock);
+	m_abilityHits = std::move(hits);
+}
+
 void Driver::collided()
 {
 	const std::lock_guard<std::mutex> guard(m_lock);
@@ -892,6 +906,7 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 	// each step while the key is down the hold bit, the step of the release the release bit. One press in each step (the backend
 	// reads one ability key in an entry); the press of a second key waits for the next step.
 	int pressed = -1;
+	std::optional<Snapshot::AbilityPress> unsupported;
 	for (unsigned place = 0; place < m_keyEvents.size(); ++place) {
 		std::deque<bool>& events = m_keyEvents[place];
 		bool press = false;
@@ -901,7 +916,22 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 			events.pop_front();
 			press = down && !m_keyDown[place];
 			release = !down && m_keyDown[place];
-			m_keyDown[place] = down;
+			// The ability of the key on the bar of the weapon in the hand: with no cast plan of the backend the key stays up (no bit of
+			// its press, hold, or release, no fragment, no cooldown; stage MVP-A).
+			const std::uint32_t held = m_switch.held();
+			const int bar = held == kMainHand1 ? 0 : held == kMainHand1 + 1 ? 1 : -1;
+			const std::uint32_t ability = bar >= 0 ? m_bars[static_cast<std::size_t>(bar)][place] : 0;
+			if (press && ability != 0 && !m_supported.empty() && m_supported.count(ability) == 0) {
+				Snapshot::AbilityPress made;
+				made.place = place;
+				made.input = input;
+				made.ability = ability;
+				made.verdict = PressVerdict::unsupported;
+				unsupported = made;
+				press = false;
+			} else {
+				m_keyDown[place] = down;
+			}
 		}
 		if (press) {
 			pressed = static_cast<int>(place);
@@ -916,6 +946,9 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 	// The facts of the conditions inside an ability: the collision of the character since the last step (the client sees it).
 	Facts facts = m_facts;
 	facts.collided = m_collided;
+	if (const auto hits = m_abilityHits.find(m_castAbility); m_castAbility != 0 && hits != m_abilityHits.end()) {
+		facts.hits = hits->second;
+	}
 	m_collided = false;
 	// The weapon keys of this entry (the game thread puts their bits into one entry).
 	const auto has = [&actionBits](unsigned bit) { return std::find(actionBits.begin(), actionBits.end(), bit) != actionBits.end(); };
@@ -962,6 +995,8 @@ void Driver::step(std::uint16_t input, std::int64_t nowNs, std::vector<unsigned>
 			}
 		}
 		press = made;
+	} else if (unsupported) {
+		press = unsupported;
 	}
 	// The shot of the cast that plays: at the step of the named mark of its spell in its fragment (the throw of Gravity Well).
 	if (const Visit* visit = m_sequence.playing(); visit != nullptr && m_cast != 0 && visit->cast == m_cast && !m_shotSent) {

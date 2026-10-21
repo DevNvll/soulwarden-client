@@ -12,6 +12,8 @@
 #include <cstdio>
 #include <fstream>
 #include <random>
+#include <regex>
+#include <sstream>
 #include <set>
 #include <string>
 #include <vector>
@@ -19,6 +21,7 @@
 #include <nlohmann/json.hpp>
 
 #include "Combat/SwcAttackGraph.h"
+#include "Combat/SwcBackendSupport.h"
 #include "Combat/SwcContactFilter.h"
 #include "Combat/SwcLife.h"
 #include "gamedata/weapon_actions.h"
@@ -734,6 +737,92 @@ void driver_ability_tests(const Graph& greataxe, const Graph& hammer)
 	}
 }
 
+/**
+ * The supported-action list (stage MVP-A, Combat/SwcBackendSupport.h): the copy of the client is the list of the backend source (the
+ * entries of kRules in world/abilities.cpp, kDetonateAbility in world/runes.h), the count of the supported abilities of the five weapons
+ * (16 of 30), and the driver gate: a key of an ability with no rule sends no bit, plays nothing, and starts no cooldown; the key of a
+ * supported ability next to it plays as before.
+ */
+void support_tests(const std::string& abilitiesSource, const std::string& runesSource, const Graph& greataxe, const Graph& hammer)
+{
+	using swc::combat::PressVerdict;
+	using swc::combat::progression_id;
+	const auto read = [](const std::string& path) {
+		std::ifstream file(path);
+		std::stringstream text;
+		text << file.rdbuf();
+		return text.str();
+	};
+	const std::string abilities = read(abilitiesSource);
+	std::vector<std::string> rules;
+	const std::regex rule(R"re(\{\s*"([A-Za-z_]+)",\s*AbilityKind::)re");
+	for (auto it = std::sregex_iterator(abilities.begin(), abilities.end(), rule); it != std::sregex_iterator(); ++it) {
+		rules.push_back((*it)[1].str());
+	}
+	std::vector<std::string> copy;
+	for (const std::string_view id : swc::combat::kBackendAbilities) {
+		copy.emplace_back(id);
+	}
+	check(!rules.empty() && rules == copy, "support: the list of the client is kRules of world/abilities.cpp (" + std::to_string(rules.size()) + " rules)");
+	std::smatch detonate;
+	const std::string runes = read(runesSource);
+	check(std::regex_search(runes, detonate, std::regex(R"re(kDetonateAbility\s*=\s*"([A-Za-z_]+)")re"))
+			&& detonate[1].str() == swc::combat::kRuneActivation,
+		"support: the rune activation is kDetonateAbility of world/runes.h");
+	check(swc::combat::rune_supported(progression_id("Ability_Rune_Detonate")) && !swc::combat::rune_supported(progression_id("Ability_Rune_BileBomb")),
+		"support: Detonate is supported, Bile Bomb is not");
+	int supported = 0;
+	std::map<std::string, int> ofWeapon;
+	for (const swc::combat::WeaponAbility& ability : swc::combat::kWeaponAbilities) {
+		if (swc::combat::ability_supported(progression_id(ability.id))) {
+			++supported;
+			++ofWeapon[std::string(ability.weapon)];
+		}
+	}
+	check(supported == 16 && ofWeapon["sword"] == 0 && ofWeapon["rapier"] == 1 && ofWeapon["bow"] == 3 && ofWeapon["greataxe"] == 6
+			&& ofWeapon["warhammer"] == 6,
+		"support: 16 of the 30 abilities of the five weapons (sword 0, rapier 1, bow 3, great axe 6, war hammer 6)");
+
+	// The gate of the driver: a made-up bar with an ability that has no rule (Ability_Sword_Bash) next to Charge.
+	const std::uint32_t charge = progression_id("Ability_Greataxe_Charge");
+	const std::uint32_t bash = progression_id("Ability_Sword_Bash");
+	const auto ns = [](int input) { return static_cast<std::int64_t>(input) * 33'333'333; };
+	const auto has = [](const std::vector<unsigned>& bits, unsigned bit) { return std::find(bits.begin(), bits.end(), bit) != bits.end(); };
+	swc::combat::Driver driver;
+	driver.set_weapons(&greataxe, &hammer, swc::combat::kMainHand1);
+	driver.set_bars({bash, charge, 0}, {0, 0, 0});
+	driver.set_supported_abilities(swc::combat::supported_abilities());
+	std::vector<std::vector<unsigned>> entries;
+	const auto step = [&](int input) {
+		std::vector<unsigned> bits;
+		driver.step(static_cast<std::uint16_t>(input), ns(input), bits);
+		entries.push_back(bits);
+	};
+	driver.ability_key(0, true);
+	step(10);
+	step(11);
+	driver.ability_key(0, false);
+	step(12);
+	swc::combat::Driver::Snapshot snapshot = driver.snapshot();
+	const bool noBits = std::none_of(entries.begin(), entries.end(), [&has](const std::vector<unsigned>& bits) {
+		return has(bits, 402) || has(bits, 479) || has(bits, 39) || has(bits, 211);
+	});
+	check(noBits, "support: the key of an ability with no rule sends no bit (no press, hold, or release)");
+	check(snapshot.lastPress && snapshot.lastPress->verdict == PressVerdict::unsupported && snapshot.lastPress->ability == bash
+			&& snapshot.pressVerdicts[static_cast<std::size_t>(PressVerdict::unsupported)] == 1,
+		"support: the press has the verdict unsupported");
+	check(snapshot.visits.empty() && snapshot.cooldowns.empty(), "support: no fragment and no own cooldown");
+	// The key of Charge (place 1) plays as before.
+	driver.ability_key(1, true);
+	step(13);
+	driver.ability_key(1, false);
+	step(14);
+	snapshot = driver.snapshot();
+	check(snapshot.lastPress && snapshot.lastPress->verdict == PressVerdict::played && snapshot.lastPress->ability == charge
+			&& snapshot.cooldowns.count(charge) == 1 && !snapshot.visits.empty(),
+		"support: the key of a supported ability next to it plays (fragment and cooldown)");
+}
+
 /** The strikes of the client (actions.json) are the strikes of the backend: the damage key and the window of each one, and
  *  the shapes of each strike (stage P2.8: the contacts must come in the windows of the server). */
 void strike_tests(const Json& actions, const backend::gamedata::WeaponActions& tables)
@@ -1327,8 +1416,8 @@ void ability_parity_tests(const Json& actions, const backend::gamedata::WeaponAc
 
 int main(int argc, char** argv)
 {
-	if (argc < 3) {
-		std::fprintf(stderr, "usage: swc-actions-tests ACTIONS_JSON WEAPON_ACTIONS_JSON\n");
+	if (argc < 5) {
+		std::fprintf(stderr, "usage: swc-actions-tests ACTIONS_JSON WEAPON_ACTIONS_JSON BACKEND_ABILITIES_CPP BACKEND_RUNES_H\n");
 		return 2;
 	}
 	std::ifstream file(argv[1]);
@@ -1404,6 +1493,7 @@ int main(int argc, char** argv)
 	switch_tests(swordGraph, greatswordGraph, 12, "sword to greatsword");
 	driver_tests(swordGraph, greatswordGraph);
 	driver_ability_tests(greataxeGraph, hammerGraph);
+	support_tests(argv[3], argv[4], greataxeGraph, hammerGraph);
 	parity_tests(actions, tables);
 	ability_data_tests(actions, tables);
 	ability_parity_tests(actions, tables);

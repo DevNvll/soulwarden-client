@@ -1,9 +1,13 @@
-// Tests of the movement states of the owner (stage P3.3) with bytes that the backend makes: the speed table (StatMultiplierTable,
-// slot 43, type 1525) and the status map (StatusEffects, slot 44, type 4236) of the encoders of the backend
-// (apps/backend/src/server/rep/states) go into the client in state bundles after the golden session of case T2. No capture of the
-// user. Build and run: tools/test-own-states.sh. The Soulwarden sources are read only.
+// Tests of the owner states with bytes that the backend makes: the speed table (StatMultiplierTable, slot 43, type 1525) and the
+// status map (StatusEffects, slot 44, type 4236) of stage P3.3, and the read path of stage MVP-A: the attributes (slot 27, type 129),
+// the mastery and trade skill ranks (slot 65, type 911), the point pools (slot 67, type 3681), the hit counts of the ability state
+// (slot 46, type 185), the heart rune charge (slot 48, type 5257), the craft state (slot 63, type 205), and the entitlements (slot 19,
+// type 3133). The encoders of the backend (apps/backend/src/server/rep/states) make the states; they go into the client in state
+// bundles after the golden session of case T2. No capture of the user. Build and run: tools/test-movement.sh. The Soulwarden sources
+// are read only.
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -254,6 +258,176 @@ void test_statuses(Session& session) {
     expect(session.client->counts().incompleteBundles == 0, "the client reads each bundle to its end");
 }
 
+/** @return The progression id of a text (gamedata::progression_id: the CRC-32 of the lower-case text). */
+std::uint32_t id_of(std::string text) {
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return backend::server::hub::crc32(std::span(reinterpret_cast<const std::uint8_t*>(text.data()), text.size()));
+}
+
+/** A level 70 character with the values of a full build (made up, the form of the user's character: five attributes with bonuses,
+ *  two weapons at mastery 20, trade skills, a learned tree, a tracked hit count, a rune charge, a craft cooldown, the expansion). */
+backend::world::Entity level70_character(const backend::world::WorldClock& clock) {
+    backend::world::Entity entity;
+    namespace attribute = backend::world::attribute;
+    entity.attributes.spent[attribute::kStrength] = 300;
+    entity.attributes.spent[attribute::kConstitution] = 150;
+    entity.attributes.spent[attribute::kDexterity] = 40;
+    entity.attributes.bonus[attribute::kStrength] = 35;
+    entity.attributes.bonus[attribute::kConstitution] = 60;
+    entity.attributes.bonus[attribute::kFocus] = 10;
+    entity.attributes.unspent = 0;
+    entity.skills.progressions[id_of("GreatAxe")] = {20, 1'512'000};
+    entity.skills.progressions[id_of("WarHammer")] = {20, 1'512'000};
+    entity.skills.progressions[id_of("Mining")] = {150, 2'000'000};
+    entity.skills.progressions[id_of("Logging")] = {205, 9'000'000};
+    // Two nodes in the great axe tree (levels 1 and 18: 1 point left), none in the war hammer tree (20 points).
+    entity.skills.pools[id_of("GreatAxe")][id_of("greataxe_tree1_node1")] = {1, 5};
+    entity.skills.pools[id_of("GreatAxe")][id_of("greataxe_tree1_node2")] = {18, 5};
+    entity.skills.pools[id_of("WarHammer")] = {};
+    entity.skills.bars[id_of("GreatAxeAbilityTable")] = {id_of("Ability_Greataxe_Whirlwind"), id_of("Ability_Greataxe_Charge"), 0};
+    entity.combat.abilityHits = {{id_of("Ability_Greataxe_Whirlwind"), 4}};
+    entity.runeCharge = 42.7F;
+    backend::world::CraftCooldown window;
+    window.recipe = "IngotT51";
+    window.used = 3;
+    window.end = clock.now() + std::chrono::hours(1);
+    entity.craftCooldowns[id_of("IngotT51")] = window;
+    entity.craftGearBonus[6] = 50;
+    entity.entitlements = {47, 223, 1484};
+    entity.achievements = {11979};
+    for (const auto key : {backend::world::ComponentKey::categorical, backend::world::ComponentKey::points, backend::world::ComponentKey::abilities,
+                           backend::world::ComponentKey::crafting, backend::world::ComponentKey::entitlements,
+                           backend::world::ComponentKey::achievements}) {
+        entity.changed[key] = 30;
+    }
+    return entity;
+}
+
+/** The fragments of the read path of stage MVP-A for the owner view, as the session of the backend sends them in a first record. */
+Fragments progress_fragments(const backend::world::Entity& entity, backend::world::Revision since, const backend::world::WorldClock& clock) {
+    rep::PartsRequest request{since, 900};
+    request.clock = &clock;
+    Fragments fragments;
+    const auto add = [&fragments](std::uint32_t slot, std::uint32_t type, Bytes state) {
+        if (!state.empty()) {
+            fragments.emplace_back(slot, type, std::move(state));
+        }
+    };
+    add(swc::net::kSlotAttribute, swc::net::kStateAttribute.index, rep::encode_attribute_state(entity, rep::View::owner, clock));
+    add(swc::net::kSlotCategorical, swc::net::kStateCategorical.index, rep::encode_categorical_state(entity, rep::View::owner, clock));
+    for (Bytes& part : rep::encode_points_state(entity, rep::View::owner, request)) {
+        add(swc::net::kSlotPoints, swc::net::kStatePoints.index, std::move(part));
+    }
+    for (Bytes& part : rep::encode_ability_state(entity, rep::View::owner, request)) {
+        add(swc::net::kSlotAbility, swc::net::kStateAbility.index, std::move(part));
+    }
+    for (Bytes& part : rep::encode_charge_state(entity, rep::View::owner, request)) {
+        add(swc::net::kSlotCharge, swc::net::kStateCharge.index, std::move(part));
+    }
+    for (Bytes& part : rep::encode_crafting_state(entity, rep::View::owner, request)) {
+        add(swc::net::kSlotCrafting, swc::net::kStateCrafting.index, std::move(part));
+    }
+    add(swc::net::kSlotEntitlement, swc::net::kStateEntitlement.index, rep::encode_entitlement_state(entity, rep::View::owner, clock));
+    add(swc::net::kSlotAchievement, swc::net::kStateAchievement.index, rep::encode_achievement_state(entity, rep::View::owner, clock));
+    return fragments;
+}
+
+void test_progress(Session& session) {
+    std::printf("the read path of the owner states (slots 27, 65, 67, 46, 48, 63, 19): the encoders of the backend into the client\n");
+    backend::tests::ManualClock clock;
+    backend::world::Entity entity = level70_character(clock);
+    expect(rep::encode_attribute_state(entity, rep::View::observer, clock).empty(), "the attributes: no fragment for an observer");
+    Fragments fragments = progress_fragments(entity, 0, clock);
+    const std::uint32_t attributeRevision = session.client->own().attributeRevision;
+    expect(fragments.size() == 8, "the first record: eight fragments (" + std::to_string(fragments.size()) + ")");
+    session.apply(fragments);
+    const swc::net::RepClient::OwnEntity& own = session.client->own();
+    namespace attribute = backend::world::attribute;
+    // The attributes: the base value has the minimum 5 and the spent points; the bonus is apart (live check I4 of the backend).
+    expect(own.hasAttributes && own.attributeRevision == attributeRevision + 1, "the attributes: one state");
+    expect(own.attributes.base[attribute::kStrength] == 305 && own.attributes.bonus[attribute::kStrength] == 35, "STR 305 + 35");
+    expect(own.attributes.base[attribute::kConstitution] == 155 && own.attributes.bonus[attribute::kConstitution] == 60, "CON 155 + 60");
+    expect(own.attributes.base[attribute::kDexterity] == 45 && own.attributes.bonus[attribute::kDexterity] == 0, "DEX 45 + 0");
+    expect(own.attributes.base[attribute::kFocus] == 5 && own.attributes.bonus[attribute::kFocus] == 10, "FOC 5 + 10");
+    expect(own.attributes.base[attribute::kIntelligence] == 5, "INT 5");
+    expect(own.attributes.spent[attribute::kStrength] == 300 && own.attributes.unspent == 0, "the spent points and the free points");
+    // The ranks: each mastery and trade skill of the state; an id that is not in the state has none.
+    expect(own.ranks.size() == 4, "four ranks");
+    {
+        const auto mining = own.ranks.find(id_of("Mining"));
+        const auto logging = own.ranks.find(id_of("Logging"));
+        const auto axe = own.ranks.find(id_of("GreatAxe"));
+        expect(mining != own.ranks.end() && mining->second.rank == 150 && mining->second.points == 2'000'000, "Mining 150");
+        expect(logging != own.ranks.end() && logging->second.rank == 205, "Logging 205");
+        expect(axe != own.ranks.end() && axe->second.rank == 20 && axe->second.points == 1'512'000, "the great axe mastery 20");
+        expect(own.ranks.count(id_of("Harvesting")) == 0, "no Harvesting entry (rank 0)");
+    }
+    // The point pools: the free points of each tree (rank minus the spent levels).
+    {
+        const auto axe = own.pointPools.find(id_of("GreatAxe"));
+        const auto hammer = own.pointPools.find(id_of("WarHammer"));
+        expect(own.pointPools.size() == 2, "two point pools");
+        expect(axe != own.pointPools.end() && axe->second == 1, "the great axe pool: 1 free point");
+        expect(hammer != own.pointPools.end() && hammer->second == 20, "the war hammer pool: 20 free points");
+        expect(own.learnedNodes.size() == 2, "the two learned nodes stay");
+    }
+    // The hit counts of the ability state (fields 1 and 2).
+    {
+        const auto whirlwind = own.abilityHits.find(id_of("Ability_Greataxe_Whirlwind"));
+        expect(own.hitRevision == 1 && whirlwind != own.abilityHits.end() && whirlwind->second == 4, "Whirlwind: 4 hits");
+        expect(!own.abilityBars.empty(), "the bars of the same fragment");
+    }
+    // The heart rune charge: the whole percent (42.7 -> 42).
+    expect(own.hasCharge && own.chargePercent == 42, "the charge: 42 percent");
+    // The craft state: the window of the recipe with its end on the wall clock, and the bonus of Engineering (code 6).
+    expect(own.craftRevision == 1 && own.craftCooldowns.size() == 1, "the craft state: one cooldown window");
+    if (own.craftCooldowns.size() == 1) {
+        expect(own.craftCooldowns[0].recipe == id_of("IngotT51") && own.craftCooldowns[0].used == 3, "the window of IngotT51: 3 crafts");
+        expect(own.craftCooldowns[0].wallEndNs == clock.wall_time_ns(entity.craftCooldowns.begin()->second.end), "the end on the wall clock");
+    }
+    expect(own.craftGearBonus.size() == 1 && own.craftGearBonus.count(6) == 1 && own.craftGearBonus.at(6) == 50, "Engineering +50 gear score");
+    // The entitlements and the expansion achievement.
+    expect(own.entitlementsReceived && swc::net::has_bit(own.entitlements, 1484) && swc::net::has_bit(own.entitlements, 47)
+               && !swc::net::has_bit(own.entitlements, 48),
+           "the entitlements: 47, 223, 1484 (the expansion), the mark received");
+    expect(swc::net::has_bit(own.achievements, 11979), "the achievement Expansion_2023_Unlock");
+
+    // Later states: a food gives STR +20 (the bonus map changes alone), the mastery of the war hammer goes up, a node goes away, the
+    // charge empties (a state with 0 after a record), the craft window ends (empty maps after a change), the hit count is reset.
+    entity.attributes.bonus[attribute::kStrength] = 55;
+    entity.skills.progressions[id_of("WarHammer")] = {21, 1'600'000};
+    entity.skills.progressions.erase(id_of("Mining"));
+    entity.skills.pools[id_of("GreatAxe")][id_of("greataxe_tree1_node2")] = {0, 31};
+    entity.combat.abilityHits = {{id_of("Ability_Greataxe_Whirlwind"), 0}};
+    entity.runeCharge = 0.0F;
+    clock.advance(std::chrono::hours(2));
+    entity.craftCooldowns.clear();
+    entity.craftGearBonus.clear();
+    for (const auto key : {backend::world::ComponentKey::categorical, backend::world::ComponentKey::points, backend::world::ComponentKey::abilities,
+                           backend::world::ComponentKey::crafting}) {
+        entity.changed[key] = 31;
+    }
+    session.apply(progress_fragments(entity, 30, clock));
+    expect(own.attributeRevision == attributeRevision + 2 && own.attributes.bonus[attribute::kStrength] == 55 && own.attributes.base[attribute::kStrength] == 305,
+           "the food: STR 305 + 55");
+    expect(own.ranks.count(id_of("Mining")) == 0 && own.ranks.size() == 3, "the full map replaces the old map: no Mining");
+    expect(own.ranks.count(id_of("WarHammer")) == 1 && own.ranks.at(id_of("WarHammer")).rank == 21, "the war hammer mastery 21");
+    expect(own.pointPools.at(id_of("GreatAxe")) == 19 && own.learnedNodes.size() == 1, "the lost node: 19 free points, one node");
+    expect(own.pointPools.at(id_of("WarHammer")) == 21, "the war hammer pool: 21 free points");
+    expect(own.abilityHits.at(id_of("Ability_Greataxe_Whirlwind")) == 0, "the reset hit count");
+    expect(own.chargePercent == 0 && own.chargeRevision == 2, "the empty charge");
+    expect(own.craftRevision == 2 && own.craftCooldowns.empty() && own.craftGearBonus.empty(), "the end of the craft window: empty maps");
+
+    // A categorical state with an older stamp changes nothing (the merge of the client keeps its list).
+    backend::world::Entity older = entity;
+    older.skills.progressions[id_of("Mining")] = {150, 2'000'000};
+    older.changed[backend::world::ComponentKey::categorical] = 29;
+    const std::uint32_t rankRevision = own.rankRevision;
+    session.apply({{swc::net::kSlotCategorical, swc::net::kStateCategorical.index, rep::encode_categorical_state(older, rep::View::owner, clock)}});
+    expect(own.rankRevision == rankRevision && own.ranks.count(id_of("Mining")) == 0, "an older stamp changes nothing");
+    expect(session.client->counts().incompleteBundles == 0, "the client reads each bundle to its end");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -265,6 +439,7 @@ int main(int argc, char** argv) {
     expect(session.client->phase() == swc::net::RepClient::Phase::inGame, "the client is in the world after the golden session");
     test_speed_table(session);
     test_statuses(session);
+    test_progress(session);
     std::printf("Result: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

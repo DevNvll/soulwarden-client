@@ -277,6 +277,71 @@ public:
         bool hasProgression{false};
         std::uint32_t level{0};
         std::uint32_t experience{0};
+
+        /**
+         * The attributes (stage MVP-A; the Attribute state, slot 27, type 129; protocol notes 4.12, backend attribute_state.cpp). The
+         * index is the CharacterAttributeType of the client: 0 Constitution, 1 Focus, 2 Strength, 3 Dexterity, 4 Intelligence.
+         * `base` (field 0) has the minimum 5 and the spent points, no bonus; `bonus` (field 1, the map attributeBonuses) is the part
+         * of the equipment, the food, and the perks (an absent type is 0); `spent` and `unspent` come from field 3. Each fragment has
+         * the four fields (the facet of the client copies them all, apply 0x2788BE0): each state replaces the values.
+         */
+        struct Attributes {
+            std::array<std::uint32_t, 5> base{};
+            std::array<std::uint32_t, 5> bonus{};
+            std::array<std::uint32_t, 5> spent{};
+            std::uint32_t unspent{0};
+        };
+        bool hasAttributes{false};
+        Attributes attributes;
+        std::uint32_t attributeRevision{0};
+        /**
+         * The rank and the experience of each weapon mastery and trade skill (the CategoricalProgression state, slot 65, type 911;
+         * protocol notes 4.13, backend skill_states.cpp): the progression id (the CRC-32 of the lower-case id text) to the rank and
+         * the points. The facet of the client (apply 0x3CB7170) makes its map again from each fragment: an id that is not in the
+         * three lists has the rank 0. A state with a smaller stamp changes nothing.
+         */
+        struct Rank {
+            std::uint16_t rank{0};
+            std::uint64_t points{0};
+        };
+        std::map<std::uint32_t, Rank> ranks;
+        std::uint64_t rankStamp{0};
+        std::uint32_t rankRevision{0};
+        /** The point pools of the weapon trees (the ProgressionPoint state, slot 67, fields 0 and 1): the pool id (the CRC-32 of the
+         *  mastery table) to its free points. The client removes a pool that is not in the lists: each state replaces the map. */
+        std::map<std::uint32_t, std::uint16_t> pointPools;
+        /**
+         * The hit counts of the tracked abilities (the ability state, slot 46, fields 1 and 2 hitDataNumHits and hitDataAbilityIds;
+         * backend skill_states.cpp, stage 3.3b-M2): the ability id to its hits. The action lists test them (IfAbilityNumHits). Two
+         * parallel lists in the full form: a state with the two fields replaces the map.
+         */
+        std::map<std::uint32_t, std::uint8_t> abilityHits;
+        std::uint32_t hitRevision{0};
+        /** The heart rune charge (the ChargeComponent state, slot 48, type 5257; protocol notes 4.23): field 0, the whole percent 0 to
+         *  100. The HUD fills the icon of the rune from it (apply 0x683AB80: the maximum times the percent times 0.01). */
+        bool hasCharge{false};
+        std::uint8_t chargePercent{0};
+        std::uint32_t chargeRevision{0};
+        /**
+         * The craft state (the Crafting state, slot 63, type 205; protocol notes 4.51, backend crafting_state.cpp): field 0, the
+         * cooldown window of each recipe (the CRC-32 of the lower-case recipe id, the crafts in the window, the end on the synced wall
+         * clock in Unix ns); field 1, the craft gear score bonus of each trade skill (the TradeskillType code, Weaponsmithing 0). Two
+         * maps in the full form: each state replaces both.
+         */
+        struct CraftCooldown {
+            std::uint32_t recipe{0};
+            std::uint8_t used{0};
+            std::uint64_t wallEndNs{0};
+        };
+        std::vector<CraftCooldown> craftCooldowns;
+        std::map<std::uint8_t, std::uint16_t> craftGearBonus;
+        std::uint32_t craftRevision{0};
+        /** The entitlements of the account (the Entitlement state, slot 19, type 3133; backend ownership_states.cpp): field 0, the byte
+         *  vector (bit index & 7 of byte index >> 3 is the entitlement with the EntitlementIndex `index`), field 2, the mark
+         *  "received". */
+        std::vector<std::uint8_t> entitlements;
+        bool entitlementsReceived{false};
+        std::uint32_t entitlementRevision{0};
     };
 
     /** An entity of a different interest number: its metadata and its position. */
@@ -448,6 +513,10 @@ private:
     /** The record 7036 and the phase 4247 of the own Time facet (protocol notes 4.43). */
     void on_world_time(const ServerMessage& message);
     void apply_own(const soulwarden::backend::tests::Record& record, Clock::time_point now);
+    /** @return The values of an attribute state (slot 27), or none for a fragment that does not have its form. */
+    static std::optional<OwnEntity::Attributes> read_attributes(const soulwarden::backend::tests::Fragment& fragment);
+    /** Copies a crafting state (slot 63) into the own entity: false for a fragment that does not have its form (no change). */
+    bool apply_crafting(const soulwarden::backend::tests::Fragment& fragment);
     void apply_other(const soulwarden::backend::tests::Record& record);
     void send_registration();
     void send_input(Clock::time_point now);
