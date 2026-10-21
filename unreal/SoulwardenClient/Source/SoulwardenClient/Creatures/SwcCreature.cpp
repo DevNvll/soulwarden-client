@@ -131,6 +131,36 @@ void ASwcCreature::CollectAssets(TArray<FSoftObjectPath>& Out, bool bFirst) cons
 	}
 }
 
+namespace
+{
+/** Stage MVP-K: the package of a clip for the async load. Interchange names some clips STEM + "Null" + NAME
+ *  (USwcCreatureAnimInstance::AlternateClipPath; 104 clips of 49 creature skeletons). A load of the path of the data then gave a
+ *  "LoadPackage: SkipPackage" warning, and the clip under its other name was not loaded. The path that has a package (cached; empty:
+ *  neither name has a package, 4 clips of the data; no load). The game thread only. */
+const FString& ClipLoadPath(const FString& Path)
+{
+	static TMap<FString, FString> Cache;
+	if (const FString* Found = Cache.Find(Path))
+	{
+		return *Found;
+	}
+	FString Chosen;
+	if (FPackageName::DoesPackageExist(FSoftObjectPath(Path).GetLongPackageName()))
+	{
+		Chosen = Path;
+	}
+	else
+	{
+		const FString Other = USwcCreatureAnimInstance::AlternateClipPath(Path);
+		if (!Other.IsEmpty() && FPackageName::DoesPackageExist(FSoftObjectPath(Other).GetLongPackageName()))
+		{
+			Chosen = Other;
+		}
+	}
+	return Cache.Add(Path, MoveTemp(Chosen));
+}
+} // namespace
+
 void ASwcCreature::CollectSliceAssets(FSwcCreatureLibrary& Library, const FSwcCreatureSlice* Slice, TArray<FSoftObjectPath>& Out,
 	bool bFirst)
 {
@@ -143,9 +173,9 @@ void ASwcCreature::CollectSliceAssets(FSwcCreatureLibrary& Library, const FSwcCr
 	};
 	const auto AddClip = [&Add](const FSwcCreatureAnimations& Set, int32 Clip)
 	{
-		if (Set.Clips.IsValidIndex(Clip))
+		if (Set.Clips.IsValidIndex(Clip) && !Set.Clips[Clip].AssetPath.IsEmpty())
 		{
-			Add(Set.Clips[Clip].AssetPath);
+			Add(ClipLoadPath(Set.Clips[Clip].AssetPath));
 		}
 	};
 	const auto AddSpace = [&AddClip](const FSwcCreatureAnimations& Set, int32 Space)
@@ -187,7 +217,10 @@ void ASwcCreature::CollectSliceAssets(FSwcCreatureLibrary& Library, const FSwcCr
 		{
 			for (const FSwcClip& Clip : Set->Clips)
 			{
-				Add(Clip.AssetPath);
+				if (!Clip.AssetPath.IsEmpty())
+				{
+					Add(ClipLoadPath(Clip.AssetPath));
+				}
 			}
 			return;
 		}

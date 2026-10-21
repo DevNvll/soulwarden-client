@@ -526,6 +526,32 @@ build when it is current (`tools/lib/cooked.sh`: no import after the cook (the s
 converters) and the same client code (a hash of Source, Lua, Config)); else the editor binary, with a line that says why
 (`--cooked` and `--uncooked` force one).
 
+#### The loose data and the asset paths (stage MVP-K, AST-229, 2026-10-21)
+
+The cooked build does not contain the converter data: the client reads it from `SWC_CONTENT` at run time (42,481 files: the UI
+canvases, scripts, textures, fonts, texts, and game data; the player, creature, person, environment, water, particle, object,
+region, decal, and menu data). `tools/lib/loose-data.txt` lists them (Python glob patterns relative to `SWC_CONTENT`). The source of
+the list: the files that two cooked runs opened (inotify on `SWC_CONTENT`, read only: a fight and a long travel; 2,045 files) and
+the readers of the code (the menu scene, the world map, the persons, the gathering, which those runs did not open).
+
+- The freshness: `cooked_state` (`tools/lib/cooked.sh`) also takes the newest file of the list (`tools/lib/cook_audit.py --newest`,
+  about 0.7 s): a converter file newer than the cook makes the cooked build old ("the converter data FILE changed after the cook").
+  Thus `tools/play.sh` never starts a cooked build that is older than its data; it uses the editor binary and says why. The release
+  and schema guard of `tools/play.sh` stays as it was (the backend copy is the current release of the user).
+- The audit of the asset paths (`python3 -B tools/lib/cook_audit.py`): each asset path that the client loads by a path (the paths
+  in the files of the list, the composed paths `FOLDER/STEM/StaticMeshes/STEM` of the menu scene and the roads, and the literal paths
+  of the code) against the cooked files of the checkout (`Saved/Cooked/Linux`, the input of the staged build). The classes: cooked;
+  imported after the cook (the next cook takes it); imported before the cook and not cooked (a gap of the cook rules: status 1); not
+  imported. The path templates of the code (`%s`) must be in `DirectoriesToAlwaysCook`.
+- The result against the cook of 7645eb2 (2026-10-21 00:42): 77,535 packages cooked; 19,175 imported after that cook (the persons
+  of MVP-H: their bodies and clips; the next cook takes them); 0 gaps of the cook rules; 108 not imported: 104 creature clips that
+  Interchange named STEM + "Null" + NAME (the client now asks for that name: [CREATURES.md](CREATURES.md)) and 4 clips with no package.
+  The four templates of the code (the materials, the particle systems, the environment probes and cookies) are in always cooked
+  folders.
+- In the cooked runs of that cook the log had "LoadPackage: SkipPackage" for those creature clips (the fight) and "Failed to find
+  object" for three person clips imported after the cook (the travel). After the clip fix, the same fight in the editor build had
+  no SkipPackage line (before: 11).
+
 ## The collision of the game (P4.1 part 1)
 
 The game has the collision of a mesh in its physics file: the path of the `.cgf` with `.rnr`. It has boxes, spheres,

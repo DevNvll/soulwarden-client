@@ -1,0 +1,48 @@
+# The converter data that the client reads from SWC_CONTENT at run time (stage MVP-K; docs/WORLD.md "The cooked build"). The cooked
+# build does not contain these files: tools/lib/cooked.sh (cooked_state) takes the build as old when one of them is newer than the
+# cook, and tools/lib/cook_audit.py checks the asset paths in them. Patterns are relative to SWC_CONTENT (Python glob; ** for each
+# depth). The source: the files that cooked runs opened (inotify, work/mvp-k/capture*.txt) and the readers of the code.
+player/actions.json
+player/camera.json
+player/imported.json
+player/interactions.json
+player/locomotion.json
+player/looks.json
+player/movement.json
+player/weapons.json
+creatures/effects.json
+creatures/names.json
+creatures/slices.json
+creatures/spawn-cells.json
+creatures/animations/*.json
+persons/*.json
+environment/cookies.json
+environment/mission.json
+environment/presets.json
+environment/probes.json
+environment/volumes.json
+environment/lights/*.json
+environment/sky/*.json
+water/water.json
+water/shore.json
+water/*.water
+water/*.waterq
+regions/*/collision-chunks.bin
+regions/*/cover.bin
+decals/*/layer.json
+world-objects/objects.json
+world-objects/nodes/*.bin
+world-objects/regions/*.json
+particles/systems.json
+particles/menu.json
+particles/names.json
+particles/placements/*.json
+frontend/nighthaven.json
+frontend/*.png
+frontend/terrain/**/*
+ui/canvases/**/*
+ui/scripts/**/*
+ui/textures/**/*
+ui/fonts/**/*
+ui/localization/*
+ui/gamedata/*

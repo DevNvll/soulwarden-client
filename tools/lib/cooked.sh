@@ -12,8 +12,9 @@ cooked_code_hash() {
 }
 
 # cooked_state: prints one line and returns 0 when the cooked build is current: it exists, its map is the default (the whole
-# world), the content has no import after the cook (the state files of the plugin and the manifest of the converters), and the
-# client code (Source, Lua, Config) is the same as at the cook. Else 1 (the line says why).
+# world), the content has no import after the cook (the state files of the plugin and the manifest of the converters), no
+# converter data that the client reads at run time is newer than the cook (tools/lib/loose-data.txt, stage MVP-K), and the client
+# code (Source, Lua, Config) is the same as at the cook. Else 1 (the line says why).
 cooked_state() {
     local stamp="${cooked_dir}/swc-cook.json"
     if [[ ! -x "${cooked_binary}" || ! -f "${stamp}" ]]; then
@@ -30,6 +31,13 @@ cooked_state() {
     newest=$(stat -c %Y "${SWC_GAME_CONTENT}"/*.json "${SWC_CONTENT}/manifest.json" 2>/dev/null | sort -n | tail -1)
     if [[ -n "${newest}" && "${newest}" -gt "${time}" ]]; then
         echo "the content changed after the cook of $(date -d "@${time}" '+%F %T') (run tools/cook.sh)"
+        return 1
+    fi
+    # The converter data that the client reads at run time (tools/lib/loose-data.txt; the cooked build does not contain it).
+    local loose loose_file
+    read -r loose loose_file < <(python3 -B "${SWC_REPO}/tools/lib/cook_audit.py" --newest)
+    if [[ -n "${loose}" && "${loose}" -gt "${time}" ]]; then
+        echo "the converter data ${loose_file} changed after the cook of $(date -d "@${time}" '+%F %T') (run tools/cook.sh)"
         return 1
     fi
     if [[ "${code}" != "$(cooked_code_hash)" ]]; then
