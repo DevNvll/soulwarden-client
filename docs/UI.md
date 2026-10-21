@@ -495,8 +495,8 @@ The classes (2026-10-19):
 
 | Class | Rule | Count |
 | --- | --- | --- |
-| active | this client loads it in the world (`HudScreens` of `UI/SwcUiSubsystem.cpp`, the globals, the loading screen; stage P3.H adds the consumable quick slots, the XP meter, and the reticles; stage F2 the landing screen of the front end, docs/FRONTEND.md; stage MVP-I the hit indicator) | 26 |
-| stage | the retail client can load it on this backend with the values of the build; a later stage owns it | 119 |
+| active | this client loads it in the world (`HudScreens` of `UI/SwcUiSubsystem.cpp`, the globals, the loading screen; stage P3.H adds the consumable quick slots, the XP meter, and the reticles; stage F2 the landing screen of the front end, docs/FRONTEND.md; stage MVP-I the hit indicator and the status tray) | 27 |
+| stage | the retail client can load it on this backend with the values of the build; a later stage owns it | 118 |
 | service | a public online service (F89): the store (3), the news, the survey, the report, the feedback, the voice chat, the legal screen; no such service on this computer | 9 |
 | debug | a diagnostic or editor screen (F90): the logger, the full-screen assert, the style guide, the benchmark (2), the editor tester of the fly-out menu, the grey box of the virtual cursor; their gates are off in a retail client | 7 |
 | dormant | no gate opens with the values of the build: the housing tips (`housingImprovements` false), the paperdoll status (`enable-hud-paperdoll-status` false), the first QTE (the build has `enable-ftue-v2` true: `qte_v2`) | 3 |
@@ -754,6 +754,24 @@ the client window) and the retail combat capture of set 6 (the list of the UI tr
     camera gets a far point in the direction of its place in the frame of the camera heading (the native rule is not known).
   - Retail shows no screen effect for the low health state itself (set 6, from 813 to 676 of 5,330): the health bar gets its warning
     (the hatched background, `healthmeter.luac`), which the client already shows (`strip-health-trail-1.png` of P3.H).
+- The status tray of the own character (stage MVP-I; `lyshineui/statuseffects/statuseffectsv2`, `statuseffects.luac`,
+  `statuseffect.luac`; the native part: `swc/statustray.lua`): the icons above the health bar. The native code fills the data nodes
+  of the eight elements, `Hud.LocalPlayer.StatusEffects.N` (N = 1 to 8): `.Potency`, `.EndTime` (a wall clock time point; the script
+  shows the time left, or "—" when it is past), `.StackSize` ("×N" from 2), and `.EffectId` (the status id; an empty id ends the
+  element). `StatusEffectsRequestBus.GetStatusEffectDataByCrc(player, the CRC-32 of the lower-case id)` gives the icon, the name,
+  the description, and isNegative (the dark red frame).
+  - The data: `gamedata/statustray.json` (`tools/convert-ui.sh world`): the status rows with `ShowInUITray` (2,131 rows:
+    PlaceholderIcon, IsNegative, DisplayName, Description, UIPriority, HideHudDurationNumbers) and the index of the StatusEffects
+    state of the owner (the backend copy, `ability-data.json`) to the status id.
+  - The host (`Swc.HostStatusTray`): the status map of the owner (slot 44) as "index potency stacks end" lines, the end in Unix
+    seconds on the wall clock of the server (0: no end). A status keeps its element while it stays; a new status takes the first
+    free element; with more than eight, the higher UIPriority first. The order rule of the native code is not known (an
+    inference). HideHudDurationNumbers is not used (the scripts do not read it).
+  - Retail (set 6 `ui-fight-hud.mp4`): no icon at full health; at low health the stamina regen icon of the chest perk
+    (`Status_Perk_Chest_HealthLowStamRegen`, no end) with "—".
+- The localization of a label inside a text (`Model::localize`, stage MVP-I): the engine replaces each `@label` (letters, digits, `_`)
+  that it knows, also after other text ("30@ui_seconds_short" of `TimeHelperFunctions:ConvertToShorthandString`, the time left of
+  a status: "30s"). Before, only a label at the start of the text was localized.
 
 The check against the retail set 6 (2026-10-19, `~/Games/soulwarden-client/evidence/P3.H/compare`; the client runs
 `p3h-views`, `p3h-world`, `p3h-fight`, `p3h-fight2` at 1280 x 720 with the build bow-boltcaster on the dry sand of set 3; the

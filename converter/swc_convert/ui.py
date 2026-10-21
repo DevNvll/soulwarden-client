@@ -955,6 +955,16 @@ def convert_gamedata() -> dict:
 OWNER_STAT_COLUMNS = ("PhysicalArmor", "ElementalArmor")
 
 
+def status_index(rows: dict[str, dict]) -> dict[str, str]:
+    """@return The index of the StatusEffects state (the backend copy, ability-data.json statusEffects: the id and the index of each
+    row) -> the status id, for the statuses of rows."""
+    gamedata = Path(os.environ.get("SWC_GAMEDATA_DIR") or env.work_dir() / "backend/current/gamedata")
+    path = gamedata / "ability-data.json"
+    if not path.is_file():
+        return {}
+    return {str(row[1]): row[0] for row in json.loads(path.read_text()).get("statusEffects", []) if row[0] in rows}
+
+
 def convert_owner_stats() -> dict:
     """@return The status rows with an armor part or an absorption, by the index of the StatusEffects state of the owner (slot 44: the
     compact map names a status by its index), and the limits of the status categories (the backend copy, ability-data.json
@@ -983,6 +993,9 @@ def convert_world() -> dict:
                         and the damage numbers read, for each row that shows there (ShowInNameplates, ShowTextInNameplates,
                         ShowTextInDamageNumbers; javelindata_statuseffects*.datasheet): PlaceholderIcon, IsNegative,
                         UiNameplatePriority, OverrideOtherNameplateText, HidesOtherStatusEffectIcons, DisplayName
+    statustray.json     the rows of the status tray of the HUD (statuseffectsv2; ShowInUITray): status id -> PlaceholderIcon,
+                        IsNegative, DisplayName, Description, UIPriority, HideHudDurationNumbers; and the index of the StatusEffects
+                        state of the owner -> the status id (the backend copy)
     damagetypes.json    the number of a damage type on the wire (IntID of javelindata_damagetypes) -> TypeID, DisplayName,
                         Category
     interactoptions.json  the option records of the UI database: option name -> the label key and the additional info slice
@@ -990,12 +1003,18 @@ def convert_world() -> dict:
     xplevels.json       the total experience at which each level starts (XPToLevel of javelindata_xpamountsbylevel)
     and the canvases of WORLD_CANVASES with their textures and the sprite folders that their scripts use."""
     statuses: dict[str, dict] = {}
+    tray: dict[str, dict] = {}
     for path in sorted(source.paks().paths("", ".datasheet")):
         name = path.rsplit("/", 1)[1]
         if not re.match(r"javelindata_statuseffects[a-z0-9_]*\.datasheet$", name):
             continue
         for row in datasheet.Sheet(source.read(path)).rows():
             status = row.get("StatusID")
+            if status and row.get("ShowInUITray") and status not in tray:
+                tray[status] = {"icon": (row.get("PlaceholderIcon") or "").lower().replace("\\", "/"),
+                                "negative": bool(row.get("IsNegative")), "name": row.get("DisplayName") or "",
+                                "description": row.get("Description") or "", "priority": number_or_none(row.get("UIPriority")) or 0,
+                                "hideDuration": bool(row.get("HideHudDurationNumbers"))}
             shown = bool(row.get("ShowInNameplates")) or bool(row.get("ShowTextInNameplates")) or bool(row.get("ShowTextInDamageNumbers"))
             if not status or not shown or status in statuses:
                 continue
@@ -1014,6 +1033,8 @@ def convert_world() -> dict:
     target = out_dir() / "gamedata"
     target.mkdir(parents=True, exist_ok=True)
     (target / "statuseffects.json").write_text(json.dumps(statuses, separators=(",", ":"), sort_keys=True))
+    tray_index = status_index(tray)
+    (target / "statustray.json").write_text(json.dumps({"rows": tray, "index": tray_index}, separators=(",", ":"), sort_keys=True))
     (target / "damagetypes.json").write_text(json.dumps(damage_types, separators=(",", ":"), sort_keys=True))
     options = convert_interact_options()
     (target / "interactoptions.json").write_text(json.dumps(options, separators=(",", ":"), sort_keys=True))
@@ -1032,6 +1053,7 @@ def convert_world() -> dict:
                    "lyshineui/images/icons/gatherables/", "lyshineui/images/hitindicator/"):
         textures |= set(folder_textures(folder))
     return {"status rows": len(statuses), "on the plates": sum(1 for e in statuses.values() if e["nameplate"]),
+            "in the tray": len(tray), "tray rows of the backend": len(tray_index),
             "damage types": len(damage_types), "interact options": len(options), "defenses": len(defenses), "levels": len(levels),
             "canvases": canvases,
             "textures": convert_textures(textures),
@@ -1089,12 +1111,14 @@ def convert_defenses() -> dict:
 
 
 # The canvases of the UI in the world views (stage WF7): the markers (the AI plates), the prompt cards, the damage numbers, the loot
-# ticker; the hit indicator (stage MVP-I).
+# ticker; the hit indicator and the status tray (stage MVP-I).
 WORLD_CANVASES = ["lyshineui/markers/markermanager.dynamicuicanvas", "lyshineui/markers/unifiedinteract.dynamicuicanvas",
                   "lyshineui/hud/damagenumbers/damagenumbers.dynamicuicanvas",
                   "lyshineui/hud2024/lootticker/lootticker2024.dynamicuicanvas",
                   # Stage MVP-I: the hit indicator (the red edge and the arrow of a hit on the own character).
-                  "lyshineui/hitindicator/hitindicator.dynamicuicanvas"]
+                  "lyshineui/hitindicator/hitindicator.dynamicuicanvas",
+                  # Stage MVP-I: the status tray of the own character (statuseffectsv2; statustray.json).
+                  "lyshineui/statuseffects/statuseffectsv2.dynamicuicanvas"]
 
 
 # The columns of the item definitions that the inventory screens use (javelindata_itemdefinitions_master_*), with their

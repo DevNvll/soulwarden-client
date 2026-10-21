@@ -387,7 +387,7 @@ census.canvases = {
     dynamic = {{name = "spectatorHUD", gate = {}, states = {4143822268}, triggerStates = {}}}},
   ["stationproperties/stationproperties"] = {class = "stage", feature = "F63", stage = "P5.8",
     ui = {{group = 7, gate = {}}}},
-  ["statuseffects/statuseffectsv2"] = {class = "stage", feature = "F27", stage = "P2.4, P3.2, P3.5",
+  ["statuseffects/statuseffectsv2"] = {class = "active", feature = "F27", stage = "P2.4, P3.2, P3.5, MVP-I",
     ui = {{group = 1, gate = {}}}},
   ["store/itemclaim"] = {class = "service", feature = "F89", stage = "P2.3, gate D1",
     ui = {{group = 8, gate = {flags = {"javelin.enable-mtx-storeV2"}}}},

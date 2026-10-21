@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -1205,6 +1206,29 @@ void Model::load_texts() {
 }
 
 std::string Model::localize(const std::string& text) const {
+    if (text.size() >= 2 && text[0] != '@' && text.find('@') != std::string::npos) {
+        // A label inside a longer text ("30@ui_seconds_short" of TimeHelperFunctions ConvertToShorthandString, the duration of a
+        // status in the tray): the localization of the engine replaces each @ label (letters, digits, and _) that it knows.
+        std::string out;
+        std::size_t i = 0;
+        while (i < text.size()) {
+            const std::size_t at = text.find('@', i);
+            if (at == std::string::npos) {
+                out += text.substr(i);
+                break;
+            }
+            out += text.substr(i, at - i);
+            std::size_t end = at + 1;
+            while (end < text.size() && (std::isalnum(static_cast<unsigned char>(text[end])) != 0 || text[end] == '_')) {
+                ++end;
+            }
+            const std::string label = text.substr(at, end - at);
+            const std::string local = label.size() > 1 ? localize(label) : label;
+            out += local;
+            i = end;
+        }
+        return out;
+    }
     if (text.size() < 2 || text[0] != '@') {
         return text;
     }

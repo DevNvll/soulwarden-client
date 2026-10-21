@@ -76,6 +76,8 @@ const char* const HudScreens[] = {
 	"lyshineui/hud2024/lootticker/lootticker2024",
 	// The fight feedback (stage MVP-I): the hit indicator (the red edge and the arrow toward the source of a hit).
 	"lyshineui/hitindicator/hitindicator",
+	// The status tray of the own character (stage MVP-I).
+	"lyshineui/statuseffects/statuseffectsv2",
 	// The notifications (the minor messages of the inventory, the loot).
 	"lyshineui/notifications/notification",
 	// The options screen (stage P2.3): its categories, the key page (the rebinds go to the key table of the client).
@@ -662,6 +664,14 @@ void USwcUiSubsystem::FeedOwnerStates(const swc::net::RepClient::OwnEntity& Own)
 			Text += std::to_string(Status.index) + " " + std::to_string(Status.potency) + " " + std::to_string(Status.stacks) + "\n";
 		}
 		Runtime->call("HostStatuses", {FArg::of(Text)});
+		// The status tray (stage MVP-I; swc/statustray.lua): "index potency stacks end" lines, the end in Unix seconds (0: no end).
+		std::string Tray;
+		for (const swc::net::RepClient::OwnEntity::Status& Status : Own.statuses)
+		{
+			Tray += std::to_string(Status.index) + " " + std::to_string(Status.potency) + " " + std::to_string(Status.stacks) + " "
+				+ std::to_string(static_cast<double>(Status.wallEndNs) / 1e9) + "\n";
+		}
+		Runtime->call("HostStatusTray", {FArg::of(Tray)});
 	}
 	// The achievements of the character (slot 66) and the entitlements of the account (slot 19): the indexes of the set bits.
 	if (Own.achievementRevision != SentAchievementRevision || Own.entitlementRevision != SentEntitlementRevision)
