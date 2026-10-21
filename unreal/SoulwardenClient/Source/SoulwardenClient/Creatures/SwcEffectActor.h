@@ -47,6 +47,9 @@ public:
 
 private:
 	void SetColor(const FLinearColor& Color);
+	void SetColumnColor(const FLinearColor& Color);
+	/** Sets the colors again when the exposure of the frame changed by more than 10 percent (stage MVP-I). */
+	void FollowExposure();
 
 	UPROPERTY()
 	TObjectPtr<USceneComponent> Root;
@@ -54,6 +57,15 @@ private:
 	TObjectPtr<UStaticMeshComponent> Shape;
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> Material;
+	/** Stage MVP-I: a low translucent column over the disc of a hostile area (the disc alone hides under the ground cover). */
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> Column;
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> ColumnMaterial;
+	/** The colors before the exposure scale, and the scale of the last set. */
+	FLinearColor ShapeColor = FLinearColor::White;
+	FLinearColor ColumnColor = FLinearColor::White;
+	double AppliedScale = 1.0;
 
 	uint64 Serial = 0;
 	bool bArea = false;

@@ -1,0 +1,25 @@
+# The development routes of the fight check of stage MVP-I (day, 12:00; docs/UI.md "The fight HUD", the hit indicator and the status
+# tray) with the drive tests/drive/mvpi-hits.txt: a grey wolf (level 18) 3 m to the east, a Vulkgard archer (its arrows) and an
+# undead shaman (its lightning strike: the warning and the danger area; the route area at 8, 18, 28 s) 9 to 10 m to the east fight
+# the character; a burn of Explosive Arrow on the character at 12 s (8 s: the tray icon, its time, its end); 4400 damage at 15 s (the
+# low health, the chest perk status in the tray, as the retail take set 6 ui-fight-hud); at 30 s the wolf has 300 health and the light
+# attacks of the drive kill it (the loot bag, E at 41 s, the loot ticker). Times on the clock of the drive script; offsets in m east,
+# north; yaw: 0 north, 90 west.
+1 world-time 12:00
+1 ignore on
+1 loot on
+1.5 heal
+2 spawn Wolf_Grey_7 3 0 0 --yaw 90
+2.5 spawn Evil_Knight_Bow_17:2 10 4 0 --yaw 90
+3 spawn Undead_Shaman:6 9 -4 0 --yaw 90
+3.5 ignore off
+8 area $3
+12 status Status_ExplosiveShot_Burn 8
+14.5 heal
+15 hurt 4400
+18 area $3
+24 heal
+28 area $3
+29 heal
+30 health $1 300
+42 ignore on

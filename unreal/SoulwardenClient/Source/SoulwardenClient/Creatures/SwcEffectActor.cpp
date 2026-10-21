@@ -5,6 +5,7 @@
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "Environment/SwcMeterProbe.h"
 #include "Net/SwcSpace.h"
 
 namespace
@@ -27,6 +28,29 @@ const FLinearColor FriendlyActiveColor(0.2f, 0.85f, 1.0f, 0.45f);
 constexpr double PillarWidth = 0.6;
 constexpr double PillarHeight = 2.0;
 constexpr double WidestDisc = 8.0;
+/** Stage MVP-I: the column over the disc of a hostile area (values of this client). The disc on the ground hid under the ferns and the
+ *  character in the live checks (mvpi-fight-night: the strike of the shaman at the feet). Retail draws the strike as a column of light
+ *  at its danger time (a particle effect of the spell; Soulwarden evidence creature-areas s1-fresh). The column reads through the
+ *  ground cover: faint in the warning, stronger in the danger. */
+constexpr double ColumnHeight = 0.8;
+const FLinearColor ColumnWarningColor(1.0f, 0.45f, 0.0f, 0.06f);
+const FLinearColor ColumnDangerColor(1.0f, 0.05f, 0.02f, 0.15f);
+/** Stage MVP-I: the unlit colors follow the exposure of the frame. The scene has physical light units (an exposure of about
+ *  1/(1.2 x 2^13.7) at noon), and an unlit color of 1.0 drew near black (the disc of the strike in mvpi-area1). The color is
+ *  DisplayLevel / exposure: about the same brightness on the screen at day and at night. The exposure: the last measure of the
+ *  meter probe (Environment/SwcMeterProbe); none yet: a color of 1. */
+constexpr double DisplayLevel = 0.6;
+
+double ExposureScale()
+{
+	SwcMeterProbe::FResult Measure;
+	return SwcMeterProbe::GetLatest(Measure) && Measure.Exposure > 0.0 ? DisplayLevel / Measure.Exposure : 1.0;
+}
+
+FLinearColor Exposed(const FLinearColor& Color, double Scale)
+{
+	return FLinearColor(Color.R * Scale, Color.G * Scale, Color.B * Scale, Color.A);
+}
 } // namespace
 
 ASwcEffectActor::ASwcEffectActor()
@@ -39,6 +63,28 @@ ASwcEffectActor::ASwcEffectActor()
 	Shape->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Shape->SetCastShadow(false);
 	Shape->SetVisibility(false);
+	Column = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Column"));
+	Column->SetupAttachment(Root);
+	Column->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Column->SetCastShadow(false);
+	Column->SetVisibility(false);
+}
+
+void ASwcEffectActor::SetColumnColor(const FLinearColor& Color)
+{
+	if (ColumnMaterial == nullptr)
+	{
+		UMaterialInterface* Base = FindObject<UMaterialInterface>(nullptr, TranslucentMaterial);
+		if (Base == nullptr)
+		{
+			return;
+		}
+		ColumnMaterial = UMaterialInstanceDynamic::Create(Base, this);
+		Column->SetMaterial(0, ColumnMaterial);
+	}
+	ColumnColor = Color;
+	ColumnMaterial->SetVectorParameterValue(TEXT("Color"), Exposed(Color, ExposureScale()));
+	ColumnMaterial->SetScalarParameterValue(TEXT("Opacity"), Color.A);
 }
 
 void ASwcEffectActor::SetColor(const FLinearColor& Color)
@@ -53,8 +99,23 @@ void ASwcEffectActor::SetColor(const FLinearColor& Color)
 		Material = UMaterialInstanceDynamic::Create(Base, this);
 		Shape->SetMaterial(0, Material);
 	}
-	Material->SetVectorParameterValue(TEXT("Color"), Color);
+	ShapeColor = Color;
+	AppliedScale = ExposureScale();
+	Material->SetVectorParameterValue(TEXT("Color"), Exposed(Color, AppliedScale));
 	Material->SetScalarParameterValue(TEXT("Opacity"), Color.A);
+	if (ColumnMaterial != nullptr)
+	{
+		ColumnMaterial->SetVectorParameterValue(TEXT("Color"), Exposed(ColumnColor, AppliedScale));
+	}
+}
+
+void ASwcEffectActor::FollowExposure()
+{
+	const double Scale = ExposureScale();
+	if (Material != nullptr && FMath::Abs(Scale - AppliedScale) > 0.1 * AppliedScale)
+	{
+		SetColor(ShapeColor);
+	}
 }
 
 void ASwcEffectActor::SetupProjectile(const FSwcProjectileSlice* Slice)
@@ -106,12 +167,20 @@ void ASwcEffectActor::SetupArea(const FSwcSpellSlice* Slice, const FSwcSpellRow*
 	{
 		Shape->SetRelativeScale3D(FVector(Radius * 2.0, Radius * 2.0, DiscHeight));
 		Shape->SetRelativeLocation(FVector(0.0, 0.0, DiscHeight * 50.0));
+		if (!bFriendly)
+		{
+			Column->SetStaticMesh(FindObject<UStaticMesh>(nullptr, CylinderMesh));
+			Column->SetRelativeScale3D(FVector(Radius * 2.0, Radius * 2.0, ColumnHeight));
+			Column->SetRelativeLocation(FVector(0.0, 0.0, ColumnHeight * 50.0));
+			SetColumnColor(ColumnWarningColor);
+		}
 	}
 	SetColor(bFriendly ? FriendlyWarningColor : WarningColor);
 }
 
 FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, uint64 RenderTimeUs, const FVector* Follow)
 {
+	FollowExposure();
 	FString Text;
 	if (!bArea && Entity.hasProjectile)
 	{
@@ -160,6 +229,7 @@ FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, 
 		const swc::creatures::AreaPhase Phase = swc::creatures::area_phase(Times, RenderTimeUs);
 		const bool bStarted = RenderTimeUs >= Times.startUs;
 		Shape->SetVisibility(bStarted && (bSummon || (Phase != swc::creatures::AreaPhase::ended && Radius > 0.0f)));
+		Column->SetVisibility(bStarted && !bSummon && !bFriendly && Phase != swc::creatures::AreaPhase::ended && Radius > 0.0f);
 		const int32 PhaseIndex = bStarted ? static_cast<int32>(Phase) : -1;
 		if (PhaseIndex != LastPhase)
 		{
@@ -169,11 +239,13 @@ FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, 
 			{
 			case swc::creatures::AreaPhase::warning:
 				SetColor(bFriendly ? FriendlyWarningColor : WarningColor);
+				SetColumnColor(ColumnWarningColor);
 				Text = bFriendly ? FString::Printf(TEXT("the spell before its volume is active (radius %.2f m) at %.2f s"), Radius, Since)
 								 : FString::Printf(TEXT("the warning of the area (radius %.2f m) at %.2f s"), Radius, Since);
 				break;
 			case swc::creatures::AreaPhase::danger:
 				SetColor(bFriendly ? FriendlyActiveColor : DangerColor);
+				SetColumnColor(ColumnDangerColor);
 				Text = bFriendly ? FString::Printf(TEXT("the volume of the spell is active at %.2f s"), Since)
 								 : FString::Printf(TEXT("the danger of the area at %.2f s"), Since);
 				break;

@@ -1,0 +1,47 @@
+# The drive of the fight check of stage MVP-I with tests/drive/mvpi-hits-routes.txt (day) or mvpi-night-routes.txt (night): the camera to the east (the wolf in front:
+# the red edge at the top), the rapier (key 2); at 18 s the camera to the west (the wolf behind: the edge at the bottom, the arrow
+# down), at 24 s back to the east; at 31 s the light attacks kill the wolf, at 41 s E at its loot bag (the loot ticker). The "tick" lines are the clock marks of
+# the route script. Times in seconds from the possession of the character; turn: degrees each second.
+1.0 turn 90
+2.0 turn 0
+3.0 key 2
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 tick
+9.0 tick
+10.0 tick
+11.0 tick
+12.0 tick
+13.0 tick
+14.0 tick
+15.0 tick
+16.0 tick
+17.0 tick
+18.0 turn 180
+19.0 turn 0
+20.0 tick
+21.0 tick
+22.0 tick
+23.0 tick
+24.0 turn 180
+25.0 turn 0
+26.0 tick
+27.0 tick
+28.0 tick
+29.0 tick
+30.0 tick
+31.0 click
+32.0 click
+33.0 click
+34.0 click
+35.0 click
+36.0 click
+37.0 click
+38.0 click
+39.0 click
+40.0 tick
+41.0 interact 1
+41.6 interact 0
+42.0 tick
