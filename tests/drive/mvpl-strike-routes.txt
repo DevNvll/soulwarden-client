@@ -1,0 +1,11 @@
+# The strike of the Undead Shaman at night (AST-230; drive tests/drive/mvpl-strike.txt): the area at the feet of the character, three
+# times, as the retail evidence creature-areas s1-fresh (night, a level camera).
+1 world-time 23:00
+1 ignore on
+1.5 heal
+2 spawn Undead_Shaman:6 9 -4 0 --yaw 90
+3 ignore off
+6 area $1
+12 area $1
+18 area $1
+24 heal

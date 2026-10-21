@@ -142,6 +142,18 @@ Not done: the dissolve (MaterialDissolve), the TexMod oscillators, the refractio
 noted), the rotational drag. A stateless emitter simulates in the space of its component: the particles move with the emitter (as
 MoveRelEmitter Yes); a world-space trail behind a moving emitter needs another path (open).
 
+## The lights and the decals (part of plan step 6)
+
+- A light particle (LightSource: Radius, Intensity with its age curve; the Color curve of the particle): the Niagara light renderer with
+  the inverse square falloff and the radius of the data. The unit of Intensity is the DiffuseMultiplier of the point lights of the world
+  [I]: pi x 10,000 x Intensity cd (docs/PARTICLES.md "The point lights"); the color of a Niagara light is in the unit of a point light
+  (cd x 100 x 100). The shaman strike: Radius 5 m, Intensity 50 fading over 0.5 s, a purple to yellow color.
+- A decal particle (Facing Decal): the Niagara decal renderer with `M_SwcParticleDecal` (a deferred decal: the diffuse map x MatDiffuse x
+  the decal color; the opacity x the decal color alpha x the lifetime opacity); it projects down the local -Z of the emitter [I]; its
+  half extents are SizeZ (the depth), SizeX, SizeY. Not done: the size curve, the normal map, the AlphaClip of a decal.
+- The builder gives each renderer a unique object name: a rebuilt system keeps its emitter objects, and a renderer of another class with
+  the same name made NewObject fail (a crash of the import).
+
 ## The checks
 
 Development runs with a copy of the user's database (`dev-data-mvpl`; the sword and the shield given by the development routes; drives
@@ -157,6 +169,8 @@ Development runs with a copy of the user's database (`dev-data-mvpl`; the sword 
 | mvpl-hit2, mvpl-look-b | After the three sprite rules: no material compile error; the blood spurt is red (a look drive: each effect 4 m in front, 1.5 m to the side, 20 times slower; `work/mvp-l/look_drive.py`). |
 
 | mvpl-take-sword, -axe, -hammer | The client takes of the retail takes of `set-mvpl-effects` (below): the same steps 5 s later (`tests/drive/mvpl-sword*.txt`, `mvpl-axe*`, `mvpl-hammer*`; the camera `view 89.8 -10` as the retail aim). All clips of the great axe and war hammer abilities play (the weapon helpers): Charge glow, Engage swipe, Maelstrom (two spins at 0.35 and 0.733 s), Gravity Well glow, Wrecking Ball (charged, tell, swipe, impact), Shockwave (charged, trail), Path of Destiny (charge, swipe, impact); only Wreckingball_impact_AOE waits for its condition WreckingBallAOE. |
+
+| mvpl-strike1 | The strike of the shaman at night with a level camera (`tests/drive/mvpl-strike*.txt`): the bolt at 0.91 to 0.92 s of the record; its light lights the character and the ground (purple, then white); the next strikes 10 times slower. Evidence `step4-strike-night.png`, `step4-compare-strike-night.png` (retail s1-fresh at +1.63 s; client). The client omen and damage area show a yellow ring arc; retail shows a dark omen ring. |
 
 The retail references (`~/Games/soulwarden/work/evidence/unreal-references/set-mvpl-effects/`, its README): a development run of the
 Soulwarden project with a copy of the user's database (the same character and bars), noon, the camera heading 89.8 and pitch -10, the
@@ -188,7 +202,7 @@ Differences in the compares (part 3):
 The open points of the study ("Open points" 1 to 10) stay. Of this work:
 1. The conditions of the clips (HasTauntGem, the charge tiers, the upgrades): a clip with a condition does not play.
 2. The element of the weapon (the perk or gem of the item): Default only.
-3. The decal and light renderers, the ribbons, the refraction, the dissolve (plan step 6).
+3. The ribbons, the refraction, the dissolve, the decal size curve and normal map (plan step 6).
 4. The world-space particles behind a moving emitter (the stateless emitters are in the local space).
 5. The width of the client blood spurts against retail.
 6. The roll of an effect about its SpawnParticle axis (the retail look-at transverse basis).

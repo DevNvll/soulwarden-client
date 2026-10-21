@@ -1,7 +1,8 @@
 // The particle systems of the importer (AST-210, docs/PARTICLES.md "The systems"): one Niagara system for each effect root,
 // one stateless (lightweight) emitter for each source emitter of its tree. A stateless emitter is data only: a fixed set of
 // modules with distributions and no script graph. The importer (Scripts/particle_systems.py) gives the record of
-// SWC_CONTENT/particles/systems.json with the material of each emitter.
+// SWC_CONTENT/particles/systems.json with the material of each emitter. A system made again keeps its emitter objects: each renderer gets
+// a unique object name (a renderer of another class with the same name made NewObject fail).
 
 #include "SwcEditorLibrary.h"
 
@@ -9,6 +10,8 @@
 #include "Materials/MaterialInterface.h"
 #include "NiagaraEmitterHandle.h"
 #include "Engine/StaticMesh.h"
+#include "NiagaraDecalRendererProperties.h"
+#include "NiagaraLightRendererProperties.h"
 #include "NiagaraMeshRendererProperties.h"
 #include "NiagaraSpriteRendererProperties.h"
 #include "NiagaraSystem.h"
@@ -21,7 +24,9 @@
 #include "Stateless/Modules/NiagaraStatelessModule_CurlNoiseForce.h"
 #include "Stateless/Modules/NiagaraStatelessModule_Drag.h"
 #include "Stateless/Modules/NiagaraStatelessModule_GravityForce.h"
+#include "Stateless/Modules/NiagaraStatelessModule_DecalAttributes.h"
 #include "Stateless/Modules/NiagaraStatelessModule_InitializeParticle.h"
+#include "Stateless/Modules/NiagaraStatelessModule_LightAttributes.h"
 #include "Stateless/Modules/NiagaraStatelessModule_InitialMeshOrientation.h"
 #include "Stateless/Modules/NiagaraStatelessModule_MeshRotationRate.h"
 #include "Stateless/Modules/NiagaraStatelessModule_ScaleMeshSize.h"
@@ -348,6 +353,55 @@ namespace
 			}
 		}
 
+		// A light particle (AST-230, LightSource): the light renderer with the inverse square falloff; the radius of the module; the color of
+		// the particle (the converter puts the unit and the intensity curve into it).
+		const FString RendererKind = Spec->GetStringField(TEXT("renderer"));
+		if (RendererKind == TEXT("light") || RendererKind == TEXT("decal"))
+		{
+			if (RendererKind == TEXT("light"))
+			{
+				const double Radius = Number(Child(Spec, TEXT("light")), TEXT("radius"), 100.0);
+				UNiagaraStatelessModule_LightAttributes* LightModule = Module<UNiagaraStatelessModule_LightAttributes>(Emitter);
+				LightModule->bApplyRadius = true;
+				LightModule->Radius.InitConstant(float(Radius));
+				UNiagaraLightRendererProperties* LightRenderer = NewObject<UNiagaraLightRendererProperties>(Emitter, MakeUniqueObjectName(Emitter, UNiagaraLightRendererProperties::StaticClass(), TEXT("Renderer")), RF_Transactional);
+				LightRenderer->bUseInverseSquaredFalloff = true;
+				LightRenderer->bAffectsTranslucency = false;
+				LightRenderer->bAlphaScalesBrightness = false;
+				LightRenderer->RadiusScale = 1.0f;
+				Emitter->AddRenderer(LightRenderer, FGuid());
+				*Member<FBox>(Emitter, TEXT("FixedBounds")) = FBox(FVector(-Radius), FVector(Radius));
+			}
+			else
+			{
+				// A decal particle: it projects down the local -Z of the emitter [I] (the decal axis X along -Z: the pitch -90); its half
+				// extents are the depth (SizeZ) and the half sizes SizeX, SizeY of the data; the particle color and alpha go to the decal color.
+				UMaterialInterface* DecalMaterial = LoadObject<UMaterialInterface>(nullptr, *Spec->GetStringField(TEXT("materialPath")));
+				if (DecalMaterial == nullptr)
+				{
+					return FString::Printf(TEXT("%s: no decal material %s"), *Name, *Spec->GetStringField(TEXT("materialPath")));
+				}
+				const TArray<double> DecalSize = Numbers(Child(Spec, TEXT("decal")), TEXT("size"));
+				UNiagaraStatelessModule_DecalAttributes* DecalModule = Module<UNiagaraStatelessModule_DecalAttributes>(Emitter);
+				DecalModule->bApplyOrientation = true;
+				DecalModule->Orientation.InitConstant(FVector3f(0.0f, -90.0f, 0.0f));
+				DecalModule->OrientationCoordinateSpace = ENiagaraCoordinateSpace::Local;
+				DecalModule->bApplySize = true;
+				const FVector3f HalfExtent(float(DecalSize.Num() > 2 ? DecalSize[2] : 100.0), float(DecalSize.Num() > 0 ? DecalSize[0] : 100.0),
+					float(DecalSize.Num() > 1 ? DecalSize[1] : 100.0));
+				DecalModule->Size.InitConstant(HalfExtent);
+				UNiagaraDecalRendererProperties* DecalRenderer = NewObject<UNiagaraDecalRendererProperties>(Emitter, MakeUniqueObjectName(Emitter, UNiagaraDecalRendererProperties::StaticClass(), TEXT("Renderer")), RF_Transactional);
+				DecalRenderer->Material = DecalMaterial;
+				Emitter->AddRenderer(DecalRenderer, FGuid());
+				const double Reach = HalfExtent.GetMax() * 1.8;
+				*Member<FBox>(Emitter, TEXT("FixedBounds")) = FBox(FVector(-Reach), FVector(Reach));
+			}
+			Emitter->PostEditChange();
+			FNiagaraEmitterHandle KindHandle(*Emitter);
+			System->AddEmitterHandleDirect(KindHandle);
+			return FString();
+		}
+
 		// A mesh particle (AST-230, Geometry of the source): the mesh renderer with its material, the mesh scale and its age curves, the
 		// start orientation (an Unreal quaternion of the converter) and the rotation rate (roll, pitch, yaw in degrees/s) with the age
 		// curve of the rate. The particles live in the local space of the component (the stateless emitter), as MoveRelEmitter Yes.
@@ -401,7 +455,7 @@ namespace
 				}
 #endif
 			}
-			UNiagaraMeshRendererProperties* MeshRenderer = NewObject<UNiagaraMeshRendererProperties>(Emitter, TEXT("Renderer"), RF_Transactional);
+			UNiagaraMeshRendererProperties* MeshRenderer = NewObject<UNiagaraMeshRendererProperties>(Emitter, MakeUniqueObjectName(Emitter, UNiagaraMeshRendererProperties::StaticClass(), TEXT("Renderer")), RF_Transactional);
 			MeshRenderer->Meshes.Empty();
 			FNiagaraMeshRendererMeshProperties& Entry = MeshRenderer->Meshes.AddDefaulted_GetRef();
 			Entry.Mesh = Mesh;
@@ -433,7 +487,7 @@ namespace
 
 		// The renderer: the sprite, its material, its alignment, the atlas grid, the pivot, the sort, the material bindings of
 		// the placement values (the tint and the alpha scale of the component).
-		UNiagaraSpriteRendererProperties* Renderer = NewObject<UNiagaraSpriteRendererProperties>(Emitter, TEXT("Renderer"), RF_Transactional);
+		UNiagaraSpriteRendererProperties* Renderer = NewObject<UNiagaraSpriteRendererProperties>(Emitter, MakeUniqueObjectName(Emitter, UNiagaraSpriteRendererProperties::StaticClass(), TEXT("Renderer")), RF_Transactional);
 		Renderer->Material = LoadObject<UMaterialInterface>(nullptr, *Spec->GetStringField(TEXT("materialPath")));
 		if (Renderer->Material == nullptr)
 		{

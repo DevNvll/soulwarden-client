@@ -274,6 +274,68 @@ def mesh_parent():
     return material
 
 
+DECAL_PARENT_VERSION = "1"
+
+
+def decal_parent():
+    """M_SwcParticleDecal (AST-230): the material of a decal particle (the burnt ground of the shaman strike, the Reap ground). A deferred
+    decal, translucent: base color = the diffuse map x MatDiffuse x the decal color of the particle; opacity = the diffuse alpha x the
+    decal color alpha x the lifetime opacity of the decal. Not done: the normal map, the AlphaClip of a decal."""
+    name = "M_SwcParticleDecal"
+    path = f"{ROOT}/{name}"
+    if assets.does_asset_exist(path) and state.get("parent:" + name) == DECAL_PARENT_VERSION:
+        return assets.load_asset(path)
+    if assets.does_asset_exist(path):
+        material = assets.load_asset(path)
+        editing.delete_all_material_expressions(material)
+    else:
+        material = tools.create_asset(name, ROOT, unreal.Material, unreal.MaterialFactoryNew())
+    material.set_editor_property("material_domain", unreal.MaterialDomain.MD_DEFERRED_DECAL)
+    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+    default_tex = assets.load_asset(f"{ROOT}/Textures/{index['textures'][next(iter(index['textures']))]['asset']}")
+    diffuse = sm.sampler(material, "Diffuse", unreal.MaterialSamplerType.SAMPLERTYPE_COLOR, default_tex, -1000, 0)
+    mat_diffuse = sm.vector(material, "MatDiffuse", (1.0, 1.0, 1.0, 1.0), -1000, 300)
+    base = sm.multiply(material, (diffuse, "RGB"), (mat_diffuse, ""), -700, 0)
+    alpha = (diffuse, "A")
+    if hasattr(unreal, "MaterialExpressionDecalColor"):
+        decal_color = sm.node(material, unreal.MaterialExpressionDecalColor, -1000, 500)
+        base = sm.multiply(material, (base, ""), (decal_color, "RGB"), -500, 50)
+        alpha = (sm.multiply(material, alpha, (decal_color, "A"), -700, 500), "")
+    if hasattr(unreal, "MaterialExpressionDecalLifetimeOpacity"):
+        lifetime = sm.node(material, unreal.MaterialExpressionDecalLifetimeOpacity, -1000, 700)
+        alpha = (sm.multiply(material, alpha, (lifetime, ""), -500, 600), "")
+    editing.connect_material_property(base, "", MP.MP_BASE_COLOR)
+    editing.connect_material_property(alpha[0], alpha[1], MP.MP_OPACITY)
+    editing.recompile_material(material)
+    assets.save_loaded_asset(material)
+    state["parent:" + name] = DECAL_PARENT_VERSION
+    report["materials"] += 1
+    return material
+
+
+def decal_instance(parent_material, spec):
+    """One instance of M_SwcParticleDecal for each look of a decal particle."""
+    import hashlib
+    values = {"diffuse": spec["texture"], "matDiffuse": spec.get("matDiffuse", [1.0, 1.0, 1.0])}
+    digest = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:8]
+    name = "MI_" + spec["texture"][2:] + "_Decal_" + digest
+    path = f"{ROOT}/Materials/{name}"
+    key = f"{DECAL_PARENT_VERSION}:{digest}"
+    if assets.does_asset_exist(path) and state.get("instance:" + name) == key:
+        return path + "." + name
+    if not assets.does_asset_exist(path):
+        tools.create_asset(name, f"{ROOT}/Materials", unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+    mi = assets.load_asset(path)
+    editing.set_material_instance_parent(mi, parent_material)
+    editing.set_material_instance_texture_parameter_value(mi, "Diffuse", assets.load_asset(f"{ROOT}/Textures/{values['diffuse']}"))
+    editing.set_material_instance_vector_parameter_value(mi, "MatDiffuse", unreal.LinearColor(*values["matDiffuse"], 1.0))
+    editing.update_material_instance(mi)
+    assets.save_loaded_asset(mi)
+    state["instance:" + name] = key
+    report["instances"] += 1
+    return path + "." + name
+
+
 def mesh_instance(parent_material, spec):
     """One instance of M_SwcParticleMesh for each look of a mesh particle."""
     import hashlib
@@ -377,7 +439,11 @@ def build_system(record, parents):
     used = set()
     for emitter in record["emitters"]:
         spec = dict(emitter)
-        if spec["enabled"] and spec.get("renderer") == "mesh":
+        if spec["enabled"] and spec.get("renderer") == "light":
+            spec["materialPath"] = ""
+        elif spec["enabled"] and spec.get("renderer") == "decal":
+            spec["materialPath"] = decal_instance(parents["decal"], spec)
+        elif spec["enabled"] and spec.get("renderer") == "mesh":
             spec["meshPath"] = import_mesh(spec["mesh"])
             spec["materialPath"] = mesh_instance(parents["mesh"], spec)
         elif spec["enabled"]:
@@ -423,7 +489,7 @@ try:
         except Exception as error:
             report["failed"].append(f"texture {record['asset']}: {str(error)[:200]}")
     parents = {False: parent("M_SwcParticleAlpha", False), True: parent("M_SwcParticleAdditive", True),
-               "lit": parent("M_SwcParticleLit", False, lit=True), "mesh": mesh_parent()}
+               "lit": parent("M_SwcParticleLit", False, lit=True), "mesh": mesh_parent(), "decal": decal_parent()}
     for record in index["systems"]:
         if record.get("missing"):
             continue

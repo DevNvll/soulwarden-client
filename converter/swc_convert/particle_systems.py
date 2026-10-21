@@ -314,9 +314,33 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         record["enabled"] = False
         record["notes"].append("refraction material: not drawn (AST-230 plan step 6)")
     if facing == "Decal":
+        # AST-230 (plan step 6): a decal particle: the Niagara decal renderer projects the material down the local -Z of the emitter
+        # [I]; its half extents are the half sizes of the data (SizeX, SizeY; the depth SizeZ) with the age curves; the alpha of the
+        # particle is the opacity of the decal (DecalColor).
         record["renderer"] = "decal"
-        record["enabled"] = False
-        record["notes"].append("Facing Decal: the decal renderer is not built yet (AST-230 plan step 6)")
+        sz = field(p, "SizeZ")
+        record["decal"] = {"size": [100.0 * (sx["base"] or 1.0), 100.0 * (sy["base"] or sx["base"] or 1.0), 100.0 * (sz["base"] or 1.0)],
+                           "curve": sample(sx["age"], SAMPLES)}
+        record["enabled"] = bool(bands) and alpha_base > 0 and tex is not None
+    light = str(p.get("LightSource", "") or "")
+    if light:
+        # AST-230 (plan step 6): a light particle (LightSource: Radius m, Intensity with its age curve; the color of the particle). The
+        # Niagara light renderer with the inverse square falloff; the unit of Intensity is the DiffuseMultiplier of the point lights of
+        # the world [I]: pi x 10,000 x Intensity cd (docs/PARTICLES.md, research/lights-emission.md; the bulb 0).
+        import re as _re
+        radius = _re.search(r"Radius=([0-9.]+)", light)
+        intensity = _re.search(r"Intensity=\(([^()]*(?:\([^()]*\))?[^()]*)\)", light) or _re.search(r"Intensity=([0-9.]+)", light)
+        value = parse_value(intensity.group(1)) if intensity else {"base": 1.0, "fields": {}}
+        age = value["fields"].get("ParticleAge")
+        record["renderer"] = "light"
+        record["light"] = {"radius": 100.0 * float(radius.group(1)) if radius else 100.0, "intensity": float(value["base"] or 0.0),
+                           "curve": sample(age["keys"] if isinstance(age, dict) and "keys" in age else None, SAMPLES)}
+        record["enabled"] = bool(bands) and record["light"]["intensity"] > 0
+        unsupported.pop("LightSource", None)
+        # The color of a Niagara light with the inverse square falloff is in the unit of a point light: cd x 100 x 100.
+        record["lit"] = False
+        record["color"]["emissive"] = math.pi * 10000.0 * record["light"]["intensity"] * 10000.0
+        record["color"]["curve"] = [[c * k for c in rgb] for rgb, k in zip(record["color"]["curve"], record["light"]["curve"])]
     geometry = str(p.get("Geometry", "") or "")
     if geometry:
         record.update(mesh_fields(p, geometry, mtl, textures, tex_out))
