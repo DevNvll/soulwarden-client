@@ -58,6 +58,8 @@ public:
 	 * once and the attack button does nothing). Call it after each ApplyLook (the animation instance is new).
 	 */
 	void Setup(const TSharedPtr<FSwcActions>& Data, bool bFemale, const std::shared_ptr<swc::combat::Driver>& InDriver);
+	/** The action data (AST-230: the helpers of the weapons for the hit effects). */
+	const TSharedPtr<FSwcActions>& GetData() const { return Data; }
 	/** The gear or the weapon state of the paperdoll changed: the attack graphs of the weapon slots go to the driver. */
 	void OnGearChanged();
 	/** A weapon key (slot 24 or 25; the controller puts its bits into the input report). */

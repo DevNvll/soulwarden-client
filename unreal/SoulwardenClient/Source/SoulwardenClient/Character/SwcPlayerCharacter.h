@@ -63,6 +63,9 @@ public:
 	const TArray<FSwcGearPart>& GetGearParts() const { return GearParts; }
 	/** The component of a gear part: a static mesh, or a skeletal mesh for a weapon with weapon clips (AST-202). */
 	UMeshComponent* GetGearComponent(int32 Index) const { return Gear.IsValidIndex(Index) ? Gear[Index].Get() : nullptr; }
+	/** AST-230: the weapon of the active slot in the main hand: its component, its tag text, and its .cdf file (the mesh key
+	 *  "weapon|FILE.cdf|HASH"). @return False when the slot has no weapon. */
+	bool GetMainHandWeapon(UMeshComponent*& OutWeapon, FString& OutTags, FString& OutFile) const;
 	void PlaceGear(int32 Index, bool bInHand);
 	/**
 	 * The weapon scope (AST-202, docs/GEAR.md "The weapon clips"): the skeletal weapon of a weapon slot (the slot of the stance of

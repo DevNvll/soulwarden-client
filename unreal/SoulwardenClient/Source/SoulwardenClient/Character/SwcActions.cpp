@@ -762,7 +762,7 @@ bool FSwcActions::Load(FString& OutReport)
 								const TArray<TSharedPtr<FJsonValue>>& Row = RowValue->AsArray();
 								if (Row.Num() == 4)
 								{
-									Strike.Rows.Add({IdsOf(Row[1]), IdsOf(Row[2]), static_cast<int32>(Number(Row[3]))});
+									Strike.Rows.Add({IdsOf(Row[1]), IdsOf(Row[2]), static_cast<int32>(Number(Row[3])), Row[0]->AsString()});
 								}
 							}
 						}

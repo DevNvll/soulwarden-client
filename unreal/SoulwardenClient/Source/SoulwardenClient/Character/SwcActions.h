@@ -182,6 +182,8 @@ struct FSwcStrike
 		std::vector<uint32> Needs;
 		std::vector<uint32> Forbids;
 		int32 Shape = 0;
+		/** The damage row (DamageTable.DamageID; AST-230: the hit effect). */
+		FString Damage;
 	};
 	TArray<FRow> Rows;
 };

@@ -230,3 +230,111 @@ def run_tables(main: Proto, calls: dict | None = None, limit: int = 200000):
         else:
             raise ValueError(f"Lua run: opcode {op} at {pc - 1}")
     return []
+
+
+def calls_of(proto: Proto, params: int, upvalues: list | None = None, limit: int = 20000) -> list[tuple[str, list]]:
+    """@return The calls of a function of a script in the order of its code (the hit functions of scripts/combatimpact: a list of
+    particle calls, some under a nil test). The run is linear: the branches and the loops are not followed (each instruction runs
+    once), so the calls of both sides of a test are in the list. The parameters are the Symbols "a0" ... (a0 is self of a method);
+    an upvalue is the Symbol of `upvalues` or "upvalue N"; a product of a Symbol and a number is the Symbol "S*N"; a call returns
+    the Symbol "NAME()". @return [(the name of the called Symbol, its arguments)]."""
+    regs: list = [None] * 256
+    for i in range(params):
+        regs[i] = Symbol(f"a{i}")
+    consts = proto.constants
+    out: list[tuple[str, list]] = []
+    top = 0   # the top of the stack after a call with open results (CALL C 0), for a call with open arguments (CALL B 0)
+
+    def rk(x):
+        return consts[x & 0xFF] if x & 0x100 else regs[x]
+
+    def index(obj, key):
+        if isinstance(obj, Table):
+            return obj.get(key)
+        if isinstance(obj, Symbol):
+            return Symbol(f"{obj}.{key}")
+        return None
+
+    for ins in proto.code[:limit]:
+        op, a = ins & 0x3F, (ins >> 6) & 0xFF
+        c, b, bx = (ins >> 14) & 0x1FF, (ins >> 23) & 0x1FF, ins >> 14
+        if op == 0:
+            regs[a] = regs[b]
+        elif op == 1:
+            regs[a] = consts[bx]
+        elif op == 2:
+            regs[a] = bool(b)
+        elif op == 3:
+            for r in range(a, b + 1):
+                regs[r] = None
+        elif op == 4:
+            regs[a] = Symbol(upvalues[b]) if upvalues and b < len(upvalues) else Symbol(f"upvalue {b}")
+        elif op == 5:
+            regs[a] = Symbol(consts[bx])
+        elif op == 6:
+            regs[a] = index(regs[b], rk(c))
+        elif op == 9:
+            if isinstance(regs[a], Table):
+                regs[a].set(rk(b), rk(c))
+        elif op == 10:
+            regs[a] = Table()
+        elif op == 11:
+            regs[a + 1] = regs[b]
+            regs[a] = index(regs[b], rk(c))
+        elif 12 <= op <= 17:                           # ADD SUB MUL DIV MOD POW
+            x, y = rk(b), rk(c)
+            sign = "+-*/%^"[op - 12]
+            if isinstance(x, float) and isinstance(y, float):
+                regs[a] = {12: x + y, 13: x - y, 14: x * y}.get(op)
+            else:
+                regs[a] = Symbol(f"{x}{sign}{y:g}" if isinstance(y, float) else f"{x}{sign}{y}")
+        elif op == 18:
+            regs[a] = -regs[b] if isinstance(regs[b], float) else Symbol(f"-{regs[b]}")
+        elif op in (28, 29):                           # CALL, TAILCALL
+            func = regs[a]
+            count = (b - 1) if b else max(top - a - 1, 0)
+            args = [regs[a + 1 + i] for i in range(count)]
+            name = str(func) if isinstance(func, Symbol) else ""
+            if name == "Vector3":
+                regs[a] = list(args)
+            else:
+                if name:
+                    out.append((name, args))
+                regs[a] = Symbol(f"{name}()")
+            top = a + 1
+        elif op == 34:
+            if c == 0:
+                continue
+            if isinstance(regs[a], Table):
+                for i in range(1, b + 1):
+                    regs[a].set(float((c - 1) * 50 + i), regs[a + i])
+        elif op == 36:
+            regs[a] = Symbol("function")
+        # The other opcodes (tests, jumps, loops, returns, concatenation, upvalue writes) change no value of this list.
+    return out
+
+
+def assigned_functions(main: Proto) -> dict[str, int]:
+    """@return The functions that the main function of a chunk puts into the fields of a global table (NAME.FIELD = function): the
+    dotted name -> the index of the function in main.protos."""
+    regs: list = [None] * 256
+    consts = main.constants
+    out: dict[str, int] = {}
+    for ins in main.code:
+        op, a = ins & 0x3F, (ins >> 6) & 0xFF
+        c, b, bx = (ins >> 14) & 0x1FF, (ins >> 23) & 0x1FF, ins >> 14
+        if op == 5:
+            regs[a] = Symbol(consts[bx])
+        elif op == 6:
+            key = consts[c & 0xFF] if c & 0x100 else None
+            regs[a] = Symbol(f"{regs[b]}.{key}") if isinstance(regs[b], Symbol) and key is not None else None
+        elif op == 36:
+            regs[a] = ("function", bx)
+        elif op == 9:
+            key = consts[b & 0xFF] if b & 0x100 else None
+            value = consts[c & 0xFF] if c & 0x100 else regs[c]
+            if isinstance(regs[a], Symbol) and isinstance(key, str) and isinstance(value, tuple):
+                out[f"{regs[a]}.{key}"] = value[1]
+        elif op == 0:
+            regs[a] = regs[b]
+    return out

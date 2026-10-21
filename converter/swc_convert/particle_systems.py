@@ -286,6 +286,27 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         "notes": notes, "unsupported": unsupported,
     }
     record["renderer"] = "sprite"
+    # AST-230: the Diffuse color of a material of the Particles shader tints the sprite (the blood: a gray mask atlas and the Diffuse
+    # 0.178, 0.0097, 0.0097) [I: the material constant MatDifColor; brief to the orchestrator]. The fire of stage 2 has Diffuse 1 or no
+    # material.
+    if mtl and not mtl.get("missing") and mtl.get("shader") == "Particles" and len(mtl.get("diffuseColor", [])) == 3:
+        record["color"]["base"] = [round(c * d, 6) for c, d in zip(record["color"]["base"], mtl["diffuseColor"])]
+    # AST-230: AlphaClip (particle-rules.md 2 [R]): the clip rows from the particle alpha p: x = Scale, y = SourceMin, z = SourceWidth, each
+    # the Min at p 0 and the Max at p 1 [I: the lerp of the two rows]; then a = saturate(min(atlas alpha - y, z) x x). The defaults: Scale
+    # 0 to 1, SourceMin 0, SourceWidth 1 (the plain fade).
+    clip = parse_value(p.get("AlphaClip", ""))["fields"]
+
+    def clip_range(name, low, high):
+        keys = clip.get(name, {}).get("keys", [{}]) if isinstance(clip.get(name), dict) else [{}]
+        values = keys[0] if keys else {}
+        return [float(values.get("Min", low)), float(values.get("Max", high))]
+    record["alphaClip"] = {"scale": clip_range("Scale", 0.0, 1.0), "sourceMin": clip_range("SourceMin", 0.0, 0.0),
+                           "width": clip_range("SourceWidth", 1.0, 1.0)}
+    unsupported.pop("AlphaClip", None)
+    # AST-230: a velocity-aligned sprite with no speed (the blood spurts) aligns to its emit axis [I]: a speed of 0.01 cm/s along the cone.
+    if record["facing"] == "velocity" and max(abs(v) for v in record["speed"]) == 0.0:
+        record["speed"] = [0.01, 0.01]
+        record["notes"].append("a still velocity-aligned sprite: 0.01 cm/s along the emit axis for its alignment [I]")
     if mtl and not mtl.get("missing") and "REFRACTION" in mtl.get("flags", []):
         # A refraction material (the distortion of the swipes): no refraction path yet (plan step 6).
         record["enabled"] = False

@@ -253,6 +253,9 @@ private:
 	TMap<FString, TArray<TFunction<void()>>> AnimationWaiters;
 	void DrawPlates(UCanvas* Canvas, APlayerController* Controller);
 	void OnDamage(const swc::net::Bytes& Body);
+	/** AST-230 (docs/EFFECTS.md "The hits"): plays the hit effect of the newest contact of the character on a creature (within 1 s of the
+	 *  damage message, with the critical flag of the message). */
+	void PlayImpact(uint32 Interest, const class ASwcCreature& Creature, bool bCrit);
 	void DrawDamageNumbers(UCanvas* Canvas);
 
 	/** A damage number on the screen: its point at the creature, its text, its start, and its marks. */
@@ -335,6 +338,18 @@ private:
 	double NextProbe = 0.0;
 	/** The strikes and creatures with a log line of a contact (visit|strike|interest). */
 	mutable TSet<FString> LoggedContacts;
+	/** AST-230: the contacts of the character that wait for their damage message (the hit effect). */
+	struct FPendingHit
+	{
+		uint32 Interest = 0;
+		FVector Point = FVector::ZeroVector;
+		FVector Direction = FVector::ForwardVector;
+		FString DamageRow;
+		FString Volume;
+		double Time = 0.0;
+	};
+	mutable TArray<FPendingHit> PendingHits;
+	TSharedPtr<class FSwcImpactEffects> Impacts;
 	void DevelopmentAids();
 	bool bConnected = false;
 	/** The counts of a session for the log line at its end. */

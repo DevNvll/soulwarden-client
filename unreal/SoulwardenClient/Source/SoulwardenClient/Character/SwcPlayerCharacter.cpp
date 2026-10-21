@@ -186,6 +186,23 @@ void ASwcPlayerCharacter::ApplyLook(const FSwcPlayerLook& Look, const FString& B
 	SetWeaponState(ActiveWeaponSlot, bWeaponDrawn);
 }
 
+bool ASwcPlayerCharacter::GetMainHandWeapon(UMeshComponent*& OutWeapon, FString& OutTags, FString& OutFile) const
+{
+	for (int32 Index = 0; Index < GearParts.Num(); ++Index)
+	{
+		if (GearParts[Index].PaperdollSlot == ActiveWeaponSlot && !GearParts[Index].bAccessory)
+		{
+			OutWeapon = Gear[Index];
+			OutTags = GearParts[Index].Tags;
+			TArray<FString> Fields;
+			GearParts[Index].MeshKey.ParseIntoArray(Fields, TEXT("|"));
+			OutFile = Fields.Num() > 1 ? Fields[1] : FString();
+			return OutWeapon != nullptr;
+		}
+	}
+	return false;
+}
+
 bool ASwcPlayerCharacter::HasWeapon(uint32 Slot) const
 {
 	return GearParts.ContainsByPredicate([Slot](const FSwcGearPart& Part) { return Part.PaperdollSlot == Slot && !Part.bAccessory; });

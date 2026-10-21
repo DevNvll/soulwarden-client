@@ -169,20 +169,7 @@ void USwcPlayerAnimInstance::UpdateEffects(int32 Channel, int32 Fragment, uint32
 	Owner.Body = GetSkelMeshComponent();
 	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetOwningActor()))
 	{
-		const TArray<FSwcGearPart>& Parts = Character->GetGearParts();
-		for (int32 Index = 0; Index < Parts.Num(); ++Index)
-		{
-			if (Parts[Index].PaperdollSlot == Character->GetActiveWeaponSlot() && !Parts[Index].bAccessory)
-			{
-				Owner.Weapon = Character->GetGearComponent(Index);
-				Owner.WeaponTags = Parts[Index].Tags;
-				// The mesh key "weapon|FILE.cdf|HASH" (weapons.json) names the weapon file of the helpers.
-				TArray<FString> Fields;
-				Parts[Index].MeshKey.ParseIntoArray(Fields, TEXT("|"));
-				Owner.WeaponFile = Fields.Num() > 1 ? Fields[1] : FString();
-				break;
-			}
-		}
+		Character->GetMainHandWeapon(Owner.Weapon, Owner.WeaponTags, Owner.WeaponFile);
 	}
 	const bool bValid = Fragment != INDEX_NONE && Actions->Fragments.IsValidIndex(Fragment);
 	const int32 Record = bValid && Stance != nullptr ? Stance->WeaponRecord(Fragment) : INDEX_NONE;

@@ -86,6 +86,33 @@ fragment (the weapon scope of the stance). The rule of the study ("Runtime order
 - A late observer does not start an activation that is older than 0.5 s (an old burst; a value of this client).
 - A hostile area has no disc and no stand-in column; a shot with a particle effect shows no shaft (docs/CREATURES.md).
 
+## The hits (plan step 9, first part)
+
+`tools/convert-particles.sh skills` also writes `particles/impacts.json` (`skill_effects.impact_data`):
+
+- `tables`: ImpactTable_Characters and ImpactTable_Environment: the row key (Sword, Sword+Crit, Bow_Heavy, ...) -> the column -> the hit
+  function (189 character rows).
+- `functions`: the particle and decal calls of each hit function of `scripts/combatimpact/*.luac` (1,086 functions;
+  `luabc.calls_of`: a linear run, the calls of both sides of a test are in the list; `luabc.assigned_functions` names them).
+- `damage`: the WeaponCategory and DamageType of each row of `javelindata_damagetable.datasheet` (419 rows).
+- `volumes`: the column of each hit volume of the 503 converted creature slices (Flesh, FleshHead, ...): the field 0x01803569 of the
+  HitVolume component [D] (its name is not known).
+
+The strike rows of `actions.json` give their damage row (FSwcStrike::FRow::Damage; FSwcMeleeShape::DamageRow). A contact of the character
+waits for the damage message of the server (type 2071: it has the critical flag); then `Effects/SwcImpactEffects` plays the hit function:
+the row is the WeaponCategory of the damage row, with "+Crit" for a critical hit when the table has that row [R: the critical suffix
+first]; the column is the material of the hit volume (else Default); `SpawnParticle(key, point, a3 * N)` plays at the contact point with
+the local +Z of the effect along the direction of the strike x N [I]; `SpawnParticleAtAttachment` plays at the helper of the weapon of
+the attacker (the blood trail at vfx_Tip_01) and follows it. That the hit plays at the damage message (not at the contact) is [I]: the
+selection needs the critical flag. Not done: SpawnDecal, the joint calls, the resist suffix, the elements, the hits of the shots.
+
+Three rules of the sprites, for the hits [I] (a brief to the orchestrator for the retail shader):
+- The Diffuse color of a material of the Particles shader tints the sprite (the blood atlas is a gray mask; its .mtl Diffuse is
+  0.178, 0.0097, 0.0097). The fire of stage 2 has Diffuse 1 or no material: no change.
+- AlphaClip (particle-rules.md 2 [R]): `a = saturate(min(atlas alpha - y, z) x x)`, a <= 0.01 is 0, with x = Scale, y = SourceMin,
+  z = SourceWidth each from its Min at the particle alpha 0 to its Max at 1 (the lerp is [I]). The defaults give the plain fade.
+- A velocity-aligned sprite with no speed (the blood spurts) aligns to its emit axis: a speed of 0.01 cm/s along the cone.
+
 ## The mesh particles (part of plan step 6)
 
 53 emitters of the first systems are mesh particles (the swipes of the weapon groups, the rings, the bowls, the spheres). The converter
@@ -112,6 +139,9 @@ Development runs with a copy of the user's database (`dev-data-mvpl`; the sword 
 | mvpl-chain2 | The material compiles (no "Failed to compile" in the log). The shaman strike: the omen and the damage area at 0.00 s, the area stops at 0.86 s (data 0.85), the bolt at 0.91 s (data 0.90). |
 | mvpl-look1 | The same steps with `swc.Effects.TimeScale 0.05` (a check value: the particles play 20 times slower, the game time does not change): the swipes are white arcs about the character (sword_primary_1 and 2: half arcs; sword_primary_3: the full circle of Spin_Fast_1); the bolt of the shaman (the arcs, the pink sparks, the tall upright strike). |
 
+| mvpl-hit1 | The hits: Sword FleshHead (the head of the wolf): SwordFleshHead (BLOOD.Impact_Slash_Omni, BLOOD.Impact_Slash_Trail); a critical hit: Sword+Crit Default: SwordDefaultCrit (with CRIT.base_MD_cfx_addon); 0.046 to 0.070 s after the contact. |
+| mvpl-hit2, mvpl-look-b | After the three sprite rules: no material compile error; the blood spurt is red (a look drive: each effect 4 m in front, 1.5 m to the side, 20 times slower; `work/mvp-l/look_drive.py`). |
+
 Evidence: `step1-swipes-slow.mp4`, `step1-strike-slow.mp4`, `step1-chain-normal.mp4`, `step1-compare-strike.png` (retail creature-areas
 s1-fresh at +1.63 and +1.74 s | client at the bolt time).
 
@@ -123,7 +153,6 @@ Differences to retail (first step):
 - The bow: the `shot` group of the default script plays the musket muzzle at the helper vfx_muzzle; the artifact bow file has no such
   helper: the client plays nothing and logs it (retail: open, study open point 5). The bow `tip` and `tip_start` groups are not in the
   default script (logged). The arrow trail: plan step 8.
-- No hit effect yet (plan step 9).
 
 ## Open points
 

@@ -52,6 +52,22 @@ FName SocketOf(const UMeshComponent* Mesh, FName Joint, bool& bFound)
 }
 } // namespace
 
+bool SwcWeaponHelperPlace(const FSwcActions& Data, const FString& WeaponFile, FName HelperName, const UMeshComponent* Weapon, FName& OutSocket,
+                          FTransform& OutRelative)
+{
+	const TMap<FName, FSwcWeaponHelper>* Helpers = Data.WeaponHelpers(WeaponFile);
+	const FSwcWeaponHelper* Helper = Helpers != nullptr ? Helpers->Find(HelperName) : nullptr;
+	if (Helper == nullptr)
+	{
+		return false;
+	}
+	const FQuat Rotation(-Helper->Rotation.X, Helper->Rotation.Y, -Helper->Rotation.Z, Helper->Rotation.W);
+	OutRelative = FTransform(Rotation.GetNormalized(), UnrealOffset(Helper->Position));
+	bool bFound = false;
+	OutSocket = SocketOf(Weapon, Helper->Bone, bFound);
+	return bFound;
+}
+
 void FSwcFragmentEffects::Note(const FString& Text)
 {
 	if (!Logged.Contains(Text))
@@ -209,16 +225,13 @@ void FSwcFragmentEffects::StartEntry(const FSwcActions& Data, const FSwcEffectOw
 	else if (!Entry.Attachment.IsNone())
 	{
 		// A helper of the weapon file: its bone and its offset in the frame of the bone (the space map of stage 1.1).
-		const TMap<FName, FSwcWeaponHelper>* Helpers = Data.WeaponHelpers(Owner.WeaponFile);
-		const FSwcWeaponHelper* Helper = Helpers != nullptr ? Helpers->Find(Entry.Attachment) : nullptr;
-		if (Helper == nullptr)
+		FTransform HelperPlace;
+		if (!SwcWeaponHelperPlace(Data, Owner.WeaponFile, Entry.Attachment, Parent, Socket, HelperPlace))
 		{
 			Note(FString::Printf(TEXT("WeaponEffects %s: no helper %s in %s"), *Clip.Name, *Entry.Attachment.ToString(), *Owner.WeaponFile));
 			return;
 		}
-		const FQuat Rotation(-Helper->Rotation.X, Helper->Rotation.Y, -Helper->Rotation.Z, Helper->Rotation.W);
-		Relative = Relative * FTransform(Rotation.GetNormalized(), UnrealOffset(Helper->Position));
-		Socket = SocketOf(Parent, Helper->Bone, bFound);
+		Relative = Relative * HelperPlace;
 	}
 	else
 	{

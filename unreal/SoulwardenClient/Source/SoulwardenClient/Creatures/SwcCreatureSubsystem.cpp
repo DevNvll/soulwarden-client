@@ -12,6 +12,10 @@
 #include "Creatures/SwcCreature.h"
 #include "Creatures/SwcDamageMessage.h"
 #include "Creatures/SwcEffectActor.h"
+#include "Character/SwcPlayerActions.h"
+#include "Character/SwcPlayerCharacter.h"
+#include "Effects/SwcImpactEffects.h"
+#include "Kismet/GameplayStatics.h"
 #include "Debug/DebugDrawService.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/StaticMeshActor.h"
@@ -1018,6 +1022,48 @@ void USwcCreatureSubsystem::UpdateEffect(uint32 Interest, const swc::creatures::
 	}
 }
 
+void USwcCreatureSubsystem::PlayImpact(uint32 Interest, const ASwcCreature& Creature, bool bCrit)
+{
+	const double Now = FPlatformTime::Seconds();
+	int32 Found = INDEX_NONE;
+	for (int32 Index = PendingHits.Num() - 1; Index >= 0; --Index)
+	{
+		if (PendingHits[Index].Interest == Interest && Now - PendingHits[Index].Time <= 1.0)
+		{
+			Found = Index;
+			break;
+		}
+	}
+	if (Found == INDEX_NONE)
+	{
+		return;
+	}
+	const FPendingHit Pending = PendingHits[Found];
+	PendingHits.RemoveAt(Found);
+	if (!Impacts.IsValid())
+	{
+		Impacts = MakeShared<FSwcImpactEffects>();
+	}
+	FSwcImpactHit Hit;
+	Hit.Point = Pending.Point;
+	Hit.Direction = Pending.Direction;
+	Hit.DamageRow = Pending.DamageRow;
+	Hit.Volume = Pending.Volume;
+	Hit.bCrit = bCrit;
+	if (const FSwcCreatureSlice* Slice = Creature.GetSlice())
+	{
+		Hit.SlicePath = Slice->Path;
+	}
+	if (const ASwcPlayerCharacter* Player = Cast<ASwcPlayerCharacter>(UGameplayStatics::GetPlayerPawn(GetWorld(), 0)))
+	{
+		FString Tags;
+		Player->GetMainHandWeapon(Hit.Weapon, Tags, Hit.WeaponFile);
+		Hit.Actions = Player->GetActions() != nullptr ? Player->GetActions()->GetData().Get() : nullptr;
+	}
+	const FString Text = Impacts->Play(GetWorld(), Hit);
+	UE_LOG(LogSwcCreatures, Log, TEXT("creature %u: %s (%.3f s after the contact)"), Interest, *Text, Now - Pending.Time);
+}
+
 void USwcCreatureSubsystem::OnDamage(const swc::net::Bytes& Body)
 {
 	const std::optional<swc::creatures::DamageMessage> Damage = swc::creatures::read_damage_message(Body);
@@ -1052,6 +1098,7 @@ void USwcCreatureSubsystem::OnDamage(const swc::net::Bytes& Body)
 	{
 		return;
 	}
+	PlayImpact(Interest, *Creature, bCrit);
 	const FBoxSphereBounds Bounds = Creature->GetBodyBounds();
 	// The event for the UI (stage WF7): the newest 32 stay.
 	FSwcDamageEvent& Event = DamageEvents.AddDefaulted_GetRef();
@@ -1297,6 +1344,18 @@ void USwcCreatureSubsystem::QueryMeleeContacts(const FSwcMeleeShape& Shape, std:
 			UE_LOG(LogSwcCreatures, Log, TEXT("creature %u: melee contact: visit %u strike %d (%s), volume %s at %.2f m, point %.2f %.2f %.2f%s"), Contact.Interest,
 				Shape.Visit, Shape.Strike, *Shape.Key, *Contact.Volume, Contact.Distance, Contact.Item.point.x, Contact.Item.point.y, Contact.Item.point.z,
 				Contact.bDevelopment ? TEXT(" (the development contact out of the reach)") : TEXT(""));
+			// AST-230: the hit effect waits for the damage message of this contact.
+			FPendingHit& Hit = PendingHits.AddDefaulted_GetRef();
+			Hit.Interest = Contact.Interest;
+			Hit.Point = Contact.Point;
+			Hit.Direction = Shape.Direction;
+			Hit.DamageRow = Shape.DamageRow;
+			Hit.Volume = Contact.Volume;
+			Hit.Time = FPlatformTime::Seconds();
+			if (PendingHits.Num() > 64)
+			{
+				PendingHits.RemoveAt(0, PendingHits.Num() - 64);
+			}
 		}
 		Out.push_back(Contact.Item);
 	}

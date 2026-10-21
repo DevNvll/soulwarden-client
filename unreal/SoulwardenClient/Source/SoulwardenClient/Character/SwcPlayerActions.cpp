@@ -229,6 +229,14 @@ void USwcPlayerActions::QueryStrikes(const FSwcWeaponActions& Weapon, int32 Grap
 			Shape.Visit = VisitNumber;
 			Shape.Strike = StrikeIndex;
 			Shape.Key = Strike.Key;
+			for (const FSwcStrike::FRow& Row : Strike.Rows)
+			{
+				if (Row.Shape == Strike.Shapes[ShapeIndex].DataIndex && RowShapes.Contains(Row.Shape))
+				{
+					Shape.DamageRow = Row.Damage;
+					break;
+				}
+			}
 			// The cast direction: the move of the shape since the step before.
 			const int32 ShapeKey = StrikeIndex * 64 + ShapeIndex;
 			if (const FVector* Before = LastCenters.Find(ShapeKey); Before != nullptr && !(Shape.Center - *Before).IsNearlyZero(0.1))

@@ -28,7 +28,7 @@ import swc_materials as sm  # noqa: E402
 content = os.environ["SWC_CONTENT"]
 force = os.environ.get("SWC_IMPORT_FORCE", "") == "1"
 ROOT = "/SwcGameContent/Particles"
-PARENT_VERSION = "4"
+PARENT_VERSION = "5"
 
 assets = unreal.EditorAssetLibrary
 editing = unreal.MaterialEditingLibrary
@@ -132,8 +132,16 @@ def parent(name, additive, lit=False):
     one = sm.node(material, unreal.MaterialExpressionConstant, -900, 1600)
     one.set_editor_property("r", 1.0)
     soft = sm.switch(material, "Soft", (fade, ""), (one, ""), -650, 1400)
-    # The opacity: the atlas alpha x the particle alpha (one fade, particle-rules.md 2) x AlphaScale x the soft fade.
-    alpha = sm.multiply(material, (atlas, "A"), (color, "A"), -800, 500)
+    # The opacity: the clip of the atlas alpha by the particle alpha (one fade, particle-rules.md 2; AST-230: the AlphaClip rows, x = Scale,
+    # y = SourceMin, z = SourceWidth between their Min at the particle alpha 0 and their Max at 1; the defaults 0 to 1, 0, 1 give the atlas
+    # alpha x the particle alpha) x AlphaScale x the soft fade. The "" output of a vector parameter is its RGB: SourceMin Max is its A.
+    clip_a = sm.vector(material, "ClipA", (0.0, 1.0, 0.0, 0.0), -1200, 700)
+    clip_w = sm.vector(material, "ClipW", (1.0, 1.0, 0.0, 0.0), -1200, 850)
+    alpha = sm.custom(material, "float x = lerp(C.x, C.y, P); float y = lerp(C.z, CA, P); float z = lerp(W.x, W.y, P);\n"
+                      "float a = T - y; return a <= 0.01 ? 0.0 : saturate(min(a, z) * x);",
+                      unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("T", "P", "C", "CA", "W"), -800, 500)
+    for source_node, output, pin in ((atlas, "A", "T"), (color, "A", "P"), (clip_a, "", "C"), (clip_a, "A", "CA"), (clip_w, "", "W")):
+        editing.connect_material_expressions(source_node, output, alpha, pin)
     alpha = sm.multiply(material, (alpha, ""), (alpha_scale, ""), -600, 550)
     alpha = sm.multiply(material, (alpha, ""), (soft, ""), -450, 600)
     clamp = sm.node(material, unreal.MaterialExpressionSaturate, -300, 600)
@@ -319,7 +327,7 @@ def instance(parent_material, spec, additive):
     import hashlib
     values = {"atlas": spec["texture"], "glow": spec.get("glowTexture") or spec["texture"], "soft": bool(spec["soft"]),
               "ambient": spec["ambient"], "glowColor": spec["glowColor"], "diffuse": spec["diffuse"] if spec.get("lit") else None,
-              "tod": spec.get("tod", 1.0),
+              "tod": spec.get("tod", 1.0), "clip": spec.get("alphaClip"),
               "parent": parent_material.get_name()}
     digest = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:8]
     name = "MI_" + spec["texture"][2:] + ("_Add" if additive else ("_Lit" if spec.get("lit") else "_Alpha")) + "_" + digest
@@ -337,6 +345,10 @@ def instance(parent_material, spec, additive):
     editing.set_material_instance_scalar_parameter_value(mi, "Ambient", float(values["ambient"]))
     editing.set_material_instance_vector_parameter_value(mi, "GlowColor", unreal.LinearColor(*values["glowColor"], 0.0))
     editing.set_material_instance_scalar_parameter_value(mi, "TodInfluence", float(values["tod"]))
+    clip = values["clip"] or {"scale": [0.0, 1.0], "sourceMin": [0.0, 0.0], "width": [1.0, 1.0]}
+    editing.set_material_instance_vector_parameter_value(mi, "ClipA", unreal.LinearColor(clip["scale"][0], clip["scale"][1], clip["sourceMin"][0],
+                                                                                          clip["sourceMin"][1]))
+    editing.set_material_instance_vector_parameter_value(mi, "ClipW", unreal.LinearColor(clip["width"][0], clip["width"][1], 0.0, 0.0))
     if values["diffuse"] is not None:
         editing.set_material_instance_scalar_parameter_value(mi, "Diffuse", float(values["diffuse"]))
     editing.update_material_instance(mi)

@@ -11,6 +11,14 @@ struct FSwcActionFragment;
 struct FSwcEffectClip;
 struct FSwcWeaponEffectEntry;
 
+/**
+ * AST-230: the place of a helper of a weapon file (a CA_BONE attachment vfx_*) on the mesh of the weapon: its socket (the bone, or the
+ * component for the root of a static weapon mesh) and its transform in the frame of the socket (the space map of stage 1.1).
+ * @return False when the file has no such helper.
+ */
+SOULWARDENCLIENT_API bool SwcWeaponHelperPlace(const FSwcActions& Data, const FString& WeaponFile, FName Helper, const UMeshComponent* Weapon,
+                                               FName& OutSocket, FTransform& OutRelative);
+
 /** The parts of the character that the effects of a fragment attach to (AST-230). */
 struct FSwcEffectOwner
 {

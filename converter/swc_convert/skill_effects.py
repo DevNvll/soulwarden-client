@@ -192,6 +192,91 @@ def slice_particles(path: str) -> list[dict]:
     return out
 
 
+# ------------------------------------------------------------------------------------------------------------ the hits
+
+IMPACT_TABLES = {"characters": "impactsystem/impacttable_characters.datasheet", "environment": "impactsystem/impacttable_environment.datasheet"}
+IMPACT_SCRIPTS = "scripts/combatimpact/"
+DAMAGE_TABLE = "javelindata_damagetable.datasheet"
+SPAWN_CALLS = ("SpawnParticle", "SpawnParticleAtAttachment", "SpawnParticleAtAttachmentOffset", "SpawnParticleAtJoint",
+               "SpawnParticleAtJointOffset", "SpawnDecal")
+# The field of a HitVolume component with the column of ImpactTable_Characters of the volume (Flesh, FleshHead, Armor, ...) [D]; the
+# name of the field is not known (its CRC).
+HIT_MATERIAL_FIELD = 0x01803569
+
+
+def impact_functions() -> dict:
+    """@return The hit functions of scripts/combatimpact (ImpactTable.NAME): their particle and decal calls in the order of the code
+    (luabc.calls_of: both sides of a test are in the list). A call: {"call": SpawnParticle ..., "args": [...]}: the arguments are the
+    constants, the parameters ("a1" the point, "a3" the direction, "a5" "a6" the two entities [I]), "a3*-1" for a product."""
+    out = {}
+    for path in sorted(p for p in source.paks().entries if p.startswith(IMPACT_SCRIPTS) and p.endswith(".luac")):
+        try:
+            main = luabc.load(source.read(path))
+        except Exception:
+            continue
+        upvalues = []
+        for name, index in luabc.assigned_functions(main).items():
+            if not name.startswith("ImpactTable."):
+                continue
+            calls = []
+            for called, args in luabc.calls_of(main.protos[index], 8, upvalues):
+                short = called.rsplit(".", 1)[-1]
+                if short in SPAWN_CALLS and called.startswith("ParticleManagerBus"):
+                    calls.append({"call": short, "args": [a if isinstance(a, (float, list, bool)) or a is None else str(a) for a in args]})
+            out[name.split(".", 1)[1]] = {"script": path, "calls": calls}
+    return out
+
+
+def volume_materials(path: str) -> dict:
+    """@return The column of the hit table of each hit volume of a creature slice: the volume name -> Flesh, FleshHead, ...."""
+    from .creature import HIT_VOLUME_TYPE
+    try:
+        data = source.read(path)
+    except Exception:
+        return {}
+    out = {}
+    for root in source.parse(data):
+        for node in source.walk(root):
+            if node.type_id != HIT_VOLUME_TYPE:
+                continue
+            name = node.child(source.field_id("m_volumeName"))
+            material = node.child(HIT_MATERIAL_FIELD)
+            if name is not None and material is not None and material.value:
+                out.setdefault(source.text(name), source.text(material))
+    return out
+
+
+def impact_data() -> dict:
+    """Writes SWC_CONTENT/particles/impacts.json (AST-230 plan step 9, docs/EFFECTS.md "The hits"): the hit tables (ImpactTable_Characters
+    and ImpactTable_Environment: the row key -> the column -> the function), the hit functions, the WeaponCategory and the DamageType of
+    each row of the damage table of the player, and the column of each hit volume of the converted creature slices. @return Counts."""
+    from . import particles
+    from .creature import creature_dir
+    tables = {}
+    for kind, name in IMPACT_TABLES.items():
+        sheet = datasheet.Sheet(source.read(datasheet.TABLES_FOLDER + name))
+        tables[kind] = {str(row.get("Name") or ""): {c: str(row.get(c)) for c in sheet.columns if c != "Name" and row.get(c)}
+                        for row in sheet.rows() if row.get("Name")}
+    sheet = datasheet.Sheet(source.read(datasheet.TABLES_FOLDER + DAMAGE_TABLE))
+    damage = {str(row["DamageID"]).lower(): {"category": str(row.get("WeaponCategory") or ""), "type": str(row.get("DamageType") or "")}
+              for row in sheet.rows() if row.get("DamageID")}
+    volumes = {}
+    slices_path = creature_dir() / "slices.json"
+    if slices_path.is_file():
+        for record in json.loads(slices_path.read_text())["slices"].values():
+            if record.get("path") and record["path"] not in volumes:
+                volumes[record["path"]] = volume_materials(record["path"])
+    doc = {"format": 1, "tables": tables, "functions": impact_functions(), "damage": damage, "volumes": volumes}
+    particles.write_json(particles.out_dir() / "impacts.json", doc, 1)
+    return {"impacts": str(particles.out_dir() / "impacts.json"), "functions": len(doc["functions"]),
+            "character rows": len(tables["characters"]), "damage rows": len(damage),
+            "slices with materials": sum(1 for v in volumes.values() if v)}
+
+
+# The weapon categories of the five weapons of the MVP (DamageTable.WeaponCategory of their rows; the hits of their rows).
+WEAPON_CATEGORIES = ("Sword", "Rapier", "Bow", "Bow_Heavy", "GreatAxe", "Warhammer", "Shield")
+
+
 # ---------------------------------------------------------------------------------------------------------- the manifest
 
 def manifest() -> dict:
@@ -231,6 +316,17 @@ def manifest() -> dict:
                     for element, script in groups.get("table", {}).get(effect_id, {}).items():
                         for entry in groups.get("scripts", {}).get(script, {}).get(clip["group"], []):
                             use(entry.get("particleName", ""), f"{who}|{clip['group']}|{element}")
+    # The hits of the five weapons (plan step 9): the functions of the rows of their categories (and the +Crit rows) for each column.
+    impacts = impact_data()
+    impact_doc = json.loads((particles.out_dir() / "impacts.json").read_text())
+    for row, columns in impact_doc["tables"]["characters"].items():
+        if row.split("+")[0] not in WEAPON_CATEGORIES:
+            continue
+        for column, function in columns.items():
+            for call in impact_doc["functions"].get(function, {}).get("calls", []):
+                key = next((a for a in call["args"] if isinstance(a, str) and "." in a and not a.startswith(("a", "Paperdoll", "IsAttack"))), "")
+                if call["call"] != "SpawnDecal":
+                    use(key, f"impact|{row}|{column}|{function}")
     effects_path = creature_dir() / "effects.json"
     if effects_path.is_file():
         creature_effects = json.loads(effects_path.read_text())
@@ -246,7 +342,7 @@ def manifest() -> dict:
     out_path = particles.out_dir() / "skill-effects.json"
     particles.write_json(out_path, {"format": 1, "keys": keys}, 1)
     missing = [k for k, v in keys.items() if v.get("missing")]
-    return {"skill-effects": str(out_path), "keys": len(keys), "resolved": len(keys) - len(missing), "missing": missing}
+    return {"skill-effects": str(out_path), "keys": len(keys), "resolved": len(keys) - len(missing), "missing": missing, "impacts": impacts}
 
 
 # The creature spell and projectile slices of the first pass of the systems (the three models of the study "Creature spell model" and

@@ -35,4 +35,6 @@ struct FSwcMeleeShape
 	uint32 Visit = 0;
 	int32 Strike = 0;
 	FString Key;
+	/** The damage row of the shape (AST-230: the hit effect; empty: a strike with no rows). */
+	FString DamageRow;
 };
