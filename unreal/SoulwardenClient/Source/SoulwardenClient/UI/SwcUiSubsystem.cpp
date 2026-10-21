@@ -537,7 +537,7 @@ void USwcUiSubsystem::FeedItems(const swc::net::RepClient::OwnEntity& Own)
 			const auto Found = Own.paperdollItems.find(Slot);
 			const soulwarden::backend::tests::WireItem* Item = Found != Own.paperdollItems.end() ? &Found->second : nullptr;
 			const FString ItemId = Item && ItemIds.IsValidIndex(static_cast<int32>(Item->index) - 1) ? ItemIds[Item->index - 1] : FString();
-			const FString Key = Item ? FString::Printf(TEXT("%s|%u|%u|%s"), *ItemId, Item->gearScore, Item->durability, *InstanceText(Item->instance)) : FString();
+			const FString Key = Item ? FString::Printf(TEXT("%s|%u|%u|%u|%s"), *ItemId, Item->quantity, Item->gearScore, Item->durability, *InstanceText(Item->instance)) : FString();
 			const FString* Sent = SentPaperdoll.Find(Slot);
 			if (Sent == nullptr ? !Key.IsEmpty() : *Sent != Key)
 			{
