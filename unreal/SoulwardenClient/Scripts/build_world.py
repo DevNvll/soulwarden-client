@@ -352,7 +352,8 @@ def far_grid_off():
     @return The number of actors moved."""
     result = unreal.WorldPartitionBlueprintLibrary.get_actor_descs()
     descs = result[1] if isinstance(result, tuple) else result
-    guids = [d.guid for d in descs if str(d.label).endswith(" landscape proxy") or " impostors " in str(d.label)]
+    # The labels "r_+04_+02 impostors 0_3" and "r_+04_+02 poi_impostors 0_3" (a match of " impostors " missed the 363 POI groups).
+    guids = [d.guid for d in descs if str(d.label).endswith(" landscape proxy") or "impostors " in str(d.label)]
     if guids:
         unreal.WorldPartitionBlueprintLibrary.load_actors(guids)
     moved = 0

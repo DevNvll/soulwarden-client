@@ -17,6 +17,8 @@
 #include "World/SwcFlythrough.h"
 #include "World/SwcLoadingGate.h"
 #include "World/SwcWorldStreaming.h"
+#include "WorldPartition/WorldPartition.h"
+#include "WorldPartition/WorldPartitionRuntimeHash.h"
 #include "WorldPartition/WorldPartitionRuntimeCell.h"
 #include "WorldPartition/WorldPartitionStreamingSource.h"
 #include "WorldPartition/WorldPartitionSubsystem.h"
@@ -230,14 +232,26 @@ void USwcWorldSubsystem::OnWorldBeginPlay(UWorld& World)
 	// the world before the screen ends (no bare horizon after it). A level with no far grid: no cell, ready at once.
 	SwcLoadingGate::Register(&World, TEXT("far grid"), [this](const FVector& Place, FString& Why)
 	{
-		const UWorldPartitionSubsystem* Partition = GetWorld()->GetSubsystem<UWorldPartitionSubsystem>();
 		FWorldPartitionStreamingQuerySource Query(Place);
 		Query.bUseGridLoadingRange = true;
 		Query.TargetGrids.Add(FarGrid);
 		Query.TargetBehavior = EStreamingSourceTargetBehavior::Include;
-		const bool bReady = Partition == nullptr || Partition->IsStreamingCompleted(EWorldPartitionRuntimeCellState::Activated, {Query}, false);
-		Why = TEXT("the Landscape and the far meshes of the loading range load");
-		return bReady;
+		// The cells of the far grid in the query, and those not in the world yet (the level of 2026-10-20 has no far grid: the
+		// trial was taken back, and IsStreamingCompleted of the empty grid stayed false in the ground test, AST-216).
+		int32 Cells = 0;
+		int32 Waiting = 0;
+		const UWorldPartition* Partition = GetWorld()->GetWorldPartition();
+		if (Partition != nullptr && Partition->RuntimeHash != nullptr)
+		{
+			Partition->RuntimeHash->ForEachStreamingCellsQuery(Query, [&Cells, &Waiting](const UWorldPartitionRuntimeCell* Cell)
+			{
+				++Cells;
+				Waiting += Cell->GetCurrentState() != EWorldPartitionRuntimeCellState::Activated ? 1 : 0;
+				return true;
+			});
+		}
+		Why = FString::Printf(TEXT("the Landscape and the far meshes of the loading range load (%d of %d cells)"), Cells - Waiting, Cells);
+		return Waiting == 0;
 	});
 	if (FParse::Value(FCommandLine::Get(), TEXT("-SwcFrames="), FrameFolder))
 	{
