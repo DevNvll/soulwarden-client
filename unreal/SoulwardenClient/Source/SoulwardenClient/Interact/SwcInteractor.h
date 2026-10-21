@@ -79,6 +79,8 @@ public:
 	bool Load(FString& OutReport);
 	/** The key E went down or up. */
 	void SetKey(bool bDown) { bKeyDown = bDown; }
+	/** The key T (ui_interact_sec): the second option of the card of an object (stage MVP-F). */
+	void SetSecondKey(bool bDown) { bSecondKey = bDown; }
 	/** The move keys of the player (any of them down). A move key that goes down during a gather ends the work: the client sends 2473
 	 *  (Soulwarden gathering stage 3.6a, live check L4: "a walk (S) during the ring: the client sends 2473 and the ring stops"). */
 	void SetMoveKeys(bool bDown) { bMoveKeys = bDown; }
@@ -137,6 +139,13 @@ private:
 	bool bKeyDown = false;
 	bool bKeyWas = false;
 	bool bMoveKeys = false;
+	/** The second option of the focus (the key T), and the press of the key T that chose it. */
+	swc::interact::Option SecondObjectOption;
+	swc::net::InteractionRequest SecondRequest;
+	bool bFocusHasSecond = false;
+	bool bSecondKey = false;
+	bool bSecondKeyWas = false;
+	bool bChooseSecond = false;
 	bool bMoveKeysWas = false;
 	uint32 SeenCancels = 0;
 	uint32 SeenResults = 0;

@@ -150,6 +150,8 @@ public:
 	bool RequestTravel(const FVector& LandmarkMeters);
 	/** The key E of the interactions (stage P2.10): down or up. */
 	void SetInteractKey(bool bDown) { bInteractKey = bDown; }
+	/** The key T: the second option of the card of an object (stage MVP-F). */
+	void SetInteractSecondKey(bool bDown) { bInteractSecondKey = bDown; }
 	/** The move keys of the player (any one down; the raw keys, also while the movement is locked): a new one ends a gather. */
 	void SetMoveKeys(bool bDown) { bMoveKeys = bDown; }
 	/** The bag panel of the UI (stage P2.4): the open of a loot bag of the creature view (its interest) with OpenStorageOption, the
@@ -285,6 +287,7 @@ private:
 	/** The interactions of the player with the objects of the server (stage P2.10) and the key E. */
 	TSharedPtr<FSwcInteractor> Interactor;
 	bool bInteractKey = false;
+	bool bInteractSecondKey = false;
 	bool bMoveKeys = false;
 	FString ConversationLine;
 	bool bDummyShown = false;

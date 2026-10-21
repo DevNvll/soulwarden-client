@@ -99,6 +99,7 @@ void ASwcPlayerController::SetupInputComponent()
 	AimAction = MakeAction(this, TEXT("IA_Aim"), EInputActionValueType::Boolean);
 	GiveUpAction = MakeAction(this, TEXT("IA_DevGiveUp"), EInputActionValueType::Boolean);
 	InteractAction = MakeAction(this, TEXT("IA_Interact"), EInputActionValueType::Boolean);
+	InteractSecondAction = MakeAction(this, TEXT("IA_InteractSecond"), EInputActionValueType::Boolean);
 	AbilityActions[0] = MakeAction(this, TEXT("IA_Ability1"), EInputActionValueType::Boolean);
 	AbilityActions[1] = MakeAction(this, TEXT("IA_Ability2"), EInputActionValueType::Boolean);
 	AbilityActions[2] = MakeAction(this, TEXT("IA_Ability3"), EInputActionValueType::Boolean);
@@ -138,6 +139,8 @@ void ASwcPlayerController::SetupInputComponent()
 		Enhanced->BindAction(GiveUpAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnGiveUp);
 		Enhanced->BindAction(InteractAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnInteract);
 		Enhanced->BindAction(InteractAction, ETriggerEvent::Completed, this, &ASwcPlayerController::OnInteractEnd);
+		Enhanced->BindAction(InteractSecondAction, ETriggerEvent::Started, this, &ASwcPlayerController::OnInteractSecond);
+		Enhanced->BindAction(InteractSecondAction, ETriggerEvent::Completed, this, &ASwcPlayerController::OnInteractSecondEnd);
 		for (int32 Place = 0; Place < 3; ++Place)
 		{
 			Enhanced->BindActionValueLambda(AbilityActions[Place], ETriggerEvent::Started, [this, Place](const FInputActionValue&) { OnAbilityKey(Place, true); });
@@ -213,6 +216,8 @@ void ASwcPlayerController::MapPlayKeys()
 	MovementContext->MapKey(GiveUpAction, EKeys::F8);
 	// The key of the prompt of an object (the retail client: E, "E Ignite Fuse", "E Take All").
 	Map(InteractAction, Key(TEXT("ui"), TEXT("ui_interact"), EKeys::E));
+	// The key of the second option of a card (the action ui_interact_sec: T; the second key hint of an option row, stage MVP-F).
+	Map(InteractSecondAction, Key(TEXT("ui"), TEXT("ui_interact_sec"), EKeys::T));
 	// The keys of the bar of the default profile: Q, R, F (protocol notes 4.22 "The keys": the input numbers 402, 115, 139).
 	Map(AbilityActions[0], Key(TEXT("player"), TEXT("ability1"), EKeys::Q));
 	Map(AbilityActions[1], Key(TEXT("player"), TEXT("ability2"), EKeys::R));
@@ -474,6 +479,27 @@ void ASwcPlayerController::OnInteract(const FInputActionValue&)
 	}
 }
 
+void ASwcPlayerController::OnInteractSecond(const FInputActionValue&)
+{
+	// The key T: the second option of the card of an object (the bag panel of the key T is a rule of the UI: swc/interact.lua).
+	if (USwcUiSubsystem* Ui = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcUiSubsystem>() : nullptr; Ui != nullptr && !Ui->UiKeyToGame(TEXT("t")))
+	{
+		return;
+	}
+	if (USwcBackendSubsystem* Backend = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr)
+	{
+		Backend->SetInteractSecondKey(true);
+	}
+}
+
+void ASwcPlayerController::OnInteractSecondEnd(const FInputActionValue&)
+{
+	if (USwcBackendSubsystem* Backend = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr)
+	{
+		Backend->SetInteractSecondKey(false);
+	}
+}
+
 void ASwcPlayerController::OnInteractEnd(const FInputActionValue&)
 {
 	if (USwcBackendSubsystem* Backend = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr)
@@ -696,6 +722,17 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 			else
 			{
 				Input->StopContinuousInputInjectionForAction(AimAction);
+			}
+		}
+		else if (Step.Command == TEXT("interact2"))
+		{
+			if (Step.Value.X != 0.0)
+			{
+				Input->StartContinuousInputInjectionForAction(InteractSecondAction, FInputActionValue(true), {}, {});
+			}
+			else
+			{
+				Input->StopContinuousInputInjectionForAction(InteractSecondAction);
 			}
 		}
 		else if (Step.Command == TEXT("interact"))

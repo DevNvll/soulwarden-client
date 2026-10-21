@@ -1379,6 +1379,7 @@ void USwcBackendSubsystem::UpdatePlayer()
 	if (Interactor.IsValid())
 	{
 		Interactor->SetKey(bInteractKey);
+		Interactor->SetSecondKey(bInteractSecondKey);
 		Interactor->SetMoveKeys(bMoveKeys);
 		// A swim blocks the interactions (only Reaction, Death, and Respawn can start in a swim: player.grid; research wf5-swim).
 		Interactor->Update(Snapshot, *Connection, Motion.character, Snapshot.Own.dead || Snapshot.Own.loadingScreen || bTravelWait || Movement->IsSwimming(),
@@ -1788,6 +1789,7 @@ void USwcBackendSubsystem::ResetWorldSession()
 	Avatar.Reset();
 	Camera.Reset();
 	bInteractKey = false;
+	bInteractSecondKey = false;
 	ConversationLine.Reset();
 	bDummyShown = false;
 	if (Preload.IsValid())

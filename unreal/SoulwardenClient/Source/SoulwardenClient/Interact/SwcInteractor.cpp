@@ -1,4 +1,5 @@
 #include "Interact/SwcInteractor.h"
+#include "Interact/SwcBackendOptions.h"
 
 #include <algorithm>
 
@@ -405,13 +406,37 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		USwcObjectSubsystem* Layer = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcObjectSubsystem>() : nullptr;
 		FSwcWorldObjectTarget Object;
 		float ObjectScore = 0.0f;
-		if (!bLocked && Layer != nullptr && Layer->FindFocusObject(From, Camera, Forward, Object, ObjectScore) && !Object.Options.IsEmpty()
+		// The options of the card (stage MVP-F, docs/INTERACTIONS.md "The options of a card"): each option of the bound; for a person
+		// only the options that the backend serves (an interim rule: Interact/SwcBackendOptions.h). The first one has the key E, the
+		// second one the key T (ui_interact_sec): the two key hints of an option row of the original card (Icon_E, Icon_N).
+		TArray<int32, TInlineAllocator<4>> Shown;
+		const auto FillShown = [&Object, &Shown]()
+		{
+			static const FName KindPerson(TEXT("npc"));
+			Shown.Reset();
+			for (int32 Index = 0; Index < Object.Options.Num(); ++Index)
+			{
+				if (Object.Kind != KindPerson || swc::interact::backend_serves_option(Object.Options[Index].Option.name))
+				{
+					Shown.Add(Index);
+				}
+			}
+			return !Shown.IsEmpty();
+		};
+		bFocusHasSecond = false;
+		if (!bLocked && Layer != nullptr && Layer->FindFocusObject(From, Camera, Forward, Object, ObjectScore) && FillShown()
 			&& (!Focus || ObjectScore < Focus->score))
 		{
-			ObjectOption = Object.Options[0].Option;
+			ObjectOption = Object.Options[Shown[0]].Option;
+			if (Shown.Num() > 1)
+			{
+				SecondObjectOption = Object.Options[Shown[1]].Option;
+				SecondRequest = Object.Options[Shown[1]].Request;
+				bFocusHasSecond = true;
+			}
 			swc::interact::Candidate Candidate;
 			Candidate.option = &ObjectOption;
-			Candidate.request = Object.Options[0].Request;
+			Candidate.request = Object.Options[Shown[0]].Request;
 			Candidate.place = Object.EnginePlace;
 			Candidate.distanceSq = swc::interact::distance_sq(Reported, Object.EnginePlace);
 			Candidate.rangeSq = Object.RangeSq;
@@ -434,9 +459,9 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			FocusPrompt.ObjectKey = Object.Key;
 			FocusPrompt.ObjectKind = Object.Kind;
 			FocusPrompt.Name = Object.Name;
-			for (const FSwcWorldObjectOption& Each : Object.Options)
+			for (const int32 Index : Shown)
 			{
-				FocusPrompt.Options.Emplace(UTF8_TO_TCHAR(Each.Option.name.c_str()), Each.Option.hold);
+				FocusPrompt.Options.Emplace(UTF8_TO_TCHAR(Object.Options[Index].Option.name.c_str()), Object.Options[Index].Option.hold);
 			}
 			FocusPrompt.bToolMissing = Object.bToolMissing;
 			FocusPrompt.GatheringType = Object.GatheringType;
@@ -574,6 +599,28 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			bUseBag = true;
 			UseBag = Bag->Actor;
 			OpenBagInterest = Interest;
+		}
+	}
+	// The key T (ui_interact_sec) at an object with a second option on its card: the press uses the second option (the key T then
+	// works as the key E for the hold, the request, and the release). A bag keeps its own rule (the panel: swc/interact.lua).
+	const bool bSecondDown = bSecondKey && !bSecondKeyWas;
+	bSecondKeyWas = bSecondKey;
+	if (bSecondDown && !bKeyDown && !bLocked && Focus && bFocusHasSecond && Use.phase() == swc::interact::Use::Phase::idle)
+	{
+		ObjectOption = SecondObjectOption;
+		Focus->option = &ObjectOption;
+		Focus->request = SecondRequest;
+		bFocusGather = ObjectOption.action == GatherAction;
+		bFocusTalk = ObjectOption.action == ConversationAction;
+		bChooseSecond = true;
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: T at %s: the second option %s"), *FocusName, UTF8_TO_TCHAR(ObjectOption.name.c_str()));
+	}
+	if (bChooseSecond)
+	{
+		bKeyDown = bKeyDown || bSecondKey;
+		if (!bSecondKey && Use.phase() == swc::interact::Use::Phase::idle)
+		{
+			bChooseSecond = false;
 		}
 	}
 	if (bLocked)

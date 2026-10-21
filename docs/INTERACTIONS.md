@@ -225,6 +225,24 @@ The creature track added this part (docs/OBJECTS.md); the player track owns the 
   (`ASwcPlayerCharacter::SetToolInHand`), and turns the character to the object in 0.2 s (InteractionAlignment,
   AlignFacingBlendTime). With no tool for a row (ToolRequired) the prompt has the refusal text and E sends nothing.
 
+## The options of a card and the key T (stage MVP-F)
+
+- The option rows of the original card (lyshineui/markers/unifiedinteract) have two key hints: Icon_E (the action ui_interact: E)
+  and Icon_N (ui_interact_sec: T). The first option of the card has E, the second has T. The interactor gives the press of T to
+  the second option of an object (`FSwcInteractor::SetSecondKey`; the input action IA_InteractSecond of the key table, the drive
+  command `interact2`): T then works as E for the hold, the request, and the release. A bag keeps its rule: T opens its panel
+  (swc/interact.lua).
+- The options of a person: the card has only the options that the backend serves (`Interact/SwcBackendOptions.h`: a copy of the
+  handlers of the backend: world/interactions.cpp, loot_bags.cpp, chests.cpp, gathering.cpp, crafting.cpp). This is an interim
+  rule. The retail client with this backend shows only "E Talk" at an inn keeper (the options OpenInnScreen, SetSpawnPointOption,
+  OpenConversation; Soulwarden evidence `fight/implement/F6-first-run-death-screen-respawn-at-inn.png`), but it shows "Fast
+  Travel" at a shrine, which the backend does not serve either: the rule of the retail program that hides the inn options is open.
+  The option records of the UI database have no hide field ("Requires Confirmation", "Is Committed Interaction", "Close Prompt On
+  Interaction" are the fields that differ).
+- Check (`tests/drive/mvpf-options.txt`, evidence MVP-F/mvpf-options.mp4): the inn keeper of Windsward shows "E Talk"; E opens the
+  conversation. The lore page next to it shows "E Read" and "T Add To Journal"; E gives ReadLore and T gives AddLoreToJournal
+  (both accepted). No gathering node has two options in the data.
+
 ## Not done, open points
 
 - The loot panel: stage P2.4 of the UI track (the inventory screen `lyshineui/inventory/newinventory`).

@@ -103,6 +103,8 @@ private:
 	void OnGiveUp(const FInputActionValue& Value);
 	void OnInteract(const FInputActionValue& Value);
 	void OnInteractEnd(const FInputActionValue& Value);
+	void OnInteractSecond(const FInputActionValue& Value);
+	void OnInteractSecondEnd(const FInputActionValue& Value);
 	/** The keys of the bar (Q, R, F: the places 0 to 2; stage P3.5). */
 	void OnAbilityKey(int32 Place, bool bDown);
 	/** The keys of the movement of stage P3.3: C crouch, Z prone, `=` autorun (a key name of the UI rule). */
@@ -143,6 +145,8 @@ private:
 	TObjectPtr<UInputAction> GiveUpAction;
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> InteractAction;
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> InteractSecondAction;
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> AbilityActions[3];
 	UPROPERTY(Transient)

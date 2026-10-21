@@ -1,0 +1,7 @@
+# The key choice of the cards (stage MVP-F): tools/creature-check.sh mvpf-options 60 THIS tests/drive/mvpf-options.txt, with a copy of
+# the user's database and the character 2 m south of the inn keeper of Windsward (npc ed685f37, 9319.7 2667.7; options OpenInnScreen,
+# SetSpawnPointOption, OpenConversation). The card should show only "E Talk" (the retail picture of an inn keeper with this backend).
+# Then the lore page 3a3bdf00 (9320.7 2663.3 93.2; ReadLore, AddLoreToJournal): E, then T.
+1 heal
+1.5 ignore on
+28 travel 9320.7 2661.8 93.7 off
