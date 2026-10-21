@@ -24,6 +24,13 @@ namespace
 {
 /** The side of a region (m): the region of a place is its engine x and y divided by it. */
 constexpr double RegionMeters = 2048.0;
+/** The key of a batch: its square and its region (the colliders of two regions can share a square). */
+FIntVector BatchKey(const FIntPoint& Region, const FIntPoint& Batch)
+{
+	return FIntVector(Batch.X, Batch.Y, Region.X * 1024 + Region.Y);
+}
+/** The regions read around a place: the colliders of a region can lie up to about 1 km outside its square (AST-216). */
+constexpr double RegionMarginM = RegionMeters;
 
 FString ContentFolder()
 {
@@ -80,9 +87,9 @@ void USwcCollisionChunks::OnWorldBeginPlay(UWorld& World)
 			const double EngineX = Place.X / 100.0;
 			const double EngineY = -Place.Y / 100.0;
 			const double NearM = SwcLoadingGate::NearCm / 100.0;
-			for (int32 RX = FMath::FloorToInt((EngineX - NearM) / RegionMeters); RX <= FMath::FloorToInt((EngineX + NearM) / RegionMeters); ++RX)
+			for (int32 RX = FMath::FloorToInt((EngineX - RegionMarginM) / RegionMeters); RX <= FMath::FloorToInt((EngineX + RegionMarginM) / RegionMeters); ++RX)
 			{
-				for (int32 RY = FMath::FloorToInt((EngineY - NearM) / RegionMeters); RY <= FMath::FloorToInt((EngineY + NearM) / RegionMeters); ++RY)
+				for (int32 RY = FMath::FloorToInt((EngineY - RegionMarginM) / RegionMeters); RY <= FMath::FloorToInt((EngineY + RegionMarginM) / RegionMeters); ++RY)
 				{
 					const FRegion* Region = Regions.Find(FIntPoint(RX, RY));
 					if (Region == nullptr || (!Region->bNoFile && (!Region->Data.IsValid() || !*Region->bRead)))
@@ -97,7 +104,7 @@ void USwcCollisionChunks::OnWorldBeginPlay(UWorld& World)
 					for (const TPair<FIntPoint, TArray<FInstance>>& Pair : Region->Data->Batches)
 					{
 						const FVector Center((Pair.Key.X + 0.5) * BatchCm, (Pair.Key.Y + 0.5) * BatchCm, Place.Z);
-						const FBatch* Batch = Batches.Find(Pair.Key);
+						const FBatch* Batch = Batches.Find(BatchKey(FIntPoint(RX, RY), Pair.Key));
 						Missing += FVector::Dist2D(Center, Place) <= SwcLoadingGate::NearCm + BatchCm * 0.71 && (Batch == nullptr || !Batch->bBuilt);
 					}
 				}
@@ -270,9 +277,10 @@ void USwcCollisionChunks::Update(const FVector& View)
 	const double EngineX = View.X / 100.0;
 	const double EngineY = -View.Y / 100.0;
 	const double RangeM = RangeCm / 100.0;
-	for (int32 RX = FMath::FloorToInt((EngineX - RangeM) / RegionMeters); RX <= FMath::FloorToInt((EngineX + RangeM) / RegionMeters); ++RX)
+	const double ReadM = FMath::Max(RangeM, RegionMarginM);
+	for (int32 RX = FMath::FloorToInt((EngineX - ReadM) / RegionMeters); RX <= FMath::FloorToInt((EngineX + ReadM) / RegionMeters); ++RX)
 	{
-		for (int32 RY = FMath::FloorToInt((EngineY - RangeM) / RegionMeters); RY <= FMath::FloorToInt((EngineY + RangeM) / RegionMeters); ++RY)
+		for (int32 RY = FMath::FloorToInt((EngineY - ReadM) / RegionMeters); RY <= FMath::FloorToInt((EngineY + ReadM) / RegionMeters); ++RY)
 		{
 			const bool bHere = RX == FMath::FloorToInt(EngineX / RegionMeters) && RY == FMath::FloorToInt(EngineY / RegionMeters);
 			FRegion& Region = RegionAt(FIntPoint(RX, RY), bHere);
@@ -284,14 +292,15 @@ void USwcCollisionChunks::Update(const FVector& View)
 			{
 				const FVector Center((Pair.Key.X + 0.5) * BatchCm, (Pair.Key.Y + 0.5) * BatchCm, View.Z);
 				const double Distance = FVector::Dist2D(Center, View);
-				FBatch* Batch = Batches.Find(Pair.Key);
+				const FIntVector Key = BatchKey(FIntPoint(RX, RY), Pair.Key);
+				FBatch* Batch = Batches.Find(Key);
 				if (Batch == nullptr && Distance > RangeCm + BatchCm * 0.71)
 				{
 					continue;
 				}
 				if (Batch == nullptr)
 				{
-					Batch = &Batches.Add(Pair.Key);
+					Batch = &Batches.Add(Key);
 					TArray<FSoftObjectPath> Paths;
 					for (const FInstance& Instance : Pair.Value)
 					{
@@ -319,8 +328,9 @@ void USwcCollisionChunks::Update(const FVector& View)
 	}
 	// The batch under the character is built (or there is none): the update can wait between its steps.
 	const FIntPoint Here(FMath::FloorToInt(View.X / BatchCm), FMath::FloorToInt(View.Y / BatchCm));
-	const FRegion* HereRegion = Regions.Find(FIntPoint(FMath::FloorToInt(EngineX / RegionMeters), FMath::FloorToInt(EngineY / RegionMeters)));
-	const FBatch* HereBatch = Batches.Find(Here);
+	const FIntPoint HereKey(FMath::FloorToInt(EngineX / RegionMeters), FMath::FloorToInt(EngineY / RegionMeters));
+	const FRegion* HereRegion = Regions.Find(HereKey);
+	const FBatch* HereBatch = Batches.Find(BatchKey(HereKey, Here));
 	const bool bWasReady = bNearReady;
 	bNearReady = HereRegion != nullptr && (HereRegion->bNoFile || (HereRegion->Data.IsValid() && *HereRegion->bRead
 		&& (!HereRegion->Data->Batches.Contains(Here) || (HereBatch != nullptr && HereBatch->bBuilt))));
@@ -378,7 +388,7 @@ void USwcCollisionChunks::Tick(float DeltaTime)
 		NextReport = Now + 10.0;
 		int32 Instances = 0;
 		int32 Components = 0;
-		for (const TPair<FIntPoint, FBatch>& Pair : Batches)
+		for (const TPair<FIntVector, FBatch>& Pair : Batches)
 		{
 			Instances += Pair.Value.Instances;
 			Components += Pair.Value.Components.Num();

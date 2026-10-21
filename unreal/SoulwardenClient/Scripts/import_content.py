@@ -434,6 +434,32 @@ for done_key, done_state, mesh_path, collision_folder in changed:
     state["collision:" + done_key] = done_state
     count("collision", True)
 save_state()
+# 6b. The collision-only meshes (AST-216; converter collision.collision_only): no render mesh, only the collision mesh
+# COLLISION_ROOT/FOLDER/C_STEM. The pieces of the collision chunks that had no mesh in the manifest, the collision-only meshes
+# of the level (kind "empty"), and the unit shapes of the simple colliders. The collision chunks of the client place them.
+for key in by_kind.get("collision", []) + by_kind.get("empty", []):
+    if report["incomplete"] or out_of_time():
+        break
+    entry = manifest[key]
+    record = entry.get("collision")
+    if not record:
+        continue
+    wanted_state = record["hash"] + ":" + COLLISION_VERSION
+    if not force and state.get("collision:" + key) == wanted_state:
+        count("collision", False)
+        continue
+    folder = COLLISION_ROOT + "/" + entry["unreal"].rsplit("/", 1)[1]
+    stem = "".join(c if c.isalnum() or c == "_" else "_" for c in os.path.splitext(os.path.basename(key.split(":", 1)[-1]))[0])
+    collision_path = folder + "/C_" + stem[:60]
+    if assets.does_asset_exist(collision_path):
+        assets.delete_asset(collision_path)
+    if not library.make_collision_mesh(os.path.join(content, record["file"]), collision_path):
+        report["failed"].append(f"collision {key}: the collision file cannot be read")
+        continue
+    assets.save_directory(folder, only_if_is_dirty=False, recursive=True)
+    state["collision:" + key] = wanted_state
+    count("collision", True)
+save_state()
 report["seconds"]["collision"] = round(time.time() - phase, 1)
 report["slots with no material"] = sorted(missing_materials)[:20]
 report["seconds"]["all"] = round(time.time() - started, 1)

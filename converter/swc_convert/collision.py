@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 
 from . import env, manifest, source
-from nav_shapes import read_physics  # noqa: E402  (vendor/soulwarden, on the path of source)
+from nav_shapes import box_part, cylinder_part, outward, read_physics, sphere_part  # noqa: E402  (vendor/soulwarden)
 
 MAGIC = b"SWCC"
 VERSION = 1
@@ -39,11 +39,15 @@ def physics_path(mesh_key: str) -> str | None:
 
 def triangles(mesh_key: str) -> tuple[np.ndarray, np.ndarray] | None:
     """@return (vertices (n, 3) float32 engine m, triangles (m, 3) uint32) of the physics file of a mesh, or None."""
-    path = physics_path(mesh_key)
-    if path is None:
-        return None
+    if mesh_key in UNIT_SHAPES:
+        parts = UNIT_SHAPES[mesh_key]()
+    else:
+        path = physics_path(mesh_key)
+        if path is None:
+            return None
+        parts = read_physics(source.read(path))
     vertices, indices, base = [], [], 0
-    for _kind, part_vertices, part_triangles in read_physics(source.read(path)):
+    for _kind, part_vertices, part_triangles in parts:
         v = np.asarray(part_vertices, np.float32).reshape(-1, 3)
         t = np.asarray(part_triangles, np.uint32).reshape(-1, 3)
         if len(v) == 0 or len(t) == 0:
@@ -56,7 +60,16 @@ def triangles(mesh_key: str) -> tuple[np.ndarray, np.ndarray] | None:
     return np.concatenate(vertices), np.concatenate(indices)
 
 
+# The unit shapes of the simple colliders of the collision chunks (AST-216; collision_chunks.py places them with a scale): a
+# box of half size 1, a sphere of radius 1, a cylinder of radius 1 from z -1 to 1 (the parts of the Soulwarden tools).
+UNIT_SHAPES = {"swc:unit_box": lambda: [outward(box_part((1.0, 1.0, 1.0)))],
+               "swc:unit_sphere": lambda: [outward(sphere_part(1.0))],
+               "swc:unit_cylinder": lambda: [outward(cylinder_part((0.0, 0.0, -1.0), (0.0, 0.0, 1.0), 1.0))]}
+
+
 def out_path(mesh_key: str) -> Path:
+    if mesh_key.startswith("swc:"):
+        return env.content_dir() / "collision" / "swc" / (mesh_key[4:] + ".swccol")
     return env.content_dir() / "collision" / (mesh_key[:-4] + ".swccol")
 
 
@@ -76,6 +89,40 @@ def write(mesh_key: str) -> dict | None:
         temporary.replace(out)
     return {"file": str(out.relative_to(env.content_dir())), "hash": hashlib.sha1(data).hexdigest()[:16],
             "triangles": int(len(indices))}
+
+
+def collision_only(keys: list[str]) -> dict:
+    """The collision-only meshes (AST-216): meshes with a physics file and no static entry in the manifest (the pieces that
+    are only in the collision chunks, for example ancient_sphere_top or the collision ramps; the collision-only meshes of
+    the level, for example worldbound_col; a mesh of kind "empty"), and the unit shapes of UNIT_SHAPES. Each gets its
+    collision file and a record: a key with no entry gets an entry of kind "collision" (no render mesh), a key of kind
+    "empty" keeps its kind. Import section 6b makes the collision mesh (no render mesh). @return A report."""
+    assets = manifest.load()["assets"]
+    report = {"keys": 0, "with collision": 0, "new entries": 0, "failed": []}
+    records = {}
+    for key in sorted(set(keys) | set(UNIT_SHAPES)):
+        kind = assets.get(key, {}).get("kind")
+        if kind not in (None, "empty", "collision"):
+            continue   # a static mesh: convert_all
+        report["keys"] += 1
+        try:
+            records[key] = write(key)
+        except Exception as error:
+            report["failed"].append(f"{key}: {str(error)[:100]}")
+            continue
+        if records[key] is not None:
+            report["with collision"] += 1
+    doc = manifest.load()
+    for key, record in records.items():
+        if record is None:
+            continue
+        entry = doc["assets"].get(key)
+        if entry is None:
+            entry = doc["assets"][key] = {"kind": "collision", "unreal": manifest.unreal_folder("collision", key), "version": 1}
+            report["new entries"] += 1
+        entry["collision"] = {"file": record["file"], "hash": record["hash"]}
+    manifest.save(doc)
+    return report
 
 
 def convert_all(keys: list[str] | None = None) -> dict:

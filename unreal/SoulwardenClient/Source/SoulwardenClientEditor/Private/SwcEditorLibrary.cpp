@@ -738,9 +738,15 @@ bool ReadCollisionFile(const FString& File, TArray<FVector3f>& OutVertices, TArr
 }
 } // namespace
 
+bool USwcEditorLibrary::MakeCollisionMesh(const FString& File, const FString& CollisionAssetPath)
+{
+	// A collision-only mesh (AST-216): the collision mesh of SetGameCollision with no render mesh.
+	return !File.IsEmpty() && SetGameCollision(nullptr, File, CollisionAssetPath);
+}
+
 bool USwcEditorLibrary::SetGameCollision(UStaticMesh* Mesh, const FString& File, const FString& CollisionAssetPath)
 {
-	if (!Mesh)
+	if (!Mesh && File.IsEmpty())
 	{
 		return false;
 	}
@@ -821,20 +827,23 @@ bool USwcEditorLibrary::SetGameCollision(UStaticMesh* Mesh, const FString& File,
 	}
 	// The render mesh: no collision. (A render mesh with a ComplexCollisionMesh crashed: its async post-load cooked the
 	// body while the other mesh was still compiling, and GetPhysicsTriMeshDataCheckComplex checks HasValidRenderData.)
-	Mesh->Modify();
-	if (!Mesh->GetBodySetup())
+	if (Mesh)
 	{
-		Mesh->CreateBodySetup();
+		Mesh->Modify();
+		if (!Mesh->GetBodySetup())
+		{
+			Mesh->CreateBodySetup();
+		}
+		UBodySetup* Body = Mesh->GetBodySetup();
+		Body->Modify();
+		Body->RemoveSimpleCollision();
+		Mesh->ComplexCollisionMesh = nullptr;
+		Body->CollisionTraceFlag = CTF_UseSimpleAsComplex;   // no simple shape: no collision at all
+		Body->InvalidatePhysicsData();
+		Body->CreatePhysicsMeshes();
+		Mesh->SetCustomizedCollision(true);   // a new import keeps this collision
+		Mesh->MarkPackageDirty();
 	}
-	UBodySetup* Body = Mesh->GetBodySetup();
-	Body->Modify();
-	Body->RemoveSimpleCollision();
-	Mesh->ComplexCollisionMesh = nullptr;
-	Body->CollisionTraceFlag = CTF_UseSimpleAsComplex;   // no simple shape: no collision at all
-	Body->InvalidatePhysicsData();
-	Body->CreatePhysicsMeshes();
-	Mesh->SetCustomizedCollision(true);   // a new import keeps this collision
-	Mesh->MarkPackageDirty();
 	if (!Collision)
 	{
 		return true;

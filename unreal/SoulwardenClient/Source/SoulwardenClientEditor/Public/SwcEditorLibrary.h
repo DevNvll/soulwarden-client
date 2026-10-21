@@ -113,6 +113,10 @@ public:
 	 *  CollisionAssetPath (made from the triangles of the file, no Nanite, never drawn) uses its own triangles as its
 	 *  collision (UseComplexAsSimple); the cells of the level place it, hidden, at the instances of the render mesh. The
 	 *  caller saves the packages. @return False when the file cannot be read or the cook has no triangles. */
+	/** A collision-only mesh (AST-216): the collision mesh of SetGameCollision from a collision file, with no render mesh. */
+	UFUNCTION(BlueprintCallable, Category = "Soulwarden")
+	static bool MakeCollisionMesh(const FString& File, const FString& CollisionAssetPath);
+
 	UFUNCTION(BlueprintCallable, Category = "Soulwarden|Editor")
 	static bool SetGameCollision(UStaticMesh* Mesh, const FString& File, const FString& CollisionAssetPath);
 

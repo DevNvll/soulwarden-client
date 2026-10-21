@@ -67,7 +67,9 @@ private:
 	AActor* OwnerActor();
 
 	TMap<FIntPoint, FRegion> Regions;
-	TMap<FIntPoint, FBatch> Batches;
+	/** The batches by (batch x, batch y, region): two regions can have colliders in one batch square (a piece of a region can lie
+	 *  outside its square, AST-216: before, the region read second lost those colliders). */
+	TMap<FIntVector, FBatch> Batches;
 	TWeakObjectPtr<AActor> Owner;
 	FString Folder;
 	bool bEnabled = true;

@@ -18,6 +18,9 @@ Usage (through tools/convert.sh):
                                                     --sheet: the pictures side by side after Scripts/space_proof.py
   collision [PATH...]                               the game collision of the static meshes (P4.1): the physics file
                                                     of each mesh -> content/collision (default: all static meshes)
+  collision-only                                    the collision-only meshes (AST-216): the chunk pieces and the level
+                                                    placements with a physics file and no static mesh, the unit shapes
+                                                    (then tools/import.sh --keys KEYS --world, then collision-chunks)
   collision-chunks [REGION...]                      the colliders of the collision chunks of the merged structures
                                                     (AST-201) -> content/regions/NAME/collision-chunks.bin (default: all)
   overrides NAME... | --all                         the material overrides of the placements (P4.1): the slot maps of
@@ -79,6 +82,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("terrain-layers"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
     p.add_argument("--terrain", default="newworld_vitaeeterna", help="the terrain: newworld_vitaeeterna (the world) or nw_frontend_base")
     p = sub.add_parser("terrain-plan"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
+    sub.add_parser("collision-only")
     p = sub.add_parser("cover"); p.add_argument("names", nargs="*"); p.add_argument("--all", action="store_true")
     p.add_argument("--terrain", default="newworld_vitaeeterna")
     p = sub.add_parser("preview"); p.add_argument("kind", choices=["mesh", "character", "region"]); p.add_argument("target")
@@ -118,6 +122,9 @@ def main(argv=None) -> int:
     elif args.command == "space-proof":
         from . import space
         result = space.sheet() if args.sheet else space.proof(args.name, tuple(args.area))
+    elif args.command == "collision-only":
+        from . import collision, collision_chunks
+        result = collision.collision_only(collision_chunks.collision_only_keys())
     elif args.command == "cover":
         from . import census, cover
         names = census.world_regions() if args.all else args.names
