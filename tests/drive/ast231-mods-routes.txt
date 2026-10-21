@@ -1,0 +1,6 @@
+# The craft preview lines and the craft mods (AST-231 part 4): tools/creature-check.sh ast231-mods 50 THIS tests/drive/ast231-mods.txt --
+# -SwcUiDrive=tests/drive/ast231-mods-ui.txt, with a copy of the user's database with the craft kit (SWC_CRAFT_KIT=1 of
+# work/mvp-j/fresh-copy.py) at the forge (8859.3 4258.9 138.4). The Orichalcum Great Axe: the preview lines (Primary Attack, Blocking
+# Stability, Required Level), then the first craft mod slot: the selector of the compatible mods.
+1 heal
+1.5 ignore on

@@ -1321,8 +1321,33 @@ def convert_item_stats(target: Path) -> dict:
                            for r in table_rows("javelindata_expansions.datasheet") if r.get("ExpansionId")]
     rules["weaponTiers"] = sorted(([r["Tier"], round(r["ScalingStart"], 6)] for r in table_rows("javelindata_weapontiers.datasheet")
                                    if r.get("Tier") and isinstance(r.get("ScalingStart"), (int, float))), key=lambda t: -t[1])
+    # AST-231 (research crafting-ui.md 3): the rows of TooltipPrimaryAttackData and TooltipAlternateAttackData of the weapons
+    # (javelindata_damagetable, the player table first): [DamageType, DmgCoef, AddDmg]; the gear score limit of each level
+    # (javelindata_xpamountsbylevel: [Level Number, MaxEquippableGearScore, IgnoreItemRarity], the automatic level requirement of
+    # an item, client code 0x4403360); the Level Requirement Modifier of each item rarity (Item Rarity Data of the base attributes,
+    # rarity 0 first; client code 0x5C4C9B1).
+    wanted = {str(w.get(k)).lower() for w in weapons.values() for k in ("primaryAttack", "alternateAttack") if w.get(k)}
+    attacks: dict[str, list] = {}
+    damage_tables = sorted(source.paks().paths("", ".datasheet"), key=lambda q: not q.endswith("/javelindata_damagetable.datasheet"))
+    for path in damage_tables:
+        if "/javelindata_damagetable" not in path:
+            continue
+        for row in datasheet.Sheet(source.read(path)).rows():
+            key = str(row.get("DamageID") or "").lower()
+            if key in wanted and key not in attacks:
+                attacks[key] = [row.get("DamageType") or "", float(row.get("DmgCoef") or 0), float(row.get("AddDmg") or 0)]
+    rules["attackRows"] = attacks
+    rules["levelGearScores"] = [[int(r["Level Number"]), number_or_none(r.get("MaxEquippableGearScore")) or 0, bool(r.get("IgnoreItemRarity"))]
+                                for r in table_rows("javelindata_xpamountsbylevel.datasheet") if r.get("Level Number") is not None]
+    modifiers = []
+    modifier_id = field_id("Level Requirement Modifier")
+    for root in parse(source.read("sharedassets/genericassets/playerbaseattributes.pbadb")):
+        for element in walk(root):
+            if element.name == modifier_id and element.value is not None and len(element.value) == 4:
+                modifiers.append(int.from_bytes(element.value, "big", signed=True))
+    rules["rarityLevelModifiers"] = modifiers
     (target / "itemrules.json").write_text(json.dumps(rules, separators=(",", ":")))
-    return {"weapon stats": len(weapons), "armor stats": len(armors)}
+    return {"weapon stats": len(weapons), "armor stats": len(armors), "attack rows": len(attacks), "rarity modifiers": len(modifiers)}
 
 
 def write_key_table(path: Path, rows: dict[str, dict]) -> None:

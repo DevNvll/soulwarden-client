@@ -85,6 +85,55 @@ def rank_tables(progressions: dict[str, dict]) -> dict[str, list]:
     return out
 
 
+def craft_mods() -> dict:
+    """The data of the craft mods (AST-231; research crafting-ui.md 2, client code 0x4436640): each resource with SocketType None and a
+    PerkBucket (javelindata_itemdefinitions_resources) as [ResourceID, the first perk of its bucket (the display perk, code 0x4436C60),
+    its leaf perks [PerkID, ItemClass, ExcludeItemClass, ExclusiveLabels]] (javelindata_perkbuckets: Perk1 ..., "[PBID]NAME" a nested
+    bucket); and the ExclusiveLabels of each perk (the labels of the fixed perks of the output)."""
+    import re
+    perks: dict[str, dict] = {}
+    buckets: dict[str, dict] = {}
+    resources: list[dict] = []
+    for path in sorted(source.paks().paths("", ".datasheet")):
+        name = path.rsplit("/", 1)[1]
+        if re.match(r"javelindata_perks.*\.datasheet$", name):
+            for row in datasheet.Sheet(source.read(path)).rows():
+                if row.get("PerkID"):
+                    perks.setdefault(str(row["PerkID"]).lower(), row)
+        elif re.match(r"javelindata_perkbuckets.*\.datasheet$", name):
+            for row in datasheet.Sheet(source.read(path)).rows():
+                if row.get("PerkBucketID"):
+                    buckets.setdefault(str(row["PerkBucketID"]).lower(), row)
+        elif re.match(r"javelindata_itemdefinitions_resources.*\.datasheet$", name):
+            resources.extend(datasheet.Sheet(source.read(path)).rows())
+
+    def leaves(bucket: str, chain: tuple = ()) -> list[dict]:
+        bucket = bucket.lower()
+        if bucket in chain:
+            return []
+        out = []
+        for column, value in buckets.get(bucket, {}).items():
+            if not column.startswith("Perk") or not column[4:].isdigit() or not isinstance(value, str) or not value:
+                continue
+            if value.startswith("[PBID]"):
+                out += leaves(value[6:], chain + (bucket,))
+            elif value.lower() in perks:
+                out.append(perks[value.lower()])
+        return out
+
+    rows = []
+    for row in resources:
+        if row.get("SocketType") or not row.get("PerkBucket") or not row.get("ResourceID"):
+            continue
+        found = leaves(str(row["PerkBucket"]))
+        if not found:
+            continue
+        rows.append([row["ResourceID"], found[0]["PerkID"],
+                     [[p["PerkID"], p.get("ItemClass") or "", p.get("ExcludeItemClass") or "", p.get("ExclusiveLabels") or ""] for p in found]])
+    labels = {key: row["ExclusiveLabels"] for key, row in perks.items() if row.get("ExclusiveLabels")}
+    return {"resources": rows, "perkLabels": labels}
+
+
 def convert(out_dir: Path) -> dict:
     source_path = gamedata_dir() / "crafting-data.json"
     data = json.loads(source_path.read_text())
@@ -124,6 +173,7 @@ def convert(out_dir: Path) -> dict:
     doc["perkBuckets"] = {name: [bucket[0], bucket[1]] for name, bucket in perks.get("buckets", {}).items()}
     target = out_dir / "gamedata"
     target.mkdir(parents=True, exist_ok=True)
+    doc["craftMods"] = craft_mods()
     (target / "crafting.json").write_text(json.dumps(doc, separators=(",", ":"), sort_keys=True))
     supported = sum(1 for r in recipes.values() if not r["unsupported"])
     return {"crafting": str(target / "crafting.json"), "recipes": len(recipes), "supported": supported,

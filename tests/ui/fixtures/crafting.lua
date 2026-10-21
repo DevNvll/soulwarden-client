@@ -232,7 +232,8 @@ equal(CraftingRequestBus.Broadcast.GetRecipeTradeskill("EtherealDust_PlayerXPBox
 -- The known test of the tree: Lumber (TimberT3, Woodworking 50) at Woodworking 0 is "Unlearned"; Timber (level 0) is known.
 check(not CraftingRequestBus.Broadcast.IsRecipeKnown("TimberT3", true), "Lumber above the rank is not known for the tree")
 check(CraftingRequestBus.Broadcast.IsRecipeKnown("TimberT2", true), "Timber at level 0 is known")
-check(CraftingRequestBus.Broadcast.IsRecipeKnown("TimberT3"), "Lumber is a known recipe of the list")
+-- AST-231 (research crafting-ui.md 1): with no required achievement both forms of the call test the rank.
+check(not CraftingRequestBus.Broadcast.IsRecipeKnown("TimberT3"), "Lumber above the rank is not known with the second argument false")
 Swc.HostStation("close")
 frames(0.5)
 Swc.HostStation("open", "Carpentry3", true, "@CarpentryT2_MasterName")

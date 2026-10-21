@@ -291,15 +291,25 @@ end
 C.RecipeDataOf = recipe_data
 
 Swc.Define("RecipeDataManagerBus", "Broadcast", {
-  -- The recipes of the client: the recipes with bKnownByDefault (the converter keeps only these: the backend has no learned recipe).
-  -- The recipes with RequiredWorldTags (the seasonal servers) are not in the list: this world has no world tag (the backend cause "world
-  -- tags of a seasonal server"), and the retail woodshop with this backend lists no "Ethereal Dust Refining" group (Soulwarden evidence
-  -- crafting/37a D1-02; an inference from that picture).
+  -- The recipes of the client: the recipes with bKnownByDefault (the converter keeps only these: the backend has no learned recipe; the
+  -- retail lists of MVP-J showed no pattern recipe either). The native enumeration (research crafting-ui.md 1, code 0x4488B00): a recipe
+  -- with RequiredWorldTags is in the list only when one of its tags is a tag of the world (javelin.world-tags, code 0x5C66960). This
+  -- world has no tag: the retail woodshop with this backend lists no "Ethereal Dust Refining" group (Soulwarden evidence crafting/37a
+  -- D1-02). No recipe has a ScheduleId in this build (the schedule test).
   GetRecipes = function()
     local out = {}
     local d = D()
+    local world = {}
+    for tag in string.gmatch(string.lower(tostring(Swc.config["javelin.world-tags"] or "")), "[^%s,+]+") do
+      world[tag] = true
+    end
     for _, id in ipairs(d.order) do
-      if (d.recipes[id].worldTags or "") == "" then
+      local tags = d.recipes[id].worldTags or ""
+      local listed = tags == ""
+      for tag in string.gmatch(string.lower(tags), "[^%s,+]+") do
+        listed = listed or world[tag] == true
+      end
+      if listed then
         out[#out + 1] = id
       end
     end
@@ -517,18 +527,34 @@ Swc.Define("CraftingRequestBus", "Broadcast", {
     local recipe = recipe_of(id)
     return recipe ~= nil and (recipe.cooldownQuantity or 0) > 0
   end,
-  -- A recipe of the list is known (bKnownByDefault: the converter keeps only these). With the second argument true (craftingtreeview.luac
-  -- FilterTreeView) the trade skill rank must also reach the recipe level: the retail woodshop at Woodworking 0 lists Lumber (level 50)
-  -- and the planks of higher levels under "Unlearned" (Soulwarden evidence crafting/37a D1-02; an inference from that picture).
-  IsRecipeKnown = function(id, checkRank)
+  -- The native rule (research crafting-ui.md 1, code 0x2E5E720): a recipe with RequiredAchievementID needs that achievement; with the
+  -- second argument true the call returns the achievement result at once (the tree of the screen asks it so for Learned/Unlearned).
+  -- Then a recipe of the list javelin.red-button-disable-crafting-recipe-list is not known; a recipe with no trade skill is known; else
+  -- the recipe level of the rank of the trade skill must reach the RecipeLevel (the retail woodshop at Woodworking 0 lists Lumber,
+  -- level 50, under "Unlearned": Soulwarden evidence crafting/37a D1-02). bKnownByDefault is not read.
+  IsRecipeKnown = function(id, achievementOnly)
     local recipe = recipe_of(id)
     if not recipe then
       return false
     end
-    if checkRank and recipe.skill ~= "" and (recipe.level or 0) > 0 then
-      return CategoricalProgressionRequestBus.Event.GetRank(nil, crc(recipe.skill)) >= C.RankForRecipeLevel(recipe.skill, recipe.level)
+    if (recipe.requiredAchievement or "") ~= "" then
+      local unlocked = Swc.HasAchievement((D().achievements or {})[recipe.requiredAchievement])
+      if achievementOnly then
+        return unlocked
+      end
+      if not unlocked then
+        return false
+      end
     end
-    return true
+    for disabled in string.gmatch(tostring(Swc.config["javelin.red-button-disable-crafting-recipe-list"] or ""), "[^%s,]+") do
+      if string.lower(disabled) == string.lower(recipe.id) then
+        return false
+      end
+    end
+    if (recipe.skill or "") == "" then
+      return true
+    end
+    return CategoricalProgressionRequestBus.Event.GetRank(nil, crc(recipe.skill)) >= C.RankForRecipeLevel(recipe.skill, recipe.level or 0)
   end,
   -- UnlockedAchievementBlocksRecrafting: the backend has no unlock rule (a recipe with an achievement has a cause of the data).
   IsRecipeBlockedByAchievement = function() return false end,
@@ -1069,10 +1095,101 @@ local function bucket_of(itemCrc, index)
   local name = static and static["perkBucket" .. tostring(index)]
   return name and name ~= "" and D().perkBuckets and D().perkBuckets[name] or nil
 end
+--- The craft mod data (crafting.json craftMods): the resources by the CRC-32 of the lower-case id, each with its display perk and its leaf
+--- perks as tag sets.
+function C.Mods()
+  if C.mods then
+    return C.mods
+  end
+  local function tags(text)
+    local out = {}
+    for tag in string.gmatch(string.lower(text or ""), "[^+%s]+") do
+      out[tag] = true
+    end
+    return out
+  end
+  local data = D().craftMods or {}
+  local mods = {list = {}, byCrc = {}, labels = {}}
+  for key, labels in pairs(data.perkLabels or {}) do
+    mods.labels[key] = tags(labels)
+  end
+  for _, row in ipairs(data.resources or {}) do
+    local mod = {id = row[1], crc = crc(row[1]), display = row[2], leaves = {}}
+    for _, leaf in ipairs(row[3] or {}) do
+      mod.leaves[#mod.leaves + 1] = {id = leaf[1], include = tags(leaf[2]), exclude = tags(leaf[3]), labels = tags(leaf[4])}
+    end
+    mods.list[#mods.list + 1] = mod
+    mods.byCrc[mod.crc] = mod
+  end
+  C.mods = mods
+  return mods
+end
+
+local function meets(a, b)
+  for tag in pairs(a) do
+    if b[tag] then
+      return true
+    end
+  end
+  return false
+end
+
+--- @return The CRC-32 values of the compatible craft mods of an output item (GetCompatiblePerkResourceIds).
+function C.CompatibleMods(output, others)
+  local static = Swc.ItemStatic(output)
+  if not static or (static.canHavePerks or 0) ~= 1 then
+    return {}
+  end
+  local mods = C.Mods()
+  local classes = {}
+  for tag in string.gmatch(string.lower(static.itemClass or ""), "[^+%s]+") do
+    classes[tag] = true
+  end
+  local function fits(leaf)
+    return (next(leaf.include) == nil or meets(leaf.include, classes)) and not meets(leaf.exclude, classes)
+  end
+  local reserved = {}
+  for n = 1, 5 do
+    local perk = static["perk" .. n]
+    for tag in pairs(perk and mods.labels[string.lower(tostring(perk))] or {}) do
+      reserved[tag] = true
+    end
+  end
+  for _, other in ipairs(others or {}) do
+    local mod = mods.byCrc[type(other) == "number" and other or crc(tostring(other))]
+    for _, leaf in ipairs(mod and mod.leaves or {}) do
+      if fits(leaf) and not meets(leaf.labels, reserved) then
+        for tag in pairs(leaf.labels) do
+          reserved[tag] = true
+        end
+      end
+    end
+  end
+  local out = {}
+  for _, mod in ipairs(mods.list) do
+    for _, leaf in ipairs(mod.leaves) do
+      if fits(leaf) and not meets(leaf.labels, reserved) then
+        out[#out + 1] = mod.crc
+        break
+      end
+    end
+  end
+  return out
+end
+
 Swc.Define("ItemDataManagerBus", "Broadcast", {
-  -- The craft mods (perk items) for a procedural result: part 5 of the stage (the backend rule Crafting::extras). Until then: none (the
-  -- screen lists no craft mod).
-  GetCompatiblePerkResourceIds = function() return {} end,
+  -- The craft mods (perk items) of an output item (AST-231; research crafting-ui.md 2, client code 0x4436640): the resources with
+  -- SocketType None and a perk bucket that has one leaf perk for the classes of the output (ItemClass empty or shared, no shared
+  -- ExcludeItemClass) whose ExclusiveLabels do not meet the labels of the fixed perks of the output and of the other selected resources.
+  -- No gear score or tier test; the screen adds the counts of the bag, the type filter, the None row, and the order.
+  GetCompatiblePerkResourceIds = function(output, others)
+    return C.CompatibleMods(output, others)
+  end,
+  -- The display perk of a resource (code 0x4436C60): the first perk of its bucket.
+  GetDisplayPerkIdFromResource = function(resource)
+    local mod = C.Mods().byCrc[type(resource) == "number" and resource or crc(tostring(resource))]
+    return mod and crc(mod.display) or 0
+  end,
   GetPerkBucketType = function(itemCrc, index)
     local bucket = bucket_of(itemCrc, index)
     return bucket and PERK_TYPES[bucket[1]] or (ePerkType_Invalid or 6)

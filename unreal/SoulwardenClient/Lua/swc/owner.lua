@@ -337,6 +337,11 @@ function Swc.HostOwnership(achievements, entitlements, received)
   O.entitlementsReceived = received and true or false
 end
 
+--- @return True when the Achievement state of the character has this bit (false with no Achievement state yet).
+function Swc.HasAchievement(bit)
+  return bit ~= nil and O.achievements ~= nil and O.achievements[bit] == true
+end
+
 --- @return True when the character owns the expansion Expansion2023 (the achievement bit). With no Achievement state yet the
 --- grant policy of the backend (each account owns the expansion: backend world/ownership.h) applies.
 function Swc.OwnsExpansion()

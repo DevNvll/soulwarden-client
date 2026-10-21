@@ -106,10 +106,16 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
 
 ## The list, refining, and the refusals (parts 4 to 6)
 
-- The list: GetRecipes leaves out the recipes with RequiredWorldTags (the seasonal servers; this world has no world tag): the retail
-  woodshop with this backend lists no "Ethereal Dust Refining" group (evidence 37a D1-02; an inference from that picture).
-- IsRecipeKnown(id, true) of the tree also tests the trade skill rank against the recipe level: the retail woodshop at Woodworking 0
-  lists Lumber (level 50) and the planks of higher levels under "Unlearned" (the same picture; an inference).
+- The list (AST-231, research crafting-ui.md 1): GetRecipes lists a recipe with RequiredWorldTags only when one tag is a tag of the
+  world (javelin.world-tags; a match test, code 0x5C66960). This world has no tag: the retail woodshop with this backend lists no
+  "Ethereal Dust Refining" group (evidence 37a D1-02).
+- IsRecipeKnown(id, second) (code 0x2E5E720): a recipe with RequiredAchievementID needs that achievement (the bit of the Achievement
+  state; with the second argument true the call returns that result at once); a recipe of javelin.red-button-disable-crafting-recipe-list
+  is not known; a recipe with no trade skill is known; else the recipe level of the rank must reach the RecipeLevel (the retail woodshop
+  at Woodworking 0 lists Lumber, level 50, under "Unlearned"). bKnownByDefault is not read.
+- The recipe set of the client stays the recipes with bKnownByDefault (2,340 of 8,294). The native enumeration has no such test; the
+  other 5,876 are pattern, faction, seasonal, and dungeon recipes (5,482 with no RequiredAchievementID). The retail lists of MVP-J
+  (the forge, the woodshop) showed none of them: open point (the rule that keeps them out of the retail list is not known).
 - The name of a recipe: RecipeNameOverride, else the name of the output item (the rows and the search read it).
 - A recipe with no trade skill: GetRecipeTradeskill gives "None" (the value that UpdateRequirements tests).
 - A recipe with RequiredExpansion: IsRecipeExpansionUnlocked is the owned expansion (the backend gives Expansion2023), so the tree lists
@@ -150,8 +156,19 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
 - The hint bar of the screen: closed by AST-231 (the HelpBar and the chat widget; "ENTER Chat", "SPACE Max Quantity" for a recipe that can be
   crafted with a max quantity above 1, "ESC Back"; evidence AST-231/ast231-help-crops.png).
 - The refusal row is a client addition (the retail screen has no such row); its long text shrinks to the row.
-- The craft mods (perk items) of a procedural result: retail lists the charms of the bag; the client lists none (part 5 open: the rule of
-  GetCompatiblePerkResourceIds needs the perk rules of the backend perk roller).
+- The craft mods (AST-231, research crafting-ui.md 2): GetCompatiblePerkResourceIds(output, others) gives the resources with SocketType
+  None and a perk bucket with one leaf perk for the classes of the output whose ExclusiveLabels do not meet the labels of the fixed perks
+  of the output and of the other selected resources (crafting.json craftMods: 308 resources; the great axe T5 has 51, the skinning
+  knife T2 7, as the study). GetDisplayPerkIdFromResource: the first perk of the bucket. The selector (perkitemselector.luac) adds the
+  None row, the bag counts, and the order (evidence AST-231/ast231-mod-selector.png). The perk tooltip text of a row is the localized
+  description with no values (GetGenericLocalizedDescription; open point).
+- The preview lines (AST-231, research crafting-ui.md 3): weaponAttributes.primaryAttack (the row of TooltipPrimaryAttackData:
+  the base damage at the gear score x DmgCoef + AddDmg, toward zero; itemrules.json attackRows) and GetLevelRequirement (zero-based:
+  RequiredLevel - 1, else the first level whose MaxEquippableGearScore reaches the gear score, plus the rarity modifier when the level
+  has IgnoreItemRarity false). The great axe: 223, 27%, 48 at 520 (run ast231-mods2; evidence AST-231/ast231-preview-crops.png), 251,
+  27%, 60 at 600 (the fixture craftrules).
+- The tree order of the forge: retail lists Greatswords before Great Axes; the client lists Great Axes first (open point: the sort
+  of the categories).
 - The gear score of the axe: retail 600 (Prismatic materials, Weaponsmithing 200, a food and a trophy), the client 520 (Asmodeum,
   Weaponsmithing 150): the same rule with other inputs; the server accepted the claim.
 - The screen size: the client runs at 1280 x 720, the retail pictures at 1256 x 660.

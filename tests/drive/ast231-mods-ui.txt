@@ -1,0 +1,15 @@
+# The UI drive of the craft mod check of AST-231 (routes tests/drive/ast231-mods-routes.txt): the axe, its preview, the mod selector.
+1 waitfor CompassLines 60
+2 waitfor world 180
+22 waitfor FilterInputField 30
+24 point FilterInputField
+25 click
+26 text Orichalcum Great Axe
+28 waitfor recipe:Procedural_2hGreatAxeT5 20
+29 point recipe:Procedural_2hGreatAxeT5
+30 click
+33 log the preview: Primary Attack, Blocking Stability, Required Level
+36 point AddPerkItem
+37 click
+40 log the craft mod selector
+44 key escape

@@ -228,6 +228,39 @@ local function core_damage(static, gearScore)
   return weapon_base(weapon, gearScore) * (1 + (rules.levelDamage or 0) * (level - 1))
 end
 
+--- @return The attacks of a row name of TooltipPrimaryAttackData or TooltipAlternateAttackData (AST-231; research crafting-ui.md 3,
+--- client code 0x3694ADD): one entry {type = DamageType, amount = the base damage at the gear score x DmgCoef + AddDmg, toward zero}.
+--- The display changes of fixed perks (code 0x5C6B180) are not here.
+local function attacks_of(weapon, row, gearScore)
+  local data = row and (rules.attackRows or {})[string.lower(row)]
+  if not data then
+    return {}
+  end
+  local amount = weapon_base(weapon, gearScore) * data[2] + data[3]
+  amount = amount >= 0 and math.floor(amount) or math.ceil(amount)
+  return {{type = data[1], damageType = data[1], amount = amount}}
+end
+
+--- @return The level requirement of an item, zero-based (AST-231; research crafting-ui.md 3, client code 0x5C4C960): a RequiredLevel of
+--- the data (the loader keeps it minus 1, code 0x442F362); else the Level Number of the first level whose MaxEquippableGearScore
+--- reaches the gear score (code 0x4403360), plus the Level Requirement Modifier of the rarity when that level has IgnoreItemRarity
+--- false. The screens show it plus 1 (craftingstatspanel.luac: Required Level 60 for the great axe at 600, 48 at 520).
+function Swc.ItemLevelRequirement(static, gearScore, rarity)
+  if static and (static.requiredLevel or 0) > 0 then
+    return static.requiredLevel - 1
+  end
+  local levels = rules.levelGearScores or {}
+  for _, row in ipairs(levels) do
+    if (row[2] or 0) >= (gearScore or 0) then
+      if row[3] then
+        return row[1]
+      end
+      return row[1] + ((rules.rarityLevelModifiers or {})[(rarity or 0) + 1] or 0)
+    end
+  end
+  return levels[#levels] and levels[#levels][1] or 0
+end
+
 --- @return The weapon attributes of an item at a gear score (the stat lines of the item tooltips), or {} for no weapon.
 local function weapon_attributes(static, gearScore)
   local weapon = stat_rows(static)
@@ -240,7 +273,8 @@ local function weapon_attributes(static, gearScore)
           blockStability = weapon.blockStability or 0, gatheringEfficiency = weapon.gatheringEfficiency or 0,
           physicalArmorRating = armor_rating(weapon, weapon.physicalArmor, gearScore),
           elementalArmorRating = armor_rating(weapon, weapon.elementalArmor, gearScore),
-          primaryAttack = {}, alternateAttack = {}}
+          primaryAttack = attacks_of(weapon, weapon.primaryAttack, gearScore),
+          alternateAttack = attacks_of(weapon, weapon.alternateAttack, gearScore)}
 end
 
 --- @return The armor attributes of an item at a gear score, or {} for no armor. The modifiers of the jewelry: gear score x
@@ -418,7 +452,7 @@ Swc.ItemDescriptor = Swc.ValueClass({
     end,
     GetLevelRequirement = function(self)
       local static = Swc.ItemStatic(self.itemId)
-      return static and static.requiredLevel or 0
+      return Swc.ItemLevelRequirement(static, self.gearScore or 0, rarity_of(static, self.perks))
     end,
     -- The trade skill rank that the item needs: a pair (first: the trade skill, second: the rank); no rank: 0 and 0.
     GetTradeskillRankRequirement = function() return {first = 0, second = 0} end,
@@ -934,6 +968,11 @@ Swc.Define("ItemDataManagerBus", "Broadcast", {
     if perk then
       data.key = perk.id
       data.id = perk.crc
+    end
+    -- The description of the perk for a tooltip (perkitemlistitem.luac, the craft mod rows): its localized text. The native fills the
+    -- generic values of the perk into the text (open point: the values stay as the text has them).
+    data.GetGenericLocalizedDescription = function()
+      return perk and perk.description and LyShineScriptBindRequestBus.Broadcast.LocalizeText(perk.description) or ""
     end
     return data
   end,
