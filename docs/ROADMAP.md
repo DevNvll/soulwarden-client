@@ -85,6 +85,54 @@ The milestones after milestone 1 come from the parity plan (AST-155): [PARITY.md
 and essential UI) is next; then P3 to P9. The earlier milestones 2 to 4 of this file (the UI, combat feel, the rest of
 the world) are now parts of P2, P3, and P4.
 
+## The MVP plan (2026-10-20)
+
+The decision of the user (2026-10-20): a functional MVP game. Play the current level 70 character of the user anywhere
+in the whole world; no sound; only the five weapons that work now (sword and shield, rapier, bow, great axe, war
+hammer); no quests or shops; progression later. The plan is `~/Games/soulwarden-client/research/mvp-gaps.md` (outside
+the repository). The status of each item is in Linear (parent AST-212).
+
+| Item | Linear | Status (2026-10-21) |
+| --- | --- | --- |
+| MVP-A: the supported-action list of the backend, the owner-state read path | AST-214 | Done |
+| MVP-B: all item looks prepared before play, the appearance preflight | AST-215 | Done |
+| MVP-C: the world map, the compass, the travel selector, death and respawn | AST-213 | Done |
+| MVP-D: the collision of the whole world, the load failures | AST-216 | Done |
+| MVP-E: the combat gaps of the five weapons, the screens, the consumables, the rune | AST-217 | Done |
+| MVP-F: the gathering gaps | AST-221 | Done |
+| MVP-G: the skill trees, the bar edits, the rank screens | AST-222 | Done |
+| MVP-H: the persons of the whole world, the conversation screen | AST-223 | Done |
+| MVP-I: the fight feedback with no sound, the water rules | AST-225 | Done |
+| MVP-J and J2: the crafting loop, the craft mods, the prompt card rule, the key hints | AST-226, AST-231 | Done |
+| MVP-L: the skill effects on the animation timeline (the user's request) | AST-230 | In progress |
+| God rays (the user's request) | AST-232 | In progress |
+| MVP-K: the cooked build of the whole MVP and its freshness checks | AST-229 | Part 1 done; the final cook waits |
+| The one-hour acceptance (MVP order 17) | - | After MVP-K |
+
+## Quests (after the backend parts 1.8a to 1.8e)
+
+The request of the user (2026-10-21): plan the quests in the client and add them to this roadmap. The backend quest
+engine has five parts; part 1.8a is released (backend commit fc5677e, database schema 15); 1.8b to 1.8e follow. The
+plan is `~/Games/soulwarden-client/research/quest-plan.md` (outside the repository; GPT-6.1-Sol, 2026-10-21). The
+backend owns the progress and the rewards; the client shows them with the original canvases and scripts. The user
+decides the place of these steps in the order (the MVP excludes quests now). Linear: parent AST-235.
+
+| Step | Backend part | The client work | Size |
+| --- | --- | --- | --- |
+| Q1 | 1.8a (released) | The owner decoders of the Objectives state (slot 22, type 3857) and the pin readiness (slot 73, type 5606); the quest data export and model; the messages 2709 and 1458; the original quest tracker of the HUD, the journal, and the banners with real buses | L |
+| Q2 | 1.8a, updates in b and c | The quest icons on the map and the compass, the world task pins, the objective areas; the journal and the map use one pin list | L |
+| Q3 (F7) | 1.8a (the new character start) | The original character creation: the archetype, the appearance, the name check, the create request, the entry on the Windsward beach | L |
+| Q4 | 1.8b | The quest persons, the offers, the hand-in, and the next offer in the conversation screen; the person markers; the first reward screen | L |
+| Q5 | 1.8b | The trigger areas, the scene activation, the cutscene handshake and playback (or a declared stand-in), the whisper subtitles with no sound | XL |
+| Q6 | 1.8c | The real progress of the kill, item, gather, craft, and place tasks; abandon and reset; the quest objects | L |
+| Q7 | 1.8d | The reward previews and screens with the real changes; the availability of the offers; a full bag | L |
+| Q8 | 1.8d | The timers, the failed quests, the repeats | L |
+| Q9 | 1.8e | The coverage report and the acceptance: a new character plays the ten quests from 06_getoffbeach to the first settlement | L |
+
+For Q1 and Q2, a development character made by the development create tool can test the display before Q3. The
+existing character of the user gets a quest only by the admin command `apply_backstory` (its achievements and its start
+objective only).
+
 ## Research items
 
 R4 and R5 are answered (AST-148, 2026-10-18): `~/Games/soulwarden-client/research/ui.md` (outside the repository),
