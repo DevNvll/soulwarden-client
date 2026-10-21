@@ -19,6 +19,7 @@
 #include "Creatures/SwcCreature.h"
 #include "Interact/SwcInteractor.h"
 #include "Character/SwcRangedView.h"
+#include "Character/SwcPlayerActions.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "Objects/SwcObjectSubsystem.h"
 #include "Camera/PlayerCameraManager.h"
@@ -632,6 +633,30 @@ void USwcUiSubsystem::FeedOwnerStates(const swc::net::RepClient::OwnEntity& Own)
 		SentChargeRevision = Own.chargeRevision;
 		Runtime->call("HostCharge", {FArg::of(static_cast<double>(Own.chargePercent))});
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the heart rune charge %u percent"), Own.chargePercent);
+	}
+	// The in-use state of a consumable (stage MVP-E; retail SetInUsePaperdollItem): the slot of the Use action of the character, 0 at its
+	// end. consumablequickslots.luac dims the four quick slot keys while it lasts (Swc.HostConsumeSlot).
+	{
+		const APlayerController* Controller = GetGameInstance() != nullptr ? GetGameInstance()->GetFirstLocalPlayerController() : nullptr;
+		const ASwcPlayerCharacter* Character = Controller != nullptr ? Cast<ASwcPlayerCharacter>(Controller->GetPawn()) : nullptr;
+		const uint32 Slot = Character != nullptr && Character->GetActions() != nullptr ? Character->GetActions()->GetConsumingSlot() : 0;
+		if (Slot != SentConsumeSlot)
+		{
+			SentConsumeSlot = Slot;
+			Runtime->call("HostConsumeSlot", {FArg::of(static_cast<double>(Slot))});
+		}
+	}
+	// The statuses of the owner (slot 44, the full map; stage MVP-E): "index potency stacks" lines. The equipment screen takes the armor
+	// parts of the statuses (swc/owner.lua Swc.HostStatuses); the server sends the map again at the end of a status.
+	if (Own.statusRevision != SentStatusRevision)
+	{
+		SentStatusRevision = Own.statusRevision;
+		std::string Text;
+		for (const swc::net::RepClient::OwnEntity::Status& Status : Own.statuses)
+		{
+			Text += std::to_string(Status.index) + " " + std::to_string(Status.potency) + " " + std::to_string(Status.stacks) + "\n";
+		}
+		Runtime->call("HostStatuses", {FArg::of(Text)});
 	}
 	// The achievements of the character (slot 66) and the entitlements of the account (slot 19): the indexes of the set bits.
 	if (Own.achievementRevision != SentAchievementRevision || Own.entitlementRevision != SentEntitlementRevision)

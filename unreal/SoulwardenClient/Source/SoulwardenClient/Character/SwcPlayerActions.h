@@ -96,6 +96,19 @@ public:
 	 * of the use (InteractionAlignment of the actions DelayedInteraction and Gather: AlignFacingBlendTime 0.2 s).
 	 */
 	void SetTimedUse(bool bOn, const FString& Kind = TEXT("delayed"), uint32 ToolSlot = 0, const FVector* FacePlace = nullptr);
+	/**
+	 * Stage MVP-E (docs/ACTIONS.md "The consumables"): the use of the consumable of a quick slot (paperdoll slot 14 to 17; the action
+	 * Use_QuickSlot_N of playeractions_use). The fragment Use of the MannequinTag of the item and the posture plays on the UpperBody
+	 * channel (Potion: unarmed_potion_drink_ub, Eat: unarmed_eatfromhand_ub); the legs keep the locomotion. Not prone, not in a swim
+	 * (IfWaterDepth Deep), with an item in the slot. The press bits go to the server in any case (the server owns the use).
+	 * @return True when the fragment plays.
+	 */
+	bool StartConsumableUse(uint32 PaperdollSlot);
+	/** @return The paperdoll slot of the consumable use that plays (14 to 17), else 0: the in-use state of the paperdoll (retail
+	 *  SetInUsePaperdollItem 0x6925570; the HUD dims the four quick slot keys: Hud.LocalPlayer.Equipment.SetConsumeSlot). */
+	uint32 GetConsumingSlot() const;
+	/** @return True while a consumable use plays: a jump and a block do not start (player.grid: Use to Jump, Traversal, Block Never). */
+	bool IsUsingConsumable() const { return GetConsumingSlot() != 0; }
 	/** @return True while the input of the player does nothing: the death, a loading screen, the respawn before its mark, a
 	 *  timed use, a conversation until the answer 6709. */
 	bool IsInputLocked() const { return LifeState.locked() || bConversation; }
@@ -157,6 +170,8 @@ private:
 		uint32 Serial = 0;
 		/** The draw fragment has the mark Unsheathe_Offhand (else the off hand moves at unsheathe_weapon). */
 		bool bOffhandMark = false;
+		/** A consumable use (the fragment Use): no draw or sheathe mark; it ends at its mark Exit_Use or its end. */
+		bool bUse = false;
 	};
 
 	ASwcPlayerCharacter* Character() const;
@@ -202,6 +217,16 @@ private:
 	const void* DriverGraphs[2] = {nullptr, nullptr};
 	uint32 DriverHeld = 0;
 	TArray<FUpperAction> Upper;
+	/**
+	 * Stage MVP-E: the input gate of a consumable use (player.grid, the rules from Use; research mvp-e-static.md 4): an attack, an ability
+	 * key, or a dodge before the mark CanBuffer_UpperBody (B) does nothing; from B it waits, and at the mark CanTransition_UpperBody (T) the
+	 * use ends and the waiting input starts. @return True when the input is held back (Kind 1 attack, 2 ability key Place, 3 dodge).
+	 */
+	bool GateByUse(uint8 Kind, uint32 Place);
+	uint8 UsePendingKind = 0;
+	uint32 UsePendingPlace = 0;
+	/** The attack button went up while its press waited: the replay at T presses and releases it. */
+	bool bUsePendingRelease = false;
 	uint32 UpperSerial = 0;
 	/** The weapon in the hand of the pose: its slot (0: none) and its shield in the hand. */
 	uint32 VisualSlot = 0;

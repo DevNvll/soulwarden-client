@@ -1,0 +1,29 @@
+# The UI drive of the second live check of stage MVP-E (docs/ACTIONS.md "The consumables", docs/UI.md "The owner states"): the equipment
+# screen (the gear score, PHYS, ELEM); the health potion (key 3) after the hurt route, with an attack click of the player drive before CanBuffer_UpperBody
+# (0.67 s: nothing) and one after it (it waits and starts at CanTransition_UpperBody, 1.0 s); the food (key 6) with a jump of the player drive in its use (no
+# jump); the dust in quick slot 3 (key 5: ELEM x 1.35 on the screen); the fight of the player drive with the great axe (key 2 at 10 s), and G with
+# the full charge of the Detonate rune (bit 450, the explosion at the end of its status after 3 s). Times from the spawn of the player.
+1 waitfor CompassLines 60
+2 waitfor world 180
+4 key tab
+7 draw inventory-start
+9 key tab
+10 log the great axe (key 2): drawn before the potion
+10 key 2
+12 log key 3: the health potion; the player drive clicks at 0.35 s (nothing) and at 0.85 s (it waits for 1.0 s)
+12 key 3
+15 log key 6: the food; the player drive jumps at 0.5 s of its use (no jump)
+15 key 6
+20 log key 5: the dust GemstoneDustT5 in quick slot 3 (ELEM +0.35)
+20 key 5
+23 key tab
+26 draw inventory-dust
+27 key tab
+152 log G with the Detonate rune: bit 450 with the full charge
+152 key g
+153 draw rune-press
+157 draw rune-explosion
+159 key tab
+162 draw inventory-end
+163 key tab
+165 end

@@ -944,7 +944,37 @@ def convert_gamedata() -> dict:
                    for r in table_rows("javelindata_afflictions.datasheet")
                    if r.get("AfflictionID") and isinstance(r.get("IntID"), (int, float))]
     (target / "afflictions.json").write_text(json.dumps(afflictions, separators=(",", ":")))
-    return {"ability tables": len(tables), "abilities": len(abilities), "weapons": len(weapons), "afflictions": len(afflictions)}
+    owner = convert_owner_stats()
+    (target / "ownerstats.json").write_text(json.dumps(owner, separators=(",", ":"), sort_keys=True))
+    return {"ability tables": len(tables), "abilities": len(abilities), "weapons": len(weapons), "afflictions": len(afflictions),
+            "owner stat statuses": len(owner.get("statuses", {}))}
+
+
+# The columns of a status row that the character values of the equipment screen use (stage MVP-E): the armor parts and the
+# absorption of each damage type (the same columns as the backend, world/statuses.cpp Statuses::values).
+OWNER_STAT_COLUMNS = ("PhysicalArmor", "ElementalArmor")
+
+
+def convert_owner_stats() -> dict:
+    """@return The status rows with an armor part or an absorption, by the index of the StatusEffects state of the owner (slot 44: the
+    compact map names a status by its index), and the limits of the status categories (the backend copy, ability-data.json
+    statusEffects and statusCategories; the same data as the server). The equipment screen shows the armor of the backend rule
+    (swc/owner.lua Swc.ArmorRating)."""
+    gamedata = Path(os.environ.get("SWC_GAMEDATA_DIR") or env.work_dir() / "backend/current/gamedata")
+    path = gamedata / "ability-data.json"
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text())
+    statuses: dict[str, dict] = {}
+    for row in data.get("statusEffects", []):
+        cells = row[9] if len(row) > 9 and isinstance(row[9], dict) else {}
+        values = {k: v for k, v in cells.items() if isinstance(v, (int, float)) and v != 0
+                  and (k in OWNER_STAT_COLUMNS or k.startswith("ABS"))}
+        if values:
+            statuses[str(row[1])] = {"id": row[0], "values": values,
+                                     "categories": [c for c in str(cells.get("EffectCategories") or "").split("+") if c]}
+    categories = {name: limits for name, limits in data.get("statusCategories", []) if limits}
+    return {"statuses": statuses, "categories": categories}
 
 
 def convert_world() -> dict:

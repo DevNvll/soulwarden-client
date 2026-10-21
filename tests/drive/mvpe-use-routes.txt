@@ -1,0 +1,28 @@
+# The development routes of the live check of stage MVP-E part 11 (tests/drive/mvpe-use.txt and mvpe-use-ui.txt; the copy of the user's
+# database: the bow in slot 24, the great axe in slot 25, the Detonate rune, the dust GemstoneDustT5 in quick slot 3). Noon, the
+# creatures ignore the character; times on the clock of the player drive. A wolf of level 70 stands 2 m in front of the character each
+# 6 s from 30 s (the heavy swings carry the character forward, and the hits push the wolves away: a new wolf keeps a target in front).
+1 world-time 12:00
+1 ignore on
+1.5 heal
+10 hurt 2500
+30 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+36 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+42 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+48 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+54 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+60 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+66 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+72 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+78 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+84 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+90 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+96 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+102 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+108 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+114 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+120 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+126 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+132 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+138 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+144 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70

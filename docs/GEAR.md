@@ -193,6 +193,23 @@ SWC_SESSION_BACKEND_ARGS=--dev-commands tools/dev-run.sh --create "name=Swordwar
 tools/dev-run.sh --window --enter Swordwarden --quit-when world --stay 27 -- -SwcDrive=$PWD/tests/drive/gear.txt
 ```
 
+## The armor of the screen (stage MVP-E, Linear AST-217)
+
+The retail equipment screen reads PHYS and ELEM from a native StatModifiers cache of the vitals (`GetVitalsArmorModifierValueById`,
+0x6833FC0 and lookup 0x5C5A900; research `~/Games/soulwarden-client/research/mvp-e-static.md` 2). Its slot filter and the order of
+its additive and multiplicative stages are not proved. The decision of the orchestrator: the client shows the armor of the backend
+rule, because the backend is the authority of this project and that value changes the damage:
+
+- The item sum: for each armor item of the slots 0 to 4, round1(ArmorRatingScaleFactor x round1(GS ^ 1.2 x set scale factor))
+  (`Combat::armor_of` of the backend; the item rule of the retail client 0x5BFB400; `Swc.ItemArmorRating`).
+- Times max(1 + part, 0). The part of the statuses: for each status of the owner (the state 44, fed by `HostStatuses`) its
+  `PhysicalArmor` or `ElementalArmor` x potency x stacks; each value goes to the first category of the status with a limit for the
+  column (ArmorFortify +2.0, ArmorRend -0.7), else it is free (`Statuses::values` of the backend). The data: `gamedata/ownerstats.json`
+  (`tools/convert-ui.sh gamedata`, from the backend copy `ability-data.json`).
+- Not in the client (gaps): the armor parts of the perks of the gear (`Gear::values` of the backend; the gear of the current
+  character has none), the attribute thresholds (CON 50, 200, 300 rows), and the absorption and the weakness of the hover lists. The
+  value is the backend value, not a proved copy of the retail cache.
+
 ## Open points
 
 - The draw and sheathe body clips and the stances of the weapons play from stage P2.7 ([ACTIONS.md](ACTIONS.md)). The

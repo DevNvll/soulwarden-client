@@ -394,6 +394,13 @@ bool FSwcActions::Load(FString& OutReport)
 		return false;
 	}
 	// The clips.
+	if (const TSharedPtr<FJsonObject>* Objects = nullptr; Document->TryGetObjectField(TEXT("consumables"), Objects))
+	{
+		for (const auto& Pair : (*Objects)->Values)
+		{
+			ConsumableTags.Add(FString(Pair.Key.ToView()).ToLower(), Pair.Value->AsString());
+		}
+	}
 	if (const TSharedPtr<FJsonObject>* Objects = nullptr; Document->TryGetObjectField(TEXT("clips"), Objects))
 	{
 		for (const auto& Pair : (*Objects)->Values)

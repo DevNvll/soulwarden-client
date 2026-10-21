@@ -291,7 +291,9 @@ void ASwcPlayerController::OnLook(const FInputActionValue& Value)
 
 void ASwcPlayerController::OnJump(const FInputActionValue&)
 {
-	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()); Character != nullptr && !Character->GetActions()->IsInputLocked())
+	// A consumable use: no jump (player.grid: Use to Jump Never; stage MVP-E).
+	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn());
+		Character != nullptr && !Character->GetActions()->IsInputLocked() && !Character->GetActions()->IsUsingConsumable())
 	{
 		Character->GetSwcMovement()->RequestJump();
 	}
@@ -744,4 +746,18 @@ void ASwcPlayerController::PressVirtualBits(const TArray<uint32>& Bits)
 {
 	PressBits = Bits;
 	++PressSerial;
+	// Stage MVP-E: the quick slot keys (Use_Quickslot_1 to 4: the bits 404, 117, 140, 513 for the paperdoll slots 14 to 17) also play
+	// the fragment Use of the item (playeractions_use Use_QuickSlot_N).
+	static constexpr uint32 QuickSlotBits[] = {404, 117, 140, 513};
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		if (Bits.Contains(QuickSlotBits[Index]))
+		{
+			if (ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
+			{
+				Character->GetActions()->StartConsumableUse(14 + Index);
+			}
+			break;
+		}
+	}
 }

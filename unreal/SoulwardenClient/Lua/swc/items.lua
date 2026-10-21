@@ -269,6 +269,15 @@ local function armor_attributes(static, gearScore)
   return out
 end
 
+--- @return The armor rating of a paperdoll item for "physical" or "elemental" (the item rule above, 0x5BFB400), 0 for no armor.
+function Swc.ItemArmorRating(item, kind)
+  local _, armor = stat_rows(item and item.static)
+  if not armor then
+    return 0
+  end
+  return armor_rating(armor, kind == "physical" and armor.physicalArmor or armor.elementalArmor, item.gearScore or 0)
+end
+
 -- The expansions (itemrules.json: javelindata_expansions). The backend gives each player the expansion Expansion2023 (its
 -- entitlements: the owned expansion of the client). The client tests the achievement Expansion_2023_Unlock of the character
 -- (image RVA 0x684B340; backend world/ownership.h): swc/owner.lua Swc.OwnsExpansion.
@@ -775,7 +784,7 @@ Swc.Define("PaperdollRequestBus", "Event", {
   SlotBlockedByCooldown = function() return false end,
   IsSlotLockedInCombat = function() return false end,
   CanEquipItemFromSlot = function() return true end,
-  GetPowerLevel = function() return 0 end,
+  GetPowerLevel = function() return Swc.PowerLevel() end,
   GetEquipLoadRatio = function() return 0 end,
   GetEquipLoadCategoryForWeight = function() return 0 end,
   GetLoadouts = function() return {} end,
@@ -1212,9 +1221,14 @@ Swc.Define("PaperdollRequestBus", "Event", {
   end,
   IsItemInGSSExcludedPaperdollSlot = function() return false end,
 })
--- The armor modifiers of the vitals (the equipment screen): the backend sends none in the read path (0).
+-- The armor of the vitals (the equipment screen, equipmentv3.luac UpdateArmorRatings: the keys CRC-32 "physical" and "elemental"): the
+-- armor of the backend rule (swc/owner.lua Swc.ArmorRating; stage MVP-E).
+local ARMOR_KEYS = {[3609800712] = "physical", [4218213731] = "elemental"}
 Swc.Define("VitalsComponentRequestBus", "Event", {
-  GetVitalsArmorModifierValueById = function() return 0 end,
+  GetVitalsArmorModifierValueById = function(_, key)
+    local kind = ARMOR_KEYS[tonumber(key) or 0]
+    return kind and Swc.ArmorRating(kind) or 0
+  end,
 })
 Swc.Define("UiCanvasBus", "Event", {
   SetIsPositionalInputSupported = function() end,

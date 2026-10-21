@@ -215,6 +215,8 @@ private:
 	uint32 SentRankRevision = ~0u;
 	uint32 SentNodesRevision = ~0u;
 	uint32 SentChargeRevision = ~0u;
+	uint32 SentStatusRevision = ~0u;
+	uint32 SentConsumeSlot = 0;
 	uint32 SentAchievementRevision = ~0u;
 	uint32 SentEntitlementRevision = ~0u;
 	uint32 SentCraftRevision = ~0u;

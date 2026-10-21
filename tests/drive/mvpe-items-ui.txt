@@ -1,0 +1,33 @@
+# The UI drive of the live check of stage MVP-E part 11 (docs/UI.md "The owner states"): the ability backgrounds of the bow, G with the
+# Bile Bomb rune (no rule of the backend: no bit), the health potion (key 3) after a hurt, the food FoodDEXT52 (key 6: the DEX bonus
+# of the attribute state on the equipment screen), the great axe (key 2), G with the Detonate rune after the charge of the hits (bit
+# 450, the explosion at the end of its status). Times in seconds from the spawn of the player.
+1 waitfor CompassLines 60
+2 waitfor world 180
+4 log the bow (key 1): the backgrounds of the three ability slots
+4 key 1
+8 draw bow
+9 log G with the Bile Bomb rune: no rule of the backend, no bit
+9 key g
+11 key tab
+14 draw inventory
+15 key tab
+17 log key 3: the health potion after the hurt route
+17 key 3
+21 log key 6: the food FoodDEXT52 in quick slot 4
+21 key 6
+23 key tab
+26 draw inventory-food
+27 key tab
+30 log the great axe (key 2) after the routes: Detonate in slot 45, the great axe in slot 25
+30 key 2
+45 draw charging
+59 draw charged
+60 log G with the Detonate rune: bit 450
+60 key g
+61 draw rune-press
+64 draw rune-explosion
+66 key tab
+69 draw inventory-end
+70 key tab
+72 end

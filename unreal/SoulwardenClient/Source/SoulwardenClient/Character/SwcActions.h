@@ -264,6 +264,9 @@ public:
 	const FTransform* WeaponJoint(const FString& Model, FName Joint) const;
 
 	TArray<FSwcActionFragment> Fragments;
+	/** Stage MVP-E: the MannequinTag of each consumable (the item id in lower case; javelindata_itemdefinitions_consumables): the
+	 *  variant of the fragment Use ("use|POSTURE|TAG" of the use map of the unarmed set). */
+	TMap<FString, FString> ConsumableTags;
 	TArray<FSwcActionClip> Clips;
 	TArray<FSwcBlendSpace> BlendSpaces;
 	TArray<TSharedPtr<FSwcWeaponActions>> Weapons;

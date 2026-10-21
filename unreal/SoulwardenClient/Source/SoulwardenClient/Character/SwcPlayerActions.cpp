@@ -335,7 +335,8 @@ void USwcPlayerActions::OnGearChanged()
 		return;
 	}
 	// The pose follows the weapon state of the paperdoll (SetWeaponState placed the parts at once).
-	Upper.Reset();
+	// A consumable use stays (stage MVP-E: the server takes the item and the paperdoll changes; a weapon swap keeps Use).
+	Upper.RemoveAll([](const FUpperAction& Action) { return !Action.bUse; });
 	VisualSlot = Owner->IsWeaponDrawn() ? Owner->GetActiveWeaponSlot() : 0;
 	bVisualOffhand = VisualSlot != 0 && Owner->HasWeapon(VisualSlot + 3);
 	const FSwcWeaponActions* First = WeaponOf(24);
@@ -460,7 +461,7 @@ void USwcPlayerActions::OnDodgeKey()
 		UE_LOG(LogSwcBackend, Log, TEXT("dodge: no dodge in the water"));
 		return;
 	}
-	if (Driver && !IsActionLocked())
+	if (Driver && !IsActionLocked() && !GateByUse(3, 0))
 	{
 		Driver->dodge_press();
 	}
@@ -481,7 +482,15 @@ void USwcPlayerActions::SetLearnedNodes(uint32 Revision, const std::vector<std::
 
 void USwcPlayerActions::OnAbilityKey(uint32 Place, bool bDown)
 {
+	if (!bDown && UsePendingKind == 2 && UsePendingPlace == Place)
+	{
+		bUsePendingRelease = true;
+	}
 	if (Place >= 3 || (bDown && IsActionLocked()) || bAbilityDown[Place] == bDown)
+	{
+		return;
+	}
+	if (bDown && GateByUse(2, Place))
 	{
 		return;
 	}
@@ -498,6 +507,14 @@ void USwcPlayerActions::OnAttackButton(bool bDown)
 	{
 		return;
 	}
+	if (!bDown && UsePendingKind == 1)
+	{
+		bUsePendingRelease = true;
+	}
+	if (bDown && GateByUse(1, 0))
+	{
+		return;
+	}
 	if (bDown == bButtonDown)
 	{
 		return;
@@ -507,6 +524,107 @@ void USwcPlayerActions::OnAttackButton(bool bDown)
 	{
 		Driver->button(bDown);
 	}
+}
+
+uint32 USwcPlayerActions::GetConsumingSlot() const
+{
+	const double Now = GetWorld() != nullptr ? GetWorld()->GetTimeSeconds() : 0.0;
+	for (const FUpperAction& Action : Upper)
+	{
+		if (Action.bUse && Now >= Action.Start)
+		{
+			return Action.Slot;
+		}
+	}
+	return 0;
+}
+
+bool USwcPlayerActions::GateByUse(uint8 Kind, uint32 Place)
+{
+	const double Now = GetWorld()->GetTimeSeconds();
+	for (const FUpperAction& Action : Upper)
+	{
+		if (!Action.bUse || Now < Action.Start)
+		{
+			continue;
+		}
+		const FSwcActionFragment& Fragment = Data->Fragments[Action.Fragment];
+		const float Clock = static_cast<float>(Now - Action.Start);
+		const float Buffer = Fragment.MarkTime(TEXT("CanBuffer_UpperBody"), Action.Length);
+		if (Clock >= Buffer)
+		{
+			UsePendingKind = Kind;
+			UsePendingPlace = Place;
+			bUsePendingRelease = false;
+		}
+		UE_LOG(LogSwcBackend, Log, TEXT("use: input %u at %.2f s of the use: %s"), Kind, Clock,
+			Clock >= Buffer ? TEXT("waits for CanTransition_UpperBody") : TEXT("nothing (before CanBuffer_UpperBody)"));
+		return true;
+	}
+	return false;
+}
+
+bool USwcPlayerActions::StartConsumableUse(uint32 PaperdollSlot)
+{
+	ASwcPlayerCharacter* Owner = Character();
+	USwcBackendSubsystem* Backend = Owner != nullptr && Owner->GetGameInstance() != nullptr ? Owner->GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr;
+	const FSwcWeaponActions* Unarmed = Data.IsValid() ? Data->Weapon(FString()) : nullptr;
+	if (Owner == nullptr || Backend == nullptr || Unarmed == nullptr || IsActionLocked())
+	{
+		return false;
+	}
+	// The activation conditions of Use_QuickSlot_N: an item in the slot, not prone, not in deep water (the swim), not mounted. The
+	// consumable cooldown timer of the condition is not checked: the retail client plays the drink also in a cooldown of the server
+	// (protocol notes 4.23, live proof I7 and I12).
+	const USwcCharacterMovement* Movement = Owner->GetSwcMovement();
+	const swc::move::Posture Posture = Movement->GetPosture();
+	if (Posture == swc::move::Posture::prone || Movement->IsSwimming())
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("use: quick slot %u: no fragment (prone or swim)"), PaperdollSlot);
+		return false;
+	}
+	swc::net::RepClient::OwnEntity Own;
+	const FSwcPlayerLooks* Looks = Backend->GetPlayerLooks();
+	if (!Backend->GetLocalPlayer(Own) || Looks == nullptr)
+	{
+		return false;
+	}
+	const auto Found = Own.paperdollItems.find(PaperdollSlot);
+	if (Found == Own.paperdollItems.end())
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("use: quick slot %u is empty: no fragment"), PaperdollSlot);
+		return false;
+	}
+	const FString ItemId = Looks->ItemId(Found->second.index);
+	const FString Tag = Data->ConsumableTags.FindRef(ItemId.ToLower());
+	const TCHAR* PostureTag = Posture == swc::move::Posture::crouch ? TEXT("Crouch") : TEXT("");
+	// The fragment Use of the tag and the posture; a tag with no variant (Boost) takes the variant with no tag (unarmed_drink_ub).
+	int32 Fragment = INDEX_NONE;
+	for (const FString& Key : {FString::Printf(TEXT("use|%s|%s"), PostureTag, *Tag), FString::Printf(TEXT("use|%s|"), PostureTag),
+			 FString::Printf(TEXT("use||%s"), *Tag), FString(TEXT("use||"))})
+	{
+		if (const int32* Index = Unarmed->Use.Find(Key))
+		{
+			Fragment = *Index;
+			break;
+		}
+	}
+	if (Fragment == INDEX_NONE)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("use: quick slot %u (%s, tag %s): no fragment Use (tools/convert-player.sh actions)"), PaperdollSlot, *ItemId, *Tag);
+		return false;
+	}
+	FUpperAction Action;
+	Action.Slot = PaperdollSlot;
+	Action.bUse = true;
+	Action.Fragment = Fragment;
+	Action.Start = GetWorld()->GetTimeSeconds();
+	Action.Serial = ++UpperSerial;
+	Action.Length = Data->Fragments[Fragment].Length > 0.0f ? Data->Fragments[Fragment].Length : 1.0f;
+	Upper.Add(Action);
+	UE_LOG(LogSwcBackend, Log, TEXT("use: quick slot %u (%s, tag %s): %s, %.2f s"), PaperdollSlot, *ItemId, Tag.IsEmpty() ? TEXT("none") : *Tag,
+		*Data->Fragments[Fragment].Key, Action.Length);
+	return true;
 }
 
 void USwcPlayerActions::StartUpper(uint32 Slot, bool bDraw, double Start)
@@ -541,7 +659,8 @@ void USwcPlayerActions::Request(uint32 Slot, bool bDrawn)
 	const uint32 OldSlot = Owner->GetActiveWeaponSlot();
 	const bool bOldDrawn = Owner->IsWeaponDrawn();
 	// A new request replaces the draw and the sheathe that play: the parts stay where they are until the new marks.
-	Upper.Reset();
+	// A consumable use stays (stage MVP-E: the server takes the item and the paperdoll changes; a weapon swap keeps Use).
+	Upper.RemoveAll([](const FUpperAction& Action) { return !Action.bUse; });
 	float Delay = 0.0f;
 	if (bOldDrawn && OldSlot != 0 && (!bDrawn || OldSlot != Slot))
 	{
@@ -593,7 +712,8 @@ void USwcPlayerActions::PlaceSlot(uint32 Slot, bool bInHand, bool bMain, bool bO
 void USwcPlayerActions::DrawAtOnce(uint32 Slot)
 {
 	ASwcPlayerCharacter* Owner = Character();
-	Upper.Reset();
+	// A consumable use stays (stage MVP-E: the server takes the item and the paperdoll changes; a weapon swap keeps Use).
+	Upper.RemoveAll([](const FUpperAction& Action) { return !Action.bUse; });
 	for (uint32 Other = 24; Other <= 26; ++Other)
 	{
 		PlaceSlot(Other, Other == Slot, true, true);
@@ -623,7 +743,7 @@ void USwcPlayerActions::UpdateBlock(double Now)
 	const bool bDodging = Snapshot.dodge && Snapshot.dodge->number != DodgeReleased;
 	// The conditions of Block_UpperBody: block_active_virtual (the right button held), no prone, the stamina above 0 and no
 	// Exhausted, alive; an attack, a dodge, or a draw on the UpperBody channel holds the block back (the client keeps one action).
-	const bool bFree = !IsActionLocked() && !bPlaying && !bDodging && Movement->GetPosture() != swc::move::Posture::prone
+	const bool bFree = !IsActionLocked() && !bPlaying && !bDodging && !IsUsingConsumable() && Movement->GetPosture() != swc::move::Posture::prone
 		&& Snapshot.stamina > 0.0f && !Snapshot.exhausted;
 	if (bBlocking)
 	{
@@ -685,7 +805,15 @@ void USwcPlayerActions::UpdateUpper(double Now)
 			for (const swc::combat::Mark* Mark : swc::combat::marks_between(Data->Fragments[Action.Fragment].Marks, Action.Last, Clock))
 			{
 				const FString Name = UTF8_TO_TCHAR(Mark->name.c_str());
-				if (Action.bDraw && Name.Equals(TEXT("unsheathe_weapon"), ESearchCase::IgnoreCase))
+				if (Action.bUse)
+				{
+					// The deactivation of Use_QuickSlot_N: IfFragmentDone or IfMannequinMarker Exit_Use.
+					if (Name.Equals(TEXT("Exit_Use"), ESearchCase::IgnoreCase))
+					{
+						Action.Length = FMath::Min(Action.Length, Clock);
+					}
+				}
+				else if (Action.bDraw && Name.Equals(TEXT("unsheathe_weapon"), ESearchCase::IgnoreCase))
 				{
 					PlaceSlot(Action.Slot, true, true, !Action.bOffhandMark);
 				}
@@ -714,9 +842,41 @@ void USwcPlayerActions::UpdateUpper(double Now)
 			Action.Length = Mark + 0.01f;
 		}
 		Action.Last = Clock;
+		if (Action.bUse && UsePendingKind != 0 && Clock >= Data->Fragments[Action.Fragment].MarkTime(TEXT("CanTransition_UpperBody"), Action.Length))
+		{
+			// The waiting input replaces the use at CanTransition_UpperBody.
+			Action.Length = Clock;
+		}
 		if (Clock >= Action.Length)
 		{
+			const bool bUseEnded = Action.bUse;
 			Upper.RemoveAt(Index);
+			if (bUseEnded && UsePendingKind != 0)
+			{
+				const uint8 Kind = UsePendingKind;
+				UsePendingKind = 0;
+				UE_LOG(LogSwcBackend, Log, TEXT("use: the waiting input %u starts at %.2f s of the use"), Kind, Clock);
+				if (Kind == 1)
+				{
+					OnAttackButton(true);
+					if (bUsePendingRelease)
+					{
+						OnAttackButton(false);
+					}
+				}
+				else if (Kind == 2)
+				{
+					OnAbilityKey(UsePendingPlace, true);
+					if (bUsePendingRelease)
+					{
+						OnAbilityKey(UsePendingPlace, false);
+					}
+				}
+				else
+				{
+					OnDodgeKey();
+				}
+			}
 			continue;
 		}
 		if (Action.Fragment != INDEX_NONE)

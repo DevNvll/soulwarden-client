@@ -54,6 +54,15 @@ LIFE_FRAGMENTS = {"death": ("r_Death", "Unarmed"), "respawn": ("Respawn", "")}
 # Trigger, PickupBuildable, RevivePlayer) sheathes the weapons and plays Delayed_Interact (the kneel) while the request lasts.
 INTERACT_ACTIONS = "sharedassets/springboardentitites/playerdata/cage/playeractions_interact.actionlist"
 USE_FRAGMENTS = {"delayed": ("Delayed_Interact", "")}
+# The use of a consumable (stage MVP-E, playeractions_use.actionlist Use_QuickSlot_1 to 4): the fragment Use of player.adb for the
+# MannequinTag of the consumable (javelindata_itemdefinitions_consumables: Potion, Eat, WeaponOil, Boost) and the posture: the
+# upper-body clips unarmed_potion_drink_ub, unarmed_eatfromhand_ub (speed 1.5), unarmed_drink_ub (speed 1.3; the variant with no
+# tag, also for Boost), rswrd_imbue (WeaponOil). Keys "use|POSTURE|TAG".
+CONSUMABLE_TABLE = "javelindata_itemdefinitions_consumables.datasheet"
+USE_TAGS = ("", "Drink", "Potion", "Eat", "Bandage", "WeaponOil")
+for _posture in ("", "Crouch", "Prone"):
+    for _tag in USE_TAGS:
+        USE_FRAGMENTS[f"use|{_posture}|{_tag}"] = ("Use", "+".join(t for t in (_posture, _tag) if t))
 # The dodge fragments of the load classes (stamina-data.json of the backend copy), with the direction variants of the move keys
 # (no tag: forward). The Prone variants are not used (the backend file lists them as not used).
 DODGE_FRAGMENTS = ("Dodge_Roll_Fast", "Dodge_Roll", "Dodge_Roll_Slow")
@@ -410,6 +419,16 @@ def clip_info(path: str, skeleton: player.Skeleton, root: bool, names: dict[int,
     return out
 
 
+def consumable_tags() -> dict[str, str]:
+    """@return The MannequinTag of each consumable with one (the item id in lower case): the variant of the fragment Use."""
+    out = {}
+    for row in datasheet.load(CONSUMABLE_TABLE).rows():
+        tag = row.get("MannequinTag") or ""
+        if row.get("ConsumableID") and isinstance(tag, str) and tag:
+            out[str(row["ConsumableID"]).lower()] = tag
+    return out
+
+
 def actions() -> dict:
     """Writes actions.json (see the module text). @return Counts."""
     graph = json.loads((gamedata_dir() / "weapon-actions.json").read_text())
@@ -617,8 +636,11 @@ def actions() -> dict:
     stamina = {"data": json.loads((gamedata_dir() / "stamina-data.json").read_text()), "encumbrance": perks["encumbrance"],
                "itemLoads": {item.lower(): load for item, load in perks["equipLoad"].items()}}
     doc = {"format": 1, "sources": [player.ADB, CONTROLLER_DEFS, ATTACK_ACTIONS, DODGE_ACTIONS, DEATH_ACTIONS, INTERACT_ACTIONS, gather_actions.GATHER_ACTIONS, ABILITY_ACTIONS + "*",
+                                    "sharedassets/springboardentitites/playerdata/cage/playeractions_use.actionlist",
+                                    datasheet.TABLES_FOLDER + CONSUMABLE_TABLE,
                                     datasheet.TABLES_FOLDER + "javelindata_spelltable_*", str(gamedata_dir() / "weapon-actions.json"), str(gamedata_dir() / "ability-data.json"),
                                     str(gamedata_dir() / "stamina-data.json"), str(gamedata_dir() / "perk-data.json")],
+           "consumables": consumable_tags(),
            "weapons": weapons, "fragments": fragments, "blendSpaces": blend_spaces, "clips": clips,
            "activities": acts, "conditions": conditions, "weaponJoints": weapon_joints(models), "stamina": stamina,
            "ranged": {**ranged.flights(json.loads((gamedata_dir() / "projectile-data.json").read_text())),

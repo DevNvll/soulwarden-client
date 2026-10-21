@@ -442,7 +442,33 @@ entity") at each change of their revision; `swc/owner.lua` keeps them and gives 
 | `HostCharge(percent)` | charge (48) | `Hud.LocalPlayer.Vitals.ChargePercent` (0 to 1; `heartgemslot.luac`) |
 | `HostOwnership(achievements, entitlements, received)` | achievement (66), entitlement (19) | `PlayerComponentRequestsBus` `IsExpansionOwnerScript` and `GetOwnedExpansionData` read the achievement Expansion_2023_Unlock (bit 11979; before the first state, the grant policy of the backend: owned); `AchievementRequestBus` `IsAchievementUnlocked` of that achievement |
 
+| `HostStatuses(text)` (stage MVP-E) | status effects (44): "index potency stacks" lines | the armor part of the statuses (see below) |
+| `HostConsumeSlot(slot)` (stage MVP-E) | the Use action of the character (not a state) | `Hud.LocalPlayer.Equipment.SetConsumeSlot` (slot 14 to 17) at its start and `CancelConsumeSlot` at its end: `consumablequickslots.luac` dims the four quick slot keys while a consumable is in use (retail 0x6925570 and 0x67A3800) |
+
 The craft state goes to the log only (no craft screen yet). The fixture `ownerstates` checks each call with the original scripts.
+
+### The values of the equipment screen (stage MVP-E; research `mvp-e-static.md`)
+
+`equipmentv3.luac` `UpdateArmorRatings` reads three native values:
+
+- The gear score, `PaperdollRequestBus.GetPowerLevel(paperdoll, 0)` (retail 0x6828F20, a proved rule; `Swc.PowerLevel`):
+  A = trunc(sum(weight x GS) + 0.5) over the armor slots 0 to 4 with the fixed weights head 0.20, chest 0.35, hands 0.15, legs 0.20,
+  feet 0.10 (an empty slot gives 0); W = the integer mean of the main-hand options 24 and 25 (an empty option counts in the divisor; a
+  weapon with `IsShieldCompatible` and a shield counts floor((weapon + shield) / 2)); J = the integer mean of the jewelry slots 5, 6, 7;
+  GS = trunc(0.35 W + 0.45 A + 0.20 J). The client uses doubles; the native code float32 (a total within a float32 step of a whole
+  number can differ by 1). The current character: 746 with the bow and the rapier.
+- PHYS and ELEM, `VitalsComponentRequestBus.GetVitalsArmorModifierValueById(vitals, CRC "physical" / "elemental")`: the retail screen
+  reads a native cache whose full equation is not proved ([GEAR.md](GEAR.md) "The armor of the screen"). The client shows the armor of
+  the backend rule, the value that changes the damage (`Swc.ArmorRating`).
+- The hover lists are made by the script from the buses (`GetDamageTypeKeys`, `GetAbsorptionFromDamageType`,
+  `GetWeaknessFromDamageType`, the attributes, the gear score of each item). The absorption and the weakness of the character are not
+  in the client yet: the two resistance lists stay empty (open point).
+- Live check (run `mvpe-use7`, `use7/screen-values.png`): the gear score 724 with the bow and the great axe (W = 700); PHYS and ELEM
+  916.9; after the food and the dust DEX 500 and ELEM 1,237.8 (x 1.35); in the fight 1,100.3 for both (the server status
+  `Status_Passive_Greataxe_Mauler_ArmorWhenFoesNear`, +0.2 ArmorFortify).
+- The attribute bonus 0 of the current character is correct: its gear has the `StatSwap` Inherent perks (`Global_Perk_StatSwap_Health`,
+  `_BaseDamage`: health or damage in place of attributes), and no perk with a MOD attribute column. A food gives a bonus (FoodDEXT52:
+  DEX 456 + 44, live run `mvpe-items1`).
 
 ## The census (stage P2.3)
 

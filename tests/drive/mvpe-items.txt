@@ -1,0 +1,16 @@
+# The player drive of the live check of stage MVP-E part 11 (routes tests/drive/mvpe-items-routes.txt, UI drive
+# tests/drive/mvpe-items-ui.txt): the camera to the east; after the switch to the great axe (the UI key 2 at 30 s), 24 s of held
+# attacks on a wolf of level 70 that stands (the hits charge the Detonate rune), then the UI key G. Times in seconds from the
+# possession of the character; turn: degrees each second.
+# SWC_DEV_DATA=$HOME/Games/soulwarden-client/dev-data-mvpe SWC_STAGE=mvp-e SWC_AGENT_DESKTOP=soulwarden-client-mvpe \
+#   SWC_DEV_PLACE=9255:4735:140 SWC_GAME_SIZE=1280x720 SWC_DESKTOP_MODE=1304x780@60 tools/creature-check.sh mvpe-items 75 \
+#   tests/drive/mvpe-items-routes.txt tests/drive/mvpe-items.txt -- -SwcUiDrive=$PWD/tests/drive/mvpe-items-ui.txt
+1.0 turn 90
+2.0 turn 0
+5.0 tick
+13.0 tick
+27.0 tick
+29.0 tick
+34.0 attack 1
+58.0 attack 0
+60.0 tick

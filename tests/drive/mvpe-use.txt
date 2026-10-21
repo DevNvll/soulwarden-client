@@ -1,0 +1,73 @@
+# The player drive of the live check of stage MVP-E part 11: the camera to the east; two attack clicks in the potion use (the UI key 3
+# at 12 s of the UI clock; the UI clock is 0.6 to 1.1 s behind this clock: about 0.4 s into the use, before CanBuffer_UpperBody 0.67 s,
+# nothing; about 0.85 s, it waits and starts at CanTransition_UpperBody 1.0 s), a jump in the food use (the UI key 6 at 15 s); from 34 s
+# to 148 s held attacks (the heavy attacks of the great axe, one contact each) on wolves of level 70 that stand: the hits charge the
+# Detonate rune. The tick lines each 2 s carry the clock of the routes (they follow the drive lines of the client log). Times in seconds from the possession of the character.
+# SWC_DEV_DATA=$HOME/Games/soulwarden-client/dev-data-mvpe ... tools/creature-check.sh mvpe-use 120 tests/drive/mvpe-use-routes.txt
+#   tests/drive/mvpe-use.txt -- -SwcUiDrive=$PWD/tests/drive/mvpe-use-ui.txt
+1.0 turn 90
+2.0 turn 0
+10.0 tick
+13.2 click
+13.65 click
+16.6 jump
+30.0 tick
+34.0 attack 1
+36.0 tick
+38.0 tick
+40.0 tick
+42.0 tick
+44.0 tick
+46.0 tick
+48.0 tick
+50.0 tick
+52.0 tick
+54.0 tick
+56.0 tick
+58.0 tick
+60.0 tick
+62.0 tick
+64.0 tick
+66.0 tick
+68.0 tick
+70.0 tick
+72.0 tick
+74.0 tick
+76.0 tick
+78.0 tick
+80.0 tick
+82.0 tick
+84.0 tick
+86.0 tick
+88.0 tick
+90.0 tick
+92.0 tick
+94.0 tick
+96.0 tick
+98.0 tick
+100.0 tick
+102.0 tick
+104.0 tick
+106.0 tick
+108.0 tick
+110.0 tick
+112.0 tick
+114.0 tick
+116.0 tick
+118.0 tick
+120.0 tick
+122.0 tick
+124.0 tick
+126.0 tick
+128.0 tick
+130.0 tick
+132.0 tick
+134.0 tick
+136.0 tick
+138.0 tick
+140.0 tick
+142.0 tick
+144.0 tick
+146.0 tick
+148.0 attack 0
+149.0 tick

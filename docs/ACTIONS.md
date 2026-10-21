@@ -356,7 +356,7 @@ The other actions of the list:
 
 | Action | Backend rule | Client |
 | --- | --- | --- |
-| Heart rune | Only `Ability_Rune_Detonate` activates (the key G, input bit 450, with a full charge). Bile Bomb and each other rune ability have no rule (`docs/systems/passive-rules.md` of the backend). | The charge (slot 48) fills the rune icon of the HUD. G is not in the input map yet (order 11 of the MVP plan); `rune_supported()` is the gate for it. The equipped rune stays: the client does not change it to hide the limit. |
+| Heart rune | Only `Ability_Rune_Detonate` activates (the key G, input bit 450, with a full charge). Bile Bomb and each other rune ability have no rule (`docs/systems/passive-rules.md` of the backend). | The charge (slot 48) fills the rune icon of the HUD. G (the action `rune_ability` of the action maps) goes to `heartgemslot.luac` OnCryAction; a script hook (`swc/owner.lua`, stage MVP-E) sends bit 450 only for Detonate with the state CHARGED (a full charge) and no silence. A rune with an other equip ability never shows the state CHARGED (no ready glow; the fill shows the charge of the server), and G plays the red flash of the script and sends nothing. The icon empties at the next charge state of the server, not at the press. The equipped rune stays: the client does not change it to hide the limit. |
 | Block | No block rule, no shield damage reduction, no grit, no hit reaction of the own character. | The right button plays the block pose only (see "The block"); the server damage is unchanged. No HUD value shows a block result. |
 | Travel | The admin travel command of the backend and the nearest-place respawn. No retail shrine travel, discovery, fee, inn binding, or inn recall. | Incoming travel and respawn work. The travel selector is the work of the UI track (order 7). |
 | Recipes | Crafting state 205 and the requests 2997 / 2999. The backend refuses the recipes with a RequiredExpansion field and the recipes with conditions that it does not support: of the 8,294 rows of the copied crafting data, 1,917 have no export cause, 149 of them with an expansion field, thus at most 1,768 are candidates before the rank, station, material, and fee checks (research `mvp-gaps.md`, E11). | No craft screen yet (order 14). The client reads the craft state (the cooldown windows and the gear score bonuses) and makes no item locally. |
@@ -369,6 +369,41 @@ character: a bow and a rapier with Evade, Flourish, Fleche; drive `tests/drive/m
 three slots dim, each key logs "no rule of the backend (not sent)", and the backend counts one ability press in the session (the
 bow); the equipment screen shows STR 50, DEX 456, INT 5, FOC 5, CON 19 (the points of the database plus the minimum 5) and the Azoth
 2,500 / 2,500. Evidence: `~/Games/soulwarden-client/evidence/mvp-a/` (`mvpa-owner2.mp4`, `hud-compare.png`, `full2-34.png`).
+
+## The consumables (stage MVP-E, Linear AST-217)
+
+The quick slot keys 3 to 6 (`consumablequickslots.luac`, `SendVirtualInput Use_Quickslot_1` to `_4`) send the bits 404, 117,
+140, 513 for the paperdoll slots 14 to 17 (stage P3.H). The server owns the use: the item loss, the heal, the statuses, and the
+shared cooldowns (protocol notes 4.23). The client plays the action `Use_QuickSlot_N` of `playeractions_use.actionlist`:
+
+- The fragment `Use` of `player.adb` for the `MannequinTag` of the consumable (`javelindata_itemdefinitions_consumables`) and the
+  posture: Potion `unarmed_potion_drink_ub`, Eat `unarmed_eatfromhand_ub` (speed 1.5), WeaponOil `rswrd_imbue`; a tag with no
+  variant (Boost: the dusts) takes the variant with no tag, `unarmed_drink_ub` (speed 1.3). Crouch has its own variants. The clips
+  are upper-body clips: the fragment plays on the UpperBody channel, and the legs keep the locomotion.
+- The conditions of the activation: an item in the slot, not prone, not in deep water (the swim), not mounted. The client does not
+  check the consumable cooldown timer of the condition: the retail client plays the drink also in a cooldown of the server (live
+  proof I7 and I12 of the protocol notes).
+- The end: the end of the fragment or its mark `Exit_Use` (the deactivation condition).
+- `tools/convert-player.sh actions` writes the fragments (`use|POSTURE|TAG` of the use map of the unarmed set) and the tags of the
+  consumables (`consumables` of `actions.json`). Code: `USwcPlayerActions::StartConsumableUse`, called from
+  `ASwcPlayerController::PressVirtualBits`.
+- The inputs while the fragment plays (`player.grid`, the rules from Use; research `mvp-e-static.md` 4): an attack, an ability key, or
+  a dodge before the mark `CanBuffer_UpperBody` (B) does nothing; from B it waits, and at the mark `CanTransition_UpperBody` (T) the use
+  ends and the waiting input starts (`USwcPlayerActions::GateByUse`). A block and a jump do not start (Never). The movement goes on.
+  The weapon swap keeps its own path. No move speed of the use is proved: the client sets none. The marks: Potion B 0.67 s, T 1.0 s,
+  `Exit_Use` 1.2 s; Drink B 1.67 s, T 2.0 s, `Exit_Use` 2.67 s; Eat B 1.67 s, T 2.0 s, `Exit_Use` 2.0 s.
+- The dim of the four quick slot keys: the in-use state of the paperdoll (retail `SetInUsePaperdollItem` 0x6925570, the clear
+  0x67A3800), not a timer. The client sends the slot of the use to the HUD (`HostConsumeSlot`: `SetConsumeSlot` and
+  `CancelConsumeSlot`), and `consumablequickslots.luac` dims the keys.
+- Live check (2026-10-21, a copy of the user's database in the own data folder; `tests/drive/mvpe-use*.txt`, run `mvpe-use7`;
+  evidence `~/Games/soulwarden-client/evidence/mvp-e/`: `mvpe-use7.mp4`, `use7/use-sheet.png`, `use7/screen-values.png`): key 3 plays
+  `Use|Potion` (1.23 s), the server heals 2,830 to 5,330, and the stack goes 49 to 48 on the HUD; a click at 0.61 s of the use does
+  nothing, a click at 1.07 s starts the attack; key 6 plays `Use|Eat` (2.51 s) and the jump in it does not start; key 5 (the dust) plays
+  the variant with no tag. G with Bile Bomb sends nothing (run `mvpe-items1`); with Detonate, the charge rises with the hits (100
+  percent after about 40 contacts of the great axe on wolves of level 70), G sends bit 450, the backend gives
+  `Rune_Detonate_Dominator`, and after 3 s the explosion hits the wolves near the character.
+- Open: the item mesh in the hand, and the time of the consume (the retail client consumes at `UsePaperdollItem`; this client sends
+  the bit at the press, as before, and the server applies the use at once).
 
 ## The tests
 

@@ -1,0 +1,12 @@
+# The development routes of the live check of stage MVP-E part 11 (tests/drive/mvpe-items.txt and mvpe-items-ui.txt; a copy of the
+# user's database in the own data folder: the bow in slot 24, the rapier in slot 25, the Bile Bomb rune; the bag has the great axe in
+# bag slot 6, the Detonate rune in bag slot 16, the food FoodDEXT52 in bag slot 20). Noon, the creatures ignore the character. Times
+# on the clock of the player drive. Offsets in m east, north from the character; yaw 90: to the west.
+1 world-time 12:00
+1 ignore on
+1.5 heal
+2 equip 20 17
+13 hurt 2500
+27 equip 16 45
+27.5 equip 6 25
+29 spawn Wolf_Grey_7 2.5 0 0 --yaw 90 --level 70
