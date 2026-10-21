@@ -548,6 +548,16 @@ bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, FRegion& Out)
 					Bound.Options.Emplace(static_cast<int32>(Pair[0]->AsNumber()), HexNumber(Pair[1]->AsString()));
 				}
 			}
+			const TArray<TSharedPtr<FJsonValue>>* Hidden = nullptr;
+			if (BoundInfo->TryGetArrayField(TEXT("hidden"), Hidden))
+			{
+				for (const TSharedPtr<FJsonValue>& Position : *Hidden)
+				{
+					const int32 Bit = static_cast<int32>(Position->AsNumber());
+					Bound.HiddenMask |= Bit >= 0 && Bit < 32 ? 1u << Bit : 0u;
+				}
+			}
+			BoundInfo->TryGetBoolField(TEXT("npc"), Bound.bNpc);
 			Object.Bounds.Add(Bound);
 		}
 		const int32 Index = Out.Objects.Add(MoveTemp(Object));
@@ -700,11 +710,14 @@ void USwcObjectSubsystem::MakeTarget(const FString& Key, FName Kind, const swc::
 	Out.RangeSq = Bound.RangeSq;
 	Out.bLineOfSight = Bound.bLineOfSight;
 	Out.Shape = Bound.Shape;
+	Out.bNpc = Bound.bNpc;
 	Out.Options.Reset();
 	for (const TPair<int32, uint64>& Pair : Bound.Options)
 	{
 		FSwcWorldObjectOption& Option = Out.Options.AddDefaulted_GetRef();
 		Option.Index = Pair.Key;
+		const int32 Position = Out.Options.Num() - 1;
+		Option.bShow = Position >= 32 || (Bound.HiddenMask & (1u << Position)) == 0;
 		Option.Option = Options[Pair.Key].Option;
 		Option.Option.entity = Pair.Value;
 		// The request of the block (the rule of swc::interact::request_of with the ids of the data).

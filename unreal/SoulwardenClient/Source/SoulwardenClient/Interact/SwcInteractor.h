@@ -33,6 +33,8 @@ struct FSwcInteractPrompt
 	FName ObjectKind;
 	/** The name of the focus: the name of the row of an object, the template name of a fixture (empty for a bag). */
 	FString Name;
+	/** The title of a person under its name (AST-231: the card reads NpcComponentRequestBus GetNpcData title; empty: none). */
+	FString Title;
 	/** The options of the prompt in the order of the bound (the first one is the option of the key E; for a bag the second one,
 	 *  OpenStorageOption, opens the panel): the option name of the data and its hold time (s). */
 	TArray<TPair<FString, float>> Options;

@@ -1,0 +1,8 @@
+# The native card rules (AST-231, docs/INTERACTIONS.md "The options of a card"): tools/creature-check.sh ast231-cards 50 THIS
+# tests/drive/ast231-cards.txt, with a copy of the user's database at the inn keeper of Windsward (npc ed685f37; options OpenInnScreen,
+# SetSpawnPointOption, OpenConversation; the NPC component): the card shows only "E Talk". Then the shrine 3f1619c9 (OpenMap, show
+# true, no NPC component): the card shows "Fast Travel".
+1 heal
+1.5 ignore on
+3 travel 9319.7 2665.7 85.41 off
+18 travel 9340.4 3171.9 94.5 off

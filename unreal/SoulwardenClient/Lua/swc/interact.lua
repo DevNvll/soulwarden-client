@@ -63,7 +63,7 @@ end
 
 --- The prompt of the frame: tab-separated fields (kind none|bag|object|fixture, id, object kind, name, the place x y z in Unreal cm,
 --- phase idle|hold|use|done, progress 0..1, tool missing 0|1, gathering type, refusal key, options "NAME:HOLD,...", rank missing
---- 0|1, the required rank of the row).
+--- 0|1, the required rank of the row, the title of a person).
 local function parse_prompt(line)
   local f = {}
   for field in string.gmatch((line or "") .. "\t", "([^\t]*)\t") do
@@ -75,7 +75,7 @@ local function parse_prompt(line)
   local focus = {kind = f[1], id = f[2], objectKind = f[3], name = f[4], x = tonumber(f[5]) or 0, y = tonumber(f[6]) or 0,
                  z = tonumber(f[7]) or 0, phase = f[8], progress = tonumber(f[9]) or 0, toolMissing = f[10] == "1",
                  gatheringType = f[11], refusalKey = f[12], options = {}, rankMissing = f[14] == "1",
-                 requiredRank = tonumber(f[15] or "") or 0}
+                 requiredRank = tonumber(f[15] or "") or 0, title = f[16] or ""}
   for name, hold in string.gmatch(f[13], "([^,:]+):([%d.]+)") do
     focus.options[#focus.options + 1] = {name = name, hold = tonumber(hold) or 0}
   end
@@ -266,7 +266,7 @@ rawset(_G, "LocalPlayerComponentData", function()
   return data
 end)
 
--- The native requests of the card for an object of this client: no NPC, no owner, no reset time, no costs, no restriction.
+-- The native requests of the card for an object of this client: the npc data of a person, no owner, no reset time, no costs, no restriction.
 local NoTime = {ToSeconds = function() return 0 end}
 Swc.Define("UiInteractorComponentRequestsBus", "Event", {StopPositionUpdates = function() end})
 Swc.Define("TransformBus", "Event", {
@@ -276,8 +276,17 @@ Swc.Define("TransformBus", "Event", {
     return Vector3(f and f.x / 100 or 0, f and -f.y / 100 or 0, f and f.z / 100 or 0)
   end,
 })
+-- The npc data of a person of the focus (AST-231; unifiedinteractcard.luac OnInteractFocus shows its title under the interactName);
+-- swc/conversation.lua answers for the person of an open conversation and calls this one else.
 Swc.Define("NpcComponentRequestBus", "Event", {
-  GetNpcData = function() return nil end,
+  GetNpcData = function(id)
+    local focus = P.focus
+    if focus and focus.title ~= "" and id == entity_of(focus) then
+      return {id = swcui.crc32(focus.id), genericName = focus.name, title = focus.title,
+              GetNpcFactionAlignment = function() return eFactionType_None or 0 end}
+    end
+    return nil
+  end,
   GetCurrentStateWithPlayer = function() return nil end,
 })
 Swc.Define("VitalsComponentRequestBus", "Event", {IsDeathsDoor = function() return false end})

@@ -232,13 +232,26 @@ The creature track added this part (docs/OBJECTS.md); the player track owns the 
   the second option of an object (`FSwcInteractor::SetSecondKey`; the input action IA_InteractSecond of the key table, the drive
   command `interact2`): T then works as E for the hold, the request, and the release. A bag keeps its rule: T opens its panel
   (swc/interact.lua).
-- The options of a person: the card has only the options that the backend serves (`Interact/SwcBackendOptions.h`: a copy of the
-  handlers of the backend: world/interactions.cpp, loot_bags.cpp, chests.cpp, gathering.cpp, crafting.cpp). This is an interim
-  rule. The retail client with this backend shows only "E Talk" at an inn keeper (the options OpenInnScreen, SetSpawnPointOption,
-  OpenConversation; Soulwarden evidence `fight/implement/F6-first-run-death-screen-respawn-at-inn.png`), but it shows "Fast
-  Travel" at a shrine, which the backend does not serve either: the rule of the retail program that hides the inn options is open.
-  The option records of the UI database have no hide field ("Requires Confirmation", "Is Committed Interaction", "Close Prompt On
-  Interaction" are the fields that differ).
+- The rows of the card (AST-231; the native rules of the study `~/Games/soulwarden-client/research/prompt-options.md`): the card
+  has each option of the bound with a true authored show flag (`m_showOnUnifiedInteractUI` of its binding in the slice; the UI
+  population of the retail program skips a false flag). On an entity with the NPC component (type `4bdb17d5-3b1e-474d-a783-29f47a7acd53`,
+  by the component set of the entity, not by the kind "npc") the card has only the action 63 (OpenConversation): the predicate of
+  the NPC client facet. The inn keeper thus shows "E Talk" (OpenInnScreen and SetSpawnPointOption stay in the data; the inn
+  service opens after Talk), and a shrine shows "Fast Travel" (OpenMap, show true, no NPC component). The client keeps the full
+  option list of the bound for the use and the service.
+- The converter (`converter/swc_convert/bounds.py` card_rules, `objects.py`) writes the rules in the bounds of
+  `world-objects/regions/REGION.json`: `"hidden"` (the positions of the options with a false flag) and `"npc": true`. Counts of
+  the data: 145 NPC bounds, 128 hidden options (SetSpawnPointOption at 19 inns, the entries of the dungeons and the trials, the
+  claim purchase, the summoning stones, SetSecurityLevelOption). An option with no binding of its name in the slice of the bound
+  (96 bounds: some doors, teleporters, and storages, where the slice has the same component id in two places) keeps its row.
+- The header of a person card (AST-231; unifiedinteractcard.luac OnInteractFocus): the name of the person (interactName) and its
+  title (NpcComponentRequestBus GetNpcData of the root entity: swc/interact.lua). The interactor takes both from the person layer
+  (`USwcPersonSubsystem::FindByInteraction`) for a bound with the NPC component; the prompt line has the title as its field 16.
+- The label of OpenMap is "Map" (`@ui_openmap` of the option record). The text "Fast Travel" of the brief came from the shrine
+  labels of the retail respawn map, not from a card. No retail picture of a shrine card is in the evidence.
+- Check (`tests/drive/ast231-cards-routes.txt`, evidence AST-231/ast231-cards5.mp4 and ast231-crops.png): the inn keeper of
+  Windsward shows "VERILDIS JANNSEN", "Innkeeper of the Southern Breeze", and "E Talk" (retail F6: "OSEYE KAMAU", its title,
+  "E Talk"); the shrine 3f1619c9 shows "E Map".
 - Check (`tests/drive/mvpf-options.txt`, evidence MVP-F/mvpf-options.mp4): the inn keeper of Windsward shows "E Talk"; E opens the
   conversation. The lore page next to it shows "E Read" and "T Add To Journal"; E gives ReadLore and T gives AddLoreToJournal
   (both accepted). No gathering node has two options in the data.

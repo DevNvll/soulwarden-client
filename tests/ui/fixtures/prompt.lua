@@ -4,8 +4,8 @@
 -- place of the bag; the hold of E fills the ring; T opens the panel of the bag (the request "openloot"). Then a young tree with no
 -- axe: the gatherable card "Gather" with the refusal "No equipped Axe". An iron vein with the pick and Mining under the gate of the row
 -- (stage MVP-F): "Requires Mining skill" and the level circle of the required rank. A bush with a full bag: "Requires available
--- inventory space". Then no focus: the card hides.
--- Pictures: prompt-bag, prompt-hold, prompt-tree, prompt-lowskill, prompt-fullbag.
+-- inventory space". An inn keeper: its name, its title, and Talk (AST-231). Then no focus: the card hides.
+-- Pictures: prompt-bag, prompt-hold, prompt-tree, prompt-lowskill, prompt-fullbag, prompt-person.
 local cards = screen("LyShineUI/Markers/UnifiedInteract.uicanvas", 12, true)
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(2702338936)
@@ -100,6 +100,17 @@ frames(0.4)
 check(Swc.HostPointOf("text:Requires available inventory space") ~= "", "a full bag: Requires available inventory space")
 picture("prompt-fullbag")
 Swc.bagCapacity = 500
+-- A person with the NPC component (AST-231): the card has its name and its title (NpcComponentRequestBus GetNpcData of the root
+-- entity) above the single row Talk, as the retail card of an inn keeper.
+local keeper = prompt("object", "ed685f37-cfca-e42d-2676-8c59fcc8c262", "npc", "Verildis Jannsen", 200, 0, 0, "idle", 0, 0, "", "",
+  "OpenConversation:0", 0, 0) .. "\tInnkeeper of the Southern Breeze"
+Swc.HostPrompt(keeper)
+frames(0.6)
+Swc.HostPrompt(keeper)
+frames(0.4)
+check(Swc.HostPointOf("text:Talk") ~= "", "the row Talk")
+check(Swc.HostPointOf("text:Innkeeper of the Southern Breeze") ~= "", "the title of the person")
+picture("prompt-person")
 Swc.HostPrompt("none")
 frames(1.0)
 equal(#Swc.prompt.shownCards(), 0, "no focus: no card")

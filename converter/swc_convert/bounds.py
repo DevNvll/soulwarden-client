@@ -35,6 +35,11 @@ MARKER = field_id("m_useMarkerInteract")
 RANGE_SQ = field_id("m_interactRangeSq")
 LOCAL_ONLY = field_id("OnlyActiveForLocalPlayer")
 TRIGGER_ONCE = field_id("TriggerOnce")
+# The card rules (AST-231): the show flag and the name of an option binding, and the type of the NPC component (the study checked
+# it in the inn slice npc_0422_innkeep: its field NPC key 0422_Innkeep).
+SHOW = field_id("m_showOnUnifiedInteractUI")
+OPTION_NAME = field_id("m_interactOption")
+NPC_TYPE = bytes.fromhex("4bdb17d53b1e474da78329f47a7acd53")
 
 
 def component_id(component) -> int | None:
@@ -148,3 +153,27 @@ class BoundShapes:
                 once = first(c, TRIGGER_ONCE)
                 out["trigger"] = {"localOnly": bool(number(local)), "once": bool(number(once)) if once is not None else False}
         return out
+
+    def card_rules(self, path: str, component: str) -> tuple[dict[str, bool], bool] | None:
+        """@return The card rules of the bound with this Interact component id (hexadecimal; AST-231, research prompt-options.md):
+        the authored show flag (m_showOnUnifiedInteractUI) of each option name of its bindings, and True when the entity of the bound
+        has the NPC component (its client facet admits only the action 63, OpenConversation, to the card). None: no such bound."""
+        wanted = int(component, 16)
+        identifier = self.by_component(path).get(wanted)
+        if identifier is None:
+            return None
+        components = self.entities(path)[identifier][0]
+        flags: dict[str, bool] = {}
+        for c in components.children:
+            if component_id(c) != wanted or first(c, RANGE_SQ) is None:
+                continue
+            for node in walk(c):
+                show = node.child(SHOW)
+                name = node.child(OPTION_NAME)
+                if show is None or name is None:
+                    continue
+                key = name.value.decode("utf-8", "replace").rstrip("\0")
+                # The same option name in two bindings: the card shows it when one binding shows it.
+                flags[key] = flags.get(key, False) or bool(number(show))
+        npc = any(c.type_id == NPC_TYPE for c in components.children)
+        return flags, npc

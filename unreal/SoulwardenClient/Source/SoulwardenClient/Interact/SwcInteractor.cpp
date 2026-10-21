@@ -1,5 +1,4 @@
 #include "Interact/SwcInteractor.h"
-#include "Interact/SwcBackendOptions.h"
 
 #include <algorithm>
 
@@ -431,17 +430,19 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		USwcObjectSubsystem* Layer = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcObjectSubsystem>() : nullptr;
 		FSwcWorldObjectTarget Object;
 		float ObjectScore = 0.0f;
-		// The options of the card (stage MVP-F, docs/INTERACTIONS.md "The options of a card"): each option of the bound; for a person
-		// only the options that the backend serves (an interim rule: Interact/SwcBackendOptions.h). The first one has the key E, the
-		// second one the key T (ui_interact_sec): the two key hints of an option row of the original card (Icon_E, Icon_N).
+		// The options of the card (stage MVP-F, docs/INTERACTIONS.md "The options of a card"; the native rules of AST-231, research
+		// prompt-options.md): each option of the bound with a true authored show flag; on an entity with the NPC component only the
+		// action 63 (OpenConversation: the predicate of the NPC client facet). The first one has the key E, the second one the key T
+		// (ui_interact_sec): the two key hints of an option row of the original card (Icon_E, Icon_N).
 		TArray<int32, TInlineAllocator<4>> Shown;
 		const auto FillShown = [&Object, &Shown]()
 		{
-			static const FName KindPerson(TEXT("npc"));
+			constexpr uint32 OpenConversationAction = 63;
 			Shown.Reset();
 			for (int32 Index = 0; Index < Object.Options.Num(); ++Index)
 			{
-				if (Object.Kind != KindPerson || swc::interact::backend_serves_option(Object.Options[Index].Option.name))
+				const FSwcWorldObjectOption& Each = Object.Options[Index];
+				if (Each.bShow && (!Object.bNpc || Each.Option.action == OpenConversationAction))
 				{
 					Shown.Add(Index);
 				}
@@ -485,6 +486,14 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			FocusPrompt.ObjectKey = Object.Key;
 			FocusPrompt.ObjectKind = Object.Kind;
 			FocusPrompt.Name = Object.Name;
+			// A person (AST-231; unifiedinteractcard.luac OnInteractFocus): the card has its name (interactName) and its title (the
+			// npc data of the root entity), as the retail card of an inn keeper ("OSEYE KAMAU", "Innkeeper of The Autumn Rest").
+			const USwcPersonSubsystem* Persons = Object.bNpc ? Creatures->GetWorld()->GetSubsystem<USwcPersonSubsystem>() : nullptr;
+			if (const FSwcPerson* Person = Persons != nullptr ? Persons->FindByInteraction(Object.Key) : nullptr)
+			{
+				FocusPrompt.Name = Person->Name;
+				FocusPrompt.Title = Person->Title;
+			}
 			for (const int32 Index : Shown)
 			{
 				FocusPrompt.Options.Emplace(UTF8_TO_TCHAR(Object.Options[Index].Option.name.c_str()), Object.Options[Index].Option.hold);

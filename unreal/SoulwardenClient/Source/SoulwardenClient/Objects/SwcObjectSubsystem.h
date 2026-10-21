@@ -37,6 +37,9 @@ struct FSwcWorldObjectOption
 	swc::interact::Option Option;
 	/** The request of the block for this option (the reference of the bound, the action, the option entity, the option id). */
 	swc::net::InteractionRequest Request;
+	/** The authored show flag of its binding (m_showOnUnifiedInteractUI; AST-231): false gives no card row. The use and the service
+	 *  keep the option. */
+	bool bShow = true;
 };
 
 /** One Interact bound of a world object near the character (USwcObjectSubsystem::FindNearestObject, GetObjectsNear). */
@@ -61,6 +64,9 @@ struct FSwcWorldObjectTarget
 	/** The candidate shape of the bound (AST-198): the area of the prompt. */
 	swc::interact::Shape Shape;
 	TArray<FSwcWorldObjectOption> Options;
+	/** True when the entity of the bound has the NPC component (AST-231): its client facet admits only the action 63
+	 *  (OpenConversation) to the card. */
+	bool bNpc = false;
 	/** The server state, and the Enabled mark of the Interact state of a record of the object (true with no record). */
 	ESwcWorldObjectState State = ESwcWorldObjectState::Ready;
 	bool bEnabled = true;
@@ -204,6 +210,9 @@ private:
 		/** The candidate shape of the bound (AST-198): the area of the prompt; RangeSq is the check of the use. */
 		swc::interact::Shape Shape;
 		TArray<TPair<int32, uint64>> Options;
+		/** The card rules (AST-231): a bit for each option position with a false show flag, and the NPC component mark. */
+		uint32 HiddenMask = 0;
+		bool bNpc = false;
 		int32 LoreBit = -1;
 	};
 	struct FDataObject

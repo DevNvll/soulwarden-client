@@ -20,7 +20,8 @@ Output (SWC_CONTENT/world-objects, outside the repository):
                           (stage P5.2): the rows (the tool family, the gather action, the rank gate, the time, the name), the
                           tools by item index, the tool slots, the bodies of the creature slices with skinning, the texts
   regions/REGION.json     the objects of the interaction data of a region, with the ids of the backend (actor, facet target,
-                          option entities) and their bounds
+                          option entities) and their bounds (with the card rules of AST-231: "hidden", the options with a false
+                          show flag; "npc", a bound with the NPC component: the card shows only OpenConversation)
   nodes/REGION.bin        the natural nodes of a region in cells of 64 m (the record index gives the offline id)
 
 The file of the nodes (little-endian): "SWON", u32 format 1, i32 region x, i32 region y, u32 node count, u32 side (32), u32
@@ -268,7 +269,7 @@ def write() -> dict:
     chests = {c["key"]: c for c in chest_doc["chests"]}
     capitals = gathering["capitals"]
     templates = gathering["templates"]
-    report: dict = {"objects": 0, "bounds": 0, "nodes": 0, "kinds": {}, "actorMismatches": 0, "capitalMismatches": 0,
+    report: dict = {"objects": 0, "bounds": 0, "nodes": 0, "kinds": {}, "actorMismatches": 0, "hiddenOptions": 0, "npcBounds": 0, "capitalMismatches": 0,
                     "capitalsChecked": 0, "regions": 0, "boundsWithShape": 0}
     shapes = BoundShapes()
 
@@ -316,6 +317,19 @@ def write() -> dict:
             if shape is not None:
                 bounds[-1]["shape"] = shape
                 report["boundsWithShape"] += 1
+            # AST-231: the card rules of the bound (research prompt-options.md): "hidden", the positions of the options with a false
+            # authored show flag (no card row; the use and the service keep the option), and "npc", a bound on an entity with the NPC
+            # component (the card shows only its action 63, OpenConversation). An option with no binding of its name keeps its row.
+            rules = shapes.card_rules(entry["slice"], bound["component"])
+            if rules is not None:
+                flags, npc = rules
+                hidden = [i for i, (index, _entity) in enumerate(bound["options"]) if not flags.get(interactions["options"][index]["name"], True)]
+                if hidden:
+                    bounds[-1]["hidden"] = hidden
+                    report["hiddenOptions"] += len(hidden)
+                if npc:
+                    bounds[-1]["npc"] = True
+                    report["npcBounds"] += 1
         if not bounds:
             continue
         out = {"key": entry["key"], "kind": kind, "actor": entry["actor"], "position": entry["position"], "bounds": bounds}
