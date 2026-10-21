@@ -135,7 +135,8 @@ def slice_content(path: str) -> dict:
     spawners of a slice (cached)."""
     if path in _slices:
         return _slices[path]
-    out = {"persons": [], "npc": [], "timelines": {}, "attachments": [], "lookAt": None, "interact": None, "spawners": []}
+    out = {"persons": [], "npc": [], "timelines": {}, "attachments": [], "lookAt": None, "interact": None, "spawners": [],
+           "interactMatrix": None}
     try:
         data = source.read(path)
     except Exception:
@@ -189,6 +190,10 @@ def slice_content(path: str) -> dict:
                     info["attachBone"] = source.text(node) if node is not None and node.value else ""
                 elif component.type_id == MESH:
                     info["staticMesh"] = asset(component, "Static Mesh")
+            if any(component.type_id == INTERACT for component in components.children):
+                # The frame of the Talk camera presets: the Interact entity (retail Talk cameras of MVP-H: 0.05 to 0.07 m from the
+                # preset point in this frame for four persons; the body can be turned 180 degrees from it, 0308_Alchemist).
+                out["interactMatrix"] = info["matrix"]
             if info.get("npcKey") is not None or str(info.get("table", "")).lower().startswith("npc"):
                 out["npc"].append({k: info[k] for k in ("npcKey", "table", "variant", "uiName") if k in info})
             if "attachBone" in info and info.get("active") is not False:
@@ -211,7 +216,14 @@ def walk(path: str, matrix: np.ndarray, origin: str, chain: list, placement: str
         world = matrix @ person["matrix"]
         forward = world[:3, :3] @ np.array([0.0, 1.0, 0.0])
         yaw = float(np.degrees(np.arctan2(-forward[0], forward[1])))   # 0 = +Y (north), counterclockwise positive
+        talk = None
+        if content.get("interactMatrix") is not None:
+            frame = matrix @ content["interactMatrix"]
+            ahead = frame[:3, :3] @ np.array([0.0, 1.0, 0.0])
+            talk = {"position": [round(float(v), 3) for v in frame[:3, 3]],
+                    "yaw": round(float(np.degrees(np.arctan2(-ahead[0], ahead[1]))), 2)}
         found.append({"region": region_name, "origin": origin, "placement": placement, "chain": [dict(link) for link in chain],
+                      "talkFrame": talk,
                       "entity": person["name"], "templateCdf": person["cdf"], "position": [round(float(v), 3) for v in world[:3, 3]],
                       "yaw": round(yaw, 2), "scale": round(float(np.linalg.norm(world[:3, 0])), 4), "slice": content})
     for child, local, child_variant in content["spawners"]:
@@ -452,6 +464,7 @@ def resolve(found: list, tables: Tables) -> list:
             "chain": [link["slice"].rsplit("/", 1)[-1].replace(".dynamicslice", "") + (f"[{link['variant']}]" if link.get("variant") else "")
                       for link in item["chain"]],
             "position": item["position"], "yaw": item["yaw"], "scale": item["scale"] * (scale[0] if scale[0] > 0 else 1.0),
+            "talkFrame": item.get("talkFrame"),
             "npcId": npc_id, "nameKey": name_key or data.get("GenericName", ""),
             "name": tables.text(name_key) or tables.text(data.get("GenericName", "")), "titleKey": data.get("Title", ""),
             "title": tables.text(data.get("Title", "")), "cdf": cdf, "look": cdf_look(cdf),
@@ -515,22 +528,38 @@ def conversations(persons: list) -> None:
         return
     import html
     import re
-    for path in source.paks().paths("localization/en-us/"):
-        if not path.endswith(".loc.xml"):
-            continue
-        text = source.read(path).decode("utf-8", "replace")
-        for match in re.finditer(r"<string\s+([^>]*?)>(.*?)</string>", text, re.S):
-            attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', match.group(1)))
-            key = attrs.get("key", "").lower()
-            if key in wanted and not wanted[key]:
-                # The gesture tags (<g id=.../>) are escaped in the file: the screen removes each tag (research p48-talk).
-                wanted[key] = dict(attrs, text=re.sub(r"<[^>]*>", "", html.unescape(match.group(2))).strip())
+    files = [source.read(path).decode("utf-8", "replace") for path in source.paks().paths("localization/en-us/") if path.endswith(".loc.xml")]
+    # The lines of a conversation: the first line and its chain of dialogue-next (the Next key of the screen; at most 10 lines). Each
+    # pass reads the entries that the chain asks for.
+    for _ in range(10):
+        missing = {key for key, value in wanted.items() if not value}
+        if not missing:
+            break
+        for text in files:
+            for match in re.finditer(r"<string\s+([^>]*?)>(.*?)</string>", text, re.S):
+                attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', match.group(1)))
+                key = attrs.get("key", "").lower()
+                if key in missing and not wanted[key]:
+                    # The gesture tags (<g id=.../>) are escaped in the file: the screen removes each tag (research p48-talk).
+                    wanted[key] = dict(attrs, text=re.sub(r"<[^>]*>", "", html.unescape(match.group(2))).strip())
+        for key in missing:
+            following = str(wanted[key].get("dialogue-next", "")).lstrip("@").lower()
+            if not wanted[key]:
+                wanted[key] = {"missing": True}
+            elif following and following not in wanted:
+                wanted[following] = {}
     for person in persons:
         conversation = person.get("conversation")
         if not conversation:
             continue
         line = wanted.get(conversation["line"], {})
         conversation.update({"text": line.get("text", ""), "speaker": line.get("speaker", ""), "next": line.get("dialogue-next", "")})
+        lines, key = [], conversation["line"]
+        while key and key not in [entry["line"] for entry in lines] and len(lines) < 10 and wanted.get(key, {}).get("text"):
+            entry = wanted[key]
+            lines.append({"line": key, "text": entry["text"], "speaker": entry.get("speaker", "")})
+            key = str(entry.get("dialogue-next", "")).lstrip("@").lower()
+        conversation["lines"] = lines
         preset = presets.get(line.get("cutsceneCameraPresetId", ""), {})
         state = line.get("cameraState") or preset.get("CameraState", "")
         fov = re.search(r"FOV(\d+)", str(state))

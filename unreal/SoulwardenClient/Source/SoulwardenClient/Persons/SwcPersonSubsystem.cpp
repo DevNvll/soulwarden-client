@@ -28,6 +28,8 @@ namespace
 /** The persons spawn in this distance of the view and go away beyond the second one (cm; the spawn radius of the person slices
  *  is 90 m to 190 m: research p48-persons, aoi). A few spawn in one frame. */
 constexpr double SpawnDistance = 15000.0;
+/** The height of the retail Talk camera above the point of its preset (m; four retail Talk cameras: 0.052 to 0.065). */
+constexpr double TalkCameraLift = 0.065;
 constexpr double RemoveDistance = 20000.0;
 constexpr int32 SpawnsPerUpdate = 4;
 /** The imported player mesh faces 90 degrees to the left of the actor (the rule of the player character, stage 1.6). */
@@ -234,17 +236,36 @@ void USwcPersonSubsystem::Load()
 		const TSharedPtr<FJsonObject>* Camera = nullptr;
 		if (Info->TryGetObjectField(TEXT("conversation"), Conversation) && (*Conversation)->TryGetObjectField(TEXT("camera"), Camera))
 		{
-			const swc::interact::ScenePoint Feet = ReadPoint(Position);
-			const double EngineYaw = Info->GetNumberField(TEXT("yaw"));
+			// The frame of the presets: the Interact entity of the person (persons.json "talkFrame"; the body can stand 0.6 m from it
+			// or turned 180 degrees from it), else the body. The camera stands 0.065 m above the preset point; the look-at point does
+			// not move. Retail Talk cameras of MVP-H (Purcell, Ozian Atreus, Sai Kumal; the commander of Oxboro from P4.8): the place
+			// within 0.004 m, the heading within 0.25 degrees, the pitch within 0.3 degrees (docs/PERSONS.md "The Talk camera").
+			swc::interact::ScenePoint Feet = ReadPoint(Position);
+			double EngineYaw = Info->GetNumberField(TEXT("yaw"));
+			const TSharedPtr<FJsonObject>* Frame = nullptr;
+			if (Info->TryGetObjectField(TEXT("talkFrame"), Frame))
+			{
+				Feet = ReadPoint((*Frame)->GetArrayField(TEXT("position")));
+				EngineYaw = (*Frame)->GetNumberField(TEXT("yaw"));
+			}
 			const swc::interact::ScenePoint Origin = ReadPoint((*Camera)->GetArrayField(TEXT("origin")));
 			const TArray<TSharedPtr<FJsonValue>>& LookAtValues = (*Camera)->GetArrayField(TEXT("lookAt"));
 			const swc::interact::ScenePoint LookAt = LookAtValues.Num() >= 3 ? ReadPoint(LookAtValues) : swc::interact::ScenePoint{0.0, 0.0, Origin.z};
 			const auto ToUnreal = [](const swc::interact::ScenePoint& Point) { return FVector(Point.x * 100.0, -Point.y * 100.0, Point.z * 100.0); };
 			Person.Line.bValid = true;
 			Person.Line.LineKey = (*Conversation)->GetStringField(TEXT("line"));
+			const TArray<TSharedPtr<FJsonValue>>* Lines = nullptr;
+			if ((*Conversation)->TryGetArrayField(TEXT("lines"), Lines))
+			{
+				for (const TSharedPtr<FJsonValue>& Each : *Lines)
+				{
+					const TSharedPtr<FJsonObject>& Entry = Each->AsObject();
+					Person.Line.Lines.Add(Entry->GetStringField(TEXT("line")) + TEXT("\t") + Entry->GetStringField(TEXT("speaker")));
+				}
+			}
 			Person.Line.Speaker = (*Conversation)->GetStringField(TEXT("speaker"));
 			Person.Line.Text = (*Conversation)->GetStringField(TEXT("text"));
-			Person.Line.Camera = ToUnreal(swc::interact::scene_point(Feet, EngineYaw, Origin));
+			Person.Line.Camera = ToUnreal(swc::interact::scene_point(Feet, EngineYaw, Origin)) + FVector(0.0, 0.0, TalkCameraLift * 100.0);
 			Person.Line.LookAt = ToUnreal(swc::interact::scene_point(Feet, EngineYaw, LookAt));
 			Person.Line.Fov = static_cast<float>((*Camera)->GetNumberField(TEXT("fov")));
 			Person.Line.bHidePlayer = (*Camera)->GetBoolField(TEXT("hidePlayer"));
