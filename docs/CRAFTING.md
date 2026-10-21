@@ -147,7 +147,8 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
 
 ## The differences from retail (the comparison pictures)
 
-- The hint bar of the screen (ENTER Chat, ESC Back, SPACE Max Quantity) does not show: DynamicBus.HelpBar has no handler in the client.
+- The hint bar of the screen: closed by AST-231 (the HelpBar and the chat widget; "ENTER Chat", "SPACE Max Quantity" for a recipe that can be
+  crafted with a max quantity above 1, "ESC Back"; evidence AST-231/ast231-help-crops.png).
 - The refusal row is a client addition (the retail screen has no such row); its long text shrinks to the row.
 - The craft mods (perk items) of a procedural result: retail lists the charms of the bag; the client lists none (part 5 open: the rule of
   GetCompatiblePerkResourceIds needs the perk rules of the backend perk roller).

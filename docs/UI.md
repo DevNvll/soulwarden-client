@@ -495,7 +495,7 @@ bars of the database), the trees of the bow, the great axe, the rapier, the war 
 mastery); in the bow tree the list of place 3 gives Penetrating Shot: 2701 (the backend: "is the facet of component c20d99be6902e291
 (Stats/...)", "ability bar request ... done"), and the next Ability state shows the bar empty, Splinter Shot, Penetrating Shot; the
 trade skills (the ranks of the database, the cap 250). The differences with the retail window (`side-*.png`, `crop-*.png`): no top
-navigation bar, no tab Achievements, no line "ENTER Chat" and "ESC Back" (the chat widget and the HelpBar), no blur of the world
+navigation bar, no tab Achievements, the lines "ENTER Chat" and "ESC Back" since AST-231 (the chat widget and the HelpBar), no blur of the world
 behind the window, the Respec button off with a cost, the debug text of the run over the window.
 
 ## The census (stage P2.3)
@@ -1113,3 +1113,17 @@ Soulwarden evidence of creatures, abilities-crit, fight, loot, loot-bags, gather
     camera, or the scale of the world view canvas).
   - The client shows the prompt "E GREY WOLF" over a dead wolf at 3 to 9 m; the retail takes of set 6 show no prompt (their
     kills gave no loot: "the creatures ignore it").
+
+## The key hints (AST-231)
+
+- The HelpBar (lyshineui/helpbar/helpbar: the loader group 8, no autohide) and the chat widget (lyshineui/hud/chat/chatwidget) are in
+  the screens of the client (`UI/SwcUiSubsystem.cpp` HudScreens). The screens push their actions to the help bar
+  (DynamicBus.HelpBar PushToStack, SetGlobalActionsToDefault: "ESC Back"); the conversation screen pushes "E Next"; the crafting
+  screen pushes "SPACE Max Quantity" only for a recipe that can be crafted with a max quantity above 1 (craftingscreenv4.luac
+  OnCanCraftUpdated).
+- The chat widget shows "ENTER Chat" with the flag UIFeatures.g_chatWidget true (swc/game.lua; the retail pictures show it). Its own
+  list hides it in the HUD state and the Talk state (screenStatesToHide), as retail. The retail HUD line "ENTER Chat" is the Chat
+  screen (LyShineUI/HUD/Chat/Chat, group 2): not loaded (no chat service).
+- The key of an action: the names compare with no case (swc/keys.lua): the screen asks "trySkip", the map crafting has "tryskip".
+- Check (evidence AST-231: ast231-help4.mp4, ast231-max2.mp4, ast231-help-crops.png retail | client): the Talk screen "E Next
+  ESC Back", the character window "ENTER Chat ... ESC Back", the crafting screen "ENTER Chat ... SPACE Max Quantity ESC Back".

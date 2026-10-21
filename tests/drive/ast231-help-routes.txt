@@ -1,0 +1,7 @@
+# The key hints of the screens (AST-231): tools/creature-check.sh ast231-help 75 THIS tests/drive/ast231-help.txt --
+# -SwcUiDrive=tests/drive/ast231-help-ui.txt, with a copy of the user's database at the inn keeper of Windsward (9319.7 2665.7
+# 85.41). The Talk screen (E Next, ESC Back), the character window (ENTER Chat, ESC Back), then the forge of the first test place
+# (8859.32 4258.9; the crafting screen: ENTER Chat, ESC Back, SPACE Max Quantity).
+1 heal
+1.5 ignore on
+34 travel 8859.3 4258.9 138.4 off

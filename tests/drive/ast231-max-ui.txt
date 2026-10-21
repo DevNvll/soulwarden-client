@@ -1,0 +1,11 @@
+# The UI drive of the crafting hint check of AST-231 (routes tests/drive/ast231-max-routes.txt): the search, the Iron Ingot.
+1 waitfor CompassLines 60
+2 waitfor world 180
+22 waitfor FilterInputField 30
+24 point FilterInputField
+25 click
+26 text Iron Ingot
+28 waitfor recipe:IngotT2 20
+29 point recipe:IngotT2
+30 click
+33 log the Iron Ingot: SPACE Max Quantity

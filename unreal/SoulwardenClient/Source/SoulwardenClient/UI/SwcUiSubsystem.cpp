@@ -91,6 +91,12 @@ const char* const HudScreens[] = {
 	"lyshineui/hud2024/consumablequickslots/consumablequickslots",
 	"lyshineui/hud2024/xp/xp",
 	"lyshineui/hud2024/reticles/reticlescanvas",
+	// The help bar (AST-231, the old stage P6.9): the key hints of the screens ("ESC Back", "ESC Close"); the screens push their
+	// actions to it (DynamicBus.HelpBar PushToStack, SetGlobalActionsToDefault).
+	"lyshineui/helpbar/helpbar",
+	// The chat widget (AST-231): its key hint "ENTER Chat" at the bottom left of the HUD and of the screens (the chat itself is not
+	// loaded: no chat service).
+	"lyshineui/hud/chat/chatwidget",
 };
 
 /** The world level name of the HUD scripts (the level crc tells them the front end and the tutorial levels). */

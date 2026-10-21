@@ -5,6 +5,7 @@ local crafting = screen("LyShineUI/Crafting/CraftingScreenV4.uicanvas", 20)
 local station = screen("LyShineUI/StationProperties/StationProperties.uicanvas", 21)
 local tooltip = screen("LyShineUI/Tooltip/Tooltip.uicanvas", 54, true)
 local notices = screen("LyShineUI/Notifications/Notification.uicanvas", 50)
+local helpbar = screen("LyShineUI/HelpBar/HelpBar.uicanvas", 60, true)
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(HUD)
 DynamicBus.UiLoader.Broadcast.OnUiLoadingComplete()
@@ -145,6 +146,23 @@ Swc.HostInput("button", "left", true)
 Swc.HostInput("button", "left", false)
 frames(1.0)
 picture("crafting-iron-ingot")
+-- The help bar of a recipe that can be crafted (AST-231; craftingscreenv4.luac OnCanCraftUpdated): "SPACE Max Quantity" (the action
+-- trySkip; the map crafting has tryskip) and "ESC Back".
+do
+  local texts = {}
+  local function walk(id, depth)
+    if depth > 12 then return end
+    local t = swcui.has(id, "text") and swcui.get(id, "text.text")
+    if t and t ~= "" and swcui.enabled_in_hierarchy(id) then texts[#texts + 1] = t end
+    for _, c in ipairs(swcui.children(id)) do walk(c, depth + 1) end
+  end
+  walk(swcui.canvas_get(helpbar, "root"), 0)
+  local line = table.concat(texts, " ")
+  note("the help bar: " .. line)
+  check(string.find(line, "Max Quantity", 1, true) ~= nil, "the help bar has Max Quantity")
+  check(string.find(string.lower(line), "space", 1, true) ~= nil, "the key of Max Quantity is SPACE")
+  check(string.find(line, "Back", 1, true) ~= nil, "the help bar has ESC Back")
+end
 click(find(root, "CraftButton"))
 frames(0.5)
 local sent = requests()

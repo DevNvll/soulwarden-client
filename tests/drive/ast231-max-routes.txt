@@ -1,0 +1,6 @@
+# The key hints of the crafting screen (AST-231): tools/creature-check.sh ast231-max 40 THIS tests/drive/ast231-max.txt --
+# -SwcUiDrive=tests/drive/ast231-max-ui.txt, with a copy of the user's database with the craft kit (SWC_CRAFT_KIT=1 of
+# work/mvp-j/fresh-copy.py) 0.8 m south of the smelter (8849.95 4258.49 138.4). The Iron Ingot can be crafted (max quantity above 1):
+# the screen pushes its keys to the help bar ("SPACE Max Quantity").
+1 heal
+1.5 ignore on

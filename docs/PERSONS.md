@@ -193,7 +193,7 @@ color 0, text size 1, border 0). `Vector3.Normalize(v)` and `CrossZAxis` of the 
 
 The differences of the conversation screen (`evidence/MVP-H/screen-crops/`, line a and line b of Purcell, retail | client):
 
-1. The keys "E Next" and "ESC Back" at the bottom right are missing (the HelpBar screen; below).
+1. The keys "E Next" and "ESC Back" at the bottom right: closed by AST-231 (the HelpBar screen; docs/UI.md "The key hints").
 2. The client subtitle text is a little thinner, and it stands about 6 px higher (the client game area is 1280x696, the retail one
    1256x660).
 3. The person: the client armor is matte, the hair is grey (the material causes below), and the pose differs at the moment of the
@@ -224,8 +224,8 @@ the size, and the facing of the three persons agree):
 
 ## Not done, open points
 
-- The key hints of the conversation screen: the retail screen shows "E Next" and "ESC Back" at the bottom right; they are the
-  HelpBar screen (a screen of the UI loader, group 8, census stage P6.9) that the client does not load yet.
+- Escape at the conversation screen ends the Talk and then opens the game menu: the escape menu gets the same OnEscapeKeyPressed
+  broadcast after the screen set the state HUD (swc/actions.lua escape_rule). The native order of the escape handlers is not known.
 - An inn keeper: the Talk is the third option; the prompt executes only the first option (OpenInnScreen, refused).
 - The retail Talk opens with no hold, with a black frame and a fade (set 5); the client keeps the hold of the data and a cut.
 

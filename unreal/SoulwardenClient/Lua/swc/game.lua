@@ -49,6 +49,9 @@ Swc.config = {
   -- plays the ring when it is true. The retail client shows the ring (Soulwarden evidence gathering/implement/F-07-mining-sheet.png:
   -- "o BOULDER", the ring empties in steps): thus true. The native default is not read (no registration address).
   ["UIFeatures.g_uiEnableNewGatherTimer"] = true,
+  -- The chat widget (AST-231): chatwidget.luac disables its canvas when this flag is false. The retail HUD and screens show its hint
+  -- "ENTER Chat" (Soulwarden evidence fight/implement/F6-first-run-death-screen-respawn-at-inn.png): thus true.
+  ["UIFeatures.g_chatWidget"] = true,
   ["UIFeatures.housingImprovements"] = false,                  -- 0x4A3ABCD
   ["javelin.enable-all-dungeons"] = true,                      -- 0x617B13D
   ["javelin.enable-barbershop"] = true,                        -- 0x61850C4

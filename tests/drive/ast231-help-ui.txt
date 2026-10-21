@@ -1,0 +1,7 @@
+# The UI drive of the key hint check of AST-231 (routes tests/drive/ast231-help-routes.txt). Times in seconds from the spawn of the
+# player: the Talk screen opens near 7 s; Escape ends it; K opens the character window; Escape closes it.
+16 log the Talk screen: E Next, ESC Back
+20 key Escape
+24 log K: the character window
+24 key K
+30 key Escape

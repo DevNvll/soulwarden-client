@@ -7,7 +7,7 @@ local HUD, CONVERSATION = 2702338936, 4203137545
 -- The canvas: in the game swc/conversation.lua loads it at the first conversation (the screen list of the client allows it; the
 -- runtime of a fixture allows no loader screen, so the fixture loads it first, and the module must not load a second copy).
 local conversation = screen("LyShineUI/Conversation/ConversationScreenV2.uicanvas", 20)
-local helpbar = screen("LyShineUI/HelpBar/HelpBar.uicanvas", 30)
+local helpbar = screen("LyShineUI/HelpBar/HelpBar.uicanvas", 30, true)
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(HUD)
 DynamicBus.UiLoader.Broadcast.OnUiLoadingComplete()

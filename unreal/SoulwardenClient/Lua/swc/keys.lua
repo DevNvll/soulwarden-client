@@ -44,10 +44,18 @@ for _, mapName in ipairs(Swc.actionMapOrder) do
   end
 end
 
+-- The names compare with no case (AST-231): the crafting screen asks the key of "trySkip" for its hint "SPACE Max Quantity"
+-- (craftingscreenv4.luac OnCanCraftUpdated), the map crafting of the data has "tryskip", and the retail screen shows SPACE.
 local function action_of(mapName, action)
   local map = Swc.actionMaps[mapName]
   for _, a in ipairs(map and map.actions or {}) do
     if a.name == action then
+      return a, map
+    end
+  end
+  local wanted = string.lower(tostring(action))
+  for _, a in ipairs(map and map.actions or {}) do
+    if string.lower(a.name or "") == wanted then
       return a, map
     end
   end
