@@ -294,12 +294,17 @@ end
 
 -- The abilities (CharacterAbilityRequestBus of the entity root). An ability data object has the fields that the HUD
 -- reads: id (the ability key), displayIcon, uiCategory, weaponTag (CRC-32), treeId, holdConditionButtonIcon.
+-- uiCategory is the CRC-32 of the lower-case UICategory of the data (a number, as weaponTag): abilitiescommon.luac
+-- GetBackgroundPath keys its backgrounds with it (Heal 2838003374 abilities_bg1, Attack 1203776827 abilities_bg2, Defense
+-- 3685086581 abilities_bg3; any other value, also Passive and an empty field: icons/misc/empty.dds). The slots of the HUD,
+-- the trees, and the tooltips set that background behind the ability icon.
 local function ability_data(key)
   local row = Swc.GameData().abilities[tostring(key)]
   if not row then
     return nil
   end
-  return {id = tonumber(key), key = row.id, abilityId = row.id, displayIcon = row.icon, uiCategory = row.uiCategory,
+  return {id = tonumber(key), key = row.id, abilityId = row.id, displayIcon = row.icon,
+          uiCategory = swcui.crc32(string.lower(row.uiCategory or "")),
           weaponTag = swcui.crc32(string.lower(row.weaponTag or "")), treeId = row.treeId, displayName = row.displayName,
           holdConditionButtonIcon = row.holdIcon ~= "" and row.holdIcon or nil}
 end

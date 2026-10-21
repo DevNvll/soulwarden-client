@@ -677,6 +677,14 @@ the client window) and the retail combat capture of set 6 (the list of the UI tr
   client sends the aim from the camera state: `Swc.HostAim`). The bars are at Lerp(18, 26, t) and the dots at Lerp(11, 18, t)
   from the center: 26 and 18 pixels at rest, 18 and 11 in the aim, as in `ui-crosshair-bow.png` and
   `ui-crosshair-bow-aim.png` of set 6. The spread model of the native code (the draw time, the move) is not known.
+- The background of an ability icon (stage MVP-E; the HUD slots Q, R, F, and also the trees and the tooltips):
+  `weaponabilityslot.luac` `SetIcon` sets the image `Bg` behind the icon to `AbilitiesCommon:GetBackgroundPath(uiCategory)`
+  (`_common/abilitiescommon.luac`). Its table has the keys 2838003374 (`abilities_bg1.dds`, red-brown), 1203776827
+  (`abilities_bg2.dds`), and 3685086581 (`abilities_bg3.dds`, teal); each other value gives `icons/misc/empty.dds`. The keys are
+  the CRC-32 of the lower-case `UICategory` of the ability data: `heal`, `attack`, `defense` (`Passive` and an empty field: no
+  background). Before, the emulation (`swc/game.lua` ability data) gave the text of the field: no key agreed, and the icons stood
+  bare on the dark slot. Now it gives the CRC-32. The retail bow slots (P3.H `strip-abilities-1.png`) have the red background of
+  Attack; Riposte (Defense) has the teal background. The dim of an ability with no backend rule stays (fixture `ownerstates`).
 - The vitals: only the health bar shows its number. The stamina and mana numbers follow the option
   `Video.HudShowVitalsValues`: off (the program and the saved retail options).
 - The reticle (`hud2024/reticles/reticlescanvas`, `reticlesmanager.luac`; the native part: `swc/reticle.lua`):
