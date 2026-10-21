@@ -209,7 +209,15 @@ C.RecipeData = Swc.ValueClass({
             "firstCraftAchievementId", "disallowBonusesToGS", "isTemporary", "ingredients"},
   methods = {
     IsValid = function(self) return self.id ~= nil and self.id ~= "" end,
-    GetIngredientCount = function(self) return #(self.ingredients or {}) end,
+    -- The units of the ingredients that are not a currency (client 0x5C47AC0; the backend Crafting::experience_of: the base of the
+    -- trade skill points of one job is the reward of the event times these units).
+    GetIngredientCount = function(self)
+      local units = 0
+      for _, entry in ipairs(self.ingredients or {}) do
+        units = units + (entry.type ~= INGREDIENT_TYPES.Currency and (entry.quantity or 0) or 0)
+      end
+      return units
+    end,
     GetIngredients = function(self) return self.ingredients or {} end,
     GetHiddenByAchievementId = function(self)
       local recipe = recipe_of(self.id)

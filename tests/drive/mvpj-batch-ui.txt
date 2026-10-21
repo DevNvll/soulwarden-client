@@ -1,0 +1,41 @@
+# The UI drive of stage MVP-J part 3 (times from the spawn of the player): at the smelter the search "Iron Ingot", its row, SPACE (the
+# action setCraftMax: the largest count, 2,000), CRAFT; the server stops the batch at 36 s. At the stonecutter the search "Runestone", its
+# row (1 craft left in the window), CRAFT (one job), and at the second open the screen with no craft left.
+1 waitfor CompassLines 60
+2 waitfor world 180
+22 waitfor FilterInputField 30
+24 point FilterInputField
+25 click
+26 text Iron Ingot
+28 waitfor recipe:IngotT2 20
+29 point recipe:IngotT2
+30 click
+31 point CraftButton
+32 key space
+34 log CRAFT of the largest count at the smelter
+34 click
+46 key escape
+50 key escape
+54 key escape
+70 waitfor FilterInputField 30
+72 point FilterInputField
+73 click
+74 text Runestone
+76 waitfor recipe:BlockT51 20
+77 point recipe:BlockT51
+78 click
+80 point CraftButton
+81 log CRAFT of the last Runestone of the window
+81 click
+92 key escape
+96 key escape
+102 waitfor FilterInputField 30
+104 point FilterInputField
+105 click
+106 text Runestone
+108 waitfor recipe:BlockT51 20
+109 point recipe:BlockT51
+110 click
+111 log the Runestone with no craft left
+118 key escape
+122 end

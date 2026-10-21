@@ -1,0 +1,10 @@
+# The batch, its stop, and a cooldown window (stage MVP-J part 3): tools/creature-check.sh mvpj-batch 125 THIS tests/drive/mvpj-batch.txt
+# -- -SwcUiDrive=tests/drive/mvpj-batch-ui.txt, with the copy at the smelter and the craft kit (8,000 Iron Ore; 10 BlockT5, 2 SandpaperT5,
+# 2 LodestoneEarthT1; Stonecutting 200). The retail screen has no client cancel of a batch (the craft-all override sends the whole count):
+# the server stops the batch (the development route; the completed jobs stay). The Runestone (BlockT51: 10 crafts in 86,400 s) gets a window
+# with 9 crafts used before the stonecutter opens.
+1 heal
+1.5 ignore on
+36 craft-stop
+58 craft-cooldown BlockT51 9 86400
+60 travel 8822.4 4245.1 136.9 off

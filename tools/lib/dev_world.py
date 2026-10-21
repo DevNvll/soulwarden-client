@@ -269,6 +269,13 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "POST", f"/v1/dev/interactions/remove?character={character(folder)}&entity={rest[0]}")
     if command == "cancel":
         return request(folder, "POST", f"/v1/dev/interactions/cancel?character={character(folder)}")
+    # The crafting (stage MVP-J, docs/CRAFTING.md): the server stops the craft batch of the character (the completed jobs stay), and the
+    # cooldown window of a recipe (USED crafts of the window, SECONDS to its end).
+    if command == "craft-stop":
+        return request(folder, "POST", f"/v1/dev/crafting/stop?character={character(folder)}")
+    if command == "craft-cooldown" and len(rest) == 3:
+        return request(folder, "POST", f"/v1/dev/crafting/cooldown?character={character(folder)}&recipe={rest[0]}&used={int(rest[1])}"
+                                       f"&seconds={int(float(rest[2]))}")
     # The objects of the level data (stage P4.1 part 2, docs/OBJECTS.md): the nodes and the chests of the character.
     if command == "gathering" and len(rest) <= 1:
         radius = f"&radius={float(rest[0])}" if rest else ""

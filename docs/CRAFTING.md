@@ -86,6 +86,24 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
 - The perk rows of a procedural result: the bucket type and the chance of each PerkBucket column of the output (the backend copy
   perk-data.json `buckets` in crafting.json); an upgrade place gets the modifier 1.0.
 
+## The batch, the stop, and the cooldown (part 3)
+
+- The count: the quantity widget (SPACE: setCraftMax, the largest count of the materials, the bag, and the cooldown) and one 2997 with
+  the whole count (javelin.crafting-enable-craft-all-override true). The server makes 20 jobs in each world tick and sends a progress
+  2993 for each tick.
+- The retail screen has no client cancel of such a batch: its cancel button (OnStopCraft) only stops the job loop of the other mode (no
+  craft-all override). A batch stops on the server (the end of the use: Escape after the craft, 3746, a travel, the death; a command);
+  the completed jobs stay, and the server sends a final progress (the completed count of the total). The screen then shows "Crafting
+  attempt failed." after its 10 s timer, as the retail client with this backend (Soulwarden evidence crafting/37b RESULT: "A stop of a
+  craft-all batch before its last job ... shows 'Crafting attempt failed.' after 10 s; the completed jobs stay").
+- The cooldown of a recipe: the windows of state 205 (`C.CooldownLeft`): the screen shows "Crafting Cooldown: 23h 59m per N items",
+  limits the count, and disables CRAFT at 0 left.
+- The trade skill points of the screen: GetIngredientCount of a recipe is the units of the ingredients that are not a currency (client
+  0x5C47AC0; the backend Crafting::experience_of), not the count of the entries.
+- NotificationData (a native class) starts with maximumDuration 2.0, the defaultDuration of notifications.luac: a minor notice ends after
+  the duration of its type (before, "Crafting attempt failed." stayed on the screen).
+- Development routes (tools/lib/dev_world.py): `craft-stop` (the server stops the batch), `craft-cooldown RECIPE USED SECONDS`.
+
 ## The checks
 
 - `tools/test-ui.sh --fixture crafting`: the open with a level 70 character, the station header, the recipe list, Escape (one request
@@ -98,6 +116,9 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
 - `mvpj-craft3` (part 2; a copy of the user's character with a kit: 8,000 Iron Ore, T5 materials, Weaponsmithing 150): at the smelter the
   search "Iron Ingot", its row, CRAFT: one 2997 (count 1, fee 1), the progress 1 of 1, 2999, the result screen "IRON INGOT"; at the
   forge the Orichalcum Great Axe: one 2997 (fee 449, gear score 520), the server makes the axe with the gear score 520 and three perks.
+- `mvpj-batch2` (part 3): at the smelter SPACE and CRAFT: one 2997 of 2,000 Iron Ingots, the server stop after 100 jobs (100 Iron Ingots,
+  fee 100 paid), the final progress, 2999; at the stonecutter the Runestone with 9 of 10 crafts used: CRAFT of the last one, and at the
+  next open "per 0 items" and CRAFT disabled.
 - The UI drives use the drive target "recipe:ID" (the shown row of a recipe) and the drive command "text" (the search box).
 
 ## The differences from retail (part 1)

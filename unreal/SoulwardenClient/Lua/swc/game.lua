@@ -123,6 +123,12 @@ function Swc.SetConfig(name, value)
   Swc.config[name] = value
 end
 
+-- The data of a notification (the native NotificationData): an object that keeps the fields that a script sets. Its maximumDuration
+-- starts at 2.0, the defaultDuration of notifications.luac: the manager takes a value equal to it as "no duration set" and gives the
+-- notification the duration of its type (Durations[type]). With no value a minor notification never ended (stage MVP-J: the text
+-- "Crafting attempt failed." stayed on the screen).
+NotificationData = setmetatable({}, {__call = function() return {maximumDuration = 2.0} end})
+
 Swc.Define("ConfigProviderEventBus", "Broadcast", {
   GetBool = function(name) return Swc.config[name] == true end,
   GetInt = function(name) return tonumber(Swc.config[name]) or 0 end,

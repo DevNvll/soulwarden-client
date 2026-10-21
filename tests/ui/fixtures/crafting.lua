@@ -4,6 +4,7 @@ local HUD, CRAFTING = 2702338936, 3024636726
 local crafting = screen("LyShineUI/Crafting/CraftingScreenV4.uicanvas", 20)
 local station = screen("LyShineUI/StationProperties/StationProperties.uicanvas", 21)
 local tooltip = screen("LyShineUI/Tooltip/Tooltip.uicanvas", 54, true)
+local notices = screen("LyShineUI/Notifications/Notification.uicanvas", 50)
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(HUD)
 DynamicBus.UiLoader.Broadcast.OnUiLoadingComplete()
@@ -147,3 +148,28 @@ frames(0.5)
 local axeRequest = requests()[1] or ""
 note("the axe request: " .. axeRequest)
 check(axeRequest:find("^craft " .. crc("Procedural_2hGreatAxeT5") .. " 1 ") ~= nil, "CRAFT gives one request of the axe")
+
+-- The minor notice "Crafting attempt failed." of the 10 s timer (craftingscreenv4.luac CleanupFailureAndReturn) ends after the duration of
+-- its type (NotificationData starts with maximumDuration 2.0, the defaultDuration of notifications.luac).
+local function notice_text()
+  local found = ""
+  local function walk(id, depth)
+    if depth > 14 then return end
+    if swcui.name(id) == "MinorNotifcationText" and swcui.enabled_in_hierarchy(id) then found = swcui.get(id, "text.text") or "" end
+    for _, c in ipairs(swcui.children(id)) do walk(c, depth + 1) end
+  end
+  walk(swcui.canvas_get(notices, "root"), 0)
+  return found
+end
+local failed = NotificationData()
+failed.type = "Minor"
+failed.text = "@crafting_failed"
+UiNotificationsBus.Broadcast.EnqueueNotification(failed)
+frames(1.0)
+equal(notice_text(), "Crafting attempt failed.", "the minor notice shows")
+frames(8.0)
+equal(notice_text(), "", "the minor notice ends")
+
+-- The trade skill points of a job: the reward of the event times the units of the ingredients that are not a currency (the Runestone:
+-- 5 + 1 + 1; the server gave 21,000 Stonecutting for a job of the reward 3,000 in run mvpj-batch2).
+equal(Swc.crafting.RecipeDataOf(Swc.crafting.Recipe("BlockT51")):GetIngredientCount(), 7, "the ingredient units of the Runestone")
