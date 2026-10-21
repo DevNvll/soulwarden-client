@@ -286,14 +286,12 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         "notes": notes, "unsupported": unsupported,
     }
     record["renderer"] = "sprite"
-    # AST-230: the Diffuse color of a material of the Particles shader tints the sprite (the blood: a gray mask atlas and the Diffuse
-    # 0.178, 0.0097, 0.0097) [I: the material constant MatDifColor; brief to the orchestrator]. The fire of stage 2 has Diffuse 1 or no
-    # material.
-    if mtl and not mtl.get("missing") and mtl.get("shader") == "Particles" and len(mtl.get("diffuseColor", [])) == 3:
-        record["color"]["base"] = [round(c * d, 6) for c, d in zip(record["color"]["base"], mtl["diffuseColor"])]
-    # AST-230: AlphaClip (particle-rules.md 2 [R]): the clip rows from the particle alpha p: x = Scale, y = SourceMin, z = SourceWidth, each
-    # the Min at p 0 and the Max at p 1 [I: the lerp of the two rows]; then a = saturate(min(atlas alpha - y, z) x x). The defaults: Scale
-    # 0 to 1, SourceMin 0, SourceWidth 1 (the plain fade).
+    # AST-230 (research/particle-impacts.md 1 [R]): the material Diffuse (PM_DiffuseColor; the raw XML floats, linear) multiplies the
+    # atlas RGB in the lit and the glow terms: a separate parameter of the material instance. The fire of stage 2: Diffuse 1 or no material.
+    record["matDiffuse"] = (list(mtl["diffuseColor"]) if mtl and not mtl.get("missing") and len(mtl.get("diffuseColor", [])) == 3
+                            else [1.0, 1.0, 1.0])
+    # AST-230: AlphaClip (research/particle-impacts.md 2 [R]): the authored ranges of Scale, SourceMin, SourceWidth (their Min and Max; the
+    # omitted endpoints keep the defaults 0 to 1, 0, 1); the material makes the rows with K = Amax x L (the largest base alpha x AlphaScale).
     clip = parse_value(p.get("AlphaClip", ""))["fields"]
 
     def clip_range(name, low, high):
@@ -301,12 +299,16 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         values = keys[0] if keys else {}
         return [float(values.get("Min", low)), float(values.get("Max", high))]
     record["alphaClip"] = {"scale": clip_range("Scale", 0.0, 1.0), "sourceMin": clip_range("SourceMin", 0.0, 0.0),
-                           "width": clip_range("SourceWidth", 1.0, 1.0)}
+                           "width": clip_range("SourceWidth", 1.0, 1.0), "amax": record["alpha"]["base"][1] or 1.0}
     unsupported.pop("AlphaClip", None)
-    # AST-230: a velocity-aligned sprite with no speed (the blood spurts) aligns to its emit axis [I]: a speed of 0.01 cm/s along the cone.
-    if record["facing"] == "velocity" and max(abs(v) for v in record["speed"]) == 0.0:
-        record["speed"] = [0.01, 0.01]
-        record["notes"].append("a still velocity-aligned sprite: 0.01 cm/s along the emit axis for its alignment [I]")
+    # AST-230 (research/particle-impacts.md 3 [R]): at zero visual velocity the alignment keeps the particle rotation. A velocity-aligned
+    # emitter that never moves (no speed, no gravity, no acceleration: the blood spurts) keeps its source facing: CameraX (upright about the
+    # local Z) or the camera.
+    still = (max(abs(v) for v in record["speed"]) == 0.0 and not any(record["gravity"]["min"]) and not any(record["gravity"]["max"]))
+    if record["facing"] == "velocity" and still:
+        record["facing"] = {"CameraX": "upright"}.get(facing, "camera")
+        record["stretch"] = 0.0
+        record["notes"].append("OrientToVelocity with no motion: the source facing (the rotation is kept at zero velocity [R])")
     if mtl and not mtl.get("missing") and "REFRACTION" in mtl.get("flags", []):
         # A refraction material (the distortion of the swipes): no refraction path yet (plan step 6).
         record["enabled"] = False
@@ -323,7 +325,9 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
             record["enabled"] = False
             record["notes"].append(f"Geometry {geometry}: no mesh")
         else:
-            record["enabled"] = bool(bands) and alpha_base > 0
+            record["enabled"] = bool(bands) and alpha_base > 0 and tex is not None
+            if tex is None:
+                record["notes"].append("a mesh particle with no diffuse texture: not drawn")
     return record
 
 

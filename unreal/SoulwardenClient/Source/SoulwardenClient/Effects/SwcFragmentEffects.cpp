@@ -113,7 +113,7 @@ void FSwcFragmentEffects::Update(const FSwcActions& Data, const FSwcEffectOwner&
 				// The log of each entry (the timing evidence of the checks): the fragment, the clip, its start, and the clock of the frame.
 				UE_LOG(LogSwcFragmentEffects, Log, TEXT("fragment effects: %s %s %s at %.4f (clock %.4f, serial %u)"), *Record->Name, *Clip.Type,
 					*Clip.Name, Clip.Start, Clock, Serial);
-				Enter(Data, Owner, Channel, Clip);
+				Enter(Data, Owner, Channel, Clip, Record == WeaponRecord && Record != Fragment);
 			}
 			if (Clip.End >= 0.0f && Clip.End > From && Clip.End <= Clock)
 			{
@@ -123,7 +123,8 @@ void FSwcFragmentEffects::Update(const FSwcActions& Data, const FSwcEffectOwner&
 	}
 }
 
-void FSwcFragmentEffects::Enter(const FSwcActions& Data, const FSwcEffectOwner& Owner, int32 Channel, const FSwcEffectClip& Clip)
+void FSwcFragmentEffects::Enter(const FSwcActions& Data, const FSwcEffectOwner& Owner, int32 Channel, const FSwcEffectClip& Clip,
+                                bool bWeaponRecord)
 {
 	if (!Clip.Condition.IsEmpty())
 	{
@@ -164,24 +165,47 @@ void FSwcFragmentEffects::Enter(const FSwcActions& Data, const FSwcEffectOwner& 
 	{
 		return;
 	}
-	if (!Clip.Attachment.IsNone())
-	{
-		Note(FString::Printf(TEXT("ParticleEffect %s: the attachment %s of the body is not read yet"), *Clip.Name, *Clip.Attachment.ToString()));
-		return;
-	}
+	// The parent: the weapon for a clip of the weapon scope; else the joint of the body; else (an attachment and no joint of the body) the
+	// helper of the weapon in the main hand [I]. The offset of the clip is in the frame of the joint or of the helper.
+	USceneComponent* Parent = Owner.Body;
+	FName Socket = NAME_None;
+	FTransform HelperPlace = FTransform::Identity;
 	bool bFound = false;
-	const FName Socket = SocketOf(Owner.Body, Clip.Joint, bFound);
+	bool bBodyJoint = false;
+	if (!bWeaponRecord && !Clip.Joint.IsNone())
+	{
+		Socket = SocketOf(Owner.Body, Clip.Joint, bBodyJoint);
+		bFound = bBodyJoint;
+	}
+	if (!bBodyJoint && (bWeaponRecord || !Clip.Attachment.IsNone()))
+	{
+		Parent = Owner.Weapon;
+		if (Owner.Weapon == nullptr)
+		{
+			Note(FString::Printf(TEXT("ParticleEffect %s: no weapon in the main hand"), *Clip.Name));
+			return;
+		}
+		if (!Clip.Attachment.IsNone())
+		{
+			bFound = SwcWeaponHelperPlace(Data, Owner.WeaponFile, Clip.Attachment, Owner.Weapon, Socket, HelperPlace);
+		}
+		else
+		{
+			Socket = SocketOf(Owner.Weapon, Clip.Joint, bFound);
+		}
+	}
 	if (!bFound)
 	{
-		Note(FString::Printf(TEXT("ParticleEffect %s: no joint %s on the body"), *Clip.Name, *Clip.Joint.ToString()));
+		Note(FString::Printf(TEXT("ParticleEffect %s: no joint %s and no helper %s (%s)"), *Clip.Name, *Clip.Joint.ToString(), *Clip.Attachment.ToString(),
+			bWeaponRecord ? *Owner.WeaponFile : TEXT("the body")));
 		return;
 	}
 	FSwcEffectSettings Settings;
 	Settings.AlphaScale = Clip.AlphaScale;
 	Settings.TimeScale = Clip.TimeScale;
 	Settings.Tint = Clip.Tint;
-	const FTransform Relative(UnrealEuler(Clip.Rotation), UnrealOffset(Clip.Position), FVector(Clip.Scale));
-	UNiagaraComponent* Component = Effects->StartAttached(Clip.Name, Owner.Body, Socket, Relative, Clip.bFollow, Settings);
+	const FTransform Relative = FTransform(UnrealEuler(Clip.Rotation), UnrealOffset(Clip.Position), FVector(Clip.Scale)) * HelperPlace;
+	UNiagaraComponent* Component = Effects->StartAttached(Clip.Name, Parent, Socket, Relative, Clip.bFollow, Settings);
 	if (Component == nullptr)
 	{
 		Note(FString::Printf(TEXT("ParticleEffect %s: no system"), *Clip.Name));

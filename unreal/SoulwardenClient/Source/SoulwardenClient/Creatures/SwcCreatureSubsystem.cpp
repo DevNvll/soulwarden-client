@@ -1046,6 +1046,7 @@ void USwcCreatureSubsystem::PlayImpact(uint32 Interest, const ASwcCreature& Crea
 	}
 	FSwcImpactHit Hit;
 	Hit.Point = Pending.Point;
+	Hit.Normal = Pending.Normal;
 	Hit.Direction = Pending.Direction;
 	Hit.DamageRow = Pending.DamageRow;
 	Hit.Volume = Pending.Volume;
@@ -1348,6 +1349,7 @@ void USwcCreatureSubsystem::QueryMeleeContacts(const FSwcMeleeShape& Shape, std:
 			FPendingHit& Hit = PendingHits.AddDefaulted_GetRef();
 			Hit.Interest = Contact.Interest;
 			Hit.Point = Contact.Point;
+			Hit.Normal = Contact.Normal;
 			Hit.Direction = Shape.Direction;
 			Hit.DamageRow = Shape.DamageRow;
 			Hit.Volume = Contact.Volume;

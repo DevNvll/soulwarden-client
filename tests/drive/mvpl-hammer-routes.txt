@@ -1,0 +1,8 @@
+# The client take of the retail take set-mvpl-effects/retail-hammer.mp4 (AST-230; docs/EFFECTS.md): the same steps 5 s later
+# on the drive clock. A copy of the user's database (dev-data-mvpl), noon, the creatures ignore the character.
+1 world-time 12:00
+1 ignore on
+1.5 heal
+3 equip 5 24
+6.0 spawn Wolf_Grey_7 2.5 0 0 --yaw 90 --level 70
+6.4 spawn Wolf_Grey_7 3 0.8 0 --yaw 90 --level 70

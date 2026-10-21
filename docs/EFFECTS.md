@@ -106,12 +106,26 @@ the local +Z of the effect along the direction of the strike x N [I]; `SpawnPart
 the attacker (the blood trail at vfx_Tip_01) and follows it. That the hit plays at the damage message (not at the contact) is [I]: the
 selection needs the critical flag. Not done: SpawnDecal, the joint calls, the resist suffix, the elements, the hits of the shots.
 
-Three rules of the sprites, for the hits [I] (a brief to the orchestrator for the retail shader):
-- The Diffuse color of a material of the Particles shader tints the sprite (the blood atlas is a gray mask; its .mtl Diffuse is
-  0.178, 0.0097, 0.0097). The fire of stage 2 has Diffuse 1 or no material: no change.
-- AlphaClip (particle-rules.md 2 [R]): `a = saturate(min(atlas alpha - y, z) x x)`, a <= 0.01 is 0, with x = Scale, y = SourceMin,
-  z = SourceWidth each from its Min at the particle alpha 0 to its Max at 1 (the lerp is [I]). The defaults give the plain fade.
-- A velocity-aligned sprite with no speed (the blood spurts) aligns to its emit axis: a speed of 0.01 cm/s along the cone.
+The sprite rules of the second study (`~/Games/soulwarden-client/research/particle-impacts.md`, GPT-6.1-Sol, 2026-10-21) [R]:
+- The material Diffuse (PM_DiffuseColor, the raw XML floats) multiplies the atlas RGB in the lit and the glow terms: the parameter
+  `MatDiffuse` of the sprite instances (the blood: an sRGB gray mask atlas and Diffuse 0.178, 0.0097, 0.0097). The fire of stage 2 has
+  Diffuse 1 or no material.
+- AlphaClip: two rows from K = Amax x L (Amax: the largest base alpha; L: AlphaScale) and p = the particle alpha / Amax: q = row0 +
+  row1 x p (Scale, SourceMin, SourceWidth between their Min and Max); w = min(max(q.z, 0.001), 1 - q.y); a = atlas alpha - q.y (0 at
+  or below 0.01); alpha = saturate(min(a, w) x q.x / w). The defaults give the plain fade (the sprite parents version 6).
+- At zero visual velocity the alignment keeps the particle rotation: an OrientToVelocity emitter that never moves (no speed, no gravity:
+  the blood spurts) keeps its source facing (CameraX: upright about the local Z; else the camera).
+- SpawnParticle puts the local +Z of the effect along its direction. Each call keeps the vector and the multiplier that its script
+  selects: the third vector (a3: the direction of the strike of the client [I]; its native producer is not known [U]), the second (a2:
+  the normal of the contact [I]), or a fixed vector of the game; a call with another expression does not play (logged).
+
+## The weapon scope and the weapon helpers
+
+A clip of a record of the weapon scope (the attachment databases) runs on the weapon: its JointName is a bone of the weapon mesh, its
+AttachmentName a helper of the weapon file (vfx_melee_01, vfx_tip_01, ...; the names have no case). A clip of the body database with a
+joint of the body takes that joint (Wreckingball_Swipe1: aim_direction, as the study table); a body clip with only an AttachmentName
+takes the helper of the weapon in the main hand [I]. The spell and projectile slices of the weapons (`slices/items/weapons/`,
+`slices/perks/`) have their systems (386 systems): the vortex of Gravity Well, Shockwave, Path of Destiny, the arrows.
 
 ## The mesh particles (part of plan step 6)
 
@@ -142,6 +156,13 @@ Development runs with a copy of the user's database (`dev-data-mvpl`; the sword 
 | mvpl-hit1 | The hits: Sword FleshHead (the head of the wolf): SwordFleshHead (BLOOD.Impact_Slash_Omni, BLOOD.Impact_Slash_Trail); a critical hit: Sword+Crit Default: SwordDefaultCrit (with CRIT.base_MD_cfx_addon); 0.046 to 0.070 s after the contact. |
 | mvpl-hit2, mvpl-look-b | After the three sprite rules: no material compile error; the blood spurt is red (a look drive: each effect 4 m in front, 1.5 m to the side, 20 times slower; `work/mvp-l/look_drive.py`). |
 
+| mvpl-take-sword, -axe, -hammer | The client takes of the retail takes of `set-mvpl-effects` (below): the same steps 5 s later (`tests/drive/mvpl-sword*.txt`, `mvpl-axe*`, `mvpl-hammer*`; the camera `view 89.8 -10` as the retail aim). All clips of the great axe and war hammer abilities play (the weapon helpers): Charge glow, Engage swipe, Maelstrom (two spins at 0.35 and 0.733 s), Gravity Well glow, Wrecking Ball (charged, tell, swipe, impact), Shockwave (charged, trail), Path of Destiny (charge, swipe, impact); only Wreckingball_impact_AOE waits for its condition WreckingBallAOE. |
+
+The retail references (`~/Games/soulwarden/work/evidence/unreal-references/set-mvpl-effects/`, its README): a development run of the
+Soulwarden project with a copy of the user's database (the same character and bars), noon, the camera heading 89.8 and pitch -10, the
+sword and shield, the great axe, and the war hammer on level 70 wolves. The side-by-side videos `compare-sword.mp4`, `compare-axe.mp4`,
+`compare-hammer.mp4` (retail | client, 30 fps, from 1 s before the first press of each take).
+
 Evidence: `step1-swipes-slow.mp4`, `step1-strike-slow.mp4`, `step1-chain-normal.mp4`, `step1-compare-strike.png` (retail creature-areas
 s1-fresh at +1.63 and +1.74 s | client at the bolt time).
 
@@ -154,6 +175,14 @@ Differences to retail (first step):
   helper: the client plays nothing and logs it (retail: open, study open point 5). The bow `tip` and `tip_start` groups are not in the
   default script (logged). The arrow trail: plan step 8.
 
+Differences in the compares (part 3):
+- Maelstrom: the same cyan swirl disc and the two spins; the start within about one frame of the retail start (compare-axe 7.41 s and
+  about 7.45 s); the client teal is lighter.
+- The sword: the client attack starts about 0.3 s later after the press than retail in these takes, and the first client swing did not
+  touch the wolf (its first hit is the second strike): the timing of the press and the contact are of the action and contact rules, not
+  of the effects (the effects enter at their fragment times). The retail blood is wide red spurts and blue sparks; the client blood is a
+  thin red spurt (the sizes of the data: a 0.35 m wide, 4.4 m cell with an eroded shape) [open].
+
 ## Open points
 
 The open points of the study ("Open points" 1 to 10) stay. Of this work:
@@ -161,4 +190,5 @@ The open points of the study ("Open points" 1 to 10) stay. Of this work:
 2. The element of the weapon (the perk or gem of the item): Default only.
 3. The decal and light renderers, the ribbons, the refraction, the dissolve (plan step 6).
 4. The world-space particles behind a moving emitter (the stateless emitters are in the local space).
-5. The retail references of the sword, the great axe, and the war hammer: the Soulwarden evidence has no video of them.
+5. The width of the client blood spurts against retail.
+6. The roll of an effect about its SpawnParticle axis (the retail look-at transverse basis).

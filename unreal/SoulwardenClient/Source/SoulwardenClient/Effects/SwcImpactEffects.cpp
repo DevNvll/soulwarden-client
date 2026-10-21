@@ -49,11 +49,25 @@ bool FSwcImpactEffects::Load()
 			const auto Arg = [&Args](int32 Index) { return Args.IsValidIndex(Index) && Args[Index]->Type == EJson::String ? Args[Index]->AsString() : FString(); };
 			if (Call.Call == TEXT("SpawnParticle"))
 			{
-				// SpawnParticle(key, a1 the point, a3 * N the direction, ...).
+				// SpawnParticle(key, a1 the point, the direction that the script selects: a2 or a3 with a multiplier, or a fixed vector).
 				Call.Key = Arg(0);
-				const FString Direction = Arg(2);
-				FString Left, Right;
-				Call.DirectionScale = Direction.Split(TEXT("*"), &Left, &Right) && Left == TEXT("a3") ? FCString::Atof(*Right) : 0.0f;
+				if (Args.IsValidIndex(2) && Args[2]->Type == EJson::Array && Args[2]->AsArray().Num() == 3)
+				{
+					const TArray<TSharedPtr<FJsonValue>>& V = Args[2]->AsArray();
+					const FVector Game(V[0]->AsNumber(), V[1]->AsNumber(), V[2]->AsNumber());
+					Call.DirectionSource = Game.IsNearlyZero() ? 0 : 4;
+					Call.FixedDirection = FVector(Game.X, -Game.Y, Game.Z).GetSafeNormal();
+				}
+				else
+				{
+					FString Name = Arg(2), Right;
+					Call.DirectionScale = 1.0f;
+					if (Name.Split(TEXT("*"), &Name, &Right))
+					{
+						Call.DirectionScale = FCString::Atof(*Right);
+					}
+					Call.DirectionSource = Name == TEXT("a3") ? 3 : (Name == TEXT("a2") ? 2 : 0);
+				}
 			}
 			else if (Call.Call == TEXT("SpawnParticleAtAttachment") || Call.Call == TEXT("SpawnParticleAtAttachmentOffset"))
 			{
@@ -123,8 +137,15 @@ FString FSwcImpactEffects::Play(UWorld* World, const FSwcImpactHit& Hit)
 		UNiagaraComponent* Component = nullptr;
 		if (Call.Call == TEXT("SpawnParticle") && !Call.Key.IsEmpty())
 		{
-			// The local +Z of the effect along the direction of the call [I] (the emit axis of the converter is the local +Z).
-			const FVector Direction = (Call.DirectionScale != 0.0f ? Hit.Direction * Call.DirectionScale : Hit.Direction).GetSafeNormal();
+			// The local +Z of the effect along the direction of the call (research/particle-impacts.md 4 [R]: a look-at matrix; the roll about
+			// the axis is not the retail transverse basis yet).
+			if (Call.DirectionSource == 0)
+			{
+				Text += FString::Printf(TEXT("; %s: a direction that the client does not read, not played"), *Call.Key);
+				continue;
+			}
+			const FVector Source = Call.DirectionSource == 4 ? Call.FixedDirection : (Call.DirectionSource == 2 ? Hit.Normal : Hit.Direction);
+			const FVector Direction = (Source * Call.DirectionScale).GetSafeNormal();
 			const FQuat Rotation = FRotationMatrix::MakeFromZ(Direction.IsNearlyZero() ? FVector::UpVector : Direction).ToQuat();
 			Component = Effects->Start(Call.Key, FTransform(Rotation, Hit.Point), FSwcEffectSettings());
 		}

@@ -28,7 +28,7 @@ import swc_materials as sm  # noqa: E402
 content = os.environ["SWC_CONTENT"]
 force = os.environ.get("SWC_IMPORT_FORCE", "") == "1"
 ROOT = "/SwcGameContent/Particles"
-PARENT_VERSION = "5"
+PARENT_VERSION = "6"
 
 assets = unreal.EditorAssetLibrary
 editing = unreal.MaterialEditingLibrary
@@ -135,28 +135,36 @@ def parent(name, additive, lit=False):
     # The opacity: the clip of the atlas alpha by the particle alpha (one fade, particle-rules.md 2; AST-230: the AlphaClip rows, x = Scale,
     # y = SourceMin, z = SourceWidth between their Min at the particle alpha 0 and their Max at 1; the defaults 0 to 1, 0, 1 give the atlas
     # alpha x the particle alpha) x AlphaScale x the soft fade. The "" output of a vector parameter is its RGB: SourceMin Max is its A.
+    # The rows of research/particle-impacts.md 2 [R]: K = Amax x L (Amax: the largest base alpha, ClipW.z; L: AlphaScale), p = the particle
+    # alpha / Amax; q = row0 + row1 x p; w = min(max(q.z, 0.001), 1 - q.y); a = atlas alpha - q.y (0 at or below 0.01); alpha =
+    # saturate(min(a, w) x q.x / w). K stays inside the saturate (no second fade).
     clip_a = sm.vector(material, "ClipA", (0.0, 1.0, 0.0, 0.0), -1200, 700)
-    clip_w = sm.vector(material, "ClipW", (1.0, 1.0, 0.0, 0.0), -1200, 850)
-    alpha = sm.custom(material, "float x = lerp(C.x, C.y, P); float y = lerp(C.z, CA, P); float z = lerp(W.x, W.y, P);\n"
-                      "float a = T - y; return a <= 0.01 ? 0.0 : saturate(min(a, z) * x);",
-                      unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("T", "P", "C", "CA", "W"), -800, 500)
-    for source_node, output, pin in ((atlas, "A", "T"), (color, "A", "P"), (clip_a, "", "C"), (clip_a, "A", "CA"), (clip_w, "", "W")):
+    clip_w = sm.vector(material, "ClipW", (1.0, 1.0, 1.0, 0.0), -1200, 850)
+    alpha = sm.custom(material, "float amax = max(W.z, 1e-4); float p = saturate(P / amax);\n"
+                      "float qx = amax * L * lerp(C.x, C.y, p); float qy = lerp(C.z, CA, p); float qz = lerp(W.x, W.y, p);\n"
+                      "float w = min(max(qz, 0.001), 1.0 - qy); if (w <= 0.0) return 0.0;\n"
+                      "float a = T - qy; return a <= 0.01 ? 0.0 : saturate(min(a, w) * qx / w);",
+                      unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("T", "P", "C", "CA", "W", "L"), -800, 500)
+    for source_node, output, pin in ((atlas, "A", "T"), (color, "A", "P"), (clip_a, "", "C"), (clip_a, "A", "CA"), (clip_w, "", "W"),
+                                     (alpha_scale, "", "L")):
         editing.connect_material_expressions(source_node, output, alpha, pin)
-    alpha = sm.multiply(material, (alpha, ""), (alpha_scale, ""), -600, 550)
     alpha = sm.multiply(material, (alpha, ""), (soft, ""), -450, 600)
     clamp = sm.node(material, unreal.MaterialExpressionSaturate, -300, 600)
     editing.connect_material_expressions(alpha, "", clamp, "")
     # The two terms of the source shader (particle-rules.md 1), in source units x EmissionUnit x EmissiveScale:
     # ambient = the atlas RGB x the particle color x Tint x Ambient (EmissiveLighting); glow = the opacity x the atlas RGB x the glow map
     # (the Detail slot at the same atlas frame) x GlowColor (0.1 x Emittance.rgb x Emittance.a; no particle color, no tint).
-    ambient = sm.multiply(material, (atlas, "RGB"), (color, ""), -800, 100)
+    # The material Diffuse (research/particle-impacts.md 1 [R]: PM_DiffuseColor on the atlas RGB of the lit and the glow terms).
+    mat_diffuse = sm.vector(material, "MatDiffuse", (1.0, 1.0, 1.0, 1.0), -1200, -800)
+    diffuse_rgb = sm.multiply(material, (atlas, "RGB"), (mat_diffuse, ""), -1000, -100)
+    ambient = sm.multiply(material, (diffuse_rgb, ""), (color, ""), -800, 100)
     ambient = sm.multiply(material, (ambient, ""), (tint, "RGB"), -600, 150)
     ambient = sm.multiply(material, (ambient, ""), (sm.scalar(material, "Ambient", 0.0, -800, 250), ""), -450, 150)
     glow_map = sm.node(material, unreal.MaterialExpressionTextureSampleParameterSubUV, -1200, -500)
     glow_map.set_editor_property("parameter_name", "Glow")
     glow_map.set_editor_property("blend", True)
     glow_map.set_editor_property("texture", atlas.get_editor_property("texture"))
-    glow = sm.multiply(material, (atlas, "RGB"), (glow_map, "RGB"), -800, -500)
+    glow = sm.multiply(material, (diffuse_rgb, ""), (glow_map, "RGB"), -800, -500)
     glow = sm.multiply(material, (glow, ""), (sm.vector(material, "GlowColor", (0.0, 0.0, 0.0, 0.0), -1000, -650), "RGB"), -600, -500)
     glow = sm.multiply(material, (glow, ""), (clamp, ""), -450, -500)
     rgb = sm.node(material, unreal.MaterialExpressionAdd, -300, 100)
@@ -179,7 +187,7 @@ def parent(name, additive, lit=False):
     if lit:
         # Lit: the scene light term, the base color = the sprite color x Tint x Diffuse (DiffuseLighting; the light volume of Unreal at
         # each vertex in place of the source light volume and probe, an approximation).
-        base = sm.multiply(material, (atlas, "RGB"), (color, ""), -800, -200)
+        base = sm.multiply(material, (diffuse_rgb, ""), (color, ""), -800, -200)
         base = sm.multiply(material, (base, ""), (tint, "RGB"), -600, -200)
         base = sm.multiply(material, (base, ""), (sm.scalar(material, "Diffuse", 1.0, -800, -350), ""), -450, -200)
         base = sm.multiply(material, (base, ""), (tod_f, ""), -350, -200)
@@ -327,7 +335,7 @@ def instance(parent_material, spec, additive):
     import hashlib
     values = {"atlas": spec["texture"], "glow": spec.get("glowTexture") or spec["texture"], "soft": bool(spec["soft"]),
               "ambient": spec["ambient"], "glowColor": spec["glowColor"], "diffuse": spec["diffuse"] if spec.get("lit") else None,
-              "tod": spec.get("tod", 1.0), "clip": spec.get("alphaClip"),
+              "tod": spec.get("tod", 1.0), "clip": spec.get("alphaClip"), "matDiffuse": spec.get("matDiffuse", [1.0, 1.0, 1.0]),
               "parent": parent_material.get_name()}
     digest = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:8]
     name = "MI_" + spec["texture"][2:] + ("_Add" if additive else ("_Lit" if spec.get("lit") else "_Alpha")) + "_" + digest
@@ -345,10 +353,11 @@ def instance(parent_material, spec, additive):
     editing.set_material_instance_scalar_parameter_value(mi, "Ambient", float(values["ambient"]))
     editing.set_material_instance_vector_parameter_value(mi, "GlowColor", unreal.LinearColor(*values["glowColor"], 0.0))
     editing.set_material_instance_scalar_parameter_value(mi, "TodInfluence", float(values["tod"]))
-    clip = values["clip"] or {"scale": [0.0, 1.0], "sourceMin": [0.0, 0.0], "width": [1.0, 1.0]}
+    clip = values["clip"] or {"scale": [0.0, 1.0], "sourceMin": [0.0, 0.0], "width": [1.0, 1.0], "amax": 1.0}
     editing.set_material_instance_vector_parameter_value(mi, "ClipA", unreal.LinearColor(clip["scale"][0], clip["scale"][1], clip["sourceMin"][0],
                                                                                           clip["sourceMin"][1]))
-    editing.set_material_instance_vector_parameter_value(mi, "ClipW", unreal.LinearColor(clip["width"][0], clip["width"][1], 0.0, 0.0))
+    editing.set_material_instance_vector_parameter_value(mi, "ClipW", unreal.LinearColor(clip["width"][0], clip["width"][1], clip.get("amax", 1.0), 0.0))
+    editing.set_material_instance_vector_parameter_value(mi, "MatDiffuse", unreal.LinearColor(*values["matDiffuse"], 1.0))
     if values["diffuse"] is not None:
         editing.set_material_instance_scalar_parameter_value(mi, "Diffuse", float(values["diffuse"]))
     editing.update_material_instance(mi)

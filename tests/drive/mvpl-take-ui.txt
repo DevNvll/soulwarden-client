@@ -1,0 +1,4 @@
+# The UI drive of the MVP-L client takes: the waits for the world; the actions are in tests/drive/mvpl-NAME.txt.
+1 waitfor CompassLines 60
+2 waitfor world 180
+60 end

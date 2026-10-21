@@ -39,7 +39,9 @@ struct FSwcEffectOwner
  * flags of the clip: KillOnExit removes the particles; else KeepEmitterActive false stops the emission and the particles finish; else
  * the emitter stays active until it ends (a weapon group entry: killOnStop, else the emission stops).
  *
- * A ParticleEffect clip attaches to its joint of the body (EmitterFollows: it follows; else it starts at the place of the joint and stays).
+ * A ParticleEffect clip attaches to its joint of the body (EmitterFollows: it follows; else it starts at the place of the joint and stays);
+ * a clip of the weapon scope attaches to the weapon (a joint of the weapon, or a helper of the weapon file by AttachmentName); a body clip
+ * with an AttachmentName and no joint of the body takes the helper of the weapon in the main hand [I].
  * A WeaponEffects group (OptionOnEnter Enable) starts the particle entries of the group of the weapon effect script of the weapon in
  * the main hand (WeaponEffectBase:StartParticle): a joint of the owner (playOnOwner), a joint of the weapon, or a helper of the weapon file
  * (attachmentName). Not done: the conditions of the clips (a clip with a condition is skipped and logged), SpawnSlice, RunFxScript, and
@@ -80,7 +82,9 @@ private:
 		float Clock = 0.0f;
 	};
 
-	void Enter(const FSwcActions& Data, const FSwcEffectOwner& Owner, int32 Channel, const FSwcEffectClip& Clip);
+	/** bWeaponRecord: a clip of the weapon scope (the attachment databases): it runs on the weapon (its joints are weapon bones, its
+	 *  attachments helpers of the weapon file). */
+	void Enter(const FSwcActions& Data, const FSwcEffectOwner& Owner, int32 Channel, const FSwcEffectClip& Clip, bool bWeaponRecord);
 	void StartEntry(const FSwcActions& Data, const FSwcEffectOwner& Owner, int32 Channel, const FSwcEffectClip& Clip, int32 Index,
 	                const FSwcWeaponEffectEntry& Entry);
 	void ExitClip(UWorld* World, int32 Channel, const FSwcEffectClip& Clip);

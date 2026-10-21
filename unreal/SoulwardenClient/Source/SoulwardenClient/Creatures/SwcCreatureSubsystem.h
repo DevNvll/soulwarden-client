@@ -343,6 +343,7 @@ private:
 	{
 		uint32 Interest = 0;
 		FVector Point = FVector::ZeroVector;
+		FVector Normal = FVector::UpVector;
 		FVector Direction = FVector::ForwardVector;
 		FString DamageRow;
 		FString Volume;

@@ -1,0 +1,32 @@
+# The client take of set-mvpl-effects/retail-hammer.mp4 (AST-230): the camera of the retail take (heading 89.8, pitch -10), then the steps of the
+# retail take 5 s later. Routes: tests/drive/mvpl-hammer-routes.txt.
+2.0 view 89.8 -10
+3.0 tick
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 key 1
+9.0 tick
+10.0 ability q
+11.0 tick
+12.0 tick
+13.0 tick
+14.0 ability r
+15.0 tick
+16.0 tick
+17.0 tick
+18.0 ability f
+19.0 tick
+20.0 tick
+21.0 tick
+22.0 click
+22.8 click
+23.0 tick
+24.0 tick
+25.0 attack 1
+25.9 attack 0
+26.0 tick
+27.0 tick
+28.0 tick
+29.0 tick

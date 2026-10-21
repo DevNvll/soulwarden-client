@@ -9,8 +9,11 @@ class UWorld;
 /** One hit of the character on a creature (AST-230 plan step 9): what the selection of the hit function needs. */
 struct FSwcImpactHit
 {
-	/** The contact point and the direction of the strike (Unreal world space). */
+	/** The contact point (the first vector of a hit function), the normal of the contact (the second vector [I]: the decal input of the
+	 *  scripts), and the direction of the strike (the third vector [I]: its native producer is not known; research/particle-impacts.md 4).
+	 *  Unreal world space. */
 	FVector Point = FVector::ZeroVector;
+	FVector Normal = FVector::UpVector;
 	FVector Direction = FVector::ForwardVector;
 	/** The damage row of the strike (DamageTable.DamageID), the hit volume and the slice of the creature, the critical flag of the server. */
 	FString DamageRow;
@@ -43,8 +46,11 @@ private:
 		FString Call;
 		FString Key;
 		FString Helper;
-		/** The sign of the direction (a3 * N); 0: another direction (the raw direction of the hit). */
+		/** The direction of SpawnParticle as the script selects it: the second vector (2), the third (3), or a fixed vector of the game (4);
+		 *  0: an expression that the client does not read (the call does not play). With its multiplier. */
+		int32 DirectionSource = 0;
 		float DirectionScale = 1.0f;
+		FVector FixedDirection = FVector::UpVector;
 	};
 	bool Load();
 

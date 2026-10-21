@@ -353,6 +353,10 @@ FIRST_SLICES = ("slices/characters/spellslices/undead_shaman_lightning_strike.dy
                 "slices/characters/spellslices/mage_ranged_aoe.dynamicslice")
 
 
+# The spell and projectile slices of the weapons of the player (the vortex of Gravity Well, Shockwave, Path of Destiny, the arrows ...).
+WEAPON_SLICES = ("slices/items/weapons/", "slices/perks/")
+
+
 def build_keys(only: str = "") -> list[str]:
     """@return The resolved keys of skill-effects.json that get a system: the keys of the five weapons and of FIRST_SLICES (only: the
     keys with a user that contains this text, no case)."""
@@ -364,7 +368,8 @@ def build_keys(only: str = "") -> list[str]:
 
     def wanted(user: str) -> bool:
         if user.startswith(("spells|", "projectiles|")):
-            return user.split("|")[1] in FIRST_SLICES
+            path = user.split("|")[1]
+            return path in FIRST_SLICES or path.startswith(WEAPON_SLICES)
         return True
     return [k for k, v in keys.items() if not v.get("missing") and any(wanted(u) for u in v["users"])
             and (not only or any(only.lower() in u.lower() for u in v["users"]))]
