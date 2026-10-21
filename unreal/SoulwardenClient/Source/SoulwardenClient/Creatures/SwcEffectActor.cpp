@@ -284,9 +284,11 @@ FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, 
 														  : swc::creatures::AreaTimes{swc::creatures::spell_start_us(Parts, Events), 0, 0};
 		const swc::creatures::AreaPhase Phase = swc::creatures::area_phase(Times, RenderTimeUs);
 		const bool bStarted = RenderTimeUs >= Times.startUs;
-		// A hostile area: no disc; only the particle entities of its slice (the decision of the user, AST-230).
+		// A hostile area: no disc; only the particle entities of its slice (the decision of the user, AST-230). A friendly area with
+		// particle entities (the explosion of Explosive Arrow): no disc either; the disc stays only for a friendly slice with none.
 		const bool bHostile = !bSummon && !bFriendly;
-		Shape->SetVisibility(bStarted && !bHostile && (bSummon || (Phase != swc::creatures::AreaPhase::ended && Radius > 0.0f)));
+		const bool bAuthored = !bSummon && !Particles.IsEmpty();
+		Shape->SetVisibility(bStarted && !bHostile && !bAuthored && (bSummon || (Phase != swc::creatures::AreaPhase::ended && Radius > 0.0f)));
 		const FString ParticleText = UpdateParticles(&Parts, Times.startUs, RenderTimeUs);
 		const int32 PhaseIndex = bStarted ? static_cast<int32>(Phase) : -1;
 		if (PhaseIndex != LastPhase)

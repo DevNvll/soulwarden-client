@@ -89,7 +89,9 @@ fragment (the weapon scope of the stance). The rule of the study ("Runtime order
   (`swc::creatures::event_due_us`: the remaining time of its state, the completed state, the held activation). A deactivation stops the
   emission; Kill On Deactivate also removes the particles.
 - A late observer does not start an activation that is older than 0.5 s (an old burst; a value of this client).
-- A hostile area has no disc and no stand-in column; a shot with a particle effect shows no shaft (docs/CREATURES.md).
+- A hostile area has no disc and no stand-in column; a shot with a particle effect shows no shaft (docs/CREATURES.md). A friendly area
+  (a spell of the player) with particle entities has no disc either (part 5: the explosion of Explosive Arrow drew a cyan disc); the
+  disc stays only for a friendly slice with no particle entity.
 
 ## The trails (plan step 8, first part)
 
@@ -179,7 +181,7 @@ MoveRelEmitter Yes); a world-space trail behind a moving emitter needs another p
   the same name made NewObject fail (a crash of the import).
 - The flags of a particle material follow the engine rule (`material_records.flags_of`): the StringGenMask text, else the bits of the
   numeric GenMask through the `.ext` of the shader. The refraction sprite of `wFX_Bow_Huntsman.ExplosiveShot` has only GenMask 404
-  (%REFRACTION %NORMAL_MAP); before, the client drew its normal map as a cyan disc under the explosion. 14 refraction emitters are off.
+  (%REFRACTION %NORMAL_MAP): 14 refraction emitters are off.
 
 ## The checks
 
