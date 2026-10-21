@@ -33,6 +33,11 @@ constexpr double UpdateSeconds = 0.25;         // the update in play; each frame
 constexpr int32 PlayBudget = 48;               // the components started in one update in play (no limit during a screen)
 constexpr double ReleaseFactor = 1.1;          // a component goes back to the pool beyond this x its range (no flicker at the edge)
 constexpr double WarmSeconds = 1.0;            // a loading screen waits until the effects near the place ran this long
+// AST-224: in a loading screen the view is the place of the gate (the feet); in play it is the camera, about 4.25 m behind and above
+// the feet (MidCamera) or farther with the zoom. A placement out of its range from the feet but in its range from the camera started at
+// the first update after the screen (0.3 s; 4 and 1 components in the AST-216 travels). In the screen the placements within their
+// range plus this margin start, and the gate waits for them.
+constexpr double ScreenMarginCm = 800.0;
 constexpr double DefaultViewCm = 5000.0;       // the view distance of an effect with no LOD end (systems.json gives it)
 
 TAutoConsoleVariable<float> CVarEmission(TEXT("swc.Effects.Emission"), 1.0f,
@@ -507,7 +512,7 @@ bool USwcEffectSubsystem::RegionsNear(const FVector& View, double ReachCm, TArra
 	return bAllRead;
 }
 
-void USwcEffectSubsystem::Update(const FVector& View, int32 Budget)
+void USwcEffectSubsystem::Update(const FVector& View, int32 Budget, double MarginCm)
 {
 	TArray<FRegionData*> Near;
 	RegionsNear(View, MaxViewCm * ReleaseFactor, Near);
@@ -535,7 +540,7 @@ void USwcEffectSubsystem::Update(const FVector& View, int32 Budget)
 				for (const int32 Index : *Cell)
 				{
 					FPlacement& Placement = Data.Placements[Index];
-					if (Placement.Component.IsValid() || FVector::Dist(Placement.Transform.GetLocation(), View) > RangeOf(Placement))
+					if (Placement.Component.IsValid() || FVector::Dist(Placement.Transform.GetLocation(), View) > RangeOf(Placement) + MarginCm)
 					{
 						continue;
 					}
@@ -568,7 +573,7 @@ void USwcEffectSubsystem::Update(const FVector& View, int32 Budget)
 			It.RemoveCurrent();
 			continue;
 		}
-		if (FVector::Dist(Placement.Transform.GetLocation(), View) > RangeOf(Placement) * ReleaseFactor)
+		if (FVector::Dist(Placement.Transform.GetLocation(), View) > FMath::Max(RangeOf(Placement) * ReleaseFactor, RangeOf(Placement) + MarginCm))
 		{
 			Release(Placement.Type, Placement.Component.Get(), true);
 			Placement.Component = nullptr;
@@ -604,7 +609,7 @@ bool USwcEffectSubsystem::ReadyNear(const FVector& Place, FString& Why)
 		{
 			const double D2 = FVector::DistSquared(Placement.Transform.GetLocation(), Place);
 			const FType& Type = Types[Placement.Type];
-			if (D2 > Near2 || D2 > FMath::Square(RangeOf(Placement)) || (Type.bTried && Type.System == nullptr))
+			if (D2 > Near2 || D2 > FMath::Square(RangeOf(Placement) + ScreenMarginCm) || (Type.bTried && Type.System == nullptr))
 			{
 				continue;
 			}
@@ -779,5 +784,5 @@ void USwcEffectSubsystem::Tick(float DeltaTime)
 			PixelsPerRadian = double(Height) / Vertical * FMath::Max(double(MinPixels), 0.125);
 		}
 	}
-	Update(View, bScreen ? MAX_int32 : PlayBudget);
+	Update(View, bScreen ? MAX_int32 : PlayBudget, bScreen ? ScreenMarginCm : 0.0);
 }

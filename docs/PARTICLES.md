@@ -145,6 +145,13 @@ product). A file that is sRGB keeps its bytes; a linear file is encoded to sRGB 
   offsets under S.
 - The loading gate (AST-203): the check "effects" waits until each placement within `SwcLoadingGate::NearCm` (150 m) of the place
   and within its range has its component and has run 1 s. Thus no flame grows after a loading screen.
+- The view of the screen (AST-224, 2026-10-21): in a loading screen the view of the placements is the place of the gate (the feet);
+  in play it is the camera, about 4.25 m behind and above the feet (MidCamera) or farther with the zoom. A placement out of its
+  range from the feet but in its range from the camera started at the first update after the screen (0.3 s; 4 and 1 components in
+  the cooked travels of AST-216, 29 to 40 m away). In a screen the placements within their range plus 8 m start, and the check
+  "effects" waits for them (`ScreenMarginCm`). Check: the crossing travel of AST-216 (690 m to 8180 4460) with `-SwcLateProbe=10`
+  in the editor build: before, "late content: 1" (an effect at 39.6 m, 0.3 s, run ast224-a); after, "late content: 0" (run
+  ast224-b).
 - `-SwcNoEffects` or `SWC_EFFECTS=0` turns the world placements off; `swc.Effects.Show 0` hides the effects; `swc.Effects.Test
   KEY,COUNT[,DISTANCE_M]` places copies in front of the camera (no argument: removes them); `swc.Effects.Dump` logs the emitters and
   the particle counts of each running effect. The drive step `exec LINE` runs a console line in a check.

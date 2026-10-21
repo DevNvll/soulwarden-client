@@ -117,7 +117,7 @@ private:
 	                       FRegionData& Out);
 	/** The regions near View (started when needed). @return False while a region near View is still read. */
 	bool RegionsNear(const FVector& View, double ReachCm, TArray<FRegionData*>& Out);
-	void Update(const FVector& View, int32 Budget);
+	void Update(const FVector& View, int32 Budget, double MarginCm);
 	/** @return The range (cm) of a placement: the outer LOD bound and the view distance of the emitter (particle-rules.md 4). */
 	double RangeOf(const FPlacement& Placement) const;
 	/** The screen height / the vertical field of view (pixels per radian) x P of the view distance rule (0: the rule is off). */
