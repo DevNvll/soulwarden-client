@@ -203,6 +203,41 @@ the class is 2 (Shallow): the feet are 1.400 m deep. The ground distance (mask b
 
 The swim does not start at the class Deep: the class stays Shallow in each retail swim sample (set3-swim, class_in_the_swim).
 
+### The action limits in the swim (stage MVP-I, 2026-10-21)
+
+The check: `tests/drive/mvpi-water.txt` with `tests/drive/mvpi-water-routes.txt` and the UI drive `tests/drive/mvpi-water-ui.txt`
+(a copy of the database of the user, the bow and the rapier; the place of `wf5-swim.txt`). In the swim the drive tries each action;
+then it swims out and tries them on the land. Evidence: `~/Games/soulwarden-client/evidence/mvp-i/mvpi-water1.*` (before the fix),
+`mvpi-water2.*` to `mvpi-water5.*` (after).
+
+| Action in the swim | Before (mvpi-water1) | After (mvpi-water2) |
+| --- | --- | --- |
+| The key of the weapon in the hand, the key of the other weapon | the other key switched the weapon (the server switched too) and drew it in the water | none ("none in the swim") |
+| The sheathe key | (not tried) | none |
+| A light attack, a heavy attack, the aim and a shot, the abilities Q, R, F | nothing to the server (the weapon is in its sheath) | the same |
+| The quick slot key 3 (a potion) | the bit went to the server: the server used the item | none ("quick slot bit 404: none in the swim") |
+| A dodge, a jump | none ("no dodge in the water"; no jump) | the same |
+| E at a powder keg 1.5 m away | no request (the interactor is off in a swim) | the same |
+| After the swim | | the weapon draws again (AutoUnsheathe), a shot is accepted, the potion is used (cooldown 31.2 s) |
+
+The interaction after a swim: the interactor has no state of the swim (the block is the swim flag of each frame). The runs did not
+show a use after a swim: the shore keg of the backend fixture did not show at this place (mvpi-water3), and the wolf that the shot
+killed on the shore gave coin and no item, thus no bag (mvpi-water5). The uses on land in the fight runs work (the loot bag, Take All).
+
+The rule: `ASwcPlayerController::UseWeapon`, `OnSheathe`, and `PressVirtualBits` (the quick slot bits 404, 117, 140, 513) do
+nothing while `USwcCharacterMovement::IsSwimming` (the swim and its exit). player.grid starts only Reaction, Death, and Respawn in a
+swim; the activation conditions of Use_QuickSlot_N refuse deep water. A swim that starts in an attack, a use, or an interaction:
+the swim sheathes the weapon at once and the interactor ends its use (`Interactor->Update` with the swim as a block).
+
+### The swim pose (AST-205, 2026-10-21)
+
+The fault of AST-205 (the body upright with the feet 1.4 m deep) is in the matched views of `tools/match-view.sh` only: there the
+character is put at the place with no swim state. In a run the client plays the swim fragments: Swim_Idle (`unarmed_swim_idle`,
+upright, the head at the surface) and Swim_Nav (the blend space `swim_nav_blend`, the body flat at the surface), as retail set 3
+(`swim-idle.png`, `swim-nav.png`). The picture: `~/Games/soulwarden-client/evidence/mvp-i/compare-swim-pose.png` (retail left,
+client right; the run mvpi-water1). Differences: the client water is lighter and clearer, thus more of the legs shows; the body of the
+client in Swim_Nav is about 10 cm lower [an estimate from the picture].
+
 ## Check (development runs, 2026-10-18)
 
 - `tools/test-water.sh` (90 checks): the quadtree query of the client against the reader of the converter at 19,600 points of the 49

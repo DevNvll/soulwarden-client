@@ -377,9 +377,17 @@ void ASwcPlayerController::UseWeapon(uint32 Slot, const TArray<uint32>& Bits)
 	// The weapon keys reach the server in the input report (Use_MainHandSlot_N and quickslot-weaponN; protocol notes 4.15).
 	// The client draws the weapon itself (the action lists of Unsheathe_MainHand_N; the backend has no draw, protocol notes
 	// 4.11); a key of the other weapon switches at the step of the attack driver (docs/ACTIONS.md).
+	const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn());
+	if (Character != nullptr && Character->GetSwcMovement()->IsSwimming())
+	{
+		// No weapon key in a swim (stage MVP-I): player.grid starts only Reaction, Death, and Respawn in it (docs/WATER.md "The swim").
+		// Before, the key of the other weapon switched the weapon (the server switched too) and drew it in the water.
+		UE_LOG(LogSwcBackend, Log, TEXT("weapon: key for slot %u: none in the swim"), Slot);
+		return;
+	}
 	PressBits = Bits;
 	++PressSerial;
-	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
+	if (Character != nullptr)
 	{
 		Character->GetActions()->OnWeaponKey(Slot);
 	}
@@ -397,9 +405,15 @@ void ASwcPlayerController::OnWeapon2(const FInputActionValue&)
 
 void ASwcPlayerController::OnSheathe(const FInputActionValue&)
 {
-	// The sheathe key changes the active weapon between the hand and its sheath (its bit is not known: no bit).
+	// The sheathe key changes the active weapon between the hand and its sheath (its bit is not known: no bit). None in a swim (the
+	// weapon is in its sheath; stage MVP-I).
 	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
 	{
+		if (Character->GetSwcMovement()->IsSwimming())
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("weapon: the sheathe key: none in the swim"));
+			return;
+		}
 		Character->GetActions()->OnSheatheKey();
 	}
 }
@@ -786,11 +800,25 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 
 void ASwcPlayerController::PressVirtualBits(const TArray<uint32>& Bits)
 {
-	PressBits = Bits;
-	++PressSerial;
 	// Stage MVP-E: the quick slot keys (Use_Quickslot_1 to 4: the bits 404, 117, 140, 513 for the paperdoll slots 14 to 17) also play
 	// the fragment Use of the item (playeractions_use Use_QuickSlot_N).
 	static constexpr uint32 QuickSlotBits[] = {404, 117, 140, 513};
+	const ASwcPlayerCharacter* Swimmer = Cast<ASwcPlayerCharacter>(GetPawn());
+	if (Swimmer != nullptr && Swimmer->GetSwcMovement()->IsSwimming())
+	{
+		// Stage MVP-I: no use in a swim. The activation conditions of Use_QuickSlot_N refuse deep water, and player.grid starts only
+		// Reaction, Death, and Respawn in a swim; before, the bit went to the server, which used the item in the water.
+		for (const uint32 Bit : QuickSlotBits)
+		{
+			if (Bits.Contains(Bit))
+			{
+				UE_LOG(LogSwcBackend, Log, TEXT("use: quick slot bit %u: none in the swim"), Bit);
+				return;
+			}
+		}
+	}
+	PressBits = Bits;
+	++PressSerial;
 	for (int32 Index = 0; Index < 4; ++Index)
 	{
 		if (Bits.Contains(QuickSlotBits[Index]))

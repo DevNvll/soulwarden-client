@@ -1,0 +1,8 @@
+# The UI drive of tests/drive/mvpi-water.txt (stage MVP-I): the quick slot key 3 (the health potion) in the swim (about 22 s) and on
+# the land after the swim (about 48 s). The clock of the UI drive starts at the spawn of the player.
+1 waitfor CompassLines 60
+22 log key 3 in the swim: no use
+22 key 3
+48 log key 3 on the land: the use
+48 key 3
+54 end

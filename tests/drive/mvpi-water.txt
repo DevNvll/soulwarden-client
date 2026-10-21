@@ -1,0 +1,66 @@
+# The deep-water check of stage MVP-I (docs/WATER.md "The swim"; the place of tests/drive/wf5-swim.txt: the east beach of the
+# starting beach, the ocean at 40 m). The camera to the north and down, the weapon of slot 1 drawn on land, the key D from 3 s to 14 s
+# (the wade, then the swim: the weapon sheathes). In the swim each action is tried: the weapon keys 1 and 2, a light attack, a heavy
+# attack, the aim and a shot, the abilities Q, R, F, the sheathe key, a dodge, a jump, E at the powder keg. Then the key A to the land
+# (the weapon draws again), a bow shot kills the wolf of the routes, and E at its loot bag (46 to 48 s: the interaction after a swim).
+# The UI drive tests/drive/mvpi-water-ui.txt presses the quick slot key 3 in the swim and on the land. Retail refuses each action in
+# the swim (player.grid: only Reaction, Death, Respawn start). Run: ~/Games/soulwarden-client/work/mvp-i/run.sh mvpi-water5 56 \
+#   tests/drive/mvpi-water-routes.txt tests/drive/mvpi-water.txt 10005.8:2291.19:40.5 -- -SwcUiDrive=$PWD/tests/drive/mvpi-water-ui.txt
+1.0 pitch -20
+1.5 pitch 0
+2.0 key 1
+3.0 move 1 0
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 tick
+9.0 tick
+10.0 tick
+11.0 tick
+12.0 tick
+13.0 tick
+14.0 move 0 0
+15.0 key 1
+16.0 key 2
+17.0 click
+18.0 attack 1
+18.8 attack 0
+19.0 tick
+19.5 aim 1
+20.0 attack 1
+20.2 attack 0
+20.5 aim 0
+21.0 ability q
+22.0 ability r
+23.0 ability f
+24.0 key 3
+25.0 dodge
+26.0 jump
+27.0 interact 1
+28.0 interact 0
+29.0 move -1 0
+30.0 tick
+31.0 tick
+32.0 tick
+33.0 tick
+34.0 tick
+35.0 tick
+36.0 tick
+37.0 tick
+38.0 tick
+39.0 tick
+40.0 move 0 0
+41.0 key 1
+42.0 tick
+42.5 click
+43.0 tick
+44.0 tick
+45.0 tick
+46.0 interact 1
+47.0 tick
+48.0 interact 0
+49.0 tick
+50.0 tick
+51.0 tick
+52.0 tick

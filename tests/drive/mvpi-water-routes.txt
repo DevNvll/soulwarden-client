@@ -1,0 +1,13 @@
+# The routes of the deep-water check of stage MVP-I (docs/WATER.md "The swim"): noon, the creatures ignore the character, a powder
+# keg of the backend (the timed use "Ignite Fuse") 1.5 m east of the swimmer at 14 s (the interaction in the swim), and on the
+# shore at 41 s a grey wolf 3 m north (100 health, each kill drops loot): it fights; the shot of the drive kills it, E takes its bag (a creature that
+# ignores the character gives no credit: no bag). Times on the
+# clock of the drive script tests/drive/mvpi-water.txt.
+1 world-time 12:00
+1 ignore on
+1.5 heal
+14 fixture powderKeg 1.5 0 0
+41 loot on
+41 ignore off
+41 spawn Wolf_Grey_7 0 3 0 --yaw 180
+41.5 health $1 100
