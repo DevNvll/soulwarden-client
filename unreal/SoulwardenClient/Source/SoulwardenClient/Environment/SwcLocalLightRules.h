@@ -56,20 +56,40 @@ struct LocalLight {
  * source has no 1 / pi, so a render color of 1 on a white surface has the radiance 10,000 cd/m2).
  */
 constexpr double kSourceUnitLuminance = 10000.0;
-/** The smallest bulb (m): a bulb of 0 has no light in the attenuation of the source. */
+/** The smallest bulb of a spot (m): a bulb of 0 has no light in the attenuation of the source. */
 constexpr double kMinBulb = 0.01;
+/** The smallest bulb of a point light (m; research/lights-emission.md "Point lights": r = max(PointAttenuationBulbSize, 0.001)). */
+constexpr double kMinPointBulb = 0.001;
+/**
+ * The gain of the point falloff light function (M_SwcPointFalloff): a light function gives at most 1, and the source falloff is
+ * up to about 2.87 times the Unreal falloff (at 0.8 of the range). The light has gain x its intensity, the function 1 / gain x the
+ * correction.
+ */
+constexpr double kPointFalloffGain = 3.0;
 
 /**
  * @return The luminous intensity of a light in Unreal (candela, with the source color as the light color), times a look scale.
- * A point and a spot: the source attenuation of the bulb size r is 1 / (1 + d / r)^2 at the distance d from the bulb surface,
- * that is r^2 / D^2 at the distance D from the center: the falloff of an Unreal sphere light with the source radius r and the
- * intensity pi x 10,000 x DiffuseMultiplier x r^2. A rect: the same surface luminance (10,000 x DiffuseMultiplier) over the area
- * width x height.
+ * A point (research/lights-emission.md "Point lights" [R]): the source light RGB is C x D x K with K = (1 + 1 / r)^2, and its
+ * distance weight is A = f / (1 + max(d - r, 0) / r)^2 with f = sat(5 (1 - d / R))^2: thus E = I f / max(d, r)^2 with
+ * I = pi x 10,000 x D x (1 + r)^2 (r = max(bulb, 0.001), d from the center). The near clamp and f come from point_falloff (a
+ * light function); the Unreal light is a point (source radius 0) with this I. A spot: the source attenuation 1 / (1 + d / r)^2
+ * from the bulb surface as an Unreal sphere light with the radius r and pi x 10,000 x D x r^2 (not changed: the study covers the
+ * points). A rect: the same surface luminance (10,000 x D) over the area width x height.
  */
 double light_candela(const LocalLight& light, double scale);
 
-/** @return The source radius of the Unreal sphere light (m): the bulb (at least kMinBulb); 0 for a rect. */
+/** @return The source radius of the Unreal light (m): 0 for a point (the bulb is not a sphere radius) and a rect; the bulb of a spot. */
 double source_radius(const LocalLight& light);
+
+/** @return The bulb r of the point falloff (m): max(bulb, kMinPointBulb). */
+double point_bulb(const LocalLight& light);
+
+/**
+ * @return The correction of the Unreal inverse-square falloff to the source falloff of a point light at the distance d (m) from
+ * its center (research/lights-emission.md): ((d^2 + 0.0001) / max(d, r)^2) x f / UEfade with UEfade = sat(1 - (d / R)^4)^2, the
+ * radial mask of Unreal (1 cm2 of distance bias). At the range end the ratio f / UEfade tends to 25 / 16; beyond it, 0.
+ */
+double point_falloff(double d, double bulb, double range);
 
 /**
  * @return The draw distance of a light (m; a choice of this client for the cost, the Unreal way: the source view distance needs

@@ -289,3 +289,58 @@ The result:
   equivalent X_R of about 1 to 3. Thus the Illum emission of these materials is about 5 to 10 times above the retail picture at the same
   EV: a question for the shared emission rule (the materials track), not for the particles.
 
+
+### The point lights and the Illum emission (2026-10-20, research/lights-emission.md)
+
+The two findings of the HDR diagnostic, with the rules of the study `~/Games/soulwarden-client/research/lights-emission.md`.
+
+The point lights (all 57,323 of the world; Environment/SwcLocalLightRules, Environment/SwcLocalLights):
+- A point light has the source radius 0, the soft source radius 0, and the source length 0: the bulb is only a value of the falloff.
+- The intensity is pi x 10,000 x `DiffuseMultiplier` x (1 + r)^2 cd with r = max(bulb, 0.001) and `COLOR` as the light color [R]. The
+  source falloff is E = I x f / max(d, r)^2 x the center-direction N.L, with f = sat(5 (1 - d / R))^2. For the torch (bulb 0.6 m) the far
+  light is (1 + r)^2 / r^2 = 7.1 times the old rule (the old rule had pi x 10,000 x D x r^2 on a sphere of radius r).
+- The near clamp and f come from the light function `/SwcGameContent/Environment/M_SwcPointFalloff` (made by tools/import-cookies.sh):
+  the correction of the Unreal inverse-square falloff, ((d^2 + 0.0001) / max(d, r)^2) x f / sat(1 - (d / R)^4)^2, divided by the gain 3
+  (a light function gives at most 1; the correction is at most about 2.87, at 0.8 R; at the range end it tends to 25 / 16). The light
+  has 3 times the intensity. One material instance for each bulb and range. The light function scale is 100 (the light vector in m).
+- The world position is an input of the function. Without it the engine puts the function in the light function atlas, where the light
+  vector is not the vector to the pixel (the first take p4 showed "126 light(s) will skip light functions due to out of atlas slot").
+- The cost: the per-light pass is about 1 ms of GPU for each 100 point lights. Thus only the point lights within 40 m of the camera
+  (`swc.PointFalloffDistance`, 5 m of hysteresis) have the function; a far point light has the plain inverse-square falloff with the
+  same intensity (no near clamp, a weaker edge of its pool).
+- `swc.PointLightRule 0` (`-SwcPointLightRule=0`) gives the old sphere rule, for a compare in one run. The spots keep the old rule (the
+  study covers the points).
+- Tests: tools/test-environment.sh (local light rules: 95 checks; the Unreal light with the correction equals the source falloff for 3
+  multipliers, 3 bulbs, and 7 distances; the correction stays under the gain).
+
+The Illum emission (converter/swc_convert/material_records.py, docs/MATERIALS.md): an Emittance or a Decal intensity texture enables
+`%EMITTANCE_MAP` [R]. The material keys do not change; 6 specs change, among them the coal pits of the campfires (the map branch with
+the coal image and the forge noise, not the constant 0.5). The study names a TexMod animation of the noise; it gives no formula, so the
+client keeps the static UV (open).
+
+The checks (take p6-light: Oxboro, 23:00, the town hall torch posts and the inn; the rule toggles in one run; the menu from take p4-menu):
+
+| Check | Result | Evidence (`~/Games/soulwarden-client/evidence/P2/`) |
+| --- | --- | --- |
+| The torch head, close crop | Old rule: the head is white. Source rule: the head is dark, and the flame shows above it. | `p6-torch-head-crop.png`, `p6-light.mp4` |
+| The torch posts and the wall | The walls, the steps, and the grass near the torches get much more light (warm pools) | `p6-torch-pair.png` |
+| The inn at night | The walls near the lamps are warmer and lighter, nearer to the retail take `retail-candle1`; a bright warm spot on the wall near a candle (the near clamp) | `p6-inn-three.png` |
+| The menu campfire coals | The white blob is gone: the coals are orange as in retail. The flames are a faint orange glow (the flame look of the fire rounds). | `p6-menu-coals.png` |
+| The frame cost (GPU p50, the inn, pairs late in the run) | Old rule 9.3 to 9.6 ms; source rule 10.0 to 10.4 ms with the 40 m gate (109 point lights with the function); 12.0 to 12.3 ms with the function on all 307 point lights (take p5) | `p6-light-client.log`, `p5-light-client.log` |
+
+The opinion of the user is not given yet.
+
+### Open points: the work stops here (2026-10-20)
+
+The decision of the user (2026-10-20): finish the current visual work, and do the next stages later. These stay open:
+- Stage 3, smoke and dust: the converter code of the first pass (the chimney smoke, the fireplace, the dust motes and the dust fall,
+  the smoke of the torch and the bonfire, the dark smoke; the wind of the level in the gravity; the soft particle factor 1 / Softness^2;
+  no refraction materials) is not in main. It is a patch in the particle work folder (`work/particles/stage3.patch`). The shared
+  systems.json has the stage 2 list again.
+- Stages 4 to 7: the waterfalls, the shore splash children, the leaves and the insects, the ability and weapon effects.
+- The fire look: the campfire flames are short and faint against retail; the candle flames are about 1.5 times smaller than retail;
+  the torch flame is paler than retail (more blue).
+- The TexMod oscillators of the coal noise (no formula), and the light styles (AnimIndex 23 of the torch: the client lights are steady).
+- The spot lights: the study covers only the points; the spots keep the sphere rule with the bulb as the radius.
+- The menu: 5 of the 16 near components start (the teleport auras, the fireflies, the gnats, the leaves, and the fog plumes wait).
+- The cooked build: the systems load by path from `/SwcGameContent/Particles` (DirectoriesToAlwaysCook, the world track).

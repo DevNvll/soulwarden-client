@@ -19,6 +19,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
@@ -39,6 +40,15 @@ TAutoConsoleVariable<float> CVarLightScale(TEXT("swc.LightScale"), DefaultLookSc
 TAutoConsoleVariable<int32> CVarLocalLights(TEXT("swc.LocalLights"), 1, TEXT("The local lights of stage E2: 1 on, 0 hidden."));
 /** The shadows of the local lights: 0 none, 1 the source flags (the default), 2 all (-SwcLightShadows=none|source|all at the start). */
 TAutoConsoleVariable<int32> CVarLightShadows(TEXT("swc.LightShadows"), 1, TEXT("The shadows of the local lights of stage E2: 0 none, 1 the source flags, 2 all."));
+/** The rule of the point lights (-SwcPointLightRule= at the start): 1 the source rule of research/lights-emission.md (the default),
+ *  0 the old rule (the bulb as the sphere radius, pi x 10,000 x D x bulb^2), for a compare in one run. */
+TAutoConsoleVariable<int32> CVarPointLightRule(TEXT("swc.PointLightRule"), 1,
+	TEXT("The point lights: 1 the source rule (radius 0, the near clamp and the range fade of M_SwcPointFalloff), 0 the old sphere rule."));
+/** The distance of the falloff function from the camera (m): the per-light pass of a light function costs about 1 ms of GPU for each
+ *  100 point lights (p5-light, the Oxboro town hall and inn); beyond it a point light has the plain inverse-square falloff. */
+TAutoConsoleVariable<float> CVarPointFalloffDistance(TEXT("swc.PointFalloffDistance"), 40.0f,
+	TEXT("The point lights within this distance of the camera (m) have the falloff function of the source rule (M_SwcPointFalloff)."));
+const TCHAR* PointFalloffPath = TEXT("/SwcGameContent/Environment/M_SwcPointFalloff.M_SwcPointFalloff");
 
 /** The update of the static lights (s), of the bound NPC lights (s), and the log of the counts (s; -SwcLightProbe: 1 s). */
 constexpr double UpdateSeconds = 0.25;
@@ -204,6 +214,10 @@ void USwcLocalLightSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	{
 		CVarLightScale->Set(static_cast<float>(Scale), ECVF_SetByCommandline);
 	}
+	if (FParse::Value(FCommandLine::Get(), TEXT("SwcPointLightRule="), PointRule))
+	{
+		CVarPointLightRule->Set(PointRule, ECVF_SetByCommandline);
+	}
 	FString Mode;
 	if (FParse::Value(FCommandLine::Get(), TEXT("SwcLightShadows="), Mode))
 	{
@@ -256,6 +270,87 @@ bool USwcLocalLightSubsystem::CastsShadow(const env::LocalLight& Light) const
 	return Shadows == EShadows::All || (Shadows == EShadows::Source && Light.shadow);
 }
 
+double USwcLocalLightSubsystem::Candela(const env::LocalLight& Light, bool bFalloff) const
+{
+	if (Light.type != env::LocalLight::Type::point)
+	{
+		return env::light_candela(Light, Scale);
+	}
+	if (PointRule == 0)
+	{
+		const double R = FMath::Max(Light.bulb, env::kMinBulb);
+		return PI * env::kSourceUnitLuminance * Light.diffuse * R * R * Scale;
+	}
+	return env::light_candela(Light, Scale) * (bFalloff ? env::kPointFalloffGain : 1.0);
+}
+
+UMaterialInterface* USwcLocalLightSubsystem::PointFalloff(double Bulb, double Range)
+{
+	if (!bPointFalloffLoaded)
+	{
+		bPointFalloffLoaded = true;
+		PointFalloffParent = LoadObject<UMaterialInterface>(nullptr, PointFalloffPath, nullptr, LOAD_NoWarn);
+		UE_LOG(LogSwcEnvironment, Log, TEXT("local lights: the point falloff function %s"),
+			PointFalloffParent != nullptr ? TEXT("is loaded") : TEXT("is missing (tools/import-cookies.sh): the points have no near clamp and no source fade"));
+	}
+	if (PointFalloffParent == nullptr)
+	{
+		return nullptr;
+	}
+	const FString Key = FString::Printf(TEXT("%.4f_%.3f"), Bulb, Range);
+	if (TObjectPtr<UMaterialInterface>* Cached = PointFalloffCache.Find(Key))
+	{
+		return *Cached;
+	}
+	UMaterialInstanceDynamic* Instance = UMaterialInstanceDynamic::Create(PointFalloffParent, this);
+	Instance->SetScalarParameterValue(TEXT("Bulb"), static_cast<float>(Bulb));
+	Instance->SetScalarParameterValue(TEXT("Range"), static_cast<float>(Range));
+	Instance->SetScalarParameterValue(TEXT("Gain"), static_cast<float>(env::kPointFalloffGain));
+	PointFalloffCache.Add(Key, Instance);
+	return Instance;
+}
+
+bool USwcLocalLightSubsystem::WantsFalloff(const UPointLightComponent* Point) const
+{
+	const double Limit = FMath::Max(0.0f, CVarPointFalloffDistance.GetValueOnGameThread()) * 100.0 + (Point->LightFunctionMaterial != nullptr ? 500.0 : 0.0);
+	return FVector::DistSquared(Point->GetComponentLocation(), LastCamera) < Limit * Limit;
+}
+
+void USwcLocalLightSubsystem::UpdateFalloff()
+{
+	if (PointRule == 0)
+	{
+		return;
+	}
+	for (const auto& Pair : Active)
+	{
+		const env::LocalLight& Light = Data->Lights[static_cast<size_t>(Pair.Key)];
+		UPointLightComponent* Point = Cast<UPointLightComponent>(Pair.Value.Get());
+		if (Point == nullptr || Light.type != env::LocalLight::Type::point)
+		{
+			continue;
+		}
+		const bool bWants = WantsFalloff(Point);
+		if (bWants != (Point->LightFunctionMaterial != nullptr))
+		{
+			ApplyPointRule(Point, Light, bWants);
+		}
+	}
+}
+
+void USwcLocalLightSubsystem::ApplyPointRule(UPointLightComponent* Point, const env::LocalLight& Light, bool bFalloff)
+{
+	UMaterialInterface* Falloff = PointRule != 0 && bFalloff ? PointFalloff(env::point_bulb(Light), FMath::Max(Light.range, 0.1)) : nullptr;
+	Point->SetSourceRadius(PointRule != 0 ? 0.0f : static_cast<float>(FMath::Max(Light.bulb, env::kMinBulb) * 100.0));
+	Point->SetSoftSourceRadius(0.0f);
+	Point->SetSourceLength(0.0f);
+	Point->SetLightFunctionMaterial(Falloff);
+	Point->SetLightFunctionScale(FVector(100.0));   // the light vector of the function in m
+	Point->SetLightFunctionDisabledBrightness(static_cast<float>(1.0 / env::kPointFalloffGain));
+	Point->SetLightFunctionFadeDistance(Point->MaxDrawDistance > 0.0f ? Point->MaxDrawDistance : 100000.0f);
+	Point->SetIntensity(static_cast<float>(Candela(Light, Falloff != nullptr)));
+}
+
 ULocalLightComponent* USwcLocalLightSubsystem::MakeLight(int32 Index, USceneComponent* Parent, const FTransform& Relative)
 {
 	const env::LocalLight& Light = Data->Lights[static_cast<size_t>(Index)];
@@ -303,7 +398,7 @@ ULocalLightComponent* USwcLocalLightSubsystem::MakeLight(int32 Index, USceneComp
 	}
 	Component->SetMobility(EComponentMobility::Movable);
 	Component->SetIntensityUnits(ELightUnits::Candelas);
-	Component->SetIntensity(static_cast<float>(env::light_candela(Light, Scale)));
+	Component->SetIntensity(static_cast<float>(Candela(Light, false)));
 	Component->SetLightColor(FLinearColor(static_cast<float>(Light.color[0]), static_cast<float>(Light.color[1]), static_cast<float>(Light.color[2])));
 	Component->SetAttenuationRadius(static_cast<float>(FMath::Max(Light.range, 0.1) * 100.0));
 	Component->SetSpecularScale(static_cast<float>(FMath::Clamp(Light.spec, 0.0, 4.0)));
@@ -311,16 +406,24 @@ ULocalLightComponent* USwcLocalLightSubsystem::MakeLight(int32 Index, USceneComp
 	Component->SetVolumetricScatteringIntensity(Light.volumetric ? 1.0f : 0.0f);
 	Component->MaxDrawDistance = static_cast<float>(env::draw_distance(Light) * 100.0);
 	Component->MaxDistanceFadeRange = Component->MaxDrawDistance * FadePart;
+
 	Component->SetupAttachment(Parent);
 	Component->SetRelativeTransform(Relative);
 	Component->SetVisibility(bVisible);
 	Component->RegisterComponent();
+	if (Light.type == env::LocalLight::Type::point)
+	{
+		UPointLightComponent* Point = CastChecked<UPointLightComponent>(Component);
+		ApplyPointRule(Point, Light, WantsFalloff(Point));
+	}
 	++Created;
 	return Component;
 }
 
 void USwcLocalLightSubsystem::UpdateStatic(const FVector& Camera)
 {
+	LastCamera = Camera;
+	UpdateFalloff();
 	const env::Vec3 At{Camera.X / 100.0, -Camera.Y / 100.0, Camera.Z / 100.0};
 	// Away: the lights out of their draw distance plus the hysteresis.
 	for (auto It = Active.CreateIterator(); It; ++It)
@@ -536,6 +639,20 @@ void USwcLocalLightSubsystem::Tick(float DeltaTime)
 		}
 		UE_LOG(LogSwcEnvironment, Log, TEXT("local lights: the shadows are %s"), Shadows == EShadows::None ? TEXT("off") : Shadows == EShadows::All ? TEXT("on for all lights") : TEXT("the source flags"));
 	}
+	const int32 NewPointRule = CVarPointLightRule.GetValueOnGameThread() != 0 ? 1 : 0;
+	if (NewPointRule != PointRule)
+	{
+		PointRule = NewPointRule;
+		for (const auto& Pair : Active)
+		{
+			const env::LocalLight& Light = Data->Lights[static_cast<size_t>(Pair.Key)];
+			if (UPointLightComponent* Point = Cast<UPointLightComponent>(Pair.Value.Get()); Point != nullptr && Light.type == env::LocalLight::Type::point)
+			{
+				ApplyPointRule(Point, Light, WantsFalloff(Point));
+			}
+		}
+		UE_LOG(LogSwcEnvironment, Log, TEXT("local lights: the point rule is %s"), PointRule != 0 ? TEXT("the source rule") : TEXT("the old sphere rule"));
+	}
 	const double NewScale = FMath::Max(0.0, static_cast<double>(CVarLightScale.GetValueOnGameThread()));
 	if (NewScale != Scale)
 	{
@@ -544,7 +661,7 @@ void USwcLocalLightSubsystem::Tick(float DeltaTime)
 		{
 			if (ULocalLightComponent* Component = Pair.Value.Get())
 			{
-				Component->SetIntensity(static_cast<float>(env::light_candela(Data->Lights[static_cast<size_t>(Pair.Key)], Scale)));
+				Component->SetIntensity(static_cast<float>(Candela(Data->Lights[static_cast<size_t>(Pair.Key)], Component->LightFunctionMaterial != nullptr)));
 			}
 		}
 		UE_LOG(LogSwcEnvironment, Log, TEXT("local lights: the look scale is %.3f"), Scale);

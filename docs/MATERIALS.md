@@ -59,6 +59,16 @@ scripts of the research (section 3).
 | Occlusion | occlusion | `%OCCLUSION_MAP` | linear |
 | Environment | none (Unreal reflections) | never | - |
 
+The flag of a texture resource (AST-210, 2026-10-20, `~/Games/soulwarden-client/research/lights-emission.md` "Illum emission" [R]):
+for Illum, an Emittance texture or a Decal intensity texture enables `%EMITTANCE_MAP` before the engine picks the shader permutation;
+the text and numeric masks are only inputs (`material_records.resource_flags`). The record keeps the flag in "resource flags", and its
+render key stays the key of the record without the flag (`render_rules` "key"): the instance keys `n_RENDER` are the material names
+of the converted meshes. The rule changed 6 specs of the deployed instances.json and no key: the coal pits (`n_4056f40760`,
+`n_d2bf9e1964`: the map branch, EmittanceParams [1, 1, 1, 0], the coal image as sRGB with its alpha, the forge noise linear with its
+own 2 x 2 UV transform, the color and the strength 600 of the record), the glass lantern `n_e7800ff06d`, the raft `m_ff4ead5ca3`, and
+two VFX circles (`n_95053d7b9d`, `m_c127d56484`; the second is not imported). Open: the TexMod oscillators of the intensity map (U and V
+type 2, rate 0.5, amplitude 0.2; W turn type 2) have no formula in the study: the client keeps the static UV.
+
 The Glass shader has its own table: Specular is the tint mask (`%TINT_MAP` or `%SPECULAR_MAP`), Custom the tint
 color (`%TINT_COLOR_MAP`), Diffuse the dirt (`%DIRT_MAP`), SecondSmoothness the cloud gloss.
 

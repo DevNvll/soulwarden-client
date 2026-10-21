@@ -125,12 +125,13 @@ def ext_flags(shader: str) -> dict[int, str]:
     return {int(mask, 16): name for name, mask in re.findall(r"Name\s*=\s*(%\w+)\s*\n\s*Mask\s*=\s*(0x[0-9A-Fa-f]+)", text)}
 
 
-def flags_of(element: ET.Element) -> tuple[list[str], list[str]]:
+def flags_of(element: ET.Element, resources: bool = True) -> tuple[list[str], list[str]]:
     """@return (the flags of a sub-material, the flags that are in only one of the two sources). The material loader
     of the engine uses StringGenMask when the material has it, else the bits of the numeric GenMask (through the `.ext`
     of its shader). The generated materials of the merged chunks (coatgen) have a GenMask that does not agree with
     their StringGenMask (for example 80000001 for %NORMAL_MAP%BLENDLAYER%DETAIL_MAPPING...): the text is the rule.
-    Old names become the current names."""
+    Old names become the current names. `resources` False: without the flags of the texture resources (resource_flags)."""
+    extra = resource_flags(element) if resources else set()
     named = {FLAG_ALIASES.get(f, f) for f in FLAG.findall(element.get("StringGenMask", "").upper())}
     bits = set()
     try:
@@ -141,8 +142,20 @@ def flags_of(element: ET.Element) -> tuple[list[str], list[str]]:
         if mask & bit:
             bits.add(FLAG_ALIASES.get(name, name))
     if element.get("StringGenMask") is None:
-        return sorted(bits), []
-    return sorted(named), sorted(named ^ bits) if bits else []
+        return sorted(bits | extra), []
+    return sorted(named | extra), sorted(named ^ bits) if bits else []
+
+
+def resource_flags(element: ET.Element) -> set[str]:
+    """@return The flags that the engine adds from the texture resources of a sub-material before it picks the shader permutation
+    (research/lights-emission.md "Illum emission" [R]): for Illum, an Emittance texture or a Decal intensity texture enables
+    %EMITTANCE_MAP; the text and numeric masks are only inputs (the coal pit jav_prp_rockcoals_mat has the two textures and no flag)."""
+    if element.get("Shader", "").lower() != "illum":
+        return set()
+    for texture in element.findall("Textures/Texture"):
+        if texture.get("Map") in ("Emittance", "Decal") and texture.get("File", "").strip():
+            return {"%EMITTANCE_MAP"}
+    return set()
 
 
 def uv_rules(texture: ET.Element) -> dict:
@@ -255,6 +268,7 @@ def source_record(mtl: str, index: int, element: ET.Element | None) -> dict:
         return {"mtl": mtl, "index": index, "missing": True, "shader": "", "family": "other", "flags": [],
                 "lighting": {}, "params": {}, "textures": {}}
     flags, differ = flags_of(element)
+    added = sorted(set(flags) - set(flags_of(element, resources=False)[0]))
     record: dict = {
         "mtl": mtl, "index": index, "name": element.get("Name", ""), "surface": element.get("SurfaceType", ""),
         "shader": element.get("Shader", ""), "family": family_of(element.get("Shader", "")), "flags": flags,
@@ -264,6 +278,8 @@ def source_record(mtl: str, index: int, element: ET.Element | None) -> dict:
         "params": {}, "textures": {}}
     if differ:
         record["flag differences"] = differ
+    if added:
+        record["resource flags"] = added   # the key stays the key without them (render_rules "key")
     params = element.find("PublicParams")
     if params is not None:
         record["params"] = {k: number(v) for k, v in sorted(params.attrib.items())}
@@ -272,11 +288,8 @@ def source_record(mtl: str, index: int, element: ET.Element | None) -> dict:
         if slot in record["textures"]:
             continue   # the first texture of a slot (as materials.shared_material)
         product = materials.texture_product(t)
-        role, rule = role_of(record["shader"], slot, set(flags))
-        entry = {"file": t.get("File", ""), "assetId": t.get("AssetId", ""), "product": product,
-                 "role": role, "rule": rule}
-        if role is not None:
-            entry["color"] = COLOR[role]
+        entry = {"file": t.get("File", ""), "assetId": t.get("AssetId", ""), "product": product}
+        entry.update(role_fields(record["shader"], slot, set(flags)))
         uv = uv_rules(t)
         if uv:
             entry["uv"] = uv
@@ -288,6 +301,22 @@ def source_record(mtl: str, index: int, element: ET.Element | None) -> dict:
     if gloss is None and normal is not None and normal.get("alpha image"):
         record["gloss from normal"] = True   # no Smoothness slot: the gloss is the alpha image of the normal map
     return record
+
+
+def role_fields(shader: str, slot: str, flags: set[str]) -> dict:
+    role, rule = role_of(shader, slot, flags)
+    return {"role": role, "rule": rule, **({"color": COLOR[role]} if role is not None else {})}
+
+
+def without_resource_flags(record: dict) -> dict:
+    """@return The record as the flags of its text and numeric masks alone give it (the flags and the texture roles)."""
+    flags = [f for f in record["flags"] if f not in record["resource flags"]]
+    textures = {}
+    for slot, t in record["textures"].items():
+        entry = {k: v for k, v in t.items() if k not in ("role", "rule", "color")}
+        entry.update(role_fields(record["shader"], slot, set(flags)))
+        textures[slot] = entry
+    return {**{k: v for k, v in record.items() if k != "resource flags"}, "flags": flags, "textures": textures}
 
 
 def blend_of(record: dict) -> tuple[str, float | None]:
@@ -303,9 +332,16 @@ def blend_of(record: dict) -> tuple[str, float | None]:
 
 def render_rules(record: dict, normal_map: bool = True) -> dict:
     """@return The render rules of a rich record: the values that change the picture (no names, no inactive slots).
-    `normal_map` False: the rule of the far meshes (no normal map, terrain.impostors)."""
+    `normal_map` False: the rule of the far meshes (no normal map, terrain.impostors). A record with resource flags keeps the
+    render key of the record without them ("key"): the instance keys n_RENDER are the names of the converted mesh slots."""
     if record.get("missing"):
         return {"missing": True}
+    if record.get("resource flags"):
+        return {**_rules(record, normal_map), "key": render_key(render_rules(without_resource_flags(record), normal_map))}
+    return _rules(record, normal_map)
+
+
+def _rules(record: dict, normal_map: bool) -> dict:
     flags = set(record["flags"])
     blend, cutoff = blend_of(record)
     light = record["lighting"]
@@ -347,6 +383,8 @@ def render_rules(record: dict, normal_map: bool = True) -> dict:
 
 
 def render_key(rules: dict) -> str:
+    if "key" in rules:
+        return rules["key"]
     return "r_" + hashlib.sha1(json.dumps(rules, sort_keys=True).encode()).hexdigest()[:10]
 
 

@@ -4,6 +4,14 @@
 of a spot light from one side of the outer cone to the other), and one material instance MI_NAME for each texture. Run through
 tools/import-cookies.sh (the import lock).
 
+It also makes the light function of the point lights /SwcGameContent/Environment/M_SwcPointFalloff (research/lights-emission.md
+"Point lights"; Environment/SwcLocalLightRules.h point_falloff): the correction of the Unreal inverse-square falloff to the source
+falloff (the near clamp max(d, r) and the range fade f = sat(5 (1 - d / R))^2), divided by the gain of the light (a light function
+gives at most 1). The client sets the light function scale to 100, so the light vector is in m. The world position is an input of
+the code (not used): the engine then does not put the function in the light function atlas (HLSLMaterialTranslator: a function
+with no world position is atlas compatible, and in the atlas the light vector is not the vector to the pixel; the first run showed
+"126 light(s) will skip light functions due to out of atlas slot"). SWC_POINT_FALLOFF_FORCE=1 makes it again.
+
 The textures are linear (the source formats are BC4 and BC2 UNORM), clamped, with no streaming (44 small textures).
 Environment: SWC_COOKIES (cookies.json), SWC_COOKIES_FORCE (1: import again), SWC_COOKIES_REPORT (the report file).
 """
@@ -16,6 +24,17 @@ import unreal
 FOLDER = "/SwcGameContent/Environment"
 COOKIES = FOLDER + "/Cookies"
 MATERIAL = FOLDER + "/M_SwcCookie"
+POINT_FALLOFF = FOLDER + "/M_SwcPointFalloff"
+# The same formula as env::point_falloff (tests/environment/local_light_tests.cpp), in m.
+POINT_FALLOFF_HLSL = """float d = length(LV);
+if (Range <= 0 || d >= Range) return 0;
+float r = max(Bulb, 0.001);
+float x = d / Range;
+float f = saturate(5 * (1 - x)); f *= f;
+float q = saturate(1 - x * x * x * x); float ue = q * q;
+float ratio = ue > 1e-6 ? f / ue : 25.0 / 16.0;
+float n = max(d, r);
+return saturate((d * d + 0.0001) / (n * n) * ratio / max(Gain, 1));"""
 assets = unreal.EditorAssetLibrary
 tools = unreal.AssetToolsHelpers.get_asset_tools()
 library = unreal.MaterialEditingLibrary
@@ -75,6 +94,41 @@ def material(default_texture):
     return result
 
 
+def point_falloff():
+    if assets.does_asset_exist(POINT_FALLOFF) and os.environ.get("SWC_POINT_FALLOFF_FORCE") != "1":
+        return "up to date"
+    if assets.does_asset_exist(POINT_FALLOFF):
+        assets.delete_asset(POINT_FALLOFF)
+    result = tools.create_asset("M_SwcPointFalloff", FOLDER, unreal.Material, unreal.MaterialFactoryNew())
+    result.set_editor_property("material_domain", unreal.MaterialDomain.MD_LIGHT_FUNCTION)
+    vector = library.create_material_expression(result, unreal.MaterialExpressionLightVector, -700, 0)
+    code = library.create_material_expression(result, unreal.MaterialExpressionCustom, -350, 0)
+    code.set_editor_property("code", POINT_FALLOFF_HLSL)
+    code.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+    pins = []
+    for name in ("LV", "Bulb", "Range", "Gain", "WP"):
+        pin = unreal.CustomInput()
+        pin.set_editor_property("input_name", name)
+        pins.append(pin)
+    code.set_editor_property("inputs", pins)
+    library.connect_material_expressions(vector, "", code, "LV")
+    position = library.create_material_expression(result, unreal.MaterialExpressionWorldPosition, -700, -150)
+    library.connect_material_expressions(position, "", code, "WP")
+    for i, (name, value) in enumerate((("Bulb", 0.6), ("Range", 6.0), ("Gain", 3.0))):
+        p = library.create_material_expression(result, unreal.MaterialExpressionScalarParameter, -700, 150 + 120 * i)
+        p.set_editor_property("parameter_name", name)
+        p.set_editor_property("default_value", value)
+        library.connect_material_expressions(p, "", code, name)
+    library.connect_material_property(code, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    library.recompile_material(result)
+    assets.save_loaded_asset(result, only_if_is_dirty=False)
+    return "made"
+
+
+try:
+    report["point falloff"] = point_falloff()
+except Exception as error:
+    report["failed"].append(f"M_SwcPointFalloff: {str(error)[:160]}")
 textures = {}
 for key, entry in sorted(table.items()):
     try:

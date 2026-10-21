@@ -20,12 +20,34 @@ double light_candela(const LocalLight& light, double scale) {
     if (light.type == LocalLight::Type::rect) {
         return kSourceUnitLuminance * light.diffuse * light.width * light.height * scale;
     }
+    if (light.type == LocalLight::Type::point) {
+        const double r = point_bulb(light);
+        return kPi * kSourceUnitLuminance * light.diffuse * (1.0 + r) * (1.0 + r) * scale;
+    }
     const double r = std::max(light.bulb, kMinBulb);
     return kPi * kSourceUnitLuminance * light.diffuse * r * r * scale;
 }
 
 double source_radius(const LocalLight& light) {
-    return light.type == LocalLight::Type::rect ? 0.0 : std::max(light.bulb, kMinBulb);
+    return light.type == LocalLight::Type::spot ? std::max(light.bulb, kMinBulb) : 0.0;
+}
+
+double point_bulb(const LocalLight& light) {
+    return std::max(light.bulb, kMinPointBulb);
+}
+
+double point_falloff(double d, double bulb, double range) {
+    if (range <= 0.0 || d >= range) {
+        return 0.0;
+    }
+    const double r = std::max(bulb, kMinPointBulb);
+    const double x = d / range;
+    const double f = std::pow(std::clamp(5.0 * (1.0 - x), 0.0, 1.0), 2.0);
+    const double q = std::clamp(1.0 - x * x * x * x, 0.0, 1.0);
+    const double ue = q * q;
+    const double ratio = ue > 1e-6 ? f / ue : 25.0 / 16.0;
+    const double near = std::max(d, r);
+    return (d * d + 0.0001) / (near * near) * ratio;
 }
 
 double draw_distance(const LocalLight& light) {

@@ -32,31 +32,43 @@ bool near(double a, double b, double tolerance) {
 constexpr double kPi = 3.14159265358979323846;
 
 void test_intensity() {
-    // The source: the radiance of a white diffuse surface that faces the light is 10,000 x M x 1 / (1 + d / r)^2 cd/m2 at the
-    // distance d from the bulb surface. Unreal: the radiance E / pi with E = I / D^2 at the distance D = r + d from the center.
+    // The source (research/lights-emission.md "Point lights"): the light C x M x K with K = (1 + 1 / r)^2 and the distance weight
+    // A = f / (1 + max(d - r, 0) / r)^2, f = sat(5 (1 - d / R))^2, d from the center. Unreal: E = I / (d^2 + 0.0001) x UEfade times
+    // the light function point_falloff; the radiance of a white surface that faces the light is E / pi.
     for (const double multiplier : {0.1, 2.0, 4.0}) {
         for (const double bulb : {0.05, 0.6, 5.0}) {
             env::LocalLight light;
             light.diffuse = multiplier;
             light.bulb = bulb;
+            light.range = 6.0;
             const double candela = env::light_candela(light, 1.0);
-            for (const double d : {0.0, 0.5, 2.0, 10.0}) {
-                const double source = env::kSourceUnitLuminance * multiplier / ((1.0 + d / bulb) * (1.0 + d / bulb));
-                const double unreal = candela / ((bulb + d) * (bulb + d)) / kPi;
-                check(near(unreal, source, 1e-9), "a point light: the Unreal sphere light has the source falloff (M " + std::to_string(multiplier) +
-                      ", bulb " + std::to_string(bulb) + ", d " + std::to_string(d) + ")");
+            for (const double d : {0.0, 0.02, 0.5, 2.0, 4.8, 5.5, 5.99}) {
+                const double f = std::pow(std::clamp(5.0 * (1.0 - d / light.range), 0.0, 1.0), 2.0);
+                const double K = (1.0 + 1.0 / bulb) * (1.0 + 1.0 / bulb);
+                const double source = env::kSourceUnitLuminance * multiplier * K * f / std::pow(1.0 + std::max(d - bulb, 0.0) / bulb, 2.0);
+                const double fade = std::pow(std::clamp(1.0 - std::pow(d / light.range, 4.0), 0.0, 1.0), 2.0);
+                const double unreal = candela / (d * d + 0.0001) * fade * env::point_falloff(d, bulb, light.range) / kPi;
+                check(near(unreal, source, 1e-6 * std::max(source, 1.0)), "a point light: the Unreal light with the falloff function has the source falloff (M " +
+                      std::to_string(multiplier) + ", bulb " + std::to_string(bulb) + ", d " + std::to_string(d) + ")");
             }
-            check(near(env::source_radius(light), bulb, 1e-12), "the source radius is the bulb");
+            check(env::source_radius(light) == 0.0, "a point light has no sphere radius (the bulb is only the attenuation)");
         }
     }
+    double largest = 0.0;
+    for (int i = 0; i < 10000; ++i) {
+        largest = std::max(largest, env::point_falloff(0.01 + 6.0 * i / 10000.0, 0.01, 6.0));
+    }
+    check(largest > 2.8 && largest < env::kPointFalloffGain, "the falloff correction stays under the gain of the light function (" + std::to_string(largest) + ")");
+    check(near(env::point_falloff(6.0 * (1.0 - 1e-5), 0.01, 6.0), 25.0 / 16.0, 1e-3) && env::point_falloff(6.0, 0.01, 6.0) == 0.0,
+          "the falloff correction at the range end: 25 / 16, then 0");
     env::LocalLight scaled;
     scaled.diffuse = 2.0;
     scaled.bulb = 0.6;
     check(near(env::light_candela(scaled, 0.5), 0.5 * env::light_candela(scaled, 1.0), 1e-12), "the look scale multiplies the intensity");
-    check(near(env::light_candela(scaled, 1.0), kPi * 10000.0 * 2.0 * 0.36, 1e-9), "a street lamp (M 2, bulb 0.6 m): about 22,600 cd");
+    check(near(env::light_candela(scaled, 1.0), kPi * 10000.0 * 2.0 * 2.56, 1e-9), "a torch light (M 2, bulb 0.6 m): about 160,800 cd");
     env::LocalLight zero;
     zero.bulb = 0.0;
-    check(near(env::source_radius(zero), env::kMinBulb, 1e-12) && env::light_candela(zero, 1.0) > 0.0, "a bulb of 0 has the smallest bulb");
+    check(near(env::point_bulb(zero), env::kMinPointBulb, 1e-12) && env::light_candela(zero, 1.0) > 0.0, "a bulb of 0 has the smallest bulb");
     env::LocalLight rect;
     rect.type = env::LocalLight::Type::rect;
     rect.diffuse = 2.0;

@@ -39,9 +39,12 @@ struct FSwcLocalLightStats
  *
  * - Places, axes, colors, ranges, the bulb, the field of view, the area size, and the start state come from the data. Hidden lights
  *   (Visible false: the light rigs of the mission NPC masters and helpers) are not in the data; OnInitially false stays off.
- * - The intensity (Environment/SwcLocalLightRules.h): the source attenuation of the bulb is the falloff of an Unreal sphere light
- *   with the bulb as its source radius, in candela from the light unit of the public engine, times a look scale (3 by default: the
- *   balance of the retail night pictures; -SwcLightScale=, the console variable swc.LightScale).
+ * - The intensity (Environment/SwcLocalLightRules.h): a point light has the source rule of research/lights-emission.md (source
+ *   radius 0, pi x 10,000 x D x (1 + r)^2 cd, the near clamp and the range fade of the source through the light function
+ *   /SwcGameContent/Environment/M_SwcPointFalloff with the bulb and the range of the light, tools/import-cookies.sh, for the lights
+ *   within swc.PointFalloffDistance of the camera, 40 m: its per-light pass costs about 1 ms of GPU for each 100 lights); a spot has the
+ *   source attenuation of the bulb as an Unreal sphere light with the bulb as its source radius; in candela from the light unit of
+ *   the public engine, times a look scale (1 by default; -SwcLightScale=, the console variable swc.LightScale).
  * - Streaming: the lights near the camera are components of one actor (a grid of 64 m cells; a light comes in its draw distance and
  *   goes 30 m after it; the Unreal fade at the draw distance).
  * - Shadows: the source choice (CastShadowsSpec not Never); -SwcLightShadows=none|source|all, the console variable swc.LightShadows.
@@ -52,7 +55,8 @@ struct FSwcLocalLightStats
  * - No switch by the hour: the data has none (TODInfluence alone is not a switch; the retail pictures show the lamps on at noon and
  *   at night). The light styles (AnimIndex) are in the client code, not in the data: the lights are steady.
  *
- * Development aids: -SwcNoLocalLights; -SwcLightScale=FACTOR (the console variable swc.LightScale); swc.LocalLights 0 hides the
+ * Development aids: swc.PointLightRule 0 (-SwcPointLightRule=0) gives the point lights the old sphere rule (a before and after
+ * compare in one run); -SwcNoLocalLights; -SwcLightScale=FACTOR (the console variable swc.LightScale); swc.LocalLights 0 hides the
  * lights (a compare of the cost); -SwcLightShadows=MODE; -SwcNoCookies; -SwcLightProbe logs the counts each 1 s (else each 30 s).
  */
 UCLASS()
@@ -92,6 +96,17 @@ private:
 	void UpdateBound();
 	ULocalLightComponent* MakeLight(int32 Index, USceneComponent* Parent, const FTransform& Relative);
 	bool CastsShadow(const swc::environment::LocalLight& Light) const;
+	/** @return The intensity of a light in Unreal (cd) with the look scale, the point rule, and the gain of the falloff function
+	 *  (bFalloff: the point light has the function). */
+	double Candela(const swc::environment::LocalLight& Light, bool bFalloff) const;
+	/** Gives a point light (not a spot) the radius, the intensity, and the falloff function (bFalloff) of the current point rule. */
+	void ApplyPointRule(class UPointLightComponent* Point, const swc::environment::LocalLight& Light, bool bFalloff);
+	/** @return The point light is in the falloff distance of the camera (swc.PointFalloffDistance; 5 m more when it has the function). */
+	bool WantsFalloff(const class UPointLightComponent* Point) const;
+	/** Gives the falloff function to the point lights that came into its distance, and takes it from the lights that went out. */
+	void UpdateFalloff();
+	/** @return The falloff function instance of a bulb and a range (null: M_SwcPointFalloff is not imported). */
+	class UMaterialInterface* PointFalloff(double Bulb, double Range);
 
 	TSharedPtr<FData, ESPMode::ThreadSafe> Data;
 	bool bLoading = false;
@@ -108,6 +123,16 @@ private:
 	/** The loaded cookie material instances by the game path of the texture (null: it does not load). */
 	UPROPERTY()
 	TMap<FString, TObjectPtr<UMaterialInterface>> CookieCache;
+	/** The point rule (swc.PointLightRule: 1 the source rule, 0 the old sphere rule), the falloff material, and its instances by the
+	 *  bulb and the range. */
+	int32 PointRule = 1;
+	/** The camera of the last update (cm). */
+	FVector LastCamera = FVector::ZeroVector;
+	bool bPointFalloffLoaded = false;
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> PointFalloffParent;
+	UPROPERTY()
+	TMap<FString, TObjectPtr<UMaterialInterface>> PointFalloffCache;
 	/** The creature of each bound NPC light. */
 	TMap<int32, TWeakObjectPtr<ASwcCreature>> Owners;
 	double NextUpdate = 0.0;
