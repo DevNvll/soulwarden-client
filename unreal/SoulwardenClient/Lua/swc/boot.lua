@@ -42,3 +42,4 @@ Swc.Load("swc.host")      -- the calls of the host: Swc.Tick, Swc.Boot, Swc.Ente
 Swc.Load("swc.frontend")  -- the front end: the native part of the landing screen (docs/FRONTEND.md stage F2)
 Swc.Load("swc.conversation") -- the conversation screen: its state, the npc data, the end request (docs/PERSONS.md)
 Swc.Load("swc.crafting")  -- the crafting screens: the recipes, the station of the use, the craft requests (docs/CRAFTING.md)
+Swc.Load("swc.skills")    -- the character window: the settings, the trees, the bars, the ranks (docs/UI.md)

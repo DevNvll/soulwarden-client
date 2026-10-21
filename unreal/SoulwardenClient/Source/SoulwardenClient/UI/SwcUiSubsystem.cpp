@@ -64,6 +64,8 @@ const char* const HudScreens[] = {
 	// The crafting screens (stage MVP-J): the state CraftingStation of a station use (swc/crafting.lua, UI/SwcUiCrafting).
 	"lyshineui/crafting/craftingscreenv4",
 	"lyshineui/stationproperties/stationproperties",
+	// The character window (stage MVP-G): the attributes, the weapon mastery with its trees, the trade skills (swc/skills.lua).
+	"lyshineui/skills/skills",
 	"lyshineui/tooltip/tooltip",
 	// The inventory (stage P2.4): the bag, the equipment, the weight of the action bar, the action menu of an item.
 	"lyshineui/inventory/newinventory",
@@ -1022,6 +1024,7 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 	UpdateMenu(Backend);
 	Conversation.Update(*Runtime, GEngine != nullptr && GEngine->GameViewport != nullptr ? GEngine->GameViewport->GetWorld() : nullptr, *Backend);
 	CraftingScreen.Update(*Runtime, *Backend);
+	Skills.Update(*Runtime, *Backend);
 	// The requests of the scripts: a respawn of the respawn screen (respawn.luac TriggerRespawn).
 	for (int32 Guard = 0; Guard < 8; ++Guard)
 	{
@@ -1050,6 +1053,9 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 		{
 		}
 		else if (FSwcUiCrafting::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))
+		{
+		}
+		else if (FSwcUiSkills::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))
 		{
 		}
 		else if (Request.rfind("travel ", 0) == 0)

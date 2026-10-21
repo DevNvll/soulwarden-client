@@ -9,6 +9,7 @@
 #include "Net/Codec/SwcRepClient.h"
 #include "UI/SwcUiConversation.h"
 #include "UI/SwcUiCrafting.h"
+#include "UI/SwcUiSkills.h"
 
 #include "SwcUiSubsystem.generated.h"
 
@@ -119,6 +120,8 @@ private:
 	FSwcUiConversation Conversation;
 	/** The crafting screen (stage MVP-J): UI/SwcUiCrafting. */
 	FSwcUiCrafting CraftingScreen;
+	/** The character window (stage MVP-G): UI/SwcUiSkills. */
+	FSwcUiSkills Skills;
 	TSharedPtr<FSwcUiResources> Resources;
 	TSharedPtr<SSwcUiCanvas> Widget;
 	swc::ui::DrawList DrawList;
