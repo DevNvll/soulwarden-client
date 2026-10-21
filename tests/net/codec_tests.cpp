@@ -26,6 +26,7 @@
 #include "server/rep/health_messages.h"
 #include "server/rep/item_requests.h"
 #include "server/rep/lock_messages.h"
+#include "server/rep/progress_requests.h"
 #include "server/rep/travel_messages.h"
 #include "support/client_frames.h"
 
@@ -1236,6 +1237,38 @@ void test_carrier() {
  * the end by the player; the input stays blocked until the next answer 6709 (the count of the session client). The camera point of
  * the commander of Oxboro against the live camera of the retail client (research p48-talk/camera-check.txt).
  */
+void test_skills() {
+    std::printf("the edits of the weapon trees and the bars (stage MVP-G)\n");
+    namespace rep = soulwarden::backend::server::rep;
+    const std::uint64_t group = 0x5050505051515151ULL;
+    const std::uint32_t bow = 0xC7EA8FF8;
+    const auto assign = rep::read_assign_request(swc::net::assign_pool_points_body(group, bow, 0x6C2E4693, 1));
+    expect(assign && assign->call.entity == group && assign->call.target == swc::net::slice_facet_target(group, swc::net::kGameEventsEntity, swc::net::kProgressionPointComponent) && assign->pool == bow
+               && assign->node == 0x6C2E4693 && assign->count == 1 && swc::net::assign_pool_points_body(group, bow, 1).size() == 28,
+           "1112: the backend reads the pool, the node, and the count 1 (28 bytes)");
+    const auto bar = rep::read_bar_request(swc::net::change_mapped_ability_body(group, 25, 2, 0x12345678));
+    expect(bar && bar->call.entity == group && bar->tableIndex == 25 && bar->slot == 2 && bar->ability == 0x12345678
+               && swc::net::change_mapped_ability_body(group, 25, 2, 1).size() == 26,
+           "2701: the backend reads the table index 25 (bow), the place 2, and the ability (26 bytes)");
+    expect(rep::ability_table(25) == bow, "the table index 25 is the bow table of the backend");
+    const auto apply = rep::read_plain_call(swc::net::apply_ability_points_body(group));
+    expect(apply && apply->entity == group, "2857: the backend reads the plain call (16 bytes)");
+    const auto respec = rep::read_tree_reset_request(swc::net::mastery_tree_respec_body(group, 27));
+    expect(respec && respec->call.entity == group && respec->tableIndex == 27 && !respec->flag
+               && swc::net::mastery_tree_respec_body(group, 27).size() == 19,
+           "186: the backend reads the table index 27 (sword) and the flag 0 (19 bytes)");
+    // The answer of the backend to a refused reset (its own encoder) with the call of the request.
+    const auto answer = swc::net::read_respec_response(rep::tree_reset_reply_body(respec->call, false, 27));
+    expect(answer && !answer->success && answer->tableIndex == 27 && answer->call.entity == group && answer->call.target == respec->call.target,
+           "2858: the client reads the refusal of the backend (success 0, the table index, the target of the request)");
+    const auto done = swc::net::read_respec_response(rep::tree_reset_reply_body(respec->call, true, 27));
+    expect(done && done->success, "2858: the client reads a success");
+    // The target rule of the backend (gamedata::SliceIds::find): (entity XOR root XOR G) + component; for the root entity G +
+    // component (the live run of MVP-G: the backend names the facet of the target).
+    expect(swc::net::slice_facet_target(group, swc::net::kPlayerSliceRoot, swc::net::kPlayerCutsceneComponent) == group + swc::net::kPlayerCutsceneComponent,
+           "the target rule gives G + component for a component of the root entity");
+}
+
 void test_conversation() {
     std::printf("the conversation (stage P4.8)\n");
     using swc::interact::Conversation;
@@ -1410,6 +1443,7 @@ int main(int argc, char** argv) {
     test_interactions();
     test_conversation();
     test_crafting();
+    test_skills();
     test_loot();
     test_carrier();
     std::printf("Result: %d checks, %d failed\n", g_checks, g_failures);

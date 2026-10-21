@@ -23,6 +23,7 @@ nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     "${backend}/src/server/rep/health_messages.cpp" "${backend}/src/server/rep/lock_messages.cpp" \
     "${backend}/src/server/rep/travel_messages.cpp" "${backend}/src/server/rep/item_requests.cpp" \
     "${backend}/src/server/rep/crafting_messages.cpp" \
+    "${backend}/src/server/rep/progress_requests.cpp" \
     "${backend}/src/core/logging/log.cpp" "${backend}/src/middleware/compression/lz4.cpp" \
     -o "${out}/swc-net-tests"
 "${out}/swc-net-tests" "${backend}/tests/golden/one_session.hex"

@@ -431,6 +431,17 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         }
         return;
     }
+    if (message.type == kMasteryTreeRespecResponse.index) {
+        const auto answer = read_respec_response(message.body);
+        if (answer && answer->call.entity == m_own.group) {
+            ++m_own.respecAnswers;
+            m_own.lastRespecSuccess = answer->success;
+            m_own.lastRespecTable = answer->tableIndex;
+            log(Event::Level::info, std::string("the answer to a tree reset (2858): ") + (answer->success ? "done" : "refused") +
+                                        ", table index " + std::to_string(answer->tableIndex));
+        }
+        return;
+    }
     if (message.type == kCutsceneEndFinalized.index) {
         const auto call = read_component_call(message.body);
         if (call && call->entity == m_own.group) {
@@ -1370,6 +1381,35 @@ void RepClient::cancel_interaction() {
     if (m_phase == Phase::inGame && m_own.hasMetadata) {
         send_call(kCancelCommittedInteraction, interaction_cancel_body(m_own.group, reference));
         log(Event::Level::info, "interaction cancel (2473): object " + hex_of(reference.actor));
+    }
+}
+
+void RepClient::assign_point(std::uint32_t pool, std::uint32_t node) {
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kAssignPoolPoints, assign_pool_points_body(m_own.group, pool, node, 1));
+        log(Event::Level::info, "a point of a tree (1112): pool " + std::to_string(pool) + ", node " + std::to_string(node));
+    }
+}
+
+void RepClient::change_bar(std::uint16_t tableIndex, std::uint32_t slot, std::uint32_t ability) {
+    if (m_phase == Phase::inGame && m_own.hasMetadata && slot <= 2) {
+        send_call(kChangeMappedAbility, change_mapped_ability_body(m_own.group, tableIndex, slot, ability));
+        log(Event::Level::info, "the ability of a place of a bar (2701): table index " + std::to_string(tableIndex) + ", place " +
+                                    std::to_string(slot) + ", ability " + std::to_string(ability));
+    }
+}
+
+void RepClient::apply_points() {
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kApplyAbilityPoints, apply_ability_points_body(m_own.group));
+        log(Event::Level::info, "the end of a point change (2857)");
+    }
+}
+
+void RepClient::respec_tree(std::uint16_t tableIndex) {
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kMasteryTreeRespec, mastery_tree_respec_body(m_own.group, tableIndex));
+        log(Event::Level::info, "a tree reset (186): table index " + std::to_string(tableIndex));
     }
 }
 

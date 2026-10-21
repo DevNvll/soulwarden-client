@@ -195,6 +195,10 @@ public:
         std::uint32_t craftCompleted{0};
         std::uint32_t craftTotal{0};
         std::uint32_t craftProgresses{0};
+        /** The answers 2858 to the tree resets of the client (stage MVP-G): their count, the last success and table index. */
+        std::uint32_t respecAnswers{0};
+        bool lastRespecSuccess{false};
+        std::uint32_t lastRespecTable{0};
         /** The loot of the owner (stage P2.10; protocol notes 4.10, 4.41, 4.42), each with a count of its changes:
          *  - the bag of the character (the Container of slot 61): one element for each slot (an empty slot: quantity 0);
          *  - the LootTracker (slot 33): the claims of the chests and of the bags (Rolled shows a bag, Looted hides it);
@@ -447,6 +451,12 @@ public:
     void request_craft(const CraftRequest& request);
     /** The stop of a batch by the client (the cancel of the crafting screen): message 2999. The completed jobs stay. */
     void cancel_craft();
+    /** The edits of the weapon trees and the bars (stage MVP-G; protocol notes 4.13): a point of a node (1112, count 1), the ability
+     *  of a place of a bar (2701; the slot 0 to 2), the end of a point change (2857), a tree reset (186; the answer 2858). */
+    void assign_point(std::uint32_t pool, std::uint32_t node);
+    void change_bar(std::uint16_t tableIndex, std::uint32_t slot, std::uint32_t ability);
+    void apply_points();
+    void respec_tree(std::uint16_t tableIndex);
     /** The take of all the items of the open bag (2939), and of one item instance with a quantity (2942): the server moves them into
      *  the bag of the character; the answer is the states of the slots 61, 76, 77, and 33 (protocol notes 4.42). */
     void take_all_items();

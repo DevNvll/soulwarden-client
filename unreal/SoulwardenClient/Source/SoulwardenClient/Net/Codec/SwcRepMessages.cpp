@@ -269,6 +269,55 @@ Bytes respawn_request_body(std::uint64_t group, bool random, const std::string& 
     return w.data();
 }
 
+Bytes assign_pool_points_body(std::uint64_t group, std::uint32_t pool, std::uint32_t node, std::uint32_t count) {
+    Writer w;
+    w.u64(slice_facet_target(group, kGameEventsEntity, kProgressionPointComponent));
+    w.u64(group);
+    w.u32(pool);
+    w.u32(node);
+    w.u32(count);
+    return w.data();
+}
+
+Bytes change_mapped_ability_body(std::uint64_t group, std::uint16_t tableIndex, std::uint32_t slot, std::uint32_t ability) {
+    Writer w;
+    w.u64(slice_facet_target(group, kStatsEntity, kAbilityComponent));
+    w.u64(group);
+    w.u16(tableIndex);
+    w.u32(slot);
+    w.u32(ability);
+    return w.data();
+}
+
+Bytes apply_ability_points_body(std::uint64_t group) {
+    Writer w;
+    w.u64(slice_facet_target(group, kStatsEntity, kAbilityComponent));
+    w.u64(group);
+    return w.data();
+}
+
+Bytes mastery_tree_respec_body(std::uint64_t group, std::uint16_t tableIndex, bool flag) {
+    Writer w;
+    w.u64(slice_facet_target(group, kStatsEntity, kAbilityComponent));
+    w.u64(group);
+    w.u16(tableIndex);
+    w.u8(flag ? 1 : 0);
+    return w.data();
+}
+
+std::optional<RespecResponse> read_respec_response(std::span<const std::uint8_t> body) {
+    Reader r(body);
+    RespecResponse out;
+    out.call.target = r.u64();
+    out.call.entity = r.u64();
+    out.success = r.u8() == 1;
+    out.tableIndex = r.u32();
+    if (!r.ok() || r.left() != 0) {
+        return std::nullopt;
+    }
+    return out;
+}
+
 Bytes cutscene_ended_body(std::uint64_t group) {
     Writer w;
     w.u64(group + kPlayerCutsceneComponent);

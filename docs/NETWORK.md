@@ -375,6 +375,11 @@ The component calls of the root entity of the player slice: `target:u64 entity:u
 | 3746 CancelCurrentInteraction | server | none | the client cancels its committed interaction: the block goes away and 2473 goes out at once (0x490EDA0, 0x4916150) |
 | 6709 OnServerCutsceneEndRequestFinalized | server | none | a count (the end of a lock of the input; the client has no cutscene yet) |
 | 2473 RequestCancelCommittedInteractionFromClient | client | the reference: `actor:16 bytes G:u64 target:u64` (48 bytes) | `RepClient::cancel_interaction` |
+| 1112 RequestAssignPoolPoints | client | `poolId:u32 pointId:u32 count:u32` (28 bytes; the target: ProgressionPoint of GameEvents) | `RepClient::assign_point` (stage MVP-G; one point of a tree node) |
+| 2701 RequestChangeMappedAbility | client | `tableIndex:u16 slot:u32 abilityId:u32` (26 bytes; the target: Ability of Stats) | `RepClient::change_bar`; the answer is the next Ability state (slot 46) |
+| 2857 RequestApplyAbilityPoints | client | none (16 bytes) | `RepClient::apply_points` (after the points of an Assign) |
+| 186 RequestMasteryTreeRespec | client | `tableIndex:u16 flag:u8` (19 bytes) | `RepClient::respec_tree`; the backend resets a tree only with no cost |
+| 2858 MasteryTreeRespecResponse | server | `success:u8 tableIndex:u32` (21 bytes) | `respecAnswers`, `lastRespecSuccess`, `lastRespecTable` |
 | 3743 ReceiveInteractionResult | server | the reference, `action:u8 result:u8` and 21 bytes (71 bytes) | for the current request only: result 1 accepted; result 2 clears the request (no 2473) |
 
 - The travel: the client takes the place of a movement state of the server only when the low 4 bits of field 31 are not

@@ -148,8 +148,18 @@ inline constexpr MessageType kCraftRequest{"CraftingComponentServerFacet_SetCraf
 inline constexpr MessageType kCraftCancel{"CraftingComponentServerFacet_CancelCrafting", "224CAC458FD2476987AF9DF2111C4CFE", 2999};
 inline constexpr MessageType kCraftProgress{"CraftingComponentClientFacet_OnCraftingProgressUpdate", "867CAB308E9E4124A59D2E9835F90E35", 2993};
 
+/** The requests of the weapon trees and the ability bars (stage MVP-G; protocol notes 4.13; backend server/rep/progress_requests.h):
+ *  a point of a tree (1112), the ability of a place of a bar (2701), the end of a point change (2857), a tree reset (186), and the
+ *  answer to a reset (2858). */
+inline constexpr MessageType kAssignPoolPoints{"ProgressionPointComponentServerFacet_RequestAssignPoolPoints", "A7FC561AC36F44CC96EB803FE849FD99", 1112};
+inline constexpr MessageType kChangeMappedAbility{"AbilityComponentServerFacet_RequestChangeMappedAbility", "6079F48F559843D1BE9FF9C44B7B16A1", 2701};
+inline constexpr MessageType kApplyAbilityPoints{"AbilityComponentServerFacet_RequestApplyAbilityPoints", "9BAF48AB398E460A932171B8745ADFC4", 2857};
+inline constexpr MessageType kMasteryTreeRespec{"AbilityComponentServerFacet_RequestMasteryTreeRespec", "F5BCCF27878840DBB6B524121B119750", 186};
+inline constexpr MessageType kMasteryTreeRespecResponse{"AbilityComponentClientFacet_MasteryTreeRespecResponse", "BDA9C6182E5F4474AD696A36F462C136", 2858};
+
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 63> kUsedTypes{kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
+inline constexpr std::array<MessageType, 68> kUsedTypes{kAssignPoolPoints, kChangeMappedAbility, kApplyAbilityPoints, kMasteryTreeRespec,
+    kMasteryTreeRespecResponse, kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
     kStateMana, kStateAbility, kStateCooldowns, kDamageTaken, kPlayerDeath, kTeleportWithLoadingScreen, kPlayerTeleport,
@@ -501,6 +511,36 @@ struct CraftProgress {
     std::uint32_t total{0};
 };
 std::optional<CraftProgress> read_craft_progress(std::span<const std::uint8_t> body);
+
+/**
+ * The components of the trees and the bars (game data slice-ids.json; research skills.md, the table of the targets): Ability of the
+ * entity Stats and ProgressionPoint of the entity GameEvents of the player slice. The target of a call of a component of an entity
+ * of the slice is (entity XOR root XOR G) + the component id (the rule of the backend gamedata::SliceIds::find; for the root
+ * entity it is G + the component id).
+ */
+inline constexpr std::uint64_t kStatsEntity = 0xE6448D4D53852704ULL;
+inline constexpr std::uint64_t kGameEventsEntity = 0xEF425F0D57D32479ULL;
+inline constexpr std::uint64_t kAbilityComponent = 0xC20D99BE6902E291ULL;
+inline constexpr std::uint64_t kProgressionPointComponent = 0xD46E883411B322EAULL;
+/** @return The target of a component of an entity of the player slice of the character G. */
+inline constexpr std::uint64_t slice_facet_target(std::uint64_t group, std::uint64_t entity, std::uint64_t component) {
+    return (entity ^ kPlayerSliceRoot ^ group) + component;
+}
+/** @return The body of RequestAssignPoolPoints (1112, 28 bytes): target entity poolId:u32 pointId:u32 count:u32. */
+Bytes assign_pool_points_body(std::uint64_t group, std::uint32_t pool, std::uint32_t node, std::uint32_t count = 1);
+/** @return The body of RequestChangeMappedAbility (2701, 26 bytes): target entity tableIndex:u16 slot:u32 abilityId:u32. */
+Bytes change_mapped_ability_body(std::uint64_t group, std::uint16_t tableIndex, std::uint32_t slot, std::uint32_t ability);
+/** @return The body of RequestApplyAbilityPoints (2857, 16 bytes): target entity. */
+Bytes apply_ability_points_body(std::uint64_t group);
+/** @return The body of RequestMasteryTreeRespec (186, 19 bytes): target entity tableIndex:u16 flag:u8 (the screen sends 0). */
+Bytes mastery_tree_respec_body(std::uint64_t group, std::uint16_t tableIndex, bool flag = false);
+/** MasteryTreeRespecResponse (2858, 21 bytes): the call, the success, the table index. */
+struct RespecResponse {
+    ComponentCall call;
+    bool success{false};
+    std::uint32_t tableIndex{0};
+};
+std::optional<RespecResponse> read_respec_response(std::span<const std::uint8_t> body);
 /** OnPlayerDeath (3950): the call and the time to the respawn screen (s). */
 struct PlayerDeath {
     ComponentCall call;
