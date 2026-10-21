@@ -58,6 +58,8 @@ const char* const HudScreens[] = {
 	"lyshineui/respawn/respawn",
 	// The world map (stage MVP-C): M opens the state Map (magicmap.luac and its layers; the map data of swc/worldmap.lua).
 	"lyshineui/worldmap/magicmap",
+	// The conversation screen (stage MVP-H): the Talk of a person (swc/conversation.lua, UI/SwcUiConversation).
+	"lyshineui/conversation/conversationscreenv2",
 	"lyshineui/tooltip/tooltip",
 	// The inventory (stage P2.4): the bag, the equipment, the weight of the action bar, the action menu of an item.
 	"lyshineui/inventory/newinventory",
@@ -1002,6 +1004,7 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 		}
 	}
 	UpdateMenu(Backend);
+	Conversation.Update(*Runtime, GEngine != nullptr && GEngine->GameViewport != nullptr ? GEngine->GameViewport->GetWorld() : nullptr, *Backend);
 	// The requests of the scripts: a respawn of the respawn screen (respawn.luac TriggerRespawn).
 	for (int32 Guard = 0; Guard < 8; ++Guard)
 	{
@@ -1025,6 +1028,9 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 				LoadingHoldUntil = FPlatformTime::Seconds() + 1.0;
 			}
 			UE_LOG(LogSwcUi, Log, TEXT("ui: the respawn screen asks for a respawn (%hs): %s"), Request.c_str(), bSent ? TEXT("sent") : TEXT("not sent"));
+		}
+		else if (FSwcUiConversation::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))
+		{
 		}
 		else if (Request.rfind("travel ", 0) == 0)
 		{

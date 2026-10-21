@@ -7,6 +7,7 @@
 #include "SwcUi/Draw.h"
 #include "SwcUi/Runtime.h"
 #include "Net/Codec/SwcRepClient.h"
+#include "UI/SwcUiConversation.h"
 
 #include "SwcUiSubsystem.generated.h"
 
@@ -113,6 +114,8 @@ private:
 	void HandleMenuRequest(const FString& Request, class USwcBackendSubsystem* Backend);
 
 	TUniquePtr<swc::ui::Runtime> Runtime;
+	/** The conversation screen (stage MVP-H): UI/SwcUiConversation. */
+	FSwcUiConversation Conversation;
 	TSharedPtr<FSwcUiResources> Resources;
 	TSharedPtr<SSwcUiCanvas> Widget;
 	swc::ui::DrawList DrawList;
