@@ -134,6 +134,7 @@ public:
 	uint32 GetVisitCount() const { return Visits; }
 	/** The learned nodes of the character (the ProgressionPoint state; stage P3.5): the rows of the strikes. */
 	void SetLearnedNodes(uint32 Revision, const std::vector<std::uint32_t>& Nodes);
+	const TSet<uint32>& GetLearnedNodes() const { return LearnedNodes; }
 	/** @return The attack graph of a weapon slot in the driver (24, 25), or null. */
 	const swc::combat::Graph* GetDriverGraph(uint32 Slot) const
 	{

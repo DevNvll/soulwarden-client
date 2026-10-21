@@ -247,6 +247,9 @@ struct FSwcConditionFacts
 	bool bAttackHold = false;
 	/** The angle between the facing and the horizontal velocity (degrees); below 0: no velocity. */
 	float FacingVelocityAngle = -1.0f;
+	/** The learned nodes of the weapon trees (IfAbilityActive: the progression id of the AbilityName); null: not known (false). AST-230:
+	 *  only the conditions of the effect clips set it. */
+	const TSet<uint32>* LearnedNodes = nullptr;
 };
 
 /** A parameter set of AnimationDrivenMotion (a conditional merged onto the default). */
@@ -297,6 +300,7 @@ public:
 
 	/** @return True when the named condition holds (an unknown name or type: false). */
 	bool Holds(const FString& Name, const FSwcConditionFacts& Facts) const;
+	bool HasCondition(const FString& Name) const { return Conditions.Contains(Name); }
 	/** The motion and the facing of an attack fragment (its action of playeractions_attack.actionlist). */
 	const FSwcActivity* Activity(const FString& FragmentName) const { return Activities.Find(FragmentName); }
 	/** @return The motion rule of an action at its facts: the first conditional that holds, else the default. */

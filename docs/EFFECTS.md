@@ -20,12 +20,13 @@ study (steps 1 to 12) and tells what each step did.
 | `Scripts/particle_systems.py`, `SoulwardenClientEditor/SwcParticleBuilder.cpp` | The import of the mesh particles (`/SwcGameContent/Particles/Meshes`), the material `M_SwcParticleMesh`, the Niagara mesh renderer of the stateless emitters. |
 | `Effects/SwcFragmentEffects` | The fragment effect player: the clips of the fragment of each action channel on its clock. |
 | `Effects/SwcParticleEffects` | The effect interface gets `StartAttached` (a bone or a socket, follow or not) and `Keep` (KeepEmitterActive). |
+| `Effects/SwcTracers` | The trails of the projectiles (the ranged attack database) on the own projectiles of `Character/SwcRangedView`. |
 | `Creatures/SwcEffectActor` | The slice effect player of the creature spells and shots. |
 
 ```sh
 tools/convert-player.sh actions        # actions.json with the "effects" of each fragment, "weaponEffects", "weaponHelpers"
 tools/convert-creatures.sh effects     # effects.json with the "particles" of each projectile and spell slice
-tools/convert-particles.sh skills      # particles/skill-effects.json: each key, its library node or "missing", its users
+tools/convert-particles.sh skills      # particles/skill-effects.json (each key, its library node or "missing", its users), impacts.json, tracers.json
 tools/convert-particles.sh systems     # the systems of the fire and of the skill keys (FIRST_SLICES of the creatures)
 tools/import-particles.sh              # the import (the lock; each call stops new work after SWC_IMPORT_SECONDS, default 480 s)
 tools/test-converter.sh                # tests/converter/test_skill_effects.py: the clip times, the Lua table run, the Euler rule
@@ -70,9 +71,13 @@ fragment (the weapon scope of the stance). The rule of the study ("Runtime order
   game through the space map of stage 1.1 (x, -y, z; the rotation axis (-x, y, -z)).
 - A WeaponEffects clip (OptionOnEnter Enable) starts the entries of its group in the script of the weapon in the main hand (the weapon
   effect id of its tag set; the element Default). OptionOnExit Disable stops them at the end of the clip.
-- Not done in this step: the condition of a clip (a clip with a condition is skipped and logged: the study says that a nonempty
-  condition is not true), SpawnSlice, RunFxScript, CAGE-CastSpell (logged), an attachment of the body, the element of the weapon (the
-  perks and gems: Default only), the weapon pose for the animated weapon helpers.
+- The condition of a clip (part 5): a named condition of the action lists (the `Conditions` of `playeractions_*.actionlist`, in
+  `actions.json` "conditions"). The clip tests it at its enter, as the native clip does before its spawn [R]: the Mannequin tags of the
+  weapon and of the fragment records (IfMannequinTag), the learned nodes of the weapon trees (IfAbilityActive: the ProgressionPoint
+  state); the other leaf types and an unknown name are false. The conditions of the five weapons are IfAbilityActive leaves (Reap,
+  Maelstrom, Wrecking Ball, Explosive Arrow); HasTauntGem is not in the action lists (false, logged).
+- Not done in this step: SpawnSlice, RunFxScript, CAGE-CastSpell (logged; the spells come as spell entities of the backend), an
+  attachment of the body, the element of the weapon (the perks and gems: Default only), the weapon pose for the animated weapon helpers.
 - The log: `fragment effects: FRAGMENT TYPE NAME at START (clock C, serial S)` for each entry, and one line for each reason of a skip.
 
 ## The slice effects (plan step 7, first part)
@@ -85,6 +90,25 @@ fragment (the weapon scope of the stance). The rule of the study ("Runtime order
   emission; Kill On Deactivate also removes the particles.
 - A late observer does not start an activation that is older than 0.5 s (an old burst; a value of this client).
 - A hostile area has no disc and no stand-in column; a shot with a particle effect shows no shaft (docs/CREATURES.md).
+
+## The trails (plan step 8, first part)
+
+- The converter reads the ranged attack database (`sharedassets/genericassets/rangedattackdatabase.radb`; `skill_effects.tracer_data`)
+  into `particles/tracers.json`: for each profile/attack, `m_tracerEffectsByEffect` (the trail by the weapon effect: Arcane, Fire, Ice,
+  Lightning, Magic, Nature, Void, `_Default`; an empty value is left out), `m_projectileVisibilityDelaySeconds` (0 for all 323 attacks),
+  and `m_predictedProjectileTrailEffect`. 124 attacks have a trail. The trails of the profiles of the five weapons get a system.
+- The lookup (`Effects/SwcTracers`): the value of the weapon effect, else `_Default` [I]. The `Default` value of the bow attacks is
+  empty, and the retail Penetrating Shot of a bow with the weapon effect Default shows the white streak of
+  `wFX_Bow_Huntsman.Penetrate_Proj_Trail` that moves with the arrow (set-mvpl-effects `retail-bow.mp4`, 12.73 to 12.83 s).
+- The own projectile of a shot (`Character/SwcRangedView`) gets its trail at its launch, attached to the projectile with the local +Y of
+  the game along the flight (the forward of an entity of the game); at a hit or at the end of the flight the trail stays at its place,
+  its emission stops, and its particles finish.
+- A trail emitter (EmitterShape TRAIL: a ribbon of connected particles) is not drawn: the builder has only the stateless sprite and mesh
+  renderers, and a sprite at the emitter is not the ribbon (65 emitters, also the weapon swipe trails `*_Melee.Swipe_MD`). The plain arrow
+  trail `wFX_Default_Range.Trail` and `Trail_Power` (Rapid Shot, Explosive Arrow) are only ribbons: no trail shows.
+- A fixed focus (FocusAngle and FocusAzimuth with no random part) tilts the emit axis from +Z toward the azimuth (0: the +Y axis, the
+  comment of the source parameter) [I]; the cone is EmitAngle about it (the trail streaks along the arrow; the sparks of
+  `BLOOD.Impact_Blunt_Omni` along -Z). A random focus keeps the wider cone.
 
 ## The hits (plan step 9, first part)
 
@@ -153,6 +177,9 @@ MoveRelEmitter Yes); a world-space trail behind a moving emitter needs another p
   half extents are SizeZ (the depth), SizeX, SizeY. Not done: the size curve, the normal map, the AlphaClip of a decal.
 - The builder gives each renderer a unique object name: a rebuilt system keeps its emitter objects, and a renderer of another class with
   the same name made NewObject fail (a crash of the import).
+- The flags of a particle material follow the engine rule (`material_records.flags_of`): the StringGenMask text, else the bits of the
+  numeric GenMask through the `.ext` of the shader. The refraction sprite of `wFX_Bow_Huntsman.ExplosiveShot` has only GenMask 404
+  (%REFRACTION %NORMAL_MAP); before, the client drew its normal map as a cyan disc under the explosion. 14 refraction emitters are off.
 
 ## The checks
 
@@ -171,6 +198,9 @@ Development runs with a copy of the user's database (`dev-data-mvpl`; the sword 
 | mvpl-take-sword, -axe, -hammer | The client takes of the retail takes of `set-mvpl-effects` (below): the same steps 5 s later (`tests/drive/mvpl-sword*.txt`, `mvpl-axe*`, `mvpl-hammer*`; the camera `view 89.8 -10` as the retail aim). All clips of the great axe and war hammer abilities play (the weapon helpers): Charge glow, Engage swipe, Maelstrom (two spins at 0.35 and 0.733 s), Gravity Well glow, Wrecking Ball (charged, tell, swipe, impact), Shockwave (charged, trail), Path of Destiny (charge, swipe, impact); only Wreckingball_impact_AOE waits for its condition WreckingBallAOE. |
 
 | mvpl-strike1 | The strike of the shaman at night with a level camera (`tests/drive/mvpl-strike*.txt`): the bolt at 0.91 to 0.92 s of the record; its light lights the character and the ground (purple, then white); the next strikes 10 times slower. Evidence `step4-strike-night.png`, `step4-compare-strike-night.png` (retail s1-fresh at +1.63 s; client). The client omen and damage area show a yellow ring arc; retail shows a dark omen ring. |
+
+| mvpl-take-bow, -rapier | The client takes of `retail-bow.mp4` and `retail-rapier.mp4` (`tests/drive/mvpl-bow*.txt`, `mvpl-rapier*`). The bow: the conditions of Explosive Arrow choose the upgrade (as the backend: `Spell_Ability_Bow_Explosive_Upgrade`); the explosion is the spell entity of the backend (`spell_aoe_explosionshot_small`, GlobalSizeScale 0.3) at the same place and time as retail (0.53 s after R; retail 0.6 s); the trails start on the own projectiles. The rapier: the light and heavy attacks and their clips; the abilities do not play (below). |
+| mvpl-bowq, -bowq2, -bowq3 | A slow check of the bow (`tests/drive/mvpl-bowq*.txt`, `swc.Effects.TimeScale 0.1`, `swc.Effects.Dump` with the axes): the Penetrating Shot muzzle (`Penetrate_Muzzle` at vfx_Tip_01) shows its white puff forward from the bow as retail; its local +Z points to the target at the release. |
 
 The retail references (`~/Games/soulwarden/work/evidence/unreal-references/set-mvpl-effects/`, its README): a development run of the
 Soulwarden project with a copy of the user's database (the same character and bars), noon, the camera heading 89.8 and pitch -10, the
@@ -197,12 +227,31 @@ Differences in the compares (part 3):
   of the effects (the effects enter at their fragment times). The retail blood is wide red spurts and blue sparks; the client blood is a
   thin red spurt (the sizes of the data: a 0.35 m wide, 4.4 m cell with an eroded shape) [open].
 
+Differences in the compares (part 5, the bow and the rapier):
+- The rapier abilities (Q, R, F of the user's bar: Flourish, Lunge) do not play: the client sends and plays only the abilities with a
+  rule of the backend ("no rule of the backend (not sent)"); retail plays them (Flourish: a red blade glow and a slash). Not an effect
+  rule: the abilities of the rapier have no backend rule.
+- The explosion of Explosive Arrow: the same spell entity, place, and time; retail is about 1.6 times wider with a jagged flame, the
+  client a round flame (the rule of GlobalSizeScale and the emitter shapes) [open].
+- The first use of a texture in a development run (uncooked content) builds it at that time: the first explosion showed a white square
+  for one frame, and the first Penetrating Shot muzzle did not show at normal speed. A second run has the built textures.
+- The Penetrating Shot trail: the arrow hits the ground after 4.6 m (0.05 s, the aim point of the camera pitch -10 in both clients); the
+  continuous streaks of the trail (14 each second) make their first particle after the stop: the client trail shows almost nothing;
+  retail shows the streak for about 0.1 s [open: the first particle of a continuous emitter].
+- The full draw of a bow shows a gold glow on the arrow in retail; the client has no such effect (the source is not found: no clip of
+  Bow_Charge_UpperBody and no `tip` group in the default script).
+
 ## Open points
 
 The open points of the study ("Open points" 1 to 10) stay. Of this work:
-1. The conditions of the clips (HasTauntGem, the charge tiers, the upgrades): a clip with a condition does not play.
+1. The conditions of the clips: the leaves other than IfAbilityActive and IfMannequinTag (HasTauntGem is not in the action lists).
 2. The element of the weapon (the perk or gem of the item): Default only.
 3. The ribbons, the refraction, the dissolve, the decal size curve and normal map (plan step 6).
 4. The world-space particles behind a moving emitter (the stateless emitters are in the local space).
 5. The width of the client blood spurts against retail.
 6. The roll of an effect about its SpawnParticle axis (the retail look-at transverse basis).
+7. The ribbons (EmitterShape TRAIL): the arrow trails and the weapon swipe trails (a stateful Niagara emitter with a ribbon renderer).
+8. An emitter with a LightSource and a texture draws only its light (177 of the 201 light emitters have a texture).
+9. The first particle of a continuous emitter (a short trail on an arrow that hits the ground at once).
+10. The weapon effect (element) of a weapon for the trail map (Default only) and the rule of an empty value (`_Default` [I]).
+11. The size of a slice effect with GlobalSizeScale (the explosion of Explosive Arrow is about 1.6 times wider in retail).

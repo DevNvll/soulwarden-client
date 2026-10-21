@@ -1,0 +1,38 @@
+# The client take of set-mvpl-effects/retail-bow.mp4 (AST-230): the camera of the retail take (heading 89.8, pitch -10), then the
+# steps of the retail take 5 s later. Routes: tests/drive/mvpl-bow-routes.txt.
+2.0 view 89.8 -10
+3.0 tick
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 key 1
+9.0 tick
+10.0 click
+11.0 tick
+12.0 tick
+13.0 aim 1
+13.5 attack 1
+14.0 tick
+14.7 attack 0
+15.0 tick
+15.5 aim 0
+16.0 tick
+17.0 ability q
+17.8 click
+18.0 tick
+19.0 tick
+20.0 tick
+21.0 ability r
+21.8 click
+22.0 tick
+23.0 tick
+24.0 tick
+25.0 ability f
+25.8 attack 1
+26.0 tick
+26.6 attack 0
+27.0 tick
+28.0 tick
+29.0 tick
+30.0 tick

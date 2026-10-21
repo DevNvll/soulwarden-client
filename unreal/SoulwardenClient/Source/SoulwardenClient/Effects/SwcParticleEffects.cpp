@@ -78,7 +78,11 @@ FAutoConsoleCommandWithWorld CommandDump(TEXT("swc.Effects.Dump"), TEXT("Log the
 			{
 				continue;
 			}
-			FString Line = FString::Printf(TEXT("effects: dump %s at %s:"), *GetNameSafe(It->GetAsset()), *It->GetComponentLocation().ToCompactString());
+			// The place, the local +Z (the emit axis) and +X in the world, and the parent and its socket.
+			const FQuat Rotation = It->GetComponentQuat();
+			FString Line = FString::Printf(TEXT("effects: dump %s at %s, +Z %s, +X %s, on %s %s:"), *GetNameSafe(It->GetAsset()),
+				*It->GetComponentLocation().ToCompactString(), *Rotation.GetAxisZ().ToCompactString(), *Rotation.GetAxisX().ToCompactString(),
+				*GetNameSafe(It->GetAttachParent()), *It->GetAttachSocketName().ToString());
 			if (const FNiagaraSystemInstanceControllerConstPtr Controller = It->GetSystemInstanceController(); Controller.IsValid())
 			{
 				if (const FNiagaraSystemInstance* Instance = Controller->GetSystemInstance_Unsafe())

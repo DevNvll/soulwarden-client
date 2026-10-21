@@ -1,0 +1,23 @@
+# AST-230 check of the bow muzzle effects: the camera of the retail take, the bow, Q (Penetrating Shot) and a click with the effects at
+# 0.1 of their speed (swc.Effects.TimeScale) and a dump of the running effects; then R (Explosive Arrow). Routes: tests/drive/mvpl-bowq-routes.txt.
+2.0 view 89.8 -10
+3.0 key 1
+4.0 tick
+5.0 tick
+6.0 ability q
+6.5 exec swc.Effects.TimeScale 0.1
+7.0 tick
+7.8 click
+7.9 exec swc.Effects.Dump
+8.1 exec swc.Effects.Dump
+8.4 exec swc.Effects.Dump
+9.0 tick
+10.0 tick
+11.0 tick
+12.0 ability r
+12.3 tick
+12.6 exec swc.Effects.Dump
+13.0 tick
+14.0 tick
+15.0 tick
+16.0 tick

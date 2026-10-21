@@ -245,7 +245,9 @@ namespace
 		SetRange(Velocity->ConeVelocityDistribution, Numbers(Spec, TEXT("speed")));
 		Velocity->ConeAngle = FMath::Clamp(float(Number(Spec, TEXT("cone"))), 0.0f, 180.0f);
 		Velocity->InnerCone = FMath::Clamp(float(Number(Spec, TEXT("innerCone"))), 0.0f, Velocity->ConeAngle);
-		Velocity->ConeDirection.InitConstant(FVector3f::ZAxisVector);
+		// The emit axis: local +Z, or the axis of a fixed focus (FocusAngle and FocusAzimuth, AST-230).
+		const TArray<double> Axis = Numbers(Spec, TEXT("axis"));
+		Velocity->ConeDirection.InitConstant(Axis.Num() == 3 ? FVector3f(Axis[0], Axis[1], Axis[2]).GetSafeNormal() : FVector3f::ZAxisVector);
 		Velocity->CoordinateSpace = Spec->GetBoolField(TEXT("gravityUp")) ? ENiagaraCoordinateSpace::World : ENiagaraCoordinateSpace::Local;
 		const TSharedPtr<FJsonObject> Gravity = Child(Spec, TEXT("gravity"));
 		UNiagaraStatelessModule_GravityForce* GravityForce = Module<UNiagaraStatelessModule_GravityForce>(Emitter);

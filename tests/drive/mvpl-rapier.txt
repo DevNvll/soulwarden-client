@@ -1,0 +1,31 @@
+# The client take of set-mvpl-effects/retail-rapier.mp4 (AST-230): the camera of the retail take (heading 89.8, pitch -10), then the
+# steps of the retail take 5 s later. Routes: tests/drive/mvpl-rapier-routes.txt.
+2.0 view 89.8 -10
+3.0 tick
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 key 2
+9.0 tick
+10.0 click
+10.8 click
+11.0 tick
+11.6 click
+12.0 tick
+13.0 tick
+14.0 attack 1
+14.9 attack 0
+15.0 tick
+16.0 tick
+17.0 ability q
+18.0 tick
+19.0 tick
+20.0 ability r
+21.0 tick
+22.0 tick
+23.0 ability f
+24.0 tick
+25.0 tick
+26.0 tick
+27.0 tick

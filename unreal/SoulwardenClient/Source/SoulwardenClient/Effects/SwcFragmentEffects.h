@@ -29,6 +29,8 @@ struct FSwcEffectOwner
 	FString WeaponTags;
 	FString WeaponFile;
 	FString Element = TEXT("Default");
+	/** The learned nodes of the weapon trees (the conditions of the clips: IfAbilityActive); null: none known. */
+	const TSet<uint32>* LearnedNodes = nullptr;
 };
 
 /**
@@ -44,8 +46,10 @@ struct FSwcEffectOwner
  * with an AttachmentName and no joint of the body takes the helper of the weapon in the main hand [I].
  * A WeaponEffects group (OptionOnEnter Enable) starts the particle entries of the group of the weapon effect script of the weapon in
  * the main hand (WeaponEffectBase:StartParticle): a joint of the owner (playOnOwner), a joint of the weapon, or a helper of the weapon file
- * (attachmentName). Not done: the conditions of the clips (a clip with a condition is skipped and logged), SpawnSlice, RunFxScript, and
- * CAGE-CastSpell (logged), an attachment of the body (AttachmentName), the element of the weapon (Default).
+ * (attachmentName). The condition of a clip (a named condition of the action lists) is tested at its enter with the tags of the weapon and
+ * of the fragment and the learned nodes (IfAbilityActive); a false or unknown condition skips the clip (logged once). Not done:
+ * SpawnSlice, RunFxScript, and CAGE-CastSpell (logged; the spells come as spell entities of the backend), an attachment of the body
+ * (AttachmentName), the element of the weapon (Default).
  */
 class SOULWARDENCLIENT_API FSwcFragmentEffects
 {

@@ -34,7 +34,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import env, source
+from . import env, material_records, source
 from .particles import (CONVERTER_VERSION, Libraries, field, flag, number, out_dir, params_of, parse_value, random_range, sample,
                         sample_color, color_keys, scalar_param, support_status, vector, write_json)
 
@@ -82,7 +82,10 @@ def material(path: str) -> dict | None:
     def floats(text: str) -> list[float]:
         return [float(v) for v in (text or "").split(",") if v.strip()]
 
-    return {"path": name, "shader": root.get("Shader", ""), "flags": [f for f in root.get("StringGenMask", "").split("%") if f],
+    # The flags of the engine rule (material_records.flags_of): the StringGenMask text, else the bits of the numeric GenMask through the
+    # .ext of the shader (AST-230: the refraction sprite of wFX_Bow_Huntsman.ExplosiveShot has only GenMask 404, %REFRACTION%NORMAL_MAP).
+    flags = [f.lstrip("%") for f in material_records.flags_of(root, resources=False)[0]]
+    return {"path": name, "shader": root.get("Shader", ""), "flags": flags,
             "diffuse": product(textures.get("Diffuse", "")), "textures": textures,
             "diffuseColor": floats(root.get("Diffuse", "1,1,1,1"))[:3], "emittance": floats(root.get("Emittance", "0,0,0,0")),
             "opacity": float(root.get("Opacity", "1")), "texmods": texmods}
@@ -212,8 +215,18 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
     speed = range_cm(p, "Speed")
     emit = field(p, "EmitAngle")
     focus = field(p, "FocusAngle")
+    azimuth = field(p, "FocusAzimuth")
     cone = (emit["base"] or 0.0) + (focus["base"] or 0.0)
     inner = (emit["base"] or 0.0) * (1.0 - emit["random"])
+    axis = [0.0, 0.0, 1.0]
+    if (focus["base"] or 0.0) > 0.0 and not focus["random"] and not azimuth["random"] and not flag(p.get("FocusGravityDir", "false")):
+        # AST-230: a fixed focus tilts the emit axis from +Z by FocusAngle toward the azimuth FocusAzimuth about Z (0: the +Y axis, the
+        # comment of the source parameter [I]); the cone is EmitAngle about that axis (the projectile trails: 90 and 180, the streaks
+        # along -Y, the back of the projectile). A random focus keeps the wider cone.
+        tilt, turn = math.radians(focus["base"]), math.radians(azimuth["base"] or 0.0)
+        game = [-math.sin(turn) * math.sin(tilt), math.cos(turn) * math.sin(tilt), math.cos(tilt)]
+        axis = [round(game[0], 6), round(-game[1], 6), round(game[2], 6)]
+        cone = emit["base"] or 0.0
     gravity = field(p, "GravityScale")
     accel = vector(p.get("Acceleration", ""))
     g = random_range(gravity["base"] or 0.0, gravity["random"])
@@ -285,6 +298,8 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
                      "bands": [[a, b if math.isfinite(b) else None] for a, b in bands]},
         "notes": notes, "unsupported": unsupported,
     }
+    if axis != [0.0, 0.0, 1.0]:
+        record["axis"] = axis
     record["renderer"] = "sprite"
     # AST-230 (research/particle-impacts.md 1 [R]): the material Diffuse (PM_DiffuseColor; the raw XML floats, linear) multiplies the
     # atlas RGB in the lit and the glow terms: a separate parameter of the material instance. The fire of stage 2: Diffuse 1 or no material.
@@ -313,6 +328,12 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         # A refraction material (the distortion of the swipes): no refraction path yet (plan step 6).
         record["enabled"] = False
         record["notes"].append("refraction material: not drawn (AST-230 plan step 6)")
+    if str(p.get("EmitterShape", "") or "").upper() == "TRAIL":
+        # A trail emitter (EmitterShape TRAIL: the particles connect into a ribbon along the path of the emitter). The builder has only
+        # the stateless sprite and mesh renderers; a sprite at the emitter is not the ribbon: not drawn (AST-230 open point).
+        record["enabled"] = False
+        record["notes"].append("trail (ribbon) emitter: not drawn yet (AST-230)")
+        unsupported.pop("EmitterShape", None)
     if facing == "Decal":
         # AST-230 (plan step 6): a decal particle: the Niagara decal renderer projects the material down the local -Z of the emitter
         # [I]; its half extents are the half sizes of the data (SizeX, SizeY; the depth SizeZ) with the age curves; the alpha of the

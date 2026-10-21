@@ -6,6 +6,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Debug/DebugDrawService.h"
+#include "Effects/SwcTracers.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
@@ -14,6 +15,7 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/PlayerController.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "NiagaraComponent.h"
 #include "SwcBackendSubsystem.h"
 
 namespace
@@ -64,6 +66,7 @@ void USwcRangedView::EndPlay(const EEndPlayReason::Type Reason)
 	UDebugDrawService::Unregister(DrawHandle);
 	for (FShot& Shot : Shots)
 	{
+		SwcTracers::Stop(GetWorld(), Shot.Trail.Get());
 		if (Shot.Mesh.IsValid())
 		{
 			Shot.Mesh->DestroyComponent();
@@ -175,6 +178,11 @@ void USwcRangedView::SpawnShots()
 			Mesh->SetWorldLocationAndRotation(Shot.Position, FRotationMatrix::MakeFromZ(Direction).ToQuat());
 		}
 		Shot.Mesh = Mesh;
+		// AST-230 (plan step 8): the trail of the attack (the ranged attack database) on the projectile; the weapon effect Default [I].
+		if (Rule != nullptr && Mesh != nullptr)
+		{
+			Shot.Trail = SwcTracers::Start(GetWorld(), UTF8_TO_TCHAR((Rule->profile + "/" + Rule->attack).c_str()), TEXT("Default"), Mesh);
+		}
 		Shots.Add(Shot);
 		++Projectiles;
 		UE_LOG(LogSwcBackend, Log, TEXT("ranged: the own projectile of the shot %08x row %08x %s at input %u: %s %.0f m/s, range %.0f m, life %.2f s, to the aim point %.1f m away"),
@@ -212,8 +220,10 @@ void USwcRangedView::UpdateShots(float DeltaTime)
 				const AActor* Other = Hit.GetActor();
 				UE_LOG(LogSwcBackend, Log, TEXT("ranged: the own projectile hit %s after %.1f m"), Other != nullptr ? *Other->GetName() : TEXT("the world"),
 					Shot.Traveled / 100.0);
-				// An arrow stays at its hit (the stuck life of the slice basic_arrow: 8 s); a magic shot ends.
+				// An arrow stays at its hit (the stuck life of the slice basic_arrow: 8 s); a magic shot ends. The trail ends at the hit.
 				Shot.Stuck = Shot.bArrow ? 8.0f : 0.0f;
+				SwcTracers::Stop(GetWorld(), Shot.Trail.Get());
+				Shot.Trail.Reset();
 				bEnd = !Shot.bArrow;
 			}
 			else
@@ -235,6 +245,7 @@ void USwcRangedView::UpdateShots(float DeltaTime)
 		}
 		if (bEnd)
 		{
+			SwcTracers::Stop(GetWorld(), Shot.Trail.Get());
 			if (Shot.Mesh.IsValid())
 			{
 				Shot.Mesh->DestroyComponent();

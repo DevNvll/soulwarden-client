@@ -1,0 +1,5 @@
+# AST-230 check of the bow muzzle effects (Penetrating Shot, Explosive Arrow) with slow effects: noon, the creatures ignore the character.
+1 world-time 12:00
+1 ignore on
+1.5 heal
+5.5 spawn Wolf_Grey_7 12 0 0 --yaw 90 --level 70

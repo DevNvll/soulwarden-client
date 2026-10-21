@@ -5,6 +5,7 @@
 #include "Character/SwcActions.h"
 #include "Character/SwcCharacterMovement.h"
 #include "Character/SwcLocomotion.h"
+#include "Character/SwcPlayerActions.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcPlayerLooks.h"
 #include "Effects/SwcFragmentEffects.h"
@@ -170,6 +171,10 @@ void USwcPlayerAnimInstance::UpdateEffects(int32 Channel, int32 Fragment, uint32
 	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetOwningActor()))
 	{
 		Character->GetMainHandWeapon(Owner.Weapon, Owner.WeaponTags, Owner.WeaponFile);
+		if (const USwcPlayerActions* PlayerActions = Character->GetActions())
+		{
+			Owner.LearnedNodes = &PlayerActions->GetLearnedNodes();
+		}
 	}
 	const bool bValid = Fragment != INDEX_NONE && Actions->Fragments.IsValidIndex(Fragment);
 	const int32 Record = bValid && Stance != nullptr ? Stance->WeaponRecord(Fragment) : INDEX_NONE;

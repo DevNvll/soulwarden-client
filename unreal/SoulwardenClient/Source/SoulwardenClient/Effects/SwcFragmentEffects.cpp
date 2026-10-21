@@ -128,8 +128,32 @@ void FSwcFragmentEffects::Enter(const FSwcActions& Data, const FSwcEffectOwner& 
 {
 	if (!Clip.Condition.IsEmpty())
 	{
-		Note(FString::Printf(TEXT("%s %s: the condition %s is not evaluated: not played"), *Clip.Type, *Clip.Name, *Clip.Condition));
-		return;
+		// The named condition of the action lists (the clip resolves and tests it before the spawn, research/skill-effects.md [R]): the
+		// Mannequin tags of the weapon and of the fragment records, the learned nodes. An unknown name or fact is false.
+		FSwcConditionFacts Facts;
+		TArray<FString> Parts;
+		Owner.WeaponTags.ParseIntoArray(Parts, TEXT(","));
+		for (const FSwcActionFragment* Record : {Channels[Channel].Fragment, Channels[Channel].Weapon})
+		{
+			TArray<FString> RecordTags;
+			if (Record != nullptr && Record->Tags.ParseIntoArray(RecordTags, TEXT("+")) > 0)
+			{
+				Parts.Append(RecordTags);
+			}
+		}
+		for (const FString& Tag : Parts)
+		{
+			Facts.Tags.Add(Tag.TrimStartAndEnd().ToLower());
+		}
+		Facts.LearnedNodes = Owner.LearnedNodes;
+		const bool bKnown = Data.HasCondition(Clip.Condition);
+		if (!bKnown || !Data.Holds(Clip.Condition, Facts))
+		{
+			Note(FString::Printf(TEXT("%s %s: the condition %s is %s: not played"), *Clip.Type, *Clip.Name, *Clip.Condition,
+				bKnown ? TEXT("false") : TEXT("not in the action lists")));
+			return;
+		}
+		Note(FString::Printf(TEXT("%s %s: the condition %s is true"), *Clip.Type, *Clip.Name, *Clip.Condition));
 	}
 	if (Clip.Kind == FSwcEffectClip::EKind::Other)
 	{

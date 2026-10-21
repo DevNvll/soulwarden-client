@@ -20,6 +20,7 @@ The parts that the converter gives the client:
 from __future__ import annotations
 
 import json
+import struct
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -327,6 +328,10 @@ def manifest() -> dict:
                 key = next((a for a in call["args"] if isinstance(a, str) and "." in a and not a.startswith(("a", "Paperdoll", "IsAttack"))), "")
                 if call["call"] != "SpawnDecal":
                     use(key, f"impact|{row}|{column}|{function}")
+    # The trails of the projectiles (plan step 8): the effects of the trail maps of the ranged attack database.
+    for name, attack in tracer_data()["attacks"].items():
+        for element, key in attack["effects"].items():
+            use(key, f"tracer|{name}|{element}")
     effects_path = creature_dir() / "effects.json"
     if effects_path.is_file():
         creature_effects = json.loads(effects_path.read_text())
@@ -355,6 +360,48 @@ FIRST_SLICES = ("slices/characters/spellslices/undead_shaman_lightning_strike.dy
 
 # The spell and projectile slices of the weapons of the player (the vortex of Gravity Well, Shockwave, Path of Destiny, the arrows ...).
 WEAPON_SLICES = ("slices/items/weapons/", "slices/perks/")
+# The profiles of the ranged attack database of the five weapons whose trails get a system (the other profiles: plan step 11).
+TRACER_PROFILES = ("Bow", "GreatAxe", "Warhammer", "Sword", "Rapier")
+
+RADB = "sharedassets/genericassets/rangedattackdatabase.radb"
+
+
+def tracer_data() -> dict:
+    """Writes SWC_CONTENT/particles/tracers.json (AST-230 plan step 8, docs/EFFECTS.md "The trails"): for each profile/attack of the
+    ranged attack database, the trail effect by the weapon effect of the weapon (m_tracerEffectsByEffect: Arcane, Default, Fire, ..., and
+    _Default; an empty value is left out), the time before the projectile shows (m_projectileVisibilityDelaySeconds, s), and the
+    trail of the predicted projectile (m_predictedProjectileTrailEffect). @return The document."""
+    from . import particles
+    pair_key, pair_value = source.field_id("value1"), source.field_id("value2")
+    out: dict = {"format": 1, "source": RADB, "attacks": {}}
+
+    def first(node, wanted: int):
+        return next((n for n in source.walk(node) if n is not node and n.name == wanted), None)
+
+    for root in source.parse(source.read(RADB)):
+        profiles = first(root, source.field_id("m_rangedAttackProfiles"))
+        for pair in profiles.children if profiles is not None else []:
+            profile, data = source.text(pair.child(pair_key)), pair.child(pair_value)
+            attacks = first(data, source.field_id("m_rangedAttackData")) if data is not None else None
+            for entry in attacks.children if attacks is not None else []:
+                name, values = source.text(entry.child(pair_key)), entry.child(pair_value)
+                if not profile or not name or values is None:
+                    continue
+                record: dict = {"effects": {}}
+                tracers = values.child(source.field_id("m_tracerEffectsByEffect"))
+                for item in tracers.children if tracers is not None else []:
+                    element, key = source.text(item.child(pair_key)), source.text(item.child(pair_value))
+                    if element and key:
+                        record["effects"][element] = key
+                delay = values.child(source.field_id("m_projectileVisibilityDelaySeconds"))
+                if delay is not None and delay.value is not None and len(delay.value) == 4:
+                    record["delay"] = round(struct.unpack(">f", delay.value)[0], 6)
+                predicted = values.child(source.field_id("m_predictedProjectileTrailEffect"))
+                if predicted is not None and source.text(predicted):
+                    record["predicted"] = source.text(predicted)
+                out["attacks"][f"{profile}/{name}"] = record
+    particles.write_json(particles.out_dir() / "tracers.json", out, 1)
+    return out
 
 
 def build_keys(only: str = "") -> list[str]:
@@ -370,6 +417,8 @@ def build_keys(only: str = "") -> list[str]:
         if user.startswith(("spells|", "projectiles|")):
             path = user.split("|")[1]
             return path in FIRST_SLICES or path.startswith(WEAPON_SLICES)
+        if user.startswith("tracer|"):
+            return user.split("|")[1].split("/")[0] in TRACER_PROFILES
         return True
     return [k for k, v in keys.items() if not v.get("missing") and any(wanted(u) for u in v["users"])
             and (not only or any(only.lower() in u.lower() for u in v["users"]))]

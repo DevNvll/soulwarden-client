@@ -12,6 +12,7 @@
 class FSwcActions;
 class UCanvas;
 class UMaterialInstanceDynamic;
+class UNiagaraComponent;
 class UStaticMeshComponent;
 namespace swc::combat
 {
@@ -66,6 +67,8 @@ private:
 	struct FShot
 	{
 		TWeakObjectPtr<UStaticMeshComponent> Mesh;
+		/** The trail of the attack on the projectile (AST-230, Effects/SwcTracers). */
+		TWeakObjectPtr<UNiagaraComponent> Trail;
 		FVector Position = FVector::ZeroVector;
 		FVector Velocity = FVector::ZeroVector;
 		FVector Accel = FVector::ZeroVector;

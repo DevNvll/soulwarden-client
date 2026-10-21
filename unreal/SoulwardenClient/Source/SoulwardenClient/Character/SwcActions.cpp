@@ -1257,6 +1257,12 @@ bool FSwcActions::Evaluate(const FSwcCondition& Condition, const FSwcConditionFa
 			: Comparison == TEXT("GreaterThan")      ? Facts.FacingVelocityAngle > Limit
 													 : Facts.FacingVelocityAngle >= Limit;
 	}
+	if (Type == TEXT("IfAbilityActive"))
+	{
+		// A learned node of the character (the ProgressionPoint state). External: an ability row of a perk, not in these facts.
+		return Facts.LearnedNodes != nullptr && !Condition.Attrs.Contains(TEXT("External"))
+			&& Facts.LearnedNodes->Contains(swc::combat::progression_id(TCHAR_TO_UTF8(*Condition.Attrs.FindRef(TEXT("AbilityName")))));
+	}
 	// The other types (player settings, items, status effects, water, stamina, ...) are not known on the client: false.
 	return false;
 }

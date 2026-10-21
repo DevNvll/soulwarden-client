@@ -1,0 +1,91 @@
+#include "Effects/SwcTracers.h"
+
+#include "Dom/JsonObject.h"
+#include "Engine/World.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "NiagaraComponent.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "Effects/SwcParticleEffects.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogSwcTracers, Log, All);
+
+namespace
+{
+/** The trail effects of each attack by weapon effect (loaded once; the game thread). */
+const TMap<FString, TMap<FString, FString>>& Attacks()
+{
+	static TMap<FString, TMap<FString, FString>> Out;
+	static bool bLoaded = false;
+	if (bLoaded)
+	{
+		return Out;
+	}
+	bLoaded = true;
+	const FString Path = FPaths::Combine(USwcEffectSubsystem::Folder(), TEXT("tracers.json"));
+	FString Text;
+	TSharedPtr<FJsonObject> Doc;
+	if (!FFileHelper::LoadFileToString(Text, *Path) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Doc) || !Doc.IsValid())
+	{
+		UE_LOG(LogSwcTracers, Warning, TEXT("tracers: no %s (tools/convert-particles.sh skills)"), *Path);
+		return Out;
+	}
+	for (const auto& Attack : Doc->GetObjectField(TEXT("attacks"))->Values)
+	{
+		TMap<FString, FString>& Effects = Out.Add(FString(Attack.Key.ToView()));
+		for (const auto& Effect : Attack.Value->AsObject()->GetObjectField(TEXT("effects"))->Values)
+		{
+			Effects.Add(FString(Effect.Key.ToView()), Effect.Value->AsString());
+		}
+	}
+	UE_LOG(LogSwcTracers, Log, TEXT("tracers: %d attacks of the ranged attack database"), Out.Num());
+	return Out;
+}
+} // namespace
+
+FString SwcTracers::Key(const FString& Attack, const FString& Element)
+{
+	const TMap<FString, FString>* Effects = Attacks().Find(Attack);
+	if (Effects == nullptr)
+	{
+		return FString();
+	}
+	const FString* Key = Effects->Find(Element);
+	return Key != nullptr ? *Key : Effects->FindRef(TEXT("_Default"));
+}
+
+UNiagaraComponent* SwcTracers::Start(UWorld* World, const FString& Attack, const FString& Element, USceneComponent* Projectile)
+{
+	USwcEffectSubsystem* Effects = World != nullptr ? World->GetSubsystem<USwcEffectSubsystem>() : nullptr;
+	const FString Effect = Key(Attack, Element);
+	if (Effects == nullptr || Projectile == nullptr || Effect.IsEmpty())
+	{
+		return nullptr;
+	}
+	// The local +Y of the game is -Y in Unreal (the space map of stage 1.1): a turn of -90 degrees about X puts it on the +Z of the
+	// projectile.
+	const FTransform Relative(FQuat(FVector::XAxisVector, FMath::DegreesToRadians(-90.0)));
+	UNiagaraComponent* Trail = Effects->StartAttached(Effect, Projectile, NAME_None, Relative, true, FSwcEffectSettings());
+	if (Trail == nullptr)
+	{
+		UE_LOG(LogSwcTracers, Log, TEXT("tracers: %s of %s %s has no system"), *Effect, *Attack, *Element);
+		return nullptr;
+	}
+	// The projectile shape has its own scale (an arrow 3 cm x 0.8 m): the trail keeps the scale of the world.
+	Trail->SetUsingAbsoluteScale(true);
+	Trail->SetWorldScale3D(FVector::OneVector);
+	UE_LOG(LogSwcTracers, Log, TEXT("tracers: %s on the projectile of %s (%s)"), *Effect, *Attack, *Element);
+	return Trail;
+}
+
+void SwcTracers::Stop(UWorld* World, UNiagaraComponent* Trail)
+{
+	USwcEffectSubsystem* Effects = World != nullptr ? World->GetSubsystem<USwcEffectSubsystem>() : nullptr;
+	if (Effects == nullptr || Trail == nullptr)
+	{
+		return;
+	}
+	Trail->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+	Effects->Stop(Trail, false);
+}
