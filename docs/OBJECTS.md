@@ -207,6 +207,21 @@ in `dev-data-mvpc` (the level 70 character: Logging 2, Harvesting 0, Mining 0, S
 T5 sickle and knife) and the character in First Light near 8728 1145. The fixture `prompt` of `tools/test-ui.sh` has the rank
 refusal and the full bag cards.
 
+### Results and open points (MVP-F)
+
+- Run `mvpf-gather7` (evidence MVP-F): the three rank refusals send nothing; the pick (+20 StoneT1, 95 Mining experience), the
+  sickle (+4 HerbT1), the axe (+19 WoodT1, the fall), the knife (a rabbit body: +1 MeatGameT1, +4 RawhideT1); the boulder Depleted
+  and Healthy again; the key S cancels the cranberries (the server: "ended before its time: the client cancelled it (2473)").
+  Run `mvpf-fullbag4`: 500 used slots, the card warning, the server "the bag has no place ... no item, the node stays".
+- The work ring: the retail card shows a ring around the key during the work ("o FLINT", live check L3 of the backend); this client
+  shows the key. The card has the events of the native gathering component (UiGatheringComponentNotificationsBus on
+  Hud.LocalPlayer.HudComponent.GatheringEntityId: OnGatheringStart with gatherableBind.gatherableAmount {timeRemaining, totalTime,
+  timeRemainingAtStart}, OnGatheringEnd; UiGatherableComponentNotificationsBus: OnAmountChanged). A first try showed that only some
+  cards of the pool connect the bus and that the shown card hides in the work phase of the fixture: open.
+- A place for a check: the character must be in the bound shape of the node (1.2 m from a hardwood tree or a cranberry bush;
+  2 m was outside), and a development travel shows the loading screen of the client (about 3 s, also for 15 m).
+- No retail rank refusal picture exists (the backend live checks had rank 0); the reference is the original card.
+
 ## The chests and the loot (stage P5.1)
 
 The sources: Soulwarden `docs/systems/chests.md` (the chest families of stage 3.5b.1) and `loot-bags.md` (the Discarded bag of stage
