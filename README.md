@@ -19,10 +19,23 @@ This is a personal hobby project. It is not affiliated with or endorsed by Amazo
 
 The status of each part is in [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/PARITY.md](docs/PARITY.md).
 
+## Screenshots
+
+A level 70 character with a bow in the open world, with the HUD of the original UI scripts (the compass, the
+consumable quick slots, the health bar, and the weapon abilities). The text at the top left is the debug overlay of a
+development run.
+
+![A character with a bow in the open world](docs/screenshots/world-bow.webp)
+
+The inventory and the equipment of the same character, drawn from the original UI canvas and scripts with the item
+data of the server.
+
+![The inventory and the equipment](docs/screenshots/inventory.webp)
+
 ## Game data and legal
 
-This repository has only source code, scripts, tests, and documents. It has no game data: no texture, mesh, map,
-sound, or script of the game. The converter reads your own game copy on your computer, and the converted and imported
+This repository has only source code, scripts, tests, documents, and a few screenshots of this client
+(`docs/screenshots/`). It has no game data: no texture, mesh, map, sound, or script of the game. The converter reads your own game copy on your computer, and the converted and imported
 content stays outside the repository.
 
 You need your own copy of New World (Steam app 1063730, client build 1.400.6031.6004151). New World is a trademark of

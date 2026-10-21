@@ -43,6 +43,8 @@ files at the same time; a shared document (this file, the roadmap) changes only 
   namespace with loopback only.
 - No game content goes into git: no game file, no converted file (glTF, PNG, JSON of the game), no imported asset
   (`unreal/SoulwardenClient/Content/Imported/` is ignored), no text or picture of the game, no game log, no capture.
+  The only pictures in git are the screenshots of this client in `docs/screenshots/` that the user chose for the
+  README (WebP, each below 500 KB, cropped to the game view; no picture of the retail client).
   Converted content stays in `~/Games/soulwarden-client/content`.
 - Two kinds of runs:
   - A player run (`tools/play.sh`, started by the user): the data folder of the user (`~/.local/share/soulwarden`,
