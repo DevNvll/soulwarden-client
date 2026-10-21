@@ -1,0 +1,44 @@
+# The UI drive of the character window check (stage MVP-G, docs/UI.md "The character window"): K opens the window; the tab Weapon
+# Mastery; the trees of the five weapons of the user's character (each one with Escape back to the list); in the bow tree the
+# third place of the bar gets Penetrating Shot from the list of the place (2701: it leaves the first place); the tab Trade Skills;
+# Escape closes the window. Times in seconds from the spawn of the player.
+8 log K: the character window
+8 key K
+10 point text:Weapon_Mastery
+10.3 click
+12 log the bow tree
+12 point text:Bow
+12.3 click
+17 key Escape
+18 log the great axe tree
+18 point text:Great_Axe
+18.3 click
+23 key Escape
+24 log the rapier tree
+24 point text:Rapier
+24.3 click
+29 key Escape
+30 log the war hammer tree
+30 point text:War_Hammer
+30.3 click
+35 key Escape
+36 log the sword tree (no mastery)
+36 point text:Sword_and_Shield
+36.3 click
+41 key Escape
+42 log the bow tree: the bar edit
+42 point text:Bow
+42.3 click
+45 point AbilitySlot3
+45.3 click
+47 log the list of the third place: Penetrating Shot
+47 point ability:Ability_Bow_PenetratingShot
+47.3 click
+53 key Escape
+54 log the tab Trade Skills
+54 point text:Trade_Skills
+54.3 click
+62 key Escape
+64 log the window closes
+64 key K
+70 end

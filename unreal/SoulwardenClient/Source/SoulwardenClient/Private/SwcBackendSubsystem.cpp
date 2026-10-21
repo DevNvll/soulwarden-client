@@ -1707,6 +1707,16 @@ FString USwcBackendSubsystem::GetConversationSceneKey() const
 	return Interactor.IsValid() && Interactor->GetConversation().scene() ? Interactor->GetConversationKey() : FString();
 }
 
+bool USwcBackendSubsystem::QueueRepCall(std::function<void(swc::net::RepClient&)> Call)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->Queue(std::move(Call));
+	return true;
+}
+
 void USwcBackendSubsystem::SetConversationScreenShown(bool bShown)
 {
 	if (Interactor.IsValid())

@@ -470,6 +470,34 @@ The craft state goes to the log only (no craft screen yet). The fixture `ownerst
   `_BaseDamage`: health or damage in place of attributes), and no perk with a MOD attribute column. A food gives a bonus (FoodDEXT52:
   DEX 456 + 44, live run `mvpe-items1`).
 
+## The character window (swc/skills.lua, stage MVP-G)
+
+The original canvas Skills (skills.luac, key K): the attributes, the weapon mastery with the trees of each weapon
+(masterytreewindow.luac, masterytree.luac, masterynode.luac), and the trade skills, with the owner states of the character.
+`tools/convert-skills.sh` writes `gamedata/skilltrees.json` (converter `swc_convert/skilltrees.py`): the nodes of the 16 weapon
+ability tables (tree, row, column, active, the node that a node needs, the icon, the texts), the index of each table in the client
+(protocol notes 4.13), the rank tables and the progressions of the backend copy (each node is at the place of the backend tree: 702
+nodes, no difference). The textures: `tools/convert-ui.sh textures --canvas lyshineui/skills/skills.dynamicuicanvas --folder
+lyshineui/images/skills/` (the node frames, the lines, the panels).
+
+| Part | Rule |
+| --- | --- |
+| The settings | skills.luac makes its tabs when the data nodes `javelin.pvp-reward-track-enabled` and `javelin.meta-achievements.enabled` have values: the javelin.* settings go into the data layer. The meta achievements are off (no data in the backend); `UpdateTabPoints` for a screen with no tab does nothing (a hook). `UIFeatures.g_uiEnableAttributes`, `...Tradeskills`, `...WeaponMastery` are on (the three tabs of the retail window). |
+| The trees | `CharacterAbilityRequestBus` GetAvailableAbilityDataByAbilityTableId, GetAbilityData, IsDefaultUnlocked, GetSpentPointsOnAbility, GetActiveAbilityMoveDataByAbilityTableId (the bar: three places and a fourth empty element: the scripts lock a place whose number is not below the length of the list); `ProgressionPointRequestBus` GetUnallocatedPoolPoints, GetNumAllocatedPoolPoints, GetAllProgressionPointDataFromPoolId, GetLevel; the learned nodes of the ProgressionPoint state (`Swc.HostLearnedNodes`, UI/SwcUiSkills); the final row needs 10 points. |
+| The edits | Assign (SpendPointsOnAbility, ApplyAbilityChanges): "assign" for each node (1112), "bar" for an active node to the first empty place (2701), "apply" (2857). The bar (the list of a place: RequestChangeMappedAbility): "bar INDEX PLACE ABILITY" (2701); the client changes its own bar, the next Ability state is the answer. Reset: "respec INDEX" (186) and the answer 2858 (`Swc.HostRespecResult`); with a cost the button is off (the backend resets only a tree with no cost; a hook of UpdateRespecButton). |
+| The ranks | `CategoricalProgressionRequestBus` GetRankData (the reset cost, the experience of a rank), GetMaxRank and GetAbsoluteMaxRank (250 for a trade skill: the backend gives each player the expansion), GetMaxPointsForRank. |
+| The attributes | `AttributeRequestBus` GetMaxLevelForAttribute and GetMaxPointsForAttribute (500, the backend copy), GetEquipmentAttributeBonusLevel; the pending values are 0 (no attribute change in this stage). |
+| The scaling | `WeaponRefDataManagerBus` GetWeaponRefData: the scaling of weaponstats.tsv for the weapon ids of WeaponMasteryData. |
+| The drive | "node:ABILITY" (a node of a tree) and "ability:ABILITY" (a button of the list of a place) for the UI drives. |
+
+The check (a copy of the user's database, live run `mvpg-skills5`, `evidence/MVP-G/`): K, the weapon mastery list (the levels and the
+bars of the database), the trees of the bow, the great axe, the rapier, the war hammer (19 learned nodes each), and the sword (no
+mastery); in the bow tree the list of place 3 gives Penetrating Shot: 2701 (the backend: "is the facet of component c20d99be6902e291
+(Stats/...)", "ability bar request ... done"), and the next Ability state shows the bar empty, Splinter Shot, Penetrating Shot; the
+trade skills (the ranks of the database, the cap 250). The differences with the retail window (`side-*.png`, `crop-*.png`): no top
+navigation bar, no tab Achievements, no line "ENTER Chat" and "ESC Back" (the chat widget and the HelpBar), no blur of the world
+behind the window, the Respec button off with a cost, the debug text of the run over the window.
+
 ## The census (stage P2.3)
 
 `swc/census.lua` has one row for each of the 164 canvases of the game (`tools/convert-ui.sh loader`: the list

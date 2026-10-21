@@ -169,6 +169,9 @@ public:
 	/** @return The Talk key of the open conversation scene (an npc object key, or "person:" + a key of persons.json), empty with no
 	 *  scene (the conversation screen of the UI: UI/SwcUiConversation). */
 	FString GetConversationSceneKey() const;
+	/** @return True when the call goes to the client of the session (in the world): the edits of the trees and the bars of the
+	 *  character window (UI/SwcUiSkills). */
+	bool QueueRepCall(std::function<void(swc::net::RepClient&)> Call);
 	/** The conversation screen shows or hides (UI/SwcUiConversation): while it shows, E is its Next key, not the end. */
 	void SetConversationScreenShown(bool bShown);
 	/** The crafting station of the use whose crafting screen shows (stage MVP-J, docs/CRAFTING.md): its Assembly key ("Blacksmith5"),

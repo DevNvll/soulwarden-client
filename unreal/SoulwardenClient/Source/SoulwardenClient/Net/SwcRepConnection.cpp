@@ -201,6 +201,12 @@ void FSwcRepConnection::CancelInteraction()
 	Calls.push_back([](swc::net::RepClient& Client) { Client.cancel_interaction(); });
 }
 
+void FSwcRepConnection::Queue(std::function<void(swc::net::RepClient&)> Call)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back(std::move(Call));
+}
+
 void FSwcRepConnection::EndCutscene()
 {
 	FScopeLock Guard(&Lock);

@@ -89,6 +89,8 @@ public:
 	/** The craft request of the crafting screen (2997) and the stop of a batch by the client (2999): stage MVP-J. */
 	void RequestCraft(const swc::net::CraftRequest& Request);
 	void CancelCraft();
+	/** A call of the client on the thread of the connection (the edits of the trees and the bars: stage MVP-G). */
+	void Queue(std::function<void(swc::net::RepClient&)> Call);
 
 	// FRunnable
 	virtual uint32 Run() override;
