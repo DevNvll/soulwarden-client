@@ -1272,6 +1272,16 @@ void USwcUiSubsystem::UpdatePreview(USwcBackendSubsystem* Backend)
 	{
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: look: map keys with no part of the menu look: %s"), *FString::Join(Other, TEXT(", ")));
 	}
+	// The appearance preflight of the menu (AST-215): each part of the selected character is imported, or a clear warning.
+	FString Preflight;
+	if (Looks->Preflight(Look, Preflight))
+	{
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: appearance preflight (menu) of %s: %s"), *PreviewCharacter, *Preflight);
+	}
+	else
+	{
+		UE_LOG(LogSwcUi, Warning, TEXT("ui: the front end: appearance preflight (menu) of %s: %s"), *PreviewCharacter, *Preflight);
+	}
 	const int32 Wanted = Looks->WriteWanted(Look);
 	UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the look of %s: %s, %d part(s), %d armor row(s), %d new wanted part(s)"), *PreviewCharacter,
 		Look.bFemale ? TEXT("female") : TEXT("male"), Look.Parts.Num(), Armor.Num(), Wanted);

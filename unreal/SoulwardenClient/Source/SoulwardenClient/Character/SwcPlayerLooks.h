@@ -106,6 +106,12 @@ public:
 	 * to SWC_WORK/player/wanted.json. @return The count of new entries.
 	 */
 	int32 WriteWanted(const FSwcPlayerLook& Look) const;
+	/**
+	 * The appearance preflight (AST-215): each part, each weapon of the gear, and the base of the gender of a look is imported.
+	 * @return True when all are; OutText: one line, the counts and each missing part (slot, skin|material), weapon (slot, item),
+	 * or base, for the log of the menu and of the world entry.
+	 */
+	bool Preflight(const FSwcPlayerLook& Look, FString& OutText) const;
 
 private:
 	FString ImportedObject(const FString& Key, const TCHAR* Class) const;

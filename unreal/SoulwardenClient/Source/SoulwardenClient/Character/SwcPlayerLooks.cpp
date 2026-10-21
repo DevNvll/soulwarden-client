@@ -624,6 +624,48 @@ void FSwcPlayerLooks::ResolveGear(const TMap<uint32, uint32>& Equipment, FSwcPla
 	}
 }
 
+bool FSwcPlayerLooks::Preflight(const FSwcPlayerLook& Look, FString& OutText) const
+{
+	TArray<FString> Missing;
+	int32 Parts = 0;
+	int32 Gear = 0;
+	for (const FSwcLookPart& Part : Look.Parts)
+	{
+		if (Part.MeshPath.IsEmpty())
+		{
+			Missing.Add(FString::Printf(TEXT("part %s %s|%s"), *Part.Slot.ToString(), *Part.Skin, *Part.Material));
+		}
+		else
+		{
+			++Parts;
+		}
+	}
+	for (const FSwcGearPart& Part : Look.Gear)
+	{
+		if (Part.MeshPath.IsEmpty())
+		{
+			Missing.Add(FString::Printf(TEXT("weapon slot %u %s%s"), Part.PaperdollSlot, *Part.Item, Part.bAccessory ? TEXT(" (accessory)") : TEXT("")));
+		}
+		else
+		{
+			++Gear;
+		}
+	}
+	const bool bBase = !BaseMesh(Look.bFemale).IsEmpty();
+	if (!bBase)
+	{
+		Missing.Add(FString::Printf(TEXT("the base of the %s body"), Look.bFemale ? TEXT("female") : TEXT("male")));
+	}
+	OutText = FString::Printf(TEXT("%d of %d part(s), %d of %d weapon(s), the base %s"), Parts, Look.Parts.Num(), Gear, Look.Gear.Num(),
+		bBase ? TEXT("imported") : TEXT("missing"));
+	if (!Missing.IsEmpty())
+	{
+		OutText += FString::Printf(TEXT("; %d missing: %s (tools/prepare-looks.sh, or tools/convert-player.sh wanted and tools/import-player.sh)"),
+			Missing.Num(), *FString::Join(Missing, TEXT(", ")));
+	}
+	return Missing.IsEmpty();
+}
+
 int32 FSwcPlayerLooks::WriteWanted(const FSwcPlayerLook& Look) const
 {
 	const FString Path = FPaths::Combine(WorkFolder(), TEXT("player/wanted.json"));

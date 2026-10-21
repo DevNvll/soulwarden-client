@@ -30,14 +30,46 @@ client (a run) --writes--> SWC_WORK/player/wanted.json   (the parts that a chara
   output: the game blends them with the alpha of their diffuse. Before (to 2026-10-20) they were opaque: black lash cards
   around the eyes and a black eye shadow over the eyeball. A reimport keeps the material instances of a part, so the import
   sets the parent of each glTF instance to the `MI_Default_` instance of its alpha mode (`gltf_alpha_parents`, also for a
-  part that it skips).
+  part that it skips, one time for each source: the mark `_alpha` in imported.json).
 - The player conversion has its own manifest (`content/player/manifest.json`) and its own import script
   (`Scripts/import_player.py`): the shared import of the world content does not import a part with no skeleton.
-- The parts of a character come on demand. Each part of the databases and of the 8,928 armor rows is too much to
-  convert at one time (for example about 2,000 facial hair skins for each gender). After the first world entry of a
-  new character, run `tools/convert-player.sh wanted` and `tools/import-player.sh`; the next start shows the full body.
-  A part with no mesh is not drawn, and the log names it.
+- The parts of a character come on demand: after the first world entry of a new character, `tools/convert-player.sh wanted`
+  and `tools/import-player.sh` make the parts of the wanted list; the next start shows the full body. A part with no mesh is
+  not drawn, and the log names it.
 - Times of this stage: tables 2 s, base 2 s, 13 parts 22 s, their import 15 s.
+
+### The prepared looks (AST-215)
+
+All the looks that a player can equip are prepared before play, so that a new item shows at once:
+
+- `tools/convert-player.sh all-looks` (`player.all_looks`) writes `SWC_WORK/player/wanted-all.json` in the form of the wanted
+  list, with the keys of the client: the armor appearances of the head, chest, hands, legs, and feet items of items.tsv up to
+  the wire level 69 (the displayed level 70) for both genders (a body skin with the body material of each tone, the cloth
+  parts), the main-hand, off-hand, and tool items (one item for each look and accessory pair: shields and quivers are the
+  accessories), the clip pack of each weapon tag set of actions.json and the unarmed pack for both genders, and the base
+  appearance of both genders (the default parts with each body tone, the head of each race with each head tone, each hair
+  style with its default and its four helmet chops, each facial hair style). Not in the list: the parts with the transparent
+  material of the chroma tones (`male-chroma.skintonedb`: the converter makes an empty glTF, nothing to draw). The list of
+  2026-10-20: 10,097 parts (10,056 keys: the key of a part has no gender; about 4,555 armor parts and 4,713 hair and facial
+  hair parts: each race has its own facial hair set and material), 1,178 weapon looks (of 8,094 weapon and tool items; 99
+  items have no look row), and 102 clip packs.
+- `tools/prepare-looks.sh` converts and imports that list as a background job, in 57 chunks of about 200 entries (chunk K has
+  the entries K, K + 57, ...: each chunk is a mixed sample). The converter of the next chunk runs while a chunk imports (the
+  manifest is written in one step). Each import call stops after 540 s (`SWC_IMPORT_MAX_SECONDS` of `import_player.py`) and
+  waits for 14 GB of available RAM, so other imports can take the import lock between the calls. The logs and the failures:
+  `SWC_WORK/logs/prepare-looks/` (`progress.log`, `failures.json`); a last pass converts and imports the failures again.
+- The measurement batch (chunk 0: 202 entries): the conversion 52 s, the import 101 s (60 s in the loop, the rest is the
+  start of the editor), no failure; the converted content grew by 65 MB and the plugin by 610 MB.
+- The whole job of 2026-10-20: 2 h 55 min (20:26 to 23:21, with waits for the import lock and the RAM); the converted player
+  content grew from 0.3 to 4.3 GB and the plugin folder Player from 2.9 to 39.1 GB. Imported after it: 10,052 of the 10,056
+  part keys, 1,150 of the 1,150 weapon and accessory looks, all clip packs. Not imported: the four helmet variants of the hair
+  style "buzz" (the hairstyledb names their skins, but the game copy has no such files: with such a helmet the client draws no
+  hair for that style, and the preflight names the part), and the 10 empty chroma parts of the first list.
+- The weapon table takes a SkinOverrideN or MaterialOverrideN of an appearance row only when it is a path (.skin, .mtl): 21 rows
+  (the Memory weapon skins, artifacts) have a color ("#b8b8b8") or "0" there, and their looks did not convert.
+- The appearance preflight (`FSwcPlayerLooks::Preflight`): the menu (the selected character) and the world entry log the
+  count of the imported parts and weapons and each missing part, weapon, or base ("appearance preflight (menu)" and
+  "appearance preflight (world)"; a warning when one is missing).
 
 ## The data
 

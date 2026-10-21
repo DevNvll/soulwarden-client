@@ -25,9 +25,12 @@ level and the client load the same assets.
   of the glTF asset pipeline with that skeleton and "import only animations"). The client plays them on the base.
 
 The script writes SWC_CONTENT/player/imported.json: for each manifest key, the object paths that the client loads.
-Environment: SWC_CONTENT, SWC_IMPORT_FORCE=1 (import each asset again).
+Environment: SWC_CONTENT, SWC_IMPORT_FORCE=1 (import each asset again), SWC_IMPORT_MAX_SECONDS (stop after the asset that
+passes this time; the report has "incomplete": true, and a next call continues: the chunks of the look preparation of AST-215,
+so that the import lock is free between them). The script saves imported.json each 25 imports.
 """
 import json
+import time
 import os
 
 import unreal
@@ -217,6 +220,18 @@ def import_file(path, destination, pipelines=None):
 
 
 done, skipped, failed, usage_done, parents_done = 0, 0, [], 0, 0
+started = time.time()
+max_seconds = float(os.environ.get("SWC_IMPORT_MAX_SECONDS", "0") or 0)
+incomplete = False
+
+
+def save_imported():
+    """Writes imported.json in one step (a temporary file, then a rename): the client and the converter read it."""
+    with open(imported_path + ".tmp", "w") as handle:
+        json.dump(imported, handle, indent=1, sort_keys=True)
+    os.replace(imported_path + ".tmp", imported_path)
+
+
 usage_others = set()
 order = {"base": 0, "part": 1, "weapon": 2, "clips": 3}
 skeletons = {}
@@ -232,12 +247,18 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
     skeletal = kind == "weapon" and bool(entry.get("skeletal"))
     mark = WEAPON_SKELETAL_PIPELINE if skeletal else WEAPON_PIPELINE
     current = known.get("_pipeline") == mark if kind == "weapon" else True
+    if max_seconds and time.time() - started > max_seconds and kind != "base":
+        incomplete = True
+        break
     if not force and known and known.get("_source") == stamp and current and assets.list_assets(destination, recursive=True):
         skipped += 1
         if kind == "base":
             skeletons[entry["gender"]] = known["Skeleton"][0]
-        if kind == "part":
+        if kind == "part" and known.get("_alpha") != stamp:
+            # The alpha parents of a part of an earlier import: one time for each source (a mark; with thousands of parts
+            # the pass loaded each material at each call).
             parents_done += gltf_alpha_parents(path, destination)
+            known["_alpha"] = stamp
         if kind == "weapon" and known.get("_usage") != WEAPON_USAGE:
             usage_others.update(weapon_usage(destination))
             known["_usage"] = WEAPON_USAGE
@@ -280,6 +301,8 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
         failed.append(key)
         continue
     found["_source"] = stamp
+    if kind == "part":
+        found["_alpha"] = stamp
     if kind == "weapon":
         found["_pipeline"] = mark
         found["_usage"] = WEAPON_USAGE
@@ -287,10 +310,13 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
     if kind == "base":
         skeletons[entry["gender"]] = found["Skeleton"][0]
     done += 1
+    if done % 25 == 0:
+        save_imported()
+        unreal.SystemLibrary.collect_garbage()
 
-with open(imported_path, "w") as handle:
-    json.dump(imported, handle, indent=1, sort_keys=True)
-report = {"imported": done, "skipped (exists)": skipped, "failed": len(failed), "failures": failed[:20],
+save_imported()
+report = {"imported": done, "skipped (exists)": skipped, "failed": len(failed), "failures": failed, "incomplete": incomplete,
+          "seconds": round(time.time() - started, 1),
           "weapons with the usage pass only": usage_done, "base materials copied for the weapons": sorted(usage_others),
           "part materials with a new alpha parent": parents_done}
 with open(os.path.join(player, "import-report.json"), "w") as handle:

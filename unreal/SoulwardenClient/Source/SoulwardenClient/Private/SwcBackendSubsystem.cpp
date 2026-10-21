@@ -1173,6 +1173,16 @@ void USwcBackendSubsystem::UpdateLook()
 	{
 		UE_LOG(LogSwcBackend, Warning, TEXT("character: %s"), *Note);
 	}
+	// The appearance preflight of the world entry (AST-215): each part of the character is imported, or a clear warning.
+	FString Preflight;
+	if (Looks->Preflight(Look, Preflight))
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("character: appearance preflight (world): %s"), *Preflight);
+	}
+	else
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("character: appearance preflight (world): %s"), *Preflight);
+	}
 	if (const int32 Wanted = Looks->WriteWanted(Look); Wanted > 0)
 	{
 		UE_LOG(LogSwcBackend, Warning, TEXT("character: %d part(s) are not imported; they are in the wanted list: run tools/convert-player.sh wanted, then tools/import-player.sh"),

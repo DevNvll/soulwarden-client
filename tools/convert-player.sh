@@ -3,7 +3,7 @@
 # SWC_CONTENT/player (outside the repository). See converter/swc_convert/player.py.
 # Usage: tools/convert-player.sh tables | locomotion | camera | weapons | actions | interactions | movement | roads [NAME...] |
 #        base [--force] |
-#        wanted [FILE] |
+#        wanted [FILE] | all-looks [--max-level 69] [--out FILE] |
 #        clips GENDER TAGS [--force] | part GENDER SKIN [MTL]
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"

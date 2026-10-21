@@ -311,8 +311,12 @@ def load_manifest() -> dict:
 
 
 def save_manifest(doc: dict) -> None:
-    manifest_path().parent.mkdir(parents=True, exist_ok=True)
-    manifest_path().write_text(json.dumps(doc, indent=1, sort_keys=True))
+    # A whole file at each time (a temporary file, then a rename): an import or a client can read it during a long conversion.
+    path = manifest_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(doc, indent=1, sort_keys=True))
+    temporary.replace(path)
 
 
 class Skeleton:
@@ -662,6 +666,10 @@ def weapon_look(row: dict) -> dict | None:
     for n in range(1, 5):
         skin = norm((row.get(f"SkinOverride{n}") or "").strip())
         material = norm((row.get(f"MaterialOverride{n}") or "").strip())
+        # Only a path is an override: some rows (the Memory weapon skins, artifacts) have a color ("#b8b8b8") or "0" in these
+        # columns, and the look then keeps the skins of its character file (AST-215: 12 looks did not convert).
+        skin = skin if skin.endswith(".skin") else ""
+        material = material if material.endswith(".mtl") else ""
         while (skin or material) and len(skins) < n:
             skins.append(["", ""])
         if skin:
@@ -1036,12 +1044,14 @@ def wanted(path: str | None = None, force: bool = False) -> dict:
     request = json.loads(file.read_text())
     doc = load_manifest()
     done, failed = 0, {}
-    for gender, skin, mtl in request.get("parts", []):
+    for index, (gender, skin, mtl) in enumerate(request.get("parts", [])):
         try:
             part(gender, skin, mtl, force, doc)
             done += 1
         except Exception as error:   # a part that does not convert: the client keeps the slot empty
-            failed[skin] = str(error)[:160]
+            failed[f"{gender}|{skin}|{mtl}"] = str(error)[:160]
+        if index % 50 == 49:   # a long list keeps its work when it stops
+            save_manifest(doc)
     if request.get("weapons"):
         table = json.loads((player_dir() / "weapons.json").read_text())["items"]
         actions_file = player_dir() / "actions.json"
@@ -1055,7 +1065,7 @@ def wanted(path: str | None = None, force: bool = False) -> dict:
                     weapon(look["key"], look["skins"], force, doc, look.get("model", ""), clips)
                     done += 1
                 except Exception as error:   # a weapon that does not convert: the client shows no mesh for it
-                    failed[look["key"]] = str(error)[:160]
+                    failed[item] = f"{look['key']}: {str(error)[:160]}"
     for gender, tags in request.get("clips", []):
         try:
             clip_pack(gender, tags, force, doc)
@@ -1064,6 +1074,94 @@ def wanted(path: str | None = None, force: bool = False) -> dict:
             failed[f"clips|{gender}|{tags}"] = str(error)[:160]
     save_manifest(doc)
     return {"converted": done, "failed": len(failed), "failures": failed}
+
+
+def all_looks(max_level: int = 69, out: str | None = None) -> dict:
+    """Writes the wanted list of all the looks that a player can equip (AST-215; SWC_WORK/player/wanted-all.json, the form of
+    the wanted list of the client): the armor appearances of the head, chest, hands, legs, and feet items of both genders (each
+    skin with its material: a body skin with the body material of each tone of the gender, and the cloth parts), the main-hand
+    and off-hand weapons with their accessories (shields, quivers) and the tools (slots 33 to 36), the clip pack of each weapon
+    tag set of actions.json and the unarmed pack for both genders, and the base appearance of both genders: the default parts
+    with each body tone, the head of each race with each head tone, and each hair and facial hair style with each variant (the
+    helmet chops). Items: the rows of items.tsv (tools/convert-ui.sh) with a required level up to max_level (the wire level; 69
+    is the displayed level 70). The keys are those of the client (FSwcPlayerLooks): a part is gender, skin, material; a weapon
+    is its item id. @return The counts."""
+    import csv
+    looks = json.loads((player_dir() / "looks.json").read_text())
+    table = json.loads((player_dir() / "weapons.json").read_text())["items"]
+    weapon_ids = {key.lower(): key for key in table}
+    items = list(csv.DictReader((env.content_dir() / "ui" / "gamedata" / "items.tsv").open(), delimiter="\t"))
+    eligible = [item for item in items if float(item.get("requiredLevel:n") or 0) <= max_level]
+    armor_rows = {name.lower(): row for name, row in looks["armor"].items()}
+    parts: dict[tuple[str, str, str], None] = {}
+
+    def add(gender: str, skin: str, material: str) -> None:
+        # Not a part with the transparent material of the chroma tones (male-chroma.skintonedb): the converter makes an empty
+        # glTF for it (nothing to draw), and the import has nothing to import.
+        if skin and not material.endswith("icon_transparent.mtl"):
+            parts[(gender, skin, material)] = None
+
+    tones = {gender: [tone for race in data["races"] for tone in looks["toneSets"].get(race["tones"], [])]
+             for gender, data in looks["genders"].items()}
+    armor_items = missing_rows = 0
+    for item in eligible:
+        classes = item["itemClass"].split("+")
+        if "Armor" not in classes or not {"EquippableHead", "EquippableChest", "EquippableHands", "EquippableLegs", "EquippableFeet"} & set(classes):
+            continue
+        armor_items += 1
+        for gender, column in (("Male", "armorAppearanceM"), ("Female", "armorAppearanceF")):
+            row = armor_rows.get(item.get(column, "").lower())
+            if row is None:
+                missing_rows += bool(item.get(column))
+                continue
+            bodies = sorted({tone["body"] for tone in tones[gender]})
+            for n in (1, 2):
+                skin = row.get(f"skin{n}", "")
+                material = row.get(f"material{n}") or row.get("material1", "")
+                for body in (bodies if row.get(f"isSkin{n}") else [material]):
+                    add(gender, skin, body)
+            for _, skin, material in row.get("cloth", []):
+                add(gender, skin, material)
+    # The base appearance of both genders.
+    for gender, data in looks["genders"].items():
+        bodies = sorted({tone["body"] for tone in tones[gender]})
+        for slot in data["slots"].values():
+            if slot.get("visible") and slot.get("skin"):
+                for body in bodies:
+                    add(gender, slot["skin"], body)
+        for race in data["races"]:
+            for tone in looks["toneSets"].get(race["tones"], []):
+                add(gender, race["head"], tone["head"])
+            # The hair with its default and its four helmet chops (HairChopVariants of the client: 1 HELMFRONT, 2 HELMBACK,
+            # 3 BRIM, 4 HOOD); the facial hair has only its default.
+            for field, variants in (("hair", ("0", "1", "2", "3", "4")), ("facial", ("0",))):
+                for style in looks["hairSets"].get(race.get(field, ""), {}).get("styles", []):
+                    for variant in variants:
+                        add(gender, style.get("variants", {}).get(variant, ""), style.get("material", ""))
+    looks_of: dict[tuple[str, str], str] = {}
+    weapon_rows = missing_weapons = 0
+    for item in eligible:
+        classes = set(item["itemClass"].split("+"))
+        if not {"EquippableMainHand", "EquippableOffHand", "EquippableTool"} & classes:
+            continue
+        weapon_rows += 1
+        key = weapon_ids.get(item["id"].lower())
+        if key is None:
+            missing_weapons += 1
+            continue
+        # One item for each look and accessory pair: the conversion goes by the look key, the client by the item id.
+        entry = table[key]
+        looks_of[(entry["key"], entry.get("accessory", {}).get("key", ""))] = key
+    weapons = dict.fromkeys(looks_of.values())
+    actions_doc = json.loads((player_dir() / "actions.json").read_text())
+    tag_sets = ["unarmed"] + [",".join(entry["tags"]) for entry in actions_doc["weapons"]]
+    clips = [[gender, tags] for gender in looks["genders"] for tags in dict.fromkeys(tag_sets)]
+    request = {"parts": [list(key) for key in parts], "weapons": list(weapons), "clips": clips}
+    file = Path(out) if out else env.work_dir() / "player" / "wanted-all.json"
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(json.dumps(request, indent=1))
+    return {"file": str(file), "parts": len(parts), "weapons (one item for each look)": len(weapons), "clip packs": len(clips), "armor items": armor_items,
+            "armor names with no look row": missing_rows, "weapon and tool items": weapon_rows, "weapon items with no look": missing_weapons}
 
 
 def main(argv=None) -> int:
@@ -1079,6 +1177,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("roads"); p.add_argument("names", nargs="*")
     p = sub.add_parser("base"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("wanted"); p.add_argument("file", nargs="?"); p.add_argument("--force", action="store_true")
+    p = sub.add_parser("all-looks"); p.add_argument("--max-level", type=int, default=69); p.add_argument("--out")
     p = sub.add_parser("clips"); p.add_argument("gender", choices=list(GENDERS)); p.add_argument("tags"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("part"); p.add_argument("gender", choices=list(GENDERS)); p.add_argument("skin"); p.add_argument("mtl", nargs="?", default="")
     p.add_argument("--force", action="store_true")
@@ -1107,6 +1206,8 @@ def main(argv=None) -> int:
         result = base(args.force)
     elif args.command == "wanted":
         result = wanted(args.file, args.force)
+    elif args.command == "all-looks":
+        result = all_looks(args.max_level, args.out)
     elif args.command == "clips":
         result = clip_pack(args.gender, args.tags, args.force)
     else:
