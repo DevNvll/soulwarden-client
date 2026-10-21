@@ -8,6 +8,11 @@
 #include "Character/SwcPlayerActions.h"
 #include "Combat/SwcAttackGraph.h"
 #include "Combat/SwcBackendSupport.h"
+#include "Dom/JsonObject.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "Kismet/GameplayStatics.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcPlayerLooks.h"
@@ -817,11 +822,66 @@ void USwcBackendSubsystem::UpdateAbilities(const swc::net::RepClient::OwnEntity&
 	{
 		Avatar->GetActions()->SetLearnedNodes(Own.nodesRevision, Own.learnedNodes);
 	}
-	if (Own.nodesRevision != NodesRevision)
+	// Stage MVP-E: the ability rows of the perks of the equipped items (IfAbilityActive External: the perk terms and the selections by a
+	// perk, the artifact Whirlwind). The items of the backend rule (world/gear.cpp Gear::perks): the armor and the jewelry (0 to 7), the
+	// heart rune (45), and the active weapon with its off-hand item (24 to 26, 27 to 29; the perks OnActive and OnUnsheathed count only
+	// there; the client counts each perk of that weapon).
+	if (!bPerkAbilitiesLoaded)
+	{
+		bPerkAbilitiesLoaded = true;
+		FString Text;
+		const FString Path = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_GAMEDATA_DIR")), TEXT("perk-data.json"));
+		TSharedPtr<FJsonObject> Document;
+		if (FFileHelper::LoadFileToString(Text, *Path) && FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Document) && Document.IsValid())
+		{
+			const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+			if (Document->TryGetArrayField(TEXT("perks"), Rows))
+			{
+				for (const TSharedPtr<FJsonValue>& Row : *Rows)
+				{
+					TArray<uint32>& Out = PerkAbilities.AddDefaulted_GetRef();
+					const TArray<TSharedPtr<FJsonValue>>& Columns = Row->AsArray();
+					if (Columns.Num() > 8 && Columns[8]->Type == EJson::Array)
+					{
+						for (const TSharedPtr<FJsonValue>& Ability : Columns[8]->AsArray())
+						{
+							Out.Add(swc::combat::progression_id(TCHAR_TO_UTF8(*Ability->AsString())));
+						}
+					}
+				}
+			}
+		}
+		UE_LOG(LogSwcBackend, Log, TEXT("ability: %d perk(s) of the wire list with their ability rows (%s)"), PerkAbilities.Num(), *Path);
+	}
+	const uint64 PerkFactsKey = (static_cast<uint64>(Own.paperdollRevision) << 32) ^ ((Own.activeMap >> 24) & 0x7);
+	if (Own.nodesRevision != NodesRevision || PerkFactsKey != SentPerkFactsKey)
 	{
 		NodesRevision = Own.nodesRevision;
-		AttackDriver->set_facts(std::set<std::uint32_t>(Own.learnedNodes.begin(), Own.learnedNodes.end()), {});
-		UE_LOG(LogSwcBackend, Log, TEXT("ability: %d learned node(s) of the weapon trees (the ProgressionPoint state)"), static_cast<int32>(Own.learnedNodes.size()));
+		SentPerkFactsKey = PerkFactsKey;
+		std::set<std::uint32_t> Perks;
+		for (const auto& [Slot, Item] : Own.paperdollItems)
+		{
+			const uint32 Hand = (Own.activeMap >> 24) & 0x7;
+			const bool bWeapon = Slot >= 24 && Slot <= 29;
+			const uint32 Option = bWeapon ? (Slot - 24) % 3 : 0;
+			if (!(Slot <= 7 || Slot == 45 || (bWeapon && (Hand & (1u << Option)) != 0)))
+			{
+				continue;
+			}
+			for (const std::uint32_t Perk : Item.perks)
+			{
+				if (Perk > 0 && PerkAbilities.IsValidIndex(static_cast<int32>(Perk) - 1))
+				{
+					for (const uint32 Ability : PerkAbilities[Perk - 1])
+					{
+						Perks.insert(Ability);
+					}
+				}
+			}
+		}
+		AttackDriver->set_facts(std::set<std::uint32_t>(Own.learnedNodes.begin(), Own.learnedNodes.end()), Perks);
+		UE_LOG(LogSwcBackend, Log, TEXT("ability: %d learned node(s) of the weapon trees (the ProgressionPoint state), %d ability row(s) of the equipped perks"),
+			static_cast<int32>(Own.learnedNodes.size()), static_cast<int32>(Perks.size()));
 	}
 	// The hit counts of the tracked abilities (slot 46, fields 1 and 2): IfAbilityNumHits of the cast that plays.
 	if (Own.hitRevision != HitRevision)

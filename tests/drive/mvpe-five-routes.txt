@@ -1,0 +1,22 @@
+# The development routes of the five-weapon check of stage MVP-E part 9 (tests/drive/mvpe-five.txt; the copy of the user's database: the
+# bow in slot 24, the great axe in 25; the rapier Rapier_DoubloonShopNamedT5 in bag slot 6, the war hammer in bag slot 5; the bag slots
+# 26 and 27 are free). Noon, the creatures ignore the character; a wolf of level 70 stands in front for each weapon. Times on the clock of
+# the player drive; offsets in m east, north.
+1 world-time 12:00
+1 ignore on
+1.5 heal
+2 spawn Wolf_Grey_7 12 0 0 --yaw 90 --level 70
+21 spawn Wolf_Grey_7 2.5 0 0 --yaw 90 --level 70
+21.5 spawn Wolf_Grey_7 2.5 0.8 0 --yaw 90 --level 70
+21.8 spawn Wolf_Grey_7 5 0 0 --yaw 90 --level 70
+44 equip 6 24
+44.5 equip 5 25
+46 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70
+57 reset
+58 spawn Wolf_Grey_7 2.5 0 0 --yaw 90 --level 70
+58.3 spawn Wolf_Grey_7 3 0.8 0 --yaw 90 --level 70
+79 give 1hSwordT5 600
+79.5 give 1hShieldAT5 600
+80.5 equip 26 24
+81 equip 27 27
+82 spawn Wolf_Grey_7 2 0 0 --yaw 90 --level 70

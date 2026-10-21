@@ -1,0 +1,122 @@
+# The five-weapon check of stage MVP-E part 9 (docs/ACTIONS.md "The five weapons"; routes tests/drive/mvpe-five-routes.txt): the camera to
+# the east. The bow (slot 24): a hip shot, an aimed shot, Penetrating Shot (Q), Explosive Arrow (R), Rapid Shot (F), each confirmed by the
+# left button. The great axe (slot 25): Charge, a light attack, Maelstrom, Gravity Well, a heavy attack. The rapier (24 after the routes):
+# a light chain, a heavy attack, Evade (Q) and Fleche (F) with no backend rule (no bit). The war hammer (25): Wrecking Ball, Shockwave,
+# Path of Destiny, light and heavy attacks. The sword and shield (24 and 27 after the routes): a light chain, the block pose, Q (no
+# ability on the bar), a heavy attack. The tick lines carry the clock of the routes. Times in seconds from the possession.
+# bash ~/Games/soulwarden-client/work/mvp-e/run.sh mvpe-five1 105 mvpe-five
+1.0 turn 90
+2.0 turn 0
+3.0 key 1
+4.0 tick
+5.0 click
+6.0 tick
+7.0 aim 1
+8.0 attack 1
+8.1 attack 0
+9.0 tick
+9.5 aim 0
+10.0 tick
+11.0 ability q
+11.8 attack 1
+11.9 attack 0
+12.0 tick
+13.0 tick
+14.0 ability r
+14.8 attack 1
+14.9 attack 0
+15.0 tick
+16.0 tick
+17.0 tick
+18.0 ability f
+18.8 attack 1
+19.0 tick
+19.6 attack 0
+20.0 tick
+21.0 tick
+22.0 key 2
+23.0 tick
+24.0 tick
+25.0 ability q
+26.0 tick
+27.0 tick
+28.0 attack 1
+28.1 attack 0
+29.0 tick
+29.5 click
+30.0 tick
+31.0 ability r
+32.0 tick
+33.0 tick
+34.0 tick
+35.0 ability f
+36.0 tick
+37.0 tick
+38.0 tick
+39.0 attack 1
+40.0 tick
+41.0 attack 0
+42.0 tick
+43.0 tick
+44.0 tick
+45.0 tick
+46.0 tick
+47.0 key 1
+48.0 tick
+49.0 click
+49.8 click
+50.0 tick
+50.6 click
+51.0 tick
+52.0 attack 1
+53.0 attack 0
+54.0 tick
+55.0 ability q
+56.0 ability f
+57.0 tick
+58.0 tick
+59.0 key 2
+60.0 tick
+61.0 ability q
+62.0 tick
+63.0 tick
+64.0 tick
+65.0 ability r
+66.0 tick
+67.0 tick
+68.0 tick
+69.0 ability f
+70.0 tick
+71.0 tick
+72.0 tick
+73.0 click
+74.0 tick
+74.5 click
+75.0 tick
+76.0 attack 1
+77.0 tick
+77.5 attack 0
+78.0 tick
+79.0 tick
+80.0 tick
+81.0 tick
+82.0 tick
+83.0 tick
+84.0 key 1
+85.0 tick
+86.0 click
+86.8 click
+87.0 tick
+87.6 click
+88.0 tick
+89.0 aim 1
+90.0 tick
+91.0 aim 0
+92.0 ability q
+93.0 tick
+94.0 attack 1
+95.0 attack 0
+96.0 tick
+97.0 tick
+98.0 tick
+99.0 tick

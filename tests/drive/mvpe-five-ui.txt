@@ -1,0 +1,4 @@
+# The UI drive of the five-weapon check of stage MVP-E part 9: the waits for the world; the actions are in tests/drive/mvpe-five.txt.
+1 waitfor CompassLines 60
+2 waitfor world 180
+100 end

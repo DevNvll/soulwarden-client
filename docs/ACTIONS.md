@@ -405,6 +405,26 @@ shared cooldowns (protocol notes 4.23). The client plays the action `Use_QuickSl
 - Open: the item mesh in the hand, and the time of the consume (the retail client consumes at `UsePaperdollItem`; this client sends
   the bit at the press, as before, and the server applies the use at once).
 
+## The five weapons (stage MVP-E part 9, Linear AST-217)
+
+- The perks of the items for the action selection: `USwcBackendSubsystem` reads the perk list of the wire (`perk-data.json` of the
+  backend copy: the perk with index K + 1 is row K) with the ability rows of each perk, and gives the driver the ability rows of the
+  perks of the equipped items (`Driver::set_facts`; the backend rule `Gear::perks`: the armor and the jewelry 0 to 7, the heart rune 45,
+  and the active weapon with its off-hand item). The selections and the terms with a perk (`IfAbilityActive` External) then hold: of
+  the five weapons only the artifact Whirlwind (`GlobalPerk_Artifact_Set2_GreataxePerk`) has one. The current character: 26 ability rows.
+- The hit counts of the abilities: stage MVP-A (`Driver::set_ability_hits`).
+- Live check (2026-10-21, run `mvpe-five1`, `tests/drive/mvpe-five*.txt`, a copy of the user's database; the sword and the shield are
+  given in the copy by the development routes): the bow (a hip shot and an aimed shot hit; Penetrating Shot pierces, 6,547; Explosive
+  Arrow 1,547 and the explosion 5,584; Rapid Shot: three arrows after the death of the wolf); the great axe (Charge with the uppercut
+  on two wolves, light attacks, Maelstrom with six hits, Gravity Well: the vortex where no wolf stood); the rapier (a light chain of
+  three, a heavy attack; Evade and Fleche send nothing); the war hammer (Wrecking Ball on two wolves, Shockwave three hits, Path of
+  Destiny three hits and the push of 2 m, light and heavy attacks); the sword and shield (a light chain, the block pose of 1.6 s, Q with
+  no ability on the bar, a heavy attack on two wolves). The backend counts 12 presses: 6 played, 4 with no ability, 0 refused.
+- Open: the own arrow view of the bow abilities stops at the ground before the target (the server hits are right); the aim pose of
+  the bow does not follow the camera pitch (the fragment `Aim` uses the aim-pose clips `bow_*_aim_poses_15x`: 15 poses of a yaw and
+  pitch grid, which the client does not play); the block has no server rule (a pose only); the homing of Wrecking Ball and the pull
+  of Reap are made by the server only.
+
 ## The tests
 
 `tools/test-actions.sh` (no engine) builds `tests/actions/actions_tests.cpp` with the attack sequence of the backend

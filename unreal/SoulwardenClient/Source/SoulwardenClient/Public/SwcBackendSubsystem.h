@@ -299,6 +299,11 @@ private:
 	std::array<std::array<uint32, 3>, 2> SentBars{};
 	uint32 NodesRevision = 0;
 	uint32 HitRevision = 0;
+	/** Stage MVP-E: the ability rows of each perk of the wire list (perk-data.json of the backend copy: the perk with index K + 1 is
+	 *  row K), as progression ids; the key of the perk facts that the driver has (the paperdoll revision and the active map). */
+	TArray<TArray<uint32>> PerkAbilities;
+	bool bPerkAbilitiesLoaded = false;
+	uint64 SentPerkFactsKey = ~0ull;
 	std::vector<std::pair<std::uint32_t, std::uint64_t>> SentCooldowns;
 	/** The movement limits (stage P3.3): the bag weight and its revision, the equip load class, the log of the last limits. */
 	uint32 BagRevision = MAX_uint32;
