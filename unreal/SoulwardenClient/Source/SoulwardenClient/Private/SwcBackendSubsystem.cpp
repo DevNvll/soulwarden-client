@@ -1707,6 +1707,14 @@ FString USwcBackendSubsystem::GetConversationSceneKey() const
 	return Interactor.IsValid() && Interactor->GetConversation().scene() ? Interactor->GetConversationKey() : FString();
 }
 
+void USwcBackendSubsystem::SetConversationScreenShown(bool bShown)
+{
+	if (Interactor.IsValid())
+	{
+		Interactor->SetConversationScreen(bShown);
+	}
+}
+
 void USwcBackendSubsystem::EndConversation()
 {
 	if (Interactor.IsValid())

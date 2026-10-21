@@ -105,6 +105,26 @@ the character, and the dummy stands at that place, turned to the person: the cli
 mesh, its parts, its gear) there for the scene and hides the gear of an unarmed dummy (`ASwcPlayerCharacter::SetDummy`). The
 character, its capsule, and the position of its input reports do not move.
 
+## The Talk camera (stage MVP-H)
+
+The frame of a camera preset is the `Interact` entity of the person slice (persons.json `talkFrame`: its place and its facing), not
+the body: the Interact entity is about 0.6 m above the feet (the Oxboro commander: 0 m), it can stand 0.6 m from the body
+(Purcell), and it can be turned 180 degrees from the body (Sai Kumal; 55 of the 1,325 persons with a frame). The camera is the
+preset point (or the cameraStateOrigin of the line) in that frame, 0.065 m higher; the look-at point is the preset look-at point
+(or the cameraStateLookAt of the line) in the same frame, not raised. The camera state (NPC_FOVnn_CamState) gives only the FOV.
+Before (stage P4.8) the client used the body frame: Purcell's camera stood 0.6 m too low at the barrels and framed his belt.
+
+| Person (preset) | Retail camera (set-mvph-talk) | Client camera |
+| --- | --- | --- |
+| Rodger Purcell (NSR_FAC_MED_SNGL_LOW) | 7318.768 3704.184 110.193, heading 21.8, pitch -1.4 | 0.001 m (plane), 0.000 m (height), heading 0.2 and pitch 0.3 degrees off |
+| Ozian Atreus (NSR_FAC_MED_SNGL_LOW, a look-at override) | 10053.22 7519.814 416.53, heading 329.5, pitch 4.5 | 0.001 m, 0.000 m, 0.2 and 0.2 degrees off |
+| Sai Kumal (NSR_STP_MED_SNGL_HA) | 10069.537 7494.922 416.803, heading 82.2, pitch -10.3 | 0.001 m, 0.000 m, 0.0 and 0.2 degrees off |
+| Hoang Lin (NSL_FAC_MED_SNGL_LA; stage P4.8, L1-10) | 8836.71 4243.79 137.04, heading 349.7, pitch 13.0 | 0.004 m, 0.013 m, 0.1 and 0.3 degrees off |
+
+A line with no preset (91 initial states of the census) uses the camera UI_Conversation of the script (the look-at of
+GetNpcLookAtPosition: 1.5 m over the person, 0.25 m to the side, 1 m to the player): not done in the client (the client keeps the
+player camera for such a line).
+
 ## The Talk of a person with no data
 
 A person with the option OpenConversation and no npc object of the interaction data (the persons of client spawners, the persons
@@ -132,8 +152,9 @@ with the screen:
 
 | Step | Rule |
 | --- | --- |
-| The open | `Swc.HostConversation("open", KEY, SPEAKER, LINE, NAME, TITLE)`. The first open loads the canvas as the retail dynamic canvas loader does (autohide, FULLSCREEN_DRAW_ORDER; that loader does not run in the client). One conversation state goes to `DynamicBus.ConversationScreenV2` with the copy of dynamiccanvasloader.luac: the dialogue "@LINE", the speaker attribute, and one option Continue ("@ui_continue", ContinueDialogue). The script sets the state ConversationScreenV2 (the HUD hides) and shows the subtitle "SPEAKER: TEXT". |
-| E (Next) | The center hint of the script: RequestConversationOption; the state after the last line has no option; the script closes the screen and calls TryCloseInteraction (HandleOnCloseConversation): the request "conversation end": `EndConversation` (6705, then 2473). The key E also reaches the interactor, which ends the scene in the same way (one end). |
+| The lines | persons.json `lines`: the first line and its chain of `dialogue-next` (at most 10; 324 conversations have 2 lines, one has 5). The client shows them; the backend gets no message for a line (Soulwarden travel-and-conversations.md: "E goes to the next text, and the conversation ends at the last one"). The script writes the speaker name only when it changes (Purcell line b: the text only, as in the retail picture). |
+| The open | `Swc.HostConversation("open", KEY, SPEAKER, LINE, NAME, TITLE, LINES)`. The first open loads the canvas as the retail dynamic canvas loader does (autohide, FULLSCREEN_DRAW_ORDER; that loader does not run in the client). One conversation state goes to `DynamicBus.ConversationScreenV2` with the copy of dynamiccanvasloader.luac: the dialogue "@LINE", the speaker attribute, and one option Continue ("@ui_continue", ContinueDialogue). The script sets the state ConversationScreenV2 (the HUD hides) and shows the subtitle "SPEAKER: TEXT". |
+| E (Next) | The center hint of the script: RequestConversationOption: the next line; the state after the last line has no option; the script closes the screen and calls TryCloseInteraction (HandleOnCloseConversation): the request "conversation end": `EndConversation` (6705, then 2473). While the screen shows, the interactor does not take E (`USwcBackendSubsystem::SetConversationScreenShown`). |
 | Escape (Back) | OnEscapeKeyPressed: CloseScreen, TryCloseInteraction: the same request. The escape menu then opens too (as in the retail client, set 5). |
 | The close by the client | A refusal, the end by the server, a death, a loading screen: `Swc.HostConversation("close")`: a state with no option closes the screen at once, with no request. |
 
@@ -165,8 +186,27 @@ color 0, text size 1, border 0). `Vector3.Normalize(v)` and `CrossZAxis` of the 
 | Windsward | The persons of the region spawn in the loading gate (836 of 1,651 shown, 0 changed by the Achievement state); the inn keeper Verildis Jannsen: OpenInnScreen refused; Moira Chapman (no npc object): the request, 3743 result 2, 6705 with no 2473, 6709, the walk. | `evidence/MVP-H/mvph-windsward1.mp4`, its logs |
 | Monarch's Bluffs | Commander Purcell: the Talk, the screen with his line in two lines, the HUD hidden; E (Next): the screen request, 6705, 2473, 6709, the walk. | `evidence/MVP-H/mvph-talk-monarch.mp4` |
 | Weaver's Fen | The commander Ozian Atreus: the screen; Escape (Back): the same end, then the escape menu. | `evidence/MVP-H/mvph-talk-weaversfen.mp4` |
-| Oxboro | The commander plays the idle and the talk timelines of her row (malek_standing_*). | `evidence/MVP-H/mvph-talk-oxboro.mp4` |
+| Oxboro | The commander plays the idle and the talk timelines of her row (malek_standing_*); this run is older than the screen. | `evidence/MVP-H/mvph-talk-oxboro.mp4` |
+| The Talk with Next to the end, after the camera fix | Purcell: the Talk camera at 7318.77 3704.18 110.19 (retail 7318.768 3704.184 110.193), the screen with line a; E: line b; E: the end (6705, 2473), the close, 6709, the walk. | `evidence/MVP-H/mvph-talk-next.mp4`, its logs |
+| The conversation screen, retail \| client | The same text, line breaks, and centered place of the subtitle; the speaker name only at line a. Differences: below. | `evidence/MVP-H/screen-crops/` |
 | The matched views of set 5 (the commander, the artificer, Giacomo at idle) | The persons at the retail places. Differences: below. | `evidence/MVP-H/match-set5/` |
+
+The differences of the conversation screen (`evidence/MVP-H/screen-crops/`, line a and line b of Purcell, retail | client):
+
+1. The keys "E Next" and "ESC Back" at the bottom right are missing (the HelpBar screen; below).
+2. The client subtitle text is a little thinner, and it stands about 6 px higher (the client game area is 1280x696, the retail one
+   1256x660).
+3. The person: the client armor is matte, the hair is grey (the material causes below), and the pose differs at the moment of the
+   picture; the camera, the wall, the barrels, and the mug agree.
+4. The open: the retail picture goes black and fades in; the client cuts (with the motion blur of the cut in one frame).
+5. Ozian Atreus says "Be on your way, citizen." in the retail client; the client shows his first default line
+   (npc_defaultdialogue_0307_00_commander_a): the rule of the choice of the conversation state is not complete.
+
+The Lua stack traces of a Talk run (8 in the run mvph-talk-monarch): hudcanvasdefault.luac and lootticker2024canvas.luac fail in
+SetIsVisible at each change of the UI state (the entry, the open and the close of a screen): the loop over
+`ElementsWithActionListeners`, a field that no script of the game sets, after `FadeAndSetIsEnabled`. The HUD test of
+`tools/test-ui.sh` has the same error with no conversation. The fade runs first: the HUD hides in the Talk and shows again after it
+(the videos). A matter of the HUD runtime (UI track).
 
 The differences of the matched views of set 5 (`evidence/MVP-H/match-set5/side/`, close crop `crop-commander-idle.png`; the place,
 the size, and the facing of the three persons agree):

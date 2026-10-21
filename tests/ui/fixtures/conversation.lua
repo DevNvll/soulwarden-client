@@ -25,9 +25,12 @@ local function requests()
   return out
 end
 
-local function open()
-  Swc.HostConversation("open", "r_+04_+02:abc:1:8836.19,4246.09", "Zeng Lingyun", "08_sq_zeng_greet_00", "Zeng Lingyun", "")
+local function open(lines)
+  Swc.HostConversation("open", "r_+04_+02:abc:1:8836.19,4246.09", "Zeng Lingyun", "08_sq_zeng_greet_00", "Zeng Lingyun", "", lines)
   frames(1.5)
+end
+local function body_text()
+  return swcui.get(find(root, "BodyText"), "text.text") or ""
 end
 
 -- The open.
@@ -70,6 +73,25 @@ local r = requests()
 equal(#r, 1, "E gives one request")
 equal(r[1], "conversation end", "the request is the end of the conversation")
 check(LyShineManagerBus.Broadcast.GetCurrentState() ~= CONVERSATION, "E closes the screen state")
+Swc.HostConversation("close")
+frames(0.5)
+
+-- Two lines (the chain of dialogue-next of Commander Purcell): E shows the second line with no request; E at the last line ends.
+open("npc_defaultdialogue_12_00_commander_new_a\tCommander Purcell\nnpc_defaultdialogue_12_00_commander_new_b\tCommander Purcell")
+note("line a: " .. body_text())
+check(body_text():find("We are forged in the fire", 1, true) ~= nil, "the first line of the chain shows")
+requests()
+key("e")
+frames(1.5)
+note("line b: " .. body_text())
+equal(#requests(), 0, "E at the first line gives no request")
+check(body_text():find("Go on and look into the other factions", 1, true) ~= nil, "E shows the second line")
+equal(LyShineManagerBus.Broadcast.GetCurrentState(), CONVERSATION, "the screen stays at the second line")
+key("e")
+frames(1.0)
+r = requests()
+equal(r[1], "conversation end", "E at the last line ends the conversation")
+check(LyShineManagerBus.Broadcast.GetCurrentState() ~= CONVERSATION, "E at the last line closes the screen")
 Swc.HostConversation("close")
 frames(0.5)
 

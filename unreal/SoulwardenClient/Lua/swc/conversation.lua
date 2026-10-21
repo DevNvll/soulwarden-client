@@ -4,15 +4,15 @@
 -- gives the screen its state and sends the end of the player to the client.
 --
 -- The rules (the use in conversationscreenv2.luac and dynamiccanvasloader.luac; the retail references of set 5 of the Talk):
---   the open   Swc.HostConversation("open", KEY, SPEAKER, LINE, NAME, TITLE): one conversation state with the line of the person
---              (dialogue "@LINE", its speaker attribute) and one option, Continue ("@ui_continue", ContinueDialogue): the
---              screen shows the subtitle "SPEAKER: TEXT" and the keys "E Next" and "ESC Back" (the retail screen of a person
---              with one line). The backend has no conversation content and no service of a person (the shops and the
---              transmog are later stages): no quest option, no shop option, no next line.
+--   the open   Swc.HostConversation("open", KEY, SPEAKER, LINE, NAME, TITLE, LINES): one conversation state for each line of the
+--              person (LINES: "KEY\tSPEAKER" each, the chain of dialogue-next; dialogue "@LINE", its speaker attribute) with one
+--              option, Continue ("@ui_continue", ContinueDialogue): the screen shows the subtitle "SPEAKER: TEXT". The backend
+--              has no conversation content and no service of a person (the shops and the transmog are later stages): no quest
+--              option, no shop option.
 --   the state  the copy of dynamiccanvasloader.luac OnConversationStateChange (title, dialogue, responseType, dialogueId, the
 --              options with text, optionType, dataId) to DynamicBus.ConversationScreenV2 (the native loader does not run
 --              in the client: the canvas is in the screen list).
---   the next   E (ui_interact) at the last line: RequestConversationOption of the option; the native gives a state with no
+--   the next   E (ui_interact): RequestConversationOption of the option: the next line, or at the last line a state with no
 --              option, and the script closes the screen (CloseScreen, TryCloseInteraction).
 --   the back   Escape (OnEscapeKeyPressed): CloseScreen, TryCloseInteraction.
 --   the end    TryCloseInteraction: PlayerCutsceneComponentRequestBus HandleOnCloseConversation and UiInteractorComponentRequestsBus
@@ -20,7 +20,7 @@
 --   the close  Swc.HostConversation("close"): the end of the Talk by the client (a refusal 3743 result 2, the end by the
 --              server 3746, a death, a loading screen, E of the client): a state with no option closes the screen at once.
 
-local C = {open = false, ended = false, key = "", speaker = "", line = "", name = "", title = "", log = {}}
+local C = {open = false, ended = false, key = "", speaker = "", line = "", name = "", title = "", lines = {}, index = 1, log = {}}
 Swc.conversation = C
 
 local function person_entity(key)
@@ -45,9 +45,10 @@ local function state_of(withOption)
   if withOption then
     options[1] = {text = "@ui_continue", optionType = eConversationOptionType_ContinueDialogue or 7, dataId = 0}
   end
+  local line = C.lines[C.index] and C.lines[C.index].line or C.line
   return {
-    title = C.title, dialogue = "@" .. C.line, responseType = eConversationResponseType_Invalid or 0,
-    dialogueId = swcui.crc32(C.line), options = options,
+    title = C.title, dialogue = "@" .. line, responseType = eConversationResponseType_Invalid or 0,
+    dialogueId = swcui.crc32(line), options = options,
   }
 end
 
@@ -70,10 +71,19 @@ local function request_end(why)
 end
 
 --- The client opens or closes the conversation screen (UI/SwcUiConversation.cpp).
-function Swc.HostConversation(what, key, speaker, line, name, title)
+function Swc.HostConversation(what, key, speaker, line, name, title, lines)
   if what == "open" then
     C.open, C.ended = true, false
     C.key, C.speaker, C.line, C.name, C.title = key or "", speaker or "", line or "", name or "", title or ""
+    -- The lines: "KEY\tSPEAKER" each (the first line and its chain of dialogue-next), else the one line.
+    C.lines, C.index = {}, 1
+    for entry in string.gmatch(lines or "", "[^\n]+") do
+      local lineKey, lineSpeaker = entry:match("^([^\t]*)\t?(.*)$")
+      C.lines[#C.lines + 1] = {line = lineKey, speaker = lineSpeaker}
+    end
+    if #C.lines == 0 then
+      C.lines[1] = {line = C.line, speaker = C.speaker}
+    end
     C.entity = person_entity(C.key)
     C.log[#C.log + 1] = "open: " .. C.key
     Swc.SetData("Hud.LocalPlayer.InteractEntityId", C.entity)   -- conversationoptionv2.luac reads the npc data through it
@@ -112,17 +122,30 @@ Swc.Define("NpcComponentRequestBus", "Event", {
 Swc.Define("LyShineScriptBindRequestBus", "Broadcast", {
   GetAttributeValueForKeyDefaultEmpty = function(text, attribute)
     if C.open and attribute == "speaker" then
+      local key = string.lower(tostring(text or "")):gsub("^@", "")
+      for _, entry in ipairs(C.lines) do
+        if entry.line == key then
+          return entry.speaker
+        end
+      end
       return C.speaker
     end
     return ""
   end,
 })
 
--- The next option: the line is the last one; the native state after it has no option (the screen closes).
+-- The next option (Continue): the next line of the chain, a state with the same option; after the last line the state has no
+-- option, and the screen closes (the backend has no message for the lines: the client shows them; backend docs travel-and-
+-- conversations.md "E goes to the next text, and the conversation ends at the last one").
 Swc.Define("ConversationRequestBus", "Broadcast", {
   RequestConversationOption = function()
     C.log[#C.log + 1] = "option"
-    send_state(false)
+    if C.index < #C.lines then
+      C.index = C.index + 1
+      send_state(true)
+    else
+      send_state(false)
+    end
   end,
 })
 

@@ -169,6 +169,8 @@ public:
 	/** @return The Talk key of the open conversation scene (an npc object key, or "person:" + a key of persons.json), empty with no
 	 *  scene (the conversation screen of the UI: UI/SwcUiConversation). */
 	FString GetConversationSceneKey() const;
+	/** The conversation screen shows or hides (UI/SwcUiConversation): while it shows, E is its Next key, not the end. */
+	void SetConversationScreenShown(bool bShown);
 
 	/**
 	 * @return The yaw of the camera of the player in degrees, in the convention of the input report (protocol notes 4.7):

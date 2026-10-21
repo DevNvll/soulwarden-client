@@ -68,6 +68,8 @@ struct FSwcPerson
 		bool bValid = false;
 		/** The localization key of the line (persons.json "line"; the dialogue of the conversation screen). */
 		FString LineKey;
+		/** The lines of the conversation (persons.json "lines": the first line and its chain of dialogue-next): "KEY\tSPEAKER" each. */
+		TArray<FString> Lines;
 		FString Speaker;
 		FString Text;
 		FVector Camera = FVector::ZeroVector;

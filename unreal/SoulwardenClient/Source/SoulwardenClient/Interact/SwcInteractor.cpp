@@ -633,9 +633,9 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		}
 		Use.abort();
 	}
-	// The key E. In a conversation it ends the conversation (a client rule until the conversation screen of the UI: docs/PERSONS.md).
+	// The key E. In a conversation with no conversation screen it ends the conversation (with the screen, E is its Next key).
 	// A gather with no tool for its row sends nothing (protocol notes 4.44, live check L6: no request in the log).
-	if ((bKeyDown && !bKeyWas && Talk.scene()) || (bPendingTalkEnd && Talk.scene()))
+	if ((bKeyDown && !bKeyWas && Talk.scene() && !bConversationScreen) || (bPendingTalkEnd && Talk.scene()))
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: %s in the conversation: the player ends it (6705, then 2473)"), bPendingTalkEnd ? TEXT("the UI") : TEXT("E"));
 		Talk.player_close();

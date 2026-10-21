@@ -1,0 +1,6 @@
+# The UI drive of tests/drive/mvph-talk-next.txt: E (Next) at line a, E (Next) at line b (the last line). Times from the spawn.
+12.0 log E (Next) at line a
+12.0 key E
+17.0 log E (Next) at line b, the last line
+17.0 key E
+30 end

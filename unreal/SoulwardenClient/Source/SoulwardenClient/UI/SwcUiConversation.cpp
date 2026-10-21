@@ -26,6 +26,7 @@ void FSwcUiConversation::Update(swc::ui::Runtime& Runtime, UWorld* World, USwcBa
 	if (!ShownKey.IsEmpty())
 	{
 		Runtime.call("HostConversation", {FArg::of(std::string("close"))});
+		Backend.SetConversationScreenShown(false);
 		UE_LOG(LogSwcUiConversation, Log, TEXT("ui: the conversation screen closes (the scene of %s ended)"), *ShownKey);
 	}
 	ShownKey = Key;
@@ -42,8 +43,11 @@ void FSwcUiConversation::Update(swc::ui::Runtime& Runtime, UWorld* World, USwcBa
 		return;
 	}
 	Runtime.call("HostConversation", {FArg::of(std::string("open")), FArg::of(Utf8Of(Key)), FArg::of(Utf8Of(Person->Line.Speaker)),
-		FArg::of(Utf8Of(Person->Line.LineKey)), FArg::of(Utf8Of(Person->Name)), FArg::of(Utf8Of(Person->Title))});
-	UE_LOG(LogSwcUiConversation, Log, TEXT("ui: the conversation screen opens: %s, line %s"), *Person->Name, *Person->Line.LineKey);
+		FArg::of(Utf8Of(Person->Line.LineKey)), FArg::of(Utf8Of(Person->Name)), FArg::of(Utf8Of(Person->Title)),
+		FArg::of(Utf8Of(FString::Join(Person->Line.Lines, TEXT("\n"))))});
+	Backend.SetConversationScreenShown(true);
+	UE_LOG(LogSwcUiConversation, Log, TEXT("ui: the conversation screen opens: %s, line %s, %d line(s)"), *Person->Name, *Person->Line.LineKey,
+		FMath::Max(1, Person->Line.Lines.Num()));
 }
 
 bool FSwcUiConversation::HandleRequest(const FString& Request, USwcBackendSubsystem& Backend)

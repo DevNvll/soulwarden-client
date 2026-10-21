@@ -122,6 +122,8 @@ public:
 	/** The conversation screen of the UI ends the conversation (its Back key, Escape; its Next key at the last line): the next Update
 	 *  ends it as the key E does (6705, then 2473). */
 	void EndConversation() { bPendingTalkEnd = true; }
+	/** The conversation screen of the UI shows: the key E is its Next key (the screen ends the conversation at the last line). */
+	void SetConversationScreen(bool bShown) { bConversationScreen = bShown; }
 
 private:
 	/** The Looted claims: the model of each bag hides HideMeshDelay after the claim. */
@@ -183,6 +185,7 @@ private:
 	FString FocusKey;
 	bool bUseTalk = false;
 	bool bPendingTalkEnd = false;
+	bool bConversationScreen = false;
 	FString TalkKey;
 	swc::interact::Conversation Talk;
 };
