@@ -15,6 +15,8 @@ local function crc(text) return swcui.crc32(string.lower(text)) end
 Swc.HostRanks(string.format("%d 150 0\n%d 0 0\n%d 2 0\n%d 0 2500", crc("Weaponsmithing"), crc("Smelting"), crc("Logging"),
   crc("Azoth_Currency")))
 Swc.HostCoin(99900)
+-- The expansion of the character (the achievement Expansion_2023_Unlock, bit 11979: the backend gives each player Expansion2023).
+Swc.HostOwnership("11979", "", true)
 -- The place: Windsward (the territory of the fee line; swc/worldmap.lua sets the territory of the position).
 Swc.HostView(-45, 8880, 4250, 137)
 Swc.HostBagSize(40)
@@ -69,6 +71,37 @@ Swc.HostStation("close")
 frames(1.0)
 check(LyShineManagerBus.Broadcast.GetCurrentState() ~= CRAFTING, "the close of the client leaves the state")
 equal(#requests(), 0, "the close of the client gives no request")
+
+-- Decision C3: a recipe with a cause of the backend data (the Cunning Heartrune of Bile Bomb at the stonecutter: Expansion2023 and
+-- an output with a gear score range and no rule) shows the requirement row with its cause in red, and CRAFT gives no request. A recipe with world tags is not
+-- in the list.
+Swc.HostStation("close")
+frames(0.5)
+Swc.HostStation("open", "Masonry5", true, "@MasonryT5_MasterName")
+frames(10.0)
+requests()
+-- The row of the recipe (the screen's own SelectRecipe: CraftingRecipePanel SetRecipe; the live run types the search).
+local ethereal = "RuneBileBombT4A"
+DynamicBus.CraftingScreenBus.Broadcast.SelectRecipe(Swc.crafting.RecipeDataOf(Swc.crafting.Recipe(ethereal)))
+frames(1.0)
+equal(Swc.HostPointOf("recipe:Ethereal_LongswordT5"), "", "a recipe with world tags is not listed")
+if ethereal then
+  local reason = ""
+  for _, instances in pairs(Swc.components) do
+    for _, instance in ipairs(instances) do
+      local rows = type(instance) == "table" and rawget(instance, "Properties") and instance.Properties.CraftingRequirements
+      if type(rows) == "table" and rows.VersionDescText and UiElementBus.Event.IsEnabled(rows.VersionRequirement) then
+        reason = UiTextBus.Event.GetText(rows.VersionDescText) or reason
+      end
+    end
+  end
+  note("the reason row: " .. reason)
+  check(reason:find(Swc.crafting.refusalPrefix, 1, true) == 1, "the requirement row has the cause of the backend")
+  picture("crafting-refusal")
+  click(find(root, "CraftButton"))
+  frames(0.5)
+  equal(#requests(), 0, "CRAFT of the refused recipe gives no request")
+end
 
 -- The craft request (CraftRecipe of craftingscreenv4.luac OnCraftClicked) at the smelter: one host request with the recipe CRC, the
 -- count, the fee claim of the client rule, the gear score claim, the upgrade, no perk item, and the item of each ingredient.
@@ -173,3 +206,17 @@ equal(notice_text(), "", "the minor notice ends")
 -- The trade skill points of a job: the reward of the event times the units of the ingredients that are not a currency (the Runestone:
 -- 5 + 1 + 1; the server gave 21,000 Stonecutting for a job of the reward 3,000 in run mvpj-batch2).
 equal(Swc.crafting.RecipeDataOf(Swc.crafting.Recipe("BlockT51")):GetIngredientCount(), 7, "the ingredient units of the Runestone")
+
+-- A recipe with no trade skill (the woodshop lists EtherealDust_PlayerXPBox): GetRecipeTradeskill gives "None", the value that
+-- craftingstatspanel.luac UpdateRequirements tests (before, the panel failed at the woodshop).
+equal(CraftingRequestBus.Broadcast.GetRecipeTradeskill("EtherealDust_PlayerXPBox"), "None", "a recipe with no trade skill")
+
+-- The known test of the tree: Lumber (TimberT3, Woodworking 50) at Woodworking 0 is "Unlearned"; Timber (level 0) is known.
+check(not CraftingRequestBus.Broadcast.IsRecipeKnown("TimberT3", true), "Lumber above the rank is not known for the tree")
+check(CraftingRequestBus.Broadcast.IsRecipeKnown("TimberT2", true), "Timber at level 0 is known")
+check(CraftingRequestBus.Broadcast.IsRecipeKnown("TimberT3"), "Lumber is a known recipe of the list")
+Swc.HostStation("close")
+frames(0.5)
+Swc.HostStation("open", "Carpentry3", true, "@CarpentryT2_MasterName")
+frames(4.0)
+picture("crafting-woodshop")

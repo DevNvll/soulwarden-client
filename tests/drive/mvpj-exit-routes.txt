@@ -1,0 +1,9 @@
+# The exit check of stage MVP-J (Linear AST-226): tools/creature-check.sh mvpj-exit 215 THIS tests/drive/mvpj-exit.txt --
+# -SwcUiDrive=tests/drive/mvpj-exit-ui.txt, with the copy of the user's level 70 character at the smelter and the craft kit. Three station
+# types of the settlement near the first test place: the smelter (Smelting5), the forge (Blacksmith5), the woodshop (Carpentry3, decision D1).
+# The batch of the second open of the smelter stops on the server at 65 s (the retail screen has no client cancel of a batch).
+1 heal
+1.5 ignore on
+65 craft-stop
+90 travel 8859.3 4258.9 138.4 off
+140 travel 8838.9 4253.5 138.3 off

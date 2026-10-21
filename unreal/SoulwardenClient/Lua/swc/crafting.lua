@@ -268,7 +268,10 @@ local function recipe_data(recipe)
   if object then
     return object
   end
-  local name = recipe.nameOverride ~= "" and recipe.nameOverride or ""
+  -- The name: RecipeNameOverride, else the name of the output item (the rows of the tree and the search read recipeData.name; an empty
+  -- name gave rows with no text and no search match).
+  local output = Swc.ItemStatic(crc(recipe.item or ""))
+  local name = recipe.nameOverride ~= "" and recipe.nameOverride or (output and output.name) or recipe.id
   object = C.RecipeData.new({
     id = recipe.id, name = name, listedByDefault = recipe.listed, knownByDefault = recipe.known,
     numStationTypes = #(recipe.stations or {}), resultItemId = recipe.item or "", gameEventId = recipe.event or "",
@@ -289,10 +292,16 @@ C.RecipeDataOf = recipe_data
 
 Swc.Define("RecipeDataManagerBus", "Broadcast", {
   -- The recipes of the client: the recipes with bKnownByDefault (the converter keeps only these: the backend has no learned recipe).
+  -- The recipes with RequiredWorldTags (the seasonal servers) are not in the list: this world has no world tag (the backend cause "world
+  -- tags of a seasonal server"), and the retail woodshop with this backend lists no "Ethereal Dust Refining" group (Soulwarden evidence
+  -- crafting/37a D1-02; an inference from that picture).
   GetRecipes = function()
     local out = {}
-    for _, id in ipairs(D().order) do
-      out[#out + 1] = id
+    local d = D()
+    for _, id in ipairs(d.order) do
+      if (d.recipes[id].worldTags or "") == "" then
+        out[#out + 1] = id
+      end
     end
     return out
   end,
@@ -478,9 +487,10 @@ Swc.Define("GameEventRequestBus", "Broadcast", {
 Swc.Define("CraftingRequestBus", "Broadcast", {
   -- The Assembly key of the station of the use ("Blacksmith5"); "" with no use.
   GetCraftingStationName = function() return C.station and C.station.key or "" end,
+  -- The trade skill of a recipe; "None" with no trade skill (craftingstatspanel.luac UpdateRequirements tests the value "None").
   GetRecipeTradeskill = function(id)
     local recipe = recipe_of(id)
-    return recipe and recipe.skill or ""
+    return recipe and recipe.skill ~= "" and recipe.skill or "None"
   end,
   GetRequiredRecipeLevel = function(id)
     local recipe = recipe_of(id)
@@ -491,16 +501,35 @@ Swc.Define("CraftingRequestBus", "Broadcast", {
     return recipe and C.RankForRecipeLevel(recipe.skill, recipe.level) or 0
   end,
   GetTradeskillLevelRequiredForRecipeLevel = function(skill, level) return C.RankForRecipeLevel(skill, level) end,
-  -- A recipe with a RequiredExpansion: the backend refuses it (CraftVerdict::expansion).
+  -- A recipe with a RequiredExpansion: unlocked when the player owns the expansion (the backend gives each player Expansion2023; the
+  -- tree lists only unlocked recipes). The backend refuses it (CraftVerdict::expansion): the refusal row of decision C3 shows that.
   IsRecipeExpansionUnlocked = function(id)
     local recipe = recipe_of(id)
-    return recipe ~= nil and (recipe.expansion or "") == ""
+    if not recipe then
+      return false
+    end
+    if (recipe.expansion or "") == "" then
+      return true
+    end
+    return PlayerComponentRequestsBus.Event.IsExpansionOwnerScript(nil, recipe.expansion) == true
   end,
   HasCooldown = function(id)
     local recipe = recipe_of(id)
     return recipe ~= nil and (recipe.cooldownQuantity or 0) > 0
   end,
-  IsRecipeKnown = function(id) return recipe_of(id) ~= nil end,
+  -- A recipe of the list is known (bKnownByDefault: the converter keeps only these). With the second argument true (craftingtreeview.luac
+  -- FilterTreeView) the trade skill rank must also reach the recipe level: the retail woodshop at Woodworking 0 lists Lumber (level 50)
+  -- and the planks of higher levels under "Unlearned" (Soulwarden evidence crafting/37a D1-02; an inference from that picture).
+  IsRecipeKnown = function(id, checkRank)
+    local recipe = recipe_of(id)
+    if not recipe then
+      return false
+    end
+    if checkRank and recipe.skill ~= "" and (recipe.level or 0) > 0 then
+      return CategoricalProgressionRequestBus.Event.GetRank(nil, crc(recipe.skill)) >= C.RankForRecipeLevel(recipe.skill, recipe.level)
+    end
+    return true
+  end,
   -- UnlockedAchievementBlocksRecrafting: the backend has no unlock rule (a recipe with an achievement has a cause of the data).
   IsRecipeBlockedByAchievement = function() return false end,
   -- The discounts of the fee (the taxes and the buffs of a territory, a company): the backend has none.
@@ -1056,3 +1085,46 @@ Swc.Define("ItemDataManagerBus", "Broadcast", {
     return math.min(1, (bucket[2] or 0) + (upgraded and 1.0 or 0))
   end,
 })
+
+-- ------------------------------------------------------------------------------------------------------------ the refusals
+
+-- Decision C3 of the orchestrator: a recipe that the backend refuses for a known reason shows as unavailable with its reason before the
+-- request. The cause (C.Refusal: a cause of the data, an expansion, an Assembly key with no row) goes into the original expansion row of
+-- the requirements (VersionRequirement) with the X icon and the cause in red; CanCraftRecipe is false, so CRAFT stays disabled. The rows of
+-- craftingstatspanel.luac UpdateRequirements: from y 81, 28 for each shown row; the panel under them moves down with them.
+local ROW_TOP, ROW_STEP = 81, 28
+C.refusalPrefix = "Not available on this server: "
+Swc.scriptHooks["lyshineui.crafting.craftingstatspanel"] = function(base)
+  local update = base.UpdateRequirements
+  if type(update) ~= "function" then
+    return
+  end
+  base.UpdateRequirements = function(self, ...)
+    local result = update(self, ...)
+    local recipe = self.recipeData and recipe_of(self.recipeData.id)
+    local reason = recipe and C.Refusal(recipe)
+    local rows = self.Properties and self.Properties.CraftingRequirements
+    if not reason or not rows then
+      return result
+    end
+    local shown = 0
+    for _, name in ipairs({"StationRequirement", "SkillRequirement"}) do
+      if rows[name] and UiElementBus.Event.IsEnabled(rows[name]) then
+        shown = shown + 1
+      end
+    end
+    UiElementBus.Event.SetIsEnabled(rows.VersionRequirement, true)
+    UiTransformBus.Event.SetLocalPositionY(rows.VersionRequirement, ROW_TOP + ROW_STEP * shown)
+    UiImageBus.Event.SetSpritePathname(rows.VersionRequirementIcon, "lyshineui/images/icons/misc/icon_requirement_x.dds")
+    UiElementBus.Event.SetIsEnabled(rows.VersionIcon, false)
+    UiElementBus.Event.SetIsEnabled(rows.VersionDescText, true)
+    UiTransformBus.Event.SetLocalPositionX(rows.VersionDescText, 23)
+    UiTextBus.Event.SetText(rows.VersionDescText, C.refusalPrefix .. reason)
+    UiTextBus.Event.SetColor(rows.VersionDescText, self.UIStyle and self.UIStyle.COLOR_RED_MEDIUM or Color(0.8, 0.2, 0.2, 1))
+    UiTransformBus.Event.SetLocalPositionY(rows.ParentContainer, -123 - ROW_STEP * (shown + 1))
+    if self.Properties.QuantityWidget then
+      UiTransformBus.Event.SetLocalPositionY(self.Properties.QuantityWidget, -261 - ROW_STEP * (shown + 1))
+    end
+    return result
+  end
+end

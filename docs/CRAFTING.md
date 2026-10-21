@@ -104,6 +104,25 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
   the duration of its type (before, "Crafting attempt failed." stayed on the screen).
 - Development routes (tools/lib/dev_world.py): `craft-stop` (the server stops the batch), `craft-cooldown RECIPE USED SECONDS`.
 
+## The list, refining, and the refusals (parts 4 to 6)
+
+- The list: GetRecipes leaves out the recipes with RequiredWorldTags (the seasonal servers; this world has no world tag): the retail
+  woodshop with this backend lists no "Ethereal Dust Refining" group (evidence 37a D1-02; an inference from that picture).
+- IsRecipeKnown(id, true) of the tree also tests the trade skill rank against the recipe level: the retail woodshop at Woodworking 0
+  lists Lumber (level 50) and the planks of higher levels under "Unlearned" (the same picture; an inference).
+- The name of a recipe: RecipeNameOverride, else the name of the output item (the rows and the search read it).
+- A recipe with no trade skill: GetRecipeTradeskill gives "None" (the value that UpdateRequirements tests).
+- A recipe with RequiredExpansion: IsRecipeExpansionUnlocked is the owned expansion (the backend gives Expansion2023), so the tree lists
+  it; the backend refuses it, and the refusal row shows that.
+- Refining (part 4): the refining recipes of the smelter (Iron Ingot) and of the woodshop (Timber) with the bonus item chance of the
+  backend rule (`C.BonusChance`); the server made bonus units in the stopped batches (7 and 8 of 100 to 120 jobs).
+- The refusals (part 6, decision C3): `C.Refusal` gives the first cause of the backend data, an expansion, or an Assembly key with no row.
+  A hook of craftingstatspanel.luac UpdateRequirements puts "Not available on this server: CAUSE" into the original expansion row of
+  the requirements (the X icon, red), and CanCraftRecipe is false (CRAFT disabled: no request). A bag with no place and a cooldown use
+  the rows of the original screen (GetSpaceToCraft, the cooldown line).
+- A request that the backend refuses for a reason that the client does not know ends as in retail: the stop form, and "Crafting attempt
+  failed." after the 10 s timer of the screen.
+
 ## The checks
 
 - `tools/test-ui.sh --fixture crafting`: the open with a level 70 character, the station header, the recipe list, Escape (one request
@@ -119,13 +138,25 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
 - `mvpj-batch2` (part 3): at the smelter SPACE and CRAFT: one 2997 of 2,000 Iron Ingots, the server stop after 100 jobs (100 Iron Ingots,
   fee 100 paid), the final progress, 2999; at the stonecutter the Runestone with 9 of 10 crafts used: CRAFT of the last one, and at the
   next open "per 0 items" and CRAFT disabled.
+- `mvpj-exit4` (the exit check; video `MVP-J/mvpj-exit4.mp4`): the smelter: one Iron Ingot (Smelting 0), then a batch of 1,999 that the
+  server stops after 120 jobs (127 Iron Ingots with 7 bonus units, fee 120); the forge: the Orichalcum Great Axe (Weaponsmithing 150, gear
+  score 520); the woodshop: the Apprentice Logging Research Notes with "Not available on this server: no granted item (SkipGrantItems: a
+  later stage)" (CRAFT sends nothing), then Timber (Woodworking 0). The comparison pictures `MVP-J/mvpj-compare-*.png` and the crops
+  `mvpj-crop-*.png` (retail: the Soulwarden evidence 37b I1-01, 37c I2-01, 37a D1-02).
 - The UI drives use the drive target "recipe:ID" (the shown row of a recipe) and the drive command "text" (the search box).
 
-## The differences from retail (part 1)
+## The differences from retail (the comparison pictures)
+
+- The hint bar of the screen (ENTER Chat, ESC Back, SPACE Max Quantity) does not show: DynamicBus.HelpBar has no handler in the client.
+- The refusal row is a client addition (the retail screen has no such row); its long text shrinks to the row.
+- The craft mods (perk items) of a procedural result: retail lists the charms of the bag; the client lists none (part 5 open: the rule of
+  GetCompatiblePerkResourceIds needs the perk rules of the backend perk roller).
+- The gear score of the axe: retail 600 (Prismatic materials, Weaponsmithing 200, a food and a trophy), the client 520 (Asmodeum,
+  Weaponsmithing 150): the same rule with other inputs; the server accepted the claim.
+- The screen size: the client runs at 1280 x 720, the retail pictures at 1256 x 660.
 
 - The camera and the depth of field of the screen (OverrideCameraState UI_CraftingStep1) are not done: the world behind the screen is
   sharp.
 - The forge itself (the template child `craftingstation_t5_blacksmith_complete`, a second server child) has no body in the client:
   the client shows no server object body (a gap of the world view).
-- The craft mods (perk items) of a procedural result are not listed yet (GetCompatiblePerkResourceIds: part 5).
 - The storage search (7044) is not sent: the backend answers it with no result, and the screen shows the bag only.
