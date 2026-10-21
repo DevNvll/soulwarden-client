@@ -425,6 +425,10 @@ bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 		SetSpawnLoading(true);
 		bCellsReady = bCellsReady || SwcWorldStreaming::IsReadyAt(GetGameInstance()->GetWorld(), SwcEngineToUnreal(Snapshot.Own.position), 90.0,
 			OwnForward(Snapshot.Own));
+		if (FString Failure; !bCellsReady && !bLoadFailed && SwcWorldStreaming::HasFailed(Failure))
+		{
+			FailLoad(Failure);
+		}
 		if (UpdatePreload() && bCellsReady)
 		{
 			SetSpawnLoading(false);
@@ -518,7 +522,8 @@ bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 		{
 			// The return to the character selection (stage F6 of docs/FRONTEND.md): a planned leave, or a connection that ended with
 			// no leave (its cause goes to the landing screen as the entry error).
-			const FString Error = bReturning ? FString() : FString::Printf(TEXT("the connection ended: %s"), *Snapshot.EndCause);
+			const FString Error = !LoadError.IsEmpty() ? LoadError
+				: bReturning ? FString() : FString::Printf(TEXT("the connection ended: %s"), *Snapshot.EndCause);
 			WorldTicker.Reset();   // this ticker ends with the false below
 			if (!ReturnReloads())
 			{
@@ -553,7 +558,8 @@ void USwcBackendSubsystem::ShowOwnEntity()
 	}
 	const FVector Forward = OwnForward(Own);
 	// The level has no ground yet (the world level comes in stage 1.3): the test floor of the movement.
-	bTestFloor = !SwcTestFloor::HasGround(World, Feet);
+	// The open world (World Partition) has no test floor (AST-216: it hid a missing world floor; the wait fails instead).
+	bTestFloor = World->GetWorldPartition() == nullptr && !SwcTestFloor::HasGround(World, Feet);
 	if (bTestFloor)
 	{
 		SwcTestFloor::Spawn(World, Feet - FVector(0.0, 0.0, SpawnLift), Forward);
@@ -1567,13 +1573,17 @@ void USwcBackendSubsystem::UpdateTravel()
 	UWorld* World = Character != nullptr ? Character->GetWorld() : nullptr;
 	if (World == nullptr || !SwcWorldStreaming::IsReadyAt(World, TravelFeet, 90.0, TravelForward))
 	{
+		if (FString Failure; World != nullptr && !bLoadFailed && SwcWorldStreaming::HasFailed(Failure))
+		{
+			FailLoad(Failure);
+		}
 		return;
 	}
 	bTravelWait = false;
 	SetSpawnLoading(false);
 	SwcWorldStreaming::Release();
 	const bool bGround = SwcTestFloor::HasGround(World, TravelFeet);
-	if (!bGround)
+	if (!bGround && World->GetWorldPartition() == nullptr)   // the open world has no test floor (AST-216)
 	{
 		// No ground at the new place (a region that is not in the level): the test floor of the movement there.
 		SwcTestFloor::Spawn(World, TravelFeet - FVector(0.0, 0.0, SpawnLift), TravelForward);
@@ -1811,6 +1821,9 @@ void USwcBackendSubsystem::ResetWorldSession()
 	TravelFeet = FVector::ZeroVector;
 	TravelForward = FVector::ForwardVector;
 	bReturning = false;
+	bLoadFailed = false;
+	LoadError.Reset();
+	SwcWorldStreaming::ClearFailure();
 }
 
 void USwcBackendSubsystem::OpenMenuLevel()
@@ -1835,6 +1848,25 @@ void USwcBackendSubsystem::OpenMenuLevel()
 	UE_LOG(LogSwcBackend, Log, TEXT("world: the return to the menu (%d): the level %s again%s"), MenuReturns, *Map,
 		EnterError.IsEmpty() ? TEXT("") : TEXT(" with the entry error"));
 	UGameplayStatics::OpenLevel(World, FName(*Map));
+}
+
+void USwcBackendSubsystem::FailLoad(const FString& Reason)
+{
+	// A load that failed after its retry (AST-216): no play at a place whose content or floor did not load. The front end goes
+	// back to the landing screen with the reason as the entry error; a run with no front end stops with status 1.
+	bLoadFailed = true;
+	UE_LOG(LogSwcBackend, Error, TEXT("world: the load at the place failed: %s"), *Reason);
+	SetSpawnLoading(false);
+	SwcWorldStreaming::Release();
+	if (bFrontEnd && Connection.IsValid())
+	{
+		LoadError = FString::Printf(TEXT("The world could not load at the place of the character: %s. Please try again."), *Reason);
+		ReturnToMenu();
+	}
+	else
+	{
+		Quit(false, TEXT("the load at the place failed"));
+	}
 }
 
 bool USwcBackendSubsystem::ReturnReloads() const

@@ -395,6 +395,29 @@ moves it out of `LoadMap`, but the visible terrain must still load before the sc
 the login; not done); a cooked build removes the registry, the World Partition streaming generation (12 s at each start), the
 editor PostLoad, and the DDC builds (the estimate is the next step).
 
+### The failure of a load and the creature kinds (AST-216, 2026-10-21)
+
+- Before, the wait of the screen (`SwcWorldStreaming::IsReadyAt`) ended after 90 s in each case, and a place with no ground got the
+  test floor of the movement: play could start into broken content, and the test floor hid a missing world floor.
+- Now a wait that reaches its limit with the content not ready (the cells did not load, or a check of the gate is not ready), and a
+  place with no ground at all after its cells (the Landscape covers every region), get one retry with a new streaming source; then
+  the wait fails (`SwcWorldStreaming::HasFailed`, with the reason). A place in the air above a ground stays as before (the character
+  drops). The backend (`FailLoad`): the front end goes back to the landing screen with the reason as the entry error ("The world
+  could not load at the place of the character: REASON. Please try again."); a run with no front end stops with status 1. The
+  world level has no test floor (a level with no World Partition keeps it).
+- `-SwcForceLoadFailure=N`: the first N waits fail 5 s after their start (a test). Check (editor binary, the F6 drive): N = 1, the
+  retry loads the place (33.9 s), late content 0; N = 2, the failure, the landing screen shows the error, and the next PLAY enters
+  (26.6 s), late content 0.
+- The gate check "far grid" counts the cells of the far grid in the query (ready with none). After the far grid trial, 363 groups
+  of far meshes of the places of interest (labels `poi_impostors`) stayed in the far grid (a match of " impostors " in
+  far_grid_off missed them); `--far-grid-off` with the corrected match made them always loaded again.
+- The creature kinds near an arrival (the decision of 2026-10-20): `tools/convert-creatures.sh spawn-cells` writes
+  `creatures/spawn-cells.json` (the slice keys of the spawn points of each cell of 128 m: 3,842 cells, 3.5 slices on average, 24 at
+  most, 590 KB). The gate check "creature kinds" (USwcCreatureSubsystem) loads the first assets of the slices of the spawn points
+  within 200 m of a new place (`ASwcCreature::CollectSliceAssets`: the body, the skeleton, the variants, the weapons, the clips of
+  Idle and Move); the screen ends when they are loaded, and the handle keeps them while the character is near. At the road start:
+  24 slices, 130 assets, 13.9 s in the editor binary (in parallel with the cells).
+
 ### The return to the menu (F6, AST-203, 2026-10-20)
 
 Before, the return loaded the level of the world again (UGameplayStatics::OpenLevel on the same map): the old world was torn
@@ -582,6 +605,39 @@ tools/build-world.sh --cells NAME...      # new cell actors with the collision i
   1,094 colliders of meshes with no collision mesh and the 3,793 primitive shapes that the chunks do not place. The 1,094 are not
   the fault of the manifest record (AST-206): their meshes have no entry in the manifest (they are only in the merged chunks, for
   example `everfall_living_story_pillar_a` and the collision-only `barricade_*_col`), so no collision mesh is made for them.
+- The whole coverage (AST-216, 2026-10-20). Census of the collision chunks of all regions: 1,174,822 physics colliders, 3,587
+  simple shapes (2,771 boxes, 381 cylinders with the capsules, 435 spheres; 710 with an offset), 206 colliders with no shape.
+  1,124 physics colliders (146 meshes) had no collision mesh: their meshes are only in the merged chunks (for example
+  `ancient_sphere_top` 308, the collision ramps `greenramp_35d` 274, `dmn_excavation_platform_support_a` 107). The audit of
+  the 183,393 placements that the cells leave out: 163,106 effect cards (`fx_`), 18,286 with no manifest entry, 2,001 of kind
+  `empty`; only 32 of them (26 meshes) have a physics file: collision-only meshes of the level (`worldbound_col`, the
+  `barricade_*_col` of First Light, a galleon hull, a bramble).
+
+  ```sh
+  tools/convert.sh collision-only        # the collision-only meshes and the unit shapes -> content/collision, manifest kind "collision"
+  tools/import.sh --keys KEYS            # import section 6b: their collision meshes (no render mesh)
+  tools/convert.sh collision-chunks      # the chunk colliders again, with the shapes and the collision-only placements
+  ```
+
+  - `collision.collision_only`: a mesh with a physics file and no static entry gets an entry of kind `collision` (a mesh of kind
+    `empty` keeps its kind) with its collision record; import section 6b makes its collision mesh with
+    `USwcEditorLibrary::MakeCollisionMesh` (SetGameCollision with no render mesh). 151 keys: 148 meshes and 3 unit shapes.
+  - The simple shapes: instances of the unit shapes (a box of half size 1, a sphere of radius 1, a cylinder of radius 1 from z -1
+    to 1), scaled by the half sizes, the radius, and the height, at the place of the collider and the offset of the shape (the rule
+    of the Soulwarden collision data, which the backend uses).
+  - The placements of the level whose mesh is collision-only go into the collision chunks too (the cells leave them out).
+  - Result: no collider of a chunk is left with no collision mesh (before: 1,124); 3,587 shapes and 32 collision-only placements
+    are placed; 98,180 instances in the files of the regions (1,080,260 colliders are placements of the cells).
+  - The client keyed the batches only by their square of 128 m: a piece of a region that lies in the square of another region
+    (a region edge) was lost when the other region was read first. The batches are now keyed by the square and the region, and the
+    client reads the regions within 2,048 m (a piece can lie about 1 km outside its region).
+- The floor check (AST-216): 147 probes in 8 regions (r_+04_+02, r_+05_+01, r_+03_+03, r_+02_+03, r_+04_+04, r_+01_+02,
+  r_+04_+01, r_+03_+00): the simple shapes, the collision-only meshes, the region edges, and the decks, stairs, inn floors, shrine
+  platforms, and doors of the chunks and of the cells. The expected floor: a vertical ray on the collision triangles of the
+  instance (`work/world/probe_points.py`); the client: `-SwcGroundTest` (each static surface on the line). 142 of 146: the
+  floor at the expected height (within 0.10 m) on a collision mesh (132 on its own mesh, 10 on a neighbour at the same height).
+  The 4 misses were region edges (the fault of the batch keys above). One probe was a piece at the origin of the world
+  (-5.3, -5.4, a piece of r_+03_+00 with no real place): no ground there, and the load failed as it must.
 
 ## Gathering nodes in the level (P4.1)
 

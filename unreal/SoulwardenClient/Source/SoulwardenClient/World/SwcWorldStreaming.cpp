@@ -49,6 +49,44 @@ constexpr double EngineLimitSeconds = 20.0;
 // above the feet; the Landscape below the floor of the inn of Oxboro is 2.06 m below it).
 constexpr double NearGroundBelowCm = 150.0;
 
+// The failure of a load (AST-216): a wait that ends at its limit with the content of the place not ready, or a place with no
+// ground at all, gets one retry with a new streaming source; then the wait fails with a reason (HasFailed): play does not start
+// into broken content, and no test floor hides a missing world floor.
+constexpr int32 MaxRetries = 1;
+int32 Retries = 0;
+FVector RetryPlace = FVector(TNumericLimits<double>::Max());
+bool bFailed = false;
+FString FailReason;
+
+/** -SwcForceLoadFailure=N (a test of the failure path): the first N waits fail 5 s after their start. */
+int32& ForcedFailures()
+{
+	static int32 Count = []
+	{
+		int32 Value = 0;
+		FParse::Value(FCommandLine::Get(), TEXT("SwcForceLoadFailure="), Value);
+		return Value;
+	}();
+	return Count;
+}
+
+/** A failed wait: a retry with a new streaming source (Release; the next call makes the source again), or the failure. */
+bool RetryOrFail(const FString& Why, double Waited)
+{
+	if (Retries < MaxRetries)
+	{
+		++Retries;
+		UE_LOG(LogSwcWorld, Warning, TEXT("world: the wait at the place failed after %.0f s (%s): a retry with a new streaming source (%d of %d)"),
+			Waited, *Why, Retries, MaxRetries);
+		SwcWorldStreaming::Release();
+		return false;
+	}
+	bFailed = true;
+	FailReason = Why;
+	UE_LOG(LogSwcWorld, Error, TEXT("world: the load at the place failed after %.0f s and %d retry: %s"), Waited, Retries, *Why);
+	return false;
+}
+
 /** @return The Z (cm) of the first ground below 2 m above Location (down 50 m), or no value. */
 TOptional<double> GroundBelow(UWorld* World, const FVector& Location)
 {
@@ -120,6 +158,17 @@ bool SwcWorldStreaming::IsReadyAt(UWorld* World, const FVector& Location, double
 	if (World == nullptr || World->GetWorldPartition() == nullptr)
 	{
 		return true;
+	}
+	if (!FVector::PointsAreNear(RetryPlace, Location, 100.0))
+	{
+		RetryPlace = Location;   // a new place: its own retry and failure state
+		Retries = 0;
+		bFailed = false;
+		FailReason.Reset();
+	}
+	if (bFailed)
+	{
+		return false;   // the caller handles the failure (HasFailed)
 	}
 	if (!Source.IsValid() || !FVector::PointsAreNear(Place, Location, 100.0))
 	{
@@ -238,27 +287,40 @@ bool SwcWorldStreaming::IsReadyAt(UWorld* World, const FVector& Location, double
 		{
 			UE_LOG(LogSwcWorld, Warning, TEXT("world: the cells of the place are loaded; the ground is %.2f m below the place (%.1f s)"),
 				(Location.Z - Ground.GetValue()) / 100.0, Waited);
+			return true;   // a place in the air: the character drops to the ground below
 		}
-		else
-		{
-			UE_LOG(LogSwcWorld, Warning, TEXT("world: the cells of the place are loaded, but it has no ground (%.1f s)"), Waited);
-		}
-		return true;
+		// No ground at all in the open world (the Landscape covers every region): a missing world floor, not a test floor.
+		return RetryOrFail(TEXT("the cells are loaded, but the place has no ground"), Waited);
+	}
+	if (ForcedFailures() > 0 && Waited > 5.0)
+	{
+		--ForcedFailures();
+		return RetryOrFail(TEXT("a forced load failure (-SwcForceLoadFailure)"), Waited);
 	}
 	if (Waited > TimeoutSeconds)
 	{
-		if (Ground.IsSet())
-		{
-			UE_LOG(LogSwcWorld, Warning, TEXT("world: no ground near the place after %.0f s (cells %s; a ground %.2f m below the place)"),
-				Waited, bStreamed ? TEXT("loaded") : TEXT("not loaded"), (Location.Z - Ground.GetValue()) / 100.0);
-		}
-		else
-		{
-			UE_LOG(LogSwcWorld, Warning, TEXT("world: no ground at the place after %.0f s (cells %s)"), Waited, bStreamed ? TEXT("loaded") : TEXT("not loaded"));
-		}
-		return true;
+		// The limit with the content not ready: a retry, then the failure (before, play started here into broken content).
+		const FString Why = !bStreamed ? FString::Printf(TEXT("the cells of the place did not load in %.0f s"), Waited)
+			: !bChecks ? FString::Printf(TEXT("the content near the place is not ready (%s)"), *ChecksWhy)
+			: Ground.IsSet() ? FString::Printf(TEXT("no ground near the place (a ground %.2f m below it)"), (Location.Z - Ground.GetValue()) / 100.0)
+			: FString(TEXT("no ground at the place"));
+		return RetryOrFail(Why, Waited);
 	}
 	return false;
+}
+
+bool SwcWorldStreaming::HasFailed(FString& Reason)
+{
+	Reason = FailReason;
+	return bFailed;
+}
+
+void SwcWorldStreaming::ClearFailure()
+{
+	bFailed = false;
+	FailReason.Reset();
+	Retries = 0;
+	RetryPlace = FVector(TNumericLimits<double>::Max());
 }
 
 void SwcWorldStreaming::Release()

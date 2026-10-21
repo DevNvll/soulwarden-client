@@ -287,6 +287,20 @@ private:
 	float SpawnWatchMax = 0.0f;
 	int32 SpawnWatchCount = 0;
 	FSwcCreatureLibrary Library;
+	/** Loads the creature library and the common assets (the first record, or the preload of a loading screen). */
+	void EnsureLibrary();
+	/** The preload of the kinds near an arrival (AST-216): the gate check "creature kinds". The slice keys of the spawn points of
+	 *  each 128 m cell (content/creatures/spawn-cells.json); at a new place of a loading screen the first assets of the slices
+	 *  within PreloadRadius load (ASwcCreature::CollectSliceAssets), and the screen ends when they are loaded. */
+	bool PreloadKinds(const FVector& Place, FString& Why);
+	TMap<FIntPoint, TArray<FString>> SpawnCells;
+	bool bSpawnCellsRead = false;
+	FVector PreloadPlace = FVector(TNumericLimits<double>::Max());
+	TSharedPtr<FStreamableHandle> PreloadHandle;
+	int32 PreloadSlices = 0;
+	int32 PreloadAssets = 0;
+	double PreloadStart = 0.0;
+	bool bPreloadLogged = false;
 	TMap<uint32, TWeakObjectPtr<ASwcCreature>> Actors;
 	/** The loot bags (stage P2.10): the model of the slice at the place of each bag. */
 	TMap<uint32, TWeakObjectPtr<AActor>> Bags;

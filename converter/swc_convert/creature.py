@@ -10,6 +10,8 @@ Usage (tools/convert-creatures.sh; output in SWC_CONTENT/creatures, never in git
                               mesh of one body, the clips), the body glTF files (one for each other .cdf), and the
                               animation sets (fragments, variants, blend spaces, clips).
   wanted [FILE]               the slices that the client asked for (default SWC_WORK/creatures/wanted.json).
+  spawn-cells                 the slice keys of the spawn points of each 128 m cell (creatures/spawn-cells.json: the
+                              preload of the kinds near an arrival, AST-216)
   markers                     the marker type of each slice (the AiMarker plate of the UI) into census.json and slices.json, no
                               other change.
 
@@ -1070,6 +1072,30 @@ def load_json(path: Path, default: dict) -> dict:
     return json.loads(path.read_text()) if path.is_file() else default
 
 
+SPAWN_CELL_M = 128.0
+
+
+def spawn_cells() -> dict:
+    """The kinds of the spawn points by place (AST-216, the preload near an arrival; the decision of 2026-10-20): for each cell of
+    SPAWN_CELL_M m (floor(x / 128), floor(y / 128), engine m) the slice keys (ASSET:SUB, the keys of slices.json) of each body of
+    the kinds of its spawn points. Output: creatures/spawn-cells.json. @return A report."""
+    data = backend_data()
+    census_doc = json.loads((creature_dir() / "census.json").read_text())
+    slices = census_doc["slices"]
+    cells: dict[str, set[str]] = {}
+    for point in data["spawnPoints"]:
+        key = f"{int(point[3] // SPAWN_CELL_M)},{int(point[4] // SPAWN_CELL_M)}"
+        for body, _percent in data["kinds"][point[1]].get("bodies", []):
+            record = slices[body]
+            cells.setdefault(key, set()).add(f"{record['asset']}:{record['sub']}")
+    doc = {"version": 1, "cell": SPAWN_CELL_M, "cells": {k: sorted(v) for k, v in sorted(cells.items())}}
+    out = creature_dir() / "spawn-cells.json"
+    out.write_text(json.dumps(doc, separators=(",", ":")))
+    sizes = [len(v) for v in cells.values()]
+    return {"cells": len(cells), "spawn points": len(data["spawnPoints"]), "slices of a cell, max": max(sizes, default=0),
+            "slices of a cell, mean": round(sum(sizes) / max(len(sizes), 1), 2), "bytes": out.stat().st_size}
+
+
 def near_slices(data: dict, census_doc: dict, center: tuple[float, float], radius: float) -> set[int]:
     """@return The indexes of the slices of the spawn points in a circle (each body of the alias of a kind)."""
     out = set()
@@ -1558,6 +1584,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("wanted"); p.add_argument("file", nargs="?"); p.add_argument("--force", action="store_true")
     sub.add_parser("effects")
     sub.add_parser("markers")
+    sub.add_parser("spawn-cells")
     args = parser.parse_args(argv)
     if args.command == "census":
         result = census()
@@ -1578,6 +1605,8 @@ def main(argv=None) -> int:
         result = write_effects()
     elif args.command == "markers":
         result = update_markers()
+    elif args.command == "spawn-cells":
+        result = spawn_cells()
     else:
         result = wanted(args.file, args.force)
     print(json.dumps(result, indent=1, default=str))

@@ -1,5 +1,10 @@
 #include "Creatures/SwcCreatureSubsystem.h"
 
+#include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonReader.h"
+#include "Dom/JsonObject.h"
 #include "Async/Async.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/CapsuleComponent.h"
@@ -115,6 +120,107 @@ void USwcCreatureSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		Why = FString::Printf(TEXT("%d creature(s) loading"), Loading);
 		return Loading == 0;
 	});
+	SwcLoadingGate::Register(GetWorld(), TEXT("creature kinds"), [this](const FVector& Place, FString& Why) { return PreloadKinds(Place, Why); });
+}
+
+void USwcCreatureSubsystem::EnsureLibrary()
+{
+	if (Library.IsLoaded())
+	{
+		return;
+	}
+	FString Report;
+	Library.Load(Report);
+	UE_LOG(LogSwcCreatures, Log, TEXT("%s"), *Report);
+	TArray<FSoftObjectPath> Common = {FSoftObjectPath(TEXT("/Engine/BasicShapes/Cylinder.Cylinder")),
+		FSoftObjectPath(TEXT("/Engine/EngineDebugMaterials/M_SimpleUnlitTranslucent.M_SimpleUnlitTranslucent"))};
+	for (const TPair<FString, FSwcLootContainer>& Container : Library.GetLootContainers())
+	{
+		if (!Container.Value.MeshPath.IsEmpty())
+		{
+			Common.AddUnique(FSoftObjectPath(Container.Value.MeshPath));
+		}
+	}
+	bCommonReady = false;
+	CommonHandle = Streamer.RequestAsyncLoad(Common, FStreamableDelegate::CreateWeakLambda(this, [this]() { bCommonReady = true; }));
+}
+
+bool USwcCreatureSubsystem::PreloadKinds(const FVector& Place, FString& Why)
+{
+	constexpr double CellM = 128.0;           // the cells of spawn-cells.json (converter creature.spawn_cells)
+	constexpr double PreloadRadiusM = 200.0;  // the near radius of the gate (150 m) and the walk of the first seconds
+	if (!bSpawnCellsRead)
+	{
+		bSpawnCellsRead = true;
+		FString Text;
+		const FString Path = FPaths::Combine(FSwcCreatureLibrary::ContentFolder(), TEXT("creatures"), TEXT("spawn-cells.json"));
+		TSharedPtr<FJsonObject> Root;
+		if (FFileHelper::LoadFileToString(Text, *Path) && FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root) && Root.IsValid())
+		{
+			const TSharedPtr<FJsonObject>* Cells = nullptr;
+			if (Root->TryGetObjectField(TEXT("cells"), Cells))
+			{
+				for (const auto& Cell : (*Cells)->Values)
+				{
+					FString X, Y;
+					FString(*Cell.Key).Split(TEXT(","), &X, &Y);
+					TArray<FString>& Keys = SpawnCells.Add(FIntPoint(FCString::Atoi(*X), FCString::Atoi(*Y)));
+					for (const TSharedPtr<FJsonValue>& Key : Cell.Value->AsArray())
+					{
+						Keys.Add(Key->AsString());
+					}
+				}
+			}
+		}
+		UE_LOG(LogSwcCreatures, Log, TEXT("creatures: the spawn cells: %d (%s)"), SpawnCells.Num(), *Path);
+	}
+	if (SpawnCells.IsEmpty())
+	{
+		return true;
+	}
+	if (!FVector::PointsAreNear(PreloadPlace, Place, 6400.0))
+	{
+		// A new place: the first assets of the slices of the spawn points within the radius (engine m: x = X / 100, y = -Y / 100).
+		EnsureLibrary();
+		PreloadPlace = Place;
+		const double X = Place.X / 100.0;
+		const double Y = -Place.Y / 100.0;
+		TSet<FString> Keys;
+		for (int32 CellX = FMath::FloorToInt((X - PreloadRadiusM) / CellM); CellX <= FMath::FloorToInt((X + PreloadRadiusM) / CellM); ++CellX)
+		{
+			for (int32 CellY = FMath::FloorToInt((Y - PreloadRadiusM) / CellM); CellY <= FMath::FloorToInt((Y + PreloadRadiusM) / CellM); ++CellY)
+			{
+				const double NearX = FMath::Clamp(X, CellX * CellM, (CellX + 1) * CellM);
+				const double NearY = FMath::Clamp(Y, CellY * CellM, (CellY + 1) * CellM);
+				if (const TArray<FString>* Found = SpawnCells.Find(FIntPoint(CellX, CellY));
+					Found != nullptr && FMath::Square(NearX - X) + FMath::Square(NearY - Y) <= FMath::Square(PreloadRadiusM))
+				{
+					Keys.Append(*Found);
+				}
+			}
+		}
+		TArray<FSoftObjectPath> Paths;
+		for (const FString& Key : Keys)
+		{
+			ASwcCreature::CollectSliceAssets(Library, Library.FindSlice(Key), Paths, true);
+		}
+		Paths.RemoveAll([](const FSoftObjectPath& Path) { return Path.ResolveObject() != nullptr; });
+		PreloadSlices = Keys.Num();
+		PreloadAssets = Paths.Num();
+		PreloadStart = FPlatformTime::Seconds();
+		bPreloadLogged = false;
+		// The handle stays until the next place: the assets stay in memory while the character is near.
+		PreloadHandle = Paths.IsEmpty() ? nullptr : Streamer.RequestAsyncLoad(Paths, FStreamableDelegate(), FStreamableManager::AsyncLoadHighPriority);
+	}
+	const bool bReady = !PreloadHandle.IsValid() || PreloadHandle->HasLoadCompleted();
+	if (bReady && !bPreloadLogged)
+	{
+		bPreloadLogged = true;
+		UE_LOG(LogSwcCreatures, Log, TEXT("creatures: the kinds near the place: %d slice(s), %d asset(s) loaded in %.2f s"), PreloadSlices,
+			PreloadAssets, FPlatformTime::Seconds() - PreloadStart);
+	}
+	Why = FString::Printf(TEXT("the kinds of the spawn points near the place load (%d slices, %d assets)"), PreloadSlices, PreloadAssets);
+	return bReady;
 }
 
 void USwcCreatureSubsystem::Deinitialize()
@@ -128,6 +234,7 @@ void USwcCreatureSubsystem::Deinitialize()
 	}
 	UDebugDrawService::Unregister(DrawHandle);
 	SwcLoadingGate::Unregister(GetWorld(), TEXT("creatures"));
+	SwcLoadingGate::Unregister(GetWorld(), TEXT("creature kinds"));
 	Clear(TEXT("the world ends"));
 	Super::Deinitialize();
 }
@@ -351,23 +458,7 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 	}
 	bConnected = true;
 	// The data of the creatures, the effects, and the loot bags: before the first record (a bag or a shot can come before a creature).
-	if (!Library.IsLoaded())
-	{
-		FString Report;
-		Library.Load(Report);
-		UE_LOG(LogSwcCreatures, Log, TEXT("%s"), *Report);
-		TArray<FSoftObjectPath> Common = {FSoftObjectPath(TEXT("/Engine/BasicShapes/Cylinder.Cylinder")),
-			FSoftObjectPath(TEXT("/Engine/EngineDebugMaterials/M_SimpleUnlitTranslucent.M_SimpleUnlitTranslucent"))};
-		for (const TPair<FString, FSwcLootContainer>& Container : Library.GetLootContainers())
-		{
-			if (!Container.Value.MeshPath.IsEmpty())
-			{
-				Common.AddUnique(FSoftObjectPath(Container.Value.MeshPath));
-			}
-		}
-		bCommonReady = false;
-		CommonHandle = Streamer.RequestAsyncLoad(Common, FStreamableDelegate::CreateWeakLambda(this, [this]() { bCommonReady = true; }));
-	}
+	EnsureLibrary();
 	// The server time of the records: the states of the delayed events of a spell count from it.
 	const uint64 ApplyTimeUs = Backend->GetServerTimeMicroseconds();
 	for (const swc::net::RepClient::OtherUpdate& Update : Updates)

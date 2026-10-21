@@ -35,6 +35,9 @@ class SOULWARDENCLIENT_API ASwcCreature : public AActor
 	GENERATED_BODY()
 
 public:
+	/** The assets of a slice (the body, the skeleton, the variant meshes, the weapons; bFirst: the clips of the Idle and Move
+	 *  fragments, else each clip): the async load of a creature and the preload of the kinds near an arrival (AST-216). */
+	static void CollectSliceAssets(FSwcCreatureLibrary& Library, const FSwcCreatureSlice* Slice, TArray<FSoftObjectPath>& Out, bool bFirst);
 	ASwcCreature();
 
 	/**

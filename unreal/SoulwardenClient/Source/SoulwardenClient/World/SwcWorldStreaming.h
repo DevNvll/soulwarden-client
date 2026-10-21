@@ -16,8 +16,9 @@ namespace SwcWorldStreaming
  * from 2 m above Location down 50 m hits a ground near Location (at most 1.5 m below it), the content systems are ready
  * near Location (the loading gate, SwcLoadingGate: the ground cover, the surface layer, the persons, the creatures, the
  * objects), and the engine work near the picture is done (at most 20 s more); or 3 s after those cells when the line
- * hits nothing (no ground there) and the systems are ready; or when TimeoutSeconds passed since the first call for this
- * place. A ground far below Location (for example the Landscape below the floor of a building) means that the cells of
+ * hits only a ground far below (a place in the air: the character drops) and the systems are ready. A place with no ground
+ * at all, and TimeoutSeconds with the content not ready, get one retry with a new streaming source; then the wait fails
+ * (HasFailed; AST-216: before, it returned true and play started into broken content). A ground far below Location (for example the Landscape below the floor of a building) means that the cells of
  * the floor are not there yet: the wait goes on. Until then a streaming source (a sphere of 150 m, the highest priority)
  * stands at Location, and the place of the loading gate is Location (call again each frame). The light: a camera at the
  * place (behind the feet along Forward, as the camera of the character) is the view of the player during the wait (a travel:
@@ -26,6 +27,11 @@ namespace SwcWorldStreaming
  */
 SOULWARDENCLIENT_API bool IsReadyAt(UWorld* World, const FVector& Location, double TimeoutSeconds = 90.0, const FVector& Forward = FVector::ZeroVector);
 
+/** @return True when the last wait of IsReadyAt failed after its retry (AST-216: the content of the place did not load, or the
+ *  place has no ground), with the reason. IsReadyAt then stays false at that place until ClearFailure. */
+SOULWARDENCLIENT_API bool HasFailed(FString& Reason);
+/** Ends the failure state (the caller handled it). */
+SOULWARDENCLIENT_API void ClearFailure();
 /** Removes the streaming source of IsReadyAt (the character has its own). */
 SOULWARDENCLIENT_API void Release();
 }

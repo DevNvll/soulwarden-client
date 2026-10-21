@@ -121,6 +121,19 @@ void ASwcCreature::Setup(FSwcCreatureLibrary& Library, const swc::creatures::Ent
 
 void ASwcCreature::CollectAssets(TArray<FSoftObjectPath>& Out, bool bFirst) const
 {
+	if (bFirst)
+	{
+		Out.AddUnique(FSoftObjectPath(PlaceholderMesh));
+	}
+	if (PendingLibrary != nullptr)
+	{
+		CollectSliceAssets(*PendingLibrary, Slice, Out, bFirst);
+	}
+}
+
+void ASwcCreature::CollectSliceAssets(FSwcCreatureLibrary& Library, const FSwcCreatureSlice* Slice, TArray<FSoftObjectPath>& Out,
+	bool bFirst)
+{
 	const auto Add = [&Out](const FString& Path)
 	{
 		if (!Path.IsEmpty())
@@ -190,11 +203,7 @@ void ASwcCreature::CollectAssets(TArray<FSoftObjectPath>& Out, bool bFirst) cons
 			}
 		}
 	};
-	if (bFirst)
-	{
-		Add(PlaceholderMesh);
-	}
-	if (Slice == nullptr || PendingLibrary == nullptr)
+	if (Slice == nullptr)
 	{
 		return;
 	}
@@ -207,7 +216,7 @@ void ASwcCreature::CollectAssets(TArray<FSoftObjectPath>& Out, bool bFirst) cons
 			Add(Variant.Value);
 		}
 	}
-	AddClips(PendingLibrary->Animations(Slice->AnimationKey));
+	AddClips(Library.Animations(Slice->AnimationKey));
 	for (const FSwcCreatureWeapon& Weapon : Slice->Weapons)
 	{
 		if (bFirst)
@@ -218,7 +227,7 @@ void ASwcCreature::CollectAssets(TArray<FSoftObjectPath>& Out, bool bFirst) cons
 		}
 		if (!Weapon.SkeletonMeshPath.IsEmpty())
 		{
-			AddClips(PendingLibrary->Animations(Weapon.AnimationKey));
+			AddClips(Library.Animations(Weapon.AnimationKey));
 		}
 	}
 }

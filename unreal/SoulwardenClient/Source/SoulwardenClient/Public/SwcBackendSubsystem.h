@@ -239,7 +239,11 @@ private:
 	bool ReturnReloads() const;
 	/** The return that keeps the world: the pawn of the player and the view actor of the session go. */
 	void EndWorldActors();
+	/** A load at the place failed after its retry (SwcWorldStreaming::HasFailed): back to the menu with the reason. */
+	void FailLoad(const FString& Reason);
 	bool bReturning = false;
+	bool bLoadFailed = false;
+	FString LoadError;   // the entry error of a failed load (the landing screen shows it after the return)
 	int32 MenuReturns = 0;
 
 	TSharedPtr<FSwcLoginClient> Login;
