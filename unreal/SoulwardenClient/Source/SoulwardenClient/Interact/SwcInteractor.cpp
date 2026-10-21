@@ -11,6 +11,7 @@
 #include "Creatures/SwcCreatureSubsystem.h"
 #include "Net/SwcSpace.h"
 #include "Objects/SwcObjectSubsystem.h"
+#include "Persons/SwcPersonSubsystem.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -26,6 +27,9 @@ constexpr double BagHideDelay = 1.5;
 constexpr uint8 GatherAction = 14;
 /** OpenConversation: the action of the option of a person (interaction-data.json, option 17: action 63, committed, hold 0.5 s). */
 constexpr uint8 ConversationAction = 63;
+/** The prompt distance of a person with no npc object (m): the retail prompts of persons show at 2.07 to 2.98 m (set 5 of the
+ *  Talk: the commander, the artificer, Giacomo); a client rule until the trigger area of a person is read. */
+constexpr double PersonTalkRange = 3.0;
 
 const TCHAR* GatherStepName(swc::interact::GatherWatch::Step Step)
 {
@@ -430,6 +434,53 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			// The text key of the refusal: the rule of the object layer (ui_notool + the gathering type).
 			FocusPrompt.RefusalKey = Object.bToolMissing ? TEXT("ui_notool") + Object.GatheringType.ToLower() : FString();
 			FocusPrompt.Place = SwcEngineToUnreal(Object.EnginePlace);
+		}
+		// The persons with the option OpenConversation and no npc object of the interaction data (the persons of client spawners and of
+		// capital children; docs/PERSONS.md "The Talk of a person with no data"): the retail client shows the prompt and sends the
+		// request, and the backend refuses it (3743 result 2; the artificer of Oxboro, set 5 of the Talk). The rule of the retail ids of
+		// a spawner child is not known: the client sends ids that no object of the data has (G from the key of the person; the actor is
+		// G in the other byte order, then 8 zero bytes; the option entity is G with 2 added to its high word, as in the retail
+		// requests), and the reply is the same refusal.
+		USwcPersonSubsystem* PersonLayer = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcPersonSubsystem>() : nullptr;
+		const swc::interact::Option* TalkOption = Layer != nullptr ? Layer->FindOptionByAction(ConversationAction) : nullptr;
+		const FSwcPerson* TalkPerson = !bLocked && !Focus && PersonLayer != nullptr && TalkOption != nullptr
+			? PersonLayer->FindTalkWithNoData(SwcEngineToUnreal(Reported), PersonTalkRange * 100.0) : nullptr;
+		if (TalkPerson != nullptr)
+		{
+			ObjectOption = *TalkOption;
+			const uint64 Group = (static_cast<uint64>(FCrc::StrCrc32(*(TalkPerson->Key + TEXT("|high")))) << 32) | FCrc::StrCrc32(*TalkPerson->Key);
+			swc::interact::Candidate Candidate;
+			Candidate.option = &ObjectOption;
+			for (int32 Index = 0; Index < 8; ++Index)
+			{
+				Candidate.request.reference.actor[Index] = static_cast<uint8>(Group >> (8 * Index));
+			}
+			Candidate.request.reference.group = Group;
+			Candidate.request.reference.target = FCrc::StrCrc32(*(TalkPerson->Key + TEXT("|target")));
+			Candidate.request.action = ObjectOption.action;
+			Candidate.request.baseAction = ObjectOption.committed ? ObjectOption.action : 0;
+			Candidate.request.optionEntity = Group + (static_cast<uint64>(2) << 32);
+			Candidate.request.committed = ObjectOption.committed;
+			Candidate.request.holdTime = ObjectOption.delay;
+			Candidate.request.optionId = ObjectOption.id;
+			Candidate.place = SwcUnrealToEngine(TalkPerson->Place);
+			Candidate.distanceSq = swc::interact::distance_sq(Reported, Candidate.place);
+			Candidate.rangeSq = PersonTalkRange * PersonTalkRange;
+			Focus = Candidate;
+			FocusName = TalkPerson->Name.ToUpper();
+			bFocusBag = false;
+			FocusShape = TEXT("person");
+			bFocusTalk = true;
+			FocusKey = FString(PersonTalkPrefix) + TalkPerson->Key;
+			FocusUseKind.Reset();
+			FocusTool = 0;
+			FocusPrompt = FSwcInteractPrompt();
+			FocusPrompt.Kind = FSwcInteractPrompt::EKind::Object;
+			FocusPrompt.ObjectKey = FocusKey;
+			FocusPrompt.ObjectKind = FName(TEXT("npc"));
+			FocusPrompt.Name = TalkPerson->Name;
+			FocusPrompt.Options.Emplace(UTF8_TO_TCHAR(ObjectOption.name.c_str()), ObjectOption.hold);
+			FocusPrompt.Place = TalkPerson->Place;
 		}
 	}
 	// AST-198: the focus for the checks: a log line at each change (the distance from the point of the character to the centre of the

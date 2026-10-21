@@ -1,0 +1,22 @@
+# The Talk checks in Windsward (stage MVP-H, docs/PERSONS.md), with tests/drive/mvph-windsward-routes.txt and the UI drive
+# tests/drive/mvph-windsward-ui.txt. A copy of the user's database with the start place 1.9 m south of the inn keeper Verildis
+# Jannsen (06_VerildisJannsen, npc object of the interaction data). (1) E at her: the conversation screen; the UI drive presses
+# E (Next): the screen ends the conversation (6705, then 2473), the answer 6709 frees the input; W walks. (2) E at Moira Chapman
+# (no npc object): the request, the refusal 3743 result 2, the close (6705, no 2473), the answer 6709; W walks (the input is
+# free). (3) E at Verildis again; the UI drive presses Escape (Back): the same end. Times in seconds from the possession.
+4.0 view 0 -8
+6.0 interact 1
+6.8 interact 0
+13.0 move 0 1
+13.6 move 0 0
+19.2 view 90 -8
+21.0 interact 1
+21.8 interact 0
+24.5 move 0 1
+25.3 move 0 0
+29.2 view 0 -8
+31.0 interact 1
+31.8 interact 0
+39.0 move 0 1
+39.8 move 0 0
+42.0 view 0 -8

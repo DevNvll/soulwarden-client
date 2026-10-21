@@ -651,6 +651,12 @@ void USwcObjectSubsystem::ReadStates()
 	}
 }
 
+const swc::interact::Option* USwcObjectSubsystem::FindOptionByAction(uint8 Action) const
+{
+	const FOptionRow* Row = Options.FindByPredicate([Action](const FOptionRow& Each) { return Each.Option.action == Action; });
+	return Row != nullptr ? &Row->Option : nullptr;
+}
+
 ESwcWorldObjectState USwcObjectSubsystem::StateOf(FName Kind, uint64 Group) const
 {
 	if (Kind == KindNode || Kind == KindNatural || Kind == KindBody)

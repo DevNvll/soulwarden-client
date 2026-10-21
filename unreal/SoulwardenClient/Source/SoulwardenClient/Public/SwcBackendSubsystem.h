@@ -162,6 +162,9 @@ public:
 	const FString& GetConversationLine() const { return ConversationLine; }
 	/** The conversation screen of the UI ends the conversation (its Back key; its Next key at the last line): 6705, then 2473. */
 	void EndConversation();
+	/** @return The Talk key of the open conversation scene (an npc object key, or "person:" + a key of persons.json), empty with no
+	 *  scene (the conversation screen of the UI: UI/SwcUiConversation). */
+	FString GetConversationSceneKey() const;
 
 	/**
 	 * @return The yaw of the camera of the player in degrees, in the convention of the input report (protocol notes 4.7):

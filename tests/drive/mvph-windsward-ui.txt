@@ -1,0 +1,7 @@
+# The UI drive of tests/drive/mvph-windsward.txt: E (Next) in the first conversation, Escape (Back) in the third one. Times in
+# seconds from the spawn of the player (about the clock of the player drive).
+10.5 log the key E (Next) in the conversation screen
+10.5 key E
+35.5 log the key Escape (Back) in the conversation screen
+35.5 key Escape
+46 end

@@ -1700,6 +1700,11 @@ void USwcBackendSubsystem::OpenLootBag(uint32 Interest)
 	}
 }
 
+FString USwcBackendSubsystem::GetConversationSceneKey() const
+{
+	return Interactor.IsValid() && Interactor->GetConversation().scene() ? Interactor->GetConversationKey() : FString();
+}
+
 void USwcBackendSubsystem::EndConversation()
 {
 	if (Interactor.IsValid())

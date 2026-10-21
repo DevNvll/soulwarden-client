@@ -1,0 +1,7 @@
+# The routes of the Windsward Talk check (stage MVP-H, tests/drive/mvph-windsward.txt): the creatures ignore the character, the
+# hour 12:00; at 18 s a short travel 1.9 m west of Moira Chapman (06_MoiraChapman: Talk, no npc object of the interaction data);
+# at 28 s a short travel back to the start place 1.9 m south of the inn keeper Verildis Jannsen. Times on the clock of the drive.
+0.5 ignore on
+0.6 world-time 12:00
+18.0 travel 9324.1 2667.7 84.9
+28.0 travel 9319.51 2665.81 84.9

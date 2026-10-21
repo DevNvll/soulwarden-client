@@ -146,6 +146,8 @@ public:
 	 * (swc::interact::line_score; camera and forward in engine m). @return False with no candidate.
 	 */
 	bool FindFocusObject(const FVector& From, const float Camera[3], const float Forward[3], FSwcWorldObjectTarget& Out, float& OutScore) const;
+	/** @return The first option of the interaction data with an action (OpenConversation: 63), or null before the tables load. */
+	const swc::interact::Option* FindOptionByAction(uint8 Action) const;
 	/** Reads the candidate shape of a bound of the converted data (objects.json, interactions.json: "shape"); no shape: type none. */
 	static void ReadShape(const TSharedPtr<FJsonObject>& Info, swc::interact::Shape& Out);
 	/** The bounds within a radius (m) of a point, in each state (for a marker or a check). */
