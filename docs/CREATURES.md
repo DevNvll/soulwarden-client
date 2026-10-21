@@ -260,18 +260,19 @@ creatures (the server time less 0.25 s).
   catalog of the game), and the spell rows (1,777) by the CRC-32 of their lower-case SpellID.
 - The look is simple and readable (the effects of the game, their particles and their sounds, are for a later stage): a shot
   is a thin shaft along its flight, an area is a flat disc on the ground (an engine material with the parameter Color).
-- The column of an area (stage MVP-I, 2026-10-21): a hostile area also has a translucent column of 0.8 m over its disc, faint
-  orange in the warning (alpha 0.06) and red in the danger (alpha 0.15; a column of 2 m with 0.10 and 0.25 was a large box from the
-  side and hid the wolf at night, mvpi-fight-night2). The disc alone hid under the ferns and under the character in
-  the live check (mvpi-fight-night: the strike of the shaman at the feet). Retail draws the strike as a column of light at its
-  danger time (its particle effect; Soulwarden evidence creature-areas `s1-fresh-zoom.png`) and draws no warning on the ground.
+- The light of a hostile area (the decision of the user, 2026-10-21: "Match retail now"): retail draws no warning on the ground;
+  it shows the light effect of the spell at its hit time (the strike of the shaman: a column of light at its danger time; Soulwarden
+  evidence creature-areas `s1-fresh-zoom.png`). The client shows no disc and nothing in the warning; at the danger time a bright
+  column of 1 m x 4 m at the center of the area (alpha 0.6, a warm white; a column of the area width veiled the whole screen near
+  the camera), at least 0.3 s (the danger minimum above), as a simple stand-in for the
+  retail light effect until the particle stage. A spell of a character (blue) and a summon (the pillar) stay as they were; the
+  shots stay as they are. Before this decision (MVP-I part 4) the client showed an orange disc and column in the warning and red
+  ones in the danger.
 - The colors follow the exposure (stage MVP-I): the scene has physical light units (an exposure of about 1/(1.2 x 2^13.7) at noon),
   and the unlit engine material with a color of 1.0 drew near black: in the fight runs of MVP-I no disc showed (mvpi-area1, the camera
   down: a faint dark circle). Each color of a shot, a disc, and a column is now 0.6 / the exposure of the last measure of the meter
-  probe (`Environment/SwcMeterProbe`), set again when the exposure changes by more than 10 percent. Check (mvpi-area2, the strike of
-  the shaman at the feet, noon): the warning orange from 0.25 s, the danger red from 1.0 to 1.2 s, then none (the mean red of the
-  part of the screen around the character 135 and 164, before and after 72); evidence `mvp-i/compare-telegraph.png` (retail,
-  client warning, client danger). The client area is larger and stronger than the retail bolt.
+  probe (`Environment/SwcMeterProbe`), set again when the exposure changes by more than 10 percent (check mvpi-area2: the disc
+  showed again; evidence `mvp-i/compare-telegraph.png`, the look before the decision above).
 - The log lines: `effect N: a shot of creature M NAME (SLICE), launch X Y Z, velocity ...`, `the shot holds at the contact`,
   `an area SPELL of creature M NAME (SLICE), radius R m`, `the warning of the area ... at 0.00 s`, `the danger of the area at
   0.92 s`, `the end of the area at 1.22 s`, `removed (the stop of its record)`.

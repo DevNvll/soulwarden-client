@@ -28,13 +28,14 @@ const FLinearColor FriendlyActiveColor(0.2f, 0.85f, 1.0f, 0.45f);
 constexpr double PillarWidth = 0.6;
 constexpr double PillarHeight = 2.0;
 constexpr double WidestDisc = 8.0;
-/** Stage MVP-I: the column over the disc of a hostile area (values of this client). The disc on the ground hid under the ferns and the
- *  character in the live checks (mvpi-fight-night: the strike of the shaman at the feet). Retail draws the strike as a column of light
- *  at its danger time (a particle effect of the spell; Soulwarden evidence creature-areas s1-fresh). The column reads through the
- *  ground cover: faint in the warning, stronger in the danger. */
-constexpr double ColumnHeight = 0.8;
-const FLinearColor ColumnWarningColor(1.0f, 0.45f, 0.0f, 0.06f);
-const FLinearColor ColumnDangerColor(1.0f, 0.05f, 0.02f, 0.15f);
+/** The light of a hostile area (the decision of the user, 2026-10-21: "Match retail now"). Retail draws no warning on the ground; it
+ *  shows the light effect of the spell at its hit time (the strike of the shaman: a column of light at its danger time; Soulwarden
+ *  evidence creature-areas s1-fresh). Until the particle stage the client shows a bright column at the danger time only (at least
+ *  0.3 s, the danger minimum of the area), and no disc and nothing in the warning. A spell of a character and a summon keep their
+ *  disc and pillar. Values of this client. */
+constexpr double ColumnHeight = 4.0;
+constexpr double ColumnWidth = 1.0;   // m: a bolt, not the width of the area (a column of the area width veiled the screen near it)
+const FLinearColor ColumnFlashColor(1.0f, 0.95f, 0.8f, 0.6f);
 /** Stage MVP-I: the unlit colors follow the exposure of the frame. The scene has physical light units (an exposure of about
  *  1/(1.2 x 2^13.7) at noon), and an unlit color of 1.0 drew near black (the disc of the strike in mvpi-area1). The color is
  *  DisplayLevel / exposure: about the same brightness on the screen at day and at night. The exposure: the last measure of the
@@ -170,9 +171,9 @@ void ASwcEffectActor::SetupArea(const FSwcSpellSlice* Slice, const FSwcSpellRow*
 		if (!bFriendly)
 		{
 			Column->SetStaticMesh(FindObject<UStaticMesh>(nullptr, CylinderMesh));
-			Column->SetRelativeScale3D(FVector(Radius * 2.0, Radius * 2.0, ColumnHeight));
+			Column->SetRelativeScale3D(FVector(ColumnWidth, ColumnWidth, ColumnHeight));
 			Column->SetRelativeLocation(FVector(0.0, 0.0, ColumnHeight * 50.0));
-			SetColumnColor(ColumnWarningColor);
+			SetColumnColor(ColumnFlashColor);
 		}
 	}
 	SetColor(bFriendly ? FriendlyWarningColor : WarningColor);
@@ -228,8 +229,10 @@ FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, 
 														  : swc::creatures::AreaTimes{swc::creatures::spell_start_us(Parts, Events), 0, 0};
 		const swc::creatures::AreaPhase Phase = swc::creatures::area_phase(Times, RenderTimeUs);
 		const bool bStarted = RenderTimeUs >= Times.startUs;
-		Shape->SetVisibility(bStarted && (bSummon || (Phase != swc::creatures::AreaPhase::ended && Radius > 0.0f)));
-		Column->SetVisibility(bStarted && !bSummon && !bFriendly && Phase != swc::creatures::AreaPhase::ended && Radius > 0.0f);
+		// A hostile area: no disc, the column of light in the danger only (the decision of the user above).
+		const bool bHostile = !bSummon && !bFriendly;
+		Shape->SetVisibility(bStarted && !bHostile && (bSummon || (Phase != swc::creatures::AreaPhase::ended && Radius > 0.0f)));
+		Column->SetVisibility(bStarted && bHostile && Phase == swc::creatures::AreaPhase::danger && Radius > 0.0f);
 		const int32 PhaseIndex = bStarted ? static_cast<int32>(Phase) : -1;
 		if (PhaseIndex != LastPhase)
 		{
@@ -239,13 +242,11 @@ FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, 
 			{
 			case swc::creatures::AreaPhase::warning:
 				SetColor(bFriendly ? FriendlyWarningColor : WarningColor);
-				SetColumnColor(ColumnWarningColor);
 				Text = bFriendly ? FString::Printf(TEXT("the spell before its volume is active (radius %.2f m) at %.2f s"), Radius, Since)
 								 : FString::Printf(TEXT("the warning of the area (radius %.2f m) at %.2f s"), Radius, Since);
 				break;
 			case swc::creatures::AreaPhase::danger:
 				SetColor(bFriendly ? FriendlyActiveColor : DangerColor);
-				SetColumnColor(ColumnDangerColor);
 				Text = bFriendly ? FString::Printf(TEXT("the volume of the spell is active at %.2f s"), Since)
 								 : FString::Printf(TEXT("the danger of the area at %.2f s"), Since);
 				break;
