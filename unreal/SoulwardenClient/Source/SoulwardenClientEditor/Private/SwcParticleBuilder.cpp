@@ -147,7 +147,8 @@ namespace
 		const TSharedPtr<FJsonObject> Spawn = Child(Spec, TEXT("spawn"));
 		FNiagaraStatelessSpawnInfo& SpawnInfo = Emitter->AddSpawnInfo();
 		const double Delay = Number(Spec, TEXT("delay"));
-		if (Spawn->GetStringField(TEXT("type")) == TEXT("rate"))
+		const bool bRate = Spawn->GetStringField(TEXT("type")) == TEXT("rate");
+		if (bRate)
 		{
 			SpawnInfo.Type = ENiagaraStatelessSpawnInfoType::Rate;
 			SetRange(SpawnInfo.Rate, Numbers(Spawn, TEXT("rate")));
@@ -161,6 +162,17 @@ namespace
 			SpawnInfo.Amount.Mode = SpawnInfo.Amount.Min == SpawnInfo.Amount.Max ? ENiagaraDistributionMode::UniformConstant
 			                                                                     : ENiagaraDistributionMode::UniformRange;
 			SpawnInfo.SpawnTime = float(Delay);
+		}
+		if (bRate)
+		{
+			// AST-230 (research/particle-rules3.md 3 [R]): a continuous emitter births a particle at its start time; the stateless rate
+			// spawns its first particle one interval later: one particle at the start of each loop (after the loop delay).
+			FNiagaraStatelessSpawnInfo& First = Emitter->AddSpawnInfo();
+			First.Type = ENiagaraStatelessSpawnInfoType::Burst;
+			First.Amount.Min = 1;
+			First.Amount.Max = 1;
+			First.Amount.Mode = ENiagaraDistributionMode::UniformConstant;
+			First.SpawnTime = 0.0f;
 		}
 		FNiagaraEmitterStateData& State = *Member<FNiagaraEmitterStateData>(Emitter, TEXT("EmitterState"));
 		const double Pulse = Number(Spec, TEXT("pulse"));
@@ -176,6 +188,15 @@ namespace
 		if (Life > 0.0 && Pulse <= 0.0)
 		{
 			State.LoopBehavior = ENiagaraLoopBehavior::Once;
+		}
+		const TArray<double> Lives = Numbers(Spec, TEXT("life"));
+		const double LifeMax = Lives.Num() > 1 ? Lives[1] : 0.0;
+		if (!bRate && Pulse <= 0.0 && LifeMax > 0.0)
+		{
+			// AST-230: a burst with a finite particle life and no PulsePeriod emits once (PulsePeriod 0: no auto restart [R],
+			// research/particles.md "Timing"; retail plays the Wrecking Ball charge glow once): one loop until its particles die.
+			State.LoopBehavior = ENiagaraLoopBehavior::Once;
+			State.LoopDuration.InitConstant(float(Delay + LifeMax));
 		}
 		// The distance bands: the emitter sleeps beyond its max (its particles finish) and wakes again within it.
 		const TSharedPtr<FJsonObject> Distance = Child(Spec, TEXT("distance"));

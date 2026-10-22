@@ -91,7 +91,9 @@ def particle_collection():
     return mpc
 
 
-def parent(name, additive, lit=False):
+def parent(name, additive, lit=False, ribbon=False):
+    """A parent of the sprites (the particle color and the SubUV atlas of Niagara) or, with ribbon (AST-230), of the ribbons of the client
+    (Effects/SwcRibbons: the vertex color is the particle color, the texture has the UV of the ribbon)."""
     path = f"{ROOT}/{name}"
     if assets.does_asset_exist(path) and state.get("parent:" + name) == PARENT_VERSION:
         return assets.load_asset(path)
@@ -107,12 +109,15 @@ def parent(name, additive, lit=False):
         # Unreal: the translucency light volume at each vertex, no direction (an approximation, docs/PARTICLES.md).
         material.set_editor_property("translucency_lighting_mode", unreal.TranslucencyLightingMode.TLM_VOLUMETRIC_PER_VERTEX_NON_DIRECTIONAL)
     material.set_editor_property("two_sided", True)
-    editing.set_material_usage(material, unreal.MaterialUsage.MATUSAGE_NIAGARA_SPRITES)
-    atlas = sm.node(material, unreal.MaterialExpressionTextureSampleParameterSubUV, -1200, 0)
+    if not ribbon:
+        editing.set_material_usage(material, unreal.MaterialUsage.MATUSAGE_NIAGARA_SPRITES)
+    sample = unreal.MaterialExpressionTextureSampleParameter2D if ribbon else unreal.MaterialExpressionTextureSampleParameterSubUV
+    atlas = sm.node(material, sample, -1200, 0)
     atlas.set_editor_property("parameter_name", "Atlas")
-    atlas.set_editor_property("blend", True)
+    if not ribbon:
+        atlas.set_editor_property("blend", True)
     atlas.set_editor_property("texture", assets.load_asset(f"{ROOT}/Textures/{index['textures'][next(iter(index['textures']))]['asset']}"))
-    color = sm.node(material, unreal.MaterialExpressionParticleColor, -1200, 400)
+    color = sm.node(material, unreal.MaterialExpressionVertexColor if ribbon else unreal.MaterialExpressionParticleColor, -1200, 400)
     tint = sm.vector(material, "Tint", (1.0, 1.0, 1.0, 1.0), -1200, 600)
     alpha_scale = sm.scalar(material, "AlphaScale", 1.0, -1200, 800)
     unit = sm.node(material, unreal.MaterialExpressionCollectionParameter, -1200, 950)
@@ -160,9 +165,10 @@ def parent(name, additive, lit=False):
     ambient = sm.multiply(material, (diffuse_rgb, ""), (color, ""), -800, 100)
     ambient = sm.multiply(material, (ambient, ""), (tint, "RGB"), -600, 150)
     ambient = sm.multiply(material, (ambient, ""), (sm.scalar(material, "Ambient", 0.0, -800, 250), ""), -450, 150)
-    glow_map = sm.node(material, unreal.MaterialExpressionTextureSampleParameterSubUV, -1200, -500)
+    glow_map = sm.node(material, sample, -1200, -500)
     glow_map.set_editor_property("parameter_name", "Glow")
-    glow_map.set_editor_property("blend", True)
+    if not ribbon:
+        glow_map.set_editor_property("blend", True)
     glow_map.set_editor_property("texture", atlas.get_editor_property("texture"))
     glow = sm.multiply(material, (diffuse_rgb, ""), (glow_map, "RGB"), -800, -500)
     glow = sm.multiply(material, (glow, ""), (sm.vector(material, "GlowColor", (0.0, 0.0, 0.0, 0.0), -1000, -650), "RGB"), -600, -500)
@@ -446,6 +452,9 @@ def build_system(record, parents):
         elif spec["enabled"] and spec.get("renderer") == "mesh":
             spec["meshPath"] = import_mesh(spec["mesh"])
             spec["materialPath"] = mesh_instance(parents["mesh"], spec)
+        elif spec.get("renderer") == "ribbon":
+            # AST-230: a ribbon of the client (ribbons.json); the system gets no emitter for it.
+            spec["enabled"] = False
         elif spec["enabled"]:
             additive = spec["blend"] == "additive"
             spec["materialPath"] = instance(parents["lit" if spec.get("lit") else additive], spec, additive)
@@ -474,6 +483,34 @@ def build_system(record, parents):
     report["systems"] += 1
 
 
+def write_ribbons(ribbon_parents):
+    """AST-230: SWC_CONTENT/particles/ribbons.json, the ribbons of the client (Effects/SwcRibbons) by effect key: the material instance
+    (the ribbon parents), the emission (delay, emitter life, rate), the life, the width (cm) with its age curve, the color and the alpha
+    with their age curves, the UV rule, and the offset of the emitter (cm, the frame of the effect)."""
+    out = {}
+    for record in index["systems"]:
+        if record.get("missing"):
+            continue
+        for spec in record["emitters"]:
+            if spec.get("renderer") != "ribbon" or not spec["enabled"]:
+                continue
+            additive = spec["blend"] == "additive"
+            try:
+                material = instance(ribbon_parents["lit" if spec.get("lit") else additive], spec, additive)
+            except Exception as error:
+                report["failed"].append(f"ribbon {record['key']}/{spec['name']}: {str(error)[:200]}")
+                continue
+            out.setdefault(record["key"], []).append({
+                "name": spec["name"], "material": material, "delay": spec.get("delay", 0.0), "emitterLife": spec.get("emitterLife", 0.0),
+                "rate": spec["spawn"].get("rate", [0.0, 0.0]) if spec["spawn"].get("type") == "rate" else [0.0, 0.0],
+                "life": spec["life"], "width": spec["size"]["x"], "widthCurve": spec["size"].get("curveX"),
+                "color": spec["color"]["base"], "colorCurve": spec["color"].get("curve"), "alpha": spec["alpha"]["base"],
+                "alphaCurve": spec["alpha"].get("curve"), "uv": spec["ribbon"]["uv"], "frequency": spec["ribbon"]["frequency"],
+                "offset": spec.get("offset", [0.0, 0.0, 0.0])})
+    json.dump({"format": 1, "effects": out}, open(os.path.join(content, "particles", "ribbons.json"), "w"), indent=1)
+    report["ribbons"] = sum(len(v) for v in out.values())
+
+
 # AST-230: a time budget for each call (the import lock is shared; SWC_IMPORT_SECONDS, default 480 s): the work left waits for the next
 # call (the state file keeps what is done).
 import time  # noqa: E402
@@ -489,7 +526,10 @@ try:
         except Exception as error:
             report["failed"].append(f"texture {record['asset']}: {str(error)[:200]}")
     parents = {False: parent("M_SwcParticleAlpha", False), True: parent("M_SwcParticleAdditive", True),
-               "lit": parent("M_SwcParticleLit", False, lit=True), "mesh": mesh_parent(), "decal": decal_parent()}
+               "lit": parent("M_SwcParticleLit", False, lit=True), "mesh": mesh_parent(), "decal": decal_parent(),
+               "ribbon": {False: parent("M_SwcParticleRibbonAlpha", False, ribbon=True),
+                          True: parent("M_SwcParticleRibbonAdditive", True, ribbon=True),
+                          "lit": parent("M_SwcParticleRibbonLit", False, lit=True, ribbon=True)}}
     for record in index["systems"]:
         if record.get("missing"):
             continue
@@ -500,6 +540,7 @@ try:
             build_system(record, parents)
         except Exception as error:
             report["failed"].append(f"{record['asset']}: {str(error)[:300]}")
+    write_ribbons(parents["ribbon"])
 finally:
     json.dump(state, open(state_path, "w"), indent=1)
     json.dump(report, open(os.path.join(content, "particles", "import-report.json"), "w"), indent=1)

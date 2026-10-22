@@ -21,6 +21,7 @@ study (steps 1 to 12) and tells what each step did.
 | `Effects/SwcFragmentEffects` | The fragment effect player: the clips of the fragment of each action channel on its clock. |
 | `Effects/SwcParticleEffects` | The effect interface gets `StartAttached` (a bone or a socket, follow or not) and `Keep` (KeepEmitterActive). |
 | `Effects/SwcTracers` | The trails of the projectiles (the ranged attack database) on the own projectiles of `Character/SwcRangedView`. |
+| `Effects/SwcRibbons` | The ribbons of the trail emitters (`particles/ribbons.json`): a strip of world points that faces the camera. |
 | `Creatures/SwcEffectActor` | The slice effect player of the creature spells and shots. |
 
 ```sh
@@ -105,12 +106,44 @@ fragment (the weapon scope of the stance). The rule of the study ("Runtime order
 - The own projectile of a shot (`Character/SwcRangedView`) gets its trail at its launch, attached to the projectile with the local +Y of
   the game along the flight (the forward of an entity of the game); at a hit or at the end of the flight the trail stays at its place,
   its emission stops, and its particles finish.
-- A trail emitter (EmitterShape TRAIL: a ribbon of connected particles) is not drawn: the builder has only the stateless sprite and mesh
-  renderers, and a sprite at the emitter is not the ribbon (65 emitters, also the weapon swipe trails `*_Melee.Swipe_MD`). The plain arrow
-  trail `wFX_Default_Range.Trail` and `Trail_Power` (Rapid Shot, Explosive Arrow) are only ribbons: no trail shows.
-- A fixed focus (FocusAngle and FocusAzimuth with no random part) tilts the emit axis from +Z toward the azimuth (0: the +Y axis, the
-  comment of the source parameter) [I]; the cone is EmitAngle about it (the trail streaks along the arrow; the sparks of
-  `BLOOD.Impact_Blunt_Omni` along -Z). A random focus keeps the wider cone.
+- A trail emitter (EmitterShape TRAIL) is a ribbon of the client (below, part 6).
+- A fixed focus (FocusAngle and FocusAzimuth with no random part) rotates the emit axis: (sin A sin F, -cos A sin F, cos F) in the source
+  frame (research/particle-rules3.md 5 [R]: F 90, A 0 is -Y); the cone is EmitAngle about it. A random focus keeps the wider cone [I].
+  The Penetrating Shot trail: the root (A 180) +Y, the Streaks (A 0) -Y.
+
+## The ribbons (part 6)
+
+A trail emitter (EmitterShape TRAIL) leaves its particles in the world and connects them into one strip that faces the camera. The
+stateless emitters of Niagara compute each particle from its age in the frame of the component, so they cannot leave a trail behind a
+moving emitter. The client draws the ribbons itself:
+- The converter keeps the record of the emitter as a ribbon (`renderer` "ribbon"; Connection: TextureMapping PerParticle or PerStream,
+  TextureFrequency [I: the names of the source parameters]). The import makes no Niagara emitter for it; it makes the ribbon parents
+  `M_SwcParticleRibbonAlpha`, `_Additive`, `_Lit` (the sprite parents with the vertex color in place of the particle color and a plain
+  texture) and their instances, and writes `particles/ribbons.json`: by effect key, the material, the delay, the emitter life, the rate,
+  the life, the width (cm) with its age curve, the color and the alpha with their age curves, the UV rule, the offset.
+- `Effects/SwcRibbons` (`USwcRibbonComponent`, a primitive with its own scene proxy and `FDynamicMeshBuilder`): it starts with its effect
+  component (`USwcEffectSubsystem::Start`, `StartAttached`) and follows it; it adds points at the rate along the move of each frame (the
+  first point at the start), from its delay for its emitter life or until its effect stops (`Stop`, the end of a kept effect); each
+  point dies at its life; the strip has the width, the color, and the alpha of the age of each point (the vertex color). The texture U
+  goes from the newest point (0) to the oldest [I]. The component ends when its last point dies.
+- 56 ribbons in 35 effects: the arrow trails (plain, Trail_Power, Penetrating Shot, Poison Shot), the weapon swipe trails of the
+  elements (`*_Melee.Swipe_MD`), the Shockwave trail of the war hammer (a gold arc along the swing; retail: a wide bright gold streak).
+
+## The rules of research/particle-rules3.md (part 6)
+
+- GlobalSizeScale scales the particle size, the local spawn offsets, and the start speed [R]: the client scale of the component does
+  this; it also scales the gravity displacement, which retail does not [open].
+- The stretch does not need OrientToVelocity [R]: a moving camera-facing particle with Stretch aligns to its velocity with the stretch
+  of its long axis [I] (220 emitters; the flames of the Explosive Arrow explosion are now jagged and stretched).
+- A continuous emitter births its first particle at its start [R]: the builder adds one particle at the start of each loop (the
+  stateless rate spawns its first particle one interval later); the ribbons add their first point at the start.
+- A LightSource adds a light pass [R]: the converter writes the sprite record and a light twin record with the same values (177 sprites
+  come back, for example the Penetrating Shot glow).
+- A burst with a finite life and no PulsePeriod emits once (research/particles.md "Timing" [R]): before, the builder repeated each burst
+  every second, and a kept effect repeated it for 10 s (the Wrecking Ball glow; retail shows it once). This rule is in the shared
+  builder: the bursts of the world placements also emit once now.
+- The FX mesh shaders (`Fxmeshadvancedtransp`, `Fxmeshadvanced`, `Particleimposter`: the fresnel glow, the intersection fade, the
+  palette map) are not in the mesh material: these mesh emitters are off (96; the white sphere of `Wreckingball_impact_AOE`) [open].
 
 ## The hits (plan step 9, first part)
 
@@ -252,8 +285,10 @@ The open points of the study ("Open points" 1 to 10) stay. Of this work:
 4. The world-space particles behind a moving emitter (the stateless emitters are in the local space).
 5. The width of the client blood spurts against retail.
 6. The roll of an effect about its SpawnParticle axis (the retail look-at transverse basis).
-7. The ribbons (EmitterShape TRAIL): the arrow trails and the weapon swipe trails (a stateful Niagara emitter with a ribbon renderer).
-8. An emitter with a LightSource and a texture draws only its light (177 of the 201 light emitters have a texture).
-9. The first particle of a continuous emitter (a short trail on an arrow that hits the ground at once).
-10. The weapon effect (element) of a weapon for the trail map (Default only) and the rule of an empty value (`_Default` [I]).
-11. The size of a slice effect with GlobalSizeScale (the explosion of Explosive Arrow is about 1.6 times wider in retail).
+7. The ribbons: the facing (one strip to the camera), the U direction, MaintainDensity, and the tessellation are of this client [I].
+8. The light units of a LightSource twin (pi x 10,000 x Intensity cd) [I].
+9. The gravity of an effect with GlobalSizeScale (the client scales it; retail does not).
+10. The weapon effect (element) of a weapon for the trail map (Default only; an empty value takes `_Default` [R]).
+11. The explosion of Explosive Arrow: the exact native stretch of both axes (the client aligns to the velocity) and the width.
+12. The FX mesh shaders (96 mesh emitters off).
+13. The gold glow of the full bow draw: `bow_charge` selects `wFX_Default_Range.Arrow_Charge` [D]; its activation gate [U].

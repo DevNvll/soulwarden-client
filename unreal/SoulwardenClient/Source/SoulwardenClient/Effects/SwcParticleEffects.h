@@ -10,6 +10,7 @@ class FJsonValue;
 class UNiagaraComponent;
 class UNiagaraSystem;
 class USceneComponent;
+class USwcRibbonComponent;
 
 /** The values of one effect placement (the ParticleComponent settings of the data, docs/PARTICLES.md "The placement"). */
 struct SOULWARDENCLIENT_API FSwcEffectSettings
@@ -147,6 +148,10 @@ private:
 	TArray<TWeakObjectPtr<UNiagaraComponent>> Started;   // the components of Start (the frame report)
 	/** The kept components (Keep) and the time of their keep: an endless system stops after KeepSeconds (a value of this client). */
 	TMap<TWeakObjectPtr<UNiagaraComponent>, double> Kept;
+	/** AST-230: the ribbons of a started effect (Effects/SwcRibbons): they start and stop with its component. */
+	TMap<TWeakObjectPtr<UNiagaraComponent>, TArray<TWeakObjectPtr<USwcRibbonComponent>>> Ribbons;
+	void StartRibbons(const FString& Effect, UNiagaraComponent* Component, const FSwcEffectSettings& Settings);
+	void StopRibbons(UNiagaraComponent* Component, bool bKill);
 	double MaxViewCm = 0.0;
 	double NextUpdate = 0.0;
 	double NextReport = 0.0;

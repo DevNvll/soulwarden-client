@@ -20,6 +20,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "UObject/UObjectIterator.h"
+#include "Effects/SwcRibbons.h"
 #include "Environment/SwcEnvironmentSubsystem.h"
 #include "World/SwcLoadingGate.h"
 
@@ -319,6 +320,7 @@ UNiagaraComponent* USwcEffectSubsystem::Acquire(int32 Type)
 		}
 		Pool.RemoveAtSwap(Index);
 		Kept.Remove(Component);
+		StopRibbons(Component, false);
 		USceneComponent* Root = OwnerActor()->GetRootComponent();
 		if (Component->GetAttachParent() != Root)
 		{
@@ -393,6 +395,7 @@ UNiagaraComponent* USwcEffectSubsystem::Start(const FString& Effect, const FTran
 	SetParameters(Component, Settings, World.GetScale3D());
 	Component->Activate(true);
 	Started.Add(Component);
+	StartRibbons(Effect, Component, Settings);
 	return Component;
 }
 
@@ -420,7 +423,46 @@ UNiagaraComponent* USwcEffectSubsystem::StartAttached(const FString& Effect, USc
 	SetParameters(Component, Settings, Relative.GetScale3D());
 	Component->Activate(true);
 	Started.Add(Component);
+	StartRibbons(Effect, Component, Settings);
 	return Component;
+}
+
+void USwcEffectSubsystem::StartRibbons(const FString& Effect, UNiagaraComponent* Component, const FSwcEffectSettings& Settings)
+{
+	const TArray<FSwcRibbonSpec>* Specs = SwcRibbons::Of(Effect);
+	if (Specs == nullptr || Component == nullptr)
+	{
+		return;
+	}
+	StopRibbons(Component, false);
+	TArray<TWeakObjectPtr<USwcRibbonComponent>>& List = Ribbons.Add(Component);
+	for (const FSwcRibbonSpec& Spec : *Specs)
+	{
+		USwcRibbonComponent* Ribbon = NewObject<USwcRibbonComponent>(OwnerActor());
+		Ribbon->SetupAttachment(Component);
+		Ribbon->SetRelativeLocation(Spec.Offset);
+		Ribbon->Setup(Spec, Settings.Tint, Settings.AlphaScale, float(Component->GetComponentScale().GetAbsMax()), Settings.TimeScale);
+		Ribbon->RegisterComponent();
+		List.Add(Ribbon);
+	}
+}
+
+void USwcEffectSubsystem::StopRibbons(UNiagaraComponent* Component, bool bKill)
+{
+	TArray<TWeakObjectPtr<USwcRibbonComponent>> List;
+	if (!Ribbons.RemoveAndCopyValue(Component, List))
+	{
+		return;
+	}
+	for (const TWeakObjectPtr<USwcRibbonComponent>& Ribbon : List)
+	{
+		if (Ribbon.IsValid())
+		{
+			// The points stay in the world; the ribbon leaves the effect component (a pooled component can start again elsewhere).
+			Ribbon->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+			Ribbon->Stop(bKill);
+		}
+	}
 }
 
 void USwcEffectSubsystem::Keep(UNiagaraComponent* Component)
@@ -448,6 +490,7 @@ void USwcEffectSubsystem::Stop(UNiagaraComponent* Component, bool bKill)
 	UNiagaraSystem* Asset = Component->GetAsset();
 	const int32 Type = Types.IndexOfByPredicate([Asset](const FType& T) { return T.System == Asset; });
 	Started.Remove(Component);
+	StopRibbons(Component, bKill);
 	Release(Type, Component, bKill);
 }
 
@@ -787,6 +830,7 @@ void USwcEffectSubsystem::Tick(float DeltaTime)
 			else if (Now - It->Value > KeepSeconds)
 			{
 				Component->Deactivate();
+				StopRibbons(Component, false);
 				It.RemoveCurrent();
 			}
 		}

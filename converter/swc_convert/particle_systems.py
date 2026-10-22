@@ -8,13 +8,17 @@ attributes that the client does not express (particles.SUPPORT), with their raw 
 The rules of the map (research "The parameters"; [R] retail metadata, [I] inference of this stage):
 - Axes: the local frame of the source (x, y, z) is the local frame of the component in Unreal as (x, -y, z) x 100 (space.py).
 - The emit axis is local +Z ("Angle to vary focus from default (Z axis)" [R]); FocusGravityDir uses the world up [R]. EmitAngle
-  is the cone; its Random sets the inner angle ("RandomVar determines min angle" [R]). FocusAngle widens the cone [I].
+  is the cone; its Random sets the inner angle ("RandomVar determines min angle" [R]). A fixed focus rotates the axis
+  (research/particle-rules3.md 5 [R]); a random focus widens the cone [I].
 - A size is a half size: the sprite is 2 x Size x 100 cm (the source quad is -1..1 [R]). The width is SizeX, the height SizeY
   (MaintainAspectRatio: SizeY = SizeX). OrientToVelocity aligns the particle X axis to the velocity [R]: the length along the
   velocity is SizeX.
 - A scalar random: [base x (1 - Random), base] [R]. The age curves: 32 samples of the source spline (particles.evaluate).
 - Count and life: a continuous emitter spawns Count / life per second [R: the nominal rate, research "Timing and motion"]; a
-  burst emitter spawns Count at its start. EmitterLifeTime 0 is endless; PulsePeriod loops.
+  burst emitter spawns Count at its start, once with a finite life and no PulsePeriod (research/particles.md "Timing" [R]).
+  EmitterLifeTime 0 is endless; PulsePeriod loops. A continuous emitter births its first particle at its start (particle-rules3.md 3).
+- A LightSource adds a light twin record to the sprite (particle-rules3.md 4 [R]). A trail (EmitterShape TRAIL) is a ribbon of the
+  client (Effects/SwcRibbons). A moving camera-facing particle with Stretch aligns to its velocity (particle-rules3.md 1 [R], [I]).
 - The LOD bands: the base node shows below the first LOD distance, each LOD block from its distance; an emitter shows in the
   bands where it is enabled. The first pass keeps the outer bound of the enabled bands (an emitter that turns on again farther
   away is reported). CameraMinDistance and CameraMaxDistance are bounds too.
@@ -140,6 +144,10 @@ def range_cm(params: dict, name: str, scale: float = 100.0) -> list[float]:
     return random_range(p["base"] * scale, p["random"])
 
 
+# The material shaders of the mesh particles that the mesh material (M_SwcParticleMesh, the Illum terms) does not draw (AST-230).
+UNSUPPORTED_MESH_SHADERS = ("Fxmeshadvancedtransp", "Fxmeshadvanced", "Particleimposter")
+
+
 def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
     """@return The importer record of one Particles node."""
     p = params_of(node["params"])
@@ -220,11 +228,11 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
     inner = (emit["base"] or 0.0) * (1.0 - emit["random"])
     axis = [0.0, 0.0, 1.0]
     if (focus["base"] or 0.0) > 0.0 and not focus["random"] and not azimuth["random"] and not flag(p.get("FocusGravityDir", "false")):
-        # AST-230: a fixed focus tilts the emit axis from +Z by FocusAngle toward the azimuth FocusAzimuth about Z (0: the +Y axis, the
-        # comment of the source parameter [I]); the cone is EmitAngle about that axis (the projectile trails: 90 and 180, the streaks
-        # along -Y, the back of the projectile). A random focus keeps the wider cone.
+        # AST-230 (research/particle-rules3.md 5 [R]): a fixed focus rotates the emit axis: column 2 of Qxyz(FocusAngle, 0,
+        # FocusAzimuth), (sin A sin F, -cos A sin F, cos F) in the source frame (F 90: A 0 -Y, 90 +X, 180 +Y, 270 -X); the cone is
+        # EmitAngle about that axis. A random focus keeps the wider cone [I].
         tilt, turn = math.radians(focus["base"]), math.radians(azimuth["base"] or 0.0)
-        game = [-math.sin(turn) * math.sin(tilt), math.cos(turn) * math.sin(tilt), math.cos(tilt)]
+        game = [math.sin(turn) * math.sin(tilt), -math.cos(turn) * math.sin(tilt), math.cos(tilt)]
         axis = [round(game[0], 6), round(-game[1], 6), round(game[2], 6)]
         cone = emit["base"] or 0.0
     gravity = field(p, "GravityScale")
@@ -241,6 +249,15 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
     # the particle age in s). The stateless emitter has no geometric stretch: the converter adds it to the height curve with the mean
     # speed of the source force rule (v = a/k + (v0 - a/k) e^-kt along the emit axis, S = 1) [I].
     stretch_p = field(p, "Stretch")
+    if (not velocity_aligned and stretch_p["base"] > 0 and facing in ("Camera", "") and max(abs(v) for v in speed) > 0
+            and not str(p.get("Geometry", "") or "")):
+        # AST-230 (research/particle-rules3.md 1 [R]): the native stretch does not need OrientToVelocity: it stretches both render
+        # axes of a camera-facing particle along its velocity. The stateless sprite has no such step: the particle aligns to its
+        # velocity with the same stretch of its long axis [I] (the flames of the explosion of Explosive Arrow).
+        velocity_aligned = True
+        notes_stretch = "Stretch with no OrientToVelocity: aligned to the velocity with the stretch [I]"
+    else:
+        notes_stretch = ""
     if velocity_aligned and stretch_p["base"] > 0 and size["y"][1] > 0 and mean_life > 0:
         stretch_curve = sample(stretch_p["age"], SAMPLES)
         v0 = sum(speed) / 2 / 100.0
@@ -296,7 +313,7 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         "rotationRate": [0.0, 0.0] if velocity_aligned else random_range(rate_y["base"] or 0.0, rate_y["random"]),
         "distance": {"min": near * 100, "max": (max_m * 100 if math.isfinite(max_m) and max_m > 0 else 0.0),
                      "bands": [[a, b if math.isfinite(b) else None] for a, b in bands]},
-        "notes": notes, "unsupported": unsupported,
+        "notes": notes + ([notes_stretch] if notes_stretch else []), "unsupported": unsupported,
     }
     if axis != [0.0, 0.0, 1.0]:
         record["axis"] = axis
@@ -329,11 +346,21 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         record["enabled"] = False
         record["notes"].append("refraction material: not drawn (AST-230 plan step 6)")
     if str(p.get("EmitterShape", "") or "").upper() == "TRAIL":
-        # A trail emitter (EmitterShape TRAIL: the particles connect into a ribbon along the path of the emitter). The builder has only
-        # the stateless sprite and mesh renderers; a sprite at the emitter is not the ribbon: not drawn (AST-230 open point).
-        record["enabled"] = False
-        record["notes"].append("trail (ribbon) emitter: not drawn yet (AST-230)")
-        unsupported.pop("EmitterShape", None)
+        # AST-230: a trail emitter (EmitterShape TRAIL): its particles stay in the world where the emitter emits them and connect into a
+        # ribbon that faces the camera, with the size (the width), the color, and the alpha of their age. The stateless emitters cannot
+        # leave particles behind: the client draws it (Effects/SwcRibbons) with a ribbon material of the import; the system gets no
+        # emitter for it. Connection: TextureMapping PerParticle (the texture repeats on each segment, the default) or PerStream (over
+        # the whole ribbon), TextureFrequency (the repeats; default 1) [I: the names of the source parameters].
+        import re as _re
+        connection = str(p.get("Connection", "") or "")
+        mapping = _re.search(r"TextureMapping=(\w+)", connection)
+        frequency = _re.search(r"TextureFrequency=([0-9.]+)", connection)
+        record["renderer"] = "ribbon"
+        record["ribbon"] = {"uv": "stream" if mapping and mapping.group(1) == "PerStream" else "particle",
+                            "frequency": float(frequency.group(1)) if frequency else 1.0}
+        record["notes"].append("trail: a ribbon of the client (Effects/SwcRibbons)")
+        for name in ("EmitterShape", "Connection"):
+            unsupported.pop(name, None)
     if facing == "Decal":
         # AST-230 (plan step 6): a decal particle: the Niagara decal renderer projects the material down the local -Z of the emitter
         # [I]; its half extents are the half sizes of the data (SizeX, SizeY; the depth SizeZ) with the age curves; the alpha of the
@@ -353,15 +380,20 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         intensity = _re.search(r"Intensity=\(([^()]*(?:\([^()]*\))?[^()]*)\)", light) or _re.search(r"Intensity=([0-9.]+)", light)
         value = parse_value(intensity.group(1)) if intensity else {"base": 1.0, "fields": {}}
         age = value["fields"].get("ParticleAge")
+        unsupported.pop("LightSource", None)
+        # AST-230 (research/particle-rules3.md 4 [R]): the light is an extra pass; it does not replace the sprite or the mesh. The light
+        # is a twin emitter record with the same births and motion (the same values); the sprite keeps its own color and alpha.
+        sprite = json.loads(json.dumps(record))
         record["renderer"] = "light"
         record["light"] = {"radius": 100.0 * float(radius.group(1)) if radius else 100.0, "intensity": float(value["base"] or 0.0),
                            "curve": sample(age["keys"] if isinstance(age, dict) and "keys" in age else None, SAMPLES)}
         record["enabled"] = bool(bands) and record["light"]["intensity"] > 0
-        unsupported.pop("LightSource", None)
         # The color of a Niagara light with the inverse square falloff is in the unit of a point light: cd x 100 x 100.
         record["lit"] = False
         record["color"]["emissive"] = math.pi * 10000.0 * record["light"]["intensity"] * 10000.0
         record["color"]["curve"] = [[c * k for c in rgb] for rgb, k in zip(record["color"]["curve"], record["light"]["curve"])]
+        if sprite["renderer"] == "sprite" and sprite.get("texture"):
+            record["spriteTwin"] = sprite
     geometry = str(p.get("Geometry", "") or "")
     if geometry:
         record.update(mesh_fields(p, geometry, mtl, textures, tex_out))
@@ -369,6 +401,11 @@ def emitter(node: dict, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         if record["mesh"] is None:
             record["enabled"] = False
             record["notes"].append(f"Geometry {geometry}: no mesh")
+        elif mtl and not mtl.get("missing") and mtl.get("shader") in UNSUPPORTED_MESH_SHADERS:
+            # AST-230: the FX mesh shaders (the fresnel glow, the intersection fade, the palette map, the imposter) are not in the mesh
+            # material (Illum terms): a plain mesh is not the look (the white sphere of Wreckingball_impact_AOE). Not drawn (open point).
+            record["enabled"] = False
+            record["notes"].append(f"mesh shader {mtl['shader']}: not drawn yet (AST-230)")
         else:
             record["enabled"] = bool(bands) and alpha_base > 0 and tex is not None
             if tex is None:
@@ -476,12 +513,15 @@ def system(key: str, libs: Libraries, tex_out: Path, textures: dict) -> dict:
         if node["tag"] != "Particles":
             continue
         record = emitter(node, libs, tex_out, textures)
-        if node["params"].get("SpawnIndirection", "Direct") not in ("Direct", ""):
-            record["enabled"] = False
-            record["notes"].append(f"SpawnIndirection {node['params']['SpawnIndirection']}: stage 7")
-        if lib["nodes"][i]["parent"] not in (-1, index) and i != index:
-            record["notes"].append("a grandchild: its parent trigger is not used yet")
-        emitters.append(record)
+        # A LightSource particle with a sprite: the sprite record, then its light twin (research/particle-rules3.md 4 [R]).
+        twin = record.pop("spriteTwin", None)
+        for item in ([twin] if twin is not None else []) + [record]:
+            if node["params"].get("SpawnIndirection", "Direct") not in ("Direct", ""):
+                item["enabled"] = False
+                item["notes"].append(f"SpawnIndirection {node['params']['SpawnIndirection']}: stage 7")
+            if lib["nodes"][i]["parent"] not in (-1, index) and i != index:
+                item["notes"].append("a grandchild: its parent trigger is not used yet")
+            emitters.append(item)
     shown = [e for e in emitters if e["enabled"]]
     view = max([e["distance"]["max"] for e in shown] + [0.0])
     if any(e["distance"]["max"] == 0.0 for e in shown):
