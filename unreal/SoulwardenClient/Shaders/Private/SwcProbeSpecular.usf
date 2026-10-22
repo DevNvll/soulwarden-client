@@ -1,0 +1,211 @@
+// The specular term of the environment probes for each pixel (AST-247 part 2; research weapon-materials.md section 2; the source
+// tiledshading.cfib ApplyProbe, the opaque deferred path; the pass: Source/SwcShaders/Private/SwcLocalProbePass.cpp).
+//
+// lod = 6 - 6 x s (s the smoothness, 1 - roughness); P = the ordered blend of the probes of the pixel (each takes its fade of the
+// weight that the probes before it left; the world probe the rest), each cube sampled at the reflection direction (the box
+// projection of its probe) x its color; SpecEnv = P x EnvBRDF(F0, roughness, N.V) x SpecOcclusion, SpecOcclusion =
+// saturate((N.V + ao)^s - 1 + ao), ao = max(material AO, 0.3). The cubes have the pre-filtered mips of the source and its face
+// layout (the D3D cube lookup of the source directions east, north, up = Unreal +X, -Y, +Z). The SSDO of the source (the reflection
+// amount 3) is in the specular occlusion.
+
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/BRDF.ush"
+
+Texture2D SceneDepth;
+Texture2D GBufferA;
+Texture2D GBufferB;
+Texture2D GBufferC;
+TextureCube WorldCube;
+TextureCube Cube0;
+TextureCube Cube1;
+TextureCube Cube2;
+TextureCube Cube3;
+TextureCube Cube4;
+TextureCube Cube5;
+TextureCube Cube6;
+TextureCube Cube7;
+SamplerState CubeSampler;
+uint ProbeCount;
+float SourceLuminance;
+float SsdoReflection;
+float4 WorldColor;
+// Each probe: the center (translated world, cm) and the falloff; the three rows of the box space (1/cm); the color and the box
+// projection (w > 0.5); the half sizes of the proxy box of the reflection (cm).
+float4 Probes[MAX_SPECULAR * SPECULAR_STRIDE];
+
+float3 SourceDirection(float3 R)
+{
+	return float3(R.x, -R.y, R.z);
+}
+
+float3 MapCubeToSphere(float3 V)
+{
+	const float3 V2 = V * V;
+	return V * sqrt(max(0.0, 1.0 - 0.5 * V2.yzx - 0.5 * V2.zxy + 0.333 * V2.yzx * V2.zxy));
+}
+
+float ProbeFade(float3 BoxSpace, float Falloff)
+{
+	if (any(abs(BoxSpace) >= 1.0))
+	{
+		return 0.0;
+	}
+	const float3 S = MapCubeToSphere(BoxSpace);
+	const float X = saturate(saturate(1.0 - dot(S, S)) / max(Falloff, 1e-6));
+	return X * X * (3.0 - 2.0 * X);
+}
+
+float3 SampleCube(uint Index, float3 Direction, float Lod)
+{
+	const float3 D = SourceDirection(Direction);
+	switch (Index)
+	{
+	case 0: return Cube0.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 1: return Cube1.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 2: return Cube2.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 3: return Cube3.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 4: return Cube4.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 5: return Cube5.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 6: return Cube6.SampleLevel(CubeSampler, D, Lod).rgb;
+	default: return Cube7.SampleLevel(CubeSampler, D, Lod).rgb;
+	}
+}
+
+// The box projection of the source: the ray from the pixel along R to the faces of the box of the probe; the direction from the
+// center of the box to that point.
+float3 BoxProject(float3 Position, float3 R, uint Base)
+{
+	const float3 Center = Probes[Base].xyz;
+	// The axes of the box from its rows (the unit axes over the half sizes of the influence box); the half sizes of the proxy box
+	// (BoxSize of the record / 2, cm).
+	const float3 Lengths = float3(length(Probes[Base + 1].xyz), length(Probes[Base + 2].xyz), length(Probes[Base + 3].xyz));
+	const float3 Half = Probes[Base + 5].xyz;
+	const float3 Axes[3] = {Probes[Base + 1].xyz / Lengths.x, Probes[Base + 2].xyz / Lengths.y, Probes[Base + 3].xyz / Lengths.z};
+	const float3 P = float3(dot(Axes[0], Position - Center), dot(Axes[1], Position - Center), dot(Axes[2], Position - Center));
+	const float3 D = float3(dot(Axes[0], R), dot(Axes[1], R), dot(Axes[2], R));
+	// The face plane in the direction of each axis component, and the distance along R to it (no zero divisor).
+	const float3 Positive = step(0.0, D);
+	const float3 Far = (lerp(-Half, Half, Positive) - P) / lerp(min(D, -1e-5), max(D, 1e-5), Positive);
+	const float T = max(0.0, min(Far.x, min(Far.y, Far.z)));
+	return normalize(Position + R * T - Center);
+}
+
+// The SSDO of the source for the probe specular (research/e5-ssdo.md section 4: DirOccPassPS, the AO blur, the tiled consumer):
+// eight taps (four narrow, four wide) in a kernel turned by the 4 x 4 pattern of the pixel, each obscurance = area x saturate(N.S)
+// / (distance^2 + area), the sum x 0.15. The UV radius: min(max(0.5 x P x r_ssdoRadius (1.2 m) / depth x (0.15 narrow), 0.06),
+// upper), upper 0.20, halved on an odd pixel column and row. The blur: the result at the pixel and at +1 pixel in x, y, and
+// both (the source: +2), weighted by saturate(1 - 35 x |depth / center depth - 1|).
+static const float2 SsdoKernel[8] = {float2(-0.14, -0.02), float2(-0.04, 0.24), float2(0.36, 0.08), float2(0.26, -0.40),
+	float2(-0.44, -0.34), float2(-0.52, 0.40), float2(0.30, 0.68), float2(0.84, -0.32)};
+
+float3 PixelPosition(float2 Pixel, out float Depth)
+{
+	const float2 Clamped = clamp(Pixel, View.ViewRectMin.xy, View.ViewRectMin.xy + View.ViewSizeAndInvSize.xy - 1.0);
+	const float DeviceZ = SceneDepth.Load(int3(Clamped, 0)).r;
+	Depth = ConvertFromDeviceZ(DeviceZ);
+	return SvPositionToTranslatedWorld(float4(Clamped + 0.5, DeviceZ, 1.0));
+}
+
+float SsdoAt(float2 Pixel, float3 N)
+{
+	float Depth;
+	const float3 Receiver = PixelPosition(Pixel, Depth);
+	const float2 Scale = float2(View.ViewToClip[0][0], View.ViewToClip[1][1]);
+	const float Meters = max(Depth * 0.01, 1e-3);
+	float Upper = 0.20;
+	Upper *= (uint(Pixel.x) & 1) != 0 ? 0.5 : 1.0;
+	Upper *= (uint(Pixel.y) & 1) != 0 ? 0.5 : 1.0;
+	const float2 Wide = min(max(0.5 * Scale * 1.2 / Meters, 0.06), Upper);
+	const float2 Narrow = min(max(0.5 * Scale * 1.2 * 0.15 / Meters, 0.06), Upper);
+	const float Angle = dot(frac((floor(Pixel) + 0.5) * 0.25), float2(1.0, 0.25)) * 6.2831;
+	const float2x2 Turn = float2x2(cos(Angle), -sin(Angle), sin(Angle), cos(Angle));
+	const float2 Size = View.ViewSizeAndInvSize.xy;
+	float Sum = 0.0;
+	for (int Index = 0; Index < 8; ++Index)
+	{
+		const bool bNarrow = Index < 4;
+		const float2 RadiusUV = bNarrow ? Narrow : Wide;
+		const float2 Offset = mul(Turn, SsdoKernel[Index]) * RadiusUV;
+		float SampleDepth;
+		const float3 Emitter = PixelPosition(Pixel + Offset * Size, SampleDepth);
+		const float3 Delta = Emitter - Receiver;
+		const float DistanceSquared = dot(Delta, Delta);
+		const float3 S = Delta * rsqrt(max(DistanceSquared, 1e-6));
+		// The world radius of the band (cm): the UV radius x the view width at the depth (2 / P00 x depth).
+		const float Radius = RadiusUV.x * Depth * 2.0 / Scale.x;
+		const float Area = (bNarrow ? 0.5 : 2.5) * 3.1415 * Radius * Radius / 4.0;
+		Sum += Area * saturate(dot(N, S)) / (DistanceSquared + Area);
+	}
+	return Sum * 0.15;
+}
+
+float SsdoAmount(float2 Pixel, float CenterDepth)
+{
+	float Weight = 0.0;
+	float Sum = 0.0;
+	float Plain = 0.0;
+	for (int Tap = 0; Tap < 4; ++Tap)
+	{
+		// The source blurs with taps 2 pixels apart [R]; here 1 pixel apart, so that the four parities of the radius bound mix and its
+		// 2 x 2 pattern does not show on bright metal [I].
+		const float2 At = floor(Pixel) + float2(Tap & 1, Tap >> 1);
+		float Depth;
+		PixelPosition(At, Depth);
+		const float W = saturate(1.0 - 35.0 * abs(Depth / CenterDepth - 1.0));
+		const float2 Clamped = clamp(At, View.ViewRectMin.xy, View.ViewRectMin.xy + View.ViewSizeAndInvSize.xy - 1.0);
+		const float A = SsdoAt(At, normalize(GBufferA.Load(int3(Clamped, 0)).xyz * 2.0 - 1.0));
+		Sum += W * A;
+		Weight += W;
+		Plain += A * 0.25;
+	}
+	return Weight > 0.01 ? Sum / Weight : Plain;
+}
+
+void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
+{
+	OutColor = float4(0.0, 0.0, 0.0, 0.0);
+	if (any(SvPosition.xy < View.ViewRectMin.xy) || any(SvPosition.xy >= View.ViewRectMin.xy + View.ViewSizeAndInvSize.xy))
+	{
+		return;
+	}
+	const int3 Pixel = int3(SvPosition.xy, 0);
+	const float DeviceZ = SceneDepth.Load(Pixel).r;
+	const float4 B = GBufferB.Load(Pixel);
+	// The sky (reversed Z) and the unlit pixels (shading model 0 in the low 4 bits of G-buffer B alpha).
+	if (DeviceZ <= 0.0 || ((uint)round(B.a * 255.0) & 0xF) == 0)
+	{
+		return;
+	}
+	const float4 C = GBufferC.Load(Pixel);
+	const float3 N = normalize(GBufferA.Load(Pixel).xyz * 2.0 - 1.0);
+	const float3 Position = SvPositionToTranslatedWorld(float4(SvPosition.xy, DeviceZ, 1.0));
+	const float3 V = normalize(View.TranslatedWorldCameraOrigin - Position);
+	const float3 R = reflect(-V, N);
+	const float NoV = saturate(dot(N, V));
+	const float Roughness = B.b;
+	const float Smoothness = 1.0 - Roughness;
+	const float Lod = 6.0 - 6.0 * Smoothness;
+	const float3 F0 = lerp(0.08 * B.g.xxx, C.rgb, B.r);
+	float Used = 0.0;
+	float3 Light = 0.0;
+	for (uint Index = 0; Index < ProbeCount && Used < 1.0; ++Index)
+	{
+		const uint Base = Index * SPECULAR_STRIDE;
+		const float3 D = Position - Probes[Base].xyz;
+		const float Fade = ProbeFade(float3(dot(Probes[Base + 1].xyz, D), dot(Probes[Base + 2].xyz, D), dot(Probes[Base + 3].xyz, D)),
+			Probes[Base].w);
+		const float Weight = (1.0 - Used) * Fade;
+		if (Weight > 0.0)
+		{
+			const float3 Direction = Probes[Base + 4].w > 0.5 ? BoxProject(Position, R, Base) : R;
+			Light += Weight * SampleCube(Index, Direction, Lod) * Probes[Base + 4].rgb;
+		}
+		Used += Weight;
+	}
+	Light += saturate(1.0 - Used) * WorldCube.SampleLevel(CubeSampler, SourceDirection(R), Lod).rgb * WorldColor.rgb;
+	// The occlusion of the source: os = min(material AO, saturate(1 - a x r_ssdoAmountReflection (3; SsdoReflection))^2), ao = max(os, 0.3).
+	const float Ssdo = SsdoReflection > 0.0 ? SsdoAmount(SvPosition.xy, ConvertFromDeviceZ(DeviceZ)) : 0.0;
+	const float Ao = max(min(C.a, Square(saturate(1.0 - Ssdo * SsdoReflection))), 0.3);
+	const float Occlusion = saturate(pow(NoV + Ao, Smoothness) - 1.0 + Ao);
+	OutColor = float4(Light * EnvBRDF(F0, Roughness, NoV) * Occlusion * SourceLuminance * View.PreExposure, 0.0);
+}

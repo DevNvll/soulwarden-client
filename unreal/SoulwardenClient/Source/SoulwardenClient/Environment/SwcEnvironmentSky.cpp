@@ -94,6 +94,13 @@ TAutoConsoleVariable<int32> CVarLocalProbes(TEXT("swc.LocalProbes"), 0,
 	TEXT("The local probes of the source (stage E5, a test): 2 the probes of each pixel (a pass after the base pass scales the material AO by the light of the probes of the pixel over the world probe); 1 the sky light blends the world probe with the local probes at the camera by the weights of the source; 0 the world probe only."));
 TAutoConsoleVariable<float> CVarLocalProbeReach(TEXT("swc.LocalProbeReach"), 500.0f,
 	TEXT("swc.LocalProbes 2: the probes whose box sphere is within this distance of the camera (m); the nearest 64 go to the pass."));
+TAutoConsoleVariable<int32> CVarProbeSpecular(TEXT("swc.ProbeSpecular"), 0,
+	TEXT("The specular term of the probes for each pixel (AST-247 part 2, research/weapon-materials.md section 2): 1 the ordered blend of the ")
+	TEXT("specular cubes of the local probes and the world probe (the pre-filtered mips of the source, the box projection, COLOR x the multipliers ")
+	TEXT("x the time of day) x the environment BRDF x the specular occlusion of the source, added after the base pass; the Lumen reflections, ")
+	TEXT("the reflection environment, and the screen-space reflections are off with it. 0 the reflections of Unreal."));
+TAutoConsoleVariable<float> CVarProbeSpecularSsdo(TEXT("swc.ProbeSpecularSsdo"), 3.0f,
+	TEXT("swc.ProbeSpecular 1: the SSDO strength of the specular occlusion (r_ssdoAmountReflection of the source: 3; 0 no SSDO)."));
 TAutoConsoleVariable<int32> CVarNightSkyTint(TEXT("swc.NightSkyTint"), 1,
 	TEXT("The night sky: 1 the hue of the night horizon color of the data, 0 the color of the SkyAtmosphere."));
 
@@ -1020,22 +1027,83 @@ void USwcEnvironmentSubsystem::UpdateLocalProbes(USkyLightComponent* Ambient, co
 	Ambient->SetLightColor(Multiplier * FLinearColor(static_cast<float>(Tint[0] * Scale), static_cast<float>(Tint[1] * Scale), static_cast<float>(Tint[2] * Scale)));
 }
 
+UTextureCube* USwcEnvironmentSubsystem::ProbeSpecCube(const FString& Name)
+{
+	if (const TObjectPtr<UTextureCube>* Found = ProbeSpecCubes.Find(Name))
+	{
+		return Found->Get();
+	}
+	const FString Asset = TEXT("T_SwcProbeSpec_") + Name;
+	UTextureCube* Cube = LoadObject<UTextureCube>(nullptr, *FString::Printf(TEXT("/SwcGameContent/Environment/ProbesSpec/%s.%s"), *Asset, *Asset), nullptr, LOAD_NoWarn);
+	ProbeSpecCubes.Add(Name, Cube);
+	UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the specular cube %s%s"), *Asset, Cube != nullptr ? TEXT("") : TEXT(" is not imported (tools/import-sky.sh)"));
+	return Cube;
+}
+
+void USwcEnvironmentSubsystem::ApplyProbeSpecular(bool bOn)
+{
+	if (ProbeSpecularApplied == (bOn ? 1 : 0) || (ProbeSpecularApplied < 0 && !bOn))
+	{
+		return;
+	}
+	static const TCHAR* Names[3] = {TEXT("r.Lumen.Reflections.Allow"), TEXT("r.ReflectionEnvironment"), TEXT("r.SSR.Quality")};
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		if (IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Names[Index]))
+		{
+			if (bOn)
+			{
+				ReflectionsBefore[Index] = Variable->GetInt();
+			}
+			Variable->Set(bOn ? 0 : ReflectionsBefore[Index], ECVF_SetByCode);
+		}
+	}
+	ProbeSpecularApplied = bOn ? 1 : 0;
+	UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the specular term of the probes %s (the Unreal reflections %s)"), bOn ? TEXT("on") : TEXT("off"),
+		bOn ? TEXT("off") : TEXT("as before"));
+}
+
 void USwcEnvironmentSubsystem::UpdatePixelProbes(const FVector& CameraLocation, const FLinearColor& Multiplier)
 {
 	// The local probes of each pixel (stage E5 step 3, research/e5-local-probes.md): the probes near the camera go to the pass after
 	// the base pass in the order of the light list of the source. Off (an empty list) in the menu mode, with the real-time sky
-	// light (no world probe: Multiplier black), and for swc.LocalProbes 0 and 1.
+	// light (no world probe: Multiplier black); the AO pass for swc.LocalProbes 2, the specular term for swc.ProbeSpecular 1.
 	FSwcProbeShadingList List;
 	const double Gain = 0.2126 * Multiplier.R + 0.7152 * Multiplier.G + 0.0722 * Multiplier.B;
-	if (CVarLocalProbes.GetValueOnGameThread() != 2 || Menu.IsSet() || !Data.IsValid() || Gain <= 0.0)
+	const bool bOff = Menu.IsSet() || !Data.IsValid() || Gain <= 0.0;
+	List.bAo = !bOff && CVarLocalProbes.GetValueOnGameThread() == 2;
+	// The specular term of the probes (AST-247 part 2): the cube of the world probe, its color (research/e5-local-probes.md: COLOR x
+	// DiffuseMultiplier x lerp(1, G x D, t) x SpecMultiplier x lerp(1, S, t); G the RGB of "Environment Probe Multiplier", D and S its
+	// diffuse and specular multipliers), and the scene luminance of one source unit.
+	UTextureCube* WorldSpec = !bOff && CVarProbeSpecular.GetValueOnGameThread() == 1 && !Data->WorldProbe.IsEmpty() ? ProbeSpecCube(Data->WorldProbe) : nullptr;
+	List.bSpecular = WorldSpec != nullptr && WorldSpec->GetResource() != nullptr;
+	ApplyProbeSpecular(List.bSpecular);
+	if (!List.bAo && !List.bSpecular)
 	{
 		SwcProbeShading::SetList(MoveTemp(List));
 		return;
 	}
+	const double DiffuseTod = Blended(TEXT("Environment Probe Diffuse Multiplier"), 1.0);
+	const double SpecularTod = Blended(TEXT("Environment Probe Specular Multiplier"), 1.0);
+	auto SpecularColor = [&](const std::array<double, 3>& Color, double Influence)
+	{
+		const double Specular = FMath::Lerp(1.0, SpecularTod, Influence);
+		return FVector3f(static_cast<float>(Color[0] * FMath::Lerp(1.0, Multiplier.R * DiffuseTod, Influence) * Specular),
+			static_cast<float>(Color[1] * FMath::Lerp(1.0, Multiplier.G * DiffuseTod, Influence) * Specular),
+			static_cast<float>(Color[2] * FMath::Lerp(1.0, Multiplier.B * DiffuseTod, Influence) * Specular));
+	};
+	if (List.bSpecular)
+	{
+		List.WorldSpecCube = WorldSpec->GetResource();
+		const double WorldColor = Data->WorldProbeDiffuse * Data->WorldProbeSpecular;
+		List.WorldSpecColor = SpecularColor({WorldColor, WorldColor, WorldColor}, Data->WorldProbeTodInfluence);
+		List.SourceLuminance = static_cast<float>(SourceUnitLuminance * CVarProbeScale.GetValueOnGameThread());
+		List.SsdoReflection = FMath::Max(CVarProbeSpecularSsdo.GetValueOnGameThread(), 0.0f);
+	}
 	// The time-of-day gain of a probe: lerp(1, G x D, TODInfluence), G the luminance of "Environment Probe Multiplier" and D
 	// "Environment Probe Diffuse Multiplier" (the CPU rule of the source). The source unit and swc.ProbeScale are in both the world
 	// and the local light: the ratio of the pass has no need of them.
-	const double TodGain = Gain * Blended(TEXT("Environment Probe Diffuse Multiplier"), 1.0);
+	const double TodGain = Gain * DiffuseTod;
 	auto Faces = [](const std::array<double, 6>& F, double Scale, FVector3f& Positive, FVector3f& Negative)
 	{
 		// The source axes east, north, up are Unreal +X, -Y, +Z.
@@ -1088,6 +1156,7 @@ void USwcEnvironmentSubsystem::UpdatePixelProbes(const FVector& CameraLocation, 
 		return PA.Order > PB.Order;
 	});
 	int32 Brighter = 0;
+	int32 SpecularCubes = 0;
 	for (const FNear& Item : Near)
 	{
 		const FData::FLocalProbe& Probe = Data->LocalProbes[Item.Index];
@@ -1109,15 +1178,26 @@ void USwcEnvironmentSubsystem::UpdatePixelProbes(const FVector& CameraLocation, 
 			Mean += F * Scale / 6.0;
 		}
 		Brighter += Mean > WorldMean ? 1 : 0;
+		if (List.bSpecular)
+		{
+			UTextureCube* Cube = ProbeSpecCube(Probe.Cube);
+			Out.SpecCube = Cube != nullptr ? Cube->GetResource() : nullptr;
+			SpecularCubes += Out.SpecCube != nullptr ? 1 : 0;
+			Out.SpecColor = SpecularColor(Probe.SpecColor, Probe.TodInfluence);
+			Out.bBoxProject = Probe.bBoxProject;
+			// The proxy box of the reflection: BoxSize / 2 on the axes of the entity (m to cm).
+			Out.BoxHalf = FVector3f(static_cast<float>(Probe.BoxSize[0] * 50.0), static_cast<float>(Probe.BoxSize[1] * 50.0),
+				static_cast<float>(Probe.BoxSize[2] * 50.0));
+		}
 	}
 	const double Now = FPlatformTime::Seconds();
 	if (Now >= NextPixelProbeLog)
 	{
 		NextPixelProbeLog = Now + 5.0;
 		const FData::FLocalProbe* First = Near.IsEmpty() ? nullptr : &Data->LocalProbes[Near[0].Index];
-		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the local probes of the pixels: %d of %d within %.0f m, %d with more light than the world probe (the AO cannot add it); the first %s (priority %d, radius %.1f m)"),
-			List.Probes.Num(), Found, Reach, Brighter, First != nullptr ? *First->Cube : TEXT("none"), First != nullptr ? First->Priority & 0xFF : 0,
-			First != nullptr ? First->Radius : 0.0);
+		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the local probes of the pixels: %d of %d within %.0f m, %d with more light than the world probe (the AO cannot add it), %d with a specular cube (the pass uses the first %d); the first %s (priority %d, radius %.1f m)"),
+			List.Probes.Num(), Found, Reach, Brighter, SpecularCubes, FSwcProbeShadingList::MaxSpecular, First != nullptr ? *First->Cube : TEXT("none"),
+			First != nullptr ? First->Priority & 0xFF : 0, First != nullptr ? First->Radius : 0.0);
 	}
 	SwcProbeShading::SetList(MoveTemp(List));
 }

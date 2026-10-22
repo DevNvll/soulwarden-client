@@ -559,6 +559,43 @@ the flower petals are cream-white, and the fire is a white flare. Evidence: `~/G
   nothing; so it is not one global gain. At matched exposure the displayed ratio is mostly the albedo ratio; noon-n is about 1.44
   times too bright in the sun and 2.1 times in the shade.
 
+### The probe specular term (switch, off; AST-247 part 2, 2026-10-22)
+
+`swc.ProbeSpecular 1` adds the specular light of the environment probes for each pixel, as the opaque tiled path of the source
+(research weapon-materials.md section 2, e5-local-probes.md, e5-ssdo.md section 4):
+
+- The cubes: `tools/convert-environment.sh probes-spec` writes each world and local probe cube with the pre-filtered mips of the
+  source (BC6H 256 x 256, 7 mips: the split parts `NAME.dds.N` are one mip of the six faces, the highest N is mip 0; the tail of
+  the base file has the smaller mips of each face in turn) as a DDS cube of RGBA16F (the mips below 4 x 4 are 2 x 2 means, as
+  Unreal imports only a full chain): `content/environment/probes/spec/NAME.dds` and `probes-spec.json` (35 cubes, 140 MB).
+  `tools/import-sky.sh` imports them as `/SwcGameContent/Environment/ProbesSpec/T_SwcProbeSpec_NAME` (the mips of the file,
+  HDR, no streaming). The face layout is the D3D cube lookup of the source directions east, north, up (Unreal +X, -Y, +Z); the
+  seams of the world cube agree with this layout (mean seam error 0.008 against 0.39 for a swap of the north and south faces).
+- The pass (`Shaders/Private/SwcProbeSpecular.usf`, `AddSwcProbeSpecularPass` in `Source/SwcShaders`; the view extension
+  `Environment/SwcProbeShading.cpp`) runs after the base pass, before the lighting, and adds to the scene color, so the fog
+  and the translucency come after it. For each lit pixel: R = reflect(-V, N); the ordered probe weights of the AO pass (the
+  first 8 probes of the list with a cube, the world probe in the rest); each cube at R (the box projection of its proxy box,
+  `BoxSize` / 2 in m on the axes of the entity, when `BoxProject`) at the mip 6 - 6 x smoothness; times its color COLOR x
+  DiffuseMultiplier x lerp(1, G x D, t) x SpecMultiplier x lerp(1, S, t) (G the RGB of "Environment Probe Multiplier", D and S
+  the diffuse and specular multipliers of the time of day, t the TODInfluence); times the environment BRDF of Unreal
+  (`EnvBRDF`: F0 and the roughness of the G-buffer, N.V); times the specular occlusion saturate((N.V + ao)^s - 1 + ao), ao =
+  max(min(material AO, saturate(1 - a x 3)^2), 0.3), a the SSDO of the source (8 taps, the narrow and wide bands, the radius
+  1.2 m with the UV bounds 0.06 to 0.20; `swc.ProbeSpecularSsdo`, 0 turns it off); times 10,000 cd/m2 a unit x
+  `swc.ProbeScale` x the pre-exposure. The SSDO blur takes taps 1 pixel apart (the source: 2) so that the 2 x 2 pattern of the
+  radius bound does not show on bright metal [I].
+- With the switch on, the client sets `r.Lumen.Reflections.Allow`, `r.ReflectionEnvironment`, and `r.SSR.Quality` to 0 (the
+  values before come back when it is off), so the reflection is not counted twice.
+- Checks (the matched views of set-ast247-mv, set1-oxboro, and set4-weather; `work/ast247/sheets-spec/`): the steel of the
+  Heavy Plate set (helmet, shoulders) is near retail with the term (the shoulder 0.49 against retail 0.54 in linear display
+  values at matched dirt); the steel of Metal_SetB (Heavy Heavy) and the iron fence of noon-n are too bright and too neutral:
+  about 1.5 to 2 times retail in display values, retail shows a darker, green reflection of the forest. The SSDO removes only
+  about 8 % on the armor. The world views change little. The GPU time: noon-n 10.03 ms off, 10.01 and 10.09 ms on; the inn
+  10.32 ms off, 10.53 and 10.27 ms on (pairs late in one run): at most about 0.2 ms.
+- Open [U]: the level on bright steel. The material instance of the Metal_SetB chest is right (M_SwcSurface, the spec map,
+  F0 about 0.18 by the texels). Leads: the world probe has `IndoorOnly` and `AffectsThisAreaOnly` set (the source rule of these
+  flags is not proved, e5-local-probes.md section 1); the strength of the source SSDO at the pixels; the BRDF table of the
+  source (indexed by the smoothness) against the table of Unreal.
+
 ### Not done, open points (E5)
 
 The E5 queue stopped on 2026-10-20 (the decision of the user: the next focus is a playable game). These items wait, in this

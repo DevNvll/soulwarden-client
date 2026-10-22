@@ -462,6 +462,35 @@ if os.path.exists(probe_doc):
         cube.set_editor_property("never_stream", True)
         assets.save_loaded_asset(cube, only_if_is_dirty=False)
         report["probes"].append(name)
+# The probe cubes with the pre-filtered mips of the source (converter environment probes-spec; AST-247 part 2: the specular term of
+# the probes for each pixel): /SwcGameContent/Environment/ProbesSpec/T_SwcProbeSpec_NAME, RGBA16F with the mips of the file.
+SPEC_PROBES = FOLDER + "/ProbesSpec"
+spec_doc = os.path.join(content, "probes-spec.json")
+report["probe specular cubes"] = []
+if os.path.exists(spec_doc):
+    for name, entry in sorted(json.load(open(spec_doc))["cubes"].items()):
+        asset = "T_SwcProbeSpec_" + name
+        path = f"{SPEC_PROBES}/{asset}"
+        if assets.does_asset_exist(path) and not force:
+            report["probe specular cubes"].append(asset)
+            continue
+        task = unreal.AssetImportTask()
+        task.set_editor_property("filename", os.path.join(content, entry["dds"]))
+        task.set_editor_property("destination_path", SPEC_PROBES)
+        task.set_editor_property("destination_name", asset)
+        task.set_editor_property("automated", True)
+        task.set_editor_property("replace_existing", True)
+        task.set_editor_property("save", False)
+        tools.import_asset_tasks([task])
+        cube = unreal.load_asset(path)
+        if not isinstance(cube, unreal.TextureCube):
+            raise RuntimeError(f"{path}: the import gave {type(cube).__name__}, not a TextureCube")
+        cube.set_editor_property("srgb", False)
+        cube.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_LEAVE_EXISTING_MIPS)
+        cube.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_HDR)
+        cube.set_editor_property("never_stream", True)
+        assets.save_loaded_asset(cube, only_if_is_dirty=False)
+        report["probe specular cubes"].append(asset)
 report["seconds"] = round(time.time() - started, 1)
 with open(os.environ["SWC_SKY_REPORT"], "w") as handle:
     json.dump(report, handle, indent=1)

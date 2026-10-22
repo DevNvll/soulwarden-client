@@ -104,6 +104,8 @@ public:
 		FString WorldProbe;
 		double WorldProbeDiffuse = 1.0;
 		double WorldProbeTodInfluence = 1.0;
+		/** The SpecularMultiplier of the world probe (the specular term of the probes, swc.ProbeSpecular 1). */
+		double WorldProbeSpecular = 1.0;
 		/** The mean radiance of the four side faces of the world probe (the units of the source): the ambient of the far fog. */
 		std::array<double, 3> WorldProbeHorizon{0.3, 0.33, 0.35};
 		/** The ambient cube of the world probe (probes.json "diffuseMeans": the Rec. 709 luminance of the mean of each face of its
@@ -124,6 +126,11 @@ public:
 			std::array<double, 3> Color{1.0, 1.0, 1.0};
 			double TodInfluence = 1.0;
 			FString Cube;
+			/** The specular term (swc.ProbeSpecular 1): COLOR x DiffuseMultiplier x SpecMultiplier, the box projection of the reflection and the size of
+			 *  its proxy box (BoxSize, m, on the axes of the entity). */
+			std::array<double, 3> SpecColor{1.0, 1.0, 1.0};
+			bool bBoxProject = false;
+			std::array<double, 3> BoxSize{1.0, 1.0, 1.0};
 			/** The ambient cube of its diffuse cube (as WorldProbeFaces; all 0 when the cube has no means: no light of its own). */
 			std::array<double, 6> Faces{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 			/** The place of the record in probes.json: the last key of the order (a stand-in for the entity id of the source). */
@@ -336,6 +343,16 @@ private:
 	/** The cubes of the local probes (stage E5 step b), loaded at their first use; the cube of the blend and its fraction. */
 	UPROPERTY(Transient)
 	TMap<FString, TObjectPtr<class UTextureCube>> ProbeCubes;
+	/** The cubes of the specular term of the probes (swc.ProbeSpecular 1; T_SwcProbeSpec_NAME, the pre-filtered mips of the source),
+	 *  loaded at their first use (null: not imported). */
+	UPROPERTY(Transient)
+	TMap<FString, TObjectPtr<class UTextureCube>> ProbeSpecCubes;
+	class UTextureCube* ProbeSpecCube(const FString& Name);
+	/** The Unreal reflections that swc.ProbeSpecular 1 turns off (Lumen reflections, the reflection environment with the sky light
+	 *  specular, the screen-space reflections) and their values before (-1: not changed). */
+	void ApplyProbeSpecular(bool bOn);
+	int32 ProbeSpecularApplied = -1;
+	std::array<int32, 3> ReflectionsBefore{1, 1, 3};
 	FString ProbeBlendCube;
 	/** The local probes at the camera for the probe log line. */
 	FString ProbeText;

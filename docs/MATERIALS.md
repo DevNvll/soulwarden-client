@@ -601,6 +601,9 @@ overlay masks (charactermasking.cfib) as the world. One rule for all bodies (`co
   Hair), the metal is duller (the reflections of the scene), a pink patch on the back of the gear.
 - Limits: the anisotropic highlight of Hair and the subsurface light of HumanSkin are not in the parents. Glass and the
   other shaders (the animated `Fxmeshadvancedtransp` flames of some weapons) keep the glTF rule.
+- The specular light of the environment probes on metal (AST-247 part 2): `swc.ProbeSpecular 1` (off by default; see
+  docs/ENVIRONMENT.md "The probe specular term"). The steel gets the reflection of the probe cubes in place of the Unreal
+  reflections; the Heavy Plate steel is near retail, bright steel and iron are still too bright.
 - The weapons (AST-247, research weapon-materials.md section 1): the weapon looks and their accessories of `weapons.json`
   (the weapons, shields, quivers with their arrows, and tools; 1,026 looks, 974 slots with a spec, 25 slots of Glass and FX
   shaders with the glTF rule) take the same spec from the XML of their materials. One look serves each item with its mesh

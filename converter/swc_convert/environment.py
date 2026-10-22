@@ -1006,6 +1006,89 @@ def probes() -> dict:
             "local": len(local), "cubes": len(cubes), "errors": {Path(k).stem: v["error"] for k, v in cubes.items() if "error" in v}}
 
 
+def cube_mips(cubemap: str):
+    """@return All mips of a BC6H cubemap of the source: [mip][face] RGB float arrays (the face order and layout of D3D), from the
+    split files (NAME.dds.N: one mip of the six faces, the highest N is mip 0) and the tail of the base file (the smaller mips of each
+    face in turn), or no value."""
+    from . import bc6h
+    base = source.read(cubemap)
+    size = struct.unpack_from("<I", base, 16)[0]
+    mips = struct.unpack_from("<I", base, 28)[0] or 1
+    sizes = [max(1, size >> i) for i in range(mips)]
+    face_bytes = [max(1, (s + 3) // 4) ** 2 * 16 for s in sizes]
+    splits = 0
+    while source.has(f"{cubemap}.{splits + 1}"):
+        splits += 1
+    blocks = {}   # (mip, face) -> the bytes
+    for i in range(splits):
+        data = source.read(f"{cubemap}.{splits - i}")
+        if len(data) != 6 * face_bytes[i]:
+            return None
+        for f in range(6):
+            blocks[i, f] = data[f * face_bytes[i]:(f + 1) * face_bytes[i]]
+    # The tail: each face with its smaller mips in turn (the face means are smooth over the mips only in this order).
+    tail, offset = base[148:], 0
+    for f in range(6):
+        for i in range(splits, mips):
+            blocks[i, f] = tail[offset:offset + face_bytes[i]]
+            offset += face_bytes[i]
+    if offset != len(tail):
+        return None
+    return [[bc6h.decode(blocks[i, f], max(4, sizes[i]), max(4, sizes[i]))[:sizes[i], :sizes[i]] for f in range(6)] for i in range(mips)]
+
+
+def write_cube_dds(path: Path, mips: list) -> None:
+    """Writes a DDS cube of RGBA16F with its mips (DX10 header: TEXTURECUBE, array size 1; the data of each face with its mips in
+    turn), which Unreal imports with the mips of the file."""
+    # Unreal imports a full mip chain only: the mips below the smallest of the source (4 x 4, mip 6) are the means of 2 x 2 texels
+    # (the term samples mips 0 to 6 only: lod = 6 - 6 x smoothness).
+    mips = list(mips)
+    while mips[-1][0].shape[0] > 1:
+        mips.append([face.reshape(face.shape[0] // 2, 2, face.shape[1] // 2, 2, 3).mean((1, 3)) for face in mips[-1]])
+    size, count = mips[0][0].shape[0], len(mips)
+    header = bytearray(4 + 124 + 20)
+    header[0:4] = b"DDS "
+    struct.pack_into("<7I", header, 4, 124, 0x1 | 0x2 | 0x4 | 0x8 | 0x1000 | 0x20000, size, size, size * 8, 0, count)
+    struct.pack_into("<2I4s", header, 4 + 72, 32, 0x4, b"DX10")
+    struct.pack_into("<4I", header, 4 + 104, 0x8 | 0x1000 | 0x400000, 0xFE00, 0, 0)
+    struct.pack_into("<5I", header, 128, 10, 3, 0x4, 1, 0)
+    parts = [bytes(header)]
+    for face in range(6):
+        for mip in mips:
+            rgb = mip[face].astype(np.float32)
+            rgba = np.concatenate([rgb, np.ones(rgb.shape[:2] + (1,), np.float32)], -1)
+            parts.append(rgba.astype(np.float16).tobytes())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_bytes(b"".join(parts))
+    temporary.replace(path)
+
+
+def probe_specular() -> dict:
+    """Writes probes/spec/NAME.dds (each world and local probe cube with its pre-filtered mips of the source: the specular term of
+    the probes for each pixel, research weapon-materials.md section 2) and probes-spec.json (NAME -> the file, the cubemap, the face
+    size, the mips). The command probes-spec, after probes."""
+    doc = json.loads((out_dir() / "probes.json").read_text())
+    cubemaps = [w["cubemap"] for w in doc["world"]] + [c for c in doc.get("cubes", {}) if c]
+    records, failed = {}, {}
+    for cubemap in sorted(set(cubemaps)):
+        name = probe_name(cubemap)
+        target = out_dir() / "probes" / "spec" / f"{name}.dds"
+        try:
+            mips = cube_mips(cubemap)
+        except Exception as error:
+            failed[cubemap] = str(error)[:120]
+            continue
+        if mips is None:
+            failed[cubemap] = "the mips do not read"
+            continue
+        write_cube_dds(target, mips)
+        records[name] = {"dds": str(target.relative_to(out_dir())), "cubemap": cubemap, "faceSize": int(mips[0][0].shape[0]),
+                         "mips": len(mips)}
+    (out_dir() / "probes-spec.json").write_text(json.dumps({"format": 1, "cubes": records}, indent=1, sort_keys=True))
+    return {"cubes": len(records), "failed": failed}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="swc-environment", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1014,6 +1097,7 @@ def main(argv=None) -> int:
     sub.add_parser("cookies")
     sub.add_parser("sky")
     sub.add_parser("probes")
+    sub.add_parser("probes-spec")
     p = sub.add_parser("volumes")
     p.add_argument("x", type=float)
     p.add_argument("y", type=float)
@@ -1034,6 +1118,8 @@ def main(argv=None) -> int:
         print(json.dumps(sky(), indent=1))
     elif args.command == "probes":
         print(json.dumps(probes(), indent=1))
+    elif args.command == "probes-spec":
+        print(json.dumps(probe_specular(), indent=1))
     elif args.command == "volumes":
         print(json.dumps(time_volumes_at((args.x, args.y, args.z)), indent=1))
     elif args.command == "table":

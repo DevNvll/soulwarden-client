@@ -398,6 +398,7 @@ TSharedPtr<USwcEnvironmentSubsystem::FData, ESPMode::ThreadSafe> LoadData(const 
 					Out->WorldProbe = FPaths::GetBaseFilename(Picture);
 					Out->WorldProbeDiffuse = NumberOf(Probe, TEXT("diffuseMultiplier"), 1.0);
 					Out->WorldProbeTodInfluence = NumberOf(Probe, TEXT("todInfluence"), 1.0);
+					Out->WorldProbeSpecular = NumberOf(Probe, TEXT("specMultiplier"), 1.0);
 					USwcEnvironmentSubsystem::ReadCubeFaces(Probe, Out->WorldProbeFaces);
 					const TSharedPtr<FJsonObject>* Faces = nullptr;
 					if (Probe->TryGetObjectField(TEXT("faceMeans"), Faces) && Faces != nullptr)
@@ -517,6 +518,21 @@ bool USwcEnvironmentSubsystem::ReadLocalProbe(const TSharedPtr<FJsonObject>& Pro
 	}
 	Out.TodInfluence = NumberOf(Probe, TEXT("todInfluence"), 1.0);
 	Out.Cube = FPaths::GetBaseFilename(Picture);
+	// The specular color of the source (research/e5-local-probes.md): COLOR x DiffuseMultiplier x SpecMultiplier (the time-of-day
+	// factors at run time).
+	const double Specular = NumberOf(Probe, TEXT("specMultiplier"), 1.0);
+	for (int32 C = 0; C < 3; ++C)
+	{
+		Out.SpecColor[C] = Out.Color[C] * Specular;
+	}
+	bool bBoxProject = false;
+	Out.bBoxProject = Probe->TryGetBoolField(TEXT("boxProject"), bBoxProject) && bBoxProject;
+	TArray<double> BoxSize;
+	NumbersOf(Probe, TEXT("boxSize"), BoxSize);
+	if (BoxSize.Num() == 3)
+	{
+		Out.BoxSize = {BoxSize[0], BoxSize[1], BoxSize[2]};
+	}
 	return true;
 }
 

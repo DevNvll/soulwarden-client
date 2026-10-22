@@ -4,8 +4,9 @@
 #include "SwcLocalProbePass.h"
 
 /**
- * The local probes of each pixel (stage E5 step 3, swc.LocalProbes 2): a scene view extension that runs the pass of the module
- * SwcShaders after the base pass with the probe list of the game thread (Environment/SwcEnvironmentSky.cpp UpdatePixelProbes).
+ * The local probes of each pixel (stage E5 step 3, swc.LocalProbes 2) and the probe specular term (AST-247, swc.ProbeSpecular 1): a
+ * scene view extension that runs the passes of the module SwcShaders after the base pass with the probe list of the game thread
+ * (Environment/SwcEnvironmentSky.cpp UpdatePixelProbes).
  */
 namespace SwcProbeShading
 {
