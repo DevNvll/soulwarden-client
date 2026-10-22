@@ -503,6 +503,19 @@ def tracer_data() -> dict:
                 if predicted is not None and source.text(predicted):
                     record["predicted"] = source.text(predicted)
                 out["attacks"][f"{profile}/{name}"] = record
+    # The shots of the creatures: a projectile record has its owner and the CRC-32 of its AmmoID; the ranged attacks of the creature
+    # slice of the backend data (creatures.json "ranged") give the profile and the attack of that ammunition (the first one) [I].
+    from .creature import gamedata_dir
+    creatures_path = gamedata_dir() / "creatures.json"
+    shots: dict = {}
+    if creatures_path.is_file():
+        for entry in json.loads(creatures_path.read_text()).get("slices", []):
+            for _action, _length, releases in entry.get("ranged", []):
+                for release in releases:
+                    if release.get("profile") and release.get("attack") and release.get("ammoKey"):
+                        shots.setdefault(entry["path"].lower(), {}).setdefault(str(release["ammoKey"]),
+                                                                               f"{release['profile']}/{release['attack']}")
+    out["creatureShots"] = shots
     particles.write_json(particles.out_dir() / "tracers.json", out, 1)
     return out
 
@@ -515,13 +528,16 @@ def build_keys(only: str = "") -> list[str]:
     if not path.is_file():
         return []
     keys = json.loads(path.read_text())["keys"]
+    tracers_path = particles.out_dir() / "tracers.json"
+    creature_attacks = ({a for shots in json.loads(tracers_path.read_text()).get("creatureShots", {}).values() for a in shots.values()}
+                        if tracers_path.is_file() else set())
 
     def wanted(user: str) -> bool:
         if user.startswith(("spells|", "projectiles|")):
             path = user.split("|")[1]
             return path in FIRST_SLICES or path.startswith(WEAPON_SLICES)
         if user.startswith("tracer|"):
-            return user.split("|")[1].split("/")[0] in TRACER_PROFILES
+            return user.split("|")[1].split("/")[0] in TRACER_PROFILES or user.split("|")[1] in creature_attacks
         return True
     return [k for k, v in keys.items() if not v.get("missing") and any(wanted(u) for u in v["users"])
             and (not only or any(only.lower() in u.lower() for u in v["users"]))]

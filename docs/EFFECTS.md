@@ -108,6 +108,10 @@ fragment (the weapon scope of the stance). The rule of the study ("Runtime order
   the game along the flight (the forward of an entity of the game); at a hit or at the end of the flight the trail stays at its place,
   its emission stops, and its particles finish.
 - A trail emitter (EmitterShape TRAIL) is a ribbon of the client (below, part 6).
+- The shots of the creatures (part 8): a projectile record has its owner and the CRC-32 of its AmmoID; the ranged attacks of the owner
+  slice in the backend data (creatures.json "ranged": the profile, the attack, the ammunition key) give the attack (the first one of
+  that ammunition [I]): `tracers.json` "creatureShots" (29 slices, 12 attacks). `ASwcEffectActor` starts the trail at the launch on the
+  render clock and ends it at the contact or at the end of the entity.
 - A fixed focus (FocusAngle and FocusAzimuth with no random part) rotates the emit axis: (sin A sin F, -cos A sin F, cos F) in the source
   frame (research/particle-rules3.md 5 [R]: F 90, A 0 is -Y); the cone is EmitAngle about it. A random focus keeps the wider cone [I].
   The Penetrating Shot trail: the root (A 180) +Y, the Streaks (A 0) -Y.
@@ -255,6 +259,7 @@ Development runs with a copy of the user's database (`dev-data-mvpl`; the sword 
 
 | mvpl-take-bow, -rapier | The client takes of `retail-bow.mp4` and `retail-rapier.mp4` (`tests/drive/mvpl-bow*.txt`, `mvpl-rapier*`). The bow: the conditions of Explosive Arrow choose the upgrade (as the backend: `Spell_Ability_Bow_Explosive_Upgrade`); the explosion is the spell entity of the backend (`spell_aoe_explosionshot_small`, GlobalSizeScale 0.3) at the same place and time as retail (0.53 s after R; retail 0.6 s); the trails start on the own projectiles. The rapier: the light and heavy attacks and their clips; the abilities do not play (below). |
 | mvpl-status | `tests/drive/mvpl-status*.txt`: burn, wound (the rapier bleed), and weaken on the character and a wolf (the development routes `status` and `effect`): each status starts its On script at the alias joints (the character: Spine2, Head, the arms; the wolf: bind_spine_2_jnt, bind_head_jnt) and ends with its status; the burn flames show on the back of the character. No retail video of the statuses yet. |
+| mvpl-ctrail | `tests/drive/mvpl-ctrail*.txt`: a Serpentine Archer 12 m east shoots (the route `shoot`): its shot gets the trail of AI_Bow/Basic_Solar (`cFX_npc_AnubianArcher.Sunshot_Proj`) at the launch; it ends at the contact. |
 | mvpl-bowq, -bowq2, -bowq3 | A slow check of the bow (`tests/drive/mvpl-bowq*.txt`, `swc.Effects.TimeScale 0.1`, `swc.Effects.Dump` with the axes): the Penetrating Shot muzzle (`Penetrate_Muzzle` at vfx_Tip_01) shows its white puff forward from the bow as retail; its local +Z points to the target at the release. |
 
 The retail references (`~/Games/soulwarden/work/evidence/unreal-references/set-mvpl-effects/`, its README): a development run of the

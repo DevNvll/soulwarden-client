@@ -1,0 +1,22 @@
+# AST-230: the trail of a creature shot: the camera of the retail takes toward the archer 12 m east. Routes:
+# tests/drive/mvpl-ctrail-routes.txt.
+2.0 view 89.8 -10
+3.0 tick
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 tick
+9.0 tick
+10.0 tick
+11.0 tick
+12.0 tick
+13.0 tick
+14.0 tick
+15.0 tick
+16.0 tick
+17.0 tick
+18.0 tick
+19.0 tick
+20.0 tick
+21.0 tick

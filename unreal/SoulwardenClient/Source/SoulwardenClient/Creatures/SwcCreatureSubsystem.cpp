@@ -12,6 +12,7 @@
 #include "Creatures/SwcCreature.h"
 #include "Creatures/SwcDamageMessage.h"
 #include "Creatures/SwcEffectActor.h"
+#include "Effects/SwcTracers.h"
 #include "Character/SwcPlayerActions.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "Effects/SwcImpactEffects.h"
@@ -975,6 +976,20 @@ void USwcCreatureSubsystem::UpdateEffect(uint32 Interest, const swc::creatures::
 		{
 			const FSwcProjectileSlice* Slice = Library.FindProjectile(Key);
 			Effect->SetupProjectile(Slice);
+			// AST-230: the trail of the attack of the owner (its slice and the ammunition of the shot).
+			for (const auto& [OwnerInterest, OwnerEntity] : Table.entities())
+			{
+				const TWeakObjectPtr<ASwcCreature>* Owner = OwnerEntity.hasMetadata && swc::net::group_of(OwnerEntity.actor) == Entity.projectile.owner
+					? Actors.Find(OwnerInterest) : nullptr;
+				if (Owner != nullptr && Owner->IsValid())
+				{
+					const FString Attack = SwcTracers::CreatureAttack((*Owner)->GetSlicePath(), Entity.projectile.ammoKey);
+					Effect->SetTrail(Attack);
+					UE_LOG(LogSwcCreatures, Log, TEXT("effect %u: the attack %s (ammo %08x): the trail %s"), Interest, Attack.IsEmpty() ? TEXT("-") : *Attack,
+						Entity.projectile.ammoKey, Attack.IsEmpty() ? TEXT("-") : *SwcTracers::Key(Attack, TEXT("Default")));
+					break;
+				}
+			}
 			++Shots;
 			UE_LOG(LogSwcCreatures, Log, TEXT("effect %u: a shot of %s (%s), launch %.2f %.2f %.2f, velocity %.1f %.1f %.1f m/s"), Interest,
 				*CreatureName(Entity.projectile.owner), Slice != nullptr ? *Slice->Path : *Key, Entity.projectile.anchor.x, Entity.projectile.anchor.y,

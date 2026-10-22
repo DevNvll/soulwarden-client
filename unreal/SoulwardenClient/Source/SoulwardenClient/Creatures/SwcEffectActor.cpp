@@ -3,6 +3,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Creatures/SwcCreatureData.h"
 #include "Effects/SwcParticleEffects.h"
+#include "Effects/SwcTracers.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "NiagaraComponent.h"
@@ -67,6 +68,8 @@ ASwcEffectActor::ASwcEffectActor()
 void ASwcEffectActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	// The particles of the slice end with its entity; their tails finish.
+	SwcTracers::Stop(GetWorld(), Trail.Get());
+	Trail.Reset();
 	if (USwcEffectSubsystem* Effects = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcEffectSubsystem>() : nullptr)
 	{
 		for (const TWeakObjectPtr<UNiagaraComponent>& Component : ParticleComponents)
@@ -251,6 +254,17 @@ FString ASwcEffectActor::UpdateFromEntity(const swc::creatures::Entity& Entity, 
 		if (bLaunched)
 		{
 			Text = UpdateParticles(nullptr, Shot.hasLaunch ? Shot.launchUs : RenderTimeUs, RenderTimeUs);
+			// AST-230 (plan step 8): the trail of the attack from the launch (the weapon effect Default [I]); it ends at the contact.
+			if (!bTrailStarted && !TrailAttack.IsEmpty() && !bNowHeld)
+			{
+				bTrailStarted = true;
+				Trail = SwcTracers::Start(GetWorld(), TrailAttack, TEXT("Default"), GetRootComponent());
+			}
+		}
+		if (bNowHeld && Trail.IsValid())
+		{
+			SwcTracers::Stop(GetWorld(), Trail.Get());
+			Trail.Reset();
 		}
 		if (bNowHeld && !bHeld)
 		{

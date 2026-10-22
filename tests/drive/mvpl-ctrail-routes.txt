@@ -1,0 +1,12 @@
+# AST-230: the trail of a creature shot: a level 64 Serpentine Archer (AnubianGuardian_Archer_64, the attack AI_Bow/Basic_Solar) 12 m
+# east shoots at the character (the development route shoot, and its own attacks). Noon; the character heals.
+1 world-time 12:00
+8 heal
+12 heal
+16 heal
+1.5 heal
+2.5 spawn AnubianGuardian_Archer_64 12 0 0 --yaw 270 --level 64
+6 shoot $1
+10 shoot $1
+14 shoot $1
+18 heal

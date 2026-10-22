@@ -34,6 +34,8 @@ public:
 	ASwcEffectActor();
 
 	void SetupProjectile(const FSwcProjectileSlice* Slice);
+	/** AST-230: the attack of the shot (the ranged attack database): its trail from the launch to the contact or the end. */
+	void SetTrail(const FString& Attack) { TrailAttack = Attack; }
 	/**
 	 * @param bFriendly A spell of a character (the vortex, the trap, the Beacon): blue, not the orange and red of a creature attack.
 	 * @param bSummon A spell with health (the Pylon, the trap) or with a volume wider than 8 m: a pillar at its place, not a disc.
@@ -58,6 +60,9 @@ protected:
 
 private:
 	void SetColor(const FLinearColor& Color);
+	FString TrailAttack;
+	bool bTrailStarted = false;
+	TWeakObjectPtr<UNiagaraComponent> Trail;
 	/** AST-230: starts and stops the particle entities at a server time. @return The text of the starts and the stops for the log. */
 	FString UpdateParticles(const swc::creatures::SpellParts* Parts, uint64 StartUs, uint64 RenderTimeUs);
 	/** Sets the colors again when the exposure of the frame changed by more than 10 percent (stage MVP-I). */

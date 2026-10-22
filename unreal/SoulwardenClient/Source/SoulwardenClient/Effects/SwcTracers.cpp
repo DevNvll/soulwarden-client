@@ -13,6 +13,9 @@ DEFINE_LOG_CATEGORY_STATIC(LogSwcTracers, Log, All);
 
 namespace
 {
+/** The attacks of the shots of the creatures: the slice (lower case) -> the CRC-32 of the AmmoID -> the attack. */
+TMap<FString, TMap<uint32, FString>> CreatureShots;
+
 /** The trail effects of each attack by weapon effect (loaded once; the game thread). */
 const TMap<FString, TMap<FString, FString>>& Attacks()
 {
@@ -39,7 +42,20 @@ const TMap<FString, TMap<FString, FString>>& Attacks()
 			Effects.Add(FString(Effect.Key.ToView()), Effect.Value->AsString());
 		}
 	}
-	UE_LOG(LogSwcTracers, Log, TEXT("tracers: %d attacks of the ranged attack database"), Out.Num());
+	const TSharedPtr<FJsonObject>* Shots = nullptr;
+	if (Doc->TryGetObjectField(TEXT("creatureShots"), Shots))
+	{
+		for (const auto& Slice : (*Shots)->Values)
+		{
+			TMap<uint32, FString>& Ammo = CreatureShots.Add(FString(Slice.Key.ToView()));
+			for (const auto& Pair : Slice.Value->AsObject()->Values)
+			{
+				Ammo.Add(uint32(FCString::Strtoui64(*FString(Pair.Key.ToView()), nullptr, 10)), Pair.Value->AsString());
+			}
+		}
+	}
+	UE_LOG(LogSwcTracers, Log, TEXT("tracers: %d attacks of the ranged attack database, the shots of %d creature slices"), Out.Num(),
+		CreatureShots.Num());
 	return Out;
 }
 } // namespace
@@ -53,6 +69,13 @@ FString SwcTracers::Key(const FString& Attack, const FString& Element)
 	}
 	const FString* Key = Effects->Find(Element);
 	return Key != nullptr ? *Key : Effects->FindRef(TEXT("_Default"));
+}
+
+FString SwcTracers::CreatureAttack(const FString& SlicePath, uint32 AmmoKey)
+{
+	Attacks();
+	const TMap<uint32, FString>* Ammo = CreatureShots.Find(SlicePath.ToLower());
+	return Ammo != nullptr ? Ammo->FindRef(AmmoKey) : FString();
 }
 
 UNiagaraComponent* SwcTracers::Start(UWorld* World, const FString& Attack, const FString& Element, USceneComponent* Projectile)

@@ -17,6 +17,8 @@ namespace SwcTracers
 {
 /** @return The trail effect of an attack ("Bow/PenetratingShot") for a weapon effect ("Default"), or empty. */
 SOULWARDENCLIENT_API FString Key(const FString& Attack, const FString& Element);
+/** @return The attack ("AI_Bow/Basic_Arcane") of a shot of a creature: its slice and the CRC-32 of its AmmoID, or empty. */
+SOULWARDENCLIENT_API FString CreatureAttack(const FString& SlicePath, uint32 AmmoKey);
 /** Starts the trail of an attack on a projectile component whose local +Z is the flight (the trail has the local +Y of the game along
  *  the flight: the forward of an entity of the game). @return The component, or null (no trail, or no system). */
 SOULWARDENCLIENT_API UNiagaraComponent* Start(UWorld* World, const FString& Attack, const FString& Element, USceneComponent* Projectile);
