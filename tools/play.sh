@@ -115,6 +115,14 @@ elif [[ "${backend_version}" != "${user_version}" ]]; then
 else
     report ok "the backend copy is the current release of the user"
 fi
+# The game data of the copy against its release record (tools/lib/backend_data.py: each file and folder of release.json with
+# its size; a new file of a release, for example quest-data.json and poi-data.json of schema 15 and 16, must be there).
+data_line="$(python3 -B -I "${SWC_REPO}/tools/lib/backend_data.py" "${SWC_BACKEND_DIR}")"
+if [[ "${data_line}" == ok* ]]; then
+    report ok "the game data of the backend copy: ${data_line#ok }"
+else
+    report FAIL "${data_line#FAIL }"
+fi
 
 # 3. The client: the cooked build when it is current (or --cooked), else the engine and the module of the project.
 source "${SWC_REPO}/tools/lib/cooked.sh"

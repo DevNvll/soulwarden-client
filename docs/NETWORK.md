@@ -37,7 +37,11 @@ unshare --user --map-root-user --net          one network namespace; the script 
 1. The tools: `unshare`, `ip`, `flock`, `curl`, `awk`, `python3`.
 2. The backend copy, and its version (`backend/current/release.json`) is equal to the current release of the user
    (`~/Games/soulwarden/releases/current/VERSION`). The database has a schema version: a different backend can make the
-   database unusable for the retail game. A difference names `tools/backend-update.sh`.
+   database unusable for the retail game. A difference names `tools/backend-update.sh`. The game data of the copy against the
+   record of its release (`tools/lib/backend_data.py`: each file and folder of `release.json` "gamedata" with its size): a copy
+   that misses a new file of its release (for example `quest-data.json` and `poi-data.json` of schema 15 and 16) or has a part
+   file fails. The client reads `item-catalog.json`, `perk-data.json`, `crafting-data.json`, and `progression-tables.json` of
+   this folder at run time (`SWC_GAMEDATA_DIR`); the cooked build does not contain them.
 3. The client: the engine and the module of the project (`tools/build.sh editor`).
 4. The Steam account: the Steam id and the persona name of the most recent Steam login
    (`SWC_STEAM_DIR/config/loginusers.vdf`: the block with `MostRecent` 1, else the largest `Timestamp`; the rule of

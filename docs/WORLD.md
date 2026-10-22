@@ -537,7 +537,8 @@ the readers of the code (the menu scene, the world map, the persons, the gatheri
 - The freshness: `cooked_state` (`tools/lib/cooked.sh`) also takes the newest file of the list (`tools/lib/cook_audit.py --newest`,
   about 0.7 s): a converter file newer than the cook makes the cooked build old ("the converter data FILE changed after the cook").
   Thus `tools/play.sh` never starts a cooked build that is older than its data; it uses the editor binary and says why. The release
-  and schema guard of `tools/play.sh` stays as it was (the backend copy is the current release of the user).
+  and schema guard of `tools/play.sh` stays as it was (the backend copy is the current release of the user), with the check of
+  the game data of the copy (docs/NETWORK.md; release 2026-10-21-096ab18, schema 16: 23 entries, 217 files).
 - The audit of the asset paths (`python3 -B tools/lib/cook_audit.py`): each asset path that the client loads by a path (the paths
   in the files of the list, the composed paths `FOLDER/STEM/StaticMeshes/STEM` of the menu scene and the roads, and the literal paths
   of the code) against the cooked files of the checkout (`Saved/Cooked/Linux`, the input of the staged build). The classes: cooked;
