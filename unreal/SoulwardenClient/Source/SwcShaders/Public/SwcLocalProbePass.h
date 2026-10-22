@@ -42,6 +42,8 @@ struct FSwcProbeShadingList
 	FTextureResource* WorldSpecCube = nullptr;
 	FVector3f WorldSpecColor = FVector3f::OneVector;
 	float SourceLuminance = 10000.0f;
+	/** The source SSR in the probe specular term (swc.ProbeSpecularSsr; reflection part 3). */
+	bool bSsr = false;
 	/** The SSDO strength of the specular occlusion (r_ssdoAmountReflection of the source: 3; 0 no SSDO). */
 	float SsdoReflection = 3.0f;
 	/** The environment BRDF table of the source (T_SwcEnvironmentBrdf: linear R, G at N.V, smoothness). */
@@ -68,4 +70,14 @@ SWCSHADERS_API void AddSwcLocalProbePass(FRDGBuilder& GraphBuilder, const FScene
  * ao = max(min(material AO, the SSDO term), 0.3). The result adds to the scene color (the Unreal reflections are off while it runs).
  */
 SWCSHADERS_API void AddSwcProbeSpecularPass(FRDGBuilder& GraphBuilder, const FSceneView& View, FRDGTextureRef SceneColor,
-	FRDGTextureRef SceneDepth, FRDGTextureRef GBufferA, FRDGTextureRef GBufferB, FRDGTextureRef GBufferC, const FSwcProbeShadingList& List);
+	FRDGTextureRef SceneDepth, FRDGTextureRef GBufferA, FRDGTextureRef GBufferB, FRDGTextureRef GBufferC, const FSwcProbeShadingList& List,
+	const FRDGTextureRef* SsrLevels = nullptr);
+
+/**
+ * Adds the screen-space reflection of the source for the probe specular term (AST-247 reflection part 3; research reflection-ssr.md
+ * section 1, the High preset): the ray pass at half size against the scene depth, the color of the hit from History (the lit scene of
+ * the previous frame) at its place in that frame, and three reduced and blurred levels. OutLevels: the half, quarter, eighth, and
+ * sixteenth size (nullptr when an input is missing). The specular pass blends them into the probe radiance before the BRDF table.
+ */
+SWCSHADERS_API void AddSwcProbeSsrPasses(FRDGBuilder& GraphBuilder, const FSceneView& View, FRDGTextureRef SceneDepth, FRDGTextureRef GBufferA,
+	FRDGTextureRef GBufferB, FRDGTextureRef History, FRDGTextureRef OutLevels[4]);

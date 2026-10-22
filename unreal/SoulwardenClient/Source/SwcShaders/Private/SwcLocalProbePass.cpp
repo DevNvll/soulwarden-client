@@ -5,6 +5,7 @@
 #include "Modules/ModuleManager.h"
 #include "PixelShaderUtils.h"
 #include "RenderGraphBuilder.h"
+#include "RenderGraphUtils.h"
 #include "RenderUtils.h"
 #include "RHIStaticStates.h"
 #include "SceneView.h"
@@ -141,6 +142,12 @@ public:
 		SHADER_PARAMETER_SAMPLER(SamplerState, CubeSampler)
 		SHADER_PARAMETER_TEXTURE(Texture2D, BrdfTable)
 		SHADER_PARAMETER_SAMPLER(SamplerState, BrdfSampler)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, Ssr0)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, Ssr1)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, Ssr2)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, Ssr3)
+		SHADER_PARAMETER_SAMPLER(SamplerState, SsrSampler)
+		SHADER_PARAMETER(float, SsrOn)
 		SHADER_PARAMETER(uint32, ProbeCount)
 		SHADER_PARAMETER(float, SourceLuminance)
 		SHADER_PARAMETER(float, SsdoReflection)
@@ -164,8 +171,108 @@ public:
 
 IMPLEMENT_GLOBAL_SHADER(FSwcProbeSpecularPS, "/SwcShaders/Private/SwcProbeSpecular.usf", "MainPS", SF_Pixel);
 
+/** The ray pass of the source SSR (Shaders/Private/SwcProbeSsr.usf RayPS): the half-size target. */
+class FSwcProbeSsrRayPS : public FGlobalShader
+{
+public:
+	DECLARE_GLOBAL_SHADER(FSwcProbeSsrRayPS);
+	SHADER_USE_PARAMETER_STRUCT(FSwcProbeSsrRayPS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, SceneDepth)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, GBufferA)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, GBufferB)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, History)
+		SHADER_PARAMETER_SAMPLER(SamplerState, PointSampler)
+		SHADER_PARAMETER_SAMPLER(SamplerState, LinearSampler)
+		RENDER_TARGET_BINDING_SLOTS()
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
+	}
+};
+
+IMPLEMENT_GLOBAL_SHADER(FSwcProbeSsrRayPS, "/SwcShaders/Private/SwcProbeSsr.usf", "RayPS", SF_Pixel);
+
+/** The reduced and blurred levels of the source SSR (SwcProbeSsr.usf DownPS). */
+class FSwcProbeSsrDownPS : public FGlobalShader
+{
+public:
+	DECLARE_GLOBAL_SHADER(FSwcProbeSsrDownPS);
+	SHADER_USE_PARAMETER_STRUCT(FSwcProbeSsrDownPS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, Source)
+		SHADER_PARAMETER_SAMPLER(SamplerState, LinearSampler)
+		SHADER_PARAMETER(FVector4f, SourceSize)
+		RENDER_TARGET_BINDING_SLOTS()
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
+	}
+};
+
+IMPLEMENT_GLOBAL_SHADER(FSwcProbeSsrDownPS, "/SwcShaders/Private/SwcProbeSsr.usf", "DownPS", SF_Pixel);
+
+void AddSwcProbeSsrPasses(FRDGBuilder& GraphBuilder, const FSceneView& View, FRDGTextureRef SceneDepth, FRDGTextureRef GBufferA,
+	FRDGTextureRef GBufferB, FRDGTextureRef History, FRDGTextureRef OutLevels[4])
+{
+	for (int32 Level = 0; Level < 4; ++Level)
+	{
+		OutLevels[Level] = nullptr;
+	}
+	if (SceneDepth == nullptr || GBufferA == nullptr || GBufferB == nullptr || History == nullptr)
+	{
+		return;
+	}
+	const FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(View.GetFeatureLevel());
+	FIntPoint Size = FIntPoint::DivideAndRoundUp(View.UnconstrainedViewRect.Size(), 2);
+	const auto Target = [&GraphBuilder](FIntPoint Extent, const TCHAR* Name)
+	{
+		return GraphBuilder.CreateTexture(FRDGTextureDesc::Create2D(FIntPoint(FMath::Max(Extent.X, 1), FMath::Max(Extent.Y, 1)), PF_FloatRGBA,
+			FClearValueBinding::Black, TexCreate_ShaderResource | TexCreate_RenderTargetable), Name);
+	};
+	// The ray pass at half size.
+	OutLevels[0] = Target(Size, TEXT("SwcSsrRay"));
+	{
+		FSwcProbeSsrRayPS::FParameters* Parameters = GraphBuilder.AllocParameters<FSwcProbeSsrRayPS::FParameters>();
+		Parameters->View = View.ViewUniformBuffer;
+		Parameters->SceneDepth = SceneDepth;
+		Parameters->GBufferA = GBufferA;
+		Parameters->GBufferB = GBufferB;
+		Parameters->History = History;
+		Parameters->PointSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+		Parameters->LinearSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+		Parameters->RenderTargets[0] = FRenderTargetBinding(OutLevels[0], ERenderTargetLoadAction::ENoAction);
+		TShaderMapRef<FSwcProbeSsrRayPS> Shader(ShaderMap);
+		FPixelShaderUtils::AddFullscreenPass(GraphBuilder, ShaderMap, RDG_EVENT_NAME("SwcProbeSsr ray %dx%d", Size.X, Size.Y), Shader, Parameters,
+			FIntRect(FIntPoint::ZeroValue, Size));
+	}
+	// The quarter, eighth, and sixteenth levels.
+	static const TCHAR* const Names[3] = {TEXT("SwcSsr1"), TEXT("SwcSsr2"), TEXT("SwcSsr3")};
+	for (int32 Level = 1; Level < 4; ++Level)
+	{
+		const FIntPoint Before = OutLevels[Level - 1]->Desc.Extent;
+		const FIntPoint Next = FIntPoint(FMath::Max(FMath::DivideAndRoundUp(Before.X, 2), 1), FMath::Max(FMath::DivideAndRoundUp(Before.Y, 2), 1));
+		OutLevels[Level] = Target(Next, Names[Level - 1]);
+		FSwcProbeSsrDownPS::FParameters* Parameters = GraphBuilder.AllocParameters<FSwcProbeSsrDownPS::FParameters>();
+		Parameters->Source = OutLevels[Level - 1];
+		Parameters->LinearSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+		Parameters->SourceSize = FVector4f(Before.X, Before.Y, 1.0f / Before.X, 1.0f / Before.Y);
+		Parameters->RenderTargets[0] = FRenderTargetBinding(OutLevels[Level], ERenderTargetLoadAction::ENoAction);
+		TShaderMapRef<FSwcProbeSsrDownPS> Shader(ShaderMap);
+		FPixelShaderUtils::AddFullscreenPass(GraphBuilder, ShaderMap, RDG_EVENT_NAME("SwcProbeSsr level %d", Level), Shader, Parameters,
+			FIntRect(FIntPoint::ZeroValue, Next));
+	}
+}
+
 void AddSwcProbeSpecularPass(FRDGBuilder& GraphBuilder, const FSceneView& View, FRDGTextureRef SceneColor, FRDGTextureRef SceneDepth,
-	FRDGTextureRef GBufferA, FRDGTextureRef GBufferB, FRDGTextureRef GBufferC, const FSwcProbeShadingList& List)
+	FRDGTextureRef GBufferA, FRDGTextureRef GBufferB, FRDGTextureRef GBufferC, const FSwcProbeShadingList& List, const FRDGTextureRef* SsrLevels)
 {
 	if (SceneColor == nullptr || SceneDepth == nullptr || GBufferA == nullptr || GBufferB == nullptr || GBufferC == nullptr
 		|| List.BrdfTable == nullptr || List.BrdfTable->TextureRHI == nullptr || List.WorldSpecCube == nullptr
@@ -183,6 +290,21 @@ void AddSwcProbeSpecularPass(FRDGBuilder& GraphBuilder, const FSceneView& View, 
 	Parameters->CubeSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 	Parameters->BrdfTable = List.BrdfTable->TextureRHI;
 	Parameters->BrdfSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	// The source SSR levels (AddSwcProbeSsrPasses), else a black 1 x 1 texture (no SSR: the probe term alone).
+	const bool bSsr = SsrLevels != nullptr && SsrLevels[0] != nullptr && SsrLevels[3] != nullptr;
+	FRDGTextureRef NoSsr = nullptr;
+	if (!bSsr)
+	{
+		NoSsr = GraphBuilder.CreateTexture(FRDGTextureDesc::Create2D(FIntPoint(1, 1), PF_FloatRGBA, FClearValueBinding::Black,
+			TexCreate_ShaderResource | TexCreate_RenderTargetable), TEXT("SwcSsrNone"));
+		AddClearRenderTargetPass(GraphBuilder, NoSsr, FLinearColor::Transparent);
+	}
+	Parameters->Ssr0 = bSsr ? SsrLevels[0] : NoSsr;
+	Parameters->Ssr1 = bSsr ? SsrLevels[1] : NoSsr;
+	Parameters->Ssr2 = bSsr ? SsrLevels[2] : NoSsr;
+	Parameters->Ssr3 = bSsr ? SsrLevels[3] : NoSsr;
+	Parameters->SsrSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	Parameters->SsrOn = bSsr ? 1.0f : 0.0f;
 	Parameters->SourceLuminance = List.SourceLuminance;
 	Parameters->SsdoReflection = List.SsdoReflection;
 	Parameters->WorldColor = FVector4f(List.WorldSpecColor, 0.0f);

@@ -3,7 +3,9 @@
 #include "Environment/SwcWorldTimeSubsystem.h"
 #include "HAL/CriticalSection.h"
 #include "Misc/ScopeLock.h"
+#include "PostProcess/PostProcessMaterialInputs.h"
 #include "RenderGraphBuilder.h"
+#include "RenderGraphUtils.h"
 #include "SceneView.h"
 #include "SceneViewExtension.h"
 
@@ -64,7 +66,28 @@ public:
 		// lighting adds to the scene color after the base pass, the fog and the translucency come later (as the source).
 		if (List.bSpecular)
 		{
-			AddSwcProbeSpecularPass(GraphBuilder, InView, SceneColor, Depth, GBuffer[0], GBuffer[1], GBuffer[2], List);
+			// The source SSR (reflection part 3): the history of the lit scene of the previous frame (CaptureHistory), in a game view
+			// with the same buffer size.
+			FRDGTextureRef Levels[4] = {nullptr, nullptr, nullptr, nullptr};
+			const bool bHistory = History.IsValid() && SceneColor != nullptr && History->GetDesc().Extent == SceneColor->Desc.Extent;
+			if (List.bSsr && InView.bIsGameView && !InView.bIsSceneCapture && bHistory)
+			{
+				AddSwcProbeSsrPasses(GraphBuilder, InView, Depth, GBuffer[0], GBuffer[1], GraphBuilder.RegisterExternalTexture(History), Levels);
+			}
+			if (List.bSsr && InView.bIsGameView && !InView.bIsSceneCapture && SsrReports < 12)
+			{
+				// One line at each change of the state (the first frames have no history yet).
+				const FString State = FString::Printf(TEXT("SSR %s (history %s, the extents %s and %s)"), Levels[0] != nullptr ? TEXT("on") : TEXT("off"),
+					History.IsValid() ? TEXT("kept") : TEXT("none"), History.IsValid() ? *History->GetDesc().Extent.ToString() : TEXT("-"),
+					SceneColor != nullptr ? *SceneColor->Desc.Extent.ToString() : TEXT("-"));
+				if (State != SsrState)
+				{
+					++SsrReports;
+					SsrState = State;
+					UE_LOG(LogSwcEnvironment, Log, TEXT("probe shading: %s"), *State);
+				}
+			}
+			AddSwcProbeSpecularPass(GraphBuilder, InView, SceneColor, Depth, GBuffer[0], GBuffer[1], GBuffer[2], List, Levels);
 		}
 		if (List.bAo && !List.Probes.IsEmpty())
 		{
@@ -72,6 +95,40 @@ public:
 		}
 	}
 
+	// The history of the source SSR: the scene color before the depth of field of each game view frame (the lit scene, the fog, the
+	// translucency), kept for the next frame (the source reads $HDRTargetPrev at the reprojected hit).
+	virtual void SubscribeToPostProcessingPass(EPostProcessingPass Pass, const FSceneView& InView, FPostProcessingPassDelegateArray& InOutPassCallbacks,
+		bool bIsPassEnabled) override
+	{
+		if (Pass != EPostProcessingPass::BeforeDOF || !InView.bIsGameView || InView.bIsSceneCapture)
+		{
+			return;
+		}
+		FScopeLock Lock(&Section);
+		if (Current.bSpecular && Current.bSsr)
+		{
+			InOutPassCallbacks.Add(FPostProcessingPassDelegate::CreateRaw(this, &FProbeShading::CaptureHistory));
+		}
+	}
+
+	FScreenPassTexture CaptureHistory(FRDGBuilder& GraphBuilder, const FSceneView& View, const FPostProcessMaterialInputs& Inputs)
+	{
+		const FScreenPassTextureSlice Scene = Inputs.GetInput(EPostProcessMaterialInput::SceneColor);
+		if (Scene.TextureSRV != nullptr)
+		{
+			FRDGTextureRef Source = Scene.TextureSRV->Desc.Texture;
+			FRDGTextureDesc Desc = FRDGTextureDesc::Create2D(Source->Desc.Extent, Source->Desc.Format, FClearValueBinding::Black,
+				TexCreate_ShaderResource | TexCreate_RenderTargetable);
+			FRDGTextureRef Copy = GraphBuilder.CreateTexture(Desc, TEXT("SwcSsrHistory"));
+			AddCopyTexturePass(GraphBuilder, Source, Copy);
+			GraphBuilder.QueueTextureExtraction(Copy, &History);
+		}
+		return Inputs.ReturnUntouchedSceneColorForPostProcessing(GraphBuilder);
+	}
+
+	TRefCountPtr<IPooledRenderTarget> History;
+	int32 SsrReports = 0;
+	FString SsrState;
 	FCriticalSection Section;
 	FSwcProbeShadingList Current;
 	bool bReported = false;

@@ -101,6 +101,8 @@ TAutoConsoleVariable<int32> CVarProbeSpecular(TEXT("swc.ProbeSpecular"), 0,
 	TEXT("the reflection environment, and the screen-space reflections are off with it. 0 the reflections of Unreal."));
 TAutoConsoleVariable<float> CVarProbeSpecularSsdo(TEXT("swc.ProbeSpecularSsdo"), 3.0f,
 	TEXT("swc.ProbeSpecular 1: the SSDO strength of the specular occlusion (r_ssdoAmountReflection of the source: 3; 0 no SSDO)."));
+TAutoConsoleVariable<int32> CVarProbeSpecularSsr(TEXT("swc.ProbeSpecularSsr"), 1,
+	TEXT("swc.ProbeSpecular 1: the screen-space reflection of the source in the probe radiance before the BRDF table (reflection part 3; the High preset: half size); 0 the probe term alone."));
 TAutoConsoleVariable<int32> CVarNightSkyTint(TEXT("swc.NightSkyTint"), 1,
 	TEXT("The night sky: 1 the hue of the night horizon color of the data, 0 the color of the SkyAtmosphere."));
 
@@ -1106,6 +1108,7 @@ void USwcEnvironmentSubsystem::UpdatePixelProbes(const FVector& CameraLocation, 
 		List.WorldSpecColor = SpecularColor({WorldColor, WorldColor, WorldColor}, Data->WorldProbeTodInfluence);
 		List.SourceLuminance = static_cast<float>(SourceUnitLuminance * CVarProbeScale.GetValueOnGameThread());
 		List.SsdoReflection = FMath::Max(CVarProbeSpecularSsdo.GetValueOnGameThread(), 0.0f);
+		List.bSsr = CVarProbeSpecularSsr.GetValueOnGameThread() != 0;
 	}
 	// The time-of-day gain of a probe: lerp(1, G x D, TODInfluence), G the luminance of "Environment Probe Multiplier" and D
 	// "Environment Probe Diffuse Multiplier" (the CPU rule of the source). The source unit and swc.ProbeScale are in both the world

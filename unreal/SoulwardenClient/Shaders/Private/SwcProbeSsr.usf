@@ -1,0 +1,116 @@
+// The screen-space reflection of the source for the probe specular term (AST-247 reflection part 3; research reflection-ssr.md
+// section 1; the source deferredshading.cfxb SSR ray pass and composition, the High preset: a half-size ray target). The pass:
+// Source/SwcShaders/Private/SwcLocalProbePass.cpp AddSwcProbeSsrPasses.
+//
+// RayPS (half size): Z = the linear depth of the pixel (m), L = 1.5 Z, D = normalize(reflect(view to pixel, N)) x L; the direction
+// weight saturate(dot(view to pixel, D) + 0.5) with the length of D kept (m, the source units); 4 + 28 x smoothness taps between the
+// projected ends of the ray (xy / w), the first tap within L / (taps x 1.6) of the scene depth is the hit (no refinement, no
+// jitter); the hit in the previous frame (ClipToPrevClip), its color from the history of the lit scene (the previous frame before
+// the depth of field), alpha = the edge weight (sqrt(b / 0.07) within 0.07 of a border of the screen) x the direction weight. A
+// miss is RGBA 0.
+// DownPS: the next level, half the size, a 3 x 3 binomial filter of the level before [I: the source blurs each reduced level with
+// one Gaussian of distribution 3].
+
+#include "/Engine/Private/Common.ush"
+
+Texture2D SceneDepth;
+Texture2D GBufferA;
+Texture2D GBufferB;
+Texture2D History;
+SamplerState PointSampler;
+SamplerState LinearSampler;
+
+float3 PixelPosition(float2 Pixel, out float DeviceZ)
+{
+	DeviceZ = SceneDepth.Load(int3(Pixel, 0)).r;
+	return SvPositionToTranslatedWorld(float4(Pixel + 0.5, DeviceZ, 1.0));
+}
+
+float2 ClipToBufferUV(float4 Clip)
+{
+	const float2 Ndc = Clip.xy / Clip.w;
+	return Ndc * View.ScreenPositionScaleBias.xy + View.ScreenPositionScaleBias.wz;
+}
+
+void RayPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
+{
+	OutColor = 0.0;
+	// The full-size pixel of this half-size pixel (the top left of its 2 x 2 block).
+	const float2 Pixel = View.ViewRectMin.xy + floor(SvPosition.xy) * 2.0;
+	if (any(Pixel >= View.ViewRectMin.xy + View.ViewSizeAndInvSize.xy))
+	{
+		return;
+	}
+	float DeviceZ;
+	const float3 Position = PixelPosition(Pixel, DeviceZ);
+	const float4 B = GBufferB.Load(int3(Pixel, 0));
+	if (DeviceZ <= 0.0 || ((uint)round(B.a * 255.0) & 0xF) == 0)
+	{
+		return;
+	}
+	const float3 N = normalize(GBufferA.Load(int3(Pixel, 0)).xyz * 2.0 - 1.0);
+	const float Smoothness = 1.0 - B.b;
+	const float3 ToPixel = normalize(Position - View.TranslatedWorldCameraOrigin);
+	const float ZMeters = ConvertFromDeviceZ(DeviceZ) * 0.01;
+	const float LMeters = 1.5 * ZMeters;
+	const float3 DMeters = normalize(reflect(ToPixel, N)) * LMeters;
+	const float DirectionWeight = saturate(dot(ToPixel, DMeters) + 0.5);
+	if (DirectionWeight < 0.01)
+	{
+		return;
+	}
+	const float4 Start = mul(float4(Position, 1.0), View.TranslatedWorldToClip);
+	const float4 End = mul(float4(Position + DMeters * 100.0, 1.0), View.TranslatedWorldToClip);
+	const int Taps = int(4.0 + saturate(Smoothness) * 28.0);
+	const float Step = 1.0 / Taps;
+	const float Tolerance = LMeters * 100.0 / (Taps * 1.6);   // cm
+	for (int Tap = 1; Tap <= Taps; ++Tap)
+	{
+		const float4 Clip = lerp(Start, End, Tap * Step);
+		if (Clip.w <= 0.0)
+		{
+			break;
+		}
+		const float2 UV = ClipToBufferUV(Clip);
+		const float2 ViewUV = (UV * View.BufferSizeAndInvSize.xy - View.ViewRectMin.xy) * View.ViewSizeAndInvSize.zw;
+		if (any(ViewUV < 0.0) || any(ViewUV > 1.0))
+		{
+			break;
+		}
+		const float SceneZ = ConvertFromDeviceZ(SceneDepth.SampleLevel(PointSampler, UV, 0).r);
+		if (abs(SceneZ - Clip.w) < Tolerance)
+		{
+			// The hit in the previous frame, the border fade of its place, and the color of the history.
+			const float4 PrevClip = mul(Clip, View.ClipToPrevClip);
+			const float2 PrevUV = ClipToBufferUV(PrevClip);
+			const float2 PrevViewUV = saturate((PrevUV * View.BufferSizeAndInvSize.xy - View.ViewRectMin.xy) * View.ViewSizeAndInvSize.zw);
+			const float Border = min(min(PrevViewUV.x, 1.0 - PrevViewUV.x), min(PrevViewUV.y, 1.0 - PrevViewUV.y));
+			const float EdgeWeight = Border > 0.07 ? 1.0 : sqrt(Border / 0.07);
+			float3 Color = History.SampleLevel(LinearSampler, PrevUV, 0).rgb;
+			Color = select(isfinite(Color), Color, 0.0);
+			OutColor = float4(Color, EdgeWeight * DirectionWeight);
+			return;
+		}
+	}
+}
+
+Texture2D Source;
+float4 SourceSize;   // xy: the size of the level before, zw: 1 / that size
+
+void DownPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
+{
+	// The center of this pixel in the level before (twice the size), a 3 x 3 binomial filter of bilinear taps one texel of the level
+	// before apart (it covers 4 x 4 texels).
+	const float2 Center = floor(SvPosition.xy) * 2.0 + 1.0;
+	float4 Sum = 0.0;
+	const float Weights[3] = {1.0, 2.0, 1.0};
+	for (int Y = -1; Y <= 1; ++Y)
+	{
+		for (int X = -1; X <= 1; ++X)
+		{
+			const float2 UV = (Center + float2(X, Y)) * SourceSize.zw;
+			Sum += Weights[X + 1] * Weights[Y + 1] * Source.SampleLevel(LinearSampler, UV, 0);
+		}
+	}
+	OutColor = Sum / 16.0;
+}

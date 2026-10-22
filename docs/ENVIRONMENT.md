@@ -588,6 +588,17 @@ the flower petals are cream-white, and the fire is a white flare. Evidence: `~/G
   1.2 m with the UV bounds 0.06 to 0.20; `swc.ProbeSpecularSsdo`, 0 turns it off); times 10,000 cd/m2 a unit x
   `swc.ProbeScale` x the pre-exposure. The SSDO blur takes taps 1 pixel apart (the source: 2) so that the 2 x 2 pattern of the
   radius bound does not show on bright metal [I].
+- The screen-space reflection of the source (`swc.ProbeSpecularSsr`, default 1, only with `swc.ProbeSpecular 1`; AST-247 part 3,
+  research reflection-ssr.md fixes 1 and 2; `Shaders/Private/SwcProbeSsr.usf`, `AddSwcProbeSsrPasses`): a ray pass at half
+  size (the High preset of the source) for each lit pixel: Z the linear depth (m), L = 1.5 x Z, D = normalize(reflect) x L, the
+  direction weight saturate(dot(view, D) + 0.5); 4 + 28 x smoothness taps between the projected ends; the first tap within
+  L / (taps x 1.6) of the scene depth is the hit (no refinement, no jitter); its color comes from the scene color of the previous
+  frame before the depth of field (the view extension copies it at `BeforeDOF`) at the reprojected place (ClipToPrevClip); alpha =
+  the edge weight (sqrt(b / 0.07) within 0.07 of a screen border) x the direction weight. Three reduced levels (3 x 3 binomial
+  filter [I: the source uses one Gaussian]). The specular pass mixes the levels by g = s^2 (f = frac(min(g, 0.9999) x 3): g > 2/3
+  lerp(B1, B0, f^2), g > 1/3 lerp(B2, B1, f), else lerp(B3, B2, f)) and sets the radiance to (1 - a) x probe x occlusion + a x
+  SSR.rgb before the BRDF table. The first frame of a view has no history: no SSR in that frame. The client log has one line at
+  each change: "probe shading: SSR on (history kept, ...)".
 - With the switch on, the client sets `r.Lumen.Reflections.Allow`, `r.ReflectionEnvironment`, and `r.SSR.Quality` to 0 (the
   values before come back when it is off), so the reflection is not counted twice.
 - Checks (the matched views of set-ast247-mv, set1-oxboro, and set4-weather; `work/ast247/sheets-spec/`; linear display values):
@@ -597,13 +608,17 @@ the flower petals are cream-white, and the fire is a white flare. Evidence: `~/G
     reflection of the forest. The iron fence of noon-n: fence / brick 3.23 with the term, 1.36 without it, retail 1.99 (1.6 times).
     The table changes these views only a little: most pixels have N.V in the middle, where the two tables are almost equal.
   - The SSDO removes about 6 to 8 % on the armor. The world views change little.
+  - With the SSR (2026-10-22, the passes run: "SSR on, history kept, 1280 x 720"): the armor of HeavyHeavy (front, masked mean)
+    0.255 without it, 0.232 with it (- 9 %); the iron fence of noon-n (the pixels that the term makes brighter) 0.700 without it,
+    0.693 with it, retail 0.460, the term off 0.379. Most fence rays point to the sky or off the screen (a miss: the probe stays).
+    The SSR does not close the gap on bright steel and iron (`evidence/ast247/spec/crop-fence-ssr.png`: retail, off, term, term
+    and SSR).
   - The GPU time (pairs late in one run): noon-n 10.03 ms off, 10.01 and 10.09 ms on (eight cubes); with all the probes (21 at
     noon-n) 12.31 ms off, 12.34 and 12.43 ms on, the inn 13.32 ms off, 13.60 and 13.32 ms on (a busier GPU): at most about 0.3 ms.
 - Open [U]: the level and the color on bright steel and iron (about 1.6 times). Kept as the source (research probe-flags.md): the
   world probe on the outdoor pixels (`AffectsThisAreaOnly` selects the outdoor area stencil when there is no volume; `IndoorOnly`
   is a legacy height-map flag, not a mesh indoor test), no extra gain, the SSDO with the scalar alpha. Not in the client: the
-  screen-space reflections of the source, which blend into the probe radiance before the BRDF table (lerp(probe, SSR.rgb,
-  SSR.a)); the area stencil of the probes with volumes. The material instance of the Metal_SetB chest is right (M_SwcSurface, the
+  area stencil of the probes with volumes; the SSDO as a separate generation and blur pass (reflection-ssr.md fix 3). The material instance of the Metal_SetB chest is right (M_SwcSurface, the
   spec map, F0 about 0.18 by the texels).
 
 ### Not done, open points (E5)
