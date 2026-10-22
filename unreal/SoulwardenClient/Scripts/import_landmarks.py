@@ -20,7 +20,7 @@ import unreal
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import swc_materials as sm  # noqa: E402
 
-PARENT_VERSION = "2"   # 2: the back light of %TRANSMITTANCE (MPC_SwcLandmarks)
+PARENT_VERSION = "3"   # 2: the back light of %TRANSMITTANCE (MPC_SwcLandmarks); 3: its normal not flipped on back faces
 doc = json.load(open(os.environ["SWC_LANDMARKS"]))
 content = os.path.dirname(os.path.dirname(os.environ["SWC_LANDMARKS"]))
 force = os.environ.get("SWC_LANDMARKS_FORCE") == "1"
@@ -52,7 +52,10 @@ return C.rgb * C.a * 0.1 * e * Scale;"""
 # x the light x cShadingBack, cShadingBack = BackDiffuseMultiplier x Opacity map (R) x TransmittanceColor; then the albedo. One light
 # here: the light of the hour (MPC_SwcLandmarks: SunDirection toward the light, SunColor in lux; a diffuse surface: x 1 / pi to cd/m2).
 # The front light (the Lambert term) comes from the lit translucency of Unreal. B = (BackDiffuseMultiplier, NormalViewDependency).
-BACK_HLSL = """float t = pow(saturate(dot(normalize(N), normalize(L)) * 0.6 + 0.4), 1.0 / max(1.0 - B.y, 0.01));
+# N: the normal of the mesh, as the source (pPass.vNormal: the tangent frame of the vertex and the normal map; no flip on a back face).
+# The pixel normal of a two-sided Unreal material faces the camera; x TwoSidedSign (S) turns it back. Without it the layers seen
+# from below (their normals face up) got t = 0 and no back light: dark blue-gray against the white of retail (cleave-a).
+BACK_HLSL = """float t = pow(saturate(dot(normalize(N * S), normalize(L)) * 0.6 + 0.4), 1.0 / max(1.0 - B.y, 0.01));
 return D * Sun.rgb * (1.0 / 3.14159265) * t * B.x * Tr * TC.rgb;"""
 # The core (Fxmeshadvancedtransp with an empty generation mask; research/maelstrom.md "Core FX material"): the source map ($CustomMap,
 # sRGB), its RGB x Emittance RGB, ^GlobalColorFalloff, saturated, x Emittance A; the alpha: source alpha ^GlobalAlphaFalloff x the
@@ -178,8 +181,9 @@ def layer_parent():
     bn = sm.custom(material, "return float2(BD, NV);", cf.CMOT_FLOAT2, ("BD", "NV"), -800, 2300)
     editing.connect_material_expressions(sm.scalar(material, "BackDiffuseMultiplier", 0.0, -1100, 2300), "", bn, "BD")
     editing.connect_material_expressions(sm.scalar(material, "NormalViewDependency", 0.0, -1100, 2380), "", bn, "NV")
-    back = sm.custom(material, BACK_HLSL, cf.CMOT_FLOAT3, ("N", "L", "B", "D", "Sun", "Tr", "TC"), -400, 2200)
+    back = sm.custom(material, BACK_HLSL, cf.CMOT_FLOAT3, ("N", "S", "L", "B", "D", "Sun", "Tr", "TC"), -400, 2200)
     for pin, (node, out) in {"N": (sm.node(material, unreal.MaterialExpressionPixelNormalWS, -800, 2450), ""),
+                             "S": (sm.node(material, unreal.MaterialExpressionTwoSidedSign, -800, 2500), ""),
                              "L": (collection_vector(material, mpc, "SunDirection", -800, 2550), ""),
                              "B": (bn, ""), "D": (base, ""), "Sun": (collection_vector(material, mpc, "SunColor", -800, 2650), ""),
                              "Tr": (trans, "R"),

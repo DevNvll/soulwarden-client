@@ -324,7 +324,10 @@ actor, outside the cells of the World Partition (it stays when the cells load or
     x 0.1 x the map x the intensity map x EmissiveScale), and the back light of `%TRANSMITTANCE` (the forward Illum path of the source:
     for each light pow(saturate(N.L x 0.6 + 0.4), 1 / (1 - NormalViewDependency)) x the light x BackDiffuseMultiplier x Opacity map (R)
     x TransmittanceColor x the albedo; one light here, the light of the hour, / pi to cd/m2). The back light makes the bright white and
-    pink swirl of retail (BackDiffuseMultiplier 4, TransmittanceColor 1, 0.66, 0.66); without it the layers were dark blue-gray.
+    pink swirl of retail (BackDiffuseMultiplier 4, TransmittanceColor 1, 0.66, 0.66; the Diffuse of the layers is only 0.048).
+    The normal of the back light is the normal of the mesh, as the source (`pPass.vNormal`, no flip on a back face): the pixel
+    normal of Unreal x TwoSidedSign. The pixel normal of a two-sided Unreal material faces the camera; from below (the layer normals
+    face up) it gave t = 0 and no back light: the layers were dark blue-gray (parent version 2, cleave-a: luma 137 against retail 186).
   - `M_SwcVortexCore` (Fxmeshadvancedtransp): Additive, Unlit, two sided, the fog per pixel; saturate(pow(S.rgb x C.rgb,
     GlobalColorFalloff)) x C.a x pow(S.a, GlobalAlphaFalloff) x Opacity x EmissiveScale (the source map: the Custom slot).
   - The UV of each slot: uv x tile + offset, turned about the centre by the time (the material Time node) x the rate.
@@ -337,8 +340,15 @@ actor, outside the cells of the World Partition (it stays when the cells load or
   or the Unreal light; the direction of the sun or the moon light). `-SwcNoLandmarks` turns it off; `swc.Landmarks 0` hides it in a run.
 - Open [U]: the rim terms of the source (`%RIM_DIFFUSE_LIGHTING`; in the spec, not drawn), the source LODs (LOD 0 only), the exact
   draw state of the transparent passes (research/maelstrom.md, open points), and the menu vortex (a later part of AST-209).
+- Not drawn: the column of fog cards under the maelstrom. The slice has 10 `fx_fogcard_01` entities (four have a mesh placement:
+  `objects/vfx/mesh/fx_fogcard_01.cgf` with `objects/volumetrics/fogsheet_shatteredmtn_portalteal.mtl`), on a vertical line from about
+  600 m to 1,434 m under the core (the scale 7.5 to 15 across, 50 to 90 up). They make the vertical teal glow of retail at far-a. The
+  world cells draw only imported meshes, and the world has no fog sheet rule yet (the menu fog sheets: docs/FRONTEND.md).
 - The check (2026-10-22, retail stills of set-ast261-far): from the Cleave camera (cleave-a, 2.0 km) and from the summit view (far-a,
-  3.1 km) the client shows the swirl and the core as retail. From the starting areas on the ground the maelstrom is not in view: at
+  3.1 km). cleave-a, the sky pixels (the clear sky of the client run with `swc.Landmarks 0`; mean RGB, luma): retail (180, 186, 201)
+  186; parent version 2 (101, 142, 191) 137; version 3 (189, 199, 217) 198: the white-pink swirl of retail. far-a: retail shows the
+  swirl pale in a white overcast haze and the teal column of the fog cards; the client shows a darker sky (snow), a pink-brown swirl,
+  and the cyan core disc (in the haze of retail it does not show). From the starting areas on the ground the maelstrom is not in view: at
   start-a (4.8 km) the near cliff hides it in retail and in the client. The terrain line from the start areas clears by about 10 m only,
   and four more places near them had a near mesh in the line (a cliff, a wall, plants). From 150 m above the start area (8880 4250) the
   client shows it at 5.9 km (no retail picture: a retail camera cannot go there). Thus the draw range of retail between 3.1 km and
