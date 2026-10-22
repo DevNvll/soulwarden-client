@@ -27,6 +27,27 @@ WORLD = "sharedassets/coatlicue/newworld_vitaeeterna/"
 F = source.field_id
 SMRN, STATIC_MESH, WORLD_TM, COMPONENTS = F("Static Mesh Render Node"), F("Static Mesh"), F("m_worldTM"), F("Components")
 VISIBLE = F("Visible")
+# An entity with IsRuntimeActive 0 is not activated when its slice starts. Most such entities with a mesh (1,922 meshes in 233
+# slices of the world, tools/lib/inactive_report.py) are parts that a script, a quest, an event, or an interaction activates later
+# (POIs, world events, faction control fills, doors, quest portals): they stay. Only the clear helpers go: an inactive entity named
+# "MeshVisualizer" (the cubes of the Great Cleave weather boxes, slices/ambience/snow_weatherbox_*, scaled to 1,400 m, with no
+# material: white boxes in the client before; AST-261).
+IS_RUNTIME_ACTIVE = F("IsRuntimeActive")
+INACTIVE_HELPERS = (b"MeshVisualizer",)
+SKIP_INACTIVE = True             # False: the meshes of the inactive helpers stay (the report of tools/lib/inactive_report.py)
+INACTIVE_LOG: list | None = None  # a list: slice_meshes appends (entity name, mesh, instances) of each inactive entity with a mesh
+
+
+def runtime_active(entity) -> bool:
+    """@return False when the entity has IsRuntimeActive 0 (a missing field is active)."""
+    node = entity.child(IS_RUNTIME_ACTIVE)
+    return node is None or node.value != b"\x00"
+
+
+def inactive_helper(entity) -> bool:
+    """@return True for an inactive helper entity whose meshes retail never draws (INACTIVE_HELPERS by its name)."""
+    name = entity.child(NAME)
+    return not runtime_active(entity) and name is not None and name.value in INACTIVE_HELPERS
 NAME = F("Name")
 # Gathering nodes (P4.1): the level shows only the healthy mesh of a node; the client shows the depleted mesh at run time
 # when the server says that the node is depleted (the creature track). Two rules of the game data:
@@ -137,6 +158,8 @@ def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None, int, in
         name = e.child(NAME)
         if name is not None and name.value in DEPLETED_ENTITIES:
             continue   # the depleted mesh of a gathering node (rule 1)
+        active = runtime_active(e)
+        helper = not active and inactive_helper(e)
         tm, mesh, material, wind = None, None, None, False
         instanced = []
         for comp in comps.children:
@@ -166,6 +189,15 @@ def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None, int, in
                                           receives_wind(node)))
         world = tm if tm is not None else np.eye(4)
         ident = entity_id(e) if (mesh or instanced) else 0
+        if not active and ((mesh and mesh.endswith(".cgf")) or instanced):
+            if INACTIVE_LOG is not None:
+                label = source.text(name) if name is not None else ""
+                if mesh and mesh.endswith(".cgf"):
+                    INACTIVE_LOG.append((label, mesh, 1))
+                for path, _override, matrices, _bends in instanced:
+                    INACTIVE_LOG.append((label, path, len(matrices)))
+            if SKIP_INACTIVE and helper:
+                continue   # a helper that is never activated
         if mesh and mesh.endswith(".cgf"):
             out.append((mesh, world, material, ident, -1, wind))
         for path, override, matrices, bends in instanced:

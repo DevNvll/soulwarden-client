@@ -227,6 +227,17 @@ tools/build-world.sh --import --all      # each region: import its content (tool
   1.1) by cells of 256 m: one actor for each cell with one instanced static mesh component for each mesh. Region
   `r_+04_+02`: 216,456 instances, 64 actors, 12,709 components. Effect cards (`fx_*`) and the meshes that are not in
   the game copy are left out.
+- The inactive helpers (AST-261, 2026-10-22): `region.slice_meshes` leaves out the meshes of an entity with
+  `IsRuntimeActive` 0 and the name `MeshVisualizer` (`region.inactive_helper`). These are the cubes of the Great Cleave
+  weather boxes (`slices/ambience/snow_weatherbox_*`; `objects/vfx/mesh/generic/cube_1_meter.cgf` with no material, scaled to
+  1,400 x 1,600 x 220 m): before, the client drew them as white boxes. The other inactive entities with a mesh stay (1,922
+  meshes in 233 slices of the world: POIs, world events, faction control fills, quest props, doors, portals; a script, a quest,
+  an event, or an interaction activates them later). `python3 -B tools/lib/inactive_report.py OUT.json [REGION...]` lists them
+  (a report of the game copy; it writes nothing else). The rule removed 5 placements, all in `r_+04_+03`.
+- `swc.PickView X Y` (a debug aid of the development runs, `World/SwcPickView.cpp`; no cost when it is not called): logs the
+  meshes whose bounds the view ray through the screen point (X, Y: fractions of the width and the height) passes, the nearest
+  first, with the mesh, the material of slot 0, the instance, the size, the component, and the actor. It tests the bounds of
+  each instance, so it finds meshes with no collision (the cell meshes). In a matched view: `--variant VIEW@pick=swc.PickView 0.5 0.5`.
 - Streaming: the main runtime partition of the level has cells of 256 m and a loading range of 1,024 m. The sun, the
   sky, the sky light, and the fog are always loaded.
 - Exposure: an unbound post-process volume (always loaded) sets a manual exposure, bias -1. With the auto exposure of
