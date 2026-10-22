@@ -313,6 +313,19 @@ Differences in the compares (part 5, the bow and the rapier):
 - The full draw of a bow shows a gold glow on the arrow in retail; the client has no such effect (the source is not found: no clip of
   Bow_Charge_UpperBody and no `tip` group in the default script).
 
+## The exit check (part 10)
+
+The compare videos (retail | client, aligned on one visible event; `evidence/mvp-l/exit-*.mp4`, `compare-cs-*.mp4`, `compare-status.mp4`)
+and the frame table (`evidence/mvp-l/exit-check.md`; the client tables of all takes: `exit-client-tables.md`). The effect starts, seconds
+after the input (retail: 30 fps frames; client: the log line of the clip entry):
+
+| Weapon | Effect | Data time | Retail | Client |
+| --- | --- | --- | --- | --- |
+| Sword and shield | sword_primary_1 | 0.3125 | 0.451 (with the 60 ms hold of the button) | 0.365 |
+| Great axe | Maelstrom swipe_Dmg | 0.35 | 0.386 | 0.352 |
+| War hammer | Wreckingball_Charged | 0.25 | 0.251 | 0.266 |
+| Bow | SpreadShot_MuzzleFlash; the explosion | 0.45; - | 0.551; 0.617 | 0.481; 0.586 |
+
 ## Open points
 
 The open points of the study ("Open points" 1 to 10) stay. Of this work:
