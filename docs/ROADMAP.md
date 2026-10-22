@@ -122,7 +122,7 @@ rows, 160 supported objectives; a new character of each archetype completes 15 q
 `~/Games/soulwarden-client/research/quest-plan.md` (outside the repository; GPT-6.1-Sol, 2026-10-21). The backend owns
 the progress and the rewards; the client shows them with the original canvases and scripts. The user decides the
 place of these steps in the order. The decision of the user (2026-10-22): Q1 and Q6 next, beside the MVP, tested
-with a development character (both done); the other steps after the MVP. Linear: parent AST-235.
+with a development character (both done); the other steps after the MVP. The decision of the user (2026-10-22, later): "focus on quests": the open quest steps now come before the look work (Q3 and Q2 started). Linear: parent AST-235.
 
 | Step | Backend part | The client work | Size |
 | --- | --- | --- | --- |
