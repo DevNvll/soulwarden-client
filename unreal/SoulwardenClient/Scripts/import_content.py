@@ -327,6 +327,7 @@ phase = time.time()
 missing_materials = set()   # slots with no material instance of their name
 BATCH = 16
 batch = []
+body_folders = []   # the characters of this step: their glTF material instances are new (apply_bodies below)
 
 
 def flush():
@@ -378,6 +379,8 @@ for kind in ("static", "character", "test"):
             report["failed"].append(f"{key}: {str(error)[:120]}")
             continue
         batch.append((key, kind, folder, stamp))
+        if kind == "character":
+            body_folders.append(folder)
         if len(batch) >= BATCH:
             flush()
             out_of_time()
@@ -386,6 +389,18 @@ for kind in ("static", "character", "test"):
                 log(f"progress {json.dumps(report['imported'])} {round(time.time() - started)} s")
 flush()
 save_state()
+# The skinned bodies (docs/MATERIALS.md "The skinned bodies"): the glTF material instances of the characters that this step
+# imported take the specs of SWC_CONTENT/bodies (a body with no spec keeps the glTF rules).
+if body_folders:
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import swc_materials
+        bodies = swc_materials.apply_bodies(body_folders, state, force=True)
+        report["failed"].extend(bodies["failed"])
+        report["bodies"] = {k: bodies[k] for k in ("textures", "instances")}
+    except Exception as error:
+        report["failed"].append(f"bodies: {str(error)[:160]}")
+    save_state()
 report["seconds"]["meshes"] = round(time.time() - phase, 1)
 
 # 6. The collision of the game (P4.1, converter/swc_convert/collision.py): a static mesh with a collision file gets its

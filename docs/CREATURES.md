@@ -76,6 +76,18 @@ client (a run) --writes--> SWC_WORK/creatures/wanted.json   (the slices with no 
 | Name | vitalsCategoryId: the English name of the category row (the kind of creatures.json), else the vitals row | A Critter has no level mark. |
 | Animation set | ActionList: `m_controllerDefinition`, `m_animationDatabase`, `m_defaultTags`; the tags of creatures.json | One set for each controller, database, tag state, and skeleton. |
 
+The size of the Grey Wolf (AST-233, 2026-10-21): the client wolf is not too large. The slices `wolf_grey` and
+`wex_levelvariants/wolf_grey_5` have unit transforms (each `m_localTM` and `m_worldTM` of the mesh entity and its parents),
+the bones of `wolf_skel.chr` have no scale (each bind matrix has the determinant 1.0), and the clips have no scale track
+(the root at 0.8 to 1.1 m in the idle clips, 1.14 m in the bind pose). The data gives a wolf of 1.54 m to the ear tips.
+The measurement: the retail take `set6-combat/creature-wolf-turn.mp4` at 3.0 s (a level 18 Grey Wolf stands 3 m north of the
+character; the camera of `camera_stations[0]`: heading 329.75, pitch -7.72) and a client run of the same place, wolf, and
+view (`tests/drive/ast233-wolf-turn*.txt`). With the character as the scale of each picture (1.80 m), the wolf is 1.62 m to the ear
+tips in retail (134 px at 8.0 m) and 1.73 m in the client (174 px at 6.6 m): a factor of 1.07, in the error of the
+measurement (about 5 %; the idle poses differ). The two times larger wolves of the MVP-L compare were nearer to the client
+camera. The scale stays the base vitals value 1.05. Open: the slice has `m_debugApplyVitalsScale` false; a retail scale of
+1.0 (no vitals scale) is not excluded by this measurement and is not proved.
+
 The clips of a skeleton: the animation list of its `.chrparams` (`$Include`, `#filepath`, the pattern `*/*.caf`: each file below
 the folder, the name is the file stem; the first entry of a name wins).
 

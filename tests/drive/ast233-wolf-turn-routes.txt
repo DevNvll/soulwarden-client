@@ -1,0 +1,5 @@
+# The client take of set6-combat/creature-wolf-turn.mp4 at 3.0 s (the size of the Grey Wolf, AST-233): noon, the creatures ignore
+# the character, a Grey Wolf of level 18 3.0 m north of the character (0.4 m above the floor) that faces it. Drive clock.
+1 world-time 12:00
+1 ignore on
+4.0 spawn Wolf_Grey_7 0.00 3.00 0.40 --level 18 --yaw 180

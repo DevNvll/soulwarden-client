@@ -85,5 +85,35 @@ class ApplySpecs(unittest.TestCase):
             self.assertEqual((stub.calls, report["instances"]["applied"]), ([], 0))
 
 
+class Bodies(unittest.TestCase):
+    def test_slot_name(self):
+        # The glTF material name and the asset name of its instance (Interchange: no spaces or dots) give one form.
+        self.assertEqual(swc_materials.slot_name("Wolf Fur.mat"), swc_materials.slot_name("wolf_fur_mat"))
+        self.assertNotEqual(swc_materials.slot_name("wolf_body"), swc_materials.slot_name("wolf_fur"))
+
+    def test_shortened_name(self):
+        # Interchange cuts the middle out of a long material name; the one entry with its first and last part matches.
+        table = {"male_hercyneraidheavymutated_00_calves": "b_1", "male_hercyneraidheavymutated_00_chest": "b_2"}
+        self.assertEqual(swc_materials.slot_key("male_HercyneRai_utated_00_calves", table), "b_1")
+        self.assertEqual(swc_materials.slot_key("male_HercyneRaid_yMutated_00_chest", table), "b_2")
+        self.assertIsNone(swc_materials.slot_key("male_Hercyne_00_boots", table))
+        # One letter out: male_angryEarthDr_adLightT3_00_chest for male_angryEarthDryadLightT3_00_chest.
+        self.assertEqual(swc_materials.slot_key("male_angryEarthDr_adLightT3_00_chest",
+                                                {"male_angryearthdryadlightt3_00_chest": "b_3"}), "b_3")
+        self.assertEqual(swc_materials.slot_key("female_fanaticheavycr_lves_93c01f_material_0", {"": "b_4"}), "b_4")
+
+    def test_folder_with_no_table_touches_no_asset(self):
+        # The hooks of the import scripts with bodies that the converter did not list: no call of the engine.
+        with tempfile.TemporaryDirectory() as content:
+            os.makedirs(os.path.join(content, "bodies"))
+            with open(os.path.join(content, "bodies", "slots.json"), "w") as handle:
+                json.dump({"version": 1, "bodies": {"/SwcGameContent/Characters/a": {"Wolf Fur": "b_00000000aa"}}}, handle)
+            self.assertEqual(swc_materials.load_body_slots(content),
+                             {"/SwcGameContent/Characters/a": {"wolf_fur": "b_00000000aa"}})
+            stub.calls.clear()
+            report = swc_materials.apply_bodies(["/SwcGameContent/Characters/b"], {}, content=content)
+            self.assertEqual((stub.calls, report["instances"]["applied"]), ([], 0))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -9,7 +9,8 @@ SWC_CONTENT/materials/instances.json and textures.json (converter/swc_convert/ma
 Environment: SWC_CONTENT, SWC_GAME_CONTENT, SWC_MATERIALS_FILTER (a text that the key must contain),
 SWC_MATERIALS_KEYS (a file with a JSON list of material keys), SWC_MATERIALS_MAX_SECONDS (stop after the item that
 passes this time; the report has "incomplete": true, and a next call continues), SWC_MATERIALS_PART (decals: the specs of
-SWC_CONTENT/decals, for example the dm_ instances of the mesh decal companions; default materials).
+SWC_CONTENT/decals, for example the dm_ instances of the mesh decal companions; bodies: the glTF material instances of the
+skinned bodies of SWC_CONTENT/bodies, the filter and the keys are Unreal folders; default materials).
 """
 import json
 import os
@@ -55,6 +56,11 @@ if os.environ.get("SWC_MATERIALS_PREFETCH") == "1":
                 json.dump(state, handle, indent=0, sort_keys=True)
             os.replace(state_path + ".tmp", state_path)
             sm.log(f"prefetch {n + 1}/{len(keys)} {round(time.time() - started)} s")
+elif part == "bodies":
+    # The glTF material instances of the skinned bodies (SWC_CONTENT/bodies; the filter: a text of the Unreal folder).
+    folders = sorted(f for f in sm.load_body_slots(content) if (not wanted or wanted in f) and (listed is None or f in listed))
+    sm.log(f"selected {len(folders)} bodies")
+    sm.apply_bodies(folders, state, force=False, content=content, max_seconds=max_seconds, report=report)
 else:
     selected = [k for k in specs if (not wanted or wanted in k) and (listed is None or k in listed)]
     sm.log(f"selected {len(selected)} instances")

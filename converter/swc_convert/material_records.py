@@ -1831,7 +1831,7 @@ def same(a, b, tolerance: float = 1e-6) -> bool:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] not in ("audit", "instances", "proof-plan", "proof-sheet", "chains", "record", "decals",
-                                   "frames", "rebuild-set", "rebuild-convert", "cover"):
+                                   "frames", "rebuild-set", "rebuild-convert", "cover", "bodies"):
         print(__doc__)
         return 2
     if argv[0] == "audit":
@@ -1849,6 +1849,9 @@ def main(argv: list[str] | None = None) -> int:
         result = rebuild_set()
     elif argv[0] == "rebuild-convert":
         result = rebuild_convert()
+    elif argv[0] == "bodies":
+        from . import bodies
+        result = bodies.main(argv[1:])
     elif argv[0] == "decals":
         from . import decals
         result = decals.main(argv[1:])

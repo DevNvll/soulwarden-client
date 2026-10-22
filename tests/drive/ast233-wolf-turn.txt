@@ -1,0 +1,16 @@
+# tools/creature-check.sh ast233-wolf 20 tests/drive/ast233-wolf-turn-routes.txt tests/drive/ast233-wolf-turn.txt (SWC_DEV_PLACE 8882.082:4342.081:135.54).
+# The camera of creature-wolf-turn.json camera_stations[0] (heading 329.75, pitch -7.72) on the idle wolf of wolf-turn-routes.txt.
+1.000 tick
+2.000 tick
+3.000 view 329.75 -7.72
+4.000 tick
+5.000 tick
+6.000 view 329.75 -7.72
+7.000 tick
+8.000 tick
+9.000 tick
+10.000 tick
+11.000 tick
+12.000 tick
+13.000 tick
+14.000 tick

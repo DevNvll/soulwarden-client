@@ -5,6 +5,7 @@
 #   FILTER         a text that the material key must contain
 #   --keys         only the material keys of a JSON list
 #   --part decals  the specs of SWC_CONTENT/decals (the dm_ instances of the mesh decal companions; default materials)
+#   --part bodies  the glTF material instances of the skinned bodies (SWC_CONTENT/bodies; FILTER and --keys: Unreal folders)
 #   --prefetch     only import the textures of the candidate specs (instances-candidate.json), no instance change
 #   --max-seconds  stop after the item that passes N seconds (the report has "incomplete": true; call again)
 #   --wait         wait at most N seconds for the import lock (default: fail at once when another import holds it)

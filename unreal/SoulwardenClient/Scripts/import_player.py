@@ -32,6 +32,7 @@ so that the import lock is free between them). The script saves imported.json ea
 import json
 import time
 import os
+import sys
 
 import unreal
 
@@ -233,6 +234,7 @@ def save_imported():
 
 
 usage_others = set()
+part_folders = []   # the parts of this call: their glTF material instances are new (apply_bodies below)
 order = {"base": 0, "part": 1, "weapon": 2, "clips": 3}
 skeletons = {}
 pipelines = {}
@@ -303,6 +305,7 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
     found["_source"] = stamp
     if kind == "part":
         found["_alpha"] = stamp
+        part_folders.append(destination)
     if kind == "weapon":
         found["_pipeline"] = mark
         found["_usage"] = WEAPON_USAGE
@@ -315,10 +318,27 @@ for key, entry in sorted(manifest["assets"].items(), key=lambda item: (order.get
         unreal.SystemLibrary.collect_garbage()
 
 save_imported()
+# The skinned bodies (docs/MATERIALS.md "The skinned bodies"): the glTF material instances of the parts of this call take the
+# specs of SWC_CONTENT/bodies (the stamps in the import-state.json of the plugin, as Scripts/apply_materials.py).
+bodies = {}
+if part_folders:
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import swc_materials
+        plugin_state_path = os.path.join(os.environ["SWC_GAME_CONTENT"], "import-state.json")
+        plugin_state = json.load(open(plugin_state_path)) if os.path.isfile(plugin_state_path) else {}
+        bodies = swc_materials.apply_bodies(part_folders, plugin_state, force=True)
+        with open(plugin_state_path + ".tmp", "w") as handle:
+            json.dump(plugin_state, handle, indent=0, sort_keys=True)
+        os.replace(plugin_state_path + ".tmp", plugin_state_path)
+        failed.extend(bodies["failed"])
+        bodies = {k: bodies[k] for k in ("textures", "instances")}
+    except Exception as error:
+        failed.append(f"bodies: {str(error)[:160]}")
 report = {"imported": done, "skipped (exists)": skipped, "failed": len(failed), "failures": failed, "incomplete": incomplete,
           "seconds": round(time.time() - started, 1),
           "weapons with the usage pass only": usage_done, "base materials copied for the weapons": sorted(usage_others),
-          "part materials with a new alpha parent": parents_done}
+          "part materials with a new alpha parent": parents_done, "bodies": bodies}
 with open(os.path.join(player, "import-report.json"), "w") as handle:
     json.dump(report, handle, indent=1)
 unreal.log("SWC PLAYER IMPORT " + json.dumps(report))

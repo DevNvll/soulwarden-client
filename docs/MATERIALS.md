@@ -558,6 +558,50 @@ tools/import-surface-layer.sh NAME... --max-seconds 300 --wait 7200   # the deca
   within 1 km, about 2,400 decals within 300 m) and within the noise at the river places.
 - Open: the dirt road maps have holes in their alpha; the terrain road layer (T1 of the world track) fills them.
 
+## The skinned bodies (AST-227, AST-233)
+
+```sh
+tools/convert-materials.sh bodies [FILTER]        # SWC_CONTENT/bodies: instances.json, textures.json, slots.json
+tools/apply-materials.sh FILTER --part bodies --max-seconds 500 --wait 600   # the glTF instances of the body folders
+```
+
+The converters of the creature bodies, the player parts (the persons wear them), and the person bodies write glTF
+materials with only the base color, the normal map, and some alpha rules (the parts had no XML Diffuse, no cutoff, and
+no two sided flag). The source shades these sub-materials (Illum, HumanSkin, Hair) with the same reflectance and the same
+overlay masks (charactermasking.cfib) as the world. One rule for all bodies (`converter/swc_convert/bodies.py`):
+
+- Each drawn sub-material of a body with the shader Illum, HumanSkin, or Hair takes the spec of the world rule
+  (`material_records.surface_spec`): the parent M_SwcSurface, M_SwcSurfaceMasked (AlphaTest), or M_SwcSurfaceTranslucent
+  (a head layer of `player.HEAD_LAYER`: opacity = the diffuse alpha x the XML Opacity), D = the diffuse map x the XML
+  Diffuse, the F0 split of the specular map x the XML Specular, the gloss and Shininess, the overlay masks (M3a: the hair
+  and beard tint of `Mask_R_Color` with `Mask_R_Override`), two sided (MtlFlags bit 0x2: the fur cards), the cutoff.
+- Two rules of the body shaders [I]: the Hair shader has no metal (its Specular is the color of the anisotropic
+  highlight): its F0 stays at the dielectric limit 0.08 of the parent (before, a beard of Specular 1.0 with no specular
+  map was a white metal); a head layer is a decal layer of the head (`%HAS_DECAL_LAYERS`): it changes the albedo only,
+  with no specular (before, the eye shadow was a white mirror).
+- The key of a spec is `b_` and 10 hex digits of the hash of the spec. `slots.json` gives the Unreal folder of each body
+  and the glTF material name of each slot (the Name of the sub-material) -> its key.
+- `swc_materials.apply_bodies` sets the glTF material instances of these folders (the instances that Interchange made,
+  `.../Materials/NAME`) from their specs: the parent and the parameters. The meshes and their slots do not change, no
+  body is imported again. The state key is `bodymat:` and the instance path. The import scripts call it for each body
+  that they import (`import_content.py` for the creatures, `import_player.py` for the parts): a new import makes the
+  glTF instances again. The surface parents have the skeletal mesh usage (version 9). The name of an instance: the glTF
+  name; Interchange cuts the middle out of a long name (`male_HercyneRai_utated_00_calves`), and a material with no name
+  becomes `MESH_material_N` (`swc_materials.slot_key`). 16,939 of the 17,185 instances of the imported parts match; the
+  others are left from older imports with other names.
+- The counts (2026-10-21): 11,143 bodies, 17,505 glTF materials with a spec, 4,029 specs (3,143 opaque, 868 masked, 18
+  translucent), 14,380 textures. A first apply (the Grey Wolf, Commander Purcell, the gear of the user's character)
+  took about 20 s for 11 instances and 37 textures.
+- The check (evidence/bodymat, crops retail | before | after): the Grey Wolf has the warm brown-grey of retail (b/g against
+  the ground 1.14; retail 1.28, before 1.43; the default F0 0.04 of the glTF rule gave a blue sky sheen, the specular map
+  gives about 0.004); it is darker than retail. Commander Purcell: the fur cards are cut and tinted, the plates are gold
+  and steel metal, the hair is brown and the beard blond-brown (Mask_R_Color with its override). The user's gear: dark
+  red-brown leather and dark steel (before: pale tan). Differences that stay: the rim light of the source
+  (`RIM_DIFFUSE_LIGHTING`: the wolf and the skin are darker), the hair is darker and the beard thinner (the blend pass of
+  Hair), the metal is duller (the reflections of the scene), a pink patch on the back of the gear.
+- Limits: the anisotropic highlight of Hair and the subsurface light of HumanSkin are not in the parents. Glass and the
+  other shaders keep the glTF rule. The weapons are not in this rule yet.
+
 ## Material colors (the matched views, sunlit and shadowed apart)
 
 ```sh

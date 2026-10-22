@@ -16,17 +16,19 @@ Parents (in /SwcGameContent/Base, made by this module, versioned by PARENT_VERSI
 import hashlib
 import json
 import os
+import re
 
 import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "8", "M_SwcSurfaceMasked": "8", "M_SwcDecal": "7",
+PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "9", "M_SwcSurfaceMasked": "9", "M_SwcDecal": "7",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
-                   "M_SwcSurfaceTranslucent": "8"}   # the rule of each parent
+                   "M_SwcSurfaceTranslucent": "9"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
 # 7: the UV transforms of the emittance and intensity maps (AST-207); 8: the sRGB emission files on Color samplers;
+# 9: the skeletal mesh usage (the skinned bodies, apply_bodies; AST-227);
 # M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals;
 # 4: the entity color and opacity (DecalColor), the angle fade of the projected decals (static switch Projected);
 # 5: the view bias in the vertex shader without CameraVectorWS (3 and 4 did not compile); 6: the normal of the
@@ -577,6 +579,9 @@ def surface_parent(content, state, masked, translucent=False):
         editing.connect_material_property(color, "A", MP.MP_OPACITY_MASK)
     material.set_editor_property("used_with_nanite", True)
     material.set_editor_property("used_with_instanced_static_meshes", True)
+    # The skinned bodies (apply_bodies): a material with no usage flag for its mesh compiles its shaders again at each start
+    # and draws the default material.
+    material.set_editor_property("used_with_skeletal_mesh", True)
     editing.recompile_material(material)
     assets.save_loaded_asset(material)
     state["base:" + name] = PARENT_VERSIONS[name]
@@ -1392,50 +1397,11 @@ def apply_specs(keys, state, force=True, content=None, max_seconds=0.0, report=N
             report["incomplete"] = True
         return report["incomplete"]
 
-    for key in sorted({t for name in todo for t in specs[name].get("textures", {}).values()}):
-        if out_of_time():
-            return report
-        record = textures.get(key)
-        if record is None:
-            continue   # a key of the manifest: tools/import.sh imports it
-        try:
-            done = import_texture(key, record, content, state)
-        except Exception as error:
-            report["failed"].append(f"{key}: {str(error)[:160]}")
-            continue
-        report["textures"]["imported" if done else "up to date"] += 1
-        if done and report["textures"]["imported"] % 50 == 0:
-            unreal.SystemLibrary.collect_garbage()
-    wanted = {specs[name].get("parent") for name in todo} | stale
-    parents = {}
-    if "foliage" in wanted:
-        parents["foliage"] = foliage_parent(content, state)
-    if "surface" in wanted:
-        parents["surface"] = surface_parent(content, state, masked=False)
-    if "surface masked" in wanted:
-        parents["surface masked"] = surface_parent(content, state, masked=True)
-    if "surface translucent" in wanted:
-        parents["surface translucent"] = surface_parent(content, state, masked=False, translucent=True)
-    if "decal" in wanted:
-        parents["decal"] = decal_parent(content, state)
-    if "glass" in wanted:
-        parents["glass"] = glass_parent(content, state)
-    if "beam" in wanted:
-        parents["beam"] = beam_parent(content, state)
-    for blend, name in (("opaque", "M_SwcOpaque"), ("masked", "M_SwcMasked"), ("translucent", "M_SwcTranslucent")):
-        if "legacy " + blend in wanted:   # the base parents of stage 1.2 (import_content.py): an n_ instance of old rules
-            parents["legacy " + blend] = assets.load_asset(f"{BASE}/{name}")
-    manifest_path = os.path.join(content, "manifest.json")
-    with open(manifest_path) as handle:
-        manifest = json.load(handle)["assets"]
-    cache = {}
-
-    def texture_of(key):
-        if key not in cache:
-            record = textures.get(key) or manifest.get(key)
-            cache[key] = first_asset(record["unreal"], "Texture2D") if record else None
-        return cache[key]
-
+    if not import_textures({t for name in todo for t in specs[name].get("textures", {}).values()}, textures, content, state,
+                           report, out_of_time):
+        return report
+    parents = make_parents({specs[name].get("parent") for name in todo} | stale, content, state)
+    texture_of = texture_finder(content, textures)
     for name in todo:
         if out_of_time():
             break
@@ -1457,4 +1423,166 @@ def apply_specs(keys, state, force=True, content=None, max_seconds=0.0, report=N
         state["materials:" + name] = spec_stamp(specs[name])
         report["instances"]["applied"] += 1
     log("apply_specs " + json.dumps({k: report[k] for k in ("textures", "instances", "incomplete")}))
+    return report
+
+
+def import_textures(keys, textures, content, state, report, out_of_time):
+    """Imports the textures of `keys` that textures.json has and that are new or changed (a key of the manifest: tools/import.sh
+    imports it). @return False when the time ran out."""
+    for key in sorted(keys):
+        if out_of_time():
+            return False
+        record = textures.get(key)
+        if record is None:
+            continue
+        try:
+            done = import_texture(key, record, content, state)
+        except Exception as error:
+            report["failed"].append(f"{key}: {str(error)[:160]}")
+            continue
+        report["textures"]["imported" if done else "up to date"] += 1
+        if done and report["textures"]["imported"] % 50 == 0:
+            unreal.SystemLibrary.collect_garbage()
+    return True
+
+
+def make_parents(wanted, content, state):
+    """@return The parent material of each spec parent kind of `wanted` (made again when its version is stale)."""
+    parents = {}
+    if "foliage" in wanted:
+        parents["foliage"] = foliage_parent(content, state)
+    if "surface" in wanted:
+        parents["surface"] = surface_parent(content, state, masked=False)
+    if "surface masked" in wanted:
+        parents["surface masked"] = surface_parent(content, state, masked=True)
+    if "surface translucent" in wanted:
+        parents["surface translucent"] = surface_parent(content, state, masked=False, translucent=True)
+    if "decal" in wanted:
+        parents["decal"] = decal_parent(content, state)
+    if "glass" in wanted:
+        parents["glass"] = glass_parent(content, state)
+    if "beam" in wanted:
+        parents["beam"] = beam_parent(content, state)
+    for blend, name in (("opaque", "M_SwcOpaque"), ("masked", "M_SwcMasked"), ("translucent", "M_SwcTranslucent")):
+        if "legacy " + blend in wanted:   # the base parents of stage 1.2 (import_content.py): an n_ instance of old rules
+            parents["legacy " + blend] = assets.load_asset(f"{BASE}/{name}")
+    return parents
+
+
+def texture_finder(content, textures):
+    """@return A function: a texture key -> its Texture2D asset (the record of textures.json or of the manifest), or None."""
+    with open(os.path.join(content, "manifest.json")) as handle:
+        manifest = json.load(handle)["assets"]
+    cache = {}
+
+    def texture_of(key):
+        if key not in cache:
+            record = textures.get(key) or manifest.get(key)
+            cache[key] = first_asset(record["unreal"], "Texture2D") if record else None
+        return cache[key]
+    return texture_of
+
+
+def slot_name(name):
+    """@return The form of a glTF material name that matches its material instance asset (Interchange replaces the
+    characters that an asset name cannot have)."""
+    return re.sub(r"[^a-z0-9_-]", "_", name.lower())
+
+
+def slot_key(asset_name, table):
+    """@return The key of a material instance of a body: the table entry of its name, else (Interchange cuts the middle out of
+    a long name: male_HercyneRai_utated_00_calves for male_HercyneRaidHeavyMutated_00_calves) the one entry that starts with
+    the part before an underscore of the name and ends with the part after it; MESH_material_N: the entry of the empty name.
+    None: no entry, or more than one."""
+    name = slot_name(asset_name)
+    if name in table:
+        return table[name]
+    if "" in table and re.search(r"_material_[0-9]+$", name):
+        return table[""]   # a glTF material with no name: Interchange names its instance MESH_material_N
+    found = set()
+    for i, char in enumerate(name):
+        if char == "_" and i > 0:
+            head, tail = name[:i], name[i + 1:]
+            found |= {key for entry, key in table.items()
+                      if len(entry) >= len(name) and entry.startswith(head) and entry.endswith(tail)}
+    return found.pop() if len(found) == 1 else None
+
+
+def load_body_slots(content):
+    """@return The Unreal folder of each body -> {slot_name(glTF material name): key} (SWC_CONTENT/bodies/slots.json of the
+    converter, bodies.py), empty when the converter wrote none."""
+    path = os.path.join(content, "bodies", "slots.json")
+    if not os.path.isfile(path):
+        return {}
+    with open(path) as handle:
+        bodies = json.load(handle)["bodies"]
+    return {folder: {slot_name(name): key for name, key in table.items()} for folder, table in bodies.items()}
+
+
+def apply_bodies(folders, state, force=True, content=None, max_seconds=0.0, report=None):
+    """Sets the glTF material instances of the skinned bodies in `folders` (the creatures, the player parts, the person
+    bodies; docs/MATERIALS.md "The skinned bodies") from the specs of SWC_CONTENT/bodies (converter bodies.py): the parent
+    M_SwcSurface, M_SwcSurfaceMasked, or M_SwcSurfaceTranslucent and the parameters of the world rule. The meshes keep their
+    slots and these instances. The state key is "bodymat:" and the instance path (the stamp of its spec). import_content.py
+    and import_player.py call it with force for the folders that they imported (a new import makes the glTF instances
+    again); Scripts/apply_materials.py (part bodies) with force False. The caller holds the import lock and saves `state`.
+    @return The report (counts, failures, "incomplete")."""
+    import time
+    started = time.time()
+    content = content or os.environ["SWC_CONTENT"]
+    report = report if report is not None else {}
+    report.setdefault("textures", {"imported": 0, "up to date": 0})
+    report.setdefault("instances", {"applied": 0, "up to date": 0, "no spec": 0})
+    report.setdefault("failed", [])
+    report.setdefault("incomplete", False)
+    specs, textures = load_specs(content, "bodies")
+    slots = load_body_slots(content)
+    todo = []
+    for folder in folders:
+        table = slots.get(folder)
+        if not table:
+            continue
+        for path in assets.list_assets(folder, recursive=True, include_folder=False):
+            if "/Materials/" not in path:
+                continue
+            path = path.split(".")[0]
+            key = slot_key(path.rsplit("/", 1)[-1], table)
+            if key is None or key not in specs:
+                report["instances"]["no spec"] += 1
+            elif force or state.get("bodymat:" + path) != spec_stamp(specs[key]):
+                todo.append((path, key))
+            else:
+                report["instances"]["up to date"] += 1
+    if not todo:
+        return report
+
+    def out_of_time():
+        if max_seconds and time.time() - started > max_seconds:
+            report["incomplete"] = True
+        return report["incomplete"]
+
+    keys = {key for _path, key in todo}
+    if not import_textures({t for key in keys for t in specs[key].get("textures", {}).values()}, textures, content, state,
+                           report, out_of_time):
+        return report
+    parents = make_parents({specs[key].get("parent") for key in keys}, content, state)
+    texture_of = texture_finder(content, textures)
+    for n, (path, key) in enumerate(todo):
+        if out_of_time():
+            break
+        try:
+            instance = assets.load_asset(path)
+            if not isinstance(instance, unreal.MaterialInstanceConstant):
+                continue
+            apply(instance, specs[key], parents, texture_of)
+            assets.save_loaded_asset(instance)
+        except Exception as error:
+            report["failed"].append(f"{path}: {str(error)[:160]}")
+            continue
+        state["bodymat:" + path] = spec_stamp(specs[key])
+        report["instances"]["applied"] += 1
+        if (n + 1) % 200 == 0:
+            unreal.SystemLibrary.collect_garbage()
+            log(f"apply_bodies {n + 1}/{len(todo)} {round(time.time() - started)} s")
+    log("apply_bodies " + json.dumps({k: report[k] for k in ("textures", "instances", "incomplete")}))
     return report
