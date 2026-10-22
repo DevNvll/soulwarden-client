@@ -601,7 +601,9 @@ The values (`swc/options.lua`):
   accessibility and subtitle rows, the voice and stream rows, the chat rows, some control rows).
 - `OptionsDataBus`: the reads of the screen; `Reset<Category>Settings` sets the values of the rows of the category again.
   `Set*` and `SerializeOptions` are stubs: the screen sets the nodes itself; the options other than the keys are not saved and
-  do not change the client in this stage (P6.9).
+  do not change the client in this stage (P6.9), but the mouse look sensitivities (AST-255): the controller reads
+  `Controls.CameraSensitivityHorizontal`, `...Vertical`, `...HorizontalADS`, and `...VerticalADS` each 0.5 s
+  (`USwcUiSubsystem::DataNumber`; [MOVEMENT.md](MOVEMENT.md)). The UI drive command `data PATH NUMBER` sets a data node (a check).
 - Facts of the scripts that the emulation follows: a text `@label more` localizes the label and keeps the rest (the monitor
   "Monitor 1"); the global `FloatEpsilon` (the float epsilon of the engine) and `Math.Ceil`, `Math.Floor`; with no game pad
   `GetCurrentGamepadIdentifier` is `eGPINone` (the screen shows the default pad picture); the input profiles of the
