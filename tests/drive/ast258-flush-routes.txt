@@ -1,0 +1,3 @@
+# The routes of tests/drive/ast258-flush.txt (AST-258): noon.
+1 world-time 12:00
+1 ignore on

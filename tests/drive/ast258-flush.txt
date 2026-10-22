@@ -1,0 +1,17 @@
+# AST-258 check: the HUD texts (the key hints of the quick slots and the abilities, the health number) after a flush of the Slate font
+# cache (the console variable Slate.FlushFontCache 1 at 12 s and 22 s). The texts must stay; the log has "shaped again" after each flush.
+2.0 tick
+4.0 tick
+6.0 tick
+8.0 tick
+10.0 tick
+12.0 exec Slate.FlushFontCache 1
+14.0 tick
+16.0 tick
+18.0 tick
+20.0 tick
+22.0 exec Slate.FlushFontCache 1
+24.0 tick
+26.0 tick
+28.0 tick
+30.0 tick

@@ -142,6 +142,12 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   each glyph, and not in the font measure or in `MakeText` (until stage WF7 the client drew all spacings as 0: the titles
   of the prompt cards were narrow next to the retail pictures). A text with no spacing keeps the font measure and
   `MakeText`.
+- The client keeps its shaped lines (at most 4,096). A flush of the Slate font cache (an atlas out of space) frees their font faces:
+  such a line draws nothing (AST-258: after some minutes of play the key hints and the health number went empty). A line that is
+  dirty (`FShapedGlyphSequence::IsDirty`) is shaped again, and the log has "a cached text line lost its font faces" (at most each
+  10 s). Config/DefaultEngine.ini raises the limits of the font atlases (`Slate.MaxFontAtlasPagesBeforeFlush` 4,
+  `Slate.MaxFontNonAtlasTexturesBeforeFlush` 8; the default 1 gave the flush of the play test). Check: `tests/drive/ast258-flush.txt`
+  (`Slate.FlushFontCache 1` at 12 s and 22 s; the HUD texts stay; evidence AST-258).
 - The client measures a text at the scale of the last paint (the DPI scale of the window: 0.61 at a height of 660
   pixels) and divides the width by it, because the font rasterizes at the drawn size and its hinted advances are wider
   than at scale 1. Before (to 2026-10-20) the measure was at scale 1: a piece after a space touched the word before it

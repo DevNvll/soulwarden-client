@@ -249,7 +249,21 @@ FShapedGlyphSequenceRef FSwcUiResources::Shape(const std::string& FontFile, floa
 	const FString Key = FString::Printf(TEXT("%s|%.3f|%.3f|%.4f|"), *ToFString(FontFile), PixelSize, LetterSpacing, Scale) + Text;
 	if (const FShapedGlyphSequenceRef* Found = ShapedLines.Find(Key))
 	{
-		return *Found;
+		// AST-258: a flush of the Slate font cache (an atlas out of space) frees the font faces of the cached lines: such a line draws
+		// nothing (the key hints and the health number went empty after some minutes). A dirty line is shaped again.
+		if (!(*Found)->IsDirty())
+		{
+			return *Found;
+		}
+		static double LastNote = -100.0;
+		const double Now = FPlatformTime::Seconds();
+		if (Now - LastNote > 10.0)
+		{
+			LastNote = Now;
+			UE_LOG(LogTemp, Log, TEXT("ui: a cached text line lost its font faces (a flush of the Slate font cache): shaped again (%d cached lines)"),
+				ShapedLines.Num());
+		}
+		ShapedLines.Remove(Key);
 	}
 	const TSharedRef<FSlateFontCache> FontCache = FSlateApplication::Get().GetRenderer()->GetFontCache();
 	FShapedGlyphSequenceRef Line = FontCache->ShapeBidirectionalText(Text, Font(FontFile, PixelSize, 0.0f), Scale,
