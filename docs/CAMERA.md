@@ -63,7 +63,7 @@ the entry (R1.4.2; the order is an inference). Examples: MidCamera to DynamicCam
    0.04 m more (`focusPointOffsetCastExtension`), on the camera channel (the static world blocks it, the characters do
    not). A hit pulls the camera in with the DistanceDampening of the state (0: at once). After the hit the camera goes
    back out with `offCollisionSmoothTime` 0.35 s (SmoothCD).
-4. The rotation: the control rotation of the player (the mouse, 0.025° for each count times the sensitivity of the
+4. The rotation: the control rotation of the player (the mouse, 0.1° for each count times the sensitivity of the
    state), or the rotation of the target lock. The camera manager clamps the pitch to the limits of the state.
 5. The FOV: the FOV option of the player, 57° vertical (`UseUserDefinedFov` in each state of this stage). The view keeps
    the vertical FOV for each window shape (88.0° horizontal at 16:9).

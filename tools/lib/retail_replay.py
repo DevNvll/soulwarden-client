@@ -33,8 +33,9 @@ import math
 import sys
 from pathlib import Path
 
-# The client counts for one unit of the look of the retail harness: 88.6 / 900 degrees for each unit, 0.025 degrees for each count.
-LOOK_COUNTS = 88.6 / 900.0 / 0.025
+# The client counts for one unit of the look of the retail harness: 88.6 / 900 degrees for each unit, 0.1 degrees for each count
+# (AST-255; before: 0.025, and 3.94 counts for each unit).
+LOOK_COUNTS = 88.6 / 900.0 / 0.1
 MOVE_KEYS = {0x57: (0, 1), 0x53: (0, -1), 0x41: (-1, 0), 0x44: (1, 0)}
 TAPS = {0x31: "key 1", 0x32: "key 2", 0xC0: "key sheathe", 0xA0: "dodge", 0x10: "dodge", 0x20: "jump"}
 
@@ -194,7 +195,7 @@ def main(argv: list[str]) -> int:
             drive.append((t, f"{'attack' if words[1] == 'left' else 'aim'} {1 if down else 0}"))
         elif verb == "look" and len(words) >= 3:
             # The harness of the retail client moves the pointer in steps of 30 units each 20 ms (game-hook harness.cpp); 900 units
-            # turned the retail camera 88.6 degrees (README of set 6, player-move-drawn), the client turns 0.025 degrees for each count
+            # turned the retail camera 88.6 degrees (README of set 6, player-move-drawn), the client turns 0.1 degrees for each count
             # (docs/CAMERA.md): the same angles in the same steps.
             dx, dy = int(words[1]), int(words[2])
             steps = max(1, -(-max(abs(dx), abs(dy)) // 30))

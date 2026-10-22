@@ -19,10 +19,12 @@
 
 namespace
 {
-/** The mouse look: degrees = mouse counts x 0.5 (rotateyaw / rotatepitch, defaultprofile.inputbindings) x 0.05 (option
- *  m_cameraSensitivityHorizontal / Vertical) x the sensitivity of the camera state = 0.025 degrees each count in
- *  MidCamera, no smoothing (research feel-values.md R1.4.4). */
-constexpr float LookDegreesPerCount = 0.5f * 0.05f;
+/** The mouse look: degrees = mouse counts x 0.1 x the sensitivity of the camera state (MidCamera 1), no smoothing (AST-255).
+ *  0.1 is the measured retail turn at the default option m_cameraSensitivityHorizontal / Vertical 0.05 (also the saved value of
+ *  each profile of the user): tools/hx 'look 900 0' (900 raw counts in steps of 30) turns the retail camera 90 degrees, error 3
+ *  degrees or less (Soulwarden docs/development/live-runs.md). The static rule of research feel-values.md R1.4.4 (counts x 0.5
+ *  of rotateyaw x 0.05 = 0.025) was an inference of the unit: it turned 4 times too slowly (900 counts: 22.5 degrees). */
+constexpr float LookDegreesPerCount = 2.0f * 0.05f;
 
 UInputAction* MakeAction(UObject* Outer, const TCHAR* Name, EInputActionValueType Type)
 {
