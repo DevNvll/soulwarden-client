@@ -92,7 +92,7 @@ in the whole world; no sound; only the five weapons that work now (sword and shi
 hammer); no quests or shops; progression later. The plan is `~/Games/soulwarden-client/research/mvp-gaps.md` (outside
 the repository). The status of each item is in Linear (parent AST-212).
 
-| Item | Linear | Status (2026-10-21) |
+| Item | Linear | Status (2026-10-22) |
 | --- | --- | --- |
 | MVP-A: the supported-action list of the backend, the owner-state read path | AST-214 | Done |
 | MVP-B: all item looks prepared before play, the appearance preflight | AST-215 | Done |
@@ -104,10 +104,11 @@ the repository). The status of each item is in Linear (parent AST-212).
 | MVP-H: the persons of the whole world, the conversation screen | AST-223 | Done |
 | MVP-I: the fight feedback with no sound, the water rules | AST-225 | Done |
 | MVP-J and J2: the crafting loop, the craft mods, the prompt card rule, the key hints | AST-226, AST-231 | Done |
-| MVP-L: the skill effects on the animation timeline (the user's request) | AST-230 | In progress |
-| God rays (the user's request) | AST-232 | In progress |
-| MVP-K: the cooked build of the whole MVP and its freshness checks | AST-229 | Part 1 done; the final cook waits |
-| The one-hour acceptance (MVP order 17) | - | After MVP-K |
+| MVP-L: the skill effects on the animation timeline (the user's request) | AST-230 | Done (open look points: AST-246) |
+| God rays (the user's request) | AST-232 | Done |
+| The materials of the skinned bodies and the weapons, the wolf size | AST-227, AST-233, AST-247 | Done (part c of AST-247 open) |
+| MVP-K: the cooked build of the whole MVP and its freshness checks | AST-229 | Done (2026-10-22, main af18192) |
+| The one-hour acceptance (MVP order 17): the user plays with tools/play.sh | - | Next |
 
 ## Quests (after the backend parts 1.8a to 1.8e)
 
