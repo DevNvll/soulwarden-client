@@ -6,6 +6,8 @@
 #include "Combat/SwcMeleeShape.h"
 #include "Creatures/SwcHitShapes.h"
 #include "Creatures/SwcMeleeContact.h"
+#include "CollisionQueryParams.h"
+#include "Engine/HitResult.h"
 #include "Engine/StreamableManager.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "SwcCreatureSubsystem.generated.h"
@@ -109,10 +111,16 @@ struct FSwcCreaturePlate
 	bool bNeverShowHealthBar = false;
 	bool bForceDisplayHealthBar = false;
 	float VerticalOffset = 0.0f;
-	/** The distance from the player (m), and the show rule of the simple plate (the near range, or the crosshair within the angle of
-	 *  the marker of the slice; -SwcPlates=all). */
+	/** The distance from the player (m), and the admission of the marker. An AI marker is admitted after the common gates (the
+	 *  creature shows, has vitals, is not dead, its marker state is on): the near range and the narrow angle of the slice are the test
+	 *  of a player marker only (the native 0x4929AB0, the early true branch at 0x4929D06; research/marker-plates.md section 1). */
 	float Distance = 0.0f;
 	bool bShown = false;
+	/** AST-256: the timed target of the marker (the native 0x493A530; research/marker-fade.md section 2): a hit of the camera ray
+	 *  gives 1 s. The timed target skips the distance fade and the occlusion, and comes first in the pool after a boss. TargetStamp:
+	 *  the time of its activation (s of the world; the newer one first in the pool). */
+	bool bTimedTarget = false;
+	double TargetStamp = 0.0;
 	TArray<FSwcPlateStatus> Statuses;
 };
 
@@ -229,6 +237,11 @@ public:
 	/** The name plates for the UI (stage WF7): each creature with vitals and a marker within the range of the plates (the crosshair
 	 *  range; with -SwcPlates=all also the range of the development plates), with the show rule of the simple plate in bShown. */
 	void GetPlates(TArray<FSwcCreaturePlate>& Out) const;
+	/** AST-256: a visibility line from From to To that passes through the plants (a collision mesh of nature/veg_*, or a mesh with the
+	 *  wind; not a tree) — a rule of this client [I]: the retail query of the markers (mode 2 of 0x439C570) and its plant filter are
+	 *  not read (research/marker-fade.md section 3). OutPlants: the number of plants that the line passed. */
+	static bool TraceThroughPlants(const UWorld& World, FHitResult& Hit, const FVector& From, const FVector& To, FCollisionQueryParams Params,
+		int32* OutPlants = nullptr);
 	/** The damage numbers for the UI (stage WF7): the events after the serial After (the newest 32 stay). @return The newest serial. */
 	uint32 GetDamageEvents(uint32 After, TArray<FSwcDamageEvent>& Out) const;
 	/** The UI draws the original plates and damage numbers: the simple plates and damage numbers of this subsystem go off (default
@@ -272,8 +285,18 @@ private:
 	TArray<FSwcDamageEvent> DamageEvents;
 	uint32 DamageSerial = 0;
 	bool bUiPlates = false;
-	/** The show rule of the simple plate (the marker of the slice): Eye and Look of the camera, Own the place of the player. */
-	bool ShowsPlate(const ASwcCreature& Creature, const FVector& Eye, const FVector& Look, const FVector& Own, double& OutDistance) const;
+	/** The show rule of the simple plate of the canvas (no UI): the creature within the end of the fade of the AI type (15 m), or a
+	 *  timed target. Own: the place of the player. */
+	bool ShowsPlate(uint32 Interest, const ASwcCreature& Creature, const FVector& Own, double& OutDistance) const;
+	/** AST-256: the timed targets of the markers (the native 0x493A530 and 0x493A5D0): the remaining time (s) and the time of the
+	 *  activation (s of the world). The camera ray (the native 0x493B1A0) activates the creature that it hits for 1 s each frame. */
+	struct FTimedTarget
+	{
+		double Remaining = 0.0;
+		double Stamp = 0.0;
+	};
+	TMap<uint32, FTimedTarget> TimedTargets;
+	void UpdateTimedTargets(float DeltaTime);
 
 	swc::creatures::EntityTable Table;
 	uint32 TableRevision = 0;

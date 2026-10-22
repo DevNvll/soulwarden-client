@@ -424,31 +424,44 @@ longest frame in the 3 s after the spawns 39 ms; no `FlushAsyncLoading` after th
 
 ## The name plate
 
-A simple plate on the canvas of the game viewport: the name and the level (no level for a Critter), and the health bar
-(health / HealthMax; grey while the creature is immune). The original is the `AiMarker` template of
-`lyshineui/markers/markermanager.dynamicuicanvas` with `lyshineui/markers/marker.luac` (for the UI track).
+The original plate is the `AiMarker` template of `lyshineui/markers/markermanager.dynamicuicanvas` with
+`lyshineui/markers/marker.luac` (the UI draws it, stage WF7; `swc/markers.lua` does the native part). The native rules come from two
+static studies of the retail binary (research/marker-plates.md, research/marker-fade.md; AST-256 part 2). [R]: read in the binary,
+[D]: data, [I]: a rule of this client, [U]: not read.
 
 | Rule | Value | Source |
 | --- | --- | --- |
-| Near range | the plate shows within `m_nearRange` (6 m for most slices) | MarkerComponent client facet of the slice; protocol notes 4.14 |
-| Crosshair | within `m_nearAngle` (0.1309 rad) at the near range, down to `m_farAngle` (0.01745 rad) at `m_angleShrinkDistance` (20 m), up to 50 m | the same facet; the 50 m limit is an inference |
-| Health bar | not with `m_neverShowHealthBar` | the same facet |
+| Admission | an AI marker is admitted after the common gates (the creature shows, has vitals, is not dead, its marker state 5399 is on); the near range and the narrow angle of the slice are the test of a player marker only | [R] 0x4929AB0, the early true branch at 0x4929D06 |
+| Distance | from the player to the origin of the entity (3D) | [R] 0x4931B80 |
+| Fade | alpha = maxAlpha; beyond `fadeStart` it goes down by (d - fadeStart) / (fadeDistance - fadeStart), to minAlpha. `fadeDistance` is the end (AI types: 1 at 10 m, 0.5 at 12.5 m, 0 at 15 m) | [R] 0x49C32E0; [D] markerdata.luac |
+| Timed target | the creature that the camera ray hits (a line along the camera forward, 100 m [U]; the world nearer than the body stops it) is the timed target for 1 s (the larger of the remaining time and 1 s; the first activation keeps its time). A timed target keeps maxAlpha (no fade) and has no occlusion | [R] 0x493B1A0, 0x493B4B6, 0x493A530, 0x49C3311, 0x493C01C |
+| Explicit tag | `m_targetTaggingDuration` (10 s) | [R] 0x493A180; its callers are not read [U]: not in this client |
+| Pool | the AI group "a" has 4 elements (main register 15 of markermanager.luac; the player plate quantity 15 does not change it) | [R] the raw bindings of the bytecode |
+| Pool order | a boss, then a marker on the screen, then a timed target (the newer activation first), then the nearest; a creature keeps its slot while it stays in the leading candidates | [R] 0x4944800, 0x4944E40; the flag of the screen order (0x9F2900C) is not read [U] |
+| Occlusion | a visibility line from the camera to the plate point each 0.33 s; a hit before the point hides the plate (no dim). Only with `allowWorldOcclusion`, not for a timed target or with `SetMarkerOcclusionEnabled(false)`. The line passes through the plants (a collision mesh of nature/veg_*, a mesh with the wind; not a tree) | [R] 0x493BE30 (hide); [I] the trace channel and the plant filter (the retail query mode 2 is not read) |
+| Candidates | each creature within 100 m, and each timed target | [I] (a short line for the UI) |
+| Health bar | not with `m_neverShowHealthBar` | the facet of the slice |
 | Dead | the plate goes away 3 s after the dead mark; the body 300 s after it | protocol notes 4.14 (the times: "some seconds", the delayed event of 300 s) |
-| `-SwcPlates=all` | each plate within 40 m (development pictures) | a development aid |
+
+The simple plates on the canvas of the game viewport (no UI: the name and the level, the health bar) show within 15 m (the end of the
+fade), or for a timed target; `-SwcPlates=all`: each one within 40 m (development pictures).
 
 The log of the plate decisions (AST-256, for the user tests): `creatures: plate of creature N: no plate: ...` (the creature is hidden,
-no vitals state, dead, the marker state of the server off) and, from the UI, `plate NAME (interest, D m): shown | hidden by the show
-rule | no marker type | no pool slot (N candidates, pool P) | occluded | off screen | alpha 0 (the fade of the type)` and `plate of
-creature N: occluded by ACTOR (COMPONENT) ...` at each change (at most 20 UI lines each second). A live run with wolves at 5, 15, and
-30 m (`tests/drive/ast256-camp.txt`) showed the client causes of missing plates: the fade of the marker type (alpha 0 beyond 15 m:
-fadeStart 10 m to fadeDistance 15 m of markerdata.luac, a rule of this client), the AI pool of 4 elements (plate quantity 15), and the
-occlusion by the ground cover. The native rule of the plates is open (a static study, research/marker-plates.md).
+no vitals state, dead, the marker state of the server off), `creatures: plate of creature N: the timed target (the camera ray, D m)`,
+and, from the UI, `plate NAME (interest, D m): shown | no marker type | no pool slot (pool P) | occluded | off screen | alpha 0 (the
+fade of the type)`, `plate of creature N: occluded by ACTOR (COMPONENT, MESH) ...`, and `plate of creature N: the line passed K
+plant(s)` at each change (at most 20 UI lines each second). The live runs (`tests/drive/ast256-cases.txt`, runs ast256-cases2 and 3):
+an untagged wolf at 12.5 m shows at one half of the alpha; the aim at a wolf at 28.3 m makes it the timed target (full plate); 1.04 s
+after the aim leaves it, it hides (alpha 0); a wolf behind the ruins is occluded by their collision mesh (`C_jav_struc_ruins_debris_a`;
+part 1 named the ground cover by mistake: the ground cover has no collision); with 17 wolves, 4 plates show. The causes of the missing
+plates of the user are thus the fade (no plate beyond 15 m without the aim), the pool of 4, and the occlusion by structures and trees,
+as retail; the former near-range and narrow-angle test of this client is gone.
 
-The UI reads the plates (stage WF7, the UI track): `GetPlates` gives each creature with vitals and a marker within 50 m (the
-feet, the name, the marker type of the slice, the creature type of the category row, the level, the health, the dead mark, the
-statuses, the marker flags) with the show rule above in `bShown`, and `GetDamageEvents` gives the damage numbers (the entries and
-the flags of 2071) with a serial. When the UI draws the original plates and numbers it calls `SetUiPlates(true)`: the simple
-plates and numbers of this view go off (default on).
+The UI reads the plates (stage WF7, the UI track): `GetPlates` gives the candidates (the feet, the name, the marker type of the slice,
+the creature type of the category row, the level, the health, the dead mark, the statuses, the marker flags, the admission in
+`bShown`, the timed target and the time of its activation), and `GetDamageEvents` gives the damage numbers (the entries and the flags
+of 2071) with a serial. When the UI draws the original plates and numbers it calls `SetUiPlates(true)`: the simple plates and numbers
+of this view go off (default on).
 
 ## Counts and disk
 

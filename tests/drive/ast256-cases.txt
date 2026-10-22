@@ -1,0 +1,30 @@
+# AST-256 part 2: the cases of the study (research/marker-fade.md), routes tests/drive/ast256-cases-routes.txt: an untagged wolf at
+# 12.5 m (alpha 0.5), the aim at a wolf at 17 m (the timed target: alpha 1 past the end of the fade), the end of its timer (1 s after
+# the aim leaves it), the aim at a wolf at 28 m in the plants, the wolf behind the ruins (occluded), four wolves north in the bushes (the lines through the plants), and 17 wolves (a pool of
+# 4).
+1.0 tick
+2.0 view 100 -3
+6.0 tick
+10.0 tick
+12.0 tick
+14.0 view 54.6 -4
+16.0 tick
+17.0 tick
+18.0 view 100 -3
+18.5 tick
+19.5 tick
+21.0 tick
+22.0 view 32 -2.7
+24.0 tick
+25.0 tick
+26.0 view 85 -3
+28.0 tick
+30.0 view 15 -3
+32.0 tick
+34.0 tick
+36.0 view 75 -6
+38.0 tick
+40.0 tick
+42.0 view 70 -6
+44.0 tick
+46.0 tick

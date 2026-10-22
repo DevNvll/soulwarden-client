@@ -256,6 +256,8 @@ private:
 	double NextOcclusionTime = 0.0;
 	/** AST-256: the last occlusion of each plate (by the interest text), for the log of a change. */
 	TMap<FString, bool> OccludedPlates;
+	/** AST-256: the creatures whose occlusion line passed a plant (one log line each). */
+	TSet<FString> PlantPlates;
 	bool bStandInsOff = false;
 	/** The numbers that went to the UI: the serial of the damage events, the counts of the own damages and heals. */
 	uint32 SentDamageSerial = 0;

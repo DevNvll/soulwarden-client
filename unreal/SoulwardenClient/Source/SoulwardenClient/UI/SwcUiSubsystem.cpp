@@ -27,6 +27,8 @@
 #include "Camera/PlayerCameraManager.h"
 #include "SwcCameraManager.h"
 #include "Creatures/SwcCreatureSubsystem.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/LocalPlayer.h"
 #include "SceneView.h"
 #include "GameFramework/Pawn.h"
@@ -2204,11 +2206,11 @@ void USwcUiSubsystem::FeedWorld(const swc::net::RepClient::OwnEntity& Own)
 		{
 			Statuses += FString::Printf(TEXT("%s%s*%u"), Statuses.IsEmpty() ? TEXT("") : TEXT(","), *Status.Id, Status.Stacks);
 		}
-		Lines += FString::Printf(TEXT("%u\t%llu\t%.1f\t%.1f\t%.1f\t%s\t%s\t%s\t%s\t%u\t%d\t%.1f\t%.1f\t%d\t%.2f\t%d\t%d\t%d\t%.2f\t%d\t%s\n"),
+		Lines += FString::Printf(TEXT("%u\t%llu\t%.1f\t%.1f\t%.1f\t%s\t%s\t%s\t%s\t%u\t%d\t%.1f\t%.1f\t%d\t%.2f\t%d\t%d\t%d\t%.2f\t%d\t%s\t%d\t%.3f\n"),
 			Plate.Interest, static_cast<unsigned long long>(Plate.Serial), Plate.Feet.X, Plate.Feet.Y, Plate.Feet.Z, *Plate.Name.Replace(TEXT("\t"), TEXT(" ")),
 			*Plate.MarkerType, *Plate.CreatureType, *Plate.CreatureTypeOverride, Plate.Level, Plate.bHidesLevel ? 1 : 0, Plate.Health, Plate.HealthMax,
 			Plate.bDead ? 1 : 0, Plate.DeadSeconds, Plate.bImmune ? 1 : 0, Plate.bNeverShowHealthBar ? 1 : 0, Plate.bForceDisplayHealthBar ? 1 : 0,
-			Plate.Distance, Plate.bShown ? 1 : 0, *Statuses);
+			Plate.Distance, Plate.bShown ? 1 : 0, *Statuses, Plate.bTimedTarget ? 1 : 0, Plate.TargetStamp);
 	}
 	Runtime->call("HostPlates", {FArg::of(Utf8(Lines))});
 	// The prompt of the focus (FSwcInteractor::GetPrompt): one line for swc/interact.lua (Swc.HostPrompt).
@@ -2231,7 +2233,9 @@ void USwcUiSubsystem::FeedWorld(const swc::net::RepClient::OwnEntity& Own)
 	}
 	Runtime->call("HostPrompt", {FArg::of(Utf8(PromptLine))});
 	// The occlusion of the markers (markerdata.luac: allowWorldOcclusion, occlusionInterval 0.33 s): a line from the camera to the point
-	// of each marker; a hit of the world before the point hides it (the creatures and the pawn do not hide a marker).
+	// of each marker; a hit of the world before the point hides it (the creatures and the pawn do not hide a marker). The line passes
+	// through the plants (USwcCreatureSubsystem::TraceThroughPlants, a rule of this client [I]: the retail query and its plant filter are
+	// not read; research/marker-fade.md section 3).
 	const double Now = FPlatformTime::Seconds();
 	if (Now < NextOcclusionTime)
 	{
@@ -2248,20 +2252,28 @@ void USwcUiSubsystem::FeedWorld(const swc::net::RepClient::OwnEntity& Own)
 	{
 		const FVector Point(FCString::Atod(*Parts[Index + 1]), FCString::Atod(*Parts[Index + 2]), FCString::Atod(*Parts[Index + 3]));
 		FHitResult Hit;
-		bool bHidden = World->LineTraceSingleByChannel(Hit, Projection.ViewOrigin, Point, ECC_Visibility, Params);
+		int32 Plants = 0;
+		bool bHidden = USwcCreatureSubsystem::TraceThroughPlants(*World, Hit, Projection.ViewOrigin, Point, Params, &Plants);
 		if (bHidden && Hit.GetActor() != nullptr && Hit.GetActor()->IsA<ASwcCreature>())
 		{
 			bHidden = false;
 		}
-		// AST-256: the object that hides a plate, logged when the occlusion of the creature changes.
+		// AST-256: the object that hides a plate, logged when the occlusion of the creature changes (and the first plant that a line passes).
+		if (Plants > 0 && !PlantPlates.Contains(Parts[Index]))
+		{
+			PlantPlates.Add(Parts[Index]);
+			UE_LOG(LogSwcUi, Log, TEXT("ui: plate of creature %s: the line passed %d plant(s) (not an occlusion)"), *Parts[Index], Plants);
+		}
 		bool& Last = OccludedPlates.FindOrAdd(Parts[Index]);
 		if (Last != bHidden)
 		{
 			Last = bHidden;
 			UE_LOG(LogSwcUi, Log, TEXT("ui: plate of creature %s: %s"), *Parts[Index], bHidden
-				? *FString::Printf(TEXT("occluded by %s (%s) %.1f m from the camera, %.1f m before the plate"), *GetNameSafe(Hit.GetActor()),
-					*GetNameSafe(Hit.GetComponent()), Hit.Distance / 100.0, (FVector::Dist(Projection.ViewOrigin, Point) - Hit.Distance) / 100.0)
-				: TEXT("not occluded"));
+				? *FString::Printf(TEXT("occluded by %s (%s, %s) %.1f m from the camera, %.1f m before the plate"), *GetNameSafe(Hit.GetActor()),
+					*GetNameSafe(Hit.GetComponent()), Cast<UStaticMeshComponent>(Hit.GetComponent()) != nullptr
+						? *GetNameSafe(Cast<UStaticMeshComponent>(Hit.GetComponent())->GetStaticMesh()) : TEXT("no mesh"),
+					Hit.Distance / 100.0, (FVector::Dist(Projection.ViewOrigin, Point) - Hit.Distance) / 100.0)
+				: *FString::Printf(TEXT("not occluded (the line passed %d plant(s))"), Plants));
 		}
 		Result += FString::Printf(TEXT("%s:%d "), *Parts[Index], bHidden ? 1 : 0);
 	}

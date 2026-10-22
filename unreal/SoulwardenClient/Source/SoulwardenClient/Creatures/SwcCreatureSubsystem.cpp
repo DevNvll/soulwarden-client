@@ -8,6 +8,7 @@
 #include "Async/Async.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "CanvasItem.h"
 #include "Creatures/SwcCreature.h"
 #include "Creatures/SwcDamageMessage.h"
@@ -43,9 +44,15 @@ namespace
 {
 /** The plate of a development picture (-SwcPlates=all): each creature within this distance (m). */
 constexpr double AllPlatesRange = 40.0;
-/** The crosshair rule of the marker (m_nearAngle at the near range, down to m_farAngle at m_angleShrinkDistance): a plate
- *  farther than this shows only by the crosshair (an inference: the far limit of the marker is not read). */
-constexpr double CrosshairRange = 50.0;
+/** The candidates of the plate pool (m): a rule of this client [I] to keep the lines short. Retail has no such range for an AI
+ *  marker (the interest range of the server limits it); beyond the end of the fade (15 m for the AI types) only a timed target shows. */
+constexpr double PlateRange = 100.0;
+/** The camera ray of the timed target (m; the native 0x493B1A0): its length is not read [U]. */
+constexpr double AimRayRange = 100.0;
+/** A hit of the camera ray makes the creature the timed target for this time (s; the native 0x493B4B6 to 0x493B4C5). */
+constexpr double AimTargetSeconds = 1.0;
+/** The end of the distance fade of the AI types (markerdata.luac: fadeDistance 15 m), for the simple plates of the canvas. */
+constexpr double SimpleFadeEnd = 15.0;
 /** The plate of a dead creature goes away some seconds after the dead mark (protocol notes 4.14; the time is an inference). */
 constexpr double DeadPlateSeconds = 3.0;
 /** The body of a dead creature: the client removes it about 5 minutes later (the delayed event of 300 s of the slice). */
@@ -434,6 +441,7 @@ void USwcCreatureSubsystem::Ready(const swc::creatures::Entity& Entity, ASwcCrea
 void USwcCreatureSubsystem::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	UpdateTimedTargets(DeltaTime);
 	// The frames after a spawn (the work of a spawn must stay small: no load that waits for the async loads).
 	if (SpawnWatchCount > 0)
 	{
@@ -1416,21 +1424,110 @@ bool USwcCreatureSubsystem::GetLockPoint(uint32 Interest, FSwcLockPoint& Out) co
 	return true;
 }
 
-bool USwcCreatureSubsystem::ShowsPlate(const ASwcCreature& Creature, const FVector& Eye, const FVector& Look, const FVector& Own, double& OutDistance) const
+bool USwcCreatureSubsystem::ShowsPlate(uint32 Interest, const ASwcCreature& Creature, const FVector& Own, double& OutDistance) const
 {
+	// The distance from the player to the origin of the entity (the native 0x4931B80: a 3D distance, not to a point above the feet).
 	const double Distance = FVector::Dist(Own, Creature.GetActorLocation()) / 100.0;
 	OutDistance = Distance;
-	// The rule of the marker of the slice (MarkerComponent client facet): the near range, or the crosshair within an angle
-	// that shrinks from the near angle at the near range to the far angle at the shrink distance.
-	const FSwcCreatureSlice* Slice = Creature.GetSlice();
-	const double NearRange = Slice != nullptr ? Slice->NearRange : 6.0;
-	const double NearAngle = Slice != nullptr ? Slice->NearAngle : 0.1309;
-	const double FarAngle = Slice != nullptr ? Slice->FarAngle : 0.0174533;
-	const double Shrink = Slice != nullptr ? FMath::Max(Slice->AngleShrinkDistance, NearRange + 0.1) : 20.0;
-	const FVector Center = Creature.GetActorLocation() + FVector(0.0, 0.0, 80.0 * Creature.GetActorScale3D().Z);
-	const double Angle = FMath::Acos(FMath::Clamp(FVector::DotProduct(Look, (Center - Eye).GetSafeNormal()), -1.0, 1.0));
-	const double Allowed = FMath::Lerp(NearAngle, FarAngle, FMath::Clamp((Distance - NearRange) / (Shrink - NearRange), 0.0, 1.0));
-	return Distance <= NearRange || (Distance <= CrosshairRange && Angle <= Allowed) || (bAllPlates && Distance <= AllPlatesRange);
+	return Distance <= SimpleFadeEnd || TimedTargets.Contains(Interest) || (bAllPlates && Distance <= AllPlatesRange);
+}
+
+namespace
+{
+/** A plant for the lines of the markers [I]: a collision mesh of the plants (Collision/objects/nature/veg_*: the bushes, the bramble) or
+ *  a mesh with the wind (the custom primitive data 0 above 0, SwcWind); a tree is not a plant here (its trunk hides a plate). */
+bool IsPlant(const UPrimitiveComponent* Component)
+{
+	if (Component == nullptr)
+	{
+		return false;
+	}
+	const UStaticMeshComponent* Mesh = Cast<UStaticMeshComponent>(Component);
+	const FString Path = Mesh != nullptr && Mesh->GetStaticMesh() != nullptr ? Mesh->GetStaticMesh()->GetPathName().ToLower() : FString();
+	if (Path.Contains(TEXT("tree")))
+	{
+		return false;
+	}
+	const TArray<float>& Data = Component->GetDefaultCustomPrimitiveData().Data;
+	return Path.Contains(TEXT("/veg_")) || (Data.Num() > 0 && Data[0] > 0.0f);
+}
+} // namespace
+
+bool USwcCreatureSubsystem::TraceThroughPlants(const UWorld& World, FHitResult& Hit, const FVector& From, const FVector& To,
+	FCollisionQueryParams Params, int32* OutPlants)
+{
+	int32 Plants = 0;
+	bool bHit = false;
+	for (int32 Pass = 0; Pass < 8; ++Pass)
+	{
+		bHit = World.LineTraceSingleByChannel(Hit, From, To, ECC_Visibility, Params);
+		const UPrimitiveComponent* Component = Hit.GetComponent();
+		if (!bHit || !IsPlant(Component))
+		{
+			break;
+		}
+		Params.AddIgnoredComponent(Component);
+		++Plants;
+		bHit = false;
+	}
+	if (OutPlants != nullptr)
+	{
+		*OutPlants = Plants;
+	}
+	return bHit;
+}
+
+void USwcCreatureSubsystem::UpdateTimedTargets(float DeltaTime)
+{
+	// The tick of the timer (the native 0x4934E33): the frame time comes off, and a negative time clears the target (0x493A5D0).
+	for (auto It = TimedTargets.CreateIterator(); It; ++It)
+	{
+		It.Value().Remaining -= DeltaTime;
+		if (It.Value().Remaining < 0.0)
+		{
+			It.RemoveCurrent();
+		}
+	}
+	const UWorld* World = GetWorld();
+	const APlayerController* Player = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	if (bNoPlates || Player == nullptr || Player->PlayerCameraManager == nullptr)
+	{
+		return;
+	}
+	// The camera ray (the native 0x493B1A0): from the camera along its forward direction; the own entity does not count. The
+	// creature that it hits is the timed target for 1 s: the larger of the remaining time and 1 s; the first activation keeps its
+	// time (0x493A530). The body of a creature blocks only the channel Pawn (ASwcCreature: BodyBlock): a query of the object type
+	// Pawn finds it, and the world (a visibility line through the plants) must not be nearer.
+	const FVector Eye = Player->PlayerCameraManager->GetCameraLocation();
+	const FVector End = Eye + Player->PlayerCameraManager->GetCameraRotation().Vector() * AimRayRange * 100.0;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SwcMarkerAim), false, Player->GetPawn());
+	FHitResult Hit;
+	if (!World->LineTraceSingleByObjectType(Hit, Eye, End, FCollisionObjectQueryParams(ECC_Pawn), Params))
+	{
+		return;
+	}
+	const ASwcCreature* Hits = Cast<ASwcCreature>(Hit.GetActor());
+	FHitResult Wall;
+	if (Hits == nullptr || TraceThroughPlants(*World, Wall, Eye, Hit.Location, Params))
+	{
+		return;
+	}
+	for (const auto& [Interest, Actor] : Actors)
+	{
+		if (Actor.Get() != Hits)
+		{
+			continue;
+		}
+		FTimedTarget* Target = TimedTargets.Find(Interest);
+		if (Target == nullptr)
+		{
+			Target = &TimedTargets.Add(Interest);
+			Target->Stamp = World->GetTimeSeconds();
+			UE_LOG(LogSwcCreatures, Log, TEXT("creatures: plate of creature %u: the timed target (the camera ray, %.1f m)"), Interest, Hit.Distance / 100.0);
+		}
+		Target->Remaining = FMath::Max(Target->Remaining, AimTargetSeconds);
+		break;
+	}
 }
 
 void USwcCreatureSubsystem::GetPlates(TArray<FSwcCreaturePlate>& Out) const
@@ -1442,15 +1539,14 @@ void USwcCreatureSubsystem::GetPlates(TArray<FSwcCreaturePlate>& Out) const
 		return;
 	}
 	const FVector Eye = Player->PlayerCameraManager->GetCameraLocation();
-	const FVector Look = Player->PlayerCameraManager->GetCameraRotation().Vector();
 	const FVector Own = Player->GetPawn() != nullptr ? Player->GetPawn()->GetActorLocation() : Eye;
-	const double Range = bAllPlates ? FMath::Max(CrosshairRange, AllPlatesRange) : CrosshairRange;
+	const double Range = PlateRange;
 	// AST-256: a creature within the plate range that gets no plate line, with the reason, logged at a change (the user tests had
 	// missing plates and the log had no plate line).
 	const auto Drop = [this, &Own](int32 Interest, const ASwcCreature* Creature, uint8 Reason, const TCHAR* Text)
 	{
 		uint8& Last = PlateDrops.FindOrAdd(Interest);
-		if (Reason != 0 && Last != Reason && (Creature == nullptr || FVector::Dist(Own, Creature->GetActorLocation()) <= CrosshairRange * 100.0))
+		if (Reason != 0 && Last != Reason && (Creature == nullptr || FVector::Dist(Own, Creature->GetActorLocation()) <= 50.0 * 100.0))
 		{
 			UE_LOG(LogSwcCreatures, Log, TEXT("creatures: plate of creature %d: %s"), Interest, Text);
 		}
@@ -1487,9 +1583,10 @@ void USwcCreatureSubsystem::GetPlates(TArray<FSwcCreaturePlate>& Out) const
 			continue;
 		}
 		Drop(Interest, nullptr, 0, TEXT(""));
-		double Distance = 0.0;
-		const bool bShown = ShowsPlate(*Creature, Eye, Look, Own, Distance);
-		if (Distance > Range)
+		// The distance from the player to the origin of the entity (the native 0x4931B80).
+		const double Distance = FVector::Dist(Own, Creature->GetActorLocation()) / 100.0;
+		const FTimedTarget* Target = TimedTargets.Find(Interest);
+		if (Distance > Range && Target == nullptr)
 		{
 			continue;
 		}
@@ -1518,7 +1615,10 @@ void USwcCreatureSubsystem::GetPlates(TArray<FSwcCreaturePlate>& Out) const
 			Plate.VerticalOffset = Slice->VerticalOffset;
 		}
 		Plate.Distance = static_cast<float>(Distance);
-		Plate.bShown = bShown;
+		// An AI marker: admitted after the common gates above (the native 0x4929D06).
+		Plate.bShown = true;
+		Plate.bTimedTarget = Target != nullptr;
+		Plate.TargetStamp = Target != nullptr ? Target->Stamp : 0.0;
 		for (const swc::creatures::Entity::StatusEntry& Status : Entity.statuses)
 		{
 			const FSwcStatusRow* Row = Library.FindStatusRow(Status.index);
@@ -1553,7 +1653,6 @@ void USwcCreatureSubsystem::DrawPlates(UCanvas* Canvas, APlayerController* Contr
 		return;
 	}
 	const FVector Eye = Player->PlayerCameraManager->GetCameraLocation();
-	const FVector Look = Player->PlayerCameraManager->GetCameraRotation().Vector();
 	const FVector Own = Player->GetPawn() != nullptr ? Player->GetPawn()->GetActorLocation() : Eye;
 	if (bUiPlates || bNoPlates)
 	{
@@ -1583,7 +1682,7 @@ void USwcCreatureSubsystem::DrawPlates(UCanvas* Canvas, APlayerController* Contr
 		const FVector Point = Creature->GetPlatePoint();
 		const FSwcCreatureSlice* Slice = Creature->GetSlice();
 		double Distance = 0.0;
-		if (!ShowsPlate(*Creature, Eye, Look, Own, Distance))
+		if (!ShowsPlate(Interest, *Creature, Own, Distance))
 		{
 			continue;
 		}

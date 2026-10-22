@@ -17,7 +17,7 @@
 
 local Swc = Swc
 
-local M = {params = {}, groups = {}, objects = {}, slots = {}, view = nil, plates = {}, occluded = {}, anchors = {}, ready = false}
+local M = {params = {}, groups = {}, objects = {}, slots = {}, view = nil, plates = {}, occluded = {}, anchors = {}, boss = {}, ready = false}
 Swc.markers = M
 
 local PREFIX = "Hud.LocalPlayer.Markers."
@@ -40,7 +40,9 @@ for name, value in pairs(FEATURES) do
   Swc.SetData(name, value)
 end
 -- The option of the count of the plates (options.luac: the slider 2 to 100; markermanager.luac OnConfigChanged sets it to the config
--- value namePlateQuantityPc): 15 plates, 10 of them in the AI pool.
+-- value namePlateQuantityPc): 15 player plates, 5 full and 10 medium. The AI pool does not change with it: 4 elements, the main
+-- register 15 of markermanager.luac (AST-256; research/marker-plates.md section 5: the raw bindings; the decoded text shows the
+-- wrong upvalue).
 Swc.SetData("Hud.LocalPlayer.Options.Video.NameplateQuantity", 15)
 
 -- ------------------------------------------------------------------------------------------------- the native classes
@@ -125,7 +127,13 @@ Swc.Define("MarkerRequestBus", "Broadcast", {
   TryInitialize = function() M.ready = true end,
 })
 Swc.Define("MarkerRequestBus", "Event", {
-  SetIsBoss = function(markerId, value) local s = slot_of_marker(markerId) if s then s.isBoss = value end end,
+  SetIsBoss = function(markerId, value)
+    local s = slot_of_marker(markerId)
+    if s then
+      s.isBoss = value
+      if s.plate then M.boss[s.plate.serial] = value or nil end
+    end
+  end,
   SetKeepOnScreen = function(markerId, value) local s = slot_of_marker(markerId) if s then s.keepOnScreen = value end end,
   SetMarkerOcclusionEnabled = function(markerId, value) local s = slot_of_marker(markerId) if s then s.noOcclusion = not value end end,
   GetIsLockedToTopOfScreen = function() return false end,
@@ -220,8 +228,9 @@ end
 
 --- One line of the host for each creature (USwcCreatureSubsystem::GetPlates), the fields separated by tabs: interest, serial, the
 --- feet x y z (Unreal cm), name, marker type, creature type, creature type override, level, hides level (0/1), health, health
---- maximum, dead (0/1), dead seconds, immune (0/1), never show health (0/1), force health (0/1), distance (m), shown (0/1), and the
---- statuses ("ID*STACKS,...").
+--- maximum, dead (0/1), dead seconds, immune (0/1), never show health (0/1), force health (0/1), distance (m), shown (0/1: the
+--- admission of the marker; an AI marker is admitted after the common gates), the statuses ("ID*STACKS,..."), and (AST-256) the timed
+--- target (0/1) with the time of its activation (s of the world).
 local function parse_plates(text)
   local out = {}
   for line in string.gmatch(text or "", "[^\n]+") do
@@ -234,7 +243,8 @@ local function parse_plates(text)
                      name = f[6], markerType = f[7], creatureType = f[8], override = f[9], level = tonumber(f[10]) or 0,
                      hidesLevel = f[11] == "1", health = tonumber(f[12]) or 0, healthMax = tonumber(f[13]) or 0, dead = f[14] == "1",
                      deadSeconds = tonumber(f[15]) or -1, immune = f[16] == "1", neverHealth = f[17] == "1", forceHealth = f[18] == "1",
-                     distance = tonumber(f[19]) or 0, shown = f[20] == "1", statuses = {}}
+                     distance = tonumber(f[19]) or 0, shown = f[20] == "1", statuses = {}, timed = f[22] == "1",
+                     stamp = tonumber(f[23]) or 0}
       for id, stacks in string.gmatch(f[21], "([^,*]+)%*(%d+)") do
         plate.statuses[#plate.statuses + 1] = {id = id, stacks = tonumber(stacks)}
       end
@@ -352,6 +362,26 @@ local function decide(plate, reason)
 end
 M.decide = decide
 
+-- The comparator of the pool (see Swc.HostPlates): true when a comes before b.
+local function priority(a, b)
+  if a.boss ~= b.boss then
+    return a.boss
+  end
+  if a.onScreen ~= b.onScreen then
+    return a.onScreen
+  end
+  if a.timed ~= b.timed then
+    return a.timed
+  end
+  if a.timed and a.stamp ~= b.stamp then
+    return a.stamp > b.stamp
+  end
+  if a.distance ~= b.distance then
+    return a.distance < b.distance
+  end
+  return a.interest < b.interest
+end
+
 function Swc.HostPlates(text)
   M.plates = parse_plates(text)
   local present = {}
@@ -360,12 +390,17 @@ function Swc.HostPlates(text)
     if plate.markerType == "" or not M.params[plate.markerType] then
       decide(plate, "no marker type" .. (plate.markerType ~= "" and (" (" .. plate.markerType .. " not registered)") or ""))
     elseif not plate.shown then
-      decide(plate, "hidden by the show rule (near range or crosshair)")
+      decide(plate, "not admitted (the show rule of the host)")
     end
   end
   for serial in pairs(decisions) do
     if not present[serial] then
       decisions[serial] = nil
+    end
+  end
+  for serial in pairs(M.boss) do
+    if not present[serial] then
+      M.boss[serial] = nil
     end
   end
   local size = ai_pool_size()
@@ -379,20 +414,21 @@ function Swc.HostPlates(text)
       candidates[#candidates + 1] = plate
     end
   end
-  table.sort(candidates, function(a, b)
-    if a.shown ~= b.shown then
-      return a.shown
-    end
-    return a.distance < b.distance
-  end)
+  -- The order of the native pool (the comparator 0x4944800; research/marker-fade.md section 4): a boss first, then a marker on the
+  -- screen (the comparator flag at 0x9F2900C: its value in retail is not read [U]), then a timed target (the newer activation first),
+  -- then the nearest. A creature keeps its slot while it stays in the leading candidates.
+  for _, plate in ipairs(candidates) do
+    local params = M.params[plate.markerType]
+    plate.boss = M.boss[plate.serial] == true
+    plate.onScreen = project(plate.x + (params.wX or 0) * 100, plate.y - (params.wY or 0) * 100, plate.z + (params.wZ or 0) * 100) ~= nil
+  end
+  table.sort(candidates, priority)
   local wanted = {}
   for i = 1, math.min(size, #candidates) do
     wanted[candidates[i].serial] = candidates[i]
   end
   for i = size + 1, #candidates do
-    if candidates[i].shown then
-      decide(candidates[i], string.format("no pool slot (%d candidates, pool %d)", #candidates, size))
-    end
+    decide(candidates[i], string.format("no pool slot (pool %d)", size))
   end
   -- The slots: a0 ... a(size - 1). A creature keeps its slot while it is in the pool.
   local free = {}
@@ -414,12 +450,15 @@ function Swc.HostPlates(text)
   for _, plate in pairs(wanted) do
     queue[#queue + 1] = plate
   end
-  table.sort(queue, function(a, b) return a.distance < b.distance end)
+  table.sort(queue, priority)
   for i, plate in ipairs(queue) do
     local slot = free[i]
     if slot then
       slot.plate = plate
       slot.values = {}
+      -- A new entity in the slot: no occlusion result of the former one, and the occlusion of the script again (marker.luac sets it).
+      M.occluded[plate.interest] = nil
+      slot.noOcclusion = nil
       slot.markerId = marker_id_of(plate)
       Swc.SetData(slot.prefix .. ".MarkerComponentId", slot.markerId)
     end
@@ -434,6 +473,9 @@ function Swc.HostPlates(text)
 end
 
 --- The place, the scale, the alpha, and the visibility of the element of a slot (each frame).
+-- The alpha (the native UI callback 0x49C32E0; research/marker-fade.md section 1): maxAlpha; beyond fadeStart it goes down by the
+-- distance over the length of the fade, to minAlpha. fadeDistance is the end of the fade (Wolf: 1 at 10 m, 0.5 at 12.5 m, 0 at 15 m).
+-- A timed target keeps maxAlpha and skips the occlusion (0x49C3311, 0x493C01C).
 function M.place(slot)
   local plate = slot.plate
   local params = M.params[plate.markerType] or {}
@@ -442,8 +484,12 @@ function M.place(slot)
   local sx, sy = project(plate.x + (params.wX or 0) * 100, plate.y - (params.wY or 0) * 100, plate.z + (params.wZ or 0) * 100)
   local fadeStart = object and object.fadeStart or params.fadeStart
   local fadeEnd = object and object.fadeDistance or params.fadeDistance
-  local alpha = ramp(plate.distance, fadeStart, fadeEnd, params.maxAlpha or 1, params.minAlpha or 0)
-  local occluded = M.occluded[plate.interest] and not slot.noOcclusion
+  local maxAlpha, minAlpha = params.maxAlpha or 1, params.minAlpha or 0
+  local alpha = maxAlpha
+  if not plate.timed and fadeStart and fadeEnd and fadeEnd > fadeStart and plate.distance > fadeStart then
+    alpha = math.max(minAlpha, maxAlpha - (plate.distance - fadeStart) / (fadeEnd - fadeStart))
+  end
+  local occluded = M.occluded[plate.interest] and params.allowWorldOcclusion and not slot.noOcclusion and not plate.timed
   local visible = plate.shown and sx ~= nil and alpha > 0 and not occluded
   put(slot, "IsVisible", visible)
   if plate.shown then
@@ -466,7 +512,7 @@ function Swc.HostMarkerPoints()
   for _, slot in pairs(M.slots) do
     local plate = slot.plate
     local params = plate and M.params[plate.markerType]
-    if params and params.allowWorldOcclusion and not slot.noOcclusion then
+    if params and params.allowWorldOcclusion and not slot.noOcclusion and not plate.timed then
       out[#out + 1] = string.format("%d %.1f %.1f %.1f", plate.interest, plate.x + (params.wX or 0) * 100, plate.y - (params.wY or 0) * 100,
         plate.z + (params.wZ or 0) * 100)
     end
