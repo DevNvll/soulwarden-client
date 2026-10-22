@@ -144,6 +144,17 @@ For Q1 and Q2, a development character made by the development create tool can t
 existing character of the user gets a quest only by the admin command `apply_backstory` (its achievements and its start
 objective only).
 
+## Backend research that waits for the user (2026-10-22)
+
+The backend has two research results that the user has not decided yet (outside this repository). Neither changes the
+backend now; the client has no work for them before a decision.
+
+- DG0, the dungeons: `~/Games/soulwarden/work/research/dungeons.md`. A live probe moved a character from the main world
+  into Amrine and back in one connection.
+- MS0, one master server and dedicated servers: `~/Games/soulwarden/work/research/master-server.md`.
+
+The backend behavior tree engine (stage BT1, backend commit 9dfde54) changes no wire byte and no creature behavior.
+
 ## Research items
 
 R4 and R5 are answered (AST-148, 2026-10-18): `~/Games/soulwarden-client/research/ui.md` (outside the repository),
