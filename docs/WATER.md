@@ -79,7 +79,7 @@ Unreal sun E / pi (`View.DirectionalLightColor`).
 | Normals | b = W(B.xy / 4) + W(B.xy); b.xy += W(B.zw).xy x DetailNormalsScale; b.xy x= NormalsScale x NormalStrength. W is still the static `oceanwaves_ddn` (the source field is generated at run time). NormalStrength 0.05 is a calibration of the client (0.15 gave sun glints that retail does not have). | V 0026-0044, O 0054-0077 |
 | Volume water term | Cfog + T (Cbehind - Cfog), T = exp(-density x the view path in the water, m), Cfog = FogColor x FogColorScale x the sun color (FogColorAffectedBySun: true). | V 0158-0166, CPU 0x5EB8818 |
 | Ocean water term | k = 1.4427 density; j = k (d.z - 1); I = (2^(j L) - 1) / j; T = 2^(-k (L + the depth of the scene point under the surface)); Cdeep I + Cshallow T sat(0.1 L) + Cbehind T, with Cdeep = FogColor x fogColorMultiplier x the sun and Cshallow = nearFogColor x the sun. The full ocean path clears the simple surface fog (cFogColorDensity 0: SurfaceFog 0). | Ocean-fog 0013-0041, water-uploads.md 2 |
-| Fog colors and sun | The stored float RGB of FogColor and nearFogColor, with no sRGB decode (FogSrgb 0). The sun color S: the time-of-day sun RGB as stored (the client sun light: its color x intensity / pi, `SunColor`; no transmittance of the Unreal atmosphere). | water-uploads.md 1 |
+| Fog colors and sun | The stored float RGB of FogColor and nearFogColor, with no sRGB decode (FogSrgb 0). The sun color S: the time-of-day sun RGB of the source at its luminance, Sun color / Y x Sun intensity (lux) / pi (`USwcEnvironmentSubsystem::GetSourceSunLight`; `swc.WaterSourceSun 0`: the Unreal sun light, the rule before part 3). | water-uploads.md 1 |
 | Reflection | A screen-space trace of the opaque scene: the reflection normal mix(up, N, 0.3) (volumes) or mix(up, N, ReflectionBumpScale) (the ocean); 64 steps in the screen with a jitter, 2000 m, the thickness min(5 m, depth / 20), 16 binary steps; no hit on the far plane or in front of the surface; the alpha min(sat((0.6 - k) / 0.25), 0.95), k = dot(abs(forward), N). The sky fallback fills 1 - alpha. The volumes: (the scene x alpha + the sky) x RealtimeReflMul. The ocean: mix(the material cube x ReflectionScale, the trace, alpha), the RGBA of the trace clamped to one source unit. No history filter yet. | V-refl, O 0142 onward |
 | Sky | SkyCubemapParams.x = 1 for the ocean and the volumes. The sky cube: a scene capture of only the sky (the sky sphere `SwcSkySphere` with the atmosphere, the clouds, and the fog) at the view, 128 texels, HDR, each 1 s (the capture rate is a decision of the client); the reflection direction, mip 0, gain 1. A trace coordinate outside the screen ends the trace with no hit: the sky fills it. No screen-edge fade of a hit. | water-uploads.md 3, 4 |
 | Sun | sat(N.L) x ((p0 / 2 pi + 1 / pi) mu^p0 + (p1 / 2 pi + 1 / pi) mu^p1) x Specular x the sun, p0 = 4 x 255 g, p1 = 0.5 x 255 g, g = Shininess / 255. | V 0047-0059, O 0547-0554 |
@@ -166,6 +166,34 @@ the bay: the cliff reflections, the waves, the swimmer under the surface). Drive
 
 Open: the splash children of the shore effects, the exact particle spline and random rules, the older `water_on_shore` particle
 effect of the dungeon volumes, the ocean crest foam (the displacement), the caustics, the trace bend and the river reflection history.
+
+### The water body and the surface level (part 3, 2026-10-22)
+
+The views swim-idle, swim-nav, river-forest-noon, and ocean-clear-noon (`~/Games/soulwarden-client/evidence/AST-200/part3/`: the crops
+retail | the Unreal sun | the source sun, `water-part.txt`, `swim-idle-parts.png` with the debug views 2, 3, 5, and 6).
+
+- The parts of the swim-idle water (the debug views; the display values made linear): the water term Cw is dark teal (the floor at
+  T near 0 from about 3 m of path, the body faint), near retail. The reflection (the sky cube where the trace has no hit, the cliffs
+  where it hits) is about 10 times Cw in the near water; with the ocean Fresnel (measured blend weight 0.07 to 0.19, the formula gives
+  0.07 to 0.14 at these angles) it makes the near water about 2 times Cw. Thus the pale, milky water is mainly the reflection, not the
+  water fog: the fog, the density per metre, the path, and the single fog of the full ocean path agree with the study.
+- The scene light: above the water (the sky and the cliffs) the client is 14 to 17 L* lighter than retail in the swim views and 10.6
+  L* in river-forest (the E5 contrast work); the water there is 18 to 19 and 11 L* lighter. In ocean-clear the client is darker above
+  the water (-3 L*) but 14 L* lighter on the water: the far water is pale cyan-white at a grazing view (Fresnel up to 0.59 of the sky
+  cube, whose horizon is the hazy client sky).
+- The rule now: the sun color S of the water is the source sun of the hour (research water-uploads.md 1 [R]), not the Unreal light
+  (its color over the atmosphere: about 24 % brighter and bluer at noon; 40.6k, 35.5k, 36.1k cd/m2 against 38.4k, 30.4k, 23.5k).
+
+| View | Water dE (Unreal sun) | Water dE (source sun) | Water L* (retail) | b* (retail) |
+| --- | --- | --- | --- | --- |
+| swim-idle | 15.5 | 14.3 | 40.0 (24.4) | -9.3 (-15.4) |
+| swim-nav | 15.4 | 13.2 | 37.3 (21.7) | -8.6 (-12.0) |
+| river-forest-noon | 10.8 | 10.3 | 40.5 (28.9) | +3.4 (+7.3) |
+| ocean-clear-noon | 14.7 | 13.4 | 50.7 (36.7) | +4.5 (+0.2) |
+| The mean of the 4 views | 14.1 | 12.8 | | |
+
+Open [U]: the content and the level of the retail sky cube (`$SkyCubemap`: the sky draw, the fog stage, the clouds) and the exact
+ocean reflection order (the clamp of the trace, the sky fill, the material cube); a static study is asked (AST-200).
 
 ## The depth classes
 

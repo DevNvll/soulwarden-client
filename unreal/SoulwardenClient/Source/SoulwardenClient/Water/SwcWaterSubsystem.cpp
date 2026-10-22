@@ -13,6 +13,7 @@
 #include "Engine/TextureRenderTargetCube.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Environment/SwcEnvironmentSubsystem.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformMisc.h"
@@ -59,6 +60,12 @@ constexpr float SourceUnit = 10000.0f;
  *  --variant VIEW@NAME='swc.WaterParams Debug=3'); the same form as -SwcWater, added to its values. */
 TAutoConsoleVariable<FString> CVarWaterParams(TEXT("swc.WaterParams"), TEXT(""),
 	TEXT("Water material values for each instance, Name=Value,... (docs/WATER.md; Debug=1..4 the debug views)."));
+
+/** The sun color S of the water (research water-uploads.md 1 [R]): 1 the time-of-day sun of the source on the ground (Sun color / Y x
+ *  Sun intensity lux / pi, USwcEnvironmentSubsystem::GetSourceSunLight); 0 the Unreal sun light (its color x intensity / pi: the
+ *  light before the Unreal atmosphere, bluer and stronger at noon; the rule before AST-200 part 3). */
+TAutoConsoleVariable<int32> CVarWaterSourceSun(TEXT("swc.WaterSourceSun"), 1,
+	TEXT("1: the water sun color is the source sun of the hour (the rule); 0: the Unreal sun light."));
 
 void ParseValues(const FString& Values, TMap<FName, float>& Out)
 {
@@ -767,8 +774,9 @@ void USwcWaterSubsystem::UpdateSkyCube(const FVector& View)
 		SkyCapture->SetWorldLocation(View);
 		SkyCapture->CaptureScene();
 	}
-	// The sun color of the source for the water (the stored time-of-day RGB at the luminance of the light): the brightest visible
-	// directional light, its color x intensity / pi (Unreal luminance; the light has no atmosphere transmittance here).
+	// The sun color S of the water (research water-uploads.md 1): the evaluated time-of-day sun RGB of the source at its luminance,
+	// S = Sun color / Y x Sun intensity (lux) / pi (cd/m2); the source sun of the hour of the environment (swc.SunSource 1). Without
+	// it (or swc.WaterSourceSun 0) the brightest visible directional light, its color x intensity / pi.
 	const UDirectionalLightComponent* Main = nullptr;
 	for (TObjectIterator<UDirectionalLightComponent> It; It; ++It)
 	{
@@ -777,13 +785,18 @@ void USwcWaterSubsystem::UpdateSkyCube(const FVector& View)
 			Main = *It;
 		}
 	}
-	const FLinearColor Sun = Main != nullptr ? Main->GetLightColor() * (Main->Intensity / UE_PI) : FLinearColor::Black;
-	const FLinearColor Value(Sun.R, Sun.G, Sun.B, Main != nullptr ? 1.0f : 0.0f);
+	const USwcEnvironmentSubsystem* Environment = GetWorld()->GetSubsystem<USwcEnvironmentSubsystem>();
+	const FLinearColor Source = Environment != nullptr ? Environment->GetSourceSunLight() : FLinearColor::Transparent;
+	const bool bSource = CVarWaterSourceSun.GetValueOnGameThread() != 0 && Source.A > 0.5f;
+	const FLinearColor Sun = bSource ? FLinearColor(Source.R, Source.G, Source.B) * (1.0f / UE_PI)
+		: Main != nullptr ? Main->GetLightColor() * (Main->Intensity / UE_PI) : FLinearColor::Black;
+	const FLinearColor Value(Sun.R, Sun.G, Sun.B, bSource || Main != nullptr ? 1.0f : 0.0f);
 	if (!Value.Equals(SunColor, FMath::Max(0.005f * SunColor.GetMax(), 1e-3f)))
 	{
 		SunColor = Value;
 		UE_LOG(LogSwcWater, Log, TEXT("water: the sun color %.1f %.1f %.1f (%s, intensity %.1f)"), SunColor.R, SunColor.G, SunColor.B,
-			Main != nullptr ? *Main->GetName() : TEXT("no light"), Main != nullptr ? Main->Intensity : 0.0f);
+			bSource ? TEXT("the source sun of the hour") : Main != nullptr ? *Main->GetName() : TEXT("no light"),
+			bSource ? 0.0f : Main != nullptr ? Main->Intensity : 0.0f);
 		for (UMaterialInstanceDynamic* Instance : SurfaceMaterials)
 		{
 			if (Instance != nullptr)
