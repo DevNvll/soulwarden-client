@@ -1,0 +1,17 @@
+# The UI drive of tests/drive/ast241-c1.txt (AST-241): the marks, then J, Abandon of the mission row, Yes of the popup (3836), Escape.
+1 waitfor CompassLines 60
+2 waitfor world 180
+5 log treasure C: the prompt
+10 log after the cancelled gather: no progress
+20 log after the full gather
+24 key J
+26 point text:Faction_Missions
+26.3 click
+28 point text:Abandon
+28.3 click
+30 log the abandon popup
+31 point text:Yes
+31.3 click
+35 log the journal after the abandon
+38 key Escape
+41 log the tracker after the abandon

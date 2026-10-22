@@ -714,3 +714,13 @@ end
 -- The banners (bannertriggers.luac CanvasLoaded): the land claims of the territory (the observer of
 -- Hud.LocalPlayer.IsLandClaimManagerAvailable takes the length of the list): this backend has no claims.
 Swc.Define("LandClaimRequestBus", "Broadcast", {GetClaimKeys = function() return {} end})
+
+-- The region of the server for the dates of the journal (timehelperfunctions.luac GetServerDateTable: a scheduled mission row of the
+-- journal shows its next start): the backend has no region data; UTC with no daylight saving time [inference]. The next start of a
+-- schedule: the backend has no schedules (now).
+Swc.Define("PlayerDataManagerBus", "Broadcast", {
+  GetRegionData = function() return {observesDst = false, utcOffset = 0, dstRuleId = 0} end,
+})
+Swc.Define("ScheduleDataManagerBus", "Broadcast", {
+  GetNextScheduleStartTimeSeconds = function() return os.time() end,
+})

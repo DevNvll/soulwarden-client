@@ -72,8 +72,8 @@ folders `lyshineui/images/objectives/`, `icons/objectives/`, `journal/`, and `ba
 
 - `tools/test-net.sh`: 27 quest checks (the beach start state, a timer, a large list: 60 objectives, 8 tracked, 512 task elements; an
   empty list; the view of an observer; a cut field; two owners; 5606; the request bodies).
-- `tools/test-ui.sh --fixture quests`: 17 checks; `--fixture questprogress`: 14 checks (the counter, the place name of a text, Reset and
-  its popup, the screen queue, the tags of the quest objects, the hand-in row "Talk to Urda").
+- `tools/test-ui.sh --fixture quests`: 17 checks; `--fixture questprogress`: 16 checks (the counter, the place name of a text, Reset and
+  its popup, the screen queue, the tags of the quest objects, the hand-in row "Talk to Urda", Abandon of a mission with 3836).
 - `tools/test-net.sh`: the quest program also checks field 2 of a hand-in and the 2297 body of POI 40142 (the reference bytes).
 - The live check: a new character of the development account in its own data folder (`SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-quests`;
   `SWC_DEV_NEW=1` of `tools/creature-check.sh` makes it with no saved place, so the backend puts it on the Windsward beach). The drives
@@ -134,6 +134,18 @@ folders `lyshineui/images/objectives/`, `icons/objectives/`, `journal/`, and `ba
 - The live check POI1 (`tests/drive/ast241-poi1*.txt`): a travel into the shape of 40142 sends 2297 d66d9b33 (the sphere) and 2297
   39eec8c7 (the shape), the pair of the retail packets; a travel out sends two 6416. The backend reads them ("the shape of the data says
   inside").
+- The live check C1 (`tests/drive/ast241-c1*.txt`): E at treasure C, then a walk back before the work ends: the backend ends the gather
+  ("the client cancelled it"), no item, no progress; the full gather after it: the quest drop 0601_0104_Treasure_C. The live check AB1
+  (the same drives, label ast241-ab1): the faction mission fm_06_exp_02_objective; J, the section Faction Missions, Abandon, the popup
+  "ABANDON MISSION" (crop `ast241-abandon-retail-client.png` against AB-2), Yes: 3836, the backend ends the mission. The journal row of
+  a scheduled mission needs `PlayerDataManagerBus.GetRegionData` (UTC, no daylight saving time [inference]); with no value the journal
+  list stayed empty.
+- Two characters (`ast241-two-characters.png`): QuestOne has only its 06_getoffbeach (instance 1); QuestThree has five quests with their
+  own progress.
+- The item, kill, and equip tasks (`tests/drive/ast241-b1*.txt`): the development items FlintT1, WoodT1, and the knife complete the tasks
+  of 06_skinningknife (its root is complete: the hand-in row "Talk to Urda"); a credited boar kill and the equip of the knife move the
+  tracker of 06_boarfeast ("Hunt down a Boar ..." to "Equip a Skinning Knife" to "Skin a Boar to Collect Pork";
+  `ast241-boarfeast-kill-equip.png`).
 - The hand-in row of the tracker: the root task Complete or CompleteActive makes the objective ready (`IsObjectiveReadyForCompletion`);
   the row is "Talk to NAME" with the NPC of NpcDestinationId (`GetNpcDestinationGenericName`; retail K1-2of5: "Basic Needs / Talk to Urda").
 
@@ -146,6 +158,12 @@ folders `lyshineui/images/objectives/`, `icons/objectives/`, `journal/`, and `ba
   (`ObjectivesLayer.GetObjectivePosition`): stage Q2, with the world pins and the compass pin. The task timers are stage Q8.
 - A change of an Auto-Pin switch does not go to the backend (2709 is sent once).
 - The top menu bar of the retail journal (Company, Journal, Mount, ...) is a different canvas: not in the client.
+- Not shown live yet: the skinning of a boar (E at the body found no focus: the point of the character was not in the bound of the
+  body), the food craft (the camp of the watchtower is a later backend stage; a kitchen needs a travel), the natural gather of flint
+  and wood (the items came from the development route), five kills (two credited kills shown).
+- 06_getoffbeach of a new character with backend 1.8b: in the trigger area the visible task is complete and the hidden cutscene task is
+  active, so the tracker shows only the title until the cutscene (stage Q5).
+- The place cues of the 86 points of interest of other slices (no local), and of the areas (the 2297 of 9011 in the retail packets).
 - The card of a quest object: the retail client shows "E ASTROLABE" (the key and the name); the client shows the gather card
   ("CANDELABRA", "E Gather").
 - The world pins of the quest objects (the retail "1" over the treasure): stage Q2.

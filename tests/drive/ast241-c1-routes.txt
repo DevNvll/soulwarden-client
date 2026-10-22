@@ -1,0 +1,6 @@
+# The routes of tests/drive/ast241-c1.txt (AST-241): the hour 12:00, the creatures ignore the character, the travel back to treasure C
+# after the cancelled gather, and the grant of the faction mission fm_06_exp_02_objective. Times on the clock of the drive script.
+0.5 world-time 12:00
+0.6 ignore on
+1.0 quest grant fm_06_exp_02_objective
+12.0 travel 9879.64 2302.28 48.20

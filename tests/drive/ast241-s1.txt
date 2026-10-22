@@ -1,0 +1,50 @@
+# AST-241 (Q6) check S1: the skinning task of 06_boarfeast (TaskGatherItems PorkT1; the skinning knife is equipped). The routes
+# (tests/drive/ast241-s1-routes.txt) spawn a Black Boar 2.4 m north; light attacks kill it (the ignore mode off before the last hits:
+# the kill credit); a short step forward (the point of the character in the bound of the body), E held at the body: the skinning (PorkT1). Times in seconds from the possession.
+1.00 tick
+2.00 tick
+3.00 key 1
+4.00 view 0 -20
+5.00 tick
+6.00 tick
+7.00 tick
+8.00 attack 1
+8.08 attack 0
+8.80 attack 1
+8.88 attack 0
+9.00 tick
+9.60 attack 1
+9.68 attack 0
+10.00 tick
+10.40 attack 1
+10.48 attack 0
+11.00 tick
+11.20 attack 1
+11.28 attack 0
+12.00 attack 1
+12.08 attack 0
+12.80 attack 1
+12.88 attack 0
+13.00 tick
+13.60 attack 1
+13.68 attack 0
+14.00 tick
+14.50 move 0 1
+14.80 move 0 0
+15.00 view 0 -35
+15.30 interact 1
+16.00 tick
+17.00 tick
+18.00 tick
+19.00 tick
+19.50 interact 0
+20.00 tick
+21.00 tick
+22.00 tick
+23.00 tick
+24.00 tick
+25.00 tick
+26.00 tick
+27.00 tick
+28.00 tick
+29.00 tick
