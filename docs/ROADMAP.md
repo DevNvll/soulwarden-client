@@ -113,25 +113,32 @@ the repository). The status of each item is in Linear (parent AST-212).
 ## Quests (after the backend parts 1.8a to 1.8e)
 
 The request of the user (2026-10-21): plan the quests in the client and add them to this roadmap. The backend quest
-engine has five parts: 1.8a (backend commit fc5677e, database schema 15), 1.8c (commit 096ab18, schema 16), 1.8b
-(commit ef7daf6, no schema change), and 1.8d (commit 91c9723, schema 17) are released; 1.8e follows. The person base
-2.5c is released too. With 1.8d a new character plays four beach quests naturally (to "Crewmates No More"). The
-plan is `~/Games/soulwarden-client/research/quest-plan.md` (outside the repository; GPT-6.1-Sol, 2026-10-21). The
-backend owns the progress and the rewards; the client shows them with the original canvases and scripts. The user
-decides the place of these steps in the order. The decision of the user (2026-10-22): Q1 and Q6 next, beside the MVP,
-tested with a development character; the other steps after the MVP. Linear: parent AST-235.
+engine is complete (2026-10-22) and released: 1.8a (backend commit fc5677e, database schema 15), 1.8c (commit 096ab18,
+schema 16), 1.8b (commit ef7daf6), 1.8d (commit 91c9723, schema 17), 1.8e (commit 74bff46, schema 17, release
+2026-10-22-74bff46), and the person base 2.5c. With 1.8e a new character plays the whole Windsward beach chain with
+natural actions, from the beach to `S_introtosettlement` at Marcel Dupont in Corinth (10 main story quests), and the
+side quest "Truffle Fever". The backend support manifest (`tools/world quest support FILE`) gives the scope: 2,147
+rows, 160 supported objectives; a new character of each archetype completes 15 quests. The plan is
+`~/Games/soulwarden-client/research/quest-plan.md` (outside the repository; GPT-6.1-Sol, 2026-10-21). The backend owns
+the progress and the rewards; the client shows them with the original canvases and scripts. The user decides the
+place of these steps in the order. The decision of the user (2026-10-22): Q1 and Q6 next, beside the MVP, tested
+with a development character (both done); the other steps after the MVP. Linear: parent AST-235.
 
 | Step | Backend part | The client work | Size |
 | --- | --- | --- | --- |
-| Q1 | 1.8a (released) | The owner decoders of the Objectives state (slot 22, type 3857) and the pin readiness (slot 73, type 5606); the quest data export and model; the messages 2709 and 1458; the original quest tracker of the HUD, the journal, and the banners with real buses | L |
+| Q1 (done) | 1.8a (released) | The owner decoders of the Objectives state (slot 22, type 3857) and the pin readiness (slot 73, type 5606); the quest data export and model; the messages 2709 and 1458; the original quest tracker of the HUD, the journal, and the banners with real buses | L |
 | Q2 | 1.8a, updates in b and c | The quest icons on the map and the compass, the world task pins, the objective areas; the journal and the map use one pin list | L |
 | Q3 (F7) | 1.8a (the new character start) | The original character creation: the archetype, the appearance, the name check, the create request, the entry on the Windsward beach | L |
-| Q4 | 1.8b (released) | The client id of the spawner persons is done (AST-248); the offers (3772 accept) and the hand-in (794) in the conversation screen, the next offer, the field 2 of the Objectives state (the completed instances), the person markers, the first reward screen. The hand-in at Urda waits for the loot containers of 1.8d | L |
-| Q5 | 1.8b (released) | The cutscene handshake (6703 request, 6707 grant, 6706 and 6705 end; 6606 and 6542 the cinematic) and its playback or a declared stand-in, the whisper subtitles with no sound (5070); the trigger areas need no client message (the backend tests the position) | XL |
-| Q6 | 1.8c (released) | The real progress of the kill, item, gather, craft, and place tasks; abandon and reset; the quest objects (for example the three treasures of a shipwreck); the client messages 2297 and 6416 (the entry and exit cues of a point of interest), 2617 (the open of a screen), 3836 (abandon), 5600 (reset). After Q1, the counters and the quest objects of the start quest do not need Q4 and Q5 | L |
+| Q4 | 1.8b (released) | The client id of the spawner persons is done (AST-248); the offers (3772 accept) and the hand-in (794) in the conversation screen, the next offer, the field 2 of the Objectives state (the completed instances), the person markers, the first reward screen. Open on the backend side: after the chain the retail client offers `06A_MSQ_01_Quartermaster` at Marcel Dupont, and the server refuses it (the rule of a conversation state with no requirement differs) | L |
+| Q5 | 1.8b (released) | The cutscene handshake (6703 request, 6707 grant, 6706 and 6705 end; 6606 and 6542 the cinematic) and its playback or a declared stand-in, the whisper subtitles with no sound (5070); the trigger areas need no client message (the backend tests the position). The cinematic TempestRising of "Bearer of Bad Tidings" blocks the chain until its end message: the client has no sound and no video, so its stand-in must send the end (6606, 6542) or a skip (hold Escape 2 s) | XL |
+| Q6 (done) | 1.8c (released) | The real progress of the kill, item, gather, craft, and place tasks; abandon and reset; the quest objects (for example the three treasures of a shipwreck); the client messages 2297 and 6416 (the entry and exit cues of a point of interest), 2617 (the open of a screen), 3836 (abandon), 5600 (reset). After Q1, the counters and the quest objects of the start quest do not need Q4 and Q5 | L |
 | Q7 | 1.8d (released) | The reward previews and screens with the real changes (experience, coin, items, archetype items, the loot container items, the territory standing in slot 65); the open of a loot container (client message 1733, bag cause 26); the availability of the offers; a full bag | L |
-| Q8 | 1.8d (released) | The timers, the failed quests, the daily and weekly repeats | L |
-| Q9 | 1.8e | The coverage report and the acceptance: a new character plays the ten quests from 06_getoffbeach to the first settlement | L |
+| Q8 | 1.8d (released) | The timers, the failed quests, the daily and weekly repeats. Open on the backend side: no repeatable quest of the data is supported yet (the standing rank-up token has no owner), and the countdown row of a timer in the HUD | L |
+| Q9 | 1.8e (released) | The destructible quest objects (169 objects of the backend file `quest-objects.json`, for example the corruption nodules near Grace and the Corruption Nexus of the Old Tidal Cave): the client draws them and their hits; the server finds each strike of a basic attack or an ability within 5 m in front, and the LootTracker state (slot 33, type 982, owner only) gets an entry for each object that the character destroyed, so the client hides it for that character. Then the acceptance: a new character plays the ten quests from 06_getoffbeach to Marcel Dupont in Corinth, and "Truffle Fever" | L |
+
+The order of the open steps for the beach chain (after the MVP): Q3 first (the chain needs a new character), then Q4
+and Q5 (the persons, the offers, the cutscenes), Q7 (the rewards), and Q9 (the quest objects and the acceptance). Q2
+can go beside Q4. Q8 has no quest of the beach chain and comes last.
 
 For Q1 and Q2, a development character made by the development create tool can test the display before Q3. The
 existing character of the user gets a quest only by the admin command `apply_backstory` (its achievements and its start
