@@ -248,6 +248,12 @@ void USwcLateContentProbe::Tick(float DeltaTime)
 	const USwcBackendSubsystem* Backend = GetWorld()->GetGameInstance() != nullptr ? GetWorld()->GetGameInstance()->GetSubsystem<USwcBackendSubsystem>()
 		: nullptr;
 	const bool bWaiting = Backend != nullptr && Backend->IsWaitingForCells();
+	if (bActive && bWaiting && !bWasWaiting)
+	{
+		// A new loading screen ends the window: a change behind the screen is not late content (AST-249: the far tiles of the old
+		// region show again when its cells leave, at the start of the next travel).
+		Finish(FPlatformTime::Seconds() - WindowStart, TEXT(" (a new loading screen ends the window)"));
+	}
 	if (bPawn && !bHadPawn)
 	{
 		Start(Place, TEXT("the world entry"));
@@ -288,16 +294,21 @@ void USwcLateContentProbe::Tick(float DeltaTime)
 	}
 	if (Now - WindowStart >= WindowSeconds)
 	{
-		if (ExposureHigh > 0.0f)
-		{
-			UE_LOG(LogSwcLate, Log, TEXT("late: the exposure after the screen of %s: %.4f to %.4f (%.2f EV)"), *What, ExposureLow, ExposureHigh,
-				FMath::Log2(ExposureHigh / ExposureLow));
-		}
-		bActive = false;
-		Seen.Reset();
-		UE_LOG(LogSwcLate, Log, TEXT("late content: %d in %.0f s after the screen of %s (within %.0f m); entities of the server: %d; %s"), Late,
-			WindowSeconds, *What, ReportRadiusCm / 100.0, Entities, *EngineWork());
+		Finish(WindowSeconds, TEXT(""));
 	}
+}
+
+void USwcLateContentProbe::Finish(const double Seconds, const TCHAR* Reason)
+{
+	if (ExposureHigh > 0.0f)
+	{
+		UE_LOG(LogSwcLate, Log, TEXT("late: the exposure after the screen of %s: %.4f to %.4f (%.2f EV)"), *What, ExposureLow, ExposureHigh,
+			FMath::Log2(ExposureHigh / ExposureLow));
+	}
+	bActive = false;
+	Seen.Reset();
+	UE_LOG(LogSwcLate, Log, TEXT("late content: %d in %.1f s after the screen of %s (within %.0f m)%s; entities of the server: %d; %s"), Late,
+		Seconds, *What, ReportRadiusCm / 100.0, Reason, Entities, *EngineWork());
 }
 
 void USwcLateContentProbe::CheckRings(const FVector& Place, double Now)

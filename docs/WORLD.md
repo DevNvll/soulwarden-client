@@ -358,6 +358,10 @@ screen during a screen.
 The check (`World/SwcLateContentProbe`, `-SwcLateProbe[=SECONDS]`): at the end of each loading screen it takes the visible
 primitive components within 400 m of the character, then for 10 s logs each component within 150 m that becomes visible, changes
 its mesh, or changes a material ("late: ..."), and the engine work at the start and the end ("late content: N", 0 is the target).
+A new loading screen (the start of the next travel or respawn) ends the window: a change behind the screen is not late content
+(AST-249: the 8 far tiles of region r_+04_+00 "showed 8.9 s after" the gathering travel of the MVP-K exit runs; they showed in the
+first frames of the next travel, of 3,088 m, behind its screen, when the cells of the old place left and the far tiles of that place
+were in use again).
 A new component beyond its draw distance from the camera (or the end cull distance of its instances: the ground cover culls at
 100 m) draws nothing and does not count; when the character comes near it, that is the draw distance, not a late load. The
 distance of an instanced component is the one of its nearest instance (the bounds of a new instanced component are a coarse
@@ -546,7 +550,8 @@ the readers of the code (the menu scene, the world map, the persons, the gatheri
   imported. The path templates of the code (`%s`) must be in `DirectoriesToAlwaysCook`.
 - The result against the cook of 7645eb2 (2026-10-21 00:42): 77,535 packages cooked; 19,175 imported after that cook (the persons
   of MVP-H: their bodies and clips; the next cook takes them); 0 gaps of the cook rules; 108 not imported: 104 creature clips that
-  Interchange named STEM + "Null" + NAME (the client now asks for that name: [CREATURES.md](CREATURES.md)) and 4 clips with no package.
+  Interchange named STEM + "Null" + NAME and 4 clips with no package. AST-249: the converter names no clip STEM_DIGITS, the 53
+  skeletons with such a clip are converted and imported again, and a clip that animates no bone has no asset ([CREATURES.md](CREATURES.md)).
   The four templates of the code (the materials, the particle systems, the environment probes and cookies) are in always cooked
   folders.
 - In the cooked runs of that cook the log had "LoadPackage: SkipPackage" for those creature clips (the fight) and "Failed to find

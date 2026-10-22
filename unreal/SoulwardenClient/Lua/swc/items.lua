@@ -970,12 +970,24 @@ Swc.Define("ItemDataManagerBus", "Broadcast", {
       data.key = perk.id
       data.id = perk.crc
     end
-    -- The description of the perk for a tooltip (perkitemlistitem.luac, the craft mod rows): its localized text with the values of
-    -- its formulas (AST-234). The perk multiplier of the generic text is 1, the potency at the lowest gear score (an inference: the
-    -- gear score of the native generic text is not proven; potency rule: client code 0x3692600).
+    -- The description of the perk for a tooltip (perkitemlistitem.luac, the craft mod rows): its localized text with the range of
+    -- each formula (research forge-order.md 2, AST-234): the perk multiplier 1, then the potency at the display gear score
+    -- javelin.max-display-gear-score plus the largest class bonus of the perk (ItemClassGSBonus); "A-B" when the two values differ.
+    -- A perk with a class bonus gets the line @perk_weapon_bonus_info (the native format "%s\n@perk_weapon_bonus_info").
     data.GetGenericLocalizedDescription = function()
-      local text = perk and perk.description and LyShineScriptBindRequestBus.Broadcast.LocalizeText(perk.description) or ""
-      return Swc.FillPerkFormulas(text, 1)
+      local localize = LyShineScriptBindRequestBus.Broadcast.LocalizeText
+      local text = perk and perk.description and localize(perk.description) or ""
+      if not perk then
+        return text
+      end
+      local bonus, classes = 0, false
+      for _, value in string.gmatch(perk.itemClassGSBonus or "", "([^,:]+):%s*([-%d%.]+)") do
+        classes = true
+        bonus = math.max(bonus, tonumber(value) or 0)
+      end
+      local score = (tonumber(Swc.config["javelin.max-display-gear-score"]) or 800) + bonus
+      text = Swc.FillPerkFormulas(text, 1, Swc.PerkPotency(perk, math.min(score, 65535)))
+      return classes and (text .. "\n" .. localize("@perk_weapon_bonus_info")) or text
     end
     return data
   end,
@@ -1039,17 +1051,56 @@ local function formula_value(text)
   return pos > #text and v or nil
 end
 
+--- @return The text of one formula part at a multiplier: at most two decimals, no trailing zero; nil when it is not a formula.
+local function formula_text(body, multiplier)
+  local v = formula_value((string.gsub(body, "{perkMultiplier}", tostring(multiplier or 1))))
+  if not v then
+    return nil
+  end
+  local out = string.format("%.2f", v):gsub("0+$", ""):gsub("%.$", "")
+  return out == "-0" and "0" or out
+end
+
 --- @return A perk text with the value of each formula part {[...]} ({perkMultiplier}: the multiplier): at most two decimals, no
---- trailing zero ("+{[0.045000 * 100 * {perkMultiplier}]}%" gives "+4.5%"). A part that is not a formula stays.
-function Swc.FillPerkFormulas(text, multiplier)
+--- trailing zero ("+{[0.045000 * 100 * {perkMultiplier}]}%" gives "+4.5%"). A part that is not a formula stays. With an upper
+--- multiplier, a part whose two texts differ is the range "LOW-HIGH" (the generic text of a perk; a constant part stays single).
+function Swc.FillPerkFormulas(text, multiplier, upper)
   return (string.gsub(text or "", "{%[(.-)%]}", function(body)
-    local v = formula_value((string.gsub(body, "{perkMultiplier}", tostring(multiplier or 1))))
-    if not v then
-      return nil
+    local low = formula_text(body, multiplier)
+    if not low or not upper then
+      return low
     end
-    local out = string.format("%.2f", v):gsub("0+$", ""):gsub("%.$", "")
-    return out == "-0" and "0" or out
+    local high = formula_text(body, upper)
+    return (high and high ~= low) and (low .. "-" .. high) or low
   end))
+end
+
+--- @return The potency of a perk at a gear score (the potency function of the client, code 0x3692600, for item id 0; research
+--- forge-order.md 2): 1 plus the part of each span of ScalingPerGearScore ("SLOPE,START:SLOPE,...": the first span from the
+--- minimum weapon gear score of the PBA, itemrules gearScoreMinimum) below the score, times its slope; the score at most
+--- MaxGearScoreForScaling when that is not 0. Open point: the factor of the player level (ScalingPerPlayerLevel) is not applied.
+function Swc.PerkPotency(perk, score)
+  local cap = tonumber(perk and perk.maxGearScoreForScaling) or 0
+  if cap > 0 then
+    score = math.min(score, cap)
+  end
+  local spans = {}
+  for part in string.gmatch(perk and perk.scalingPerGearScore or "", "[^,]+") do
+    local start, slope = string.match(part, "^%s*([%d%.]+)%s*:%s*([-%d%.eE]+)%s*$")
+    if start then
+      spans[#spans + 1] = {tonumber(start) or 0, tonumber(slope) or 0}
+    else
+      spans[#spans + 1] = {rules.gearScoreMinimum or 100, tonumber(part) or 0}
+    end
+  end
+  local potency = 1
+  for index, span in ipairs(spans) do
+    local top = math.min(score, spans[index + 1] and spans[index + 1][1] or math.huge)
+    if top > span[1] then
+      potency = potency + (top - span[1]) * span[2]
+    end
+  end
+  return potency
 end
 
 -- The scaling tier of an attribute scaling value (itemrules.json: javelindata_weapontiers): the letter of the highest tier whose

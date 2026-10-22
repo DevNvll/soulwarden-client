@@ -155,29 +155,8 @@ void USwcCreatureAnimInstance::RefreshClips()
 		{
 			continue;
 		}
-		UAnimSequence* Sequence = FindObject<UAnimSequence>(nullptr, *Path);
-		if (Sequence == nullptr)
-		{
-			const FString Other = AlternateClipPath(Path);
-			Sequence = Other.IsEmpty() ? nullptr : FindObject<UAnimSequence>(nullptr, *Other);
-		}
-		Sequences[ClipIndex] = Sequence;
+		Sequences[ClipIndex] = FindObject<UAnimSequence>(nullptr, *Path);
 	}
-}
-
-FString USwcCreatureAnimInstance::AlternateClipPath(const FString& AssetPath)
-{
-	FString Folder, Name;
-	AssetPath.Split(TEXT("/"), &Folder, &Name, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
-	FString Package, Object;
-	Name.Split(TEXT("."), &Package, &Object);
-	const int32 Cut = Package.Find(TEXT("_"), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
-	if (Cut <= 0)
-	{
-		return FString();
-	}
-	const FString Other = Package.Left(Cut) + TEXT("Null") + Package.Mid(Cut);
-	return Folder + TEXT("/") + Other + TEXT(".") + Other;
 }
 
 void USwcCreatureAnimInstance::SetAnimations(const TSharedPtr<FSwcCreatureAnimations>& Data)
@@ -198,13 +177,7 @@ void USwcCreatureAnimInstance::SetAnimations(const TSharedPtr<FSwcCreatureAnimat
 	{
 		const FSwcClip& Clip = Animations->Clips[ClipIndex];
 		// The clips are in memory (the async load of ASwcCreature::Setup): a find, not a load (a load would wait for the async loads).
-		UAnimSequence* Sequence = Clip.AssetPath.IsEmpty() ? nullptr : FindObject<UAnimSequence>(nullptr, *Clip.AssetPath);
-		if (Sequence == nullptr && !Clip.AssetPath.IsEmpty())
-		{
-			const FString Other = AlternateClipPath(Clip.AssetPath);
-			Sequence = Other.IsEmpty() ? nullptr : FindObject<UAnimSequence>(nullptr, *Other);
-		}
-		Sequences.Add(Sequence);
+		Sequences.Add(Clip.AssetPath.IsEmpty() ? nullptr : FindObject<UAnimSequence>(nullptr, *Clip.AssetPath));
 		TArray<int32>& MeshBones = ClipMeshBones.AddDefaulted_GetRef();
 		if (Asset != nullptr && Animations->ClipBones.IsValidIndex(ClipIndex))
 		{

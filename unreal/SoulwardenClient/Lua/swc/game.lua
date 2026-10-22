@@ -25,6 +25,8 @@ Swc.config = {
   ["javelin.gear-set-storage-enable-store-attributes"] = true,  -- 0x6174607
   ["javelin.gear-set-storage-hotkeys-enabled"] = true,          -- 0x617426A
   ["javelin.umbral-upgrade-required-tier"] = 5,                 -- 0x617F3F9
+  -- The display gear score of the generic perk text (research forge-order.md 2: the immediate 0x320 at 0x61713F3).
+  ["javelin.max-display-gear-score"] = 800,                     -- 0x61713E0
   -- The front end (stage F2, docs/FRONTEND.md; the registration addresses of research frontend-native.md, config-register.txt):
   -- the auto refresh of the world list each 60 s, the menu level and its schedule (FE1), the pending world merges of the
   -- login information, the region of the landing screen.

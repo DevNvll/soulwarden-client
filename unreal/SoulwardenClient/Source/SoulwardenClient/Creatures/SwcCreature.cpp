@@ -134,10 +134,9 @@ void ASwcCreature::CollectAssets(TArray<FSoftObjectPath>& Out, bool bFirst) cons
 
 namespace
 {
-/** Stage MVP-K: the package of a clip for the async load. Interchange names some clips STEM + "Null" + NAME
- *  (USwcCreatureAnimInstance::AlternateClipPath; 104 clips of 49 creature skeletons). A load of the path of the data then gave a
- *  "LoadPackage: SkipPackage" warning, and the clip under its other name was not loaded. The path that has a package (cached; empty:
- *  neither name has a package, 4 clips of the data; no load). The game thread only. */
+/** Stage MVP-K: the package of a clip for the async load: the path of the data when it has a package (cached), else empty (no load:
+ *  a load of a path with no package gives a "LoadPackage: SkipPackage" warning). AST-249: the converter names no clip STEM_DIGITS
+ *  (Interchange wrote 104 of them as STEM + "Null" + _DIGITS), and a clip that animates no bone has no asset. The game thread only. */
 const FString& ClipLoadPath(const FString& Path)
 {
 	static TMap<FString, FString> Cache;
@@ -149,14 +148,6 @@ const FString& ClipLoadPath(const FString& Path)
 	if (FPackageName::DoesPackageExist(FSoftObjectPath(Path).GetLongPackageName()))
 	{
 		Chosen = Path;
-	}
-	else
-	{
-		const FString Other = USwcCreatureAnimInstance::AlternateClipPath(Path);
-		if (!Other.IsEmpty() && FPackageName::DoesPackageExist(FSoftObjectPath(Other).GetLongPackageName()))
-		{
-			Chosen = Other;
-		}
 	}
 	return Cache.Add(Path, MoveTemp(Chosen));
 }
@@ -266,38 +257,8 @@ void ASwcCreature::CollectSliceAssets(FSwcCreatureLibrary& Library, const FSwcCr
 	}
 }
 
-void ASwcCreature::CollectAlternates(const TArray<FSoftObjectPath>& Paths, TArray<FSoftObjectPath>& Out)
-{
-	for (const FSoftObjectPath& Path : Paths)
-	{
-		if (Path.ResolveObject() != nullptr)
-		{
-			continue;
-		}
-		const FString Other = USwcCreatureAnimInstance::AlternateClipPath(Path.ToString());
-		if (!Other.IsEmpty() && FPackageName::DoesPackageExist(FPackageName::ObjectPathToPackageName(Other)))
-		{
-			Out.AddUnique(FSoftObjectPath(Other));
-		}
-	}
-}
-
 void ASwcCreature::OnAssetsLoaded()
 {
-	// The second form of a clip that Interchange named STEM + "Null" + NAME: one more async request.
-	if (!AlternateHandle.IsValid() && Streamer != nullptr)
-	{
-		TArray<FSoftObjectPath> Paths;
-		CollectAssets(Paths, true);
-		TArray<FSoftObjectPath> Alternates;
-		CollectAlternates(Paths, Alternates);
-		if (!Alternates.IsEmpty())
-		{
-			AlternateHandle = Streamer->RequestAsyncLoad(Alternates, FStreamableDelegate::CreateUObject(this, &ASwcCreature::OnAssetsLoaded),
-				FStreamableManager::AsyncLoadHighPriority);
-			return;
-		}
-	}
 	bLoading = false;
 	LoadSeconds = FPlatformTime::Seconds() - LoadStart;
 	FinishSetup();
@@ -326,18 +287,6 @@ void ASwcCreature::LoadRest()
 
 void ASwcCreature::OnRestLoaded()
 {
-	if (!RestAlternateHandle.IsValid() && Streamer != nullptr)
-	{
-		TArray<FSoftObjectPath> Paths;
-		CollectAssets(Paths, false);
-		TArray<FSoftObjectPath> Alternates;
-		CollectAlternates(Paths, Alternates);
-		if (!Alternates.IsEmpty())
-		{
-			RestAlternateHandle = Streamer->RequestAsyncLoad(Alternates, FStreamableDelegate::CreateUObject(this, &ASwcCreature::OnRestLoaded));
-			return;
-		}
-	}
 	// Each animation instance finds the clips that came now.
 	TArray<USkeletalMeshComponent*> Meshes;
 	GetComponents<USkeletalMeshComponent>(Meshes);

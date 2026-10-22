@@ -164,20 +164,24 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
   None and a perk bucket with one leaf perk for the classes of the output whose ExclusiveLabels do not meet the labels of the fixed perks
   of the output and of the other selected resources (crafting.json craftMods: 308 resources; the great axe T5 has 51, the skinning
   knife T2 7, as the study). GetDisplayPerkIdFromResource: the first perk of the bucket. The selector (perkitemselector.luac) adds the
-  None row, the bag counts, and the order (evidence AST-231/ast231-mod-selector.png). The perk tooltip text of a row is the localized
-  description with no values (GetGenericLocalizedDescription; open point).
+  None row, the bag counts, and the order (evidence AST-231/ast231-mod-selector.png). The perk tooltip text of a row: below.
 - The preview lines (AST-231, research crafting-ui.md 3): weaponAttributes.primaryAttack (the row of TooltipPrimaryAttackData:
   the base damage at the gear score x DmgCoef + AddDmg, toward zero; itemrules.json attackRows) and GetLevelRequirement (zero-based:
   RequiredLevel - 1, else the first level whose MaxEquippableGearScore reaches the gear score, plus the rarity modifier when the level
   has IgnoreItemRarity false). The great axe: 223, 27%, 48 at 520 (run ast231-mods2; evidence AST-231/ast231-preview-crops.png), 251,
   27%, 60 at 600 (the fixture craftrules).
-- The tree order of the forge: retail lists Greatswords before Great Axes; the client lists Great Axes first. The script sorts the
-  groups by craftingsortinfo.luac GroupSortOrder (Greataxes 101, Greatswords 102; Initialize at the OnInit of the tree), so the
-  client order follows the script with the group ids of the data. The retail order needs a native difference (the craftingGroup of
-  GetCraftingCategoryData): open point for a static analysis brief.
-- The craft mod tooltip (AST-234): GetGenericLocalizedDescription fills the formulas {[...]} of the perk text (Swc.FillPerkFormulas;
-  {perkMultiplier} 1, the potency at the lowest gear score: an inference, the gear score of the native generic text is not proven).
-  "+4.5% damage against targets with active Grit." (PerkID_Weapon_DmgAgainstGrit).
+- The tree order of the forge (AST-249, research forge-order.md 1): GetCraftingCategoryData returns the group text from the shared
+  string table of the client, a table of the CRC of the lower case that keeps the first spelling. The TradingGroup texts of the
+  item definitions come first (crafting.json groupSpellings; the order of a retail start is an inference), then the recipe groups:
+  the axe recipe (cell "Greataxes") returns "GreatAxes". craftingsortinfo.luac has no index for "GreatAxes" (Greataxes 101,
+  Greatswords 102), thus Greatswords comes first, as in retail (I2-01-axe-preview-600.png; fixture crafting, picture
+  crafting-forge-order). GetCategoryData finds a row by the lower case too ("GreatAxes": the row Greataxes, "Great Axes").
+- The craft mod tooltip (AST-234, AST-249, research forge-order.md 2): GetGenericLocalizedDescription fills each formula {[...]} of
+  the perk text at the perk multiplier 1 and at the potency of the display score (javelin.max-display-gear-score 800 plus the
+  largest ItemClassGSBonus of the perk; Swc.PerkPotency: 1 plus each span of ScalingPerGearScore from the minimum weapon gear
+  score 100, at most MaxGearScoreForScaling); "LOW-HIGH" when the two texts differ, a constant part single. A perk with a class
+  bonus gets the line @perk_weapon_bonus_info. "+4.5-16.28% damage against targets with active Grit."; the Maelstrom charm
+  "by 3-12.82% for 8s." (score 1300). Open point: the factor of ScalingPerPlayerLevel (no perk row has a value).
 - The gear score of the axe: retail 600 (Prismatic materials, Weaponsmithing 200, a food and a trophy), the client 520 (Asmodeum,
   Weaponsmithing 150): the same rule with other inputs; the server accepted the claim.
 - The screen size: the client runs at 1280 x 720, the retail pictures at 1256 x 660.

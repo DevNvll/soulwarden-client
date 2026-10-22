@@ -42,6 +42,20 @@ local function D()
       data.order[#data.order + 1] = id
     end
     table.sort(data.order)
+    -- The shared string table of the client (research forge-order.md 1, AST-234): the CRC of the lower case -> the first spelling.
+    -- The TradingGroup texts of the items come first (groupSpellings; an inference for the order of a retail start), then the
+    -- recipe groups. Thus the forge group of the axes is "GreatAxes" (the recipe cell "Greataxes"): it has no index in the priority
+    -- list of craftingtreeviewitem.luac and sorts after "Greatswords", as in retail.
+    data.groupText = {}
+    for lower, spelling in pairs(data.groupSpellings or {}) do
+      data.groupText[lower] = spelling
+    end
+    for _, id in ipairs(data.order) do
+      local group = data.recipes[id].group or ""
+      if group ~= "" and data.groupText[string.lower(group)] == nil then
+        data.groupText[string.lower(group)] = group
+      end
+    end
     data.stationRows = {}
     for _, row in ipairs(data.stations or {}) do
       data.stationRows[string.lower(row.name)] = row
@@ -327,7 +341,8 @@ Swc.Define("RecipeDataManagerBus", "Broadcast", {
   end,
   GetCraftingCategoryData = function(id)
     local recipe = recipe_of(id)
-    return {craftingCategory = recipe and recipe.category or "", craftingGroup = recipe and recipe.group or ""}
+    local group = recipe and recipe.group or ""
+    return {craftingCategory = recipe and recipe.category or "", craftingGroup = D().groupText[string.lower(group)] or group}
   end,
   IsRecipeProcedural = function(id)
     local recipe = recipe_of(id)
@@ -390,7 +405,15 @@ Swc.Define("RecipeDataManagerBus", "Broadcast", {
 
 -- The labels and icons of the crafting categories (javelindata_craftingcategories: CategoryID, ImagePath, DisplayText, Description).
 local function category_data(id)
-  local row = D().categories[tostring(id or "")]
+  -- The category table is keyed by the CRC of the lower case (research forge-order.md 1): "GreatAxes" finds the row "Greataxes".
+  local d = D()
+  if not d.categoriesLower then
+    d.categoriesLower = {}
+    for key, value in pairs(d.categories) do
+      d.categoriesLower[string.lower(key)] = value
+    end
+  end
+  local row = d.categories[tostring(id or "")] or d.categoriesLower[string.lower(tostring(id or ""))]
   return {categoryId = id or "", imagePath = row and row[1] or "", displayText = row and row[2] or "", description = row and row[3] or "",
           IsValid = function() return row ~= nil end}
 end

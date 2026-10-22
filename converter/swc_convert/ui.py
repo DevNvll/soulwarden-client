@@ -1199,7 +1199,11 @@ def convert_items() -> dict:
                     "Tier": "tier", "ItemClass": "itemClass", "StatDisplayText": "statDisplayText", "Affix": "affix",
                     "AppliedPrefix": "appliedPrefix", "AppliedSuffix": "appliedSuffix", "ScalingPerGearScore": "scalingPerGearScore",
                     "EquipAbility": "equipAbility", "ExclusiveLabels": "exclusiveLabels", "Sorting": "sorting",
-                    "SecondaryEffectDisplayName": "secondaryEffectDisplayName"}
+                    "SecondaryEffectDisplayName": "secondaryEffectDisplayName",
+                    # The range of the generic text (research forge-order.md 2, AST-234): the class bonus of the display score,
+                    # the cap of the scaling, the scaling of the player level.
+                    "ItemClassGSBonus": "itemClassGSBonus", "MaxGearScoreForScaling": "maxGearScoreForScaling",
+                    "ScalingPerPlayerLevel": "scalingPerPlayerLevel"}
     perks: dict[str, dict] = {}
     for path in sorted(source.paks().paths("", ".datasheet")):
         name = path.rsplit("/", 1)[1]

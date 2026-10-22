@@ -138,6 +138,21 @@ def craft_mods() -> dict:
     return {"resources": rows, "perkLabels": labels}
 
 
+def trading_group_spellings(groups: set[str]) -> dict[str, str]:
+    """@return The first spelling of each item TradingGroup text (javelindata_itemdefinitions_master_*, the order of their paths and
+    rows) whose lower case is the lower case of a recipe group: lower case -> spelling (research forge-order.md 1, AST-234)."""
+    wanted = {group.lower() for group in groups if group}
+    out: dict[str, str] = {}
+    for path in sorted(source.paks().paths("", ".datasheet")):
+        if not path.rsplit("/", 1)[1].startswith("javelindata_itemdefinitions_master_"):
+            continue
+        for row in datasheet.Sheet(source.read(path)).rows():
+            group = str(row.get("TradingGroup") or "").strip()
+            if group and group.lower() in wanted and group.lower() not in out:
+                out[group.lower()] = group
+    return out
+
+
 def convert(out_dir: Path) -> dict:
     source_path = gamedata_dir() / "crafting-data.json"
     data = json.loads(source_path.read_text())
@@ -176,6 +191,11 @@ def convert(out_dir: Path) -> dict:
     target = out_dir / "gamedata"
     target.mkdir(parents=True, exist_ok=True)
     doc["craftMods"] = craft_mods()
+    # GetCraftingCategoryData returns the group text from the shared string table of the client: a table of the CRC of the lower case
+    # that keeps the first spelling (research forge-order.md 1). The TradingGroup texts of the items are in it before the recipe
+    # groups [inference: the order of the first registrations of a retail start is not proven; it explains the retail forge order
+    # Greatswords before GreatAxes].
+    doc["groupSpellings"] = trading_group_spellings({str(r.get("group") or "") for r in recipes.values()})
     (target / "crafting.json").write_text(json.dumps(doc, separators=(",", ":"), sort_keys=True))
     achievements = {}
     for row in datasheet.load("javelindata_achievements.datasheet").rows():
@@ -186,4 +206,6 @@ def convert(out_dir: Path) -> dict:
     supported = sum(1 for r in recipes.values() if not r["unsupported"])
     return {"crafting": str(target / "crafting.json"), "recipes": len(recipes), "supported": supported,
             "with a cause": len(recipes) - supported, "recipes with no UI row": sum(1 for k in recipes if k not in ui_rows),
-            "achievement indexes": len(achievements), "categories": len(categories), "ingredient categories": len(doc["ingredientCategories"]), "rank tables": len(ranks)}
+            "achievement indexes": len(achievements),
+            "group spellings of the items that differ": sorted(v for k, v in doc["groupSpellings"].items()
+                                                              if v not in {str(r.get("group") or "") for r in recipes.values()}), "categories": len(categories), "ingredient categories": len(doc["ingredientCategories"]), "rank tables": len(ranks)}

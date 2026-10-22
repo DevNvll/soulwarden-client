@@ -124,8 +124,6 @@ private:
 	/** The paths of the assets of the body. First: the meshes (the slice, its variants, its weapons) and the clips of the fragments
 	 *  Idle and Move; else: each clip of the animation sets. */
 	void CollectAssets(TArray<FSoftObjectPath>& Out, bool bFirst) const;
-	/** The paths of the second forms of the clips of Paths that are not in memory and whose second form is on the disk. */
-	static void CollectAlternates(const TArray<FSoftObjectPath>& Paths, TArray<FSoftObjectPath>& Out);
 	void ApplyScope(const swc::creatures::Entity& Entity);
 	void ApplyScopeRecord(uint32 Scope, const swc::creatures::Entity& Entity);
 	FString StartScope(uint32 Scope, FScopeState& State, uint64 RenderTimeUs, bool bDead);
@@ -172,9 +170,7 @@ private:
 	FSwcCreatureLibrary* PendingLibrary = nullptr;
 	FStreamableManager* Streamer = nullptr;
 	TSharedPtr<FStreamableHandle> LoadHandle;
-	TSharedPtr<FStreamableHandle> AlternateHandle;
 	TSharedPtr<FStreamableHandle> RestHandle;
-	TSharedPtr<FStreamableHandle> RestAlternateHandle;
 	bool bLoading = false;
 	bool bReady = false;
 	double LoadStart = 0.0;

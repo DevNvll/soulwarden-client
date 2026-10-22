@@ -119,9 +119,21 @@ def file_stem(prefix: str, text: str) -> str:
     return f"{prefix}_{hashlib.sha1(text.encode()).hexdigest()[:8]}"
 
 
+CLIP_NAMING = 2   # 2: no clip name of digits only (AST-249)
+
+
 def clip_asset_name(clip: str) -> str:
-    """@return The glTF animation name of a clip: Interchange names its sequence STEM + this name (a short name)."""
-    return "_" + hashlib.sha1(clip.encode()).hexdigest()[:8]
+    """@return The glTF animation name of a clip: Interchange names its sequence STEM + this name (a short name). A name of 8
+    digits ("_97726836") is not used: Unreal reads the end "_DIGITS" of STEM_DIGITS as the number of the name, and the import
+    wrote the sequence as STEMNull_DIGITS (AST-249: 104 creature clips under a name that the data did not have); such a name
+    gets the letter "c" before the digits."""
+    digest = hashlib.sha1(clip.encode()).hexdigest()[:8]
+    return "_c" + digest[1:] if digest.isdigit() else "_" + digest
+
+
+def legacy_digit_name(clip: str) -> bool:
+    """@return True for a clip whose name of the first clip naming had digits only (its skeleton file is written again)."""
+    return hashlib.sha1(clip.encode()).hexdigest()[:8].isdigit()
 
 
 def short_key(text: str) -> str:
@@ -1385,7 +1397,8 @@ def convert(indexes: set[int], force: bool = False) -> dict:
         out = creature_dir() / "skeletons" / f"{stem}.gltf"
         manifest_key = f"creature-skeleton:{skeleton}"
         clip_names = sorted(known)
-        if force or not out.is_file() or skeleton_entry.get("written") != clip_names or not up_to_date(manifest_key, out):
+        renamed = skeleton_entry.get("naming") != CLIP_NAMING and any(legacy_digit_name(name) for name in clip_names)
+        if force or renamed or not out.is_file() or skeleton_entry.get("written") != clip_names or not up_to_date(manifest_key, out):
             bones = Skeleton(skeleton)
             w = gltf.Writer()
             first, roots = bones.write(w)
@@ -1396,11 +1409,14 @@ def convert(indexes: set[int], force: bool = False) -> dict:
             out.parent.mkdir(parents=True, exist_ok=True)
             w.save(out)
             skeleton_entry["written"] = clip_names
+            skeleton_entry["naming"] = CLIP_NAMING
             report["skeletons"][skeleton_key] = {"bones": len(bones.bones), "clips": len(known), "base": base_report}
         folder = manifest_entry(manifest_key, "character", out, {"body": base_body})
         skeleton_entry["mesh"] = object_path(folder, stem)
         for name, info in known.items():
-            info["asset"] = object_path(folder, stem, name=stem + clip_asset_name(name))
+            # A clip that animates no bone of the skeleton (not the root) has no glTF animation and no asset (AST-249: a pose of the
+            # buffalo, three clips of the bow prop).
+            info["asset"] = object_path(folder, stem, name=stem + clip_asset_name(name)) if info.get("bones") else ""
         index["bodies"][base_body] = {"skeleton": skeleton_key, "mesh": skeleton_entry["mesh"], "base": True}
         # The other bodies and the material variants of the converted slices on this skeleton.
         for entry in index["slices"].values():

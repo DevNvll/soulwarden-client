@@ -45,6 +45,8 @@ private:
 	bool CharacterPlace(FVector& Out) const;
 	void Start(const FVector& Place, const TCHAR* What);
 	void Scan(bool bFirst);
+	// The end of the window: the summary of the exposure and of the late content (Seconds: the length of the window).
+	void Finish(double Seconds, const TCHAR* Reason);
 	static bool Describe(const UPrimitiveComponent* Component, FSeen& Out);
 	/** @return False when the component is beyond its draw distance (or the end cull distance of its instances) from the camera. */
 	static bool InDrawRange(const UPrimitiveComponent* Component, const FVector& Camera);

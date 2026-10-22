@@ -399,10 +399,8 @@ the player track). The creature view loads with no wait:
    of the fragments Idle and Move. Then the body is made from the assets in memory (`FindObject`) and shows.
 3. The second async request: the other clips of the sets. The animation instances find them when they come (`RefreshClips`); a
    clip that is not there yet does not play.
-4. A clip that Interchange named STEM + "Null" + NAME: the requests ask for the name that has a package (`FPackageName::DoesPackageExist`,
-   cached; stage MVP-K). Before, the first request asked for the name of the data: a "LoadPackage: SkipPackage" warning for each such
-   clip (11 in a fight run near Oxboro), then a second request for the second form (it stays as a safety net). A clip with no
-   package under either name is not requested (4 clips of the data).
+4. A clip whose path has no package is not requested (`FPackageName::DoesPackageExist`, cached; stage MVP-K: a request for it gave
+   a "LoadPackage: SkipPackage" warning). A clip that animates no bone of its skeleton has no asset (4 clips of the data).
 
 The common assets (the engine cylinder and the translucent material of the shots and the areas, the loot container meshes) load
 async at the load of the library; a bag or an effect actor waits for them. The log has the work of each spawn on the game thread
@@ -464,9 +462,11 @@ about 13 minutes in all.
 
 - The clips of a skeleton are the clips of the fragments of the converted animation sets on it (the fragments of the action
   tables, the reaction tables, and the idle), not the whole bank of its `.chrparams` (13,825 files in the world).
-- Interchange names 101 of the 5,097 clips `STEM` + `Null` + `NAME` (104 clip packages of 49 skeletons in the audit of stage
-  MVP-K): the client loads that second form when the first one is not there. One clip is not in the plugin (4 packages in the
-  audit of MVP-K).
+- The name of a clip asset is STEM + `_` + 8 hexadecimal digits of the hash of the clip name; a name of 8 digits gets the letter `c`
+  before its last 7 digits (`_c7726836`). Before AST-249 Interchange wrote a name STEM_DIGITS as STEM + `Null` + `_DIGITS`
+  (Unreal reads the end `_DIGITS` as the number of the name): 104 clips of 49 skeletons had a name that the data did not have,
+  and the cook did not take them. Their old assets stay in the plugin with no reference. A clip that animates no bone of its
+  skeleton (a pose of the buffalo, three clips of the bow prop) has no glTF animation and no asset.
 - 8 skeletons have clip names that their bank does not have (for example `upyr_base_skel` has no `.chrparams`; the seraphim
   of `isabella_t2_skel` names clips of a different bank): those items have no clip.
 - One weapon has no drawn triangle (`spriggan_empty_weapon.cdf`).

@@ -73,10 +73,21 @@ check(not Swc.CanEquip(axeStatic, 640), "level 60 does not equip the great axe a
 Swc.HostProgression(59, 0)
 check(not Swc.CanEquip(axeStatic, 600), "level 59 does not equip the great axe at 600")
 Swc.HostProgression(70, 0)
--- AST-234: the values of the craft mod tooltip (GetGenericLocalizedDescription: the formulas with the perk multiplier 1).
+-- AST-234: the values of the craft mod tooltip (GetGenericLocalizedDescription, research forge-order.md 2): the range of each formula
+-- from the perk multiplier 1 to the potency at the display score 800 plus the largest class bonus (grit: 1 to 3.6181818, the scaling
+-- stops at 550; maelstrom: the class bonus 2hAxe 500, score 1300, 1 to 4.2727270); a constant part stays single.
 local grit = ItemDataManagerBus.Broadcast.GetStaticPerkData(crc("PerkID_Weapon_DmgAgainstGrit")):GetGenericLocalizedDescription()
 note("the grit text: " .. grit)
-equal(grit, "+4.5% damage against targets with active Grit.", "the formula of the grit perk")
+equal(grit, "+4.5-16.28% damage against targets with active Grit.", "the range of the grit perk (4.5 to 16.2818 percent)")
 local maelstrom = ItemDataManagerBus.Broadcast.GetStaticPerkData(crc("PerkID_Ability_GreatAxe_Maelstrom")):GetGenericLocalizedDescription()
 note("the maelstrom text: " .. maelstrom)
-check(maelstrom:find("by 3%", 1, true) ~= nil and maelstrom:find("for 8s", 1, true) ~= nil, "the formulas of the maelstrom charm")
+check(maelstrom:find("by 3-12.82%", 1, true) ~= nil and maelstrom:find("for 8s", 1, true) ~= nil,
+  "the range of the maelstrom charm (3 to 12.8182 percent; the duration 8 s single)")
+check(maelstrom:find("\n\nThis perk is stronger on a weapon.", 1, true) ~= nil, "a perk with a class bonus: the line @perk_weapon_bonus_info")
+equal(Swc.PerkPotency(Swc.PerkStatic("PerkID_Weapon_DmgAgainstGrit"), 400), 1 + 300 * 0.00581818181818182, "the potency at 400")
+-- AST-234: the forge order (research forge-order.md 1): the group text of the axe recipe is the first spelling of the shared string
+-- table, the item TradingGroup "GreatAxes" (the recipe cell "Greataxes"); the sword stays "Greatswords".
+equal(RecipeDataManagerBus.Broadcast.GetCraftingCategoryData("Procedural_2hGreatAxeT5").craftingGroup, "GreatAxes",
+  "the group text of the axe recipe (the item spelling)")
+equal(RecipeDataManagerBus.Broadcast.GetCraftingCategoryData("Procedural_2hGreatSwordT5").craftingGroup, "Greatswords",
+  "the group text of the sword recipe")
