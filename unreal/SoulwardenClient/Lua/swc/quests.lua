@@ -310,6 +310,28 @@ function Swc.HostQuests(text)
 end
 
 --- The pin readiness (slot 73): the tracked objectives show from now on.
+--- The rule RequiredActiveObjectiveId and RequiredActiveTaskId of a conversation state (AST-248; backend docs/systems/persons.md, client
+--- IsTaskActiveById 0x3A49520): one objective of the list (commas) has the task Active (1) or CompleteActive (3).
+--- @return The objective id (userdata) of the first match, or nil.
+function Q.ActiveTask(objectives, task)
+  local wanted = {}
+  for name in string.gmatch(objectives or "", "[^,]+") do
+    wanted[string.lower((name:gsub("^%s+", ""):gsub("%s+$", "")))] = true
+  end
+  task = string.lower(task or "")
+  for _, rec in ipairs(Q.list) do
+    if rec.row and wanted[string.lower(rec.row.id or "")] then
+      for index, node in pairs(rec.nodes) do
+        local state = rec.states[index] and rec.states[index].state
+        if node.row and string.lower(node.row.id or "") == task and (state == 1 or state == 3) then
+          return rec.id
+        end
+      end
+    end
+  end
+  return nil
+end
+
 function Swc.HostQuestPinReady(on)
   local was = Q.ready
   Q.ready = on and true or false

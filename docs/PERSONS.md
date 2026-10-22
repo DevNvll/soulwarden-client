@@ -125,15 +125,52 @@ A line with no preset (91 initial states of the census) uses the camera UI_Conve
 GetNpcLookAtPosition: 1.5 m over the person, 0.25 m to the side, 1 m to the player): not done in the client (the client keeps the
 player camera for such a line).
 
+## The persons of the client spawners (AST-248)
+
+The retail client makes each person child of a PrefabSpawner itself, with a client id of tag 7 (backend stage 2.5c, Soulwarden
+`docs/systems/persons.md`: G from round(x*8), round(y*8), round(z*4), the yaw bucket, and the slice asset; the actor is G and 8 zero
+bytes). The backend binds only that exact reference and makes no body. The interaction data of the backend copy (format 4) has these
+1,309 objects with their ids (a slot near a border of the id rule has a second object `KEY~1`; the backend binds both, and the client
+keeps the first). `tools/convert-objects.sh write` puts them in the object layer as npc objects (1,455 in all), and
+`tools/convert-persons.sh write` links each person child to its object (`interactionData`: the placement of its spawner and its place,
+within 5 cm): 1,285 of the 1,313 persons with Talk. The Talk of such a person is the Talk of an npc object: the request has the ids
+of the backend, and the reply is 3743 result 1.
+
 ## The Talk of a person with no data
 
-A person with the option OpenConversation and no npc object of the interaction data (the persons of client spawners, the persons
-of capital children: 1,221 of the 1,313 with Talk) gets a prompt within 3 m (the retail prompts of persons: 2.07 to 2.98 m, set 5)
-and the key E sends the request of OpenConversation (the option of the interaction data). The rule of the retail ids of such a
-person is not known: the client sends ids that no object of the data has (G from the key of the person; the actor is G in the other
-byte order, then 8 zero bytes; the option entity is G with 2 added to its high word, as in the retail requests). The backend refuses
-the request (3743 result 2), as it refuses the retail request of the artificer of Oxboro: the client closes the conversation at once
-(6705, no 2473), and the answer 6709 frees the input. The Talk key of such a person is `person:` + its key of persons.json.
+A person with the option OpenConversation and no npc object of the interaction data (28 persons with Talk: the capital children and the
+persons with no binding of the backend) gets a prompt within 3 m (the retail prompts of persons: 2.07 to 2.98 m, set 5) and the key E
+sends the request of OpenConversation (the option of the interaction data) with ids that no object of the data has (G from the key of
+the person; the actor is G in the other byte order, then 8 zero bytes; the option entity is G with 2 added to its high word). The
+backend refuses the request (3743 result 2): the client closes the conversation at once (6705, no 2473), and the answer 6709 frees the
+input. The Talk key of such a person is `person:` + its key of persons.json.
+
+## The conversation state (AST-248)
+
+The client selects the conversation state of a person itself, with the rule of the retail client (Soulwarden `docs/systems/persons.md`
+"The conversation state of a character", the static read of stage 2.5c), in `swc/conversation.lua`:
+
+- The data: `tools/convert-persons.sh conversations` writes `SWC_CONTENT/ui/gamedata/conversations.json` from `conversation-data.json` of
+  the backend copy: the NPC rows with their states (in the order of their columns), the states with their requirements and topics, the
+  topics with their requirements and ProvidedTopics, and the speaker and the next line of each text key (the en-us `.loc.xml` files).
+- The selection at the open (the NPC id of the person: `Swc.HostConversation("open", ..., NPCID)`): the states of the row in reverse,
+  the first whose requirements pass. RequiredLevel: the level of the character. RequiredAchievement: ids with `!`, `&&`, `||`, and
+  parentheses (an id is true with its bit of the Achievement state; a text that does not parse is false). RequiredActiveObjectiveId with
+  RequiredActiveTaskId: one objective of the list has the task Active or CompleteActive (the quest state of `swc/quests.lua`).
+  RequiredCompletedObjective: the bit of the AchievementId of the objective. The character has no faction, no faction cooldown, and no
+  categorical progression (backend roadmap 4.5): a named faction, a cooldown, and a progression rank or points above 0 do not pass.
+  A person with no row keeps the line of persons.json.
+- The lines: the dialogue of the state and its chain of `dialogue-next`. At the last line the screen shows the passing topics of the
+  state. The option type of a topic is not in the enum table of the client; the client uses 2 [inference] (the screen drops Invalid and
+  Leave). The icon and the color of a topic come from the conversation state of the person: HasTalkToTask with the objective of the task
+  (`NpcComponentRequestBus.GetCurrentStateWithPlayer`). The speaker of a topic prompt is "UI - Player Prompt" (the screen fades the
+  options in).
+- A topic: the request "conversation topic CRC" sends 3158 (the CRC-32 of the lower-case topic id, on the Conversation facet of the
+  player root). The screen shows the response of the topic and its chain, then the passing ProvidedTopics of the topic.
+- The end: the request "conversation end CRC,..." with the finished topics: 6705, 2473, then 5397 with the topics (at most 10). With no
+  topic the client sends no 5397 (the retail client in the live checks of the backend stage 2.5c). A topic has no effect in the backend
+  yet (stage 1.8b).
+- The player faction node (`Hud.LocalPlayer.Faction`) is None: the option script reads it for each option.
 
 ## The services of the persons
 
@@ -153,7 +190,7 @@ with the screen:
 | Step | Rule |
 | --- | --- |
 | The lines | persons.json `lines`: the first line and its chain of `dialogue-next` (at most 10; 324 conversations have 2 lines, one has 5). The client shows them; the backend gets no message for a line (Soulwarden travel-and-conversations.md: "E goes to the next text, and the conversation ends at the last one"). The script writes the speaker name only when it changes (Purcell line b: the text only, as in the retail picture). |
-| The open | `Swc.HostConversation("open", KEY, SPEAKER, LINE, NAME, TITLE, LINES)`. The first open loads the canvas as the retail dynamic canvas loader does (autohide, FULLSCREEN_DRAW_ORDER; that loader does not run in the client). One conversation state goes to `DynamicBus.ConversationScreenV2` with the copy of dynamiccanvasloader.luac: the dialogue "@LINE", the speaker attribute, and one option Continue ("@ui_continue", ContinueDialogue). The script sets the state ConversationScreenV2 (the HUD hides) and shows the subtitle "SPEAKER: TEXT". |
+| The open | `Swc.HostConversation("open", KEY, SPEAKER, LINE, NAME, TITLE, LINES, NPCID)` (the state of the client: "The conversation state"). The first open loads the canvas as the retail dynamic canvas loader does (autohide, FULLSCREEN_DRAW_ORDER; that loader does not run in the client). One conversation state goes to `DynamicBus.ConversationScreenV2` with the copy of dynamiccanvasloader.luac: the dialogue "@LINE", the speaker attribute, and one option Continue ("@ui_continue", ContinueDialogue). The script sets the state ConversationScreenV2 (the HUD hides) and shows the subtitle "SPEAKER: TEXT". |
 | E (Next) | The center hint of the script: RequestConversationOption: the next line; the state after the last line has no option; the script closes the screen and calls TryCloseInteraction (HandleOnCloseConversation): the request "conversation end": `EndConversation` (6705, then 2473). While the screen shows, the interactor does not take E (`USwcBackendSubsystem::SetConversationScreenShown`). |
 | Escape (Back) | OnEscapeKeyPressed: CloseScreen, TryCloseInteraction: the same request. The escape menu then opens too (as in the retail client, set 5). |
 | The close by the client | A refusal, the end by the server, a death, a loading screen: `Swc.HostConversation("close")`: a state with no option closes the screen at once, with no request. |
@@ -271,8 +308,8 @@ does not have yet:
   about 1 s, then puts his hands on his hips (also after the end).
 
 - The next lines of a conversation tree, the services of a person (the shops, the stations, the missions): later stages.
-- The persons of the client spawners: the prompt and the refusal (above, "The Talk of a person with no data"); the retail ids of
-  their request are not known.
+- The 28 persons with Talk and no npc object: the prompt and the refusal (above, "The Talk of a person with no data").
+- The option type of a topic option (2) is an inference: a static brief.
 - The order of the talk timelines is a client rule from their names: the slice has empty event lists for them, and no retail video
   of a Talk exists yet (only the stills L1-10, L1-11, L1-12, L7-01, F-11).
 - The look-at of the persons (`useLookIK`), the lip sync and the audio of the line, the ambient gestures: not done.

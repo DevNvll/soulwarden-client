@@ -95,6 +95,9 @@ public:
 	void OpenUiScreen(std::uint32_t Screen);
 	void AbandonObjective(std::uint64_t Instance);
 	void ResetObjective(std::uint64_t Instance);
+	/** The topics of a person conversation (AST-248; RepClient conversation_topic, finished_topics). */
+	void ConversationTopic(std::uint32_t Topic);
+	void FinishedTopics(const std::vector<std::uint32_t>& Topics);
 	/** A call of the client on the thread of the connection (the edits of the trees and the bars: stage MVP-G). */
 	void Queue(std::function<void(swc::net::RepClient&)> Call);
 

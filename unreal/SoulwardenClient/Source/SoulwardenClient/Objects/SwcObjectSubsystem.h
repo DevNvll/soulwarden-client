@@ -154,9 +154,11 @@ public:
 	/**
 	 * The focus of the prompt (AST-198; research prompt-range.md): of the bounds that the character can use and whose candidate shape has
 	 * the point of the character (swc::interact::contains; not the validation range), the bound with the smallest camera line score
-	 * (swc::interact::line_score; camera and forward in engine m). @return False with no candidate.
+	 * (swc::interact::line_score; camera and forward in engine m). Skip (optional): true for a target that is not there for the
+	 * character (AST-248: the npc object of a person that is not present). @return False with no candidate.
 	 */
-	bool FindFocusObject(const FVector& From, const float Camera[3], const float Forward[3], FSwcWorldObjectTarget& Out, float& OutScore) const;
+	bool FindFocusObject(const FVector& From, const float Camera[3], const float Forward[3], FSwcWorldObjectTarget& Out, float& OutScore,
+		TFunctionRef<bool(const FSwcWorldObjectTarget&)> Skip = [](const FSwcWorldObjectTarget&) { return false; }) const;
 	/** @return The first option of the interaction data with an action (OpenConversation: 63), or null before the tables load. */
 	const swc::interact::Option* FindOptionByAction(uint8 Action) const;
 	/** Reads the candidate shape of a bound of the converted data (objects.json, interactions.json: "shape"); no shape: type none. */

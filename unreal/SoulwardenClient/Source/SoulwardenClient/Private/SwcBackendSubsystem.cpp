@@ -1821,12 +1821,22 @@ void USwcBackendSubsystem::EndCraftingStation()
 	}
 }
 
-void USwcBackendSubsystem::EndConversation()
+void USwcBackendSubsystem::EndConversation(const std::vector<uint32>& FinishedTopics)
 {
 	if (Interactor.IsValid())
 	{
-		Interactor->EndConversation();
+		Interactor->EndConversation(FinishedTopics);
 	}
+}
+
+bool USwcBackendSubsystem::ConversationTopic(uint32 Topic)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->ConversationTopic(Topic);
+	return true;
 }
 
 void USwcBackendSubsystem::CloseLootBag()

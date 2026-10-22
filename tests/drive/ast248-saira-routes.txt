@@ -1,0 +1,5 @@
+# The routes of the topic check of AST-248: as tests/drive/ast248-routes.txt, and the grant of the quest of the backend live check L3
+# (04A_Side05_03_EarnAudience: its task TalkToSaira gives Saira the state TaskTopic_EarnAudience_01 with its topic).
+0.5 ignore on
+0.6 world-time 12:00
+1.0 quest grant 04A_Side05_03_EarnAudience

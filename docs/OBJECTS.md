@@ -43,13 +43,15 @@ The folder is `world-objects`, not `objects`: the converted meshes of the game p
 The retail data: 42,759 objects with an option (33,071 capital nodes, 5,519 chests, 1,157 lore pages, 2,178 other gathering
 objects, 834 other objects), 2,450,322 natural nodes in 49 regions, 509 node visuals. The converter checks the id rules of the
 client against the ids of the backend data: each actor from its UUID, and the facet target and the option entity of each capital
-node from its template. A mismatch stops the tool.
+node from its template. A mismatch stops the tool. A quest object of stage 1.8c (a capital entry with four values) keeps its
+InteractTag and InteractOnlyOnQuest in the field `quest` (stage Q6).
 
 ## The ids
 
 | Object | Rule (source) |
 | --- | --- |
 | A placement of a layer (a lore page, a chest, a capital node, a station) | Actor: XOR the two halves of the UUID, reverse the 8 bytes, set the low 3 bits of the first byte to 3, then 8 zero bytes. G is the first 8 bytes (little-endian). (Research P4.1, backend test case IT10.) |
+| A person child of a PrefabSpawner (interaction data format 4, backend stage 2.5c; AST-248) | Tag 7: G from round(x*8), round(y*8), round(z*4) of the spawner, the yaw bucket, and the slice asset (Soulwarden docs/systems/persons.md, client 0x6160B60). The converter takes the actor of the backend data (1,309 objects; the key is `SPAWNER/CHILD`, not a UUID, so the UUID check does not apply). |
 | A natural node | G = ((counter & 0x7FFFF) << 13) \| ((regionY & 0x1F) << 8) \| ((regionX & 0x1F) << 3) \| 1, counter = record + 1. Actor: G (little-endian) and 8 zero bytes. (gathering.md, client 0x69D5090, backend test case GAT2.) |
 | A bound | Facet target = (entity XOR root XOR G) + component; option entity = option XOR root XOR G (protocol notes 4.2). A data object has them in the data; a natural node gets them from its template. The place of a bound of a natural node is the place of the record plus the translation of the bound (no rotation). |
 

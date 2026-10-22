@@ -170,10 +170,15 @@ inline constexpr MessageType kAbandonObjective{"ObjectivesComponentServerFacet_A
 inline constexpr MessageType kResetObjective{"ObjectivesComponentServerFacet_ResetObjective", "5B7449FBC79F4C79956B154CAFC5A834", 5600};
 inline constexpr MessageType kTerritoryEntered{"TerritoryDetectorComponentServerFacet_AttemptTerritoryUnlock", "11783D24A758406191BCA3A5DAFE0105", 2297};
 inline constexpr MessageType kTerritoryLeft{"TerritoryDetectorComponentServerFacet_AttemptTerritoryExit", "8979AFE6819546C796FFCE28785678F0", 6416};
+/** The topics of a person conversation (Linear AST-248; protocol notes, 3158 and 5397; backend server/rep/conversation_messages.h): the
+ *  topic of the selection (3158) and the finished topics after the close 2473 (5397) on the Conversation facet of the player root. */
+inline constexpr MessageType kConversationTopic{"ConversationComponentServerFacet_RequestConversationTopicFromClient", "F9169FA5CD3D4002BB2AEA1E4109720F", 3158};
+inline constexpr MessageType kConversationTopicsFinished{"ConversationComponentServerFacet_OnFinishedConversationTopicsFromClient", "92665A5116DD434592C73A3BA7C2355D", 5397};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 77> kUsedTypes{kStateObjectives, kStatePinReadiness, kObjectiveAutoPinning,
-    kUpdateTrackedObjectives, kNotifyOpenUiScreen, kAbandonObjective, kResetObjective, kTerritoryEntered, kTerritoryLeft, kAssignPoolPoints, kChangeMappedAbility, kApplyAbilityPoints, kMasteryTreeRespec,
+inline constexpr std::array<MessageType, 79> kUsedTypes{kStateObjectives, kStatePinReadiness, kObjectiveAutoPinning,
+    kUpdateTrackedObjectives, kNotifyOpenUiScreen, kAbandonObjective, kResetObjective, kTerritoryEntered, kTerritoryLeft, kConversationTopic,
+    kConversationTopicsFinished, kAssignPoolPoints, kChangeMappedAbility, kApplyAbilityPoints, kMasteryTreeRespec,
     kMasteryTreeRespecResponse, kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
@@ -536,6 +541,15 @@ Bytes objective_instance_body(std::uint64_t group, std::uint64_t instance);
  *  (actor:16 raw, group:u64, local:u64) territory:u16 [achievement:u32]. */
 Bytes territory_report_body(std::uint64_t group, const std::array<std::uint8_t, 16>& actor, std::uint64_t referenceGroup, std::uint64_t local,
                             std::uint16_t territory, std::optional<std::uint32_t> achievement);
+
+/** The Conversation component of the root entity of the player slice (slice-ids.json: RootPlayer/7447fb63-...): the target is G + the
+ *  component id. 5397 has 10 topics at most (the writer 0x3701DF0 of the client). */
+inline constexpr std::uint64_t kConversationComponent = 0x1C116D259B43203DULL;
+inline constexpr std::size_t kFinishedTopicsLimit = 10;
+/** @return The body of RequestConversationTopicFromClient (3158, 20 bytes): target entity topic:u32 (the CRC-32 of the lower-case topic id). */
+Bytes conversation_topic_body(std::uint64_t group, std::uint32_t topic);
+/** @return The body of OnFinishedConversationTopicsFromClient (5397): target entity count:size topic:u32 each (at most 10 are written). */
+Bytes finished_topics_body(std::uint64_t group, const std::vector<std::uint32_t>& topics);
 
 /** The head of a component call: target:u64 entity:u64. */
 struct ComponentCall {

@@ -1438,6 +1438,30 @@ void RepClient::reset_objective(std::uint64_t instance) {
     log(Event::Level::info, "objectives: reset of the instance " + std::to_string(instance) + " (5600)");
 }
 
+void RepClient::conversation_topic(std::uint32_t topic) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kConversationTopic, conversation_topic_body(m_own.group, topic));
+    char hex[16];
+    std::snprintf(hex, sizeof hex, "%08x", topic);
+    log(Event::Level::info, std::string("conversation: the topic ") + hex + " (3158)");
+}
+
+void RepClient::finished_topics(const std::vector<std::uint32_t>& topics) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kConversationTopicsFinished, finished_topics_body(m_own.group, topics));
+    std::string text;
+    for (const std::uint32_t topic : topics) {
+        char hex[16];
+        std::snprintf(hex, sizeof hex, " %08x", topic);
+        text += hex;
+    }
+    log(Event::Level::info, "conversation: the finished topics (5397):" + (text.empty() ? std::string(" none") : text));
+}
+
 void RepClient::cancel_craft() {
     if (m_phase != Phase::inGame || !m_own.hasMetadata) {
         return;

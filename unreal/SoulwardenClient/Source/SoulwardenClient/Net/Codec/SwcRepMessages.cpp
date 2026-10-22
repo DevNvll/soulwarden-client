@@ -402,6 +402,26 @@ Bytes objective_instance_body(std::uint64_t group, std::uint64_t instance) {
     return w.data();
 }
 
+Bytes conversation_topic_body(std::uint64_t group, std::uint32_t topic) {
+    Writer w;
+    w.u64(group + kConversationComponent);
+    w.u64(group);
+    w.u32(topic);
+    return w.data();
+}
+
+Bytes finished_topics_body(std::uint64_t group, const std::vector<std::uint32_t>& topics) {
+    Writer w;
+    w.u64(group + kConversationComponent);
+    w.u64(group);
+    const std::size_t count = std::min(topics.size(), kFinishedTopicsLimit);
+    w.size(static_cast<std::uint32_t>(count));
+    for (std::size_t index = 0; index < count; ++index) {
+        w.u32(topics[index]);
+    }
+    return w.data();
+}
+
 Bytes territory_report_body(std::uint64_t group, const std::array<std::uint8_t, 16>& actor, std::uint64_t referenceGroup, std::uint64_t local,
                             std::uint16_t territory, std::optional<std::uint32_t> achievement) {
     Writer w;

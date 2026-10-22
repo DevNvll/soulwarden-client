@@ -500,6 +500,9 @@ public:
     void open_ui_screen(std::uint32_t screen);
     void abandon_objective(std::uint64_t instance);
     void reset_objective(std::uint64_t instance);
+    /** The topics of a person conversation (AST-248): the selected topic (3158) and the finished topics after the close 2473 (5397). */
+    void conversation_topic(std::uint32_t topic);
+    void finished_topics(const std::vector<std::uint32_t>& topics);
     /** Copies an Objectives state (slot 22) into an own entity: false for a fragment that does not have its form (no change). */
     static bool read_objectives(const soulwarden::backend::tests::Fragment& fragment, OwnEntity& own);
     /** True after the first 2709 of this session. */

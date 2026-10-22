@@ -42,6 +42,8 @@ Usage (tools/creature-world.sh):
   hurt AMOUNT                        damage of the character (an amount at or above its health kills it: the death, stage P2.10)
   travel X Y Z [auto|on|off]         a travel of the character to a place (engine m; the loading screen rule of the backend)
   travel PLACE [auto|on|off]         a travel to a travel place of the game data (shrine_40170, inn_40300)
+  quest grant OBJECTIVE              a new instance of an objective of the quest data for the character (backend stage 1.8a,
+                                     /v1/dev/quests/grant; AST-248: the task topic of a person)
   fixture NAME [DX DY DZ]            a fixture of the backend at the character (powderKeg: the timed use "Ignite Fuse", 5 s)
   remove-object ENTITY               removes a server child (the entity of the fixture reply, 16 hex digits)
   cancel                             the server ends the interaction of the character (3746)
@@ -261,6 +263,10 @@ def run(words: list[str], folder: Path) -> object:
         place = [word for word in rest if word not in ("auto", "on", "off")]
         target = f"x={float(place[0])}&y={float(place[1])}&z={float(place[2])}" if len(place) == 3 else f"place={place[0]}"
         return request(folder, "POST", f"/v1/dev/world/travel?character={character(folder)}&{target}{screen}")
+    if command == "quest" and len(rest) == 2 and rest[0] == "grant":
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", rest[1]):
+            fail("the objective must be an id of the quest data")
+        return request(folder, "POST", f"/v1/dev/quests/grant?character={character(folder)}&objective={rest[1]}")
     if command == "fixture" and len(rest) in (1, 4):
         offset = f"&dx={float(rest[1])}&dy={float(rest[2])}&dz={float(rest[3])}" if len(rest) == 4 else ""
         # The rule 1 of the Ownership state gives the prompt (the rule 4 of the data: "No public access.").

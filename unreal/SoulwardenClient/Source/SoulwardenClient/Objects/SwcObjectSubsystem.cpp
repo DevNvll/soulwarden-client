@@ -1024,7 +1024,7 @@ bool USwcObjectSubsystem::FindNearestObject(const FVector& From, FSwcWorldObject
 }
 
 bool USwcObjectSubsystem::FindFocusObject(const FVector& From, const float Camera[3], const float Forward[3], FSwcWorldObjectTarget& Out,
-	float& OutScore) const
+	float& OutScore, TFunctionRef<bool(const FSwcWorldObjectTarget&)> Skip) const
 {
 	if (!bTablesLoaded)
 	{
@@ -1036,6 +1036,10 @@ bool USwcObjectSubsystem::FindFocusObject(const FVector& From, const float Camer
 	const FSwcWorldObjectTarget* Best = nullptr;
 	for (const FSwcWorldObjectTarget& Target : Found)
 	{
+		if (Skip(Target))
+		{
+			continue;
+		}
 		// The retail score (0x490FED0): a strictly smaller score replaces the best one; an equal score keeps the first.
 		const float Place[3]{Target.EnginePlace.x, Target.EnginePlace.y, Target.EnginePlace.z};
 		float Score = 0.0f;

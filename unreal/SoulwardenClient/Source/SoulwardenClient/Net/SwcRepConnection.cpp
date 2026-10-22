@@ -255,6 +255,18 @@ void FSwcRepConnection::ResetObjective(std::uint64_t Instance)
 	Calls.push_back([Instance](swc::net::RepClient& Client) { Client.reset_objective(Instance); });
 }
 
+void FSwcRepConnection::ConversationTopic(std::uint32_t Topic)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([Topic](swc::net::RepClient& Client) { Client.conversation_topic(Topic); });
+}
+
+void FSwcRepConnection::FinishedTopics(const std::vector<std::uint32_t>& Topics)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([Topics](swc::net::RepClient& Client) { Client.finished_topics(Topics); });
+}
+
 std::vector<swc::net::RepClient::OtherUpdate> FSwcRepConnection::TakeOtherUpdates()
 {
 	FScopeLock Guard(&Lock);

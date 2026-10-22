@@ -303,7 +303,10 @@ def write() -> dict:
     for entry in interactions["objects"]:
         kind = object_kind(entry, chests, capitals)
         actor = bytes.fromhex(entry["actor"])
-        if placement_actor(entry["key"]) != actor:
+        if (entry.get("person") or {}).get("clientChild"):
+            # A person child of a PrefabSpawner (format 4; AST-248): its actor is the client id of tag 7, not a placement UUID.
+            report["personChildren"] = report.get("personChildren", 0) + 1
+        elif placement_actor(entry["key"]) != actor:
             report["actorMismatches"] += 1
         bounds = []
         for bound in entry["bounds"]:
@@ -334,8 +337,12 @@ def write() -> dict:
             continue
         out = {"key": entry["key"], "kind": kind, "actor": entry["actor"], "position": entry["position"], "bounds": bounds}
         if kind == "node":
-            template_index, row = capitals[entry["key"]]
+            template_index, row = capitals[entry["key"]][:2]
             out["gather"] = [template_index, row]
+            if len(capitals[entry["key"]]) >= 4:
+                # A quest object (backend stage 1.8c, gathering.md): the InteractTag and InteractOnlyOnQuest of its variant (stage Q6).
+                out["quest"] = {"tag": capitals[entry["key"]][2], "onlyOnQuest": bool(capitals[entry["key"]][3])}
+                report["questObjects"] = report.get("questObjects", 0) + 1
             # The rule of a capital node: G from the UUID, the target and the option entity from the template (gathering.md).
             template = templates[template_index]
             group = group_of(actor)

@@ -1,0 +1,11 @@
+# The UI drive of the topic check of AST-248: Saira Yangandul with the task TalkToSaira active (the state TaskTopic_EarnAudience_01): the
+# topic option, its selection (3158), the response lines (E), the end (6705, 2473, then 5397 with the topic). Times from the spawn.
+11.0 log the topic option
+12.0 waitfor text:"Can_I_meet_with_your_employer?" 20
+14.0 point text:"Can_I_meet_with_your_employer?"
+14.3 click
+17.0 log the response of the topic
+19.0 key E
+23.0 key E
+27.0 key E
+30 end

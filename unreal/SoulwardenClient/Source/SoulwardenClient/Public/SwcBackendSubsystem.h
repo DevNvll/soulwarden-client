@@ -164,8 +164,11 @@ public:
 	/** The line of the conversation of the player ("SPEAKER: TEXT"; stage P4.8, docs/PERSONS.md), empty with no conversation: the
 	 *  conversation screen of the UI comes later. */
 	const FString& GetConversationLine() const { return ConversationLine; }
-	/** The conversation screen of the UI ends the conversation (its Back key; its Next key at the last line): 6705, then 2473. */
-	void EndConversation();
+	/** The conversation screen of the UI ends the conversation (its Back key; its Next key at the last line): 6705, then 2473, then the
+	 *  finished topics (5397) when the list has one (AST-248). */
+	void EndConversation(const std::vector<uint32>& FinishedTopics = {});
+	/** The conversation screen sends the topic of a selection (3158; AST-248). False with no world connection. */
+	bool ConversationTopic(uint32 Topic);
 	/** @return The Talk key of the open conversation scene (an npc object key, or "person:" + a key of persons.json), empty with no
 	 *  scene (the conversation screen of the UI: UI/SwcUiConversation). */
 	FString GetConversationSceneKey() const;

@@ -450,7 +450,16 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			return !Shown.IsEmpty();
 		};
 		bFocusHasSecond = false;
-		if (!bLocked && Layer != nullptr && Layer->FindFocusObject(From, Camera, Forward, Object, ObjectScore) && FillShown()
+		// The npc object of a person that is not present for the character (its presence rule: persons.json "presenceRule", the backend
+		// rule) has no body and no focus: two persons of one spawner place (Aelstrom WW_01 and the season person NPC_03976 on the
+		// beach; AST-248). The retail client has no entity for it.
+		const USwcPersonSubsystem* Present = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcPersonSubsystem>() : nullptr;
+		const auto Hidden = [Present](const FSwcWorldObjectTarget& Target)
+		{
+			const FSwcPerson* Person = Target.bNpc && Present != nullptr ? Present->FindByInteraction(Target.Key) : nullptr;
+			return Person != nullptr && !Person->bVisible;
+		};
+		if (!bLocked && Layer != nullptr && Layer->FindFocusObject(From, Camera, Forward, Object, ObjectScore, Hidden) && FillShown()
 			&& (!Focus || ObjectScore < Focus->score))
 		{
 			ObjectOption = Object.Options[Shown[0]].Option;
@@ -507,12 +516,11 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			FocusPrompt.RequiredRank = Object.RequiredRank;
 			FocusPrompt.Place = SwcEngineToUnreal(Object.EnginePlace);
 		}
-		// The persons with the option OpenConversation and no npc object of the interaction data (the persons of client spawners and of
-		// capital children; docs/PERSONS.md "The Talk of a person with no data"): the retail client shows the prompt and sends the
-		// request, and the backend refuses it (3743 result 2; the artificer of Oxboro, set 5 of the Talk). The rule of the retail ids of
-		// a spawner child is not known: the client sends ids that no object of the data has (G from the key of the person; the actor is
-		// G in the other byte order, then 8 zero bytes; the option entity is G with 2 added to its high word, as in the retail
-		// requests), and the reply is the same refusal.
+		// The persons with the option OpenConversation and no npc object of the interaction data (28 persons: the capital children and
+		// the persons with no binding of the backend; docs/PERSONS.md "The Talk of a person with no data"; the person children of client
+		// spawners have npc objects with the client id of tag 7 since AST-248): the client shows the prompt and sends the request with
+		// ids that no object of the data has (G from the key of the person; the actor is G in the other byte order, then 8 zero bytes;
+		// the option entity is G with 2 added to its high word), and the backend refuses it (3743 result 2).
 		USwcPersonSubsystem* PersonLayer = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcPersonSubsystem>() : nullptr;
 		const swc::interact::Option* TalkOption = Layer != nullptr ? Layer->FindOptionByAction(ConversationAction) : nullptr;
 		const FSwcPerson* TalkPerson = !bLocked && !Focus && PersonLayer != nullptr && TalkOption != nullptr
@@ -687,6 +695,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: %s in the conversation: the player ends it (6705, then 2473)"), bPendingTalkEnd ? TEXT("the UI") : TEXT("E"));
 		Talk.player_close();
 		Use.finish();
+		TopicsAfterCancel = MoveTemp(PendingTopics);
 	}
 	else if (bKeyDown && !bKeyWas && bStationOpen)
 	{
@@ -797,6 +806,12 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: the client cancels the use of %s (2473)"), UTF8_TO_TCHAR(Use.option().name.c_str()));
 		Connection.CancelInteraction();
+		if (!TopicsAfterCancel.empty())
+		{
+			// The finished topics of the conversation after its 2473 (AST-248; backend live check L3: 6705, 2473, then 5397).
+			Connection.FinishedTopics(std::vector<std::uint32_t>(TopicsAfterCancel.begin(), TopicsAfterCancel.end()));
+			TopicsAfterCancel.clear();
+		}
 	}
 }
 

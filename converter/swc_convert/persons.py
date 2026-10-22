@@ -296,6 +296,16 @@ class Tables:
         self.loc = json.loads(texts.read_text()) if texts.is_file() else {}
         data = json.loads((creature.gamedata_dir() / "interaction-data.json").read_text())
         self.npc_objects = {o["key"]: o for o in data["objects"] if o["kind"] == "npc"}
+        # The person children of a PrefabSpawner (format 4, backend stage 2.5c): their objects have the client id of tag 7 of the retail
+        # client (backend docs/systems/persons.md); by the placement of the spawner. A slot near a border of the id rule has a second
+        # object (KEY~1): the first is kept.
+        self.child_objects: dict[str, list] = {}
+        self.child_by_key: dict[str, dict] = {}
+        for o in data["objects"]:
+            person = o.get("person") or {}
+            if o["kind"] == "npc" and person.get("clientChild") and not o["key"].endswith("~1"):
+                self.child_objects.setdefault(person.get("spawner", ""), []).append(o)
+                self.child_by_key[o["key"]] = o
         self.meta = self._metadata()
         # The achievement bits (javelindata_achievements AchievementIndex: the bit of the Achievement state of the character, the rule
         # of the backend interactions.md) and the non-persisted achievements (an id with "*": an objective flow of a quest).
@@ -474,8 +484,23 @@ def resolve(found: list, tables: Tables) -> list:
             "swap": (presence or {}).get("swap") or row.get("SwapAchievementId", ""),
             "showOnLocked": bool((presence or {}).get("showOnLocked", False)), "presence": presence is not None,
             "presenceRule": presence_rule((presence or {}).get("swap") or row.get("SwapAchievementId", ""), tables.achievement_bits),
-            "interactionData": tables.npc_objects[item["placement"]]["key"] if len(item["chain"]) == 1 and item["placement"] in tables.npc_objects else None,
+            "interactionData": interaction_of(item, tables),
         })
+        # The presence of the backend for a person with interaction data (format 4, stage 2.5c: showWhen or hideWhen with a conditional;
+        # no presence: always there). Two persons of one spawner place can have one rule of the level data and different rules of the
+        # backend (Aelstrom WW_01 and the season person NPC_03976 on the Windsward beach: AST-248).
+        linked = tables.npc_objects.get(persons[-1]["interactionData"] or "") or tables.child_by_key.get(persons[-1]["interactionData"] or "")
+        if linked is not None and "person" in linked:
+            backend = linked["person"].get("presence")
+            rule = [] if not backend else presence_rule(backend.get("condition", ""), tables.achievement_bits)
+            if backend and backend.get("mode") == "hideWhen":
+                rule = rule + ["!"]
+            persons[-1]["presenceRule"] = rule
+            # The rule of the backend is the whole presence (the client shows a person while its rule is true): no ShowOnAchievementLocked;
+            # no presence of the backend is no swap (always there).
+            persons[-1]["swap"] = backend.get("condition", "") if backend else ""
+            persons[-1]["showOnLocked"] = False
+            persons[-1]["presenceSource"] = "backend"
     return persons
 
 
@@ -487,6 +512,17 @@ def numbers(text) -> list[float]:
         return [float(v) for v in str(text or "").replace(",", " ").split()]
     except ValueError:
         return []
+
+
+def interaction_of(item: dict, tables) -> str | None:
+    """The key of the npc object of a person: a direct person by its placement; a spawner child (AST-248) by the placement of its spawner
+    and its place (the object is at the place of the spawner, the same as the place of the child: within 5 cm)."""
+    if len(item["chain"]) == 1:
+        return tables.npc_objects[item["placement"]]["key"] if item["placement"] in tables.npc_objects else None
+    for o in tables.child_objects.get(item["placement"], []):
+        if all(abs(a - b) < 0.05 for a, b in zip(o["position"], item["position"])):
+            return o["key"]
+    return None
 
 
 def conversations(persons: list) -> None:
@@ -808,6 +844,61 @@ def convert(force: bool = False) -> dict:
             "missing skins": {b["body"]: b["missing"] for b in report["bodies"] if b.get("missing")}}
 
 
+def read_line_attributes(keys: set[str]) -> dict:
+    """The localization entries of the text keys and of their chains of dialogue-next (at most 10 passes): key -> {speaker, next}
+    (the attributes of the en-us .loc.xml files; the text itself is in the UI localization)."""
+    import re
+    files = [source.read(path).decode("utf-8", "replace") for path in source.paks().paths("localization/en-us/") if path.endswith(".loc.xml")]
+    entries: dict[str, dict] = {}
+    for text in files:
+        for match in re.finditer(r"<string\s+([^>]*?)>", text):
+            attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', match.group(1)))
+            key = attrs.get("key", "").lower()
+            if key and key not in entries:
+                entries[key] = attrs
+    out: dict[str, dict] = {}
+    wanted = set(keys)
+    for _ in range(10):
+        new: set[str] = set()
+        for key in wanted - set(out):
+            attrs = entries.get(key)
+            if attrs is None:
+                continue
+            following = str(attrs.get("dialogue-next", "")).lstrip("@").lower()
+            out[key] = {"speaker": attrs.get("speaker", ""), "next": following}
+            if following:
+                new.add(following)
+        if not new - set(out):
+            break
+        wanted |= new
+    return out
+
+
+def write_conversations() -> dict:
+    """SWC_CONTENT/ui/gamedata/conversations.json (Linear AST-248; docs/PERSONS.md "The conversation state"): the conversation data of
+    the backend copy (gamedata/conversation-data.json, format 1: the NPC rows with their states in the order of their columns, the states
+    with their requirements and topics, the topics with their requirements and ProvidedTopics) for the selection of the client
+    (swc/conversation.lua), and the speaker and the next line of each text key of a state or a topic response."""
+    data = json.loads((creature.gamedata_dir() / "conversation-data.json").read_text())
+    states = {s["id"]: {"dialogue": s["dialogue"].lstrip("@").lower(), "requires": s["requires"], "topics": s["topics"],
+                        "services": s["services"], "type": s["type"]} for s in data["states"]}
+    topics = {t["id"]: {"crc": t["crc"], "prompt": t["prompt"], "response": t["response"].lstrip("@").lower(), "requires": t["requires"],
+                        "provided": [x.strip() for x in str(t.get("providedTopics") or "").split(",") if x.strip()]}
+              for t in data["topics"]}
+    npcs: dict[str, list] = {}
+    for row in data["npcs"]:
+        npcs.setdefault(row["id"].lower(), row["states"])
+    keys = {s["dialogue"] for s in states.values() if s["dialogue"]} | {t["response"] for t in topics.values() if t["response"]} \
+        | {t["prompt"].lstrip("@").lower() for t in topics.values() if t["prompt"]}
+    lines = read_line_attributes(keys)
+    doc = {"format": 1, "source": data.get("format"), "npcs": npcs, "states": states, "topics": topics, "lines": lines}
+    target = env.content_dir() / "ui" / "gamedata"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "conversations.json").write_text(json.dumps(doc, separators=(",", ":"), sort_keys=True))
+    return {"npcs": len(npcs), "states": len(states), "topics": len(topics), "lines": len(lines), "keys": len(keys),
+            "keysWithNoEntry": len(keys - set(lines)), "bytes": (target / "conversations.json").stat().st_size}
+
+
 def main(argv=None) -> int:
     import argparse
     parser = argparse.ArgumentParser(prog="python3 -B -m swc_convert.persons")
@@ -817,8 +908,12 @@ def main(argv=None) -> int:
     p.add_argument("--out", help="the output file (default SWC_CONTENT/persons/persons.json)")
     p = sub.add_parser("convert")
     p.add_argument("--force", action="store_true")
+    sub.add_parser("conversations")
     args = parser.parse_args(argv)
-    result = write(tuple(args.near) if args.near else None, args.out) if args.command == "write" else convert(args.force)
+    if args.command == "conversations":
+        result = write_conversations()
+    else:
+        result = write(tuple(args.near) if args.near else None, args.out) if args.command == "write" else convert(args.force)
     print(json.dumps(result, indent=1))
     return 0
 

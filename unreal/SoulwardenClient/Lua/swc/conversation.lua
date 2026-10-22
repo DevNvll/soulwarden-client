@@ -20,8 +20,166 @@
 --   the close  Swc.HostConversation("close"): the end of the Talk by the client (a refusal 3743 result 2, the end by the
 --              server 3746, a death, a loading screen, E of the client): a state with no option closes the screen at once.
 
-local C = {open = false, ended = false, key = "", speaker = "", line = "", name = "", title = "", lines = {}, index = 1, log = {}}
+local C = {open = false, ended = false, key = "", speaker = "", line = "", name = "", title = "", lines = {}, index = 1, log = {}, topics = {},
+           finished = {}}
 Swc.conversation = C
+
+-- The conversation state of the client (Linear AST-248; backend docs/systems/persons.md "The conversation state of a character" and "The
+-- topics of a selection", the static read of stage 2.5c: client 0x37AC710, 0x37AB440, 0x37AB7A0): gamedata/conversations.json
+-- (tools/convert-persons.sh conversations: the conversation data of the backend copy). The states of the NPC row in reverse, the first
+-- whose requirements pass; its topics whose requirements pass; after a topic, its passing ProvidedTopics.
+local CD
+local function cdata()
+  if CD == nil then
+    CD = swcui.load_json("gamedata/conversations.json") or false
+  end
+  return CD or nil
+end
+
+-- The conditional of RequiredAchievement: ids with "!", "&&", "||", and parentheses (the rule of TaskAchievement, backend quests.md).
+-- An id is true when the character has its bit; an id that the data does not know is false; a text that does not parse is false.
+local function achievements_pass(text)
+  local tokens, i = {}, 1
+  while i <= #text do
+    local two, c = text:sub(i, i + 1), text:sub(i, i)
+    if c:match("%s") then
+      i = i + 1
+    elseif two == "&&" or two == "||" then
+      tokens[#tokens + 1] = two
+      i = i + 2
+    elseif c == "!" or c == "(" or c == ")" then
+      tokens[#tokens + 1] = c
+      i = i + 1
+    else
+      local id = text:match("^[^%s!&|()]+", i) or c
+      tokens[#tokens + 1] = {id = id}
+      i = i + #id
+    end
+  end
+  local pos, bad = 1, false
+  local expr
+  local function unary()
+    local t = tokens[pos]
+    pos = pos + 1
+    if t == "!" then
+      return not unary()
+    elseif t == "(" then
+      local v = expr()
+      if tokens[pos] ~= ")" then bad = true end
+      pos = pos + 1
+      return v
+    elseif type(t) == "table" then
+      return Swc.HasAchievement(Swc.AchievementIndex(t.id))
+    end
+    bad = true
+    return false
+  end
+  local function conj()
+    local v = unary()
+    while tokens[pos] == "&&" do
+      pos = pos + 1
+      local w = unary()
+      v = v and w
+    end
+    return v
+  end
+  expr = function()
+    local v = conj()
+    while tokens[pos] == "||" do
+      pos = pos + 1
+      local w = conj()
+      v = v or w
+    end
+    return v
+  end
+  local v = expr()
+  return v and not bad and pos > #tokens
+end
+
+local TOPIC_OPTION_TYPE = 2
+-- The faction of the player: the backend has none (roadmap 4.5); conversationoptionv2.luac reads the node for each option text.
+if Swc.GetData("Hud.LocalPlayer.Faction") == nil then
+  Swc.SetData("Hud.LocalPlayer.Faction", eFactionType_None or 0)
+end
+local FACTIONS = {syndicate = 1, marauder = 2, covenant = 3, any = 4, faction1 = 1, faction2 = 2, faction3 = 3}
+
+-- @return True when the requirements of a state (forTopic false) or a topic pass for the character. The character has no faction, no
+-- faction cooldown, and no categorical progression (backend roadmap 4.5).
+local function requirements_pass(requires, forTopic)
+  for name, value in pairs(requires or {}) do
+    local text = tostring(value)
+    if name == "RequiredLevel" then
+      local level = tonumber(text)
+      if level == nil or (tonumber(Swc.GetData("Hud.LocalPlayer.Progression.Level")) or 1) < level then return false end
+    elseif name == "RequiredAchievement" then
+      if text ~= "" and not achievements_pass(text) then return false end
+    elseif name == "RequiredFaction" then
+      local faction = FACTIONS[string.lower(text)] or 0
+      if forTopic and faction ~= 0 then return false end
+      if not forTopic and faction ~= 0 and faction ~= 4 then return false end
+    elseif name == "RequiredFactionCooldown" then
+      if not forTopic and text ~= "" and text ~= "NotInCooldown" then return false end
+    elseif name == "RequiredActiveObjectiveId" then
+      local task = requires.RequiredActiveTaskId
+      if not forTopic and text ~= "" and task and task ~= "" and not Swc.quests.ActiveTask(text, task) then return false end
+    elseif name == "RequiredCompletedObjective" then
+      if not forTopic then
+        local row = Swc.quests.D().objectives[string.lower(text)]
+        local achievement = row and row.cells and row.cells.AchievementId
+        if not achievement or achievement == "" or not Swc.HasAchievement(Swc.AchievementIndex(achievement)) then return false end
+      end
+    elseif name == "RequiredProgression" then
+      local id, rank, points = text:match("^(%S+)%s+(%-?%d+)%s+(%-?%d+)$")
+      if id and ((tonumber(rank) or 0) > 0 or (tonumber(points) or 0) > 0) then return false end
+    end
+  end
+  return true
+end
+
+local function chain_of(key)
+  local data, lines, seen = cdata(), {}, {}
+  while key and key ~= "" and not seen[key] and #lines < 10 do
+    seen[key] = true
+    local entry = data and data.lines[key]
+    lines[#lines + 1] = {line = key, speaker = entry and entry.speaker or C.speaker}
+    key = entry and entry.next or nil
+  end
+  return lines
+end
+
+local function passing_topics(ids)
+  local data, out = cdata(), {}
+  for _, id in ipairs(ids or {}) do
+    local topic = data.topics[id]
+    if topic and requirements_pass(topic.requires, true) then
+      out[#out + 1] = {id = id, crc = topic.crc, prompt = topic.prompt, response = topic.response, provided = topic.provided}
+    end
+  end
+  return out
+end
+
+--- The selection of the client for a person (its NPC row): sets C.stateId, C.lines, C.topics, and C.taskObjective (the objective of a
+--- state with an active task rule: the conversation state HasTalkToTask of the option icons). @return True with a state.
+local function select_state(npcId)
+  local data = cdata()
+  local states = data and data.npcs[string.lower(npcId or "")]
+  if not states then
+    return false
+  end
+  for i = #states, 1, -1 do
+    local state = data.states[states[i]]
+    if state and requirements_pass(state.requires, false) then
+      C.stateId = states[i]
+      C.lines, C.index = chain_of(state.dialogue), 1
+      C.topics = passing_topics(state.topics)
+      local r = state.requires or {}
+      C.taskObjective = r.RequiredActiveObjectiveId and r.RequiredActiveTaskId and Swc.quests.ActiveTask(r.RequiredActiveObjectiveId, r.RequiredActiveTaskId) or nil
+      return true
+    end
+  end
+  return false
+end
+C.select_state = select_state
 
 local function person_entity(key)
   return EntityId(string.format("8%010d", swcui.crc32(key or "")))
@@ -42,7 +200,14 @@ end
 
 local function state_of(withOption)
   local options = {}
-  if withOption then
+  if withOption and C.index >= #C.lines and #(C.topics or {}) > 0 then
+    -- The topics at the last line. The option type of a topic is not in the enum table of the client: 2, the gap between Leave (1) and
+    -- ObjectiveDetails (3) [inference; the screen drops the types Invalid and Leave: conversationscreenv2.luac OnConversationStateChange].
+    -- The icon and the color come from the conversation state of the person (conversationoptionv2.luac).
+    for _, topic in ipairs(C.topics) do
+      options[#options + 1] = {text = topic.prompt, optionType = TOPIC_OPTION_TYPE, dataId = topic.crc}
+    end
+  elseif withOption then
     options[1] = {text = "@ui_continue", optionType = eConversationOptionType_ContinueDialogue or 7, dataId = 0}
   end
   local line = C.lines[C.index] and C.lines[C.index].line or C.line
@@ -64,14 +229,15 @@ end
 local function request_end(why)
   if C.open and not C.ended then
     C.ended = true
-    Swc.hostRequests[#Swc.hostRequests + 1] = "conversation end"
+    -- The finished topics go with the end: the client sends them (5397) after the 2473 of the close (AST-248).
+    Swc.hostRequests[#Swc.hostRequests + 1] = "conversation end" .. (#C.finished > 0 and (" " .. table.concat(C.finished, ",")) or "")
     C.log[#C.log + 1] = "end: " .. why
     Swc.Note("conversation: the screen ends the conversation (" .. why .. ")")
   end
 end
 
 --- The client opens or closes the conversation screen (UI/SwcUiConversation.cpp).
-function Swc.HostConversation(what, key, speaker, line, name, title, lines)
+function Swc.HostConversation(what, key, speaker, line, name, title, lines, npcId)
   if what == "open" then
     C.open, C.ended = true, false
     C.key, C.speaker, C.line, C.name, C.title = key or "", speaker or "", line or "", name or "", title or ""
@@ -83,6 +249,12 @@ function Swc.HostConversation(what, key, speaker, line, name, title, lines)
     end
     if #C.lines == 0 then
       C.lines[1] = {line = C.line, speaker = C.speaker}
+    end
+    -- The state of the client for the NPC row of the person (AST-248); with no row the line of the person (persons.json).
+    C.npcId, C.stateId, C.topics, C.taskObjective, C.finished = npcId or "", nil, {}, nil, {}
+    if select_state(C.npcId) then
+      C.log[#C.log + 1] = "state: " .. C.stateId .. " (" .. #C.topics .. " topic(s))"
+      Swc.Note("conversation: the state " .. C.stateId .. " of " .. C.npcId .. ", " .. #C.topics .. " topic(s)")
     end
     C.entity = person_entity(C.key)
     C.log[#C.log + 1] = "open: " .. C.key
@@ -115,6 +287,14 @@ Swc.Define("NpcComponentRequestBus", "Event", {
     end
     return npcData and npcData(id, ...) or nil
   end,
+  -- The conversation state of the person for the player (conversationoptionv2.luac: HasTalkToTask gives the options the icon and the
+  -- color of the objective of the task).
+  GetCurrentStateWithPlayer = function(id)
+    if C.open and id == C.entity and C.taskObjective then
+      return {State = eConversationState_HasTalkToTask or 13, ConversationObjectiveInstanceId = C.taskObjective}
+    end
+    return {State = eConversationState_NoObjective or 0}
+  end,
 })
 
 -- The attributes of the line: the speaker (the localized name of the person); no VO, no cinematic, no timeline, no camera
@@ -128,6 +308,12 @@ Swc.Define("LyShineScriptBindRequestBus", "Broadcast", {
           return entry.speaker
         end
       end
+      -- A topic prompt (AST-248): its own speaker ("UI - Player Prompt": the screen fades the options in after its playerPromptDelay).
+      local data = cdata()
+      local entry = data and data.lines[key]
+      if entry then
+        return entry.speaker
+      end
       return C.speaker
     end
     return ""
@@ -138,8 +324,23 @@ Swc.Define("LyShineScriptBindRequestBus", "Broadcast", {
 -- option, and the screen closes (the backend has no message for the lines: the client shows them; backend docs travel-and-
 -- conversations.md "E goes to the next text, and the conversation ends at the last one").
 Swc.Define("ConversationRequestBus", "Broadcast", {
-  RequestConversationOption = function()
+  RequestConversationOption = function(_, dataId)
     C.log[#C.log + 1] = "option"
+    for _, topic in ipairs(C.topics or {}) do
+      if dataId ~= nil and dataId ~= 0 and topic.crc == dataId then
+        -- A topic (3158): its response, then its passing ProvidedTopics (backend persons.md "The topics of a selection").
+        Swc.hostRequests[#Swc.hostRequests + 1] = "conversation topic " .. tostring(topic.crc)
+        local finished = false
+        for _, crc in ipairs(C.finished) do finished = finished or crc == topic.crc end
+        if not finished then C.finished[#C.finished + 1] = topic.crc end
+        C.log[#C.log + 1] = "topic: " .. topic.id
+        Swc.Note("conversation: the topic " .. topic.id)
+        C.lines, C.index = chain_of(topic.response), 1
+        C.topics = passing_topics(topic.provided)
+        send_state(true)
+        return
+      end
+    end
     if C.index < #C.lines then
       C.index = C.index + 1
       send_state(true)

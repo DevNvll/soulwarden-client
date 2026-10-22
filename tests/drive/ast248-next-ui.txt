@@ -1,0 +1,7 @@
+# The UI drive of the Talk checks of AST-248 with no topic: the key E (Next) through the lines; at the last line E ends the conversation
+# (6705, then 2473; no 5397 with no topic). Times from the spawn of the player.
+11.0 log the conversation screen
+14.0 key E
+18.0 key E
+22.0 key E
+26 end

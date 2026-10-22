@@ -17,6 +17,7 @@
 #include "Net/Codec/SwcRepClient.h"
 #include "Net/Codec/SwcRepMessages.h"
 #include "gamedata/quest_data.h"
+#include "server/rep/conversation_messages.h"
 #include "server/rep/quest_messages.h"
 #include "server/rep/states/state_codecs.h"
 #include "support/manual_clock.h"
@@ -217,6 +218,16 @@ void requests()
 		"2297: the territory and the achievement CRC");
 	const auto left = backend::server::rep::read_territory_report(swc::net::territory_report_body(group, actor, 0x10, 0x20, 1203, std::nullopt), false);
 	check(left && left->territory == 1203 && left->achievement == 0, "6416: the territory, no achievement");
+	// The topics of a person conversation (AST-248): the Conversation facet of the player root.
+	const auto topic = backend::server::rep::read_conversation_topic(swc::net::conversation_topic_body(group, 0xE532485AU));
+	check(topic && topic->topics.size() == 1 && topic->topics[0] == 0xE532485AU && topic->target == group + swc::net::kConversationComponent
+			  && topic->entity == group,
+		"3158: the topic e532485a (live check L3 of the backend stage 2.5c) on the Conversation facet");
+	const auto finished = backend::server::rep::read_finished_topics(swc::net::finished_topics_body(group, {0xE532485AU, 2, 3}));
+	check(finished && finished->topics.size() == 3 && finished->topics[0] == 0xE532485AU, "5397: the finished topics");
+	std::vector<std::uint32_t> many(12, 7);
+	const auto limit = backend::server::rep::read_finished_topics(swc::net::finished_topics_body(group, many));
+	check(limit && limit->topics.size() == 10, "5397: at most 10 topics are written");
 }
 
 } // namespace

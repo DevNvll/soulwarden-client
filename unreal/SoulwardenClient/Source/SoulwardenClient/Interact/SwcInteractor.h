@@ -126,8 +126,13 @@ public:
 	const swc::interact::Conversation& GetConversation() const { return Talk; }
 	const FString& GetConversationKey() const { return TalkKey; }
 	/** The conversation screen of the UI ends the conversation (its Back key, Escape; its Next key at the last line): the next Update
-	 *  ends it as the key E does (6705, then 2473). */
-	void EndConversation() { bPendingTalkEnd = true; }
+	 *  ends it as the key E does (6705, then 2473), then sends the finished topics of the screen (5397; AST-248: only with a topic, as the
+	 *  retail client in the live checks of the backend stage 2.5c). */
+	void EndConversation(const std::vector<uint32>& FinishedTopics = {})
+	{
+		bPendingTalkEnd = true;
+		PendingTopics = FinishedTopics;
+	}
 	/** The conversation screen of the UI shows: the key E is its Next key (the screen ends the conversation at the last line). */
 	void SetConversationScreen(bool bShown) { bConversationScreen = bShown; }
 	/** The crafting station of the use whose screen shows (stage MVP-J): its Assembly key, the fee flag, and its name key. @return False
@@ -202,6 +207,9 @@ private:
 	FString FocusKey;
 	bool bUseTalk = false;
 	bool bPendingTalkEnd = false;
+	/** The finished topics of the screen for the 5397 after the 2473 of the end (AST-248). */
+	std::vector<uint32> PendingTopics;
+	std::vector<uint32> TopicsAfterCancel;
 	bool bConversationScreen = false;
 	FString TalkKey;
 	swc::interact::Conversation Talk;
