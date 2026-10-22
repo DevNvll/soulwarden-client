@@ -3,6 +3,7 @@
 #include "Animation/AnimSequence.h"
 #include "Character/SwcCharacterMovement.h"
 #include "Character/SwcLocomotion.h"
+#include "Character/SwcLookMaterials.h"
 #include "Character/SwcPlayerActions.h"
 #include "Character/SwcPlayerAnimInstance.h"
 #include "Character/SwcPlayerLooks.h"
@@ -134,14 +135,13 @@ void ASwcPlayerCharacter::ApplyLook(const FSwcPlayerLook& Look, const FString& B
 		Component->SetLeaderPoseComponent(GetMesh());
 		if (Part.Tint.A > 0.0f)
 		{
-			// The hair color: a tint of the base color of each material of the part.
-			for (int32 Index = 0; Index < Component->GetNumMaterials(); ++Index)
-			{
-				if (UMaterialInstanceDynamic* Tinted = Component->CreateAndSetMaterialInstanceDynamic(Index))
-				{
-					Tinted->SetVectorParameterValue(TEXT("BaseColorFactor"), Part.Tint);
-				}
-			}
+			// The hair color: the red mask color of a material with overlay masks, else a tint of its base color.
+			SwcLookMaterials::ApplyHairColor(Component, Part.Tint);
+		}
+		// The mask values of the armor appearance row: the gear path copies all of them (zeros too).
+		if (const int32 Changed = SwcLookMaterials::ApplyItemMasks(Component, Part.Masks, true))
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("look: %s: the appearance masks on %d material(s)"), *Part.Skin, Changed);
 		}
 		Parts.Add(Component);
 	}
@@ -178,6 +178,11 @@ void ASwcPlayerCharacter::ApplyLook(const FSwcPlayerLook& Look, const FString& B
 		if (Component == nullptr)
 		{
 			continue;
+		}
+		// The mask values of the appearance row of the item (one weapon look serves items with different values).
+		if (const int32 Changed = SwcLookMaterials::ApplyItemMasks(Component, Part.Masks, true))
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("gear: %s: the appearance masks on %d material(s)"), *Part.Item, Changed);
 		}
 		Gear.Add(Component);
 		GearParts.Add(Part);

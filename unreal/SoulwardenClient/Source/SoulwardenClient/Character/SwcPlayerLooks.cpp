@@ -81,6 +81,44 @@ TSharedPtr<FJsonObject> Entry(const TArray<TSharedPtr<FJsonValue>>* List, int32 
 	return (*List)[Safe]->AsObject();
 }
 
+/** @return The mask values of the "appearance" object of a weapon item (weapons.json): "#RRGGBB" texts are bytes over 255. */
+FSwcItemMasks MasksOf(const TSharedPtr<FJsonObject>& Appearance)
+{
+	FSwcItemMasks Masks;
+	if (!Appearance.IsValid())
+	{
+		return Masks;
+	}
+	Masks.bKnown = true;
+	const auto Number = [&Appearance](const TCHAR* Name)
+	{
+		double Value = 0.0;
+		return Appearance->TryGetNumberField(Name, Value) ? static_cast<float>(Value) : 0.0f;
+	};
+	const auto Color = [&Appearance](const TCHAR* Name)
+	{
+		FString Text;
+		if (!Appearance->TryGetStringField(Name, Text) || !Text.StartsWith(TEXT("#")) || Text.Len() < 7)
+		{
+			return FLinearColor(0, 0, 0, 0);
+		}
+		const FColor Bytes = FColor::FromHex(Text.Mid(1, 6));
+		return FLinearColor(Bytes.R / 255.0f, Bytes.G / 255.0f, Bytes.B / 255.0f, 0.0f);
+	};
+	static const TCHAR* const Groups[3] = {TEXT("R"), TEXT("G"), TEXT("B")};
+	for (int32 Group = 0; Group < 3; ++Group)
+	{
+		Masks.Amount[Group] = Number(*FString::Printf(TEXT("Mask%s"), Groups[Group]));
+		Masks.Override[Group] = Number(*FString::Printf(TEXT("Mask%sOverride"), Groups[Group]));
+		Masks.Color[Group] = Color(*FString::Printf(TEXT("Mask%sColor"), Groups[Group]));
+	}
+	Masks.SpecAmount = Number(TEXT("MaskASpec"));
+	Masks.SpecColor = Color(TEXT("MaskASpecColor"));
+	Masks.GlossAmount = Number(TEXT("MaskAGloss"));
+	Masks.GlossShift = Number(TEXT("MaskAGlossShift"));
+	return Masks;
+}
+
 FLinearColor ColorOf(const TSharedPtr<FJsonObject>& Entry)
 {
 	const TArray<TSharedPtr<FJsonValue>>* Values = ArrayField(Entry, TEXT("color"));
@@ -319,14 +357,20 @@ FSwcPlayerLook FSwcPlayerLooks::ResolveRows(const TArray<uint8>& Appearance, con
 		// Skin1 and Skin2 replace the parts of the visual slot; a skin of the body (IsSkin1, IsSkin2) has the body material.
 		Slots.Remove(FName(*(Visual + TEXT("1"))));
 		Slots.Remove(FName(*(Visual + TEXT("2"))));
+		// The mask values of the row go on the armor skins (not on a skin of the body with the body material).
+		const FSwcItemMasks RowMasks = MasksOf(ObjectField(Row, TEXT("appearance")));
 		if (!Skin1.IsEmpty())
 		{
-			Put(Visual + TEXT("1"), Skin1, FlagField(Row, TEXT("isSkin1")) ? BodyMaterial : StringField(Row, TEXT("material1")));
+			const bool bBody = FlagField(Row, TEXT("isSkin1"));
+			Put(Visual + TEXT("1"), Skin1, bBody ? BodyMaterial : StringField(Row, TEXT("material1")));
+			Slots[FName(*(Visual + TEXT("1")))].Masks = bBody ? FSwcItemMasks() : RowMasks;
 		}
 		if (!Skin2.IsEmpty())
 		{
+			const bool bBody = FlagField(Row, TEXT("isSkin2"));
 			const FString Material2 = StringField(Row, TEXT("material2"));
-			Put(Visual + TEXT("2"), Skin2, FlagField(Row, TEXT("isSkin2")) ? BodyMaterial : (Material2.IsEmpty() ? StringField(Row, TEXT("material1")) : Material2));
+			Put(Visual + TEXT("2"), Skin2, bBody ? BodyMaterial : (Material2.IsEmpty() ? StringField(Row, TEXT("material1")) : Material2));
+			Slots[FName(*(Visual + TEXT("2")))].Masks = bBody ? FSwcItemMasks() : RowMasks;
 		}
 		if (PaperdollSlot == 0)
 		{
@@ -533,6 +577,7 @@ void FSwcPlayerLooks::ResolveGear(const TMap<uint32, uint32>& Equipment, FSwcPla
 		Part.Tags = StringField(Data, TEXT("tag"));
 		Part.Model = StringField(Data, TEXT("model"));
 		Part.MeshKey = StringField(Data, TEXT("key"));
+		Part.Masks = MasksOf(ObjectField(Data, TEXT("appearance")));
 		// A weapon with weapon clips is a skeletal mesh (AST-202), else a static mesh.
 		Part.MeshPath = ImportedObject(Part.MeshKey, TEXT("SkeletalMesh"));
 		Part.bSkeletal = !Part.MeshPath.IsEmpty();

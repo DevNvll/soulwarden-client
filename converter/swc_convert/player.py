@@ -236,6 +236,10 @@ def armor_rows() -> dict:
                 value = norm(value)
             if value not in ("", 0, False):
                 entry[key] = value
+        appearance = appearance_masks(row)
+        if appearance:
+            # The mask values of the row: the gear path copies all of them, zeros too (research weapon-materials.md 0x5C3EEE0).
+            entry["appearance"] = appearance
         if entry.get("cdf"):
             cloth = cloth_parts(entry["cdf"])
             if cloth:
@@ -684,6 +688,23 @@ def weapon_look(row: dict) -> dict | None:
     return {"mesh": norm(mesh), "model": model, "playerModel": model.startswith("objects/characters/player/"), "skins": skins, "key": key}
 
 
+# The mask columns of a weapon appearance row (and of a weapon stats row with its own look): the overlay mask values that
+# the retail writer puts on the material of the weapon (research weapon-materials.md section 1).
+APPEARANCE_MASKS = ("MaskR", "MaskRColor", "MaskROverride", "MaskG", "MaskGColor", "MaskGOverride", "MaskB", "MaskBColor",
+                    "MaskBOverride", "MaskASpec", "MaskASpecColor", "MaskAGloss", "MaskAGlossShift", "EmissiveColor",
+                    "EmissiveIntensity")
+
+
+def appearance_masks(row: dict | None) -> dict:
+    """@return The mask columns of a row that it has (the text of a color, the number of an amount), else {}."""
+    out = {}
+    for name in APPEARANCE_MASKS:
+        value = (row or {}).get(name)
+        if value not in (None, ""):
+            out[name] = value
+    return out
+
+
 def attachments() -> dict:
     """The bone attachments of the player character file of each gender: bone, position (m), rotation (w, x, y, z)."""
     out = {}
@@ -782,16 +803,23 @@ def weapons() -> dict:
                 continue
             look_row = looks.get((row.get("WeaponAppearanceOverride") or "").lower())
             look = weapon_look(look_row) if look_row else None
+            source_row = look_row
             if look is None:
-                look = weapon_look(stat)
+                look, source_row = weapon_look(stat), stat
             if look is None:
                 continue
+            appearance = appearance_masks(source_row)
+            if appearance:
+                look = {**look, "appearance": appearance}
             entry = {**look, "stats": row.get("ItemStatsRef"), "equipType": stat.get("EquipType") or "", "tag": stat.get("MannequinTag") or "",
                      "offHandTag": stat.get("OffHandMannequinTag") or "", "animDb": norm(stat.get("AnimDbPath") or ""),
                      "shieldCompatible": stat.get("IsShieldCompatible") not in (None, "", 0, 0.0, False, "0", "false", "FALSE"),
                      "hideSheathed": stat.get("HideMainWeaponMeshWhileSheathed") not in (None, "", 0, 0.0, False, "0", "false", "FALSE")}
-            # The accessory row names the master item (gear.md "Bow, quiver, and arrows"); the stats row is a fallback.
-            accessory_row = accessories.get(row["ItemID"].lower()) or accessories.get((row.get("ItemStatsRef") or "").lower())
+            # The accessory row names the master item (gear.md "Bow, quiver, and arrows"); the stats row is a fallback; then the
+            # WeaponAccessory column of the master row (the artifact bow: 2hBowT5, QuiverA; the retail take shows its quiver,
+            # AST-247). Open: for 263 items this column names another accessory than the first two (most are elemental gauntlets).
+            accessory_row = (accessories.get(row["ItemID"].lower()) or accessories.get((row.get("ItemStatsRef") or "").lower())
+                             or accessories.get((row.get("WeaponAccessory") or "").lower()))
             accessory = weapon_look(accessory_row) if accessory_row else None
             if accessory:
                 entry["accessory"] = {**accessory, "equipType": accessory_row.get("EquipType") or "",

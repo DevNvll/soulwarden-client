@@ -600,7 +600,33 @@ overlay masks (charactermasking.cfib) as the world. One rule for all bodies (`co
   (`RIM_DIFFUSE_LIGHTING`: the wolf and the skin are darker), the hair is darker and the beard thinner (the blend pass of
   Hair), the metal is duller (the reflections of the scene), a pink patch on the back of the gear.
 - Limits: the anisotropic highlight of Hair and the subsurface light of HumanSkin are not in the parents. Glass and the
-  other shaders keep the glTF rule. The weapons are not in this rule yet.
+  other shaders (the animated `Fxmeshadvancedtransp` flames of some weapons) keep the glTF rule.
+- The weapons (AST-247, research weapon-materials.md section 1): the weapon looks and their accessories of `weapons.json`
+  (the weapons, shields, quivers with their arrows, and tools; 1,026 looks, 974 slots with a spec, 25 slots of Glass and FX
+  shaders with the glTF rule) take the same spec from the XML of their materials. One look serves each item with its mesh
+  and skins, but the items of one look have different mask values (281 of 1,713 looks; the T5 great axe 23).
+- The appearance rows (AST-247): the weapon appearance row of an item (`weapons.json` "appearance") and the armor appearance
+  row of a part (`looks.json` armor "appearance": MaskR, MaskRColor, MaskROverride, ..., MaskASpec, MaskASpecColor,
+  MaskAGloss, MaskAGlossShift) go on at run time (`Character/SwcLookMaterials`, dynamic instances of the component; not on a
+  skin of the body). All groups of the row replace the values of the XML, zeros too: the gear path of the retail client
+  copies the material data of the appearance row (0x5C3EEE0 [R]); the other writer (0x5BF39B0) writes only positive amounts.
+  The proof of the choice is a matched take (`evidence/bodymat/bow-rule.png`, retail | positive amounts | all groups): the
+  shoulder plate of the Hercyne light chest is pale gold with a face in retail; its row has all amounts zero, and its XML has a
+  pink specular override under the mask alpha (the "pink patch": the F0 split made the plate a pink metal); with all groups
+  it is gold. The artifact bow (row amounts zero, XML amounts R 1, G 0.3, B 0.6): its limbs are light silver as in retail
+  with all groups, darker with the XML masks. The colors of a row (`#998D48`) are the bytes over 255: the mask colors are
+  gamma values (the shader squares them, `C * C`) [I]. The item dye bytes (non-zero) come after the row in the retail path;
+  the client has no item dye data yet. The client log has "gear: ITEM: the appearance masks on N material(s)" and "look:
+  SKIN: ...".
+- The accessory of a weapon item: the accessory row of the master item, else of the stats row, else of the `WeaponAccessory`
+  column of the master row (the artifact bow: 2hBowT5, QuiverA; the retail take shows the quiver on the back). 1,676 items get
+  an accessory with this column (848 of them converted); for 263 items the column names another accessory than the first
+  two (most are elemental gauntlets): open.
+- The hair color of the player appearance (the hair color databases) goes into the red mask color (`MaskColorR`) of a hair
+  material with overlay masks [I: the hair materials of the persons differ only in `Mask_R_Color`]; before, it multiplied
+  the base color (`BaseColorFactor` of the glTF parents, which the surface parents do not have).
+- The full deployment (2026-10-22): the bodies in 5 calls of at most 500 s (about 45 min; 14,340 textures, 17,506
+  instances, 0 failures, about 6 GB), the weapons in 2 calls (4,610 textures, 974 instances).
 
 ## Material colors (the matched views, sunlit and shadowed apart)
 

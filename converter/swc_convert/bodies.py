@@ -1,7 +1,7 @@
 """The materials of the skinned bodies (AST-227, AST-233; docs/MATERIALS.md "The skinned bodies").
 
-The converters of the creatures (creature.py), the player parts (player.py; the persons wear the same parts), and the
-characters write a glTF material for each drawn sub-material with only the base color, the normal map, and some of the
+The converters of the creatures (creature.py), the player parts (player.py; the persons wear the same parts), the weapon
+looks and their accessories (player.py weapons.json: the weapons, shields, quivers, and tools), and the characters write a glTF material for each drawn sub-material with only the base color, the normal map, and some of the
 alpha rules. The source shades these sub-materials (Illum, HumanSkin, Hair) with the same reflectance and overlay masks as
 the world (charactermasking.cfib, research world-materials.md section 3). This module gives each glTF material of an
 imported body the spec of the world rule (material_records.surface_spec: the XML Diffuse, the F0 split of the specular map
@@ -140,6 +140,24 @@ def player_parts() -> list[tuple[str, Path, list[tuple[str, str]]]]:
     return out
 
 
+def weapon_looks() -> list[tuple[str, Path, list[tuple[str, str]]]]:
+    """@return (Unreal folder, glTF file, skins) of each converted weapon look and accessory of weapons.json (the weapons,
+    shields, quivers and their arrows, and tools of the player and the persons; research weapon-materials.md section 1). One
+    look serves each item with its mesh and skins: the mask values of the appearance row of an item go on at run time
+    (SwcPlayerLooks: the dynamic instances of the item), not into these specs."""
+    path = env.content_dir() / "player" / "weapons.json"
+    known_path = env.content_dir() / "player" / "manifest.json"
+    if not path.is_file() or not known_path.is_file():
+        return []
+    known = json.loads(known_path.read_text())["assets"]
+    looks: dict[str, list] = {}
+    for item in json.loads(path.read_text())["items"].values():
+        for look in (item, item.get("accessory")):
+            if look and look.get("key") in known and not look.get("playerModel"):
+                looks.setdefault(look["key"], [tuple(pair) for pair in look["skins"]])
+    return [(known[key]["unreal"], env.content_dir() / known[key]["file"], skins) for key, skins in sorted(looks.items())]
+
+
 def write(wanted: str = "") -> dict:
     """Writes instances.json, textures.json, and slots.json: all bodies, or (`wanted`) the bodies whose Unreal folder
     contains this text, merged into the files of an earlier call."""
@@ -160,7 +178,7 @@ def write(wanted: str = "") -> dict:
         slots = {k: v for k, v in json.loads((out / "slots.json").read_text())["bodies"].items() if wanted not in k}
     counts = {"bodies": 0, "slots": 0, "with a spec": 0, "no source": 0, "glTF rule": 0, "errors": 0}
     errors: dict = {}
-    for folder, gltf_file, skins in creature_bodies() + player_parts():
+    for folder, gltf_file, skins in creature_bodies() + player_parts() + weapon_looks():
         if wanted and wanted not in folder or not gltf_file.is_file():
             continue
         counts["bodies"] += 1

@@ -4,6 +4,27 @@
 
 class FJsonObject;
 
+/** The mask values of the appearance row of a weapon item (weapons.json "appearance": MaskR, MaskRColor, MaskROverride, ...,
+ *  MaskASpec, MaskASpecColor, MaskAGloss, MaskAGlossShift; research weapon-materials.md section 1). The colors are the bytes
+ *  of the table text over 255 (gamma values, as the XML mask colors). SwcLookMaterials::ApplyItemMasks puts them on. */
+struct FSwcItemMasks
+{
+	FLinearColor Color[3] = {FLinearColor(0, 0, 0, 0), FLinearColor(0, 0, 0, 0), FLinearColor(0, 0, 0, 0)};
+	float Amount[3] = {0.0f, 0.0f, 0.0f};
+	float Override[3] = {0.0f, 0.0f, 0.0f};
+	FLinearColor SpecColor = FLinearColor(0, 0, 0, 0);
+	float SpecAmount = 0.0f;
+	float GlossAmount = 0.0f;
+	float GlossShift = 0.0f;
+	/** The row has mask columns (an armor row: all its groups go on, zeros too). */
+	bool bKnown = false;
+	/** True when no group has a positive amount (then the material keeps its values). */
+	bool IsEmpty() const
+	{
+		return Amount[0] <= 0.0f && Amount[1] <= 0.0f && Amount[2] <= 0.0f && SpecAmount <= 0.0f && GlossAmount <= 0.0f;
+	}
+};
+
 /** One visible part of the modular body: a skin with one material on one attachment slot of the player. */
 struct FSwcLookPart
 {
@@ -16,6 +37,8 @@ struct FSwcLookPart
 	FLinearColor Tint = FLinearColor(0, 0, 0, 0);
 	/** The skeletal mesh of the part, when it was imported (tools/import-player.sh). */
 	FString MeshPath;
+	/** The mask values of the armor appearance row of the part (looks.json "appearance"); the gear path copies all groups. */
+	FSwcItemMasks Masks;
 };
 
 /** A place of a gear part: a bone attachment of player_<gender>.cdf (CA_BONE) with its offset in Unreal bone space. */
@@ -44,6 +67,8 @@ struct FSwcGearPart
 	FString MeshPath;
 	bool bSkeletal = false;
 	TArray<FString> ClipPaths;
+	/** The mask values of the appearance row of the item (none for an accessory). */
+	FSwcItemMasks Masks;
 	FSwcAttachPlace Sheathed;
 	FSwcAttachPlace Hand;
 	bool bAccessory = false;
