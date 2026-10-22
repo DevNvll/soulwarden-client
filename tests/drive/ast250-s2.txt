@@ -1,0 +1,63 @@
+# AST-250 check S2: the skinning of a killed boar (06_boarfeast: TaskGatherItems PorkT1; the skinning knife is equipped). The routes
+# (tests/drive/ast250-p1-routes.txt) spawn a Black Boar 2.4 m north that stands, and set the ignore mode off before the last hits (the
+# kill credit). Eight light attacks kill it (the attacks after the kill can carry the character over the body), then a route travel
+# puts the character 1.2 m south of the place of the body (the boar stands at its spawn point); E held: the skinning. Times in seconds
+# from the possession.
+1.00 tick
+2.00 tick
+3.00 key 1
+4.00 view 0 -30
+5.00 tick
+6.00 tick
+7.00 tick
+8.00 tick
+9.00 tick
+10.00 tick
+11.00 tick
+12.00 tick
+13.00 tick
+14.00 tick
+15.00 tick
+16.00 tick
+17.00 tick
+18.00 tick
+19.00 tick
+20.00 tick
+21.00 tick
+22.00 attack 1
+22.08 attack 0
+22.80 attack 1
+22.88 attack 0
+23.00 tick
+23.60 attack 1
+23.68 attack 0
+24.00 tick
+24.40 attack 1
+24.48 attack 0
+25.00 tick
+25.20 attack 1
+25.28 attack 0
+26.00 attack 1
+26.08 attack 0
+26.80 attack 1
+26.88 attack 0
+27.00 tick
+27.60 attack 1
+27.68 attack 0
+28.00 tick
+29.00 tick
+30.00 tick
+30.60 view 0 -30
+31.00 view 0 -30
+32.00 interact 1
+33.00 tick
+34.00 tick
+35.00 tick
+36.00 interact 0
+37.00 tick
+38.00 tick
+39.00 tick
+40.00 tick
+41.00 tick
+42.00 tick
+43.00 tick

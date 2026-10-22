@@ -1,0 +1,7 @@
+# The UI drive of tests/drive/ast250-s3.txt (AST-250): the marks.
+1 waitfor CompassLines 60
+2 waitfor world 180
+31.5 log the boar body at 1.45 m: the prompt
+40 log after the skinning of the boar
+56.5 log the elk body: the prompt
+66 log after the skinning of the elk

@@ -1,0 +1,7 @@
+# The UI drive of tests/drive/ast250-c2.txt (AST-250): the marks.
+1 waitfor CompassLines 60
+2 waitfor world 180
+6 log the quest object card
+12 log after the gather of treasure A
+39.8 log the body card
+50 log after the skinning

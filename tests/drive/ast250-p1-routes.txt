@@ -1,0 +1,6 @@
+# The routes of tests/drive/ast250-p1.txt (AST-250): the hour 12:00, a Black Boar 2.4 m north that stands (the ignore mode on), the ignore
+# mode off before the last hits. Times on the clock of the drive script.
+0.5 world-time 12:00
+19.5 ignore on
+20.0 spawn Boar_StarterBeach 0.00 2.40 0.40 --level 1 --yaw 180
+25.5 ignore off

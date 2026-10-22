@@ -240,6 +240,26 @@ void turned_bounds()
 	check(plain > 1.6F, "the bound of a camp at a yaw of 180 degrees with no rotation: " + std::to_string(plain) + " m wrong");
 }
 
+// AST-250 (research body-trigger.md): a body is a local-player trigger; the player proximity sphere of 0.2 m against the closest point of
+// its shape. The boar body: GatherBound, a box of 2 m with a basis scale of 1.3 (2.6 m), 0.75 m above the feet.
+void body_trigger()
+{
+	swc::interact::Shape boar;
+	boar.type = swc::interact::Shape::Type::box;
+	boar.dimensions[0] = boar.dimensions[1] = boar.dimensions[2] = 2.0F;
+	boar.basis[0] = boar.basis[4] = boar.basis[8] = 1.3F;
+	const swc::net::WorldPosition center{100.0F, 200.0F, 50.75F};
+	const swc::net::Quaternion none{0.0F, 0.0F, 0.0F, 1.0F};
+	const auto at = [](float dx, float dy) { return swc::net::WorldPosition{100.0F + dx, 200.0F + dy, 50.0F}; };
+	check(swc::interact::trigger_overlaps(boar, center, none, at(0.0F, 1.45F), 100.0F), "the boar body: the sphere at 1.45 m on the axis overlaps (1.3 + 0.2)");
+	check(!swc::interact::contains(boar, center, none, at(0.0F, 1.45F), 100.0F), "the boar body: the point at 1.45 m is not in the box (the marker test)");
+	check(!swc::interact::trigger_overlaps(boar, center, none, at(0.0F, 1.55F), 100.0F), "the boar body: the sphere at 1.55 m does not overlap");
+	check(swc::interact::trigger_overlaps(boar, center, none, at(1.4F, 1.4F), 100.0F), "the boar body: a corner, 0.14 m of each axis outside, overlaps");
+	check(!swc::interact::trigger_overlaps(boar, center, none, at(1.45F, 1.45F), 100.0F), "the boar body: a corner, 0.21 m from the box, does not overlap");
+	const swc::net::Quaternion turned{0.0F, 0.0F, 0.70710678F, 0.70710678F};
+	check(swc::interact::trigger_overlaps(boar, center, turned, at(1.45F, 0.0F), 100.0F), "a turned body: the sphere at 1.45 m on the turned axis overlaps");
+}
+
 } // namespace
 
 int main()
@@ -248,6 +268,7 @@ int main()
 		edges();
 		run_case();
 		turned_bounds();
+		body_trigger();
 	} catch (const std::exception& error) {
 		check(false, error.what());
 	}

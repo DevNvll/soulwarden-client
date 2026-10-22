@@ -43,6 +43,16 @@ is only the check of the use ("The range", below).
   range check). `swc::interact::contains`: a sphere is strict (retail `IsPointInside` 0xCC2BE0: distance² < radius²), a box is
   inclusive (0xCC21F0: half of `Dimensions` on each axis), a capsule or a cylinder stands on its local z. The shape turns with
   its object (a server child, the body of a creature) and with the basis of the bound in its slice (rotation, scale).
+- The local-player triggers (a body of a creature, a personal loot bag; AST-250, research `body-trigger.md`): the retail physics
+  proximity path tests a player sphere of 0.2 m at the player entity against the closest point of the shape
+  (`swc::interact::trigger_overlaps`; equality passes: a choice), not the point test of the markers. The place of a body bound is the
+  last sample of the creature and the template translation (an approximation: the death transform of the retail hierarchy is not
+  known). The boar body (a box of 2 m, basis scale 1.3) is a candidate up to 1.5 m from its bound centre on an axis; a live check
+  (`tests/drive/ast250-s3*.txt`) had the focus at 1.51 m horizontal and the skinning (the old point test gave no focus at 1.5 m).
+  The player origin against the reported feet and the physics tolerance are open points.
+- The gatherable card (the trees, the minerals, the plants, the bodies, the quest objects with the marker type Master_Quest) shows
+  the key of its option in its circle and the name, with no text of the option (the retail pictures F-29 "E CHALKY RABBIT", G1-4
+  "E ASTROLABE", L6-02 "YOUNG TREE / No equipped Axe") [inference: the native option data of these rows has no text].
 - The focus: of the candidates of the three sources (the fixtures of the server, the loot bags, the objects of the level data
   with the bodies), the bound with the smallest score of the camera line (`swc::interact::line_score`, retail 0x490FED0): the
   squared distance from the bound to the forward line of the camera; no score for a bound at or behind the camera plane; an

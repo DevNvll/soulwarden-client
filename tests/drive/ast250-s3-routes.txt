@@ -1,0 +1,11 @@
+# The routes of tests/drive/ast250-s3.txt (AST-250): the hour 12:00; the boar, the ignore mode, the travel 1.45 m south of its spawn point;
+# then the elk (Elk_Stag_20, its body a box of 2 x 3 x 2 m), the travel 1.4 m south of its spawn point. Times on the clock of the drive.
+0.5 world-time 12:00
+19.5 ignore on
+20.0 spawn Boar_StarterBeach 0.00 2.40 0.40 --level 1 --yaw 180
+25.5 ignore off
+30.0 travel 9614.47 2328.68 42.73
+44.5 ignore on
+45.0 spawn Elk_Stag_20 0.00 2.40 0.40 --level 1 --yaw 180
+50.5 ignore off
+55.0 travel 9614.47 2329.68 42.73

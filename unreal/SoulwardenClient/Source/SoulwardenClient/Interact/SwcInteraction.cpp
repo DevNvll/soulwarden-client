@@ -97,6 +97,70 @@ bool contains(const Shape& shape, const swc::net::WorldPosition& center, const s
     }
 }
 
+bool trigger_overlaps(const Shape& shape, const swc::net::WorldPosition& center, const swc::net::Quaternion& rotation, const swc::net::WorldPosition& point,
+    float rangeSq, float radius) {
+    if (shape.type == Shape::Type::none) {
+        return in_range(point, center, rangeSq);
+    }
+    const float offset[3]{point.x - center.x, point.y - center.y, point.z - center.z};
+    const swc::net::Quaternion inverse{-rotation.x, -rotation.y, -rotation.z, rotation.w};
+    const swc::net::WorldPosition turned = transform_point(swc::net::WorldPosition{0.0F, 0.0F, 0.0F}, inverse, offset);
+    const float* m = shape.basis;
+    const float det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
+    if (std::abs(det) < 1e-9F) {
+        return false;
+    }
+    const float inv[9]{(m[4] * m[8] - m[5] * m[7]) / det, (m[2] * m[7] - m[1] * m[8]) / det, (m[1] * m[5] - m[2] * m[4]) / det,
+        (m[5] * m[6] - m[3] * m[8]) / det, (m[0] * m[8] - m[2] * m[6]) / det, (m[2] * m[3] - m[0] * m[5]) / det,
+        (m[3] * m[7] - m[4] * m[6]) / det, (m[1] * m[6] - m[0] * m[7]) / det, (m[0] * m[4] - m[1] * m[3]) / det};
+    const float v[3]{turned.x, turned.y, turned.z};
+    const float p[3]{inv[0] * v[0] + inv[1] * v[1] + inv[2] * v[2], inv[3] * v[0] + inv[4] * v[1] + inv[5] * v[2],
+        inv[6] * v[0] + inv[7] * v[1] + inv[8] * v[2]};
+    // The closest point of the shape in its local frame.
+    float q[3]{p[0], p[1], p[2]};
+    switch (shape.type) {
+    case Shape::Type::sphere: {
+        const float length = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+        if (length > shape.radius && length > 0.0F) {
+            for (float& each : q) {
+                each *= shape.radius / length;
+            }
+        }
+        break;
+    }
+    case Shape::Type::box:
+        for (int axis = 0; axis < 3; ++axis) {
+            q[axis] = std::clamp(p[axis], -shape.dimensions[axis] * 0.5F, shape.dimensions[axis] * 0.5F);
+        }
+        break;
+    case Shape::Type::capsule: {
+        const float half = std::max(shape.height * 0.5F - shape.radius, 0.0F);
+        const float axisZ = std::clamp(p[2], -half, half);
+        const float d[3]{p[0], p[1], p[2] - axisZ};
+        const float length = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        const float scale = length > shape.radius && length > 0.0F ? shape.radius / length : 1.0F;
+        q[0] = d[0] * scale;
+        q[1] = d[1] * scale;
+        q[2] = axisZ + d[2] * scale;
+        break;
+    }
+    case Shape::Type::cylinder: {
+        const float length = std::sqrt(p[0] * p[0] + p[1] * p[1]);
+        const float scale = length > shape.radius && length > 0.0F ? shape.radius / length : 1.0F;
+        q[0] = p[0] * scale;
+        q[1] = p[1] * scale;
+        q[2] = std::clamp(p[2], -shape.height * 0.5F, shape.height * 0.5F);
+        break;
+    }
+    default:
+        return false;
+    }
+    // Back to meters of the object frame (world = basis * local): the distance of the point to the closest point.
+    const float d[3]{p[0] - q[0], p[1] - q[1], p[2] - q[2]};
+    const float w[3]{m[0] * d[0] + m[1] * d[1] + m[2] * d[2], m[3] * d[0] + m[4] * d[1] + m[5] * d[2], m[6] * d[0] + m[7] * d[1] + m[8] * d[2]};
+    return w[0] * w[0] + w[1] * w[1] + w[2] * w[2] <= radius * radius;
+}
+
 bool line_score(const float camera[3], const float forward[3], const float place[3], float& score) {
     const float d[3]{place[0] - camera[0], place[1] - camera[1], place[2] - camera[2]};
     const float t = d[0] * forward[0] + d[1] * forward[1] + d[2] * forward[2];

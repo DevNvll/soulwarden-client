@@ -377,7 +377,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 				const float Place[3]{Each.EnginePlace.x, Each.EnginePlace.y, Each.EnginePlace.z};
 				float Score = 0.0f;
 				if (Each.bEnabled && Each.InteractSlot != 0 && !Each.Options.IsEmpty() && !IsLooted(Own, Each.Actor)
-					&& swc::interact::contains(LootTemplate->bounds.front().shape, Each.EnginePlace, swc::net::Quaternion{0.0F, 0.0F, 0.0F, 1.0F}, Reported, Each.RangeSq)
+					&& swc::interact::trigger_overlaps(LootTemplate->bounds.front().shape, Each.EnginePlace, swc::net::Quaternion{0.0F, 0.0F, 0.0F, 1.0F}, Reported, Each.RangeSq)
 					&& swc::interact::line_score(Camera, Forward, Place, Score) && (!bBag || Score < BagScore))
 				{
 					Bag = Each;
@@ -520,6 +520,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			FocusPrompt.bRankMissing = Object.bRankMissing;
 			FocusPrompt.RequiredRank = Object.RequiredRank;
 			FocusPrompt.Place = SwcEngineToUnreal(Object.EnginePlace);
+			FocusPrompt.bQuestObject = !Object.QuestTag.IsEmpty();
 		}
 		// The persons with the option OpenConversation and no npc object of the interaction data (28 persons: the capital children and
 		// the persons with no binding of the backend; docs/PERSONS.md "The Talk of a person with no data"; the person children of client

@@ -48,6 +48,11 @@ local function marker_type(focus)
   if focus.objectKind == "lorePage" then
     return "LoreItems"
   end
+  -- A quest object (master_quest_instanced; AST-250): the marker type Master_Quest, a Gatherable marker of markermanager.luac (the
+  -- Gatherable card "E NAME", as the retail picture G1-4 of the backend stage 1.8c: "E ASTROLABE").
+  if focus.quest then
+    return "Master_Quest"
+  end
   return GATHER_TYPES[focus.gatheringType] or ""
 end
 
@@ -78,7 +83,7 @@ local function parse_prompt(line)
                  z = tonumber(f[7]) or 0, phase = f[8], progress = tonumber(f[9]) or 0, toolMissing = f[10] == "1",
                  gatheringType = f[11], refusalKey = f[12], options = {}, rankMissing = f[14] == "1",
                  requiredRank = tonumber(f[15] or "") or 0, title = f[16] or "", workTime = tonumber(f[17] or "") or 0,
-                 impacts = tonumber(f[18] or "") or 0}
+                 impacts = tonumber(f[18] or "") or 0, quest = f[19] == "1"}
   for name, hold in string.gmatch(f[13], "([^,:]+):([%d.]+)") do
     focus.options[#focus.options + 1] = {name = name, hold = tonumber(hold) or 0}
   end
@@ -97,11 +102,20 @@ local function interact_name(focus)
 end
 
 -- The option list of the native data (unifiedInteractOptions): the fields that the card reads, and the values of the rows.
+-- The gatherable card (a marker type of the Gatherable category of markermanager.luac: the trees, the minerals, the plants, the bodies,
+-- the quest objects) shows the key of its option in its circle and the name in its title frame, with no text of the option (AST-250;
+-- the retail pictures of the backend: F-29 "E CHALKY RABBIT", G1-4 "E ASTROLABE", L6-02 "YOUNG TREE / No equipped Axe") [inference from
+-- the pictures: the native option data of these rows has no text].
+local function gatherable_card(focus)
+  return focus.kind == "object" and (focus.quest or GATHER_TYPES[focus.gatheringType] ~= nil)
+end
+
 local function option_list(focus)
   local list = {}
+  local gatherable = gatherable_card(focus)
   for i, o in ipairs(focus.options) do
     local record = option_data()[o.name] or {}
-    list[i] = {name = o.name, label = record.label or o.name, hold = o.hold, slot = i, requiredLevel = 0, requiredAchievement = 0,
+    list[i] = {name = o.name, label = gatherable and "" or record.label or o.name, hold = o.hold, slot = i, requiredLevel = 0, requiredAchievement = 0,
                refused = i == 1 and (focus.toolMissing or focus.rankMissing), additionalInfo = record.additionalInfo,
                gatheringType = focus.gatheringType, rankMissing = focus.rankMissing, requiredRank = focus.requiredRank}
   end

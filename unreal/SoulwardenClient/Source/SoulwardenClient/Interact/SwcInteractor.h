@@ -54,6 +54,8 @@ struct FSwcInteractPrompt
 	int32 RequiredRank = 0;
 	/** The place of the focus (Unreal world space). */
 	FVector Place = FVector::ZeroVector;
+	/** A quest object (the marker type Master_Quest of its slice: the Gatherable card, "E NAME"; AST-250). */
+	bool bQuestObject = false;
 };
 
 /**

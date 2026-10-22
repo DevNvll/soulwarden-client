@@ -1,0 +1,7 @@
+# The UI drive of tests/drive/ast250-p1.txt (AST-250): the marks.
+1 waitfor CompassLines 60
+2 waitfor world 180
+21 log the boar
+30 log after the kill
+40 log the steps to the body
+47 log after the skinning

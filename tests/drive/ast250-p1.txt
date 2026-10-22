@@ -1,0 +1,81 @@
+# AST-250 probe P1: the focus of the body of a killed boar. The routes (tests/drive/ast250-p1-routes.txt) spawn a Black Boar 2.4 m
+# north that stands (the ignore mode on), and set the ignore mode off before the last hits (the kill credit). After the death the
+# character steps north in short pulses (0.15 s each second); the log lines "interact: focus" give the distance at which the body
+# becomes the focus. E held at the end: the skinning. Times in seconds from the possession.
+1.00 tick
+2.00 tick
+3.00 key 1
+4.00 view 0 -30
+5.00 tick
+6.00 tick
+7.00 tick
+8.00 tick
+9.00 tick
+10.00 tick
+11.00 tick
+12.00 tick
+13.00 tick
+14.00 tick
+15.00 tick
+16.00 tick
+17.00 tick
+18.00 tick
+19.00 tick
+20.00 tick
+21.00 tick
+22.00 attack 1
+22.08 attack 0
+22.80 attack 1
+22.88 attack 0
+23.00 tick
+23.60 attack 1
+23.68 attack 0
+24.00 tick
+24.40 attack 1
+24.48 attack 0
+25.00 tick
+25.20 attack 1
+25.28 attack 0
+26.00 attack 1
+26.08 attack 0
+26.80 attack 1
+26.88 attack 0
+27.00 tick
+27.60 attack 1
+27.68 attack 0
+28.00 tick
+29.00 tick
+30.00 tick
+31.00 move 0 1
+31.15 move 0 0
+32.00 move 0 1
+32.15 move 0 0
+33.00 move 0 1
+33.15 move 0 0
+34.00 move 0 1
+34.15 move 0 0
+35.00 move 0 1
+35.15 move 0 0
+36.00 move 0 1
+36.15 move 0 0
+37.00 move 0 1
+37.15 move 0 0
+38.00 move 0 1
+38.15 move 0 0
+39.00 move 0 1
+39.15 move 0 0
+40.00 move 0 1
+40.15 move 0 0
+41.00 tick
+41.50 interact 1
+42.00 tick
+43.00 tick
+44.00 tick
+45.00 tick
+45.50 interact 0
+46.00 tick
+47.00 tick
+48.00 tick
+49.00 tick
+50.00 tick
+51.00 tick

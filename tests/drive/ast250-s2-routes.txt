@@ -1,0 +1,7 @@
+# The routes of tests/drive/ast250-s2.txt (AST-250): as tests/drive/ast250-p1-routes.txt, then a travel 1.2 m south of the spawn point of
+# the boar (its body) after the kill. Times on the clock of the drive script.
+0.5 world-time 12:00
+19.5 ignore on
+20.0 spawn Boar_StarterBeach 0.00 2.40 0.40 --level 1 --yaw 180
+25.5 ignore off
+30.0 travel 9614.47 2328.93 42.73

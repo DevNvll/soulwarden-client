@@ -2199,10 +2199,10 @@ void USwcUiSubsystem::FeedWorld(const swc::net::RepClient::OwnEntity& Own)
 			Options += FString::Printf(TEXT("%s%s:%.2f"), Options.IsEmpty() ? TEXT("") : TEXT(","), *Option.Key, Option.Value);
 		}
 		const FString Id = Prompt.Kind == FSwcInteractPrompt::EKind::Object ? Prompt.ObjectKey : FString::FromInt(static_cast<int32>(Prompt.Interest));
-		PromptLine = FString::Printf(TEXT("%s\t%s\t%s\t%s\t%.1f\t%.1f\t%.1f\t%s\t%.3f\t%d\t%s\t%s\t%s\t%d\t%d\t%s\t%.2f\t%d"), Kinds[static_cast<int32>(Prompt.Kind)], *Id,
+		PromptLine = FString::Printf(TEXT("%s\t%s\t%s\t%s\t%.1f\t%.1f\t%.1f\t%s\t%.3f\t%d\t%s\t%s\t%s\t%d\t%d\t%s\t%.2f\t%d\t%d"), Kinds[static_cast<int32>(Prompt.Kind)], *Id,
 			*Prompt.ObjectKind.ToString(), *Prompt.Name.Replace(TEXT("\t"), TEXT(" ")), Prompt.Place.X, Prompt.Place.Y, Prompt.Place.Z, *Prompt.Phase,
 			Prompt.Progress, Prompt.bToolMissing ? 1 : 0, *Prompt.GatheringType, *Prompt.RefusalKey, *Options, Prompt.bRankMissing ? 1 : 0, Prompt.RequiredRank,
-			*Prompt.Title.Replace(TEXT("\t"), TEXT(" ")), Prompt.WorkTime, Prompt.Impacts);
+			*Prompt.Title.Replace(TEXT("\t"), TEXT(" ")), Prompt.WorkTime, Prompt.Impacts, Prompt.bQuestObject ? 1 : 0);
 	}
 	Runtime->call("HostPrompt", {FArg::of(Utf8(PromptLine))});
 	// The occlusion of the markers (markerdata.luac: allowWorldOcclusion, occlusionInterval 0.33 s): a line from the camera to the point

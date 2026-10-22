@@ -109,6 +109,19 @@ swc::net::WorldPosition transform_point(const swc::net::WorldPosition& place, co
 bool contains(const Shape& shape, const swc::net::WorldPosition& center, const swc::net::Quaternion& rotation, const swc::net::WorldPosition& point,
     float rangeSq);
 
+/** The player proximity sphere of the retail trigger path (research body-trigger.md: e_usePhysicsProximityTriggerSystem 1, the default
+ *  sphere of a proximity entity at the translation of the player entity): 0.2 m. */
+constexpr float kPlayerProximityRadius = 0.2F;
+
+/**
+ * @return True when the player proximity sphere (radius, at point) overlaps the shape of a local-player trigger (a body, a personal
+ * loot bag; AST-250, research body-trigger.md): the closest point of the shape in its own frame, back to world meters through the
+ * basis, is radius or less from the point (equality passes: an implementation choice). With no shape: in_range. The markers keep the
+ * point test of contains.
+ */
+bool trigger_overlaps(const Shape& shape, const swc::net::WorldPosition& center, const swc::net::Quaternion& rotation, const swc::net::WorldPosition& point,
+    float rangeSq, float radius = kPlayerProximityRadius);
+
 /**
  * The score of the focus of retail (0x490FED0; research prompt-range.md "Retail focus"): with the camera position C, its unit forward
  * vector F, and the place of the bound B: t = dot(B - C, F); a bound with t <= 0 (at or behind the camera plane) has no score; else the

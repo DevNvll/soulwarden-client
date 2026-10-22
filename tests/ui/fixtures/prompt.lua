@@ -2,7 +2,7 @@
 -- the interact mode, unifiedinteractcard.luac, unifiedinteractoption.luac, hint.luac) with the native part of swc/interact.lua. A loot
 -- bag in front of the camera: the card "DROPPED ITEMS" with the rows "Take All" (E, the hold form) and "Open" (T), at the screen
 -- place of the bag; the hold of E fills the ring; T opens the panel of the bag (the request "openloot"). Then a young tree with no
--- axe: the gatherable card "Gather" with the refusal "No equipped Axe". An iron vein with the pick and Mining under the gate of the row
+-- axe: the gatherable card with the refusal "No equipped Axe" (no text Gather: AST-250). An iron vein with the pick and Mining under the gate of the row
 -- (stage MVP-F): "Requires Mining skill" and the level circle of the required rank. A bush with a full bag: "Requires available
 -- inventory space". An inn keeper: its name, its title, and Talk (AST-231). Then no focus: the card hides.
 -- Pictures: prompt-bag, prompt-hold, prompt-tree, prompt-lowskill, prompt-work, prompt-fullbag, prompt-person.
@@ -65,7 +65,7 @@ frames(0.6)
 Swc.HostPrompt(tree)
 frames(0.4)
 check(Swc.HostPointOf("text:Young Tree") ~= "" or Swc.HostPointOf("text:YOUNG TREE") ~= "", "the name of the tree")
-check(Swc.HostPointOf("text:Gather") ~= "", "the row Gather")
+check(Swc.HostPointOf("text:Gather") == "", "no text Gather in the gatherable card (retail L6-02: YOUNG TREE / No equipped Axe; AST-250)")
 check(Swc.HostPointOf("text:No equipped Axe") ~= "", "the refusal: No equipped Axe")
 picture("prompt-tree")
 
@@ -149,3 +149,33 @@ picture("prompt-person")
 Swc.HostPrompt("none")
 frames(1.0)
 equal(#Swc.prompt.shownCards(), 0, "no focus: no card")
+
+-- AST-250: a quest object (master_quest_instanced, the gathering type None, field 19 the quest mark): the marker type Master_Quest, a
+-- Gatherable marker (the retail picture G1-4 of the backend stage 1.8c: "E ASTROLABE"); and a body (Dressing) for the comparison.
+local function cardTexts()
+  local out = {}
+  local function walk(id, depth)
+    if depth > 24 then return end
+    local t = swcui.has(id, "text") and swcui.get(id, "text.text")
+    if t and t ~= "" and swcui.enabled_in_hierarchy(id) then out[#out + 1] = t end
+    for _, c in ipairs(swcui.children(id)) do walk(c, depth + 1) end
+  end
+  walk(swcui.canvas_get(cards, "root"), 0)
+  return table.concat(out, " | ")
+end
+local quest = prompt("object", "e69cf29b-d7ca-24af-06bf-635ea550c4d9", "node", "Astrolabe", 300, 40, 0, "idle", 0, 0, "None", "",
+  "GatherOption:0") .. "\t\t0\t0\t1"
+Swc.HostPrompt(quest)
+frames(0.6)
+Swc.HostPrompt(quest)
+frames(0.4)
+note("the quest object card: " .. cardTexts())
+check(cardTexts():find("Astrolabe", 1, true) ~= nil and not cardTexts():find("Gather", 1, true), "the quest object: the gatherable card with the key and the name (retail G1-4: E ASTROLABE)")
+picture("prompt-questobject")
+local body = prompt("object", "body#22", "body", "Black Boar", 300, 40, 0, "idle", 0, 0, "Dressing", "", "GatherOption:0")
+Swc.HostPrompt(body)
+frames(0.6)
+Swc.HostPrompt(body)
+frames(0.4)
+note("the body card: " .. cardTexts())
+check(cardTexts():find("Black Boar", 1, true) ~= nil and not cardTexts():find("Gather", 1, true), "a body: the key and the name (retail F-29: E CHALKY RABBIT)")

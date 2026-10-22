@@ -1,0 +1,81 @@
+# AST-250 check C2: the cards of the gatherable objects (retail F-29 "E CHALKY RABBIT", G1-4 "E ASTROLABE"). The development
+# character stands 1.5 m south of treasure A (IO_MSQ_Treasure_A of 06_pillageship, its task Active): the quest object card with the
+# key and the name; E held: the gather (the quest drop). Then the routes (tests/drive/ast250-c2-routes.txt) put it at the boar place
+# of the beach; a Black Boar 2.4 m north, eight light attacks, a travel 1.45 m south of its spawn point: the body card; E held: the
+# skinning. Times in seconds from the possession.
+1.00 tick
+2.00 tick
+3.00 tick
+3.60 view 0 -15
+4.00 view 0 -15
+5.00 tick
+6.00 tick
+7.00 tick
+8.00 interact 1
+9.00 tick
+10.00 interact 0
+11.00 tick
+12.00 tick
+13.00 tick
+14.00 key 1
+14.60 view 0 -20
+15.00 view 0 -20
+16.00 tick
+17.00 tick
+18.00 tick
+19.00 tick
+20.00 tick
+21.00 tick
+22.00 tick
+23.00 tick
+24.00 tick
+25.00 tick
+26.00 tick
+27.00 tick
+28.00 tick
+29.00 tick
+30.00 attack 1
+30.08 attack 0
+30.80 attack 1
+30.88 attack 0
+31.00 tick
+31.60 attack 1
+31.68 attack 0
+32.00 tick
+32.40 attack 1
+32.48 attack 0
+33.00 tick
+33.20 attack 1
+33.28 attack 0
+34.00 attack 1
+34.08 attack 0
+34.80 attack 1
+34.88 attack 0
+35.00 tick
+35.60 attack 1
+35.68 attack 0
+36.00 tick
+37.00 tick
+38.00 tick
+38.60 view 0 -30
+39.00 view 0 -30
+40.00 tick
+40.50 interact 1
+41.00 tick
+42.00 tick
+43.00 tick
+44.00 tick
+44.50 interact 0
+45.00 tick
+46.00 tick
+47.00 tick
+48.00 tick
+49.00 tick
+50.00 tick
+51.00 tick
+52.00 tick
+53.00 tick
+54.00 tick
+55.00 tick
+56.00 tick
+57.00 tick

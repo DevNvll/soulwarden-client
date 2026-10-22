@@ -158,14 +158,13 @@ folders `lyshineui/images/objectives/`, `icons/objectives/`, `journal/`, and `ba
   (`ObjectivesLayer.GetObjectivePosition`): stage Q2, with the world pins and the compass pin. The task timers are stage Q8.
 - A change of an Auto-Pin switch does not go to the backend (2709 is sent once).
 - The top menu bar of the retail journal (Company, Journal, Mount, ...) is a different canvas: not in the client.
-- Not shown live yet: the skinning of a boar (E at the body found no focus: the point of the character was not in the bound of the
-  body), the food craft (the camp of the watchtower is a later backend stage; a kitchen needs a travel), the natural gather of flint
+- The skinning of a boar (AST-250): the trigger rule of the bodies (docs/INTERACTIONS.md); live `tests/drive/ast250-c2*.txt`: the quest
+  drop PorkT1 and the next task "Cook a Light Ration at Urda's Campfire". Not shown live yet: the food craft (the camp of the watchtower is a later backend stage; a kitchen needs a travel), the natural gather of flint
   and wood (the items came from the development route), five kills (two credited kills shown).
 - 06_getoffbeach of a new character with backend 1.8b: in the trigger area the visible task is complete and the hidden cutscene task is
   active, so the tracker shows only the title until the cutscene (stage Q5).
 - The place cues of the 86 points of interest of other slices (no local), and of the areas (the 2297 of 9011 in the retail packets).
-- The card of a quest object: the retail client shows "E ASTROLABE" (the key and the name); the client shows the gather card
-  ("CANDELABRA", "E Gather").
+- The card of a quest object: the marker type Master_Quest and the gatherable card with no option text: "E ASTROLABE" as retail (AST-250).
 - The world pins of the quest objects (the retail "1" over the treasure): stage Q2.
 - pinnedobjective.luac calls GetPositionY of a new task row with no such method in one path (a flash animation does not play).
 - The Documents tab (JournalDataManagerBus.GetTopicEntries) and the season pass banner of bannertriggers.luac have script errors.

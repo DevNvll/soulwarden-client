@@ -976,7 +976,13 @@ void USwcObjectSubsystem::AddBodies(const FVector3d& From, double RadiusMeters, 
 		Bound.EnginePlace = FVector3d(Place.x, Place.y, Place.z);
 		Bound.RangeSq = Template.RangeSq;
 		Bound.Shape = Template.Shape;
-		if (bUsableOnly ? !InShape(Bound, Turn, From) : FVector3d::DistSquared(From, Bound.EnginePlace) > RadiusMeters * RadiusMeters)
+		// A body is a local-player trigger: the player proximity sphere against the shape (AST-250, research body-trigger.md), not the
+		// point test of the markers. The place of the bound: the last sample of the creature and the template translation (an
+		// approximation: the death transform of the retail hierarchy is not known).
+		const bool bOverlap = swc::interact::trigger_overlaps(Bound.Shape, swc::net::WorldPosition{static_cast<float>(Bound.EnginePlace.X),
+			static_cast<float>(Bound.EnginePlace.Y), static_cast<float>(Bound.EnginePlace.Z)}, Turn, swc::net::WorldPosition{static_cast<float>(From.X),
+			static_cast<float>(From.Y), static_cast<float>(From.Z)}, Bound.RangeSq);
+		if (bUsableOnly ? !bOverlap : FVector3d::DistSquared(From, Bound.EnginePlace) > RadiusMeters * RadiusMeters)
 		{
 			continue;
 		}

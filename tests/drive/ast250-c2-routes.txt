@@ -1,0 +1,8 @@
+# The routes of tests/drive/ast250-c2.txt (AST-250): the hour 12:00, then the travel to the boar place of the beach, the boar 2.4 m north
+# (the ignore mode on; off before the last hits), the travel 1.45 m south of its spawn point. Times on the clock of the drive script.
+0.5 world-time 12:00
+13.0 travel 9614.47 2327.73 42.73
+27.5 ignore on
+28.0 spawn Boar_StarterBeach 0.00 2.40 0.40 --level 1 --yaw 180
+33.5 ignore off
+38.0 travel 9614.47 2328.68 42.73

@@ -1,0 +1,108 @@
+# AST-250 check S3: the trigger rule of the bodies (research body-trigger.md: the player proximity sphere of 0.2 m against the closest
+# point of the bound). A Black Boar 2.4 m north (it stands: the ignore mode on; off before the last hits for the kill credit), eight
+# light attacks, a route travel 1.45 m south of its spawn point (outside the 2.6 m box by 0.15 m: the old point test gave no focus),
+# E held: the skinning. Then an Elk Stag 2.4 m north, the same steps, a travel 1.4 m south of its spawn point, E held: the skinning.
+# Times in seconds from the possession.
+1.00 tick
+2.00 tick
+3.00 key 1
+4.00 view 0 -30
+5.00 tick
+6.00 tick
+7.00 tick
+8.00 tick
+9.00 tick
+10.00 tick
+11.00 tick
+12.00 tick
+13.00 tick
+14.00 tick
+15.00 tick
+16.00 tick
+17.00 tick
+18.00 tick
+19.00 tick
+20.00 tick
+21.00 tick
+22.00 attack 1
+22.08 attack 0
+22.80 attack 1
+22.88 attack 0
+23.00 tick
+23.60 attack 1
+23.68 attack 0
+24.00 tick
+24.40 attack 1
+24.48 attack 0
+25.00 tick
+25.20 attack 1
+25.28 attack 0
+26.00 attack 1
+26.08 attack 0
+26.80 attack 1
+26.88 attack 0
+27.00 tick
+27.60 attack 1
+27.68 attack 0
+28.00 tick
+29.00 tick
+30.00 tick
+30.60 view 0 -30
+31.00 view 0 -30
+32.00 interact 1
+33.00 tick
+34.00 tick
+35.00 tick
+36.00 interact 0
+37.00 tick
+38.00 tick
+39.00 tick
+40.00 tick
+41.00 tick
+42.00 tick
+43.00 tick
+44.00 view 0 -30
+45.00 tick
+46.00 tick
+47.00 attack 1
+47.08 attack 0
+47.80 attack 1
+47.88 attack 0
+48.00 tick
+48.60 attack 1
+48.68 attack 0
+49.00 tick
+49.40 attack 1
+49.48 attack 0
+50.00 tick
+50.20 attack 1
+50.28 attack 0
+51.00 attack 1
+51.08 attack 0
+51.80 attack 1
+51.88 attack 0
+52.00 tick
+52.60 attack 1
+52.68 attack 0
+53.00 tick
+54.00 tick
+55.00 tick
+55.60 view 0 -30
+56.00 view 0 -30
+57.00 interact 1
+58.00 tick
+59.00 tick
+60.00 tick
+61.00 interact 0
+62.00 tick
+63.00 tick
+64.00 tick
+65.00 tick
+66.00 tick
+67.00 tick
+68.00 tick
+69.00 tick
+70.00 tick
+71.00 tick
+72.00 tick
+73.00 tick
