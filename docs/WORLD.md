@@ -553,6 +553,21 @@ the readers of the code (the menu scene, the world map, the persons, the gatheri
   object" for three person clips imported after the cook (the travel). After the clip fix, the same fight in the editor build had
   no SkipPackage line (before: 11).
 
+#### The final cook of the MVP (AST-229, 2026-10-22)
+
+- The cook of main af18192: all of MVP-L (1,230 particle systems, the ribbons, the statuses), the body and weapon materials
+  (AST-227, AST-247), the god rays, the persons, the map tiles, the UI data. The first cook 2,047 s (85,000 packages, the new
+  body textures), the incremental cook after the weapon materials 391 s (6,667 packages); 43,011 MiB staged; the disk 85 %.
+- The backend copy: release 2026-10-22-bd9d50e (schema 16); its game data passes the check of `tools/play.sh`
+  (`tools/lib/backend_data.py`: 24 entries, 218 files, with quest-data.json, poi-data.json, and conversation-data.json).
+  `tools/play.sh --check`: "client: the cooked build ... is current".
+- The exit check (`SWC_DEV_COOKED=1`, a copy of the user's level 70 character with the craft kit; the late probe in each run;
+  evidence/mvp-k/mvpk-x-*-u3): the menu and PLAY (tests/drive/mvpk-play-ui.txt), a map travel, a Talk, a gathering, a craft, a
+  fight with effects, the AST-224 travel. Late content 0 after each world entry and each travel, except the gathering run: after
+  one travel the 8 impostor tiles of r_+04_+00 show at 8.9 s (the far layer; the same in the exit of 2026-10-21), and the meshes
+  of the gathered nodes show during the gather (the result of the action). Shader jobs 0 and assets building 0 in each probe;
+  no import, shader compile, SkipPackage, or missing asset line in the client logs.
+
 ## The collision of the game (P4.1 part 1)
 
 The game has the collision of a mesh in its physics file: the path of the `.cgf` with `.rnr`. It has boxes, spheres,

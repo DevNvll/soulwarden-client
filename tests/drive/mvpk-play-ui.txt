@@ -1,0 +1,11 @@
+# The UI drive of the cooked exit check of stage MVP-K (docs/WORLD.md "The cooked build"): PLAY from the landing screen with the
+# character that the list selects (the copy of the database has one character), the loading screen, the HUD. The clock starts at
+# the landing screen. tools/menu-check.sh LABEL 120 -- -SwcUiDrive=FILE -SwcLateProbe=10 (SWC_DEV_COOKED=1).
+1 waitfor CharacterList 60
+3 draw landing
+5 point PlayButton
+5.5 click
+6.5 draw connecting
+7 waitfor world 180
+15 draw hud
+30 end
