@@ -238,6 +238,25 @@ upright, the head at the surface) and Swim_Nav (the blend space `swim_nav_blend`
 client right; the run mvpi-water1). Differences: the client water is lighter and clearer, thus more of the legs shows; the body of the
 client in Swim_Nav is about 10 cm lower [an estimate from the picture].
 
+The moving swim (AST-205, 2026-10-22): the body of Swim_Nav is not flat in the source clip. The model-space pose of the source clips
+(forward kinematics of the .caf on the male skeleton; the mean of 8 times of the cycle; the root at the feet, 1.400 m below the
+surface) [R]:
+
+| Clip | Head z | Pelvis z | Toes z | Body angle (toes to head) |
+| --- | --- | --- | --- | --- |
+| `unarmed_swim_idle` | 1.45 m | 0.92 m | -0.07 m | 85 degrees |
+| `unarmed_swim_f` | 1.42 m | 1.10 m | 0.75 m | 28 degrees (20 to 42) |
+| `unarmed_swim_l`, `unarmed_swim_r` | 1.39, 1.42 m | 1.07, 1.10 m | 0.65, 0.70 m | 33, 32 degrees |
+
+At 3.0 m/s with no turn the grid of `swim_nav_blend` gives `unarmed_swim_f` alone (MoveSpeed 3 is the last cell). Thus the head is
+at the surface and the toes are about 0.65 m deep, in retail and in the client. The Swim_Nav fragment has no procedural layer for
+the pose (only the bubble effects). The side-by-side video of retail set 3 (`evidence/ast205/ast205-swim-side.mp4`, the take
+swim-walk-in-out and the client run ast205-swim1 of `tests/drive/wf5-swim.txt`; frames: `ast205-swim-side-frames.png`) shows the
+same pose: the upper body at the surface and the legs down at an angle. The retail legs show only as a faint pale shape in the dark
+water; the clear, light client water shows all of the legs. The difference is the look of the water (AST-200), not the pose.
+Other differences of the video: the gear (the retail seed character wears armor; the dev character has light clothes) and the
+camera of the client is a little higher.
+
 ## Check (development runs, 2026-10-18)
 
 - `tools/test-water.sh` (90 checks): the quadtree query of the client against the reader of the converter at 19,600 points of the 49
