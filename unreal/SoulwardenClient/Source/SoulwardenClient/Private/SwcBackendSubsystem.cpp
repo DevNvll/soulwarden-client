@@ -709,6 +709,17 @@ void USwcBackendSubsystem::UpdateMovementLimits(const swc::net::RepClient::OwnEn
 			}
 		}
 	}
+	// AST-230 (plan step 10): the effects of the statuses on the body (Effects/SwcStatusEffects), at each new status map.
+	if (Avatar.IsValid() && Own.statusRevision != StatusFxRevision)
+	{
+		StatusFxRevision = Own.statusRevision;
+		TArray<TPair<uint32, bool>> Active;
+		for (const swc::net::RepClient::OwnEntity::Status& Status : Own.statuses)
+		{
+			Active.Add({Status.index, Status.potency != 0.0f});
+		}
+		Avatar->UpdateStatusEffects(Active);
+	}
 	// The speed table of the server: the key 0x35 (an absent key is 1.0).
 	const auto Sprint = Own.speedTable.find(0x35);
 	Limits.sprintMultiplier = Sprint != Own.speedTable.end() ? Sprint->second : 1.0f;

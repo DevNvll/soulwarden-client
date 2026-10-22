@@ -22,6 +22,7 @@ study (steps 1 to 12) and tells what each step did.
 | `Effects/SwcParticleEffects` | The effect interface gets `StartAttached` (a bone or a socket, follow or not) and `Keep` (KeepEmitterActive). |
 | `Effects/SwcTracers` | The trails of the projectiles (the ranged attack database) on the own projectiles of `Character/SwcRangedView`. |
 | `Effects/SwcRibbons` | The ribbons of the trail emitters (`particles/ribbons.json`): a strip of world points that faces the camera. |
+| `Effects/SwcStatusEffects` | The On and Off FX scripts of the statuses of a body (`particles/status-fx.json`). |
 | `Creatures/SwcEffectActor` | The slice effect player of the creature spells and shots. |
 
 ```sh
@@ -129,6 +130,24 @@ moving emitter. The client draws the ribbons itself:
 - 56 ribbons in 35 effects: the arrow trails (plain, Trail_Power, Penetrating Shot, Poison Shot), the weapon swipe trails of the
   elements (`*_Melee.Swipe_MD`), the Shockwave trail of the war hammer (a gold arc along the swing; retail: a wide bright gold streak).
 
+## The statuses (plan step 10, part 7)
+
+- The converter (`skill_effects.status_fx_data`, `particles/status-fx.json`): the status rows of the backend by their index (the index
+  of the StatusEffects state) with FxScriptOn, FxScriptOff, ShouldRefreshFxScript, and IgnoreFxScriptWhenPotencyIsZero of the status
+  tables (1,395 rows with a script); the scripts of the 37 FX lists (`fxscripts/*.actionlist`): the particle nodes (the effect, the joint
+  alias or joint, AttachToJoint, AttachEmitterFollows, AttachIgnoreRotation, the offsets when used, the scale, KillOnExit,
+  KeepEmitterActive, a DelayExecute delay) and the material overrides; the joint aliases of each skeleton
+  (`javelindata_jointalias.datasheet`: Spine is Spine2 for the player, bind_spine_2_jnt for the wolf); for each creature slice the FX
+  lists that it references (the asset ids in its bytes; the wolf: the status list and its own list) and the aliases of its skeleton.
+  The effects of the scripts get systems (221).
+- `Effects/SwcStatusEffects` (held by `ASwcPlayerCharacter` and `ASwcCreature`): at each new status map (the owner map; the compact
+  map of a creature) a new status starts the particle nodes of its On script at the alias joints of the body and holds them; at its end
+  the held effects stop by their flags (KillOnExit removes the particles, KeepEmitterActive lets the emitter run, else the emission
+  stops) and the Off script plays once. A script is found in the FX lists of the body in order (the player list; the creature lists,
+  the status list first) [I]. AttachIgnoreRotation: the effect follows the place of the joint, not its turn [I].
+- Not done: ShouldRefreshFxScript (a refresh does not restart the script), the material overrides (POTION_Heal), a delayed node, the
+  potency of a creature status (the compact map has the potency 1 mark only), the attachment helpers of a node.
+
 ## The rules of research/particle-rules3.md (part 6)
 
 - GlobalSizeScale scales the particle size, the local spawn offsets, and the start speed [R]: the client scale of the component does
@@ -235,6 +254,7 @@ Development runs with a copy of the user's database (`dev-data-mvpl`; the sword 
 | mvpl-strike1 | The strike of the shaman at night with a level camera (`tests/drive/mvpl-strike*.txt`): the bolt at 0.91 to 0.92 s of the record; its light lights the character and the ground (purple, then white); the next strikes 10 times slower. Evidence `step4-strike-night.png`, `step4-compare-strike-night.png` (retail s1-fresh at +1.63 s; client). The client omen and damage area show a yellow ring arc; retail shows a dark omen ring. |
 
 | mvpl-take-bow, -rapier | The client takes of `retail-bow.mp4` and `retail-rapier.mp4` (`tests/drive/mvpl-bow*.txt`, `mvpl-rapier*`). The bow: the conditions of Explosive Arrow choose the upgrade (as the backend: `Spell_Ability_Bow_Explosive_Upgrade`); the explosion is the spell entity of the backend (`spell_aoe_explosionshot_small`, GlobalSizeScale 0.3) at the same place and time as retail (0.53 s after R; retail 0.6 s); the trails start on the own projectiles. The rapier: the light and heavy attacks and their clips; the abilities do not play (below). |
+| mvpl-status | `tests/drive/mvpl-status*.txt`: burn, wound (the rapier bleed), and weaken on the character and a wolf (the development routes `status` and `effect`): each status starts its On script at the alias joints (the character: Spine2, Head, the arms; the wolf: bind_spine_2_jnt, bind_head_jnt) and ends with its status; the burn flames show on the back of the character. No retail video of the statuses yet. |
 | mvpl-bowq, -bowq2, -bowq3 | A slow check of the bow (`tests/drive/mvpl-bowq*.txt`, `swc.Effects.TimeScale 0.1`, `swc.Effects.Dump` with the axes): the Penetrating Shot muzzle (`Penetrate_Muzzle` at vfx_Tip_01) shows its white puff forward from the bow as retail; its local +Z points to the target at the release. |
 
 The retail references (`~/Games/soulwarden/work/evidence/unreal-references/set-mvpl-effects/`, its README): a development run of the
@@ -292,3 +312,5 @@ The open points of the study ("Open points" 1 to 10) stay. Of this work:
 11. The explosion of Explosive Arrow: the exact native stretch of both axes (the client aligns to the velocity) and the width.
 12. The FX mesh shaders (96 mesh emitters off).
 13. The gold glow of the full bow draw: `bow_charge` selects `wFX_Default_Range.Arrow_Charge` [D]; its activation gate [U].
+
+14. The statuses: a retail reference video, the refresh, the material overrides, the delayed nodes.

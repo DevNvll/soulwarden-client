@@ -331,6 +331,8 @@ private:
 	 *  row K), as progression ids; the key of the perk facts that the driver has (the paperdoll revision and the active map). */
 	TArray<TArray<uint32>> PerkAbilities;
 	bool bPerkAbilitiesLoaded = false;
+	/** AST-230: the status map of the owner that the status effects of the body show. */
+	uint32 StatusFxRevision = MAX_uint32;
 	uint64 SentPerkFactsKey = ~0ull;
 	std::vector<std::pair<std::uint32_t, std::uint64_t>> SentCooldowns;
 	/** The movement limits (stage P3.3): the bag weight and its revision, the equip load class, the log of the last limits. */

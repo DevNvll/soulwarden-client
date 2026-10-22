@@ -11,6 +11,7 @@
 #include "HAL/PlatformTime.h"
 #include "Misc/PackageName.h"
 #include "Net/SwcSpace.h"
+#include "Effects/SwcStatusEffects.h"
 
 namespace
 {
@@ -862,4 +863,23 @@ FString ASwcCreature::UpdateFromEntity(FSwcCreatureLibrary& Library, const swc::
 		}
 	}
 	return Text;
+}
+
+void ASwcCreature::UpdateStatusEffects(const TArray<TPair<uint32, bool>>& Active)
+{
+	if (!StatusEffects.IsValid())
+	{
+		StatusEffects = MakeShared<FSwcStatusEffects>();
+		StatusEffects->Setup(false, SlicePath);
+	}
+	StatusEffects->Update(GetWorld(), Leader != nullptr ? Leader.Get() : Body.Get(), Active);
+}
+
+void ASwcCreature::EndPlay(const EEndPlayReason::Type Reason)
+{
+	if (StatusEffects.IsValid())
+	{
+		StatusEffects->StopAll(GetWorld());
+	}
+	Super::EndPlay(Reason);
 }

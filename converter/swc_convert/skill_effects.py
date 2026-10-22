@@ -328,6 +328,15 @@ def manifest() -> dict:
                 key = next((a for a in call["args"] if isinstance(a, str) and "." in a and not a.startswith(("a", "Paperdoll", "IsAttack"))), "")
                 if call["call"] != "SpawnDecal":
                     use(key, f"impact|{row}|{column}|{function}")
+    # The statuses (plan step 10): the particle nodes of the On and Off scripts of the status rows, in the player list, the NPC list,
+    # and the lists of the creature slices.
+    status_doc = status_fx_data()
+    used_lists = {status_doc["player"], status_doc["npc"]} | {n for s in status_doc["slices"].values() for n in s["lists"]}
+    for row in status_doc["statuses"].values():
+        for script in (row["on"], row["off"]):
+            for list_name in used_lists:
+                for node in status_doc["scripts"].get(list_name, {}).get(script, []):
+                    use(node.get("effect", ""), f"status|{list_name}|{script}")
     # The trails of the projectiles (plan step 8): the effects of the trail maps of the ranged attack database.
     for name, attack in tracer_data()["attacks"].items():
         for element, key in attack["effects"].items():
@@ -364,6 +373,100 @@ WEAPON_SLICES = ("slices/items/weapons/", "slices/perks/")
 TRACER_PROFILES = ("Bow", "GreatAxe", "Warhammer", "Sword", "Rapier")
 
 RADB = "sharedassets/genericassets/rangedattackdatabase.radb"
+FX_SCRIPTS = "sharedassets/springboardentitites/fxscripts/"
+JOINT_ALIASES = "sharedassets/springboardentitites/datatables/javelindata_jointalias.datasheet"
+PLAYER_FX_LIST = "fxscriptlist_player"
+NPC_FX_LIST = "fxscriptlist_npc_statuseffects"
+
+
+def fx_scripts() -> dict:
+    """@return The FX scripts of the FX script lists (fxscripts/*.actionlist) by list name and script name: the particle nodes
+    (FxScriptNodeSpawnParticleEffect: the effect, the joint alias or joint or attachment, the follow and rotation flags, the offsets
+    when used (m, degrees), the scale, KillOnExit, KeepEmitterActive, the delay of a DelayExecute parent) and the material overrides."""
+    out: dict = {}
+    for path in sorted(n for n in source.paks().entries if n.startswith(FX_SCRIPTS) and n.endswith(".actionlist")):
+        root = ET.fromstring(source.read(path).decode("utf-8", "replace"))
+        scripts = out.setdefault(path.rsplit("/", 1)[-1][:-len(".actionlist")], {})
+
+        def walk(node: ET.Element, delay: float, nodes: list) -> None:
+            for child in node:
+                if child.tag == "FxScriptNodeDelayExecute":
+                    walk(child, delay + float(child.get("DelayTime", "0") or 0), nodes)
+                elif child.tag == "FxScriptNodeSpawnParticleEffect" and child.get("EffectName"):
+                    a = child.attrib
+                    item = {"effect": a["EffectName"], "alias": a.get("AttachJointAlias", ""), "joint": a.get("AttachJointName", ""),
+                            "attachment": a.get("AttachAttachmentName", ""), "entity": a.get("AttachToEntity") == "true",
+                            "toJoint": a.get("AttachToJoint") == "true", "follow": a.get("AttachEmitterFollows") == "true",
+                            "ignoreRotation": a.get("AttachIgnoreRotation") == "true", "scale": float(a.get("Scale", "1") or 1),
+                            "kill": a.get("KillOnExit") == "true", "keep": a.get("KeepEmitterActive", "").lower() == "true",
+                            "delay": delay}
+                    if a.get("UsePosOffset") == "true":
+                        item["position"] = [float(v) for v in a.get("PosOffset", "0,0,0").split(",")]
+                    if a.get("UseRotOffset") == "true":
+                        item["rotation"] = [float(v) for v in a.get("RotOffset", "0,0,0").split(",")]
+                    nodes.append(item)
+                elif child.tag == "FxScriptNodeMaterialOverride":
+                    nodes.append({"material": child.get("MaterialKey", ""), "delay": delay})
+                else:
+                    walk(child, delay, nodes)
+        for script in root.iter("FxScript"):
+            nodes: list = []
+            walk(script, 0.0, nodes)
+            scripts[script.get("Name", "")] = nodes
+    return out
+
+
+def status_fx_data() -> dict:
+    """Writes SWC_CONTENT/particles/status-fx.json (AST-230 plan step 10, docs/EFFECTS.md "The statuses"): the status rows of the backend
+    by their index (ability-data.json statusEffects; the index of the StatusEffects state) with FxScriptOn, FxScriptOff,
+    ShouldRefreshFxScript, and IgnoreFxScriptWhenPotencyIsZero of the status tables; the scripts of the FX lists (fx_scripts); the joint
+    aliases of each skeleton (javelindata_jointalias); for each creature slice of the client (creatures/slices.json) the FX lists that it
+    references (the asset ids in its bytes) and the aliases of its skeleton. @return The document."""
+    from . import particles
+    from .creature import creature_dir, gamedata_dir
+    rows: dict = {}
+    for path in sorted(p for p in source.paks().entries if p.startswith(datasheet.TABLES_FOLDER) and "statuseffects_" in p
+                       and p.endswith(".datasheet")):
+        try:
+            sheet = datasheet.Sheet(source.read(path))
+        except Exception:
+            continue
+        if sheet.type != "StatusEffectData":
+            continue
+        for row in sheet.rows():
+            if row.get("StatusID") and (row.get("FxScriptOn") or row.get("FxScriptOff")):
+                rows.setdefault(str(row["StatusID"]).lower(), row)
+    statuses: dict = {}
+    for entry in json.loads((gamedata_dir() / "ability-data.json").read_text()).get("statusEffects", []):
+        row = rows.get(str(entry[0]).lower())
+        if row is not None:
+            statuses[str(entry[1])] = {"id": entry[0], "on": str(row.get("FxScriptOn") or ""), "off": str(row.get("FxScriptOff") or ""),
+                                       "refresh": bool(row.get("ShouldRefreshFxScript")),
+                                       "ignoreZero": bool(row.get("IgnoreFxScriptWhenPotencyIsZero"))}
+    aliases = {}
+    for row in datasheet.Sheet(source.read(JOINT_ALIASES)).rows():
+        aliases[str(row["SkeletonName"]).lower()] = {k: str(v) for k, v in row.items() if k != "SkeletonName" and v not in ("", None)}
+    lists_by_guid = {guid: path.rsplit("/", 1)[-1][:-len(".actionlist")] for guid, products in source.catalog().items()
+                     for _sub, path in products if path.startswith(FX_SCRIPTS)}
+    slices: dict = {}
+    slices_path = creature_dir() / "slices.json"
+    if slices_path.is_file():
+        doc = json.loads(slices_path.read_text())
+        for key, record in doc["slices"].items():
+            path = record.get("path") or record.get("slice") or ""
+            try:
+                data = source.read(path) if path else b""
+            except Exception:
+                data = b""
+            lists = [name for guid, name in lists_by_guid.items() if guid in data]
+            skeleton = str(record.get("skeleton") or "")
+            stem = skeleton.rsplit("_", 1)[0].lower() if skeleton else ""
+            slices[path.lower()] = {"lists": sorted(lists, key=lambda n: (n != NPC_FX_LIST, n)),
+                                    "aliases": aliases.get(stem, aliases.get("npc_skel", {}))}
+    out = {"format": 1, "statuses": statuses, "scripts": fx_scripts(), "aliases": aliases, "slices": slices,
+           "player": PLAYER_FX_LIST, "npc": NPC_FX_LIST}
+    particles.write_json(particles.out_dir() / "status-fx.json", out, 1)
+    return out
 
 
 def tracer_data() -> dict:

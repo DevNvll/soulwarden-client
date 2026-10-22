@@ -8,6 +8,7 @@
 #include "SwcCreature.generated.h"
 
 class FSwcCreatureLibrary;
+class FSwcStatusEffects;
 class UCapsuleComponent;
 class USkeletalMeshComponent;
 class UStaticMeshComponent;
@@ -67,6 +68,9 @@ public:
 	bool HasModel() const { return bHasModel; }
 	bool HidesLevel() const { return bHidesLevel; }
 	const FSwcCreatureSlice* GetSlice() const { return Slice; }
+	/** AST-230 (plan step 10): the active statuses (the index of each status row, its potency not zero): their effects on the body. */
+	void UpdateStatusEffects(const TArray<TPair<uint32, bool>>& Active);
+	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 	/** @return The point of the name plate: above the bounds of the body. */
 	FVector GetPlatePoint() const;
 	/** @return The probe text of this frame (-SwcCreatureProbe): the place (engine m), the yaw (engine degrees: counterclockwise from
@@ -138,6 +142,7 @@ private:
 	TObjectPtr<USkeletalMeshComponent> Leader;
 	UPROPERTY()
 	TObjectPtr<USkeletalMeshComponent> Body;
+	TSharedPtr<FSwcStatusEffects> StatusEffects;
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> Placeholder;
 	UPROPERTY()

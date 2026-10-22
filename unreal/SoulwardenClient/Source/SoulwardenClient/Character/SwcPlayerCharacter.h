@@ -6,6 +6,7 @@
 #include "SwcPlayerCharacter.generated.h"
 
 class FSwcActions;
+class FSwcStatusEffects;
 class FSwcLocomotion;
 class UMeshComponent;
 class USkeletalMeshComponent;
@@ -66,6 +67,9 @@ public:
 	/** AST-230: the weapon of the active slot in the main hand: its component, its tag text, and its .cdf file (the mesh key
 	 *  "weapon|FILE.cdf|HASH"). @return False when the slot has no weapon. */
 	bool GetMainHandWeapon(UMeshComponent*& OutWeapon, FString& OutTags, FString& OutFile) const;
+	/** AST-230 (plan step 10): the active statuses of the owner (the index of each status row, its potency not zero): their effects. */
+	void UpdateStatusEffects(const TArray<TPair<uint32, bool>>& Active);
+	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 	void PlaceGear(int32 Index, bool bInHand);
 	/**
 	 * The weapon scope (AST-202, docs/GEAR.md "The weapon clips"): the skeletal weapon of a weapon slot (the slot of the stance of
@@ -89,6 +93,7 @@ public:
 	void SetDummy(const FVector* Feet, double Yaw = 0.0, bool bArmed = false);
 
 private:
+	TSharedPtr<FSwcStatusEffects> StatusEffects;
 	UPROPERTY()
 	TArray<TObjectPtr<USkeletalMeshComponent>> Parts;
 	UPROPERTY()

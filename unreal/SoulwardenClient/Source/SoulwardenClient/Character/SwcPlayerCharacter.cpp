@@ -15,6 +15,7 @@
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "SwcBackendSubsystem.h"
+#include "Effects/SwcStatusEffects.h"
 #include "Components/WorldPartitionStreamingSourceComponent.h"
 
 namespace
@@ -274,4 +275,23 @@ void ASwcPlayerCharacter::SetLogicalWeaponState(uint32 ActiveSlot, bool bDrawn)
 {
 	ActiveWeaponSlot = ActiveSlot;
 	bWeaponDrawn = bDrawn;
+}
+
+void ASwcPlayerCharacter::UpdateStatusEffects(const TArray<TPair<uint32, bool>>& Active)
+{
+	if (!StatusEffects.IsValid())
+	{
+		StatusEffects = MakeShared<FSwcStatusEffects>();
+		StatusEffects->Setup(true, FString());
+	}
+	StatusEffects->Update(GetWorld(), GetMesh(), Active);
+}
+
+void ASwcPlayerCharacter::EndPlay(const EEndPlayReason::Type Reason)
+{
+	if (StatusEffects.IsValid())
+	{
+		StatusEffects->StopAll(GetWorld());
+	}
+	Super::EndPlay(Reason);
 }

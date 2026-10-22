@@ -550,6 +550,13 @@ void USwcCreatureSubsystem::Tick(float DeltaTime)
 				Names += FString::Printf(TEXT("%s%s (%u) x%u"), Names.IsEmpty() ? TEXT("") : TEXT(", "), Row != nullptr ? *Row->Id : TEXT("?"), Status.index, Status.stacks);
 			}
 			UE_LOG(LogSwcCreatures, Log, TEXT("creature %u: %s statuses: %s"), Change.interest, *(*Actor)->GetDisplayName(), Names.IsEmpty() ? TEXT("none") : *Names);
+			// AST-230 (plan step 10): the effects of the statuses on the body (the potency 1 mark: the compact map has no zero potency).
+			TArray<TPair<uint32, bool>> Active;
+			for (const swc::creatures::Entity::StatusEntry& Status : Entity->statuses)
+			{
+				Active.Add({Status.index, true});
+			}
+			(*Actor)->UpdateStatusEffects(Active);
 		}
 		else if (Change.kind == swc::creatures::Change::Kind::death)
 		{
