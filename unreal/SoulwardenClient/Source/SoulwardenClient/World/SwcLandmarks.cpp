@@ -22,7 +22,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogSwcLandmarks, Log, All);
 namespace
 {
 TAutoConsoleVariable<int32> CVarLandmarks(TEXT("swc.Landmarks"), 1,
-	TEXT("The landmarks of the world (the sky maelstrom of the Shattered Mountain): 1 shows them, 0 hides them."));
+	TEXT("The landmarks of the world (the sky maelstrom of the Shattered Mountain): 1 shows them, 0 hides them, 2 hides only the fog cards of the column (the cost check)."));
 
 FString LandmarkFile(const TCHAR* Name)
 {
@@ -162,6 +162,9 @@ void USwcLandmarks::Build()
 			PivotWorld.Add(FString(Pair.Key), World);
 		}
 	}
+	// The fog cards of the column (AST-265): their saved world transforms already hold their parents (Fog_Center): under the root.
+	Pivots.Add(TEXT("root"), Root);
+	PivotWorld.Add(TEXT("root"), Root->GetComponentTransform());
 	if (Rotation != nullptr)
 	{
 		if (USceneComponent** Pivot = Pivots.Find((*Rotation)->GetStringField(TEXT("pivot"))))
@@ -210,6 +213,10 @@ void USwcLandmarks::Build()
 		Component->SetupAttachment(*Pivot);
 		Component->SetRelativeTransform(ReadTransform(Part->GetObjectField(TEXT("world"))).GetRelativeTransform(PivotWorld[PivotKey]));
 		Component->RegisterComponent();
+		if (PivotKey == TEXT("root"))
+		{
+			Cards.Add(Component);
+		}
 		++Placed;
 	}
 	Collection = LoadObject<UMaterialParameterCollection>(nullptr, *FString::Printf(TEXT("%s/Materials/MPC_SwcLandmarks.MPC_SwcLandmarks"), *Folder),
@@ -225,11 +232,18 @@ void USwcLandmarks::Tick(float DeltaTime)
 	{
 		return;
 	}
-	const bool bShow = CVarLandmarks.GetValueOnGameThread() != 0;
-	if (bShow != bShown)
+	const int32 Mode = CVarLandmarks.GetValueOnGameThread();
+	if (Mode != ShownMode)
 	{
-		bShown = bShow;
-		Actor->SetActorHiddenInGame(!bShow);
+		ShownMode = Mode;
+		Actor->SetActorHiddenInGame(Mode == 0);
+		for (const TWeakObjectPtr<UPrimitiveComponent>& Card : Cards)
+		{
+			if (Card.IsValid())
+			{
+				Card->SetVisibility(Mode != 2);
+			}
+		}
 	}
 	UpdateLight();
 	// The script rule of the source (transformovertime.luac): one step when the accumulator passes the interval, then it resets to 0

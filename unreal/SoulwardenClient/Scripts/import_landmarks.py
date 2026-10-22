@@ -66,6 +66,143 @@ float a = pow(saturate(S.a), F.y) * F.z;
 return e * a * Scale;"""
 
 
+# M_SwcFogCard (AST-265; research/geometryfog.md "Rule for the client"): the Geometryfog card. The vertex part is the GeometryBeam one
+# (sm.BEAM_VS_HLSL with u = U and the gradient alpha), the noise coordinate has the fixed speeds of Geometryfog (0.1, 0.15, 0.05; the
+# NoiseSpeed default). The pixel part: F = min(saturate(s x min(zs - z, z)), saturate(s x (z - zn))) (no water plane), the dust lerp(D,
+# T x 0.5 (T.r T.g + T.b), turbRatio) and the noise saturate(2 n - 0.25) with %NOISE, RGB = base.rgb x B.rgb x dust x F x (1 + AmbStrength)
+# x noise (no shadow term). RawAdditive 1 (the additive flag 0x4 of MtlFlags: ONE, ONE): the RGB alone, no shader alpha; else SRC_ALPHA,
+# ONE: x base.a x (1 - exp2(-fadingFeaturing B.a^2)) x near^2 x far^2 with the vertex distance d (m): near = (d - nearFadeStart) /
+# nearFadeSize, far = 1 - (d - farFadeStart) / farFadeSize, saturated; a size of 0 gives a step (far = d < start, near = d > start).
+# No scene fog on the card (the source card has no fog operation; the background keeps its fog). Units: x EmissiveScale x BeamScale
+# (10,000 cd/m2 for one source unit, as M_SwcBeam).
+CARD_NOISE_VS_HLSL = """float3 p = LP * float3(0.01, -0.01, 0.01);
+return float4(p * float3(0.05, 0.05, 0.1) + T * S.xyz, distance(WP, CP) * 0.01);"""
+CARD_PS_HLSL = """float z = PD * 0.01;
+float zs = SD * 0.01;
+float F = min(saturate(SI * min(zs - z, z)), saturate(SI * (z - ZN)));
+float3 dust = float3(1.0, 1.0, 1.0);
+float n = 1.0;
+if (NZ > 0.5) {
+  float3 t = Turb.rgb;
+  t *= 0.5 * (t.r * t.g + t.b);
+  dust = lerp(Dust.rgb, t, TR);
+  n = saturate(f);
+}
+float3 rgb = max(Base.rgb * B.rgb * dust * F * (1.0 + AMB) * n, 0.0);
+if (RA > 0.5) return rgb * Scale * BS;
+float d = NR.w;
+float nearF = NS > 0.0 ? saturate((d - NF) / NS) : (d > NF ? 1.0 : 0.0);
+float farF = FS > 0.0 ? saturate(1.0 - (d - FFS) / FS) : (d < FFS ? 1.0 : 0.0);
+float a = Base.a * (1.0 - exp2(-FF * B.a * B.a)) * nearF * nearF * farF * farF;
+return rgb * saturate(a) * Scale * BS;"""
+# The sine wave of VertexDeform (Type 1, WaveX; research/geometryfog.md 4): in the local space of the source (metres, before the scale),
+# wave = sin(pi x ((x + y + z) / DividerX + t x frequency + phase)) x amplitude + level along the local normal. W = (frequency, phase,
+# amplitude, level); the output is the local offset in Unreal cm (then the local-to-world vector transform).
+CARD_WAVE_HLSL = """float3 p = LP * float3(0.01, -0.01, 0.01);
+float w = sin(3.14159265 * ((p.x + p.y + p.z) / max(DV, 1e-4) + T * W.x + W.y)) * W.z + W.w;
+return LN * w * 100.0;"""
+
+
+def fog_card_parent():
+    """@return M_SwcFogCard (new, in the landmark folder): Additive, Unlit, two sided, no depth write, no fog of the scene."""
+    material = new_parent("M_SwcFogCard")
+    st = unreal.MaterialSamplerType
+    cf = unreal.CustomMaterialOutputType
+    white = unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture")
+    coords = sm.node(material, unreal.MaterialExpressionTextureCoordinate, -2400, 0)
+    vertex = sm.node(material, unreal.MaterialExpressionVertexColor, -2400, -600)
+    normal = sm.node(material, unreal.MaterialExpressionVertexNormalWS, -2400, -450)
+    camera = sm.node(material, unreal.MaterialExpressionCameraPositionWS, -2600, -350)
+    world = sm.node(material, unreal.MaterialExpressionWorldPosition, -2600, -250)
+    toward = sm.node(material, unreal.MaterialExpressionSubtract, -2400, -300)
+    editing.connect_material_expressions(camera, "", toward, "A")
+    editing.connect_material_expressions(world, "", toward, "B")
+    flags = sm.vector(material, "BeamFlags", (1.0, 0.0, 0.0, 0.0), -2400, 300)     # u = U (no vertical gradient)
+    flags2 = sm.vector(material, "BeamFlags2", (0.0, 1.0, 0.0, 0.0), -2400, 450)   # the gradient alpha
+    beam_vs = sm.custom(material, sm.BEAM_VS_HLSL, cf.CMOT_FLOAT4,
+                        ("VC", "VA", "N", "W", "UV", "DC", "SC", "EC", "F1", "F2", "FM", "VD"), -2000, -300)
+    for pin, (src, out) in {"VC": (vertex, ""), "VA": (vertex, "A"), "N": (normal, ""), "W": (toward, ""), "UV": (coords, ""),
+                            "DC": (sm.vector(material, "DiffuseColor", (1.0, 1.0, 1.0, 1.0), -2400, -150), "RGBA"),
+                            "SC": (sm.vector(material, "StartColor", (1.0, 1.0, 1.0, 1.0), -2400, 0), "RGBA"),
+                            "EC": (sm.vector(material, "EndColor", (1.0, 1.0, 1.0, 1.0), -2400, 150), "RGBA"),
+                            "F1": (flags, "RGBA"), "F2": (flags2, "RGBA"),
+                            "FM": (sm.scalar(material, "FinalMultiplier", 1.0, -2400, 600), ""),
+                            "VD": (sm.scalar(material, "viewDependencyFactor", 2.0, -2400, 700), "")}.items():
+        editing.connect_material_expressions(src, out, beam_vs, pin)
+    b = sm.node(material, unreal.MaterialExpressionVertexInterpolator, -1800, -300)
+    editing.connect_material_expressions(beam_vs, "", b, "VS")
+    local = sm.node(material, unreal.MaterialExpressionPreSkinnedPosition, -2400, 850)
+    time_node = sm.node(material, unreal.MaterialExpressionTime, -2400, 950)
+    noise_vs = sm.custom(material, CARD_NOISE_VS_HLSL, cf.CMOT_FLOAT4, ("LP", "T", "S", "WP", "CP"), -2000, 900)
+    for pin, (src, out) in {"LP": (local, ""), "T": (time_node, ""),
+                            "S": (sm.vector(material, "NoiseSpeed", (0.1, 0.15, 0.05, 0.0), -2400, 1050), "RGB"),
+                            "WP": (world, ""), "CP": (camera, "")}.items():
+        editing.connect_material_expressions(src, out, noise_vs, pin)
+    nr = sm.node(material, unreal.MaterialExpressionVertexInterpolator, -1800, 900)
+    editing.connect_material_expressions(noise_vs, "", nr, "VS")
+    noise_object = sm.node(material, unreal.MaterialExpressionTextureObject, -1800, 1100)
+    noise_object.set_editor_property("texture", unreal.load_asset(f"{sm.BASE}/T_SwcNoise3D"))   # read only
+    nxyz = sm.mask(material, nr, "", "rgb", -1650, 1000)
+    f = sm.custom(material, sm.BEAM_NOISE_HLSL, cf.CMOT_FLOAT1, ("Tex", "NR"), -1500, 1000)
+    editing.connect_material_expressions(noise_object, "", f, "Tex")
+    editing.connect_material_expressions(nxyz, "", f, "NR")
+    base_uv = sm.custom(material, sm.BEAM_BASE_UV_HLSL, cf.CMOT_FLOAT2, ("UV", "R", "UVT", "O", "T"), -1500, 1250)
+    for pin, (src, out) in {"UV": (coords, ""), "R": (sm.scalar(material, "uvRot", 0.0, -1800, 1550), ""),
+                            "UVT": (sm.vector(material, "UVTransform", (1.0, 1.0, 0.0, 0.0), -1800, 1250), "RGBA"),
+                            "O": (sm.vector(material, "BaseOscillator", (0.0, 0.0, 0.0, 0.0), -1800, 1400), "RGBA"),
+                            "T": (time_node, "")}.items():
+        editing.connect_material_expressions(src, out, base_uv, pin)
+    bus = sm.scalar(material, "baseUVScale", 1.0, -1800, 1600)
+    base_uv_scaled = sm.node(material, unreal.MaterialExpressionMultiply, -1350, 1250)
+    editing.connect_material_expressions(base_uv, "", base_uv_scaled, "A")
+    editing.connect_material_expressions(bus, "", base_uv_scaled, "B")
+    dust_uv = sm.custom(material, sm.BEAM_DUST_UV_HLSL, cf.CMOT_FLOAT2, ("U", "DS", "DT", "NR"), -1500, 1550)
+    for pin, src in {"U": base_uv, "DS": sm.scalar(material, "dustUVScale", 0.6, -1800, 1650),
+                     "DT": sm.scalar(material, "dustTimeScale", 1.0, -1800, 1750), "NR": nxyz}.items():
+        editing.connect_material_expressions(src, "", dust_uv, pin)
+    turb_uv = sm.custom(material, sm.BEAM_TURB_UV_HLSL, cf.CMOT_FLOAT2, ("f", "TS"), -1500, 1850)
+    editing.connect_material_expressions(f, "", turb_uv, "f")
+    editing.connect_material_expressions(sm.scalar(material, "turbStrength", 1.0, -1800, 1850), "", turb_uv, "TS")
+    base = textured(material, "BaseColor", st.SAMPLERTYPE_COLOR, white, base_uv_scaled, -1200, 1250)
+    dust = textured(material, "Dust", st.SAMPLERTYPE_COLOR, white, dust_uv, -1200, 1550)
+    turb = textured(material, "Turbulence", st.SAMPLERTYPE_MASKS, unreal.load_asset(f"{sm.BASE}/T_SwcBlackData"), turb_uv, -1200, 1850)
+    effects = unreal.load_asset(f"{sm.BASE}/MPC_SwcEffects")   # read only (BeamScale)
+    pins = {"B": (b, ""), "NR": (nr, ""), "Base": (base, "RGBA"), "Dust": (dust, "RGBA"), "Turb": (turb, "RGBA"), "f": (f, ""),
+            "PD": (sm.node(material, unreal.MaterialExpressionPixelDepth, -1200, 2100), ""),
+            "SD": (sm.node(material, unreal.MaterialExpressionSceneDepth, -1200, 2200), ""),
+            "Scale": (emissive_scale(material, -1200, 2750), ""), "BS": (collection_vector(material, effects, "BeamScale", -1200, 2850), "")}
+    for i, (pin, parameter, default) in enumerate((
+            ("SI", "SoftIntersectionFactor", 1.0), ("ZN", "NearClip", 0.1), ("TR", "turbRatio", 0.55), ("AMB", "AmbStrength", 0.12),
+            ("NZ", "Noise", 1.0), ("RA", "RawAdditive", 0.0), ("FF", "fadingFeaturing", 0.55), ("NF", "nearFadeStart", 0.0),
+            ("NS", "nearFadeSize", 10.0), ("FFS", "farFadeStart", 0.0), ("FS", "farFadeSize", 0.0))):
+        pins[pin] = (sm.scalar(material, parameter, default, -1600, 2100 + 100 * i), "")
+    color = sm.custom(material, CARD_PS_HLSL, cf.CMOT_FLOAT3, tuple(pins), -700, 1500)
+    for pin, (src, out) in pins.items():
+        editing.connect_material_expressions(src, out, color, pin)
+    editing.connect_material_property(color, "", MP.MP_EMISSIVE_COLOR)
+    one = sm.node(material, unreal.MaterialExpressionConstant, -400, 1650)
+    one.set_editor_property("r", 1.0)
+    editing.connect_material_property(one, "", MP.MP_OPACITY)
+    # The wave (world position offset).
+    wave = sm.custom(material, CARD_WAVE_HLSL, cf.CMOT_FLOAT3, ("LP", "LN", "T", "W", "DV"), -1000, 3100)
+    for pin, (src, out) in {"LP": (local, ""), "LN": (sm.node(material, unreal.MaterialExpressionPreSkinnedNormal, -1300, 3100), ""),
+                            "T": (time_node, ""), "W": (sm.vector(material, "Wave", (0.0, 0.0, 0.0, 0.0), -1300, 3200), "RGBA"),
+                            "DV": (sm.scalar(material, "WaveDivider", 1.0, -1300, 3300), "")}.items():
+        editing.connect_material_expressions(src, out, wave, pin)
+    to_world = sm.node(material, unreal.MaterialExpressionTransform, -700, 3100)
+    to_world.set_editor_property("transform_source_type", unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_LOCAL)
+    to_world.set_editor_property("transform_type", unreal.MaterialVectorCoordTransform.TRANSFORM_WORLD)
+    editing.connect_material_expressions(wave, "", to_world, "")
+    editing.connect_material_property(to_world, "", MP.MP_WORLD_POSITION_OFFSET)
+    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_ADDITIVE)
+    material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    material.set_editor_property("two_sided", True)
+    material.set_editor_property("use_translucency_vertex_fog", False)
+    editing.recompile_material(material)
+    assets.save_loaded_asset(material)
+    return material
+
+
 def material_folder():
     return folder + "/Materials"
 
@@ -290,6 +427,8 @@ try:
     for product, record in doc["meshes"].items():
         mesh_asset(product, record)
     parents = {"vortex layer": layer_parent(), "vortex core": core_parent()}
+    if any(spec.get("parent") == "fog card" for spec in doc["materials"].values()):
+        parents["fog card"] = fog_card_parent()
     for key, spec in doc["materials"].items():
         instance(key, spec, parents)
 except Exception as error:   # the report has it; the tool exits 1

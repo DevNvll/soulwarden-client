@@ -340,10 +340,29 @@ actor, outside the cells of the World Partition (it stays when the cells load or
   or the Unreal light; the direction of the sun or the moon light). `-SwcNoLandmarks` turns it off; `swc.Landmarks 0` hides it in a run.
 - Open [U]: the rim terms of the source (`%RIM_DIFFUSE_LIGHTING`; in the spec, not drawn), the source LODs (LOD 0 only), the exact
   draw state of the transparent passes (research/maelstrom.md, open points), and the menu vortex (a later part of AST-209).
-- Not drawn: the column of fog cards under the maelstrom. The slice has 10 `fx_fogcard_01` entities (four have a mesh placement:
-  `objects/vfx/mesh/fx_fogcard_01.cgf` with `objects/volumetrics/fogsheet_shatteredmtn_portalteal.mtl`), on a vertical line from about
-  600 m to 1,434 m under the core (the scale 7.5 to 15 across, 50 to 90 up). They make the vertical teal glow of retail at far-a. The
-  world cells draw only imported meshes, and the world has no fog sheet rule yet (the menu fog sheets: docs/FRONTEND.md).
+- The fog card column under the maelstrom (AST-265; the GPT-6.1-Sol study `~/Games/soulwarden-client/research/geometryfog.md`). The slice
+  has 10 `fx_fogcard_01` entities; only the four children of the two Fog_Center entities are visible (the other six have
+  Visible=false). Their material `objects/volumetrics/fogsheet_shatteredmtn_portalteal.mtl` has the shader Geometryfog (not
+  GeometryBeam: the cells leave it out, `cells.FOG_CARDS` work). The cards are vertical planes of 53.5 x 13.5 m at the scale (11.25,
+  11.25, 90): about 600 m wide and 1,225 m tall, the pivots at 601.9 m and 882.9 m, thus the column from 589 m to 2,095 m.
+  - The converter (`landmarks.fog_card_mesh`, `fog_card_spec`): the card mesh with mesh rule 8 (the vertex colors) into the landmark
+    folder (LOD 0; not the shared converted file, no manifest record); the parts with `"pivot": "root"` and their saved world
+    transforms (they already hold the Fog_Center parents; the capital once), not turned.
+  - The parent `M_SwcFogCard` (`import_landmarks.fog_card_parent`, new): Additive, Unlit, two sided, no scene fog on the card (the
+    source card has no fog operation; the background keeps its fog). The vertex part of GeometryBeam (q = saturate(dot(W, N)^2 x
+    viewDependencyFactor)^2, FinalMultiplier x the vertex RGBA x Diffuse x q x lerp(StartColor, EndColor, u)); the depth fade
+    min(saturate(s x min(zs - z, z)), saturate(s x (z - zn))) with no water plane; the dust and the noise saturate(2 n - 0.25) with the
+    fixed noise speeds (0.1, 0.15, 0.05); RGB x (1 + AmbStrength). The blend: the additive bit 0x4 of MtlFlags makes the retail state
+    ONE, ONE (`RawAdditive` 1): the raw RGB, no shader alpha. Thus the far fade (farFadeStart 2000, farFadeSize 0: alpha 0 beyond 2 km)
+    and the zero vertex-alpha curve (fadingFeaturing 0) do not hide the column; a material with SRC_ALPHA, ONE gets the alpha once with
+    the squared near and far fades of the vertex distance (a size of 0 gives a step). The sine wave of VertexDeform (0.1 m along the
+    local normal before the scale, 1.125 m in the world; frequency 0.23) is a world position offset. The view range is the 10 km of the
+    landmark.
+  - `swc.Landmarks 2` hides only the cards (the cost check). The check (2026-10-22, a worktree copy of the plugin, runs cost1 and
+    cost2): far-a shows the column under the swirl at the place of the retail glow (brighter and more saturated than retail, where the
+    white haze makes it pale); the GPU median with and without the cards, late pairs of one run: far-a 9.2 / 9.35 ms and 9.5 / 9.55 ms,
+    200 m from the column 6.42 / 6.51 ms (there the cliff hides the cards: the column stands in a bowl, and the backend travel is
+    limited to 999 m, thus a near view with the cards in front was not reached).
 - The check (2026-10-22, retail stills of set-ast261-far): from the Cleave camera (cleave-a, 2.0 km) and from the summit view (far-a,
   3.1 km). cleave-a, the sky pixels (the clear sky of the client run with `swc.Landmarks 0`; mean RGB, luma): retail (180, 186, 201)
   186; parent version 2 (101, 142, 191) 137; version 3 (189, 199, 217) 198: the white-pink swirl of retail. far-a: retail shows the

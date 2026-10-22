@@ -5,6 +5,7 @@
 #include "SwcLandmarks.generated.h"
 
 class UMaterialParameterCollection;
+class UPrimitiveComponent;
 class USceneComponent;
 
 /**
@@ -16,7 +17,7 @@ class USceneComponent;
  * 0.05 s one step of +0.143239 degrees in Unreal; an accumulator that resets to 0, no delta time; research/maelstrom.md).
  * The back light of the translucent layers (%TRANSMITTANCE of the source Illum) needs the light of the hour: each frame the subsystem
  * sets SunDirection (toward the light) and SunColor (lux: the source sun on the ground, or the Unreal light) in MPC_SwcLandmarks.
- * -SwcNoLandmarks turns it off; swc.Landmarks 0 hides it in a run.
+ * -SwcNoLandmarks turns it off; swc.Landmarks 0 hides it in a run (2: only the fog cards of the column are hidden).
  */
 UCLASS()
 class SOULWARDENCLIENT_API USwcLandmarks : public UTickableWorldSubsystem
@@ -42,5 +43,7 @@ private:
 	double StepSeconds = 0.05;
 	double StepDegrees = 0.0;
 	double Accumulator = 0.0;
-	bool bShown = true;
+	int32 ShownMode = 1;
+	/** The fog cards of the column (swc.Landmarks 2 hides them alone). */
+	TArray<TWeakObjectPtr<UPrimitiveComponent>> Cards;
 };

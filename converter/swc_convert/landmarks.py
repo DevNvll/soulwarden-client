@@ -31,6 +31,10 @@ MAELSTROM = {
 ROTATION = {"pivot": "bottom", "step seconds": 0.05, "step degrees": math.degrees(0.0025)}
 # The mesh folders of the landmarks: cells.write leaves them out of the cells (only the maelstrom places these meshes in the world).
 LANDMARK_MESHES = (MAELSTROM["meshes"],)
+# The fog card column under the maelstrom (AST-265; research/geometryfog.md): the placed fx_fogcard_01 cards of the slice (the four
+# visible children of the two Fog_Center entities) with the Geometryfog material of their override. The cells leave them out (a
+# Geometryfog override; cells.FOG_CARDS).
+FOG_CARD_MESH = "objects/vfx/mesh/fx_fogcard_01.cgf"
 PARENT_FIELD = source.field_id("m_parentId")
 UNREAL_FOLDER = "/SwcGameContent/Landmarks/Maelstrom"
 
@@ -136,6 +140,71 @@ def texture_record(product: str, kind: str, textures: dict) -> str:
     return key
 
 
+def fog_card_mesh() -> dict:
+    """Converts the card mesh with mesh rule 8 (the GeometryBeam and Geometryfog slots are drawn; the vertex colors) into the landmark
+    folder (not the shared converted file, no manifest record) and @return the record of its LOD 0 glTF (lod0_mesh)."""
+    from . import mesh as meshes
+    stem = FOG_CARD_MESH.rsplit("/", 1)[-1][:-4]
+    folder = out_dir() / "maelstrom" / "meshes"
+    folder.mkdir(parents=True, exist_ok=True)
+    full = folder / (stem + "_all.gltf")
+    meshes.convert(FOG_CARD_MESH, force=True, write_manifest=False, rule=meshes.RULE_BEAMS, out=full)
+    doc = json.loads(full.read_text())
+    for m in doc["meshes"]:
+        m["primitives"] = m["primitives"][:1]
+    for buffer in doc.get("buffers", []):
+        uri = buffer.get("uri", "")
+        if uri and not uri.startswith("data:"):
+            buffer["uri"] = uri if (folder / uri).is_file() else uri.rsplit("/", 1)[-1]
+    out = folder / (stem + ".gltf")
+    out.write_text(json.dumps(doc))
+    full.unlink()
+    return {"file": str(out.relative_to(env.content_dir())), "unreal": f"{UNREAL_FOLDER}/Meshes/{stem}",
+            "triangles": sum(doc["accessors"][p["indices"]]["count"] // 3 for m in doc["meshes"] for p in m["primitives"])}
+
+
+def fog_card_spec(mtl: str, textures: dict) -> dict:
+    """@return The instance spec of a Geometryfog card material (parent "fog card", M_SwcFogCard; research/geometryfog.md "Rule for
+    the client"): the base map (Diffuse, sRGB) with the stretch oscillators of its TexMod, the dust map (Specular, sRGB), no
+    turbulence map (the empty Bumpmap slot: black), the XML Diffuse, the public parameters, and the sine wave of VertexDeform."""
+    element = ET.fromstring(source.read(mtl))
+    public = element.find("PublicParams")
+    params = dict(public.attrib) if public is not None else {}
+    slots = {t.get("Map"): t for t in element.iter("Texture")}
+    spec = {"source": mtl, "shader": element.get("Shader", ""), "parent": "fog card", "textures": {}, "uv": {}, "scalars": {},
+            "vectors": {}}
+    for slot, parameter in (("Diffuse", "BaseColor"), ("Specular", "Dust")):
+        texture = slots.get(slot)
+        product = materials.texture_product(texture) if texture is not None else None
+        if product is not None:
+            spec["textures"][parameter] = texture_record(product, "srgb", textures)
+    mod = slots["Diffuse"].find("TexMod") if "Diffuse" in slots else None
+    m = dict(mod.attrib) if mod is not None else {}
+    stretch = lambda axis, field: float(m.get(f"TexMod_{axis}Oscillator{field}", 0.0)) if m.get(f"TexMod_{axis}OscillatorType") == "5" else 0.0
+    spec["vectors"]["BaseOscillator"] = [stretch("U", "Rate"), stretch("V", "Rate"), stretch("U", "Amplitude"), stretch("V", "Amplitude")]
+    spec["vectors"]["UVTransform"] = [float(m.get("TileU", 1.0)), float(m.get("TileV", 1.0)), float(m.get("OffsetU", 0.0)),
+                                      float(m.get("OffsetV", 0.0))]
+    spec["vectors"]["DiffuseColor"] = (numbers(element.get("Diffuse")) + [1.0] * 4)[:4]
+    spec["vectors"]["StartColor"] = (numbers(params.get("StartColor")) + [1.0] * 4)[:4]
+    spec["vectors"]["EndColor"] = (numbers(params.get("EndColor")) + [1.0] * 4)[:4]
+    flags = element.get("StringGenMask", "")
+    spec["scalars"]["Noise"] = 1.0 if "%NOISE" in flags else 0.0
+    for name, default in (("FinalMultiplier", 1.0), ("viewDependencyFactor", 2.0), ("SoftIntersectionFactor", 1.0),
+                          ("AmbStrength", 0.12), ("baseUVScale", 1.0), ("dustUVScale", 0.6), ("dustTimeScale", 1.0),
+                          ("turbRatio", 0.55), ("turbStrength", 1.0), ("uvRot", 0.0), ("fadingFeaturing", 0.55),
+                          ("nearFadeStart", 0.0), ("nearFadeSize", 10.0), ("farFadeStart", 0.0), ("farFadeSize", 0.0)):
+        spec["scalars"][name] = float(params.get(name, default))
+    # The blend (research/geometryfog.md 3): the additive flag of the material selects ONE, ONE (raw RGB, no shader alpha).
+    spec["scalars"]["RawAdditive"] = 1.0 if int(element.get("MtlFlags", "0")) & 0x4 else 0.0   # MtlFlags bit 0x4 (0x5EECF80)
+    deform = element.find("VertexDeform")
+    wave = deform.find("WaveX") if deform is not None else None
+    if deform is not None and deform.get("Type") == "1" and wave is not None:
+        spec["vectors"]["Wave"] = [float(wave.get("Freq", 0.0)), float(wave.get("Phase", 0.0)), float(wave.get("Amp", 0.0)),
+                                   float(wave.get("Level", 0.0))]
+        spec["scalars"]["WaveDivider"] = float(deform.get("DividerX", 1.0))
+    return spec
+
+
 def material_spec(mtl: str, textures: dict) -> dict:
     """@return The instance spec of a vortex material (parent "vortex layer" for Illum, "vortex core" for Fxmeshadvancedtransp)."""
     element = ET.fromstring(source.read(mtl))
@@ -207,6 +276,16 @@ def write() -> dict:
         parent = entities[p["entity"]]["parent"]
         out_parts.append({"name": entities[p["entity"]]["name"], "entity": str(p["entity"]), "mesh": mesh, "material": material,
                           "pivot": pivot_of.get(parent, "top"), "world": space.unreal_transform(matrix4(p["matrix"]))})
+    # The fog cards: their world transforms (the saved m_worldTM already holds the Fog_Center parents; the capital once), not turned.
+    cards = [p for p in placements if p["source"] == "capital" and p["mesh"] == FOG_CARD_MESH and p["entity"] in entities]
+    if cards:
+        meshes[FOG_CARD_MESH] = fog_card_mesh()
+    for p in cards:
+        material = p["material"]
+        if material not in specs:
+            specs[material] = fog_card_spec(material, textures)
+        out_parts.append({"name": entities[p["entity"]]["name"], "entity": str(p["entity"]), "mesh": FOG_CARD_MESH, "material": material,
+                          "pivot": "root", "world": space.unreal_transform(matrix4(p["matrix"]))})
     doc = {"landmark": "maelstrom", "folder": UNREAL_FOLDER, "region": MAELSTROM["region"], "slice": MAELSTROM["slice"],
            "draw range m": 10000, "rotation": ROTATION, "pivots": pivots, "parts": out_parts, "meshes": meshes,
            "materials": specs, "textures": textures}
