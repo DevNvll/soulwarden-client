@@ -87,8 +87,11 @@ def write(name: str) -> dict:
     data = census.load_placements(name)
     assets = manifest.load()["assets"]
     names = [str(m) for m in data["meshes"]]
+    # The landmark meshes (the sky maelstrom: landmarks.LANDMARK_MESHES) are not cell instances: World/SwcLandmarks places them as one
+    # persistent actor (AST-209).
+    from .landmarks import LANDMARK_MESHES
     usable = np.array([assets.get(m, {}).get("kind") == "static" and not m.rsplit("/", 1)[-1].startswith("fx_")
-                       for m in names], dtype=bool)
+                       and not m.startswith(LANDMARK_MESHES) for m in names], dtype=bool)
     keep = usable[data["mesh"]] if len(names) else np.zeros(0, bool)
     material_names = [str(m) for m in data.get("materials", np.array([""]))]
     material_all = data["material"] if "material" in data else np.zeros(len(data["mesh"]), np.uint16)

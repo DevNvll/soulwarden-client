@@ -989,3 +989,14 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 		PresetName = LayerText;
 	}
 }
+
+const UDirectionalLightComponent* USwcEnvironmentSubsystem::GetSkyLightSource() const
+{
+	const UDirectionalLightComponent* A = Sun.Get();
+	const UDirectionalLightComponent* B = Moon.Get();
+	if (A == nullptr || (B != nullptr && B->IsVisible() && B->Intensity > A->Intensity))
+	{
+		return B;
+	}
+	return A;
+}

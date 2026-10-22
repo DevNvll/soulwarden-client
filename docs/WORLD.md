@@ -302,6 +302,42 @@ tools/build-world.sh --import --all      # each region: import its content (tool
   a streaming source; it logs the frame rate and the streaming each second, can write a picture every N frames, and
   ends the client with a summary line. `terrain.flythrough_plan` writes a plan from a route.
 
+## The landmarks (AST-209, 2026-10-22)
+
+The sky maelstrom of the Shattered Mountain (research/maelstrom.md) is a landmark: far meshes that the client shows as one persistent
+actor, outside the cells of the World Partition (it stays when the cells load or unload; the far mesh rule `SwcImpostor` would hide it).
+
+- The converter (`python3 -B -m swc_convert.landmarks write`, `converter/swc_convert/landmarks.py`) reads the capital
+  ShatteredMountainVoretex of r_+04_+04: the six mesh instances (layers 01, 03, 05, both tendrils, the core) with the material override
+  of each placement, the two pivots (CenterPivot_Top and CenterPivot_Bottom: the m_worldTM of the slice x the capital matrix), the parent
+  of each part, and the TexMod of each texture slot (tile, offset, the rotation of type 2 as degrees per second: 1000 x the amplitude).
+  It writes `SWC_CONTENT/landmarks/maelstrom.json`, the PNGs of the textures (the rules of the materials pipeline; the emission maps by
+  the color space of the file, AST-207), and a glTF with LOD 0 only for each mesh: the converted meshes hold the source `$lod` nodes as
+  more primitives of the same mesh (they would draw as more layers). The cells leave the landmark meshes out (`cells.write`,
+  `landmarks.LANDMARK_MESHES`; only the maelstrom places these meshes).
+- `tools/import-landmarks.sh` (`Scripts/import_landmarks.py`; the world lock and the import lock) makes, all new, in
+  `/SwcGameContent/Landmarks/Maelstrom`: the five meshes (no Nanite: the layers are translucent; the pipeline `P_SwcMesh`), the textures
+  that the plugin does not have yet, `MPC_SwcLandmarks` (SunDirection, SunColor), two parents, and one instance for each source material
+  (`MI_STEM`). It changes no existing asset (it reads `MPC_SwcMaterials` and the base textures).
+  - `M_SwcVortexLayer` (the Illum layers and tendrils): Translucent, lit per pixel (surface forward shading), two sided, the fog per
+    pixel. The base color D x DiffuseColor, the opacity D.a x Opacity, the normal map, the emission of the source (AST-207: C.rgb x C.a
+    x 0.1 x the map x the intensity map x EmissiveScale), and the back light of `%TRANSMITTANCE` (the forward Illum path of the source:
+    for each light pow(saturate(N.L x 0.6 + 0.4), 1 / (1 - NormalViewDependency)) x the light x BackDiffuseMultiplier x Opacity map (R)
+    x TransmittanceColor x the albedo; one light here, the light of the hour, / pi to cd/m2). The back light makes the bright white and
+    pink swirl of retail (BackDiffuseMultiplier 4, TransmittanceColor 1, 0.66, 0.66); without it the layers were dark blue-gray.
+  - `M_SwcVortexCore` (Fxmeshadvancedtransp): Additive, Unlit, two sided, the fog per pixel; saturate(pow(S.rgb x C.rgb,
+    GlobalColorFalloff)) x C.a x pow(S.a, GlobalAlphaFalloff) x Opacity x EmissiveScale (the source map: the Custom slot).
+  - The UV of each slot: uv x tile + offset, turned about the centre by the time (the material Time node) x the rate.
+- The client (`World/SwcLandmarks`, a world subsystem in the World Partition level only) spawns one transient actor: the two pivots at
+  their world transforms and the six static mesh components under them (the transforms relative to the pivot: the original child
+  offsets), no shadow, no collision, the cull distance of the source (MaxViewDistance 10,000 m). CenterPivot_Bottom (the tendrils and the
+  core) turns about its local Z by the script rule of the source (transformovertime.luac on VortexScale: each 0.05 s one step of 0.0025
+  rad; an accumulator that resets to 0, no delta time; +0.143239 degrees in Unreal, one turn in 125.7 s); CenterPivot_Top stays still.
+  Each frame it sets the light of the hour in MPC_SwcLandmarks (the source sun on the ground, `USwcEnvironmentSubsystem::GetSourceSunLight`,
+  or the Unreal light; the direction of the sun or the moon light). `-SwcNoLandmarks` turns it off; `swc.Landmarks 0` hides it in a run.
+- Open [U]: the rim terms of the source (`%RIM_DIFFUSE_LIGHTING`; in the spec, not drawn), the source LODs (LOD 0 only), the exact
+  draw state of the transparent passes (research/maelstrom.md, open points), and the menu vortex (a later part of AST-209).
+
 ## The loading (AST-203, 2026-10-20)
 
 The work of the priority of the user (2026-10-20: "prioritize optimizations on loading terrain"), with the rule of the user of the

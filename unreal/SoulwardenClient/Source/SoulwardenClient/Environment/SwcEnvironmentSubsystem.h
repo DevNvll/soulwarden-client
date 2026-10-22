@@ -213,6 +213,8 @@ public:
 	{
 		return SourceSunLight;
 	}
+	/** @return The light of the hour: the sun, or the moon at night (the brighter of the two directional lights of the environment). */
+	const UDirectionalLightComponent* GetSkyLightSource() const;
 	/** The exposure rule of the source at the place: "EV Min", "EV Max", and "EV Auto compensation" of the blend (the meter probe). */
 	FVector GetExposureRule() const
 	{
