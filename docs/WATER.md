@@ -243,8 +243,10 @@ the Unreal clouds); (3) the cube fog once on the composed cube. No stars at noon
 - The cube fog: not ported. The source transport (one interval of the fog grid, old x T + Lfog) needs the slice count of the grid and
   the sun in-scatter inputs (a study is asked: `research/briefs/ast200-p5-cube-fog.md`). The capture fog of Unreal (bit 2) integrates to
   the sky sphere (46 to 50 km) and also fogs each layer: not the source rule.
-- `swc.WaterSkyCube` bits: 1 the Unreal clouds, 2 the Unreal fog, 4 the source layers, 8 the Unreal atmosphere. The default stays 11
-  (the capture of part 4) until the cube fog is ported.
+- `swc.WaterSkyCube` bits: 1 the Unreal clouds, 2 the Unreal fog, 4 the source layers, 8 the Unreal atmosphere. The default is 4, an
+  interim rule [I] until the cube fog is ported (the decision of the orchestrator, 2026-10-22): the proved parts of the source cube (the
+  base sky and the source layers) without the unported cube fog; 11 is the Unreal capture of part 4, which the study shows is not the
+  retail content. All four views improve with it (mean water dE 13.8 to 8.1, the table below).
 
 | View | 11 (part 4) | 6 (base, layers, Unreal fog) | 2 (base, Unreal fog) | 4 (base, layers, no fog) | Water L* 11 / 4 (retail) |
 | --- | --- | --- | --- | --- | --- |

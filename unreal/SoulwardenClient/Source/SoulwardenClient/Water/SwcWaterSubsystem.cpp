@@ -68,10 +68,10 @@ TAutoConsoleVariable<FString> CVarWaterParams(TEXT("swc.WaterParams"), TEXT(""),
  *  the environment with the source sky model; no fog on it in the source), the draw list 0x19 (the Distanceclouds subsets of the sky
  *  slice: the source cloud layers, swc_convert.skycube), then the cube fog once (here the fog of the capture, also on the layers:
  *  with the same fog on both this is the fog once on the composed cube [I]; the source one-interval transport is not ported). */
-TAutoConsoleVariable<int32> CVarWaterSkyCube(TEXT("swc.WaterSkyCube"), 11,
+TAutoConsoleVariable<int32> CVarWaterSkyCube(TEXT("swc.WaterSkyCube"), 4,
 	TEXT("The parts of the water sky cube (bits): 1 the Unreal clouds, 2 the Unreal fog of the capture, 4 the source cloud layers (the Distanceclouds ")
-	TEXT("of the dome), 8 the Unreal atmosphere (its sun disk). 11 (the default): the capture of part 4. The source cube is the base sky, the ")
-	TEXT("source layers, then the source cube fog once (not ported: 4 has no fog, 6 the Unreal fog also on each layer)."));
+	TEXT("of the dome), 8 the Unreal atmosphere (its sun disk). 4 (the default, interim [I]): the proved parts of the source cube (the base sky and ")
+	TEXT("the source layers) without the source cube fog, which is not ported yet; 11: the capture of part 4."));
 
 TAutoConsoleVariable<int32> CVarWaterSourceSun(TEXT("swc.WaterSourceSun"), 1,
 	TEXT("1: the water sun color is the source sun of the hour (the rule); 0: the Unreal sun light."));
