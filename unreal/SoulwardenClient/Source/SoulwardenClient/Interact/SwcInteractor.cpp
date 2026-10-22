@@ -454,8 +454,13 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		// rule) has no body and no focus: two persons of one spawner place (Aelstrom WW_01 and the season person NPC_03976 on the
 		// beach; AST-248). The retail client has no entity for it.
 		const USwcPersonSubsystem* Present = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcPersonSubsystem>() : nullptr;
-		const auto Hidden = [Present](const FSwcWorldObjectTarget& Target)
+		const auto Hidden = [Present, this](const FSwcWorldObjectTarget& Target)
 		{
+			// A quest object with InteractOnlyOnQuest and no Active task with its tag (AST-241).
+			if (Target.bQuestOnly && !QuestTags.Contains(Target.QuestTag))
+			{
+				return true;
+			}
 			const FSwcPerson* Person = Target.bNpc && Present != nullptr ? Present->FindByInteraction(Target.Key) : nullptr;
 			return Person != nullptr && !Person->bVisible;
 		};

@@ -3,6 +3,7 @@
 #include "SwcBackendSubsystem.h"
 #include "SwcUi/Runtime.h"
 
+#include <cstdlib>
 #include <string>
 
 DEFINE_LOG_CATEGORY_STATIC(LogSwcUiQuests, Log, All);
@@ -28,6 +29,7 @@ void FSwcUiQuests::Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::Ow
 		// A new character or a new world session: the calls and the state start again.
 		Reset();
 		Group = Own.group;
+		Backend.SetQuestTags(TSet<FString>());
 	}
 	if (!bEnabled)
 	{
@@ -65,6 +67,12 @@ void FSwcUiQuests::Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::Ow
 		}
 		Runtime.call("HostQuests", {FArg::of(Lines)});
 		bSentAny = true;
+		// The InteractTags of the Active tasks: the focus of the quest objects (AST-241).
+		std::string Tags;
+		Runtime.call("QuestActiveTags", {}, &Tags);
+		TArray<FString> Items;
+		FString(UTF8_TO_TCHAR(Tags.c_str())).ParseIntoArray(Items, TEXT(","));
+		Backend.SetQuestTags(TSet<FString>(Items));
 		UE_LOG(LogSwcUiQuests, Log, TEXT("ui: quests: %d active, %d task element(s), %d tracked"), static_cast<int32>(Own.questActive.size()),
 			static_cast<int32>(Own.questTasks.size()), static_cast<int32>(Own.questTracked.size()));
 	}
@@ -72,6 +80,21 @@ void FSwcUiQuests::Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::Ow
 	{
 		SentReadyRevision = Own.pinReadyRevision;
 		Runtime.call("HostQuestPinReady", {FArg::of(Own.pinReady)});
+	}
+	// The UI states that opened (2617; swc/manager.lua): sent in the world, after 2709 (the backend counts TaskOpenUiScreen with them).
+	for (int32 Guard = 0; Guard < 16; ++Guard)
+	{
+		std::string Text;
+		Runtime.call("TakeQuestScreen", {}, &Text);
+		const uint32 Screen = static_cast<uint32>(std::strtoull(Text.c_str(), nullptr, 10));
+		if (Screen == 0)
+		{
+			break;
+		}
+		if (bEnabled)
+		{
+			Backend.NotifyOpenUiScreen(Screen);
+		}
 	}
 	if (!bRestored && Own.pinReady && bSentAny)
 	{

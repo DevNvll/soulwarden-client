@@ -69,7 +69,8 @@ folders `lyshineui/images/objectives/`, `icons/objectives/`, `journal/`, and `ba
 
 - `tools/test-net.sh`: 27 quest checks (the beach start state, a timer, a large list: 60 objectives, 8 tracked, 512 task elements; an
   empty list; the view of an observer; a cut field; two owners; 5606; the request bodies).
-- `tools/test-ui.sh --fixture quests`: 17 checks.
+- `tools/test-ui.sh --fixture quests`: 17 checks; `--fixture questprogress`: 12 checks (the counter, Reset and its popup, the screen
+  queue, the tags of the quest objects).
 - The live check: a new character of the development account in its own data folder (`SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-quests`;
   `SWC_DEV_NEW=1` of `tools/creature-check.sh` makes it with no saved place, so the backend puts it on the Windsward beach). The drives
   `tests/drive/ast236-quest-*.txt`: the first entry (the banner, the tracker, J, Unpin, Pin, Escape), then a second entry of the same
@@ -77,12 +78,35 @@ folders `lyshineui/images/objectives/`, `icons/objectives/`, `journal/`, and `ba
   `ast236-q2.mp4`, the crops `ast236-tracker-retail-client.png` (retail, first entry, second entry) and `ast236-journal-retail-client.png`
   against the Soulwarden evidence `quests/18a/implement/live/I2-new-character-*.png`.
 
+- The live check K1 of Q6 (`tests/drive/ast241-k1*.txt`; evidence `~/Games/soulwarden-client/evidence/AST-241/`): the development
+  character in the shipwreck 40142 with 06_crewmates; Corrupted Mariners spawned 2.4 m north with full health (a creature with 1 health
+  of a development command gives no kill credit: the damage must be a part of its health); each credited kill gives a new state, and
+  the tracker shows "0 / 5", "1 / 5", "2 / 5 - Defeat Corrupted Mariners" (`ast241-counter-0-1-2.png`, `ast241-counter-retail-client.png`
+  against K1-2of5). A relog keeps the instance and the pins (1458 [5, 4]). J sends 2617 (6cb0696c, the journal); Reset, Yes sends
+  5600, and the backend sends a new instance; the HUD sends 2617 a1126b78.
+
 ## Notes
 
 - The icon of a pinned quest has the number of its place in the pinned list (GetObjectiveSortingPos from 0, -1 with no pin;
   `objectivetypedata.luac`): "1" for the one pin of a new character.
 - The Auto-Pin switches of the journal show with the data node `javelin.enable-auto-pin-options`; their states are the option nodes
   `Hud.LocalPlayer.Options.Misc.EnableAutoPinningObjectives.TYPE`, with the flags of 2709.
+
+## The task progress, the screens, and the quest objects (stage Q6, AST-241)
+
+- The counters: the progress of a task element of the state, and its TargetQty (the tracker shows "2 / 5 - TEXT"). The texts of the
+  tasks have values that the native GetDescription fills (`Q.FillTaskText`) [inference from the texts and the retail picture K1-2of5 of
+  the backend stage 1.8c]: `{targetName}` is the vitals category of KillEnemyType (`@vc_corrupted`: "Corrupted"), else the item;
+  `{itemName}` the item of ItemName; `{POITags}` the name of the point of interest of the first POITag (`quests.json` "pois": the
+  `poi-data.json` of the backend copy); `{destinationName}` the NPC name of ItemName; `{targetAmount}` the TargetQty.
+- The screens (2617): each change of the current UI state goes to a queue (`swc/manager.lua`, `Swc.TakeQuestScreen`); UI/SwcUiQuests
+  sends it in the world after 2709. The value is the UI state id, the CRC-32 of the lower-case state name (the HUD: a1126b78); the
+  backend counts TaskOpenUiScreen with the UIScreenTag of the task.
+- Reset and abandon: the journal buttons and the confirm popup of the original scripts send 5600 and 3836 (CanBeAbandoned: Abandon;
+  else Reset). The backend sends the new state.
+- The quest objects: an object of the interaction layer with InteractOnlyOnQuest (`quest` of the object layer: the capital entries of
+  `gathering-data.json` with 4 values) has a focus only while a task of the character with its InteractTag is Active
+  (`Swc.QuestActiveTags`, `USwcBackendSubsystem::SetQuestTags`; backend gathering.md: else the refusal notOnQuest).
 
 ## Open points
 

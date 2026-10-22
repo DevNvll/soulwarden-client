@@ -169,6 +169,9 @@ public:
 	void EndConversation(const std::vector<uint32>& FinishedTopics = {});
 	/** The conversation screen sends the topic of a selection (3158; AST-248). False with no world connection. */
 	bool ConversationTopic(uint32 Topic);
+	/** The InteractTags of the Active quest tasks of the character (AST-241; UI/SwcUiQuests from swc/quests.lua): the focus of the quest
+	 *  objects. */
+	void SetQuestTags(const TSet<FString>& Tags);
 	/** @return The Talk key of the open conversation scene (an npc object key, or "person:" + a key of persons.json), empty with no
 	 *  scene (the conversation screen of the UI: UI/SwcUiConversation). */
 	FString GetConversationSceneKey() const;

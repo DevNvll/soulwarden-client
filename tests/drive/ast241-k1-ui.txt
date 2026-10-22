@@ -1,0 +1,14 @@
+# The UI drive of tests/drive/ast241-k1.txt (AST-241): the counter on the tracker, then J, Reset of the journal row, Yes of the popup
+# (5600: the backend makes a new instance), Escape. Times from the spawn of the player.
+1 waitfor CompassLines 60
+2 waitfor world 180
+7 log the counter before the kills
+38 log the counter after the kills
+40 key J
+43 point text:Reset
+43.3 click
+45 point text:Yes
+45.3 click
+48 log the journal after the reset
+50 key Escape
+53 log the tracker after the reset

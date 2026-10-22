@@ -378,6 +378,15 @@ local function apply_stack(stack, from)
   local to = stack[#stack]
   Swc.uiState = to
   Swc.Note("ui state " .. tostring(from) .. " -> " .. tostring(to))
+  if to ~= from and to ~= nil then
+    -- The open of a UI screen for the quests (2617; AST-241, backend quests.md: TaskOpenUiScreen counts the CRC-32 of the lower-case
+    -- UIScreenTag; the state id is that CRC: "hud" a1126b78 = 2702338936). UI/SwcUiQuests takes the queue (Swc.TakeQuestScreen) and
+    -- sends it in the world only; a queue of its own keeps the host requests of the screens as before.
+    Swc.questScreens = Swc.questScreens or {}
+    if #Swc.questScreens < 16 then
+      Swc.questScreens[#Swc.questScreens + 1] = to
+    end
+  end
   for _, screen in pairs(Swc.screens) do
     if screen.autohide then
       local now = shown_by(screen, stack)

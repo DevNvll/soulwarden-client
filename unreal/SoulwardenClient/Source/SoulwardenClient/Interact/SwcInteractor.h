@@ -135,6 +135,9 @@ public:
 	}
 	/** The conversation screen of the UI shows: the key E is its Next key (the screen ends the conversation at the last line). */
 	void SetConversationScreen(bool bShown) { bConversationScreen = bShown; }
+	/** The InteractTags of the Active quest tasks of the character (lower case; AST-241): a quest object with InteractOnlyOnQuest has a
+	 *  focus only with its tag here (backend gathering.md stage 1.8c: else the refusal notOnQuest, and the retail client shows no prompt). */
+	void SetQuestTags(const TSet<FString>& Tags) { QuestTags = Tags; }
 	/** The crafting station of the use whose screen shows (stage MVP-J): its Assembly key, the fee flag, and its name key. @return False
 	 *  with no open station. */
 	bool GetStation(FString& OutKey, bool& bOutFee, FString& OutName) const
@@ -210,6 +213,7 @@ private:
 	/** The finished topics of the screen for the 5397 after the 2473 of the end (AST-248). */
 	std::vector<uint32> PendingTopics;
 	std::vector<uint32> TopicsAfterCancel;
+	TSet<FString> QuestTags;
 	bool bConversationScreen = false;
 	FString TalkKey;
 	swc::interact::Conversation Talk;

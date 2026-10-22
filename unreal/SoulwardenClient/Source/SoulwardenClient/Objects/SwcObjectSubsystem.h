@@ -102,6 +102,10 @@ struct FSwcWorldObjectTarget
 	uint32 Interest = 0;
 	/** A chest (stage P5.1): an elite chest (its depletion effect, its long reset). */
 	bool bElite = false;
+	/** A quest object (backend stage 1.8c; AST-241): its InteractTag (lower case) and InteractOnlyOnQuest: the gather needs an Active
+	 *  task of the character with the tag (USwcBackendSubsystem::SetQuestTags). */
+	FString QuestTag;
+	bool bQuestOnly = false;
 	/** The line of sight of a bound with m_requiresLineOfSight (the retail client: a ray before the prompt; stage P5.1): false when
 	 *  the world blocks the line from the head of the character to the object. */
 	bool bInSight = true;
@@ -231,6 +235,9 @@ private:
 		/** A chest: its name (a text key) and the elite mark. */
 		FString ChestName;
 		bool bElite = false;
+		/** A quest object (backend stage 1.8c; AST-241): its InteractTag (lower case) and InteractOnlyOnQuest. */
+		FString QuestTag;
+		bool bQuestOnly = false;
 	};
 	/** A gatherable row of the gathering data (stage P5.2). */
 	struct FGatherRow

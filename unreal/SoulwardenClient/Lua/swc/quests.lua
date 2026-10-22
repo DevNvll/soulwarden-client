@@ -310,6 +310,49 @@ function Swc.HostQuests(text)
 end
 
 --- The pin readiness (slot 73): the tracked objectives show from now on.
+-- The place of a POI tag (gamedata/quests.json "pois": the points of interest of the backend copy).
+local poiByTag
+function Q.PoiOfTag(tag)
+  if poiByTag == nil then
+    poiByTag = {}
+    for _, poi in ipairs(D().pois or {}) do
+      for _, each in ipairs(poi.tags or {}) do
+        poiByTag[string.lower(each)] = poi
+      end
+    end
+  end
+  return poiByTag[string.lower(tag or "")]
+end
+
+--- The values of the task texts (AST-241): the native GetDescription fills them [inference from the texts and the retail picture
+--- K1-2of5 of the backend stage 1.8c: "Defeat {targetName} Mariners" is "Defeat Corrupted Mariners"]. {targetName}: the vitals
+--- category of KillEnemyType ("@vc_corrupted"), else the item; {itemName}: the item of ItemName; {POITags}: the name of the point of
+--- interest of the first POITag; {destinationName}: the NPC name of ItemName (a conversation task); {targetAmount}: TargetQty.
+function Q.FillTaskText(text, row)
+  if not text:find("{", 1, true) or not row then
+    return text
+  end
+  local function localize(key)
+    return key and key ~= "" and LyShineScriptBindRequestBus.Broadcast.LocalizeText(key) or ""
+  end
+  local item = cell(row, "ItemName")
+  local static = item and Swc.ItemStatic(item)
+  local itemName = static and localize(static.name) or ""
+  local enemy = cell(row, "KillEnemyType")
+  local tag = (cell(row, "POITag") or ""):match("^%s*([^,%s]+)")
+  local poi = tag and Q.PoiOfTag(tag)
+  local npc = item and (D().npcNames or {})[string.lower(item)]
+  local values = {
+    targetName = enemy and localize("@vc_" .. string.lower(enemy)) or itemName,
+    itemName = itemName,
+    POITags = poi and localize(poi.name) or "",
+    destinationName = npc and localize(npc) or "",
+    targetAmount = cell(row, "TargetQty") or "",
+  }
+  values.POItags = values.POITags
+  return (text:gsub("{(%w+)}", function(name) return values[name] end))
+end
+
 --- The rule RequiredActiveObjectiveId and RequiredActiveTaskId of a conversation state (AST-248; backend docs/systems/persons.md, client
 --- IsTaskActiveById 0x3A49520): one objective of the list (commas) has the task Active (1) or CompleteActive (3).
 --- @return The objective id (userdata) of the first match, or nil.
@@ -330,6 +373,27 @@ function Q.ActiveTask(objectives, task)
     end
   end
   return nil
+end
+
+--- The InteractTags of the Active (1) tasks of the character, lower case, with commas (AST-241; backend gathering.md stage 1.8c: a quest
+--- object with InteractOnlyOnQuest needs an Active task with its tag). UI/SwcUiQuests gives them to the focus of the objects.
+function Swc.QuestActiveTags()
+  local tags, seen = {}, {}
+  for _, rec in ipairs(Q.list) do
+    for index, node in pairs(rec.nodes) do
+      local tag = node.row and cell(node.row, "InteractTag")
+      if tag and tag ~= "" and rec.states[index] and rec.states[index].state == 1 and not seen[string.lower(tag)] then
+        seen[string.lower(tag)] = true
+        tags[#tags + 1] = string.lower(tag)
+      end
+    end
+  end
+  return table.concat(tags, ",")
+end
+
+--- The next UI state that opened (2617; swc/manager.lua), or 0.
+function Swc.TakeQuestScreen()
+  return table.remove(Swc.questScreens or {}, 1) or 0
 end
 
 function Swc.HostQuestPinReady(on)
@@ -518,7 +582,7 @@ Swc.Define("ObjectiveTaskRequestBus", "Event", {
     if not key then
       return ""
     end
-    return LyShineScriptBindRequestBus.Broadcast.LocalizeText(key)
+    return Q.FillTaskText(LyShineScriptBindRequestBus.Broadcast.LocalizeText(key), node.row)
   end,
   GetIsHidden = function(taskId)
     local node = node_of(taskId)

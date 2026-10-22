@@ -1,0 +1,9 @@
+# The routes of tests/drive/ast241-k1.txt (AST-241): the level 20, the hour 12:00, the grant of 06_crewmates (409 when the character has
+# it), and three Corrupted Mariners (Corrupted_Sailor_1H_Club, the family Corrupted: the category of the kill task) 2.4 m north with
+# full health. Times on the clock of the drive script.
+0.5 level 20
+0.6 world-time 12:00
+1.0 quest grant 06_crewmates
+6.0 spawn Corrupted_Sailor_1H_Club 0.00 2.40 0.40 --level 1 --yaw 180
+16.0 spawn Corrupted_Sailor_1H_Club 0.00 2.40 0.40 --level 1 --yaw 180
+26.0 spawn Corrupted_Sailor_1H_Club 0.00 2.40 0.40 --level 1 --yaw 180

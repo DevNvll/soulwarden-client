@@ -511,8 +511,9 @@ bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, FRegion& Out)
 		Object.Group = swc::net::group_of(Object.Actor);
 		Object.EnginePlace = ReadPlace(Info->GetArrayField(TEXT("position")));
 		// The actor of the data must be the actor of the rule of the client (the UUID of the placement).
+		// A person child of a spawner (AST-248) has the client id of tag 7 and the key SPAWNER/CHILD: no UUID rule.
 		const auto Uuid = swc::objects::parse_uuid(TCHAR_TO_UTF8(*Object.Key));
-		if (!Uuid || swc::objects::placement_actor(*Uuid) != Object.Actor)
+		if (!Object.Key.Contains(TEXT("/")) && (!Uuid || swc::objects::placement_actor(*Uuid) != Object.Actor))
 		{
 			++Mismatches;
 		}
@@ -527,6 +528,12 @@ bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, FRegion& Out)
 		{
 			Object.Template = static_cast<int32>((*Gather)[0]->AsNumber());
 			Object.Row = static_cast<int32>((*Gather)[1]->AsNumber());
+		}
+		const TSharedPtr<FJsonObject>* Quest = nullptr;
+		if (Info->TryGetObjectField(TEXT("quest"), Quest))
+		{
+			Object.QuestTag = (*Quest)->GetStringField(TEXT("tag")).ToLower();
+			Object.bQuestOnly = (*Quest)->GetBoolField(TEXT("onlyOnQuest"));
 		}
 		for (const TSharedPtr<FJsonValue>& BoundValue : Info->GetArrayField(TEXT("bounds")))
 		{
@@ -792,6 +799,8 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 							Target.Name = Text(Object.ChestName);
 							Target.bElite = Object.bElite;
 						}
+						Target.QuestTag = Object.QuestTag;
+						Target.bQuestOnly = Object.bQuestOnly;
 						if (bUsableOnly && Bound.bLineOfSight)
 						{
 							Target.bInSight = HasSight(From, Bound.EnginePlace);

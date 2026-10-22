@@ -1535,6 +1535,15 @@ def convert_quests(force: bool) -> dict:
     events = dict(data["events"]) if isinstance(data["events"], list) else data["events"]
     doc = {"format": 1, "source": str(source_file), "objectives": objectives, "tasks": data["tasks"], "events": events,
            "territories": data.get("territories", [])}
+    # AST-241: the points of interest of the backend copy (poi-data.json: id, name key, tags, territory, center, radius, shape) for the
+    # place names of the task texts ({POITags}) and the place cues 2297 and 6416; the NPC names of the conversation data ({destinationName}).
+    poi_file = gamedata_dir() / "poi-data.json"
+    if poi_file.is_file():
+        doc["pois"] = [{k: p[k] for k in ("id", "name", "tags", "territory", "center", "radius", "shape") if k in p}
+                       for p in json.loads(poi_file.read_text())["pois"]]
+    conversation_file = gamedata_dir() / "conversation-data.json"
+    if conversation_file.is_file():
+        doc["npcNames"] = {n["id"].lower(): n["name"] for n in json.loads(conversation_file.read_text())["npcs"] if n.get("name")}
     target = out_dir() / "gamedata"
     target.mkdir(parents=True, exist_ok=True)
     (target / "quests.json").write_text(json.dumps(doc, separators=(",", ":"), sort_keys=True))
@@ -1542,7 +1551,8 @@ def convert_quests(force: bool) -> dict:
     for folder in QUEST_TEXTURE_FOLDERS:
         textures |= set(folder_textures(folder))
     textures |= set(QUEST_TEXTURES)
-    return {"objectives": len(objectives), "tasks": len(data["tasks"]), "events": len(events),
+    return {"objectives": len(objectives), "tasks": len(data["tasks"]), "events": len(events), "pois": len(doc.get("pois", [])),
+            "npcNames": len(doc.get("npcNames", {})),
             "bytes": (target / "quests.json").stat().st_size, "textures": convert_textures(textures, force)}
 
 
