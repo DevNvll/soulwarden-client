@@ -969,6 +969,35 @@ Swc.Define("ItemDataManagerBus", "Broadcast", {
     if perk then
       data.key = perk.id
       data.id = perk.crc
+      -- AST-259: the perk type is the value of the enum ePerkType (the scripts compare it with ePerkType_Inherent, and
+      -- perkdatahandler.luac GetSortedPerks drops a perk whose type is not a key of perkTypeOrder: the item tooltip then indexed a
+      -- missing sorted entry).
+      data.perkType = _G["ePerkType_" .. tostring(perk.perkType or "Invalid")]
+    end
+    -- A perk with an equip ability (EquipAbility of the perk row; dynamictooltip_itemstats.luac SetItem).
+    data.HasEquipAbilities = function() return perk ~= nil and (perk.equipAbility or "") ~= "" end
+    -- A perk of a season (dynamictooltip_itemstats.luac SetItem): the perk tables of the client have no season column [inference].
+    data.IsSeasonalPerk = function() return false end
+    -- A charm perk (dynamictooltip_perk.luac: the charm background and cover of the row).
+    data.IsCharmType = function()
+      local t = perk and perk.perkType or ""
+      return t == "OffensiveCharm" or t == "DefensiveCharm" or t == "SkillCharm"
+    end
+    -- The description of the perk on an item (dynamictooltip_perk.luac SetPerkData: the item, its gear score, the player): the formulas
+    -- at the potency of the perk at the gear score plus the class bonus of the perk for the class of the item (AST-259).
+    data.GetLocalizedDescription = function(_, itemId, gearScore)
+      local text = perk and perk.description and LyShineScriptBindRequestBus.Broadcast.LocalizeText(perk.description) or ""
+      if not perk then
+        return text
+      end
+      local static = Swc.ItemStatic(itemId)
+      local bonus = 0
+      for class, amount in string.gmatch(perk.itemClassGSBonus or "", "([^,:]+):%s*([-%d%.]+)") do
+        if static and static.classes[string.lower(class)] then
+          bonus = math.max(bonus, tonumber(amount) or 0)
+        end
+      end
+      return Swc.FillPerkFormulas(text, Swc.PerkPotency(perk, (tonumber(gearScore) or 0) + bonus))
     end
     -- The description of the perk for a tooltip (perkitemlistitem.luac, the craft mod rows): its localized text with the range of
     -- each formula (research forge-order.md 2, AST-234): the perk multiplier 1, then the potency at the display gear score
@@ -1105,6 +1134,54 @@ end
 
 -- The scaling tier of an attribute scaling value (itemrules.json: javelindata_weapontiers): the letter of the highest tier whose
 -- lowest value the scaling reaches, or "" below the lowest tier.
+-- The drive target "item:ID" (the UI drives of the checks; AST-259): the middle of the shown inventory cell of the item (itemdraggable.luac
+-- with the item in its layout).
+Swc.driveTargets = Swc.driveTargets or {}
+Swc.driveTargets.item = function(id)
+  local static = Swc.ItemStatic(id)
+  for _, instances in pairs(Swc.components or {}) do
+    for _, instance in ipairs(instances) do
+      local layout = type(instance) == "table" and rawget(instance, "ItemLayout")
+      if static and type(layout) == "table" and layout.itemId == static.crc and instance.entityId
+        and swcui.enabled_in_hierarchy(instance.entityId) then
+        local x0, y0, _, _, x2, y2 = swcui.viewport_points(instance.entityId)
+        return string.format("%.1f %.1f", (x0 + x2) / 2, (y0 + y2) / 2)
+      end
+    end
+  end
+  return ""
+end
+
+-- The attribute bonus of a perk on an item (dynamictooltip_itemstats.luac IsAttributePerk and the attribute rows of the tooltip;
+-- AST-259: with no definition the call gave nil, and "compare number with nil" stopped the tooltip of each item with a perk): the
+-- MOD<attribute> values of the affixes of the perk (perks.tsv attributes, in the order of CharacterAttributeType) x the potency of the
+-- perk at the gear score of the item plus the class bonus of the perk for the class of the item (ItemClassGSBonus; backend
+-- world/gear.cpp: the affix values x the potency).
+Swc.Define("CharacterAttributeRequestBus", "Event", {
+  GetAttributeBonus = function(_, perkId, attributeType, itemId, gearScore)
+    local perk = Swc.PerkStatic(perkId)
+    if not perk or not perk.attributes then
+      return 0
+    end
+    local values = {}
+    for value in string.gmatch(perk.attributes, "[^,]+") do
+      values[#values + 1] = tonumber(value) or 0
+    end
+    local value = values[(tonumber(attributeType) or -1) + 1] or 0
+    if value == 0 then
+      return 0
+    end
+    local static = Swc.ItemStatic(itemId)
+    local bonus = 0
+    for class, amount in string.gmatch(perk.itemClassGSBonus or "", "([^,:]+):%s*([-%d%.]+)") do
+      if static and static.classes[string.lower(class)] then
+        bonus = math.max(bonus, tonumber(amount) or 0)
+      end
+    end
+    return value * Swc.PerkPotency(perk, (tonumber(gearScore) or 0) + bonus)
+  end,
+})
+
 Swc.Define("WeaponTierDataManagerBus", "Broadcast", {
   GetTier = function(scaling)
     for _, tier in ipairs(rules.weaponTiers or {}) do

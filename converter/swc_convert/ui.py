@@ -1219,6 +1219,22 @@ def convert_items() -> dict:
                 if value not in (None, ""):
                     entry[key] = value.lower().replace("\\", "/") if key == "iconPath" else value
             perks[perk_id.lower()] = entry
+    # The attribute values of the affixes of each perk (javelindata_affixstats MOD<attribute>, in the order of CharacterAttributeType:
+    # Constitution, Focus, Strength, Dexterity, Intelligence; AST-259): CharacterAttributeRequestBus GetAttributeBonus of the tooltip
+    # (dynamictooltip_itemstats.luac IsAttributePerk) is these values x the potency of the perk (backend world/gear.cpp).
+    affix_mods = {}
+    for row in table_rows("javelindata_affixstats.datasheet"):
+        name = str(row.get("StatusID") or "").strip()
+        if name:
+            affix_mods[name.lower()] = [float(row.get(c) or 0.0) for c in
+                                        ("MODConstitution", "MODFocus", "MODStrength", "MODDexterity", "MODIntelligence")]
+    for entry in perks.values():
+        total = [0.0] * 5
+        for name in re.split(r"[,+]", str(entry.get("affix") or "")):
+            for index, value in enumerate(affix_mods.get(name.strip().lower(), [])):
+                total[index] += value
+        if any(total):
+            entry["attributes"] = ",".join(f"{value:g}" for value in total)
     write_key_table(target / "perks.tsv", perks)
     # The consumables (javelindata_itemdefinitions_consumables): item id (lower case) -> the cooldown and the effects.
     consumable_columns = {"CooldownId": "cooldownId", "CooldownDuration": "cooldownDuration", "AddStatusEffects": "addStatusEffects",

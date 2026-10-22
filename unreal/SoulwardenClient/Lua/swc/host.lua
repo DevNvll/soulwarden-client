@@ -12,6 +12,7 @@ function Swc.Tick(dt)
   Swc.TickTweens(dt)
   Swc.Notify("TickBus", nil, "OnTick", dt, Swc.ScriptTimePoint.new({seconds = Swc.time}))
   Swc.TickInteractables()
+  Swc.TickExitHovers(dt)
   Swc.InputTick()
   if Swc.FrontendTick then
     Swc.FrontendTick(dt)

@@ -17,6 +17,7 @@ local states = {}          -- tostring(entity) -> the runtime state of the compo
 Swc.interactiveStates = states
 local scrollBoxes = {}     -- tostring(entity) -> entity: the scroll boxes that follow the size of their content
 local queued = {}          -- the actions that wait for the end of the input event (button clicks)
+local exitHovers = {}      -- tostring(entity) -> entity: the elements with an exit hover component (AST-259)
 
 --- The runtime state of the interactive components of an element (made from the converted data at the first use).
 function Swc.IState(id)
@@ -49,6 +50,58 @@ end
 function Swc.ForgetInteractive(id)
   states[tostring(id)] = nil
   scrollBoxes[tostring(id)] = nil
+  exitHovers[tostring(id)] = nil
+end
+
+-- The exit hover component of the fork (UiExitHoverComponent: EventName "self:ExitHover", Delay; the flyout menu of the item
+-- tooltips has it on FlyoutMenu and PositionContainer). AST-259: with no runtime for it, an item tooltip never closed when the cursor
+-- left the item. The rule [inference: the native component is not read]: while its element shows and the cursor is outside the rect
+-- of the element for Delay seconds, the event (a function of the script of the element) runs each frame; a result true (flyoutmenu.luac
+-- ExitHover: the cursor is in the flyout or in its PositionContainer, or the menu is locked) keeps it armed; another result disarms it
+-- until the cursor enters the element or UiExitHoverEventBus Reset.
+local function exit_hover_reset(id)
+  local e = Swc.IState(id).exitHover
+  if e then
+    e.armed = true
+    e.outside = 0
+  end
+end
+Swc.Define("UiExitHoverEventBus", "Event", {
+  Reset = function(id) exit_hover_reset(id) end,
+})
+
+function Swc.TickExitHovers(dt)
+  local x, y = Swc.input.x, Swc.input.y
+  if x == nil or y == nil then
+    return
+  end
+  for k, id in pairs(exitHovers) do
+    if not swcui.exists(id) then
+      exitHovers[k] = nil
+    elseif swcui.canvas_get(swcui.canvas_of(id), "enabled") and swcui.enabled_in_hierarchy(id) then
+      local e = Swc.IState(id).exitHover
+      if swcui.contains(id, x, y) then
+        e.armed = true
+        e.outside = 0
+      elseif e.armed then
+        e.outside = (e.outside or 0) + dt
+        if e.outside >= (e.delay or 0) then
+          local method = tostring(e.event or ""):match("^self:(.+)$")
+          local keep = false
+          for _, instance in ipairs(Swc.components[k] or {}) do
+            if method and type(instance[method]) == "function" then
+              local ok, result = Swc.Call(instance[method], instance)
+              keep = ok and result == true
+              break
+            end
+          end
+          if not keep then
+            e.armed = false
+          end
+        end
+      end
+    end
+  end
 end
 
 --- Sends an action of a component to the canvas of the element (nothing for an empty name).
@@ -978,6 +1031,10 @@ function Swc.InitInteractive(id)
   end
   if s.scrollBar then
     Swc.ScrollBarSetHandleSize(id, s.scrollBar.handleSize)
+  end
+  if s.exitHover then
+    exitHovers[tostring(id)] = id
+    exit_hover_reset(id)
   end
   if s.scrollBox then
     scrollBoxes[tostring(id)] = id

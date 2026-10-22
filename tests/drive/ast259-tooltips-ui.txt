@@ -1,0 +1,24 @@
+# AST-259 live check: the item tooltips of the inventory with a copy of the user's database (the drive target item:ID is the shown cell
+# of the item). Each hover opens the tooltip, the move away closes it. Times in seconds from the spawn of the player.
+1 waitfor CompassLines 60
+2 waitfor world 180
+5 key tab
+8 draw inventory
+9 point item:AmuletOpalT5
+12 draw amulet-tooltip
+13 move 0.5 0.04
+15 draw amulet-closed
+16 point item:AmuletIsabellaT1
+19 draw isabella-tooltip
+20 move 0.5 0.04
+22 draw isabella-closed
+23 point item:HeavyChest_HeavyT5
+26 draw chest-tooltip
+27 move 0.5 0.04
+29 draw chest-closed
+30 point item:Artifact_Set1_Earring1
+33 draw artifact-tooltip
+34 move 0.5 0.04
+36 draw artifact-closed
+37 key tab
+39 end

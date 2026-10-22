@@ -1137,6 +1137,12 @@ int n_clock(lua_State* L) {
     return 1;
 }
 
+// The number of the script errors of the run (the fixtures count the errors of a step; AST-259).
+int n_error_count(lua_State* L) {
+    lua_pushnumber(L, static_cast<lua_Number>(runtime_of(L).counts().luaErrors));
+    return 1;
+}
+
 // The wall clock in seconds (a steady clock): the time of a load, for the log only. The scripts use clock().
 int n_wall_clock(lua_State* L) {
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
@@ -1482,7 +1488,7 @@ const luaL_Reg kNatives[] = {
     {"set", n_set}, {"load_canvas", n_load_canvas}, {"unload_canvas", n_unload_canvas}, {"find_canvas", n_find_canvas},
     {"canvases", n_canvases}, {"canvas_get", n_canvas_get}, {"canvas_set", n_canvas_set}, {"localize", n_localize},
     {"has_text", n_has_text}, {"crc32", n_crc32}, {"table_row", n_table_row}, {"texture_exists", n_texture_exists}, {"stub", n_stub}, {"log", n_log},
-    {"clock", n_clock}, {"wall_clock", n_wall_clock}, {"tick", n_tick}, {"update_layouts", n_update_layouts}, {"size_to_fit", n_size_to_fit}, {"component", n_component}, {"components", n_components},
+    {"clock", n_clock}, {"error_count", n_error_count}, {"wall_clock", n_wall_clock}, {"tick", n_tick}, {"update_layouts", n_update_layouts}, {"size_to_fit", n_size_to_fit}, {"component", n_component}, {"components", n_components},
     {"interactable_at", n_interactable_at}, {"contains", n_contains}, {"to_rect_space", n_to_rect_space}, {"text_layout", n_text_layout}, {"compute_layout", n_compute_layout}, {"write_draw", n_write_draw}, {"mesh_area", n_mesh_area}, {"viewport", n_viewport}, {"set_viewport", n_set_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
     {"load_lua", n_load_lua}, {nullptr, nullptr}};
 

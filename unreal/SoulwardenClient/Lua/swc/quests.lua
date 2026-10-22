@@ -420,6 +420,23 @@ Swc.Define("ObjectivesComponentRequestBus", "Event", {
     return out
   end,
   GetTrackedObjectives = function() return tracked_ids() end,
+  -- The count of the active objectives of a type and its largest count (dynamictooltip_itemstats.luac: the artifact quest of an
+  -- artifact item; AST-259: with no definition the compare of the two nil values stopped the tooltip of each artifact).
+  GetObjectivesCountForType = function(_, objectiveType)
+    local count = 0
+    for _, rec in ipairs(Q.list) do
+      if (objective_data(rec.row) or {}).type == objectiveType then
+        count = count + 1
+      end
+    end
+    return count
+  end,
+  GetMaxObjectivesForType = function(_, objectiveType)
+    local names = {[eObjectiveType_Artifact or 28] = "javelin.objectives-max-artifact-quests",
+                   [eObjectiveType_MainStoryQuest or 13] = "javelin.objectives-max-MSQ",
+                   [eObjectiveType_EpicEquipment or 19] = "javelin.objectives-max-epicequipment"}
+    return tonumber(Swc.config[names[objectiveType] or ""]) or 0
+  end,
   IsObjectiveTracked = function(_, id)
     if not Q.ready or id == nil then
       return false
@@ -707,7 +724,9 @@ Swc.config["javelin.enable-objectives"] = true
 for name, value in pairs({["javelin.objectives-max-MSQ"] = 20, ["javelin.objectives-max-factionstory"] = 10,
                           ["javelin.objectives-max-affinity"] = 30, ["javelin.objectives-max-season-quests"] = 20,
                           ["javelin.objectives-max-skillprogression"] = 20, ["javelin.objectives-max-mountrace"] = 10,
-                          ["javelin.objectives-max-epicequipment"] = 20}) do
+                          ["javelin.objectives-max-epicequipment"] = 20,
+                          -- The default of the registration of the settings (immediate 10 at image RVA 0x616E59A; AST-259).
+                          ["javelin.objectives-max-artifact-quests"] = 10}) do
   Swc.config[name] = value
 end
 
