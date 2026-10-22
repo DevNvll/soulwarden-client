@@ -136,11 +136,33 @@ if [[ "${build}" == "cooked" || ( "${build}" == "auto" && ${cooked_current} -eq 
         report FAIL "no cooked build in ${cooked_dir} (run tools/cook.sh)"
     fi
 else
-    module="${SWC_REPO}/unreal/SoulwardenClient/Binaries/Linux/libUnrealEditor-SoulwardenClient.so"
-    if [[ -x "${SWC_CLIENT_EXE}" && -f "${module}" ]]; then
-        report ok "client ${SWC_CLIENT_EXE##*/} with the module of the project (cooked build: ${cooked_line})"
+    # Each module of the .uproject must be built and newer than the code (Source): else the engine shows its dialog "Missing
+    # SoulwardenClient Modules" (a build of an older commit, 2026-10-22). A start builds the modules first (a check reports it).
+    modules_state() {
+        local project_dir="${SWC_REPO}/unreal/SoulwardenClient" name file oldest="" newest_source
+        for name in $(python3 -B -c "import json, sys; print(' '.join(m['Name'] for m in json.load(open(sys.argv[1]))['Modules']))" "${SWC_UPROJECT}"); do
+            file="${project_dir}/Binaries/Linux/libUnrealEditor-${name}.so"
+            [[ -f "${file}" ]] || { echo "missing ${name}"; return 1; }
+            local t; t=$(stat -c %Y "${file}")
+            [[ -z "${oldest}" || "${t}" -lt "${oldest}" ]] && oldest="${t}"
+        done
+        newest_source=$(find "${project_dir}/Source" -type f -printf '%T@\n' | sort -n | tail -1 | cut -d. -f1)
+        [[ "${newest_source}" -le "${oldest}" ]] || { echo "older than the code"; return 1; }
+        echo "current"
+    }
+    modules_line="$(modules_state)" && modules_current=1 || modules_current=0
+    if [[ ${modules_current} -eq 0 && ${check_only} -eq 0 && -x "${SWC_CLIENT_EXE}" ]]; then
+        echo "play: the editor modules of the project are ${modules_line}: tools/build.sh editor (some minutes)" >&2
+        if "${SWC_REPO}/tools/build.sh" editor >&2; then
+            modules_line="$(modules_state)" && modules_current=1 || modules_current=0
+        fi
+    fi
+    if [[ -x "${SWC_CLIENT_EXE}" && ${modules_current} -eq 1 ]]; then
+        report ok "client ${SWC_CLIENT_EXE##*/} with the modules of the project (cooked build: ${cooked_line})"
+    elif [[ ${check_only} -eq 1 && -x "${SWC_CLIENT_EXE}" ]]; then
+        report ok "client ${SWC_CLIENT_EXE##*/}: the editor modules are ${modules_line}; a start builds them first (cooked build: ${cooked_line})"
     else
-        report FAIL "no client: ${SWC_CLIENT_EXE} or ${module} is missing (run tools/build.sh editor)"
+        report FAIL "no client: ${SWC_CLIENT_EXE} or the editor modules (${modules_line}): run tools/build.sh editor"
     fi
 fi
 # The imported content and the world level (the default map): the shared content plugin (docs/WORLD.md).
