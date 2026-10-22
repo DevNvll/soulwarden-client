@@ -24,7 +24,7 @@ ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
 PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "9", "M_SwcSurfaceMasked": "9", "M_SwcDecal": "7",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
-                   "M_SwcSurfaceTranslucent": "9", "M_SwcHair": "4"}   # the rule of each parent
+                   "M_SwcSurfaceTranslucent": "9", "M_SwcHair": "5"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
 # 7: the UV transforms of the emittance and intensity maps (AST-207); 8: the sRGB emission files on Color samplers;
@@ -32,6 +32,8 @@ PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "9", "M_SwcSurfaceMasked
 # the Unreal Hair is sqrt(BaseColor) x Scatter: with D it was 6 times the source diffuse on a dark feather; with D^2 the gray
 # hair was black: the hair color had no mask amount, see SwcLookMaterials::ApplyHairColor); 3: BaseColor = D, Scatter x
 # sqrt(lum(D)) (with the hair color amount the gray hair was white: the TT and TRT lobes do not scale with Specular); 4: as 2;
+# 5: the look scales of MPC_SwcHair (HairScatterScale x Scatter, (HairBaseScale x D)^2; the console values swc.HairScatter and
+# swc.HairBase of the client, default 1: the same picture as 4);
 # M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals;
 # 4: the entity color and opacity (DecalColor), the angle fade of the projected decals (static switch Projected);
 # 5: the view bias in the vertex shader without CameraVectorWS (3 and 4 did not compile); 6: the normal of the
@@ -610,6 +612,29 @@ float n = frac(52.9829189 * frac(dot(p, float2(0.06711056, 0.00583715))));
 return o > n ? 1.0 : 0.0;"""
 
 
+def hair_collection(content, state):
+    """@return MPC_SwcHair: the look scales of M_SwcHair (HairScatterScale, HairBaseScale; default 1; at run time USwcMaterialScale
+    from swc.HairScatter and swc.HairBase). A collection of its own: a new parameter of MPC_SwcMaterials makes each material that
+    reads it compile again."""
+    name = "MPC_SwcHair"
+    path = f"{BASE}/{name}"
+    if assets.does_asset_exist(path) and state.get("base:" + name) == "1":
+        return assets.load_asset(path)
+    mpc = assets.load_asset(path) if assets.does_asset_exist(path) else tools.create_asset(
+        name, BASE, unreal.MaterialParameterCollection, unreal.MaterialParameterCollectionFactoryNew())
+    scalars = list(mpc.get_editor_property("scalar_parameters"))
+    for parameter in ("HairScatterScale", "HairBaseScale"):
+        if not any(str(s.get_editor_property("parameter_name")) == parameter for s in scalars):
+            value = unreal.CollectionScalarParameter()
+            value.set_editor_property("parameter_name", parameter)
+            value.set_editor_property("default_value", 1.0)
+            scalars.append(value)
+    mpc.set_editor_property("scalar_parameters", scalars)
+    assets.save_loaded_asset(mpc)
+    state["base:" + name] = "1"
+    return mpc
+
+
 def hair_parent(content, state):
     """@return M_SwcHair: the masked parent of the Hair sub-materials of the bodies (material_records.hair_spec), with the
     Unreal Hair shading model: base color D (the diffuse map x DiffuseColor x the vertex color, the overlay masks), Specular
@@ -668,8 +693,18 @@ def hair_parent(content, state):
     # secondary is 0.7 x D x S, small for the specular maps of the hairstyles) [I]. With BaseColor D (version 1) the dark
     # feathers (D 0.028) were light gray; with BaseColor D and Scatter x sqrt(lum(D)) (version 3) gray hair was white.
     d_masked = mask(material, masked_color, "", "rgb", -150, 1300)
-    editing.connect_material_property(multiply(material, (d_masked, ""), (d_masked, ""), -50, 1300), "", MP.MP_BASE_COLOR)
-    scatter = scalar(material, "Scatter", 1.0, -300, 400)
+    hair_mpc = hair_collection(content, state)
+
+    def collection_scalar(parameter, y):
+        node_ = editing.create_material_expression(material, unreal.MaterialExpressionCollectionParameter, -300, y)
+        node_.set_editor_property("collection", hair_mpc)
+        node_.set_editor_property("parameter_name", parameter)
+        return node_
+
+    d_scaled = multiply(material, (d_masked, ""), (collection_scalar("HairBaseScale", 1450), ""), -100, 1300)
+    editing.connect_material_property(multiply(material, (d_scaled, ""), (d_scaled, ""), -50, 1300), "", MP.MP_BASE_COLOR)
+    scatter = multiply(material, (scalar(material, "Scatter", 1.0, -300, 400), ""), (collection_scalar("HairScatterScale", 450), ""),
+                       -150, 400)
     spec_map = sample("Specular", st.SAMPLERTYPE_COLOR, white_color, 0)
     masked_spec = custom(material, MASK_SPEC_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT3, ("S", "SC", "M", "Mode", "Ovr"),
                          -600, 1600)

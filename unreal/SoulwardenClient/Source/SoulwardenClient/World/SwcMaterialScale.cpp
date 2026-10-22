@@ -16,6 +16,12 @@ static TAutoConsoleVariable<float> CVarBeamScale(TEXT("swc.BeamScale"), 1.0f,
 	TEXT("The scale of the GeometryBeam fog sheets and cards (M_SwcBeam); 0 hides them."));
 // The camera fade of the vegetation (M_SwcFoliage version 4; research/ground-cover.md "Camera fade"): the method of
 // VegCameraFade of MPC_SwcMaterials (the start 2 m and the end 3 m stay).
+// The look scales of the Hair parent (M_SwcHair version 5, MPC_SwcHair): the Scatter (the Kajiya diffuse of the Unreal Hair) and D
+// in the base color (the color of the strand lobes): a test of the level of light hair against retail (AST-247).
+static TAutoConsoleVariable<float> CVarHairScatter(TEXT("swc.HairScatter"), 1.0f,
+	TEXT("A scale of the Scatter of M_SwcHair (the diffuse of the Unreal Hair; 1: the rule of the parent)."));
+static TAutoConsoleVariable<float> CVarHairBase(TEXT("swc.HairBase"), 1.0f,
+	TEXT("A scale of D in the base color (D^2) of M_SwcHair (the strand lobes and the diffuse; 1: the rule of the parent)."));
 static TAutoConsoleVariable<int32> CVarCameraFade(TEXT("swc.Foliage.CameraFade"), 1,
 	TEXT("1: the vegetation near the render camera dissolves (2 to 3 m, the source rule); 0: off (a before and after test)."));
 
@@ -108,6 +114,26 @@ void USwcMaterialScale::ApplyEffects()
 void USwcMaterialScale::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	if (!Hair && !bHairTried)
+	{
+		bHairTried = true;
+		Hair = LoadObject<UMaterialParameterCollection>(nullptr, TEXT("/SwcGameContent/Base/MPC_SwcHair.MPC_SwcHair"), nullptr,
+			LOAD_Quiet | LOAD_NoWarn);
+	}
+	if (Hair)
+	{
+		const FVector2f Values(CVarHairScatter.GetValueOnGameThread(), CVarHairBase.GetValueOnGameThread());
+		if (Values != AppliedHair)
+		{
+			UMaterialParameterCollectionInstance* Instance = GetWorld()->GetParameterCollectionInstance(Hair);
+			if (Instance && Instance->SetScalarParameterValue(TEXT("HairScatterScale"), Values.X)
+				&& Instance->SetScalarParameterValue(TEXT("HairBaseScale"), Values.Y))
+			{
+				UE_LOG(LogSwcMaterialScale, Log, TEXT("SWC material scale: hair scatter %.3f, base %.3f"), Values.X, Values.Y);
+				AppliedHair = Values;
+			}
+		}
+	}
 	if (Effects)
 	{
 		const double Now = GetWorld()->GetTimeSeconds();
