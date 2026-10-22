@@ -167,6 +167,8 @@ public:
 	/** The conversation screen of the UI ends the conversation (its Back key; its Next key at the last line): 6705, then 2473, then the
 	 *  finished topics (5397) when the list has one (AST-248). */
 	void EndConversation(const std::vector<uint32>& FinishedTopics = {});
+	/** The place cues of a point of interest (2297 with an achievement, 6416 with none; AST-241). False with no world connection. */
+	bool TerritoryReport(const std::array<uint8, 16>& Actor, uint64 Group, uint64 Local, uint16 Territory, std::optional<uint32> Achievement);
 	/** The conversation screen sends the topic of a selection (3158; AST-248). False with no world connection. */
 	bool ConversationTopic(uint32 Topic);
 	/** The InteractTags of the Active quest tasks of the character (AST-241; UI/SwcUiQuests from swc/quests.lua): the focus of the quest

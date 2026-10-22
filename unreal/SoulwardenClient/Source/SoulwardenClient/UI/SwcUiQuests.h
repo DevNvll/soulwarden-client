@@ -23,10 +23,39 @@ struct FSwcUiQuests
 	void Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::OwnEntity& Own, USwcBackendSubsystem& Backend);
 	/** A new world session (a travel keeps it; a character change makes a new one): the state and the calls start again. */
 	void Reset();
+	/**
+	 * The place cues of the points of interest (research poi-cues.md; SWC_CONTENT/ui/gamedata/poi-cues.json): two detectors for each
+	 * point, the discovery sphere (the DiscoveryRadius around the placement; none with no discovery achievement) and the charted shape
+	 * (the polygon of the data, 180 m high). An entry sends 2297 with the CRC of its achievement while the bit of the achievement is
+	 * not set (the shape with no charted achievement: 0); each exit sends 6416. The state is tested 5 times a second from the feet of
+	 * the character (engine m): a travel is a new test. The backend uses the cues only as a cue (its place tasks use its own position).
+	 */
+	void FeedPlaces(const swc::net::WorldPosition& Feet, const swc::net::RepClient::OwnEntity& Own, USwcBackendSubsystem& Backend,
+		const FString& ContentDir, double Now);
 	/** @return True when the request of the scripts was a quest request (it is handled). */
 	static bool HandleRequest(const FString& Request, USwcBackendSubsystem& Backend);
 
 private:
+	struct FPoi
+	{
+		uint16 Territory = 0;
+		std::array<uint8, 16> Actor{};
+		uint64 Group = 0;
+		uint64 Local = 0;
+		FVector Center = FVector::ZeroVector;
+		float Radius = 0.0f;
+		float Reach = 0.0f;
+		TArray<FVector2D> Shape;
+		uint32 DiscoveredCrc = 0;
+		int32 DiscoveredBit = -1;
+		uint32 ChartedCrc = 0;
+		int32 ChartedBit = -1;
+		bool bInSphere = false;
+		bool bInShape = false;
+	};
+	TArray<FPoi> Pois;
+	bool bPoisLoaded = false;
+	double NextPlaceTest = 0.0;
 	bool bEnabled = false;
 	bool bRestored = false;
 	uint32 SentRevision = 0;

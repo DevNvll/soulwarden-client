@@ -1927,6 +1927,16 @@ void USwcUiSubsystem::FeedLocalPlayer()
 	FeedOwnerStates(Own);
 	CraftingScreen.Feed(*Runtime, Own);
 	Quests.Feed(*Runtime, Own, *Backend);
+	// The place cues 2297 and 6416 of the points of interest (AST-241): from the feet of the character.
+	if (UWorld* World = GetGameInstance()->GetWorld())
+	{
+		const APlayerController* Controller = World->GetFirstPlayerController();
+		const APawn* Pawn = Controller != nullptr ? Controller->GetPawn() : nullptr;
+		if (Pawn != nullptr)
+		{
+			Quests.FeedPlaces(SwcUnrealToEngine(Pawn->GetNavAgentLocation()), Own, *Backend, ContentDir, FPlatformTime::Seconds());
+		}
+	}
 	FeedLoot(Own, Backend);
 	FeedWorld(Own);
 	int32 Active = -1;

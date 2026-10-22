@@ -1,0 +1,12 @@
+# The UI drive of tests/drive/ast241-b1.txt (AST-241): the marks of the steps.
+1 waitfor CompassLines 60
+2 waitfor world 180
+5 log 06_skinningknife: Gather Flint and Wood
+9 log the flint in the bag
+13 log the wood in the bag
+17 log the knife in the bag
+21 log 06_boarfeast: the kill task
+31 log after the boar kill
+36 log after the equip of the knife
+46 log after the skinning
+52 log the end

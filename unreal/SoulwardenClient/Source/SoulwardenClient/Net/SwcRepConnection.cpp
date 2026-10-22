@@ -255,6 +255,14 @@ void FSwcRepConnection::ResetObjective(std::uint64_t Instance)
 	Calls.push_back([Instance](swc::net::RepClient& Client) { Client.reset_objective(Instance); });
 }
 
+void FSwcRepConnection::TerritoryReport(const std::array<std::uint8_t, 16>& Actor, std::uint64_t Group, std::uint64_t Local, std::uint16_t Territory,
+	std::optional<std::uint32_t> Achievement)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([Actor, Group, Local, Territory, Achievement](swc::net::RepClient& Client)
+		{ Client.territory_report(Actor, Group, Local, Territory, Achievement); });
+}
+
 void FSwcRepConnection::ConversationTopic(std::uint32_t Topic)
 {
 	FScopeLock Guard(&Lock);

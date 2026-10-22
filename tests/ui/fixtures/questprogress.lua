@@ -80,6 +80,9 @@ frames(1.5)
 text = texts_of(hud)
 note("the tracker after a kill: " .. text)
 check(text:find("3 / 5", 1, true) ~= nil, "a kill: the counter 3 / 5")
+local placeText = Swc.quests.FillTaskText("Go to {POITags}", Swc.quests.D().tasks["06_crewmates_02_taskgotopoitag_shipwreck1"])
+note("the place text: " .. placeText)
+check(placeText ~= "Go to " and not placeText:find("{", 1, true), "{POITags}: the name of the point of interest of the tag")
 
 -- The journal: Reset (CanBeAbandoned 0: a main story quest), the confirm popup, Yes.
 requests()
@@ -134,3 +137,21 @@ check(tags:find("io_msq_treasure_a", 1, true) ~= nil and tags:find("io_msq_treas
 Swc.HostQuests(pillage(2))
 frames(0.5)
 equal(Swc.QuestActiveTags(), "", "the treasure tasks complete: no tag (no prompt)")
+
+-- The hand-in (06_skinningknife, its root complete: the hand-in is stage 1.8b): the tracker shows the hand-in row "Talk to Urda"
+-- (the retail picture K1-2of5: "Basic Needs / Talk to Urda").
+LyShineManagerBus.Broadcast.SetState(HUD)
+frames(1.0)
+local KNIFE = "9003"
+local knife = Swc.quests.D().objectives["06_skinningknife"]
+local knifeLines = {"A " .. KNIFE .. " " .. knife.crc .. " 6 0"}
+for _, entry in ipairs(knife.tree) do
+  knifeLines[#knifeLines + 1] = string.format("T %s %d %d 1 2", KNIFE, entry[1], Swc.quests.D().tasks[entry[2]].crc)
+end
+knifeLines[#knifeLines + 1] = "K " .. KNIFE
+Swc.HostQuests(table.concat(knifeLines, "\n"))
+frames(2.0)
+local handIn = texts_of(hud)
+note("the tracker with the hand-in: " .. handIn)
+check(handIn:find("Basic Needs", 1, true) ~= nil and handIn:find("Talk to Urda", 1, true) ~= nil,
+  "the root complete: the hand-in row Talk to Urda (retail K1-2of5)")

@@ -500,6 +500,10 @@ public:
     void open_ui_screen(std::uint32_t screen);
     void abandon_objective(std::uint64_t instance);
     void reset_objective(std::uint64_t instance);
+    /** The place cues of a point of interest (AST-241; research poi-cues.md): 2297 at an entry (achievement: the CRC-32 of the full
+     *  achievement name, 0 for none) and 6416 at an exit (no achievement), on the TerritoryDetector facet. */
+    void territory_report(const std::array<std::uint8_t, 16>& actor, std::uint64_t group, std::uint64_t local, std::uint16_t territory,
+                          std::optional<std::uint32_t> achievement);
     /** The topics of a person conversation (AST-248): the selected topic (3158) and the finished topics after the close 2473 (5397). */
     void conversation_topic(std::uint32_t topic);
     void finished_topics(const std::vector<std::uint32_t>& topics);

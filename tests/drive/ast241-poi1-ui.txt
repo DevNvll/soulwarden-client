@@ -1,0 +1,6 @@
+# The UI drive of tests/drive/ast241-poi1.txt (AST-241): the marks.
+1 waitfor CompassLines 60
+2 waitfor world 180
+6 log outside the POI
+14 log in the shape of 40142
+26 log outside again

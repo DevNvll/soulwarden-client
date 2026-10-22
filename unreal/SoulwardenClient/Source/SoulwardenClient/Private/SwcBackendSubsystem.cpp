@@ -1837,6 +1837,17 @@ void USwcBackendSubsystem::SetQuestTags(const TSet<FString>& Tags)
 	}
 }
 
+bool USwcBackendSubsystem::TerritoryReport(const std::array<uint8, 16>& Actor, uint64 Group, uint64 Local, uint16 Territory,
+	std::optional<uint32> Achievement)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->TerritoryReport(Actor, Group, Local, Territory, Achievement);
+	return true;
+}
+
 bool USwcBackendSubsystem::ConversationTopic(uint32 Topic)
 {
 	if (!Connection.IsValid() || !bInGame)

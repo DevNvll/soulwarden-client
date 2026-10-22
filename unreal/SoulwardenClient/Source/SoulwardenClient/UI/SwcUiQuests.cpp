@@ -1,15 +1,26 @@
 #include "UI/SwcUiQuests.h"
 
 #include "SwcBackendSubsystem.h"
+#include "Dom/JsonObject.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "SwcUi/Runtime.h"
 
 #include <cstdlib>
+#include <tuple>
 #include <string>
 
 DEFINE_LOG_CATEGORY_STATIC(LogSwcUiQuests, Log, All);
 
 void FSwcUiQuests::Reset()
 {
+	for (FPoi& Poi : Pois)
+	{
+		Poi.bInSphere = false;
+		Poi.bInShape = false;
+	}
 	bEnabled = false;
 	bRestored = false;
 	SentRevision = 0;
@@ -146,4 +157,112 @@ bool FSwcUiQuests::HandleRequest(const FString& Request, USwcBackendSubsystem& B
 		UE_LOG(LogSwcUiQuests, Warning, TEXT("ui: a quest request with no form: %s"), *Request);
 	}
 	return true;
+}
+
+namespace
+{
+uint64 HexU64(const FString& Text)
+{
+	return static_cast<uint64>(FCString::Strtoui64(*Text, nullptr, 16));
+}
+
+bool InPolygon(const TArray<FVector2D>& Polygon, const FVector2D& Point)
+{
+	bool bInside = false;
+	for (int32 I = 0, J = Polygon.Num() - 1; I < Polygon.Num(); J = I++)
+	{
+		const FVector2D& A = Polygon[I];
+		const FVector2D& B = Polygon[J];
+		if ((A.Y > Point.Y) != (B.Y > Point.Y) && Point.X < (B.X - A.X) * (Point.Y - A.Y) / (B.Y - A.Y) + A.X)
+		{
+			bInside = !bInside;
+		}
+	}
+	return bInside;
+}
+} // namespace
+
+void FSwcUiQuests::FeedPlaces(const swc::net::WorldPosition& Feet, const swc::net::RepClient::OwnEntity& Own, USwcBackendSubsystem& Backend,
+	const FString& ContentDir, double Now)
+{
+	if (!bPoisLoaded)
+	{
+		bPoisLoaded = true;
+		const FString Path = FPaths::Combine(ContentDir, TEXT("ui/gamedata/poi-cues.json"));
+		FString Text;
+		TSharedPtr<FJsonObject> Document;
+		const TArray<TSharedPtr<FJsonValue>>* List = nullptr;
+		if (!FFileHelper::LoadFileToString(Text, *Path) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Document)
+			|| !Document.IsValid() || !Document->TryGetArrayField(TEXT("pois"), List))
+		{
+			UE_LOG(LogSwcUiQuests, Warning, TEXT("ui: quests: no place cues (%s; tools/convert-ui.sh quests)"), *Path);
+			return;
+		}
+		for (const TSharedPtr<FJsonValue>& Value : *List)
+		{
+			const TSharedPtr<FJsonObject> Info = Value->AsObject();
+			FString Local;
+			if (!Info->TryGetStringField(TEXT("local"), Local))
+			{
+				continue;   // a POI of a slice that is not the base POI slice: its local is not known (an open point)
+			}
+			FPoi Poi;
+			Poi.Territory = static_cast<uint16>(Info->GetIntegerField(TEXT("id")));
+			const FString Actor = Info->GetStringField(TEXT("actor"));
+			for (int32 Index = 0; Index < 16 && Index * 2 + 1 < Actor.Len(); ++Index)
+			{
+				Poi.Actor[Index] = static_cast<uint8>(FCString::Strtoui64(*Actor.Mid(Index * 2, 2), nullptr, 16));
+			}
+			Poi.Group = HexU64(Info->GetStringField(TEXT("group")));
+			Poi.Local = HexU64(Local);
+			const TArray<TSharedPtr<FJsonValue>>& Center = Info->GetArrayField(TEXT("center"));
+			Poi.Center = FVector(Center[0]->AsNumber(), Center[1]->AsNumber(), Center[2]->AsNumber());
+			Poi.Radius = static_cast<float>(Info->GetNumberField(TEXT("radius")));
+			Poi.Reach = Poi.Radius;
+			for (const TSharedPtr<FJsonValue>& Point : Info->GetArrayField(TEXT("shape")))
+			{
+				const TArray<TSharedPtr<FJsonValue>>& XY = Point->AsArray();
+				Poi.Shape.Emplace(XY[0]->AsNumber(), XY[1]->AsNumber());
+				Poi.Reach = FMath::Max(Poi.Reach, static_cast<float>(FVector2D::Distance(Poi.Shape.Last(), FVector2D(Poi.Center))));
+			}
+			const TArray<TSharedPtr<FJsonValue>>& Discovered = Info->GetArrayField(TEXT("discovered"));
+			const TArray<TSharedPtr<FJsonValue>>& Charted = Info->GetArrayField(TEXT("charted"));
+			Poi.DiscoveredCrc = static_cast<uint32>(Discovered[0]->AsNumber());
+			Poi.DiscoveredBit = static_cast<int32>(Discovered[1]->AsNumber());
+			Poi.ChartedCrc = static_cast<uint32>(Charted[0]->AsNumber());
+			Poi.ChartedBit = static_cast<int32>(Charted[1]->AsNumber());
+			Pois.Add(MoveTemp(Poi));
+		}
+		UE_LOG(LogSwcUiQuests, Log, TEXT("ui: quests: %d point(s) of interest with place cues (%s)"), Pois.Num(), *Path);
+	}
+	if (!bEnabled || Now < NextPlaceTest)
+	{
+		return;
+	}
+	NextPlaceTest = Now + 0.2;
+	const FVector Point(Feet.x, Feet.y, Feet.z);
+	const auto Locked = [&Own](int32 Bit) { return Bit < 0 || !swc::net::has_bit(Own.achievements, static_cast<uint32>(Bit)); };
+	for (FPoi& Poi : Pois)
+	{
+		const bool bNear = FVector2D::Distance(FVector2D(Point), FVector2D(Poi.Center)) <= Poi.Reach + 5.0;
+		const bool bInSphere = bNear && Poi.Radius > 0.0f && FVector::Distance(Point, Poi.Center) <= Poi.Radius;
+		const bool bInShape = bNear && Poi.Shape.Num() >= 3 && FMath::Abs(Point.Z - Poi.Center.Z) <= 180.0 && InPolygon(Poi.Shape, FVector2D(Point));
+		for (const auto& [bNow, bWas, Crc, Bit] : {std::make_tuple(bInSphere, &Poi.bInSphere, Poi.DiscoveredCrc, Poi.DiscoveredBit),
+				 std::make_tuple(bInShape, &Poi.bInShape, Poi.ChartedCrc, Poi.ChartedBit)})
+		{
+			if (bNow == *bWas)
+			{
+				continue;
+			}
+			*bWas = bNow;
+			if (bNow && Locked(Bit))
+			{
+				Backend.TerritoryReport(Poi.Actor, Poi.Group, Poi.Local, Poi.Territory, Crc);
+			}
+			else if (!bNow)
+			{
+				Backend.TerritoryReport(Poi.Actor, Poi.Group, Poi.Local, Poi.Territory, std::nullopt);
+			}
+		}
+	}
 }

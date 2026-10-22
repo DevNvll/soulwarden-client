@@ -1521,6 +1521,57 @@ QUEST_TEXTURES = ["lyshineui/genericui/images/square.dds"]
 QUEST_TEXTURE_FOLDERS = ["lyshineui/images/objectives/", "lyshineui/images/icons/objectives/", "lyshineui/images/journal/", "lyshineui/images/banner/"]
 
 
+# The base POI slice (POI_CapitalPlot): its Territory component is on the root entity (E = R), so local = G + this component id
+# (research poi-cues.md section 2).
+POI_BASE_SLICE = "{817279CF-C3F1-56DF-A9C7-282929522FB8}:2"
+POI_TERRITORY_COMPONENT = 0x4FB021A86DF7AE7A
+POI_CAPITALS = "sharedassets/coatlicue/newworld_vitaeeterna/regions/"
+
+
+def convert_poi_cues(pois: list) -> dict:
+    """gamedata/poi-cues.json (Linear AST-241; research poi-cues.md): the place cues 2297 and 6416 of each point of interest. The
+    reference is the Territory component of the POI placement (pois.capitals.json of the region, matched by its world position): the
+    actor and group of the UUID rule (G = ((H XOR L) AND NOT 7) OR 3, the UUID halves big-endian) and local = G + the component id for
+    the base POI slice (other slices: no local, no cue: an open point). The territory field is the POI id. The achievements are the
+    full cells DiscoveredAchievement and ChartedAchievement of the definition (worldmap.json): the CRC-32 of the lower-case name and the
+    AchievementIndex bit (achievements.json); no discovery achievement: radius 0 (the loader rule)."""
+    import struct
+    import uuid
+    import zlib
+    capitals = []
+    for path in source.paks().paths(POI_CAPITALS, "pois.capitals.json"):
+        capitals += json.loads(source.read(path))["Capitals"]
+    definitions = json.loads((out_dir() / "gamedata" / "worldmap.json").read_text())["definitions"]
+    bits_file = out_dir() / "gamedata" / "achievements.json"
+    bits = json.loads(bits_file.read_text()) if bits_file.is_file() else {}
+
+    def achievement(name: str) -> list:
+        name = (name or "").strip()
+        return [zlib.crc32(name.lower().encode()) & 0xFFFFFFFF if name else 0, bits.get(name.lower(), -1) if name else -1]
+
+    out, other_slices = [], 0
+    for poi in pois:
+        match = [c for c in capitals if sum((c["worldPosition"][k] - v) ** 2 for k, v in zip("xyz", poi["center"])) < 1.0]
+        if not match:
+            continue
+        cap = match[0]
+        hi, lo = struct.unpack(">QQ", uuid.UUID(cap["id"]).bytes)
+        group = ((hi ^ lo) & ~7 & 0xFFFFFFFFFFFFFFFF) | 3
+        base = cap["sliceAssetId"] == POI_BASE_SLICE
+        other_slices += 0 if base else 1
+        definition = definitions.get(str(poi["id"]), {})
+        discovered = achievement(definition.get("discoveredAchievement", ""))
+        charted = achievement(definition.get("chartedAchievement", ""))
+        out.append({"id": poi["id"], "placement": cap["id"], "slice": cap["sliceAssetId"],
+                    "actor": group.to_bytes(8, "little").hex() + "00" * 8, "group": f"{group:016x}",
+                    "local": f"{(group + POI_TERRITORY_COMPONENT) & 0xFFFFFFFFFFFFFFFF:016x}" if base else None,
+                    "center": poi["center"], "radius": float(definition.get("discoveryRadius") or 0.0) if discovered[0] else 0.0,
+                    "shape": poi.get("shape", []), "discovered": discovered, "charted": charted})
+    target = out_dir() / "gamedata" / "poi-cues.json"
+    target.write_text(json.dumps({"format": 1, "pois": out}, separators=(",", ":")))
+    return {"pois": len(out), "withLocal": len(out) - other_slices, "otherSlices": other_slices}
+
+
 def convert_quests(force: bool) -> dict:
     """gamedata/quests.json (Linear AST-236; research quest-plan.md "Converter output" Q1): the quest data of the backend copy
     (gamedata/quest-data.json of the release, format 1: the tools of the Soulwarden project made it from the game data): the objectives
@@ -1538,9 +1589,11 @@ def convert_quests(force: bool) -> dict:
     # AST-241: the points of interest of the backend copy (poi-data.json: id, name key, tags, territory, center, radius, shape) for the
     # place names of the task texts ({POITags}) and the place cues 2297 and 6416; the NPC names of the conversation data ({destinationName}).
     poi_file = gamedata_dir() / "poi-data.json"
+    cues = {}
     if poi_file.is_file():
         doc["pois"] = [{k: p[k] for k in ("id", "name", "tags", "territory", "center", "radius", "shape") if k in p}
                        for p in json.loads(poi_file.read_text())["pois"]]
+        cues = convert_poi_cues(doc["pois"])
     conversation_file = gamedata_dir() / "conversation-data.json"
     if conversation_file.is_file():
         doc["npcNames"] = {n["id"].lower(): n["name"] for n in json.loads(conversation_file.read_text())["npcs"] if n.get("name")}
@@ -1551,7 +1604,7 @@ def convert_quests(force: bool) -> dict:
     for folder in QUEST_TEXTURE_FOLDERS:
         textures |= set(folder_textures(folder))
     textures |= set(QUEST_TEXTURES)
-    return {"objectives": len(objectives), "tasks": len(data["tasks"]), "events": len(events), "pois": len(doc.get("pois", [])),
+    return {"objectives": len(objectives), "tasks": len(data["tasks"]), "events": len(events), "pois": len(doc.get("pois", [])), "cues": cues,
             "npcNames": len(doc.get("npcNames", {})),
             "bytes": (target / "quests.json").stat().st_size, "textures": convert_textures(textures, force)}
 

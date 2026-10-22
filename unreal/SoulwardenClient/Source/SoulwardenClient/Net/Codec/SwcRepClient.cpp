@@ -1438,6 +1438,18 @@ void RepClient::reset_objective(std::uint64_t instance) {
     log(Event::Level::info, "objectives: reset of the instance " + std::to_string(instance) + " (5600)");
 }
 
+void RepClient::territory_report(const std::array<std::uint8_t, 16>& actor, std::uint64_t group, std::uint64_t local, std::uint16_t territory,
+                                 std::optional<std::uint32_t> achievement) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(achievement ? kTerritoryEntered : kTerritoryLeft, territory_report_body(m_own.group, actor, group, local, territory, achievement));
+    char text[64];
+    std::snprintf(text, sizeof text, "%u%s%08x", static_cast<unsigned>(territory), achievement ? ", achievement " : "", achievement ? *achievement : 0U);
+    log(Event::Level::info, std::string(achievement ? "objectives: the entry of the place " : "objectives: the exit of the place ")
+                                + (achievement ? std::string(text) : std::to_string(territory)) + (achievement ? " (2297)" : " (6416)"));
+}
+
 void RepClient::conversation_topic(std::uint32_t topic) {
     if (m_phase != Phase::inGame || !m_own.hasMetadata) {
         return;

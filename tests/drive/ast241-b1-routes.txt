@@ -1,0 +1,15 @@
+# The routes of tests/drive/ast241-b1.txt (AST-241): the level 20, the hour 12:00, 06_skinningknife with its items (FlintT1, WoodT1,
+# 1hSkinningKnifeT1), then 06_boarfeast, a Black Boar 2.4 m north (the ignore mode stays off: the kill needs the credit), the equip of
+# the knife (from its bag slot 4). The boar stands while the ignore mode is on (the first hits); the ignore mode goes off before the
+# last hits (a kill in the ignore mode gives no credit: backend live check K1). Times on the clock of the drive script.
+0.5 level 20
+0.6 world-time 12:00
+1.0 quest grant 06_skinningknife
+7.0 give FlintT1
+11.0 give WoodT1
+15.0 give 1hSkinningKnifeT1
+18.0 quest grant 06_boarfeast
+19.5 ignore on
+20.0 spawn Boar_StarterBeach 0.00 2.40 0.40 --level 1 --yaw 180
+25.5 ignore off
+33.0 equip 4

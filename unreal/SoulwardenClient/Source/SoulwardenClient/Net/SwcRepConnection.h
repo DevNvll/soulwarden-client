@@ -95,6 +95,9 @@ public:
 	void OpenUiScreen(std::uint32_t Screen);
 	void AbandonObjective(std::uint64_t Instance);
 	void ResetObjective(std::uint64_t Instance);
+	/** The place cues 2297 and 6416 (AST-241; RepClient territory_report). */
+	void TerritoryReport(const std::array<std::uint8_t, 16>& Actor, std::uint64_t Group, std::uint64_t Local, std::uint16_t Territory,
+		std::optional<std::uint32_t> Achievement);
 	/** The topics of a person conversation (AST-248; RepClient conversation_topic, finished_topics). */
 	void ConversationTopic(std::uint32_t Topic);
 	void FinishedTopics(const std::vector<std::uint32_t>& Topics);

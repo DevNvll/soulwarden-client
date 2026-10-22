@@ -40,7 +40,8 @@ local function D()
     return Q.data
   end
   local doc = swcui.load_json("gamedata/quests.json") or {objectives = {}, tasks = {}, events = {}}
-  local data = {objectives = doc.objectives or {}, tasks = doc.tasks or {}, events = doc.events or {}, byCrc = {}, eventsByCrc = {}}
+  local data = {objectives = doc.objectives or {}, tasks = doc.tasks or {}, events = doc.events or {}, byCrc = {}, eventsByCrc = {},
+                pois = doc.pois or {}, npcNames = doc.npcNames or {}}
   for _, row in pairs(data.objectives) do
     data.byCrc[row.crc] = row
   end
@@ -458,7 +459,13 @@ Swc.Define("ObjectivesComponentRequestBus", "Event", {
     notify_component("OnPinnedObjectiveChanged", id)
     notify_component("OnObjectiveSortingChanged")
   end,
-  IsObjectiveReadyForCompletion = function() return false end,
+  -- Ready for the hand-in: the root task of the instance is Complete (2) or CompleteActive (3) (backend quests.md: "the root of the
+  -- objective is complete: the hand-in is stage 1.8b"; the retail tracker then shows the hand-in row "Talk to Urda", picture K1-2of5).
+  IsObjectiveReadyForCompletion = function(_, id)
+    local rec = record_of(id)
+    local state = rec and rec.root and state_of(rec, rec.root)
+    return state == 2 or state == 3
+  end,
   GetNearbyObjectives = function() return {} end,
   IsObjectiveNearby = function() return false end,
   -- The place of a pinned objective in the pinned list from 0, -1 for an objective with no pin: the number of its icon is the place
@@ -510,6 +517,14 @@ Swc.Define("ObjectiveRequestBus", "Event", {
   end,
   -- The localized description: the journal puts it after the subtitle (objectivesdatahandler.luac GetMissionTitleAndDescription), and a
   -- key in the middle of a text is not localized.
+  -- The name of the hand-in person (pinnedobjectivetask.luac SetHandInTask: "@objective_hand_in_destination" with npcName): the NPC
+  -- name of the NpcDestinationId of the objective (gamedata/quests.json "npcNames": the conversation data of the backend copy).
+  GetNpcDestinationGenericName = function(id)
+    local rec = record_of(id)
+    local npc = rec and cell(rec.row, "NpcDestinationId")
+    local key = npc and (D().npcNames or {})[string.lower(npc)]
+    return key and LyShineScriptBindRequestBus.Broadcast.LocalizeText(key) or ""
+  end,
   GetDescription = function(id)
     local rec = record_of(id)
     local key = rec and cell(rec.row, "Description")
@@ -537,7 +552,6 @@ Swc.Define("ObjectiveRequestBus", "Event", {
   HasAnyProgress = function() return false end,
   IsObjectiveDisabled = function() return false end,
   IsDynamicPoiObjectiveActive = function() return false end,
-  GetNpcDestinationGenericName = function() return "" end,
   CanBeAbandoned = function(id)
     local rec = record_of(id)
     return rec ~= nil and cell(rec.row, "CanBeAbandoned") == "1"

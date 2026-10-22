@@ -167,6 +167,19 @@ void objectives_state(const backend::gamedata::QuestData& data)
 			  && largeClient.questTasks.empty() && largeClient.questStarts.empty(),
 		"an empty state after the large state: all the lists are empty (" + std::to_string(emptyBytes.size()) + " bytes)");
 
+	// A hand-in (backend stage 1.8b): the record that removes the instance names it in field 2 (completedObjectives), written only with
+	// an instance; the client then shows a completion, not "Objective Failed".
+	backend::world::Entity handIn;
+	handIn.quests.loaded = true;
+	handIn.quests.data = &data;
+	handIn.quests.completed.push_back(0x1122334455667788ULL);
+	const backend::server::hub::Bytes handInBytes = backend::server::rep::encode_objectives_state(handIn, backend::server::rep::View::owner, clock);
+	const decoder::Fragment handInFragment = fragment_of(handInBytes, swc::net::kSlotObjectives, swc::net::kStateObjectives.index, whole);
+	RepClient::OwnEntity afterHandIn = client;
+	check(whole && RepClient::read_objectives(handInFragment, afterHandIn) && afterHandIn.questActive.empty()
+			  && afterHandIn.questCompleted == std::vector<std::uint64_t>{0x1122334455667788ULL},
+		"a hand-in: field 2 names the completed instance, the active list is empty (" + std::to_string(handInBytes.size()) + " bytes)");
+
 	// A cut state: the reader keeps the lists of the client.
 	decoder::Fragment cut = fragment;
 	auto& tasks = cut.fields[{1, 4}];
@@ -218,6 +231,22 @@ void requests()
 		"2297: the territory and the achievement CRC");
 	const auto left = backend::server::rep::read_territory_report(swc::net::territory_report_body(group, actor, 0x10, 0x20, 1203, std::nullopt), false);
 	check(left && left->territory == 1203 && left->achievement == 0, "6416: the territory, no achievement");
+	// The place cue of POI 40142 (AST-241; research poi-cues.md): the reference of the Territory component of its placement
+	// (222840c7-9fef-93ad-170c-b720ad0ad6ab: the actor of the UUID rule, group, local = group + 0x4FB021A86DF7AE7A), big-endian group and local.
+	const std::array<std::uint8_t, 16> poiActor{0x03, 0x45, 0xe5, 0x32, 0xe7, 0xf7, 0x24, 0x35, 0, 0, 0, 0, 0, 0, 0, 0};
+	const auto poiBody = swc::net::territory_report_body(group, poiActor, 0x3524f7e732e54503ULL, 0x84d5198fa0dcf37dULL, 40142, 0xD66D9B33U);
+	std::string poiHex;
+	for (std::size_t index = 16; index < 48 && index < poiBody.size(); ++index) {
+		char pair[3];
+		std::snprintf(pair, sizeof pair, "%02x", poiBody[index]);
+		poiHex += pair;
+	}
+	check(poiBody.size() == 54 && poiHex == "0345e532e7f7243500000000000000003524f7e732e5450384d5198fa0dcf37d"
+			  && poiBody[48] == 0x9c && poiBody[49] == 0xce,
+		"2297 of POI 40142: 54 bytes, the actor raw, group and local big-endian, the territory 9c ce");
+	const auto zeroCue = backend::server::rep::read_territory_report(
+		swc::net::territory_report_body(group, poiActor, 0x3524f7e732e54503ULL, 0x84d5198fa0dcf37dULL, 40142, 0U), true);
+	check(zeroCue && zeroCue->achievement == 0 && zeroCue->territory == 40142, "2297 with the achievement 0: 54 bytes, the backend reads it");
 	// The topics of a person conversation (AST-248): the Conversation facet of the player root.
 	const auto topic = backend::server::rep::read_conversation_topic(swc::net::conversation_topic_body(group, 0xE532485AU));
 	check(topic && topic->topics.size() == 1 && topic->topics[0] == 0xE532485AU && topic->target == group + swc::net::kConversationComponent

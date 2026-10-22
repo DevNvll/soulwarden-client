@@ -42,7 +42,10 @@ of stage 1.8a). Then:
 - The scripts send the other requests through host requests: "quest pins I,J" (1458, at most 8), "quest screen CRC" (2617),
   "quest abandon I" (3836), "quest reset I" (5600).
 
-The writers of 2297 and 6416 (the entry and the exit of a place) are in the codec; their use is stage Q6 (AST-241).
+- Field 2 (the completed instances, backend stage 1.8b) names the instance of a hand-in in the record that removes it: the client
+  shows a completion, not "Objective Failed" (vendored decoder of ef7daf6).
+
+The place cues 2297 and 6416: see "The place cues" below (stage Q6).
 
 ## The data
 
@@ -69,8 +72,9 @@ folders `lyshineui/images/objectives/`, `icons/objectives/`, `journal/`, and `ba
 
 - `tools/test-net.sh`: 27 quest checks (the beach start state, a timer, a large list: 60 objectives, 8 tracked, 512 task elements; an
   empty list; the view of an observer; a cut field; two owners; 5606; the request bodies).
-- `tools/test-ui.sh --fixture quests`: 17 checks; `--fixture questprogress`: 12 checks (the counter, Reset and its popup, the screen
-  queue, the tags of the quest objects).
+- `tools/test-ui.sh --fixture quests`: 17 checks; `--fixture questprogress`: 14 checks (the counter, the place name of a text, Reset and
+  its popup, the screen queue, the tags of the quest objects, the hand-in row "Talk to Urda").
+- `tools/test-net.sh`: the quest program also checks field 2 of a hand-in and the 2297 body of POI 40142 (the reference bytes).
 - The live check: a new character of the development account in its own data folder (`SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-quests`;
   `SWC_DEV_NEW=1` of `tools/creature-check.sh` makes it with no saved place, so the backend puts it on the Windsward beach). The drives
   `tests/drive/ast236-quest-*.txt`: the first entry (the banner, the tracker, J, Unpin, Pin, Escape), then a second entry of the same
@@ -113,6 +117,25 @@ folders `lyshineui/images/objectives/`, `icons/objectives/`, `journal/`, and `ba
 - The quest objects: an object of the interaction layer with InteractOnlyOnQuest (`quest` of the object layer: the capital entries of
   `gathering-data.json` with 4 values) has a focus only while a task of the character with its InteractTag is Active
   (`Swc.QuestActiveTags`, `USwcBackendSubsystem::SetQuestTags`; backend gathering.md: else the refusal notOnQuest).
+
+## The place cues (AST-241; research poi-cues.md)
+
+- The data: `tools/convert-ui.sh quests` writes `gamedata/poi-cues.json`: for each point of interest of `poi-data.json` its placement
+  of `regions/*/capitals/pois/pois.capitals.json` (by the world position), the reference of its Territory component (the actor and the
+  group of the UUID rule; local = group + 0x4FB021A86DF7AE7A for the base POI slice), the territory field (the POI id), the discovery
+  radius (0 with no discovery achievement), the shape, and the two achievements (the CRC-32 of the full lower-case name of the cells
+  DiscoveredAchievement and ChartedAchievement, and the AchievementIndex bit). 390 of 476 points use the base slice; the other 86 have
+  no local (no cue: an open point). The records of 40140, 40142, and 40144 are equal to the saved retail packets of the backend live
+  check POI1.
+- The detector (`FSwcUiQuests::FeedPlaces`, 5 tests a second from the feet of the character): the sphere (3D distance to the placement)
+  and the shape (the polygon, 180 m high). An entry sends 2297 with the CRC of its achievement while its bit is not set (54 bytes; the
+  achievement 0 for a shape with no charted achievement); each exit sends 6416 (50 bytes). The margins of the retail detectors are not
+  known (no hysteresis here). The backend uses the cues only as a cue: its place tasks use its own position and shapes.
+- The live check POI1 (`tests/drive/ast241-poi1*.txt`): a travel into the shape of 40142 sends 2297 d66d9b33 (the sphere) and 2297
+  39eec8c7 (the shape), the pair of the retail packets; a travel out sends two 6416. The backend reads them ("the shape of the data says
+  inside").
+- The hand-in row of the tracker: the root task Complete or CompleteActive makes the objective ready (`IsObjectiveReadyForCompletion`);
+  the row is "Talk to NAME" with the NPC of NpcDestinationId (`GetNpcDestinationGenericName`; retail K1-2of5: "Basic Needs / Talk to Urda").
 
 ## Open points
 

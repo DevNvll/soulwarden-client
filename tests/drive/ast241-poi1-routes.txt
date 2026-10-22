@@ -1,0 +1,6 @@
+# The routes of tests/drive/ast241-poi1.txt (AST-241): the hour 12:00, the creatures ignore the character, then the travels: into the
+# shape of POI 40142 (on land at its north side), and out to 190 m north (outside the discovery sphere of 150 m). Times on the clock of the drive script.
+0.5 world-time 12:00
+0.6 ignore on
+8.0 travel 9685.0 2310.0 44.0
+20.0 travel 9587.4 2408.1 50.5
