@@ -1030,6 +1030,30 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	}
 }
 
+FLinearColor USwcEnvironmentSubsystem::GetCloudSunSource() const
+{
+	FLinearColor Main = FLinearColor::Black;
+	if (SourceSunLight.A > 0.5f)
+	{
+		Main = FLinearColor(SourceSunLight.R, SourceSunLight.G, SourceSunLight.B) * (1.0f / (10000.0f * UE_PI));
+	}
+	else if (const UDirectionalLightComponent* Light = GetSkyLightSource())
+	{
+		Main = Light->GetLightColor() * (Light->Intensity / (10000.0f * UE_PI));
+	}
+	const std::array<double, 3> Custom = BlendedColor(TEXT("Cloud shading: Sun custom color"));
+	const double CustomScale = Blended(TEXT("Cloud shading: Sun custom color multiplier"), 1.0);
+	const double Influence = FMath::Clamp(Blended(TEXT("Cloud shading: Sun custom color influence"), 0.0), 0.0, 1.0);
+	const double SunPart = Blended(TEXT("Cloud shading: Sun light multiplier"), 1.0);
+	const float Channels[3] = {Main.R, Main.G, Main.B};
+	float Out[3];
+	for (int32 C = 0; C < 3; ++C)
+	{
+		Out[C] = static_cast<float>(FMath::Lerp(SunPart * Channels[C], Custom[C] * CustomScale, Influence));
+	}
+	return FLinearColor(Out[0], Out[1], Out[2], 1.0f);
+}
+
 const UDirectionalLightComponent* USwcEnvironmentSubsystem::GetSkyLightSource() const
 {
 	const UDirectionalLightComponent* A = Sun.Get();

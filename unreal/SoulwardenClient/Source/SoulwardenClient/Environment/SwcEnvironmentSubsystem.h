@@ -218,6 +218,10 @@ public:
 	}
 	/** @return The light of the hour: the sun, or the moon at night (the brighter of the two directional lights of the environment). */
 	const UDirectionalLightComponent* GetSkyLightSource() const;
+	/** CloudSun of the source (CLOUDSHADING_SUNCOLOR, research/e5-distance-clouds.md "Color inputs and units"), in source units:
+	 *  lerp("Cloud shading: Sun light multiplier" x the main light, "Sun custom color" x its multiplier, its influence); the main light
+	 *  = Sun color / Y x Sun intensity / (10,000 pi) (the source sun of the hour), else the light of the hour (color x intensity / (10,000 pi)). */
+	FLinearColor GetCloudSunSource() const;
 	/** The exposure rule of the source at the place: "EV Min", "EV Max", and "EV Auto compensation" of the blend (the meter probe). */
 	FVector GetExposureRule() const
 	{

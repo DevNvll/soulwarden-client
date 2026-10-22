@@ -111,6 +111,7 @@ private:
 	UMaterialInstanceDynamic* MakeMaterial(const swc::water::Body& Body);
 	/** The sky cube of the reflection (a capture of only the sky) and the sun color of the source on the instances. */
 	void UpdateSkyCube(const FVector& View);
+	void UpdateSkyCubeClouds(const FVector& View, bool bShow);
 	/** The parameters of the ocean material instance for a material of the source, its animation, and its fog. */
 	TMap<FName, float> OceanValues(int32 Material, const TSharedPtr<class FJsonObject>& Animation, const FVector3f& FogColor, float FogScale,
 		float FogDensity, const FVector3f& NearFogColor) const;
@@ -158,6 +159,12 @@ private:
 	UPROPERTY()
 	TObjectPtr<class USceneCaptureComponentCube> SkyCapture;
 	double NextSkyCapture = 0.0;
+	/** The source cloud layers of the sky cube (only in the scene captures) and their dynamic instances. */
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> SkyClouds;
+	UPROPERTY()
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> SkyCloudMaterials;
+	bool bSkyCloudsTried = false;
 	FLinearColor SunColor = FLinearColor(0, 0, 0, 0);
 	/** The shore foam (AST-200): the effects (their sheets), the emitters, the decal material, the decals and their instances. */
 	TArray<TArray<FShoreSheet>> ShoreEffects;

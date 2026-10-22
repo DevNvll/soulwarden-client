@@ -222,6 +222,41 @@ The GPT-6.1-Sol study `~/Games/soulwarden-client/research/water-sky-reflection.m
 The bare cube gives the deep blue of the retail swim water (saturation 0.78 against 0.79) but makes the river too blue (b* -8.0
 against +7.3); no clouds helps the far ocean. Evidence: `~/Games/soulwarden-client/evidence/AST-200/part4/`.
 
+### The water sky cube from the source parts (part 5, 2026-10-22)
+
+The GPT-6.1-Sol study `~/Games/soulwarden-client/research/water-sky-cube-list.md`: the retail water sky cube has three parts in this
+order: (1) the base SkyHDR sky with its Mie sun glow, no base sky fog on the normal frame; (2) the draw list 0x19: the three
+Distanceclouds subsets of `objects/sky/skydome_a.cgf` with the override `objects/climax/materials/sky/ftue_sky.mtl` at the beach (not
+the Unreal clouds); (3) the cube fog once on the composed cube. No stars at noon, no sun disk, no scene objects.
+
+- The base sky: the sky sphere of the environment with the source sky model (`swc.SourceSky 1`), captured with the Unreal atmosphere
+  off (bit 8 off: no sun disk).
+- The source cloud layers (`python3 -B -m swc_convert.skycube write`, `tools/import-skycube.sh`; all new in `/SwcGameContent/Water/SkyCube`):
+  one mesh for each dome subset (mesh rule 8: the vertex RGBA and the tangents), the parent `M_SwcDistanceClouds` (the normal
+  DistanceCloudsPS: opacity = R(uv) x the vertex alpha; alpha = opacity ^ (AlphaSaturation / (Opacity + 0.01)); 8 red samples along the
+  tangent-space light direction x StepSize; c = exp2(-Attenuation x density); RGB = (SkyColorMultiplier x CloudSky x (1 - c) +
+  SunColorMultiplier x CloudSun x c) x the vertex RGB x 10,000 cd/m2; the TexMod oscillators: type 2 a scroll, type 4 a sine pan), and one
+  instance for each layer. In the client the layers are components that only the scene captures draw, at 46 km about the view, in
+  the provisional order of the CGF subsets (2, 1, 0 [U]). CloudSun = `USwcEnvironmentSubsystem::GetCloudSunSource` (lerp("Cloud
+  shading: Sun light multiplier" x the main light, the custom color x its multiplier, its influence)); CloudSky 0 (the proved startup
+  value; a live writer is not proved [U]).
+- The cube fog: not ported. The source transport (one interval of the fog grid, old x T + Lfog) needs the slice count of the grid and
+  the sun in-scatter inputs (a study is asked: `research/briefs/ast200-p5-cube-fog.md`). The capture fog of Unreal (bit 2) integrates to
+  the sky sphere (46 to 50 km) and also fogs each layer: not the source rule.
+- `swc.WaterSkyCube` bits: 1 the Unreal clouds, 2 the Unreal fog, 4 the source layers, 8 the Unreal atmosphere. The default stays 11
+  (the capture of part 4) until the cube fog is ported.
+
+| View | 11 (part 4) | 6 (base, layers, Unreal fog) | 2 (base, Unreal fog) | 4 (base, layers, no fog) | Water L* 11 / 4 (retail) |
+| --- | --- | --- | --- | --- | --- |
+| swim-idle | 19.1 | 14.6 | 15.7 | 11.0 | 44.0 / 28.9 (24.4) |
+| swim-nav | 12.9 | 13.5 | 12.7 | 8.4 | 37.1 / 25.5 (21.7) |
+| river-forest-noon | 10.2 | 9.8 | 10.1 | 3.8 | 41.0 / 31.7 (28.9) |
+| ocean-clear-noon | 13.1 | 10.1 | 9.6 | 9.2 | 50.5 / 44.2 (36.7) |
+| The mean (water dE) | 13.8 | 12.0 | 12.0 | 8.1 | |
+
+The capture fog of Unreal makes the cube white; the layers alone change little in these clear noon views. Evidence:
+`~/Games/soulwarden-client/evidence/AST-200/part5/` (retail | 11 | 6 | 2 | 4).
+
 ## The depth classes
 
 The rule of the retail client (research wf5-swim, client code 0x6A0DBF0; `swc::water::depth_class`): the leaf of the water quadtree

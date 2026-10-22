@@ -64,12 +64,14 @@ TAutoConsoleVariable<FString> CVarWaterParams(TEXT("swc.WaterParams"), TEXT(""),
 /** The sun color S of the water (research water-uploads.md 1 [R]): 1 the time-of-day sun of the source on the ground (Sun color / Y x
  *  Sun intensity lux / pi, USwcEnvironmentSubsystem::GetSourceSunLight); 0 the Unreal sun light (its color x intensity / pi: the
  *  light before the Unreal atmosphere, bluer and stronger at noon; the rule before AST-200 part 3). */
-/** The parts of the sky cube of the water (research water-sky-reflection.md 2): the source cube has the base sky (the Mie and Rayleigh
- *  sky formula) and, by default, the cube fog stage (old x T + Lfog); a second list of draws (0x19) is not recovered, thus the clouds in
- *  the cube are not proved. Bit 1: the clouds of Unreal; bit 2: the height fog and the volumetric fog. The atmosphere and the sky
- *  sphere are always in it. */
-TAutoConsoleVariable<int32> CVarWaterSkyCube(TEXT("swc.WaterSkyCube"), 3,
-	TEXT("The parts of the water sky cube: 1 the clouds, 2 the fog (bits; 3 both, 0 the bare sky)."));
+/** The parts of the sky cube of the water (research water-sky-cube-list.md 1): in this order the base SkyHDR sky (the sky sphere of
+ *  the environment with the source sky model; no fog on it in the source), the draw list 0x19 (the Distanceclouds subsets of the sky
+ *  slice: the source cloud layers, swc_convert.skycube), then the cube fog once (here the fog of the capture, also on the layers:
+ *  with the same fog on both this is the fog once on the composed cube [I]; the source one-interval transport is not ported). */
+TAutoConsoleVariable<int32> CVarWaterSkyCube(TEXT("swc.WaterSkyCube"), 11,
+	TEXT("The parts of the water sky cube (bits): 1 the Unreal clouds, 2 the Unreal fog of the capture, 4 the source cloud layers (the Distanceclouds ")
+	TEXT("of the dome), 8 the Unreal atmosphere (its sun disk). 11 (the default): the capture of part 4. The source cube is the base sky, the ")
+	TEXT("source layers, then the source cube fog once (not ported: 4 has no fog, 6 the Unreal fog also on each layer)."));
 
 TAutoConsoleVariable<int32> CVarWaterSourceSun(TEXT("swc.WaterSourceSun"), 1,
 	TEXT("1: the water sun color is the source sun of the hour (the rule); 0: the Unreal sun light."));
@@ -720,6 +722,89 @@ UMaterialInstanceDynamic* USwcWaterSubsystem::MakeMaterial(const swc::water::Bod
 	return Material;
 }
 
+void USwcWaterSubsystem::UpdateSkyCubeClouds(const FVector& View, bool bShow)
+{
+	// The source cloud layers of the sky cube (AST-200 part 5; research/water-sky-cube-list.md 1 and 5): one component for each subset of
+	// the dome (SWC_CONTENT/water/skycube.json, tools/import-skycube.sh), only in the scene captures, about the view at 46 km (inside the
+	// sky sphere of 50 km: the far plane of the source draw), in the provisional order of the CGF subsets (2, 1, 0 [U]) by the
+	// translucency priority. CloudSun of the data, CloudSky 0 (the proved startup value; a live writer is not proved [U]), the light of
+	// the hour toward the light.
+	if (!bSkyCloudsTried)
+	{
+		bSkyCloudsTried = true;
+		FString Content = FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_CONTENT"));
+		if (Content.IsEmpty())
+		{
+			Content = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("HOME")), TEXT("Games/soulwarden-client/content"));
+		}
+		FString Text;
+		TSharedPtr<FJsonObject> Doc;
+		if (FFileHelper::LoadFileToString(Text, *FPaths::Combine(Content, TEXT("water/skycube.json")))
+			&& FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Doc) && Doc.IsValid())
+		{
+			const FString Folder = Doc->GetStringField(TEXT("folder"));
+			int32 Order = 0;
+			for (const TSharedPtr<FJsonValue>& Value : Doc->GetArrayField(TEXT("layers")))
+			{
+				const TSharedPtr<FJsonObject> Layer = Value->AsObject();
+				const FString Name = Layer->GetStringField(TEXT("name"));
+				UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *FString::Printf(TEXT("%s/Meshes/%s/%s/StaticMeshes/%s.%s"), *Folder, *Name, *Name, *Name, *Name),
+					nullptr, LOAD_NoWarn | LOAD_Quiet);
+				UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, *FString::Printf(TEXT("%s/Materials/MI_%s.MI_%s"), *Folder, *Name, *Name),
+					nullptr, LOAD_NoWarn | LOAD_Quiet);
+				if (Mesh == nullptr || Material == nullptr)
+				{
+					UE_LOG(LogSwcWater, Warning, TEXT("water: the sky cube layer %s: mesh %s, material %s (tools/import-skycube.sh)"), *Name,
+						Mesh ? TEXT("ok") : TEXT("missing"), Material ? TEXT("ok") : TEXT("missing"));
+					continue;
+				}
+				UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>(WaterActor, *FString::Printf(TEXT("SwcSkyCubeCloud_%s"), *Name));
+				Component->SetMobility(EComponentMobility::Movable);
+				Component->SetStaticMesh(Mesh);
+				UMaterialInstanceDynamic* Dynamic = UMaterialInstanceDynamic::Create(Material, this);
+				Component->SetMaterial(0, Dynamic);
+				Component->SetVisibleInSceneCaptureOnly(true);
+				Component->SetCastShadow(false);
+				Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				Component->bAffectDistanceFieldLighting = false;
+				Component->bVisibleInRayTracing = false;
+				Component->SetTranslucentSortPriority(Order++);
+				Component->SetUsingAbsoluteLocation(true);
+				Component->SetUsingAbsoluteScale(true);
+				const double Radius = FMath::Max(Mesh->GetBounds().SphereRadius, 1.0);
+				Component->SetWorldScale3D(FVector(4.6e6 / Radius));
+				Component->SetupAttachment(WaterActor->GetRootComponent());
+				Component->RegisterComponent();
+				Component->SetBoundsScale(10.0f);
+				SkyClouds.Add(Component);
+				SkyCloudMaterials.Add(Dynamic);
+			}
+			UE_LOG(LogSwcWater, Log, TEXT("water: the sky cube has %d source cloud layers (%s)"), SkyClouds.Num(), *Doc->GetStringField(TEXT("order")));
+		}
+	}
+	const USwcEnvironmentSubsystem* Environment = GetWorld()->GetSubsystem<USwcEnvironmentSubsystem>();
+	const UDirectionalLightComponent* Light = Environment != nullptr ? Environment->GetSkyLightSource() : nullptr;
+	const FLinearColor CloudSun = Environment != nullptr ? Environment->GetCloudSunSource() : FLinearColor::Black;
+	const FVector Toward = Light != nullptr ? -Light->GetForwardVector() : FVector::UpVector;
+	for (int32 I = 0; I < SkyClouds.Num(); ++I)
+	{
+		if (UStaticMeshComponent* Component = SkyClouds[I])
+		{
+			if (SkyCapture != nullptr)
+			{
+				if (bShow) { SkyCapture->ShowOnlyComponents.AddUnique(Component); } else { SkyCapture->ShowOnlyComponents.Remove(Component); }
+			}
+			Component->SetWorldLocation(View);
+		}
+		if (UMaterialInstanceDynamic* Dynamic = SkyCloudMaterials[I])
+		{
+			Dynamic->SetVectorParameterValue(TEXT("CloudSun"), CloudSun);
+			Dynamic->SetVectorParameterValue(TEXT("CloudSky"), FLinearColor::Black);
+			Dynamic->SetVectorParameterValue(TEXT("SunDirection"), FLinearColor(Toward.X, Toward.Y, Toward.Z, 0.0f));
+		}
+	}
+}
+
 void USwcWaterSubsystem::UpdateSkyCube(const FVector& View)
 {
 	// The sky cube of the reflection ($SkyCubemap of the source: the sky rendered in six directions with the sky fog; research
@@ -782,6 +867,8 @@ void USwcWaterSubsystem::UpdateSkyCube(const FVector& View)
 		SkyCapture->ShowFlags.SetCloud((Parts & 1) != 0);
 		SkyCapture->ShowFlags.SetFog((Parts & 2) != 0);
 		SkyCapture->ShowFlags.SetVolumetricFog((Parts & 2) != 0);
+		SkyCapture->ShowFlags.SetAtmosphere((Parts & 8) != 0);
+		UpdateSkyCubeClouds(View, (Parts & 4) != 0);
 		SkyCapture->SetWorldLocation(View);
 		SkyCapture->CaptureScene();
 	}
