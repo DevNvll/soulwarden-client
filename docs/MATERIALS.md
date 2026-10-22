@@ -69,6 +69,20 @@ own 2 x 2 UV transform, the color and the strength 600 of the record), the glass
 two VFX circles (`n_95053d7b9d`, `m_c127d56484`; the second is not imported). Open: the TexMod oscillators of the intensity map (U and V
 type 2, rate 0.5, amplitude 0.2; W turn type 2) have no formula in the study: the client keeps the static UV.
 
+The same rule for the normal and specular maps (AST-261, 2026-10-22): `illum.ext` gives `%NORMAL_MAP` (mask 0x1) the dependency
+`$TEX_Normals` and `%SPECULAR_MAP` (mask 0x10) the dependency `$TEX_Specular`; the retail parser of the dependencies (0x60271D6 and
+0x602722D, `research/lights-emission/gen-parser.txt`) maps them to the dependency bits 0x4 (texture slot 1, Bumpmap) and 0x10 (slot
+2, Specular) of the same table as the emission. Thus a Bumpmap texture enables `%NORMAL_MAP` and a Specular texture `%SPECULAR_MAP`
+(`material_records.ILLUM_DEPENDENCIES`). The far meshes of the places of interest (`poi_impostors`, Illum `%IS_POI_IMPOSTOR`, 27
+materials) have the three atlases (`_diff`, `_ddna` with the gloss in its alpha, `_spec`) and no flag in their text: before, the client
+drew them with F0 1 (the white default specular map x the XML Specular 1, 1, 1: a metal) and smoothness 1 (Shininess 255, no gloss
+map): a white mirror that showed the bright sky on each facet of the far mountains (the "snow and other terrain triangles" of the
+user report). The summit atlas of r_+04_+05 has the gloss 0.25 (p10 0.13, p90 0.37) and the specular 0.15 sRGB (F0 about 0.02): a
+rough dielectric rock. The rule changed 36 specs and no key: the 27 far meshes and 9 mesh materials (crates and barrels of flowers,
+a carriage, a bamboo fence, small rock piles, sulfur pool rocks). Not applied [U]: the reset side of the dependencies (a flag of the
+text with no texture of its slot clears the flag): 16 mesh materials with `%NORMAL_MAP` and no Bumpmap, 1 with `%SPECULAR_MAP` and
+no Specular texture.
+
 The Glass shader has its own table: Specular is the tint mask (`%TINT_MAP` or `%SPECULAR_MAP`), Custom the tint
 color (`%TINT_COLOR_MAP`), Diffuse the dirt (`%DIRT_MAP`), SecondSmoothness the cloud gloss.
 

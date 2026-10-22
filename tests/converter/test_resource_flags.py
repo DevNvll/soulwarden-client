@@ -1,5 +1,6 @@
-"""Tests of the Illum resource flag (research/lights-emission.md "Illum emission"; material_records.resource_flags) with no game
-data: an Emittance or a Decal texture enables %EMITTANCE_MAP, and the record keeps the render key of the record without it (the
+"""Tests of the Illum resource flags (research/lights-emission.md "Illum emission"; material_records.resource_flags) with no game
+data: an Emittance or a Decal texture enables %EMITTANCE_MAP, a Bumpmap texture %NORMAL_MAP, a Specular texture %SPECULAR_MAP
+(the far meshes of the places of interest, AST-261), and the record keeps the render key of the record without it (the
 instance keys n_RENDER are the names of the converted mesh slots)."""
 import sys
 import unittest
@@ -37,6 +38,19 @@ class ResourceFlags(unittest.TestCase):
             self.assertEqual(material_records.resource_flags(element("Illum", maps)), {"%EMITTANCE_MAP"}, maps)
         self.assertEqual(material_records.resource_flags(element("Illum", {"Diffuse": "a.dds", "Decal": " "})), set())
         self.assertEqual(material_records.resource_flags(element("Vegetation", {"Emittance": "b.dds"})), set())
+
+    def test_normal_and_specular_textures(self):
+        # The POI far meshes: Illum %IS_POI_IMPOSTOR with the three atlases and no flag of the maps in the text (AST-261).
+        e = ET.Element("Material", {"Name": "", "Shader": "Illum", "MtlFlags": "0", "GenMask": "80000001",
+                                    "StringGenMask": "%IS_POI_IMPOSTOR"})
+        textures = ET.SubElement(e, "Textures")
+        for slot, file in (("Bumpmap", "r_ddna.dds"), ("Diffuse", "r_diff.dds"), ("Specular", "r_spec.dds")):
+            ET.SubElement(textures, "Texture", {"Map": slot, "File": file})
+        self.assertEqual(material_records.resource_flags(e), {"%NORMAL_MAP", "%SPECULAR_MAP"})
+        self.assertEqual(material_records.flags_of(e)[0], ["%IS_POI_IMPOSTOR", "%NORMAL_MAP", "%SPECULAR_MAP"])
+        self.assertEqual(material_records.role_of("Illum", "Specular", set(material_records.flags_of(e)[0]))[0], "specular")
+        self.assertEqual(material_records.resource_flags(element("Illum", {"Bumpmap": " ", "Specular": ""})), set())
+        self.assertEqual(material_records.resource_flags(element("Vegetation", {"Bumpmap": "n.dds"})), set())
 
     def test_flags_of(self):
         e = element("Illum", {"Emittance": "b.dds"})

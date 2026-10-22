@@ -146,16 +146,23 @@ def flags_of(element: ET.Element, resources: bool = True) -> tuple[list[str], li
     return sorted(named | extra), sorted(named ^ bits) if bits else []
 
 
+# The texture dependencies of illum.ext (DependencySet; the retail parser 0x60271D6 $TEX_Normals -> dependency 0x4 = slot 1,
+# 0x602722D $TEX_Specular -> 0x10 = slot 2, 0x6027427 $TEX_Emittance -> 0x100000 = slots 7 and 13; research/lights-emission
+# dependency-table.json, gen-parser.txt) [R]: a supplied texture of the slot sets the flag.
+ILLUM_DEPENDENCIES = {"Bumpmap": "%NORMAL_MAP", "Specular": "%SPECULAR_MAP", "Emittance": "%EMITTANCE_MAP", "Decal": "%EMITTANCE_MAP"}
+
+
 def resource_flags(element: ET.Element) -> set[str]:
     """@return The flags that the engine adds from the texture resources of a sub-material before it picks the shader permutation
-    (research/lights-emission.md "Illum emission" [R]): for Illum, an Emittance texture or a Decal intensity texture enables
-    %EMITTANCE_MAP; the text and numeric masks are only inputs (the coal pit jav_prp_rockcoals_mat has the two textures and no flag)."""
+    (research/lights-emission.md "Illum emission" [R]): for Illum, a Bumpmap texture enables %NORMAL_MAP, a Specular texture
+    %SPECULAR_MAP, an Emittance texture or a Decal intensity texture %EMITTANCE_MAP; the text and numeric masks are only inputs
+    (the coal pit jav_prp_rockcoals_mat has the two emission textures and no flag; the far meshes of the places of interest,
+    %IS_POI_IMPOSTOR, have the normal, gloss, and specular atlases and no flag: AST-261). The reset side of the dependencies
+    (a flag of the text with no texture of its slot: 16 mesh materials with %NORMAL_MAP and no Bumpmap) is not applied [U]."""
     if element.get("Shader", "").lower() != "illum":
         return set()
-    for texture in element.findall("Textures/Texture"):
-        if texture.get("Map") in ("Emittance", "Decal") and texture.get("File", "").strip():
-            return {"%EMITTANCE_MAP"}
-    return set()
+    return {ILLUM_DEPENDENCIES[t.get("Map")] for t in element.findall("Textures/Texture")
+            if t.get("Map") in ILLUM_DEPENDENCIES and t.get("File", "").strip()}
 
 
 def uv_rules(texture: ET.Element) -> dict:

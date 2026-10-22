@@ -280,8 +280,12 @@ tools/build-world.sh --import --all      # each region: import its content (tool
 - The far meshes of the game (`impostors/`, `poi_impostors/` of each region: one mesh for each cell of 128 m) are
   groups of 512 m (`terrain.impostors`, 767 groups, 68.5 million triangles), always loaded, with the tag
   `SwcImpostor` and no collision. The client hides a group while its center is within the loading range of the view
-  (USwcWorldSubsystem): they fill the distance where the cells are not loaded. They have no normal map: the normal
-  maps of the impostor atlases are not tangent-space maps (the far meshes were black under the sun with them).
+  (USwcWorldSubsystem): they fill the distance where the cells are not loaded. The glTF of a group has no normal map (the
+  rule of stage 1.2: the far meshes were black under the sun with the legacy rule). The material instances of the far meshes
+  of the places of interest (`poi_impostors`, Illum `%IS_POI_IMPOSTOR`) have the diffuse, normal, gloss, and specular atlases
+  (AST-261, 2026-10-22; the texture dependencies of Illum, docs/MATERIALS.md): before, they were a white mirror (F0 1,
+  smoothness 1), and the far mountains showed white and dark triangles (each facet showed the bright sky or not). The far
+  meshes of the vegetation (`impostors`, Vegetation `%IS_GDE_IMPOSTOR`) keep the foliage rule with no normal map.
 - The ocean is a flat plane at 40 m with no collision.
 - `-SwcFlythrough=PLAN.json` (USwcWorldSubsystem, ASwcFlythrough): a camera flies along a path (engine points), with
   a streaming source; it logs the frame rate and the streaming each second, can write a picture every N frames, and
