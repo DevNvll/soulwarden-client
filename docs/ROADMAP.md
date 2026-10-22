@@ -116,7 +116,8 @@ engine has five parts: part 1.8a is released (backend commit fc5677e, database s
 (backend commit 096ab18, database schema 16); 1.8b, 1.8d, and 1.8e follow. The
 plan is `~/Games/soulwarden-client/research/quest-plan.md` (outside the repository; GPT-6.1-Sol, 2026-10-21). The
 backend owns the progress and the rewards; the client shows them with the original canvases and scripts. The user
-decides the place of these steps in the order (the MVP excludes quests now). Linear: parent AST-235.
+decides the place of these steps in the order. The decision of the user (2026-10-22): Q1 and Q6 next, beside the MVP,
+tested with a development character; the other steps after the MVP. Linear: parent AST-235.
 
 | Step | Backend part | The client work | Size |
 | --- | --- | --- | --- |
