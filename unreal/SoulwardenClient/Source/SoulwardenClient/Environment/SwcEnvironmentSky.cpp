@@ -15,7 +15,11 @@
 #include "Engine/Texture2D.h"
 #include "Engine/TextureCube.h"
 #include "Environment/SwcEnvironmentSubsystem.h"
+#include "Environment/SwcGodRays.h"
 #include "Environment/SwcProbeShading.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Engine/GameViewportClient.h"
+#include "UnrealClient.h"
 #include "Environment/SwcWorldTimeSubsystem.h"
 #include "HAL/IConsoleManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -62,7 +66,14 @@ TAutoConsoleVariable<float> CVarLocalFogScale(TEXT("swc.LocalFogScale"), 0.01f,
 TAutoConsoleVariable<int32> CVarGrade(TEXT("swc.Grade"), 1,
 	TEXT("The color grade of the source (stage E5): 1 the saturation, color balance, film curve, and photo filter of the data; 0 the Unreal tone mapper."));
 TAutoConsoleVariable<int32> CVarGradeDebug(TEXT("swc.GradeDebug"), 0,
-	TEXT("A check of the inputs of the grade: 1 the exposed value only (no curve, no grade), 2 the exposure (0.5 + log2 / 32)."));
+	TEXT("A check of the inputs of the grade: 1 the exposed value only (no curve, no grade), 2 the exposure (0.5 + log2 / 32), 3 the ray target as it is."));
+TAutoConsoleVariable<int32> CVarGodRays(TEXT("swc.GodRays"), 1,
+	TEXT("The sun rays of the source (AST-232): 1 on (the TOD keys \"Sun rays visibility\" and the others), 0 off (no passes, no blend)."));
+TAutoConsoleVariable<int32> CVarGodRaysDebug(TEXT("swc.GodRays.Debug"), 0,
+	TEXT("The target of the sun rays: 0 the rays, 1 the mask, 2 the first radial pass (show it with swc.GradeDebug 3)."));
+TAutoConsoleVariable<float> CVarGodRaysFar(TEXT("swc.GodRays.Far"), 14336.0f,
+	TEXT("The depth of the sky of the ray mask (m): the normalized depth of the source is the view depth over it (the view distance of ")
+	TEXT("the mission, 14,336 m; the far plane of a retail frame is not proved)."));
 TAutoConsoleVariable<float> CVarGradeBloom(TEXT("swc.GradeBloom"), 1.0f,
 	TEXT("The part of the Unreal bloom in the grade: 1 as the Unreal tone mapper adds it, 0 no bloom."));
 TAutoConsoleVariable<int32> CVarSourceBloom(TEXT("swc.SourceBloom"), 1,
@@ -616,6 +627,7 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 			const bool bSourceBloom = CVarSourceBloom.GetValueOnGameThread() != 0;
 			BloomMix = bSourceBloom ? FMath::Clamp(Blended(TEXT("Bloom amount"), 0.0) * 0.3 * 0.125, 0.0, 0.99) : 0.0;
 			GradeMaterial->SetScalarParameterValue(TEXT("BloomScale"), bSourceBloom ? static_cast<float>(BloomMix / (1.0 - BloomMix)) : CVarGradeBloom.GetValueOnGameThread());
+			UpdateGodRays(MoonWeight);
 			if (UPostProcessComponent* BloomPost = Exposure.Get())
 			{
 				// The blur of the source: its 15-tap kernel (the binomial C(18, k), sigma 2.12 taps) on a quarter of the screen is a
@@ -1108,4 +1120,70 @@ void USwcEnvironmentSubsystem::UpdatePixelProbes(const FVector& CameraLocation, 
 			First != nullptr ? First->Radius : 0.0);
 	}
 	SwcProbeShading::SetList(MoveTemp(List));
+}
+
+void USwcEnvironmentSubsystem::UpdateGodRays(double MoonWeight)
+{
+	// The five TOD keys of the source (research/godrays.md "Enable state"; the TOD variables 73 to 77): the shafts clamped to [0, 0.3],
+	// active when the shafts or the rays are above 0.05; the preprocess also needs the source sun RGB with a squared length of at least
+	// 0.01 and one amount at least 0.01. The merged HDR path of the source uses only the rays (the shaft amount has no consumer there).
+	const double Rays = FMath::Clamp(Blended(TEXT("Sun rays visibility"), 0.0), 0.0, 10.0);
+	const double Shafts = FMath::Clamp(Blended(TEXT("Sun shafts visibility"), 0.0), 0.0, 0.3);
+	const double Attenuation = Blended(TEXT("Sun rays attenuation"), 1.0);
+	const double Influence = Blended(TEXT("Sun rays suncolor influence"), 1.0);
+	const std::array<double, 3> Custom = BlendedColor(TEXT("Sun rays custom color"));
+	// The source sun RGB: "Sun color" x "Sun intensity" (the keys of the active light: the moon at night). Its tint is its direction
+	// (a vector normalization, not a luminance): T = lerp(the custom color, normalize(S), the sun-color influence).
+	const std::array<double, 3> Source = Times(BlendedColor(TEXT("Sun color")), Blended(TEXT("Sun intensity"), 0.0));
+	const double Length = FMath::Sqrt(Source[0] * Source[0] + Source[1] * Source[1] + Source[2] * Source[2]);
+	// The active light: the moon at night (the source sets the moon direction as the sun direction at night and in the transitions,
+	// 0x6D411B3); this client takes the main light of the weight of the moon, as the clouds do.
+	const UDirectionalLightComponent* Main = MoonWeight >= 0.5 ? Moon.Get() : Sun.Get();
+	const bool bActive = CVarGodRays.GetValueOnGameThread() != 0 && Main != nullptr && GradeMaterial != nullptr && (Shafts > 0.05 || Rays > 0.05)
+		&& Length * Length >= 0.01 && (Shafts >= 0.01 || Rays >= 0.01);
+	FLinearColor Tint = FLinearColor::Black;
+	if (bActive)
+	{
+		for (int32 C = 0; C < 3; ++C)
+		{
+			Tint.Component(C) = static_cast<float>(Rays * FMath::Lerp(Custom[C], Source[C] / Length, FMath::Clamp(Influence, 0.0, 1.0)));
+		}
+	}
+	// The half-size target (the high quality of the source: half the width and the height of the view).
+	FIntPoint Size(640, 360);
+	if (const UWorld* World = GetWorld(); World != nullptr && World->GetGameViewport() != nullptr && World->GetGameViewport()->Viewport != nullptr)
+	{
+		const FIntPoint Full = World->GetGameViewport()->Viewport->GetSizeXY();
+		Size = FIntPoint(FMath::Max(1, (Full.X + 1) / 2), FMath::Max(1, (Full.Y + 1) / 2));
+	}
+	if (RayTarget == nullptr)
+	{
+		RayTarget = NewObject<UTextureRenderTarget2D>(this, TEXT("SwcGodRays"));
+		RayTarget->ClearColor = FLinearColor::Black;
+		RayTarget->InitCustomFormat(Size.X, Size.Y, PF_R8G8B8A8, true);
+		RayTarget->UpdateResourceImmediate(true);
+		GradeMaterial->SetTextureParameterValue(TEXT("Rays"), RayTarget);
+	}
+	else if (RayTarget->SizeX != Size.X || RayTarget->SizeY != Size.Y)
+	{
+		RayTarget->ResizeTarget(Size.X, Size.Y);
+	}
+	GradeMaterial->SetVectorParameterValue(TEXT("RayTint"), Tint);
+	SwcGodRays::FSettings Settings;
+	Settings.bActive = bActive;
+	Settings.Toward = Main != nullptr ? -Main->GetForwardVector() : FVector::UpVector;
+	Settings.Attenuation = static_cast<float>(Attenuation);
+	Settings.FarDepth = CVarGodRaysFar.GetValueOnGameThread() * 100.0f;
+	Settings.Stage = CVarGodRaysDebug.GetValueOnGameThread();
+	Settings.Target = RayTarget->GameThread_GetRenderTargetResource();
+	SwcGodRays::SetSettings(Settings);
+	const int32 RayState = (bActive ? 1 : 0) + (MoonWeight >= 0.5 ? 2 : 0);
+	if (FPlatformTime::Seconds() >= NextRayLog || RayState != LastRayState)
+	{
+		NextRayLog = FPlatformTime::Seconds() + 30.0;
+		LastRayState = RayState;
+		UE_LOG(LogSwcEnvironment, Log, TEXT("rays: %s, visibility %.3f, shafts %.3f, attenuation %.3f, influence %.2f, tint %.3f %.3f %.3f, the %s%s, source RGB length %.4g, target %dx%d"),
+			bActive ? TEXT("on") : TEXT("off"), Rays, Shafts, Attenuation, Influence, Tint.R, Tint.G, Tint.B, MoonWeight >= 0.5 ? TEXT("moon") : TEXT("sun"),
+			Main != nullptr ? TEXT("") : TEXT(" (no light)"), Length, Size.X, Size.Y);
+	}
 }

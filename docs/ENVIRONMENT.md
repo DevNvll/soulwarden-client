@@ -609,6 +609,65 @@ order of their expected effect on the whole picture:
 - The radial sun lobe of the far fog: Unreal shares the directional inscattering color of the height fog with the override of the
   volume, so the far tail has no correct radial lobe (section 5 of the fog study).
 
+## The sun rays (AST-232, 2026-10-21)
+
+The request of the user: "add godrays". The rule of the source: the static study `research/godrays.md` (GPT-6.1-Sol; the native
+passes, the TOD keys, the moon). The client copies the normal SDR path of the source (the merged HDR final shader).
+
+The parts:
+
+| Part | What it does |
+| --- | --- |
+| `Environment/SwcEnvironmentSky.cpp` `UpdateGodRays` | Each frame: the five TOD keys with the volume blend ("Sun rays visibility" clamped to [0, 10], "Sun shafts visibility" clamped to [0, 0.3], "Sun rays attenuation", "Sun rays suncolor influence", "Sun rays custom color"); the gates of the source (shafts or rays above 0.05, one amount at least 0.01, the source sun RGB "Sun color" x "Sun intensity" with a squared length of at least 0.01); the tint V x lerp(the custom color, the normalized source RGB, the influence) for the grade (`RayTint`); the active light (the moon when its weight is at least 0.5, as the clouds); the half-size target. A log line "rays: on/off, ..." at each change and each 30 s. |
+| `Environment/SwcGodRays` | A scene view extension after the depth of field (the HDR scene color with its pre-exposure): the screen point of the light (a far point toward the light through the view projection: UV = (0.5 (x + w), 0.5 (w - y)) / (w + 1e-6), not clamped), the signed facing f (the dot of the light direction with the view direction), the CPU gate, then the passes into the target. The grade reads the target later in the frame. |
+| `Source/SwcShaders` `SwcGodRayPass`, `Shaders/Private/SwcGodRays.usf` | The mask of the source (SunShaftsMaskGen: M.rgb = d x 1.32 x (r + g + b) of the half-size scene color in source units, M.a = 1 - d; d the view depth over the far depth, the sky 1), then the radial pass twice (SunShaftsGen: 8 samples toward the light with the weights 1 - i/8, steps 0.1 and 0.025, rgb x 0.25 x D with D = saturate(f) x (1 - saturate(length(v x (1, a)) x A)), a = 1.333 x height / width). RGBA8 targets at half the size of the view (the clamp and the quantization after each pass), linear clamp samples. |
+| `M_SwcGrade` (`Scripts/import_sky.py`, `tools/import-sky.sh --grade`) | The screen blend of the source after the film curve and the sRGB step, before the photo filter: s = saturate(s + Rays x RayTint x (1 - s)). `Rays` (the target over the view) and `RayTint` default to black: with no tint the grade is as before. |
+
+The switches: `swc.GodRays` 1/0 (0: no passes and no blend), `swc.GodRays.Debug` 0 the rays, 1 the mask, 2 the first pass (shown with
+`swc.GradeDebug 3`: the target as it is), `swc.GodRays.Far` (m, default 14,336: the view distance of the mission).
+
+Rules of this client (the study leaves them open):
+- The CPU gate of the source rejects the effect when a camera-matrix dot with the light is greater than 0.45; the axis of that matrix is
+  not proved. The client takes it as the back of the view: no rays (a black target) when f < -0.45. The shader also gives no RGB when
+  f <= 0, as the source.
+- f is the dot of the light direction with the view direction (the renderer basis of the source is not proved).
+- The sky area test of the source (an occlusion query of at least 1 percent of the screen at the far depth) is not copied; the depth term
+  of the mask already gives no RGB where there is no sky.
+- The depth reprojection of a jittered frame (SunShafts.cfx lines 61 to 77) is not copied (the jitter of the temporal upscaler moves the
+  depth by less than a pixel of the half-size mask).
+- The far depth of the mask: the view distance of the mission (14,336 m); the far plane of a retail frame is not proved.
+- The UE light shafts: the sun and the moon lights of the client never set `bEnableLightShaftOcclusion` or `bEnableLightShaftBloom`
+  (the defaults are off): no second screen effect. The volumetric fog stays as it was (the source has both).
+- The standalone shaft path of the source (the soft light of the shaft alpha) is not used: the merged HDR path has no consumer of the
+  shaft amount.
+
+### Check of the sun rays (development runs, 2026-10-21; evidence `~/Games/soulwarden-client/evidence/godrays/`)
+
+- The log: at noon "rays: on, visibility 1, attenuation 1, influence 1, tint 0.70 0.56 0.44, the sun"; at night "visibility 2,
+  attenuation 0.5, tint 0.78 0.98 1.56, the moon" (the base TOD of the study).
+- The debug views (`m3/client/oxboro-road-sky-noon@mask`, `@blur1`, `@rays`): the mask has the sky white (it saturates in RGBA8) and
+  the near objects black; the first pass has the steps of 8 samples; the rays fall off from the sun beyond the top right. In the Cleave
+  forest view (heading north at noon) the target is black: the sun is behind the camera (f <= 0), as the source rule.
+- The sweep (`godrays-sweep2.mp4`, `tests/drive/godrays-sweep.txt` at the Oxboro road): a full turn with the camera 40 degrees up at
+  noon with the rays and without, the same at 00:00 for the moon. Toward the sun the rays give a warm haze from the sun and light bands
+  across the tower, the tree, and the character (the mean change of the frame +4.6 of 255, +6.1 in the top right; `still-noon` frames
+  15.5 s and 16.7 s, the same heading); the moon gets a glow and short rays (+4.2). No streak at the screen edges and no cut while the
+  sun crosses the edge of the view or goes behind the camera.
+- The matched views with each view also with `swc.GodRays 0` (`final4`, `final1`; the color report against retail, dE all): the Oxboro
+  road at noon 3.1 (off 3.9), at night 11.1 (off 14.1); the Oxboro lane under the canopy at noon 4.1 (off 3.9), at night 9.5 (off 9.2);
+  Cleave inside at noon 4.7 (off 4.6, the sun behind the camera); set 1 noon-w 3.0 (3.0), dusk-w 5.0 (4.9), night-w 4.3 (4.3).
+- Close crops retail | client | client without rays (`crop-moon.png`, `crop-noon-sky.png`). The differences: the retail moon glow is
+  about twice as large and brighter than the client glow (the client sky at night is also darker, L -13); the retail noon haze at the
+  top of the tower is warm, the client haze is fainter and pink (the client sky color); the retail pictures were not made with the sun
+  disc in the view (no retail sweep).
+- The GPU time (`ProfileGPU`, quiet frames): at 1280x720 (a 640x360 target) the mask 0.008 ms, the passes 0.009 and 0.011 ms; at
+  1920x1080 (960x540) the mask 0.009 to 0.010 ms, the passes 0.010 to 0.011 ms: about 0.03 ms for the three passes, plus one texture
+  sample in the grade. The study estimated 0.15 to 0.6 ms at 1080p.
+
+Open points: a retail capture with the sun disc in the view through leaves and a retail sweep (approved retail reference runs; not
+made); the axis of the CPU gate and of f (above); the sky area test; the far plane of a retail frame; the regional TOD presets that
+do not resolve (7 preset strings, `research/godrays/tod-audit.json`: the client keeps the volume blend of its data and adds no value).
+
 ## The matched views
 
 `tools/match-view.sh SET [VIEW...] [--out FOLDER] [--label LABEL]` (`tools/lib/match_view.py`, client `Environment/SwcMatchView`)

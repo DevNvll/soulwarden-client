@@ -1,0 +1,84 @@
+# The sun ray sweep (AST-232, docs/ENVIRONMENT.md "The sun rays") with tests/drive/godrays-sweep-routes.txt: the camera 40 degrees up;
+# at noon a full turn at 30 degrees a second with the rays (3 to 15 s; the sun of the south crosses the view and its edges, then goes
+# behind the camera), the same turn with swc.GodRays 0 (17 to 29 s), a GPU profile toward the sun (32.5 s), the debug views of the
+# target (the mask 34 s, the first pass 36 s, the rays 38 s; swc.GradeDebug 3); the routes set 00:00 at 41 s; the turn for the moon
+# with the rays (44 to 56 s) and without (58 to 70 s), a profile (72.5 s). tools/creature-check.sh godrays-sweep 78 ROUTES THIS
+# (place 8771.6:4214.5:141.6, the Oxboro road).
+1.0 pitch 40
+2.0 pitch 0
+3.0 turn 30
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 tick
+9.0 tick
+10.0 tick
+11.0 tick
+12.0 tick
+13.0 tick
+14.0 tick
+15.0 turn 0
+16.0 exec swc.GodRays 0
+17.0 turn 30
+18.0 tick
+19.0 tick
+20.0 tick
+21.0 tick
+22.0 tick
+23.0 tick
+24.0 tick
+25.0 tick
+26.0 tick
+27.0 tick
+28.0 tick
+29.0 turn 0
+30.0 exec swc.GodRays 1
+31.0 exec r.ProfileGPU.ShowUI 0
+32.0 tick
+32.5 exec ProfileGPU
+33.0 tick
+34.0 exec swc.GodRays.Debug 1
+34.5 exec swc.GradeDebug 3
+35.0 tick
+36.0 exec swc.GodRays.Debug 2
+37.0 tick
+38.0 exec swc.GodRays.Debug 0
+39.0 tick
+40.0 exec swc.GradeDebug 0
+41.0 tick
+42.0 tick
+43.0 tick
+44.0 turn 30
+45.0 tick
+46.0 tick
+47.0 tick
+48.0 tick
+49.0 tick
+50.0 tick
+51.0 tick
+52.0 tick
+53.0 tick
+54.0 tick
+55.0 tick
+56.0 turn 0
+57.0 exec swc.GodRays 0
+58.0 turn 30
+59.0 tick
+60.0 tick
+61.0 tick
+62.0 tick
+63.0 tick
+64.0 tick
+65.0 tick
+66.0 tick
+67.0 tick
+68.0 tick
+69.0 tick
+70.0 turn 0
+71.0 exec swc.GodRays 1
+72.0 tick
+72.5 exec ProfileGPU
+73.0 tick
+74.0 tick
+75.0 tick

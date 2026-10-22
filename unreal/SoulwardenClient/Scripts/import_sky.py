@@ -16,7 +16,8 @@ The precipitation material /SwcGameContent/Environment/M_SwcPrecipitation (a pos
 layers of the rain layer texture of the source that fall over the screen, and the snowflakes of the engine atlas in cells that drift;
 the drops cover the scene with their own light (a part of the light of a white surface). Its parameters: Rainfall, Snowflakes (the textures), RainAmount, SnowAmount
 (0 to about 1), DropLight (the luminance of the drops, lit by the sun or the moon).
-Environment: SWC_SKY (sky/sky.json), SWC_SKY_FORCE (1: import again), SWC_SKY_REPORT (the report file).
+Environment: SWC_SKY (sky/sky.json), SWC_SKY_FORCE (1: import again), SWC_SKY_FORCE_GRADE (1: make M_SwcGrade again, nothing else),
+SWC_SKY_REPORT (the report file).
 """
 import json
 import os
@@ -341,6 +342,11 @@ GRADE_CODE = """
 // The scene input of a material that replaces the tone mapper is the luminance with no pre-exposure (measured): the exposed value is
 // the input times the exposure.
 float3 x = max((Scene.rgb + Bloom.rgb * BloomScale) * Exposure, 0.0);
+if (Debug > 2.5)
+{
+    // The target of the sun rays as it is (swc.GradeDebug 3; swc.GodRays.Debug selects the mask, the first pass, or the rays).
+    return Rays.rgb;
+}
 if (Debug > 0.5)
 {
     // A check of the inputs (swc.GradeDebug): 1 the exposed value only (no curve, no grade, sRGB); 2 the exposure as
@@ -355,12 +361,16 @@ float4 c = float4(x, max(FilmCurve.w, 1e-3));
 float4 m = ((c * (A * c + C * B) + D * E) / (c * (A * c + B) + D * F)) - E / F;
 float3 t = saturate(m.rgb / max(m.w, 1e-6));
 float3 s = t < 0.0031308 ? 12.92 * t : 1.055 * pow(t, 1.0 / 2.4) - 0.055;
+// The sun rays of the source (AST-232, research/godrays.md: HDRFinalScenePS 0051 to 0062): a screen blend of the blurred ray target
+// with the tint (the ray visibility x lerp(the custom color, the normalized sun color, the influence)) after the curve and the sRGB
+// step, before the photo filter of the color chart. RayTint is 0 when the rays are off.
+s = saturate(saturate(s) + Rays.rgb * RayTint.rgb * (1.0 - saturate(s)));
 float l = dot(s, Rec709);
 float low = saturate(2.0 * l);
 float3 overlay = saturate(l - 0.5) * 2.0 * (1.0 - low * PhotoFilter.rgb) + low * PhotoFilter.rgb;
 return saturate(lerp(s, overlay, saturate(l * PhotoFilter.a)));
 """
-if force or not assets.does_asset_exist(GRADE):
+if force or os.environ.get("SWC_SKY_FORCE_GRADE") == "1" or not assets.does_asset_exist(GRADE):
     if assets.does_asset_exist(GRADE):
         assets.delete_asset(GRADE)
     grade = tools.create_asset("M_SwcGrade", FOLDER, unreal.Material, unreal.MaterialFactoryNew())
@@ -382,8 +392,18 @@ if force or not assets.does_asset_exist(GRADE):
     bloom.set_editor_property("scene_texture_id", unreal.SceneTextureId.PPI_POST_PROCESS_INPUT2)
     bloom.set_editor_property("filtered", True)
     bloom_scale = parameter(grade, unreal.MaterialExpressionScalarParameter, "BloomScale", -900, 550, 1.0)
+    # The sun rays (AST-232): the half-size RGBA8 target of the ray passes (Environment/SwcGodRays; the client sets it) over the view
+    # (ViewportUV), and its tint (0: no rays; the defaults give the grade of before).
+    viewport = library.create_material_expression(grade, unreal.MaterialExpressionScreenPosition, -1200, 650)
+    rays = library.create_material_expression(grade, unreal.MaterialExpressionTextureSampleParameter2D, -900, 650)
+    rays.set_editor_property("parameter_name", "Rays")
+    rays.set_editor_property("texture", unreal.load_asset("/Engine/EngineResources/Black"))
+    rays.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_COLOR)
+    library.connect_material_expressions(viewport, "ViewportUV", rays, "UVs")
+    ray_tint = parameter(grade, unreal.MaterialExpressionVectorParameter, "RayTint", -900, 800, unreal.LinearColor(0, 0, 0, 0))
     pins = [("Scene", scene, "Color"), ("Exposure", exposure, ""), ("FilmCurve", film, "RGBA"), ("Balance", balance, "RGBA"),
-            ("PhotoFilter", photo, "RGBA"), ("Debug", debug, ""), ("Bloom", bloom, "Color"), ("BloomScale", bloom_scale, "")]
+            ("PhotoFilter", photo, "RGBA"), ("Debug", debug, ""), ("Bloom", bloom, "Color"), ("BloomScale", bloom_scale, ""),
+            ("Rays", rays, "RGB"), ("RayTint", ray_tint, "RGB")]
     pin_inputs = []
     for name, _, _ in pins:
         item = unreal.CustomInput()

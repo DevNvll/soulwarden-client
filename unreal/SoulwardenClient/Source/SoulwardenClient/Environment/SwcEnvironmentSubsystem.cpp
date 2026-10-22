@@ -17,6 +17,7 @@
 #include "Dom/JsonObject.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Environment/SwcGodRays.h"
 #include "Environment/SwcProbeShading.h"
 #include "Environment/SwcWorldTimeSubsystem.h"
 #include "GameFramework/Pawn.h"
@@ -566,6 +567,7 @@ void USwcEnvironmentSubsystem::Deinitialize()
 {
 	SwcLoadingGate::Unregister(GetWorld(), TEXT("meter"));
 	SwcProbeShading::SetList(FSwcProbeShadingList());
+	SwcGodRays::SetSettings(SwcGodRays::FSettings());
 	if (Actor.IsValid())
 	{
 		Actor->Destroy();

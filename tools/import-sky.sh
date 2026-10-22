@@ -2,16 +2,17 @@
 # Imports the night sky of the environment (stage E3, docs/ENVIRONMENT.md): the star map and the moon of
 # SWC_CONTENT/environment/sky (tools/convert-environment.sh sky) and the sky material M_SwcSky into /SwcGameContent/Environment
 # (unreal/SoulwardenClient/Scripts/import_sky.py), with the import lock.
-# Usage: tools/import-sky.sh [--force] [--wait N]
+# Usage: tools/import-sky.sh [--force] [--grade] [--wait N]
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 wait_lock=(-n)
-export SWC_SKY="${SWC_CONTENT}/environment/sky/sky.json" SWC_SKY_FORCE=0 SWC_SKY_REPORT="${SWC_WORK}/logs/import-sky.json"
+export SWC_SKY="${SWC_CONTENT}/environment/sky/sky.json" SWC_SKY_FORCE=0 SWC_SKY_FORCE_GRADE=0 SWC_SKY_REPORT="${SWC_WORK}/logs/import-sky.json"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --force) SWC_SKY_FORCE=1 ;;
+        --grade) SWC_SKY_FORCE_GRADE=1 ;;   # make M_SwcGrade again (the grade of the source and the sun rays), nothing else
         --wait) shift; wait_lock=(-w "$1") ;;
-        *) echo "usage: tools/import-sky.sh [--force] [--wait N]" >&2; exit 2 ;;
+        *) echo "usage: tools/import-sky.sh [--force] [--grade] [--wait N]" >&2; exit 2 ;;
     esac
     shift
 done

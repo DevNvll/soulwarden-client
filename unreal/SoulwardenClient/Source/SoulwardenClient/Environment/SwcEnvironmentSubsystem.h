@@ -346,5 +346,12 @@ private:
 	void UpdateLocalProbes(class USkyLightComponent* Ambient, const FVector& CameraLocation, double WorldIntensity, const FLinearColor& Multiplier);
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> GradeMaterial;
+	/** The sun rays of the source (AST-232, docs/ENVIRONMENT.md "The sun rays"): the TOD keys, the gates, the tint of the grade, and the
+	 *  half-size target of the passes (Environment/SwcGodRays). */
+	void UpdateGodRays(double MoonWeight);
+	UPROPERTY()
+	TObjectPtr<class UTextureRenderTarget2D> RayTarget;
+	double NextRayLog = 0.0;
+	int32 LastRayState = -1;
 	double NightFactor = 0.0;
 };

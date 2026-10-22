@@ -1,0 +1,57 @@
+// The sun rays of the source (AST-232; research/godrays.md "Native rule"): the mask from the scene depth and the scene color, then two
+// radial blur passes of 8 weighted samples toward the screen point of the active light (the sun, the moon at night). The output is RGBA8
+// at half the size of the view (the targets of the source clamp and quantize after each pass). The grade (M_SwcGrade) adds the rays
+// with a screen blend after its sRGB step.
+
+#include "/Engine/Private/Common.ush"
+
+Texture2D SceneColor;
+Texture2D SceneDepth;
+Texture2D Input;
+SamplerState LinearClamp;
+SamplerState PointClamp;
+
+// The view rectangle in the UV of the scene color and of the depth: the minimum and the size.
+float4 SceneColorRect;
+float4 DepthRect;
+// The size of the output target (pixels).
+float2 OutputSize;
+// The scene color to source units: 1 / (pre-exposure x 10,000 cd/m2).
+float SourceScale;
+// The depth of the sky (cm): the linear view depth over it is the normalized depth of the source (the sky and the far plane 1).
+float FarDepth;
+// The screen point of the light (UV, not clamped), the signed facing f, the step of the pass, the attenuation (0 to 10), and the
+// aspect term a of the source.
+float2 SunUV;
+float Facing;
+float StepSize;
+float Attenuation;
+float Aspect;
+
+// SunShaftsMaskGen of the source: M.rgb = d x 1.32 x (r + g + b) of the half-size scene color, M.a = 1 - d.
+void MaskPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
+{
+	const float2 UV = SvPosition.xy / OutputSize;
+	// A bilinear sample at the center of the 2 x 2 block: the average of the half-size scene color of the source.
+	const float3 C = SceneColor.SampleLevel(LinearClamp, SceneColorRect.xy + UV * SceneColorRect.zw, 0).rgb * SourceScale;
+	const float Device = SceneDepth.SampleLevel(PointClamp, DepthRect.xy + UV * DepthRect.zw, 0).r;
+	const float D = saturate(ConvertFromDeviceZ(Device) / FarDepth);
+	OutColor = float4(D * 1.32 * (C.r + C.g + C.b).xxx, 1.0 - D);
+}
+
+// SunShaftsGen of the source: v = sunUV - u; D = saturate(f) x (1 - saturate(length(v x (1, a)) x A)); delta = v x step x f; the sum of
+// the eight samples u + i x delta with the weights 1 - i / 8; rgb x 0.25 x D; alpha x 0.25 + 1 - saturate(f x 0.1 + 0.9).
+void BlurPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
+{
+	const float2 UV = SvPosition.xy / OutputSize;
+	const float2 V = SunUV - UV;
+	const float Falloff = saturate(Facing) * (1.0 - saturate(length(V * float2(1.0, Aspect)) * Attenuation));
+	const float2 Delta = V * StepSize * Facing;
+	float4 Sum = 0;
+	UNROLL
+	for (int Index = 0; Index < 8; ++Index)
+	{
+		Sum += Input.SampleLevel(LinearClamp, UV + Index * Delta, 0) * (1.0 - Index / 8.0);
+	}
+	OutColor = float4(Sum.rgb * 0.25 * Falloff, Sum.a * 0.25 + 1.0 - saturate(Facing * 0.1 + 0.9));
+}

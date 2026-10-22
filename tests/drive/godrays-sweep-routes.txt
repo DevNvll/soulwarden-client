@@ -1,0 +1,5 @@
+# The routes of the sun ray sweep (AST-232, docs/ENVIRONMENT.md "The sun rays"): noon, then 00:00 at 41 s (the moon). The creatures
+# ignore the character. Times on the clock of the drive script tests/drive/godrays-sweep.txt.
+1 world-time 12:00
+1 ignore on
+41 world-time 00:00
