@@ -254,6 +254,8 @@ private:
 	float SentYaw = 1000.0f;
 	/** The world views: the time of the next occlusion test of the markers, and the switches of the stand-ins. */
 	double NextOcclusionTime = 0.0;
+	/** AST-256: the last occlusion of each plate (by the interest text), for the log of a change. */
+	TMap<FString, bool> OccludedPlates;
 	bool bStandInsOff = false;
 	/** The numbers that went to the UI: the serial of the damage events, the counts of the own damages and heals. */
 	uint32 SentDamageSerial = 0;

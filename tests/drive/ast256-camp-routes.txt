@@ -1,0 +1,8 @@
+# The routes of tests/drive/ast256-camp.txt (AST-256): noon; three level 18 grey wolves east of the character at 5, 15, and 30 m (the
+# creatures ignore the character: they stand); at 20 s the character hurts the far wolf (the route hurt of the creature is not here: the
+# drive turns the camera instead).
+1 world-time 12:00
+1 ignore on
+3 spawn Wolf_Grey_7 5 0 0 --yaw 90 --level 18
+3 spawn Wolf_Grey_7 15 2 0 --yaw 90 --level 18
+3 spawn Wolf_Grey_7 30 -3 0 --yaw 90 --level 18

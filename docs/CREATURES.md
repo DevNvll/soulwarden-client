@@ -436,6 +436,14 @@ A simple plate on the canvas of the game viewport: the name and the level (no le
 | Dead | the plate goes away 3 s after the dead mark; the body 300 s after it | protocol notes 4.14 (the times: "some seconds", the delayed event of 300 s) |
 | `-SwcPlates=all` | each plate within 40 m (development pictures) | a development aid |
 
+The log of the plate decisions (AST-256, for the user tests): `creatures: plate of creature N: no plate: ...` (the creature is hidden,
+no vitals state, dead, the marker state of the server off) and, from the UI, `plate NAME (interest, D m): shown | hidden by the show
+rule | no marker type | no pool slot (N candidates, pool P) | occluded | off screen | alpha 0 (the fade of the type)` and `plate of
+creature N: occluded by ACTOR (COMPONENT) ...` at each change (at most 20 UI lines each second). A live run with wolves at 5, 15, and
+30 m (`tests/drive/ast256-camp.txt`) showed the client causes of missing plates: the fade of the marker type (alpha 0 beyond 15 m:
+fadeStart 10 m to fadeDistance 15 m of markerdata.luac, a rule of this client), the AI pool of 4 elements (plate quantity 15), and the
+occlusion by the ground cover. The native rule of the plates is open (a static study, research/marker-plates.md).
+
 The UI reads the plates (stage WF7, the UI track): `GetPlates` gives each creature with vitals and a marker within 50 m (the
 feet, the name, the marker type of the slice, the creature type of the category row, the level, the health, the dead mark, the
 statuses, the marker flags) with the show rule above in `bShown`, and `GetDamageEvents` gives the damage numbers (the entries and

@@ -1445,19 +1445,48 @@ void USwcCreatureSubsystem::GetPlates(TArray<FSwcCreaturePlate>& Out) const
 	const FVector Look = Player->PlayerCameraManager->GetCameraRotation().Vector();
 	const FVector Own = Player->GetPawn() != nullptr ? Player->GetPawn()->GetActorLocation() : Eye;
 	const double Range = bAllPlates ? FMath::Max(CrosshairRange, AllPlatesRange) : CrosshairRange;
+	// AST-256: a creature within the plate range that gets no plate line, with the reason, logged at a change (the user tests had
+	// missing plates and the log had no plate line).
+	const auto Drop = [this, &Own](int32 Interest, const ASwcCreature* Creature, uint8 Reason, const TCHAR* Text)
+	{
+		uint8& Last = PlateDrops.FindOrAdd(Interest);
+		if (Reason != 0 && Last != Reason && (Creature == nullptr || FVector::Dist(Own, Creature->GetActorLocation()) <= CrosshairRange * 100.0))
+		{
+			UE_LOG(LogSwcCreatures, Log, TEXT("creatures: plate of creature %d: %s"), Interest, Text);
+		}
+		Last = Reason;
+	};
 	for (const auto& [Interest, Entity] : Table.entities())
 	{
 		const TWeakObjectPtr<ASwcCreature>* Actor = Actors.Find(Interest);
-		if (Actor == nullptr || !Actor->IsValid() || (*Actor)->IsHidden() || !Entity.hasVitals)
+		const ASwcCreature* Shown = Actor != nullptr && Actor->IsValid() ? Actor->Get() : nullptr;
+		if (Shown == nullptr)
 		{
 			continue;
 		}
-		const ASwcCreature* Creature = Actor->Get();
+		if (Shown->IsHidden())
+		{
+			Drop(Interest, Shown, 1, TEXT("no plate: the creature is hidden (its assets load, or it is not shown)"));
+			continue;
+		}
+		if (!Entity.hasVitals)
+		{
+			Drop(Interest, Shown, 2, TEXT("no plate: no vitals state"));
+			continue;
+		}
+		const ASwcCreature* Creature = Shown;
 		const double DeadSeconds = Creature->GetDeadSeconds();
-		if (DeadSeconds > DeadPlateSeconds || (Entity.hasMarker && !Entity.markerEnabled))
+		if (DeadSeconds > DeadPlateSeconds)
 		{
+			Drop(Interest, nullptr, 3, TEXT("no plate: dead"));
 			continue;
 		}
+		if (Entity.hasMarker && !Entity.markerEnabled)
+		{
+			Drop(Interest, Shown, 4, TEXT("no plate: the marker state of the server is off (5399)"));
+			continue;
+		}
+		Drop(Interest, nullptr, 0, TEXT(""));
 		double Distance = 0.0;
 		const bool bShown = ShowsPlate(*Creature, Eye, Look, Own, Distance);
 		if (Distance > Range)

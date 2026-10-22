@@ -330,8 +330,44 @@ local function marker_id_of(plate)
 end
 
 --- The creatures of the frame (the lines of parse_plates). The pool, the data nodes, and the places of the AI markers.
+-- The log of the plate decisions (AST-256: the user tests showed missing plates and the play log had no plate line): one line for each
+-- creature when its decision changes ("plate NAME (interest, D m): shown | the show rule | no marker type | no pool slot | occluded |
+-- off screen | alpha 0"), at most 20 lines each second.
+local decisions, logBudget, logSecond = {}, 0, -1
+local function decide(plate, reason)
+  local last = decisions[plate.serial]
+  if last == reason then
+    return
+  end
+  decisions[plate.serial] = reason
+  local second = math.floor(Swc.time or 0)
+  if second ~= logSecond then
+    logSecond, logBudget = second, 20
+  end
+  if logBudget <= 0 then
+    return
+  end
+  logBudget = logBudget - 1
+  swcui.log("info", string.format("plate %s (%d, %.1f m): %s", plate.name or "?", plate.interest or 0, plate.distance or 0, reason))
+end
+M.decide = decide
+
 function Swc.HostPlates(text)
   M.plates = parse_plates(text)
+  local present = {}
+  for _, plate in ipairs(M.plates) do
+    present[plate.serial] = true
+    if plate.markerType == "" or not M.params[plate.markerType] then
+      decide(plate, "no marker type" .. (plate.markerType ~= "" and (" (" .. plate.markerType .. " not registered)") or ""))
+    elseif not plate.shown then
+      decide(plate, "hidden by the show rule (near range or crosshair)")
+    end
+  end
+  for serial in pairs(decisions) do
+    if not present[serial] then
+      decisions[serial] = nil
+    end
+  end
   local size = ai_pool_size()
   if not M.ready or size <= 0 then
     return
@@ -352,6 +388,11 @@ function Swc.HostPlates(text)
   local wanted = {}
   for i = 1, math.min(size, #candidates) do
     wanted[candidates[i].serial] = candidates[i]
+  end
+  for i = size + 1, #candidates do
+    if candidates[i].shown then
+      decide(candidates[i], string.format("no pool slot (%d candidates, pool %d)", #candidates, size))
+    end
   end
   -- The slots: a0 ... a(size - 1). A creature keeps its slot while it is in the pool.
   local free = {}
@@ -402,8 +443,13 @@ function M.place(slot)
   local fadeStart = object and object.fadeStart or params.fadeStart
   local fadeEnd = object and object.fadeDistance or params.fadeDistance
   local alpha = ramp(plate.distance, fadeStart, fadeEnd, params.maxAlpha or 1, params.minAlpha or 0)
-  local visible = plate.shown and sx ~= nil and alpha > 0 and not (M.occluded[plate.interest] and not slot.noOcclusion)
+  local occluded = M.occluded[plate.interest] and not slot.noOcclusion
+  local visible = plate.shown and sx ~= nil and alpha > 0 and not occluded
   put(slot, "IsVisible", visible)
+  if plate.shown then
+    decide(plate, visible and "shown" or (sx == nil and "off screen") or (alpha <= 0 and "alpha 0 (the fade of the type)")
+      or "occluded (a line from the camera hits the world)")
+  end
   slot.screen = sx and {sx + (params.sX or 0), sy + (params.sY or 0)} or nil
   if element and visible then
     swcui.set_viewport_position(element, slot.screen[1], slot.screen[2])

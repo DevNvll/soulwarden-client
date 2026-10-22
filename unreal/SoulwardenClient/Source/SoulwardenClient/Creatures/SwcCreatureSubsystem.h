@@ -321,6 +321,8 @@ private:
 	int32 Areas = 0;
 	FDelegateHandle DrawHandle;
 	bool bAllPlates = false;
+	/** AST-256: the last reason that GetPlates dropped a creature within the plate range (0: none), for the log of a change. */
+	mutable TMap<int32, uint8> PlateDrops;
 	bool bNoPlates = false;
 	bool bFarContacts = false;
 	float FarContactFrom = 0.0f;

@@ -1,0 +1,16 @@
+# AST-256 check: the plates of three wolves at 5, 15, and 30 m east (tests/drive/ast256-camp-routes.txt): the camera looks east (each
+# wolf near the crosshair in turn), then north (no wolf near the crosshair). The client log has the plate decisions ("plate NAME").
+1.0 tick
+2.0 view 89.8 -5
+6.0 tick
+8.0 view 89.8 -2
+12.0 tick
+14.0 view 93.0 -4
+18.0 tick
+20.0 view 85.0 -1
+24.0 tick
+26.0 view 0 -10
+30.0 tick
+32.0 view 89.8 -5
+36.0 tick
+38.0 tick

@@ -2253,6 +2253,16 @@ void USwcUiSubsystem::FeedWorld(const swc::net::RepClient::OwnEntity& Own)
 		{
 			bHidden = false;
 		}
+		// AST-256: the object that hides a plate, logged when the occlusion of the creature changes.
+		bool& Last = OccludedPlates.FindOrAdd(Parts[Index]);
+		if (Last != bHidden)
+		{
+			Last = bHidden;
+			UE_LOG(LogSwcUi, Log, TEXT("ui: plate of creature %s: %s"), *Parts[Index], bHidden
+				? *FString::Printf(TEXT("occluded by %s (%s) %.1f m from the camera, %.1f m before the plate"), *GetNameSafe(Hit.GetActor()),
+					*GetNameSafe(Hit.GetComponent()), Hit.Distance / 100.0, (FVector::Dist(Projection.ViewOrigin, Point) - Hit.Distance) / 100.0)
+				: TEXT("not occluded"));
+		}
 		Result += FString::Printf(TEXT("%s:%d "), *Parts[Index], bHidden ? 1 : 0);
 	}
 	Runtime->call("HostMarkerOcclusion", {FArg::of(Utf8(Result))});
