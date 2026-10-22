@@ -3,34 +3,47 @@
 # default map (the whole world, NewWorld) and the content that the client loads by path (DirectoriesToAlwaysCook of
 # DefaultGame.ini), the Lua files staged, IoStore. The staged build goes to SWC_COOKED (default SWC_WORK/cooked); its stamp
 # SWC_COOKED/Linux/swc-cook.json has the commit, the time, and the map (tools/play.sh and tools/dev-run.sh --cooked read it).
-# Usage: tools/cook.sh [--map /Game/PATH/MAP] [--skip-build] [--skip-cook] [--wait N]
+# Usage: tools/cook.sh [--map /Game/PATH/MAP] [--skip-build] [--skip-cook] [--wait N] [--full]
 #   --map         a test level instead of the default map: a temporary Config/Linux/LinuxEngine.ini sets its GameDefaultMap
 #                 (the cooker reads the default map from the config files of the target platform, not from the command line),
 #                 and it goes away after the cook (the staged build then starts that map)
 #   --skip-build  no build of the game target (its binary of an earlier build)
 #   --skip-cook   only the stage of the files of an earlier cook (for example after a change of the Lua files)
 #   --wait        wait at most N seconds for import.lock (default 3600)
+#   --full        allow a full cook. The legacy incremental cook (no Zen store) deletes all cooked packages when the ini settings
+#                 change (the config files, and the cooker options below: keep them constant). Before such a cook (the config
+#                 hash differs from the stamp of the last good cook, or the cooked folder of the checkout is almost empty), this
+#                 tool stops with status 3 and says "FULL cook" unless --full is given. A full cook of the world needs a quiet
+#                 computer (docs/WORLD.md "The cooked build"). A run-time setting goes into the code, not into an ini file.
 # The rules: the RAM rule (14 GB available before the start), one Unreal process; the cook holds import.lock (it reads the shared
-# plugin), runs in a memory scope (SWC_COOK_MEMORY_MAX, default 20G; the cooker collects garbage at SWC_COOK_MEMORY_GC MiB,
-# default 14000) with 12 cores at nice 10 (SWC_COOK_CPU_QUOTA, default 1200%: the shader compile of a cold cook was the limit with
-# 4 cores), and stops when the disk of SWC_WORK goes above 85 %. The log: SWC_WORK/logs/cook.log. An incremental cook
+# plugin), runs in a memory scope (SWC_COOK_MEMORY_MAX, default 30G, with at most 6G of swap: the cooker must not thrash in swap)
+# with 12 cores at nice 10 (SWC_COOK_CPU_QUOTA, default 1200%: the shader compile of a cold cook was the limit with 4 cores), and
+# stops when the disk of SWC_WORK goes above 85 %. The cooker options are constants (COOKER_OPTIONS: garbage collection at
+# 22,000 MiB, above the stall of 14,000 and under the RAM of the scope; 8 shader workers): a change makes the next cook full. The log: SWC_WORK/logs/cook.log. An incremental cook
 # (the second one) cooks again only the packages that changed (UAT -iterate).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
-map="" build=1 cook=1 wait=3600
+map="" build=1 cook=1 wait=3600 full=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --map) shift; map="$1" ;;
         --skip-build) build=0 ;;
         --skip-cook) cook=0 ;;
         --wait) shift; wait="$1" ;;
-        *) echo "usage: tools/cook.sh [--map /Game/PATH/MAP] [--skip-build] [--skip-cook] [--wait N]" >&2; exit 1 ;;
+        --full) full=1 ;;
+        *) echo "usage: tools/cook.sh [--map /Game/PATH/MAP] [--skip-build] [--skip-cook] [--wait N] [--full]" >&2; exit 1 ;;
     esac
     shift
 done
 cooked="${SWC_COOKED:-${SWC_WORK}/cooked}"
 platform_ini="${SWC_REPO}/unreal/SoulwardenClient/Config/Linux/LinuxEngine.ini"
 log="${SWC_WORK}/logs/cook.log"
+# The options of the cooker: constants (they are in the ini settings of the legacy incremental cook; 2026-10-22, AST-229).
+COOKER_OPTIONS="-ini:Editor:[CookSettings]:MemoryMaxUsedPhysical=22000 -ini:Engine:[DevOptions.Shaders]:ShaderCompilerCoreCountThreshold=64 -ini:Engine:[DevOptions.Shaders]:NumUnusedShaderCompilingThreads=8"
+# config_hash: the project config files (Default*.ini; not the temporary Config/Linux of --map) and the cooker options.
+config_hash() {
+    { (cd "${SWC_REPO}/unreal/SoulwardenClient/Config" && sha1sum Default*.ini); echo "${COOKER_OPTIONS}"; } | sha1sum | cut -c1-16
+}
 mkdir -p "${SWC_WORK}/logs" "${cooked}"
 disk() { df --output=pcent "${SWC_WORK}" | tail -1 | tr -dc 0-9; }
 made_ini=0 guard=""
@@ -51,6 +64,19 @@ if [[ -n "${map}" ]]; then
     mkdir -p "$(dirname "${platform_ini}")"
     printf '; tools/cook.sh --map (temporary)\n[/Script/EngineSettings.GameMapsSettings]\nGameDefaultMap=%s.%s\n' "${map}" "${map##*/}" > "${platform_ini}"
     made_ini=1
+fi
+# The full cook check (before the build: a stop costs nothing).
+if [[ ${cook} -eq 1 && -z "${map}" ]]; then
+    stamp="${cooked}/Linux/swc-cook.json"
+    last=$(python3 -B -c "import json, sys; print(json.load(open(sys.argv[1])).get('config', ''))" "${stamp}" 2>/dev/null || true)
+    files=$( (find "${SWC_REPO}/unreal/SoulwardenClient/Saved/Cooked/Linux" -name "*.uasset" 2>/dev/null || true) | head -20000 | wc -l)
+    why=""
+    [[ "${last}" != "$(config_hash)" ]] && why="the config (Config/Default*.ini or the cooker options) changed since the last good cook (stamp: ${last:-none})"
+    (( files < 20000 )) && why="${why:+${why}; }the cooked folder of the checkout has only ${files} packages"
+    if [[ -n "${why}" && ${full} -eq 0 ]]; then
+        echo "cook: FULL cook: ${why}. A full cook of the world needs a quiet computer (docs/WORLD.md \"The cooked build\"); give --full" >&2
+        exit 3
+    fi
 fi
 if [[ ${build} -eq 1 ]]; then
     flock -w "${wait}" "${SWC_WORK}/unreal/import.lock" "${SWC_REPO}/tools/build.sh" game > "${SWC_WORK}/logs/cook-build.log" 2>&1 \
@@ -74,15 +100,15 @@ start=${SECONDS}
 status=0
 echo "$(date -u +%H:%M:%S) cook: start (map ${map:-the default}, disk $(disk) %)" | tee -a "${log}.summary"
 flock -w "${wait}" "${SWC_WORK}/unreal/import.lock" \
-    systemd-run --user --scope -q -p CPUQuota="${SWC_COOK_CPU_QUOTA:-1200%}" -p MemoryMax="${SWC_COOK_MEMORY_MAX:-20G}" \
+    systemd-run --user --scope -q -p CPUQuota="${SWC_COOK_CPU_QUOTA:-1200%}" -p MemoryMax="${SWC_COOK_MEMORY_MAX:-30G}" -p MemorySwapMax=6G \
     nice -n 10 "${UE_ROOT}/Engine/Build/BatchFiles/RunUAT.sh" BuildCookRun -project="${SWC_UPROJECT}" -noP4 -platform=Linux \
     -clientconfig=Development -skipbuild -nocompileeditor "${steps[@]}" -unattended -utf8output \
-    -AdditionalCookerOptions="-ini:Editor:[CookSettings]:MemoryMaxUsedPhysical=${SWC_COOK_MEMORY_GC:-14000}" \
+    -AdditionalCookerOptions="${COOKER_OPTIONS}" \
     > "${log}" 2>&1 || status=$?
 echo "$(date -u +%H:%M:%S) cook: status ${status}, $((SECONDS - start)) s, disk $(disk) %, staged $(du -s --block-size=1M "${cooked}" | cut -f1) MiB" \
     | tee -a "${log}.summary"
 [[ ${status} -eq 0 ]] || { echo "cook: see ${log}" >&2; exit 1; }
 source "${SWC_REPO}/tools/lib/cooked.sh"
-python3 -B -c "import json, sys, time; json.dump({'commit': sys.argv[1], 'code': sys.argv[2], 'time': time.time(), 'map': sys.argv[3] or 'default'}, open(sys.argv[4], 'w'))" \
-    "$(git -C "${SWC_REPO}" rev-parse HEAD)" "$(cooked_code_hash)" "${map}" "${cooked}/Linux/swc-cook.json"
+python3 -B -c "import json, sys, time; json.dump({'commit': sys.argv[1], 'code': sys.argv[2], 'time': time.time(), 'map': sys.argv[3] or 'default', 'config': sys.argv[5]}, open(sys.argv[4], 'w'))" \
+    "$(git -C "${SWC_REPO}" rev-parse HEAD)" "$(cooked_code_hash)" "${map}" "${cooked}/Linux/swc-cook.json" "$(config_hash)"
 grep -hE "Total Shaders|Unique Shadermaps|Packages Cooked" "${log}" | tail -3 || true

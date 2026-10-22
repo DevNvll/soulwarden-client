@@ -491,8 +491,17 @@ The fixes of the full cook:
   Environment, Materials, Particles, Meshes, Player, Roads, Terrain/Menu, SwcUi, Water of the plugin; BasicShapes, EngineSky, EngineDebugMaterials of the
   engine), and `DirectoriesToAlwaysStageAsNonUFS` for `Lua/`. The data of the converters stays in `SWC_CONTENT` (the client reads it
   by the environment, also in the cooked build).
-- The memory: a scope of 20 GB (`SWC_COOK_MEMORY_MAX`); the cooker collects garbage at 14,000 MiB (`MemoryMaxUsedPhysical`; it
-  sees the memory of the computer, not of its scope).
+- The memory: a scope of 30 GB (`SWC_COOK_MEMORY_MAX`) with at most 6 GB of swap; the cooker collects garbage at 22,000 MiB
+  (`MemoryMaxUsedPhysical`; it sees the memory of the computer, not of its scope) and uses 8 shader workers. These cooker options
+  are constants in `tools/cook.sh` (2026-10-22; before: 20 GB, 14,000 MiB, 13 workers).
+- The rule of the incremental cook (AST-229, 2026-10-22): with no Zen store (`bUseZenStore=False`) the cooker uses the legacy
+  incremental cook, which deletes all cooked packages when the ini settings change ("Cook invalidated for platform Linux because ini
+  settings have changed ... FULL COOK"; `GlobalCookArtifact.cpp`). The ini settings are the config files and the `-ini:` options of
+  the cooker. A change of the C++ code does not do this. Thus a run-time setting goes into the code, not into an ini file (for
+  example `r.VolumetricRenderTarget.UpsamplingMode` in `USwcEnvironmentSubsystem::Initialize`), and the cooker options stay constant.
+  `tools/cook.sh` keeps a hash of `Config/Default*.ini` and the cooker options in the stamp of the staged build. Before a cook it
+  stops with status 3 and "FULL cook" when that hash changed or the cooked folder of the checkout has fewer than 20,000 packages;
+  `--full` allows the full cook.
 - The limit of 2026-10-22 (four cook tries of main 82ee664, 173,061 packages; the last cook 13:48 UTC had 6,032 to cook, this one about
   118,000 more: the persons and the player parts of MVP-H to MVP-L): the cook does not fit beside the other programs of this computer
   (46 GB RAM, 46 GB swap).
@@ -503,10 +512,14 @@ The fixes of the full cook:
   - 16:59, 17:05, and 17:09 UTC (30 GB and 34 GB scopes, garbage collection at 14,000 and 26,000 MiB): the guard
     (`work/ast261/cook-guard.sh`) stopped each try in its load phase, before a package was cooked. At 17:09: 25.7 GB of RAM and 19.9 GB
     of swap in 142 s, with no other Unreal process (the swap grew from 17.6 to 39.0 GB).
-  - Thus a cook of the whole world now needs about 45 GB (RAM and swap) in its load phase. Start it only on a quiet computer (no client
-    run of a track, no user game, at least 30 GB available) with `SWC_COOK_MEMORY_MAX=40G` and `SWC_COOK_MEMORY_GC=26000`. Watch it: stop
-    at less than 3 GB available or at a start of the user's `tools/play.sh`. The cooker process is `UnrealEditor-Cmd ... -run=Cook`: a
-    stop of RunUAT alone leaves it alive.
+  - The cause (AST-229): these were full cooks. The DefaultEngine.ini line of 82ee664 (a run-time setting, now in the code) and then
+    the changed garbage collection option deleted the cooked packages of the earlier incremental cooks (175,522 packages at 13:48 UTC).
+    In the guarded tries the cooker's memory went from 7.9 to 34.8 GB in about 2 minutes, with only soft garbage collections: the
+    scope held its RAM under the trigger (26,000 MiB), so the kernel swapped it [I].
+  - The next full cook (the cooker options above): a quiet computer (no client run of a track, no user game, at least 30 GB
+    available), `tools/cook.sh --full`, and the guard `work/ast261/cook-guard.sh` (it stops at less than 3 GB available, at a swap
+    growth of 20 GB, or at a start of the user's `tools/play.sh`). The cooker process is `UnrealEditor-Cmd ... -run=Cook`: a stop of
+    RunUAT alone leaves it alive. After it, the cooks are incremental again.
   - Until then `tools/play.sh` uses the editor binary (all the content of main; the world entry 70 to 87 s against 44 s) and says why.
 
 The cooked client against the editor binary (development runs of 2026-10-20 at the road start, `work/world/runs-cooked.sh`;

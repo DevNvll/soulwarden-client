@@ -564,6 +564,13 @@ void USwcEnvironmentSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	bAmbientOnly = FParse::Param(FCommandLine::Get(), TEXT("SwcAmbientOnly"));
 	FParse::Value(FCommandLine::Get(), TEXT("SwcNightExposure="), NightExposure);
 	FParse::Value(FCommandLine::Get(), TEXT("SwcNightSky="), NightSkyFactor);
+	// The composite of the volumetric clouds: nearest with a depth test (AST-261; the bilateral default 4 gave a blocky light outline
+	// around each far silhouette against the sky). A run-time setting goes into the code, not into an ini file: an ini change clears
+	// the legacy incremental cook (docs/WORLD.md "The cooked build").
+	if (IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.UpsamplingMode")))
+	{
+		Variable->Set(2, ECVF_SetByCode);
+	}
 	// The loading gate (AST-203): a screen ends only when the source meter has set the exposure of the place (swc.SourceMeter 2).
 	if (!bDisabled)
 	{
