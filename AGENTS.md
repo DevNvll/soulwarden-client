@@ -118,10 +118,14 @@ files at the same time; a shared document (this file, the roadmap) changes only 
      the user; never change a file of the shared development prefix (a saved option such as `m_cameraZoom` changes only in the copy).
   2. The own data folder (`SOULWARDEN_DATA_DIR`) and the own desktop (`SOULWARDEN_DESKTOP_ID`, for example `soulwarden-client-ref`).
      `tools/snap.sh` of the reference tools takes any marked gamescope: select the gamescope whose environment has the own prefix.
-  3. Before a start: NO other process with `SOULWARDEN_DEV_RUN=1` is alive, in ANY prefix. The Soulwarden `tools/dev-run.sh` calls
-     `tools/dev-stop.sh`, which stops every development run, also in other prefixes (2026-10-22: a client retail run stopped the
-     final live check of a backend stage). If another run is alive, do not start: do other work and try later. Never stop a run
-     that is not the own run: stop the own processes by their prefix (the mark and `SOULWARDEN_COMPAT_DIR` in `/proc/PID/environ`).
+  3. Before a start: NO other process with `SOULWARDEN_DEV_RUN=1` is alive, in ANY prefix. Two retail runs at one time are not
+     supported (they share the agent desktop, and `gamescopectl` with no `GAMESCOPE_WAYLAND_DISPLAY` takes `gamescope-0`). Since
+     backend 1.8f (commit 5174ff8) the Soulwarden `tools/dev-run.sh` stops only the earlier runs of its own data directory; while
+     a run of a different data directory is alive (also a backend stage run), it starts nothing, prints that run and its stop
+     command, and exits with an error. Then do not start and do not stop that run: do other work and try later. Before 1.8f it
+     stopped every run (2026-10-22: a client retail run stopped the final live check of a backend stage). Stop only the own run:
+     `tools/dev-stop.sh --data-dir OWN_DATA_DIR` of Soulwarden, or the own processes by their prefix (the mark and
+     `SOULWARDEN_COMPAT_DIR` in `/proc/PID/environ`). Never `tools/dev-stop.sh` of Soulwarden with no option: it stops each run.
 - The Soulwarden repository is read only for this project. A change that the backend needs goes to the orchestrator of
   this project, which reports it to the user, never as an edit of `~/Developer/azoth`. No thread of this project sends
   a report, a request, or a fact to the Soulwarden orchestrator thread (decision of the user, 2026-10-18).
