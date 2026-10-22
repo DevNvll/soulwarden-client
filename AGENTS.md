@@ -233,6 +233,8 @@ tools/convert-particles.sh skills                # the effect keys of the skills
 tools/import-particles.sh [--force]             # the particle atlases, materials, and Niagara systems (the lock; then the client plays them near the view)
 (cd converter && python3 -B -m swc_convert.landmarks write)   # the landmarks: the sky maelstrom (docs/WORLD.md "The landmarks")
 tools/import-landmarks.sh [--force]             # the meshes, parents, and instances of the landmarks, all new (the lock; World/SwcLandmarks places them)
+(cd converter && python3 -B -m swc_convert.skycube write)    # the source cloud layers of the water sky cube (docs/WATER.md "The water sky cube")
+tools/import-skycube.sh [--force]              # their meshes, masks, parent M_SwcDistanceClouds, and instances, all new (the lock)
 ```
 
 The runs and the connection: [docs/NETWORK.md](docs/NETWORK.md).
