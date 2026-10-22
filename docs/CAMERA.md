@@ -166,6 +166,41 @@ Evidence in `~/Games/soulwarden-client/evidence/P2.6/`:
 - A lock in the town of the world level went off after 1 s: the sight met a building (an instanced static mesh 4.4 m
   from the camera). That is the correct rule; thus the lock check used the open test floor.
 
+## The retail check of the zoom (AST-251, 2026-10-22)
+
+A retail reference take (own Proton prefix, `m_cameraZoom` set to the default 2.0 first; set `set-ast251-camera` of the
+reference tools) and the client drives `tests/drive/ast251-z1.txt` and `ast251-z2.txt` (the drive command `camerastate`
+logs the camera from the feet, the zoom, the feet, and the body yaw) at one place (feet 6976.64 6181.45 69.75), the camera
+heading 179.87, and the pitch -14.75: the default, three notches in, ten out, four in, one camera state after each notch.
+
+| Value | Retail (state.py) | Client |
+| --- | --- | --- |
+| Arm at the start | 4.000 m (zoom 2) | 4.000 m |
+| One wheel notch | 1.000 m, in and out | 1.000 m |
+| Zoom range | 0 to 6 (arm 2.0 to 8.0 m); more notches do not change the arm | the same |
+| Side offset | 0.500 m | 0.500 m |
+| Pivot above the feet | 1.601 m to 1.682 m (see below) | 1.700 m |
+| Zoom motion of one notch (video) | 0.20 to 0.33 s | 0.27 to 0.30 s |
+
+Thus the arm, the step, the range, and the side offset of the client are the values of the retail data (`Distance` 2.0,
+`DefaultZoom` 2.0, `MinZoom` 0, `MaxZoom` 6, `zoomAmount` 1.0, `Offset` 0.5 0 1.7). The distance from the feet at the pitch
+-15 is 4.74 m in both (the earlier "4.77 m" of the client was this distance, not the arm). A retail take that starts from
+a saved zoom that is not 2.0 shows a different arm at the same notch count.
+
+The retail pivot is lower than `Offset` 1.7 m by 0.018 m to 0.099 m: 1.667 m at the take place with the body heading 0,
+1.682 m at the same place with the body heading 21.7, and 1.601 m, 1.663 m, 1.670 m at three places 15 m to 20 m away. A
+change with the body heading at the same place agrees with the root offset of the limb IK of the feet: the camera states
+have `LimbIKRootOffsetSmoothTime` 0.1 s [inference: the pivot follows the root offset of the limb IK, smoothed with that
+time]. The client has no limb IK: its body and its pivot stay at the feet + 1.7 m. A camera offset with no body offset
+would put the camera and the body out of step, thus the client pivot stays at 1.7 m until the limb IK of the player is in
+the client.
+
+Evidence in `~/Games/soulwarden-client/evidence/AST-251/`: `ast251-sheet-1.png`, `ast251-sheet-2.png` (each notch, retail |
+client, with the camera values), `ast251-sheet-take1.png` (the notches 0 to 2 of a first retail take with the body
+heading 0, the body heading of the client), `ast251-sheet-summary.png`, `ast251-sweep-side-by-side.mp4` (two notches in,
+eight out, four in; the retail notches come each 1.33 s, the client notches each 1.2 s), `ast251-z1.mp4`, `ast251-z2.mp4`,
+and the client logs.
+
 ## Differences and open points
 
 - The side offset reduction with a second cast (`offsetReductionBySecondaryDistanceCastAllowed`) is not in the client.
@@ -176,4 +211,6 @@ Evidence in `~/Games/soulwarden-client/evidence/P2.6/`:
 - The lock: the near zone rules (`lookAtNearZone...`) and the target position springs are not read; the vertical mouse
   switch is not in the client.
 - RotationDampening is 0 in the states of this stage and is not in the client.
-- The side-by-side check with the retail client (R1.7) is open, also for the combat cameras of stage P2.6.
+- The pivot does not follow a root offset of the limb IK (the client has no limb IK; `LimbIKRootOffsetSmoothTime` 0.1 s).
+- The side-by-side check with the retail client is done for the zoom and the default arm (AST-251); it is open for the
+  combat cameras of stage P2.6.

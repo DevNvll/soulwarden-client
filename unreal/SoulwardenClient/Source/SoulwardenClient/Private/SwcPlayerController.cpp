@@ -679,6 +679,26 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 		{
 			Input->InjectInputForAction(LockAction, FInputActionValue(true), {}, {});
 		}
+		else if (Step.Command == TEXT("camerastate"))
+		{
+			// The camera state of the checks (AST-251), in the form of the retail reference tool state.py: the feet and the camera
+			// (engine m), and the camera from the feet in the yaw frame of the camera (back, right, up), the pitch, the yaw, the zoom.
+			const ASwcCameraManager* Camera = Cast<ASwcCameraManager>(PlayerCameraManager);
+			const APawn* Self = GetPawn();
+			if (Camera != nullptr && Self != nullptr)
+			{
+				const FVector Feet = Self->GetNavAgentLocation();
+				const FVector Eye = Camera->GetCameraLocation();
+				const FRotator View = Camera->GetCameraRotation();
+				const FVector Delta = (Eye - Feet) / 100.0;
+				const FVector Forward = FRotator(0.0, View.Yaw, 0.0).Vector();
+				const FVector Right = FRotator(0.0, View.Yaw + 90.0, 0.0).Vector();
+				UE_LOG(LogTemp, Log, TEXT("camera state: back %.3f m, right %.3f m, up %.3f m from the feet, distance %.3f m, pitch %.2f, yaw %.2f, zoom %.2f (option %.2f), fov %.1f, state %s, feet %.3f %.3f %.3f, body yaw %.2f"),
+					-FVector::DotProduct(Delta, Forward), FVector::DotProduct(Delta, Right), Delta.Z, Delta.Size(), View.Pitch, View.Yaw,
+					Camera->GetZoom(), Camera->GetSavedZoom(), Camera->GetFOVAngle(), *Camera->GetStateName(), Feet.X / 100.0,
+					Feet.Y / 100.0, Feet.Z / 100.0, Self->GetActorRotation().Yaw);
+			}
+		}
 		else if (Step.Command == TEXT("wheel"))
 		{
 			Input->InjectInputForAction(ZoomAction, FInputActionValue(static_cast<float>(Step.Value.X)), {}, {});

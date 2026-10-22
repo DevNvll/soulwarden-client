@@ -1,0 +1,3 @@
+# The routes of tests/drive/ast251-z1.txt (AST-251): the hour 12:00, the creatures ignore the character.
+0.5 world-time 12:00
+0.6 ignore on

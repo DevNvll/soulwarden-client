@@ -58,6 +58,9 @@ public:
 	FVector2D GetSensitivity() const { return FVector2D(HorizontalSensitivity.Value, VerticalSensitivity.Value); }
 	bool AllowsFreeLook() const;
 	const FString& GetStateName() const { return StateName; }
+	/** The zoom option and the smoothed zoom (m), for the camera state log of the checks (AST-251). */
+	float GetSavedZoom() const { return SavedZoom; }
+	float GetZoom() const { return Zoom; }
 
 protected:
 	virtual void UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime) override;

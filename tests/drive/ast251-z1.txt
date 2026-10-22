@@ -1,0 +1,71 @@
+# AST-251 check Z1: the camera of the client at each wheel notch, at the place of the AST-247 reference set (feet 6976.66 6181.43
+# 69.75, the body heading north), the camera heading 180 (the front of the character) and the pitch -15. The line "camera state"
+# after each notch: the camera from the feet (back, right, up), the distance, the zoom. The default first, then two notches in
+# (nearer), then eight notches out (the zoom range 0 to 6 m), then back to the default. Times in seconds from the possession.
+1.00 tick
+2.00 tick
+3.00 view 180 -15
+3.50 view 180 -15
+4.00 tick
+5.00 tick
+6.00 camerastate
+7.00 tick
+8.00 wheel 1
+8.05 wheel 0
+9.00 tick
+9.50 camerastate
+10.00 wheel 1
+10.05 wheel 0
+11.00 tick
+11.50 camerastate
+12.00 wheel -1
+12.05 wheel 0
+13.00 tick
+13.50 camerastate
+14.00 wheel -1
+14.05 wheel 0
+15.00 tick
+15.50 camerastate
+16.00 wheel -1
+16.05 wheel 0
+17.00 tick
+17.50 camerastate
+18.00 wheel -1
+18.05 wheel 0
+19.00 tick
+19.50 camerastate
+20.00 wheel -1
+20.05 wheel 0
+21.00 tick
+21.50 camerastate
+22.00 wheel -1
+22.05 wheel 0
+23.00 tick
+23.50 camerastate
+24.00 wheel -1
+24.05 wheel 0
+25.00 tick
+25.50 camerastate
+26.00 wheel -1
+26.05 wheel 0
+27.00 tick
+27.50 camerastate
+28.00 wheel 1
+28.05 wheel 0
+29.00 tick
+29.50 camerastate
+30.00 wheel 1
+30.05 wheel 0
+31.00 tick
+31.50 camerastate
+32.00 wheel 1
+32.05 wheel 0
+33.00 tick
+33.50 camerastate
+34.00 wheel 1
+34.05 wheel 0
+35.00 tick
+35.50 camerastate
+36.00 tick
+37.00 tick
+38.00 tick

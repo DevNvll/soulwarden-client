@@ -1,0 +1,5 @@
+# The routes of tests/drive/ast251-z2.txt (AST-251): the hour 12:00, the creatures ignore the character, the feet back at the place of
+# the retail set after the turn of the body.
+0.5 world-time 12:00
+0.6 ignore on
+5.0 travel 6976.64 6181.45 69.75
