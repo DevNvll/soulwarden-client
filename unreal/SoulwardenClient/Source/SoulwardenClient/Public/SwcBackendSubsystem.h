@@ -182,6 +182,12 @@ public:
 	/** The craft request of the crafting screen (2997; protocol notes 4.50): the recipe CRC, the count, the claims of the fee and of the
 	 *  gear score, the perk items, the upgrade level, and the CRC of the selected item of each ingredient (0: a currency). @return False
 	 *  with no connection or no open station. */
+	/** The quest calls of the UI (AST-236): 2709, 1458, 2617, 3836, 5600. False with no world connection. */
+	bool EnableObjectives(const std::vector<bool>& Flags);
+	bool UpdateTrackedObjectives(const std::vector<uint64>& Instances);
+	bool NotifyOpenUiScreen(uint32 Screen);
+	bool AbandonObjective(uint64 Instance);
+	bool ResetObjective(uint64 Instance);
 	bool RequestCraft(uint32 Recipe, uint32 Quantity, uint32 Fee, uint16 GearScore, const TArray<uint32>& PerkItems, uint8 Upgrade,
 		const TArray<uint32>& Items);
 

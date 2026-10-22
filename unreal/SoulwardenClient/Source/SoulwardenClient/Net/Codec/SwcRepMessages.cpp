@@ -362,6 +362,63 @@ Bytes craft_request_body(std::uint64_t group, const CraftRequest& request) {
     return w.data();
 }
 
+Bytes auto_pinning_body(std::uint64_t group, const std::vector<bool>& flags) {
+    Writer w;
+    w.u64(group + kObjectivesComponent);
+    w.u64(group);
+    const std::size_t count = std::min(flags.size(), kAutoPinFlags);
+    w.size(static_cast<std::uint32_t>(count));
+    for (std::size_t index = 0; index < count; ++index) {
+        w.u8(flags[index] ? 1 : 0);
+    }
+    return w.data();
+}
+
+Bytes tracked_objectives_body(std::uint64_t group, const std::vector<std::uint64_t>& instances) {
+    Writer w;
+    w.u64(group + kObjectivesComponent);
+    w.u64(group);
+    const std::size_t count = std::min(instances.size(), kTrackedLimit);
+    w.size(static_cast<std::uint32_t>(count));
+    for (std::size_t index = 0; index < count; ++index) {
+        w.u64(instances[index]);
+    }
+    return w.data();
+}
+
+Bytes open_ui_screen_body(std::uint64_t group, std::uint32_t screen) {
+    Writer w;
+    w.u64(group + kObjectivesComponent);
+    w.u64(group);
+    w.u32(screen);
+    return w.data();
+}
+
+Bytes objective_instance_body(std::uint64_t group, std::uint64_t instance) {
+    Writer w;
+    w.u64(group + kObjectivesComponent);
+    w.u64(group);
+    w.u64(instance);
+    return w.data();
+}
+
+Bytes territory_report_body(std::uint64_t group, const std::array<std::uint8_t, 16>& actor, std::uint64_t referenceGroup, std::uint64_t local,
+                            std::uint16_t territory, std::optional<std::uint32_t> achievement) {
+    Writer w;
+    w.u64(group + kTerritoryDetectorComponent);
+    w.u64(group);
+    for (const std::uint8_t byte : actor) {
+        w.u8(byte);
+    }
+    w.u64(referenceGroup);
+    w.u64(local);
+    w.u16(territory);
+    if (achievement) {
+        w.u32(*achievement);
+    }
+    return w.data();
+}
+
 Bytes craft_cancel_body(std::uint64_t group) {
     Writer w;
     w.u64(crafting_target(group));

@@ -89,6 +89,12 @@ public:
 	/** The craft request of the crafting screen (2997) and the stop of a batch by the client (2999): stage MVP-J. */
 	void RequestCraft(const swc::net::CraftRequest& Request);
 	void CancelCraft();
+	/** The quest calls (AST-236; RepClient enable_objectives, update_tracked_objectives, open_ui_screen, abandon_objective, reset_objective). */
+	void EnableObjectives(const std::vector<bool>& Flags);
+	void UpdateTrackedObjectives(const std::vector<std::uint64_t>& Instances);
+	void OpenUiScreen(std::uint32_t Screen);
+	void AbandonObjective(std::uint64_t Instance);
+	void ResetObjective(std::uint64_t Instance);
 	/** A call of the client on the thread of the connection (the edits of the trees and the bars: stage MVP-G). */
 	void Queue(std::function<void(swc::net::RepClient&)> Call);
 

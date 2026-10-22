@@ -1,0 +1,16 @@
+# The UI drive of the first entry of the quest check of AST-236 (routes tests/drive/ast236-quest-routes.txt): the banner and the tracker
+# of "Soul Survivor", J (the journal), Unpin, Pin, Escape.
+1 waitfor CompassLines 60
+2 waitfor world 180
+4 log the banner and the tracker: Soul Survivor
+14 log J: the journal
+14 key J
+19 log Unpin
+19 point text:Unpin
+19.3 click
+24 log Pin
+24 point text:Pin
+24.3 click
+29 log the journal with the pin
+32 key Escape
+36 log the tracker after the journal

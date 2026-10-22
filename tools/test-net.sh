@@ -3,7 +3,7 @@
 # bytes that the backend makes: the golden file of case T2 of the backend tests, the writers of its made-up client, its
 # carrier, its input reader, and its messages of the life, the travel, and the interactions. Then the range rule of the
 # interactions against the world of the backend (tests/net/interaction_range_tests.cpp; the core library of the backend:
-# tools/lib/backend-core.sh). The Soulwarden sources are read only; the build output goes to SWC_WORK/build/net-tests.
+# tools/lib/backend-core.sh), and the quest wire (tests/net/quest_tests.cpp). The Soulwarden sources are read only; the build output goes to SWC_WORK/build/net-tests.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 compiler="${CXX:-clang++}"
@@ -36,4 +36,13 @@ nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     "${module}/Net/Codec/SwcCarrier.cpp" \
     -L"${BACKEND_CORE}" -lsoulwarden_backend_core -lsoulwarden_sqlite -lsoulwarden_mbedtls -lpthread -ldl \
     -o "${out}/swc-interaction-range-tests"
-exec "${out}/swc-interaction-range-tests"
+"${out}/swc-interaction-range-tests"
+# The quest wire (Linear AST-236): the Objectives state of the backend encoder and the readers of the quest messages, with the quest data of
+# the backend copy (tests/net/quest_tests.cpp).
+nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
+    -I"${module}" -I"${backend}/src" -I"${backend}/tests" -I"${backend}/vendor" \
+    "${SWC_REPO}/tests/net/quest_tests.cpp" "${module}/Net/Codec/SwcRepMessages.cpp" "${module}/Net/Codec/SwcRepClient.cpp" \
+    "${module}/Net/Codec/SwcCarrier.cpp" "${module}/Interact/SwcInteraction.cpp" "${module}/Interact/SwcConversation.cpp" \
+    -L"${BACKEND_CORE}" -lsoulwarden_backend_core -lsoulwarden_sqlite -lsoulwarden_mbedtls -lpthread -ldl \
+    -o "${out}/swc-quest-tests"
+exec "${out}/swc-quest-tests" "${SWC_GAMEDATA_DIR}/quest-data.json"

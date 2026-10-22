@@ -9,6 +9,7 @@
 #include "Net/Codec/SwcRepClient.h"
 #include "UI/SwcUiConversation.h"
 #include "UI/SwcUiCrafting.h"
+#include "UI/SwcUiQuests.h"
 #include "UI/SwcUiSkills.h"
 
 #include "SwcUiSubsystem.generated.h"
@@ -119,6 +120,8 @@ private:
 	/** The conversation screen (stage MVP-H): UI/SwcUiConversation. */
 	FSwcUiConversation Conversation;
 	/** The crafting screen (stage MVP-J): UI/SwcUiCrafting. */
+	/** The quests (AST-236): the quest state to swc/quests.lua and the quest calls. */
+	FSwcUiQuests Quests;
 	FSwcUiCrafting CraftingScreen;
 	/** The character window (stage MVP-G): UI/SwcUiSkills. */
 	FSwcUiSkills Skills;

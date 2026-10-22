@@ -102,6 +102,12 @@ function Swc.LoadScreen(path, autohide, drawOrder)
   for state in pairs(Swc.StatesOfScreen(name)) do
     states[state] = true
   end
+  if name == "Banner" then
+    -- The banners (AST-236): the retail client shows the quest banner in the HUD state at the world entry (Soulwarden evidence
+    -- quests/18a, live check L1), but the state table lists the Banner screen only with the menus that keep it (Inventory, Map, ...).
+    -- An inference: the HUD shows it too (2702338936, the CRC-32 of "hud").
+    states[2702338936] = true
+  end
   Swc.screens[tostring(canvas)] = {autohide = autohide and true or false, path = path, name = name, canvas = canvas,
                                     state = Math.CreateCrc32(name), states = states}
   if autohide then
@@ -109,6 +115,17 @@ function Swc.LoadScreen(path, autohide, drawOrder)
     swcui.canvas_set(canvas, "enabled", false)
   end
   Swc.Notify("UILoadingRequestsBus", nil, "OnCanvasLoaded", canvas)
+  if autohide then
+    -- A screen of a state of the current stack shows at once (AST-236: the Banner loads while the state is already HUD).
+    for _, state in ipairs(Swc.stateStack or {}) do
+      local screen = Swc.screens[tostring(canvas)]
+      if states[state] and not screen.shown then
+        swcui.canvas_set(canvas, "enabled", true)
+        Swc.SetScreenShown(screen, true)
+        break
+      end
+    end
+  end
   return canvas
 end
 
@@ -122,6 +139,17 @@ Swc.cvars = {
 -- The localized text of a key with its {name} parts replaced (the formula parts {[...]} stay). A value that is a key ("@ui_smelting")
 -- gets its text, and a name with no value is removed: the retail crafting screen shows "+132 Smelting" for ui_craft_bonus
 -- "+{amount} {bonus} {bonus2}" with the values amount and bonus "@ui_smelting" (Soulwarden evidence crafting/37b I1-01).
+-- A key with only white space after it (AST-236: objectivesdatahandler.luac asks for "@objective_subtitle_locationanddifficulty\n\n"):
+-- the key gets its text, the white space stays. Each other text goes to the native localization as it is.
+local function localize(text)
+  text = tostring(text or "")
+  local key, rest = text:match("^(@[%w_%.]+)(%s+)$")
+  if key then
+    return swcui.localize(key) .. rest
+  end
+  return swcui.localize(text)
+end
+
 local function replace(text, map)
   return (text:gsub("{([%w_%.]+)}", function(name)
     local value = map[name]
@@ -138,13 +166,13 @@ end
 
 Swc.Define("LyShineScriptBindRequestBus", "Broadcast", {
   ScriptLoadCanvas = function(path, autohide, drawOrder) return Swc.LoadScreen(path, autohide, drawOrder) end,
-  LocalizeText = function(text) return swcui.localize(tostring(text or "")) end,
+  LocalizeText = function(text) return localize(text) end,
   -- The text with the values of the data sheets. Open point (O13): the expressions of the data sheets ({[...]}) stay
   -- as text.
-  LocalizeWithDataSheetData = function(text) return swcui.localize(tostring(text or "")) end,
+  LocalizeWithDataSheetData = function(text) return localize(text) end,
   -- One value: it replaces the first {name} part of the text.
   LocalizeTextWithReplacement = function(text, value)
-    local localized = swcui.localize(tostring(text or ""))
+    local localized = localize(text)
     return (localized:gsub("{[%w_%.]+}", (tostring(value):gsub("%%", "%%%%")), 1))
   end,
   -- Two vectors of the same length: the names and the values (common.luac TableToKeyValueVectors).
@@ -153,10 +181,10 @@ Swc.Define("LyShineScriptBindRequestBus", "Broadcast", {
     for i = 1, #(keys or {}) do
       map[tostring(keys[i])] = values[i]
     end
-    return replace(swcui.localize(tostring(text or "")), map)
+    return replace(localize(text), map)
   end,
   LocalizeTextWithReplacementAndPronoun = function(text, value)
-    local localized = swcui.localize(tostring(text or ""))
+    local localized = localize(text)
     return (localized:gsub("{[%w_%.]+}", (tostring(value):gsub("%%", "%%%%")), 1))
   end,
   LocalizeTextWithReplacementsAndPronoun = function(text, keys, values)
@@ -164,7 +192,7 @@ Swc.Define("LyShineScriptBindRequestBus", "Broadcast", {
     for i = 1, #(keys or {}) do
       map[tostring(keys[i])] = values[i]
     end
-    return replace(swcui.localize(tostring(text or "")), map)
+    return replace(localize(text), map)
   end,
   GetCVar = function(name) return Swc.cvars[name] end,
   SetCVar = function(name, value) Swc.cvars[name] = value end,
@@ -379,10 +407,17 @@ local function apply_stack(stack, from)
 end
 
 --- Enters a state (SetState, QueueState): the close rules of its table entry (a state with no entry replaces the stack).
+-- The canvases of the retail dynamic canvas loader that load when a state starts (dynamiccanvasloader.luac canvasInfos "states"): that
+-- loader does not run in the client; a module puts a load function for the state here (swc/quests.lua: the journal).
+Swc.stateCanvases = Swc.stateCanvases or {}
+
 function Swc.SetUiState(state)
   local from = Swc.uiState
   if from == state then
     return
+  end
+  if Swc.stateCanvases[state] then
+    Swc.stateCanvases[state]()
   end
   local info = Swc.UiStateInfo(state)
   local level = info and info.level or 0

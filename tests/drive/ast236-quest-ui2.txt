@@ -1,0 +1,7 @@
+# The UI drive of the second entry of the quest check of AST-236: the same instance and pin; J shows the journal.
+1 waitfor CompassLines 60
+2 waitfor world 180
+6 log the tracker of the second entry
+12 key J
+14 log the journal of the second entry
+20 key Escape

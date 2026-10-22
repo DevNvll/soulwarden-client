@@ -1741,6 +1741,56 @@ bool USwcBackendSubsystem::GetCraftingStation(FString& OutKey, bool& bOutFee, FS
 	return Interactor.IsValid() && Interactor->GetStation(OutKey, bOutFee, OutName);
 }
 
+bool USwcBackendSubsystem::EnableObjectives(const std::vector<bool>& Flags)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->EnableObjectives(Flags);
+	return true;
+}
+
+bool USwcBackendSubsystem::UpdateTrackedObjectives(const std::vector<uint64>& Instances)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->UpdateTrackedObjectives(std::vector<std::uint64_t>(Instances.begin(), Instances.end()));
+	return true;
+}
+
+bool USwcBackendSubsystem::NotifyOpenUiScreen(uint32 Screen)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->OpenUiScreen(Screen);
+	return true;
+}
+
+bool USwcBackendSubsystem::AbandonObjective(uint64 Instance)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->AbandonObjective(Instance);
+	return true;
+}
+
+bool USwcBackendSubsystem::ResetObjective(uint64 Instance)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->ResetObjective(Instance);
+	return true;
+}
+
 bool USwcBackendSubsystem::RequestCraft(uint32 Recipe, uint32 Quantity, uint32 Fee, uint16 GearScore, const TArray<uint32>& PerkItems, uint8 Upgrade,
 	const TArray<uint32>& Items)
 {

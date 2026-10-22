@@ -157,8 +157,23 @@ inline constexpr MessageType kApplyAbilityPoints{"AbilityComponentServerFacet_Re
 inline constexpr MessageType kMasteryTreeRespec{"AbilityComponentServerFacet_RequestMasteryTreeRespec", "F5BCCF27878840DBB6B524121B119750", 186};
 inline constexpr MessageType kMasteryTreeRespecResponse{"AbilityComponentClientFacet_MasteryTreeRespecResponse", "BDA9C6182E5F4474AD696A36F462C136", 2858};
 
+/** The quests (Linear AST-236 and AST-241; protocol notes 4.53 and 4.54; backend server/rep/quest_messages.h, objectives_state.cpp): the
+ *  Objectives state of the owner (slot 22, 3857) and the pin readiness (slot 73, 5606, `initialized`), which the backend sends only after
+ *  the first 2709 of the client; the auto-pin flags (2709), the pinned list (1458), the open of a screen (2617), abandon (3836), reset
+ *  (5600) of the Objectives facet; the place cues of the TerritoryDetector facet (2297 entry, 6416 exit). */
+inline constexpr MessageType kStateObjectives{"MB::ObjectivesComponentReplicatedState", "036365F4A485439D8A3FC51DFF6123B4", 3857};
+inline constexpr MessageType kStatePinReadiness{"MB::SeasonsRewardsTrackedStatComponentReplicatedState", "6F5CFE10D60C43C79C7A2050B66DFABE", 5606};
+inline constexpr MessageType kObjectiveAutoPinning{"ObjectivesComponentServerFacet_SetObjectiveAutoPinning", "CB4BA5E51D704B3381AAA045BEBA4706", 2709};
+inline constexpr MessageType kUpdateTrackedObjectives{"ObjectivesComponentServerFacet_UpdateTrackedObjectives", "298436A906D04BDA8DD90708B36E7374", 1458};
+inline constexpr MessageType kNotifyOpenUiScreen{"ObjectivesComponentServerFacet_NotifyOpenUiScreen", "287203CA986B4D4A88FEBC16200C9A94", 2617};
+inline constexpr MessageType kAbandonObjective{"ObjectivesComponentServerFacet_AbandonSingleObjective", "4591ECA11C4F49C9BEDD5AA62C95F7C7", 3836};
+inline constexpr MessageType kResetObjective{"ObjectivesComponentServerFacet_ResetObjective", "5B7449FBC79F4C79956B154CAFC5A834", 5600};
+inline constexpr MessageType kTerritoryEntered{"TerritoryDetectorComponentServerFacet_AttemptTerritoryUnlock", "11783D24A758406191BCA3A5DAFE0105", 2297};
+inline constexpr MessageType kTerritoryLeft{"TerritoryDetectorComponentServerFacet_AttemptTerritoryExit", "8979AFE6819546C796FFCE28785678F0", 6416};
+
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 68> kUsedTypes{kAssignPoolPoints, kChangeMappedAbility, kApplyAbilityPoints, kMasteryTreeRespec,
+inline constexpr std::array<MessageType, 77> kUsedTypes{kStateObjectives, kStatePinReadiness, kObjectiveAutoPinning,
+    kUpdateTrackedObjectives, kNotifyOpenUiScreen, kAbandonObjective, kResetObjective, kTerritoryEntered, kTerritoryLeft, kAssignPoolPoints, kChangeMappedAbility, kApplyAbilityPoints, kMasteryTreeRespec,
     kMasteryTreeRespecResponse, kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
     kKickClient, kClientInput, kReceivePlayerSpawnPoint, kSelfIdentification, kPlayerManagerRejected, kLevelInfoChanged, kTimeSynch,
     kDamageDealt, kStateMetadata, kStateMovement, kStateVitals, kStatePlayer, kStateAppearance, kStatePaperdoll, kStateStamina,
@@ -206,6 +221,9 @@ inline constexpr std::uint32_t kSlotCategorical = 65;
 inline constexpr std::uint32_t kSlotCharge = 48;
 inline constexpr std::uint32_t kSlotCrafting = 63;
 inline constexpr std::uint32_t kSlotEntitlement = 19;
+/** The Objectives state (type 3857) and the pin readiness (type 5606) of the owner (AST-236). */
+inline constexpr std::uint32_t kSlotObjectives = 22;
+inline constexpr std::uint32_t kSlotPinReadiness = 73;
 
 /** The component id of the action list component (slot 16) of the entity RootPlayer of the player slice (game data
  *  slice-ids.json; research ids.md, table of the targets). The facet target of the input report is G + this id. */
@@ -495,6 +513,29 @@ Bytes craft_request_body(std::uint64_t group, const CraftRequest& request);
 Bytes craft_cancel_body(std::uint64_t group);
 /** @return The facet target of the Crafting component of the character with the entity group G. */
 std::uint64_t crafting_target(std::uint64_t group);
+
+/** The Objectives and the TerritoryDetector components of the root entity of the player slice (slice-ids.json: RootPlayer/a42a47db-... and
+ *  RootPlayer/efc5d83c-...): the target is G + the component id. */
+inline constexpr std::uint64_t kObjectivesComponent = 0x588A5C029AEC02ACULL;
+inline constexpr std::uint64_t kTerritoryDetectorComponent = 0xB616B9A0A8D0E0E2ULL;
+/** The flags of 2709: one for each objective type of the client (36 at most); the retail default is all on except CommunityGoal
+ *  (index 6; live check L1 of stage 1.8a: `111111011111111111111111111111111111`). */
+inline constexpr std::size_t kAutoPinFlags = 36;
+inline constexpr std::size_t kCommunityGoalType = 6;
+/** The pinned list of 1458 has 8 instances at most. */
+inline constexpr std::size_t kTrackedLimit = 8;
+/** @return The body of SetObjectiveAutoPinning (2709): target entity count:size flag:u8 each (53 bytes with 36 flags). */
+Bytes auto_pinning_body(std::uint64_t group, const std::vector<bool>& flags);
+/** @return The body of UpdateTrackedObjectives (1458): target entity count:size instance:u64 each (at most kTrackedLimit are written). */
+Bytes tracked_objectives_body(std::uint64_t group, const std::vector<std::uint64_t>& instances);
+/** @return The body of NotifyOpenUiScreen (2617, 20 bytes): target entity screen:u32 (the CRC-32 of the lower-case UI state name). */
+Bytes open_ui_screen_body(std::uint64_t group, std::uint32_t screen);
+/** @return The body of AbandonSingleObjective (3836) or ResetObjective (5600), 24 bytes: target entity instance:u64. */
+Bytes objective_instance_body(std::uint64_t group, std::uint64_t instance);
+/** @return The body of AttemptTerritoryUnlock (2297; `achievement` is written) or AttemptTerritoryExit (6416): target entity reference
+ *  (actor:16 raw, group:u64, local:u64) territory:u16 [achievement:u32]. */
+Bytes territory_report_body(std::uint64_t group, const std::array<std::uint8_t, 16>& actor, std::uint64_t referenceGroup, std::uint64_t local,
+                            std::uint16_t territory, std::optional<std::uint32_t> achievement);
 
 /** The head of a component call: target:u64 entity:u64. */
 struct ComponentCall {

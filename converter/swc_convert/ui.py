@@ -49,6 +49,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from .actions import gamedata_dir
 from . import crafting, datasheet, dds, env, luabc, optiondefaults, source, uienums, worldmap
 from .source import field_id, number, parse, real, text
 
@@ -1512,6 +1513,39 @@ def convert_crafting(force: bool) -> dict:
     return {"data": data, "canvases": canvases, "textures": convert_textures(textures, force)}
 
 
+# -------------------------------------------------------------------------------------------------------------- quests
+
+# The images that the quest scripts name at run time (the objective type icons, the journal, the banner cards; AST-236).
+# The single textures of the quest screens: the yellow flag of a pinned objective of the journal (journalscreen FlagBg).
+QUEST_TEXTURES = ["lyshineui/genericui/images/square.dds"]
+QUEST_TEXTURE_FOLDERS = ["lyshineui/images/objectives/", "lyshineui/images/icons/objectives/", "lyshineui/images/journal/", "lyshineui/images/banner/"]
+
+
+def convert_quests(force: bool) -> dict:
+    """gamedata/quests.json (Linear AST-236; research quest-plan.md "Converter output" Q1): the quest data of the backend copy
+    (gamedata/quest-data.json of the release, format 1: the tools of the Soulwarden project made it from the game data): the objectives
+    (by the lower-case ObjectiveID: id, CRC-32, the cells of the row, the root task, the tree [index, task, children] in the child-first
+    index order of the wire, the holes), the task rows (by the lower-case TaskID: id, CRC-32, the type and its code, the cells), and the
+    GameEvent rows of the rewards. The client and the server read the same trees: the index of a task element is the index of this tree."""
+    source_file = gamedata_dir() / "quest-data.json"
+    data = json.loads(source_file.read_text())
+    if data.get("format") != 1:
+        raise SystemExit(f"{source_file}: quest data format {data.get('format')} (the client reads format 1)")
+    objectives = {o["id"].lower(): {k: o[k] for k in ("id", "crc", "cells", "root", "tree", "holes") if k in o} for o in data["objectives"]}
+    events = dict(data["events"]) if isinstance(data["events"], list) else data["events"]
+    doc = {"format": 1, "source": str(source_file), "objectives": objectives, "tasks": data["tasks"], "events": events,
+           "territories": data.get("territories", [])}
+    target = out_dir() / "gamedata"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "quests.json").write_text(json.dumps(doc, separators=(",", ":"), sort_keys=True))
+    textures = set()
+    for folder in QUEST_TEXTURE_FOLDERS:
+        textures |= set(folder_textures(folder))
+    textures |= set(QUEST_TEXTURES)
+    return {"objectives": len(objectives), "tasks": len(data["tasks"]), "events": len(events),
+            "bytes": (target / "quests.json").stat().st_size, "textures": convert_textures(textures, force)}
+
+
 # -------------------------------------------------------------------------------------------------------------- loaders
 
 LOADER_SCRIPTS = {"screens": "lyshineui/uiloader.luac", "dynamic": "lyshineui/dynamiccanvasloader/dynamiccanvasloader.luac"}
@@ -1648,6 +1682,7 @@ def main(argv=None) -> int:
     sub.add_parser("options")
     p = sub.add_parser("worldmap"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("crafting"); p.add_argument("--force", action="store_true")
+    p = sub.add_parser("quests"); p.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "hud":
         result = hud(args.force)
@@ -1694,6 +1729,8 @@ def main(argv=None) -> int:
         result = convert_worldmap(args.force)
     elif args.command == "crafting":
         result = convert_crafting(args.force)
+    elif args.command == "quests":
+        result = convert_quests(args.force)
     else:
         result = convert_text()
     print(json.dumps(result, indent=1, default=str))

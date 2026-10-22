@@ -1,0 +1,5 @@
+# The quest check of AST-236 (docs/QUESTS.md): no route. A new character of the development account (SWC_DEV_CHARACTER with no place: the
+# create request of the retail client, SWC_DEV_NEW=1; the backend 1.8a puts it on the Windsward beach and gives "Soul Survivor" at its first entry), in its
+# own data folder SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-quests:
+#   SWC_DEV_CHARACTER=QuestThree SWC_DEV_NEW=1 tools/creature-check.sh ast236-q1 50 THIS -- -SwcUiDrive=tests/drive/ast236-quest-ui.txt
+# then the second entry (the same instance and pin): ... ast236-q2 30 THIS -- -SwcUiDrive=tests/drive/ast236-quest-ui2.txt

@@ -225,6 +225,36 @@ void FSwcRepConnection::CancelCraft()
 	Calls.push_back([](swc::net::RepClient& Client) { Client.cancel_craft(); });
 }
 
+void FSwcRepConnection::EnableObjectives(const std::vector<bool>& Flags)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([Flags](swc::net::RepClient& Client) { Client.enable_objectives(Flags); });
+}
+
+void FSwcRepConnection::UpdateTrackedObjectives(const std::vector<std::uint64_t>& Instances)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([Instances](swc::net::RepClient& Client) { Client.update_tracked_objectives(Instances); });
+}
+
+void FSwcRepConnection::OpenUiScreen(std::uint32_t Screen)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([Screen](swc::net::RepClient& Client) { Client.open_ui_screen(Screen); });
+}
+
+void FSwcRepConnection::AbandonObjective(std::uint64_t Instance)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([Instance](swc::net::RepClient& Client) { Client.abandon_objective(Instance); });
+}
+
+void FSwcRepConnection::ResetObjective(std::uint64_t Instance)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([Instance](swc::net::RepClient& Client) { Client.reset_objective(Instance); });
+}
+
 std::vector<swc::net::RepClient::OtherUpdate> FSwcRepConnection::TakeOtherUpdates()
 {
 	FScopeLock Guard(&Lock);

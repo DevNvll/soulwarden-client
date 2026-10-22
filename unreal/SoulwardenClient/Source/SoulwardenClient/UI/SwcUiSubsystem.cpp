@@ -97,6 +97,10 @@ const char* const HudScreens[] = {
 	// The chat widget (AST-231): its key hint "ENTER Chat" at the bottom left of the HUD and of the screens (the chat itself is not
 	// loaded: no chat service).
 	"lyshineui/hud/chat/chatwidget",
+	// The quests (AST-236): the tracker of the HUD, the journal (J), and the banners (swc/quests.lua, UI/SwcUiQuests).
+	"lyshineui/objectives/hud/objectiveshud",
+	"lyshineui/objectives/journal/journalscreen",
+	"lyshineui/banner/banner",
 };
 
 /** The world level name of the HUD scripts (the level crc tells them the front end and the tutorial levels). */
@@ -1053,6 +1057,9 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 		else if (FSwcUiConversation::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))
 		{
 		}
+		else if (FSwcUiQuests::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))
+		{
+		}
 		else if (FSwcUiCrafting::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))
 		{
 		}
@@ -1919,6 +1926,7 @@ void USwcUiSubsystem::FeedLocalPlayer()
 	FeedItems(Own);
 	FeedOwnerStates(Own);
 	CraftingScreen.Feed(*Runtime, Own);
+	Quests.Feed(*Runtime, Own, *Backend);
 	FeedLoot(Own, Backend);
 	FeedWorld(Own);
 	int32 Active = -1;

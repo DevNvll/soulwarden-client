@@ -178,6 +178,23 @@ local function inventory_rule()
   return true
 end
 
+-- The journal key (toggleJournalComponent, J of the map ui; AST-236): no loaded script binds it (the NavBar of the retail menus names it
+-- as its key hint). The rule of the emulation: in the state Objectives (the journal, 1823500652) the key leaves the state; else, with
+-- javelin.enable-journal on, it enters the state (journalscreen.luac shows its objectives tab).
+local JOURNAL_STATE = 1823500652
+local function journal_rule()
+  local state = LyShineManagerBus.Broadcast.GetCurrentState()
+  if state == JOURNAL_STATE then
+    LyShineManagerBus.Broadcast.ExitState(state)
+    return true
+  end
+  if not Swc.config["javelin.enable-journal"] then
+    return false
+  end
+  LyShineManagerBus.Broadcast.SetState(JOURNAL_STATE)
+  return true
+end
+
 Swc.actionLog = {}   -- the last actions (the tests read it)
 
 --- A step of the wheel (the CryInput unit: 120 for each step, positive up): the actions of the key mwheel_up or mwheel_down
@@ -208,6 +225,7 @@ function Swc.FireActions(key, down)
   local used = false
   local escape = false
   local inventory = false
+  local journal = false
   for _, a in ipairs(actions_of(key, down)) do
     if not filtered(a.name) then
       Swc.actionLog[#Swc.actionLog + 1] = a.name .. (down and " 1" or " 0")
@@ -227,10 +245,16 @@ function Swc.FireActions(key, down)
       if a.name == "toggleInventoryWindow" and down then
         inventory = true
       end
+      if a.name == "toggleJournalComponent" and down then
+        journal = true
+      end
     end
   end
   if escape and not used then
     used = escape_rule() or used
+  end
+  if journal and not used then
+    used = journal_rule() or used
   end
   if inventory and not used then
     used = inventory_rule() or used

@@ -634,6 +634,94 @@ bool RepClient::apply_crafting(const decoder::Fragment& fragment) {
     return true;
 }
 
+bool RepClient::read_objectives(const decoder::Fragment& fragment, OwnEntity& own) {
+    // Group 1: field 0 the task starts (17-byte entries), 1 the tracked instances (8), 2 the completed notices (8), 3 the active objectives
+    // (56-byte elements with an empty ingredient list), 4 the task elements (18). Each field in the full form (backend objectives_state.cpp;
+    // readers 0x3A68CB0, 0x3A68340, 0x3A688F0, 0x3ADDB50). The fields are read first and copied only when all of them have their form.
+    OwnEntity next = own;
+    bool any = false;
+    std::uint64_t sequence = 0;
+    const auto read = [&](unsigned field, auto&& element, std::uint32_t limit) {
+        const auto bytes = decoder::field_of(fragment, 1, field);
+        if (bytes.empty()) {
+            return true;
+        }
+        Reader reader(bytes);
+        std::uint64_t stamp = 0;
+        const auto count = decoder::progress_wire::read_full_form(reader, &stamp);
+        if (!count || *count > limit) {
+            return false;
+        }
+        for (std::uint32_t index = 0; index < *count && reader.ok(); ++index) {
+            element(reader);
+        }
+        any = true;
+        sequence = std::max(sequence, stamp);
+        return reader.ok() && reader.left() == 0;
+    };
+    next.questStarts.clear();
+    next.questTracked.clear();
+    next.questCompleted.clear();
+    next.questActive.clear();
+    next.questTasks.clear();
+    const bool hasStarts = !decoder::field_of(fragment, 1, 0).empty();
+    const bool hasTracked = !decoder::field_of(fragment, 1, 1).empty();
+    const bool hasCompleted = !decoder::field_of(fragment, 1, 2).empty();
+    const bool hasActive = !decoder::field_of(fragment, 1, 3).empty();
+    const bool hasTasks = !decoder::field_of(fragment, 1, 4).empty();
+    const bool ok = read(0, [&](Reader& r) {
+                        OwnEntity::QuestTaskStart start;
+                        start.instance = r.u64();
+                        start.index = r.u8();
+                        start.startNs = r.u64();
+                        next.questStarts.push_back(start);
+                    }, 4096)
+                    && read(1, [&](Reader& r) { next.questTracked.push_back(r.u64()); }, kTrackedLimit)
+                    && read(2, [&](Reader& r) { next.questCompleted.push_back(r.u64()); }, 4096)
+                    && read(3, [&](Reader& r) {
+                           OwnEntity::QuestActive active;
+                           active.objective = r.u32();
+                           active.instance = r.u64();
+                           active.mission = r.u32();
+                           for (int part = 0; part < 16; ++part) {
+                               r.u8(); // destinationOverride
+                           }
+                           active.acceptTime = r.u64();
+                           active.originTerritory = r.u16();
+                           active.available = r.u8() != 0;
+                           active.communityGoal = r.u8() != 0;
+                           active.poiObjective = r.u8() != 0;
+                           active.dynamicPoiObjective = r.u8() != 0;
+                           active.parent = r.u64();
+                           active.resetObjective = r.u8() != 0;
+                           const std::uint32_t ingredients = r.size();
+                           for (std::uint32_t item = 0; item < ingredients && r.ok(); ++item) {
+                               r.u32(); // selectedIngredients (none in the backend data)
+                           }
+                           next.questActive.push_back(active);
+                       }, 4096)
+                    && read(4, [&](Reader& r) {
+                           OwnEntity::QuestTask task;
+                           task.instance = r.u64();
+                           task.index = r.u8();
+                           task.task = r.u32();
+                           task.progress = r.u32();
+                           task.state = r.u8();
+                           next.questTasks.push_back(task);
+                       }, 65536);
+    if (!ok || !any) {
+        return false;
+    }
+    own.questStarts = hasStarts ? std::move(next.questStarts) : own.questStarts;
+    own.questTracked = hasTracked ? std::move(next.questTracked) : own.questTracked;
+    own.questCompleted = hasCompleted ? std::move(next.questCompleted) : own.questCompleted;
+    own.questActive = hasActive ? std::move(next.questActive) : own.questActive;
+    own.questTasks = hasTasks ? std::move(next.questTasks) : own.questTasks;
+    own.questSequence = sequence;
+    own.hasObjectives = true;
+    return true;
+}
+
 void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) {
     bool newPosition = false;
     for (const decoder::Fragment& fragment : record.fragments) {
@@ -1010,6 +1098,21 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                 m_own.hasCharge = true;
                 ++m_own.chargeRevision;
             }
+        } else if (fragment.slot == kSlotObjectives && fragment.type == kStateObjectives.index) {
+            if (read_objectives(fragment, m_own)) {
+                ++m_own.questRevision;
+                log(Event::Level::info, "objectives: " + std::to_string(m_own.questActive.size()) + " active, " + std::to_string(m_own.questTasks.size())
+                                            + " task element(s), " + std::to_string(m_own.questTracked.size()) + " tracked (sequence "
+                                            + std::to_string(m_own.questSequence) + ")");
+            } else {
+                log(Event::Level::warning, "the objectives state does not have its form");
+            }
+        } else if (fragment.slot == kSlotPinReadiness && fragment.type == kStatePinReadiness.index) {
+            if (const auto value = decoder::field_of(fragment, 0, 0); value.size() == 1) {
+                m_own.pinReady = value[0] != 0;
+                ++m_own.pinReadyRevision;
+                log(Event::Level::info, std::string("objectives: the pin readiness ") + (m_own.pinReady ? "on" : "off"));
+            }
         } else if (fragment.slot == kSlotCrafting && fragment.type == kStateCrafting.index) {
             if (apply_crafting(fragment)) {
                 ++m_own.craftRevision;
@@ -1282,6 +1385,57 @@ void RepClient::request_craft(const CraftRequest& request) {
                                 + ", fee " + std::to_string(request.coinFee) + ", gear score " + std::to_string(request.gearScore) + ", "
                                 + std::to_string(request.perkItems.size()) + " perk item(s), upgrade " + std::to_string(request.upgrade) + ", "
                                 + std::to_string(request.items.size()) + " entr" + (request.items.size() == 1 ? "y" : "ies"));
+}
+
+void RepClient::enable_objectives(const std::vector<bool>& flags) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kObjectiveAutoPinning, auto_pinning_body(m_own.group, flags));
+    std::string text;
+    for (const bool flag : flags) {
+        text += flag ? '1' : '0';
+    }
+    log(Event::Level::info, "objectives: the auto-pin flags (2709) " + text + (m_objectivesEnabled ? "" : " (the first: the quest states follow)"));
+    m_objectivesEnabled = true;
+}
+
+void RepClient::update_tracked_objectives(const std::vector<std::uint64_t>& instances) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kUpdateTrackedObjectives, tracked_objectives_body(m_own.group, instances));
+    std::string text;
+    for (const std::uint64_t instance : instances) {
+        text += (text.empty() ? "" : ", ") + std::to_string(instance);
+    }
+    log(Event::Level::info, "objectives: the pinned list (1458) [" + text + "]");
+}
+
+void RepClient::open_ui_screen(std::uint32_t screen) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kNotifyOpenUiScreen, open_ui_screen_body(m_own.group, screen));
+    char hex[16];
+    std::snprintf(hex, sizeof hex, "%08x", screen);
+    log(Event::Level::info, std::string("objectives: the open of the screen ") + hex + " (2617)");
+}
+
+void RepClient::abandon_objective(std::uint64_t instance) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kAbandonObjective, objective_instance_body(m_own.group, instance));
+    log(Event::Level::info, "objectives: abandon of the instance " + std::to_string(instance) + " (3836)");
+}
+
+void RepClient::reset_objective(std::uint64_t instance) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kResetObjective, objective_instance_body(m_own.group, instance));
+    log(Event::Level::info, "objectives: reset of the instance " + std::to_string(instance) + " (5600)");
 }
 
 void RepClient::cancel_craft() {

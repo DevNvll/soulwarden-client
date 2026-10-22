@@ -352,6 +352,48 @@ public:
         std::vector<std::uint8_t> entitlements;
         bool entitlementsReceived{false};
         std::uint32_t entitlementRevision{0};
+        /**
+         * The quests (AST-236; the Objectives state, slot 22, type 3857; protocol notes 4.53, backend objectives_state.cpp): group 1, field 0
+         * the task starts (instance, index -> the synced wall clock in Unix ns), field 1 the tracked instances (8 at most), field 3 the
+         * active objectives (56-byte elements), field 4 the task elements (18 bytes) in the index order of each tree. Each field in the full
+         * form replaces its list; a field that a state does not have keeps its list. The instances are full u64 values.
+         */
+        struct QuestActive {
+            std::uint32_t objective{0};
+            std::uint64_t instance{0};
+            std::uint32_t mission{0};
+            std::uint64_t acceptTime{0};
+            std::uint16_t originTerritory{0};
+            bool available{false};
+            bool communityGoal{false};
+            bool poiObjective{false};
+            bool dynamicPoiObjective{false};
+            std::uint64_t parent{0};
+            bool resetObjective{false};
+        };
+        struct QuestTask {
+            std::uint64_t instance{0};
+            std::uint8_t index{0};
+            std::uint32_t task{0};
+            std::uint32_t progress{0};
+            std::uint8_t state{0};
+        };
+        struct QuestTaskStart {
+            std::uint64_t instance{0};
+            std::uint8_t index{0};
+            std::uint64_t startNs{0};
+        };
+        bool hasObjectives{false};
+        std::vector<QuestTaskStart> questStarts;
+        std::vector<std::uint64_t> questTracked;
+        std::vector<std::uint64_t> questCompleted;
+        std::vector<QuestActive> questActive;
+        std::vector<QuestTask> questTasks;
+        std::uint64_t questSequence{0};
+        std::uint32_t questRevision{0};
+        /** The pin readiness (the SeasonsRewardsTrackedStat state, slot 73, type 5606): group 0 field 0 `initialized`. */
+        bool pinReady{false};
+        std::uint32_t pinReadyRevision{0};
     };
 
     /** An entity of a different interest number: its metadata and its position. */
@@ -451,6 +493,17 @@ public:
     void request_craft(const CraftRequest& request);
     /** The stop of a batch by the client (the cancel of the crafting screen): message 2999. The completed jobs stay. */
     void cancel_craft();
+    /** The quests (AST-236; protocol notes 4.53, 4.54): the auto-pin flags (2709; the backend sends the Objectives state and the pin
+     *  readiness only after the first one), the pinned list (1458), the open of a UI screen (2617), abandon (3836), reset (5600). */
+    void enable_objectives(const std::vector<bool>& flags);
+    void update_tracked_objectives(const std::vector<std::uint64_t>& instances);
+    void open_ui_screen(std::uint32_t screen);
+    void abandon_objective(std::uint64_t instance);
+    void reset_objective(std::uint64_t instance);
+    /** Copies an Objectives state (slot 22) into an own entity: false for a fragment that does not have its form (no change). */
+    static bool read_objectives(const soulwarden::backend::tests::Fragment& fragment, OwnEntity& own);
+    /** True after the first 2709 of this session. */
+    [[nodiscard]] bool objectives_enabled() const { return m_objectivesEnabled; }
     /** The edits of the weapon trees and the bars (stage MVP-G; protocol notes 4.13): a point of a node (1112, count 1), the ability
      *  of a place of a bar (2701; the slot 0 to 2), the end of a point change (2857), a tree reset (186; the answer 2858). */
     void assign_point(std::uint32_t pool, std::uint32_t node);
@@ -538,6 +591,7 @@ private:
     static std::optional<OwnEntity::Attributes> read_attributes(const soulwarden::backend::tests::Fragment& fragment);
     /** Copies a crafting state (slot 63) into the own entity: false for a fragment that does not have its form (no change). */
     bool apply_crafting(const soulwarden::backend::tests::Fragment& fragment);
+    bool m_objectivesEnabled{false};
     void apply_other(const soulwarden::backend::tests::Record& record);
     void send_registration();
     void send_input(Clock::time_point now);
