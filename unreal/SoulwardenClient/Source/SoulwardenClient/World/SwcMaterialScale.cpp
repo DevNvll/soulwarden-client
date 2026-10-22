@@ -16,12 +16,17 @@ static TAutoConsoleVariable<float> CVarBeamScale(TEXT("swc.BeamScale"), 1.0f,
 	TEXT("The scale of the GeometryBeam fog sheets and cards (M_SwcBeam); 0 hides them."));
 // The camera fade of the vegetation (M_SwcFoliage version 4; research/ground-cover.md "Camera fade"): the method of
 // VegCameraFade of MPC_SwcMaterials (the start 2 m and the end 3 m stay).
-// The look scales of the Hair parent (M_SwcHair version 5, MPC_SwcHair): the Scatter (the Kajiya diffuse of the Unreal Hair) and D
-// in the base color (the color of the strand lobes): a test of the level of light hair against retail (AST-247).
+// The look scales of the Hair parent (M_SwcHair version 6, MPC_SwcHair): the Scatter (the Kajiya diffuse of the Unreal Hair), D
+// in the base color (the color of the strand lobes), the Specular (the R lobe), and the environment light (the material AO): a
+// test of the level of the hair against retail (AST-247).
 static TAutoConsoleVariable<float> CVarHairScatter(TEXT("swc.HairScatter"), 1.0f,
 	TEXT("A scale of the Scatter of M_SwcHair (the diffuse of the Unreal Hair; 1: the rule of the parent)."));
 static TAutoConsoleVariable<float> CVarHairBase(TEXT("swc.HairBase"), 1.0f,
 	TEXT("A scale of D in the base color (D^2) of M_SwcHair (the strand lobes and the diffuse; 1: the rule of the parent)."));
+static TAutoConsoleVariable<float> CVarHairSpec(TEXT("swc.HairSpec"), 1.0f,
+	TEXT("A scale of the Specular of M_SwcHair (the R lobe of the Unreal Hair, direct and in the environment term; 1: the rule of the parent)."));
+static TAutoConsoleVariable<float> CVarHairEnv(TEXT("swc.HairEnv"), 1.0f,
+	TEXT("The material AO of M_SwcHair, at most 1: a scale of the Lumen diffuse indirect of the hair (its environment light; 1: the rule of the parent)."));
 static TAutoConsoleVariable<int32> CVarCameraFade(TEXT("swc.Foliage.CameraFade"), 1,
 	TEXT("1: the vegetation near the render camera dissolves (2 to 3 m, the source rule); 0: off (a before and after test)."));
 
@@ -122,14 +127,19 @@ void USwcMaterialScale::Tick(float DeltaTime)
 	}
 	if (Hair)
 	{
-		const FVector2f Values(CVarHairScatter.GetValueOnGameThread(), CVarHairBase.GetValueOnGameThread());
+		const FVector4f Values(CVarHairScatter.GetValueOnGameThread(), CVarHairBase.GetValueOnGameThread(), CVarHairSpec.GetValueOnGameThread(),
+			CVarHairEnv.GetValueOnGameThread());
 		if (Values != AppliedHair)
 		{
 			UMaterialParameterCollectionInstance* Instance = GetWorld()->GetParameterCollectionInstance(Hair);
 			if (Instance && Instance->SetScalarParameterValue(TEXT("HairScatterScale"), Values.X)
 				&& Instance->SetScalarParameterValue(TEXT("HairBaseScale"), Values.Y))
 			{
-				UE_LOG(LogSwcMaterialScale, Log, TEXT("SWC material scale: hair scatter %.3f, base %.3f"), Values.X, Values.Y);
+				// HairSpecScale and HairEnvScale: from MPC_SwcHair version 2 (M_SwcHair version 6).
+				const bool bTest = Instance->SetScalarParameterValue(TEXT("HairSpecScale"), Values.Z)
+					&& Instance->SetScalarParameterValue(TEXT("HairEnvScale"), Values.W);
+				UE_LOG(LogSwcMaterialScale, Log, TEXT("SWC material scale: hair scatter %.3f, base %.3f, specular %.3f, environment %.3f%s"), Values.X,
+					Values.Y, Values.Z, Values.W, bTest ? TEXT("") : TEXT(" (no specular and environment scales in MPC_SwcHair)"));
 				AppliedHair = Values;
 			}
 		}

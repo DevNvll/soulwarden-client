@@ -613,6 +613,24 @@ overlay masks (charactermasking.cfib) as the world. One rule for all bodies (`co
     0.925, D about 0.45): Scatter 0 gives black hair (the Unreal diffuse carries the gray), Scatter 0.25 is near retail, Scatter 1
     is near white (with the XML override 0.5); the plumes match retail at Scatter 1. The cause was D of the hair color path (the
     row of the hair color, above), not the scale: the scales stay 1.
+  - Two more test scales (M_SwcHair version 6, `MPC_SwcHair` HairSpecScale and HairEnvScale; AST-247, 2026-10-22):
+    `swc.HairSpec` scales the Specular (the R lobe of the Unreal Hair, direct and in its environment term); `swc.HairEnv` is the
+    material AO, at most 1: it scales the Lumen diffuse indirect of the hair. With Lumen the Hair pixels have no specular indirect;
+    their environment light is the diffuse indirect x `EvaluateEnvHair` (all the lobes; `DiffuseIndirectComposite.usf`). Default 1
+    (the same picture as version 5). The hair box means (linear luminance; `work/hair/measure_scales2.py`,
+    `evidence/bodymat/crop-hair-test-scales.png`):
+
+    | Gray player hair | Retail | 1 / 1 | Spec 0.5 | Spec 0 | Env 0.5 | Env 0.25 | Spec 0.5, env 0.5 |
+    |---|---|---|---|---|---|---|---|
+    | Front | 0.163 | 0.239 | 0.226 | 0.229 | 0.201 | 0.183 | 0.203 |
+    | Right | 0.293 | 0.133 | 0.130 | 0.125 | 0.085 | 0.087 | 0.087 |
+
+    The R lobe changes the gray hair by at most about 5 %; the environment light is the larger part. Both scales only make the hair
+    darker: the front comes nearer to retail, the right view (retail 0.293, lighter than the face) goes farther. Saira (one run,
+    6 s for each variant; her head about 25 px high, at another place than the earlier run, so no compare with the retail still):
+    1 / 1 0.071, spec 0.5 0.066, spec 0 0.064, env 0.5 0.065, env 0.25 0.064, spec 0.5 and env 0.5 0.061 (`work/hair/saira_blob.py`;
+    a small change). Thus the two faults do not come from these two terms: the scales stay 1. The right view needs more light on
+    the hair (the direct light, the shadow side, or the scatter), not less [U].
   - Limits: the two Kajiya-Kay lobes of the source (the primary cap 0.045, the colored secondary with its width and shift),
     the wrap 0.5, and the separate core and blend passes are not in Unreal Hair (a custom path, hair-shader.md section 5).
 - The key of a spec is `b_` and 10 hex digits of the hash of the spec. `slots.json` gives the Unreal folder of each body

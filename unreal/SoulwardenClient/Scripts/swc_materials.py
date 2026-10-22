@@ -24,7 +24,7 @@ ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
 PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "9", "M_SwcSurfaceMasked": "9", "M_SwcDecal": "7",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
-                   "M_SwcSurfaceTranslucent": "9", "M_SwcHair": "5"}   # the rule of each parent
+                   "M_SwcSurfaceTranslucent": "9", "M_SwcHair": "6"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
 # 7: the UV transforms of the emittance and intensity maps (AST-207); 8: the sRGB emission files on Color samplers;
@@ -33,7 +33,10 @@ PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "9", "M_SwcSurfaceMasked
 # hair was black: the hair color had no mask amount, see SwcLookMaterials::ApplyHairColor); 3: BaseColor = D, Scatter x
 # sqrt(lum(D)) (with the hair color amount the gray hair was white: the TT and TRT lobes do not scale with Specular); 4: as 2;
 # 5: the look scales of MPC_SwcHair (HairScatterScale x Scatter, (HairBaseScale x D)^2; the console values swc.HairScatter and
-# swc.HairBase of the client, default 1: the same picture as 4);
+# swc.HairBase of the client, default 1: the same picture as 4); 6: the test scales HairSpecScale x Specular (the R lobe of the
+# Unreal Hair, direct and in the environment term) and the material AO saturate(HairEnvScale) (the Lumen diffuse indirect of
+# the hair, which the Unreal Hair weights with its whole BSDF; at most 1); swc.HairSpec and swc.HairEnv, default 1: the same
+# picture as 5);
 # M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals;
 # 4: the entity color and opacity (DecalColor), the angle fade of the projected decals (static switch Projected);
 # 5: the view bias in the vertex shader without CameraVectorWS (3 and 4 did not compile); 6: the normal of the
@@ -613,17 +616,17 @@ return o > n ? 1.0 : 0.0;"""
 
 
 def hair_collection(content, state):
-    """@return MPC_SwcHair: the look scales of M_SwcHair (HairScatterScale, HairBaseScale; default 1; at run time USwcMaterialScale
-    from swc.HairScatter and swc.HairBase). A collection of its own: a new parameter of MPC_SwcMaterials makes each material that
+    """@return MPC_SwcHair: the look scales of M_SwcHair (HairScatterScale, HairBaseScale, HairSpecScale, HairEnvScale; default 1;
+    at run time USwcMaterialScale from swc.HairScatter, swc.HairBase, swc.HairSpec, and swc.HairEnv). A collection of its own: a new parameter of MPC_SwcMaterials makes each material that
     reads it compile again."""
     name = "MPC_SwcHair"
     path = f"{BASE}/{name}"
-    if assets.does_asset_exist(path) and state.get("base:" + name) == "1":
+    if assets.does_asset_exist(path) and state.get("base:" + name) == "2":
         return assets.load_asset(path)
     mpc = assets.load_asset(path) if assets.does_asset_exist(path) else tools.create_asset(
         name, BASE, unreal.MaterialParameterCollection, unreal.MaterialParameterCollectionFactoryNew())
     scalars = list(mpc.get_editor_property("scalar_parameters"))
-    for parameter in ("HairScatterScale", "HairBaseScale"):
+    for parameter in ("HairScatterScale", "HairBaseScale", "HairSpecScale", "HairEnvScale"):
         if not any(str(s.get_editor_property("parameter_name")) == parameter for s in scalars):
             value = unreal.CollectionScalarParameter()
             value.set_editor_property("parameter_name", parameter)
@@ -631,7 +634,7 @@ def hair_collection(content, state):
             scalars.append(value)
     mpc.set_editor_property("scalar_parameters", scalars)
     assets.save_loaded_asset(mpc)
-    state["base:" + name] = "1"
+    state["base:" + name] = "2"
     return mpc
 
 
@@ -716,7 +719,16 @@ def hair_parent(content, state):
     specular = custom(material, HAIR_SPECULAR_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("S", "X"), -300, 50)
     editing.connect_material_expressions(masked_spec, "", specular, "S")
     editing.connect_material_expressions(vector(material, "SpecularColor", (1.0, 1.0, 1.0, 1.0), -900, 250), "RGB", specular, "X")
-    editing.connect_material_property(specular, "", MP.MP_SPECULAR)
+    # The test scales (version 6): Specular x HairSpecScale (the R lobe, direct and in the environment term of the Unreal Hair);
+    # the material AO saturate(HairEnvScale): the Lumen diffuse indirect of the hair (DiffuseIndirectComposite.usf: the Hair
+    # pixels have no specular indirect, the environment is the diffuse indirect x EvaluateEnvHair, all the lobes).
+    spec_scaled = node(material, unreal.MaterialExpressionSaturate, -50, 50)
+    editing.connect_material_expressions(multiply(material, (specular, ""), (collection_scalar("HairSpecScale", 150), ""), -150, 50),
+                                         "", spec_scaled, "")
+    editing.connect_material_property(spec_scaled, "", MP.MP_SPECULAR)
+    env = node(material, unreal.MaterialExpressionSaturate, -50, 1000)
+    editing.connect_material_expressions(collection_scalar("HairEnvScale", 1000), "", env, "")
+    editing.connect_material_property(env, "", MP.MP_AMBIENT_OCCLUSION)
     editing.connect_material_property(scalar(material, "HairRoughness", 0.35, -300, 300), "", MP.MP_ROUGHNESS)
     editing.connect_material_property(scatter, "", MP.MP_METALLIC)
     # Backlit (CustomData0) stays unconnected: 0 (the Python API has no property for the pin).

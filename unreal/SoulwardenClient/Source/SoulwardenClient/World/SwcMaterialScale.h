@@ -48,10 +48,10 @@ private:
 	UPROPERTY()
 	TObjectPtr<UMaterialParameterCollection> Effects;
 
-	/** The look scales of M_SwcHair (MPC_SwcHair: swc.HairScatter, swc.HairBase; AST-247 Hair). */
+	/** The look scales of M_SwcHair (MPC_SwcHair: swc.HairScatter, swc.HairBase, swc.HairSpec, swc.HairEnv; AST-247 Hair). */
 	UPROPERTY()
 	TObjectPtr<UMaterialParameterCollection> Hair;
-	FVector2f AppliedHair = FVector2f(-1.0f, -1.0f);
+	FVector4f AppliedHair = FVector4f(-1.0f, -1.0f, -1.0f, -1.0f);
 	bool bHairTried = false;
 	int32 AppliedFade = -1;   // swc.Foliage.CameraFade as set in VegCameraFade
 
