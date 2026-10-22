@@ -110,6 +110,17 @@ files at the same time; a shared document (this file, the roadmap) changes only 
   data folder, the mark `SOULWARDEN_DEV_RUN=1`, input only through `tools/hx`, gamescope on an agent desktop. Stop only
   the own run. Never use the Proton prefix or the data folder of the user. Write the results under
   `~/Games/soulwarden/work/evidence/unreal-references/`, never into `~/Developer/azoth`.
+  Each client retail reference run uses its own Proton prefix, data folder, and desktop (rule of 2026-10-22; the trap: the run lock
+  of the Soulwarden `tools/dev-run.sh` is per data folder, but all development runs share the default prefix and the desktop
+  `soulwarden-game`; a zoom change of a client thread wrote into the shared prefix while a Soulwarden client started):
+  1. The own prefix: a copy of the development prefix (`cp -a`, made once while no development run is alive; for example
+     `~/Games/soulwarden-client/work/proton-ref`), selected with `SOULWARDEN_COMPAT_DIR=.../proton-ref/1063730`. Never the prefix of
+     the user; never change a file of the shared development prefix (a saved option such as `m_cameraZoom` changes only in the copy).
+  2. The own data folder (`SOULWARDEN_DATA_DIR`) and the own desktop (`SOULWARDEN_DESKTOP_ID`, for example `soulwarden-client-ref`).
+     `tools/snap.sh` of the reference tools takes any marked gamescope: select the gamescope whose environment has the own prefix.
+  3. Before a start: no other process with `SOULWARDEN_DEV_RUN=1` uses the own prefix. Never stop a run that is not the own run:
+     the Soulwarden `tools/dev-stop.sh` stops all development runs; stop the own processes by their prefix (the mark and
+     `SOULWARDEN_COMPAT_DIR` in `/proc/PID/environ`). The Soulwarden runs have no fixed time window: do not wait for a free time.
 - The Soulwarden repository is read only for this project. A change that the backend needs goes to the orchestrator of
   this project, which reports it to the user, never as an edit of `~/Developer/azoth`. No thread of this project sends
   a report, a request, or a fact to the Soulwarden orchestrator thread (decision of the user, 2026-10-18).
