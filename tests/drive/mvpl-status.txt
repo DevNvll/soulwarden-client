@@ -1,4 +1,4 @@
-# AST-230 plan step 10: the status effects: the camera of the retail takes, the character and the wolf in view. Routes:
+# AST-230 plan step 10: the client take of set-mvpl-effects/retail-status.mp4 (the camera of the retail takes). Routes:
 # tests/drive/mvpl-status-routes.txt.
 2.0 view 89.8 -10
 3.0 tick

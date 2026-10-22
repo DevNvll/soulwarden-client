@@ -1,0 +1,10 @@
+# AST-230 exit check: the mushroom of a Dryad Shaman (its area attack at the character, the route area: Dryad_Bomb; the retail evidence
+# creature-areas m1-fresh and m5-shaman-bomb). Evening, as the retail run l8.
+1 world-time 19:00
+1 ignore on
+1.5 heal
+2 spawn Dryad_Shaman_60 9 -4 0 --yaw 90 --level 57
+3 ignore off
+6 area $1
+14 area $1
+22 heal

@@ -1,0 +1,10 @@
+# AST-230 exit check: the area spell of an Ancient Guardian mage (Mage_Ranged_AOE; the retail evidence creature-areas k1-mage): the
+# mage 8 m east casts its area at the character (the route area). Evening, as the retail run l8.
+1 world-time 19:00
+1 ignore on
+1.5 heal
+2 spawn AncientGuardian_Mage_50 8 0 0 --yaw 270 --level 30
+3 ignore off
+6 area $1
+14 area $1
+22 heal

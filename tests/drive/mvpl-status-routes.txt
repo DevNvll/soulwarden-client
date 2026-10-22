@@ -1,12 +1,12 @@
-# AST-230 plan step 10: the status effects on the body: burn (Explosive Arrow), wound (the rapier bleed), weaken (Whirling Blade) on the
-# character and on a level 70 Grey Wolf 3 m east. Noon, the creatures ignore the character.
+# AST-230 plan step 10: the client take of set-mvpl-effects/retail-status.mp4: the same steps 5 s later on the drive clock: burn, wound
+# (the rapier bleed), weaken on the character and on a level 70 Grey Wolf 4 m east and 2 m north. Noon, the creatures ignore the character.
 1 world-time 12:00
 1 ignore on
 1.5 heal
-2.5 spawn Wolf_Grey_7 3 0 0 --yaw 270 --level 70
-5 status Status_ExplosiveShot_Burn 6
-6 effect $1 Status_ExplosiveShot_Burn 6
-13 status Rapier_Bleed_DOT 5
-14 effect $1 Rapier_Bleed_DOT 5
-20 status Status_Upgrade_Sword_WhirlingBlade_Weaken 4
-21 effect $1 Status_Upgrade_Sword_WhirlingBlade_Weaken 4
+2.5 spawn Wolf_Grey_7 4 2 0 --yaw 270 --level 70
+6.05 status Status_ExplosiveShot_Burn 6
+7.02 effect $1 Status_ExplosiveShot_Burn 6
+14.02 status Rapier_Bleed_DOT 5
+15.02 effect $1 Rapier_Bleed_DOT 5
+21.02 status Status_Upgrade_Sword_WhirlingBlade_Weaken 4
+22.02 effect $1 Status_Upgrade_Sword_WhirlingBlade_Weaken 4

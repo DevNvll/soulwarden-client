@@ -134,6 +134,16 @@ moving emitter. The client draws the ribbons itself:
 - 56 ribbons in 35 effects: the arrow trails (plain, Trail_Power, Penetrating Shot, Poison Shot), the weapon swipe trails of the
   elements (`*_Melee.Swipe_MD`), the Shockwave trail of the war hammer (a gold arc along the swing; retail: a wide bright gold streak).
 
+## The coverage and all creature slices (plan step 11, part 9)
+
+- `tools/convert-particles.sh coverage` writes `particles/skill-coverage.json`: for each family of users (each of the five weapons, the
+  hits, the trails, the statuses, the creature slices) the keys, the keys that are not in the libraries, the keys with no system, and
+  the emitters that the client does not draw by their reason (no silent fallback). A system matches its key with no case (the client
+  lookup).
+- The systems of all creature spell and projectile slices (1,230 systems; before, the first creature models and the weapon slices).
+- A spell of the own character plays on the server clock (the explosion of Explosive Arrow: 0.586 s after R, retail about 0.62 s; on
+  the render clock of the other entities it came 0.29 s after its record) [I].
+
 ## The statuses (plan step 10, part 7)
 
 - The converter (`skill_effects.status_fx_data`, `particles/status-fx.json`): the status rows of the backend by their index (the index
@@ -260,6 +270,8 @@ Development runs with a copy of the user's database (`dev-data-mvpl`; the sword 
 | mvpl-take-bow, -rapier | The client takes of `retail-bow.mp4` and `retail-rapier.mp4` (`tests/drive/mvpl-bow*.txt`, `mvpl-rapier*`). The bow: the conditions of Explosive Arrow choose the upgrade (as the backend: `Spell_Ability_Bow_Explosive_Upgrade`); the explosion is the spell entity of the backend (`spell_aoe_explosionshot_small`, GlobalSizeScale 0.3) at the same place and time as retail (0.53 s after R; retail 0.6 s); the trails start on the own projectiles. The rapier: the light and heavy attacks and their clips; the abilities do not play (below). |
 | mvpl-status | `tests/drive/mvpl-status*.txt`: burn, wound (the rapier bleed), and weaken on the character and a wolf (the development routes `status` and `effect`): each status starts its On script at the alias joints (the character: Spine2, Head, the arms; the wolf: bind_spine_2_jnt, bind_head_jnt) and ends with its status; the burn flames show on the back of the character. No retail video of the statuses yet. |
 | mvpl-ctrail | `tests/drive/mvpl-ctrail*.txt`: a Serpentine Archer 12 m east shoots (the route `shoot`): its shot gets the trail of AI_Bow/Basic_Solar (`cFX_npc_AnubianArcher.Sunshot_Proj`) at the launch; it ends at the contact. |
+| mvpl-cs-mage, mvpl-cs-dryad | `tests/drive/mvpl-cs-*.txt`: an Ancient Guardian mage and a Dryad Shaman cast their areas at the character (the route `area`), evening; the compares with the retail evidence creature-areas k1-mage and m1-fresh (`compare-cs-mage.mp4`, `compare-cs-dryad.mp4`; the strike: `compare-cs-strike.mp4` with s1-fresh). |
+| mvpl-status (part 9) | The client take of `retail-status.mp4` (the same steps 5 s later): the burn, the wound, and the weaken start on the character and the wolf at the times of retail (`compare-status.mp4`). |
 | mvpl-bowq, -bowq2, -bowq3 | A slow check of the bow (`tests/drive/mvpl-bowq*.txt`, `swc.Effects.TimeScale 0.1`, `swc.Effects.Dump` with the axes): the Penetrating Shot muzzle (`Penetrate_Muzzle` at vfx_Tip_01) shows its white puff forward from the bow as retail; its local +Z points to the target at the release. |
 
 The retail references (`~/Games/soulwarden/work/evidence/unreal-references/set-mvpl-effects/`, its README): a development run of the

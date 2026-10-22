@@ -534,10 +534,47 @@ def build_keys(only: str = "") -> list[str]:
 
     def wanted(user: str) -> bool:
         if user.startswith(("spells|", "projectiles|")):
-            path = user.split("|")[1]
-            return path in FIRST_SLICES or path.startswith(WEAPON_SLICES)
+            # Plan step 11: the spell and projectile slices of all creatures and weapons (FIRST_SLICES were the first pass).
+            return True
         if user.startswith("tracer|"):
             return user.split("|")[1].split("/")[0] in TRACER_PROFILES or user.split("|")[1] in creature_attacks
         return True
     return [k for k, v in keys.items() if not v.get("missing") and any(wanted(u) for u in v["users"])
             and (not only or any(only.lower() in u.lower() for u in v["users"]))]
+
+
+def coverage() -> dict:
+    """Writes SWC_CONTENT/particles/skill-coverage.json (AST-230 plan step 11): for each family of users of the effect keys (each of the
+    five weapons, the hits, the trails, the statuses, the creature slices), the keys, the keys that are not in the libraries, the keys
+    with no system, and the emitters that the client does not draw by their reason (the notes of systems.json: no silent fallback).
+    @return The counts by family."""
+    from collections import Counter
+    from . import particles
+    keys = json.loads((particles.out_dir() / "skill-effects.json").read_text())["keys"]
+    # The client finds a system by its key with no case (the library spelling of a key can differ in case).
+    systems = {s["key"].lower(): s for s in json.loads((particles.out_dir() / "systems.json").read_text())["systems"]}
+
+    def family(user: str) -> str:
+        head = user.split("|")[0]
+        return head if head in WEAPON_EFFECT_IDS.values() or head in ("impact", "tracer", "status") else "creature slices"
+
+    out: dict = {}
+    for key, value in sorted(keys.items()):
+        for name in sorted({family(u) for u in value["users"]}):
+            item = out.setdefault(name, {"keys": 0, "missing": [], "noSystem": [], "notDrawn": Counter()})
+            item["keys"] += 1
+            if value.get("missing"):
+                item["missing"].append(key)
+            elif key.lower() not in systems:
+                item["noSystem"].append(key)
+            else:
+                for emitter in systems[key.lower()]["emitters"]:
+                    if not emitter.get("enabled"):
+                        reason = next((n for n in emitter.get("notes", []) if "not drawn" in n or "AST-230" in n or "stage" in n),
+                                      "disabled (alpha, LOD, texture, or a rule of particle_systems.py)")
+                        item["notDrawn"][reason.split(":")[0][:80]] += 1
+    for item in out.values():
+        item["notDrawn"] = dict(item["notDrawn"].most_common())
+    particles.write_json(particles.out_dir() / "skill-coverage.json", {"format": 1, "families": out}, 1)
+    return {name: {"keys": v["keys"], "missing": len(v["missing"]), "no system": len(v["noSystem"]),
+                   "emitters not drawn": sum(v["notDrawn"].values())} for name, v in out.items()}

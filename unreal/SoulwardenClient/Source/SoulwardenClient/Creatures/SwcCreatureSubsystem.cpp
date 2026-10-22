@@ -1037,7 +1037,20 @@ void USwcCreatureSubsystem::UpdateEffect(uint32 Interest, const swc::creatures::
 			Follow = &FollowPlace;
 		}
 	}
-	const FString Text = Effect->UpdateFromEntity(Entity, RenderTimeUs, Follow);
+	// AST-230: a spell of the own character plays on the server clock, not on the render clock of the other entities (that clock runs
+	// behind for a smooth motion: the explosion of Explosive Arrow came 0.29 s after its record; retail plays it at the impact [I]).
+	uint64 EffectTimeUs = RenderTimeUs;
+	if (Entity.hasSpellParts && Entity.spell.hasSpell)
+	{
+		const UGameInstance* Instance = GetWorld() != nullptr ? GetWorld()->GetGameInstance() : nullptr;
+		USwcBackendSubsystem* OwnBackend = Instance != nullptr ? Instance->GetSubsystem<USwcBackendSubsystem>() : nullptr;
+		swc::net::RepClient::OwnEntity Own;
+		if (OwnBackend != nullptr && OwnBackend->GetLocalPlayer(Own) && Own.group == Entity.spell.caster)
+		{
+			EffectTimeUs = FMath::Max(RenderTimeUs, OwnBackend->GetServerTimeMicroseconds());
+		}
+	}
+	const FString Text = Effect->UpdateFromEntity(Entity, EffectTimeUs, Follow);
 	if (!Text.IsEmpty())
 	{
 		UE_LOG(LogSwcCreatures, Log, TEXT("effect %u: %s"), Interest, *Text);
