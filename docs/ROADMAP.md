@@ -113,8 +113,9 @@ the repository). The status of each item is in Linear (parent AST-212).
 ## Quests (after the backend parts 1.8a to 1.8e)
 
 The request of the user (2026-10-21): plan the quests in the client and add them to this roadmap. The backend quest
-engine has five parts: 1.8a (backend commit fc5677e, database schema 15), 1.8c (commit 096ab18, schema 16), and 1.8b
-(commit ef7daf6, no schema change) are released; 1.8d and 1.8e follow. The person base 2.5c is released too. The
+engine has five parts: 1.8a (backend commit fc5677e, database schema 15), 1.8c (commit 096ab18, schema 16), 1.8b
+(commit ef7daf6, no schema change), and 1.8d (commit 91c9723, schema 17) are released; 1.8e follows. The person base
+2.5c is released too. With 1.8d a new character plays four beach quests naturally (to "Crewmates No More"). The
 plan is `~/Games/soulwarden-client/research/quest-plan.md` (outside the repository; GPT-6.1-Sol, 2026-10-21). The
 backend owns the progress and the rewards; the client shows them with the original canvases and scripts. The user
 decides the place of these steps in the order. The decision of the user (2026-10-22): Q1 and Q6 next, beside the MVP,
@@ -128,8 +129,8 @@ tested with a development character; the other steps after the MVP. Linear: pare
 | Q4 | 1.8b (released) | The client id of the spawner persons is done (AST-248); the offers (3772 accept) and the hand-in (794) in the conversation screen, the next offer, the field 2 of the Objectives state (the completed instances), the person markers, the first reward screen. The hand-in at Urda waits for the loot containers of 1.8d | L |
 | Q5 | 1.8b (released) | The cutscene handshake (6703 request, 6707 grant, 6706 and 6705 end; 6606 and 6542 the cinematic) and its playback or a declared stand-in, the whisper subtitles with no sound (5070); the trigger areas need no client message (the backend tests the position) | XL |
 | Q6 | 1.8c (released) | The real progress of the kill, item, gather, craft, and place tasks; abandon and reset; the quest objects (for example the three treasures of a shipwreck); the client messages 2297 and 6416 (the entry and exit cues of a point of interest), 2617 (the open of a screen), 3836 (abandon), 5600 (reset). After Q1, the counters and the quest objects of the start quest do not need Q4 and Q5 | L |
-| Q7 | 1.8d | The reward previews and screens with the real changes; the availability of the offers; a full bag | L |
-| Q8 | 1.8d | The timers, the failed quests, the repeats | L |
+| Q7 | 1.8d (released) | The reward previews and screens with the real changes (experience, coin, items, archetype items, the loot container items, the territory standing in slot 65); the open of a loot container (client message 1733, bag cause 26); the availability of the offers; a full bag | L |
+| Q8 | 1.8d (released) | The timers, the failed quests, the daily and weekly repeats | L |
 | Q9 | 1.8e | The coverage report and the acceptance: a new character plays the ten quests from 06_getoffbeach to the first settlement | L |
 
 For Q1 and Q2, a development character made by the development create tool can test the display before Q3. The
