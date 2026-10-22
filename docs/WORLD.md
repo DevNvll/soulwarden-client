@@ -493,6 +493,21 @@ The fixes of the full cook:
   by the environment, also in the cooked build).
 - The memory: a scope of 20 GB (`SWC_COOK_MEMORY_MAX`); the cooker collects garbage at 14,000 MiB (`MemoryMaxUsedPhysical`; it
   sees the memory of the computer, not of its scope).
+- The limit of 2026-10-22 (four cook tries of main 82ee664, 173,061 packages; the last cook 13:48 UTC had 6,032 to cook, this one about
+  118,000 more: the persons and the player parts of MVP-H to MVP-L): the cook does not fit beside the other programs of this computer
+  (46 GB RAM, 46 GB swap).
+  - 16:43 UTC, 20 GB scope, garbage collection at 14,000 MiB: 55,040 packages in 804 s, then a crash (status 25). The scope peak was
+    20 GB of RAM and 24.9 GB of swap. The cooker warns that `MemoryMaxUsedPhysical` makes the garbage collection frequent and that it
+    "detects this stall and terminates the cook with an assertion": `IsEngineExitRequested=1`, then the assertion
+    `ActorDescContainerSubsystem` in the World Partition step.
+  - 16:59, 17:05, and 17:09 UTC (30 GB and 34 GB scopes, garbage collection at 14,000 and 26,000 MiB): the guard
+    (`work/ast261/cook-guard.sh`) stopped each try in its load phase, before a package was cooked. At 17:09: 25.7 GB of RAM and 19.9 GB
+    of swap in 142 s, with no other Unreal process (the swap grew from 17.6 to 39.0 GB).
+  - Thus a cook of the whole world now needs about 45 GB (RAM and swap) in its load phase. Start it only on a quiet computer (no client
+    run of a track, no user game, at least 30 GB available) with `SWC_COOK_MEMORY_MAX=40G` and `SWC_COOK_MEMORY_GC=26000`. Watch it: stop
+    at less than 3 GB available or at a start of the user's `tools/play.sh`. The cooker process is `UnrealEditor-Cmd ... -run=Cook`: a
+    stop of RunUAT alone leaves it alive.
+  - Until then `tools/play.sh` uses the editor binary (all the content of main; the world entry 70 to 87 s against 44 s) and says why.
 
 The cooked client against the editor binary (development runs of 2026-10-20 at the road start, `work/world/runs-cooked.sh`;
 the uncooked runs are c2 and c3 of "The loading"; video `evidence/loading/sbs-entry-cooked.mp4`: both entries from the launch):
