@@ -118,9 +118,10 @@ files at the same time; a shared document (this file, the roadmap) changes only 
      the user; never change a file of the shared development prefix (a saved option such as `m_cameraZoom` changes only in the copy).
   2. The own data folder (`SOULWARDEN_DATA_DIR`) and the own desktop (`SOULWARDEN_DESKTOP_ID`, for example `soulwarden-client-ref`).
      `tools/snap.sh` of the reference tools takes any marked gamescope: select the gamescope whose environment has the own prefix.
-  3. Before a start: no other process with `SOULWARDEN_DEV_RUN=1` uses the own prefix. Never stop a run that is not the own run:
-     the Soulwarden `tools/dev-stop.sh` stops all development runs; stop the own processes by their prefix (the mark and
-     `SOULWARDEN_COMPAT_DIR` in `/proc/PID/environ`). The Soulwarden runs have no fixed time window: do not wait for a free time.
+  3. Before a start: NO other process with `SOULWARDEN_DEV_RUN=1` is alive, in ANY prefix. The Soulwarden `tools/dev-run.sh` calls
+     `tools/dev-stop.sh`, which stops every development run, also in other prefixes (2026-10-22: a client retail run stopped the
+     final live check of a backend stage). If another run is alive, do not start: do other work and try later. Never stop a run
+     that is not the own run: stop the own processes by their prefix (the mark and `SOULWARDEN_COMPAT_DIR` in `/proc/PID/environ`).
 - The Soulwarden repository is read only for this project. A change that the backend needs goes to the orchestrator of
   this project, which reports it to the user, never as an edit of `~/Developer/azoth`. No thread of this project sends
   a report, a request, or a fact to the Soulwarden orchestrator thread (decision of the user, 2026-10-18).
