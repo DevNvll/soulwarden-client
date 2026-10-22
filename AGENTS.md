@@ -231,6 +231,8 @@ tools/convert.sh cover NAME... | --all          # the ground cover of the region
 tools/convert-particles.sh library|menu|placements|names|report|systems|check   # the particle effects: the libraries, the placements, the support report, the systems (docs/PARTICLES.md)
 tools/convert-particles.sh skills                # the effect keys of the skills and the creature spells, the hits, the trails, the statuses (after convert-player.sh actions and convert-creatures.sh effects; docs/EFFECTS.md)
 tools/import-particles.sh [--force]             # the particle atlases, materials, and Niagara systems (the lock; then the client plays them near the view)
+(cd converter && python3 -B -m swc_convert.landmarks write)   # the landmarks: the sky maelstrom (docs/WORLD.md "The landmarks")
+tools/import-landmarks.sh [--force]             # the meshes, parents, and instances of the landmarks, all new (the lock; World/SwcLandmarks places them)
 ```
 
 The runs and the connection: [docs/NETWORK.md](docs/NETWORK.md).
