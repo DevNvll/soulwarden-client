@@ -337,6 +337,13 @@ actor, outside the cells of the World Partition (it stays when the cells load or
   or the Unreal light; the direction of the sun or the moon light). `-SwcNoLandmarks` turns it off; `swc.Landmarks 0` hides it in a run.
 - Open [U]: the rim terms of the source (`%RIM_DIFFUSE_LIGHTING`; in the spec, not drawn), the source LODs (LOD 0 only), the exact
   draw state of the transparent passes (research/maelstrom.md, open points), and the menu vortex (a later part of AST-209).
+- The check (2026-10-22, retail stills of set-ast261-far): from the Cleave camera (cleave-a, 2.0 km) and from the summit view (far-a,
+  3.1 km) the client shows the swirl and the core as retail. From the starting areas on the ground the maelstrom is not in view: at
+  start-a (4.8 km) the near cliff hides it in retail and in the client. The terrain line from the start areas clears by about 10 m only,
+  and four more places near them had a near mesh in the line (a cliff, a wall, plants). From 150 m above the start area (8880 4250) the
+  client shows it at 5.9 km (no retail picture: a retail camera cannot go there). Thus the draw range of retail between 3.1 km and
+  10 km is not measured. The cells of r_+04_+04 were built again with the landmark rule (6 instances less); with `swc.Landmarks 0`
+  the sky of cleave-a has no maelstrom.
 
 ## The loading (AST-203, 2026-10-20)
 
