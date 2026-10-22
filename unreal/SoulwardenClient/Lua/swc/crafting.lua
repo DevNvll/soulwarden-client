@@ -2,8 +2,8 @@
 -- scripts (lyshineui/crafting/craftingscreenv4.luac and its panels, lyshineui/stationproperties/stationproperties.luac) read the
 -- recipes and the station of the use through RecipeDataManagerBus, CraftingRequestBus, and CraftingCategoryDataManagerBus.
 --
--- The data: gamedata/crafting.json (tools/convert-ui.sh crafting; converter swc_convert/crafting.py): the recipes with
--- bKnownByDefault from crafting-data.json of the backend copy (the data of the server, with the causes of the backend) and the UI
+-- The data: gamedata/crafting.json (tools/convert-ui.sh crafting; converter swc_convert/crafting.py): all the recipes
+-- (AST-234) from crafting-data.json of the backend copy (the data of the server, with the causes of the backend) and the UI
 -- columns of the recipe tables, the crafting categories, the station rows, the ingredient categories, the reward events, and the
 -- rank tables of the trade skills.
 --
@@ -291,8 +291,9 @@ end
 C.RecipeDataOf = recipe_data
 
 Swc.Define("RecipeDataManagerBus", "Broadcast", {
-  -- The recipes of the client: the recipes with bKnownByDefault (the converter keeps only these: the backend has no learned recipe; the
-  -- retail lists of MVP-J showed no pattern recipe either). The native enumeration (research crafting-ui.md 1, code 0x4488B00): a recipe
+  -- The recipes of the client: all the recipes of the data (AST-234, research recipe-known.md: no default-known filter; the station
+  -- script hides a recipe with a missing RequiredAchievementID, or with DisplayIngredients of which no item is in the bag, and a
+  -- recipe of the backend with no bKnownByDefault keeps its refusal cause). The native enumeration (research crafting-ui.md 1, code 0x4488B00): a recipe
   -- with RequiredWorldTags is in the list only when one of its tags is a tag of the world (javelin.world-tags, code 0x5C66960). This
   -- world has no tag: the retail woodshop with this backend lists no "Ethereal Dust Refining" group (Soulwarden evidence crafting/37a
   -- D1-02). No recipe has a ScheduleId in this build (the schedule test).
@@ -538,7 +539,7 @@ Swc.Define("CraftingRequestBus", "Broadcast", {
       return false
     end
     if (recipe.requiredAchievement or "") ~= "" then
-      local unlocked = Swc.HasAchievement((D().achievements or {})[recipe.requiredAchievement])
+      local unlocked = Swc.HasAchievement(Swc.AchievementIndex(recipe.requiredAchievement))
       if achievementOnly then
         return unlocked
       end

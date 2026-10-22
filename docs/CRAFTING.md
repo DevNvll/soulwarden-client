@@ -113,9 +113,13 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
   state; with the second argument true the call returns that result at once); a recipe of javelin.red-button-disable-crafting-recipe-list
   is not known; a recipe with no trade skill is known; else the recipe level of the rank must reach the RecipeLevel (the retail woodshop
   at Woodworking 0 lists Lumber, level 50, under "Unlearned"). bKnownByDefault is not read.
-- The recipe set of the client stays the recipes with bKnownByDefault (2,340 of 8,294). The native enumeration has no such test; the
-  other 5,876 are pattern, faction, seasonal, and dungeon recipes (5,482 with no RequiredAchievementID). The retail lists of MVP-J
-  (the forge, the woodshop) showed none of them: open point (the rule that keeps them out of the retail list is not known).
+- The recipe set (AST-234, research recipe-known.md): all 8,294 recipes; there is no default-known filter. The station script
+  (craftingtreeview.luac IsItemVisible) hides a recipe whose RequiredAchievementID is not unlocked, and a recipe with
+  DisplayIngredients when none of those items has a positive count in the inventory cache; a shown recipe goes under Learned or
+  Unlearned by IsRecipeKnown(id, true). Learning is the achievement bit of the Achievement state 3210 (bit n & 7 of byte n >> 3,
+  n the AchievementIndex of javelindata_achievements: gamedata/achievements.json, 17,005 ids; Swc.AchievementIndex,
+  AchievementRequestBus IsAchievementUnlocked). The backend keeps its refusal of a recipe with no bKnownByDefault ("recipe unlock or
+  achievement rule"): a shown recipe can stay unavailable; the requirement row shows that cause.
 - The name of a recipe: RecipeNameOverride, else the name of the output item (the rows and the search read it).
 - A recipe with no trade skill: GetRecipeTradeskill gives "None" (the value that UpdateRequirements tests).
 - A recipe with RequiredExpansion: IsRecipeExpansionUnlocked is the owned expansion (the backend gives Expansion2023), so the tree lists
@@ -167,8 +171,13 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
   RequiredLevel - 1, else the first level whose MaxEquippableGearScore reaches the gear score, plus the rarity modifier when the level
   has IgnoreItemRarity false). The great axe: 223, 27%, 48 at 520 (run ast231-mods2; evidence AST-231/ast231-preview-crops.png), 251,
   27%, 60 at 600 (the fixture craftrules).
-- The tree order of the forge: retail lists Greatswords before Great Axes; the client lists Great Axes first (open point: the sort
-  of the categories).
+- The tree order of the forge: retail lists Greatswords before Great Axes; the client lists Great Axes first. The script sorts the
+  groups by craftingsortinfo.luac GroupSortOrder (Greataxes 101, Greatswords 102; Initialize at the OnInit of the tree), so the
+  client order follows the script with the group ids of the data. The retail order needs a native difference (the craftingGroup of
+  GetCraftingCategoryData): open point for a static analysis brief.
+- The craft mod tooltip (AST-234): GetGenericLocalizedDescription fills the formulas {[...]} of the perk text (Swc.FillPerkFormulas;
+  {perkMultiplier} 1, the potency at the lowest gear score: an inference, the gear score of the native generic text is not proven).
+  "+4.5% damage against targets with active Grit." (PerkID_Weapon_DmgAgainstGrit).
 - The gear score of the axe: retail 600 (Prismatic materials, Weaponsmithing 200, a food and a trophy), the client 520 (Asmodeum,
   Weaponsmithing 150): the same rule with other inputs; the server accepted the claim.
 - The screen size: the client runs at 1280 x 720, the retail pictures at 1256 x 660.

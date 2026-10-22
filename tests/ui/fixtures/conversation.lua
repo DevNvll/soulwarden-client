@@ -8,6 +8,8 @@ local HUD, CONVERSATION = 2702338936, 4203137545
 -- runtime of a fixture allows no loader screen, so the fixture loads it first, and the module must not load a second copy).
 local conversation = screen("LyShineUI/Conversation/ConversationScreenV2.uicanvas", 20)
 local helpbar = screen("LyShineUI/HelpBar/HelpBar.uicanvas", 30, true)
+-- The escape menu (AST-234): Escape at the Talk screen only goes back; the game menu must not open.
+local escapemenu = screen("LyShineUI/EscapeMenu/EscapeMenu.uicanvas", 40)
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(HUD)
 DynamicBus.UiLoader.Broadcast.OnUiLoadingComplete()
@@ -105,6 +107,8 @@ r = requests()
 equal(#r, 1, "Escape gives one request")
 equal(r[1], "conversation end", "the request of Escape is the end of the conversation")
 check(LyShineManagerBus.Broadcast.GetCurrentState() ~= CONVERSATION, "Escape closes the screen state")
+frames(0.5)
+equal(LyShineManagerBus.Broadcast.GetCurrentState(), HUD, "Escape at the Talk screen goes back to the HUD (no game menu)")
 Swc.HostConversation("close")
 frames(0.5)
 

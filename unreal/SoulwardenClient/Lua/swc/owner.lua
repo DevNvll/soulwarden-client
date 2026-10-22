@@ -351,9 +351,25 @@ function Swc.OwnsExpansion()
   return O.achievements[EXPANSION_ACHIEVEMENT] == true
 end
 
+--- @return The AchievementIndex of an achievement (its id or the CRC-32 of its lower-case id; gamedata/achievements.json, the shipped
+--- javelindata_achievements), or nil (AST-234).
+function Swc.AchievementIndex(key)
+  if not O.achievementIndex then
+    O.achievementIndex = {}
+    for id, index in pairs(swcui.load_json("gamedata/achievements.json") or {}) do
+      O.achievementIndex[swcui.crc32(id)] = index
+    end
+  end
+  if type(key) == "string" then
+    key = swcui.crc32(string.lower(key))
+  end
+  return EXPANSION_ACHIEVEMENT_KEYS[tonumber(key) or -1] or O.achievementIndex[tonumber(key) or -1]
+end
+
 Swc.Define("AchievementRequestBus", "Event", {
+  -- The bit of the achievement in the Achievement state 3210 of the owner (research recipe-known.md: native 0x318D5E0; the station
+  -- script hides a recipe whose RequiredAchievementID is not unlocked).
   IsAchievementUnlocked = function(_, key)
-    local index = EXPANSION_ACHIEVEMENT_KEYS[tonumber(key) or -1]
-    return index ~= nil and O.achievements ~= nil and O.achievements[index] == true
+    return Swc.HasAchievement(Swc.AchievementIndex(key))
   end,
 })

@@ -402,8 +402,9 @@ Rules of the emulation:
   emulation does not have is false or 0.
 - The afflictions: the meters start with no damage and hide (the backend sends no affliction state).
 - The equip check of the client (the native ItemSlot `CanEquipItem`; a rule of the emulation from the data and
-  `equipmentcommon.luac`): the item has a paperdoll slot, its RequiredLevel (the level of the wire; the tooltip shows it
-  plus 1) is not above the level of the wire, and its gear score is not above the MaxEquipGS of the owned expansion
+  `equipmentcommon.luac`): the item has a paperdoll slot, its level requirement (AST-234: the native zero-based rule of
+  `Swc.ItemLevelRequirement`, research crafting-ui.md 3: RequiredLevel - 1, else the level of its gear score with the rarity
+  modifier; the tooltip shows it plus 1) is not above the level of the wire, and its gear score is not above the MaxEquipGS of the owned expansion
   (Expansion2023, 800; the backend gives each player that expansion and refuses a higher gear score too). The command
   list then has "Equip" off ("Requirements not met"). `PaperdollGetWeaponAutoEquipSlot` (the weapon slot of an equip
   when no weapon slot is empty and no equipped weapon compares) gives the slot of the active weapon, else weapon slot 1

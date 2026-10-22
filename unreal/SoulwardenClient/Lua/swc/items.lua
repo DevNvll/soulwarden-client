@@ -352,15 +352,16 @@ Swc.Define("PlayerComponentRequestsBus", "Event", {
 })
 
 --- @return True when the local player can equip an item (the native ItemSlot CanEquipItem; the rule of the emulation from the
---- data and equipmentcommon.luac ShowCannotEquipNotification): the item has a paperdoll slot, its RequiredLevel (the level of
---- the wire: the tooltip shows it plus 1) is not above the level of the wire, and its gear score is not above the MaxEquipGS
+--- data and equipmentcommon.luac ShowCannotEquipNotification): the item has a paperdoll slot, its level requirement (the native
+--- zero-based rule of Swc.ItemLevelRequirement, AST-234: a RequiredLevel of the data, else the level of its gear score with the
+--- rarity modifier; the tooltip shows it plus 1) is not above the level of the wire, and its gear score is not above the MaxEquipGS
 --- of the owned expansion (the backend refuses that too).
-function Swc.CanEquip(static, gearScore)
+function Swc.CanEquip(static, gearScore, rarity)
   if #Swc.ItemEquipSlots(static) == 0 then
     return false
   end
   local level = (Swc.GetData("Hud.LocalPlayer.Progression.Level") or 1) - 1
-  if (static.requiredLevel or 0) > level then
+  if Swc.ItemLevelRequirement(static, gearScore or 0, rarity) > level then
     return false
   end
   local owned = expansion_row(OWNED_EXPANSION)
@@ -504,7 +505,7 @@ Swc.ItemSlot = Swc.ValueClass({
     GetIconPath = function(self) return self.static and self.static.icon or "" end,
     GetEquipSlots = function(self) return Swc.ItemEquipSlotNames(self.static) end,
     IsEquippable = function(self) return #Swc.ItemEquipSlots(self.static) > 0 end,
-    CanEquipItem = function(self) return Swc.CanEquip(self.static, self.gearScore or 0) end,
+    CanEquipItem = function(self) return Swc.CanEquip(self.static, self.gearScore or 0, rarity_of(self.static, self.perks)) end,
     CanEquipInSlot = function(self, slot)
       slot = paperdoll_slot_number(slot)
       for _, s in ipairs(Swc.ItemEquipSlots(self.static)) do
@@ -969,10 +970,12 @@ Swc.Define("ItemDataManagerBus", "Broadcast", {
       data.key = perk.id
       data.id = perk.crc
     end
-    -- The description of the perk for a tooltip (perkitemlistitem.luac, the craft mod rows): its localized text. The native fills the
-    -- generic values of the perk into the text (open point: the values stay as the text has them).
+    -- The description of the perk for a tooltip (perkitemlistitem.luac, the craft mod rows): its localized text with the values of
+    -- its formulas (AST-234). The perk multiplier of the generic text is 1, the potency at the lowest gear score (an inference: the
+    -- gear score of the native generic text is not proven; potency rule: client code 0x3692600).
     data.GetGenericLocalizedDescription = function()
-      return perk and perk.description and LyShineScriptBindRequestBus.Broadcast.LocalizeText(perk.description) or ""
+      local text = perk and perk.description and LyShineScriptBindRequestBus.Broadcast.LocalizeText(perk.description) or ""
+      return Swc.FillPerkFormulas(text, 1)
     end
     return data
   end,
@@ -981,6 +984,73 @@ Swc.Define("ItemDataManagerBus", "Broadcast", {
     return static and static.notDroppableNotification or ""
   end,
 })
+
+--- @return The value of an arithmetic formula of a perk text (numbers, + - * /, parentheses), or nil.
+local function formula_value(text)
+  local pos = 1
+  local function space() pos = string.find(text, "%S", pos) or (#text + 1) end
+  local expression
+  local function factor()
+    space()
+    local c = string.sub(text, pos, pos)
+    if c == "-" then pos = pos + 1; local v = factor(); return v and -v end
+    if c == "+" then pos = pos + 1; return factor() end
+    if c == "(" then
+      pos = pos + 1
+      local v = expression()
+      space()
+      if string.sub(text, pos, pos) ~= ")" then return nil end
+      pos = pos + 1
+      return v
+    end
+    local number = string.match(text, "^%d*%.?%d+[eE]?[-+]?%d*", pos)
+    if not number or number == "" then return nil end
+    pos = pos + #number
+    return tonumber(number)
+  end
+  local function term()
+    local v = factor()
+    while v do
+      space()
+      local op = string.sub(text, pos, pos)
+      if op ~= "*" and op ~= "/" then break end
+      pos = pos + 1
+      local r = factor()
+      if not r then return nil end
+      v = op == "*" and v * r or (r ~= 0 and v / r or nil)
+    end
+    return v
+  end
+  expression = function()
+    local v = term()
+    while v do
+      space()
+      local op = string.sub(text, pos, pos)
+      if op ~= "+" and op ~= "-" then break end
+      pos = pos + 1
+      local r = term()
+      if not r then return nil end
+      v = op == "+" and v + r or v - r
+    end
+    return v
+  end
+  local v = expression()
+  space()
+  return pos > #text and v or nil
+end
+
+--- @return A perk text with the value of each formula part {[...]} ({perkMultiplier}: the multiplier): at most two decimals, no
+--- trailing zero ("+{[0.045000 * 100 * {perkMultiplier}]}%" gives "+4.5%"). A part that is not a formula stays.
+function Swc.FillPerkFormulas(text, multiplier)
+  return (string.gsub(text or "", "{%[(.-)%]}", function(body)
+    local v = formula_value((string.gsub(body, "{perkMultiplier}", tostring(multiplier or 1))))
+    if not v then
+      return nil
+    end
+    local out = string.format("%.2f", v):gsub("0+$", ""):gsub("%.$", "")
+    return out == "-0" and "0" or out
+  end))
+end
 
 -- The scaling tier of an attribute scaling value (itemrules.json: javelindata_weapontiers): the letter of the highest tier whose
 -- lowest value the scaling reaches, or "" below the lowest tier.

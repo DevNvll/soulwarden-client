@@ -155,7 +155,14 @@ end
 
 local function key(name, down)
   -- The raw keys of the native input (KeyInputNotificationBus; the key page of the options screen listens while it binds).
+  -- A screen that leaves its state on the raw key owns that key (AST-234): the Talk screen goes back on the key of ui_cancel
+  -- (conversationscreenv2.luac OnKeyPressed, skipKey); the actions of the same key (toggleMenuComponent: the game menu) do not fire.
+  -- Retail: Escape at the Talk screen only goes back.
+  local before = Swc.uiState
   Swc.Notify("KeyInputNotificationBus", nil, down and "OnKeyPressed" or "OnKeyReleased", name)
+  if down and Swc.uiState ~= before then
+    return true
+  end
   if editing() then
     -- A text input that edits takes the keys (no game action).
     if down then

@@ -13,9 +13,13 @@ Sources:
   javelindata_tradeskill*.datasheet (the rank tables of the trade skills: RecipeLevel, MaximumInfluence, the gear score
   bonus columns); javelindata_categoricalprogression (the rank table and the display name of each progression).
 
-The recipe list: only the recipes with bKnownByDefault. The retail client with this backend lists only "Learned" recipes (the
-Soulwarden evidence crafting/37a to 37c: the tree has the one root "Learned"); the backend has no learned recipe and refuses a
-recipe with no bKnownByDefault (the cause "recipe unlock or achievement rule").
+The recipe list: all the recipes (AST-234, research recipe-known.md). The retail list has no default-known filter: the station
+script (craftingtreeview.luac) hides a recipe whose RequiredAchievementID is not unlocked, or whose DisplayIngredients have no item
+with a positive count in the inventory cache; IsRecipeKnown puts a shown recipe under Learned or Unlearned. The backend still
+refuses a recipe with no bKnownByDefault (the cause "recipe unlock or achievement rule"): the screen shows that cause.
+
+The achievement indexes (gamedata/achievements.json, AST-234): the AchievementIndex of each AchievementID of
+javelindata_achievements (the bit of the Achievement state 3210 of the owner: bit n & 7 of byte n >> 3).
 
 Output: SWC_CONTENT/ui/gamedata/crafting.json
   {"format": 1, "source", "recipes": {ID: {...}}, "categories": {ID: [image, text, description]}, "ingredientCategories":
@@ -140,8 +144,6 @@ def convert(out_dir: Path) -> dict:
     ui_rows = recipe_rows()
     recipes: dict[str, dict] = {}
     for recipe in data["recipes"]:
-        if not recipe.get("known"):
-            continue
         entry = dict(recipe)
         entry.update(ui_rows.get(recipe["id"], {}))
         recipes[recipe["id"]] = entry
@@ -175,7 +177,13 @@ def convert(out_dir: Path) -> dict:
     target.mkdir(parents=True, exist_ok=True)
     doc["craftMods"] = craft_mods()
     (target / "crafting.json").write_text(json.dumps(doc, separators=(",", ":"), sort_keys=True))
+    achievements = {}
+    for row in datasheet.load("javelindata_achievements.datasheet").rows():
+        identifier = str(row.get("AchievementID") or "").strip()
+        if identifier and isinstance(row.get("AchievementIndex"), (int, float)):
+            achievements[identifier.lower()] = int(row["AchievementIndex"])
+    (target / "achievements.json").write_text(json.dumps(achievements, separators=(",", ":"), sort_keys=True))
     supported = sum(1 for r in recipes.values() if not r["unsupported"])
     return {"crafting": str(target / "crafting.json"), "recipes": len(recipes), "supported": supported,
             "with a cause": len(recipes) - supported, "recipes with no UI row": sum(1 for k in recipes if k not in ui_rows),
-            "categories": len(categories), "ingredient categories": len(doc["ingredientCategories"]), "rank tables": len(ranks)}
+            "achievement indexes": len(achievements), "categories": len(categories), "ingredient categories": len(doc["ingredientCategories"]), "rank tables": len(ranks)}

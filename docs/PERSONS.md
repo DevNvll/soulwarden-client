@@ -224,8 +224,9 @@ the size, and the facing of the three persons agree):
 
 ## Not done, open points
 
-- Escape at the conversation screen ends the Talk and then opens the game menu: the escape menu gets the same OnEscapeKeyPressed
-  broadcast after the screen set the state HUD (swc/actions.lua escape_rule). The native order of the escape handlers is not known.
+- Escape at the conversation screen (AST-234): the screen goes back on the raw key (conversationscreenv2.luac OnKeyPressed: the key
+  of ui_cancel); then the action toggleMenuComponent of the same key opened the game menu. A screen that leaves its state on the raw
+  key now owns that key (swc/input.lua): the actions of the key do not fire. Retail: Escape only goes back.
 - An inn keeper: the Talk is the third option; the prompt executes only the first option (OpenInnScreen, refused).
 - The retail Talk opens with no hold, with a black frame and a fade (set 5); the client keeps the hold of the data and a cut.
 

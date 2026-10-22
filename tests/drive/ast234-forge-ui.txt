@@ -1,0 +1,17 @@
+# The UI drive of the forge check of AST-234 (routes tests/drive/ast234-forge-routes.txt): the full tree of all the recipes (the
+# station script hides the recipes with a missing achievement or no display item in the bag), then the axe and the mod selector.
+1 waitfor CompassLines 60
+2 waitfor world 180
+22 waitfor FilterInputField 30
+23 log the full tree: Learned, Unlearned
+26 point FilterInputField
+27 click
+28 text Orichalcum Great Axe
+30 waitfor recipe:Procedural_2hGreatAxeT5 20
+31 point recipe:Procedural_2hGreatAxeT5
+32 click
+35 log the preview
+38 point AddPerkItem
+39 click
+42 log the craft mod selector
+46 key escape
