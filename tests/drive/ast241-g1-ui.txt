@@ -1,0 +1,12 @@
+# The UI drive of tests/drive/ast241-g1.txt (AST-241): the marks of the parts, Escape after the lore reader, J at the end.
+1 waitfor CompassLines 60
+2 waitfor world 180
+8 log treasure B while the lore task is Active: no prompt
+14 log the lore page: the prompt
+20 log the lore reader
+22 key Escape
+29 log treasure B with the treasure task Active: the prompt
+37 log after the gather of treasure B
+40 key J
+43 log the journal
+46 key Escape

@@ -85,6 +85,12 @@ folders `lyshineui/images/objectives/`, `icons/objectives/`, `journal/`, and `ba
   against K1-2of5). A relog keeps the instance and the pins (1458 [5, 4]). J sends 2617 (6cb0696c, the journal); Reset, Yes sends
   5600, and the backend sends a new instance; the HUD sends 2617 a1126b78.
 
+- The live check G1 of Q6 (`tests/drive/ast241-g1*.txt`): the development character with 06_pillageship. At treasure B (IO_MSQ_Treasure_B,
+  InteractOnlyOnQuest) while the lore task is Active: no focus. E at the lore page of the ship's manifest: ReadLore (3743 result 1);
+  the treasure tasks start. At treasure B again: the prompt "CANDELABRA"; E: the gather (accepted), the quest drop
+  0601_0104_Treasure_B (task 6), a new state; then no focus (the task is complete). Crops `ast241-quest-tracker-retail-client.png` (the
+  tracker against G1-4: the same texts), `ast241-quest-object-prompt-retail-client.png`, `ast241-quest-object-before-active-after.png`.
+
 ## Notes
 
 - The icon of a pinned quest has the number of its place in the pinned list (GetObjectiveSortingPos from 0, -1 with no pin;
@@ -117,4 +123,8 @@ folders `lyshineui/images/objectives/`, `icons/objectives/`, `journal/`, and `ba
   (`ObjectivesLayer.GetObjectivePosition`): stage Q2, with the world pins and the compass pin. The task timers are stage Q8.
 - A change of an Auto-Pin switch does not go to the backend (2709 is sent once).
 - The top menu bar of the retail journal (Company, Journal, Mount, ...) is a different canvas: not in the client.
+- The card of a quest object: the retail client shows "E ASTROLABE" (the key and the name); the client shows the gather card
+  ("CANDELABRA", "E Gather").
+- The world pins of the quest objects (the retail "1" over the treasure): stage Q2.
+- pinnedobjective.luac calls GetPositionY of a new task row with no such method in one path (a flash animation does not play).
 - The Documents tab (JournalDataManagerBus.GetTopicEntries) and the season pass banner of bannertriggers.luac have script errors.

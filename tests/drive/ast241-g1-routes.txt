@@ -1,0 +1,10 @@
+# The routes of tests/drive/ast241-g1.txt (AST-241): the level 20, the hour 12:00, the creatures ignore the character, the grant of
+# 06_pillageship, and the places: 1.5 m south of treasure B, 1.5 m south of the lore page (the ship's manifest), treasure B again.
+# Times on the clock of the drive script.
+0.5 level 20
+0.6 world-time 12:00
+0.7 ignore on
+1.0 quest grant 06_pillageship
+3.0 travel 9863.98 2288.78 48.40
+12.0 travel 9871.14 2266.25 40.90
+26.0 travel 9863.98 2288.78 48.40
