@@ -1024,6 +1024,86 @@ def surface_spec(rules: dict, use) -> dict:
     return spec
 
 
+HAIR_PRIMARY_CAP = 0.045      # the primary highlight color of the source Hair: min(S x XML Specular, 0.045) [R]
+UE_HAIR_F0 = 0.04652          # the fiber F0 of the Unreal Hair BSDF (HairBsdf.ush)
+
+
+def hair_spec(record: dict, rules: dict, use) -> dict:
+    """@return The spec of a Hair sub-material (research hair-shader.md section 5, the first stage: the masked parent M_SwcHair
+    with the Unreal Hair shading model, not the surface F0 split). Kept from the source: D = the diffuse map x XML Diffuse
+    (x the vertex color), the overlay masks on D and S (mask A gloss does not change the lobes), S = the specular map (sampled
+    with no %SPECULAR_MAP), XML Specular (the primary color), the material gloss clamped to 0.5 ... 0.9 (not the gloss image),
+    the secondary color, width, and shift, the shift variation, the diffuse wrap, the direction map (%DIRECTION_MAP: the
+    Detail slot, linear XY), the alpha controls (AlphaTest, AlphaBlendMultiplier, XML Opacity), and the variants %SOLID_HAIR
+    and %THIN_HAIR. The Unreal inputs [I]: Specular = 0.5 x lum(min(S x XML Specular, 0.045)) / 0.04652 (in the parent),
+    Roughness = (4 / n1)^0.25 with n1 = 2^(10 g + 1), Scatter 1, Backlit 0, the tangent along the strand (the binormal, or the
+    direction map)."""
+    maps, params, flags = record["textures"], record["params"], set(record["flags"])
+
+    def value(name: str, default: float) -> float:
+        v = params.get(name, default)
+        return float(v[0] if isinstance(v, list) else v)
+
+    def color(name: str, default: list[float]) -> list[float]:
+        v = params.get(name, default)
+        v = list(v) if isinstance(v, list) else [float(v)] * 3
+        return (v + [0.0, 0.0, 0.0])[:3] + [1.0]
+
+    spec = {"parent": "hair", "textures": {}, "vectors": {}, "scalars": {}, "switches": {}, "two sided": True}
+    diffuse = maps.get("Diffuse") or {}
+    if diffuse.get("product"):
+        spec["textures"]["BaseColor"] = use(color_texture(diffuse["product"], "base"))
+    specular = maps.get("Specular") or {}
+    if specular.get("product"):
+        spec["textures"]["Specular"] = use(color_texture(specular["product"], "base"))
+    normal = rules["textures"].get("normal")
+    if normal:
+        spec["textures"]["Normal"] = use(color_texture(normal["product"], "normal"))
+    detail = maps.get("Detail") or {}
+    if "%DIRECTION_MAP" in flags and detail.get("product"):
+        spec["textures"]["Direction"] = use(data_texture(detail["product"]))
+        spec["switches"]["DirectionMap"] = True
+    light = record["lighting"]
+    spec["vectors"]["DiffuseColor"] = (light.get("Diffuse") or [1.0, 1.0, 1.0])[:3] + [1.0]
+    spec["vectors"]["SpecularColor"] = (light.get("Specular") or [1.0, 1.0, 1.0])[:3] + [1.0]
+    spec["vectors"]["SecondaryColor"] = color("SecondaryHighlightColor", [0.7, 0.7, 0.7])
+    spec["vectors"]["UVTransform"] = uv_transform(diffuse.get("uv"))
+    gloss = min(max(max(1 / 127, float(light.get("Shininess", 255.0)) / 255), 0.5), 0.9)
+    n1 = 2.0 ** (10.0 * gloss + 1.0)
+    spec["scalars"]["Gloss"] = gloss
+    spec["scalars"]["HairRoughness"] = (4.0 / n1) ** 0.25
+    spec["scalars"]["SecondaryWidth"] = value("SecondaryHighlightWidth", 1.5)
+    spec["scalars"]["SecondaryShift"] = value("SecondaryHighlightShiftAmount", 0.1)
+    spec["scalars"]["ShiftVariation"] = value("ShiftVariation", 0.0)
+    spec["scalars"]["DiffuseWrap"] = value("DiffuseWrap", 0.5)
+    spec["scalars"]["Scatter"] = 1.0
+    # The coverage (section 4): the core where the raw alpha >= AlphaTest; with the blend passes (not %SOLID_HAIR) a dithered
+    # edge where the alpha >= 0.05, by the blend opacity saturate(a x AlphaBlendMultiplier) x XML Opacity [I: one masked draw].
+    spec["scalars"]["AlphaTest"] = float(light.get("AlphaTest", 0.0) or 0.0)
+    spec["scalars"]["AlphaBlendMultiplier"] = value("AlphaBlendMultiplier", 1.0)
+    spec["scalars"]["Opacity"] = float(light.get("Opacity", 1.0))
+    spec["scalars"]["BlendEdge"] = 0.0 if "%SOLID_HAIR" in flags else 1.0
+    if "%VERTCOLORS" in flags:
+        spec["scalars"]["UseVertexColor"] = 1.0
+    mask_map = maps.get("Custom") or {}
+    if flags & {"%OVERLAY_MASK", "%COLOR_SAMPLER_OVERLAY_MASK"} and mask_map.get("product"):
+        spec["textures"]["MaskTex"] = use(data_texture(mask_map["product"]))
+        spec["scalars"]["MaskMode"] = 1.0 if "%OVERLAY_MASK" in flags else 2.0
+        mask_color = lambda name: color(name, [0.0, 0.0, 0.0])[:3] + [0.0]
+        spec["vectors"]["MaskColorR"] = mask_color("Mask_R_Color")
+        spec["vectors"]["MaskColorG"] = mask_color("Mask_G_Color")
+        spec["vectors"]["MaskColorB"] = mask_color("Mask_B_Color")
+        spec["vectors"]["MaskSpecColor"] = mask_color("Mask_A_SpecColor")
+        spec["vectors"]["MaskAmount"] = [value("Mask_R", 0.0), value("Mask_G", 0.0), value("Mask_B", 0.0), 0.0]
+        spec["vectors"]["MaskOverride"] = [value("Mask_R_Override", 0.0), value("Mask_G_Override", 0.0),
+                                           value("Mask_B_Override", 0.0), value("Mask_A_SpecColor_Override", 0.0)]
+        spec["vectors"]["MaskExtra"] = [0.0, value("ColorMaskStrength", 0.0), value("ColorMaskOverride", 0.0),
+                                        value("ColorMaskAlphaInf", 0.0)]
+    if not spec["switches"]:
+        del spec["switches"]
+    return spec
+
+
 def m3b(rules: dict, spec: dict, use) -> None:
     """Adds M3b to a surface spec (swc_materials.surface_parent version 4): the vertex colors (%VERTCOLORS: the albedo
     x the vertex RGB), the blend layer (%BLENDLAYER: the second diffuse, normal, gloss, specular, the blend mask, the

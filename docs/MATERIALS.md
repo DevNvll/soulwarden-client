@@ -570,15 +570,41 @@ materials with only the base color, the normal map, and some alpha rules (the pa
 no two sided flag). The source shades these sub-materials (Illum, HumanSkin, Hair) with the same reflectance and the same
 overlay masks (charactermasking.cfib) as the world. One rule for all bodies (`converter/swc_convert/bodies.py`):
 
-- Each drawn sub-material of a body with the shader Illum, HumanSkin, or Hair takes the spec of the world rule
+- Each drawn sub-material of a body with the shader Illum or HumanSkin takes the spec of the world rule
   (`material_records.surface_spec`): the parent M_SwcSurface, M_SwcSurfaceMasked (AlphaTest), or M_SwcSurfaceTranslucent
   (a head layer of `player.HEAD_LAYER`: opacity = the diffuse alpha x the XML Opacity), D = the diffuse map x the XML
   Diffuse, the F0 split of the specular map x the XML Specular, the gloss and Shininess, the overlay masks (M3a: the hair
   and beard tint of `Mask_R_Color` with `Mask_R_Override`), two sided (MtlFlags bit 0x2: the fur cards), the cutoff.
-- Two rules of the body shaders [I]: the Hair shader has no metal (its Specular is the color of the anisotropic
-  highlight): its F0 stays at the dielectric limit 0.08 of the parent (before, a beard of Specular 1.0 with no specular
-  map was a white metal); a head layer is a decal layer of the head (`%HAS_DECAL_LAYERS`): it changes the albedo only,
-  with no specular (before, the eye shadow was a white mirror).
+- A head layer is a decal layer of the head (`%HAS_DECAL_LAYERS`) [I]: it changes the albedo only, with no specular
+  (before, the eye shadow was a white mirror).
+- The Hair rule (AST-247, research hair-shader.md; the first stage, 2026-10-22): a Hair sub-material (not a head layer) takes
+  its own spec (`material_records.hair_spec`) and the parent `M_SwcHair` (masked, two sided, the Unreal Hair shading model),
+  not the surface F0 split (with it the sky gave hair a broad gray GGX reflection: Saira's black hair was gray):
+  - Kept from the source: D = the diffuse map x XML Diffuse (x the vertex color), the overlay masks on D and S (mask A gloss
+    does not change the lobes), S = the specular map (sampled with no `%SPECULAR_MAP`), XML Specular, the material gloss
+    clamped to 0.5 ... 0.9 (not the gloss image), the secondary color, width, and shift, the shift variation, the wrap, the
+    direction map (`%DIRECTION_MAP`: the Detail slot, linear), AlphaTest, AlphaBlendMultiplier, XML Opacity, `%SOLID_HAIR`.
+  - The Unreal inputs [I]: BaseColor D^2 and Scatter 1 (the Kajiya diffuse of the Unreal Hair is sqrt(BaseColor) x Scatter, so
+    it is D, as the source diffuse; with BaseColor D the dark feathers were light gray, and bright hair was white from the TT
+    and TRT lobes, which do not scale with Specular); Specular 0.5 x lum(min(S x XML Specular, 0.045)) / 0.04652 (the primary
+    of the source over the fiber F0 of Unreal); Roughness (4 / n1)^0.25 with n1 = 2^(10 g + 1); Backlit 0; the tangent along
+    the strand (the binormal (0, 1, 0), or the direction map).
+  - The coverage in one masked draw [I]: the core where the raw alpha >= AlphaTest (the Z pass of the source); outside it a
+    temporal dither of the blend opacity saturate(a x AlphaBlendMultiplier) x XML Opacity where the alpha >= 0.05 (the blend
+    passes of the source; not for `%SOLID_HAIR`). Before, a single cut at AlphaTest (the Metal_SetB plume: 0.2, the beard 06:
+    0.69) removed most of the cards: the plume of Metal_SetB was a thin strand, the short hair had flakes.
+  - The hair color of the appearance (`SwcLookMaterials::ApplyHairColor`) sets the red mask color and the red amount 1 [I]:
+    the player hairstyles have `Mask_R` 0 in the XML and a near-black diffuse map (about 0.02 linear), so their color comes
+    only from the mask (with the XML amount the hair was black).
+  - The probe specular term (`swc.ProbeSpecular`) skips the Hair pixels: the HDR tiled Hair of the source has no probe
+    specular (hair-shader.md section 3).
+  - 398 Hair specs (2026-10-22); `swc_materials.apply_bodies` also makes a stale parent again when no instance changes.
+  - The check (matched views of set-ast247-mv, `work/hair/sheets`; Saira at 8894.77 4221.75): the Metal_SetB plume has its
+    full cards with the yellow and the dark brown feathers, the Heavy Plate plume is dark red, the fur collar is cut and dark,
+    Saira's hair is black: as retail. Open: light hair is too bright (the gray player hair is near white, retail light gray;
+    with the hair color amount 1 and its override 0.5, D is about 0.5 x C^2); the fur collar is a little darker than retail.
+  - Limits: the two Kajiya-Kay lobes of the source (the primary cap 0.045, the colored secondary with its width and shift),
+    the wrap 0.5, and the separate core and blend passes are not in Unreal Hair (a custom path, hair-shader.md section 5).
 - The key of a spec is `b_` and 10 hex digits of the hash of the spec. `slots.json` gives the Unreal folder of each body
   and the glTF material name of each slot (the Name of the sub-material) -> its key.
 - `swc_materials.apply_bodies` sets the glTF material instances of these folders (the instances that Interchange made,
@@ -599,7 +625,7 @@ overlay masks (charactermasking.cfib) as the world. One rule for all bodies (`co
   red-brown leather and dark steel (before: pale tan). Differences that stay: the rim light of the source
   (`RIM_DIFFUSE_LIGHTING`: the wolf and the skin are darker), the hair is darker and the beard thinner (the blend pass of
   Hair), the metal is duller (the reflections of the scene), a pink patch on the back of the gear.
-- Limits: the anisotropic highlight of Hair and the subsurface light of HumanSkin are not in the parents. Glass and the
+- Limits: the subsurface light of HumanSkin is not in the parents. Glass and the
   other shaders (the animated `Fxmeshadvancedtransp` flames of some weapons) keep the glTF rule.
 - The specular light of the environment probes on metal (AST-247 part 2): `swc.ProbeSpecular 1` (off by default; see
   docs/ENVIRONMENT.md "The probe specular term"). The steel gets the reflection of the probe cubes in place of the Unreal

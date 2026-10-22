@@ -25,10 +25,9 @@ from . import env, manifest, materials, source
 from . import material_records as mr
 
 VERSION = 1
-# The shader families of the bodies that take the surface parents. The anisotropic highlight of Hair and the subsurface
-# light of HumanSkin are not in the parents (a limit): their diffuse, F0, gloss, cutoff, and overlay masks are.
+# The shader families of the bodies: Illum and HumanSkin take the surface parents (the subsurface light of HumanSkin is not in
+# them, a limit); Hair takes its own parent M_SwcHair (material_records.hair_spec, research hair-shader.md).
 SHADERS = ("illum", "humanskin", "hair")
-HAIR_F0 = 0.08   # the largest dielectric F0 of the surface parents (Unreal: 0.08 x Specular)
 
 
 def out_dir() -> Path:
@@ -52,14 +51,13 @@ def body_spec(mtl: str, index: int, element: ET.Element, use) -> tuple[str, dict
     if layer:
         rules = {**rules, "blend": "translucent", "opacity": record["lighting"].get("Opacity", 1.0)}
         rules.pop("cutoff", None)
+    if rules["shader"] == "hair" and not layer:
+        # The Hair rule (research hair-shader.md): its own record and parent (M_SwcHair), not the surface F0 split.
+        spec = mr.hair_spec(record, rules, use)
+        key = "b_" + hashlib.sha1(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:10]
+        spec["source"] = f"{mtl}#{index}"
+        return key, spec
     spec = mr.surface_spec(rules, use)
-    if rules["shader"] == "hair":
-        # The Hair shader has no metal: its Specular is the color of the anisotropic highlight [I]. The F0 split of the parent
-        # made a beard of Specular 1.0 (no specular map) a white metal. The F0 stays at the dielectric limit of the parent.
-        color = spec["vectors"]["SpecularColor"][:3]
-        light = mr.luminance(color)
-        if light > HAIR_F0:
-            spec["vectors"]["SpecularColor"] = [v * HAIR_F0 / light for v in color] + [1.0]
     if layer:
         # A head layer is a decal layer of the head (the head material has %HAS_DECAL_LAYERS): it changes the albedo only
         # [I]. With its XML Specular 1.0 and no specular map the F0 split made the eye shadow a white mirror.

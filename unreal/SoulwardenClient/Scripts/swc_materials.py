@@ -24,11 +24,14 @@ ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
 PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "9", "M_SwcSurfaceMasked": "9", "M_SwcDecal": "7",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
-                   "M_SwcSurfaceTranslucent": "9"}   # the rule of each parent
+                   "M_SwcSurfaceTranslucent": "9", "M_SwcHair": "4"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
 # 7: the UV transforms of the emittance and intensity maps (AST-207); 8: the sRGB emission files on Color samplers;
-# 9: the skeletal mesh usage (the skinned bodies, apply_bodies; AST-227);
+# 9: the skeletal mesh usage (the skinned bodies, apply_bodies; AST-227); M_SwcHair 2: BaseColor = D^2 (the Kajiya diffuse of
+# the Unreal Hair is sqrt(BaseColor) x Scatter: with D it was 6 times the source diffuse on a dark feather; with D^2 the gray
+# hair was black: the hair color had no mask amount, see SwcLookMaterials::ApplyHairColor); 3: BaseColor = D, Scatter x
+# sqrt(lum(D)) (with the hair color amount the gray hair was white: the TT and TRT lobes do not scale with Specular); 4: as 2;
 # M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals;
 # 4: the entity color and opacity (DecalColor), the angle fade of the projected decals (static switch Projected);
 # 5: the view bias in the vertex shader without CameraVectorWS (3 and 4 did not compile); 6: the normal of the
@@ -38,7 +41,7 @@ PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "9", "M_SwcSurfaceMasked
 # The parent asset of each spec parent (apply_specs: a stale parent is made again).
 PARENT_NAMES = {"foliage": "M_SwcFoliage", "surface": "M_SwcSurface", "surface masked": "M_SwcSurfaceMasked",
                 "surface translucent": "M_SwcSurfaceTranslucent", "decal": "M_SwcDecal", "glass": "M_SwcGlass",
-                "beam": "M_SwcBeam"}
+                "beam": "M_SwcBeam", "hair": "M_SwcHair"}
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
 assets = unreal.EditorAssetLibrary
@@ -581,6 +584,131 @@ def surface_parent(content, state, masked, translucent=False):
     material.set_editor_property("used_with_instanced_static_meshes", True)
     # The skinned bodies (apply_bodies): a material with no usage flag for its mesh compiles its shaders again at each start
     # and draws the default material.
+    material.set_editor_property("used_with_skeletal_mesh", True)
+    editing.recompile_material(material)
+    assets.save_loaded_asset(material)
+    state["base:" + name] = PARENT_VERSIONS[name]
+    return material
+
+
+# The Hair parent (research hair-shader.md section 5, the first stage). The Unreal Hair shading model reads Metallic as Scatter,
+# Normal as the strand tangent (tangent space), and CustomData0 as Backlit. Specular: the primary color of the source
+# min(S x XML Specular, 0.045), its luminance x 0.5 / 0.04652 (the R lobe of HairBsdf.ush has 2 x Specular x its fiber F0) [I].
+HAIR_SPECULAR_HLSL = """float3 p = min(S * X, 0.045);
+return saturate(0.5 * dot(p, float3(0.2126, 0.7152, 0.0722)) / 0.04652);"""
+# The strand axis from the direction map of the source (the Detail slot, linear: XY = 2 x RG - 1, in the tangent frame).
+HAIR_DIRECTION_HLSL = """float2 d = T.rg * 2.0 - 1.0;
+return normalize(float3(d, 0.0) + float3(0.0, 0.0001, 0.0));"""
+# The coverage of the source Hair in one masked draw [I]: the core where the raw alpha >= AlphaTest (its Z pass); with the blend
+# passes (BlendEdge, not %SOLID_HAIR) a temporal dither of the blend opacity saturate(a x AlphaBlendMultiplier) x XML Opacity
+# where the alpha >= 0.05 (the clip of the blend pass); else nothing. The output is 0 or 1 (the clip value of the parent: 0.5).
+HAIR_COVERAGE_HLSL = """if (A >= Cut) return 1.0;
+if (Edge < 0.5 || A < 0.05) return 0.0;
+float o = saturate(A * Mult) * Op;
+float2 p = Parameters.SvPosition.xy + float(View.StateFrameIndexMod8) * float2(47.0, 17.0);
+float n = frac(52.9829189 * frac(dot(p, float2(0.06711056, 0.00583715))));
+return o > n ? 1.0 : 0.0;"""
+
+
+def hair_parent(content, state):
+    """@return M_SwcHair: the masked parent of the Hair sub-materials of the bodies (material_records.hair_spec), with the
+    Unreal Hair shading model: base color D (the diffuse map x DiffuseColor x the vertex color, the overlay masks), Specular
+    from the primary color (HAIR_SPECULAR_HLSL), Roughness HairRoughness, Scatter, Backlit 0 (unconnected), the strand tangent (the binormal
+    (0, 1, 0) of the tangent frame, or the direction map: static switch DirectionMap), the coverage of HAIR_COVERAGE_HLSL. The
+    secondary color, width, and shift, the shift variation, and the wrap are parameters for a later custom path (the Unreal
+    lobes have fixed relations)."""
+    name = "M_SwcHair"
+    material, white = parent_asset(name, content, state)
+    if material is None:
+        return assets.load_asset(f"{BASE}/{name}")
+    st = unreal.MaterialSamplerType
+    white_color = unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture")
+    coords = node(material, unreal.MaterialExpressionTextureCoordinate, -1600, 0)
+    transform = vector(material, "UVTransform", (1.0, 1.0, 0.0, 0.0), -1600, 200)
+    scaled = multiply(material, (coords, ""), (mask(material, transform, "RGBA", "rg", -1400, 150), ""), -1250, 50)
+    uv = node(material, unreal.MaterialExpressionAdd, -1100, 100)
+    editing.connect_material_expressions(scaled, "", uv, "A")
+    editing.connect_material_expressions(mask(material, transform, "RGBA", "ba", -1400, 300), "", uv, "B")
+
+    def sample(parameter, kind, default, y):
+        node_ = sampler(material, parameter, kind, default, -900, y)
+        editing.connect_material_expressions(uv, "", node_, "UVs")
+        return node_
+
+    color = sample("BaseColor", st.SAMPLERTYPE_COLOR, white_color, -400)
+    albedo = multiply(material, (color, "RGB"), (vector(material, "DiffuseColor", (1.0, 1.0, 1.0, 1.0), -900, -150), "RGB"), -600, -300)
+    vertex = node(material, unreal.MaterialExpressionVertexColor, -900, 3850)
+    one = editing.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, -900, 4000)
+    one.set_editor_property("constant", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
+    tint = lerp(material, (one, ""), (vertex, "RGB"), (scalar(material, "UseVertexColor", 0.0, -900, 4150), ""), -600, 3900)
+    d_v = multiply(material, (albedo, ""), (tint, ""), -450, -300)
+    # The overlay masks (MASK_HLSL, MASK_SPEC_HLSL); the gloss input is a temporary zero in the source Hair (no gloss change).
+    mask_map = sample("MaskTex", st.SAMPLERTYPE_MASKS, black_data(content, state), 1300)
+    mode = scalar(material, "MaskMode", 0.0, -900, 1550)
+    zero = scalar(material, "MaskGlossInput", 0.0, -900, 1650)
+    inputs = {"CR": vector(material, "MaskColorR", (0.0, 0.0, 0.0, 0.0), -1600, 1450),
+              "CG": vector(material, "MaskColorG", (0.0, 0.0, 0.0, 0.0), -1600, 1600),
+              "CB": vector(material, "MaskColorB", (0.0, 0.0, 0.0, 0.0), -1600, 1750)}
+    packed = {"Amt": vector(material, "MaskAmount", (0.0, 0.0, 0.0, 0.0), -1600, 1900),
+              "Ovr": vector(material, "MaskOverride", (0.0, 0.0, 0.0, 0.0), -1600, 2050),
+              "Ext": vector(material, "MaskExtra", (0.0, 0.0, 0.0, 0.0), -1600, 2200)}
+    masked_color = custom(material, MASK_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT4,
+                          ("D", "G", "M", "Mode", "CR", "CG", "CB", "Amt", "Ovr", "Ext"), -300, 1300)
+    editing.connect_material_expressions(d_v, "", masked_color, "D")
+    editing.connect_material_expressions(zero, "", masked_color, "G")
+    editing.connect_material_expressions(mask_map, "RGBA", masked_color, "M")
+    editing.connect_material_expressions(mode, "", masked_color, "Mode")
+    for pin, source_ in inputs.items():
+        editing.connect_material_expressions(source_, "RGB", masked_color, pin)
+    for pin, source_ in packed.items():
+        editing.connect_material_expressions(source_, "RGBA", masked_color, pin)
+    # Version 4: BaseColor = D^2. The diffuse of the Unreal Hair (HairBsdf.ush KajiyaKayDiffuseAttenuation) is sqrt(BaseColor) x
+    # Scatter x a wrapped weight, so it is D x Scatter, as the source diffuse D x its wrapped weight (hair-shader.md section 2);
+    # the darker base color also makes the TT and TRT lobes of Unreal weaker (they do not scale with Specular; the source
+    # secondary is 0.7 x D x S, small for the specular maps of the hairstyles) [I]. With BaseColor D (version 1) the dark
+    # feathers (D 0.028) were light gray; with BaseColor D and Scatter x sqrt(lum(D)) (version 3) gray hair was white.
+    d_masked = mask(material, masked_color, "", "rgb", -150, 1300)
+    editing.connect_material_property(multiply(material, (d_masked, ""), (d_masked, ""), -50, 1300), "", MP.MP_BASE_COLOR)
+    scatter = scalar(material, "Scatter", 1.0, -300, 400)
+    spec_map = sample("Specular", st.SAMPLERTYPE_COLOR, white_color, 0)
+    masked_spec = custom(material, MASK_SPEC_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT3, ("S", "SC", "M", "Mode", "Ovr"),
+                         -600, 1600)
+    editing.connect_material_expressions(spec_map, "RGB", masked_spec, "S")
+    editing.connect_material_expressions(vector(material, "MaskSpecColor", (0.0, 0.0, 0.0, 0.0), -1600, 2350), "RGB", masked_spec, "SC")
+    editing.connect_material_expressions(mask_map, "RGBA", masked_spec, "M")
+    editing.connect_material_expressions(mode, "", masked_spec, "Mode")
+    editing.connect_material_expressions(packed["Ovr"], "RGBA", masked_spec, "Ovr")
+    specular = custom(material, HAIR_SPECULAR_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("S", "X"), -300, 50)
+    editing.connect_material_expressions(masked_spec, "", specular, "S")
+    editing.connect_material_expressions(vector(material, "SpecularColor", (1.0, 1.0, 1.0, 1.0), -900, 250), "RGB", specular, "X")
+    editing.connect_material_property(specular, "", MP.MP_SPECULAR)
+    editing.connect_material_property(scalar(material, "HairRoughness", 0.35, -300, 300), "", MP.MP_ROUGHNESS)
+    editing.connect_material_property(scatter, "", MP.MP_METALLIC)
+    # Backlit (CustomData0) stays unconnected: 0 (the Python API has no property for the pin).
+    # The strand tangent (tangent space): the binormal, or the direction map (static switch DirectionMap).
+    binormal = editing.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, -600, 700)
+    binormal.set_editor_property("constant", unreal.LinearColor(0.0, 1.0, 0.0, 1.0))
+    direction_map = sample("Direction", st.SAMPLERTYPE_MASKS, white_data(content, state), 800)
+    direction = custom(material, HAIR_DIRECTION_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT3, ("T",), -600, 800)
+    editing.connect_material_expressions(direction_map, "RGBA", direction, "T")
+    editing.connect_material_property(switch(material, "DirectionMap", (direction, ""), (binormal, ""), -300, 750), "", MP.MP_NORMAL)
+    coverage = custom(material, HAIR_COVERAGE_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("A", "Cut", "Mult", "Op", "Edge"),
+                      -300, 2600)
+    editing.connect_material_expressions(color, "A", coverage, "A")
+    editing.connect_material_expressions(scalar(material, "AlphaTest", 0.0, -600, 2600), "", coverage, "Cut")
+    editing.connect_material_expressions(scalar(material, "AlphaBlendMultiplier", 1.0, -600, 2700), "", coverage, "Mult")
+    editing.connect_material_expressions(scalar(material, "Opacity", 1.0, -600, 2800), "", coverage, "Op")
+    editing.connect_material_expressions(scalar(material, "BlendEdge", 1.0, -600, 2900), "", coverage, "Edge")
+    editing.connect_material_property(coverage, "", MP.MP_OPACITY_MASK)
+    # The parameters of the source lobes and the wrap for a later custom path (no input of the Unreal Hair model).
+    for i, (parameter, value) in enumerate((("Gloss", 0.7), ("SecondaryWidth", 1.5), ("SecondaryShift", 0.1),
+                                            ("ShiftVariation", 0.0), ("DiffuseWrap", 0.5))):
+        scalar(material, parameter, value, -1600, 3000 + 100 * i)
+    vector(material, "SecondaryColor", (0.7, 0.7, 0.7, 1.0), -1600, 3600)
+    material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_HAIR)
+    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+    material.set_editor_property("opacity_mask_clip_value", 0.5)
+    material.set_editor_property("two_sided", True)
     material.set_editor_property("used_with_skeletal_mesh", True)
     editing.recompile_material(material)
     assets.save_loaded_asset(material)
@@ -1463,6 +1591,8 @@ def make_parents(wanted, content, state):
         parents["glass"] = glass_parent(content, state)
     if "beam" in wanted:
         parents["beam"] = beam_parent(content, state)
+    if "hair" in wanted:
+        parents["hair"] = hair_parent(content, state)
     for blend, name in (("opaque", "M_SwcOpaque"), ("masked", "M_SwcMasked"), ("translucent", "M_SwcTranslucent")):
         if "legacy " + blend in wanted:   # the base parents of stage 1.2 (import_content.py): an n_ instance of old rules
             parents["legacy " + blend] = assets.load_asset(f"{BASE}/{name}")
@@ -1538,6 +1668,7 @@ def apply_bodies(folders, state, force=True, content=None, max_seconds=0.0, repo
     specs, textures = load_specs(content, "bodies")
     slots = load_body_slots(content)
     todo = []
+    matched = set()   # the parent kinds of the matched specs
     for folder in folders:
         table = slots.get(folder)
         if not table:
@@ -1549,10 +1680,18 @@ def apply_bodies(folders, state, force=True, content=None, max_seconds=0.0, repo
             key = slot_key(path.rsplit("/", 1)[-1], table)
             if key is None or key not in specs:
                 report["instances"]["no spec"] += 1
-            elif force or state.get("bodymat:" + path) != spec_stamp(specs[key]):
+                continue
+            matched.add(specs[key].get("parent"))
+            if force or state.get("bodymat:" + path) != spec_stamp(specs[key]):
                 todo.append((path, key))
             else:
                 report["instances"]["up to date"] += 1
+    # A parent of a matched spec with a new version in PARENT_VERSIONS is made again also when no instance changes (as
+    # apply_specs; its instances keep their parameters).
+    stale = {kind for kind in matched if kind in PARENT_NAMES and state.get("base:" + PARENT_NAMES[kind]) != PARENT_VERSIONS[PARENT_NAMES[kind]]}
+    if stale and not todo:
+        make_parents(stale, content, state)
+        report["parents made again"] = sorted(PARENT_NAMES[kind] for kind in stale)
     if not todo:
         return report
 
