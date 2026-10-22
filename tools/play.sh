@@ -139,15 +139,16 @@ else
     # Each module of the .uproject must be built and newer than the code (Source): else the engine shows its dialog "Missing
     # SoulwardenClient Modules" (a build of an older commit, 2026-10-22). A start builds the modules first (a check reports it).
     modules_state() {
-        local project_dir="${SWC_REPO}/unreal/SoulwardenClient" name file oldest="" newest_source
+        # Each module against the code of its own Source folder (a build leaves a module with no change as it is).
+        local project_dir="${SWC_REPO}/unreal/SoulwardenClient" name file built newest_source
         for name in $(python3 -B -c "import json, sys; print(' '.join(m['Name'] for m in json.load(open(sys.argv[1]))['Modules']))" "${SWC_UPROJECT}"); do
             file="${project_dir}/Binaries/Linux/libUnrealEditor-${name}.so"
             [[ -f "${file}" ]] || { echo "missing ${name}"; return 1; }
-            local t; t=$(stat -c %Y "${file}")
-            [[ -z "${oldest}" || "${t}" -lt "${oldest}" ]] && oldest="${t}"
+            built=$(stat -c %Y "${file}")
+            [[ -d "${project_dir}/Source/${name}" ]] || continue
+            newest_source=$(find "${project_dir}/Source/${name}" -type f -printf '%T@\n' | sort -n | tail -1 | cut -d. -f1)
+            [[ -z "${newest_source}" || "${newest_source}" -le "${built}" ]] || { echo "older than the code (${name})"; return 1; }
         done
-        newest_source=$(find "${project_dir}/Source" -type f -printf '%T@\n' | sort -n | tail -1 | cut -d. -f1)
-        [[ "${newest_source}" -le "${oldest}" ]] || { echo "older than the code"; return 1; }
         echo "current"
     }
     modules_line="$(modules_state)" && modules_current=1 || modules_current=0
