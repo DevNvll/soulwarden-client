@@ -3,7 +3,7 @@
 # converter/swc_convert/environment.py): the main-world mission, the time presets, the environment entities of each region (the
 # local lights and probes, the time-of-day, fog, rain, snow, weather, ocean, water, and river volumes with their shapes), and the
 # sky slices.
-# Usage: tools/convert-environment.sh write [--regions NAME...] | volumes X Y Z | sample PRESET HOUR [NAME...] | check
+# Usage: tools/convert-environment.sh write [--regions NAME...] | volumes X Y Z | sample PRESET HOUR [NAME...] | sky | snow | check
 # The conversion runs with nice 10 and at most SWC_MEMORY_MAX (default 8G).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"

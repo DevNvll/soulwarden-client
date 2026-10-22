@@ -23,19 +23,23 @@ that passes it; call again):
 """
 import json
 import os
+import sys
 import time
 
 import unreal
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import swc_materials  # noqa: E402  (the surface snow call of AST-257)
 
 ROOT = "/SwcGameContent"
 TERRAIN = ROOT + "/Terrain"
 SLOTS = 57   # the largest region list of active layers (terrain_material.plan_all)
 ROLES = {"albedo": "TA_SwcTerrainAlbedo", "normal": "TA_SwcTerrainNormal", "masks": "TA_SwcTerrainMasks"}
 MATERIAL = TERRAIN + "/M_SwcTerrain"
-MATERIAL_VERSION = "3"   # 2: the default of the macro normal loads (unreal.load_asset: /Engine/EngineMaterials/FlatNormal);
+MATERIAL_VERSION = "4"   # 4: the surface snow (AST-257, MF_SwcSnowSurface); 2: the default of the macro normal loads (unreal.load_asset: /Engine/EngineMaterials/FlatNormal);
                          # 3: the vector parameters give RGBA to the custom nodes (the default output is RGB)
 MESH_MATERIAL = TERRAIN + "/M_SwcTerrainMesh"
-MESH_MATERIAL_VERSION = "1"
+MESH_MATERIAL_VERSION = "2"   # 2: the surface snow (AST-257, MF_SwcSnowSurface)
 MESH_SLOTS = 8   # two weight textures
 MENU = TERRAIN + "/Menu"
 
@@ -429,10 +433,14 @@ def build_material(path, key, version, slots, mesh):
     connect(fade, "RGBA", final, "F")
     connect(distance, "", final, "Dist")
     mp = unreal.MaterialProperty
-    editing.connect_material_property(final, "BaseOut", mp.MP_BASE_COLOR)
-    editing.connect_material_property(final, "RoughOut", mp.MP_ROUGHNESS)
-    editing.connect_material_property(final, "SpecOut", mp.MP_SPECULAR)
-    editing.connect_material_property(final, "", mp.MP_NORMAL)
+    # The surface snow and frost of the Snow volumes (AST-257; swc_materials.snow_surface): the terrain has no metal (0).
+    no_metal = editing.create_material_expression(material, unreal.MaterialExpressionConstant, x + 1100, 300)
+    snow = swc_materials.snow_surface(material, ((final, "BaseOut"), (no_metal, ""), (final, "SpecOut"), (final, "RoughOut"), (final, "")),
+                                      x + 1400, 0)
+    editing.connect_material_property(snow, "BaseColor", mp.MP_BASE_COLOR)
+    editing.connect_material_property(snow, "Roughness", mp.MP_ROUGHNESS)
+    editing.connect_material_property(snow, "Specular", mp.MP_SPECULAR)
+    editing.connect_material_property(snow, "Normal", mp.MP_NORMAL)
     editing.recompile_material(material)
     assets.save_loaded_asset(material)
     state[key] = version

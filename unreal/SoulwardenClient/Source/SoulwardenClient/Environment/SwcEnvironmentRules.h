@@ -226,4 +226,18 @@ double probe_fade(const Vec3& boxSpace, double falloffMax, double uniform);
  *  the last value. */
 std::vector<double> probe_weights(const std::vector<double>& fades);
 
+/** The fall of a Snow volume (AST-257; research/snow.md section 1, the native 0xF1E6E0): the weight at the rendering camera, 1 at the
+ *  center and 0 at the radius: max(1 - |C - P|^2 / R^2, 0) with the 3D distance and R = max(Radius, 0.001). No inner radius. */
+double snow_count_weight(const Vec3& camera, const Vec3& center, double radius);
+
+/** @return The flake count of each cluster: trunc(count x weight) (the integer steps of the source). */
+int snow_flake_count(int count, double weight);
+
+/** The cluster lifetime of the legacy flakes (research/snow.md section 2, 0x5FF17C0): 4 / max(gravity scale, 1) plus a random part
+ *  of -2.5 to 2.5 s (random: 0 to 1); at least 0.1 s (a rule of this client: no negative life). */
+double snow_cluster_life(double gravityScale, double random);
+
+/** @return The downward speed of a cluster (m/s; 0x5FF18A7): gravity scale x 9.8 x the cluster multiplier (no acceleration). */
+double snow_fall_speed(double gravityScale, double multiplier);
+
 } // namespace swc::environment

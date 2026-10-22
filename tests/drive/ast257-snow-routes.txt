@@ -1,0 +1,4 @@
+# The routes of tests/drive/ast257-snow.txt (AST-257): noon, the creatures ignore the character, night (00:30) at 24 s.
+1 world-time 12:00
+1 ignore on
+24 world-time 00:30

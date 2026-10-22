@@ -1,0 +1,22 @@
+# AST-257: under the roof of the Inn of Warden's Rise and out (366 m from the centre of the Great Cleave Snow volume; start the run in
+# the inn: SWC_DEV_PLACE=10072.77:7507.40:416.35; routes tests/drive/ast257-inn-routes.txt: noon, then 00:30 at 24 s). Out by the west
+# door (heading 270, the open door of the retail still inn-noon-h270) with the default (no volume flakes), back in with the validation
+# flakes (swc.SnowFall 1: the roof map must hide them under the roof), then the same at night.
+1.0 tick
+2.0 view 270 0
+4.0 move 0 1
+7.0 move 0 0
+9.0 view 90 -5
+10.0 exec swc.SnowFall 1
+11.0 move 0 1
+14.0 move 0 0
+17.0 view 270 0
+20.0 exec swc.SnowFall 0
+26.0 move 0 1
+29.0 move 0 0
+31.0 view 90 -5
+32.0 exec swc.SnowFall 1
+33.0 move 0 1
+36.0 move 0 0
+39.0 view 270 0
+42.0 tick

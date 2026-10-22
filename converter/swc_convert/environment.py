@@ -26,6 +26,9 @@ Output in SWC_CONTENT/environment:
                         spot of its color and brightness (sRGB)
   sky/moon.png          the moon texture of the mission (Moon/@Texture)
   sky/rainfall.png, sky/snowflakes.png  the rain layer texture and the snowflake atlas of the engine (the precipitation of E3)
+  snow/NAME.png, snow/snow.json  the textures of the surface snow pass of the source (the command snow, AST-257; research/snow.md
+                        section 3: deferredsnow.cfxb): the areal layout noise, the frost bump noise, the snow normal derivatives,
+                        the snow spatter, and the frost bubbles, as linear RGBA (the 3D volume noise is not read)
   sky/sky.json          the stars, the moon, and the cloud cover of each sky slice (the cloud masks of its dome layers: 1 - the
                         product of (1 - the mean of each mask))
   probes/NAME.hdr       the world probes of the outdoor ambient (the command probes, stage E5): the radiance cubemap (BC6H, mip 0)
@@ -862,6 +865,29 @@ def sky() -> dict:
     return {"stars": len(stars), "moon": moon_path, "skies": {k.split("/")[-1]: v["cover"] for k, v in skies.items()}}
 
 
+# The textures of the surface snow pass of the source (AST-257; deferredsnow.cfxb.txt lines 61 to 112): the key, the game path.
+SNOW_TEXTURES = (("layout", "engineassets/textures/defaults/perlinnoise2d.dds"),
+                 ("frost", "engineassets/textures/frozen/frost_noise3.dds"),
+                 ("derivatives", "engineassets/textures/perlinnoisederivatives.dds"),
+                 ("spatter", "engineassets/textures/frozen/snow_spatter.dds"),
+                 ("bubbles", "engineassets/textures/frozen/frost_noise4.dds"))
+
+
+def snow() -> dict:
+    """Writes snow/NAME.png (linear RGBA, the decoded values of each texture) and snow/snow.json (AST-257)."""
+    from PIL import Image
+    from . import dds
+    out = out_dir() / "snow"
+    out.mkdir(parents=True, exist_ok=True)
+    doc = {}
+    for key, path in SNOW_TEXTURES:
+        data, w, h, fmt = dds.join(source.read, path, 1024)
+        dds.to_image(data, w, h, fmt).convert("RGBA").save(out / f"{key}.png")
+        doc[key] = {"png": f"snow/{key}.png", "source": path, "size": [w, h], "format": fmt}
+    (out / "snow.json").write_text(json.dumps(doc, indent=1))
+    return doc
+
+
 # The world probes (stage E5): a probe box larger than this (m3) covers the world (the outdoor ambient of the source).
 WORLD_PROBE_VOLUME = 1.0e12
 PROBE_SIZE = (512, 256)
@@ -1149,6 +1175,7 @@ def main(argv=None) -> int:
     p.add_argument("--regions", nargs="*")
     sub.add_parser("cookies")
     sub.add_parser("sky")
+    sub.add_parser("snow")
     sub.add_parser("probes")
     sub.add_parser("probes-spec")
     p = sub.add_parser("volumes")
@@ -1169,6 +1196,8 @@ def main(argv=None) -> int:
         print(json.dumps(cookies(), indent=1))
     elif args.command == "sky":
         print(json.dumps(sky(), indent=1))
+    elif args.command == "snow":
+        print(json.dumps(snow(), indent=1))
     elif args.command == "probes":
         print(json.dumps(probes(), indent=1))
     elif args.command == "probes-spec":

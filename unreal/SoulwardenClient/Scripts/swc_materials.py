@@ -22,7 +22,7 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "9", "M_SwcSurfaceMasked": "9", "M_SwcDecal": "7",
+PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "10", "M_SwcSurfaceMasked": "10", "M_SwcDecal": "7",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
                    "M_SwcSurfaceTranslucent": "9", "M_SwcHair": "6"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
@@ -388,6 +388,25 @@ def multiply(material, a, b, x, y):
     return node_
 
 
+SNOW_FUNCTION = "/SwcGameContent/Environment/MF_SwcSnowSurface"
+
+
+def snow_surface(material, inputs, x, y):
+    """AST-257: the call of MF_SwcSnowSurface (tools/import-snow.sh; the surface snow and frost of the source before the lighting,
+    research/snow.md section 3) on the outputs of a master. inputs: (BaseColor, Metallic, Specular, Roughness, Normal), each a
+    (node, output). The function gives its inputs back unchanged where no Snow volume is near (MPC_SwcWeather SnowAmounts.w 0).
+    @return The call node: its outputs have the names of its inputs."""
+    function = unreal.load_asset(SNOW_FUNCTION)
+    if function is None:
+        raise RuntimeError("no MF_SwcSnowSurface: run tools/import-snow.sh")
+    call = editing.create_material_expression(material, unreal.MaterialExpressionMaterialFunctionCall, x, y)
+    call.set_editor_property("material_function", function)
+    for pin, (source, out) in zip(("BaseColor", "Metallic", "Specular", "Roughness", "Normal"), inputs):
+        if not editing.connect_material_expressions(source, out, call, pin):
+            raise RuntimeError(f"MF_SwcSnowSurface: no connection to {pin}")
+    return call
+
+
 def surface_parent(content, state, masked, translucent=False):
     """@return M_SwcSurface (opaque), M_SwcSurfaceMasked (the cutout is the alpha of the diffuse map), or
     M_SwcSurfaceTranslucent (AST-207: an alpha blended Illum material, material_records.BLENDED_ILLUM; the opacity is
@@ -528,15 +547,17 @@ def surface_parent(content, state, masked, translucent=False):
     editing.connect_material_expressions(masked_spec, "", split, "S")
     base = mask(material, split, "", "rgb", -150, -250)
     metallic = mask(material, split, "", "a", -150, -100)
-    editing.connect_material_property(base, "", MP.MP_BASE_COLOR)
-    editing.connect_material_property(metallic, "", MP.MP_METALLIC)
     specular = custom(material, SPECULAR_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("S",), -350, 50)
     editing.connect_material_expressions(masked_spec, "", specular, "S")
-    editing.connect_material_property(specular, "", MP.MP_SPECULAR)
-    editing.connect_material_property(n_final, "", MP.MP_NORMAL)
     rough = node(material, unreal.MaterialExpressionOneMinus, -300, 800)
     editing.connect_material_expressions(masked_gloss, "", rough, "")
-    editing.connect_material_property(rough, "", MP.MP_ROUGHNESS)
+    outputs = ((base, ""), (metallic, ""), (specular, ""), (rough, ""), (n_final, ""))
+    if not translucent:
+        # Version 10 (AST-257): the surface snow and frost of the Snow volumes (MF_SwcSnowSurface).
+        snow = snow_surface(material, outputs, 50, 200)
+        outputs = tuple((snow, name) for name in ("BaseColor", "Metallic", "Specular", "Roughness", "Normal"))
+    for (source, out), prop in zip(outputs, (MP.MP_BASE_COLOR, MP.MP_METALLIC, MP.MP_SPECULAR, MP.MP_ROUGHNESS, MP.MP_NORMAL)):
+        editing.connect_material_property(source, out, prop)
     # M4: the emission (static switch Emissive).
     # Version 7 (AST-207): each map has its own UV transform (the source _TCMMatrixEmittance and
     # _TCMMatrixEmissiveMultiplier); the converter gives the decoded RGB of an sRGB file (`@data-decoded`).

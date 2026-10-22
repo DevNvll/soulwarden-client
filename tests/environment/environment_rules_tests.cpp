@@ -321,6 +321,28 @@ void test_probes() {
     check(none.size() == 1 && near(none[0], 1.0, 1e-12), "no probe: the world probe only");
 }
 
+void test_snow() {
+    // The count fade of a Snow volume: 1, 0.75, 0.4375, 0.19, and 0 at 0, 0.5 R, 0.75 R, 0.9 R, and R (research/snow.md section 1).
+    const env::Vec3 c{9715.8213, 7609.3115, 368.4649};
+    const double r = 1000.0;
+    check(near(env::snow_count_weight(c, c, r), 1.0, 1e-12), "the snow weight at the center");
+    check(near(env::snow_count_weight({c.x + 500.0, c.y, c.z}, c, r), 0.75, 1e-12), "the snow weight at 0.5 R");
+    check(near(env::snow_count_weight({c.x, c.y - 750.0, c.z}, c, r), 0.4375, 1e-12), "the snow weight at 0.75 R");
+    check(near(env::snow_count_weight({c.x, c.y, c.z + 900.0}, c, r), 0.19, 1e-12), "the snow weight at 0.9 R (a vertical distance)");
+    check(env::snow_count_weight({c.x + 1000.0, c.y, c.z}, c, r) == 0.0 && env::snow_count_weight({c.x + 2000.0, c.y, c.z}, c, r) == 0.0,
+          "no snow at and past the radius");
+    check(env::snow_count_weight(c, c, 0.0) == 1.0 && env::snow_count_weight({c.x + 1.0, c.y, c.z}, c, 0.0) == 0.0, "a zero radius");
+    // The saved Cleave inside camera: 943.454 m from 4_3_Snow, weight 0.109895, 54 flakes of 500 in each cluster.
+    const env::Vec3 inside{8963.917, 8151.916, 542.6078};
+    check(near(env::snow_count_weight(inside, c, r), 0.109895, 1e-5), "the weight of cleave-inside-noon");
+    check(env::snow_flake_count(500, env::snow_count_weight(inside, c, r)) == 54, "the count of cleave-inside-noon (54)");
+    check(env::snow_flake_count(500, 0.75) == 375 && env::snow_flake_count(500, 0.0) == 0, "the integer count");
+    // The cluster life: 4 / max(G, 1) + (-2.5 to 2.5) s: 1.5 to 6.5 s for G 0.4; the fall speed G x 9.8 x (0.2 to 0.4).
+    check(near(env::snow_cluster_life(0.4, 0.0), 1.5, 1e-12) && near(env::snow_cluster_life(0.4, 1.0), 6.5, 1e-12), "the cluster life");
+    check(near(env::snow_cluster_life(4.0, 0.0), 0.1, 1e-12), "the life is at least 0.1 s");
+    check(near(env::snow_fall_speed(0.4, 0.2), 0.784, 1e-12) && near(env::snow_fall_speed(0.4, 0.4), 1.568, 1e-12), "the Cleave fall speed");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -330,6 +352,7 @@ int main(int argc, char** argv) {
     test_volumes();
     test_blend_fog_and_stars();
     test_probes();
+    test_snow();
     std::printf("environment rules: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

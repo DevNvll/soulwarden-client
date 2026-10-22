@@ -1,0 +1,27 @@
+# AST-257: the snow at the Carious Pich shrine (82 m from the centre of the Great Cleave Snow volume 4_3_Snow; start the run there:
+# SWC_DEV_CHARACTER=Azoth SWC_DEV_PLACE=9643.37:7570.26:327.3), routes tests/drive/ast257-snow-routes.txt: noon, then night at 24 s.
+# The camera headings of the retail take (work/ast257/retail-snow.sh: four headings, then up 30 degrees). Then the frame cost: the
+# surface snow off and on (swc.SnowSurface 0 / 1, 15 s each, twice) with the view fixed (with -SwcFrameStats=2).
+1.0 tick
+2.0 view 0 0
+6.0 view 90 0
+10.0 view 180 0
+14.0 view 270 0
+18.0 view 0 30
+22.0 tick
+26.0 view 0 0
+30.0 view 180 0
+34.0 view 0 30
+38.0 tick
+40.0 view 0 0
+42.0 tick
+50.0 tick
+60.0 exec swc.SnowSurface 0
+70.0 tick
+75.0 exec swc.SnowSurface 1
+85.0 tick
+90.0 exec swc.SnowSurface 0
+100.0 tick
+105.0 exec swc.SnowSurface 1
+115.0 tick
+120.0 tick

@@ -1,0 +1,10 @@
+# AST-257: the hard edges of the snow on the big rock at the Carious Pich shrine (SWC_DEV_PLACE=9643.37:7570.26:327.3; routes
+# tests/drive/ast257-snow-routes.txt, noon in the first 20 s): the roof map on (2 to 8 s), off (swc.SnowRoof 0, 8 to 14 s), then the
+# gain 6 of the surface snow (the snow caps of the pots, 14 to 20 s).
+1.0 tick
+2.0 view 0 0
+8.0 exec swc.SnowRoof 0
+14.0 exec swc.SnowSurfaceGain 6
+20.0 exec swc.SnowSurfaceGain 1
+20.5 exec swc.SnowRoof 1
+21.0 tick

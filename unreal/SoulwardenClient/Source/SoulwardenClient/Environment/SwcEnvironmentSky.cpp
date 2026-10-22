@@ -2,6 +2,8 @@
 // and the volumetric fog, the clouds, and the sky sphere with the stars and the moon. A part of USwcEnvironmentSubsystem.
 
 #include "Components/DirectionalLightComponent.h"
+#include "Camera/PlayerCameraManager.h"
+#include "GameFramework/PlayerController.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/LocalFogVolumeComponent.h"
 #include "Components/PostProcessComponent.h"
@@ -58,7 +60,9 @@ TAutoConsoleVariable<float> CVarMoonScale(TEXT("swc.MoonScale"), 15000.0f,
 TAutoConsoleVariable<float> CVarMoonSize(TEXT("swc.MoonSize"), 3.5f,
 	TEXT("The angular radius of the moon disc in degrees for one unit of the Size of the Moon element of the mission."));
 TAutoConsoleVariable<float> CVarRainScale(TEXT("swc.RainScale"), 1.0f, TEXT("The rain amount of the data times this (1: the source; 0: no rain)."));
-TAutoConsoleVariable<float> CVarSnowScale(TEXT("swc.SnowScale"), 1.0f, TEXT("The snow veil for one unit of the snow amount of the data."));
+TAutoConsoleVariable<float> CVarSnowLight(TEXT("swc.SnowLight"), 0.25f,
+	TEXT("AST-257: the light of a snowflake for one unit of SnowFallBrightness: this part of the luminance of a white surface in the light "
+		 "of the sun or the moon (the global brightness of the source, parameter 0x4C, is not read [U])."));
 TAutoConsoleVariable<float> CVarDropLight(TEXT("swc.DropLight"), 0.25f,
 	TEXT("The luminance of the snowflakes: this part of the luminance of a white surface in the light of the sun or the moon."));
 TAutoConsoleVariable<float> CVarLocalFogScale(TEXT("swc.LocalFogScale"), 0.01f,
@@ -371,6 +375,12 @@ void USwcEnvironmentSubsystem::CreateSkyAndFog(AActor* Owner, USceneComponent* R
 		Post->RegisterComponent();
 		PrecipitationPost = Post;
 	}
+	// The snow in the world (AST-257): the surface snow of the Snow volumes and their flakes (a validation mode; no screen layer).
+	SnowFall = MakeUnique<FSwcSnow>();
+	if (!SnowFall->Create(Owner, Root))
+	{
+		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: no flake material M_SwcSnowFlake: no falling snow (tools/import-snow.sh)"));
+	}
 	if (UMaterialInterface* Grade = LoadObject<UMaterialInterface>(nullptr, TEXT("/SwcGameContent/Environment/M_SwcGrade.M_SwcGrade"), nullptr, LOAD_NoWarn))
 	{
 		GradeMaterial = UMaterialInstanceDynamic::Create(Grade, this);
@@ -382,10 +392,11 @@ void USwcEnvironmentSubsystem::CreateSkyAndFog(AActor* Owner, USceneComponent* R
 		Post->RegisterComponent();
 		GradePost = Post;
 	}
-	UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the height fog, %d local fog volume(s), %s, %s, %d rain and snow volume(s)%s, %s, %d local probes (stage E3, E5)"), LocalFogs.Num(),
+	UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the height fog, %d local fog volume(s), %s, %s, %d rain volume(s)%s, %d snow volume(s) (%s), %s, %d local probes (stage E3, E5, AST-257)"), LocalFogs.Num(),
 		Clouds.IsValid() ? *FString::Printf(TEXT("the volumetric clouds (the default cover %.3f)"), DefaultCloudCover) : TEXT("no clouds (no engine cloud material)"),
 		SkySphere.IsValid() ? TEXT("the sky sphere with the stars and the moon") : TEXT("no sky sphere (tools/import-sky.sh)"),
 		Data->Precipitation.Num(), PrecipitationPost.IsValid() ? TEXT("") : TEXT(" (no precipitation material: tools/import-sky.sh)"),
+		Data->Snow.Num(), SnowFall.IsValid() ? TEXT("the surface snow and the flakes in the world") : TEXT("none"),
 		GradePost.IsValid() ? TEXT("the color grade of the source") : TEXT("no color grade (tools/import-sky.sh)"), Data->LocalProbes.Num());
 }
 
@@ -666,10 +677,9 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 			}
 		}
 	}
-	// The rain and the snow at the camera: the largest amount of the volumes (the full amount within the inner radius).
+	// The rain at the camera: the largest amount of the volumes (the full amount within the inner radius).
 	const env::Vec3 At{CameraLocation.X / 100.0, -CameraLocation.Y / 100.0, CameraZ};
 	double Rain = 0.0;
-	double Snow = 0.0;
 	const FData::FPrecipitation* RainVolume = nullptr;
 	FString Weather;
 	for (const FData::FPrecipitation& Volume : Data->Precipitation)
@@ -680,21 +690,19 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 			continue;
 		}
 		const double Weight = Volume.Outer > Volume.Inner ? FMath::Clamp((Volume.Outer - Horizontal) / (Volume.Outer - Volume.Inner), 0.0, 1.0) : 1.0;
-		double& Amount = Volume.bSnow ? Snow : Rain;
-		if (!Volume.bSnow && Weight * Volume.Amount > Rain)
+		if (Weight * Volume.Amount > Rain)
 		{
 			RainVolume = &Volume;
 		}
-		Amount = FMath::Max(Amount, Weight * Volume.Amount);
-		Weather += FString::Printf(TEXT(" %s %s %.2f"), Volume.bSnow ? TEXT("snow") : TEXT("rain"), *Volume.Name, Weight);
+		Rain = FMath::Max(Rain, Weight * Volume.Amount);
+		Weather += FString::Printf(TEXT(" rain %s %.2f"), *Volume.Name, Weight);
 	}
 	if (UPostProcessComponent* Post = PrecipitationPost.Get())
 	{
 		// The rain: the scene rain of the source (posteffectsgame@scenerainps; PostProcessRain.cpp, CSceneRain): the amount of the
 		// volume at the camera, its drops amount, lighting, and speed, and the EV rule of the exposure (the adapted luminance).
 		const double RainVeil = Rain * CVarRainScale.GetValueOnGameThread();
-		const double SnowVeil = Snow * CVarSnowScale.GetValueOnGameThread();
-		Post->bEnabled = RainVeil > 0.0 || SnowVeil > 0.0;
+		Post->bEnabled = RainVeil > 0.0;
 		if (Post->bEnabled && PrecipitationMaterial != nullptr)
 		{
 			PrecipitationMaterial->SetScalarParameterValue(TEXT("RainAmount"), static_cast<float>(RainVeil));
@@ -702,13 +710,33 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 				? FLinearColor(static_cast<float>(RainVolume->DropsAmount), static_cast<float>(RainVolume->DropsLighting), static_cast<float>(RainVolume->DropsSpeed), 0.0f)
 				: FLinearColor(1.0f, 1.0f, 1.0f, 0.0f));
 			PrecipitationMaterial->SetScalarParameterValue(TEXT("AutoCompensation"), static_cast<float>(Blended(TEXT("EV Auto compensation"), 1.5)));
-			PrecipitationMaterial->SetScalarParameterValue(TEXT("SnowAmount"), static_cast<float>(SnowVeil));
+			// No snow on the screen (AST-257): the snow falls in the world (FSwcSnow).
+			PrecipitationMaterial->SetScalarParameterValue(TEXT("SnowAmount"), 0.0f);
 			const float Light = static_cast<float>(MainLux / PI * CVarDropLight.GetValueOnGameThread());
 			PrecipitationMaterial->SetVectorParameterValue(TEXT("DropLight"), FLinearColor(Light, Light, Light, 0.0f));
 		}
 	}
-	SkyText = FString::Printf(TEXT("sky %s, cloud cover %.3f; stars %.2f; rain %.2f, snow %.2f%s; probes%s"), *SkyName, Cover,
-		Blended(TEXT("Night sky: Star intensity"), 0.0), Rain, Snow, Weather.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" (%s)"), *Weather.TrimStart()),
+	// The falling snow (AST-257): the light of the sun or the moon (its color x the luminance of a white surface), its direction, the
+	// horizontal field of view of the camera.
+	FString SnowText(TEXT("no snow"));
+	if (FSwcSnow* Flakes = SnowFall.Get())
+	{
+		FSwcSnow::FFrame Frame;
+		Frame.Camera = CameraLocation;
+		const APlayerController* Player = GetWorld()->GetFirstPlayerController();
+		Frame.HorizontalFov = Player != nullptr && Player->PlayerCameraManager != nullptr ? Player->PlayerCameraManager->GetFOVAngle() : 90.0;
+		const UDirectionalLightComponent* Main = MoonWeight > 0.5 ? Moon.Get() : Sun.Get();
+		if (Main != nullptr)
+		{
+			Frame.LightToward = -Main->GetForwardVector();
+			Frame.Light = Main->GetLightColor() * static_cast<float>(MainLux / PI * CVarSnowLight.GetValueOnGameThread());
+		}
+		Frame.DeltaSeconds = GetWorld()->GetDeltaSeconds();
+		Flakes->Update(*GetWorld(), Data->Snow, Frame, Player != nullptr ? Player->GetPawn() : nullptr);
+		SnowText = Flakes->Describe();
+	}
+	SkyText = FString::Printf(TEXT("sky %s, cloud cover %.3f; stars %.2f; rain %.2f%s; %s; probes%s"), *SkyName, Cover,
+		Blended(TEXT("Night sky: Star intensity"), 0.0), Rain, Weather.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" (%s)"), *Weather.TrimStart()), *SnowText,
 		ProbeText.IsEmpty() ? TEXT(" world 1.00") : *ProbeText);
 }
 

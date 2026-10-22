@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Environment/SwcEnvironmentRules.h"
+#include "Environment/SwcSnow.h"
 #include "Subsystems/WorldSubsystem.h"
 
 #include "SwcEnvironmentSubsystem.generated.h"
@@ -51,8 +52,8 @@ class UVolumetricCloudComponent;
  * - The clouds: the volumetric clouds of Unreal (the engine material) with the cover of the sky slice of the preset (its cloud masks)
  *   and the cloud shading color of the data.
  * - The fog volumes of the data: local fog volumes of Unreal (a sphere over the box; a flat box is a thin height layer in it).
- * - The rain and the snow: a post-process material (M_SwcPrecipitation: the rain layer texture of the source falling over the
- *   screen, the snowflakes of the engine) with the amount of the rain and snow volumes of the data at the camera.
+ * - The rain: a post-process material (M_SwcPrecipitation: the rain layer texture of the source falling over the screen) with the
+ *   amount of the rain volumes of the data at the camera. The snow: flakes in the world (FSwcSnow, AST-257), not on the screen.
  * The level actors of the world track (its sun, sky atmosphere, sky light, height fog, and clouds) are turned off while this
  * environment runs; its ocean stays.
  *
@@ -65,7 +66,7 @@ class UVolumetricCloudComponent;
  * keeps the environment of the level; -SwcNightSky=FACTOR and -SwcNightExposure=EV change the two look values of the night;
  * -SwcAmbientOnly turns the sun and the moon off (a check of the ambient); the console variables swc.Fog, swc.FogColorMode,
  * swc.FogLayers, swc.FogDensityScale, swc.FogDensityScale2, swc.VolumetricFog, swc.Clouds, swc.CloudCover, swc.CloudBias, swc.StarScale,
- * swc.MoonScale, swc.MoonSize, swc.NightSkyTint, swc.RainScale, swc.SnowScale, swc.DropLight, swc.LocalFogScale change the look values of E3 at run
+ * swc.MoonScale, swc.MoonSize, swc.NightSkyTint, swc.RainScale, swc.DropLight, swc.LocalFogScale change the look values of E3 at run
  * time (the variants of the matched views).
  */
 UCLASS()
@@ -154,6 +155,8 @@ public:
 			FString Name;
 		};
 		TArray<FPrecipitation> Precipitation;
+		/** The Snow volumes (AST-257; research/snow.md section 1). */
+		TArray<FSwcSnowVolume> Snow;
 		/** A fog volume of the data (stage E3): the box of its entity (m), its color (COLOR), and its density (GlobalDensity). */
 		struct FFogVolume
 		{
@@ -297,6 +300,8 @@ private:
 	double LocalFogScaleApplied = -1.0;
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> PrecipitationMaterial;
+	/** The falling snow in the world (AST-257): the flakes of the Snow volumes and the roof map. */
+	TUniquePtr<FSwcSnow> SnowFall;
 	/** The default cover of the cloud material (the cover of the Everfall sky maps to it). */
 	float DefaultCloudCover = 0.5f;
 	TArray<FLayer> Layers;

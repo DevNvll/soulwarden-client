@@ -1,0 +1,7 @@
+# AST-257: the surface snow off (4 s) and on (10 s) at the retail view shrine-noon-h0 (SWC_DEV_PLACE=9643.37:7570.26:327.3; routes ast257-snow-routes.txt).
+1.0 tick
+2.0 view 0 0
+4.0 exec swc.SnowSurface 0
+10.0 exec swc.SnowSurface 1
+16.0 tick
+16.5 tick

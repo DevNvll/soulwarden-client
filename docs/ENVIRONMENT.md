@@ -313,7 +313,42 @@ override moves the hour of its part toward that hour by its weight).
 | The sky | The SkyAtmosphere of Unreal (the technique), with the Rayleigh color from "Sky light: Wavelength (R, G, B)" (the ratio (B / lambda)^4 of each channel; the Unreal default 0.175, 0.41, 1 is the ratio of 680, 550, and 440 nm). A sky sphere with `M_SwcSky` adds the stars of the engine catalog (`engineassets/sky/stars.dat`), the moon texture of the mission, and its two coronas, turned with the sun path (an inference: the stars turn with the sun). |
 | The clouds | The volumetric clouds of the engine (`m_SimpleVolumetricCloud_Inst`). The cover of the sky slice of the place (`sky/sky.json`: 1 - the product of (1 - the mean of each cloud mask of its dome)) changes the coverage of the cloud material from the Everfall sky (0.6663) up and down (`swc.CloudCover`, `swc.CloudBias`: look values). The composite of the cloud target is nearest with a depth test (`r.VolumetricRenderTarget.UpsamplingMode 2`, set by the code in `USwcEnvironmentSubsystem::Initialize`, not in an ini file: docs/WORLD.md "The cooked build"; AST-261, 2026-10-22): with the default bilateral upsampling (4) of the quarter resolution target, each far silhouette against the sky (the far mountains) had a blocky light outline of the target cells (`swc.Clouds 0` and `ShowFlag.Cloud 0` removed it; `MinimumDistanceKmToDisableDisoclusion 0` did not; Mode 1 and Mode 3 removed it at a higher trace cost). |
 | The fog | The "Volumetric fog 2" set of the data by the rule of the source (stage E5 step 3, below; `swc.SourceFog 0`: the fog of E3, the height fog of Unreal with the legacy fog layers and the "Volumetric fog 2" layers as its two layers and the color of the SkyAtmosphere). The fog volumes of the data are Unreal local fog volumes. |
-| The rain and the snow | A post-process material before the tone mapping (`M_SwcPrecipitation`): the scene rain of the source (stage E5 step 3, below) and the snowflakes of the engine atlas. The amount comes from the rain and snow volumes of the data at the camera (the full amount in the inner radius, 0 at the outer radius); the flakes have a part of the light of a white surface (`swc.DropLight`). |
+| The rain | A post-process material before the tone mapping (`M_SwcPrecipitation`): the scene rain of the source (stage E5 step 3, below). The amount comes from the rain volumes of the data at the camera (the full amount in the inner radius, 0 at the outer radius); the drops have a part of the light of a white surface (`swc.DropLight`). |
+| The snow | In the world, not on the screen (AST-257, below "The snow"). |
+
+## The snow (AST-257, 2026-10-22)
+
+The user asked for snow that is not a screen layer. The static study is `research/snow.md`. The retail takes are in
+`~/Games/soulwarden/work/evidence/unreal-references/set-ast257-snow`: the Carious Pich shrine (in game "Sunderfort Shrine"), 82 m from
+the centre of the Great Cleave Snow volume `4_3_Snow`, at noon and at 00:30, and the Inn of Warden's Rise. Two results decide the plan:
+
+- Retail draws NO falling flakes of the Snow volume. The legacy flakes of the source would give thousands of points of 2 to 9 px at the
+  shrine. The stills and the videos show none, so `r_SnowFlakeLegacy` is 0 in retail. Falling snow in retail comes only from placed
+  particle effects (`env_Winter`, `ENV_DamnedPass.SnowBlown`, `Env_Snow`).
+- Retail shows thick white snow on each upward face near the centre: the rock tops, the pots, the wooden structures, and the ground.
+  This is the surface snow pass of the source (`DeferredSnow`; SnowAmount 8, FrostAmount 0.6, SurfaceFreezing 1).
+
+| Part | The client | Source |
+| --- | --- | --- |
+| The Snow volumes | `regions/*.json` kind `snow` (3 volumes) into `FSwcSnowVolume`: the centre, the radius, and all the fields of "Snow Options" | [D] research/snow.md section 1 |
+| The surface snow | `MF_SwcSnowSurface` in the masters `M_SwcSurface`, `M_SwcSurfaceMasked`, `M_SwcTerrain`, and `M_SwcTerrainMesh` (`swc_materials.snow_surface`), before the lighting. `MPC_SwcWeather` (`FSwcSnow::UpdateSurface`) gives the volume nearest to the camera (horizontal; its radius within 2 km [I]): the centre, 1 / radius, the amounts, the brightness, and the roof map. With no volume near, `SnowAmounts.w` is 0, and the function gives its inputs back unchanged. The rules: the radial mask (inner 1.2 / R and outer 1 / R), the 3 scales of the layout noise, the power of the upward normal, the spatter, and the freeze term. The roof test has the 4 taps of the source with a bilinear blend. The coverage test reads the normal of the surface after its normal map, in world space. The skinned meshes (the characters, the persons, and the creatures) take no snow: the function reads the flag PRIMITIVE_SCENE_DATA_FLAG_SKINNED_MESH of the primitive (also with the pass-through of the skin cache) [I]. The brightness of the snow blend is SnowBrightness x `swc.SnowSurfaceGain` 6 [I] (calibrated on the retail shrine views: the caps of the pots, the rock tops, the ground; the global factor of the source is not read [U]). Not ported [I]: the 3D volume noise (replaced by the layout noise on 3 planes), the frost bubbles, the derivative normal (the snow normal is flat), and the water fade | [R] deferredsnow.cfxb.txt lines 155 to 280 |
+| The roof map | `FSwcWeatherOcclusion`: 96 x 96 downward lines (1 m, the channel Visibility) around the camera as async traces, into `RT_SwcWeatherOcclusion` (R32F heights). It is made again after 16 m of movement and each 4 s; its lines go out in 9 frames (1024 each: all of them in one frame crowded the async traces of that frame, and a check run had its camera in a wall). Only a structure is a roof: a first hit on the terrain, a rock or cliff, or a plant is open sky (with each first hit, a tall rock covered its own lower faces: hard straight edges of the snow along the cells). A surface or a flake below a roof takes no snow. Retail renders an overhead depth map of selected occluders (up to 768; 128 m, 256 x 256) | [I]; [R] research/e5-source-rain.md section 4 |
+| The volume flakes | `FSwcSnow`: a validation mode, off by default (`swc.SnowFall 0`, as retail; open: in the check run of 2026-10-22 the flakes did not show with `swc.SnowFall 1`). With `swc.SnowFall 1`, the legacy rules of the source apply: 100 clusters of 500 flakes on one instanced mesh built at run time, the count fade 1 - d^2 / R^2, the spawn area, the lifetime, the fall, the turbulence, the size by depth^0.25, the atlas `T_SwcSnowflakesLinear` (linear), the soft depth fade, the sun term, and the roof map (`M_SwcSnowFlake`) | [R] research/snow.md section 2; [I] the mode |
+| The screen snow | Removed: the client sets `SnowAmount` of `M_SwcPrecipitation` to 0 (the material branch goes out with the next precipitation import) | the user's request |
+| The placed snow effects | Not shown: `tools/convert-particles.sh systems` builds the fire and the skill effects only; none of the 232 placed snow effects (48 `Snowflake_still01`, 42 `Snow_Wind_01`, 34 `Snowmist_slow`, 33 `Snowmist_up_small01`, the `Snow_WeatherBox` boxes, and others) has a system | an open point of the particle track |
+
+The assets: `tools/convert-environment.sh snow` (the source textures of the surface pass into `environment/snow`), then
+`tools/import-snow.sh` (`T_SwcSnowflakesLinear`, `M_SwcSnowFlake`, `MPC_SwcWeather`, `RT_SwcWeatherOcclusion`, `T_SwcSnowLayout`,
+`T_SwcSnowSpatter`, `MF_SwcSnowSurface`; `--masters`: the two surface masters again; the terrain masters:
+`tools/import-terrain.sh --material --mesh-material`).
+
+The checks (2026-10-22, before the deploy, in a link copy of the shared plugin with the new masters; evidence
+`~/Games/soulwarden-client/evidence/AST-257`): the shrine views retail | client (`side/ast257-shrine-*.jpg`): the snow on the upward
+faces of the rocks, the ground, and the roofs, none on the character; the matched view noon-n of set1-oxboro (no Snow volume weight; the
+function runs) against main: dE of the region means 0.016 to 0.068; cleave-inside-noon and -night of set4-weather: no screen snow, no
+ground snow at 943 m (as retail); the inn of Warden's Rise (`ast257-inn1.mp4`): no snow on the floor inside, snow outside; the frame cost
+at the shrine (the view fixed, late in the run): the GPU median 9.51 ms off and 9.62 ms on. The differences that stay: retail is brighter
+and more even; the client misses the falling flakes of the placed effects (above).
 
 ## The exposure and the color grade (stage E5)
 
@@ -789,7 +824,8 @@ client selects its own volumes (stage E3).
 | `swc.SkyLightSource 0\|1`, `swc.ProbeScale F` | The ambient: the world probe of the data (1) or the real-time capture of the Unreal sky (0); a look scale of the probe light (stage E5). |
 | `swc.Fog`, `swc.FogColorMode`, `swc.FogLayers`, `swc.FogDensityScale`, `swc.FogDensityScale2`, `swc.VolumetricFog`, `swc.LocalFogScale` | The fog of stage E3 (the help text of each variable has its values). |
 | `swc.Clouds`, `swc.CloudCover`, `swc.CloudBias`, `swc.StarScale`, `swc.MoonScale`, `swc.MoonSize`, `swc.SkyWavelengths`, `swc.SkyRayleigh`, `swc.NightSkyTint` | The clouds, the stars, the moon, and the sky color of stage E3. |
-| `swc.RainScale`, `swc.SnowScale`, `swc.DropLight` | The rain and the snow of stage E3. |
-| `tools/convert-environment.sh sky\|probes`, `tools/import-sky.sh` | The stars, the moon, the rain and snow textures, and the world probes; then the textures, the sky, precipitation, and grade materials, and the probe cubes (the import lock). |
+| `swc.RainScale`, `swc.DropLight` | The rain of stage E3. |
+| `swc.SnowSurface`, `swc.SnowSurfaceGain`, `swc.SnowFall`, `swc.SnowLight`, `swc.SnowRoof` | The snow (AST-257): the surface snow on or off, a gain on its brightness (6), the volume flakes (0 by default; 1: the legacy count; not verified: the flakes did not show in a check run), the light of a flake, and the roof map. |
+| `tools/convert-environment.sh sky\|snow\|probes`, `tools/import-sky.sh`, `tools/import-snow.sh` | The stars, the moon, the rain and snow textures, the textures of the surface snow, and the world probes; then the textures, the sky, precipitation, and grade materials, and the probe cubes (the import lock). |
 | `tools/convert-environment.sh cookies`, `tools/import-cookies.sh` | The projector textures of the lights: the PNGs, then the textures, the light function material, and the material instances (the import lock). |
 | `tools/lib/world_time_compare.py FOLDER LABEL` | The compare of the client clock (the log lines of `-SwcWorldTimeProbe`) with the records, the phase edges, and the reads of the server in one run; exit status 1 above 1 game second. |

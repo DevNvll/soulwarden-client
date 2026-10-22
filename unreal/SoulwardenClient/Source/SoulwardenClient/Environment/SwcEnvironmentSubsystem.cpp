@@ -233,7 +233,43 @@ env::Volume ReadVolume(const TSharedPtr<FJsonObject>& Object)
 	return Volume;
 }
 
-/** @return A rain or snow volume of volumes.json (stage E3). The rain: InnerRadius, OuterRadius, and Amount of "Rain Options"; the
+/** @return A Snow volume of volumes.json (AST-257; research/snow.md section 1): the center of its matrix (no shape: the radius is
+ *  the only limit), Enabled, and all the fields of "Snow Options". */
+FSwcSnowVolume ReadSnow(const TSharedPtr<FJsonObject>& Object)
+{
+	FSwcSnowVolume Out;
+	Out.Name = Object->GetStringField(TEXT("entity"));
+	const TArray<TSharedPtr<FJsonValue>>& Rows = Object->GetArrayField(TEXT("matrix"));
+	if (Rows.Num() >= 3)
+	{
+		Out.Center = {Rows[0]->AsArray()[3]->AsNumber(), Rows[1]->AsArray()[3]->AsNumber(), Rows[2]->AsArray()[3]->AsNumber()};
+	}
+	const TSharedPtr<FJsonObject>* Fields = nullptr;
+	const TSharedPtr<FJsonObject>* Options = nullptr;
+	if (!Object->TryGetObjectField(TEXT("fields"), Fields) || Fields == nullptr
+		|| !(*Fields)->TryGetObjectField(TEXT("Snow Options"), Options) || Options == nullptr)
+	{
+		return Out;
+	}
+	Out.bEnabled = true;
+	(*Fields)->TryGetBoolField(TEXT("Enabled"), Out.bEnabled);
+	Out.Radius = NumberOf(*Options, TEXT("Radius"), 0.0);
+	Out.SnowAmount = NumberOf(*Options, TEXT("SnowAmount"), 0.0);
+	Out.FrostAmount = NumberOf(*Options, TEXT("FrostAmount"), 0.0);
+	Out.SurfaceFreezing = NumberOf(*Options, TEXT("SurfaceFreezing"), 0.0);
+	Out.SnowBrightness = NumberOf(*Options, TEXT("SnowBrightness"), 0.0);
+	Out.FrostBrightness = NumberOf(*Options, TEXT("FrostBrightness"), 0.0);
+	Out.FlakeCount = FMath::RoundToInt32(NumberOf(*Options, TEXT("SnowFlakeCount"), 0.0));
+	Out.FlakeSize = NumberOf(*Options, TEXT("SnowFlakeSize"), 1.0);
+	Out.FallBrightness = NumberOf(*Options, TEXT("SnowFallBrightness"), 1.0);
+	Out.GravityScale = NumberOf(*Options, TEXT("SnowFallGravityScale"), 0.0);
+	Out.WindScale = NumberOf(*Options, TEXT("SnowFallWindScale"), 0.0);
+	Out.Turbulence = NumberOf(*Options, TEXT("SnowFallTurbulence"), 0.0);
+	Out.TurbulenceFreq = NumberOf(*Options, TEXT("SnowFallTurbulenceFreq"), 0.0);
+	return Out;
+}
+
+/** @return A rain volume of volumes.json (stage E3). The rain: InnerRadius, OuterRadius, and Amount of "Rain Options"; the
  *  snow: the Radius of "Snow Options" (the amount falls in its last 10 %) and the amount SnowFlakeCount / 1000 x SnowFallBrightness / 3
  *  (an inference of this client: the source draws SnowFlakeCount flakes with that brightness). A disabled volume has no amount. */
 USwcEnvironmentSubsystem::FData::FPrecipitation ReadPrecipitation(const TSharedPtr<FJsonObject>& Object, bool bSnow)
@@ -362,9 +398,13 @@ TSharedPtr<USwcEnvironmentSubsystem::FData, ESPMode::ThreadSafe> LoadData(const 
 		{
 			Out->Volumes.push_back(ReadVolume(Object));
 		}
-		else if (Kind == TEXT("rain") || Kind == TEXT("snow"))
+		else if (Kind == TEXT("rain"))
 		{
-			Out->Precipitation.Add(ReadPrecipitation(Object, Kind == TEXT("snow")));
+			Out->Precipitation.Add(ReadPrecipitation(Object, false));
+		}
+		else if (Kind == TEXT("snow"))
+		{
+			Out->Snow.Add(ReadSnow(Object));
 		}
 		else if (Kind == TEXT("fog"))
 		{

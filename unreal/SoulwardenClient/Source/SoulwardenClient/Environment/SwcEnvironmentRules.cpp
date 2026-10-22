@@ -499,4 +499,24 @@ std::vector<double> probe_weights(const std::vector<double>& fades) {
     return out;
 }
 
+double snow_count_weight(const Vec3& camera, const Vec3& center, double radius) {
+    const double r = std::max(radius, 0.001);
+    const double dx = (center.x - camera.x) / r;
+    const double dy = (center.y - camera.y) / r;
+    const double dz = (center.z - camera.z) / r;
+    return std::max(1.0 - (dx * dx + dy * dy + dz * dz), 0.0);
+}
+
+int snow_flake_count(int count, double weight) {
+    return static_cast<int>(std::trunc(static_cast<double>(count) * std::clamp(weight, 0.0, 1.0)));
+}
+
+double snow_cluster_life(double gravityScale, double random) {
+    return std::max(0.1, 4.0 / std::max(gravityScale, 1.0) + (random * 5.0 - 2.5));
+}
+
+double snow_fall_speed(double gravityScale, double multiplier) {
+    return gravityScale * 9.8 * multiplier;
+}
+
 } // namespace swc::environment
