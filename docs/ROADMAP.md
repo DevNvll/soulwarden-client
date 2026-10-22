@@ -112,7 +112,8 @@ the repository). The status of each item is in Linear (parent AST-212).
 ## Quests (after the backend parts 1.8a to 1.8e)
 
 The request of the user (2026-10-21): plan the quests in the client and add them to this roadmap. The backend quest
-engine has five parts; part 1.8a is released (backend commit fc5677e, database schema 15); 1.8b to 1.8e follow. The
+engine has five parts: part 1.8a is released (backend commit fc5677e, database schema 15), and part 1.8c is released
+(backend commit 096ab18, database schema 16); 1.8b, 1.8d, and 1.8e follow. The
 plan is `~/Games/soulwarden-client/research/quest-plan.md` (outside the repository; GPT-6.1-Sol, 2026-10-21). The
 backend owns the progress and the rewards; the client shows them with the original canvases and scripts. The user
 decides the place of these steps in the order (the MVP excludes quests now). Linear: parent AST-235.
@@ -124,7 +125,7 @@ decides the place of these steps in the order (the MVP excludes quests now). Lin
 | Q3 (F7) | 1.8a (the new character start) | The original character creation: the archetype, the appearance, the name check, the create request, the entry on the Windsward beach | L |
 | Q4 | 1.8b | The quest persons, the offers, the hand-in, and the next offer in the conversation screen; the person markers; the first reward screen | L |
 | Q5 | 1.8b | The trigger areas, the scene activation, the cutscene handshake and playback (or a declared stand-in), the whisper subtitles with no sound | XL |
-| Q6 | 1.8c | The real progress of the kill, item, gather, craft, and place tasks; abandon and reset; the quest objects | L |
+| Q6 | 1.8c (released) | The real progress of the kill, item, gather, craft, and place tasks; abandon and reset; the quest objects (for example the three treasures of a shipwreck); the client messages 2297 and 6416 (the entry and exit cues of a point of interest), 2617 (the open of a screen), 3836 (abandon), 5600 (reset). After Q1, the counters and the quest objects of the start quest do not need Q4 and Q5 | L |
 | Q7 | 1.8d | The reward previews and screens with the real changes; the availability of the offers; a full bag | L |
 | Q8 | 1.8d | The timers, the failed quests, the repeats | L |
 | Q9 | 1.8e | The coverage report and the acceptance: a new character plays the ten quests from 06_getoffbeach to the first settlement | L |
