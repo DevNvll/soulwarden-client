@@ -56,6 +56,8 @@ public:
 
 	/** The values of the current state for the controller: the look sensitivity, free look. */
 	FVector2D GetSensitivity() const { return FVector2D(HorizontalSensitivity.Value, VerticalSensitivity.Value); }
+	/** IsADS of the current state (the ADS sensitivity options of the player apply). */
+	bool IsAds() const { return bAds; }
 	bool AllowsFreeLook() const;
 	const FString& GetStateName() const { return StateName; }
 	/** The zoom option and the smoothed zoom (m), for the camera state log of the checks (AST-251). */
@@ -103,6 +105,7 @@ private:
 	FBlend PitchUp;
 	FBlend HorizontalSensitivity;
 	FBlend VerticalSensitivity;
+	bool bAds = false;
 	/** The zoom option of the player (m_cameraZoom, 2.0 m) and the smoothed zoom. */
 	float SavedZoom = 2.0f;
 	float Zoom = 2.0f;

@@ -1,5 +1,7 @@
 #include "UI/SwcUiSubsystem.h"
 
+#include <cstdlib>
+
 #include "Dom/JsonObject.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
@@ -913,6 +915,22 @@ bool USwcUiSubsystem::Tick(float DeltaTime)
 }
 
 // ---------------------------------------------------------------------------------------------------------------- input
+
+double USwcUiSubsystem::DataNumber(const FString& Path, double Default) const
+{
+	if (!Runtime.IsValid())
+	{
+		return Default;
+	}
+	std::string Result;
+	if (!Runtime->call("GetData", {FArg::of(std::string(TCHAR_TO_UTF8(*Path)))}, &Result) || Result.empty() || Result == "nil")
+	{
+		return Default;
+	}
+	char* End = nullptr;
+	const double Value = std::strtod(Result.c_str(), &End);
+	return End != Result.c_str() && *End == '\0' ? Value : Default;
+}
 
 bool USwcUiSubsystem::CallInput(const std::vector<FArg>& Args)
 {
@@ -1846,6 +1864,13 @@ void USwcUiSubsystem::TickDrive()
 		else if (Step.Command == TEXT("log"))
 		{
 			UE_LOG(LogSwcUi, Log, TEXT("ui drive: mark: %s"), Step.Args.Num() > 0 ? *Step.Args[0] : TEXT(""));
+		}
+		else if (Step.Command == TEXT("data") && Step.Args.Num() >= 2)
+		{
+			// A number in a data node (Swc.SetData), for example an option of the options screen (AST-255 check).
+			Runtime->call("SetData", {FArg::of(std::string(TCHAR_TO_UTF8(*Step.Args[0]))), FArg::of(FCString::Atod(*Step.Args[1]))});
+			UE_LOG(LogSwcUi, Log, TEXT("ui drive: data %s = %s (read back %s)"), *Step.Args[0], *Step.Args[1],
+				*FString::SanitizeFloat(DataNumber(Step.Args[0], -1.0)));
 		}
 		else if (Step.Command == TEXT("draw") && Step.Args.Num() > 0)
 		{

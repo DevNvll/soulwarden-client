@@ -159,6 +159,10 @@ private:
 	double DriveAbilityUp[3] = {-1.0, -1.0, -1.0};
 	/** A click of the drive script: the button goes up at the next frame. */
 	bool bDriveClick = false;
+	/** The look sensitivity options of the options screen (AST-255): H, V and the ADS factors, read again each 0.5 s. */
+	FVector2D LookOption = FVector2D(0.05, 0.05);
+	FVector2D LookAdsOption = FVector2D(1.0, 1.0);
+	double LookOptionsReadAt = -1.0;
 	uint32 PressSerial = 0;
 	TArray<uint32> PressBits;
 

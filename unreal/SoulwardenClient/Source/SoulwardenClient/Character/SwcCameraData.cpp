@@ -109,6 +109,7 @@ bool FSwcCameraData::Load(FString& OutReport)
 			Number(Params, TEXT("DistanceDampening"), State.DistanceDampening);
 			Number(Params, TEXT("HorizontalSensitivity"), State.HorizontalSensitivity);
 			Number(Params, TEXT("VerticalSensitivity"), State.VerticalSensitivity);
+			Flag(Params, TEXT("IsADS"), State.bAds);
 			Flag(Params, TEXT("AllowFreeLook"), State.bAllowFreeLook);
 			Flag(Params, TEXT("CameraCollides"), State.bCollides);
 			bool bNoZSmoothing = false;

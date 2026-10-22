@@ -231,7 +231,7 @@ Stage P3.G: the XML rates of Sprint_Start (`Stand+Armed` 10 m/s²) and of Nav_St
 | Crouch | C | a toggle: crouch, or stand from crouch (stage P3.3) |
 | Prone | Z | a toggle: prone, or stand from prone (stage P3.3) |
 | Autorun | `=` | a toggle (stage P3.3, "Autorun" below) |
-| Look | mouse | 0.1° for each mouse count (the measured retail turn at the option sensitivity 0.05, the default and the saved value of the user; AST-255) × the sensitivity of the camera state, no smoothing (`bEnableMouseSmoothing=False`) |
+| Look | mouse | 2 × the sensitivity option (H or V of the options screen, default 0.05: 0.1° for each mouse count, the measured retail turn and the saved value of the user; AST-255) × the ADS option in an `IsADS` camera state × the sensitivity of the camera state, no smoothing (`bEnableMouseSmoothing=False`) |
 
 The camera, the wheel (zoom), the target lock (middle mouse), and free look (Left Alt) are in [CAMERA.md](CAMERA.md).
 

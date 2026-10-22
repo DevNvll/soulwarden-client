@@ -178,6 +178,7 @@ void ASwcCameraManager::SelectState(const ASwcPlayerCharacter& Character)
 	PitchUp.Set(Next.PitchUp, bFirst);
 	HorizontalSensitivity.Set(Next.HorizontalSensitivity, bFirst);
 	VerticalSensitivity.Set(Next.VerticalSensitivity, bFirst);
+	bAds = Next.bAds;
 	if (bFirst)
 	{
 		Zoom = FMath::Clamp(SavedZoom, Next.MinZoom, Next.MaxZoom);

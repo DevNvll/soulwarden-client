@@ -72,6 +72,10 @@ public:
 	bool UiButton(const TCHAR* Button, bool bDown);
 	bool UiWheel(float Delta);
 
+	/** A number of a data node of the UI (Swc.GetData; for example Hud.LocalPlayer.Options.Controls.CameraSensitivityHorizontal,
+	 *  a value of the options screen), else Default (no runtime, no node, not a number). */
+	double DataNumber(const FString& Path, double Default) const;
+
 private:
 	bool Tick(float DeltaTime);
 	void Start();

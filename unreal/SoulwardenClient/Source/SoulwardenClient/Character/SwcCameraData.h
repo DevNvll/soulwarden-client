@@ -21,6 +21,8 @@ struct FSwcCameraState
 	float DistanceDampening = 0.0f;
 	float HorizontalSensitivity = 1.0f;
 	float VerticalSensitivity = 1.0f;
+	/** IsADS: the ADS sensitivity options of the player multiply the mouse look (AST-255). */
+	bool bAds = false;
 	bool bAllowFreeLook = true;
 	bool bCollides = true;
 	bool bZSmoothing = true;

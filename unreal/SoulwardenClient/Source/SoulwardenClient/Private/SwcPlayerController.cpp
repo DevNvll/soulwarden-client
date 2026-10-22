@@ -19,12 +19,13 @@
 
 namespace
 {
-/** The mouse look: degrees = mouse counts x 0.1 x the sensitivity of the camera state (MidCamera 1), no smoothing (AST-255).
- *  0.1 is the measured retail turn at the default option m_cameraSensitivityHorizontal / Vertical 0.05 (also the saved value of
- *  each profile of the user): tools/hx 'look 900 0' (900 raw counts in steps of 30) turns the retail camera 90 degrees, error 3
- *  degrees or less (Soulwarden docs/development/live-runs.md). The static rule of research feel-values.md R1.4.4 (counts x 0.5
- *  of rotateyaw x 0.05 = 0.025) was an inference of the unit: it turned 4 times too slowly (900 counts: 22.5 degrees). */
-constexpr float LookDegreesPerCount = 2.0f * 0.05f;
+/** The mouse look: degrees = mouse counts x 2 x the sensitivity option (H or V, the options screen; default 0.05) x the ADS option
+ *  in an IsADS camera state x the sensitivity of the camera state, no smoothing (AST-255). 2 x 0.05 = 0.1 degrees is the measured
+ *  retail turn at the default option m_cameraSensitivityHorizontal / Vertical 0.05 (also the saved value of each profile of the
+ *  user): tools/hx 'look 900 0' (900 raw counts in steps of 30) turns the retail camera 88.6 to 90 degrees (set6-combat; Soulwarden
+ *  docs/development/live-runs.md). The source multiplies the option linearly (research feel-values.md R1.4.4); the static unit of
+ *  that research (counts x 0.5 of rotateyaw = 0.025 degrees) turned 4 times too slowly. */
+constexpr float LookCountScale = 2.0f;
 
 UInputAction* MakeAction(UObject* Outer, const TCHAR* Name, EInputActionValueType Type)
 {
@@ -290,10 +291,28 @@ void ASwcPlayerController::OnLook(const FInputActionValue& Value)
 		Camera->AddLockMouse(Counts);
 		return;
 	}
-	const FVector2D Sensitivity = Camera != nullptr ? Camera->GetSensitivity() : FVector2D(1.0, 1.0);
+	// The sensitivity options of the options screen (Hud.LocalPlayer.Options.Controls.*), read again each 0.5 s.
+	const double Now = GetWorld() != nullptr ? GetWorld()->GetRealTimeSeconds() : 0.0;
+	if (LookOptionsReadAt < 0.0 || Now - LookOptionsReadAt >= 0.5)
+	{
+		LookOptionsReadAt = Now;
+		if (const USwcUiSubsystem* Ui = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcUiSubsystem>() : nullptr)
+		{
+			const TCHAR* Root = TEXT("Hud.LocalPlayer.Options.Controls.");
+			LookOption = FVector2D(Ui->DataNumber(FString(Root) + TEXT("CameraSensitivityHorizontal"), 0.05),
+				Ui->DataNumber(FString(Root) + TEXT("CameraSensitivityVertical"), 0.05));
+			LookAdsOption = FVector2D(Ui->DataNumber(FString(Root) + TEXT("CameraSensitivityHorizontalADS"), 1.0),
+				Ui->DataNumber(FString(Root) + TEXT("CameraSensitivityVerticalADS"), 1.0));
+		}
+	}
+	FVector2D Sensitivity = Camera != nullptr ? Camera->GetSensitivity() : FVector2D(1.0, 1.0);
+	if (Camera != nullptr && Camera->IsAds())
+	{
+		Sensitivity *= LookAdsOption;
+	}
 	// RotationInput has no legacy input scale; the camera manager clamps the pitch (the pitch limits of the camera state).
-	RotationInput.Yaw += Counts.X * LookDegreesPerCount * Sensitivity.X;
-	RotationInput.Pitch += Counts.Y * LookDegreesPerCount * Sensitivity.Y;
+	RotationInput.Yaw += Counts.X * LookCountScale * LookOption.X * Sensitivity.X;
+	RotationInput.Pitch += Counts.Y * LookCountScale * LookOption.Y * Sensitivity.Y;
 }
 
 void ASwcPlayerController::OnJump(const FInputActionValue&)
@@ -815,8 +834,8 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 	}
 	if (!DriveTurn.IsNearlyZero())
 	{
-		// The mouse counts of this frame for the rate of the script (with the sensitivity 1 of MidCamera).
-		Input->InjectInputForAction(LookAction, FInputActionValue(DriveTurn * DeltaTime / LookDegreesPerCount), {}, {});
+		// The mouse counts of this frame for the rate of the script (with the sensitivity 1 of MidCamera and the options).
+		Input->InjectInputForAction(LookAction, FInputActionValue(DriveTurn * DeltaTime / (LookCountScale * LookOption)), {}, {});
 	}
 }
 
