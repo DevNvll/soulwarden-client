@@ -43,7 +43,7 @@ WATER = "/SwcGameContent/Water"
 TEXTURES = WATER + "/Textures"
 PARENT = "M_SwcWaterSource"
 # The rule of the parent: a new value makes it again.
-PARENT_VERSION = "15"
+PARENT_VERSION = "16"   # 16: the final ocean normal for the sun, the Fresnel, and the facing; the flat volume reflection (AST-200 part 4)
 
 assets = unreal.EditorAssetLibrary
 editing = unreal.MaterialEditingLibrary
@@ -185,16 +185,22 @@ else
     Tw = T;
 }
 
+// The reflection normal (research water-sky-reflection.md 3): the ocean the final normal Nb = normalize(mix(U, N, ReflectionBumpScale))
+// (O 0073-0077; no foam normal yet) for the trace, the sky, the sun, the Fresnel, and the facing test; the volumes the flat U for the
+// trace and the sky (VR 0030-0034, 0093), the full N for the sun and the Fresnel (V). The screen warp of the volume reflection target
+// (V 0060-0119) is not done: the client reflects each pixel itself.
+float3 Nr = ocean ? normalize(lerp(up, N, ReflBump)) : up;
+float3 Ns = ocean ? Nr : N;
+
 // The sun: two normalized power lobes (gloss g = Shininess / 255, no gloss map: G = 1).
-float3 Rn = reflect(-V, N);
+float3 Rn = reflect(-V, Ns);
 float mu = saturate(dot(Ls, Rn));
 float p0 = 4.0 * 255.0 * MaterialGloss;
 float p1 = 0.5 * 255.0 * MaterialGloss;
 float lobe = (p0 / (2.0 * PI_) + 1.0 / PI_) * pow(mu, p0) + (p1 / (2.0 * PI_) + 1.0 / PI_) * pow(mu, p1);
-float3 Csun = saturate(dot(N, Ls)) * lobe * Spec * Sun;
+float3 Csun = saturate(dot(Ns, Ls)) * lobe * Spec * Sun;
 
-// The reflection: the screen-space trace of WaterReflPS with the flatter reflection normal.
-float3 Nr = normalize(lerp(up, N, ocean ? ReflBump : 0.3));
+// The reflection: the screen-space trace of WaterReflPS with the reflection normal.
 float3 R = reflect(-V, Nr);
 float3 P0 = GetTranslatedWorldPosition(Parameters);
 float4 c0 = mul(float4(P0, 1.0), View.TranslatedWorldToClip);
@@ -274,11 +280,11 @@ else
 {
     float3 Ccube = Cenv;
     float4 r = saturate(ssr / float4(UNIT.xxx, 1.0)) * float4(UNIT.xxx, 1.0);   // the source clamps the RGBA to 0..1
-    Crefl = dot(V, N) > 0.0 ? lerp(Ccube, r.rgb, r.a) : float3(0.0, 0.0, 0.0);
+    Crefl = dot(V, Nr) > 0.0 ? lerp(Ccube, r.rgb, r.a) : float3(0.0, 0.0, 0.0);
 }
 
 // The Fresnel and the blend.
-float NoV = saturate(dot(N, V));
+float NoV = saturate(dot(Ns, V));
 float3 C;
 if (!ocean)
 {

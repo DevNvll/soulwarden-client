@@ -195,6 +195,33 @@ retail | the Unreal sun | the source sun, `water-part.txt`, `swim-idle-parts.png
 Open [U]: the content and the level of the retail sky cube (`$SkyCubemap`: the sky draw, the fog stage, the clouds) and the exact
 ocean reflection order (the clamp of the trace, the sky fill, the material cube); a static study is asked (AST-200).
 
+### The reflection rules of the sky study (part 4, 2026-10-22)
+
+The GPT-6.1-Sol study `~/Games/soulwarden-client/research/water-sky-reflection.md` (sections 1 to 5). Parent version 16 of
+`M_SwcWaterSource`:
+
+- The ocean (O): the final normal Nb = normalize(mix(U, N, ReflectionBumpScale)) (no foam normal yet) for the trace, the sky, the sun
+  lobes, the Fresnel, and the facing test (before: the raw N for the sun and the Fresnel). The volumes (VR): the flat U for the trace and
+  the sky; the full N for the sun and the Fresnel (V). Not done: the screen warp of the volume reflection target (V 0060-0119).
+- Kept, as the study proves: the sky fill replaces the material cube (alpha 1), the ocean clamps the filled reflection to one source
+  unit before the sun lobes; the volumes do not clamp. ReflectionScale 0.2 has no weight on the ocean sky fill.
+- Not done (a limit): the sun depth shadow factor clamp(shadow, 0.35, 1) at the water point on the filled reflection (an unlit
+  translucent material has no simple sun shadow in Unreal). In open views it is near 1.
+- The sky cube: the source cube has the base sky (Mie and Rayleigh) and, by default, the cube fog stage; the second draw list (0x19)
+  is not recovered, thus the clouds in the cube are not proved. `swc.WaterSkyCube` (bits: 1 the clouds, 2 the height and volumetric
+  fog; default 3, the capture before part 4).
+
+| View | e73ab25 | v16 | v16, cube 2 (no clouds) | v16, cube 0 (bare sky) | Water L* v16 / cube 0 (retail) |
+| --- | --- | --- | --- | --- | --- |
+| swim-idle | 14.3 | 15.5 | 14.0 | 9.2 | 41.2 / 35.7 (24.4) |
+| swim-nav | 13.2 | 12.8 | 13.4 | 9.8 | 36.9 / 33.4 (21.7) |
+| river-forest-noon | 10.3 | 8.9 | 11.3 | 13.1 | 39.6 / 35.8 (28.9) |
+| ocean-clear-noon | 13.4 | 14.7 | 8.8 | 14.7 | 51.8 / 52.1 (36.7) |
+| The mean (water dE) | 12.8 | 13.0 | 11.9 | 11.7 | |
+
+The bare cube gives the deep blue of the retail swim water (saturation 0.78 against 0.79) but makes the river too blue (b* -8.0
+against +7.3); no clouds helps the far ocean. Evidence: `~/Games/soulwarden-client/evidence/AST-200/part4/`.
+
 ## The depth classes
 
 The rule of the retail client (research wf5-swim, client code 0x6A0DBF0; `swc::water::depth_class`): the leaf of the water quadtree

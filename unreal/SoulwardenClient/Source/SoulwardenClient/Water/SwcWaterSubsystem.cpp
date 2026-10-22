@@ -64,6 +64,13 @@ TAutoConsoleVariable<FString> CVarWaterParams(TEXT("swc.WaterParams"), TEXT(""),
 /** The sun color S of the water (research water-uploads.md 1 [R]): 1 the time-of-day sun of the source on the ground (Sun color / Y x
  *  Sun intensity lux / pi, USwcEnvironmentSubsystem::GetSourceSunLight); 0 the Unreal sun light (its color x intensity / pi: the
  *  light before the Unreal atmosphere, bluer and stronger at noon; the rule before AST-200 part 3). */
+/** The parts of the sky cube of the water (research water-sky-reflection.md 2): the source cube has the base sky (the Mie and Rayleigh
+ *  sky formula) and, by default, the cube fog stage (old x T + Lfog); a second list of draws (0x19) is not recovered, thus the clouds in
+ *  the cube are not proved. Bit 1: the clouds of Unreal; bit 2: the height fog and the volumetric fog. The atmosphere and the sky
+ *  sphere are always in it. */
+TAutoConsoleVariable<int32> CVarWaterSkyCube(TEXT("swc.WaterSkyCube"), 3,
+	TEXT("The parts of the water sky cube: 1 the clouds, 2 the fog (bits; 3 both, 0 the bare sky)."));
+
 TAutoConsoleVariable<int32> CVarWaterSourceSun(TEXT("swc.WaterSourceSun"), 1,
 	TEXT("1: the water sun color is the source sun of the hour (the rule); 0: the Unreal sun light."));
 
@@ -771,6 +778,10 @@ void USwcWaterSubsystem::UpdateSkyCube(const FVector& View)
 	if (SkyCapture != nullptr && Now >= NextSkyCapture)
 	{
 		NextSkyCapture = Now + 1.0;
+		const int32 Parts = CVarWaterSkyCube.GetValueOnGameThread();
+		SkyCapture->ShowFlags.SetCloud((Parts & 1) != 0);
+		SkyCapture->ShowFlags.SetFog((Parts & 2) != 0);
+		SkyCapture->ShowFlags.SetVolumetricFog((Parts & 2) != 0);
 		SkyCapture->SetWorldLocation(View);
 		SkyCapture->CaptureScene();
 	}
