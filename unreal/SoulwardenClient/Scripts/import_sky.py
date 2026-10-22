@@ -491,6 +491,33 @@ if os.path.exists(spec_doc):
         cube.set_editor_property("never_stream", True)
         assets.save_loaded_asset(cube, only_if_is_dirty=False)
         report["probe specular cubes"].append(asset)
+# The environment BRDF table of the source (research probe-flags.md section 3; probes-spec.json "brdf"): linear R, G at (N.V,
+# smoothness), RGBA16F with no mips and no sRGB (the converter has decoded the sRGB view of the file).
+if os.path.exists(spec_doc) and "brdf" in json.load(open(spec_doc)):
+    entry = json.load(open(spec_doc))["brdf"]
+    asset = "T_SwcEnvironmentBrdf"
+    path = f"{SPEC_PROBES}/{asset}"
+    if not assets.does_asset_exist(path) or force:
+        task = unreal.AssetImportTask()
+        task.set_editor_property("filename", os.path.join(content, entry["dds"]))
+        task.set_editor_property("destination_path", SPEC_PROBES)
+        task.set_editor_property("destination_name", asset)
+        task.set_editor_property("automated", True)
+        task.set_editor_property("replace_existing", True)
+        task.set_editor_property("save", False)
+        tools.import_asset_tasks([task])
+        table = unreal.load_asset(path)
+        if not isinstance(table, unreal.Texture2D):
+            raise RuntimeError(f"{path}: the import gave {type(table).__name__}, not a Texture2D")
+        table.set_editor_property("srgb", False)
+        table.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
+        table.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_HDR)
+        table.set_editor_property("filter", unreal.TextureFilter.TF_BILINEAR)
+        table.set_editor_property("address_x", unreal.TextureAddress.TA_CLAMP)
+        table.set_editor_property("address_y", unreal.TextureAddress.TA_CLAMP)
+        table.set_editor_property("never_stream", True)
+        assets.save_loaded_asset(table, only_if_is_dirty=False)
+    report["environment brdf"] = asset
 report["seconds"] = round(time.time() - started, 1)
 with open(os.environ["SWC_SKY_REPORT"], "w") as handle:
     json.dump(report, handle, indent=1)

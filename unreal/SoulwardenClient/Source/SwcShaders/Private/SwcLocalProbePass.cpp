@@ -104,8 +104,8 @@ void AddSwcLocalProbePass(FRDGBuilder& GraphBuilder, const FSceneView& View, FRD
 
 namespace
 {
-/** The five values of one probe of the specular pass: the center and the falloff, the three rows, the color and the box
- *  projection, the box size. */
+/** The six values of one probe of the specular pass: the center and the falloff, the three rows, the color and the box
+ *  projection, the half sizes of the proxy box and the slot of its cube. */
 constexpr int32 SpecularStride = 6;
 }
 
@@ -130,9 +130,17 @@ public:
 		SHADER_PARAMETER_TEXTURE(TextureCube, Cube5)
 		SHADER_PARAMETER_TEXTURE(TextureCube, Cube6)
 		SHADER_PARAMETER_TEXTURE(TextureCube, Cube7)
+		SHADER_PARAMETER_TEXTURE(TextureCube, Cube8)
+		SHADER_PARAMETER_TEXTURE(TextureCube, Cube9)
+		SHADER_PARAMETER_TEXTURE(TextureCube, Cube10)
+		SHADER_PARAMETER_TEXTURE(TextureCube, Cube11)
+		SHADER_PARAMETER_TEXTURE(TextureCube, Cube12)
+		SHADER_PARAMETER_TEXTURE(TextureCube, Cube13)
+		SHADER_PARAMETER_TEXTURE(TextureCube, Cube14)
+		SHADER_PARAMETER_TEXTURE(TextureCube, Cube15)
 		SHADER_PARAMETER_SAMPLER(SamplerState, CubeSampler)
-		SHADER_PARAMETER_TEXTURE(Texture2D, PreIntegratedGF)
-		SHADER_PARAMETER_SAMPLER(SamplerState, PreIntegratedGFSampler)
+		SHADER_PARAMETER_TEXTURE(Texture2D, BrdfTable)
+		SHADER_PARAMETER_SAMPLER(SamplerState, BrdfSampler)
 		SHADER_PARAMETER(uint32, ProbeCount)
 		SHADER_PARAMETER(float, SourceLuminance)
 		SHADER_PARAMETER(float, SsdoReflection)
@@ -157,10 +165,11 @@ public:
 IMPLEMENT_GLOBAL_SHADER(FSwcProbeSpecularPS, "/SwcShaders/Private/SwcProbeSpecular.usf", "MainPS", SF_Pixel);
 
 void AddSwcProbeSpecularPass(FRDGBuilder& GraphBuilder, const FSceneView& View, FRDGTextureRef SceneColor, FRDGTextureRef SceneDepth,
-	FRDGTextureRef GBufferA, FRDGTextureRef GBufferB, FRDGTextureRef GBufferC, FRHITexture* PreIntegratedGF, const FSwcProbeShadingList& List)
+	FRDGTextureRef GBufferA, FRDGTextureRef GBufferB, FRDGTextureRef GBufferC, const FSwcProbeShadingList& List)
 {
 	if (SceneColor == nullptr || SceneDepth == nullptr || GBufferA == nullptr || GBufferB == nullptr || GBufferC == nullptr
-		|| PreIntegratedGF == nullptr || List.WorldSpecCube == nullptr || List.WorldSpecCube->TextureRHI == nullptr)
+		|| List.BrdfTable == nullptr || List.BrdfTable->TextureRHI == nullptr || List.WorldSpecCube == nullptr
+		|| List.WorldSpecCube->TextureRHI == nullptr)
 	{
 		return;
 	}
@@ -172,17 +181,21 @@ void AddSwcProbeSpecularPass(FRDGBuilder& GraphBuilder, const FSceneView& View, 
 	Parameters->GBufferC = GBufferC;
 	Parameters->WorldCube = List.WorldSpecCube->TextureRHI;
 	Parameters->CubeSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
-	Parameters->PreIntegratedGF = PreIntegratedGF;
-	Parameters->PreIntegratedGFSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	Parameters->BrdfTable = List.BrdfTable->TextureRHI;
+	Parameters->BrdfSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 	Parameters->SourceLuminance = List.SourceLuminance;
 	Parameters->SsdoReflection = List.SsdoReflection;
 	Parameters->WorldColor = FVector4f(List.WorldSpecColor, 0.0f);
 	FRHITexture* Black = GBlackTextureCube->TextureRHI;
-	FRHITexture** Slots[FSwcProbeShadingList::MaxSpecular] = {&Parameters->Cube0, &Parameters->Cube1, &Parameters->Cube2, &Parameters->Cube3,
-		&Parameters->Cube4, &Parameters->Cube5, &Parameters->Cube6, &Parameters->Cube7};
-	// The probes of the list in their order, the first MaxSpecular with a cube (a probe with no cube has no specular light of its own:
-	// its weight stays with the world probe).
+	FRHITexture** Slots[FSwcProbeShadingList::MaxSpecularCubes] = {&Parameters->Cube0, &Parameters->Cube1, &Parameters->Cube2,
+		&Parameters->Cube3, &Parameters->Cube4, &Parameters->Cube5, &Parameters->Cube6, &Parameters->Cube7, &Parameters->Cube8,
+		&Parameters->Cube9, &Parameters->Cube10, &Parameters->Cube11, &Parameters->Cube12, &Parameters->Cube13, &Parameters->Cube14,
+		&Parameters->Cube15};
+	// All the probes of the list in their order (the nearest MaxProbes; research probe-flags.md: no limit of the first eight cubes);
+	// the probes share the distinct cubes in MaxSpecularCubes slots. A probe with no cube or no free slot has no specular light of its
+	// own: its weight stays with the probes after it and the world probe.
 	const FVector PreViewTranslation = View.ViewMatrices.GetPreViewTranslation();
+	TArray<FRHITexture*, TInlineAllocator<FSwcProbeShadingList::MaxSpecularCubes>> Cubes;
 	int32 Count = 0;
 	for (const FSwcProbeShadingProbe& Probe : List.Probes)
 	{
@@ -194,19 +207,27 @@ void AddSwcProbeSpecularPass(FRDGBuilder& GraphBuilder, const FSceneView& View, 
 		{
 			continue;
 		}
+		int32 Slot = Cubes.Find(Probe.SpecCube->TextureRHI);
+		if (Slot == INDEX_NONE)
+		{
+			if (Cubes.Num() == FSwcProbeShadingList::MaxSpecularCubes)
+			{
+				continue;
+			}
+			Slot = Cubes.Add(Probe.SpecCube->TextureRHI);
+		}
 		FVector4f* Out = &Parameters->Probes[Count * SpecularStride];
 		Out[0] = FVector4f(FVector3f(Probe.Center + PreViewTranslation), Probe.Falloff);
 		Out[1] = FVector4f(Probe.Rows[0], 0.0f);
 		Out[2] = FVector4f(Probe.Rows[1], 0.0f);
 		Out[3] = FVector4f(Probe.Rows[2], 0.0f);
 		Out[4] = FVector4f(Probe.SpecColor, Probe.bBoxProject ? 1.0f : 0.0f);
-		Out[5] = FVector4f(Probe.BoxHalf, 0.0f);
-		*Slots[Count] = Probe.SpecCube->TextureRHI;
+		Out[5] = FVector4f(Probe.BoxHalf, static_cast<float>(Slot));
 		++Count;
 	}
-	for (int32 Index = Count; Index < FSwcProbeShadingList::MaxSpecular; ++Index)
+	for (int32 Index = 0; Index < FSwcProbeShadingList::MaxSpecularCubes; ++Index)
 	{
-		*Slots[Index] = Black;
+		*Slots[Index] = Index < Cubes.Num() ? Cubes[Index] : Black;
 	}
 	Parameters->ProbeCount = static_cast<uint32>(Count);
 	Parameters->RenderTargets[0] = FRenderTargetBinding(SceneColor, ERenderTargetLoadAction::ELoad);
@@ -214,6 +235,6 @@ void AddSwcProbeSpecularPass(FRDGBuilder& GraphBuilder, const FSceneView& View, 
 	TShaderMapRef<FSwcProbeSpecularPS> Shader(ShaderMap);
 	// The whole target (the shader keeps to the view rectangle, as the AO pass).
 	const FIntPoint Extent = SceneColor->Desc.Extent;
-	FPixelShaderUtils::AddFullscreenPass(GraphBuilder, ShaderMap, RDG_EVENT_NAME("SwcProbeSpecular %d probes", Count), Shader, Parameters,
+	FPixelShaderUtils::AddFullscreenPass(GraphBuilder, ShaderMap, RDG_EVENT_NAME("SwcProbeSpecular %d probes, %d cubes", Count, Cubes.Num()), Shader, Parameters,
 		FIntRect(0, 0, Extent.X, Extent.Y), TStaticBlendState<CW_RGB, BO_Add, BF_One, BF_One>::GetRHI());
 }

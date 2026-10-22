@@ -1076,7 +1076,13 @@ void USwcEnvironmentSubsystem::UpdatePixelProbes(const FVector& CameraLocation, 
 	// DiffuseMultiplier x lerp(1, G x D, t) x SpecMultiplier x lerp(1, S, t); G the RGB of "Environment Probe Multiplier", D and S its
 	// diffuse and specular multipliers), and the scene luminance of one source unit.
 	UTextureCube* WorldSpec = !bOff && CVarProbeSpecular.GetValueOnGameThread() == 1 && !Data->WorldProbe.IsEmpty() ? ProbeSpecCube(Data->WorldProbe) : nullptr;
-	List.bSpecular = WorldSpec != nullptr && WorldSpec->GetResource() != nullptr;
+	if (WorldSpec != nullptr && !bBrdfTableTried)
+	{
+		bBrdfTableTried = true;
+		BrdfTable = LoadObject<UTexture2D>(nullptr, TEXT("/SwcGameContent/Environment/ProbesSpec/T_SwcEnvironmentBrdf.T_SwcEnvironmentBrdf"), nullptr, LOAD_NoWarn);
+		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the BRDF table of the source%s"), BrdfTable != nullptr ? TEXT("") : TEXT(" is not imported (tools/import-sky.sh)"));
+	}
+	List.bSpecular = WorldSpec != nullptr && WorldSpec->GetResource() != nullptr && BrdfTable != nullptr && BrdfTable->GetResource() != nullptr;
 	ApplyProbeSpecular(List.bSpecular);
 	if (!List.bAo && !List.bSpecular)
 	{
@@ -1095,6 +1101,7 @@ void USwcEnvironmentSubsystem::UpdatePixelProbes(const FVector& CameraLocation, 
 	if (List.bSpecular)
 	{
 		List.WorldSpecCube = WorldSpec->GetResource();
+		List.BrdfTable = BrdfTable->GetResource();
 		const double WorldColor = Data->WorldProbeDiffuse * Data->WorldProbeSpecular;
 		List.WorldSpecColor = SpecularColor({WorldColor, WorldColor, WorldColor}, Data->WorldProbeTodInfluence);
 		List.SourceLuminance = static_cast<float>(SourceUnitLuminance * CVarProbeScale.GetValueOnGameThread());
@@ -1185,8 +1192,9 @@ void USwcEnvironmentSubsystem::UpdatePixelProbes(const FVector& CameraLocation, 
 			SpecularCubes += Out.SpecCube != nullptr ? 1 : 0;
 			Out.SpecColor = SpecularColor(Probe.SpecColor, Probe.TodInfluence);
 			Out.bBoxProject = Probe.bBoxProject;
-			// The proxy box of the reflection: BoxSize / 2 on the axes of the entity (m to cm).
-			Out.BoxHalf = FVector3f(static_cast<float>(Probe.BoxSize[0] * 50.0), static_cast<float>(Probe.BoxSize[1] * 50.0),
+			// The proxy box of the reflection on the world axes (research probe-flags.md section 4, D3DTiledShading: x BoxLength,
+			// y BoxWidth, z BoxHeight, each / 2; m to cm; the record order is Width, Length, Height).
+			Out.BoxHalf = FVector3f(static_cast<float>(Probe.BoxSize[1] * 50.0), static_cast<float>(Probe.BoxSize[0] * 50.0),
 				static_cast<float>(Probe.BoxSize[2] * 50.0));
 		}
 	}
@@ -1195,7 +1203,7 @@ void USwcEnvironmentSubsystem::UpdatePixelProbes(const FVector& CameraLocation, 
 	{
 		NextPixelProbeLog = Now + 5.0;
 		const FData::FLocalProbe* First = Near.IsEmpty() ? nullptr : &Data->LocalProbes[Near[0].Index];
-		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the local probes of the pixels: %d of %d within %.0f m, %d with more light than the world probe (the AO cannot add it), %d with a specular cube (the pass uses the first %d); the first %s (priority %d, radius %.1f m)"),
+		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the local probes of the pixels: %d of %d within %.0f m, %d with more light than the world probe (the AO cannot add it), %d with a specular cube (the pass uses at most %d probes); the first %s (priority %d, radius %.1f m)"),
 			List.Probes.Num(), Found, Reach, Brighter, SpecularCubes, FSwcProbeShadingList::MaxSpecular, First != nullptr ? *First->Cube : TEXT("none"),
 			First != nullptr ? First->Priority & 0xFF : 0, First != nullptr ? First->Radius : 0.0);
 	}

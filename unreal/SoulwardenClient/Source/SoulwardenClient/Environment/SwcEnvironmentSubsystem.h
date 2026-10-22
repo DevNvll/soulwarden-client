@@ -127,7 +127,7 @@ public:
 			double TodInfluence = 1.0;
 			FString Cube;
 			/** The specular term (swc.ProbeSpecular 1): COLOR x DiffuseMultiplier x SpecMultiplier, the box projection of the reflection and the size of
-			 *  its proxy box (BoxSize, m, on the axes of the entity). */
+			 *  its proxy box on the world axes (BoxWidth, BoxLength, BoxHeight of the record, m; the source: x Length, y Width, z Height). */
 			std::array<double, 3> SpecColor{1.0, 1.0, 1.0};
 			bool bBoxProject = false;
 			std::array<double, 3> BoxSize{1.0, 1.0, 1.0};
@@ -348,6 +348,10 @@ private:
 	UPROPERTY(Transient)
 	TMap<FString, TObjectPtr<class UTextureCube>> ProbeSpecCubes;
 	class UTextureCube* ProbeSpecCube(const FString& Name);
+	/** The environment BRDF table of the source (T_SwcEnvironmentBrdf), loaded at the first use of the specular term. */
+	UPROPERTY(Transient)
+	TObjectPtr<class UTexture2D> BrdfTable;
+	bool bBrdfTableTried = false;
 	/** The Unreal reflections that swc.ProbeSpecular 1 turns off (Lumen reflections, the reflection environment with the sky light
 	 *  specular, the screen-space reflections) and their values before (-1: not changed). */
 	void ApplyProbeSpecular(bool bOn);

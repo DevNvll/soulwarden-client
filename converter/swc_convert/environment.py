@@ -47,6 +47,7 @@ evidence). The distribution rows of a region are not read (no environment compon
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import math
 import re
@@ -1064,10 +1065,53 @@ def write_cube_dds(path: Path, mips: list) -> None:
     temporary.replace(path)
 
 
+BRDF_TABLE = "engineassets/shading/environmentbrdf.dds"
+
+
+def brdf_table():
+    """@return The environment BRDF table of the source (research probe-flags.md section 3): 128 x 128, the columns N.V, the rows the
+    smoothness (row 0: 0), R and G linear (the file is BC1 sRGB: the sRGB view of its binder decodes it), or no value. Mip 0 is the
+    highest split part (NAME.dds.N)."""
+    from PIL import Image
+    if not source.has(BRDF_TABLE):
+        return None
+    header = bytearray(source.read(BRDF_TABLE)[:148])
+    parts = 0
+    while source.has(f"{BRDF_TABLE}.{parts + 1}"):
+        parts += 1
+    if parts == 0:
+        return None
+    size = struct.unpack_from("<I", header, 16)[0]
+    struct.pack_into("<I", header, 28, 1)    # one mip
+    struct.pack_into("<I", header, 128, 71)  # BC1 UNORM: Pillow decodes the stored codes; the sRGB transfer below
+    picture = Image.open(io.BytesIO(bytes(header) + source.read(f"{BRDF_TABLE}.{parts}"))).convert("RGB")
+    codes = np.asarray(picture).astype(np.float64) / 255.0
+    if codes.shape[:2] != (size, size):
+        return None
+    return np.where(codes <= 0.04045, codes / 12.92, ((codes + 0.055) / 1.055) ** 2.4)
+
+
+def write_dds_2d(path: Path, rgb: np.ndarray) -> None:
+    """Writes a DDS 2D texture of RGBA16F with one mip (DX10 header), which Unreal imports as linear float data."""
+    height, width = rgb.shape[:2]
+    header = bytearray(4 + 124 + 20)
+    header[0:4] = b"DDS "
+    struct.pack_into("<7I", header, 4, 124, 0x1 | 0x2 | 0x4 | 0x1000, height, width, width * 8, 0, 1)
+    struct.pack_into("<2I4s", header, 4 + 72, 32, 0x4, b"DX10")
+    struct.pack_into("<4I", header, 4 + 104, 0x1000, 0, 0, 0)
+    struct.pack_into("<5I", header, 128, 10, 3, 0, 1, 0)
+    rgba = np.concatenate([rgb.astype(np.float32), np.ones(rgb.shape[:2] + (1,), np.float32)], -1)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_bytes(bytes(header) + rgba.astype(np.float16).tobytes())
+    temporary.replace(path)
+
+
 def probe_specular() -> dict:
     """Writes probes/spec/NAME.dds (each world and local probe cube with its pre-filtered mips of the source: the specular term of
     the probes for each pixel, research weapon-materials.md section 2) and probes-spec.json (NAME -> the file, the cubemap, the face
-    size, the mips). The command probes-spec, after probes."""
+    size, the mips) with the environment BRDF table of the source (probes/spec/environment_brdf.dds, "brdf"). The command probes-spec,
+    after probes."""
     doc = json.loads((out_dir() / "probes.json").read_text())
     cubemaps = [w["cubemap"] for w in doc["world"]] + [c for c in doc.get("cubes", {}) if c]
     records, failed = {}, {}
@@ -1085,8 +1129,17 @@ def probe_specular() -> dict:
         write_cube_dds(target, mips)
         records[name] = {"dds": str(target.relative_to(out_dir())), "cubemap": cubemap, "faceSize": int(mips[0][0].shape[0]),
                          "mips": len(mips)}
-    (out_dir() / "probes-spec.json").write_text(json.dumps({"format": 1, "cubes": records}, indent=1, sort_keys=True))
-    return {"cubes": len(records), "failed": failed}
+    doc = {"format": 1, "cubes": records}
+    table = brdf_table()
+    if table is not None:
+        target = out_dir() / "probes" / "spec" / "environment_brdf.dds"
+        write_dds_2d(target, table)
+        doc["brdf"] = {"dds": str(target.relative_to(out_dir())), "source": BRDF_TABLE, "size": list(table.shape[:2]),
+                       "rule": "(R, G) at (N.V, smoothness); F = R x (1 - F0) + G x F0; linear"}
+    else:
+        failed[BRDF_TABLE] = "the table does not read"
+    (out_dir() / "probes-spec.json").write_text(json.dumps(doc, indent=1, sort_keys=True))
+    return {"cubes": len(records), "brdf": table is not None, "failed": failed}
 
 
 def main(argv=None) -> int:

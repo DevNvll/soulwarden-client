@@ -3,13 +3,13 @@
 //
 // lod = 6 - 6 x s (s the smoothness, 1 - roughness); P = the ordered blend of the probes of the pixel (each takes its fade of the
 // weight that the probes before it left; the world probe the rest), each cube sampled at the reflection direction (the box
-// projection of its probe) x its color; SpecEnv = P x EnvBRDF(F0, roughness, N.V) x SpecOcclusion, SpecOcclusion =
+// projection of its probe) x its color; SpecEnv = P x F x SpecOcclusion, F = R x (1 - F0) + G x F0 with (R, G) of the BRDF table of
+// the source at (N.V, s) (research probe-flags.md section 3; not the table and the formula of Unreal), SpecOcclusion =
 // saturate((N.V + ao)^s - 1 + ao), ao = max(material AO, 0.3). The cubes have the pre-filtered mips of the source and its face
 // layout (the D3D cube lookup of the source directions east, north, up = Unreal +X, -Y, +Z). The SSDO of the source (the reflection
 // amount 3) is in the specular occlusion.
 
 #include "/Engine/Private/Common.ush"
-#include "/Engine/Private/BRDF.ush"
 
 Texture2D SceneDepth;
 Texture2D GBufferA;
@@ -24,13 +24,24 @@ TextureCube Cube4;
 TextureCube Cube5;
 TextureCube Cube6;
 TextureCube Cube7;
+TextureCube Cube8;
+TextureCube Cube9;
+TextureCube Cube10;
+TextureCube Cube11;
+TextureCube Cube12;
+TextureCube Cube13;
+TextureCube Cube14;
+TextureCube Cube15;
 SamplerState CubeSampler;
+// The environment BRDF table of the source: linear (R, G) at (N.V, smoothness), 128 x 128.
+Texture2D BrdfTable;
+SamplerState BrdfSampler;
 uint ProbeCount;
 float SourceLuminance;
 float SsdoReflection;
 float4 WorldColor;
 // Each probe: the center (translated world, cm) and the falloff; the three rows of the box space (1/cm); the color and the box
-// projection (w > 0.5); the half sizes of the proxy box of the reflection (cm).
+// projection (w > 0.5); the half sizes of the proxy box of the reflection on the world axes (cm) and the slot of its cube (w).
 float4 Probes[MAX_SPECULAR * SPECULAR_STRIDE];
 
 float3 SourceDirection(float3 R)
@@ -67,25 +78,29 @@ float3 SampleCube(uint Index, float3 Direction, float Lod)
 	case 4: return Cube4.SampleLevel(CubeSampler, D, Lod).rgb;
 	case 5: return Cube5.SampleLevel(CubeSampler, D, Lod).rgb;
 	case 6: return Cube6.SampleLevel(CubeSampler, D, Lod).rgb;
-	default: return Cube7.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 7: return Cube7.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 8: return Cube8.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 9: return Cube9.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 10: return Cube10.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 11: return Cube11.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 12: return Cube12.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 13: return Cube13.SampleLevel(CubeSampler, D, Lod).rgb;
+	case 14: return Cube14.SampleLevel(CubeSampler, D, Lod).rgb;
+	default: return Cube15.SampleLevel(CubeSampler, D, Lod).rgb;
 	}
 }
 
-// The box projection of the source: the ray from the pixel along R to the faces of the box of the probe; the direction from the
-// center of the box to that point.
+// The box projection of the source (shadelib CubemapBoxParallaxCorrection): the proxy box is on the world axes about the probe
+// center, apart from the rotated influence box (D3DTiledShading: -/+ BoxLength, BoxWidth, BoxHeight / 2); the ray from the pixel
+// along R to its far faces; the direction from the center to that point.
 float3 BoxProject(float3 Position, float3 R, uint Base)
 {
 	const float3 Center = Probes[Base].xyz;
-	// The axes of the box from its rows (the unit axes over the half sizes of the influence box); the half sizes of the proxy box
-	// (BoxSize of the record / 2, cm).
-	const float3 Lengths = float3(length(Probes[Base + 1].xyz), length(Probes[Base + 2].xyz), length(Probes[Base + 3].xyz));
 	const float3 Half = Probes[Base + 5].xyz;
-	const float3 Axes[3] = {Probes[Base + 1].xyz / Lengths.x, Probes[Base + 2].xyz / Lengths.y, Probes[Base + 3].xyz / Lengths.z};
-	const float3 P = float3(dot(Axes[0], Position - Center), dot(Axes[1], Position - Center), dot(Axes[2], Position - Center));
-	const float3 D = float3(dot(Axes[0], R), dot(Axes[1], R), dot(Axes[2], R));
-	// The face plane in the direction of each axis component, and the distance along R to it (no zero divisor).
-	const float3 Positive = step(0.0, D);
-	const float3 Far = (lerp(-Half, Half, Positive) - P) / lerp(min(D, -1e-5), max(D, 1e-5), Positive);
+	const float3 P = Position - Center;
+	// The face plane in the direction of each component, and the distance along R to it (no zero divisor).
+	const float3 Positive = step(0.0, R);
+	const float3 Far = (lerp(-Half, Half, Positive) - P) / lerp(min(R, -1e-5), max(R, 1e-5), Positive);
 	const float T = max(0.0, min(Far.x, min(Far.y, Far.z)));
 	return normalize(Position + R * T - Center);
 }
@@ -198,7 +213,7 @@ void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
 		if (Weight > 0.0)
 		{
 			const float3 Direction = Probes[Base + 4].w > 0.5 ? BoxProject(Position, R, Base) : R;
-			Light += Weight * SampleCube(Index, Direction, Lod) * Probes[Base + 4].rgb;
+			Light += Weight * SampleCube((uint)Probes[Base + 5].w, Direction, Lod) * Probes[Base + 4].rgb;
 		}
 		Used += Weight;
 	}
@@ -207,5 +222,7 @@ void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
 	const float Ssdo = SsdoReflection > 0.0 ? SsdoAmount(SvPosition.xy, ConvertFromDeviceZ(DeviceZ)) : 0.0;
 	const float Ao = max(min(C.a, Square(saturate(1.0 - Ssdo * SsdoReflection))), 0.3);
 	const float Occlusion = saturate(pow(NoV + Ao, Smoothness) - 1.0 + Ao);
-	OutColor = float4(Light * EnvBRDF(F0, Roughness, NoV) * Occlusion * SourceLuminance * View.PreExposure, 0.0);
+	const float2 Table = BrdfTable.SampleLevel(BrdfSampler, float2(NoV, Smoothness), 0).rg;
+	const float3 Response = Table.x * (1.0 - F0) + Table.y * F0;
+	OutColor = float4(Light * Response * Occlusion * SourceLuminance * View.PreExposure, 0.0);
 }

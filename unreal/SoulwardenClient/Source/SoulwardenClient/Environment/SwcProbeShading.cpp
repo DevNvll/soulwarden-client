@@ -6,7 +6,6 @@
 #include "RenderGraphBuilder.h"
 #include "SceneView.h"
 #include "SceneViewExtension.h"
-#include "SystemTextures.h"
 
 namespace
 {
@@ -65,8 +64,7 @@ public:
 		// lighting adds to the scene color after the base pass, the fog and the translucency come later (as the source).
 		if (List.bSpecular)
 		{
-			AddSwcProbeSpecularPass(GraphBuilder, InView, SceneColor, Depth, GBuffer[0], GBuffer[1], GBuffer[2],
-				GSystemTextures.PreintegratedGF.IsValid() ? GSystemTextures.PreintegratedGF->GetRHI() : nullptr, List);
+			AddSwcProbeSpecularPass(GraphBuilder, InView, SceneColor, Depth, GBuffer[0], GBuffer[1], GBuffer[2], List);
 		}
 		if (List.bAo && !List.Probes.IsEmpty())
 		{

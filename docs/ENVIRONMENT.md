@@ -569,32 +569,42 @@ the flower petals are cream-white, and the fire is a white flare. Evidence: `~/G
   the base file has the smaller mips of each face in turn) as a DDS cube of RGBA16F (the mips below 4 x 4 are 2 x 2 means, as
   Unreal imports only a full chain): `content/environment/probes/spec/NAME.dds` and `probes-spec.json` (35 cubes, 140 MB).
   `tools/import-sky.sh` imports them as `/SwcGameContent/Environment/ProbesSpec/T_SwcProbeSpec_NAME` (the mips of the file,
-  HDR, no streaming). The face layout is the D3D cube lookup of the source directions east, north, up (Unreal +X, -Y, +Z); the
+  HDR, no streaming). The same command writes the environment BRDF table of the source (`engineassets/shading/environmentbrdf.dds`:
+  BC1 sRGB 128 x 128, mip 0 in the highest split part; decoded with its sRGB view to linear R, G; research probe-flags.md section 3)
+  as `probes/spec/environment_brdf.dds` (RGBA16F), imported as `T_SwcEnvironmentBrdf` (no mips, no sRGB, bilinear clamp). The face
+  layout is the D3D cube lookup of the source directions east, north, up (Unreal +X, -Y, +Z); the
   seams of the world cube agree with this layout (mean seam error 0.008 against 0.39 for a swap of the north and south faces).
 - The pass (`Shaders/Private/SwcProbeSpecular.usf`, `AddSwcProbeSpecularPass` in `Source/SwcShaders`; the view extension
   `Environment/SwcProbeShading.cpp`) runs after the base pass, before the lighting, and adds to the scene color, so the fog
-  and the translucency come after it. For each lit pixel: R = reflect(-V, N); the ordered probe weights of the AO pass (the
-  first 8 probes of the list with a cube, the world probe in the rest); each cube at R (the box projection of its proxy box,
-  `BoxSize` / 2 in m on the axes of the entity, when `BoxProject`) at the mip 6 - 6 x smoothness; times its color COLOR x
+  and the translucency come after it. For each lit pixel: R = reflect(-V, N); the ordered probe weights of the AO pass (all
+  the probes of the list with a cube, at most 64, which share at most 16 distinct cubes; the world probe in the rest); each cube
+  at R (when `BoxProject`: the box projection of the proxy box on the world axes about the probe center, x BoxLength, y BoxWidth,
+  z BoxHeight, each / 2, apart from the rotated influence box) at the mip 6 - 6 x smoothness; times its color COLOR x
   DiffuseMultiplier x lerp(1, G x D, t) x SpecMultiplier x lerp(1, S, t) (G the RGB of "Environment Probe Multiplier", D and S
-  the diffuse and specular multipliers of the time of day, t the TODInfluence); times the environment BRDF of Unreal
-  (`EnvBRDF`: F0 and the roughness of the G-buffer, N.V); times the specular occlusion saturate((N.V + ao)^s - 1 + ao), ao =
+  the diffuse and specular multipliers of the time of day, t the TODInfluence); times R x (1 - F0) + G x F0 with (R, G) of the
+  BRDF table of the source at (N.V, smoothness) (not the table and the formula of Unreal `EnvBRDF`: at F0 0.18, s 0.75, and N.V
+  0.1 they give 2.61 times the response of the source); times the specular occlusion saturate((N.V + ao)^s - 1 + ao), ao =
   max(min(material AO, saturate(1 - a x 3)^2), 0.3), a the SSDO of the source (8 taps, the narrow and wide bands, the radius
   1.2 m with the UV bounds 0.06 to 0.20; `swc.ProbeSpecularSsdo`, 0 turns it off); times 10,000 cd/m2 a unit x
   `swc.ProbeScale` x the pre-exposure. The SSDO blur takes taps 1 pixel apart (the source: 2) so that the 2 x 2 pattern of the
   radius bound does not show on bright metal [I].
 - With the switch on, the client sets `r.Lumen.Reflections.Allow`, `r.ReflectionEnvironment`, and `r.SSR.Quality` to 0 (the
   values before come back when it is off), so the reflection is not counted twice.
-- Checks (the matched views of set-ast247-mv, set1-oxboro, and set4-weather; `work/ast247/sheets-spec/`): the steel of the
-  Heavy Plate set (helmet, shoulders) is near retail with the term (the shoulder 0.49 against retail 0.54 in linear display
-  values at matched dirt); the steel of Metal_SetB (Heavy Heavy) and the iron fence of noon-n are too bright and too neutral:
-  about 1.5 to 2 times retail in display values, retail shows a darker, green reflection of the forest. The SSDO removes only
-  about 8 % on the armor. The world views change little. The GPU time: noon-n 10.03 ms off, 10.01 and 10.09 ms on; the inn
-  10.32 ms off, 10.53 and 10.27 ms on (pairs late in one run): at most about 0.2 ms.
-- Open [U]: the level on bright steel. The material instance of the Metal_SetB chest is right (M_SwcSurface, the spec map,
-  F0 about 0.18 by the texels). Leads: the world probe has `IndoorOnly` and `AffectsThisAreaOnly` set (the source rule of these
-  flags is not proved, e5-local-probes.md section 1); the strength of the source SSDO at the pixels; the BRDF table of the
-  source (indexed by the smoothness) against the table of Unreal.
+- Checks (the matched views of set-ast247-mv, set1-oxboro, and set4-weather; `work/ast247/sheets-spec/`; linear display values):
+  - With the source table (2026-10-22, second check): the shoulders of both sets are near retail at matched dirt (Metal_SetB
+    0.52 / dirt 0.19 against retail 0.43 / 0.15; Heavy Plate 0.62 / 0.18 against 0.54 / 0.13). The Metal_SetB chest is 1.25
+    times retail and its belly (it faces down and forward) 1.6 times, and both are too neutral: retail shows a darker, green
+    reflection of the forest. The iron fence of noon-n: fence / brick 3.23 with the term, 1.36 without it, retail 1.99 (1.6 times).
+    The table changes these views only a little: most pixels have N.V in the middle, where the two tables are almost equal.
+  - The SSDO removes about 6 to 8 % on the armor. The world views change little.
+  - The GPU time (pairs late in one run): noon-n 10.03 ms off, 10.01 and 10.09 ms on (eight cubes); with all the probes (21 at
+    noon-n) 12.31 ms off, 12.34 and 12.43 ms on, the inn 13.32 ms off, 13.60 and 13.32 ms on (a busier GPU): at most about 0.3 ms.
+- Open [U]: the level and the color on bright steel and iron (about 1.6 times). Kept as the source (research probe-flags.md): the
+  world probe on the outdoor pixels (`AffectsThisAreaOnly` selects the outdoor area stencil when there is no volume; `IndoorOnly`
+  is a legacy height-map flag, not a mesh indoor test), no extra gain, the SSDO with the scalar alpha. Not in the client: the
+  screen-space reflections of the source, which blend into the probe radiance before the BRDF table (lerp(probe, SSR.rgb,
+  SSR.a)); the area stencil of the probes with volumes. The material instance of the Metal_SetB chest is right (M_SwcSurface, the
+  spec map, F0 about 0.18 by the texels).
 
 ### Not done, open points (E5)
 
