@@ -221,6 +221,59 @@ void bow_tests(const ranged::test::Data& data)
 	}
 }
 
+/** AST-254: the bow pose after the release of the buttons (the play report "the pose stays when I release the mouse button"). Each
+ *  case ends with no action and no tag AimDownSights (the aim camera and the aim pose of the client); the log case of the report: the
+ *  right button released in the charged shot and pressed again in the lower fragment starts the ready fragment at the mark
+ *  Exit_BowAimShoot. Before the fix, the end of the lower action at that mark stopped the fragment before Bow_ReadyWeapon and
+ *  Bow_AimChargeShoot_SubState read it: they stayed installed and set Aim and AimDownSights again. */
+void bow_release_tests(const ranged::test::Data& data)
+{
+	std::printf("the bow: the releases of the buttons (AST-254)\n");
+	const ranged::Program* bow = program(data, "Bow,LongBow");
+	if (bow == nullptr) {
+		return;
+	}
+	ranged::Facts facts;
+	const auto cases = std::vector<std::pair<const char*, Script>>{
+		{"the right button, released", [] { Script s; s.aimFrom = 0; s.aimTo = 60; return s; }()},
+		{"the left button held (charge) with no aim, released", [] { Script s; s.pressAt = 10; s.releaseAt = 40; return s; }()},
+		{"both, the right released after the shot", [] { Script s; s.aimFrom = 0; s.aimTo = 80; s.pressAt = 30; s.releaseAt = 50; return s; }()},
+		{"both, the right released in the charged shot", [] { Script s; s.aimFrom = 0; s.aimTo = 52; s.pressAt = 30; s.releaseAt = 50; return s; }()},
+	};
+	for (const auto& [name, script] : cases) {
+		const Run r = run(*bow, data.shared, script, 200, facts);
+		check(r.player.playing().action == nullptr && !r.player.aim_down_sights() && r.player.tags().count("aim") == 0,
+			std::string(name) + ": no action and no aim tags at the end");
+	}
+	// The log case of 12:50:22 (play log of 2026-10-22): the right button released in the charged shot and pressed again at step 70 (in
+	// the lower fragment, before its mark Exit_BowAimShoot at 0.3667 s), held to step 200.
+	ranged::Player player;
+	player.set_program(bow, &data.shared);
+	bool attack = false;
+	bool aim = false;
+	int readyAgain = -1;
+	for (int step = 0; step < 260; ++step) {
+		ranged::Input in;
+		const bool attackNow = step >= 30 && step < 50;
+		const bool aimNow = step < 52 || (step >= 70 && step < 200);
+		in.attackDown = attackNow;
+		in.attackPress = attackNow && !attack;
+		in.attackRelease = !attackNow && attack;
+		attack = attackNow;
+		in.aimDown = aimNow;
+		in.aimPress = aimNow && !aim;
+		in.aimRelease = !aimNow && aim;
+		aim = aimNow;
+		std::vector<ranged::Event> events;
+		player.step(static_cast<std::uint16_t>(step), in, facts, events);
+		if (step > 64 && readyAgain < 0 && player.playing().action != nullptr && player.playing().action->name == "Bow_ReadyWeapon") {
+			readyAgain = step;
+		}
+	}
+	check(readyAgain == 74, "the second press: the ready fragment again at the mark Exit_BowAimShoot of the lower (step 74)");
+	check(player.playing().action == nullptr && !player.aim_down_sights(), "the second release: no action and no aim at the end");
+}
+
 void staff_tests(const ranged::test::Data& data)
 {
 	std::printf("the fire staff and the life staff: the light and the heavy casts\n");
@@ -463,6 +516,7 @@ int main(int argc, char** argv)
 	}
 	std::printf("programs: %zu, shot rules: %zu, spells: %zu\n", data.programs.size(), data.shared.shots.size(), data.shared.spells.size());
 	bow_tests(data);
+	bow_release_tests(data);
 	staff_tests(data);
 	ability_tests(data);
 	mana_tests();

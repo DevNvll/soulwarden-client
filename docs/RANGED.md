@@ -68,6 +68,12 @@ mana costs. Mannequin compares the fragment names with no case (`Attack_Start_Ch
   fails on a leaf with no rule.
 - Rules of this project: an action whose fragment is done and whose deactivation does not hold ends after 2 s (`kStuckTime`); an
   installed action that lost the scope ends after 10 s (`kLostTime`).
+- The deactivations of one step read the state at the start of the step, then the actions end (AST-254, 2026-10-22). Before, the
+  ends came one at a time: the end of Bow_Lower_FromShoot_Charged at its mark Exit_BowAimShoot stopped the fragment before
+  Bow_ReadyWeapon and Bow_AimChargeShoot_SubState read the same mark; they stayed installed and set Aim and AimDownSights again, so
+  the aim camera and the aim pose stayed after the release (the right button released in a charged shot; the play report "the
+  pose stays when I release the mouse button"). `tools/test-ranged.sh` has the cases (the right button, the left button with no
+  aim, both, the right released in the charged shot and pressed again in the lower fragment).
 
 ## The input
 

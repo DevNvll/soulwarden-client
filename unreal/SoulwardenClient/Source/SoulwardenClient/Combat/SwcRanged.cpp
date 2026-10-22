@@ -870,12 +870,19 @@ void Player::step(std::uint16_t input, const Input& in, const Facts& facts, std:
 	if (m_playing.fragment != nullptr) {
 		m_playing.clock = static_cast<float>(static_cast<std::uint16_t>(input - m_playing.start) + 1) / kStepsInSecond;
 	}
-	// The deactivation of the active actions (their conditions in the state of this step).
+	// The deactivation of the active actions: each condition in the state at the start of this step, then the ends (AST-254: with an
+	// end at once, the end of Bow_Lower_FromShoot_Charged at its mark Exit_BowAimShoot stopped the fragment before Bow_ReadyWeapon and
+	// Bow_AimChargeShoot_SubState read the same mark; they stayed installed and set Aim and AimDownSights again: the aim pose and the
+	// aim camera stayed after the release).
+	std::vector<std::size_t> ending;
 	for (std::size_t index = m_active.size(); index-- > 0;) {
 		const Action& action = *m_active[index].action;
 		if (action.deactivation && holds(*action.deactivation, facts, &action)) {
-			end_action(index, input, facts, out);
+			ending.push_back(index);
 		}
+	}
+	for (const std::size_t index : ending) {   // descending: an erase does not move the indices still to end
+		end_action(index, input, facts, out);
 	}
 	// The items and the transitions of the fragment at its clock (a transition starts a fragment at this step: its items too).
 	for (int count = 0; count < kTransitionsInStep && m_playing.fragment != nullptr; ++count) {
