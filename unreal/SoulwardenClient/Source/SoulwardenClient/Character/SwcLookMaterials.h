@@ -13,8 +13,8 @@ struct FSwcItemMasks;
 namespace SwcLookMaterials
 {
 /** The hair color of the appearance (the hair color database): the color of the red mask group of each material with
- *  overlay masks, with the red amount 1 [I: the hair materials of the persons differ only in Mask_R_Color; the player
- *  hairstyles have Mask_R 0 in the XML and a near-black diffuse map]; a material with no masks (the glTF
+ *  overlay masks (the full row of the hair color, its amounts and overrides, goes on after it with ApplyItemMasks: research
+ *  hair-color.md); a material with no masks (the glTF
  *  parents) multiplies its base color (BaseColorFactor). @return The number of the changed materials. */
 int32 ApplyHairColor(UMeshComponent* Component, const FLinearColor& Color);
 

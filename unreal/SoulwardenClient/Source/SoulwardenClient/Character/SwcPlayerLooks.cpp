@@ -128,6 +128,33 @@ FLinearColor ColorOf(const TSharedPtr<FJsonObject>& Entry)
 	}
 	return FLinearColor((*Values)[0]->AsNumber(), (*Values)[1]->AsNumber(), (*Values)[2]->AsNumber(), 1.0f);
 }
+
+/** The mask values of a hair color row (HairColorData, research hair-color.md): the three colors, amounts, and overrides; the A
+ *  specular and gloss amounts 0. The retail writer (0x695C2B0) puts all of them on the hair material in place of its XML values,
+ *  zeros too (haircolor1: Mask_R 1, Mask_R_Override 0.04). bKnown is false for a row with no amounts (an older looks.json). */
+FSwcItemMasks HairMasksOf(const TSharedPtr<FJsonObject>& Entry)
+{
+	FSwcItemMasks Masks;
+	const TArray<TSharedPtr<FJsonValue>>* Amount = ArrayField(Entry, TEXT("amount"));
+	const TArray<TSharedPtr<FJsonValue>>* Override = ArrayField(Entry, TEXT("override"));
+	if (Amount == nullptr || Override == nullptr || Amount->Num() < 3 || Override->Num() < 3)
+	{
+		return Masks;
+	}
+	static const TCHAR* const Colors[3] = {TEXT("color"), TEXT("green"), TEXT("blue")};
+	for (int32 Group = 0; Group < 3; ++Group)
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Values = ArrayField(Entry, Colors[Group]);
+		if (Values != nullptr && Values->Num() >= 3)
+		{
+			Masks.Color[Group] = FLinearColor((*Values)[0]->AsNumber(), (*Values)[1]->AsNumber(), (*Values)[2]->AsNumber(), 0.0f);
+		}
+		Masks.Amount[Group] = (*Amount)[Group]->AsNumber();
+		Masks.Override[Group] = (*Override)[Group]->AsNumber();
+	}
+	Masks.bKnown = true;
+	return Masks;
+}
 } // namespace
 
 bool FSwcPlayerLooks::Load(FString& OutReport)
@@ -249,19 +276,23 @@ FSwcPlayerLook FSwcPlayerLooks::ResolveRows(const TArray<uint8>& Appearance, con
 	const TSharedPtr<FJsonObject> FacialSet = ObjectField(HairSets, StringField(Race, TEXT("facial")));
 	const TSharedPtr<FJsonObject> Hair = Entry(ArrayField(HairSet, TEXT("styles")), Byte(3));
 	const TSharedPtr<FJsonObject> Facial = Entry(ArrayField(FacialSet, TEXT("styles")), Byte(4));
-	const FLinearColor HairColor = ColorOf(Entry(ArrayField(HairSet, TEXT("colors")), Byte(5)));
+	const TSharedPtr<FJsonObject> HairRow = Entry(ArrayField(HairSet, TEXT("colors")), Byte(5));
+	const FLinearColor HairColor = ColorOf(HairRow);
 	const TArray<TSharedPtr<FJsonValue>>* FacialColors = ArrayField(FacialSet, TEXT("colors"));
-	const FLinearColor FacialColor = ColorOf(Entry(FacialColors != nullptr && FacialColors->Num() > 0 ? FacialColors : ArrayField(HairSet, TEXT("colors")), Byte(6)));
+	const TSharedPtr<FJsonObject> FacialRow = Entry(FacialColors != nullptr && FacialColors->Num() > 0 ? FacialColors : ArrayField(HairSet, TEXT("colors")), Byte(6));
+	const FLinearColor FacialColor = ColorOf(FacialRow);
 
 	// The default appearance data of the gender: the naked body parts with the body material of the skin tone.
 	TMap<FName, FSwcLookPart> Slots;
-	const auto Put = [&Slots](const FString& Slot, const FString& Skin, const FString& Material, FLinearColor Tint = FLinearColor(0, 0, 0, 0))
+	const auto Put = [&Slots](const FString& Slot, const FString& Skin, const FString& Material, FLinearColor Tint = FLinearColor(0, 0, 0, 0),
+		const FSwcItemMasks& Masks = FSwcItemMasks())
 	{
 		FSwcLookPart Part;
 		Part.Slot = FName(*Slot);
 		Part.Skin = Skin;
 		Part.Material = Material;
 		Part.Tint = Tint;
+		Part.Masks = Masks;
 		Slots.Add(Part.Slot, Part);
 	};
 	if (const TSharedPtr<FJsonObject> Defaults = ObjectField(Gender, TEXT("slots")))
@@ -277,7 +308,8 @@ FSwcPlayerLook FSwcPlayerLooks::ResolveRows(const TArray<uint8>& Appearance, con
 	}
 	// The head of the race with the head material of the tone; the hair and the facial hair with their tints.
 	Put(TEXT("head1"), StringField(Race, TEXT("head")), HeadMaterial);
-	const auto PutHair = [&Put](const TCHAR* Slot, const TSharedPtr<FJsonObject>& Style, const FString& Variant, FLinearColor Tint)
+	const auto PutHair = [&Put](const TCHAR* Slot, const TSharedPtr<FJsonObject>& Style, const FString& Variant, FLinearColor Tint,
+		const FSwcItemMasks& Masks)
 	{
 		const TSharedPtr<FJsonObject> Variants = ObjectField(Style, TEXT("variants"));
 		if (!Variants.IsValid() || Variants->Values.Num() == 0)
@@ -289,10 +321,12 @@ FSwcPlayerLook FSwcPlayerLooks::ResolveRows(const TArray<uint8>& Appearance, con
 		{
 			Skin = StringField(Variants, TEXT("0"));
 		}
-		Put(Slot, Skin, StringField(Style, TEXT("material")), Tint);
+		Put(Slot, Skin, StringField(Style, TEXT("material")), Tint, Masks);
 	};
-	PutHair(TEXT("hair"), Hair, TEXT("0"), HairColor);
-	PutHair(TEXT("facial_hair"), Facial, TEXT("0"), FacialColor);
+	const FSwcItemMasks HairMasks = HairMasksOf(HairRow);
+	const FSwcItemMasks FacialMasks = HairMasksOf(FacialRow);
+	PutHair(TEXT("hair"), Hair, TEXT("0"), HairColor, HairMasks);
+	PutHair(TEXT("facial_hair"), Facial, TEXT("0"), FacialColor, FacialMasks);
 
 	// The armor of the paperdoll slots 0 to 4 (research menu-equipment.md, equipment.md 6.1).
 	const TSharedPtr<FJsonObject> Armor = ObjectField(Looks, TEXT("armor"));
@@ -380,7 +414,7 @@ FSwcPlayerLook FSwcPlayerLooks::ResolveRows(const TArray<uint8>& Appearance, con
 			}
 			else if (const FString* Variant = HairChopVariants.Find(StringField(Row, TEXT("hairChop"))))
 			{
-				PutHair(TEXT("hair"), Hair, *Variant, HairColor);
+				PutHair(TEXT("hair"), Hair, *Variant, HairColor, HairMasks);
 			}
 			if (FlagField(Row, TEXT("hideFacialHair")))
 			{

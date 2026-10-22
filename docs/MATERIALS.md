@@ -593,21 +593,26 @@ overlay masks (charactermasking.cfib) as the world. One rule for all bodies (`co
     temporal dither of the blend opacity saturate(a x AlphaBlendMultiplier) x XML Opacity where the alpha >= 0.05 (the blend
     passes of the source; not for `%SOLID_HAIR`). Before, a single cut at AlphaTest (the Metal_SetB plume: 0.2, the beard 06:
     0.69) removed most of the cards: the plume of Metal_SetB was a thin strand, the short hair had flakes.
-  - The hair color of the appearance (`SwcLookMaterials::ApplyHairColor`) sets the red mask color and the red amount 1 [I]:
-    the player hairstyles have `Mask_R` 0 in the XML and a near-black diffuse map (about 0.02 linear), so their color comes
-    only from the mask (with the XML amount the hair was black).
+  - The hair color of the appearance (research hair-color.md [R, D]): the whole row of HairColorData (the red, green, and blue
+    colors, amounts, and overrides; `tools/convert-player.sh tables` writes them to `looks.json` hairSets colors) goes on the
+    hair material in place of its XML mask values, zeros too, with the A specular and gloss amounts 0 (`SwcPlayerLooks`
+    `HairMasksOf`, `SwcLookMaterials::ApplyItemMasks` with all groups; also at a hairstyle or helmet chop change; the facial
+    hair from its own database). haircolor1 and haircolor2: Mask_R 1, Mask_R_Override 0.04 (female haircolor10: 0.08). The
+    player hairstyles have `Mask_R` 0 and `Mask_R_Override` 0.5 in the XML and a near-black diffuse map (about 0.02 linear):
+    with the XML amount the hair was black; with the amount 1 and the XML override 0.5 (D about 0.45) it was near white.
   - The probe specular term (`swc.ProbeSpecular`) skips the Hair pixels: the HDR tiled Hair of the source has no probe
     specular (hair-shader.md section 3).
   - 398 Hair specs (2026-10-22); `swc_materials.apply_bodies` also makes a stale parent again when no instance changes.
   - The check (matched views of set-ast247-mv, `work/hair/sheets`; Saira at 8894.77 4221.75): the Metal_SetB plume has its
     full cards with the yellow and the dark brown feathers, the Heavy Plate plume is dark red, the fur collar is cut and dark,
-    Saira's hair is black: as retail. Open: light hair is too bright (the gray player hair is near white, retail light gray;
-    with the hair color amount 1 and its override 0.5, D is about 0.5 x C^2); the fur collar is a little darker than retail.
+    Saira's hair is black: as retail. With the row of the hair color the gray player hair is gray as retail (a little darker,
+    with darker patches at the roots and the sides; retail is more even); Saira's hair is very dark gray-brown (retail black);
+    the fur collar is a little darker than retail.
   - The test scales of the level (M_SwcHair version 5, its own collection `MPC_SwcHair`): `swc.HairScatter` scales the Scatter and
     `swc.HairBase` scales D in the base color (default 1: no change). The bare head of the matched set (gray hair, the hair color
     0.925, D about 0.45): Scatter 0 gives black hair (the Unreal diffuse carries the gray), Scatter 0.25 is near retail, Scatter 1
-    is near white; the plumes match retail at Scatter 1. Thus one global scale does not fit: the open point is D of the hair color
-    path of the source (which mask amount, override, and color the appearance sets; research hair-shader.md section 1 [U]).
+    is near white (with the XML override 0.5); the plumes match retail at Scatter 1. The cause was D of the hair color path (the
+    row of the hair color, above), not the scale: the scales stay 1.
   - Limits: the two Kajiya-Kay lobes of the source (the primary cap 0.045, the colored secondary with its width and shift),
     the wrap 0.5, and the separate core and blend passes are not in Unreal Hair (a custom path, hair-shader.md section 5).
 - The key of a spec is `b_` and 10 hex digits of the hash of the spec. `slots.json` gives the Unreal folder of each body
@@ -657,9 +662,8 @@ overlay masks (charactermasking.cfib) as the world. One rule for all bodies (`co
   column of the master row (the artifact bow: 2hBowT5, QuiverA; the retail take shows the quiver on the back). 1,676 items get
   an accessory with this column (848 of them converted); for 263 items the column names another accessory than the first
   two (most are elemental gauntlets): open.
-- The hair color of the player appearance (the hair color databases) goes into the red mask color (`MaskColorR`) of a hair
-  material with overlay masks [I: the hair materials of the persons differ only in `Mask_R_Color`]; before, it multiplied
-  the base color (`BaseColorFactor` of the glTF parents, which the surface parents do not have).
+- The hair color of the player appearance (the hair color databases): the whole row of the color goes on a hair material with
+  overlay masks (the Hair rule above); a material with no masks (the glTF parents) multiplies its base color (`BaseColorFactor`).
 - The full deployment (2026-10-22): the bodies in 5 calls of at most 500 s (about 45 min; 14,340 textures, 17,506
   instances, 0 failures, about 6 GB), the weapons in 2 calls (4,610 textures, 974 instances).
 

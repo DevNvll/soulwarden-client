@@ -77,7 +77,7 @@ All the looks that a player can equip are prepared before play, so that a new it
 | --- | --- |
 | `<gender>.charcreatedb` | The races (the head skin, the skin tone database, the hair database, the facial hair database, the default tone), the default appearance data (the body slots and their naked skins). |
 | `<race>.skintonedb` | For each skin tone: the head material and the body material (a different diffuse texture for each tone). |
-| `<gender>.hairstyledb`, `<race>_facial.hairstyledb` | For each style: the skins of its variants (0 base, 1 front, 2 back, 3 brim, 4 hood) and its material; the hair colors (a color). |
+| `<gender>.hairstyledb`, `<race>_facial.hairstyledb` | For each style: the skins of its variants (0 base, 1 front, 2 back, 3 brim, 4 hood) and its material; the hair colors (each row: the red, green, and blue mask colors, amounts, and overrides). |
 | `javelindata_itemappearancedefinitions.datasheet` | `ArmorAppearanceDefinitions`: for each appearance row `Skin1`, `Material1`, `IsSkin1`, `Skin2`, `Material2`, `IsSkin2`, `HideHair`, `HideFacialHair`, `HideHead`, `HideLegs`, `HairChop`, `AppearanceCDF`. |
 | `SWC_GAMEDATA_DIR/item-catalog.json` | The item list of the wire of the backend copy (the item with index N is entry N - 1) with `armorAppearanceM` and `armorAppearanceF` of each item (format 5). |
 
@@ -95,7 +95,9 @@ The field ids of the object streams are the CRC-32 of the lower-case field names
    `pants1`, `boots1`).
 4. The hair style (byte 3) and the hair color (byte 5) come from the hair database of the race; the facial hair
    (byte 4) and its color (byte 6) from the facial hair database of the race. The variant 0 of a style is the default;
-   the color is a tint of the base color of the hair material (`BaseColorFactor` of a material instance at run time).
+   the color row (its three mask colors, amounts, and overrides) replaces the XML mask values of the hair material at run time
+   (docs/MATERIALS.md, the Hair rule; research hair-color.md); a material with no masks takes the color as a tint of its base
+   color (`BaseColorFactor`).
 5. The equipment: each item of the paperdoll slots 0 to 4 (visual slots `hat`, `shirt`, `gloves`, `pants`, `boots`)
    gives its armor appearance row (`armorAppearanceM` for a male body, `armorAppearanceF` for a female body).
    `Skin1` goes to the slot `<visual>1`, `Skin2` to `<visual>2`; a skin with `IsSkin1` or `IsSkin2` has the body

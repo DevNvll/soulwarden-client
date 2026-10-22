@@ -40,16 +40,6 @@ int32 SwcLookMaterials::ApplyHairColor(UMeshComponent* Component, const FLinearC
 			// The mask colors are gamma values: the source shader squares them (charactermasking.cfib, C * C).
 			Dynamic->SetVectorParameterValue(bMasks ? TEXT("MaskColorR") : TEXT("BaseColorFactor"),
 				bMasks ? FLinearColor(Color.R, Color.G, Color.B, 0.0f) : Color);
-			if (bMasks)
-			{
-				// The red group takes the hair color with the full amount [I]: the player hairstyles have Mask_R 0 in their XML
-				// (male_hair_african_01: Mask_R 0, Mask_R_Override 0.5) and a near-black diffuse map (about 0.02 linear), so their
-				// color comes only from the mask; with the amount of the XML every player hair was black (the Hair rule,
-				// research hair-shader.md; the surface parent hid it with a broad gray sky reflection).
-				FLinearColor Amount = VectorOf(Material, TEXT("MaskAmount"));
-				Amount.R = 1.0f;
-				Dynamic->SetVectorParameterValue(TEXT("MaskAmount"), Amount);
-			}
 			++Changed;
 		}
 	}

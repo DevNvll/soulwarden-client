@@ -135,7 +135,8 @@ void ASwcPlayerCharacter::ApplyLook(const FSwcPlayerLook& Look, const FString& B
 		Component->SetLeaderPoseComponent(GetMesh());
 		if (Part.Tint.A > 0.0f)
 		{
-			// The hair color: the red mask color of a material with overlay masks, else a tint of its base color.
+			// The hair color: the red mask color of a material with overlay masks (the whole row of the hair color goes on with the
+			// masks below), else a tint of its base color.
 			SwcLookMaterials::ApplyHairColor(Component, Part.Tint);
 		}
 		// The mask values of the armor appearance row: the gear path copies all of them (zeros too).

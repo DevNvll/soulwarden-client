@@ -127,7 +127,15 @@ F_VARIANT_INDEX = 0xF143BFAD
 F_VARIANT_SKIN = 0xF7CE6DCB
 F_STYLE_MATERIAL = 0xAE3C4906
 F_COLORS = 0x1DC1536D
-F_COLOR_VALUE = 0x61C8D87E
+F_COLOR_VALUE = 0x61C8D87E   # RedColor
+F_COLOR_GREEN = 0xDDEB806F
+F_COLOR_BLUE = 0x55C5D6E9
+F_OVERRIDE_RED = 0x1CA99CCE
+F_OVERRIDE_GREEN = 0xD148F31B
+F_OVERRIDE_BLUE = 0x04C763BC
+F_AMOUNT_RED = 0x7E2C3445
+F_AMOUNT_GREEN = 0x5F6EB437
+F_AMOUNT_BLUE = 0x4E27D8D2
 
 ARMOR_TABLE = "javelindata_itemappearancedefinitions.datasheet"
 ARMOR_COLUMNS = {"AppearanceName": "name", "Gender": "gender", "ItemClass": "class", "HairChop": "hairChop",
@@ -190,7 +198,22 @@ def read_styles(name: str) -> dict:
             variants[str(index)] = path_text(variant.child(F_VARIANT_SKIN))
         styles.append({"name": text_of(style.child(F_NAME)), "variants": variants,
                        "material": path_text(style.child(F_STYLE_MATERIAL))})
-    colors = [{"name": text_of(color.child(F_NAME)), "color": floats_of(color.child(F_COLOR_VALUE))}
+    def scalar(color, field: int) -> float:
+        element = color.child(field)
+        values = floats_of(element) if element is not None else []
+        return float(values[0]) if values else 0.0
+
+    def rgb(color, field: int) -> list[float]:
+        element = color.child(field)
+        return floats_of(element) if element is not None else [0.0, 0.0, 0.0, 0.0]
+
+    # Each row of HairColorData (research hair-color.md): the three mask colors, their amounts, and their overrides. The retail
+    # writer (0x695C2B0) puts all of them on the hair material in place of its XML values, zeros too (haircolor1: Mask_R 1,
+    # Mask_R_Override 0.04; other rows other overrides).
+    colors = [{"name": text_of(color.child(F_NAME)), "color": rgb(color, F_COLOR_VALUE),
+               "green": rgb(color, F_COLOR_GREEN), "blue": rgb(color, F_COLOR_BLUE),
+               "amount": [scalar(color, F_AMOUNT_RED), scalar(color, F_AMOUNT_GREEN), scalar(color, F_AMOUNT_BLUE)],
+               "override": [scalar(color, F_OVERRIDE_RED), scalar(color, F_OVERRIDE_GREEN), scalar(color, F_OVERRIDE_BLUE)]}
               for color in (root.child(F_COLORS).children if root.child(F_COLORS) is not None else [])]
     return {"styles": styles, "colors": colors}
 
