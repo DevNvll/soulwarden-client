@@ -1,0 +1,21 @@
+# The routes of tests/drive/ast256-side.txt (AST-256 part 2): noon; level 18 grey wolves that ignore the character (east X, north Y):
+# at 12.5 m (12, 3.5), at 17.2 m north-east (14, 10), at 28.3 m north-east (15, 24), at 30.1 m east behind the ruins (30, -3), and two on the road at 19.9 m (-6, 19) and 31.0 m (-8, 30);
+# at 36 s ten more wolves at 6 to 15 m east (16 wolves for a pool of 4).
+1 world-time 12:00
+1 ignore on
+2 spawn Wolf_Grey_7 12 3.5 0 --yaw 90 --level 18
+2 spawn Wolf_Grey_7 14 10 0 --yaw 90 --level 18
+2 spawn Wolf_Grey_7 15 24 0 --yaw 90 --level 18
+2 spawn Wolf_Grey_7 30 -3 0 --yaw 90 --level 18
+2 spawn Wolf_Grey_7 -6 19 0 --yaw 90 --level 18
+2 spawn Wolf_Grey_7 -8 30 0 --yaw 90 --level 18
+36 spawn Wolf_Grey_7 6 -3 0 --yaw 90 --level 18
+36 spawn Wolf_Grey_7 7 3 0 --yaw 90 --level 18
+36 spawn Wolf_Grey_7 8 -5 0 --yaw 90 --level 18
+36 spawn Wolf_Grey_7 9 6 0 --yaw 90 --level 18
+36 spawn Wolf_Grey_7 10 -2 0 --yaw 90 --level 18
+36 spawn Wolf_Grey_7 11 2 0 --yaw 90 --level 18
+36 spawn Wolf_Grey_7 12 -6 0 --yaw 90 --level 18
+36 spawn Wolf_Grey_7 13 7 0 --yaw 90 --level 18
+36 spawn Wolf_Grey_7 14 -1 0 --yaw 90 --level 18
+36 spawn Wolf_Grey_7 15 5 0 --yaw 90 --level 18

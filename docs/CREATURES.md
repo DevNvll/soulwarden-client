@@ -434,7 +434,7 @@ static studies of the retail binary (research/marker-plates.md, research/marker-
 | Admission | an AI marker is admitted after the common gates (the creature shows, has vitals, is not dead, its marker state 5399 is on); the near range and the narrow angle of the slice are the test of a player marker only | [R] 0x4929AB0, the early true branch at 0x4929D06 |
 | Distance | from the player to the origin of the entity (3D) | [R] 0x4931B80 |
 | Fade | alpha = maxAlpha; beyond `fadeStart` it goes down by (d - fadeStart) / (fadeDistance - fadeStart), to minAlpha. `fadeDistance` is the end (AI types: 1 at 10 m, 0.5 at 12.5 m, 0 at 15 m) | [R] 0x49C32E0; [D] markerdata.luac |
-| Timed target | the creature that the camera ray hits (a line along the camera forward, 100 m [U]; the world nearer than the body stops it) is the timed target for 1 s (the larger of the remaining time and 1 s; the first activation keeps its time). A timed target keeps maxAlpha (no fade) and has no occlusion | [R] 0x493B1A0, 0x493B4B6, 0x493A530, 0x49C3311, 0x493C01C |
+| Timed target | each 1/3 s a line of 110 m from the camera along its forward axis; the closest hit volume of a creature on it (the posed HitVolume shapes of the slice; the source filter ProjectileCast hits them, not the large body capsule), unless the world (a visibility line, no plant pass) is nearer. That creature is the timed target for 1 s (the larger of the remaining time and 1 s; the first activation keeps its time); no range gate after the hit. A timed target keeps maxAlpha (no fade) and has no occlusion | [R] 0x493B1A0, 0x4934E13 (110 m), 0x4926A65 (1/3 s), 0x493B4BD (1 s), 0x493A530, 0x49C3311, 0x493C01C; research/marker-ray.md |
 | Explicit tag | `m_targetTaggingDuration` (10 s) | [R] 0x493A180; its callers are not read [U]: not in this client |
 | Pool | the AI group "a" has 4 elements (main register 15 of markermanager.luac; the player plate quantity 15 does not change it) | [R] the raw bindings of the bytecode |
 | Pool order | a boss, then a marker on the screen, then a timed target (the newer activation first), then the nearest; a creature keeps its slot while it stays in the leading candidates | [R] 0x4944800, 0x4944E40; the flag of the screen order (0x9F2900C) is not read [U] |
@@ -455,7 +455,13 @@ an untagged wolf at 12.5 m shows at one half of the alpha; the aim at a wolf at 
 after the aim leaves it, it hides (alpha 0); a wolf behind the ruins is occluded by their collision mesh (`C_jav_struc_ruins_debris_a`;
 part 1 named the ground cover by mistake: the ground cover has no collision); with 17 wolves, 4 plates show. The causes of the missing
 plates of the user are thus the fade (no plate beyond 15 m without the aim), the pool of 4, and the occlusion by structures and trees,
-as retail; the former near-range and narrow-angle test of this client is gone.
+as retail; the former near-range and narrow-angle test of this client is gone. The retail side-by-side (2026-10-22; retail stills
+`set-ast256-plates`, `set-ast256-aim`, `set-ast256-bracket`; client runs `ast256-side1` and `ast256-side2`; the pairs in
+`evidence/AST-256/side`): the same 4 plates of the pool on the same wolves, the half alpha at 12.5 m, no plate past 15 m without the
+aim, the aimed plate at 20 m, no plate behind the ruins. The aim: retail tags the aimed wolf at 24, 27, and 30 m from the camera (no
+range gate near 25 m); with the hit volumes the client tags at 20 m and not at 28.3 m (as retail, where the line passes 0.5 m from the
+body). Open: the wolf at 35 m from the camera: the client tags it, the one retail take did not (the precision of the aim on a hit
+volume of radius 0.26 m [I]).
 
 The UI reads the plates (stage WF7, the UI track): `GetPlates` gives the candidates (the feet, the name, the marker type of the slice,
 the creature type of the category row, the level, the health, the dead mark, the statuses, the marker flags, the admission in

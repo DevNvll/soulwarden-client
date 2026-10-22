@@ -289,13 +289,15 @@ private:
 	 *  timed target. Own: the place of the player. */
 	bool ShowsPlate(uint32 Interest, const ASwcCreature& Creature, const FVector& Own, double& OutDistance) const;
 	/** AST-256: the timed targets of the markers (the native 0x493A530 and 0x493A5D0): the remaining time (s) and the time of the
-	 *  activation (s of the world). The camera ray (the native 0x493B1A0) activates the creature that it hits for 1 s each frame. */
+	 *  activation (s of the world). The camera ray (the native 0x493B1A0) activates the creature that it hits for 1 s, each 1/3 s. */
 	struct FTimedTarget
 	{
 		double Remaining = 0.0;
 		double Stamp = 0.0;
 	};
 	TMap<uint32, FTimedTarget> TimedTargets;
+	/** The time to the next camera ray (s). */
+	double AimTimer = 0.0;
 	void UpdateTimedTargets(float DeltaTime);
 
 	swc::creatures::EntityTable Table;

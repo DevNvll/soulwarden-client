@@ -47,9 +47,11 @@ constexpr double AllPlatesRange = 40.0;
 /** The candidates of the plate pool (m): a rule of this client [I] to keep the lines short. Retail has no such range for an AI
  *  marker (the interest range of the server limits it); beyond the end of the fade (15 m for the AI types) only a timed target shows. */
 constexpr double PlateRange = 100.0;
-/** The camera ray of the timed target (m; the native 0x493B1A0): its length is not read [U]. */
-constexpr double AimRayRange = 100.0;
-/** A hit of the camera ray makes the creature the timed target for this time (s; the native 0x493B4B6 to 0x493B4C5). */
+/** The camera ray of the timed target (m): the length of the periodic caller (0x4934E13, the constant 110 at 0x7FC230C). */
+constexpr double AimRayRange = 110.0;
+/** The period of the camera ray (s; the default of 0x4926A65: 0.333333343). */
+constexpr double AimPeriodSeconds = 1.0 / 3.0;
+/** A hit of the camera ray makes the creature the timed target for this time (s; the native 0x493B4BD, the constant 1.0 at 0x7EFE900). */
 constexpr double AimTargetSeconds = 1.0;
 /** The end of the distance fade of the AI types (markerdata.luac: fadeDistance 15 m), for the simple plates of the canvas. */
 constexpr double SimpleFadeEnd = 15.0;
@@ -1494,40 +1496,75 @@ void USwcCreatureSubsystem::UpdateTimedTargets(float DeltaTime)
 	{
 		return;
 	}
-	// The camera ray (the native 0x493B1A0): from the camera along its forward direction; the own entity does not count. The
-	// creature that it hits is the timed target for 1 s: the larger of the remaining time and 1 s; the first activation keeps its
-	// time (0x493A530). The body of a creature blocks only the channel Pawn (ASwcCreature: BodyBlock): a query of the object type
-	// Pawn finds it, and the world (a visibility line through the plants) must not be nearer.
+	// The camera ray (the native 0x493B1A0; research/marker-ray.md): each 1/3 s (0x4934DDE, the default period 0.333333343 s) a line
+	// of 110 m from the camera along its forward axis, with the closest hit (the filter ProjectileCast: the static world, the terrain,
+	// and the hit volumes of the creatures). The client: the closest hit volume of a creature (its posed HitVolume shapes; the line is a
+	// capsule of radius 0), unless a visibility line of the world is nearer. The own entity does not count. A hit creature is the timed
+	// target for 1 s: the larger of the remaining time and 1 s; the first activation keeps its time (0x493A530). No range gate after
+	// the hit.
+	AimTimer -= DeltaTime;
+	if (AimTimer > 0.0)
+	{
+		return;
+	}
+	AimTimer = AimPeriodSeconds;
 	const FVector Eye = Player->PlayerCameraManager->GetCameraLocation();
-	const FVector End = Eye + Player->PlayerCameraManager->GetCameraRotation().Vector() * AimRayRange * 100.0;
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(SwcMarkerAim), false, Player->GetPawn());
-	FHitResult Hit;
-	if (!World->LineTraceSingleByObjectType(Hit, Eye, End, FCollisionObjectQueryParams(ECC_Pawn), Params))
-	{
-		return;
-	}
-	const ASwcCreature* Hits = Cast<ASwcCreature>(Hit.GetActor());
-	FHitResult Wall;
-	if (Hits == nullptr || TraceThroughPlants(*World, Wall, Eye, Hit.Location, Params))
-	{
-		return;
-	}
+	const FVector Direction = Player->PlayerCameraManager->GetCameraRotation().Vector();
+	const double Length = AimRayRange * 100.0;
+	const FVector End = Eye + Direction * Length;
+	const FSwcHitShape Line = FSwcHitShape::Capsule(Eye, End, 0.0f);
+	uint32 HitInterest = 0;
+	double HitDistance = TNumericLimits<double>::Max();
+	TArray<FSwcCreatureHitShape> Shapes;
 	for (const auto& [Interest, Actor] : Actors)
 	{
-		if (Actor.Get() != Hits)
+		const ASwcCreature* Creature = Actor.Get();
+		if (Creature == nullptr || Creature->IsHidden())
 		{
 			continue;
 		}
-		FTimedTarget* Target = TimedTargets.Find(Interest);
-		if (Target == nullptr)
+		// A cheap test first: the creature is near the line (its hit volumes are within a few metres of its place).
+		const FVector ToCreature = Creature->GetActorLocation() - Eye;
+		const double Along = FVector::DotProduct(ToCreature, Direction);
+		if (Along < -500.0 || Along > Length + 500.0 || (ToCreature - Direction * Along).SizeSquared() > FMath::Square(800.0))
 		{
-			Target = &TimedTargets.Add(Interest);
-			Target->Stamp = World->GetTimeSeconds();
-			UE_LOG(LogSwcCreatures, Log, TEXT("creatures: plate of creature %u: the timed target (the camera ray, %.1f m)"), Interest, Hit.Distance / 100.0);
+			continue;
 		}
-		Target->Remaining = FMath::Max(Target->Remaining, AimTargetSeconds);
-		break;
+		Shapes.Reset();
+		Creature->GetHitShapes(Shapes);
+		for (const FSwcCreatureHitShape& Shape : Shapes)
+		{
+			FVector Point;
+			FVector Normal;
+			if (SwcShapeContact(Shape.Shape, Line, -Direction, Point, Normal))
+			{
+				const double Distance = FMath::Max(0.0, FVector::DotProduct(Point - Eye, Direction));
+				if (Distance < HitDistance)
+				{
+					HitDistance = Distance;
+					HitInterest = Interest;
+				}
+			}
+		}
 	}
+	if (HitInterest == 0)
+	{
+		return;
+	}
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SwcMarkerAim), false, Player->GetPawn());
+	FHitResult Wall;
+	if (World->LineTraceSingleByChannel(Wall, Eye, Eye + Direction * HitDistance, ECC_Visibility, Params) && !Cast<ASwcCreature>(Wall.GetActor()))
+	{
+		return;
+	}
+	FTimedTarget* Target = TimedTargets.Find(HitInterest);
+	if (Target == nullptr)
+	{
+		Target = &TimedTargets.Add(HitInterest);
+		Target->Stamp = World->GetTimeSeconds();
+		UE_LOG(LogSwcCreatures, Log, TEXT("creatures: plate of creature %u: the timed target (the camera ray, %.1f m)"), HitInterest, HitDistance / 100.0);
+	}
+	Target->Remaining = FMath::Max(Target->Remaining, AimTargetSeconds);
 }
 
 void USwcCreatureSubsystem::GetPlates(TArray<FSwcCreaturePlate>& Out) const

@@ -1,0 +1,34 @@
+# AST-256: the client half of the retail side-by-side (the retail take work/ast256/retail-plates.sh, set-ast256-plates): the same camera
+# headings and pitches as the retail stills (set-ast256-plates, then the aim at the two wolves on the road of set-ast256-aim). Routes tests/drive/ast256-side-routes.txt.
+1.0 tick
+2.0 view 100 -3
+6.0 tick
+10.0 tick
+12.0 view 45 -3
+14.0 tick
+16.0 view 32 -2.7
+18.0 tick
+20.0 view 32 -3.5
+22.0 tick
+24.0 view 54.6 -4
+26.0 tick
+28.0 view 60 -3
+30.0 tick
+32.0 view 85 -3
+34.0 tick
+38.0 tick
+42.0 view 75 -6
+44.0 tick
+46.0 view 70 -6
+48.0 tick
+50.0 view 89.8 -6
+52.0 tick
+54.0 view 330 -4
+56.0 tick
+58.0 view 340.96 -9.26
+60.0 tick
+62.0 view 344.12 -8.24
+64.0 tick
+66.0 view 330 -4
+66.5 tick
+70.0 tick
