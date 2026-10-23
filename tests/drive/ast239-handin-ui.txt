@@ -1,0 +1,19 @@
+# The UI drive of the hand-in check of AST-239 (tests/drive/ast239-handin.txt): E through the hand-in chain of 06_getoffbeach (5 lines),
+# E at "Complete the Quest" (794), the new state of Aelstrom and its offer "Do you have food and supplies?", E through the proposal of
+# 06_skinningknife (3 lines), E at "Accept Quest" (3772). Times from the spawn of the player.
+1 waitfor CompassLines 60
+2 waitfor world 180
+36 log the hand-in chain: line 1
+38 key E
+42 key E
+46 key E
+50 key E
+54 log the last line: Complete the Quest and the details
+56 key E
+64 log after the hand-in: the new state and the offer
+66 key E
+70 key E
+74 key E
+78 log the proposal: Accept Quest
+80 key E
+86 log after the accept

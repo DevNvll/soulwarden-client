@@ -272,7 +272,9 @@ function Swc.HostQuests(text)
     if not byKey[key] then
       notify_component("OnObjectiveRemoved", old.id)
       if completed[key] then
-        notify_component("OnObjectiveCompleted", old.id)
+        -- bannertriggers.luac OnObjectiveCompleted(instanceId, objectiveCRC, creationParams) (research/quest-conversation.md 6.3).
+        notify_component("OnObjectiveCompleted", old.id, old.crc, {missionId = 0, objectiveId = old.crc, originTerritoryId = old.territory or 0,
+          destinationOverride = EntityId(), parentObjectiveId = objective_id(old.parent or "0")})
       else
         notify_component("OnObjectiveFailed", old.id)
       end

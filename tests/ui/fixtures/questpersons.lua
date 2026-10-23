@@ -119,8 +119,12 @@ Swc.HostConversation("open", "person:aelstrom", "Aelstrom", "01_aelstrom_default
 watch()
 frames(2.0)
 local C = Swc.conversation
-check(C.flow and C.flow.kind == "completion", "a ready hand-in opens the conversation on its chain")
-equal(#C.lines, 5, "the hand-in chain of 06_getoffbeach: 5 lines")
+equal(C.result and C.result.responseType, 6, "a ready hand-in: CompletionAvailable 6 from the first page (research quest-conversation.md 4.1)")
+equal(C.result and C.result.dialogueId, row.crc, "a ready hand-in: the objective CRC as dialogueId")
+equal(C.result and C.result.title, "@01_GetOffBeach_title", "a ready hand-in: the objective Title")
+check(C.result and C.result.options[1].optionType == 5 and C.result.options[#C.result.options].optionType == 1,
+  "the result: CompleteObjective 5 first, Leave 1 last")
+equal(#C.lines, 5, "the page chain of the ready response: 5 pages")
 note("the first line: " .. texts())
 check(texts():find("born again", 1, true) ~= nil, "between the lines the option is the player reply (dialogue-prompt: \"Wait... born again?\")")
 for _ = 1, 4 do
@@ -143,11 +147,13 @@ local r = requests()
 equal(r[1], "quest complete " .. row.crc, "Complete the Quest sends 794 with the objective CRC")
 
 -- The reply of the server: the completion notice removes the instance, the bit S_getoffbeach_ww.
+check(C.result and C.result.responseType == 6, "no answer yet: the page stays (no timeout, no retry)")
 Swc.HostQuests("C " .. INSTANCE)
 bits("S_getoffbeach_ww")
 frames(4.0)
 equal(C.stateId, "01_AelstromWW_p1_01", "after the hand-in: the new state of Aelstrom")
-equal(C.offers and #C.offers, 1, "the new state has one offer")
+check(C.result and C.result.responseType == 1 and C.result.options[1].optionType == 3 and C.result.options[1].dataId == 3510093317,
+  "the new menu: Default 1 with ObjectiveDetails 3 for 06_skinningknife (d137c605)")
 note("after the hand-in: " .. texts())
 check(texts():find("food and supplies", 1, true) ~= nil, "the offer option \"Do you have food and supplies?\" (PlayerPrompt of 06_skinningknife)")
 picture("questpersons-offer")
@@ -155,7 +161,8 @@ local knife = Swc.quests.D().objectives["06_skinningknife"]
 local offer = find_text("food and supplies")
 if offer then click(offer) end
 frames(1.5)
-check(C.flow and C.flow.kind == "proposal", "the offer opens the proposal chain")
+equal(C.result and C.result.responseType, 3, "the offer opens the proposal (Proposal 3)")
+equal(C.result and C.result.title, "@01_skinningknife_title", "the proposal: the objective Title")
 while C.index < #C.lines do
   ConversationRequestBus.Broadcast.RequestConversationOption(eConversationOptionType_ContinueDialogue, 0)
   frames(1.5)

@@ -1,0 +1,10 @@
+# The routes of the hand-in check of AST-239 (docs/QUESTS.md "The persons, the offers, and the hand-in"): the creatures ignore the
+# character, the hour 12:00, then (after the check aid of the beach cutscene) a travel 1.9 m in front of Aelstrom (01_AelstromWW_01 at
+# 9613.36 2329.27, the view 324.3 degrees: the place of the AST-248 Talk check). A new character (SWC_DEV_NEW=1, no SWC_DEV_PLACE) at the
+# backend start, in its own data folder, with the content check copy:
+#   SWC_CONTENT=~/Games/soulwarden-client/content-q4 SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-q4 SWC_AGENT_DESKTOP=soulwarden-client-world \
+#   SWC_STAGE=AST-239 SWC_DEV_CHARACTER=QuestHandA SWC_DEV_NEW=1 tools/creature-check.sh ast239-handin 100 THIS tests/drive/ast239-handin.txt \
+#     -- -SwcUiDrive=tests/drive/ast239-handin-ui.txt
+0.5 ignore on
+0.6 world-time 12:00
+24.0 travel 9614.47 2327.73 42.4 auto

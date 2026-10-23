@@ -96,7 +96,6 @@ local function achievements_pass(text)
   return v and not bad and pos > #tokens
 end
 
-local TOPIC_OPTION_TYPE = 2
 -- The faction of the player: the backend has none (roadmap 4.5); conversationoptionv2.luac reads the node for each option text.
 if Swc.GetData("Hud.LocalPlayer.Faction") == nil then
   Swc.SetData("Hud.LocalPlayer.Faction", eFactionType_None or 0)
@@ -210,33 +209,37 @@ C.record_valid = record_valid
 
 -- ------------------------------------------------------------------------------------------------- the objectives (AST-239, stage Q4)
 
--- The offers and the hand-in of a person [I until research/quest-conversation.md; brief research/briefs/q4-conversation-objectives.md].
--- The data: the objective rows of gamedata/quests.json (PlayerPrompt, ObjectiveProposalResponse, DestinationCompletionAvailablePrompt and
--- Response), the offers of a state (conversations.json "objectives": LinearObjectiveId1 to N), the line chains with their player replies
--- (conversations.json "lines": speaker, next, prompt = dialogue-prompt). The flow follows the retail references of the backend stage 1.8b
--- (~/Games/soulwarden/work/evidence/quests/18b/implement/live: P1 the ready dialogue and "Complete the Quest", F1 the next state and
--- its offer after the hand-in, the proposal chain):
---   - a ready hand-in of the person (an active objective with NpcDestinationId the NPC and its root Complete or CompleteActive) opens the
---     conversation on its chain DestinationCompletionAvailableResponse [I: P1 opens on it]; the last line has the response type
---     CompletionAvailable, the objective CRC as dialogueId (the details panel), and the option CompleteObjective with the text
---     DestinationCompletionAvailablePrompt ("Complete the Quest");
---   - else the lines of the selected state; at the last line the offers of the state (ObjectiveDetails, the text PlayerPrompt, the
---     objective CRC) before the topics [I: the order]. An offer: the RequiredAchievementId of the row passes, no active instance, and no
---     completion (its AchievementId bit) [backend quests.md 1.8b: the same tests of the server];
---   - an offer option opens the chain ObjectiveProposalResponse; its last line has the response type Proposal and the option
---     AcceptObjective with the text "@npc_acceptobjective" ("Accept Quest") [I];
---   - between the lines of a chain the option is the player reply of the next line (dialogue-prompt), else Continue [D: P1-05];
---   - AcceptObjective sends 3772 ("quest accept CRC") and shows the Acceptance state with no dialogue at once (the screen closes; protocol
---     notes 3772: "the window shows the accept text at once (response type 4)") [I: the text];
---   - CompleteObjective sends 794 ("quest complete CRC"); the screen plays the reward celebration; when the completion notice removes the
---     instance, the selection is made again (the new bits) and the screen shows the new state of the person with its offers (F1-12,
---     F1-13), or a Completion state with no dialogue (the screen closes). A refused hand-in gets no answer: the option goes and the
---     conversation waits (backend persons.md, traps).
-local OPTION = {details = eConversationOptionType_ObjectiveDetails or 3, accept = eConversationOptionType_AcceptObjective or 4,
-                complete = eConversationOptionType_CompleteObjective or 5, continue = eConversationOptionType_ContinueDialogue or 7}
-local RESPONSE = {invalid = eConversationResponseType_Invalid or 0, proposal = eConversationResponseType_Proposal or 3,
-                  acceptance = eConversationResponseType_Acceptance or 4, completion = eConversationResponseType_Completion or 5,
-                  available = eConversationResponseType_CompletionAvailable or 6}
+-- The conversation result of the native component (research/quest-conversation.md sections 2 to 6: the builder 0x37ACF10, the refresh
+-- 0x376C720, the objective details 0x3773540, the accept caller 0x376DFF0, the complete caller 0x376E2C0):
+--   C.result = {title, dialogue (a text key), responseType, dialogueId, options}. The page chain of the dialogue (dialogue-next: C.lines,
+--   C.index) adds ContinueDialogue 7 with the dialogue-prompt of the next page (else @ui_continue) while a next page exists (0x3779AE0);
+--   the screen then shows only Continue (with the look of Accept or Complete in those responses; the real type stays 7).
+--   The build: DefaultDialogue of the selected state, Default 1, no title, dialogueId 0; then
+--     1. the first ready hand-in among the active objectives in their stored order (0x3A369E0, predicate 0x3A48E60: NpcDestinationId this
+--        NPC, the root Complete or CompleteActive, no completion bit): its Title, its CRC, DestinationCompletionAvailableResponse with
+--        CompletionAvailable 6 (empty: InProgressResponse with InProgress 7), and CompleteObjective 5 with
+--        DestinationCompletionAvailablePrompt; the linear scan is skipped (HideIncompleteTurninMarker does not hide a ready hand-in);
+--     2. else the LinearObjectiveId of the state in column order through the classifier (0x37AE910): Proposal 3 appends ObjectiveDetails
+--        3 (PlayerPrompt; Title for @prompt_DEFAULT), InProgress 7 sets InProgressResponse; javelin.enable-linear-conversations (true, the
+--        fallback of the builder) stops at the first nonzero result. OnCooldown 8 needs repeatable quests (not in this backend);
+--     3. the passing topics (ConversationTopic 2, the prompt, the topic CRC). The services are not shown (an open point of the client);
+--     4. Leave 1 (@NPC_EndConversation) last: the screen hides it; with no other option E closes the screen (its center hint).
+--   ObjectiveDetails (0x3773540): the classifier again; Proposal: its Title, ObjectiveProposalResponse, Proposal 3, its CRC,
+--   AcceptObjective 4 (@NPC_AcceptObjective), Leave.
+--   AcceptObjective (the screen first asks HasRoomForObjective): the Acceptance 4 (ObjectiveAcceptanceResponse; the protocol notes 3772:
+--   the window shows it at once), the Accept option removed, 3772. CompleteObjective: the prepared Completion 5
+--   (ObjectiveCompletionResponse), the Complete option removed, 794. Neither waits for an answer and neither is sent twice.
+--   The refresh after an owner update (0x3765580, 0x37645B0, predicate 0x3759CE0): the selection again; with objective content (a ready
+--   hand-in or a nonzero classification) the result is built again and published; else the prepared result is published (an empty
+--   Acceptance or Completion dialogue closes the screen). The client runs it once in the frame after the updates of the quests and the
+--   achievements [I: the scheduling edge is not traced]. A refused request gets no answer: the page stays (no timeout, no retry).
+local OPTION = {leave = eConversationOptionType_Leave or 1, topic = 2, details = eConversationOptionType_ObjectiveDetails or 3,
+                accept = eConversationOptionType_AcceptObjective or 4, complete = eConversationOptionType_CompleteObjective or 5,
+                continue = eConversationOptionType_ContinueDialogue or 7}
+local RESPONSE = {invalid = 0, default = 1, topic = 2, proposal = 3, acceptance = 4, completion = 5, available = 6, inprogress = 7,
+                  cooldown = 8}
+C.RESPONSE = RESPONSE
+local LINEAR = Swc.config["javelin.enable-linear-conversations"] ~= false
 
 local function key_of(text)
   return string.lower((tostring(text or ""):gsub("^@", "")))
@@ -247,13 +250,9 @@ local function objective_cell(row, name)
   return value ~= nil and value ~= "" and value or nil
 end
 
-local function active_record(row)
-  for _, rec in ipairs(Swc.quests and Swc.quests.list or {}) do
-    if rec.row == row then
-      return rec
-    end
-  end
-  return nil
+local function root_ready(rec)
+  local state = rec.root and Swc.quests.state_of(rec, rec.root)
+  return state == 2 or state == 3
 end
 
 local function objective_done(row)
@@ -261,47 +260,137 @@ local function objective_done(row)
   return achievement ~= nil and Swc.HasAchievement(Swc.AchievementIndex(achievement))
 end
 
---- @return The offers of the selected state for the character: {row, crc, text} each.
-local function offers_of(stateId)
-  local data = cdata()
-  local state = data and stateId and data.states[stateId]
-  local out = {}
-  for _, id in ipairs(state and state.objectives or {}) do
-    local row = Swc.quests.D().objectives[string.lower(id)]
-    local required = row and objective_cell(row, "RequiredAchievementId")
-    if row and (not required or achievements_pass(required)) and not active_record(row) and not objective_done(row) then
-      out[#out + 1] = {row = row, crc = row.crc, text = objective_cell(row, "PlayerPrompt") or ("@" .. row.id)}
-    end
-  end
-  return out
-end
-
---- @return The first ready hand-in of the person for the character: {row, crc, rec}, or nil.
-local function handin_of(npcId)
+--- @return The first ready hand-in of an NPC among the active objectives in their stored order (0x3A369E0), or nil.
+local function ready_handin(npcId)
+  local npc = string.lower(npcId or "")
   for _, rec in ipairs(Swc.quests and Swc.quests.list or {}) do
-    local npc = objective_cell(rec.row, "NpcDestinationId")
-    if npc and string.lower(npc) == string.lower(npcId or "") and ObjectivesComponentRequestBus.Event.IsObjectiveReadyForCompletion(Swc.ids.player, rec.id) then
-      return {row = rec.row, crc = rec.row.crc, rec = rec}
+    local destination = objective_cell(rec.row, "NpcDestinationId")
+    if destination and string.lower(destination) == npc and root_ready(rec) and not objective_done(rec.row) then
+      return rec
     end
   end
   return nil
 end
+C.ready_handin = ready_handin
 
---- Starts the chain of an objective flow ("proposal" or "completion") of an objective.
-local function start_flow(kind, objective)
-  local column = kind == "proposal" and "ObjectiveProposalResponse" or "DestinationCompletionAvailableResponse"
-  C.flow = {kind = kind, row = objective.row, crc = objective.crc, rec = objective.rec}
-  C.lines, C.index = chain_of(key_of(objective_cell(objective.row, column))), 1
-  C.log[#C.log + 1] = kind .. ": " .. objective.row.id
-  Swc.Note("conversation: the " .. kind .. " of " .. objective.row.id)
+--- The classifier of an objective of a state (0x37AE910; markerMode: the NPC marker query). @return A response value (0 for none).
+local function classify(row, npcId, markerMode)
+  if not row then
+    return RESPONSE.invalid
+  end
+  local achievement = objective_cell(row, "AchievementId")
+  for _, rec in ipairs(Swc.quests and Swc.quests.list or {}) do
+    if rec.row == row then
+      local destination = objective_cell(row, "NpcDestinationId")
+      if destination and string.lower(destination) == string.lower(npcId or "") and root_ready(rec) then
+        return RESPONSE.invalid   -- the ready hand-in path owns it
+      end
+      if markerMode and objective_cell(row, "HideIncompleteTurninMarker") == "1" then
+        return RESPONSE.invalid
+      end
+      return RESPONSE.inprogress
+    end
+  end
+  if achievement then
+    for _, rec in ipairs(Swc.quests and Swc.quests.list or {}) do
+      if objective_cell(rec.row, "AchievementId") == achievement then
+        return RESPONSE.invalid   -- another active variant with the same completion achievement
+      end
+    end
+  end
+  if objective_done(row) then
+    return RESPONSE.invalid
+  end
+  -- The general availability (0x3A4BFE0): the required level and the RequiredAchievementId expression (this backend has no faction, no
+  -- progression, and no territory rule for an offer).
+  local level = tonumber(objective_cell(row, "RequiredLevel") or "0") or 0
+  if level > (tonumber(Swc.GetData("Hud.LocalPlayer.Progression.Level")) or 1) then
+    return RESPONSE.invalid
+  end
+  local required = objective_cell(row, "RequiredAchievementId")
+  if required and not achievements_pass(required) then
+    return RESPONSE.invalid
+  end
+  return objective_cell(row, "ObjectiveProposalResponse") and RESPONSE.proposal or RESPONSE.invalid
+end
+C.classify = classify
+
+local function option(text, optionType, dataId)
+  return {text = text, optionType = optionType, dataId = dataId or 0}
 end
 
---- The main state of the selection: its lines, its offers, its topics.
-local function start_state()
-  C.flow = nil
-  local state = cdata() and C.stateId and cdata().states[C.stateId]
-  C.lines, C.index = chain_of(state and state.dialogue or C.line), 1
-  C.offers = offers_of(C.stateId)
+local function leave_option()
+  return option("@NPC_EndConversation", OPTION.leave, 0)
+end
+
+--- Sets the page chain of a dialogue key.
+local function set_dialogue(key)
+  C.lines, C.index = chain_of(key_of(key)), 1
+end
+
+--- The build of the result (0x37ACF10) for the selected state. @return True when the result has objective content.
+local function build_result()
+  local data = cdata()
+  local state = data and C.stateId and data.states[C.stateId]
+  local result = {title = "", dialogue = state and state.dialogue or C.line, responseType = RESPONSE.default, dialogueId = 0, options = {}}
+  local content = false
+  local ready = C.npcId ~= "" and ready_handin(C.npcId)
+  if ready then
+    local row = ready.row
+    result.title, result.dialogueId = objective_cell(row, "Title") or "", row.crc
+    local response = objective_cell(row, "DestinationCompletionAvailableResponse")
+    if response then
+      result.dialogue, result.responseType = response, RESPONSE.available
+    else
+      result.dialogue, result.responseType = objective_cell(row, "InProgressResponse") or result.dialogue, RESPONSE.inprogress
+    end
+    result.options[#result.options + 1] = option(objective_cell(row, "DestinationCompletionAvailablePrompt") or "", OPTION.complete, row.crc)
+    content = true
+  else
+    for _, id in ipairs(state and state.objectives or {}) do
+      local row = Swc.quests.D().objectives[string.lower(id)]
+      local kind = classify(row, C.npcId, false)
+      if kind == RESPONSE.proposal then
+        local prompt = objective_cell(row, "PlayerPrompt")
+        if prompt == "@prompt_DEFAULT" then
+          prompt = objective_cell(row, "Title")
+        end
+        result.options[#result.options + 1] = option(prompt or "", OPTION.details, row.crc)
+      elseif kind == RESPONSE.inprogress then
+        result.dialogue, result.responseType = objective_cell(row, "InProgressResponse") or result.dialogue, RESPONSE.inprogress
+      end
+      content = content or kind ~= RESPONSE.invalid
+      if kind ~= RESPONSE.invalid and LINEAR then
+        break
+      end
+    end
+  end
+  for _, topic in ipairs(C.topics or {}) do
+    result.options[#result.options + 1] = option(topic.prompt, OPTION.topic, topic.crc)
+  end
+  result.options[#result.options + 1] = leave_option()
+  C.result = result
+  set_dialogue(result.dialogue)
+  return content
+end
+C.build_result = build_result
+
+local function state_of(withOption)
+  local result = C.result or {title = "", responseType = RESPONSE.default, dialogueId = 0, options = {}}
+  local options = {}
+  if withOption then
+    if C.index < #C.lines then
+      local nextLine = C.lines[C.index + 1].line
+      local entry = cdata() and cdata().lines[nextLine]
+      options[1] = option(entry and entry.prompt or "@ui_continue", OPTION.continue, 0)
+    end
+    for _, each in ipairs(result.options) do
+      options[#options + 1] = each
+    end
+  end
+  local line = C.lines[C.index] and C.lines[C.index].line or C.line
+  return {title = result.title, dialogue = "@" .. line, responseType = result.responseType, dialogueId = result.dialogueId,
+          options = options}
 end
 
 local function person_entity(key)
@@ -319,42 +408,6 @@ local function ensure_canvas()
   local common = RequireScript("LyShineUI._Common.CanvasCommon")
   Swc.LoadScreen(PATH, true, common and common.FULLSCREEN_DRAW_ORDER or 0)
   Swc.Note("conversation: the screen ConversationScreenV2 loads")
-end
-
-local function state_of(withOption)
-  local options = {}
-  local last = C.index >= #C.lines
-  local responseType, dialogueId = RESPONSE.invalid, nil
-  local line = C.lines[C.index] and C.lines[C.index].line or C.line
-  if withOption and not last then
-    -- Between the lines: the player reply of the next line (its dialogue-prompt), else Continue.
-    local nextLine = C.lines[C.index + 1] and C.lines[C.index + 1].line
-    local entry = nextLine and cdata() and cdata().lines[nextLine]
-    options[1] = {text = entry and entry.prompt or "@ui_continue", optionType = OPTION.continue, dataId = 0}
-  elseif withOption and C.flow and C.flow.kind == "completion" then
-    responseType, dialogueId = RESPONSE.available, C.flow.crc
-    if not C.flow.refused then
-      options[1] = {text = objective_cell(C.flow.row, "DestinationCompletionAvailablePrompt") or "@complete_available_prompt_DEFAULT",
-                    optionType = OPTION.complete, dataId = C.flow.crc}
-    end
-  elseif withOption and C.flow and C.flow.kind == "proposal" then
-    responseType, dialogueId = RESPONSE.proposal, C.flow.crc
-    options[1] = {text = "@npc_acceptobjective", optionType = OPTION.accept, dataId = C.flow.crc}
-  elseif withOption then
-    for _, offer in ipairs(C.offers or {}) do
-      options[#options + 1] = {text = offer.text, optionType = OPTION.details, dataId = offer.crc}
-    end
-    -- The topics at the last line. The option type of a topic is not in the enum table of the client: 2, the gap between Leave (1) and
-    -- ObjectiveDetails (3) [inference; the screen drops the types Invalid and Leave: conversationscreenv2.luac OnConversationStateChange].
-    -- The icon and the color come from the conversation state of the person (conversationoptionv2.luac).
-    for _, topic in ipairs(C.topics or {}) do
-      options[#options + 1] = {text = topic.prompt, optionType = TOPIC_OPTION_TYPE, dataId = topic.crc}
-    end
-  end
-  return {
-    title = C.title, dialogue = "@" .. line, responseType = responseType,
-    dialogueId = dialogueId or swcui.crc32(line), options = options,
-  }
 end
 
 local function send_state(withOption)
@@ -392,16 +445,22 @@ function Swc.HostConversation(what, key, speaker, line, name, title, lines, npcI
     end
     -- The state of the client for the NPC row of the person (AST-248); with no row the line of the person (persons.json).
     C.npcId, C.stateId, C.topics, C.taskObjective, C.finished = npcId or "", nil, {}, nil, {}
-    C.flow, C.offers, C.pending = nil, {}, nil
-    if select_state(C.npcId) then
-      start_state()
-      C.log[#C.log + 1] = "state: " .. C.stateId .. " (" .. #C.topics .. " topic(s), " .. #C.offers .. " offer(s))"
-      Swc.Note("conversation: the state " .. C.stateId .. " of " .. C.npcId .. ", " .. #C.topics .. " topic(s), " .. #C.offers .. " offer(s)")
+    C.result, C.prepared, C.dirty = nil, nil, false
+    -- The refresh listens to the quest changes (swc/quests.lua; registered at the first open: this file loads before it).
+    if not C.listening and Swc.quests and Swc.quests.listeners then
+      C.listening = true
+      Swc.quests.listeners[#Swc.quests.listeners + 1] = function() C.MarkChanged() end
     end
-    -- A ready hand-in of the person opens the conversation on its chain [I: retail P1].
-    local handin = C.npcId ~= "" and handin_of(C.npcId)
-    if handin then
-      start_flow("completion", handin)
+    if select_state(C.npcId) then
+      build_result()
+      C.log[#C.log + 1] = "state: " .. C.stateId .. " (" .. #C.topics .. " topic(s)), response " .. C.result.responseType
+      Swc.Note(string.format("conversation: the state %s of %s, %d topic(s), the response %d, %d option(s)", C.stateId, C.npcId, #C.topics,
+        C.result.responseType, #C.result.options))
+    elseif C.npcId ~= "" and ready_handin(C.npcId) then
+      build_result()
+    else
+      -- No NPC row (a person of persons.json with its line chain): the default result with Leave (MVP-H, AST-248).
+      C.result = {title = "", responseType = RESPONSE.default, dialogueId = 0, options = {leave_option()}}
     end
     C.entity = person_entity(C.key)
     C.log[#C.log + 1] = "open: " .. C.key
@@ -417,51 +476,45 @@ function Swc.HostConversation(what, key, speaker, line, name, title, lines, npcI
   end
 end
 
--- The reply of a hand-in [I]: the completion notice removes the instance (swc/quests.lua: "C" in the quest state); then the selection is
--- made again with the new bits (the Achievement state can come in a later update: the client waits until the selection changes, at most
--- 2 s) and the screen shows the new state of the person with its offers, or a Completion state with no dialogue (the screen closes). With
--- no completion in 10 s the hand-in was refused (no answer): a log line; the conversation waits.
-local function after_completion()
-  local pending = C.pending
-  if not (C.open and pending and pending.kind == "complete") then
+-- The refresh after an owner update (research/quest-conversation.md 5.4): swc/quests.lua (the quest state, the completion notice) and
+-- swc/owner.lua (the Achievement state) mark it; the next frame selects the state again and builds the result again when it has objective
+-- content, else it publishes the prepared result (an empty Acceptance or Completion closes the screen).
+local function refresh()
+  if not (C.open and not C.ended and C.dirty) then
     return
   end
-  local now = Swc.time or 0
-  if not pending.done then
-    if pending.key and Swc.quests.byKey[pending.key] then
-      if now - pending.time > 10 then
-        C.pending = nil
-        C.log[#C.log + 1] = "complete refused: " .. pending.row.id
-        Swc.Note("conversation: no completion of " .. pending.row.id .. " in 10 s (the server refused the hand-in)")
-      end
-      return
+  C.dirty = false
+  local before = C.stateId
+  C.stateId = nil
+  local selected = select_state(C.npcId)
+  local ready = C.npcId ~= "" and ready_handin(C.npcId)
+  local content = false
+  if selected or ready then
+    local keep = C.result
+    content = build_result()
+    if not content then
+      C.result = keep
     end
-    pending.done = now
   end
-  select_state(C.npcId)
-  if C.stateId == pending.stateId and now - pending.done < 2 then
-    return
-  end
-  C.pending = nil
-  start_state()
-  C.log[#C.log + 1] = "completed: " .. pending.row.id .. ", state " .. tostring(C.stateId)
-  Swc.Note("conversation: " .. pending.row.id .. " completed; the state " .. tostring(C.stateId) .. ", " .. #C.offers .. " offer(s)")
-  local handin = handin_of(C.npcId)
-  if handin then
-    start_flow("completion", handin)
-  end
-  if C.stateId or C.flow then
+  C.log[#C.log + 1] = "refresh: " .. tostring(C.stateId) .. (content and " (built again)" or " (the prepared result)")
+  Swc.Note(string.format("conversation: the refresh: the state %s (before %s), %s", tostring(C.stateId), tostring(before),
+    content and "the result built again" or "the prepared result"))
+  if content then
     send_state(true)
-  else
+  elseif C.prepared then
     local bus = DynamicBus.ConversationScreenV2
     if bus and bus.Broadcast then
-      bus.Broadcast.OnConversationStateChange({title = C.title, dialogue = "", responseType = RESPONSE.completion,
-        dialogueId = pending.row.crc, options = {}})
+      bus.Broadcast.OnConversationStateChange(C.prepared)
     end
   end
+  C.prepared = nil
 end
-C.after_completion = after_completion
-Swc.Connect("TickBus", {OnTick = function() after_completion() end}, nil)
+function C.MarkChanged()
+  if C.open and not C.ended then
+    C.dirty = true
+  end
+end
+Swc.Connect("TickBus", {OnTick = function() refresh() end}, nil)
 
 -- The room for an objective (conversationscreenv2.luac RequestConversationOption: AcceptObjective asks it first; "@ui_objective_type_full"
 -- with no room) [I]: the active objectives of the type of the offer below the largest count of the type (GetMaxObjectivesForType; 0: no
@@ -554,32 +607,58 @@ Swc.Define("LyShineScriptBindRequestBus", "Broadcast", {
 Swc.Define("ConversationRequestBus", "Broadcast", {
   RequestConversationOption = function(optionType, dataId)
     C.log[#C.log + 1] = "option"
-    if optionType == OPTION.accept and C.flow and C.flow.kind == "proposal" and dataId == C.flow.crc then
+        local result = C.result or {options = {}}
+    local function has_option(kind, id)
+      for index, each in ipairs(result.options) do
+        if each.optionType == kind and each.dataId == id then
+          return index
+        end
+      end
+      return nil
+    end
+    if optionType == OPTION.accept and has_option(OPTION.accept, dataId) then
+      local row = Swc.quests.D().byCrc[dataId]
+      table.remove(result.options, has_option(OPTION.accept, dataId))
       Swc.hostRequests[#Swc.hostRequests + 1] = "quest accept " .. tostring(dataId)
-      C.log[#C.log + 1] = "accept: " .. C.flow.row.id
-      Swc.Note("conversation: accept " .. C.flow.row.id .. " (3772)")
-      C.flow = nil
+      C.log[#C.log + 1] = "accept: " .. tostring(row and row.id)
+      Swc.Note("conversation: accept " .. tostring(row and row.id) .. " (3772)")
+      C.result = {title = objective_cell(row, "Title") or "", dialogue = objective_cell(row, "ObjectiveAcceptanceResponse") or "",
+                  responseType = RESPONSE.acceptance, dialogueId = dataId, options = {leave_option()}}
+      local dialogue = C.result.dialogue
       local bus = DynamicBus.ConversationScreenV2
-      if bus and bus.Broadcast then
-        bus.Broadcast.OnConversationStateChange({title = C.title, dialogue = "", responseType = RESPONSE.acceptance, dialogueId = dataId,
-          options = {}})
+      if dialogue == "" then
+        if bus and bus.Broadcast then
+          bus.Broadcast.OnConversationStateChange({title = C.result.title, dialogue = "", responseType = RESPONSE.acceptance, dialogueId = dataId,
+            options = {}})
+        end
+      else
+        set_dialogue(dialogue)
+        send_state(true)
       end
       return
     end
-    if optionType == OPTION.complete and C.flow and C.flow.kind == "completion" and dataId == C.flow.crc then
+    if optionType == OPTION.complete and has_option(OPTION.complete, dataId) then
+      local row = Swc.quests.D().byCrc[dataId]
+      table.remove(result.options, has_option(OPTION.complete, dataId))
       Swc.hostRequests[#Swc.hostRequests + 1] = "quest complete " .. tostring(dataId)
-      C.log[#C.log + 1] = "complete: " .. C.flow.row.id
-      Swc.Note("conversation: complete " .. C.flow.row.id .. " (794)")
-      C.pending = {kind = "complete", key = C.flow.rec and C.flow.rec.key, row = C.flow.row, time = Swc.time or 0, stateId = C.stateId}
+      C.log[#C.log + 1] = "complete: " .. tostring(row and row.id)
+      Swc.Note("conversation: complete " .. tostring(row and row.id) .. " (794)")
+      local dialogue = objective_cell(row, "ObjectiveCompletionResponse")
+      C.prepared = {title = objective_cell(row, "Title") or "", dialogue = dialogue and dialogue or "", responseType = RESPONSE.completion,
+                    dialogueId = dataId, options = dialogue and {option("@ui_back", 6, 0), leave_option()} or {}}
       return
     end
-    if optionType == OPTION.details then
-      for _, offer in ipairs(C.offers or {}) do
-        if offer.crc == dataId then
-          start_flow("proposal", offer)
-          send_state(true)
-          return
-        end
+    if optionType == OPTION.details and has_option(OPTION.details, dataId) then
+      local row = Swc.quests.D().byCrc[dataId]
+      if classify(row, C.npcId, false) == RESPONSE.proposal then
+        C.result = {title = objective_cell(row, "Title") or "", dialogue = objective_cell(row, "ObjectiveProposalResponse"),
+                    responseType = RESPONSE.proposal, dialogueId = dataId,
+                    options = {option("@NPC_AcceptObjective", OPTION.accept, dataId), leave_option()}}
+        set_dialogue(C.result.dialogue)
+        C.log[#C.log + 1] = "proposal: " .. row.id
+        Swc.Note("conversation: the proposal of " .. row.id)
+        send_state(true)
+        return
       end
     end
     for _, topic in ipairs(C.topics or {}) do
@@ -593,16 +672,24 @@ Swc.Define("ConversationRequestBus", "Broadcast", {
         Swc.Note("conversation: the topic " .. topic.id)
         C.lines, C.index = chain_of(topic.response), 1
         C.topics = passing_topics(topic.provided)
-        C.flow, C.offers = nil, {}
+        -- The topic response [I: Topic 2 with the topic CRC]: the passing ProvidedTopics, Leave.
+        local topicOptions = {}
+        for _, provided in ipairs(C.topics) do
+          topicOptions[#topicOptions + 1] = option(provided.prompt, OPTION.topic, provided.crc)
+        end
+        topicOptions[#topicOptions + 1] = leave_option()
+        C.result = {title = "", responseType = RESPONSE.topic, dialogueId = topic.crc, options = topicOptions}
         send_state(true)
         return
       end
     end
-    if C.index < #C.lines then
+    -- Continue (a local page action, 0x37622D0): the next page of the dialogue. Other options (Leave from the exit control) change
+    -- nothing here.
+    if optionType == OPTION.continue and C.index < #C.lines then
       C.index = C.index + 1
       send_state(true)
-    else
-      send_state(false)
+    elseif optionType == OPTION.continue or optionType == nil then
+      send_state(true)
     end
   end,
 })

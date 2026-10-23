@@ -335,6 +335,10 @@ function Swc.HostOwnership(achievements, entitlements, received)
   O.achievements = number_set(achievements)
   O.entitlements = number_set(entitlements)
   O.entitlementsReceived = received and true or false
+  -- An open conversation selects its state again (AST-239: a completion bit can unlock the next state and offer).
+  if Swc.conversation and Swc.conversation.MarkChanged then
+    Swc.conversation.MarkChanged()
+  end
 end
 
 --- @return True when the Achievement state of the character has this bit (false with no Achievement state yet).
