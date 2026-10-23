@@ -141,7 +141,11 @@ end
 -- A requirement is a loaded value that is not 0: RequiredLevel not 0, a named RequiredFaction (Any too), a cooldown value of
 -- RequiredFactionCooldown, RequiredCompletedObjective, RequiredAchievement, RequiredProgression with a rank or points not 0,
 -- RequiredActiveObjectiveId (an id) with RequiredActiveTaskId. A record that is not valid is never selected (06_01b_MarcelDupont).
+-- Data written before AST-239 has no "initial": then each record counts as valid (the rule of AST-248).
 local function record_valid(state)
+  if state.initial == nil then
+    return true
+  end
   local r = state.requires or {}
   local function text(name) return r[name] ~= nil and tostring(r[name]) or "" end
   local progression = false
