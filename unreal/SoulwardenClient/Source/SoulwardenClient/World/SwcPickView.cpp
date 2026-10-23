@@ -71,6 +71,7 @@ void PickView(const TArray<FString>& Args, UWorld* World)
 	// The point of the screen: fractions of the width and the height (0.5 0.5: the centre).
 	const double X = Args.Num() > 0 ? FCString::Atod(*Args[0]) : 0.5;
 	const double Y = Args.Num() > 1 ? FCString::Atod(*Args[1]) : 0.5;
+	const int32 Count = Args.Num() > 2 ? FMath::Max(FCString::Atoi(*Args[2]), 1) : 12;
 	const FMinimalViewInfo& View = Controller->PlayerCameraManager->GetCameraCacheView();
 	const double Aspect = View.AspectRatio > 0.0f ? View.AspectRatio : 16.0 / 9.0;
 	const double TanHalfH = FMath::Tan(FMath::DegreesToRadians(View.FOV * 0.5));
@@ -116,14 +117,14 @@ void PickView(const TArray<FString>& Args, UWorld* World)
 	Hits.Sort([](const FPickHit& A, const FPickHit& B) { return A.Distance < B.Distance; });
 	UE_LOG(LogSwcPickView, Log, TEXT("pick view %.3f %.3f: %d hits of the bounds (camera %s, direction %s)"), X, Y, Hits.Num(),
 		*Origin.ToString(), *Direction.ToString());
-	for (int32 Index = 0; Index < FMath::Min(Hits.Num(), 12); ++Index)
+	for (int32 Index = 0; Index < FMath::Min(Hits.Num(), Count); ++Index)
 	{
 		UE_LOG(LogSwcPickView, Log, TEXT("pick view   %.1f m: %s"), Hits[Index].Distance / 100.0, *Hits[Index].Text);
 	}
 }
 
 FAutoConsoleCommandWithWorldAndArgs CommandPickView(TEXT("swc.PickView"),
-	TEXT("swc.PickView X Y: log the meshes whose bounds the view ray through the screen point (X, Y: fractions of the width and the ")
+	TEXT("swc.PickView X Y [N]: log the N (12) nearest meshes whose bounds the view ray through the screen point (X, Y: fractions of the width and the ")
 	TEXT("height) passes, the nearest first (the instances of the instanced mesh components; a debug aid of AST-261)."),
 	FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&PickView));
 } // namespace
