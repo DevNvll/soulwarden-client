@@ -4,6 +4,8 @@ Commands:
   clips   the menu idle clip of the Player Entity (SimpleAnimationComponent: unarmed_idle_loadingscreen, layer 0, loop, speed 1)
           in one clip pack for each gender on the player skeleton (the manifest kind "clips", tag "menu"); then
           tools/import-player.sh. Both genders use the clip of the male folder (player_shared.chrparams).
+  creation-scene   SWC_CONTENT/frontend/creation-scene.json from levels/ftue_v2_cc/level.pak: the same record for the level of the
+          character creation (stage Q3).
   scene   SWC_CONTENT/frontend/nighthaven.json from levels/nw_frontend_nighthaven/level.pak (mission0.entities_xml): the Player
           Entity, MainCamera with its parent chain, the camera sequences (the Bezier keys of each scalar track), and the
           time-of-day record. Positions are game metres; the client applies the space map.
@@ -71,6 +73,10 @@ LIGHT_FIELDS = ("LightType", "Visible", "OnInitially", "Color", "DiffuseMultipli
 # The fields of an environment probe (a light of type 3; environment.probes reads the same fields of LightConfiguration).
 PROBE_FIELDS = ("Area X,Y,Z", "SortPriority", "CubemapTexture", "AttenuationFalloffMax", "TodInfluence", "AffectsThisAreaOnly")
 NAMED = ("Player Entity", "MainCamera", "CharacterCameraPlacement", "EstablishingCameraPlacement", "Main_layer", "TOD")
+# The level of the character creation (stage Q3, docs/FRONTEND.md "Q3, the character creation"): StartIntro loads FTUE_V2_CC
+# (client code 0x41FAD90). Its named entities: the customizable character, the camera of the creation, the intro controller.
+CREATION_LEVEL_PAK = "levels/ftue_v2_cc/level.pak"
+CREATION_NAMED = ("Player_Entity_Int", "Character_Create_Camera", "Intro_Controller", "TimeOfDay", "CharacterLighting")
 # The CAnimParamType of the compound tracks: Position (1) and Rotation (2); the sub tracks are X, Y, Z.
 TRACK_NAMES = {"Position": "P", "Rotation": "R"}
 AXES = "XYZ"
@@ -599,10 +605,12 @@ def water_level() -> float:
     return float(json.loads(source.read(GROUND_TERRAIN).decode("utf-8"))["oceanLevel"])
 
 
-def scene(radius: float = SCENE_RADIUS) -> dict:
-    """Writes SWC_CONTENT/frontend/nighthaven.json."""
+def scene(radius: float = SCENE_RADIUS, level: str = LEVEL_PAK, named: tuple = NAMED, player_name: str = "Player Entity",
+          camera_name: str = "CharacterCameraPlacement", out_name: str = "nighthaven.json", with_ground: bool = True) -> dict:
+    """Writes SWC_CONTENT/frontend/nighthaven.json (the menu scene), or with the creation values (creation_scene) the record of the
+    creation level."""
     import math
-    data = read_from_archive(LEVEL_PAK, ENTITIES)
+    data = read_from_archive(level, ENTITIES)
     entities, sequences, ids = {}, {}, {}
     tod = None
     meshes, lights, decals_found = [], [], []
@@ -613,7 +621,7 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
         name = _value(element, "Name")
         ident = next((n.get("value") for n in (_field(element, "Id") or []) if n.get("field") == "id"), None)
         if components is not None:
-            if name in NAMED:
+            if name in named:
                 entities[name] = {"id": ident, **_transform(components)}
                 camera = _camera(components)
                 if camera:
@@ -659,9 +667,9 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
     from .objects import imported_mesh
     assets: dict[str, str] = {}
     known = manifest.load()["assets"]
-    player = entities.get("Player Entity", {}).get("world", [0.0] * 12)[9:12]
+    player = entities.get(player_name, {}).get("world", [0.0] * 12)[9:12]
     placements, wanted, skipped = [], set(), 0
-    camera = entities.get("CharacterCameraPlacement", {}).get("world") or [1, 0, 0, 0, 1, 0, 0, 0, 1, *player]
+    camera = entities.get(camera_name, {}).get("world") or [1, 0, 0, 0, 1, 0, 0, 0, 1, *player]
     far = 0
     for item in meshes:
         position = item["world"][9:12]
@@ -711,7 +719,7 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
     slot_maps = json.loads((overrides.out_dir() / "pairs.json").read_text())
     for item in placements:
         item["slots"] = slot_maps.get(overrides.pair_key(item["mesh"], item["material"]), {}).get("slots", {}) if item["material"] else {}
-    doc = {"format": 1, "source": f"{LEVEL_PAK}:{ENTITIES}", "entities": entities, "sequences": sequences, "tod": tod,
+    doc = {"format": 1, "source": f"{level}:{ENTITIES}", "entities": entities, "sequences": sequences, "tod": tod,
            "overrides": {k: v for k, v in override_report.items() if k != "error examples"},
            "environment": {**environment(tod), "waterLevel": water_level(), **dict(zip(("probes", "cubes"),
                                                            menu_probes([l for l in lights if math.dist(l["world"][9:12], player) <= LIGHT_RADIUS])))},
@@ -719,9 +727,9 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
            "far": far, "skipped": skipped, "wanted": sorted(wanted),
            "decals": menu_decals(decals_found, player, radius), "notImported": sorted(f for f, a in assets.items() if not a),
            "lights": [l for l in lights if math.dist(l["world"][9:12], player) <= LIGHT_RADIUS],
-           "ground": ground(player)}
+           "ground": ground(player) if with_ground else {}}
     out_dir().mkdir(parents=True, exist_ok=True)
-    path = out_dir() / "nighthaven.json"
+    path = out_dir() / out_name
     path.write_text(json.dumps(doc, indent=1))
     return {"file": str(path), "entities": sorted(entities), "sequences": {k: [v["start"], v["end"], sorted(v["nodes"])]
                                                                             for k, v in sequences.items()}, "tod": tod,
@@ -729,6 +737,13 @@ def scene(radius: float = SCENE_RADIUS) -> dict:
             "placements with an override slot": sum(1 for item in placements if item["slots"]),
             "meshes": len(placements), "unique": len({p["mesh"] for p in placements}), "skipped": skipped, "wanted": len(wanted),
             "lights": len(doc["lights"]), "ground": {k: v for k, v in doc["ground"].items() if k != "heights"}}
+
+
+def creation_scene(radius: float = SCENE_RADIUS) -> dict:
+    """Writes SWC_CONTENT/frontend/creation-scene.json: the record of FTUE_V2_CC (stage Q3) in the form of the menu scene, around
+    the customizable character Player_Entity_Int and the camera Character_Create_Camera; an indoor level: no ground patch."""
+    return scene(radius, CREATION_LEVEL_PAK, CREATION_NAMED, "Player_Entity_Int", "Character_Create_Camera", "creation-scene.json",
+                 with_ground=False)
 
 
 def main(argv=None) -> int:
@@ -739,8 +754,15 @@ def main(argv=None) -> int:
     p.add_argument("--force", action="store_true")
     p = sub.add_parser("scene")
     p.add_argument("--radius", type=float, default=SCENE_RADIUS)
+    p = sub.add_parser("creation-scene")
+    p.add_argument("--radius", type=float, default=SCENE_RADIUS)
     args = parser.parse_args(argv)
-    result = clips(args.force) if args.command == "clips" else scene(args.radius)
+    if args.command == "clips":
+        result = clips(args.force)
+    elif args.command == "creation-scene":
+        result = creation_scene(args.radius)
+    else:
+        result = scene(args.radius)
     print(json.dumps(result, indent=1))
     return 0
 
