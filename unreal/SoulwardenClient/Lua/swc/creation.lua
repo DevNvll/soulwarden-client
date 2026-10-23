@@ -453,6 +453,7 @@ Swc.Define("IntroControllerComponentRequestBus", "Broadcast", {
   SetCurrentArchetypeIndex = function(index) C.archetypeIndex = index end,
   OnContinueToFTUE = function()
     if C.newCharacterId ~= "" then
+      Swc.SetData(INTRO_CONTROLLER_NODE, nil)
       request("menu login " .. C.newCharacterId .. " FTUE")
     end
   end,
@@ -529,8 +530,15 @@ end
 
 --- The start of the creation (the host, after "menu intro" and the load of the creation scene): a new look, the state of the
 --- screen CharacterCreation. The archetype step starts with its camera sequence (charactercreation.luac).
+-- The intro controller of the creation level (the entity Intro_Controller of FTUE_V2_CC): with its id in the data node
+-- Hud.LocalPlayer.Intro.IntroControllerEntityID, the CreateCharacterResult of cacidentitytab.luac stays on the creation screen
+-- after a create (the end sequence, then OnContinueToFTUE); with no id it sets the state LandingScreen at once.
+local INTRO_CONTROLLER_NODE = "Hud.LocalPlayer.Intro.IntroControllerEntityID"
+local INTRO_CONTROLLER = EntityId("225060480194")
+
 function Swc.CreationStart()
   C.active = true
+  Swc.SetData(INTRO_CONTROLLER_NODE, INTRO_CONTROLLER)
   C.playing = {}
   C.newCharacterId = ""
   C.creating = false
@@ -545,6 +553,7 @@ end
 --- The end of the creation without a character (OnExit): back to the landing screen.
 function Swc.CreationEnd()
   C.active = false
+  Swc.SetData(INTRO_CONTROLLER_NODE, nil)
   C.playing = {}
   LyShineManagerBus.Broadcast.SetState(LANDING_STATE)
 end
