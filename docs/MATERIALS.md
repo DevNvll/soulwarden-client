@@ -183,8 +183,10 @@ color about 0.6, the albedo about 0.03 linear; T3 first-set1 noon-road-low: L* 6
 `BlendTerrainCol` (the lerp of the diffuse to the terrain color, with distance) is 0 for all ground cover and for all
 but one foliage material: only a fade at the end of the view distance; not done yet (it needs the terrain macro color).
 
-The back light comes only from the lights in the source: `ThinTranslucencyBRDF` is in the deferred light, and the
-ambient of the source has no back term. Unreal's Lumen also gathers the indirect light of the back face and adds
+The direct back light of the source is `ThinTranslucencyBRDF` in the deferred light. The ambient of the source also has
+a back term: the tiled deferred shader adds the diffuse probe at -N times the transmission for leaves
+(research/foliage-white-tops.md 3, AST-269; before, this section said the ambient had none). Thus the 0 below is not
+proved parity; it stays until a matched-view check. Unreal's Lumen also gathers the indirect light of the back face and adds
 SubsurfaceColor x that light (`DiffuseIndirectComposite.usf`); the material cannot turn it off (one subsurface color
 for the direct and the indirect light). Thus the project sets `r.Lumen.ScreenProbeGather.TwoSidedFoliageBackfaceDiffuse=0`
 (DefaultEngine.ini `[SystemSettings]`, above the scalability group GlobalIlluminationQuality 3, which sets 1). Unreal
