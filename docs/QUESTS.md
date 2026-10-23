@@ -149,13 +149,52 @@ folders `lyshineui/images/objectives/`, `icons/objectives/`, `journal/`, and `ba
 - The hand-in row of the tracker: the root task Complete or CompleteActive makes the objective ready (`IsObjectiveReadyForCompletion`);
   the row is "Talk to NAME" with the NPC of NpcDestinationId (`GetNpcDestinationGenericName`; retail K1-2of5: "Basic Needs / Talk to Urda").
 
+## The pins (Q2, AST-237)
+
+One list of the task positions (`Lua/swc/questpins.lua`, `Swc.questPins.list`) feeds the map, the compass, the journal Map action, the
+Map button of the tracker, and (next step) the world pins. The original scripts read the list through two events of
+`ObjectivesComponentNotificationsBus`:
+
+- `OnObjectiveTaskPositionAdded(taskId, position, isTracked, territoryId)`: the map layer (objectiveslayer.luac) makes an icon (on the
+  POI of territoryId when it is not 0); the compass (compass.luac) keeps the position and shows it when isTracked.
+- `OnObjectiveTaskPositionsRemoved(taskId, territoryId)`.
+
+The journal Map action and the tracker Map button ask the map layer (`DynamicBus.ObjectivesLayer.GetObjectivePosition`). Thus all views
+use the same positions. The task id has the fields `objectiveInstanceId` and `taskIndex` (the scripts read them).
+
+The data: `gamedata/quest-pins.json` (`python3 -B -m swc_convert.questpins write`; the inputs quests.json, worldmap.json, and
+persons.json): the marker cells of each task (OverrideLocation as a position, or the raw text when the cell is not three numbers; the POI
+of the first POITag: the backend points of quests.json first, then the map definitions with the same ids; TerritoryID;
+ShowDiegeticTaskPin, DiegeticPinZOverride, HideDiegeticGatherablePins, TP_HideOnCompassOnEnterPOI, TriggerAreaType, TP_TargetTag), the
+hand-in NPC of each objective and its places, and the POI areas of the tasks. The trigger geometry stays apart: the backend checks the
+trigger areas; the area display reads `areas`.
+
+The rules [I] (the native producer is not proved; the study `research/quest-pins.md` is asked):
+
+- Each objective of the character gives positions; isTracked follows `IsObjectiveTracked` (the pinned list after the pin readiness).
+- The tasks: from the root, the Active tasks; a task gives a position when no Active task under it gives one.
+- The position: OverrideLocation, else the POI centre, else the territory centre (height 0). territoryId: the POI, else TerritoryID.
+- The root Complete or CompleteActive: one position on the root task at the place of the NpcDestinationId NPC nearest to the player.
+- The events go after each change of the state, the pinned list, or the pin readiness; `RequestPublishPoiLocations` sends all again.
+- `GetUIData(task, "OverrideLocation")` gives the text of the cell (compass.luac takes its length). `GetTaskTerritoryId`: the POI or
+  TerritoryID of the task. `GetTerritoryIdByPoiTag` and `GetTerritoryDefinitionByPoiTag`: the map definition with the tag.
+
+The start quest 06_getoffbeach: the trigger task (index 9, 9621.61 2309.48 40.24) gives the position; when the trigger is complete, the
+hidden root (9613.64 2329.47 43.0, at Aelstrom) gives it; the root complete gives the hand-in place of 01_AelstromWW_01.
+
+The check: the fixture `tests/ui/fixtures/questpins.lua` (33 checks: the events, the compass position, the map layer position, the pin
+change, the hand-in, the removal; pictures questpins-compass and questpins-map). The data report (2026-10-22): 7249 task records, 2595
+OverrideLocation positions (112 cells are not positions), 2600 backend POIs and 1453 map POIs (236 tags unknown), 1445 TerritoryID, 969
+ShowDiegeticTaskPin, 955 objectives with a hand-in NPC (24 NPCs with no place).
+
 ## Open points
 
 - The banner shows in the HUD state: an inference (`manager.lua`).
 - `javelin.objectives-max-*` exist only for the sections of the retail picture.
 - The journal has a hidden hand-in row "Talk to " (the retail script hides it with SetTaskVisibility).
 - The Map button of the journal shows only when the objective layer of the map has a place for the quest
-  (`ObjectivesLayer.GetObjectivePosition`): stage Q2, with the world pins and the compass pin. The task timers are stage Q8.
+  (`ObjectivesLayer.GetObjectivePosition`): the pins of stage Q2 give it (live check open). The task timers are stage Q8.
+- Q2: the world pins (DiegeticObjectivePin), the objective areas on the map, the live check, and the rules of the study are open.
 - A change of an Auto-Pin switch does not go to the backend (2709 is sent once).
 - The top menu bar of the retail journal (Company, Journal, Mount, ...) is a different canvas: not in the client.
 - The skinning of a boar (AST-250): the trigger rule of the bodies (docs/INTERACTIONS.md); live `tests/drive/ast250-c2*.txt`: the quest

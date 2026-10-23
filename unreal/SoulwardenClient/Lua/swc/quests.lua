@@ -102,7 +102,10 @@ local function task_id(instance, index)
   local key = instance .. ":" .. index
   local id = Q.taskIds[key]
   if not id then
-    id = newTaskId({key = key, instance = instance, index = index, value = tonumber(instance) or 0})
+    -- objectiveInstanceId and taskIndex: the fields of the native task id that the map layer and the compass read
+    -- (objectiveslayer.luac and compass.luac OnObjectiveTaskPositionAdded).
+    id = newTaskId({key = key, instance = instance, index = index, value = tonumber(instance) or 0,
+                    objectiveInstanceId = objective_id(instance), taskIndex = index})
     Q.taskIds[key] = id
   end
   return id
@@ -198,6 +201,12 @@ local function tracked_ids()
   end
   return out
 end
+
+-- The helpers of swc/questpins.lua (the quest pins of stage Q2) and its hook: Q.Changed after each change of the state, the pinned
+-- list, or the pin readiness.
+Q.task_id, Q.node_of, Q.state_of, Q.cell, Q.objective_id, Q.notify_component, Q.tracked_ids =
+  task_id, node_of, state_of, cell, objective_id, notify_component, tracked_ids
+Q.Changed = function() end
 
 local function send_pins()
   local keys = {}
@@ -308,6 +317,7 @@ function Swc.HostQuests(text)
     end
   end
   notify_component("OnObjectiveSortingChanged")
+  Q.Changed()
 end
 
 --- The pin readiness (slot 73): the tracked objectives show from now on.
@@ -406,6 +416,7 @@ function Swc.HostQuestPinReady(on)
       notify_component("OnTrackedObjectiveAdded", id)
     end
     notify_component("OnObjectiveSortingChanged")
+    Q.Changed()
   end
 end
 
@@ -475,6 +486,7 @@ Swc.Define("ObjectivesComponentRequestBus", "Event", {
     Swc.Note("quests: " .. (on and "pin " or "unpin ") .. id.key)
     notify_component("OnPinnedObjectiveChanged", id)
     notify_component("OnObjectiveSortingChanged")
+    Q.Changed()
   end,
   -- Ready for the hand-in: the root task of the instance is Complete (2) or CompleteActive (3) (backend quests.md: "the root of the
   -- objective is complete: the hand-in is stage 1.8b"; the retail tracker then shows the hand-in row "Talk to Urda", picture K1-2of5).
@@ -630,16 +642,20 @@ Swc.Define("ObjectiveTaskRequestBus", "Event", {
   ContainsConsecutiveTasks = function(taskId)
     return kind_of((node_of(taskId))) == "consecutive"
   end,
+  -- OverrideLocation is the text of the cell [I]: compass.luac takes its length (#value), and some rows hold one number ("1").
   GetUIData = function(taskId, name)
     local node = node_of(taskId)
     local value = cell(node and node.row, name)
+    if name == "OverrideLocation" then
+      return value
+    end
     return value and (tonumber(value) or value) or nil
   end,
   GetObjectiveInstanceId = function(taskId)
     return taskId and objective_id(taskId.instance) or nil
   end,
   GetRefreshDescriptionInterval = function() return 0 end,
-  GetTaskTerritoryId = function() return 0 end,
+  -- GetTaskTerritoryId: swc/questpins.lua.
 })
 
 -- The rewards of the data (GameEvent rows and the reward columns of the objective row).
