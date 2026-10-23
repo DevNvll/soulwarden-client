@@ -4,17 +4,17 @@
 cooked_dir="${SWC_COOKED:-${SWC_WORK}/cooked}/Linux"
 cooked_binary="${cooked_dir}/SoulwardenClient/Binaries/Linux/SoulwardenClient"
 
-# cooked_code_hash: a hash of the files of the client code in the checkout (Source, Lua, Config; also changes that are not
-# committed: a cook takes the files as they are).
+# cooked_code_hash: a hash of the files of the client code in the checkout (Source, Lua, Config, Shaders: the global shaders of
+# SwcShaders; also changes that are not committed: a cook takes the files as they are).
 cooked_code_hash() {
-    (cd "${SWC_REPO}/unreal/SoulwardenClient" && find Source Lua Config -type f -not -name "*.pyc" -print0 | sort -z | xargs -0 sha1sum) \
+    (cd "${SWC_REPO}/unreal/SoulwardenClient" && find Source Lua Config Shaders -type f -not -name "*.pyc" -print0 | sort -z | xargs -0 sha1sum) \
         | sha1sum | cut -c1-16
 }
 
 # cooked_state: prints one line and returns 0 when the cooked build is current: it exists, its map is the default (the whole
 # world), the content has no import after the cook (the state files of the plugin and the manifest of the converters), no
 # converter data that the client reads at run time is newer than the cook (tools/lib/loose-data.txt, stage MVP-K), and the client
-# code (Source, Lua, Config) is the same as at the cook. Else 1 (the line says why).
+# code (Source, Lua, Config, Shaders) is the same as at the cook. Else 1 (the line says why).
 cooked_state() {
     local stamp="${cooked_dir}/swc-cook.json"
     if [[ ! -x "${cooked_binary}" || ! -f "${stamp}" ]]; then
@@ -41,7 +41,7 @@ cooked_state() {
         return 1
     fi
     if [[ "${code}" != "$(cooked_code_hash)" ]]; then
-        echo "the client code (Source, Lua, Config) changed after the cook of commit ${commit:0:7} (run tools/cook.sh)"
+        echo "the client code (Source, Lua, Config, Shaders) changed after the cook of commit ${commit:0:7} (run tools/cook.sh)"
         return 1
     fi
     echo "the cooked build of commit ${commit:0:7} ($(date -d "@${time}" '+%F %T')) is current"

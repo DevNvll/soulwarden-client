@@ -560,6 +560,12 @@ cooked); late content 0 after both entries (runs ret-u2, ret-c2, ret-c3 of `work
 
 ### The cooked build (AST-203, 2026-10-20)
 
+The cooked play run (AST-273 P2, 2026-10-23): `tools/play.sh` (and `tools/dev-run.sh --cooked`) start the cooked client with
+`-NoVerifyGC` (a Development game build verifies the assumptions of the garbage collection at each collection; the editor and the
+Shipping and Test builds do not). The state of the cook (`tools/lib/cooked.sh`) also hashes `Shaders/` (the global shaders of
+SwcShaders, from P4): a change of a shader file makes the cook old. After the full cook, each merge needs only an incremental cook
+(`tools/cook.sh` in the main checkout; 149 to 391 s); until then `tools/play.sh` says why and starts the editor binary.
+
 The estimate of one region came first.
 
 A test level with the region r_+04_+02 only (`/Game/Imported/CookTest/CookTest` in a worktree, git ignores it; `build_world.py` with

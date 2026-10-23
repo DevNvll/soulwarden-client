@@ -79,8 +79,8 @@ if [[ ${cooked} -eq 1 ]]; then
     source "${SWC_REPO}/tools/lib/cooked.sh"
     [[ -x "${cooked_binary}" ]] || { echo "dev-run: no cooked build in ${cooked_dir} (tools/cook.sh)" >&2; exit 2; }
     echo "dev-run: $(cooked_state)" >&2 || true
-    client_window=("${cooked_binary}" SoulwardenClient)
-    client_nowindow=("${cooked_binary}" SoulwardenClient)
+    client_window=("${cooked_binary}" SoulwardenClient -NoVerifyGC)   # as tools/play.sh (AST-273 P2)
+    client_nowindow=("${cooked_binary}" SoulwardenClient -NoVerifyGC)
 fi
 client_arguments=(-game -nosound -SwcConnect -abslog="${client_log}" "${SWC_CLIENT_ARGS[@]}")
 if [[ -n "${quit_when}" ]]; then

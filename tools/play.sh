@@ -130,7 +130,9 @@ cooked_line="$(cooked_state)" && cooked_current=1 || cooked_current=0
 client=("${SWC_CLIENT_EXE}" "${SWC_UPROJECT}")
 if [[ "${build}" == "cooked" || ( "${build}" == "auto" && ${cooked_current} -eq 1 ) ]]; then
     if [[ -x "${cooked_binary}" ]]; then
-        client=("${cooked_binary}" SoulwardenClient)
+        # -NoVerifyGC: a Development game build verifies the assumptions of the garbage collection at each collection (only the
+        # editor and a Shipping or Test build skip it; AST-273 P2).
+        client=("${cooked_binary}" SoulwardenClient -NoVerifyGC)
         report ok "client: the cooked build (${cooked_line})"
     else
         report FAIL "no cooked build in ${cooked_dir} (run tools/cook.sh)"
