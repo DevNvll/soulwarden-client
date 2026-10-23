@@ -1,0 +1,8 @@
+# The live check of the quest pins of AST-237 (docs/QUESTS.md "The pins (Q2, AST-237)"): no route. A new character of the development
+# account (SWC_DEV_NEW=1: the backend puts it on the Windsward beach and gives "Soul Survivor"), in its own data folder, with the pin data
+# of the check copy of the content:
+#   SWC_CONTENT=~/Games/soulwarden-client/content-q2 SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-q2 SWC_AGENT_DESKTOP=soulwarden-client-world \
+#   SWC_STAGE=AST-237 SWC_DEV_CHARACTER=QuestPinA SWC_DEV_NEW=1 tools/creature-check.sh ast237-q2a 70 THIS tests/drive/ast237-q2.txt \
+#     -- -SwcUiDrive=tests/drive/ast237-q2-ui.txt
+# The run with task 9 active (outside its area at the start): SWC_DEV_PLACE=9590:2290:41.5 SWC_DEV_CHARACTER=QuestPinC ...
+#   tools/creature-check.sh ast237-q2c 85 THIS tests/drive/ast237-q2c.txt -- -SwcUiDrive=tests/drive/ast237-q2c-ui.txt

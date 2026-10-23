@@ -1,0 +1,16 @@
+# The UI drive of the first live check of AST-237: the tracker, the compass, and the world pin at the start (the player drive turns the
+# camera), M (the map with the quest icon), J (the journal), the journal Map action (the map at the quest), Escape.
+1 waitfor CompassLines 60
+2 waitfor world 180
+4 log the start: the tracker, the compass, the world pin
+24 log M: the map with the quest icon
+24 key M
+30 key M
+32 log J: the journal
+32 key J
+36 log the journal Map action
+36 point text:Map
+36.3 click
+42 log the map of the journal Map action
+46 key Escape
+48 log after the map

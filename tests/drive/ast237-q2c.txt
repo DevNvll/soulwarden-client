@@ -1,0 +1,12 @@
+# The player drive of the live check of AST-237 with task 9 active (routes tests/drive/ast237-q2-routes.txt, the start place
+# SWC_DEV_PLACE=9590:2290:41.5: 37 m west-south-west of the trigger point of task 9, outside its area; the backend completes task 9 when a
+# new character spawns in the area). Look between the two pins, one full turn (30 degrees each second for 12 s), stand for the map and
+# the journal, then run to the trigger (heading 58.3 degrees) and look at the root pin of Aelstrom (31 degrees).
+3.0 view 45 -8
+8.0 turn 30
+20.0 turn 0
+20.1 view 45 -8
+50.0 view 58.3 -8
+51.0 move 0 1
+58.0 move 0 0
+60.0 view 31 -8

@@ -1,0 +1,19 @@
+# The UI drive of the live check of AST-237 with task 9 active (player drive tests/drive/ast237-q2c.txt): the tracker, the compass, and
+# the world pin at the start; M (the map with the quest icons); J (the journal); the journal Map action; Escape; the run into the trigger
+# (the world pin of task 9 goes; the root position stays).
+1 waitfor CompassLines 60
+2 waitfor world 180
+4 log the start: the tracker, the compass, the world pin of task 9
+24 log M: the map with the quest icons
+24 key M
+30 key M
+32 log J: the journal
+32 key J
+36 log the journal Map action
+36 point text:Map
+36.3 click
+42 log the map of the journal Map action
+46 key Escape
+48 log after the map
+52 log the run to the trigger
+62 log after the trigger: the root position stays

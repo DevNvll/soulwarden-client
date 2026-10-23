@@ -1,0 +1,4 @@
+# The player drive of the first live check of AST-237 (routes tests/drive/ast237-q2-routes.txt): stand at the start place and turn the
+# camera one full turn (30 degrees each second for 12 s): the compass icon and the world pin of the quest pass the middle of the view.
+8.0 turn 30
+20.0 turn 0
