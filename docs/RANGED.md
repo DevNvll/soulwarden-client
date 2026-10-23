@@ -48,6 +48,13 @@ mana costs. Mannequin compares the fragment names with no case (`Attack_Start_Ch
   action that loses the scope stays installed to its deactivation condition (Bow_ReadyWeapon to the mark Exit_BowAimShoot of the
   lower fragment: its tags select the variants of the next actions); an action with no deactivation condition ends with its
   fragment or when it loses the scope.
+- A new ability that takes the fragment scope (AST-271, 2026-10-23) ends the fragment owner and each action that lost the scope,
+  with their exits [I: the interruption of a Mannequin action by a higher action of its scope]. A sub-action of a transition of the
+  own fragment keeps its former owner. Before, the aim substate of the bow stayed installed to the 10 s end (its deactivation reads
+  the marks of the fragment that the ability owns now); its tag Aim refused the draw and the hip shot until a weapon swap.
+- ClearMannequinTagGroup clears the tags of a group at the enter or the exit of its activity [D: the exit of the bow aim actions
+  clears the group Aiming]. The groups are the groups of `animations/mannequin/adb/player/playermaletags.xml` (actions.json
+  `ranged.tagGroups`).
 - Each step: the inputs go into the history (BackTicks); the deactivation of the installed actions; the items and the transitions
   of the fragment at its clock ((step - start + 1) / 30 s, the clock of the attack graph); the end of a fragment; the activities at
   the edges of their conditions; the activation of the actions that are not installed, in the order of the data (one new fragment
