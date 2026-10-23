@@ -417,8 +417,16 @@ The client (`Environment/SwcEnvironmentSubsystem.cpp`, `M_SwcGrade` of `Scripts/
   metered EV100 of Unreal, the bias gives 1 / (1.2 x 2^EV). The bounds of Unreal stay wide. The renderer bakes the curve into a
   table only for a new curve object: the client makes a new curve when the rule changes (a change of the keys was not seen).
 - The source meter of the frame corrects that meter (`swc.SourceMeter 2`, the default from 2026-10-20;
-  `Environment/SwcMeterProbe.cpp`). Each 0.25 s an asynchronous readback copies the scene color after the depth of field (with
-  the water, the fog, and the translucency) and G-buffer B and C; the render thread reads each sixth pixel in each direction. E is
+  `Environment/SwcMeterProbe.cpp`). Each 0.25 s it measures the scene color after the depth of field (with the water, the fog,
+  and the translucency) and G-buffer B and C at each sixth pixel in each direction. From AST-273 P4 (`swc.MeterGpu 1`, the
+  default) a compute pass of SwcShaders (`Shaders/Private/SwcMeter.usf`) sums the samples of each group of 16 x 16 and an
+  asynchronous readback copies the sums (8 floats of each group, about 6 KB at 1937 x 783); before, the readback copied the three
+  textures and the render thread read them (`swc.MeterGpu 0`; 2 does both on the same frame and logs "meter compare"). The check
+  (run p4-meter, 3416 x 1380, TSR from 1937 x 783): 521 frames with both at 12:00, 00:30, and 18:30 with a turning camera, the EV
+  difference mean -0.00018, largest 0.0003, the same sample and sky counts; the applied EV 11.339 and 11.329 (GPU) against 11.334
+  (copies); the GPU time of a meter frame 0.011 ms (the pass) + 0.007 to 0.009 ms (the copy of the sums) against 1.46 to 1.75 ms
+  (the three copies). `swc.MeterInterval` (0.25 s) is the time between two measures (0: as often as the readbacks allow, the cost
+  test). E is
   pi x L / the albedo with the denominator of `research/e5-meter-water.md`: the larger of the Rec. 709 luminance of the diffuse
   color (the base color x (1 - metallic)) and of the reflectance (lerp(0.08 x specular, the base color, metallic)), at least 0.01;
   0.2 where the diffuse luminance is 0 (the sky). G-buffer C is an sRGB target (the probe decodes it). Under the translucent water
@@ -856,6 +864,7 @@ client selects its own volumes (stage E3).
 | `swc.LumenTest 0\|1` | The Lumen test copies of the inn and the two houses (`-SwcLumenTest` at the start; `tools/lumen-test.sh` makes them). |
 | `tools/match-view.sh ... --variant VIEW@NAME=COMMAND;...` | One more picture of a view with client console commands (run when the view is in place): a look value or a switch to compare in one run. The next view sets the console variables of the commands back to their values before the first variant (from 2026-10-19). The report and the side-by-side picture have the local lights at the shot and the median GPU time while the view is in place (with `-SwcFrameStats=2`). |
 | `swc.Grade 0\|1`, `swc.GradeDebug 0\|1\|2`, `swc.GradeBloom F`, `swc.SourceBloom 0\|1`, `swc.GradeBias EV`, `swc.SourceMeter 0\|1\|2`, `swc.SunSource 0\|1` | The color grade of the source or the Unreal tone mapper; a check of the exposed value or of the exposure; the part of the Unreal bloom; an offset of the exposure (a look check); the meter: 2 the source meter of the frame (the default), 1 the Unreal meter with the source curve, 0 the Unreal luminance; the bloom mix of the source (1, the default) or the Unreal bloom added (0); the sun of the hour (1, the default) or the noon sun of E1 (0) (stage E5). |
+| `swc.MeterGpu 0\|1\|2`, `swc.MeterInterval S` | The reduction of the source meter: 1 on the GPU (the default), 0 the three copies, 2 both with a compare line; the time between two measures (0.25) (AST-273 P4). |
 | `r.Shadow.Virtual.UseReceiverMaskDirectional`, `swc.Wind.ShadowCache 0\|1` | The receiver mask of the sun (0 in the code, AST-273 P1b) and the static shadow cache of the meshes with the wind (1); 1 and 0 are the engine defaults (a cost check). |
 | `swc.SunStep DEGREES`, `swc.SunStepShift M` | The step of the sun light (AST-273 P1, "The sun step"): the largest step (0.1; 0 a turn in each frame) and the shadow move for each meter of height (0.005). |
 | `swc.SourceSky 0\|1`, `swc.CloudTint F` | The sky color of the source model or the SkyAtmosphere of Unreal; the cloud tint of the data (stage E5). |

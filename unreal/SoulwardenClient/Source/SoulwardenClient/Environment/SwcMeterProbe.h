@@ -33,8 +33,9 @@ struct FResult
 /** Measures the next frame of the game view and logs one line (Label; the EV bounds and the compensation of the time of day). */
 void Request(const FString& Label, double EvMin, double EvMax, double Compensation);
 
-/** On: measures a frame each Interval seconds with an asynchronous readback (no stall). */
-void SetWatch(bool bOn, double Interval = 0.25);
+/** On: measures a frame each Interval seconds with an asynchronous readback (no stall); a negative Interval: swc.MeterInterval
+ *  (0.25 s; 0 measures as often as the readbacks allow, a cost test). */
+void SetWatch(bool bOn, double Interval = -1.0);
 
 /** @return The newest measure of the watch, if one is there. */
 bool GetLatest(FResult& Out);

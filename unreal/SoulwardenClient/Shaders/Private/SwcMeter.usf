@@ -1,0 +1,86 @@
+// The source meter of the frame on the GPU (AST-273 P4; Environment/SwcMeterProbe of the game module, docs/ENVIRONMENT.md "The source
+// meter"): the same samples (each Step-th pixel of the view in each direction) and the same rule as the CPU loop of the meter. Each group
+// of 16 x 16 samples writes 8 floats: the sums of log2 E, of log2 L, and of log2 of the albedo (pixels with a material color), the count
+// of the samples, and the count of the sky (no material color). The CPU adds the groups.
+
+#include "/Engine/Private/Common.ush"
+
+Texture2D<float4> SceneColor;
+Texture2D<float4> GBufferB;
+Texture2D<float4> GBufferC;
+// The view rectangle: the minimum and the maximum (exclusive), pixels.
+int4 Rect;
+int Step;
+int GroupsX;
+float InvPreExposure;
+RWBuffer<float> Output;
+
+#define SWC_METER_GROUP 16
+#define SWC_METER_THREADS (SWC_METER_GROUP * SWC_METER_GROUP)
+
+groupshared float SharedE[SWC_METER_THREADS];
+groupshared float SharedL[SWC_METER_THREADS];
+groupshared float SharedAlbedo[SWC_METER_THREADS];
+groupshared float SharedCount[SWC_METER_THREADS];
+groupshared float SharedSky[SWC_METER_THREADS];
+
+float MeterLuminance(float3 Color)
+{
+	return dot(Color, float3(0.2126, 0.7152, 0.0722));
+}
+
+[numthreads(SWC_METER_GROUP, SWC_METER_GROUP, 1)]
+void MainCS(uint3 GroupId : SV_GroupID, uint3 ThreadId : SV_GroupThreadID, uint Index : SV_GroupIndex)
+{
+	const int2 Pixel = Rect.xy + int2(GroupId.xy * SWC_METER_GROUP + ThreadId.xy) * Step;
+	float E = 0.0, L = 0.0, Albedo = 0.0, Count = 0.0, Sky = 0.0;
+	if (all(Pixel < Rect.zw))
+	{
+		// The pixel rule of FMeterSums::Add: L over the pre-exposure; the denominator of research/e5-meter-water.md (the diffuse and the
+		// specular reflectance); 0.2 where the diffuse luminance is 0 (the sky, a black material).
+		const float Luminance = max(MeterLuminance(SceneColor.Load(int3(Pixel, 0)).rgb) * InvPreExposure, 1e-6);
+		const float4 B = GBufferB.Load(int3(Pixel, 0));
+		const float3 C = GBufferC.Load(int3(Pixel, 0)).rgb;
+		const float Metallic = B.r;
+		const float DiffuseY = MeterLuminance(C * (1.0 - Metallic));
+		const float ReflectanceY = MeterLuminance(lerp((0.08 * B.g).xxx, C, Metallic));
+		const bool bZero = DiffuseY == 0.0;
+		const float Denominator = bZero ? 0.2 : max(max(DiffuseY, ReflectanceY), 0.01);
+		E = log2(PI * Luminance / Denominator);
+		L = log2(Luminance);
+		Albedo = bZero ? 0.0 : log2(Denominator);
+		Count = 1.0;
+		Sky = bZero ? 1.0 : 0.0;
+	}
+	SharedE[Index] = E;
+	SharedL[Index] = L;
+	SharedAlbedo[Index] = Albedo;
+	SharedCount[Index] = Count;
+	SharedSky[Index] = Sky;
+	GroupMemoryBarrierWithGroupSync();
+	UNROLL
+	for (uint Stride = SWC_METER_THREADS / 2; Stride > 0; Stride >>= 1)
+	{
+		if (Index < Stride)
+		{
+			SharedE[Index] += SharedE[Index + Stride];
+			SharedL[Index] += SharedL[Index + Stride];
+			SharedAlbedo[Index] += SharedAlbedo[Index + Stride];
+			SharedCount[Index] += SharedCount[Index + Stride];
+			SharedSky[Index] += SharedSky[Index + Stride];
+		}
+		GroupMemoryBarrierWithGroupSync();
+	}
+	if (Index == 0)
+	{
+		const uint Base = (GroupId.y * GroupsX + GroupId.x) * 8;
+		Output[Base + 0] = SharedE[0];
+		Output[Base + 1] = SharedL[0];
+		Output[Base + 2] = SharedAlbedo[0];
+		Output[Base + 3] = SharedCount[0];
+		Output[Base + 4] = SharedSky[0];
+		Output[Base + 5] = 0.0;
+		Output[Base + 6] = 0.0;
+		Output[Base + 7] = 0.0;
+	}
+}

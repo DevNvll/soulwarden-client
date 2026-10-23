@@ -10,6 +10,7 @@
 #include "SceneTexturesConfig.h"
 #include "SceneView.h"
 #include "SceneViewExtension.h"
+#include "SwcMeterPass.h"
 
 namespace
 {
@@ -26,6 +27,16 @@ BEGIN_SHADER_PARAMETER_STRUCT(FSwcMeterReadParameters, )
 	RDG_TEXTURE_ACCESS(Normal, ERHIAccess::CopySrc)
 	RDG_TEXTURE_ACCESS(BaseColor, ERHIAccess::CopySrc)
 END_SHADER_PARAMETER_STRUCT()
+
+/** The reduction of the watch (AST-273 P4): 1 on the GPU (a pass of SwcShaders sums the samples; a readback of a few kilobytes), 0 the
+ *  copies of the scene color and the G-buffer B and C to the CPU, 2 both on the same frame (the GPU sums go to the exposure; a log line
+ *  compares the two). */
+TAutoConsoleVariable<int32> CVarMeterGpu(TEXT("swc.MeterGpu"), 1,
+	TEXT("The reduction of the source meter (AST-273 P4): 1 on the GPU (a readback of a few KB), 0 three screen copies to the CPU, 2 both ")
+	TEXT("(the log line \"meter compare\")."));
+
+TAutoConsoleVariable<float> CVarMeterInterval(TEXT("swc.MeterInterval"), 0.25f,
+	TEXT("The time between two measures of the source meter (seconds; 0: as often as the readbacks allow, a cost test of AST-273 P4)."));
 
 /** The step of the watch between the pixels that it reads in each direction (the geometric mean of a regular sample of the frame). */
 constexpr int32 WatchStep = 6;
@@ -110,6 +121,9 @@ bool ReadTexel(const uint8* Data, int32 RowPitchPixels, EPixelFormat Format, boo
 struct FInFlight
 {
 	TUniquePtr<FRHIGPUTextureReadback> Color, Normal, Base;
+	/** The sums of the GPU reduction (swc.MeterGpu 1 or 2): Groups x SwcMeterGroupFloats floats. */
+	TUniquePtr<FRHIGPUBufferReadback> Sums;
+	int32 Groups = 0;
 	EPixelFormat ColorFormat = PF_Unknown, NormalFormat = PF_Unknown, BaseFormat = PF_Unknown;
 	bool bNormalSrgb = false, bBaseSrgb = false;
 	FIntRect Rect;
@@ -199,10 +213,31 @@ public:
 		}
 		if (bWatchFrame)
 		{
+			const int32 Mode = CVarMeterGpu.GetValueOnAnyThread();
+			const bool bTwoD = Color->Desc.Dimension == ETextureDimension::Texture2D && Normal->Desc.Dimension == ETextureDimension::Texture2D
+				&& Base->Desc.Dimension == ETextureDimension::Texture2D;
+			const bool bGpu = Mode != 0 && bTwoD;
+			const bool bCopies = Mode != 1 || !bGpu;
 			TUniquePtr<FInFlight> Frame = MakeUnique<FInFlight>();
-			Frame->Color = MakeUnique<FRHIGPUTextureReadback>(TEXT("SwcMeterColor"));
-			Frame->Normal = MakeUnique<FRHIGPUTextureReadback>(TEXT("SwcMeterNormal"));
-			Frame->Base = MakeUnique<FRHIGPUTextureReadback>(TEXT("SwcMeterBase"));
+			if (bGpu)
+			{
+				FSwcMeterInputs Meter;
+				Meter.SceneColor = Color;
+				Meter.GBufferB = Normal;
+				Meter.GBufferC = Base;
+				Meter.Rect = Scene.ViewRect;
+				Meter.Step = WatchStep;
+				Meter.PreExposure = PreExposure;
+				const FRDGBufferRef Sums = AddSwcMeterPass(GraphBuilder, Meter, Frame->Groups);
+				Frame->Sums = MakeUnique<FRHIGPUBufferReadback>(TEXT("SwcMeterSums"));
+				AddEnqueueCopyPass(GraphBuilder, Frame->Sums.Get(), Sums, Frame->Groups * SwcMeterGroupFloats * sizeof(float));
+			}
+			if (bCopies)
+			{
+				Frame->Color = MakeUnique<FRHIGPUTextureReadback>(TEXT("SwcMeterColor"));
+				Frame->Normal = MakeUnique<FRHIGPUTextureReadback>(TEXT("SwcMeterNormal"));
+				Frame->Base = MakeUnique<FRHIGPUTextureReadback>(TEXT("SwcMeterBase"));
+			}
 			Frame->ColorFormat = Color->Desc.Format;
 			Frame->NormalFormat = Normal->Desc.Format;
 			Frame->BaseFormat = Base->Desc.Format;
@@ -212,9 +247,12 @@ public:
 			Frame->PreExposure = PreExposure;
 			Frame->Metered = Metered;
 			Frame->Start = FPlatformTime::Seconds();
-			AddEnqueueCopyPass(GraphBuilder, Frame->Color.Get(), Color);
-			AddEnqueueCopyPass(GraphBuilder, Frame->Normal.Get(), Normal);
-			AddEnqueueCopyPass(GraphBuilder, Frame->Base.Get(), Base);
+			if (bCopies)
+			{
+				AddEnqueueCopyPass(GraphBuilder, Frame->Color.Get(), Color);
+				AddEnqueueCopyPass(GraphBuilder, Frame->Normal.Get(), Normal);
+				AddEnqueueCopyPass(GraphBuilder, Frame->Base.Get(), Base);
+			}
 			FScopeLock Lock(&Guard);
 			InFlight = MoveTemp(Frame);
 		}
@@ -231,7 +269,9 @@ public:
 			{
 				return;
 			}
-			if (!InFlight->Color->IsReady() || !InFlight->Normal->IsReady() || !InFlight->Base->IsReady())
+			const bool bCopiesReady = !InFlight->Color.IsValid() || (InFlight->Color->IsReady() && InFlight->Normal->IsReady() && InFlight->Base->IsReady());
+			const bool bSumsReady = !InFlight->Sums.IsValid() || InFlight->Sums->IsReady();
+			if (!bCopiesReady || !bSumsReady)
 			{
 				if (FPlatformTime::Seconds() - InFlight->Start > 1.0)
 				{
@@ -242,30 +282,34 @@ public:
 			}
 			Frame = MoveTemp(InFlight);
 		}
-		int32 ColorPitch = 0, NormalPitch = 0, BasePitch = 0;
-		const uint8* ColorData = static_cast<const uint8*>(Frame->Color->Lock(ColorPitch));
-		const uint8* NormalData = static_cast<const uint8*>(Frame->Normal->Lock(NormalPitch));
-		const uint8* BaseData = static_cast<const uint8*>(Frame->Base->Lock(BasePitch));
 		FMeterSums Sums;
-		bool bFormats = ColorData != nullptr && NormalData != nullptr && BaseData != nullptr && Frame->PreExposure > 0.0f;
-		for (int32 Y = Frame->Rect.Min.Y; bFormats && Y < Frame->Rect.Max.Y; Y += WatchStep)
+		bool bFormats = Frame->PreExposure > 0.0f;
+		if (Frame->Color.IsValid())
 		{
-			for (int32 X = Frame->Rect.Min.X; X < Frame->Rect.Max.X; X += WatchStep)
-			{
-				FLinearColor C, B, A;
-				if (!ReadTexel(ColorData, ColorPitch, Frame->ColorFormat, false, X, Y, C)
-					|| !ReadTexel(NormalData, NormalPitch, Frame->NormalFormat, Frame->bNormalSrgb, X, Y, B)
-					|| !ReadTexel(BaseData, BasePitch, Frame->BaseFormat, Frame->bBaseSrgb, X, Y, A))
-				{
-					bFormats = false;
-					break;
-				}
-				Sums.Add(Luminance(C) / Frame->PreExposure, B, A);
-			}
+			bFormats = ReadCopies(*Frame, Sums) && bFormats;
 		}
-		Frame->Color->Unlock();
-		Frame->Normal->Unlock();
-		Frame->Base->Unlock();
+		FMeterSums GpuSums;
+		if (Frame->Sums.IsValid())
+		{
+			const float* Data = static_cast<const float*>(Frame->Sums->Lock(Frame->Groups * SwcMeterGroupFloats * sizeof(float)));
+			for (int32 Group = 0; Data != nullptr && Group < Frame->Groups; ++Group)
+			{
+				const float* Values = Data + Group * SwcMeterGroupFloats;
+				GpuSums.SumE += Values[0];
+				GpuSums.SumL += Values[1];
+				GpuSums.SumAlbedo += Values[2];
+				GpuSums.Count += FMath::RoundToInt32(Values[3]);
+				GpuSums.Sky += FMath::RoundToInt32(Values[4]);
+			}
+			Frame->Sums->Unlock();
+			if (Frame->Color.IsValid() && Sums.Count > 0 && GpuSums.Count > 0)
+			{
+				// swc.MeterGpu 2: the two reductions of the same frame.
+				UE_LOG(LogSwcEnvironment, Log, TEXT("meter compare: E %.4f lux (copies) against %.4f lux (GPU), %.5f EV; samples %d and %d, sky %d and %d"),
+					Sums.E(), GpuSums.E(), FMath::Log2(GpuSums.E() / Sums.E()), Sums.Count, GpuSums.Count, Sums.Sky, GpuSums.Sky);
+			}
+			Sums = GpuSums;
+		}
 		if (!bFormats || Sums.Count == 0)
 		{
 			UE_CLOG(!bWarned, LogSwcEnvironment, Warning, TEXT("meter: no measure (the formats %s, %s, %s)"), GetPixelFormatString(Frame->ColorFormat),
@@ -281,6 +325,35 @@ public:
 		Latest.Dropped = Dropped;
 		Latest.Time = FPlatformTime::Seconds();
 		++Latest.Serial;
+	}
+
+	/** The CPU loop of the copies (swc.MeterGpu 0 or 2): each WatchStep-th pixel. @return False for an unknown format. */
+	static bool ReadCopies(FInFlight& Frame, FMeterSums& Sums)
+	{
+		int32 ColorPitch = 0, NormalPitch = 0, BasePitch = 0;
+		const uint8* ColorData = static_cast<const uint8*>(Frame.Color->Lock(ColorPitch));
+		const uint8* NormalData = static_cast<const uint8*>(Frame.Normal->Lock(NormalPitch));
+		const uint8* BaseData = static_cast<const uint8*>(Frame.Base->Lock(BasePitch));
+		bool bFormats = ColorData != nullptr && NormalData != nullptr && BaseData != nullptr && Frame.PreExposure > 0.0f;
+		for (int32 Y = Frame.Rect.Min.Y; bFormats && Y < Frame.Rect.Max.Y; Y += WatchStep)
+		{
+			for (int32 X = Frame.Rect.Min.X; X < Frame.Rect.Max.X; X += WatchStep)
+			{
+				FLinearColor C, B, A;
+				if (!ReadTexel(ColorData, ColorPitch, Frame.ColorFormat, false, X, Y, C)
+					|| !ReadTexel(NormalData, NormalPitch, Frame.NormalFormat, Frame.bNormalSrgb, X, Y, B)
+					|| !ReadTexel(BaseData, BasePitch, Frame.BaseFormat, Frame.bBaseSrgb, X, Y, A))
+				{
+					bFormats = false;
+					break;
+				}
+				Sums.Add(Luminance(C) / Frame.PreExposure, B, A);
+			}
+		}
+		Frame.Color->Unlock();
+		Frame.Normal->Unlock();
+		Frame.Base->Unlock();
+		return bFormats;
 	}
 
 	static void Report(const FRequest& Request, const FMeterSums& Sums, float PreExposure, float Metered)
@@ -333,7 +406,7 @@ void SwcMeterProbe::SetWatch(bool bOn, double Interval)
 {
 	FScopeLock Lock(&Probe()->Guard);
 	Probe()->bWatch = bOn;
-	Probe()->Interval = Interval;
+	Probe()->Interval = Interval >= 0.0 ? Interval : FMath::Max(0.0f, CVarMeterInterval.GetValueOnGameThread());
 }
 
 bool SwcMeterProbe::GetLatest(FResult& Out)
