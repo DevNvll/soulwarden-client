@@ -3,17 +3,17 @@
 # 06_skinningknife (3 lines), E at "Accept Quest" (3772). Times from the spawn of the player.
 1 waitfor CompassLines 60
 2 waitfor world 180
-36 log the hand-in chain: line 1
-38 key E
-42 key E
+44 log the hand-in chain: page 1
 46 key E
 50 key E
-54 log the last line: Complete the Quest and the details
-56 key E
-64 log after the hand-in: the new state and the offer
-66 key E
-70 key E
+54 key E
+58 key E
+62 log the last page: Complete the Quest and the details
+64 key E
+72 log after the hand-in: the new state and the offer
 74 key E
-78 log the proposal: Accept Quest
-80 key E
-86 log after the accept
+78 key E
+82 key E
+86 log the proposal: Accept Quest
+88 key E
+94 log after the accept

@@ -557,6 +557,21 @@ end
 --   - the height (0x39D5F79): a DiegeticPinZOverride of at least -100 replaces Z; else Z + 1.75 m (javelin.objectives-diegeticPinZOffset);
 --   - the place, the scale, and the alpha: the marker params of the type (markerdata.luac: scale 1 at 4 m to 0.7 at 120 m, alpha 1 at
 --     100 m to 0 at 150 m); no occlusion (the params have no allowWorldOcclusion). The gatherable entity pins are a separate path [U].
+-- A slot of the static pool whose element has no marker yet (AST-239): staticworldmarker.luac registers its MarkerComponentId callback
+-- with no execute, so a value set before the element registered is lost (the NPC markers take their slots in the first frames). The
+-- slot sends its data again each second until the element has its marker.
+local function resend(slot, typeName)
+  if (Swc.time or 0) < (slot.resendAt or 0) then
+    return
+  end
+  slot.resendAt = (Swc.time or 0) + 1
+  Swc.SetData(slot.prefix .. ".MarkerComponentId", slot.markerId)
+  slot.values = {}
+  put(slot, "Type", typeName)
+  slot.state = nil
+end
+M.resend = resend
+
 local QUEST_PIN_TYPE, QUEST_PIN_LIMIT, QUEST_PIN_RANGE, QUEST_PIN_Z, QUEST_PIN_INTERVAL = "DiegeticObjectivePin", 5, 150, 1.75, 2
 M.questSlots = {}
 local questAllocation = {time = -math.huge, revision = -1}
@@ -643,6 +658,10 @@ function M.TickQuestPins()
       c.distance = math.sqrt((c.x - own[1]) ^ 2 + (c.y - own[2]) ^ 2 + (c.z - own[3]) ^ 2)
       local object = slot.markerId and M.objects[key(slot.markerId)]
       local element = object and object.element
+      if not element then
+        resend(slot, QUEST_PIN_TYPE)
+        put(slot, "DiegeticPinObjectiveInstanceId", Swc.quests.objective_id(c.pin.objective))
+      end
       -- The engine space (m; Y north) to Unreal (cm; Y south): docs/ARCHITECTURE.md "Spaces".
       local sx, sy = project((c.x + (params.wX or 0)) * 100, -(c.y + (params.wY or 0)) * 100, (c.z + (params.wZ or 0)) * 100)
       local alpha = params.maxAlpha or 1
@@ -684,6 +703,11 @@ function M.TickNpcMarkers()
   local states = Swc.npcStates
   local first = math.min(pool_size("w"), QUEST_PIN_LIMIT)
   local size = pool_size("w")
+  if M.ready and states and npcAllocation.logged ~= size then
+    npcAllocation.logged = size
+    swcui.log("info", string.format("npc markers: the static pool w has %d slot(s); the quest pins take %d, the NPC markers %d", size, first,
+      math.max(size - first, 0)))
+  end
   if not M.ready or not states or size <= first then
     return
   end
@@ -738,6 +762,8 @@ function M.TickNpcMarkers()
         slot.markerId = EntityId(string.format("7%03d%010d", slot.index, person.crc % 10000000000))
         Swc.SetData(slot.prefix .. ".MarkerComponentId", slot.markerId)
         put(slot, "Type", NPC_MARKER_TYPE)
+        swcui.log("info", string.format("npc marker on: %s %s state %d (w%d)", person.npcId, person.key, person.state and person.state.State or -1,
+          slot.index))
       end
     end
   end
@@ -745,6 +771,10 @@ function M.TickNpcMarkers()
     local slot = M.npcSlots[index]
     local person = slot and slot.person
     if person and person.state then
+      local object = slot.markerId and M.objects[key(slot.markerId)]
+      if not (object and object.element) then
+        resend(slot, NPC_MARKER_TYPE)
+      end
       local state = {State = person.state.State, ObjectiveType = person.state.ObjectiveType,
                      ConversationObjectiveInstanceId = person.state.ConversationObjectiveInstanceId}
       if not same_state(slot.state, state) then
@@ -753,7 +783,6 @@ function M.TickNpcMarkers()
         Swc.SetData(slot.prefix .. ".NPCState", state)
       end
       local distance = math.sqrt((person.x - px) ^ 2 + (person.y - py) ^ 2 + (person.z - pz) ^ 2)
-      local object = slot.markerId and M.objects[key(slot.markerId)]
       local element = object and object.element
       local sx, sy = project((person.x + (params.wX or 0)) * 100, -(person.y + (params.wY or 0)) * 100, (person.z + (params.wZ or 0)) * 100)
       local alpha = params.maxAlpha or 1

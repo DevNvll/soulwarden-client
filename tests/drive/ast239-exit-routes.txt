@@ -1,0 +1,12 @@
+# The routes of the exit check of AST-239 (docs/QUESTS.md "The persons, the offers, and the hand-in"): the creatures ignore the character,
+# the hour 12:00; after the check aid of the beach cutscene a travel 15 m south of Aelstrom (the ready marker, the compass, the map), then
+# a travel 1.9 m in front of him (the Talk). A new character at the backend start, its own data folder, the content check copy:
+#   SWC_CONTENT=~/Games/soulwarden-client/content-q4 SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-q4 SWC_AGENT_DESKTOP=soulwarden-client-world \
+#   SWC_STAGE=AST-239 SWC_DEV_CHARACTER=QuestHandC SWC_DEV_NEW=1 tools/creature-check.sh ast239-exit 150 THIS tests/drive/ast239-exit.txt \
+#     -- -SwcUiDrive=tests/drive/ast239-exit-ui.txt
+# The saved result (a second entry of the same character): SWC_DEV_CHARACTER=QuestHandC (no SWC_DEV_NEW) tools/creature-check.sh
+#   ast239-exit2 45 THIS -- -SwcUiDrive=tests/drive/ast239-exit2-ui.txt
+0.5 ignore on
+0.6 world-time 12:00
+24.0 travel 9613.36 2314.27 42.5 auto
+50.0 travel 9614.47 2327.73 42.4 auto

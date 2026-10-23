@@ -158,6 +158,7 @@ function N.Update()
       seen[person.key] = true
       local before = N.published[person.key]
       if changed(before, result) then
+        result.person = person
         N.published[person.key] = result
         publish(person, result)
         if result.State ~= STATE.none or (before and before.State ~= STATE.none) then
@@ -167,12 +168,13 @@ function N.Update()
       end
     end
   end
-  for _, person in ipairs(N.persons) do
-    local before = N.published[person.key]
-    if before and not seen[person.key] then
-      N.published[person.key] = nil
-      if before.State ~= STATE.none then
-        publish(person, {State = STATE.none, ObjectiveType = 0})
+  -- The persons out of the range, or out of the presence (a swap: the walkaway Aelstrom after the knife offer): the clear form.
+  for keyName, before in pairs(N.published) do
+    if not seen[keyName] then
+      N.published[keyName] = nil
+      if before.State ~= STATE.none and before.person then
+        publish(before.person, {State = STATE.none, ObjectiveType = 0})
+        Swc.Note(string.format("npc states: %s (%s) gone: the clear form", before.person.npcId, keyName))
       end
     end
   end

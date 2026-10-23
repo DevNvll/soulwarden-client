@@ -1,0 +1,29 @@
+# The UI drive of the exit check of AST-239 (tests/drive/ast239-exit.txt): the ready views, the hand-in, the rewards, the knife offer, the
+# accept, and the views after it. Times from the spawn of the player.
+1 waitfor CompassLines 60
+2 waitfor world 180
+36 log ready: the overhead marker, the compass, the tracker
+40 key M
+46 log the map at ready
+48 key M
+70 log the hand-in chain: page 1
+72 key E
+76 key E
+80 key E
+84 key E
+88 log the last page: Complete the Quest, 200 XP, 1.50
+90 key E
+98 log after the hand-in: the XP and coin notices, the next state, the knife offer
+100 key E
+104 key E
+108 key E
+112 log the proposal: Accept Quest
+114 key E
+120 log after the accept: Basic Needs
+126 log the overhead and the compass after the accept
+128 key M
+134 log the map after the accept
+136 key M
+138 key J
+144 log the journal after the accept
+146 key Escape
