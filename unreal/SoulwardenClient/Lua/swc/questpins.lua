@@ -200,6 +200,10 @@ end
 -- ------------------------------------------------------------------------------------------------------------- the buses
 
 Swc.Define("ObjectivesComponentRequestBus", "Event", {
+  -- The world pin shows only for an objective of the character (staticworldmarker.luac: the observer of DiegeticPinObjectiveInstanceId).
+  HasObjectiveInstanceId = function(_, id)
+    return id ~= nil and type(id) == "userdata" and Q.byKey[id.key] ~= nil
+  end,
   -- The map layer asks for all positions when its icons are ready (objectiveslayer.luac UpdatePublishedLocations).
   RequestPublishPoiLocations = function()
     for _, pin in ipairs(P.list) do

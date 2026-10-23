@@ -179,11 +179,24 @@ The rules [I] (the native producer is not proved; the study `research/quest-pins
 - `GetUIData(task, "OverrideLocation")` gives the text of the cell (compass.luac takes its length). `GetTaskTerritoryId`: the POI or
   TerritoryID of the task. `GetTerritoryIdByPoiTag` and `GetTerritoryDefinitionByPoiTag`: the map definition with the tag.
 
+The world pins (`swc/markers.lua` M.TickQuestPins): the marker type DiegeticObjectivePin of the static pool `w`
+(staticworldmarker.luac shows the icon of the objective in the data node `DiegeticPinObjectiveInstanceId`; it asks
+`HasObjectiveInstanceId`). The rules [I]: a position of a task with ShowDiegeticTaskPin gets a pin; at most 5 (the pinned objectives
+first, then the nearest); a DiegeticPinZOverride other than 0 replaces the height (the data has 0 in 1379 tasks, 2 or 3 in 13, and 272 to
+543.5 in 4: the meaning is not proved); the place, the scale (1 at 4 m to 0.7 at 120 m), and the alpha (1 at 100 m to 0 at 150 m) come
+from the marker params of markerdata.luac; no occlusion. The log has "quest pin on: KEY at X Y Z (wN)" and "quest pin off: KEY";
+`Swc.QuestPinPoint(KEY)` gives the screen point.
+
+The compass places its icons in `OnCrySystemPostViewSystemUpdate` (compass.luac, through uitick.luac and DynamicBus.UITickBus). The
+client did not send this event before AST-237, so each compass icon stayed at the north point of the strip; `Swc.Tick` sends it now
+after `TickBus.OnTick`.
+
 The start quest 06_getoffbeach: the trigger task (index 9, 9621.61 2309.48 40.24) gives the position; when the trigger is complete, the
 hidden root (9613.64 2329.47 43.0, at Aelstrom) gives it; the root complete gives the hand-in place of 01_AelstromWW_01.
 
-The check: the fixture `tests/ui/fixtures/questpins.lua` (33 checks: the events, the compass position, the map layer position, the pin
-change, the hand-in, the removal; pictures questpins-compass and questpins-map). The data report (2026-10-22): 7249 task records, 2595
+The check: the fixture `tests/ui/fixtures/questpins.lua` (44 checks: the events, the compass position and the compass icon in the middle
+of the strip, the world pin in the middle of the view, the map layer position, the pin change (the world pin hides), the hand-in, the
+removal; pictures questpins-compass, questpins-world, and questpins-map). The data report (2026-10-22): 7249 task records, 2595
 OverrideLocation positions (112 cells are not positions), 2600 backend POIs and 1453 map POIs (236 tags unknown), 1445 TerritoryID, 969
 ShowDiegeticTaskPin, 955 objectives with a hand-in NPC (24 NPCs with no place).
 
@@ -194,7 +207,7 @@ ShowDiegeticTaskPin, 955 objectives with a hand-in NPC (24 NPCs with no place).
 - The journal has a hidden hand-in row "Talk to " (the retail script hides it with SetTaskVisibility).
 - The Map button of the journal shows only when the objective layer of the map has a place for the quest
   (`ObjectivesLayer.GetObjectivePosition`): the pins of stage Q2 give it (live check open). The task timers are stage Q8.
-- Q2: the world pins (DiegeticObjectivePin), the objective areas on the map, the live check, and the rules of the study are open.
+- Q2: the objective areas on the map, the live check, and the rules of the study are open.
 - A change of an Auto-Pin switch does not go to the backend (2709 is sent once).
 - The top menu bar of the retail journal (Company, Journal, Mount, ...) is a different canvas: not in the client.
 - The skinning of a boar (AST-250): the trigger rule of the bodies (docs/INTERACTIONS.md); live `tests/drive/ast250-c2*.txt`: the quest
@@ -205,5 +218,7 @@ ShowDiegeticTaskPin, 955 objectives with a hand-in NPC (24 NPCs with no place).
 - The place cues of the 86 points of interest of other slices (no local), and of the areas (the 2297 of 9011 in the retail packets).
 - The card of a quest object: the marker type Master_Quest and the gatherable card with no option text: "E ASTROLABE" as retail (AST-250).
 - The world pins of the quest objects (the retail "1" over the treasure): stage Q2.
-- pinnedobjective.luac calls GetPositionY of a new task row with no such method in one path (a flash animation does not play).
+- Fixed (AST-237): pinnedobjective.luac called GetPositionY of a task id on each task change. quests.lua sent
+  ObjectiveTaskNotificationBus.OnTaskUpdated(taskId); no script handles that event, and the tracker has a method of that name for its
+  task rows (OnTaskUpdated(taskTable)). quests.lua does not send it now; OnTaskChanged stays.
 - The Documents tab (JournalDataManagerBus.GetTopicEntries) and the season pass banner of bannertriggers.luac have script errors.

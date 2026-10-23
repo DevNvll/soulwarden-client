@@ -215,15 +215,18 @@ local function ramp(d, from, to, near, far)
   return near + (far - near) * t
 end
 
-local function ai_pool_size()
+local function pool_size(wanted)
   for _, group in ipairs(M.groups) do
     for i, identifier in ipairs(group.identifiers or {}) do
-      if identifier == "a" then
+      if identifier == wanted then
         return group.sizes and group.sizes[i] or 0
       end
     end
   end
   return 0
+end
+local function ai_pool_size()
+  return pool_size("a")
 end
 
 --- One line of the host for each creature (USwcCreatureSubsystem::GetPlates), the fields separated by tabs: interest, serial, the
@@ -383,6 +386,7 @@ local function priority(a, b)
 end
 
 function Swc.HostPlates(text)
+  M.TickQuestPins()
   M.plates = parse_plates(text)
   local present = {}
   for _, plate in ipairs(M.plates) do
@@ -532,6 +536,124 @@ end
 function Swc.PlatePoint(interest)
   for _, slot in pairs(M.slots) do
     if slot.plate and slot.plate.interest == interest and slot.screen and slot.values.IsVisible then
+      return string.format("%.1f %.1f", slot.screen[1], slot.screen[2])
+    end
+  end
+  return ""
+end
+
+-- ------------------------------------------------------------------------------------------------- the quest pins (stage Q2)
+
+-- The world pins of the quests (AST-237; docs/QUESTS.md "The pins (Q2, AST-237)"): the marker type DiegeticObjectivePin of the static
+-- pool (identifier "w"; markermanager.luac typeToMarkerMap; staticworldmarker.luac shows the icon of the objective of the data node
+-- DiegeticPinObjectiveInstanceId). The pins come from the one pin list of swc/questpins.lua (Swc.questPins.list). The rules [I] (the
+-- native DiegeticObjectivePinsComponent is not proved; research/quest-pins.md is asked):
+--   - a task position with ShowDiegeticTaskPin gets a pin; at most 5 (the 5 pin entities of the native component), the pins of the
+--     pinned objectives first, then the nearest;
+--   - the height: the task position; a DiegeticPinZOverride other than 0 replaces it;
+--   - the place, the scale, and the alpha: the marker params of the type (markerdata.luac: scale 1 at 4 m to 0.7 at 120 m, alpha 1 at
+--     100 m to 0 at 150 m); no occlusion (the params have no allowWorldOcclusion).
+local QUEST_PIN_TYPE, QUEST_PIN_LIMIT = "DiegeticObjectivePin", 5
+M.questSlots = {}
+
+local function quest_pin_candidates(px, py)
+  local out = {}
+  for _, pin in ipairs(Swc.questPins and Swc.questPins.list or {}) do
+    if pin.record and pin.record.showPin then
+      local z = pin.record.pinZ and pin.record.pinZ ~= 0 and pin.record.pinZ or pin.position[3]
+      local dx, dy = pin.position[1] - px, pin.position[2] - py
+      out[#out + 1] = {pin = pin, x = pin.position[1], y = pin.position[2], z = z, distance = math.sqrt(dx * dx + dy * dy)}
+    end
+  end
+  table.sort(out, function(a, b)
+    if a.pin.tracked ~= b.pin.tracked then
+      return a.pin.tracked
+    end
+    return a.distance < b.distance
+  end)
+  return out
+end
+
+--- The quest pins of the frame: the static slots w0 ... w(n - 1) of the pool (each frame, before the creatures).
+function M.TickQuestPins()
+  local size = math.min(pool_size("w"), QUEST_PIN_LIMIT)
+  if not M.ready or size <= 0 then
+    return
+  end
+  local own = Swc.GetData("Hud.LocalPlayer.Position")
+  local candidates = quest_pin_candidates(own and own.x or 0, own and own.y or 0)
+  local wanted = {}
+  for i = 1, math.min(size, #candidates) do
+    wanted[candidates[i].pin.key] = candidates[i]
+  end
+  local free = {}
+  for index = 0, size - 1 do
+    local slot = M.questSlots[index]
+    if not slot then
+      slot = {index = index, prefix = PREFIX .. "w" .. index, values = {}}
+      M.questSlots[index] = slot
+    end
+    if slot.quest and wanted[slot.quest.pin.key] then
+      slot.quest = wanted[slot.quest.pin.key]
+      wanted[slot.quest.pin.key] = nil
+    else
+      if slot.quest then
+        put(slot, "IsVisible", false)
+        put(slot, "DiegeticPinObjectiveInstanceId", nil)
+        Swc.SetData(slot.prefix .. ".StopUpdate", true)
+        swcui.log("info", "quest pin off: " .. slot.quest.pin.key)
+      end
+      slot.quest, slot.markerId = nil, nil
+      free[#free + 1] = slot
+    end
+  end
+  local queue = {}
+  for _, c in pairs(wanted) do
+    queue[#queue + 1] = c
+  end
+  table.sort(queue, function(a, b) return a.distance < b.distance end)
+  for i, c in ipairs(queue) do
+    local slot = free[i]
+    if slot then
+      slot.quest, slot.values = c, {}
+      -- A marker id for each task of a pin (an id of the runtime: 9, then the slot and the task index).
+      slot.markerId = EntityId(string.format("9%03d%012d", slot.index, c.pin.index))
+      Swc.SetData(slot.prefix .. ".MarkerComponentId", slot.markerId)
+      put(slot, "Type", QUEST_PIN_TYPE)
+      put(slot, "DiegeticPinObjectiveInstanceId", Swc.quests.objective_id(c.pin.objective))
+      swcui.log("info", string.format("quest pin on: %s at %.2f %.2f %.2f (w%d)", c.pin.key, c.x, c.y, c.z, slot.index))
+    end
+  end
+  local params = M.params[QUEST_PIN_TYPE] or {}
+  for index = 0, size - 1 do
+    local slot = M.questSlots[index]
+    local c = slot.quest
+    if c then
+      local object = slot.markerId and M.objects[key(slot.markerId)]
+      local element = object and object.element
+      -- The engine space (m; Y north) to Unreal (cm; Y south): docs/ARCHITECTURE.md "Spaces".
+      local sx, sy = project((c.x + (params.wX or 0)) * 100, -(c.y + (params.wY or 0)) * 100, (c.z + (params.wZ or 0)) * 100)
+      local alpha = params.maxAlpha or 1
+      if params.fadeStart and params.fadeDistance and params.fadeDistance > params.fadeStart and c.distance > params.fadeStart then
+        alpha = math.max(params.minAlpha or 0, alpha - (c.distance - params.fadeStart) / (params.fadeDistance - params.fadeStart))
+      end
+      local visible = sx ~= nil and alpha > 0
+      put(slot, "IsVisible", visible)
+      slot.screen = sx and {sx + (params.sX or 0), sy + (params.sY or 0)} or nil
+      if element and visible then
+        swcui.set_viewport_position(element, slot.screen[1], slot.screen[2])
+        local scale = ramp(c.distance, params.scaleStart, params.scaleDistance, params.maxScale or 1, params.minScale or 1)
+        swcui.set(element, "transform.scale", scale, scale)
+        swcui.set(element, "fader.fade", alpha)
+      end
+    end
+  end
+end
+
+--- @return The viewport point "x y" of the world pin of a task key ("INSTANCE:INDEX"), or "" (the harness input and the checks).
+function Swc.QuestPinPoint(taskKey)
+  for _, slot in pairs(M.questSlots) do
+    if slot.quest and slot.quest.pin.key == taskKey and slot.screen and slot.values.IsVisible then
       return string.format("%.1f %.1f", slot.screen[1], slot.screen[2])
     end
   end

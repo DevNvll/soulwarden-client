@@ -1,16 +1,17 @@
 -- The quest pin fixture (stage Q2, Linear AST-237; docs/QUESTS.md "The pins (Q2)"): the one pin list of swc/questpins.lua for the start
 -- quest of a new character (06_getoffbeach, the state of the quests fixture), and the original readers of the list: the compass
 -- (compass.luac), the map layer (objectiveslayer.luac of MagicMap), the journal Map action and the Map button of the tracker (both through
--- DynamicBus.ObjectivesLayer). The rules of the list are [I] until research/quest-pins.md.
+-- DynamicBus.ObjectivesLayer), and the world pin (the marker type DiegeticObjectivePin of the static pool w: staticworldmarker.luac). The rules of the list are [I] until research/quest-pins.md.
 -- The steps: the start state gives one position, the trigger task of the beach (OverrideLocation 9621.61 2309.48 40.24), not tracked
 -- before the pin readiness and tracked after it; the compass and the map layer have it; the trigger complete moves the pin to the hidden
 -- root (9613.64 2329.47 43.0, at Aelstrom); the root complete gives the hand-in position at the NPC 01_AelstromWW_01; an empty state
 -- removes it.
--- Needs gamedata/quest-pins.json (python3 -B -m swc_convert.questpins write). Pictures: questpins-compass, questpins-map.
+-- Needs gamedata/quest-pins.json (python3 -B -m swc_convert.questpins write). Pictures: questpins-compass, questpins-world, questpins-map.
 local HUD, MAP = 2702338936, 2477632187
 local hud = screen("LyShineUI/Objectives/Hud/ObjectivesHud.uicanvas", 12, true)
 local compass = screen("LyShineUI/Compass/Compass.uicanvas", 14, true)
 local map = screen("LyShineUI/WorldMap/MagicMap.uicanvas", 20)
+local markers = screen("LyShineUI/Markers/MarkerManager.uicanvas", 10, true)
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(HUD)
 DynamicBus.UiLoader.Broadcast.OnUiLoadingComplete()
@@ -91,6 +92,44 @@ check(stored ~= nil, "the compass has the position of task 9")
 check(stored and stored.isTracked == true, "the compass tracks the task")
 picture("questpins-compass")
 
+-- 2b. The world pin: the camera 40 m to the west of the trigger, 1.7 m above it, along +X of Unreal (the east; the plates fixture
+-- matrix). The pin of task 9 (ShowDiegeticTaskPin) takes the slot w0 of the static pool and shows in the middle of the view.
+local TX, TY, TZ = 9621.61, 2309.48, 40.24
+Swc.HostView(-90, TX - 40, TY, TZ)
+local p00, p11, lx, ly, lz = 1.0, 1920 / 1080, (TX - 40) * 100, -TY * 100, TZ * 100 + 170
+Swc.HostViewProjection(0, 0, 0, 1, p00, 0, 0, 0, 0, p11, 0, 0, -ly * p00, -lz * p11, 10, -lx, 1920, 1080, lx, ly, lz)
+Swc.HostPlates("")
+frames(0.5)
+Swc.HostPlates("")
+frames(0.5)
+local P = Swc.markers.params.DiegeticObjectivePin
+check(P ~= nil and P.fadeStart == 100 and P.fadeDistance == 150, "the marker params of DiegeticObjectivePin (the fade 100 m to 150 m)")
+local slot = Swc.markers.questSlots[0]
+check(slot ~= nil and slot.quest ~= nil and slot.quest.pin.index == 9, "the world pin of task 9 has the slot w0")
+local object = slot and slot.markerId and Swc.markers.objects[tostring(slot.markerId)]
+local pinElement = object and object.element
+check(pinElement ~= nil, "the slot w0 has a marker element")
+if pinElement then
+  check(swcui.enabled_in_hierarchy(pinElement), "the world pin shows")
+  local x = swcui.viewport_position(pinElement)
+  near(x, 960, 2, "the world pin is in the middle of the view (the trigger is ahead)")
+  near(swcui.get(pinElement, "fader.fade"), 1, 0.01, "the world pin at 40 m has the full alpha")
+end
+note("the world pin point: " .. Swc.QuestPinPoint(INSTANCE .. ":9"))
+-- The compass places its icons in OnCrySystemPostViewSystemUpdate (each frame, swc/host.lua) after a change of the player position.
+local compassIcon
+for _, m in ipairs(compassScript and compassScript.uiMarkers or {}) do
+  if m.iconData and m.iconData.position and math.abs(m.iconData.position.x - TX) < 0.01 then
+    compassIcon = m
+  end
+end
+check(compassIcon ~= nil, "the compass has an icon at the trigger position")
+if compassIcon then
+  local x = swcui.viewport_position(compassIcon.entityId)
+  near(x, 960, 4, "the compass icon is in the middle of the strip (the pin is ahead, to the east)")
+end
+picture("questpins-world")
+
 -- 3. The map layer has the icon: the journal Map action and the tracker Map button get the position from it.
 ObjectivesComponentRequestBus.Event.RequestPublishPoiLocations(Swc.ids.player)
 frames(0.5)
@@ -125,6 +164,12 @@ for _, each in ipairs(e) do
 end
 equal(removed, 1, "the trigger position is removed")
 equal(added, 1, "the root position is added")
+Swc.HostPlates("")
+frames(0.5)
+check(Swc.markers.questSlots[0] and Swc.markers.questSlots[0].quest == nil, "the root has no ShowDiegeticTaskPin: no world pin")
+if pinElement then
+  check(not swcui.enabled_in_hierarchy(pinElement), "the world pin of the trigger hides")
+end
 
 -- 5. The root complete: the hand-in position at the NPC of NpcDestinationId.
 local done = {}
