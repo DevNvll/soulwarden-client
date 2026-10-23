@@ -24,7 +24,10 @@ Outputs (SWC_CONTENT/quests, never in git):
                        videos of the quest tasks), the timed localization entries (start, end, speaker, the next key)
   scenes/NAME.json     one scene: CutsceneInfo, the entities (id, name, parent, local matrix, the components), the timelines (the
                        owner entity, the entry, the assignments, the layers and clips)
-Usage: python3 -B -m swc_convert.scenes write [--only NAME]
+Then `convert [NAME...] [--force]` converts the actors of the scenes (default: the beach chain) with the player pipeline (the bodies of the
+person and player skeletons, one scene clip pack with the root track: then tools/import-player.sh) and as characters (other
+skeletons: then tools/import.sh).
+Usage: python3 -B -m swc_convert.scenes write [--only NAME] | convert [NAME...] [--force]
 """
 from __future__ import annotations
 
@@ -37,7 +40,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import census, datasheet, env, persons, region, source
+from . import census, character, datasheet, env, gltf, persons, player, region, source
 
 FORMAT = 1
 F = source.field_id
@@ -570,14 +573,76 @@ def write(only: str | None = None) -> dict:
     return index["counts"] | write_whispers(out_dir)
 
 
+def scene_clip_pack(files: list, force: bool, doc: dict) -> dict:
+    """Converts the scene clips of the person and player skeletons into one pack on the player skeleton, with the root bone track (a
+    scene clip moves its actor from the place of the slice entity; the clips of the persons lock the root)."""
+    gender = persons.GENDER
+    key = f"clips|{player.GENDERS[gender]}|scenes"
+    path = player.player_dir() / "clips" / player.GENDERS[gender] / "scenes" / "clips.gltf"
+    known = doc["assets"].get(key, {}).get("clips", [])
+    if path.is_file() and not force and sorted(known) == sorted(files):
+        return {"clips": key, "skipped": "exists"}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    skeleton = player.Skeleton(gender)
+    w = gltf.Writer()
+    first, roots = skeleton.write(w)
+    w.doc["scenes"][0]["nodes"] += roots
+    failed, clips = {}, []
+    for file in files:
+        try:
+            clips.append(skeleton.add_clip(w, first, file, file.rsplit("/", 1)[-1].rsplit(".", 1)[0], root_lock=False))
+        except Exception as error:
+            failed[file] = str(error)[:120]
+    w.save(path)
+    doc["assets"][key] = {"kind": "clips", "gender": gender, "tags": ["scenes"], "file": str(path.relative_to(env.content_dir())),
+                          "unreal": f"{player.UNREAL_ROOT}/{gender}/Clips/scenes", "clips": files}
+    return {"clips": key, "count": len(clips), "failed": failed, "durations": {c["clip"]: c["duration"] for c in clips}}
+
+
+def convert(names: list | None = None, force: bool = False) -> dict:
+    """Converts the actors of the scenes (default: the scenes of the beach chain, the tasks 06_*): the bodies of the person and
+    player skeletons with the player pipeline (kind part) and their clips in one scene pack (then tools/import-player.sh); the actors of
+    other skeletons as characters with their clips (tools/convert.sh character; then tools/import.sh)."""
+    index = json.loads((env.content_dir() / "quests" / "scenes.json").read_text())
+    chosen = [n.lower() for n in names] if names else sorted(n for n, v in index["scenes"].items()
+                                                             if any(t.lower().startswith("06_") for t in v.get("tasks", [])))
+    doc = player.load_manifest()
+    report: dict = {"scenes": chosen, "bodies": [], "characters": [], "clips": None, "failed": {}}
+    scene_clips: list = []
+    for name in chosen:
+        for actor in index["scenes"].get(name, {}).get("wanted", []):
+            cdf = actor["cdf"]
+            cafs = [c["caf"] for c in actor["clips"] if c["caf"]]
+            if not cdf.endswith(".cdf"):
+                report["failed"][f"{name}:{actor['entity']}"] = "no .cdf: " + cdf
+                continue
+            try:
+                if actor["kind"] == "person":
+                    report["bodies"].append(persons.body(cdf, persons.cdf_look(cdf), force, doc))
+                    scene_clips += [c for c in cafs if c not in scene_clips]
+                else:
+                    result = character.convert(cdf, cafs, force=force)
+                    report["characters"].append({k: result.get(k) for k in ("cdf", "skeleton", "gltf", "skipped")}
+                                                | {"clips": len(result.get("clips", []))})
+            except Exception as error:
+                report["failed"][f"{name}:{actor['entity']}"] = str(error)[:160]
+    report["clips"] = scene_clip_pack(scene_clips, force, doc)
+    player.save_manifest(doc)
+    return report
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv or argv[0] != "write":
-        print(__doc__)
-        return 2
-    only = argv[argv.index("--only") + 1] if "--only" in argv else None
-    print(json.dumps(write(only), indent=1))
-    return 0
+    if argv and argv[0] == "write":
+        only = argv[argv.index("--only") + 1] if "--only" in argv else None
+        print(json.dumps(write(only), indent=1))
+        return 0
+    if argv and argv[0] == "convert":
+        names = [a for a in argv[1:] if not a.startswith("--")]
+        print(json.dumps(convert(names or None, "--force" in argv), indent=1))
+        return 0
+    print(__doc__)
+    return 2
 
 
 if __name__ == "__main__":
