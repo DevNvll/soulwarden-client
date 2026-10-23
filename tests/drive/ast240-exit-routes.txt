@@ -1,0 +1,9 @@
+# The routes of the exit check of AST-240: the creatures ignore the character, the hour 12:00; after the scene a travel 15 m south of the
+# placed Aelstrom (the ready marker, the compass, the map), then 1.9 m in front of him (the Talk). A new character at the backend start:
+#   SWC_GAME_CONTENT=~/Games/soulwarden-client/unreal/SwcGameContent-q5 SWC_CONTENT=~/Games/soulwarden-client/content-q5 \
+#   SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-q5b SWC_AGENT_DESKTOP=soulwarden-client-world SWC_STAGE=AST-240 SWC_DEV_CHARACTER=SceneE \
+#   SWC_DEV_NEW=1 tools/creature-check.sh ast240-exit 175 THIS tests/drive/ast240-exit.txt -- -SwcUiDrive=tests/drive/ast240-exit-ui.txt
+0.5 ignore on
+0.6 world-time 12:00
+50.0 travel 9613.36 2314.27 42.5 auto
+72.0 travel 9614.47 2327.73 42.4 auto

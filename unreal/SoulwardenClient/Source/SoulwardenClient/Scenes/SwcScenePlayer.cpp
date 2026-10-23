@@ -4,6 +4,8 @@
 #include "Animation/AnimSingleNodeInstance.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Dom/JsonObject.h"
 #include "Engine/SkeletalMesh.h"
 #include "GameFramework/Character.h"
@@ -21,7 +23,45 @@ const TCHAR* const AnimClip = TEXT("b8d39822-6cab-42c0-af6e-5b53c3e243fc");
 const TCHAR* const TriggerClip = TEXT("0d3b86f8-458d-4045-8ce6-24a8d4a83859");
 const TCHAR* const CommandClip = TEXT("baad4e91-45aa-4ea4-8450-f1b54fa15ac0");
 const TCHAR* const SubtitlePrefix = TEXT("PlayWhisperSubtitle_");
-constexpr float MaxStep = 0.05f;   // research/scene-curves.md 4: the tick splits an advance into steps of at most 0.05 s
+const TCHAR* const MeshComponent = TEXT("2f4bad46-c857-4dcb-a454-c412de67852a");   // the MeshComponent of a static prop
+
+/** @return The first .cgf path of a JSON tree (the static mesh asset of a MeshComponent). */
+FString CgfOf(const TSharedPtr<FJsonValue>& Value)
+{
+	if (!Value.IsValid())
+	{
+		return FString();
+	}
+	if (Value->Type == EJson::String)
+	{
+		return Value->AsString().EndsWith(TEXT(".cgf")) ? Value->AsString() : FString();
+	}
+	if (Value->Type == EJson::Object)
+	{
+		for (const auto& Field : Value->AsObject()->Values)
+		{
+			const FString Found = CgfOf(Field.Value);
+			if (!Found.IsEmpty())
+			{
+				return Found;
+			}
+		}
+	}
+	if (Value->Type == EJson::Array)
+	{
+		for (const TSharedPtr<FJsonValue>& Item : Value->AsArray())
+		{
+			const FString Found = CgfOf(Item);
+			if (!Found.IsEmpty())
+			{
+				return Found;
+			}
+		}
+	}
+	return FString();
+}
+constexpr float MaxStep = 0.05f;
+constexpr float SceneBoundsScale = 20.0f;   // research/scene-curves.md 4: the tick splits an advance into steps of at most 0.05 s
 
 FString ContentFolder()
 {
@@ -99,19 +139,17 @@ void ReadCurve(const TSharedPtr<FJsonObject>& Curve, swc::scene::Curve Out[3])
 	}
 }
 
-/** @return The first asset of a class in a folder of the plugin (the name too when it is not empty). */
-UObject* FindInFolder(const FString& Folder, const TCHAR* Class, const FString& Name = FString())
+/** @return The first AnimSequence of a folder of the plugin (Interchange shortens a long clip name: graceintrohelp_grac_omalley_cns_igc_Anim).
+ *  The registry of a game run has no scan of the plugin: the folder is scanned first. */
+UObject* FirstClipIn(const FString& Folder)
 {
-	if (Folder.IsEmpty())
-	{
-		return nullptr;
-	}
 	IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+	Registry.ScanPathsSynchronous({Folder}, false);
 	TArray<FAssetData> Assets;
 	Registry.GetAssetsByPath(FName(*Folder), Assets, true);
 	for (const FAssetData& Asset : Assets)
 	{
-		if (Asset.AssetClassPath.GetAssetName() == FName(Class) && (Name.IsEmpty() || Asset.AssetName.ToString().Equals(Name, ESearchCase::IgnoreCase)))
+		if (Asset.AssetClassPath.GetAssetName() == FName(TEXT("AnimSequence")))
 		{
 			return Asset.GetAsset();
 		}
@@ -241,6 +279,9 @@ USkeletalMeshComponent* ASwcScenePlayer::AddMesh(USkeletalMesh* Mesh, const FTra
 	Component->RegisterComponent();
 	Component->SetWorldTransform(World);
 	Component->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+	// The root motion of a scene clip moves the body some meters from its entity (Aelstrom: 3 m); the bounds of the reference pose
+	// stay at the entity, and the body was culled in the close-ups (live ast240-beach2): larger bounds.
+	Component->SetBoundsScale(SceneBoundsScale);
 	Keep.Add(Component);
 	return Component;
 }
@@ -281,6 +322,7 @@ void ASwcScenePlayer::AddDummy(int32 Index, APawn* Player, USkeletalMesh* Fallba
 			Copy->SetMaterial(Slot, Part->GetMaterial(Slot));
 		}
 		Copy->SetLeaderPoseComponent(Leader);
+		Copy->SetBoundsScale(SceneBoundsScale);
 		Keep.Add(Copy);
 		Entity.Followers.Add(Copy);
 	}
@@ -398,15 +440,18 @@ bool ASwcScenePlayer::BuildActors(const TSharedPtr<FJsonObject>& Record, APawn* 
 		{
 			CharacterFolder = Text(Child(Manifest, *Cdf), TEXT("unreal"));
 		}
+		const FString Stem = FPaths::GetBaseFilename(Cdf);
+		// A character of the content import: FOLDER/STEM/SkeletalMeshes/STEM (and its clip STEM_Anim) [the layout of import_content.py].
 		USkeletalMesh* Mesh = Cast<USkeletalMesh>(bPerson ? FindImported(Imported, TEXT("person|") + Cdf, TEXT("SkeletalMesh"))
-			: FindInFolder(CharacterFolder, TEXT("SkeletalMesh")));
+			: CharacterFolder.IsEmpty() ? nullptr : FSoftObjectPath(FString::Printf(TEXT("%s/%s/SkeletalMeshes/%s.%s"), *CharacterFolder, *Stem, *Stem, *Stem)).TryLoad());
 		for (const TSharedPtr<FJsonValue>& ClipValue : Actor->GetArrayField(TEXT("clips")))
 		{
 			const TSharedPtr<FJsonObject> Clip = ClipValue->AsObject();
-			const FString Stem = FPaths::GetBaseFilename(Text(Clip, TEXT("caf")));
-			if (!Stem.IsEmpty())
+			const FString ClipStem = FPaths::GetBaseFilename(Text(Clip, TEXT("caf")));
+			if (!ClipStem.IsEmpty())
 			{
-				CafOf.Add(Entity.Id + TEXT("|") + Text(Clip, TEXT("alias")).ToLower(), (bPerson ? TEXT("person|") : CharacterFolder + TEXT("|")) + Stem);
+				CafOf.Add(Entity.Id + TEXT("|") + Text(Clip, TEXT("alias")).ToLower(),
+					(bPerson ? TEXT("person|") : FString::Printf(TEXT("%s/%s/SkeletalMeshes|"), *CharacterFolder, *FPaths::GetBaseFilename(Cdf))) + ClipStem);
 			}
 		}
 		if (Entity.Name == TEXT("IGC_Dummy_Player"))
@@ -426,9 +471,50 @@ bool ASwcScenePlayer::BuildActors(const TSharedPtr<FJsonObject>& Record, APawn* 
 			UE_LOG(LogSwcScenes, Warning, TEXT("scene %s: no imported mesh for %s (%s; tools/convert-scenes.sh convert, the imports)"), *SceneName, *Entity.Name, *Cdf);
 		}
 	}
+	// The static props of the slice (the corruption plants and the pistol of the Grace scene, the props of the Corinth flyover): the static
+	// mesh of the content import at FOLDER/STEM/StaticMeshes/STEM.
+	int32 Props = 0;
+	int32 PropsMissing = 0;
+	const TArray<TSharedPtr<FJsonValue>>& EntityValues = Doc->GetArrayField(TEXT("entities"));
+	for (int32 Index = 0; Index < EntityValues.Num() && Index < Entities.Num(); ++Index)
+	{
+		for (const TSharedPtr<FJsonValue>& ComponentValue : EntityValues[Index]->AsObject()->GetArrayField(TEXT("components")))
+		{
+			if (Text(ComponentValue->AsObject(), TEXT("type")) != MeshComponent)
+			{
+				continue;
+			}
+			const FString Cgf = CgfOf(ComponentValue);
+			const FString Folder2 = Text(Child(Manifest, *Cgf), TEXT("unreal"));
+			const FString Stem = FPaths::GetBaseFilename(Cgf);
+			UStaticMesh* StaticMesh = Folder2.IsEmpty() ? nullptr
+				: Cast<UStaticMesh>(FSoftObjectPath(FString::Printf(TEXT("%s/%s/StaticMeshes/%s.%s"), *Folder2, *Stem, *Stem, *Stem)).TryLoad());
+			if (StaticMesh == nullptr)
+			{
+				++PropsMissing;
+				continue;
+			}
+			UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>(this);
+			Component->SetStaticMesh(StaticMesh);
+			Component->SetupAttachment(RootComponent);
+			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Component->RegisterComponent();
+			Component->SetWorldTransform((Root * Entities[Index].Slice).ToUnreal());
+			Component->SetVisibility(Entities[Index].bActive, true);
+			Keep.Add(Component);
+			Entities[Index].Static = Component;
+			++Props;
+		}
+	}
 	// The props on a bone of an actor (AttachmentComponent: the target entity and its bone).
 	for (FEntity& Entity : Entities)
 	{
+		const int32 Owner = Find(Entity.AttachTarget);
+		if (Entity.Static.IsValid() && Owner != INDEX_NONE && Entities[Owner].Mesh.IsValid() && !Entity.AttachBone.IsEmpty())
+		{
+			Entity.Static->AttachToComponent(Entities[Owner].Mesh.Get(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, FName(*Entity.AttachBone));
+			Entity.Static->SetRelativeScale3D(FVector(Entity.AttachScale));
+		}
 		const int32 Target = Find(Entity.AttachTarget);
 		if (Entity.Mesh.IsValid() && Target != INDEX_NONE && Entities[Target].Mesh.IsValid() && !Entity.AttachBone.IsEmpty())
 		{
@@ -441,8 +527,14 @@ bool ASwcScenePlayer::BuildActors(const TSharedPtr<FJsonObject>& Record, APawn* 
 	{
 		FString Where, Stem;
 		Pair.Value.Split(TEXT("|"), &Where, &Stem, ESearchCase::IgnoreCase, ESearchDir::FromEnd);
+		// The clip of a character: STEM_Anim (one clip in its glTF), else STEM_Anim_CLIP.
+		const FString MeshStem = FPaths::GetBaseFilename(FPaths::GetPath(Where));   // Where: FOLDER/STEM/SkeletalMeshes
 		UObject* Sequence = Where == TEXT("person") ? FindImported(Imported, TEXT("clips|male|scenes"), TEXT("AnimSequence"), Stem)
-			: FindInFolder(Where, TEXT("AnimSequence"), Stem);
+			: FSoftObjectPath(FString::Printf(TEXT("%s/%s_Anim.%s_Anim"), *Where, *MeshStem, *MeshStem)).TryLoad();
+		if (Sequence == nullptr && Where != TEXT("person"))
+		{
+			Sequence = FirstClipIn(Where);   // one clip for each scene character
+		}
 		Sequences.Add(Pair.Key, Cast<UAnimSequence>(Sequence));
 		if (Sequence == nullptr)
 		{
@@ -453,7 +545,8 @@ bool ASwcScenePlayer::BuildActors(const TSharedPtr<FJsonObject>& Record, APawn* 
 			Keep.Add(Sequence);
 		}
 	}
-	UE_LOG(LogSwcScenes, Log, TEXT("scene %s: %d of %d actor(s) placed, %d clip(s)"), *SceneName, Placed, Wanted->Num(), Sequences.Num());
+	UE_LOG(LogSwcScenes, Log, TEXT("scene %s: %d of %d actor(s) placed, %d clip(s), %d static prop(s) (%d with no imported mesh)"), *SceneName, Placed,
+		Wanted->Num(), Sequences.Num(), Props, PropsMissing);
 	return true;
 }
 
@@ -499,6 +592,7 @@ void ASwcScenePlayer::BuildTimelines()
 						Clip.Speed = Number(Object2, TEXT("playbackSpeed"), 1.0f);
 						Clip.From = Number(Object2, TEXT("AnimationStartTime"));
 						Clip.bLoop = Flag(Object2, TEXT("loop"), false);
+						Clip.AnimLayer = static_cast<int32>(Number(Object2, TEXT("Layer")));
 					}
 					else if (Class == TEXT("ShowMesh") || Class == TEXT("HideMesh"))
 					{
@@ -698,6 +792,10 @@ void ASwcScenePlayer::Sample(const FLayer& Layer, const FClip& Clip, float Time)
 	const float Local = Time - Clip.Start;
 	if (Clip.Kind == EKind::Anim)
 	{
+		if (Clip.AnimLayer > 0)
+		{
+			return;   // [I] an overlay layer (the face clip of the statue scene, Layer 1): no layered blend in this client
+		}
 		const TWeakObjectPtr<UAnimSequence>* Found = Sequences.Find(Entity.Id + TEXT("|") + Clip.Alias);
 		UAnimSequence* Sequence = Found != nullptr ? Found->Get() : nullptr;
 		USkeletalMeshComponent* Mesh = Entity.Mesh.Get();
@@ -722,10 +820,15 @@ void ASwcScenePlayer::Sample(const FLayer& Layer, const FClip& Clip, float Time)
 	}
 	if (Clip.Kind == EKind::Transform)
 	{
-		const FVector Current = Entity.bHasOverride ? Entity.Override.Point() : Entity.Slice.Point();
+		const FVector Current = FVector::ZeroVector;   // an axis with no key: 0 in the local frame
 		const FVector Position(Clip.Position[0].evaluate(Local, Current.X), Clip.Position[1].evaluate(Local, Current.Y), Clip.Position[2].evaluate(Local, Current.Z));
 		const FVector Degrees(Clip.Rotation[0].evaluate(Local), Clip.Rotation[1].evaluate(Local), Clip.Rotation[2].evaluate(Local));
-		Entity.Override = FMatrix4::FromEuler(Position, Degrees);
+		// The values are the local transform under the parent entity (the camera under its Camera Group: the C1 and I1 close-ups of
+		// Aelstrom at 0.7 to 1.7 m; research/scene-curves.md 3 leaves the final space [U]).
+		const int32 Parent = Entity.Parent;
+		const FMatrix4 ParentMatrix = Parent != INDEX_NONE && Parent != RootEntity
+			? (Entities[Parent].bHasOverride ? Entities[Parent].Override : Entities[Parent].Slice) : FMatrix4();
+		Entity.Override = ParentMatrix * FMatrix4::FromEuler(Position, Degrees);
 		Entity.bHasOverride = true;
 		Place(Layer.Entity);
 	}
@@ -737,6 +840,10 @@ void ASwcScenePlayer::Place(int32 Index)
 	if (Entity.Mesh.IsValid() && Entity.Mesh->GetAttachParent() == RootComponent)
 	{
 		Entity.Mesh->SetWorldTransform((Root * (Entity.bHasOverride ? Entity.Override : Entity.Slice)).ToUnreal());
+	}
+	if (Entity.Static.IsValid() && Entity.Static->GetAttachParent() == RootComponent)
+	{
+		Entity.Static->SetWorldTransform((Root * (Entity.bHasOverride ? Entity.Override : Entity.Slice)).ToUnreal());
 	}
 }
 
@@ -751,6 +858,10 @@ void ASwcScenePlayer::SetVisible(int32 Index, bool bVisible, bool bChildren)
 	if (Entity.Mesh.IsValid())
 	{
 		Entity.Mesh->SetVisibility(bVisible && Entity.bActive, true);
+	}
+	if (Entity.Static.IsValid())
+	{
+		Entity.Static->SetVisibility(bVisible && Entity.bActive, true);
 	}
 	if (bChildren)
 	{
@@ -771,6 +882,10 @@ void ASwcScenePlayer::SetActive(int32 Index, bool bActive)
 	if (Entities[Index].Mesh.IsValid())
 	{
 		Entities[Index].Mesh->SetVisibility(bActive && Entities[Index].bVisible, true);
+	}
+	if (Entities[Index].Static.IsValid())
+	{
+		Entities[Index].Static->SetVisibility(bActive && Entities[Index].bVisible, true);
 	}
 	// The deactivation of the slice root (igc_destroy_slice_2s: DeactivateEntity at 0 on the root) ends the scene (research/quest-scenes.md 2.4).
 	if (!bActive && Index == RootEntity && !bEnded)
@@ -836,7 +951,7 @@ bool ASwcScenePlayer::GetView(FVector& Location, FRotator& Rotation, float& Vert
 	}
 	const FEntity& Camera = Entities[CameraEntity];
 	const FMatrix4 World = Root * (Camera.bHasOverride ? Camera.Override : Camera.Slice);
-	const FVector Forward = -World.Axis(1);   // [I] the C1 framing: the view looks along -Y of the curve frame
+	const FVector Forward = World.Axis(1);   // the view along +Y (the C1 and I1 close-ups fit +Y under the Camera Group)
 	const FVector Up = World.Axis(2);
 	Location = FVector(World.M[0][3] * 100.0, -World.M[1][3] * 100.0, World.M[2][3] * 100.0);
 	Rotation = FRotationMatrix::MakeFromXZ(FVector(Forward.X, -Forward.Y, Forward.Z), FVector(Up.X, -Up.Y, Up.Z)).Rotator();

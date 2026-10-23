@@ -1,0 +1,7 @@
+# The player drive of the first live check of AST-240 (docs/QUESTS.md "The scenes, the cinematics, and the whispers"): a new character at
+# the backend start (inside Aelstrom_IGC_Trigger): the natural beach scene (no check aid), then after its end the view north to the placed
+# Aelstrom (the person swap) and a walk. Times from the possession.
+45.0 view 0 -4
+47.0 move 1 0
+50.0 move 0 0
+52.0 view 20 -4

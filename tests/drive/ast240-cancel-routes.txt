@@ -1,0 +1,6 @@
+# The routes of the cancel check of AST-240: a travel during the beach scene (the loading screen: the end path Travel, 6705, then 6709). A new
+# character at the backend start (SWC_DEV_NEW=1):
+#   ... SWC_DEV_CHARACTER=SceneC SWC_DEV_NEW=1 tools/creature-check.sh ast240-cancel 50 THIS tests/drive/ast240-cancel.txt
+0.5 ignore on
+0.6 world-time 12:00
+16.0 travel 9600.0 2290.0 42.0 auto

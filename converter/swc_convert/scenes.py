@@ -44,7 +44,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import census, character, datasheet, env, gltf, persons, player, region, source
+from . import census, character, datasheet, env, gltf, manifest, persons, player, region, source
 
 FORMAT = 1
 F = source.field_id
@@ -710,9 +710,13 @@ def scene_clip_pack(files: list, force: bool, doc: dict) -> dict:
     key = f"clips|{player.GENDERS[gender]}|scenes"
     path = player.player_dir() / "clips" / player.GENDERS[gender] / "scenes" / "clips.gltf"
     known = doc["assets"].get(key, {}).get("clips", [])
+    files = sorted(set(files) | set(known))   # the pack keeps each clip of an earlier call (one pack for all scenes)
     if path.is_file() and not force and sorted(known) == sorted(files):
         return {"clips": key, "skipped": "exists"}
     path.parent.mkdir(parents=True, exist_ok=True)
+    for old in (path, path.with_suffix(".bin")):
+        if old.is_symlink():
+            old.unlink()   # a link of a check copy: the writer must not follow it into the shared content
     skeleton = player.Skeleton(gender)
     w = gltf.Writer()
     first, roots = skeleton.write(w)
@@ -751,7 +755,14 @@ def convert(names: list | None = None, force: bool = False) -> dict:
                     report["bodies"].append(persons.body(cdf, persons.cdf_look(cdf), force, doc))
                     scene_clips += [c for c in cafs if c not in scene_clips]
                 else:
-                    result = character.convert(cdf, cafs, force=force)
+                    # A glTF of another step with no manifest entry was never imported: convert it again (a rename replaces a link of
+                    # a check copy: character.convert writes the glTF in place, so the link goes first).
+                    known = cdf in manifest.load()["assets"]
+                    gltf_path = env.content_dir() / (cdf.rsplit(".", 1)[0] + ".gltf")
+                    if not known and gltf_path.is_symlink():
+                        gltf_path.unlink()
+                        gltf_path.with_suffix(".bin").unlink(missing_ok=True)
+                    result = character.convert(cdf, cafs, force=force or not known)
                     report["characters"].append({k: result.get(k) for k in ("cdf", "skeleton", "gltf", "skipped")}
                                                 | {"clips": len(result.get("clips", []))})
             except Exception as error:

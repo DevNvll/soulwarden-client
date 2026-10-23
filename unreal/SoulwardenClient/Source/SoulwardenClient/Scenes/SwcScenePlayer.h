@@ -95,6 +95,7 @@ private:
 		float Speed = 1.0f;
 		float From = 0.0f;
 		bool bLoop = false;
+		int32 AnimLayer = 0;
 		bool bChildren = true;
 		int32 EulerOrder = 0;
 		swc::scene::Curve Position[3];
@@ -135,6 +136,8 @@ private:
 		float Fov = 40.0f;
 		FString Cinematic;
 		TWeakObjectPtr<USkeletalMeshComponent> Mesh;
+		/** A static prop of the slice (a MeshComponent with a .cgf: the static mesh of the content import). */
+		TWeakObjectPtr<class UStaticMeshComponent> Static;
 		TArray<TWeakObjectPtr<USkeletalMeshComponent>> Followers;
 		FString AttachTarget;
 		FString AttachBone;

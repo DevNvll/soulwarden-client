@@ -1,0 +1,27 @@
+# The UI drive of the exit check of AST-240 (tests/drive/ast240-exit.txt): the scene (no key), the ready views, the natural hand-in, the
+# rewards, the knife offer, the accept, and the journal. Times from the spawn of the player.
+1 waitfor CompassLines 60
+2 waitfor world 180
+20 log the scene: no HUD, the subtitles
+46 log after the scene: the walk, the placed Aelstrom
+56 log ready: the overhead marker, the compass, the tracker
+58 key M
+62 log the map at ready
+64 key M
+90 log the hand-in chain: page 1
+92 key E
+96 key E
+100 key E
+104 key E
+108 log the last page: Complete the Quest, 200 XP, 1.50
+110 key E
+118 log after the hand-in: the XP and coin notices, the next state, the knife offer
+120 key E
+124 key E
+128 key E
+132 log the proposal: Accept Quest
+134 key E
+140 log after the accept: Basic Needs
+146 key J
+152 log the journal after the accept
+154 key Escape

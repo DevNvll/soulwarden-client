@@ -178,6 +178,10 @@ void USwcBackendSubsystem::Deinitialize()
 	if (Connection.IsValid())
 	{
 		// The carrier disconnect goes out, then the thread ends (the destructor waits for it).
+		if (Scenes.IsValid())
+		{
+			Scenes->Teardown(TEXT("the world exit"));   // AST-240: a scene of the world ends locally, with no message
+		}
 		Connection->Leave(TEXT("the client stops"));
 		Connection.Reset();
 	}
@@ -512,6 +516,10 @@ bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 				Attack.manaCorrections, RangedView != nullptr ? RangedView->GetProjectiles() : 0u, RangedView != nullptr ? RangedView->GetProjectileHits() : 0u,
 				RangedView != nullptr ? RangedView->GetTargetings() : 0u, RangedView != nullptr ? RangedView->GetHealNumbers() : 0u, Attack.ranged.unknown,
 				UTF8_TO_TCHAR(Attack.ranged.unknownTypes.c_str()), Attack.ranged.stuck);
+		}
+		if (Scenes.IsValid())
+		{
+			Scenes->Teardown(TEXT("the world exit"));   // AST-240: a scene of the world ends locally, with no message
 		}
 		Connection->Leave(TEXT("the client leaves the world (-SwcQuitWhen=world)"));
 	}
@@ -1399,7 +1407,9 @@ void USwcBackendSubsystem::UpdatePlayer()
 		Interactor->SetSecondKey(bInteractSecondKey);
 		Interactor->SetMoveKeys(bMoveKeys);
 		// A swim blocks the interactions (only Reaction, Death, and Respawn can start in a swim: player.grid; research wf5-swim).
-		Interactor->Update(Snapshot, *Connection, Motion.character, Snapshot.Own.dead || Snapshot.Own.loadingScreen || bTravelWait || Movement->IsSwimming(),
+		// A scene that holds the input (stage Q5) also blocks the focus and the prompt.
+		Interactor->Update(Snapshot, *Connection, Motion.character, Snapshot.Own.dead || Snapshot.Own.loadingScreen || bTravelWait || Movement->IsSwimming()
+			|| (Scenes.IsValid() && Scenes->IsLocked()),
 			FPlatformTime::Seconds(), World->GetSubsystem<USwcCreatureSubsystem>());
 		Avatar->GetActions()->SetTimedUse(Interactor->IsTimedUse(), Interactor->GetUseKind(), Interactor->GetUseTool(), Interactor->GetUsePlace());
 		// The Talk (stage P4.8, docs/PERSONS.md): the input lock until the answer 6709, the camera of the line (a cut), and the
@@ -2087,6 +2097,10 @@ void USwcBackendSubsystem::ReturnToMenu()
 	}
 	bReturning = true;
 	UE_LOG(LogSwcBackend, Log, TEXT("world: the return to the character selection: the carrier disconnect"));
+	if (Scenes.IsValid())
+	{
+		Scenes->Teardown(TEXT("the world exit"));   // AST-240: a scene of the world ends locally, with no message
+	}
 	Connection->Leave(TEXT("the player goes back to the character selection"));
 }
 

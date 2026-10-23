@@ -1,0 +1,11 @@
+# The player drive of the exit check of AST-240 (docs/QUESTS.md "The scenes, the cinematics, and the whispers"): a new character at the
+# backend start (inside Aelstrom_IGC_Trigger): the natural beach scene (about 4 to 33 s), the view north to the placed Aelstrom (the person
+# swap), a walk; then the natural hand-in of Q4 (no check aid): the view to Aelstrom after the travels and the Talk. Times from the possession.
+38.0 view 0 -4
+40.0 move 1 0
+43.0 move 0 0
+52.0 view 0 -4
+76.0 view 324.3 -6
+82.0 interact 1
+82.8 interact 0
+160.0 view 342 -4

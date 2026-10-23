@@ -1,0 +1,8 @@
+# The routes of the Grace check of AST-240 (live W2 and C2 of the backend stage 1.8b): a new character in FirstWhisperWW_IGC_Trigger
+# (SWC_DEV_PLACE=9628.5:2212.6:41.0), the grant of 06_survivors_soldier (the whisper of Isabella, 5070 52f36e05), then a travel into
+# GraceHelp_IGC_Trigger (the Grace intro scene 848caecf):
+#   ... SWC_DEV_CHARACTER=SceneG SWC_DEV_NEW=1 SWC_DEV_PLACE=9628.5:2212.6:41.0 tools/creature-check.sh ast240-grace 80 THIS tests/drive/ast240-grace.txt
+0.5 ignore on
+0.6 world-time 12:00
+3.0 quest grant 06_survivors_soldier
+24.0 travel 9681.8 2108.7 46.0 auto

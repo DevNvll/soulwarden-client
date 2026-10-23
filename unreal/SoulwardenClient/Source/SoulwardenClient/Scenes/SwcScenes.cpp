@@ -306,6 +306,7 @@ void FSwcScenes::Tick(UWorld* World, const FSwcRepConnection::FSnapshot& Snapsho
 		SeenGrants = Own.cutsceneGrants;
 		SeenCancels = Own.cutsceneCancels;
 		SeenLockEnds = Own.lockEnds;
+		SeenTravel = Own.travelRevision;
 		return;
 	}
 	// The answers of the server.
@@ -360,12 +361,16 @@ void FSwcScenes::Tick(UWorld* World, const FSwcRepConnection::FSnapshot& Snapsho
 			RequestStop(TEXT("Failed: the cancel 6708"));
 		}
 	}
-	// A travel (the loading screen) during a scene: the end with the live connection (6705, then 6709) [I: no retail travel handler].
-	if (Own.loadingScreen && !bWasLoading && (State == EState::Pending || State == EState::Playing))
+	// A travel during a scene (a new travel of the server, with or with no loading screen): the end with the live connection (6705, then
+	// 6709) [I: no retail travel handler; the backend ends each input lock at a travel with 6709].
+	if (Own.travelRevision != SeenTravel)
 	{
-		CommonEnd(TEXT("Travel: a loading screen"), Connection);
+		SeenTravel = Own.travelRevision;
+		if (State == EState::Pending || State == EState::Playing)
+		{
+			CommonEnd(TEXT("Travel"), Connection);
+		}
 	}
-	bWasLoading = Own.loadingScreen;
 	// The wait for the grant: 30 s, then the failure (0x2EFEDD3): the normal stop interface, 6705, no second 6703.
 	if (State == EState::Pending)
 	{

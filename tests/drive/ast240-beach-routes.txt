@@ -1,0 +1,6 @@
+# The routes of the first live check of AST-240: the creatures ignore the character, the hour 12:00. A new character at the backend start,
+# its own data folder, the content check copy:
+#   SWC_CONTENT=~/Games/soulwarden-client/content-q5 SWC_DEV_DATA=~/Games/soulwarden-client/dev-data-q5 SWC_AGENT_DESKTOP=soulwarden-client-world \
+#   SWC_STAGE=AST-240 SWC_DEV_CHARACTER=SceneA SWC_DEV_NEW=1 tools/creature-check.sh ast240-beach 70 THIS tests/drive/ast240-beach.txt
+0.5 ignore on
+0.6 world-time 12:00

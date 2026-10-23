@@ -1,0 +1,4 @@
+# The player drive after a stopped scene (AST-240: the skip and the cancel checks): the view north, a walk. Times from the possession.
+30.0 view 0 -4
+32.0 move 1 0
+35.0 move 0 0

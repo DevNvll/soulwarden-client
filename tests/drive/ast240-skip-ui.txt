@@ -1,0 +1,8 @@
+# The UI drive of the skip check of AST-240: a hold of Escape (ui_cancel) for 3 s in the beach scene (cutscenescreen.luac: 2.25 s), then
+# the walk of tests/drive/ast240-after.txt. Times from the spawn of the player.
+1 waitfor CompassLines 60
+2 waitfor world 180
+12 log the scene before the skip
+14 keydown Escape
+17 keyup Escape
+20 log after the skip

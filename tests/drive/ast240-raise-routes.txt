@@ -1,0 +1,10 @@
+# The routes of the raise-alarm check of AST-240 (18e live F): a new character in TriggerVol_06_HeadStatueWhisper
+# (SWC_DEV_PLACE=9513.3:2316.8:54.0), the grant of 06_raisealarm (the statue whisper), a travel into Ancient_Statue_Leadin_IGC_Trigger (the
+# statue scene 1dc4b4f7, then the TempestRising stand-in: 6606, the clock of 106.74 s, 6542), then into Corinth_IGC_Trigger (the chain goes
+# on: the Corinth scene 126b8567):
+#   ... SWC_DEV_CHARACTER=SceneR SWC_DEV_NEW=1 SWC_DEV_PLACE=9513.3:2316.8:54.0 tools/creature-check.sh ast240-raise 215 THIS tests/drive/ast240-raise.txt
+0.5 ignore on
+0.6 world-time 12:00
+3.0 quest grant 06_raisealarm
+22.0 travel 9465.5 2339.75 64.6 auto
+160.0 travel 9329.5 2589.8 80.2 auto

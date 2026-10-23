@@ -110,7 +110,7 @@ private:
 	uint32 SeenCancels = 0;
 	uint32 SeenLockEnds = 0;
 	uint32 SeenAchievements = 0;
-	bool bWasLoading = false;
+	uint32 SeenTravel = 0;
 	bool bExitCamera = false;
 	FString ExitCamera;
 	TWeakObjectPtr<ASwcScenePlayer> Player;

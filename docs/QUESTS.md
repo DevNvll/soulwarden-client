@@ -298,6 +298,68 @@ check uses it for the ready state of 06_getoffbeach (the beach cutscene `4817dd0
 natural path (the activation of the scene by the achievements, the playback, the skip, the camera) is stage Q5. The log lines start with
 "dev cutscene:".
 
+## The scenes, the cinematics, and the whispers (Q5, AST-240)
+
+The native rules: the studies `research/quest-scenes.md` (brief `research/briefs/q5-scenes-whispers.md`) and `research/scene-curves.md`.
+The code: `Scenes/SwcScenes` (the activation and the handshake), `Scenes/SwcScenePlayer` (the play), `Scenes/SwcSceneCurve.h` (the key
+curves), `swc/scenes.lua` (the cutscene screen, the subtitles, the whispers, the video stand-in). The data: `tools/convert-scenes.sh`
+(`converter/swc_convert/scenes.py`).
+
+- The data (`tools/convert-scenes.sh write`): `quests/scenes.json` (the 58 placed cutscene spawners with their AchievementEvents compiled
+  to rules of the Achievement bits, the AOI radius, the trigger child; each scene: the actors, the clip files of the aliases, the length),
+  `quests/scenes/NAME.json` (CutsceneInfo, the start and stop events, the entities with their slice values, attachments, and cinematic id,
+  the timelines with the layer bindings in hex), `quests/whispers.json` (WhisperData, the whisper timelines, the cinematic registry with the
+  Bink header), and `ui/gamedata/scenes.json` (for Lua: the cinematics, the whispers by CRC with their command clips, the scene command
+  clips, the loc attributes speaker, VO_Type, start, end, dialogue-next). Each output is written by a rename (a check copy is a link tree).
+  `tools/convert-scenes.sh convert`: the actors of the beach chain (the bodies of the player and person skeleton: the player pipeline,
+  PersonBodies; one clip pack clips|male|scenes WITH the root track, each clip of each call; the other skeletons as characters).
+- The activation (study 1): a spawner runs an AchievementEvent when its rule becomes true while the player is in its AOI radius, or at the
+  entry of the radius with the rule true [I: the AOI radius as the load gate]; after the event delay, entity event 0 on a trigger with
+  playOnLoad or entity event 2 requests the scene [I: 0 activates, 2 triggers, 1 deactivates]. No 2 s timer. One pending 6703 for 30 s at
+  most (then the failure, 6705, no second 6703).
+- The handshake (study 2.1, 3, 5, 6): the grant 6707 of the same CRC builds the scene, runs the start events, the cutscene screen
+  (OnCutsceneStarted), then 6706; a grant of another CRC sends 6705. One common end: the deactivation of the slice root (the normal end;
+  the destroy timeline at 29.1 s of the beach), a skip (the cutscene screen: a hold of ui_cancel 2.25 s, RequestStopCurrentCutscene: the
+  stop events, the main entry simulates its end), a cancel 6708, a travel (a new travel revision of the server) [I: no retail travel
+  handler]. Then the scene goes, the exit camera IGC_CameraState_Generic until the next move or look input [U: the input event], the
+  screen gets OnCutsceneEnded, 6705 goes out once; the hard input lock (the move, the actions, the focus and the prompt) stays until 6709.
+  A world exit ends the scene locally with no message (a new login requests it again: the rule stays true).
+- The play (study 2.3, 2.4, 3; research/scene-curves.md): the slice root at the world matrix of the trigger; each entity at its slice value;
+  the bodies of the scene CDFs; the dummy of the player is a copy of the body parts of the local character (playercharacterupdate.luac
+  copies the look and the equipment; dummyIsArmed false) [I: the copy of the parts of this client]; the real character is hidden
+  (m_hidePlayerAvatar) and keeps its position. The timeline actions 0 to 6, the forward clip dispatch in steps of 0.05 s, the layer Ignore,
+  the layer bindings (LayerEntityAssignments), ShowMesh, HideMesh, ActivateEntity, DeactivateEntity, TriggerEntity, UnTriggerEntity, the
+  animation clips (only Layer 0 [I: no layered blend: the face clip of the statue scene does not play]), the static props, the props on a
+  bone. The key curves of research/scene-curves.md (the right key mode, Bezier by subdivision; `tools/test-scenes.sh`: the worked beach
+  pair). The transform clip is the local transform under the parent entity (the camera under its Camera Group), Euler order 0 = Ry Rz Rx,
+  the camera looks along +Y [I: the live close-ups of Aelstrom at 0.7 to 1.7 m fit the retail C1 and I1 shots; the slice frame gave 5 to
+  8 m]. The vertical FOV of the CameraComponent (the beach FOV layer has Ignore) [U: the projection axis].
+- The subtitles (study 7): the CommandClip PlayWhisperSubtitle_@KEY of a scene timeline: a Subtitle notification as whispers.luac (the
+  speaker as title, maximumDuration the clip duration, inGameCutscene for VO_Type igc_). The subtitle option is on by default [I].
+- The whispers (study 8): 5070 (the CRC-32 of the lower-case WhisperId on the Whisper child) plays the command clips of its whisper
+  timeline on its own clock with no audio; the silent VO token ends after the later of the row Duration and the last command end + 0.25 s.
+  A new whisper replaces the active one [U: no FIFO is proved].
+- The cinematic (study 9; research quests-18e cinematic): a TriggerEntity on an entity with the cinematic component (the statue lead-in at
+  9.7 s) starts its video after the scene [I: the native deferral while a cutscene is current]. The declared stand-in: the original
+  videoplayerscreen.luac on PlayCinematicVideo with a Bink clock of the header length (TempestRising 106.74 s): 6606 at the start of the
+  clock, 6542 at its end or at a skip (a hold of ui_cancel 2.25 s); a black image with the cinematic subtitles (no decoder, no audio). It is
+  not full video parity (a decision of the user is needed to replace it in Q9).
+- The development preview: console `swc.ScenePreview NAME` (development runs only): a scene with no handshake and no quest effect.
+- Fixtures: `tests/ui/fixtures/scenes.lua` (26 checks: the cutscene screen, the skip hold and the tap, the scene subtitle, W1 and its VO
+  token, the TempestRising stand-in: 6606, the skip, 6542, the natural end). Converter tests: `tests/converter/test_scenes.py`.
+- The live checks (2026-10-23, new development characters, the drives `tests/drive/ast240-*.txt`; evidence AST-240):
+  - ast240-exit2: the natural beach scene at the world entry (6703, 6707, 6706, the five subtitles, the root at 29.1 s, 6705, 6709), the
+    placed Aelstrom after it, the walk, the natural hand-in of Q4 (no check aid: 794, 200 XP, 1.50 coin, level 2) and the knife offer (3772).
+  - ast240-skip (the hold of Escape: the stop at 11.6 s, 6705, the task complete); ast240-cancel3 (a travel at 16 s: the end Travel, 6705,
+    6709); ast240-exitcancel and ast240-relog (a world exit in the scene: no message; the next login plays it again and completes it).
+  - ast240-grace4: the whisper W2 (52f36e05, the subtitle 11.1 s), the Grace intro scene (848caecf) with its props, 18.3 s.
+  - ast240-raise2: the statue whisper (871ceb38), the statue scene (1dc4b4f7), the TempestRising stand-in (6606, 106.74 s, 6542: "a quest
+    task changed"), the Corinth flyover (126b8567, 263 props): the root of 06_raisealarm is complete.
+  - The pairs with the retail references 18b C1, I1, C2, W1, W2 and 18e C1: `ast240-retail-client-sheet.png`.
+- Declared limits: the lights, the particle effects, the material clips, the fades of the helper timelines (fade from black and from
+  white), the audio and the lip sync are not played; the face clips (Layer 1) do not play; the dummy has the male clips (a female character
+  needs the female scene CDFs and clips) [I].
+
 ## Open points
 
 - The banner shows in the HUD state: an inference (`manager.lua`).
