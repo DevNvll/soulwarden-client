@@ -283,7 +283,8 @@ function Swc.HostQuests(text)
         if not p or p.state ~= s.state or p.progress ~= s.progress then
           changed = true
           local tid = task_id(rec.key, index)
-          Swc.Notify("ObjectiveTaskNotificationBus", tid, "OnTaskUpdated", tid)
+          -- No OnTaskUpdated on this bus: no script handles it, and pinnedobjective.luac has a method of that name for its task rows
+          -- (OnTaskUpdated(taskTable)); a task id there stopped the tracker (GetPositionY of a nil method; AST-237).
           Swc.Notify("ObjectiveTaskNotificationBus", tid, "OnTaskChanged", tid)
           if s.state == (eObjectiveTaskState_Active or 1) and (not p or p.state ~= s.state) then
             Swc.Notify("ObjectiveTaskNotificationBus", tid, "OnTaskActivated", tid)
