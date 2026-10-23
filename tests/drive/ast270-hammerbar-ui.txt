@@ -1,0 +1,29 @@
+# AST-270: the war hammer bar of the HUD. A copy of a database in the own data folder with a bow (MainHandOption1) and the war hammer
+# 2hWarhammerT5 (MainHandOption2) with its bound bar. Key 1 the bow bar, key 2 the hammer bar (Wrecking Ball, Shockwave, Path of
+# Destiny), K the character window (a change of the HUD state: the empty listener lists of the HUD canvases), the war hammer tree,
+# Escape back to the HUD, then the hammer bar again. Times in seconds from the spawn of the player.
+# SWC_DEV_DATA=.../dev-data-NAME SWC_STAGE=AST-270 SWC_CONTENT=CHECK-COPY tools/creature-check.sh ast270 50 \
+#   tests/drive/ast270-hammerbar-routes.txt -- -SwcUiDrive=$PWD/tests/drive/ast270-hammerbar-ui.txt
+1 waitfor CompassLines 60
+2 waitfor world 180
+4 log the bow (key 1)
+4 key 1
+7 draw bow-bar
+8 log the war hammer (key 2): Wrecking Ball, Shockwave, Path of Destiny
+8 key 2
+11 draw hammer-bar
+13 log K: the character window
+13 key K
+15 point text:Weapon_Mastery
+15.3 click
+17 point text:War_Hammer
+17.3 click
+21 draw hammer-tree
+22 key Escape
+23.5 key Escape
+26 draw hud-back
+27 log the bow, then the war hammer again
+27 key 1
+30 key 2
+33 draw hammer-bar-again
+35 log end of the check

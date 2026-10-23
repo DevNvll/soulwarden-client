@@ -912,8 +912,11 @@ def convert_gamedata() -> dict:
                 "cooldown": number_or_none(cooldown.get("Time")) or 0, "manaCost": number_or_none(mana.get(ability)) or 0,
                 "holdIcon": (row.get("HoldConditionButtonIcon") or "").lower().replace("\\", "/"),
             }
-    weapons_by_id = {r["WeaponID"]: r for name in ("javelindata_itemdefinitions_weapons.datasheet",
-                                                   "javelindata_itemdefinitions_runes.datasheet")
+    # The join of the items to the weapon and rune rows ignores the case: the game data mixes it (AST-270: the item 2hWarhammerT5 has
+    # ItemStatsRef 2HHammerT5, its row is WeaponID 2HhammerT5; the HUD had no weapon row for it and showed no skills). player.py
+    # (the combat data) joins with lower case too.
+    weapons_by_id = {r["WeaponID"].lower(): r for name in ("javelindata_itemdefinitions_weapons.datasheet",
+                                                           "javelindata_itemdefinitions_runes.datasheet")
                      for r in table_rows(name) if r.get("WeaponID")}
     weapons: dict[str, dict] = {}
     for path in source.paks().paths("", ".datasheet"):
@@ -923,7 +926,7 @@ def convert_gamedata() -> dict:
         for row in datasheet.Sheet(source.read(path)).rows():
             if row.get("ItemType") != "Weapon" or not row.get("ItemID"):
                 continue
-            weapon = weapons_by_id.get(row.get("ItemStatsRef") or "")
+            weapon = weapons_by_id.get((row.get("ItemStatsRef") or "").lower())
             if weapon is None:
                 continue
             weapons[row["ItemID"].lower()] = {

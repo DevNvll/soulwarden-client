@@ -90,6 +90,32 @@ end
 -- rule of the backend).
 Swc.scriptHooks = Swc.scriptHooks or {}
 
+-- An empty listener list of a HUD canvas (the array property ElementsWithActionListeners with no entry: ActionBar, Compass, the
+-- reticles, the loot ticker): SetIsVisible of hudcanvasdefault.luac and lootticker2024canvas.luac loops from 0 to #list and calls
+-- list[0], which is nil for an empty list (AST-270: a Lua error at each change of the HUD state). The loop runs only for a list with
+-- entries; the 0-based lists with entries do not change. How the native client gives an empty array is not known [U].
+local function skip_empty_listeners(base)
+  local original = rawget(base, "SetIsVisible")
+  if type(original) ~= "function" then
+    return
+  end
+  base.SetIsVisible = function(self, visible)
+    local list = self.ElementsWithActionListeners
+    if type(list) == "table" and next(list) == nil then
+      self.ElementsWithActionListeners = nil
+      local ok, err = pcall(original, self, visible)
+      self.ElementsWithActionListeners = list
+      if not ok then
+        error(err, 0)
+      end
+      return
+    end
+    return original(self, visible)
+  end
+end
+Swc.scriptHooks["lyshineui.hud2024.hudcanvasdefault"] = skip_empty_listeners
+Swc.scriptHooks["lyshineui.hud2024.lootticker.lootticker2024canvas"] = skip_empty_listeners
+
 function Swc.ScriptBase(path)
   local name = Swc.ModuleName(path)
   local base = package.loaded[name]

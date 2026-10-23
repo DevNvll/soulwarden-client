@@ -73,6 +73,8 @@ tools/convert-ui.sh options                # the Options screen: its canvas and 
 - Game data: `abilities.json` has each ability of the weapon ability tables (key: the CRC-32 of the lower-case
   AbilityID) with its icon, its category, its cooldown time, and its mana cost. `weapons.json` has each weapon and heart
   rune item (key: the lower-case item id) with its ability table, its mannequin tags, its tier, and its equip ability.
+  The item joins its weapon or rune row (ItemStatsRef to WeaponID) with no letter case: the game data mixes the case
+  (AST-270: the item 2hWarhammerT5 has 2HHammerT5, its row 2HhammerT5; with the case the HUD bar had no skills for it).
   `afflictions.json` has the rows of `javelindata_afflictions` (the meters of the HUD and of the equipment screen).
 - Item data (`items`): a keyed table (`.tsv`: a head line "key" and the columns, ":n" marks a number column; one line
   for each lower-case key) that the runtime reads by key with the native `swcui.table_row(name, key)` (a key text in
