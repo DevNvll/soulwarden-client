@@ -33,6 +33,27 @@ game copy (paks) --converter--> content/ (glTF + PNG + JSON, manifest.json) --to
 
 Proved formats and their limits: research AST-135, section 3.
 
+### Check copies before a merge
+
+The shared content (`SWC_CONTENT`) and the shared plugin (`SWC_GAME_CONTENT`) change only with the merge of a stage. A check
+before the merge uses copies: a check content root (`SWC_CONTENT=COPY`) and a check plugin (`SWC_GAME_CONTENT=COPY`; then
+`tools/content-link.sh` links the worktree plugin to it). A copy is a link tree (`cp -as`): real folders, a link for each
+shared file. A new file of a check is a real file of the copy.
+
+The trap (Q3, 2026-10-23): a link tree does NOT protect a file that exists. A Python write (`open(..., "w")`,
+`write_text`, `write_bytes`) follows the link and changes the shared file. A mesh conversion of 27 wanted meshes rewrote two
+existing fog meshes (`objects/volumetrics/jav_fogbeam_b`, `jav_fogsphere_a`) in the shared content, and a scene converter
+rewrote two shared probe pictures. Only a write to a temporary file and a rename replaces the link (a Unreal save does this:
+a check plugin is safe for the imports, but not for its JSON state files).
+
+Thus, before a conversion or an import into a copy:
+
+- Make each JSON state file of the copy a real copy (the plugin root, `manifest.json`, `player/*.json`, `import-report.json`).
+- List the outputs that exist already (for example the wanted meshes against the shared files, the probe and cube pictures
+  of a scene record) and replace their links with real copies (`cp --remove-destination TARGET LINK`). Or convert into an
+  empty folder and copy the result into the copy.
+- After each conversion, `find SHARED -newer STAMP -type f` (a stamp file made before the call) must show no file.
+
 ## Spaces
 
 Stage 1.1 proved this map in Unreal (the proof is below). The code is `converter/swc_convert/space.py`.
