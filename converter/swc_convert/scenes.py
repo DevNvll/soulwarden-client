@@ -22,8 +22,10 @@ Outputs (SWC_CONTENT/quests, never in git):
                        actors (CDF and animation aliases), and the counts
   whispers.json        the whispers (WhisperData, the whisper and voice timelines), the cinematic registry (the Bink header of the
                        videos of the quest tasks), the timed localization entries (start, end, speaker, the next key)
-  scenes/NAME.json     one scene: CutsceneInfo, the entities (id, name, parent, local matrix, the components), the timelines (the
-                       owner entity, the entry, the assignments, the layers and clips)
+  scenes/NAME.json     one scene: CutsceneInfo, the entities (id, name, parent, local matrix, the components, "attach": the target
+                       entity, bone, and offset of an AttachmentComponent), the timelines (the owner entity, the entry, "assigned":
+                       the slice entity of each layer id, the layers and clips). The ids are 16 hex digits (a double loses the low
+                       bits of a number above 2^53).
 Then `convert [NAME...] [--force]` converts the actors of the scenes (default: the beach chain) with the player pipeline (the bodies of the
 person and player skeletons, one scene clip pack with the root track: then tools/import-player.sh) and as characters (other
 skeletons: then tools/import.sh).
@@ -251,6 +253,13 @@ def entities_of(data: bytes) -> list:
                     rec["parent"] = entity_id(component.child(F("m_parentId")))
                     continue
                 rec["components"].append(tojson(component))
+            for c in rec["components"]:
+                if isinstance(c, dict) and c.get("class") == "AttachmentComponent":
+                    config = c.get("Configuration") or {}
+                    target = (config.get("Target ID") or {}).get("id")
+                    # The ids as 16 hex digits: a JSON number above 2^53 loses its low bits in a double reader.
+                    rec["attach"] = {"target": "%016x" % int(target) if target is not None else "", "bone": config.get("Target Bone Name", ""),
+                                     "offset": config.get("Target Offset"), "initially": config.get("Attached Initially")}
             out.append(rec)
     return out
 
@@ -553,7 +562,7 @@ def write(only: str | None = None) -> dict:
                         for entry in (c.get("m_timelines") or {}).get("items", []):
                             asset = (entry.get("TimelineAsset") or {}).get("path", "")
                             timelines.append({"entity": e["name"], "entityId": e["id"], "asset": asset, "entry": entry,
-                                              "timeline": timeline(asset)})
+                                              "assigned": assigned(entry), "timeline": timeline(asset)})
             scene = {"format": FORMAT, "name": name, "crc": crc, "slice": path, "info": info, "entities": entities, "timelines": timelines}
             (out_dir / "scenes" / (name + ".json")).write_text(json.dumps(scene, indent=1))
             record["actors"] = actors_of(entities)
