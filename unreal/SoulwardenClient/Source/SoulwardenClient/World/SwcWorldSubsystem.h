@@ -36,6 +36,9 @@ private:
 	bool GetImpostorView(FVector& View) const;
 	/** A level that the far grid streams in: its far mesh groups join the list with their state at once. */
 	void AddLevelImpostors(ULevel* Level, UWorld* World);
+	/** A cell level that begins to show: its meshes with the wind cache their shadow as static (swc.Wind.ShadowCache), before the
+	 *  components register. */
+	void BeginLevelVisible(UWorld* World, const ULevelStreaming* Streaming, ULevel* Level);
 
 	void UpdateGroundTest();
 
@@ -43,6 +46,7 @@ private:
 	double GroundTestStart = 0.0;
 	TArray<TWeakObjectPtr<AActor>> Impostors;
 	FDelegateHandle LevelAddedHandle;
+	FDelegateHandle LevelVisibleHandle;
 	double NextImpostorUpdate = 0.0;
 	FString FrameFolder;
 	int32 FrameEvery = 2;

@@ -619,6 +619,13 @@ void USwcEnvironmentSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	{
 		Variable->Set(2, ECVF_SetByCode);
 	}
+	// No receiver mask for the sun (AST-273 P1b, docs/ENVIRONMENT.md "The sun step"): with the mask the engine renders each dynamic page of
+	// the sun again in each frame (VirtualShadowMapPhysicalPageManagement.usf: "always invalidate dynamic when using receiver mask"),
+	// with the meshes of the wind (a world position offset makes them dynamic). Without it those pages stay cached (swc.Wind.ShadowCache).
+	if (IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Shadow.Virtual.UseReceiverMaskDirectional")))
+	{
+		Variable->Set(false, ECVF_SetByCode);
+	}
 	// The loading gate (AST-203): a screen ends only when the source meter has set the exposure of the place (swc.SourceMeter 2).
 	if (!bDisabled)
 	{

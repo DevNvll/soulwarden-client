@@ -12,6 +12,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
+#include "Streaming/LevelStreamingDelegates.h"
 #include "UnrealClient.h"
 #include "Net/SwcSpace.h"
 #include "World/SwcFlythrough.h"
@@ -71,6 +72,57 @@ void SetWindEvaluate(IConsoleVariable* Variable)
 TAutoConsoleVariable<int32> CVarWindEvaluate(TEXT("swc.Wind.Evaluate"), 1,
 	TEXT("1: the wind moves the vegetation (the world position offset); 0: off for each component with the wind (a cost test)."),
 	FConsoleVariableDelegate::CreateStatic(&SetWindEvaluate));
+
+/** @return True for a mesh component with the wind (SwcWind, the custom primitive data 0, above 0) that casts a shadow (the ground
+ * cover has the wind and no shadow). */
+bool HasWindShadow(const UStaticMeshComponent* Component)
+{
+	const TArray<float>& Data = Component->GetDefaultCustomPrimitiveData().Data;
+	return Component->CastShadow && Data.Num() > 0 && Data[0] > 0.0f;
+}
+
+/** The shadow cache of the meshes with the wind (AST-273 P1b, docs/WORLD.md "The wind flag"): the bend of the wind is a static
+ * offset (no time term), but a material with a world position offset invalidates its pages of the virtual shadow maps in each frame
+ * (EShadowCacheInvalidationBehavior::Auto). Static caches the bent shadow as the shadow of a static mesh. */
+EShadowCacheInvalidationBehavior WindShadowCache();
+
+void SetWindShadowCache(UStaticMeshComponent* Component)
+{
+	const EShadowCacheInvalidationBehavior Behavior = WindShadowCache();
+	if (Component->ShadowCacheInvalidationBehavior != Behavior)
+	{
+		Component->ShadowCacheInvalidationBehavior = Behavior;
+		if (Component->IsRenderStateCreated())
+		{
+			Component->MarkRenderStateDirty();
+		}
+	}
+}
+
+void SetWindShadowCacheAll(IConsoleVariable* Variable)
+{
+	int32 Changed = 0;
+	for (TObjectIterator<UStaticMeshComponent> It; It; ++It)
+	{
+		const UWorld* World = It->GetWorld();
+		if (World != nullptr && World->IsGameWorld() && HasWindShadow(*It) && It->ShadowCacheInvalidationBehavior != WindShadowCache())
+		{
+			SetWindShadowCache(*It);
+			++Changed;
+		}
+	}
+	UE_LOG(LogSwcWorldTools, Log, TEXT("world: swc.Wind.ShadowCache %d: %d components with the wind changed"), Variable->GetInt(), Changed);
+}
+TAutoConsoleVariable<int32> CVarWindShadowCache(TEXT("swc.Wind.ShadowCache"), 1,
+	TEXT("The shadow cache of the meshes with the wind (AST-273 P1b): 1 static (the bend has no time term: the shadow is cached as for a ")
+	TEXT("static mesh); 0 the engine default (the pages under a mesh with a world position offset render again in each frame). A wind with ")
+	TEXT("a time term needs 0."),
+	FConsoleVariableDelegate::CreateStatic(&SetWindShadowCacheAll));
+
+EShadowCacheInvalidationBehavior WindShadowCache()
+{
+	return CVarWindShadowCache.GetValueOnGameThread() != 0 ? EShadowCacheInvalidationBehavior::Static : EShadowCacheInvalidationBehavior::Auto;
+}
 } // namespace
 
 bool USwcWorldSubsystem::ImpostorHidden(const AActor* Impostor, const FVector& View) const
@@ -131,6 +183,31 @@ void USwcWorldSubsystem::AddLevelImpostors(ULevel* Level, UWorld* World)
 			}
 		}
 	}
+}
+
+void USwcWorldSubsystem::BeginLevelVisible(UWorld* World, const ULevelStreaming* Streaming, ULevel* Level)
+{
+	if (World != GetWorld() || Level == nullptr)
+	{
+		return;
+	}
+	int32 Wind = 0;
+	for (AActor* Actor : Level->Actors)
+	{
+		if (Actor == nullptr)
+		{
+			continue;
+		}
+		Actor->ForEachComponent<UStaticMeshComponent>(false, [&](UStaticMeshComponent* Component)
+		{
+			if (HasWindShadow(Component))
+			{
+				SetWindShadowCache(Component);
+				++Wind;
+			}
+		});
+	}
+	UE_LOG(LogSwcWorldTools, Verbose, TEXT("world: %s shows: %d meshes with the wind and a shadow"), *Level->GetOutermost()->GetName(), Wind);
 }
 
 void USwcWorldSubsystem::UpdateImpostors()
@@ -209,6 +286,7 @@ void USwcWorldSubsystem::Tick(float DeltaTime)
 void USwcWorldSubsystem::Deinitialize()
 {
 	FWorldDelegates::LevelAddedToWorld.Remove(LevelAddedHandle);
+	FLevelStreamingDelegates::OnLevelBeginMakingVisible.Remove(LevelVisibleHandle);
 	SwcLoadingGate::Unregister(GetWorld(), TEXT("far grid"));
 	Super::Deinitialize();
 }
@@ -228,6 +306,14 @@ void USwcWorldSubsystem::OnWorldBeginPlay(UWorld& World)
 		UE_LOG(LogSwcWorldTools, Log, TEXT("world: %d groups of far meshes (shown beyond %.0f m)"), Impostors.Num(), LoadingRangeCm / 100.0);
 	}
 	LevelAddedHandle = FWorldDelegates::LevelAddedToWorld.AddUObject(this, &USwcWorldSubsystem::AddLevelImpostors);
+	LevelVisibleHandle = FLevelStreamingDelegates::OnLevelBeginMakingVisible.AddUObject(this, &USwcWorldSubsystem::BeginLevelVisible);
+	for (TObjectIterator<UStaticMeshComponent> It; It; ++It)
+	{
+		if (It->GetWorld() == &World && HasWindShadow(*It))
+		{
+			SetWindShadowCache(*It);
+		}
+	}
 	// The loading gate: the far grid (the Landscape proxies and the far mesh groups) within its loading range of the place is in
 	// the world before the screen ends (no bare horizon after it). A level with no far grid: no cell, ready at once.
 	SwcLoadingGate::Register(&World, TEXT("far grid"), [this](const FVector& Place, FString& Why)

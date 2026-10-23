@@ -222,8 +222,17 @@ Check (development runs on a quiet computer, evidence `~/Games/soulwarden-client
 - The default (runs p1-check-cost and p1-check-look): at noon GPU p50 12.25 and 12.41 ms against 13.36 and 13.33 ms for step 0 (pairs in one
   run; -0.9 to -1.1 ms), 435 of 454 pages cached against 112; at 06:40 the frame change p99 0.278 and 0.356 against 0.257 and 0.352 for
   step 0. The video `p1-sun-step-side.mp4`: step 0, the default, and a fixed 0.1 degrees.
-- Open (P1b): with a still sun, about 430 dynamic pages of the sun are invalidated in each frame; with
-  `r.Shadow.Virtual.Cache.DebugSkipDynamicPageInvalidation 1` the shadow depths fall from 4.3 ms to 1.7 ms. The source is not known yet.
+- The dynamic pages (AST-273 P1b): with a still sun, about 415 of 455 dynamic pages of the sun were invalidated in each frame. The
+  cause is the receiver mask of the directional light (`r.Shadow.Virtual.UseReceiverMaskDirectional`, engine default 1): with it the
+  engine invalidates each dynamic page in each frame (`VirtualShadowMapPhysicalPageManagement.usf`, "always invalidate dynamic when
+  using receiver mask"). The meshes with the wind are dynamic (a world position offset), so they were drawn again into each page in each
+  frame. The fix has two parts, and each alone gives no gain (run p1b-mask): `USwcEnvironmentSubsystem::Initialize` sets the mask to 0
+  (in the code, not in an ini file: an ini change makes a full cook), and the meshes with the wind cache their shadow as static
+  (`swc.Wind.ShadowCache 1`, docs/WORLD.md "The wind flag"). Run p1b-final (the Oxboro spawn lane, noon, 3416 x 1380, pairs in one run):
+  the dynamic pages cached 382 of 440 (new) against 19 of 435 (old); GPU p50 10.43 and 10.45 ms against 12.22 and 12.38 ms with a still
+  camera, 10.87 and 11.11 ms against 13.33 and 13.43 ms with a camera that turns 20 degrees each second; ShadowDepths 2.2 to 2.5 ms
+  against 4.2 to 4.6 ms. The look (a frozen sun, the same view, video frames): new against old, a mean difference of 1.77 (0.51 % of the
+  pixels above 24), within the noise of the same mode 4 s later (1.61, 1.98 %) and on its return (2.00, 0.65 %).
 
 ## The local lights (stage E2)
 
@@ -847,6 +856,7 @@ client selects its own volumes (stage E3).
 | `swc.LumenTest 0\|1` | The Lumen test copies of the inn and the two houses (`-SwcLumenTest` at the start; `tools/lumen-test.sh` makes them). |
 | `tools/match-view.sh ... --variant VIEW@NAME=COMMAND;...` | One more picture of a view with client console commands (run when the view is in place): a look value or a switch to compare in one run. The next view sets the console variables of the commands back to their values before the first variant (from 2026-10-19). The report and the side-by-side picture have the local lights at the shot and the median GPU time while the view is in place (with `-SwcFrameStats=2`). |
 | `swc.Grade 0\|1`, `swc.GradeDebug 0\|1\|2`, `swc.GradeBloom F`, `swc.SourceBloom 0\|1`, `swc.GradeBias EV`, `swc.SourceMeter 0\|1\|2`, `swc.SunSource 0\|1` | The color grade of the source or the Unreal tone mapper; a check of the exposed value or of the exposure; the part of the Unreal bloom; an offset of the exposure (a look check); the meter: 2 the source meter of the frame (the default), 1 the Unreal meter with the source curve, 0 the Unreal luminance; the bloom mix of the source (1, the default) or the Unreal bloom added (0); the sun of the hour (1, the default) or the noon sun of E1 (0) (stage E5). |
+| `r.Shadow.Virtual.UseReceiverMaskDirectional`, `swc.Wind.ShadowCache 0\|1` | The receiver mask of the sun (0 in the code, AST-273 P1b) and the static shadow cache of the meshes with the wind (1); 1 and 0 are the engine defaults (a cost check). |
 | `swc.SunStep DEGREES`, `swc.SunStepShift M` | The step of the sun light (AST-273 P1, "The sun step"): the largest step (0.1; 0 a turn in each frame) and the shadow move for each meter of height (0.005). |
 | `swc.SourceSky 0\|1`, `swc.CloudTint F` | The sky color of the source model or the SkyAtmosphere of Unreal; the cloud tint of the data (stage E5). |
 | `swc.SkyLightSource 0\|1`, `swc.ProbeScale F` | The ambient: the world probe of the data (1) or the real-time capture of the Unreal sky (0); a look scale of the probe light (stage E5). |
