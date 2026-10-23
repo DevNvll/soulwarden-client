@@ -18,7 +18,8 @@
 # The rules: the RAM rule (14 GB available before the start), one Unreal process; the cook holds import.lock (it reads the shared
 # plugin), runs in a memory scope (SWC_COOK_MEMORY_MAX, default 30G, with at most 6G of swap: the cooker must not thrash in swap)
 # with 12 cores at nice 10 (SWC_COOK_CPU_QUOTA, default 1200%: the shader compile of a cold cook was the limit with 4 cores), and
-# stops when the disk of SWC_WORK goes above 85 %. The cooker options are constants (COOKER_OPTIONS: garbage collection at
+# stops when the free space of the disk of SWC_WORK goes below SWC_COOK_MIN_FREE_GB (default 100 GB; AST-273: one cook and one staged
+# build put the 1.9 TB disk at about 86 %, so a guard of 85 % stopped each cook that followed). The cooker options are constants (COOKER_OPTIONS: garbage collection at
 # 22,000 MiB, above the stall of 14,000 and under the RAM of the scope; 8 shader workers): a change makes the next cook full. The log: SWC_WORK/logs/cook.log. An incremental cook
 # (the second one) cooks again only the packages that changed (UAT -iterate).
 set -euo pipefail
@@ -46,6 +47,8 @@ config_hash() {
 }
 mkdir -p "${SWC_WORK}/logs" "${cooked}"
 disk() { df --output=pcent "${SWC_WORK}" | tail -1 | tr -dc 0-9; }
+free_gb() { df --output=avail -B1G "${SWC_WORK}" | tail -1 | tr -dc 0-9; }
+min_free_gb="${SWC_COOK_MIN_FREE_GB:-100}"
 made_ini=0 guard=""
 cleanup() {
     [[ -n "${guard}" ]] && kill "${guard}" 2>/dev/null
@@ -85,11 +88,15 @@ fi
 steps=(-stage -pak -iostore -stagingdirectory="${cooked}")
 [[ ${cook} -eq 1 ]] && steps=(-cook -iterate "${steps[@]}") || steps=(-skipcook "${steps[@]}")
 [[ -n "${map}" ]] && steps+=(-map="${map}")
-# The disk guard: the cook stops above 85 %.
+# The disk guard: the cook stops when the free space goes below SWC_COOK_MIN_FREE_GB.
+if (( $(free_gb) < min_free_gb )); then
+    echo "cook: the disk of ${SWC_WORK} has $(free_gb) GB free, less than ${min_free_gb} GB (SWC_COOK_MIN_FREE_GB): no cook" >&2
+    exit 3
+fi
 (
     while sleep 30; do
-        if (( $(disk) > 85 )); then
-            echo "$(date -u +%H:%M:%S) cook: the disk is above 85 %: the cook stops" >> "${log}"
+        if (( $(free_gb) < min_free_gb )); then
+            echo "$(date -u +%H:%M:%S) cook: the disk has less than ${min_free_gb} GB free: the cook stops" >> "${log}"
             pkill -INT -f "UnrealEditor-Cmd.*-run=Cook" || true
             exit 0
         fi
@@ -98,7 +105,7 @@ steps=(-stage -pak -iostore -stagingdirectory="${cooked}")
 guard=$!
 start=${SECONDS}
 status=0
-echo "$(date -u +%H:%M:%S) cook: start (map ${map:-the default}, disk $(disk) %)" | tee -a "${log}.summary"
+echo "$(date -u +%H:%M:%S) cook: start (map ${map:-the default}, disk $(disk) %, $(free_gb) GB free)" | tee -a "${log}.summary"
 flock -w "${wait}" "${SWC_WORK}/unreal/import.lock" \
     systemd-run --user --scope -q -p CPUQuota="${SWC_COOK_CPU_QUOTA:-1200%}" -p MemoryMax="${SWC_COOK_MEMORY_MAX:-30G}" -p MemorySwapMax=6G \
     nice -n 10 "${UE_ROOT}/Engine/Build/BatchFiles/RunUAT.sh" BuildCookRun -project="${SWC_UPROJECT}" -noP4 -platform=Linux \
