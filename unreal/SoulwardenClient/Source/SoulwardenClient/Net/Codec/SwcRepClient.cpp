@@ -453,6 +453,30 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         }
         return;
     }
+    if (message.type == kCutsceneCanceled.index) {
+        // The cancel of a pending cutscene [I: no backend writer; research conversations.md section 5]: its retail handler does not by
+        // itself release the input; the host resolves the lock through the known end path.
+        const auto call = read_component_call(message.body);
+        if (call && call->entity == m_own.group) {
+            ++m_own.cutsceneCancels;
+            log(Event::Level::info, "the cancel of a pending cutscene (6708)");
+        }
+        return;
+    }
+    if (message.type == kStartWhisper.index) {
+        const auto start = read_whisper_start(message.body);
+        if (start && start->entity == m_own.group) {
+            ++m_own.whisperStarts;
+            m_own.whispers.push_back(start->whisper);
+            if (m_own.whispers.size() > kWhisperHistory) {
+                m_own.whispers.erase(m_own.whispers.begin());
+            }
+            char hex[16];
+            std::snprintf(hex, sizeof hex, "%08x", start->whisper);
+            log(Event::Level::info, std::string("a whisper ") + hex + " (5070)");
+        }
+        return;
+    }
     if (message.type == kCutsceneEndFinalized.index) {
         const auto call = read_component_call(message.body);
         if (call && call->entity == m_own.group) {
@@ -1523,6 +1547,28 @@ void RepClient::cutscene_started(std::uint32_t cutscene) {
     char hex[16];
     std::snprintf(hex, sizeof hex, "%08x", cutscene);
     log(Event::Level::info, std::string("the start of the cutscene ") + hex + " (6706)");
+}
+
+void RepClient::cinematic_started(std::uint32_t cinematic) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kCinematicStarted, cinematic_body(m_own.group, cinematic));
+    ++m_own.cinematicStarts;
+    char hex[16];
+    std::snprintf(hex, sizeof hex, "%08x", cinematic);
+    log(Event::Level::info, std::string("the start of the cinematic ") + hex + " (6606)");
+}
+
+void RepClient::cinematic_ended(std::uint32_t cinematic) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kCinematicEnded, cinematic_body(m_own.group, cinematic));
+    ++m_own.cinematicEnds;
+    char hex[16];
+    std::snprintf(hex, sizeof hex, "%08x", cinematic);
+    log(Event::Level::info, std::string("the end of the cinematic ") + hex + " (6542)");
 }
 
 void RepClient::cancel_craft() {

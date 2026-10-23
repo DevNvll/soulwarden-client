@@ -187,6 +187,13 @@ public:
         /** The grants of a cutscene (6707) and the CRC of the last one (AST-239). */
         std::uint32_t cutsceneGrants{0};
         std::uint32_t lastCutsceneGrant{0};
+        /** Stage Q5 (AST-240): the cancels of a pending cutscene by the server (6708), the whispers of the server (5070: the count and
+         *  the CRC-32 of the lower-case WhisperId of the last kWhisperHistory ones, oldest first), and the cinematic reports (6606, 6542). */
+        std::uint32_t cutsceneCancels{0};
+        std::uint32_t whisperStarts{0};
+        std::vector<std::uint32_t> whispers;
+        std::uint32_t cinematicStarts{0};
+        std::uint32_t cinematicEnds{0};
         /** The interaction request of the client (the block of the input entries) and the replies 3743 to it. */
         std::optional<InteractionRequest> interaction;
         std::uint32_t interactionResults{0};
@@ -517,6 +524,11 @@ public:
      *  (the server answers 6707: cutsceneGrants) and the start 6706. The end is end_cutscene (6705). */
     void request_cutscene(std::uint32_t cutscene);
     void cutscene_started(std::uint32_t cutscene);
+    /** The start (6606) and the end (6542; also at a skip) of a cinematic video (stage Q5): the CRC-32 of the lower-case cinematic id. */
+    void cinematic_started(std::uint32_t cinematic);
+    void cinematic_ended(std::uint32_t cinematic);
+    /** The whispers that OwnEntity::whispers keeps (the host reads the new ones by the count whisperStarts). */
+    static constexpr std::size_t kWhisperHistory = 32;
     /** Copies an Objectives state (slot 22) into an own entity: false for a fragment that does not have its form (no change). */
     static bool read_objectives(const soulwarden::backend::tests::Fragment& fragment, OwnEntity& own);
     /** True after the first 2709 of this session. */

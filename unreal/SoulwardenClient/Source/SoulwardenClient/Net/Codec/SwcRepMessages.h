@@ -185,10 +185,19 @@ inline constexpr MessageType kCompleteObjective{"ConversationComponentServerFace
 inline constexpr MessageType kRequestStartCutscene{"PlayerCutsceneComponentServerFacet_OnClientRequestStartCutscene", "181E376DE924442B9AF0745F2E660CB4", 6703};
 inline constexpr MessageType kCutsceneGranted{"PlayerCutsceneComponentClientFacet_OnServerCutsceneRequestGranted", "43BDC38F5E734126A906FB0502C64C78", 6707};
 inline constexpr MessageType kCutsceneStarted{"PlayerCutsceneComponentServerFacet_OnClientCutsceneStarted", "A2B92F8D8CD64C2EA12F4A355891B200", 6706};
+/** Stage Q5 (AST-240; research conversations.md section 5, quests-18e cinematic ANSWERS.md Q3; backend server/rep/quest_messages.h):
+ *  the cancel of a pending cutscene by the server (6708, no suffix; handler 0x2EFE670; the backend has no writer [I]), the start and the
+ *  end of a cinematic video (6606 and 6542, the CRC-32 of the lower-case cinematic id on the PlayerCutscene facet; senders 0x2EDA180 and
+ *  0x2ED9F90), and a whisper (5070, the CRC-32 of the lower-case WhisperId on the Whisper component of the entity "Whisper" of the player
+ *  slice; reader 0x4304980). */
+inline constexpr MessageType kCutsceneCanceled{"PlayerCutsceneComponentClientFacet_OnServerCutsceneCanceled", "982A8C1D77CE4455A1C886A6BF0C0BA9", 6708};
+inline constexpr MessageType kCinematicStarted{"PlayerCutsceneComponentServerFacet_NotifyCinematicStarted", "DA169F7B1903488FA0ABBAF52129C292", 6606};
+inline constexpr MessageType kCinematicEnded{"PlayerCutsceneComponentServerFacet_NotifyCinematicEnded", "72DE563545D04D63B05C1479E0ED25F0", 6542};
+inline constexpr MessageType kStartWhisper{"WhisperPlayerComponentClientFacet_RequestStartWhisper", "4ABA7F5DD0C742C1A99E01308B6FF3FE", 5070};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 84> kUsedTypes{kAcceptObjective, kCompleteObjective, kRequestStartCutscene, kCutsceneGranted,
-    kCutsceneStarted, kStateObjectives, kStatePinReadiness, kObjectiveAutoPinning,
+inline constexpr std::array<MessageType, 88> kUsedTypes{kAcceptObjective, kCompleteObjective, kRequestStartCutscene, kCutsceneGranted,
+    kCutsceneStarted, kCutsceneCanceled, kCinematicStarted, kCinematicEnded, kStartWhisper, kStateObjectives, kStatePinReadiness, kObjectiveAutoPinning,
     kUpdateTrackedObjectives, kNotifyOpenUiScreen, kAbandonObjective, kResetObjective, kTerritoryEntered, kTerritoryLeft, kConversationTopic,
     kConversationTopicsFinished, kAssignPoolPoints, kChangeMappedAbility, kApplyAbilityPoints, kMasteryTreeRespec,
     kMasteryTreeRespecResponse, kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
@@ -576,6 +585,17 @@ struct CutsceneGrant {
 };
 /** @return The body of OnServerCutsceneRequestGranted (6707), or no value for a body that does not have its form. */
 std::optional<CutsceneGrant> read_cutscene_grant(std::span<const std::uint8_t> body);
+/** @return The body of NotifyCinematicStarted (6606) or NotifyCinematicEnded (6542), 20 bytes: target entity cinematic:u32 (the CRC-32 of
+ *  the lower-case cinematic id) on the PlayerCutscene facet (stage Q5). The skip and the normal end have the same body. */
+Bytes cinematic_body(std::uint64_t group, std::uint32_t cinematic);
+/** A whisper of the server (5070): the head of the call (the Whisper child of the player) and the CRC of the lower-case WhisperId. */
+struct WhisperStart {
+    std::uint64_t target{0};
+    std::uint64_t entity{0};
+    std::uint32_t whisper{0};
+};
+/** @return The body of RequestStartWhisper (5070), or no value for a body that does not have its form. */
+std::optional<WhisperStart> read_whisper_start(std::span<const std::uint8_t> body);
 
 /** The head of a component call: target:u64 entity:u64. */
 struct ComponentCall {

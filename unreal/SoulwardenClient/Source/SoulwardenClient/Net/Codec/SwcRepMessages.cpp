@@ -438,6 +438,22 @@ std::optional<CutsceneGrant> read_cutscene_grant(std::span<const std::uint8_t> b
     return out;
 }
 
+Bytes cinematic_body(std::uint64_t group, std::uint32_t cinematic) {
+    return cutscene_body(group, cinematic);
+}
+
+std::optional<WhisperStart> read_whisper_start(std::span<const std::uint8_t> body) {
+    Reader r(body);
+    WhisperStart out;
+    out.target = r.u64();
+    out.entity = r.u64();
+    out.whisper = r.u32();
+    if (!r.ok() || r.left() != 0) {
+        return std::nullopt;
+    }
+    return out;
+}
+
 Bytes finished_topics_body(std::uint64_t group, const std::vector<std::uint32_t>& topics) {
     Writer w;
     w.u64(group + kConversationComponent);

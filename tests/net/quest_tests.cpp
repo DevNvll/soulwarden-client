@@ -18,6 +18,7 @@
 #include "Net/Codec/SwcRepMessages.h"
 #include "gamedata/quest_data.h"
 #include "server/rep/conversation_messages.h"
+#include "server/rep/lock_messages.h"
 #include "server/rep/quest_messages.h"
 #include "server/rep/states/state_codecs.h"
 #include "support/manual_clock.h"
@@ -276,6 +277,25 @@ void requests()
 		"6707: the client reads the grant of the backend writer (4817dd08)");
 	check(!swc::net::read_cutscene_grant(std::vector<std::uint8_t>(grantBytes.begin(), grantBytes.end() - 1)),
 		"6707: a short body is not a grant");
+
+	// Stage Q5 (AST-240): the cinematic TempestRising (0x40214776, quests-18e cinematic ANSWERS.md Q3): 6606 and 6542 with the same body,
+	// read by the backend reader; a whisper 5070 from the backend writer (live W1 of 1.8b: 01_Whisper_Beach_05, 69128a14); 6708 [I: no
+	// backend writer] in the no-suffix form of 6709 (the backend writer of 6709).
+	const auto cinematic = backend::server::rep::read_cutscene_request(swc::net::cinematic_body(group, 0x40214776U));
+	check(cinematic && cinematic->cutscene == 0x40214776U && cinematic->target == group + swc::net::kPlayerCutsceneComponent
+			&& cinematic->entity == group,
+		"6606 and 6542: the cinematic tempestrising 40214776 on the PlayerCutscene facet");
+	const std::uint64_t whisperTarget = group + 0x7D5CA09D7B3CC6FAULL;
+	const auto whisperBytes = backend::server::rep::whisper_body(whisperTarget, group, 0x69128A14U);
+	const auto whisper = swc::net::read_whisper_start(whisperBytes);
+	check(whisper && whisper->whisper == 0x69128A14U && whisper->entity == group && whisper->target == whisperTarget,
+		"5070: the client reads the whisper of the backend writer (01_whisper_beach_05, 69128a14)");
+	check(!swc::net::read_whisper_start(std::vector<std::uint8_t>(whisperBytes.begin(), whisperBytes.end() - 1)),
+		"5070: a short body is not a whisper");
+	const auto cancelBytes = backend::server::rep::cutscene_finalized_body(group);
+	const auto cancel = swc::net::read_component_call(cancelBytes);
+	check(cancel && cancel->entity == group && cancel->target == group + swc::net::kPlayerCutsceneComponent,
+		"6708 [I]: the no-suffix form of the PlayerCutscene facet (the bytes of the backend writer of 6709)");
 }
 
 } // namespace
