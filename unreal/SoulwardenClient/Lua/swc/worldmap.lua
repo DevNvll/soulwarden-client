@@ -58,6 +58,26 @@ local function definition(id)
   return definitions[tonumber(id) or -1]
 end
 
+-- The definition of a POI tag (the POITag column; a tag in any case; the first definition with the tag, by id).
+local byPoiTag
+local function definitionOfTag(tag)
+  if byPoiTag == nil then
+    byPoiTag = {}
+    local ids = {}
+    for id in pairs(definitions) do
+      ids[#ids + 1] = id
+    end
+    table.sort(ids)
+    for _, id in ipairs(ids) do
+      for part in string.gmatch(tostring(definitions[id].pOITag or ""), "[^,]+") do
+        local key = string.lower((part:gsub("^%s+", ""):gsub("%s+$", "")))
+        byPoiTag[key] = byPoiTag[key] or definitions[id]
+      end
+    end
+  end
+  return byPoiTag[string.lower(tostring(tag or ""))]
+end
+
 -- The shapes: the polygon of each territory, area, and point of interest (world meters), with its box and its area.
 local shapes, shapeById = {}, {}
 for _, s in ipairs(data.shapes or {}) do
@@ -291,8 +311,13 @@ Swc.Define("MapComponentBus", "Broadcast", {
 
 Swc.Define("TerritoryDefinitionsDataManagerBus", "Broadcast", {
   GetTerritoryDefinition = function(id) return definition(id) or emptyDefinition end,
-  GetTerritoryDefinitionByPoiTag = function() return emptyDefinition end,
-  GetTerritoryIdByPoiTag = function() return 0 end,
+  -- The quest texts and the mission places (objectivesdatahandler.luac, territorydatahandler.luac: poiTagsOverride[1]); the quest pins
+  -- (stage Q2) use the same tags.
+  GetTerritoryDefinitionByPoiTag = function(tag) return definitionOfTag(tag) or emptyDefinition end,
+  GetTerritoryIdByPoiTag = function(tag)
+    local d = definitionOfTag(tag)
+    return d and d.id or 0
+  end,
 })
 
 -- Wars, races, raids, outposts, claims, and influence towers: the backend has none of these systems.
