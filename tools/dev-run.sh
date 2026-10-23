@@ -105,6 +105,9 @@ run_environment=(SWC_DEV_RUN=1 SWC_RUN=development SWC_STEAM_ID=7656120225523300
 if [[ -n "${SWC_SESSION_BACKEND_ARGS:-}" ]]; then
     run_environment+=("SWC_SESSION_BACKEND_ARGS=${SWC_SESSION_BACKEND_ARGS}")
 fi
+# The converted content of the run (env.sh: the default, or a check copy of a track, for example content-q2 of AST-237): by name too, or a
+# window run reads the default content.
+run_environment+=("SWC_CONTENT=${SWC_CONTENT}")
 
 if [[ "${window}" == "0" ]]; then
     echo "dev-run: client with no window, ${seconds} s at most, log ${client_log}" >&2
