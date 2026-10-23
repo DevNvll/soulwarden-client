@@ -334,6 +334,9 @@ struct Walker {
         float alphaTest{0.0F};
     };
     std::vector<SpriteMask> masks;
+    /** The child mask elements of the active masks: the shape of a mask, not a visual, at any depth under the mask element (the reward
+     *  panel of ConversationScreenV2: QuestRewardContainer masks with BodyMaskImages under BodyMask; AST-239). */
+    std::vector<Id> maskShapes;
 
     /** The mask UVs of the vertices of an item inside a sprite mask. */
     void apply_mask(DrawItem& item) const {
@@ -652,6 +655,9 @@ struct Walker {
         if (e == nullptr || !e->enabled) {
             return;
         }
+        if (std::find(maskShapes.begin(), maskShapes.end(), id) != maskShapes.end()) {
+            return;   // the child mask element of an active mask is its shape, not a visual
+        }
         if (e->fade) {
             alpha *= std::clamp(*e->fade, 0.0F, 1.0F);
         }
@@ -720,11 +726,14 @@ struct Walker {
                 return (ea != nullptr ? ea->renderPriority : 0) < (eb != nullptr ? eb->renderPriority : 0);
             });
         }
+        if (masking && e->mask->childMask != kNoId) {
+            maskShapes.push_back(e->mask->childMask);
+        }
         for (const Id child : children) {
-            if (masking && child == e->mask->childMask) {
-                continue;   // the child mask element is the shape, not a visual
-            }
             element(child, alpha);
+        }
+        if (masking && e->mask->childMask != kNoId) {
+            maskShapes.pop_back();
         }
         if (spriteMask) {
             masks.pop_back();
