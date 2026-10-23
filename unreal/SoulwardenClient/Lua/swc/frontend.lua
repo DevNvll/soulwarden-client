@@ -304,6 +304,22 @@ local function deliver_regions()
   Swc.Notify("UiLoginScreenNotificationBus", nil, "OnClusterListResult", to_values(F.regions, RegionMetadata))
 end
 
+-- The world list of the world step of the creation (worldlistdatahandler.luac, stage Q3): the native data calls
+-- Game.GetWorldList and Game.GetRegionList (the CRC-32 of the lower-case paths) give the values of the last list result. The
+-- other three paths of that request come in the next frame: Game.GetCharactersPayload, Game.GetCharacterNameList, and
+-- Game.GetMaximumCharactersPerRegion (the handler calls its callback when all five came).
+Swc.callValues[3766102462] = function()
+  F.queue[#F.queue + 1] = {kind = "worldlist"}
+  return to_values(F.worlds, WorldMetadata)
+end
+Swc.callValues[3307080904] = function() return to_values(F.regions, RegionMetadata) end
+
+local function deliver_worldlist()
+  Swc.DataCall("Game.GetCharactersPayload", to_values(F.characters, CharacterMetadata))
+  Swc.DataCall("Game.GetCharacterNameList", to_values(F.names, CharacterNameData))
+  Swc.DataCall("Game.GetMaximumCharactersPerRegion", F.maxCharacters)
+end
+
 --- Each frame: the local results of the frame before, and the ends of the camera sequences.
 function Swc.FrontendTick(dt)
   local queue = F.queue
@@ -315,6 +331,8 @@ function Swc.FrontendTick(dt)
       deliver_cms()
     elseif item.kind == "regions" then
       deliver_regions()
+    elseif item.kind == "worldlist" then
+      deliver_worldlist()
     end
   end
   if Swc.CreationTick then

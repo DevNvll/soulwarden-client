@@ -111,6 +111,13 @@ FRotator RotationOf(const FVector& Forward, const FVector& Up)
 
 bool ASwcMenuPreview::LoadScene(const FString& Path)
 {
+	return LoadScene(Path, TEXT("Player Entity"), TEXT("MainCamera"), TEXT("Main_layer"));
+}
+
+bool ASwcMenuPreview::LoadScene(const FString& Path, const FString& PlayerName, const FString& CameraName, const FString& ParentName)
+{
+	CameraEntity = CameraName;
+	SceneVerticalFov = VerticalFov;
 	SceneContent = FPaths::GetPath(FPaths::GetPath(Path));   // CONTENT/frontend/nighthaven.json
 	FString Text;
 	TSharedPtr<FJsonObject> Doc;
@@ -122,14 +129,20 @@ bool ASwcMenuPreview::LoadScene(const FString& Path)
 	}
 	const TSharedPtr<FJsonObject>* Entities = nullptr;
 	Doc->TryGetObjectField(TEXT("entities"), Entities);
-	const auto Entity = [Entities](const TCHAR* Name)
+	const auto Entity = [Entities](const FString& Name)
 	{
 		const TSharedPtr<FJsonObject>* Out = nullptr;
 		return Entities != nullptr && (*Entities)->TryGetObjectField(Name, Out) ? *Out : TSharedPtr<FJsonObject>();
 	};
-	const TArray<double> Player = Numbers(Entity(TEXT("Player Entity")), TEXT("world"));
-	const TArray<double> Cam = Numbers(Entity(TEXT("MainCamera")), TEXT("world"));
-	const TArray<double> Parent = Numbers(Entity(TEXT("Main_layer")), TEXT("world"));
+	const TArray<double> Player = Numbers(Entity(PlayerName), TEXT("world"));
+	const TArray<double> Cam = Numbers(Entity(CameraName), TEXT("world"));
+	const TArray<double> Parent = Numbers(Entity(ParentName), TEXT("world"));
+	// The creation camera (stage Q3): the FOV of its record (Character_Create_Camera: 36, a vertical FOV as the menu camera [I]).
+	const TSharedPtr<FJsonObject>* CameraFields = nullptr;
+	if (CameraName != TEXT("MainCamera") && Entity(CameraName).IsValid() && Entity(CameraName)->TryGetObjectField(TEXT("camera"), CameraFields))
+	{
+		(*CameraFields)->TryGetNumberField(TEXT("fov"), SceneVerticalFov);
+	}
 	if (Player.Num() != 12 || Cam.Num() != 12)
 	{
 		UE_LOG(LogSwcBackend, Warning, TEXT("menu: the scene record has no Player Entity or MainCamera"));
@@ -153,7 +166,7 @@ bool ASwcMenuPreview::LoadScene(const FString& Path)
 			const TSharedPtr<FJsonObject> Record = Item.Value->AsObject();
 			const TSharedPtr<FJsonObject>* Nodes = nullptr;
 			const TSharedPtr<FJsonObject>* Node = nullptr;
-			if (!Record.IsValid() || !Record->TryGetObjectField(TEXT("nodes"), Nodes) || !(*Nodes)->TryGetObjectField(TEXT("MainCamera"), Node))
+			if (!Record.IsValid() || !Record->TryGetObjectField(TEXT("nodes"), Nodes) || !(*Nodes)->TryGetObjectField(CameraName, Node))
 			{
 				continue;
 			}
@@ -284,6 +297,8 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 		/** The material overrides (docs/WORLD.md "Material overrides of the placements"): slot name -> the material instance of
 		 *  its key (/SwcGameContent/Materials/KEY.KEY, as the cells of the world). */
 		TArray<TPair<FName, FSoftObjectPath>> Slots;
+		/** Only its shadow (the record field shadowOnly: the impostor shadow cards and box of the creation ship, stage Q3). */
+		bool bShadowOnly = false;
 	};
 	TArray<FPlacement> Placements;
 	TArray<FSoftObjectPath> Paths;
@@ -310,6 +325,7 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 			Placement.Transform = FTransform(FQuat(R[0]->AsNumber(), R[1]->AsNumber(), R[2]->AsNumber(), R[3]->AsNumber()),
 				FVector(L[0]->AsNumber(), L[1]->AsNumber(), L[2]->AsNumber()), FVector(S[0]->AsNumber(), S[1]->AsNumber(), S[2]->AsNumber()));
 			Paths.AddUnique(Placement.Mesh);
+			Item->TryGetBoolField(TEXT("shadowOnly"), Placement.bShadowOnly);
 			const TSharedPtr<FJsonObject>* Slots = nullptr;
 			if (Item->TryGetObjectField(TEXT("slots"), Slots))
 			{
@@ -377,7 +393,7 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 	const TSharedPtr<FJsonObject>* EntityRecords = nullptr;
 	const TSharedPtr<FJsonObject>* MainCamera = nullptr;
 	const TSharedPtr<FJsonObject>* CameraRecord = nullptr;
-	if (Doc->TryGetObjectField(TEXT("entities"), EntityRecords) && (*EntityRecords)->TryGetObjectField(TEXT("MainCamera"), MainCamera)
+	if (Doc->TryGetObjectField(TEXT("entities"), EntityRecords) && (*EntityRecords)->TryGetObjectField(CameraEntity, MainCamera)
 		&& (*MainCamera)->TryGetObjectField(TEXT("camera"), CameraRecord))
 	{
 		(*CameraRecord)->TryGetNumberField(TEXT("near"), NearClip);
@@ -445,6 +461,24 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 				Component->SetMaterial(Index, Beam);
 				++BeamSlots;
 				bBeam = true;
+			}
+			// A Nanite mesh with a translucent or additive slot (an override of the scene: the light beams jav_fogbeam_b of the
+			// creation ship have an opaque material of their own, so the import gave them Nanite): Nanite draws no translucency
+			// (the beam was an opaque slab, stage Q3), so the component draws the fallback mesh.
+			for (int32 Index = 0; Index < Component->GetNumMaterials(); ++Index)
+			{
+				const UMaterialInterface* Material = Component->GetMaterial(Index);
+				if (Material != nullptr && Mesh->IsNaniteEnabled() && !IsOpaqueOrMaskedBlendMode(Material->GetBlendMode()))
+				{
+					Component->SetForceDisableNanite(true);
+					break;
+				}
+			}
+			if (Placement.bShadowOnly)
+			{
+				// Hidden in the views, its shadow stays (the shadow cards block the sun at the deck openings).
+				Component->SetHiddenInGame(true);
+				Component->bCastHiddenShadow = true;
 			}
 			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Component->SetWorldTransform(Placement.Transform);
@@ -757,7 +791,7 @@ void ASwcMenuPreview::UpdateFov(float Aspect)
 	if (Aspect > 0.0f)
 	{
 		// The horizontal field of the 16:9 frame (VerticalFov): the same at each window aspect (Unreal keeps the horizontal FOV).
-		const double Half = FMath::DegreesToRadians(VerticalFov * 0.5);
+		const double Half = FMath::DegreesToRadians(SceneVerticalFov * 0.5);
 		Camera->SetFieldOfView(static_cast<float>(FMath::RadiansToDegrees(2.0 * FMath::Atan(FMath::Tan(Half) * FovAspect))));
 	}
 }
@@ -819,7 +853,16 @@ void ASwcMenuPreview::Build(int32 Generation, FSwcPlayerLook Look, FString BaseM
 	Leader->SetSkeletalMesh(Base);
 	if (UAnimSequence* Idle = IdleAnimation.IsEmpty() ? nullptr : LoadObject<UAnimSequence>(nullptr, *IdleAnimation))
 	{
-		Leader->PlayAnimation(Idle, true);
+		Leader->PlayAnimation(Idle, !bClipOnce);
+		if (bClipOnce)
+		{
+			const double Now = GetWorld() != nullptr ? GetWorld()->GetTimeSeconds() : 0.0;
+			if (ClipStart < 0.0)
+			{
+				ClipStart = Now;
+			}
+			Leader->SetPosition(static_cast<float>(FMath::Min(Now - ClipStart, static_cast<double>(Idle->GetPlayLength()))), false);
+		}
 	}
 	// A part that is not converted or not imported: its name in the log (a body with no torso, 2026-10-20: the chest of the
 	// default clothing was only in the wanted list).

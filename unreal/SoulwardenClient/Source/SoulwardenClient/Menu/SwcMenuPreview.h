@@ -31,6 +31,9 @@ public:
 
 	/** Shows a look: the old parts stay until the assets of the new look are loaded. */
 	void ShowLook(const FSwcPlayerLook& Look, const FString& BaseMesh, const FString& IdleAnimation);
+	/** The clip plays once and keeps its last pose (the creation clip character_create_player, stage Q3); a new body of a look
+	 *  change goes on at the clip time of the first body (else each change starts the clip again). */
+	void SetClipOnce(bool bOnce) { bClipOnce = bOnce; ClipStart = -1.0; }
 	/** Removes the body (an invalid document, no character): no stale parts. */
 	void Clear();
 	/** The landing screen shows or hides the body (TransformBus SetWorldZ: the menu height or Z -1000). */
@@ -48,6 +51,9 @@ public:
 	 * tracks of the camera sequences. @return False with no record (then the fixed character view stays).
 	 */
 	bool LoadScene(const FString& Path);
+	/** The same with the entity names of an other record (stage Q3: the creation level FTUE_V2_CC, Player_Entity_Int,
+	 *  Character_Create_Camera, #-Camera_Transitions): the body, the camera and its node in the sequences, the parent of the camera. */
+	bool LoadScene(const FString& Path, const FString& PlayerName, const FString& CameraName, const FString& ParentName);
 	/** @return True when the meshes of the scene are placed (or the scene has no record): the menu can show (stage F6). */
 	bool IsScenePlaced() const { return bScenePlaced; }
 	/** Plays a camera sequence of the scene from its start (CinematicRequestBus PlaySequenceByName of the landing screen). At its
@@ -78,6 +84,13 @@ private:
 	bool bScenePlaced = false;
 	/** The content folder of the scene record (its pictures). */
 	FString SceneContent;
+	/** The name of the camera entity of the record (its record and its node in the sequences). */
+	FString CameraEntity = TEXT("MainCamera");
+	/** The vertical FOV of the camera (degrees): 55 for the menu (F4), the record value for the creation camera (36). */
+	double SceneVerticalFov = 55.0;
+	/** SetClipOnce: the clip plays once; ClipStart is the world time of its start (-1: not started). */
+	bool bClipOnce = false;
+	double ClipStart = -1.0;
 
 	struct FSequence
 	{

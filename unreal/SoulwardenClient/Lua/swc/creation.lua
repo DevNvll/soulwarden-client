@@ -98,8 +98,10 @@ local function pick(list)
   return enabled[math.random(1, #enabled)]
 end
 
---- The host request of the look: the 12 names, the equipment slots with their appearance ids, the helmet state.
-local function send_look()
+--- The host request of the look: the 12 names, the equipment slots with their appearance ids, the helmet state. The scripts
+--- set many values in one frame (an archetype, a random look): the request goes once in the next tick, and only on a change.
+local function write_look()
+  C.lookDirty = false
   local parts = {}
   for i, field in ipairs(FIELDS) do
     parts[i] = C.look[field] or ""
@@ -110,8 +112,16 @@ local function send_look()
       equipment[#equipment + 1] = slot .. "=" .. string.format("%u", C.equipment[slot])
     end
   end
-  request("creation look " .. table.concat(parts, "|") .. " " .. (#equipment > 0 and table.concat(equipment, ",") or "-")
-    .. " " .. (C.helmetHidden and "1" or "0"))
+  local text = "creation look " .. table.concat(parts, "|") .. " " .. (#equipment > 0 and table.concat(equipment, ",") or "-")
+    .. " " .. (C.helmetHidden and "1" or "0")
+  if text ~= C.lastLook then
+    C.lastLook = text
+    request(text)
+  end
+end
+
+local function send_look()
+  C.lookDirty = true
 end
 
 --- A value is kept only when the list of the current race has it; else the first entry (the default tone for a skin tone).
@@ -377,8 +387,25 @@ Swc.Define("UiCharacterServiceRequestBus", "Broadcast", {
       return   -- one create at a time (a second press of the button)
     end
     C.creating = true
+    -- The map equipment of the creation data: the appearance of the archetype row of the backstory for each slot, in the key
+    -- order of the create requests of the client (gloves, shirt, hat, boots, pants; protocol notes 2.2.5).
+    local equipment = {}
+    for _, row in ipairs(data().archetypes or {}) do
+      if row.BackstoryId == C.backstory then
+        local object = archetype_object(row)
+        for _, slot in ipairs({"gloves", "shirt", "hat", "boots", "pants"}) do
+          local id = object:GetAppearance(slot, C.look.gender)
+          if id ~= 0 then
+            equipment[#equipment + 1] = slot .. "=" .. string.format("%u", id)
+          end
+        end
+      end
+    end
+    if C.lookDirty then
+      write_look()   -- the host writes the creation data from the last look
+    end
     request("creation create " .. tostring(worldId or "") .. "\t" .. tostring(name or "") .. "\t" .. tostring(companyName or "")
-      .. "\t" .. C.backstory .. "\t" .. tostring(C.faction))
+      .. "\t" .. C.backstory .. "\t" .. tostring(C.faction) .. "\t" .. table.concat(equipment, ","))
   end,
 })
 
@@ -437,9 +464,12 @@ Swc.Define("IntroControllerComponentRequestBus", "Broadcast", {
 
 -- ----------------------------------------------------------------------------------------------- the sequences
 
---- The time ranges of the sequences of the creation level (the host, from the scene record): {name = seconds}.
-function Swc.HostCreationSequences(seconds)
-  C.seconds = seconds or {}
+--- The time ranges of the sequences of the creation level (the host, from the scene record): "name=seconds;name=seconds".
+function Swc.HostCreationSequences(text)
+  C.seconds = {}
+  for name, seconds in string.gmatch(tostring(text or ""), "([^=;]+)=([^;]+);") do
+    C.seconds[name] = tonumber(seconds) or 0
+  end
 end
 
 local play_menu = CinematicRequestBus.Broadcast.PlaySequenceByName
@@ -468,6 +498,9 @@ Swc.Define("CinematicRequestBus", "Broadcast", {
 function Swc.CreationTick(dt)
   if not C.active then
     return
+  end
+  if C.lookDirty then
+    write_look()
   end
   -- A copy of the names: a handler can start a sequence (charactercreation.luac plays the loop at the end of an intro).
   local list = {}
@@ -503,7 +536,8 @@ function Swc.CreationStart()
   C.creating = false
   C.validating = nil
   reset()
-  send_look()
+  C.lastLook = nil
+  write_look()
   LyShineManagerBus.Broadcast.SetState(CREATION_STATE)
   CinematicRequestBus.Broadcast.PlaySequenceByName("Archetype_Camera_Intro_Trackview_Sequence")
 end

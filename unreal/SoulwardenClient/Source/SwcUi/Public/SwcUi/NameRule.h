@@ -10,6 +10,8 @@
 #include <string>
 #include <string_view>
 
+#include "SwcUi/Export.h"
+
 namespace swc::menu {
 
 /** The results of the local rule, in the numbers of the client (namevalidationcommon.luac shows a text for each). */
@@ -37,10 +39,10 @@ inline constexpr std::size_t kNameMaxDigits = 6;
  * length, an end with white space, two spaces in sequence, the characters, the digits; the order of the native checks for a
  * name with two faults is not proved [I]. A UTF-8 fault is an invalid character (checked first).
  */
-[[nodiscard]] ENameCheck CheckName(std::string_view Utf8);
+[[nodiscard]] SWCUI_EXPORT ENameCheck CheckName(std::string_view Utf8);
 
 /** @return True for a character of the pattern of the client (the space, ' , - . , the digits, the ASCII letters, the ranges). */
-[[nodiscard]] bool IsNameCharacter(std::uint32_t CodePoint);
+[[nodiscard]] SWCUI_EXPORT bool IsNameCharacter(std::uint32_t CodePoint);
 
 /** The kind of a reply of the gateway: the status, the error name of `x-amzn-ErrorType` or of the body member `__type`. */
 struct FGatewayReply
@@ -54,7 +56,7 @@ struct FGatewayReply
  * @return The error name of a reply: the header value when it is not empty (its text before a ':', as the AWS SDK of the
  * client reads it), else the string member "__type" of the JSON body (its text after a '#'), else empty.
  */
-[[nodiscard]] std::string ReadErrorName(std::string_view HeaderValue, std::string_view Body);
+[[nodiscard]] SWCUI_EXPORT std::string ReadErrorName(std::string_view HeaderValue, std::string_view Body);
 
 /** The state of the name field after the reply of the name check (UiCharacterServiceNotificationBus.ValidateNameResult). */
 enum class ENameValidation : std::uint8_t
@@ -69,7 +71,7 @@ enum class ENameValidation : std::uint8_t
 };
 
 /** @return The state of the name field for a reply of the name check, and in `TextKey` the text key of the field ("" for Valid). */
-[[nodiscard]] ENameValidation ReadValidateReply(const FGatewayReply& Reply, std::string& TextKey);
+[[nodiscard]] SWCUI_EXPORT ENameValidation ReadValidateReply(const FGatewayReply& Reply, std::string& TextKey);
 
 /**
  * The result of a create reply for CreateCharacterResult(characterId, title, message): the character id of a 200 reply with
@@ -85,9 +87,9 @@ struct FCreateResult
 };
 
 /** @return The text key of an error name: "@mm_loginservices_" + the name. */
-[[nodiscard]] std::string ErrorTextKey(std::string_view ErrorName);
+[[nodiscard]] SWCUI_EXPORT std::string ErrorTextKey(std::string_view ErrorName);
 
 /** @return The result of a create reply: `CharacterId` is Character.CharacterId of the body (empty when the body has none). */
-[[nodiscard]] FCreateResult ReadCreateReply(const FGatewayReply& Reply, std::string_view CharacterId);
+[[nodiscard]] SWCUI_EXPORT FCreateResult ReadCreateReply(const FGatewayReply& Reply, std::string_view CharacterId);
 
 } // namespace swc::menu

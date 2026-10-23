@@ -703,9 +703,12 @@ def audit(workers: int = 4) -> dict:
             continue
         for index, element in enumerate(sub_materials(mtl)):
             add_source(mtl, index, element, "component override")
-    # The override materials of the menu scene (AST-207: the fog sheets of the vista; content/frontend/nighthaven.json).
-    scene = env.content_dir() / "frontend" / "nighthaven.json"
-    if scene.is_file():
+    # The override materials of the menu scene (AST-207: the fog sheets of the vista; content/frontend/nighthaven.json) and of
+    # the creation scene (stage Q3: the light beams, the fog sheets, the lanterns of the ship; frontend/creation-scene.json).
+    for name in ("nighthaven.json", "creation-scene.json"):
+        scene = env.content_dir() / "frontend" / name
+        if not scene.is_file():
+            continue
         for mtl in sorted({m["material"] for m in json.loads(scene.read_text())["meshes"] if m.get("material")}):
             if source.has(mtl):
                 for index, element in enumerate(sub_materials(mtl)):

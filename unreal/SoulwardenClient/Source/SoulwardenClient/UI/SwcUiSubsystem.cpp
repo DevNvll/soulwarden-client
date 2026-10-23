@@ -61,6 +61,8 @@ const char* const HudScreens[] = {
 	"lyshineui/popup/popup",
 	// The front end (stage F2 of docs/FRONTEND.md): the landing screen of the main menu (a native load, swc/frontend.lua).
 	"lyshineui/main menu/landingscreenv2",
+	// The character creation (stage Q3): the state CharacterCreationScreen of an empty slot (swc/creation.lua, UI/SwcUiCreation).
+	"lyshineui/main menu/charactercreation",
 	"lyshineui/respawn/respawn",
 	// The world map (stage MVP-C): M opens the state Map (magicmap.luac and its layers; the map data of swc/worldmap.lua).
 	"lyshineui/worldmap/magicmap",
@@ -1119,6 +1121,10 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 		{
 			HandleMenuRequest(UTF8_TO_TCHAR(Request.c_str()), Backend);
 		}
+		else if (Request.rfind("creation ", 0) == 0)
+		{
+			HandleCreationRequest(UTF8_TO_TCHAR(Request.c_str()), Backend);
+		}
 		else if (Request.rfind("rebind", 0) == 0 || Request.rfind("keybinding ", 0) == 0)
 		{
 			HandleKeyRequest(UTF8_TO_TCHAR(Request.c_str()));
@@ -1409,9 +1415,10 @@ void USwcUiSubsystem::UpdatePreview(USwcBackendSubsystem* Backend)
 	BuiltCharacter = PreviewCharacter;
 }
 
-TArray<FString> USwcUiSubsystem::FindMenuClips(const FString& ImportedPath)
+TArray<FString> USwcUiSubsystem::FindMenuClips(const FString& ImportedPath, const FString& Pack)
 {
-	// imported.json: the assets of the clip packs "clips|male|menu" and "clips|female|menu" (AnimSequence object paths).
+	// imported.json: the assets of the clip packs "clips|male|menu" and "clips|female|menu" (AnimSequence object paths); the
+	// pack "creation": the clip of the creation level (stage Q3).
 	TArray<FString> Out = {FString(), FString()};
 	FString Text;
 	TSharedPtr<FJsonObject> Doc;
@@ -1423,10 +1430,10 @@ TArray<FString> USwcUiSubsystem::FindMenuClips(const FString& ImportedPath)
 	}
 	for (int32 Gender = 0; Gender < 2; ++Gender)
 	{
-		const TSharedPtr<FJsonObject>* Pack = nullptr;
 		const TArray<TSharedPtr<FJsonValue>>* Clips = nullptr;
-		if ((*Assets)->TryGetObjectField(Gender == 0 ? TEXT("clips|male|menu") : TEXT("clips|female|menu"), Pack)
-			&& (*Pack)->TryGetArrayField(TEXT("AnimSequence"), Clips))
+		const TSharedPtr<FJsonObject>* Record = nullptr;
+		if ((*Assets)->TryGetObjectField(FString::Printf(TEXT("clips|%s|%s"), Gender == 0 ? TEXT("male") : TEXT("female"), *Pack), Record)
+			&& (*Record)->TryGetArrayField(TEXT("AnimSequence"), Clips))
 		{
 			// The pack has the one menu clip (the import names its asset after the pack), else the clip of that name.
 			for (const TSharedPtr<FJsonValue>& Clip : *Clips)
@@ -1438,7 +1445,7 @@ TArray<FString> USwcUiSubsystem::FindMenuClips(const FString& ImportedPath)
 			}
 		}
 	}
-	UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the menu clip: male %s, female %s"), Out[0].IsEmpty() ? TEXT("no") : TEXT("yes"),
+	UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: the %s clip: male %s, female %s"), *Pack, Out[0].IsEmpty() ? TEXT("no") : TEXT("yes"),
 		Out[1].IsEmpty() ? TEXT("no") : TEXT("yes"));
 	return Out;
 }
@@ -1506,18 +1513,20 @@ void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsy
 	}
 	else if (Kind == TEXT("sequence") || Kind == TEXT("sequence-stop"))
 	{
-		// The camera sequences of the landing screen (CinematicRequestBus): the camera tracks of MainCamera (stage F4).
+		// The camera sequences of the landing screen (CinematicRequestBus): the camera tracks of MainCamera (stage F4). During the
+		// character creation (stage Q3) the sequences of the creation scene: the tracks of Character_Create_Camera.
 		const FString Name = Parts.IsValidIndex(2) ? Parts[2] : FString();
 		bool bPlayed = false;
-		if (Preview.IsValid())
+		ASwcMenuPreview* Target = CreationPreview.IsValid() ? CreationPreview.Get() : Preview.Get();
+		if (Target != nullptr)
 		{
 			if (Kind == TEXT("sequence"))
 			{
-				bPlayed = Preview->PlaySequence(Name);
+				bPlayed = Target->PlaySequence(Name);
 			}
 			else
 			{
-				Preview->StopSequence(Name);
+				Target->StopSequence(Name);
 			}
 		}
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: %s%s"), *Request, Kind == TEXT("sequence") && !bPlayed ? TEXT(" (no camera track)") : TEXT(""));
@@ -1584,6 +1593,11 @@ void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsy
 				Parts.IsValidIndex(3) ? *Parts[3] : TEXT(""));
 			Backend->EnterWorld(CharacterId);
 		}
+	}
+	else if (Kind == TEXT("intro"))
+	{
+		// StartIntro of the landing screen (stage Q3): the character creation in the scene of FTUE_V2_CC.
+		StartCreation(Backend);
 	}
 	else if (Kind == TEXT("quit"))
 	{

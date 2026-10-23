@@ -119,6 +119,18 @@ private:
 	void UpdateMenu(class USwcBackendSubsystem* Backend);
 	void SendMenuList(class USwcBackendSubsystem* Backend);
 	void HandleMenuRequest(const FString& Request, class USwcBackendSubsystem* Backend);
+	/** The character creation (stage Q3 of docs/FRONTEND.md, UI/SwcUiCreation.cpp; swc/creation.lua): "menu intro" (StartIntro)
+	 *  starts it; the requests "creation look ...", "creation validate WORLD<TAB>NAME", "creation create WORLD<TAB>NAME<TAB>COMPANY
+	 *  <TAB>BACKSTORY<TAB>FACTION<TAB>EQUIPMENT", and "creation exit". */
+	void StartCreation(class USwcBackendSubsystem* Backend);
+	void HandleCreationRequest(const FString& Request, class USwcBackendSubsystem* Backend);
+	void EndCreation();
+	/** The preview of the creation level (FTUE_V2_CC): its actor, the 12 appearance names and the armor ids of the last look. */
+	TWeakObjectPtr<class ASwcMenuPreview> CreationPreview;
+	TArray<FString> CreationNames;
+	TMap<uint32, uint32> CreationArmor;
+	/** A create request runs (one at a time). */
+	bool bCreating = false;
 
 	TUniquePtr<swc::ui::Runtime> Runtime;
 	/** The conversation screen (stage MVP-H): UI/SwcUiConversation. */
@@ -171,8 +183,10 @@ private:
 	bool bPreviewDirty = false;
 	void UpdatePreview(class USwcBackendSubsystem* Backend);
 	/** The menu idle clip of each gender (male, female): its AnimSequence of the imported list, or empty. */
-	static TArray<FString> FindMenuClips(const FString& ImportedPath);
+	static TArray<FString> FindMenuClips(const FString& ImportedPath, const FString& Pack = TEXT("menu"));
 	TArray<FString> MenuClips = {FString(), FString()};
+	/** The clip of the creation level for each gender (the pack "creation"; stage Q3). */
+	TArray<FString> CreationClips = {FString(), FString()};
 	void EndPreview();
 	bool bErrorShown = false;
 	bool bSentLoadingScreen = false;

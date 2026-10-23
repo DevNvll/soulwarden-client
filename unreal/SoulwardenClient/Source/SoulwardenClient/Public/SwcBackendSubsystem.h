@@ -119,6 +119,14 @@ public:
 	void RefreshCharacterList(TFunction<void(bool bSucceeded)> Done);
 	/** Deletes a character of the account (stage F8: the landing screen). Done gets true when the backend deleted it. */
 	void DeleteCharacter(const FString& CharacterId, TFunction<void(bool bDeleted)> Done);
+	/** The name check of the character creation (stage Q3): the validator route. Done gets the status and the error name. */
+	void ValidateCharacterName(const FString& WorldId, const FString& Name, TFunction<void(int32 Status, const FString& ErrorName)> Done);
+	/**
+	 * The create of the character creation (stage Q3): the create route with the creation data (Menu/SwcCreationData.h). On a
+	 * success the list of the account is read again before Done (the new id is then a character of the list for the login).
+	 */
+	void CreateCharacter(const FString& WorldId, const FString& Name, const FString& CreationParams,
+		TFunction<void(int32 Status, const FString& ErrorName, const FString& CharacterId)> Done);
 	/** @return True from EnterWorld to the reply of the login queue (the login token). */
 	bool IsEnteringWorld() const { return bEnteringWorld; }
 	/**

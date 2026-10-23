@@ -28,6 +28,11 @@ LEVEL_PAK = "levels/nw_frontend_nighthaven/level.pak"
 ENTITIES = "mission0.entities_xml"
 MENU_CLIP = "animations/gameplay/character/player/male/unarmed/navigation/idle/unarmed_idle_loadingscreen.caf"
 MENU_CLIP_NAME = "unarmed_idle_loadingscreen"
+# The clip of the customizable character of the creation level (stage Q3): the SimpleAnimationComponent of Player_Entity_Int plays
+# "character_create_player" (26 s, once): the character stands up and turns to the camera (the entity faces away from it). The
+# player clips are in the male folder; the female skeleton plays the same clip (as IDLE_CLIPS of player.py).
+CREATION_CLIP = "animations/gameplay/character/player/male/intro/character_create_player.caf"
+CREATION_CLIP_NAME = "character_create_player"
 # The entities of the scene that the client reads by name.
 # The radius of the bounded scene subset around the Player Entity (m): the camp, its props, and the near trees and walls.
 SCENE_RADIUS = 60.0
@@ -76,7 +81,8 @@ NAMED = ("Player Entity", "MainCamera", "CharacterCameraPlacement", "Establishin
 # The level of the character creation (stage Q3, docs/FRONTEND.md "Q3, the character creation"): StartIntro loads FTUE_V2_CC
 # (client code 0x41FAD90). Its named entities: the customizable character, the camera of the creation, the intro controller.
 CREATION_LEVEL_PAK = "levels/ftue_v2_cc/level.pak"
-CREATION_NAMED = ("Player_Entity_Int", "Character_Create_Camera", "Intro_Controller", "TimeOfDay", "CharacterLighting")
+CREATION_NAMED = ("Player_Entity_Int", "Character_Create_Camera", "#-Camera_Transitions", "Intro_Controller", "TimeOfDay",
+                  "CharacterLighting")
 # The CAnimParamType of the compound tracks: Position (1) and Rotation (2); the sub tracks are X, Y, Z.
 TRACK_NAMES = {"Position": "P", "Rotation": "R"}
 AXES = "XYZ"
@@ -88,16 +94,18 @@ def out_dir() -> Path:
 
 # ------------------------------------------------------------------------------------------------------------- the clips
 
-def clips(force: bool = False) -> dict:
-    """The clip pack "menu" of each gender: the menu idle clip on the player skeleton."""
+def clips(force: bool = False, pack: str = "menu") -> dict:
+    """The clip pack "menu" of each gender: the menu idle clip on the player skeleton; the pack "creation": the clip of the
+    customizable character of the creation level (stage Q3)."""
     from . import gltf
+    clip, clip_name = (CREATION_CLIP, CREATION_CLIP_NAME) if pack == "creation" else (MENU_CLIP, MENU_CLIP_NAME)
     manifest = player.load_manifest()
     report = {}
     for gender, folder in player.GENDERS.items():
-        key = f"clips|{folder}|menu"
-        path = player.player_dir() / "clips" / folder / "menu" / "clips.gltf"
+        key = f"clips|{folder}|{pack}"
+        path = player.player_dir() / "clips" / folder / pack / "clips.gltf"
         known = manifest["assets"].get(key, {}).get("clips", [])
-        if path.is_file() and not force and known == [MENU_CLIP]:
+        if path.is_file() and not force and known == [clip]:
             report[gender] = "exists"
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,11 +114,11 @@ def clips(force: bool = False) -> dict:
         first, roots = skeleton.write(w)
         w.doc["scenes"][0]["nodes"] += roots
         # The SimpleAnimationComponent of the Player Entity has animation-driven motion off: the root bone stays (root lock).
-        skeleton.add_clip(w, first, MENU_CLIP, MENU_CLIP_NAME, root_lock=True)
+        skeleton.add_clip(w, first, clip, clip_name, root_lock=True)
         w.save(path)
-        manifest["assets"][key] = {"kind": "clips", "gender": gender, "tags": ["menu"],
+        manifest["assets"][key] = {"kind": "clips", "gender": gender, "tags": [pack],
                                    "file": str(path.relative_to(env.content_dir())),
-                                   "unreal": f"{player.UNREAL_ROOT}/{gender}/Clips/menu", "clips": [MENU_CLIP]}
+                                   "unreal": f"{player.UNREAL_ROOT}/{gender}/Clips/{pack}", "clips": [clip]}
         report[gender] = str(path)
     player.save_manifest(manifest)
     return report
@@ -573,13 +581,14 @@ def ground_albedo(ox: float, oy: float, size: int, pixels: int = GROUND_ALBEDO) 
             "mean linear albedo": [round(float(c), 4) for c in picture.reshape(-1, 3).mean(axis=0)], "coverage": report}
 
 
-def environment(tod: dict | None, mission: bytes | None = None) -> dict:
+def environment(tod: dict | None, mission: bytes | None = None, level: str = LEVEL_PAK) -> dict:
     """@return The environment of the menu scene for the menu mode of the client environment (docs/ENVIRONMENT.md): the preset of
     the TOD entity (the key of presets.json, environment.preset_path), its hour (the hour override, else the hour of the menu
     mission), its sky slice (the hint of SliceAsset: the cloud cover of sky.json), and the Lighting and Moon elements of the menu
-    mission (its sun path is not the one of the world mission: SunRotation 190 and Longitude 110, not 215 and 130)."""
+    mission (its sun path is not the one of the world mission: SunRotation 190 and Longitude 110, not 215 and 130). `level`: the
+    level of the mission (the creation level FTUE_V2_CC has its own: hour 16, SunRotation 324)."""
     from .environment import preset_path
-    root = ET.fromstring(mission if mission is not None else read_from_archive(LEVEL_PAK, "mission_mission0.xml"))
+    root = ET.fromstring(mission if mission is not None else read_from_archive(level, "mission_mission0.xml"))
     elements = {e.tag: dict(e.attrib) for e in (root.find("Environment") if root.find("Environment") is not None else [])}
     mission_tod = root.find("TimeOfDay")
     hour = float(mission_tod.get("Time", "12")) if mission_tod is not None else 12.0
@@ -596,7 +605,14 @@ def environment(tod: dict | None, mission: bytes | None = None) -> dict:
             # The edges of the sun path (minutes; the dusk with the 12-hour offset of the engine): the night delay of the source.
             "dawnTime": number(lighting, "DawnTime", 360.0), "dawnDuration": number(lighting, "DawnDuration", 0.0),
             "duskTime": number(lighting, "DuskTime", 420.0), "duskDuration": number(lighting, "DuskDuration", 0.0),
-            "source": f"{LEVEL_PAK}:mission_mission0.xml"}
+            "source": f"{level}:mission_mission0.xml"}
+
+
+# The water plane of a level with no terrain and no ocean (the creation level FTUE_V2_CC: its leveldata.xml has no terrain): the
+# value of the engine for "no ocean", WATER_LEVEL_UNKNOWN -1,000,000 m (CryEngine I3DEngine::GetWaterLevel; an inference [I]).
+# Thus the height fade of the beams (M_SwcBeam WaterLevel) does not act; the world value 40 m would hide the beams of the ship
+# (z about 10 m).
+NO_WATER_LEVEL = -1000000.0
 
 
 def water_level() -> float:
@@ -605,8 +621,27 @@ def water_level() -> float:
     return float(json.loads(source.read(GROUND_TERRAIN).decode("utf-8"))["oceanLevel"])
 
 
+# The override material of the impostor shadow meshes of the creation ship (the entities shadow_card, primitive_plane_noproxy, and
+# sm_impostershadowbox): a white Illum material with no flag that hides it; the names say that these meshes only cast a shadow (an
+# inference [I], as materials.is_shadow_proxy). The record marks them shadowOnly: the client hides them and keeps the shadow.
+SHADOW_ONLY_MTLS = ("objects/dungeons/dungeon_isabellalair/impostershadow_mat.mtl",)
+
+
+def _override_not_drawn(mtl: str) -> bool:
+    """@return True when the override material of a placement has no sub-material that the client draws: each one is not drawn
+    (materials.not_drawn with the beams of rule 8) or has the shader GeometryFog (the volume light beams of %USE_AS_BEAMPROC of
+    the creation ship, beam_ftuev2_warm_*_mat on jav_fogbeam_b: the source draws soft light shafts; the client has no rule for
+    this shader yet, and as an override of an opaque mesh it drew solid slabs, stage Q3)."""
+    from . import material_records, materials, source
+    if not mtl or not source.has(mtl):
+        return False
+    return all(materials.not_drawn(s, beams=True) or s.get("Shader", "").lower() == "geometryfog"
+               for s in material_records.sub_materials(mtl))
+
+
 def scene(radius: float = SCENE_RADIUS, level: str = LEVEL_PAK, named: tuple = NAMED, player_name: str = "Player Entity",
-          camera_name: str = "CharacterCameraPlacement", out_name: str = "nighthaven.json", with_ground: bool = True) -> dict:
+          camera_name: str = "CharacterCameraPlacement", out_name: str = "nighthaven.json", with_ground: bool = True,
+          clip: tuple = (MENU_CLIP, MENU_CLIP_NAME)) -> dict:
     """Writes SWC_CONTENT/frontend/nighthaven.json (the menu scene), or with the creation values (creation_scene) the record of the
     creation level."""
     import math
@@ -691,7 +726,7 @@ def scene(radius: float = SCENE_RADIUS, level: str = LEVEL_PAK, named: tuple = N
                     or (effect and not drawn_effect)):
                 continue
             far += 1
-        if path.startswith(SKIPPED) or (effect and not drawn_effect):
+        if path.startswith(SKIPPED) or (effect and not drawn_effect) or _override_not_drawn(item["material"]):
             skipped += 1
             if path.startswith(BEAM_FOLDERS) and (entry is None or entry.get("version", 0) < RULE_BEAMS):
                 wanted.add(path)
@@ -709,7 +744,8 @@ def scene(radius: float = SCENE_RADIUS, level: str = LEVEL_PAK, named: tuple = N
             assets[folder] = imported_mesh(folder)
         placements.append({"mesh": path, "unreal": folder, "asset": assets.get(folder, ""),
                            "stem": Path(entry["file"]).stem if entry else "", "material": item["material"],
-                           "location": transform["location"], "rotation": transform["rotation"], "scale": transform["scale"]})
+                           "location": transform["location"], "rotation": transform["rotation"], "scale": transform["scale"],
+                           **({"shadowOnly": True} if (item["material"] or "").lower() in SHADOW_ONLY_MTLS else {})})
     # The material overrides of the placements (the world rule of docs/WORLD.md "Material overrides of the placements"): the slot
     # map of each pair (mesh, override material) from overrides.py (pairs.json, the manifest records, the key list for
     # tools/import.sh --keys); each placement gets its slots {slot: material key}.
@@ -721,9 +757,9 @@ def scene(radius: float = SCENE_RADIUS, level: str = LEVEL_PAK, named: tuple = N
         item["slots"] = slot_maps.get(overrides.pair_key(item["mesh"], item["material"]), {}).get("slots", {}) if item["material"] else {}
     doc = {"format": 1, "source": f"{level}:{ENTITIES}", "entities": entities, "sequences": sequences, "tod": tod,
            "overrides": {k: v for k, v in override_report.items() if k != "error examples"},
-           "environment": {**environment(tod), "waterLevel": water_level(), **dict(zip(("probes", "cubes"),
+           "environment": {**environment(tod, level=level), "waterLevel": water_level() if with_ground else NO_WATER_LEVEL, **dict(zip(("probes", "cubes"),
                                                            menu_probes([l for l in lights if math.dist(l["world"][9:12], player) <= LIGHT_RADIUS])))},
-           "menuClip": {"path": MENU_CLIP, "name": MENU_CLIP_NAME}, "radius": radius, "meshes": placements,
+           "menuClip": {"path": clip[0], "name": clip[1]}, "radius": radius, "meshes": placements,
            "far": far, "skipped": skipped, "wanted": sorted(wanted),
            "decals": menu_decals(decals_found, player, radius), "notImported": sorted(f for f, a in assets.items() if not a),
            "lights": [l for l in lights if math.dist(l["world"][9:12], player) <= LIGHT_RADIUS],
@@ -743,7 +779,7 @@ def creation_scene(radius: float = SCENE_RADIUS) -> dict:
     """Writes SWC_CONTENT/frontend/creation-scene.json: the record of FTUE_V2_CC (stage Q3) in the form of the menu scene, around
     the customizable character Player_Entity_Int and the camera Character_Create_Camera; an indoor level: no ground patch."""
     return scene(radius, CREATION_LEVEL_PAK, CREATION_NAMED, "Player_Entity_Int", "Character_Create_Camera", "creation-scene.json",
-                 with_ground=False)
+                 with_ground=False, clip=(CREATION_CLIP, CREATION_CLIP_NAME))
 
 
 def main(argv=None) -> int:
@@ -752,13 +788,14 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("clips")
     p.add_argument("--force", action="store_true")
+    p.add_argument("--pack", choices=("menu", "creation"), default="menu")
     p = sub.add_parser("scene")
     p.add_argument("--radius", type=float, default=SCENE_RADIUS)
     p = sub.add_parser("creation-scene")
     p.add_argument("--radius", type=float, default=SCENE_RADIUS)
     args = parser.parse_args(argv)
     if args.command == "clips":
-        result = clips(args.force)
+        result = clips(args.force, args.pack)
     elif args.command == "creation-scene":
         result = creation_scene(args.radius)
     else:

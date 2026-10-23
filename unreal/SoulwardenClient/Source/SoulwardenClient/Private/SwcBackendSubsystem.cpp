@@ -276,6 +276,49 @@ void USwcBackendSubsystem::DeleteCharacter(const FString& CharacterId, TFunction
 		});
 }
 
+void USwcBackendSubsystem::ValidateCharacterName(const FString& WorldId, const FString& Name,
+	TFunction<void(int32 Status, const FString& ErrorName)> Done)
+{
+	if (!Login.IsValid() || Connection.IsValid())
+	{
+		Done(0, FString());
+		return;
+	}
+	Login->ValidateName(WorldId, Name, [Done = MoveTemp(Done)](const swc::menu::FGatewayReply& Reply)
+		{
+			// No name in the log: a name of a character is not a value of a log line here (the status and the error name are).
+			UE_LOG(LogSwcBackend, Log, TEXT("login: the name check: status %d %hs"), Reply.Status, Reply.ErrorName.c_str());
+			Done(Reply.Status, UTF8_TO_TCHAR(Reply.ErrorName.c_str()));
+		});
+}
+
+void USwcBackendSubsystem::CreateCharacter(const FString& WorldId, const FString& Name, const FString& CreationParams,
+	TFunction<void(int32 Status, const FString& ErrorName, const FString& CharacterId)> Done)
+{
+	if (!Login.IsValid() || Connection.IsValid())
+	{
+		Done(0, FString(), FString());
+		return;
+	}
+	TWeakObjectPtr<USwcBackendSubsystem> Self(this);
+	Login->CreateCharacter(WorldId, Name, CreationParams,
+		[Self, Done = MoveTemp(Done)](const swc::menu::FGatewayReply& Reply, const FString& CharacterId)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("login: the create: status %d %hs%s"), Reply.Status, Reply.ErrorName.c_str(),
+				CharacterId.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(", the character %s"), *CharacterId));
+			const FString ErrorName = UTF8_TO_TCHAR(Reply.ErrorName.c_str());
+			if (CharacterId.IsEmpty() || !Self.IsValid())
+			{
+				Done(Reply.Status, ErrorName, CharacterId);
+				return;
+			}
+			Self->RefreshCharacterList([Done, Status = Reply.Status, ErrorName, CharacterId](bool)
+				{
+					Done(Status, ErrorName, CharacterId);
+				});
+		});
+}
+
 void USwcBackendSubsystem::RefreshCharacterList(TFunction<void(bool bSucceeded)> Done)
 {
 	if (!Login.IsValid())

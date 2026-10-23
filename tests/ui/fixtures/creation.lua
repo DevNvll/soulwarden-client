@@ -28,7 +28,7 @@ local function requests(prefix)
 end
 
 check(#(swcui.load_json("gamedata/creation.json") or {}).archetypes == 7, "the creation data has 7 archetypes")
-Swc.HostCreationSequences({Archetype_Camera_Intro_Trackview_Sequence = 1, Character_Create_End_Trackview_Sequence = 1})
+Swc.HostCreationSequences("Archetype_Camera_Intro_Trackview_Sequence=1.000;Character_Create_End_Trackview_Sequence=1.000;")
 Swc.hostRequests = {}
 Swc.CreationStart()
 frames(0.2)
@@ -74,8 +74,17 @@ check(string.find(image, "layered/hairstyle/", 1, true) ~= nil and string.find(i
 check(swcui.texture_exists(image), "the hair image is converted: " .. image)
 CustomizableCharacterRequestBus.Event.SetEyeColor(E, "eyecolor7")
 equal(CustomizableCharacterRequestBus.Event.GetEyeColor(E), "eyecolor7", "the eye color changes")
+frames(0.1)
 look = requests("creation look")
 check(#look >= 1 and string.find(look[#look], "eyecolor7", 1, true) ~= nil, "the new eye color goes to the host")
+-- Many changes in one frame (a random look): one look request in the next tick.
+Swc.hostRequests = {}
+CustomizableCharacterRequestBus.Event.RandomHairstyle(E)
+CustomizableCharacterRequestBus.Event.RandomHairColor(E)
+CustomizableCharacterRequestBus.Event.RandomScar(E)
+CustomizableCharacterRequestBus.Event.SetEyeColor(E, "eyecolor3")
+frames(0.1)
+equal(#requests("creation look"), 1, "one look request for the changes of one frame")
 -- A new gender keeps a valid look (the race of that gender, its tone, its hair).
 CustomizableCharacterRequestBus.Event.SetGender(E, "Female")
 local femaleRaces = CustomizableCharacterRequestBus.Event.GetRacesForGender(E, "Female")
@@ -119,10 +128,16 @@ frames(0.2)
 equal(ID.nameStatus, ENameValidationState_Valid, "the valid name")
 picture("creation-identity")
 
--- The world step, then the create: one request (a second press sends nothing).
+-- The world step: the world list of the last list result (the native data calls of worldlistdatahandler.luac).
+Swc.HostMenuWorld(WORLD, "Made World", "Made World", "set1", "ACTIVE", "OpenWorld", "1", 0, 6, 0, 1, "", 0, 0, "low")
+Swc.HostMenuListEnd(4)
 Swc.hostRequests = {}
 CC:navNext()
 frames(1.0)
+equal(CC.state, 6, "the world step")
+local selected = CC.WorldSelectPopup.currentSelectedWorld
+equal(selected and selected.worldData and selected.worldData.worldId, WORLD, "the world step selects the world of the list")
+picture("creation-world")
 CC:CreateCharacter()
 CC:CreateCharacter()
 frames(0.2)
@@ -130,6 +145,9 @@ local creates = requests("creation create")
 equal(#creates, 1, "one create request")
 check(creates[1] ~= nil and string.find(creates[1], "\tMadevale\t", 1, true) ~= nil and string.find(creates[1], first.BackstoryId, 1, true) ~= nil,
   "the create has the name and the backstory: " .. tostring(creates[1]))
+-- The equipment of the archetype in the key order of the client (gloves, shirt, hat, boots, pants).
+check(creates[1] ~= nil and string.find(creates[1], "\tgloves=%d+,shirt=%d+,hat=%d+,boots=%d+,pants=%d+$") ~= nil,
+  "the archetype equipment in the order of the client")
 -- A failure: the popup of the reply; then a success: the end sequence, then the login of the new id (FTUE).
 Swc.HostCreationResult("", "@mm_loginservices_CreateCharacterFailed", "@mm_loginservices_ALREADY_EXISTS")
 frames(0.5)

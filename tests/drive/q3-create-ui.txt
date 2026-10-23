@@ -1,0 +1,40 @@
+# Stage Q3 of docs/FRONTEND.md: the character creation from an empty slot (tools/menu-check.sh q3-create 240 -- -SwcUiDrive=FILE;
+# SWC_CONTENT of a content root with gamedata/creation.json and frontend/creation-scene.json). The clock starts at the landing screen.
+# The empty slot, the confirm popup, the archetype step after its camera sequence (21 s), the appearance step, the
+# identity step with a name in use (the development character Azoth) and a made-up valid name, the world step, the create, the end
+# sequence, and the entry of the new character.
+1 waitfor CharacterList 60
+2 waitfor text:Create_Character 120
+3 draw landing
+4 point text:Create_Character
+4.5 click
+7 draw confirm
+8 point text:Yes
+8.5 click
+14 draw creation-start
+36 draw archetype
+37 point ButtonNext
+37.5 click
+41 draw appearance
+42 point ButtonNext
+42.5 click
+45 draw identity-empty
+46 point NameInputField
+46.5 click
+47 text Azoth
+53 draw name-taken
+54 key BackSpace
+54.2 key BackSpace
+54.4 key BackSpace
+54.6 key BackSpace
+54.8 key BackSpace
+55.5 text Madevale
+61 draw name-valid
+62 point ButtonNext
+62.5 click
+66 draw world
+67 point ContinueButton
+67.5 click
+70 draw create
+76 draw end-sequence
+200 end
