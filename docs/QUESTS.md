@@ -191,9 +191,11 @@ alpha (1 at 100 m to 0 at 150 m): markerdata.luac. The log has "quest pin on: KE
 The data: `gamedata/quest-pins.json` of format 2 (`python3 -B -m swc_convert.questpins write`; the inputs quests.json, worldmap.json, and
 persons.json): the OverrideLocation points by the native parser (comma entries; up to three numbers; a missing number is 0: "1" is
 (1, 0, 0)); the POI ids of the tags and their points; TerritoryID; GameModeID; the pin cells; the conversation NPC; the hand-in NPC of
-each objective; the NPC places. The POI point [U]: the native point comes from the territory data provider, whose load path is not
-proved; the only point here is the POI placement of the backend copy (quests.json "pois"). A tag with only a map definition gives the
-id and no point: no guessed centre (the map shape positions differ from the backend placements in 329 of 476 POIs, by up to 162 m).
+each objective; the NPC places. The POI point, an interim rule [U] (accepted by the orchestrator, 2026-10-23, until the provider point
+is traced): the native point comes from the territory data provider, whose load path is not proved; the client uses the POI placement of
+the backend copy (quests.json "pois": the Territory component of the POI placement). The map shape positions (worldmap.json) differ from
+these placements in 329 of 476 POIs, by up to 162 m: neither is proved, and the client uses no shape position and no bounds centre. A tag
+with only a map definition gives the id and no point.
 No objective area: the study found no search-area display rule [U].
 
 The compass places its icons in `OnCrySystemPostViewSystemUpdate` (compass.luac, through uitick.luac and DynamicBus.UITickBus). The
@@ -222,7 +224,9 @@ NPC state priority (the ready NPC marker state of the hand-in: Q4 owns the NPC s
 - The journal has a hidden hand-in row "Talk to " (the retail script hides it with SetTaskVisibility).
 - The Map button of the journal shows only when the objective layer of the map has a place for the quest
   (`ObjectivesLayer.GetObjectivePosition`): the pins of stage Q2 give it (live check open). The task timers are stage Q8.
-- Q2: the live check is open; the open points of the study are in "The pins (Q2, AST-237)".
+- Q2 (done, AST-237): the open points of the study are in "The pins (Q2, AST-237)". Also open, for Q4 (AST-239): the retail compass
+  shows the POI icon of the watchtower near the beach start, the client compass shows no POI icon; the live hand-in (the root complete)
+  is checked only in the fixture; the ready NPC marker state of the hand-in (the NPC states are Q4).
 - A change of an Auto-Pin switch does not go to the backend (2709 is sent once).
 - The top menu bar of the retail journal (Company, Journal, Mount, ...) is a different canvas: not in the client.
 - The skinning of a boar (AST-250): the trigger rule of the bodies (docs/INTERACTIONS.md); live `tests/drive/ast250-c2*.txt`: the quest
