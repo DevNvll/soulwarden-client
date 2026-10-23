@@ -136,6 +136,28 @@ local function requirements_pass(requires, forTopic)
   return true
 end
 
+-- The validity of a state record (backend stage 1.8f; client loader 0x379F2F0 to 0x379F377, selector 0x37AC846 to 0x37AC870; backend
+-- persons.md "The conversation state of a character", world/persons.cpp record_valid): IsInitialState XOR "the row has a requirement".
+-- A requirement is a loaded value that is not 0: RequiredLevel not 0, a named RequiredFaction (Any too), a cooldown value of
+-- RequiredFactionCooldown, RequiredCompletedObjective, RequiredAchievement, RequiredProgression with a rank or points not 0,
+-- RequiredActiveObjectiveId (an id) with RequiredActiveTaskId. A record that is not valid is never selected (06_01b_MarcelDupont).
+local function record_valid(state)
+  local r = state.requires or {}
+  local function text(name) return r[name] ~= nil and tostring(r[name]) or "" end
+  local progression = false
+  local _, rank, points = text("RequiredProgression"):match("^%s*(%S+)%s+(%-?%d+)%s*(%-?%d*)")
+  if rank then
+    progression = tonumber(rank) ~= 0 or (tonumber(points) or 0) ~= 0
+  end
+  local cooldown = string.lower(text("RequiredFactionCooldown"))
+  local requirement = ((tonumber(text("RequiredLevel")) or 0) ~= 0)
+    or (FACTIONS[string.lower(text("RequiredFaction"))] or 0) ~= 0
+    or cooldown == "incooldownmultipledays" or cooldown == "incooldownsingleday"
+    or text("RequiredCompletedObjective") ~= "" or text("RequiredAchievement") ~= "" or progression
+    or (text("RequiredActiveObjectiveId"):find("[^,%s]") ~= nil and text("RequiredActiveTaskId") ~= "")
+  return (state.initial == true) ~= requirement
+end
+
 local function chain_of(key)
   local data, lines, seen = cdata(), {}, {}
   while key and key ~= "" and not seen[key] and #lines < 10 do
@@ -168,7 +190,7 @@ local function select_state(npcId)
   end
   for i = #states, 1, -1 do
     local state = data.states[states[i]]
-    if state and requirements_pass(state.requires, false) then
+    if state and record_valid(state) and requirements_pass(state.requires, false) then
       C.stateId = states[i]
       C.lines, C.index = chain_of(state.dialogue), 1
       C.topics = passing_topics(state.topics)
@@ -180,6 +202,7 @@ local function select_state(npcId)
   return false
 end
 C.select_state = select_state
+C.record_valid = record_valid
 
 local function person_entity(key)
   return EntityId(string.format("8%010d", swcui.crc32(key or "")))

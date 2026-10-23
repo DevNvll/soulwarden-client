@@ -160,6 +160,12 @@ The client selects the conversation state of a person itself, with the rule of t
   RequiredCompletedObjective: the bit of the AchievementId of the objective. The character has no faction, no faction cooldown, and no
   categorical progression (backend roadmap 4.5): a named faction, a cooldown, and a progression rank or points above 0 do not pass.
   A person with no row keeps the line of persons.json.
+- The validity of a record (AST-239; backend stage 1.8f, client loader 0x379F2F0, selector 0x37AC846; backend `record_valid`): the scan
+  skips a state whose IsInitialState is equal to "the row has a requirement" (a loaded value that is not 0: RequiredLevel not 0, a named
+  RequiredFaction or Any, a cooldown value, RequiredCompletedObjective, RequiredAchievement, a progression rank or points not 0, an active
+  objective with a task). Such a record is never selected: `06_01b_MarcelDupont` (no requirement, not initial) does not hide
+  `06_01_MarcelDupont` and its offer `06A_MSQ_01_Quartermaster`. conversations.json has `initial` and `objectives` (the
+  LinearObjectiveId1 to N of a state: its offers) for each state. Fixture `tests/ui/fixtures/questpersons.lua`.
 - The lines: the dialogue of the state and its chain of `dialogue-next`. At the last line the screen shows the passing topics of the
   state. The option type of a topic is not in the enum table of the client; the client uses 2 [inference] (the screen drops Invalid and
   Leave). The icon and the color of a topic come from the conversation state of the person: HasTalkToTask with the objective of the task

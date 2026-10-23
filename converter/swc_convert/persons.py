@@ -880,8 +880,11 @@ def write_conversations() -> dict:
     with their requirements and topics, the topics with their requirements and ProvidedTopics) for the selection of the client
     (swc/conversation.lua), and the speaker and the next line of each text key of a state or a topic response."""
     data = json.loads((creature.gamedata_dir() / "conversation-data.json").read_text())
+    # AST-239: "initial" (IsInitialState: the validity of a record, backend stage 1.8f) and "objectives" (the LinearObjectiveId1 to N
+    # of the state: its offers).
     states = {s["id"]: {"dialogue": s["dialogue"].lstrip("@").lower(), "requires": s["requires"], "topics": s["topics"],
-                        "services": s["services"], "type": s["type"]} for s in data["states"]}
+                        "services": s["services"], "type": s["type"], "initial": bool(s.get("initial")),
+                        "objectives": list(s.get("objectives") or [])} for s in data["states"]}
     topics = {t["id"]: {"crc": t["crc"], "prompt": t["prompt"], "response": t["response"].lstrip("@").lower(), "requires": t["requires"],
                         "provided": [x.strip() for x in str(t.get("providedTopics") or "").split(",") if x.strip()]}
               for t in data["topics"]}
