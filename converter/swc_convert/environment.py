@@ -752,6 +752,11 @@ def cookies() -> dict:
     paths = set()
     for file in sorted((out / "lights").glob("*.json")):
         paths.update(cookie_key(light["cookie"]) for light in json.loads(file.read_text())["lights"] if light.get("cookie"))
+    # The projector lights of the front end scenes (frontend.py: nighthaven.json, creation-scene.json; stage Q3).
+    for file in sorted((env.content_dir() / "frontend").glob("*.json")):
+        doc = json.loads(file.read_text())
+        if isinstance(doc, dict) and isinstance(doc.get("lights"), list):
+            paths.update(cookie_key(light["cookie"]) for light in doc["lights"] if isinstance(light, dict) and light.get("cookie"))
     (out / "cookies").mkdir(exist_ok=True)
     table, failures = {}, []
     for path in sorted(paths):

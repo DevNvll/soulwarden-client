@@ -201,6 +201,10 @@ public:
 		double DuskDuration = 0.0;
 		/** The environment probes of the menu scene, in place of the local probes of the world (stage F4b). */
 		TArray<FData::FLocalProbe> Probes;
+		/** The factor of the ambient lights of the scene on its ambient (RGB; stage Q3: the creation level; 1: none). */
+		std::array<double, 3> AmbientScale{1.0, 1.0, 1.0};
+		/** The scene has ambient lights: the fog takes the ambient of its probes (MenuFogAmbient), not the world horizon. */
+		bool bAmbientLights = false;
 	};
 	/** Sets the menu mode: the environment runs with no record of the world clock, with the menu scene. */
 	void SetMenuScene(const FMenuScene& Scene);
@@ -369,6 +373,10 @@ private:
 	int32 ProbeSpecularApplied = -1;
 	std::array<int32, 3> ReflectionsBefore{1, 1, 3};
 	FString ProbeBlendCube;
+	/** The menu mode: the ambient radiance at the camera (source units, luminance) of the probes that light it (the world part and
+	 *  the local probes with their weights, their color, and the side faces of their cube) x the factor of the ambient lights of the
+	 *  scene: the ambient of the fog in place of the horizon of the world probe (stage Q3: the closed ship hold). < 0: not set. */
+	double MenuFogAmbient = -1.0;
 	/** The local probes at the camera for the probe log line. */
 	FString ProbeText;
 	/** The local probes of each pixel (swc.LocalProbes 2): the probes near the camera, in the order of the source, for the pass

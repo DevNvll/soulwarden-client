@@ -1,0 +1,18 @@
+# Stage Q3 of docs/FRONTEND.md: the restart of a new character (the database of the run q3-create; tools/menu-check.sh q3-restart 200
+# -- -SwcUiDrive=FILE): the landing screen with the new character, PLAY, the world entry with the one saved quest "Soul Survivor" in
+# the tracker of the HUD (the retail reference I2-new-character-hud), then J: the journal (I2-new-character-journal), and Escape.
+1 waitfor CharacterList 60
+2 waitfor text:Madevalen 120
+3 draw landing
+4 point text:Madevalen
+4.5 click
+7 draw selected
+8 point PlayButton
+8.5 click
+10 waitfor world 240
+30 draw hud
+32 key J
+38 draw journal
+42 key J
+46 draw after-journal
+50 end

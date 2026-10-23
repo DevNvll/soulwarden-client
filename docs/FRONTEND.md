@@ -964,3 +964,69 @@ The archetype step of the level has example characters with weapons for each arc
 Part 1, the retail reference take: open [U]. Three tries (2026-10-22 23:37 to 2026-10-23 00:17 UTC; the own prefix, a fresh
 copy of the development prefix, the timing of the Soulwarden scenario create.sh) stop at "Loading level FTUE_V2_CC" with a black
 screen. The empty slot, the world type popup, and the confirm popup are recorded (`set-q3-create`).
+
+**Part 5, the native part** (`Lua/swc/creation.lua`, `UI/SwcUiCreation.cpp`). The scripts of the game (`charactercreation.luac`,
+`cacarchetypestabv2.luac`, `cacappearancetab.luac`, `cacidentitytab.luac`, `worldselectpopup.luac`) with these native parts:
+
+| Bus or request | The client | Source |
+| --- | --- | --- |
+| `CustomizableCharacterRequestBus` | The 12 values of the look, the lists and images of `creation.json`, the random values, the archetype equipment of the preview. A change sends the host request `creation look N1\|..\|N12 SLOT=ID,... HELMET` once in the next tick and only on a change (the scripts set many values in one frame) | [D] creation.json; [I] the request form |
+| `ArchetypeDataManagerRequestBus` | `GetArchetypeData`: the row of the table (title, description, equip weight, proficiencies, backstory); `GetAppearance(slot, gender)` by the CRC-32 of the lower-case name; `GetArchetypeCharacteristic` by the CRC of the column | [D] javelindata_archetypes |
+| `UiCharacterServiceRequestBus` | `PreValidateNameCheck` = `swcui.check_name` (part 3); `ValidateName` and `CreateCharacter` are host requests (`creation validate`, `creation create`); one create at a time; a create sends the last look first. A stale name check reply is ignored | [R] part 3 |
+| The world step | The native data calls `Game.GetWorldList` and `Game.GetRegionList` (CRC-32 of the lower-case paths) give the values of the last list result; `Game.GetCharactersPayload`, `Game.GetCharacterNameList`, and `Game.GetMaximumCharactersPerRegion` come in the next frame (`worldlistdatahandler.luac` calls its callback when all five came) | [R] worldlistdatahandler.luac |
+| `IntroControllerComponentRequestBus` | `OnContinueToFTUE` logs in the new id with FTUE (`menu login ID FTUE`); `OnExit` goes back to the landing screen | [R] charactercreation.luac |
+| The sequences (`CinematicRequestBus`) | Updated at the start, then Stopped and BeyondEnd after the time range of the sequence of the record; the camera tracks of `Character_Create_Camera` play on the creation preview | [D] the record |
+| The host (`UI/SwcUiCreation`) | `menu intro` spawns a second menu preview with `frontend/creation-scene.json`; the look goes through the resolver of F3; the name check and the create use the login client; a create of 200 refreshes the list. The CharacterCreation canvas is in the screen list of the UI runtime | — |
+
+**Part 6, the creation scene** (`swc_convert.frontend creation-scene`, `ASwcMenuPreview`).
+
+| Rule | The client | Source |
+| --- | --- | --- |
+| The environment | The mission of the creation level (`mission_mission0.xml` of `FTUE_V2_CC`: hour 16, SunRotation 324) with the preset `ftuev2_tod_shipinteriorcc2`. Before, the record had the mission of NightHaven (daylight) | [D] the level |
+| The water plane | The level has no terrain and no ocean: `waterLevel` -1,000,000 m (WATER_LEVEL_UNKNOWN of the engine), so the height fade of the beams does not act | [I] |
+| The clip | The SimpleAnimationComponent of `Player_Entity_Int` plays `character_create_player` (26 s, once): the body stands up and turns to the camera (the entity faces away from it). The clip pack `creation` (`tools/convert-frontend.sh clips --pack creation`, then `tools/import-player.sh`); the preview keeps the clip time when a look change makes a new body. The female body plays the same clip (the player clips are in the male folder) | [D] the level; [I] the female clip |
+| The light beams | A placement whose override material is not drawn is left out: the 35 volume light beams (`jav_fogbeam_b` with `beam_ftuev2_warm_*_mat`, the shader GeometryFog with `%USE_AS_BEAMPROC`). The client has no rule for this shader; as an override of an opaque Nanite mesh it drew solid slabs. The source draws soft light shafts: open | [D] the materials; open |
+| The impostor shadow meshes | The entities `shadow_card` and the box `sm_impostershadowbox` (50 x 20 x 31 m around the ship) with `impostershadow_mat` (a white Illum material with no flag that hides it) are `shadowOnly`: hidden in the views, the shadow stays | [I] the names |
+| Translucent slots | A preview component with a translucent or additive slot on a Nanite mesh draws the fallback mesh (Nanite draws no translucency) | — |
+| The materials | The override materials of the creation scene are sources of `material_records.audit` (14 new instances: the fog sheets, the lanterns, the candles, the ropes) | — |
+| The meshes | 27 meshes of the ship were not converted (the hull, the walls, the planks, the door, 10 props): 607 placements are drawn, 35 left out | [D] the level |
+| The ambient lights | 48 lights of the level have `Ambient` true (`Light_Shadow`, `Light_ShadowAmbient`, `Light_Bounce_Ambient`; NightHaven has none). They are no lamps: an ambient light multiplies the ambient by lerp(1, color x DiffuseMultiplier, 1 / (1 + d / r)^2) inside its range (`Menu/SwcMenuLights.h` AmbientLightFactor). The darkening ones (below 1, range up to 20 m) give one factor at the body (0.10, 0.08, 0.08) on the sky light of the local probes and on the fog ambient; the brightening ones (the bounce lights, range 2 to 4 m) are local lamps of (value - 1) x the ambient at the body. Before, they were lamps: the hold had a meter E of 3,300 lux | [I] the multiply (the names and the values) |
+| The key lights | The projector lights with a bulb of half the range or more get the source falloff (1 - (d / range)^2)^n with no inverse square, equal to 1 / (1 + d / r)^2 at one bulb size (`SourceFalloffExponent`, n at most 16; the inverse square was up to 30 times too bright near a 12 m bulb). Only the creation preview (`SetSourceFalloff`); NightHaven keeps its rule | [D] the lights; the fit [I] |
+| The cookies | The projector lights carry their texture (the record field `cookie`): the ship lattices, the stairs, `spot_075`; the preview gives them the cookie light function of the world lights (`environment.cookies` also reads the scene records; 2 new cookies) | [D] the lights |
+| The fog ambient | In a menu scene with ambient lights, the in-scatter of the source fog is the ambient of the probes at the camera (their weights, colors, and side faces) x the factor of the ambient lights, not the horizon of the world probe (the outdoor sky) | [I] |
+
+The light of the hold (the view of the archetype step, the meter E of the source rule): 3,321 lux with all rules off; 1,148 lux
+without the ambient lamps; 163 lux with all rules. The median L* of the picture 28.8 -> 15.9. A retail reference of the hold does
+not exist (part 1 [U]); the user describes retail as a very dark place.
+
+**Part 8, the checks** (2026-10-23 UTC; check copies `work/q3/content-q3` and `SwcGameContent-q3`; evidence
+`~/Games/soulwarden-client/evidence/Q3/`).
+
+- `q3-create19.mp4` (drive `tests/drive/q3-create-ui.txt`, 04:57 to 05:03 UTC): the empty slot, the confirm, the archetype step,
+  the appearance step, a name in use (400 NameNotAvailableError), a valid name (200), the world step, a create error (409
+  ALREADY_EXISTS: the run writes one row with that name under a made-up persona into its own development database after the name
+  check, the race of two players; work script `q3/race.sh`), OK, Escape back to the identity step (the world step has no Back
+  button in the original script), a second name, create 200, the end sequence, the FTUE login, and the entry on the beach
+  (9622.62 2306.48). `q3-creation-screens.png`: the nine steps.
+- `q3-restart3.mp4` (drive `tests/drive/q3-restart-ui.txt`, the database after q3-create19): the new character in the list, PLAY
+  (OpenWorld), the banner "Main story quest: Soul Survivor", the tracker, and the journal (Main Story 1/20, pinned).
+  `q3-crop-tracker.png`, `q3-crop-journal.png`, `q3-crop-hud.png` against I2. Two differences come from the backend state: the
+  current backend puts a new character inside the trigger of task 9 of `06_getoffbeach`, which completes it at the spawn (I2 had an
+  older backend), so the tracker and the journal have no task line, and the third journal button has no text (retail: Map). Open
+  for the quest track.
+- `tools/test-ui.sh` (creation fixture 58 checks), `tools/test-menu.sh` (178 checks, with the ambient light factor and the source
+  falloff), 0 failed.
+
+**Part 7, the entry of the new character.** A create of 200: `CreateCharacterResult`, the end sequence
+`Character_Create_End_Trackview_Sequence` (4.5 s), then `OnContinueToFTUE`: the login of the new id with FTUE. The backend puts the
+new character on the Windsward beach (9622.62 2306.48 40.74) and gives the start quest `06_getoffbeach` ("Soul Survivor") as a
+pending one-time grant for the first world entry (the create transaction). The backend keeps no FTUE world (`ftueCompleted`
+true): the client goes to the open world.
+
+The declared limits of Q3:
+- The film of the intro: the path of `g_uiEnableStoryCinematic` false (the decision of the orchestrator) [I].
+- The example characters of the archetype step (the nodes `*_Example_*` of the archetype sequences) are not shown.
+- The volume light beams (GeometryFog) are not drawn (part 6).
+- The override of the shadow box (`24 - default.mtl` is not in the pak files): its own material; only the shadow is used.
+- The retail creation take (part 1) [U]: no side-by-side picture of the creation screens with retail.
+- The light rules of part 6 marked [I]: no retail picture of the hold to check them.

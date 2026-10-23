@@ -34,6 +34,9 @@ public:
 	/** The clip plays once and keeps its last pose (the creation clip character_create_player, stage Q3); a new body of a look
 	 *  change goes on at the clip time of the first body (else each change starts the clip again). */
 	void SetClipOnce(bool bOnce) { bClipOnce = bOnce; ClipStart = -1.0; }
+	/** The lights of the scene with a large bulb get the falloff of the source (no inverse square; SwcMenuLights.h
+	 *  SourceFalloffExponent at most MaxSourceFalloffExponent): the creation scene (stage Q3). Before LoadScene. */
+	void SetSourceFalloff(bool bOn) { bSourceFalloff = bOn; }
 	/** Removes the body (an invalid document, no character): no stale parts. */
 	void Clear();
 	/** The landing screen shows or hides the body (TransformBus SetWorldZ: the menu height or Z -1000). */
@@ -88,8 +91,12 @@ private:
 	FString CameraEntity = TEXT("MainCamera");
 	/** The vertical FOV of the camera (degrees): 55 for the menu (F4), the record value for the creation camera (36). */
 	double SceneVerticalFov = 55.0;
+	/** The ambient of the scene at the body after its darkening ambient lights (source units, the luminance): the base of the
+	 *  brightening ambient lights, which BuildLights makes local lamps of (value - 1) x this ambient (stage Q3). */
+	double AmbientBounceBase = 0.0;
 	/** SetClipOnce: the clip plays once; ClipStart is the world time of its start (-1: not started). */
 	bool bClipOnce = false;
+	bool bSourceFalloff = false;
 	double ClipStart = -1.0;
 
 	struct FSequence

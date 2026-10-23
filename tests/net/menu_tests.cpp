@@ -351,6 +351,20 @@ void test_lights() {
     }
     // In a large bulb the illuminance stays below the one of the bulb surface (r^2 / D^2 would give 4 times it at D = r / 2).
     expect(menu::LightCandela(1.0, 30.0, 15.0) / (15.0 * 15.0) < pi * 10000.0, "in the bulb: bounded");
+    // The ambient lights (stage Q3): a factor lerp(1, value, the source attenuation), 1 beyond the range.
+    expect(menu::AmbientLightFactor(0.0235, 5.0, 20.0, 25.0) == 1.0, "ambient light: no effect beyond its range");
+    expect(std::abs(menu::AmbientLightFactor(0.0235, 5.0, 20.0, 0.0) - 0.0235) < 1e-12, "ambient light: its value at its center");
+    expect(std::abs(menu::AmbientLightFactor(0.0235, 5.0, 20.0, 5.0) - (1.0 + (0.0235 - 1.0) * 0.25)) < 1e-12,
+           "ambient light: a quarter at one bulb size");
+    expect(menu::AmbientLightFactor(6.0, 2.0, 4.0, 1.0) > 1.0, "ambient light: a bounce light brightens");
+    // The source falloff of the creation lights: (1 - (d / range)^2)^n equals 1 / (1 + d / r)^2 at d = r (or range / 2).
+    {
+        const double n = menu::SourceFalloffExponent(3.0, 7.0);
+        expect(std::abs(std::pow(1.0 - (3.0 / 7.0) * (3.0 / 7.0), n) - 0.25) < 1e-9, "source falloff: a quarter at one bulb size");
+        expect(menu::SourceFalloffExponent(1.0, 7.0) > menu::MaxSourceFalloffExponent, "source falloff: a small bulb keeps the inverse square");
+        const double m = menu::SourceFalloffExponent(12.0, 12.0);
+        expect(std::abs(std::pow(0.75, m) - 1.0 / (1.5 * 1.5)) < 1e-9, "source falloff: a large bulb matches at half the range");
+    }
     expect(menu::LightReference(1.2, 2.3) == 1.2 && menu::LightReference(26.0, 20.0) == 10.0, "the reference distance");
     expect(menu::LightSourceRadius(30.0, 14.0) == 7.0 && menu::LightSourceRadius(0.05, 2.0) == 0.05 &&
                menu::LightSourceRadius(0.0, 2.0) == 0.01, "the source radius");

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 
 namespace swc::menu {
 
@@ -43,6 +44,39 @@ inline double LightCandela(double Diffuse, double Bulb, double Reference)
 inline double LightSourceRadius(double Bulb, double Reference)
 {
 	return std::min(std::max(Bulb, LightMinBulb), 0.5 * std::max(Reference, 0.0));
+}
+
+/** @return The falloff exponent n of an Unreal light with no inverse square, (1 - (d / range)^2)^n, that equals the source
+ *  attenuation 1 / (1 + d / r)^2 at d = r (1/4), or at d = range / 2 for a bulb of half the range or more (the creation scene,
+ *  stage Q3: its key lights have bulbs of 1 m to 12 m, where the inverse square is many times too bright near the light). */
+inline double SourceFalloffExponent(double Bulb, double Range)
+{
+	const double R = std::max(Bulb, LightMinBulb);
+	const double Reach = std::max(Range, LightMinBulb);
+	const double D = R < 0.5 * Reach ? R : 0.5 * Reach;
+	const double Target = 1.0 / ((1.0 + D / R) * (1.0 + D / R));
+	const double Window = 1.0 - (D / Reach) * (D / Reach);
+	return std::max(std::log(Target) / std::log(Window), 0.1);
+}
+
+/** The largest falloff exponent of the source falloff: a light with a larger fit (a small bulb in a long range) keeps the inverse
+ *  square of LightCandela, which is the source attenuation far from the bulb. */
+constexpr double MaxSourceFalloffExponent = 16.0;
+
+/** @return The factor of one ambient light of the source (the field Ambient of LightComponent: Light_Shadow, Light_ShadowAmbient,
+ *  Light_Bounce_Ambient of the creation level) on the ambient at the distance D: lerp(1, Value, the source attenuation
+ *  1 / (1 + D / r)^2), 1 beyond the range. Value is the color x DiffuseMultiplier: below 1 the light darkens the ambient (the
+ *  near-black shadow lights of the ship hold), above 1 it brightens it (the bounce lights). That an ambient light multiplies the
+ *  ambient is an inference [I] (the names and the values of the level; stage Q3 of docs/FRONTEND.md). */
+inline double AmbientLightFactor(double Value, double Bulb, double Range, double Distance)
+{
+	if (Distance >= Range)
+	{
+		return 1.0;
+	}
+	const double R = std::max(Bulb, LightMinBulb);
+	const double Attenuation = 1.0 / ((1.0 + std::max(Distance, 0.0) / R) * (1.0 + std::max(Distance, 0.0) / R));
+	return 1.0 + (Value - 1.0) * Attenuation;
 }
 
 } // namespace swc::menu

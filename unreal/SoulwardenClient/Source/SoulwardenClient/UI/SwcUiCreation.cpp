@@ -80,6 +80,7 @@ void USwcUiSubsystem::StartCreation(USwcBackendSubsystem* Backend)
 		CreationPreview = World->SpawnActor<ASwcMenuPreview>(FVector::ZeroVector, FRotator::ZeroRotator, Parameters);
 		if (CreationPreview.IsValid())
 		{
+			CreationPreview->SetSourceFalloff(true);
 			CreationPreview->LoadScene(Path, TEXT("Player_Entity_Int"), TEXT("Character_Create_Camera"), TEXT("#-Camera_Transitions"));
 			// The SimpleAnimationComponent of Player_Entity_Int: character_create_player once (the body stands up and turns to the
 			// camera; the entity faces away from it).

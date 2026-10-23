@@ -74,7 +74,7 @@ GROUND_ALBEDO = 1024
 # The light fields of LightComponent that the client reads.
 LIGHT_FIELDS = ("LightType", "Visible", "OnInitially", "Color", "DiffuseMultiplier", "SpecMultiplier", "PointMaxDistance",
                 "PointAttenuationBulbSize", "ProjectorDistance", "ProjectorAttenuationBulbSize", "ProjectorFOV", "AreaWidth",
-                "AreaHeight", "AreaMaxDistance", "CastShadowsSpec", "VolumetricFog")
+                "AreaHeight", "AreaMaxDistance", "CastShadowsSpec", "VolumetricFog", "Ambient")
 # The fields of an environment probe (a light of type 3; environment.probes reads the same fields of LightConfiguration).
 PROBE_FIELDS = ("Area X,Y,Z", "SortPriority", "CubemapTexture", "AttenuationFalloffMax", "TodInfluence", "AffectsThisAreaOnly")
 NAMED = ("Player Entity", "MainCamera", "CharacterCameraPlacement", "EstablishingCameraPlacement", "Main_layer", "TOD")
@@ -286,7 +286,14 @@ def _light(components) -> dict | None:
         if component.get("name") != "LightComponent":
             continue
         values = {n.get("field"): n.get("value") for n in component.iter() if n.get("value") is not None}
-        return {k: values[k] for k in LIGHT_FIELDS + PROBE_FIELDS if k in values}
+        out = {k: values[k] for k in LIGHT_FIELDS + PROBE_FIELDS if k in values}
+        # The projector texture of a projector light (the first AssetPath of LightConfiguration; the cookie of the world lights,
+        # environment.cookies; spot_default is the plain cone): the key of cookies.json (stage Q3: the ship lattices).
+        texture = next((n.get("value") for n in component.iter() if n.get("field") == "AssetPath" and n.get("value")), "")
+        if values.get("LightType") == "2" and texture and "spot_default" not in texture:
+            from .environment import cookie_key
+            out["cookie"] = cookie_key(texture)
+        return out
     return None
 
 

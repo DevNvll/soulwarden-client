@@ -427,8 +427,22 @@ void USwcEnvironmentSubsystem::UpdateSkyAndFog(double Hour, const FVector& Camer
 		if (Mode == 1)
 		{
 			const double Diffuse = FMath::Lerp(1.0, Blended(TEXT("Environment Probe Diffuse Multiplier"), 1.0), Data->WorldProbeTodInfluence);
-			UpdateLocalProbes(Ambient, CameraLocation, SourceUnitLuminance * Data->WorldProbeDiffuse * Diffuse * CVarProbeScale.GetValueOnGameThread(),
-				Linear(BlendedColor(TEXT("Environment Probe Multiplier"))));
+			// The ambient lights of a menu scene (the creation level, stage Q3): their factor on the ambient (its luminance on the
+			// intensity, its hue on the color).
+			FLinearColor ProbeMultiplier = Linear(BlendedColor(TEXT("Environment Probe Multiplier")));
+			double AmbientScale = 1.0;
+			if (Menu.IsSet())
+			{
+				const std::array<double, 3>& A = Menu->AmbientScale;
+				AmbientScale = FMath::Max(0.2126 * A[0] + 0.7152 * A[1] + 0.0722 * A[2], 0.0);
+				if (AmbientScale > 0.0)
+				{
+					ProbeMultiplier *= FLinearColor(static_cast<float>(A[0] / AmbientScale), static_cast<float>(A[1] / AmbientScale),
+						static_cast<float>(A[2] / AmbientScale));
+				}
+			}
+			UpdateLocalProbes(Ambient, CameraLocation, SourceUnitLuminance * Data->WorldProbeDiffuse * Diffuse * CVarProbeScale.GetValueOnGameThread()
+				* AmbientScale, ProbeMultiplier);
 		}
 		UpdatePixelProbes(CameraLocation, Mode == 1 ? Linear(BlendedColor(TEXT("Environment Probe Multiplier"))) : FLinearColor::Black);
 	}
@@ -947,9 +961,18 @@ void USwcEnvironmentSubsystem::UpdateSourceFog(UExponentialHeightFogComponent* H
 	const double Diffuse = FMath::Lerp(1.0, Blended(TEXT("Environment Probe Diffuse Multiplier"), 1.0), Data->WorldProbeTodInfluence) * Data->WorldProbeDiffuse;
 	const FLinearColor ProbeMultiplier = Linear(BlendedColor(TEXT("Environment Probe Multiplier")));
 	const double AmbientScale = SourceUnitLuminance * Diffuse / 12.566;
-	HeightFog->SetFogInscatteringColor(FLinearColor(static_cast<float>(AmbientScale * Data->WorldProbeHorizon[0] * Entities[0] * ProbeMultiplier.R),
-		static_cast<float>(AmbientScale * Data->WorldProbeHorizon[1] * Entities[1] * ProbeMultiplier.G),
-		static_cast<float>(AmbientScale * Data->WorldProbeHorizon[2] * Entities[2] * ProbeMultiplier.B)));
+	// The menu mode (stage Q3): the ambient of the probes that light the camera x the ambient lights of the scene, with the hue of the
+	// world horizon (in the closed hold of the creation scene the horizon of the world probe is the outdoor sky).
+	std::array<double, 3> Horizon = Data->WorldProbeHorizon;
+	double HorizonScale = AmbientScale;
+	if (MenuFogAmbient >= 0.0)
+	{
+		const double HorizonY = FMath::Max(0.2126 * Horizon[0] + 0.7152 * Horizon[1] + 0.0722 * Horizon[2], 1e-6);
+		HorizonScale = SourceUnitLuminance / 12.566 * MenuFogAmbient / HorizonY;
+	}
+	HeightFog->SetFogInscatteringColor(FLinearColor(static_cast<float>(HorizonScale * Horizon[0] * Entities[0] * ProbeMultiplier.R),
+		static_cast<float>(HorizonScale * Horizon[1] * Entities[1] * ProbeMultiplier.G),
+		static_cast<float>(HorizonScale * Horizon[2] * Entities[2] * ProbeMultiplier.B)));
 	HeightFog->SetSkyAtmosphereAmbientContributionColorScale(FLinearColor::Black);
 	HeightFog->SetFogCutoffDistance(static_cast<float>(FogCutoff));
 	if (USkyAtmosphereComponent* Sky = Atmosphere.Get())
@@ -1008,20 +1031,31 @@ void USwcEnvironmentSubsystem::UpdateLocalProbes(USkyLightComponent* Ambient, co
 	}
 	const std::vector<double> ProbeWeights = env::probe_weights(Fades);
 	const double TodDiffuse = Blended(TEXT("Environment Probe Diffuse Multiplier"), 1.0);
+	// The ambient lights of a menu scene act on the local probes too (WorldIntensity has the factor for the world part).
+	double MenuAmbientY = 1.0;
+	if (Menu.IsSet())
+	{
+		const std::array<double, 3>& A = Menu->AmbientScale;
+		MenuAmbientY = FMath::Max(0.2126 * A[0] + 0.7152 * A[1] + 0.0722 * A[2], 0.0);
+	}
 	double Total = ProbeWeights.back() * WorldIntensity;
 	double Local = 0.0;
 	std::array<double, 3> Tint{Total, Total, Total};
 	int32 Best = -1;
 	double BestLight = 0.0;
 	ProbeText = FString::Printf(TEXT(" world %.2f"), ProbeWeights.back());
+	double FogAmbient = ProbeWeights.back() * (Data->WorldProbeHorizon[0] * 0.2126 + Data->WorldProbeHorizon[1] * 0.7152 + Data->WorldProbeHorizon[2] * 0.0722)
+		* Data->WorldProbeDiffuse;
 	for (int32 Hit = 0; Hit < Hits.Num(); ++Hit)
 	{
 		const FData::FLocalProbe& Probe = LocalProbes[Hits[Hit].Index];
 		const double Luminance = FMath::Max(0.2126 * Probe.Color[0] + 0.7152 * Probe.Color[1] + 0.0722 * Probe.Color[2], 1e-6);
 		const double Light = ProbeWeights[Hit] * SourceUnitLuminance * Luminance * FMath::Lerp(1.0, TodDiffuse, Probe.TodInfluence)
-			* CVarProbeScale.GetValueOnGameThread();
+			* CVarProbeScale.GetValueOnGameThread() * MenuAmbientY;
 		Total += Light;
 		Local += Light;
+		FogAmbient += ProbeWeights[Hit] * Luminance * FMath::Lerp(1.0, TodDiffuse, Probe.TodInfluence)
+			* 0.25 * (Probe.Faces[0] + Probe.Faces[1] + Probe.Faces[2] + Probe.Faces[3]);
 		for (int32 C = 0; C < 3; ++C)
 		{
 			Tint[C] += Light * Probe.Color[C] / Luminance;
@@ -1053,6 +1087,14 @@ void USwcEnvironmentSubsystem::UpdateLocalProbes(USkyLightComponent* Ambient, co
 	Ambient->SetCubemapBlend(WorldProbe.Get(), Cube, Fraction);
 	ProbeBlendCube = Cube != nullptr ? LocalProbes[Best].Cube : FString();
 	Ambient->SetIntensity(static_cast<float>(Total));
+	if (Menu.IsSet() && Menu->bAmbientLights)
+	{
+		MenuFogAmbient = FogAmbient * MenuAmbientY;
+	}
+	else
+	{
+		MenuFogAmbient = -1.0;
+	}
 	const double Scale = Total > 0.0 ? 1.0 / Total : 1.0;
 	Ambient->SetLightColor(Multiplier * FLinearColor(static_cast<float>(Tint[0] * Scale), static_cast<float>(Tint[1] * Scale), static_cast<float>(Tint[2] * Scale)));
 }

@@ -1,8 +1,10 @@
 # Stage Q3 of docs/FRONTEND.md: the character creation from an empty slot (tools/menu-check.sh q3-create 240 -- -SwcUiDrive=FILE;
 # SWC_CONTENT of a content root with gamedata/creation.json and frontend/creation-scene.json). The clock starts at the landing screen.
 # The empty slot, the confirm popup, the archetype step after its camera sequence (21 s), the appearance step, the
-# identity step with a name in use (the development character Azoth) and a made-up valid name, the world step, the create, the end
-# sequence, and the entry of the new character.
+# identity step with a name in use (the development character Azoth) and a made-up valid name, the world step, a create error
+# (409 ALREADY_EXISTS: the check run writes one row with that name into its own development database after the name check, the
+# race of two players; work script q3 race), Escape back to the identity step (the world step has no Back button), a second name, the create, the end sequence, and the
+# entry of the new character on the beach.
 1 waitfor CharacterList 60
 2 waitfor text:Create_Character 120
 3 draw landing
@@ -35,6 +37,23 @@
 66 draw world
 67 point ContinueButton
 67.5 click
-70 draw create
-76 draw end-sequence
-200 end
+70 draw create-error
+72 point text:OK
+72.5 click
+75 draw error-closed
+76 key Escape
+79 draw identity-again
+80 point NameInputField
+80.5 click
+81 text n
+87 draw name-valid-2
+88 point ButtonNext
+88.5 click
+92 draw world-2
+93 point ContinueButton
+93.5 click
+96 draw create-2
+102 draw end-sequence
+104 waitfor world 240
+110 draw beach
+114 end

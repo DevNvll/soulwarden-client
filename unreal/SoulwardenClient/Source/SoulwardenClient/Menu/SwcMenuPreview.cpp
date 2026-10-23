@@ -258,9 +258,105 @@ void ASwcMenuPreview::SetEnvironment(const TSharedPtr<FJsonObject>& Doc)
 			if (Probe.IsValid() && Probe->TryGetStringField(TEXT("cubemap"), Cubemap) && (*Cubes)->TryGetObjectField(Cubemap, Cube)
 				&& (*Cube)->TryGetStringField(TEXT("hdr"), Picture) && USwcEnvironmentSubsystem::ReadLocalProbe(Probe, Picture, Item))
 			{
+				USwcEnvironmentSubsystem::ReadCubeFaces(*Cube, Item.Faces);   // the ambient of the fog in the menu (stage Q3)
 				Scene.Probes.Add(MoveTemp(Item));
 			}
 		}
+	}
+	// The ambient lights of the scene (the field Ambient of the lights; the creation level has 48, NightHaven none): their product at
+	// the body (the Player Entity + 1 m; the scene of the preview is small), a factor on the ambient, not lamps (ShowSceneLights).
+	// The darkening lights (the luminance of color x DiffuseMultiplier below 1: the shadow lights, range up to 20 m) cover the hold:
+	// their product at the body is a factor on the ambient of the scene. The brightening lights (the bounce lights, range 2 to 4 m,
+	// near the lanterns) are local: BuildLights makes lamps of them (an inference [I], docs/FRONTEND.md Q3 part 6).
+	const TArray<TSharedPtr<FJsonValue>>* SceneLights = nullptr;
+	int32 AmbientLights = 0;
+	const FVector Body = PlayerWorld + FVector(0.0, 0.0, 1.0);
+	if (Doc->TryGetArrayField(TEXT("lights"), SceneLights))
+	{
+		for (const TSharedPtr<FJsonValue>& Value : *SceneLights)
+		{
+			const TSharedPtr<FJsonObject> Item = Value->AsObject();
+			FString Flag, ColorText;
+			const TArray<TSharedPtr<FJsonValue>>* W = nullptr;
+			if (!Item.IsValid() || !Item->TryGetStringField(TEXT("Ambient"), Flag) || Flag != TEXT("true")
+				|| !Item->TryGetArrayField(TEXT("world"), W) || W->Num() != 12)
+			{
+				continue;
+			}
+			const bool bSpot = Item->GetStringField(TEXT("LightType")) == TEXT("2");
+			const auto Number = [&Item](const TCHAR* Field, double Default)
+			{
+				FString V;
+				return Item->TryGetStringField(Field, V) && !V.IsEmpty() ? FCString::Atod(*V) : Default;
+			};
+			const double Diffuse = Number(TEXT("DiffuseMultiplier"), 1.0);
+			const double Bulb = bSpot ? Number(TEXT("ProjectorAttenuationBulbSize"), 0.05) : Number(TEXT("PointAttenuationBulbSize"), 0.05);
+			const double Range = bSpot ? Number(TEXT("ProjectorDistance"), 1.0) : Number(TEXT("PointMaxDistance"), 1.0);
+			const double Distance = FVector::Dist(FVector((*W)[9]->AsNumber(), (*W)[10]->AsNumber(), (*W)[11]->AsNumber()), Body);
+			TArray<FString> Rgb;
+			Item->TryGetStringField(TEXT("Color"), ColorText);
+			ColorText.ParseIntoArrayWS(Rgb);
+			double LightValue[3];
+			for (int32 C = 0; C < 3; ++C)
+			{
+				LightValue[C] = (C < Rgb.Num() ? FCString::Atod(*Rgb[C]) : 1.0) * Diffuse;
+			}
+			++AmbientLights;
+			if (0.2126 * LightValue[0] + 0.7152 * LightValue[1] + 0.0722 * LightValue[2] > 1.0)
+			{
+				continue;   // a brightening light: a local lamp (BuildLights)
+			}
+			for (int32 C = 0; C < 3; ++C)
+			{
+				Scene.AmbientScale[C] *= swc::menu::AmbientLightFactor(LightValue[C], Bulb, Range, Distance);
+			}
+		}
+	}
+	// The ambient at the body before the factor: the probe of the highest priority whose box holds the body, its color x
+	// DiffuseMultiplier x the mean of its diffuse cube (the means of the record, source units).
+	double ProbeAmbient = 0.0;
+	int32 ProbePriority = -1;
+	const TArray<TSharedPtr<FJsonValue>>* ProbeRecords = nullptr;
+	const TSharedPtr<FJsonObject>* CubeRecords = nullptr;
+	if (Values->TryGetArrayField(TEXT("probes"), ProbeRecords) && Values->TryGetObjectField(TEXT("cubes"), CubeRecords))
+	{
+		for (const TSharedPtr<FJsonValue>& ProbeValue : *ProbeRecords)
+		{
+			const TSharedPtr<FJsonObject> ProbeRecord = ProbeValue->AsObject();
+			USwcEnvironmentSubsystem::FData::FLocalProbe Probe;
+			if (!ProbeRecord.IsValid() || !USwcEnvironmentSubsystem::ReadLocalProbe(ProbeRecord, ProbeRecord->GetStringField(TEXT("cubemap")), Probe))
+			{
+				continue;
+			}
+			const swc::environment::Vec3 D{Body.X - Probe.Center.x, Body.Y - Probe.Center.y, Body.Z - Probe.Center.z};
+			bool bInside = true;
+			for (const swc::environment::Vec3& Row : Probe.Rows)
+			{
+				bInside = bInside && FMath::Abs(Row.x * D.x + Row.y * D.y + Row.z * D.z) <= 1.0;
+			}
+			const TSharedPtr<FJsonObject>* Cube = nullptr;
+			const TSharedPtr<FJsonObject>* Means = nullptr;
+			if (!bInside || Probe.Priority <= ProbePriority
+				|| !(*CubeRecords)->TryGetObjectField(ProbeRecord->GetStringField(TEXT("cubemap")), Cube) || !(*Cube)->TryGetObjectField(TEXT("diffuseMeans"), Means))
+			{
+				continue;
+			}
+			double Mean = 0.0;
+			for (const auto& Face : (*Means)->Values)
+			{
+				const TArray<TSharedPtr<FJsonValue>>& Rgb = Face.Value->AsArray();
+				Mean += Rgb.Num() == 3 ? (0.2126 * Rgb[0]->AsNumber() + 0.7152 * Rgb[1]->AsNumber() + 0.0722 * Rgb[2]->AsNumber()) / 6.0 : 0.0;
+			}
+			ProbePriority = Probe.Priority;
+			ProbeAmbient = (0.2126 * Probe.Color[0] + 0.7152 * Probe.Color[1] + 0.0722 * Probe.Color[2]) * Mean;
+		}
+	}
+	Scene.bAmbientLights = AmbientLights > 0;
+	AmbientBounceBase = ProbeAmbient * (0.2126 * Scene.AmbientScale[0] + 0.7152 * Scene.AmbientScale[1] + 0.0722 * Scene.AmbientScale[2]);
+	if (AmbientLights > 0)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("menu: %d ambient light(s): the factor of the darkening lights at the body %.4f %.4f %.4f; the ambient at the body %.5f -> %.5f source units"),
+			AmbientLights, Scene.AmbientScale[0], Scene.AmbientScale[1], Scene.AmbientScale[2], ProbeAmbient, AmbientBounceBase);
 	}
 	Environment->SetMenuScene(Scene);
 }
@@ -656,6 +752,25 @@ void ASwcMenuPreview::BuildLights(const TArray<TSharedPtr<FJsonValue>>& Lights)
 	}
 	const bool bLightsOn = CVarMenuLights.GetValueOnGameThread() != 0;
 	int32 Made = 0;
+	int32 WithCookie = 0;
+	// The cookies of the projector lights (the field cookie of the record: the ship lattices of the creation scene, stage Q3): the light
+	// function instance of each converted projector texture, as the world lights (environment/cookies.json, tools/import-cookies.sh).
+	TMap<FString, FString> CookiePaths;
+	{
+		FString CookieText;
+		TSharedPtr<FJsonObject> CookieDoc;
+		const TSharedPtr<FJsonObject>* Cookies = nullptr;
+		if (FFileHelper::LoadFileToString(CookieText, *FPaths::Combine(SceneContent, TEXT("environment/cookies.json")))
+			&& FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(CookieText), CookieDoc) && CookieDoc.IsValid()
+			&& CookieDoc->TryGetObjectField(TEXT("cookies"), Cookies))
+		{
+			for (const auto& Pair : (*Cookies)->Values)
+			{
+				const FString Name = TEXT("MI_") + Pair.Value->AsObject()->GetStringField(TEXT("name"));
+				CookiePaths.Add(FString(Pair.Key), FString::Printf(TEXT("/SwcGameContent/Environment/Cookies/%s.%s"), *Name, *Name));
+			}
+		}
+	}
 	for (const TSharedPtr<FJsonValue>& Value : Lights)
 	{
 		const TSharedPtr<FJsonObject> Item = Value->AsObject();
@@ -666,6 +781,24 @@ void ASwcMenuPreview::BuildLights(const TArray<TSharedPtr<FJsonValue>>& Lights)
 		if ((Type != 0 && Type != 2) || Text(TEXT("Visible")) == TEXT("false") || Text(TEXT("OnInitially")) == TEXT("false"))
 		{
 			continue;
+		}
+		// An ambient light of the source is a factor on the ambient (SetEnvironment). A darkening one is no lamp; a brightening one
+		// (the bounce lights) is a lamp of (value - 1) x the ambient at the body (AmbientBounceBase).
+		const bool bAmbientLight = Text(TEXT("Ambient")) == TEXT("true");
+		if (bAmbientLight)
+		{
+			TArray<FString> Rgb;
+			Text(TEXT("Color")).ParseIntoArrayWS(Rgb);
+			const double Diffuse = Number(TEXT("DiffuseMultiplier"), 1.0);
+			double V[3];
+			for (int32 C = 0; C < 3; ++C)
+			{
+				V[C] = (C < Rgb.Num() ? FCString::Atod(*Rgb[C]) : 1.0) * Diffuse;
+			}
+			if (0.2126 * V[0] + 0.7152 * V[1] + 0.0722 * V[2] <= 1.0)
+			{
+				continue;
+			}
 		}
 		const TArray<TSharedPtr<FJsonValue>>& W = Item->GetArrayField(TEXT("world"));
 		if (W.Num() != 12)
@@ -684,6 +817,15 @@ void ASwcMenuPreview::BuildLights(const TArray<TSharedPtr<FJsonValue>>& Lights)
 			Light.color[C] = FCString::Atod(*Rgb[C]);
 		}
 		Light.diffuse = Number(TEXT("DiffuseMultiplier"), 1.0);
+		if (bAmbientLight)
+		{
+			// The added light (value - 1) x the ambient: the color carries the value, the multiplier the ambient.
+			for (int32 C = 0; C < 3; ++C)
+			{
+				Light.color[C] = FMath::Max(Light.color[C] * Light.diffuse - 1.0, 0.0);
+			}
+			Light.diffuse = AmbientBounceBase;
+		}
 		Light.spec = Number(TEXT("SpecMultiplier"), 1.0);
 		Light.range = Type == 2 ? Number(TEXT("ProjectorDistance"), 1.0) : Number(TEXT("PointMaxDistance"), 1.0);
 		Light.bulb = Type == 2 ? Number(TEXT("ProjectorAttenuationBulbSize"), 0.05) : Number(TEXT("PointAttenuationBulbSize"), 0.05);
@@ -694,6 +836,14 @@ void ASwcMenuPreview::BuildLights(const TArray<TSharedPtr<FJsonValue>>& Lights)
 			USpotLightComponent* Spot = NewObject<USpotLightComponent>(this);
 			Spot->SetOuterConeAngle(static_cast<float>(FMath::Clamp(Light.fov * 0.5, 1.0, 80.0)));   // ProjectorFOV is the full angle
 			Spot->SetInnerConeAngle(0.0f);
+			if (const FString* CookiePath = CookiePaths.Find(Text(TEXT("cookie"))))
+			{
+				if (UMaterialInterface* Cookie = LoadObject<UMaterialInterface>(nullptr, **CookiePath, nullptr, LOAD_NoWarn))
+				{
+					Spot->SetLightFunctionMaterial(Cookie);   // Unreal maps the UV of a spot light function over the outer cone
+					++WithCookie;
+				}
+			}
 			Point = Spot;
 		}
 		else
@@ -708,8 +858,21 @@ void ASwcMenuPreview::BuildLights(const TArray<TSharedPtr<FJsonValue>>& Lights)
 		Point->SetMobility(EComponentMobility::Movable);
 		Point->SetSourceRadius(static_cast<float>(swc::menu::LightSourceRadius(Light.bulb, Reference) * 100.0));
 		Point->SetAttenuationRadius(static_cast<float>(Light.range * 100.0));
-		Point->SetIntensityUnits(ELightUnits::Candelas);
-		Point->SetIntensity(static_cast<float>(swc::menu::LightCandela(Light.diffuse, Light.bulb, Reference)));
+		const double Exponent = swc::menu::SourceFalloffExponent(Light.bulb, Light.range);
+		if (bSourceFalloff && Exponent <= swc::menu::MaxSourceFalloffExponent)
+		{
+			// The source falloff (the creation scene): the illuminance of the source at the bulb, pi x 10,000 x DiffuseMultiplier lux,
+			// with (1 - (d / range)^2)^n in place of the inverse square.
+			Point->bUseInverseSquaredFalloff = false;
+			Point->SetLightFalloffExponent(static_cast<float>(Exponent));
+			Point->SetIntensityUnits(ELightUnits::Unitless);
+			Point->SetIntensity(static_cast<float>(3.14159265358979323846 * swc::menu::LightUnitLuminance * Light.diffuse));
+		}
+		else
+		{
+			Point->SetIntensityUnits(ELightUnits::Candelas);
+			Point->SetIntensity(static_cast<float>(swc::menu::LightCandela(Light.diffuse, Light.bulb, Reference)));
+		}
 		Point->SetLightColor(FLinearColor(static_cast<float>(Light.color[0]), static_cast<float>(Light.color[1]), static_cast<float>(Light.color[2])));
 		Point->SetCastShadows(false);
 		Point->SetVolumetricScatteringIntensity(Text(TEXT("VolumetricFog")) == TEXT("true") ? 1.0f : 0.0f);   // the world rule
@@ -720,8 +883,8 @@ void ASwcMenuPreview::BuildLights(const TArray<TSharedPtr<FJsonValue>>& Lights)
 		SceneParts.Add(Point);
 		++Made;
 	}
-	UE_LOG(LogSwcBackend, Log, TEXT("menu: the scene lights: %d of %d records (point and projector lights), %s"), Made, Lights.Num(),
-		bLightsOn ? TEXT("on") : TEXT("off (swc.MenuLights 0)"));
+	UE_LOG(LogSwcBackend, Log, TEXT("menu: the scene lights: %d of %d records (point and projector lights; %d with a cookie), %s"), Made,
+		Lights.Num(), WithCookie, bLightsOn ? TEXT("on") : TEXT("off (swc.MenuLights 0)"));
 }
 
 void ASwcMenuPreview::PlaceCamera(const FVector& GameWorld, const FVector& EulerDegrees)
