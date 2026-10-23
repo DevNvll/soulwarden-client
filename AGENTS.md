@@ -221,6 +221,8 @@ tools/convert-water.sh write|check|samples       # the water of the world: the s
 tools/convert-water.sh source-textures|shore    # the inputs of the source water shader; the shore foam emitters and their sheets (shore.json)
 tools/import-water.sh                           # the water textures, the source water material M_SwcWaterSource, the shore foam decal M_SwcShoreFoam
 tools/test-water.sh                             # the tests of the water readers, the depth query, and the depth classes (no engine)
+tools/convert-scenes.sh write|convert            # the quest scenes: spawners, slices, timelines, whispers, cinematics; the actors and clips (docs/QUESTS.md Q5)
+tools/test-scenes.sh                            # the tests of the scene key curves (the worked beach camera pair; no engine)
 tools/convert-persons.sh write --near X Y R     # the persons of the settlements, their timelines, lines, and cameras (docs/PERSONS.md; no --near: the world)
 tools/convert-persons.sh convert                # the bodies, items, and clips of the persons (then tools/import-player.sh)
 tools/convert-materials.sh audit                # the rich material records, the slot provenance, and the key collisions (docs/MATERIALS.md)
