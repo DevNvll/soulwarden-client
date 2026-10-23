@@ -35,6 +35,7 @@
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformTime.h"
 #include "HAL/IConsoleManager.h"
+#include "zlib.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Net/SwcLoginClient.h"
@@ -461,6 +462,10 @@ bool USwcBackendSubsystem::TickWorld(float DeltaTime)
 	if (bInGame && !bQuitting)
 	{
 		UpdatePlayer();
+	}
+	if (bInGame && DevCutsceneStep > 0)
+	{
+		TickDevCutscene(Snapshot.Own);
 	}
 	if (bInGame && QuitWhen == TEXT("world") && !bQuitting && FPlatformTime::Seconds() - InGameSince >= StaySeconds)
 	{
@@ -1781,6 +1786,76 @@ bool USwcBackendSubsystem::AbandonObjective(uint64 Instance)
 	return true;
 }
 
+bool USwcBackendSubsystem::AcceptObjective(uint32 Objective)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->Queue([Objective](swc::net::RepClient& Client) { Client.accept_objective(Objective); });
+	return true;
+}
+
+bool USwcBackendSubsystem::CompleteObjective(uint32 Objective)
+{
+	if (!Connection.IsValid() || !bInGame)
+	{
+		return false;
+	}
+	Connection->Queue([Objective](swc::net::RepClient& Client) { Client.complete_objective(Objective); });
+	return true;
+}
+
+bool USwcBackendSubsystem::DevCutscene(uint32 Cutscene, float EndSeconds)
+{
+	if (bPlayerRun)
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("dev cutscene: refused: a check aid of the development runs only (SWC_RUN=development)"));
+		return false;
+	}
+	if (!Connection.IsValid() || !bInGame)
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("dev cutscene: refused: no world connection"));
+		return false;
+	}
+	DevCutsceneCrc = Cutscene;
+	DevCutsceneStep = 1;
+	DevCutsceneTime = FPlatformTime::Seconds();
+	DevCutsceneEnd = FMath::Max(EndSeconds, 0.0f);
+	DevCutsceneGrants = Connection->GetSnapshot().Own.cutsceneGrants;
+	Connection->Queue([Cutscene](swc::net::RepClient& Client) { Client.request_cutscene(Cutscene); });
+	UE_LOG(LogSwcBackend, Log, TEXT("dev cutscene: %08x requested (6703; a check aid with no playback, AST-239)"), Cutscene);
+	return true;
+}
+
+void USwcBackendSubsystem::TickDevCutscene(const swc::net::RepClient::OwnEntity& Own)
+{
+	const double Now = FPlatformTime::Seconds();
+	const uint32 Cutscene = DevCutsceneCrc;
+	if (DevCutsceneStep == 1)
+	{
+		if (Own.cutsceneGrants != DevCutsceneGrants && Own.lastCutsceneGrant == Cutscene)
+		{
+			DevCutsceneStep = 2;
+			DevCutsceneTime = Now;
+			Connection->Queue([Cutscene](swc::net::RepClient& Client) { Client.cutscene_started(Cutscene); });
+			UE_LOG(LogSwcBackend, Log, TEXT("dev cutscene: %08x granted (6707), started (6706); the end in %.1f s"), Cutscene, DevCutsceneEnd);
+		}
+		else if (Now - DevCutsceneTime > 10.0)
+		{
+			// The backend answers only when an active TaskCutsceneComplete of the character names the cutscene.
+			DevCutsceneStep = 0;
+			UE_LOG(LogSwcBackend, Warning, TEXT("dev cutscene: %08x: no grant in 10 s (no active cutscene task names it)"), Cutscene);
+		}
+	}
+	else if (DevCutsceneStep == 2 && Now - DevCutsceneTime >= DevCutsceneEnd)
+	{
+		DevCutsceneStep = 0;
+		Connection->Queue([](swc::net::RepClient& Client) { Client.end_cutscene(); });
+		UE_LOG(LogSwcBackend, Log, TEXT("dev cutscene: %08x ended (6705)"), Cutscene);
+	}
+}
+
 bool USwcBackendSubsystem::ResetObjective(uint64 Instance)
 {
 	if (!Connection.IsValid() || !bInGame)
@@ -2051,3 +2126,41 @@ void USwcBackendSubsystem::Quit(bool bSucceeded, const TCHAR* Cause)
 	UE_LOG(LogSwcBackend, Log, TEXT("client: stop (%s), status %d"), Cause, bSucceeded ? 0 : 1);
 	FPlatformMisc::RequestExitWithStatus(false, bSucceeded ? 0 : 1, TEXT("USwcBackendSubsystem"));
 }
+
+namespace
+{
+/** swc.DevCutscene NAME|CRC [SECONDS] (AST-239): the check aid of the development runs (USwcBackendSubsystem::DevCutscene). NAME: the
+ *  cutscene name (its CRC-32 of the lower-case name); CRC: 8 hexadecimal digits. SECONDS: the time from the start to the end (default 3). */
+void DevCutsceneCommand(const TArray<FString>& Args, UWorld* World)
+{
+	USwcBackendSubsystem* Backend = World != nullptr && World->GetGameInstance() != nullptr
+		? World->GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr;
+	if (Backend == nullptr || Args.Num() < 1)
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("swc.DevCutscene NAME|CRC [SECONDS]: no backend subsystem or no cutscene"));
+		return;
+	}
+	uint32 Cutscene = 0;
+	const FString& Name = Args[0];
+	bool bHex = Name.Len() == 8;
+	for (const TCHAR Char : Name)
+	{
+		bHex = bHex && FChar::IsHexDigit(Char);
+	}
+	if (bHex)
+	{
+		Cutscene = static_cast<uint32>(FCString::Strtoui64(*Name, nullptr, 16));
+	}
+	else
+	{
+		const FTCHARToUTF8 Lower(*Name.ToLower());
+		Cutscene = static_cast<uint32>(crc32(0L, reinterpret_cast<const Bytef*>(Lower.Get()), static_cast<uInt>(Lower.Length())));
+	}
+	Backend->DevCutscene(Cutscene, Args.Num() >= 2 ? FCString::Atof(*Args[1]) : 3.0f);
+}
+
+FAutoConsoleCommandWithWorldAndArgs CommandDevCutscene(TEXT("swc.DevCutscene"),
+	TEXT("swc.DevCutscene NAME|CRC [SECONDS]: development runs only (AST-239): send the real cutscene messages with no playback (6703, at the ")
+	TEXT("grant 6706, then 6705 after SECONDS); the backend completes the cutscene task by its own rules. A check aid, not a product path."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&DevCutsceneCommand));
+} // namespace

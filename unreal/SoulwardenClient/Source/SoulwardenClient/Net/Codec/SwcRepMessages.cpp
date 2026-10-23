@@ -410,6 +410,34 @@ Bytes conversation_topic_body(std::uint64_t group, std::uint32_t topic) {
     return w.data();
 }
 
+Bytes conversation_objective_body(std::uint64_t group, std::uint32_t objective) {
+    Writer w;
+    w.u64(group + kConversationComponent);
+    w.u64(group);
+    w.u32(objective);
+    return w.data();
+}
+
+Bytes cutscene_body(std::uint64_t group, std::uint32_t cutscene) {
+    Writer w;
+    w.u64(group + kPlayerCutsceneComponent);
+    w.u64(group);
+    w.u32(cutscene);
+    return w.data();
+}
+
+std::optional<CutsceneGrant> read_cutscene_grant(std::span<const std::uint8_t> body) {
+    Reader r(body);
+    CutsceneGrant out;
+    out.target = r.u64();
+    out.entity = r.u64();
+    out.cutscene = r.u32();
+    if (!r.ok() || r.left() != 0) {
+        return std::nullopt;
+    }
+    return out;
+}
+
 Bytes finished_topics_body(std::uint64_t group, const std::vector<std::uint32_t>& topics) {
     Writer w;
     w.u64(group + kConversationComponent);

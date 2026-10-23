@@ -196,6 +196,14 @@ public:
 	bool NotifyOpenUiScreen(uint32 Screen);
 	bool AbandonObjective(uint64 Instance);
 	bool ResetObjective(uint64 Instance);
+	/** The offer and the hand-in at a person (AST-239): 3772 and 794 with the CRC-32 of the lower-case ObjectiveID. False with no world
+	 *  connection. */
+	bool AcceptObjective(uint32 Objective);
+	bool CompleteObjective(uint32 Objective);
+	/** The check aid of the development runs (AST-239; docs/QUESTS.md "The check aid of a quest cutscene"; console swc.DevCutscene): the
+	 *  real cutscene messages with no playback: 6703, then at the grant 6707 of the same CRC 6706, then after EndSeconds 6705. The backend
+	 *  completes the cutscene task by its own rules. Not a product path (the playback is stage Q5); refused in a player run. */
+	bool DevCutscene(uint32 Cutscene, float EndSeconds);
 	bool RequestCraft(uint32 Recipe, uint32 Quantity, uint32 Fee, uint16 GearScore, const TArray<uint32>& PerkItems, uint8 Upgrade,
 		const TArray<uint32>& Items);
 
@@ -296,6 +304,14 @@ private:
 	FString EnterError;
 	float StaySeconds = 10.0f;
 	double InGameSince = 0.0;
+	/** The check aid swc.DevCutscene (AST-239): the cutscene, the step (1: 6703 sent, 2: 6706 sent), the time of the step, the delay of
+	 *  the end, and the count of the grants at the request. */
+	uint32 DevCutsceneCrc = 0;
+	int32 DevCutsceneStep = 0;
+	double DevCutsceneTime = 0.0;
+	float DevCutsceneEnd = 0.0f;
+	uint32 DevCutsceneGrants = 0;
+	void TickDevCutscene(const swc::net::RepClient::OwnEntity& Own);
 	bool bInGame = false;
 	bool bQuitting = false;
 	FTSTicker::FDelegateHandle QuitTimer;

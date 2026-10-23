@@ -257,6 +257,25 @@ void requests()
 	std::vector<std::uint32_t> many(12, 7);
 	const auto limit = backend::server::rep::read_finished_topics(swc::net::finished_topics_body(group, many));
 	check(limit && limit->topics.size() == 10, "5397: at most 10 topics are written");
+	// The offer and the hand-in at a person (AST-239): the Conversation facet, the CRC-32 of the lower-case ObjectiveID (live I2 of the
+	// backend stage 1.8b: d137c605 06_skinningknife; live P1: e4d66020 06_getoffbeach). The backend reads them as 6703 (one u32).
+	const auto accept = backend::server::rep::read_cutscene_request(swc::net::conversation_objective_body(group, 0xD137C605U));
+	check(accept && accept->cutscene == 0xD137C605U && accept->target == group + swc::net::kConversationComponent && accept->entity == group
+			  && swc::net::conversation_objective_body(group, 0xD137C605U).size() == 20,
+		"3772: 20 bytes, the objective d137c605 (06_skinningknife) on the Conversation facet");
+	const auto handIn = backend::server::rep::read_cutscene_request(swc::net::conversation_objective_body(group, 0xE4D66020U));
+	check(handIn && handIn->cutscene == 0xE4D66020U && handIn->target == group + swc::net::kConversationComponent,
+		"794: the objective e4d66020 (06_getoffbeach) on the Conversation facet");
+	// The cutscene of a quest task (AST-239, the check aid): 6703 and 6706 on the PlayerCutscene facet; 6707 from the backend writer.
+	const auto request = backend::server::rep::read_cutscene_request(swc::net::cutscene_body(group, 0x4817DD08U));
+	check(request && request->cutscene == 0x4817DD08U && request->target == group + swc::net::kPlayerCutsceneComponent && request->entity == group,
+		"6703 and 6706: the beach cutscene 4817dd08 on the PlayerCutscene facet");
+	const auto grantBytes = backend::server::rep::cutscene_granted_body(group, 0x4817DD08U);
+	const auto grant = swc::net::read_cutscene_grant(grantBytes);
+	check(grant && grant->cutscene == 0x4817DD08U && grant->entity == group && grant->target == group + swc::net::kPlayerCutsceneComponent,
+		"6707: the client reads the grant of the backend writer (4817dd08)");
+	check(!swc::net::read_cutscene_grant(std::vector<std::uint8_t>(grantBytes.begin(), grantBytes.end() - 1)),
+		"6707: a short body is not a grant");
 }
 
 } // namespace

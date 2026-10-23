@@ -217,6 +217,29 @@ Open [U] (study 8): the task suppression byte +0x302, the game mode and mutation
 resolver, the dynamic mission locations, the gatherable entity pins, the TP_HideOnCompassOnEnterPOI reader, the quest search area, and the
 NPC state priority (the ready NPC marker state of the hand-in: Q4 owns the NPC states).
 
+## The persons, the offers, and the hand-in (Q4, AST-239)
+
+Work in progress (the native conversation rules: the study `research/quest-conversation.md`, brief
+`research/briefs/q4-conversation-objectives.md`).
+
+- The state selection: the validity of a record (backend stage 1.8f): docs/PERSONS.md "The conversation state".
+- The messages (protocol notes 3772, 794; backend `server/rep/quest_messages.h`; the type ids of the client message table): 3772
+  RequestAcceptObjective and 794 RequestCompleteObjective, each the CRC-32 of the lower-case ObjectiveID on the Conversation facet of the
+  player root (20 bytes; `conversation_objective_body`). The screen sends them with the host requests "quest accept CRC" and "quest
+  complete CRC" (UI/SwcUiQuests). The server gives no answer: the Objectives state (a new instance; the completion notice in field 2) is
+  the result; a refusal gives nothing. Tests: `tools/test-net.sh` (the backend reader reads the bodies).
+
+### The check aid of a quest cutscene (development runs only)
+
+`swc.DevCutscene NAME|CRC [SECONDS]` (console; a drive can send it with `exec`) sends the real cutscene messages of a quest task with no
+playback: 6703 with the CRC-32 of the lower-case cutscene name; at the grant 6707 of the same CRC (the backend grants only when an active
+TaskCutsceneComplete of the character names the cutscene), 6706; after SECONDS (default 3), 6705 (the server answers 6709). The backend
+completes the cutscene task by its own rules. It is a check aid, not a product path: it runs only with `SWC_RUN=development`
+(`tools/dev-run.sh`; `tools/play.sh` sets `player`, and the command is refused there), and it never runs without the command. The Q4 live
+check uses it for the ready state of 06_getoffbeach (the beach cutscene `4817dd08`, the decision of the orchestrator, 2026-10-23). The
+natural path (the activation of the scene by the achievements, the playback, the skip, the camera) is stage Q5. The log lines start with
+"dev cutscene:".
+
 ## Open points
 
 - The banner shows in the HUD state: an inference (`manager.lua`).

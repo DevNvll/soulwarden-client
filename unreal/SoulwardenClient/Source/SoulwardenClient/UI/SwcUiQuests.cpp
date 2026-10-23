@@ -152,6 +152,17 @@ bool FSwcUiQuests::HandleRequest(const FString& Request, USwcBackendSubsystem& B
 		Backend.ResetObjective(Number(Parts[2]));
 		UE_LOG(LogSwcUiQuests, Log, TEXT("ui: quests: reset %s (5600)"), *Parts[2]);
 	}
+	// The offer and the hand-in of the conversation screen (AST-239): the objective CRC.
+	else if (Parts.Num() == 3 && Parts[1] == TEXT("accept"))
+	{
+		Backend.AcceptObjective(static_cast<uint32>(Number(Parts[2])));
+		UE_LOG(LogSwcUiQuests, Log, TEXT("ui: quests: accept %08x (3772)"), static_cast<uint32>(Number(Parts[2])));
+	}
+	else if (Parts.Num() == 3 && Parts[1] == TEXT("complete"))
+	{
+		Backend.CompleteObjective(static_cast<uint32>(Number(Parts[2])));
+		UE_LOG(LogSwcUiQuests, Log, TEXT("ui: quests: complete %08x (794)"), static_cast<uint32>(Number(Parts[2])));
+	}
 	else
 	{
 		UE_LOG(LogSwcUiQuests, Warning, TEXT("ui: a quest request with no form: %s"), *Request);

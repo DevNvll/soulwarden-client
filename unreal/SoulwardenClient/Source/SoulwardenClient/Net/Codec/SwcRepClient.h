@@ -184,6 +184,9 @@ public:
         std::uint32_t teleportNotices{0};
         std::uint32_t interactionCancels{0};
         std::uint32_t lockEnds{0};
+        /** The grants of a cutscene (6707) and the CRC of the last one (AST-239). */
+        std::uint32_t cutsceneGrants{0};
+        std::uint32_t lastCutsceneGrant{0};
         /** The interaction request of the client (the block of the input entries) and the replies 3743 to it. */
         std::optional<InteractionRequest> interaction;
         std::uint32_t interactionResults{0};
@@ -507,6 +510,13 @@ public:
     /** The topics of a person conversation (AST-248): the selected topic (3158) and the finished topics after the close 2473 (5397). */
     void conversation_topic(std::uint32_t topic);
     void finished_topics(const std::vector<std::uint32_t>& topics);
+    /** The offer and the hand-in at a person (AST-239): 3772 and 794 with the CRC-32 of the lower-case ObjectiveID. */
+    void accept_objective(std::uint32_t objective);
+    void complete_objective(std::uint32_t objective);
+    /** The cutscene of a quest task (AST-239; only the check aid of the development runs uses them before stage Q5): the request 6703
+     *  (the server answers 6707: cutsceneGrants) and the start 6706. The end is end_cutscene (6705). */
+    void request_cutscene(std::uint32_t cutscene);
+    void cutscene_started(std::uint32_t cutscene);
     /** Copies an Objectives state (slot 22) into an own entity: false for a fragment that does not have its form (no change). */
     static bool read_objectives(const soulwarden::backend::tests::Fragment& fragment, OwnEntity& own);
     /** True after the first 2709 of this session. */

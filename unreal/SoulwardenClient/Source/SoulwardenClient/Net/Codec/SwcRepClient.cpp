@@ -442,6 +442,17 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         }
         return;
     }
+    if (message.type == kCutsceneGranted.index) {
+        const auto grant = read_cutscene_grant(message.body);
+        if (grant && grant->entity == m_own.group) {
+            ++m_own.cutsceneGrants;
+            m_own.lastCutsceneGrant = grant->cutscene;
+            char hex[16];
+            std::snprintf(hex, sizeof hex, "%08x", grant->cutscene);
+            log(Event::Level::info, std::string("the grant of the cutscene ") + hex + " (6707)");
+        }
+        return;
+    }
     if (message.type == kCutsceneEndFinalized.index) {
         const auto call = read_component_call(message.body);
         if (call && call->entity == m_own.group) {
@@ -1472,6 +1483,46 @@ void RepClient::finished_topics(const std::vector<std::uint32_t>& topics) {
         text += hex;
     }
     log(Event::Level::info, "conversation: the finished topics (5397):" + (text.empty() ? std::string(" none") : text));
+}
+
+void RepClient::accept_objective(std::uint32_t objective) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kAcceptObjective, conversation_objective_body(m_own.group, objective));
+    char hex[16];
+    std::snprintf(hex, sizeof hex, "%08x", objective);
+    log(Event::Level::info, std::string("conversation: the accept of the objective ") + hex + " (3772)");
+}
+
+void RepClient::complete_objective(std::uint32_t objective) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kCompleteObjective, conversation_objective_body(m_own.group, objective));
+    char hex[16];
+    std::snprintf(hex, sizeof hex, "%08x", objective);
+    log(Event::Level::info, std::string("conversation: the hand-in of the objective ") + hex + " (794)");
+}
+
+void RepClient::request_cutscene(std::uint32_t cutscene) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kRequestStartCutscene, cutscene_body(m_own.group, cutscene));
+    char hex[16];
+    std::snprintf(hex, sizeof hex, "%08x", cutscene);
+    log(Event::Level::info, std::string("the request of the cutscene ") + hex + " (6703)");
+}
+
+void RepClient::cutscene_started(std::uint32_t cutscene) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata) {
+        return;
+    }
+    send_call(kCutsceneStarted, cutscene_body(m_own.group, cutscene));
+    char hex[16];
+    std::snprintf(hex, sizeof hex, "%08x", cutscene);
+    log(Event::Level::info, std::string("the start of the cutscene ") + hex + " (6706)");
 }
 
 void RepClient::cancel_craft() {

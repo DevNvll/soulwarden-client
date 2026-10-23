@@ -174,9 +174,21 @@ inline constexpr MessageType kTerritoryLeft{"TerritoryDetectorComponentServerFac
  *  topic of the selection (3158) and the finished topics after the close 2473 (5397) on the Conversation facet of the player root. */
 inline constexpr MessageType kConversationTopic{"ConversationComponentServerFacet_RequestConversationTopicFromClient", "F9169FA5CD3D4002BB2AEA1E4109720F", 3158};
 inline constexpr MessageType kConversationTopicsFinished{"ConversationComponentServerFacet_OnFinishedConversationTopicsFromClient", "92665A5116DD434592C73A3BA7C2355D", 5397};
+/** The offer and the hand-in at a person (Linear AST-239; protocol notes 3772 and 794; backend server/rep/quest_messages.h; the type ids
+ *  of the client message table, research scratch/conversations/messages.json): the CRC-32 of the lower-case ObjectiveID on the
+ *  Conversation facet of the player root. No answer: the Objectives state gives the result (a refusal gives nothing). */
+inline constexpr MessageType kAcceptObjective{"ConversationComponentServerFacet_RequestAcceptObjective", "F6E868BF0A514B34B433108CD78B4B15", 3772};
+inline constexpr MessageType kCompleteObjective{"ConversationComponentServerFacet_RequestCompleteObjective", "F306727EF35C48C09B1A2F8B21955CDB", 794};
+/** The cutscene of a quest task (protocol notes 6703, 6707, 6706; backend server/rep/quest_messages.h): the request (6703), the grant of
+ *  the server (6707), and the start (6706), each with the CRC-32 of the lower-case cutscene name, on the PlayerCutscene facet. The end is
+ *  6705 (kCutsceneEnded). AST-239 uses them only in the check aid of the development runs (docs/QUESTS.md); the playback is stage Q5. */
+inline constexpr MessageType kRequestStartCutscene{"PlayerCutsceneComponentServerFacet_OnClientRequestStartCutscene", "181E376DE924442B9AF0745F2E660CB4", 6703};
+inline constexpr MessageType kCutsceneGranted{"PlayerCutsceneComponentClientFacet_OnServerCutsceneRequestGranted", "43BDC38F5E734126A906FB0502C64C78", 6707};
+inline constexpr MessageType kCutsceneStarted{"PlayerCutsceneComponentServerFacet_OnClientCutsceneStarted", "A2B92F8D8CD64C2EA12F4A355891B200", 6706};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 79> kUsedTypes{kStateObjectives, kStatePinReadiness, kObjectiveAutoPinning,
+inline constexpr std::array<MessageType, 84> kUsedTypes{kAcceptObjective, kCompleteObjective, kRequestStartCutscene, kCutsceneGranted,
+    kCutsceneStarted, kStateObjectives, kStatePinReadiness, kObjectiveAutoPinning,
     kUpdateTrackedObjectives, kNotifyOpenUiScreen, kAbandonObjective, kResetObjective, kTerritoryEntered, kTerritoryLeft, kConversationTopic,
     kConversationTopicsFinished, kAssignPoolPoints, kChangeMappedAbility, kApplyAbilityPoints, kMasteryTreeRespec,
     kMasteryTreeRespecResponse, kRegistrationRequestV3, kRegistrationResponse, kReplicatedStateBundle,
@@ -550,6 +562,20 @@ inline constexpr std::size_t kFinishedTopicsLimit = 10;
 Bytes conversation_topic_body(std::uint64_t group, std::uint32_t topic);
 /** @return The body of OnFinishedConversationTopicsFromClient (5397): target entity count:size topic:u32 each (at most 10 are written). */
 Bytes finished_topics_body(std::uint64_t group, const std::vector<std::uint32_t>& topics);
+/** @return The body of RequestAcceptObjective (3772) or RequestCompleteObjective (794), 20 bytes: target entity objective:u32 (the
+ *  CRC-32 of the lower-case ObjectiveID) on the Conversation facet (AST-239). */
+Bytes conversation_objective_body(std::uint64_t group, std::uint32_t objective);
+/** @return The body of OnClientRequestStartCutscene (6703) or OnClientCutsceneStarted (6706), 20 bytes: target entity cutscene:u32 on the
+ *  PlayerCutscene facet (AST-239). */
+Bytes cutscene_body(std::uint64_t group, std::uint32_t cutscene);
+/** A grant of a cutscene (6707): the head of the call and the CRC of the cutscene. */
+struct CutsceneGrant {
+    std::uint64_t target{0};
+    std::uint64_t entity{0};
+    std::uint32_t cutscene{0};
+};
+/** @return The body of OnServerCutsceneRequestGranted (6707), or no value for a body that does not have its form. */
+std::optional<CutsceneGrant> read_cutscene_grant(std::span<const std::uint8_t> body);
 
 /** The head of a component call: target:u64 entity:u64. */
 struct ComponentCall {
