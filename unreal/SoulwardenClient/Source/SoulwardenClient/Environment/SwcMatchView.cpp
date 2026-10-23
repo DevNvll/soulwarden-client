@@ -86,11 +86,12 @@ namespace
 {
 /**
  * The fixed eye of a check (AST-269; development runs): "swc.EyeView hold" keeps the place and the rotation of the camera of this
- * frame (the override of a matched view), "swc.EyeView turn DYAW DPITCH" turns the view around that fixed eye (degrees; a pan with no
+ * frame (the override of a matched view), "swc.EyeView at X Y Z HEADING PITCH" sets an eye at a game place (engine m),
+ * "swc.EyeView turn DYAW DPITCH" turns the view around that fixed eye (degrees; a pan with no
  * change of the eye place, unlike the orbit of the camera of the player), "swc.EyeView off" gives the camera back.
  */
 FAutoConsoleCommandWithWorldAndArgs GEyeViewCommand(TEXT("swc.EyeView"),
-	TEXT("hold | turn DYAW DPITCH | off: a fixed camera eye for the checks (the override of the matched views; development runs)."),
+	TEXT("hold | at X Y Z HEADING PITCH | turn DYAW DPITCH | off: a fixed camera eye for the checks (the override of the matched views; development runs)."),
 	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 	{
 		FSwcViewOverride& Override = FSwcViewOverride::Get();
@@ -116,6 +117,14 @@ FAutoConsoleCommandWithWorldAndArgs GEyeViewCommand(TEXT("swc.EyeView"),
 				2.0 * FMath::Atan(FMath::Tan(FMath::DegreesToRadians(Camera->GetFOVAngle()) * 0.5) * 9.0 / 16.0)));
 			Override.bActive = true;
 		}
+		else if (Verb == TEXT("at") && Args.Num() >= 6)
+		{
+			// An eye at a game place (engine m) with a compass heading (degrees clockwise from north) and a pitch (positive up).
+			Override.Location = UnrealOfEngine(FVector(FCString::Atod(*Args[1]), FCString::Atod(*Args[2]), FCString::Atod(*Args[3])));
+			Override.Rotation = FRotator(FCString::Atod(*Args[5]), FCString::Atod(*Args[4]) - 90.0, 0.0);
+			Override.VerticalFovDegrees = 57.0f;
+			Override.bActive = true;
+		}
 		else if (Verb == TEXT("turn") && Args.Num() >= 3 && Override.bActive)
 		{
 			Override.Rotation.Yaw += FCString::Atod(*Args[1]);
@@ -123,7 +132,7 @@ FAutoConsoleCommandWithWorldAndArgs GEyeViewCommand(TEXT("swc.EyeView"),
 		}
 		else
 		{
-			UE_LOG(LogTemp, Warning, TEXT("swc.EyeView: hold | turn DYAW DPITCH | off"));
+			UE_LOG(LogTemp, Warning, TEXT("swc.EyeView: hold | at X Y Z HEADING PITCH | turn DYAW DPITCH | off"));
 			return;
 		}
 		UE_LOG(LogTemp, Log, TEXT("swc.EyeView %s: %s, eye %s, rotation %s, vertical fov %.1f"), *Verb, Override.bActive ? TEXT("on") : TEXT("off"),
