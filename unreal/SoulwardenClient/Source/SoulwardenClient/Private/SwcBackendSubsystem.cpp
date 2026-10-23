@@ -1,4 +1,5 @@
 #include "SwcBackendSubsystem.h"
+#include "World/SwcLoadingGate.h"
 
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "Camera/CameraActor.h"
@@ -1663,7 +1664,10 @@ void USwcBackendSubsystem::Travel(const swc::net::RepClient::OwnEntity& Own)
 	Movement->StopMovementImmediately();
 	Movement->DisableMovement();
 	bTravelWait = true;
-	SetSpawnLoading(true);   // the loading screen of the travel: the cells of the new place load as at the world entry
+	// The loading screen of the travel: the cells of the new place load as at the world entry, with the long time of the loader in each
+	// frame from the frame after the screen has drawn (UpdateTravel; AST-273 P8: before, the first frames of 0.3 s and more froze the
+	// old view).
+	TravelLoadingFrame = GFrameCounter + SwcLoadingGate::SettleFrames;
 	TravelSince = FPlatformTime::Seconds();
 	TravelFeet = Feet;
 	TravelForward = Forward;
@@ -1673,6 +1677,10 @@ void USwcBackendSubsystem::Travel(const swc::net::RepClient::OwnEntity& Own)
 
 void USwcBackendSubsystem::UpdateTravel()
 {
+	if (!bSpawnLoading && GFrameCounter >= TravelLoadingFrame)
+	{
+		SetSpawnLoading(true);
+	}
 	ASwcPlayerCharacter* Character = Avatar.Get();
 	UWorld* World = Character != nullptr ? Character->GetWorld() : nullptr;
 	if (World == nullptr || !SwcWorldStreaming::IsReadyAt(World, TravelFeet, 90.0, TravelForward))

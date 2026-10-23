@@ -53,15 +53,26 @@ private:
 		TWeakObjectPtr<UDecalComponent> Component;
 	};
 
+	/** The roads, the decals, and the decal materials of a region file, read on a worker (AST-273 P8). */
+	struct FParsed
+	{
+		TArray<FRoad> Roads;
+		TArray<FDecal> Decals;
+		TArray<FSoftObjectPath> Materials;
+		FThreadSafeBool bDone = false;
+	};
+
 	struct FRegion
 	{
-		bool bRead = false;
+		bool bRead = false;    // the read has started
+		TSharedPtr<FParsed, ESPMode::ThreadSafe> Parsed;   // the read on a worker, until its data moves into the region
 		TArray<FRoad> Roads;
 		TArray<FDecal> Decals;
 		TSharedPtr<FStreamableHandle> Materials;   // the decal materials of the region (one async load)
 	};
 
-	bool ReadRegion(const FIntPoint& Key, FRegion& Region) const;
+	/** Reads the layer file of a region (any thread). @return False with no file. */
+	static bool ReadRegion(const FString& RegionsFolder, const FIntPoint& Key, FParsed& Out);
 	void Update(const FVector& View);
 	FVector UpdatedAt = FVector(TNumericLimits<double>::Max());   // the view of the last update (the loading gate)
 	AActor* OwnerActor();

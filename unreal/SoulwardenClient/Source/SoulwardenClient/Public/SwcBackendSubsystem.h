@@ -361,6 +361,7 @@ private:
 	double PreloadSince = 0.0;
 	/** The async loader has more time in each frame from the in-game phase to the spawn; its values of the engine before. */
 	bool bSpawnLoading = false;
+	uint64 TravelLoadingFrame = 0;   // the frame from which a travel has the long time of the loader (AST-273 P8)
 	float SavedLoadingTimeLimit = 5.0f;
 	int32 SavedLoadingFullTime = 0;
 	/** The cells of the place are loaded (SwcWorldStreaming::IsReadyAt returned true). */

@@ -1,4 +1,7 @@
 #include "Objects/SwcObjectSubsystem.h"
+
+#include "Async/Async.h"
+#include "World/SwcLoadingGate.h"
 #include "Combat/SwcAttackGraph.h"
 
 #include "CanvasItem.h"
@@ -156,6 +159,12 @@ void USwcObjectSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		}
 	}
 	DrawHandle = UDebugDrawService::Register(TEXT("Game"), FDebugDrawDelegate::CreateUObject(this, &USwcObjectSubsystem::DrawLoot));
+	// The loading gate: the region files of the place are read (on workers, AST-273 P8) before a screen ends.
+	SwcLoadingGate::Register(GetWorld(), TEXT("objects"), [this](const FVector& Place, FString& Why)
+	{
+		Why = FString::Printf(TEXT("%d region file(s) to read"), RegionReads.Num());
+		return RegionReads.IsEmpty();
+	});
 }
 
 void USwcObjectSubsystem::Deinitialize()
@@ -168,6 +177,7 @@ void USwcObjectSubsystem::Deinitialize()
 		}
 	}
 	UDebugDrawService::Unregister(DrawHandle);
+	SwcLoadingGate::Unregister(GetWorld(), TEXT("objects"));
 	ClearAll(TEXT("the world ends"));
 	Super::Deinitialize();
 }
@@ -473,16 +483,12 @@ bool USwcObjectSubsystem::LoadTables(FString& OutReport)
 	return true;
 }
 
-bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, FRegion& Out)
+bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, int32 OptionCount, FRegion& Out, double& OutMaxRange)
 {
 	Out.Name = RegionName(X, Y);
 	Out.X = X;
 	Out.Y = Y;
 	const FString Folder = FPaths::Combine(FSwcCreatureLibrary::ContentFolder(), TEXT("world-objects"));
-	if (const TArray<FNodeType>* Types = RegionTypes.Find(Out.Name))
-	{
-		Out.Types = *Types;
-	}
 	TArray<uint8> Bytes;
 	if (FFileHelper::LoadFileToArray(Bytes, *FPaths::Combine(Folder, TEXT("nodes"), Out.Name + TEXT(".bin")), FILEREAD_Silent))
 	{
@@ -545,12 +551,12 @@ bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, FRegion& Out)
 			Bound.RangeSq = static_cast<float>(BoundInfo->GetNumberField(TEXT("rangeSq")));
 			Bound.bLineOfSight = BoundInfo->GetBoolField(TEXT("lineOfSight"));
 			ReadShape(BoundInfo, Bound.Shape);
-			MaxRangeMeters = FMath::Max(MaxRangeMeters, FMath::Sqrt(static_cast<double>(Bound.RangeSq)));
+			OutMaxRange = FMath::Max(OutMaxRange, FMath::Sqrt(static_cast<double>(Bound.RangeSq)));
 			Bound.LoreBit = static_cast<int32>(BoundInfo->GetIntegerField(TEXT("lore")));
 			for (const TSharedPtr<FJsonValue>& OptionValue : BoundInfo->GetArrayField(TEXT("options")))
 			{
 				const TArray<TSharedPtr<FJsonValue>>& Pair = OptionValue->AsArray();
-				if (Pair.Num() == 2 && Options.IsValidIndex(static_cast<int32>(Pair[0]->AsNumber())))
+				if (Pair.Num() == 2 && static_cast<int32>(Pair[0]->AsNumber()) >= 0 && static_cast<int32>(Pair[0]->AsNumber()) < OptionCount)
 				{
 					Bound.Options.Emplace(static_cast<int32>(Pair[0]->AsNumber()), HexNumber(Pair[1]->AsString()));
 				}
@@ -584,20 +590,40 @@ bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, FRegion& Out)
 void USwcObjectSubsystem::UpdateRegions(const swc::net::WorldPosition& Center)
 {
 	const auto RegionOf = [](double Meters) { return static_cast<int32>(FMath::FloorToDouble(Meters / swc::objects::kRegionMeters)); };
-	// Load the regions within RegionMeters; remove the regions beyond RegionMeters + 200 m.
+	// The reads that a worker has done come into the list of regions.
+	for (auto It = RegionReads.CreateIterator(); It; ++It)
+	{
+		if (It.Value()->bDone)
+		{
+			FRegion& Region = Regions.Add(It.Key(), MoveTemp(It.Value()->Region));
+			MaxRangeMeters = FMath::Max(MaxRangeMeters, It.Value()->MaxRange);
+			UE_LOG(LogSwcObjects, Log, TEXT("objects: region %s: %d object(s) of the interaction data, %d natural node(s) (%.0f ms on a worker)"), *Region.Name,
+				Region.Objects.Num(), static_cast<int32>(Region.Nodes.size()), It.Value()->Seconds * 1000.0);
+			It.RemoveCurrent();
+		}
+	}
+	// Read the regions within RegionMeters on workers (AST-273 P8); remove the regions beyond RegionMeters + 200 m.
 	for (int32 Y = RegionOf(Center.y - RegionMeters); Y <= RegionOf(Center.y + RegionMeters); ++Y)
 	{
 		for (int32 X = RegionOf(Center.x - RegionMeters); X <= RegionOf(Center.x + RegionMeters); ++X)
 		{
-			if (Regions.Contains(FIntPoint(X, Y)))
+			if (Regions.Contains(FIntPoint(X, Y)) || RegionReads.Contains(FIntPoint(X, Y)))
 			{
 				continue;
 			}
-			const double Start = FPlatformTime::Seconds();
-			FRegion& Region = Regions.Add(FIntPoint(X, Y));
-			LoadRegion(X, Y, Region);
-			UE_LOG(LogSwcObjects, Log, TEXT("objects: region %s: %d object(s) of the interaction data, %d natural node(s) (%.0f ms)"), *Region.Name,
-				Region.Objects.Num(), static_cast<int32>(Region.Nodes.size()), (FPlatformTime::Seconds() - Start) * 1000.0);
+			TSharedPtr<FRegionRead, ESPMode::ThreadSafe> Read = MakeShared<FRegionRead, ESPMode::ThreadSafe>();
+			if (const TArray<FNodeType>* Types = RegionTypes.Find(RegionName(X, Y)))
+			{
+				Read->Region.Types = *Types;
+			}
+			RegionReads.Add(FIntPoint(X, Y), Read);
+			Async(EAsyncExecution::ThreadPool, [Read, X, Y, OptionCount = Options.Num()]()
+			{
+				const double Start = FPlatformTime::Seconds();
+				LoadRegion(X, Y, OptionCount, Read->Region, Read->MaxRange);
+				Read->Seconds = FPlatformTime::Seconds() - Start;
+				Read->bDone = true;
+			});
 		}
 	}
 	const double Keep = RegionMeters + 200.0;
@@ -611,6 +637,17 @@ void USwcObjectSubsystem::UpdateRegions(const swc::net::WorldPosition& Center)
 		{
 			UE_LOG(LogSwcObjects, Log, TEXT("objects: region %s: removed (the character is far)"), *It.Value().Name);
 			It.RemoveCurrent();
+		}
+	}
+	for (auto It = RegionReads.CreateIterator(); It; ++It)
+	{
+		const double MinX = It.Key().X * swc::objects::kRegionMeters;
+		const double MinY = It.Key().Y * swc::objects::kRegionMeters;
+		const double DX = FMath::Max3(MinX - Center.x, 0.0, Center.x - (MinX + swc::objects::kRegionMeters));
+		const double DY = FMath::Max3(MinY - Center.y, 0.0, Center.y - (MinY + swc::objects::kRegionMeters));
+		if (DX * DX + DY * DY > Keep * Keep)
+		{
+			It.RemoveCurrent();   // the worker keeps its own reference
 		}
 	}
 }
@@ -1944,6 +1981,7 @@ void USwcObjectSubsystem::ClearAll(const TCHAR* Cause)
 		UE_LOG(LogSwcObjects, Log, TEXT("objects: %s: %d region(s), %d node depletion(s) shown, %d own depleted mesh(es)"), Cause, Regions.Num(), Depletions, OwnMeshes);
 	}
 	Regions.Reset();
+	RegionReads.Reset();
 	NodeStates.Reset();
 	BoundEnabled.Reset();
 	ChestClaims.Reset();

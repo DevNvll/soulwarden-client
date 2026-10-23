@@ -495,6 +495,26 @@ moves it out of `LoadMap`, but the visible terrain must still load before the sc
 the login; not done); a cooked build removes the registry, the World Partition streaming generation (12 s at each start), the
 editor PostLoad, and the DDC builds (the estimate is the next step).
 
+### The first frames of a travel (AST-273 P8, 2026-10-23)
+
+At a travel, the UI shows the screen in the first tick after the request. Before, the content systems did their region work in that
+same frame, before the UI: the old view froze 1.4 to 3.3 s before the screen drew (run p8-travel: the surface layer read four
+`layer.json` files, 0.5 to 0.8 s; the persons spawned all near persons with sync loads, 1.5 to 2.5 s; the object regions 26 to 119 ms
+each; the 300 ms slice of the loader). Now:
+
+| Item | The change |
+| --- | --- |
+| `SwcLoadingGate::IsSettled` | False in the first `SettleFrames` (3) frames of a screen (from `SetPlace`). The heavy work of the surface layer, the persons, and the ground cover waits for it. The 300 ms slice of the loader of a travel starts at the same frame (`USwcBackendSubsystem::UpdateTravel`). |
+| The surface layer | A region file is read and parsed on a worker; the game thread takes the roads and the decals and starts the async load of the decal materials. Its check of the gate also waits for the region files. |
+| The objects | A region (`nodes/*.bin`, `regions/*.json`) is read on a worker (`USwcObjectSubsystem::LoadRegion`, static); a new check of the gate, "objects", waits for the reads. |
+| The persons | During a screen, the spawns of one frame stop after 50 ms (at least one); before, all near persons spawned in one frame. |
+
+The same reads at a region border (in play) are now on workers too. The check (runs p8-travel and p8-travel-after2, the same four
+travels: Oxboro to the fen, the Great Cleave, the Dunwood keep, Oxboro): from the request to the frame of the screen 1,376, 1,973,
+3,327, and 3,098 ms before against 343, 470, 298, and 61 ms after; the longest frame before the screen 822 to 3,105 ms against 54 to
+451 ms; the longest frame behind the screen 945 to 1,169 ms against 708 to 1,116 ms; the screen 12.9 to 20.1 s against 12.7 to 20.3 s
+(the cells). Open: the request frame itself still has 0.05 to 0.44 s after the streaming source of the place is set (not traced yet).
+
 ### The failure of a load and the creature kinds (AST-216, 2026-10-21)
 
 - Before, the wait of the screen (`SwcWorldStreaming::IsReadyAt`) ended after 90 s in each case, and a place with no ground got the

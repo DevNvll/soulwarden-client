@@ -277,6 +277,14 @@ private:
 		swc::objects::NodeFile Nodes;
 		TArray<FNodeType> Types;
 	};
+	/** The read of a region on a worker (AST-273 P8: 26 to 119 ms each froze a travel and a region border). */
+	struct FRegionRead
+	{
+		FRegion Region;
+		double MaxRange = 0.0;
+		double Seconds = 0.0;
+		FThreadSafeBool bDone = false;
+	};
 	/** A gathering node near the character (natural or capital) and its visual. */
 	struct FNodeView
 	{
@@ -314,7 +322,8 @@ private:
 
 	bool LoadTables(FString& OutReport);
 	void UpdateRegions(const swc::net::WorldPosition& Center);
-	bool LoadRegion(int32 X, int32 Y, FRegion& Out);
+	/** Reads the files of a region (any thread; OptionCount: the options of the tables). OutMaxRange: the largest bound range. */
+	static bool LoadRegion(int32 X, int32 Y, int32 OptionCount, FRegion& Out, double& OutMaxRange);
 	void ReadStates();
 	void UpdateVisuals(const FVector& Center);
 	void RebuildInstanceIndex(const FVector& Center);
@@ -369,6 +378,7 @@ private:
 	/** The trade skill ranks of the owner (the CategoricalProgression state: the CRC-32 of the lower-case id to the rank). */
 	TMap<uint32, int32> TradeRanks;
 	TMap<FIntPoint, FRegion> Regions;
+	TMap<FIntPoint, TSharedPtr<FRegionRead, ESPMode::ThreadSafe>> RegionReads;
 
 	/** The states of the records of the objects (by G): the node state, the Enabled marks of the Interact states by slot. */
 	TMap<uint64, uint8> NodeStates;

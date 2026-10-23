@@ -15,6 +15,7 @@ namespace
 struct FGateState
 {
 	TOptional<FVector> Place;
+	uint64 PlaceFrame = 0;   // the frame of the start of the screen
 	TMap<FName, SwcLoadingGate::FCheck> Checks;
 };
 
@@ -76,8 +77,19 @@ void SwcLoadingGate::SetPlace(const UWorld* World, const FVector& Place)
 {
 	if (World != nullptr)
 	{
-		FindOrAdd(World).Place = Place;
+		FGateState& State = FindOrAdd(World);
+		if (!State.Place.IsSet())
+		{
+			State.PlaceFrame = GFrameCounter;
+		}
+		State.Place = Place;
 	}
+}
+
+bool SwcLoadingGate::IsSettled(const UWorld* World)
+{
+	const FGateState* State = Find(World);
+	return State == nullptr || !State->Place.IsSet() || GFrameCounter >= State->PlaceFrame + SettleFrames;
 }
 
 void SwcLoadingGate::ClearPlace(const UWorld* World)

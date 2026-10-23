@@ -337,13 +337,16 @@ void USwcPersonSubsystem::Tick(float DeltaTime)
 	const double Now = FPlatformTime::Seconds();
 	FVector View;
 	FVector Place;
-	const bool bScreen = SwcLoadingGate::GetPlace(GetWorld(), Place);   // a loading screen: all near persons in each frame
-	if (Persons.IsEmpty() || (!bScreen && Now < NextUpdate) || !GetViewLocation(View))
+	// A loading screen: the near persons in each frame, within ScreenSpawnSeconds of a frame (at least one; a spawn loads its body,
+	// items, and idle clip at once), and not in the first frames of the screen (AST-273 P8: the screen draws first).
+	const bool bScreen = SwcLoadingGate::GetPlace(GetWorld(), Place);
+	if (Persons.IsEmpty() || (!bScreen && Now < NextUpdate) || (bScreen && !SwcLoadingGate::IsSettled(GetWorld())) || !GetViewLocation(View))
 	{
 		return;
 	}
 	NextUpdate = Now + 0.25;
 	int32 Budget = bScreen ? TNumericLimits<int32>::Max() : SpawnsPerUpdate;
+	constexpr double ScreenSpawnSeconds = 0.05;
 	for (FSwcPerson& Person : Persons)
 	{
 		const double Distance = FVector::Dist(View, Person.Place);
@@ -356,6 +359,10 @@ void USwcPersonSubsystem::Tick(float DeltaTime)
 		{
 			--Budget;
 			Spawn(Person);
+			if (bScreen && FPlatformTime::Seconds() - Now > ScreenSpawnSeconds)
+			{
+				Budget = 0;   // the next frame of the screen spawns the next ones
+			}
 		}
 	}
 }

@@ -2,6 +2,7 @@
 
 #include "World/SwcLoadingGate.h"
 
+#include "Async/Async.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/DecalComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -95,8 +96,10 @@ void USwcSurfaceLayer::OnWorldBeginPlay(UWorld& World)
 		{
 			int32 Roads = 0;
 			int32 Decals = 0;
+			int32 Reads = 0;
 			for (const TPair<FIntPoint, FRegion>& Pair : Regions)
 			{
+				Reads += Pair.Value.Parsed.IsValid() ? 1 : 0;
 				for (const FRoad& Road : Pair.Value.Roads)
 				{
 					// The roads near the character (a road mesh is a chunk of its region: its center within twice the near radius).
@@ -107,8 +110,8 @@ void USwcSurfaceLayer::OnWorldBeginPlay(UWorld& World)
 					Decals += !Decal.Component.IsValid() && FVector::Dist(Decal.Transform.GetLocation(), Place) < FMath::Min(Decal.RangeCm, SwcLoadingGate::NearCm);
 				}
 			}
-			Why = FString::Printf(TEXT("%d road(s), %d decal(s) to show"), Roads, Decals);
-			return Roads == 0 && Decals == 0 && UpdatedAt.Equals(Place, 1.0);
+			Why = FString::Printf(TEXT("%d road(s), %d decal(s) to show, %d region file(s) to read"), Roads, Decals, Reads);
+			return Roads == 0 && Decals == 0 && Reads == 0 && UpdatedAt.Equals(Place, 1.0);
 		});
 	}
 }
@@ -140,10 +143,10 @@ AActor* USwcSurfaceLayer::OwnerActor()
 	return Actor;
 }
 
-bool USwcSurfaceLayer::ReadRegion(const FIntPoint& Key, FRegion& Region) const
+bool USwcSurfaceLayer::ReadRegion(const FString& RegionsFolder, const FIntPoint& Key, FParsed& Region)
 {
 	const FString Name = FString::Printf(TEXT("r_+%02d_+%02d"), Key.X, Key.Y);
-	const FString Path = FPaths::Combine(Folder, Name, TEXT("layer.json"));
+	const FString Path = FPaths::Combine(RegionsFolder, Name, TEXT("layer.json"));
 	FString Text;
 	TSharedPtr<FJsonObject> Layer;
 	if (!FFileHelper::LoadFileToString(Text, *Path) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Layer)
@@ -202,12 +205,9 @@ bool USwcSurfaceLayer::ReadRegion(const FIntPoint& Key, FRegion& Region) const
 			? FMath::Min(FadeM * 100.0, MaxDecalRangeCm) : DefaultDecalRangeCm;
 		Region.Decals.Add(MoveTemp(Entry));
 	}
-	if (!Materials.IsEmpty())
-	{
-		Region.Materials = UAssetManager::GetStreamableManager().RequestAsyncLoad(Materials);
-	}
+	Region.Materials = MoveTemp(Materials);
 	UE_LOG(LogSwcSurface, Log, TEXT("surface: region %s: %d road meshes, %d decals, %d decal materials"), *Name,
-		Region.Roads.Num(), Region.Decals.Num(), Materials.Num());
+		Region.Roads.Num(), Region.Decals.Num(), Region.Materials.Num());
 	return true;
 }
 
@@ -229,9 +229,30 @@ void USwcSurfaceLayer::Update(const FVector& View)
 			FRegion& Region = Regions.FindOrAdd(FIntPoint(X, Y));
 			if (!Region.bRead)
 			{
+				// The file of a region is read on a worker (AST-273 P8: four reads of 0.1 to 0.4 s each froze the frame of a travel and
+				// of a region border); its data comes into the region in a later update.
 				Region.bRead = true;
-				ReadRegion(FIntPoint(X, Y), Region);
+				Region.Parsed = MakeShared<FParsed, ESPMode::ThreadSafe>();
+				Async(EAsyncExecution::ThreadPool, [Parsed = Region.Parsed, Path = Folder, Key = FIntPoint(X, Y)]()
+				{
+					ReadRegion(Path, Key, *Parsed);
+					Parsed->bDone = true;
+				});
 			}
+		}
+	}
+	for (TPair<FIntPoint, FRegion>& Pair : Regions)
+	{
+		FRegion& Region = Pair.Value;
+		if (Region.Parsed.IsValid() && Region.Parsed->bDone)
+		{
+			Region.Roads = MoveTemp(Region.Parsed->Roads);
+			Region.Decals = MoveTemp(Region.Parsed->Decals);
+			if (!Region.Parsed->Materials.IsEmpty())
+			{
+				Region.Materials = UAssetManager::GetStreamableManager().RequestAsyncLoad(Region.Parsed->Materials);
+			}
+			Region.Parsed.Reset();
 		}
 	}
 	AActor* Actor = OwnerActor();
@@ -332,7 +353,7 @@ void USwcSurfaceLayer::Tick(float DeltaTime)
 	FVector Place;
 	const bool bScreen = SwcLoadingGate::GetPlace(GetWorld(), Place);
 	const double Now = FPlatformTime::Seconds();
-	if (!bScreen && Now < NextUpdate)
+	if ((!bScreen && Now < NextUpdate) || (bScreen && !SwcLoadingGate::IsSettled(GetWorld())))
 	{
 		return;
 	}

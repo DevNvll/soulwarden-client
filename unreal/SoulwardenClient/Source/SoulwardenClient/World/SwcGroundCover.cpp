@@ -770,6 +770,10 @@ void USwcGroundCover::Tick(float DeltaTime)
 	FVector Place;
 	const bool bScreen = SwcLoadingGate::GetPlace(GetWorld(), Place);
 	const double Now = FPlatformTime::Seconds();
+	if (bScreen && !SwcLoadingGate::IsSettled(GetWorld()))
+	{
+		return;   // the first frames of a screen: the screen draws first (AST-273 P8)
+	}
 	RegisterParts(bScreen ? ScreenBudgetSeconds : PartBudgetSeconds);
 	if (!bScreen && Now < NextUpdate)
 	{

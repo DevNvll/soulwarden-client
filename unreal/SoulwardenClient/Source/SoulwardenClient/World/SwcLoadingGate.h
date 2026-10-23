@@ -25,6 +25,13 @@ namespace SwcLoadingGate
 	SOULWARDENCLIENT_API void ClearPlace(const UWorld* World);
 	SOULWARDENCLIENT_API bool GetPlace(const UWorld* World, FVector& Out);
 
+	/** The frames after the start of a screen in which the content systems do no heavy work (AST-273 P8): the UI shows the screen in
+	 *  the first tick after the request, and that frame must draw before a long frame (a travel froze the old view 0.8 to 3.1 s). */
+	constexpr uint64 SettleFrames = 3;
+
+	/** @return False in the first SettleFrames frames of a loading screen (the heavy work waits); true with no screen. */
+	SOULWARDENCLIENT_API bool IsSettled(const UWorld* World);
+
 	/** @return The view of the content systems: the place of the screen, else the camera of the first player (false: none). */
 	SOULWARDENCLIENT_API bool GetView(const UWorld* World, FVector& Out);
 
