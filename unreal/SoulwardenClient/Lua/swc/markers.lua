@@ -572,6 +572,13 @@ local function resend(slot, typeName)
 end
 M.resend = resend
 
+-- In an open conversation the static markers (the world quest pins and the overhead NPC markers) do not show [I: the retail 1.8b
+-- references F1-12 and F1-13 show no marker over Aelstrom in the conversation; the marker manager hides its canvas only for the state
+-- 3387687426 (markercommon.luac screenStatesToDisable), so the native rule is not in the scripts].
+local function in_conversation()
+  return Swc.conversation ~= nil and Swc.conversation.open == true and not Swc.conversation.ended
+end
+
 local QUEST_PIN_TYPE, QUEST_PIN_LIMIT, QUEST_PIN_RANGE, QUEST_PIN_Z, QUEST_PIN_INTERVAL = "DiegeticObjectivePin", 5, 150, 1.75, 2
 M.questSlots = {}
 local questAllocation = {time = -math.huge, revision = -1}
@@ -668,7 +675,7 @@ function M.TickQuestPins()
       if params.fadeStart and params.fadeDistance and params.fadeDistance > params.fadeStart and c.distance > params.fadeStart then
         alpha = math.max(params.minAlpha or 0, alpha - (c.distance - params.fadeStart) / (params.fadeDistance - params.fadeStart))
       end
-      local visible = sx ~= nil and alpha > 0
+      local visible = sx ~= nil and alpha > 0 and not in_conversation()
       put(slot, "IsVisible", visible)
       slot.screen = sx and {sx + (params.sX or 0), sy + (params.sY or 0)} or nil
       if element and visible then
@@ -791,7 +798,7 @@ function M.TickNpcMarkers()
       elseif params.fadeDistance and distance > params.fadeDistance then
         alpha = 0
       end
-      local visible = sx ~= nil and alpha > 0
+      local visible = sx ~= nil and alpha > 0 and not in_conversation()
       put(slot, "IsVisible", visible)
       slot.screen = sx and {sx + (params.sX or 0), sy + (params.sY or 0)} or nil
       if element and visible then
