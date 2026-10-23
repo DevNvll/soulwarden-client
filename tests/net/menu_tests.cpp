@@ -18,7 +18,7 @@
 #include "Menu/SwcMenuCurves.h"
 #include "Menu/SwcMenuDocument.h"
 #include "Menu/SwcMenuLights.h"
-#include "Menu/SwcNameRule.h"
+#include "SwcUi/NameRule.h"
 #include "state/character_name.h"
 #include "core/encoding/base64.h"
 #include "state/creation_data.h"

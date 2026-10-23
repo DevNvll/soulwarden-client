@@ -1,4 +1,4 @@
-#include "Menu/SwcNameRule.h"
+#include "SwcUi/NameRule.h"
 
 #include <utility>
 

@@ -251,6 +251,8 @@ end
 local LANDING_STATE = 3881446394
 local MENU_SCREENS = {
   {"LyShineUI/Main Menu/LandingScreenV2.uicanvas", 5},
+  -- The screen of the character creation (stage Q3: swc/creation.lua; the state CharacterCreationScreen).
+  {"LyShineUI/Main Menu/CharacterCreation.uicanvas", 5},
   {"LyShineUI/Options/Options.uicanvas", 30},
   {"LyShineUI/EscapeMenu/EscapeMenu.uicanvas", 41},
   {"LyShineUI/Popup/Popup.uicanvas", 60},
@@ -314,6 +316,9 @@ function Swc.FrontendTick(dt)
     elseif item.kind == "regions" then
       deliver_regions()
     end
+  end
+  if Swc.CreationTick then
+    Swc.CreationTick(dt)
   end
   for name, seq in pairs(F.sequences) do
     seq.left = seq.left - dt

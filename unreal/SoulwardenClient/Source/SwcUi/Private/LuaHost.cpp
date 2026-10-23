@@ -12,6 +12,7 @@
 
 #include "LuaApi.h"
 #include "LuaSource.h"
+#include "SwcUi/NameRule.h"
 
 // The natives of the emulation (the Lua table `swcui`) and the loader of the game scripts. A native reads its
 // arguments with the luaL checks: a wrong argument is a Lua error of the calling script (a C++ exception in this build
@@ -1106,6 +1107,15 @@ int n_has_text(lua_State* L) {
     return 1;
 }
 
+// swcui.check_name(text): the local name rule of the character creation (UiCharacterServiceRequestBus.PreValidateNameCheck,
+// stage Q3; SwcUi/NameRule.h): the eValidStringResponse value (0 Valid, 1 TooShort, 2 TooLong, 3 InvalidCharacters, 5 MultipleSpaces).
+int n_check_name(lua_State* L) {
+    size_t size = 0;
+    const char* text = luaL_optlstring(L, 1, "", &size);
+    lua_pushinteger(L, static_cast<lua_Integer>(swc::menu::CheckName(std::string_view(text, size))));
+    return 1;
+}
+
 int n_crc32(lua_State* L) {
     lua_pushnumber(L, crc32(arg_text(L, 1)));
     return 1;
@@ -1487,7 +1497,7 @@ const luaL_Reg kNatives[] = {
     {"set_canvas_position", n_set_canvas_position}, {"rect", n_rect}, {"viewport_points", n_viewport_points}, {"get", n_get},
     {"set", n_set}, {"load_canvas", n_load_canvas}, {"unload_canvas", n_unload_canvas}, {"find_canvas", n_find_canvas},
     {"canvases", n_canvases}, {"canvas_get", n_canvas_get}, {"canvas_set", n_canvas_set}, {"localize", n_localize},
-    {"has_text", n_has_text}, {"crc32", n_crc32}, {"table_row", n_table_row}, {"texture_exists", n_texture_exists}, {"stub", n_stub}, {"log", n_log},
+    {"has_text", n_has_text}, {"check_name", n_check_name}, {"crc32", n_crc32}, {"table_row", n_table_row}, {"texture_exists", n_texture_exists}, {"stub", n_stub}, {"log", n_log},
     {"clock", n_clock}, {"error_count", n_error_count}, {"wall_clock", n_wall_clock}, {"tick", n_tick}, {"update_layouts", n_update_layouts}, {"size_to_fit", n_size_to_fit}, {"component", n_component}, {"components", n_components},
     {"interactable_at", n_interactable_at}, {"contains", n_contains}, {"to_rect_space", n_to_rect_space}, {"text_layout", n_text_layout}, {"compute_layout", n_compute_layout}, {"write_draw", n_write_draw}, {"mesh_area", n_mesh_area}, {"viewport", n_viewport}, {"set_viewport", n_set_viewport}, {"allowed", n_allowed}, {"load_game_script", n_load_game_script}, {"load_json", n_load_json},
     {"load_lua", n_load_lua}, {nullptr, nullptr}};

@@ -31,7 +31,7 @@ done
 nice -n 10 "${compiler}" -std=c++20 -O1 -g -fexceptions -Wall -Wextra -Wno-unused-parameter \
     -I"${module}/Public" -I"${module}/Private" -I"${lua}" \
     "${SWC_REPO}/tests/ui/ui_tests.cpp" "${out}/font_measure.o" "${module}/Private/Json.cpp" "${module}/Private/Model.cpp" "${module}/Private/Layout.cpp" "${module}/Private/Text.cpp" \
-    "${module}/Private/Draw.cpp" "${module}/Private/LuaHost.cpp" "${module}/Private/LuaSource.cpp" "${out}/SwcLua51.o" "${out}/SwcLua51Os.o" -o "${out}/swc-ui-tests"
+    "${module}/Private/Draw.cpp" "${module}/Private/LuaHost.cpp" "${module}/Private/LuaSource.cpp" "${module}/Private/NameRule.cpp" "${out}/SwcLua51.o" "${out}/SwcLua51Os.o" -o "${out}/swc-ui-tests"
 status=0
 rm -rf "${out}/reports/fixtures" "${out}/reports/draw.json"
 "${out}/swc-ui-tests" "${SWC_CONTENT}/ui" "${SWC_REPO}/unreal/SoulwardenClient/Lua" "${out}/reports" \

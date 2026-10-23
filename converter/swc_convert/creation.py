@@ -1,7 +1,7 @@
 """The data of the character creation (stage Q3, docs/FRONTEND.md "Q3, the character creation").
 
 Commands:
-  write   SWC_CONTENT/frontend/creation.json: the 7 archetypes of javelindata_archetypes.datasheet (the button id is the CRC-32
+  write   SWC_CONTENT/ui/gamedata/creation.json (the Lua host reads it): the 7 archetypes of javelindata_archetypes.datasheet (the button id is the CRC-32
           of the lower-case ArchetypeId), and the lists of the creation databases
           (sharedassets/genericassets/character/charactercreationdatabase/, 128 files) with the images of the creation screen;
           SWC_WORK/ui/wanted-creation.json: the images to convert (then tools/convert-ui.sh wanted FILE).
@@ -40,7 +40,7 @@ F_STYLE_IMAGE_KEY = 0xB956C298
 
 
 def out_path():
-    return env.content_dir() / "frontend" / "creation.json"
+    return env.content_dir() / "ui" / "gamedata" / "creation.json"
 
 
 def wanted_path():

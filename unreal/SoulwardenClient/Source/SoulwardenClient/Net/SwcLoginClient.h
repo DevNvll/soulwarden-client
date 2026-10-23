@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Menu/SwcMenuDocument.h"
-#include "Menu/SwcNameRule.h"
+#include "SwcUi/NameRule.h"
 #include "Net/SwcSteamStub.h"
 #include "Templates/SharedPointer.h"
 
@@ -161,7 +161,7 @@ public:
 
 	/**
 	 * POST /prod/game/worlds/WORLD/characters/validator (the name check of the creation, stage Q3; protocol notes 2.2.2): the body
-	 * {"ValidateCharacterBody":{"Name"}}. Done gets the status and the error name of the reply (Menu/SwcNameRule.h
+	 * {"ValidateCharacterBody":{"Name"}}. Done gets the status and the error name of the reply (SwcUi/NameRule.h
 	 * ReadValidateReply). Needs a done Start.
 	 */
 	void ValidateName(const FString& WorldId, const FString& Name, TFunction<void(const swc::menu::FGatewayReply& Reply)> Done);

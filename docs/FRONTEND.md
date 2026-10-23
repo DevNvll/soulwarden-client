@@ -937,7 +937,7 @@ Check: the inflated document is byte for byte the document of the backend writer
 the same equipment order (only the zlib form differs); the backend reader `read_creation_data` reads the backstory and the 12
 names; the menu reader of F1 reads the text back.
 
-**Part 3, the name check and the create request** (`Menu/SwcNameRule.h`, `Net/SwcLoginClient.h`).
+**Part 3, the name check and the create request** (`SwcUi/NameRule.h` of the UI runtime module, `Net/SwcLoginClient.h`).
 
 | Part | The client | Source |
 | --- | --- | --- |
@@ -954,7 +954,7 @@ content gets them only with the merge).
 
 | Output | The client data | Source |
 | --- | --- | --- |
-| `python3 -B -m swc_convert.creation write`: `frontend/creation.json` | The 7 archetypes of `javelindata_archetypes` (the title, the description, the three proficiency tooltips and images, the equip weight, the backstory, the five equipment appearance names and the default appearance of each gender). The button id of `cacarchetypestabv2` is the CRC-32 of the lower-case ArchetypeId (the 7 ids of the script). The lists of the 128 creation databases: the races of each gender (31 male, 30 female; with their tone, hair, and facial hair databases, the default tone, and the image), 61 skin tone lists, 61 hair databases (the styles with the image key, the colors with the image), 20 eye colors, 7 face marks, 11 scars, 62 tattoos (the maps of the skin and the image of each gender), 15 tattoo colors; `enabled` of each row | [D] the databases and the table |
+| `python3 -B -m swc_convert.creation write`: `ui/gamedata/creation.json` | The 7 archetypes of `javelindata_archetypes` (the title, the description, the three proficiency tooltips and images, the equip weight, the backstory, the five equipment appearance names and the default appearance of each gender). The button id of `cacarchetypestabv2` is the CRC-32 of the lower-case ArchetypeId (the 7 ids of the script). The lists of the 128 creation databases: the races of each gender (31 male, 30 female; with their tone, hair, and facial hair databases, the default tone, and the image), 61 skin tone lists, 61 hair databases (the styles with the image key, the colors with the image), 20 eye colors, 7 face marks, 11 scars, 62 tattoos (the maps of the skin and the image of each gender), 15 tattoo colors; `enabled` of each row | [D] the databases and the table |
 | The images (`SWC_WORK/ui/wanted-creation.json`, then `tools/convert-ui.sh wanted FILE`) | The 5048 images of `lyshineui/images/charactercreation/layered/` and the proficiency images. The native image getters are not read: a hair style is `layered/hairstyle/<key>-<hair color>.dds`, a facial hair `layered/facialhair/<key>-<hair color>.dds`, a race `layered/<gender>/<gender>-<race>-<skin tone>.dds` | [I] the names of the files |
 | `python3 -B -m swc_convert.frontend creation-scene`: `frontend/creation-scene.json` | The record of `levels/ftue_v2_cc/level.pak` in the form of the menu scene (F4): the named entities `Player_Entity_Int` (the customizable character), `Character_Create_Camera`, `Intro_Controller`, the 39 sequences (the start, loop, transition, and end of each archetype; the intro, loop, end, and backtrack of the creation; the lights), 602 mesh placements of 126 meshes, 182 lights; no ground patch (an indoor level) | [D] the level |
 
