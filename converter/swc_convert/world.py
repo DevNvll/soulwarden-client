@@ -20,10 +20,11 @@ def convert_one(path: str) -> dict:
 
 
 def stale(paths: list[str], force: bool) -> list[str]:
-    """@return The meshes that need a conversion (missing, an older rule, or forced)."""
+    """@return The meshes that need a conversion (missing, an older rule, or forced). An "empty" mesh has no glTF of its own
+    (only its decal companion, or nothing): its record of the current rule is up to date."""
     assets = manifest.load()["assets"]
     return [p for p in paths if force or assets.get(p, {}).get("version") != mesh.rule_for(p)
-            or not mesh.out_path(p).is_file()]
+            or (assets.get(p, {}).get("kind") != "empty" and not mesh.out_path(p).is_file())]
 
 
 def convert_meshes(paths: list[str], workers: int = 4, force: bool = False) -> dict:

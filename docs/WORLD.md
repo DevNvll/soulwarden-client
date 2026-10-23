@@ -225,7 +225,7 @@ tools/build-world.sh --import --all      # each region: import its content (tool
   region).
 - Placements: `converter/swc_convert/cells.py` writes the instances of each region in Unreal space (the map of stage
   1.1) by cells of 256 m: one actor for each cell with one instanced static mesh component for each mesh. Region
-  `r_+04_+02`: 216,456 instances, 64 actors, 12,709 components. Effect cards (`fx_*`) and the meshes that are not in
+  `r_+04_+02`: 216,456 instances, 64 actors, 12,709 components. The fog cards (`fx_fogcard_*`; before AST-275 all `fx_*`) and the meshes that are not in
   the game copy are left out.
 - The inactive helpers (AST-261, 2026-10-22): `region.slice_meshes` leaves out the meshes of an entity with
   `IsRuntimeActive` 0 and the name `MeshVisualizer` (`region.inactive_helper`). These are the cubes of the Great Cleave
@@ -382,6 +382,48 @@ GeometryBeam fog sheet). The mesh is not in a beam folder of mesh rule 8, and it
 meshes over the icebergs. The cells of the two regions were built again (2026-10-22 23:48 to 2026-10-23 00:02 UTC). The fix (mesh rule 8,
 pairs version 3, M_SwcBeam) is AST-265 (b); it brings these sheets back. Check: the Ice Castle east point (retail east-noon-h270 of
 set-ast257-icecastle): the white shapes are gone, the ship wreck and the icebergs show; the far view noon-n has no change.
+
+## World coverage (AST-275, 2026-10-23)
+
+The user: "its missing objects in a lot of places". A census with no engine (the tools are in `~/Games/soulwarden-client/work/ast275`:
+`world_refs.py` reads each mesh reference of each placed slice against the census reader; `column_gap.py` compares the far meshes of
+the places of interest with the census tops) found these classes. The counts are mesh placements of the 26 playable regions.
+
+- C1, the children of the distribution rows (+89,683): a distribution row can name a slice with no mesh of its own and only spawners
+  (for example `gatherables/beechtree_c_all`: three `master_tree` children with the variants BeechTree_ca, cb, cd). `region.placements`
+  now places the children of the compiled metadata spawner list of the row slice and its variant (the region.slicedata entry, else the
+  `.slice.meta` file; `meta_children`, `place_meta`), the offline placement path of the retail client (research/ast275-random-spawner.md:
+  0x69D98E0, 0x69EE550). For the 58 distribution slices with spawners the metadata lists and the deterministic on-start spawners of the
+  dynamicslices are the same (31,885 children). The random groups (PrefabSpawnRandomizer, component 1adb6ef8: `Tree_cc` or `NoTree`) are
+  server spawns: not in the metadata, not placed (11,186 children); the capitals also leave them out (`slice_spawners`).
+- C2, the crafting stations of the settlements (130 objects, 389 records with their children): server spawns ("not on start"). The client
+  gets their records within 150 m and their stops at 200 m (Soulwarden protocol notes 4.36). `swc_convert.server_visuals` writes
+  `world-objects/server-visuals.json` from the backend data (`interaction-data.json`, the list `spawned` with spawnOnInitialize false and
+  the children of its templates); `Objects/SwcServerVisuals` (USwcServerVisualSubsystem) reads the entity table and draws the meshes of
+  the slice of each record at its place, only at a backend place of its key (the on-start stations are cell placements: no double draw).
+  `-SwcNoServerVisuals`, `swc.ServerVisuals 0`. The file holds object paths of the plugin: write it again after an import.
+- C4, the meshes with only decal subsets (1,497: the moss layers of the crater cliffs, Dunwood floor decals): mesh rule 7 writes their
+  decal companion alone and the record "empty" names it (`mesh.convert`); the cells place the companion alone (flag bit 1).
+- C7, the effect meshes: the cells left out every mesh named `fx_*`; now only the fog cards `fx_fogcard_*` (AST-265). The meshes of the
+  beam folders get mesh rule 8, and a beam folder mesh with no material of its own takes its look from the override of each placement
+  (the energy planes and rings of the Shattered Obelisk: GeometryBeam, M_SwcBeam), so it has no Nanite. `overrides.slot_map`: a mesh
+  whose own material is not in the game copy (`objects/vfx/mesh/structures/checker.mtl` of the glyph bridges) takes the override for
+  each slot (before, the pair had an error and the placement drew the fallback material). A mesh with no material of its own is placed
+  only with a slot map whose override has a parent of the client (`cells.EFFECT_PARENTS`: Illum, Vegetation, Glass, GeometryBeam); the
+  effect shaders with no parent yet (Fxmeshadvancedtransp: the glyph bridges, the capture point cylinders, the liquid planes;
+  Meshparticle: the light ray cards; Geometryfog: the fog beams) and the meshes with no material and no override are left out (they drew
+  the white fallback material). `cells.LEFT_OUT_MESHES` also has the fog volumes of AST-265 (fogsphere_01, jav_fogsheet_a_cross,
+  jav_fogsphere_a).
+- Not drawn on purpose (each with its reason in the AST-275 report): the other server spawns (world event states, siege, season,
+  dungeon: the backend does not spawn them), alias spawners (creatures, events), Visible false, depleted meshes, plot markers, the 118
+  meshes that are not in the game copy, the fog cards. The vegetation areas (component 2a2893bf, VegetationDescriptorListComponent) are bake
+  inputs of region.vegetation (research/ast275-vegetation-areas.md): the ground cover has all their records but 4 descriptors with no
+  mesh; 1,213 descriptor references (18 meshes) are in no baked file of their region. Known differences: the one range of 100 m of the
+  ground cover (the view distance of each descriptor is T4), and 40 placements of meshes whose material file has one material and
+  subsets above index 0 (the galleon capstan).
+- Streaming (the play logs of 2026-10-23): the components that register while their mesh builds ("Waiting on static mesh") come behind
+  the loading screen (1,571 of 1,575 and 6,147 of 6,220 lines); in the world none was within 300 m of the player. Late streaming is not a
+  cause of the near gaps; the long loading screens are a cost of the uncooked build.
 
 ## The loading (AST-203, 2026-10-20)
 

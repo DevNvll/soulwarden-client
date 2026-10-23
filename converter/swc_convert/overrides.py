@@ -44,11 +44,17 @@ def slot_map(pair: tuple[str, str]) -> dict:
     try:
         f, meshes = mesh.load(mesh_key)
         reference = cgf.material_guid(f) or ""
-        defaults = materials.load_mtl(reference, mesh_key)[1] if reference else []
         overrides = materials.load_mtl(material)[1]
-    except Exception as error:   # a mesh or a material that does not decode: the placement keeps the mesh material
+    except Exception as error:   # a mesh or an override that does not decode: the placement keeps the mesh material
         out["error"] = str(error)[:120]
         return out
+    try:
+        defaults = materials.load_mtl(reference, mesh_key)[1] if reference else []
+    except Exception:
+        # The material of the mesh is not in the game copy (AST-275: for example objects/vfx/mesh/structures/checker.mtl of the
+        # glyph bridges): the override replaces it, so each slot is the slot of a mesh with no material (materials.instance_key
+        # of no sub-material). Before, the pair had an error and the placement drew the fallback material.
+        defaults = []
     slots: dict[str, str] = {}
     records: dict[str, dict] = {}
     merged = 0
@@ -96,7 +102,7 @@ def add_pairs(wanted: set[tuple[str, str]], workers: int = 4) -> dict:
     out_dir().mkdir(parents=True, exist_ok=True)
     path = out_dir() / "pairs.json"
     known = json.loads(path.read_text()) if path.is_file() else {}
-    todo = sorted(p for p in wanted if known.get(pair_key(*p), {}).get("version") != VERSION)
+    todo = sorted(p for p in wanted if known.get(pair_key(*p), {}).get("version") != VERSION or "error" in known.get(pair_key(*p), {}))
     if workers > 1 and len(todo) > 1:
         with ProcessPoolExecutor(max_workers=workers) as pool:
             rows = list(pool.map(slot_map, todo, chunksize=8))

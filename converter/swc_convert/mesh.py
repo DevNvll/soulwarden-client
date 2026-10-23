@@ -182,20 +182,28 @@ def convert(path: str, force: bool = False, write_manifest: bool = True, rule: i
             prims.append(w.primitive(p, idx, n, uv, t, material=slots[s.material], colors=c))
             report["triangles"] += len(idx) // 3
             report["vertices"] += len(p)
-    if not prims:
+    if not prims and not decal_prims:
         raise ValueError(f"{path}: no drawn triangles")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    w.doc["scenes"][0]["nodes"] = [w.node(name=Path(path).stem, mesh=w.mesh(Path(path).stem, prims))]
-    w.save(out)
-    translucent = any(r["blend"] == "translucent" for r in records.values()) or any(
-        materials.is_blended_illum(m) for i, m in enumerate(sub_materials) if slots.get(i, -1) != -1)
-    # "materials": the keys of the material records (the import pipeline makes and sets their instances); rule 7 also
-    # gives "slots": the slot names (the instance keys; an n_ instance has no record: swc_materials makes it).
-    entry = {"kind": "static", "file": str(out.relative_to(env.content_dir())) if out.is_relative_to(env.content_dir())
-             else str(out), "version": rule, "hash": file_hash(out), "materials": sorted(records),
-             "nanite": not translucent}
-    if rule >= RULE_COLORS:
-        entry["slots"] = sorted(m["name"] for m in w.doc["materials"])
+    if prims:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        w.doc["scenes"][0]["nodes"] = [w.node(name=Path(path).stem, mesh=w.mesh(Path(path).stem, prims))]
+        w.save(out)
+        translucent = any(r["blend"] == "translucent" for r in records.values()) or any(
+            materials.is_blended_illum(m) for i, m in enumerate(sub_materials) if slots.get(i, -1) != -1)
+        # "materials": the keys of the material records (the import pipeline makes and sets their instances); rule 7 also
+        # gives "slots": the slot names (the instance keys; an n_ instance has no record: swc_materials makes it).
+        # A mesh of rule 8 with no material of its own (AST-275: the energy planes of the Shattered Obelisk) takes its look from the
+        # override of each placement, a GeometryBeam material (M_SwcBeam, additive): Nanite draws only opaque and masked materials.
+        effect = rule >= RULE_BEAMS and not sub_materials
+        entry = {"kind": "static", "file": str(out.relative_to(env.content_dir())) if out.is_relative_to(env.content_dir())
+                 else str(out), "version": rule, "hash": file_hash(out), "materials": sorted(records),
+                 "nanite": not translucent and not effect}
+        if rule >= RULE_COLORS:
+            entry["slots"] = sorted(m["name"] for m in w.doc["materials"])
+    else:
+        # Only decal subsets (AST-275, class C4: the moss layers of the crater cliffs, cliffs_crater/*_moss.cgf): no main asset;
+        # the record "empty" names its decal companion, and the cells place the companion alone (cells.write).
+        entry = {"kind": "empty", "version": rule}
     if decal_prims:
         # The mesh decal companion: its own glTF and asset (no Nanite: Nanite draws only surface materials); the
         # cells place it at the transforms of the mesh. Its slots are dm_ instances (no material record).

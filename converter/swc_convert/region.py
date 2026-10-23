@@ -20,6 +20,7 @@ import numpy as np
 from PIL import Image
 
 from . import dds, env, source
+import nav_slices
 from nav_slices import matrix_of, read_slice
 from nav_terrain import HEIGHT_SCALE, read_heightmap
 
@@ -58,6 +59,11 @@ NAME = F("Name")
 DEPLETED_ENTITIES = (b"DepletedMesh", b"Depleted")
 DEPLETED_PLACE_M = 0.1
 MAP, SLICE_NAME, VARIANT_NAME = F("sliceMetaDataMap"), F("sliceName"), F("variantName")
+# The spawners of the compiled slice metadata (AST-275, research/ast275-random-spawner.md): the offline placement path of the retail
+# client (0x69D98E0 reads the metadata of the slice and its variant, the region map first, then the .slice.meta file; 0x69EE550 walks
+# the list) places the children of this list, with no random choice. The random groups (PrefabSpawnRandomizer) are server spawns and
+# are not in the list.
+META_SPAWNERS, META_WORLD_TM, META_SLICE_ASSET, META_VARIATION = F("spawners"), F("worldTM"), F("sliceAssetId"), F("variationName")
 MESHES, MESH_ID, ROOT_TM, INSTANCE_TMS = F("meshes"), F("meshAssetId"), F("rootRelativeTransform"), F("rootRelativeInstanceTransforms")
 # The material override of a placement (P4.1): the field of the mesh render node of a slice entity, and the field of a
 # mesh of the slice metadata (a variant: for example the fall material of a poplar of Oxboro). It replaces the material
@@ -72,6 +78,11 @@ IMRN, BASE, INSTANCE_TRANSFORMS, ID = F("Instanced Mesh Render Node"), F("BaseCl
 # row have no field of this name (a variant mesh has two fields with no known name, 0x755c7d72 bool and 0x9ae4b28c u32):
 # no wind. The level gives a component with wind the custom primitive data 0 "SwcWind" = 1 (cells.py, E1).
 RENDER_OPTIONS, RECEIVE_WIND = F("Render Options"), F("receiveWind")
+# The random group of spawners (AST-275): an entity with the component PrefabSpawnRandomizer (1adb6ef8-...; for example `Tree_cc_random`
+# of slices/gatherables/beechtree_c_all, with the child spawners `Tree_cc` and `NoTree`) is a server spawn: m_minSpawnCount 0,
+# m_maxSpawnCount 1, a refill timer, and children with m_isClientAuthoratative 0 (research/ast275-random-spawner.md). The Soulwarden
+# backend does not make them, so no child of a random group is placed (before AST-275 the capitals placed each child with a slice).
+RANDOM_GROUP_TYPE = nav_slices.type_bytes("1adb6ef8-e043-fe2e-2351-e6e288346391")
 
 
 def slice_key(name: str) -> str:
@@ -204,6 +215,47 @@ def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None, int, in
             for index, m in enumerate(matrices):
                 out.append((path, world @ m, override, ident, index, bends))
     return out
+
+
+def slice_spawners(data: bytes) -> list[tuple[nav_slices.Spawner, bool]]:
+    """@return The spawners of a slice (the spawner component b52d0d52, as nav_slices.read_slice) and for each one: True when an
+    entity above it (its entity or a parent) has the random group component (RANDOM_GROUP_TYPE)."""
+    parents: dict[int, int | None] = {}
+    random_ids: set[int] = set()
+    rows = []
+    for e in source.walk(source.parse(data)[0]):
+        comps = e.child(COMPONENTS)
+        if comps is None or e.type_id != nav_slices.ENTITY_TYPE:
+            continue
+        ident = nav_slices.entity_id(e.child(nav_slices.ID_FIELD))
+        local = world = parent = None
+        for comp in comps.children:
+            if comp.type_id == nav_slices.TRANSFORM_TYPE:
+                local = matrix_of(getattr(comp.child(nav_slices.LOCAL_FIELD), "value", None))
+                world = matrix_of(getattr(comp.child(nav_slices.WORLD_FIELD), "value", None))
+                parent = nav_slices.entity_id(comp.child(nav_slices.PARENT_FIELD))
+            elif comp.type_id == RANDOM_GROUP_TYPE and ident is not None:
+                random_ids.add(ident)
+        if ident is not None:
+            parents[ident] = parent
+        matrix = world or local or nav_slices.IDENTITY
+        for comp in comps.children:
+            if comp.type_id == nav_slices.SPAWNER_TYPE:
+                rows.append((ident, nav_slices.Spawner(matrix, source.asset_id(comp.child(nav_slices.SLICE_ASSET_FIELD)),
+                                                       source.text(comp.child(nav_slices.SLICE_VARIANT_FIELD)),
+                                                       source.asset_id(comp.child(nav_slices.ALIAS_FIELD)),
+                                                       source.number(comp.child(nav_slices.ON_START_FIELD)) != 0)))
+
+    def in_group(ident: int | None) -> bool:
+        seen = 0
+        while ident is not None and seen < 64:
+            if ident in random_ids:
+                return True
+            ident = parents.get(ident)
+            seen += 1
+        return False
+
+    return [(spawner, in_group(ident)) for ident, spawner in rows]
 
 
 @functools.lru_cache(maxsize=1)
@@ -374,6 +426,10 @@ class Region:
                 k, v = entry.children
                 metadata[(slice_key(source.text(k.child(SLICE_NAME))), source.text(k.child(VARIANT_NAME)).lower())] = v
         cache: dict[str, tuple | None] = {}
+        counts["random group spawners left out"] = 0
+        counts["distribution spawned meshes"] = 0
+        counts["distribution metadata spawners"] = 0
+        counts["metadata spawners not read"] = 0
 
         def place(path: str, variant: str, matrix: np.ndarray, depth: int) -> None:
             if depth > 12:
@@ -381,7 +437,7 @@ class Region:
             if path not in cache:
                 try:
                     data = source.read(path)
-                    cache[path] = (slice_meshes(data), read_slice(data).spawners)
+                    cache[path] = (slice_meshes(data), slice_spawners(data))
                 except Exception:
                     cache[path] = None
             item = cache[path]
@@ -408,8 +464,11 @@ class Region:
                     out.append({"source": "capital", "mesh": mp, "matrix": (matrix @ tm).tolist(), "material": material,
                                 "entity": ident, "instance": instance, "wind": wind})
                     counts["capital"] += 1
-            for sp in spawners:
+            for sp, in_random_group in spawners:
                 if sp.slice is None or not sp.on_start:
+                    continue
+                if in_random_group:
+                    counts["random group spawners left out"] += 1
                     continue
                 child = source.product(sp.slice[0], sp.slice[1], ".dynamicslice")
                 if child:
@@ -445,6 +504,74 @@ class Region:
         ly = (pos & 0xFFFF) * 2048 / 65535.0
         slices: dict = {}
         of_variant: set[tuple[str, str]] = set()
+        file_meta: dict[str, object] = {}
+
+        def meta_of(path: str, variant: str):
+            """@return The compiled metadata of a slice and its variant: the entry of region.slicedata, else (the empty variant) the
+            .slice.meta file of the slice (the fallback reader 0x69E5A60 of the retail client), else None."""
+            key = slice_key(path)
+            found = metadata.get((key, variant.lower()))
+            if found is not None or variant:
+                return found
+            if key not in file_meta:
+                try:
+                    file_meta[key] = source.parse(source.read("slices/" + key + ".slice.meta"))[0]
+                except Exception:
+                    file_meta[key] = None
+            return file_meta[key]
+
+        def meta_children(path: str, variant: str) -> list:
+            """@return (child slice, variant, matrix in the parent slice space) of each spawner of the compiled metadata."""
+            meta = meta_of(path, variant)
+            node = meta.child(META_SPAWNERS) if meta is not None else None
+            rows = []
+            for e in (node.children if node is not None else []):
+                a = source.asset_id(e.child(META_SLICE_ASSET))
+                child = source.product(a[0], a[1], ".dynamicslice") if a else None
+                if child is None:
+                    k = slice_key(source.text(e.child(SLICE_NAME)))
+                    child = next((c for c in ("slices/" + k + ".dynamicslice", k + ".dynamicslice") if source.has(c)), None)
+                tm = e.child(META_WORLD_TM)
+                if child is None or tm is None or tm.value is None or len(tm.value) != 48:
+                    counts["metadata spawners not read"] += 1
+                    continue
+                rows.append((child, source.text(e.child(META_VARIATION)), az_matrix(tm.value)))
+            return rows
+
+        def place_meta(path: str, variant: str, matrix: np.ndarray, depth: int) -> None:
+            """The child of a metadata spawner of a distribution row: its meshes (the metadata of its variant in the region map, else
+            the render nodes of the slice, the rule of place()), then the children of its metadata spawners."""
+            if depth > 12:
+                return
+            before = len(out)
+            if path not in cache:
+                try:
+                    data = source.read(path)
+                    cache[path] = (slice_meshes(data), slice_spawners(data))
+                except Exception:
+                    cache[path] = None
+            meta = metadata.get((slice_key(path), variant.lower())) if variant else None
+            if meta is not None and meta.child(MESHES) is not None:
+                for mesh in meta.child(MESHES).children:
+                    a = source.asset_id(mesh.child(MESH_ID))
+                    mp = source.product(a[0], a[1], ".cgf") if a else None
+                    if mp is None:
+                        continue
+                    root_m = rows4(matrix_of(getattr(mesh.child(ROOT_TM), "value", None)) or (1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0))
+                    inst = mesh.child(INSTANCE_TMS)
+                    mats = [rows4(m) for m in (matrix_of(n.value) for n in inst.children) if m is not None] if inst is not None else []
+                    material = material_path(mesh.child(MATERIAL_OVERRIDE_ID))
+                    for im in (mats or [np.eye(4)]):
+                        out.append({"source": "distribution", "mesh": mp, "matrix": (matrix @ root_m @ im).tolist(), "material": material})
+            elif cache[path] is not None:
+                for mp, tm, material, ident, instance, wind in cache[path][0]:
+                    out.append({"source": "distribution", "mesh": mp, "matrix": (matrix @ tm).tolist(), "material": material,
+                                "entity": ident, "instance": instance, "wind": wind})
+            counts["distribution"] += len(out) - before
+            counts["distribution spawned meshes"] += len(out) - before
+            for child, child_variant, sm in meta_children(path, variant):
+                counts["distribution metadata spawners"] += 1
+                place_meta(child, child_variant, matrix @ sm, depth + 1)
         counts["distribution rows of a variant"] = 0
         wx, wy = lx + ox, ly + oy
         for r in np.nonzero((wx >= x0) & (wx <= x0 + size) & (wy >= y0) & (wy <= y0 + size))[0]:
@@ -480,7 +607,8 @@ class Region:
             meshes = slices[(name, variant)]
             if (name, variant) in of_variant and meshes:
                 counts["distribution rows of a variant"] += 1
-            if not meshes:
+            children = meta_children(name if name.endswith(".dynamicslice") else name + ".dynamicslice", variant)
+            if not meshes and not children:
                 counts["distribution rows with no mesh"] += 1
                 continue
             v = int(rot[r])
@@ -491,10 +619,16 @@ class Region:
             m = np.eye(4)
             m[:3, :3] = quat_matrix(qx, qy, qz, qw) * (scale[r] * 0.01)
             m[:3, 3] = (lx[r] + ox, ly[r] + oy, self.height_at(lx[r], ly[r]))
-            for mesh, tm, material, ident, instance, wind in meshes:
+            for mesh, tm, material, ident, instance, wind in meshes or ():
                 out.append({"source": "distribution", "mesh": mesh, "matrix": (m @ tm).tolist(), "material": material,
                             "entity": ident, "instance": instance, "wind": wind})
                 counts["distribution"] += 1
+            # The spawners of the compiled metadata of the row slice and its variant (AST-275): for example gatherables/beechtree_c_all
+            # has no mesh of its own and three master_tree spawners (the variants BeechTree_ca, cb, cd). Before, the census placed
+            # nothing for such a row. The random group of the dynamicslice (Tree_cc or NoTree) is a server spawn: not in the list.
+            for child, child_variant, sm in children:
+                counts["distribution metadata spawners"] += 1
+                place_meta(child, child_variant, m @ sm, 1)
         out, counts["depleted meshes left out (variation rows)"] = without_depleted(out)
         return out, counts
 

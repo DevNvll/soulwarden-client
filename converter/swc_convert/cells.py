@@ -22,12 +22,13 @@ no collision.
 """
 from __future__ import annotations
 
+import functools
 import json
 import struct
 
 import numpy as np
 
-from . import census, env, manifest, overrides
+from . import census, env, manifest, materials, overrides
 
 CELL_M = 256.0
 # Meshes that the cells leave out until their rule is done (the decision of the user for AST-266, 2026-10-22: "remove until fixed").
@@ -35,7 +36,26 @@ CELL_M = 256.0
 # objects/volumetrics/wind_snow_01_mat.mtl, a GeometryBeam fog sheet). The mesh is not in the beam folders of mesh rule 8 and its pair
 # has no slot map, so it drew as opaque white Nanite meshes over the icebergs. The fix (mesh rule 8, pairs version 3, M_SwcBeam) is in
 # AST-265 (b); it brings these sheets back.
-LEFT_OUT_MESHES = ("objects/vfx/misc/snow/snow_blown_01.cgf",)
+# The fog volumes of AST-265 (the decision of the orchestrator for AST-275, 2026-10-23): the GeometryBeam fog sphere fogsphere_01 (a
+# white opaque sphere of 33 m before, near 8836 5130) and the fog sheets and spheres that mesh rule 8 makes drawable. AST-265 brings
+# them back with the fog rule.
+LEFT_OUT_MESHES = ("objects/vfx/misc/snow/snow_blown_01.cgf", "objects/vfx/mesh/generic/fogsphere_01.cgf",
+                   "objects/volumetrics/jav_fogsheet_a_cross.cgf", "objects/volumetrics/jav_fogsphere_a.cgf")
+# The fog cards (fx_fogcard_01 to 04: AST-265). Before AST-275 the cells left out every mesh named fx_*: also the light ray cards,
+# the waterfall kits (an Illum surface), the alpha planes, and the portal spheres (1,083 placements of the playable regions).
+FOG_CARD = "fx_fogcard"
+# The shaders of an override that the client draws on a mesh with no material of its own: the surface parents (M_SwcSurface, the
+# foliage, the glass) and the beam parent of mesh rule 8 (M_SwcBeam, AST-207). NoDraw sub-materials have no slot.
+EFFECT_PARENTS = frozenset({"illum", "vegetation", "glass", "geometrybeam", "nodraw"})
+
+
+@functools.lru_cache(maxsize=None)
+def override_shaders(mtl: str) -> frozenset:
+    """@return The shaders (lower case) of the sub-materials of an override material ({"?"} when it does not decode)."""
+    try:
+        return frozenset(m.get("Shader", "").lower() for m in materials.load_mtl(mtl)[1])
+    except Exception:
+        return frozenset({"?"})
 SIGNS = np.array([[1.0, -1.0, 1.0], [-1.0, 1.0, -1.0], [1.0, -1.0, 1.0]])   # S L S with S = diag(1, -1, 1)
 INSTANCE = np.dtype([("t", "<f8", 3), ("q", "<f4", 4), ("s", "<f4", 3)])
 
@@ -96,8 +116,12 @@ def write(name: str) -> dict:
     # The landmark meshes (the sky maelstrom: landmarks.LANDMARK_MESHES) are not cell instances: World/SwcLandmarks places them as one
     # persistent actor (AST-209).
     from .landmarks import LANDMARK_MESHES
-    usable = np.array([assets.get(m, {}).get("kind") == "static" and not m.rsplit("/", 1)[-1].startswith("fx_")
-                       and not m.startswith(LANDMARK_MESHES) and m not in LEFT_OUT_MESHES for m in names], dtype=bool)
+    # A mesh with only decal subsets (AST-275, C4): the record "empty" names its decal companion; the cells place the companion alone.
+    decal_only = np.array([assets.get(m, {}).get("kind") == "empty" and assets.get(m, {}).get("decals") in assets for m in names],
+                          dtype=bool)
+    usable = np.array([(assets.get(m, {}).get("kind") == "static" or d) and not m.rsplit("/", 1)[-1].startswith(FOG_CARD)
+                       and not m.startswith(LANDMARK_MESHES) and m not in LEFT_OUT_MESHES for m, d in zip(names, decal_only)],
+                      dtype=bool)
     keep = usable[data["mesh"]] if len(names) else np.zeros(0, bool)
     material_names = [str(m) for m in data.get("materials", np.array([""]))]
     material_all = data["material"] if "material" in data else np.zeros(len(data["mesh"]), np.uint16)
@@ -108,6 +132,17 @@ def write(name: str) -> dict:
         if not material_index:
             return {}
         return pairs.get(overrides.pair_key(names[mesh_index], material_names[material_index]), {}).get("slots", {})
+
+    # A mesh with no material of its own (its only record is the key of no sub-material) draws only with the slot map of an override
+    # (AST-275): with none it would draw the fallback material (white); retail has no material for it. Its override must also have
+    # a parent of the client (EFFECT_PARENTS): the effect shaders with no parent yet (Fxmeshadvancedtransp: the glyph bridges, the
+    # capture point cylinders; Meshparticle: the light ray cards) would draw an opaque legacy instance. Both are left out.
+    no_material = materials.shared_material(None)[0]["name"]
+    bare = {i for i, m in enumerate(names) if assets.get(m, {}).get("materials") == [no_material]}
+    if bare and len(names):
+        for m, o in set(zip(data["mesh"][keep].tolist(), material_all[keep].tolist())):
+            if m in bare and (not slots_of(m, o) or not override_shaders(material_names[o]) <= EFFECT_PARENTS):
+                keep &= ~((data["mesh"] == m) & (material_all == o))
 
     # The entry of a placement: (mesh, override) when the override changes a slot, else the mesh alone.
     entry_of_pair: dict[tuple[int, int], tuple[int, int]] = {}
@@ -130,7 +165,8 @@ def write(name: str) -> dict:
     used = sorted(set(mesh_of.tolist()))
     table = {m: i for i, m in enumerate(used)}
     # The decal companion of a mesh: one entry for each mesh, after the entries of the groups.
-    companions = sorted({m // 131072 for m in used if assets[names[m // 131072]].get("decals") in assets})
+    companions = sorted({m // 131072 for m in used if assets[names[m // 131072]].get("decals") in assets
+                         and not decal_only[m // 131072]})
     companion_entry = {m: len(used) + i for i, m in enumerate(companions)}
     out = bytearray(b"SWCI" + struct.pack("<II", 3, len(used) + len(companions)))
     overridden = 0
@@ -138,6 +174,10 @@ def write(name: str) -> dict:
         pair, wind = divmod(m, 2)
         slots = slots_of(pair // 65536, pair % 65536)
         overridden += bool(slots)
+        if decal_only[pair // 65536]:
+            # The decal companion alone: no slot map, no wind, no shadow, no collision (flag bit 1).
+            out += text(assets[assets[names[pair // 65536]]["decals"]]["unreal"]) + struct.pack("<HB", 0, 2)
+            continue
         out += text(assets[names[pair // 65536]]["unreal"]) + struct.pack("<H", len(slots))
         for slot, key in sorted(slots.items()):
             out += text(slot) + text(key)
@@ -172,6 +212,7 @@ def write(name: str) -> dict:
               "entries with wind": sum(m % 2 for m in used), "instances with wind": int((mesh_of % 2).sum()),
               "decal companions": len(companions), "decal components": decal_groups,
               "cells": len(cells), "components": groups, "file": str(path), "bytes": len(out),
-              "left out (not imported or effect cards)": int((~keep).sum())}
+              "left out (not imported, fog cards, fog volumes, no material)": int((~keep).sum()),
+              "decal-only meshes": int(decal_only[data["mesh"][keep]].sum()) if len(names) else 0}
     (path.parent / "cells.json").write_text(json.dumps(report, indent=1))
     return report
