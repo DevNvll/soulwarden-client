@@ -1,6 +1,7 @@
 #include "Environment/SwcMatchView.h"
 
 #include "Camera/CameraTypes.h"
+#include "Camera/PlayerCameraManager.h"
 #include "ContentStreaming.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Engine.h"
@@ -80,6 +81,55 @@ void FSwcViewOverride::Apply(FMinimalViewInfo& View)
 	View.bConstrainAspectRatio = false;
 	View.AspectRatioAxisConstraint = EAspectRatioAxisConstraint::AspectRatio_MaintainYFOV;
 }
+
+namespace
+{
+/**
+ * The fixed eye of a check (AST-269; development runs): "swc.EyeView hold" keeps the place and the rotation of the camera of this
+ * frame (the override of a matched view), "swc.EyeView turn DYAW DPITCH" turns the view around that fixed eye (degrees; a pan with no
+ * change of the eye place, unlike the orbit of the camera of the player), "swc.EyeView off" gives the camera back.
+ */
+FAutoConsoleCommandWithWorldAndArgs GEyeViewCommand(TEXT("swc.EyeView"),
+	TEXT("hold | turn DYAW DPITCH | off: a fixed camera eye for the checks (the override of the matched views; development runs)."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+	{
+		FSwcViewOverride& Override = FSwcViewOverride::Get();
+		const FString Verb = Args.Num() > 0 ? Args[0] : FString();
+		if (Verb == TEXT("off"))
+		{
+			Override.bActive = false;
+		}
+		else if (Verb == TEXT("hold"))
+		{
+			const APlayerController* Controller = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+			const APlayerCameraManager* Camera = Controller != nullptr ? Controller->PlayerCameraManager.Get() : nullptr;
+			if (Camera == nullptr)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("swc.EyeView: no camera"));
+				return;
+			}
+			Override.Location = Camera->GetCameraLocation();
+			Override.Rotation = Camera->GetCameraRotation();
+			Override.Rotation.Roll = 0.0;
+			// The vertical field of view of the horizontal one at 16:9 (the rule of the camera manager).
+			Override.VerticalFovDegrees = static_cast<float>(FMath::RadiansToDegrees(
+				2.0 * FMath::Atan(FMath::Tan(FMath::DegreesToRadians(Camera->GetFOVAngle()) * 0.5) * 9.0 / 16.0)));
+			Override.bActive = true;
+		}
+		else if (Verb == TEXT("turn") && Args.Num() >= 3 && Override.bActive)
+		{
+			Override.Rotation.Yaw += FCString::Atod(*Args[1]);
+			Override.Rotation.Pitch = FMath::Clamp(Override.Rotation.Pitch + FCString::Atod(*Args[2]), -89.0, 89.0);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("swc.EyeView: hold | turn DYAW DPITCH | off"));
+			return;
+		}
+		UE_LOG(LogTemp, Log, TEXT("swc.EyeView %s: %s, eye %s, rotation %s, vertical fov %.1f"), *Verb, Override.bActive ? TEXT("on") : TEXT("off"),
+			*(Override.Location / 100.0).ToString(), *Override.Rotation.ToString(), Override.VerticalFovDegrees);
+	}));
+} // namespace
 
 void USwcMatchViewSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
