@@ -13,6 +13,8 @@
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
+#include "Camera/PlayerCameraManager.h"
+#include "Misc/App.h"
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
@@ -36,7 +38,8 @@ constexpr float LookCountScale = 2.0f;
  *  (the high precision mode is the relative mode of SDL: the raw counts of the device; else the deltas of the cursor positions).
  *  The command line -SwcMouseLog sets it to 1. */
 TAutoConsoleVariable<int32> CVarMouseLog(TEXT("swc.MouseLog"), 0,
-	TEXT("1: log the mouse counts of the look action each second, the turn, and the mouse mode (AST-268)."));
+	TEXT("1: log the mouse counts of the look action each second, the turn, and the mouse mode (AST-268). 2: also one line each frame ")
+	TEXT("with the counts of the frame, the control yaw, and the yaw of the camera (the frames of a turn)."));
 
 UInputAction* MakeAction(UObject* Outer, const TCHAR* Name, EInputActionValueType Type)
 {
@@ -81,6 +84,14 @@ void ASwcPlayerController::BeginPlay()
 		{
 			Backend->LogEndpoints();
 		}
+	}
+	// The look takes the raw counts of the mouse (AST-268): with input.GlobalAxisConfigMode 0 (the default: the mouse keys only),
+	// Enhanced Input puts the AxisConfig of BaseInput.ini as a Scalar modifier on each mouse key of a mapping
+	// (EnhancedInputSubsystemInterface.cpp: MouseX, MouseY, Mouse2D Sensitivity 0.07). The look of a real mouse turned 0.07 of the
+	// retail angle; a drive injects into the action and did not see it. 2 = None: no AxisConfig (no other mapped key has one in mode 0).
+	if (IConsoleVariable* AxisConfigMode = IConsoleManager::Get().FindConsoleVariable(TEXT("input.GlobalAxisConfigMode")))
+	{
+		AxisConfigMode->Set(2, ECVF_SetByCode);
 	}
 	if (UEnhancedInputLocalPlayerSubsystem* Input = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
 	{
@@ -291,6 +302,7 @@ void ASwcPlayerController::OnLook(const FInputActionValue& Value)
 {
 	const FVector2D Counts = Value.Get<FVector2D>();
 	MouseLogCounts += Counts;
+	MouseLogFrameCounts += Counts;
 	++MouseLogEvents;
 	ASwcCameraManager* Camera = GetSwcCamera();
 	if (Camera != nullptr && Camera->HasSceneView())
@@ -340,11 +352,19 @@ void ASwcPlayerController::TickMouseLog()
 	if (CVarMouseLog.GetValueOnGameThread() == 0)
 	{
 		MouseLogAt = Now;
-		MouseLogCounts = MouseLogTurn = FVector2D::ZeroVector;
+		MouseLogCounts = MouseLogTurn = MouseLogFrameCounts = FVector2D::ZeroVector;
 		MouseLogEvents = MouseLogFrames = 0;
 		return;
 	}
 	++MouseLogFrames;
+	if (CVarMouseLog.GetValueOnGameThread() >= 2)
+	{
+		// The camera of this frame is not made yet: its yaw is the view of the last frame.
+		UE_LOG(LogSwcBackend, Log, TEXT("mouse frame %llu: dt %.2f ms, counts %.0f %.0f, control yaw %.2f pitch %.2f, last camera yaw %.2f"),
+			static_cast<unsigned long long>(GFrameCounter), FApp::GetDeltaTime() * 1000.0, MouseLogFrameCounts.X, MouseLogFrameCounts.Y,
+			GetControlRotation().Yaw, GetControlRotation().Pitch, PlayerCameraManager != nullptr ? PlayerCameraManager->GetCameraRotation().Yaw : 0.0);
+	}
+	MouseLogFrameCounts = FVector2D::ZeroVector;
 	if (Now - MouseLogAt < 1.0)
 	{
 		return;
@@ -672,6 +692,7 @@ void ASwcPlayerController::LoadDrive(const FString& Path)
 		Step.Text = Words.Num() > 2 ? Words[2] : FString();
 		Step.Value.X = Words.Num() > 2 ? FCString::Atof(*Words[2]) : 0.0;
 		Step.Value.Y = Words.Num() > 3 ? FCString::Atof(*Words[3]) : 0.0;
+		Step.Events = Words.Num() > 4 ? FCString::Atoi(*Words[4]) : 1;
 		if (Step.Command == TEXT("exec") && Words.Num() > 2)
 		{
 			// A console line (a test switch of a check, for example "swc.Effects.Test KEY,COUNT"): the rest of the line.
@@ -785,6 +806,28 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 			// A fast mouse move: these counts in one frame.
 			Input->InjectInputForAction(LookAction, FInputActionValue(FVector2D(Step.Value.X, 0.0)), {}, {});
 		}
+		else if (Step.Command == TEXT("raw") || Step.Command == TEXT("rawturn"))
+		{
+			// The path of a real mouse (AST-268): "raw DX DY [EVENTS]" gives the counts to FSlateApplication::OnRawMouseMove in EVENTS
+			// events (default 1), the call of FLinuxApplication for each SDL motion event in the relative mode; Slate, the capture of the
+			// viewport, the accumulation of the frame, UPlayerInput, and Enhanced Input follow. "rawturn RATE": RATE counts each
+			// second in events of 2 counts (a mouse of a high poll rate). The viewport gives the counts to the input at the next frame.
+			if (Step.Command == TEXT("rawturn"))
+			{
+				DriveRawTurn = Step.Value.X;
+				DriveRawLeft = 0.0;
+			}
+			else if (FSlateApplication::IsInitialized())
+			{
+				const int32 Events = FMath::Max(1, Step.Events);
+				for (int32 Index = 0; Index < Events; ++Index)
+				{
+					const int32 X = FMath::RoundToInt32(Step.Value.X * (Index + 1) / Events) - FMath::RoundToInt32(Step.Value.X * Index / Events);
+					const int32 Y = FMath::RoundToInt32(Step.Value.Y * (Index + 1) / Events) - FMath::RoundToInt32(Step.Value.Y * Index / Events);
+					FSlateApplication::Get().OnRawMouseMove(X, Y);
+				}
+			}
+		}
 		else if (Step.Command == TEXT("look"))
 		{
 			// A mouse move of the retail harness (tools/hx "look DX DY"; stage P3.G): these counts in one frame, DY positive down.
@@ -878,6 +921,18 @@ void ASwcPlayerController::TickDrive(float DeltaTime)
 			{
 				Camera->SetForcedState(Step.Text);
 			}
+		}
+	}
+	if (DriveRawTurn != 0.0 && FSlateApplication::IsInitialized())
+	{
+		DriveRawLeft += DriveRawTurn * DeltaTime;
+		const int32 Counts = static_cast<int32>(DriveRawLeft);
+		DriveRawLeft -= Counts;
+		for (int32 Sent = 0; Sent != Counts;)
+		{
+			const int32 Event = Counts > 0 ? FMath::Min(2, Counts - Sent) : FMath::Max(-2, Counts - Sent);
+			FSlateApplication::Get().OnRawMouseMove(Event, 0);
+			Sent += Event;
 		}
 	}
 	if (!DriveTurn.IsNearlyZero())

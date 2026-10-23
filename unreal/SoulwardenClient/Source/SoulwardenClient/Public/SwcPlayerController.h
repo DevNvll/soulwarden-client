@@ -80,6 +80,8 @@ private:
 		FString Command;
 		FString Text;
 		FVector2D Value = FVector2D::ZeroVector;
+		/** The events of a "raw" step (AST-268). */
+		int32 Events = 1;
 	};
 
 	void OnMove(const FInputActionValue& Value);
@@ -166,6 +168,7 @@ private:
 	/** The mouse log of swc.MouseLog (AST-268): the counts and the turn of the look action since the last line. */
 	FVector2D MouseLogCounts = FVector2D::ZeroVector;
 	FVector2D MouseLogTurn = FVector2D::ZeroVector;
+	FVector2D MouseLogFrameCounts = FVector2D::ZeroVector;
 	int32 MouseLogEvents = 0;
 	int32 MouseLogFrames = 0;
 	double MouseLogAt = -1.0;
@@ -182,4 +185,7 @@ private:
 	int32 DriveNext = 0;
 	double DriveStart = -1.0;
 	FVector2D DriveTurn = FVector2D::ZeroVector;
+	/** The raw mouse turn of the drive (counts each second, AST-268) and its fraction that is not sent yet. */
+	double DriveRawTurn = 0.0;
+	double DriveRawLeft = 0.0;
 };
