@@ -114,6 +114,8 @@ public:
 	virtual TStatId GetStatId() const override;
 
 	const TArray<FSwcPerson>& GetPersons() const { return Persons; }
+	/** The revision of the presence of the persons for the local character (0: not known yet): the NPC states of the UI (AST-239). */
+	uint32 GetPresenceRevision() const { return PresenceRevision; }
 	/** @return The person of an npc object key of the interaction data (or of PersonTalkPrefix + a key of persons.json), or null. */
 	const FSwcPerson* FindByInteraction(const FString& Key) const;
 	/**
@@ -146,6 +148,7 @@ private:
 	bool bLoadTried = false;
 	bool bPresenceKnown = false;
 	uint32 SeenAchievementRevision = 0;
+	uint32 PresenceRevision = 0;
 	TArray<FSwcPerson> Persons;
 	double NextUpdate = 0.0;
 	int32 Spawned = 0;

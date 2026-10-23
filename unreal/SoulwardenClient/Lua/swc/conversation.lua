@@ -185,24 +185,32 @@ end
 
 --- The selection of the client for a person (its NPC row): sets C.stateId, C.lines, C.topics, and C.taskObjective (the objective of a
 --- state with an active task rule: the conversation state HasTalkToTask of the option icons). @return True with a state.
-local function select_state(npcId)
+--- The state of an NPC row for the character (the reverse scan 0x37AC710 with the validity of a record), with no change of the open
+--- conversation (the NPC quest states of swc/npcstates.lua use it too). @return The state id and its record, or nil.
+local function choose_state(npcId)
   local data = cdata()
   local states = data and data.npcs[string.lower(npcId or "")]
-  if not states then
-    return false
-  end
-  for i = #states, 1, -1 do
+  for i = #(states or {}), 1, -1 do
     local state = data.states[states[i]]
     if state and record_valid(state) and requirements_pass(state.requires, false) then
-      C.stateId = states[i]
-      C.lines, C.index = chain_of(state.dialogue), 1
-      C.topics = passing_topics(state.topics)
-      local r = state.requires or {}
-      C.taskObjective = r.RequiredActiveObjectiveId and r.RequiredActiveTaskId and Swc.quests.ActiveTask(r.RequiredActiveObjectiveId, r.RequiredActiveTaskId) or nil
-      return true
+      return states[i], state
     end
   end
-  return false
+  return nil
+end
+C.choose_state = choose_state
+
+local function select_state(npcId)
+  local id, state = choose_state(npcId)
+  if not id then
+    return false
+  end
+  C.stateId = id
+  C.lines, C.index = chain_of(state.dialogue), 1
+  C.topics = passing_topics(state.topics)
+  local r = state.requires or {}
+  C.taskObjective = r.RequiredActiveObjectiveId and r.RequiredActiveTaskId and Swc.quests.ActiveTask(r.RequiredActiveObjectiveId, r.RequiredActiveTaskId) or nil
+  return true
 end
 C.select_state = select_state
 C.record_valid = record_valid

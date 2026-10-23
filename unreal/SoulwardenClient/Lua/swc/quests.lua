@@ -156,7 +156,7 @@ end
 
 local ObjectiveData = Swc.ValueClass({name = "ObjectiveData", fields = {"id", "objectiveId", "type", "title", "description",
   "npcDestinationId", "successGameEventId", "difficultyLevel", "canBeAbandoned", "canBeShared", "requiredLevel", "achievementId",
-  "originTerritoryId", "exclusiveTerritory", "difficulty", "repeatable", "isValid"}, methods = {IsValid = function(self) return self.isValid == true end}})
+  "originTerritoryId", "exclusiveTerritory", "difficulty", "repeatable", "hideAvailableMapIcon", "isValid"}, methods = {IsValid = function(self) return self.isValid == true end}})
 
 local function objective_data(row)
   if not row then
@@ -176,6 +176,8 @@ local function objective_data(row)
     -- The group difficulty of the row (the column Difficulty; the journal shows "@objective_difficulty_N" above 0).
     difficulty = tonumber(cell(row, "Difficulty") or "0") or 0,
     repeatable = cell(row, "Repeatable") == "1",
+    -- The filter of the available map icons (objectivesdatahandler.luac GetAvailableObjectivesByTerritoryId; AST-239).
+    hideAvailableMapIcon = cell(row, "HideAvailableMapIcon") == "1",
     isValid = true,
   })
 end
@@ -527,7 +529,7 @@ Swc.Define("ObjectivesComponentRequestBus", "Event", {
   GetActiveTimedQuickCourseId = function() return 0 end,
   GetCurrentMissionId = function() return 0 end,
   GetCurrentMissionObjectiveId = function() return objective_id("0") end,
-  GetAvailableQuestsByTerritoryId = function() return {} end,
+  -- GetAvailableQuestsByTerritoryId, GetNPCMarkers: swc/npcstates.lua (AST-239).
   ShouldObjectiveGrantCategoricalProgression = function() return true end,
   GetTerritoryIdForNpc = function() return 0 end,
   RequestShareObjectiveWithGroup = function() end,

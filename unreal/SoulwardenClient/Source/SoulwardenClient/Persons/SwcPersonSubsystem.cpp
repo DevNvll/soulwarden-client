@@ -389,6 +389,10 @@ bool USwcPersonSubsystem::UpdatePresence()
 			Person.Actor.Reset();
 		}
 	}
+	if (Changed > 0 || PresenceRevision == 0)
+	{
+		++PresenceRevision;
+	}
 	UE_LOG(LogSwcPersons, Log, TEXT("persons: the presence for the Achievement state (%d byte(s), revision %u): %d of %d persons show, %d changed"),
 		static_cast<int32>(Own.achievements.size()), Own.achievementRevision, Shown, Persons.Num(), Changed);
 	return true;

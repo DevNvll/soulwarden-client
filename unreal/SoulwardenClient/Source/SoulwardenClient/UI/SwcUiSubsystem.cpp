@@ -27,6 +27,7 @@
 #include "Camera/PlayerCameraManager.h"
 #include "SwcCameraManager.h"
 #include "Creatures/SwcCreatureSubsystem.h"
+#include "Persons/SwcPersonSubsystem.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/LocalPlayer.h"
@@ -2213,6 +2214,27 @@ void USwcUiSubsystem::FeedWorld(const swc::net::RepClient::OwnEntity& Own)
 			Plate.Distance, Plate.bShown ? 1 : 0, *Statuses, Plate.bTimedTarget ? 1 : 0, Plate.TargetStamp);
 	}
 	Runtime->call("HostPlates", {FArg::of(Utf8(Lines))});
+	// The persons that show for the character and have a Talk and an NPC id (swc/npcstates.lua: the NPC quest states of the overhead
+	// markers, the compass, and the map; AST-239): one line each, "KEY<TAB>NPCID<TAB>X<TAB>Y<TAB>Z" (engine m), at each change of the
+	// presence.
+	if (const USwcPersonSubsystem* PersonSystem = World != nullptr ? World->GetSubsystem<USwcPersonSubsystem>() : nullptr;
+		PersonSystem != nullptr && PersonSystem->GetPresenceRevision() != 0 && PersonSystem->GetPresenceRevision() != SentPersonsRevision)
+	{
+		SentPersonsRevision = PersonSystem->GetPresenceRevision();
+		FString PersonLines;
+		int32 Count = 0;
+		for (const FSwcPerson& Person : PersonSystem->GetPersons())
+		{
+			if (Person.bVisible && Person.bTalk && !Person.NpcId.IsEmpty())
+			{
+				PersonLines += FString::Printf(TEXT("%s\t%s\t%.2f\t%.2f\t%.2f\n"), *Person.Key, *Person.NpcId, Person.Place.X / 100.0, -Person.Place.Y / 100.0,
+					Person.Place.Z / 100.0);
+				++Count;
+			}
+		}
+		Runtime->call("HostPersons", {FArg::of(Utf8(PersonLines))});
+		UE_LOG(LogSwcUi, Log, TEXT("ui: the persons of the NPC states: %d (presence revision %u)"), Count, SentPersonsRevision);
+	}
 	// The prompt of the focus (FSwcInteractor::GetPrompt): one line for swc/interact.lua (Swc.HostPrompt).
 	USwcBackendSubsystem* Backend = GetGameInstance()->GetSubsystem<USwcBackendSubsystem>();
 	FSwcInteractPrompt Prompt;

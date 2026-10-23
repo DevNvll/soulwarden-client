@@ -339,6 +339,9 @@ function Swc.HostOwnership(achievements, entitlements, received)
   if Swc.conversation and Swc.conversation.MarkChanged then
     Swc.conversation.MarkChanged()
   end
+  if Swc.npcStates then
+    Swc.npcStates.MarkChanged()
+  end
 end
 
 --- @return True when the Achievement state of the character has this bit (false with no Achievement state yet).

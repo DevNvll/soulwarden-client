@@ -387,6 +387,7 @@ end
 
 function Swc.HostPlates(text)
   M.TickQuestPins()
+  M.TickNpcMarkers()
   M.plates = parse_plates(text)
   local present = {}
   for _, plate in ipairs(M.plates) do
@@ -659,6 +660,129 @@ function M.TickQuestPins()
       end
     end
   end
+end
+
+-- ------------------------------------------------------------------------------------------------- the NPC markers (stage Q4)
+
+-- The overhead Conversation markers of the persons (AST-239; research/quest-conversation.md 8.1): the marker type Conversation of the
+-- static pool "w" (markermanager.luac); staticworldmarker.luac shows the icon of the data node NPCState (an object: State, ObjectiveType,
+-- ConversationObjectiveInstanceId) and of ObjectiveType. The states come from swc/npcstates.lua (the native query 0x37AC8C0). The place,
+-- the scale (1 to 0.35 from 0 to 40 m), and the alpha (the fade start and end at 125 m) come from the marker params of the type
+-- (markerdata.luac; wZ 1.9 m); no occlusion. The allocation [I: the native marker allocation of the NPC entities is not traced]: the
+-- slots of the pool after the quest pins, the persons within the end of the fade, the persons with a quest state first, then the
+-- nearest; the allocation each second (the states of swc/npcstates.lua) and a slot stays with its person.
+local NPC_MARKER_TYPE = "Conversation"
+M.npcSlots = {}
+local npcAllocation = {revision = -1}
+
+local function same_state(a, b)
+  return a and b and a.State == b.State and a.ObjectiveType == b.ObjectiveType and a.ConversationObjectiveInstanceId == b.ConversationObjectiveInstanceId
+end
+
+--- The NPC markers of the frame (each frame, after the quest pins).
+function M.TickNpcMarkers()
+  local states = Swc.npcStates
+  local first = math.min(pool_size("w"), QUEST_PIN_LIMIT)
+  local size = pool_size("w")
+  if not M.ready or not states or size <= first then
+    return
+  end
+  local params = M.params[NPC_MARKER_TYPE] or {}
+  local range = params.fadeDistance or 125
+  local own = Swc.GetData("Hud.LocalPlayer.Position")
+  local px, py, pz = own and own.x or 0, own and own.y or 0, own and own.z or 0
+  if states.revision ~= npcAllocation.revision then
+    npcAllocation.revision = states.revision
+    local candidates = {}
+    for _, person in ipairs(states.near or {}) do
+      local d2 = (person.x - px) ^ 2 + (person.y - py) ^ 2 + (person.z - pz) ^ 2
+      if person.state and d2 <= range * range then
+        candidates[#candidates + 1] = {person = person, d2 = d2, quest = person.state.State ~= states.STATE.none}
+      end
+    end
+    table.sort(candidates, function(a, b)
+      if a.quest ~= b.quest then
+        return a.quest
+      end
+      return a.d2 < b.d2
+    end)
+    local wanted = {}
+    for i = 1, math.min(size - first, #candidates) do
+      wanted[candidates[i].person.key] = candidates[i].person
+    end
+    local free = {}
+    for index = first, size - 1 do
+      local slot = M.npcSlots[index]
+      if not slot then
+        slot = {index = index, prefix = PREFIX .. "w" .. index, values = {}}
+        M.npcSlots[index] = slot
+      end
+      if slot.person and wanted[slot.person.key] then
+        slot.person = wanted[slot.person.key]
+        wanted[slot.person.key] = nil
+      else
+        if slot.person then
+          put(slot, "IsVisible", false)
+          Swc.SetData(slot.prefix .. ".StopUpdate", true)
+        end
+        slot.person, slot.markerId, slot.state = nil, nil, nil
+        free[#free + 1] = slot
+      end
+    end
+    local i = 0
+    for _, person in pairs(wanted) do
+      i = i + 1
+      local slot = free[i]
+      if slot then
+        slot.person, slot.values, slot.state = person, {}, nil
+        slot.markerId = EntityId(string.format("7%03d%010d", slot.index, person.crc % 10000000000))
+        Swc.SetData(slot.prefix .. ".MarkerComponentId", slot.markerId)
+        put(slot, "Type", NPC_MARKER_TYPE)
+      end
+    end
+  end
+  for index = first, size - 1 do
+    local slot = M.npcSlots[index]
+    local person = slot and slot.person
+    if person and person.state then
+      local state = {State = person.state.State, ObjectiveType = person.state.ObjectiveType,
+                     ConversationObjectiveInstanceId = person.state.ConversationObjectiveInstanceId}
+      if not same_state(slot.state, state) then
+        slot.state = state
+        Swc.SetData(slot.prefix .. ".ObjectiveType", state.ObjectiveType)
+        Swc.SetData(slot.prefix .. ".NPCState", state)
+      end
+      local distance = math.sqrt((person.x - px) ^ 2 + (person.y - py) ^ 2 + (person.z - pz) ^ 2)
+      local object = slot.markerId and M.objects[key(slot.markerId)]
+      local element = object and object.element
+      local sx, sy = project((person.x + (params.wX or 0)) * 100, -(person.y + (params.wY or 0)) * 100, (person.z + (params.wZ or 0)) * 100)
+      local alpha = params.maxAlpha or 1
+      if params.fadeStart and params.fadeDistance and params.fadeDistance > params.fadeStart and distance > params.fadeStart then
+        alpha = math.max(params.minAlpha or 0, alpha - (distance - params.fadeStart) / (params.fadeDistance - params.fadeStart))
+      elseif params.fadeDistance and distance > params.fadeDistance then
+        alpha = 0
+      end
+      local visible = sx ~= nil and alpha > 0
+      put(slot, "IsVisible", visible)
+      slot.screen = sx and {sx + (params.sX or 0), sy + (params.sY or 0)} or nil
+      if element and visible then
+        swcui.set_viewport_position(element, slot.screen[1], slot.screen[2])
+        local scale = ramp(distance, params.scaleStart, params.scaleDistance, params.maxScale or 1, params.minScale or 1)
+        swcui.set(element, "transform.scale", scale, scale)
+        swcui.set(element, "fader.fade", alpha)
+      end
+    end
+  end
+end
+
+--- @return The viewport point "x y" of the overhead marker of a person (its key), or "" (the harness input and the checks).
+function Swc.NpcMarkerPoint(personKey)
+  for _, slot in pairs(M.npcSlots) do
+    if slot.person and slot.person.key == personKey and slot.screen and slot.values.IsVisible then
+      return string.format("%.1f %.1f", slot.screen[1], slot.screen[2])
+    end
+  end
+  return ""
 end
 
 --- @return The viewport point "x y" of the world pin of a task key ("INSTANCE:INDEX"), or "" (the harness input and the checks).

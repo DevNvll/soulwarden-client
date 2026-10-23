@@ -179,6 +179,8 @@ private:
 	bool bLoadingForDeath = false;
 	double LoadingHoldUntil = 0.0;
 	uint32 SentDeathNotices = 0;
+	/** The presence revision of the persons sent to swc/npcstates.lua (Swc.HostPersons; AST-239). */
+	uint32 SentPersonsRevision = 0;
 	bool bCursorWanted = false;
 	bool bKeybinding = false;
 	bool bCursorApplied = false;

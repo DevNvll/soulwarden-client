@@ -53,6 +53,7 @@ equal(select("01_AelstromWW_01"), "01_AelstromWW_p1_01", "Aelstrom with S_getoff
 -- completion notice and the bit S_getoffbeach_ww) gives the new state 01_AelstromWW_p1_01 with the offer "Do you have food and
 -- supplies?" (06_skinningknife); its proposal chain ends with "Accept Quest" (3772) and the Acceptance state.
 local conversation = screen("LyShineUI/Conversation/ConversationScreenV2.uicanvas", 20)
+local markers = screen("LyShineUI/Markers/MarkerManager.uicanvas", 10, true)
 screen("LyShineUI/HelpBar/HelpBar.uicanvas", 30, true)
 local function requests()
   local out = {}
@@ -115,6 +116,58 @@ Swc.HostQuestPinReady(true)
 frames(0.5)
 check(ObjectivesComponentRequestBus.Event.IsObjectiveReadyForCompletion(Swc.ids.player, Swc.quests.byKey[INSTANCE].id),
   "06_getoffbeach is ready for the hand-in (its root Complete)")
+-- The NPC states (step 5; research/quest-conversation.md 7 and 8): the persons of the presence, the player 1.9 m in front of Aelstrom,
+-- the camera at the height of his marker looking north (the plates fixture matrix, along -Y of Unreal: rotated).
+local AX, AY, AZ = 9613.356, 2329.267, 42.432
+Swc.HostPersons("person:aelstrom\t01_AelstromWW_01\t" .. AX .. "\t" .. AY .. "\t" .. AZ .. "\nperson:urda\t01_UrdaWW_01\t9601.71\t2367.60\t44.64\n")
+Swc.HostView(0, AX, AY - 6, AZ)
+local npcEvents = {}
+NpcComponentNotificationsBus.Connect({OnNpcHasAvailableQuestChanged = function(_, npc, state, position, objectiveType)
+  npcEvents[#npcEvents + 1] = {npc = npc, state = state, objectiveType = objectiveType}
+end}, EntityId())
+-- The camera 6 m south of Aelstrom at the height of his marker (1.9 m), looking north (+Y engine, -Y Unreal): clip x = x - lx, clip y =
+-- (z - lz) * 1920/1080, w = ly - y (Unreal row vectors).
+local lx, ly, lz = AX * 100, -(AY - 6) * 100, (AZ + 1.9) * 100
+Swc.HostViewProjection(1, 0, 0, 0, 0, 0, 0, -1, 0, 1920 / 1080, 0, 0, -lx, -lz * 1920 / 1080, 10, ly, 1920, 1080, lx, ly, lz)
+Swc.HostPlates("")
+frames(1.5)
+Swc.HostPlates("")
+frames(0.5)
+local aelstrom = Swc.npcStates.Query("01_AelstromWW_01")
+equal(aelstrom.State, eConversationState_TurnIn, "the NPC state of Aelstrom at ready: TurnIn 4 (the ready hand-in first)")
+equal(aelstrom.ObjectiveType, eObjectiveType_MainStoryQuest, "the objective type: MainStoryQuest")
+local function last_event(crc)
+  local found
+  for _, e in ipairs(npcEvents) do
+    if e.npc == crc then found = e end
+  end
+  return found
+end
+local aelstromCrc = swcui.crc32("01_aelstromww_01")
+equal(aelstromCrc, 0xE388F641, "the NPC CRC of 01_AelstromWW_01: e388f641")
+equal(last_event(aelstromCrc) and last_event(aelstromCrc).state, 4, "the compass gets OnNpcHasAvailableQuestChanged with TurnIn 4")
+local function npc_slot(keyName)
+  for _, slot in pairs(Swc.markers.npcSlots) do
+    if slot.person and slot.person.key == keyName then return slot end
+  end
+  return nil
+end
+local function npc_icon(slot)
+  local object = slot and slot.markerId and Swc.markers.objects[tostring(slot.markerId)]
+  local element = object and object.element
+  local icon = element and find(element, "Icon")
+  return icon and swcui.has(icon, "image") and swcui.get(icon, "image.sprite") or "", element
+end
+local slot = npc_slot("person:aelstrom")
+check(slot ~= nil, "Aelstrom has an overhead Conversation marker (pool w after the quest pins)")
+local sprite, element = npc_icon(slot)
+note("the overhead icon at ready: " .. tostring(sprite) .. ", point " .. Swc.NpcMarkerPoint("person:aelstrom"))
+check(string.find(string.lower(tostring(sprite)), "icon_questreadyforturnin_npc", 1, true) ~= nil, "the overhead icon at ready: icon_questReadyForTurnIn_npc")
+local point = Swc.NpcMarkerPoint("person:aelstrom")
+local mx, my = point:match("^(%S+) (%S+)$")
+near(tonumber(mx) or 0, 960, 2, "the overhead marker is in the middle of the view (Aelstrom ahead)")
+near(tonumber(my) or 0, 540, 2, "the overhead marker is 1.9 m above the feet (wZ of the type Conversation: the camera height)")
+picture("questpersons-ready-marker")
 Swc.HostConversation("open", "person:aelstrom", "Aelstrom", "01_aelstrom_default_00", "Aelstrom", "", "", "01_AelstromWW_01")
 watch()
 frames(2.0)
@@ -157,6 +210,14 @@ check(C.result and C.result.responseType == 1 and C.result.options[1].optionType
 note("after the hand-in: " .. texts())
 check(texts():find("food and supplies", 1, true) ~= nil, "the offer option \"Do you have food and supplies?\" (PlayerPrompt of 06_skinningknife)")
 picture("questpersons-offer")
+Swc.HostPlates("")
+frames(1.5)
+Swc.HostPlates("")
+equal(Swc.npcStates.Query("01_AelstromWW_01").State, eConversationState_HasObjective, "after the hand-in: Aelstrom HasObjective 1 (the knife offer)")
+equal(last_event(aelstromCrc) and last_event(aelstromCrc).state, 1, "the compass gets HasObjective 1")
+sprite = npc_icon(npc_slot("person:aelstrom"))
+check(string.find(string.lower(tostring(sprite)), "icon_questmainstoryavailable_npc", 1, true) ~= nil,
+  "the overhead icon after the hand-in: icon_questMainStoryAvailable_npc (" .. tostring(sprite) .. ")")
 local knife = Swc.quests.D().objectives["06_skinningknife"]
 local offer = find_text("food and supplies")
 if offer then click(offer) end
@@ -180,3 +241,17 @@ frames(1.5)
 r = requests()
 equal(r[1], "quest accept " .. knife.crc, "Accept Quest sends 3772 with the objective CRC (d137c605)")
 equal((screen_state() or {}).responseType, eConversationResponseType_Acceptance, "then the Acceptance state at once")
+
+-- The reply of the accept: the active knife (its destination is Urda, HideIncompleteTurninMarker): Aelstrom has no quest state now.
+local knifeState = {"A 778 " .. knife.crc .. " 6 0"}
+for _, entry in ipairs(knife.tree) do
+  local task = Swc.quests.D().tasks[entry[2]]
+  knifeState[#knifeState + 1] = string.format("T 778 %d %d 0 1", entry[1], task.crc)
+end
+knifeState[#knifeState + 1] = "K 778"
+Swc.HostQuests(table.concat(knifeState, "\n"))
+frames(1.5)
+Swc.HostPlates("")
+equal(Swc.npcStates.Query("01_AelstromWW_01").State, eConversationState_NoObjective, "after the accept: Aelstrom NoObjective 0 (the knife is active, its marker hidden)")
+equal(last_event(aelstromCrc) and last_event(aelstromCrc).state, 0, "the compass gets NoObjective 0 (it removes the available icon)")
+equal(#ObjectivesComponentRequestBus.Event.GetNPCMarkers(Swc.ids.player), 0, "the map has no incomplete destination marker (HideIncompleteTurninMarker of the knife)")
