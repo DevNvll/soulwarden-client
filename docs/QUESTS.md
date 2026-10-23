@@ -219,8 +219,9 @@ NPC state priority (the ready NPC marker state of the hand-in: Q4 owns the NPC s
 
 ## The persons, the offers, and the hand-in (Q4, AST-239)
 
-Work in progress (the native conversation rules: the study `research/quest-conversation.md`, brief
-`research/briefs/q4-conversation-objectives.md`).
+The native rules: the study `research/quest-conversation.md` (brief `research/briefs/q4-conversation-objectives.md`). The tags [R] [D]
+[I] [U] of the study apply. The code: `swc/conversation.lua` (the result), `swc/npcstates.lua` (the NPC states), `swc/markers.lua` (the
+overhead marker).
 
 - The state selection: the validity of a record (backend stage 1.8f): docs/PERSONS.md "The conversation state".
 - The messages (protocol notes 3772, 794; backend `server/rep/quest_messages.h`; the type ids of the client message table): 3772
@@ -229,19 +230,62 @@ Work in progress (the native conversation rules: the study `research/quest-conve
   complete CRC" (UI/SwcUiQuests). The server gives no answer: the Objectives state (a new instance; the completion notice in field 2) is
   the result; a refusal gives nothing. Tests: `tools/test-net.sh` (the backend reader reads the bodies).
 
-- The screen flow [I until the study; `swc/conversation.lua`, the comment block "the objectives"]: a ready hand-in of the person opens the
-  conversation on its chain DestinationCompletionAvailableResponse; its last line is a CompletionAvailable state (dialogueId: the objective
-  CRC, so the details panel shows the quest and its rewards) with "Complete the Quest" (CompleteObjective, 794). Else the lines of the
-  selected state end with its offers (ObjectiveDetails, the text PlayerPrompt; RequiredAchievementId passes, no active instance, no
-  completion bit) and its topics; an offer opens its chain ObjectiveProposalResponse, whose last line is a Proposal state with "Accept
-  Quest" (`@npc_acceptobjective`, AcceptObjective, 3772), then the Acceptance state at once. Between the lines the option is the player
-  reply of the next line (`dialogue-prompt`, conversations.json "prompt"). After 794 the client waits for the completion notice, makes
-  the selection again (the new bit, at most 2 s more), and shows the new state with its offers (retail F1: "Do you have food and
-  supplies?" after the hand-in). The converter adds the line data of the objective texts (the columns *Prompt and *Response).
-  `HasRoomForObjective` (the active objectives of the type below GetMaxObjectivesForType; 0: no cap), `GetObjectiveDifficultyLevel`, and
-  `RecipeDataManagerBus.GetRecipeIdByAchievementId` (0 with no recipe; a nil made each objective a recipe reward and stopped the details
-  panel) serve the screen. Fixture `tests/ui/fixtures/questpersons.lua` (30 checks). Open: the reward area of the details panel draws as
-  a white box in the fixture picture.
+- The conversation result (study 3 to 6): one typed result {title, dialogue, responseType, dialogueId, options} as the native
+  builder 0x37ACF10. Response values: 1 Default, 2 Topic, 3 Proposal, 4 Acceptance, 5 Completion, 6 CompletionAvailable, 7 InProgress,
+  8 OnCooldown. Option values: 1 Leave, 2 Topic, 3 ObjectiveDetails, 4 Accept, 5 Complete, 6 Back, 7 Continue.
+  1. The ready hand-in has the first priority: the first active objective (in its stored order) with NpcDestinationId this person and
+     its root Complete or CompleteActive gives CompletionAvailable 6 (or InProgress 7), its Title, its CRC as dialogueId (the details
+     panel shows the quest and its rewards), and CompleteObjective 5 with DestinationCompletionAvailablePrompt. The scan of the offers
+     does not run.
+  2. Else the LinearObjectiveId of the selected state go through the classifier 0x37AE910 in their order: Proposal 3 gives an
+     ObjectiveDetails 3 option (PlayerPrompt), InProgress 7 the InProgressResponse. With the linear setting
+     (`javelin.enable-linear-conversations`) the scan stops at the first result.
+  3. Then the topics, and Leave 1 (`@NPC_EndConversation`) last.
+  4. Continue 7 is a local page action: the next page of a line chain, with its `dialogue-prompt` as the option text (0x3779AE0;
+     conversations.json "prompt"). The real option type stays under the page chain: the Accept or Complete option shows on the last page.
+  5. ObjectiveDetails gives Proposal 3 with AcceptObjective 4 (`@NPC_AcceptObjective`). Accept checks the capacity of the type
+     (`HasRoomForObjective`), shows Acceptance 4 at once, removes the option, and sends 3772. Complete shows the prepared Completion 5,
+     removes the option, and sends 794. There is no timeout and no retry: a refusal gives no answer and nothing changes (study 5.5).
+  6. The refresh (study 5.4): after an owner update (the quest state, the Achievement state) the client selects the state again, one
+     time in the next frame. A result with objective content is built again; else the prepared result stays. Thus after 794 the same
+     conversation shows the next greeting and the knife offer (retail F1-12).
+  A person with no NPC row keeps its line chain and gets the default result with Leave. `HasRoomForObjective`,
+  `GetObjectiveDifficultyLevel`, and `RecipeDataManagerBus.GetRecipeIdByAchievementId` (0 with no recipe) serve the screen.
+  OnObjectiveCompleted has the objective CRC and the creation params (bannertriggers.luac). The converter adds the line data of the
+  objective texts (the columns *Prompt and *Response) and the `dialogue-prompt` of each line.
+- The NPC states (study 7): `swc/npcstates.lua` N.Query is the native query 0x37AC8C0, an ordered decision tree: (1) the ready hand-in:
+  TurnIn 4 when DestinationCompletionAvailableResponse has text, else NoObjective 0; (2) else the LinearObjectiveId in marker mode
+  (HideIncompleteTurninMarker hides an incomplete result): HasObjective 1, InProgress 5, OnCooldown 16; (3) else an active talk-to task of
+  the person: HasTalkToTask 13 [I: the task codes 16 and 17]; (4) else an active objective with NpcDestinationId this person and no
+  HideIncompleteTurninMarker: InProgress 5; (5) else the first service with a state (Inn 7, Event_Store 8, Horse_Store 9, Wolf_Store 10,
+  Lion_Store 11, Expansion_Modal 12, Transmog 14, Barbershop 15, Open_Mission_Board 18) [I: Faction_Board 3 and Open_Shop 17 have gates
+  that the client does not have: not used]. The persons: `Swc.HostPersons` (UI/SwcUiSubsystem.cpp, the persons of the presence with a
+  Talk and an NPC id, at each change of the presence revision of USwcPersonSubsystem). The states are computed again each second and
+  after each change of the quests and the achievements [I].
+- The three views (study 8):
+  - The compass: OnNpcHasAvailableQuestChanged(npcCRC, state, worldPosition, objectiveType) at each change, for the persons within
+    200 m of the player [I: the native publisher runs for the NPC entities of the stream]. A person that leaves the range or the
+    presence (the walkaway Aelstrom after the knife offer) gets the clear form (NoObjective, type 0). RequestPublishNpcStates sends
+    each state again and keeps the published list. MapComponentBus.GetNpcData gives factionType None (compass.luac indexes
+    factionInfoTable with it).
+  - Over the person: a Conversation marker in the static pool w after the 5 quest pins [I: the allocation order], with the NPCState
+    object {State, ObjectiveType, ConversationObjectiveInstanceId}; the params of the type: wZ 1.9 m, the fade at 125 m [U: the exact
+    boundary], the scale 1 to 0.35 from 0 to 40 m. staticworldmarker.luac registers its MarkerComponentId callback with no execute, so a
+    slot whose element has no marker yet sends its data again each second (the quest pins too). The static markers do not show while a
+    conversation is open [I: retail F1-12 and F1-13 show no marker over Aelstrom; markercommon.luac hides its canvas only for one other
+    screen state].
+  - The map: GetNPCMarkers (0x3A3CEB0, the incomplete destinations with no HideIncompleteTurninMarker, not ready) and
+    GetAvailableQuestsByTerritoryId [I: the offers (HasObjective) of the persons of the presence in the territory; the map helper filters
+    HideAvailableMapIcon]. The ready destination comes from the pins of Q2.
+- The beach case (study 9.5), the client log: Aelstrom TurnIn 4 (the ready 06_getoffbeach), then HasObjective 1 (the knife offer
+  06_skinningknife), then NoObjective 0 after the accept.
+- Fixture `tests/ui/fixtures/questpersons.lua` (52 checks: the result, the pages, the accept and the complete, the refresh, the NPC
+  states, the compass events, the clear form, the marker over Aelstrom in the middle of the view).
+- The live check (2026-10-23, the drives `tests/drive/ast239-exit4*.txt`, a new development character in its own data folder; the ready
+  state with the check aid below): the green ready marker over Aelstrom, the compass, the tracker, and the map; the hand-in pages, the
+  reward panel (200 XP, 1.50 coin), 794; the next greeting and the knife offer in the same conversation; 3772; the Basic Needs banner and
+  the knife pin at Urda; after a new login: level 2, 200 XP, 1.50 coin, 06_skinningknife active, the journal with Basic Needs. The pairs
+  with the retail 1.8b references P1-01, P1-03, F1-11, F1-12, F1-13, F1-15, F1-16 are in the evidence of AST-239.
 
 ### The check aid of a quest cutscene (development runs only)
 
@@ -261,9 +305,12 @@ natural path (the activation of the scene by the achievements, the playback, the
 - The journal has a hidden hand-in row "Talk to " (the retail script hides it with SetTaskVisibility).
 - The Map button of the journal shows only when the objective layer of the map has a place for the quest
   (`ObjectivesLayer.GetObjectivePosition`): the pins of stage Q2 give it (live check open). The task timers are stage Q8.
-- Q2 (done, AST-237): the open points of the study are in "The pins (Q2, AST-237)". Also open, for Q4 (AST-239): the retail compass
-  shows the POI icon of the watchtower near the beach start, the client compass shows no POI icon; the live hand-in (the root complete)
-  is checked only in the fixture; the ready NPC marker state of the hand-in (the NPC states are Q4).
+- Q2 (done, AST-237): the open points of the study are in "The pins (Q2, AST-237)". The live hand-in and the ready NPC state are done
+  in Q4 (AST-239). Still open: the retail compass shows the POI icon of the watchtower near the beach start, the client compass shows no
+  POI icon.
+- Q4 (AST-239) [U] of the study 10: the refresh schedule and the packet order, the global completion flag, the service 12 enum, the
+  names of the NPC states 7 and 15, the exact 125 m boundary, the payment of each reward kind (the backend contract). The icons of the
+  services (Inn, stores, barber) over the persons are not checked live.
 - A change of an Auto-Pin switch does not go to the backend (2709 is sent once).
 - The top menu bar of the retail journal (Company, Journal, Mount, ...) is a different canvas: not in the client.
 - The skinning of a boar (AST-250): the trigger rule of the bodies (docs/INTERACTIONS.md); live `tests/drive/ast250-c2*.txt`: the quest
