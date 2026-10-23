@@ -111,6 +111,18 @@ class SceneReader(unittest.TestCase):
         self.assertTrue(events[0]["onEnterAoi"])
         self.assertEqual(events[0]["entityEvents"][0]["entities"], ["TriggerCutscene"])
 
+    def test_bink_header(self):
+        # The header of TempestRising (quests-18e cinematic ANSWERS.md Q2): 3199 frames, 1920 x 1080, 30000/1001.
+        head = b"KB2j" + struct.pack("<8I", 190681932, 3199, 400000, 3199, 1920, 1080, 30000, 1001)
+        original = (scenes.source.has, scenes.source.read)
+        scenes.source.has, scenes.source.read = (lambda path: True), (lambda path: head)
+        try:
+            video = scenes.bink_header("lyshineui/videos/tempestrising.bk2")
+        finally:
+            scenes.source.has, scenes.source.read = original
+        self.assertEqual((video["frames"], video["width"], video["height"], video["rate"]), (3199, 1920, 1080, [30000, 1001]))
+        self.assertAlmostEqual(video["seconds"], 106.739967, places=5)
+
 
 if __name__ == "__main__":
     unittest.main()

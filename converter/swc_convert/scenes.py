@@ -20,6 +20,8 @@ TaskCutsceneComplete: the names of the quest scenes).
 Outputs (SWC_CONTENT/quests, never in git):
   scenes.json          the spawners (the place, the condition, the trigger), the scenes (name, CRC, slice, the tasks), the wanted
                        actors (CDF and animation aliases), and the counts
+  whispers.json        the whispers (WhisperData, the whisper and voice timelines), the cinematic registry (the Bink header of the
+                       videos of the quest tasks), the timed localization entries (start, end, speaker, the next key)
   scenes/NAME.json     one scene: CutsceneInfo, the entities (id, name, parent, local matrix, the components), the timelines (the
                        owner entity, the entry, the assignments, the layers and clips)
 Usage: python3 -B -m swc_convert.scenes write [--only NAME]
@@ -35,7 +37,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import census, env, persons, region, source
+from . import census, datasheet, env, persons, region, source
 
 FORMAT = 1
 F = source.field_id
@@ -427,6 +429,77 @@ def wanted_of(actors: list, clips: list) -> list:
     return out
 
 
+CINEMATICS = "sharedassets/springboardentitites/datatables/cinematics/javelindata_cinematicvideoregistry.datasheet"
+WHISPER_TIMELINES = "sharedassets/springboardentitites/datatables/timelines/javelindata_whispertimelines.datasheet"
+
+
+def bink_header(path: str) -> dict | None:
+    """@return The frames and the rate of a Bink 2 file (the header: KB2 signature, size, frames, largest frame, frames, width,
+    height, rate dividend, rate divider; little-endian), and the length in seconds."""
+    if not source.has(path):
+        return None
+    head = source.read(path)[:36]
+    if len(head) < 36 or head[:3] != b"KB2":
+        return None
+    frames, _, _, width, height, dividend, divider = struct.unpack("<7I", head[8:36])
+    return {"frames": frames, "width": width, "height": height, "rate": [dividend, divider],
+            "seconds": round(frames * divider / dividend, 6) if dividend else None}
+
+
+def subtitle_attributes() -> dict:
+    """@return The timed localization entries of en-us (a start attribute): key -> start, end, speaker, the next key, the file."""
+    import re
+    out: dict[str, dict] = {}
+    for path in source.paks().paths("localization/en-us/"):
+        if not path.endswith(".loc.xml"):
+            continue
+        text = source.read(path).decode("utf-8", "replace")
+        if " start=" not in text:
+            continue
+        for match in re.finditer(r"<string\s+([^>]*?)>", text):
+            attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', match.group(1)))
+            key = attrs.get("key", "").lower()
+            if key and "start" in attrs and key not in out:
+                out[key] = {"start": attrs.get("start"), "end": attrs.get("end"), "speaker": attrs.get("speaker"),
+                            "next": (attrs.get("dialogue-next") or "").lower(), "file": path.rsplit("/", 1)[-1]}
+    return out
+
+
+def write_whispers(out_dir: Path) -> dict:
+    """quests/whispers.json: the WhisperData rows (WhisperId, CRC-32 of the lower-case id, the duration, the timeline, the voice
+    timeline of en-us, the subtitle key), the whisper timelines (JSON), the cinematic registry with the Bink header of each video of
+    the quest tasks, and the timed localization entries."""
+    whisper_paths = {p.rsplit("/", 1)[-1]: p for p in source.paks().paths("timelines/whispers/", ".timeline")}
+    voice_paths = {p.rsplit("/", 1)[-1]: p for p in source.paks().paths("timelines/vo/en-us/", ".timeline")}
+    entries = {str(r.get("TimelineEntryName", "")).lower(): str(r.get("TimelineAssetPath", "")).lower()
+               for r in datasheet.Sheet(source.read(WHISPER_TIMELINES)).rows()}
+    whispers = {}
+    for row in datasheet.load("javelindata_whisperdata.datasheet").rows():
+        wid = str(row.get("WhisperId", ""))
+        timeline_file = entries.get(str(row.get("TimelineId", "")).lower(), "")
+        timeline_path = whisper_paths.get(timeline_file.rsplit("/", 1)[-1], "")
+        voice = str(row.get("VoiceOver", "")).lower()
+        voice_path = voice_paths.get(voice[len("play_"):] + ".timeline", "") if voice.startswith("play_") else ""
+        whispers[wid.lower()] = {"row": {k: row[k] for k in row}, "crc": "%08x" % (zlib.crc32(wid.lower().encode()) & 0xFFFFFFFF),
+                                 "timelinePath": timeline_path, "timeline": timeline(timeline_path) if timeline_path else None,
+                                 "voicePath": voice_path}
+    quests = json.loads((env.content_dir() / "ui" / "gamedata" / "quests.json").read_text())
+    named = {str(t["cells"].get("ItemName", "")).lower() for t in quests["tasks"].values()
+             if t.get("type") in ("taskcinematiccomplete", "taskcinematicstart")}
+    cinematics = {}
+    for row in datasheet.Sheet(source.read(CINEMATICS)).rows():
+        cid = str(row.get("CinematicVideoId", ""))
+        rec = {"row": {k: row[k] for k in row}, "crc": "%08x" % (zlib.crc32(cid.lower().encode()) & 0xFFFFFFFF), "quest": cid.lower() in named}
+        if rec["quest"]:
+            rec["video"] = bink_header(norm(row.get("VideoPath", "")))
+        cinematics[cid.lower()] = rec
+    doc = {"format": FORMAT, "whispers": whispers, "cinematics": cinematics, "subtitles": subtitle_attributes()}
+    (out_dir / "whispers.json").write_text(json.dumps(doc, indent=1))
+    return {"whispers": len(whispers), "whisperTimelines": sum(1 for w in whispers.values() if w["timeline"]),
+            "voiceTimelines": sum(1 for w in whispers.values() if w["voicePath"]), "cinematics": len(cinematics),
+            "questCinematics": sum(1 for c in cinematics.values() if c["quest"]), "timedSubtitles": len(doc["subtitles"])}
+
+
 def write(only: str | None = None) -> dict:
     quests = json.loads((env.content_dir() / "ui" / "gamedata" / "quests.json").read_text())
     tasks: dict[str, list] = {}
@@ -494,7 +567,7 @@ def write(only: str | None = None) -> dict:
                        "questScenes": len(tasks), "questScenesPlaced": sum(1 for n in tasks if n in scene_slices),
                        "questScenesWithSlice": sum(1 for n in tasks if index["scenes"].get(n, {}).get("slice"))}
     (out_dir / "scenes.json").write_text(json.dumps(index, indent=1))
-    return index["counts"]
+    return index["counts"] | write_whispers(out_dir)
 
 
 def main(argv=None) -> int:
