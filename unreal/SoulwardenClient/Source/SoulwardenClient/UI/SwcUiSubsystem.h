@@ -214,6 +214,8 @@ private:
 	} DriveDrag;
 	FString ReportDir;
 	bool bWorldEntered = false;
+	/** The whispers 5070 that swc/scenes.lua has (Own.whisperStarts). */
+	uint32 SeenWhispers = 0;
 	bool bWidgetAttached = false;
 	bool bLogStarted = false;
 	double LastStatusTime = 0.0;

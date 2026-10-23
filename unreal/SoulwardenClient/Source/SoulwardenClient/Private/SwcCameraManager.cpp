@@ -91,6 +91,22 @@ void ASwcCameraManager::SetSceneView(bool bOn, const FVector& Location, const FV
 	}
 }
 
+void ASwcCameraManager::SetSceneCamera(bool bOn, const FVector& Location, const FRotator& Rotation, float VerticalFov)
+{
+	if (bOn != bSceneCamera)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("camera: %s"), bOn ? *FString::Printf(TEXT("the camera of the scene at %.2f %.2f %.2f m, FOV %.1f"),
+			Location.X / 100.0, -Location.Y / 100.0, Location.Z / 100.0, VerticalFov) : TEXT("the end of the camera of the scene"));
+	}
+	bSceneCamera = bOn;
+	if (bOn)
+	{
+		SceneCameraLocation = Location;
+		SceneCameraRotation = Rotation;
+		SceneCameraFov = VerticalFov;
+	}
+}
+
 void ASwcCameraManager::SetForcedState(const FString& State)
 {
 	ForcedState = State == TEXT("none") ? FString() : State;
@@ -507,9 +523,10 @@ void ASwcCameraManager::UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime)
 		LastHitTime = GetWorld()->GetTimeSeconds();
 	}
 
-	OutVT.POV.Location = bScene ? SceneLocation : Pivot + Back * CurrentDistance;
-	OutVT.POV.Rotation = bScene ? SceneRotation : Rotation;
-	OutVT.POV.FOV = FMath::RadiansToDegrees(2.0f * FMath::Atan(FMath::Tan(FMath::DegreesToRadians(bScene ? SceneFov : Fov.Value) * 0.5f) * ReferenceAspect));
+	OutVT.POV.Location = bSceneCamera ? SceneCameraLocation : bScene ? SceneLocation : Pivot + Back * CurrentDistance;
+	OutVT.POV.Rotation = bSceneCamera ? SceneCameraRotation : bScene ? SceneRotation : Rotation;
+	OutVT.POV.FOV = FMath::RadiansToDegrees(2.0f * FMath::Atan(FMath::Tan(FMath::DegreesToRadians(bSceneCamera ? SceneCameraFov : bScene ? SceneFov : Fov.Value) * 0.5f)
+		* ReferenceAspect));
 	OutVT.POV.AspectRatio = ReferenceAspect;
 	OutVT.POV.bConstrainAspectRatio = false;
 	OutVT.POV.AspectRatioAxisConstraint = EAspectRatioAxisConstraint::AspectRatio_MaintainYFOV;

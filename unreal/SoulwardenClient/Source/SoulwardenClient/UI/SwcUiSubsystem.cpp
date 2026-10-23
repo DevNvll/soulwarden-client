@@ -66,6 +66,9 @@ const char* const HudScreens[] = {
 	"lyshineui/worldmap/magicmap",
 	// The conversation screen (stage MVP-H): the Talk of a person (swc/conversation.lua, UI/SwcUiConversation).
 	"lyshineui/conversation/conversationscreenv2",
+	// The in-game scenes and the cinematic video stand-in (stage Q5, AST-240; swc/scenes.lua).
+	"lyshineui/cutscene/cutscenescreen",
+	"lyshineui/videos/videoplayerscreen",
 	// The crafting screens (stage MVP-J): the state CraftingStation of a station use (swc/crafting.lua, UI/SwcUiCrafting).
 	"lyshineui/crafting/craftingscreenv4",
 	"lyshineui/stationproperties/stationproperties",
@@ -1081,6 +1084,21 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 		else if (FSwcUiQuests::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))
 		{
 		}
+		else if (Request.rfind("scene stop ", 0) == 0)
+		{
+			// The skip of the cutscene screen (swc/scenes.lua: PlayerCutsceneComponentRequestBus RequestStopCurrentCutscene).
+			Backend->RequestSceneStop(UTF8_TO_TCHAR(Request.substr(11).c_str()));
+		}
+		else if (Request.rfind("cinematic ", 0) == 0)
+		{
+			// "cinematic start|end CRC" (swc/scenes.lua: the video screen OnCinematicPlaybackStarted, Finished, Stopped).
+			TArray<FString> Parts;
+			FString(UTF8_TO_TCHAR(Request.c_str())).ParseIntoArray(Parts, TEXT(" "));
+			if (Parts.Num() >= 3)
+			{
+				Backend->ReportCinematic(Parts[1] == TEXT("start"), static_cast<uint32>(FCString::Strtoui64(*Parts[2], nullptr, 16)));
+			}
+		}
 		else if (FSwcUiCrafting::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))
 		{
 		}
@@ -1902,6 +1920,22 @@ void USwcUiSubsystem::FeedLocalPlayer()
 	if (Backend == nullptr || !Backend->GetLocalPlayer(Own))
 	{
 		return;
+	}
+	// The in-game scenes and the whispers (stage Q5, AST-240; swc/scenes.lua): the lines of FSwcScenes (start, end, subtitle,
+	// cinematic) and each new whisper 5070 (the CRC-32 of the lower-case WhisperId).
+	for (const FString& Line : Backend->TakeSceneLines())
+	{
+		Runtime->call("HostScene", {FArg::of(Utf8(Line))});
+	}
+	if (Own.whisperStarts != SeenWhispers)
+	{
+		const uint32 New = Own.whisperStarts - SeenWhispers;
+		const int32 Count = static_cast<int32>(Own.whispers.size());
+		for (int32 Index = FMath::Max(0, Count - static_cast<int32>(New)); Index < Count; ++Index)
+		{
+			Runtime->call("HostWhisper", {FArg::of(Utf8(FString::Printf(TEXT("%08x"), Own.whispers[Index])))});
+		}
+		SeenWhispers = Own.whisperStarts;
 	}
 	if (!bWorldEntered)
 	{

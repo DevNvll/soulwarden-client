@@ -28,6 +28,7 @@ class FSwcLocomotion;
 class FSwcLoginClient;
 struct FSwcAccountSession;
 class FSwcInteractor;
+class FSwcScenes;
 struct FSwcInteractPrompt;
 class FSwcPlayerLooks;
 class FSwcRepConnection;
@@ -204,6 +205,12 @@ public:
 	 *  real cutscene messages with no playback: 6703, then at the grant 6707 of the same CRC 6706, then after EndSeconds 6705. The backend
 	 *  completes the cutscene task by its own rules. Not a product path (the playback is stage Q5); refused in a player run. */
 	bool DevCutscene(uint32 Cutscene, float EndSeconds);
+	/** The in-game scenes (stage Q5, AST-240): the lines for swc/scenes.lua, the stop of the cutscene screen (a skip), the reports of the
+	 *  video screen (6606, 6542), and the development preview (console swc.ScenePreview NAME; development runs only). */
+	TArray<FString> TakeSceneLines();
+	void RequestSceneStop(const FString& Reason);
+	bool ReportCinematic(bool bStarted, uint32 Cinematic);
+	bool ScenePreview(const FString& Name);
 	bool RequestCraft(uint32 Recipe, uint32 Quantity, uint32 Fee, uint16 GearScore, const TArray<uint32>& PerkItems, uint8 Upgrade,
 		const TArray<uint32>& Items);
 
@@ -331,6 +338,9 @@ private:
 	TSharedPtr<FSwcActions> Actions;
 	/** The interactions of the player with the objects of the server (stage P2.10) and the key E. */
 	TSharedPtr<FSwcInteractor> Interactor;
+	/** The in-game scenes of the quests (stage Q5, AST-240; Scenes/SwcScenes.h) and the exit camera state that it forces. */
+	TSharedPtr<FSwcScenes> Scenes;
+	FString SceneExitCamera;
 	bool bInteractKey = false;
 	bool bInteractSecondKey = false;
 	bool bMoveKeys = false;

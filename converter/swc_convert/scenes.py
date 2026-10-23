@@ -22,6 +22,8 @@ Outputs (SWC_CONTENT/quests, never in git):
                        actors (CDF and animation aliases), and the counts
   whispers.json        the whispers (WhisperData, the whisper and voice timelines), the cinematic registry (the Bink header of the
                        videos of the quest tasks), the timed localization entries (start, end, speaker, the next key)
+  ui/gamedata/scenes.json  for swc/scenes.lua: the cinematics, the whispers by CRC with their command clips, the command clips of
+                       each scene, and the localization attributes of their keys
   scenes/NAME.json     one scene: CutsceneInfo, the entities (id, name, parent, local matrix, the components, "attach": the target
                        entity, bone, and offset of an AttachmentComponent), the timelines (the owner entity, the entry, "assigned":
                        the slice entity of each layer id, the layers and clips). The ids are 16 hex digits (a double loses the low
@@ -150,11 +152,18 @@ FIELD_NAMES = [
     "AudioTriggerOnBegin", "AudioTriggerOnEnd", "m_timeDelaySeconds", "m_eventData", "m_initPaperdollData", "m_paperdollAsset",
     "Character Race", "Skin Tone", "Character Hairstyle", "m_name", "m_type", "Enable", "Enabled", "EnableOnActivate", "Particle",
     "SelectedEmitter", "Load Emitter On Activate", "Kill On Deactivate", "OnInitially", "LightType", "m_data", "m_valueStr",
-    "m_valueCrc", "m_achievementToUnlock", "contextId", "subId", "TypeId", "AssetPath", "HumanName",
+    "m_valueCrc", "m_achievementToUnlock", "contextId", "subId", "TypeId", "AssetPath", "HumanName", "m_aoiRadius",
 ]
 NAMES = {zlib.crc32(n.lower().encode()) & 0xFFFFFFFF: n for n in FIELD_NAMES}
 SKIP = {F("EditorMetdata"), F("EditorMetadata"), F("Id_newForCurveViewingUndoRedo"), F("edit_only_layerEntityAssignments_statusText"),
         F("edit_only_layerEntityAssignments_AutoCorrected")}
+
+
+def save(path: Path, doc) -> None:
+    """Writes a JSON file through a temporary file and a rename: a link of a check copy (cp -as) is replaced, never followed."""
+    temporary = path.with_name("." + path.name + ".tmp")
+    temporary.write_text(json.dumps(doc, indent=1))
+    temporary.replace(path)
 
 
 def norm(path) -> str:
@@ -254,6 +263,8 @@ def entities_of(data: bytes) -> list:
                     continue
                 rec["components"].append(tojson(component))
             for c in rec["components"]:
+                if isinstance(c, dict) and c.get("type") == CINEMATIC_COMPONENT:
+                    rec["cinematic"] = find_key(c, "#7AC44BEC") or ""   # the CinematicVideoId of the video (research/quest-scenes.md 9)
                 if isinstance(c, dict) and c.get("class") == "AttachmentComponent":
                     config = c.get("Configuration") or {}
                     target = (config.get("Target ID") or {}).get("id")
@@ -313,6 +324,7 @@ def spawner_content(path: str) -> dict | None:
             matrix = np.eye(4)
             events = []
             trigger = None
+            aoi = None
             for component in components.children:
                 if component.type_id == TRANSFORM:
                     node = component.child(F("m_worldTM"))
@@ -320,13 +332,15 @@ def spawner_content(path: str) -> dict | None:
                         matrix = region.az_matrix(node.value)
                 elif component.type_id == SCRIPT:
                     events += script_events(component)
+                elif aoi is None and F("m_aoiRadius") in {n.name for n in source.walk(component)}:
+                    aoi = find_key(tojson(component), "m_aoiRadius")
                 elif component.type_id == TRIGGER:
                     facet = find_key(tojson(component), "m_clientFacetPtr") or {}
                     trigger = {"cutscene": facet.get("m_preloadCutsceneName", ""), "slice": (facet.get("m_sliceAsset") or {}).get("path", ""),
                                "despawnDelay": facet.get("m_despawnDelay"), "playOnLoad": facet.get("m_playCutsceneOnLoad"),
                                "triggerOnActivate": facet.get("m_triggerOnActivate")}
             if events and out["root"] is None:
-                out["root"] = {"entity": name, "matrix": matrix, "events": events}
+                out["root"] = {"entity": name, "matrix": matrix, "events": events, "aoiRadius": aoi}
             if trigger is not None:
                 trigger.update({"entity": name, "active": bool(active.value[0]) if active is not None and active.value else None,
                                 "matrix": matrix})
@@ -506,10 +520,104 @@ def write_whispers(out_dir: Path) -> dict:
             rec["video"] = bink_header(norm(row.get("VideoPath", "")))
         cinematics[cid.lower()] = rec
     doc = {"format": FORMAT, "whispers": whispers, "cinematics": cinematics, "subtitles": subtitle_attributes()}
-    (out_dir / "whispers.json").write_text(json.dumps(doc, indent=1))
+    save(out_dir / "whispers.json", doc)
     return {"whispers": len(whispers), "whisperTimelines": sum(1 for w in whispers.values() if w["timeline"]),
             "voiceTimelines": sum(1 for w in whispers.values() if w["voicePath"]), "cinematics": len(cinematics),
             "questCinematics": sum(1 for c in cinematics.values() if c["quest"]), "timedSubtitles": len(doc["subtitles"])}
+
+
+_bits: dict | None = None
+
+
+def achievement_bits() -> dict:
+    """@return The bit of each achievement of the Achievement state (javelindata_achievements AchievementIndex; lower-case ids)."""
+    global _bits
+    if _bits is None:
+        sheet = datasheet.Sheet(source.read(datasheet.TABLES_FOLDER + "javelindata_achievements.datasheet"))
+        _bits = {str(r["AchievementID"]).lower(): int(r["AchievementIndex"]) for r in sheet.rows()
+                 if r.get("AchievementID") and r.get("AchievementIndex") not in (None, "")}
+    return _bits
+
+
+COMMAND = "baad4e91-45aa-4ea4-8450-f1b54fa15ac0"
+CINEMATIC_COMPONENT = "9838575e-75b5-49b0-a6cd-02b5269f5251"   # the cinematic video component of a scene entity (its video id)   # CommandClip (research/quest-scenes.md 7)
+
+
+def commands_of(tl: dict | None) -> list:
+    """@return The command clips of a timeline: start, end, CommandId, the text (PlayWhisperSubtitle_@KEY), TickForDuration."""
+    out = []
+    for layer in (tl or {}).get("Layers", {}).get("items", []):
+        for holder in (layer.get("Clips") or {}).get("items", []):
+            for clip in (holder.get("items", []) if isinstance(holder, dict) else []):
+                if isinstance(clip, dict) and clip.get("type") == COMMAND:
+                    base = clip.get("BaseClass1") or {}
+                    out.append({"start": base.get("StartTime", 0.0), "end": base.get("EndTime", 0.0), "commandId": clip.get("#1AB2E2E7", 0),
+                                "text": clip.get("#8EFC3AF2", ""), "tick": clip.get("#362405AB", False)})
+    return sorted(out, key=lambda c: c["start"])
+
+
+def loc_attributes(keys: set) -> dict:
+    """@return The attributes of the en-us localization entries of the keys (lower case): speaker, name, VO_Type, start, end,
+    dialogue-next (the chain of dialogue-next keys is followed)."""
+    import re
+    entries: dict[str, dict] = {}
+    for path in source.paks().paths("localization/en-us/"):
+        if path.endswith(".loc.xml"):
+            for match in re.finditer(r"<string\s+([^>]*?)>", source.read(path).decode("utf-8", "replace")):
+                attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', match.group(1)))
+                key = attrs.get("key", "").lower()
+                if key and key not in entries:
+                    entries[key] = attrs
+    out: dict[str, dict] = {}
+    todo = [k.lower().lstrip("@") for k in keys if k]
+    while todo:
+        key = todo.pop()
+        if key in out or key not in entries:
+            continue
+        attrs = entries[key]
+        out[key] = {k: attrs[k] for k in ("speaker", "name", "VO_Type", "start", "end", "dialogue-next") if k in attrs}
+        nxt = attrs.get("dialogue-next", "").lower().lstrip("@")
+        if nxt:
+            todo.append(nxt)
+    return out
+
+
+def write_ui(out_dir: Path, index: dict, whispers_doc: dict) -> dict:
+    """ui/gamedata/scenes.json (swc/scenes.lua): the cinematics of the registry (the data of CinematicVideoDataManagerBus and the
+    length of the video), the whispers by CRC with their command clips, the command clips of each scene, and the localization
+    attributes of their keys."""
+    keys: set = set()
+    cinematics = {}
+    for cid, rec in whispers_doc["cinematics"].items():
+        row = rec["row"]
+        can_skip = str(row.get("CanSkip", "")).strip().lower()
+        cinematics[cid] = {"id": row.get("CinematicVideoId"), "crc": rec["crc"], "videoName": row.get("CinematicVideoId"),
+                           "videoPath": row.get("VideoPath"), "canSkip": can_skip not in ("0", "false"),
+                           "subtitle": row.get("Subtitle"), "volumeScalingFactor": row.get("VolumeScalingFactor"),
+                           "durationInSec": row.get("DurationInSec"), "video": rec.get("video")}
+        keys.add(str(row.get("Subtitle") or ""))
+    whispers = {}
+    for wid, rec in whispers_doc["whispers"].items():
+        commands = commands_of(rec["timeline"])
+        whispers[rec["crc"]] = {"id": rec["row"].get("WhisperId"), "duration": rec["row"].get("Duration"),
+                                "subtitle": rec["row"].get("Subtitle"), "voiceOver": rec["row"].get("VoiceOver"),
+                                "achievement": rec["row"].get("AchievementId"), "commands": commands}
+        keys.update(c["text"].split("_", 1)[-1] for c in commands if c["text"].startswith("PlayWhisperSubtitle_@"))
+        keys.add(str(rec["row"].get("Subtitle") or ""))
+    scene_commands = {}
+    for name in index["scenes"]:
+        path = out_dir / "scenes" / (name + ".json")
+        if not path.is_file():
+            continue
+        scene = json.loads(path.read_text())
+        commands = [c | {"timeline": t["asset"]} for t in scene["timelines"] for c in commands_of(t["timeline"])]
+        scene_commands[name] = commands
+        keys.update(c["text"].split("_", 1)[-1] for c in commands if c["text"].startswith("PlayWhisperSubtitle_@"))
+    doc = {"format": FORMAT, "cinematics": cinematics, "whispers": whispers, "sceneCommands": scene_commands,
+           "attributes": loc_attributes({k for k in keys if k})}
+    save(env.content_dir() / "ui" / "gamedata" / "scenes.json", doc)
+    return {"uiCinematics": len(cinematics), "uiWhispers": sum(1 for w in whispers.values() if w["commands"]),
+            "uiAttributes": len(doc["attributes"])}
 
 
 def write(only: str | None = None) -> dict:
@@ -539,7 +647,8 @@ def write(only: str | None = None) -> dict:
             index["spawners"].append({
                 "region": place["region"], "layer": place["layer"], "capital": place["capital"], "slice": place["slice"],
                 "matrix": rows(place["matrix"]), "position": [round(float(v), 3) for v in place["matrix"][:3, 3]],
-                "root": {"entity": root["entity"], "world": rows(place["matrix"] @ root["matrix"]), "events": root["events"]},
+                "root": {"entity": root["entity"], "world": rows(place["matrix"] @ root["matrix"]), "aoiRadius": root.get("aoiRadius"),
+                         "events": [e | {"rule": persons.presence_rule(e["condition"], achievement_bits())} for e in root["events"]]},
                 "trigger": {k: v for k, v in trigger.items() if k != "matrix"} | {"world": rows(place["matrix"] @ trigger["matrix"]),
                                                                                   "crc": "%08x" % (zlib.crc32(name.lower().encode()) & 0xFFFFFFFF)}})
     for name in sorted(set(scene_slices) | set(tasks)):
@@ -563,8 +672,19 @@ def write(only: str | None = None) -> dict:
                             asset = (entry.get("TimelineAsset") or {}).get("path", "")
                             timelines.append({"entity": e["name"], "entityId": e["id"], "asset": asset, "entry": entry,
                                               "assigned": assigned(entry), "timeline": timeline(asset)})
-            scene = {"format": FORMAT, "name": name, "crc": crc, "slice": path, "info": info, "entities": entities, "timelines": timelines}
-            (out_dir / "scenes" / (name + ".json")).write_text(json.dumps(scene, indent=1))
+            def events(field: str) -> list:
+                """The start or stop events of CutsceneInfo: the target entity (16 hex digits), the type, local player only."""
+                out = []
+                for item in ((info or {}).get(field) or {}).get("items", []):
+                    target = find_key(item, "EntityId")
+                    ident = target.get("id") if isinstance(target, dict) else None
+                    out.append({"entity": "%016x" % int(ident) if ident is not None else "", "type": item.get("m_type"),
+                                "localPlayerOnly": item.get("m_localPlayerOnly")})
+                return out
+
+            scene = {"format": FORMAT, "name": name, "crc": crc, "slice": path, "info": info, "startEvents": events("m_onCutsceneStartEvents"),
+                     "stopEvents": events("m_onCutsceneStoppedEvents"), "entities": entities, "timelines": timelines}
+            save(out_dir / "scenes" / (name + ".json"), scene)
             record["actors"] = actors_of(entities)
             record["clips"] = [{"entity": t["entity"], "asset": t["asset"], "layers": clips_of_timeline(t["timeline"], t["entry"])}
                                for t in timelines]
@@ -578,8 +698,9 @@ def write(only: str | None = None) -> dict:
     index["counts"] = {"spawnerSlices": len(spawners), "placements": len(index["spawners"]), "scenes": len(index["scenes"]),
                        "questScenes": len(tasks), "questScenesPlaced": sum(1 for n in tasks if n in scene_slices),
                        "questScenesWithSlice": sum(1 for n in tasks if index["scenes"].get(n, {}).get("slice"))}
-    (out_dir / "scenes.json").write_text(json.dumps(index, indent=1))
-    return index["counts"] | write_whispers(out_dir)
+    save(out_dir / "scenes.json", index)
+    counts = index["counts"] | write_whispers(out_dir)
+    return counts | write_ui(out_dir, index, json.loads((out_dir / "whispers.json").read_text()))
 
 
 def scene_clip_pack(files: list, force: bool, doc: dict) -> dict:

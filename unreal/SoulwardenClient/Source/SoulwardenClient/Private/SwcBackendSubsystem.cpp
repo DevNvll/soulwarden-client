@@ -43,6 +43,7 @@
 #include "Net/SwcSpace.h"
 #include "Net/SwcSteamStub.h"
 #include "Net/SwcTypeIndex.h"
+#include "Scenes/SwcScenes.h"
 #include "SwcCameraManager.h"
 #include "SwcPlayerController.h"
 
@@ -1404,7 +1405,14 @@ void USwcBackendSubsystem::UpdatePlayer()
 		// The Talk (stage P4.8, docs/PERSONS.md): the input lock until the answer 6709, the camera of the line (a cut), and the
 		// HidePlayerAvatar mark of its preset.
 		const swc::interact::Conversation& Talk = Interactor->GetConversation();
-		Avatar->GetActions()->SetConversation(Talk.locked());
+		// The in-game scenes of the quests (stage Q5, AST-240; Scenes/SwcScenes.h): the activation by the bits, the handshake, the play,
+		// and the hard input lock of a granted scene until 6709.
+		if (!Scenes.IsValid())
+		{
+			Scenes = MakeShared<FSwcScenes>();
+		}
+		Scenes->Tick(Avatar->GetWorld(), Snapshot, Connection.Get(), Avatar.Get(), Avatar->GetWorld()->GetDeltaSeconds());
+		Avatar->GetActions()->SetConversation(Talk.locked() || Scenes->IsLocked());
 		USwcPersonSubsystem* Persons = World->GetSubsystem<USwcPersonSubsystem>();
 		if (Persons != nullptr)
 		{
@@ -1420,11 +1428,36 @@ void USwcBackendSubsystem::UpdatePlayer()
 		}
 		if (ASwcCameraManager* CameraManager = Cast<ASwcCameraManager>(Controller->PlayerCameraManager))
 		{
-			CameraManager->SetSceneView(Line != nullptr, Line != nullptr ? Line->Camera : FVector::ZeroVector, Line != nullptr ? Line->LookAt : FVector::ZeroVector,
-				Line != nullptr ? Line->Fov : 0.0f);
+			FVector SceneLocation;
+			FRotator SceneRotation;
+			float SceneFov = 0.0f;
+			if (Scenes->GetView(SceneLocation, SceneRotation, SceneFov))
+			{
+				CameraManager->SetSceneCamera(true, SceneLocation, SceneRotation, SceneFov);
+			}
+			else
+			{
+				CameraManager->SetSceneCamera(false, FVector::ZeroVector, FRotator::ZeroRotator, 0.0f);
+				CameraManager->SetSceneView(Line != nullptr, Line != nullptr ? Line->Camera : FVector::ZeroVector, Line != nullptr ? Line->LookAt : FVector::ZeroVector,
+					Line != nullptr ? Line->Fov : 0.0f);
+			}
+			// The exit camera of a scene (m_cameraStateToSetOnExit, m_lockCameraStateOnExitUntilInput): until the next move or look input
+			// [U: the exact input event that clears the lock].
+			if (Scenes->HoldsExitCamera() && !Scenes->IsLocked() && (bMoveKeys
+				|| FMath::Abs(Controller->GetInputAnalogKeyState(EKeys::MouseX)) + FMath::Abs(Controller->GetInputAnalogKeyState(EKeys::MouseY)) > 0.01f))
+			{
+				Scenes->ReleaseExitCamera();
+			}
+			const FString Exit = Scenes->HoldsExitCamera() ? Scenes->GetExitCamera() : FString();
+			if (Exit != SceneExitCamera)
+			{
+				SceneExitCamera = Exit;
+				CameraManager->SetForcedState(Exit.IsEmpty() ? TEXT("none") : Exit);
+			}
 		}
-		// HidePlayerAvatar hides the character; a two-shot preset shows the dummy of the player in its place.
-		if (const bool bHide = Line != nullptr && Line->bHidePlayer && !Line->bDummy; Avatar->IsHidden() != bHide)
+		// HidePlayerAvatar hides the character (a Talk line or a scene: CutsceneInfo m_hidePlayerAvatar); a two-shot preset shows the
+		// dummy of the player in its place.
+		if (const bool bHide = (Line != nullptr && Line->bHidePlayer && !Line->bDummy) || Scenes->HidesPlayer(); Avatar->IsHidden() != bHide)
 		{
 			Avatar->SetActorHiddenInGame(bHide);
 			UE_LOG(LogSwcBackend, Log, TEXT("interact: the character is %s (HidePlayerAvatar of the camera of the line)"), bHide ? TEXT("hidden") : TEXT("shown again"));
@@ -1806,6 +1839,66 @@ bool USwcBackendSubsystem::CompleteObjective(uint32 Objective)
 	return true;
 }
 
+TArray<FString> USwcBackendSubsystem::TakeSceneLines()
+{
+	return Scenes.IsValid() ? Scenes->TakeUiLines() : TArray<FString>();
+}
+
+void USwcBackendSubsystem::RequestSceneStop(const FString& Reason)
+{
+	if (Scenes.IsValid())
+	{
+		Scenes->RequestStop(Reason);
+	}
+}
+
+bool USwcBackendSubsystem::ReportCinematic(bool bStarted, uint32 Cinematic)
+{
+	// The video screen of a cinematic (stage Q5): 6606 at the start of its clock, 6542 at its end or its skip (research/quest-scenes.md 9).
+	if (!Connection.IsValid())
+	{
+		return false;
+	}
+	Connection->Queue([bStarted, Cinematic](swc::net::RepClient& Client)
+	{
+		if (bStarted)
+		{
+			Client.cinematic_started(Cinematic);
+		}
+		else
+		{
+			Client.cinematic_ended(Cinematic);
+		}
+	});
+	UE_LOG(LogSwcBackend, Log, TEXT("cinematic: %08x %s (%s)"), Cinematic, bStarted ? TEXT("starts") : TEXT("ends"), bStarted ? TEXT("6606") : TEXT("6542"));
+	return true;
+}
+
+bool USwcBackendSubsystem::ScenePreview(const FString& Name)
+{
+	if (bPlayerRun)
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("scene preview: refused: a check aid of the development runs only (SWC_RUN=development)"));
+		return false;
+	}
+	if (!Avatar.IsValid())
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("scene preview: no character in the world"));
+		return false;
+	}
+	if (!Scenes.IsValid())
+	{
+		Scenes = MakeShared<FSwcScenes>();
+	}
+	FString Error;
+	if (!Scenes->Preview(Avatar->GetWorld(), Avatar.Get(), Name, Error))
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("scene preview: %s: %s"), *Name, *Error);
+		return false;
+	}
+	return true;
+}
+
 bool USwcBackendSubsystem::DevCutscene(uint32 Cutscene, float EndSeconds)
 {
 	if (bPlayerRun)
@@ -2158,6 +2251,22 @@ void DevCutsceneCommand(const TArray<FString>& Args, UWorld* World)
 	}
 	Backend->DevCutscene(Cutscene, Args.Num() >= 2 ? FCString::Atof(*Args[1]) : 3.0f);
 }
+
+void ScenePreviewCommand(const TArray<FString>& Args, UWorld* World)
+{
+	USwcBackendSubsystem* Backend = World != nullptr && World->GetGameInstance() != nullptr ? World->GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr;
+	if (Backend == nullptr || Args.IsEmpty())
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("scene preview: usage swc.ScenePreview NAME"));
+		return;
+	}
+	Backend->ScenePreview(Args[0]);
+}
+
+FAutoConsoleCommandWithWorldAndArgs CommandScenePreview(TEXT("swc.ScenePreview"),
+	TEXT("swc.ScenePreview NAME: development runs only (AST-240): play an in-game scene of quests/scenes with no handshake (no 6703, 6706, 6705) ")
+	TEXT("and no quest effect. A check aid, not a product path."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&ScenePreviewCommand));
 
 FAutoConsoleCommandWithWorldAndArgs CommandDevCutscene(TEXT("swc.DevCutscene"),
 	TEXT("swc.DevCutscene NAME|CRC [SECONDS]: development runs only (AST-239): send the real cutscene messages with no playback (6703, at the ")

@@ -43,6 +43,9 @@ public:
 	 */
 	void SetSceneView(bool bOn, const FVector& Location = FVector::ZeroVector, const FVector& LookAt = FVector::ZeroVector, float VerticalFov = 0.0f);
 	bool HasSceneView() const { return bScene; }
+	/** The camera of an in-game scene (stage Q5, Scenes/SwcScenePlayer): a place, a rotation, and a vertical FOV (degrees). It wins over the
+	 *  camera of a conversation. */
+	void SetSceneCamera(bool bOn, const FVector& Location, const FRotator& Rotation, float VerticalFov);
 	/** The entities of the backend that the target lock can take, each frame. */
 	void SetLockCandidates(TArray<FSwcLockCandidate>&& InCandidates) { Candidates = MoveTemp(InCandidates); }
 	/** Development runs draw a marker at each candidate (the creatures have no model before stage 1.9). */
@@ -136,6 +139,10 @@ private:
 	FRotator LastRotation = FRotator::ZeroRotator;
 	/** The camera of a conversation (SetSceneView). */
 	bool bScene = false;
+	bool bSceneCamera = false;
+	FVector SceneCameraLocation = FVector::ZeroVector;
+	FRotator SceneCameraRotation = FRotator::ZeroRotator;
+	float SceneCameraFov = 40.0f;
 	FVector SceneLocation = FVector::ZeroVector;
 	FRotator SceneRotation = FRotator::ZeroRotator;
 	float SceneFov = 0.0f;

@@ -45,4 +45,5 @@ Swc.Load("swc.crafting")  -- the crafting screens: the recipes, the station of t
 Swc.Load("swc.skills")    -- the character window: the settings, the trees, the bars, the ranks (docs/UI.md)
 Swc.Load("swc.quests")    -- the quests: the tracker of the HUD, the journal, the banners (docs/QUESTS.md)
 Swc.Load("swc.questpins") -- the quest pins: one list of the task positions for the map, the compass, and the world (docs/QUESTS.md)
+Swc.Load("swc.scenes")    -- the in-game scenes, the subtitles, the whispers, the cinematic video stand-in (docs/QUESTS.md)
 Swc.Load("swc.npcstates") -- the NPC quest states: the overhead Conversation markers, the compass, and the map NPC icons (docs/QUESTS.md)
