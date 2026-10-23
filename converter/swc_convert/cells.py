@@ -30,6 +30,12 @@ import numpy as np
 from . import census, env, manifest, overrides
 
 CELL_M = 256.0
+# Meshes that the cells leave out until their rule is done (the decision of the user for AST-266, 2026-10-22: "remove until fixed").
+# objects/vfx/misc/snow/snow_blown_01.cgf: the blown-snow sheets of the Ice Castle (42 placements, r_+03_+03 and r_+04_+03; the override
+# objects/volumetrics/wind_snow_01_mat.mtl, a GeometryBeam fog sheet). The mesh is not in the beam folders of mesh rule 8 and its pair
+# has no slot map, so it drew as opaque white Nanite meshes over the icebergs. The fix (mesh rule 8, pairs version 3, M_SwcBeam) is in
+# AST-265 (b); it brings these sheets back.
+LEFT_OUT_MESHES = ("objects/vfx/misc/snow/snow_blown_01.cgf",)
 SIGNS = np.array([[1.0, -1.0, 1.0], [-1.0, 1.0, -1.0], [1.0, -1.0, 1.0]])   # S L S with S = diag(1, -1, 1)
 INSTANCE = np.dtype([("t", "<f8", 3), ("q", "<f4", 4), ("s", "<f4", 3)])
 
@@ -91,7 +97,7 @@ def write(name: str) -> dict:
     # persistent actor (AST-209).
     from .landmarks import LANDMARK_MESHES
     usable = np.array([assets.get(m, {}).get("kind") == "static" and not m.rsplit("/", 1)[-1].startswith("fx_")
-                       and not m.startswith(LANDMARK_MESHES) for m in names], dtype=bool)
+                       and not m.startswith(LANDMARK_MESHES) and m not in LEFT_OUT_MESHES for m in names], dtype=bool)
     keep = usable[data["mesh"]] if len(names) else np.zeros(0, bool)
     material_names = [str(m) for m in data.get("materials", np.array([""]))]
     material_all = data["material"] if "material" in data else np.zeros(len(data["mesh"]), np.uint16)

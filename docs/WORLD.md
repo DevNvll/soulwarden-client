@@ -374,6 +374,15 @@ actor, outside the cells of the World Partition (it stays when the cells load or
   10 km is not measured. The cells of r_+04_+04 were built again with the landmark rule (6 instances less); with `swc.Landmarks 0`
   the sky of cleave-a has no maelstrom.
 
+## Meshes that the cells leave out (AST-266, 2026-10-22)
+
+`cells.LEFT_OUT_MESHES` (the decision of the user: "remove until fixed"): `objects/vfx/misc/snow/snow_blown_01.cgf`, the blown-snow
+sheets of the Ice Castle (42 placements: 36 in r_+03_+03, 6 in r_+04_+03; the override `objects/volumetrics/wind_snow_01_mat.mtl`, a
+GeometryBeam fog sheet). The mesh is not in a beam folder of mesh rule 8, and its pair has no slot map, so it drew as opaque white Nanite
+meshes over the icebergs. The cells of the two regions were built again (2026-10-22 23:48 to 2026-10-23 00:02 UTC). The fix (mesh rule 8,
+pairs version 3, M_SwcBeam) is AST-265 (b); it brings these sheets back. Check: the Ice Castle east point (retail east-noon-h270 of
+set-ast257-icecastle): the white shapes are gone, the ship wreck and the icebergs show; the far view noon-n has no change.
+
 ## The loading (AST-203, 2026-10-20)
 
 The work of the priority of the user (2026-10-20: "prioritize optimizations on loading terrain"), with the rule of the user of the
