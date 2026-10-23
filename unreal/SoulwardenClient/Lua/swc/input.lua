@@ -190,6 +190,8 @@ function Swc.HostInput(kind, a, b)
   if kind == "move" then
     move(a, b)
     used = Swc.CursorWanted()
+  elseif kind == "button" and b and a == "left" and Swc.CreationSkipKey and Swc.CreationSkipKey("mouse1") then
+    used = true   -- the skip of the intro camera of the character creation (swc/creation.lua)
   elseif kind == "button" then
     -- The cursor notifications of the native code (CursorNotificationBus; the CRC-32 of the input channel name, "mouse_button_left"
     -- or "mouse_button_right"): the click recognizer (clickrecognizer.luac) and the item cells read the button of a click.
@@ -212,6 +214,8 @@ function Swc.HostInput(kind, a, b)
     wheel(a)
     Swc.FireWheelActions(a)
     used = Swc.CursorWanted()
+  elseif kind == "key" and b and Swc.CreationSkipKey and Swc.CreationSkipKey(a) then
+    used = true
   elseif kind == "key" then
     used = key(a, b)
   elseif kind == "text" then
@@ -301,6 +305,19 @@ local function drive_target(root, name, canvas)
       parent = swcui.parent(parent)
     end
     return nil
+  end
+  -- nth:NAME:N: the child N (1 ...) of the first shown element NAME, in the order of its shown children (an item of a grid list
+  -- whose items have one name, as the skin tones of the character creation: AST-267).
+  local nthName, nthIndex = name:match("^nth:([^:]+):(%d+)$")
+  if nthName then
+    local list = drive_target(root, nthName, canvas)
+    local shown = {}
+    for _, child in ipairs(list and UiElementBus.Event.GetChildren(list) or {}) do
+      if swcui.enabled_in_hierarchy(child) then
+        shown[#shown + 1] = child
+      end
+    end
+    return shown[tonumber(nthIndex)]
   end
   -- A label of the drive files has "_" for each space (the steps split at spaces).
   local label = name:match("^text:(.+)$")

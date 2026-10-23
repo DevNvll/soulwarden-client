@@ -915,6 +915,16 @@ bool ASwcMenuPreview::PlaySequence(const FString& Name)
 	return true;
 }
 
+void ASwcMenuPreview::SkipSequence(const FString& Name)
+{
+	if (const FSequence* Sequence = Sequences.Find(Name))
+	{
+		Playing = Name;
+		PlayTime = Sequence->End;
+		Tick(0.0f);   // places the camera at the end pose and stops
+	}
+}
+
 void ASwcMenuPreview::StopSequence(const FString& Name)
 {
 	if (Playing == Name)

@@ -37,6 +37,8 @@ public:
 	/** The lights of the scene with a large bulb get the falloff of the source (no inverse square; SwcMenuLights.h
 	 *  SourceFalloffExponent at most MaxSourceFalloffExponent): the creation scene (stage Q3). Before LoadScene. */
 	void SetSourceFalloff(bool bOn) { bSourceFalloff = bOn; }
+	/** The skip of a camera sequence: the camera takes the pose of its end, and the sequence stops. */
+	void SkipSequence(const FString& Name);
 	/** Removes the body (an invalid document, no character): no stale parts. */
 	void Clear();
 	/** The landing screen shows or hides the body (TransformBus SetWorldZ: the menu height or Z -1000). */

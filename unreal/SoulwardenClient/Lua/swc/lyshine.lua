@@ -465,3 +465,17 @@ Swc.Define("UiMaskBus", "Event", {
   GetIsMaskingEnabled = function(id) return swcui.get(id, "mask.enabled") end,
   SetIsMaskingEnabled = function(id, v) swcui.set(id, "mask.enabled", v and true or false) end,
 })
+
+-- ---------------------------------------------------------------------------------------------------- Entity
+
+-- The class Entity of the scripts (Entity(entityId)): the scripts use only GetName and SetName (cacappearancetab.luac reads the name of
+-- the chosen radio button of a list, "Male" or "Female", with Entity(id):GetName(); AST-267: with no class the name was nil, and the
+-- change of the body type stopped with the buttons of the appearance step off).
+local EntityClass = {}
+EntityClass.__index = EntityClass
+function EntityClass:GetName() return swcui.name(self.id) end
+function EntityClass:SetName(name) swcui.set_name(self.id, name) end
+function EntityClass:GetId() return self.id end
+function Entity(id)
+  return setmetatable({id = id}, EntityClass)
+end

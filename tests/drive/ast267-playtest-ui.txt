@@ -1,0 +1,58 @@
+# AST-267: the defects of the play test of the character creation (tools/menu-check.sh ast267 200 -- -SwcUiDrive=FILE). The clock starts
+# at the landing screen. The empty slot, the confirm, Space skips the intro camera, Escape on the archetype step (the quit popup, then
+# Escape: No), the appearance step (no helmet), the body type Female, a skin tone and a face, the identity step (the invalid icon of the empty name,
+# the validating icon, the valid icon), Escape (it ends the edit of the name) and Escape back to the appearance step, Escape (its popup) and Yes back to the archetype step,
+# Escape and Yes in the quit popup: the landing screen with the menu scene.
+1 waitfor CharacterList 60
+2 waitfor text:Create_Character 120
+4 point text:Create_Character
+4.5 click
+7 point text:Yes
+7.5 click
+13 key space
+16 draw archetype
+18 key Escape
+20 draw quit-popup
+22 key Escape
+24 draw quit-no
+25 point ButtonNext
+25.5 click
+30 draw appearance
+31 point text:BODY_TYPE
+31.5 click
+33 draw body-type
+34 point Female
+34.5 click
+38 draw female
+39 point text:SKIN_TONE
+39.5 click
+41 point nth:SkinToneList:5
+41.5 click
+44 draw skin-tone
+45 point text:FACE
+45.5 click
+47 point nth:FaceList:7
+47.5 click
+50 draw face
+51 point ButtonNext
+51.5 click
+55 draw identity-empty
+56 point NameInputField
+56.5 click
+57 text Madevale
+58 draw validating
+62 draw valid
+63 key Escape
+64.5 key Escape
+68 draw back-appearance
+69 key Escape
+71 draw appearance-popup
+72 point text:Yes
+72.5 click
+77 draw back-archetype
+78 key Escape
+80 draw quit-popup-2
+81 point text:Yes
+81.5 click
+86 draw landing-back
+92 end

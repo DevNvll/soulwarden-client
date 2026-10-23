@@ -226,13 +226,20 @@ function Swc.FireActions(key, down)
   local escape = false
   local inventory = false
   local journal = false
-  for _, a in ipairs(actions_of(key, down)) do
+  -- The listeners of all the actions of the key, taken before the first call: a listener that connects during this press does
+  -- not get it (AST-267: Escape on the appearance step of the creation opened the quit popup with ui_cancel, and the same
+  -- press closed it with ui_genpop_cancel; in retail the popup stays).
+  local listeners = {}
+  for i, a in ipairs(actions_of(key, down)) do
+    listeners[i] = Swc.Handlers("CryActionNotificationsBus", a.name)
+  end
+  for i, a in ipairs(actions_of(key, down)) do
     if not filtered(a.name) then
       Swc.actionLog[#Swc.actionLog + 1] = a.name .. (down and " 1" or " 0")
       if #Swc.actionLog > 50 then
         table.remove(Swc.actionLog, 1)
       end
-      for _, h in ipairs(Swc.Handlers("CryActionNotificationsBus", a.name)) do
+      for _, h in ipairs(listeners[i]) do
         local fn = h.connected and h.table.OnCryAction
         if type(fn) == "function" then
           local ok, result = Swc.Call(fn, h.table, a.name, down and 1 or 0)

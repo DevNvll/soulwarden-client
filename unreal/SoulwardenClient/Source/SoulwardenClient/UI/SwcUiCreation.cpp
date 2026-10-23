@@ -155,6 +155,12 @@ void USwcUiSubsystem::HandleCreationRequest(const FString& Request, USwcBackendS
 		}
 		Parts[0].ParseIntoArray(CreationNames, TEXT("|"), false);
 		CreationArmor = ReadArmor(Parts.IsValidIndex(1) ? Parts[1] : FString());
+		// HELMET 1: ForceHelmetHidden (cacappearancetab.luac hides the headgear on the appearance step, so that the face and the hair
+		// show): no hat on the preview (AST-267: the helmet of the archetype hid each change of the face and the hair).
+		if (Parts.IsValidIndex(2) && Parts[2] == TEXT("1"))
+		{
+			CreationArmor.Remove(0);   // the slot hat (SlotKeys)
+		}
 		const FSwcPlayerLooks* Looks = Backend != nullptr ? Backend->GetPlayerLooks() : nullptr;
 		if (Looks == nullptr || !CreationPreview.IsValid() || CreationNames.Num() != swc::menu::kAppearanceFieldCount)
 		{

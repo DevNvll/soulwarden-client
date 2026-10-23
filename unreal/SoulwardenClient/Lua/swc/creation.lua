@@ -37,6 +37,11 @@ Swc.creation = C
 
 local CREATION_STATE = 4065059436   -- the CRC-32 of "charactercreationscreen" (the state of the screen)
 local LANDING_STATE = 3881446394
+-- The creation in the intro level: javelin.use-new-character-creation-flow, the default of the client program true (research
+-- frontend-native.md, the settings of the creation). With it, Escape on the first step asks with the quit popup and Yes calls
+-- IntroController OnExit (charactercreation.luac backOut); with false the script set the state LandingScreen with no OnExit and the
+-- scene of the creation stayed (AST-267). cacappearancetab.luac then waits for EntityBus OnEntityActivated of the character.
+Swc.config["javelin.use-new-character-creation-flow"] = true
 local IMAGES = "lyshineui/images/charactercreation/layered/"
 local FIELDS = {"gender", "race", "skinTone", "hairstyle", "facialHair", "hairColor", "facialHairColor", "eyeColor", "faceMark",
   "scar", "tattoo", "tattooColor"}
@@ -77,17 +82,19 @@ local function races(gender)
   return g and g.races or {}
 end
 
-local function race()
-  return find(races(), C.look.race) or races()[1] or {}
+-- The row of a race (the current gender and race, or the gender and race of the arguments of a native call).
+local function race(gender, name)
+  local list = races(gender)
+  return find(list, name or C.look.race) or list[1] or {}
 end
 
-local function hair_db(facial)
-  local name = facial and race().facial or race().hair
-  return (data().hair or {})[name or ""] or {styles = {}, colors = {}}
+local function hair_db(facial, gender, name)
+  local r = race(gender, name)
+  return (data().hair or {})[(facial and r.facial or r.hair) or ""] or {styles = {}, colors = {}}
 end
 
-local function tones()
-  return (data().tones or {})[race().tones or ""] or {}
+local function tones(gender, name)
+  return (data().tones or {})[race(gender, name).tones or ""] or {}
 end
 
 local function pick(list)
@@ -230,13 +237,12 @@ local function setter(field, after)
   end
 end
 
-local function random(field, list)
-  return function()
-    local value = pick(list())
-    if value then
-      C.look[field] = value
-      send_look()
-    end
+-- The random values of the native part (RandomRace(entity, gender), RandomSkinTone(entity, gender, race), ...): the scripts keep the
+-- returned value and apply it with the Set calls (cacappearancetab.luac RandomizeCharacter); no change of the look here (AST-267:
+-- RandomGender gave nil, the gender of the screen became nil, and SetArchetypeDefaultPhysicalAppearance stopped the gender change).
+local function random(list)
+  return function(entity, gender, name)
+    return pick(list(gender or C.look.gender, name or C.look.race))
   end
 end
 
@@ -274,7 +280,7 @@ Swc.Define("CustomizableCharacterRequestBus", "Event", {
   GetTattooColor = function() return C.look.tattooColor end,
   -- The lists (the enabled names of the databases of the current gender and race).
   GetRacesForGender = function(entity, gender) return names(races(gender)) end,
-  IsRaceEnabled = function(entity, name) local row = find(races(), name); return row ~= nil and row.enabled ~= false end,
+  IsRaceEnabled = function(entity, gender, name) local row = find(races(gender), name); return row ~= nil and row.enabled ~= false end,
   GetSkintones = function() return names(tones()) end,
   GetHairstyles = function() return names(hair_db(false).styles) end,
   GetFacialHairs = function() return names(hair_db(true).styles) end,
@@ -321,30 +327,21 @@ Swc.Define("CustomizableCharacterRequestBus", "Event", {
   SetScar = setter("scar"),
   SetTattoo = setter("tattoo"),
   SetTattooColor = setter("tattooColor"),
-  DefaultSkinTone = function()
-    C.look.skinTone = race().defaultTone or C.look.skinTone
-    send_look()
+  -- DefaultSkinTone(entity, gender, race): the default tone of that race (the script keeps it and calls SetSkinTone).
+  DefaultSkinTone = function(entity, gender, name)
+    return race(gender or C.look.gender, name).defaultTone or (tones(gender or C.look.gender, name)[1] or {}).name
   end,
-  RandomGender = function()
-    C.look.gender = math.random(0, 1) == 1 and "Female" or "Male"
-    C.look.race = pick(races()) or C.look.race
-    fit()
-    send_look()
-  end,
-  RandomRace = function()
-    C.look.race = pick(races()) or C.look.race
-    fit()
-    send_look()
-  end,
-  RandomSkinTone = random("skinTone", tones),
-  RandomHairstyle = random("hairstyle", function() return hair_db(false).styles end),
-  RandomFacialHair = random("facialHair", function() return hair_db(true).styles end),
-  RandomHairColor = random("hairColor", function() return hair_db(false).colors end),
-  RandomEyeColor = random("eyeColor", function() return data().eyeColors end),
-  RandomFaceMark = random("faceMark", function() return data().faceMarks end),
-  RandomScar = random("scar", function() return data().scars end),
-  RandomTattoo = random("tattoo", function() return data().tattoos end),
-  RandomTattooColor = random("tattooColor", function() return data().tattooColors end),
+  RandomGender = function() return math.random(0, 1) == 1 and "Female" or "Male" end,
+  RandomRace = function(entity, gender) return pick(races(gender or C.look.gender)) end,
+  RandomSkinTone = random(function(g, r) return tones(g, r) end),
+  RandomHairstyle = random(function(g, r) return hair_db(false, g, r).styles end),
+  RandomFacialHair = random(function(g, r) return hair_db(true, g, r).styles end),
+  RandomHairColor = random(function(g, r) return hair_db(false, g, r).colors end),
+  RandomEyeColor = random(function() return data().eyeColors end),
+  RandomFaceMark = random(function() return data().faceMarks end),
+  RandomScar = random(function() return data().scars end),
+  RandomTattoo = random(function() return data().tattoos end),
+  RandomTattooColor = random(function() return data().tattooColors end),
   -- The archetype equipment of the preview.
   ShowDefaultEquipment = function()
     C.equipment = {}
@@ -409,10 +406,9 @@ Swc.Define("UiCharacterServiceRequestBus", "Broadcast", {
   end,
 })
 
--- The icon of the name field (cacidentitytab.luac SetNameValidationStatus): the text input draws its own state.
-Swc.Define("UiCharacterNameValidationStatusBus", "Event", {
-  SetStatus = function() end,
-})
+-- The icon of the name field: UiCharacterNameValidationStatusBus is the bus of the script namevalidationstatus.luac of the element
+-- NameValidationIcon (its valid, invalid, and validating children); no native part (AST-267: a stub here took its events, and the
+-- icon showed the valid check for an empty name).
 
 Swc.Define("MainMenuSystemRequestBus", "Broadcast", {
   GetSelectedWorldId = function() return F.worldId or "" end,
@@ -500,6 +496,21 @@ function Swc.CreationTick(dt)
   if not C.active then
     return
   end
+  -- A path to the landing screen with no OnExit (the quit popup gives OnExit): the scene of the creation ends too.
+  if LyShineManagerBus.Broadcast.GetCurrentState() == LANDING_STATE and C.newCharacterId == "" then
+    Swc.CreationEnd()
+    request("creation exit")
+    return
+  end
+  -- A new gender is a new skinned mesh: the next tick gives CustomizableCharacterNotificationsBus OnSkinnedMeshCreated (the script then
+  -- applies the race, the tone, the hair, and the archetype equipment of that gender; cacappearancetab.luac OnSkinnedMeshCreated).
+  if C.meshGender ~= C.look.gender then
+    local first = C.meshGender == nil
+    C.meshGender = C.look.gender
+    if not first then
+      Swc.Notify("CustomizableCharacterNotificationsBus", C.entity, "OnSkinnedMeshCreated")
+    end
+  end
   if C.lookDirty then
     write_look()
   end
@@ -544,10 +555,31 @@ function Swc.CreationStart()
   C.creating = false
   C.validating = nil
   reset()
+  C.meshGender = nil
   C.lastLook = nil
   write_look()
   LyShineManagerBus.Broadcast.SetState(CREATION_STATE)
+  -- The character entity of the intro level is active: a script that connects EntityBus to it gets OnEntityActivated (the engine
+  -- calls it at once for an active entity; cacappearancetab.luac clears the equipment and makes a random look then).
+  Swc.Notify("EntityBus", C.entity, "OnEntityActivated", C.entity)
   CinematicRequestBus.Broadcast.PlaySequenceByName("Archetype_Camera_Intro_Trackview_Sequence")
+end
+
+--- The skip of the intro camera (the native intro controller; its key is not in the scripts [U]): while the screen allows a skip
+--- (SetCanSkipCutscene true, during Archetype_Camera_Intro_Trackview_Sequence), a press of Space, Enter, Escape, or the left mouse
+--- button gives HideSkipIcon(true): the script stops the intro, and the archetype step starts (a choice of this client).
+function Swc.CreationSkipKey(name)
+  if not (C.active and C.canSkip) then
+    return false
+  end
+  if name ~= "space" and name ~= "enter" and name ~= "escape" and name ~= "mouse1" then
+    return false
+  end
+  C.canSkip = false
+  -- The camera goes to the end pose of the intro (the view of the archetype step); the script then stops the sequence.
+  request("menu sequence-skip Archetype_Camera_Intro_Trackview_Sequence")
+  Swc.Notify("IntroControllerComponentNotificationsBus", nil, "HideSkipIcon", true)
+  return true
 end
 
 --- The end of the creation without a character (OnExit): back to the landing screen.

@@ -1511,7 +1511,7 @@ void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsy
 		bPreviewDirty = true;
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the front end: %s"), *Request);
 	}
-	else if (Kind == TEXT("sequence") || Kind == TEXT("sequence-stop"))
+	else if (Kind == TEXT("sequence") || Kind == TEXT("sequence-stop") || Kind == TEXT("sequence-skip"))
 	{
 		// The camera sequences of the landing screen (CinematicRequestBus): the camera tracks of MainCamera (stage F4). During the
 		// character creation (stage Q3) the sequences of the creation scene: the tracks of Character_Create_Camera.
@@ -1523,6 +1523,10 @@ void USwcUiSubsystem::HandleMenuRequest(const FString& Request, USwcBackendSubsy
 			if (Kind == TEXT("sequence"))
 			{
 				bPlayed = Target->PlaySequence(Name);
+			}
+			else if (Kind == TEXT("sequence-skip"))
+			{
+				Target->SkipSequence(Name);
 			}
 			else
 			{

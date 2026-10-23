@@ -1030,3 +1030,29 @@ The declared limits of Q3:
 - The override of the shadow box (`24 - default.mtl` is not in the pak files): its own material; only the shadow is used.
 - The retail creation take (part 1) [U]: no side-by-side picture of the creation screens with retail.
 - The light rules of part 6 marked [I]: no retail picture of the hold to check them.
+
+### Q3, the play test (AST-267, 2026-10-23)
+
+The defects of the play test of the creation, and the source of each rule ([R] the retail script or record, [C] a choice of this
+client). Fixture `tests/ui/fixtures/creationplaytest.lua`; window check `tests/drive/ast267-playtest-ui.txt` (evidence
+`~/Games/soulwarden-client/evidence/AST-267/`).
+
+- Escape, back, and cancel. `javelin.use-new-character-creation-flow` is true (the default of the client program) [R]. Then
+  `charactercreation.luac` backOut: Escape on the archetype step opens the quit popup, Yes calls IntroController OnExit (the scene
+  of the creation ends, the landing screen and the menu scene come back) [R]; Escape on the appearance step opens its popup, Yes goes
+  back to the archetype step [R]; Escape on the identity step goes back to the appearance step [R]. The step buttons have no Back
+  button (SetState disables ButtonBack) [R]. One key press calls the listeners that were connected before the press: the press that
+  opens a popup does not also answer it (`swc/actions.lua` FireActions) [C, the source engine sends one action to one handler set].
+  A landing state with no OnExit also ends the scene [C, a safety net].
+- The camera time. The intro camera keeps its record time (21 s, `Archetype_Camera_Intro_Trackview_Sequence`) [R]. While
+  SetCanSkipCutscene is true, Space, Enter, Escape, or a left click skip it: the camera takes the end pose and HideSkipIcon(true)
+  starts the archetype step [R for the skip and its event; C for the key list].
+- The name icon. The bus UiCharacterNameValidationStatusBus belongs to the script `namevalidationstatus.luac` of the element
+  NameValidationIcon (children Valid, Invalid, Validating); the client stub of that bus is removed [R].
+- The preview. The native random and default calls return their values and do not change the look; the script applies them with
+  the Set calls (`cacappearancetab.luac` RandomizeCharacter) [R]. `Entity(id):GetName()` gives the name of the selected body type
+  [R]. A new body type is a new skinned mesh: the next tick sends OnSkinnedMeshCreated, and the script applies the look and the
+  archetype equipment again [R]. The appearance step hides the helmet: the look request has the flag 1, and the host removes the
+  head item [R, the hidden hat ids 2537396491 and 592172824].
+- The buttons after a body type change. `cacappearancetab.luac` SetCharacterGender sets the buttons off and on again after 30
+  frames [R]; before the fix the change stopped with an error (RandomGender gave no value), and the buttons stayed off.
