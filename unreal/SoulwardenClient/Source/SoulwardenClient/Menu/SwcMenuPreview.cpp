@@ -564,7 +564,7 @@ void ASwcMenuPreview::BuildScene(const TSharedPtr<FJsonObject>& Doc)
 			for (int32 Index = 0; Index < Component->GetNumMaterials(); ++Index)
 			{
 				const UMaterialInterface* Material = Component->GetMaterial(Index);
-				if (Material != nullptr && Mesh->IsNaniteEnabled() && !IsOpaqueOrMaskedBlendMode(Material->GetBlendMode()))
+				if (Material != nullptr && Mesh->HasValidNaniteData() && !IsOpaqueOrMaskedBlendMode(Material->GetBlendMode()))
 				{
 					Component->SetForceDisableNanite(true);
 					break;

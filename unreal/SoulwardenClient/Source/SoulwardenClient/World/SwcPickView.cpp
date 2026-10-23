@@ -58,7 +58,7 @@ FString Describe(const UStaticMeshComponent* Component, const UStaticMesh* Mesh,
 	const UMaterialInterface* Material = Component->GetMaterial(0);
 	return FString::Printf(TEXT("mesh %s, material %s, instance %d, size m %.0f x %.0f x %.0f, nanite %d, component %s, actor %s"),
 		*GetNameSafe(Mesh), *GetNameSafe(Material), Instance, Box.GetSize().X / 100.0, Box.GetSize().Y / 100.0, Box.GetSize().Z / 100.0,
-		Mesh->IsNaniteEnabled() ? 1 : 0, *Component->GetName(), *GetNameSafe(Component->GetOwner()));
+		Mesh->HasValidNaniteData() ? 1 : 0, *Component->GetName(), *GetNameSafe(Component->GetOwner()));
 }
 
 void PickView(const TArray<FString>& Args, UWorld* World)
