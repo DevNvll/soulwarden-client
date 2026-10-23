@@ -204,8 +204,8 @@ end
 
 -- The helpers of swc/questpins.lua (the quest pins of stage Q2) and its hook: Q.Changed after each change of the state, the pinned
 -- list, or the pin readiness.
-Q.task_id, Q.node_of, Q.state_of, Q.cell, Q.objective_id, Q.notify_component, Q.tracked_ids =
-  task_id, node_of, state_of, cell, objective_id, notify_component, tracked_ids
+Q.task_id, Q.node_of, Q.state_of, Q.target_of, Q.cell, Q.objective_id, Q.notify_component, Q.tracked_ids =
+  task_id, node_of, state_of, target_of, cell, objective_id, notify_component, tracked_ids
 Q.Changed = function() end
 
 local function send_pins()
@@ -643,13 +643,18 @@ Swc.Define("ObjectiveTaskRequestBus", "Event", {
   ContainsConsecutiveTasks = function(taskId)
     return kind_of((node_of(taskId))) == "consecutive"
   end,
-  -- OverrideLocation is the text of the cell [I]: compass.luac takes its length (#value), and some rows hold one number ("1").
+  -- The typed values of the native UI data map (research/quest-pins.md 3.1, 0x3AD7BE0): OverrideLocation a vector of Vector3 (the
+  -- native parser; empty with no cell: compass.luac takes #value), StayActive a boolean, ID the task id; the other names the cell.
   GetUIData = function(taskId, name)
     local node = node_of(taskId)
-    local value = cell(node and node.row, name)
     if name == "OverrideLocation" then
-      return value
+      return Swc.questPins and Swc.questPins.OverrideVector(node) or {}
+    elseif name == "StayActive" then
+      return cell(node and node.row, "StayActive") == "1"
+    elseif name == "ID" then
+      return node and taskId or nil
     end
+    local value = cell(node and node.row, name)
     return value and (tonumber(value) or value) or nil
   end,
   GetObjectiveInstanceId = function(taskId)

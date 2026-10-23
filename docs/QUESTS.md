@@ -151,54 +151,69 @@ folders `lyshineui/images/objectives/`, `icons/objectives/`, `journal/`, and `ba
 
 ## The pins (Q2, AST-237)
 
-One list of the task positions (`Lua/swc/questpins.lua`, `Swc.questPins.list`) feeds the map, the compass, the journal Map action, the
-Map button of the tracker, and (next step) the world pins. The original scripts read the list through two events of
-`ObjectivesComponentNotificationsBus`:
+The rules come from the study `research/quest-pins.md` (370 lines; [R] retail code, [D] data, [I] client rule, [U] open). One list of
+the published task positions (`Lua/swc/questpins.lua`, `Swc.questPins.list`) feeds the map, the compass, the journal Map action, the Map
+button of the tracker, and the world pins. The original scripts read it through two events of `ObjectivesComponentNotificationsBus`
+(study 1.1):
 
-- `OnObjectiveTaskPositionAdded(taskId, position, isTracked, territoryId)`: the map layer (objectiveslayer.luac) makes an icon (on the
-  POI of territoryId when it is not 0); the compass (compass.luac) keeps the position and shows it when isTracked.
-- `OnObjectiveTaskPositionsRemoved(taskId, territoryId)`.
+- `OnObjectiveTaskPositionAdded(taskId, position, isTracked, poiId)`: the map layer (objectiveslayer.luac) keeps an icon for each task
+  handle (on the POI of poiId when it is not 0); the compass (compass.luac) caches the position and shows it when isTracked.
+- `OnObjectiveTaskPositionsRemoved(taskId, isTracked)`.
 
-The journal Map action and the tracker Map button ask the map layer (`DynamicBus.ObjectivesLayer.GetObjectivePosition`). Thus all views
-use the same positions. The task id has the fields `objectiveInstanceId` and `taskIndex` (the scripts read them).
+The task id has the fields `objectiveInstanceId` and `taskIndex`. The journal Map action and the tracker Map button ask the map layer
+(`DynamicBus.ObjectivesLayer.GetObjectivePosition`).
 
-The data: `gamedata/quest-pins.json` (`python3 -B -m swc_convert.questpins write`; the inputs quests.json, worldmap.json, and
-persons.json): the marker cells of each task (OverrideLocation as a position, or the raw text when the cell is not three numbers; the POI
-of the first POITag: the backend points of quests.json first, then the map definitions with the same ids; TerritoryID;
-ShowDiegeticTaskPin, DiegeticPinZOverride, HideDiegeticGatherablePins, TP_HideOnCompassOnEnterPOI, TriggerAreaType, TP_TargetTag), the
-hand-in NPC of each objective and its places, and the POI areas of the tasks. The trigger geometry stays apart: the backend checks the
-trigger areas; the area display reads `areas`.
+The publisher [R] (study 1.2, 2.1, 2.2):
 
-The rules [I] (the native producer is not proved; the study `research/quest-pins.md` is asked):
+- Each objective of the character, each task that is enabled and unfinished: state Active or CompleteActive and progress < target. No
+  IsHidden or HideChildren test: a hidden active container with a source publishes next to its child. isTracked is an argument.
+- The source: the nearest point (full XYZ) of the OverrideLocation, poiId 0; else, with POITag and no GameModeID, the nearest POI point of
+  the tags (inside TerritoryID when the task has one; else the first POI point), poiId the POI; else no position. TerritoryID is not a
+  position. A conversation task (type code 16): the override, else the nearest place of the NPC of ItemName.
+- A ready objective (the root Complete or CompleteActive): one more position on the root task id [I], at the NpcDestinationId NPC place
+  nearest to the player [I: the native completion resolver is not traced]. Before that, no hand-in position (HideIncompleteTurninMarker).
+- The changes: after each change of the state, the pinned list, or the pin readiness, and each 2 s with the player position [I];
+  `RequestPublishPoiLocations` sends all positions again (the map asks when it opens).
 
-- Each objective of the character gives positions; isTracked follows `IsObjectiveTracked` (the pinned list after the pin readiness).
-- The tasks: from the root, the Active tasks; a task gives a position when no Active task under it gives one.
-- The position: OverrideLocation, else the POI centre, else the territory centre (height 0). territoryId: the POI, else TerritoryID.
-- The root Complete or CompleteActive: one position on the root task at the place of the NpcDestinationId NPC nearest to the player.
-- The events go after each change of the state, the pinned list, or the pin readiness; `RequestPublishPoiLocations` sends all again.
-- `GetUIData(task, "OverrideLocation")` gives the text of the cell (compass.luac takes its length). `GetTaskTerritoryId`: the POI or
-  TerritoryID of the task. `GetTerritoryIdByPoiTag` and `GetTerritoryDefinitionByPoiTag`: the map definition with the tag.
+The queries [R] (study 3): `GetUIData(task, "OverrideLocation")` gives a list of Vector3 (empty with no cell), `StayActive` a boolean,
+`ID` the task id. `GetObjectivesOrdered(Distance)` gives groups of objective ids (by the squared XYZ distance of the nearest published
+position; a second group with no position). `GetTaskTerritoryId`: the authored TerritoryID, else the territory of the POI.
+`GetTerritoryIdByPoiTag` and `GetTerritoryDefinitionByPoiTag`: the map definition with the tag.
 
-The world pins (`swc/markers.lua` M.TickQuestPins): the marker type DiegeticObjectivePin of the static pool `w`
-(staticworldmarker.luac shows the icon of the objective in the data node `DiegeticPinObjectiveInstanceId`; it asks
-`HasObjectiveInstanceId`). The rules [I]: a position of a task with ShowDiegeticTaskPin gets a pin; at most 5 (the pinned objectives
-first, then the nearest); a DiegeticPinZOverride other than 0 replaces the height (the data has 0 in 1379 tasks, 2 or 3 in 13, and 272 to
-543.5 in 4: the meaning is not proved); the place, the scale (1 at 4 m to 0.7 at 120 m), and the alpha (1 at 100 m to 0 at 150 m) come
-from the marker params of markerdata.luac; no occlusion. The log has "quest pin on: KEY at X Y Z (wN)" and "quest pin off: KEY";
+The world pins [R] (`swc/markers.lua` M.TickQuestPins; study 4): the marker type DiegeticObjectivePin of the static pool `w`
+(staticworldmarker.luac shows the objective icon of the data node `DiegeticPinObjectiveInstanceId`; it asks `HasObjectiveInstanceId`).
+A candidate is a published task position of a task with ShowDiegeticTaskPin (isTracked is not a filter). One pool of 5, the nearest by
+squared XYZ distance, none beyond 150 m; the allocation each 2 s and at each change of the list; a slot stays with its candidate. The
+height: a DiegeticPinZOverride of at least -100 replaces Z; blank or 0 gives Z + 1.75 m. The scale (1 at 4 m to 0.7 at 120 m) and the
+alpha (1 at 100 m to 0 at 150 m): markerdata.luac. The log has "quest pin on: KEY at X Y Z (wN, D m)" and "quest pin off: KEY";
 `Swc.QuestPinPoint(KEY)` gives the screen point.
+
+The data: `gamedata/quest-pins.json` of format 2 (`python3 -B -m swc_convert.questpins write`; the inputs quests.json, worldmap.json, and
+persons.json): the OverrideLocation points by the native parser (comma entries; up to three numbers; a missing number is 0: "1" is
+(1, 0, 0)); the POI ids of the tags and their points; TerritoryID; GameModeID; the pin cells; the conversation NPC; the hand-in NPC of
+each objective; the NPC places. The POI point [U]: the native point comes from the territory data provider, whose load path is not
+proved; the only point here is the POI placement of the backend copy (quests.json "pois"). A tag with only a map definition gives the
+id and no point: no guessed centre (the map shape positions differ from the backend placements in 329 of 476 POIs, by up to 162 m).
+No objective area: the study found no search-area display rule [U].
 
 The compass places its icons in `OnCrySystemPostViewSystemUpdate` (compass.luac, through uitick.luac and DynamicBus.UITickBus). The
 client did not send this event before AST-237, so each compass icon stayed at the north point of the strip; `Swc.Tick` sends it now
 after `TickBus.OnTick`.
 
-The start quest 06_getoffbeach: the trigger task (index 9, 9621.61 2309.48 40.24) gives the position; when the trigger is complete, the
-hidden root (9613.64 2329.47 43.0, at Aelstrom) gives it; the root complete gives the hand-in place of 01_AelstromWW_01.
+The start quest 06_getoffbeach (study 7): the root 16 (9613.6416 2329.4722 43.0) and the trigger task 9 (9621.61 2309.48 40.24) both
+publish, poiId 0, 21.70 m apart; the world pin is only on task 9, at Z 41.99; the trigger complete removes task 9 and its pin, the root
+stays; the root complete gives the hand-in place of 01_AelstromWW_01 (9613.36 2329.27 42.43).
 
-The check: the fixture `tests/ui/fixtures/questpins.lua` (44 checks: the events, the compass position and the compass icon in the middle
-of the strip, the world pin in the middle of the view, the map layer position, the pin change (the world pin hides), the hand-in, the
-removal; pictures questpins-compass, questpins-world, and questpins-map). The data report (2026-10-22): 7249 task records, 2595
-OverrideLocation positions (112 cells are not positions), 2600 backend POIs and 1453 map POIs (236 tags unknown), 1445 TerritoryID, 969
-ShowDiegeticTaskPin, 955 objectives with a hand-in NPC (24 NPCs with no place).
+The check: the fixture `tests/ui/fixtures/questpins.lua` (52 checks: the two handles, the events and their arguments, the typed UI data,
+the compass cache and the compass icon in the middle of the strip, the world pin of task 9 at 41.99 m in the middle of the view and no pin
+on the root, the map layer position, the trigger completion, the hand-in, the removal; pictures questpins-compass, questpins-world, and
+questpins-map). The data report (2026-10-23): 7272 task records, 2707 overrides (2731 points; 109 cells with short entries), 4090 tasks
+with POI ids (2600 with a backend point, 1490 with no point, 199 unknown tags), 969 ShowDiegeticTaskPin, 17 DiegeticPinZOverride, 44
+conversation NPCs, 955 objectives with a hand-in NPC (24 NPCs with no place).
+
+Open [U] (study 8): the task suppression byte +0x302, the game mode and mutation test, the POI provider point, the native completion
+resolver, the dynamic mission locations, the gatherable entity pins, the TP_HideOnCompassOnEnterPOI reader, the quest search area, and the
+NPC state priority (the ready NPC marker state of the hand-in: Q4 owns the NPC states).
 
 ## Open points
 
@@ -207,7 +222,7 @@ ShowDiegeticTaskPin, 955 objectives with a hand-in NPC (24 NPCs with no place).
 - The journal has a hidden hand-in row "Talk to " (the retail script hides it with SetTaskVisibility).
 - The Map button of the journal shows only when the objective layer of the map has a place for the quest
   (`ObjectivesLayer.GetObjectivePosition`): the pins of stage Q2 give it (live check open). The task timers are stage Q8.
-- Q2: the objective areas on the map, the live check, and the rules of the study are open.
+- Q2: the live check is open; the open points of the study are in "The pins (Q2, AST-237)".
 - A change of an Auto-Pin switch does not go to the backend (2709 is sent once).
 - The top menu bar of the retail journal (Company, Journal, Mount, ...) is a different canvas: not in the client.
 - The skinning of a boar (AST-250): the trigger rule of the bodies (docs/INTERACTIONS.md); live `tests/drive/ast250-c2*.txt`: the quest

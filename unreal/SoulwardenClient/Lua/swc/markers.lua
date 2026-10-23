@@ -544,91 +544,102 @@ end
 
 -- ------------------------------------------------------------------------------------------------- the quest pins (stage Q2)
 
--- The world pins of the quests (AST-237; docs/QUESTS.md "The pins (Q2, AST-237)"): the marker type DiegeticObjectivePin of the static
--- pool (identifier "w"; markermanager.luac typeToMarkerMap; staticworldmarker.luac shows the icon of the objective of the data node
--- DiegeticPinObjectiveInstanceId). The pins come from the one pin list of swc/questpins.lua (Swc.questPins.list). The rules [I] (the
--- native DiegeticObjectivePinsComponent is not proved; research/quest-pins.md is asked):
---   - a task position with ShowDiegeticTaskPin gets a pin; at most 5 (the 5 pin entities of the native component), the pins of the
---     pinned objectives first, then the nearest;
---   - the height: the task position; a DiegeticPinZOverride other than 0 replaces it;
+-- The world pins of the quests (AST-237; docs/QUESTS.md "The pins (Q2, AST-237)"; research/quest-pins.md section 4): the marker type
+-- DiegeticObjectivePin of the static pool (identifier "w"; markermanager.luac typeToMarkerMap; staticworldmarker.luac shows the icon of
+-- the objective of the data node DiegeticPinObjectiveInstanceId). The candidates come from the one pin list of swc/questpins.lua. [R]:
+--   - a candidate: a published task position (enabled and unfinished) of a task with ShowDiegeticTaskPin; isTracked is not a filter
+--     (the native add consumer 0x39D5E90);
+--   - the pool: the 5 local pin entities of the player slice; the candidates by squared XYZ distance, the nearest first; a candidate
+--     beyond 150 m (javelin.objectives-max-diegeticPinDistance) has no pin; a candidate keeps its slot while it stays in the pool
+--     (allocator 0x39E28C0); the distances and the allocation each 2 s (javelin.objectives-diegeticPinUpdateIntervalSeconds) and at each
+--     change of the pin list (the bypass of a large move is not measured [U]);
+--   - the height (0x39D5F79): a DiegeticPinZOverride of at least -100 replaces Z; else Z + 1.75 m (javelin.objectives-diegeticPinZOffset);
 --   - the place, the scale, and the alpha: the marker params of the type (markerdata.luac: scale 1 at 4 m to 0.7 at 120 m, alpha 1 at
---     100 m to 0 at 150 m); no occlusion (the params have no allowWorldOcclusion).
-local QUEST_PIN_TYPE, QUEST_PIN_LIMIT = "DiegeticObjectivePin", 5
+--     100 m to 0 at 150 m); no occlusion (the params have no allowWorldOcclusion). The gatherable entity pins are a separate path [U].
+local QUEST_PIN_TYPE, QUEST_PIN_LIMIT, QUEST_PIN_RANGE, QUEST_PIN_Z, QUEST_PIN_INTERVAL = "DiegeticObjectivePin", 5, 150, 1.75, 2
 M.questSlots = {}
+local questAllocation = {time = -math.huge, revision = -1}
 
-local function quest_pin_candidates(px, py)
+local function quest_pin_candidates(own)
   local out = {}
   for _, pin in ipairs(Swc.questPins and Swc.questPins.list or {}) do
-    if pin.record and pin.record.showPin then
-      local z = pin.record.pinZ and pin.record.pinZ ~= 0 and pin.record.pinZ or pin.position[3]
-      local dx, dy = pin.position[1] - px, pin.position[2] - py
-      out[#out + 1] = {pin = pin, x = pin.position[1], y = pin.position[2], z = z, distance = math.sqrt(dx * dx + dy * dy)}
+    if pin.kind == "task" and pin.record and pin.record.showPin then
+      local z = pin.record.pinZ or (pin.position[3] + QUEST_PIN_Z)
+      local d2 = (pin.position[1] - own[1]) ^ 2 + (pin.position[2] - own[2]) ^ 2 + (z - own[3]) ^ 2
+      out[#out + 1] = {pin = pin, x = pin.position[1], y = pin.position[2], z = z, d2 = d2, distance = math.sqrt(d2)}
     end
   end
-  table.sort(out, function(a, b)
-    if a.pin.tracked ~= b.pin.tracked then
-      return a.pin.tracked
-    end
-    return a.distance < b.distance
-  end)
+  table.sort(out, function(a, b) return a.d2 < b.d2 end)
   return out
 end
 
 --- The quest pins of the frame: the static slots w0 ... w(n - 1) of the pool (each frame, before the creatures).
 function M.TickQuestPins()
+  if Swc.questPins then
+    Swc.questPins.Refresh()
+  end
   local size = math.min(pool_size("w"), QUEST_PIN_LIMIT)
   if not M.ready or size <= 0 then
     return
   end
-  local own = Swc.GetData("Hud.LocalPlayer.Position")
-  local candidates = quest_pin_candidates(own and own.x or 0, own and own.y or 0)
-  local wanted = {}
-  for i = 1, math.min(size, #candidates) do
-    wanted[candidates[i].pin.key] = candidates[i]
-  end
-  local free = {}
-  for index = 0, size - 1 do
-    local slot = M.questSlots[index]
-    if not slot then
-      slot = {index = index, prefix = PREFIX .. "w" .. index, values = {}}
-      M.questSlots[index] = slot
-    end
-    if slot.quest and wanted[slot.quest.pin.key] then
-      slot.quest = wanted[slot.quest.pin.key]
-      wanted[slot.quest.pin.key] = nil
-    else
-      if slot.quest then
-        put(slot, "IsVisible", false)
-        put(slot, "DiegeticPinObjectiveInstanceId", nil)
-        Swc.SetData(slot.prefix .. ".StopUpdate", true)
-        swcui.log("info", "quest pin off: " .. slot.quest.pin.key)
+  local own = Swc.questPins and Swc.questPins.PlayerPosition() or {0, 0, 0}
+  local revision = Swc.questPins and Swc.questPins.revision or 0
+  local allocate = (Swc.time or 0) - questAllocation.time >= QUEST_PIN_INTERVAL or revision ~= questAllocation.revision
+  if allocate then
+    questAllocation.time, questAllocation.revision = Swc.time or 0, revision
+    local wanted = {}
+    local candidates = quest_pin_candidates(own)
+    for i = 1, math.min(size, #candidates) do
+      if candidates[i].distance <= QUEST_PIN_RANGE then
+        wanted[candidates[i].pin.key] = candidates[i]
       end
-      slot.quest, slot.markerId = nil, nil
-      free[#free + 1] = slot
     end
-  end
-  local queue = {}
-  for _, c in pairs(wanted) do
-    queue[#queue + 1] = c
-  end
-  table.sort(queue, function(a, b) return a.distance < b.distance end)
-  for i, c in ipairs(queue) do
-    local slot = free[i]
-    if slot then
-      slot.quest, slot.values = c, {}
-      -- A marker id for each task of a pin (an id of the runtime: 9, then the slot and the task index).
-      slot.markerId = EntityId(string.format("9%03d%012d", slot.index, c.pin.index))
-      Swc.SetData(slot.prefix .. ".MarkerComponentId", slot.markerId)
-      put(slot, "Type", QUEST_PIN_TYPE)
-      put(slot, "DiegeticPinObjectiveInstanceId", Swc.quests.objective_id(c.pin.objective))
-      swcui.log("info", string.format("quest pin on: %s at %.2f %.2f %.2f (w%d)", c.pin.key, c.x, c.y, c.z, slot.index))
+    local free = {}
+    for index = 0, size - 1 do
+      local slot = M.questSlots[index]
+      if not slot then
+        slot = {index = index, prefix = PREFIX .. "w" .. index, values = {}}
+        M.questSlots[index] = slot
+      end
+      if slot.quest and wanted[slot.quest.pin.key] then
+        slot.quest = wanted[slot.quest.pin.key]
+        wanted[slot.quest.pin.key] = nil
+      else
+        if slot.quest then
+          put(slot, "IsVisible", false)
+          put(slot, "DiegeticPinObjectiveInstanceId", nil)
+          Swc.SetData(slot.prefix .. ".StopUpdate", true)
+          swcui.log("info", "quest pin off: " .. slot.quest.pin.key)
+        end
+        slot.quest, slot.markerId = nil, nil
+        free[#free + 1] = slot
+      end
+    end
+    local queue = {}
+    for _, c in pairs(wanted) do
+      queue[#queue + 1] = c
+    end
+    table.sort(queue, function(a, b) return a.d2 < b.d2 end)
+    for i, c in ipairs(queue) do
+      local slot = free[i]
+      if slot then
+        slot.quest, slot.values = c, {}
+        -- A marker id for each task of a pin (an id of the runtime: 9, then the slot and the task index).
+        slot.markerId = EntityId(string.format("9%03d%012d", slot.index, c.pin.index))
+        Swc.SetData(slot.prefix .. ".MarkerComponentId", slot.markerId)
+        put(slot, "Type", QUEST_PIN_TYPE)
+        put(slot, "DiegeticPinObjectiveInstanceId", Swc.quests.objective_id(c.pin.objective))
+        swcui.log("info", string.format("quest pin on: %s at %.2f %.2f %.2f (w%d, %.1f m)", c.pin.key, c.x, c.y, c.z, slot.index, c.distance))
+      end
     end
   end
   local params = M.params[QUEST_PIN_TYPE] or {}
   for index = 0, size - 1 do
     local slot = M.questSlots[index]
-    local c = slot.quest
+    local c = slot and slot.quest
     if c then
+      -- The distance of the frame for the scale and the alpha (the pool itself changes only at an allocation).
+      c.distance = math.sqrt((c.x - own[1]) ^ 2 + (c.y - own[2]) ^ 2 + (c.z - own[3]) ^ 2)
       local object = slot.markerId and M.objects[key(slot.markerId)]
       local element = object and object.element
       -- The engine space (m; Y north) to Unreal (cm; Y south): docs/ARCHITECTURE.md "Spaces".
