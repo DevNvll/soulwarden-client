@@ -157,7 +157,7 @@ function N.Update()
       near[#near + 1] = person
       seen[person.key] = true
       local before = N.published[person.key]
-      if changed(before, result) then
+      if changed(before, result) or (N.republish and result.State ~= STATE.none) then
         result.person = person
         N.published[person.key] = result
         publish(person, result)
@@ -178,6 +178,7 @@ function N.Update()
       end
     end
   end
+  N.republish = false
   N.near = near
   N.revision = N.revision + 1
 end
@@ -201,8 +202,10 @@ end
 
 Swc.Define("NpcComponentRequestBus", "Broadcast", {
   -- The map and the compass ask for each state again (objectiveslayer.luac UpdatePublishedLocations, compass.luac).
+  -- The published list stays (a person that leaves later still gets its clear form): the compass asks at each added or removed
+  -- objective (compass.luac), so a reset here lost the clear of the walkaway Aelstrom (live ast239-exit3).
   RequestPublishNpcStates = function()
-    N.published = {}
+    N.republish = true
     N.dirty = true
   end,
 })

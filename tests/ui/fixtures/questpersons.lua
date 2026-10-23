@@ -54,6 +54,7 @@ equal(select("01_AelstromWW_01"), "01_AelstromWW_p1_01", "Aelstrom with S_getoff
 -- supplies?" (06_skinningknife); its proposal chain ends with "Accept Quest" (3772) and the Acceptance state.
 local conversation = screen("LyShineUI/Conversation/ConversationScreenV2.uicanvas", 20)
 local markers = screen("LyShineUI/Markers/MarkerManager.uicanvas", 10, true)
+local compass = screen("LyShineUI/Compass/Compass.uicanvas", 14, true)
 screen("LyShineUI/HelpBar/HelpBar.uicanvas", 30, true)
 local function requests()
   local out = {}
@@ -250,6 +251,14 @@ for _, entry in ipairs(knife.tree) do
 end
 knifeState[#knifeState + 1] = "K 778"
 Swc.HostQuests(table.concat(knifeState, "\n"))
+-- The same frame: the walkaway Aelstrom leaves the presence (the knife unlocks SwapActive_01_AelstromWW_01; live ast239-exit3), and the
+-- compass asks for the states again (compass.luac at an added objective): the published list stays, so the clear form still goes.
+NpcComponentRequestBus.Broadcast.RequestPublishNpcStates()
+Swc.HostPersons("person:urda\t01_UrdaWW_01\t9601.71\t2367.60\t44.64\n")
+frames(1.5)
+local cleared = last_event(aelstromCrc)
+equal(cleared and cleared.state, 0, "Aelstrom leaves the presence: the compass gets the clear form (NoObjective 0)")
+Swc.HostPersons("person:aelstrom\t01_AelstromWW_01\t" .. AX .. "\t" .. AY .. "\t" .. AZ .. "\nperson:urda\t01_UrdaWW_01\t9601.71\t2367.60\t44.64\n")
 frames(1.5)
 Swc.HostPlates("")
 equal(Swc.npcStates.Query("01_AelstromWW_01").State, eConversationState_NoObjective, "after the accept: Aelstrom NoObjective 0 (the knife is active, its marker hidden)")

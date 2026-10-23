@@ -299,7 +299,9 @@ Swc.Define("MapComponentBus", "Broadcast", {
   -- Outposts, claims, NPC locations, and dynamic objectives: the backend has none of these systems.
   GetOutposts = function() return {} end,
   GetClaims = function() return {} end,
-  GetNpcData = function() return {} end,
+  -- The NPC data of the map (compass.luac OnNpcHasAvailableQuestChanged indexes factionInfoTable with its factionType unless it is None
+  -- or Any; AST-239): no faction for the persons of this backend [I].
+  GetNpcData = function() return {factionType = eFactionType_None or 0} end,
   GetTractAtPosition = function() return "" end,
   IsDynamicPoiObjectiveComplete = function() return false end,
   HasDynamicPoiObjective = function() return false end,
