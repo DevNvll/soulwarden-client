@@ -196,6 +196,13 @@ inline Shared shared_of(const Json& doc)
 	for (const auto& [name, value] : ranged["weapons"].items()) {
 		shared.weapons[name] = {value["profile"].get<std::string>(), value["ammo"].get<std::string>()};
 	}
+	if (ranged.contains("tagGroups")) {
+		for (const auto& [name, value] : ranged["tagGroups"].items()) {
+			for (const auto& tag : value) {
+				shared.tagGroups[name].insert(tag.get<std::string>());
+			}
+		}
+	}
 	return shared;
 }
 

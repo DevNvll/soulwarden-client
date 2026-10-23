@@ -654,6 +654,7 @@ def actions() -> dict:
                              if item.get("mesh", "").endswith(".cdf") and (helpers := skill_effects.weapon_helpers(item["mesh"]))},
            "ranged": {**ranged.flights(json.loads((gamedata_dir() / "projectile-data.json").read_text())),
                       "manaCosts": {name: value for name, value in mana_costs.items()},
+                      "tagGroups": ranged.tag_groups(),
                       "spells": {name: row for name, row in ranged.spells().items()
                                  if name in ranged.spells_of([w["ranged"] for w in weapons if "ranged" in w])}}}
     out = player.player_dir() / "actions.json"

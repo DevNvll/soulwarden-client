@@ -164,6 +164,9 @@ struct Shared {
 	[[nodiscard]] const Spell* spell(std::string_view id) const;
 	/** @return The mana cost of a CostID (0: none). */
 	[[nodiscard]] float mana_cost(std::string_view costId) const;
+	/** The tag groups of the global tags of the player controller (animations/mannequin/adb/player/playermaletags.xml): the lower-case
+	 *  group name -> its lower-case tags (ClearMannequinTagGroup; AST-271). */
+	std::map<std::string, std::set<std::string>> tagGroups;
 	/** @return The rule of a shot (its attack and row; for a spell its spell), or null. */
 	[[nodiscard]] const ShotRule* rule(std::uint32_t attackCrc, std::uint32_t rowCrc, std::string_view spell) const;
 };
@@ -369,6 +372,8 @@ public:
 	[[nodiscard]] const std::map<std::string, std::uint32_t>& unknown() const { return m_unknown; }
 	/** The count of the actions that ended by kStuckTime. */
 	[[nodiscard]] std::uint32_t stuck() const { return m_stuckEnds; }
+	/** The installed actions (with the steps since their fragment is done or lost the scope) and the tags, for a log line (AST-271). */
+	[[nodiscard]] std::string describe() const;
 
 	/**
 	 * @return The value of a condition tree in the state of the last step. `host`: the action whose condition it is (IfFragmentPlaying
@@ -389,7 +394,8 @@ private:
 	[[nodiscard]] bool leaf(const Node& node, const Facts& facts, const Action* host) const;
 	[[nodiscard]] bool has_input(std::string_view name, unsigned backTicks) const;
 	[[nodiscard]] bool named(std::string_view name, const Facts& facts, const Action* host) const;
-	void start_action(const Action& action, std::uint16_t input, const Facts& facts, std::vector<Event>& out);
+	/** `interrupt`: a new ability takes the fragment scope; the former owner and each action that lost the scope end (their exits). */
+	void start_action(const Action& action, std::uint16_t input, const Facts& facts, std::vector<Event>& out, bool interrupt = false);
 	void end_action(std::size_t index, std::uint16_t input, const Facts& facts, std::vector<Event>& out);
 	void start_fragment(std::string_view name, std::uint16_t input);
 	void run_items(std::uint16_t input, const Facts& facts, std::vector<Event>& out);

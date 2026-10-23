@@ -73,7 +73,7 @@ public:
 	/** A key of the bar (the place 0 to 2: Q, R, F) went down or up (stage P3.5): the press bits at the step of the driver. */
 	void OnAbilityKey(uint32 Place, bool bDown);
 	/** The aim button (the right mouse button): the aim of a ranged weapon in the hand (AimDownSights). */
-	void OnAimButton(bool bDown) { bAimHeld = bDown; }
+	void OnAimButton(bool bDown);
 	/** The aim plays (the AimCamera, the walk); the target lock can start (DisableCameraLock of the camera action list: not in
 	 *  the aim, not in an attack before its mark CanTransition). */
 	bool IsAiming() const { return bAiming; }

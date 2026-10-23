@@ -531,6 +531,21 @@ void USwcPlayerActions::OnAttackButton(bool bDown)
 	if (Driver)
 	{
 		Driver->button(bDown);
+		if (const swc::combat::Driver::Snapshot::Ranged Ranged = Driver->snapshot().ranged; bDown && Ranged.program)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("ranged: the attack button at the state: fragment %s (action %s); %s"), UTF8_TO_TCHAR(Ranged.fragment.c_str()),
+				UTF8_TO_TCHAR(Ranged.action.c_str()), UTF8_TO_TCHAR(Ranged.state.c_str()));
+		}
+	}
+}
+
+void USwcPlayerActions::OnAimButton(bool bDown)
+{
+	bAimHeld = bDown;
+	if (const swc::combat::Driver::Snapshot::Ranged Ranged = Driver ? Driver->snapshot().ranged : swc::combat::Driver::Snapshot::Ranged(); bDown && Ranged.program)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("ranged: the aim button at the state: fragment %s (action %s); %s%s"), UTF8_TO_TCHAR(Ranged.fragment.c_str()),
+			UTF8_TO_TCHAR(Ranged.action.c_str()), UTF8_TO_TCHAR(Ranged.state.c_str()), IsActionLocked() ? TEXT("; the actions are locked") : TEXT(""));
 	}
 }
 

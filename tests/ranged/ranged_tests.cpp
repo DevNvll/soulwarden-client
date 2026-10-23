@@ -449,6 +449,95 @@ void ability_tests(const ranged::test::Data& data)
 			check(a == 9 && b == 25 && std::abs(c - 52) <= 1, "Rapid Shot: the steps " + std::to_string(a) + ", " + std::to_string(b) + ", " + std::to_string(c));
 		}
 	}
+	// AST-271 (user test): after each bow ability, a click gives a hip shot and the right button draws the bow, with no weapon swap.
+	for (const char* id : {"Ability_Bow_RapidShot", "Ability_Bow_PenetratingShot", "Ability_Bow_SplinterShot"}) {
+		Script script = key_at(10);
+		const bool penetrating = std::string_view(id) == "Ability_Bow_PenetratingShot";
+		script.clicks = penetrating ? std::vector<int>{40, 130} : std::vector<int>{130};
+		script.aimFrom = 170;
+		script.aimTo = 220;
+		ranged::Facts facts = with_bar(crc(id));
+		facts.nodes.insert(crc(id));
+		const Run r = run(*bow, data.shared, script, 260, facts);
+		int hip = -1;
+		int ready = -1;
+		for (const auto& [step, fragment] : r.fragments) {
+			if (step >= 130 && step < 170 && fragment == "Bow_Shoot_HipFire" && hip < 0) {
+				hip = step;
+			}
+			if (step >= 170 && fragment == "Bow_ReadyWeapon_UpperBody" && ready < 0) {
+				ready = step;
+			}
+		}
+		check(hip >= 130 && hip <= 131, std::string(id) + ": then a click gives the hip shot (" + std::to_string(hip) + ")");
+		check(ready >= 170 && ready <= 171, std::string(id) + ": then the right button draws the bow (" + std::to_string(ready) + ")");
+	}
+	// AST-271: the sequence of the user (Q with its click, R, F while moving), then a click and the right button; with the right button
+	// held before Q and before R (the user test: the aim, then the key), and without.
+	for (const bool aimFirst : {false, true}) {
+		const std::string with = aimFirst ? " (the aim before Q and R)" : "";
+		ranged::Player player;
+		player.set_program(bow, &data.shared);
+		ranged::Facts facts;
+		facts.bar = {crc("Ability_Bow_PenetratingShot"), crc("Ability_Bow_SplinterShot"), crc("Ability_Bow_RapidShot")};
+		for (std::uint32_t ability : facts.bar) {
+			facts.nodes.insert(ability);
+		}
+		facts.moving = true;
+		// The keys in the aim loop (the user log: Q 20 steps after the aim start, R 25 steps after the second aim start).
+		const std::map<int, unsigned> keys = aimFirst ? std::map<int, unsigned>{{25, 0}, {110, 1}, {165, 2}} : std::map<int, unsigned>{{10, 0}, {100, 1}, {160, 2}};
+		const std::set<int> clicks = aimFirst ? std::set<int>{55, 330} : std::set<int>{40, 330};
+		std::vector<ranged::Event> shots;
+		bool attack = false;
+		bool aim = false;
+		int hip = -1;
+		int ready = -1;
+		std::string last;
+		for (int step = 0; step < 460; ++step) {
+			ranged::Input in;
+			const bool attackNow = clicks.count(step) != 0;
+			in.attackDown = attackNow;
+			in.attackPress = attackNow && !attack;
+			in.attackRelease = !attackNow && attack;
+			attack = attackNow;
+			const bool aimNow = (step >= 380 && step < 430) || (aimFirst && ((step >= 5 && step < 70) || (step >= 85 && step < 125)));
+			in.aimDown = aimNow;
+			in.aimPress = aimNow && !aim;
+			in.aimRelease = !aimNow && aim;
+			aim = aimNow;
+			for (const auto& [at, place] : keys) {
+				in.keyPress[place] = in.keyPress[place] || step == at;
+				in.keyDown[place] = in.keyDown[place] || (step >= at && step < at + 3);
+			}
+			std::vector<ranged::Event> events;
+			player.step(static_cast<std::uint16_t>(step), in, facts, events);
+			for (const ranged::Event& event : events) {
+				if (event.kind == ranged::Event::Kind::shot) {
+					shots.push_back(event);
+				}
+			}
+			const ranged::Playing& playing = player.playing();
+			const std::string now = playing.fragment != nullptr ? playing.fragment->name + "|" + std::to_string(playing.serial) : "";
+			if (now != last) {
+				last = now;
+				const std::string name = playing.fragment != nullptr ? playing.fragment->name : "";
+				if (g_trace) {
+					std::printf("    %3d sequence fragment %s (action %s)\n", step, now.c_str(), playing.action != nullptr ? playing.action->name.c_str() : "");
+				}
+				hip = hip < 0 && step >= 330 && name == "Bow_Shoot_HipFire" ? step : hip;
+				ready = ready < 0 && step >= 380 && name == "Bow_ReadyWeapon_UpperBody" ? step : ready;
+			}
+		}
+		check(hip == 330, "the sequence Q R F" + with + ": then a click gives the hip shot (" + std::to_string(hip) + ")");
+		check(ready == 380, "the sequence Q R F" + with + ": then the right button draws the bow (" + std::to_string(ready) + ")");
+		check(player.tags().count("aim") == 0, "the sequence Q R F" + with + ": no tag Aim at the end");
+		const auto count = [&shots](const char* attack) {
+			return std::count_if(shots.begin(), shots.end(), [attack](const ranged::Event& e) { return e.attack == crc(attack); });
+		};
+		check(count("PenetratingShot") == 1 && count("ExplosionShot") == 1 && count("TripleShot") == 3,
+			"the sequence Q R F" + with + ": the shots of the three skills (" + std::to_string(count("PenetratingShot")) + ", "
+				+ std::to_string(count("ExplosionShot")) + ", " + std::to_string(count("TripleShot")) + ")");
+	}
 	// Penetrating Shot: the key starts the aim; the click shoots (the shot item confirms the aim in the backend).
 	{
 		Script script = key_at(10);

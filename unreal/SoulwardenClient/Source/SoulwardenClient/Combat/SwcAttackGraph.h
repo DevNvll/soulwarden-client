@@ -518,6 +518,8 @@ public:
 			/** The leaf types of the unknown values with their counts ("IfX 3, named:Y 1"). */
 			std::string unknownTypes;
 			std::uint32_t stuck{0};
+			/** ranged::Player::describe() and the facts of the last step (a log line, AST-271). */
+			std::string state;
 			/** The last shots and casts (the newest at the back; at most 16) for the pictures of the game thread. */
 			struct Recent {
 				std::uint32_t serial{0};

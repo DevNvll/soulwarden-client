@@ -48,11 +48,22 @@ ITEM_TYPES = ("CAGE-TransitionInstant", "CAGE-TransitionBuffered", "CAGE-RangedA
 # The parameters of the items that the client rules read (the AI parameters of the casts are for creatures).
 ITEM_PARAMS = ("Name", "Condition", "Input", "BackTicks", "NewAction", "NewFragment", "StartTime", "HoldTimeRequired",
                "RangedAttackName", "DamageTableRow", "ChargeValue", "ConsumeAmmo", "SpellName", "CostID", "DamageKey")
-# The activities of an action that the client rules read.
-ACTIVITY_TYPES = ("SetMannequinTag", "ClearActiveAbilityMoveInput", "CastSpell", "PayManaCost", "SetCooldownTimer", "PerformActiveAbility", "ForceWalk", "ForceRun",
+# The activities of an action that the client rules read (ClearMannequinTagGroup: AST-271, the Aiming group at the exit of the bow aim).
+ACTIVITY_TYPES = ("SetMannequinTag", "ClearMannequinTagGroup", "ClearActiveAbilityMoveInput", "CastSpell", "PayManaCost", "SetCooldownTimer", "PerformActiveAbility", "ForceWalk", "ForceRun",
                   "CastSpellTargeting", "CastSpellRaycast", "ChannelSpell", "ForceCameraLock", "CameraRelativeFacing", "DisableAutorun")
 # The variant tags of the ranged fragments (the tags of the actions and of the marks).
 VARIANT_TAGS = {"chargedaim", "penetratingaim", "heavyaim", "smokeaim", "hipaim", "aim", "aimdownsights", "shoot", "idle"}
+
+
+# The global tags of the player controller: its tag groups (ClearMannequinTagGroup clears the tags of a group).
+TAGS = "animations/mannequin/adb/player/playermaletags.xml"
+
+
+def tag_groups() -> dict[str, list[str]]:
+    """@return The tag groups of the player controller: the lower-case group name -> its lower-case tags (AST-271)."""
+    root = ET.fromstring(source.read(TAGS).decode("utf-8", "replace"))
+    return {group.get("name").lower(): sorted(tag.get("name").lower() for tag in group.iter("Tag") if tag.get("name"))
+            for group in root.iter("Group") if group.get("name")}
 
 
 def action_lists(names: list[str]) -> dict[str, ET.Element]:

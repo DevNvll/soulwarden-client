@@ -1208,6 +1208,17 @@ void Driver::step_ranged(std::uint16_t input, std::int64_t nowNs, const Bits& bi
 		out.unknownTypes += (out.unknownTypes.empty() ? "" : ", ") + type + " " + std::to_string(count);
 	}
 	out.stuck = m_ranged.stuck();
+	out.state = m_ranged.describe();
+	if (program != nullptr) {
+		out.state += "; facts statuses";
+		for (const std::string& status : m_rangedFacts.statuses) {
+			out.state += " " + status;
+		}
+		out.state += std::string("; stunned ") + (m_rangedFacts.stunned ? "1" : "0") + ", silenced " + (m_rangedFacts.silenced ? "1" : "0")
+			+ ", encumbered " + (m_rangedFacts.encumbered ? "1" : "0") + ", moving " + (m_rangedFacts.moving ? "1" : "0") + ", height "
+			+ std::to_string(m_rangedFacts.heightToGround) + ", camera lock " + (m_rangedFacts.cameraLock ? "1" : "0") + ", free look "
+			+ (m_rangedFacts.freeLook ? "1" : "0") + ", aim " + (m_aim ? "1" : "0") + ", button " + (m_down ? "1" : "0");
+	}
 	m_snapshot.mana = m_mana.value();
 	m_snapshot.manaMax = m_mana.maximum();
 	m_snapshot.manaKnown = m_mana.known();

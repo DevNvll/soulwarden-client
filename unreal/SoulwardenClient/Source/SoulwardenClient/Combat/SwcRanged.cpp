@@ -306,6 +306,23 @@ bool Player::marker(std::string_view name) const
 	return false;
 }
 
+std::string Player::describe() const
+{
+	std::string out = "actions";
+	for (const Active& active : m_active) {
+		out += " " + (active.action != nullptr ? active.action->name : std::string("?"));
+		if (active.doneSince >= 0 || active.lostSince >= 0) {
+			out += "(done " + std::to_string(active.doneSince) + ", lost " + std::to_string(active.lostSince) + ")";
+		}
+	}
+	out += "; tags";
+	for (const std::string& tag : m_tags) {
+		out += " " + tag;
+	}
+	out += "; ability inputs " + std::to_string(m_abilityInputs.size());
+	return out;
+}
+
 bool Player::aim_down_sights() const
 {
 	return m_tags.count("aimdownsights") != 0;
@@ -563,8 +580,20 @@ void Player::start_fragment(std::string_view name, std::uint16_t input)
 	}
 }
 
-void Player::start_action(const Action& action, std::uint16_t input, const Facts& facts, std::vector<Event>& out)
+void Player::start_action(const Action& action, std::uint16_t input, const Facts& facts, std::vector<Event>& out, bool interrupt)
 {
+	if (interrupt && !action.fragment.empty()) {
+		// A new ability takes the fragment scope (AST-271) [I: the interruption of a Mannequin action by a higher action of its scope]:
+		// the fragment owner and the actions that lost the scope before (the ready and the aim of the bow) end now, with their exits
+		// (ClearMannequinTagGroup Aiming). Kept installed, the aim substate set its tag Aim again to the kLostTime end, and Aim refuses
+		// Bow_ReadyWeapon and Bow_Shoot_HipFire. A sub-action of a transition of the own fragment keeps its former owner (below).
+		for (std::size_t index = m_active.size(); index-- > 0;) {
+			if (!m_active[index].action->fragment.empty() && (m_active[index].action == m_playing.action || m_active[index].lostSince >= 0)) {
+				end_action(index, input, facts, out);
+			}
+		}
+		m_playing = Playing{};
+	}
 	if (!action.fragment.empty() && m_playing.action != nullptr) {
 		// The new action takes the fragment scope: the action that owned it ends when it has no deactivation condition, else it stays
 		// installed to its deactivation.
@@ -724,7 +753,7 @@ bool Player::run_transitions(std::uint16_t input, const Facts& facts, std::vecto
 					}
 				}
 			}
-			start_action(*action, input, facts, out);
+			start_action(*action, input, facts, out, started != nullptr && started->crc != ability);
 			m_ability = started != nullptr ? started->crc : ability;
 			if (started != nullptr && started->crc != ability) {
 				Event event;
@@ -754,6 +783,16 @@ void Player::apply(const Activity& activity, bool rising, std::uint16_t input, c
 			m_tags.insert(tag);
 		} else if (operation == "Unset") {
 			m_tags.erase(tag);
+		}
+	} else if (type == "ClearMannequinTagGroup") {
+		// The clear of a tag group at the enter or the exit of its activity (the Aiming group at the exit of the bow aim actions).
+		const std::string_view operation = rising ? activity.attr("OnEnter") : activity.attr("OnExit");
+		if (operation == "Clear" && m_shared != nullptr) {
+			if (const auto group = m_shared->tagGroups.find(lower(activity.attr("TagGroupName"))); group != m_shared->tagGroups.end()) {
+				for (const std::string& tag : group->second) {
+					m_tags.erase(tag);
+				}
+			}
 		}
 	} else if (type == "ClearActiveAbilityMoveInput") {
 		if (rising && activity.attr("OnEnter") == "Clear") {
@@ -949,7 +988,7 @@ void Player::step(std::uint16_t input, const Input& in, const Facts& facts, std:
 				}
 			}
 		}
-		start_action(*action, input, facts, out);
+		start_action(*action, input, facts, out, started != nullptr && started->crc != ability);
 		if (action->fragment.empty()) {
 			continue;
 		}

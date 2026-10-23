@@ -413,6 +413,18 @@ void RangedShared(const TSharedPtr<FJsonObject>& Info, swc::ranged::Shared& Out)
 		const TSharedPtr<FJsonObject> Value = Pair.Value->AsObject();
 		Out.weapons[Utf8(FString(Pair.Key.ToView()))] = {Utf8(Value->GetStringField(TEXT("profile"))), Utf8(Value->GetStringField(TEXT("ammo")))};
 	}
+	// The tag groups of the player controller (ClearMannequinTagGroup; AST-271). A file of an older converter has none.
+	if (const TSharedPtr<FJsonObject>* Groups = nullptr; Info->TryGetObjectField(TEXT("tagGroups"), Groups))
+	{
+		for (const auto& Pair : (*Groups)->Values)
+		{
+			std::set<std::string>& Tags = Out.tagGroups[Utf8(FString(Pair.Key.ToView()))];
+			for (const TSharedPtr<FJsonValue>& Tag : Pair.Value->AsArray())
+			{
+				Tags.insert(Utf8(Tag->AsString()));
+			}
+		}
+	}
 }
 } // namespace
 
