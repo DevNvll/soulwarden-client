@@ -1008,6 +1008,17 @@ tools/convert.sh cover NAME... --terrain nw_frontend_base   # the menu terrain: 
   end, with `-SwcMenuCover` only (a test: docs/FRONTEND.md, the menu cover).
 - `swc.GroundCover.Show 0` hides the cover and keeps its batches: one matched-view run gives each view with and without
   the cover (`tools/match-view.sh SET VIEW --variant VIEW@nocover='swc.GroundCover.Show 0'`).
+- The build in parts (AST-273 P6, 2026-10-23): the records of a batch decode on a worker (`USwcGroundCover::DecodeBatch`, at most
+  4 batches at one time), and the game thread registers the components of the decoded batches in each frame, the nearest batch
+  first, until 2 ms (50 ms during a loading screen; at least one component). A batch is in the list of built batches (and the
+  loading gate counts it as ready) only when all its components are registered. `swc.GroundCover.Async 0` builds a whole batch
+  in one call, as before. `swc.GroundCover.Hism 0` makes instanced components in place of hierarchical ones (the cover meshes
+  are Nanite, so the cluster tree is not used); the default stays 1. The check (run p6-ride: laps of 50 s of autorun to the
+  west on the west road of Oxboro, after a travel to its start; old, parts with hierarchical, parts with instanced, two times):
+  the cover work of one frame (the "longest batch build" of the report lines) 6.1 to 17.8 ms (old) against at most 3.0 ms
+  (parts); the decode on a worker 1.9 to 2.9 ms; one component 1.4 to 1.7 ms (hierarchical) or 0.7 to 1.0 ms (instanced). The
+  old lap and the second lap of the parts have the same 180,163 instances at the same point. The loading screens after each
+  travel ended in 1.7 to 3.2 s.
 
 ### The rule of the source (2026-10-20, research/ground-cover.md)
 

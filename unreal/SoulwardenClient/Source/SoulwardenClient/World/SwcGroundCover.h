@@ -5,7 +5,7 @@
 
 #include "SwcGroundCover.generated.h"
 
-class UHierarchicalInstancedStaticMeshComponent;
+class UInstancedStaticMeshComponent;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
 struct FStreamableHandle;
@@ -17,7 +17,8 @@ struct FStreamableHandle;
  * unchanged). Each batch of 4 x 4 tiles (64 m) within RangeCm of the view gets one instanced component for each
  * descriptor, with the source transforms (no new scatter), the override materials of its descriptor, and its bending
  * as the custom primitive data 0 "SwcWind". The file of a region is read off the game thread; its meshes and materials
- * load async. On by default (stage T3): -SwcNoGroundCover or SWC_GROUND_COVER=0 turns it off; -SwcCoverRange=M sets the
+ * load async. The records of a batch decode on a worker, and the game thread registers its components in parts within a time
+ * budget of each frame (AST-273 P6; swc.GroundCover.Async 0: the whole batch in one call, as before). On by default (stage T3): -SwcNoGroundCover or SWC_GROUND_COVER=0 turns it off; -SwcCoverRange=M sets the
  * range (default 100 m). swc.GroundCover.Show 0 hides it (the batches stay);
  * swc.GroundCover.Shadow and swc.GroundCover.BackLight are the test switches of the color check.
  */
@@ -68,21 +69,50 @@ private:
 	};
 	struct FBatch
 	{
-		TArray<TWeakObjectPtr<UHierarchicalInstancedStaticMeshComponent>> Components;
+		TArray<TWeakObjectPtr<UInstancedStaticMeshComponent>> Components;
 		int32 Instances = 0;
+	};
+	/** The records of one batch, decoded off the game thread: the transforms of each descriptor, and the records of claimed slots. */
+	struct FDecoded
+	{
+		TArray<TPair<int32, TArray<FTransform>>> Parts;
+		int64 Claimed = 0;
+		double Seconds = 0.0;
+	};
+	/** A batch whose records decode on a worker, then whose components register in parts (AST-273 P6). */
+	struct FPending
+	{
+		TSharedPtr<FRegionData, ESPMode::ThreadSafe> Data;
+		TSharedPtr<FDecoded, ESPMode::ThreadSafe> Decoded;
+		TSharedPtr<FThreadSafeBool, ESPMode::ThreadSafe> bDone;
+		int32 Next = 0;
+		FBatch Batch;
+		double Distance = 0.0;
 	};
 
 	static bool ReadRegionFile(const FString& Path, FRegionData& Data);
+	/** The records of a batch of a region (any thread): the transforms of each descriptor with a mesh. */
+	static void DecodeBatch(const FRegionData& Data, const FIntPoint& Batch, const FIntPoint& RegionKey, bool bBlockers, FDecoded& Out);
 	FRegion& RegionAt(const FIntPoint& Key);
+	/** @return The region of a batch when its data and assets are ready (else null); bEmpty: a batch with no cover. */
+	FRegion* ReadyRegion(const FIntPoint& Batch, FIntPoint& RegionKey, bool& bEmpty);
 	bool BuildBatch(const FIntPoint& Batch, FBatch& Out);
+	/** Makes and registers the component of one descriptor of a batch. */
+	UInstancedStaticMeshComponent* MakeComponent(AActor* Actor, const FDescriptor& Descriptor, const TArray<FTransform>& Transforms);
+	/** The worker of a batch starts (or the batch has no cover). @return False when its region is not ready. */
+	bool StartBatch(const FIntPoint& Batch, double Distance);
+	/** Registers the components of the decoded batches, the nearest first, until Budget seconds (at least one). */
+	void RegisterParts(double Budget);
+	static void DestroyBatch(FBatch& Batch);
 	void Update(const FVector& View, double MarginM, double Budget);
 	/** The batches within the range of View (plus MarginM) that are not built, the nearest first. */
 	void WantedBatches(const FVector& View, double MarginM, TArray<TPair<double, FIntPoint>>& Wanted) const;
 	AActor* OwnerActor();
-	void ApplyBackLight(UHierarchicalInstancedStaticMeshComponent* Component);
+	void ApplyBackLight(UInstancedStaticMeshComponent* Component);
 
 	TMap<FIntPoint, FRegion> Regions;
 	TMap<FIntPoint, FBatch> Batches;
+	TMap<FIntPoint, FPending> Pending;
 	TWeakObjectPtr<AActor> Owner;
 	FString Folder;
 	/** The view of the menu scene (SetRegionsFolder): used when there is no loading place and no pawn. */
@@ -93,7 +123,9 @@ private:
 	bool bEnabled = false;
 	bool bShown = true;
 	bool bShadow = false;
-	double LongestBuild = 0.0;   // seconds, since the last report line
+	double LongestBuild = 0.0;   // seconds, since the last report line: a batch build (Async 0) or the cover work of one frame (Async 1)
+	double LongestDecode = 0.0;  // seconds: the longest decode of a batch on a worker, since the last report line
+	double LongestPart = 0.0;    // seconds: the longest registration of one component, since the last report line
 	int64 ClaimedRecords = 0;    // the records of claimed slots that the batches left out (the vegetation blockers)
 	bool bBlockers = true;       // swc.GroundCover.Blockers
 	float BackLight = 1.0f;

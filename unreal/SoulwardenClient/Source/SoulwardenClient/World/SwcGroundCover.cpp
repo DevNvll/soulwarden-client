@@ -3,6 +3,7 @@
 #include "Async/Async.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Engine/AssetManager.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StreamableManager.h"
@@ -50,6 +51,16 @@ TAutoConsoleVariable<int32> CVarShadow(TEXT("swc.GroundCover.Shadow"), 0,
 	TEXT("1: the ground cover casts shadows; 0: no shadows (the default until stage T4)."));
 TAutoConsoleVariable<float> CVarBackLight(TEXT("swc.GroundCover.BackLight"), 1.0f,
 	TEXT("A scale of BackDiffuseMultiplier of the cover materials (a test of the back light; 1: the instances as they are)."));
+// The build of a batch (AST-273 P6): 1 the records decode on a worker and the components register in parts within a budget of each
+// frame; 0 the whole batch in one call of the game thread (before). Hism: the component class (the cover meshes are Nanite, so the
+// cluster tree of a hierarchical component is not used).
+TAutoConsoleVariable<int32> CVarAsync(TEXT("swc.GroundCover.Async"), 1,
+	TEXT("1: the records of a batch decode on a worker and its components register in parts (2 ms of each frame in play); 0: the whole batch in one call (a cost test)."));
+TAutoConsoleVariable<int32> CVarHism(TEXT("swc.GroundCover.Hism"), 1,
+	TEXT("1: hierarchical instanced components (a cluster tree); 0: instanced components (the cover meshes are Nanite). For the new batches."));
+constexpr double PartBudgetSeconds = 0.002;   // the registration of the parts in each frame of play (at least one component)
+constexpr int32 MaxDecodes = 4;               // the batches that decode on workers at one time
+
 TAutoConsoleVariable<int32> CVarBlockers(TEXT("swc.GroundCover.Blockers"), 1,
 	TEXT("1: a record of a slot that a vegetation blocker of the level claims does not draw (the claims of cover.bin, research/"
 		 "ground-cover.md); 0: all records (a before and after test; the batches build again)."));
@@ -172,15 +183,14 @@ void USwcGroundCover::SetRegionsFolder(const FString& RegionsFolder, const TOpti
 	}
 	for (TPair<FIntPoint, FBatch>& Batch : Batches)
 	{
-		for (const TWeakObjectPtr<UHierarchicalInstancedStaticMeshComponent>& Component : Batch.Value.Components)
-		{
-			if (Component.IsValid())
-			{
-				Component->DestroyComponent();
-			}
-		}
+		DestroyBatch(Batch.Value);
+	}
+	for (TPair<FIntPoint, FPending>& Item : Pending)
+	{
+		DestroyBatch(Item.Value.Batch);
 	}
 	Batches.Reset();
+	Pending.Reset();
 	Regions.Reset();
 	Folder = Wanted;
 	NextUpdate = 0.0;
@@ -357,30 +367,32 @@ USwcGroundCover::FRegion& USwcGroundCover::RegionAt(const FIntPoint& Key)
 	return Region;
 }
 
-bool USwcGroundCover::BuildBatch(const FIntPoint& Batch, FBatch& Out)
+USwcGroundCover::FRegion* USwcGroundCover::ReadyRegion(const FIntPoint& Batch, FIntPoint& RegionKey, bool& bEmpty)
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(SwcGroundCover_BuildBatch);
-	const FIntPoint RegionKey(FMath::FloorToInt(static_cast<double>(Batch.X) / BatchesPerRegion),
-		FMath::FloorToInt(static_cast<double>(Batch.Y) / BatchesPerRegion));
+	bEmpty = false;
+	RegionKey = FIntPoint(FMath::FloorToInt(static_cast<double>(Batch.X) / BatchesPerRegion), FMath::FloorToInt(static_cast<double>(Batch.Y) / BatchesPerRegion));
 	if (RegionKey.X < 0 || RegionKey.Y < 0)
 	{
-		return true;   // no region: an empty batch
+		bEmpty = true;   // no region: an empty batch
+		return nullptr;
 	}
 	FRegion& Region = RegionAt(RegionKey);
 	if (Region.bNoFile || (Region.Data.IsValid() && *Region.bRead && Region.Data->TileOffsets.IsEmpty()))
 	{
-		return true;   // no cover file, or a file that does not read: an empty batch
+		bEmpty = true;   // no cover file, or a file that does not read: an empty batch
+		return nullptr;
 	}
 	if (!Region.Data.IsValid() || !*Region.bRead || !Region.Assets.IsValid() || !Region.Assets->HasLoadCompleted())
 	{
-		return false;   // later
+		return nullptr;   // later
 	}
-	AActor* Actor = OwnerActor();
-	if (Actor == nullptr)
-	{
-		return false;
-	}
-	const FRegionData& Data = *Region.Data;
+	return &Region;
+}
+
+void USwcGroundCover::DecodeBatch(const FRegionData& Data, const FIntPoint& Batch, const FIntPoint& RegionKey, bool bBlockers, FDecoded& Out)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(SwcGroundCover_DecodeBatch);
+	const double Start = FPlatformTime::Seconds();
 	const int32 FirstX = (Batch.X - RegionKey.X * BatchesPerRegion) * BatchTiles;
 	const int32 FirstY = (Batch.Y - RegionKey.Y * BatchesPerRegion) * BatchTiles;
 	TMap<int32, TArray<FTransform>> ByDescriptor;
@@ -417,7 +429,7 @@ bool USwcGroundCover::BuildBatch(const FIntPoint& Batch, FBatch& Out)
 						const uint16 Ordinal = static_cast<uint16>(Bytes[12] | (Bytes[13] << 8));   // the sample slot of the tile
 						if (bBlockers && Claims >= 0 && Ordinal < 1024 && (Data.Bytes[Claims + Ordinal / 8] & (1 << (Ordinal % 8))) != 0)
 						{
-							++ClaimedRecords;
+							++Out.Claimed;
 							continue;   // a blocker of the level has this slot
 						}
 						Transforms.Add(RecordTransform(Bytes, RegionKey));
@@ -429,45 +441,169 @@ bool USwcGroundCover::BuildBatch(const FIntPoint& Batch, FBatch& Out)
 	}
 	for (TPair<int32, TArray<FTransform>>& Pair : ByDescriptor)
 	{
-		const FDescriptor& Descriptor = Data.Descriptors[Pair.Key];
-		UStaticMesh* Mesh = Cast<UStaticMesh>(Descriptor.Mesh.ResolveObject());
-		if (Mesh == nullptr)
+		Out.Parts.Emplace(Pair.Key, MoveTemp(Pair.Value));
+	}
+	Out.Seconds = FPlatformTime::Seconds() - Start;
+}
+
+UInstancedStaticMeshComponent* USwcGroundCover::MakeComponent(AActor* Actor, const FDescriptor& Descriptor, const TArray<FTransform>& Transforms)
+{
+	UStaticMesh* Mesh = Cast<UStaticMesh>(Descriptor.Mesh.ResolveObject());
+	if (Mesh == nullptr)
+	{
+		return nullptr;
+	}
+	UInstancedStaticMeshComponent* Component = CVarHism.GetValueOnGameThread() != 0
+		? NewObject<UHierarchicalInstancedStaticMeshComponent>(Actor) : NewObject<UInstancedStaticMeshComponent>(Actor);
+	Component->SetMobility(EComponentMobility::Static);
+	Component->SetStaticMesh(Mesh);
+	Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Component->SetCanEverAffectNavigation(false);
+	Component->SetCastShadow(bShadow);   // off until T4 (swc.GroundCover.Shadow)
+	Component->InstanceEndCullDistance = static_cast<int32>(RangeCm);
+	Component->SetDefaultCustomPrimitiveDataFloat(0, Descriptor.Bending);   // "SwcWind" (E1)
+	static const IConsoleVariable* WindEvaluate = IConsoleManager::Get().FindConsoleVariable(TEXT("swc.Wind.Evaluate"));
+	if (Descriptor.Bending > 0.0f && WindEvaluate != nullptr && WindEvaluate->GetInt() == 0)
+	{
+		Component->SetEvaluateWorldPositionOffset(false);   // the cost test of the wind (swc.Wind.Evaluate)
+	}
+	for (const TPair<FName, FSoftObjectPath>& Slot : Descriptor.Slots)
+	{
+		const int32 Index = Mesh->GetMaterialIndex(Slot.Key);
+		if (UMaterialInterface* Material = Cast<UMaterialInterface>(Slot.Value.ResolveObject()); Material && Index != INDEX_NONE)
 		{
-			continue;
+			Component->SetMaterial(Index, Material);
 		}
-		UHierarchicalInstancedStaticMeshComponent* Component = NewObject<UHierarchicalInstancedStaticMeshComponent>(Actor);
-		Component->SetMobility(EComponentMobility::Static);
-		Component->SetStaticMesh(Mesh);
-		Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		Component->SetCanEverAffectNavigation(false);
-		Component->SetCastShadow(bShadow);   // off until T4 (swc.GroundCover.Shadow)
-		Component->InstanceEndCullDistance = static_cast<int32>(RangeCm);
-		Component->SetDefaultCustomPrimitiveDataFloat(0, Descriptor.Bending);   // "SwcWind" (E1)
-		static const IConsoleVariable* WindEvaluate = IConsoleManager::Get().FindConsoleVariable(TEXT("swc.Wind.Evaluate"));
-		if (Descriptor.Bending > 0.0f && WindEvaluate != nullptr && WindEvaluate->GetInt() == 0)
+	}
+	ApplyBackLight(Component);
+	Component->SetupAttachment(Actor->GetRootComponent());
+	Component->SetVisibility(bShown);
+	Component->AddInstances(Transforms, false, true, false);
+	Component->RegisterComponent();
+	return Component;
+}
+
+bool USwcGroundCover::BuildBatch(const FIntPoint& Batch, FBatch& Out)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(SwcGroundCover_BuildBatch);
+	FIntPoint RegionKey;
+	bool bEmpty = false;
+	FRegion* Region = ReadyRegion(Batch, RegionKey, bEmpty);
+	if (bEmpty)
+	{
+		return true;
+	}
+	AActor* Actor = OwnerActor();
+	if (Region == nullptr || Actor == nullptr)
+	{
+		return false;
+	}
+	FDecoded Decoded;
+	DecodeBatch(*Region->Data, Batch, RegionKey, bBlockers, Decoded);
+	ClaimedRecords += Decoded.Claimed;
+	for (const TPair<int32, TArray<FTransform>>& Part : Decoded.Parts)
+	{
+		if (UInstancedStaticMeshComponent* Component = MakeComponent(Actor, Region->Data->Descriptors[Part.Key], Part.Value))
 		{
-			Component->SetEvaluateWorldPositionOffset(false);   // the cost test of the wind (swc.Wind.Evaluate)
+			Out.Components.Add(Component);
+			Out.Instances += Part.Value.Num();
 		}
-		for (const TPair<FName, FSoftObjectPath>& Slot : Descriptor.Slots)
-		{
-			const int32 Index = Mesh->GetMaterialIndex(Slot.Key);
-			if (UMaterialInterface* Material = Cast<UMaterialInterface>(Slot.Value.ResolveObject()); Material && Index != INDEX_NONE)
-			{
-				Component->SetMaterial(Index, Material);
-			}
-		}
-		ApplyBackLight(Component);
-		Component->SetupAttachment(Actor->GetRootComponent());
-		Component->SetVisibility(bShown);
-		Component->AddInstances(Pair.Value, false, true, false);
-		Component->RegisterComponent();
-		Out.Components.Add(Component);
-		Out.Instances += Pair.Value.Num();
 	}
 	return true;
 }
 
-void USwcGroundCover::ApplyBackLight(UHierarchicalInstancedStaticMeshComponent* Component)
+bool USwcGroundCover::StartBatch(const FIntPoint& Batch, double Distance)
+{
+	FIntPoint RegionKey;
+	bool bEmpty = false;
+	FRegion* Region = ReadyRegion(Batch, RegionKey, bEmpty);
+	if (bEmpty)
+	{
+		Batches.Add(Batch, FBatch());
+		return true;
+	}
+	if (Region == nullptr)
+	{
+		return false;
+	}
+	FPending& Item = Pending.Add(Batch);
+	Item.Data = Region->Data;
+	Item.Decoded = MakeShared<FDecoded, ESPMode::ThreadSafe>();
+	Item.bDone = MakeShared<FThreadSafeBool, ESPMode::ThreadSafe>(false);
+	Item.Distance = Distance;
+	Async(EAsyncExecution::ThreadPool, [Data = Item.Data, Decoded = Item.Decoded, bDone = Item.bDone, Batch, RegionKey, bWithBlockers = bBlockers]()
+	{
+		DecodeBatch(*Data, Batch, RegionKey, bWithBlockers, *Decoded);
+		*bDone = true;
+	});
+	return true;
+}
+
+void USwcGroundCover::RegisterParts(double Budget)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(SwcGroundCover_RegisterParts);
+	if (Pending.IsEmpty())
+	{
+		return;
+	}
+	AActor* Actor = OwnerActor();
+	if (Actor == nullptr)
+	{
+		return;
+	}
+	TArray<FIntPoint> Order;
+	Pending.GenerateKeyArray(Order);
+	Order.Sort([this](const FIntPoint& A, const FIntPoint& B) { return Pending[A].Distance < Pending[B].Distance; });
+	const double Start = FPlatformTime::Seconds();
+	bool bWork = false;
+	for (const FIntPoint& Key : Order)
+	{
+		FPending& Item = Pending[Key];
+		if (!*Item.bDone)
+		{
+			continue;
+		}
+		LongestDecode = FMath::Max(LongestDecode, Item.Decoded->Seconds);
+		while (Item.Next < Item.Decoded->Parts.Num())
+		{
+			if (bWork && FPlatformTime::Seconds() - Start > Budget)
+			{
+				LongestBuild = FMath::Max(LongestBuild, FPlatformTime::Seconds() - Start);
+				return;
+			}
+			const double PartStart = FPlatformTime::Seconds();
+			const TPair<int32, TArray<FTransform>>& Part = Item.Decoded->Parts[Item.Next++];
+			if (UInstancedStaticMeshComponent* Component = MakeComponent(Actor, Item.Data->Descriptors[Part.Key], Part.Value))
+			{
+				Item.Batch.Components.Add(Component);
+				Item.Batch.Instances += Part.Value.Num();
+			}
+			LongestPart = FMath::Max(LongestPart, FPlatformTime::Seconds() - PartStart);
+			bWork = true;
+		}
+		ClaimedRecords += Item.Decoded->Claimed;
+		Batches.Add(Key, MoveTemp(Item.Batch));
+		Pending.Remove(Key);
+	}
+	if (bWork)
+	{
+		LongestBuild = FMath::Max(LongestBuild, FPlatformTime::Seconds() - Start);
+	}
+}
+
+void USwcGroundCover::DestroyBatch(FBatch& Batch)
+{
+	for (const TWeakObjectPtr<UInstancedStaticMeshComponent>& Component : Batch.Components)
+	{
+		if (Component.IsValid())
+		{
+			Component->DestroyComponent();
+		}
+	}
+	Batch.Components.Reset();
+}
+
+void USwcGroundCover::ApplyBackLight(UInstancedStaticMeshComponent* Component)
 {
 	for (int32 Index = 0; Index < Component->GetNumMaterials(); ++Index)
 	{
@@ -512,19 +648,44 @@ void USwcGroundCover::Update(const FVector& View, double MarginM, double Budget)
 		const double CenterY = (It.Key().Y + 0.5) * BatchM;
 		if (FMath::Sqrt(FMath::Square(CenterX - ViewX) + FMath::Square(CenterY - ViewY)) > Reach + BatchM)
 		{
-			for (const TWeakObjectPtr<UHierarchicalInstancedStaticMeshComponent>& Component : It.Value().Components)
-			{
-				if (Component.IsValid())
-				{
-					Component->DestroyComponent();
-				}
-			}
+			DestroyBatch(It.Value());
+			It.RemoveCurrent();
+		}
+	}
+	for (auto It = Pending.CreateIterator(); It; ++It)
+	{
+		const double CenterX = (It.Key().X + 0.5) * BatchM;
+		const double CenterY = (It.Key().Y + 0.5) * BatchM;
+		It.Value().Distance = FMath::Sqrt(FMath::Square(CenterX - ViewX) + FMath::Square(CenterY - ViewY));
+		if (It.Value().Distance > Reach + BatchM)
+		{
+			DestroyBatch(It.Value().Batch);   // a worker that still decodes keeps its own references
 			It.RemoveCurrent();
 		}
 	}
 	// Make the missing batches within the range, the nearest first.
 	TArray<TPair<double, FIntPoint>> Wanted;
 	WantedBatches(View, MarginM, Wanted);
+	if (CVarAsync.GetValueOnGameThread() != 0)
+	{
+		int32 Decoding = 0;
+		for (const TPair<FIntPoint, FPending>& Item : Pending)
+		{
+			Decoding += *Item.Value.bDone ? 0 : 1;
+		}
+		for (const TPair<double, FIntPoint>& Item : Wanted)
+		{
+			if (Decoding >= MaxDecodes)
+			{
+				break;
+			}
+			if (!Pending.Contains(Item.Value) && StartBatch(Item.Value, Item.Key) && Pending.Contains(Item.Value))
+			{
+				++Decoding;
+			}
+		}
+		return;
+	}
 	int32 Built = 0;
 	const double Start = FPlatformTime::Seconds();
 	for (const TPair<double, FIntPoint>& Item : Wanted)
@@ -556,7 +717,7 @@ void USwcGroundCover::Tick(float DeltaTime)
 		bShown = bShow;
 		for (const TPair<FIntPoint, FBatch>& Pair : Batches)
 		{
-			for (const TWeakObjectPtr<UHierarchicalInstancedStaticMeshComponent>& Component : Pair.Value.Components)
+			for (const TWeakObjectPtr<UInstancedStaticMeshComponent>& Component : Pair.Value.Components)
 			{
 				if (Component.IsValid())
 				{
@@ -571,15 +732,14 @@ void USwcGroundCover::Tick(float DeltaTime)
 		bBlockers = bWantBlockers;
 		for (TPair<FIntPoint, FBatch>& Batch : Batches)
 		{
-			for (const TWeakObjectPtr<UHierarchicalInstancedStaticMeshComponent>& Component : Batch.Value.Components)
-			{
-				if (Component.IsValid())
-				{
-					Component->DestroyComponent();
-				}
-			}
+			DestroyBatch(Batch.Value);
+		}
+		for (TPair<FIntPoint, FPending>& Item : Pending)
+		{
+			DestroyBatch(Item.Value.Batch);
 		}
 		Batches.Reset();   // they build again with the new rule
+		Pending.Reset();
 		UE_LOG(LogSwcCover, Log, TEXT("cover: the vegetation blockers %s"), bBlockers ? TEXT("on") : TEXT("off"));
 	}
 	const bool bWantShadow = CVarShadow.GetValueOnGameThread() != 0;
@@ -591,7 +751,7 @@ void USwcGroundCover::Tick(float DeltaTime)
 		BackLight = WantBackLight;
 		for (const TPair<FIntPoint, FBatch>& Pair : Batches)
 		{
-			for (const TWeakObjectPtr<UHierarchicalInstancedStaticMeshComponent>& Component : Pair.Value.Components)
+			for (const TWeakObjectPtr<UInstancedStaticMeshComponent>& Component : Pair.Value.Components)
 			{
 				if (Component.IsValid())
 				{
@@ -610,6 +770,7 @@ void USwcGroundCover::Tick(float DeltaTime)
 	FVector Place;
 	const bool bScreen = SwcLoadingGate::GetPlace(GetWorld(), Place);
 	const double Now = FPlatformTime::Seconds();
+	RegisterParts(bScreen ? ScreenBudgetSeconds : PartBudgetSeconds);
 	if (!bScreen && Now < NextUpdate)
 	{
 		return;
@@ -637,6 +798,14 @@ void USwcGroundCover::Tick(float DeltaTime)
 		}
 		UE_LOG(LogSwcCover, Log, TEXT("cover: %d batches, %d components, %d instances; the longest batch build %.1f ms; %lld records of claimed slots left out since the start"),
 			Batches.Num(), Components, Instances, LongestBuild * 1000.0, ClaimedRecords);
+		if (CVarAsync.GetValueOnGameThread() != 0)
+		{
+			// AST-273 P6: the build above is the cover work of one frame; the decode runs on workers.
+			UE_LOG(LogSwcCover, Log, TEXT("cover parts: %d batches waiting; the longest decode on a worker %.1f ms, the longest component %.1f ms (%s)"),
+				Pending.Num(), LongestDecode * 1000.0, LongestPart * 1000.0, CVarHism.GetValueOnGameThread() != 0 ? TEXT("hierarchical") : TEXT("instanced"));
+		}
 		LongestBuild = 0.0;
+		LongestDecode = 0.0;
+		LongestPart = 0.0;
 	}
 }
