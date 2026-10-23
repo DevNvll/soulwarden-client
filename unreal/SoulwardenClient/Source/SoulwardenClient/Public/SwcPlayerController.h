@@ -163,6 +163,13 @@ private:
 	FVector2D LookOption = FVector2D(0.05, 0.05);
 	FVector2D LookAdsOption = FVector2D(1.0, 1.0);
 	double LookOptionsReadAt = -1.0;
+	/** The mouse log of swc.MouseLog (AST-268): the counts and the turn of the look action since the last line. */
+	FVector2D MouseLogCounts = FVector2D::ZeroVector;
+	FVector2D MouseLogTurn = FVector2D::ZeroVector;
+	int32 MouseLogEvents = 0;
+	int32 MouseLogFrames = 0;
+	double MouseLogAt = -1.0;
+	void TickMouseLog();
 	uint32 PressSerial = 0;
 	TArray<uint32> PressBits;
 

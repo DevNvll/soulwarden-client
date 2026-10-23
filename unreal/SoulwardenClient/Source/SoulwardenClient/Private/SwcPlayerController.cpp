@@ -5,7 +5,11 @@
 #include "Character/SwcPlayerCharacter.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
 #include "Engine/LocalPlayer.h"
+#include "Framework/Application/SlateApplication.h"
+#include "HAL/IConsoleManager.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
@@ -16,6 +20,7 @@
 #include "UI/SwcKeyBindings.h"
 #include "UI/SwcUiSubsystem.h"
 #include "SwcCameraManager.h"
+#include "UnrealClient.h"
 
 namespace
 {
@@ -26,6 +31,12 @@ namespace
  *  docs/development/live-runs.md). The source multiplies the option linearly (research feel-values.md R1.4.4); the static unit of
  *  that research (counts x 0.5 of rotateyaw = 0.025 degrees) turned 4 times too slowly. */
 constexpr float LookCountScale = 2.0f;
+
+/** The mouse log (AST-268): one line each second with the counts of the look action, the turn, and the mouse mode of the platform
+ *  (the high precision mode is the relative mode of SDL: the raw counts of the device; else the deltas of the cursor positions).
+ *  The command line -SwcMouseLog sets it to 1. */
+TAutoConsoleVariable<int32> CVarMouseLog(TEXT("swc.MouseLog"), 0,
+	TEXT("1: log the mouse counts of the look action each second, the turn, and the mouse mode (AST-268)."));
 
 UInputAction* MakeAction(UObject* Outer, const TCHAR* Name, EInputActionValueType Type)
 {
@@ -279,6 +290,8 @@ void ASwcPlayerController::OnMoveEnd(const FInputActionValue&)
 void ASwcPlayerController::OnLook(const FInputActionValue& Value)
 {
 	const FVector2D Counts = Value.Get<FVector2D>();
+	MouseLogCounts += Counts;
+	++MouseLogEvents;
 	ASwcCameraManager* Camera = GetSwcCamera();
 	if (Camera != nullptr && Camera->HasSceneView())
 	{
@@ -311,8 +324,42 @@ void ASwcPlayerController::OnLook(const FInputActionValue& Value)
 		Sensitivity *= LookAdsOption;
 	}
 	// RotationInput has no legacy input scale; the camera manager clamps the pitch (the pitch limits of the camera state).
-	RotationInput.Yaw += Counts.X * LookCountScale * LookOption.X * Sensitivity.X;
-	RotationInput.Pitch += Counts.Y * LookCountScale * LookOption.Y * Sensitivity.Y;
+	const FVector2D Turn(Counts.X * LookCountScale * LookOption.X * Sensitivity.X, Counts.Y * LookCountScale * LookOption.Y * Sensitivity.Y);
+	RotationInput.Yaw += Turn.X;
+	RotationInput.Pitch += Turn.Y;
+	MouseLogTurn += Turn;
+}
+
+void ASwcPlayerController::TickMouseLog()
+{
+	if (MouseLogAt < 0.0 && FParse::Param(FCommandLine::Get(), TEXT("SwcMouseLog")))
+	{
+		CVarMouseLog->Set(1, ECVF_SetByCommandline);
+	}
+	const double Now = FPlatformTime::Seconds();
+	if (CVarMouseLog.GetValueOnGameThread() == 0)
+	{
+		MouseLogAt = Now;
+		MouseLogCounts = MouseLogTurn = FVector2D::ZeroVector;
+		MouseLogEvents = MouseLogFrames = 0;
+		return;
+	}
+	++MouseLogFrames;
+	if (Now - MouseLogAt < 1.0)
+	{
+		return;
+	}
+	const bool bHighPrecision = FSlateApplication::IsInitialized() && FSlateApplication::Get().GetPlatformApplication().IsValid()
+		&& FSlateApplication::Get().GetPlatformApplication()->IsUsingHighPrecisionMouseMode();
+	const FViewport* Viewport = GEngine != nullptr && GEngine->GameViewport != nullptr ? GEngine->GameViewport->Viewport : nullptr;
+	UE_LOG(LogSwcBackend, Log,
+		TEXT("mouse: %.2f s, %d frames: counts %.0f %.0f in %d look events, turn %.2f %.2f degrees (option %.3f %.3f); high precision %s, capture %s, cursor %s"),
+		Now - MouseLogAt, MouseLogFrames, MouseLogCounts.X, MouseLogCounts.Y, MouseLogEvents, MouseLogTurn.X, MouseLogTurn.Y, LookOption.X,
+		LookOption.Y, bHighPrecision ? TEXT("on") : TEXT("off"), Viewport != nullptr && Viewport->HasMouseCapture() ? TEXT("on") : TEXT("off"),
+		ShouldShowMouseCursor() ? TEXT("shows") : TEXT("hidden"));
+	MouseLogAt = Now;
+	MouseLogCounts = MouseLogTurn = FVector2D::ZeroVector;
+	MouseLogEvents = MouseLogFrames = 0;
 }
 
 void ASwcPlayerController::OnJump(const FInputActionValue&)
@@ -589,6 +636,7 @@ void ASwcPlayerController::PlayerTick(float DeltaTime)
 {
 	TickDrive(DeltaTime);
 	Super::PlayerTick(DeltaTime);
+	TickMouseLog();
 	if (const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(GetPawn()))
 	{
 		const double Yaw = bFreeLook ? FreeLookRotation.Yaw : GetControlRotation().Yaw;
