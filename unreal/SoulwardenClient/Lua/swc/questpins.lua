@@ -246,7 +246,7 @@ function P.Update()
       table.concat(keys, "; ")))
   end
 end
-Q.Changed = P.Update
+Q.listeners[#Q.listeners + 1] = P.Update
 
 -- The refresh with the player position (the nearest choices of a task with several points): each 2 s [I] (the native schedule of the
 -- nearest choice is not recovered, study 1.3).

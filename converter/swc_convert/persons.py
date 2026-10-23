@@ -866,6 +866,11 @@ def read_line_attributes(keys: set[str]) -> dict:
                 continue
             following = str(attrs.get("dialogue-next", "")).lstrip("@").lower()
             out[key] = {"speaker": attrs.get("speaker", ""), "next": following}
+            # AST-239: the player reply that leads to this line (dialogue-prompt: the option text of the line before it; retail 1.8b
+            # P1-05 "Well... born again?").
+            prompt = str(attrs.get("dialogue-prompt", "")).strip()
+            if prompt:
+                out[key]["prompt"] = prompt
             if following:
                 new.add(following)
         if not new - set(out):
@@ -893,6 +898,14 @@ def write_conversations() -> dict:
         npcs.setdefault(row["id"].lower(), row["states"])
     keys = {s["dialogue"] for s in states.values() if s["dialogue"]} | {t["response"] for t in topics.values() if t["response"]} \
         | {t["prompt"].lstrip("@").lower() for t in topics.values() if t["prompt"]}
+    # AST-239: the conversation texts of the objectives (the columns *Prompt and *Response of the objective rows of quest-data.json:
+    # PlayerPrompt, ObjectiveProposalResponse, InProgressResponse, DestinationCompletionAvailablePrompt and Response, ...) and their chains.
+    quest_file = creature.gamedata_dir() / "quest-data.json"
+    if quest_file.is_file():
+        for objective in json.loads(quest_file.read_text()).get("objectives", []):
+            for column, value in (objective.get("cells") or {}).items():
+                if (column.endswith("Prompt") or column.endswith("Response")) and str(value).startswith("@"):
+                    keys.add(str(value).lstrip("@").lower())
     lines = read_line_attributes(keys)
     doc = {"format": 1, "source": data.get("format"), "npcs": npcs, "states": states, "topics": topics, "lines": lines}
     target = env.content_dir() / "ui" / "gamedata"

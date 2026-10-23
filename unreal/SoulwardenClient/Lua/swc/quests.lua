@@ -206,7 +206,13 @@ end
 -- list, or the pin readiness.
 Q.task_id, Q.node_of, Q.state_of, Q.target_of, Q.cell, Q.objective_id, Q.notify_component, Q.tracked_ids =
   task_id, node_of, state_of, target_of, cell, objective_id, notify_component, tracked_ids
-Q.Changed = function() end
+-- The listeners of a change (swc/questpins.lua, swc/conversation.lua: AST-237, AST-239).
+Q.listeners = {}
+Q.Changed = function()
+  for _, listener in ipairs(Q.listeners) do
+    listener()
+  end
+end
 
 local function send_pins()
   local keys = {}
@@ -716,6 +722,12 @@ Swc.Define("ObjectivesDataManagerBus", "Broadcast", {
   end,
   -- No mission (missionId 0): an empty record (objectivesdatahandler.luac GetMissionTitleAndDescription reads its overrides).
   GetMissionData = function() return Q.noMission end,
+  -- The difficulty level of an offer (conversationscreenv2.luac SetupObjectiveDetailsVisuals compares it with the level of the player;
+  -- AST-239): the DifficultyLevel of the row, 0 for an unknown objective.
+  GetObjectiveDifficultyLevel = function(objectiveCrc)
+    local row = D().byCrc[objectiveCrc]
+    return row and tonumber(cell(row, "DifficultyLevel") or "0") or 0
+  end,
 })
 
 -- The journal and the objectives of the options.

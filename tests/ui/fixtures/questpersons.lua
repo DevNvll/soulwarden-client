@@ -46,3 +46,130 @@ bits()
 equal(select("01_AelstromWW_01"), "01_Aelstrom_Default", "Aelstrom with no bit: 01_Aelstrom_Default")
 bits("S_getoffbeach_ww")
 equal(select("01_AelstromWW_01"), "01_AelstromWW_p1_01", "Aelstrom with S_getoffbeach_ww: 01_AelstromWW_p1_01 (the knife offer)")
+
+-- ------------------------------------------------------------------------------------------------- the hand-in and the offer [I]
+-- The flow of the retail references of the backend stage 1.8b (P1, F1): 06_getoffbeach ready (its root Complete) opens the conversation
+-- of Aelstrom on its hand-in chain; its last line shows the details and "Complete the Quest" (794); the reply of the server (the
+-- completion notice and the bit S_getoffbeach_ww) gives the new state 01_AelstromWW_p1_01 with the offer "Do you have food and
+-- supplies?" (06_skinningknife); its proposal chain ends with "Accept Quest" (3772) and the Acceptance state.
+local conversation = screen("LyShineUI/Conversation/ConversationScreenV2.uicanvas", 20)
+screen("LyShineUI/HelpBar/HelpBar.uicanvas", 30, true)
+local function requests()
+  local out = {}
+  for _ = 1, 8 do
+    local r = Swc.TakeHostRequest()
+    if r == "" then break end
+    out[#out + 1] = r
+  end
+  return out
+end
+local function texts()
+  local out = {}
+  local function walk(id, depth)
+    if depth > 24 then return end
+    local t = swcui.has(id, "text") and swcui.get(id, "text.text")
+    if t and t ~= "" and swcui.enabled_in_hierarchy(id) then out[#out + 1] = t end
+    for _, c in ipairs(swcui.children(id)) do walk(c, depth + 1) end
+  end
+  walk(swcui.canvas_get(conversation, "root"), 0)
+  return table.concat(out, " | ")
+end
+local function find_text(text)
+  local found
+  local function walk(id, depth)
+    if found or depth > 24 then return end
+    local t = swcui.has(id, "text") and swcui.get(id, "text.text")
+    if t and t:find(text, 1, true) and swcui.enabled_in_hierarchy(id) then found = id return end
+    for _, c in ipairs(swcui.children(id)) do walk(c, depth + 1) end
+  end
+  walk(swcui.canvas_get(conversation, "root"), 0)
+  return found
+end
+-- The state that the screen got (conversationscreenv2.luac OnConversationStateChange keeps it as stateData).
+local function screen_state()
+  for _, list in pairs(Swc.components) do
+    for _, instance in ipairs(list) do
+      if string.find(instance.__swcScript or "", "conversationscreenv2.luac", 1, true) then
+        return instance.stateData, instance
+      end
+    end
+  end
+  return nil
+end
+local function watch() end
+
+local INSTANCE = "777"
+local row = Swc.quests.D().objectives["06_getoffbeach"]
+local function ready_state()
+  local lines = {"A " .. INSTANCE .. " " .. row.crc .. " 6 0"}
+  for _, entry in ipairs(row.tree) do
+    local task = Swc.quests.D().tasks[entry[2]]
+    lines[#lines + 1] = string.format("T %s %d %d %d %d", INSTANCE, entry[1], task.crc, entry[1] == row.root and 4 or 1, 2)
+  end
+  lines[#lines + 1] = "K " .. INSTANCE
+  return table.concat(lines, "\n")
+end
+bits()
+Swc.HostQuests(ready_state())
+Swc.HostQuestPinReady(true)
+frames(0.5)
+check(ObjectivesComponentRequestBus.Event.IsObjectiveReadyForCompletion(Swc.ids.player, Swc.quests.byKey[INSTANCE].id),
+  "06_getoffbeach is ready for the hand-in (its root Complete)")
+Swc.HostConversation("open", "person:aelstrom", "Aelstrom", "01_aelstrom_default_00", "Aelstrom", "", "", "01_AelstromWW_01")
+watch()
+frames(2.0)
+local C = Swc.conversation
+check(C.flow and C.flow.kind == "completion", "a ready hand-in opens the conversation on its chain")
+equal(#C.lines, 5, "the hand-in chain of 06_getoffbeach: 5 lines")
+note("the first line: " .. texts())
+check(texts():find("born again", 1, true) ~= nil, "between the lines the option is the player reply (dialogue-prompt: \"Wait... born again?\")")
+for _ = 1, 4 do
+  ConversationRequestBus.Broadcast.RequestConversationOption(eConversationOptionType_ContinueDialogue, 0)
+  frames(1.5)
+end
+local last = screen_state()
+equal(last and last.responseType, eConversationResponseType_CompletionAvailable, "the last line: the response type CompletionAvailable")
+equal(last and last.dialogueId, row.crc, "the last line: the objective CRC as dialogueId (the details panel)")
+frames(3.0)
+note("the last line: " .. texts())
+check(texts():find("Complete the Quest", 1, true) ~= nil, "the last line shows \"Complete the Quest\"")
+check(texts():find("Soul Survivor", 1, true) ~= nil or texts():find("SOUL SURVIVOR", 1, true) ~= nil, "the details panel shows the quest")
+picture("questpersons-complete")
+requests()
+local complete = find_text("Complete the Quest")
+if complete then click(complete) end
+frames(1.0)
+local r = requests()
+equal(r[1], "quest complete " .. row.crc, "Complete the Quest sends 794 with the objective CRC")
+
+-- The reply of the server: the completion notice removes the instance, the bit S_getoffbeach_ww.
+Swc.HostQuests("C " .. INSTANCE)
+bits("S_getoffbeach_ww")
+frames(4.0)
+equal(C.stateId, "01_AelstromWW_p1_01", "after the hand-in: the new state of Aelstrom")
+equal(C.offers and #C.offers, 1, "the new state has one offer")
+note("after the hand-in: " .. texts())
+check(texts():find("food and supplies", 1, true) ~= nil, "the offer option \"Do you have food and supplies?\" (PlayerPrompt of 06_skinningknife)")
+picture("questpersons-offer")
+local knife = Swc.quests.D().objectives["06_skinningknife"]
+local offer = find_text("food and supplies")
+if offer then click(offer) end
+frames(1.5)
+check(C.flow and C.flow.kind == "proposal", "the offer opens the proposal chain")
+while C.index < #C.lines do
+  ConversationRequestBus.Broadcast.RequestConversationOption(eConversationOptionType_ContinueDialogue, 0)
+  frames(1.5)
+end
+last = screen_state()
+equal(last and last.responseType, eConversationResponseType_Proposal, "the last proposal line: the response type Proposal")
+frames(3.0)
+note("the proposal: " .. texts())
+check(texts():find("Accept Quest", 1, true) ~= nil, "the last proposal line shows \"Accept Quest\"")
+picture("questpersons-proposal")
+requests()
+local accept = find_text("Accept Quest")
+if accept then click(accept) end
+frames(1.5)
+r = requests()
+equal(r[1], "quest accept " .. knife.crc, "Accept Quest sends 3772 with the objective CRC (d137c605)")
+equal((screen_state() or {}).responseType, eConversationResponseType_Acceptance, "then the Acceptance state at once")

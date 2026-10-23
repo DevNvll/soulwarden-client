@@ -229,6 +229,20 @@ Work in progress (the native conversation rules: the study `research/quest-conve
   complete CRC" (UI/SwcUiQuests). The server gives no answer: the Objectives state (a new instance; the completion notice in field 2) is
   the result; a refusal gives nothing. Tests: `tools/test-net.sh` (the backend reader reads the bodies).
 
+- The screen flow [I until the study; `swc/conversation.lua`, the comment block "the objectives"]: a ready hand-in of the person opens the
+  conversation on its chain DestinationCompletionAvailableResponse; its last line is a CompletionAvailable state (dialogueId: the objective
+  CRC, so the details panel shows the quest and its rewards) with "Complete the Quest" (CompleteObjective, 794). Else the lines of the
+  selected state end with its offers (ObjectiveDetails, the text PlayerPrompt; RequiredAchievementId passes, no active instance, no
+  completion bit) and its topics; an offer opens its chain ObjectiveProposalResponse, whose last line is a Proposal state with "Accept
+  Quest" (`@npc_acceptobjective`, AcceptObjective, 3772), then the Acceptance state at once. Between the lines the option is the player
+  reply of the next line (`dialogue-prompt`, conversations.json "prompt"). After 794 the client waits for the completion notice, makes
+  the selection again (the new bit, at most 2 s more), and shows the new state with its offers (retail F1: "Do you have food and
+  supplies?" after the hand-in). The converter adds the line data of the objective texts (the columns *Prompt and *Response).
+  `HasRoomForObjective` (the active objectives of the type below GetMaxObjectivesForType; 0: no cap), `GetObjectiveDifficultyLevel`, and
+  `RecipeDataManagerBus.GetRecipeIdByAchievementId` (0 with no recipe; a nil made each objective a recipe reward and stopped the details
+  panel) serve the screen. Fixture `tests/ui/fixtures/questpersons.lua` (30 checks). Open: the reward area of the details panel draws as
+  a white box in the fixture picture.
+
 ### The check aid of a quest cutscene (development runs only)
 
 `swc.DevCutscene NAME|CRC [SECONDS]` (console; a drive can send it with `exec`) sends the real cutscene messages of a quest task with no
