@@ -471,6 +471,74 @@ bool FSwcLoginClient::ReadLoginInfo(int32 Status, const FString& Reply)
 	return true;
 }
 
+namespace
+{
+/** @return The reply kind of the gateway: the status and the error name of the body member "__type". */
+swc::menu::FGatewayReply GatewayReply(int32 Status, const FString& Reply)
+{
+	swc::menu::FGatewayReply Out;
+	Out.Status = Status;
+	if (Status != 200)
+	{
+		Out.ErrorName = swc::menu::ReadErrorName(std::string_view(), std::string(TCHAR_TO_UTF8(*Reply)));
+	}
+	return Out;
+}
+} // namespace
+
+void FSwcLoginClient::ValidateName(const FString& WorldId, const FString& Name, TFunction<void(const swc::menu::FGatewayReply& Reply)> Done)
+{
+	if (Session.Hosts.Gateway.IsEmpty())
+	{
+		Done(swc::menu::FGatewayReply());
+		return;
+	}
+	const TSharedRef<FJsonObject> Request = MakeShared<FJsonObject>();
+	Request->SetStringField(TEXT("Name"), Name);
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetObjectField(TEXT("ValidateCharacterBody"), Request);
+	Send(TEXT("POST"), Session.Hosts.Gateway,
+		FString::Printf(TEXT("/prod/game/worlds/%s/characters/validator?channelId=%s"), *FGenericPlatformHttp::UrlEncode(WorldId), ChannelId),
+		GatewayHeaders(), GatewayContentType, WriteObject(Body),
+		[Done = MoveTemp(Done)](int32 Status, const FString& Reply)
+		{
+			Done(GatewayReply(Status, Reply));
+		});
+}
+
+void FSwcLoginClient::CreateCharacter(const FString& WorldId, const FString& Name, const FString& CreationParams,
+	TFunction<void(const swc::menu::FGatewayReply& Reply, const FString& CharacterId)> Done)
+{
+	if (Session.Hosts.Gateway.IsEmpty())
+	{
+		Done(swc::menu::FGatewayReply(), FString());
+		return;
+	}
+	const TSharedRef<FJsonObject> Request = MakeShared<FJsonObject>();
+	Request->SetStringField(TEXT("CharacterCreationParams"), CreationParams);
+	Request->SetArrayField(TEXT("ClientCapabilities"), TArray<TSharedPtr<FJsonValue>>());
+	Request->SetStringField(TEXT("Name"), Name);
+	Request->SetBoolField(TEXT("SkipFtue"), false);
+	Request->SetNumberField(TEXT("SteamAppId"), 1063730);
+	Request->SetStringField(TEXT("SteamAuthTicket"), Identity.GetAuthTicketHex());
+	const TSharedRef<FJsonObject> Body = MakeShared<FJsonObject>();
+	Body->SetObjectField(TEXT("CreateCharacterRequest"), Request);
+	Send(TEXT("POST"), Session.Hosts.Gateway,
+		FString::Printf(TEXT("/prod/game/worlds/%s/characters?channelId=%s"), *FGenericPlatformHttp::UrlEncode(WorldId), ChannelId),
+		GatewayHeaders(), GatewayContentType, WriteObject(Body),
+		[Done = MoveTemp(Done)](int32 Status, const FString& Reply)
+		{
+			FString CharacterId;
+			const TSharedPtr<FJsonObject> Document = Status == 200 ? ParseObject(Reply) : nullptr;
+			const TSharedPtr<FJsonObject>* Character = nullptr;
+			if (Document.IsValid() && Document->TryGetObjectField(TEXT("Character"), Character))
+			{
+				(*Character)->TryGetStringField(TEXT("CharacterId"), CharacterId);
+			}
+			Done(GatewayReply(Status, Reply), CharacterId);
+		});
+}
+
 void FSwcLoginClient::RequestLoginToken(const FString& CharacterId, FTokenDone Done)
 {
 	const TSharedRef<FJsonObject> Request = MakeShared<FJsonObject>();

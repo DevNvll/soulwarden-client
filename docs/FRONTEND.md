@@ -914,3 +914,37 @@ Open points of the menu look (not worked on now):
 | The fair character | The nearest gear of the item icons; the retail outfit (a black hood with an eye mask, larger shoulder plates) is not found. |
 | The camera | The 16:9 horizontal field is an inference (FE7: the native code is open). |
 | The cooked menu ground | `/SwcGameContent/Terrain` is not in the cook list: a cooked menu shows the bake. |
+
+### Q3, the character creation (AST-238, 2026-10-23)
+
+The plan of the stage (research quest-plan.md, step Q3): 1 a retail reference take; 2 the creation data writer; 3 the name check and
+the create request; 4 the converter (the canvas, the creation lists, the archetypes, the scene of `FTUE_V2_CC`); 5 the native buses
+of the original scripts; 6 the creation scene; 7 the entry on the Windsward beach; 8 the checks. Parts 2 and 3 are plain C++ with
+their tests (`tools/test-menu.sh`, no engine).
+
+**Part 2, the creation data writer** (`Menu/SwcCreationData.h`). `EncodeCreation` makes the text of `CharacterCreationParams`:
+base64 of the zlib stream (level 9, the header 78 DA of the client) of the JSON document `{"currency":0,"visualsBlob":...,
+"position":{"x":0.0,"y":0.0,"z":0.0},"currentLevel":0,"worldId":...}`. The member `visualsBlob` is a binary object stream
+(version 3) of one `PlayerSaveData` (class version 3) with the fields of the create function of the client in its order:
+`playerName`, `companyName`, `entityClassName` (`PlayerMale` or `PlayerFemale` from the gender), `guildCrestName` (empty), the 12
+appearance names, `backstory`, `startingFaction` (one byte), `appearanceData` (empty), and the map `equipment` (one
+`EquipmentSaveData` for each key, with an empty `itemName`, the appearance id, and the dye 0 in each channel). The key order of the
+client is `gloves, shirt, hat, boots, pants` (`kCreationSlotOrder`). The JSON string of `visualsBlob` has the escapes of the JSON
+writer of the client; each byte of 0x20 and more stays as it is (not UTF-8). [R: protocol notes 2.2.5; research
+character-creation.md 3.1, 3.2]
+
+Check: the inflated document is byte for byte the document of the backend writer `make_menu_document` for the same values and
+the same equipment order (only the zlib form differs); the backend reader `read_creation_data` reads the backstory and the 12
+names; the menu reader of F1 reads the text back.
+
+**Part 3, the name check and the create request** (`Menu/SwcNameRule.h`, `Net/SwcLoginClient.h`).
+
+| Part | The client | Source |
+| --- | --- | --- |
+| The local rule (`PreValidateNameCheck`) | `CheckName`: 3 to 15 UTF-16 units (TooShort 1, TooLong 2); no white space at an end, the characters of the pattern, and 6 digits at most (InvalidCharacters 3); no two spaces in sequence (MultipleSpaces 5). The order of the checks for a name with two faults is [I]. The word list of the client is not read: BadWords 4 does not come [U] | [R] protocol notes 2.2.2 |
+| The name check | `FSwcLoginClient::ValidateName`: `POST /prod/game/worlds/WORLD/characters/validator?channelId=STEAM_APP_ID.1063730`, `{"ValidateCharacterBody":{"Name"}}`. `ReadValidateReply`: 200 Valid; NameNotAvailableError (`@mm_loginservices_NameNotAvailableError`, "This name is in use."); NameLengthError, NameValidationError, NameUsingBadWordsError (their `@mm_loginservices_` texts); no reply or an other name: `@mm_invalidname_unknown` [I] | [R] protocol notes 2.2.2 |
+| The create | `FSwcLoginClient::CreateCharacter`: `POST /prod/game/worlds/WORLD/characters?channelId=...`, `{"CreateCharacterRequest":{CharacterCreationParams, ClientCapabilities [], Name, SkipFtue false, SteamAppId 1063730, SteamAuthTicket}}`. `ReadCreateReply`: the id of `Character.CharacterId`; else the title `@mm_loginservices_CreateCharacterFailed` [I] and the message `@mm_loginservices_<error name>` (for example ALREADY_EXISTS, TooManyCharactersError), or CreateCharacterFailed with no error name | [R] protocol notes 2.2.3; the backend replies (gateway_routes.cpp, read only) |
+| The error name | The body member `__type` (its text after a '#'); `ReadErrorName` also reads the header `x-amzn-ErrorType` (its text before a ':') | [R] research character-creation.md 0.3 |
+
+Check: the local rule agrees with the backend rule `check_name` on 19 made-up names (the ends, the gaps of the pattern, 6 and 7
+digits, a UTF-8 fault); the reply readers on the backend error names. `tools/test-menu.sh`: 171 checks, 0 failed.

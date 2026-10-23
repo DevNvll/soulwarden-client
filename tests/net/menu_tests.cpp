@@ -2,19 +2,24 @@
 // writer of the backend (state/creation_data.cpp make_menu_document) and its readers. The names and ids are made up. No capture
 // of the user. Build and run: tools/test-menu.sh. The Soulwarden sources are read only.
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
 #include <initializer_list>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <zlib.h>
 
+#include "Menu/SwcCreationData.h"
 #include "Menu/SwcMenuCurves.h"
 #include "Menu/SwcMenuDocument.h"
 #include "Menu/SwcMenuLights.h"
+#include "Menu/SwcNameRule.h"
+#include "state/character_name.h"
 #include "core/encoding/base64.h"
 #include "state/creation_data.h"
 
@@ -351,8 +356,145 @@ void test_lights() {
                menu::LightSourceRadius(0.0, 2.0) == 0.01, "the source radius");
 }
 
+/** Stage Q3: the creation data writer of the client (Menu/SwcCreationData.cpp) against the backend writer and reader. */
+void test_creation() {
+    std::printf("the creation data of a create request\n");
+    menu::FCreation values;
+    values.PlayerName = "Testvale";
+    values.CompanyName = "Testvale's Company";
+    const backend::state::AppearanceNames names = female_names();
+    std::copy(names.begin(), names.end(), values.Appearance.begin());
+    values.Backstory = "Archetype_Ranger";
+    values.WorldId = "00000000-1111-2222-3333-444444444444";
+    // The key order of the client (gloves, shirt, hat, boots, pants) and made-up appearance ids. The backend writer takes its
+    // entries in the order of its list: the slot numbers 2, 1, 0, 4, 3 give the same order.
+    const std::array<std::uint32_t, 5> ids{0x01020304u, 0x0A0B0C0Du, 0x22000022u, 0x5C225C00u, 0xFFEE0809u};
+    const std::array<std::uint32_t, 5> slots{2, 1, 0, 4, 3};
+    backend::state::MenuDocument reference;
+    reference.name = values.PlayerName;
+    reference.appearance = names;
+    reference.backstory = values.Backstory;
+    reference.worldId = values.WorldId;
+    reference.level = 1;
+    for (std::size_t index = 0; index < menu::kCreationSlotOrder.size(); ++index) {
+        values.Equipment.push_back({std::string(menu::kCreationSlotOrder[index]), ids[index]});
+        reference.equipment.push_back({slots[index], ids[index]});
+    }
+    const std::string text = menu::EncodeCreation(values);
+    expect(!text.empty(), "the writer makes a text");
+    // The same document bytes as the backend writer (only the zlib form differs: level 9 here, stored blocks there).
+    const std::string client_json = inflate_text(text);
+    const std::string backend_json = inflate_text(make(reference));
+    expect(!client_json.empty() && client_json == backend_json, "the inflated document is the document of the backend writer");
+    expect(client_json == menu::WriteCreationDocument(values), "the inflated document is the written document");
+    std::vector<std::uint8_t> compressed;
+    expect(menu::DecodeBase64(text, compressed) && compressed.size() > 2 && compressed[0] == 0x78 && compressed[1] == 0xDA,
+           "the zlib header 78 DA of the client");
+    // The appearance ids have the bytes 0x22, 0x5C, and 0x00: the JSON escapes.
+    expect(client_json.find("\\") != std::string::npos && client_json.find("\\\"") != std::string::npos &&
+               client_json.find("\\u0000") != std::string::npos,
+           "the escapes of the JSON writer");
+    // The backend reader of a create request reads the archetype and the 12 names.
+    const auto creation = backend::state::read_creation_data(text);
+    expect(creation.has_value() && creation->archetype == "Archetype_Ranger" && creation->appearance == names,
+           "the backend reader reads the backstory and the appearance");
+    // The menu reader of the client reads it back.
+    menu::FDocument document;
+    expect(menu::Decode(text, document) == menu::Status::Ok, "the menu reader reads the text");
+    expect(document.PlayerName == "Testvale" && document.CompanyName == "Testvale's Company" &&
+               document.EntityClassName == "PlayerFemale" && document.Backstory == "Archetype_Ranger" &&
+               document.WorldId == values.WorldId && document.CurrentLevel == 0,
+           "the values of the document");
+    bool equipment = document.Equipment.size() == 5;
+    for (std::size_t index = 0; equipment && index < 5; ++index) {
+        equipment = document.Equipment[index].Slot == menu::kCreationSlotOrder[index] &&
+                    document.Equipment[index].AppearanceId == ids[index] && document.Equipment[index].bHasDyes &&
+                    document.Equipment[index].Dyes == std::array<std::uint8_t, 4>{0, 0, 0, 0};
+    }
+    expect(equipment, "the five equipment entries with no dye");
+    // A male body, a long name (a size field of one byte), and no equipment.
+    menu::FCreation male;
+    male.PlayerName = "Abcdefghijklmno";
+    male.CompanyName = "Abcdefghijklmno's Company";
+    const backend::state::AppearanceNames male_set = male_names();
+    std::copy(male_set.begin(), male_set.end(), male.Appearance.begin());
+    male.Backstory = "Archetype_Soldier";
+    male.WorldId = values.WorldId;
+    backend::state::MenuDocument male_reference;
+    male_reference.name = male.PlayerName;
+    male_reference.appearance = male_set;
+    male_reference.backstory = male.Backstory;
+    male_reference.worldId = male.WorldId;
+    expect(inflate_text(menu::EncodeCreation(male)) == inflate_text(make(male_reference)), "a male with no equipment");
+    expect(menu::NameCrc("Gloves") == menu::NameCrc("gloves") && menu::NameCrc("backstory") == 0x7DC4476Du,
+           "the name CRC of a field");
+}
+
+/** Stage Q3: the local name rule against the backend rule, and the replies of the name check and of the create request. */
+void test_names() {
+    std::printf("the name rule and the replies\n");
+    using menu::ENameCheck;
+    // Made-up names. The backend rule is the rule of the client without the word list.
+    const std::vector<std::pair<std::string, ENameCheck>> cases{
+        {"Testvale", ENameCheck::Valid},
+        {"Ab", ENameCheck::TooShort},
+        {"", ENameCheck::TooShort},
+        {"Abcdefghijklmnop", ENameCheck::TooLong},
+        {"Abcdefghijklmno", ENameCheck::Valid},
+        {"O'Dell-Brae Jr.", ENameCheck::Valid},
+        {"Ann, Lee", ENameCheck::Valid},
+        {"Two  Spaces", ENameCheck::MultipleSpaces},
+        {" Lead", ENameCheck::InvalidCharacters},
+        {"Trail ", ENameCheck::InvalidCharacters},
+        {"Bad_Name", ENameCheck::InvalidCharacters},
+        {"Name123456", ENameCheck::Valid},
+        {"Name1234567", ENameCheck::InvalidCharacters},
+        {"\xC3\x89lan", ENameCheck::Valid},                 // U+00C9
+        {"\xC5\xBDofie", ENameCheck::Valid},                // U+017D
+        {"Ab\xC3\x97" "cd", ENameCheck::InvalidCharacters},     // U+00D7, a gap of the pattern
+        {"Ab\xC5\xBF" "cd", ENameCheck::InvalidCharacters},     // U+017F, above the ranges
+        {"Abc\xE4\xB8\x80", ENameCheck::InvalidCharacters}, // U+4E00
+        {"Ab\xC3", ENameCheck::InvalidCharacters},            // a UTF-8 fault
+    };
+    for (const auto& [name, wanted] : cases) {
+        const ENameCheck result = menu::CheckName(name);
+        expect(result == wanted, "the local rule for \"" + name + "\"");
+        const auto backend_rule = backend::state::check_name(name);
+        expect((result == ENameCheck::Valid) == (backend_rule == backend::state::NameRule::permitted),
+               "the backend rule agrees for \"" + name + "\"");
+    }
+    // The error names of the replies of the gateway (the header first, then the body member "__type").
+    expect(menu::ReadErrorName("NameNotAvailableError", "") == "NameNotAvailableError", "the header error name");
+    expect(menu::ReadErrorName("NameLengthError:http://internal", "") == "NameLengthError", "the header error name before ':'");
+    expect(menu::ReadErrorName("", R"({"__type":"TooManyCharactersError","message":"x"})") == "TooManyCharactersError",
+           "the body error name");
+    expect(menu::ReadErrorName("", R"({"__type" : "com.example#ALREADY_EXISTS"})") == "ALREADY_EXISTS", "the body error name after '#'");
+    expect(menu::ReadErrorName("", R"({"message":"Unauthorized"})").empty(), "no error name");
+    std::string key;
+    expect(menu::ReadValidateReply({200, ""}, key) == menu::ENameValidation::Valid && key.empty(), "a valid name");
+    expect(menu::ReadValidateReply({400, "NameNotAvailableError"}, key) == menu::ENameValidation::NotAvailable &&
+               key == "@mm_loginservices_NameNotAvailableError",
+           "a name in use");
+    expect(menu::ReadValidateReply({400, "NameValidationError"}, key) == menu::ENameValidation::Refused &&
+               key == "@mm_loginservices_NameValidationError",
+           "a name of the backend refusal");
+    expect(menu::ReadValidateReply({0, ""}, key) == menu::ENameValidation::Failed && key == "@mm_invalidname_unknown",
+           "no reply");
+    const menu::FCreateResult created = menu::ReadCreateReply({200, ""}, "a1b2c3");
+    expect(created.CharacterId == "a1b2c3" && created.Title.empty(), "a created character");
+    const menu::FCreateResult taken = menu::ReadCreateReply({409, "ALREADY_EXISTS"}, "");
+    expect(taken.CharacterId.empty() && taken.Title == "@mm_loginservices_CreateCharacterFailed" &&
+               taken.Message == "@mm_loginservices_ALREADY_EXISTS",
+           "a name taken at the create");
+    const menu::FCreateResult unauthorized = menu::ReadCreateReply({401, ""}, "");
+    expect(unauthorized.Message == "@mm_loginservices_CreateCharacterFailed", "a refusal with no error name");
+    expect(menu::ReadCreateReply({200, ""}, "").Message == "@mm_loginservices_CreateCharacterFailed", "a 200 reply with no id");
+}
+
 int main() {
     test_round_trip();
+    test_creation();
+    test_names();
     test_faults();
     test_keys();
     test_curves();
