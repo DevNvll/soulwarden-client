@@ -101,6 +101,14 @@ void test_sun_path(const char* path) {
     check(env::sun_path_hour(4.0, 6.0, 19.0, 0.7) == 4.0 && env::sun_path_hour(12.0, 6.0, 18.0, 0.7) == 12.0
               && env::sun_path_hour(10.0, 6.0, 18.0, 0.0) == 10.0,
         "the night delay: none at night, none at the middle of a symmetric day, none for a zero delay");
+    // The sun step (AST-273 P1): 0.5 cm of shadow move for each meter of height; 0.0192 degrees at a sun 15 degrees high, the cap of
+    // 0.1 degrees at noon (50 degrees high), a turn in each frame at the horizon, below it, and with the step off.
+    const double sine15 = std::sin(15.0 * 3.14159265358979323846 / 180.0);
+    check(near(env::sun_step_degrees(sine15, 0.005, 0.1), 0.0191905, 1e-6), "the sun step at 15 degrees (0.5 cm per meter of height)");
+    check(env::sun_step_degrees(noon.z, 0.005, 0.1) == 0.1, "the sun step at noon is the cap");
+    check(env::sun_step_degrees(0.0, 0.005, 0.1) == 0.0 && env::sun_step_degrees(-0.2, 0.005, 0.1) == 0.0
+              && env::sun_step_degrees(0.5, 0.005, 0.0) == 0.0 && env::sun_step_degrees(0.5, 0.0, 0.1) == 0.0,
+        "no sun step at or below the horizon, or with the step off");
     const env::Vec3 midnight = env::sun_toward(0.0, 215.0, 130.0);
     check(midnight.z < 0.0, "the sun at midnight is below the horizon");
     const env::Vec3 moon = env::moon_toward(240.0, 35.0);

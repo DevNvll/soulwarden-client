@@ -143,6 +143,14 @@ Vec3 moon_toward(double latitudeDegrees, double longitudeDegrees) {
     return normalized({std::sin(longitude) * std::cos(latitude), std::sin(longitude) * std::sin(latitude), std::cos(longitude)});
 }
 
+double sun_step_degrees(double towardZ, double shiftPerMeter, double maxDegrees) {
+    if (maxDegrees <= 0.0 || shiftPerMeter <= 0.0 || towardZ <= 0.0) {
+        return 0.0;
+    }
+    const double sine = std::min(towardZ, 1.0);
+    return std::min(maxDegrees, shiftPerMeter * sine * sine * 180.0 / 3.14159265358979323846);
+}
+
 double sun_path_hour(double hour, double dawnStart, double duskEnd, double nightDelay) {
     const double span = duskEnd - dawnStart;
     if (nightDelay <= 0.0 || span <= 0.0 || hour <= dawnStart || hour >= duskEnd) {

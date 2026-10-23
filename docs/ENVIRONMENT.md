@@ -198,6 +198,33 @@ the left.
   menu takes the dawn and dusk fields of its mission (DawnTime 355, DawnDuration 10, DuskTime 365, DuskDuration 10 minutes:
   5:50 to 18:10, `env::mission_edges`): at 16.7 h the sun is 25.72 degrees high (it was 18.28), toward -0.901, 0.002, 0.434.
 
+### The sun step (AST-273 P1, 2026-10-23)
+
+The light direction is in the cache key of the virtual shadow map clipmap (the engine: `FVirtualShadowMapPerLightCacheEntry::UpdateClipmap`).
+By day the sun path moves 0.108 degrees in one real second, in steps of one game second (26 each real second). A turn of the light
+in each frame thus rendered the sun shadow with almost no cache. Now the light turns only when the sun path is a step from it:
+
+| Item | Value |
+| --- | --- |
+| The rule | `env::sun_step_degrees`: step = `swc.SunStepShift` x sin(e)^2 (radians to degrees), at most `swc.SunStep`; e is the sun elevation. A turn of dTheta moves the tip of the shadow of an object of height h by h x dTheta / sin(e)^2: the rule keeps that move at most 0.5 cm for each meter of height. 0 at or below the horizon (a black light does not render). A loading screen or a jump of the hour turns the light at once. |
+| The defaults | `swc.SunStepShift 0.005` (meters for each meter of height), `swc.SunStep 0.1` (degrees). `swc.SunStep 0`: a turn in each frame (as before). At e = 15 degrees the step is 0.019 degrees; from e = 34 degrees it is 0.1 degrees (about one turn each second). |
+| The log | `environment: the sun step S degrees, N turns of the sun light in T s` with the environment line (each 60 s). |
+
+Check (development runs on a quiet computer, evidence `~/Games/soulwarden-client/evidence/ast273/`):
+
+- Cost (run p1-cost, 3416 x 1380, TSR from 1937 x 783, the Oxboro spawn lane, noon, 60 s for each fixed step in one run): GPU p50 13.04 ms
+  (step 0), 12.15 (0.02), 12.23 (0.05), 12.04 (0.1), 11.99 (0.25), 13.07 (0 again). The static cached pages of the sun in each frame
+  (`r.Shadow.Virtual.AccumulateStats 600`): 103 of 453 (step 0), 392 (0.02), 420 (0.05), 432 (0.1), 440 (0.25); new pages 350, 62, 29, 19,
+  11. A step above 0.1 degrees gives no more gain.
+- Look (run p1-look4, 1256 x 660, the west road of Oxboro at 06:40, a sun about 15 degrees high, heading 135, pitch -20): the 99th
+  percentile of the frame-to-frame change of the road and the shadows (`work/ast273/jumps.py`): 0.264 (step 0), 0.278 (0.02), 0.493 (0.05),
+  0.715 (0.1). 0.02 degrees (0.52 cm for each meter of height) is not measurable; 0.05 degrees (1.3 cm) is.
+- The default (runs p1-check-cost and p1-check-look): at noon GPU p50 12.25 and 12.41 ms against 13.36 and 13.33 ms for step 0 (pairs in one
+  run; -0.9 to -1.1 ms), 435 of 454 pages cached against 112; at 06:40 the frame change p99 0.278 and 0.356 against 0.257 and 0.352 for
+  step 0. The video `p1-sun-step-side.mp4`: step 0, the default, and a fixed 0.1 degrees.
+- Open (P1b): with a still sun, about 430 dynamic pages of the sun are invalidated in each frame; with
+  `r.Shadow.Virtual.Cache.DebugSkipDynamicPageInvalidation 1` the shadow depths fall from 4.3 ms to 1.7 ms. The source is not known yet.
+
 ## The local lights (stage E2)
 
 `Environment/SwcLocalLights` (`USwcLocalLightSubsystem`, the runtime) with the plain rules of `Environment/SwcLocalLightRules`
@@ -820,6 +847,7 @@ client selects its own volumes (stage E3).
 | `swc.LumenTest 0\|1` | The Lumen test copies of the inn and the two houses (`-SwcLumenTest` at the start; `tools/lumen-test.sh` makes them). |
 | `tools/match-view.sh ... --variant VIEW@NAME=COMMAND;...` | One more picture of a view with client console commands (run when the view is in place): a look value or a switch to compare in one run. The next view sets the console variables of the commands back to their values before the first variant (from 2026-10-19). The report and the side-by-side picture have the local lights at the shot and the median GPU time while the view is in place (with `-SwcFrameStats=2`). |
 | `swc.Grade 0\|1`, `swc.GradeDebug 0\|1\|2`, `swc.GradeBloom F`, `swc.SourceBloom 0\|1`, `swc.GradeBias EV`, `swc.SourceMeter 0\|1\|2`, `swc.SunSource 0\|1` | The color grade of the source or the Unreal tone mapper; a check of the exposed value or of the exposure; the part of the Unreal bloom; an offset of the exposure (a look check); the meter: 2 the source meter of the frame (the default), 1 the Unreal meter with the source curve, 0 the Unreal luminance; the bloom mix of the source (1, the default) or the Unreal bloom added (0); the sun of the hour (1, the default) or the noon sun of E1 (0) (stage E5). |
+| `swc.SunStep DEGREES`, `swc.SunStepShift M` | The step of the sun light (AST-273 P1, "The sun step"): the largest step (0.1; 0 a turn in each frame) and the shadow move for each meter of height (0.005). |
 | `swc.SourceSky 0\|1`, `swc.CloudTint F` | The sky color of the source model or the SkyAtmosphere of Unreal; the cloud tint of the data (stage E5). |
 | `swc.SkyLightSource 0\|1`, `swc.ProbeScale F` | The ambient: the world probe of the data (1) or the real-time capture of the Unreal sky (0); a look scale of the probe light (stage E5). |
 | `swc.Fog`, `swc.FogColorMode`, `swc.FogLayers`, `swc.FogDensityScale`, `swc.FogDensityScale2`, `swc.VolumetricFog`, `swc.LocalFogScale` | The fog of stage E3 (the help text of each variable has its values). |

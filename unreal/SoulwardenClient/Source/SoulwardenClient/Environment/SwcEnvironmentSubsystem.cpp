@@ -70,6 +70,14 @@ TAutoConsoleVariable<int32> CVarSunSource(TEXT("swc.SunSource"), 1,
 	TEXT("The sun light (stage E5, research/color-pipeline.md rule 7): 1 the \"Sun intensity\" and \"Sun color\" of the hour (the source), the light ")
 	TEXT("color divided by the ground transmittance of the atmosphere (the ground gets the source sun), 0 at the moon (the default); 0 the noon values, ")
 	TEXT("the atmosphere makes the sunrise and the sunset (E1)."));
+/** The step of the sun light (AST-273 P1, docs/ENVIRONMENT.md "The sun step"). */
+TAutoConsoleVariable<float> CVarSunStep(TEXT("swc.SunStep"), 0.1f,
+	TEXT("The largest step of the sun light (degrees, AST-273 P1): the light turns only when the sun path is the step from it, so that the ")
+	TEXT("virtual shadow map cache holds (the light direction is in the cache key of the clipmap). The step is swc.SunStepShift x sin(elevation)^2, ")
+	TEXT("at most this value. 0: a turn in each frame."));
+TAutoConsoleVariable<float> CVarSunStepShift(TEXT("swc.SunStepShift"), 0.005f,
+	TEXT("The largest move of the shadow tip at one turn of the sun light, for each meter of the height of the object (meters, AST-273 P1; ")
+	TEXT("0.005: 0.02 degrees at a sun 15 degrees high, no visible jump in the check video)."));
 /** The meter of the exposure: 2 the source meter measured on the frame, 1 the Unreal meter that ignores the albedo, 0 the Unreal luminance. */
 TAutoConsoleVariable<int32> CVarSourceMeter(TEXT("swc.SourceMeter"), 2,
 	TEXT("The meter of the exposure: 2 the source meter of the frame (Environment/SwcMeterProbe: E = pi L / the G-buffer albedo, the geometric mean) ")
@@ -901,7 +909,17 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 	};
 	if (UDirectionalLightComponent* Light = Sun.Get())
 	{
-		Light->SetWorldRotation(LightRotation(SunToward));
+		// The step of the sun (swc.SunStep, swc.SunStepShift): the same light direction until the sun path is the step from it. A loading
+		// screen and a jump of the hour (more than the step) turn the light at once.
+		const FVector Toward(SunToward.x, SunToward.y, SunToward.z);
+		const double Step = env::sun_step_degrees(SunToward.z, CVarSunStepShift.GetValueOnGameThread(), CVarSunStep.GetValueOnGameThread());
+		if (Step <= 0.0 || bScreen || SunTowardApplied.IsZero()
+			|| FVector::DotProduct(Toward, SunTowardApplied) < FMath::Cos(FMath::DegreesToRadians(Step)))
+		{
+			SunTowardApplied = Toward;
+			Light->SetWorldRotation(LightRotation(SunToward));
+			++SunTurns;
+		}
 		if (bSunSource)
 		{
 			// The atmosphere of Unreal dims and colors the sun light on the ground by its transmittance toward the sun; the source sun has
@@ -1027,6 +1045,11 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 			Elevation, SunToward.x, SunToward.y, SunToward.z, SunColor.color[0], SunColor.color[1], SunColor.color[2],
 			MoonLux, MoonWeight, MoonColor.color[0], MoonColor.color[1], MoonColor.color[2], NightSkyFactor, EvMin, EvMax, Compensation, *SkyText);
 		PresetName = LayerText;
+		UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the sun step %.4f degrees, %d turns of the sun light in %.1f s"),
+			env::sun_step_degrees(SunToward.z, CVarSunStepShift.GetValueOnGameThread(), CVarSunStep.GetValueOnGameThread()), SunTurns,
+			SunTurnTime < 0.0 ? 0.0 : Now - SunTurnTime);
+		SunTurns = 0;
+		SunTurnTime = Now;
 	}
 }
 

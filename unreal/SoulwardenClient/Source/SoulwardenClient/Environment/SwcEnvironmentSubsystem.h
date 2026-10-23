@@ -353,6 +353,11 @@ private:
 	FLinearColor SourceSunLight = FLinearColor::Transparent;
 	/** The hour of the sun path of the last frame (the night delay of the source: env::sun_path_hour), for the sky. */
 	double SunPathHour = 12.0;
+	/** The direction toward the sun of the light (swc.SunStep: it changes only in steps) and if it has a value. */
+	FVector SunTowardApplied = FVector::ZeroVector;
+	/** The turns of the sun light since the last environment log line, and the time of that line (swc.SunStep). */
+	int32 SunTurns = 0;
+	double SunTurnTime = -1.0;
 	/** The bloom mix of the source (swc.SourceBloom 1): w of exposure x ((1 - w) x scene + w x blur); 0 when off. */
 	double BloomMix = 0.0;
 	/** The cubes of the local probes (stage E5 step b), loaded at their first use; the cube of the blend and its fraction. */

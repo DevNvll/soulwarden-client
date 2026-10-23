@@ -71,6 +71,13 @@ Edges edges_of(std::uint32_t dawnTime, std::uint32_t dawnDuration, std::uint32_t
  *  curves of the time of day keep the hour. */
 double sun_path_hour(double hour, double dawnStart, double duskEnd, double nightDelay);
 
+/** @return The step of the sun light in degrees (AST-273 P1, docs/ENVIRONMENT.md "The sun step"): the light turns only when the sun
+ *  path is this angle from it, so that the virtual shadow map cache holds between the turns. A turn of dTheta moves the tip of the
+ *  shadow of an object of height h by h x dTheta / sin(e)^2 at the sun elevation e: the step keeps that move at most shiftPerMeter
+ *  (meters for each meter of height), dTheta = shiftPerMeter x sin(e)^2, and at most maxDegrees. 0 for maxDegrees <= 0 or a sun at
+ *  or below the horizon (a turn in each frame). */
+double sun_step_degrees(double towardZ, double shiftPerMeter, double maxDegrees);
+
 /** @return The edges of a mission (the Lighting element of a level mission: DawnTime, DawnDuration, DuskTime, DuskDuration in
  *  minutes; the dusk with the 12-hour offset of the engine): each window centered on its time (the retail loader). */
 Edges mission_edges(double dawnMinutes, double dawnDurationMinutes, double duskMinutes, double duskDurationMinutes);
