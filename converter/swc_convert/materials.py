@@ -84,7 +84,23 @@ def load_mtl(reference: str, mesh_path: str = "") -> tuple[str, list[ET.Element]
         raise FileNotFoundError(f"material {reference}")
     root = ET.fromstring(source.read(path).decode("utf-8", "replace"))
     subs = root.find("SubMaterials")
-    return path, (list(subs) if subs is not None else [root])
+    return path, (list(subs) if subs is not None else SingleMaterial([root]))
+
+
+class SingleMaterial(list):
+    """The list of a material file with one material and no SubMaterials list (load_mtl): that material serves each subset index."""
+
+
+def sub_material(subs: list, index: int) -> ET.Element | None:
+    """@return The sub-material of a subset index: the element of the list; for a file with one material and no SubMaterials list
+    (SingleMaterial), that material for any index (AST-275: the rule of CMatInfo::GetSafeSubMtl of the engine source, which returns
+    the material itself when it has no sub-materials; not traced in the retail client; 4 meshes and 107 override pairs of the world
+    have subsets above index 0 with such a file, for example the galleon capstan); else None."""
+    if 0 <= index < len(subs):
+        return subs[index]
+    if index >= 0 and isinstance(subs, SingleMaterial) and subs:
+        return subs[0]
+    return None
 
 
 def texture_png(product: str, max_size: int, normal: bool = False, alpha: bool = False) -> Path:

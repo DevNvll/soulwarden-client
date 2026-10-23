@@ -155,7 +155,7 @@ def convert(path: str, force: bool = False, write_manifest: bool = True, rule: i
         col = vertex_colors(mesh.colors) if rule >= RULE_COLORS else None
         for s in mesh.subsets:
             if s.material not in slots:
-                m = sub_materials[s.material] if 0 <= s.material < len(sub_materials) else None
+                m = materials.sub_material(sub_materials, s.material)
                 if m is not None and materials.not_drawn(m, beams=rule >= RULE_BEAMS):
                     slots[s.material] = -1
                 else:
@@ -167,7 +167,7 @@ def convert(path: str, force: bool = False, write_manifest: bool = True, rule: i
                         by_key[name] = w.material(name)
                     slots[s.material] = by_key[name]
             if slots[s.material] == -1:
-                m = sub_materials[s.material] if 0 <= s.material < len(sub_materials) else None
+                m = materials.sub_material(sub_materials, s.material)
                 if rule >= RULE_COLORS and is_mesh_decal(m):
                     if s.material not in decal_slots:
                         key = decal_key(report["mtl"], s.material, m)
@@ -248,7 +248,8 @@ def drawn_positions(path: str) -> np.ndarray:
     out = []
     for m in meshes:
         for s in m.subsets:
-            if s.material < len(sub_materials) and materials.not_drawn(sub_materials[s.material]):
+            sub = materials.sub_material(sub_materials, s.material)
+            if sub is not None and materials.not_drawn(sub):
                 continue
             out.append(m.positions[np.unique(m.indices[s.first_index:s.first_index + s.num_indices])])
     return np.concatenate(out) if out else np.zeros((0, 3), np.float32)
@@ -286,7 +287,7 @@ def convert_group(key: str, out: Path, parts: list[tuple[str, np.ndarray]], norm
                 tan = m.tangents.copy()
                 tan[:, :3] = gltf.z_up_to_y_up(m.tangents[:, :3])
             for s in m.subsets:
-                sub = sub_materials[s.material] if 0 <= s.material < len(sub_materials) else None
+                sub = materials.sub_material(sub_materials, s.material)
                 if sub is not None and materials.not_drawn(sub):
                     continue
                 record, used = materials.shared_material(sub, normal_maps)

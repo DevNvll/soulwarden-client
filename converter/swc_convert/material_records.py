@@ -416,10 +416,10 @@ def write_json(path: Path, value) -> None:
 
 
 @functools.lru_cache(maxsize=4096)
-def sub_materials(mtl: str) -> tuple:
+def sub_materials(mtl: str) -> tuple | list:
     root = ET.fromstring(source.read(mtl).decode("utf-8", "replace"))
     subs = root.find("SubMaterials")
-    return tuple(subs) if subs is not None else (root,)
+    return tuple(subs) if subs is not None else materials.SingleMaterial([root])
 
 
 def primitive_slots(mesh: str, gltf_file: Path, rule: int = 6) -> list[tuple[int, str]] | None:
@@ -439,7 +439,7 @@ def primitive_slots(mesh: str, gltf_file: Path, rule: int = 6) -> list[tuple[int
         _sflags, count = struct.unpack_from("<2i", sub, 0)
         for i in range(count):
             _fi, ni, _fv, _nv, mat = struct.unpack_from("<5i", sub, 16 + i * 36)
-            m = subs[mat] if 0 <= mat < len(subs) else None
+            m = materials.sub_material(subs, mat)
             if m is not None and materials.not_drawn(m, beams=rule >= 8):   # mesh rule 8 draws GeometryBeam
                 continue
             order.append((mat, ni))
@@ -454,7 +454,7 @@ def primitive_slots(mesh: str, gltf_file: Path, rule: int = 6) -> list[tuple[int
             return None
         name = names[prim["material"]]
         if name.startswith("n_"):   # mesh rule 7 names a slot by its instance key: the legacy key of its sub-material
-            name = legacy_key(subs[mat] if 0 <= mat < len(subs) else None)
+            name = legacy_key(materials.sub_material(subs, mat))
         out.append((mat, name))
     return out
 
@@ -688,7 +688,7 @@ def audit(workers: int = 4) -> dict:
         mtl, subs = materials.load_mtl(reference, mesh) if reference else ("", [])
         out = []
         for index, name in sorted(set(pairs)):
-            element = subs[index] if 0 <= index < len(subs) else None
+            element = materials.sub_material(subs, index)
             s = add_source(mtl, index, element, "mesh")
             out.append([index, name, s["render"] if s else None])
         slots[mesh] = out
@@ -1352,7 +1352,7 @@ def legacy_spec(records: dict, name: str, textures: dict) -> dict:
     an n_ instance of a source that no stage rule changes."""
     mtl, index = name.rsplit("#", 1)
     subs = sub_materials(mtl)
-    element = subs[int(index)] if int(index) < len(subs) else None
+    element = materials.sub_material(subs, int(index))
     record, used = materials.shared_material(element, "far legacy" not in records["sources"][name]
                                              or bool(records["sources"][name].get("legacy")))
     for t in used:
@@ -1613,7 +1613,7 @@ def proof_plan(stage: str) -> dict:
             if not override:
                 variants[third][legacy] = {"spec": candidates[legacy]} if legacy in candidates else {"instance": legacy}
                 continue
-            element = subs[index] if index < len(subs) else None
+            element = materials.sub_material(subs, index)
             if element is None or materials.not_drawn(element):
                 variants[third][legacy] = {"instance": legacy}
                 continue
@@ -1683,7 +1683,7 @@ def mesh_decal_subsets(mesh: str) -> tuple[str, int, str | None]:
             _sflags, n = struct.unpack_from("<2i", sub, 0)
             for i in range(n):
                 mat = struct.unpack_from("<5i", sub, 16 + i * 36)[4]
-                count += mesh_module.is_mesh_decal(subs[mat] if 0 <= mat < len(subs) else None)
+                count += mesh_module.is_mesh_decal(materials.sub_material(subs, mat))
         return mesh, count, None
     except Exception as error:
         return mesh, 0, str(error)[:120]

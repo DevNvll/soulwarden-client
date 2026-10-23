@@ -90,11 +90,11 @@ def slot_map(pair: tuple[str, str]) -> dict:
     records: dict[str, dict] = {}
     merged = 0
     for index in used:
-        default = defaults[index] if 0 <= index < len(defaults) else None
+        default = materials.sub_material(defaults, index)
         if default is not None and materials.not_drawn(default):
             continue
         slot = materials.instance_key(default)
-        replacement = overrides[index] if 0 <= index < len(overrides) else None
+        replacement = materials.sub_material(overrides, index)
         if replacement is None or materials.not_drawn(replacement):
             continue
         record, textures = materials.shared_material(replacement)

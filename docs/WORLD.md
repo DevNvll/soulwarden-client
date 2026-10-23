@@ -419,8 +419,11 @@ the places of interest with the census tops) found these classes. The counts are
   meshes that are not in the game copy, the fog cards. The vegetation areas (component 2a2893bf, VegetationDescriptorListComponent) are bake
   inputs of region.vegetation (research/ast275-vegetation-areas.md): the ground cover has all their records but 4 descriptors with no
   mesh; 1,213 descriptor references (18 meshes) are in no baked file of their region. Known differences: the one range of 100 m of the
-  ground cover (the view distance of each descriptor is T4), and 40 placements of meshes whose material file has one material and
-  subsets above index 0 (the galleon capstan).
+  ground cover (the view distance of each descriptor is T4).
+- C9, a material file with one material and no SubMaterials list serves each subset index (`materials.SingleMaterial`,
+  `materials.sub_material`: the rule of CMatInfo::GetSafeSubMtl of the engine source; not traced in the retail client). Before, a
+  subset above index 0 had no material. The check of all census meshes and pairs: it changes 4 meshes (40 placements: the galleon
+  capstan, a hanging banner) and 96 override pairs (896 placements, for example the glowing magenta mushrooms), and no other record.
 - Streaming (the play logs of 2026-10-23): the components that register while their mesh builds ("Waiting on static mesh") come behind
   the loading screen (1,571 of 1,575 and 6,147 of 6,220 lines); in the world none was within 300 m of the player. Late streaming is not a
   cause of the near gaps; the long loading screens are a cost of the uncooked build.

@@ -106,7 +106,7 @@ def mesh_pass(path: str) -> dict:
             _sflags, count = struct.unpack_from("<2i", sub, 0)
             for i in range(count):
                 _fi, ni, _fv, _nv, mat = struct.unpack_from("<5i", sub, 16 + i * 36)
-                m = subs[mat] if 0 <= mat < len(subs) else None
+                m = materials.sub_material(subs, mat)
                 if m is not None and materials.not_drawn(m):
                     continue
                 drawn += ni // 3
