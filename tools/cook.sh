@@ -16,11 +16,11 @@
 #                 tool stops with status 3 and says "FULL cook" unless --full is given. A full cook of the world needs a quiet
 #                 computer (docs/WORLD.md "The cooked build"). A run-time setting goes into the code, not into an ini file.
 # The rules: the RAM rule (14 GB available before the start), one Unreal process; the cook holds import.lock (it reads the shared
-# plugin), runs in a memory scope (SWC_COOK_MEMORY_MAX, default 30G, with at most 6G of swap: the cooker must not thrash in swap)
+# plugin), runs in a memory scope (SWC_COOK_MEMORY_MAX, default 22G, with at most 6G of swap: the cooker must not thrash in swap)
 # with 12 cores at nice 10 (SWC_COOK_CPU_QUOTA, default 1200%: the shader compile of a cold cook was the limit with 4 cores), and
 # stops when the free space of the disk of SWC_WORK goes below SWC_COOK_MIN_FREE_GB (default 100 GB; AST-273: one cook and one staged
 # build put the 1.9 TB disk at about 86 %, so a guard of 85 % stopped each cook that followed). The cooker options are constants (COOKER_OPTIONS: garbage collection at
-# 22,000 MiB, above the stall of 14,000 and under the RAM of the scope; 8 shader workers): a change makes the next cook full. The log: SWC_WORK/logs/cook.log. An incremental cook
+# 20,000 MiB used or 8,000 MiB available, see below; 8 shader workers): a change makes the next cook full. The log: SWC_WORK/logs/cook.log. An incremental cook
 # (the second one) cooks again only the packages that changed (UAT -iterate).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
@@ -40,7 +40,13 @@ cooked="${SWC_COOKED:-${SWC_WORK}/cooked}"
 platform_ini="${SWC_REPO}/unreal/SoulwardenClient/Config/Linux/LinuxEngine.ini"
 log="${SWC_WORK}/logs/cook.log"
 # The options of the cooker: constants (they are in the ini settings of the legacy incremental cook; 2026-10-22, AST-229).
-COOKER_OPTIONS="-ini:Editor:[CookSettings]:MemoryMaxUsedPhysical=22000 -ini:Engine:[DevOptions.Shaders]:ShaderCompilerCoreCountThreshold=64 -ini:Engine:[DevOptions.Shaders]:NumUnusedShaderCompilingThreads=8"
+# The memory (AST-273, 2026-10-23): the computer has 46 GB of RAM, and the desktop programs use about 18 GB. The full cook of
+# 175,045 packages with a 30G scope was stopped by the guard at "available" 1.1 GB after 433 s (64,732 packages; 33 GB of virtual
+# memory). The scope is now 22G (22 + 18 GB, plus about 2.5 GB of RAM for the zram of the 6G of swap of the scope, leaves about
+# 3.5 GB). MemoryMinFreePhysical 8000: the cooker collects garbage when the whole computer has less than 8 GB available (the
+# engine compares it with the available physical memory, CookGarbageCollect.cpp), before the guard stops at 3 GB; this follows the
+# desktop programs. MemoryMaxUsedPhysical 20000: under the scope (14000 gave the GC stall and the assertion of 2026-10-22).
+COOKER_OPTIONS="-ini:Editor:[CookSettings]:MemoryMaxUsedPhysical=20000 -ini:Editor:[CookSettings]:MemoryMinFreePhysical=8000 -ini:Engine:[DevOptions.Shaders]:ShaderCompilerCoreCountThreshold=64 -ini:Engine:[DevOptions.Shaders]:NumUnusedShaderCompilingThreads=8"
 # config_hash: the project config files (Default*.ini; not the temporary Config/Linux of --map) and the cooker options.
 config_hash() {
     { (cd "${SWC_REPO}/unreal/SoulwardenClient/Config" && sha1sum Default*.ini); echo "${COOKER_OPTIONS}"; } | sha1sum | cut -c1-16
@@ -107,7 +113,7 @@ start=${SECONDS}
 status=0
 echo "$(date -u +%H:%M:%S) cook: start (map ${map:-the default}, disk $(disk) %, $(free_gb) GB free)" | tee -a "${log}.summary"
 flock -w "${wait}" "${SWC_WORK}/unreal/import.lock" \
-    systemd-run --user --scope -q -p CPUQuota="${SWC_COOK_CPU_QUOTA:-1200%}" -p MemoryMax="${SWC_COOK_MEMORY_MAX:-30G}" -p MemorySwapMax=6G \
+    systemd-run --user --scope -q -p CPUQuota="${SWC_COOK_CPU_QUOTA:-1200%}" -p MemoryMax="${SWC_COOK_MEMORY_MAX:-22G}" -p MemorySwapMax=6G \
     nice -n 10 "${UE_ROOT}/Engine/Build/BatchFiles/RunUAT.sh" BuildCookRun -project="${SWC_UPROJECT}" -noP4 -platform=Linux \
     -clientconfig=Development -skipbuild -nocompileeditor "${steps[@]}" -unattended -utf8output \
     -AdditionalCookerOptions="${COOKER_OPTIONS}" \
