@@ -1,0 +1,69 @@
+# The player drive of the pick check of AST-240: the Grace scene (about 28 to 46 s from the possession), swc.PickView in the scene and after
+# its end at the points of the white sphere and the yellow band of the panel 'client grace after'. A move 0 0 each 2 s: the routes follow
+# the clock of the player drive. Times from the possession.
+1.0 move 0 0
+3.0 move 0 0
+5.0 move 0 0
+7.0 move 0 0
+9.0 move 0 0
+11.0 move 0 0
+13.0 move 0 0
+15.0 move 0 0
+17.0 move 0 0
+19.0 move 0 0
+21.0 move 0 0
+23.0 move 0 0
+25.0 move 0 0
+27.0 move 0 0
+29.0 move 0 0
+31.0 move 0 0
+33.0 move 0 0
+35.0 move 0 0
+37.0 move 0 0
+39.0 move 0 0
+41.0 move 0 0
+42.2 exec swc.PickView 0.25 0.55
+42.4 exec swc.PickView 0.5 0.5
+43.0 move 0 0
+45.0 move 0 0
+47.0 move 0 0
+49.0 move 0 0
+50.2 exec swc.PickView 0.85 0.45
+50.4 exec swc.PickView 0.25 0.45
+50.6 exec swc.PickView 0.45 0.35
+51.0 move 0 0
+53.0 move 0 0
+55.0 move 0 0
+57.0 move 0 0
+59.0 move 0 0
+61.0 move 0 0
+62.0 view 120 -4
+63.0 move 0 0
+65.0 move 0 0
+67.0 move 0 0
+69.0 move 0 0
+71.0 move 0 0
+73.0 move 0 0
+75.0 move 0 0
+77.0 move 0 0
+79.0 move 0 0
+81.0 move 0 0
+83.0 move 0 0
+85.0 move 0 0
+87.0 move 0 0
+89.0 move 0 0
+91.0 move 0 0
+93.0 move 0 0
+95.0 move 0 0
+97.0 move 0 0
+99.0 move 0 0
+101.0 move 0 0
+103.0 move 0 0
+105.0 move 0 0
+107.0 move 0 0
+109.0 move 0 0
+111.0 move 0 0
+113.0 move 0 0
+115.0 move 0 0
+117.0 move 0 0
+119.0 move 0 0
