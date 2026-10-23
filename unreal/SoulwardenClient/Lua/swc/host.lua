@@ -4,13 +4,17 @@
 local Swc = Swc
 Swc.time = 0
 
---- One frame: the spawns of the last frame, the flipbooks, the tweens, then TickBus OnTick(deltaTime, timePoint).
+--- One frame: the spawns of the last frame, the flipbooks, the tweens, then TickBus OnTick(deltaTime, timePoint), then
+--- CrySystemEventBus OnCrySystemPostViewSystemUpdate (uitick.luac sends it on as DynamicBus.UITickBus; compass.luac places its icons
+--- there: with no such event each compass icon stayed at the north point of the strip; AST-237).
+Swc.Handled("CrySystemEventBus")
 function Swc.Tick(dt)
   Swc.time = Swc.time + dt
   Swc.RunSpawns()
   Swc.TickFlipbooks(dt)
   Swc.TickTweens(dt)
   Swc.Notify("TickBus", nil, "OnTick", dt, Swc.ScriptTimePoint.new({seconds = Swc.time}))
+  Swc.Notify("CrySystemEventBus", nil, "OnCrySystemPostViewSystemUpdate")
   Swc.TickInteractables()
   Swc.TickExitHovers(dt)
   Swc.InputTick()
