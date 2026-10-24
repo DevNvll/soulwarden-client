@@ -461,10 +461,82 @@ the places of interest with the census tops) found these classes. The counts are
   the state objects (the glyph bridges and the other objects of the Azoth glyph mechanic, override materials with "azoth"; the
   capture point cylinders, six owner states at each place), the procedural gradients
   and the FX sine (the lava grid). The check: the light shaft of Ballard's Manor matches retail (shaft minus wall 26.2 against
-  25.9); no measurable GPU time.
+  25.9); no measurable GPU time. A tuning point: there the client band comes from the upper right at an angle, the retail haze
+  comes down from the roof opening. The cards are the "GodRay" entities of the slice brghtwd_a01_brackwater_props chunk 2_13_1;
+  their m_worldTM is their m_localTM under the slice root (the decode of every object), and the data tilts the long axis of the two
+  fx_lightraycard02 cards 23 and 27 degrees from the vertical. The view factor gives q 1 for both (d -0.74 and -0.55), and the
+  Meshparticle vertex rule moves no vertex. Candidates: the brightness of each card (the producer of RelativeDistance, the TOD
+  emission, the sun term) and the retail fog lit through the roof opening, which the client has no counterpart of.
 - Streaming (the play logs of 2026-10-23): the components that register while their mesh builds ("Waiting on static mesh") come behind
   the loading screen (1,571 of 1,575 and 6,147 of 6,220 lines); in the world none was within 300 m of the player. Late streaming is not a
   cause of the near gaps; the long loading screens are a cost of the uncooked build.
+
+### The result of AST-275 (2026-10-24)
+
+The classes (counts of the world; the playable regions for C1):
+
+| Class | What | Count | State |
+| --- | --- | --- | --- |
+| C1 | The children of the distribution rows and the variants (trees, tree mounds, plants, boulders, gathering nodes) | +89,683 placements | Deployed |
+| C2 | The crafting stations that the backend spawns (server visuals) | 130 objects, 25 slices | Deployed |
+| C3 | The vegetation areas that place their meshes at run time | gap of 1,213 references (18 meshes) | Report only |
+| C4 | The meshes with only decal subsets (the crater moss, the Dunwood floor decals) | 33 meshes, 1,497 placements | Deployed |
+| C5 | A second asset form | 0 (a false class of the scanner) | Removed |
+| C6 | The .cdf props of the level slices | 56 props, 61 parts, 714 placements, 13 regions | Deployed |
+| C7 | The meshes with no own material and an effect override (the Shattered Obelisk planes) | 37 meshes | Deployed |
+| C8 | The Fxmeshadvancedtransp and Meshparticle overrides | 1,899 placements, 24 regions | Deployed |
+| C9 | A material file with one material serves each subset | 4 meshes (40 placements), 96 pairs (896 placements) | Deployed |
+| C10a | A leading "/" in a material path | 4 LOD meshes, 64 placements | Deployed |
+| C11 | The override replaces the decal sub-materials of the companion | 49,268 + 180 (C4) placements, 17 with no decal | Deployed |
+| Fog rule | No fog mesh with no proved parent | fogsphere_01 (242 placements), the fog beams | Deployed |
+
+The deploys (each one: the keys of this task only, a backup of each replaced file, find -newer after each step, the world build
+detached with a player check each 5 minutes, then one incremental cook):
+
+| Deploy | Main | Content, plugin, world build (UTC) | Regions | Backups (work/ast275/backup/) |
+| --- | --- | --- | --- | --- |
+| C1, C2, C7, C9, C10a, fog rule | 3c94f26 | 02:30, 02:31 to 02:34, 02:35 to 04:27 | 33 | 20261024023024 |
+| AST-278 parents (vertex colors) | 4dbfb31 | 09:31 (five parents made again) | none | parents-20261024093129 |
+| C8 | 94baa92 | 12:46, 12:50 to 12:51, 12:51 to 14:13 | 24 | c8-*, c8-plugin-*, c8-world-* |
+| C4, C11, C6 | 813b8fa | 16:17, 16:17 to 16:21, 16:21 to 17:45 | 28 | c611-*, c611-plugin-*, c611-world-* |
+
+The cost (GPU p50, 1280 x 720, High): the whole change before (the backup cells of 02:30 in a check plugin, no server visuals)
+against after, two runs of each: Oxboro 7.28 to 7.34 ms (+0.06), the r_+03_+02 forest 9.47 to 10.58 ms (+1.12: the cypress trees
+of C1, which retail also draws). C8 and C4 + C11 + C6: no measurable change (within 0.1 ms at the moss, armory, poplar, and card
+views).
+
+Known points (not faults of this task, or accepted differences):
+- The dark places of the client are brighter than retail: the cave left area 40.9 against 18.1, the left wall of Ballard's Manor
+  29.2 against 16.8, the station floor (docs/MATERIALS.md: a light parity point).
+- The AST-278 vertex tint stays darker than the source rule (docs/MATERIALS.md "Mesh rule 7").
+- The C8 card shaft of Ballard's Manor (above): a tuning point.
+- C6: the 61 parts have collision meshes (retail props probably do not collide; a cell flag needs a C++ change); one bow part has a
+  second slot with no spec (m_e310b3edeb: its import material); the material field of the Character component is not used
+  (props.USE_MATERIAL_FIELD); the fish of the Grivaros dock have no retail picture yet; the animals, the creatures, and the
+  animated rigging (35 references) stay out.
+- C11: 13 ghost crafting placements (jav_crafting_ghost_far2) have a drawn Illum surface at a decal subset in their override; retail
+  draws those triangles, the client leaves them out.
+- The pile of the Ironlock armory is dark brown in the client and reddish sand in retail (a material point of an older mesh).
+- The cell build warns "override slots with no slot or no material instance" in many regions; it is older than C8 (the material
+  keys exist; slot names of older pairs).
+- 7,117 of the 7,683 override pairs are still version 1 (their slot maps predate the A2 and A2b rules).
+
+The proposed follow-ups are the list below (the final report of AST-275 in Linear has the same list).
+
+#### The follow-ups of AST-275
+
+1. Light parity of the dark places: the cave, the manor interior, the station floor (exposure, the ambient and probe light, SSDO).
+   Measure with tools/lib/material_bands.py on the matched views; no material change first.
+2. The light shafts: the brightness of the C8 cards and the volumetric fog lit by the sun through openings (retail haze at Ballard's
+   Manor). Research the source fog shaft first.
+3. C6 collision and the props with clips: a retail test whether the props collide (walk into the armory pile and the fish dock);
+   then a cell flag "no collision" (C++, SwcEditorLibrary); the animals, the creatures, and the animated rigging of the level slices
+   to the creature track; a retail picture of the Grivaros fish.
+4. The override pairs of version 1 (7,117): make them again with the version 3 rules in a check copy, count the slot changes and the
+   missing instances, and pictures at 3 places before a deploy; with it, the cause of the "override slots with no slot" warning.
+5. The material points: the Ironlock armory pile (its shader and blend layer against retail), the bow slot m_e310b3edeb with no
+   spec, the 13 ghost crafting placements (draw the override surface at the decal subsets).
+6. C3, the vegetation areas: the gap of 1,213 references (18 meshes) and the 100 m range of T4 against retail.
 
 ## The loading (AST-203, 2026-10-20)
 

@@ -384,6 +384,15 @@ meshes with a proxy change at their next conversion.
   (`tests/converter/test_material_pins.py`). The pin "RGB" connected nothing until M_SwcSurface 11 and M_SwcHair 7
   (AST-278): no vertex tint drew. Since M_SwcDecal 8 a mesh decal with %VERTCOLORS multiplies its base color by the vertex
   RGB, as the source decal (the seaweed of the galleon hull drew bright yellow).
+- The order of the steps for new companions (AST-275 C4): `tools/apply-materials.sh --part decals --keys ...` makes the dm_
+  instances first, then `tools/import.sh` imports the companions. An import before the instances exist keeps the glTF import
+  material in each slot ("slots with no material" in the import report): the crater moss drew opaque and pale over the whole
+  cliff. The decal spec follows the source rule (research/e5-surface-decal.md): Smoothness is Shininess / 255, a factor of the
+  gloss map (the _ddna alpha), not a gloss of its own; the moss has roughness 0.86, F0 0.0026, and albedo luminance 0.020.
+- The override of a placement replaces the decal sub-materials too (AST-275 C11, `overrides.decal_slot_map`): the cells give the
+  companion of a group the slot map own dm_ key -> the dm_ key of the override sub-material with the same index, and no companion
+  when the override has no mesh decal there. Example: the cliffs_mossy .mtl turns the red crater moss of the ctr_cliff meshes
+  green; the fall and winter poplars draw their fall01 and wint01 decal textures.
 - The slot of each sub-material is named by `materials.instance_key`: one slot for each set of render rules (no
   collapsed slot, no wrong rules of a shared key).
 - The cost measure on Oxboro (the rebuild set of `r_+04_+02`: 1,924 meshes, 16.9 M triangles) imports into
@@ -731,6 +740,11 @@ python3 -B tools/lib/material_bands.py tools/lib/material_bands.json FOLDER [VIE
   for the sunlit class the client / retail ratio of the linear RGB, divided by the ratio of the references (the light
   cast): near 1 in each channel, the material follows the light.
 - Output: FOLDER/material-bands.json and material-bands.txt.
+
+- The light parity of the dark places (AST-275, 2026-10-24, the matched views of the coverage set): the client is brighter than
+  retail where little light falls (the gray mean of the cave left area 40.9 against 18.1, the left wall of Ballard's Manor 29.2
+  against 16.8; the station floor of AST-278: 58.2 against 43.3). The materials follow their source rules there (AST-278); the
+  difference is in the light (exposure, ambient and probe light, SSDO): a follow-up of the light, not of the materials.
 
 ## Cost checks
 
