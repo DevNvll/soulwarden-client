@@ -566,7 +566,19 @@ The same reads at a region border (in play) are now on workers too. The check (r
 travels: Oxboro to the fen, the Great Cleave, the Dunwood keep, Oxboro): from the request to the frame of the screen 1,376, 1,973,
 3,327, and 3,098 ms before against 343, 470, 298, and 61 ms after; the longest frame before the screen 822 to 3,105 ms against 54 to
 451 ms; the longest frame behind the screen 945 to 1,169 ms against 708 to 1,116 ms; the screen 12.9 to 20.1 s against 12.7 to 20.3 s
-(the cells). Open: the request frame itself still has 0.05 to 0.44 s after the streaming source of the place is set (not traced yet).
+(the cells). The request frame itself still had 0.05 to 0.44 s after the streaming source of the place was set.
+
+The request frame (AST-273, 2026-10-24): a trace of the cooked build (`-trace=cpu,frame,log,bookmark,loadtime -statnamedevents`)
+put 536 of the 546 ms of one request frame in `SwcBackend_TickWorld`, with no engine scope under it. The scopes of the wait
+(`SwcWorldStreaming_IsReadyAt`, `_IsStreamingCompleted`, `_GroundBelow`, `_ChecksReady`, `_EngineReady`) and one scope for each check
+of the gate ("SwcGate NAME") found it: the check "creature kinds" took 255.5, 446.4, and 239.2 ms of the three long request frames
+(772.7 ms at the world entry); each other step less than 2 ms. At a new place, `USwcCreatureSubsystem::PreloadKinds` read and parsed
+the animation sets of the kinds near the place (`creatures/animations/*.json`, mean 1.1 MB) on the game thread. Now it reads the sets
+that the library does not have on a worker (`RequestAnimations`, one read for each key, shared with the spawns); the check waits with
+"N animation set(s) of the kinds near the place to read", then the assets load as before. The check (editor binary, the p8 drive,
+before and after): the longest frame before the screen 311, 476, 233, 49 ms against 56, 43, 73, 47 ms; the same kinds and assets
+(11 to 17 slices, 45 to 97 assets, 50 creatures, 0 placeholders); the screen ends with the cells in both runs (12.3 to 18.9 s against
+13.0 to 19.9 s: the cell times of the two runs).
 
 ### The failure of a load and the creature kinds (AST-216, 2026-10-21)
 

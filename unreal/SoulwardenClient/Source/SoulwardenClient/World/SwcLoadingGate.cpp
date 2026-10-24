@@ -2,6 +2,7 @@
 
 #include "Camera/PlayerCameraManager.h"
 #include "ContentStreaming.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "SceneView.h"
@@ -157,6 +158,7 @@ bool SwcLoadingGate::ChecksReady(const UWorld* World, const FVector& Place, FStr
 	bool bReady = true;
 	for (const TPair<FName, FCheck>& Pair : State->Checks)
 	{
+		TRACE_CPUPROFILER_EVENT_SCOPE_TEXT(*FString::Printf(TEXT("SwcGate %s"), *Pair.Key.ToString()));   // each check in a trace (AST-273)
 		FString Why;
 		if (!Pair.Value(Place, Why))
 		{

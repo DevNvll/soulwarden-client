@@ -319,12 +319,19 @@ private:
 	void EnsureLibrary();
 	/** The preload of the kinds near an arrival (AST-216): the gate check "creature kinds". The slice keys of the spawn points of
 	 *  each 128 m cell (content/creatures/spawn-cells.json); at a new place of a loading screen the first assets of the slices
-	 *  within PreloadRadius load (ASwcCreature::CollectSliceAssets), and the screen ends when they are loaded. */
+	 *  within PreloadRadius load (ASwcCreature::CollectSliceAssets), and the screen ends when they are loaded. The animation sets that
+	 *  the library does not have are read first on a worker thread (RequestAnimations; AST-273: their read on the game thread froze
+	 *  the frame of the travel request 0.24 to 0.45 s). */
 	bool PreloadKinds(const FVector& Place, FString& Why);
+	/** Collects the first assets of the slices near the place (their animation sets are in the library) and starts their load. */
+	void StartPreloadLoad(const TSet<FString>& Keys);
 	TMap<FIntPoint, TArray<FString>> SpawnCells;
 	bool bSpawnCellsRead = false;
 	FVector PreloadPlace = FVector(TNumericLimits<double>::Max());
 	TSharedPtr<FStreamableHandle> PreloadHandle;
+	/** The place of the preload (a new place makes the reads of an earlier place stale) and its animation sets that the worker reads. */
+	uint32 PreloadSerial = 0;
+	int32 PreloadSetReads = 0;
 	int32 PreloadSlices = 0;
 	int32 PreloadAssets = 0;
 	double PreloadStart = 0.0;

@@ -213,18 +213,51 @@ bool USwcCreatureSubsystem::PreloadKinds(const FVector& Place, FString& Why)
 				}
 			}
 		}
-		TArray<FSoftObjectPath> Paths;
-		for (const FString& Key : Keys)
-		{
-			ASwcCreature::CollectSliceAssets(Library, Library.FindSlice(Key), Paths, true);
-		}
-		Paths.RemoveAll([](const FSoftObjectPath& Path) { return Path.ResolveObject() != nullptr; });
 		PreloadSlices = Keys.Num();
-		PreloadAssets = Paths.Num();
+		PreloadAssets = 0;
 		PreloadStart = FPlatformTime::Seconds();
 		bPreloadLogged = false;
-		// The handle stays until the next place: the assets stay in memory while the character is near.
-		PreloadHandle = Paths.IsEmpty() ? nullptr : Streamer.RequestAsyncLoad(Paths, FStreamableDelegate(), FStreamableManager::AsyncLoadHighPriority);
+		PreloadHandle = nullptr;
+		const uint32 Serial = ++PreloadSerial;
+		// The animation sets of the slices and of their animated weapons that the library does not have: read on a worker thread
+		// (a set file is up to some MB of JSON), then the assets (StartPreloadLoad).
+		TArray<FString> SetKeys;
+		for (const FString& Key : Keys)
+		{
+			if (const FSwcCreatureSlice* Slice = Library.FindSlice(Key))
+			{
+				SetKeys.AddUnique(Slice->AnimationKey);
+				for (const FSwcCreatureWeapon& Weapon : Slice->Weapons)
+				{
+					if (!Weapon.SkeletonMeshPath.IsEmpty())
+					{
+						SetKeys.AddUnique(Weapon.AnimationKey);
+					}
+				}
+			}
+		}
+		SetKeys.RemoveAll([this](const FString& Key) { return Key.IsEmpty() || Library.HasAnimations(Key); });
+		PreloadSetReads = SetKeys.Num();
+		if (SetKeys.IsEmpty())
+		{
+			StartPreloadLoad(Keys);
+		}
+		else
+		{
+			RequestAnimations(SetKeys, [this, Serial, Keys = MoveTemp(Keys)]()
+			{
+				if (Serial == PreloadSerial)   // else a newer place has its own preload
+				{
+					PreloadSetReads = 0;
+					StartPreloadLoad(Keys);
+				}
+			});
+		}
+	}
+	if (PreloadSetReads > 0)
+	{
+		Why = FString::Printf(TEXT("%d animation set(s) of the kinds near the place to read (%d slices)"), PreloadSetReads, PreloadSlices);
+		return false;
 	}
 	const bool bReady = !PreloadHandle.IsValid() || PreloadHandle->HasLoadCompleted();
 	if (bReady && !bPreloadLogged)
@@ -235,6 +268,19 @@ bool USwcCreatureSubsystem::PreloadKinds(const FVector& Place, FString& Why)
 	}
 	Why = FString::Printf(TEXT("the kinds of the spawn points near the place load (%d slices, %d assets)"), PreloadSlices, PreloadAssets);
 	return bReady;
+}
+
+void USwcCreatureSubsystem::StartPreloadLoad(const TSet<FString>& Keys)
+{
+	TArray<FSoftObjectPath> Paths;
+	for (const FString& Key : Keys)
+	{
+		ASwcCreature::CollectSliceAssets(Library, Library.FindSlice(Key), Paths, true);
+	}
+	Paths.RemoveAll([](const FSoftObjectPath& Path) { return Path.ResolveObject() != nullptr; });
+	PreloadAssets = Paths.Num();
+	// The handle stays until the next place: the assets stay in memory while the character is near.
+	PreloadHandle = Paths.IsEmpty() ? nullptr : Streamer.RequestAsyncLoad(Paths, FStreamableDelegate(), FStreamableManager::AsyncLoadHighPriority);
 }
 
 void USwcCreatureSubsystem::Deinitialize()

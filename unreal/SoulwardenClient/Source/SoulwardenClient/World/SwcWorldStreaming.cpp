@@ -8,6 +8,7 @@
 #include "HAL/PlatformTime.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "World/SwcLoadingGate.h"
 #include "WorldPartition/WorldPartition.h"
 
@@ -155,6 +156,7 @@ bool LightSettled(FString& Why)
 
 bool SwcWorldStreaming::IsReadyAt(UWorld* World, const FVector& Location, double TimeoutSeconds, const FVector& Forward)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(SwcWorldStreaming_IsReadyAt);   // the steps of the wait in a trace (AST-273)
 	if (World == nullptr || World->GetWorldPartition() == nullptr)
 	{
 		return true;
@@ -230,13 +232,29 @@ bool SwcWorldStreaming::IsReadyAt(UWorld* World, const FVector& Location, double
 	SampleLight();
 	const double Now = FPlatformTime::Seconds();
 	const double Waited = Now - Since;
-	const bool bStreamed = SourceComponent.IsValid() && SourceComponent->IsStreamingCompleted();
-	const TOptional<double> Ground = GroundBelow(World, Location);
+	bool bStreamed = false;
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(SwcWorldStreaming_IsStreamingCompleted);
+		bStreamed = SourceComponent.IsValid() && SourceComponent->IsStreamingCompleted();
+	}
+	TOptional<double> Ground;
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(SwcWorldStreaming_GroundBelow);
+		Ground = GroundBelow(World, Location);
+	}
 	const bool bNearGround = Ground.IsSet() && Ground.GetValue() >= Location.Z - NearGroundBelowCm;
 	FString ChecksWhy;
 	FString EngineWhy;
-	const bool bChecks = SwcLoadingGate::ChecksReady(World, Location, ChecksWhy);
-	const bool bEngine = SwcLoadingGate::EngineReady(EngineWhy);
+	bool bChecks = false;
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(SwcWorldStreaming_ChecksReady);
+		bChecks = SwcLoadingGate::ChecksReady(World, Location, ChecksWhy);
+	}
+	bool bEngine = false;
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(SwcWorldStreaming_EngineReady);
+		bEngine = SwcLoadingGate::EngineReady(EngineWhy);
+	}
 	FString LightWhy;
 	const bool bLight = LightSettled(LightWhy);
 	if (bStreamed && bNearGround && bChecks)
