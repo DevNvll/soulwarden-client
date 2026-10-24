@@ -19,9 +19,10 @@
 # plugin), runs in a memory scope (SWC_COOK_MEMORY_MAX, default 22G, with at most 6G of swap: the cooker must not thrash in swap)
 # with 12 cores at nice 10 (SWC_COOK_CPU_QUOTA, default 1200%: the shader compile of a cold cook was the limit with 4 cores), and
 # stops when the free space of the disk of SWC_WORK goes below SWC_COOK_MIN_FREE_GB (default 100 GB; AST-273: one cook and one staged
-# build put the 1.9 TB disk at about 86 %, so a guard of 85 % stopped each cook that followed). The cooker options are constants (COOKER_OPTIONS: garbage collection at
-# 20,000 MiB used or 8,000 MiB available, see below; 8 shader workers): a change makes the next cook full. The log: SWC_WORK/logs/cook.log. An incremental cook
-# (the second one) cooks again only the packages that changed (UAT -iterate).
+# build put the 1.9 TB disk at about 86 %, so a guard of 85 % stopped each cook that followed). The cooker options are constants (COOKER_OPTIONS: a full garbage
+# collection at 18,000 MiB used by the cooker, see below; 4 shader workers): a change makes the next cook full. COOKER_FLAGS (the map first, one cooker process)
+# are not ini settings and are not in the hash; SWC_COOK_EXTRA adds options for one cook (for example -CookMemoryAnalysis=Simple). The log: SWC_WORK/logs/cook.log.
+# An incremental cook (the second one) cooks again only the packages that changed (UAT -iterate).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 map="" build=1 cook=1 wait=3600 full=0
@@ -40,13 +41,20 @@ cooked="${SWC_COOKED:-${SWC_WORK}/cooked}"
 platform_ini="${SWC_REPO}/unreal/SoulwardenClient/Config/Linux/LinuxEngine.ini"
 log="${SWC_WORK}/logs/cook.log"
 # The options of the cooker: constants (they are in the ini settings of the legacy incremental cook; 2026-10-22, AST-229).
-# The memory (AST-273, 2026-10-23): the computer has 46 GB of RAM, and the desktop programs use about 18 GB. The full cook of
-# 175,045 packages with a 30G scope was stopped by the guard at "available" 1.1 GB after 433 s (64,732 packages; 33 GB of virtual
-# memory). The scope is now 22G (22 + 18 GB, plus about 2.5 GB of RAM for the zram of the 6G of swap of the scope, leaves about
-# 3.5 GB). MemoryMinFreePhysical 8000: the cooker collects garbage when the whole computer has less than 8 GB available (the
-# engine compares it with the available physical memory, CookGarbageCollect.cpp), before the guard stops at 3 GB; this follows the
-# desktop programs. MemoryMaxUsedPhysical 20000: under the scope (14000 gave the GC stall and the assertion of 2026-10-22).
-COOKER_OPTIONS="-ini:Editor:[CookSettings]:MemoryMaxUsedPhysical=20000 -ini:Editor:[CookSettings]:MemoryMinFreePhysical=8000 -ini:Engine:[DevOptions.Shaders]:ShaderCompilerCoreCountThreshold=64 -ini:Engine:[DevOptions.Shaders]:NumUnusedShaderCompilingThreads=8"
+# The memory (AST-273): the computer has 46 GB of RAM. The cook runs in a 22G scope with 6G of swap. Three full cooks (2026-10-23
+# and 2026-10-24) died at about 65,900 packages, where the cooker splits the World Partition map NewWorld (1,759 cell packages). The
+# third one (the desktop programs closed) was stopped by the OOM killer of the scope with 8.7 GB still available on the computer. The
+# reason (research/ast273-wp-cook-memory.md, the engine source CookGarbageCollect.cpp): the cooker requests a full garbage collection
+# only when a minimum-free test AND a maximum-used test pass. With MemoryMinFreePhysical 8000 (and the default MemoryMinFreeVirtual
+# 2048) the cooker at 20,000 MiB did not collect while the computer had more than 8 GB available, and only the periodic soft
+# collections ran. Now the minimum-free tests are off (0; a zero turns a test off) and MemoryMaxUsedPhysical 18000 alone requests the
+# full collection (the cooker reads its own VmRSS, not the scope: 18,000 MiB leaves about 4.5 GB of the scope for UAT and the shader
+# workers; 14,000 gave the stall of 2026-10-22). The shader work in the scope is smaller: 4 workers (16 cores - 12 unused; the
+# threshold 64 keeps the subtraction) and MaxConcurrentShaderJobs 2048 (the base value is 65536).
+COOKER_OPTIONS="-ini:Editor:[CookSettings]:MemoryMaxUsedPhysical=18000 -ini:Editor:[CookSettings]:MemoryMaxUsedVirtual=0 -ini:Editor:[CookSettings]:MemoryMinFreePhysical=0 -ini:Editor:[CookSettings]:MemoryMinFreeVirtual=0 -ini:Editor:[CookSettings]:MaxConcurrentShaderJobs=2048 -ini:Engine:[DevOptions.Shaders]:ShaderCompilerCoreCountThreshold=64 -ini:Engine:[DevOptions.Shaders]:NumUnusedShaderCompilingThreads=12"
+# COOKER_FLAGS: the order of the cook, not ini settings. -CookFirst requests the map first (the split then does not overlap with the
+# assets of 65,000 earlier packages); one cooker process (more processes each prepare the generator in the same scope).
+COOKER_FLAGS="-CookFirst=/SwcGameContent/World/NewWorld -CookProcessCount=1"
 # config_hash: the project config files (Default*.ini; not the temporary Config/Linux of --map) and the cooker options.
 config_hash() {
     { (cd "${SWC_REPO}/unreal/SoulwardenClient/Config" && sha1sum Default*.ini); echo "${COOKER_OPTIONS}"; } | sha1sum | cut -c1-16
@@ -116,7 +124,7 @@ flock -w "${wait}" "${SWC_WORK}/unreal/import.lock" \
     systemd-run --user --scope -q -p CPUQuota="${SWC_COOK_CPU_QUOTA:-1200%}" -p MemoryMax="${SWC_COOK_MEMORY_MAX:-22G}" -p MemorySwapMax=6G \
     nice -n 10 "${UE_ROOT}/Engine/Build/BatchFiles/RunUAT.sh" BuildCookRun -project="${SWC_UPROJECT}" -noP4 -platform=Linux \
     -clientconfig=Development -skipbuild -nocompileeditor "${steps[@]}" -unattended -utf8output \
-    -AdditionalCookerOptions="${COOKER_OPTIONS}" \
+    -AdditionalCookerOptions="${COOKER_OPTIONS} ${COOKER_FLAGS}${SWC_COOK_EXTRA:+ ${SWC_COOK_EXTRA}}" \
     > "${log}" 2>&1 || status=$?
 echo "$(date -u +%H:%M:%S) cook: status ${status}, $((SECONDS - start)) s, disk $(disk) %, staged $(du -s --block-size=1M "${cooked}" | cut -f1) MiB" \
     | tee -a "${log}.summary"

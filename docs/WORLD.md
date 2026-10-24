@@ -687,6 +687,13 @@ The fixes of the full cook:
     the changed garbage collection option deleted the cooked packages of the earlier incremental cooks (175,522 packages at 13:48 UTC).
     In the guarded tries the cooker's memory went from 7.9 to 34.8 GB in about 2 minutes, with only soft garbage collections: the
     scope held its RAM under the trigger (26,000 MiB), so the kernel swapped it [I].
+  - AST-273 (2026-10-23 and 2026-10-24, about 175,000 packages): three full cooks died at about 65,900 packages, where the cooker
+    splits NewWorld into 1,759 cell packages. The third one (22G scope, the desktop programs closed) was stopped by the OOM killer of
+    the scope while the computer still had 8.7 GB available. The cause (`research/ast273-wp-cook-memory.md`, the engine source): the
+    cooker requests a full garbage collection only when a minimum-free test (`MemoryMinFreePhysical`, `MemoryMinFreeVirtual`) and a
+    maximum-used test (`MemoryMaxUsedPhysical`) both pass, so 20,000 MiB used did not collect while the computer had more than 8 GB
+    available. Now the minimum-free tests are 0 (off), the cooker collects at 18,000 MiB of its own memory, the map cooks first
+    (`-CookFirst`), and 4 shader workers compile (`tools/cook.sh` COOKER_OPTIONS and COOKER_FLAGS).
   - The next full cook (the cooker options above): a quiet computer (no client run of a track, no user game, at least 30 GB
     available), `tools/cook.sh --full`, and the guard `work/ast261/cook-guard.sh` (it stops at less than 3 GB available, at a swap
     growth of 20 GB, or at a start of the user's `tools/play.sh`). The cooker process is `UnrealEditor-Cmd ... -run=Cook`: a stop of
