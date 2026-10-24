@@ -22,7 +22,7 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "11", "M_SwcSurfaceMasked": "11", "M_SwcDecal": "7",
+PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "11", "M_SwcSurfaceMasked": "11", "M_SwcDecal": "8",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
                    "M_SwcSurfaceTranslucent": "10", "M_SwcHair": "7"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
@@ -37,6 +37,7 @@ PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "11", "M_SwcSurfaceMaske
 # Unreal Hair, direct and in the environment term) and the material AO saturate(HairEnvScale) (the Lumen diffuse indirect of
 # the hair, which the Unreal Hair weights with its whole BSDF; at most 1); swc.HairSpec and swc.HairEnv, default 1: the same
 # picture as 5);
+# M_SwcDecal 8: the base color x the vertex RGB with UseVertexAlpha (%VERTCOLORS), as the source decal (AST-278);
 # M_SwcSurface, M_SwcSurfaceMasked 11, M_SwcSurfaceTranslucent 10, M_SwcHair 7: the vertex RGB tint (UseVertexColor) connects the
 # RGB output "" of VertexColor; the pin name "RGB" connected nothing before (AST-278: the pale floors, the bright galleon hull);
 # M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals;
@@ -200,12 +201,49 @@ def node(material, kind, x, y):
     return editing.create_material_expression(material, kind, x, y)
 
 
+# AST-278 check only: SWC_DEBUG_VERTEX_VIEW=1 makes the surface parents a debug view of the vertex colors (base color 0; the
+# emissive color is the vertex RGB on the left half of the screen and the vertex alpha on the right half). The version gets the
+# mark "-vcdebug", thus a normal apply makes the parent again. Never set it for the shared plugin.
+DEBUG_VERTEX_VIEW = os.environ.get("SWC_DEBUG_VERTEX_VIEW", "") == "1"
+# The debug value: a calibration ladder in the bands 0.30 < y < 0.34 and 0.585 < y < 0.615 of the viewport (the values 0.1 to 1.0 in 10 steps across
+# the screen), else L on the left half and R on the right half (float3).
+DEBUG_VIEW_HLSL = """if ((UV.y > 0.30 && UV.y < 0.34) || (UV.y > 0.585 && UV.y < 0.615)) { float s = (floor(UV.x * 10.0) + 1.0) / 10.0; return float3(s, s, s); }
+return UV.x < 0.5 ? L : R;"""
+
+
+def debug_view(material, left, right, x, y):
+    """@return The debug value node of DEBUG_VIEW_HLSL with the inputs (node, pin) left and right (float3 each)."""
+    screen = node(material, unreal.MaterialExpressionScreenPosition, x - 250, y)
+    view = custom(material, DEBUG_VIEW_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT3, ("L", "R", "UV"), x, y)
+    editing.connect_material_expressions(left[0], left[1], view, "L")
+    editing.connect_material_expressions(right[0], right[1], view, "R")
+    editing.connect_material_expressions(screen, "ViewportUV", view, "UV")
+    return view
+
+
+def debug_gray(material, source, pin, x, y):
+    """@return An AppendVector node: float3(v, v, v) of one value."""
+    two = editing.create_material_expression(material, unreal.MaterialExpressionAppendVector, x - 150, y)
+    three = editing.create_material_expression(material, unreal.MaterialExpressionAppendVector, x, y)
+    editing.connect_material_expressions(source, pin, two, "A")
+    editing.connect_material_expressions(source, pin, two, "B")
+    editing.connect_material_expressions(two, "", three, "A")
+    editing.connect_material_expressions(source, pin, three, "B")
+    return three
+
+
+def parent_version(name):
+    """@return The version of a parent in the import state (PARENT_VERSIONS, with the debug mark of DEBUG_VERTEX_VIEW)."""
+    debug = DEBUG_VERTEX_VIEW and (name.startswith("M_SwcSurface") or name == "M_SwcDecal")
+    return PARENT_VERSIONS[name] + ("-vcdebug" if debug else "")
+
+
 def parent_asset(name, content, state):
     """@return (the parent material with no expressions, the white linear texture) when the parent must be made again
     (new, or its version in PARENT_VERSIONS changed), else (None, None). The asset path stays: its instances keep
     their parameters."""
     path = f"{BASE}/{name}"
-    if assets.does_asset_exist(path) and state.get("base:" + name) == PARENT_VERSIONS[name]:
+    if assets.does_asset_exist(path) and state.get("base:" + name) == parent_version(name):
         return None, None
     white = white_linear(content, state)
     if assets.does_asset_exist(path):
@@ -615,9 +653,22 @@ def surface_parent(content, state, masked, translucent=False):
     # The skinned bodies (apply_bodies): a material with no usage flag for its mesh compiles its shaders again at each start
     # and draws the default material.
     material.set_editor_property("used_with_skeletal_mesh", True)
+    if DEBUG_VERTEX_VIEW:
+        # Emissive only (base color, metallic, specular 0; roughness 1): the value x EmissiveScale (10,000 cd/m2 x swc.LightScale).
+        view = debug_view(material, (vertex, ""), (debug_gray(material, vertex, "A", -500, 6450), ""), -250, 6300)
+        lum = editing.create_material_expression(material, unreal.MaterialExpressionCollectionParameter, -250, 6500)
+        lum.set_editor_property("collection", collection(content, state))
+        lum.set_editor_property("parameter_name", "EmissiveScale")
+        editing.connect_material_property(multiply(material, (view, ""), (lum, ""), -50, 6350), "", MP.MP_EMISSIVE_COLOR)
+        for prop in (MP.MP_BASE_COLOR, MP.MP_METALLIC, MP.MP_SPECULAR):
+            editing.connect_material_property(black, "", prop)
+        one_ = editing.create_material_expression(material, unreal.MaterialExpressionConstant, -250, 6600)
+        one_.set_editor_property("r", 1.0)
+        editing.connect_material_property(one_, "", MP.MP_ROUGHNESS)
+        log(f"{name}: the debug view of the vertex colors (SWC_DEBUG_VERTEX_VIEW)")
     editing.recompile_material(material)
     assets.save_loaded_asset(material)
-    state["base:" + name] = PARENT_VERSIONS[name]
+    state["base:" + name] = parent_version(name)
     return material
 
 
@@ -844,7 +895,12 @@ def decal_parent(content, state):
     # The color and the opacity of the decal entity (DecalConfiguration Color, Opacity: g_DecalDiffuse of the source;
     # USwcSurfaceLayer sets them with SetDecalColor; white for the mesh decals).
     entity = node(material, unreal.MaterialExpressionDecalColor, -900, -550)
-    tinted = multiply(material, (albedo, ""), (entity, "RGB"), -450, -350)
+    entity_tinted = multiply(material, (albedo, ""), (entity, "RGB"), -450, -350)
+    # A mesh decal with %VERTCOLORS: x the vertex RGB, as the source decal (D = diffuse x XML Diffuse x V.rgb; research
+    # e5-surface-decal.md; AST-278: the seaweed of the galleon hull drew bright). The same static switch as the vertex alpha.
+    vertex_rgb = node(material, unreal.MaterialExpressionVertexColor, -900, -700)
+    with_vertex_rgb = multiply(material, (entity_tinted, ""), (vertex_rgb, ""), -300, -450)
+    tinted = switch(material, "UseVertexAlpha", (with_vertex_rgb, ""), (entity_tinted, ""), -200, -350)
     editing.connect_material_property(tinted, "", MP.MP_BASE_COLOR)
     normal = sample("Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"), 200)
     # A projected decal: Unreal turns the tangent normal (x, y, z) into -z X + y Y + x Z of the decal axes
@@ -921,9 +977,22 @@ def decal_parent(content, state):
     # The mesh decal companions of the cells are instanced components: with no flag the engine drew its default material
     # (a flat gray band on the moldings and the tree trunks, AST-203).
     material.set_editor_property("used_with_instanced_static_meshes", True)
+    if DEBUG_VERTEX_VIEW:
+        # Base color = the vertex alpha (left half) and the texture alpha (right half), the ladder in the band; opacity 1 (the whole
+        # decal geometry), specular 0, roughness 1. The values show as lit albedo: compare them with the ladder of the same view.
+        view = debug_view(material, (debug_gray(material, vertex, "A", -500, 2300), ""),
+                          (debug_gray(material, texture_alpha, "", -500, 2450), ""), -250, 2300)
+        editing.connect_material_property(view, "", MP.MP_BASE_COLOR)
+        zero = editing.create_material_expression(material, unreal.MaterialExpressionConstant, -250, 2600)
+        one_ = editing.create_material_expression(material, unreal.MaterialExpressionConstant, -250, 2700)
+        one_.set_editor_property("r", 1.0)
+        editing.connect_material_property(zero, "", MP.MP_SPECULAR)
+        editing.connect_material_property(one_, "", MP.MP_ROUGHNESS)
+        editing.connect_material_property(one_, "", MP.MP_OPACITY)
+        log(f"{name}: the debug view of the vertex and texture alpha (SWC_DEBUG_VERTEX_VIEW)")
     editing.recompile_material(material)
     assets.save_loaded_asset(material)
-    state["base:" + name] = PARENT_VERSIONS[name]
+    state["base:" + name] = parent_version(name)
     return material
 
 
