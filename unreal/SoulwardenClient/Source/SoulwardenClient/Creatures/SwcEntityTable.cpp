@@ -194,8 +194,10 @@ void EntityTable::apply(const decoder::Record& record, std::uint64_t nowUs) {
                 entity.hasWorldPlace = true;
                 entity.worldPlace = wide_position(place);
             }
+            // The place rotation (u16 for each axis, backend states/object_states.cpp), not the compressed quaternion of the movement
+            // state: with that reader, a station that turns only about the vertical axis drew tilted (AST-275).
             if (const auto rotation = decoder::field_of(fragment, 0, 1); !rotation.empty()) {
-                entity.worldPlaceRotation = swc::net::read_quaternion(rotation);
+                entity.worldPlaceRotation = swc::net::read_place_rotation(rotation);
             }
             m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
         } else if (fragment.type == kTypeLootDrop) {

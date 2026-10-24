@@ -511,6 +511,39 @@ void test_loot_bag() {
     check(table.find(70) == nullptr, "the stop removes the bag");
 }
 
+// ------------------------------------------------------------------------------------------------ the rotation of a place
+
+/** The rotation of the PositionInTheWorld state (AST-275): the carpentry station of Everfall (interaction-data.json spawned, a turn
+ *  about the vertical axis only) and a tilted rotation with w < 0 (the backend sends the negative, w not negative). The entity table
+ *  must give the same rotation, not the tilt of the reader of the movement state. */
+void test_place_rotation() {
+    TestClock clock;
+    const std::array<std::array<float, 4>, 2> rotations{{{0.0F, 0.0F, 0.990268F, 0.139173F}, {0.2F, -0.4F, 0.1F, -0.888819F}}};
+    for (std::size_t index = 0; index < rotations.size(); ++index) {
+        backend::world::Entity station;
+        station.kind = backend::world::EntityKind::object;
+        station.object.positionSlot = 2;
+        station.object.rotation = rotations[index];
+        station.position = {9338.851F, 2699.9934F, 82.7804F};
+        decoder::Record record;
+        record.interest = static_cast<std::uint32_t>(80 + index);
+        record.fragments.push_back(fragment_of(2, 13, rep::encode_object_place_state(station, rep::View::observer, clock),
+                                               "position in the world (station)"));
+        EntityTable table;
+        table.apply(record, server_us(clock));
+        const swc::creatures::Entity* seen = table.find(record.interest);
+        check(seen != nullptr && seen->hasWorldPlace, "the place of the station");
+        if (seen == nullptr) {
+            continue;
+        }
+        const auto& q = seen->worldPlaceRotation;
+        const auto& r = rotations[index];
+        const double sign = r[3] < 0.0F ? -1.0 : 1.0;
+        check(near(q.x, sign * r[0], 1e-4) && near(q.y, sign * r[1], 1e-4) && near(q.z, sign * r[2], 1e-4) && near(q.w, sign * r[3], 1e-4),
+              index == 0 ? "the rotation of the place: a turn about the vertical axis" : "the rotation of the place: a tilt with w < 0");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -520,6 +553,7 @@ int main() {
     test_loot_bag();
     test_vortex();
     test_beacon();
+    test_place_rotation();
     std::printf("effects: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

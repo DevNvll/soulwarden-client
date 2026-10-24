@@ -402,6 +402,9 @@ the places of interest with the census tops) found these classes. The counts are
   the children of its templates); `Objects/SwcServerVisuals` (USwcServerVisualSubsystem) reads the entity table and draws the meshes of
   the slice of each record at its place, only at a backend place of its key (the on-start stations are cell placements: no double draw).
   `-SwcNoServerVisuals`, `swc.ServerVisuals 0`. The file holds object paths of the plugin: write it again after an import.
+  The rotation of a record is the rotation of its PositionInTheWorld state: one u16 for each of x, y, z (`read_place_rotation`;
+  backend states/object_states.cpp). The entity table read it with the reader of the movement state until 2026-10-24: the stations
+  drew tilted, and the loot bags had the same wrong rotation (test `test_place_rotation` of tools/test-creatures.sh).
 - C4, the meshes with only decal subsets (1,497: the moss layers of the crater cliffs, Dunwood floor decals): mesh rule 7 writes their
   decal companion alone and the record "empty" names it (`mesh.convert`); the cells place the companion alone (flag bit 1).
   Held out for now (`cells.PLACE_DECAL_ONLY` False, 2026-10-24): the first check drew the moss pale gray and glossy (retail: subtle dark
