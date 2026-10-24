@@ -432,6 +432,14 @@ the places of interest with the census tops) found these classes. The counts are
   `materials.sub_material`: the rule of CMatInfo::GetSafeSubMtl of the engine source; not traced in the retail client). Before, a
   subset above index 0 had no material. The check of all census meshes and pairs: it changes 4 meshes (40 placements: the galleon
   capstan, a hanging banner) and 96 override pairs (896 placements, for example the glowing magenta mushrooms), and no other record.
+- C8, the effect shaders Fxmeshadvancedtransp and Meshparticle (2026-10-24; research/ast275-effect-shaders.md): the parents
+  M_SwcFxMesh (alpha over), M_SwcFxMeshAdd (the declared additive pass, Opacity 1 or MtlFlags bit 0x4) and M_SwcMeshParticle
+  (`swc_materials`); the specs `material_records.fxmesh_spec` and `meshparticle_spec` (stage c8; their rules in `rules["fx"]`,
+  which the render key leaves out: no instance or slot name changes). `cells.C8`: the overrides of these shaders on meshes with no
+  own material draw (1,899 placements in 24 regions: the light ray cards, the teleporter liquids, doors, the water column). Out:
+  the state objects (the glyph bridges; the capture point cylinders, six owner states at each place), the procedural gradients
+  and the FX sine (the lava grid). The check: the light shaft of Ballard's Manor matches retail (shaft minus wall 26.2 against
+  25.9); no measurable GPU time.
 - Streaming (the play logs of 2026-10-23): the components that register while their mesh builds ("Waiting on static mesh") come behind
   the loading screen (1,571 of 1,575 and 6,147 of 6,220 lines); in the world none was within 300 m of the player. Late streaming is not a
   cause of the near gaps; the long loading screens are a cost of the uncooked build.

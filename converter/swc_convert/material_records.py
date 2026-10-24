@@ -868,7 +868,9 @@ def differing_fields(rules: list[dict]) -> list[str]:
 # Scripts/apply_materials.py sets the material instance of the key from its spec (the asset path does not change).
 
 SPEC_VERSION = 3      # the rule of the specs (2: the surface parents of M2; 3: the n_ instances of A1)
-DEPLOYED = ("m1", "m2", "m3a", "glass", "m3b", "m4", "beam", "m6")  # the stages that passed their check: instances.json (the import pipeline applies it)
+DEPLOYED = ("m1", "m2", "m3a", "glass", "m3b", "m4", "beam", "m6", "c8")  # the stages that passed their check: instances.json (the import pipeline applies it)
+# c8 (2026-10-24, AST-275, the decision of the orchestrator): the parents of Fxmeshadvancedtransp and Meshparticle (the light ray
+# cards matched retail: the shaft contrast 26.2 against 25.9; no measurable GPU time).
 # m6 (2026-10-20, the world track, the decision of the orchestrator): only the wind of the foliage (the static switch Wind and
 # BendDetail); the cells give SwcWind to the components with receiveWind (cells version 6).
 STAGES = DEPLOYED      # the stages of the specs that spec_of() makes now

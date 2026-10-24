@@ -55,9 +55,9 @@ PLACE_DECAL_ONLY = False
 # foliage, the glass) and the beam parent of mesh rule 8 (M_SwcBeam, AST-207). NoDraw sub-materials have no slot.
 EFFECT_PARENTS = frozenset({"illum", "vegetation", "glass", "geometrybeam", "nodraw"})
 # C8 (AST-275): the effect shaders with their own parents (M_SwcFxMesh, M_SwcFxMeshAdd, M_SwcMeshParticle; material_records stage
-# "c8"). Off until the C8 deploy. The overrides with an option that the parents do not have (FX_UNSUPPORTED: the procedural
+# "c8"). On since the C8 deploy (2026-10-24). The overrides with an option that the parents do not have (FX_UNSUPPORTED: the procedural
 # gradients, the FX sine) stay out.
-C8 = False
+C8 = True
 C8_PARENTS = frozenset({"fxmeshadvancedtransp", "meshparticle"})
 FX_UNSUPPORTED = ("%USE_PROC_GRADS", "%VERT_DEFORM_SINWAVE")
 # State objects stay out with C8 (the server shows one state): the glyph bridges (objects/vfx/mesh/glyph_bridge_*, the glyph
