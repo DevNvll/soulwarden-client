@@ -76,11 +76,7 @@ class CoverageCells(unittest.TestCase):
         self.folder.cleanup()
 
     def test_the_cell_entries(self):
-        cells.PLACE_DECAL_ONLY = True   # the rule of C4 (held out of the first deploy: test_decal_only_held_out)
-        try:
-            report = cells.write(REGION)
-        finally:
-            cells.PLACE_DECAL_ONLY = False
+        report = cells.write(REGION)   # C4 on (PLACE_DECAL_ONLY True since the C4 + C11 + C6 deploy)
         from swc_convert import manifest
         assets = manifest.load()["assets"]
         found = entries(self.root / "regions" / REGION / "cells.bin")
@@ -95,7 +91,11 @@ class CoverageCells(unittest.TestCase):
 
 
     def test_decal_only_held_out(self):
-        report = cells.write(REGION)
+        cells.PLACE_DECAL_ONLY = False   # the switch still holds C4 out
+        try:
+            report = cells.write(REGION)
+        finally:
+            cells.PLACE_DECAL_ONLY = True
         from swc_convert import manifest
         assets = manifest.load()["assets"]
         folders = {f for f, _ in entries(self.root / "regions" / REGION / "cells.bin")}

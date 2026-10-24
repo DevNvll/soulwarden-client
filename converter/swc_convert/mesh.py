@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import cgf, env, gltf, manifest, materials, source
+from . import cgf, env, gltf, manifest, materials, props, source
 
 
 def out_path(asset: str) -> Path:
@@ -127,7 +127,7 @@ def convert(path: str, force: bool = False, write_manifest: bool = True, rule: i
         if entry.get("version") == rule:
             return {"mesh": path, "skipped": "up to date"}
     f, meshes = load(path)
-    reference = cgf.material_guid(f) or ""
+    reference = props.own_reference(f, path)
     sub_materials: list = []
     report: dict = {"mesh": path, "triangles": 0, "vertices": 0}
     if reference:
@@ -243,7 +243,7 @@ def records_of(reports: list[dict]) -> dict[str, dict]:
 def drawn_positions(path: str) -> np.ndarray:
     """@return The engine positions of the vertices of the drawn triangles of a mesh (the glTF has no others)."""
     f, meshes = load(path.lower())
-    reference = cgf.material_guid(f) or ""
+    reference = props.own_reference(f, path.lower())
     sub_materials = materials.load_mtl(reference, path.lower())[1] if reference else []
     out = []
     for m in meshes:
@@ -271,7 +271,7 @@ def convert_group(key: str, out: Path, parts: list[tuple[str, np.ndarray]], norm
         except Exception as error:
             report.setdefault("part errors", []).append(f"{path}: {str(error)[:80]}")
             continue
-        reference = (cgf.material_guid(f) or "").lstrip("/")
+        reference = props.own_reference(f, path).lstrip("/")
         sub_materials: list = []
         if reference:
             try:

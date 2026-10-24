@@ -17,8 +17,9 @@ node of the placement (region.py): the component of an entry with wind gets the 
 for the wind of the vegetation material (E1; version 2 had no flags).
 A decal companion (the materials track, step c): Nanite does not draw deferred decal materials, so the %DECAL subsets of
 a mesh are a small non-Nanite mesh of their own (manifest: the main mesh has "decals": the key of the companion). Each
-group of such a mesh is followed by a group of its companion with the same transforms: no slot map, no wind, no shadow,
-no collision.
+group of such a mesh is followed by a group of its companion with the same transforms: no wind, no shadow, no collision.
+The slot map of a companion is the "decal slots" of the override pair (AST-275 C11, overrides.py): the override's decal keys; a
+group whose override has no decal at the companion slots has no companion. Before C11 the companion had no slot map.
 """
 from __future__ import annotations
 
@@ -47,10 +48,11 @@ FOG_MATERIAL_FOLDERS = ("objects/volumetrics/", "objects/climax/materials/volume
 # The fog cards (fx_fogcard_01 to 04: AST-265). Before AST-275 the cells left out every mesh named fx_*: also the light ray cards,
 # the waterfall kits (an Illum surface), the alpha planes, and the portal spheres (1,083 placements of the playable regions).
 FOG_CARD = "fx_fogcard"
-# C4 (AST-275): the decal companions of the meshes with only decal subsets (the moss layers of the crater cliffs). Held out (the decision
-# of the orchestrator, 2026-10-24): the first check drew them pale gray and glossy where retail has subtle dark moss (the suspects: the
-# Smoothness 1.0 and the vertex alpha of their decal spec). True places them again.
-PLACE_DECAL_ONLY = False
+# C4 (AST-275): the decal companions of the meshes with only decal subsets (the moss layers of the crater cliffs, the Dunwood floor
+# decals). The first check drew them pale gray and glossy over the whole cliff: that check imported the companions before their dm_
+# decal instances existed ("slots with no material"), so each slot kept its glTF import material. With the instances first
+# (apply-materials --part decals, then the import) and the override decals of C11 (the green cliffs_mossy moss), they match retail.
+PLACE_DECAL_ONLY = True
 # The shaders of an override that the client draws on a mesh with no material of its own: the surface parents (M_SwcSurface, the
 # foliage, the glass) and the beam parent of mesh rule 8 (M_SwcBeam, AST-207). NoDraw sub-materials have no slot.
 EFFECT_PARENTS = frozenset({"illum", "vegetation", "glass", "geometrybeam", "nodraw"})
@@ -173,6 +175,22 @@ def write(name: str) -> dict:
             return {}
         return pairs.get(overrides.pair_key(names[mesh_index], material_names[material_index]), {}).get("slots", {})
 
+    def decal_slots_of(mesh_index: int, material_index: int) -> dict:
+        """C11: {companion slot: the decal key of the override, or "" for no decal} of the pair (overrides.slot_map)."""
+        if not material_index:
+            return {}
+        return pairs.get(overrides.pair_key(names[mesh_index], material_names[material_index]), {}).get("decal slots", {})
+
+    def companion_of(mesh_index: int) -> str | None:
+        key = assets.get(names[mesh_index], {}).get("decals")
+        return key if key in assets else None
+
+    def no_decal(mesh_index: int, material_index: int) -> bool:
+        """C11: the override has no decal at any slot of the companion: retail draws no decal for the placement."""
+        changes = decal_slots_of(mesh_index, material_index)
+        companion = companion_of(mesh_index)
+        return bool(changes) and companion is not None and all(changes.get(s) == "" for s in assets[companion].get("slots", []))
+
     # A mesh with no material of its own (its only record is the key of no sub-material) draws only with the slot map of an override
     # (AST-275): with none it would draw the fallback material (white); retail has no material for it. Its override must also have
     # a parent of the client (EFFECT_PARENTS): the effect shaders with no parent yet (Fxmeshadvancedtransp: the glyph bridges, the
@@ -189,10 +207,19 @@ def write(name: str) -> dict:
                                        or any(word in material_names[o].lower() for word in C8_LEFT_OUT_MATERIALS)))):
                 keep &= ~((data["mesh"] == m) & (material_all == o))
 
-    # The entry of a placement: (mesh, override) when the override changes a slot, else the mesh alone.
+    # C11: a decal-only mesh (C4) whose override has no decal at its slots is not placed (its companion is the whole mesh).
+    dropped_decal_only = 0
+    if len(names):
+        for m, o in set(zip(data["mesh"][keep].tolist(), material_all[keep].tolist())):
+            if decal_only[m] and no_decal(m, o):
+                rows = (data["mesh"] == m) & (material_all == o) & keep
+                dropped_decal_only += int(rows.sum())
+                keep &= ~rows
+
+    # The entry of a placement: (mesh, override) when the override changes a slot or a decal slot (C11), else the mesh alone.
     entry_of_pair: dict[tuple[int, int], tuple[int, int]] = {}
     for m, o in set(zip(data["mesh"][keep].tolist(), material_all[keep].tolist())):
-        entry_of_pair[(m, o)] = (m, o) if slots_of(m, o) else (m, 0)
+        entry_of_pair[(m, o)] = (m, o) if slots_of(m, o) or decal_slots_of(m, o) else (m, 0)
     pair_rows = np.array([entry_of_pair[(m, o)] for m, o in zip(data["mesh"][keep].tolist(), material_all[keep].tolist())],
                          dtype=np.int64).reshape(-1, 2)
     wind_all = data["wind"] if "wind" in data else np.zeros(len(data["mesh"]), bool)
@@ -209,10 +236,29 @@ def write(name: str) -> dict:
     transforms = unreal_transforms(matrices)
     used = sorted(set(mesh_of.tolist()))
     table = {m: i for i, m in enumerate(used)}
-    # The decal companion of a mesh: one entry for each mesh, after the entries of the groups.
-    companions = sorted({m // 131072 for m in used if assets[names[m // 131072]].get("decals") in assets
-                         and not decal_only[m // 131072]})
-    companion_entry = {m: len(used) + i for i, m in enumerate(companions)}
+    # The decal companion of a group: one entry for each (mesh, override with decal slots, else 0), after the entries of the groups.
+    # C11: the override's decal keys replace the slots of the companion; a slot with no decal in the override keeps its own decal
+    # when other slots change ("decal slots kept"), and a group whose override has no decal at all has no companion.
+    def companion_slots(mesh_index: int, material_index: int) -> dict:
+        return {s: k for s, k in decal_slots_of(mesh_index, material_index).items() if k}
+
+    companion_of_entry: dict[int, tuple[int, int]] = {}
+    for m in used:
+        mesh_index, material_index = divmod(m // 2, 65536)
+        if decal_only[mesh_index] or companion_of(mesh_index) is None or no_decal(mesh_index, material_index):
+            continue
+        companion_of_entry[m] = (mesh_index, material_index if companion_slots(mesh_index, material_index) else 0)
+    companions = sorted(set(companion_of_entry.values()))
+    companion_entry = {c: len(used) + i for i, c in enumerate(companions)}
+
+    def companion_bytes(mesh_index: int, material_index: int) -> bytes:
+        # No wind, no shadow, no collision (flag bit 1).
+        slots = companion_slots(mesh_index, material_index)
+        data_ = text(assets[companion_of(mesh_index)]["unreal"]) + struct.pack("<H", len(slots))
+        for slot, key in sorted(slots.items()):
+            data_ += text(slot) + text(key)
+        return data_ + struct.pack("<B", 2)
+
     out = bytearray(b"SWCI" + struct.pack("<II", 3, len(used) + len(companions)))
     overridden = 0
     for m in used:
@@ -220,15 +266,14 @@ def write(name: str) -> dict:
         slots = slots_of(pair // 65536, pair % 65536)
         overridden += bool(slots)
         if decal_only[pair // 65536]:
-            # The decal companion alone: no slot map, no wind, no shadow, no collision (flag bit 1).
-            out += text(assets[assets[names[pair // 65536]]["decals"]]["unreal"]) + struct.pack("<HB", 0, 2)
+            out += companion_bytes(pair // 65536, pair % 65536)   # the decal companion alone
             continue
         out += text(assets[names[pair // 65536]]["unreal"]) + struct.pack("<H", len(slots))
         for slot, key in sorted(slots.items()):
             out += text(slot) + text(key)
         out += struct.pack("<B", wind)
-    for m in companions:
-        out += text(assets[assets[names[m]]["decals"]]["unreal"]) + struct.pack("<HB", 0, 2)
+    for mesh_index, material_index in companions:
+        out += companion_bytes(mesh_index, material_index)
     cells = sorted(set(zip(cx.tolist(), cy.tolist())))
     out += struct.pack("<I", len(cells))
     groups = decal_groups = 0
@@ -238,13 +283,13 @@ def write(name: str) -> dict:
         center = ((ox + (x + 0.5) * CELL_M) * 100.0, -(oy + (y + 0.5) * CELL_M) * 100.0, z)
         meshes_here = mesh_of[rows]
         order = sorted(set(meshes_here.tolist()))
-        with_decals = [m for m in order if m // 131072 in companion_entry]
+        with_decals = [m for m in order if m in companion_of_entry]
         out += text(f"{name} cell {x} {y}") + struct.pack("<3d", *center) + struct.pack("<I", len(order) + len(with_decals))
         for m in order:
             picked = rows[meshes_here == m]
             out += struct.pack("<II", table[m], len(picked)) + transforms[picked].tobytes()
-            if m // 131072 in companion_entry:
-                out += struct.pack("<II", companion_entry[m // 131072], len(picked)) + transforms[picked].tobytes()
+            if m in companion_of_entry:
+                out += struct.pack("<II", companion_entry[companion_of_entry[m]], len(picked)) + transforms[picked].tobytes()
         groups += len(order) + len(with_decals)
         decal_groups += len(with_decals)
     path = env.content_dir() / "regions" / name / "cells.bin"
@@ -256,6 +301,11 @@ def write(name: str) -> dict:
               "instances with an override": int(sum(1 for m in mesh_of.tolist() if (m // 2) % 65536)),
               "entries with wind": sum(m % 2 for m in used), "instances with wind": int((mesh_of % 2).sum()),
               "decal companions": len(companions), "decal components": decal_groups,
+              "decal companions with an override (C11)": sum(1 for _, o in companions if o),
+              "instances with no companion: no decal in the override (C11)":
+                  int(sum(1 for m in mesh_of.tolist() if m not in companion_of_entry and not decal_only[m // 131072]
+                          and companion_of(m // 131072) is not None)),
+              "decal-only placements left out: no decal in the override (C11)": dropped_decal_only,
               "cells": len(cells), "components": groups, "file": str(path), "bytes": len(out),
               "left out (not imported, fog cards, fog volumes, no material)": int((~keep).sum()),
               "decal-only meshes": int(decal_only[data["mesh"][keep]].sum()) if len(names) else 0}

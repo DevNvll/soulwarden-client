@@ -407,8 +407,29 @@ the places of interest with the census tops) found these classes. The counts are
   drew tilted, and the loot bags had the same wrong rotation (test `test_place_rotation` of tools/test-creatures.sh).
 - C4, the meshes with only decal subsets (1,497: the moss layers of the crater cliffs, Dunwood floor decals): mesh rule 7 writes their
   decal companion alone and the record "empty" names it (`mesh.convert`); the cells place the companion alone (flag bit 1).
-  Held out for now (`cells.PLACE_DECAL_ONLY` False, 2026-10-24): the first check drew the moss pale gray and glossy (retail: subtle dark
-  moss); the suspects are the Smoothness 1.0 and the vertex alpha of the decal spec.
+  `cells.PLACE_DECAL_ONLY` True since the C4 + C11 + C6 deploy. The first check drew the moss pale gray and glossy over the whole cliff:
+  it imported the companions before their dm_ decal instances existed (the import report: "slots with no material"), so each slot kept
+  its glTF import material. The order of the steps: `tools/apply-materials.sh --part decals` first, then `tools/import.sh`. The decal
+  spec agrees with the source rule (research/e5-surface-decal.md): Smoothness 1.0 is Shininess 255/255, a factor of the gloss map
+  (the _ddna alpha; the moss gloss mean is 0.14, roughness 0.86), F0 0.0026, albedo luminance 0.020.
+- C11, the material override of a placement also replaces the decal sub-materials, which mesh rule 7 draws as the decal companion
+  (`overrides.decal_slot_map`, the field "decal slots" of each pair with its own "decal version"; `cells.write`). The companion of a group
+  gets the slot map own dm_ key -> the dm_ key of the override sub-material with the same index; an override with no mesh decal at
+  any companion slot gives the group no companion (a decal-only mesh is then not placed). Before, every companion drew the decals of
+  the mesh's own .mtl. 2026-10-24: 49,268 placements of 28 regions draw another decal (the fall and winter poplars: the fall01 decal
+  texture instead of summ01; the "super" aspens, the table pines with the dogwood .mtl, the dead spruces), the 180 C4 placements with
+  the cliffs_mossy .mtl draw the green moss, and 17 placements have no decal (4 NoDraw; 13 ghost crafting meshes whose override has a
+  drawn Illum surface there: retail draws those triangles as a surface, a known difference). `overrides.add_decal_slots` adds the decal
+  slots to the known pairs and keeps their slot maps (7,117 of the 7,683 pairs are still version 1: a VERSION change would make
+  their slot maps again with newer rules).
+- C6, the .cdf props of the level slices (`props.py`): a Character component (the data 0xe0c81603 with the .cdf 0x6cc7a752) of a
+  folder of `props.PROP_FOLDERS` (the fish of the Grivaros dock, the weapons and shields of the racks, the tools, the bottles, the
+  saddle bags) with no animation field: each part is a static placement (a CA_SKIN .skin in its bind pose, a CA_BONE .cgf at its
+  model transform). A part with no material of its own takes its attachment .mtl through `world-objects/cdf-parts.json`
+  (`props.own_reference`); another .mtl is a placement override. The siege weapons, the animals, the creatures, the persons, and the
+  animated rigging stay out. The material field of the component (0xdca75c13; in 220 of 356 components a forest trail dirt
+  material, `materials/seasons/s_01/jav_decal_claimdirta_s01hack.mtl`) is not used (`props.USE_MATERIAL_FIELD`). 2026-10-24: 56 props,
+  61 part meshes, 714 placements in 13 regions.
 - C7, the effect meshes: the cells left out every mesh named `fx_*`; now only the fog cards `fx_fogcard_*` (AST-265). The meshes of the
   beam folders get mesh rule 8, and a beam folder mesh with no material of its own takes its look from the override of each placement
   (the energy planes and rings of the Shattered Obelisk: GeometryBeam, M_SwcBeam), so it has no Nanite. `overrides.slot_map`: a mesh

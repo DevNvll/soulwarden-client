@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from . import dds, env, source
+from . import dds, env, props, source
 import nav_slices
 from nav_slices import matrix_of, read_slice
 from nav_terrain import HEIGHT_SCALE, read_heightmap
@@ -173,10 +173,22 @@ def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None, int, in
         helper = not active and inactive_helper(e)
         tm, mesh, material, wind = None, None, None, False
         instanced = []
+        prop, prop_material = None, None   # C6: a .cdf prop of a Character component (props.py)
         for comp in comps.children:
             for f in comp.children:
                 if f.name == WORLD_TM and f.value is not None and len(f.value) == 48:
                     tm = az_matrix(f.value)
+                if f.name == props.CHARACTER_DATA:
+                    visible = f.child(props.CHARACTER_VISIBLE)
+                    a = f.child(props.CHARACTER_ASSET)
+                    path = None
+                    if a is not None and (visible is None or visible.value != b"\x00"):
+                        path = asset_path(a)
+                        if path is None and a.children:
+                            ident_ = source.asset_id(a)
+                            path = source.product(ident_[0], ident_[1], ".cdf") if ident_ and any(ident_[0]) else None
+                    if path and props.is_prop(path):
+                        prop, prop_material = path, material_path(f.child(props.CHARACTER_MATERIAL))
                 if f.name == SMRN:
                     visible = f.child(VISIBLE)
                     if visible is not None and visible.value == b"\x00":
@@ -199,7 +211,7 @@ def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None, int, in
                                           [az_matrix(t.value) for t in transforms.children if t.value and len(t.value) == 48],
                                           receives_wind(node)))
         world = tm if tm is not None else np.eye(4)
-        ident = entity_id(e) if (mesh or instanced) else 0
+        ident = entity_id(e) if (mesh or instanced or prop) else 0
         if not active and ((mesh and mesh.endswith(".cgf")) or instanced):
             if INACTIVE_LOG is not None:
                 label = source.text(name) if name is not None else ""
@@ -214,6 +226,9 @@ def slice_meshes(data: bytes) -> list[tuple[str, np.ndarray, str | None, int, in
         for path, override, matrices, bends in instanced:
             for index, m in enumerate(matrices):
                 out.append((path, world @ m, override, ident, index, bends))
+        if prop and not (SKIP_INACTIVE and helper):
+            for path, m, override in props.placements(prop, world, prop_material):
+                out.append((path, m, override, ident, -1, False))
     return out
 
 

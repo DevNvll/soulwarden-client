@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import cgf, env, materials, region, source
+from . import cgf, env, materials, props, region, source
 
 SOURCES = ("chunk", "capital", "capital variant", "distribution")
 
@@ -87,7 +87,7 @@ def mesh_pass(path: str) -> dict:
         return row
     try:
         f = cgf.read_chunks(source.read(path))
-        reference = cgf.material_guid(f) or ""
+        reference = props.own_reference(f, path)
         subs: list = []
         if reference:
             try:

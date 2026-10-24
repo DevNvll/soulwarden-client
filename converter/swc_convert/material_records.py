@@ -471,7 +471,8 @@ def primitive_slots(mesh: str, gltf_file: Path, rule: int = 6) -> list[tuple[int
     match the subsets (the index counts are the check). Only the chunk headers: no .cgfheap."""
     from . import cgf
     f = cgf.read_chunks(source.read(mesh))
-    reference = cgf.material_guid(f) or ""
+    from . import props
+    reference = props.own_reference(f, mesh)
     subs = materials.load_mtl(reference, mesh)[1] if reference else []
     order = []
     for chunk in f.of_type(cgf.T_MESH):
@@ -695,8 +696,9 @@ def audit(workers: int = 4) -> dict:
     from concurrent.futures import ProcessPoolExecutor
     started = time.time()
     assets = manifest.load()["assets"]
+    # The static meshes: the .cgf files and the .skin parts of the .cdf props (AST-275 C6, props.py).
     meshes = sorted((k, e["file"], e.get("version", 6)) for k, e in assets.items()
-                    if e["kind"] == "static" and k.endswith(".cgf"))
+                    if e["kind"] == "static" and k.endswith((".cgf", ".skin")))
     sources: dict[str, dict] = {}           # "mtl#index" -> {"legacy", "far legacy", "render", "record", "use"}
     rules_of: dict[str, dict] = {}          # render key -> render rules
     slots: dict[str, list] = {}             # mesh -> [[source index, legacy key, render key], ...]
@@ -727,7 +729,8 @@ def audit(workers: int = 4) -> dict:
         if pairs is None:
             failed[mesh] = error or "the primitives do not match the subsets"
             continue
-        reference = cgf.material_guid(cgf.read_chunks(source.read(mesh))) or ""
+        from . import props
+        reference = props.own_reference(cgf.read_chunks(source.read(mesh)), mesh)   # a .cdf prop part: its registry .mtl (C6)
         mtl, subs = materials.load_mtl(reference, mesh) if reference else ("", [])
         out = []
         for index, name in sorted(set(pairs)):
@@ -1822,7 +1825,8 @@ def mesh_decal_subsets(mesh: str) -> tuple[str, int, str | None]:
     from . import mesh as mesh_module
     try:
         f = cgf.read_chunks(source.read(mesh))
-        reference = cgf.material_guid(f) or ""
+        from . import props
+        reference = props.own_reference(f, mesh)
         subs = materials.load_mtl(reference, mesh)[1] if reference else []
         count = 0
         for chunk in f.of_type(cgf.T_MESH):
