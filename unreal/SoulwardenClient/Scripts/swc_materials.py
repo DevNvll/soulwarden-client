@@ -25,7 +25,7 @@ BASE = ROOT + "/Base"
 PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "11", "M_SwcSurfaceMasked": "11", "M_SwcDecal": "8",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
                    "M_SwcSurfaceTranslucent": "10", "M_SwcHair": "7",
-                   "M_SwcFxMesh": "1", "M_SwcFxMeshAdd": "1", "M_SwcMeshParticle": "1"}   # the rule of each parent
+                   "M_SwcFxMesh": "2", "M_SwcFxMeshAdd": "2", "M_SwcMeshParticle": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
 # 7: the UV transforms of the emittance and intensity maps (AST-207); 8: the sRGB emission files on Color samplers;
@@ -38,6 +38,8 @@ PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "11", "M_SwcSurfaceMaske
 # Unreal Hair, direct and in the environment term) and the material AO saturate(HairEnvScale) (the Lumen diffuse indirect of
 # the hair, which the Unreal Hair weights with its whole BSDF; at most 1); swc.HairSpec and swc.HairEnv, default 1: the same
 # picture as 5);
+# M_SwcFxMesh, M_SwcFxMeshAdd 2: the input PalP (version 1 had the inputs PAL and Pal: Unreal compares the names without case, the
+# second stayed empty, and the parent did not compile);
 # M_SwcDecal 8: the base color x the vertex RGB with UseVertexAlpha (%VERTCOLORS), as the source decal (AST-278);
 # M_SwcSurface, M_SwcSurfaceMasked 11, M_SwcSurfaceTranslucent 10, M_SwcHair 7: the vertex RGB tint (UseVertexColor) connects the
 # RGB output "" of VertexColor; the pin name "RGB" connected nothing before (AST-278: the pale floors, the bright galleon hull);
@@ -1397,7 +1399,7 @@ return float2(q, q);"""
 FX_PS_HLSL = """float h = USDF > 0.5 ? H : 0.0;
 float3 C = S.rgb;
 float A = lerp(1.0, S.a, GAS) * O * IO;
-if (UPAL > 0.5) A *= pow(max(PAL, 0.0), Pal.z);
+if (UPAL > 0.5) A *= pow(max(PAL, 0.0), PalP.z);
 float d = dot(normalize(-N), normalize(V));
 if (UGF > 0.5) {
   float hg = USDF > 0.5 ? (h - 0.5) * FG.w : 0.0;
@@ -1532,7 +1534,7 @@ def fxmesh_parent(content, state, additive=False):
             "IO": (instance_opacity, ""), "GAS": (from_source, ""), "E": (vectors["E"], "RGBA"), "DC": (vectors["DC"], "RGB"),
             "Gl": (vectors["Gl"], "RGBA"), "FG": (vectors["FG"], "RGBA"), "FGS": (vectors["FGS"], "RGBA"),
             "FO": (vectors["FO"], "RGBA"), "FI": (vectors["FI"], "RGBA"), "IF": (vectors["IF"], "RGBA"),
-            "IG": (vectors["IG"], "RGBA"), "Pal": (vectors["Pal"], "RGBA")}
+            "IG": (vectors["IG"], "RGBA"), "PalP": (vectors["Pal"], "RGBA")}   # not "Pal": input names compare without case (PAL)
     pins.update({pin: (node_, "") for pin, node_ in switches.items() if pin not in ("USDF",)})
     pins["USDF"] = (switches["USDF"], "")
     color = custom(material, FX_PS_HLSL, cf.CMOT_FLOAT4, tuple(pins), 200, 800)

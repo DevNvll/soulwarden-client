@@ -25,5 +25,24 @@ class MaterialPins(unittest.TestCase):
         self.assertEqual(sorted(set(uses) - VERTEX_PINS), [], "a VertexColor pin name that the node does not have")
 
 
+class CustomInputs(unittest.TestCase):
+    def test_custom_input_names_differ_without_case(self):
+        """The inputs of a Custom node are FNames: two names that differ only in case are one input, and the second stays empty
+        (AST-275: M_SwcFxMesh version 1 had PAL and Pal and did not compile)."""
+        text = SCRIPT.read_text()
+        checked = 0
+        for match in re.finditer(r"custom\(material,[^\n]*?,\s*\(([^)]*)\)", text):
+            names = re.findall(r'"([A-Za-z0-9_]+)"', match[1])
+            checked += 1
+            lower = [n.lower() for n in names]
+            self.assertEqual(len(lower), len(set(lower)), f"names that clash without case: {names}")
+        pins = re.findall(r"pins = \{(.*?)\}", text, re.S) + re.findall(r"pins\.update\(\{(.*?)\}", text, re.S)
+        for block in pins:
+            names = re.findall(r'"([A-Za-z0-9_]+)":', block)
+            lower = [n.lower() for n in names]
+            self.assertEqual(len(lower), len(set(lower)), f"pin names that clash without case: {names}")
+        self.assertGreater(checked, 10)
+
+
 if __name__ == "__main__":
     unittest.main()
