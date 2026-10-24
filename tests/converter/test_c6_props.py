@@ -41,6 +41,14 @@ class Props(unittest.TestCase):
         props.source.read, props.source.has, props.registry, props.USE_MATERIAL_FIELD = self.saved
         props.parts.cache_clear()
 
+    def test_part_file_name(self):
+        from swc_convert import mesh
+        skin = mesh.out_path("objects/crafting/props/apparatus/beartrap/jav_prp_beartrap_alt.skin")
+        cgf = mesh.out_path("objects/crafting/props/apparatus/beartrap/jav_prp_beartrap_alt.cgf")
+        self.assertNotEqual(skin, cgf)   # the .skin part does not replace the glTF of the .cgf mesh of the same name
+        self.assertEqual(skin.name, "jav_prp_beartrap_alt_skin.gltf")
+        self.assertEqual(cgf.name, "jav_prp_beartrap_alt.gltf")
+
     def test_folders(self):
         self.assertTrue(props.is_prop("objects/characters/npc/natural/fish/fish_a_pike.cdf"))
         self.assertTrue(props.is_prop(CDF))

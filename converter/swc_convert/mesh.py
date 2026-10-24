@@ -12,7 +12,10 @@ from . import cgf, env, gltf, manifest, materials, props, source
 
 
 def out_path(asset: str) -> Path:
-    return env.content_dir() / (asset.rsplit(".", 1)[0] + ".gltf")
+    # A .skin part of a .cdf prop (AST-275 C6) can have the folder and the name of a .cgf mesh (7 parts, for example
+    # jav_prp_beartrap_alt.skin and .cgf): its own file name, so that it does not replace the glTF of that mesh.
+    stem, _, ending = asset.rpartition(".")
+    return env.content_dir() / (stem + ("_skin" if ending == "skin" else "") + ".gltf")
 
 
 def load(path: str) -> tuple[cgf.ChunkFile, list[cgf.Mesh]]:
