@@ -22,9 +22,9 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "10", "M_SwcSurfaceMasked": "10", "M_SwcDecal": "7",
+PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "11", "M_SwcSurfaceMasked": "11", "M_SwcDecal": "7",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
-                   "M_SwcSurfaceTranslucent": "9", "M_SwcHair": "6"}   # the rule of each parent
+                   "M_SwcSurfaceTranslucent": "10", "M_SwcHair": "7"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
 # 7: the UV transforms of the emittance and intensity maps (AST-207); 8: the sRGB emission files on Color samplers;
@@ -37,6 +37,8 @@ PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "10", "M_SwcSurfaceMaske
 # Unreal Hair, direct and in the environment term) and the material AO saturate(HairEnvScale) (the Lumen diffuse indirect of
 # the hair, which the Unreal Hair weights with its whole BSDF; at most 1); swc.HairSpec and swc.HairEnv, default 1: the same
 # picture as 5);
+# M_SwcSurface, M_SwcSurfaceMasked 11, M_SwcSurfaceTranslucent 10, M_SwcHair 7: the vertex RGB tint (UseVertexColor) connects the
+# RGB output "" of VertexColor; the pin name "RGB" connected nothing before (AST-278: the pale floors, the bright galleon hull);
 # M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals;
 # 4: the entity color and opacity (DecalColor), the angle fade of the projected decals (static switch Projected);
 # 5: the view bias in the vertex shader without CameraVectorWS (3 and 4 did not compile); 6: the normal of the
@@ -488,7 +490,9 @@ def surface_parent(content, state, masked, translucent=False):
     one = editing.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, -400, 3850)
     one.set_editor_property("constant", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
     use_vertex = scalar(material, "UseVertexColor", 0.0, -400, 4000)
-    vertex_tint = lerp(material, (one, ""), (vertex, "RGB"), (use_vertex, ""), -250, 3850)
+    # The RGB output of VertexColor is "" (its outputs have no names: "RGB" connected nothing, and the Lerp used ConstB = 1, thus
+    # no vertex tint until version 11; AST-278).
+    vertex_tint = lerp(material, (one, ""), (vertex, ""), (use_vertex, ""), -250, 3850)
     d_v = multiply(material, (d_b, ""), (vertex_tint, ""), -100, 2600)
     detail_transform = vector(material, "DetailTransform", (1.0, 1.0, 0.0, 0.0), -1600, 4600)
     detail_uv = node(material, unreal.MaterialExpressionAdd, -1100, 4600)
@@ -689,7 +693,7 @@ def hair_parent(content, state):
     vertex = node(material, unreal.MaterialExpressionVertexColor, -900, 3850)
     one = editing.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, -900, 4000)
     one.set_editor_property("constant", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
-    tint = lerp(material, (one, ""), (vertex, "RGB"), (scalar(material, "UseVertexColor", 0.0, -900, 4150), ""), -600, 3900)
+    tint = lerp(material, (one, ""), (vertex, ""), (scalar(material, "UseVertexColor", 0.0, -900, 4150), ""), -600, 3900)   # "": AST-278
     d_v = multiply(material, (albedo, ""), (tint, ""), -450, -300)
     # The overlay masks (MASK_HLSL, MASK_SPEC_HLSL); the gloss input is a temporary zero in the source Hair (no gloss change).
     mask_map = sample("MaskTex", st.SAMPLERTYPE_MASKS, black_data(content, state), 1300)
