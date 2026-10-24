@@ -24,7 +24,8 @@ ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
 PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "11", "M_SwcSurfaceMasked": "11", "M_SwcDecal": "8",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
-                   "M_SwcSurfaceTranslucent": "10", "M_SwcHair": "7"}   # the rule of each parent
+                   "M_SwcSurfaceTranslucent": "10", "M_SwcHair": "7",
+                   "M_SwcFxMesh": "1", "M_SwcFxMeshAdd": "1", "M_SwcMeshParticle": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
 # 7: the UV transforms of the emittance and intensity maps (AST-207); 8: the sRGB emission files on Color samplers;
@@ -49,7 +50,8 @@ PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "11", "M_SwcSurfaceMaske
 # The parent asset of each spec parent (apply_specs: a stale parent is made again).
 PARENT_NAMES = {"foliage": "M_SwcFoliage", "surface": "M_SwcSurface", "surface masked": "M_SwcSurfaceMasked",
                 "surface translucent": "M_SwcSurfaceTranslucent", "decal": "M_SwcDecal", "glass": "M_SwcGlass",
-                "beam": "M_SwcBeam", "hair": "M_SwcHair"}
+                "beam": "M_SwcBeam", "hair": "M_SwcHair", "fxmesh": "M_SwcFxMesh", "fxmesh additive": "M_SwcFxMeshAdd",
+                "meshparticle": "M_SwcMeshParticle"}
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
 assets = unreal.EditorAssetLibrary
@@ -1379,6 +1381,274 @@ def beam_parent(content, state):
     return material
 
 
+# C8 (AST-275): the parents of the effect shaders Fxmeshadvancedtransp and Meshparticle (research/ast275-effect-shaders.md, sections 1
+# to 3). Unlit, two sided, translucent (no depth write, the depth test on), the translucency fog of the client once. The emissive is
+# the source-unit color x EmissiveScale (FX) or x EmissiveScale x BeamScale (Meshparticle); the opacity is the alpha (not baked in).
+# The UV of the SDF and of the source map of the FX shader (section 1, "Inputs and coordinates"): the shared mesh UV.
+FX_SDF_UV_HLSL = "return UV * TS.xy + T * TS.zw + PS.xy;"
+FX_SOURCE_UV_HLSL = "return UV * TS.xy + T * TS.zw + PS.xy + (USDF > 0.5 ? float2(H, H) * SPS.z : float2(0.0, 0.0));"
+# The palette coordinate (section 1, "Other options"): x = UV.y, or the vertex red with %VERTCOLORS (no procedural gradients).
+FX_PALETTE_UV_HLSL = """float x = UVC > 0.5 ? VR : UV.y;
+float q = x * 0.75 + 0.125 + T * P.y + P.x;
+if (USDF > 0.5) q += lerp(H, SR, PC.x) * P.w;
+return float2(q, q);"""
+# The pixel rule of FXMeshAdvancedTranspPS (section 1, "Full rule" and the scope extensions). Output: straight C (source units)
+# and A.
+FX_PS_HLSL = """float h = USDF > 0.5 ? H : 0.0;
+float3 C = S.rgb;
+float A = lerp(1.0, S.a, GAS) * O * IO;
+if (UPAL > 0.5) A *= pow(max(PAL, 0.0), Pal.z);
+float d = dot(normalize(-N), normalize(V));
+if (UGF > 0.5) {
+  float hg = USDF > 0.5 ? (h - 0.5) * FG.w : 0.0;
+  float s = step(1.0 - 1e-7, FG.z);
+  float g = pow(saturate(s + hg + d * (1.0 - 2.0 * s)), FG.x) * FG.y;
+  if (USDF > 0.5) g = lerp(g, g * pow(max(h, 0.0), FGS.y), FGS.x);
+  C += g * E.rgb;
+}
+float fo = 1.0;
+if (UOF > 0.5) { float ho = USDF > 0.5 ? S.r * FO.z : 0.0; fo = pow(saturate(ho + d), FO.x) * FO.y; }
+float fi = 1.0;
+if (UIF > 0.5) { float hi = USDF > 0.5 ? S.r * FI.z : 0.0; fi = pow(saturate(1.0 + hi - d), FI.x) * FI.y; }
+A *= saturate(10.0 * fo * fi);
+float gap = SD * 0.01 - PD * 0.01;
+if (UGLOW > 0.5) { float b = saturate(gap / max(IG.x, 1e-4)); A += pow(lerp(b, 1.0 - b, IG.z), IG.y); }
+if (UFADE > 0.5) { float b = saturate(gap / max(IF.x, 1e-4)); A *= pow(lerp(b, 1.0 - b, IF.z), IF.y); }
+float3 X = C * E.rgb;
+if (UCO > 0.5) { float3 Y = CM * DC; float k = step(X.r, 0.5); X = lerp(2.0 * Y * X, X, k); }
+else if (UCD > 0.5) { X = X / max(CM * DC, 1e-4); }
+C = saturate(pow(max(X, 0.0), Gl.x)) * E.a;
+A = saturate(pow(max(A, 0.0), Gl.w) * Gl.z) * Gl.y;
+if (UVC > 0.5) { C *= VA; A *= VA; }
+return float4(C, A);"""
+# The vertex rule of MeshParticleVS (section 2): K = VC x (Diffuse, Opacity) x q, the brightness, the sun color.
+MP_VS_HLSL = """float d = dot(normalize(W), normalize(N));
+float q = saturate(d * d * VD);
+q *= q;
+float4 K = float4(VC, VA) * DC * q;
+K.rgb *= B;
+if (US > 0.5) K.rgb *= lerp(float3(1.0, 1.0, 1.0), Sun.rgb, SCI);
+return K;"""
+# The type-2 movement of the Custom slot: Tile x (UV0 + t x Rate x Amplitude) + Offset.
+MP_CUSTOM_UV_HLSL = "return CU.xy * (UV + T * CM.xy) + CU.zw;"
+# The pixel rule of MeshParticlePS (section 2): the two layers with the mask, the fade curve, the soft intersection, AmbStrength.
+MP_PS_HLSL = """float4 L2v = UD2 > 0.5 ? L2 : float4(1.0, 1.0, 1.0, 1.0);
+float mg = UD2 > 0.5 ? M.g : 0.0;
+float4 H = L1 * M.r * L1.a + L2v * mg * L2v.a;
+float3 C = H.rgb * K.rgb;
+float A = H.a * K.a;
+float f = FF;
+if (UFO > 0.5) f *= saturate((1.0 - CD / max(min(MD * 100.0, VDR * OR), 1.0) - 0.1) / max(FOD, 1e-4));
+A *= 1.0 - exp2(-f * K.a * K.a);
+float z = PD * 0.01;
+float zs = SD * 0.01;
+float h = WZ * 0.01 - WL;
+float F = min(saturate(SI * min(min(zs - z, h), z)), saturate(SI * (z - ZN)));
+C *= AMB;
+A *= F * IO * O;
+return float4(max(C, 0.0), saturate(A));"""
+
+
+def flag_switch(material, name, x, y):
+    """@return A static switch parameter `name` that gives 1 (on) or 0 (off): an option of the source shader."""
+    one = node(material, unreal.MaterialExpressionConstant, x - 200, y)
+    one.set_editor_property("r", 1.0)
+    zero = node(material, unreal.MaterialExpressionConstant, x - 200, y + 50)
+    return switch(material, name, (one, ""), (zero, ""), x, y)
+
+
+def fx_finish(material, emissive, alpha, blend):
+    """Connects the emissive color and the opacity and sets the material properties of the effect parents."""
+    editing.connect_material_property(emissive, "", MP.MP_EMISSIVE_COLOR)
+    editing.connect_material_property(alpha, "", MP.MP_OPACITY)
+    material.set_editor_property("blend_mode", blend)
+    material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    material.set_editor_property("two_sided", True)
+    material.set_editor_property("used_with_instanced_static_meshes", True)
+
+
+def fxmesh_parent(content, state, additive=False):
+    """@return M_SwcFxMesh (alpha over: the material state of the client for Opacity below 1) or M_SwcFxMeshAdd (the declared
+    additive pass of the shader): the parents of Fxmeshadvancedtransp (C8; material_records.fxmesh_spec)."""
+    name = "M_SwcFxMeshAdd" if additive else "M_SwcFxMesh"
+    material, _white = parent_asset(name, content, state)
+    if material is None:
+        return assets.load_asset(f"{BASE}/{name}")
+    st = unreal.MaterialSamplerType
+    cf = unreal.CustomMaterialOutputType
+    white = unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture")
+    uv = node(material, unreal.MaterialExpressionTextureCoordinate, -2400, 0)
+    time = node(material, unreal.MaterialExpressionTime, -2400, 100)
+    vertex = node(material, unreal.MaterialExpressionVertexColor, -2400, 200)
+    switches = {pin: flag_switch(material, parameter, -2000, 400 + 120 * i) for i, (pin, parameter) in enumerate((
+        ("USDF", "UseSdf2D"), ("UGF", "UseGlowFresnel"), ("UOF", "UseOutsideFresnelAlpha"), ("UIF", "UseInsideFresnelAlpha"),
+        ("UFADE", "UseIntersectionFade"), ("UGLOW", "UseIntersectionGlow"), ("UVC", "UseVertexColors"), ("UPAL", "UsePaletteMap"),
+        ("UCO", "UseComplexOverlay"), ("UCD", "UseComplexDodge")))}
+    vectors = {pin: vector(material, parameter, default, -2400, 1800 + 120 * i) for i, (pin, parameter, default) in enumerate((
+        ("SdfTS", "SdfTS", (1.0, 1.0, 0.0, 0.0)), ("SdfPS", "SdfPS", (0.0, 0.0, 0.1, 0.0)),
+        ("SrcTS", "SourceTS", (1.0, 1.0, 0.0, 0.0)), ("SrcPS", "SourcePS", (0.0, 0.0, 0.0, 0.0)),
+        ("E", "EmittanceColor", (0.0, 0.0, 0.0, 0.0)), ("DC", "DiffuseColor", (1.0, 1.0, 1.0, 1.0)),
+        ("Gl", "Global", (1.0, 1.0, 1.0, 1.0)), ("FG", "FresnelGlow", (1.0, 1.0, 1.0, 0.0)),
+        ("FGS", "FresnelGlowSdf", (0.0, 1.0, 0.0, 0.0)), ("FO", "FresnelOut", (1.0, 1.0, 0.0, 0.0)),
+        ("FI", "FresnelIn", (1.0, 1.0, 0.0, 0.0)), ("IF", "IntersectFade", (2.0, 1.0, 0.0, 0.0)),
+        ("IG", "IntersectGlow", (2.0, 1.0, 0.0, 0.0)), ("Pal", "Palette", (0.0, 1.0, 1.0, 0.0)),
+        ("PC", "PaletteComplex", (0.0, 1.0, 0.0, 0.0))))}
+    opacity = scalar(material, "Opacity", 1.0, -2400, 3700)
+    from_source = scalar(material, "GlobalAlphaFromSource", 0.0, -2400, 3800)
+    instance_opacity = scalar(material, "InstanceOpacity", 1.0, -2400, 3900)
+    # The SDF (red), then the source map at the shifted UV.
+    sdf_uv = custom(material, FX_SDF_UV_HLSL, cf.CMOT_FLOAT2, ("UV", "T", "TS", "PS"), -1700, 0)
+    for pin, (src, out) in {"UV": (uv, ""), "T": (time, ""), "TS": (vectors["SdfTS"], "RGBA"), "PS": (vectors["SdfPS"], "RGBA")}.items():
+        editing.connect_material_expressions(src, out, sdf_uv, pin)
+    sdf = sampler(material, "SdfMap", st.SAMPLERTYPE_COLOR, white, -1400, 0)
+    editing.connect_material_expressions(sdf_uv, "", sdf, "UVs")
+    src_uv = custom(material, FX_SOURCE_UV_HLSL, cf.CMOT_FLOAT2, ("UV", "T", "TS", "PS", "SPS", "H", "USDF"), -1100, 200)
+    for pin, (src, out) in {"UV": (uv, ""), "T": (time, ""), "TS": (vectors["SrcTS"], "RGBA"), "PS": (vectors["SrcPS"], "RGBA"),
+                            "SPS": (vectors["SdfPS"], "RGBA"), "H": (sdf, "R"), "USDF": (switches["USDF"], "")}.items():
+        editing.connect_material_expressions(src, out, src_uv, pin)
+    source_map = sampler(material, "SourceMap", st.SAMPLERTYPE_COLOR, white, -800, 200)
+    editing.connect_material_expressions(src_uv, "", source_map, "UVs")
+    pal_uv = custom(material, FX_PALETTE_UV_HLSL, cf.CMOT_FLOAT2, ("UV", "VR", "T", "P", "PC", "H", "SR", "UVC", "USDF"), -500, 400)
+    for pin, (src, out) in {"UV": (uv, ""), "VR": (vertex, "R"), "T": (time, ""), "P": (vectors["Pal"], "RGBA"),
+                            "PC": (vectors["PC"], "RGBA"), "H": (sdf, "R"), "SR": (source_map, "R"), "UVC": (switches["UVC"], ""),
+                            "USDF": (switches["USDF"], "")}.items():
+        editing.connect_material_expressions(src, out, pal_uv, pin)
+    palette = sampler(material, "PaletteMap", st.SAMPLERTYPE_COLOR, white, -200, 400)
+    editing.connect_material_expressions(pal_uv, "", palette, "UVs")
+    complex_uv = multiply(material, (uv, ""), (mask(material, vectors["PC"], "RGBA", "g", -500, 650), ""), -350, 650)
+    complex_map = sampler(material, "ComplexColorMap", st.SAMPLERTYPE_COLOR, white, -200, 650)
+    editing.connect_material_expressions(complex_uv, "", complex_map, "UVs")
+    # The geometry and the depth.
+    normal = node(material, unreal.MaterialExpressionVertexNormalWS, -500, 900)
+    camera = node(material, unreal.MaterialExpressionCameraPositionWS, -700, 1000)
+    world = node(material, unreal.MaterialExpressionWorldPosition, -700, 1100)
+    view = node(material, unreal.MaterialExpressionSubtract, -500, 1050)
+    editing.connect_material_expressions(world, "", view, "A")
+    editing.connect_material_expressions(camera, "", view, "B")
+    pixel_depth = node(material, unreal.MaterialExpressionPixelDepth, -500, 1200)
+    scene_depth = node(material, unreal.MaterialExpressionSceneDepth, -500, 1300)
+    pins = {"S": (source_map, "RGBA"), "H": (sdf, "R"), "PAL": (palette, "R"), "CM": (complex_map, "RGB"), "N": (normal, ""),
+            "V": (view, ""), "SD": (scene_depth, ""), "PD": (pixel_depth, ""), "VA": (vertex, "A"), "O": (opacity, ""),
+            "IO": (instance_opacity, ""), "GAS": (from_source, ""), "E": (vectors["E"], "RGBA"), "DC": (vectors["DC"], "RGB"),
+            "Gl": (vectors["Gl"], "RGBA"), "FG": (vectors["FG"], "RGBA"), "FGS": (vectors["FGS"], "RGBA"),
+            "FO": (vectors["FO"], "RGBA"), "FI": (vectors["FI"], "RGBA"), "IF": (vectors["IF"], "RGBA"),
+            "IG": (vectors["IG"], "RGBA"), "Pal": (vectors["Pal"], "RGBA")}
+    pins.update({pin: (node_, "") for pin, node_ in switches.items() if pin not in ("USDF",)})
+    pins["USDF"] = (switches["USDF"], "")
+    color = custom(material, FX_PS_HLSL, cf.CMOT_FLOAT4, tuple(pins), 200, 800)
+    for pin, (src, out) in pins.items():
+        editing.connect_material_expressions(src, out, color, pin)
+    scale = node(material, unreal.MaterialExpressionCollectionParameter, 200, 1100)
+    scale.set_editor_property("collection", collection(content, state))
+    scale.set_editor_property("parameter_name", "EmissiveScale")
+    emissive = multiply(material, (mask(material, color, "", "rgb", 450, 800), ""), (scale, ""), 650, 800)
+    alpha = mask(material, color, "", "a", 450, 950)
+    fx_finish(material, emissive, alpha, unreal.BlendMode.BLEND_ADDITIVE if additive else unreal.BlendMode.BLEND_TRANSLUCENT)
+    editing.recompile_material(material)
+    assets.save_loaded_asset(material)
+    state["base:" + name] = parent_version(name)
+    return material
+
+
+def meshparticle_parent(content, state):
+    """@return M_SwcMeshParticle: the parent of Meshparticle (C8; material_records.meshparticle_spec): Translucent alpha over;
+    MP_VS_HLSL at the vertices (an interpolator), MP_PS_HLSL at the pixels."""
+    name = "M_SwcMeshParticle"
+    material, _white = parent_asset(name, content, state)
+    if material is None:
+        return assets.load_asset(f"{BASE}/{name}")
+    st = unreal.MaterialSamplerType
+    cf = unreal.CustomMaterialOutputType
+    white = unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture")
+    uv = node(material, unreal.MaterialExpressionTextureCoordinate, -2400, 0)
+    time = node(material, unreal.MaterialExpressionTime, -2400, 100)
+    vertex = node(material, unreal.MaterialExpressionVertexColor, -2400, -600)
+    normal = node(material, unreal.MaterialExpressionVertexNormalWS, -2400, -450)
+    camera = node(material, unreal.MaterialExpressionCameraPositionWS, -2600, -350)
+    world = node(material, unreal.MaterialExpressionWorldPosition, -2600, -250)
+    toward = node(material, unreal.MaterialExpressionSubtract, -2400, -300)
+    editing.connect_material_expressions(camera, "", toward, "A")
+    editing.connect_material_expressions(world, "", toward, "B")
+    diffuse = vector(material, "DiffuseColor", (1.0, 1.0, 1.0, 1.0), -2400, -150)
+    light = vector(material, "Light", (1.0, 1.0, 0.5, 1.0), -2400, 250)
+    fade = vector(material, "Fade", (0.55, 2.0, 0.2, 0.0), -2400, 400)
+    sun_on = flag_switch(material, "ApplySunColor", -2000, 550)
+    fade_on = flag_switch(material, "EnableFadeout", -2000, 700)
+    layer2_on = flag_switch(material, "UseDiffuseMap2", -2000, 850)
+    effects = effects_collection(content, state)
+    sun = node(material, unreal.MaterialExpressionCollectionParameter, -2400, 1000)
+    sun.set_editor_property("collection", effects)
+    sun.set_editor_property("parameter_name", "SunColorSource")
+    k_vs = custom(material, MP_VS_HLSL, cf.CMOT_FLOAT4, ("VC", "VA", "N", "W", "DC", "B", "SCI", "VD", "Sun", "US"), -1800, -300)
+    for pin, (src, out) in {"VC": (vertex, ""), "VA": (vertex, "A"), "N": (normal, ""), "W": (toward, ""),
+                            "DC": (diffuse, "RGBA"), "B": (mask(material, light, "RGBA", "g", -2100, 250), ""),
+                            "SCI": (mask(material, light, "RGBA", "b", -2100, 320), ""),
+                            "VD": (mask(material, fade, "RGBA", "g", -2100, 400), ""), "Sun": (sun, ""), "US": (sun_on, "")}.items():
+        editing.connect_material_expressions(src, out, k_vs, pin)
+    k = node(material, unreal.MaterialExpressionVertexInterpolator, -1500, -300)
+    editing.connect_material_expressions(k_vs, "", k, "VS")
+
+    def slot_uv(parameter, default, y):
+        transform = vector(material, parameter, default, -1800, y)
+        tile = mask(material, transform, "RGBA", "rg", -1600, y)
+        offset = mask(material, transform, "RGBA", "ba", -1600, y + 60)
+        return transform, node_add(multiply(material, (uv, ""), (tile, ""), -1400, y), offset, -1250, y)
+
+    def node_add(a, b, x, y):
+        add = node(material, unreal.MaterialExpressionAdd, x, y)
+        editing.connect_material_expressions(a, "", add, "A")
+        editing.connect_material_expressions(b, "", add, "B")
+        return add
+
+    _d, diffuse_uv = slot_uv("DiffuseUV", (1.0, 1.0, 0.0, 0.0), 1200)
+    _m, mask_uv = slot_uv("MaskUV", (1.0, 1.0, 0.0, 0.0), 1500)
+    custom_uv_t = vector(material, "CustomUV", (1.0, 1.0, 0.0, 0.0), -1800, 1350)
+    move = vector(material, "CustomMove", (0.0, 0.0, 0.0, 0.0), -1800, 1420)
+    custom_uv = custom(material, MP_CUSTOM_UV_HLSL, cf.CMOT_FLOAT2, ("UV", "T", "CU", "CM"), -1250, 1350)
+    for pin, (src, out) in {"UV": (uv, ""), "T": (time, ""), "CU": (custom_uv_t, "RGBA"), "CM": (move, "RGBA")}.items():
+        editing.connect_material_expressions(src, out, custom_uv, pin)
+    layer1 = sampler(material, "DiffuseMap", st.SAMPLERTYPE_COLOR, white, -1000, 1200)
+    editing.connect_material_expressions(diffuse_uv, "", layer1, "UVs")
+    layer2 = sampler(material, "DiffuseMap2", st.SAMPLERTYPE_COLOR, white, -1000, 1350)
+    editing.connect_material_expressions(custom_uv, "", layer2, "UVs")
+    layer_mask = sampler(material, "LayerMask", st.SAMPLERTYPE_COLOR, white, -1000, 1500)
+    editing.connect_material_expressions(mask_uv, "", layer_mask, "UVs")
+    pixel_depth = node(material, unreal.MaterialExpressionPixelDepth, -1000, 1700)
+    scene_depth = node(material, unreal.MaterialExpressionSceneDepth, -1000, 1800)
+    world_z = mask(material, world, "", "b", -1000, 1900)
+    camera_distance = node(material, unreal.MaterialExpressionDistance, -1000, 2000)
+    object_position = node(material, unreal.MaterialExpressionObjectPositionWS, -1200, 2050)
+    editing.connect_material_expressions(camera, "", camera_distance, "A")
+    editing.connect_material_expressions(object_position, "", camera_distance, "B")
+    pins = {"L1": (layer1, "RGBA"), "L2": (layer2, "RGBA"), "M": (layer_mask, "RGBA"), "K": (k, ""), "UD2": (layer2_on, ""),
+            "UFO": (fade_on, ""), "FF": (mask(material, fade, "RGBA", "r", -800, 2150), ""),
+            "FOD": (mask(material, fade, "RGBA", "b", -800, 2200), ""),
+            "SI": (mask(material, light, "RGBA", "a", -800, 2250), ""), "AMB": (mask(material, light, "RGBA", "r", -800, 2300), ""),
+            "PD": (pixel_depth, ""), "SD": (scene_depth, ""), "WZ": (world_z, ""), "CD": (camera_distance, ""),
+            "OR": (node(material, unreal.MaterialExpressionObjectRadius, -1200, 2150), "")}
+    for i, (pin, parameter, default) in enumerate((("WL", "WaterLevel", 40.0), ("ZN", "NearClip", 0.1),
+                                                   ("MD", "MaxViewDistance", 8000.0), ("VDR", "ViewDistRatio", 60.0),
+                                                   ("O", "Opacity", 1.0), ("IO", "InstanceOpacity", 1.0))):
+        pins[pin] = (scalar(material, parameter, default, -800, 2400 + 100 * i), "")
+    color = custom(material, MP_PS_HLSL, cf.CMOT_FLOAT4, tuple(pins), -400, 1500)
+    for pin, (src, out) in pins.items():
+        editing.connect_material_expressions(src, out, color, pin)
+    scale = node(material, unreal.MaterialExpressionCollectionParameter, -400, 1800)
+    scale.set_editor_property("collection", collection(content, state))
+    scale.set_editor_property("parameter_name", "EmissiveScale")
+    beam_scale = node(material, unreal.MaterialExpressionCollectionParameter, -400, 1900)
+    beam_scale.set_editor_property("collection", effects)
+    beam_scale.set_editor_property("parameter_name", "BeamScale")
+    emissive = multiply(material, (multiply(material, (mask(material, color, "", "rgb", -150, 1500), ""), (scale, ""), 50, 1500), ""),
+                        (beam_scale, ""), 250, 1500)
+    alpha = mask(material, color, "", "a", -150, 1650)
+    fx_finish(material, emissive, alpha, unreal.BlendMode.BLEND_TRANSLUCENT)
+    editing.recompile_material(material)
+    assets.save_loaded_asset(material)
+    state["base:" + name] = parent_version(name)
+    return material
+
+
 # M6: the wind of the source (modificatorvt.cfib: _DetailBending, SimpleWindNoise, _MainBending), in the engine space of the
 # source (meters; Unreal (x, -y, z) x 100). LP, LN: the local position (cm) and normal of the vertex; VC: the vertex
 # color (the bend data of the source: R the leaf edge, G the branch phase, B 1 - the branch amplitude); OP: the instance
@@ -1734,6 +2004,12 @@ def make_parents(wanted, content, state):
         parents["beam"] = beam_parent(content, state)
     if "hair" in wanted:
         parents["hair"] = hair_parent(content, state)
+    if "fxmesh" in wanted:
+        parents["fxmesh"] = fxmesh_parent(content, state)
+    if "fxmesh additive" in wanted:
+        parents["fxmesh additive"] = fxmesh_parent(content, state, additive=True)
+    if "meshparticle" in wanted:
+        parents["meshparticle"] = meshparticle_parent(content, state)
     for blend, name in (("opaque", "M_SwcOpaque"), ("masked", "M_SwcMasked"), ("translucent", "M_SwcTranslucent")):
         if "legacy " + blend in wanted:   # the base parents of stage 1.2 (import_content.py): an n_ instance of old rules
             parents["legacy " + blend] = assets.load_asset(f"{BASE}/{name}")

@@ -54,6 +54,15 @@ PLACE_DECAL_ONLY = False
 # The shaders of an override that the client draws on a mesh with no material of its own: the surface parents (M_SwcSurface, the
 # foliage, the glass) and the beam parent of mesh rule 8 (M_SwcBeam, AST-207). NoDraw sub-materials have no slot.
 EFFECT_PARENTS = frozenset({"illum", "vegetation", "glass", "geometrybeam", "nodraw"})
+# C8 (AST-275): the effect shaders with their own parents (M_SwcFxMesh, M_SwcFxMeshAdd, M_SwcMeshParticle; material_records stage
+# "c8"). Off until the C8 deploy. The overrides with an option that the parents do not have (FX_UNSUPPORTED: the procedural
+# gradients, the FX sine) stay out.
+C8 = False
+C8_PARENTS = frozenset({"fxmeshadvancedtransp", "meshparticle"})
+FX_UNSUPPORTED = ("%USE_PROC_GRADS", "%VERT_DEFORM_SINWAVE")
+# The glyph bridges (objects/vfx/mesh/glyph_bridge_*: the Azoth bridge materials) belong to the glyph mechanic: retail does not show
+# them in the normal state (the retail still at a bridge, 2026-10-24: the character stands in the water). They stay out with C8.
+C8_LEFT_OUT = ("objects/vfx/mesh/glyph_bridge",)
 
 
 @functools.lru_cache(maxsize=None)
@@ -63,6 +72,20 @@ def override_shaders(mtl: str) -> frozenset:
         return frozenset(m.get("Shader", "").lower() for m in materials.load_mtl(mtl)[1])
     except Exception:
         return frozenset({"?"})
+
+
+@functools.lru_cache(maxsize=None)
+def unsupported_fx(mtl: str) -> bool:
+    """@return True for an override material with an effect option that the C8 parents do not have (FX_UNSUPPORTED)."""
+    try:
+        return any(f in (m.get("StringGenMask", "") or "").upper() for m in materials.load_mtl(mtl)[1] for f in FX_UNSUPPORTED)
+    except Exception:
+        return True
+
+
+def effect_parents() -> frozenset:
+    """@return The override shaders that have a parent of the client (EFFECT_PARENTS; with C8 also C8_PARENTS)."""
+    return EFFECT_PARENTS | C8_PARENTS if C8 else EFFECT_PARENTS
 
 
 def fog_override(mtl: str) -> bool:
@@ -155,8 +178,9 @@ def write(name: str) -> dict:
     bare = {i for i, m in enumerate(names) if assets.get(m, {}).get("materials") == [no_material]}
     if bare and len(names):
         for m, o in set(zip(data["mesh"][keep].tolist(), material_all[keep].tolist())):
-            if m in bare and (not slots_of(m, o) or not override_shaders(material_names[o]) <= EFFECT_PARENTS
-                              or fog_override(material_names[o])):
+            if m in bare and (not slots_of(m, o) or not override_shaders(material_names[o]) <= effect_parents()
+                              or fog_override(material_names[o])
+                              or (C8 and (unsupported_fx(material_names[o]) or names[m].startswith(C8_LEFT_OUT)))):
                 keep &= ~((data["mesh"] == m) & (material_all == o))
 
     # The entry of a placement: (mesh, override) when the override changes a slot, else the mesh alone.

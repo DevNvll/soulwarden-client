@@ -93,6 +93,35 @@ PARAMS = {
              "FogColorInfluence", "FadeOutDistance", "uvVigFeaturing", "AmbStrength"),
 }
 
+# C8 (AST-275): the effect shaders Fxmeshadvancedtransp and Meshparticle (research/ast275-effect-shaders.md). Their rules go to
+# rules["fx"] (_rules), which render_key leaves out: the render keys and the n_ instance names (the slot names of the converted
+# meshes) of these records do not change. The stage "c8" gates their specs (fxmesh_spec, meshparticle_spec).
+FX_SHADERS = {"fxmeshadvancedtransp": "fxmesh", "meshparticle": "meshparticle"}
+FX_FLAGS = {"%USE_SDF_2D", "%USE_GLOW_FRESNEL", "%USE_OUTSIDE_FRESNEL_ALPHA", "%USE_INSIDE_FRESNEL_ALPHA",
+            "%USE_INTERSECTION_FADE", "%USE_INTERSECTION_GLOW", "%USE_PALETTE_MAP", "%USE_COMPLEX_COL",
+            "%USE_COMPLEX_COL_OVERLAY", "%USE_COMPLEX_COL_DODGE", "%USE_PROC_GRADS", "%VERT_DEFORM_SINWAVE", "%VERTCOLORS",
+            "%APPLY_SUN_COLOR", "%ENABLE_FADEOUT", "%DIFFUSE_MAP_2", "%DIFFUSE_MAP_3", "%DIFFUSE_MAP_4", "%USE_REFRACTION",
+            "%FX_DISSOLVE"}
+# The shader defaults of the public parameters (study section 3: FX parent core, FX scope extensions, Meshparticle parent).
+FX_DEFAULTS = {
+    "fxmesh": {"GlobalColorFalloff": 1.0, "GlobalAlphaStrength": 1.0, "GlobalAlphaFill": 1.0, "GlobalAlphaFalloff": 1.0,
+               "GlobalAlphaFromSource": 0.0, "SDF_2D_STRENGTH": 0.1, "SDF_2D_TILE_X": 1.0, "SDF_2D_TILE_Y": 1.0,
+               "SDF_2D_SPEED_X": 0.0, "SDF_2D_SPEED_Y": 0.0, "SDF_2D_PHASE_X": 0.0, "SDF_2D_PHASE_Y": 0.0,
+               "SOURCE_2D_TILE_X": 1.0, "SOURCE_2D_TILE_Y": 1.0, "SOURCE_2D_SPEED_X": 0.0, "SOURCE_2D_SPEED_Y": 0.0,
+               "SOURCE_2D_PHASE_X": 0.0, "SOURCE_2D_PHASE_Y": 0.0, "FRESNEL_EXPONENT": 1.0, "FRESNEL_STRENGTH": 1.0,
+               "FRESNEL_INVERT": 1.0, "FRESNEL_SDF_INFLUENCE": 0.0, "FRESNEL_SDF_MAP_MIX": 0.0, "FRESNEL_SDF_MAP_EXP": 1.0,
+               "FRESNEL_OUT_FALLOFF": 1.0, "FRESNEL_OUT_STRENGTH": 1.0, "FRESNEL_OUT_SDF_INF": 0.0,
+               "FRESNEL_IN_FALLOFF": 1.0, "FRESNEL_IN_STRENGTH": 1.0, "FRESNEL_IN_SDF_INF": 0.0,
+               "INTERSECT_FADE_DIST": 2.0, "INTERSECT_FADE_FALLOFF": 1.0, "INTERSECT_FADE_INV": 0.0,
+               "INTERSECT_GLOW_DIST": 2.0, "INTERSECT_GLOW_FALLOFF": 1.0, "INTERSECT_GLOW_INV": 0.0,
+               "PALETTE_PHASE": 0.0, "PALETTE_SPEED": 1.0, "PALETTE_FALLOFF": 1.0, "PALETTE_SDF_INF": 0.0,
+               "PALETTE_SOURCE_BLEND": 0.0, "COMPLEX_COL_TILE": 1.0},
+    "meshparticle": {"FadeOutDistance": 0.2, "AmbStrength": 1.0, "Brightness": 1.0, "SunColorInfluence": 0.5,
+                     "SoftIntersectionFactor": 1.0, "fadingFeaturing": 0.55, "viewDependencyFactor": 2.0},
+}
+FX_SLOTS = {"fxmesh": {"Custom": "source", "Heightmap": "sdf", "Detail": "palette", "Specular": "complex"},
+            "meshparticle": {"Diffuse": "diffuse", "Custom": "diffuse2", "Emittance": "layer mask"}}
+
 # Color spaces of the sampler roles (research section 3, "sRGB rules"): srgb = sRGB RGB and linear alpha; normal = the
 # normal map compression; linear = data; file = the color space of the file (the emission maps, AST-207; the detail).
 # The color space of each role (the sRGBLookup of the source sampler). A sampler with sRGBLookup decodes sRGB only for
@@ -386,13 +415,27 @@ def _rules(record: dict, normal_map: bool) -> dict:
         if on[feature]:
             params.update({n: record["params"][n] for n in names if n in record["params"]})
     rules["params"] = dict(sorted(params.items()))
+    kind = FX_SHADERS.get(rules["shader"])
+    if kind is not None:   # C8: the effect shaders (not in the render key)
+        fx_textures = {}
+        for slot, role in FX_SLOTS[kind].items():
+            t = record["textures"].get(slot)
+            if t is not None and t.get("product") is not None:
+                fx_textures[role] = {"product": t["product"], **({"uv": t["uv"]} if "uv" in t else {})}
+        rules["fx"] = {"kind": kind, "flags": sorted(flags & FX_FLAGS), "mtlFlags": record["mtlFlags"],
+                       "params": {n: record["params"][n] for n in sorted(FX_DEFAULTS[kind]) if n in record["params"]},
+                       "opacity": light.get("Opacity", 1.0), "emittance": (light.get("Emittance") or [0.0, 0.0, 0.0, 0.0])[:4],
+                       "textures": fx_textures}
     return rules
 
 
 def render_key(rules: dict) -> str:
+    """@return The render key of render rules: a hash of the rules without "fx" (C8: the rules of the effect shaders do not
+    rename the keys)."""
     if "key" in rules:
         return rules["key"]
-    return "r_" + hashlib.sha1(json.dumps(rules, sort_keys=True).encode()).hexdigest()[:10]
+    keyed = {k: v for k, v in rules.items() if k != "fx"}
+    return "r_" + hashlib.sha1(json.dumps(keyed, sort_keys=True).encode()).hexdigest()[:10]
 
 
 def legacy_key(element: ET.Element | None, normal_map: bool = True) -> str:
@@ -921,6 +964,8 @@ def spec_of(rules: dict, legacy: dict, textures: dict) -> dict | None:
         textures[record["asset"]] = {k: v for k, v in record.items() if k != "asset"}
         return record["asset"]
 
+    if "fx" in rules and "c8" in STAGES:
+        return fxmesh_spec(rules, use) if rules["fx"]["kind"] == "fxmesh" else meshparticle_spec(rules, use)
     if rules["family"] == "glass" and "glass" in STAGES:
         return glass_spec(rules, use)
     if rules["family"] == "beam" and "beam" in STAGES:
@@ -1314,6 +1359,109 @@ def beam_spec(rules: dict, use) -> dict:
                  "dustUVScale", "dustTimeScale", "turbStrength", "turbRatio", "uvRot", "SunColorInfluence",
                  "FogColorInfluence", "FadeOutDistance", "uvVigFeaturing", "AmbStrength"):
         spec["scalars"][name] = value(name)
+    return spec
+
+
+FX_ADDITIVE = 0x4   # the additive bit of MtlFlags (study section 1, "Blend, culling, fog, and emission units")
+
+
+def fxmesh_spec(rules: dict, use) -> dict:
+    """@return The spec of an Fxmeshadvancedtransp material (C8, swc_materials.fxmesh_parent): M_SwcFxMesh (alpha over: the
+    material state of the client for Opacity below 1 without the additive bit) or M_SwcFxMeshAdd (the declared additive pass),
+    Unlit, two sided, no depth write. The maps: Custom (the source RGBA), Heightmap (the SDF, red), Detail (the palette, red),
+    Specular (the complex color); all sRGB. The public parameters packed in vectors (FX_DEFAULTS for a missing one), the
+    options as static switches. Limits: the procedural gradients, the FX sine, and VertexDeform type 2 (zero wave) are not in
+    the parent ("limits")."""
+    fx = rules["fx"]
+    params, flags = fx["params"], set(fx["flags"])
+
+    def v(name):
+        value = params.get(name, FX_DEFAULTS["fxmesh"][name])
+        return float(value[0] if isinstance(value, list) else value)
+
+    opacity = float(fx["opacity"])
+    additive = bool(fx["mtlFlags"] & FX_ADDITIVE) or opacity >= 1.0
+    spec = {"parent": "fxmesh additive" if additive else "fxmesh", "textures": {}, "vectors": {}, "scalars": {},
+            "switches": {}, "two sided": True}
+    for role, name in (("source", "SourceMap"), ("sdf", "SdfMap"), ("palette", "PaletteMap"), ("complex", "ComplexColorMap")):
+        if role in fx["textures"]:
+            spec["textures"][name] = use(color_texture(fx["textures"][role]["product"], "base"))
+    spec["vectors"]["EmittanceColor"] = [float(x) for x in fx["emittance"]]
+    spec["vectors"]["DiffuseColor"] = [float(x) for x in rules["diffuse"]] + [1.0]
+    spec["vectors"]["SdfTS"] = [v("SDF_2D_TILE_X"), v("SDF_2D_TILE_Y"), v("SDF_2D_SPEED_X"), v("SDF_2D_SPEED_Y")]
+    spec["vectors"]["SdfPS"] = [v("SDF_2D_PHASE_X"), v("SDF_2D_PHASE_Y"), v("SDF_2D_STRENGTH"), 0.0]
+    spec["vectors"]["SourceTS"] = [v("SOURCE_2D_TILE_X"), v("SOURCE_2D_TILE_Y"), v("SOURCE_2D_SPEED_X"), v("SOURCE_2D_SPEED_Y")]
+    spec["vectors"]["SourcePS"] = [v("SOURCE_2D_PHASE_X"), v("SOURCE_2D_PHASE_Y"), 0.0, 0.0]
+    spec["vectors"]["Global"] = [v("GlobalColorFalloff"), v("GlobalAlphaStrength"), v("GlobalAlphaFill"), v("GlobalAlphaFalloff")]
+    spec["vectors"]["FresnelGlow"] = [v("FRESNEL_EXPONENT"), v("FRESNEL_STRENGTH"), v("FRESNEL_INVERT"), v("FRESNEL_SDF_INFLUENCE")]
+    spec["vectors"]["FresnelGlowSdf"] = [v("FRESNEL_SDF_MAP_MIX"), v("FRESNEL_SDF_MAP_EXP"), 0.0, 0.0]
+    spec["vectors"]["FresnelOut"] = [v("FRESNEL_OUT_FALLOFF"), v("FRESNEL_OUT_STRENGTH"), v("FRESNEL_OUT_SDF_INF"), 0.0]
+    spec["vectors"]["FresnelIn"] = [v("FRESNEL_IN_FALLOFF"), v("FRESNEL_IN_STRENGTH"), v("FRESNEL_IN_SDF_INF"), 0.0]
+    spec["vectors"]["IntersectFade"] = [v("INTERSECT_FADE_DIST"), v("INTERSECT_FADE_FALLOFF"), v("INTERSECT_FADE_INV"), 0.0]
+    spec["vectors"]["IntersectGlow"] = [v("INTERSECT_GLOW_DIST"), v("INTERSECT_GLOW_FALLOFF"), v("INTERSECT_GLOW_INV"), 0.0]
+    spec["vectors"]["Palette"] = [v("PALETTE_PHASE"), v("PALETTE_SPEED"), v("PALETTE_FALLOFF"), v("PALETTE_SDF_INF")]
+    spec["vectors"]["PaletteComplex"] = [v("PALETTE_SOURCE_BLEND"), v("COMPLEX_COL_TILE"), 0.0, 0.0]
+    spec["scalars"]["Opacity"] = opacity
+    spec["scalars"]["GlobalAlphaFromSource"] = v("GlobalAlphaFromSource")
+    for flag, switch in (("%USE_SDF_2D", "UseSdf2D"), ("%USE_GLOW_FRESNEL", "UseGlowFresnel"),
+                         ("%USE_OUTSIDE_FRESNEL_ALPHA", "UseOutsideFresnelAlpha"), ("%USE_INSIDE_FRESNEL_ALPHA", "UseInsideFresnelAlpha"),
+                         ("%USE_INTERSECTION_FADE", "UseIntersectionFade"), ("%USE_INTERSECTION_GLOW", "UseIntersectionGlow"),
+                         ("%VERTCOLORS", "UseVertexColors"), ("%USE_PALETTE_MAP", "UsePaletteMap")):
+        spec["switches"][switch] = flag in flags
+    complex_on = "%USE_COMPLEX_COL" in flags
+    overlay, dodge = "%USE_COMPLEX_COL_OVERLAY" in flags, "%USE_COMPLEX_COL_DODGE" in flags
+    spec["switches"]["UseComplexOverlay"] = complex_on and overlay and not dodge
+    spec["switches"]["UseComplexDodge"] = complex_on and dodge and not overlay
+    limits = sorted(flags & {"%USE_PROC_GRADS", "%VERT_DEFORM_SINWAVE", "%USE_REFRACTION", "%FX_DISSOLVE"})
+    if limits:
+        spec["limits"] = limits
+    return spec
+
+
+def meshparticle_spec(rules: dict, use) -> dict:
+    """@return The spec of a Meshparticle material (C8, swc_materials.meshparticle_parent: Translucent alpha over, Unlit, two
+    sided, no depth write): the layers Diffuse and Custom (%DIFFUSE_MAP_2), the layer mask (the Emittance slot; none: white),
+    all sRGB; the XML Diffuse and Opacity; the UV transform of each slot and the type-2 movement of the Custom slot (UV =
+    Tile x (UV0 + t x Rate x Amplitude) + Offset); the public parameters (FX_DEFAULTS for a missing one). Limits: a TexMod
+    rotation, an oscillator type other than 2, and the layers 3 and 4."""
+    fx = rules["fx"]
+    params, flags = fx["params"], set(fx["flags"])
+
+    def v(name):
+        value = params.get(name, FX_DEFAULTS["meshparticle"][name])
+        return float(value[0] if isinstance(value, list) else value)
+
+    spec = {"parent": "meshparticle", "textures": {}, "vectors": {}, "scalars": {}, "switches": {}, "two sided": True}
+    for role, name in (("diffuse", "DiffuseMap"), ("diffuse2", "DiffuseMap2"), ("layer mask", "LayerMask")):
+        if role in fx["textures"]:
+            spec["textures"][name] = use(color_texture(fx["textures"][role]["product"], "base"))
+    limits = []
+    custom_uv = (fx["textures"].get("diffuse2") or {}).get("uv") or {}
+    mod = custom_uv.get("mod", {})
+    move = [0.0, 0.0]
+    for i, axis in enumerate(("U", "V")):
+        kind = mod.get(f"TexMod_{axis}OscillatorType", 0)
+        if kind == 2:
+            move[i] = float(mod.get(f"TexMod_{axis}OscillatorRate", 0.0)) * float(mod.get(f"TexMod_{axis}OscillatorAmplitude", 1.0))
+        elif kind:
+            limits.append(f"Custom oscillator type {kind}")
+    for role in ("diffuse", "diffuse2", "layer mask"):
+        if any("Rotate" in k for k in ((fx["textures"].get(role) or {}).get("uv") or {}).get("mod", {})):
+            limits.append(f"{role}: TexMod rotation")
+    spec["vectors"]["DiffuseUV"] = uv_transform((fx["textures"].get("diffuse") or {}).get("uv"))
+    spec["vectors"]["CustomUV"] = uv_transform(custom_uv)
+    spec["vectors"]["CustomMove"] = move + [0.0, 0.0]
+    spec["vectors"]["MaskUV"] = uv_transform((fx["textures"].get("layer mask") or {}).get("uv"))
+    spec["vectors"]["DiffuseColor"] = [float(x) for x in rules["diffuse"]] + [float(fx["opacity"])]
+    spec["vectors"]["Light"] = [v("AmbStrength"), v("Brightness"), v("SunColorInfluence"), v("SoftIntersectionFactor")]
+    spec["vectors"]["Fade"] = [v("fadingFeaturing"), v("viewDependencyFactor"), v("FadeOutDistance"), 0.0]
+    spec["scalars"]["Opacity"] = float(fx["opacity"])
+    spec["switches"]["ApplySunColor"] = "%APPLY_SUN_COLOR" in flags
+    spec["switches"]["EnableFadeout"] = "%ENABLE_FADEOUT" in flags
+    spec["switches"]["UseDiffuseMap2"] = "%DIFFUSE_MAP_2" in flags
+    limits += sorted(flags & {"%DIFFUSE_MAP_3", "%DIFFUSE_MAP_4", "%USE_REFRACTION", "%FX_DISSOLVE"})
+    if limits:
+        spec["limits"] = limits
     return spec
 
 
