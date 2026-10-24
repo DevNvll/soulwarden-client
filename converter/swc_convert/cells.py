@@ -60,11 +60,13 @@ EFFECT_PARENTS = frozenset({"illum", "vegetation", "glass", "geometrybeam", "nod
 C8 = True
 C8_PARENTS = frozenset({"fxmeshadvancedtransp", "meshparticle"})
 FX_UNSUPPORTED = ("%USE_PROC_GRADS", "%VERT_DEFORM_SINWAVE")
-# State objects stay out with C8 (the server shows one state): the glyph bridges (objects/vfx/mesh/glyph_bridge_*, the glyph
-# mechanic; the retail still at a bridge, 2026-10-24: the character stands in the water) and the capture point cylinders
+# State objects stay out with C8 (the server shows one state): the glyph bridges (objects/vfx/mesh/structures/glyph_bridge_*, the
+# glyph mechanic; the retail still at a bridge, 2026-10-24: the character stands in the water), the other objects of the Azoth glyph
+# mechanic (the override materials azoth_*, glow_procedural_azoth_*, azothglyphsphere_*), and the capture point cylinders
 # (vfx_cylinder_*_capturepoint_alpha: six owner states at each place, blue, white, red, factions 1 to 3; the retail still at a capture
-# point shows none).
-C8_LEFT_OUT = ("objects/vfx/mesh/glyph_bridge", "_capturepoint_")
+# point shows none). C8_LEFT_OUT: words of the mesh path; C8_LEFT_OUT_MATERIALS: words of the override material path.
+C8_LEFT_OUT = ("glyph_bridge", "_capturepoint_")
+C8_LEFT_OUT_MATERIALS = ("azoth",)
 
 
 @functools.lru_cache(maxsize=None)
@@ -182,7 +184,9 @@ def write(name: str) -> dict:
         for m, o in set(zip(data["mesh"][keep].tolist(), material_all[keep].tolist())):
             if m in bare and (not slots_of(m, o) or not override_shaders(material_names[o]) <= effect_parents()
                               or fog_override(material_names[o])
-                              or (C8 and (unsupported_fx(material_names[o]) or any(word in names[m] for word in C8_LEFT_OUT)))):
+                              or (C8 and override_shaders(material_names[o]) & C8_PARENTS
+                                  and (unsupported_fx(material_names[o]) or any(word in names[m] for word in C8_LEFT_OUT)
+                                       or any(word in material_names[o].lower() for word in C8_LEFT_OUT_MATERIALS)))):
                 keep &= ~((data["mesh"] == m) & (material_all == o))
 
     # The entry of a placement: (mesh, override) when the override changes a slot, else the mesh alone.

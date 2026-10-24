@@ -437,7 +437,8 @@ the places of interest with the census tops) found these classes. The counts are
   (`swc_materials`); the specs `material_records.fxmesh_spec` and `meshparticle_spec` (stage c8; their rules in `rules["fx"]`,
   which the render key leaves out: no instance or slot name changes). `cells.C8`: the overrides of these shaders on meshes with no
   own material draw (1,899 placements in 24 regions: the light ray cards, the teleporter liquids, doors, the water column). Out:
-  the state objects (the glyph bridges; the capture point cylinders, six owner states at each place), the procedural gradients
+  the state objects (the glyph bridges and the other objects of the Azoth glyph mechanic, override materials with "azoth"; the
+  capture point cylinders, six owner states at each place), the procedural gradients
   and the FX sine (the lava grid). The check: the light shaft of Ballard's Manor matches retail (shaft minus wall 26.2 against
   25.9); no measurable GPU time.
 - Streaming (the play logs of 2026-10-23): the components that register while their mesh builds ("Waiting on static mesh") come behind
