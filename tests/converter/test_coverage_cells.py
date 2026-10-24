@@ -76,7 +76,11 @@ class CoverageCells(unittest.TestCase):
         self.folder.cleanup()
 
     def test_the_cell_entries(self):
-        report = cells.write(REGION)
+        cells.PLACE_DECAL_ONLY = True   # the rule of C4 (held out of the first deploy: test_decal_only_held_out)
+        try:
+            report = cells.write(REGION)
+        finally:
+            cells.PLACE_DECAL_ONLY = False
         from swc_convert import manifest
         assets = manifest.load()["assets"]
         found = entries(self.root / "regions" / REGION / "cells.bin")
@@ -88,6 +92,15 @@ class CoverageCells(unittest.TestCase):
         self.assertNotIn(assets[FOG_CARD]["unreal"], folders)
         self.assertEqual(report["instances"], 3)
         self.assertEqual(report["decal-only meshes"], 1)
+
+
+    def test_decal_only_held_out(self):
+        report = cells.write(REGION)
+        from swc_convert import manifest
+        assets = manifest.load()["assets"]
+        folders = {f for f, _ in entries(self.root / "regions" / REGION / "cells.bin")}
+        self.assertNotIn(assets["decals:" + MOSS]["unreal"], folders)
+        self.assertEqual(report["decal-only meshes"], 0)
 
 
 if __name__ == "__main__":

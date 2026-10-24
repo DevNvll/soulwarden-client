@@ -47,6 +47,10 @@ FOG_MATERIAL_FOLDERS = ("objects/volumetrics/", "objects/climax/materials/volume
 # The fog cards (fx_fogcard_01 to 04: AST-265). Before AST-275 the cells left out every mesh named fx_*: also the light ray cards,
 # the waterfall kits (an Illum surface), the alpha planes, and the portal spheres (1,083 placements of the playable regions).
 FOG_CARD = "fx_fogcard"
+# C4 (AST-275): the decal companions of the meshes with only decal subsets (the moss layers of the crater cliffs). Held out (the decision
+# of the orchestrator, 2026-10-24): the first check drew them pale gray and glossy where retail has subtle dark moss (the suspects: the
+# Smoothness 1.0 and the vertex alpha of their decal spec). True places them again.
+PLACE_DECAL_ONLY = False
 # The shaders of an override that the client draws on a mesh with no material of its own: the surface parents (M_SwcSurface, the
 # foliage, the glass) and the beam parent of mesh rule 8 (M_SwcBeam, AST-207). NoDraw sub-materials have no slot.
 EFFECT_PARENTS = frozenset({"illum", "vegetation", "glass", "geometrybeam", "nodraw"})
@@ -126,8 +130,8 @@ def write(name: str) -> dict:
     # persistent actor (AST-209).
     from .landmarks import LANDMARK_MESHES
     # A mesh with only decal subsets (AST-275, C4): the record "empty" names its decal companion; the cells place the companion alone.
-    decal_only = np.array([assets.get(m, {}).get("kind") == "empty" and assets.get(m, {}).get("decals") in assets for m in names],
-                          dtype=bool)
+    decal_only = np.array([PLACE_DECAL_ONLY and assets.get(m, {}).get("kind") == "empty" and assets.get(m, {}).get("decals") in assets
+                           for m in names], dtype=bool)
     usable = np.array([(assets.get(m, {}).get("kind") == "static" or d) and not m.rsplit("/", 1)[-1].startswith(FOG_CARD)
                        and not m.startswith(LANDMARK_MESHES) and m not in LEFT_OUT_MESHES for m, d in zip(names, decal_only)],
                       dtype=bool)

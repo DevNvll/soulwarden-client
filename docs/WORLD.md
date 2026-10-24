@@ -404,6 +404,8 @@ the places of interest with the census tops) found these classes. The counts are
   `-SwcNoServerVisuals`, `swc.ServerVisuals 0`. The file holds object paths of the plugin: write it again after an import.
 - C4, the meshes with only decal subsets (1,497: the moss layers of the crater cliffs, Dunwood floor decals): mesh rule 7 writes their
   decal companion alone and the record "empty" names it (`mesh.convert`); the cells place the companion alone (flag bit 1).
+  Held out for now (`cells.PLACE_DECAL_ONLY` False, 2026-10-24): the first check drew the moss pale gray and glossy (retail: subtle dark
+  moss); the suspects are the Smoothness 1.0 and the vertex alpha of the decal spec.
 - C7, the effect meshes: the cells left out every mesh named `fx_*`; now only the fog cards `fx_fogcard_*` (AST-265). The meshes of the
   beam folders get mesh rule 8, and a beam folder mesh with no material of its own takes its look from the override of each placement
   (the energy planes and rings of the Shattered Obelisk: GeometryBeam, M_SwcBeam), so it has no Nanite. `overrides.slot_map`: a mesh
