@@ -75,7 +75,9 @@ def load_mtl(reference: str, mesh_path: str = "") -> tuple[str, list[ET.Element]
     if reference.startswith("{"):
         path = source.product_of_text(reference, ".mtl")
     else:
-        path = reference.lower().replace("\\", "/")
+        # A path from the root of the game files can start with "/" (AST-275: four LOD meshes that the level places directly, for
+        # example jav_fst_deadstickbush_a_lod1.cgf names "/objects/nature/.../jav_fst_deadscrub_a_mat.mtl"; before, no material).
+        path = reference.lower().replace("\\", "/").lstrip("/")
         if not path.endswith(".mtl"):
             path += ".mtl"
         if "/" not in path and mesh_path:

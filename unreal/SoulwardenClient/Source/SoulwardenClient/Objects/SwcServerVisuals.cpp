@@ -76,9 +76,9 @@ bool USwcServerVisualSubsystem::Read()
 	const TSharedPtr<FJsonObject>* SliceMap = nullptr;
 	if (Document->TryGetObjectField(TEXT("slices"), SliceMap))
 	{
-		for (const TPair<FString, TSharedPtr<FJsonValue>>& Slice : (*SliceMap)->Values)
+		for (const auto& Slice : (*SliceMap)->Values)
 		{
-			TArray<FPart>& Parts = Slices.Add(Slice.Key);
+			TArray<FPart>& Parts = Slices.Add(FString(Slice.Key));
 			for (const TSharedPtr<FJsonValue>& Value : Slice.Value->AsArray())
 			{
 				const TSharedPtr<FJsonObject> Object = Value->AsObject();
@@ -90,11 +90,11 @@ bool USwcServerVisualSubsystem::Read()
 					Part.Collision = FSoftObjectPath(Collision);
 				}
 				Part.bDecal = Object->GetBoolField(TEXT("decal"));
-				for (const TPair<FString, TSharedPtr<FJsonValue>>& Slot : Object->GetObjectField(TEXT("slots"))->Values)
+				for (const auto& Slot : Object->GetObjectField(TEXT("slots"))->Values)
 				{
 					// import_content.py: the material instance of a material record is /SwcGameContent/Materials/KEY.
 					const FString Key = Slot.Value->AsString();
-					Part.Slots.Emplace(FName(*Slot.Key), FSoftObjectPath(FString::Printf(TEXT("/SwcGameContent/Materials/%s.%s"), *Key, *Key)));
+					Part.Slots.Emplace(FName(FString(Slot.Key)), FSoftObjectPath(FString::Printf(TEXT("/SwcGameContent/Materials/%s.%s"), *Key, *Key)));
 				}
 				for (const TSharedPtr<FJsonValue>& Row : Object->GetArrayField(TEXT("transforms")))
 				{

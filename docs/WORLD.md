@@ -411,9 +411,12 @@ the places of interest with the census tops) found these classes. The counts are
   each slot (before, the pair had an error and the placement drew the fallback material). A mesh with no material of its own is placed
   only with a slot map whose override has a parent of the client (`cells.EFFECT_PARENTS`: Illum, Vegetation, Glass, GeometryBeam); the
   effect shaders with no parent yet (Fxmeshadvancedtransp: the glyph bridges, the capture point cylinders, the liquid planes;
-  Meshparticle: the light ray cards; Geometryfog: the fog beams) and the meshes with no material and no override are left out (they drew
-  the white fallback material). `cells.LEFT_OUT_MESHES` also has the fog volumes of AST-265 (fogsphere_01, jav_fogsheet_a_cross,
-  jav_fogsphere_a).
+  Meshparticle: the light ray cards), a fog override (`cells.fog_override`: Geometryfog, or a GeometryBeam material of the fog folders
+  `objects/volumetrics/`: all 242 placements of the fog sphere fogsphere_01, the fog beams; AST-265), and the meshes with no material and no
+  override are left out (they drew the white fallback material). `cells.LEFT_OUT_MESHES` also has the fog sheet and sphere meshes of
+  AST-265 that mesh rule 8 makes drawable (jav_fogsheet_a_cross, jav_fogsphere_a).
+- C10a, a material path from the root of the game files (a leading "/", `materials.load_mtl`): 4 LOD meshes that the level places
+  directly (64 placements: jav_fst_deadstickbush_a_lod1 and others) had no material and drew white.
 - Not drawn on purpose (each with its reason in the AST-275 report): the other server spawns (world event states, siege, season,
   dungeon: the backend does not spawn them), alias spawners (creatures, events), Visible false, depleted meshes, plot markers, the 118
   meshes that are not in the game copy, the fog cards. The vegetation areas (component 2a2893bf, VegetationDescriptorListComponent) are bake

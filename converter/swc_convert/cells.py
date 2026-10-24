@@ -36,11 +36,14 @@ CELL_M = 256.0
 # objects/volumetrics/wind_snow_01_mat.mtl, a GeometryBeam fog sheet). The mesh is not in the beam folders of mesh rule 8 and its pair
 # has no slot map, so it drew as opaque white Nanite meshes over the icebergs. The fix (mesh rule 8, pairs version 3, M_SwcBeam) is in
 # AST-265 (b); it brings these sheets back.
-# The fog volumes of AST-265 (the decision of the orchestrator for AST-275, 2026-10-23): the GeometryBeam fog sphere fogsphere_01 (a
-# white opaque sphere of 33 m before, near 8836 5130) and the fog sheets and spheres that mesh rule 8 makes drawable. AST-265 brings
-# them back with the fog rule.
-LEFT_OUT_MESHES = ("objects/vfx/misc/snow/snow_blown_01.cgf", "objects/vfx/mesh/generic/fogsphere_01.cgf",
-                   "objects/volumetrics/jav_fogsheet_a_cross.cgf", "objects/volumetrics/jav_fogsphere_a.cgf")
+# The fog sheets and spheres of AST-265 that mesh rule 8 makes drawable (their own GeometryBeam materials; empty with rule 6): AST-265
+# brings them back with the fog rule.
+LEFT_OUT_MESHES = ("objects/vfx/misc/snow/snow_blown_01.cgf", "objects/volumetrics/jav_fogsheet_a_cross.cgf",
+                   "objects/volumetrics/jav_fogsphere_a.cgf")
+# The fog of an override (AST-275): a Geometryfog shader, or a GeometryBeam material of the fog folders (the fog sheets of AST-265). A
+# mesh with no material of its own and a fog override has no proved parent: not drawn (all 242 placements of the fog sphere
+# objects/vfx/mesh/generic/fogsphere_01.cgf, a white opaque sphere of 33 m before, near 8836 5130; the fog beams jav_fogbeam_a and b).
+FOG_MATERIAL_FOLDERS = ("objects/volumetrics/", "objects/climax/materials/volumetrics/")
 # The fog cards (fx_fogcard_01 to 04: AST-265). Before AST-275 the cells left out every mesh named fx_*: also the light ray cards,
 # the waterfall kits (an Illum surface), the alpha planes, and the portal spheres (1,083 placements of the playable regions).
 FOG_CARD = "fx_fogcard"
@@ -56,6 +59,12 @@ def override_shaders(mtl: str) -> frozenset:
         return frozenset(m.get("Shader", "").lower() for m in materials.load_mtl(mtl)[1])
     except Exception:
         return frozenset({"?"})
+
+
+def fog_override(mtl: str) -> bool:
+    """@return True for an override material of fog (FOG_MATERIAL_FOLDERS): a Geometryfog shader, or a GeometryBeam of the fog folders."""
+    shaders = override_shaders(mtl)
+    return any(s.startswith("geometryfog") for s in shaders) or ("geometrybeam" in shaders and mtl.startswith(FOG_MATERIAL_FOLDERS))
 SIGNS = np.array([[1.0, -1.0, 1.0], [-1.0, 1.0, -1.0], [1.0, -1.0, 1.0]])   # S L S with S = diag(1, -1, 1)
 INSTANCE = np.dtype([("t", "<f8", 3), ("q", "<f4", 4), ("s", "<f4", 3)])
 
@@ -136,12 +145,14 @@ def write(name: str) -> dict:
     # A mesh with no material of its own (its only record is the key of no sub-material) draws only with the slot map of an override
     # (AST-275): with none it would draw the fallback material (white); retail has no material for it. Its override must also have
     # a parent of the client (EFFECT_PARENTS): the effect shaders with no parent yet (Fxmeshadvancedtransp: the glyph bridges, the
-    # capture point cylinders; Meshparticle: the light ray cards) would draw an opaque legacy instance. Both are left out.
+    # capture point cylinders; Meshparticle: the light ray cards) would draw an opaque legacy instance, and a fog override (fog_override)
+    # has no proved parent. All are left out.
     no_material = materials.shared_material(None)[0]["name"]
     bare = {i for i, m in enumerate(names) if assets.get(m, {}).get("materials") == [no_material]}
     if bare and len(names):
         for m, o in set(zip(data["mesh"][keep].tolist(), material_all[keep].tolist())):
-            if m in bare and (not slots_of(m, o) or not override_shaders(material_names[o]) <= EFFECT_PARENTS):
+            if m in bare and (not slots_of(m, o) or not override_shaders(material_names[o]) <= EFFECT_PARENTS
+                              or fog_override(material_names[o])):
                 keep &= ~((data["mesh"] == m) & (material_all == o))
 
     # The entry of a placement: (mesh, override) when the override changes a slot, else the mesh alone.
