@@ -366,10 +366,24 @@ meshes with a proxy change at their next conversion.
 
 ### Mesh rule 7 (M3, an option of `mesh.convert` until the rollout)
 
-- COLOR_0: the source vertex colors (bytes B, G, R, A of the interleaved vertex). Unreal stores a vertex color as sRGB
-  bytes (`StaticMeshBuilder`: `ToFColor(true)`) and the material reads those bytes as they are. The converter writes the
-  linear value whose sRGB encoding is the source byte: the material gets the source byte / 255 (wind and blend data
-  are not colors). The alpha is linear.
+- COLOR_0: the source vertex colors (bytes B, G, R, A of the interleaved vertex). The converter writes the linear value
+  whose sRGB encoding is the source byte (`mesh.vertex_colors`). The alpha is linear.
+- The color chain in the client (AST-278, 2026-10-24; engine source and a measurement): the glTF factory of the engine
+  decodes the RGB once more (`GLTFMeshFactory.cpp`: `SRGBToLinear`), the build encodes once (`StaticMeshBuilder`:
+  `ToFColor(true)`), and the local vertex factory reads the B8G8R8A8 UNORM buffer with no decode. Thus the material gets
+  decode(byte), not the byte: the station floor (source bytes 166) gets 0.381 (measured 0.38 with a calibration ladder
+  in a debug view; `swc_materials.DEBUG_VERTEX_VIEW`). The source shader reads the raw byte (`pPass.cDiffuseMap.rgb *=
+  IN.Color.rgb`, no sRGB transfer; the D3D11 input assembler has no sRGB vertex formats): 166 / 255 = 0.651.
+- A known deviation (AST-278): the client keeps the darker tint decode(byte). The test of the source rule (the sRGB
+  encode of the vertex RGB in M_SwcSurface and M_SwcDecal) moved the views away from retail (luma of the area): the
+  galleon hull retail 98.7, client 108.3 with the darker tint, 126.6 with the source tint; the station floor retail 43.3,
+  58.2 and 63.8. The client is brighter than retail at these places in general (light or exposure), and the darker tint
+  compensates a part of it. When the light matches, the raw-byte tint of the source can come back (evidence/AST-275/
+  ast278d-option-b.jpg).
+- The VertexColor node of a material has no named outputs: connect its RGB as "" and its channels as R, G, B, A
+  (`tests/converter/test_material_pins.py`). The pin "RGB" connected nothing until M_SwcSurface 11 and M_SwcHair 7
+  (AST-278): no vertex tint drew. Since M_SwcDecal 8 a mesh decal with %VERTCOLORS multiplies its base color by the vertex
+  RGB, as the source decal (the seaweed of the galleon hull drew bright yellow).
 - The slot of each sub-material is named by `materials.instance_key`: one slot for each set of render rules (no
   collapsed slot, no wrong rules of a shared key).
 - The cost measure on Oxboro (the rebuild set of `r_+04_+02`: 1,924 meshes, 16.9 M triangles) imports into
