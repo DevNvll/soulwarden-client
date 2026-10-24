@@ -317,7 +317,8 @@ void EntityTable::apply_spell(const decoder::Fragment& fragment, Entity& entity,
             spell.place = wide_position(place);
         }
         if (const auto rotation = decoder::field_of(fragment, 0, kSpellRotation); !rotation.empty()) {
-            spell.rotation = swc::net::read_quaternion(rotation);
+            // strtrot has the format of the place rotation (backend states/spell_state.cpp: write_place_rotation), AST-275.
+            spell.rotation = swc::net::read_place_rotation(rotation);
         }
         if (const auto attachment = decoder::field_of(fragment, 0, kSpellAttachment); attachment.size() == 24) {
             // No entity: the zero actor id and the group 00000000FFFFFFFF.

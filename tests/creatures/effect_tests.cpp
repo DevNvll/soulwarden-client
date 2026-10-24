@@ -387,6 +387,8 @@ void test_vortex() {
     area.entity.spell.caster = backend::world::entity_group_id(area.entity.spell.casterActor);
     area.entity.spell.started = clock.now();
     area.entity.spell.ends = clock.now() + std::chrono::milliseconds(3500);
+    // The direction of the caster (stage 3.4f-D): strtrot has the place rotation format (u16 for each axis, AST-275).
+    area.entity.spell.yaw = 164.0F;
     EntityTable table;
     table.apply(area_record(area, clock, 80), server_us(clock));
     const swc::creatures::Entity* vortex = table.find(80);
@@ -397,6 +399,10 @@ void test_vortex() {
     check(vortex->spell.caster == 0x4C554F5300000002ULL && vortex->spell.casterActor[0] == 0x02 && !vortex->spell.attached,
           "the caster (a character: its actor id and G); no attachment");
     check(vortex->spell.events.size() == 6, "a state for each of the six delayed events");
+    const double half = 164.0 * 3.14159265358979 / 360.0;
+    check(near(vortex->spell.rotation.x, 0.0, 1e-4) && near(vortex->spell.rotation.y, 0.0, 1e-4)
+              && near(vortex->spell.rotation.z, std::sin(half), 1e-4) && near(vortex->spell.rotation.w, std::cos(half), 1e-4),
+          "the start rotation of the Spell state (strtrot): the yaw of the caster");
     const auto times = swc::creatures::area_times(vortex->spell, area.volume, area.events);
     const std::uint64_t start = vortex->spell.spawnUs;
     check(times.dangerUs == start && near(static_cast<double>(times.endUs), static_cast<double>(start + 3100000), 5000.0),
