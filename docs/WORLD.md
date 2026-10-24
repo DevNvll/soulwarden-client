@@ -662,9 +662,10 @@ The fixes of the full cook:
   Environment, Materials, Particles, Meshes, Player, Roads, Terrain/Menu, SwcUi, Water of the plugin; BasicShapes, EngineSky, EngineDebugMaterials of the
   engine), and `DirectoriesToAlwaysStageAsNonUFS` for `Lua/`. The data of the converters stays in `SWC_CONTENT` (the client reads it
   by the environment, also in the cooked build).
-- The memory: a scope of 30 GB (`SWC_COOK_MEMORY_MAX`) with at most 6 GB of swap; the cooker collects garbage at 22,000 MiB
-  (`MemoryMaxUsedPhysical`; it sees the memory of the computer, not of its scope) and uses 8 shader workers. These cooker options
-  are constants in `tools/cook.sh` (2026-10-22; before: 20 GB, 14,000 MiB, 13 workers).
+- The memory (since AST-273, 2026-10-24): a scope of 22 GB (`SWC_COOK_MEMORY_MAX`) with at most 6 GB of swap; the cooker does a
+  full garbage collection at 18,000 MiB of its own memory (`MemoryMaxUsedPhysical`; the minimum-free tests are 0), the map cooks
+  first (`-CookFirst`), and 4 shader workers compile. These cooker options are constants in `tools/cook.sh` (before: 30 GB and
+  22,000 MiB on 2026-10-22; 20 GB, 14,000 MiB, and 13 workers before that). See "The full cook of AST-273" below.
 - The rule of the incremental cook (AST-229, 2026-10-22): with no Zen store (`bUseZenStore=False`) the cooker uses the legacy
   incremental cook, which deletes all cooked packages when the ini settings change ("Cook invalidated for platform Linux because ini
   settings have changed ... FULL COOK"; `GlobalCookArtifact.cpp`). The ini settings are the config files and the `-ini:` options of
@@ -782,6 +783,56 @@ the readers of the code (the menu scene, the world map, the persons, the gatheri
   one travel the 8 impostor tiles of r_+04_+00 show at 8.9 s (the far layer; the same in the exit of 2026-10-21), and the meshes
   of the gathered nodes show during the gather (the result of the action). Shader jobs 0 and assets building 0 in each probe;
   no import, shader compile, SkipPackage, or missing asset line in the client logs.
+
+#### The full cook of AST-273 (2026-10-24)
+
+The cook of main 946d5d5 (`SWC_COOK_EXTRA=-CookMemoryAnalysis=Simple tools/cook.sh --full`, with the guard
+`work/ast261/cook-guard.sh` and the memory trace `work/ast273/cook-mem.sh`, both started by `work/ast273/start-guard.sh`; the large
+desktop programs closed, 34 GB available, 8 GB of swap at the start):
+
+| Item | Value |
+| --- | --- |
+| Cook and stage, cold | 4,593 s (77 min), status 0 |
+| Packages | 176,209 cooked, 9 skipped for the platform |
+| The staged build | 43,282 MiB; the disk 87 % |
+| Shaders | 752 unique shader maps of 29,200 assets, 13,944 unique shaders of 27,841; 4 shader workers |
+| The guard | available min 11,102 MiB, swap max 16,488 MiB (8,301 at the start); no stop |
+| Garbage collections | 4 full (each at 18,000 MiB of the cooker), 134 soft |
+
+The memory trace (each 10 s: the cooker VmRSS, VmSwap, VmSize; the scope `memory.current`, `memory.swap.current`, `memory.events`):
+- With `-CookFirst` the World Partition split of NewWorld ("PopulateGeneratorPackage Processing 1759") came at the start, before the
+  first cooked package, and the map family ended at 1,761 packages, about 5 minutes after the start of the cook. In the split the scope used at most
+  20.2 GB, with up to 6.1 GB of swap and the cooker at most 16.9 GB; no memory event and no full collection. The three cooks before
+  (2026-10-23 and 2026-10-24) reached the split only after about 65,900 other packages and died in it.
+- A full collection freed about 90 % of the objects and 98 % of the packages, but only 0.0 to 0.2 % of the virtual memory (32.6 GB
+  before and after): the memory goes back to the allocator of the process, not to the system [I].
+- After the split the scope stayed at its limit (22,529 MiB and 6,144 MiB of swap) until the end: the kernel reclaimed pages at the
+  limit (1,294,046 `max` events), with no `oom` and no `oom_kill`. The cooker peak: VmRSS 21,076 MiB, VmSize 35,380 MiB.
+
+The cooked client against the editor binary (runs p8-travel-cooked and p8-travel-after2: the same drive with four long travels
+(the fen, the Great Cleave, the Dunwood keep, Oxboro), 465 s, at noon, a development data folder; evidence/ast273/p8-travel-cooked.mp4):
+
+| Item | Editor binary | Cooked |
+| --- | --- | --- |
+| The process start to the spawn | 82.4 s | 27.4 s |
+| Waits for a mesh build | 10,920 | 0 |
+| PSO hitches that were precached | no PSO line (a play log of the user: 0 of 150) | 45 of 50 (90 %) |
+| The loading screen of each travel | 13.2, 12.7, 20.3, 18.4 s | 2.4, 2.4, 4.2, 3.2 s |
+| The longest frame before the screen (the request frame) | 295, 451, 261, 54 ms | 253, 407, 205, 42 ms |
+| The travel request to the frame of the screen | 343, 470, 298, 61 ms | 302, 430, 234, 48 ms |
+| The longest frame behind the screen | 708, 885, 1,116, 770 ms | 629, 417, 446, 355 ms |
+| Frame p50 (the median of the 5 s windows after the spawn) | 12.0 ms | 9.9 ms |
+| GPU p50 (the same) | 10.63 ms | 9.58 ms |
+| 5 s windows with a frame above 100 ms / 250 ms (of 93) | 27 / 17 | 8 / 4 |
+
+The request frame stays above 0.2 s in three of the four travels; a trace of it is the next step of AST-273.
+
+The incremental cook after a merge: `tools/cook.sh` in the main checkout (no `--full`; when it stops with status 3 and "FULL cook",
+the ini settings changed: do not give `--full` without a quiet computer). Start `work/ast273/start-guard.sh LOG` next to it: the guard
+and the memory trace. It builds the game target first (`tools/build.sh game`). When NewWorld or one of its actors changed (a world
+build, a deploy of cells), the split runs again, with the peak of the table above (the scope at about 20 GB): then it needs the same
+conditions as a full cook (no other Unreal process, at least 30 GB available). The time of an incremental cook with these settings
+is not measured yet [I]: with no change 149 s before; more with new materials (4 shader workers now, not 8).
 
 ## The collision of the game (P4.1 part 1)
 
