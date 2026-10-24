@@ -13,7 +13,8 @@ The rules come from the research of P4.8 (~/Games/soulwarden-client/research/p48
   of its spawner or of the slice): CharacterDefinition replaces the body of the template, IdleTimeline and LookPoseTimeline replace
   the start timelines, Name, NPCId, AttachedMesh, SwapAchievementId, ScaleOverride.
 - The look: the visible CA_SKIN attachments of the .cdf (Flags bit 0: hidden) with their materials, the render skins of the CA_CLOTH
-  attachments (no simulation), and the CA_BONE items (a .cgf on a bone with RelPosition and RelRotation w, x, y, z).
+  attachments (no simulation), and the CA_BONE items (a .cgf on a bone with RelPosition and RelRotation w, x, y, z). The material
+  of a skin: choose_skin_material (AST-277: an attachment with no Material takes the material of its skin).
 - The animation: no Mannequin. The timelines of the entities with RunOnActivate (Play_idleLoop, Play_LookPoseAnim) play from time 0:
   the clips of the layer PlayAnim name an alias of the .chrparams of the .cdf (ParamsOverride) or of its skeleton.
 - The presence: the NPCData entries of region.metadata (an npc id CRC at a place): SwapAchievementId and ShowOnAchievementLocked.
@@ -36,7 +37,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import census, cgf, creature, datasheet, env, gltf, player, region, source
+from . import census, cgf, creature, datasheet, env, gltf, materials, player, region, source
 
 from nav_slices import read_slice  # noqa: E402
 
@@ -431,6 +432,95 @@ def cdf_look(cdf: str) -> dict:
     return out
 
 
+def choose_skin_material(skin: str, material: str, loads, own_material, tone_body, row_material) -> str:
+    """The material of one skin of a person (AST-277; the pure rule, the readers are arguments):
+    1. the Material of the .cdf attachment, when the game copy has it;
+    2. a race body material that the game copy does not have (naked_mix/female_naked_body_mix_l1): the body of the same tone in
+       the skin tone data of the player (the *.skintonedb rows use naked_shared/..._body_shared_TONE for each race);
+    3. the material of the skin itself (its MTLNAME chunk; the .cdf attachment of 159 armor skins has no Material);
+    4. the material of the player appearance row with this skin (looks.json armor; a skin with no material of its own, or with a
+       bare file name of another folder).
+    Not the Material of the Model of the .cdf: it is the material of the base model (dummyPlane_mat_group for the persons).
+    loads(reference, skin) -> the .mtl path or None; own_material(skin) -> the MTLNAME text or ""; tone_body(mtl) -> a body .mtl
+    or ""; row_material(skin) -> a .mtl or "". @return The .mtl path, or "" (no material: the part draws white)."""
+    if material:
+        path = loads(material, skin)
+        if path:
+            return path
+        body = tone_body(material)
+        if body and loads(body, skin):
+            return loads(body, skin)
+    own = own_material(skin)
+    path = loads(own, skin) if own else None
+    if path:
+        return path
+    row = row_material(skin)
+    return (loads(row, skin) or "") if row else ""
+
+
+def _loads(reference: str, skin: str) -> str | None:
+    try:
+        path, subs = materials.load_mtl(reference, skin)
+    except (OSError, LookupError, ValueError, ET.ParseError, source.Failure):   # a file that is not in the game copy, or not XML
+        return None
+    return path if len(subs) else None
+
+
+def _own_material(skin: str) -> str:
+    try:
+        return cgf.material_guid(cgf.read_chunks(source.read(skin))) or ""
+    except (OSError, ValueError, struct.error, source.Failure):
+        return ""
+
+
+_looks_rules: dict = {}
+
+
+def _looks_rule(name: str) -> dict:
+    """The tone bodies and the materials of the skins of the player appearance rows (SWC_CONTENT/player/looks.json; once)."""
+    if not _looks_rules:
+        path = env.content_dir() / "player" / "looks.json"
+        looks = json.loads(path.read_text()) if path.is_file() else {}
+        tones, rows = {}, {}
+        for entries in looks.get("toneSets", {}).values():
+            for tone in entries:
+                # The race body of the head of a tone: naked_RACE/G_naked_head_RACE_TONE -> naked_RACE/G_naked_body_RACE_TONE.
+                if tone.get("head") and tone.get("body"):
+                    tones.setdefault(tone["head"].replace("_naked_head_", "_naked_body_"), tone["body"])
+        for row in looks.get("armor", {}).values():
+            for n in (1, 2):
+                skin = row.get(f"skin{n}", "")
+                material = row.get(f"material{n}") or row.get("material1", "")   # material2 can be a number (0): material1
+                material = material if isinstance(material, str) and material.endswith(".mtl") else row.get("material1", "")
+                if skin and material.endswith(".mtl") and not row.get(f"isSkin{n}"):
+                    rows.setdefault(skin, material)
+            for _, skin, material in row.get("cloth", []):
+                if skin and material:
+                    rows.setdefault(skin, material)
+        _looks_rules.update(tones=tones, rows=rows)
+    return _looks_rules[name]
+
+
+_skin_materials: dict = {}
+
+
+def skin_material(skin: str, material: str) -> str:
+    """The material of one skin of a person with the readers of the game copy (choose_skin_material). @return a .mtl path or ""."""
+    key = (skin, material)
+    if key not in _skin_materials:
+        _skin_materials[key] = choose_skin_material(skin, material, _loads, _own_material,
+                                                    lambda mtl: _looks_rule("tones").get(mtl, ""),
+                                                    lambda s: _looks_rule("rows").get(s, ""))
+    return _skin_materials[key]
+
+
+def body_skins(look: dict) -> list[tuple[str, str]]:
+    """@return (skin, .mtl) of each drawn skin of a person body: the visible skins and the render skins of the cloth, with the
+    material of skin_material (the body conversion and the body specs of bodies.py use the same list)."""
+    skins = list(look["skins"]) + [(cloth_render_skin(binding), material) for binding, material in look["cloth"]]
+    return [(skin, skin_material(skin, material) if source.has(skin) else material) for skin, material in skins if skin]
+
+
 def resolve(found: list, tables: Tables) -> list:
     persons = []
     for item in found:
@@ -767,10 +857,7 @@ def body(cdf: str, look: dict, force: bool = False, doc: dict | None = None) -> 
     _, roots = skeleton.write(w)
     reports = []
     missing = []
-    skins = list(look["skins"]) + [(cloth_render_skin(binding), material) for binding, material in look["cloth"]]
-    for skin, material in skins:
-        if not skin:
-            continue
+    for skin, material in body_skins(look):
         if not source.has(skin):
             missing.append(skin)   # a skin of the .cdf that is not in the game copy (9 bodies): the body has no such part
             continue

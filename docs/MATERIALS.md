@@ -584,7 +584,9 @@ tools/apply-materials.sh FILTER --part bodies --max-seconds 500 --wait 600   # t
 The converters of the creature bodies, the player parts (the persons wear them), and the person bodies write glTF
 materials with only the base color, the normal map, and some alpha rules (the parts had no XML Diffuse, no cutoff, and
 no two sided flag). The source shades these sub-materials (Illum, HumanSkin, Hair) with the same reflectance and the same
-overlay masks (charactermasking.cfib) as the world. One rule for all bodies (`converter/swc_convert/bodies.py`):
+overlay masks (charactermasking.cfib) as the world. The skins of a person body come from `persons.body_skins` (the visible skins and the cloth render skins with the materials of the
+conversion, docs/PERSONS.md; AST-277: before, `creature.read_cdf` read the hidden skins too, not the cloth, and the Model Material as
+the fallback: the specs of 187 person bodies change: 123 get new slots, 69 get the spec of the material that the glTF draws). One rule for all bodies (`converter/swc_convert/bodies.py`):
 
 - Each drawn sub-material of a body with the shader Illum or HumanSkin takes the spec of the world rule
   (`material_records.surface_spec`): the parent M_SwcSurface, M_SwcSurfaceMasked (AlphaTest), or M_SwcSurfaceTranslucent

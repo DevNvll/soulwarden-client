@@ -125,13 +125,12 @@ def player_parts() -> list[tuple[str, Path, list[tuple[str, str]]]]:
         if entry.get("kind") != "part":
             continue
         skin, _, mtl = key.partition("|")
-        if skin == "person":   # a person body of its own character definition (character.py): the skins of the CDF
-            from .creature import read_cdf
-            try:
-                cdf = read_cdf(mtl)
-            except Exception:
+        if skin == "person":   # a person body (persons.body): its skins and cloth render skins with the materials of the conversion
+            from . import persons
+            look = persons.cdf_look(mtl)
+            if look.get("error"):
                 continue
-            skins = [(s["skin"], s.get("material") or cdf.get("material", "")) for s in cdf["skins"]]
+            skins = persons.body_skins(look)
         else:
             skins = [(skin, mtl)]
         out.append((entry["unreal"], env.content_dir() / entry["file"], skins))

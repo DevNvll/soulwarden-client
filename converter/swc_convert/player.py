@@ -439,14 +439,16 @@ class Skeleton:
         prims = []
         for s in mesh.subsets:
             mi = None
-            if s.material < len(subs):
-                if materials.not_drawn(subs[s.material]):
+            # materials.sub_material: a file with one material and no SubMaterials list serves each subset index (AST-277 class D).
+            element = materials.sub_material(subs, s.material)
+            if element is not None:
+                if materials.not_drawn(element):
                     continue
-                info = materials.describe(subs[s.material], max_texture)
+                info = materials.describe(element, max_texture)
                 files = info["files"]
                 mi = w.material(info["name"], materials.relative(files["base"], out) if "base" in files else None,
                                 materials.relative(files["normal"], out) if "normal" in files else None,
-                                blend=materials.is_glass(subs[s.material]) or head_layer(subs[s.material]))
+                                blend=materials.is_glass(element) or head_layer(element))
             idx = mesh.indices[s.first_index:s.first_index + s.num_indices]
             prims.append(w.primitive(pos, idx, nrm, mesh.uvs, None, joints, mesh.weights, mi))
         return prims, {"skin": skin_path, "material": mtl, "vertices": len(mesh.positions), "triangles": len(mesh.indices) // 3,
@@ -916,7 +918,15 @@ def weapon(key: str, skins: list, force: bool = False, doc: dict | None = None, 
         # A static mesh (.cgf; the items of the persons, stage P4.8) can have its streams in the .cgfheap file (mesh.py).
         heap = source.read(skin_path + "heap") if source.has(skin_path + "heap") else None
         f = cgf.read_chunks(source.read(skin_path), heap)
-        mesh = cgf.read_mesh(f, f.of_type(cgf.T_MESH)[0])
+        try:
+            mesh = cgf.read_mesh(f, f.of_type(cgf.T_MESH)[0])
+        except ValueError as error:
+            # The first mesh chunk is a node with no geometry (the mallet, the nordic hammer of the persons): the first mesh with
+            # geometry, in the space of the file (mesh.load; AST-277). A file with geometry in its first chunk keeps the old rule.
+            if "no geometry" not in str(error):
+                raise
+            from . import mesh as static_mesh
+            mesh = static_mesh.load(skin_path)[1][0]
         subs = []
         if mtl:
             try:
@@ -927,14 +937,15 @@ def weapon(key: str, skins: list, force: bool = False, doc: dict | None = None, 
         nrm = gltf.z_up_to_y_up(mesh.normals) if mesh.normals is not None else None
         for s in mesh.subsets:
             mi = None
-            if s.material < len(subs):
-                if materials.not_drawn(subs[s.material]):
+            element = materials.sub_material(subs, s.material)
+            if element is not None:
+                if materials.not_drawn(element):
                     continue
-                info = materials.describe(subs[s.material], 1024)
+                info = materials.describe(element, 1024)
                 files = info["files"]
                 mi = w.material(info["name"], materials.relative(files["base"], out) if "base" in files else None,
                                 materials.relative(files["normal"], out) if "normal" in files else None,
-                                blend=materials.is_glass(subs[s.material]))
+                                blend=materials.is_glass(element))
             prims.append(w.primitive(pos, mesh.indices[s.first_index:s.first_index + s.num_indices], nrm, mesh.uvs, None, None, None, mi))
     if not prims:
         raise ValueError("no drawn section")

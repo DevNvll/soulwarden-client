@@ -35,6 +35,7 @@ tools/test-net.sh                                     # the conversation and the
 | The variation row: with no variation data on the slice (only the NPC key of the NpcComponent), the row whose VariantID is the NPC id applies [inference; the commander of Oxboro: the row 0407a_Commander gives the idle malek_standing_ambient (a lean back) and the malek greet, interact, and bye timelines, as the user saw in the retail client]. 28 persons of the world change with this rule. | `persons.py` `resolve` |
 | The presence: the swap of a person (region.metadata NPCData, else SwapAchievementId of the row) is an expression of achievement ids with `!`, `&&`, `\|\|`, and parentheses (887 expressions). An id is a bit of the Achievement state of the character (javelindata_achievements AchievementIndex); an id with `*` is a non-persisted achievement (javelindata_achievements_nonpersisted: the objective flow of a quest), false for the backend, which keeps no quest state. The person shows while the expression is true, or while it is false with ShowOnAchievementLocked. The converter writes the expression in postfix order (`presenceRule`); the client evaluates it with the Achievement state at the entry and at each change (`swc::interact::presence_visible`), and the loading gate waits for that state. | `presence.json`, `persons.py` `presence_rule` |
 | The body: the visible CA_SKIN attachments of the `.cdf` (Flags bit 0: hidden) and the render skins of the CA_CLOTH attachments, all in one mesh node (Unreal makes one skeletal mesh for each glTF mesh node). The items: the CA_BONE attachments (a `.cgf` with its `.cgfheap`) at RelPosition and RelRotation on their bones, and the AttachedMesh of the row in the right hand. | `cdf-oxboro.json`, `bone-items.json` |
+| The material of a skin (AST-277, `persons.choose_skin_material`; the body conversion and the body specs of `bodies.py` use the same list, `persons.body_skins`): (1) the Material of the `.cdf` attachment, when the game copy has it; (2) a race body that the game copy does not have (`naked_mix/female_naked_body_mix_l1`): the body of the same tone of the skin tone data of the player (the `*.skintonedb` rows use `naked_shared/..._body_shared_TONE` for each race); (3) the material of the skin itself (its MTLNAME chunk); (4) the material of the player appearance row with this skin (`looks.json` armor). Never the Material of the Model of the `.cdf` (the base model: `dummyPlane_mat_group`). Before, an attachment with no Material had no material: 214 parts of 92 bodies (347 persons) drew white, for example the armor of the mason Ahura Farid. [Rule (3): the engine rule of an attachment with no material, inference; rules (2) and (4): inference from the data.] | `work/ast277/` |
 | The idle: the first clip of the PlayAnim layer of the start timeline Play_idleLoop (RunOnActivate), from time 0, in a loop. | `timelines.json` |
 | The place and the facing: the matrix of the slice chain; the yaw of the data is counterclockwise from north (+y). The bodies have no collision. | `projection-check.json` |
 
@@ -264,6 +265,22 @@ the size, and the facing of the three persons agree):
 4. The artificer: the clothes are lighter in the client (the same material causes); her place at the stall agrees.
 5. Not persons: the forge shed left of the artificer and the shed behind the commander are missing in the client run (level
    objects; the world track), and the development character of the run has no gear.
+
+## The gear check (AST-277)
+
+The user saw the armor of the mason Ahura Farid draw white. The audit of all persons (no engine) found 214 parts of 92 bodies with
+no material (347 persons): an attachment of the `.cdf` with no Material (159 skins), a race body file that the game copy does not
+have (11), no material at all (1), a file with one material for subsets above 0 (2), and 2 items with the geometry in the second mesh
+chunk (the mallet, the nordic hammer: 11 persons held nothing). The body specs (`bodies.py`) of 187 person bodies changed with the
+same skin list (the old reader read the hidden skins and not the cloth). The rule: "The material of a skin" above.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| The matched views at South Windsward, retail \| client before \| client after: Ahura Farid, Grace O'Malley, Zhang Haoyu, Gilander Dempster | After: the armor, the clothes, the hair, and the mallet as retail. Before: white (the mason), the textures of another material (Grace, Gilander), no mallet (Zhang). | `evidence/AST-277/persons-retail-before-after.png` |
+| The parts with no material after the fix | 0 (before 214) | `work/ast277/` |
+
+Open: 4 bodies use the effect shader Fxmeshadvancedtransp (the 2 ghost crusaders, the ancient statue, the vision of Berlaur): they
+have no diffuse map and wait for the client parent of that shader (AST-275 C8). The spyglass lens is glass with no diffuse map.
 
 ## Not done, open points
 
