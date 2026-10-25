@@ -2116,6 +2116,7 @@ void USwcBackendSubsystem::EndConversation(const std::vector<uint32>& FinishedTo
 
 void USwcBackendSubsystem::SetQuestTags(const TSet<FString>& Tags)
 {
+	QuestTags = Tags;
 	if (Interactor.IsValid())
 	{
 		Interactor->SetQuestTags(Tags);

@@ -491,9 +491,14 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("write")
     sub.add_parser("meshes")
+    q = sub.add_parser("quest-objects")
+    q.add_argument("--out")
     args = parser.parse_args(argv)
     if args.command == "write":
         result = write()
+    elif args.command == "quest-objects":
+        from . import quest_objects
+        result = quest_objects.write(Path(args.out) if args.out else None)
     else:
         result = depleted_meshes()
     json.dump(result, sys.stdout, indent=1)

@@ -33,6 +33,10 @@ decals/*/layer.json
 world-objects/objects.json
 world-objects/nodes/*.bin
 world-objects/regions/*.json
+world-objects/server-visuals.json
+world-objects/quest-objects.json
+quests/scenes.json
+quests/scenes/*.json
 particles/systems.json
 particles/menu.json
 particles/names.json

@@ -438,8 +438,66 @@ progression that is not a weapon mastery.
   entry of the encoder of the backend (rank 0, 120 points) next to the masteries.
 - The messages 3435 and 5684: the backend copy (2026-10-22-60bea89) sends neither. No reader in Q7.
 
+## The coverage report and the destructible quest objects (Q9, AST-244)
+
+### The coverage report
+
+`tools/convert-ui.sh questsupport MANIFEST [--out FILE]` (`swc_convert/questsupport.py`) writes `quests/quest-client-support.json`
+(outside git). MANIFEST is the support manifest of the backend (stage 1.8e; Soulwarden `tools/world quest support FILE`). For each row
+the report adds the client side: the data (the row, the tree, the tasks, the title text), the grants (the NPC row, the state with the
+offer, a placed person), the gate columns and their client rules, the client part of each task type (`TASK_PARTS`) and the client data
+of its supplier (a person, a POI tag, a quest object of the event, a scene, a cinematic, a game event, a recipe, the creatures), the
+reward kinds and their display, and the tests (`TESTS`). A quest object of an event: the gatherable row of the event (its objects have
+the tag `IO_ROW`) or a destructible quest object row (its objects have their own tags); it counts only with drawn meshes. The class of a
+row: "unavailable" (the backend does not support it), "missing data", "client stage" (a task type of a later client stage: the timer
+row of Q8), "untested", "tested". The counts are given for all rows, the supported rows, and each history of the manifest.
+`knownGaps` lists the gaps that are not a part of Q9.
+
+The result (the manifest of the 1.8f evidence, the game data of 2026-10-22; the content with the check file of the objects):
+- 2,147 rows; 160 supported: 9 tested, 122 untested, 22 client stage (the timer row of Q8), 7 missing data.
+- The new character of each archetype (15 rows): 2 tested, 9 untested, 3 client stage (06_skinningknife, 06_survivors, 06_raisealarm:
+  their timer tasks), 1 missing data (a known gap).
+- Known gaps: 9932_0104_RelicReclamation (its offer is a note, 9932_VK_RomacNote, with no placed person), two housing reward items that
+  are not in items.tsv (0330_0103_pickingupthepieces, 1225_0401_siteinspection).
+- The repeat check of the acceptance is blocked: backend 1.8f supports no repeatable objective (the nearest rows,
+  C10A_S5R_LightningBottle and C10A_S7R_AnimalInstincts, stop at the rank-up of their standing: 450 points against the 150 of rank 0).
+
+### The destructible quest objects
+
+The source: Soulwarden docs/systems/quests.md "The destructible quest objects" (stage 1.8e and 1.8f). The objects are the capital
+placements of the variation table Gatherable_Quest_Damageable (169; the four corruption nodules of 06_survivors, the monolith of
+06_demonstorm2).
+- `tools/convert-objects.sh quest-objects [--out FILE]` (`swc_convert/quest_objects.py`) writes `world-objects/quest-objects.json`: each
+  object (the key, the managed actor, the InteractTag, InteractOnlyOnQuest, the place and the rotation of its capital entry, the gatherable
+  row and its display name), the slices of its states (the placed slice; the variant visuals Visual_Healthy, Visual_NotOnRequiredQuest,
+  Visual_Basemesh, Visual_Depleted), the marker (the type DamageableGatherable of the slice, the creature type override, the forced
+  health bar), the collision override, and the effects of the variant; the render parts of each slice (the rule of
+  `server_visuals.slice_parts`); the meshes that the plugin does not have ("missing") and that the manifest does not have ("unconverted").
+  This build: 129 of 169 objects have meshes; all meshes of the two chain objects are imported; 32 meshes of 16 other variants need a
+  conversion and an import.
+- `Objects/SwcQuestObjects` (USwcQuestObjectSubsystem) draws the objects within 150 m, each 0.25 s:
+  - InteractOnlyOnQuest and no Active task with its tag (`USwcBackendSubsystem::GetQuestTags`): nothing, no collision (the retail client
+    shows nothing before the task; backend live I0);
+  - active: the placed slice, Visual_Healthy, and Visual_Basemesh; the collision blocks only the movement of the player (the object type
+    and the channel Pawn, as the body block of a creature: the camera and the traces do not see it); a plate of the AI pool (the marker
+    type DamageableGatherable; the health bar at 1 of 1, the fallback of the Lua code; the interest 0xF0000000 + index);
+  - destroyed (a Looted claim of its actor in the LootTracker state, slot 33): Visual_Depleted (often none), no collision, no plate.
+    The respawn removes the claim, and the object is active again.
+  The server decides each hit (the slice has no HitVolume: the client sends no contact; the normal attacks are the input).
+  `-SwcNoQuestObjects`, `swc.QuestObjects 0`. Visual_NotOnRequiredQuest is in the file and not drawn [U: the retail rule of this
+  visual; the live retail result shows nothing before the task]. The effects (VFX_Idle, DepletedVFX) are not drawn yet.
+- Fixtures: `questobjects` (the plate of a nodule in the AI pool, its name "Destroy Corruption Nodule", the full forced bar; no plate
+  after the destroy), `questsupport` (the availability rules of the client along the Soldier history of the manifest: 15 of 15 rows
+  offered at their turn, no second offer after a hand-in, the boarfeast variants of the other archetypes hidden).
+- The cooked build reads these files at run time: `tools/lib/loose-data.txt` now has `world-objects/server-visuals.json`,
+  `world-objects/quest-objects.json`, `quests/scenes.json`, and `quests/scenes/*.json`. The meshes are in the always cooked folder
+  `/SwcGameContent/Meshes`.
+
 ## Open points
 
+- The cinematics (TempestRising): the stand-in counts for the Q9 acceptance (the decision of the orchestrator, 2026-10-25); the quest result
+  is correct, only the video picture is missing. Follow-up: find the video format of the cinematics (Bink 1 or Bink 2, from the file
+  header; the paths end in .bk2). If ffmpeg decodes it, an offline conversion and a Media Player play replace the black image.
 - The banner shows in the HUD state: an inference (`manager.lua`).
 - `javelin.objectives-max-*` exist only for the sections of the retail picture.
 - The journal has a hidden hand-in row "Talk to " (the retail script hides it with SetTaskVisibility).

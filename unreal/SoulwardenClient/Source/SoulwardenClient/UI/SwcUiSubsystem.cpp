@@ -25,6 +25,7 @@
 #include "Character/SwcPlayerCharacter.h"
 #include "Objects/SwcObjectSubsystem.h"
 #include "SwcUi/HudScreens.h"
+#include "Objects/SwcQuestObjects.h"
 #include "Camera/PlayerCameraManager.h"
 #include "SwcCameraManager.h"
 #include "Creatures/SwcCreatureSubsystem.h"
@@ -2231,6 +2232,11 @@ void USwcUiSubsystem::FeedWorld(const swc::net::RepClient::OwnEntity& Own)
 	// The plates: one line for each creature (swc/markers.lua parse_plates).
 	TArray<FSwcCreaturePlate> Plates;
 	Creatures->GetPlates(Plates);
+	// The destructible quest objects of an active task (stage Q9): plates of the AI pool (the marker type DamageableGatherable).
+	if (const USwcQuestObjectSubsystem* QuestObjects = World != nullptr ? World->GetSubsystem<USwcQuestObjectSubsystem>() : nullptr)
+	{
+		QuestObjects->GetPlates(Plates);
+	}
 	FString Lines;
 	for (const FSwcCreaturePlate& Plate : Plates)
 	{

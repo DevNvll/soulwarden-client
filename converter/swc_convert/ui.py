@@ -21,6 +21,8 @@ Usage (tools/convert-ui.sh; output in SWC_CONTENT/ui, never in git):
                           definitions, shapes, and landmarks), the canvas MagicMap, the map tiles of all levels, the map images
   gamemenu                the game menu: the canvases of the escape menu and the NavBar, their textures, and the textures that
                           navbar.luac sets by path (GAMEMENU_TEXTURES)
+  questsupport MANIFEST [--out FILE]   the client coverage report of the quests (stage Q9; swc_convert/questsupport.py): each row of
+                          the backend support manifest with the client data, parts, and tests -> quests/quest-client-support.json
   crafting                the crafting screens (stage MVP-J): gamedata/crafting.json (swc_convert/crafting.py: the recipes with the
                           causes of the backend, the categories, the stations, the rank tables), the canvases CraftingScreenV4 and
                           StationProperties, and their textures
@@ -1794,6 +1796,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("worldmap"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("crafting"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("quests"); p.add_argument("--force", action="store_true")
+    p = sub.add_parser("questsupport"); p.add_argument("manifest"); p.add_argument("--out")
     args = parser.parse_args(argv)
     if args.command == "hud":
         result = hud(args.force)
@@ -1844,6 +1847,9 @@ def main(argv=None) -> int:
         result = convert_crafting(args.force)
     elif args.command == "quests":
         result = convert_quests(args.force)
+    elif args.command == "questsupport":
+        from . import questsupport
+        return questsupport.main([args.manifest] + (["--out", args.out] if args.out else []))
     else:
         result = convert_text()
     print(json.dumps(result, indent=1, default=str))

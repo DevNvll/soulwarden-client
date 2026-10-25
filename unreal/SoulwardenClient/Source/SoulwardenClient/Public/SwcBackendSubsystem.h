@@ -191,6 +191,8 @@ public:
 	/** The InteractTags of the Active quest tasks of the character (AST-241; UI/SwcUiQuests from swc/quests.lua): the focus of the quest
 	 *  objects. */
 	void SetQuestTags(const TSet<FString>& Tags);
+	/** The same tags (lower case): the destructible quest objects show only during their task (Objects/SwcQuestObjects, stage Q9). */
+	const TSet<FString>& GetQuestTags() const { return QuestTags; }
 	/** @return The Talk key of the open conversation scene (an npc object key, or "person:" + a key of persons.json), empty with no
 	 *  scene (the conversation screen of the UI: UI/SwcUiConversation). */
 	FString GetConversationSceneKey() const;
@@ -360,6 +362,7 @@ private:
 	TSharedPtr<FSwcActions> Actions;
 	/** The interactions of the player with the objects of the server (stage P2.10) and the key E. */
 	TSharedPtr<FSwcInteractor> Interactor;
+	TSet<FString> QuestTags;
 	/** The in-game scenes of the quests (stage Q5, AST-240; Scenes/SwcScenes.h) and the exit camera state that it forces. */
 	TSharedPtr<FSwcScenes> Scenes;
 	FString SceneExitCamera;
