@@ -226,13 +226,29 @@ end
 
 --- Sends an event of a notification bus to its handlers (each in protected mode).
 --- @return The results of the last handler that has the event.
+--- Calls a method of a handler of a bus with the address of that handler as the current address of the bus (the static method
+--- GetCurrentBusId of an O3DE bus: a script with one handler table on two addresses asks which address the event has; documentstab.luac
+--- with its two scroll boxes). @return The results of Swc.Call.
+function Swc.CallHandler(h, fn, ...)
+  local state = Swc.busState[h.busName]
+  local before = state and state.current
+  if state then
+    state.current = h.id
+  end
+  local results = pack(Swc.Call(fn, h.table, ...))
+  if state then
+    state.current = before
+  end
+  return unpack(results, 1, results.n)
+end
+
 function Swc.Notify(name, id, event, ...)
   local results
   for _, h in ipairs(Swc.Handlers(name, id)) do
     if h.connected then
       local fn = h.table[event]
       if type(fn) == "function" then
-        results = pack(Swc.Call(fn, h.table, ...))
+        results = pack(Swc.CallHandler(h, fn, ...))
       end
     end
   end
@@ -311,6 +327,11 @@ function Swc.Bus(name)
   end
   bus.CreateHandler = function(handlerTable, id)
     return Swc.Connect(name, handlerTable, id)
+  end
+  -- The address of the handler of the event that runs now (Swc.CallHandler), else nil.
+  bus.GetCurrentBusId = function()
+    local state = Swc.busState[name]
+    return state and state.current
   end
   setmetatable(bus, {
     __index = function(_, key)

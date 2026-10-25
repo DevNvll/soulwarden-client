@@ -156,10 +156,11 @@ note("the tracker with the hand-in: " .. handIn)
 check(handIn:find("Basic Needs", 1, true) ~= nil and handIn:find("Talk to Urda", 1, true) ~= nil,
   "the root complete: the hand-in row Talk to Urda (retail K1-2of5)")
 
--- A faction mission that the player can abandon (fm_06_exp_02_objective, CanBeAbandoned): the journal row has Abandon; its popup and
--- Yes give the request "quest abandon INSTANCE" (3836).
+-- A side story that the player can abandon (02A_Side07_02_Death: Journey, CanBeAbandoned 1, a row that backend 1.8f supports; before the
+-- cleanup of 2026-10-25 a faction mission, whose journal list is hidden now): the journal row has Abandon; its popup and Yes give the
+-- request "quest abandon INSTANCE" (3836).
 local MISSION = "9004"
-local mission = Swc.quests.D().objectives["fm_06_exp_02_objective"]
+local mission = Swc.quests.D().objectives["02a_side07_02_death"]
 local missionLines = {"A " .. MISSION .. " " .. mission.crc .. " 6 0"}
 for _, entry in ipairs(mission.tree) do
   missionLines[#missionLines + 1] = string.format("T %s %d %d 0 1", MISSION, entry[1], Swc.quests.D().tasks[entry[2]].crc)
@@ -171,10 +172,10 @@ key("j")
 frames(1.5)
 note("the journal with the mission: " .. texts_of(journal))
 local function has_journal_text(text) return find_text(journal, text) ~= nil end
-local section = find_text(journal, "Faction Missions")
+local section = find_text(journal, "Side Stories")
 if section then click(section) end
 frames(1.5)
-check(has_journal_text("Abandon"), "the mission row has Abandon")
+check(has_journal_text("Abandon"), "the side story row has Abandon")
 local abandon = find_text(journal, "Abandon")
 if abandon then click(abandon) end
 frames(1.0)

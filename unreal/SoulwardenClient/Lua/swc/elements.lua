@@ -184,7 +184,12 @@ function Swc.ActivateEntity(id)
   local list = {}
   Swc.components[k] = list
   for _, script in ipairs(swcui.scripts(id)) do
-    local ok, instance = Swc.Call(create_instance, id, script)
+    -- A script component with no script asset does nothing (O3DE ScriptComponent); before, its require of '' was a Lua error at
+    -- each start (an element of a HUD screen).
+    local ok, instance = false, nil
+    if script.script ~= nil and script.script ~= "" then
+      ok, instance = Swc.Call(create_instance, id, script)
+    end
     if ok and instance then
       list[#list + 1] = instance
       instance.__swcScript = script.script

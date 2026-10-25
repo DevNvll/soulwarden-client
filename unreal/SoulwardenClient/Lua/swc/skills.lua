@@ -231,6 +231,10 @@ Swc.Define("CharacterAbilityRequestBus", "Event", {
 })
 
 Swc.Define("ProgressionPointRequestBus", "Event", {
+  -- The static data of a point pool (bannertriggers.luac OnProgressionPointsChanged reads its poolCategory; a nil record was a Lua error
+  -- at each change of the learned nodes): the pools of this client are the weapon trees; it has no territory token pool
+  -- (ePoolCategory_Territory 2), so the category is 0.
+  GetStaticProgressionPointData = function(_, id) return {id = id or 0, poolCategory = 0} end,
   GetUnallocatedPoolPoints = function(_, id)
     local t = table_of(id)
     if not t then
@@ -386,3 +390,27 @@ end
 if LyShineDataLayerBus.Broadcast.GetDataFromNode("Hud.LocalPlayer.Attributes.PendingPoints") == nil then
   Swc.SetData("Hud.LocalPlayer.Attributes.PendingPoints", 0)
 end
+
+-- The lists of a dynamic scroll box that a script fills in SetVisible or TransitionIn: the box refreshes at its post activation (O3DE
+-- UiDynamicScrollBoxComponent, autoRefreshOnPostActivate), before the script has the list, and the count of a nil list was a Lua error
+-- at each start (tradeskills_crafting.luac GetNumElements #self.skillsData; changetitlewindow.luac #self.categoryOrderList), then one
+-- error for each element of the default count. An empty list at OnInit gives the box no element until the script fills the list and
+-- refreshes it (no visible change).
+local function empty_lists_at_init(fields)
+  return function(base)
+    local init = rawget(base, "OnInit")
+    if type(init) ~= "function" then
+      return
+    end
+    base.OnInit = function(self, ...)
+      for _, field in ipairs(fields) do
+        if self[field] == nil then
+          self[field] = {}
+        end
+      end
+      return init(self, ...)
+    end
+  end
+end
+Swc.scriptHooks["lyshineui.skills.tradeskills.tradeskills_crafting"] = empty_lists_at_init({"skillsData"})
+Swc.scriptHooks["lyshineui.skills.changetitlewindow"] = empty_lists_at_init({"categoryOrderList"})

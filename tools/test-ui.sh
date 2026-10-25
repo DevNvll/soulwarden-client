@@ -4,7 +4,8 @@
 # output and the reports (the stub log, the error log, the missing textures, the draw list) go to SWC_WORK/build/ui-tests.
 # Then the fixtures of the original scripts (tests/ui/fixtures/*.lua, each in a runtime of its own).
 # Usage: tools/test-ui.sh [--preview] [TEST ARGUMENTS]   (--preview: the pictures of the draw lists, uipreview.py;
-#        --fixture NAME runs only that fixture, --no-hud skips the HUD run)
+#        --fixture NAME runs only that fixture, --no-hud skips the HUD run; a full run also runs the start of the client:
+#        --client-screens, the screens of SwcUi/HudScreens.h, which fails on a Lua error)
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 compiler="${CXX:-clang++}"
@@ -36,6 +37,14 @@ status=0
 rm -rf "${out}/reports/fixtures" "${out}/reports/draw.json"
 "${out}/swc-ui-tests" "${SWC_CONTENT}/ui" "${SWC_REPO}/unreal/SoulwardenClient/Lua" "${out}/reports" \
     --draw "${out}/reports/draw.json" --fixtures "${SWC_REPO}/tests/ui/fixtures" "$@" || status=$?
+# The start of the client with no engine: the loader with the screens of the client (SwcUi/HudScreens.h); a Lua error fails it (the
+# cleanup of 2026-10-25: 34 errors before). Not with --fixture or --no-hud (a run of chosen fixtures).
+if [[ " $* " != *" --fixture "* && " $* " != *" --no-hud "* ]]; then
+    echo "the start of the client (--client-screens):"
+    "${out}/swc-ui-tests" "${SWC_CONTENT}/ui" "${SWC_REPO}/unreal/SoulwardenClient/Lua" "${out}/reports-client" --client-screens \
+        > "${out}/client-start.log" 2>&1 || status=1
+    grep -E "^hud:|^all:|FAIL" "${out}/client-start.log" || true
+fi
 if [[ "${preview}" == 1 ]]; then
     if [[ -f "${out}/reports/draw.json" ]]; then
         (cd "${SWC_REPO}/converter" && python3 -B -m swc_convert.uipreview "${out}/reports/draw.json" "${out}/reports/hud.png")

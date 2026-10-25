@@ -781,3 +781,11 @@ Swc.Define("PlayerDataManagerBus", "Broadcast", {
 Swc.Define("ScheduleDataManagerBus", "Broadcast", {
   GetNextScheduleStartTimeSeconds = function() return os.time() end,
 })
+
+-- The documents of the journal (documentstab.luac OnInit counts the topics and the chapters; a nil list was a Lua error at each open of
+-- the journal): the client has no journal document data (the lore pages of the journal are an open point): empty lists.
+Swc.Define("JournalDataManagerBus", "Broadcast", {
+  GetTopicEntries = function() return {} end,
+  GetChapterEntries = function() return {} end,
+  GetJournalEntries = function() return {} end,
+})

@@ -288,7 +288,21 @@ end
 -- and OnLoadingScreenDismissed (loadingscreen.luac, respawn.luac). A respawn has the screen type eLoadingScreenIds_DEATH:
 -- the client shows it from its respawn request to message 3954.
 Swc.Handled("LoadScreenNotificationBus")
-Swc.loading = {path = nil, canvas = nil, shown = false}
+Swc.loading = {path = nil, canvas = nil, shown = false, tipCounts = {}}
+
+-- The show counts of the loading screen tips (loadingscreenmanager.luac: UpdateTipPoolPriorityLevels reads the count of a tip with the
+-- native data call 355238560 and its saveSettingsId, -1 for none; the call 1214891646 saves a tip id and its count). With no answer the
+-- node kept the argument, and the compare with -1 was a Lua error at each travel (AST-280). The retail client keeps them in its saved
+-- settings; this client keeps them for the session [I].
+Swc.callValues[355238560] = function(id)
+  return Swc.loading.tipCounts[tostring(id)] or -1
+end
+Swc.callValues[1214891646] = function(id, count)
+  if id ~= nil and tonumber(count) then
+    Swc.loading.tipCounts[tostring(id)] = tonumber(count)
+  end
+  return count
+end
 local LOADING_SCREEN_DRAW_ORDER = 1000   -- canvascommon.luac
 
 Swc.Define("LoadScreenBus", "Broadcast", {

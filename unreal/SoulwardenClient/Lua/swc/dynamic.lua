@@ -31,7 +31,7 @@ local function ask(bus, id, method, default, ...)
   for _, h in ipairs(Swc.Handlers(bus, id)) do
     local fn = h.table[method]
     if type(fn) == "function" then
-      local ok, value = Swc.Call(fn, h.table, ...)
+      local ok, value = Swc.CallHandler(h, fn, ...)
       if ok and value ~= nil then
         return value
       end

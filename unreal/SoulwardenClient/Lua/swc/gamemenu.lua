@@ -619,3 +619,93 @@ Swc.scriptHooks["lyshineui.navbar.navbar"] = function(base)
     end
   end
 end
+
+-- ------------------------------------------------------------------------- the hints and the journal tabs of absent features
+-- The cleanup rule of the user ("removing unused features", 2026-10-25): a screen shows no hint and no category of a feature that this
+-- client does not have.
+
+--- The help bar (helpbar.luac PushToStack(device, list, id)): a hint whose action is a hidden action of the key page
+--- (G.keyHiddenActions, with its reason there) goes, for example the ping wheel hint of the map (mapmenu.luac SetHelpBar:
+--- target_tag_selection, "@ui_ping_wheel"; this client has no pings).
+function G.FilterHints(list)
+  if type(list) ~= "table" then
+    return list
+  end
+  local kept = {}
+  for _, hint in ipairs(list) do
+    if not (type(hint) == "table" and hint.action and G.keyHiddenActions[hint.action]) then
+      kept[#kept + 1] = hint
+    end
+  end
+  return kept
+end
+Swc.scriptHooks["lyshineui.helpbar.helpbar"] = function(base)
+  local push = rawget(base, "PushToStack")
+  if type(push) == "function" then
+    base.PushToStack = function(self, device, list, id, ...)
+      return push(self, device, G.FilterHints(list), id, ...)
+    end
+  end
+end
+
+--- The tabs of the journal (objectivestab.luac OnInit builds 14 tabs and gives them to TabbedList SetListData). A tab whose objective
+--- types the backend cannot give is hidden (the TabbedList rule isVisible false: the next tabs move up; the script keeps each tab
+--- index). The kept tabs: Main Story (MainStoryQuest), Faction Story (FactionStory_*), Skill Progression, Mount Quest (MountUnlock:
+--- 9 supported rows of the support manifest of backend 1.8f), Side Stories (Journey, Quest). The text key of each hidden tab, with its
+--- reason, and its list of the content panel (the property of objectivestab.luac: its header, its count, and its Auto-Pin toggle).
+G.journalHiddenTabs = {
+  ["@objective_location"] = {list = "LocationList", reason = "the POI, darkness, arena, dungeon, and trial objectives: no backend source"},
+  ["@objective_affinity"] = {list = "AffinityList", reason = "Favor (Affinity): no backend source"},
+  ["@objective_seasonquest"] = {list = "SeasonQuestList", reason = "Season Story: no season in this client"},
+  ["@objective_epicequipment"] = {list = "EpicEquipmentList", reason = "Epic Equipment: no backend source"},
+  ["@objective_mission"] = {list = "MissionList", reason = "Faction Missions: no faction and no mission board"},
+  ["@objective_event"] = {list = "EventList", reason = "Event Quests: no event in this client"},
+  ["@objective_townproject"] = {list = "CommunityList", reason = "Town Projects: no community goal contract (backend roadmap 5.4)"},
+  ["@objective_recipes"] = {list = "RecipeList", reason = "Recipes (Crafting objectives): no backend source"},
+  ["@objective_artifacts"] = {list = "ArtifactList",
+                              reason = "Artifacts: no supported artifact objective (backend support manifest 1.8f: 0 of 73)"},
+}
+Swc.scriptHooks["lyshineui.objectives.journal.objectivestab"] = function(base)
+  local init = rawget(base, "OnInit")
+  if type(init) == "function" then
+    base.OnInit = function(self, ...)
+      local results = {init(self, ...)}
+      -- The list and its header row (the parent of <Name>TitleText: the title, the count, the dot, the Auto-Pin toggle).
+      for _, tab in pairs(G.journalHiddenTabs) do
+        local name = tab.list:gsub("List$", "")
+        local list = self.Properties and self.Properties[tab.list]
+        local title = self.Properties and self.Properties[name .. "TitleText"]
+        -- A disabled child keeps its place in a LyShine layout: the height 0 too (the rule of the script for its MSQMessage).
+        for _, id in ipairs({list or false, title and UiElementBus.Event.GetParent(title) or false}) do
+          if id then
+            UiElementBus.Event.SetIsEnabled(id, false)
+            UiLayoutCellBus.Event.SetTargetHeight(id, 0)
+            UiLayoutCellBus.Event.SetMinHeight(id, 0)
+          end
+        end
+      end
+      return unpack(results)
+    end
+  end
+end
+Swc.scriptHooks["lyshineui.slices.tabbedlist"] = function(base)
+  local set = rawget(base, "SetListData")
+  if type(set) == "function" then
+    base.SetListData = function(self, data, ...)
+      local hidden = false
+      if type(data) == "table" then
+        for _, entry in ipairs(data) do
+          if type(entry) == "table" and G.journalHiddenTabs[entry.text] then
+            entry.isVisible = false
+            hidden = true
+          end
+        end
+      end
+      -- The rule of the list for hidden buttons (EnableHiddenButtons: each next button moves up by the place of a hidden one).
+      if hidden and self.Properties then
+        self.Properties.EnableHiddenButtons = true
+      end
+      return set(self, data, ...)
+    end
+  end
+end

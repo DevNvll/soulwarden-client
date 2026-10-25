@@ -82,6 +82,9 @@ Swc.config = {
   ["javelin.player-tutorials.enabled"] = true,                 -- 0x6184A3B
   ["javelin.seasons-consumable-tokens-enabled"] = true,        -- 0x61770E2
   ["javelin.seasons-rewards.enabled"] = true,                  -- 0x617341A
+  -- The level of the season pass banner (bannertriggers.luac TrySeasonsRewardsSeasonPassBanner compares the level with it; a nil value
+  -- was a Lua error at each start): 25 (the registration, mov r8d 0x19 at 0x61736E2).
+  ["javelin.seasons-rewards.min-level-for-seasonpass"] = 25,   -- 0x61736E2
   ["javelin.siege.enable-warboard"] = true,                    -- 0x6172569
   ["javelin.social.enable-player-inspect"] = true,             -- 0x61755FF
   -- The flags of the options screen (stage P2.3): the categories, the key page.

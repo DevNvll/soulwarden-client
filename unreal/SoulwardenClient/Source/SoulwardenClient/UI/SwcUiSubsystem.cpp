@@ -24,6 +24,7 @@
 #include "Character/SwcPlayerActions.h"
 #include "Character/SwcPlayerCharacter.h"
 #include "Objects/SwcObjectSubsystem.h"
+#include "SwcUi/HudScreens.h"
 #include "Camera/PlayerCameraManager.h"
 #include "SwcCameraManager.h"
 #include "Creatures/SwcCreatureSubsystem.h"
@@ -51,70 +52,8 @@ namespace
 {
 using FArg = swc::ui::Runtime::Arg;
 
-/** The screens of the first HUD (stage 1.10) and of stage P2.2: the loader of the game loads each screen; only these
- *  load here. */
-const char* const HudScreens[] = {
-	"lyshineui/hud2024/vitals/vitals2024",
-	"lyshineui/hud2024/weaponquickslots/weaponquickslots",
-	"lyshineui/compass/compass",
-	"lyshineui/hud2024/editmode/hudeditmode",
-	"lyshineui/escapemenu/escapemenu",
-	// The menu bar of the states Esc, Map, Objectives, Skills, and Options (the game menu; display only, swc/gamemenu.lua).
-	"lyshineui/navbar/navbar",
-	"lyshineui/popup/popup",
-	// The front end (stage F2 of docs/FRONTEND.md): the landing screen of the main menu (a native load, swc/frontend.lua).
-	"lyshineui/main menu/landingscreenv2",
-	// The character creation (stage Q3): the state CharacterCreationScreen of an empty slot (swc/creation.lua, UI/SwcUiCreation).
-	"lyshineui/main menu/charactercreation",
-	"lyshineui/respawn/respawn",
-	// The world map (stage MVP-C): M opens the state Map (magicmap.luac and its layers; the map data of swc/worldmap.lua).
-	"lyshineui/worldmap/magicmap",
-	// The conversation screen (stage MVP-H): the Talk of a person (swc/conversation.lua, UI/SwcUiConversation).
-	"lyshineui/conversation/conversationscreenv2",
-	// The in-game scenes and the cinematic video stand-in (stage Q5, AST-240; swc/scenes.lua).
-	"lyshineui/cutscene/cutscenescreen",
-	"lyshineui/videos/videoplayerscreen",
-	// The crafting screens (stage MVP-J): the state CraftingStation of a station use (swc/crafting.lua, UI/SwcUiCrafting).
-	"lyshineui/crafting/craftingscreenv4",
-	"lyshineui/stationproperties/stationproperties",
-	// The character window (stage MVP-G): the attributes, the weapon mastery with its trees, the trade skills (swc/skills.lua).
-	"lyshineui/skills/skills",
-	"lyshineui/tooltip/tooltip",
-	// The inventory (stage P2.4): the bag, the equipment, the weight of the action bar, the action menu of an item.
-	"lyshineui/inventory/newinventory",
-	"lyshineui/equipment/equipmentv3",
-	"lyshineui/hud2024/actionbar/encumbrance",
-	"lyshineui/flyoutmenu/flyoutmenu",
-	// The panel of an open loot bag (the state Container).
-	"lyshineui/container/catcontainer",
-	// The world views (stage WF7): the markers (the AI plates), the prompt cards of the focus, the damage numbers, the loot ticker.
-	"lyshineui/markers/markermanager",
-	"lyshineui/markers/unifiedinteract",
-	"lyshineui/hud/damagenumbers/damagenumbers",
-	"lyshineui/hud2024/lootticker/lootticker2024",
-	// The fight feedback (stage MVP-I): the hit indicator (the red edge and the arrow toward the source of a hit).
-	"lyshineui/hitindicator/hitindicator",
-	// The status tray of the own character (stage MVP-I).
-	"lyshineui/statuseffects/statuseffectsv2",
-	// The notifications (the minor messages of the inventory, the loot).
-	"lyshineui/notifications/notification",
-	// The options screen (stage P2.3): its categories, the key page (the rebinds go to the key table of the client).
-	"lyshineui/options/options",
-	// The fight HUD (stage P3.H): the consumable quick slots (3 to 6), the level and XP meter under the vitals, the reticle.
-	"lyshineui/hud2024/consumablequickslots/consumablequickslots",
-	"lyshineui/hud2024/xp/xp",
-	"lyshineui/hud2024/reticles/reticlescanvas",
-	// The help bar (AST-231, the old stage P6.9): the key hints of the screens ("ESC Back", "ESC Close"); the screens push their
-	// actions to it (DynamicBus.HelpBar PushToStack, SetGlobalActionsToDefault).
-	"lyshineui/helpbar/helpbar",
-	// The chat widget (AST-231): its key hint "ENTER Chat" at the bottom left of the HUD and of the screens (the chat itself is not
-	// loaded: no chat service).
-	"lyshineui/hud/chat/chatwidget",
-	// The quests (AST-236): the tracker of the HUD, the journal (J), and the banners (swc/quests.lua, UI/SwcUiQuests).
-	"lyshineui/objectives/hud/objectiveshud",
-	"lyshineui/objectives/journal/journalscreen",
-	"lyshineui/banner/banner",
-};
+/** The screens of the HUD and of the later stages: swc::ui::kHudScreens (SwcUi/HudScreens.h, one list for the client and the tests). */
+const auto& HudScreens = swc::ui::kHudScreens;
 
 /** The world level name of the HUD scripts (the level crc tells them the front end and the tutorial levels). */
 const char* const WorldLevelName = "newworld_vitaeeterna";
@@ -1981,6 +1920,13 @@ void USwcUiSubsystem::FeedLocalPlayer()
 		bWorldEntered = true;
 		UE_LOG(LogSwcUi, Log, TEXT("ui: the world entry: the screen loader of the game starts"));
 		Runtime->call("EnterWorld", {FArg::of(std::string(WorldLevelName))});
+		// The level before the spawn: bannertriggers.luac reads Hud.LocalPlayer.Progression.Level in its observer of PlayerEntityId
+		// (TrySeasonsRewardsSeasonPassBanner); with no level node yet it was a Lua error at each world entry.
+		if (Own.hasProgression)
+		{
+			SentLevel = Own.level;
+			Runtime->call("HostProgression", {FArg::of(static_cast<double>(Own.level) + 1.0), FArg::of(static_cast<double>(Own.experience))});
+		}
 		Runtime->call("PlayerSpawned");
 	}
 	// The vitals: the stamina and mana states when the backend sent them, else the values of the vitals state.

@@ -8,12 +8,15 @@
 //   original scripts: tests/ui/fixtures); --fixture NAME runs only the named fixtures; --no-hud skips the HUD run.
 //   --all-screens: the loader of the globals loads each screen of the game, not only the HUD screens of stage 1.10 (a
 //   probe of the stub surface of the other screens; their textures are not converted).
+//   --client-screens: the loader loads the screens of the client (SwcUi/HudScreens.h): the start of the client with no engine; a Lua
+//   error of the run fails it.
 
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
 #include <filesystem>
+#include <iterator>
 #include <fstream>
 #include <map>
 #include <set>
@@ -23,6 +26,7 @@
 #include <vector>
 
 #include "SwcUi/Draw.h"
+#include "SwcUi/HudScreens.h"
 #include "SwcUi/Json.h"
 #include "SwcUi/Model.h"
 #include "SwcUi/Runtime.h"
@@ -351,6 +355,8 @@ int main(int argc, char** argv) {
     std::string drawFile;
     bool onlyCore = false;
     bool allScreens = false;
+    // The start of the client: the loader with the screens of the client (SwcUi/HudScreens.h); a Lua error fails the run.
+    bool clientScreens = false;
     bool hud = true;
     std::string fixtureDir;
     std::vector<std::string> fixtureNames;
@@ -364,6 +370,7 @@ int main(int argc, char** argv) {
         else if (a == "--draw" && i + 1 < argc) drawFile = argv[++i];
         else if (a == "--only-core") onlyCore = true;
         else if (a == "--all-screens") allScreens = true;
+        else if (a == "--client-screens") clientScreens = true;
         else if (a == "--no-hud") hud = false;
         else if (a == "--fixtures" && i + 1 < argc) fixtureDir = argv[++i];
         else if (a == "--fixture" && i + 1 < argc) fixtureNames.push_back(argv[++i]);
@@ -401,6 +408,9 @@ int main(int argc, char** argv) {
     if (allScreens) {
         options.allowedCanvases.clear();
     }
+    if (clientScreens) {
+        options.allowedCanvases.assign(std::begin(swc::ui::kHudScreens), std::end(swc::ui::kHudScreens));
+    }
     Runtime runtime(options);
     runtime.set_viewport(1920, 1080);
     runtime.set_text_measure(&g_measure);
@@ -415,6 +425,8 @@ int main(int argc, char** argv) {
     }
     runtime.call("Boot");
     runtime.call("EnterWorld", {Runtime::Arg::of(std::string("newworld_vitaeeterna"))});
+    // The client sends the level before the spawn (UI/SwcUiSubsystem.cpp FeedLocalPlayer).
+    runtime.call("HostProgression", {Runtime::Arg::of(5.0), Runtime::Arg::of(1234.0)});
     // A made-up player of the test: a sword in the first weapon slot, three sword abilities on its bar, one cooldown.
     runtime.call("PlayerSpawned");
     runtime.call("HostEquipment", {Runtime::Arg::of(24.0), Runtime::Arg::of(std::string("1hSwordT52"))});
@@ -474,6 +486,9 @@ int main(int argc, char** argv) {
                 static_cast<unsigned long long>(c.luaErrors), static_cast<unsigned long long>(c.stubNames),
                 static_cast<unsigned long long>(c.stubCalls), list.items.size(), static_cast<unsigned long long>(list.meshes),
                 static_cast<unsigned long long>(list.texts));
+    if (clientScreens) {
+        check(c.luaErrors == 0, "the start of the client (the screens of SwcUi/HudScreens.h): no Lua error");
+    }
     std::printf("all: %d checks, %d failed\n", g_checks, g_failed);
     return g_failed == 0 ? 0 : 1;
 }

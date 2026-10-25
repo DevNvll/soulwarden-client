@@ -786,6 +786,39 @@ The live check (2026-10-25, evidence `evidence/game-menu/`; runs gm1, gm2b, gmgp
 - The UI drive splits a text with spaces (`point text:Keyboard & Mouse` points at "text:Keyboard"): a drive uses `move` for
   such a label.
 
+## The Lua errors (the cleanup of 2026-10-25)
+
+The goal: no Lua error at the start of the client, at a travel, and in the journal. `tools/test-ui.sh` runs the start of the client with
+no engine (`swc-ui-tests --client-screens`: the loader of the game with the screens of `SwcUi/HudScreens.h`, the same list as the client;
+a Lua error fails the run). Before the cleanup that run had 34 errors, the same count as the client log. The causes and the fixes:
+
+| Script (the error) | Cause | Fix in the client layer |
+| --- | --- | --- |
+| tradeskills_crafting.luac (21: `#self.skillsData`, then each default element) | Call order: the dynamic scroll box refreshes at its post activation (autoRefreshOnPostActivate) before SetVisible fills the list | An empty list at OnInit (a script hook of swc/skills.lua) |
+| changetitlewindow.luac (10: `categoryOrderList`) | The same call order (TransitionIn fills the list) | The same hook |
+| milestonewindowv2.luac (`#` of nil) | Missing data: PlayerComponentRequestsBus GetRewardMilestoneIds had no answer | An empty list (swc/owner.lua; open point: the level milestones) |
+| swc/elements.lua (`module '' not found`) | An element with a script component and no script asset | No instance for an empty script path (O3DE: such a component does nothing) |
+| bannertriggers.luac TrySeasonsRewardsSeasonPassBanner (compare nil) | Call order: the observer of PlayerEntityId reads the level node before the client set it | The client sends the level before PlayerSpawned (UI/SwcUiSubsystem.cpp FeedLocalPlayer); the config value javelin.seasons-rewards.min-level-for-seasonpass is 25 (registration 0x61736E2) |
+| bannertriggers.luac OnProgressionPointsChanged (index nil) | Missing stub: ProgressionPointRequestBus GetStaticProgressionPointData | A record with a category that is not a territory (swc/skills.lua) |
+| documentstab.luac (journal: `#` of nil, `GetCurrentBusId`) | Missing data (JournalDataManagerBus) and a missing bus method | Empty document lists (swc/quests.lua; open point: the lore documents); each bus has GetCurrentBusId: the address of the handler of the event that runs (Swc.CallHandler, swc/core.lua) |
+| loadingscreenmanager.luac UpdateTipPoolPriorityLevels (AST-280, at each travel) | Missing native data calls: 355238560 (the show count of a tip, -1 for none) and 1214891646 (save it) | Both calls, with a store for the session (swc/host.lua) |
+| hudcanvasdefault.luac and lootticker2024canvas.luac SetIsVisible (AST-228) | An empty ElementsWithActionListeners list | Fixed before (commit 54c0c77, the hook of swc/elements.lua); no client log after 2026-10-23 has the error |
+
+Fixture `luaerrors` (22 checks) runs each path and checks `Swc.errorCount` after each step; with the Lua of main it fails 9 checks
+(the 34 errors of the load, the spawn, the points event, the journal, GetCurrentBusId, and the AST-280 error of a travel).
+
+## Absent features (the cleanup rule of the user, 2026-10-25)
+
+A screen shows no hint and no category of a feature that this client does not have (swc/gamemenu.lua, each with its reason in the code):
+- The help bar takes no hint whose action is a hidden action of the key page (`G.keyHiddenActions`): for example the ping wheel hint of
+  the map (mapmenu.luac SetHelpBar, target_tag_selection).
+- The journal hides the tabs and the content lists of the objective types that the backend cannot give (`G.journalHiddenTabs`):
+  Location, Favor, Season Story, Epic Equipment, Faction Missions, Event Quests, Town Projects, Recipes, Artifacts. It keeps Main Story,
+  Faction Story, Skill Progression, Mount Quest (backend 1.8f supports 9 MountUnlock rows), and Side Stories. The rules: the TabbedList
+  rule for hidden buttons (isVisible false, EnableHiddenButtons), and for each hidden list and its header row SetIsEnabled false with the
+  height 0 (a disabled child keeps its place in a LyShine layout: the rule of the script for its MSQMessage).
+- Fixture `unusedfeatures` (21 checks; picture unusedfeatures-journal).
+
 ## The world views (stage WF7)
 
 The UI in the world views uses the original canvases (`tools/convert-ui.sh world`: the canvases, their textures, the status

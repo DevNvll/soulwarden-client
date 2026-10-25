@@ -380,3 +380,10 @@ Swc.Define("AchievementRequestBus", "Event", {
     return Swc.HasAchievement(Swc.AchievementIndex(key))
   end,
 })
+
+-- The reward milestones of the levels (milestonewindowv2.luac InitMilestoneData reads the ids, then the data of each): the client has
+-- no milestone data and the backend sends none: an empty list (before, a nil list was a Lua error at each start). Open point: the level
+-- milestones of the window.
+Swc.Define("PlayerComponentRequestsBus", "Event", {
+  GetRewardMilestoneIds = function() return {} end,
+})
