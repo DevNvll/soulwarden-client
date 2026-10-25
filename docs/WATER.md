@@ -70,6 +70,36 @@ fountains in a river, raised river parts.
   water term; 4 the trace; 5 the transmittance T, the path, the depth gap; 6 the scene behind the water. A variant value stays for
   the next variants of the run (only Debug goes back to 0).
 
+## The Unreal water (AST-200, 2026-10-25)
+
+The plan (the orchestrator approved it on 2026-10-25): the client spawns the bodies of the Unreal Water plugin at run time from
+the source shapes. This happens behind `-SwcWaterMode=Unreal`. The default stays the source shader path until the merge of the
+deploy stage. If a spawned river or lake does not draw in a `-game` run, the fallback is a hybrid: the plugin ocean, and Single
+Layer Water on the surfaces of the client for the rivers and the volumes. No body changes the Landscape (`bAffectsLandscape`
+false). The depth classes, the wade, and the swim read only the quadtree. The Water plugin does not touch the pawns: its
+collision profile is query only, and the camera ignores it.
+
+### The body specs (stage 0)
+
+`tools/convert-water.sh bodies write [--out DIR]` (`converter/swc_convert/water_bodies.py`) writes `unreal-bodies.json`. The
+default folder is `SWC_CONTENT/water`. The file has the zone (the extent of the world regions), the ocean level, and the bodies
+of each region. The bodies of a region have the order of `REGION.water`: body k of the spec is body k of the surfaces.
+
+| Body | Rule |
+| --- | --- |
+| River | One spline point for each source vertex V[i] (world, engine m). The leave tangent of point i is 3 (Forward[i] - V[i]). The arrive tangent of point i + 1 is 3 (V[i + 1] - Back[i + 1]). Thus the cubic Hermite segment of the Unreal spline (key i + t) is the source Bezier segment. The matrix is affine, so the curve of the world control points is the world curve. A linear spline has the chords as tangents. The width is the source width (DefaultWidth + WidthAttribute) across the local tangent, through the matrix. It is linear by the key, as the water spline metadata of the plugin (CIM_Linear). The depth is the surface minus the floor of the quadtree at the vertex (none where the quadtree has no water). |
+| Lake | A volume with a flat top (a height range of 0.01 m or less) and a simple outline. The outline is the prism polygon, the box corners, or the cylinder rim, at the surface z. |
+| Custom | The other volumes: the client uses the surface mesh of `REGION.water`. |
+
+`tools/convert-water.sh bodies check [--out DIR]` compares the specs with the surfaces of `REGION.water`. The test with no game data
+is `tests/converter/test_water_bodies.py` (`tools/test-converter.sh`).
+
+The result (2026-10-25): 277 rivers, 621 lakes, and 19 custom bodies. The 19 custom bodies are tilted, with a top height range of
+0.014 to 0.89 m. No fault occurred in the names or the order. The largest distance of a cross-section center to the spline is
+0.58 mm. The largest width difference is 1.03 mm. These values are the float32 precision of `REGION.water`. The lake outlines are
+within 0.64 mm of the surface vertices, and the heights are within 5 mm. 325 of the 2,571 river vertices have no quadtree water
+under them, so they have no depth.
+
 ## The source water shader (AST-200, 2026-10-20)
 
 The study: `~/Games/soulwarden-client/research/water-shader.md` (GPT-6.1-Sol; the retail shaders water.cfx, watervolume.cfx,
