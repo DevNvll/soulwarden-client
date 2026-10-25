@@ -1,0 +1,53 @@
+# The routes of tests/drive/ut1024-axe.txt: noon, the creatures ignore the character; for each case of 32 s a rabbit or a rat
+# at the height DZ (m) to the character, then removed. Times on the clock of the drive; $N is the Nth spawn.
+1 world-time 12:00
+1 ignore on
+1.5 heal
+12.5 spawn Dunwood_Rabbit:2 4 0 0.0 --yaw 270 --level 65
+19.5 remove $1
+20.5 spawn Dunwood_Rabbit:2 1.5 0 0.0 --yaw 270 --level 65
+27.5 remove $2
+28.5 spawn Dunwood_Rabbit:2 1.5 0 0.0 --yaw 270 --level 65
+35.5 remove $3
+44.5 spawn Dunwood_Rabbit:2 4 0 -0.25 --yaw 270 --level 65
+51.5 remove $4
+52.5 spawn Dunwood_Rabbit:2 1.5 0 -0.25 --yaw 270 --level 65
+59.5 remove $5
+60.5 spawn Dunwood_Rabbit:2 1.5 0 -0.25 --yaw 270 --level 65
+67.5 remove $6
+76.5 spawn Dunwood_Rabbit:2 4 0 -0.5 --yaw 270 --level 65
+83.5 remove $7
+84.5 spawn Dunwood_Rabbit:2 1.5 0 -0.5 --yaw 270 --level 65
+91.5 remove $8
+92.5 spawn Dunwood_Rabbit:2 1.5 0 -0.5 --yaw 270 --level 65
+99.5 remove $9
+108.5 spawn Dunwood_Rabbit:2 4 0 -1.0 --yaw 270 --level 65
+115.5 remove $10
+116.5 spawn Dunwood_Rabbit:2 1.5 0 -1.0 --yaw 270 --level 65
+123.5 remove $11
+124.5 spawn Dunwood_Rabbit:2 1.5 0 -1.0 --yaw 270 --level 65
+131.5 remove $12
+140.5 spawn FL_Rat_HercyneRat_09FL02a 4 0 0.0 --yaw 270 --level 65
+147.5 remove $13
+148.5 spawn FL_Rat_HercyneRat_09FL02a 1.5 0 0.0 --yaw 270 --level 65
+155.5 remove $14
+156.5 spawn FL_Rat_HercyneRat_09FL02a 1.5 0 0.0 --yaw 270 --level 65
+163.5 remove $15
+172.5 spawn FL_Rat_HercyneRat_09FL02a 4 0 -0.25 --yaw 270 --level 65
+179.5 remove $16
+180.5 spawn FL_Rat_HercyneRat_09FL02a 1.5 0 -0.25 --yaw 270 --level 65
+187.5 remove $17
+188.5 spawn FL_Rat_HercyneRat_09FL02a 1.5 0 -0.25 --yaw 270 --level 65
+195.5 remove $18
+204.5 spawn FL_Rat_HercyneRat_09FL02a 4 0 -0.5 --yaw 270 --level 65
+211.5 remove $19
+212.5 spawn FL_Rat_HercyneRat_09FL02a 1.5 0 -0.5 --yaw 270 --level 65
+219.5 remove $20
+220.5 spawn FL_Rat_HercyneRat_09FL02a 1.5 0 -0.5 --yaw 270 --level 65
+227.5 remove $21
+236.5 spawn FL_Rat_HercyneRat_09FL02a 4 0 -1.0 --yaw 270 --level 65
+243.5 remove $22
+244.5 spawn FL_Rat_HercyneRat_09FL02a 1.5 0 -1.0 --yaw 270 --level 65
+251.5 remove $23
+252.5 spawn FL_Rat_HercyneRat_09FL02a 1.5 0 -1.0 --yaw 270 --level 65
+259.5 remove $24

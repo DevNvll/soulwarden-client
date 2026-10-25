@@ -187,6 +187,18 @@ Avatar->GetActions()->SetContactQuery(/* USwcCreatureSubsystem::QueryMeleeContac
     horizontal distance and the height below the feet, each hit volume (the segment ends or the box, the radius), and for a miss the
     gap to the nearest volume (the radius growth of the strike shape that makes a contact, 1 cm steps, at most 2 m).
   - A picture of the shapes: `-SwcDrawStrikes` (the strike shapes) with `-SwcHitVolumes` (the hit volumes of the creatures).
+  - The controlled check (2026-10-25; `tests/drive/ut1024-axe*.txt`, `-SwcStrikeTrace -SwcDrawStrikes -SwcHitVolumes`; evidence
+    `usertest-1024/axe1.mp4`, `item4-cases.txt`, `item4-maelstrom-shapes.png`): a rabbit (Dunwood_Rabbit:2) and a rat
+    (FL_Rat_HercyneRat_09FL02a) at 0, -0.25, -0.5, -1 m to the character (the terrain adds 0.2 to 0.4 m), each with Charge (4 m
+    ahead), Maelstrom and Gravity Well (1.5 m ahead): 2 contacts in 24 casts (Gravity Well on the rabbit 0.21 m lower, Charge on the
+    rat 0.26 m lower). The gaps of the misses grow with the drop (Gravity Well on the rabbit: -0.05, 0.15, 0.33, 0.88 m). The causes:
+    20 out of the body bounds, 17 no hit volume touched, none by the line check. A swept test of the logged shapes (8 steps between
+    two samples) changes no result (at most 0.08 m): the sampling is not the cause. The drawn shapes follow the shown axe and its
+    swipe effect (the frame of the mesh and of the shapes is the same, master_root of the axe skeleton; the blade helpers are at
+    +0.55 m on its Z inside the capsules). The first strike of Maelstrom spins with the hands 1.2 to 1.46 m above the feet: the lower
+    edge of its capsules is about 0.95 m above the feet, and the torso volume of the rabbit (a sphere of 0.55 m about 0.30 m above its
+    feet) ends about 0.85 m above its feet. Open: the retail contact at the same geometry, and the retail meaning of the rabbit torso
+    volume (radius 0.5, height 0.25, axis 0 90 1): no client fault is shown.
 - `-SwcFarContact[=SECONDS]` (development runs): when the shape touches no creature, one contact with the nearest living
   creature 6 to 10 m from the attacker (from SECONDS after the start of the world). The server refuses it: "too far" (reach
   3.5 m + 1.5 m).
