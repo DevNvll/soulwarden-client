@@ -650,6 +650,8 @@ def actions() -> dict:
            # AST-230 (docs/EFFECTS.md): the weapon effect groups, the weapon effect id of each tag set, and the effect helpers of the
            # weapon character files (the CA_BONE attachments vfx_*) by the lower-case path of the file.
            "weaponEffects": {**skill_effects.weapon_scripts(), "ids": skill_effects.WEAPON_EFFECT_IDS},
+           # usertest-1024 item 4: the defaults of the bend of the upper body to the aim (AttackHeightRetargeting clips).
+           "retarget": ranged.retarget_component(),
            "weaponHelpers": {item["mesh"].lower(): helpers for item in weapons_doc["items"].values()
                              if item.get("mesh", "").endswith(".cdf") and (helpers := skill_effects.weapon_helpers(item["mesh"]))},
            "ranged": {**ranged.flights(json.loads((gamedata_dir() / "projectile-data.json").read_text())),

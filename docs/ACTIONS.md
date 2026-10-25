@@ -119,6 +119,40 @@ of the heavy lunge, the box on the greatsword blade). The client: 9 strike windo
 in list 3. The backend: `hit claims of the session: 10 attack input(s), 9 melee contact(s): 0 accepted, 9 refused (9 not
 a creature, ...)`.
 
+## The bend of the upper body to the aim (usertest-1024 item 4)
+
+The retail client bends the spine of the player toward the aim during an attack (the research `usertest-hitvolume.md`
+section 4; the update function 0x6865830, the aim direction 0x6781C60). Thus a swing reaches a low target (a rabbit) when
+the camera looks down. With no bend, the strike shapes of the great axe went above a low rabbit (2 contacts in 24 casts).
+
+- The data: the Mannequin clip `AttackHeightRetargeting` (layer of a fragment; `actions.json` `fragments[].effects`, with
+  `lockDir`, and `minAngle`/`maxAngle` or `blendIn`/`blendOut` when the clip overrides them) and the defaults of the
+  `AttackHeightRetargetComponent` of the player slice (`actions.json` `retarget`: blend 0.35 s in and out, the limits −60°
+  and +90°, the upper offset 0°, the lower offset 15°, the dead zone 5°, the joints `Spine`, `Spine1`, `Spine2`). 122
+  fragments (all tag sets) have the clip: the attacks and abilities of the melee weapons, the bow, the staffs, the block;
+  30 of them override the limits (for example −20° to +90°).
+- The rule (`Character/SwcAttackRetarget.h`, tested by `tools/test-actions.sh`): the angle between the aim and its
+  horizontal part, signed by the height of the aim, times max(0, the cosine of the facing of the character to the aim);
+  no bend inside the dead zone; beyond it the offset is added; a smoothstep blend; the clamp to the limits. With
+  `LockTargetDirOnStart` the aim of the first frame of the clip stays. The aim is the camera direction.
+- The pose (`USwcPlayerAnimInstance::UpdateRetarget`, `FSwcPlayerAnimProxy::Evaluate`): each of the three joints turns by
+  the angle / 3 about the horizontal right axis of the aim, in component space, after the overlays. The weapon in the
+  hand and the strike shapes read this final pose.
+- The log: `retarget: AttackHeightRetargeting starts (aim pitch ...)` and `retarget: the clip ends: the largest bend ...`.
+
+Open points [I] (inferences, not proved by the decompile; the check with the retail take decides):
+
+- [I] The sign of the lower offset: the stored value 15 is added as it is to a downward angle (a negative angle), thus it
+  reduces the bend (an aim 30° down gives a bend of −15°). The other reading (the offset increases the bend) gives −45°.
+- [I] The space of the turn: the client turns the joints in component space about the right axis of the aim, after the
+  overlays (operator mode 3 of the retail pose code). A turn in the local space of each joint gives a different bend when
+  the clip leans the spine.
+- [I] The restart of the blend at the start and the end of the clip: the update 0x6865830 restarts the blend only at a
+  change of the side of the dead zone. The client restarts it also at the start and the end of the clip, else the bend
+  stays after the clip.
+- [I] The aim: the camera direction of the controller. The retail function 0x6781C60 uses the target of the input when it
+  has one.
+
 ## The dodge and the stamina (stage P2.5)
 
 The retail client predicts its own stamina, and the Stamina state of the server does not change the predicted value

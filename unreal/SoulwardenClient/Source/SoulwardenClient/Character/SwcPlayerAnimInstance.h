@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Character/SwcAttackRetarget.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimInstanceProxy.h"
 #include "SwcPlayerAnimInstance.generated.h"
@@ -10,6 +11,7 @@ class FSwcFragmentEffects;
 class FSwcLocomotion;
 class UAnimSequence;
 struct FSwcActionFragment;
+struct FSwcEffectClip;
 struct FSwcBlendSpace;
 struct FSwcWeaponActions;
 
@@ -56,6 +58,10 @@ struct FSwcPlayerAnimProxy : public FAnimInstanceProxy
 
 	TArray<FSwcPoseSample> Samples;
 	TArray<FSwcPoseOverlay> Overlays;
+	/** The bend of the upper body to the aim (usertest-1024 item 4): the turn of each joint in component space (identity: none), and the
+	 *  joints (mesh bone indices, parents first). */
+	FQuat RetargetBend = FQuat::Identity;
+	TArray<int32> RetargetBones;
 };
 
 /**
@@ -158,6 +164,13 @@ private:
 	TArray<FLayer> Layers;
 	TArray<FActionLayer> Channels[2];
 	TSharedPtr<FSwcFragmentEffects> FragmentEffects;
+	/** The bend of the upper body to the aim (AttackHeightRetargeting; usertest-1024 item 4), the clip of the last frame, and the
+	 *  largest bend of the clip (degrees; for the log line at its end). */
+	swc::retarget::Retarget RetargetRule;
+	const FSwcEffectClip* RetargetClip = nullptr;
+	double RetargetPeak = 0.0;
+	/** Updates the bend for this frame and gives it to the proxy. */
+	void UpdateRetarget(float DeltaSeconds, FSwcPlayerAnimProxy& Proxy);
 	TArray<FSwcPoseSample> Samples;
 	TArray<FSwcPoseOverlay> Overlays;
 	TArray<FSwcWeaponVisit> WeaponVisits;

@@ -72,7 +72,8 @@ void ReadEffects(const TSharedPtr<FJsonObject>& Info, TArray<FSwcEffectClip>& Ou
 		Clip.Type = Data->GetStringField(TEXT("type"));
 		Clip.Kind = Clip.Type == TEXT("ParticleEffect") ? FSwcEffectClip::EKind::Particle
 		          : Clip.Type == TEXT("WeaponEffects") ? FSwcEffectClip::EKind::WeaponGroup
-		          : Clip.Type == TEXT("CAGE-Attachment") ? FSwcEffectClip::EKind::Attachment : FSwcEffectClip::EKind::Other;
+		          : Clip.Type == TEXT("CAGE-Attachment") ? FSwcEffectClip::EKind::Attachment
+		          : Clip.Type == TEXT("AttackHeightRetargeting") ? FSwcEffectClip::EKind::Retarget : FSwcEffectClip::EKind::Other;
 		Clip.Layer = static_cast<int32>(Number(Data->TryGetField(TEXT("layer"))));
 		Clip.Clip = static_cast<int32>(Number(Data->TryGetField(TEXT("clip"))));
 		Clip.Start = Number(Data->TryGetField(TEXT("start")));
@@ -98,6 +99,15 @@ void ReadEffects(const TSharedPtr<FJsonObject>& Info, TArray<FSwcEffectClip>& Ou
 		Clip.bKill = FlagOf(Data, TEXT("kill"));
 		Clip.bKeep = FlagOf(Data, TEXT("keep"));
 		Data->TryGetStringField(TEXT("source"), Clip.Source);
+		if (Clip.Kind == FSwcEffectClip::EKind::Retarget)
+		{
+			Clip.bLockDir = FlagOf(Data, TEXT("lockDir"));
+			Clip.BlendIn = Number(Data->TryGetField(TEXT("blendIn")), -1.0f);
+			Clip.BlendOut = Number(Data->TryGetField(TEXT("blendOut")), -1.0f);
+			Clip.bAngles = Data->HasField(TEXT("minAngle"));
+			Clip.MinAngle = Number(Data->TryGetField(TEXT("minAngle")));
+			Clip.MaxAngle = Number(Data->TryGetField(TEXT("maxAngle")));
+		}
 		Data->TryGetStringField(TEXT("condition"), Clip.Condition);
 		Data->TryGetStringField(TEXT("enter"), Clip.Enter);
 		Data->TryGetStringField(TEXT("exit"), Clip.Exit);
@@ -956,6 +966,27 @@ bool FSwcActions::Load(FString& OutReport)
 			for (const auto& Id : (*Ids)->Values)
 			{
 				EffectIds.Add(FString(Id.Key.ToView()).ToLower(), Id.Value->AsString().ToLower());
+			}
+		}
+	}
+	// The defaults of the bend of the upper body to the aim (usertest-1024 item 4). A file of an older converter has none: no bend.
+	if (const TSharedPtr<FJsonObject>* Retarget = nullptr; Document->TryGetObjectField(TEXT("retarget"), Retarget))
+	{
+		const auto Value = [&Retarget](const TCHAR* Name, double Default) { double Out = Default; (*Retarget)->TryGetNumberField(Name, Out); return Out; };
+		RetargetDefaults.blendIn = Value(TEXT("blendIn"), 0.35);
+		RetargetDefaults.blendOut = Value(TEXT("blendOut"), 0.35);
+		RetargetDefaults.minAngle = Value(TEXT("minAngle"), -60.0);
+		RetargetDefaults.maxAngle = Value(TEXT("maxAngle"), 90.0);
+		RetargetDefaults.upperOffset = Value(TEXT("upperOffset"), 0.0);
+		RetargetDefaults.lowerOffset = Value(TEXT("lowerOffset"), 15.0);
+		RetargetDefaults.deadZone = Value(TEXT("deadZone"), 5.0);
+		(*Retarget)->TryGetBoolField(TEXT("lockDir"), RetargetDefaults.lockDir);
+		const TArray<TSharedPtr<FJsonValue>>* Joints = nullptr;
+		if ((*Retarget)->TryGetArrayField(TEXT("joints"), Joints))
+		{
+			for (const TSharedPtr<FJsonValue>& Joint : *Joints)
+			{
+				RetargetJoints.Add(FName(*Joint->AsString()));
 			}
 		}
 	}

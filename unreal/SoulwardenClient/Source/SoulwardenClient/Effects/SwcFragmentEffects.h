@@ -70,6 +70,8 @@ public:
 	void StopChannel(UWorld* World, int32 Channel);
 	/** Exits all live clips (the end of the character). */
 	void StopAll(UWorld* World);
+	/** The live AttackHeightRetargeting clip of the channels (the newest), or null (usertest-1024 item 4). */
+	const FSwcEffectClip* GetRetargetClip() const;
 
 private:
 	enum class EExit : uint8
@@ -88,6 +90,8 @@ private:
 		EExit Exit = EExit::StopEmission;
 		/** A CAGE-Attachment clip: the ammunition prop shows while it lives. */
 		bool bAmmo = false;
+		/** An AttackHeightRetargeting clip: the bend of the upper body while it lives. */
+		bool bRetarget = false;
 	};
 	struct FChannel
 	{

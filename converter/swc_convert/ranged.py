@@ -317,6 +317,37 @@ AMMO_FALLBACK = {"Arrow": "DefaultArrow", "Shot": "DefaultShot"}
 AMMO_TABLE = "javelindata_itemdefinitions_ammo.datasheet"
 
 
+RETARGET_COMPONENT = "9e420223-af07-4a32-b0e3-348b3ca5bd48"   # AttackHeightRetargetComponent of the player slice
+PLAYER_SLICE = "slices/player.dynamicslice"
+
+
+def retarget_component() -> dict:
+    """The AttackHeightRetargetComponent of the player slice (usertest-1024 item 4; research usertest-hitvolume.md section 4: the reader
+    0x254F940, the reflection 0x68DA960): the joints, the default blend times (s), the default angle limits, the angle offsets, and the
+    dead zone (degrees), and the default of LockTargetDirOnStart. Empty when the slice has no such component."""
+    import struct
+    import uuid as uuid_module
+    wanted = uuid_module.UUID(RETARGET_COMPONENT).bytes
+    fields = {"blendIn": "m_defaultBlendInTime", "blendOut": "m_defaultBlendOutTime", "minAngle": "m_defaultMinAngleDegrees",
+              "maxAngle": "m_defaultMaxAngleDegrees", "upperOffset": "m_defaultUpperAngleOffsetDegrees",
+              "lowerOffset": "m_defaultLowerAngleOffsetDegrees", "deadZone": "m_deadZoneAngleDegrees"}
+    for root in source.parse(source.read(PLAYER_SLICE)):
+        for node in source.walk(root):
+            if node.type_id != wanted:
+                continue
+            out: dict = {}
+            for element in source.walk(node):
+                for key, name in fields.items():
+                    if element.name == source.field_id(name) and isinstance(element.value, (bytes, bytearray)) and len(element.value) == 4:
+                        out[key] = round(struct.unpack(">f", element.value)[0], 6)
+                if element.name == source.field_id("m_jointNames"):
+                    out["joints"] = [bytes(child.value).decode() for child in element.children if child.value]
+                if element.name == source.field_id("m_lockTargetDirOnStart") and element.value:
+                    out["lockDir"] = element.value[0] != 0
+            return out
+    return {}
+
+
 def ammo_meshes() -> dict:
     """The look of each ammunition item of the player (user test 2026-10-24; docs/RANGED.md "The own projectile"): AmmoID -> {"type":
     AmmoType, "prefab": the slice of AmmoPrefabPath, "mesh": the .cgf (MeshOverride, else the first static mesh of the prefab slice),

@@ -19,5 +19,9 @@ nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     "${module}/Combat/SwcLife.cpp" \
     "${backend}/src/world/attack_sequence.cpp" "${backend}/src/gamedata/weapon_actions.cpp" \
     -o "${out}/swc-actions-tests"
+# The bend of the upper body to the aim (usertest-1024 item 4; Character/SwcAttackRetarget): plain C++.
+nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter -I"${module}" \
+    "${SWC_REPO}/tests/actions/retarget_tests.cpp" "${module}/Character/SwcAttackRetarget.cpp" -o "${out}/swc-retarget-tests"
+"${out}/swc-retarget-tests"
 exec "${out}/swc-actions-tests" "${SWC_CONTENT}/player/actions.json" "${gamedata}/weapon-actions.json" \
     "${backend}/src/world/abilities.cpp" "${backend}/src/world/runes.h"

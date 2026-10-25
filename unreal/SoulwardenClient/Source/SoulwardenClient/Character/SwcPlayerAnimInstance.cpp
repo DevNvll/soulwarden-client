@@ -1,6 +1,10 @@
 #include "Character/SwcPlayerAnimInstance.h"
 
 #include "Animation/AnimSequence.h"
+#include "Net/SwcSpace.h"
+#include "Camera/PlayerCameraManager.h"
+#include "GameFramework/PlayerController.h"
+#include "BonePose.h"
 #include "AnimationRuntime.h"
 #include "Character/SwcActions.h"
 #include "Character/SwcCharacterMovement.h"
@@ -99,6 +103,25 @@ bool FSwcPlayerAnimProxy::Evaluate(FPoseContext& Output)
 			Out.SetTranslation(FMath::Lerp(Out.GetTranslation(), In.GetTranslation(), static_cast<double>(Weight)));
 			Out.SetScale3D(FMath::Lerp(Out.GetScale3D(), In.GetScale3D(), static_cast<double>(Weight)));
 		}
+	}
+	// The bend of the upper body to the aim (usertest-1024 item 4): each joint turns by the bend in component space, parents first (a
+	// child takes the turn of its parent, so the bend adds up along the spine).
+	if (!RetargetBones.IsEmpty() && !RetargetBend.Equals(FQuat::Identity, 1e-6))
+	{
+		FCSPose<FCompactPose> Space;
+		Space.InitPose(Output.Pose);
+		for (const int32 MeshBone : RetargetBones)
+		{
+			const FCompactPoseBoneIndex Index = Bones.MakeCompactPoseIndex(FMeshPoseBoneIndex(MeshBone));
+			if (Index == INDEX_NONE)
+			{
+				continue;
+			}
+			FTransform Joint = Space.GetComponentSpaceTransform(Index);
+			Joint.SetRotation((RetargetBend * Joint.GetRotation()).GetNormalized());
+			Space.SetComponentSpaceTransform(Index, Joint);
+		}
+		FCSPose<FCompactPose>::ConvertComponentPosesToLocalPoses(MoveTemp(Space), Output.Pose);
 	}
 	return true;
 }
@@ -721,4 +744,83 @@ void USwcPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	FSwcPlayerAnimProxy& Proxy = GetProxyOnGameThread<FSwcPlayerAnimProxy>();
 	Proxy.Samples = Samples;
 	Proxy.Overlays = Overlays;
+	UpdateRetarget(DeltaSeconds, Proxy);
+}
+
+void USwcPlayerAnimInstance::UpdateRetarget(float DeltaSeconds, FSwcPlayerAnimProxy& Proxy)
+{
+	// The bend of the upper body to the aim (the Mannequin clip AttackHeightRetargeting with the AttackHeightRetargetComponent of the
+	// player slice; usertest-1024 item 4, research usertest-hitvolume.md section 4; the rule: Character/SwcAttackRetarget.h). The aim is
+	// the camera direction of the controller (0x6781C60 asks the character for its aim direction when the input has no target). The
+	// turn is applied in component space after the overlays (FSwcPlayerAnimProxy::Evaluate) [I: the space of the operator mode 3]: the
+	// weapon on the hand and the strike shapes read that final pose.
+	Proxy.RetargetBend = FQuat::Identity;
+	Proxy.RetargetBones.Reset();
+	const ACharacter* Character = Cast<ACharacter>(TryGetPawnOwner());
+	USkeletalMeshComponent* Mesh = GetSkelMeshComponent();
+	if (!Actions.IsValid() || Character == nullptr || Mesh == nullptr || Actions->GetRetargetJoints().IsEmpty())
+	{
+		return;
+	}
+	const FSwcEffectClip* Clip = FragmentEffects.IsValid() ? FragmentEffects->GetRetargetClip() : nullptr;
+	swc::retarget::Settings Settings = Actions->GetRetargetDefaults();
+	if (Clip != nullptr)
+	{
+		Settings.lockDir = Clip->bLockDir;
+		Settings.blendIn = Clip->BlendIn >= 0.0f ? Clip->BlendIn : Settings.blendIn;
+		Settings.blendOut = Clip->BlendOut >= 0.0f ? Clip->BlendOut : Settings.blendOut;
+		if (Clip->bAngles)
+		{
+			Settings.minAngle = Clip->MinAngle;
+			Settings.maxAngle = Clip->MaxAngle;
+		}
+	}
+	FVector Aim = Character->GetActorForwardVector();
+	if (const APlayerController* Controller = Cast<APlayerController>(Character->GetController()); Controller != nullptr && Controller->PlayerCameraManager != nullptr)
+	{
+		Aim = Controller->PlayerCameraManager->GetCameraRotation().Vector();
+	}
+	const auto Engine = [](const FVector& Unreal) { return swc::retarget::Vec3{Unreal.X, -Unreal.Y, Unreal.Z}; };
+	const swc::retarget::Bend Bend = RetargetRule.update(DeltaSeconds, Clip != nullptr, Settings, Engine(Aim), Engine(Character->GetActorForwardVector()));
+	// The log of a clip: its start (the aim pitch) and its end (the largest bend).
+	if (Clip != RetargetClip)
+	{
+		if (RetargetClip != nullptr)
+		{
+			UE_LOG(LogTemp, Log, TEXT("retarget: the clip ends: the largest bend %.1f degrees"), RetargetPeak);
+		}
+		if (Clip != nullptr)
+		{
+			UE_LOG(LogTemp, Log, TEXT("retarget: AttackHeightRetargeting starts (aim pitch %.1f degrees, limits %.0f / %.0f, blend %.2f / %.2f s, lock %d)"),
+				FMath::RadiansToDegrees(FMath::Asin(FMath::Clamp(Aim.GetSafeNormal().Z, -1.0, 1.0))), Settings.minAngle, Settings.maxAngle, Settings.blendIn,
+				Settings.blendOut, Settings.lockDir ? 1 : 0);
+		}
+		RetargetClip = Clip;
+		RetargetPeak = 0.0;
+	}
+	const double Degrees = FMath::RadiansToDegrees(Bend.angle);
+	RetargetPeak = FMath::Abs(Degrees) > FMath::Abs(RetargetPeak) ? Degrees : RetargetPeak;
+	if (FMath::Abs(Bend.angle) < 1e-5)
+	{
+		return;
+	}
+	for (const FName& Joint : Actions->GetRetargetJoints())
+	{
+		const int32 Bone = Mesh->GetBoneIndex(Joint);
+		if (Bone != INDEX_NONE)
+		{
+			Proxy.RetargetBones.Add(Bone);
+		}
+	}
+	if (Proxy.RetargetBones.IsEmpty())
+	{
+		return;
+	}
+	// The turn of each joint in engine space, then the space map of Net/SwcSpace.h, then the frame of the mesh component.
+	const double Half = Bend.angle / Proxy.RetargetBones.Num() * 0.5;
+	const double Sine = FMath::Sin(Half);
+	const FQuat World = SwcEngineToUnreal(swc::net::Quaternion{static_cast<float>(Bend.axis[0] * Sine), static_cast<float>(Bend.axis[1] * Sine),
+		static_cast<float>(Bend.axis[2] * Sine), static_cast<float>(FMath::Cos(Half))});
+	const FQuat Component = Mesh->GetComponentQuat();
+	Proxy.RetargetBend = (Component.Inverse() * World * Component).GetNormalized();
 }

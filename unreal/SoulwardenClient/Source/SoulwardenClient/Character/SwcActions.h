@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Character/SwcLocomotion.h"
+#include "Character/SwcAttackRetarget.h"
 #include "Combat/SwcAttackGraph.h"
 
 /**
@@ -60,6 +61,8 @@ struct FSwcEffectClip
 		WeaponGroup,
 		/** CAGE-Attachment: the ammunition on an attachment of the weapon (the nocked arrow; usertest-1024). */
 		Attachment,
+		/** AttackHeightRetargeting: the bend of the upper body to the aim (usertest-1024 item 4). */
+		Retarget,
 		Other,
 	};
 	EKind Kind = EKind::Other;
@@ -73,6 +76,14 @@ struct FSwcEffectClip
 	FString Name;
 	/** CAGE-Attachment: its AttachmentSource (ActiveWeapon: the ammunition of the active weapon; CustomSource: a prop of a use). */
 	FString Source;
+	/** AttackHeightRetargeting: LockTargetDirOnStart, and the overrides of the blend times (s) and of the angle limits (degrees); below 0
+	 *  or false: the default of the component. */
+	bool bLockDir = false;
+	float BlendIn = -1.0f;
+	float BlendOut = -1.0f;
+	bool bAngles = false;
+	float MinAngle = 0.0f;
+	float MaxAngle = 0.0f;
 	FName Joint;
 	FName Attachment;
 	FVector Position = FVector::ZeroVector;
@@ -347,6 +358,10 @@ public:
 	const TArray<FSwcWeaponEffectEntry>* WeaponEffectGroup(const FString& TagText, const FString& Element, const FString& Group) const;
 	/** @return The helpers of a weapon file (its .cdf path; no case), or null. */
 	const TMap<FName, FSwcWeaponHelper>* WeaponHelpers(const FString& CdfPath) const { return Helpers.Find(CdfPath.ToLower()); }
+	/** The defaults of the bend of the upper body to the aim (actions.json "retarget": the AttackHeightRetargetComponent of the player
+	 *  slice; usertest-1024 item 4) and its joints. No joints: no bend. */
+	const swc::retarget::Settings& GetRetargetDefaults() const { return RetargetDefaults; }
+	const TArray<FName>& GetRetargetJoints() const { return RetargetJoints; }
 
 	TArray<FSwcActionFragment> Fragments;
 	/** Stage MVP-E: the MannequinTag of each consumable (the item id in lower case; javelindata_itemdefinitions_consumables): the
@@ -368,6 +383,8 @@ private:
 	TMap<FString, TMap<FString, FString>> EffectTable;
 	TMap<FString, FString> EffectIds;
 	TMap<FString, TMap<FName, FSwcWeaponHelper>> Helpers;
+	swc::retarget::Settings RetargetDefaults;
+	TArray<FName> RetargetJoints;
 	swc::combat::StaminaData StaminaData;
 	swc::ranged::Shared RangedData;
 	TMap<FString, int32> RecordIndex;

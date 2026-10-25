@@ -162,6 +162,14 @@ void FSwcFragmentEffects::Enter(const FSwcActions& Data, const FSwcEffectOwner& 
 		Note(FString::Printf(TEXT("%s %s: not played yet"), *Clip.Type, *Clip.Name));
 		return;
 	}
+	if (Clip.Kind == FSwcEffectClip::EKind::Retarget)
+	{
+		FLive& Item = Live.AddDefaulted_GetRef();
+		Item.Channel = Channel;
+		Item.Clip = &Clip;
+		Item.bRetarget = true;
+		return;
+	}
 	if (Clip.Kind == FSwcEffectClip::EKind::Attachment)
 	{
 		// Only the ammunition of the active weapon (the bow); a CustomSource clip is the prop of a use (a potion, food): not played yet.
@@ -395,6 +403,18 @@ void FSwcFragmentEffects::ShowAmmo(const FSwcActions& Data, const FSwcEffectOwne
 	Note(FString::Printf(TEXT("CAGE-Attachment %s: the ammunition %s on %s"), *Clip.Attachment.ToString(), *MeshPath, *Socket.ToString()));
 }
 
+const FSwcEffectClip* FSwcFragmentEffects::GetRetargetClip() const
+{
+	for (int32 Index = Live.Num() - 1; Index >= 0; --Index)
+	{
+		if (Live[Index].bRetarget)
+		{
+			return Live[Index].Clip;
+		}
+	}
+	return nullptr;
+}
+
 void FSwcFragmentEffects::UpdateAmmoVisibility()
 {
 	if (UStaticMeshComponent* Prop = AmmoProp.Get())
@@ -413,6 +433,10 @@ void FSwcFragmentEffects::ExitLive(UWorld* World, FLive& Item)
 	{
 		Item.bAmmo = false;
 		UpdateAmmoVisibility();
+		return;
+	}
+	if (Item.bRetarget)
+	{
 		return;
 	}
 	UNiagaraComponent* Component = Item.Component.Get();

@@ -27,7 +27,7 @@ from pathlib import Path
 
 from . import datasheet, luabc, source
 
-VISUAL_TYPES = {"ParticleEffect", "WeaponEffects", "SpawnSlice", "RunFxScript", "CAGE-CastSpell", "CAGE-Attachment"}
+VISUAL_TYPES = {"ParticleEffect", "WeaponEffects", "SpawnSlice", "RunFxScript", "CAGE-CastSpell", "CAGE-Attachment", "AttackHeightRetargeting"}
 WEAPON_EFFECTS_TABLE = "javelindata_weaponeffects.datasheet"
 ELEMENTS = ["Default", "Fire", "Arcane", "Void", "Lightning", "Ice", "Nature"]
 # The weapon effect ids of the five weapons of the MVP (the rows of javelindata_weaponeffects) by the tag set of actions.json.
@@ -70,6 +70,17 @@ def normalized(kind: str, params: dict) -> dict:
                 "keep": _flag(params.get("KeepEmitterActive")), "ignoreRotation": _flag(params.get("IgnoreRotation")),
                 "condition": params.get("Condition", ""), "alphaScale": _float(params.get("AlphaScale"), 1.0),
                 "timeScale": _float(params.get("TimeScale"), 1.0), "tint": _vec(params.get("ColorTint")) if params.get("ColorTint") else [1.0, 1.0, 1.0]}
+    if kind == "AttackHeightRetargeting":
+        # The bend of the upper body to the aim (usertest-1024 item 4; the defaults are the AttackHeightRetargetComponent of the player
+        # slice: actions.json "retarget"); an override replaces the default blend times or angle limits.
+        out = {"lockDir": _flag(params.get("LockTargetDirOnStart"))}
+        if _flag(params.get("OverrideDefaultBlendTimes")):
+            out["blendIn"] = _float(params.get("BlendInTimeOverride"))
+            out["blendOut"] = _float(params.get("BlendOutTimeOverride"))
+        if _flag(params.get("OverrideDefaultMinMaxAngles")):
+            out["minAngle"] = _float(params.get("MinAngleDegreesOverride"))
+            out["maxAngle"] = _float(params.get("MaxAngleDegreesOverride"))
+        return out
     if kind == "CAGE-Attachment":
         # The ammunition on an attachment of the weapon (the bow attach database: AttachmentSource ActiveWeapon, AttachmentName
         # arrowattach_tip; usertest-1024): the nocked arrow from the start of the clip to its end.
