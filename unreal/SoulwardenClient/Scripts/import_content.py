@@ -354,6 +354,10 @@ def flush():
     unreal.SystemLibrary.collect_garbage()
 
 
+# The meshes that draw a translucent slot through an override pair or a later spec (converter/swc_convert/nanite.py, AST-288 W2):
+# no Nanite (Nanite draws the engine default material for a translucent material). Their stamp has a suffix: only they import again.
+no_nanite_file = os.path.join(content, "materials", "no-nanite.json")
+no_nanite = set(json.load(open(no_nanite_file))["meshes"]) if os.path.isfile(no_nanite_file) else set()
 for kind in ("static", "character", "test"):
     for key in by_kind.get(kind, []):
         if report["incomplete"]:
@@ -361,13 +365,13 @@ for kind in ("static", "character", "test"):
         entry = manifest[key]
         folder = entry["unreal"]
         path = os.path.join(content, entry["file"])
-        stamp = entry.get("hash") or file_stamp(path)
+        stamp = (entry.get("hash") or file_stamp(path)) + (":no-nanite" if kind == "static" and key in no_nanite else "")
         if not force and state.get(key) == stamp and assets.list_assets(folder, recursive=True):
             count(kind, False)
             continue
         try:
             if kind == "static":
-                import_file(path, folder, pipelines[bool(entry.get("nanite", True))])
+                import_file(path, folder, pipelines[bool(entry.get("nanite", True)) and key not in no_nanite])
             else:
                 # The default glTF pipeline reuses the material instances of an earlier import (bReuseExistingMaterials):
                 # a new color factor or alpha mode of the glTF (the creature bodies, stage P3.C) did not come in. Remove them.

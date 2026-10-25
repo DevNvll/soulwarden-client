@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import functools
 import json
+import re
 import struct
 
 import numpy as np
@@ -69,6 +70,18 @@ FX_UNSUPPORTED = ("%USE_PROC_GRADS", "%VERT_DEFORM_SINWAVE")
 # point shows none). C8_LEFT_OUT: words of the mesh path; C8_LEFT_OUT_MATERIALS: words of the override material path.
 C8_LEFT_OUT = ("glyph_bridge", "_capturepoint_")
 C8_LEFT_OUT_MATERIALS = ("azoth",)
+# The shadow proxies of the level (AST-288): a mesh or an override material whose file name says "shadow proxy" only casts the shadow
+# of a larger object (the medusa walls of First Light, poi_shadow_proxy_*, the primitive cubes with
+# objects/default/editorprimitive_shadowproxy_a.mtl: one Illum material, white, no texture). The proxy rule of the sub-materials
+# (materials.is_shadow_proxy) reads the Name, and these files have none or name the drawn part "geo". The cells leave them out: before
+# the version-3 pairs they drew the grey editorprimitive, with them white cubes. Known difference: their shadows are missing (a cell
+# flag for a shadow-only component needs a C++ change).
+SHADOW_PROXY_FILE = re.compile(r"shadow_?prox|impostershadow")
+
+
+def shadow_proxy_file(path: str) -> bool:
+    """@return True for a mesh or material path whose file name says "shadow proxy" (SHADOW_PROXY_FILE)."""
+    return bool(path) and bool(SHADOW_PROXY_FILE.search(path.rsplit("/", 1)[-1].lower()))
 
 
 @functools.lru_cache(maxsize=None)
@@ -167,6 +180,13 @@ def write(name: str) -> dict:
     keep = usable[data["mesh"]] if len(names) else np.zeros(0, bool)
     material_names = [str(m) for m in data.get("materials", np.array([""]))]
     material_all = data["material"] if "material" in data else np.zeros(len(data["mesh"]), np.uint16)
+    if len(names):
+        proxy_mesh = np.array([shadow_proxy_file(m) for m in names], dtype=bool)
+        proxy_material = np.array([shadow_proxy_file(m) for m in material_names], dtype=bool)
+        shadow_proxies = proxy_mesh[data["mesh"]] | proxy_material[material_all]
+        keep &= ~shadow_proxies
+    else:
+        shadow_proxies = np.zeros(0, bool)
     pairs_path = overrides.out_dir() / "pairs.json"
     pairs = json.loads(pairs_path.read_text()) if pairs_path.is_file() else {}
 
@@ -308,6 +328,7 @@ def write(name: str) -> dict:
               "decal-only placements left out: no decal in the override (C11)": dropped_decal_only,
               "cells": len(cells), "components": groups, "file": str(path), "bytes": len(out),
               "left out (not imported, fog cards, fog volumes, no material)": int((~keep).sum()),
+              "shadow proxies left out": int(shadow_proxies.sum()),
               "decal-only meshes": int(decal_only[data["mesh"][keep]].sum()) if len(names) else 0}
     (path.parent / "cells.json").write_text(json.dumps(report, indent=1))
     return report

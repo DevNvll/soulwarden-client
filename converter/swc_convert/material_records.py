@@ -27,6 +27,8 @@ Usage (tools/convert-materials.sh):
   frames LOG...        the frame time of runs with -SwcFrameStats, for each view place (the cost checks)
   cover scan|convert|pairs   the ground cover of region.vegetation (cover_materials.py): the descriptors, the cover
                        meshes (rule 7), the slot maps of the override pairs -> SWC_CONTENT/cover/
+  no-nanite            the meshes that draw a translucent slot (own or of an override pair) and have Nanite (nanite.py,
+                       AST-288 W2) -> SWC_CONTENT/materials/no-nanite.json; the import gives them no Nanite
   rebuild-set          the meshes of the M3 rebuild (mesh rule 7) -> SWC_CONTENT/materials/rule7-meshes.json
   rebuild-convert      convert them with rule 7 (the manifest records) and write rebuild-import.json (the list of
                        tools/import-gltf-list.sh --state: the existing mesh folders)
@@ -1954,6 +1956,8 @@ def rebuild_convert(workers: int = 4) -> dict:
     from . import decals
     decal_specs = decals.specs()
     assets = manifest.load()["assets"]
+    from . import nanite
+    no_nanite = nanite.listed(env.content_dir())   # AST-288 W2: a translucent slot through an override pair or a spec
     items = []
     for path in todo:
         entry = assets.get(path)
@@ -1965,8 +1969,9 @@ def rebuild_convert(workers: int = 4) -> dict:
                 file = env.content_dir() / e["file"]
                 # The Lumen mesh data (the decision of the user): the main meshes of 1 m or more; not the companions.
                 lumen = key == path and gltf_size(file) >= LUMEN_MIN_M
-                items.append({"key": key, "hash": e["hash"], "file": str(file), "folder": e["unreal"],
-                              "nanite": e.get("nanite", True), "lumen": lumen, "slots": e.get("slots", [])})
+                items.append({"key": key, "hash": e["hash"] + (nanite.NO_NANITE_STAMP if key in no_nanite else ""),
+                              "file": str(file), "folder": e["unreal"],
+                              "nanite": e.get("nanite", True) and key not in no_nanite, "lumen": lumen, "slots": e.get("slots", [])})
     write_json(out_dir() / "rebuild-import.json", items)
     errors = [r for r in reports if "error" in r]
     companions = [r["companion"] for r in converted if "companion" in r]
@@ -2075,7 +2080,7 @@ def same(a, b, tolerance: float = 1e-6) -> bool:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] not in ("audit", "instances", "proof-plan", "proof-sheet", "chains", "record", "decals",
-                                   "frames", "rebuild-set", "rebuild-convert", "cover", "bodies"):
+                                   "frames", "rebuild-set", "rebuild-convert", "cover", "bodies", "no-nanite"):
         print(__doc__)
         return 2
     if argv[0] == "audit":
@@ -2096,6 +2101,9 @@ def main(argv: list[str] | None = None) -> int:
     elif argv[0] == "bodies":
         from . import bodies
         result = bodies.main(argv[1:])
+    elif argv[0] == "no-nanite":
+        from . import nanite
+        result = nanite.write()
     elif argv[0] == "decals":
         from . import decals
         result = decals.main(argv[1:])
