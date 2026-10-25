@@ -2,10 +2,17 @@
 
 Stage WF5 (Linear AST-187): the water of the world (the ocean, the water volumes, the rivers) and the wade and the swim of the
 player. The content follows the source: the ocean level, the water shapes, the river curves and widths, the flow, the water kinds,
-and the depth rules. The rendering follows the water shaders of the source (decision of the user, 2026-10-20, AST-200: "the
-water shader is not matching retail and its missing the foam in shallow waters"; it replaces the decision of 2026-10-18, "the
-rendering is the Unreal way"): the look of the water must match the retail pictures, also the foam in the shallow water and the
-shore foam. See "The source water shader".
+and the depth rules.
+
+The rendering uses the advanced water of Unreal, the Water plugin (decision of the user, 2026-10-25, AST-200: "looking through
+the water makes the water disappear. change the water to a more advanced water like one from unreal"). See "The Unreal water".
+The content stays from the source: the ocean level, the shapes, the flow, the overrides, the depth classes, the wade, and the
+swim. Only the look changes.
+
+Replaced: the rule of 2026-10-20 (AST-200: "the water shader is not matching retail and its missing the foam in shallow
+waters"), which replaced the decision of 2026-10-18 ("the rendering is the Unreal way"). That rule said that the look of the
+water must match the retail pictures. The sections "The source water shader" to "The water sky cube from the source parts" are
+its record. The source shader path stays in the client as a switch until the user accepts the Unreal water.
 
 The research: `~/Games/soulwarden-client/research/wf5/` (the shapes, the curves, the materials, the quadtree) and
 `~/Games/soulwarden-client/research/wf5-swim/` (the depth classes, the wade, the swim). The retail measurements:

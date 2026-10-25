@@ -22,6 +22,11 @@ This file has the rules and the common workflows. The plan is in [docs/ROADMAP.m
 - Identity: the Steam account of the user (read at run time, as the Soulwarden launcher reads it). The functions of
   the Steam authentication are stubs: the backend does not check a ticket.
 - The client uses the same characters as the retail game: a player run uses the data folder of the user.
+- The water (decision of the user, 2026-10-25, AST-200: "looking through the water makes the water disappear. change the water to
+  a more advanced water like one from unreal"): the water rendering uses the advanced water of Unreal (the Water plugin). The
+  water content stays from the source: the ocean level, the water volumes, the rivers and their flow, the overrides, the depth
+  classes, the wade, and the swim. This replaces the decision of 2026-10-20 (the water look follows the retail shaders).
+  See docs/WATER.md.
 
 The roles (decision of the user, 2026-10-18): the T3 thread of the research AST-135 is the orchestrator of this
 project. The Soulwarden orchestrator does only the backend.
