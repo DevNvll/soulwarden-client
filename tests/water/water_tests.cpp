@@ -183,6 +183,39 @@ int main(int argc, char** argv)
 		check(r0 >= 0.0F && r0 < 1.0F && r0 == swc::water::sheet_random(3, 1, 7, 0) && r0 != swc::water::sheet_random(3, 1, 8, 0),
 			"the random value of a particle: 0 to 1, the same for the same particle, new for the next cycle");
 	}
+	std::printf("the source tone of the Unreal water (docs/WATER.md \"The source tone\")\n");
+	{
+		// The most common volume of the world: FogColor (0.165, 0.667, 0.208), fogColorMultiplier 0.1, fogDensity 1.5 per m.
+		const float fog[3] = {0.165F, 0.667F, 0.208F};
+		const swc::water::Tone volume = swc::water::volume_tone(fog, 0.1F, 1.5F, 4.0F);
+		bool gray = true;
+		for (int c = 0; c < 3; ++c) {
+			gray = gray && std::fabs(volume.absorption[c] + volume.scattering[c] - 0.015F) < 1e-7F;
+		}
+		check(gray, "a volume: the extinction is density / 100 per cm in each channel (gray, as the source)");
+		check(std::fabs(volume.scattering[1] / 0.015F - 4.0F * 0.667F * 0.1F) < 1e-5F, "a volume: the albedo is 4 x FogColor x FogColorScale");
+		const float bright[3] = {1.0F, 1.0F, 1.0F};
+		check(std::fabs(swc::water::volume_tone(bright, 1.0F, 1.0F, 4.0F).scattering[0] / 0.01F - swc::water::kToneMaxAlbedo) < 1e-5F,
+			"the albedo stops at 0.95");
+		// The starting beach (POI_TOD_StartingBeach_A_(40mOcean)): FogColor (0.0118, 0.137, 0.235), multiplier 0.07, density 0.3.
+		const float beach[3] = {0.011764699F, 0.13725489F, 0.2352941F};
+		const swc::water::Tone ocean = swc::water::ocean_tone(beach, 0.07F, 0.3F, 4.0F);
+		const float expected = 0.13725489F * 0.07F * 4.0F / (1.442695F * 0.3F * 1.5F);
+		check(std::fabs(ocean.scattering[1] / 0.003F - expected) < 1e-4F && std::fabs(ocean.absorption[1] + ocean.scattering[1] - 0.003F) < 1e-7F,
+			"the ocean: the albedo is 4 x FogColor x multiplier / (1.4427 density x 1.5), the extinction density / 100 per cm");
+		check(ocean.scattering[2] > ocean.scattering[1] && ocean.scattering[1] > ocean.scattering[0], "the starting beach is blue (b > g > r)");
+		const float realm[3] = {0.0196F, 0.141F, 0.125F};
+		const swc::water::Tone clear = swc::water::ocean_tone(realm, 0.0F, 0.0F, 4.0F);
+		check(clear.scattering[0] == 0.0F && clear.absorption[0] == 0.0F, "a density of 0 is clear water (the magic realm box)");
+		float absorption[4];
+		float scattering[4];
+		swc::water::tone_parameters(volume, absorption, scattering);
+		check(std::fabs(1.0F / (absorption[0] * absorption[3]) - volume.absorption[0]) < 1e-8F
+				&& std::fabs(scattering[1] * scattering[1] / 1000.0F - volume.scattering[1]) < 1e-8F,
+			"the parameters give the coefficients back through the graph of Water_Material");
+		// The default of the plugin: Absorption (10, 150, 350, 8): 1 / 80 per cm in red.
+		check(std::fabs(1.0F / (10.0F * 8.0F) - 0.0125F) < 1e-9F, "the plugin default: the red absorption is 1 / 80 per cm");
+	}
 	std::printf("%d checks, %d failed\n", g_checks, g_failures);
 	return g_failures == 0 ? 0 : 1;
 }

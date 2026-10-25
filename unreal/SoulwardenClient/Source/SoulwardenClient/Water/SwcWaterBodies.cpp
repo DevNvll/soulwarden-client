@@ -9,9 +9,7 @@
 #include "Engine/StaticMesh.h"
 #include "StaticMeshAttributes.h"
 #include "WaterSplineComponent.h"
-#include "Misc/CommandLine.h"
 #include "Misc/CoreDelegates.h"
-#include "Misc/Parse.h"
 #include "WaterRuntimeSettings.h"
 #include "WaterZoneActor.h"
 
@@ -24,18 +22,14 @@ void SetUpBody(UWaterBodyComponent& Component)
 	Component.bAffectsLandscape = false;
 }
 /** The trace channel of the underwater post process of the plugin (SwcWaterTraceChannel), before the first world makes its water subsystem
- *  (UWaterSubsystem reads the setting in its Initialize); only with -SwcWaterMode=Unreal. */
+ *  (UWaterSubsystem reads the setting in its Initialize). Only the underwater sweep of the plugin uses this setting. */
 struct FSwcWaterTraceSetting
 {
 	FSwcWaterTraceSetting()
 	{
 		FCoreDelegates::OnPostEngineInit.AddLambda([]()
 		{
-			FString Mode;
-			if (FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterMode="), Mode) && Mode.Equals(TEXT("Unreal"), ESearchCase::IgnoreCase))
-			{
-				GetMutableDefault<UWaterRuntimeSettings>()->CollisionChannelForWaterTraces = SwcWaterTraceChannel;
-			}
+			GetMutableDefault<UWaterRuntimeSettings>()->CollisionChannelForWaterTraces = SwcWaterTraceChannel;
 		});
 	}
 } GSwcWaterTraceSetting;

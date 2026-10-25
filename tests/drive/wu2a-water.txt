@@ -1,0 +1,38 @@
+# The gameplay check of the Unreal water as the default (stage 2a, docs/WATER.md "The Unreal water"), with the routes of
+# tests/drive/wu2a-water-routes.txt (the creatures ignore the character, the hour 12:00, one travel). The start: the east beach of the
+# starting beach (the place of set3-swim/swim-walk-in-out, the ocean at 40 m). The parts:
+#   1.0 to 2.5 s    the camera to the east and down through the shallow water at the shore (the view of the user), then to the north;
+#   3.0 to 15.0 s   the key D (a strafe to the east, the camera to the north): into the water: None, VeryShallow, Shallow (the wade),
+#                   the swim at the surface;
+#   16.0 to 21.0 s  in the swim, the camera up (the arm goes under the surface: the underwater view), then back;
+#   22.0 to 34.0 s  the key A: the swim back to the west, the swim exit, the wade, and out of the water;
+#   the travel at 40 s (routes) to the river of river-forest-noon: the loading screen (15 s or more for a travel of more than 300 m)
+#   with the water check of the loading gate;
+#   66.0 to 70.0 s  the key W: a walk to the north into the river (the wade), 71.0 to 75.0 s the key S: back to the bank.
+# The log lines of the check: "move: water class", "move: the swim starts", "move: the swim ends", "world: the wait at the place"
+# (systems: water), "water (Unreal)".
+# SWC_DEV_PLACE=10005.8:2291.19:40.5 SWC_STAGE=water-unreal \
+#   tools/creature-check.sh wu2a-water 82 $PWD/tests/drive/wu2a-water-routes.txt $PWD/tests/drive/wu2a-water.txt
+1.0 view 90 -45
+2.5 view 0 -10
+3.0 move 1 0
+15.0 move 0 0
+16.0 view 0 30
+19.0 view 0 10
+21.0 view 0 -10
+22.0 move -1 0
+34.0 move 0 0
+36.0 tick
+38.0 tick
+44.0 tick
+50.0 tick
+56.0 tick
+62.0 tick
+64.0 view 0 -10
+66.0 move 0 1
+70.0 move 0 0
+71.0 move 0 -1
+75.0 move 0 0
+76.0 view 0 -50
+78.0 view 0 -10
+80.0 tick

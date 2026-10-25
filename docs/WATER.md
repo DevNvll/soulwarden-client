@@ -72,10 +72,9 @@ fountains in a river, raised river parts.
 
 ## The Unreal water (AST-200, 2026-10-25)
 
-The plan (the orchestrator approved it on 2026-10-25): the client spawns the bodies of the Unreal Water plugin at run time from
-the source shapes. This happens behind `-SwcWaterMode=Unreal`. The default stays the source shader path until the merge of the
-deploy stage. If a spawned river or lake does not draw in a `-game` run, the fallback is a hybrid: the plugin ocean, and Single
-Layer Water on the surfaces of the client for the rivers and the volumes. No body changes the Landscape (`bAffectsLandscape`
+The client spawns the bodies of the Unreal Water plugin at run time from the source shapes (the orchestrator approved the plan on
+2026-10-25; stage 1 proved it). From stage 2a the Unreal water is the default (`swc.WaterMode 1`). `-SwcWaterMode=Source` or
+`swc.WaterMode 0` selects the source shader path, and with no specs file the source path draws too. No body changes the Landscape (`bAffectsLandscape`
 false). The depth classes, the wade, and the swim read only the quadtree. The Water plugin does not touch the pawns: its
 collision profile is query only, and the camera ignores it.
 
@@ -107,12 +106,12 @@ under them, so they have no depth.
 | `SoulwardenClient.uproject`, `SoulwardenClient.Build.cs` | The Water plugin (it needs Landmass, Niagara, GeometryProcessing, and BlueprintMaterialTextureNodes) and the modules Water, GeometryCore, and MeshConversion. A plugin change makes the next cook a FULL cook. |
 | `Water/SwcWaterBodies` | The river, lake, and custom bodies of the client. Their components are dynamic (`IsBodyDynamic`) and movable, so the plugin makes their render data at run time. `bAffectsLandscape` is false. `SwcBuildWaterInfoMeshes` builds the two water info meshes of a body at run time: the plugin builds them only in the editor, and a cooked game needs them. |
 | `Water/SwcWaterUnreal.cpp` | The water zone (local tessellation, a 4 km window, 2,048 texels), the ocean at the ocean level over the zone, and the bodies within 3 km of the view (4 in a tick). The river spline is the source Bezier. The metadata of each point has the width, the depth, and the flow speed. |
-| `Water/SwcWaterSubsystem` | `-SwcWaterMode=Unreal` selects the Unreal water. The default stays the source path. The queries, the loading gate, and the shore foam decals are the same in both paths. |
+| `Water/SwcWaterSubsystem` | The Unreal water is the default. `-SwcWaterMode=Source` (at the start) and `swc.WaterMode 0` (at run time: it hides the actors of one path and shows the other) select the source path. The ocean of the place (the local override and its transition) is the same for both paths (`UpdateOceanState`). The queries, the loading gate, and the shore foam decals are the same in both paths. |
 | `Scripts/water_unreal_materials.py`, `tools/import-water-unreal.sh [--check]` | The material instances of each slot, as children of the plugin materials. `--check` writes them into the check plugin `SwcWaterCheck`, which is linked into this checkout only. |
 | `Environment/SwcMeterProbe`, `Shaders/Private/SwcMeter.usf` | The meter skips the Single Layer Water pixels (shading model id 10). Such a pixel has its own dark base color in G-buffer C, not the ground under the water. |
 
 The options of a run:
-- `-SwcWaterMode=Unreal` selects the Unreal water.
+- `-SwcWaterMode=Source` selects the source path at the start (`swc.WaterMode 0`). `-SwcWaterMode=Unreal` is the default.
 - `-SwcWaterBodies=FILE` sets the specs file. The default is `SWC_CONTENT/water/unreal-bodies.json`.
 - `-SwcWaterMaterials=/SwcWaterCheck/Water/Unreal` sets the folder of the instances. With no value, the materials of the plugin are used.
 - `-SwcWaterInfoMesh=Plugin` keeps the info meshes of the plugin. This works only in an editor run.
@@ -129,13 +128,15 @@ The runtime rules (stage 1, 2026-10-25):
 - The profile WaterBodyCollision of the plugin has no response for WorldStatic, so it blocks that channel. The ground traces of the
   client (the loading check, the test floor) are WorldStatic single traces, and they stopped on the water. Thus the water collision
   overlaps WorldStatic. The underwater sweep of the plugin needs a blocking hit, so it uses ECC_Vehicle
-  (`UWaterRuntimeSettings::CollisionChannelForWaterTraces`, set after the engine init with `-SwcWaterMode=Unreal`), which the water
+  (`UWaterRuntimeSettings::CollisionChannelForWaterTraces`, set after the engine init), which the water
   blocks and the client does not trace.
 
 ### The source tone (decision of the user, 2026-10-25: "make sure the lakes have the same dark original tone")
 
-The lakes, the rivers, and the custom bodies keep the dark color of their source water fog (`swc.WaterSourceTone 1`, the default;
-0 gives the values of the plugin material). The ocean keeps the plugin tone for now.
+The lakes, the rivers, the custom bodies, and the ocean keep the dark color of their source water fog (`swc.WaterSourceTone 1`, the
+default; 0 gives the values of the plugin material). The ocean tone is from stage 2a (the decision of the orchestrator,
+2026-10-25: "World fidelity is the goal"). The math is in `SwcWaterData` (`swc::water::volume_tone`, `ocean_tone`,
+`tone_parameters`), and `tools/test-water.sh` tests it.
 
 - The source volume term is Cfog + T (Cbehind - Cfog), with T = exp(-density x the path in m) for each channel and
   Cfog = FogColor x FogColorScale x the sun color (E / pi).
@@ -146,8 +147,16 @@ The lakes, the rivers, and the custom bodies keep the dark color of their source
 - The encoding of the plugin material (read from the graph of Water_Material): the absorption coefficient per cm is
   1 / (Absorption.RGB x Absorption.A), and the scattering coefficient is (Scattering.RGB x Scattering.RGB + the foam) / 1000.
   The defaults (10, 150, 350, 8) and (1, 1, 1, 0.5) give the light turquoise of the plugin.
-- The client applies the tone to the water instance of each body and to the two transition instances of a river. It applies it
-  again when the plugin makes an instance again.
+- The ocean (WaterFogVolume/OceanInto: Cdeep x I + Cbehind x T, with T = 2^(-k (L + the depth under the surface)),
+  k = 1.4427 density, I = (2^(j L) - 1) / j, j = k (d.z - 1), and Cdeep = FogColor x fogColorMultiplier x the sun): deep water goes to
+  Cdeep / (k (1 + |d.z|)). Thus the ocean albedo is 4 x FogColor x multiplier / (1.4427 density (1 + 0.5)), with 0.5 as the mean
+  |d.z| of the views [I]. The extinction is density / 100 per cm, as for the volumes: Single Layer Water also takes the light path down
+  to the floor (`MeanTransmittanceToLightSources`), as the source T does. The near color of the source (nearFogColor x the sun x T x
+  sat(0.1 L)) has no term in Single Layer Water [I: left out]. A density of 0 (the magic realm box) is clear water. The values are
+  those of the ocean of the place: the mission ocean or the first local override that has the view, blended in its transition time
+  (8 s), as in the source path. The starting beach: the albedo (0.005, 0.059, 0.10), the extinction 0.003 per cm (dark blue).
+- The client applies the tone to the water instance of each body, to the two transition instances of a river, and to the far mesh
+  instance of the zone (the ocean tone). It applies the tone again when the plugin makes an instance again.
 
 The check (run tone2; the mean CIELAB of a fixed water area against the source path; `work/water-unreal/tone_measure.py`):
 
@@ -185,8 +194,25 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
 | swim-surface-noon | 7.61 | 8.60 | +0.99 |
 | swim-under-noon | 7.71 | 9.04 | +1.33 |
 
-Open (stage 2): the ocean tone from the source ocean fog, the 13 ocean overrides (the storm waves), the river flow direction proof,
-the shore foam decals on Single Layer Water, the caustics, and the cost in a cooked build.
+### Stage 2a: the Unreal water as the default (code ready, 2026-10-25; the engine check is open)
+
+- The default mode, the switch (`swc.WaterMode`, `-SwcWaterMode=Source`), the ocean tone, and the far mesh tone (above).
+- The cook: `DefaultGame.ini` cooks `/Water/Materials` and `/Water/Waves` (the client loads them by path), and
+  `tools/lib/loose-data.txt` has `water/unreal-bodies.json`. The plugin change in the uproject and the Config change make the next
+  cook a FULL cook. The deploy step before that cook: `tools/convert-water.sh bodies write` (the specs into `SWC_CONTENT/water`).
+  No asset goes into the shared plugin: the client uses the plugin materials and sets the tone at run time.
+- The gameplay check: `tests/drive/wu2a-water.txt` with `wu2a-water-routes.txt` (the beach: the view down, the walk into the water,
+  the wade, the swim, the camera under the surface, the swim back and out; one travel to the river of river-forest and a walk into
+  it). The view set: `work/water-unreal/views` (9 views with `ocean-storm-noon` and `ocean-far-noon`).
+
+### Stage 2b (after the full cook)
+
+- The storm waves of the overrides: the source animation (WavesSize 0.08 m for the mission ocean, 0.15 to 0.7 for the overrides,
+  WindSpeed 35 to 70, WindDirection in radians) has no proved rule for the Gerstner waves of the plugin yet [U]: the meaning of
+  WavesSize (an amplitude or a scale of the normal field) is not known. The plugin has one waves object for the ocean body, so a
+  change of the place changes the waves of the whole ocean (in the transition time of the override). A short study is needed first.
+- The shore foam decals on Single Layer Water (a deferred decal can project onto the water surface), the caustics (a static switch
+  of the plugin material: it needs material instances), the river flow direction proof, and the cost in the cooked build.
 
 ## The source water shader (AST-200, 2026-10-20)
 

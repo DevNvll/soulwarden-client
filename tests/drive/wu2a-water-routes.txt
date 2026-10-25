@@ -1,0 +1,6 @@
+# The routes of the stage 2a water check (tests/drive/wu2a-water.txt): the creatures ignore the character, the world time 12:00, and the
+# travel at 40 s to the south bank of BrightWoods_River_Forest_AB (the feet of set2-water river-forest-noon). Times on the clock of the
+# drive script.
+0.5 ignore on
+0.6 world-time 12:00
+40.0 travel 10041.7471 4267.1777 124.3 auto

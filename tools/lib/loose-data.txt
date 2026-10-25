@@ -24,6 +24,7 @@ environment/volumes.json
 environment/lights/*.json
 environment/sky/*.json
 water/water.json
+water/unreal-bodies.json
 water/shore.json
 water/*.water
 water/*.waterq

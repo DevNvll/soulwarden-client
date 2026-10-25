@@ -128,6 +128,43 @@ float sheet_age(double seconds, float delay, float life, std::int64_t* cycle = n
 /** @return A random value in 0..1 for a particle (an integer hash of the emitter, the sheet, and the cycle). */
 float sheet_random(std::uint32_t emitter, std::uint32_t sheet, std::int64_t cycle, std::uint32_t channel);
 
+/**
+ * The source tone of the Unreal water (docs/WATER.md "The source tone"): the scattering and the absorption coefficients of Single Layer Water
+ * (per cm; SingleLayerWaterShading.ush: T = exp(-(scattering + absorption) x the depth in cm), the in-scatter light x scattering /
+ * extinction x (1 - T); the light is the sun E x the phase, isotropic 1 / (4 pi), plus the ambient light) from the water fog of the
+ * source. The source density is per m, the same for each channel: the extinction is density / 100 per cm.
+ */
+struct Tone {
+    float absorption[3]{};
+    float scattering[3]{};
+};
+/** The extinction per cm of one source density unit (per m). */
+inline constexpr float kTonePerCm = 0.01F;
+/** The largest albedo of a tone (a water with no absorption is not a source water). */
+inline constexpr float kToneMaxAlbedo = 0.95F;
+/** The mean |d.z| of the view rays into the ocean (0 at a grazing view, 1 straight down) of the ocean tone [inference: a mean view]. */
+inline constexpr float kOceanMeanDown = 0.5F;
+
+/**
+ * A water volume or a river (watervolume.cfx: Cfog + T (Cbehind - Cfog), T = exp(-density x the path), Cfog = FogColor x FogColorScale x
+ * the sun color E / pi): the albedo is albedo_scale x FogColor x FogColorScale (the sun of Single Layer Water is E / (4 pi): the scale 4
+ * with no ambient light).
+ */
+Tone volume_tone(const float fog[3], float scale, float density, float albedo_scale);
+/**
+ * The ocean (WaterFogVolume/OceanInto: Cdeep x I + Cbehind x T, T = 2^(-k (L + the depth under the surface)), k = 1.4427 density,
+ * I = (2^(j L) - 1) / j, j = k (d.z - 1), Cdeep = FogColor x fogColorMultiplier x the sun color): deep water goes to
+ * Cdeep / (k (1 + |d.z|)), thus the albedo is albedo_scale x FogColor x multiplier / (1.4427 density (1 + mean_down)). The near color
+ * (nearFogColor x the sun x T x sat(0.1 L)) has no term in Single Layer Water [inference: left out]. A density of 0 is clear water.
+ */
+Tone ocean_tone(const float fog[3], float multiplier, float density, float albedo_scale, float mean_down = kOceanMeanDown);
+/**
+ * The parameters of the plugin water material (Water_Material, read from its graph): the absorption coefficient is
+ * 1 / (Absorption.RGB x Absorption.A), the scattering coefficient (Scattering.RGB x Scattering.RGB + the foam) / 1000.
+ * @return In `absorption` and `scattering` the RGBA of the two vector parameters for a tone.
+ */
+void tone_parameters(const Tone& tone, float absorption[4], float scattering[4]);
+
 /** @return The region (x, y numbers) of a name r_+X_+Y, or none. */
 std::optional<std::pair<int, int>> region_of(const std::string& name);
 

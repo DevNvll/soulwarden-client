@@ -19,12 +19,12 @@ DECLARE_LOG_CATEGORY_EXTERN(LogSwcWater, Log, All);
  * The water of the world (stage WF5, docs/WATER.md): the surfaces of the water volumes and the rivers of the source (the data of
  * tools/convert-water.sh, SWC_CONTENT/water), the ocean at the ocean level with its local overrides, and the water queries of the
  * movement (the water quadtree of each region). The content follows the source. Two render paths:
- * - the source path (the default until the deploy of the Unreal water): the source water shader (the translucent base material
+ * - the source path (-SwcWaterMode=Source, swc.WaterMode 0): the source water shader (the translucent base material
  *   /SwcGameContent/Water/M_SwcWaterSource of tools/import-water.sh) with one dynamic instance for each surface. The surfaces build near
  *   the view (static meshes made at run time; a few each frame) and stay. The ocean is a flat grid at the ocean level that follows the
  *   view. With no base material the surfaces do not show, and the queries still work;
- * - the Unreal water (-SwcWaterMode=Unreal; docs/WATER.md "The Unreal water", Water/SwcWaterUnreal.cpp): the bodies of the Unreal Water
- *   plugin from the specs of tools/convert-water.sh bodies.
+ * - the Unreal water (the default, swc.WaterMode 1; docs/WATER.md "The Unreal water", Water/SwcWaterUnreal.cpp): the bodies of the Unreal
+ *   Water plugin from the specs of tools/convert-water.sh bodies. With no specs file the source path draws.
  * The queries, the loading gate, and the shore foam decals are the same in both paths.
  */
 UCLASS()
@@ -132,6 +132,9 @@ private:
 	void UpdateShore(const FVector& View);
 	void UpdateBodies(const FVector& View);
 	void UpdateOcean(const FVector& View, float DeltaTime);
+	/** The ocean of the place of the view (the first local override whose shape has the view, else the mission ocean) and the blend of
+	 *  its values in its transition time: OceanNow (both render paths). */
+	void UpdateOceanState(const FVector& View, float DeltaTime);
 	void HideWorldOcean();
 	UStaticMesh* BuildMesh(const swc::water::Body& Body, const FVector& Center, UMaterialInterface* Material) const;
 	UMaterialInstanceDynamic* MakeMaterial(const swc::water::Body& Body);
@@ -147,12 +150,14 @@ private:
 	bool LoadUnreal(const FString& Folder);
 	void SpawnUnrealZone();
 	AActor* SpawnUnrealBody(const FUnrealBody& Entry);
-	void UpdateUnreal(const FVector& View);
+	void UpdateUnreal(const FVector& View, float DeltaTime);
 	/** @return The bodies of the Unreal water to spawn in the near radius of the loading gate about a place (1 with no zone yet). */
 	int32 UnrealBodiesToSpawnNear(const FVector& Place) const;
 	/** @return The client instance of -SwcWaterMaterials (FOLDER/Instance) when it exists, else the material of the plugin. */
 	UMaterialInterface* UnrealMaterial(const TCHAR* Instance, const TCHAR* PluginPath) const;
+	/** The Unreal water draws (swc.WaterMode 1 and its specs are loaded); bUnrealAvailable: its specs are loaded. */
 	bool bUnrealMode = false;
+	bool bUnrealAvailable = false;
 	/** -SwcWaterInfoMesh=Plugin: keep the water info meshes of the plugin (editor runs); else the client builds them (SwcBuildWaterInfoMeshes). */
 	bool bPluginInfoMeshes = false;
 	FString UnrealMaterialFolder;
@@ -164,6 +169,11 @@ private:
 	struct FUnrealTone
 	{
 		TWeakObjectPtr<class UWaterBodyComponent> Body;
+		/** The ocean: the values of OceanNow, the ocean rule of the tone (swc::water::ocean_tone), and the far mesh instance (Extra). */
+		bool bOcean = false;
+		TWeakObjectPtr<UMaterialInstanceDynamic> Extra;
+		FLinearColor PluginFarAbsorption = FLinearColor::Black;
+		FLinearColor PluginFarScattering = FLinearColor::Black;
 		/** The instances that have the tone now (the water instance and, for a river, its two transition instances). */
 		TArray<TWeakObjectPtr<UMaterialInstanceDynamic>, TInlineAllocator<3>> Materials;
 		FLinearColor Fog = FLinearColor::Black;
@@ -177,6 +187,13 @@ private:
 	float AppliedAlbedoScale = -1.0f;
 	void AddUnrealTone(class UWaterBodyComponent& Body, const swc::water::Body& Surface);
 	void ApplyUnrealTone(FUnrealTone& Tone) const;
+	/** The ocean tone of OceanNow (the ocean of the place, blended in the transition time of its override). */
+	void UpdateUnrealOceanTone();
+	/** Shows one render path and hides the other (swc.WaterMode). */
+	void SetUnrealVisible(bool bUnreal);
+	int32 OceanToneIndex = INDEX_NONE;
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> UnrealFarMaterial;
 	double NextToneCheck = 0.0;
 	UPROPERTY()
 	TObjectPtr<class AWaterZone> UnrealZone;

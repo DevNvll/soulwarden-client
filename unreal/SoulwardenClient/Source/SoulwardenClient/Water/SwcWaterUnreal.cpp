@@ -1,8 +1,9 @@
-// The Unreal water (docs/WATER.md "The Unreal water"; decision of the user, 2026-10-25, AST-200): with -SwcWaterMode=Unreal the
-// water subsystem spawns the bodies of the Unreal Water plugin from the source shapes (the specs of tools/convert-water.sh bodies,
-// SWC_CONTENT/water/unreal-bodies.json): one water zone with local tessellation over the world regions, the ocean at the ocean level,
-// and the rivers, lakes, and custom bodies near the view. The source surfaces, the ocean grid, and the sky cube do not show in this
-// mode. The quadtree queries (the depth classes, the wade, the swim), the loading gate, and the shore foam decals do not change.
+// The Unreal water (docs/WATER.md "The Unreal water"; decisions of the user, 2026-10-25, AST-200): by default (swc.WaterMode 1; the source
+// path with -SwcWaterMode=Source) the water subsystem spawns the bodies of the Unreal Water plugin from the source shapes (the specs of
+// tools/convert-water.sh bodies, SWC_CONTENT/water/unreal-bodies.json): one water zone with local tessellation over the world regions, the
+// ocean at the ocean level, and the rivers, lakes, and custom bodies near the view, with the source tone of their water fog. The source
+// surfaces, the ocean grid, and the sky cube do not show in this mode. The quadtree queries (the depth classes, the wade, the swim), the
+// loading gate, and the shore foam decals do not change.
 
 #include "Water/SwcWaterSubsystem.h"
 
@@ -76,25 +77,26 @@ constexpr double FlowScale = 0.25 * 0.25;
 
 /** The source tone (docs/WATER.md "The source tone"): the water of a volume or a river has the dark color of its source water fog. */
 TAutoConsoleVariable<int32> CVarWaterSourceTone(TEXT("swc.WaterSourceTone"), 1,
-	TEXT("1: the scattering and the absorption of each spawned lake, river, and custom body come from its source water fog (the dark tone of the source); ")
+	TEXT("1: the scattering and the absorption of each spawned lake, river, custom body, and of the ocean come from its source water fog (the dark tone of the source); ")
 	TEXT("0: the values of the plugin material."));
 /** The source in-scatter is FogColor x FogColorScale x the sun color (E / pi, watervolume.cfx); the in-scatter of Single Layer Water is the
  *  sun E x the phase (isotropic: 1 / (4 pi)) plus the ambient light, x the albedo. Thus the albedo is about 4 x FogColor x FogColorScale
- *  [inference: the ambient part is not counted; to tune with the pictures]. */
+ *  (swc::water::volume_tone, ocean_tone) [inference: the ambient part is not counted; the scale 4 has the smallest difference to the source
+ *  path at the lake view, docs/WATER.md "The source tone"]. */
 TAutoConsoleVariable<float> CVarWaterToneAlbedoScale(TEXT("swc.WaterToneAlbedoScale"), 4.0f,
 	TEXT("The albedo of the source tone: this value x FogColor x FogColorScale (docs/WATER.md \"The source tone\")."));
-/** The source density is per m; the coefficients of Single Layer Water are per cm (SingleLayerWaterShading.ush: the view-depth gap in cm). */
-constexpr float ExtinctionPerDensity = 0.01f;
-/** The parameters of the plugin water material (Water_Material, read from its graph): the absorption coefficient (per cm) is
- *  1 / (Absorption.RGB x Absorption.A); the scattering coefficient is (Scattering.RGB x Scattering.RGB + the foam) / 1000. */
-FLinearColor AbsorptionParameter(const FLinearColor& PerCm)
+/** The mode of the water at run time: 1 the Unreal water (the default), 0 the source path (-SwcWaterMode=Source sets 0 at the start). */
+TAutoConsoleVariable<int32> CVarWaterMode(TEXT("swc.WaterMode"), 1,
+	TEXT("1: the Unreal water (the Water plugin; the default); 0: the source water shader (docs/WATER.md). -SwcWaterMode=Source sets 0 at the start."));
+
+/** @return The RGBA of the Absorption and Scattering parameters of the plugin material for a tone (swc::water::tone_parameters). */
+void ToneParameters(const swc::water::Tone& Tone, FLinearColor& Absorption, FLinearColor& Scattering)
 {
-	return FLinearColor(1.0f / FMath::Max(PerCm.R, 1e-7f), 1.0f / FMath::Max(PerCm.G, 1e-7f), 1.0f / FMath::Max(PerCm.B, 1e-7f), 1.0f);
-}
-FLinearColor ScatteringParameter(const FLinearColor& PerCm)
-{
-	return FLinearColor(FMath::Sqrt(FMath::Max(PerCm.R, 0.0f) * 1000.0f), FMath::Sqrt(FMath::Max(PerCm.G, 0.0f) * 1000.0f),
-		FMath::Sqrt(FMath::Max(PerCm.B, 0.0f) * 1000.0f), 1.0f);
+	float A[4];
+	float S[4];
+	swc::water::tone_parameters(Tone, A, S);
+	Absorption = FLinearColor(A[0], A[1], A[2], A[3]);
+	Scattering = FLinearColor(S[0], S[1], S[2], S[3]);
 }
 
 FVector ToUnreal(double X, double Y, double Z)
@@ -238,7 +240,10 @@ void USwcWaterSubsystem::SpawnUnrealZone()
 	UnrealZone->SetRenderTargetResolution(FIntPoint(WaterInfoResolution, WaterInfoResolution));
 	SetBoolByName(UnrealZone.Get(), TEXT("bEnableLocalOnlyTessellation"), true);
 	SetStructByName(UnrealZone.Get(), TEXT("LocalTessellationExtent"), FVector(TessellationWindow, TessellationWindow, 20000.0));
-	UnrealZone->SetFarMeshMaterial(UnrealMaterial(SlotFarMesh.Instance, SlotFarMesh.Plugin));
+	// The far mesh has its own instance: the ocean tone goes on it too.
+	UMaterialInterface* FarMaterial = UnrealMaterial(SlotFarMesh.Instance, SlotFarMesh.Plugin);
+	UnrealFarMaterial = FarMaterial != nullptr ? UMaterialInstanceDynamic::Create(FarMaterial, this) : nullptr;
+	UnrealZone->SetFarMeshMaterial(UnrealFarMaterial);
 	UnrealZone->FinishSpawning(FTransform(FVector(Center, OceanLevel * 100.0)));
 
 	// The ocean at the ocean level (terrain.json, 40 m), over the whole zone. The plugin ocean is the zone rectangle less the polygon of
@@ -278,6 +283,22 @@ void USwcWaterSubsystem::SpawnUnrealZone()
 		UE_CLOG(!SwcBuildWaterInfoMeshes(*Body), LogSwcWater, Warning, TEXT("water (Unreal): the ocean made no water info mesh"));
 	}
 	UnrealOcean = OceanActor;
+	// The ocean tone: the values of the ocean of the place (OceanNow: the mission ocean or the local override, blended in its transition time).
+	FUnrealTone Tone;
+	Tone.Body = Body;
+	Tone.bOcean = true;
+	Tone.Extra = UnrealFarMaterial.Get();
+	if (UMaterialInstanceDynamic* Material = Body->GetWaterMaterialInstance())
+	{
+		Material->GetVectorParameterValue(FHashedMaterialParameterInfo(TEXT("Absorption")), Tone.PluginAbsorption);
+		Material->GetVectorParameterValue(FHashedMaterialParameterInfo(TEXT("Scattering")), Tone.PluginScattering);
+	}
+	if (UnrealFarMaterial != nullptr)
+	{
+		UnrealFarMaterial->GetVectorParameterValue(FHashedMaterialParameterInfo(TEXT("Absorption")), Tone.PluginFarAbsorption);
+		UnrealFarMaterial->GetVectorParameterValue(FHashedMaterialParameterInfo(TEXT("Scattering")), Tone.PluginFarScattering);
+	}
+	OceanToneIndex = UnrealTones.Add(MoveTemp(Tone));
 	UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the zone %.0f x %.0f m at (%.0f, %.0f) m, local tessellation %.0f m, %d texels; the ocean at %.1f m"),
 		Extent.X / 100.0, Extent.Y / 100.0, Center.X / 100.0, Center.Y / 100.0, TessellationWindow / 100.0, WaterInfoResolution, OceanLevel);
 }
@@ -450,24 +471,13 @@ void USwcWaterSubsystem::ApplyUnrealTone(FUnrealTone& Tone) const
 	{
 		return;
 	}
-	// The source: T = exp(-density x the path in m), the same for each channel; the water color Cfog = FogColor x FogColorScale x the sun.
-	// Single Layer Water: T = exp(-(scattering + absorption) x the depth in cm), the color the albedo scattering / extinction x the light.
-	// Thus the extinction is density / 100 per cm (gray, as the source), and the albedo AlbedoScale x FogColor x FogColorScale.
 	FLinearColor Absorption = Tone.PluginAbsorption;
 	FLinearColor Scattering = Tone.PluginScattering;
 	if (AppliedTone == 1)
 	{
-		const float Extinction = FMath::Max(Tone.Density, 0.0f) * SwcUnrealWater::ExtinctionPerDensity;
-		FLinearColor ScatteringPerCm(0, 0, 0, 1);
-		FLinearColor AbsorptionPerCm(0, 0, 0, 1);
-		for (int32 C = 0; C < 3; ++C)
-		{
-			const float Albedo = FMath::Clamp(Tone.Fog.Component(C) * Tone.Scale * AppliedAlbedoScale, 0.0f, 0.95f);
-			ScatteringPerCm.Component(C) = Albedo * Extinction;
-			AbsorptionPerCm.Component(C) = (1.0f - Albedo) * Extinction;
-		}
-		Absorption = SwcUnrealWater::AbsorptionParameter(AbsorptionPerCm);
-		Scattering = SwcUnrealWater::ScatteringParameter(ScatteringPerCm);
+		const float Fog[3] = {Tone.Fog.R, Tone.Fog.G, Tone.Fog.B};
+		SwcUnrealWater::ToneParameters(Tone.bOcean ? swc::water::ocean_tone(Fog, Tone.Scale, Tone.Density, AppliedAlbedoScale)
+			: swc::water::volume_tone(Fog, Tone.Scale, Tone.Density, AppliedAlbedoScale), Absorption, Scattering);
 	}
 	Tone.Materials.Reset();
 	for (UMaterialInstanceDynamic* Material : {Body->GetWaterMaterialInstance(), Body->GetRiverToLakeTransitionMaterialInstance(),
@@ -480,10 +490,66 @@ void USwcWaterSubsystem::ApplyUnrealTone(FUnrealTone& Tone) const
 			Tone.Materials.Add(Material);
 		}
 	}
+	if (UMaterialInstanceDynamic* Far = Tone.Extra.Get())
+	{
+		Far->SetVectorParameterValue(TEXT("Absorption"), AppliedTone == 1 ? Absorption : Tone.PluginFarAbsorption);
+		Far->SetVectorParameterValue(TEXT("Scattering"), AppliedTone == 1 ? Scattering : Tone.PluginFarScattering);
+	}
 }
 
-void USwcWaterSubsystem::UpdateUnreal(const FVector& View)
+void USwcWaterSubsystem::UpdateUnrealOceanTone()
 {
+	if (!UnrealTones.IsValidIndex(OceanToneIndex))
+	{
+		return;
+	}
+	FUnrealTone& Tone = UnrealTones[OceanToneIndex];
+	const FLinearColor Fog(OceanNow.FindRef(TEXT("FogColorR")), OceanNow.FindRef(TEXT("FogColorG")), OceanNow.FindRef(TEXT("FogColorB")));
+	const float Scale = OceanNow.FindRef(TEXT("FogScale"));
+	const float Density = OceanNow.FindRef(TEXT("Density"));
+	if (Fog != Tone.Fog || Scale != Tone.Scale || Density != Tone.Density)
+	{
+		Tone.Fog = Fog;
+		Tone.Scale = Scale;
+		Tone.Density = Density;
+		ApplyUnrealTone(Tone);
+	}
+}
+
+void USwcWaterSubsystem::SetUnrealVisible(bool bUnreal)
+{
+	// The Unreal water: the zone (its water mesh and far mesh), the ocean, and the bodies; no collision when it hides (the underwater sweep
+	// of the plugin then finds no body).
+	TArray<AActor*> Actors{UnrealZone.Get(), UnrealOcean.Get()};
+	for (const TObjectPtr<AActor>& Actor : UnrealActors)
+	{
+		Actors.Add(Actor.Get());
+	}
+	for (AActor* Actor : Actors)
+	{
+		if (Actor != nullptr)
+		{
+			Actor->SetActorHiddenInGame(!bUnreal);
+			Actor->SetActorEnableCollision(bUnreal);
+		}
+	}
+	// The source path: the surfaces and the ocean grid (the shore decals and the cloud layers of the sky capture stay as they are).
+	if (WaterActor != nullptr)
+	{
+		TInlineComponentArray<UStaticMeshComponent*> Components(WaterActor.Get());
+		for (UStaticMeshComponent* Component : Components)
+		{
+			if (!SkyClouds.Contains(Component))
+			{
+				Component->SetVisibility(!bUnreal);
+			}
+		}
+	}
+}
+
+void USwcWaterSubsystem::UpdateUnreal(const FVector& View, float DeltaTime)
+{
+	UpdateOceanState(View, DeltaTime);
 	const int32 Tone = SwcUnrealWater::CVarWaterSourceTone.GetValueOnGameThread() != 0 ? 1 : 0;
 	const float AlbedoScale = SwcUnrealWater::CVarWaterToneAlbedoScale.GetValueOnGameThread();
 	if (Tone != AppliedTone || AlbedoScale != AppliedAlbedoScale)
@@ -496,6 +562,7 @@ void USwcWaterSubsystem::UpdateUnreal(const FVector& View)
 		}
 		UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the source tone %s (albedo scale %.2f), %d bodies"), Tone ? TEXT("on") : TEXT("off"), AlbedoScale, UnrealTones.Num());
 	}
+	UpdateUnrealOceanTone();
 	// The plugin makes the instances of a body again on some changes (CreateOrUpdateWaterMID): a new instance gets the tone too.
 	const double Now = FPlatformTime::Seconds();
 	if (Now >= NextToneCheck)

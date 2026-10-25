@@ -1,5 +1,6 @@
 #include "Water/SwcWaterData.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -248,6 +249,41 @@ float sheet_random(std::uint32_t emitter, std::uint32_t sheet, std::int64_t cycl
         h ^= h >> 29;
     }
     return static_cast<float>((h >> 40) & 0xFFFFFFULL) / static_cast<float>(0x1000000);
+}
+
+namespace {
+Tone tone_of(const float fog[3], float factor, float density)
+{
+    Tone out;
+    const float extinction = std::max(density, 0.0F) * kTonePerCm;
+    for (int c = 0; c < 3; ++c) {
+        const float albedo = std::clamp(fog[c] * factor, 0.0F, kToneMaxAlbedo);
+        out.scattering[c] = albedo * extinction;
+        out.absorption[c] = (1.0F - albedo) * extinction;
+    }
+    return out;
+}
+} // namespace
+
+Tone volume_tone(const float fog[3], float scale, float density, float albedo_scale)
+{
+    return tone_of(fog, scale * albedo_scale, density);
+}
+
+Tone ocean_tone(const float fog[3], float multiplier, float density, float albedo_scale, float mean_down)
+{
+    const float k = 1.442695F * std::max(density, 0.0F);
+    return tone_of(fog, k > 0.0F ? multiplier * albedo_scale / (k * (1.0F + mean_down)) : 0.0F, density);
+}
+
+void tone_parameters(const Tone& tone, float absorption[4], float scattering[4])
+{
+    for (int c = 0; c < 3; ++c) {
+        absorption[c] = 1.0F / std::max(tone.absorption[c], 1e-7F);
+        scattering[c] = std::sqrt(std::max(tone.scattering[c], 0.0F) * 1000.0F);
+    }
+    absorption[3] = 1.0F;
+    scattering[3] = 1.0F;
 }
 
 } // namespace swc::water

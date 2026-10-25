@@ -224,9 +224,17 @@ void USwcWaterSubsystem::Tick(float DeltaTime)
 			}
 		}
 	}
+	const IConsoleVariable* ModeVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("swc.WaterMode"));
+	const bool bWantUnreal = bUnrealAvailable && (ModeVariable == nullptr || ModeVariable->GetInt() != 0);
+	if (bWantUnreal != bUnrealMode)
+	{
+		bUnrealMode = bWantUnreal;
+		SetUnrealVisible(bUnrealMode);
+		UE_LOG(LogSwcWater, Log, TEXT("water: the render path now: %s (swc.WaterMode)"), bUnrealMode ? TEXT("the Unreal water") : TEXT("the source water shader"));
+	}
 	if (bUnrealMode)
 	{
-		UpdateUnreal(View);
+		UpdateUnreal(View, DeltaTime);
 	}
 	else
 	{
@@ -400,14 +408,23 @@ void USwcWaterSubsystem::Load()
 	USceneComponent* Root = NewObject<USceneComponent>(WaterActor, TEXT("Root"));
 	WaterActor->SetRootComponent(Root);
 	Root->RegisterComponent();
-	// The render path (docs/WATER.md "The Unreal water"): -SwcWaterMode=Unreal draws the bodies of the Unreal Water plugin; the default is
-	// the source path until the deploy of the Unreal water (the decision of the user, 2026-10-25).
+	// The render path (docs/WATER.md "The Unreal water"; the decision of the user, 2026-10-25): the Unreal water by default, the source path
+	// with -SwcWaterMode=Source (swc.WaterMode 0) or with no specs file.
 	FString Mode;
-	if (FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterMode="), Mode) && Mode.Equals(TEXT("Unreal"), ESearchCase::IgnoreCase))
+	if (FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterMode="), Mode) && Mode.Equals(TEXT("Source"), ESearchCase::IgnoreCase))
 	{
-		bUnrealMode = LoadUnreal(Folder);
+		if (IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(TEXT("swc.WaterMode")))
+		{
+			Variable->Set(0, ECVF_SetByCommandline);
+		}
 	}
-	UE_LOG(LogSwcWater, Log, TEXT("water: the render path: %s"), bUnrealMode ? TEXT("the Unreal water (-SwcWaterMode=Unreal)") : TEXT("the source water shader"));
+	bUnrealAvailable = LoadUnreal(Folder);
+	const IConsoleVariable* ModeVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("swc.WaterMode"));
+	bUnrealMode = bUnrealAvailable && (ModeVariable == nullptr || ModeVariable->GetInt() != 0);
+	OceanNow = OceanBase;
+	OceanTarget = OceanBase;
+	UE_LOG(LogSwcWater, Log, TEXT("water: the render path: %s"), bUnrealMode ? TEXT("the Unreal water")
+		: bUnrealAvailable ? TEXT("the source water shader (swc.WaterMode 0)") : TEXT("the source water shader (no specs of the Unreal water)"));
 	bLoaded = true;
 	UE_LOG(LogSwcWater, Log, TEXT("water: %d volumes, %d rivers, %d quadtrees, %d materials, %d ocean overrides, ocean at %.1f m, %s%s"), Volumes, Rivers,
 		Trees.Num(), Materials.Num(), Overrides.Num(), OceanLevel, Parent ? TEXT("material M_SwcWaterSource") : TEXT("no material M_SwcWaterSource (tools/import-water.sh): no surface"),
@@ -1113,11 +1130,27 @@ void USwcWaterSubsystem::UpdateOcean(const FVector& View, float DeltaTime)
 		Ocean->bAffectDistanceFieldLighting = false;
 		Ocean->SetupAttachment(WaterActor->GetRootComponent());
 		Ocean->RegisterComponent();
-		OceanNow = OceanBase;
-		OceanTarget = OceanBase;
 	}
 	// The grid follows the view in steps of one cell.
 	Ocean->SetWorldLocation(FVector(FMath::RoundToDouble(View.X / OceanCell) * OceanCell, FMath::RoundToDouble(View.Y / OceanCell) * OceanCell, OceanLevel * 100.0));
+	UpdateOceanState(View, DeltaTime);
+	for (const TPair<FName, float>& Pair : OceanNow)
+	{
+		const FString Key = Pair.Key.ToString();
+		if (!Key.StartsWith(TEXT("FogColor")) && !Key.StartsWith(TEXT("NearFogColor")))
+		{
+			OceanMaterial->SetScalarParameterValue(Pair.Key, Pair.Value);
+		}
+	}
+	OceanMaterial->SetVectorParameterValue(TEXT("FogColor"), FLinearColor(OceanNow.FindRef(TEXT("FogColorR")), OceanNow.FindRef(TEXT("FogColorG")),
+		OceanNow.FindRef(TEXT("FogColorB")), 1.0f));
+	OceanMaterial->SetVectorParameterValue(TEXT("NearFogColor"), FLinearColor(OceanNow.FindRef(TEXT("NearFogColorR")), OceanNow.FindRef(TEXT("NearFogColorG")),
+		OceanNow.FindRef(TEXT("NearFogColorB")), 1.0f));
+	ApplyOverrides(OceanMaterial);
+}
+
+void USwcWaterSubsystem::UpdateOceanState(const FVector& View, float DeltaTime)
+{
 	// The local override of the place of the view (the first one whose shape has the view), with its transition time.
 	const FVector3d Engine(View.X / 100.0, -View.Y / 100.0, View.Z / 100.0);
 	int32 Selected = INDEX_NONE;
@@ -1151,26 +1184,13 @@ void USwcWaterSubsystem::UpdateOcean(const FVector& View, float DeltaTime)
 		const float From = OceanFrom.Contains(Pair.Key) ? OceanFrom[Pair.Key] : Pair.Value;
 		OceanNow.Add(Pair.Key, FMath::Lerp(From, Pair.Value, static_cast<float>(OceanBlend)));
 	}
-	for (const TPair<FName, float>& Pair : OceanNow)
-	{
-		const FString Key = Pair.Key.ToString();
-		if (!Key.StartsWith(TEXT("FogColor")) && !Key.StartsWith(TEXT("NearFogColor")))
-		{
-			OceanMaterial->SetScalarParameterValue(Pair.Key, Pair.Value);
-		}
-	}
-	OceanMaterial->SetVectorParameterValue(TEXT("FogColor"), FLinearColor(OceanNow.FindRef(TEXT("FogColorR")), OceanNow.FindRef(TEXT("FogColorG")),
-		OceanNow.FindRef(TEXT("FogColorB")), 1.0f));
-	OceanMaterial->SetVectorParameterValue(TEXT("NearFogColor"), FLinearColor(OceanNow.FindRef(TEXT("NearFogColorR")), OceanNow.FindRef(TEXT("NearFogColorG")),
-		OceanNow.FindRef(TEXT("NearFogColorB")), 1.0f));
-	ApplyOverrides(OceanMaterial);
 }
 
 void USwcWaterSubsystem::HideWorldOcean()
 {
 	// The flat ocean plane of the world level (build_world.py: the actor "ocean" with the material M_SwcOcean) is in the place of
 	// this ocean: it hides while the world track keeps it (docs/WATER.md).
-	if (Parent == nullptr)
+	if (Parent == nullptr && !bUnrealMode)
 	{
 		return;
 	}

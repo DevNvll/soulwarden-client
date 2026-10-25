@@ -33,7 +33,7 @@ bool SwcBuildWaterInfoMeshes(UWaterBodyComponent& Body);
  * blocked). The ground traces of the client (ECC_WorldStatic single traces: the loading check, the test floor, the place of a spawn) then
  * do not stop on the water. The underwater sweep of the plugin needs a blocking hit (SweepMultiByChannel): it uses SwcWaterTraceChannel,
  * which the water blocks and the client does not trace (UWaterRuntimeSettings::CollisionChannelForWaterTraces, set at the start of the
- * engine with -SwcWaterMode=Unreal). The pawns overlap the water as before; the movement reads only the quadtree.
+ * engine). The pawns overlap the water as before; the movement reads only the quadtree.
  */
 constexpr ECollisionChannel SwcWaterTraceChannel = ECC_Vehicle;
 void SwcWaterCollisionAsOverlap(UWaterBodyComponent& Body);
