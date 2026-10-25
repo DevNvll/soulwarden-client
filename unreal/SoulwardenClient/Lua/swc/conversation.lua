@@ -36,9 +36,30 @@ local function cdata()
   return CD or nil
 end
 
--- The conditional of RequiredAchievement: ids with "!", "&&", "||", and parentheses (the rule of TaskAchievement, backend quests.md).
--- An id is true when the character has its bit; an id that the data does not know is false; a text that does not parse is false.
-local function achievements_pass(text)
+-- The conditional of RequiredAchievement: ids with "!", "&&", "||", and parentheses (the rule of TaskAchievement, backend quests.md;
+-- client 0x31898D0, 0x3A8C640). An id is true when the character has its bit; a non-persisted achievement (an NPA row of quests.json) is
+-- its own conditional, false with a status requirement, an empty conditional, or at the depth 8 (backend world/quests.cpp id_value,
+-- kNpaDepth); an id that the data does not know is false; a text that does not parse is false.
+local NPA_DEPTH = 8
+local achievements_pass
+local function id_value(id, depth)
+  local index = Swc.AchievementIndex(id)
+  if index ~= nil then
+    return Swc.HasAchievement(index)
+  end
+  local npa = Swc.quests and Swc.quests.D and Swc.quests.D().npa
+  local row = npa and npa[string.lower(id)]
+  if row then
+    if depth >= NPA_DEPTH or (row.status or "") ~= "" or (row.conditional or "") == "" then
+      return false
+    end
+    return achievements_pass(row.conditional, depth + 1)
+  end
+  return false
+end
+
+achievements_pass = function(text, depth)
+  depth = depth or 0
   local tokens, i = {}, 1
   while i <= #text do
     local two, c = text:sub(i, i + 1), text:sub(i, i)
@@ -69,7 +90,7 @@ local function achievements_pass(text)
       pos = pos + 1
       return v
     elseif type(t) == "table" then
-      return Swc.HasAchievement(Swc.AchievementIndex(t.id))
+      return id_value(t.id, depth)
     end
     bad = true
     return false
@@ -95,6 +116,7 @@ local function achievements_pass(text)
   local v = expr()
   return v and not bad and pos > #tokens
 end
+C.achievements_pass = function(text) return achievements_pass(text, 0) end
 
 -- The faction of the player: the backend has none (roadmap 4.5); conversationoptionv2.luac reads the node for each option text.
 if Swc.GetData("Hud.LocalPlayer.Faction") == nil then
@@ -265,8 +287,87 @@ end
 
 local function objective_done(row)
   local achievement = objective_cell(row, "AchievementId")
-  return achievement ~= nil and Swc.HasAchievement(Swc.AchievementIndex(achievement))
+  return achievement ~= nil and achievements_pass(achievement, 0)
 end
+
+--- The faction mask of RequiredFaction (client parser 0x445CA30; backend gamedata/quest_data.cpp faction_mask): one leading "!", then
+--- Syndicate 0x2, Marauder 0x4, Covenant 0x8, Any 0xE; another text (blank, None) 0xF, its negation 0xE; a negated name gives the
+--- complement in the four bits. Bit 0 bypasses the test (0x3A4C166).
+local function faction_mask(text)
+  local name = tostring(text or ""):gsub("^%s+", "")
+  local negated = name:sub(1, 1) == "!"
+  if negated then
+    name = name:sub(2)
+  end
+  local mask = ({syndicate = 0x2, marauder = 0x4, covenant = 0x8, any = 0xE})[string.lower(name)] or 0
+  if mask == 0 then
+    return negated and 0xE or 0xF
+  end
+  return negated and (0xF - mask) or mask
+end
+C.faction_mask = faction_mask
+
+--- The faction of the character for the offers: the backend has no faction of a character (roadmap 4.5): unaligned (0).
+local function character_faction()
+  return 0
+end
+
+local function faction_allowed(mask, faction)
+  return mask % 2 == 1 or math.floor(mask / 2 ^ faction) % 2 == 1
+end
+
+--- The availability of an offer for the character (the checks of the client at a person 0x37AE910 and its eligibility 0x3A4BFE0, in
+--- their order; backend world/quests.cpp Quests::available of stage 1.8d). The client hides an offer that fails one of them (no locked
+--- offer: retail live F-31 of stage 1.8d).
+--- @return nil when the offer is available, else the reason (the names of the backend QuestError values).
+local function unavailable(row)
+  if not row then
+    return "noData"
+  end
+  for _, rec in ipairs(Swc.quests and Swc.quests.list or {}) do
+    if rec.row == row then
+      return "alreadyActive"
+    end
+  end
+  local achievement = objective_cell(row, "AchievementId")
+  if achievement then
+    -- Another active objective with the same completion achievement (HasObjectiveWithCompletionAchievement 0x3A47310: the variants).
+    local key = string.lower(achievement)
+    for _, rec in ipairs(Swc.quests and Swc.quests.list or {}) do
+      local other = objective_cell(rec.row, "AchievementId")
+      if other and string.lower(other) == key then
+        return "alreadyActive"
+      end
+    end
+    -- The completion achievement (IsObjectiveComplete 0x3A48A30). The cooldown of a repeat is stage Q8.
+    if achievements_pass(achievement, 0) then
+      return "completedBefore"
+    end
+  end
+  -- The gates whose service rule the client and the backend do not have (a game mode, a quest arc, the world tags, a categorical
+  -- progression): an unknown rule is false, as an unknown achievement is (backend: unsupportedGate).
+  for _, name in ipairs({"RequiredGameModeId", "QuestArcTag", "RequiredWorldTags", "RequiredProgression"}) do
+    local value = objective_cell(row, name)
+    if value and value:find("%S") then
+      return "unsupportedGate"
+    end
+  end
+  -- RequiredLevel: the level of the screen is not below it (0x3A4C13E).
+  local level = tonumber(objective_cell(row, "RequiredLevel") or "0") or 0
+  if level > 0 and (tonumber(Swc.GetData("Hud.LocalPlayer.Progression.Level")) or 1) < level then
+    return "levelTooLow"
+  end
+  -- RequiredAchievementId: only the variant whose conditional is true (the archetype variants of 06_boarfeast).
+  local required = objective_cell(row, "RequiredAchievementId")
+  if required and not achievements_pass(required, 0) then
+    return "notAvailable"
+  end
+  if not faction_allowed(faction_mask(objective_cell(row, "RequiredFaction")), character_faction()) then
+    return "wrongFaction"
+  end
+  return nil
+end
+C.unavailable = unavailable
 
 --- @return The first ready hand-in of an NPC among the active objectives in their stored order (0x3A369E0), or nil.
 local function ready_handin(npcId)
@@ -286,7 +387,6 @@ local function classify(row, npcId, markerMode)
   if not row then
     return RESPONSE.invalid
   end
-  local achievement = objective_cell(row, "AchievementId")
   for _, rec in ipairs(Swc.quests and Swc.quests.list or {}) do
     if rec.row == row then
       local destination = objective_cell(row, "NpcDestinationId")
@@ -299,24 +399,7 @@ local function classify(row, npcId, markerMode)
       return RESPONSE.inprogress
     end
   end
-  if achievement then
-    for _, rec in ipairs(Swc.quests and Swc.quests.list or {}) do
-      if objective_cell(rec.row, "AchievementId") == achievement then
-        return RESPONSE.invalid   -- another active variant with the same completion achievement
-      end
-    end
-  end
-  if objective_done(row) then
-    return RESPONSE.invalid
-  end
-  -- The general availability (0x3A4BFE0): the required level and the RequiredAchievementId expression (this backend has no faction, no
-  -- progression, and no territory rule for an offer).
-  local level = tonumber(objective_cell(row, "RequiredLevel") or "0") or 0
-  if level > (tonumber(Swc.GetData("Hud.LocalPlayer.Progression.Level")) or 1) then
-    return RESPONSE.invalid
-  end
-  local required = objective_cell(row, "RequiredAchievementId")
-  if required and not achievements_pass(required) then
+  if unavailable(row) then
     return RESPONSE.invalid
   end
   return objective_cell(row, "ObjectiveProposalResponse") and RESPONSE.proposal or RESPONSE.invalid
@@ -621,6 +704,130 @@ Swc.Define("LyShineScriptBindRequestBus", "Broadcast", {
   end,
 })
 
+-- The room for the item rewards of a hand-in (a client decision of this project, not a retail rule: research/quest-full-bag.md 5.3;
+-- docs/QUESTS.md "The full bag"). The retail client sends 794 with no check of the bag [R]; the backend refuses a hand-in whose reward
+-- items do not fit and sends no answer (Soulwarden quests.md stage 1.8d, decision D5 option A). The client plans the items with the rules
+-- of the backend: Quests::reward_join_of (the item of the success event, then the item of the row; a blank quantity is 1, 0 or less is no
+-- item), Quests::hand_in (the gives come before the takes of the return tasks: a return item frees no slot for the rewards), and
+-- Inventory put (first the stacks of the item below its stack size with the same bind flag and the same perks, then new stacks in the
+-- empty slots, up to Swc.bagCapacity used slots). An item that rolls perks (canHavePerks) gets no place in a stack. The pouch itself
+-- counts, not its contents. No margin.
+local function reward_items(row)
+  local items = {}
+  local function add(itemId, quantity)
+    quantity = quantity == nil and 1 or tonumber(quantity) or 0
+    if itemId ~= nil and itemId ~= "" and quantity > 0 then
+      items[#items + 1] = {id = itemId, quantity = math.floor(quantity)}
+    end
+  end
+  local eventId = objective_cell(row, "SuccessGameEventId")
+  local event = eventId and Swc.quests.D().events[string.lower(eventId)]
+  if event then
+    add(event.ItemReward, event.ItemRewardQty ~= "" and event.ItemRewardQty or nil)
+  end
+  add(objective_cell(row, "ItemRewardName"), objective_cell(row, "ItemRewardQty"))
+  return items
+end
+C.reward_items = reward_items
+
+local function perk_text(list)
+  local sorted = {}
+  for _, perk in ipairs(list or {}) do
+    if perk ~= nil and perk ~= "" then
+      sorted[#sorted + 1] = string.lower(tostring(perk))
+    end
+  end
+  table.sort(sorted)
+  return table.concat(sorted, ",")
+end
+
+--- @return True when the bag has a place for all item rewards of the objective row (a row with no item reward: true), and the text of
+--- the plan for the log.
+local function rewards_fit(row)
+  local items = reward_items(row)
+  if #items == 0 then
+    return true, "no item reward"
+  end
+  local bag = Swc.player.bag
+  local stacks, used = {}, 0
+  for i = 0, (bag.count or 0) - 1 do
+    local slot = bag.slots[i]
+    if slot and (slot.static or slot.occupied) then
+      used = used + 1
+      if slot.static then
+        stacks[#stacks + 1] = {key = slot.static.key, quantity = slot.quantity or 0, bound = (slot.flags or 0) % 2,
+                               perks = perk_text(slot.perks)}
+      end
+    end
+  end
+  local free = math.max(0, Swc.bagCapacity - used)
+  local parts = {}
+  for _, item in ipairs(items) do
+    local static = Swc.ItemStatic(item.id)
+    local maxStack = math.max(1, static and static.maxStack or 1)
+    local key = static and static.key or string.lower(item.id)
+    local bound = static and (static.bindOnPickup or 0) == 1 and 1 or 0
+    local perks = static and perk_text({static.perk1, static.perk2, static.perk3, static.perk4, static.perk5}) or ""
+    local stackable = static ~= nil and (static.canHavePerks or 0) ~= 1
+    local left = item.quantity
+    for _, stack in ipairs(stacks) do
+      if left > 0 and stackable and stack.key == key and stack.bound == bound and stack.perks == perks and stack.quantity < maxStack then
+        local moved = math.min(left, maxStack - stack.quantity)
+        stack.quantity, left = stack.quantity + moved, left - moved
+      end
+    end
+    while left > 0 and free > 0 do
+      local moved = math.min(left, maxStack)
+      stacks[#stacks + 1] = {key = key, quantity = moved, bound = bound, perks = perks}
+      free, left = free - 1, left - moved
+    end
+    parts[#parts + 1] = string.format("%s x%d%s", item.id, item.quantity, left > 0 and " (no place)" or "")
+    if left > 0 then
+      return false, table.concat(parts, ", ")
+    end
+  end
+  return true, table.concat(parts, ", ")
+end
+C.rewards_fit = rewards_fit
+
+--- The guard of the Complete option: with no place for the reward items, the retail notice of notifications.luac
+--- NotifyIfInventoryTooFullToRecieveGameModeReward ("@ui_inventory_warning_toofullforrewards", Minor, 10 s); no 794. @return True when
+--- the hand-in can go on.
+local function handin_allowed(dataId)
+  local row = Swc.quests.D().byCrc[dataId]
+  if not row then
+    return true
+  end
+  local fits, plan = rewards_fit(row)
+  if fits then
+    return true
+  end
+  C.log[#C.log + 1] = "complete refused: " .. tostring(row.id) .. " (" .. plan .. ")"
+  Swc.Note("conversation: the bag has no place for the rewards of " .. tostring(row.id) .. " (" .. plan .. "): no 794")
+  local n = NotificationData()
+  n.type = "Minor"
+  n.text = "@ui_inventory_warning_toofullforrewards"
+  n.maximumDuration = 10.0
+  UiNotificationsBus.Broadcast.EnqueueNotification(n)
+  return false
+end
+C.handin_allowed = handin_allowed
+
+-- ConversationScreenV2 RequestConversationOption plays the reward celebration (ObjectiveDetails PlayRewardCelebration, the whoosh) before
+-- it calls ConversationRequestBus RequestConversationOption (conversationscreenv2.luac PC 110 to 152): the guard runs before the script, so
+-- that a refused hand-in shows no celebration and plays no sound; the screen keeps the ready dialogue and the Complete option.
+Swc.scriptHooks["lyshineui.conversation.conversationscreenv2"] = function(base)
+  local request = rawget(base, "RequestConversationOption")
+  if type(request) == "function" then
+    base.RequestConversationOption = function(self, optionType, dataId, ...)
+      if optionType == OPTION.complete and not handin_allowed(dataId) then
+        return
+      end
+      return request(self, optionType, dataId, ...)
+    end
+  end
+end
+
 -- The next option (Continue): the next line of the chain, a state with the same option; after the last line the state has no
 -- option, and the screen closes (the backend has no message for the lines: the client shows them; backend docs travel-and-
 -- conversations.md "E goes to the next text, and the conversation ends at the last one").
@@ -659,6 +866,11 @@ Swc.Define("ConversationRequestBus", "Broadcast", {
     end
     if optionType == OPTION.complete and has_option(OPTION.complete, dataId) then
       local row = Swc.quests.D().byCrc[dataId]
+      -- The second guard (a caller other than the screen script): no place for the reward items keeps the option and sends nothing.
+      if row and not rewards_fit(row) then
+        C.log[#C.log + 1] = "complete kept: " .. tostring(row.id)
+        return
+      end
       table.remove(result.options, has_option(OPTION.complete, dataId))
       Swc.hostRequests[#Swc.hostRequests + 1] = "quest complete " .. tostring(dataId)
       C.log[#C.log + 1] = "complete: " .. tostring(row and row.id)

@@ -264,23 +264,37 @@ local function rank_table(id)
   local p = data().progressionByCrc[tonumber(id) or swcui.crc32(string.lower(tostring(id)))]
   return p and data().rankTables[p.rankTable], p
 end
+-- A progression that is not a weapon mastery (a trade skill, a territory standing: AST-242) keeps the method of swc/crafting.lua.
+local earlier = Swc.Bus("CategoricalProgressionRequestBus").Event
+local earlierMaxPoints, earlierMaxRank = rawget(earlier, "GetMaxPointsForRank"), rawget(earlier, "GetMaxRank")
 Swc.Define("CategoricalProgressionRequestBus", "Event", {
   GetRankData = function(_, id, rank)
     local rt = rank_table(id)
+    if not rt and Swc.crafting and Swc.crafting.RankData then
+      local key = tonumber(id) or swcui.crc32(string.lower(tostring(id)))
+      local other = Swc.crafting.RankData(key, tonumber(rank) or 0)
+      return {azothRespecCost = 0, maximumInfluence = other.maximumInfluence, displayName = other.displayName, rank = rank}
+    end
     local i = (tonumber(rank) or 0) + 1
     return {azothRespecCost = rt and rt.resetCost and rt.resetCost[i] or 0, maximumInfluence = rt and rt.experience[i] or 0,
             rank = rank}
   end,
-  GetMaxRank = function(_, id)
+  GetMaxRank = function(owner, id)
     local _, p = rank_table(id)
+    if not p and earlierMaxRank then
+      return earlierMaxRank(owner, id)
+    end
     return p and p.maxRank or 0
   end,
   GetAbsoluteMaxRank = function(_, id)
     local _, p = rank_table(id)
     return p and p.maxRank or 0
   end,
-  GetMaxPointsForRank = function(_, id, rank)
+  GetMaxPointsForRank = function(owner, id, rank)
     local rt = rank_table(id)
+    if not rt and earlierMaxPoints then
+      return earlierMaxPoints(owner, id, rank)
+    end
     return rt and rt.experience[(tonumber(rank) or 0) + 1] or 0
   end,
 })

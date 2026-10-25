@@ -674,6 +674,18 @@ Bytes use_item_body(std::uint64_t group, std::uint32_t bagSlot) {
     return w.data();
 }
 
+Bytes salvage_body(std::uint64_t group, std::uint32_t containerType, std::uint32_t slot, const ItemInstanceId& instance, std::uint32_t quantity) {
+    Writer w;
+    w.u64(crafting_target(group));
+    w.u64(group);
+    w.u32(containerType);
+    w.u32(slot);
+    w.raw(instance);
+    w.u32(0); // the location quantity
+    w.u32(quantity);
+    return w.data();
+}
+
 Bytes drop_inventory_items_body(std::uint64_t group, const std::vector<DropItemEntry>& entries) {
     Writer w;
     w.u64(group + kItemDropComponent);

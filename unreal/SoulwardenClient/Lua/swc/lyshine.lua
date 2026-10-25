@@ -367,6 +367,8 @@ Swc.Define("UiImageSequenceBus", "Event", {
   GetImageIndex = function(id) return swcui.get(id, "sequence.index") end,
   SetImageIndex = function(id, v) swcui.set(id, "sequence.index", v) end,
   GetImageIndexCount = function(id) return swcui.get(id, "sequence.count") end,
+  -- The color of the sequence (rewardcelebrationitem.luac: the rarity color of the glow of a reward item).
+  SetColor = function(id, c) if swcui.has(id, "sequence") then swcui.set(id, "sequence.color", unpack_color(c)) end end,
   ReloadTextures = function() end,
   UnloadTextures = function() end,
 })

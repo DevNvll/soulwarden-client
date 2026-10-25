@@ -531,3 +531,12 @@ Swc.Define("LyShineManagerBus", "Broadcast", {
   GetLastActionInputDevice = function() return eAID_KeyboardMouse end,
   IsActionHoldWithTriggerDelay = function() return false end,
 })
+
+-- The dynamic canvas loader (dynamiccanvasloader.luac PrepareState and IsStateReady; the native loader does not run in this client): this
+-- client loads its screens at the start (UI/SwcUiSubsystem.cpp HudScreens), so a state is ready at once. dynamictooltip_commands.luac
+-- BoxOpenHelper (the Open of a loot container) waits for PrepareState(1000163614, the reward popup) with a spinner and a retry each 0.5 s.
+-- A state whose canvas this client does not load is ready too: the calls of the scripts to its screen go to no handler [I].
+DynamicBus.DynamicCanvasLoaderBus.Connect(EntityId(), {
+  PrepareState = function() return true end,
+  IsStateReady = function() return true end,
+})

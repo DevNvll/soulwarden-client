@@ -481,6 +481,9 @@ local function rank_data(skillCrc, rank)
     out[name] = row and row[index] or 0
   end
   out.resourceTierUnlock = out.resourceTierUnlocks
+  -- The title of the rank (crafting.json rankNames: the standing ranks of AST-242; an empty title keeps the title of the rank before).
+  local names = progression and d.rankNames and d.rankNames[progression.rankTable]
+  out.displayName = names and names[(rank or 0) + 1] or ""
   return out
 end
 C.RankData = rank_data

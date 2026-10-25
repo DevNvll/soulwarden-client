@@ -171,6 +171,12 @@ void FSwcRepConnection::SwapItems(uint32 SlotTo, uint32 SlotFrom, const swc::net
 	Calls.push_back([=](swc::net::RepClient& Client) { Client.swap_items(SlotTo, SlotFrom, InstanceTo, InstanceFrom); });
 }
 
+void FSwcRepConnection::OpenContainerItem(uint32 BagSlot, const swc::net::ItemInstanceId& Instance, uint32 Quantity)
+{
+	FScopeLock Guard(&Lock);
+	Calls.push_back([=](swc::net::RepClient& Client) { Client.open_container_item(BagSlot, Instance, Quantity); });
+}
+
 void FSwcRepConnection::UseItem(uint32 BagSlot)
 {
 	FScopeLock Guard(&Lock);

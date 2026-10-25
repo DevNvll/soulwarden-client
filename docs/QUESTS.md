@@ -360,6 +360,84 @@ curves), `swc/scenes.lua` (the cutscene screen, the subtitles, the whispers, the
   white), the audio and the lip sync are not played; the face clips (Layer 1) do not play; the dummy has the male clips (a female character
   needs the female scene CDFs and clips) [I].
 
+## The rewards and the offers (Q7, AST-242)
+
+The sources: the backend stage 1.8d (Soulwarden `docs/systems/quests.md`), the study `research/quest-full-bag.md` (brief
+`research/briefs/q7-full-bag-handin.md`), and the retail 1.8d references. The code: `swc/conversation.lua`.
+
+- The availability of an offer (`unavailable`; the client checks 0x37AE910 and 0x3A4BFE0; backend `Quests::available`), in this order:
+  1. an active instance of the row, or an active variant with the same completion achievement: no offer;
+  2. the completion achievement is set: no offer (the cooldown of a repeat is Q8);
+  3. a gate whose rule the client and the backend do not have (RequiredGameModeId, QuestArcTag, RequiredWorldTags, RequiredProgression):
+     no offer;
+  4. RequiredLevel above the level: no offer;
+  5. the conditional of RequiredAchievementId is false: no offer. A non-persisted achievement (an NPA row; `quests.json` "npa") is its
+     own conditional; it is false with a status requirement, an empty conditional, or at the depth 8. The archetype variants of
+     06_boarfeast follow from this rule (`S_skinningknife && Archetype_X`);
+  6. the faction mask of RequiredFaction does not include the faction of the character: no offer. Masks: blank or None 0xF, Any 0xE,
+     Syndicate 0x2, Marauder 0x4, Covenant 0x8; a leading "!" gives the complement (blank negated 0xE). Bit 0 lets each character pass.
+     The character is unaligned (faction 0): the backend has no faction of a character.
+  The client hides an offer that fails (no locked offer; retail F-31).
+- The reward previews: `objectivedatahelper.luac GetRewardDataFromObjectiveData` with GameEventRequestBus.GetGameSystemData and
+  ObjectivesDataManagerBus.GetObjectiveRewards (`swc/quests.lua`). 06_getoffbeach: 200 XP, 1.50 coin; 06_skinningknife: 275 XP,
+  2.25 coin, the Meat Pouch; 06_raisealarm: 120 territory standing. A blank ItemRewardQty is 1; an explicit 0 is no item.
+
+### The full bag (a client decision, not a retail rule)
+
+The retail client sends 794 with no check of the bag [R] (study 2). The backend refuses a hand-in whose reward items do not fit, and it
+sends no answer (backend decision D5 option A). Thus a retail-like client would show a false completion. The rule of this project (study
+5.3, the decision of the orchestrator, 2026-10-25) is an adaptation:
+
+- Before the reward celebration and 794, the client plans the reward items with the rules of the backend: the item of the success event,
+  then the item of the row (a blank quantity is 1, 0 is no item); the gives come before the takes of the return tasks, so a return item
+  frees no slot; each item goes first into the stacks of the same item below the stack size with the same bind flag and the same perks,
+  then into new stacks in the empty slots, up to 500 used slots (`Swc.bagCapacity`). The pouch itself counts, not its contents. An item
+  that rolls perks gets no place in a stack. No margin.
+- When the items do not fit: the retail notice `@ui_inventory_warning_toofullforrewards` ("Too many items in inventory to receive
+  rewards.", Minor, 10 s; the text and the values of notifications.luac NotifyIfInventoryTooFullToRecieveGameModeReward). The ready
+  dialogue and the Complete option stay. No 794, no celebration, no sound.
+- A quest with no item reward (06_getoffbeach) sends 794 also with a full bag.
+- The guard wraps the screen script method `RequestConversationOption` (it plays the celebration before it calls the bus,
+  conversationscreenv2.luac PC 110 to 152). A second guard in the bus handler keeps the option for another caller (no second notice).
+- The rewards and the completion show only after the owner states confirm them. A second press after a send has no option.
+
+### The open of the Meat Pouch (a loot container)
+
+- The bag action Open (dynamictooltip_commands.luac OnOpen, BoxOpenHelper) and a double click (newinventory.luac) call
+  `LocalPlayerUIRequestsBus.SalvageItem(slot, 1, the inventory entity)`. For an item of the class LootContainer, `swc/items.lua` sends the
+  host request "open SLOT QUANTITY INSTANCE"; `USwcBackendSubsystem::OpenContainerItem` sends 1733 (CraftingComponentServerFacet_
+  InitiateSalvage, 48 bytes: the Crafting facet, the entity, the container type 1, the bag slot, the instance, the location quantity 0,
+  the quantity; protocol notes 4.57). The salvage of other items is a later stage: no request.
+- BoxOpenHelper waits for `DynamicCanvasLoaderBus.PrepareState(1000163614)`. This client loads its screens at the start, so
+  `swc/manager.lua` answers true for each state.
+- The answer is the bag state: the pouch one unit less (cause 2) and the items of the roll with the cause OpenRewardChest (26). For each
+  item with the cause 26 the client sends `OnRewardChestOpened(slot, the added quantity)` to rewardcelebrationpopup.luac (the reward chest
+  branch of the native dispatcher; no loot notice). The popup shows its title (the name of the pouch, "Essential Supplies Cache") and the
+  items. The canvas `lyshineui/inventory/rewardcelebrationpopup` loads with the HUD screens (census class active).
+- `ItemDataManagerBus.GetItemData` gives `salvageGameEventId` 0 (the column is not in items.tsv; the pouch has none): with another value
+  the popup waits for the event data of its game event.
+- The item card of the popup sets the color of an image sequence: the runtime has `sequence.color` (UiImageSequenceBus SetColor).
+
+### The territory standing
+
+The standing of a territory is an entry of the categorical progression state (slot 65) with the id CRC-32 of the territory number
+(Windsward "6": 1DB87A14), the rank, and the points (protocol notes 4.57). The client keeps it with the masteries (`Swc.HostRanks`).
+territorydatahandler.luac reads GetRank, GetMaxRank, and GetRankData (the title); the map shows GetProgression against
+GetMaxPointsForRank. The rank table `Territory_Standing` (javelindata_territory_standing) is in `crafting.json` ("ranks" and "rankNames":
+rank 0 has MaximumInfluence 150 and the title @territory_standing_title_1). `swc/skills.lua` keeps the methods of `swc/crafting.lua` for a
+progression that is not a weapon mastery.
+
+### The tests
+
+- Fixture `tests/ui/fixtures/questrewards.lua` (125 checks): the order of the checks, the faction masks, the NPA rows, the boarfeast
+  variants with each archetype, the reward data, the full bag (the knife with no compatible stack: refused locally with the notice; with a
+  bound pouch stack below 10000: sent; a pouch stack that is not bound or full: no place; the first quest with a full bag: sent), the open
+  of the pouch (the command Open, the request, the popup with the two items after the cause 26), and the standing (rank 0, 120 of 150,
+  the title).
+- `tools/test-items.sh`: the body of 1733, read by the reader of the backend. `tools/test-movement.sh` (the own states): the standing
+  entry of the encoder of the backend (rank 0, 120 points) next to the masteries.
+- The messages 3435 and 5684: the backend copy (2026-10-22-60bea89) sends neither. No reader in Q7.
+
 ## Open points
 
 - The banner shows in the HUD state: an inference (`manager.lua`).

@@ -147,6 +147,9 @@ inline constexpr MessageType kHealedPlayer{"VitalsComponentClientFacet_OnHealedP
 inline constexpr MessageType kCraftRequest{"CraftingComponentServerFacet_SetCraftingDetails", "3EFA65A308B046769D1A281DFA62A1DD", 2997};
 inline constexpr MessageType kCraftCancel{"CraftingComponentServerFacet_CancelCrafting", "224CAC458FD2476987AF9DF2111C4CFE", 2999};
 inline constexpr MessageType kCraftProgress{"CraftingComponentClientFacet_OnCraftingProgressUpdate", "867CAB308E9E4124A59D2E9835F90E35", 2993};
+/** The open of a loot container item of the bag (stage Q7; protocol notes 4.57; backend server/rep/item_requests.h): InitiateSalvage on
+ *  the Crafting facet. The answer is the bag state with the cause OpenRewardChest (26). */
+inline constexpr MessageType kInitiateSalvage{"CraftingComponentServerFacet_InitiateSalvage", "067EF132A8724CCBA5034F1C967B1A0E", 1733};
 
 /** The requests of the weapon trees and the ability bars (stage MVP-G; protocol notes 4.13; backend server/rep/progress_requests.h):
  *  a point of a tree (1112), the ability of a place of a bar (2701), the end of a point change (2857), a tree reset (186), and the
@@ -196,7 +199,7 @@ inline constexpr MessageType kCinematicEnded{"PlayerCutsceneComponentServerFacet
 inline constexpr MessageType kStartWhisper{"WhisperPlayerComponentClientFacet_RequestStartWhisper", "4ABA7F5DD0C742C1A99E01308B6FF3FE", 5070};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 88> kUsedTypes{kAcceptObjective, kCompleteObjective, kRequestStartCutscene, kCutsceneGranted,
+inline constexpr std::array<MessageType, 89> kUsedTypes{kAcceptObjective, kCompleteObjective, kRequestStartCutscene, kCutsceneGranted,
     kCutsceneStarted, kCutsceneCanceled, kCinematicStarted, kCinematicEnded, kStartWhisper, kStateObjectives, kStatePinReadiness, kObjectiveAutoPinning,
     kUpdateTrackedObjectives, kNotifyOpenUiScreen, kAbandonObjective, kResetObjective, kTerritoryEntered, kTerritoryLeft, kConversationTopic,
     kConversationTopicsFinished, kAssignPoolPoints, kChangeMappedAbility, kApplyAbilityPoints, kMasteryTreeRespec,
@@ -208,7 +211,7 @@ inline constexpr std::array<MessageType, 88> kUsedTypes{kAcceptObjective, kCompl
     kTakeItem, kStateContainer, kStateLootTracker, kStateGlobalStorage, kStateAchievement, kStatePoints, kStateGathering, kEquipItem,
     kUnequipItem, kSwapItems, kEquipItemFail, kUseItem, kDropInventoryItems, kDropPaperdollItem, kStateCurrency, kStateSpeedTable,
     kStateStatuses, kTimeRequest, kTimeAndPhase, kDayPhase, kStateProgression, kManaForceSync, kHealedPlayer, kCutsceneEnded,
-    kStateAttribute, kStateCategorical, kStateCharge, kStateCrafting, kStateEntitlement, kCraftRequest, kCraftCancel, kCraftProgress};
+    kStateAttribute, kStateCategorical, kStateCharge, kStateCrafting, kStateEntitlement, kCraftRequest, kCraftCancel, kCraftProgress, kInitiateSalvage};
 
 /** The slots of the player slice (protocol notes 4.4). */
 inline constexpr std::uint32_t kSlotMetadata = 0;
@@ -712,6 +715,11 @@ struct DropItemEntry {
 Bytes drop_inventory_items_body(std::uint64_t group, const std::vector<DropItemEntry>& entries);
 /** @return The body of DropPaperdollItem (826, 24 bytes). */
 Bytes drop_paperdoll_item_body(std::uint64_t group, std::uint32_t paperdollSlot, std::uint32_t quantity);
+/** The container type of InitiateSalvage for the bag (backend kItemContainerBag). */
+inline constexpr std::uint32_t kSalvageContainerBag = 1;
+/** @return The body of InitiateSalvage (1733, 48 bytes; client writer 0x2DF3000): target (the Crafting facet), entity (G), the container
+ *  type, the bag slot, the instance, the location quantity (0: 0x2E69D20 sets it to zero), the quantity (1 for Open). */
+Bytes salvage_body(std::uint64_t group, std::uint32_t containerType, std::uint32_t slot, const ItemInstanceId& instance, std::uint32_t quantity);
 /** @return The coin of field 0 of a Currency state (u64, hundredths of a coin), or no value. */
 std::optional<std::uint64_t> read_currency(std::span<const std::uint8_t> field);
 

@@ -1628,6 +1628,10 @@ def convert_quests(force: bool) -> dict:
     events = dict(data["events"]) if isinstance(data["events"], list) else data["events"]
     doc = {"format": 1, "source": str(source_file), "objectives": objectives, "tasks": data["tasks"], "events": events,
            "territories": data.get("territories", [])}
+    # AST-242 (Q7): the non-persisted achievements of the offer conditionals ([ID, CONDITIONAL, OBJECTIVE_FLOW, STATUS_EFFECT] of the
+    # backend export; the backend reads the conditional and the status: gamedata/quest_data.cpp), by the lower-case id.
+    doc["npa"] = {row[0].lower(): {"conditional": row[1] if len(row) > 1 else "", "status": row[3] if len(row) > 3 else ""}
+                  for row in data.get("npa", []) if isinstance(row, list) and row and isinstance(row[0], str)}
     # AST-241: the points of interest of the backend copy (poi-data.json: id, name key, tags, territory, center, radius, shape) for the
     # place names of the task texts ({POITags}) and the place cues 2297 and 6416; the NPC names of the conversation data ({destinationName}).
     poi_file = gamedata_dir() / "poi-data.json"
@@ -1646,7 +1650,8 @@ def convert_quests(force: bool) -> dict:
     for folder in QUEST_TEXTURE_FOLDERS:
         textures |= set(folder_textures(folder))
     textures |= set(QUEST_TEXTURES)
-    return {"objectives": len(objectives), "tasks": len(data["tasks"]), "events": len(events), "pois": len(doc.get("pois", [])), "cues": cues,
+    return {"objectives": len(objectives), "tasks": len(data["tasks"]), "events": len(events), "npa": len(doc["npa"]),
+            "pois": len(doc.get("pois", [])), "cues": cues,
             "npcNames": len(doc.get("npcNames", {})),
             "bytes": (target / "quests.json").stat().st_size, "textures": convert_textures(textures, force)}
 

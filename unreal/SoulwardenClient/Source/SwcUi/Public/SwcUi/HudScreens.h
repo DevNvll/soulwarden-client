@@ -38,6 +38,8 @@ inline constexpr const char* kHudScreens[] = {
     "lyshineui/equipment/equipmentv3",
     "lyshineui/hud2024/actionbar/encumbrance",
     "lyshineui/flyoutmenu/flyoutmenu",
+    // The reward popup of the open of a loot container (stage Q7, AST-242: the Meat Pouch of the knife quest; swc/items.lua).
+    "lyshineui/inventory/rewardcelebrationpopup",
     // The panel of an open loot bag (the state Container).
     "lyshineui/container/catcontainer",
     // The world views (stage WF7): the markers (the AI plates), the prompt cards of the focus, the damage numbers, the loot ticker.

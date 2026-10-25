@@ -952,6 +952,14 @@ int n_set(lua_State* L) {
         if (e->sequence) e->sequence->index = static_cast<int>(luaL_checknumber(L, 3));
         return 0;
     }
+    if (key == "sequence.color") {
+        if (e->sequence) {
+            const Color c = arg_color(L, 3, {e->sequence->color.r, e->sequence->color.g, e->sequence->color.b, e->sequence->alpha});
+            e->sequence->color = c;
+            e->sequence->alpha = c.a;
+        }
+        return 0;
+    }
     if (key == "repeater.repeats") {
         if (e->repeats) *e->repeats = static_cast<int>(luaL_checknumber(L, 3));
         return 0;

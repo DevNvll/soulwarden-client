@@ -324,6 +324,20 @@ void test_requests(const std::string& goldenPath) {
         const auto read = rep::read_paperdoll_drop_request(bodies[0]);
         expect(read && read->slot == 27 && read->quantity == 1, "826: paperdoll slot 27, quantity 1");
     }
+    // Stage Q7: the open of a loot container (1733, protocol notes 4.57), read by the reader of the backend.
+    swc::net::ItemInstanceId pouch{};
+    pouch.fill(0x26);
+    client.open_container_item(1, pouch, 1);
+    session.tick();
+    bodies = session.calls(swc::net::kInitiateSalvage.index);
+    expect(bodies.size() == 1 && bodies[0].size() == 48, "1733: one call of 48 bytes");
+    if (bodies.size() == 1) {
+        const auto read = rep::read_salvage_request(bodies[0]);
+        expect(read && read->call.entity == group && read->call.target == swc::net::crafting_target(group) && read->containerType == 1
+                   && read->slot == 1 && read->instance == pouch && read->locationQuantity == 0 && read->quantity == 1,
+               "1733: the Crafting facet, the bag (1), bag slot 1, the instance, location quantity 0, quantity 1");
+    }
+    expect(swc::net::kInitiateSalvage.index == rep::kTypeInitiateSalvage, "the type number of 1733 is the number of the backend");
     // The refusal: the body of the backend (the target and the entity of the request) reads as a call of the own entity.
     const Bytes fail = rep::equip_fail_body(rep::ComponentCall{swc::net::inventory_target(group, swc::net::kPaperdollComponent), group}, 0);
     const auto failCall = swc::net::read_component_call(fail);

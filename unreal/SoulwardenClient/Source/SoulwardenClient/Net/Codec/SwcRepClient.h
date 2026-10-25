@@ -552,6 +552,9 @@ public:
     void use_item(std::uint32_t bagSlot);
     void drop_items(const std::vector<DropItemEntry>& entries);
     void drop_paperdoll_item(std::uint32_t paperdollSlot, std::uint32_t quantity);
+    /** The open of a loot container item of a bag slot (1733, stage Q7; protocol notes 4.57): the quantity 1 for Open. The answer is the
+     *  bag state with the cause OpenRewardChest (26). */
+    void open_container_item(std::uint32_t bagSlot, const ItemInstanceId& instance, std::uint32_t quantity);
     /** The tests: the body of a ReplicatedStateBundle message (8) as if it came in now (tests/net/item_tests.cpp gives the states of
      *  the encoders of the backend this way). */
     void apply_bundle_for_tests(std::span<const std::uint8_t> body, Clock::time_point now) { on_bundle(body, now); }

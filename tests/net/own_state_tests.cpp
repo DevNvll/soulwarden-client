@@ -425,6 +425,17 @@ void test_progress(Session& session) {
     const std::uint32_t rankRevision = own.rankRevision;
     session.apply({{swc::net::kSlotCategorical, swc::net::kStateCategorical.index, rep::encode_categorical_state(older, rep::View::owner, clock)}});
     expect(own.rankRevision == rankRevision && own.ranks.count(id_of("Mining")) == 0, "an older stamp changes nothing");
+    // Stage Q7 (protocol notes 4.57; live I0 of the backend stage 1.8d): the territory standing is an entry of the same map, with the id
+    // CRC-32 of the territory number (Windsward "6": 1DB87A14), the rank, and the points (rank 0 and 120 points after 06_raisealarm).
+    entity.skills.progressions[0x1DB87A14U] = {0, 120};
+    entity.changed[backend::world::ComponentKey::categorical] = 32;
+    session.apply({{swc::net::kSlotCategorical, swc::net::kStateCategorical.index, rep::encode_categorical_state(entity, rep::View::owner, clock)}});
+    {
+        const auto standing = own.ranks.find(0x1DB87A14U);
+        expect(standing != own.ranks.end() && standing->second.rank == 0 && standing->second.points == 120,
+               "the standing of Windsward (1DB87A14): rank 0, 120 points");
+        expect(own.ranks.count(id_of("WarHammer")) == 1, "the masteries stay with the standing");
+    }
     expect(session.client->counts().incompleteBundles == 0, "the client reads each bundle to its end");
 }
 

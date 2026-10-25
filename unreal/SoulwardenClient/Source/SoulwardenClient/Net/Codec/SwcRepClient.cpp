@@ -1632,6 +1632,13 @@ void RepClient::use_item(std::uint32_t bagSlot) {
     }
 }
 
+void RepClient::open_container_item(std::uint32_t bagSlot, const ItemInstanceId& instance, std::uint32_t quantity) {
+    if (m_phase == Phase::inGame && m_own.hasMetadata && quantity > 0) {
+        send_call(kInitiateSalvage, salvage_body(m_own.group, kSalvageContainerBag, bagSlot, instance, quantity));
+        log(Event::Level::info, "open container item (1733): bag slot " + std::to_string(bagSlot) + ", quantity " + std::to_string(quantity));
+    }
+}
+
 void RepClient::drop_items(const std::vector<DropItemEntry>& entries) {
     if (m_phase == Phase::inGame && m_own.hasMetadata && !entries.empty()) {
         send_call(kDropInventoryItems, drop_inventory_items_body(m_own.group, entries));

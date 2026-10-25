@@ -779,6 +779,11 @@ void USwcUiSubsystem::HandleItemRequest(const FString& Request, USwcBackendSubsy
 	{
 		bSent = Backend->DropItems({swc::net::DropItemEntry{static_cast<uint32>(Int(1)), ParseInstance(Parts[3]), static_cast<uint32>(Int(2))}});
 	}
+	else if (Verb == TEXT("open") && Parts.Num() >= 4)
+	{
+		// The action Open of a loot container of the bag (dynamictooltip_commands.luac BoxOpenHelper, SalvageItem): 1733.
+		bSent = Backend->OpenContainerItem(static_cast<uint32>(Int(1)), ParseInstance(Parts[3]), static_cast<uint32>(Int(2)));
+	}
 	else if (Verb == TEXT("dropequipped") && Parts.Num() >= 3)
 	{
 		bSent = Backend->DropPaperdollItem(static_cast<uint32>(Int(1)), static_cast<uint32>(Int(2)));

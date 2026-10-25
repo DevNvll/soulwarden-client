@@ -80,6 +80,8 @@ public:
 	void UseItem(uint32 BagSlot);
 	void DropItems(const std::vector<swc::net::DropItemEntry>& Entries);
 	void DropPaperdollItem(uint32 PaperdollSlot, uint32 Quantity);
+	/** The open of a loot container item of the bag (swc::net::RepClient::open_container_item; 1733, stage Q7). */
+	void OpenContainerItem(uint32 BagSlot, const swc::net::ItemInstanceId& Instance, uint32 Quantity);
 	/** The interaction request of the player, or none (swc::net::RepClient::set_interaction). */
 	void SetInteraction(const std::optional<swc::net::InteractionRequest>& Request);
 	/** The client ends its committed interaction: message 2473 (swc::net::RepClient::cancel_interaction). */

@@ -110,6 +110,9 @@ public:
 	bool DropPaperdollItem(uint32 PaperdollSlot, uint32 Quantity);
 	bool TakeAllItems();
 	bool TakeItem(const swc::net::ItemInstanceId& Instance, uint32 Quantity);
+	/** The open of a loot container item of the bag (the action Open of the bag, 1733; stage Q7, protocol notes 4.57). The answer is the
+	 *  bag state with the cause OpenRewardChest (26). @return False when no request went out. */
+	bool OpenContainerItem(uint32 BagSlot, const swc::net::ItemInstanceId& Instance, uint32 Quantity);
 	/** @return The error of the login path when it failed (a refused connection), else empty: the UI shows its error popup. */
 	const FString& GetLoginError() const { return LoginError; }
 	/** The front end (stage F2 of docs/FRONTEND.md): true after a character list with no -SwcPlay; the landing screen of the UI

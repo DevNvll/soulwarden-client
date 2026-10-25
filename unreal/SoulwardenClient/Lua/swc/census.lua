@@ -272,7 +272,8 @@ census.canvases = {
     ui = {{group = 5, gate = {}}}},
   ["inventory/newinventory"] = {class = "active", feature = "F32", stage = "P2.4, P3.2",
     ui = {{group = 5, gate = {}}}},
-  ["inventory/rewardcelebrationpopup"] = {class = "stage", feature = "F70", stage = "P6.4",
+  -- Stage Q7 (AST-242): the reward popup of the open of a loot container (the Meat Pouch of the knife quest).
+  ["inventory/rewardcelebrationpopup"] = {class = "active", feature = "F70", stage = "P6.4, Q7",
     ui = {{group = 8, gate = {od = false, flags = {"UIFeatures.enableBoxOpeningPopup"}}}},
     config = {{flag = "UIFeatures.enableBoxOpeningPopup", onDemand = true}},
     dynamic = {{name = "RewardCelebrationPopup", gate = {}, states = {1000163614}, triggerStates = {}}}},

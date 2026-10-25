@@ -686,6 +686,16 @@ function Swc.HostBagSlot(slot, itemId, quantity, gearScore, durability, maxDurab
       Swc.Notify("LyShineScriptBindNotificationBus", nil, "OnLootReceived", item, item.quantity - prior)
     end
   end
+  -- The reward chest branch of the same dispatcher (the action 26 OpenRewardChest at 0x48E2E95; protocol notes 4.57): an item of the open
+  -- of a loot container gives OnRewardChestOpened(slot, the new quantity less the prior quantity) to rewardcelebrationpopup.luac, which
+  -- shows its popup with the items. No loot notice.
+  if item.static and action == 26 then
+    local prior = before and before.itemId == item.itemId and before.quantity or 0
+    if item.quantity > prior then
+      Swc.Note(string.format("the reward chest: +%d %s (cause 26)", item.quantity - prior, item.static.key or "?"))
+      Swc.Notify("LyShineScriptBindNotificationBus", nil, "OnRewardChestOpened", item, item.quantity - prior)
+    end
+  end
   -- The slot id is a number, as in the list of dynamicitemlist.luac (UpdateLists queues the numbers 0 ...).
   Swc.Notify("ContainerEventBus", Swc.ids.inventory, "OnSlotUpdate", slot, item, action or 0)
   Swc.Notify("ContainerEventBus", Swc.ids.inventory, "OnContainerSlotChanged", slot, item, action or 0)
@@ -914,6 +924,10 @@ local function static_data(itemCrc)
   data.GetPerkId = function(_, index) return perks[index + 1] or 0 end
   -- The fixed perks of an item all show (the limit of the perk tier data is for the perks of a gear score).
   data.CanDisplayAllPerksInUI = function() return true end
+  -- The game event of an open (rewardcelebrationpopup.luac SetRewardBoxGameEventId: a value other than 0 makes the popup wait for its
+  -- OnUiGameEvent; dynamictooltip_commands.luac OnOpen reads its azothSalt). The column SalvageGameEventID is not in items.tsv: 0, the
+  -- value of an empty cell (the Meat Pouch has none). [I: an item with a salvage game event opens with no popup data of its event.]
+  data.salvageGameEventId = 0
   return data
 end
 
@@ -1234,6 +1248,22 @@ Swc.Define("LocalPlayerUIRequestsBus", "Broadcast", {
     return (active == 24 or active == 25) and NAME_OF_SLOT[active] or "main-hand-option-1"
   end,
   InventoryUseItem = function(bagSlot) request(string.format("use %d", bagSlot)) end,
+  -- The open of a loot container item of the bag (stage Q7, AST-242; protocol notes 4.57): dynamictooltip_commands.luac BoxOpenHelper (the
+  -- action Open) and newinventory.luac ItemDoubleClickAction call SalvageItem(slot, 1, the inventory entity). For an item of the class
+  -- LootContainer the host request "open SLOT QUANTITY INSTANCE" (1733); the answer is the bag state with the cause OpenRewardChest (26).
+  -- The salvage of other items is a later stage (the backend changes nothing): no request.
+  SalvageItem = function(bagSlot, quantity, containerId)
+    local slot = Swc.player.bag.slots[tonumber(bagSlot) or -1]
+    if containerId ~= nil and containerId ~= Swc.ids.inventory then
+      Swc.Note("item request: salvage of a different container: no request")
+      return
+    end
+    if not (slot and slot.static and slot.static.classes.lootcontainer) then
+      Swc.Note("item request: salvage of bag slot " .. tostring(bagSlot) .. " (not a loot container): no request")
+      return
+    end
+    request(string.format("open %d %d %s", bagSlot, quantity or 1, instance_of(slot)))
+  end,
   -- A virtual input of a script: the quick slot uses of consumablequickslots.luac (Use_Quickslot_1 to 4) are the action bits
   -- 404, 117, 140, 513 of the input entry (protocol notes, the consumables; no message): the client presses them (stage P3.H).
   SendVirtualInput = function(name, pressed)

@@ -1785,6 +1785,16 @@ bool USwcBackendSubsystem::SwapItems(uint32 SlotTo, uint32 SlotFrom, const swc::
 	return true;
 }
 
+bool USwcBackendSubsystem::OpenContainerItem(uint32 BagSlot, const swc::net::ItemInstanceId& Instance, uint32 Quantity)
+{
+	if (!Connection.IsValid() || !bInGame || Quantity == 0)
+	{
+		return false;
+	}
+	Connection->OpenContainerItem(BagSlot, Instance, Quantity);
+	return true;
+}
+
 bool USwcBackendSubsystem::UseItem(uint32 BagSlot)
 {
 	if (!Connection.IsValid() || !bInGame)

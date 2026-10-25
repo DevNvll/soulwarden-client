@@ -41,7 +41,7 @@ local function D()
   end
   local doc = swcui.load_json("gamedata/quests.json") or {objectives = {}, tasks = {}, events = {}}
   local data = {objectives = doc.objectives or {}, tasks = doc.tasks or {}, events = doc.events or {}, byCrc = {}, eventsByCrc = {},
-                pois = doc.pois or {}, npcNames = doc.npcNames or {}}
+                pois = doc.pois or {}, npcNames = doc.npcNames or {}, npa = doc.npa or {}}
   for _, row in pairs(data.objectives) do
     data.byCrc[row.crc] = row
   end

@@ -70,12 +70,23 @@ def recipe_rows() -> dict[str, dict]:
     return rows
 
 
+# The rank tables of other categorical progressions in the same columns (a column that the table does not have is 0): the territory
+# standing (AST-242, Q7: javelindata_territory_standing, type CategoricalProgressionRankData; the map shows the points of the rank against
+# its MaximumInfluence, 150 for rank 0).
+OTHER_RANK_TABLES = {"Territory_Standing": "javelindata_territory_standing.datasheet"}
+
+
 def rank_tables(progressions: dict[str, dict]) -> dict[str, list]:
-    """@return The rows of the rank table of each trade skill, by the RankTableId of its progression."""
+    """@return The rows of the rank table of each trade skill, by the RankTableId of its progression, and the rows of OTHER_RANK_TABLES."""
     wanted = {p["rankTable"].lower(): p["rankTable"] for p in progressions.values() if p["rankTable"]}
     out: dict[str, list] = {}
     for path in sorted(source.paks().paths(datasheet.TABLES_FOLDER, ".datasheet")):
         name = path.rsplit("/", 1)[-1]
+        other = next((table for table, file in OTHER_RANK_TABLES.items() if file == name), None)
+        if other is not None and other.lower() in wanted:
+            sheet = datasheet.Sheet(source.read(path))
+            out[other] = [[plain(row.get(column, 0)) for column in RANK_COLUMNS] for row in sheet.rows()]
+            continue
         if not name.startswith("javelindata_tradeskill"):
             continue
         sheet = datasheet.Sheet(source.read(path))
@@ -86,6 +97,18 @@ def rank_tables(progressions: dict[str, dict]) -> dict[str, list]:
         if table is None:
             continue
         out[table] = [[plain(row.get(column, 0)) for column in RANK_COLUMNS] for row in sheet.rows()]
+    return out
+
+
+def rank_names() -> dict[str, list]:
+    """@return The DisplayName of each rank row of the tables of OTHER_RANK_TABLES (the title of a standing rank: territorydatahandler.luac
+    GetTerritoryStanding reads GetRankData(...).displayName; rank 0 of Territory_Standing is @territory_standing_title_1)."""
+    out: dict[str, list] = {}
+    for path in sorted(source.paks().paths(datasheet.TABLES_FOLDER, ".datasheet")):
+        name = path.rsplit("/", 1)[-1]
+        table = next((t for t, file in OTHER_RANK_TABLES.items() if file == name), None)
+        if table is not None:
+            out[table] = [str(row.get("DisplayName") or "") for row in datasheet.Sheet(source.read(path)).rows()]
     return out
 
 
@@ -191,6 +214,7 @@ def convert(out_dir: Path) -> dict:
     target = out_dir / "gamedata"
     target.mkdir(parents=True, exist_ok=True)
     doc["craftMods"] = craft_mods()
+    doc["rankNames"] = rank_names()
     # GetCraftingCategoryData returns the group text from the shared string table of the client: a table of the CRC of the lower case
     # that keeps the first spelling (research forge-order.md 1). The TradingGroup texts of the items are in it before the recipe
     # groups [inference: the order of the first registrations of a retail start is not proven; it explains the retail forge order
