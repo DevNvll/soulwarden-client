@@ -1086,10 +1086,20 @@ def spec_of(rules: dict, legacy: dict, textures: dict) -> dict | None:
         params = rules["params"]
         # The source values (research section 2, "Cutout and transmitted light"; section 3, "Source equations").
         spec["vectors"]["DiffuseColor"] = rules["diffuse"] + [1.0]
-        spec["vectors"]["TransmittanceColor"] = (params.get("TransmittanceColor") or [1.0, 1.0, 1.0])[:3] + [1.0]
+        # The shader default of TransmittanceColor is (1, 1, 0.6) (research/foliage-specular-blend.md Part A [R]).
+        spec["vectors"]["TransmittanceColor"] = (params.get("TransmittanceColor") or [1.0, 1.0, 0.6])[:3] + [1.0]
         spec["scalars"]["BackDiffuseMultiplier"] = float(params.get("BackDiffuseMultiplier", 1.0))
         spec["scalars"]["Smoothness"] = max(1 / 127, float(rules["shininess"]) / 255)
         spec["scalars"]["Specular"] = min(1.0, luminance(rules["specular"]) / 0.08)
+        # Part A [R]: the leaf normal of the source, N = normalize(N0 + NormalViewDependency x V), only for %LEAVES or %GRASS
+        # (vegetation@common_zpassps; default 0.5), and the specular map (%SPECULAR_MAP): F0 = XML Specular x the map (the parent:
+        # Specular x the luminance of the map; a white fallback).
+        flags = set(rules["flags"])
+        if flags & {"%LEAVES", "%GRASS"}:
+            nvd = params.get("NormalViewDependency", 0.5)
+            spec["scalars"]["NormalViewDependency"] = float(nvd[0] if isinstance(nvd, list) else nvd)
+        if "%SPECULAR_MAP" in flags and "specular" in maps:
+            spec["textures"]["SpecularMap"] = use(color_texture(maps["specular"]["product"], "base"))
         if "m6" in STAGES and "%DETAIL_BENDING" in rules["flags"]:
             # M6: the detail bending of the source (modificatorvt.cfib; the defaults of its parameters: 1, 0.2, -0.5).
             def bend(name: str, default: float) -> float:
@@ -1289,6 +1299,9 @@ def m3b(rules: dict, spec: dict, use) -> None:
         spec["scalars"]["BlendLayer2Smoothness"] = value("BlendLayer2Smoothness", 10.0) / 256.0
         spec["scalars"]["BlendLayer2Tiling"] = value("BlendLayer2Tiling", 1.0)
         spec["scalars"]["BlendMaskTiling"] = value("BlendMaskTiling", 1.0)
+        # The layer 2 UV (research/foliage-specular-blend.md Part B [R, D]): the TexMod tiling and offset of the Custom slot on the
+        # raw UV0 (not the layer-1 transform), times BlendLayer2Tiling; the parents also sample the mask at UV0 x BlendMaskTiling.
+        spec["vectors"]["Layer2Transform"] = uv_transform(maps["diffuse2"].get("uv"))
     if "%DETAIL_MAPPING" in flags and "detail" in maps:
         switches["Detail"] = True
         # The source detail sampler decodes sRGB only for an sRGB file (383 of the 385 detail maps are linear).

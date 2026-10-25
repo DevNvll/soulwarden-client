@@ -22,9 +22,9 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "12", "M_SwcSurfaceMasked": "12", "M_SwcDecal": "8",
+PARENT_VERSIONS = {"M_SwcFoliage": "5", "M_SwcSurface": "13", "M_SwcSurfaceMasked": "13", "M_SwcDecal": "8",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
-                   "M_SwcSurfaceTranslucent": "11", "M_SwcHair": "7",
+                   "M_SwcSurfaceTranslucent": "12", "M_SwcHair": "7",
                    "M_SwcFxMesh": "2", "M_SwcFxMeshAdd": "2", "M_SwcMeshParticle": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
@@ -41,6 +41,9 @@ PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "12", "M_SwcSurfaceMaske
 # M_SwcFxMesh, M_SwcFxMeshAdd 2: the input PalP (version 1 had the inputs PAL and Pal: Unreal compares the names without case, the
 # second stayed empty, and the parent did not compile);
 # M_SwcDecal 8: the base color x the vertex RGB with UseVertexAlpha (%VERTCOLORS), as the source decal (AST-278);
+# M_SwcFoliage 5 (research/foliage-specular-blend.md Part A): the leaf normal, the specular map, no vertex alpha on the specular;
+# M_SwcSurface, M_SwcSurfaceMasked 13, M_SwcSurfaceTranslucent 12 (research/foliage-specular-blend.md Part B): the blend mask at
+# UV0 x BlendMaskTiling and the layer 2 maps at the Custom-slot transform of UV0 (Layer2Transform) x BlendLayer2Tiling;
 # M_SwcSurface, M_SwcSurfaceMasked 12, M_SwcSurfaceTranslucent 11 (AST-290): the UV scroll of the type 2 oscillators,
 # frac(Time x UVPan.rg) on the base UV and frac(Time x EmissionPan.rg / .ba) on the emittance and intensity UVs (default 0: no change
 # of the picture of an instance with no pan; material_records.uv_pan);
@@ -516,8 +519,16 @@ def surface_parent(content, state, masked, translucent=False):
     editing.connect_material_expressions(smoothness, "", s_value, "B")
     # M3b: the blend layer (static switch Blend), the vertex colors (UseVertexColor), the detail map (static switch Detail).
     normal = sample("Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"), 400)
-    uv2 = multiply(material, (uv, ""), (scalar(material, "BlendLayer2Tiling", 1.0, -1400, 2600), ""), -1250, 2600)
-    uvm = multiply(material, (uv, ""), (scalar(material, "BlendMaskTiling", 1.0, -1400, 2750), ""), -1250, 2750)
+    # Version 13 (research/foliage-specular-blend.md Part B [R]): the blend mask at the raw UV0 x BlendMaskTiling, and the layer 2 maps
+    # at the transform of the source Custom slot on UV0 (Layer2Transform: tile, offset) x BlendLayer2Tiling. Before, both used the
+    # transformed layer-1 UV (the rock wld_epicboulder_jagged_flat_a: the mask 8 times too fine, layer 2 at 8 for 12).
+    layer2 = vector(material, "Layer2Transform", (1.0, 1.0, 0.0, 0.0), -1600, 2450)
+    l2_tiled = multiply(material, (coords, ""), (mask(material, layer2, "RGBA", "rg", -1400, 2450), ""), -1250, 2450)
+    l2_placed = node(material, unreal.MaterialExpressionAdd, -1100, 2450)
+    editing.connect_material_expressions(l2_tiled, "", l2_placed, "A")
+    editing.connect_material_expressions(mask(material, layer2, "RGBA", "ba", -1400, 2525), "", l2_placed, "B")
+    uv2 = multiply(material, (l2_placed, ""), (scalar(material, "BlendLayer2Tiling", 1.0, -1400, 2600), ""), -1250, 2600)
+    uvm = multiply(material, (coords, ""), (scalar(material, "BlendMaskTiling", 1.0, -1400, 2750), ""), -1250, 2750)
 
     def sample_at(parameter, kind, default, at, y):
         node_ = sampler(material, parameter, kind, default, -900, y)
@@ -1786,12 +1797,22 @@ def camera_fade(material, content, state, x, y):
     return mask
 
 
+# The leaf normal of the source Vegetation shader (research/foliage-specular-blend.md Part A [R]: vegetation@common_zpassps index 1,
+# instructions 0033-0051): N = normalize(N0 + NormalViewDependency x V), V from the surface to the camera. Here in tangent space: the
+# camera vector moved into the tangent basis of the pixel (with the two-sided sign of Unreal on the back face, as the source flips
+# only the geometric normal part); the sum is the same vector for an orthonormal basis. A later run checks the back faces.
+LEAF_NORMAL_HLSL = "return normalize(N + K * V);"
+# F0 of a leaf: the XML Specular (the scalar Specular = luminance / 0.08) x the luminance of the specular map (a gray approximation).
+FOLIAGE_SPECULAR_HLSL = "return saturate(S * dot(M, float3(0.2126, 0.7152, 0.0722)));"
+
+
 def foliage_parent(content, state):
     """@return M_SwcFoliage (made again when its version in PARENT_VERSIONS changes; its instances keep their parameters).
     Version 2: the world position offset of the source wind (WIND_HLSL; no motion while SwcWind, the custom primitive
     data 0, is 0) and the vertex alpha occlusion of the Vegetation shader (the diffuse and the specular x the vertex
     alpha; white with no vertex colors). Version 4: the camera fade of the source vegetation in the opacity mask
-    (camera_fade; the ground cover rule of research/ground-cover.md)."""
+    (camera_fade; the ground cover rule of research/ground-cover.md). Version 5 (research/foliage-specular-blend.md Part A): the
+    leaf normal (NormalViewDependency), the specular map, no vertex alpha on the specular, the roughness floor."""
     name = "M_SwcFoliage"
     material, white = parent_asset(name, content, state)
     if material is None:
@@ -1811,18 +1832,34 @@ def foliage_parent(content, state):
     editing.connect_material_property(opacity, "", MP.MP_OPACITY_MASK)
     normal = sampler(material, "Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"),
                      -900, 150)
-    editing.connect_material_property(normal, "RGB", MP.MP_NORMAL)
+    # Version 5: the leaf normal of the source (LEAF_NORMAL_HLSL; NormalViewDependency 0 for an instance with no leaf branch).
+    camera = node(material, unreal.MaterialExpressionCameraVectorWS, -1300, 250)
+    to_tangent = node(material, unreal.MaterialExpressionTransform, -1100, 250)
+    to_tangent.set_editor_property("transform_source_type", unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_WORLD)
+    to_tangent.set_editor_property("transform_type", unreal.MaterialVectorCoordTransform.TRANSFORM_TANGENT)
+    editing.connect_material_expressions(camera, "", to_tangent, "")
+    leaf = custom(material, LEAF_NORMAL_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT3, ("N", "V", "K"), -600, 150)
+    editing.connect_material_expressions(normal, "RGB", leaf, "N")
+    editing.connect_material_expressions(to_tangent, "", leaf, "V")
+    editing.connect_material_expressions(scalar(material, "NormalViewDependency", 0.0, -900, 300), "", leaf, "K")
+    editing.connect_material_property(leaf, "", MP.MP_NORMAL)
     gloss = sampler(material, "Gloss", st.SAMPLERTYPE_ALPHA, white, -900, 400)
     smoothness = scalar(material, "Smoothness", 0.5, -900, 650)
     s = node(material, unreal.MaterialExpressionMultiply, -500, 450)
     editing.connect_material_expressions(gloss, "R", s, "A")
     editing.connect_material_expressions(smoothness, "", s, "B")
-    rough = node(material, unreal.MaterialExpressionOneMinus, -300, 450)
-    editing.connect_material_expressions(s, "", rough, "")
+    rough = custom(material, "return max(1.0 - S, 0.0316228);", unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("S",), -300, 450)
+    editing.connect_material_expressions(s, "", rough, "S")   # version 5: the GGX floor of the source, alpha >= 0.001
     editing.connect_material_property(rough, "", MP.MP_ROUGHNESS)
+    # Version 5: F0 = the XML Specular x the specular map (%SPECULAR_MAP; white fallback), not x the vertex alpha (the opaque
+    # pass of the source puts the vertex alpha into the albedo only).
     specular = scalar(material, "Specular", 0.5, -500, 650)
-    occluded_specular = multiply(material, (specular, ""), (vertex, "A"), -350, 650)
-    editing.connect_material_property(occluded_specular, "", MP.MP_SPECULAR)
+    spec_map = sampler(material, "SpecularMap", st.SAMPLERTYPE_COLOR,
+                       unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture"), -900, 1300)
+    f0 = custom(material, FOLIAGE_SPECULAR_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("S", "M"), -350, 650)
+    editing.connect_material_expressions(specular, "", f0, "S")
+    editing.connect_material_expressions(spec_map, "RGB", f0, "M")
+    editing.connect_material_property(f0, "", MP.MP_SPECULAR)
     wind_parent_graph(material, content, state)
     transmission = sampler(material, "Transmission", st.SAMPLERTYPE_ALPHA, white, -900, 850)
     back = scalar(material, "BackDiffuseMultiplier", 1.0, -900, 1100)
