@@ -10,7 +10,7 @@
 --   1. the first ready hand-in of the NPC (swc/conversation.lua ready_handin): TurnIn 4 when DestinationCompletionAvailableResponse has
 --      text (else NoObjective 0); nothing else is tested;
 --   2. else the LinearObjectiveId of the selected state through the classifier in marker mode (HideIncompleteTurninMarker hides an
---      incomplete result): Proposal -> HasObjective 1, InProgress -> InProgress 5 (OnCooldown 16 needs repeatable quests); the linear
+--      incomplete result): Proposal -> HasObjective 1, InProgress -> InProgress 5, OnCooldown 8 -> OnCooldown 16 (stage Q8); the linear
 --      setting stops at the first nonzero result; an available state is not replaced by a later in-progress one;
 --   3. with no state yet: an active talk-to task for the NPC (a conversation task, type code 16 or 17, Active, ItemName this NPC [I: the
 --      native request +0x78 is not traced further]) -> HasTalkToTask 13 with its objective instance;

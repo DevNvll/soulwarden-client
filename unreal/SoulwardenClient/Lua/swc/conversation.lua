@@ -41,6 +41,9 @@ end
 -- its own conditional, false with a status requirement, an empty conditional, or at the depth 8 (backend world/quests.cpp id_value,
 -- kNpaDepth); an id that the data does not know is false; a text that does not parse is false.
 local NPA_DEPTH = 8
+-- The repeat cooldowns (javelin.enable-repeatable-quest-cooldowns): on, as the backend keeps the completion achievement of a repeat to
+-- the start of the next cycle (backend quests.md "The repeat", stage 1.8d) [I: the retail value of the flag is not read].
+Swc.config["javelin.enable-repeatable-quest-cooldowns"] = true
 local achievements_pass
 local function id_value(id, depth)
   local index = Swc.AchievementIndex(id)
@@ -251,7 +254,7 @@ C.record_valid = record_valid
 --        DestinationCompletionAvailablePrompt; the linear scan is skipped (HideIncompleteTurninMarker does not hide a ready hand-in);
 --     2. else the LinearObjectiveId of the state in column order through the classifier (0x37AE910): Proposal 3 appends ObjectiveDetails
 --        3 (PlayerPrompt; Title for @prompt_DEFAULT), InProgress 7 sets InProgressResponse; javelin.enable-linear-conversations (true, the
---        fallback of the builder) stops at the first nonzero result. OnCooldown 8 needs repeatable quests (not in this backend);
+--        fallback of the builder) stops at the first nonzero result. OnCooldown 8 (a Repeatable row whose completion achievement is set) sets ObjectiveOnCooldownResponse (stage Q8);
 --     3. the passing topics (ConversationTopic 2, the prompt, the topic CRC). The services are not shown (an open point of the client);
 --     4. Leave 1 (@NPC_EndConversation) last: the screen hides it; with no other option E closes the screen (its center hint).
 --   ObjectiveDetails (0x3773540): the classifier again; Proposal: its Title, ObjectiveProposalResponse, Proposal 3, its CRC,
@@ -339,8 +342,13 @@ local function unavailable(row)
         return "alreadyActive"
       end
     end
-    -- The completion achievement (IsObjectiveComplete 0x3A48A30). The cooldown of a repeat is stage Q8.
+    -- The completion achievement (IsObjectiveComplete 0x3A48A30). A Repeatable row with the repeat cooldowns on is onCooldown (the
+    -- classifier 0x37AE910 answers OnCooldown 8; no ScheduleId is read there: the backend keeps the achievement to the next cycle).
     if achievements_pass(achievement, 0) then
+      local repeatable = string.lower(objective_cell(row, "Repeatable") or "")
+      if (repeatable == "1" or repeatable == "true") and Swc.config["javelin.enable-repeatable-quest-cooldowns"] then
+        return "onCooldown"
+      end
       return "completedBefore"
     end
   end
@@ -399,7 +407,10 @@ local function classify(row, npcId, markerMode)
       return RESPONSE.inprogress
     end
   end
-  if unavailable(row) then
+  local reason = unavailable(row)
+  if reason == "onCooldown" then
+    return RESPONSE.cooldown
+  elseif reason then
     return RESPONSE.invalid
   end
   return objective_cell(row, "ObjectiveProposalResponse") and RESPONSE.proposal or RESPONSE.invalid
@@ -449,6 +460,9 @@ local function build_result()
         result.options[#result.options + 1] = option(prompt or "", OPTION.details, row.crc)
       elseif kind == RESPONSE.inprogress then
         result.dialogue, result.responseType = objective_cell(row, "InProgressResponse") or result.dialogue, RESPONSE.inprogress
+      elseif kind == RESPONSE.cooldown then
+        -- OnCooldown 8: the dialogue ObjectiveOnCooldownResponse (row +0x2E0), no accept option (research quest-conversation.md 5).
+        result.dialogue, result.responseType = objective_cell(row, "ObjectiveOnCooldownResponse") or result.dialogue, RESPONSE.cooldown
       end
       content = content or kind ~= RESPONSE.invalid
       if kind ~= RESPONSE.invalid and LINEAR then

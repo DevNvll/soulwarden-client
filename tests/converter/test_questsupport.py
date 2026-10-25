@@ -50,7 +50,7 @@ class RowTest(unittest.TestCase):
         self.assertEqual(questsupport.row_report(c, self.row())["class"], "untested")
         self.assertEqual(questsupport.row_report(c, self.row(supported=False, blocked=["a reason"]))["class"], "unavailable")
         timer = self.row(tasks=[{"id": "T1", "type": "tasktimer", "supported": True, "supplier": "the world clock"}])
-        self.assertEqual(questsupport.row_report(c, timer)["class"], "client stage")
+        self.assertEqual(questsupport.row_report(c, timer)["class"], "untested")
         self.assertEqual(questsupport.row_report(client(), self.row())["class"], "missing data")
 
     def test_offer_grant(self):

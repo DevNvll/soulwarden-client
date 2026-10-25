@@ -41,7 +41,11 @@ local function D()
   end
   local doc = swcui.load_json("gamedata/quests.json") or {objectives = {}, tasks = {}, events = {}}
   local data = {objectives = doc.objectives or {}, tasks = doc.tasks or {}, events = doc.events or {}, byCrc = {}, eventsByCrc = {},
-                pois = doc.pois or {}, npcNames = doc.npcNames or {}, npa = doc.npa or {}}
+                pois = doc.pois or {}, npcNames = doc.npcNames or {}, npa = doc.npa or {}, schedules = doc.schedules or {},
+                schedulesByCrc = {}}
+  for key, schedule in pairs(data.schedules) do
+    data.schedulesByCrc[crc(key)] = schedule
+  end
   for _, row in pairs(data.objectives) do
     data.byCrc[row.crc] = row
   end
@@ -116,7 +120,10 @@ rawset(_G, "ObjectiveInstanceId", function() return objective_id("0") end)
 
 local function record_of(id)
   if type(id) == "userdata" and idFields[id] then
-    return Q.byKey[id.instance or id.key]
+    local key = id.instance or id.key
+    -- During the removal events the removed record stays readable (bannertriggers.luac OnObjectiveFailed reads the type, the data, and
+    -- the creation params of the failed objective; the retail banner "Objective Failed" shows: live L1 of backend 1.8a).
+    return Q.byKey[key] or (Q.removing and Q.removing[key])
   end
   return nil
 end
@@ -175,7 +182,10 @@ local function objective_data(row)
     exclusiveTerritory = tonumber(cell(row, "ExclusiveTerritory") or "0") or 0,
     -- The group difficulty of the row (the column Difficulty; the journal shows "@objective_difficulty_N" above 0).
     difficulty = tonumber(cell(row, "Difficulty") or "0") or 0,
-    repeatable = cell(row, "Repeatable") == "1",
+    -- Repeatable: 1, true, TRUE (backend quest_data: the census of the data); ScheduleId: the CRC-32 of the lower-case id (the journal
+    -- and the interact card ask ScheduleDataManagerBus with it).
+    repeatable = (cell(row, "Repeatable") or ""):lower() == "1" or (cell(row, "Repeatable") or ""):lower() == "true",
+    scheduleId = cell(row, "ScheduleId") and crc(cell(row, "ScheduleId")) or GetNilCrc(),
     -- The filter of the available map icons (objectivesdatahandler.luac GetAvailableObjectivesByTerritoryId; AST-239).
     hideAvailableMapIcon = cell(row, "HideAvailableMapIcon") == "1",
     isValid = true,
@@ -224,6 +234,97 @@ local function send_pins()
   Swc.hostRequests[#Swc.hostRequests + 1] = "quest pins " .. table.concat(keys, ",")
 end
 
+-- ------------------------------------------------------------------------------------------------------------- the timer row
+
+-- The timer row of an objective (stage Q8, AST-243; docs/QUESTS.md "The timer row", a client decision, not the retail result).
+-- pinnedobjective.luac and journal/objective.luac show a countdown row when Hud.LocalPlayer.MissionTimers.<instance>.TargetTime exists,
+-- and read it once (SetObjectiveId). The retail client publishes a copy of a zero deadline at the bind of each TaskTimer, before its
+-- activation (0x3B2FD90), and no known server field changes it: the retail row shows a red 00:00:00, also for a hidden timer [R: backend
+-- 1.8e timer study; live I3 of backend 1.8d]. This client publishes the real deadline of the server instead: the start of the task
+-- (field 0 of the Objectives state, the synced wall clock) plus its Duration, only for an Active TaskTimer that is not hidden. The node
+-- goes when that task is no longer Active. Only the server ends the timer and the quest.
+Q.timerNodes = {}
+
+local function timer_path(rec)
+  return string.format("Hud.LocalPlayer.MissionTimers.%08x.TargetTime", rec.id.value)
+end
+
+--- @return The deadline (seconds of the wall clock) of the running TaskTimer of an objective that is not hidden, or nil.
+local function timer_deadline(rec)
+  for index, node in pairs(rec.nodes) do
+    local row, state = node.row, rec.states[index]
+    -- A failure timer (FailOnCondition) runs as CompleteActive (3) on the server (backend quests.md TaskTimer); a normal timer as Active.
+    local running = state and (state.state == (eObjectiveTaskState_Active or 1)
+      or (state.state == (eObjectiveTaskState_CompleteActive or 3) and cell(row, "FailOnCondition") == "1"))
+    if row and row.type == "tasktimer" and cell(row, "IsHidden") ~= "1" and running then
+      local start, duration = tonumber(rec.starts[index] or ""), tonumber(cell(row, "Duration") or "")
+      if start and start > 0 and duration then
+        return start / 1e9 + duration
+      end
+    end
+  end
+  return nil
+end
+Q.timer_deadline = timer_deadline
+
+-- A row that read the node before (the HUD pin, the journal entry) gets the new value: the cached end time, the row, and the tick.
+local function refresh_timer_rows(key, value)
+  for _, list in pairs(Swc.components) do
+    for _, inst in ipairs(list) do
+      local script = inst.__swcScript or ""
+      local hud = script:find("objectives/hud/pinnedobjective.luac", 1, true) ~= nil
+      local journal = script:find("objectives/journal/objective.luac", 1, true) ~= nil
+      if (hud or journal) and inst.objectiveId and inst.objectiveId.key == key and inst.Properties and inst.Properties.TimeRemaining then
+        inst.objectiveEndTime = value
+        inst.timeRemainingSeconds = 0
+        UiElementBus.Event.SetIsEnabled(inst.Properties.TimeRemaining, value ~= nil)
+        if inst.tickBusHandler and value == nil then
+          inst:BusDisconnect(inst.tickBusHandler)
+          inst.tickBusHandler = nil
+        elseif value ~= nil and not inst.tickBusHandler then
+          inst.tickBusHandler = inst:BusConnect(DynamicBus.UITickBus)
+        end
+        if hud and type(inst.UpdateTaskPositions) == "function" then
+          inst:UpdateTaskPositions()
+        end
+      end
+    end
+  end
+end
+
+local function update_timers(list)
+  local seen = {}
+  for _, rec in ipairs(list) do
+    local deadline = timer_deadline(rec)
+    if deadline then
+      local path = timer_path(rec)
+      seen[path] = true
+      if Q.timerNodes[path] ~= deadline then
+        Q.timerNodes[path] = deadline
+        local value = Swc.WallClockTimePoint.new({seconds = deadline})
+        Swc.SetData(path, value)
+        Swc.Note(string.format("quests: the timer row of %s ends at %.3f (%.1f s from now)", rec.row and rec.row.id or rec.key, deadline,
+          deadline - WallClockTimePoint:Now():GetTimeSinceEpoc():ToSeconds()))
+        refresh_timer_rows(rec.key, value)
+      end
+    end
+  end
+  for path in pairs(Q.timerNodes) do
+    if not seen[path] then
+      Q.timerNodes[path] = nil
+      Swc.SetData(path, nil)
+      local key = nil
+      for _, rec in ipairs(list) do
+        if timer_path(rec) == path then key = rec.key end
+      end
+      for k, rec in pairs(Q.byKeyBeforeTimers or {}) do
+        if timer_path(rec) == path then key = k end
+      end
+      if key then refresh_timer_rows(key, nil) end
+    end
+  end
+end
+
 --- The quest state of the owner (UI/SwcUiQuests): "A instance objective territory parent", "T instance index task progress state",
 --- "K instance" (tracked), "S instance index startNs", "C instance" (completed notice).
 function Swc.HostQuests(text)
@@ -266,10 +367,15 @@ function Swc.HostQuests(text)
   for _, key in ipairs(Q.tracked) do
     beforeTracked[key] = true
   end
+  Q.byKeyBeforeTimers = before
   Q.list, Q.byKey, Q.tracked = list, byKey, tracked
+  -- The timer rows first: a new pin reads its node in SetObjectiveId (OnObjectiveAdded below).
+  update_timers(list)
+  Q.byKeyBeforeTimers = nil
   Q.revision = Q.revision + 1
   Swc.SetData("ObjectivesComponentRequestBus.IsConnected", true)
   -- The events: the removed instances, the added instances, the task changes, the tracked changes, the order.
+  Q.removing = before
   for key, old in pairs(before) do
     if not byKey[key] then
       notify_component("OnObjectiveRemoved", old.id)
@@ -282,6 +388,7 @@ function Swc.HostQuests(text)
       end
     end
   end
+  Q.removing = nil
   for _, rec in ipairs(list) do
     if not before[rec.key] then
       Swc.Note("quests: the objective " .. (rec.row and rec.row.id or tostring(rec.crc)) .. " (" .. rec.key .. ")")
@@ -524,8 +631,15 @@ Swc.Define("ObjectivesComponentRequestBus", "Event", {
     local rec = first and Q.byKey[first.key]
     return rec and objective_data(rec.row).type or (eObjectiveType_Objective or 0)
   end,
-  -- The start of a task timer (field 0): the timers are stage Q8; until then the time now.
-  GetTaskStartTime = function() return WallClockTimePoint:Now() end,
+  -- The start of a task (field 0 of the Objectives state: the synced wall clock, Unix ns; stage Q8), else the time now.
+  GetTaskStartTime = function(_, taskId)
+    local rec = taskId and Q.byKey[taskId.instance]
+    local start = rec and tonumber(rec.starts[taskId.index] or "")
+    if start and start > 0 then
+      return Swc.WallClockTimePoint.new({seconds = start / 1e9})
+    end
+    return WallClockTimePoint:Now()
+  end,
   GetActiveTimedQuickCourseId = function() return 0 end,
   GetCurrentMissionId = function() return 0 end,
   GetCurrentMissionObjectiveId = function() return objective_id("0") end,
@@ -778,8 +892,75 @@ Swc.Define("LandClaimRequestBus", "Broadcast", {GetClaimKeys = function() return
 Swc.Define("PlayerDataManagerBus", "Broadcast", {
   GetRegionData = function() return {observesDst = false, utcOffset = 0, dstRuleId = 0} end,
 })
+-- The schedules of the repeats (stage Q8, AST-243; quests.json "schedules": javelindata_schedules). The cycles start at the shipped
+-- defaults of the client (configuration 0x616C670, instructions 0x6181D4B to 0x6181F87; research quests-18d rules Q4): Hourly at the full
+-- hour, Daily (DailyCooldown) at 05:00 UTC, Weekly (WeeklyCooldown) on Tuesday at 05:00 UTC; no region offset (the backend rule). A
+-- window of dates (StartDate and EndDate with a date: a season) starts at its date. A schedule with no rule has no next start.
+local DAY = 86400
+local function days_from_civil(y, m, d)
+  y = m <= 2 and y - 1 or y
+  local era = math.floor(y / 400)
+  local yoe = y - era * 400
+  local doy = math.floor((153 * (m + (m > 2 and -3 or 9)) + 2) / 5) + d - 1
+  local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+  return era * 146097 + doe - 719468
+end
+local function date_seconds(text)
+  local y, m, d = tostring(text or ""):match("^(%d%d%d%d)%-(%d%d)%-(%d%d)T")
+  return y and days_from_civil(tonumber(y), tonumber(m), tonumber(d)) * DAY or nil
+end
+local function schedule_of(id)
+  local data = D()
+  if type(id) == "number" then
+    return data.schedulesByCrc[id]
+  end
+  return id and data.schedules[string.lower(tostring(id))] or nil
+end
+--- @return The next start of a schedule (Unix seconds) after now, or nil.
+local function next_start(schedule, now)
+  if not schedule then
+    return nil
+  end
+  local start = schedule.startDate or ""
+  if start == "*-*-*T*:00:00" then
+    return math.floor(now / 3600) * 3600 + 3600
+  elseif start == "*-*-*TDailyCooldown" then
+    local at = math.floor(now / DAY) * DAY + 5 * 3600
+    return at > now and at or at + DAY
+  elseif schedule.startWeekday == "WeeklyCooldown" then
+    local day = math.floor(now / DAY)
+    local weekday = (day + 4) % 7   -- 1970-01-01 was a Thursday (4); Tuesday is 2
+    local at = (day - weekday + 2) * DAY + 5 * 3600
+    while at <= now do at = at + 7 * DAY end
+    return at
+  end
+  local dated = date_seconds(start)
+  return dated and dated > now and dated or nil
+end
+Q.next_schedule_start = function(id, now) return next_start(schedule_of(id), now or os.time()) end
 Swc.Define("ScheduleDataManagerBus", "Broadcast", {
-  GetNextScheduleStartTimeSeconds = function() return os.time() end,
+  GetNextScheduleStartTimeSeconds = function(id) return next_start(schedule_of(id), os.time()) or os.time() end,
+  GetSecondsRemainingUntilNextScheduleStart = function(id)
+    local at = next_start(schedule_of(id), os.time())
+    return at and math.max(0, at - os.time()) or 0
+  end,
+  GetScheduleDescription = function(id)
+    local schedule = schedule_of(id)
+    return schedule and schedule.description or ""
+  end,
+  -- A window of dates contains now; a cycle schedule is always in its schedule; an unknown key is not.
+  IsKeyInScheduleNow = function(key)
+    local schedule = schedule_of(key)
+    if not schedule then
+      return false
+    end
+    local first, last = date_seconds(schedule.startDate), date_seconds(schedule.endDate)
+    if not first and not last then
+      return schedule.startDate ~= nil or schedule.startWeekday ~= nil
+    end
+    local now = os.time()
+    return (not first or first <= now) and (not last or now < last + DAY)
+  end,
 })
 
 -- The documents of the journal (documentstab.luac OnInit counts the topics and the chapters; a nil list was a Lua error at each open of

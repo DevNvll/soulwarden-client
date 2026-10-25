@@ -438,6 +438,61 @@ progression that is not a weapon mastery.
   entry of the encoder of the backend (rank 0, 120 points) next to the masteries.
 - The messages 3435 and 5684: the backend copy (2026-10-22-60bea89) sends neither. No reader in Q7.
 
+## The timers, the failures, and the repeats (Q8, AST-243)
+
+The sources: the backend stage 1.8d (Soulwarden `docs/systems/quests.md`: TaskTimer, the end of an instance, the repeat) and the static
+timer study `~/Games/soulwarden/work/research/scratch/quests-18e/timer/ANSWERS.md`. The code: `swc/quests.lua`, `swc/conversation.lua`.
+
+### The timer row (a client decision, not a retail rule)
+
+The retail client publishes `Hud.LocalPlayer.MissionTimers.<instance>.TargetTime` at the bind of each TaskTimer, before its activation, as
+a copy of a zero deadline; nothing publishes it again. pinnedobjective.luac and journal/objective.luac show their countdown row when the
+node exists (also for a hidden timer) and read it once. Thus the retail live I3 row shows a red 00:00:00, because no known server field
+updates it [R]. A counting row helps the player. The rule of this client (the decision of the orchestrator, 2026-10-25):
+
+- The node is the real deadline of the server: the start of the task (field 0 of the Objectives state, the synced wall clock in Unix ns)
+  plus its Duration (with its fraction), only for a running TaskTimer that is not hidden (Active; a failure timer runs as CompleteActive).
+- The node goes when that task no longer runs. A hidden timer (the knife quest, 06_survivors) gets no node and no row.
+- The client sets the node before the events of a new objective (the pin reads it in SetObjectiveId) and gives a changed value to the rows
+  that read it before (their cached end time, the row, the tick).
+- Only the server ends the timer and the quest. After a relog the start of field 0 stays: a past deadline shows 00:00:00 until the server
+  state ends the task.
+- `GetTaskStartTime` gives the start of field 0. The task TimeLimit of GetUIData stays 0 (retail: no writer of the field), so the task text
+  has no countdown of its own.
+- If a later study finds the retail field that updates the node, the client follows it.
+- The data: 112 TaskTimers, 19 not hidden, none with FailOnCondition and not hidden. On the chain only 06_raisealarm_01_03_TaskTimer1 (6 s)
+  shows a row.
+
+### The failure
+
+A removal of an instance with no completed entry is a failure (a failure timer, TaskDie): OnObjectiveFailed, and bannertriggers.luac
+shows "Objective Failed" with the title of the quest. Fixed in Q8: the client removed the record before the event, the script stopped at
+`GetObjectiveData(...).flagPvp`, and no failure card showed. The removed records stay readable during the removal events now.
+
+### The repeat
+
+- The classifier (0x37AE910): with `javelin.enable-repeatable-quest-cooldowns` on, a Repeatable row (1, true, TRUE) whose completion
+  achievement is set answers OnCooldown 8: the dialogue ObjectiveOnCooldownResponse, no option of the row; the NPC state OnCooldown 16. A
+  row that is not repeatable is completedBefore (hidden). The backend keeps the completion achievement to the start of the next cycle.
+- `quests.json` "schedules" (javelindata_schedules: the start rule, the window, the weekdays, the UTC flag, the description key
+  ScheduledQuestDescription). The objective data has `repeatable` and `scheduleId` (the CRC-32 of the lower-case id).
+- `ScheduleDataManagerBus`: GetNextScheduleStartTimeSeconds, GetSecondsRemainingUntilNextScheduleStart (Hourly: the next full hour;
+  Daily: 05:00 UTC; Weekly: Tuesday 05:00 UTC; the shipped defaults of the client, no region offset; a window: its start date),
+  GetScheduleDescription (the description key), IsKeyInScheduleNow (a window that contains now).
+- The backend supports no repeatable row now (their rewards: a standing rank-up, Azoth): the repeat is tested offline only.
+
+### The messages 3435 and 5684
+
+The backend copy sends neither (the warning 3435, the disable 5684): no reader.
+
+### The tests
+
+- `questtimers` (19 checks): the visible timer of 06_raisealarm (the node, the countdown of the tracker, GetTaskStartTime), the end of the
+  timer task, the hidden knife timer (no row), a relog after the end (00:00:00), the journal row, the failure banner, and a hand-in (no
+  failure).
+- `questrepeat` (25 checks): OnCooldown and its dialogue, the flag, a row that is not repeatable, the objective data, the schedule bus
+  with fixed times. Needs `quests.json` with "schedules" (a check file; the deploy goes with the merge).
+
 ## The coverage report and the destructible quest objects (Q9, AST-244)
 
 ### The coverage report
@@ -449,14 +504,14 @@ offer, a placed person), the gate columns and their client rules, the client par
 of its supplier (a person, a POI tag, a quest object of the event, a scene, a cinematic, a game event, a recipe, the creatures), the
 reward kinds and their display, and the tests (`TESTS`). A quest object of an event: the gatherable row of the event (its objects have
 the tag `IO_ROW`) or a destructible quest object row (its objects have their own tags); it counts only with drawn meshes. The class of a
-row: "unavailable" (the backend does not support it), "missing data", "client stage" (a task type of a later client stage: the timer
-row of Q8), "untested", "tested". The counts are given for all rows, the supported rows, and each history of the manifest.
+row: "unavailable" (the backend does not support it), "missing data", "client stage" (a task type of a later client stage; none since
+Q8), "untested", "tested". The counts are given for all rows, the supported rows, and each history of the manifest.
 `knownGaps` lists the gaps that are not a part of Q9.
 
 The result (the manifest of the 1.8f evidence, the game data of 2026-10-22; the content with the check file of the objects):
-- 2,147 rows; 160 supported: 9 tested, 122 untested, 22 client stage (the timer row of Q8), 7 missing data.
-- The new character of each archetype (15 rows): 2 tested, 9 untested, 3 client stage (06_skinningknife, 06_survivors, 06_raisealarm:
-  their timer tasks), 1 missing data (a known gap).
+- 2,147 rows; 160 supported: 11 tested, 142 untested, 7 missing data (with Q8 the timer task is a client part; before Q8 22 rows were
+  "client stage").
+- The new character of each archetype (15 rows): 4 tested (offline fixtures), 10 untested, 1 missing data (a known gap).
 - Known gaps: 9932_0104_RelicReclamation (its offer is a note, 9932_VK_RomacNote, with no placed person), two housing reward items that
   are not in items.tsv (0330_0103_pickingupthepieces, 1225_0401_siteinspection).
 - The repeat check of the acceptance is blocked: backend 1.8f supports no repeatable objective (the nearest rows,

@@ -63,7 +63,7 @@ TASK_PARTS = {
     "taskgiveandtakeitem": ("the bag state", "server"),
     "taskremoveitem": ("the bag state", "server"),
     "taskdie": ("the health state", "server"),
-    "tasktimer": ("the timer row of the tracker (stage Q8, AST-243)", "stage Q8"),
+    "tasktimer": ("the server timer; the timer row of the tracker for a visible timer (swc/quests.lua, stage Q8)", "client"),
 }
 
 # The tests of a row: the offline fixtures and the live checks (the quest stages Q4 to Q7). A row that is not here is untested.
@@ -72,7 +72,7 @@ TESTS = {
     "06_skinningknife": ["fixture questpersons (the offer, 3772)", "fixture questrewards (the full bag, the pouch)",
                          "live AST-239 (the accept)"],
     "06_boarfeast": ["fixture questrewards (the availability)"],
-    "06_raisealarm": ["fixture questrewards (the reward data, the standing)"],
+    "06_raisealarm": ["fixture questrewards (the reward data, the standing)", "fixture questtimers (the timer row, the failure)"],
 }
 for _variant in ("destroyer", "musketeer", "mystic", "occultist", "ranger", "soldier", "swordsman"):
     TESTS["06_boarfeast_" + _variant] = ["fixture questrewards (the archetype variant)"]

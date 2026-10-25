@@ -1616,6 +1616,26 @@ def convert_poi_cues(pois: list) -> dict:
     return {"pois": len(out), "withLocal": len(out) - other_slices, "otherSlices": other_slices}
 
 
+SCHEDULE_COLUMNS = {"StartDate": "startDate", "EndDate": "endDate", "StartWeekday": "startWeekday", "EndWeekday": "endWeekday",
+                    "UTC": "utc", "ScheduledQuestDescription": "description"}
+
+
+def convert_schedules() -> dict:
+    """@return The rows of javelindata_schedules (ScheduleData) by the lower-case ScheduleId: the columns of SCHEDULE_COLUMNS (an empty
+    cell is left out)."""
+    out = {}
+    for row in datasheet.load("javelindata_schedules.datasheet").rows():
+        identifier = str(row.get("ScheduleId") or "").strip()
+        if identifier:
+            entry = {"id": identifier}
+            for column, key in SCHEDULE_COLUMNS.items():
+                value = row.get(column)
+                if value not in (None, ""):
+                    entry[key] = value if isinstance(value, str) else int(value) if float(value).is_integer() else value
+            out[identifier.lower()] = entry
+    return out
+
+
 def convert_quests(force: bool) -> dict:
     """gamedata/quests.json (Linear AST-236; research quest-plan.md "Converter output" Q1): the quest data of the backend copy
     (gamedata/quest-data.json of the release, format 1: the tools of the Soulwarden project made it from the game data): the objectives
@@ -1634,6 +1654,9 @@ def convert_quests(force: bool) -> dict:
     # backend export; the backend reads the conditional and the status: gamedata/quest_data.cpp), by the lower-case id.
     doc["npa"] = {row[0].lower(): {"conditional": row[1] if len(row) > 1 else "", "status": row[3] if len(row) > 3 else ""}
                   for row in data.get("npa", []) if isinstance(row, list) and row and isinstance(row[0], str)}
+    # AST-243 (Q8): the schedules of the repeats (javelindata_schedules, ScheduleData): the start rule, the window, the weekdays, the UTC
+    # flag, and the description key (ScheduledQuestDescription: "@objective_daily_description"), by the lower-case ScheduleId.
+    doc["schedules"] = convert_schedules()
     # AST-241: the points of interest of the backend copy (poi-data.json: id, name key, tags, territory, center, radius, shape) for the
     # place names of the task texts ({POITags}) and the place cues 2297 and 6416; the NPC names of the conversation data ({destinationName}).
     poi_file = gamedata_dir() / "poi-data.json"
@@ -1653,7 +1676,7 @@ def convert_quests(force: bool) -> dict:
         textures |= set(folder_textures(folder))
     textures |= set(QUEST_TEXTURES)
     return {"objectives": len(objectives), "tasks": len(data["tasks"]), "events": len(events), "npa": len(doc["npa"]),
-            "pois": len(doc.get("pois", [])), "cues": cues,
+            "schedules": len(doc["schedules"]), "pois": len(doc.get("pois", [])), "cues": cues,
             "npcNames": len(doc.get("npcNames", {})),
             "bytes": (target / "quests.json").stat().st_size, "textures": convert_textures(textures, force)}
 
