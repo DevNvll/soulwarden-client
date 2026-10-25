@@ -217,6 +217,8 @@ python3 -B tools/lib/retail_replay.py TAKE.json tests/drive/p3g-NAME [--weapon 1
 python3 -B tools/lib/retail_compare.py TAKE.json CLIENT_LOG --backend BACKEND_LOG   # the values of a replay against its take
 python3 -B tools/lib/side_by_side.py TAKE.json RETAIL.mp4 CLIENT_LOG CLIENT.mp4 RECORDER_START OUT.mp4 --part A B TEXT   # the side-by-side video
 tools/convert-objects.sh write                  # the objects of the level data for the object layer (docs/OBJECTS.md; meshes: the depleted node meshes)
+tools/convert-objects.sh quest-objects          # the destructible quest objects: world-objects/quest-objects.json (docs/QUESTS.md Q9)
+tools/convert-ui.sh questsupport MANIFEST       # the client coverage report of the quests against the backend support manifest (docs/QUESTS.md Q9)
 tools/convert-environment.sh write              # the environment data: the mission, the time presets, the lights and volumes of each region, the sky (check: the E0 proof)
 tools/match-view.sh SET [VIEW...]               # the matched views of a set of retail references: client pictures, side-by-side pictures, a contact sheet
 tools/match-view.sh SET VIEW --variant VIEW@NAME='CVAR VALUE;...'   # one more picture with console values; the next view sets those values back (from 2026-10-19; before, they stayed on)
