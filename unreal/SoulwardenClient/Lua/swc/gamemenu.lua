@@ -650,8 +650,10 @@ end
 
 --- The tabs of the journal (objectivestab.luac OnInit builds 14 tabs and gives them to TabbedList SetListData). A tab whose objective
 --- types the backend cannot give is hidden (the TabbedList rule isVisible false: the next tabs move up; the script keeps each tab
---- index). The kept tabs: Main Story (MainStoryQuest), Faction Story (FactionStory_*), Skill Progression, Mount Quest (MountUnlock:
---- 9 supported rows of the support manifest of backend 1.8f), Side Stories (Journey, Quest). The text key of each hidden tab, with its
+--- index). The kept tabs: Main Story (MainStoryQuest), Faction Story (FactionStory_*), Skill Progression, Mount Quest, Side Stories
+--- (Journey, Quest). Mount Quest stays (the decision of the orchestrator, 2026-10-25: the keep rule wins): the backend supports and
+--- offers 9 MountUnlock rows (the support manifest of backend 1.8f), so the player can see and finish them, also with no mount in this
+--- client. The text key of each hidden tab, with its
 --- reason, and its list of the content panel (the property of objectivestab.luac: its header, its count, and its Auto-Pin toggle).
 G.journalHiddenTabs = {
   ["@objective_location"] = {list = "LocationList", reason = "the POI, darkness, arena, dungeon, and trial objectives: no backend source"},

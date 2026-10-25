@@ -814,7 +814,8 @@ A screen shows no hint and no category of a feature that this client does not ha
   the map (mapmenu.luac SetHelpBar, target_tag_selection).
 - The journal hides the tabs and the content lists of the objective types that the backend cannot give (`G.journalHiddenTabs`):
   Location, Favor, Season Story, Epic Equipment, Faction Missions, Event Quests, Town Projects, Recipes, Artifacts. It keeps Main Story,
-  Faction Story, Skill Progression, Mount Quest (backend 1.8f supports 9 MountUnlock rows), and Side Stories. The rules: the TabbedList
+  Faction Story, Skill Progression, Mount Quest, and Side Stories. Mount Quest stays (the decision of the orchestrator, 2026-10-25: the
+  keep rule wins): backend 1.8f supports and offers 9 MountUnlock rows, so the player can see and finish them. The rules: the TabbedList
   rule for hidden buttons (isVisible false, EnableHiddenButtons), and for each hidden list and its header row SetIsEnabled false with the
   height 0 (a disabled child keeps its place in a LyShine layout: the rule of the script for its MSQMessage).
 - Fixture `unusedfeatures` (21 checks; picture unusedfeatures-journal).
