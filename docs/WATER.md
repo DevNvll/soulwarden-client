@@ -207,10 +207,23 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
 
 ### Stage 2b (after the full cook)
 
-- The storm waves of the overrides: the source animation (WavesSize 0.08 m for the mission ocean, 0.15 to 0.7 for the overrides,
-  WindSpeed 35 to 70, WindDirection in radians) has no proved rule for the Gerstner waves of the plugin yet [U]: the meaning of
-  WavesSize (an amplitude or a scale of the normal field) is not known. The plugin has one waves object for the ocean body, so a
-  change of the place changes the waves of the whole ocean (in the transition time of the override). A short study is needed first.
+- The storm waves of the overrides. The GPT-6.1-Sol study `~/Games/soulwarden-client/research/water-storm-waves.md` (2026-10-25;
+  brief `research/briefs/ast200-2b-storm-waves.txt`) found these rules:
+  - The source has one shared FFT field for the whole ocean [R]. An override does not make a new field.
+  - `WavesSize` S multiplies all the displacement (vertical and horizontal) linearly. `WavesAmount` M divides each wave length.
+    The FFT time runs at 0.125 x the frame time, and no authored value changes it. The wind values do not turn the displacement;
+    they only move the detail normals [R].
+  - The 8 s transition blends only the size (and the wave speed value). The amount and the wind values change at the end. The
+    override shape selects the values for the view only, so the whole ocean of the view changes [R]. One client ocean body thus
+    agrees with the source.
+  - The main wave lengths are 80 / M m and 40 / M m (the two copies of the field), both with a period of 6.40 s. The 4-sigma
+    height scale is 2.006 x S m: 0.16 m for the mission ocean, 0.30 m at the beaches, 0.60 m in the Cutlass Keys storm, and 1.40 m
+    for the "Ocean" override [I]. The real peak-to-trough height depends on the random field and the time [U].
+  - The Gerstner waves of the plugin cannot match exactly. Unreal derives the period from the wave length, and the source uses one
+    period for two lengths. The source also shears the horizontal displacement [P, I].
+  - The rule for the client: keep one wave list, scale its amplitude and steepness with S (also in the transition), and divide its
+    lengths by M at the end of a transition. The study gives a 24-wave explicit list as an approximation [I]. For a size of 0, use an
+    outer scale of 0 (the generator clamps an amplitude to at least 0.0001 cm). Full parity needs a custom displacement evaluation.
 - The shore foam decals on Single Layer Water (a deferred decal can project onto the water surface), the caustics (a static switch
   of the plugin material: it needs material instances), the river flow direction proof, and the cost in the cooked build.
 
