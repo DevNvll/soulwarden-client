@@ -164,6 +164,14 @@ Swc.hostRequests = {}
 click_text("Keyboard & Mouse Bindings")
 frames(0.5)
 picture("options-keys")
+-- The key rows of the actions that this client does not handle do not show; the rows of the keys that work show.
+for _, text in ipairs({"Spectate next", "Spectate previous", "Season Rewards", "Company", "Scoreboard", "Social", "Emote Slot 1",
+  "Screenshot", "Hide UI", "Target Group Member 1", "Chat"}) do
+  equal(Swc.HostPointOf("text:" .. text), "", "the key page has no row of a feature that this client does not have: " .. text)
+end
+for _, text in ipairs({"Zoom In", "Free Look", "Weapon 1", "Consumable 1", "Move Forward", "Inventory", "Map", "Character", "Journal"}) do
+  check(Swc.HostPointOf("text:" .. text) ~= "", "the key page has the row: " .. text)
+end
 equal(Swc.Keybind("jump", "movement"), "space", "the jump key of the profile")
 requests()
 check(click_text("Jump / Traverse"), "the jump row")

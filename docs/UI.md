@@ -679,6 +679,15 @@ The Options screen (`options.luac`):
   Controller (no game pad in the device scope), Audio (no sound yet), Social (no chat screen, no voice chat, no invites), About
   (web links); the tab Controller Bindings; and each row that this client cannot apply and that no loaded original script reads
   (`G.optionsHiddenRows`, with the reason of each). A group with no row left goes; a subheader with no row after it goes.
+- The key page (Keyboard & Mouse Bindings): the rows of the actions that this client does not handle go too (`G.keyHiddenActions`,
+  by the first action of the row, with the reason of each): the screenshot and Hide UI keys, the walk speed toggle, the two
+  modifiers, the spectator camera, the emotes and social actions, the target switch keys (the target lock of this client
+  switches by the mouse move), the group and ally targets, the gear sets, fishing and music, the mounts, the season rewards,
+  company, war scoreboard, social window, army, camp, and augments, the chat, voice, and narration keys, the PvP flag, duels,
+  the activity wheel, the pings, and the ready check. A title with no row after it goes. The rows that stay: the keys that the
+  player controller maps (`MapPlayKeys`) and the keys that a loaded script or the emulation handles (the zoom, the quick slots
+  and their cycle keys, the inventory, the map and its objectives, the character window, the journal, the notification keys,
+  the salvage keys). A hidden action keeps its key in the action maps: the conflict popup of the page can still name it.
 - Shown: Game (the map auto-zoom, the HUD layout, edit, reset, scale, and margins, the reticle rows, the vitals values, the
   damage numbers, the plate amount, the point reminders, the territory and salvage notices), Keyboard & Mouse (the invert, the
   sensitivities, the ADS multipliers), Video (window mode, monitor, resolution, maximum FPS, resolution scaling and its mode,

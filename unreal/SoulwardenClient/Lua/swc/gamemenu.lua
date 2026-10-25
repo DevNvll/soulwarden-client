@@ -5,8 +5,9 @@
 --     UIFeatures.g_uiEnableEntitlements false: no store, no Buy, no world name). The buttons of online services and of the
 --     backend features that this backend does not have are hidden (G.escapeHidden); after each layout of the script
 --     (UpdateScreen, UpdateMainMenuEsc) the client places the shown buttons again with the 50 px step of the script.
---   * The Options screen (options.luac): the categories, the tab, and the rows that this client cannot apply are taken out of
---     the row tables of the script before it builds them (G.optionsHidden*). The render scale uses the retail row "Resolution
+--   * The Options screen (options.luac): the categories, the tab, the rows that this client cannot apply, and the key rows of the
+--     actions that it does not handle are taken out of the row tables of the script before it builds them (G.optionsHidden*,
+--     G.keyHiddenActions). The render scale uses the retail row "Resolution
 --     Scaling" with a client label for its item (this client uses the temporal upscaler of Unreal, TSR, not FSR).
 
 local Swc = Swc
@@ -333,6 +334,68 @@ for _, group in ipairs(HIDDEN_ROWS) do
   end
 end
 
+--- The hidden rows of the key page (Keyboard & Mouse Bindings): the first action of the row (bindingData[1].bindingName) and the
+--- reason. A row stays when the player controller maps its action (ASwcPlayerController::MapPlayKeys), or a loaded original
+--- script or the emulation handles it (the inventory, the map, the character window, the journal, the quick slots, the
+--- notifications, the salvage keys).
+local HIDDEN_KEYS = {
+  {"no client function", "take_screenshot", "ui_visible", "toggleMoveSpeed", "shiftModifier1", "shiftModifier2"},
+  {"no PvP spectator camera", "pvp_spectatorcam_next_target", "pvp_spectatorcam_prev_target"},
+  {"no emotes and no social actions", "use_emote_slot1", "use_emote_slot2", "use_emote_slot3", "use_emote_slot4",
+    "toggleEmoteWindow", "social_align"},
+  {"the target lock of this client switches by the mouse move only", "camera_lock_next_target_cw", "camera_lock_next_target_ccw"},
+  {"no groups and no ally targets", "self_target", "lifestaff_target_lock", "ally_target_lock_modifier", "lifestaff_next_target_cw",
+    "lifestaff_next_target_ccw", "camera_lock_target_group1", "camera_lock_target_group2", "camera_lock_target_group3",
+    "camera_lock_target_group4", "camera_lock_target_group5", "camera_lock_group_mode_toggle"},
+  {"no gear set storage", "toggleEquipmentSetWindow", "equipLoadout1", "equipLoadout2", "equipLoadout3", "equipLoadout4",
+    "equipLoadout5", "equipLoadout6", "equipLoadout7", "equipLoadout8", "equipLoadout9", "gss_menu"},
+  {"no fishing and no music performance", "fishing_activate", "fishing_primary", "fishing_reset", "musicalactions_activate"},
+  {"no mounts", "mount_summon", "mount_dash", "mount_jump", "mount_stop"},
+  {"no season rewards, company, war scoreboard, social window, army, camp, or augments", "toggleSeasonsRewardsComponent",
+    "toggleGuildComponent", "toggleWarboardInGame", "toggleSocialWindow", "toggleRaidWindow", "makeCampOn", "toggleTokenWindow"},
+  {"no chat screen, voice chat, or narration", "toggleChatComponent", "toggleChatComponentSlash", "toggleMicrophoneOn", "toggleGENA"},
+  {"no PvP flag, duels, activity wheel, pings, or ready check", "togglePvpFlag", "duel_forfeit", "activity_menu", "target_tag",
+    "target_tag_modifier", "target_tag_selection", "target_tag_shout", "target_tag_move", "target_tag_attack", "target_tag_someone",
+    "target_tag_need_help", "target_tag_need_healing", "target_tag_loot", "target_tag_repair", "target_tag_defend",
+    "target_tag_caution", "target_tag_danger", "ready_up_accept"},
+}
+G.keyHiddenActions = {}
+for _, group in ipairs(HIDDEN_KEYS) do
+  for i = 2, #group do
+    G.keyHiddenActions[group[i]] = group[1]
+  end
+end
+--- The two columns of the key page.
+G.keyLists = {"KeyBindingListItemText1", "KeyBindingListItemText2"}
+
+--- Takes the rows of hidden actions out of a column of the key page (in place); a title with no row after it goes.
+--- @return The number of rows that went.
+local function filter_key_list(list)
+  local removed, kept = 0, {}
+  for _, row in ipairs(list) do
+    local first = type(row) == "table" and type(row.bindingData) == "table" and row.bindingData[1]
+    if first and G.keyHiddenActions[first.bindingName] then
+      removed = removed + 1
+    else
+      kept[#kept + 1] = row
+    end
+  end
+  local final = {}
+  for i, row in ipairs(kept) do
+    local nextRow = kept[i + 1]
+    if not (row.title and (nextRow == nil or nextRow.title)) then
+      final[#final + 1] = row
+    end
+  end
+  for i = #list, 1, -1 do
+    list[i] = nil
+  end
+  for i, row in ipairs(final) do
+    list[i] = row
+  end
+  return removed
+end
+
 --- The row lists of options.luac (swc/options.lua has the same names).
 G.optionLists = {"GameplayListItemData", "KBamListItemData", "ControllerListItemData", "VisualListItemData", "AudioListItemData",
   "SocialListItemData", "AccessibilityListItemData", "AboutListItemData", "TwitchListItemData", "CrossplayListItemData"}
@@ -457,8 +520,14 @@ Swc.scriptHooks["lyshineui.options.options"] = function(base)
             rows = rows + filter_list(self[name])
           end
         end
-        Swc.Note(string.format("game menu: the options screen without %d categories, %d tabs, %d rows of features that this client "
-          .. "does not have", categories, tabs, rows))
+        local keys = 0
+        for _, name in ipairs(G.keyLists) do
+          if type(self[name]) == "table" then
+            keys = keys + filter_key_list(self[name])
+          end
+        end
+        Swc.Note(string.format("game menu: the options screen without %d categories, %d tabs, %d rows and %d key rows of features "
+          .. "that this client does not have", categories, tabs, rows, keys))
       end
       return build(self, ...)
     end
