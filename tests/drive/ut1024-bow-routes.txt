@@ -1,0 +1,5 @@
+# The routes of tests/drive/ut1024-bow.txt: noon, the creatures ignore the character, a grey wolf 4 m east facing the character.
+1 world-time 12:00
+1 ignore on
+1.5 heal
+5.5 spawn Wolf_Grey_7 4 0 0 --yaw 270 --level 70

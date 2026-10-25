@@ -1827,15 +1827,15 @@ std::vector<std::string> USwcBackendSubsystem::GetEquippedAmmo()
 {
 	std::vector<std::string> Out;
 	swc::net::RepClient::OwnEntity Own;
-	const FSwcPlayerLooks* Looks = GetPlayerLooks();
-	if (Looks == nullptr || !GetLocalPlayer(Own))
+	const FSwcPlayerLooks* Catalog = GetPlayerLooks();
+	if (Catalog == nullptr || !GetLocalPlayer(Own))
 	{
 		return Out;
 	}
 	for (const std::uint32_t Slot : swc::ranged::Shared::kAmmoSlots)
 	{
 		const auto Found = Own.paperdollItems.find(Slot);
-		Out.push_back(Found != Own.paperdollItems.end() ? std::string(TCHAR_TO_UTF8(*Looks->ItemId(Found->second.index))) : std::string());
+		Out.push_back(Found != Own.paperdollItems.end() ? std::string(TCHAR_TO_UTF8(*Catalog->ItemId(Found->second.index))) : std::string());
 	}
 	return Out;
 }

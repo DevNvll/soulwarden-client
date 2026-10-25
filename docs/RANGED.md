@@ -142,7 +142,17 @@ The arrows (user test 2026-10-24, "the arrow projectile is a thin cylinder", "wh
   arrowAttach_tip on the joint arrowAttach_tip_jnt, which the bow prop clips move. `FSwcFragmentEffects` shows the mesh of the
   ammunition at that helper from the start of the clip to its end (the next procedural item of its layer, else the end of the
   fragment) [I: the native clip spawns the ammunition there; the client shows its mesh]. A bow that is a static mesh has no joint:
-  no nocked arrow (logged).
+  no nocked arrow (logged). The body database (`player_bow.adb`) has the same clip with the name righthandattach (ReadyWeapon 0.1
+  to 0.333 s, Reload 0.2 to 0.633 s, HipFire 0.067 to 0.133 s): the arrow in the drawing hand before the nock. That name is a socket of
+  the base character file (weapons.json "attachments"), not a helper of the bow: the client takes the socket of the body when the
+  weapon file has no helper of the name (`FSwcPlayerLooks::SocketPlace`). arrowAttach_tip_jnt is the child of arrowAttach_jnt (the nock
+  on the string) 0.94 m in front of it: the place of the head of the arrow; the mesh has its head at its origin.
+- Check (development runs on a copy of the user's database, 2026-10-25; evidence `usertest-1024/bow5.mp4`, `bow7.mp4`,
+  `item3-bow-side-by-side.png`; the retail take set-mvpl-effects/retail-bow.mp4): the arrow comes into the hand, then lies across
+  the bow at full draw with its head at the bow and its fletching at the drawing hand (as the retail take at 9.00 s), and goes at
+  the release (retail 9.70 s). The shots log the mesh jav_wep_gear_arrowa. In a slow-motion shot (slomo 0.2) the trail of the attack
+  (wFX_Default_Range.Trail, now in the game frame: its up is the world up) is a broad white card that covers most of the mesh; the
+  retail look of the flight has no picture (a known point).
 - Tests: `tools/test-ranged.sh` (the choice; with the new data, DefaultArrow and ArrowT5 have the arrow mesh).
 
 ## The ground target and the confirm

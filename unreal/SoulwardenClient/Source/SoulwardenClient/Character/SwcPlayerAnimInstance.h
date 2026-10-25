@@ -142,6 +142,8 @@ private:
 
 	TSharedPtr<FSwcLocomotion> Locomotion;
 	TSharedPtr<FSwcActions> Actions;
+	/** The gender of the body (the sockets of the base character file; usertest-1024). */
+	bool bFemaleBody = false;
 	const FSwcWeaponActions* Stance = nullptr;
 	bool bOffhandStance = false;
 	const TCHAR* StanceVariant = TEXT("");

@@ -34,6 +34,9 @@ struct FSwcEffectOwner
 	/** The object path of the mesh of the ammunition of the weapon (a CAGE-Attachment clip; usertest-1024): called at the enter of such
 	 *  a clip only. Empty: no ammunition look. */
 	TFunction<FString()> AmmoMesh;
+	/** A socket of the body by its attachment name (righthandattach; usertest-1024): the bone and the transform in its frame. False:
+	 *  the body has no such socket. A CAGE-Attachment clip takes it when the weapon file has no helper of the name. */
+	TFunction<bool(FName, FName&, FTransform&)> BodySocket;
 };
 
 /**

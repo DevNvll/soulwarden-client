@@ -1,0 +1,57 @@
+# usertest-1024 item 3, run 7: a wolf 4 m ahead (the creatures ignore the character); a shot that sticks in it and a side view (free look), then a slow-motion shot in that view.
+1.0 tick
+2.0 view 89.8 -6
+2.0 tick
+3.0 tick
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 key 1
+8.0 tick
+9.0 tick
+10.0 tick
+11.0 tick
+12.0 aim 1
+12.0 tick
+12.5 attack 1
+12.9 attack 0
+13.0 tick
+13.5 aim 0
+14.0 freelook 1
+14.0 tick
+14.2 view 150 -12
+15.0 tick
+16.0 tick
+17.0 tick
+18.0 tick
+19.0 aim 1
+19.0 tick
+19.5 attack 1
+20.0 tick
+20.5 exec slomo 0.2
+20.6 attack 0
+21.0 tick
+21.4 aim 0
+22.0 tick
+22.6 exec slomo 1
+23.0 tick
+24.0 freelook 0
+24.0 tick
+24.2 view 89.8 -6
+25.0 tick
+26.0 tick
+27.0 tick
+28.0 tick
+29.0 tick
+30.0 tick
+31.0 tick
+32.0 tick
+33.0 tick
+34.0 tick
+35.0 tick
+36.0 tick
+37.0 tick
+38.0 tick
+39.0 tick
+40.0 tick

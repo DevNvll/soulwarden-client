@@ -130,6 +130,7 @@ void USwcPlayerAnimInstance::SetLocomotion(const TSharedPtr<FSwcLocomotion>& Dat
 
 void USwcPlayerAnimInstance::SetActions(const TSharedPtr<FSwcActions>& Data, bool bFemale)
 {
+	bFemaleBody = bFemale;
 	Actions = Data;
 	ActionPaths.Reset();
 	ActionSequences.Reset();
@@ -188,6 +189,15 @@ void USwcPlayerAnimInstance::UpdateEffects(int32 Channel, int32 Fragment, uint32
 		Owner.AmmoMesh = [Data, Fallback, Backend]()
 		{
 			return SwcAmmoMesh(*Data, Fallback, Backend != nullptr ? Backend->GetEquippedAmmo() : std::vector<std::string>());
+		};
+		const bool bFemale = bFemaleBody;
+		Owner.BodySocket = [Backend, bFemale](FName Name, FName& OutBone, FTransform& OutRelative)
+		{
+			const FSwcPlayerLooks* Looks = Backend != nullptr ? Backend->GetPlayerLooks() : nullptr;
+			const FSwcAttachPlace Place = Looks != nullptr ? Looks->SocketPlace(bFemale, Name.ToString().ToLower()) : FSwcAttachPlace();
+			OutBone = Place.Bone;
+			OutRelative = Place.Offset;
+			return Place.IsValid();
 		};
 	}
 	const bool bValid = Fragment != INDEX_NONE && Actions->Fragments.IsValidIndex(Fragment);

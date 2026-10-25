@@ -138,6 +138,10 @@ public:
 	 */
 	bool Preflight(const FSwcPlayerLook& Look, FString& OutText) const;
 
+	/** A socket of the base character file of the gender (weapons.json "attachments", for example righthandattach on right_hand_attach)
+	 *  with no equip offset (usertest-1024: the ammunition of a CAGE-Attachment clip of the body). Not valid when the file has none. */
+	FSwcAttachPlace SocketPlace(bool bFemale, const FString& Attachment) const { return Place(bFemale, Attachment, nullptr, TEXT("")); }
+
 private:
 	FString ImportedObject(const FString& Key, const TCHAR* Class) const;
 	TArray<FString> ImportedObjects(const FString& Key, const TCHAR* Class) const;

@@ -340,11 +340,19 @@ void FSwcFragmentEffects::ShowAmmo(const FSwcActions& Data, const FSwcEffectOwne
 	UStaticMesh* Mesh = MeshPath.IsEmpty() ? nullptr : LoadObject<UStaticMesh>(nullptr, *MeshPath);
 	FName Socket;
 	FTransform Relative;
-	if (Mesh == nullptr || !SwcWeaponHelperPlace(Data, Owner.WeaponFile, Clip.Attachment, Owner.Weapon, Socket, Relative))
+	// The attachment: a helper of the weapon file (arrowattach_tip of the bow), else a socket of the body (righthandattach: the arrow in
+	// the drawing hand before the nock, the clips of player_bow.adb).
+	USceneComponent* Parent = Owner.Weapon;
+	const bool bWeaponHelper = Mesh != nullptr && SwcWeaponHelperPlace(Data, Owner.WeaponFile, Clip.Attachment, Owner.Weapon, Socket, Relative);
+	if (!bWeaponHelper && Mesh != nullptr && Owner.Body != nullptr && Owner.BodySocket && Owner.BodySocket(Clip.Attachment, Socket, Relative))
+	{
+		Parent = Owner.Body;
+	}
+	else if (!bWeaponHelper)
 	{
 		Note(FString::Printf(TEXT("CAGE-Attachment %s of %s: %s"), *Clip.Attachment.ToString(), *Owner.WeaponFile,
 			Mesh == nullptr ? *FString::Printf(TEXT("no ammunition mesh (%s)"), MeshPath.IsEmpty() ? TEXT("none") : *MeshPath)
-			                : TEXT("no such helper of the weapon file")));
+			                : TEXT("no such helper of the weapon file and no such socket of the body")));
 		return;
 	}
 	UStaticMeshComponent* Prop = AmmoProp.Get();
@@ -366,9 +374,9 @@ void FSwcFragmentEffects::ShowAmmo(const FSwcActions& Data, const FSwcEffectOwne
 	}
 	// The mesh of the game and the helper are both in the space map of stage 1.1: the helper transform places the arrow (its tip at the
 	// origin, the shaft along the game -Y) on the joint arrowAttach_tip_jnt, which the bow prop clips move along the draw.
-	if (Prop->GetAttachParent() != Owner.Weapon || Prop->GetAttachSocketName() != Socket)
+	if (Prop->GetAttachParent() != Parent || Prop->GetAttachSocketName() != Socket)
 	{
-		Prop->AttachToComponent(Owner.Weapon, FAttachmentTransformRules::KeepRelativeTransform, Socket);
+		Prop->AttachToComponent(Parent, FAttachmentTransformRules::KeepRelativeTransform, Socket);
 	}
 	Prop->SetRelativeTransform(Relative);
 	FLive& Item = Live.AddDefaulted_GetRef();

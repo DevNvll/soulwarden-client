@@ -226,10 +226,11 @@ void USwcRangedView::SpawnShots()
 		}
 		Shots.Add(Shot);
 		++Projectiles;
-		UE_LOG(LogSwcBackend, Log, TEXT("ranged: the own projectile of the shot %08x row %08x %s at input %u: %s %.0f m/s, range %.0f m, life %.2f s, to the aim point %.1f m away"),
+		UE_LOG(LogSwcBackend, Log, TEXT("ranged: the own projectile of the shot %08x row %08x %s at input %u: %s %.0f m/s, range %.0f m, life %.2f s, to the aim point %.1f m away, the mesh %s"),
 			Recent.attack, Recent.row, UTF8_TO_TCHAR(Recent.spell.c_str()), static_cast<unsigned>(Recent.input),
 			Rule != nullptr ? UTF8_TO_TCHAR((Rule->profile + "/" + Rule->attack).c_str()) : TEXT("(no rule)"), Shot.Velocity.Size() / 100.0,
-			Shot.MaxRange / 100.0, Shot.Life, bHasAim ? FVector::Dist(AimPoint, Muzzle) / 100.0 : -1.0);
+			Shot.MaxRange / 100.0, Shot.Life, bHasAim ? FVector::Dist(AimPoint, Muzzle) / 100.0 : -1.0,
+			Mesh != nullptr && Mesh->GetStaticMesh() != nullptr ? *Mesh->GetStaticMesh()->GetName() : TEXT("none"));
 	}
 }
 
