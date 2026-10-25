@@ -64,6 +64,9 @@ constexpr double DeadBodySeconds = 300.0;
 constexpr double ContactMargin = 50.0;
 // The strike trace (usertest-1024): a creature up to this distance (cm) beyond the body bounds test gets its trace line.
 constexpr double MissBand = 150.0;
+/** The coarse test of the melee search with the mesh bounds (cm): a creature that is farther from the strike shape is no candidate;
+ *  the hit volumes can reach this far out of the mesh bounds (usertest-1024). */
+constexpr double CoarseMargin = 300.0;
 /** The wall line: from the feet of the attacker at this height (cm; a value of this client) to the point of the contact; a hit
  *  nearer than the point by more than the slack is a wall. */
 constexpr double WallLineHeight = 100.0;
@@ -1409,20 +1412,34 @@ int32 USwcCreatureSubsystem::FindMeleeContacts(const FSwcMeleeShape& Melee, TArr
 		{
 			continue;
 		}
-		const FBoxSphereBounds Bounds = Creature->GetBodyBounds();
-		if (const double Away = FVector::Dist(Bounds.Origin, Middle); Away > Bounds.SphereRadius + Reach + ContactMargin)
+		// A coarse test with the mesh bounds (a creature far from the shape costs no hit shapes), then the broad phase with the bounds
+		// of the hit volumes: they must contain the volumes (usertest-1024: the corrected capsules can leave the mesh bounds).
+		const FBoxSphereBounds MeshBounds = Creature->GetBodyBounds();
+		if (FVector::Dist(MeshBounds.Origin, Middle) > MeshBounds.SphereRadius + Reach + ContactMargin + CoarseMargin)
 		{
-			if (bTrace && Away <= Bounds.SphereRadius + Reach + ContactMargin + MissBand)
-			{
-				Shapes.Reset();
-				Creature->GetHitShapes(Shapes);
-				TraceTarget(Pair.Key, *Creature, *Entity, FString::Printf(TEXT("out of the body bounds (%.2f m from the bounds centre, the test %.2f m)"),
-					Away / 100.0, (Bounds.SphereRadius + Reach + ContactMargin) / 100.0), Shapes, true);
-			}
 			continue;
 		}
 		Shapes.Reset();
 		Creature->GetHitShapes(Shapes);
+		FBox VolumeBox(ForceInit);
+		for (const FSwcCreatureHitShape& Shape : Shapes)
+		{
+			VolumeBox += Shape.Shape.Bounds();
+		}
+		if (!VolumeBox.IsValid)
+		{
+			continue;
+		}
+		const double BoundsRadius = VolumeBox.GetExtent().Size();
+		if (const double Away = FVector::Dist(VolumeBox.GetCenter(), Middle); Away > BoundsRadius + Reach + ContactMargin)
+		{
+			if (bTrace && Away <= BoundsRadius + Reach + ContactMargin + MissBand)
+			{
+				TraceTarget(Pair.Key, *Creature, *Entity, FString::Printf(TEXT("out of the bounds of the hit volumes (%.2f m from their centre, the test %.2f m)"),
+					Away / 100.0, (BoundsRadius + Reach + ContactMargin) / 100.0), Shapes, true);
+			}
+			continue;
+		}
 		const FSwcCreatureHitShape* Best = nullptr;
 		FVector BestPoint = FVector::ZeroVector;
 		FVector BestNormal = FVector::ZeroVector;

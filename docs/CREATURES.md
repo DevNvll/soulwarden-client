@@ -187,6 +187,12 @@ Avatar->GetActions()->SetContactQuery(/* USwcCreatureSubsystem::QueryMeleeContac
     horizontal distance and the height below the feet, each hit volume (the segment ends or the box, the radius), and for a miss the
     gap to the nearest volume (the radius growth of the strike shape that makes a contact, 1 cm steps, at most 2 m).
   - A picture of the shapes: `-SwcDrawStrikes` (the strike shapes) with `-SwcHitVolumes` (the hit volumes of the creatures).
+  - The hit capsule (research `usertest-hitvolume.md` sections 1, 2, 5; the retail centered shape factory 0x169DC80): the authored height
+    is the center segment, so the half-segment is height / 2 x scale and the radius is radius x scale
+    (`Creatures/SwcHitVolumeRule.h`, `ASwcCreature::GetHitShapes`; before, max(0, height / 2 - radius) made each capsule too short and
+    the rabbit torso a sphere). The axis is the authored triple normalized (+Z for a zero triple). The melee broad phase uses the
+    bounds of the hit volumes (`FSwcHitShape::Bounds`), after a coarse test with the mesh bounds plus 3 m. Test:
+    `tools/test-creatures.sh` (the rabbit and rat values of the study).
   - The controlled check (2026-10-25; `tests/drive/ut1024-axe*.txt`, `-SwcStrikeTrace -SwcDrawStrikes -SwcHitVolumes`; evidence
     `usertest-1024/axe1.mp4`, `item4-cases.txt`, `item4-maelstrom-shapes.png`): a rabbit (Dunwood_Rabbit:2) and a rat
     (FL_Rat_HercyneRat_09FL02a) at 0, -0.25, -0.5, -1 m to the character (the terrain adds 0.2 to 0.4 m), each with Charge (4 m

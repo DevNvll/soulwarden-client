@@ -29,6 +29,9 @@ struct SOULWARDENCLIENT_API FSwcHitShape
 
 	/** @return The center of the shape. */
 	FVector Middle() const { return Core == ECore::Box ? Center : (Start + End) * 0.5; }
+	/** @return The axis-aligned bounds of the shape with its radius (usertest-1024: the broad phase of the melee query, as the retail
+	 *  bounds of a capsule: its two ends and its radius). */
+	FBox Bounds() const;
 };
 
 /**

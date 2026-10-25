@@ -1,4 +1,5 @@
 #include "Creatures/SwcCreature.h"
+#include "Creatures/SwcHitVolumeRule.h"
 
 #include "Character/SwcSmooth.h"
 #include "Components/CapsuleComponent.h"
@@ -480,10 +481,11 @@ void ASwcCreature::GetHitShapes(TArray<FSwcCreatureHitShape>& Out) const
 			break;
 		case FSwcHitVolume::EShape::Capsule:
 		{
-			// The height of a capsule is the length with its two ends.
+			// The height of a capsule is its center segment, with no rounded ends (the retail shape factory 0x169DC80; usertest-1024,
+			// research usertest-hitvolume.md: before, max(0, height / 2 - radius) made each capsule too short, the rabbit torso a sphere).
 			const FVector Axis = BoneWorld.TransformVectorNoScale(ToUnreal(Volume.EngineAxis));
-			const double Half = FMath::Max(0.0, Volume.Height * 0.5 - Volume.Radius) * Scale;
-			Hit.Shape = FSwcHitShape::Capsule(Center - Axis * Half, Center + Axis * Half, static_cast<float>(Volume.Radius * Scale));
+			const swc::creatures::HitCapsuleSize Size = swc::creatures::hit_capsule_size(Volume.Height, Volume.Radius, Scale);
+			Hit.Shape = FSwcHitShape::Capsule(Center - Axis * Size.half, Center + Axis * Size.half, static_cast<float>(Size.radius));
 			break;
 		}
 		}

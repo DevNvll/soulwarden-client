@@ -89,6 +89,20 @@ FSwcHitShape FSwcHitShape::Sphere(const FVector& InCenter, float InRadius)
 	return Capsule(InCenter, InCenter, InRadius);
 }
 
+FBox FSwcHitShape::Bounds() const
+{
+	if (Core == ECore::Box)
+	{
+		// The extent of a turned box on each world axis: the sum of its half axes projected on it.
+		const FVector X = Rotation.GetAxisX() * HalfSize.X;
+		const FVector Y = Rotation.GetAxisY() * HalfSize.Y;
+		const FVector Z = Rotation.GetAxisZ() * HalfSize.Z;
+		const FVector Extent = X.GetAbs() + Y.GetAbs() + Z.GetAbs() + FVector(Radius);
+		return FBox(Center - Extent, Center + Extent);
+	}
+	return FBox(Start.ComponentMin(End) - FVector(Radius), Start.ComponentMax(End) + FVector(Radius));
+}
+
 FSwcHitShape FSwcHitShape::Capsule(const FVector& InStart, const FVector& InEnd, float InRadius)
 {
 	FSwcHitShape Shape;

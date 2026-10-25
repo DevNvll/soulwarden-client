@@ -54,6 +54,9 @@ nice -n 10 "${compiler}" "${flags[@]}" \
     "${backend}/src/server/rep/states/ownership_states.cpp" "${backend}/src/world/ids.cpp" \
     "${backend}/src/core/logging/log.cpp" "${backend}/src/middleware/compression/lz4.cpp" \
     -o "${out}/swc-object-tests"
+# The retail rule of the hit volumes (usertest-1024; Creatures/SwcHitVolumeRule.h): plain C++, no backend source.
+nice -n 10 "${compiler}" "${flags[@]}" "${SWC_REPO}/tests/creatures/hitvolume_tests.cpp" -o "${out}/swc-hitvolume-tests"
+"${out}/swc-hitvolume-tests"
 "${out}/swc-creature-tests"
 "${out}/swc-combat-tests"
 "${out}/swc-effect-tests"
