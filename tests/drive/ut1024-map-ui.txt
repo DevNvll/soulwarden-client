@@ -1,0 +1,8 @@
+# The UI drive of ut1024-map.txt: M opens the map at the player; two wheel steps zoom in; M closes the map. Times from the spawn.
+12.0 log M opens the map
+12.0 key m
+13.5 wheel 1
+14.2 wheel 1
+32.0 log M closes the map
+32.0 key m
+40 end

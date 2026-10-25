@@ -323,6 +323,16 @@ Linear AST-213. `tools/convert-ui.sh worldmap` writes the data and the textures;
   then moves the character as for each travel (3951, the movement state with a new teleport number, 3954), and the client
   keeps its loading gate until the cells of the place are there.
 - The drive target `shrine:POI` (Swc.HostPointOf) is the map icon of a shrine.
+- The player arrow (AST-289, user test 2026-10-24): the LocalPlayer icon of markerslayer.luac follows `Hud.LocalPlayer.Position`
+  (UpdateLocalPlayerPosition) and `Hud.LocalPlayer.PlayerHeading` (UpdateLocalPlayerRotation: positionalicon.luac turns its Image by
+  360 - the heading in degrees). The compass and the respawn map read the same two nodes. The client sends `Swc.HostView` at each turn
+  of the camera and at each move of 5 cm or more of the feet of the avatar (`USwcUiSubsystem`; before, only at a turn, so the arrow
+  stayed at the place of the open while the player walked; the place is the avatar, not the own entity place of the server, which can
+  be seconds old). Check: the fixture `worldmap` (the arrow moves 300 m east and 200 m north, and turns 90 degrees, with the map open)
+  and a development run (`SWC_WORK/evidence/usertest-1024/ast289-map-arrow.png`, the draw lists of the UI drive: the image at 66.5
+  degrees, then 246.5 degrees, as the camera; the software preview of the draw list and the video frame are the same).
+- `WarDataServiceBus.GetRaceForTerritory` gives a race that is not valid (IsValid, IsActive, IsUpcoming false): companiesatwarlist.luac
+  GetConflicts calls IsValid on it for each territory (before, the stub nil gave "attempt to index a nil value" at each open of the map).
 
 ### Dynamic lists (swc/dynamic.lua)
 

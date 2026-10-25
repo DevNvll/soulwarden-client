@@ -2103,13 +2103,21 @@ void USwcUiSubsystem::FeedLocalPlayer()
 		}
 	}
 
-	// The compass: the camera yaw (0 north, positive west) and the position of the entity (engine meters).
+	// The compass, the world map, and the respawn map: the camera yaw (0 north, positive west) and the place of the feet of the avatar
+	// (engine meters; Hud.LocalPlayer.PlayerHeading and .Position). Each turn and each move of 5 cm or more goes out (AST-289: before,
+	// only a turn sent the place, so the arrow of the map stayed where the map opened while the player walked with a still camera; the
+	// own entity place of the server can also be seconds old).
 	const float Yaw = Backend->GetCameraYawDegrees();
-	if (!FMath::IsNearlyEqual(Yaw, SentYaw, 0.01f))
+	const UWorld* ViewWorld = GetGameInstance() != nullptr ? GetGameInstance()->GetWorld() : nullptr;
+	const APlayerController* ViewController = ViewWorld != nullptr ? ViewWorld->GetFirstPlayerController() : nullptr;
+	const APawn* ViewPawn = ViewController != nullptr ? ViewController->GetPawn() : nullptr;
+	const swc::net::WorldPosition Place = ViewPawn != nullptr ? SwcUnrealToEngine(ViewPawn->GetNavAgentLocation()) : Own.position;
+	const float MovedSq = FMath::Square(Place.x - SentPlace.x) + FMath::Square(Place.y - SentPlace.y) + FMath::Square(Place.z - SentPlace.z);
+	if (!FMath::IsNearlyEqual(Yaw, SentYaw, 0.01f) || MovedSq >= 0.05f * 0.05f)
 	{
 		SentYaw = Yaw;
-		Runtime->call("HostView", {FArg::of(static_cast<double>(Yaw)), FArg::of(Own.position.x), FArg::of(Own.position.y),
-									FArg::of(Own.position.z)});
+		SentPlace = Place;
+		Runtime->call("HostView", {FArg::of(static_cast<double>(Yaw)), FArg::of(Place.x), FArg::of(Place.y), FArg::of(Place.z)});
 	}
 	// The aim of the player (the camera state AimCamera): the bow reticle takes the spread of its bars from it (swc/reticle.lua).
 	const APlayerController* Player = GetGameInstance() != nullptr ? GetGameInstance()->GetFirstLocalPlayerController() : nullptr;

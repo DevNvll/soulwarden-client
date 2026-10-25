@@ -323,9 +323,17 @@ Swc.Define("TerritoryDefinitionsDataManagerBus", "Broadcast", {
 })
 
 -- Wars, races, raids, outposts, claims, and influence towers: the backend has none of these systems.
+-- An influence race of a territory: none (companiesatwarlist.luac GetConflicts calls IsValid on the result for each territory; the
+-- stub value nil gave "attempt to index a nil value" at each open of the map: AST-289).
+local noRace = {
+  IsValid = function() return false end,
+  IsActive = function() return false end,
+  IsUpcoming = function() return false end,
+}
 Swc.Define("WarDataServiceBus", "Broadcast", {
   GetWars = function() return {} end,
   GetWarsForGuild = function() return {} end,
+  GetRaceForTerritory = function() return noRace end,
 })
 Swc.Define("RaidSetupRequestBus", "Broadcast", {
   GetSignedUpTerritories = function() return {} end,

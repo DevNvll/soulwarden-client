@@ -40,6 +40,48 @@ check(swcui.canvas_get(map, "enabled"), "the map screen shows")
 check(Swc.HostCursor(), "the map has the cursor")
 picture("worldmap-open")
 
+-- AST-289 (the user test 2026-10-24): the player arrow follows the place and the heading while the map is open. The host sends
+-- HostView at each move of the avatar (before: only at a turn of the camera). The arrow is the LocalPlayer icon of the markers
+-- layer (markerslayer.luac UpdateLocalPlayerPosition, UpdateLocalPlayerRotation: the observers of Hud.LocalPlayer.Position and
+-- .PlayerHeading).
+local function player_arrow()
+  for _, list in pairs(Swc.components) do
+    for _, instance in ipairs(list) do
+      if string.find(instance.__swcScript or "", "markerslayer.luac", 1, true) and instance.mapIcons and instance.iconTypes then
+        local icons = instance.mapIcons[instance.iconTypes.LocalPlayer]
+        if icons and icons[1] then
+          return icons[1].entityId, icons[1].Properties and icons[1].Properties.Image
+        end
+      end
+    end
+  end
+  return nil
+end
+local arrow, arrowImage = player_arrow()   -- positionalicon.luac SetRotationZ turns its Image
+check(arrow ~= nil, "the map has the arrow of the player")
+if arrow then
+  local function pose()
+    local offsets = {swcui.get(arrow, "transform.offsets")}
+    local anchors = {swcui.get(arrow, "transform.anchors")}
+    return (anchors[1] or 0) + (offsets[1] or 0) * 1e-6, (anchors[2] or 0) + (offsets[2] or 0) * 1e-6,
+      arrowImage and swcui.get(arrowImage, "transform.rotation") or 0
+  end
+  local ax, ay, ar = pose()
+  Swc.HostView(-45, X + 300, Y + 200, Z)   -- 300 m east and 200 m north, the same heading
+  frames(0.3)
+  local bx, by, br = pose()
+  note(string.format("the arrow: %.5f %.5f %.1f, after a move of 300 m east and 200 m north: %.5f %.5f %.1f", ax, ay, ar, bx, by, br))
+  check(bx > ax, "the arrow moves east with the player (the map open)")
+  check(by < ay, "the arrow moves north with the player (the map open)")
+  Swc.HostView(-135, X + 300, Y + 200, Z)   -- a turn of 90 degrees
+  frames(0.3)
+  local _, _, cr = pose()
+  note(string.format("the arrow rotation after a turn of 90 degrees: %.1f (before %.1f)", cr, br))
+  check(math.abs(math.abs(cr - br) - 90) < 1 or math.abs(math.abs(cr - br) - 270) < 1, "the arrow turns with the heading (the map open)")
+  Swc.HostView(-45, X, Y, Z)
+  frames(0.3)
+end
+
 -- The wheel zooms out (magicmap.luac: ui_scroll_down, one zoom level for each step of 120); Space (centerMap) centers
 -- the map on the player.
 local mapRoot = swcui.canvas_get(map, "root")

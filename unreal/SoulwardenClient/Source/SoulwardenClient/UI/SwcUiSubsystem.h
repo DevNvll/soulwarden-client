@@ -270,6 +270,8 @@ private:
 	/** The consumable cooldowns that the runtime has: the item CRC and the end (server microseconds). */
 	TMap<uint32, uint64> SentItemCooldowns;
 	float SentYaw = 1000.0f;
+	/** The place of the last HostView (engine m; AST-289). */
+	swc::net::WorldPosition SentPlace{1.0e6f, 1.0e6f, 1.0e6f};
 	/** The world views: the time of the next occlusion test of the markers, and the switches of the stand-ins. */
 	double NextOcclusionTime = 0.0;
 	/** AST-256: the last occlusion of each plate (by the interest text), for the log of a change. */

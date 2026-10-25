@@ -1,0 +1,40 @@
+# usertest-1024 AST-289: the map open, a sprint of 8 s, a turn of 90 degrees, then the map closes.
+1.0 tick
+2.0 tick
+3.0 tick
+4.0 tick
+4.5 view 66.5 -8
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 tick
+9.0 tick
+10.0 tick
+11.0 tick
+12.0 tick
+13.0 move 0 1
+13.0 tick
+14.0 tick
+15.0 tick
+16.0 tick
+17.0 tick
+18.0 tick
+19.0 tick
+20.0 tick
+21.0 move 0 0
+21.0 tick
+22.0 tick
+23.0 tick
+23.0 view 156.5 -8
+24.0 tick
+25.0 tick
+26.0 tick
+26.0 view 246.5 -8
+27.0 tick
+28.0 tick
+29.0 tick
+30.0 tick
+31.0 tick
+32.0 tick
+33.0 tick
+34.0 tick
