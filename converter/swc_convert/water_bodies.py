@@ -13,7 +13,8 @@ body k of REGION.water, and the client builds a custom body from that mesh.
   straight line, linear in t). The width: DefaultWidth + WidthAttribute[i] of the source, linear by t between two vertices (the
   water spline metadata of the plugin is linear by the key: FInterpCurvePoint(InVal, OutVal) has CIM_Linear); the world width
   is the width across the local tangent through the matrix (as the cross-sections of water.river_surface). The depth: the
-  surface minus the floor of the water quadtree at the vertex (None where the quadtree has no water).
+  surface minus the floor of the water quadtree at the vertex (None where the quadtree has no water). The tile length of the river
+  texture (m along the flow: the client makes the flow speed of the plugin from it and the WaterFlowSpeed of the material).
 - A water volume with a flat top (all points of its surface within FLAT_TOLERANCE m) and a simple outline: a lake, the outline of
   its top (the polygon of a prism, the four corners of a box, the rim of a cylinder) at its surface z. Else (a tilted volume, a
   self-crossing outline): a custom body (the mesh of REGION.water).
@@ -114,7 +115,7 @@ def river_spec(record: dict, trees: Trees | None) -> dict | None:
     spec = {"type": "river", "linear": linear, "points": np.round(world, 4).tolist(),
             "arrive": np.round(arrive @ rotation.T, 4).tolist(), "leave": np.round(leave @ rotation.T, 4).tolist(),
             "widths": [round(v, 4) for v in world_widths], "sourceWidths": [round(v, 4) for v in widths],
-            "segmentLength": float(base.get("SegmentLength", 10.0))}
+            "segmentLength": float(base.get("SegmentLength", 10.0)), "tileLength": max(0.01, float(base.get("TileLength", 1.0)))}
     if trees is not None:
         spec["depths"] = [trees.depth(*p) for p in world]
     return spec
