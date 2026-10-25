@@ -728,6 +728,23 @@ The save and the apply (`swc/options.lua`, `UI/SwcGameSettings`):
 - Not applied, the rows hidden: Cap FPS in Background (no frame limit of the engine for an unfocused window), Show FPS (the
   retail counter is a screen of its own), brightness, contrast, sharpness (the look waits for the user), dynamic resolution.
 
+The live check (2026-10-25, evidence `evidence/game-menu/`; runs gm1, gm2b, gmgpu with `-SwcSettings` in the work folder):
+
+- The escape menu and each page (`gm-pages.png`): only Settings, Exit to Main Menu, and Exit to Desktop; the pages Game,
+  Keyboard & Mouse, Video, Accessibility, and the key page; the row Resolution Scaling with "Temporal Super Resolution".
+- Apply: the render scale 66.7 % at the start, then 50, 66.7, 100, and 50 % at the data changes (the log lines `settings: the
+  render scale`); the FOV 65.
+- Save and restart: the exit of the options screen wrote 114 values; the next run applied them at the start (the render scale
+  50 %, the FOV 65) and showed them on the Video page; the saved horizontal sensitivity 0.1 turned 600 raw counts into 120
+  degrees (AST-268: 60 degrees at 0.05). The settings folder of the session data and the data folder of the user did not change.
+- The cost of the render scale at the user view 3416 x 1380 (two pairs late in one run, the GPU p50 of the frame windows): 57 %
+  9.64 ms, 66.67 % 10.35 ms (+0.7 ms); ProfileGPU 9.42 / 10.12 ms against 11.02 / 10.30 ms. Crops: `gm-render-scale-crops.png`.
+- Known point: the engine writes `Saved/Config/<platform>/GameUserSettings.ini` at each exit (`UGameEngine::PreExit`
+  SaveSettings, also before the game menu): the window size of the command line and the scalability levels of the run. The
+  client does not read that file for its settings; its own file applies at each start.
+- The UI drive splits a text with spaces (`point text:Keyboard & Mouse` points at "text:Keyboard"): a drive uses `move` for
+  such a label.
+
 ## The world views (stage WF7)
 
 The UI in the world views uses the original canvases (`tools/convert-ui.sh world`: the canvases, their textures, the status
