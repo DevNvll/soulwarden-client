@@ -729,6 +729,13 @@ The NavBar (`navbar.luac`; display only, the decision of 2026-10-25):
   it. The deploy of 2026-10-25 copied only `navbar_bg_2023.png` (the same bytes as the command makes; the command gives the
   same bytes for the 391 files that the shared content has).
 - Fixture `navbar` (35 checks).
+- The live check (2026-10-25, run gm3, `evidence/game-menu/gm-navbar.png`): Escape opens the game menu with the NavBar; CHARACTER,
+  Journal, Map, and the gear set the states Skills, Objectives, Map, and Esc at once; the bar shows its background and the glow
+  of the current tab over each screen; J opens the journal and Escape closes it; the key page shows only the working keys. No
+  new Lua error (37, the same set as the run with no NavBar: old faults of the journal and skills screens).
+- Seen in the live runs (also before the NavBar): Escape on the Options screen in the world goes to the HUD in one press (the
+  screen goes to the state Esc with ui_cancel, and the escape rule of the emulation then closes the escape menu). The retail
+  order is part of the later Escape parity task (O12).
 
 The save and the apply (`swc/options.lua`, `UI/SwcGameSettings`):
 
