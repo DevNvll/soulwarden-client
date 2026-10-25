@@ -11,6 +11,27 @@ cooked_code_hash() {
         | sha1sum | cut -c1-16
 }
 
+# cooked_wp_map STAMP: the cooked NewWorld map of the staged build. The cook writes it into the Saved folder of the checkout that ran
+# tools/cook.sh, and the stamp keeps that path ("wpMap"). A stamp with no "wpMap" (a cook before 2026-10-25): the map of SWC_REPO, else
+# the map of the main checkout of its repository (a worktree has no Saved/Cooked folder: "NewWorld has no cooked map" was wrong there).
+cooked_wp_map() {
+    local relative="unreal/SoulwardenClient/Saved/Cooked/Linux/SoulwardenClient/Plugins/SwcGameContent/Content/World/NewWorld.umap"
+    local recorded common
+    recorded=$(python3 -B -c "import json, sys; print(json.load(open(sys.argv[1])).get('wpMap', ''))" "$1" 2>/dev/null || true)
+    if [[ -n "${recorded}" ]]; then
+        echo "${recorded}"
+        return
+    fi
+    if [[ ! -f "${SWC_REPO}/${relative}" ]]; then
+        common=$(git -C "${SWC_REPO}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+        if [[ -n "${common}" && -f "$(dirname "${common}")/${relative}" ]]; then
+            echo "$(dirname "${common}")/${relative}"
+            return
+        fi
+    fi
+    echo "${SWC_REPO}/${relative}"
+}
+
 # cooked_state: prints one line and returns 0 when the cooked build is current: it exists, its map is the default (the whole
 # world), the content has no import after the cook (the state files of the plugin and the manifest of the converters), no
 # converter data that the client reads at run time is newer than the cook (tools/lib/loose-data.txt, stage MVP-K), and the client
@@ -35,7 +56,7 @@ cooked_state() {
     fi
     # The staged stamp can be newer than stale WP cells. Use the cooked map too.
     local wp_cooked_map
-    wp_cooked_map="${SWC_REPO}/unreal/SoulwardenClient/Saved/Cooked/Linux/SoulwardenClient/Plugins/SwcGameContent/Content/World/NewWorld.umap"
+    wp_cooked_map="$(cooked_wp_map "${stamp}")"
     if ! python3 -B "${SWC_REPO}/tools/lib/cook_wp.py" "${SWC_GAME_CONTENT}/Content" \
         "${wp_cooked_map}" --stamp "${time}"; then
         return 1

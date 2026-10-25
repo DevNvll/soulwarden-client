@@ -180,7 +180,8 @@ if [[ ${check_newworld} -eq 1 ]]; then
         || { echo "cook: World Partition output is still stale; no success stamp" >&2; exit 1; }
 fi
 source "${SWC_REPO}/tools/lib/cooked.sh"
-python3 -B -c "import json, sys, time; json.dump({'commit': sys.argv[1], 'code': sys.argv[2], 'time': time.time(), 'map': sys.argv[3] or 'default', 'config': sys.argv[5]}, open(sys.argv[4], 'w'))" \
-    "$(git -C "${SWC_REPO}" rev-parse HEAD)" "$(cooked_code_hash)" "${map}" "${cooked}/Linux/swc-cook.json" "$(config_hash)"
+# "wpMap": the cooked NewWorld of this checkout (cooked_state of a run from another checkout, a worktree, reads it there).
+python3 -B -c "import json, sys, time; json.dump({'commit': sys.argv[1], 'code': sys.argv[2], 'time': time.time(), 'map': sys.argv[3] or 'default', 'config': sys.argv[5], 'wpMap': sys.argv[6]}, open(sys.argv[4], 'w'))" \
+    "$(git -C "${SWC_REPO}" rev-parse HEAD)" "$(cooked_code_hash)" "${map}" "${cooked}/Linux/swc-cook.json" "$(config_hash)" "${wp_cooked_map}"
 rm -f "${cooked}/Linux/swc-cook.pending.json"
 grep -hE "Total Shaders|Unique Shadermaps|Packages Cooked" "${log}" | tail -3 || true

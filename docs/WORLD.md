@@ -973,6 +973,10 @@ The rule now (`tools/cook.sh`, `tools/lib/cook_wp.py`):
   of an attempt that did not end. The full cook check reads the config hash from it.
 - After the cook: the check runs again. A cooked map that is older than a package of the map gives no stamp.
 - `cooked_state` (`tools/lib/cooked.sh`) says "not current" when a package of the map is newer than the cooked map or the stamp.
+- The cooked map is in the `Saved/Cooked` folder of the checkout that ran `tools/cook.sh`. Its stamp keeps that path
+  (`wpMap`), and `cooked_wp_map` reads it. For a stamp with no `wpMap`, it uses the main checkout of the repository when
+  `SWC_REPO` (a worktree) has no cooked map. Before this (2026-10-25), a `--cooked` run from a worktree said "NewWorld has no
+  cooked map" in error. Test: `tests/cook/test_cooked_map.sh`.
 - The first cook with the rule (2026-10-25 15:40 to 17:05 UTC, 5,105 s): the resave took 10 s (5.2 GB); 49,502 packages cooked (the
   1,759 cells evaluated, 3,519 cooked world files new; the flow of AST-290 changed the three surface parents), 127,019 kept. The cooker
   reached 23.6 GB: the 22G scope stopped the try before with its OOM killer, so the scope is 30G now (`SWC_COOK_MEMORY_MAX`).
