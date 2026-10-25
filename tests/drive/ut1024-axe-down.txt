@@ -1,0 +1,322 @@
+# usertest-1024 item 4, the check of fix 1 and fix 2: the cases of ut1024-axe.txt (routes ut1024-axe-routes.txt) with the camera 30 degrees down (to the low target).
+1.0 tick
+2.0 view 89.8 -30
+2.0 tick
+3.0 tick
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 key 2
+8.0 tick
+9.0 tick
+10.0 tick
+11.0 tick
+12.0 tick
+13.0 tick
+13.5 view 89.8 -30
+14.0 ability q
+14.0 tick
+15.0 tick
+16.0 tick
+17.0 tick
+18.0 tick
+19.0 tick
+20.0 tick
+21.0 tick
+21.5 view 89.8 -30
+22.0 ability r
+22.0 tick
+23.0 tick
+24.0 tick
+25.0 tick
+26.0 tick
+27.0 tick
+28.0 tick
+29.0 tick
+29.5 view 89.8 -30
+30.0 ability f
+30.0 tick
+31.0 tick
+32.0 tick
+33.0 tick
+34.0 tick
+35.0 tick
+36.0 tick
+37.0 tick
+38.0 tick
+39.0 tick
+40.0 tick
+41.0 tick
+42.0 tick
+43.0 tick
+44.0 tick
+45.0 tick
+45.5 view 89.8 -30
+46.0 ability q
+46.0 tick
+47.0 tick
+48.0 tick
+49.0 tick
+50.0 tick
+51.0 tick
+52.0 tick
+53.0 tick
+53.5 view 89.8 -30
+54.0 ability r
+54.0 tick
+55.0 tick
+56.0 tick
+57.0 tick
+58.0 tick
+59.0 tick
+60.0 tick
+61.0 tick
+61.5 view 89.8 -30
+62.0 ability f
+62.0 tick
+63.0 tick
+64.0 tick
+65.0 tick
+66.0 tick
+67.0 tick
+68.0 tick
+69.0 tick
+70.0 tick
+71.0 tick
+72.0 tick
+73.0 tick
+74.0 tick
+75.0 tick
+76.0 tick
+77.0 tick
+77.5 view 89.8 -30
+78.0 ability q
+78.0 tick
+79.0 tick
+80.0 tick
+81.0 tick
+82.0 tick
+83.0 tick
+84.0 tick
+85.0 tick
+85.5 view 89.8 -30
+86.0 ability r
+86.0 tick
+87.0 tick
+88.0 tick
+89.0 tick
+90.0 tick
+91.0 tick
+92.0 tick
+93.0 tick
+93.5 view 89.8 -30
+94.0 ability f
+94.0 tick
+95.0 tick
+96.0 tick
+97.0 tick
+98.0 tick
+99.0 tick
+100.0 tick
+101.0 tick
+102.0 tick
+103.0 tick
+104.0 tick
+105.0 tick
+106.0 tick
+107.0 tick
+108.0 tick
+109.0 tick
+109.5 view 89.8 -30
+110.0 ability q
+110.0 tick
+111.0 tick
+112.0 tick
+113.0 tick
+114.0 tick
+115.0 tick
+116.0 tick
+117.0 tick
+117.5 view 89.8 -30
+118.0 ability r
+118.0 tick
+119.0 tick
+120.0 tick
+121.0 tick
+122.0 tick
+123.0 tick
+124.0 tick
+125.0 tick
+125.5 view 89.8 -30
+126.0 ability f
+126.0 tick
+127.0 tick
+128.0 tick
+129.0 tick
+130.0 tick
+131.0 tick
+132.0 tick
+133.0 tick
+134.0 tick
+135.0 tick
+136.0 tick
+137.0 tick
+138.0 tick
+139.0 tick
+140.0 tick
+141.0 tick
+141.5 view 89.8 -30
+142.0 ability q
+142.0 tick
+143.0 tick
+144.0 tick
+145.0 tick
+146.0 tick
+147.0 tick
+148.0 tick
+149.0 tick
+149.5 view 89.8 -30
+150.0 ability r
+150.0 tick
+151.0 tick
+152.0 tick
+153.0 tick
+154.0 tick
+155.0 tick
+156.0 tick
+157.0 tick
+157.5 view 89.8 -30
+158.0 ability f
+158.0 tick
+159.0 tick
+160.0 tick
+161.0 tick
+162.0 tick
+163.0 tick
+164.0 tick
+165.0 tick
+166.0 tick
+167.0 tick
+168.0 tick
+169.0 tick
+170.0 tick
+171.0 tick
+172.0 tick
+173.0 tick
+173.5 view 89.8 -30
+174.0 ability q
+174.0 tick
+175.0 tick
+176.0 tick
+177.0 tick
+178.0 tick
+179.0 tick
+180.0 tick
+181.0 tick
+181.5 view 89.8 -30
+182.0 ability r
+182.0 tick
+183.0 tick
+184.0 tick
+185.0 tick
+186.0 tick
+187.0 tick
+188.0 tick
+189.0 tick
+189.5 view 89.8 -30
+190.0 ability f
+190.0 tick
+191.0 tick
+192.0 tick
+193.0 tick
+194.0 tick
+195.0 tick
+196.0 tick
+197.0 tick
+198.0 tick
+199.0 tick
+200.0 tick
+201.0 tick
+202.0 tick
+203.0 tick
+204.0 tick
+205.0 tick
+205.5 view 89.8 -30
+206.0 ability q
+206.0 tick
+207.0 tick
+208.0 tick
+209.0 tick
+210.0 tick
+211.0 tick
+212.0 tick
+213.0 tick
+213.5 view 89.8 -30
+214.0 ability r
+214.0 tick
+215.0 tick
+216.0 tick
+217.0 tick
+218.0 tick
+219.0 tick
+220.0 tick
+221.0 tick
+221.5 view 89.8 -30
+222.0 ability f
+222.0 tick
+223.0 tick
+224.0 tick
+225.0 tick
+226.0 tick
+227.0 tick
+228.0 tick
+229.0 tick
+230.0 tick
+231.0 tick
+232.0 tick
+233.0 tick
+234.0 tick
+235.0 tick
+236.0 tick
+237.0 tick
+237.5 view 89.8 -30
+238.0 ability q
+238.0 tick
+239.0 tick
+240.0 tick
+241.0 tick
+242.0 tick
+243.0 tick
+244.0 tick
+245.0 tick
+245.5 view 89.8 -30
+246.0 ability r
+246.0 tick
+247.0 tick
+248.0 tick
+249.0 tick
+250.0 tick
+251.0 tick
+252.0 tick
+253.0 tick
+253.5 view 89.8 -30
+254.0 ability f
+254.0 tick
+255.0 tick
+256.0 tick
+257.0 tick
+258.0 tick
+259.0 tick
+260.0 tick
+261.0 tick
+262.0 tick
+263.0 tick
+264.0 tick
+265.0 tick
+266.0 tick
+267.0 tick
+268.0 tick
+269.0 tick
+270.0 tick
+271.0 tick

@@ -134,7 +134,8 @@ the camera looks down. With no bend, the strike shapes of the great axe went abo
 - The rule (`Character/SwcAttackRetarget.h`, tested by `tools/test-actions.sh`): the angle between the aim and its
   horizontal part, signed by the height of the aim, times max(0, the cosine of the facing of the character to the aim);
   no bend inside the dead zone; beyond it the offset is added; a smoothstep blend; the clamp to the limits. With
-  `LockTargetDirOnStart` the aim of the first frame of the clip stays. The aim is the camera direction.
+  `LockTargetDirOnStart` the aim of the first frame of the clip stays. The aim is the control rotation (during free look: its
+  rotation at the start of free look).
 - The pose (`USwcPlayerAnimInstance::UpdateRetarget`, `FSwcPlayerAnimProxy::Evaluate`): each of the three joints turns by
   the angle / 3 about the horizontal right axis of the aim, in component space, after the overlays. The weapon in the
   hand and the strike shapes read this final pose.
@@ -150,7 +151,7 @@ Open points [I] (inferences, not proved by the decompile; the check with the ret
 - [I] The restart of the blend at the start and the end of the clip: the update 0x6865830 restarts the blend only at a
   change of the side of the dead zone. The client restarts it also at the start and the end of the clip, else the bend
   stays after the clip.
-- [I] The aim: the camera direction of the controller. The retail function 0x6781C60 uses the target of the input when it
+- [I] The aim: the control rotation of the controller. The retail function 0x6781C60 uses the target of the input when it
   has one.
 
 ## The dodge and the stamina (stage P2.5)

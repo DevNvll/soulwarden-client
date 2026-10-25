@@ -1,0 +1,80 @@
+# usertest-1024 item 4 fix 2: the bend of the upper body to the aim with the warhammer (the second weapon slot of the run copy;
+# routes ut1024-hammer-routes.txt). Light attacks (Attack_Primary, the clip AttackHeightRetargeting with lockDir) at a level aim
+# and 4 degrees down (the dead zone: no bend), then 30 and 50 degrees down, then a side view (free look keeps the aim) of an
+# attack 30 degrees down in slow motion and one at normal speed.
+1.0 tick
+2.0 view 89.8 0
+2.0 tick
+3.0 tick
+4.0 tick
+5.0 tick
+6.0 tick
+7.0 tick
+8.0 key 2
+8.0 tick
+9.0 tick
+10.0 tick
+11.0 tick
+12.0 tick
+13.0 tick
+13.5 view 89.8 0
+14.0 attack 1
+14.0 tick
+14.08 attack 0
+15.0 tick
+16.0 tick
+17.0 tick
+17.5 view 89.8 0
+18.0 attack 1
+18.0 tick
+18.08 attack 0
+19.0 tick
+20.0 tick
+21.0 tick
+21.5 view 89.8 -4
+22.0 attack 1
+22.0 tick
+22.08 attack 0
+23.0 tick
+24.0 tick
+25.0 tick
+25.5 view 89.8 -30
+26.0 attack 1
+26.0 tick
+26.08 attack 0
+27.0 tick
+28.0 tick
+29.0 tick
+29.5 view 89.8 -50
+30.0 attack 1
+30.0 tick
+30.08 attack 0
+31.0 tick
+32.0 tick
+33.0 tick
+33.5 view 89.8 -30
+34.0 freelook 1
+34.0 tick
+34.2 view 180 -5
+35.0 tick
+36.0 tick
+36.9 exec slomo 0.25
+37.0 attack 1
+37.0 tick
+37.3 attack 0
+38.0 tick
+39.0 tick
+40.0 exec slomo 1
+40.0 tick
+41.0 tick
+42.0 attack 1
+42.0 tick
+42.08 attack 0
+43.0 tick
+44.0 tick
+45.0 freelook 0
+45.0 tick
+45.2 view 89.8 0
+46.0 tick
+47.0 tick
+48.0 tick

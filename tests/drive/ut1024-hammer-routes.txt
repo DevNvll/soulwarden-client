@@ -1,0 +1,5 @@
+# The routes of tests/drive/ut1024-hammer.txt: noon, the creatures ignore the character, full health. No creature: the check is the
+# pose (the log lines "retarget:" and the video).
+1 world-time 12:00
+1 ignore on
+1.5 heal

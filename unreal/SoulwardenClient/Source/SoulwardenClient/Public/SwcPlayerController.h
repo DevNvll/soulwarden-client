@@ -49,6 +49,10 @@ class SOULWARDENCLIENT_API ASwcPlayerController : public APlayerController
 public:
 	ASwcPlayerController();
 
+	/** The aim of the character: the control rotation, or during free look the rotation of its start (the character does not
+	 *  follow the camera then). The bend of the upper body to the aim reads it (usertest-1024 item 4). */
+	FRotator GetAimRotation() const { return bFreeLook ? FreeLookRotation : GetControlRotation(); }
+
 	/**
 	 * A virtual input of a UI script with action bits for the input report (stage P3.H, K3): the quick slot uses of
 	 * consumablequickslots.luac (SendVirtualInput Use_Quickslot_1 to 4: the bits 404, 117, 140, 513; protocol notes, the

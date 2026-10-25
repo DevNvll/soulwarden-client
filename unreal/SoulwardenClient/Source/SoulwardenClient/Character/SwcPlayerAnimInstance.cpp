@@ -2,8 +2,7 @@
 
 #include "Animation/AnimSequence.h"
 #include "Net/SwcSpace.h"
-#include "Camera/PlayerCameraManager.h"
-#include "GameFramework/PlayerController.h"
+#include "SwcPlayerController.h"
 #include "BonePose.h"
 #include "AnimationRuntime.h"
 #include "Character/SwcActions.h"
@@ -751,7 +750,8 @@ void USwcPlayerAnimInstance::UpdateRetarget(float DeltaSeconds, FSwcPlayerAnimPr
 {
 	// The bend of the upper body to the aim (the Mannequin clip AttackHeightRetargeting with the AttackHeightRetargetComponent of the
 	// player slice; usertest-1024 item 4, research usertest-hitvolume.md section 4; the rule: Character/SwcAttackRetarget.h). The aim is
-	// the camera direction of the controller (0x6781C60 asks the character for its aim direction when the input has no target). The
+	// the aim of the controller (0x6781C60 asks the character for its aim direction when the input has no target; during free look
+	// the aim of its start). The
 	// turn is applied in component space after the overlays (FSwcPlayerAnimProxy::Evaluate) [I: the space of the operator mode 3]: the
 	// weapon on the hand and the strike shapes read that final pose.
 	Proxy.RetargetBend = FQuat::Identity;
@@ -776,9 +776,9 @@ void USwcPlayerAnimInstance::UpdateRetarget(float DeltaSeconds, FSwcPlayerAnimPr
 		}
 	}
 	FVector Aim = Character->GetActorForwardVector();
-	if (const APlayerController* Controller = Cast<APlayerController>(Character->GetController()); Controller != nullptr && Controller->PlayerCameraManager != nullptr)
+	if (const ASwcPlayerController* Controller = Cast<ASwcPlayerController>(Character->GetController()))
 	{
-		Aim = Controller->PlayerCameraManager->GetCameraRotation().Vector();
+		Aim = Controller->GetAimRotation().Vector();
 	}
 	const auto Engine = [](const FVector& Unreal) { return swc::retarget::Vec3{Unreal.X, -Unreal.Y, Unreal.Z}; };
 	const swc::retarget::Bend Bend = RetargetRule.update(DeltaSeconds, Clip != nullptr, Settings, Engine(Aim), Engine(Character->GetActorForwardVector()));
