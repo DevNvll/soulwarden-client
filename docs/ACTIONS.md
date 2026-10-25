@@ -141,6 +141,18 @@ the camera looks down. With no bend, the strike shapes of the great axe went abo
   hand and the strike shapes read this final pose.
 - The log: `retarget: AttackHeightRetargeting starts (aim pitch ...)` and `retarget: the clip ends: the largest bend ...`.
 
+Check (development run, 2026-10-25, evidence in `~/Games/soulwarden-client/evidence/usertest-1024/`):
+
+- The warhammer light attack (`tests/drive/ut1024-hammer.txt`): the largest bend is 0° at a level aim and at an aim 4° down
+  (the dead zone), −15° at 30° down, and −35° at 50° down. `item4-bend-side.png` (`tests/drive/ut1024-hammer-side.txt`, a side
+  view with free look): at the same moment of the swing the handle and the strike shape go lower with the bend.
+- The great axe cases of `tests/drive/ut1024-axe.txt` with fix 1 (the hit capsule, docs/CREATURES.md) and this bend
+  (`item4-compare.txt`): 2 contacts in 24 casts before the fixes, 4 with the camera level (no bend: fix 1 only), 6 with the
+  camera 30° down. The backend accepted all of them. Maelstrom has no contact at any height: its spin stays above the targets.
+- A clip shorter than the blend does not reach the full bend (the great axe Engage swings: −9° to −12° at 30° down).
+- `slomo` slows the blend of the bend (the game time) but not the clock of the attack (the input steps): a check of the bend
+  must use the normal speed.
+
 Open points [I] (inferences, not proved by the decompile; the check with the retail take decides):
 
 - [I] The sign of the lower offset: the stored value 15 is added as it is to a downward angle (a negative angle), thus it

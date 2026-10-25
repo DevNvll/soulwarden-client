@@ -1,0 +1,78 @@
+# usertest-1024 item 4 fix 2: the side picture of the bend (no motion blur): the warhammer light attack (Attack_Primary) at normal
+# speed (slomo slows the blend of the bend, not the clock of the attack), seen from the side (free look keeps the aim), with the aim level, 30 degrees down, and 50 degrees down
+# (routes ut1024-hammer-routes.txt). The same moment of the three swings shows the bend (0, -15, -35 degrees).
+1.00 tick
+2.00 view 89.8 0
+2.00 tick
+3.00 exec r.MotionBlurQuality 0
+3.00 tick
+4.00 tick
+5.00 tick
+6.00 tick
+7.00 tick
+8.00 key 2
+8.00 tick
+9.00 tick
+10.00 tick
+11.00 tick
+12.00 tick
+13.00 tick
+13.50 view 89.8 0
+14.00 freelook 1
+14.00 tick
+14.20 view 180 -5
+15.00 tick
+16.00 tick
+17.00 attack 1
+17.00 tick
+17.08 attack 0
+18.00 tick
+19.00 tick
+20.00 tick
+21.00 tick
+22.00 tick
+23.00 freelook 0
+23.00 tick
+23.20 view 89.8 0
+24.00 tick
+25.00 tick
+25.50 view 89.8 -30
+26.00 freelook 1
+26.00 tick
+26.20 view 180 -5
+27.00 tick
+28.00 tick
+29.00 attack 1
+29.00 tick
+29.08 attack 0
+30.00 tick
+31.00 tick
+32.00 tick
+33.00 tick
+34.00 tick
+35.00 freelook 0
+35.00 tick
+35.20 view 89.8 0
+36.00 tick
+37.00 tick
+37.50 view 89.8 -50
+38.00 freelook 1
+38.00 tick
+38.20 view 180 -5
+39.00 tick
+40.00 tick
+41.00 attack 1
+41.00 tick
+41.08 attack 0
+42.00 tick
+43.00 tick
+44.00 tick
+45.00 tick
+46.00 tick
+47.00 freelook 0
+47.00 tick
+47.20 view 89.8 0
+48.00 tick
+49.00 tick
+50.00 tick
+51.00 tick
