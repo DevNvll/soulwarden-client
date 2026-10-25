@@ -19,6 +19,8 @@ Usage (tools/convert-ui.sh; output in SWC_CONTENT/ui, never in git):
                           canvases of the markers, the prompt cards, the damage numbers, and the loot ticker, and their textures
   worldmap                the world map (stage MVP-C): gamedata/worldmap.json (swc_convert/worldmap.py: the territory and POI
                           definitions, shapes, and landmarks), the canvas MagicMap, the map tiles of all levels, the map images
+  gamemenu                the game menu: the canvases of the escape menu and the NavBar, their textures, and the textures that
+                          navbar.luac sets by path (GAMEMENU_TEXTURES)
   crafting                the crafting screens (stage MVP-J): gamedata/crafting.json (swc_convert/crafting.py: the recipes with the
                           causes of the backend, the categories, the stations, the rank tables), the canvases CraftingScreenV4 and
                           StationProperties, and their textures
@@ -1503,6 +1505,23 @@ def convert_options() -> dict:
             "input profiles": len(profiles), "canvases": canvases, "textures": convert_textures(textures)}
 
 
+# ------------------------------------------------------------------------------------------------------------ game menu
+
+# The screens of the game menu (docs/UI.md "The game menu"): the escape menu and the NavBar.
+GAMEMENU_CANVASES = ["lyshineui/escapemenu/escapemenu.dynamicuicanvas", "lyshineui/navbar/navbar.dynamicuicanvas"]
+# The textures that navbar.luac sets by path (no canvas names them): the 2023 background (OnInit: NAVBAR_BG_PATH_2023; the canvas
+# has the old mainbg.dds) and the Game Menu gear (SetNavMenu: NAVBAR_ICON_PATH_SETTINGS_2023).
+GAMEMENU_TEXTURES = ["lyshineui/images/navbar/navbar_bg_2023.dds", "lyshineui/images/navbar/navbar_icon_settings_2023.dds"]
+
+
+def convert_gamemenu() -> dict:
+    """The game menu: the canvases of the escape menu and the NavBar, their textures, and the textures that their scripts set
+    by path."""
+    canvases = convert_canvases(GAMEMENU_CANVASES)
+    textures = set(canvases.pop("textures")) | set(GAMEMENU_TEXTURES)
+    return {"canvases": canvases, "textures": convert_textures(textures)}
+
+
 # ------------------------------------------------------------------------------------------------------------ world map
 
 WORLDMAP_CANVASES = ["lyshineui/worldmap/magicmap.dynamicuicanvas"]
@@ -1766,6 +1785,7 @@ def main(argv=None) -> int:
     sub.add_parser("texture-index")
     sub.add_parser("world")
     sub.add_parser("options")
+    sub.add_parser("gamemenu")
     p = sub.add_parser("worldmap"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("crafting"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("quests"); p.add_argument("--force", action="store_true")
@@ -1811,6 +1831,8 @@ def main(argv=None) -> int:
         result = convert_world()
     elif args.command == "options":
         result = convert_options()
+    elif args.command == "gamemenu":
+        result = convert_gamemenu()
     elif args.command == "worldmap":
         result = convert_worldmap(args.force)
     elif args.command == "crafting":

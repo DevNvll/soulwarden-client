@@ -713,9 +713,12 @@ The NavBar (`navbar.luac`; display only, the decision of 2026-10-25):
   journal rule of the emulation stay (open point O12). `navbar.luac` has the retail Escape logic for each state, popup, and
   screen (from the HUD it can go to the state NavBar); full parity with it is a later task.
 - No season: `SeasonsRewardsSeasonDataManagerBus.GetSeasonData` gives an empty display name (`OnInit` reads it).
-- The background `lyshineui/images/navbar/navbar_bg_2023.dds` was not converted (the HUD and the screens of the earlier stages
-  did not name it). Its PNG is made in a check folder; it goes to the shared content only after the word of the orchestrator.
-  Without it the bar has no background.
+- The textures: `tools/convert-ui.sh gamemenu` converts the canvases of the escape menu and the NavBar, their textures, and the
+  textures that `navbar.luac` sets by path (`GAMEMENU_TEXTURES`). The cause of the earlier gap: the canvas of the NavBar names
+  only the old background `mainbg.dds`; `OnInit` sets the 2023 background by a path in the script (`NAVBAR_BG_PATH_2023`,
+  `UiImageBus.SetSpritePathname`), and no converter list had the NavBar screen, so only the wanted list of a run could make
+  it. The deploy of 2026-10-25 copied only `navbar_bg_2023.png` (the same bytes as the command makes; the command gives the
+  same bytes for the 391 files that the shared content has).
 - Fixture `navbar` (35 checks).
 
 The save and the apply (`swc/options.lua`, `UI/SwcGameSettings`):
