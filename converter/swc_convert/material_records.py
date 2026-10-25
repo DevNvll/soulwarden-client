@@ -357,6 +357,46 @@ def without_resource_flags(record: dict) -> dict:
     return {**{k: v for k, v in record.items() if k != "resource flags"}, "flags": flags, "textures": textures}
 
 
+# The TexMod oscillator types of the source (ETexModMoveType): 2 is ETMM_Constant, a scroll with no wrap. [P] The rule of the public
+# CryEngine source (Lumberyard SEfResTexture::UpdateWithModifier): offset = amplitude x rate x real time, written into the texture
+# matrix before the tiling, so the UV speed is amplitude x rate x tile. The retail executable is not traced: a retail video at a
+# waterfall checks the speed and the direction (AST-290). The other types (1 fixed, 3 jitter, 4 pan, 5 and 6 stretch) are not
+# expressed.
+OSC_CONSTANT = 2
+OSC_AMPLITUDE_DEFAULT = 1.0   # [P] the default of m_OscAmplitude, when the XML has no amplitude
+
+
+def uv_pan(uv: dict | None) -> list[float]:
+    """@return The UV speed (u, v per second, after the tiling) of the type 2 oscillators of the UV rules of a slot."""
+    uv = uv or {}
+    mod, tile = uv.get("mod") or {}, uv.get("tile", [1.0, 1.0])
+    out = []
+    for i, axis in enumerate(("U", "V")):
+        if mod.get(f"TexMod_{axis}OscillatorType") == OSC_CONSTANT:
+            speed = mod.get(f"TexMod_{axis}OscillatorAmplitude", OSC_AMPLITUDE_DEFAULT) * mod.get(f"TexMod_{axis}OscillatorRate", 0.0)
+            out.append(round(speed * tile[i], 7))
+        else:
+            out.append(0.0)
+    return out
+
+
+def flow_of(record: dict) -> dict:
+    """@return {"opacity": Opacity} for a flowing liquid (AST-290: the waterfalls, the fountain flows, the lava falls), else {}: an
+    Illum record with Opacity < 1, no AlphaTest, and a type 2 scroll on its Diffuse slot. The source draws an Illum material with
+    Opacity < 1 in the blended pass [I]; the client draws it on M_SwcSurfaceTranslucent (stage "flow"). The general rule of the
+    Illum materials with Opacity < 1 and no scroll (117 sources) stays open."""
+    if record.get("family") != "illum":
+        return {}
+    light = record["lighting"]
+    opacity, cutoff = light.get("Opacity", 1.0), light.get("AlphaTest", 0.0)
+    if not isinstance(opacity, float) or opacity >= 1.0 or (isinstance(cutoff, float) and cutoff > 0):
+        return {}
+    diffuse = record["textures"].get("Diffuse") or {}
+    if not any(uv_pan(diffuse.get("uv"))):
+        return {}
+    return {"opacity": opacity}
+
+
 def blend_of(record: dict) -> tuple[str, float | None]:
     """@return (opaque, masked, or translucent; the cutoff) of a record, with the rules of materials.shared_material."""
     if record["shader"] == "Glass" or record["shader"].lower() == "geometrybeam":
@@ -417,6 +457,9 @@ def _rules(record: dict, normal_map: bool) -> dict:
         if on[feature]:
             params.update({n: record["params"][n] for n in names if n in record["params"]})
     rules["params"] = dict(sorted(params.items()))
+    flow = flow_of(record)
+    if flow:
+        rules["flow"] = flow
     kind = FX_SHADERS.get(rules["shader"])
     if kind is not None:   # C8: the effect shaders (not in the render key)
         fx_textures = {}
@@ -431,12 +474,17 @@ def _rules(record: dict, normal_map: bool) -> dict:
     return rules
 
 
+# The parts of the render rules that the render key leaves out: they do not rename the instance keys (the slot names of the converted
+# meshes). "fx": the effect shaders (C8); "flow": the flowing liquids (AST-290, flow_of).
+NOT_IN_RENDER_KEY = ("fx", "flow")
+
+
 def render_key(rules: dict) -> str:
-    """@return The render key of render rules: a hash of the rules without "fx" (C8: the rules of the effect shaders do not
-    rename the keys)."""
+    """@return The render key of render rules: a hash of the rules without NOT_IN_RENDER_KEY (C8: the rules of the effect shaders
+    do not rename the keys)."""
     if "key" in rules:
         return rules["key"]
-    keyed = {k: v for k, v in rules.items() if k != "fx"}
+    keyed = {k: v for k, v in rules.items() if k not in NOT_IN_RENDER_KEY}
     return "r_" + hashlib.sha1(json.dumps(keyed, sort_keys=True).encode()).hexdigest()[:10]
 
 
@@ -977,6 +1025,13 @@ def spec_of(rules: dict, legacy: dict, textures: dict) -> dict | None:
         return glass_spec(rules, use)
     if rules["family"] == "beam" and "beam" in STAGES:
         return beam_spec(rules, use)
+    if rules["family"] == "illum" and rules.get("flow") and "flow" in STAGES and rules["blend"] == "opaque":
+        # AST-290: a flowing liquid (flow_of) is blended: M_SwcSurfaceTranslucent, opacity = the diffuse alpha x the XML Opacity.
+        # Its meshes get no Nanite (nanite.py: the parent "surface translucent").
+        spec = surface_spec(rules, use)
+        spec["parent"] = "surface translucent"
+        spec["scalars"]["Opacity"] = float(rules["flow"]["opacity"])
+        return spec
     if rules["family"] == "illum" and rules["blend"] == "translucent" and "m4" in STAGES:
         # An alpha blended Illum material (materials.BLENDED_ILLUM): M_SwcSurfaceTranslucent, opacity = the diffuse alpha x
         # the XML Opacity.
@@ -1054,6 +1109,9 @@ def surface_spec(rules: dict, use) -> dict:
     spec["vectors"]["DiffuseColor"] = rules["diffuse"] + [1.0]
     spec["vectors"]["SpecularColor"] = rules["specular"] + [1.0]
     spec["vectors"]["UVTransform"] = uv_transform(maps.get("diffuse", {}).get("uv"))
+    if "flow" in STAGES and any(uv_pan(maps.get("diffuse", {}).get("uv"))):
+        # AST-290: the scroll of the base UV (the type 2 oscillators of the Diffuse slot; the surface parents add frac(Time x UVPan.rg)).
+        spec["vectors"]["UVPan"] = uv_pan(maps["diffuse"]["uv"]) + [0.0, 0.0]
     spec["scalars"]["Smoothness"] = max(1 / 127, float(rules["shininess"]) / 255)
     flags = set(rules["flags"])
     if "m3b" in STAGES:
@@ -1247,6 +1305,11 @@ def m4(rules: dict, spec: dict, use) -> None:
             else:
                 spec["textures"][parameter] = use(data_texture(product))
             spec["vectors"][transform] = uv_transform(maps[role].get("uv"))
+    if "flow" in STAGES:
+        # AST-290: the scroll of the emittance map and of the intensity map (the moving glow of the ghosts, the corrupted, the lava).
+        pan = uv_pan(maps.get("emittance", {}).get("uv")) + uv_pan(maps.get("emittance intensity", {}).get("uv"))
+        if any(pan):
+            spec["vectors"]["EmissionPan"] = pan
     gamma = rules["params"].get("EmittanceMapGamma", 1.0)
     spec["vectors"]["EmittanceParams"] = [float(gamma[0] if isinstance(gamma, list) else gamma), 1.0 if has_map else 0.0,
                                           *srgb]
@@ -1547,6 +1610,14 @@ def instances(candidate: tuple[str, ...] = ()) -> dict:
         for field in ("legacy", "far legacy"):
             if s.get(field) and "mesh" not in s["use"]:
                 uses.setdefault(s[field], {}).setdefault(s["render"], 0)
+    # AST-290: "flow" is not in the render rules of an earlier audit (records.json); it is not in the render key, so it is added here
+    # from the first source of each render key.
+    for render, name in source_of.items():
+        rules = records["render rules"].get(render)
+        if rules is not None and "flow" not in rules:
+            flow = flow_of(records["sources"][name])
+            if flow:
+                rules["flow"] = flow
     textures: dict = {}
     summary: dict = {}
     # The main render key of each legacy key: the render key of the most mesh slots (keys.json: materials.instance_key).

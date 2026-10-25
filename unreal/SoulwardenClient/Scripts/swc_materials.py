@@ -22,9 +22,9 @@ import unreal
 
 ROOT = "/SwcGameContent"
 BASE = ROOT + "/Base"
-PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "11", "M_SwcSurfaceMasked": "11", "M_SwcDecal": "8",
+PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "12", "M_SwcSurfaceMasked": "12", "M_SwcDecal": "8",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
-                   "M_SwcSurfaceTranslucent": "10", "M_SwcHair": "7",
+                   "M_SwcSurfaceTranslucent": "11", "M_SwcHair": "7",
                    "M_SwcFxMesh": "2", "M_SwcFxMeshAdd": "2", "M_SwcMeshParticle": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
@@ -41,6 +41,9 @@ PARENT_VERSIONS = {"M_SwcFoliage": "4", "M_SwcSurface": "11", "M_SwcSurfaceMaske
 # M_SwcFxMesh, M_SwcFxMeshAdd 2: the input PalP (version 1 had the inputs PAL and Pal: Unreal compares the names without case, the
 # second stayed empty, and the parent did not compile);
 # M_SwcDecal 8: the base color x the vertex RGB with UseVertexAlpha (%VERTCOLORS), as the source decal (AST-278);
+# M_SwcSurface, M_SwcSurfaceMasked 12, M_SwcSurfaceTranslucent 11 (AST-290): the UV scroll of the type 2 oscillators,
+# frac(Time x UVPan.rg) on the base UV and frac(Time x EmissionPan.rg / .ba) on the emittance and intensity UVs (default 0: no change
+# of the picture of an instance with no pan; material_records.uv_pan);
 # M_SwcSurface, M_SwcSurfaceMasked 11, M_SwcSurfaceTranslucent 10, M_SwcHair 7: the vertex RGB tint (UseVertexColor) connects the
 # RGB output "" of VertexColor; the pin name "RGB" connected nothing before (AST-278: the pale floors, the bright galleon hull);
 # M_SwcDecal 2: the vertex alpha of the mesh decals, static switch UseVertexAlpha; 3: the view bias of the mesh decals;
@@ -324,6 +327,17 @@ def mask(material, source, pin, channels, x, y):
     return node_
 
 
+def pan_of(material, time, pan, channels, x, y):
+    """@return frac(Time x the channels of a vector parameter) (AST-290: a UV scroll). `pan`: the parameter node, or the name of a
+    new one (default 0)."""
+    if isinstance(pan, str):
+        pan = vector(material, pan, (0.0, 0.0, 0.0, 0.0), x, y)
+    moved = multiply(material, (time, ""), (mask(material, pan, "RGBA", channels, x + 150, y), ""), x + 300, y)
+    frac = node(material, unreal.MaterialExpressionFrac, x + 450, y)
+    editing.connect_material_expressions(moved, "", frac, "")
+    return frac
+
+
 # M3 (stage M3b): the blend layer, the vertex colors, and the detail map, in the order of the source forward pass
 # (clusterforward_commonzpass): D = diffuse x XML Diffuse -> blend layer -> D x vertex RGB -> detail -> overlay masks.
 # The blend value of the source (shadelib GetLayerBlendingValue): b = saturate(abs(vertex alpha x mask.r x (1 + BlendFactor))
@@ -470,9 +484,15 @@ def surface_parent(content, state, masked, translucent=False):
     scaled = node(material, unreal.MaterialExpressionMultiply, -1250, 50)
     editing.connect_material_expressions(coords, "", scaled, "A")
     editing.connect_material_expressions(tile, "", scaled, "B")
-    uv = node(material, unreal.MaterialExpressionAdd, -1100, 100)
-    editing.connect_material_expressions(scaled, "", uv, "A")
-    editing.connect_material_expressions(offset, "", uv, "B")
+    placed = node(material, unreal.MaterialExpressionAdd, -1100, 100)
+    editing.connect_material_expressions(scaled, "", placed, "A")
+    editing.connect_material_expressions(offset, "", placed, "B")
+    # Version 12 (AST-290): the scroll of the base UV, frac(Time x UVPan.rg) (the source ETMM_Constant: amplitude x rate x time
+    # before the tiling; UVPan has the tile in it). frac keeps the precision after a long run (the maps repeat).
+    time = node(material, unreal.MaterialExpressionTime, -1600, -150)
+    uv = node(material, unreal.MaterialExpressionAdd, -1000, 100)
+    editing.connect_material_expressions(placed, "", uv, "A")
+    editing.connect_material_expressions(pan_of(material, time, "UVPan", "rg", -1600, -300), "", uv, "B")
 
     def sample(parameter, kind, default, y):
         node_ = sampler(material, parameter, kind, default, -900, y)
@@ -607,13 +627,20 @@ def surface_parent(content, state, masked, translucent=False):
     # M4: the emission (static switch Emissive).
     # Version 7 (AST-207): each map has its own UV transform (the source _TCMMatrixEmittance and
     # _TCMMatrixEmissiveMultiplier); the converter gives the decoded RGB of an sRGB file (`@data-decoded`).
+    emission_pan_vector = vector(material, "EmissionPan", (0.0, 0.0, 0.0, 0.0), -1600, 4650)
+    emission_pan = {c: pan_of(material, time, emission_pan_vector, c, -1600, 4800 + 150 * i) for i, c in enumerate(("rg", "ba"))}
+
     def transformed(parameter, y):
         t = vector(material, parameter, (1.0, 1.0, 0.0, 0.0), -1600, y)
         scaled_ = multiply(material, (coords, ""), (mask(material, t, "RGBA", "rg", -1400, y), ""), -1250, y)
         at = node(material, unreal.MaterialExpressionAdd, -1100, y)
         editing.connect_material_expressions(scaled_, "", at, "A")
         editing.connect_material_expressions(mask(material, t, "RGBA", "ba", -1400, y + 100), "", at, "B")
-        return at
+        # Version 12 (AST-290): the scroll of the map, EmissionPan.rg (emittance) or .ba (intensity).
+        moved = node(material, unreal.MaterialExpressionAdd, -1000, y)
+        editing.connect_material_expressions(at, "", moved, "A")
+        editing.connect_material_expressions(emission_pan["rg" if parameter == "EmittanceTransform" else "ba"], "", moved, "B")
+        return moved
 
     emittance = sample_at("Emittance", st.SAMPLERTYPE_MASKS, white_data(content, state),
                           transformed("EmittanceTransform", 5100), 5100)
