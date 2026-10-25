@@ -89,6 +89,15 @@ TAutoConsoleVariable<float> CVarWaterToneAlbedoScale(TEXT("swc.WaterToneAlbedoSc
 TAutoConsoleVariable<int32> CVarWaterMode(TEXT("swc.WaterMode"), 1,
 	TEXT("1: the Unreal water (the Water plugin; the default); 0: the source water shader (docs/WATER.md). -SwcWaterMode=Source sets 0 at the start."));
 
+/** The ocean waves (docs/WATER.md "Stage 2b"): 1 the fixed list of 24 waves of the source field (its size and amount of the ocean of the place),
+ *  0 the ocean waves of the plugin (GerstnerWaves_Ocean). 0 until the check of stage 2b. */
+TAutoConsoleVariable<int32> CVarWaterOceanWaves(TEXT("swc.WaterOceanWaves"), 0,
+	TEXT("1: the ocean waves of the source (24 Gerstner waves scaled by WavesSize, lengths / WavesAmount; docs/WATER.md \"Stage 2b\"); ")
+	TEXT("0: the waves of the plugin."));
+/** The shortest time between two updates of the source waves in a transition (s; each update rebuilds the GPU wave data) [decision of the
+ *  client]. */
+constexpr double WavesUpdateInterval = 0.1;
+
 /** @return The RGBA of the Absorption and Scattering parameters of the plugin material for a tone (swc::water::tone_parameters). */
 void ToneParameters(const swc::water::Tone& Tone, FLinearColor& Absorption, FLinearColor& Scattering)
 {
@@ -275,6 +284,7 @@ void USwcWaterSubsystem::SpawnUnrealZone()
 		UWaterWavesAssetReference* Reference = NewObject<UWaterWavesAssetReference>(OceanActor);
 		Reference->SetWaterWavesAsset(Waves);
 		OceanActor->SetWaterWaves(Reference);
+		UnrealPluginWaves = Reference;
 	}
 	OceanActor->FinishSpawning(FTransform::Identity);
 	SwcWaterCollisionAsOverlap(*Body);
@@ -516,6 +526,61 @@ void USwcWaterSubsystem::UpdateUnrealOceanTone()
 	}
 }
 
+void USwcWaterSubsystem::UpdateUnrealOceanWaves()
+{
+	AWaterBodyOcean* Ocean = UnrealOcean.Get();
+	if (Ocean == nullptr)
+	{
+		return;
+	}
+	if (SwcUnrealWater::CVarWaterOceanWaves.GetValueOnGameThread() == 0)
+	{
+		if (bSourceWavesOn)
+		{
+			Ocean->SetWaterWaves(UnrealPluginWaves);
+			bSourceWavesOn = false;
+			AppliedWavesSize = -1.0f;
+			UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the ocean waves of the plugin"));
+		}
+		return;
+	}
+	// The source: the size blends in the transition of the override (OceanNow); the amount, the wind, and the direction change at its end.
+	if (OceanBlend >= 1.0 && OceanTarget.Contains(TEXT("WavesAmount")))
+	{
+		WavesAmountNow = OceanTarget[TEXT("WavesAmount")];
+	}
+	const float Size = OceanNow.FindRef(TEXT("WavesSize"));
+	const double Now = FPlatformTime::Seconds();
+	if (bSourceWavesOn && Size == AppliedWavesSize && WavesAmountNow == AppliedWavesAmount)
+	{
+		return;
+	}
+	if (bSourceWavesOn && WavesAmountNow == AppliedWavesAmount && Now < NextWavesUpdate)
+	{
+		return;
+	}
+	if (UnrealSourceWaves == nullptr)
+	{
+		UnrealSourceWaves = NewObject<UGerstnerWaterWaves>(Ocean);
+		UnrealSourceWaves->GerstnerWaveGenerator = NewObject<USwcOceanWaveGenerator>(UnrealSourceWaves);
+	}
+	USwcOceanWaveGenerator* Generator = CastChecked<USwcOceanWaveGenerator>(UnrealSourceWaves->GerstnerWaveGenerator);
+	const bool bAmountChange = WavesAmountNow != AppliedWavesAmount;
+	Generator->Size = Size;
+	Generator->Amount = WavesAmountNow;
+	UnrealSourceWaves->RecomputeWaves(/* bAllowBPScript = */ false);
+	if (!bSourceWavesOn)
+	{
+		Ocean->SetWaterWaves(UnrealSourceWaves);
+		bSourceWavesOn = true;
+	}
+	UE_CLOG(bAmountChange || AppliedWavesSize < 0.0f, LogSwcWater, Log, TEXT("water (Unreal): the ocean waves of the source: size %.3f, amount %.2f, %d waves, the largest height %.2f m"),
+		Size, WavesAmountNow, UnrealSourceWaves->GetGerstnerWaves().Num(), UnrealSourceWaves->GetMaxWaveHeight() / 100.0f);
+	AppliedWavesSize = Size;
+	AppliedWavesAmount = WavesAmountNow;
+	NextWavesUpdate = Now + SwcUnrealWater::WavesUpdateInterval;
+}
+
 void USwcWaterSubsystem::SetUnrealVisible(bool bUnreal)
 {
 	// The Unreal water: the zone (its water mesh and far mesh), the ocean, and the bodies; no collision when it hides (the underwater sweep
@@ -563,6 +628,7 @@ void USwcWaterSubsystem::UpdateUnreal(const FVector& View, float DeltaTime)
 		UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the source tone %s (albedo scale %.2f), %d bodies"), Tone ? TEXT("on") : TEXT("off"), AlbedoScale, UnrealTones.Num());
 	}
 	UpdateUnrealOceanTone();
+	UpdateUnrealOceanWaves();
 	// The plugin makes the instances of a body again on some changes (CreateOrUpdateWaterMID): a new instance gets the tone too.
 	const double Now = FPlatformTime::Seconds();
 	if (Now >= NextToneCheck)

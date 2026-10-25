@@ -192,6 +192,18 @@ private:
 	/** Shows one render path and hides the other (swc.WaterMode). */
 	void SetUnrealVisible(bool bUnreal);
 	int32 OceanToneIndex = INDEX_NONE;
+	/** The ocean waves of the source (swc.WaterOceanWaves 1): S is the blended WavesSize of OceanNow; M (WavesAmount) changes at the end of a
+	 *  transition (the source copies it then). The plugin waves of the ocean come back with swc.WaterOceanWaves 0. */
+	void UpdateUnrealOceanWaves();
+	float WavesAmountNow = 2.0f;
+	float AppliedWavesSize = -1.0f;
+	float AppliedWavesAmount = -1.0f;
+	bool bSourceWavesOn = false;
+	double NextWavesUpdate = 0.0;
+	UPROPERTY()
+	TObjectPtr<class UGerstnerWaterWaves> UnrealSourceWaves;
+	UPROPERTY()
+	TObjectPtr<class UWaterWavesBase> UnrealPluginWaves;
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> UnrealFarMaterial;
 	double NextToneCheck = 0.0;

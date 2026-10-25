@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GerstnerWaterWaves.h"
 #include "WaterBodyCustomActor.h"
 #include "WaterBodyCustomComponent.h"
 #include "WaterBodyLakeActor.h"
@@ -93,4 +94,21 @@ class ASwcWaterBodyCustom : public AWaterBodyCustom
 
 public:
 	ASwcWaterBodyCustom(const FObjectInitializer& ObjectInitializer);
+};
+
+/**
+ * The ocean waves of the source (docs/WATER.md "Stage 2b"; research/water-storm-waves.md): the fixed list of 24 Gerstner waves of
+ * swc::water::ocean_waves for the size S (WavesSize) and the amount M (WavesAmount) of the ocean of the place. The client changes S and M
+ * and calls UGerstnerWaterWaves::RecomputeWaves.
+ */
+UCLASS(MinimalAPI)
+class USwcOceanWaveGenerator : public UGerstnerWaterWaveGeneratorBase
+{
+	GENERATED_BODY()
+
+public:
+	virtual void GenerateGerstnerWaves_Implementation(TArray<FGerstnerWave>& OutWaves) const override;
+
+	float Size = 0.08f;
+	float Amount = 2.0f;
 };

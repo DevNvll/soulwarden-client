@@ -286,4 +286,37 @@ void tone_parameters(const Tone& tone, float absorption[4], float scattering[4])
     scattering[3] = 1.0F;
 }
 
+std::vector<OceanWave> ocean_waves(float size, float amount)
+{
+    std::vector<OceanWave> out;
+    if (!(size > 0.0F) || !(amount > 0.0F)) {
+        return out;
+    }
+    // The amplitude of each copy of a bin (cm for S = 1; research/water-storm-waves.md, the table of section 5).
+    struct Bin {
+        int nx;
+        int ny;
+        float amplitude;
+    };
+    const Bin bins[] = {{1, 0, 21.64225449F}, {-1, 0, 21.64225449F}, {1, 1, 14.07428151F}, {1, -1, 14.07428151F}, {-1, 1, 14.07428151F},
+        {-1, -1, 14.07428151F}, {2, 0, 13.49725955F}, {-2, 0, 13.49725955F}, {2, 1, 10.26472816F}, {2, -1, 10.26472816F},
+        {-2, 1, 10.26472816F}, {-2, -1, 10.26472816F}};
+    constexpr float kPi = 3.14159265358979F;
+    out.reserve(kOceanWaveCount);
+    for (const Bin& bin : bins) {
+        const float r = std::sqrt(static_cast<float>(bin.nx * bin.nx + bin.ny * bin.ny));
+        const float beta = 1.0F + static_cast<float>(bin.nx * bin.ny) / (r * r);
+        for (int copy = 0; copy < 2; ++copy) {
+            OceanWave wave;
+            wave.direction[0] = -static_cast<float>(bin.nx) / r;
+            wave.direction[1] = static_cast<float>(bin.ny) / r;
+            wave.wavelength = (copy == 0 ? 8000.0F : 4000.0F) / (amount * r);
+            wave.amplitude = bin.amplitude * size;
+            wave.steepness = 2.0F * kPi / wave.wavelength * wave.amplitude * (copy == 0 ? 2.0F : 3.0F) * beta;
+            out.push_back(wave);
+        }
+    }
+    return out;
+}
+
 } // namespace swc::water

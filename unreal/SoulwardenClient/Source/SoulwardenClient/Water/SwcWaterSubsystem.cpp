@@ -423,6 +423,7 @@ void USwcWaterSubsystem::Load()
 	bUnrealMode = bUnrealAvailable && (ModeVariable == nullptr || ModeVariable->GetInt() != 0);
 	OceanNow = OceanBase;
 	OceanTarget = OceanBase;
+	WavesAmountNow = OceanBase.FindRef(TEXT("WavesAmount"));
 	UE_LOG(LogSwcWater, Log, TEXT("water: the render path: %s"), bUnrealMode ? TEXT("the Unreal water")
 		: bUnrealAvailable ? TEXT("the source water shader (swc.WaterMode 0)") : TEXT("the source water shader (no specs of the Unreal water)"));
 	bLoaded = true;
@@ -679,6 +680,10 @@ TMap<FName, float> USwcWaterSubsystem::OceanValues(int32 Material, const TShared
 	Out.Add(TEXT("NormalStrength"), NormalStrength);
 	Out.Add(TEXT("WaveSpeed"), FMath::Max(0.05f, NumberOf(Animation, TEXT("WavesSpeed"), 1.0f)) * (1.0f + NumberOf(Animation, TEXT("WindSpeed"), 1.0f) / 50.0f));
 	Out.Add(TEXT("WindDirection"), NumberOf(Animation, TEXT("WindDirection"), 0.0f));
+	// The size and the amount of the source ocean waves (the Unreal water, swc.WaterOceanWaves; research/water-storm-waves.md): S scales the
+	// displacement, M divides the wave lengths. No parameter of the source material has these names.
+	Out.Add(TEXT("WavesSize"), NumberOf(Animation, TEXT("WavesSize"), 0.08f));
+	Out.Add(TEXT("WavesAmount"), NumberOf(Animation, TEXT("WavesAmount"), 2.0f));
 	Out.Add(TEXT("SoftIntersectionFactor"), Param(TEXT("SoftIntersectionFactor"), 1.0f));
 	Out.Add(TEXT("RefractionBumpScale"), Param(TEXT("RefractionBumpScale"), 0.1f));
 	Out.Add(TEXT("ReflectionBumpScale"), Param(TEXT("ReflectionBumpScale"), 0.1f));

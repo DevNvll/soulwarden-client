@@ -224,6 +224,14 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   - The rule for the client: keep one wave list, scale its amplitude and steepness with S (also in the transition), and divide its
     lengths by M at the end of a transition. The study gives a 24-wave explicit list as an approximation [I]. For a size of 0, use an
     outer scale of 0 (the generator clamps an amplitude to at least 0.0001 cm). Full parity needs a custom displacement evaluation.
+  - The client code (2026-10-25, not built yet; the decision of the orchestrator: the approximation first):
+    `swc::water::ocean_waves(S, M)` (SwcWaterData, tested by `tools/test-water.sh`; the list equals the 24-wave lists of the study for
+    the four cases, within 3e-10) gives the 24 waves. `USwcOceanWaveGenerator` (Water/SwcWaterBodies) gives them to a
+    UGerstnerWaterWaves of the ocean body. S is the WavesSize of the ocean of the place, blended in the transition (OceanNow). M is
+    the WavesAmount of the target, applied at the end of the transition. A size or an amount of 0 gives no wave (the source
+    displacement 0). In a transition the list is computed again at most each 0.1 s (each time rebuilds the GPU wave data).
+    `swc.WaterOceanWaves 1` turns it on; the default 0 keeps the waves of the plugin until the check of stage 2b. The custom
+    displacement in the material waits until a view shows that the approximation is not good enough.
 - The shore foam decals on Single Layer Water (a deferred decal can project onto the water surface), the caustics (a static switch
   of the plugin material: it needs material instances), the river flow direction proof, and the cost in the cooked build.
 

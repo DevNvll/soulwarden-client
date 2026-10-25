@@ -165,6 +165,32 @@ Tone ocean_tone(const float fog[3], float multiplier, float density, float albed
  */
 void tone_parameters(const Tone& tone, float absorption[4], float scattering[4]);
 
+/**
+ * A wave of the ocean waves of the client (the Gerstner waves of the Water plugin, FGerstnerWave): the direction in Unreal space (x, y,
+ * a unit vector), the wave length and the amplitude in cm, and the steepness (the plugin keeps Q = Steepness / k, the horizontal
+ * amplitude in cm).
+ */
+struct OceanWave {
+    float direction[2]{1.0F, 0.0F};
+    float wavelength{0.0F};
+    float amplitude{0.0F};
+    float steepness{0.0F};
+};
+/** The number of waves of ocean_waves. */
+inline constexpr int kOceanWaveCount = 24;
+
+/**
+ * The ocean waves of the source as one fixed list of 24 Gerstner waves (docs/WATER.md "Stage 2b"; research/water-storm-waves.md,
+ * section 5, "A numeric explicit-wave approximation" [I]). The source has one shared FFT field for the whole ocean [R]: WavesSize S
+ * multiplies its displacement and WavesAmount M divides its wave lengths. The list has the 12 strongest signed bins (nx, ny) of the source
+ * spectrum ([+-1, 0], [+-1, +-1], [+-2, 0], [+-2, +-1]), each with its two copies (the base copy 80 / (M r) m, the second copy 40 / (M r) m,
+ * r = |(nx, ny)|), with the source power of the omitted bins added (x 1.204449094). The direction is (-nx / r, +ny / r) (the source
+ * time phase and the mirror of y). The steepness is k x the amplitude x 2 beta (the base copy) or 3 beta (the second copy), with
+ * beta = 1 + nx ny / r^2 (the source horizontal shear projected on the direction). @return No wave for S <= 0 or M <= 0 (the source
+ * displacement is 0; a Gerstner wave of amplitude 0 has no defined Q).
+ */
+std::vector<OceanWave> ocean_waves(float size, float amount);
+
 /** @return The region (x, y numbers) of a name r_+X_+Y, or none. */
 std::optional<std::pair<int, int>> region_of(const std::string& name);
 

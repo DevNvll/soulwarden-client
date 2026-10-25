@@ -11,6 +11,7 @@
 #include "WaterSplineComponent.h"
 #include "Misc/CoreDelegates.h"
 #include "WaterRuntimeSettings.h"
+#include "Water/SwcWaterData.h"
 #include "WaterZoneActor.h"
 
 namespace
@@ -173,4 +174,16 @@ ASwcWaterBodyCustom::ASwcWaterBodyCustom(const FObjectInitializer& ObjectInitial
 	: Super(ObjectInitializer)
 {
 	WaterBodyCustomComponentClass = USwcWaterBodyCustomComponent::StaticClass();
+}
+
+void USwcOceanWaveGenerator::GenerateGerstnerWaves_Implementation(TArray<FGerstnerWave>& OutWaves) const
+{
+	for (const swc::water::OceanWave& Source : swc::water::ocean_waves(Size, Amount))
+	{
+		FGerstnerWave& Wave = OutWaves.AddDefaulted_GetRef();
+		Wave.Direction = FVector(Source.direction[0], Source.direction[1], 0.0);
+		Wave.WaveLength = Source.wavelength;
+		Wave.Amplitude = Source.amplitude;
+		Wave.Steepness = Source.steepness;
+	}
 }

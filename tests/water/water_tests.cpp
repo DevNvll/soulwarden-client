@@ -216,6 +216,37 @@ int main(int argc, char** argv)
 		// The default of the plugin: Absorption (10, 150, 350, 8): 1 / 80 per cm in red.
 		check(std::fabs(1.0F / (10.0F * 8.0F) - 0.0125F) < 1e-9F, "the plugin default: the red absorption is 1 / 80 per cm");
 	}
+	std::printf("the ocean waves of the source (research/water-storm-waves.md)\n");
+	{
+		const std::vector<swc::water::OceanWave> storm = swc::water::ocean_waves(0.3F, 1.0F);
+		check(static_cast<int>(storm.size()) == swc::water::kOceanWaveCount, "24 waves: 12 bins, two copies each");
+		double squares = 0.0;
+		bool unit = true;
+		for (const swc::water::OceanWave& wave : storm) {
+			squares += 0.5 * wave.amplitude * wave.amplitude;
+			unit = unit && std::fabs(std::hypot(wave.direction[0], wave.direction[1]) - 1.0F) < 1e-5F;
+		}
+		check(unit, "each direction is a unit vector");
+		// The ideal RMS height of the source field: 24 x S x sqrt(sum P) = 0.15045 m for the Cutlass Keys storm (S 0.3).
+		check(std::fabs(std::sqrt(squares) - 15.045) < 0.01, "the storm: the RMS height of the list is the source 0.150 m");
+		check(std::fabs(storm[0].amplitude - 6.49268F) < 1e-4F && storm[0].wavelength == 8000.0F && storm[1].wavelength == 4000.0F
+				&& storm[0].direction[0] == -1.0F,
+			"the storm: the axial bin [1, 0]: 6.49 cm, 80 m and 40 m, the direction -x");
+		check(std::fabs(storm[0].steepness - 2.0F * 3.14159265F / 8000.0F * 6.49268F * 2.0F) < 1e-6F
+				&& std::fabs(storm[1].steepness - 2.0F * 3.14159265F / 4000.0F * 6.49268F * 3.0F) < 1e-6F,
+			"the steepness: k x the amplitude x 2 (the base copy) or 3 (the second copy)");
+		// The bin [1, -1]: beta = 1 - 1/2.
+		check(std::fabs(storm[6].steepness / (2.0F * 3.14159265F / storm[6].wavelength * storm[6].amplitude * 2.0F) - 0.5F) < 1e-5F,
+			"the shear: beta = 1 + nx ny / r^2 (0.5 for the bin [1, -1])");
+		const std::vector<swc::water::OceanWave> mission = swc::water::ocean_waves(0.08F, 2.0F);
+		check(mission[0].wavelength == 4000.0F && std::fabs(mission[0].amplitude - 1.73138F) < 1e-4F,
+			"the mission ocean (S 0.08, M 2): 40 m and 1.73 cm for the axial bin");
+		const std::vector<swc::water::OceanWave> raid = swc::water::ocean_waves(0.7F, 1.0F);
+		check(std::fabs(raid[0].amplitude / storm[0].amplitude - 0.7F / 0.3F) < 1e-5F && raid[0].wavelength == storm[0].wavelength,
+			"a size change scales the amplitude only (the same field)");
+		check(swc::water::ocean_waves(0.0F, 5.0F).empty() && swc::water::ocean_waves(0.2F, 0.0F).empty(),
+			"a size of 0 (Tod_Ocean, the magic realm) or an amount of 0: no wave");
+	}
 	std::printf("%d checks, %d failed\n", g_checks, g_failures);
 	return g_failures == 0 ? 0 : 1;
 }
