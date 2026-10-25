@@ -77,6 +77,14 @@ C8_LEFT_OUT_MATERIALS = ("azoth",)
 # the version-3 pairs they drew the grey editorprimitive, with them white cubes. Known difference: their shadows are missing (a cell
 # flag for a shadow-only component needs a C++ change).
 SHADOW_PROXY_FILE = re.compile(r"shadow_?prox|impostershadow")
+# The C++ step after AST-288 W1/W2 (SwcEditorLibrary: flag bit 2 bDisallowNanite, bit 3 hidden in game with bCastHiddenShadow). Off
+# until that editor build is in main: an older editor ignores the bits, and a shadow proxy would draw white again.
+# SHADOW_ONLY: the shadow proxies are placed with flag bit 3 (their shadow stays), not left out.
+# ENTRY_NO_NANITE: the entries of the minority pairs of materials/no-nanite.json (a translucent override on a mesh that keeps Nanite
+# for its other placements) get flag bit 2.
+SHADOW_ONLY = False
+ENTRY_NO_NANITE = False
+FLAG_WIND, FLAG_DECAL, FLAG_NO_NANITE, FLAG_SHADOW_ONLY = 1, 2, 4, 8
 
 
 def shadow_proxy_file(path: str) -> bool:
@@ -184,7 +192,8 @@ def write(name: str) -> dict:
         proxy_mesh = np.array([shadow_proxy_file(m) for m in names], dtype=bool)
         proxy_material = np.array([shadow_proxy_file(m) for m in material_names], dtype=bool)
         shadow_proxies = proxy_mesh[data["mesh"]] | proxy_material[material_all]
-        keep &= ~shadow_proxies
+        if not SHADOW_ONLY:
+            keep &= ~shadow_proxies
     else:
         shadow_proxies = np.zeros(0, bool)
     pairs_path = overrides.out_dir() / "pairs.json"
@@ -239,7 +248,26 @@ def write(name: str) -> dict:
     # The entry of a placement: (mesh, override) when the override changes a slot or a decal slot (C11), else the mesh alone.
     entry_of_pair: dict[tuple[int, int], tuple[int, int]] = {}
     for m, o in set(zip(data["mesh"][keep].tolist(), material_all[keep].tolist())):
-        entry_of_pair[(m, o)] = (m, o) if slots_of(m, o) or decal_slots_of(m, o) else (m, 0)
+        proxy = SHADOW_ONLY and (shadow_proxy_file(names[m]) or shadow_proxy_file(material_names[o]))
+        entry_of_pair[(m, o)] = (m, o) if slots_of(m, o) or decal_slots_of(m, o) or proxy else (m, 0)
+    # The flags of the C++ step (SHADOW_ONLY, ENTRY_NO_NANITE): bit 3 for a shadow proxy, bit 2 for a minority pair of no-nanite.json.
+    minority: set = set()
+    if ENTRY_NO_NANITE:
+        from . import nanite
+        listed_path = nanite.path()
+        if listed_path.is_file():
+            minority = set(json.loads(listed_path.read_text()).get("minority", {}))
+        nanite_specs = nanite.load_specs() if minority else {}
+
+    def entry_flags(mesh_index: int, material_index: int) -> int:
+        flags = 0
+        if SHADOW_ONLY and (shadow_proxy_file(names[mesh_index]) or shadow_proxy_file(material_names[material_index])):
+            flags |= FLAG_SHADOW_ONLY
+        if (ENTRY_NO_NANITE and material_index and names[mesh_index] in minority
+                and nanite.translucent_pair(names[mesh_index], material_names[material_index], assets, pairs, nanite_specs)):
+            flags |= FLAG_NO_NANITE
+        return flags
+
     pair_rows = np.array([entry_of_pair[(m, o)] for m, o in zip(data["mesh"][keep].tolist(), material_all[keep].tolist())],
                          dtype=np.int64).reshape(-1, 2)
     wind_all = data["wind"] if "wind" in data else np.zeros(len(data["mesh"]), bool)
@@ -291,7 +319,7 @@ def write(name: str) -> dict:
         out += text(assets[names[pair // 65536]]["unreal"]) + struct.pack("<H", len(slots))
         for slot, key in sorted(slots.items()):
             out += text(slot) + text(key)
-        out += struct.pack("<B", wind)
+        out += struct.pack("<B", wind | entry_flags(pair // 65536, pair % 65536))
     for mesh_index, material_index in companions:
         out += companion_bytes(mesh_index, material_index)
     cells = sorted(set(zip(cx.tolist(), cy.tolist())))
@@ -328,7 +356,9 @@ def write(name: str) -> dict:
               "decal-only placements left out: no decal in the override (C11)": dropped_decal_only,
               "cells": len(cells), "components": groups, "file": str(path), "bytes": len(out),
               "left out (not imported, fog cards, fog volumes, no material)": int((~keep).sum()),
-              "shadow proxies left out": int(shadow_proxies.sum()),
+              "shadow proxies left out": 0 if SHADOW_ONLY else int(shadow_proxies.sum()),
+              "shadow proxies placed shadow-only": int(shadow_proxies.sum()) if SHADOW_ONLY else 0,
+              "entries with no Nanite": sum(1 for m in used if entry_flags(*divmod(m // 2, 65536)) & FLAG_NO_NANITE),
               "decal-only meshes": int(decal_only[data["mesh"][keep]].sum()) if len(names) else 0}
     (path.parent / "cells.json").write_text(json.dumps(report, indent=1))
     return report

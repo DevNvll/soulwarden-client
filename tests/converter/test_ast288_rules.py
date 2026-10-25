@@ -2,6 +2,7 @@
 override pair or a spec) and the shadow proxies that the cells leave out (cells.SHADOW_PROXY_FILE)."""
 import json
 import os
+import struct
 import sys
 import tempfile
 import unittest
@@ -109,10 +110,75 @@ class ShadowProxyCells(unittest.TestCase):
         self.assertFalse(cells.shadow_proxy_file("objects/crafting/architecture/living_structures/cottage/dmn_house_shadow.cgf"))
         self.assertFalse(cells.shadow_proxy_file(""))
 
+    def test_shadow_only(self):
+        cells.SHADOW_ONLY = True
+        try:
+            report = cells.write(REGION)
+        finally:
+            cells.SHADOW_ONLY = False
+        self.assertEqual(report["shadow proxies placed shadow-only"], 2)
+        self.assertEqual(report["instances"], 4)
+        flags = {}
+        b = (Path(os.environ["SWC_CONTENT"]) / "regions" / REGION / "cells.bin").read_bytes()
+        count, o = struct.unpack_from("<I", b, 8)[0], 12
+        for _ in range(count):
+            size = struct.unpack_from("<H", b, o)[0]; o += 2
+            folder = b[o:o + size].decode(); o += size
+            slots = struct.unpack_from("<H", b, o)[0]; o += 2
+            for _ in range(2 * slots):
+                size = struct.unpack_from("<H", b, o)[0]; o += 2 + size
+            flags.setdefault(folder, []).append(b[o]); o += 1
+        from swc_convert import manifest
+        assets = manifest.load()["assets"]
+        self.assertEqual(flags[assets[MEDUSA]["unreal"]], [cells.FLAG_SHADOW_ONLY])
+        self.assertEqual(sorted(flags[assets[CUBE]["unreal"]]), [0, cells.FLAG_SHADOW_ONLY])   # the mud cube and the proxy cube
+        self.assertEqual(flags[assets[CRATE]["unreal"]], [0])
+
     def test_left_out(self):
         report = cells.write(REGION)
         self.assertEqual(report["shadow proxies left out"], 2)   # the cube with the proxy override and the medusa wall
         self.assertEqual(report["instances"], 2)                 # the crate and the cube with the mud override
+
+
+class EntryNoNanite(unittest.TestCase):
+    """The entry of a minority pair (no-nanite.json "minority") gets flag bit 2; the other entry of the mesh keeps Nanite."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        root = Path(self.folder.name)
+        self.saved = os.environ.get("SWC_CONTENT")
+        os.environ["SWC_CONTENT"] = str(root)
+        assets = {CRATE: {"kind": "static", "materials": ["m_wood"], "nanite": True, "version": 7}}
+        (root / "manifest.json").write_text(json.dumps({"format": 2, "assets": assets}))
+        overrides.out_dir().mkdir(parents=True, exist_ok=True)
+        (overrides.out_dir() / "pairs.json").write_text(json.dumps({overrides.pair_key(CRATE, "fx.mtl"): {"slots": {"m_wood": "m_fx"}}}))
+        (root / "materials").mkdir()
+        (root / "materials" / "instances.json").write_text(json.dumps({"instances": {"m_fx": {"parent": "fxmesh"}}}))
+        (root / "materials" / "no-nanite.json").write_text(json.dumps({"meshes": {}, "minority": {CRATE: {"translucent": 1, "all": 3}}}))
+        matrix = np.zeros((3, 3, 4))
+        matrix[:, :, :3] = np.eye(3)
+        matrix[:, :, 3] = [[10.0 + i, 10.0, 50.0] for i in range(3)]
+        region = root / "regions" / REGION
+        region.mkdir(parents=True)
+        np.savez(region / "placements.npz", meshes=np.array([CRATE]), mesh=np.zeros(3, np.uint32), source=np.zeros(3, np.uint8),
+                 matrix=matrix, sources=np.array(["chunk"]), materials=np.array(["", "fx.mtl"]),
+                 material=np.array([0, 0, 1], np.uint16), wind=np.zeros(3, bool))
+
+    def tearDown(self):
+        if self.saved is None:
+            os.environ.pop("SWC_CONTENT", None)
+        else:
+            os.environ["SWC_CONTENT"] = self.saved
+        self.folder.cleanup()
+
+    def test_flag(self):
+        cells.ENTRY_NO_NANITE = True
+        try:
+            report = cells.write(REGION)
+        finally:
+            cells.ENTRY_NO_NANITE = False
+        self.assertEqual(report["entries with no Nanite"], 1)
+        self.assertEqual(report["entries"], 2)
 
 
 class CoverPlaceholders(unittest.TestCase):

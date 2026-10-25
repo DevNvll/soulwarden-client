@@ -390,7 +390,9 @@ int32 USwcEditorLibrary::SpawnInstanceActorRange(const FString& File, int32 Firs
 	// has thousands of meshes, a call spawns a few actors, and the count loads nothing.
 	TArray<FString> Folders;
 	TArray<TArray<TPair<FString, FString>>> SlotKeys;   // (slot name, material key) of each entry
-	TArray<uint8> Flags;   // cells.py: bit 0 the wind (receiveWind of the render node), bit 1 a decal companion
+	// cells.py: bit 0 the wind (receiveWind of the render node), bit 1 a decal companion, bit 2 no Nanite for this entry (a translucent
+	// override on a mesh that keeps Nanite for its other placements: AST-288 W2), bit 3 a shadow proxy (hidden in game, casts its shadow)
+	TArray<uint8> Flags;
 	const uint32 MeshCount = Reader.Read<uint32>();
 	for (uint32 Index = 0; Index < MeshCount && !Reader.bFailed; ++Index)
 	{
@@ -429,7 +431,7 @@ int32 USwcEditorLibrary::SpawnInstanceActorRange(const FString& File, int32 Firs
 		UStaticMesh* Mesh = FindStaticMesh(Folders[Index]);
 		Meshes[Index] = Mesh;
 		// import_content.py section 6: /SwcGameContent/Collision/FOLDER_NAME/C_MESH_NAME.
-		if (!(Flags[Index] & 2))   // a decal companion has no collision
+		if (!(Flags[Index] & (2 | 8)))   // a decal companion and a shadow proxy have no collision
 		{
 			CollisionMeshes[Index] = FindStaticMesh(TEXT("/SwcGameContent/Collision/") + FPaths::GetCleanFilename(Folders[Index]));
 		}
@@ -548,6 +550,18 @@ int32 USwcEditorLibrary::SpawnInstanceActorRange(const FString& File, int32 Firs
 			if (Flags[MeshIndex] & 2)
 			{
 				Component->SetCastShadow(false);   // a decal companion (the deferred decal subsets of the main mesh)
+			}
+			if (Flags[MeshIndex] & 4)
+			{
+				// AST-288 W2: Nanite draws only opaque and masked materials; the fallback mesh of this entry draws the translucent
+				// override (the import gives the listed meshes a full fallback: Scripts/nanite_fallback.py).
+				Component->bDisallowNanite = true;
+			}
+			if (Flags[MeshIndex] & 8)
+			{
+				// AST-288: a shadow proxy of the level (cells.SHADOW_PROXY_FILE): not drawn, its shadow stays.
+				Component->SetHiddenInGame(true);
+				Component->bCastHiddenShadow = true;
 			}
 			for (const TPair<int32, UMaterialInterface*>& Slot : SlotMaterials[MeshIndex])
 			{
