@@ -25,6 +25,15 @@ from pathlib import Path
 from . import cover_areas, cover_materials, env, manifest, region, source
 
 VERSION = 1
+# The placeholders of the vegetation tables that the client does not draw (AST-288 W8, the decision of the orchestrator 2026-10-25):
+# jav_fst_emptyspace_a is one Illum triangle of 24 cm with textures/defaults/grey.dds (78,200 records in 10 regions); the retail
+# still at 13656 8462 (set-look1024 "empty") shows nothing. Its descriptor keeps its index and gets no mesh path: the client skips it.
+LEFT_OUT = frozenset({"objects/nature/veg_grass/grass_forest/emptyspace/jav_fst_emptyspace_a.cgf"})
+
+
+def left_out(mesh: str | None) -> bool:
+    """@return True for a descriptor mesh that the cover does not draw (LEFT_OUT)."""
+    return (mesh or "").lower() in LEFT_OUT
 # The terrains with ground cover: the folder of the terrain in the game data and the content folder of its regions. The world
 # is the default; the terrain of the main menu level writes to its own folder, so that no file of the world changes (stage F4b
 # of docs/FRONTEND.md: the leaves and stones at the feet of the menu character).
@@ -63,10 +72,14 @@ def write(name: str, terrain: str = "newworld_vitaeeterna") -> dict:
     pairs = json.loads(pairs_path.read_text()) if pairs_path.is_file() else {}
     out = bytearray(b"SWCV" + struct.pack("<II", VERSION, len(table)))
     report = {"region": name, "cover": True, "descriptors": len(table), "records": 0, "records of imported meshes": 0,
-              "descriptors with an override": 0, "overrides with no slot map": 0, "meshes not imported": 0}
+              "descriptors with an override": 0, "overrides with no slot map": 0, "meshes not imported": 0,
+              "records left out (placeholders)": 0}
     for d in table:
         entry = assets.get(d["mesh"] or "", {})
         mesh_path = object_path(entry["unreal"]) if entry.get("kind") == "static" and entry.get("unreal") else ""
+        if mesh_path and left_out(d["mesh"]):
+            mesh_path = ""
+            report["records left out (placeholders)"] += d["records"]
         slots: dict = {}
         if d["override"]:
             report["descriptors with an override"] += 1
@@ -78,7 +91,7 @@ def write(name: str, terrain: str = "newworld_vitaeeterna") -> dict:
         report["records"] += d["records"]
         if mesh_path:
             report["records of imported meshes"] += d["records"]
-        else:
+        elif not left_out(d["mesh"]):
             report["meshes not imported"] += 1
         out += text(mesh_path) + struct.pack("<H", len(slots))
         for slot, key in sorted(slots.items()):

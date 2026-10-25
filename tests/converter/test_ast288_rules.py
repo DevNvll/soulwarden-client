@@ -12,7 +12,7 @@ import numpy as np
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "converter"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "converter" / "vendor" / "soulwarden"))
-from swc_convert import cells, nanite, overrides  # noqa: E402
+from swc_convert import cells, cover, nanite, overrides  # noqa: E402
 
 BANANA = "objects/nature/veg_trees/trees_coast/bananaplant/jav_cst_bananaplant_d.cgf"
 WINDOW = "objects/crafting/props/doorswindows/jav_prp_window_a.cgf"
@@ -113,6 +113,14 @@ class ShadowProxyCells(unittest.TestCase):
         report = cells.write(REGION)
         self.assertEqual(report["shadow proxies left out"], 2)   # the cube with the proxy override and the medusa wall
         self.assertEqual(report["instances"], 2)                 # the crate and the cube with the mud override
+
+
+class CoverPlaceholders(unittest.TestCase):
+    def test_left_out(self):
+        self.assertTrue(cover.left_out("objects/nature/veg_grass/grass_forest/emptyspace/jav_fst_emptyspace_a.cgf"))
+        self.assertTrue(cover.left_out("Objects/Nature/Veg_Grass/Grass_Forest/EmptySpace/jav_fst_emptyspace_a.cgf"))
+        self.assertFalse(cover.left_out("objects/nature/veg_grass/grass_forest/jav_fst_grass_a.cgf"))
+        self.assertFalse(cover.left_out(None))
 
 
 if __name__ == "__main__":
