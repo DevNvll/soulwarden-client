@@ -307,7 +307,8 @@ census.canvases = {
   ["mounts/vendorshop"] = {class = "stage", feature = "F60", stage = "P5.5",
     ui = {{group = 8, gate = {od = false}}},
     dynamic = {{name = "VendorShop", gate = {}, states = {1127161507}, triggerStates = {}}}},
-  ["navbar/navbar"] = {class = "stage", feature = "F06", stage = "P2.2",
+  -- The game menu (2026-10-25): the NavBar shows in display-only mode (swc/gamemenu.lua).
+  ["navbar/navbar"] = {class = "active", feature = "F06", stage = "P2.2, game menu",
     ui = {{group = 5, gate = {}}}},
   ["navbar/worldhitarea"] = {class = "stage", feature = "F06", stage = "P2.2",
     ui = {{group = 5, gate = {}}}},

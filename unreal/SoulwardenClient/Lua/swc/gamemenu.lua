@@ -464,3 +464,89 @@ Swc.scriptHooks["lyshineui.options.options"] = function(base)
     end
   end
 end
+
+-- ------------------------------------------------------------------------------------------------------------- the NavBar
+
+-- The NavBar (lyshineui/navbar, navbar.luac): the retail menu bar on top of the screens of the states Esc, Map, Objectives
+-- (the journal), Skills, and Options (gamedata/uistates.json). Display only (the decision of 2026-10-25):
+--   * The tabs: only the screens that this client has: JOURNAL, CHARACTER (the character window), MAP, and the Game Menu gear
+--     (the escape menu). The other entries of NavButtonData (Company, Mount, Modes, Activities, the season, Store, the group
+--     finder, the social button) go before SetNavMenu builds the tabs. The bar stays at the left, as retail (the 2023 tab list
+--     gives the spacers no width; evidence/MVP-G/side-mastery.png: the retail bar starts at the left with its social icon).
+--   * The tab CHARACTER: the script turns the Skills tab on when UIFeatures.g_uiEnableAttributes or g_uiEnableTradeskills is on
+--     (its observers; swc/skills.lua sets both, as the retail window has these tabs).
+--   * No soft load: with the on-demand loading, the script goes to the state NavBar, queues the state of a tab, and sets it
+--     when DynamicCanvasLoaderBus PrepareState says that its canvases are ready. This client loads its screens at the start
+--     (HudScreens): statesToSoftLoad is empty, and a tab sets its state at once.
+--   * The keys: the NavBar does not take ui_cancel, toggleMenuComponent, or toggleJournalComponent. The escape rule and the
+--     journal rule of the emulation stay (swc/actions.lua; open point O12). The retail Escape logic of navbar.luac (for each
+--     state, popup, and screen) is a later task (full parity).
+
+--- The kept entries of the NavBar (their stateName: the CRC-32 of the state).
+G.navKeptStates = {
+  [3576764016] = "CHARACTER (Skills)",
+  [1823500652] = "JOURNAL (Objectives)",
+  [2477632187] = "MAP",
+  [1643432462] = "Game Menu (Esc)",
+}
+--- The actions that the emulation keeps (the NavBar does not take them).
+G.navIgnoredActions = {ui_cancel = true, toggleMenuComponent = true, toggleJournalComponent = true}
+
+-- No season (the seasons tab goes): OnInit reads the display name of the current season.
+Swc.Define("SeasonsRewardsSeasonDataManagerBus", "Broadcast", {
+  GetSeasonData = function() return {displayName = ""} end,
+})
+
+--- Takes the entries of the features that this client does not have out of NavButtonData (in place).
+--- @return The number of entries that stay.
+function G.FilterNavButtons(self)
+  local list = self.NavButtonData
+  if type(list) ~= "table" then
+    return 0
+  end
+  local kept = {}
+  for _, entry in ipairs(list) do
+    if entry.isSpacer or (entry.stateName and G.navKeptStates[entry.stateName]) then
+      kept[#kept + 1] = entry
+    end
+  end
+  for i = #list, 1, -1 do
+    list[i] = nil
+  end
+  for i, entry in ipairs(kept) do
+    list[i] = entry
+  end
+  return #kept
+end
+
+Swc.scriptHooks["lyshineui.navbar.navbar"] = function(base)
+  local init = rawget(base, "OnInit")
+  if type(init) == "function" then
+    base.OnInit = function(self, ...)
+      -- BeginSwitchingState (a press of a tab) reads statesToSoftLoad; OnInit makes it.
+      local results = {init(self, ...)}
+      self.statesToSoftLoad = {}
+      return unpack(results)
+    end
+  end
+  local setNavMenu = rawget(base, "SetNavMenu")
+  if type(setNavMenu) == "function" then
+    base.SetNavMenu = function(self, ...)
+      if not rawget(self, "__swcNavFiltered") then
+        rawset(self, "__swcNavFiltered", true)
+        local n = G.FilterNavButtons(self)
+        Swc.Note(string.format("game menu: the NavBar with %d entries (JOURNAL, CHARACTER, MAP, Game Menu, and the spacers)", n))
+      end
+      return setNavMenu(self, ...)
+    end
+  end
+  local onCryAction = rawget(base, "OnCryAction")
+  if type(onCryAction) == "function" then
+    base.OnCryAction = function(self, action, ...)
+      if G.navIgnoredActions[action] then
+        return nil
+      end
+      return onCryAction(self, action, ...)
+    end
+  end
+end

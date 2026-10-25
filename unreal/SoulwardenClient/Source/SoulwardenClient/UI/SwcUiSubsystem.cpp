@@ -59,6 +59,8 @@ const char* const HudScreens[] = {
 	"lyshineui/compass/compass",
 	"lyshineui/hud2024/editmode/hudeditmode",
 	"lyshineui/escapemenu/escapemenu",
+	// The menu bar of the states Esc, Map, Objectives, Skills, and Options (the game menu; display only, swc/gamemenu.lua).
+	"lyshineui/navbar/navbar",
 	"lyshineui/popup/popup",
 	// The front end (stage F2 of docs/FRONTEND.md): the landing screen of the main menu (a native load, swc/frontend.lua).
 	"lyshineui/main menu/landingscreenv2",

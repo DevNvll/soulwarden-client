@@ -522,7 +522,7 @@ bars of the database), the trees of the bow, the great axe, the rapier, the war 
 mastery); in the bow tree the list of place 3 gives Penetrating Shot: 2701 (the backend: "is the facet of component c20d99be6902e291
 (Stats/...)", "ability bar request ... done"), and the next Ability state shows the bar empty, Splinter Shot, Penetrating Shot; the
 trade skills (the ranks of the database, the cap 250). The differences with the retail window (`side-*.png`, `crop-*.png`): no top
-navigation bar, no tab Achievements, the lines "ENTER Chat" and "ESC Back" since AST-231 (the chat widget and the HelpBar), no blur of the world
+navigation bar (since the game menu: the NavBar with JOURNAL, CHARACTER, MAP, and the Game Menu), no tab Achievements, the lines "ENTER Chat" and "ESC Back" since AST-231 (the chat widget and the HelpBar), no blur of the world
 behind the window, the Respec button off with a cost, the debug text of the run over the window.
 
 ## The census (stage P2.3)
@@ -695,6 +695,28 @@ The Options screen (`options.luac`):
   default of this client it runs at the first show, before the drop-down has a selected item (the retail default Off skips
   it; before the guard: a Lua error, and the Escape of the options in the front end did not go back). With no selected item
   the call does nothing: the row keeps the mode list of its row data (the same list).
+
+The NavBar (`navbar.luac`; display only, the decision of 2026-10-25):
+
+- The retail menu bar on top of the screens of the states Esc, Map, Objectives (the journal), Skills, and Options
+  (`gamedata/uistates.json`). The client loads its canvas with the HUD screens (`HudScreens`).
+- The tabs: JOURNAL (Objectives), CHARACTER (Skills), MAP, and the Game Menu gear (Esc). The other entries of `NavButtonData`
+  (Company, Mount, Modes, Activities, the season, Store, the group finder, the social button) go before `SetNavMenu` builds the
+  tabs. The bar stays at the left, as retail: the 2023 tab list gives the spacers no width (the retail picture
+  `evidence/MVP-G/side-mastery.png`).
+- CHARACTER: the script turns the Skills tab on when `UIFeatures.g_uiEnableAttributes` or `g_uiEnableTradeskills` is on (two
+  observers of `OnInit`); `swc/skills.lua` sets both (the retail window has these tabs).
+- No soft load: with the on-demand loading, a tab of `statesToSoftLoad` goes to the state NavBar, and `OnTick` sets the queued
+  state when `DynamicCanvasLoaderBus.PrepareState` says that its canvases are ready. This client loads its screens at the
+  start: the client empties `statesToSoftLoad`, and each tab sets its state at once.
+- The keys: the NavBar does not take `ui_cancel`, `toggleMenuComponent`, or `toggleJournalComponent`. The escape rule and the
+  journal rule of the emulation stay (open point O12). `navbar.luac` has the retail Escape logic for each state, popup, and
+  screen (from the HUD it can go to the state NavBar); full parity with it is a later task.
+- No season: `SeasonsRewardsSeasonDataManagerBus.GetSeasonData` gives an empty display name (`OnInit` reads it).
+- The background `lyshineui/images/navbar/navbar_bg_2023.dds` was not converted (the HUD and the screens of the earlier stages
+  did not name it). Its PNG is made in a check folder; it goes to the shared content only after the word of the orchestrator.
+  Without it the bar has no background.
+- Fixture `navbar` (35 checks).
 
 The save and the apply (`swc/options.lua`, `UI/SwcGameSettings`):
 
@@ -1061,6 +1083,7 @@ default HUD layout. A cut of a running cooldown keeps its full time. Pictures `f
 | `frontend` | The original landing screen (LandingScreenV2) with the list of the host: no list request before the account is ready (the end of the UI load is not the account event, FE9); no rows before the three ready flags in three completion orders; five characters and an empty slot (the row template clones); the row levels (the document value + 1); the default selection (the last played); a click on a row (the id, the radio state, the preview hide and show, the world); a refresh with a new order keeps the selection by id (FE10); the return from the options asks for the list again; Options, Escape, and the exit state; Enter and a click on PLAY give one login request; a failed login (the error popup, its OK, the refresh, PLAY again); the world type FTUE; no login for a character that must be renamed; no character, no world; the camera sequences (the transition plays `IntroToCharacter`, a queued sequence, the level load plays it again, the end after its duration; stage F4); the delete of a character (stage F8: the options of the row, Delete, the hold-to-accept popup; No and a hold of 0.3 s send nothing; a hold of 3 s sends one "menu delete ID"; the result refreshes the list and selects another character; a failed delete; the last character); no Lua error (94 checks). Pictures `frontend-list`, `frontend-select`, `frontend-empty`. |
 | `loader` | The screen loader of the game (`uiloader.luac`) at a world entry, with two allowed screens (Vitals2024, InfoModal): it asks only for canvases of its list (`gamedata/loader.json`, 153 paths), one time each, with the ending `.uicanvas` (105 for the world); it counts each load and failure and sets the state HUD; the HUD screen has no autohide and shows, the menu has autohide and shows only in its state. Each canvas that the game has for the two lists (the UI loader and the 69 canvases of `dynamiccanvasloader.luac`) is converted; 2 paths of the UI loader have no canvas in the game. |
 | `escape` | The original EscapeMenu and Popup screens driven by keys and clicks (`Swc.HostInput`): Escape in the HUD fires `toggleMenuComponent`, the state goes to "esc", the menu shows with the cursor and the maps player, movement, camera off; exit to desktop opens the quit popup over the menu (the state stays; the map ui off); Escape fires `ui_genpop_cancel` and closes only the popup; the pointer hovers a menu button again; Escape gives `OnEscapeKeyPressed` to the menu and the HUD comes back with its maps; the exit to the main menu opens the quit popup (quitgamepopup.luac), and Yes gives one request "menu quit 1" (stage F6, docs/FRONTEND.md); the game menu: only Settings, Exit to Main Menu, and Exit to Desktop show, no store and no support section, the sections one under the other, the small frame 47 px below the last button. Pictures `escape-menu`, `escape-popup`, `escape-focus`, `escape-quit-main`. |
+| `navbar` | The original NavBar in display-only mode with the escape menu (the game menu): Escape in the HUD opens the escape menu as before, the NavBar shows over it with only JOURNAL, CHARACTER, MAP, and the Game Menu gear, the CHARACTER tab is on, no soft load; a click on each tab sets its state at once (Skills, Objectives, Map, Esc: the gear by its sprite); J opens the journal; Escape opens and closes the escape menu; the NavBar hides in the HUD; no Lua error (35 checks). Pictures `navbar-esc`, `navbar-skills`. |
 | `loading` | The loading screen of the game (`loadingscreen.luac`) shows and hides with the events of the native code; a refused connection gives the original error popup (`popup.luac` ShowError, `UIError_login_unable_to_connect`) with the cursor, and its OK button closes it. Pictures `loading-start`, `loading-later`, `loading-error`. |
 | `respawn` | The original Respawn screen: the dead mark and a death notice of 5 s queue the state "respawn", the list has "Random Location"; a drag on the world map (a press on a tile, the hand-off to the `MagicMap` scroll box) moves its content by the drag vector, `magicmap.luac` sees the drag and its end; Escape opens the escape menu of the respawn state over the screen and Escape goes back to it; the RESPAWN button (on 2 s after the map) gives the host request "respawn 1", the loading screen of the death shows, the revive and its end give the HUD. Pictures `respawn-list`, `respawn-drag`, `respawn-loading`. |
 | `tooltip` | The original EscapeMenu and Tooltip screens: with the dead mark the menu buttons have the tooltip "@ui_button_disabled_dead"; the hover of a button shows the dynamic tooltip after the delay of its setter, at the cursor, with the English text and the width of the text and its padding; the end of the hover hides it; with the character alive the button has no tooltip. Picture `tooltip-dead`. |
@@ -1175,7 +1198,10 @@ Soulwarden evidence of creatures, abilities-crit, fight, loot, loot-bags, gather
 - The escape menu over the respawn screen: the draw order of the game (the respawn screen 20, the escape menu 41)
   puts the menu on top. Its buttons are off while the character is dead (the script).
 - O12: the escape rule and the states of the escape menu are rules of the emulation from the scripts (the native
-  screen manager of the client has them). The popup grid list (`simplegriditemlist.luac`) finds no row table in
+  screen manager of the client has them). The NavBar script (`navbar.luac` OnCryAction) has the retail Escape logic; the
+  NavBar of this client does not take the escape and journal actions (display only, the game menu). Full parity with that
+  logic is a later task: the NavBar takes the actions, the rules of the emulation step back, and each escape flow is checked
+  again. The popup grid list (`simplegriditemlist.luac`) finds no row table in
   `OnInit`: the quit popup works; the split stack popup is not checked.
 - O11: the sprite mask in the client window. With `-SwcUiMaskMaterial` the mask material compiles and its instances
   have the textures of the item (the game thread and the render thread show them, the texture reference points at
