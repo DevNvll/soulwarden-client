@@ -100,6 +100,26 @@ The result (2026-10-25): 277 rivers, 621 lakes, and 19 custom bodies. The 19 cus
 within 0.64 mm of the surface vertices, and the heights are within 5 mm. 325 of the 2,571 river vertices have no quadtree water
 under them, so they have no depth.
 
+### The client code of the Unreal water (stage 1, not built yet)
+
+| Part | Job |
+| --- | --- |
+| `SoulwardenClient.uproject`, `SoulwardenClient.Build.cs` | The Water plugin (it needs Landmass, Niagara, GeometryProcessing, and BlueprintMaterialTextureNodes) and the modules Water, GeometryCore, and MeshConversion. A plugin change makes the next cook a FULL cook. |
+| `Water/SwcWaterBodies` | The river, lake, and custom bodies of the client. Their components are dynamic (`IsBodyDynamic`) and movable, so the plugin makes their render data at run time. `bAffectsLandscape` is false. `SwcBuildWaterInfoMeshes` builds the two water info meshes of a body at run time: the plugin builds them only in the editor, and a cooked game needs them. |
+| `Water/SwcWaterUnreal.cpp` | The water zone (local tessellation, a 4 km window, 2,048 texels), the ocean at the ocean level over the zone, and the bodies within 3 km of the view (4 in a tick). The river spline is the source Bezier. The metadata of each point has the width, the depth, and the flow speed. |
+| `Water/SwcWaterSubsystem` | `-SwcWaterMode=Unreal` selects the Unreal water. The default stays the source path. The queries, the loading gate, and the shore foam decals are the same in both paths. |
+| `Scripts/water_unreal_materials.py`, `tools/import-water-unreal.sh [--check]` | The material instances of each slot, as children of the plugin materials. `--check` writes them into the check plugin `SwcWaterCheck`, which is linked into this checkout only. |
+| `Environment/SwcMeterProbe`, `Shaders/Private/SwcMeter.usf` | The meter skips the Single Layer Water pixels (shading model id 10). Such a pixel has its own dark base color in G-buffer C, not the ground under the water. |
+
+The options of a run:
+- `-SwcWaterMode=Unreal` selects the Unreal water.
+- `-SwcWaterBodies=FILE` sets the specs file. The default is `SWC_CONTENT/water/unreal-bodies.json`.
+- `-SwcWaterMaterials=/SwcWaterCheck/Water/Unreal` sets the folder of the instances. With no value, the materials of the plugin are used.
+- `-SwcWaterInfoMesh=Plugin` keeps the info meshes of the plugin. This works only in an editor run.
+
+The flow speed is a rule of the client [I]: WaterFlowSpeed x 0.25 x 0.25 x TileLength / Tilling m/s. This is the move of the base
+normal sample of the source river shader.
+
 ## The source water shader (AST-200, 2026-10-20)
 
 The study: `~/Games/soulwarden-client/research/water-shader.md` (GPT-6.1-Sol; the retail shaders water.cfx, watervolume.cfx,

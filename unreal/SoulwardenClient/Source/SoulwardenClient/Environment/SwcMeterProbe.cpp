@@ -46,17 +46,27 @@ double Luminance(const FLinearColor& Color)
 	return 0.2126 * Color.R + 0.7152 * Color.G + 0.0722 * Color.B;
 }
 
+/** The shading model id of Single Layer Water in G-buffer B alpha (SHADINGMODELID_SINGLELAYERWATER of ShadingCommon.ush; the low 4 bits). */
+constexpr int32 SingleLayerWaterId = 10;
+
 /** The sums of one frame: log2 of E, of L, and of the albedo, with the counts of the sky and the water. */
 struct FMeterSums
 {
 	double SumE = 0.0, SumL = 0.0, SumAlbedo = 0.0;
-	int32 Count = 0, Sky = 0;
+	int32 Count = 0, Sky = 0, Water = 0;
 
 	/** Adds a pixel: L in cd/m2 (the scene color over the pre-exposure), G-buffer B (metallic, specular) and C (the base color). The
 	 *  denominator of the source (research/e5-meter-water.md): the Rec. 709 luminance of the diffuse color and of the specular
 	 *  reflectance; 0.2 where the diffuse luminance is 0 (the sky, a black material), else the largest of the two and 0.01. */
 	void Add(double L, const FLinearColor& GbufferB, const FLinearColor& GbufferC)
 	{
+		// A Single Layer Water pixel (the Unreal water, docs/WATER.md "The Unreal water") writes its own G-buffer: a dark base color, not the
+		// ground under the water (the translucent source water left the ground in the G-buffer). The meter skips it.
+		if ((FMath::RoundToInt32(GbufferB.A * 255.0f) & 0xF) == SingleLayerWaterId)
+		{
+			++Water;
+			return;
+		}
 		L = FMath::Max(L, 1e-6);
 		const float Metallic = GbufferB.R;
 		const FLinearColor Diffuse = GbufferC * (1.0f - Metallic);
@@ -300,13 +310,14 @@ public:
 				GpuSums.SumAlbedo += Values[2];
 				GpuSums.Count += FMath::RoundToInt32(Values[3]);
 				GpuSums.Sky += FMath::RoundToInt32(Values[4]);
+				GpuSums.Water += FMath::RoundToInt32(Values[5]);
 			}
 			Frame->Sums->Unlock();
 			if (Frame->Color.IsValid() && Sums.Count > 0 && GpuSums.Count > 0)
 			{
 				// swc.MeterGpu 2: the two reductions of the same frame.
-				UE_LOG(LogSwcEnvironment, Log, TEXT("meter compare: E %.4f lux (copies) against %.4f lux (GPU), %.5f EV; samples %d and %d, sky %d and %d"),
-					Sums.E(), GpuSums.E(), FMath::Log2(GpuSums.E() / Sums.E()), Sums.Count, GpuSums.Count, Sums.Sky, GpuSums.Sky);
+				UE_LOG(LogSwcEnvironment, Log, TEXT("meter compare: E %.4f lux (copies) against %.4f lux (GPU), %.5f EV; samples %d and %d, sky %d and %d, water %d and %d"),
+					Sums.E(), GpuSums.E(), FMath::Log2(GpuSums.E() / Sums.E()), Sums.Count, GpuSums.Count, Sums.Sky, GpuSums.Sky, Sums.Water, GpuSums.Water);
 			}
 			Sums = GpuSums;
 		}

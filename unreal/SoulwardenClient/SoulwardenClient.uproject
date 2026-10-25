@@ -27,6 +27,7 @@
 		{ "Name": "EditorScriptingUtilities", "Enabled": true },
 		{ "Name": "Interchange", "Enabled": true },
 		{ "Name": "InterchangeEditor", "Enabled": true },
-		{ "Name": "InterchangeAssets", "Enabled": true }
+		{ "Name": "InterchangeAssets", "Enabled": true },
+		{ "Name": "Water", "Enabled": true }
 	]
 }

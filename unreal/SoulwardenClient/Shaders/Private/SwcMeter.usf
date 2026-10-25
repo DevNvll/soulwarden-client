@@ -1,7 +1,7 @@
 // The source meter of the frame on the GPU (AST-273 P4; Environment/SwcMeterProbe of the game module, docs/ENVIRONMENT.md "The source
 // meter"): the same samples (each Step-th pixel of the view in each direction) and the same rule as the CPU loop of the meter. Each group
 // of 16 x 16 samples writes 8 floats: the sums of log2 E, of log2 L, and of log2 of the albedo (pixels with a material color), the count
-// of the samples, and the count of the sky (no material color). The CPU adds the groups.
+// of the samples, the count of the sky (no material color), and the count of the skipped Single Layer Water pixels. The CPU adds the groups.
 
 #include "/Engine/Private/Common.ush"
 
@@ -23,6 +23,7 @@ groupshared float SharedL[SWC_METER_THREADS];
 groupshared float SharedAlbedo[SWC_METER_THREADS];
 groupshared float SharedCount[SWC_METER_THREADS];
 groupshared float SharedSky[SWC_METER_THREADS];
+groupshared float SharedWater[SWC_METER_THREADS];
 
 float MeterLuminance(float3 Color)
 {
@@ -33,13 +34,20 @@ float MeterLuminance(float3 Color)
 void MainCS(uint3 GroupId : SV_GroupID, uint3 ThreadId : SV_GroupThreadID, uint Index : SV_GroupIndex)
 {
 	const int2 Pixel = Rect.xy + int2(GroupId.xy * SWC_METER_GROUP + ThreadId.xy) * Step;
-	float E = 0.0, L = 0.0, Albedo = 0.0, Count = 0.0, Sky = 0.0;
-	if (all(Pixel < Rect.zw))
+	float E = 0.0, L = 0.0, Albedo = 0.0, Count = 0.0, Sky = 0.0, Water = 0.0;
+	const float4 B = all(Pixel < Rect.zw) ? GBufferB.Load(int3(Pixel, 0)) : float4(0.0, 0.0, 0.0, 0.0);
+	// A Single Layer Water pixel (shading model id 10 in the low 4 bits of G-buffer B alpha) has its own dark base color in G-buffer C, not
+	// the ground under the water: the meter skips it (FMeterSums::Add).
+	const bool bWater = (((uint)round(B.a * 255.0)) & 0xF) == 10;
+	if (all(Pixel < Rect.zw) && bWater)
+	{
+		Water = 1.0;
+	}
+	else if (all(Pixel < Rect.zw))
 	{
 		// The pixel rule of FMeterSums::Add: L over the pre-exposure; the denominator of research/e5-meter-water.md (the diffuse and the
 		// specular reflectance); 0.2 where the diffuse luminance is 0 (the sky, a black material).
 		const float Luminance = max(MeterLuminance(SceneColor.Load(int3(Pixel, 0)).rgb) * InvPreExposure, 1e-6);
-		const float4 B = GBufferB.Load(int3(Pixel, 0));
 		const float3 C = GBufferC.Load(int3(Pixel, 0)).rgb;
 		const float Metallic = B.r;
 		const float DiffuseY = MeterLuminance(C * (1.0 - Metallic));
@@ -57,6 +65,7 @@ void MainCS(uint3 GroupId : SV_GroupID, uint3 ThreadId : SV_GroupThreadID, uint 
 	SharedAlbedo[Index] = Albedo;
 	SharedCount[Index] = Count;
 	SharedSky[Index] = Sky;
+	SharedWater[Index] = Water;
 	GroupMemoryBarrierWithGroupSync();
 	UNROLL
 	for (uint Stride = SWC_METER_THREADS / 2; Stride > 0; Stride >>= 1)
@@ -68,6 +77,7 @@ void MainCS(uint3 GroupId : SV_GroupID, uint3 ThreadId : SV_GroupThreadID, uint 
 			SharedAlbedo[Index] += SharedAlbedo[Index + Stride];
 			SharedCount[Index] += SharedCount[Index + Stride];
 			SharedSky[Index] += SharedSky[Index + Stride];
+			SharedWater[Index] += SharedWater[Index + Stride];
 		}
 		GroupMemoryBarrierWithGroupSync();
 	}
@@ -79,7 +89,7 @@ void MainCS(uint3 GroupId : SV_GroupID, uint3 ThreadId : SV_GroupThreadID, uint 
 		Output[Base + 2] = SharedAlbedo[0];
 		Output[Base + 3] = SharedCount[0];
 		Output[Base + 4] = SharedSky[0];
-		Output[Base + 5] = 0.0;
+		Output[Base + 5] = SharedWater[0];
 		Output[Base + 6] = 0.0;
 		Output[Base + 7] = 0.0;
 	}

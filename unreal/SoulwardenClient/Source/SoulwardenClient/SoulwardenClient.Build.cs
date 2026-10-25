@@ -19,6 +19,9 @@ public class SoulwardenClient : ModuleRules
 		PrivateDependencyModuleNames.Add("SwcShaders");
 		// The water surfaces (docs/WATER.md): static meshes built at run time from mesh descriptions.
 		PrivateDependencyModuleNames.AddRange(new string[] { "MeshDescription", "StaticMeshDescription" });
+		// The Unreal water (docs/WATER.md "The Unreal water", -SwcWaterMode=Unreal): the water zone and the water bodies of the Water plugin.
+		// The water info meshes of the spawned bodies are built in the client (Water/SwcWaterBodies.cpp): the dynamic mesh and its conversion.
+		PrivateDependencyModuleNames.AddRange(new string[] { "Water", "GeometryCore", "MeshConversion" });
 		// The particle effects (docs/PARTICLES.md): the Niagara systems of the importer, played by Effects/SwcEffects.
 		PrivateDependencyModuleNames.AddRange(new string[] { "Niagara" });
 		// The landmarks (AST-209): World/SwcLandmarks finds an imported mesh under its folder.

@@ -189,6 +189,12 @@ void USwcWaterSubsystem::Tick(float DeltaTime)
 		SwcLoadingGate::Register(GetWorld(), TEXT("water"), [this](const FVector& Place, FString& Why)
 		{
 			int32 Missing = 0;
+			if (bUnrealMode)
+			{
+				Missing = UnrealBodiesToSpawnNear(Place);
+				Why = FString::Printf(TEXT("%d water bod(ies) to spawn"), Missing);
+				return Missing == 0;
+			}
 			for (const FBodyEntry& Entry : Bodies)
 			{
 				Missing += !Entry.bBuilt && FVector::Dist(Place, Entry.Center) - Entry.Radius <= SwcLoadingGate::NearCm;
@@ -218,9 +224,16 @@ void USwcWaterSubsystem::Tick(float DeltaTime)
 			}
 		}
 	}
-	UpdateSkyCube(View);
-	UpdateBodies(View);
-	UpdateOcean(View, DeltaTime);
+	if (bUnrealMode)
+	{
+		UpdateUnreal(View);
+	}
+	else
+	{
+		UpdateSkyCube(View);
+		UpdateBodies(View);
+		UpdateOcean(View, DeltaTime);
+	}
 	UpdateShore(View);
 	const double Now = FPlatformTime::Seconds();
 	if (Now >= NextWorldOceanCheck && WorldOceanChecks < 30)
@@ -339,6 +352,7 @@ void USwcWaterSubsystem::Load()
 		if (Info->TryGetStringField(TEXT("file"), File) && FFileHelper::LoadFileToArray(Bytes, *FPaths::Combine(Folder, File)))
 		{
 			std::vector<swc::water::Body> Read;
+			int32 RegionIndex = 0;
 			if (!swc::water::read_bodies(std::span<const uint8>(Bytes.GetData(), Bytes.Num()), Read, Error))
 			{
 				UE_LOG(LogSwcWater, Warning, TEXT("water: %s: %s"), *File, UTF8_TO_TCHAR(Error.c_str()));
@@ -347,6 +361,8 @@ void USwcWaterSubsystem::Load()
 			for (swc::water::Body& Body : Read)
 			{
 				FBodyEntry Entry;
+				Entry.Region = Name;
+				Entry.RegionIndex = RegionIndex++;
 				const FVector Low = ToUnreal(Body.low[0], Body.high[1], Body.low[2]);
 				const FVector High = ToUnreal(Body.high[0], Body.low[1], Body.high[2]);
 				Entry.Center = (Low + High) * 0.5;
@@ -384,6 +400,14 @@ void USwcWaterSubsystem::Load()
 	USceneComponent* Root = NewObject<USceneComponent>(WaterActor, TEXT("Root"));
 	WaterActor->SetRootComponent(Root);
 	Root->RegisterComponent();
+	// The render path (docs/WATER.md "The Unreal water"): -SwcWaterMode=Unreal draws the bodies of the Unreal Water plugin; the default is
+	// the source path until the deploy of the Unreal water (the decision of the user, 2026-10-25).
+	FString Mode;
+	if (FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterMode="), Mode) && Mode.Equals(TEXT("Unreal"), ESearchCase::IgnoreCase))
+	{
+		bUnrealMode = LoadUnreal(Folder);
+	}
+	UE_LOG(LogSwcWater, Log, TEXT("water: the render path: %s"), bUnrealMode ? TEXT("the Unreal water (-SwcWaterMode=Unreal)") : TEXT("the source water shader"));
 	bLoaded = true;
 	UE_LOG(LogSwcWater, Log, TEXT("water: %d volumes, %d rivers, %d quadtrees, %d materials, %d ocean overrides, ocean at %.1f m, %s%s"), Volumes, Rivers,
 		Trees.Num(), Materials.Num(), Overrides.Num(), OceanLevel, Parent ? TEXT("material M_SwcWaterSource") : TEXT("no material M_SwcWaterSource (tools/import-water.sh): no surface"),

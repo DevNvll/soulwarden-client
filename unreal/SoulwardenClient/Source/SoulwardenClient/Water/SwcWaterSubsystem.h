@@ -18,11 +18,14 @@ DECLARE_LOG_CATEGORY_EXTERN(LogSwcWater, Log, All);
 /**
  * The water of the world (stage WF5, docs/WATER.md): the surfaces of the water volumes and the rivers of the source (the data of
  * tools/convert-water.sh, SWC_CONTENT/water), the ocean at the ocean level with its local overrides, and the water queries of the
- * movement (the water quadtree of each region). The content follows the source; the rendering is Single Layer Water (the base
- * material /SwcGameContent/Water/M_SwcWaterSource of tools/import-water.sh) with one dynamic instance for each surface.
- *
- * The surfaces build near the view (static meshes made at run time; a few each frame) and stay. The ocean is a flat grid at the
- * ocean level that follows the view. With no base material the surfaces do not show, and the queries still work.
+ * movement (the water quadtree of each region). The content follows the source. Two render paths:
+ * - the source path (the default until the deploy of the Unreal water): the source water shader (the translucent base material
+ *   /SwcGameContent/Water/M_SwcWaterSource of tools/import-water.sh) with one dynamic instance for each surface. The surfaces build near
+ *   the view (static meshes made at run time; a few each frame) and stay. The ocean is a flat grid at the ocean level that follows the
+ *   view. With no base material the surfaces do not show, and the queries still work;
+ * - the Unreal water (-SwcWaterMode=Unreal; docs/WATER.md "The Unreal water", Water/SwcWaterUnreal.cpp): the bodies of the Unreal Water
+ *   plugin from the specs of tools/convert-water.sh bodies.
+ * The queries, the loading gate, and the shore foam decals are the same in both paths.
  */
 UCLASS()
 class SOULWARDENCLIENT_API USwcWaterSubsystem : public UTickableWorldSubsystem
@@ -42,6 +45,8 @@ public:
 	swc::water::DepthClass GetDepthClass(double X, double Y, double FeetZ, float* OutDepth = nullptr) const;
 	/** @return True when the data is loaded. */
 	bool IsLoaded() const { return bLoaded; }
+	/** @return True when the water draws with the Unreal Water plugin (-SwcWaterMode=Unreal). */
+	bool IsUnrealWater() const { return bUnrealMode; }
 
 private:
 	/** The values of a water material of the source (.mtl: the shader, the public parameters). */
@@ -58,6 +63,27 @@ private:
 		FVector Center = FVector::ZeroVector;   // Unreal cm
 		double Radius = 0.0;                    // cm
 		bool bBuilt = false;
+		/** The region of the surface and its index in REGION.water (the specs of the Unreal water use the same order). */
+		FString Region;
+		int32 RegionIndex = INDEX_NONE;
+	};
+	/** A body of the Unreal water (unreal-bodies.json): its spec, its surface (an index of Bodies), and its actor when it is spawned. */
+	enum class EUnrealBody : uint8
+	{
+		River,
+		Lake,
+		Custom
+	};
+	struct FUnrealBody
+	{
+		FString Region;
+		int32 RegionIndex = INDEX_NONE;
+		int32 Surface = INDEX_NONE;
+		EUnrealBody Kind = EUnrealBody::Custom;
+		TSharedPtr<class FJsonObject> Spec;
+		FVector Center = FVector::ZeroVector;   // Unreal cm
+		double Radius = 0.0;                    // cm
+		bool bSpawned = false;
 	};
 	/** A local ocean override (WaterOceanComponent): its shape in the frame of its entity and its settings. */
 	struct FOceanOverride
@@ -116,6 +142,30 @@ private:
 	TMap<FName, float> OceanValues(int32 Material, const TSharedPtr<class FJsonObject>& Animation, const FVector3f& FogColor, float FogScale,
 		float FogDensity, const FVector3f& NearFogColor) const;
 	bool GetViewLocation(FVector& Out) const;
+
+	/** The Unreal water (Water/SwcWaterUnreal.cpp). @return False with no specs (then the source path draws). */
+	bool LoadUnreal(const FString& Folder);
+	void SpawnUnrealZone();
+	AActor* SpawnUnrealBody(const FUnrealBody& Entry);
+	void UpdateUnreal(const FVector& View);
+	/** @return The bodies of the Unreal water to spawn in the near radius of the loading gate about a place (1 with no zone yet). */
+	int32 UnrealBodiesToSpawnNear(const FVector& Place) const;
+	/** @return The client instance of -SwcWaterMaterials (FOLDER/Instance) when it exists, else the material of the plugin. */
+	UMaterialInterface* UnrealMaterial(const TCHAR* Instance, const TCHAR* PluginPath) const;
+	bool bUnrealMode = false;
+	/** -SwcWaterInfoMesh=Plugin: keep the water info meshes of the plugin (editor runs); else the client builds them (SwcBuildWaterInfoMeshes). */
+	bool bPluginInfoMeshes = false;
+	FString UnrealMaterialFolder;
+	TArray<FUnrealBody> UnrealBodies;
+	/** The extent of the world regions (Unreal cm). */
+	FVector2D UnrealZoneMin = FVector2D::ZeroVector;
+	FVector2D UnrealZoneMax = FVector2D::ZeroVector;
+	UPROPERTY()
+	TObjectPtr<class AWaterZone> UnrealZone;
+	UPROPERTY()
+	TObjectPtr<class AWaterBodyOcean> UnrealOcean;
+	UPROPERTY()
+	TArray<TObjectPtr<AActor>> UnrealActors;
 
 	/** The parameter values of -SwcWater=Name=Value,... for each instance (the calibration of the matched views; docs/WATER.md). */
 	TMap<FName, float> CalibrationValues;

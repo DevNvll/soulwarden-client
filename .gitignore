@@ -13,6 +13,8 @@ unreal/SoulwardenClient/compile_commands.json
 unreal/SoulwardenClient/Content/Imported/
 # The link to the shared content plugin (tools/content-link.sh)
 unreal/SoulwardenClient/Plugins/SwcGameContent
+# The link to the check plugin of the Unreal water (tools/import-water-unreal.sh --check)
+unreal/SoulwardenClient/Plugins/SwcWaterCheck
 # Python
 __pycache__/
 *.pyc
