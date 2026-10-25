@@ -16,7 +16,7 @@
 #                 tool stops with status 3 and says "FULL cook" unless --full is given. A full cook of the world needs a quiet
 #                 computer (docs/WORLD.md "The cooked build"). A run-time setting goes into the code, not into an ini file.
 # The rules: the RAM rule (14 GB available before the start), one Unreal process; the cook holds import.lock (it reads the shared
-# plugin), runs in a memory scope (SWC_COOK_MEMORY_MAX, default 22G, with at most 6G of swap: the cooker must not thrash in swap)
+# plugin), runs in a memory scope (SWC_COOK_MEMORY_MAX, default 30G, with at most 6G of swap: the cooker must not thrash in swap)
 # with 12 cores at nice 10 (SWC_COOK_CPU_QUOTA, default 1200%: the shader compile of a cold cook was the limit with 4 cores), and
 # stops when the free space of the disk of SWC_WORK goes below SWC_COOK_MIN_FREE_GB (default 100 GB; AST-273: one cook and one staged
 # build put the 1.9 TB disk at about 86 %, so a guard of 85 % stopped each cook that followed). The cooker options are constants (COOKER_OPTIONS: a full garbage
@@ -41,7 +41,7 @@ cooked="${SWC_COOKED:-${SWC_WORK}/cooked}"
 platform_ini="${SWC_REPO}/unreal/SoulwardenClient/Config/Linux/LinuxEngine.ini"
 log="${SWC_WORK}/logs/cook.log"
 # The options of the cooker: constants (they are in the ini settings of the legacy incremental cook; 2026-10-22, AST-229).
-# The memory (AST-273): the computer has 46 GB of RAM. The cook runs in a 22G scope with 6G of swap. Three full cooks (2026-10-23
+# The memory (AST-273): the computer has 46 GB of RAM. The cook runs in a 30G scope with 6G of swap (22G until 2026-10-25: the World Partition split with 47,744 other packages reached 23.6 GB and the scope OOM killer stopped it). Three full cooks (2026-10-23
 # and 2026-10-24) died at about 65,900 packages, where the cooker splits the World Partition map NewWorld (1,759 cell packages). The
 # third one (the desktop programs closed) was stopped by the OOM killer of the scope with 8.7 GB still available on the computer. The
 # reason (research/ast273-wp-cook-memory.md, the engine source CookGarbageCollect.cpp): the cooker requests a full garbage collection
@@ -85,6 +85,8 @@ fi
 # The full cook check (before the build: a stop costs nothing).
 if [[ ${cook} -eq 1 && -z "${map}" ]]; then
     stamp="${cooked}/Linux/swc-cook.json"
+    # An attempt sets the stamp of the last good cook aside (swc-cook.pending.json) and keeps its config hash for this check.
+    [[ -f "${stamp}" ]] || stamp="${cooked}/Linux/swc-cook.pending.json"
     last=$(python3 -B -c "import json, sys; print(json.load(open(sys.argv[1])).get('config', ''))" "${stamp}" 2>/dev/null || true)
     files=$( (find "${SWC_REPO}/unreal/SoulwardenClient/Saved/Cooked/Linux" -name "*.uasset" 2>/dev/null || true) | head -20000 | wc -l)
     why=""
@@ -120,8 +122,52 @@ guard=$!
 start=${SECONDS}
 status=0
 echo "$(date -u +%H:%M:%S) cook: start (map ${map:-the default}, disk $(disk) %, $(free_gb) GB free)" | tee -a "${log}.summary"
-flock -w "${wait}" "${SWC_WORK}/unreal/import.lock" \
-    systemd-run --user --scope -q -p CPUQuota="${SWC_COOK_CPU_QUOTA:-1200%}" -p MemoryMax="${SWC_COOK_MEMORY_MAX:-22G}" -p MemorySwapMax=6G \
+# set_stamp_aside: the staged build of an attempt is not current until its new stamp: the stamp of the last good cook becomes
+# swc-cook.pending.json (play.sh does not take it; the full cook check keeps its config hash).
+set_stamp_aside() {
+    [[ -f "${cooked}/Linux/swc-cook.json" ]] && mv -f "${cooked}/Linux/swc-cook.json" "${cooked}/Linux/swc-cook.pending.json"
+    return 0
+}
+# The World Partition map (research/cook-wp-iterative.md): the legacy incremental cook compares only the saved hash of the source map
+# NewWorld with the previous cook; the external actor packages of its cells are not in that compare, so a cell rebuild
+# (tools/build-world.sh) did not reach the cooked build (2026-10-25: the cooked cells stayed at the full cook of 2026-10-24). When a
+# package of the map is newer than the cooked map, tools/lib/cook_wp.py saves NewWorld again with a new metadata revision (its saved
+# hash must change; a copy of the source map goes to SWC_WORK/work/cook-wp-map-backups), and the incremental cook then runs the split
+# and evaluates the cells. The save is a writer of the world level: it takes the world lock first, then import.lock (the order of
+# tools/build-world.sh), and waits at most 15 min for the runs of the client to end.
+source "${SWC_REPO}/tools/lib/world-lock.sh"
+wp_check="${SWC_REPO}/tools/lib/cook_wp.py"
+wp_cooked_map="${SWC_REPO}/unreal/SoulwardenClient/Saved/Cooked/Linux/SoulwardenClient/Plugins/SwcGameContent/Content/World/NewWorld.umap"
+check_newworld=0
+[[ -z "${map}" || "${map}" == "/SwcGameContent/World/NewWorld" ]] && check_newworld=1
+if [[ ${check_newworld} -eq 1 ]]; then
+    wp_status=0
+    python3 -B "${wp_check}" "${SWC_GAME_CONTENT}/Content" "${wp_cooked_map}" || wp_status=$?
+    if [[ ${wp_status} -ne 0 && ${wp_status} -ne 3 ]]; then
+        echo "cook: cannot check World Partition; no cook" >&2
+        exit 1
+    fi
+    if [[ ${wp_status} -eq 3 ]]; then
+        [[ ${cook} -eq 1 ]] || { echo "cook: World Partition changed; --skip-cook is not valid" >&2; exit 3; }
+        # A failed attempt must not leave an earlier staged build marked current.
+        set_stamp_aside
+        echo "$(date -u +%H:%M:%S) cook: resave NewWorld with a new metadata revision before the iterative cook" | tee -a "${log}.summary"
+        world_write -w 900 flock -w "${wait}" "${SWC_WORK}/unreal/import.lock" \
+            systemd-run --user --scope -q -p CPUQuota="${SWC_COOK_CPU_QUOTA:-1200%}" \
+            -p MemoryMax="${SWC_COOK_MEMORY_MAX:-30G}" -p MemorySwapMax=6G \
+            env SWC_WP_RESAVE=1 nice -n 10 "${SWC_CLIENT_CMD}" "${SWC_UPROJECT}" \
+            -run=pythonscript -script="${wp_check}" "${SWC_EDITOR_DDC}" \
+            -nullrhi -unattended -nosplash -nosound -nopause -stdout \
+            > "${SWC_WORK}/logs/cook-wp-resave.log" 2>&1 \
+            || { echo "cook: World Partition resave failed; see logs/cook-wp-resave.log" >&2; exit 1; }
+    fi
+fi
+# Hold import.lock through the cook and the success stamp.
+exec {import_lock}>"${SWC_WORK}/unreal/import.lock"
+flock -w "${wait}" "${import_lock}" || { echo "cook: import lock timeout" >&2; exit 3; }
+# No success stamp survives an unsuccessful cook or stage.
+set_stamp_aside
+systemd-run --user --scope -q -p CPUQuota="${SWC_COOK_CPU_QUOTA:-1200%}" -p MemoryMax="${SWC_COOK_MEMORY_MAX:-30G}" -p MemorySwapMax=6G \
     nice -n 10 "${UE_ROOT}/Engine/Build/BatchFiles/RunUAT.sh" BuildCookRun -project="${SWC_UPROJECT}" -noP4 -platform=Linux \
     -clientconfig=Development -skipbuild -nocompileeditor "${steps[@]}" -unattended -utf8output \
     -AdditionalCookerOptions="${COOKER_OPTIONS} ${COOKER_FLAGS}${SWC_COOK_EXTRA:+ ${SWC_COOK_EXTRA}}" \
@@ -129,7 +175,12 @@ flock -w "${wait}" "${SWC_WORK}/unreal/import.lock" \
 echo "$(date -u +%H:%M:%S) cook: status ${status}, $((SECONDS - start)) s, disk $(disk) %, staged $(du -s --block-size=1M "${cooked}" | cut -f1) MiB" \
     | tee -a "${log}.summary"
 [[ ${status} -eq 0 ]] || { echo "cook: see ${log}" >&2; exit 1; }
+if [[ ${check_newworld} -eq 1 ]]; then
+    python3 -B "${wp_check}" "${SWC_GAME_CONTENT}/Content" "${wp_cooked_map}" \
+        || { echo "cook: World Partition output is still stale; no success stamp" >&2; exit 1; }
+fi
 source "${SWC_REPO}/tools/lib/cooked.sh"
 python3 -B -c "import json, sys, time; json.dump({'commit': sys.argv[1], 'code': sys.argv[2], 'time': time.time(), 'map': sys.argv[3] or 'default', 'config': sys.argv[5]}, open(sys.argv[4], 'w'))" \
     "$(git -C "${SWC_REPO}" rev-parse HEAD)" "$(cooked_code_hash)" "${map}" "${cooked}/Linux/swc-cook.json" "$(config_hash)"
+rm -f "${cooked}/Linux/swc-cook.pending.json"
 grep -hE "Total Shaders|Unique Shadermaps|Packages Cooked" "${log}" | tail -3 || true

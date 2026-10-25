@@ -33,6 +33,13 @@ cooked_state() {
         echo "the content changed after the cook of $(date -d "@${time}" '+%F %T') (run tools/cook.sh)"
         return 1
     fi
+    # The staged stamp can be newer than stale WP cells. Use the cooked map too.
+    local wp_cooked_map
+    wp_cooked_map="${SWC_REPO}/unreal/SoulwardenClient/Saved/Cooked/Linux/SoulwardenClient/Plugins/SwcGameContent/Content/World/NewWorld.umap"
+    if ! python3 -B "${SWC_REPO}/tools/lib/cook_wp.py" "${SWC_GAME_CONTENT}/Content" \
+        "${wp_cooked_map}" --stamp "${time}"; then
+        return 1
+    fi
     # The converter data that the client reads at run time (tools/lib/loose-data.txt; the cooked build does not contain it).
     local loose loose_file
     read -r loose loose_file < <(python3 -B "${SWC_REPO}/tools/lib/cook_audit.py" --newest)

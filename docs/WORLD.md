@@ -953,6 +953,32 @@ build, a deploy of cells), the split runs again, with the peak of the table abov
 conditions as a full cook (no other Unreal process, at least 30 GB available). The time of an incremental cook with these settings
 is not measured yet [I]: with no change 149 s before; more with new materials (4 shader workers now, not 8).
 
+#### The World Partition map in the incremental cook (2026-10-25)
+
+Trap: the legacy incremental cook (no Zen store) does not cook the World Partition map NewWorld again when only its external actor
+packages change. The cooker compares the saved hash of the source map package with the previous cooked asset registry. The external
+actor packages are NeverCook packages, and the registry keeps no record of them, so a cell rebuild of `tools/build-world.sh` does not
+mark the map modified. The map stays "identical", and the cooker keeps all its generated cell packages (the log: "0 generated packages
+to be evaluated"). The cooked cells of the user's build stayed at the full cook of 2026-10-24 05:25 UTC through the AST-275 deploys and
+W1 of AST-288, and `tools/play.sh --check` said "current". Study: `research/cook-wp-iterative.md`.
+
+The rule now (`tools/cook.sh`, `tools/lib/cook_wp.py`):
+
+- Before the cook: when a package of the map (the source map, `__ExternalActors__/World/NewWorld`, `__ExternalObjects__/World/NewWorld`,
+  `World/NewWorld`) is newer than the cooked map, a commandlet saves NewWorld again with a new metadata tag
+  (`SWCExternalPackagesCookRevision`). The saved hash of the map must change. A copy of the map goes to `SWC_WORK/work/cook-wp-map-backups`.
+  The save is a writer of the world level: the world lock first, then import.lock (the order of `tools/build-world.sh`); it waits at most
+  15 min for the client runs to end. Then the normal incremental cook runs the split and evaluates each cell.
+- The stamp of the last good cook goes aside (`swc-cook.pending.json`) at the start of an attempt: `tools/play.sh` takes no staged build
+  of an attempt that did not end. The full cook check reads the config hash from it.
+- After the cook: the check runs again. A cooked map that is older than a package of the map gives no stamp.
+- `cooked_state` (`tools/lib/cooked.sh`) says "not current" when a package of the map is newer than the cooked map or the stamp.
+- The first cook with the rule (2026-10-25 15:40 to 17:05 UTC, 5,105 s): the resave took 10 s (5.2 GB); 49,502 packages cooked (the
+  1,759 cells evaluated, 3,519 cooked world files new; the flow of AST-290 changed the three surface parents), 127,019 kept. The cooker
+  reached 23.6 GB: the 22G scope stopped the try before with its OOM killer, so the scope is 30G now (`SWC_COOK_MEMORY_MAX`).
+- Trap: do not move files of `Saved/Cooked` during a cook. The cooker reads the registry, not the files ("Recooking 0"), but the IoStore
+  step lists the folder: a try with the cooked map moved out staged a build with no world (fixed by `tools/cook.sh --skip-build --skip-cook`).
+
 ## The collision of the game (P4.1 part 1)
 
 The game has the collision of a mesh in its physics file: the path of the `.cgf` with `.rnr`. It has boxes, spheres,
