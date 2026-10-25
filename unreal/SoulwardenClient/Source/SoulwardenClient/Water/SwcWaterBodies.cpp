@@ -8,6 +8,11 @@
 #include "DynamicMeshToMeshDescription.h"
 #include "Engine/StaticMesh.h"
 #include "StaticMeshAttributes.h"
+#include "WaterSplineComponent.h"
+#include "Misc/CommandLine.h"
+#include "Misc/CoreDelegates.h"
+#include "Misc/Parse.h"
+#include "WaterRuntimeSettings.h"
 #include "WaterZoneActor.h"
 
 namespace
@@ -18,6 +23,22 @@ void SetUpBody(UWaterBodyComponent& Component)
 	Component.Mobility = EComponentMobility::Movable;
 	Component.bAffectsLandscape = false;
 }
+/** The trace channel of the underwater post process of the plugin (SwcWaterTraceChannel), before the first world makes its water subsystem
+ *  (UWaterSubsystem reads the setting in its Initialize); only with -SwcWaterMode=Unreal. */
+struct FSwcWaterTraceSetting
+{
+	FSwcWaterTraceSetting()
+	{
+		FCoreDelegates::OnPostEngineInit.AddLambda([]()
+		{
+			FString Mode;
+			if (FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterMode="), Mode) && Mode.Equals(TEXT("Unreal"), ESearchCase::IgnoreCase))
+			{
+				GetMutableDefault<UWaterRuntimeSettings>()->CollisionChannelForWaterTraces = SwcWaterTraceChannel;
+			}
+		});
+	}
+} GSwcWaterTraceSetting;
 } // namespace
 
 bool SwcBuildWaterInfoMeshes(UWaterBodyComponent& Body)
@@ -31,8 +52,38 @@ bool SwcBuildWaterInfoMeshes(UWaterBodyComponent& Body)
 		Each->Attributes()->EnablePrimaryColors();
 		Each->Attributes()->EnableTangents();
 	}
-	if (!Body.GenerateWaterBodyMesh(Mesh, &Dilated))
+	// Only a body that the water mesh draws goes into the water info (a custom body draws its own mesh).
+	if (!Body.AffectsWaterInfo())
 	{
+		return true;
+	}
+	bool bMade = Body.GenerateWaterBodyMesh(Mesh, &Dilated) && Mesh.TriangleCount() > 0;
+	// The dilated outline of a lake or the ocean (ShapeDilation / 2 outward, 20 m by default) fails for some concave outlines and for the
+	// small island of the ocean of the client: then a smaller dilation, and at last none (the water info has no margin there).
+	for (const float Dilation : {Body.ShapeDilation * 0.25f, 0.0f})
+	{
+		if (bMade || (Body.GetWaterBodyType() != EWaterBodyType::Lake && Body.GetWaterBodyType() != EWaterBodyType::Ocean))
+		{
+			break;
+		}
+		Mesh.Clear();
+		Dilated.Clear();
+		for (FDynamicMesh3* Each : {&Mesh, &Dilated})
+		{
+			Each->EnableAttributes();
+			Each->Attributes()->EnablePrimaryColors();
+			Each->Attributes()->EnableTangents();
+		}
+		Body.ShapeDilation = Dilation;
+		bMade = Body.GenerateWaterBodyMesh(Mesh, Dilation > 0.0f ? &Dilated : nullptr) && Mesh.TriangleCount() > 0;
+		UE_CLOG(bMade, LogTemp, Log, TEXT("water (Unreal): %s: the dilation %.0f m"), *GetNameSafe(Body.GetOwner()), Dilation / 100.0f);
+	}
+	if (!bMade)
+	{
+		const UWaterSplineComponent* Spline = Body.GetWaterSpline();
+		UE_LOG(LogTemp, Warning, TEXT("water (Unreal): %s: no water info mesh (type %d, %d spline points, %.1f m long, %d triangles, %d dilated)"),
+			*GetNameSafe(Body.GetOwner()), static_cast<int32>(Body.GetWaterBodyType()), Spline ? Spline->GetNumberOfSplinePoints() : -1,
+			Spline ? Spline->GetSplineLength() / 100.0 : 0.0, Mesh.TriangleCount(), Dilated.TriangleCount());
 		return false;
 	}
 	for (FDynamicMesh3* Each : {&Mesh, &Dilated})
@@ -80,6 +131,18 @@ bool SwcBuildWaterInfoMeshes(UWaterBodyComponent& Body)
 	}
 	Body.MarkOwningWaterZoneForRebuild(EWaterZoneRebuildFlags::All, /* bInOnlyWithinWaterBodyBounds = */ false);
 	return Built > 0;
+}
+
+void SwcWaterCollisionAsOverlap(UWaterBodyComponent& Body)
+{
+	for (UPrimitiveComponent* Component : Body.GetCollisionComponents(/* bInOnlyEnabledComponents = */ false))
+	{
+		if (Component != nullptr)
+		{
+			Component->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Overlap);
+			Component->SetCollisionResponseToChannel(SwcWaterTraceChannel, ECR_Block);
+		}
+	}
 }
 
 USwcWaterBodyRiverComponent::USwcWaterBodyRiverComponent(const FObjectInitializer& ObjectInitializer)

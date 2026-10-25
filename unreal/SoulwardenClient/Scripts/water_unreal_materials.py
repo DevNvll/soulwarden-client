@@ -38,6 +38,8 @@ VALUES: dict[str, dict] = {}
 assets = unreal.EditorAssetLibrary
 editing = unreal.MaterialEditingLibrary
 tools = unreal.AssetToolsHelpers.get_asset_tools()
+# The commandlet does not gather the assets: scan the plugin materials and the destination first.
+unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(["/Water", DEST.rsplit("/", 2)[0]], True)
 report = {"dest": DEST, "version": VERSION, "made": [], "kept": [], "failed": []}
 
 

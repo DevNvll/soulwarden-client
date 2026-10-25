@@ -28,6 +28,16 @@
  */
 bool SwcBuildWaterInfoMeshes(UWaterBodyComponent& Body);
 
+/**
+ * The collision of a body overlaps the WorldStatic channel (the profile WaterBodyCollision of the plugin has no response for it: it
+ * blocked). The ground traces of the client (ECC_WorldStatic single traces: the loading check, the test floor, the place of a spawn) then
+ * do not stop on the water. The underwater sweep of the plugin needs a blocking hit (SweepMultiByChannel): it uses SwcWaterTraceChannel,
+ * which the water blocks and the client does not trace (UWaterRuntimeSettings::CollisionChannelForWaterTraces, set at the start of the
+ * engine with -SwcWaterMode=Unreal). The pawns overlap the water as before; the movement reads only the quadtree.
+ */
+constexpr ECollisionChannel SwcWaterTraceChannel = ECC_Vehicle;
+void SwcWaterCollisionAsOverlap(UWaterBodyComponent& Body);
+
 UCLASS(MinimalAPI)
 class USwcWaterBodyRiverComponent : public UWaterBodyRiverComponent
 {

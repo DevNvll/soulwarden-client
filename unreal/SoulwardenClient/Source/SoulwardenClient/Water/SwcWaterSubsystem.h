@@ -160,6 +160,24 @@ private:
 	/** The extent of the world regions (Unreal cm). */
 	FVector2D UnrealZoneMin = FVector2D::ZeroVector;
 	FVector2D UnrealZoneMax = FVector2D::ZeroVector;
+	/** The source tone of a body (docs/WATER.md "The source tone"): the water fog of the source and the plugin values of its instance. */
+	struct FUnrealTone
+	{
+		TWeakObjectPtr<class UWaterBodyComponent> Body;
+		/** The instances that have the tone now (the water instance and, for a river, its two transition instances). */
+		TArray<TWeakObjectPtr<UMaterialInstanceDynamic>, TInlineAllocator<3>> Materials;
+		FLinearColor Fog = FLinearColor::Black;
+		float Density = 0.0f;
+		float Scale = 1.0f;
+		FLinearColor PluginAbsorption = FLinearColor::Black;
+		FLinearColor PluginScattering = FLinearColor::Black;
+	};
+	TArray<FUnrealTone> UnrealTones;
+	int32 AppliedTone = -1;
+	float AppliedAlbedoScale = -1.0f;
+	void AddUnrealTone(class UWaterBodyComponent& Body, const swc::water::Body& Surface);
+	void ApplyUnrealTone(FUnrealTone& Tone) const;
+	double NextToneCheck = 0.0;
 	UPROPERTY()
 	TObjectPtr<class AWaterZone> UnrealZone;
 	UPROPERTY()

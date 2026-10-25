@@ -100,7 +100,7 @@ The result (2026-10-25): 277 rivers, 621 lakes, and 19 custom bodies. The 19 cus
 within 0.64 mm of the surface vertices, and the heights are within 5 mm. 325 of the 2,571 river vertices have no quadtree water
 under them, so they have no depth.
 
-### The client code of the Unreal water (stage 1, not built yet)
+### The client code of the Unreal water (stage 1)
 
 | Part | Job |
 | --- | --- |
@@ -119,6 +119,74 @@ The options of a run:
 
 The flow speed is a rule of the client [I]: WaterFlowSpeed x 0.25 x 0.25 x TileLength / Tilling m/s. This is the move of the base
 normal sample of the source river shader.
+
+The runtime rules (stage 1, 2026-10-25):
+- The lake outline is counterclockwise in engine space. The mirror of y makes it clockwise in Unreal space, and the lake mesh of
+  the plugin fills only a counterclockwise polygon. Thus the client turns the order of the points.
+- The dilated outline (ShapeDilation / 2 outward) fails for 7 concave lakes and for the ocean of the client (its small island).
+  Then the client tries a smaller dilation (10 m), and at last none.
+- A custom body draws its own mesh and has no water info mesh.
+- The profile WaterBodyCollision of the plugin has no response for WorldStatic, so it blocks that channel. The ground traces of the
+  client (the loading check, the test floor) are WorldStatic single traces, and they stopped on the water. Thus the water collision
+  overlaps WorldStatic. The underwater sweep of the plugin needs a blocking hit, so it uses ECC_Vehicle
+  (`UWaterRuntimeSettings::CollisionChannelForWaterTraces`, set after the engine init with `-SwcWaterMode=Unreal`), which the water
+  blocks and the client does not trace.
+
+### The source tone (decision of the user, 2026-10-25: "make sure the lakes have the same dark original tone")
+
+The lakes, the rivers, and the custom bodies keep the dark color of their source water fog (`swc.WaterSourceTone 1`, the default;
+0 gives the values of the plugin material). The ocean keeps the plugin tone for now.
+
+- The source volume term is Cfog + T (Cbehind - Cfog), with T = exp(-density x the path in m) for each channel and
+  Cfog = FogColor x FogColorScale x the sun color (E / pi).
+- Single Layer Water (`SingleLayerWaterShading.ush`) is T = exp(-(scattering + absorption) x the depth in cm), with the in-scatter
+  light x scattering / extinction x (1 - T). The light is the sun E x the phase (isotropic: 1 / (4 pi)) plus the ambient light.
+- Thus the extinction is density / 100 per cm, the same for each channel, as in the source. The albedo is
+  `swc.WaterToneAlbedoScale` (4) x FogColor x FogColorScale, at most 0.95 [I: the ambient part is not counted].
+- The encoding of the plugin material (read from the graph of Water_Material): the absorption coefficient per cm is
+  1 / (Absorption.RGB x Absorption.A), and the scattering coefficient is (Scattering.RGB x Scattering.RGB + the foam) / 1000.
+  The defaults (10, 150, 350, 8) and (1, 1, 1, 0.5) give the light turquoise of the plugin.
+- The client applies the tone to the water instance of each body and to the two transition instances of a river. It applies it
+  again when the plugin makes an instance again.
+
+The check (run tone2; the mean CIELAB of a fixed water area against the source path; `work/water-unreal/tone_measure.py`):
+
+| View | Plugin tone, dE | Albedo x2 | Albedo x4 | Albedo x8 |
+| --- | --- | --- | --- | --- |
+| lake-noon (FirstLight_BeastIsland_Lake_A) | 10.5 | 9.3 | 6.0 | 4.7 |
+| river-forest-noon (the bank) | 35.5 | 11.1 | 10.2 | 14.7 |
+| river-down-noon (from above) | 29.6 | 5.5 | 6.7 | 10.5 |
+
+The rest of the bank difference is the pink sky in the source reflection (a* +14 against +6).
+
+### The check of stage 1 (2026-10-25)
+
+Evidence: `~/Games/soulwarden-client/evidence/water-unreal/`. `stage1-before-after.png` has the 7 views: the source path (run
+before3) and the Unreal water (run after4). `tone2/tone-sheet.png` has the tone variants. `wu-flow.mp4` is the river of
+river-forest at 12:00. The views are in `work/water-unreal/views` (`make_views.py`). Two of them are retail views of set2-water. The
+others are own views: a lake, a river from above, the user's view down through the shallow water of the starting beach, and the
+camera at the ocean surface and under it.
+
+- All 7 views draw: the zone, the ocean, the rivers, and the lakes, spawned at run time. No body is left with no water info mesh.
+- The user's view: the shallow water near the shore shows a visible water body over the sand. Before, the clear bed showed.
+- Under the surface: the plugin underwater fog and the underside of the surface. Before, the scene showed as in air.
+- The river video: the water band changes (the mean frame difference 5.2 of 255, against 1.65 in the top third). The flow speed
+  of this river is 0.19 m/s (jav_fst_riverwater_a).
+
+The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the second pass of each run, 1280 x 720):
+
+| View | Source path (ms) | Unreal water (ms) | Difference |
+| --- | --- | --- | --- |
+| lake-noon | 7.46 | 8.46 | +1.00 |
+| river-forest-noon | 8.72 | 9.71 | +0.99 |
+| river-down-noon | 6.75 | 7.70 | +0.95 |
+| ocean-clear-noon | 6.86 | 7.93 | +1.07 |
+| beach-down-noon | 5.80 | 6.22 | +0.42 |
+| swim-surface-noon | 7.61 | 8.60 | +0.99 |
+| swim-under-noon | 7.71 | 9.04 | +1.33 |
+
+Open (stage 2): the ocean tone from the source ocean fog, the 13 ocean overrides (the storm waves), the river flow direction proof,
+the shore foam decals on Single Layer Water, the caustics, and the cost in a cooked build.
 
 ## The source water shader (AST-200, 2026-10-20)
 
