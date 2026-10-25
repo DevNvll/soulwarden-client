@@ -365,7 +365,13 @@ Illum sources of the world have an Opacity under 1 and no AlphaTest (many with O
   (19 liquids, 40 UVPan, 73 EmissionPan) as a patch of instances.json; 171 keys wait for a next retail check.
 - The source draws the liquid sheet brighter and smoother (the back light of %TRANSMITTANCE, the mist particles): open.
 
-### M_SwcBeamSimple, M_SwcFoliage 5, the blend layer UVs (prepared, not deployed; research beamsimple.md, foliage-specular-blend.md)
+### M_SwcBeamSimple, M_SwcFoliage 5, the blend layer UVs (deployed 2026-10-25 23:09 to 23:13 UTC; research beamsimple.md, foliage-specular-blend.md)
+
+The deploy: the new spec fields of 2,367 keys as a patch of instances.json (620 foliage, 1,743 blend, 5 jump pad keys), 114 texture
+records and PNGs, vfx_disk_01 with no Nanite. Known point: the active "up" pad key m_8f94d18523 keeps its former material (the PNG of
+its turbulence map jumppad_symbol_up_01_ddna as data is not in the content). Until the cell rebuild with `cells.BEAM_SIMPLE`, the "on"
+and "off" disks of a pad draw over each other. The rock wld_epicboulder_jagged_flat_a stays blue-grey: the blend UV fix is not its
+cause (open).
 
 - M_SwcBeamSimple (the stage label `beamsimple`; the jump pad disks, GeometryBeamSimple): `material_records.beam_simple_spec` from
   `rules["fx"]` (kind "beam simple", not in the render key). Additive, Unlit, two sided, no scene fog. No view-angle fade and no water
