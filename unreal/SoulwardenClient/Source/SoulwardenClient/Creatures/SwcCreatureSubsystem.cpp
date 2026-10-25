@@ -61,6 +61,8 @@ constexpr double DeadPlateSeconds = 3.0;
 constexpr double DeadBodySeconds = 300.0;
 /** A creature is a candidate for a contact when its bounds are this near to the weapon shape (cm). */
 constexpr double ContactMargin = 50.0;
+// The strike diagnostic (usertest-1024): a creature up to this distance (cm) beyond the body bounds test gets its miss line.
+constexpr double MissBand = 150.0;
 /** The wall line: from the feet of the attacker at this height (cm; a value of this client) to the point of the contact; a hit
  *  nearer than the point by more than the slack is a wall. */
 constexpr double WallLineHeight = 100.0;
@@ -1334,6 +1336,55 @@ int32 USwcCreatureSubsystem::FindMeleeContacts(const FSwcMeleeShape& Melee, TArr
 		return Contact;
 	};
 	TArray<FSwcCreatureHitShape> Shapes;
+	// The strike diagnostic (usertest-1024, the great axe skill that did not hit a rabbit below the character): a creature near a strike
+	// shape with no contact gets one log line for each visit, strike, and creature: why (the body bounds, no hit volume touched, a wall),
+	// the gap from the strike shape to its nearest hit volume (the radius growth that makes a contact, 1 cm steps, at most 2 m), and the
+	// heights of the strike shape, of that volume, and of the feet of the attacker and of the creature.
+	const auto NoteMiss = [&](uint32 Interest, const ASwcCreature& Creature, const TCHAR* Why, const TArray<FSwcCreatureHitShape>& Volumes)
+	{
+		if (LoggedMisses.Num() > 4000)
+		{
+			LoggedMisses.Reset();
+		}
+		bool bLogged = false;
+		LoggedMisses.Add(FString::Printf(TEXT("%u|%d|%u"), Melee.Visit, Melee.Strike, Interest), &bLogged);
+		if (bLogged)
+		{
+			return;
+		}
+		double Gap = -1.0;
+		const FSwcCreatureHitShape* Nearest = nullptr;
+		for (const FSwcCreatureHitShape& Volume : Volumes)
+		{
+			FVector Point;
+			FVector Normal;
+			double Low = 0.0;
+			double High = 200.0;
+			FSwcHitShape Grown = Attack;
+			Grown.Radius = Attack.Radius + static_cast<float>(High);
+			if (!SwcShapeContact(Volume.Shape, Grown, Origin - Volume.Shape.Middle(), Point, Normal))
+			{
+				continue;
+			}
+			while (High - Low > 1.0)
+			{
+				const double Mid = (Low + High) * 0.5;
+				Grown.Radius = Attack.Radius + static_cast<float>(Mid);
+				(SwcShapeContact(Volume.Shape, Grown, Origin - Volume.Shape.Middle(), Point, Normal) ? High : Low) = Mid;
+			}
+			if (Gap < 0.0 || High < Gap)
+			{
+				Gap = High;
+				Nearest = &Volume;
+			}
+		}
+		const FVector Feet = Creature.GetActorLocation();
+		UE_LOG(LogSwcCreatures, Log, TEXT("creature %u: no melee contact: visit %u strike %d (%s): %s; the nearest volume %s, gap %s; heights (m): the strike shape %.2f, the volume %s, the feet of the attacker %.2f, of the creature %.2f; horizontal %.2f m from the attacker"),
+			Interest, Melee.Visit, Melee.Strike, *Melee.Key, Why, Nearest != nullptr && Nearest->Volume != nullptr ? *Nearest->Volume->Name : TEXT("none"),
+			Gap >= 0.0 ? *FString::Printf(TEXT("%.2f m"), Gap / 100.0) : TEXT("more than 2 m"), Middle.Z / 100.0,
+			Nearest != nullptr ? *FString::Printf(TEXT("%.2f"), Nearest->Shape.Middle().Z / 100.0) : TEXT("-"), Melee.Attacker.Z / 100.0, Feet.Z / 100.0,
+			FVector::Dist2D(Melee.Attacker, Feet) / 100.0);
+	};
 	for (const TPair<uint32, TWeakObjectPtr<ASwcCreature>>& Pair : Actors)
 	{
 		const ASwcCreature* Creature = Pair.Value.Get();
@@ -1343,8 +1394,14 @@ int32 USwcCreatureSubsystem::FindMeleeContacts(const FSwcMeleeShape& Melee, TArr
 			continue;
 		}
 		const FBoxSphereBounds Bounds = Creature->GetBodyBounds();
-		if (FVector::Dist(Bounds.Origin, Middle) > Bounds.SphereRadius + Reach + ContactMargin)
+		if (const double Away = FVector::Dist(Bounds.Origin, Middle); Away > Bounds.SphereRadius + Reach + ContactMargin)
 		{
+			if (Away <= Bounds.SphereRadius + Reach + ContactMargin + MissBand)
+			{
+				Shapes.Reset();
+				Creature->GetHitShapes(Shapes);
+				NoteMiss(Pair.Key, *Creature, TEXT("out of the body bounds"), Shapes);
+			}
 			continue;
 		}
 		Shapes.Reset();
@@ -1371,14 +1428,15 @@ int32 USwcCreatureSubsystem::FindMeleeContacts(const FSwcMeleeShape& Melee, TArr
 		}
 		if (Best == nullptr)
 		{
+			NoteMiss(Pair.Key, *Creature, TEXT("no hit volume touched"), Shapes);
 			continue;
 		}
 		FHitResult Wall;
 		if (!Melee.bNoSight && World->LineTraceSingleByObjectType(Wall, Origin, BestPoint, FCollisionObjectQueryParams(ECC_WorldStatic), Params)
 			&& Wall.Distance < FVector::Dist(Origin, BestPoint) - WallSlack)
 		{
-			UE_LOG(LogSwcCreatures, Verbose, TEXT("creatures: no contact with interest %u: a wall (%s) at %.2f m"), Pair.Key,
-				*GetNameSafe(Wall.GetActor()), Wall.Distance / 100.0);
+			NoteMiss(Pair.Key, *Creature, *FString::Printf(TEXT("a wall or the ground (%s) at %.2f m on the line from the chest"), *GetNameSafe(Wall.GetActor()),
+				Wall.Distance / 100.0), Shapes);
 			continue;
 		}
 		Out.Add(MakeContact(Pair.Key, *Entity, *Best->Volume, BestPoint, BestNormal, *Creature));
