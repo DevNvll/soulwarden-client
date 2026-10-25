@@ -205,6 +205,27 @@ class RefractionOverride(unittest.TestCase):
             cells.refraction_override.cache_clear()
 
 
+class NoParentEffect(unittest.TestCase):
+    """AST-288 W5: an override with GeometryFogNoVertAlpha, GeometryBeamSimple, or Geometryfog is left out (cells.no_parent_effect);
+    a GeometryBeam override (M_SwcBeam) is not."""
+
+    def test_shaders(self):
+        shaders = {"rope.mtl": frozenset({"geometryfognovertalpha"}), "jumppad.mtl": frozenset({"geometrybeamsimple"}),
+                   "cave.mtl": frozenset({"geometryfog"}), "sheet.mtl": frozenset({"geometrybeam"}),
+                   "wood.mtl": frozenset({"illum"})}
+        saved = cells.override_shaders
+        cells.override_shaders = lambda mtl: shaders[mtl]
+        try:
+            self.assertTrue(cells.no_parent_effect("rope.mtl"))
+            self.assertTrue(cells.no_parent_effect("jumppad.mtl"))
+            self.assertTrue(cells.no_parent_effect("cave.mtl"))
+            self.assertFalse(cells.no_parent_effect("sheet.mtl"))
+            self.assertFalse(cells.no_parent_effect("wood.mtl"))
+            self.assertFalse(cells.no_parent_effect(""))
+        finally:
+            cells.override_shaders = saved
+
+
 class CoverPlaceholders(unittest.TestCase):
     def test_left_out(self):
         self.assertTrue(cover.left_out("objects/nature/veg_grass/grass_forest/emptyspace/jav_fst_emptyspace_a.cgf"))

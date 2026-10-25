@@ -146,6 +146,22 @@ def refraction_override(mtl: str) -> bool:
         return False
 
 
+# AST-288 W5 (the decision of the orchestrator 2026-10-25): the effect shaders with no client parent drew a white sheet where the mesh
+# has a material of its own (fog_override covers only the meshes with none). The retail shader cache has own shaders for
+# GeometryFogNoVertAlpha and GeometryBeamSimple (not variants of the studied GeometryBeam and Geometryfog); Geometryfog has
+# M_SwcFogCard only in the landmark importer. A placement whose override has one of these shaders is left out (the overrides are pure:
+# no other drawn sub-material): the pirate ropes and the crafting ghosts (GeometryFogNoVertAlpha; the retail rope view shows no rope),
+# the jump pad ribbons (GeometryBeamSimple; a later study), the cave beams (Geometryfog; a later mapping to M_SwcFogCard, AST-265 b).
+# W5_LEFT_OUT: off until the next cell rebuild (the decision of 2026-10-25: 352 placements in 22 regions; with W3, W4, or AST-274).
+W5_LEFT_OUT = False
+NO_PARENT_EFFECT_SHADERS = frozenset({"geometryfog", "geometryfognovertalpha", "geometrybeamsimple"})
+
+
+def no_parent_effect(mtl: str) -> bool:
+    """@return True for an override material with a NO_PARENT_EFFECT_SHADERS sub-material."""
+    return bool(mtl) and bool(override_shaders(mtl) & NO_PARENT_EFFECT_SHADERS)
+
+
 def fog_override(mtl: str) -> bool:
     """@return True for an override material of fog (FOG_MATERIAL_FOLDERS): a Geometryfog shader, or a GeometryBeam of the fog folders."""
     shaders = override_shaders(mtl)
@@ -226,6 +242,8 @@ def write(name: str) -> dict:
         keep &= ~state_objects
         refraction = np.array([refraction_override(m) for m in material_names], dtype=bool)[material_all]
         keep &= ~refraction
+        no_parent = np.array([W5_LEFT_OUT and no_parent_effect(m) for m in material_names], dtype=bool)[material_all] & keep
+        keep &= ~no_parent
         shadow_proxies = proxy_mesh[data["mesh"]] | proxy_material[material_all]
         if not SHADOW_ONLY:
             keep &= ~shadow_proxies
@@ -233,6 +251,7 @@ def write(name: str) -> dict:
         shadow_proxies = np.zeros(0, bool)
         state_objects = np.zeros(0, bool)
         refraction = np.zeros(0, bool)
+        no_parent = np.zeros(0, bool)
     pairs_path = overrides.out_dir() / "pairs.json"
     pairs = json.loads(pairs_path.read_text()) if pairs_path.is_file() else {}
 
@@ -395,6 +414,7 @@ def write(name: str) -> dict:
               "left out (not imported, fog cards, fog volumes, no material)": int((~keep).sum()),
               "state objects left out (pvp pylons)": int(state_objects.sum()),
               "refraction placements left out (Meshparticle %REFRACTION)": int(refraction.sum()),
+              "effect placements left out (no client parent, W5)": int(no_parent.sum()),
               "shadow proxies left out": 0 if SHADOW_ONLY else int(shadow_proxies.sum()),
               "shadow proxies placed shadow-only": int(shadow_proxies.sum()) if SHADOW_ONLY else 0,
               "entries with no Nanite": sum(1 for m in used if entry_flags(*divmod(m // 2, 65536)) & FLAG_NO_NANITE),
