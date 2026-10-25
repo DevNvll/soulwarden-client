@@ -2,7 +2,8 @@
 
 The parts that the converter gives the client:
 - effects_of: the visual procedural clips of a fragment (actions.py writes them into each fragment record of actions.json as
-  "effects"): ParticleEffect, WeaponEffects, SpawnSlice, RunFxScript, and CAGE-CastSpell, with the source layer and clip index,
+  "effects"): ParticleEffect, WeaponEffects, SpawnSlice, RunFxScript, CAGE-CastSpell, and CAGE-Attachment (the ammunition on an
+  attachment of the weapon: the nocked arrow), with the source layer and clip index,
   the start and the end (s, on the clock of the fragment: the sum of the Blend.ExitTime values; the next procedural item of the
   layer ends a clip; an open last clip ends with the fragment), the blend inputs (ExitTime, StartTime, Duration: kept apart, the
   start is not moved by Duration [D]), and all the parameters.
@@ -26,7 +27,7 @@ from pathlib import Path
 
 from . import datasheet, luabc, source
 
-VISUAL_TYPES = {"ParticleEffect", "WeaponEffects", "SpawnSlice", "RunFxScript", "CAGE-CastSpell"}
+VISUAL_TYPES = {"ParticleEffect", "WeaponEffects", "SpawnSlice", "RunFxScript", "CAGE-CastSpell", "CAGE-Attachment"}
 WEAPON_EFFECTS_TABLE = "javelindata_weaponeffects.datasheet"
 ELEMENTS = ["Default", "Fire", "Arcane", "Void", "Lightning", "Ice", "Nature"]
 # The weapon effect ids of the five weapons of the MVP (the rows of javelindata_weaponeffects) by the tag set of actions.json.
@@ -69,6 +70,10 @@ def normalized(kind: str, params: dict) -> dict:
                 "keep": _flag(params.get("KeepEmitterActive")), "ignoreRotation": _flag(params.get("IgnoreRotation")),
                 "condition": params.get("Condition", ""), "alphaScale": _float(params.get("AlphaScale"), 1.0),
                 "timeScale": _float(params.get("TimeScale"), 1.0), "tint": _vec(params.get("ColorTint")) if params.get("ColorTint") else [1.0, 1.0, 1.0]}
+    if kind == "CAGE-Attachment":
+        # The ammunition on an attachment of the weapon (the bow attach database: AttachmentSource ActiveWeapon, AttachmentName
+        # arrowattach_tip; usertest-1024): the nocked arrow from the start of the clip to its end.
+        return {"attachment": params.get("AttachmentName", ""), "source": params.get("AttachmentSource", "")}
     if kind == "WeaponEffects":
         return {"group": params.get("EffectGroupName", ""), "slot": params.get("ItemSlotAlias", ""),
                 "enter": params.get("OptionOnEnter", ""), "exit": params.get("OptionOnExit", ""), "condition": params.get("Condition", "")}

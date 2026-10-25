@@ -31,6 +31,9 @@ struct FSwcEffectOwner
 	FString Element = TEXT("Default");
 	/** The learned nodes of the weapon trees (the conditions of the clips: IfAbilityActive); null: none known. */
 	const TSet<uint32>* LearnedNodes = nullptr;
+	/** The object path of the mesh of the ammunition of the weapon (a CAGE-Attachment clip; usertest-1024): called at the enter of such
+	 *  a clip only. Empty: no ammunition look. */
+	TFunction<FString()> AmmoMesh;
 };
 
 /**
@@ -50,6 +53,9 @@ struct FSwcEffectOwner
  * of the fragment and the learned nodes (IfAbilityActive); a false or unknown condition skips the clip (logged once). Not done:
  * SpawnSlice, RunFxScript, and CAGE-CastSpell (logged; the spells come as spell entities of the backend), an attachment of the body
  * (AttachmentName), the element of the weapon (Default).
+ * A CAGE-Attachment clip (the bow attach database: AttachmentSource ActiveWeapon, AttachmentName arrowattach_tip) shows the mesh of the
+ * ammunition of the weapon at that helper of the weapon file from its start to its end (the next procedural item of its layer, else
+ * the end of the fragment): the nocked arrow of a draw, an aim, and a reload (usertest-1024; the mesh: FSwcEffectOwner::AmmoMesh).
  */
 class SOULWARDENCLIENT_API FSwcFragmentEffects
 {
@@ -77,6 +83,8 @@ private:
 		int32 Entry = INDEX_NONE;
 		TWeakObjectPtr<UNiagaraComponent> Component;
 		EExit Exit = EExit::StopEmission;
+		/** A CAGE-Attachment clip: the ammunition prop shows while it lives. */
+		bool bAmmo = false;
 	};
 	struct FChannel
 	{
@@ -94,6 +102,11 @@ private:
 	void ExitClip(UWorld* World, int32 Channel, const FSwcEffectClip& Clip);
 	void ExitLive(UWorld* World, FLive& Item);
 	void Note(const FString& Text);
+
+	/** The ammunition prop on the weapon (the nocked arrow): one mesh, shown while a CAGE-Attachment clip lives (usertest-1024). */
+	void ShowAmmo(const FSwcActions& Data, const FSwcEffectOwner& Owner, int32 Channel, const FSwcEffectClip& Clip);
+	void UpdateAmmoVisibility();
+	TWeakObjectPtr<class UStaticMeshComponent> AmmoProp;
 
 	FChannel Channels[2];
 	TArray<FLive> Live;

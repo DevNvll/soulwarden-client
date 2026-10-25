@@ -78,17 +78,33 @@ FString SwcTracers::CreatureAttack(const FString& SlicePath, uint32 AmmoKey)
 	return Ammo != nullptr ? Ammo->FindRef(AmmoKey) : FString();
 }
 
+namespace
+{
+UNiagaraComponent* StartTracerWith(UWorld* World, const FString& Attack, const FString& Element, USceneComponent* Projectile, const FTransform& Relative);
+}
+
 UNiagaraComponent* SwcTracers::Start(UWorld* World, const FString& Attack, const FString& Element, USceneComponent* Projectile)
 {
+	// The local +Y of the game is -Y in Unreal (the space map of stage 1.1): a turn of -90 degrees about X puts it on the +Z of the
+	// projectile.
+	return StartTracerWith(World, Attack, Element, Projectile, FTransform(FQuat(FVector::XAxisVector, FMath::DegreesToRadians(-90.0))));
+}
+
+UNiagaraComponent* SwcTracers::StartInGameFrame(UWorld* World, const FString& Attack, const FString& Element, USceneComponent* Projectile)
+{
+	return StartTracerWith(World, Attack, Element, Projectile, FTransform::Identity);
+}
+
+namespace
+{
+UNiagaraComponent* StartTracerWith(UWorld* World, const FString& Attack, const FString& Element, USceneComponent* Projectile, const FTransform& Relative)
+{
 	USwcEffectSubsystem* Effects = World != nullptr ? World->GetSubsystem<USwcEffectSubsystem>() : nullptr;
-	const FString Effect = Key(Attack, Element);
+	const FString Effect = SwcTracers::Key(Attack, Element);
 	if (Effects == nullptr || Projectile == nullptr || Effect.IsEmpty())
 	{
 		return nullptr;
 	}
-	// The local +Y of the game is -Y in Unreal (the space map of stage 1.1): a turn of -90 degrees about X puts it on the +Z of the
-	// projectile.
-	const FTransform Relative(FQuat(FVector::XAxisVector, FMath::DegreesToRadians(-90.0)));
 	UNiagaraComponent* Trail = Effects->StartAttached(Effect, Projectile, NAME_None, Relative, true, FSwcEffectSettings());
 	if (Trail == nullptr)
 	{
@@ -101,6 +117,7 @@ UNiagaraComponent* SwcTracers::Start(UWorld* World, const FString& Attack, const
 	UE_LOG(LogSwcTracers, Log, TEXT("tracers: %s on the projectile of %s (%s)"), *Effect, *Attack, *Element);
 	return Trail;
 }
+} // namespace
 
 void SwcTracers::Stop(UWorld* World, UNiagaraComponent* Trail)
 {

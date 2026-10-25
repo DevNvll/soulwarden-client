@@ -9,6 +9,8 @@
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcPlayerLooks.h"
 #include "Effects/SwcFragmentEffects.h"
+#include "Engine/GameInstance.h"
+#include "SwcBackendSubsystem.h"
 #include "Character/SwcSmooth.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
@@ -175,6 +177,18 @@ void USwcPlayerAnimInstance::UpdateEffects(int32 Channel, int32 Fragment, uint32
 		{
 			Owner.LearnedNodes = &PlayerActions->GetLearnedNodes();
 		}
+	}
+	// The ammunition of the weapon of the stance (the nocked arrow of a CAGE-Attachment clip; usertest-1024): read only at such a clip.
+	if (Stance != nullptr && Stance->Ranged.IsValid() && !Stance->Ranged->ammo.empty())
+	{
+		const TSharedPtr<FSwcActions> Data = Actions;
+		const std::string Fallback = Stance->Ranged->ammo;
+		USwcBackendSubsystem* Backend = GetWorld() != nullptr && GetWorld()->GetGameInstance() != nullptr
+			? GetWorld()->GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr;
+		Owner.AmmoMesh = [Data, Fallback, Backend]()
+		{
+			return SwcAmmoMesh(*Data, Fallback, Backend != nullptr ? Backend->GetEquippedAmmo() : std::vector<std::string>());
+		};
 	}
 	const bool bValid = Fragment != INDEX_NONE && Actions->Fragments.IsValidIndex(Fragment);
 	const int32 Record = bValid && Stance != nullptr ? Stance->WeaponRecord(Fragment) : INDEX_NONE;

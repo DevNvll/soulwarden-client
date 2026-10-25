@@ -104,6 +104,8 @@ fragment (the weapon scope of the stance). The rule of the study ("Runtime order
 - The lookup (`Effects/SwcTracers`): the value of the weapon effect, else `_Default` [I]. The `Default` value of the bow attacks is
   empty, and the retail Penetrating Shot of a bow with the weapon effect Default shows the white streak of
   `wFX_Bow_Huntsman.Penetrate_Proj_Trail` that moves with the arrow (set-mvpl-effects `retail-bow.mp4`, 12.73 to 12.83 s).
+- CAGE-Attachment (usertest-1024): the fragment effect player shows the mesh of the ammunition at a helper of the weapon file (the
+  nocked arrow; [RANGED.md](RANGED.md) "The own projectile").
 - The own projectile of a shot (`Character/SwcRangedView`) gets its trail at its launch, attached to the projectile with the local +Y of
   the game along the flight (the forward of an entity of the game); at a hit or at the end of the flight the trail stays at its place,
   its emission stops, and its particles finish.

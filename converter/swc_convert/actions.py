@@ -655,6 +655,8 @@ def actions() -> dict:
            "ranged": {**ranged.flights(json.loads((gamedata_dir() / "projectile-data.json").read_text())),
                       "manaCosts": {name: value for name, value in mana_costs.items()},
                       "tagGroups": ranged.tag_groups(),
+                      # The look of each ammunition item (the nocked arrow and the own projectile; usertest-1024).
+                      "ammo": ranged.ammo_meshes(),
                       "spells": {name: row for name, row in ranged.spells().items()
                                  if name in ranged.spells_of([w["ranged"] for w in weapons if "ranged" in w])}}}
     out = player.player_dir() / "actions.json"

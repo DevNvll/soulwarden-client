@@ -5,6 +5,7 @@
 #include "Net/Codec/SwcRepClient.h"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "SwcRangedView.generated.h"
@@ -81,6 +82,9 @@ private:
 		/** The time that it stays after a hit (an arrow: the stuck life); below 0: it flies. */
 		float Stuck = -1.0f;
 		bool bArrow = false;
+		/** The mesh is the mesh of the ammunition in the frame of the game (its tip at the origin, its flight on its local Unreal -Y);
+		 *  else a basic shape along its local +Z (usertest-1024). */
+		bool bGameFrame = false;
 	};
 	struct FNumber
 	{
@@ -94,7 +98,11 @@ private:
 	void UpdateShots(float DeltaTime);
 	void UpdateTarget();
 	void DrawNumbers(UCanvas* Canvas, APlayerController* Controller);
-	UStaticMeshComponent* MakeMesh(const TCHAR* MeshPath, const FLinearColor& Color);
+	UStaticMeshComponent* MakeMesh(const TCHAR* MeshPath, const FLinearColor& Color, bool bTint = true);
+	/** The rotation of a projectile mesh along a flight direction (bGameFrame: a mesh of the game; usertest-1024). */
+	static FQuat FlightRotation(const FVector& Direction, bool bGameFrame);
+	/** @return The object path of the mesh of the ammunition of a shot of a ranged profile ("Bow"), or empty (usertest-1024). */
+	FString ArrowMesh(const std::string& Profile) const;
 
 	TSharedPtr<FSwcActions> Data;
 	std::shared_ptr<swc::combat::Driver> Driver;

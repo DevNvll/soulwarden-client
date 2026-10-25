@@ -8,6 +8,8 @@
 #include "Tasks/Task.h"
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "SwcBackendSubsystem.generated.h"
 
@@ -147,6 +149,9 @@ public:
 	const FString& GetEnterError() const { return EnterError; }
 	/** @return The look tables of the player (the menu preview of stage F3), or null while their worker task runs (no wait). */
 	const FSwcPlayerLooks* GetPlayerLooks();
+	/** The item ids of the ammunition slots of the paperdoll (swc::ranged::Shared::kAmmoSlots; usertest-1024), empty ids for empty
+	 *  slots. The backend puts no item there: the weapons take the fallback (DefaultArrow). */
+	std::vector<std::string> GetEquippedAmmo();
 	/** @return True while the cells of a new place load after a travel or a respawn (the UI keeps its loading screen). */
 	bool IsWaitingForCells() const { return bTravelWait; }
 	/**

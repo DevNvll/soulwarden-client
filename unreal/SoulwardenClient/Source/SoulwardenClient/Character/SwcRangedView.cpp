@@ -10,6 +10,7 @@
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
+#include "Engine/GameInstance.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
@@ -82,7 +83,34 @@ bool USwcRangedView::GetAimPoint(FVector& Out) const
 	return bHasAim;
 }
 
-UStaticMeshComponent* USwcRangedView::MakeMesh(const TCHAR* MeshPath, const FLinearColor& Color)
+FQuat USwcRangedView::FlightRotation(const FVector& Direction, bool bGameFrame)
+{
+	// A mesh of the game points its tip along the game +Y, the Unreal -Y (the space map of stage 1.1); a basic shape along its +Z.
+	return bGameFrame ? FRotationMatrix::MakeFromY(-Direction).ToQuat() : FRotationMatrix::MakeFromZ(Direction).ToQuat();
+}
+
+FString USwcRangedView::ArrowMesh(const std::string& Profile) const
+{
+	if (!Data.IsValid())
+	{
+		return FString();
+	}
+	// The fallback of the weapon rows of the profile (DefaultArrow for a bow; actions.json "ranged" "weapons").
+	std::string Fallback;
+	for (const auto& [Item, Weapon] : Data->GetRangedShared().weapons)
+	{
+		if (Weapon.profile == Profile && !Weapon.ammo.empty())
+		{
+			Fallback = Weapon.ammo;
+			break;
+		}
+	}
+	USwcBackendSubsystem* Backend = GetWorld() != nullptr && GetWorld()->GetGameInstance() != nullptr
+		? GetWorld()->GetGameInstance()->GetSubsystem<USwcBackendSubsystem>() : nullptr;
+	return SwcAmmoMesh(*Data, Fallback, Backend != nullptr ? Backend->GetEquippedAmmo() : std::vector<std::string>());
+}
+
+UStaticMeshComponent* USwcRangedView::MakeMesh(const TCHAR* MeshPath, const FLinearColor& Color, bool bTint)
 {
 	AActor* Owner = GetOwner();
 	UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, MeshPath);
@@ -97,7 +125,8 @@ UStaticMeshComponent* USwcRangedView::MakeMesh(const TCHAR* MeshPath, const FLin
 	Component->SetUsingAbsoluteScale(true);
 	Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Component->SetCastShadow(false);
-	if (UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")))
+	UMaterialInterface* Base = bTint ? LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")) : nullptr;
+	if (Base != nullptr)
 	{
 		UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Base, Component);
 		Material->SetVectorParameterValue(TEXT("Color"), Color);
@@ -170,18 +199,30 @@ void USwcRangedView::SpawnShots()
 		Shot.Radius = FMath::Max(Flight.radius, 0.05f) * 100.0f;
 		Shot.Stuck = -1.0f;
 		const FLinearColor Color = Shot.bArrow ? FLinearColor(0.35f, 0.22f, 0.1f) : bFire ? FLinearColor(1.0f, 0.45f, 0.05f) : FLinearColor(0.6f, 1.0f, 0.4f);
-		UStaticMeshComponent* Mesh = MakeMesh(Shot.bArrow ? TEXT("/Engine/BasicShapes/Cylinder.Cylinder") : TEXT("/Engine/BasicShapes/Sphere.Sphere"), Color);
+		// usertest-1024: an arrow is the mesh of its ammunition (the equipped ammunition item of the type of the weapon, else the fallback
+		// of the weapon: DefaultArrow, the slice basic_arrow: jav_wep_gear_arrowa), with its own material; a cylinder only with no mesh.
+		const FString AmmoMesh = Shot.bArrow ? ArrowMesh(Rule->profile) : FString();
+		UStaticMeshComponent* Mesh = !AmmoMesh.IsEmpty() ? MakeMesh(*AmmoMesh, Color, false) : nullptr;
+		Shot.bGameFrame = Mesh != nullptr;
+		if (Mesh == nullptr)
+		{
+			Mesh = MakeMesh(Shot.bArrow ? TEXT("/Engine/BasicShapes/Cylinder.Cylinder") : TEXT("/Engine/BasicShapes/Sphere.Sphere"), Color);
+		}
 		if (Mesh != nullptr)
 		{
-			// The basic shapes are 1 m: an arrow 0.8 m long and 3 cm thick along its flight; a magic shot the diameter of its radius.
-			Mesh->SetWorldScale3D(Shot.bArrow ? FVector(0.03, 0.03, 0.8) : FVector(Shot.Radius * 2.0 / 100.0));
-			Mesh->SetWorldLocationAndRotation(Shot.Position, FRotationMatrix::MakeFromZ(Direction).ToQuat());
+			// The basic shapes are 1 m: an arrow 0.8 m long and 3 cm thick along its flight; a magic shot the diameter of its radius. The
+			// mesh of the ammunition keeps its size (0.95 m) and has its tip at the place of the projectile.
+			Mesh->SetWorldScale3D(Shot.bGameFrame ? FVector::OneVector : Shot.bArrow ? FVector(0.03, 0.03, 0.8) : FVector(Shot.Radius * 2.0 / 100.0));
+			Mesh->SetWorldLocationAndRotation(Shot.Position, FlightRotation(Direction, Shot.bGameFrame));
+			Mesh->SetCastShadow(Shot.bGameFrame);
 		}
 		Shot.Mesh = Mesh;
 		// AST-230 (plan step 8): the trail of the attack (the ranged attack database) on the projectile; the weapon effect Default [I].
 		if (Rule != nullptr && Mesh != nullptr)
 		{
-			Shot.Trail = SwcTracers::Start(GetWorld(), UTF8_TO_TCHAR((Rule->profile + "/" + Rule->attack).c_str()), TEXT("Default"), Mesh);
+			const FString Attack = UTF8_TO_TCHAR((Rule->profile + "/" + Rule->attack).c_str());
+			Shot.Trail = Shot.bGameFrame ? SwcTracers::StartInGameFrame(GetWorld(), Attack, TEXT("Default"), Mesh)
+			                             : SwcTracers::Start(GetWorld(), Attack, TEXT("Default"), Mesh);
 		}
 		Shots.Add(Shot);
 		++Projectiles;
@@ -240,7 +281,7 @@ void USwcRangedView::UpdateShots(float DeltaTime)
 			Shot.Mesh->SetWorldLocation(Shot.Position);
 			if (Shot.Stuck < 0.0f && !Shot.Velocity.IsNearlyZero())
 			{
-				Shot.Mesh->SetWorldRotation(FRotationMatrix::MakeFromZ(Shot.Velocity.GetSafeNormal()).ToQuat());
+				Shot.Mesh->SetWorldRotation(FlightRotation(Shot.Velocity.GetSafeNormal(), Shot.bGameFrame));
 			}
 		}
 		if (bEnd)

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cctype>
 #include <fstream>
 #include <map>
 #include <string>
@@ -195,6 +196,15 @@ inline Shared shared_of(const Json& doc)
 	}
 	for (const auto& [name, value] : ranged["weapons"].items()) {
 		shared.weapons[name] = {value["profile"].get<std::string>(), value["ammo"].get<std::string>()};
+	}
+	if (ranged.contains("ammo")) {
+		for (const auto& [name, value] : ranged["ammo"].items()) {
+			std::string key = name;
+			for (char& c : key) {
+				c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+			}
+			shared.ammo[key] = {value["type"].get<std::string>(), value["unreal"].get<std::string>()};
+		}
 	}
 	if (ranged.contains("tagGroups")) {
 		for (const auto& [name, value] : ranged["tagGroups"].items()) {

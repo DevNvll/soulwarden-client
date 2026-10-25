@@ -144,6 +144,24 @@ const Spell* Shared::spell(std::string_view id) const
 	return found != spells.end() ? &found->second : nullptr;
 }
 
+std::string Shared::choose_ammo(std::string_view fallback, const std::vector<std::string>& equipped) const
+{
+	const Ammo* base = ammo_look(fallback);
+	for (const std::string& item : equipped) {
+		const Ammo* look = ammo_look(item);
+		if (look != nullptr && base != nullptr && look->type == base->type) {
+			return lower(item);
+		}
+	}
+	return lower(fallback);
+}
+
+const Shared::Ammo* Shared::ammo_look(std::string_view id) const
+{
+	const auto found = ammo.find(lower(id));
+	return found != ammo.end() ? &found->second : nullptr;
+}
+
 float Shared::mana_cost(std::string_view costId) const
 {
 	const auto found = manaCosts.find(lower(costId));

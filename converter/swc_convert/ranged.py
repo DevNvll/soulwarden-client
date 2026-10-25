@@ -314,6 +314,33 @@ def spells() -> dict:
 
 # The ammunition of each AmmoType when the slot is empty (the setting javelin.enable-ammoless-weapons; protocol notes 4.27).
 AMMO_FALLBACK = {"Arrow": "DefaultArrow", "Shot": "DefaultShot"}
+AMMO_TABLE = "javelindata_itemdefinitions_ammo.datasheet"
+
+
+def ammo_meshes() -> dict:
+    """The look of each ammunition item of the player (user test 2026-10-24; docs/RANGED.md "The own projectile"): AmmoID -> {"type":
+    AmmoType, "prefab": the slice of AmmoPrefabPath, "mesh": the .cgf (MeshOverride, else the first static mesh of the prefab slice),
+    "unreal": the object path of the imported mesh ("" when the content plugin has none)}, for the AmmoTypes of the player weapons
+    (Arrow, Shot). The rows of the creatures (an id with "AI") are left out (an id part "ai": Arrow_AI_Dryad, AI_Arrow_Piercing_Shot). The arrow on the bow (CAGE-Attachment arrowattach_tip) and the own projectile of a shot take this mesh."""
+    from . import manifest as shared_manifest
+    from .objects import imported_mesh
+    from .region import slice_meshes
+    assets = shared_manifest.load()["assets"]
+    out = {}
+    for row in datasheet.load(AMMO_TABLE).rows():
+        ammo_id = str(row.get("AmmoID") or "")
+        if not ammo_id or "ai" in ammo_id.lower().split("_") or str(row.get("AmmoType") or "") not in AMMO_FALLBACK:
+            continue
+        prefab = str(row.get("AmmoPrefabPath") or "")
+        slice_path = f"slices/{prefab.replace(chr(92), '/').lower()}.dynamicslice" if prefab else ""
+        mesh = str(row.get("MeshOverride") or "").replace("\\", "/").lower()
+        if not mesh and slice_path and source.has(slice_path):
+            meshes = slice_meshes(source.read(slice_path))
+            mesh = meshes[0][0].lower() if meshes else ""
+        entry = assets.get(mesh) or {}
+        out[ammo_id] = {"type": str(row.get("AmmoType") or ""), "prefab": slice_path, "mesh": mesh,
+                        "unreal": imported_mesh(entry["unreal"]) if entry.get("unreal") else ""}
+    return out
 
 
 def flights(gamedata: dict) -> dict:

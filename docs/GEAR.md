@@ -217,8 +217,9 @@ rule, because the backend is the authority of this project and that value change
   joints (`weaponJoints`), not the shown chain; the equal-tag options of a weapon record take the first one (the retail option
   rule is not known); the other bows and flails become skeletal when they are converted again; a native correction of the string
   (a hand follow) is not proved (weapon-props.md [U]).
-- The visibility of the inactive weapons, the accessory fallback of a bow with no accessory row, the nocked arrow, the
+- The visibility of the inactive weapons, the accessory fallback of a bow with no accessory row, the
   side of an asymmetric gauntlet, and the gauntlet body replacement (forearm skins) are open (gear.md, open points).
+  The nocked arrow: [RANGED.md](RANGED.md) "The own projectile" (usertest-1024).
 - The dyes, the eye color, the face marks, the scars, and the tattoos need material parameters and mask textures
   (gear.md "Dyes", "Eyes, face marks, scars, and tattoos"): not in this stage.
 - `ShowBaseModelOnly` and `ForceHideForearms` are not applied.

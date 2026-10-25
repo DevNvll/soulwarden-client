@@ -71,7 +71,8 @@ void ReadEffects(const TSharedPtr<FJsonObject>& Info, TArray<FSwcEffectClip>& Ou
 		FSwcEffectClip& Clip = Out.AddDefaulted_GetRef();
 		Clip.Type = Data->GetStringField(TEXT("type"));
 		Clip.Kind = Clip.Type == TEXT("ParticleEffect") ? FSwcEffectClip::EKind::Particle
-		          : (Clip.Type == TEXT("WeaponEffects") ? FSwcEffectClip::EKind::WeaponGroup : FSwcEffectClip::EKind::Other);
+		          : Clip.Type == TEXT("WeaponEffects") ? FSwcEffectClip::EKind::WeaponGroup
+		          : Clip.Type == TEXT("CAGE-Attachment") ? FSwcEffectClip::EKind::Attachment : FSwcEffectClip::EKind::Other;
 		Clip.Layer = static_cast<int32>(Number(Data->TryGetField(TEXT("layer"))));
 		Clip.Clip = static_cast<int32>(Number(Data->TryGetField(TEXT("clip"))));
 		Clip.Start = Number(Data->TryGetField(TEXT("start")));
@@ -412,6 +413,15 @@ void RangedShared(const TSharedPtr<FJsonObject>& Info, swc::ranged::Shared& Out)
 	{
 		const TSharedPtr<FJsonObject> Value = Pair.Value->AsObject();
 		Out.weapons[Utf8(FString(Pair.Key.ToView()))] = {Utf8(Value->GetStringField(TEXT("profile"))), Utf8(Value->GetStringField(TEXT("ammo")))};
+	}
+	// The look of each ammunition item (usertest-1024: the nocked arrow and the own projectile). A file of an older converter has none.
+	if (const TSharedPtr<FJsonObject>* Ammo = nullptr; Info->TryGetObjectField(TEXT("ammo"), Ammo))
+	{
+		for (const auto& Pair : (*Ammo)->Values)
+		{
+			const TSharedPtr<FJsonObject> Value = Pair.Value->AsObject();
+			Out.ammo[Utf8(FString(Pair.Key.ToView()).ToLower())] = {Utf8(Value->GetStringField(TEXT("type"))), Utf8(Value->GetStringField(TEXT("unreal")))};
+		}
 	}
 	// The tag groups of the player controller (ClearMannequinTagGroup; AST-271). A file of an older converter has none.
 	if (const TSharedPtr<FJsonObject>* Groups = nullptr; Info->TryGetObjectField(TEXT("tagGroups"), Groups))
@@ -1333,4 +1343,11 @@ bool FSwcActions::RootDelta(const FSwcActionFragment& Fragment, float From, floa
 		return true;
 	}
 	return false;
+}
+
+FString SwcAmmoMesh(const FSwcActions& Data, const std::string& Fallback, const std::vector<std::string>& Equipped)
+{
+	const swc::ranged::Shared& Shared = Data.GetRangedShared();
+	const swc::ranged::Shared::Ammo* Look = Fallback.empty() ? nullptr : Shared.ammo_look(Shared.choose_ammo(Fallback, Equipped));
+	return Look != nullptr ? FString(UTF8_TO_TCHAR(Look->mesh.c_str())) : FString();
 }

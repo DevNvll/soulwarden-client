@@ -161,6 +161,24 @@ struct Shared {
 		std::string ammo;
 	};
 	std::map<std::string, Weapon> weapons;
+	/** The look of an ammunition item (actions.json "ranged" "ammo", usertest-1024): its AmmoType and the object path of its imported
+	 *  mesh (the MeshOverride, else the mesh of its AmmoPrefabPath slice; empty: not imported). By lower-case AmmoID. */
+	struct Ammo {
+		std::string type;
+		std::string mesh;
+	};
+	std::map<std::string, Ammo> ammo;
+	/** The equipment slots of the ammunition (protocol notes 4.27: slots 12 and 13; the backend puts no item there). */
+	static constexpr std::uint32_t kAmmoSlots[2] = {12, 13};
+	/**
+	 * The ammunition of the nocked arrow and of the own projectile of a shot: the first equipped ammunition item (the item ids of the
+	 * ammunition slots) of the AmmoType of the fallback of the weapon, else the fallback itself (DefaultArrow for a bow: the
+	 * ammunition-free setting of the client, protocol notes 4.27) [I: the retail choice of the slot is not read; the type rule keeps
+	 * an arrow out of a musket]. @return The lower-case AmmoID, empty with no fallback.
+	 */
+	[[nodiscard]] std::string choose_ammo(std::string_view fallback, const std::vector<std::string>& equipped) const;
+	/** @return The look of an AmmoID (any case), or null. */
+	[[nodiscard]] const Ammo* ammo_look(std::string_view id) const;
 	[[nodiscard]] const Spell* spell(std::string_view id) const;
 	/** @return The mana cost of a CostID (0: none). */
 	[[nodiscard]] float mana_cost(std::string_view costId) const;

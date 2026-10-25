@@ -1,6 +1,8 @@
 #include "Effects/SwcFragmentEffects.h"
 
 #include "Components/MeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "NiagaraComponent.h"
@@ -158,6 +160,11 @@ void FSwcFragmentEffects::Enter(const FSwcActions& Data, const FSwcEffectOwner& 
 	if (Clip.Kind == FSwcEffectClip::EKind::Other)
 	{
 		Note(FString::Printf(TEXT("%s %s: not played yet"), *Clip.Type, *Clip.Name));
+		return;
+	}
+	if (Clip.Kind == FSwcEffectClip::EKind::Attachment)
+	{
+		ShowAmmo(Data, Owner, Channel, Clip);
 		return;
 	}
 	if (Clip.Kind == FSwcEffectClip::EKind::WeaponGroup)
@@ -322,8 +329,76 @@ void FSwcFragmentEffects::ExitClip(UWorld* World, int32 Channel, const FSwcEffec
 	}
 }
 
+void FSwcFragmentEffects::ShowAmmo(const FSwcActions& Data, const FSwcEffectOwner& Owner, int32 Channel, const FSwcEffectClip& Clip)
+{
+	if (Owner.Weapon == nullptr || Owner.Weapon->GetOwner() == nullptr)
+	{
+		Note(FString::Printf(TEXT("CAGE-Attachment %s: no weapon in the main hand"), *Clip.Attachment.ToString()));
+		return;
+	}
+	const FString MeshPath = Owner.AmmoMesh ? Owner.AmmoMesh() : FString();
+	UStaticMesh* Mesh = MeshPath.IsEmpty() ? nullptr : LoadObject<UStaticMesh>(nullptr, *MeshPath);
+	FName Socket;
+	FTransform Relative;
+	if (Mesh == nullptr || !SwcWeaponHelperPlace(Data, Owner.WeaponFile, Clip.Attachment, Owner.Weapon, Socket, Relative))
+	{
+		Note(FString::Printf(TEXT("CAGE-Attachment %s of %s: %s"), *Clip.Attachment.ToString(), *Owner.WeaponFile,
+			Mesh == nullptr ? *FString::Printf(TEXT("no ammunition mesh (%s)"), MeshPath.IsEmpty() ? TEXT("none") : *MeshPath)
+			                : TEXT("no such helper of the weapon file")));
+		return;
+	}
+	UStaticMeshComponent* Prop = AmmoProp.Get();
+	if (Prop == nullptr || Prop->GetOwner() != Owner.Weapon->GetOwner())
+	{
+		if (Prop != nullptr)
+		{
+			Prop->DestroyComponent();
+		}
+		Prop = NewObject<UStaticMeshComponent>(Owner.Weapon->GetOwner());
+		Prop->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Prop->SetGenerateOverlapEvents(false);
+		Prop->RegisterComponent();
+		AmmoProp = Prop;
+	}
+	if (Prop->GetStaticMesh() != Mesh)
+	{
+		Prop->SetStaticMesh(Mesh);
+	}
+	// The mesh of the game and the helper are both in the space map of stage 1.1: the helper transform places the arrow (its tip at the
+	// origin, the shaft along the game -Y) on the joint arrowAttach_tip_jnt, which the bow prop clips move along the draw.
+	if (Prop->GetAttachParent() != Owner.Weapon || Prop->GetAttachSocketName() != Socket)
+	{
+		Prop->AttachToComponent(Owner.Weapon, FAttachmentTransformRules::KeepRelativeTransform, Socket);
+	}
+	Prop->SetRelativeTransform(Relative);
+	FLive& Item = Live.AddDefaulted_GetRef();
+	Item.Channel = Channel;
+	Item.Clip = &Clip;
+	Item.bAmmo = true;
+	UpdateAmmoVisibility();
+	Note(FString::Printf(TEXT("CAGE-Attachment %s: the ammunition %s on %s"), *Clip.Attachment.ToString(), *MeshPath, *Socket.ToString()));
+}
+
+void FSwcFragmentEffects::UpdateAmmoVisibility()
+{
+	if (UStaticMeshComponent* Prop = AmmoProp.Get())
+	{
+		const bool bShown = Live.ContainsByPredicate([](const FLive& Item) { return Item.bAmmo; });
+		if (Prop->IsVisible() != bShown)
+		{
+			Prop->SetVisibility(bShown);
+		}
+	}
+}
+
 void FSwcFragmentEffects::ExitLive(UWorld* World, FLive& Item)
 {
+	if (Item.bAmmo)
+	{
+		Item.bAmmo = false;
+		UpdateAmmoVisibility();
+		return;
+	}
 	UNiagaraComponent* Component = Item.Component.Get();
 	USwcEffectSubsystem* Effects = World != nullptr ? World->GetSubsystem<USwcEffectSubsystem>() : nullptr;
 	if (Component == nullptr || Effects == nullptr)
@@ -365,4 +440,9 @@ void FSwcFragmentEffects::StopAll(UWorld* World)
 {
 	StopChannel(World, 0);
 	StopChannel(World, 1);
+	if (UStaticMeshComponent* Prop = AmmoProp.Get())
+	{
+		Prop->DestroyComponent();
+	}
+	AmmoProp.Reset();
 }

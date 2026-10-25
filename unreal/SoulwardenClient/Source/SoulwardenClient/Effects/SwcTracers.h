@@ -22,6 +22,9 @@ SOULWARDENCLIENT_API FString CreatureAttack(const FString& SlicePath, uint32 Amm
 /** Starts the trail of an attack on a projectile component whose local +Z is the flight (the trail has the local +Y of the game along
  *  the flight: the forward of an entity of the game). @return The component, or null (no trail, or no system). */
 SOULWARDENCLIENT_API UNiagaraComponent* Start(UWorld* World, const FString& Attack, const FString& Element, USceneComponent* Projectile);
+/** As Start, for a projectile in the frame of the game (a mesh of the game in the space map of stage 1.1, for example the arrow of the
+ *  ammunition: its flight is its local Unreal -Y, the local +Y of the game): no turn (usertest-1024). */
+SOULWARDENCLIENT_API UNiagaraComponent* StartInGameFrame(UWorld* World, const FString& Attack, const FString& Element, USceneComponent* Projectile);
 /** Ends a trail: it leaves the projectile at its world place, its emission stops, and its particles finish. */
 SOULWARDENCLIENT_API void Stop(UWorld* World, UNiagaraComponent* Trail);
 } // namespace SwcTracers

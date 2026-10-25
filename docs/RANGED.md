@@ -120,7 +120,30 @@ The steps of the data (`tools/test-ranged.sh`) and the live values of the notes:
 acceleration of the slice after the acceleration delay of the attack (`p += (v + a dt / 2) dt`, `v += a dt`), to the range of the
 attack or the life of the slice. It ends at the first hit of a sphere of its radius on the channel Pawn (the world and the bodies
 of the creatures); an arrow stays there 8 s (the stuck life of basic_arrow). The bow: 100 m/s, gravity after 5 m, 100 m; the fire
-ball and the life staff shots: 100 m/s, no gravity, 0.5 s. The look is the basic shapes of the engine.
+ball and the life staff shots: 100 m/s, no gravity, 0.5 s. The look of a magic shot is a basic shape of the engine.
+
+The arrows (user test 2026-10-24, "the arrow projectile is a thin cylinder", "when drawing the bow, there is no arrow"):
+
+- The ammunition: `actions.json` "ranged" "ammo" (`converter/swc_convert/ranged.py` `ammo_meshes`) has, for each ammunition item of
+  the AmmoTypes Arrow and Shot (javelindata_itemdefinitions_ammo; no creature rows), its MeshOverride, else the static mesh of its
+  AmmoPrefabPath slice, and the imported mesh. All arrows of the player (DefaultArrow, ArrowT1 to ArrowT5, ArrowBT2 to ArrowBT5,
+  ArrowFTW, OR_Arrow) have the prefab `Items/Weapons/basic_arrow` and no MeshOverride: the mesh
+  `objects/weapons/ranged/projectiles/arrowa/jav_wep_gear_arrowa.cgf` (0.95 m, its tip at the origin, the shaft along the game -Y).
+- The choice (`swc::ranged::Shared::choose_ammo`): an equipped ammunition item (paperdoll slots 12 and 13, protocol notes 4.27) of the
+  AmmoType of the fallback of the weapon, else the fallback (DefaultArrow). The backend puts no item in these slots, so each shot
+  takes DefaultArrow, as the shot items of the client [I: the slot choice of the retail client is not read].
+- The own projectile of a bow shot is that mesh with its own material, its tip at the place of the projectile and turned along the
+  flight (`USwcRangedView::FlightRotation`: the game +Y of the mesh on the flight). Its trail starts in the frame of the game
+  (`SwcTracers::StartInGameFrame`). With no imported mesh the cylinder stays.
+- The nocked arrow: the bow attach database (`playermaleanims_bowattach.adb`) has the procedural clip CAGE-Attachment (AttachmentSource
+  ActiveWeapon, AttachmentName arrowattach_tip) in 42 fragment variants: Bow_ReadyWeapon_UpperBody (from 0.333 s), Bow_Aim_UpperBody,
+  Bow_Charge_UpperBody, Bow_Shake_UpperBody (from 0 s), Bow_Reload_UpperBody (from 0.633 s), Bow_Shoot_HipFire (0.133 to 0.4 s),
+  and the abilities. Bow_Shoot_UpperBody has none: the arrow goes at the release. The bow files have the empty CA_BONE helper
+  arrowAttach_tip on the joint arrowAttach_tip_jnt, which the bow prop clips move. `FSwcFragmentEffects` shows the mesh of the
+  ammunition at that helper from the start of the clip to its end (the next procedural item of its layer, else the end of the
+  fragment) [I: the native clip spawns the ammunition there; the client shows its mesh]. A bow that is a static mesh has no joint:
+  no nocked arrow (logged).
+- Tests: `tools/test-ranged.sh` (the choice; with the new data, DefaultArrow and ArrowT5 have the arrow mesh).
 
 ## The ground target and the confirm
 

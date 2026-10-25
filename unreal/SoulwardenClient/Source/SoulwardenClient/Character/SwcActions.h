@@ -58,6 +58,8 @@ struct FSwcEffectClip
 	{
 		Particle,
 		WeaponGroup,
+		/** CAGE-Attachment: the ammunition on an attachment of the weapon (the nocked arrow; usertest-1024). */
+		Attachment,
 		Other,
 	};
 	EKind Kind = EKind::Other;
@@ -374,3 +376,7 @@ private:
 	float RatioHeavy = 46.0f;
 	float RatioOverburdened = 100.0f;
 };
+
+/** The object path of the mesh of the ammunition of a weapon (usertest-1024): the choice of swc::ranged::Shared::choose_ammo (an equipped
+ *  ammunition item of the type of the fallback, else the fallback) and its look. Empty: no look. */
+SOULWARDENCLIENT_API FString SwcAmmoMesh(const FSwcActions& Data, const std::string& Fallback, const std::vector<std::string>& Equipped);

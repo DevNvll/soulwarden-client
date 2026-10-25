@@ -18,6 +18,7 @@
 #include "Character/SwcPlayerCharacter.h"
 #include "Character/SwcPlayerLooks.h"
 #include "Character/SwcRangedView.h"
+#include "Combat/SwcRanged.h"
 #include "Character/SwcTestFloor.h"
 #include "Interact/SwcInteractor.h"
 #include "Persons/SwcPersonSubsystem.h"
@@ -1820,6 +1821,23 @@ void USwcBackendSubsystem::OpenLootBag(uint32 Interest)
 	{
 		Interactor->OpenBag(Interest);
 	}
+}
+
+std::vector<std::string> USwcBackendSubsystem::GetEquippedAmmo()
+{
+	std::vector<std::string> Out;
+	swc::net::RepClient::OwnEntity Own;
+	const FSwcPlayerLooks* Looks = GetPlayerLooks();
+	if (Looks == nullptr || !GetLocalPlayer(Own))
+	{
+		return Out;
+	}
+	for (const std::uint32_t Slot : swc::ranged::Shared::kAmmoSlots)
+	{
+		const auto Found = Own.paperdollItems.find(Slot);
+		Out.push_back(Found != Own.paperdollItems.end() ? std::string(TCHAR_TO_UTF8(*Looks->ItemId(Found->second.index))) : std::string());
+	}
+	return Out;
 }
 
 FString USwcBackendSubsystem::GetConversationSceneKey() const

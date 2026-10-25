@@ -591,6 +591,34 @@ void mana_tests()
 
 } // namespace
 
+/** usertest-1024: the ammunition of the nocked arrow and of the own projectile (Shared::choose_ammo). */
+void ammo_tests(const ranged::test::Data& data)
+{
+	std::printf("the ammunition look (usertest-1024)\n");
+	ranged::Shared shared;
+	shared.ammo["defaultarrow"] = {"Arrow", "/Arrow.Arrow"};
+	shared.ammo["arrowt5"] = {"Arrow", "/ArrowT5.ArrowT5"};
+	shared.ammo["defaultshot"] = {"Shot", ""};
+	shared.ammo["shott2"] = {"Shot", ""};
+	check(shared.choose_ammo("DefaultArrow", {}) == "defaultarrow", "no equipped ammunition: the fallback of the weapon");
+	check(shared.choose_ammo("DefaultArrow", {"ArrowT5"}) == "arrowt5", "an equipped arrow item: that item");
+	check(shared.choose_ammo("DefaultArrow", {"ShotT2", "ArrowT5"}) == "arrowt5", "a shot item in the other slot: the arrow item");
+	check(shared.choose_ammo("DefaultShot", {"ArrowT5"}) == "defaultshot", "an arrow item for a musket: the fallback shot");
+	check(shared.choose_ammo("DefaultArrow", {"NoSuchItem"}) == "defaultarrow", "an item that is no ammunition: the fallback");
+	check(shared.ammo_look("ARROWT5") != nullptr && shared.ammo_look("ARROWT5")->mesh == "/ArrowT5.ArrowT5", "the look by an id of any case");
+	check(shared.ammo_look("") == nullptr, "no id: no look");
+	// The converted data (a file of an older converter has no "ammo"): DefaultArrow has the imported arrow mesh of basic_arrow.
+	if (!data.shared.ammo.empty()) {
+		const ranged::Shared::Ammo* arrow = data.shared.ammo_look("DefaultArrow");
+		check(arrow != nullptr && arrow->type == "Arrow" && arrow->mesh.find("jav_wep_gear_arrowa") != std::string::npos,
+		      "the data: DefaultArrow has the mesh jav_wep_gear_arrowa (" + (arrow != nullptr ? arrow->mesh : std::string("none")) + ")");
+		const ranged::Shared::Ammo* t5 = data.shared.ammo_look("ArrowT5");
+		check(t5 != nullptr && arrow != nullptr && t5->mesh == arrow->mesh, "the data: ArrowT5 has the same prefab mesh (basic_arrow)");
+	} else {
+		std::printf("  (the data file has no ammunition table: an older converter)\n");
+	}
+}
+
 int main(int argc, char** argv)
 {
 	if (argc < 2) {
@@ -609,6 +637,7 @@ int main(int argc, char** argv)
 	staff_tests(data);
 	ability_tests(data);
 	mana_tests();
+	ammo_tests(data);
 	// Each leaf of the conditions has a rule of the client; the named conditions that the action lists do not have are the artifacts of
 	// the Grey Wizard Hat, the flash bang shot (not in the bow table), and the target check of Light's Embrace (missingConditions of the
 	// converter): false.
