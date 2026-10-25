@@ -491,7 +491,12 @@ The backend copy sends neither (the warning 3435, the disable 5684): no reader.
   timer task, the hidden knife timer (no row), a relog after the end (00:00:00), the journal row, the failure banner, and a hand-in (no
   failure).
 - `questrepeat` (25 checks): OnCooldown and its dialogue, the flag, a row that is not repeatable, the objective data, the schedule bus
-  with fixed times. Needs `quests.json` with "schedules" (a check file; the deploy goes with the merge).
+  with fixed times. The schedule checks need `quests.json` with "schedules" (a check file, deployed after the word of the orchestrator);
+  without it they are skipped with a note.
+- The live check (2026-10-25, evidence AST-243, `q8a`): a new character in TriggerVol_06_HeadStatueWhisper, the grant of 06_raisealarm.
+  The tracker row counts down (00:00:04, 00:00:02, 00:00:01, 00:00:00); the server ends the timer task 6.05 s after the grant; the row
+  goes and the next task shows; the journal has no row after the end; 0 Lua errors. The relog during the timer: see Q9 "The live checks".
+  The failure banner and the repeat have no live path (no visible failure timer; no repeatable row in the backend): offline only.
 
 ## The coverage report and the destructible quest objects (Q9, AST-244)
 
@@ -547,6 +552,26 @@ placements of the variation table Gatherable_Quest_Damageable (169; the four cor
 - The cooked build reads these files at run time: `tools/lib/loose-data.txt` now has `world-objects/server-visuals.json`,
   `world-objects/quest-objects.json`, `quests/scenes.json`, and `quests/scenes/*.json`. The meshes are in the always cooked folder
   `/SwcGameContent/Meshes`.
+
+### The live checks (2026-10-25, evidence AST-244)
+
+The order of the orchestrator limited the engine time. These checks use a development grant (they prove the client parts, not the
+natural chain):
+- `q9a`: a new Soldier, the grant of 06_survivors_soldier in FirstWhisperWW_IGC_Trigger, the whisper of Isabella, the Grace scene, the
+  2 s timer: the four nodules go from hidden to active at the start of task 43 (none before). Light attacks: the server counts 4 hits for
+  each nodule and destroys it; the client shows it destroyed; 33 s later the server gives it back and the client shows it active again.
+  The tracker counts "2 / 4". Two nodules took no hit: the view step came before the travel reset the facing (a drive error).
+- `q9b`: the same character logs in again with task 43 at 2 of 4: the four nodules are active again; the last two are destroyed; task 43
+  ends, all four go hidden, the Grace outro scene plays, and the root waits for its hand-in.
+- `q9c`: a relog at this ready hand-in: the Talk with Grace O'Malley and the hand-in (794 accepted: 450 XP, 3.25 coin,
+  SoldierArchetypeLegs_Upgrade).
+- `q9d` and `q9e`: a relog during the 6 s timer of 06_raisealarm (the exit at 9.5 s, the timer runs): at the next login the server ends
+  the timer (76.6 s after its start, the time away counts) before the world entry; the client shows the next task at once, no stale row.
+- 0 Lua errors in all runs. The plates of the nodules: the AI pool (4) was full near the wreck ("no pool slot") or the plate was occluded
+  in most frames.
+- Open (the rest of the acceptance, after the full cook, on the cooked build): the natural chain of a new Soldier (no grant) through the
+  ten quests to S_introtosettlement and truffles, one video for each quest, a relog at a scene (Q5 `ast240-relog` covers the beach scene),
+  and the retail | client crops of each new UI state.
 
 ## Open points
 
