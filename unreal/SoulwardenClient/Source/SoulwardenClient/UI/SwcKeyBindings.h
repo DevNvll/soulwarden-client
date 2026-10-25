@@ -43,6 +43,9 @@ public:
 	static FString CryName(const FKey& Key);
 	/** @return The Unreal key of a CryInput name, or EKeys::Invalid. */
 	static FKey KeyOf(const FString& CryName);
+	/** @return The settings folder of this client: SWC_WORK/settings/<the name of the session data folder> (-SwcSettings=DIR
+	 *  gives another folder). The rebinds and the options (UI/SwcGameSettings) go there. */
+	static FString SettingsDir();
 
 private:
 	FString SavePath() const;

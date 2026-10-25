@@ -4,6 +4,8 @@
 -- player, movement, and camera (a game key does not go to the game). Exit to desktop opens the quit popup over the
 -- menu (TryShowById: the state stays); Escape fires ui_genpop_cancel and the popup closes; the menu has the pointer
 -- again (the hover of its buttons). Escape then gives OnEscapeKeyPressed to the menu: the state goes back to HUD.
+-- The game menu of this client (swc/gamemenu.lua): only Settings, Exit to Main Menu, and Exit to Desktop show (no store, no
+-- support section, no Unstuck, no Recall to Inn), one under the other, and the small frame ends 47 px below the last button.
 -- Pictures: escape-menu, escape-popup, escape-focus.
 local HUD, ESC = 2702338936, 1643432462
 local menu = screen("LyShineUI/EscapeMenu/EscapeMenu.uicanvas", 41)
@@ -27,6 +29,36 @@ check(not Swc.ActionMapOn("movement") and not Swc.ActionMapOn("camera") and not 
 check(not Swc.HostKeyToGame("w") and not Swc.HostKeyToGame("maxis_x"), "a move key and the mouse look do not go to the game")
 check(#DynamicBus.EscapeKeyNotificationBus.handlers > 0, "the escape menu has its escape handler (after its tick)")
 picture("escape-menu")
+
+-- The game menu of this client.
+local menuRoot = swcui.canvas_get(menu, "root")
+local function shown(name)
+  local id = find(menuRoot, name)
+  return id ~= nil and swcui.enabled_in_hierarchy(id)
+end
+for _, name in ipairs({"ButtonSettings", "ButtonExitMainMenu", "ButtonExitDesktop"}) do
+  check(shown(name), "the game menu shows " .. name)
+end
+for _, name in ipairs({"ButtonUnstuck", "ButtonRespawn", "ButtonFeedback", "ButtonHelp", "ButtonNewsletter", "ButtonNewsModal",
+  "ButtonCompensations", "ButtonFreeWeekend", "ButtonExternalRewards", "ButtonConnectToTwitch", "SupportButtonsContainer",
+  "StoreButtonsContainer", "ShopLabel", "WorldNameHolder"}) do
+  check(not shown(name), "the game menu hides " .. name)
+end
+local function bottom(name)
+  local _, _, _, b = swcui.rect(find(menuRoot, name))
+  return b
+end
+local function top(name)
+  local _, t = swcui.rect(find(menuRoot, name))
+  return t
+end
+-- The next section takes the place of the support section: the gap of the canvas between the last button of a section and the
+-- first button of the next one (the label and its space) is 70 px.
+check(math.abs(top("ButtonExitMainMenu") - bottom("ButtonSettings") - 70) < 1,
+  string.format("the leave section follows the game section (gap %.0f, the gap of the canvas: 70)",
+    top("ButtonExitMainMenu") - bottom("ButtonSettings")))
+equal(math.floor(bottom("FrameMultiBgSmall") - bottom("ButtonExitDesktop") + 0.5), 47,
+  "the small frame ends 47 px below the last button (the margin of the large frame of the canvas)")
 
 -- A nested popup: exit to desktop.
 local root = swcui.canvas_get(menu, "root")
@@ -100,3 +132,5 @@ end
 local quits = quit_requests()
 equal(#quits, 1, "Yes: one quit request")
 equal(quits[1], "menu quit " .. tostring(eExitGameDestination_MainMenu), "the quit request goes to the main menu (destination 1)")
+
+equal(Swc.errorCount or 0, 0, "no Lua error")

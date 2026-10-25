@@ -5,9 +5,14 @@
 --     values of this client (the display: the window in pixels, Swc.HostDisplay; the language, no voice device).
 --   * A node with no known default gets the neutral value of its row at the end of the UI load (a toggle off, a slider at
 --     its minimum, a drop-down at its first item): the list goes to the log (open point of docs/UI.md; stage P6.9).
---   * OptionsDataBus: the reads of the screen; a reset of a category sets the values of its rows again. The other calls
---     (Set*, SerializeOptions) are stubs in this stage: the screen sets the nodes itself; the options are not saved and
---     do not change the client (stage P6.9). The keys are the exception (swc/keys.lua: they are saved and used).
+--   * OptionsDataBus: the reads of the screen; a reset of a category sets the values of its rows again. The screen sets the
+--     nodes itself; the Set* calls of the display, the frame rate, and the quality set their nodes too (the preset sets the
+--     detail rows).
+--   * The save and the apply (the game menu, docs/UI.md "The game menu"): each 0.25 s the values of the shown rows that changed go
+--     to the client ("options" with one line NODE<tab>VALUE for each node); the client applies the display, the render scale,
+--     the frame rate, the quality, the field of view, and the invert, and keeps the values. SerializeOptions (the exit of the
+--     screen) asks the client to write them ("options-save": SWC_WORK/settings/<the session data folder>/options.json). At the
+--     start the client gives the saved values back (Swc.HostOptions). The keys have their own file (swc/keys.lua).
 --   * UiMainMenuBus OnAuthComplete(true): the retail client sends it at the login; here at the end of the load of the UI
 --     loader (the screen builds its rows then).
 
@@ -44,6 +49,11 @@ local function set_display()
   local w, h
   if O.display then
     w, h = O.display[1], O.display[2]
+    -- The window mode of the client (0 fullscreen, 1 windowed, 2 windowed fullscreen): the drop-down has Fullscreen (0) and
+    -- Windowed (1) only.
+    if O.display[3] then
+      Swc.SetData(PREFIX .. "Video.WindowMode", O.display[3] == 1 and 1 or 0)
+    end
   else
     w, h = swcui.viewport()
   end
@@ -53,15 +63,40 @@ local function set_display()
   w, h = math.floor(w + 0.5), math.floor(h + 0.5)
   Swc.SetData(PREFIX .. "Video.Resolution.Width", w)
   Swc.SetData(PREFIX .. "Video.Resolution.Height", h)
-  -- The list of the supported resolutions (resolutionmanager.luac: a vector for each): the resolution of the run.
-  Swc.SetData(PREFIX .. "Video.SupportedResolutions.Count", 1)
-  Swc.SetData(PREFIX .. "Video.SupportedResolutions.0", Vector2(w, h))
+  -- The list of the supported resolutions (resolutionmanager.luac: a vector for each): the display modes of the client
+  -- (Swc.HostResolutions), with the resolution of the run.
+  local list, seen = {}, {}
+  for _, r in ipairs(O.resolutions or {}) do
+    local k = r[1] .. "x" .. r[2]
+    if not seen[k] then
+      seen[k] = true
+      list[#list + 1] = r
+    end
+  end
+  if not seen[w .. "x" .. h] then
+    list[#list + 1] = {w, h}
+  end
+  table.sort(list, function(a, b) return a[1] * a[2] < b[1] * b[2] or (a[1] * a[2] == b[1] * b[2] and a[1] < b[1]) end)
+  Swc.SetData(PREFIX .. "Video.SupportedResolutions.Count", #list)
+  for i, r in ipairs(list) do
+    Swc.SetData(PREFIX .. "Video.SupportedResolutions." .. (i - 1), Vector2(r[1], r[2]))
+  end
 end
 set_display()
 
---- The size of the client window in pixels (the client: its viewport of the runtime is in Slate units, after the DPI scale).
-function Swc.HostDisplay(w, h)
-  O.display = {w, h}
+--- The size of the client window in pixels (the client: its viewport of the runtime is in Slate units, after the DPI scale),
+--- and the window mode (0 fullscreen, 1 windowed, 2 windowed fullscreen; optional).
+function Swc.HostDisplay(w, h, mode)
+  O.display = {w, h, mode}
+  set_display()
+end
+
+--- The display modes of the monitor of the client: lines "WIDTHxHEIGHT".
+function Swc.HostResolutions(lines)
+  O.resolutions = {}
+  for w, h in string.gmatch(lines or "", "(%d+)x(%d+)") do
+    O.resolutions[#O.resolutions + 1] = {tonumber(w), tonumber(h)}
+  end
   set_display()
 end
 
@@ -83,6 +118,20 @@ Swc.SetData(PREFIX .. "CrossplayEnable.Enable", false)
 -- minimum 40.
 Swc.SetData(PREFIX .. "Video.MinFov", 40)
 Swc.SetData(PREFIX .. "Video.MaxFov", 70)
+-- The render scale (the game menu): the row Resolution Scaling has the item of the temporal upscaler of this client (TSR; the
+-- client label of swc/gamemenu.lua), and the default of this client is that upscaler in the mode Quality (2: 67 % of the
+-- resolution; research/opt-gfx.md item G1). The retail default is Off (1) and Native (1).
+-- V-Sync: the default of this client is off, as before the game menu (the decision of 2026-10-25: V-Sync adds input delay, the
+-- mouse feel of AST-255 and AST-268, and the window of the compositor does not tear); the retail default is on.
+for node, value in pairs({["Video.TemporalUpscalingType"] = 2, ["Video.TemporalUpscalingMode"] = 2,
+  ["Video.VsyncEnabled"] = false}) do
+  if O.nodes[node] then
+    O.nodes[node].default = value
+  else
+    O.nodes[node] = {default = value}
+  end
+  Swc.SetData(PREFIX .. node, value)
+end
 -- The tutorial classification: the drop-down of the screen reads a node with no prefix (options.luac).
 Swc.SetData("PlayerTutorials.ClassificationThreshold", field("m_playerTutorialsClassificationThreshold", 0))
 
@@ -220,10 +269,14 @@ Swc.Define("OptionsDataBus", "Broadcast", {
   InitializeSerializedOptions = function() end,
   GetControllerProfileId = function() return 0 end,
   GetSmartcastType = function() return field("m_smartcastType", 0) end,
-  GetTemporalUpscalingType = function() return field("m_temporalUpscalingType", 0) end,
+  -- The value of the row (the default of this client is TSR; the screen turns the Mode row on from it).
+  GetTemporalUpscalingType = function() return Swc.GetData(PREFIX .. "Video.TemporalUpscalingType") or field("m_temporalUpscalingType", 1) end,
   GetPlayerTutorialsClassificationThreshold = function() return field("m_playerTutorialsClassificationThreshold", 0) end,
   ShouldShowInGameSurvey = function() return {showSurvey = false} end,
-  SerializeOptions = function() end,
+  SerializeOptions = function()
+    O.Sync()
+    Swc.hostRequests[#Swc.hostRequests + 1] = "options-save"
+  end,
   ResetGameplaySettings = reset("Gameplay"),
   ResetKBaMSettings = reset("KBaM"),
   ResetControllerSettings = reset("Controller"),
@@ -249,13 +302,160 @@ Swc.Define("InputProfileDataManagerRequestBus", "Broadcast", {
   end,
 })
 
--- The graphics features of the display device of the retail client (the screen hides their rows): none here.
+-- The graphics features of the display device of the retail client (the screen hides their rows): only the temporal upscaler.
 Swc.Define("LyShineManagerBus", "Broadcast", {
-  GetFsrSupported = function() return false end,
+  -- The temporal upscaler of the row Resolution Scaling: this client has TSR (the item has a client label; swc/gamemenu.lua).
+  GetFsrSupported = function() return true end,
   GetDlssSupported = function() return false end,
   GetDlssFrameGenerationSupported = function() return false end,
   GetReflexSupported = function() return false end,
   GetHDR = function() return false end,
   IsLockHartMode = function() return false end,
-  GetTemporalUpscalingEnabled = function() return false end,
+  -- The rows Resolution Scaling and Mode show when the temporal upscaling is on (their externalEnabled).
+  GetTemporalUpscalingEnabled = function() return true end,
+})
+
+-- ------------------------------------------------------------------------------------------------- the save and the apply
+
+--- The native calls of the screen that change the display, the frame rate, and the quality: they set their nodes (the screen
+--- may set them too). The preset (1 low to 4 very high) sets the eight detail rows; 5 is Custom.
+local DETAILS = {"EffectsQuality", "LightingQuality", "ObjectsQuality", "PostProcessingQuality", "ShadowsQuality", "TerrainQuality",
+  "TexturesQuality", "WaterQuality"}
+local function setter(node)
+  return function(value)
+    if value ~= nil then
+      Swc.SetData(PREFIX .. node, value)
+    end
+  end
+end
+local natives = {
+  GoFullscreen = function()
+    Swc.SetData(PREFIX .. "Video.WindowMode", 0)
+  end,
+  GoWindowed = function()
+    Swc.SetData(PREFIX .. "Video.WindowMode", 1)
+  end,
+  SetResolution = function(w, h)
+    if w and h then
+      Swc.SetData(PREFIX .. "Video.Resolution.Width", w)
+      Swc.SetData(PREFIX .. "Video.Resolution.Height", h)
+    end
+  end,
+  ChangeMonitor = function() end,
+  SetMaxFps = setter("Video.MaxFps"),
+  SetVsync = setter("Video.VsyncEnabled"),
+  SetTemporalUpscalingType = setter("Video.TemporalUpscalingType"),
+  SetTemporalUpscalingMode = setter("Video.TemporalUpscalingMode"),
+  SetGraphicsQuality = function(q)
+    if q == nil then
+      return
+    end
+    Swc.SetData(PREFIX .. "Video.GraphicsQuality", q)
+    if q >= 1 and q <= 4 then
+      for _, d in ipairs(DETAILS) do
+        Swc.SetData(PREFIX .. "Video." .. d, q)
+      end
+    end
+  end,
+}
+for _, d in ipairs(DETAILS) do
+  natives["Set" .. d] = setter("Video." .. d)
+end
+Swc.Define("OptionsDataBus", "Broadcast", natives)
+
+--- @return The text of a value for the client: b1/b0, n<number>, s<text>; nil for another type (not saved).
+local function encode(value)
+  local t = type(value)
+  if t == "boolean" then
+    return value and "b1" or "b0"
+  elseif t == "number" then
+    return "n" .. string.format("%.10g", value)
+  elseif t == "string" then
+    return "s" .. value:gsub("[\t\n]", " ")
+  end
+  return nil
+end
+
+local function decode(text)
+  local kind, rest = text:sub(1, 1), text:sub(2)
+  if kind == "b" then
+    return rest == "1"
+  elseif kind == "n" then
+    return tonumber(rest)
+  elseif kind == "s" then
+    return rest
+  end
+  return nil
+end
+
+O.sent = {}
+
+--- The saved values of the client (lines NODE<tab>VALUE): the data nodes take them before the screens build their rows.
+function Swc.HostOptions(lines)
+  local n = 0
+  for node, text in string.gmatch(lines or "", "([^\t\n]+)\t([^\n]*)") do
+    local value = decode(text)
+    if value ~= nil then
+      Swc.SetData(PREFIX .. node, value)
+      O.sent[node] = text
+      n = n + 1
+    end
+  end
+  Swc.Note(string.format("options: %d saved values of the client", n))
+  return n
+end
+
+--- @return The nodes that the client keeps: the nodes of the shown rows of the screen (after the hidden rows of
+--- swc/gamemenu.lua went), the resolution as its width and height.
+local function saved_nodes(script)
+  local out = {}
+  for _, listName in pairs(LISTS) do
+    for _, row in ipairs(rows_of(script[listName])) do
+      local node = row.dataNode
+      if node == "Video.Resolution" then
+        out[#out + 1] = "Video.Resolution.Width"
+        out[#out + 1] = "Video.Resolution.Height"
+      elseif node and not string.find(node, "List$") and not string.find(node, "Devices$") then
+        out[#out + 1] = node
+      end
+    end
+  end
+  table.sort(out)
+  return out
+end
+
+--- Sends the values that changed to the client (one request "options" with a line for each).
+function O.Sync()
+  if not O.authSent then
+    return
+  end
+  if not O.saved then
+    local script = options_script()
+    if not (script and script.isUiSpawned) then
+      return
+    end
+    O.saved = saved_nodes(script)
+  end
+  local lines = {}
+  for _, node in ipairs(O.saved) do
+    local text = encode(Swc.GetData(PREFIX .. node))
+    if text and text ~= O.sent[node] then
+      O.sent[node] = text
+      lines[#lines + 1] = node .. "\t" .. text
+    end
+  end
+  if #lines > 0 then
+    Swc.hostRequests[#Swc.hostRequests + 1] = "options\n" .. table.concat(lines, "\n")
+  end
+end
+
+local syncWait = 0
+Swc.Connect("TickBus", {
+  OnTick = function(_, dt)
+    syncWait = syncWait - (dt or 0)
+    if syncWait <= 0 then
+      syncWait = 0.25
+      O.Sync()
+    end
+  end,
 })

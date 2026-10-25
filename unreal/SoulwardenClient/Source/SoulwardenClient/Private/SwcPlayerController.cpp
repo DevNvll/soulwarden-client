@@ -20,6 +20,7 @@
 #include "Misc/Parse.h"
 #include "SwcBackendSubsystem.h"
 #include "UI/SwcKeyBindings.h"
+#include "UI/SwcGameSettings.h"
 #include "UI/SwcUiSubsystem.h"
 #include "SwcCameraManager.h"
 #include "UnrealClient.h"
@@ -336,7 +337,11 @@ void ASwcPlayerController::OnLook(const FInputActionValue& Value)
 		Sensitivity *= LookAdsOption;
 	}
 	// RotationInput has no legacy input scale; the camera manager clamps the pitch (the pitch limits of the camera state).
-	const FVector2D Turn(Counts.X * LookCountScale * LookOption.X * Sensitivity.X, Counts.Y * LookCountScale * LookOption.Y * Sensitivity.Y);
+	// The row Invert Vertical Axis of the Options screen (UI/SwcGameSettings).
+	const USwcGameSettings* Settings = GetGameInstance() != nullptr ? GetGameInstance()->GetSubsystem<USwcGameSettings>() : nullptr;
+	const double Invert = Settings != nullptr && Settings->GetInvertLook() ? -1.0 : 1.0;
+	const FVector2D Turn(Counts.X * LookCountScale * LookOption.X * Sensitivity.X,
+		Invert * Counts.Y * LookCountScale * LookOption.Y * Sensitivity.Y);
 	RotationInput.Yaw += Turn.X;
 	RotationInput.Pitch += Turn.Y;
 	MouseLogTurn += Turn;

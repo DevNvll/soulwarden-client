@@ -71,6 +71,8 @@ protected:
 	virtual void UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime) override;
 
 private:
+	/** @return The FOV option of the player: the row Field of View of the Options screen (UI/SwcGameSettings), else 57. */
+	float PlayerFov() const;
 	struct FBlend
 	{
 		float Value = 0.0f;
@@ -104,6 +106,8 @@ private:
 	FBlend OffsetForward;
 	FBlend OffsetUp;
 	FBlend Fov;
+	/** The FOV option that the current state uses (the row Field of View; PlayerFov). */
+	float UserFov = 57.0f;
 	FBlend PitchDown;
 	FBlend PitchUp;
 	FBlend HorizontalSensitivity;

@@ -42,6 +42,7 @@
 #include "SwcDebugLines.h"
 #include "UI/SwcUiInput.h"
 #include "UI/SwcKeyBindings.h"
+#include "UI/SwcGameSettings.h"
 #include "UI/SwcUiSlate.h"
 
 DEFINE_LOG_CATEGORY(LogSwcUi);
@@ -243,6 +244,12 @@ bool USwcUiSubsystem::StartRuntime()
 	{
 		Runtime->call("HostKeyBindings", {FArg::of(Utf8(Keys->OverrideLines()))});
 	}
+	// The saved options (UI/SwcGameSettings: the values of the Options screen) and the display modes of the monitor.
+	if (const USwcGameSettings* Settings = GetGameInstance()->GetSubsystem<USwcGameSettings>())
+	{
+		Runtime->call("HostOptions", {FArg::of(Utf8(Settings->NodeLines()))});
+	}
+	Runtime->call("HostResolutions", {FArg::of(Utf8(USwcGameSettings::ResolutionLines()))});
 	// The loading screen of the game (globals.luac registers it) from the start to the spawn of the player.
 	Runtime->call("HostLoading", {FArg::of(true), FArg::of(std::string(WorldLevelName)), FArg::of(std::string("eLoadingScreenIds_LEVEL1"))});
 	bStartLoading = true;
@@ -305,6 +312,7 @@ void USwcUiSubsystem::ResetSession()
 	bKeybinding = false;
 	bCursorApplied = false;
 	SentDisplay = FIntPoint::ZeroValue;
+	SentWindowMode = -1;
 	bSentAim = false;
 	bWorldEntered = false;
 	SentBag.Reset();
@@ -885,10 +893,13 @@ bool USwcUiSubsystem::Tick(float DeltaTime)
 		// The viewport of the runtime is in Slate units (after the DPI scale); the options screen shows the window in pixels.
 		const FVector2D Pixels = Widget->GetLastGeometry().GetAbsoluteSize();
 		const FIntPoint Display(FMath::RoundToInt(Pixels.X), FMath::RoundToInt(Pixels.Y));
-		if (Display.X > 0 && Display.Y > 0 && Display != SentDisplay)
+		const int32 WindowMode = USwcGameSettings::CurrentWindowMode();
+		if (Display.X > 0 && Display.Y > 0 && (Display != SentDisplay || WindowMode != SentWindowMode))
 		{
 			SentDisplay = Display;
-			Runtime->call("HostDisplay", {FArg::of(static_cast<double>(Display.X)), FArg::of(static_cast<double>(Display.Y))});
+			SentWindowMode = WindowMode;
+			Runtime->call("HostDisplay", {FArg::of(static_cast<double>(Display.X)), FArg::of(static_cast<double>(Display.Y)),
+				FArg::of(static_cast<double>(WindowMode))});
 		}
 	}
 	FeedLocalPlayer();
@@ -1124,6 +1135,14 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 		else if (Request.rfind("creation ", 0) == 0)
 		{
 			HandleCreationRequest(UTF8_TO_TCHAR(Request.c_str()), Backend);
+		}
+		else if (Request.rfind("options", 0) == 0)
+		{
+			// The values of the Options screen and their save (swc/options.lua; UI/SwcGameSettings).
+			if (USwcGameSettings* Settings = GetGameInstance()->GetSubsystem<USwcGameSettings>())
+			{
+				Settings->HandleRequest(UTF8_TO_TCHAR(Request.c_str()));
+			}
 		}
 		else if (Request.rfind("rebind", 0) == 0 || Request.rfind("keybinding ", 0) == 0)
 		{

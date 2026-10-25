@@ -8,15 +8,18 @@
 #include "Environment/SwcMatchView.h"
 #include "CollisionQueryParams.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "SwcBackendSubsystem.h"
+#include "UI/SwcGameSettings.h"
 
 namespace
 {
-/** The FOV option of the player: 57 degrees (vertical [I]; option m_fov, C 0x457C016). Unreal keeps the vertical FOV
- *  (MaintainYFOV) with the horizontal FOV of a 16:9 view: 2 atan(tan(57 / 2) x 16 / 9) = 88.0 degrees. */
-constexpr float PlayerFov = 57.0f;
+/** The FOV option of the player: 57 degrees by default (vertical [I]; option m_fov, C 0x457C016), the row Field of View of the
+ *  Options screen (UI/SwcGameSettings). Unreal keeps the vertical FOV (MaintainYFOV) with the horizontal FOV of a 16:9 view:
+ *  2 atan(tan(57 / 2) x 16 / 9) = 88.0 degrees. */
+constexpr float DefaultPlayerFov = 57.0f;
 constexpr float ReferenceAspect = 16.0f / 9.0f;
 /** The zoom option m_cameraZoom: 2.0 m at the start (C 0x457BCF8). */
 constexpr float DefaultZoom = 2.0f;
@@ -117,6 +120,13 @@ bool ASwcCameraManager::AllowsFreeLook() const
 	return Data.State(StateName).bAllowFreeLook && !IsLocked();
 }
 
+float ASwcCameraManager::PlayerFov() const
+{
+	const UGameInstance* Instance = GetWorld() != nullptr ? GetWorld()->GetGameInstance() : nullptr;
+	const USwcGameSettings* Settings = Instance != nullptr ? Instance->GetSubsystem<USwcGameSettings>() : nullptr;
+	return Settings != nullptr ? Settings->GetFov() : DefaultPlayerFov;
+}
+
 void ASwcCameraManager::SelectState(const ASwcPlayerCharacter& Character)
 {
 	// The entry of the camera action list (R1.4.1): the first true condition wins.
@@ -171,6 +181,13 @@ void ASwcCameraManager::SelectState(const ASwcPlayerCharacter& Character)
 	}
 	if (Camera == StateName)
 	{
+		// A change of the FOV option blends in the states that use it.
+		const float Option = PlayerFov();
+		if (Data.State(Camera).bUserFov && !FMath::IsNearlyEqual(Option, UserFov))
+		{
+			UserFov = Option;
+			Fov.Set(Option, false);
+		}
 		return;
 	}
 	const FSwcCameraState& Next = Data.State(Camera);
@@ -184,7 +201,8 @@ void ASwcCameraManager::SelectState(const ASwcPlayerCharacter& Character)
 		ForcedState.IsEmpty() ? *Entry : TEXT("forced by the drive"), bFirst ? 0.0f : SmoothTime);
 	StateName = Camera;
 	BlendTime = SmoothTime;
-	const float VerticalFov = Next.bUserFov ? PlayerFov : Next.Fov;
+	UserFov = PlayerFov();
+	const float VerticalFov = Next.bUserFov ? UserFov : Next.Fov;
 	Distance.Set(Next.Distance, bFirst);
 	OffsetSide.Set(Next.Offset.X, bFirst);
 	OffsetForward.Set(Next.Offset.Y, bFirst);

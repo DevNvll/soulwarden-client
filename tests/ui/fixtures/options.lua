@@ -1,16 +1,20 @@
 -- The options fixture (stage P2.3; docs/UI.md "The options screen"): the original Options screen (options.luac) opened from
 -- the escape menu (its button Settings), with the options data of the client program (swc/options.lua) and the key table
 -- (swc/keys.lua). Clicks and keys of the host only (Swc.HostInput).
---   * The categories: Game, Keyboard & Mouse, Controller, Video, Audio, Social, Accessibility, About (the flags of the build
---     show all eight), the tab of the keyboard and mouse bindings, the tab of the controller bindings: a picture of each.
+--   * The categories of this client (the game menu, swc/gamemenu.lua): Game, Keyboard & Mouse, Video, Accessibility, and the tab
+--     of the keyboard and mouse bindings: a picture of each. Controller, Audio, Social, About, the tab of the controller bindings,
+--     and the rows of the features that this client does not have do not show; the row Resolution Scaling shows the client
+--     label of the temporal upscaler and the mode Quality.
+--   * The save and the apply: the values of the shown rows go to the client ("options" lines), a change goes again, the
+--     preset sets the detail rows, the exit of the screen asks for the save ("options-save"), the saved values of the client
+--     come back (Swc.HostOptions).
 --   * The values: the defaults of the client program (the camera shake on, the master volume 100).
 --   * The key page: a click on the jump row starts the listen (the client gets "keybinding 1"), a key binds
 --     the jump to a key that no action has (the UI actions use it at once; the client gets "rebind movement jump KEY" and
 --     "rebind-save"); the key of the journal (J) on the jump row gives the conflict popup; the reset of the page sets the
 --     defaults again ("rebind-reset").
--- Pictures: options-game, options-kbam, options-controller, options-video, options-audio, options-social,
--- options-accessibility, options-about, options-keys, options-keys-listen, options-keys-rebound, options-keys-conflict,
--- options-keys-reset, options-controller-bindings.
+-- Pictures: options-game, options-kbam, options-video, options-accessibility, options-keys, options-keys-listen,
+-- options-keys-rebound, options-keys-conflict, options-keys-reset.
 local ESC, OPTIONS = 1643432462, 3493198471
 Swc.HostProgression(18, 1000)
 screen("LyShineUI/EscapeMenu/EscapeMenu.uicanvas", 30)
@@ -82,16 +86,79 @@ equal(Swc.GetData("Hud.LocalPlayer.Options.Localization.LanguageOption"), "syste
 equal(LyShineScriptBindRequestBus.Broadcast.LocalizeText("@ui_monitor_name 1"), "Monitor 1",
   "a label with more text: the label is localized, the rest stays")
 
--- Each category of the settings tab.
-local categories = {{"Game", "options-game"}, {"Keyboard & Mouse", "options-kbam"}, {"Controller", "options-controller"},
-  {"Video", "options-video"}, {"Audio", "options-audio"}, {"Social", "options-social"},
-  {"Accessibility", "options-accessibility"}, {"About", "options-about"}}
+-- Each category of the settings tab, and the rows of each page (a hidden row: a feature that this client does not have).
+local categories = {
+  {"Game", "options-game", {"Auto-Zoom", "HUD Scale"}, {"Camera Shake", "Text Language", "Tutorials", "Sticky Lock"}},
+  {"Keyboard & Mouse", "options-kbam", {"Invert Vertical Axis", "Horizontal Sensitivity"},
+    {"Freeform Movement", "Turret Horizontal Sensitivity Multiplier"}},
+  {"Video", "options-video", {"Window Mode", "Resolution", "Maximum FPS", "Resolution Scaling", "Temporal Super Resolution",
+    "Field of View", "Video Quality"}, {"Brightness", "Sharpness", "AMD FSR 3.1"}},
+  {"Accessibility", "options-accessibility", {"Subtitles", "Dialogue Auto Progress"}, {"Color Blindness", "Text-to-Speech"}},
+}
 for _, c in ipairs(categories) do
   if click_text(c[1]) then
     frames(0.5)
     picture(c[2])
+    for _, text in ipairs(c[3]) do
+      check(Swc.HostPointOf("text:" .. text) ~= "", c[1] .. ": the row shows: " .. text)
+    end
+    for _, text in ipairs(c[4]) do
+      equal(Swc.HostPointOf("text:" .. text), "", c[1] .. ": the row of a feature that this client does not have does not show: " .. text)
+    end
   end
 end
+for _, text in ipairs({"Controller", "Audio", "Social", "About", "Controller Bindings"}) do
+  equal(Swc.HostPointOf("text:" .. text), "", "the category or tab of a feature that this client does not have does not show: " .. text)
+end
+equal(Swc.GetData("Hud.LocalPlayer.Options.Video.TemporalUpscalingType"), 2, "the render scale: the temporal upscaler of this client")
+equal(Swc.GetData("Hud.LocalPlayer.Options.Video.TemporalUpscalingMode"), 2, "the render scale: the mode Quality (67 %)")
+
+-- The save and the apply: the values of the shown rows go to the client.
+local function option_lines()
+  local out = {}
+  for _, r in ipairs(Swc.hostRequests) do
+    if r:find("^options\n") then
+      for line in r:gmatch("[^\n]+") do
+        local node, value = line:match("^(%S+)\t(.*)$")
+        if node then
+          out[node] = value
+        end
+      end
+    end
+  end
+  return out
+end
+frames(0.5)
+local sent = option_lines()
+equal(sent["Video.TemporalUpscalingType"], "n2", "the client gets the render scale type")
+equal(sent["Video.TemporalUpscalingMode"], "n2", "the client gets the render scale mode")
+equal(sent["Video.Fov"], "n57", "the client gets the field of view")
+equal(sent["Controls.CameraSensitivityHorizontal"], "n0.05", "the client gets the mouse sensitivity")
+check(sent["Controls.InvertLook"] == "b0", "the client gets the invert (off)")
+equal(sent["Video.VsyncEnabled"], "b0", "the client gets V-Sync off (the default of this client)")
+equal(sent["Video.MaxFps"], "n-1", "the client gets no frame rate limit (Uncapped)")
+check(sent["Controls.CameraShake"] == nil, "a hidden row is not sent")
+Swc.hostRequests = {}
+Swc.SetData("Hud.LocalPlayer.Options.Video.Fov", 65)
+frames(0.5)
+sent = option_lines()
+equal(sent["Video.Fov"], "n65", "a change goes to the client")
+check(sent["Video.TemporalUpscalingType"] == nil, "a value that did not change does not go again")
+OptionsDataBus.Broadcast.SetGraphicsQuality(1)
+equal(Swc.GetData("Hud.LocalPlayer.Options.Video.ShadowsQuality"), 1, "the preset Low sets the detail rows")
+OptionsDataBus.Broadcast.SetResolution(1600, 900)
+equal(Swc.GetData("Hud.LocalPlayer.Options.Video.Resolution.Width"), 1600, "SetResolution sets the resolution nodes")
+Swc.HostDisplay(1280, 720, 1)
+Swc.HostOptions("Video.Fov\tn62\nControls.InvertLook\tb1\n")
+equal(Swc.GetData("Hud.LocalPlayer.Options.Video.Fov"), 62, "a saved value of the client comes back")
+equal(Swc.GetData("Hud.LocalPlayer.Options.Controls.InvertLook"), true, "a saved toggle of the client comes back")
+OptionsDataBus.Broadcast.SerializeOptions()
+local saveAsked = false
+for _, r in ipairs(Swc.hostRequests) do
+  saveAsked = saveAsked or r == "options-save"
+end
+check(saveAsked, "SerializeOptions asks the client to save")
+Swc.hostRequests = {}
 
 -- The key page.
 click_text("Keyboard & Mouse Bindings")
@@ -160,6 +227,5 @@ r = requests()
 check(r["rebind-reset"] == true, "the client forgets the rebinds")
 picture("options-keys-reset")
 
-click_text("Controller Bindings")
-frames(0.5)
-picture("options-controller-bindings")
+
+equal(Swc.errorCount or 0, 0, "no Lua error")

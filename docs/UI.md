@@ -580,7 +580,8 @@ The original Options screen (`lyshineui/options/options`, `options.luac`, the ro
 `UiMainMenuBus` `OnAuthComplete(true)`: the retail client sends it at the login; the emulation sends it at the end of the
 load of the UI loader (`UILoadingNotificationBus` `OnUILoadingComplete`; `Swc.AuthComplete`). Three tabs: Settings (eight
 categories: Game, Keyboard & Mouse, Controller, Video, Audio, Social, Accessibility, About; the flags of the build show all
-eight), Keyboard & Mouse Bindings, Controller Bindings.
+eight), Keyboard & Mouse Bindings, Controller Bindings. This client shows only the categories, the tab, and the rows that it can
+apply (section "The game menu").
 
 The values (`swc/options.lua`):
 
@@ -605,17 +606,18 @@ The values (`swc/options.lua`):
   the game copy, the audio language English; the range of the field of view 40 to 70 (the native code sets these nodes at
   run time: the values come from the retail reference pictures of set 1, `settings-game-camera.png` and
   `settings-video-display.png`: the label 70, and the minimum from the place of the knob at 57).
-- The rows of the features of the display device (the resolution scaling, DLSS frame generation, Reflex) do not show: this
-  client has no such feature (`GetFsrSupported` and the others are false). The retail client shows them on a device with
-  the feature (the picture of set 1).
+- The rows of the features of the display device: DLSS frame generation and Reflex do not show (`GetDlssSupported` and the
+  others are false). The row Resolution Scaling shows with the temporal upscaler of this client (section "The game menu").
+  The retail client shows them on a device with the feature (the picture of set 1).
 - A row whose node has no default from the program gets the neutral value of its row at the end of the UI load (a toggle
   off, a slider at its minimum, a drop-down at its first item): 35 nodes; the log line `options: ...` lists them (the
   accessibility and subtitle rows, the voice and stream rows, the chat rows, some control rows).
-- `OptionsDataBus`: the reads of the screen; `Reset<Category>Settings` sets the values of the rows of the category again.
-  `Set*` and `SerializeOptions` are stubs: the screen sets the nodes itself; the options other than the keys are not saved and
-  do not change the client in this stage (P6.9), but the mouse look sensitivities (AST-255): the controller reads
-  `Controls.CameraSensitivityHorizontal`, `...Vertical`, `...HorizontalADS`, and `...VerticalADS` each 0.5 s
-  (`USwcUiSubsystem::DataNumber`; [MOVEMENT.md](MOVEMENT.md)). The UI drive command `data PATH NUMBER` sets a data node (a check).
+- `OptionsDataBus`: the reads of the screen; `Reset<Category>Settings` sets the values of the rows of the category again. The
+  screen sets the nodes itself; the calls of the display, the frame rate, the render scale, and the quality set their nodes
+  too (`SetGraphicsQuality` 1 to 4 sets the eight detail rows). The client saves and applies the values (section "The game
+  menu"). The mouse look sensitivities (AST-255): the controller reads `Controls.CameraSensitivityHorizontal`, `...Vertical`,
+  `...HorizontalADS`, and `...VerticalADS` each 0.5 s (`USwcUiSubsystem::DataNumber`; [MOVEMENT.md](MOVEMENT.md)). The UI
+  drive command `data PATH NUMBER` sets a data node (a check).
 - Facts of the scripts that the emulation follows: a text `@label more` localizes the label and keeps the rest (the monitor
   "Monitor 1"); the global `FloatEpsilon` (the float epsilon of the engine) and `Math.Ceil`, `Math.Floor`; with no game pad
   `GetCurrentGamepadIdentifier` is `eGPINone` (the screen shows the default pad picture); the input profiles of the
@@ -643,6 +645,88 @@ The keys (`swc/keys.lua`, `UI/SwcKeyBindings`, the player controller):
   abilities, crouch, prone, autorun), again at each rebind. With no rebind it checks each key against the default of the
   profile (the log line "the key table gives the default keys of the profile (22 actions)"). F8 (a development key), the
   mouse look, and the zoom on the wheel stay fixed.
+
+## The game menu
+
+The user's words (2026-10-25): "cleanup the esc menu removing unused features and add the game menus like settings." The
+escape menu and the Options screen are the original canvases and scripts. The client layer (`swc/gamemenu.lua`, the hooks of
+the scripts) hides the parts of the features that this offline client does not have, and `swc/options.lua` with
+`UI/SwcGameSettings` saves and applies the settings. No canvas, script, or text of the game changes.
+
+The escape menu (`escapemenu.luac`):
+
+- The retail canvas has no Resume button: Escape (`OnEscapeKeyPressed`) or a click outside the menu (`OnEmptySpaceClick`)
+  closes it. This stays.
+- Shown: GAME: Settings; LEAVE GAME: Exit to Main Menu, Exit to Desktop. The button of a game mode (Skip Tutorial, Leave
+  Activity) shows by the rule of the script (no FTUE and no game mode here).
+- Hidden (`G.escapeHidden`): Unstuck (the backend has no unstuck), Recall to Inn (the backend has no inn bind, no recall, and
+  no recall cooldown: a need of the backend), Submit Feedback, Help, Newsletter, Announcements, Compensations, Free Weekend,
+  External Rewards, Connect to Twitch (online services). A section with no shown button hides with its label.
+- The store: with `UIFeatures.g_uiEnableEntitlements` false, `OnInit` uses the small frame of the canvas
+  (`EscapeMenuHolderNoEntitelments`). The in-game layout of the script then keeps the store holder, the shop label, and the
+  wide header, and the small frame of the canvas is shorter than the buttons (the design: the frame ends at 840 px, Exit to
+  Desktop at 893 px). The client does what the front-end layout of the script does (`UpdateMainMenuEsc`: the store holder,
+  the shop label, and the world name off, the header at the small width).
+- The layout: the client wraps `UpdateScreen` and `UpdateMainMenuEsc`. Before the script runs, the client sets back each value
+  of its last layout (the script sees the canvas as it made it); after it, the hidden buttons go off, the shown buttons of a
+  section take the first places of the buttons that the script showed (one under the other, 50 px), the next section takes
+  the place of a section that goes (the gap of the canvas: 70 px), and the small frame and its holders end 47 px below the
+  last shown button (the margin of the large frame of the canvas under Exit to Desktop, read at `OnInit`).
+
+The Options screen (`options.luac`):
+
+- Before the script builds its rows (`TryLoadAndBuildScreen`), the client takes out of the tables of the script: the categories
+  Controller (no game pad in the device scope), Audio (no sound yet), Social (no chat screen, no voice chat, no invites), About
+  (web links); the tab Controller Bindings; and each row that this client cannot apply and that no loaded original script reads
+  (`G.optionsHiddenRows`, with the reason of each). A group with no row left goes; a subheader with no row after it goes.
+- Shown: Game (the map auto-zoom, the HUD layout, edit, reset, scale, and margins, the reticle rows, the vitals values, the
+  damage numbers, the plate amount, the point reminders, the territory and salvage notices), Keyboard & Mouse (the invert, the
+  sensitivities, the ADS multipliers), Video (window mode, monitor, resolution, maximum FPS, resolution scaling and its mode,
+  field of view, the quality and its detail rows except water, V-Sync), Accessibility (the subtitles and their rows, the text
+  size, the quest pin size and opacity, the dialogue auto progress), and the tab Keyboard & Mouse Bindings.
+- The render scale: the retail row Resolution Scaling (`Video.TemporalUpscalingType`: 1 Off, 2 the upscaler) with its Mode
+  (`Video.TemporalUpscalingMode`: 1 Native, 2 Quality, 3 Balanced, 4 Performance, 5 Ultra Performance). This client uses TSR,
+  the temporal upscaler of Unreal; the item has the client label "Temporal Super Resolution" (the retail text is "AMD FSR 3.1")
+  and the mode Native the label "Native" (the retail text is "Native (TAA Only)"). The labels are in `swc/gamemenu.lua`; the
+  localization of the game does not change. The default of this client is TSR in the mode Quality (research/opt-gfx.md item
+  G1); the retail default is Off. The scale of each mode: the factors of these modes of the retail upscaler (1.5x, 1.7x, 2x,
+  3x): 66.7, 58.8, 50, 33.3 %; Off and Native: 100 %.
+- `SetTemporalUpscalingModeData` of the script reads the selected item of the Mode drop-down when the type is not Off. With the
+  default of this client it runs at the first show, before the drop-down has a selected item (the retail default Off skips
+  it; before the guard: a Lua error, and the Escape of the options in the front end did not go back). With no selected item
+  the call does nothing: the row keeps the mode list of its row data (the same list).
+
+The save and the apply (`swc/options.lua`, `UI/SwcGameSettings`):
+
+- Each 0.25 s the UI sends the values of the shown rows that changed (one request "options" with lines `NODE<tab>VALUE`; the
+  value is `b1`/`b0`, `n<number>`, or `s<text>`). The client keeps them and applies:
+  - `Video.TemporalUpscalingType` and `...Mode`: `r.ScreenPercentage` (set by code);
+  - `Video.MaxFps` (frames per second, -1 Uncapped): `t.MaxFPS`;
+  - `Video.VsyncEnabled`: `r.VSync`. The default of this client is off, as before (decision of 2026-10-25: V-Sync adds input
+    delay, the mouse feel of AST-255 and AST-268, and the compositor does not tear); the retail default is on. Each other
+    default keeps what the client did before the game menu; the one change is the render scale (TSR Quality);
+  - the detail rows: `Scalability::SetQualityLevels` with no save. The level is the number of the row (1 Low to 4 Very High):
+    High (3, the default) keeps the Epic levels of this client, Low is the Unreal level Medium (the Unreal level Low turns off
+    Lumen). Effects: `sg.EffectsQuality`; Lighting: `sg.GlobalIlluminationQuality` and `sg.ReflectionQuality`; Objects:
+    `sg.ViewDistanceQuality`; Post Processing: `sg.PostProcessQuality`; Shadows: `sg.ShadowQuality`; Terrain:
+    `sg.LandscapeQuality` and `sg.FoliageQuality`; Textures: `sg.TextureQuality`;
+  - `Video.Fov` (40 to 70): the camera manager blends to it in each state that uses the FOV of the player;
+  - `Controls.InvertLook`: the controller turns the pitch of the mouse look the other way;
+  - `Video.WindowMode` (0 Fullscreen, 1 Windowed) and `Video.Resolution.Width`/`Height`: a resolution request
+    (`FSystemResolution::RequestResolutionChange`) when they differ from the viewport. The windowed fullscreen of Unreal shows
+    as Fullscreen.
+- `SerializeOptions` (the exit of the screen) asks for the save ("options-save"): the client writes
+  `SWC_WORK/settings/<the name of the session data folder>/options.json`, next to `rebindings.json` (`-SwcSettings=DIR` gives
+  another folder). A development run has its own data folder and thus its own file; `tools/lib/session.sh` refuses a
+  development run on the data folder of the user.
+- At the start the client reads the file, applies the values, and gives them to the UI (`Swc.HostOptions`, before the rows
+  build). The saved display applies only when the command line has no `-ResX`, `-ResY`, `-windowed`, or `-fullscreen`
+  (`tools/dev-run.sh` gives the size of the agent desktop). The display modes of the monitor fill the resolution list
+  (`Swc.HostResolutions`); the window mode goes with the size (`Swc.HostDisplay W H MODE`).
+- Nothing goes to `Config/Default*.ini` (a change there makes the next cook a full cook) or to the GameUserSettings of Unreal
+  (its Saved folder is shared by the cooked build of the user and the development runs with `--cooked`).
+- Not applied, the rows hidden: Cap FPS in Background (no frame limit of the engine for an unfocused window), Show FPS (the
+  retail counter is a screen of its own), brightness, contrast, sharpness (the look waits for the user), dynamic resolution.
 
 ## The world views (stage WF7)
 
@@ -953,13 +1037,13 @@ gives the area, the triangle count, and the mask texture of the mesh of an eleme
 | `lists` | The original ReusableScoreboard screen shows the test data of its own script (`GetDummyColumnData`, `GetDummyRowsData`, 60 rows) in its dynamic scroll box: the content has the size of all rows, only the visible rows have copies, the script fills each copy; the wheel scrolls (rows 7 to 18 show). Pictures `lists-top`, `lists-scrolled`. |
 | `visuals` | The HUD screens WeaponQuickslots, ReticlesCanvas, Vitals2024, and Compass with their scripts in the HUD state. The fixture shows the parts that need game events and sets the fill amounts through `UiImageBus` (0, 0.25, 0.5, 0.75, 1): the area of each mesh against the O3DE geometry for a radial fill (the combo points, also from 60 degrees), a counter-clockwise radial fill (the channel ring), a sliced radial fill (the hint ring of the heart rune), a counter-clockwise corner fill (the heat meter), a linear fill (the turret health), an edge fill (the reload ring, set through the bus). The heart rune hexagon and the compass give their sprite mask to the meshes below them. Pictures `visuals-fills-0` to `-100`, `visuals-masks`. |
 | `census` | The census table (`swc/census.lua`, 164 rows) against the canvases of the game and the two loaders: each template loads with its scripts (the Lua errors of the templates of later stages go to the notes); the original UI loader at a world entry asks for exactly the canvases whose gate is open (76 with the values of the build, 139 with on-demand loading off) in the order of the load groups; the config table asks for exactly its open entries when the flags turn on; the canvas list of the original dynamic loader is the table, and each of its 53 UI states asks for its canvas. |
-| `options` | The original Options screen from the button Settings of the escape menu: the defaults of the client program (the camera shake on, the master volume 100), a label with more text ("Monitor 1"), a picture of each category (Game, Keyboard & Mouse, Controller, Video, Audio, Social, Accessibility, About) and of the two binding tabs; the key page: a click on the jump row starts the listen (the client gets `keybinding 1`), a key that no action has binds the jump (the UI actions use it; the client gets the rebind and the save; the hints get the key), the key of the journal (J) gives the conflict popup, the reset of the page sets the defaults again (`rebind-reset`). Pictures `options-*`. |
+| `options` | The original Options screen from the button Settings of the escape menu: the defaults of the client program (the camera shake on, the master volume 100), a label with more text ("Monitor 1"), a picture of each category of this client (Game, Keyboard & Mouse, Video, Accessibility) and of the binding tab; the rows that show and the rows, categories, and tab that do not show (the game menu); the render scale TSR Quality with its client label; the save and the apply (the "options" lines of the shown rows, a change goes again, the preset sets the detail rows, `SetResolution`, `Swc.HostOptions`, "options-save"); the key page: a click on the jump row starts the listen (the client gets `keybinding 1`), a key that no action has binds the jump (the UI actions use it; the client gets the rebind and the save; the hints get the key), the key of the journal (J) gives the conflict popup, the reset of the page sets the defaults again (`rebind-reset`). Pictures `options-*`. |
 | `fighthud` | The fight HUD screens (Vitals2024, WeaponQuickslots, ConsumableQuickslots, XP, Compass, ReticlesCanvas) with a player of the host calls: two weapons with ability bars, the heart rune, three consumables in the quick slots. The quick slot 1 shows the count 9 and the key 3; the empty slot 3 shows only the key 5; the level 65 shows under the vitals and the XP popup of the spawn is out after 3 s; the weapon slots show the other weapon (key 2) and the heart rune (key G); the reticle of the sword is the melee reticle
 (`ReticleToShow` 3488054177), it shows with the weapon sheathed; a drawn bow gives the bow reticle (2551600555). The HUD edit mode sets the
 default HUD layout. A cut of a running cooldown keeps its full time. Pictures `fighthud`, `fighthud-bow`, `fighthud-1256` (the window size of the retail pictures). |
 | `frontend` | The original landing screen (LandingScreenV2) with the list of the host: no list request before the account is ready (the end of the UI load is not the account event, FE9); no rows before the three ready flags in three completion orders; five characters and an empty slot (the row template clones); the row levels (the document value + 1); the default selection (the last played); a click on a row (the id, the radio state, the preview hide and show, the world); a refresh with a new order keeps the selection by id (FE10); the return from the options asks for the list again; Options, Escape, and the exit state; Enter and a click on PLAY give one login request; a failed login (the error popup, its OK, the refresh, PLAY again); the world type FTUE; no login for a character that must be renamed; no character, no world; the camera sequences (the transition plays `IntroToCharacter`, a queued sequence, the level load plays it again, the end after its duration; stage F4); the delete of a character (stage F8: the options of the row, Delete, the hold-to-accept popup; No and a hold of 0.3 s send nothing; a hold of 3 s sends one "menu delete ID"; the result refreshes the list and selects another character; a failed delete; the last character); no Lua error (94 checks). Pictures `frontend-list`, `frontend-select`, `frontend-empty`. |
 | `loader` | The screen loader of the game (`uiloader.luac`) at a world entry, with two allowed screens (Vitals2024, InfoModal): it asks only for canvases of its list (`gamedata/loader.json`, 153 paths), one time each, with the ending `.uicanvas` (105 for the world); it counts each load and failure and sets the state HUD; the HUD screen has no autohide and shows, the menu has autohide and shows only in its state. Each canvas that the game has for the two lists (the UI loader and the 69 canvases of `dynamiccanvasloader.luac`) is converted; 2 paths of the UI loader have no canvas in the game. |
-| `escape` | The original EscapeMenu and Popup screens driven by keys and clicks (`Swc.HostInput`): Escape in the HUD fires `toggleMenuComponent`, the state goes to "esc", the menu shows with the cursor and the maps player, movement, camera off; exit to desktop opens the quit popup over the menu (the state stays; the map ui off); Escape fires `ui_genpop_cancel` and closes only the popup; the pointer hovers a menu button again; Escape gives `OnEscapeKeyPressed` to the menu and the HUD comes back with its maps; the exit to the main menu opens the quit popup (quitgamepopup.luac), and Yes gives one request "menu quit 1" (stage F6, docs/FRONTEND.md). Pictures `escape-menu`, `escape-popup`, `escape-focus`, `escape-quit-main`. |
+| `escape` | The original EscapeMenu and Popup screens driven by keys and clicks (`Swc.HostInput`): Escape in the HUD fires `toggleMenuComponent`, the state goes to "esc", the menu shows with the cursor and the maps player, movement, camera off; exit to desktop opens the quit popup over the menu (the state stays; the map ui off); Escape fires `ui_genpop_cancel` and closes only the popup; the pointer hovers a menu button again; Escape gives `OnEscapeKeyPressed` to the menu and the HUD comes back with its maps; the exit to the main menu opens the quit popup (quitgamepopup.luac), and Yes gives one request "menu quit 1" (stage F6, docs/FRONTEND.md); the game menu: only Settings, Exit to Main Menu, and Exit to Desktop show, no store and no support section, the sections one under the other, the small frame 47 px below the last button. Pictures `escape-menu`, `escape-popup`, `escape-focus`, `escape-quit-main`. |
 | `loading` | The loading screen of the game (`loadingscreen.luac`) shows and hides with the events of the native code; a refused connection gives the original error popup (`popup.luac` ShowError, `UIError_login_unable_to_connect`) with the cursor, and its OK button closes it. Pictures `loading-start`, `loading-later`, `loading-error`. |
 | `respawn` | The original Respawn screen: the dead mark and a death notice of 5 s queue the state "respawn", the list has "Random Location"; a drag on the world map (a press on a tile, the hand-off to the `MagicMap` scroll box) moves its content by the drag vector, `magicmap.luac` sees the drag and its end; Escape opens the escape menu of the respawn state over the screen and Escape goes back to it; the RESPAWN button (on 2 s after the map) gives the host request "respawn 1", the loading screen of the death shows, the revive and its end give the HUD. Pictures `respawn-list`, `respawn-drag`, `respawn-loading`. |
 | `tooltip` | The original EscapeMenu and Tooltip screens: with the dead mark the menu buttons have the tooltip "@ui_button_disabled_dead"; the hover of a button shows the dynamic tooltip after the delay of its setter, at the cursor, with the English text and the width of the text and its padding; the end of the hover hides it; with the character alive the button has no tooltip. Picture `tooltip-dead`. |

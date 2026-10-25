@@ -129,7 +129,7 @@ void USwcKeyBindings::Initialize(FSubsystemCollectionBase& Collection)
 	UE_LOG(LogSwcKeys, Log, TEXT("keys: %d action keys of the profile, %d rebind(s) of %s"), Defaults.Num(), Overrides.Num(), *SavePath());
 }
 
-FString USwcKeyBindings::SavePath() const
+FString USwcKeyBindings::SettingsDir()
 {
 	FString Dir;
 	if (!FParse::Value(FCommandLine::Get(), TEXT("SwcSettings="), Dir))
@@ -143,7 +143,12 @@ FString USwcKeyBindings::SavePath() const
 		}
 		Dir = FPaths::Combine(WorkDir(), TEXT("settings"), Session);
 	}
-	return FPaths::Combine(Dir, TEXT("rebindings.json"));
+	return Dir;
+}
+
+FString USwcKeyBindings::SavePath() const
+{
+	return FPaths::Combine(SettingsDir(), TEXT("rebindings.json"));
 }
 
 void USwcKeyBindings::Load()

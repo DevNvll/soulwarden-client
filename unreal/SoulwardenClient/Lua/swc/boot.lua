@@ -29,6 +29,7 @@ Swc.Load("swc.game")      -- the game buses that the first HUD reads
 Swc.Load("swc.worldmap")  -- the world map data: territories, points of interest, landmarks, the shrine travel
 Swc.Load("swc.keys")      -- the keys of the actions: the queries, the rebinds of the options screen, the key events
 Swc.Load("swc.options")   -- the options data: the defaults of the client program, the reads of the options screen
+Swc.Load("swc.gamemenu")  -- the game menu: the escape menu and the options screen without the features that this client does not have
 Swc.Load("swc.items")     -- the items: static data, item slots, the bag, the paperdoll, the containers, the requests
 Swc.Load("swc.owner")     -- the owner states: attributes, ranks, point pools, rune charge, ownership, the supported abilities
 Swc.Load("swc.loot")      -- the loot bags near the character and the panel of an open bag

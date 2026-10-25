@@ -200,6 +200,8 @@ private:
 	bool bCursorApplied = false;
 	/** The size of the window in pixels that the runtime has (HostDisplay: the resolution rows of the options screen). */
 	FIntPoint SentDisplay = FIntPoint::ZeroValue;
+	/** The window mode that the runtime has (0 fullscreen, 1 windowed, 2 windowed fullscreen; -1 before the first). */
+	int32 SentWindowMode = -1;
 	/** The aim state that the runtime has (HostAim). */
 	bool bSentAim = false;
 
