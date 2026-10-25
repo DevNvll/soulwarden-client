@@ -343,7 +343,7 @@ The GeometryBeam shader of the source (the fog sheets and fog cards, the fog sph
   static mesh of rule 8; a mesh of `mesh.BEAM_FOLDERS` of an older rule goes to the wanted list. The override materials of
   the scene are audit sources ("menu override"), so that their slot keys have specs.
 
-### M_SwcSurfaceTranslucent (AST-207, a mechanism with no use yet)
+### M_SwcSurfaceTranslucent (AST-207; since AST-290 also the flowing liquids, below)
 
 An Illum sub-material of `materials.BLENDED_ILLUM` (by name; empty now) is alpha blended: its render rules have the blend
 `translucent` and the XML Opacity, its spec is the surface spec (with M4) on `M_SwcSurfaceTranslucent` (the surface parent,
@@ -351,6 +351,20 @@ Translucent, Surface ForwardShading; opacity = the diffuse alpha x `Opacity`), a
 vortex card of the menu vista (`FTUE_level_vortex_mat`: Opacity 0.65, no AlphaTest, an emittance map), which a later
 maelstrom thread does (research `maelstrom.md`; the second card has a Distanceclouds override). The general rule is open: 720
 Illum sources of the world have an Opacity under 1 and no AlphaTest (many with Opacity 0), and they draw opaque.
+### The flow of the liquids and the scrolled maps (AST-290, the stage label `flow`)
+
+- The UV scroll: a type 2 TexMod oscillator (ETMM_Constant) of the Diffuse slot gives `UVPan` (u, v per second); of the emittance
+  and intensity slots, `EmissionPan`. [P] rule (Lumberyard): offset = amplitude x rate x time before the tiling, so the speed is
+  amplitude x rate x tile (`material_records.uv_pan`). The surface parents (M_SwcSurface and M_SwcSurfaceMasked 12,
+  M_SwcSurfaceTranslucent 11) add frac(Time x UVPan.rg) to the base UV and frac(Time x EmissionPan) to the emission UVs (default 0).
+- A flowing liquid (`flow_of`): an Illum record with Opacity under 1, no AlphaTest, and a Diffuse scroll draws on
+  M_SwcSurfaceTranslucent with the XML Opacity (the waterfalls, the fountain flows); its mesh has no Nanite (`nanite.py`). "flow" is
+  not in the render key.
+- `FLOW_TILES` (0.75 to 1): only the tilings that a retail video checked get the flow. The cliff fall (tile 0.75) agreed within about
+  10 %; the kit fall (tile 0.25 and 0.1) had a Meshparticle twin sheet and gave no clean check. The deploy of 2026-10-25: 107 keys
+  (19 liquids, 40 UVPan, 73 EmissionPan) as a patch of instances.json; 171 keys wait for a next retail check.
+- The source draws the liquid sheet brighter and smoother (the back light of %TRANSMITTANCE, the mist particles): open.
+
 ### Shadow proxies (AST-207)
 
 A sub-material that the game uses only to cast the shadow of its mesh (the "Shadow" sub-material 4 of the spruces:

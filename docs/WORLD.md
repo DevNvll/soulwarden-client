@@ -441,6 +441,11 @@ the places of interest with the census tops) found these classes. The counts are
   `objects/volumetrics/`: all 242 placements of the fog sphere fogsphere_01, the fog beams; AST-265), and the meshes with no material and no
   override are left out (they drew the white fallback material). `cells.LEFT_OUT_MESHES` also has the fog sheet and sphere meshes of
   AST-265 that mesh rule 8 makes drawable (jav_fogsheet_a_cross, jav_fogsphere_a).
+- AST-290 (2026-10-25): a placement whose override has a Meshparticle sub-material with %REFRACTION is left out
+  (`cells.refraction_override`: fx_waterfall_subtle01, fx_portalsphere01/02, 12 placements; M_SwcMeshParticle has no refraction and
+  drew a near-opaque white sheet). AST-288 W5, prepared with the switch `cells.W5_LEFT_OUT` off (for the next cell rebuild): the
+  overrides with GeometryFogNoVertAlpha, GeometryBeamSimple, or Geometryfog on any mesh (352 placements in 22 regions: the pirate
+  ropes, the crafting ghost previews, the jump pad disks, the cave beams; own retail shaders with no client parent).
 - C10a, a material path from the root of the game files (a leading "/", `materials.load_mtl`): 4 LOD meshes that the level places
   directly (64 placements: jav_fst_deadstickbush_a_lod1 and others) had no material and drew white.
 - Not drawn on purpose (each with its reason in the AST-275 report): the other server spawns (world event states, siege, season,
