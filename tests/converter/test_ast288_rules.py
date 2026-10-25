@@ -102,6 +102,12 @@ class ShadowProxyCells(unittest.TestCase):
             os.environ["SWC_CONTENT"] = self.saved
         self.folder.cleanup()
 
+    def test_state_override(self):
+        self.assertTrue(cells.state_override("objects/props/cutlasskeys/cutlasskeys_pvp_pylon_light_00.mtl"))
+        self.assertTrue(cells.state_override("materials/vfx/cutlasskeys_pvp_pylon_barrier.mtl"))
+        self.assertFalse(cells.state_override("objects/pvp/pylon_stone_mat.mtl"))
+        self.assertFalse(cells.state_override(""))
+
     def test_names(self):
         self.assertTrue(cells.shadow_proxy_file("objects/default/editorprimitive_shadowproxy_a.mtl"))
         self.assertTrue(cells.shadow_proxy_file(MEDUSA))
@@ -111,11 +117,7 @@ class ShadowProxyCells(unittest.TestCase):
         self.assertFalse(cells.shadow_proxy_file(""))
 
     def test_shadow_only(self):
-        cells.SHADOW_ONLY = True
-        try:
-            report = cells.write(REGION)
-        finally:
-            cells.SHADOW_ONLY = False
+        report = cells.write(REGION)   # SHADOW_ONLY is on
         self.assertEqual(report["shadow proxies placed shadow-only"], 2)
         self.assertEqual(report["instances"], 4)
         flags = {}
@@ -135,7 +137,11 @@ class ShadowProxyCells(unittest.TestCase):
         self.assertEqual(flags[assets[CRATE]["unreal"]], [0])
 
     def test_left_out(self):
-        report = cells.write(REGION)
+        cells.SHADOW_ONLY = False   # the rule before the C++ step
+        try:
+            report = cells.write(REGION)
+        finally:
+            cells.SHADOW_ONLY = True
         self.assertEqual(report["shadow proxies left out"], 2)   # the cube with the proxy override and the medusa wall
         self.assertEqual(report["instances"], 2)                 # the crate and the cube with the mud override
 
@@ -172,11 +178,7 @@ class EntryNoNanite(unittest.TestCase):
         self.folder.cleanup()
 
     def test_flag(self):
-        cells.ENTRY_NO_NANITE = True
-        try:
-            report = cells.write(REGION)
-        finally:
-            cells.ENTRY_NO_NANITE = False
+        report = cells.write(REGION)   # ENTRY_NO_NANITE is on
         self.assertEqual(report["entries with no Nanite"], 1)
         self.assertEqual(report["entries"], 2)
 

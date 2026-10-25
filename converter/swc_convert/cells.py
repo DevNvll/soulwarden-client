@@ -70,6 +70,16 @@ FX_UNSUPPORTED = ("%USE_PROC_GRADS", "%VERT_DEFORM_SINWAVE")
 # point shows none). C8_LEFT_OUT: words of the mesh path; C8_LEFT_OUT_MATERIALS: words of the override material path.
 C8_LEFT_OUT = ("glyph_bridge", "_capturepoint_")
 C8_LEFT_OUT_MATERIALS = ("azoth",)
+# State objects with a material of their own (AST-288, the decision of the orchestrator 2026-10-25): a placement whose override material
+# path has one of these words is left out, as the C8 state objects. The PvP pylons of the Cutlass Keys outposts: the lights
+# (cutlasskeys_pvp_pylon_light_00.mtl on ruins_trim_long_01 and ruins_trim_ring_big_02b: a bright additive wall) and the barrier
+# (cutlasskeys_pvp_pylon_barrier.mtl on sideways_door); the server shows one state. A retail picture at 7018.7 34.0 checks it.
+STATE_OVERRIDE_WORDS = ("pvp_pylon",)
+
+
+def state_override(material: str) -> bool:
+    """@return True for an override material of a state object (STATE_OVERRIDE_WORDS)."""
+    return any(word in material.rsplit("/", 1)[-1].lower() for word in STATE_OVERRIDE_WORDS)
 # The shadow proxies of the level (AST-288): a mesh or an override material whose file name says "shadow proxy" only casts the shadow
 # of a larger object (the medusa walls of First Light, poi_shadow_proxy_*, the primitive cubes with
 # objects/default/editorprimitive_shadowproxy_a.mtl: one Illum material, white, no texture). The proxy rule of the sub-materials
@@ -77,13 +87,14 @@ C8_LEFT_OUT_MATERIALS = ("azoth",)
 # the version-3 pairs they drew the grey editorprimitive, with them white cubes. Known difference: their shadows are missing (a cell
 # flag for a shadow-only component needs a C++ change).
 SHADOW_PROXY_FILE = re.compile(r"shadow_?prox|impostershadow")
-# The C++ step after AST-288 W1/W2 (SwcEditorLibrary: flag bit 2 bDisallowNanite, bit 3 hidden in game with bCastHiddenShadow). Off
-# until that editor build is in main: an older editor ignores the bits, and a shadow proxy would draw white again.
+# The C++ step after AST-288 W1/W2 (SwcEditorLibrary: flag bit 2 bDisallowNanite, bit 3 hidden in game with bCastHiddenShadow). On since
+# its deploy (2026-10-25); an older editor ignores the bits (a shadow proxy would draw white): build the world only with an editor
+# that has them.
 # SHADOW_ONLY: the shadow proxies are placed with flag bit 3 (their shadow stays), not left out.
 # ENTRY_NO_NANITE: the entries of the minority pairs of materials/no-nanite.json (a translucent override on a mesh that keeps Nanite
 # for its other placements) get flag bit 2.
-SHADOW_ONLY = False
-ENTRY_NO_NANITE = False
+SHADOW_ONLY = True
+ENTRY_NO_NANITE = True
 FLAG_WIND, FLAG_DECAL, FLAG_NO_NANITE, FLAG_SHADOW_ONLY = 1, 2, 4, 8
 
 
@@ -191,11 +202,14 @@ def write(name: str) -> dict:
     if len(names):
         proxy_mesh = np.array([shadow_proxy_file(m) for m in names], dtype=bool)
         proxy_material = np.array([shadow_proxy_file(m) for m in material_names], dtype=bool)
+        state_objects = np.array([state_override(m) for m in material_names], dtype=bool)[material_all]
+        keep &= ~state_objects
         shadow_proxies = proxy_mesh[data["mesh"]] | proxy_material[material_all]
         if not SHADOW_ONLY:
             keep &= ~shadow_proxies
     else:
         shadow_proxies = np.zeros(0, bool)
+        state_objects = np.zeros(0, bool)
     pairs_path = overrides.out_dir() / "pairs.json"
     pairs = json.loads(pairs_path.read_text()) if pairs_path.is_file() else {}
 
@@ -356,6 +370,7 @@ def write(name: str) -> dict:
               "decal-only placements left out: no decal in the override (C11)": dropped_decal_only,
               "cells": len(cells), "components": groups, "file": str(path), "bytes": len(out),
               "left out (not imported, fog cards, fog volumes, no material)": int((~keep).sum()),
+              "state objects left out (pvp pylons)": int(state_objects.sum()),
               "shadow proxies left out": 0 if SHADOW_ONLY else int(shadow_proxies.sum()),
               "shadow proxies placed shadow-only": int(shadow_proxies.sum()) if SHADOW_ONLY else 0,
               "entries with no Nanite": sum(1 for m in used if entry_flags(*divmod(m // 2, 65536)) & FLAG_NO_NANITE),
