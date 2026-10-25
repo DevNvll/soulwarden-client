@@ -39,6 +39,8 @@ Swc.config = {
   -- the settings (UIFeatures: the records at image RVA 0x4A3A1F7 to 0x4A3B1FA; javelin: the setters of 0x616C670 and
   -- the others). The backend gives no other document (a 404 leaves the defaults; docs/NETWORK.md step 6).
   ["UIFeatures.enable-on-demand-canvas-loading"] = true,       -- 0x4A3B08E
+  -- The tip screen of the loading screen (loadingscreen.luac: the destination image, the mode icon, the tip; AST-280).
+  ["UIFeatures.g_uiEnableLoadingScreenTips"] = true,           -- 0x4A3AC9F
   ["UIFeatures.enableBoxOpeningPopup"] = true,                 -- 0x4A3A500
   ["UIFeatures.enable-control-hints-screen"] = true,           -- 0x4A3B1FA
   ["UIFeatures.enable-enhanced-dialogue"] = true,              -- 0x4A3AF4C
