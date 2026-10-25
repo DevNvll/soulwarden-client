@@ -370,3 +370,10 @@ local rank0 = CategoricalProgressionRequestBus.Event.GetRankData(player, WINDSWA
 equal(rank0 and rank0.displayName, "@territory_standing_title_1", "the title of rank 0 (Territory_Standing DisplayName)")
 equal(rank0 and rank0.maximumInfluence, 150, "the rank data of rank 0: MaximumInfluence 150")
 Swc.HostRanks("")
+
+-- The load of the popup canvas in the client: only the dynamic loader names it; PrepareState(1000163614) of BoxOpenHelper loads it
+-- (swc/manager.lua). A second fixture runtime part: the popup of this fixture is loaded already, so the check uses a new state count.
+local handlersBefore = #DynamicBus.RewardCelebrationPopup.handlers
+check(handlersBefore > 0, "the popup of this fixture is connected")
+check(DynamicBus.DynamicCanvasLoaderBus.Broadcast.PrepareState(1000163614), "PrepareState of the popup state: true")
+equal(#DynamicBus.RewardCelebrationPopup.handlers, handlersBefore, "a loaded popup does not load again")

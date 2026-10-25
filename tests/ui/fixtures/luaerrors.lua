@@ -87,3 +87,11 @@ equal(errors(), 0, "UI state changes with the HUD canvases: no Lua error (AST-22
 -- 5. The skills window: its screens and scroll boxes (the lists at the refresh).
 equal(errors(), 0, "the skills window and its scroll boxes: no Lua error")
 note("the Lua errors of the run: " .. tostring(errors()))
+
+-- The reward popup (stage Q7): only the dynamic loader names its canvas; PrepareState(1000163614) loads it once.
+allow("LyShineUI/Inventory/RewardCelebrationPopup")
+equal(#DynamicBus.RewardCelebrationPopup.handlers, 0, "no reward popup before its state")
+check(DynamicBus.DynamicCanvasLoaderBus.Broadcast.PrepareState(1000163614), "PrepareState of the popup state: true")
+frames(0.3)
+check(#DynamicBus.RewardCelebrationPopup.handlers > 0, "PrepareState loads the reward popup canvas")
+equal(errors(), 0, "the load of the reward popup: no Lua error")

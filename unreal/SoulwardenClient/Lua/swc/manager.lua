@@ -536,7 +536,23 @@ Swc.Define("LyShineManagerBus", "Broadcast", {
 -- client loads its screens at the start (UI/SwcUiSubsystem.cpp HudScreens), so a state is ready at once. dynamictooltip_commands.luac
 -- BoxOpenHelper (the Open of a loot container) waits for PrepareState(1000163614, the reward popup) with a spinner and a retry each 0.5 s.
 -- A state whose canvas this client does not load is ready too: the calls of the scripts to its screen go to no handler [I].
+-- The canvases that only the dynamic loader names (dynamiccanvasloader.luac canvasInfos: the path, autohide, the draw order of
+-- CanvasCommon) load at their first PrepareState here: the reward popup of the open of a loot container (stage Q7; state 1000163614,
+-- POPUP_DRAW_ORDER), before BoxOpenHelper sends the open.
+local DYNAMIC_CANVASES = {
+  [1000163614] = {bus = "RewardCelebrationPopup", path = "LyShineUI/Inventory/RewardCelebrationPopup.uicanvas", order = "POPUP_DRAW_ORDER"},
+}
+local function prepare(state)
+  local entry = DYNAMIC_CANVASES[state]
+  if entry and #DynamicBus[entry.bus].handlers == 0 then
+    local common = RequireScript("LyShineUI._Common.CanvasCommon")
+    Swc.LoadScreen(entry.path, true, common and common[entry.order] or 0)
+    Swc.Note("the dynamic canvas " .. entry.bus .. " loads (state " .. tostring(state) .. ")")
+  end
+  return true
+end
+Swc.prepareDynamicState = prepare
 DynamicBus.DynamicCanvasLoaderBus.Connect(EntityId(), {
-  PrepareState = function() return true end,
+  PrepareState = function(_, state) return prepare(state) end,
   IsStateReady = function() return true end,
 })
