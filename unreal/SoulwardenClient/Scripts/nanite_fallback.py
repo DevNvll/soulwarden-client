@@ -24,8 +24,10 @@ def main():
     listed = json.load(open(os.path.join(content, "materials", "no-nanite.json"))).get("minority", {})
     state_path = os.path.join(plugin, "import-state.json")
     state = json.load(open(state_path))
-    subsystem = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
     report = {"set": [], "already": [], "failed": []}
+    # A commandlet has not scanned the plugin folders yet: list_assets would give nothing.
+    folders = [manifest[k]["unreal"] for k in listed if manifest.get(k, {}).get("unreal")]
+    unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(folders, True)
     for key in sorted(listed):
         entry = manifest.get(key, {})
         folder = entry.get("unreal")
@@ -35,17 +37,24 @@ def main():
         if state.get("nanitefallback:" + key) == FALLBACK_VERSION:
             report["already"].append(key)
             continue
-        meshes = [a for a in unreal.EditorAssetLibrary.list_assets(folder, recursive=True)
-                  if unreal.EditorAssetLibrary.find_asset_data(a).asset_class_path.asset_name == "StaticMesh"]
-        mesh = unreal.load_asset(meshes[0]) if meshes else None
+        found = unreal.EditorAssetLibrary.list_assets(folder, recursive=True, include_folder=False)
+        mesh = None
+        for path in found:   # as import_content.first_asset
+            if str(unreal.EditorAssetLibrary.find_asset_data(path).asset_class_path.asset_name) == "StaticMesh":
+                mesh = unreal.EditorAssetLibrary.load_asset(path)
+                break
+        if mesh is None:
+            unreal.log_warning(f"nanite fallback: {key}: {folder}: {len(found)} asset(s), no static mesh")
         if mesh is None:
             report["failed"].append({"key": key, "reason": "no static mesh"})
             continue
-        settings = subsystem.get_nanite_settings(mesh)
+        # set_editor_property notifies the mesh (PostEditChangeProperty): it builds again with the new fallback. The editor subsystem
+        # of the static meshes is not there in a commandlet.
+        settings = mesh.get_editor_property("nanite_settings")
         settings.set_editor_property("fallback_target", unreal.NaniteFallbackTarget.PERCENT_TRIANGLES)
         settings.set_editor_property("fallback_percent_triangles", 1.0)
         settings.set_editor_property("fallback_relative_error", 0.0)
-        subsystem.set_nanite_settings(mesh, settings, apply_changes=True)
+        mesh.set_editor_property("nanite_settings", settings)
         if unreal.EditorAssetLibrary.save_loaded_asset(mesh, False):
             state["nanitefallback:" + key] = FALLBACK_VERSION
             report["set"].append(key)

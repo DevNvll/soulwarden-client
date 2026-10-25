@@ -26,5 +26,5 @@ if [[ ! -f "${SWC_FALLBACK_REPORT}" ]]; then
     echo "no report: the commandlet stopped with status ${status}; see ${SWC_WORK}/logs/nanite-fallback.log" >&2
     exit 1
 fi
-grep -h "nanite fallback:" "${SWC_WORK}/logs/nanite-fallback.log" | tail -1
+grep -h "nanite fallback:" "${SWC_WORK}/logs/nanite-fallback.log" | tail -1 || true
 python3 -B -c "import json,sys; r=json.load(open(sys.argv[1])); [print('failed:', f) for f in r['failed']]; sys.exit(1 if r['failed'] else 0)" "${SWC_FALLBACK_REPORT}"
