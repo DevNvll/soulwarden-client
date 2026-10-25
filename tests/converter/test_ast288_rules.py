@@ -47,6 +47,19 @@ class NoNanite(unittest.TestCase):
         out = nanite.blocked(assets, pairs, specs)
         self.assertEqual(out, {BANANA: ["m_overridefx"], CHUNK: ["m_fx"], WINDOW: ["m_legacyglass"]})
 
+    def test_majority(self):
+        assets = {
+            BANANA: {"kind": "static", "materials": ["m_banana"], "nanite": True},
+            CRATE: {"kind": "static", "materials": ["m_wood"], "nanite": True},
+            CHUNK: {"kind": "static", "materials": ["m_fx"], "nanite": True},
+        }
+        specs = {"m_fx": {"parent": "fxmesh"}}
+        pairs = {overrides.pair_key(BANANA, "fx.mtl"): {"slots": {"m_banana": "m_fx"}},
+                 overrides.pair_key(CRATE, "fx.mtl"): {"slots": {"m_wood": "m_fx"}}}
+        counts = {BANANA: {"": 2, "fx.mtl": 3}, CRATE: {"": 19880, "fx.mtl": 1}, CHUNK: {"": 4}}
+        self.assertEqual(sorted(nanite.blocked(assets, pairs, specs, counts)), sorted([BANANA, CHUNK]))   # 3 of 5; an own fx slot
+        self.assertEqual(nanite.minority(assets, pairs, specs, counts), {CRATE: {"translucent": 1, "all": 19881}})
+
     def test_parent_of(self):
         assets = {"material:m_a": {"kind": "material", "blend": "masked"}}
         self.assertEqual(nanite.parent_of("m_a", {}, assets), "legacy masked")
