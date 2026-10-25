@@ -177,12 +177,16 @@ Avatar->GetActions()->SetContactQuery(/* USwcCreatureSubsystem::QueryMeleeContac
   with the reader of the backend (`server/rep/client_input.cpp`).
 - The player side keeps one contact for each target for each strike, and puts the contacts into list 3 of the next input
   entry. The query writes one log line for each creature in each strike (`creature N: melee contact: visit V strike S ...`).
-- The strike diagnostic (usertest-1024, item 4 of the user test 2026-10-24): a creature within 1.5 m beyond the body bounds test of a
-  strike shape, with no contact, gets one line for each visit, strike, and creature (`creature N: no melee contact: visit V strike S
-  (KEY): CAUSE; the nearest volume X, gap G m; heights ...`). The causes: out of the body bounds, no hit volume touched, a wall or the
-  ground on the line from the chest. The gap is the growth of the radius of the strike shape that makes a contact with the nearest
-  hit volume (1 cm steps, at most 2 m). The heights are of the middle of the strike shape, of that volume, and of the feet of the
-  attacker and of the creature.
+- The strike trace (usertest-1024 item 4; research `usertest-greataxe-hit.md` section 5): off by default, on with `-SwcStrikeTrace` or
+  `SOULWARDEN_HARNESS=1` in the environment of the client (`SwcStrikeTrace`, Public/SwcDebugLines.h). Engine m in each line.
+  - For each strike query (`attack: strike trace:`): the visit, the input step, the strike, its window and the clock, the damage row,
+    the shape (kind, radius, half segment), the joint and its world place and local Z axis, the capsule ends, the center, the feet.
+  - For each creature near a shape (within 1.5 m beyond the body bounds test), one line for each visit, strike, row, and creature
+    (`creature N: strike trace:`): the first cause (out of the body bounds, no hit volume touched, the line from 1 m above the feet
+    blocked with its hit, or the contact and its volume), the replicated place (the newest movement sample), the drawn place, the
+    horizontal distance and the height below the feet, each hit volume (the segment ends or the box, the radius), and for a miss the
+    gap to the nearest volume (the radius growth of the strike shape that makes a contact, 1 cm steps, at most 2 m).
+  - A picture of the shapes: `-SwcDrawStrikes` (the strike shapes) with `-SwcHitVolumes` (the hit volumes of the creatures).
 - `-SwcFarContact[=SECONDS]` (development runs): when the shape touches no creature, one contact with the nearest living
   creature 6 to 10 m from the attacker (from SECONDS after the start of the world). The server refuses it: "too far" (reach
   3.5 m + 1.5 m).

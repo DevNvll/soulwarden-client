@@ -199,7 +199,7 @@ private:
 	bool MoveHoming(const FSwcActionFragment& Fragment, float Clock, float DeltaTime);
 	void FillFacts(const FSwcActionFragment& Fragment, const FSwcWeaponActions& Weapon, float Time, FSwcConditionFacts& Facts) const;
 	/** The strikes of a graph fragment whose window has a clock of (From, To]: their shapes to the query. */
-	void QueryStrikes(const FSwcWeaponActions& Weapon, int32 GraphFragment, uint32 VisitNumber, float From, float To);
+	void QueryStrikes(const FSwcWeaponActions& Weapon, int32 GraphFragment, uint32 VisitNumber, float From, float To, uint32 Input);
 	/** The dodge of the driver on the FullBody channel, its root motion and its facing. @return False when no dodge plays. */
 	bool PlayDodge(const swc::combat::Driver::Snapshot& Snapshot, float Since, float DeltaTime);
 	/** The strikes of this frame at its final pose (the delegate of the bone transforms of the mesh). */
@@ -268,6 +268,8 @@ private:
 		const FSwcWeaponActions* Weapon = nullptr;
 		int32 GraphFragment = 0;
 		uint32 Visit = 0;
+		/** The input step of the query (the next step; the strike trace). */
+		uint32 Input = 0;
 		float From = 0.0f;
 		float To = 0.0f;
 		float Clock = 0.0f;

@@ -1,4 +1,6 @@
 #include "Character/SwcPlayerActions.h"
+#include "SwcDebugLines.h"
+#include "Net/SwcSpace.h"
 
 #include "Character/SwcActions.h"
 #include "Character/SwcCharacterMovement.h"
@@ -134,6 +136,8 @@ bool USwcPlayerActions::ShapeOf(const FSwcStrikeShape& Clip, FSwcMeleeShape& Out
 	Out.Attacker = Owner->GetFeetLocation();
 	Out.Direction = Owner->GetActorForwardVector();
 	Out.bNoSight = Clip.bNoSight;
+	Out.JointName = Clip.Joint;
+	Out.Joint = Joint;
 	return true;
 }
 
@@ -173,7 +177,7 @@ void USwcPlayerActions::DrawStrikes(const FSwcWeaponActions& Weapon, int32 Graph
 	}
 }
 
-void USwcPlayerActions::QueryStrikes(const FSwcWeaponActions& Weapon, int32 GraphFragment, uint32 VisitNumber, float From, float To)
+void USwcPlayerActions::QueryStrikes(const FSwcWeaponActions& Weapon, int32 GraphFragment, uint32 VisitNumber, float From, float To, uint32 Input)
 {
 	if (!Weapon.Strikes.IsValidIndex(GraphFragment))
 	{
@@ -229,6 +233,10 @@ void USwcPlayerActions::QueryStrikes(const FSwcWeaponActions& Weapon, int32 Grap
 			Shape.Visit = VisitNumber;
 			Shape.Strike = StrikeIndex;
 			Shape.Key = Strike.Key;
+			Shape.Input = Input;
+			Shape.WindowStart = Strike.Start;
+			Shape.WindowEnd = Strike.End;
+			Shape.Clock = To;
 			for (const FSwcStrike::FRow& Row : Strike.Rows)
 			{
 				if (Row.Shape == Strike.Shapes[ShapeIndex].DataIndex && RowShapes.Contains(Row.Shape))
@@ -245,6 +253,20 @@ void USwcPlayerActions::QueryStrikes(const FSwcWeaponActions& Weapon, int32 Grap
 			}
 			LastCenters.Add(ShapeKey, Shape.Center);
 			++ShapeQueries;
+			if (SwcStrikeTrace())
+			{
+				// The strike trace (usertest-1024): engine m (x, y, z; the space map of Net/SwcSpace.h), the capsule axis is the local Z.
+				const auto M = [](const FVector& Unreal) { const swc::net::WorldPosition P = SwcUnrealToEngine(Unreal); return FString::Printf(TEXT("%.3f %.3f %.3f"), P.x, P.y, P.z); };
+				const FVector Axis = Shape.Rotation.GetAxisZ() * Shape.HalfLength;
+				const FVector JointAxis = Shape.Joint.GetRotation().GetAxisZ();
+				UE_LOG(LogSwcBackend, Log, TEXT("attack: strike trace: visit %u input %u strike %d (%s, %s) window %.3f to %.3f s, clock %.3f s, row %s, shape %d (%s r %.2f h %.2f m), joint %s at %s axis z %.3f %.3f %.3f, the ends %s | %s, the center %s, the feet %s"),
+					VisitNumber, Input, StrikeIndex, *Strike.Key, UTF8_TO_TCHAR(Weapon.Graph.fragments[GraphFragment].name.c_str()), Strike.Start, Strike.End, To,
+					Shape.DamageRow.IsEmpty() ? TEXT("-") : *Shape.DamageRow, ShapeIndex,
+					Shape.Kind == FSwcMeleeShape::EKind::Capsule ? TEXT("capsule") : Shape.Kind == FSwcMeleeShape::EKind::Sphere ? TEXT("sphere") : TEXT("box"),
+					Shape.Radius / 100.0f, Shape.HalfLength / 100.0f, Shape.JointName.IsNone() ? TEXT("(the weapon model)") : *Shape.JointName.ToString(),
+					*M(Shape.Joint.GetLocation()), JointAxis.X, -JointAxis.Y, JointAxis.Z, *M(Shape.Center - Axis), *M(Shape.Center + Axis), *M(Shape.Center),
+					*M(Shape.Attacker));
+			}
 			std::vector<swc::net::MeleeContactItem> Found;
 			if (ContactQuery)
 			{
@@ -1294,6 +1316,7 @@ void USwcPlayerActions::UpdateAttack(float DeltaTime)
 	Work.Weapon = Weapon;
 	Work.GraphFragment = Newest->fragment;
 	Work.Visit = Newest->number;
+	Work.Input = static_cast<uint32>(Snapshot.input) + 1;
 	Work.Clock = Clock;
 	Work.bQuery = NextStep > StrikeClock;
 	Work.From = StrikeClock;
@@ -1368,7 +1391,7 @@ void USwcPlayerActions::OnBonesFinal()
 	}
 	if (Work.bQuery)
 	{
-		QueryStrikes(*Work.Weapon, Work.GraphFragment, Work.Visit, Work.From, Work.To);
+		QueryStrikes(*Work.Weapon, Work.GraphFragment, Work.Visit, Work.From, Work.To, Work.Input);
 	}
 	if (bDrawStrikes)
 	{

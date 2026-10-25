@@ -37,4 +37,12 @@ struct FSwcMeleeShape
 	FString Key;
 	/** The damage row of the shape (AST-230: the hit effect; empty: a strike with no rows). */
 	FString DamageRow;
+	/** The strike trace (usertest-1024): the joint of the clip and its world transform, the input step of the query, the window of
+	 *  the strike, and the clock (s) of the query. */
+	FName JointName;
+	FTransform Joint;
+	uint32 Input = 0;
+	float WindowStart = 0.0f;
+	float WindowEnd = 0.0f;
+	float Clock = 0.0f;
 };

@@ -372,7 +372,7 @@ private:
 	double NextProbe = 0.0;
 	/** The strikes and creatures with a log line of a contact (visit|strike|interest). */
 	mutable TSet<FString> LoggedContacts;
-	/** The strike diagnostic (usertest-1024): the misses that have a log line (visit|strike|interest). */
+	/** The strike trace (usertest-1024): the keys of the lines that went out. */
 	mutable TSet<FString> LoggedMisses;
 	/** AST-230: the contacts of the character that wait for their damage message (the hit effect). */
 	struct FPendingHit

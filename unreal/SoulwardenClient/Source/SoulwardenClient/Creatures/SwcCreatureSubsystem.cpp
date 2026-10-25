@@ -33,6 +33,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Net/SwcSpace.h"
+#include "SwcDebugLines.h"
 #include "SceneInterface.h"
 #include "SceneView.h"
 #include "SwcBackendSubsystem.h"
@@ -61,7 +62,7 @@ constexpr double DeadPlateSeconds = 3.0;
 constexpr double DeadBodySeconds = 300.0;
 /** A creature is a candidate for a contact when its bounds are this near to the weapon shape (cm). */
 constexpr double ContactMargin = 50.0;
-// The strike diagnostic (usertest-1024): a creature up to this distance (cm) beyond the body bounds test gets its miss line.
+// The strike trace (usertest-1024): a creature up to this distance (cm) beyond the body bounds test gets its trace line.
 constexpr double MissBand = 150.0;
 /** The wall line: from the feet of the attacker at this height (cm; a value of this client) to the point of the contact; a hit
  *  nearer than the point by more than the slack is a wall. */
@@ -1336,26 +1337,40 @@ int32 USwcCreatureSubsystem::FindMeleeContacts(const FSwcMeleeShape& Melee, TArr
 		return Contact;
 	};
 	TArray<FSwcCreatureHitShape> Shapes;
-	// The strike diagnostic (usertest-1024, the great axe skill that did not hit a rabbit below the character): a creature near a strike
-	// shape with no contact gets one log line for each visit, strike, and creature: why (the body bounds, no hit volume touched, a wall),
-	// the gap from the strike shape to its nearest hit volume (the radius growth that makes a contact, 1 cm steps, at most 2 m), and the
-	// heights of the strike shape, of that volume, and of the feet of the attacker and of the creature.
-	const auto NoteMiss = [&](uint32 Interest, const ASwcCreature& Creature, const TCHAR* Why, const TArray<FSwcCreatureHitShape>& Volumes)
+	// The strike trace (usertest-1024 item 4; research usertest-greataxe-hit.md section 5; gated: SwcStrikeTrace): for each creature near
+	// a strike shape, one line for each visit, strike, shape, and creature: the replicated place (the newest movement sample) and the
+	// drawn place, each hit volume (engine m: the segment ends or the box, the radius), the first cause (out of the body bounds, no hit
+	// volume touched, the line from 1 m above the feet blocked, or the contact), and for a miss the gap to the nearest volume (the radius
+	// growth of the strike shape that makes a contact, 1 cm steps, at most 2 m).
+	const bool bTrace = SwcStrikeTrace();
+	const auto M = [](const FVector& Unreal) { const swc::net::WorldPosition P = SwcUnrealToEngine(Unreal); return FString::Printf(TEXT("%.3f %.3f %.3f"), P.x, P.y, P.z); };
+	const auto TraceTarget = [&](uint32 Interest, const ASwcCreature& Creature, const swc::creatures::Entity& Entity, const FString& Cause,
+								 const TArray<FSwcCreatureHitShape>& Volumes, bool bMiss)
 	{
 		if (LoggedMisses.Num() > 4000)
 		{
 			LoggedMisses.Reset();
 		}
 		bool bLogged = false;
-		LoggedMisses.Add(FString::Printf(TEXT("%u|%d|%u"), Melee.Visit, Melee.Strike, Interest), &bLogged);
+		LoggedMisses.Add(FString::Printf(TEXT("%u|%d|%s|%.0f|%u"), Melee.Visit, Melee.Strike, *Melee.DamageRow, Melee.Radius, Interest), &bLogged);
 		if (bLogged)
 		{
 			return;
 		}
 		double Gap = -1.0;
-		const FSwcCreatureHitShape* Nearest = nullptr;
+		FString NearestName = TEXT("none");
+		FString List;
 		for (const FSwcCreatureHitShape& Volume : Volumes)
 		{
+			const FString Name = Volume.Volume != nullptr ? Volume.Volume->Name : FString(TEXT("?"));
+			List += Volume.Shape.Core == FSwcHitShape::ECore::Box
+				? FString::Printf(TEXT(" [%s box %s half %.2f %.2f %.2f]"), *Name, *M(Volume.Shape.Center), Volume.Shape.HalfSize.X / 100.0,
+					Volume.Shape.HalfSize.Y / 100.0, Volume.Shape.HalfSize.Z / 100.0)
+				: FString::Printf(TEXT(" [%s %s | %s r %.2f]"), *Name, *M(Volume.Shape.Start), *M(Volume.Shape.End), Volume.Shape.Radius / 100.0);
+			if (!bMiss)
+			{
+				continue;
+			}
 			FVector Point;
 			FVector Normal;
 			double Low = 0.0;
@@ -1375,15 +1390,16 @@ int32 USwcCreatureSubsystem::FindMeleeContacts(const FSwcMeleeShape& Melee, TArr
 			if (Gap < 0.0 || High < Gap)
 			{
 				Gap = High;
-				Nearest = &Volume;
+				NearestName = Name;
 			}
 		}
-		const FVector Feet = Creature.GetActorLocation();
-		UE_LOG(LogSwcCreatures, Log, TEXT("creature %u: no melee contact: visit %u strike %d (%s): %s; the nearest volume %s, gap %s; heights (m): the strike shape %.2f, the volume %s, the feet of the attacker %.2f, of the creature %.2f; horizontal %.2f m from the attacker"),
-			Interest, Melee.Visit, Melee.Strike, *Melee.Key, Why, Nearest != nullptr && Nearest->Volume != nullptr ? *Nearest->Volume->Name : TEXT("none"),
-			Gap >= 0.0 ? *FString::Printf(TEXT("%.2f m"), Gap / 100.0) : TEXT("more than 2 m"), Middle.Z / 100.0,
-			Nearest != nullptr ? *FString::Printf(TEXT("%.2f"), Nearest->Shape.Middle().Z / 100.0) : TEXT("-"), Melee.Attacker.Z / 100.0, Feet.Z / 100.0,
-			FVector::Dist2D(Melee.Attacker, Feet) / 100.0);
+		const FString Replicated = Entity.samples.empty() ? FString(TEXT("none"))
+			: FString::Printf(TEXT("%.3f %.3f %.3f"), Entity.samples.back().position.x, Entity.samples.back().position.y, Entity.samples.back().position.z);
+		UE_LOG(LogSwcCreatures, Log, TEXT("creature %u: strike trace: visit %u input %u strike %d (%s, row %s): %s%s; the replicated place %s, the drawn place %s (%.2f m horizontal from the feet of the attacker, %.2f m below them); the volumes%s"),
+			Interest, Melee.Visit, Melee.Input, Melee.Strike, *Melee.Key, Melee.DamageRow.IsEmpty() ? TEXT("-") : *Melee.DamageRow, *Cause,
+			bMiss ? *FString::Printf(TEXT(", the nearest volume %s, gap %s"), *NearestName, Gap >= 0.0 ? *FString::Printf(TEXT("%.2f m"), Gap / 100.0) : TEXT("more than 2 m")) : TEXT(""),
+			*Replicated, *M(Creature.GetActorLocation()), FVector::Dist2D(Melee.Attacker, Creature.GetActorLocation()) / 100.0,
+			(Melee.Attacker.Z - Creature.GetActorLocation().Z) / 100.0, *List);
 	};
 	for (const TPair<uint32, TWeakObjectPtr<ASwcCreature>>& Pair : Actors)
 	{
@@ -1396,11 +1412,12 @@ int32 USwcCreatureSubsystem::FindMeleeContacts(const FSwcMeleeShape& Melee, TArr
 		const FBoxSphereBounds Bounds = Creature->GetBodyBounds();
 		if (const double Away = FVector::Dist(Bounds.Origin, Middle); Away > Bounds.SphereRadius + Reach + ContactMargin)
 		{
-			if (Away <= Bounds.SphereRadius + Reach + ContactMargin + MissBand)
+			if (bTrace && Away <= Bounds.SphereRadius + Reach + ContactMargin + MissBand)
 			{
 				Shapes.Reset();
 				Creature->GetHitShapes(Shapes);
-				NoteMiss(Pair.Key, *Creature, TEXT("out of the body bounds"), Shapes);
+				TraceTarget(Pair.Key, *Creature, *Entity, FString::Printf(TEXT("out of the body bounds (%.2f m from the bounds centre, the test %.2f m)"),
+					Away / 100.0, (Bounds.SphereRadius + Reach + ContactMargin) / 100.0), Shapes, true);
 			}
 			continue;
 		}
@@ -1428,16 +1445,27 @@ int32 USwcCreatureSubsystem::FindMeleeContacts(const FSwcMeleeShape& Melee, TArr
 		}
 		if (Best == nullptr)
 		{
-			NoteMiss(Pair.Key, *Creature, TEXT("no hit volume touched"), Shapes);
+			if (bTrace)
+			{
+				TraceTarget(Pair.Key, *Creature, *Entity, TEXT("no hit volume touched"), Shapes, true);
+			}
 			continue;
 		}
 		FHitResult Wall;
 		if (!Melee.bNoSight && World->LineTraceSingleByObjectType(Wall, Origin, BestPoint, FCollisionObjectQueryParams(ECC_WorldStatic), Params)
 			&& Wall.Distance < FVector::Dist(Origin, BestPoint) - WallSlack)
 		{
-			NoteMiss(Pair.Key, *Creature, *FString::Printf(TEXT("a wall or the ground (%s) at %.2f m on the line from the chest"), *GetNameSafe(Wall.GetActor()),
-				Wall.Distance / 100.0), Shapes);
+			if (bTrace)
+			{
+				TraceTarget(Pair.Key, *Creature, *Entity, FString::Printf(TEXT("the line from 1 m above the feet is blocked: %s at %.2f m (point %s), the volume %s at %.2f m"),
+					*GetNameSafe(Wall.GetActor()), Wall.Distance / 100.0, *M(Wall.ImpactPoint), Best->Volume != nullptr ? *Best->Volume->Name : TEXT("?"),
+					FVector::Dist(Origin, BestPoint) / 100.0), Shapes, true);
+			}
 			continue;
+		}
+		if (bTrace)
+		{
+			TraceTarget(Pair.Key, *Creature, *Entity, FString::Printf(TEXT("the contact on %s at %s"), *Best->Volume->Name, *M(BestPoint)), Shapes, false);
 		}
 		Out.Add(MakeContact(Pair.Key, *Entity, *Best->Volume, BestPoint, BestNormal, *Creature));
 	}
