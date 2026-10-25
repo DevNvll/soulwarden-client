@@ -1,7 +1,7 @@
 """Tests of the flow rule (AST-290, converter/swc_convert/material_records.py) with synthetic records, no game data: the UV speed of
 the type 2 oscillators (amplitude x rate x tile), the flowing liquids (Illum, Opacity < 1, no AlphaTest, a type 2 scroll on the
 Diffuse slot) on M_SwcSurfaceTranslucent with UVPan, the scroll of the emission maps (EmissionPan), the gate of the stage "flow",
-and the render key, which does not change (the slot names of the converted meshes)."""
+the gate of the checked tilings (FLOW_TILES), and the render key, which does not change (the slot names of the converted meshes)."""
 import sys
 import unittest
 from pathlib import Path
@@ -15,13 +15,17 @@ KIT_UV = {"tile": [0.75, 0.25], "mod": {"TexMod_RotateType": 2.0, "TexMod_UOscil
                                         "TexMod_UOscillatorRate": 0.05, "TexMod_UOscillatorType": 2.0,
                                         "TexMod_VOscillatorAmplitude": 1.0, "TexMod_VOscillatorRate": -0.75,
                                         "TexMod_VOscillatorType": 2.0}}
+# The tiling of the cliff fall that the retail video checked (jav_wld_waterfall_cliff_h: tile 0.75 on the scrolled axis).
+CLIFF_UV = {"tile": [1.0, 0.75], "mod": {"TexMod_UOscillatorAmplitude": 1.0, "TexMod_UOscillatorRate": 0.05,
+                                         "TexMod_UOscillatorType": 2.0, "TexMod_VOscillatorAmplitude": 1.0,
+                                         "TexMod_VOscillatorRate": -0.75, "TexMod_VOscillatorType": 2.0}}
 
 
 def texture(product, role, uv=None):
     return {"file": product, "assetId": "", "product": product, "role": role, "rule": "test", **({"uv": uv} if uv else {})}
 
 
-def record(opacity=0.3, alpha_test=0.0, uv=KIT_UV, emission=False):
+def record(opacity=0.3, alpha_test=0.0, uv=CLIFF_UV, emission=False, intensity_tile=1.0):
     textures = {"Diffuse": texture("waterfall/water_diff.dds", "diffuse", uv)}
     lighting = {"Diffuse": [0.5, 0.5, 0.5], "Specular": [0.04, 0.04, 0.04], "Opacity": opacity, "AlphaTest": alpha_test,
                 "Shininess": 128.0}
@@ -29,7 +33,7 @@ def record(opacity=0.3, alpha_test=0.0, uv=KIT_UV, emission=False):
         lighting["Emittance"] = [0.66, 0.49, 0.68, 75.0]
         textures["Emittance"] = texture("ghost/light2.dds", "emittance")
         textures["Decal"] = texture("vfx/noise_03.dds", "emittance intensity",
-                                    {"tile": [3.0, 3.0], "mod": {"TexMod_VOscillatorAmplitude": 1.0,
+                                    {"tile": [intensity_tile, intensity_tile], "mod": {"TexMod_VOscillatorAmplitude": 1.0,
                                                                  "TexMod_VOscillatorRate": 0.25, "TexMod_VOscillatorType": 2.0}})
     return {"mtl": "test.mtl", "index": 0, "name": "water", "surface": "", "shader": "Illum", "family": "illum",
             "flags": ["%TRANSMITTANCE", "%VERTCOLORS"] + (["%EMITTANCE_MAP"] if emission else []), "genMask": "",
@@ -74,15 +78,15 @@ class FlowSpecs(unittest.TestCase):
         spec = self.spec(record())
         self.assertEqual(spec["parent"], "surface translucent")
         self.assertEqual(spec["scalars"]["Opacity"], 0.3)
-        self.assertEqual(spec["vectors"]["UVPan"], [0.0375, -0.1875, 0.0, 0.0])
-        self.assertEqual(spec["vectors"]["UVTransform"], [0.75, 0.25, 0.0, 0.0])
+        self.assertEqual(spec["vectors"]["UVPan"], [0.05, -0.5625, 0.0, 0.0])
+        self.assertEqual(spec["vectors"]["UVTransform"], [1.0, 0.75, 0.0, 0.0])
 
     def test_emission_pan(self):
         mr.STAGES = ("m2", "m4", "flow")
         spec = self.spec(record(opacity=1.0, emission=True))   # an opaque body with a moving glow (the ghost intensity map)
         self.assertEqual(spec["parent"], "surface")
-        self.assertEqual(spec["vectors"]["EmissionPan"], [0.0, 0.0, 0.0, 0.75])   # 0.25 x tile 3
-        self.assertEqual(spec["vectors"]["UVPan"], [0.0375, -0.1875, 0.0, 0.0])
+        self.assertEqual(spec["vectors"]["EmissionPan"], [0.0, 0.0, 0.0, 0.25])   # 0.25 x tile 1
+        self.assertEqual(spec["vectors"]["UVPan"], [0.05, -0.5625, 0.0, 0.0])
 
     def test_gate(self):
         mr.STAGES = ("m2", "m4")
@@ -91,6 +95,22 @@ class FlowSpecs(unittest.TestCase):
         self.assertNotIn("UVPan", spec["vectors"])
         spec = self.spec(record(opacity=1.0, emission=True))
         self.assertNotIn("EmissionPan", spec["vectors"])
+
+
+    def test_tile_gate(self):
+        mr.STAGES = ("m2", "m4", "flow")
+        self.assertTrue(mr.flow_tested({"diffuse": {"uv": CLIFF_UV}}, False))
+        self.assertFalse(mr.flow_tested({"diffuse": {"uv": KIT_UV}}, False))                     # V tile 0.25 is not checked
+        self.assertTrue(mr.flow_tested({"diffuse": {"uv": {"tile": [0.1, 0.1]}}}, False))       # no scroll: no gate
+        self.assertTrue(mr.flow_tested({"diffuse": {"uv": CLIFF_UV}, "emittance": {"uv": KIT_UV}}, False))   # no emission drawn
+        self.assertFalse(mr.flow_tested({"diffuse": {"uv": CLIFF_UV}, "emittance": {"uv": KIT_UV}}, True))
+        self.assertEqual(mr.flow_of(record(uv=KIT_UV)), {})
+        spec = self.spec(record(uv=KIT_UV))
+        self.assertNotEqual(spec["parent"], "surface translucent")
+        self.assertNotIn("UVPan", spec["vectors"])
+        spec = self.spec(record(opacity=1.0, emission=True, intensity_tile=3.0))   # the scrolled intensity map has tile 3
+        self.assertNotIn("EmissionPan", spec["vectors"])
+        self.assertNotIn("UVPan", spec["vectors"])   # the gate takes the whole material
 
 
 if __name__ == "__main__":

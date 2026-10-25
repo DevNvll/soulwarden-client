@@ -126,6 +126,26 @@ def effect_parents() -> frozenset:
     return EFFECT_PARENTS | C8_PARENTS if C8 else EFFECT_PARENTS
 
 
+# Meshparticle with %REFRACTION (AST-290, the decision of the orchestrator 2026-10-25): the source draws these sub-materials as a
+# refraction of the scene behind (nearly invisible in the retail kit fall video); M_SwcMeshParticle has no refraction and draws a
+# near-opaque white sheet (the kit fall at 7817 6251: the twin fx_waterfall_subtle01 placement hid the flow sheet). A placement whose
+# override material has such a sub-material is left out until the client has a refraction material: fx_waterfall_subtle01,
+# fx_portalsphere01, fx_portalsphere02 (12 placements in 8 regions).
+REFRACTION_SHADERS = ("meshparticle",)
+
+
+@functools.lru_cache(maxsize=None)
+def refraction_override(mtl: str) -> bool:
+    """@return True for an override material with a REFRACTION_SHADERS sub-material that has the flag %REFRACTION."""
+    if not mtl:
+        return False
+    try:
+        return any(m.get("Shader", "").lower() in REFRACTION_SHADERS
+                   and "REFRACTION" in (m.get("StringGenMask", "") or "").upper().split("%") for m in materials.load_mtl(mtl)[1])
+    except Exception:
+        return False
+
+
 def fog_override(mtl: str) -> bool:
     """@return True for an override material of fog (FOG_MATERIAL_FOLDERS): a Geometryfog shader, or a GeometryBeam of the fog folders."""
     shaders = override_shaders(mtl)
@@ -204,12 +224,15 @@ def write(name: str) -> dict:
         proxy_material = np.array([shadow_proxy_file(m) for m in material_names], dtype=bool)
         state_objects = np.array([state_override(m) for m in material_names], dtype=bool)[material_all]
         keep &= ~state_objects
+        refraction = np.array([refraction_override(m) for m in material_names], dtype=bool)[material_all]
+        keep &= ~refraction
         shadow_proxies = proxy_mesh[data["mesh"]] | proxy_material[material_all]
         if not SHADOW_ONLY:
             keep &= ~shadow_proxies
     else:
         shadow_proxies = np.zeros(0, bool)
         state_objects = np.zeros(0, bool)
+        refraction = np.zeros(0, bool)
     pairs_path = overrides.out_dir() / "pairs.json"
     pairs = json.loads(pairs_path.read_text()) if pairs_path.is_file() else {}
 
@@ -371,6 +394,7 @@ def write(name: str) -> dict:
               "cells": len(cells), "components": groups, "file": str(path), "bytes": len(out),
               "left out (not imported, fog cards, fog volumes, no material)": int((~keep).sum()),
               "state objects left out (pvp pylons)": int(state_objects.sum()),
+              "refraction placements left out (Meshparticle %REFRACTION)": int(refraction.sum()),
               "shadow proxies left out": 0 if SHADOW_ONLY else int(shadow_proxies.sum()),
               "shadow proxies placed shadow-only": int(shadow_proxies.sum()) if SHADOW_ONLY else 0,
               "entries with no Nanite": sum(1 for m in used if entry_flags(*divmod(m // 2, 65536)) & FLAG_NO_NANITE),

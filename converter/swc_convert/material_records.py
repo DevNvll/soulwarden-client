@@ -380,6 +380,28 @@ def uv_pan(uv: dict | None) -> list[float]:
     return out
 
 
+# AST-290 (the decision of the orchestrator 2026-10-25, "b"): only the tilings that a retail video checked get the flow. The cliff fall
+# (jav_wld_waterfall_cliff_h, tile 0.75) agreed with the [P] speed within about 10 %; the kit fall (tile 0.25 and 0.1) did not give a
+# clean check (a Meshparticle twin sheet; research in work/look-1024/flow). A material whose scrolled slots (FLOW_ROLES) have a tile
+# outside FLOW_TILES on a scrolled axis keeps no flow (no UVPan, no EmissionPan, no translucent liquid) until a next retail check. The
+# emission slots count only for a material that draws its emission (render_rules "emittance").
+FLOW_TILES = (0.75, 1.0)
+FLOW_ROLES = ("diffuse", "emittance", "emittance intensity")
+
+
+def flow_tested(textures: dict, emission: bool) -> bool:
+    """@return True when each axis with a type 2 scroll of the slots FLOW_ROLES (textures by role; the emission slots only with
+    `emission`) has a tile in FLOW_TILES."""
+    low, high = FLOW_TILES
+    for role in FLOW_ROLES if emission else FLOW_ROLES[:1]:
+        uv = (textures.get(role) or {}).get("uv") or {}
+        mod, tile = uv.get("mod") or {}, uv.get("tile", [1.0, 1.0])
+        for i, axis in enumerate(("U", "V")):
+            if mod.get(f"TexMod_{axis}OscillatorType") == OSC_CONSTANT and not low <= float(tile[i]) <= high:
+                return False
+    return True
+
+
 def flow_of(record: dict) -> dict:
     """@return {"opacity": Opacity} for a flowing liquid (AST-290: the waterfalls, the fountain flows, the lava falls), else {}: an
     Illum record with Opacity < 1, no AlphaTest, and a type 2 scroll on its Diffuse slot. The source draws an Illum material with
@@ -393,6 +415,10 @@ def flow_of(record: dict) -> dict:
         return {}
     diffuse = record["textures"].get("Diffuse") or {}
     if not any(uv_pan(diffuse.get("uv"))):
+        return {}
+    emittance = light.get("Emittance")
+    emission = isinstance(emittance, list) and len(emittance) >= 4 and any(emittance[:3]) and bool(emittance[3])   # as render_rules
+    if not flow_tested({t.get("role"): t for t in record["textures"].values() if t.get("role")}, emission):
         return {}
     return {"opacity": opacity}
 
@@ -1109,7 +1135,7 @@ def surface_spec(rules: dict, use) -> dict:
     spec["vectors"]["DiffuseColor"] = rules["diffuse"] + [1.0]
     spec["vectors"]["SpecularColor"] = rules["specular"] + [1.0]
     spec["vectors"]["UVTransform"] = uv_transform(maps.get("diffuse", {}).get("uv"))
-    if "flow" in STAGES and any(uv_pan(maps.get("diffuse", {}).get("uv"))):
+    if "flow" in STAGES and any(uv_pan(maps.get("diffuse", {}).get("uv"))) and flow_tested(maps, bool(rules.get("emittance"))):
         # AST-290: the scroll of the base UV (the type 2 oscillators of the Diffuse slot; the surface parents add frac(Time x UVPan.rg)).
         spec["vectors"]["UVPan"] = uv_pan(maps["diffuse"]["uv"]) + [0.0, 0.0]
     spec["scalars"]["Smoothness"] = max(1 / 127, float(rules["shininess"]) / 255)
@@ -1308,7 +1334,7 @@ def m4(rules: dict, spec: dict, use) -> None:
     if "flow" in STAGES:
         # AST-290: the scroll of the emittance map and of the intensity map (the moving glow of the ghosts, the corrupted, the lava).
         pan = uv_pan(maps.get("emittance", {}).get("uv")) + uv_pan(maps.get("emittance intensity", {}).get("uv"))
-        if any(pan):
+        if any(pan) and flow_tested(maps, True):
             spec["vectors"]["EmissionPan"] = pan
     gamma = rules["params"].get("EmittanceMapGamma", 1.0)
     spec["vectors"]["EmittanceParams"] = [float(gamma[0] if isinstance(gamma, list) else gamma), 1.0 if has_map else 0.0,

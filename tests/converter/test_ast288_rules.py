@@ -183,6 +183,28 @@ class EntryNoNanite(unittest.TestCase):
         self.assertEqual(report["entries"], 2)
 
 
+class RefractionOverride(unittest.TestCase):
+    """AST-290: an override material with a Meshparticle sub-material that has %REFRACTION is left out (cells.refraction_override)."""
+
+    def test_flag(self):
+        subs = {"subtle.mtl": [{"Shader": "Meshparticle", "StringGenMask": "%REFRACTION"},
+                               {"Shader": "Meshparticle", "StringGenMask": "%DIFFUSE_MAP_3%DIFFUSE_MAP_4"}],
+                "use.mtl": [{"Shader": "Meshparticle", "StringGenMask": "%USE_REFRACTION"}],
+                "illum.mtl": [{"Shader": "Illum", "StringGenMask": "%REFRACTION"}]}
+        saved = cells.materials.load_mtl
+        cells.materials.load_mtl = lambda mtl: (None, subs[mtl])
+        cells.refraction_override.cache_clear()
+        try:
+            self.assertTrue(cells.refraction_override("subtle.mtl"))
+            self.assertFalse(cells.refraction_override("use.mtl"))     # another flag
+            self.assertFalse(cells.refraction_override("illum.mtl"))   # another shader
+            self.assertFalse(cells.refraction_override(""))
+            self.assertFalse(cells.refraction_override("missing.mtl"))  # does not decode
+        finally:
+            cells.materials.load_mtl = saved
+            cells.refraction_override.cache_clear()
+
+
 class CoverPlaceholders(unittest.TestCase):
     def test_left_out(self):
         self.assertTrue(cover.left_out("objects/nature/veg_grass/grass_forest/emptyspace/jav_fst_emptyspace_a.cgf"))
