@@ -666,3 +666,54 @@ def convert(name: str, area=None) -> dict:
 def placement_file(name: str, area=None) -> Path:
     region = Region(name)
     return region.out / ("placements.json" if area is None else "placements-%d-%d-%d.json" % tuple(int(v) for v in area))
+
+
+
+def slice_inactive(data: bytes) -> set[int]:
+    """@return The ids of the entities of a slice that start inactive: IsRuntimeActive 0 on the entity or on an entity above it
+    (the transform parent; an AchievementEvents group applies its activation to the children, research/beamsimple.md)."""
+    parents: dict[int, int | None] = {}
+    own: set[int] = set()
+    for e in source.walk(source.parse(data)[0]):
+        comps = e.child(COMPONENTS)
+        ident = entity_id(e)
+        if comps is None or not ident:
+            continue
+        for comp in comps.children:
+            if comp.type_id == nav_slices.TRANSFORM_TYPE:
+                parents[ident] = nav_slices.entity_id(comp.child(nav_slices.PARENT_FIELD))
+        if not runtime_active(e):
+            own.add(ident)
+    out = set()
+    for ident in set(parents) | own:
+        node, seen = ident, 0
+        while node is not None and seen < 64:
+            if node in own:
+                out.add(ident)
+                break
+            node, seen = parents.get(node), seen + 1
+    return out
+
+
+def write_inactive(name: str) -> dict:
+    """Writes regions/NAME/inactive.json: the ids of the slice entities of the region's placements (the "entity" of
+    placements.npz) that start inactive (slice_inactive: the entity or an entity above it). The cells use it for the state groups
+    (cells.BEAM_SIMPLE: the jump pad "on" disks, research/beamsimple.md). @return Counts."""
+    global slice_meshes
+    original = slice_meshes
+    found: set[int] = set()
+
+    def hooked(data, _original=original):
+        found.update(slice_inactive(data))
+        return _original(data)
+
+    slice_meshes = hooked
+    try:
+        items, _counts = Region(name).placements(None)
+    finally:
+        slice_meshes = original
+    ids = sorted({int(p.get("entity", 0)) for p in items} & found)
+    out = env.content_dir() / "regions" / name / "inactive.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"version": 1, "entities": ids}))
+    return {"region": name, "inactive entities with placements": len(ids), "file": str(out)}

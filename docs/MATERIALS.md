@@ -365,6 +365,19 @@ Illum sources of the world have an Opacity under 1 and no AlphaTest (many with O
   (19 liquids, 40 UVPan, 73 EmissionPan) as a patch of instances.json; 171 keys wait for a next retail check.
 - The source draws the liquid sheet brighter and smoother (the back light of %TRANSMITTANCE, the mist particles): open.
 
+### M_SwcBeamSimple, M_SwcFoliage 5, the blend layer UVs (prepared, not deployed; research beamsimple.md, foliage-specular-blend.md)
+
+- M_SwcBeamSimple (the stage label `beamsimple`; the jump pad disks, GeometryBeamSimple): `material_records.beam_simple_spec` from
+  `rules["fx"]` (kind "beam simple", not in the render key). Additive, Unlit, two sided, no scene fog. No view-angle fade and no water
+  fade; alpha = base alpha x (1 - exp2(-fadingFeaturing x B.a^2)); RawAdditive (the additive bit with Opacity below 1, the active
+  "up" pad) gives RGB, else RGB x alpha. The type 2 TexMod rotation (TexMod_WRotateAmplitude degrees each second). Limit: the shadow
+  samples of %RECEIVE_SHADOWS (H = 1). The state choice is in the cells (`cells.BEAM_SIMPLE`, docs/WORLD.md).
+- M_SwcFoliage 5: the leaf normal normalize(N0 + NormalViewDependency x V) for %LEAVES or %GRASS (default 0.5), F0 = Specular x
+  the luminance of SpecularMap (%SPECULAR_MAP), no vertex alpha on the specular, the roughness floor sqrt(0.001), the
+  TransmittanceColor default (1, 1, 0.6).
+- M_SwcSurface and M_SwcSurfaceMasked 13, M_SwcSurfaceTranslucent 12: the blend mask at UV0 x BlendMaskTiling; the layer 2 maps
+  at the Custom-slot transform of UV0 (`Layer2Transform`) x BlendLayer2Tiling (before: both on the layer-1 UV).
+
 ### Shadow proxies (AST-207)
 
 A sub-material that the game uses only to cast the shadow of its mesh (the "Shadow" sub-material 4 of the spruces:

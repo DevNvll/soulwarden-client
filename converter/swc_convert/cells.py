@@ -122,8 +122,9 @@ def unsupported_fx(mtl: str) -> bool:
 
 
 def effect_parents() -> frozenset:
-    """@return The override shaders that have a parent of the client (EFFECT_PARENTS; with C8 also C8_PARENTS)."""
-    return EFFECT_PARENTS | C8_PARENTS if C8 else EFFECT_PARENTS
+    """@return The override shaders that have a parent of the client (EFFECT_PARENTS; with C8 also C8_PARENTS; with BEAM_SIMPLE
+    also BEAM_SIMPLE_SHADERS)."""
+    return (EFFECT_PARENTS | (C8_PARENTS if C8 else frozenset())) | (BEAM_SIMPLE_SHADERS if BEAM_SIMPLE else frozenset())
 
 
 # Meshparticle with %REFRACTION (AST-290, the decision of the orchestrator 2026-10-25): the source draws these sub-materials as a
@@ -157,9 +158,32 @@ W5_LEFT_OUT = False
 NO_PARENT_EFFECT_SHADERS = frozenset({"geometryfog", "geometryfognovertalpha", "geometrybeamsimple"})
 
 
+# research/beamsimple.md (the decision of the orchestrator 2026-10-25: with W5 in the next cell rebuild): with BEAM_SIMPLE the
+# GeometryBeamSimple overrides (the jump pad disks) draw M_SwcBeamSimple; they leave the W5 set and count as a client parent. Each
+# jump pad has an "off" and an "on" group of disks; the slice saves the "on" group inactive (IsRuntimeActive 0), and an
+# AchievementEvents rule activates it with the status 17DW_FoolSightPotion. Thus a GeometryBeamSimple placement whose entity starts
+# inactive (regions/NAME/inactive.json, region.write_inactive) is left out: the default state "off" shows.
+BEAM_SIMPLE = False
+BEAM_SIMPLE_SHADERS = frozenset({"geometrybeamsimple"})
+
+
 def no_parent_effect(mtl: str) -> bool:
-    """@return True for an override material with a NO_PARENT_EFFECT_SHADERS sub-material."""
-    return bool(mtl) and bool(override_shaders(mtl) & NO_PARENT_EFFECT_SHADERS)
+    """@return True for an override material with a NO_PARENT_EFFECT_SHADERS sub-material (without GeometryBeamSimple when
+    BEAM_SIMPLE)."""
+    shaders = NO_PARENT_EFFECT_SHADERS - BEAM_SIMPLE_SHADERS if BEAM_SIMPLE else NO_PARENT_EFFECT_SHADERS
+    return bool(mtl) and bool(override_shaders(mtl) & shaders)
+
+
+def beam_simple_override(mtl: str) -> bool:
+    """@return True for an override material with a GeometryBeamSimple sub-material."""
+    return bool(mtl) and bool(override_shaders(mtl) & BEAM_SIMPLE_SHADERS)
+
+
+def inactive_entities(name: str) -> np.ndarray:
+    """@return The ids of the entities that start inactive in a region (regions/NAME/inactive.json; uint64). BEAM_SIMPLE needs
+    the file: a cell write with no file stops (run region.write_inactive first)."""
+    path = env.content_dir() / "regions" / name / "inactive.json"
+    return np.array(json.loads(path.read_text())["entities"], dtype=np.uint64)
 
 
 def fog_override(mtl: str) -> bool:
@@ -244,6 +268,12 @@ def write(name: str) -> dict:
         keep &= ~refraction
         no_parent = np.array([W5_LEFT_OUT and no_parent_effect(m) for m in material_names], dtype=bool)[material_all] & keep
         keep &= ~no_parent
+        beam_state = np.zeros(len(keep), bool)
+        if BEAM_SIMPLE:
+            simple = np.array([beam_simple_override(m) for m in material_names], dtype=bool)[material_all]
+            if simple.any():
+                beam_state = simple & np.isin(data["entity"], inactive_entities(name)) & keep
+                keep &= ~beam_state
         shadow_proxies = proxy_mesh[data["mesh"]] | proxy_material[material_all]
         if not SHADOW_ONLY:
             keep &= ~shadow_proxies
@@ -252,6 +282,7 @@ def write(name: str) -> dict:
         state_objects = np.zeros(0, bool)
         refraction = np.zeros(0, bool)
         no_parent = np.zeros(0, bool)
+        beam_state = np.zeros(0, bool)
     pairs_path = overrides.out_dir() / "pairs.json"
     pairs = json.loads(pairs_path.read_text()) if pairs_path.is_file() else {}
 
@@ -415,6 +446,7 @@ def write(name: str) -> dict:
               "state objects left out (pvp pylons)": int(state_objects.sum()),
               "refraction placements left out (Meshparticle %REFRACTION)": int(refraction.sum()),
               "effect placements left out (no client parent, W5)": int(no_parent.sum()),
+              "jump pad disks left out (inactive state group, BEAM_SIMPLE)": int(beam_state.sum()),
               "shadow proxies left out": 0 if SHADOW_ONLY else int(shadow_proxies.sum()),
               "shadow proxies placed shadow-only": int(shadow_proxies.sum()) if SHADOW_ONLY else 0,
               "entries with no Nanite": sum(1 for m in used if entry_flags(*divmod(m // 2, 65536)) & FLAG_NO_NANITE),

@@ -446,6 +446,10 @@ the places of interest with the census tops) found these classes. The counts are
   drew a near-opaque white sheet). AST-288 W5, prepared with the switch `cells.W5_LEFT_OUT` off (for the next cell rebuild): the
   overrides with GeometryFogNoVertAlpha, GeometryBeamSimple, or Geometryfog on any mesh (352 placements in 22 regions: the pirate
   ropes, the crafting ghost previews, the jump pad disks, the cave beams; own retail shaders with no client parent).
+  `cells.BEAM_SIMPLE` (prepared, off; with W5): the jump pad disks draw M_SwcBeamSimple and leave the W5 set; a disk whose entity
+  starts inactive is left out (`regions/NAME/inactive.json` from `region.write_inactive`: IsRuntimeActive 0 on the entity or on an
+  entity above it). Each pad has an "off" and an "on" group; the slice saves the "on" group inactive, and the status
+  17DW_FoolSightPotion activates it, so the "off" disks show (r_+01_+02: 34 "on" disks inactive, 36 "off" disks active).
 - C10a, a material path from the root of the game files (a leading "/", `materials.load_mtl`): 4 LOD meshes that the level places
   directly (64 placements: jav_fst_deadstickbush_a_lod1 and others) had no material and drew white.
 - Not drawn on purpose (each with its reason in the AST-275 report): the other server spawns (world event states, siege, season,

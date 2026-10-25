@@ -98,12 +98,12 @@ PARAMS = {
 # C8 (AST-275): the effect shaders Fxmeshadvancedtransp and Meshparticle (research/ast275-effect-shaders.md). Their rules go to
 # rules["fx"] (_rules), which render_key leaves out: the render keys and the n_ instance names (the slot names of the converted
 # meshes) of these records do not change. The stage "c8" gates their specs (fxmesh_spec, meshparticle_spec).
-FX_SHADERS = {"fxmeshadvancedtransp": "fxmesh", "meshparticle": "meshparticle"}
+FX_SHADERS = {"fxmeshadvancedtransp": "fxmesh", "meshparticle": "meshparticle", "geometrybeamsimple": "beam simple"}
 FX_FLAGS = {"%USE_SDF_2D", "%USE_GLOW_FRESNEL", "%USE_OUTSIDE_FRESNEL_ALPHA", "%USE_INSIDE_FRESNEL_ALPHA",
             "%USE_INTERSECTION_FADE", "%USE_INTERSECTION_GLOW", "%USE_PALETTE_MAP", "%USE_COMPLEX_COL",
             "%USE_COMPLEX_COL_OVERLAY", "%USE_COMPLEX_COL_DODGE", "%USE_PROC_GRADS", "%VERT_DEFORM_SINWAVE", "%VERTCOLORS",
             "%APPLY_SUN_COLOR", "%ENABLE_FADEOUT", "%DIFFUSE_MAP_2", "%DIFFUSE_MAP_3", "%DIFFUSE_MAP_4", "%USE_REFRACTION",
-            "%FX_DISSOLVE"}
+            "%FX_DISSOLVE", "%NOISE", "%RECEIVE_SHADOWS"}
 # The shader defaults of the public parameters (study section 3: FX parent core, FX scope extensions, Meshparticle parent).
 FX_DEFAULTS = {
     "fxmesh": {"GlobalColorFalloff": 1.0, "GlobalAlphaStrength": 1.0, "GlobalAlphaFill": 1.0, "GlobalAlphaFalloff": 1.0,
@@ -120,9 +120,16 @@ FX_DEFAULTS = {
                "PALETTE_SOURCE_BLEND": 0.0, "COMPLEX_COL_TILE": 1.0},
     "meshparticle": {"FadeOutDistance": 0.2, "AmbStrength": 1.0, "Brightness": 1.0, "SunColorInfluence": 0.5,
                      "SoftIntersectionFactor": 1.0, "fadingFeaturing": 0.55, "viewDependencyFactor": 2.0},
+    # GeometryBeamSimple (research/beamsimple.md, the shader defaults [R]).
+    "beam simple": {"FinalMultiplier": 1.0, "SoftIntersectionFactor": 1.0, "StartColor": [1.0, 1.0, 1.0, 1.0],
+                    "EndColor": [1.0, 1.0, 1.0, 0.0], "fadingFeaturing": 0.55, "AmbStrength": 0.12, "baseUVScale": 1.0,
+                    "dustUVScale": 0.6, "dustTimeScale": 1.0, "turbStrength": 1.0, "turbRatio": 0.55, "uvRot": 0.0,
+                    "BackgroudAlphaNoiseSpeedX": 0.1, "BackgroudAlphaNoiseSpeedY": 0.05, "BackgroudAlphaNoiseSpeedZ": 0.15,
+                    "VolumetricScale": 0.7},
 }
 FX_SLOTS = {"fxmesh": {"Custom": "source", "Heightmap": "sdf", "Detail": "palette", "Specular": "complex"},
-            "meshparticle": {"Diffuse": "diffuse", "Custom": "diffuse2", "Emittance": "layer mask"}}
+            "meshparticle": {"Diffuse": "diffuse", "Custom": "diffuse2", "Emittance": "layer mask"},
+            "beam simple": {"Diffuse": "base", "Bumpmap": "turbulence", "Specular": "dust"}}
 
 # Color spaces of the sampler roles (research section 3, "sRGB rules"): srgb = sRGB RGB and linear alpha; normal = the
 # normal map compression; linear = data; file = the color space of the file (the emission maps, AST-207; the detail).
@@ -1045,7 +1052,10 @@ def spec_of(rules: dict, legacy: dict, textures: dict) -> dict | None:
         textures[record["asset"]] = {k: v for k, v in record.items() if k != "asset"}
         return record["asset"]
 
-    if "fx" in rules and "c8" in STAGES:
+    if "fx" in rules and rules["fx"]["kind"] == "beam simple":
+        if "beamsimple" in STAGES:
+            return beam_simple_spec(rules, use)
+    elif "fx" in rules and "c8" in STAGES:
         return fxmesh_spec(rules, use) if rules["fx"]["kind"] == "fxmesh" else meshparticle_spec(rules, use)
     if rules["family"] == "glass" and "glass" in STAGES:
         return glass_spec(rules, use)
@@ -1472,6 +1482,59 @@ def beam_spec(rules: dict, use) -> dict:
 
 
 FX_ADDITIVE = 0x4   # the additive bit of MtlFlags (study section 1, "Blend, culling, fog, and emission units")
+
+
+def beam_simple_spec(rules: dict, use) -> dict:
+    """@return The spec of a GeometryBeamSimple material (research/beamsimple.md; swc_materials.beam_simple_parent, stage
+    "beamsimple"): the base map (Diffuse, sRGB), with %NOISE the dust map (Specular, sRGB; none: white) and the turbulence color
+    (Bumpmap, raw data), the XML Diffuse and Opacity, the public parameters (FX_DEFAULTS["beam simple"] for a missing one), the
+    type 2 TexMod rotation of the Diffuse slot (Rotate: degrees each second = TexMod_WRotateAmplitude, the centre), and the blend
+    (RawAdditive: the additive bit of MtlFlags with Opacity below 1 gives ONE, ONE; else SRC_ALPHA, ONE). Limits: the shadow
+    samples of %RECEIVE_SHADOWS (H = 1), a TexMod rotation of another type, the U and V oscillators."""
+    fx = rules["fx"]
+    params, flags = fx["params"], set(fx["flags"])
+
+    def v(name):
+        value = params.get(name, FX_DEFAULTS["beam simple"][name])
+        if isinstance(FX_DEFAULTS["beam simple"][name], list):
+            value = list(value) if isinstance(value, list) else [float(value)] * 3
+            return [float(x) for x in (value + [1.0, 1.0, 1.0, 1.0])[:4]]
+        return float(value[0] if isinstance(value, list) else value)
+
+    opacity = float(fx["opacity"])
+    noise = "%NOISE" in flags
+    spec = {"parent": "beam simple", "textures": {}, "vectors": {}, "scalars": {}, "switches": {}, "two sided": True}
+    if "base" in fx["textures"]:
+        spec["textures"]["BaseColor"] = use(color_texture(fx["textures"]["base"]["product"], "base"))
+    if noise and "dust" in fx["textures"]:
+        spec["textures"]["Dust"] = use(color_texture(fx["textures"]["dust"]["product"], "base"))
+    if noise and "turbulence" in fx["textures"]:
+        product = fx["textures"]["turbulence"]["product"]
+        spec["textures"]["Turbulence"] = use(data_texture(product, decode=file_srgb(product)))
+    limits = ["%RECEIVE_SHADOWS: the shadow term is 1"] if "%RECEIVE_SHADOWS" in flags else []
+    mod = (fx["textures"].get("base", {}).get("uv") or {}).get("mod", {})
+    rotate = [0.0, 0.5, 0.5, 0.0]
+    if mod.get("TexMod_RotateType") == 2:
+        rotate = [float(mod.get("TexMod_WRotateAmplitude", 0.0)), float(mod.get("TexMod_URotateCenter", 0.5)),
+                  float(mod.get("TexMod_VRotateCenter", 0.5)), 0.0]
+    elif mod.get("TexMod_RotateType"):
+        limits.append(f"TexMod rotation type {mod.get('TexMod_RotateType')}")
+    if any(mod.get(f"TexMod_{axis}OscillatorType") for axis in "UV"):
+        limits.append("TexMod U or V oscillator")
+    spec["vectors"]["Rotate"] = rotate
+    spec["vectors"]["DiffuseColor"] = [float(x) for x in rules["diffuse"]] + [opacity]
+    spec["vectors"]["StartColor"] = v("StartColor")
+    spec["vectors"]["EndColor"] = v("EndColor")
+    spec["vectors"]["NoiseSpeed"] = [v("BackgroudAlphaNoiseSpeedX"), v("BackgroudAlphaNoiseSpeedY"),
+                                     v("BackgroudAlphaNoiseSpeedZ"), 0.0]
+    for name in ("FinalMultiplier", "SoftIntersectionFactor", "fadingFeaturing", "AmbStrength", "baseUVScale", "dustUVScale",
+                 "dustTimeScale", "turbStrength", "turbRatio", "uvRot"):
+        spec["scalars"][name] = v(name)
+    spec["scalars"]["Noise"] = 1.0 if noise else 0.0
+    spec["scalars"]["RawAdditive"] = 1.0 if (fx["mtlFlags"] & FX_ADDITIVE and opacity < 1.0) else 0.0
+    if limits:
+        spec["limits"] = limits
+    return spec
 
 
 def fxmesh_spec(rules: dict, use) -> dict:

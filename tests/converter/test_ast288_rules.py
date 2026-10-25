@@ -226,6 +226,55 @@ class NoParentEffect(unittest.TestCase):
             cells.override_shaders = saved
 
 
+class BeamSimpleState(unittest.TestCase):
+    """research/beamsimple.md: with cells.BEAM_SIMPLE a GeometryBeamSimple placement whose entity starts inactive (the "on" group
+    of a jump pad, regions/NAME/inactive.json) is left out; the "off" disk stays (no W5 left-out for GeometryBeamSimple)."""
+    DISK = "objects/vfx/solids/vfx_disk_01.cgf"
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        root = Path(self.folder.name)
+        self.saved = (os.environ.get("SWC_CONTENT"), cells.override_shaders, cells.BEAM_SIMPLE, cells.W5_LEFT_OUT)
+        os.environ["SWC_CONTENT"] = str(root)
+        (root / "manifest.json").write_text(json.dumps({"format": 2, "assets": {
+            self.DISK: {"kind": "static", "materials": ["m_0000000009"], "version": 7}}}))
+        overrides.out_dir().mkdir(parents=True, exist_ok=True)
+        (overrides.out_dir() / "pairs.json").write_text("{}")
+        matrix = np.zeros((2, 3, 4))
+        matrix[:, :, :3] = np.eye(3)
+        matrix[:, :, 3] = [[10.0, 10.0, 50.0], [10.0, 10.0, 50.0]]
+        region = root / "regions" / REGION
+        region.mkdir(parents=True)
+        pads = ["", "materials/vfx/jumppads/vfx_jumppad_up_01.mtl", "materials/vfx/jumppads/vfx_jumppad_up_01_off.mtl"]
+        np.savez(region / "placements.npz", meshes=np.array([self.DISK]), mesh=np.zeros(2, np.uint32),
+                 source=np.zeros(2, np.uint8), matrix=matrix, sources=np.array(["chunk"]), materials=np.array(pads),
+                 material=np.array([1, 2], np.uint16), wind=np.zeros(2, bool),
+                 entity=np.array([39635764685650, 39571340176210], np.uint64))   # the "on" and the "off" disk of the study
+        (region / "inactive.json").write_text(json.dumps({"version": 1, "entities": [39635764685650]}))
+        cells.override_shaders = lambda mtl: frozenset({"geometrybeamsimple"})
+
+    def tearDown(self):
+        content, cells.override_shaders, cells.BEAM_SIMPLE, cells.W5_LEFT_OUT = self.saved
+        if content is None:
+            os.environ.pop("SWC_CONTENT", None)
+        else:
+            os.environ["SWC_CONTENT"] = content
+        self.folder.cleanup()
+
+    def test_off_state(self):
+        cells.BEAM_SIMPLE, cells.W5_LEFT_OUT = True, True
+        report = cells.write(REGION)
+        self.assertEqual(report["jump pad disks left out (inactive state group, BEAM_SIMPLE)"], 1)
+        self.assertEqual(report["effect placements left out (no client parent, W5)"], 0)
+        self.assertEqual(report["instances"], 1)   # the "off" disk
+
+    def test_w5_without_beam_simple(self):
+        cells.BEAM_SIMPLE, cells.W5_LEFT_OUT = False, True
+        report = cells.write(REGION)
+        self.assertEqual(report["effect placements left out (no client parent, W5)"], 2)
+        self.assertEqual(report["instances"], 0)
+
+
 class CoverPlaceholders(unittest.TestCase):
     def test_left_out(self):
         self.assertTrue(cover.left_out("objects/nature/veg_grass/grass_forest/emptyspace/jav_fst_emptyspace_a.cgf"))

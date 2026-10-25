@@ -25,7 +25,8 @@ BASE = ROOT + "/Base"
 PARENT_VERSIONS = {"M_SwcFoliage": "5", "M_SwcSurface": "13", "M_SwcSurfaceMasked": "13", "M_SwcDecal": "8",
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
                    "M_SwcSurfaceTranslucent": "12", "M_SwcHair": "7",
-                   "M_SwcFxMesh": "2", "M_SwcFxMeshAdd": "2", "M_SwcMeshParticle": "1"}   # the rule of each parent
+                   "M_SwcFxMesh": "2", "M_SwcFxMeshAdd": "2", "M_SwcMeshParticle": "1",
+                   "M_SwcBeamSimple": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
 # 7: the UV transforms of the emittance and intensity maps (AST-207); 8: the sRGB emission files on Color samplers;
@@ -59,7 +60,7 @@ PARENT_VERSIONS = {"M_SwcFoliage": "5", "M_SwcSurface": "13", "M_SwcSurfaceMaske
 PARENT_NAMES = {"foliage": "M_SwcFoliage", "surface": "M_SwcSurface", "surface masked": "M_SwcSurfaceMasked",
                 "surface translucent": "M_SwcSurfaceTranslucent", "decal": "M_SwcDecal", "glass": "M_SwcGlass",
                 "beam": "M_SwcBeam", "hair": "M_SwcHair", "fxmesh": "M_SwcFxMesh", "fxmesh additive": "M_SwcFxMeshAdd",
-                "meshparticle": "M_SwcMeshParticle"}
+                "meshparticle": "M_SwcMeshParticle", "beam simple": "M_SwcBeamSimple"}
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
 
 assets = unreal.EditorAssetLibrary
@@ -1421,6 +1422,131 @@ def beam_parent(content, state):
     return material
 
 
+# M_SwcBeamSimple (research/beamsimple.md): the GeometryBeamSimple shader of the jump pad disks, a Simple branch of the beam shader.
+# The vertex part: B = FinalMultiplier x the vertex RGBA x (Diffuse, Opacity); B.rgb x= lerp(StartColor, EndColor, saturate(UV0.x))
+# (no view-angle fade, no gradient alpha).
+BEAM_SIMPLE_VS_HLSL = """float4 B = FM * float4(VC, VA) * DC;
+B.rgb *= lerp(SC.rgb, EC.rgb, saturate(UV.x));
+return B;"""
+# The shared UV: UV0 turned by uvRot turns about zero, then the type 2 TexMod rotation of the Diffuse slot about its centre
+# (R: the speed in degrees each second = TexMod_WRotateAmplitude, the centre u, v; the retail CPU rule).
+BEAM_SIMPLE_UV_HLSL = """float a = UR * 6.2831853;
+float2 r = float2(UV.x * cos(a) - UV.y * sin(a), UV.y * cos(a) + UV.x * sin(a));
+float t = T * R.x * 0.017453293;
+float2 c = r - R.yz;
+return float2(c.x * cos(t) - c.y * sin(t), c.y * cos(t) + c.x * sin(t)) + R.yz;"""
+# The color (the Simple BeamPS): F = min(saturate(s x min(zs - z, z)), saturate(s x (z - zn))) in source metres (no water term);
+# A = P.a x (1 - exp2(-fadingFeaturing x B.a^2)); RGB = P.rgb x B.rgb x J x F x (H + AmbStrength) x f. With %NOISE (N > 0.5):
+# f = saturate(2 noise - 0.25), J = lerp(dust, T x 0.5 (T.r T.g + T.b), turbRatio); else J = 1, f = 1. H = 1: the shadow samples
+# of %RECEIVE_SHADOWS are not in the parent (a limit of the active "up" pad). The blend: RGB x A (SRC_ALPHA, ONE), or RGB with
+# RawAdditive (an additive material with Opacity below 1: ONE, ONE), in source units x EmissiveScale x BeamScale. No scene fog.
+BEAM_SIMPLE_PS_HLSL = """float z = PD * 0.01;
+float zs = SD * 0.01;
+float F = min(saturate(SI * min(zs - z, z)), saturate(SI * (z - ZN)));
+float3 J = float3(1.0, 1.0, 1.0);
+float n = 1.0;
+if (N > 0.5) {
+  float3 t = Turb.rgb;
+  t *= 0.5 * (t.r * t.g + t.b);
+  J = lerp(Dust.rgb, t, TR);
+  n = saturate(f);
+}
+float3 rgb = Base.rgb * B.rgb * J * F * (1.0 + AMB) * n;
+float a = saturate(Base.a * (1.0 - exp2(-FF * B.a * B.a)));
+return float4(max(rgb, 0.0) * (RA > 0.5 ? 1.0 : a) * Scale * BS, a);"""
+
+
+def beam_simple_parent(content, state):
+    """@return M_SwcBeamSimple (research/beamsimple.md "The rule for the client"): Additive, Unlit, two sided, the depth test on, no
+    depth write, no scene fog (use_translucency_vertex_fog off; the background keeps its fog); BEAM_SIMPLE_VS_HLSL in the vertex
+    shader, BEAM_SIMPLE_PS_HLSL in the pixel shader; the noise coordinate and the Noise3D sample of M_SwcBeam."""
+    name = "M_SwcBeamSimple"
+    material, _white = parent_asset(name, content, state)
+    if material is None:
+        return assets.load_asset(f"{BASE}/{name}")
+    st = unreal.MaterialSamplerType
+    white_color = unreal.load_asset("/Engine/EngineResources/WhiteSquareTexture")
+    cf = unreal.CustomMaterialOutputType
+    coords = node(material, unreal.MaterialExpressionTextureCoordinate, -2400, 0)
+    vertex = node(material, unreal.MaterialExpressionVertexColor, -2400, -600)
+    diffuse = vector(material, "DiffuseColor", (1.0, 1.0, 1.0, 1.0), -2400, -150)
+    start = vector(material, "StartColor", (1.0, 1.0, 1.0, 1.0), -2400, 0)
+    end = vector(material, "EndColor", (1.0, 1.0, 1.0, 0.0), -2400, 150)
+    final = scalar(material, "FinalMultiplier", 1.0, -2400, 300)
+    vs = custom(material, BEAM_SIMPLE_VS_HLSL, cf.CMOT_FLOAT4, ("VC", "VA", "UV", "DC", "SC", "EC", "FM"), -2000, -300)
+    for pin, (source, out) in {"VC": (vertex, ""), "VA": (vertex, "A"), "UV": (coords, ""), "DC": (diffuse, "RGBA"),
+                               "SC": (start, "RGBA"), "EC": (end, "RGBA"), "FM": (final, "")}.items():
+        editing.connect_material_expressions(source, out, vs, pin)
+    b = node(material, unreal.MaterialExpressionVertexInterpolator, -1800, -300)
+    editing.connect_material_expressions(vs, "", b, "VS")
+    local = node(material, unreal.MaterialExpressionPreSkinnedPosition, -2400, 850)
+    time = node(material, unreal.MaterialExpressionTime, -2400, 950)
+    speed = vector(material, "NoiseSpeed", (0.1, 0.05, 0.15, 0.0), -2400, 1050)
+    noise_vs = custom(material, BEAM_NOISE_VS_HLSL, cf.CMOT_FLOAT3, ("LP", "T", "S"), -2000, 900)
+    editing.connect_material_expressions(local, "", noise_vs, "LP")
+    editing.connect_material_expressions(time, "", noise_vs, "T")
+    editing.connect_material_expressions(speed, "RGB", noise_vs, "S")
+    nr = node(material, unreal.MaterialExpressionVertexInterpolator, -1800, 900)
+    editing.connect_material_expressions(noise_vs, "", nr, "VS")
+    noise_object = node(material, unreal.MaterialExpressionTextureObject, -1800, 1100)
+    noise_object.set_editor_property("texture", noise_texture(content, state))
+    f = custom(material, BEAM_NOISE_HLSL, cf.CMOT_FLOAT1, ("Tex", "NR"), -1500, 1000)
+    editing.connect_material_expressions(noise_object, "", f, "Tex")
+    editing.connect_material_expressions(nr, "", f, "NR")
+    rotate = vector(material, "Rotate", (0.0, 0.5, 0.5, 0.0), -1800, 1250)
+    base_uv = custom(material, BEAM_SIMPLE_UV_HLSL, cf.CMOT_FLOAT2, ("UV", "UR", "R", "T"), -1500, 1250)
+    for pin, (source, out) in {"UV": (coords, ""), "UR": (scalar(material, "uvRot", 0.0, -1800, 1400), ""),
+                               "R": (rotate, "RGBA"), "T": (time, "")}.items():
+        editing.connect_material_expressions(source, out, base_uv, pin)
+    base_scaled = multiply(material, (base_uv, ""), (scalar(material, "baseUVScale", 1.0, -1800, 1500), ""), -1350, 1350)
+    dust_uv = custom(material, BEAM_DUST_UV_HLSL, cf.CMOT_FLOAT2, ("U", "DS", "DT", "NR"), -1500, 1550)
+    for pin, source in {"U": base_uv, "DS": scalar(material, "dustUVScale", 0.6, -1800, 1650),
+                        "DT": scalar(material, "dustTimeScale", 1.0, -1800, 1750), "NR": nr}.items():
+        editing.connect_material_expressions(source, "", dust_uv, pin)
+    turb_uv = custom(material, BEAM_TURB_UV_HLSL, cf.CMOT_FLOAT2, ("f", "TS"), -1500, 1850)
+    editing.connect_material_expressions(f, "", turb_uv, "f")
+    editing.connect_material_expressions(scalar(material, "turbStrength", 1.0, -1800, 1850), "", turb_uv, "TS")
+    base = sampler(material, "BaseColor", st.SAMPLERTYPE_COLOR, white_color, -1200, 1250)
+    editing.connect_material_expressions(base_scaled, "", base, "UVs")
+    dust = sampler(material, "Dust", st.SAMPLERTYPE_COLOR, white_color, -1200, 1550)
+    editing.connect_material_expressions(dust_uv, "", dust, "UVs")
+    # The turbulence color: the raw signed BC5 R and G of the Bumpmap (B zero), not a normal; no map: black (as M_SwcBeam).
+    turb = sampler(material, "Turbulence", st.SAMPLERTYPE_MASKS, black_data(content, state), -1200, 1850)
+    editing.connect_material_expressions(turb_uv, "", turb, "UVs")
+    effects = effects_collection(content, state)
+    scale = node(material, unreal.MaterialExpressionCollectionParameter, -1200, 2750)
+    scale.set_editor_property("collection", collection(content, state))
+    scale.set_editor_property("parameter_name", "EmissiveScale")
+    beam_scale = node(material, unreal.MaterialExpressionCollectionParameter, -1200, 2850)
+    beam_scale.set_editor_property("collection", effects)
+    beam_scale.set_editor_property("parameter_name", "BeamScale")
+    pins = {"BS": (beam_scale, ""), "Scale": (scale, ""), "B": (b, ""), "Base": (base, "RGBA"), "Dust": (dust, "RGBA"),
+            "Turb": (turb, "RGBA"), "f": (f, ""),
+            "PD": (node(material, unreal.MaterialExpressionPixelDepth, -1200, 2100), ""),
+            "SD": (node(material, unreal.MaterialExpressionSceneDepth, -1200, 2200), "")}
+    for i, (pin, parameter, default) in enumerate((
+            ("SI", "SoftIntersectionFactor", 1.0), ("ZN", "NearClip", 0.1), ("TR", "turbRatio", 0.55),
+            ("AMB", "AmbStrength", 0.12), ("FF", "fadingFeaturing", 0.55), ("N", "Noise", 0.0), ("RA", "RawAdditive", 0.0))):
+        pins[pin] = (scalar(material, parameter, default, -1600, 2100 + 100 * i), "")
+    color = custom(material, BEAM_SIMPLE_PS_HLSL, cf.CMOT_FLOAT4, tuple(pins), -700, 1500)
+    for pin, (source, out) in pins.items():
+        editing.connect_material_expressions(source, out, color, pin)
+    emissive = mask(material, color, "", "rgb", -400, 1500)
+    editing.connect_material_property(emissive, "", MP.MP_EMISSIVE_COLOR)
+    one = node(material, unreal.MaterialExpressionConstant, -400, 1650)
+    one.set_editor_property("r", 1.0)
+    editing.connect_material_property(one, "", MP.MP_OPACITY)
+    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_ADDITIVE)
+    material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+    material.set_editor_property("two_sided", True)
+    material.set_editor_property("use_translucency_vertex_fog", False)
+    material.set_editor_property("used_with_instanced_static_meshes", True)
+    editing.recompile_material(material)
+    assets.save_loaded_asset(material)
+    state["base:" + name] = PARENT_VERSIONS[name]
+    return material
+
+
 # C8 (AST-275): the parents of the effect shaders Fxmeshadvancedtransp and Meshparticle (research/ast275-effect-shaders.md, sections 1
 # to 3). Unlit, two sided, translucent (no depth write, the depth test on), the translucency fog of the client once. The emissive is
 # the source-unit color x EmissiveScale (FX) or x EmissiveScale x BeamScale (Meshparticle); the opacity is the alpha (not baked in).
@@ -2068,6 +2194,8 @@ def make_parents(wanted, content, state):
         parents["glass"] = glass_parent(content, state)
     if "beam" in wanted:
         parents["beam"] = beam_parent(content, state)
+    if "beam simple" in wanted:
+        parents["beam simple"] = beam_simple_parent(content, state)
     if "hair" in wanted:
         parents["hair"] = hair_parent(content, state)
     if "fxmesh" in wanted:

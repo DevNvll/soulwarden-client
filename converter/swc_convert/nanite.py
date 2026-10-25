@@ -24,8 +24,8 @@ from pathlib import Path
 from . import census, env, manifest
 
 # The parents of swc_materials that are not opaque or masked (PARENT_NAMES; "legacy translucent": the stage 1.2 base parent).
-TRANSLUCENT_PARENTS = frozenset({"beam", "fxmesh", "fxmesh additive", "meshparticle", "glass", "surface translucent",
-                                 "legacy translucent"})
+TRANSLUCENT_PARENTS = frozenset({"beam", "beam simple", "fxmesh", "fxmesh additive", "meshparticle", "glass",
+                                 "surface translucent", "legacy translucent"})
 NO_NANITE_STAMP = ":no-nanite"
 SPEC_FILES = ("materials/instances-candidate.json", "decals/instances.json", "materials/instances.json")   # the last one wins
 MAJORITY = 0.5
