@@ -1272,6 +1272,7 @@ void test_skills() {
 void test_conversation() {
     std::printf("the conversation (stage P4.8)\n");
     using swc::interact::Conversation;
+    using swc::interact::TalkGuard;
     using swc::interact::Use;
     // OpenConversation of the interaction data (option 17): action 63, committed, no Delay Time, hold 0.5 s.
     swc::interact::Option talkOption;
@@ -1344,6 +1345,43 @@ void test_conversation() {
         expect(!talk.take().endCutscene, "a close after the end sends nothing");
         talk.update(1);
         expect(!talk.locked(), "the answer 6709 frees the input");
+    }
+    // The guards of the Talk (AST-287, the Tour Board of the user test 2026-10-24): no screen for 2 s ends the conversation; no answer
+    // 6709 for 5 s frees the input.
+    {
+        Use use;
+        Conversation talk;
+        TalkGuard guard;
+        expect(start(use, talk, 2), "a conversation opens (the guard)");
+        expect(guard.step(talk, false, 10.0) == TalkGuard::Action::none, "the guard: the open, no screen yet: no action");
+        expect(guard.step(talk, false, 11.9) == TalkGuard::Action::none, "the guard: no screen for 1.9 s: no action");
+        expect(guard.step(talk, false, 12.0) == TalkGuard::Action::endNoScreen, "the guard: no screen for 2.0 s: the end");
+        expect(guard.step(talk, false, 13.0) == TalkGuard::Action::none, "the guard: the end only one time");
+        talk.player_close();
+        use.finish();
+        expect(talk.take().endCutscene && use.take().cancel, "the end of the guard: 6705 and 2473");
+        talk.update(2);
+        expect(guard.step(talk, false, 13.0) == TalkGuard::Action::none && talk.locked(), "the guard: the close, the wait for 6709");
+        expect(guard.step(talk, false, 17.9) == TalkGuard::Action::none, "the guard: no answer for 4.9 s: no action");
+        expect(guard.step(talk, false, 18.0) == TalkGuard::Action::freeNoAnswer, "the guard: no answer for 5.0 s: free the input");
+        talk.give_up();
+        expect(!talk.locked() && !talk.take().endCutscene, "give_up frees the input with no message");
+    }
+    {
+        Use use;
+        Conversation talk;
+        TalkGuard guard;
+        expect(start(use, talk, 0), "a conversation with its screen opens (the guard)");
+        bool any = false;
+        for (double t = 0.0; t <= 30.0; t += 0.5) {
+            any = any || guard.step(talk, true, t) != TalkGuard::Action::none;
+        }
+        expect(!any, "the guard: a conversation with its screen for 30 s: no action");
+        expect(guard.step(talk, false, 31.0) == TalkGuard::Action::none && guard.step(talk, false, 32.0) == TalkGuard::Action::endNoScreen,
+               "the guard: the screen goes away and does not come back for 2 s: the end");
+        talk.player_close();
+        talk.update(1);
+        expect(guard.step(talk, false, 32.1) == TalkGuard::Action::none && !talk.locked(), "the guard: the answer 6709 in time: no action");
     }
     // The commander of Oxboro (0407a_Commander, yaw 205 degrees): the preset NSL_FAC_MED_SNGL_LA, origin (0.5, 2.3, 0.5) in her frame;
     // the live camera of the retail client at 8836.71 4243.79 137.04 (the height of the live camera has the ground of the run).

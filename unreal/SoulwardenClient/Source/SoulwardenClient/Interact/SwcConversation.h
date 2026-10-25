@@ -64,6 +64,8 @@ public:
     void server_ended();
     /** The count of the answers 6709 of the session (each frame): an answer after the 6705 ends the lock. */
     void update(std::uint32_t lockEnds);
+    /** No answer 6709 came after the 6705 (TalkGuard): the client frees the input itself. */
+    void give_up();
 
     [[nodiscard]] Phase phase() const { return m_phase; }
     /** The input of the character is blocked (from the open to the answer 6709). */
@@ -79,6 +81,29 @@ private:
     std::uint32_t m_lockEnds{0};
     std::uint32_t m_lockEndsAtClose{0};
     Effects m_effects;
+};
+
+/**
+ * The guards of the Talk (user test 2026-10-24, AST-287): no path may leave the input of the player blocked. The retail client waits
+ * for its screen and for the answer 6709 with no limit; the client limits both waits, for a failure of its own (no screen for the
+ * person, a canvas that does not load, a script error) and for an answer that does not come.
+ *
+ *   the screen   the conversation is open, and no conversation screen shows for kScreenWait seconds in sequence: end it (6705, then
+ *                2473), as the key E does with no screen;
+ *   the answer   the conversation closed (the 6705 went out), and no answer 6709 came in kAnswerWait seconds: free the input.
+ */
+class TalkGuard {
+public:
+    static constexpr double kScreenWait = 2.0;
+    static constexpr double kAnswerWait = 5.0;
+    enum class Action { none, endNoScreen, freeNoAnswer };
+    /** Each frame, after Conversation::update. @return The action of the guard (each one time for one phase). */
+    Action step(const Conversation& talk, bool screenShown, double now);
+
+private:
+    Conversation::Phase m_phase{Conversation::Phase::closed};
+    double m_since{0.0};
+    bool m_done{false};
 };
 
 } // namespace swc::interact

@@ -104,6 +104,8 @@ private:
 	FString StopReason;
 	uint32 CurrentCrc = 0;
 	double PendingFor = 0.0;
+	/** The time in the state Ending with no answer 6709 (the guard of AST-287: 5 s, then the input is free). */
+	double EndingFor = 0.0;
 	bool bPreview = false;
 	bool bHidePlayer = false;
 	uint32 SeenGrants = 0;

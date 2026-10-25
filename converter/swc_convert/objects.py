@@ -21,7 +21,8 @@ Output (SWC_CONTENT/world-objects, outside the repository):
                           tools by item index, the tool slots, the bodies of the creature slices with skinning, the texts
   regions/REGION.json     the objects of the interaction data of a region, with the ids of the backend (actor, facet target,
                           option entities) and their bounds (with the card rules of AST-231: "hidden", the options with a false
-                          show flag; "npc", a bound with the NPC component: the card shows only OpenConversation)
+                          show flag; "npc", a bound with the NPC component: the card shows only OpenConversation; and "talk" of an
+                          npc object: its NPC row and the name key of the row, from conversation-data.json: AST-287)
   nodes/REGION.bin        the natural nodes of a region in cells of 64 m (the record index gives the offline id)
 
 The file of the nodes (little-endian): "SWON", u32 format 1, i32 region x, i32 region y, u32 node count, u32 side (32), u32
@@ -218,7 +219,7 @@ def gathering_tables(folder: Path, gathering: dict, chest_names: set[str] = froz
         for key in (f"ui_notool{kind.lower()}", f"ui_lowskill{kind.lower()}"):
             if key in texts:
                 used_texts[key] = texts[key]
-    for key in chest_names:   # the names of the chests (the prompt "E SUPPLY CHEST")
+    for key in chest_names:   # the names of the chests (the prompt "E SUPPLY CHEST") and of the NPC rows (the card "TOUR BOARD"; AST-287)
         if key in texts:
             used_texts[key] = texts[key]
     catalog = json.loads((folder / "item-catalog.json").read_text())["items"]
@@ -266,6 +267,10 @@ def write() -> dict:
     interactions = json.loads((folder / "interaction-data.json").read_text())
     chest_doc = json.loads((folder / "chest-data.json").read_text())
     gathering = json.loads((folder / "gathering-data.json").read_text())
+    # The NPC rows of the conversation data (AST-287): the name key of each row, for the npc objects with no person of the person layer
+    # (the boards, the notes): their card name and their conversation screen.
+    conversations = json.loads((folder / "conversation-data.json").read_text())
+    npc_names = {str(row["id"]).lower(): str(row.get("name", "")) for row in conversations["npcs"]}
     chests = {c["key"]: c for c in chest_doc["chests"]}
     capitals = gathering["capitals"]
     templates = gathering["templates"]
@@ -336,6 +341,15 @@ def write() -> dict:
         if not bounds:
             continue
         out = {"key": entry["key"], "kind": kind, "actor": entry["actor"], "position": entry["position"], "bounds": bounds}
+        npc_id = str((entry.get("person") or {}).get("npc", ""))
+        if kind == "npc" and npc_id:
+            # The NPC row of the object (its NpcComponent m_npcKey) and the name key of the row, with no "@" (AST-287).
+            out["talk"] = {"npc": npc_id, "name": npc_names.get(npc_id.lower(), "").lstrip("@")}
+            report["talkObjects"] = report.get("talkObjects", 0) + 1
+            if out["talk"]["name"]:
+                chest_names.add(text_key(out["talk"]["name"]))
+            if npc_id.lower() not in npc_names:
+                report["talkWithNoRow"] = report.get("talkWithNoRow", 0) + 1
         if kind == "node":
             template_index, row = capitals[entry["key"]][:2]
             out["gather"] = [template_index, row]
@@ -420,7 +434,8 @@ def write() -> dict:
     gather_option = next((i for i, o in enumerate(interactions["options"]) if o["id"] == gathering["option"]["id"]), -1)
     doc = {
         "format": FORMAT,
-        "gamedata": {name: file_hash(folder / name) for name in ("interaction-data.json", "chest-data.json", "gathering-data.json")},
+        "gamedata": {name: file_hash(folder / name) for name in ("interaction-data.json", "chest-data.json", "gathering-data.json",
+                                                                 "conversation-data.json")},
         "options": options,
         "gatherOption": gather_option,
         "templates": [{"root": t["root"], "controllerSlot": t["controllerSlot"], "table": t["table"], "entry": t["entry"],

@@ -37,18 +37,35 @@ void FSwcUiConversation::Update(swc::ui::Runtime& Runtime, UWorld* World, USwcBa
 	const USwcPersonSubsystem* Persons = World != nullptr ? World->GetSubsystem<USwcPersonSubsystem>() : nullptr;
 	const FSwcPerson* Person = Persons != nullptr ? Persons->FindByInteraction(Key) : nullptr;
 	const bool bLine = Person != nullptr && Person->Line.bValid && !Person->Line.LineKey.IsEmpty();
-	if (Person == nullptr || (!bLine && Person->NpcId.IsEmpty()))
+	// The NPC row: the person of the person layer, else the npc object of the interaction (a board, a note, a person with no record of
+	// the person layer; AST-287: the Tour Board of Everfall has the row EF_Tour_2 and no person).
+	const FString NpcId = Person != nullptr && !Person->NpcId.IsEmpty() ? Person->NpcId : Backend.GetConversationNpcId();
+	const FString Name = Person != nullptr ? Person->Name : Backend.GetConversationName();
+	if (!bLine && NpcId.IsEmpty())
 	{
-		// No line and no npc id (a person with no conversation state): no screen; the client ends the Talk as before (E, a refusal).
-		UE_LOG(LogSwcUiConversation, Log, TEXT("ui: no conversation screen for %s: the person has no line"), *Key);
+		// No line and no NPC row: the client cannot show a screen. It ends the conversation at once (6705, then 2473; AST-287).
+		UE_LOG(LogSwcUiConversation, Warning, TEXT("ui: no conversation screen for %s (%s): the client ends the conversation"), *Key,
+			Person == nullptr ? TEXT("no person record and no NPC row") : TEXT("the person has no line and no NPC row"));
+		Backend.EndConversation();
 		return;
 	}
-	Runtime.call("HostConversation", {FArg::of(std::string("open")), FArg::of(Utf8Of(Key)), FArg::of(Utf8Of(Person->Line.Speaker)),
-		FArg::of(Utf8Of(Person->Line.LineKey)), FArg::of(Utf8Of(Person->Name)), FArg::of(Utf8Of(Person->Title)),
-		FArg::of(Utf8Of(FString::Join(Person->Line.Lines, TEXT("\n")))), FArg::of(Utf8Of(Person->NpcId))});
+	std::string Result;
+	const bool bCalled = Runtime.call("HostConversation", {FArg::of(std::string("open")), FArg::of(Utf8Of(Key)),
+		FArg::of(Utf8Of(bLine ? Person->Line.Speaker : FString())), FArg::of(Utf8Of(bLine ? Person->Line.LineKey : FString())), FArg::of(Utf8Of(Name)),
+		FArg::of(Utf8Of(Person != nullptr ? Person->Title : FString())), FArg::of(Utf8Of(bLine ? FString::Join(Person->Line.Lines, TEXT("\n")) : FString())),
+		FArg::of(Utf8Of(NpcId))}, &Result);
+	if (!bCalled || Result != "ok")
+	{
+		// The screen did not open (a script error, a canvas that did not load, no state and no line): the client ends the conversation.
+		UE_LOG(LogSwcUiConversation, Warning, TEXT("ui: the conversation screen of %s did not open (%s): the client ends the conversation"), *Key,
+			bCalled ? UTF8_TO_TCHAR(Result.c_str()) : TEXT("the call of Swc.HostConversation failed"));
+		Runtime.call("HostConversation", {FArg::of(std::string("close"))});
+		Backend.EndConversation();
+		return;
+	}
 	Backend.SetConversationScreenShown(true);
-	UE_LOG(LogSwcUiConversation, Log, TEXT("ui: the conversation screen opens: %s (%s), line %s, %d line(s)"), *Person->Name, *Person->NpcId,
-		*Person->Line.LineKey, FMath::Max(1, Person->Line.Lines.Num()));
+	UE_LOG(LogSwcUiConversation, Log, TEXT("ui: the conversation screen opens: %s (%s), line %s, %d line(s)"), *Name, *NpcId,
+		bLine ? *Person->Line.LineKey : TEXT("of the NPC row"), bLine ? FMath::Max(1, Person->Line.Lines.Num()) : 0);
 }
 
 bool FSwcUiConversation::HandleRequest(const FString& Request, USwcBackendSubsystem& Backend)

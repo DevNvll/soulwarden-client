@@ -204,6 +204,30 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 	{
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: the answer 6709: the input of the character is free again"));
 	}
+	// The guards (AST-287): a conversation with no screen ends; a close with no answer frees the input.
+	switch (TalkGuard.step(Talk, bConversationScreen, Now))
+	{
+	case swc::interact::TalkGuard::Action::endNoScreen:
+		UE_LOG(LogSwcBackend, Warning, TEXT("interact: no conversation screen %.1f s after the open of %s: the client ends the conversation (6705, then 2473)"),
+			swc::interact::TalkGuard::kScreenWait, *TalkKey);
+		bPendingTalkEnd = true;
+		break;
+	case swc::interact::TalkGuard::Action::freeNoAnswer:
+		UE_LOG(LogSwcBackend, Warning, TEXT("interact: no answer 6709 %.1f s after the 6705: the client frees the input of the character"),
+			swc::interact::TalkGuard::kAnswerWait);
+		Talk.give_up();
+		break;
+	default:
+		break;
+	}
+	// The station guard (AST-287): a station use whose crafting screen does not show ends (2473).
+	if (bStationOpen && !bStationScreen && Now - StationOpenedAt >= swc::interact::TalkGuard::kScreenWait)
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("interact: no crafting screen %.1f s after the open of %s: the client ends the station use (2473)"),
+			swc::interact::TalkGuard::kScreenWait, *StationKey);
+		bPendingStationEnd = true;
+		StationOpenedAt = Now;   // one request
+	}
 	// The replies and the ends of the session first: they belong to the request that is out now.
 	if (Own.interactionCancels != SeenCancels)
 	{
@@ -493,6 +517,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			bFocusNoTool = Object.bToolMissing || Object.bRankMissing;
 			bFocusTalk = ObjectOption.action == ConversationAction;
 			FocusKey = Object.Key;
+			FocusNpcId = Object.NpcId;
 			FocusUseKind = Object.UseKind;
 			FocusTool = Object.ToolItem != 0 ? Object.ToolSlot : 0;
 			FocusPrompt = FSwcInteractPrompt();
@@ -559,6 +584,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			FocusShape = TEXT("person");
 			bFocusTalk = true;
 			FocusKey = FString(PersonTalkPrefix) + TalkPerson->Key;
+			FocusNpcId = TalkPerson->NpcId;
 			FocusUseKind.Reset();
 			FocusTool = 0;
 			FocusPrompt = FSwcInteractPrompt();
@@ -750,6 +776,8 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		{
 			bUseTalk = true;
 			TalkKey = FocusKey;
+			TalkNpcId = FocusNpcId;
+			TalkName = FocusPrompt.Name;
 		}
 		if (bFocusStation)
 		{
@@ -792,6 +820,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			// 4.36); a refusal (3743 result 2) and the end of the use (3746, 2473, the death, a loading screen) close it.
 			UE_LOG(LogSwcBackend, Log, TEXT("interact: the crafting screen opens: %s (%s, fee %d)"), *StationKey, *StationName, bStationFee ? 1 : 0);
 			bStationOpen = true;
+			StationOpenedAt = Now;
 		}
 	}
 	// The end of a conversation first: 6705, then 2473 (the order of the retail client, 2 ms between them).

@@ -466,15 +466,27 @@ function Swc.HostConversation(what, key, speaker, line, name, title, lines, npcI
         C.result.responseType, #C.result.options))
     elseif C.npcId ~= "" and ready_handin(C.npcId) then
       build_result()
-    else
+    elseif C.line ~= "" then
       -- No NPC row (a person of persons.json with its line chain): the default result with Leave (MVP-H, AST-248).
       C.result = {title = "", responseType = RESPONSE.default, dialogueId = 0, options = {leave_option()}}
+    else
+      -- No state of the NPC row passes and the person has no line: no screen (the client ends the conversation; AST-287).
+      C.open, C.ended = false, true
+      C.log[#C.log + 1] = "open: " .. C.key .. ": no state and no line"
+      return "no state of the NPC row " .. C.npcId .. " passes, and no line"
     end
     C.entity = person_entity(C.key)
     C.log[#C.log + 1] = "open: " .. C.key
     Swc.SetData("Hud.LocalPlayer.InteractEntityId", C.entity)   -- conversationoptionv2.luac reads the npc data through it
     ensure_canvas()
+    if #DynamicBus.ConversationScreenV2.handlers == 0 then
+      -- The canvas did not load (its script did not connect the bus): no screen (AST-287).
+      C.open, C.ended = false, true
+      Swc.SetData("Hud.LocalPlayer.InteractEntityId", EntityId())
+      return "the canvas " .. PATH .. " did not load"
+    end
     send_state(true)
+    return "ok"
   elseif what == "close" and C.open then
     C.ended = true   -- the client ended the Talk: no request
     C.log[#C.log + 1] = "close"

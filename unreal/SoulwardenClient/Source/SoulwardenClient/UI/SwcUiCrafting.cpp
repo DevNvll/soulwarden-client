@@ -28,6 +28,7 @@ void FSwcUiCrafting::Update(swc::ui::Runtime& Runtime, USwcBackendSubsystem& Bac
 	if (!ShownKey.IsEmpty())
 	{
 		Runtime.call("HostStation", {FArg::of(std::string("close"))});
+		Backend.SetCraftingScreenShown(false);
 		UE_LOG(LogSwcUiCrafting, Log, TEXT("ui: the crafting screen closes (the station use of %s ended)"), *ShownKey);
 	}
 	ShownKey = Shown;
@@ -35,7 +36,17 @@ void FSwcUiCrafting::Update(swc::ui::Runtime& Runtime, USwcBackendSubsystem& Bac
 	{
 		return;
 	}
-	Runtime.call("HostStation", {FArg::of(std::string("open")), FArg::of(Utf8Of(Key)), FArg::of(bFee), FArg::of(Utf8Of(Name))});
+	std::string Result;
+	const bool bCalled = Runtime.call("HostStation", {FArg::of(std::string("open")), FArg::of(Utf8Of(Key)), FArg::of(bFee), FArg::of(Utf8Of(Name))}, &Result);
+	if (!bCalled || Result != "ok")
+	{
+		// The screen did not open: the client ends the station use (2473), so that the player is not stuck (AST-287).
+		UE_LOG(LogSwcUiCrafting, Warning, TEXT("ui: the crafting screen of %s did not open (%s): the client ends the station use"), *Key,
+			bCalled ? UTF8_TO_TCHAR(Result.c_str()) : TEXT("the call of Swc.HostStation failed"));
+		Backend.EndCraftingStation();
+		return;
+	}
+	Backend.SetCraftingScreenShown(true);
 	UE_LOG(LogSwcUiCrafting, Log, TEXT("ui: the crafting screen opens: %s (%s, fee %d)"), *Key, *Name, bFee ? 1 : 0);
 }
 

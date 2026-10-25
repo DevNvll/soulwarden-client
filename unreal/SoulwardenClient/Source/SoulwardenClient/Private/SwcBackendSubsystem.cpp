@@ -1478,7 +1478,17 @@ void USwcBackendSubsystem::UpdatePlayer()
 		if (Talk.scene() && Line == nullptr && ConversationLine.IsEmpty())
 		{
 			ConversationLine = TEXT("?");
-			UE_LOG(LogSwcBackend, Warning, TEXT("interact: no line and no camera for the person of %s (persons.json)"), *Interactor->GetConversationKey());
+			// A board or a note (an npc object with no body; AST-287) has no line and no camera: its screen comes from its NPC row.
+			if (Interactor->GetConversationNpcId().IsEmpty())
+			{
+				UE_LOG(LogSwcBackend, Warning, TEXT("interact: no line, no camera, and no NPC row for the person of %s (persons.json)"),
+					*Interactor->GetConversationKey());
+			}
+			else
+			{
+				UE_LOG(LogSwcBackend, Log, TEXT("interact: no line and no camera for %s (persons.json): the screen of the NPC row %s, the camera of the play"),
+					*Interactor->GetConversationKey(), *Interactor->GetConversationNpcId());
+			}
 		}
 		if (ASwcCameraManager* CameraManager = Cast<ASwcCameraManager>(Controller->PlayerCameraManager))
 		{
@@ -1817,6 +1827,16 @@ FString USwcBackendSubsystem::GetConversationSceneKey() const
 	return Interactor.IsValid() && Interactor->GetConversation().scene() ? Interactor->GetConversationKey() : FString();
 }
 
+FString USwcBackendSubsystem::GetConversationNpcId() const
+{
+	return Interactor.IsValid() && Interactor->GetConversation().scene() ? Interactor->GetConversationNpcId() : FString();
+}
+
+FString USwcBackendSubsystem::GetConversationName() const
+{
+	return Interactor.IsValid() && Interactor->GetConversation().scene() ? Interactor->GetConversationName() : FString();
+}
+
 bool USwcBackendSubsystem::QueueRepCall(std::function<void(swc::net::RepClient&)> Call)
 {
 	if (!Connection.IsValid() || !bInGame)
@@ -2047,6 +2067,14 @@ void USwcBackendSubsystem::EndCraftingStation()
 	if (Interactor.IsValid())
 	{
 		Interactor->EndStation();
+	}
+}
+
+void USwcBackendSubsystem::SetCraftingScreenShown(bool bShown)
+{
+	if (Interactor.IsValid())
+	{
+		Interactor->SetStationScreen(bShown);
 	}
 }
 

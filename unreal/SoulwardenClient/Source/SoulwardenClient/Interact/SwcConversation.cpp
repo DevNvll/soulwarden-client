@@ -84,6 +84,39 @@ void Conversation::update(std::uint32_t lockEnds)
     m_lockEnds = lockEnds;
 }
 
+void Conversation::give_up()
+{
+    if (m_phase == Phase::closing) {
+        m_phase = Phase::closed;
+    }
+}
+
+TalkGuard::Action TalkGuard::step(const Conversation& talk, bool screenShown, double now)
+{
+    if (talk.phase() != m_phase) {
+        m_phase = talk.phase();
+        m_since = now;
+        m_done = false;
+    }
+    if (m_done) {
+        return Action::none;
+    }
+    if (m_phase == Conversation::Phase::open) {
+        if (screenShown) {
+            m_since = now;   // the wait counts the frames with no screen in sequence
+            return Action::none;
+        }
+        if (now - m_since >= kScreenWait) {
+            m_done = true;
+            return Action::endNoScreen;
+        }
+    } else if (m_phase == Conversation::Phase::closing && now - m_since >= kAnswerWait) {
+        m_done = true;
+        return Action::freeNoAnswer;
+    }
+    return Action::none;
+}
+
 Conversation::Effects Conversation::take()
 {
     const Effects out = m_effects;

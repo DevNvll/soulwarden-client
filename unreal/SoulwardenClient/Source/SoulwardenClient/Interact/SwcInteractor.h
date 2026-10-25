@@ -127,6 +127,10 @@ public:
 	/** The conversation (stage P4.8), and the key of the object of its person (the placement UUID: USwcPersonSubsystem::FindByInteraction). */
 	const swc::interact::Conversation& GetConversation() const { return Talk; }
 	const FString& GetConversationKey() const { return TalkKey; }
+	/** The NPC row of the npc object of the conversation (FSwcWorldObjectTarget::NpcId), and its name (the card name): the conversation
+	 *  screen of a board, a note, or a person with no record of the person layer (AST-287). Empty for none. */
+	const FString& GetConversationNpcId() const { return TalkNpcId; }
+	const FString& GetConversationName() const { return TalkName; }
 	/** The conversation screen of the UI ends the conversation (its Back key, Escape; its Next key at the last line): the next Update
 	 *  ends it as the key E does (6705, then 2473), then sends the finished topics of the screen (5397; AST-248: only with a topic, as the
 	 *  retail client in the live checks of the backend stage 2.5c). */
@@ -151,6 +155,8 @@ public:
 	}
 	/** The crafting screen ends the station use (its Escape, its exit): the next Update sends 2473. */
 	void EndStation() { bPendingStationEnd = true; }
+	/** The crafting screen of the UI shows (the station guard: no screen 2 s after the open ends the use; AST-287). */
+	void SetStationScreen(bool bShown) { bStationScreen = bShown; }
 
 private:
 	/** The Looted claims: the model of each bag hides HideMeshDelay after the claim. */
@@ -218,12 +224,21 @@ private:
 	TSet<FString> QuestTags;
 	bool bConversationScreen = false;
 	FString TalkKey;
+	/** The NPC row and the name of the focus and of the conversation (AST-287). */
+	FString FocusNpcId;
+	FString TalkNpcId;
+	FString TalkName;
 	swc::interact::Conversation Talk;
+	/** The guards of the Talk: no screen, no answer 6709 (AST-287). */
+	swc::interact::TalkGuard TalkGuard;
 	/** The station use (stage MVP-J): the focus is a station, the use is a station use, its screen shows, and the end by the screen. */
 	bool bFocusStation = false;
 	bool bUseStation = false;
 	bool bStationOpen = false;
 	bool bPendingStationEnd = false;
+	/** The crafting screen shows, and the time of the open of the station use (the station guard). */
+	bool bStationScreen = false;
+	double StationOpenedAt = 0.0;
 	FString StationKey;
 	bool bStationFee = false;
 	FString StationName;

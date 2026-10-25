@@ -529,6 +529,12 @@ bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, int32 OptionCount, FRegio
 			Object.ChestName = (*Chest)[3]->AsString();
 			Object.bElite = (*Chest)[4]->AsBool();
 		}
+		const TSharedPtr<FJsonObject>* Talk = nullptr;
+		if (Info->TryGetObjectField(TEXT("talk"), Talk))
+		{
+			Object.NpcId = (*Talk)->GetStringField(TEXT("npc"));
+			Object.NpcName = (*Talk)->GetStringField(TEXT("name"));
+		}
 		const TArray<TSharedPtr<FJsonValue>>* Gather = nullptr;
 		if (Info->TryGetArrayField(TEXT("gather"), Gather) && Gather->Num() == 2)
 		{
@@ -838,6 +844,13 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 						}
 						Target.QuestTag = Object.QuestTag;
 						Target.bQuestOnly = Object.bQuestOnly;
+						// An npc object: its NPC row, and the name of the row (the card of a board: "Tour Board"; a person of the person layer
+						// gives its own name in the interactor).
+						Target.NpcId = Object.NpcId;
+						if (!Object.NpcName.IsEmpty())
+						{
+							Target.Name = Text(Object.NpcName);
+						}
 						if (bUsableOnly && Bound.bLineOfSight)
 						{
 							Target.bInSight = HasSight(From, Bound.EnginePlace);

@@ -207,6 +207,37 @@ cinematic, no timeline, no camera override (the client sets the Talk camera), an
 and the four subtitle options that the options data does not decode (the saved options of the retail client: speaker color 0, text
 color 0, text size 1, border 0). `Vector3.Normalize(v)` and `CrossZAxis` of the script: the value class of the runtime.
 
+## The boards and the guards of the Talk (AST-287, user test 2026-10-24)
+
+The user used the Tour Board of Everfall (the npc object `a04fab3b-...`, slice `ef_tour_1_board`): the conversation opened, the client
+showed no screen, and the input stayed blocked. The board is a direct person with no body: its NpcComponent has the row EF_Tour_2
+(`javelindata_c94_npcs`, name `@9401_TourBoard`), and the person layer has no record of it. 175 npc objects of the interaction data
+have no record of the person layer (the tour and rally boards, the quest notes and letters, and person children with no body).
+
+- The data: `tools/convert-objects.sh write` writes `"talk": {"npc": ROW, "name": KEY}` on each npc object with an NPC row (1,408;
+  10 rows are not in conversation-data.json), and the name texts in the texts of objects.json. The object layer gives the row
+  (`FSwcWorldObjectTarget::NpcId`) and the name ("TOUR BOARD" on the card).
+- The screen: with no person record, `UI/SwcUiConversation` opens ConversationScreenV2 with the NPC row of the object. The state
+  selection of `swc/conversation.lua` gives the text. The retail rule of the board: the state 9401_00_EF_Tour_2 ("You see a posting
+  board. It looks useful, though nothing is posted to it yet.") and, with the achievement 9401_TutorialComplete, 9401_01_EF_Tour_2
+  (the offer of the MountRace objective EF_Tour_2, which needs MountType_Unlock_Horse). The board has no camera preset: the camera of
+  the play stays.
+- The guards (no path leaves the player stuck; the retail client waits with no limit):
+  - no line and no NPC row: the UI ends the conversation at once (6705, then 2473), with a warning line;
+  - `Swc.HostConversation("open")` and `Swc.HostStation("open")` return "ok" or the cause (no passing state and no line, a canvas that
+    did not load, a state that did not start); with no "ok" the UI ends the conversation or the station use (2473);
+  - `swc::interact::TalkGuard`: no conversation screen for 2 s in sequence ends the conversation; no answer 6709 5 s after the 6705
+    frees the input; the station use with no crafting screen 2 s after its open ends (2473); a quest scene in the state Ending with no
+    answer 6709 for 5 s frees the input (`FSwcScenes`). Each guard writes a warning line with the cause.
+
+Check (development runs on a copy of the user's database, 2026-10-25; `tests/drive/ut1024-board*.txt`; evidence
+`SWC_WORK/evidence/usertest-1024/`):
+
+| Run | Result |
+| --- | --- |
+| `board-nodata` (the content of the user: no "talk") | E: the request, "no person record and no NPC row: the client ends the conversation" in the same frame, 6705 and 2473, the answer 6709 0.09 s after the open; W walks. |
+| `board-screen` (the check copy with "talk") | The card "TOUR BOARD", E: the screen with the state 9401_00_EF_Tour_2 and its text, the HUD hidden; E (Next): 6705, 2473, 6709; W walks. Picture `ast287-board-sheet.png`. |
+
 ## Check (development runs, 2026-10-19)
 
 | Check | Result | Evidence |

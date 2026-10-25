@@ -67,6 +67,9 @@ struct FSwcWorldObjectTarget
 	/** True when the entity of the bound has the NPC component (AST-231): its client facet admits only the action 63
 	 *  (OpenConversation) to the card. */
 	bool bNpc = false;
+	/** The NPC row of an npc object (its NpcComponent m_npcKey: the conversation states; usertest-1024, AST-287), empty for no row. A
+	 *  board, a note, or a person with no record of the person layer opens the conversation screen with it. */
+	FString NpcId;
 	/** The server state, and the Enabled mark of the Interact state of a record of the object (true with no record). */
 	ESwcWorldObjectState State = ESwcWorldObjectState::Ready;
 	bool bEnabled = true;
@@ -235,6 +238,9 @@ private:
 		/** A chest: its name (a text key) and the elite mark. */
 		FString ChestName;
 		bool bElite = false;
+		/** An npc object: its NPC row and the name key of the row ("talk" of the data; AST-287). */
+		FString NpcId;
+		FString NpcName;
 		/** A quest object (backend stage 1.8c; AST-241): its InteractTag (lower case) and InteractOnlyOnQuest. */
 		FString QuestTag;
 		bool bQuestOnly = false;

@@ -186,6 +186,10 @@ public:
 	/** @return The Talk key of the open conversation scene (an npc object key, or "person:" + a key of persons.json), empty with no
 	 *  scene (the conversation screen of the UI: UI/SwcUiConversation). */
 	FString GetConversationSceneKey() const;
+	/** The NPC row and the name of the npc object of the conversation (a board, a note, a person with no record of the person layer;
+	 *  AST-287), empty for none. */
+	FString GetConversationNpcId() const;
+	FString GetConversationName() const;
 	/** @return True when the call goes to the client of the session (in the world): the edits of the trees and the bars of the
 	 *  character window (UI/SwcUiSkills). */
 	bool QueueRepCall(std::function<void(swc::net::RepClient&)> Call);
@@ -196,6 +200,8 @@ public:
 	bool GetCraftingStation(FString& OutKey, bool& bOutFee, FString& OutName) const;
 	/** The crafting screen ends the station use (its Escape, its exit): 2473. */
 	void EndCraftingStation();
+	/** The crafting screen shows or hides (UI/SwcUiCrafting): with no screen 2 s after the open the station use ends (AST-287). */
+	void SetCraftingScreenShown(bool bShown);
 	/** The craft request of the crafting screen (2997; protocol notes 4.50): the recipe CRC, the count, the claims of the fee and of the
 	 *  gear score, the perk items, the upgrade level, and the CRC of the selected item of each ingredient (0: a currency). @return False
 	 *  with no connection or no open station. */

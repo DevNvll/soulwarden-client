@@ -371,6 +371,15 @@ void FSwcScenes::Tick(UWorld* World, const FSwcRepConnection::FSnapshot& Snapsho
 			CommonEnd(TEXT("Travel"), Connection);
 		}
 	}
+	// The guard of the lock (AST-287): the retail client waits for the answer 6709 with no limit; the client frees the input 5 s after
+	// the 6705 when no answer comes, so that no path leaves the player stuck.
+	EndingFor = State == EState::Ending ? EndingFor + DeltaSeconds : 0.0;
+	if (State == EState::Ending && EndingFor >= swc::interact::TalkGuard::kAnswerWait)
+	{
+		UE_LOG(LogSwcSceneFlow, Warning, TEXT("scenes: %s: no answer 6709 %.1f s after the 6705: the client frees the input"), *CurrentName, EndingFor);
+		State = EState::Idle;
+		EndingFor = 0.0;
+	}
 	// The wait for the grant: 30 s, then the failure (0x2EFEDD3): the normal stop interface, 6705, no second 6703.
 	if (State == EState::Pending)
 	{

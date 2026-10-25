@@ -1,0 +1,4 @@
+# The UI drive of ut1024-board.txt: E (Next) at the board text: the end of the conversation. Times from the spawn.
+18.0 log E at the board screen
+18.0 key E
+40 end

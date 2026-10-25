@@ -122,10 +122,19 @@ end
 function Swc.HostStation(kind, key, fee, name)
   if kind == "open" then
     ensure_canvas()
+    if #DynamicBus.CraftingScreenBus.handlers == 0 then
+      return "the canvas " .. PATH .. " did not load"   -- no screen: the client ends the station use (AST-287)
+    end
     C.station = {key = key or "", fee = fee and true or false, name = name or ""}
     Swc.Note("crafting: the station " .. tostring(key) .. " " .. tostring(name) .. (fee and " (fee)" or ""))
     Swc.SetData("Hud.LocalPlayer.InteractName", name or "")
     LyShineManagerBus.Broadcast.SetState(CRAFTING_STATE)
+    if LyShineManagerBus.Broadcast.GetCurrentState() ~= CRAFTING_STATE then
+      -- The state did not start (no canvas of the state, a script error): no screen; the client ends the station use (AST-287).
+      C.station = nil
+      return "the state of the crafting screen did not start"
+    end
+    return "ok"
   elseif C.station then
     C.station = nil
     Swc.Note("crafting: the client ended the station use: the screen closes")
