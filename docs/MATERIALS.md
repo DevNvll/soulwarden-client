@@ -751,3 +751,15 @@ python3 -B tools/lib/material_bands.py tools/lib/material_bands.json FOLDER [VIE
 `-SwcFrameStats=SECONDS` (`USwcFrameStats`) logs the p50, p95, and largest frame and GPU time of each window with the
 view place; `tools/convert-materials.sh frames LOG...` gives the median for each place (the first window at a place
 still loads). Run the matched views with no picture capture, the same views with and without the change.
+
+## Traps
+
+- A full run of `tools/convert-materials.sh instances` does not give the deployed `instances.json` again (AST-290, 2026-10-25).
+  The shared `records.json` is older than some deployed specs: its render rules have no "fx" part (0 of 7,502), so the run makes
+  the C8 effect specs (fxmesh, meshparticle) legacy opaque or masked again, and 314 keys differ from the shared file. The deploys
+  of AST-275 merged only their own keys from a check copy. Thus never copy a whole `instances.json` of a run into the shared
+  content: deploy a spec change as a patch of your own keys (take the shared spec of each key and add only the new fields), with a
+  backup. A new audit of the records is a change of its own, with its own check.
+- A placement override can give a translucent instance to a mesh with Nanite (AST-288 W2): Nanite then draws the engine default
+  material (the grey checker; "Invalid material ... used on Nanite static mesh" in the log). `tools/convert-materials.sh no-nanite`
+  (`nanite.py`) lists these meshes; a new pair or a new translucent spec needs it again before the import.
