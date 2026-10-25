@@ -71,6 +71,8 @@ struct FSwcEffectClip
 	float End = -1.0f;
 	/** The effect key (Particle) or the group name (WeaponGroup). */
 	FString Name;
+	/** CAGE-Attachment: its AttachmentSource (ActiveWeapon: the ammunition of the active weapon; CustomSource: a prop of a use). */
+	FString Source;
 	FName Joint;
 	FName Attachment;
 	FVector Position = FVector::ZeroVector;

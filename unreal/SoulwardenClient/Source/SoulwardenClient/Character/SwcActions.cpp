@@ -97,6 +97,7 @@ void ReadEffects(const TSharedPtr<FJsonObject>& Info, TArray<FSwcEffectClip>& Ou
 		Clip.bFollow = FlagOf(Data, TEXT("follow"), true);
 		Clip.bKill = FlagOf(Data, TEXT("kill"));
 		Clip.bKeep = FlagOf(Data, TEXT("keep"));
+		Data->TryGetStringField(TEXT("source"), Clip.Source);
 		Data->TryGetStringField(TEXT("condition"), Clip.Condition);
 		Data->TryGetStringField(TEXT("enter"), Clip.Enter);
 		Data->TryGetStringField(TEXT("exit"), Clip.Exit);

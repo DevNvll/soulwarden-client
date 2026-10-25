@@ -164,7 +164,15 @@ void FSwcFragmentEffects::Enter(const FSwcActions& Data, const FSwcEffectOwner& 
 	}
 	if (Clip.Kind == FSwcEffectClip::EKind::Attachment)
 	{
-		ShowAmmo(Data, Owner, Channel, Clip);
+		// Only the ammunition of the active weapon (the bow); a CustomSource clip is the prop of a use (a potion, food): not played yet.
+		if (Clip.Source == TEXT("ActiveWeapon"))
+		{
+			ShowAmmo(Data, Owner, Channel, Clip);
+		}
+		else
+		{
+			Note(FString::Printf(TEXT("CAGE-Attachment %s (%s): not played yet"), *Clip.Attachment.ToString(), *Clip.Source));
+		}
 		return;
 	}
 	if (Clip.Kind == FSwcEffectClip::EKind::WeaponGroup)
