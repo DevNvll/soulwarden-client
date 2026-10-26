@@ -43,6 +43,12 @@ public:
 	 */
 	void SetSceneView(bool bOn, const FVector& Location = FVector::ZeroVector, const FVector& LookAt = FVector::ZeroVector, float VerticalFov = 0.0f);
 	bool HasSceneView() const { return bScene; }
+	/**
+	 * The camera of a Talk line with no camera point (docs/PERSONS.md "The Talk camera"; the retail set ut567-camera): the state
+	 * UI_Conversation of the camera data (the orbit: Distance 2.5, Offset 1.0 0.0 1.5, the collision), and the view turns toward the
+	 * look-at point (Unreal world space). bOn false: the camera of the play again.
+	 */
+	void SetConversationOrbit(bool bOn, const FVector& LookAt = FVector::ZeroVector);
 	/** The camera of an in-game scene (stage Q5, Scenes/SwcScenePlayer): a place, a rotation, and a vertical FOV (degrees). It wins over the
 	 *  camera of a conversation. */
 	void SetSceneCamera(bool bOn, const FVector& Location, const FRotator& Rotation, float VerticalFov);
@@ -141,6 +147,10 @@ private:
 	TArray<TPair<double, float>> LockMouse;
 	double LockMouseIgnoreUntil = 0.0;
 	FRotator LastRotation = FRotator::ZeroRotator;
+	/** The orbit of a Talk line with no camera point (SetConversationOrbit): its look-at point and the forced state before it. */
+	bool bConversationOrbit = false;
+	FVector ConversationLookAt = FVector::ZeroVector;
+	FString ForcedStateBeforeOrbit;
 	/** The camera of a conversation (SetSceneView). */
 	bool bScene = false;
 	bool bSceneCamera = false;

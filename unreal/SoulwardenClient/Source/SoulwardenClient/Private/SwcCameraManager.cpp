@@ -115,6 +115,27 @@ void ASwcCameraManager::SetForcedState(const FString& State)
 	ForcedState = State == TEXT("none") ? FString() : State;
 }
 
+void ASwcCameraManager::SetConversationOrbit(bool bOn, const FVector& LookAt)
+{
+	ConversationLookAt = LookAt;
+	if (bOn == bConversationOrbit)
+	{
+		return;
+	}
+	bConversationOrbit = bOn;
+	if (bOn)
+	{
+		ForcedStateBeforeOrbit = ForcedState;
+		ForcedState = TEXT("UI_Conversation");
+	}
+	else
+	{
+		ForcedState = ForcedStateBeforeOrbit;
+	}
+	UE_LOG(LogSwcBackend, Log, TEXT("camera: %s"), bOn ? *FString::Printf(TEXT("the orbit of the conversation (UI_Conversation), the look-at point %.2f %.2f %.2f m"),
+		LookAt.X / 100.0, -LookAt.Y / 100.0, LookAt.Z / 100.0) : TEXT("the orbit of the conversation ends"));
+}
+
 bool ASwcCameraManager::AllowsFreeLook() const
 {
 	return Data.State(StateName).bAllowFreeLook && !IsLocked();
@@ -478,6 +499,25 @@ void ASwcCameraManager::UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime)
 	// yaw frame of the camera (R1.5).
 	FRotator Rotation = PCOwner->GetControlRotation();
 	const FVector Feet = Character->GetFeetLocation();
+	if (bConversationOrbit)
+	{
+		// The view of the orbit turns toward the look-at point from the pivot (the side offset follows the yaw: three passes), the pitch
+		// in the limits of the state; the turn is smoothed with the RotationDampening of UI_Conversation (0.35 s, camera.json).
+		constexpr float TalkRotationDampening = 0.35f;
+		FRotator Target = Rotation;
+		for (int32 Pass = 0; Pass < 3; ++Pass)
+		{
+			const FRotator Yaw(0.0, Target.Yaw, 0.0);
+			const FVector AimPivot = Feet + FVector(0.0, 0.0, OffsetUp.Value * 100.0) + Yaw.Vector() * (OffsetForward.Value * 100.0)
+				+ FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y) * (OffsetSide.Value * 100.0);
+			Target = (ConversationLookAt - AimPivot).Rotation();
+		}
+		Target.Pitch = FMath::Clamp(Target.Pitch, PitchDown.Value, PitchUp.Value);
+		Target.Roll = 0.0;
+		const float Alpha = DeltaTime > 0.0f ? 1.0f - FMath::Exp(-DeltaTime * 3.0f / TalkRotationDampening) : 1.0f;
+		Rotation = FQuat::Slerp(Rotation.Quaternion(), Target.Quaternion(), Alpha).Rotator();
+		PCOwner->SetControlRotation(Rotation);
+	}
 	const FRotator YawFrame(0.0, Rotation.Yaw, 0.0);
 	const FVector TargetPivot = Feet + FVector(0.0, 0.0, OffsetUp.Value * 100.0) + YawFrame.Vector() * (OffsetForward.Value * 100.0);
 	UpdateZ(TargetPivot, *Character, State, DeltaTime);

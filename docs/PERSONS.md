@@ -132,7 +132,16 @@ Open:
   the conversation closes after 30 ms and her camera was not seen (a backend need).
 - 27 persons have no preset and no point (12_SerPayneBennett, 9401_FirstHorse, and others). Since 2026-10-26 (the client, with the next
   cook) a line with no camera point keeps the camera of the play: no cut, no hidden player, no dummy (`FSwcPerson::FLine::bCamera`).
-  Before, the camera stood at the frame of the person. The retail camera UI_Conversation of the script is still not done.
+  Before, the camera stood at the frame of the person.
+- The retail camera of such a line (set `~/Games/soulwarden/work/evidence/unreal-references/set-ut567-camera`, 2026-10-26: Ser Payne
+  Bennett and Sahal Yasin, state.py 3.5 s after E): the orbit of the camera state UI_Conversation of camera.json (Distance 2.5, Offset
+  1.0 0.0 1.5, FOV 40, pitch -30 to 30, the collision). Yasin: the camera is 2.50 m behind the pivot (the feet, 1.5 m up, 1.0 m to the
+  right of the view), residual 0.00 m. Bennett stands on a walled walkway: 1.52 m and no side offset (the collision). The client
+  (`ASwcCameraManager::SetConversationOrbit`): the forced state UI_Conversation, and the view turns toward a look-at point from the
+  pivot (three passes; the pitch in the limits of the state; the RotationDampening 0.35 s). [I] The look-at point: the feet of the
+  person, 1.1 m up, 0.25 m to the right of the line person to player, 1.0 m away from the player (the fit of the two samples: 6.6 and
+  9.1 degrees of heading, 3.4 and 3.8 of pitch); the value "1 m toward the player" of GetNpcLookAtPosition above gives a reversed view
+  and is not used. Open: the side offset of retail shrinks in the collision (Bennett); the client sweeps only the distance.
 
 | Person (preset) | Retail camera (set-mvph-talk) | Client camera |
 | --- | --- | --- |
