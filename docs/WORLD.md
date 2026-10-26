@@ -443,13 +443,16 @@ the places of interest with the census tops) found these classes. The counts are
   AST-265 that mesh rule 8 makes drawable (jav_fogsheet_a_cross, jav_fogsphere_a).
 - AST-290 (2026-10-25): a placement whose override has a Meshparticle sub-material with %REFRACTION is left out
   (`cells.refraction_override`: fx_waterfall_subtle01, fx_portalsphere01/02, 12 placements; M_SwcMeshParticle has no refraction and
-  drew a near-opaque white sheet). AST-288 W5, prepared with the switch `cells.W5_LEFT_OUT` off (for the next cell rebuild): the
-  overrides with GeometryFogNoVertAlpha, GeometryBeamSimple, or Geometryfog on any mesh (352 placements in 22 regions: the pirate
-  ropes, the crafting ghost previews, the jump pad disks, the cave beams; own retail shaders with no client parent).
-  `cells.BEAM_SIMPLE` (prepared, off; with W5): the jump pad disks draw M_SwcBeamSimple and leave the W5 set; a disk whose entity
-  starts inactive is left out (`regions/NAME/inactive.json` from `region.write_inactive`: IsRuntimeActive 0 on the entity or on an
-  entity above it). Each pad has an "off" and an "on" group; the slice saves the "on" group inactive, and the status
-  17DW_FoolSightPotion activates it, so the "off" disks show (r_+01_+02: 34 "on" disks inactive, 36 "off" disks active).
+  drew a near-opaque white sheet). AST-288 W5 and BEAM_SIMPLE, on since the cell rebuild of
+  2026-10-26 (19 regions, 253 instances fewer): `cells.W5_LEFT_OUT` leaves out the overrides with GeometryFogNoVertAlpha,
+  GeometryBeamSimple, or Geometryfog on any mesh (own retail shaders with no client parent: the cave beams, the corruption fog walls,
+  the layered fog), the crafting ghost previews are state objects (`STATE_OVERRIDE_WORDS` jav_crafting_ghost: 127 placements, the
+  blue rope cross of the pirate camp), and damned_poi_fog_a.cgf (own Geometryfog materials: the white curtains of r_+06_+02) is in
+  `LEFT_OUT_MESHES`. `cells.BEAM_SIMPLE`: the jump pad disks (materials/vfx/jumppads/ only) draw M_SwcBeamSimple; a disk whose
+  entity starts inactive is left out (`regions/NAME/inactive.json` from `region.write_inactive`: IsRuntimeActive 0 on the entity or
+  on an entity above it; the 7 pad regions). Each pad has an "off" and an "on" group; the slice saves the "on" group inactive, and
+  the status 17DW_FoolSightPotion activates it, so the "off" disks show (116 "on" disks out, 126 "off" disks kept). A cell write of a
+  region with jump pad overrides needs its inactive.json.
 - C10a, a material path from the root of the game files (a leading "/", `materials.load_mtl`): 4 LOD meshes that the level places
   directly (64 placements: jav_fst_deadstickbush_a_lod1 and others) had no material and drew white.
 - Not drawn on purpose (each with its reason in the AST-275 report): the other server spawns (world event states, siege, season,
