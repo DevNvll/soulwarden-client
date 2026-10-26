@@ -175,11 +175,22 @@ BEAM_SIMPLE_SHADERS = frozenset({"geometrybeamsimple"})
 BEAM_SIMPLE_MATERIAL_FOLDERS = ("materials/vfx/jumppads/",)
 
 
+# AST-288 B4 (prepared 2026-10-26, switch off until the next cell rebuild): two more source shaders with no client parent. An override
+# with Fxmeshadvanced (the turkey eggs override of jav_fst_turkeyeggs_a_group, no texture: 20 white placements) joins the W5 set, and
+# the mesh brightwood_tree_groundfog_a.cgf (its own material brightwood_fog_flat_02.mtl, Particleimposter: 12 placements) is left
+# out. The HumanSkin arrows (new_arrow, new_arrowforquiver: 54) are not left out: they draw their diffuse map (a spec rule).
+B4_LEFT_OUT = False
+B4_SHADERS = frozenset({"fxmeshadvanced", "particleimposter"})
+B4_LEFT_OUT_MESHES = ("objects/landmarks/brightwood_tree/brightwood_tree_groundfog_a.cgf",)
+
+
 def no_parent_effect(mtl: str) -> bool:
     """@return True for an override material with a NO_PARENT_EFFECT_SHADERS sub-material (without GeometryBeamSimple for a jump
     pad material when BEAM_SIMPLE)."""
     pad = BEAM_SIMPLE and mtl.startswith(BEAM_SIMPLE_MATERIAL_FOLDERS)
     shaders = NO_PARENT_EFFECT_SHADERS - BEAM_SIMPLE_SHADERS if pad else NO_PARENT_EFFECT_SHADERS
+    if B4_LEFT_OUT:
+        shaders = shaders | B4_SHADERS
     return bool(mtl) and bool(override_shaders(mtl) & shaders)
 
 
@@ -263,7 +274,8 @@ def write(name: str) -> dict:
     decal_only = np.array([PLACE_DECAL_ONLY and assets.get(m, {}).get("kind") == "empty" and assets.get(m, {}).get("decals") in assets
                            for m in names], dtype=bool)
     usable = np.array([(assets.get(m, {}).get("kind") == "static" or d) and not m.rsplit("/", 1)[-1].startswith(FOG_CARD)
-                       and not m.startswith(LANDMARK_MESHES) and m not in LEFT_OUT_MESHES for m, d in zip(names, decal_only)],
+                       and not m.startswith(LANDMARK_MESHES) and m not in LEFT_OUT_MESHES
+                       and not (B4_LEFT_OUT and m in B4_LEFT_OUT_MESHES) for m, d in zip(names, decal_only)],
                       dtype=bool)
     keep = usable[data["mesh"]] if len(names) else np.zeros(0, bool)
     material_names = [str(m) for m in data.get("materials", np.array([""]))]

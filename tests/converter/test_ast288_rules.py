@@ -281,6 +281,19 @@ class BeamSimpleState(unittest.TestCase):
         self.assertEqual(report["instances"], 0)
 
 
+class B4Shaders(unittest.TestCase):
+    def test_switch(self):
+        saved = (cells.override_shaders, cells.B4_LEFT_OUT)
+        cells.override_shaders = lambda mtl: frozenset({"fxmeshadvanced"})
+        try:
+            cells.B4_LEFT_OUT = False
+            self.assertFalse(cells.no_parent_effect("eggs.mtl"))
+            cells.B4_LEFT_OUT = True
+            self.assertTrue(cells.no_parent_effect("eggs.mtl"))
+        finally:
+            cells.override_shaders, cells.B4_LEFT_OUT = saved
+
+
 class CoverPlaceholders(unittest.TestCase):
     def test_left_out(self):
         self.assertTrue(cover.left_out("objects/nature/veg_grass/grass_forest/emptyspace/jav_fst_emptyspace_a.cgf"))
