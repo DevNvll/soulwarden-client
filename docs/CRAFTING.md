@@ -179,6 +179,11 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
   minGatherEff, maxGatherEff), linear over the gear score range of the item: the T1 knife 2.0, "200%" (before: the column
   GatheringEfficiency, 1.35, "135%"); the rule of the backend (gathering.md, live check L7). maxCastDistance is 0 (a nil stopped
   craftingstatspanel.luac UpdateStatsInfo).
+- The live check (2026-10-26, evidence usertest-567 t2; retail 18e F-22, F-37, F-70): the tooltip "100" and "200% Gather Speed"; the
+  item menu Equip, Lock, Drop; Equip sends 3895 (bag slot to paperdoll slot 35); the result screens with their buttons and the summary
+  "+ 4 Cooking" (a repeat craft: 4 points for each job; the first craft of the recipe adds its FirstCraftAchievement bonus, +9, so the
+  first ration showed 13 as retail F-70). Deployed weaponstats.tsv 2026-10-26 07:55.
+- Open: retail darkens the world more behind the result panel (BlackBg of craftingscreenv4.luac; the client background is lighter).
 
 ## The differences from retail (the comparison pictures)
 

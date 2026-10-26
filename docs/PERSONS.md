@@ -120,9 +120,16 @@ or "s" (the frame of the speaker: "s 1.4 2.2 1.7"), "p" (the frame of the player
 preset, the player body at "s .25 1.3 0" turned 180 degrees), or "n NPC_ID" (the frame of a named person; no first line uses it).
 Before, the converter read only plain numbers: a mark gave an empty point, and the camera stood in the person and looked at the sky
 (Urda of the beach chain; 32 persons). [I] A line point with no frame in the data (the frame of the player with no dummy:
-06_FrancisTurner) takes the origin and the look-at of the preset as one pair. Open: 27 persons have no preset and no point; the client
-then puts the camera at the frame of the person (a client rule for an empty origin, the camera of the play, needs a cook).
-Test: `tests/converter/test_persons_camera.py`.
+06_FrancisTurner) takes the origin and the look-at of the preset as one pair. Test: `tests/converter/test_persons_camera.py`.
+The live check (2026-10-26, uncooked runs with the check content; evidence usertest-567 t1, t3): Urda frames Urda, Aelstrom, and the
+player over the shoulder, as retail 18e F-29 (the retail frame is wider: the hand-in line has its own camera). Deployed 2026-10-26 07:55.
+Open:
+- Francis Turner (the preset pair NSL_SIT_WID_SNGL_HA): the camera looks at him, but it frames his chest and cuts his head (the line
+  point "p .5 -2.25 1.9" needs the frame of the real player; no retail reference yet).
+- Oseye Kamau (0422_Innkeep, Everfall): the backend refuses the Talk ("a rule of the data that the backend cannot check", result 2), so
+  the conversation closes after 30 ms and her camera was not seen (a backend need).
+- 27 persons have no preset and no point (12_SerPayneBennett, 9401_FirstHorse, and others); the client then puts the camera at the frame
+  of the person (a client rule for an empty origin, the camera of the play, needs a cook).
 
 | Person (preset) | Retail camera (set-mvph-talk) | Client camera |
 | --- | --- | --- |
