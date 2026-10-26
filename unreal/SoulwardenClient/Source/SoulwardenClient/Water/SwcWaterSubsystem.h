@@ -205,6 +205,11 @@ private:
 	/** -SwcWaterOceanDepth=M: the channel depth of the plugin ocean in m (default 10; the plugin default 0 makes the ocean the minimum of the
 	 *  water height range of the zone, and then the plugin draws it clear: docs/WATER.md "Stage 2a"). */
 	float OceanChannelDepth = 10.0f;
+	/** The far-ring test (research/water-far-ring.md; docs/WATER.md "The far ring"): -SwcWaterZoneMode=Global turns the local tessellation
+	 *  of the zone off (one water mesh tree and one water info capture for the whole zone; the far mesh of the plugin starts at the zone
+	 *  edge, where the detailed water ends); -SwcWaterInfoResolution=N sets the water info texture (default 2048). Default: local, 2048. */
+	bool bGlobalZone = false;
+	int32 InfoResolution = 2048;
 	UPROPERTY()
 	TObjectPtr<class UGerstnerWaterWaves> UnrealSourceWaves;
 	UPROPERTY()

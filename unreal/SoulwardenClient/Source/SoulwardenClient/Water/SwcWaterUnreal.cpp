@@ -9,6 +9,7 @@
 
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/TextureRenderTarget2DArray.h"
 #include "Engine/World.h"
 #include "Algo/Reverse.h"
 #include "HAL/IConsoleManager.h"
@@ -195,6 +196,12 @@ bool USwcWaterSubsystem::LoadUnreal(const FString& Folder)
 	bPluginInfoMeshes = FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterInfoMesh="), InfoMesh) && InfoMesh.Equals(TEXT("Plugin"), ESearchCase::IgnoreCase);
 	// -SwcWaterOceanDepth=M: the channel depth of the plugin ocean in m (a test; default 10).
 	FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterOceanDepth="), OceanChannelDepth);
+	// The far-ring test: -SwcWaterZoneMode=Global (the local tessellation off) and -SwcWaterInfoResolution=N (the water info texture).
+	FString ZoneMode;
+	bGlobalZone = FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterZoneMode="), ZoneMode) && ZoneMode.Equals(TEXT("Global"), ESearchCase::IgnoreCase);
+	InfoResolution = SwcUnrealWater::WaterInfoResolution;
+	FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterInfoResolution="), InfoResolution);
+	InfoResolution = FMath::Clamp(InfoResolution, 256, 16384);
 	FString Text;
 	TSharedPtr<FJsonObject> Doc;
 	if (!FFileHelper::LoadFileToString(Text, *Path) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Doc) || !Doc.IsValid())
@@ -259,8 +266,12 @@ void USwcWaterSubsystem::SpawnUnrealZone()
 	// The zone: the world regions and the margin; the water info texture and the water mesh in a window about the view.
 	UnrealZone = World->SpawnActor<AWaterZone>(AWaterZone::StaticClass(), FTransform(FVector(Center, OceanLevel * 100.0)), Spawn);
 	UnrealZone->SetZoneExtent(Extent);
-	UnrealZone->SetRenderTargetResolution(FIntPoint(WaterInfoResolution, WaterInfoResolution));
-	SetBoolByName(UnrealZone.Get(), TEXT("bEnableLocalOnlyTessellation"), true);
+	UnrealZone->SetRenderTargetResolution(FIntPoint(InfoResolution, InfoResolution));
+	// The local tessellation (the default) or one tree and one capture for the whole zone (-SwcWaterZoneMode=Global, the far-ring test). In
+	// the local mode the detailed water stops at the edge of the info window (the clip of ClipDynamicBounds) and the far mesh starts only at
+	// the zone edge: past the window nothing draws (research/water-far-ring.md).
+	SetBoolByName(UnrealZone.Get(), TEXT("bEnableLocalOnlyTessellation"), !bGlobalZone);
+	UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the zone mode %s, the water info texture %d (requested)"), bGlobalZone ? TEXT("global") : TEXT("local"), InfoResolution);
 	SetStructByName(UnrealZone.Get(), TEXT("LocalTessellationExtent"), FVector(TessellationWindow, TessellationWindow, 20000.0));
 	// The far mesh has its own instance: the ocean tone goes on it too.
 	UMaterialInterface* FarMaterial = UnrealMaterial(SlotFarMesh.Instance, SlotFarMesh.Plugin);
@@ -675,6 +686,11 @@ void USwcWaterSubsystem::UpdateUnreal(const FVector& View, float DeltaTime)
 			UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): diag: ocean bounds %s extent %s; saved zone %.0f %.0f m; body index %d; zone water heights %.3f..%.3f m, ground min %.3f m"),
 				*OceanComponent->Bounds.Origin.ToString(), *OceanComponent->Bounds.BoxExtent.ToString(), SavedZone.X / 100.0, SavedZone.Y / 100.0,
 				OceanComponent->GetWaterBodyIndex(), Heights.X / 100.0, Heights.Y / 100.0, UnrealZone->GetGroundZMin() / 100.0);
+			// The far-ring test: the mode, the info extent, and the effective texture (r.Water.WaterInfo.RenderTargetResolutionMax can clamp it).
+			const FVector InfoExtent = UnrealZone->GetDynamicWaterInfoExtent();
+			const UTextureRenderTarget2DArray* InfoTexture = UnrealZone->WaterInfoTextureArray;
+			UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): diag: zone local %d; info extent %.0f x %.0f m; info texture %d x %d"), UnrealZone->IsLocalOnlyTessellationEnabled(),
+				InfoExtent.X / 100.0, InfoExtent.Y / 100.0, InfoTexture != nullptr ? InfoTexture->SizeX : 0, InfoTexture != nullptr ? InfoTexture->SizeY : 0);
 		}
 		UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): diag: t %.1f s; mesh proxy %d, info texture %d; view %.0f %.0f %.0f m; zone center %s %.0f %.0f m; bounds %s %.0f..%.0f %.0f..%.0f m; ocean %s visible %d render %d tiles %d"),
 			GetWorld()->GetTimeSeconds(), DiagMesh != nullptr && DiagMesh->SceneProxy != nullptr, UnrealZone->WaterInfoTextureArray != nullptr,

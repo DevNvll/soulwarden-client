@@ -311,6 +311,28 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   the wade, the swim, the camera under the surface, the swim back and out; one travel to the river of river-forest and a walk into
   it). The view set: `work/water-unreal/views` (9 views with `ocean-storm-noon` and `ocean-far-noon`).
 
+### The far ring (2026-10-26; a test, not the default)
+
+- The study `~/Games/soulwarden-client/research/water-far-ring.md` (GPT-6.1-Sol; brief `research/briefs/ast200-2a-far-ring.txt`) [R]:
+  - In the local mode the detailed water stops at the edge of the water info window (4 km): the material function `ClipDynamicBounds`
+    discards the pixels outside it (the tree is 6.1 km wide, but its outer tiles are clipped).
+  - The far mesh of the plugin always starts at the edge of the whole zone (22 km); no setting moves its inner edge.
+  - The editor fills the gap with a static fallback mesh of the ocean (`Water_Material_Ocean_LOD`); its builder is editor only, and the
+    client spawns none. Thus between the window and the zone edge nothing draws: the far view shows the sea floor.
+- The test (behind start options, default off): `-SwcWaterZoneMode=Global` turns the local tessellation off (one tree and one water
+  info capture for the whole zone; the far mesh then starts where the detailed water ends), and `-SwcWaterInfoResolution=N` sets the
+  water info texture (default 2048). The diagnostic (`swc.WaterZoneRefresh -1`) logs the zone mode, the info extent, and the effective
+  texture size (`r.Water.WaterInfo.RenderTargetResolutionMax` can clamp it).
+- The texel size and the memory (the study, calculated): local 4 km at 2048: 1.95 m, 32 MiB plus 96 MiB of capture targets; global
+  22.3 km at 2048: 10.9 m; at 8192: 2.7 m, 512 MiB plus about 1.5 GiB; at 12288: 1.8 m, about 4.5 GiB (only after a memory check).
+- The check (`work/water-unreal/run_farring.sh LABEL local|global RES`, the views `ocean-far-noon`, `ocean-storm-noon`,
+  `cliff-east-noon`, `cliff-southeast-noon` (a cliff top at 182.8 m, 659 m from the beach, open sea to the east), `beach-down-noon`,
+  and `river-down-noon`; a VRAM log each 2 s, and the own run stops below 1 GiB free): local 2048 against global 2048 against
+  global 8192. The pass values (test limits of the study): no sand where the source draws the ocean; no crack, strip, or double edge
+  at the old window edge or at the zone edge; a shoreline shift of at most 1 texel (1.95 m) in the near-shore pair; the far tone within
+  5 L* of the source; the GPU median and p95 at most 1 ms above local; a capture spike of at most 1 frame. If global fails the memory or
+  time limits, the next option is the fallback mesh of the plugin, made by the client.
+
 ### Stage 2b (after the full cook)
 
 - The storm waves of the overrides. The GPT-6.1-Sol study `~/Games/soulwarden-client/research/water-storm-waves.md` (2026-10-25;
