@@ -94,6 +94,11 @@ TAutoConsoleVariable<int32> CVarWaterMode(TEXT("swc.WaterMode"), 1,
 TAutoConsoleVariable<int32> CVarWaterOceanWaves(TEXT("swc.WaterOceanWaves"), 0,
 	TEXT("1: the ocean waves of the source (24 Gerstner waves scaled by WavesSize, lengths / WavesAmount; docs/WATER.md \"Stage 2b\"); ")
 	TEXT("0: the waves of the plugin."));
+/** A test of the zone after a start at a place (2a): mark the whole zone for a rebuild (the water info texture and the water mesh) each N
+ *  seconds; 0 off. */
+TAutoConsoleVariable<float> CVarWaterZoneRefresh(TEXT("swc.WaterZoneRefresh"), 0.0f,
+	TEXT("A test: each N seconds the water zone is marked for a full rebuild (the water info texture and the water mesh); 0 off."));
+
 /** The shortest time between two updates of the source waves in a transition (s; each update rebuilds the GPU wave data) [decision of the
  *  client]. */
 constexpr double WavesUpdateInterval = 0.1;
@@ -528,8 +533,8 @@ void USwcWaterSubsystem::UpdateUnrealOceanTone()
 
 void USwcWaterSubsystem::UpdateUnrealOceanWaves()
 {
-	AWaterBodyOcean* Ocean = UnrealOcean.Get();
-	if (Ocean == nullptr)
+	AWaterBodyOcean* OceanBody = UnrealOcean.Get();
+	if (OceanBody == nullptr)
 	{
 		return;
 	}
@@ -537,7 +542,7 @@ void USwcWaterSubsystem::UpdateUnrealOceanWaves()
 	{
 		if (bSourceWavesOn)
 		{
-			Ocean->SetWaterWaves(UnrealPluginWaves);
+			OceanBody->SetWaterWaves(UnrealPluginWaves);
 			bSourceWavesOn = false;
 			AppliedWavesSize = -1.0f;
 			UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the ocean waves of the plugin"));
@@ -561,7 +566,7 @@ void USwcWaterSubsystem::UpdateUnrealOceanWaves()
 	}
 	if (UnrealSourceWaves == nullptr)
 	{
-		UnrealSourceWaves = NewObject<UGerstnerWaterWaves>(Ocean);
+		UnrealSourceWaves = NewObject<UGerstnerWaterWaves>(OceanBody);
 		UnrealSourceWaves->GerstnerWaveGenerator = NewObject<USwcOceanWaveGenerator>(UnrealSourceWaves);
 	}
 	USwcOceanWaveGenerator* Generator = CastChecked<USwcOceanWaveGenerator>(UnrealSourceWaves->GerstnerWaveGenerator);
@@ -571,7 +576,7 @@ void USwcWaterSubsystem::UpdateUnrealOceanWaves()
 	UnrealSourceWaves->RecomputeWaves(/* bAllowBPScript = */ false);
 	if (!bSourceWavesOn)
 	{
-		Ocean->SetWaterWaves(UnrealSourceWaves);
+		OceanBody->SetWaterWaves(UnrealSourceWaves);
 		bSourceWavesOn = true;
 	}
 	UE_CLOG(bAmountChange || AppliedWavesSize < 0.0f, LogSwcWater, Log, TEXT("water (Unreal): the ocean waves of the source: size %.3f, amount %.2f, %d waves, the largest height %.2f m"),
@@ -629,6 +634,13 @@ void USwcWaterSubsystem::UpdateUnreal(const FVector& View, float DeltaTime)
 	}
 	UpdateUnrealOceanTone();
 	UpdateUnrealOceanWaves();
+	const float Refresh = SwcUnrealWater::CVarWaterZoneRefresh.GetValueOnGameThread();
+	if (Refresh > 0.0f && UnrealZone != nullptr && FPlatformTime::Seconds() >= NextZoneRefresh)
+	{
+		NextZoneRefresh = FPlatformTime::Seconds() + Refresh;
+		UnrealZone->MarkForRebuild(EWaterZoneRebuildFlags::All);
+		UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the zone is marked for a rebuild (swc.WaterZoneRefresh)"));
+	}
 	// The plugin makes the instances of a body again on some changes (CreateOrUpdateWaterMID): a new instance gets the tone too.
 	const double Now = FPlatformTime::Seconds();
 	if (Now >= NextToneCheck)

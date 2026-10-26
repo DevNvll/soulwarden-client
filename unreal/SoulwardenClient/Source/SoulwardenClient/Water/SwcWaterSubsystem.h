@@ -200,6 +200,7 @@ private:
 	float AppliedWavesAmount = -1.0f;
 	bool bSourceWavesOn = false;
 	double NextWavesUpdate = 0.0;
+	double NextZoneRefresh = 0.0;
 	UPROPERTY()
 	TObjectPtr<class UGerstnerWaterWaves> UnrealSourceWaves;
 	UPROPERTY()
