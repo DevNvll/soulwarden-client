@@ -298,8 +298,12 @@ void USwcWaterSubsystem::SpawnUnrealZone()
 	}
 	Spline->SetClosedLoop(true, false);
 	Spline->UpdateSpline();
-	// The setters of the extents are editor only (WITH_EDITOR); the cooked game sets the properties.
+	// The setters of the extents are editor only (WITH_EDITOR); the cooked game sets the properties. The ocean rectangle is centered on
+	// SavedZoneLocation (bCenterOnWaterZone, UWaterBodyOceanComponent::CalcBounds), and only the editor code of the plugin sets it: in the
+	// cooked game the ocean bounds stayed centered at 0, 0 (half extent 11,168 m), and past 11.2 km east or south of the world origin the
+	// ocean had no tiles (the cooked far-ring check of 2026-10-26, docs/WATER.md "The far ring").
 	SetStructByName(Body, TEXT("OceanExtents"), Extent);
+	SetStructByName(Body, TEXT("SavedZoneLocation"), Center);
 	SetStructByName(Body, TEXT("CollisionExtents"), FVector(Extent.X * 0.5, Extent.Y * 0.5, OceanCollisionDepth));
 	// The channel depth of the ocean (docs/WATER.md "Stage 2a", the start-at-beach fault): the zone takes the minimum of its water height
 	// range from the lowest bounds of its bodies (AWaterZone::UpdateWaterInfoTexture), and the plugin decodes a height at that minimum as "no

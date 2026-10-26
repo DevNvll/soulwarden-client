@@ -347,6 +347,27 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     texture size. Do not use a large texture for the whole zone; 12288 is not tested.
   - Open: the high views have a light green haze in both modes (not a far-ring effect); the far tone against the source; the cooked
     check; a pan video for the seam at the zone edge.
+- The cooked check (2026-10-26 17:06 to 17:27 UTC, the cooked build of 81182e19; evidence `water-unreal/wu2a-fixc*`,
+  `2a-fix-cooked-sheet.png`, `wfrc-*`, `far-ring-cooked-local-vs-global.png`, `far-ring-cooked-source-vs-unreal.png`, `wu-views9c`,
+  `views9-stage2a-vs-cooked.png`):
+  - The start at the beach (`-SwcWaterMode=Unreal`): PASS. "the ocean channel depth 10.0 m", the range 30.000 to 233 m, the bay
+    has water from 2 s, the first water info texture at 1.6 s.
+  - A new fault of the cooked build [R by the log]: the diagnostic gives the ocean bounds at 0, 0 (half extent 11,168 m) and
+    `SavedZoneLocation` 0, 0. In the editor the plugin sets it at run time (7168, -7168 m); in the cooked game only the editor code of
+    the plugin can set it. Thus past about 11.2 km east or south of the world origin the ocean has no tiles: in the high views a
+    straight edge (east) and a corner (south) end the water, in the local and in the global mode. The client now sets
+    `SavedZoneLocation` to the zone center (by reflection, before the ocean finishes spawning; built, not yet cooked).
+  - Global 2048 against local (cooked): the gap at the old window edge is closed up to that bounds edge. The GPU p50 is 0.2 to 0.7 ms
+    higher (local 5.6 to 6.8 ms, global 6.2 to 7.5 ms); the VRAM peak 10.2 against 9.7 GB used. In `ocean-far-noon` the near open
+    water is lighter in global (L* 63.6 against 53.2 in a near band): the 10.9 m texels change the depth near the shore.
+  - The source path at the same views: the green haze of the high views is also in the source path: it is the fog of the place, not
+    the water. The far tone (L* of a far band): `ocean-far-noon` source 44.1, local 47.5, global 45.4 (within 5); the high views
+    are not usable for the tone until the bounds fault is fixed (the band crosses the gap).
+  - The views pass at the 9 places (cooked, local 2048) against the stage 2a pictures (editor, before the depth fix): 7 places look the
+    same. `beach-down-noon` is much lighter (pale sand under the shallow water against dark brown). In `swim-surface-noon` the camera
+    (40.05 m) looks from under the plugin surface, and the underwater post process does not start (the swim is correct in the log).
+    Both are open for the next look check. GPU p50 6.1 to 9.4 ms.
+  - Not done: the pan video at the zone edge (it waits for the cooked bounds fix: the bounds edge comes first).
 
 ### Stage 2b (after the full cook)
 
