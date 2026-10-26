@@ -1,0 +1,23 @@
+# User test 2026-10-26, 8a, the short check (tools/menu-check.sh ut1026-name-short 110 -- -SwcUiDrive=FILE): the name of the identity
+# step through the route of the real keyboard ("char", then BackSpace and "char"), with the viewport client of the game module (the log
+# line "the game viewport client is SwcGameViewportClient"). No create. The clock starts at the landing screen.
+1 waitfor CharacterList 60
+2 waitfor text:Create_Character 120
+4 point text:Create_Character
+4.5 click
+8 point text:Yes
+8.5 click
+36 draw archetype
+37 point ButtonNext
+37.5 click
+42 point ButtonNext
+42.5 click
+46 point NameInputField
+46.5 click
+47 log ut1026: the typed name starts
+47.5 char Tessavalx
+48.5 key BackSpace
+49 char e
+49.5 log ut1026: the typed name ends
+55 draw name-typed
+57 end

@@ -42,6 +42,7 @@
 #include "Menu/SwcMenuPreview.h"
 #include "SwcPlayerController.h"
 #include "SwcDebugLines.h"
+#include "UI/SwcGameViewportClient.h"
 #include "UI/SwcUiInput.h"
 #include "UI/SwcKeyBindings.h"
 #include "UI/SwcGameSettings.h"
@@ -89,6 +90,16 @@ void USwcUiSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	if (GIsEditor || Mode == TEXT("off"))
 	{
 		return;
+	}
+	// The game viewport client of the client (USwcGameViewportClient: the typed text to the UI, docs/UI.md "Typed text"). Not in
+	// Config/DefaultEngine.ini: tools/cook.sh hashes Config/Default*.ini, and a change there forces a full cook (docs/WORLD.md). The
+	// engine source: UEngine::Init loads the config into the engine object and then reads GameViewportClientClass
+	// (InitializeObjectReferences), so a default object value does not stay; UGameEngine::Init then makes the game instance (this
+	// subsystem initializes in InitializeStandalone) and only after it the viewport client of GameViewportClientClass. The same order in
+	// the editor -game run and in the cooked build.
+	if (GEngine != nullptr)
+	{
+		GEngine->GameViewportClientClass = USwcGameViewportClient::StaticClass();
 	}
 	// A normal run shows no debug text (stage WF7): with no -SwcDebugLines the screen messages of the engine go off too (the warnings
 	// of the renderer, and the map warnings: "Preparing Textures (N)" of the asset compile of an editor build), as in the matched

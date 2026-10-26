@@ -218,7 +218,11 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   creation (`LinuxWindow.cpp`, `SDL_StartTextInput`): the client makes no start call. `SDL_EVENT_TEXT_INPUT` gives
   `FSlateApplication::OnKeyChar`; Slate routes the character along the focus path to the game viewport (`FSceneViewport::OnKeyChar`,
   then `InputChar` of the viewport client). An input pre-processor (`IInputProcessor`) sees no character event. The client has its
-  own viewport client, `USwcGameViewportClient` (Config/DefaultEngine.ini `GameViewportClientClassName`): the console of the engine
+  own viewport client, `USwcGameViewportClient`. `USwcUiSubsystem::Initialize` sets `GEngine->GameViewportClientClass`: UGameEngine::Init
+  makes the game instance (its subsystems initialize) after UEngine::Init and before it makes the viewport client of that class (the
+  editor -game run and the cooked build). Not in Config/DefaultEngine.ini: tools/cook.sh hashes Config/Default*.ini, and a change there
+  forces a full cook (docs/WORLD.md). The trap: a value in the default object of the engine class does not stay, because UEngine::Init
+  loads the config into the engine object (LoadConfig) before InitializeObjectReferences reads it. The viewport client: the console of the engine
   first, then each character to `Swc.HostInput("text", ...)` (`USwcUiSubsystem::UiChar`). The rules: no control character (SDL also
   gives BackSpace and Enter as the characters `\b` and `\r` after their key events; the key route of the text input has them), the two
   halves of a UTF-16 surrogate pair join, and a key of a letter adds no text and goes to no game map while a text input edits. The
