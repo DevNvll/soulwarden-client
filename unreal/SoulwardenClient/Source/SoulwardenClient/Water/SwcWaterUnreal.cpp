@@ -30,7 +30,6 @@
 #include "Engine/GameViewportClient.h"
 #include "WaterMeshComponent.h"
 #include "WaterSubsystem.h"
-#include "WaterViewExtension.h"
 #include "WaterZoneActor.h"
 #include "World/SwcLoadingGate.h"
 
@@ -779,9 +778,10 @@ void USwcWaterSubsystem::UpdateUnreal(const FVector& View, float DeltaTime)
 				{
 					OceanComponent->UpdateMaterialInstances();
 				}
-				if (FWaterViewExtension* Extension = UWaterSubsystem::GetWaterViewExtension(GetWorld()))
+				// The GPU data of the water bodies (FWaterViewExtension::MarkGPUDataDirty; its header needs a private header of the plugin).
+				if (FWaterBodyManager* Manager = UWaterSubsystem::GetWaterBodyManager(GetWorld()))
 				{
-					Extension->MarkGPUDataDirty();
+					Manager->RequestGPUDataRebuild();
 				}
 				--RefreshesLeft;
 				NextRefresh = Now + 1.5;

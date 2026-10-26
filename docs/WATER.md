@@ -246,9 +246,20 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       state of the info components. Bit 2: after each loading screen, when world rendering is on and the zone has its texture, a full
       zone rebuild, the ocean material instances, and `MarkGPUDataDirty`, at 0.5 s and again at 2 s. The diagnostic
       (`swc.WaterZoneRefresh -1`) also logs the ocean bounds, the saved zone center, and the body index.
-    - The next check: a fresh start at the beach with no travel, baseline (0) against treatment (3), with the tile bounds
-      (`r.Water.WaterMesh.ShowTileBounds 1`) and the info meshes (`r.Water.WaterInfo.ShowSceneProxies 1`) to separate "no tiles" from
-      "tiles with clear water"; then the same in the cooked build.
+    - The check (2026-10-26 06:49 to 06:58 UTC, an editor run, `wu2a-sf0`, `wu2a-sf3`, `wu2a-sf3t`; `2a-startfix-compare.png`): a fresh
+      start at the beach with no travel, baseline (0) against treatment (3), with the tile bounds (`r.Water.WaterMesh.ShowTileBounds 1`)
+      and the info meshes (`r.Water.WaterInfo.ShowSceneProxies 1`). The result: fix 3 does NOT repair the fault. Both runs look the same
+      from 2 s to 40 s:
+      - The water mesh has tiles over the bay and to the horizon (the tile bounds).
+      - The ocean info mesh covers the bay (the info mesh proxies).
+      - With the tile bounds only, the bay shows sand to the horizon: the tiles draw no visible water ("tiles with clear water").
+      - Also in the baseline, the ocean bounds are centered on the zone (7168, -7168 m, half extent 11,168 m) and `SavedZoneLocation`
+        is 7168, -7168 m. Thus the plugin sets it at run time, and the first gap of the study is not the cause at this place.
+      - Thus the fault is in the surface pixels: the material clip from the water info texture (the depth or the height that the
+        texture gives at the bay), not in the tree or the info meshes [I]. Bits 1 and 2 alone were not run (the plan ran them only if
+        3 passed). The code stays behind the switch, and the cooked check is not necessary.
+      - The build note: `WaterViewExtension.h` includes a private header of the plugin. The refresh calls
+        `FWaterBodyManager::RequestGPUDataRebuild` (public; it calls `MarkGPUDataDirty`).
   - Thus the default stays the source path (the decision of the orchestrator, 2026-10-26 00:08 UTC). The full cook takes the plugin,
     its materials, and the specs. A later fix and the switch of the default need only a code change and an incremental cook.
 - The cook: `DefaultGame.ini` cooks `/Water/Materials` and `/Water/Waves` (the client loads them by path), and
