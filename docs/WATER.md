@@ -210,6 +210,14 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     diagnostic `swc.WaterZoneRefresh -1`). A water info texture each frame (`r.Water.WaterInfo.ForceUpdateWaterInfoNextFrames -1`) and a
     full zone rebuild each 3 s (`swc.WaterZoneRefresh 3`) do not help. Thus the teleport changes something else; the next step is to
     find it (for example the scene proxy of the water mesh or the view state of the view extension at the first frames).
+  - The far ocean (the cause found offline, 2026-10-26): the water mesh adds its far mesh only with `FarDistanceMeshExtent > 0`
+    (UWaterMeshComponent::RebuildWaterMesh); the default is 0. Past the 4 km window there was no ocean, and the far view showed the
+    light sea floor of the Landscape. The client now sets 20 km (the source ocean grid of the client); the far instance has the
+    ocean tone. To check in the next window.
+  - The test of the fault for the next window: `swc.WaterKick N` (1 a new scene proxy of the water mesh, 2 new material instances
+    of the ocean, 3 a zone rebuild with a dirty water mesh grid, 4 the components of the zone registered again, 5 the Unreal water
+    hidden and shown), each 6 s apart in a run that starts at the beach (`work/water-unreal/run_kick.sh`). The kick that makes the
+    ocean draw becomes the automatic start kick (`swc.WaterStartKick N`: once the window of the zone is valid, and 3 s later).
   - Thus the default stays the source path (the decision of the orchestrator, 2026-10-26 00:08 UTC). The full cook takes the plugin,
     its materials, and the specs. A later fix and the switch of the default need only a code change and an incremental cook.
 - The cook: `DefaultGame.ini` cooks `/Water/Materials` and `/Water/Waves` (the client loads them by path), and

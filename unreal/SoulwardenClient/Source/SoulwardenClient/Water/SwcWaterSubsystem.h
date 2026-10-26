@@ -201,6 +201,16 @@ private:
 	bool bSourceWavesOn = false;
 	double NextWavesUpdate = 0.0;
 	double NextZoneRefresh = 0.0;
+public:
+	/** A test of the start-at-place fault (swc.WaterKick N; docs/WATER.md "Stage 2a"): 1 a new scene proxy of the water mesh, 2 new material
+	 *  instances of the ocean, 3 a zone rebuild with a dirty water mesh grid, 4 the components of the zone registered again, 5 the Unreal
+	 *  water hidden and shown again (the next tick). */
+	void KickUnreal(int32 Kind);
+private:
+	/** The automatic start kick (swc.WaterStartKick N > 0): the kick N once the window of the zone is valid, and again 3 s later. */
+	int32 StartKicks = 0;
+	double NextStartKick = 0.0;
+	bool bShowAgain = false;
 	UPROPERTY()
 	TObjectPtr<class UGerstnerWaterWaves> UnrealSourceWaves;
 	UPROPERTY()

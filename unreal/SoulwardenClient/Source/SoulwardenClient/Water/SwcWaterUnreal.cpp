@@ -27,6 +27,7 @@
 #include "WaterSplineComponent.h"
 #include "WaterSplineMetadata.h"
 #include "WaterWaves.h"
+#include "WaterMeshComponent.h"
 #include "WaterZoneActor.h"
 #include "World/SwcLoadingGate.h"
 
@@ -64,6 +65,10 @@ constexpr int32 SpawnsPerTick = 4;
  *  view in it): 4 km. The render target of 2048 texels gives about 2 m for each texel [decision of the client, to tune in stage 2]. */
 constexpr double TessellationWindow = 400000.0;
 constexpr int32 WaterInfoResolution = 2048;
+/** The extent of the far mesh of the zone (cm) around the tessellated window: the ocean to the horizon, as the 20 km ocean grid of the source
+ *  path [decision of the client]. The plugin adds no far mesh with the default 0 (UWaterMeshComponent::RebuildWaterMesh): the far view showed
+ *  the sea floor of the Landscape (stage 2a, ocean-far: L* 54 against 37). */
+constexpr float FarMeshExtent = 2000000.0f;
 /** The margin of the water zone and of the ocean around the world regions (cm). */
 constexpr double ZoneMargin = 400000.0;
 /** The depth of the ocean collision under the ocean level (cm): the underwater post process finds the camera in it. */
@@ -100,6 +105,10 @@ TAutoConsoleVariable<int32> CVarWaterOceanWaves(TEXT("swc.WaterOceanWaves"), 0,
 TAutoConsoleVariable<float> CVarWaterZoneRefresh(TEXT("swc.WaterZoneRefresh"), 0.0f,
 	TEXT("A test: each N seconds the water zone is marked for a full rebuild (the water info texture and the water mesh); 0 off."));
 
+/** The automatic start kick of the Unreal water (the start-at-place fault): 0 off, N the kind of swc.WaterKick. */
+TAutoConsoleVariable<int32> CVarWaterStartKick(TEXT("swc.WaterStartKick"), 0,
+	TEXT("The automatic start kick of the Unreal water: 0 off; N: swc.WaterKick N once the window of the zone is valid after the start, and 3 s later."));
+
 /** The shortest time between two updates of the source waves in a transition (s; each update rebuilds the GPU wave data) [decision of the
  *  client]. */
 constexpr double WavesUpdateInterval = 0.1;
@@ -113,6 +122,18 @@ void ToneParameters(const swc::water::Tone& Tone, FLinearColor& Absorption, FLin
 	Absorption = FLinearColor(A[0], A[1], A[2], A[3]);
 	Scattering = FLinearColor(S[0], S[1], S[2], S[3]);
 }
+
+/** swc.WaterKick N: one kick of the test of the start-at-place fault (USwcWaterSubsystem::KickUnreal). */
+FAutoConsoleCommandWithWorldAndArgs CommandWaterKick(TEXT("swc.WaterKick"),
+	TEXT("A test of the start-at-place fault of the Unreal water: 1 a new water mesh scene proxy, 2 new ocean material instances, 3 a zone rebuild ")
+	TEXT("with a dirty water mesh grid, 4 the zone components registered again, 5 the Unreal water hidden and shown."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+	{
+		if (USwcWaterSubsystem* Water = World != nullptr ? World->GetSubsystem<USwcWaterSubsystem>() : nullptr)
+		{
+			Water->KickUnreal(Args.Num() > 0 ? FCString::Atoi(*Args[0]) : 1);
+		}
+	}));
 
 FVector ToUnreal(double X, double Y, double Z)
 {
@@ -259,6 +280,7 @@ void USwcWaterSubsystem::SpawnUnrealZone()
 	UMaterialInterface* FarMaterial = UnrealMaterial(SlotFarMesh.Instance, SlotFarMesh.Plugin);
 	UnrealFarMaterial = FarMaterial != nullptr ? UMaterialInstanceDynamic::Create(FarMaterial, this) : nullptr;
 	UnrealZone->SetFarMeshMaterial(UnrealFarMaterial);
+	UnrealZone->GetWaterMeshComponent()->FarDistanceMeshExtent = FarMeshExtent;
 	UnrealZone->FinishSpawning(FTransform(FVector(Center, OceanLevel * 100.0)));
 
 	// The ocean at the ocean level (terrain.json, 40 m), over the whole zone. The plugin ocean is the zone rectangle less the polygon of
@@ -587,6 +609,44 @@ void USwcWaterSubsystem::UpdateUnrealOceanWaves()
 	NextWavesUpdate = Now + SwcUnrealWater::WavesUpdateInterval;
 }
 
+void USwcWaterSubsystem::KickUnreal(int32 Kind)
+{
+	if (UnrealZone == nullptr)
+	{
+		UE_LOG(LogSwcWater, Warning, TEXT("water (Unreal): kick %d: no zone"), Kind);
+		return;
+	}
+	UWaterMeshComponent* WaterMesh = UnrealZone->GetWaterMeshComponent();
+	UWaterBodyComponent* OceanComponent = UnrealOcean != nullptr ? UnrealOcean->GetWaterBodyComponent() : nullptr;
+	switch (Kind)
+	{
+	case 1:
+		WaterMesh->MarkRenderStateDirty();
+		break;
+	case 2:
+		if (OceanComponent != nullptr)
+		{
+			OceanComponent->UpdateMaterialInstances();
+			OceanComponent->MarkRenderStateDirty();
+		}
+		break;
+	case 3:
+		WaterMesh->MarkWaterMeshGridDirty();
+		UnrealZone->MarkForRebuild(EWaterZoneRebuildFlags::All);
+		break;
+	case 4:
+		UnrealZone->ReregisterAllComponents();
+		break;
+	case 5:
+		SetUnrealVisible(false);
+		bShowAgain = true;
+		break;
+	default:
+		break;
+	}
+	UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): kick %d at %.1f s"), Kind, GetWorld()->GetTimeSeconds());
+}
+
 void USwcWaterSubsystem::SetUnrealVisible(bool bUnreal)
 {
 	// The Unreal water: the zone (its water mesh and far mesh), the ocean, and the bodies; no collision when it hides (the underwater sweep
@@ -649,6 +709,23 @@ void USwcWaterSubsystem::UpdateUnreal(const FVector& View, float DeltaTime)
 			Bounds.Min.X / 100.0, Bounds.Max.X / 100.0, Bounds.Min.Y / 100.0, Bounds.Max.Y / 100.0, OceanComponent ? *OceanComponent->Bounds.Origin.ToString() : TEXT("-"),
 			OceanComponent ? OceanComponent->IsVisible() : -1, OceanComponent ? OceanComponent->ShouldRender() : -1,
 			OceanComponent ? OceanComponent->ShouldGenerateWaterMeshTile() : -1);
+	}
+	// The start kick: once the window of the zone is valid (after the first loading screen), the kick of swc.WaterStartKick, and again 3 s later.
+	const int32 StartKick = SwcUnrealWater::CVarWaterStartKick.GetValueOnGameThread();
+	if (bShowAgain)
+	{
+		bShowAgain = false;
+		SetUnrealVisible(true);
+	}
+	if (StartKick > 0 && StartKicks < 2 && UnrealZone != nullptr && FPlatformTime::Seconds() >= NextStartKick)
+	{
+		FVector Center;
+		if (UnrealZone->GetDynamicWaterInfoCenter(0, Center))
+		{
+			KickUnreal(StartKick);
+			++StartKicks;
+			NextStartKick = FPlatformTime::Seconds() + 3.0;
+		}
 	}
 	const float Refresh = SwcUnrealWater::CVarWaterZoneRefresh.GetValueOnGameThread();
 	if (Refresh > 0.0f && UnrealZone != nullptr && FPlatformTime::Seconds() >= NextZoneRefresh)
