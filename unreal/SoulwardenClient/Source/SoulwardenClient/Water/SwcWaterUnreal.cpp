@@ -245,6 +245,7 @@ bool USwcWaterSubsystem::LoadUnreal(const FString& Folder)
 	// -SwcWaterStartFix=N (research/water-ocean-quadtree.md, question 5): bit 1 the ocean center (SavedZoneLocation) and the final shape update of
 	// each body, bit 2 the refresh after each loading screen. Default 0: the check of 2026-10-26 did not prove it (docs/WATER.md).
 	FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterStartFix="), StartFix);
+	FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterOceanDepth="), OceanChannelDepth);
 	FString Text;
 	TSharedPtr<FJsonObject> Doc;
 	if (!FFileHelper::LoadFileToString(Text, *Path) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Doc) || !Doc.IsValid())
@@ -345,6 +346,18 @@ void USwcWaterSubsystem::SpawnUnrealZone()
 		SetStructByName(Body, TEXT("SavedZoneLocation"), Center);
 	}
 	SetStructByName(Body, TEXT("CollisionExtents"), FVector(Extent.X * 0.5, Extent.Y * 0.5, OceanCollisionDepth));
+	// The test of the water height range (-SwcWaterOceanDepth): the zone takes WaterZMin from the lowest bounds of its bodies
+	// (AWaterZone::UpdateWaterInfoTexture). With a channel depth of 0 the ocean is that minimum when no body is lower; the merge pass then
+	// writes a normalized height of 0 (or no water), and the material decodes 0 as "no water" (WaterDataFunctions.ush): the ocean is clear.
+	if (OceanChannelDepth > 0.0f)
+	{
+		FStructProperty* Curve = FindFProperty<FStructProperty>(Body->GetClass(), TEXT("CurveSettings"));
+		if (Curve != nullptr && Curve->Struct == FWaterCurveSettings::StaticStruct())
+		{
+			Curve->ContainerPtrToValuePtr<FWaterCurveSettings>(Body)->ChannelDepth = OceanChannelDepth * 100.0f;
+			UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the ocean channel depth %.1f m"), OceanChannelDepth);
+		}
+	}
 	Body->SetWaterAndUnderWaterPostProcessMaterial(UnrealMaterial(SlotOcean.Instance, SlotOcean.Plugin),
 		UnrealMaterial(SlotUnderwater.Instance, SlotUnderwater.Plugin));
 	Body->SetWaterInfoMaterial(LoadObject<UMaterialInterface>(nullptr, WaterInfoPath));
@@ -742,8 +755,10 @@ void USwcWaterSubsystem::UpdateUnreal(const FVector& View, float DeltaTime)
 		{
 			const FStructProperty* Saved = FindFProperty<FStructProperty>(OceanComponent->GetClass(), TEXT("SavedZoneLocation"));
 			const FVector2D SavedZone = Saved != nullptr ? *Saved->ContainerPtrToValuePtr<FVector2D>(OceanComponent) : FVector2D::ZeroVector;
-			UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): diag: ocean bounds %s extent %s; saved zone %.0f %.0f m; body index %d"), *OceanComponent->Bounds.Origin.ToString(),
-				*OceanComponent->Bounds.BoxExtent.ToString(), SavedZone.X / 100.0, SavedZone.Y / 100.0, OceanComponent->GetWaterBodyIndex());
+			const FVector2f Heights = UnrealZone->GetWaterHeightExtents();
+			UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): diag: ocean bounds %s extent %s; saved zone %.0f %.0f m; body index %d; zone water heights %.3f..%.3f m, ground min %.3f m"),
+				*OceanComponent->Bounds.Origin.ToString(), *OceanComponent->Bounds.BoxExtent.ToString(), SavedZone.X / 100.0, SavedZone.Y / 100.0,
+				OceanComponent->GetWaterBodyIndex(), Heights.X / 100.0, Heights.Y / 100.0, UnrealZone->GetGroundZMin() / 100.0);
 		}
 		UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): diag: t %.1f s; mesh proxy %d, info texture %d; view %.0f %.0f %.0f m; zone center %s %.0f %.0f m; bounds %s %.0f..%.0f %.0f..%.0f m; ocean %s visible %d render %d tiles %d"),
 			GetWorld()->GetTimeSeconds(), DiagMesh != nullptr && DiagMesh->SceneProxy != nullptr, UnrealZone->WaterInfoTextureArray != nullptr,

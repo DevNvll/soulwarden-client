@@ -214,6 +214,9 @@ private:
 	bool bInfoTextureLogged = false;
 	/** -SwcWaterStartFix (bits: 1 the ocean center and the final shape update, 2 the refresh after a loading screen) and its state. */
 	int32 StartFix = 0;
+	/** -SwcWaterOceanDepth=M: the channel depth of the plugin ocean in m (default 0, the value of the plugin). Its bounds then reach M below the
+	 *  ocean level, and the water height range of the zone starts below the ocean (docs/WATER.md, research/water-info-texture.md). */
+	float OceanChannelDepth = 0.0f;
 	int32 RefreshesLeft = 2;
 	double NextRefresh = 0.0;
 	UPROPERTY()

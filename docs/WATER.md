@@ -260,6 +260,24 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
         3 passed). The code stays behind the switch, and the cooked check is not necessary.
       - The build note: `WaterViewExtension.h` includes a private header of the plugin. The refresh calls
         `FWaterBodyManager::RequestGPUDataRebuild` (public; it calls `MarkGPUDataDirty`).
+  - The study `~/Games/soulwarden-client/research/water-info-texture.md` (GPT-6.1-Sol, 2026-10-26; brief
+    `research/briefs/ast200-2a-info-texture.txt`) and a check of the plugin source give the main candidate:
+    - [R] The zone takes the water height range from the bounds of its bodies (`AWaterZone::UpdateWaterInfoTexture`: WaterZMin is the
+      lowest `Bounds.Min.Z`). The bounds of the plugin ocean reach `ChannelDepth` below its level (`UWaterBodyOceanComponent::CalcBounds`),
+      and `ChannelDepth` is 0 by default (`FWaterCurveSettings`). The client sets no channel depth (the ocean bounds extent Z is 0 in the
+      diagnostic).
+    - [R] The merge pass (`WaterInfoMerge.usf`) accepts water only when `WaterZ >= WaterZMin`, and it stores the height normalized to
+      that range. The decoder (`WaterDataFunctions.ush`) treats a normalized height of 0 or less as "no water": the water height
+      becomes the ground height less 256 cm. The opacity mask of `Water_Material` is 0 at that depth (offset -24 cm): the water is clear.
+    - [I] Thus an ocean that is the lowest body of the zone is clear. Near the starting beach, all spawned bodies are higher than the
+      ocean (the specs: the lowest lake or river within 3 km is 41.5 m), so the ocean is the minimum. In the whole world only one body
+      is lower than 40 m (a lake at 39.28 m near 5088, 5669 m). Why the travel run `2a-after` drew the bay is not explained yet [U]: no
+      body below 40 m is near its places.
+    - [R] The terrain is an Unreal Landscape (the builder makes it); the ground capture takes only the Landscape and registered terrain
+      components. The hidden source water, the clouds, the decals, and the shore meshes are not in the ground capture.
+    - The test (not built yet): `-SwcWaterOceanDepth=M` sets the channel depth of the plugin ocean (by reflection, before it finishes
+      spawning). The diagnostic logs the water height range and the ground minimum of the zone. Pass: with M = 10 the range starts at
+      30 m and the bay draws water at a fresh start at the beach; with M = 0 the range starts at 40.000 m and the bay is clear.
   - Thus the default stays the source path (the decision of the orchestrator, 2026-10-26 00:08 UTC). The full cook takes the plugin,
     its materials, and the specs. A later fix and the switch of the default need only a code change and an incremental cook.
 - The cook: `DefaultGame.ini` cooks `/Water/Materials` and `/Water/Waves` (the client loads them by path), and
