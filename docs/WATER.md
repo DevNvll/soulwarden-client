@@ -368,6 +368,18 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     (40.05 m) looks from under the plugin surface, and the underwater post process does not start (the swim is correct in the log).
     Both are open for the next look check. GPU p50 6.1 to 9.4 ms.
   - Not done: the pan video at the zone edge (it waits for the cooked bounds fix: the bounds edge comes first).
+- The cooked check of the bounds fix (2026-10-26 17:35 to 17:46 UTC, the cooked build of 34fe062f; evidence `water-unreal/wfrb-*`,
+  `wfrp-*`, `wfrpb-*`, `far-ring-cooked-bounds-fix.png`, `far-ring-cooked-fixed-local-vs-global.png`, `far-ring-pan-beach-local-vs-global.png`):
+  - The diagnostic: the ocean bounds at 7168, -7168 m (half extent 11,168 m, Z 10 m) and `SavedZoneLocation` 7168, -7168 m for the
+    whole run. PASS: the straight edge and the corner of the high views are gone.
+  - Local 2048: a light band (no water) remains between the detailed water and the dark far mesh at the horizon of the high views:
+    the gap past the 4 km window (the clip of the study).
+  - Global 2048: the water continues to the horizon with no band and no edge in both high views.
+  - The pan at the cliff top failed as a view: the character stood in a rock gap (the terrain height alone is not a good place). The
+    pan at the start beach (heading 40 to 180 deg, pitch 0): local and global look the same at eye level, with no seam and no band
+    (islands and the low angle hide the far gap).
+  - Cost: GPU p50 of the high views local 7.06 and 7.38 ms, global 7.48 and 7.04 ms; the VRAM peak local 9.9 GB, global 9.7 GB.
+    The near-shore lightening of global at `ocean-far-noon` (the earlier cooked check) is the open cost of global.
 
 ### Stage 2b (after the full cook)
 
