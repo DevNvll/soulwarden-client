@@ -138,3 +138,10 @@ UiTextBus.Event.SetOverflowMode(row, eUiTextOverflowMode_ClipText)
 check(swcui.text_layout(row).lines[1].width > width, "clip keeps the whole line (the draw clips it)")
 frames(0.1)
 picture("text-overflow")
+
+-- A label with more text after it (the localization of the engine replaces the @ label and keeps the rest; the user test of
+-- 2026-10-26: the BIO tab showed "@ui_world_select_world: Soulwarden").
+equal(swcui.localize("@ui_world_select_world:"), "World:", "a label and a colon: the label is localized")
+equal(swcui.localize("@ui_world_select_world"), "World", "a whole label")
+equal(swcui.localize("@ui_ok 1"), swcui.localize("@ui_ok") .. " 1", "a label and a space: the label is localized, the rest stays")
+equal(swcui.localize("@no_such_label_xyz:"), "@no_such_label_xyz:", "an unknown label stays as it is")

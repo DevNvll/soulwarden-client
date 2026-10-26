@@ -1041,6 +1041,10 @@ the client window) and the retail combat capture of set 6 (the list of the UI tr
 - The localization of a label inside a text (`Model::localize`, stage MVP-I): the engine replaces each `@label` (letters, digits, `_`)
   that it knows, also after other text ("30@ui_seconds_short" of `TimeHelperFunctions:ConvertToShorthandString`, the time left of
   a status: "30s"). Before, only a label at the start of the text was localized.
+- A label at the start with more text after it (2026-10-26, the user test: the BIO tab showed "@ui_world_select_world: Soulwarden"): the
+  label runs over letters, digits, `_`, and `-` (1,435 keys have a `-`); a known label is localized and the rest is localized by the
+  same rules ("@ui_world_select_world:" is "World:"). Before, only a label followed by a space was localized. 104 canvas texts have a
+  label followed by other text (the map "@ui_governed_by:", the social screen "@ui_cooldown:"). Checks: fixtures `text`, `luaerrors`.
 
 The check against the retail set 6 (2026-10-19, `~/Games/soulwarden-client/evidence/P3.H/compare`; the client runs
 `p3h-views`, `p3h-world`, `p3h-fight`, `p3h-fight2` at 1280 x 720 with the build bow-boltcaster on the dry sand of set 3; the

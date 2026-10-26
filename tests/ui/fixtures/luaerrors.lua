@@ -97,6 +97,14 @@ equal(errors(), 0, "UI state changes with the HUD canvases: no Lua error (AST-22
 
 -- 5. The skills window: its screens and scroll boxes (the lists at the refresh).
 equal(errors(), 0, "the skills window and its scroll boxes: no Lua error")
+-- The BIO tab of the window: the label of the world line (canvas text "@ui_world_select_world:"; the user test of 2026-10-26).
+do
+  local label = find(swcui.canvas_get(skills, "root"), "WorldLabel")
+  check(label ~= nil, "the BIO tab has its world label")
+  if label then
+    equal(swcui.get(label, "text.text"), "World:", "the BIO tab: the world label is localized (not \"@ui_world_select_world:\")")
+  end
+end
 note("the Lua errors of the run: " .. tostring(errors()))
 
 -- The reward popup (stage Q7): only the dynamic loader names its canvas; PrepareState(1000163614) loads it once.
