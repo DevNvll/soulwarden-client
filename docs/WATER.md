@@ -332,6 +332,21 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   at the old window edge or at the zone edge; a shoreline shift of at most 1 texel (1.95 m) in the near-shore pair; the far tone within
   5 L* of the source; the GPU median and p95 at most 1 ms above local; a capture spike of at most 1 frame. If global fails the memory or
   time limits, the next option is the fallback mesh of the plugin, made by the client.
+- The check (2026-10-26 09:16 to 09:40 UTC, editor runs; evidence `water-unreal/wfr-*`, `far-ring-local-vs-global2048.png`,
+  `far-ring-sky-local-vs-global2048.png`):
+  - The cliff views failed as views: the camera stands on a flat cliff top, and the ground hides the sea. Two new views
+    `sky-east-noon` and `sky-south-noon` (the camera 300 m high above the cliff edge) show the far ocean.
+  - Local 2048 (today): in the high views, a light band (no water) lies between the detailed water and the dark far mesh at the
+    horizon. This is the gap of the study.
+  - Global 2048: the water continues to the horizon with no band and no visible edge. In the six other views (the beach to the open
+    sea, the storm coast, the near shore down through the water, the narrow river) there is no visible difference from local
+    (also not at the shoreline). The GPU p50 of each view is the same within 0.1 ms (5.5 to 7.8 ms). The VRAM peak is the same
+    (12.3 to 14.0 GB used for the whole machine).
+  - Global 8192: FAIL. At the first capture of the whole zone the VRAM went from 10.7 to 23.8 GB used (of 24.6) in 4 s, and the
+    sampler stopped the run (268 MiB free). The study estimate (about 2 GiB) was too low: the capture passes render the scene at the
+    texture size. Do not use a large texture for the whole zone; 12288 is not tested.
+  - Open: the high views have a light green haze in both modes (not a far-ring effect); the far tone against the source; the cooked
+    check; a pan video for the seam at the zone edge.
 
 ### Stage 2b (after the full cook)
 
