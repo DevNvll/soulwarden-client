@@ -124,12 +124,15 @@ Before, the converter read only plain numbers: a mark gave an empty point, and t
 The live check (2026-10-26, uncooked runs with the check content; evidence usertest-567 t1, t3): Urda frames Urda, Aelstrom, and the
 player over the shoulder, as retail 18e F-29 (the retail frame is wider: the hand-in line has its own camera). Deployed 2026-10-26 07:55.
 Open:
-- Francis Turner (the preset pair NSL_SIT_WID_SNGL_HA): the camera looks at him, but it frames his chest and cuts his head (the line
-  point "p .5 -2.25 1.9" needs the frame of the real player; no retail reference yet).
+- Francis Turner: the preset pair framed his chest and cut his head. Since 2026-10-26 08:00 the converter places a "p" point of a preset
+  with no dummy at the standard place of the player in a Talk (the dummy "s .25 1.3 0" turned 180 degrees of 67 of the 88 presets with a
+  dummy) and keeps the look-at of the line: camera (-0.25, 3.55, 1.9), look-at (1.0, 0, 1.1) [I]; no retail reference yet. The deploy
+  of persons.json waits for the word of the orchestrator.
 - Oseye Kamau (0422_Innkeep, Everfall): the backend refuses the Talk ("a rule of the data that the backend cannot check", result 2), so
   the conversation closes after 30 ms and her camera was not seen (a backend need).
-- 27 persons have no preset and no point (12_SerPayneBennett, 9401_FirstHorse, and others); the client then puts the camera at the frame
-  of the person (a client rule for an empty origin, the camera of the play, needs a cook).
+- 27 persons have no preset and no point (12_SerPayneBennett, 9401_FirstHorse, and others). Since 2026-10-26 (the client, with the next
+  cook) a line with no camera point keeps the camera of the play: no cut, no hidden player, no dummy (`FSwcPerson::FLine::bCamera`).
+  Before, the camera stood at the frame of the person. The retail camera UI_Conversation of the script is still not done.
 
 | Person (preset) | Retail camera (set-mvph-talk) | Client camera |
 | --- | --- | --- |

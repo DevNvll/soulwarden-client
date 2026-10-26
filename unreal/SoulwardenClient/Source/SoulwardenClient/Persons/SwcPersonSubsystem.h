@@ -72,6 +72,9 @@ struct FSwcPerson
 		TArray<FString> Lines;
 		FString Speaker;
 		FString Text;
+		/** True when the line has a camera point (an origin of three values). A line with no preset and no point (27 persons, for example
+		 *  12_SerPayneBennett) keeps the camera of the play: the retail camera UI_Conversation of the script is not done (docs/PERSONS.md). */
+		bool bCamera = false;
 		FVector Camera = FVector::ZeroVector;
 		FVector LookAt = FVector::ZeroVector;
 		float Fov = 0.0f;

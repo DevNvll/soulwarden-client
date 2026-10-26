@@ -1503,8 +1503,10 @@ void USwcBackendSubsystem::UpdatePlayer()
 			else
 			{
 				CameraManager->SetSceneCamera(false, FVector::ZeroVector, FRotator::ZeroRotator, 0.0f);
-				CameraManager->SetSceneView(Line != nullptr, Line != nullptr ? Line->Camera : FVector::ZeroVector, Line != nullptr ? Line->LookAt : FVector::ZeroVector,
-					Line != nullptr ? Line->Fov : 0.0f);
+				// A line with no camera point keeps the camera of the play (before: the camera stood at the frame of the person).
+				const bool bLineCamera = Line != nullptr && Line->bCamera;
+				CameraManager->SetSceneView(bLineCamera, bLineCamera ? Line->Camera : FVector::ZeroVector, bLineCamera ? Line->LookAt : FVector::ZeroVector,
+					bLineCamera ? Line->Fov : 0.0f);
 			}
 			// The exit camera of a scene (m_cameraStateToSetOnExit, m_lockCameraStateOnExitUntilInput): until the next move or look input
 			// [U: the exact input event that clears the lock].
@@ -1522,12 +1524,12 @@ void USwcBackendSubsystem::UpdatePlayer()
 		}
 		// HidePlayerAvatar hides the character (a Talk line or a scene: CutsceneInfo m_hidePlayerAvatar); a two-shot preset shows the
 		// dummy of the player in its place.
-		if (const bool bHide = (Line != nullptr && Line->bHidePlayer && !Line->bDummy) || Scenes->HidesPlayer(); Avatar->IsHidden() != bHide)
+		if (const bool bHide = (Line != nullptr && Line->bCamera && Line->bHidePlayer && !Line->bDummy) || Scenes->HidesPlayer(); Avatar->IsHidden() != bHide)
 		{
 			Avatar->SetActorHiddenInGame(bHide);
 			UE_LOG(LogSwcBackend, Log, TEXT("interact: the character is %s (HidePlayerAvatar of the camera of the line)"), bHide ? TEXT("hidden") : TEXT("shown again"));
 		}
-		const bool bDummy = Line != nullptr && Line->bDummy;
+		const bool bDummy = Line != nullptr && Line->bCamera && Line->bDummy;
 		if (bDummy)
 		{
 			Avatar->SetDummy(&Line->DummyFeet, Line->DummyYaw, Line->bDummyArmed);

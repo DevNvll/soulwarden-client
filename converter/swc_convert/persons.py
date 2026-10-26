@@ -597,6 +597,10 @@ def resolve(found: list, tables: Tables) -> list:
 PRESETS = "sharedassets/springboardentitites/datatables/cinematics/javelindata_cutscenecamerapresets.datasheet"
 
 
+# The place of the player body in a Talk (DummyPresetPos "s .25 1.3 0", DummyPresetRot "s 0 0 180": 67 of the 88 presets with a dummy).
+STANDARD_DUMMY = {"position": [0.25, 1.3, 0.0], "rotation": [0.0, 0.0, 180.0], "armed": False}
+
+
 def camera_point(text, dummy: dict | None) -> list[float]:
     """@return A camera point of a line or a preset in the frame of the speaker, or [] when the client cannot place it. The values
     have a frame mark (the localization attributes cameraStateOrigin and cameraStateLookAt, the preset columns): none or "s" (the
@@ -719,11 +723,14 @@ def conversations(persons: list) -> None:
             dummy = {"position": [float(v) for v in place[1:]],
                      "rotation": [float(v) for v in turn[1:]] if len(turn) == 4 and turn[0] == "s" else [0.0, 0.0, 0.0],
                      "armed": str(preset.get("DummyIsArmed", "")).lower() == "true"}
-        origin = camera_point(line.get("cameraStateOrigin") or preset.get("CameraStateOrigin"), dummy)
-        look_at = camera_point(line.get("cameraStateLookAt") or preset.get("CameraStateLookAt"), dummy)
+        # [I] A point in the frame of the player with no dummy in the preset (06_FrancisTurner, "p .5 -2.25 1.9" with the single shot
+        # NSL_SIT_WID_SNGL_HA): the standard place of the player in a Talk, the dummy of 67 of the 88 two-shot presets.
+        frame = dummy or STANDARD_DUMMY
+        origin = camera_point(line.get("cameraStateOrigin") or preset.get("CameraStateOrigin"), frame)
+        look_at = camera_point(line.get("cameraStateLookAt") or preset.get("CameraStateLookAt"), frame)
         if not origin and line.get("cameraStateOrigin"):
-            # [I] A line point that the client cannot place (the frame of the player with no dummy: 06_FrancisTurner, "p .5 -2.25 1.9"):
-            # the origin and the look-at of the preset as one pair (an empty origin puts the camera into the person).
+            # [I] A line point that the client cannot place (the frame of a named person, "n NPC_ID"): the origin and the look-at of the
+            # preset as one pair (an empty origin keeps the camera of the play).
             origin = camera_point(preset.get("CameraStateOrigin"), dummy)
             look_at = camera_point(preset.get("CameraStateLookAt"), dummy)
         conversation["camera"] = {

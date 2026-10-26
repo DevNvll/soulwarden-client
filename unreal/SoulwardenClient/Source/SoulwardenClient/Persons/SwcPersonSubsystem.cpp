@@ -248,7 +248,8 @@ void USwcPersonSubsystem::Load()
 				Feet = ReadPoint((*Frame)->GetArrayField(TEXT("position")));
 				EngineYaw = (*Frame)->GetNumberField(TEXT("yaw"));
 			}
-			const swc::interact::ScenePoint Origin = ReadPoint((*Camera)->GetArrayField(TEXT("origin")));
+			const TArray<TSharedPtr<FJsonValue>>& OriginValues = (*Camera)->GetArrayField(TEXT("origin"));
+			const swc::interact::ScenePoint Origin = ReadPoint(OriginValues);
 			const TArray<TSharedPtr<FJsonValue>>& LookAtValues = (*Camera)->GetArrayField(TEXT("lookAt"));
 			const swc::interact::ScenePoint LookAt = LookAtValues.Num() >= 3 ? ReadPoint(LookAtValues) : swc::interact::ScenePoint{0.0, 0.0, Origin.z};
 			const auto ToUnreal = [](const swc::interact::ScenePoint& Point) { return FVector(Point.x * 100.0, -Point.y * 100.0, Point.z * 100.0); };
@@ -265,6 +266,7 @@ void USwcPersonSubsystem::Load()
 			}
 			Person.Line.Speaker = (*Conversation)->GetStringField(TEXT("speaker"));
 			Person.Line.Text = (*Conversation)->GetStringField(TEXT("text"));
+			Person.Line.bCamera = OriginValues.Num() >= 3;
 			Person.Line.Camera = ToUnreal(swc::interact::scene_point(Feet, EngineYaw, Origin)) + FVector(0.0, 0.0, TalkCameraLift * 100.0);
 			Person.Line.LookAt = ToUnreal(swc::interact::scene_point(Feet, EngineYaw, LookAt));
 			Person.Line.Fov = static_cast<float>((*Camera)->GetNumberField(TEXT("fov")));

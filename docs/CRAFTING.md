@@ -183,7 +183,10 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
   item menu Equip, Lock, Drop; Equip sends 3895 (bag slot to paperdoll slot 35); the result screens with their buttons and the summary
   "+ 4 Cooking" (a repeat craft: 4 points for each job; the first craft of the recipe adds its FirstCraftAchievement bonus, +9, so the
   first ration showed 13 as retail F-70). Deployed weaponstats.tsv 2026-10-26 07:55.
-- Open: retail darkens the world more behind the result panel (BlackBg of craftingscreenv4.luac; the client background is lighter).
+- Open: retail darkens the world more behind the result panel. BlackBg (black, alpha 0.5, the script fades it to 1) is applied in the
+  client. The ratio of the world brightness with and without the panel: retail 0.19 to 0.34 (F-20 to F-22, F-68 to F-70), the client
+  0.23 to 0.48 (usertest-567 t2). The retail frames are at a darker hour, and no other dark element of the canvas shows in the result
+  state: [I] the rest comes from the camera of the crafting result (a post effect), not from the canvas. A study is needed.
 
 ## The differences from retail (the comparison pictures)
 
