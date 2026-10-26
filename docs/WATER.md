@@ -240,7 +240,7 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     - Other rules [R]: a per-view tree is rebuilt in full at each window move; the window moves only when the view leaves the
       update rectangle (about 1,850 m half extent), thus a 418 m travel does not move it; the water info texture stores no body index,
       and texels with no water give a negative depth, which makes the water clear (geometry present, no visible water).
-    - The client code (2026-10-26, not built yet): `-SwcWaterStartFix=N` (default 3, 0 the baseline). Bit 1: the client sets
+    - The client code (2026-10-26, not built yet): `-SwcWaterStartFix=N` (default 0 from 2026-10-26 07:00 UTC, the word of the orchestrator: not proved; 3 the treatment). Bit 1: the client sets
       `SavedZoneLocation` to the zone center before the ocean finishes spawning, and after each spawn it calls `UpdateAll` with a
       shape change, applies the overlap rule again, builds the info meshes from the final shape, and refreshes the bounds and the render
       state of the info components. Bit 2: after each loading screen, when world rendering is on and the zone has its texture, a full

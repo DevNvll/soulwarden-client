@@ -243,7 +243,7 @@ bool USwcWaterSubsystem::LoadUnreal(const FString& Folder)
 	FString InfoMesh;
 	bPluginInfoMeshes = FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterInfoMesh="), InfoMesh) && InfoMesh.Equals(TEXT("Plugin"), ESearchCase::IgnoreCase);
 	// -SwcWaterStartFix=N (research/water-ocean-quadtree.md, question 5): bit 1 the ocean center (SavedZoneLocation) and the final shape update of
-	// each body, bit 2 the refresh after each loading screen. Default 3; 0 the baseline of stage 2a.
+	// each body, bit 2 the refresh after each loading screen. Default 0: the check of 2026-10-26 did not prove it (docs/WATER.md).
 	FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterStartFix="), StartFix);
 	FString Text;
 	TSharedPtr<FJsonObject> Doc;

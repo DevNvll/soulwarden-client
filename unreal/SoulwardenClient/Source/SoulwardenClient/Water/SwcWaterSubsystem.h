@@ -213,7 +213,7 @@ private:
 	bool bShowAgain = false;
 	bool bInfoTextureLogged = false;
 	/** -SwcWaterStartFix (bits: 1 the ocean center and the final shape update, 2 the refresh after a loading screen) and its state. */
-	int32 StartFix = 3;
+	int32 StartFix = 0;
 	int32 RefreshesLeft = 2;
 	double NextRefresh = 0.0;
 	UPROPERTY()
