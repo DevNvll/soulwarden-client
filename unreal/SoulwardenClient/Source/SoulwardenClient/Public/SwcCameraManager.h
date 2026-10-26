@@ -106,6 +106,8 @@ private:
 	void SelectState(const ASwcPlayerCharacter& Character);
 	/** The depth of field of a screen on the view (SetUiDepthOfField), or no override of the depth of field. */
 	void ApplyUiDepthOfField(FMinimalViewInfo& POV) const;
+	/** The turn of the body in the inventory states (UpdateViewTarget): toward the camera at the open, to the view at the end. */
+	void UpdateBodyTurn(ASwcPlayerCharacter& Character, float CameraYaw, float DeltaTime);
 	void UpdateZ(const FVector& TargetPivot, const ASwcPlayerCharacter& Character, const FSwcCameraState& State, float DeltaTime);
 	FRotator UpdateLock(const FVector& Pivot, const ASwcPlayerCharacter& Character, float DeltaTime);
 	const FSwcLockCandidate* FindCandidate(uint32 Id) const;
@@ -166,6 +168,11 @@ private:
 	bool bUiDof = false;
 	float UiDofDistance = 0.0f;
 	float UiDofBlur = 0.0f;
+	/** The turn of the body of the inventory states: on while the body turns to its target yaw (degrees), and the state of the last turn. */
+	bool bBodyTurn = false;
+	float BodyTurnYaw = 0.0f;
+	float BodyTurnTime = 0.1f;
+	bool bBodyFacesCamera = false;
 	/** The camera of a conversation (SetSceneView). */
 	bool bScene = false;
 	bool bSceneCamera = false;

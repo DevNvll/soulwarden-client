@@ -146,8 +146,10 @@ Open:
   Yasin (1.90 m from the player): the rule with the script point gives the retail camera within 0.01 m (heading 270.5 against 270.6,
   pitch -16.3 against -16.4). Ser Payne Bennett (1.01 m): not explained. Retail has the camera 1.52 m behind the feet with no side
   offset, heading 285.8 and pitch -8.1; the rule gives pitch -27 (1.79 m off). No source collider is within 1.5 m of the camera sweeps
-  (`work/ut567/orbit/probe.py`). The retail body does not turn at the E (body yaw 0 before and after). Open: a retail take at Bennett
-  from 1.9 m and a person in an open place at 1.0 m and 1.9 m.
+  (`work/ut567/orbit/probe.py`). The retail body does not turn at the E (body yaw 0 before and after). Sahal Yasin at 1.0 m (set
+  ut567-screens): the rule gives the retail camera within 0.04 m (heading 258.7 against 258.9; pitch -30.0 at the limit against
+  -31.3). So a close person does not explain Bennett; the cause is the place or that take. Open: a take at Bennett from 1.5 m (in set
+  ut567-screens the Talk prompt did not show after a death and a heal).
 
 | Person (preset) | Retail camera (set-mvph-talk) | Client camera |
 | --- | --- | --- |

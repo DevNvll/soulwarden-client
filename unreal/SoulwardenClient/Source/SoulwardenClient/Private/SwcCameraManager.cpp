@@ -25,14 +25,16 @@ constexpr float ReferenceAspect = 16.0f / 9.0f;
 /** The zoom option m_cameraZoom: 2.0 m at the start (C 0x457BCF8). */
 constexpr float DefaultZoom = 2.0f;
 /**
- * The depth of field of the screens (swc/camera.lua; the study work/ut567/study2): the f-stop of the native blur 1.0, the f-stop of a blur
- * B is this value / B (craftingscreenv4.luac: 0.95 for the craft result, 0.4 for the craft roll). [U] The units of the native blur have no
- * source: 0 (no depth of field) until the scale of the retail pictures (the blur width at a known depth). swc.Camera.DofFstop sets it in a
- * run (the matched views of the retail check).
+ * The depth of field of the screens (swc/camera.lua; the study work/ut567/study2): the scale of the native blur. The view is at f/1, and the
+ * sensor width is 24.576 mm x this scale x the native blur B (craftingscreenv4.luac: 0.95 for the craft result, 0.4 for the craft roll).
+ * The blur radius grows with the sensor width at one FOV: with the wide view of the client (a focal length of about 12 mm on the default
+ * sensor) the f-stop alone gave about 3 px at f/0.6 (the client run s3 of ut567). [U] The units of the native blur have no source: 0 (no
+ * depth of field) until the scale of the retail pictures (set-ut567-screens). swc.Camera.DofScale sets it in a run.
  */
-constexpr float UiDofFstopAtFullBlur = 0.0f;
-static TAutoConsoleVariable<float> CVarSwcDofFstop(TEXT("swc.Camera.DofFstop"), UiDofFstopAtFullBlur,
-	TEXT("The f-stop of the native blur 1.0 of the depth of field of a screen (the f-stop of a blur B is this value / B); 0: no depth of field."));
+constexpr float UiDofScale = 0.0f;
+constexpr float UiDofBaseSensorWidth = 24.576f;
+static TAutoConsoleVariable<float> CVarSwcDofScale(TEXT("swc.Camera.DofScale"), UiDofScale,
+	TEXT("The scale of the native blur of the depth of field of a screen (the sensor width 24.576 mm x scale x blur at f/1); 0: no depth of field."));
 /** The pivot snaps to its target after a move of more than 2 m in one frame (C 0x1049C20: distance squared > 4). */
 constexpr double PivotSnapDistance = 200.0;
 /** The CameraLockComponent of the player slice: m_maxLockRange 50 m; the scans close (radius 10 m, max angle 95, weights:
@@ -510,19 +512,49 @@ FRotator ASwcCameraManager::UpdateLock(const FVector& Pivot, const ASwcPlayerCha
 void ASwcCameraManager::ApplyUiDepthOfField(FMinimalViewInfo& POV) const
 {
 	FPostProcessSettings& Settings = POV.PostProcessSettings;
-	const float FstopAtFullBlur = CVarSwcDofFstop.GetValueOnGameThread();
-	const bool bOn = bUiDof && UiDofBlur > 0.0f && FstopAtFullBlur > 0.0f;
+	const float Scale = CVarSwcDofScale.GetValueOnGameThread();
+	const bool bOn = bUiDof && UiDofBlur > 0.0f && Scale > 0.0f;
 	Settings.bOverride_DepthOfFieldFocalDistance = bOn;
 	Settings.bOverride_DepthOfFieldFstop = bOn;
 	Settings.bOverride_DepthOfFieldMinFstop = bOn;
+	Settings.bOverride_DepthOfFieldSensorWidth = bOn;
 	POV.PostProcessBlendWeight = bOn ? 1.0f : 0.0f;
 	if (bOn)
 	{
 		// The native distance in meters: the focal distance (0: the near limit of 0.1 m, all of the world is behind it).
 		Settings.DepthOfFieldFocalDistance = FMath::Max(UiDofDistance * 100.0f, 10.0f);
-		Settings.DepthOfFieldFstop = FMath::Clamp(FstopAtFullBlur / UiDofBlur, 0.1f, 32.0f);
-		Settings.DepthOfFieldMinFstop = FMath::Min(Settings.DepthOfFieldFstop, 1.2f);
+		Settings.DepthOfFieldFstop = 1.0f;
+		Settings.DepthOfFieldMinFstop = 1.0f;
+		Settings.DepthOfFieldSensorWidth = FMath::Clamp(UiDofBaseSensorWidth * Scale * UiDofBlur, 0.1f, 1000.0f);
 	}
+}
+
+void ASwcCameraManager::UpdateBodyTurn(ASwcPlayerCharacter& Character, float CameraYaw, float DeltaTime)
+{
+	// The inventory states (UI_Inventory, UI_Inventory_Mounted, UI_Inventory_BeastMode): the body faces the camera while the screen is
+	// open, and faces the view again at the close. [I] The retail set ut567-screens (state.py): the body yaw 280.9 with the camera yaw
+	// 101.1 at 0.5 s after Tab, and 100.9 after the close. No script call and no key of camera.json or movement.json names the turn (the
+	// native paperdoll of the screen). The smooth time is the RotationDampening of the state (UI_Inventory 0.1 s) [I].
+	const bool bFaces = StateName.StartsWith(TEXT("UI_Inventory"));
+	if (bFaces != bBodyFacesCamera)
+	{
+		bBodyFacesCamera = bFaces;
+		bBodyTurn = true;
+		BodyTurnYaw = FRotator::NormalizeAxis(CameraYaw + (bFaces ? 180.0f : 0.0f));
+		BodyTurnTime = FMath::Max(Data.State(StateName).RotationDampening, 0.05f);
+		UE_LOG(LogSwcBackend, Log, TEXT("camera: the body turns %s (the yaw %.1f)"), bFaces ? TEXT("to the camera of the inventory") : TEXT("to the view"),
+			BodyTurnYaw);
+	}
+	if (!bBodyTurn)
+	{
+		return;
+	}
+	FRotator Rotation = Character.GetActorRotation();
+	const float Remaining = static_cast<float>(FMath::FindDeltaAngleDegrees(Rotation.Yaw, static_cast<double>(BodyTurnYaw)));
+	const float Alpha = DeltaTime > 0.0f ? 1.0f - FMath::Exp(-DeltaTime * 3.0f / BodyTurnTime) : 1.0f;
+	Rotation.Yaw += FMath::Abs(Remaining) < 0.5f ? Remaining : Remaining * Alpha;
+	Character.SetActorRotation(FRotator(0.0, Rotation.Yaw, 0.0));
+	bBodyTurn = FMath::Abs(Remaining) >= 0.5f;
 }
 
 void ASwcCameraManager::UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime)
@@ -543,6 +575,10 @@ void ASwcCameraManager::UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime)
 	}
 	SelectState(*Character);
 	const FSwcCameraState& State = Data.State(StateName);
+	if (ASwcPlayerCharacter* Body = Cast<ASwcPlayerCharacter>(OutVT.Target))
+	{
+		UpdateBodyTurn(*Body, static_cast<float>(PCOwner->GetControlRotation().Yaw), DeltaTime);
+	}
 	for (FBlend* Value : {&Distance, &OffsetSide, &OffsetForward, &OffsetUp, &Fov, &PitchDown, &PitchUp, &HorizontalSensitivity,
 			 &VerticalSensitivity})
 	{

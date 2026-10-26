@@ -828,10 +828,26 @@ implements the calls for all screens. Before, each call was an empty function in
 - The client (`ASwcCameraManager`). `SetUiState` forces the top state with the blend of its request; the drive state wins over it, and
   a name that camera.json does not have is ignored (UI_Tools). `SetUiLookAt` turns the view toward the point from the pivot while a
   screen state is on (the Talk orbit, docs/PERSONS.md "The Talk camera"). `SetUiDepthOfField` sets the depth of field of the view:
-  the focal distance is the native distance (at least 0.1 m); the f-stop is `swc.Camera.DofFstop` / BLUR. [U] The units of the native
-  blur have no source: the default of `swc.Camera.DofFstop` is 0 (no depth of field) until the scale of the retail pictures.
-- A world entry clears the stack, the look-at point, and the depth of field (`Swc.CameraReset` in `Swc.EnterWorld`). [U] Whether retail
-  clears them at a travel, a respawn, or the loading screen.
+  the focal distance is the native distance (at least 0.1 m), f/1, and the sensor width 24.576 mm x `swc.Camera.DofScale` x BLUR.
+  The f-stop alone cannot give the retail blur: with the wide view of the client (a focal length of about 12 mm on the default
+  sensor), f/0.6 gave about 3 px at 1280 px (the client run s3 of ut567, `swc.Camera.DofFstop` 0.5 to 8: no visible blur). The blur
+  radius grows with the sensor width at one FOV. [U] The units of the native blur have no source: the default of
+  `swc.Camera.DofScale` is 0 (no depth of field) until the scale of the retail pictures (set ut567-screens).
+- The body in the inventory (`ASwcCameraManager::UpdateBodyTurn`): in a state UI_Inventory* the body turns to face the camera, and
+  at the end it turns to the view again. [I] The retail set ut567-screens: the body yaw 280.9 with the camera yaw 101.1 (180 degrees)
+  0.5 s after Tab, and 100.9 after the close. No script call (newinventory.luac BeginPaperdollMode is the skin preview) and no key
+  of camera.json or movement.json names the turn. The smooth time is the RotationDampening of the state (0.1 s) [I].
+- A world entry clears the stack, the look-at point, and the depth of field (`Swc.CameraReset` in `Swc.EnterWorld`). Retail (set
+  ut567-screens): a travel with the loading screen closes the inventory (the HUD and the play camera after it), and a death closes it
+  too ("YOU DIED", no screen). The screen closes first, and its OnTransitionOut restores the camera: no other clear is necessary.
+- The data layer gives value objects (Vector3, Vector2, Color: the userdata of `Swc.ValueClass`) as copies and stores a copy, as the
+  value types of the native data layer. Before (ut567), a script set the z of the shared Hud.LocalPlayer.Position object to 0, and
+  GetNpcLookAtPosition read the player 252 m below the person. The person place of the Talk comes from the last focus
+  (`TransformBus.GetWorldTranslation`): the client hides the prompt before the script reads it.
+- The retail set ut567-screens (2026-10-26, `~/Games/soulwarden/work/evidence/unreal-references/set-ut567-screens`): the inventory
+  shows the front of the player and a light blur; the NavBar pulls the camera back with no blur; skills and the journal blur the
+  world strongly; the craft roll keeps the world sharp (the focus at 6 m); the result blurs it strongly and darker, with the camera
+  1.4 m from the feet and no body in the frame.
 - The crafting result keeps its two black layers: BackgroundStep1 (the sprite crafting_background_step3, black, alpha 73 to 236) and
   BlackBg (alpha 0.5), both at fader 1 (the fixture crafting). No script hides the player body on the result (open: the retail check).
 - Risks for the screens that worked before: the NavBar, the inventory, and crafting now move the camera, as in retail. UI_Inventory
