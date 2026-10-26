@@ -204,7 +204,7 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     The runtime switch works in both directions. GPU: +0 to +2.6 ms (the most under the surface: 7.41 against 10.05 ms).
   - The gameplay (`wu2a-water.mp4`): the classes at 0.22 and 0.90 m, the swim at 1.401 and 1.290 m, out at 0.20 m, the travel and the
     river wade at 0.23 and 0.91 m: the same as the source path (the movement reads only the quadtree).
-  - THE FAULT [open]: when a run starts at a beach, the plugin ocean does not draw there (the character swims on "dry" sand with the
+  - THE FAULT (closed 2026-10-26: the cause and the fix are below, "The fix"): when a run starts at a beach, the plugin ocean does not draw there (the character swims on "dry" sand with the
     seagrass of the floor). After a travel away and back (418 m each way) the ocean draws at the same place (`wu2a-travel3-frames.png`).
     The window of the zone follows the view at the start, and the ocean component is visible and makes water mesh tiles (the
     diagnostic `swc.WaterZoneRefresh -1`). A water info texture each frame (`r.Water.WaterInfo.ForceUpdateWaterInfoNextFrames -1`) and a
@@ -214,7 +214,7 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     (UWaterMeshComponent::RebuildWaterMesh); the default is 0. Past the 4 km window there was no ocean, and the far view showed the
     light sea floor of the Landscape. The client now sets 20 km (the source ocean grid of the client); the far instance has the
     ocean tone. To check in the next window.
-  - The test of the fault for the next window: `swc.WaterKick N` (1 a new scene proxy of the water mesh, 2 new material instances
+  - The test of the fault for the next window (removed 2026-10-26: no kick helped): `swc.WaterKick N` (1 a new scene proxy of the water mesh, 2 new material instances
     of the ocean, 3 a zone rebuild with a dirty water mesh grid, 4 the components of the zone registered again, 5 the Unreal water
     hidden and shown), each 6 s apart in a run that starts at the beach (`work/water-unreal/run_kick.sh`). The kick that makes the
     ocean draw becomes the automatic start kick (`swc.WaterStartKick N`: once the window of the zone is valid, and 3 s later).
@@ -240,7 +240,7 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     - Other rules [R]: a per-view tree is rebuilt in full at each window move; the window moves only when the view leaves the
       update rectangle (about 1,850 m half extent), thus a 418 m travel does not move it; the water info texture stores no body index,
       and texels with no water give a negative depth, which makes the water clear (geometry present, no visible water).
-    - The client code (2026-10-26, not built yet): `-SwcWaterStartFix=N` (default 0 from 2026-10-26 07:00 UTC, the word of the orchestrator: not proved; 3 the treatment). Bit 1: the client sets
+    - The client code (2026-10-26; removed after the fix, because the check did not prove it): `-SwcWaterStartFix=N`. Bit 1: the client sets
       `SavedZoneLocation` to the zone center before the ocean finishes spawning, and after each spawn it calls `UpdateAll` with a
       shape change, applies the overlap rule again, builds the info meshes from the final shape, and refreshes the bounds and the render
       state of the info components. Bit 2: after each loading screen, when world rendering is on and the zone has its texture, a full
@@ -286,6 +286,17 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
         (the bounds of the river spline meshes). Back at the beach, the bay has water. This explains `2a-after`.
       - Thus the cause is proved: the ocean was the lowest body of the zone, and the plugin decodes the minimum of the range as "no
         water". A lake that is the lowest body has the same fault; a channel depth of the ocean protects all bodies above 40 - M m.
+  - The fix (the word of the orchestrator, 2026-10-26 07:40 UTC): the client gives the plugin ocean a channel depth of 10 m by default
+    (`SpawnUnrealZone`, by reflection before the ocean finishes spawning; `-SwcWaterOceanDepth=M` stays for a test).
+    - The ocean does not change the Landscape (`bAffectsLandscape` false): the channel depth changes only the ocean bounds (Z extent
+      10 m). The minimum of the water height range of each zone is then 30 m.
+    - The lowest body of the world is a lake at 39.28 m (`Water_Volume`, region r_+02_+02, near 5088, 5669 m); the lowest river
+      curve is at 40.5 m (the specs). All are above 30 m, so no body is at the minimum of the range: all are protected.
+    - The height precision of the water info texture changes little (the range near the beach grows from 193 m to 203 m).
+    - Removed, not proved: both bits of `-SwcWaterStartFix` (the `SavedZoneLocation` set: the plugin sets it at run time; the second
+      `UpdateAll` and info mesh build; the refresh after each loading screen), `swc.WaterKick`, `swc.WaterStartKick`, and the rebuild
+      mode of `swc.WaterZoneRefresh`. Kept: the diagnostic `swc.WaterZoneRefresh -1` (now with the water height range and the ground
+      minimum of the zone) and the log of the first water info texture. `FarDistanceMeshExtent` 20 km stays until the far-ring task.
   - Thus the default stays the source path (the decision of the orchestrator, 2026-10-26 00:08 UTC). The full cook takes the plugin,
     its materials, and the specs. A later fix and the switch of the default need only a code change and an incremental cook.
 - The cook: `DefaultGame.ini` cooks `/Water/Materials` and `/Water/Waves` (the client loads them by path), and

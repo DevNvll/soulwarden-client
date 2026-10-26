@@ -27,9 +27,7 @@
 #include "WaterSplineComponent.h"
 #include "WaterSplineMetadata.h"
 #include "WaterWaves.h"
-#include "Engine/GameViewportClient.h"
 #include "WaterMeshComponent.h"
-#include "WaterSubsystem.h"
 #include "WaterZoneActor.h"
 #include "World/SwcLoadingGate.h"
 
@@ -102,14 +100,10 @@ TAutoConsoleVariable<int32> CVarWaterMode(TEXT("swc.WaterMode"), 0,
 TAutoConsoleVariable<int32> CVarWaterOceanWaves(TEXT("swc.WaterOceanWaves"), 0,
 	TEXT("1: the ocean waves of the source (24 Gerstner waves scaled by WavesSize, lengths / WavesAmount; docs/WATER.md \"Stage 2b\"); ")
 	TEXT("0: the waves of the plugin."));
-/** A test of the zone after a start at a place (2a): mark the whole zone for a rebuild (the water info texture and the water mesh) each N
- *  seconds; 0 off. */
+/** The diagnostic of the zone (2a): a value below 0 logs the state of the zone for the view each 2 s (the window, the water mesh, the
+ *  ocean, and the water height range); 0 off. */
 TAutoConsoleVariable<float> CVarWaterZoneRefresh(TEXT("swc.WaterZoneRefresh"), 0.0f,
-	TEXT("A test: each N seconds the water zone is marked for a full rebuild (the water info texture and the water mesh); 0 off."));
-
-/** The automatic start kick of the Unreal water (the start-at-place fault): 0 off, N the kind of swc.WaterKick. */
-TAutoConsoleVariable<int32> CVarWaterStartKick(TEXT("swc.WaterStartKick"), 0,
-	TEXT("The automatic start kick of the Unreal water: 0 off; N: swc.WaterKick N once the window of the zone is valid after the start, and 3 s later."));
+	TEXT("The diagnostic of the Unreal water zone: below 0 a log line of the zone state each 2 s (the window, the ocean, the water height range); 0 off."));
 
 /** The shortest time between two updates of the source waves in a transition (s; each update rebuilds the GPU wave data) [decision of the
  *  client]. */
@@ -124,18 +118,6 @@ void ToneParameters(const swc::water::Tone& Tone, FLinearColor& Absorption, FLin
 	Absorption = FLinearColor(A[0], A[1], A[2], A[3]);
 	Scattering = FLinearColor(S[0], S[1], S[2], S[3]);
 }
-
-/** swc.WaterKick N: one kick of the test of the start-at-place fault (USwcWaterSubsystem::KickUnreal). */
-FAutoConsoleCommandWithWorldAndArgs CommandWaterKick(TEXT("swc.WaterKick"),
-	TEXT("A test of the start-at-place fault of the Unreal water: 1 a new water mesh scene proxy, 2 new ocean material instances, 3 a zone rebuild ")
-	TEXT("with a dirty water mesh grid, 4 the zone components registered again, 5 the Unreal water hidden and shown."),
-	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
-	{
-		if (USwcWaterSubsystem* Water = World != nullptr ? World->GetSubsystem<USwcWaterSubsystem>() : nullptr)
-		{
-			Water->KickUnreal(Args.Num() > 0 ? FCString::Atoi(*Args[0]) : 1);
-		}
-	}));
 
 FVector ToUnreal(double X, double Y, double Z)
 {
@@ -175,37 +157,6 @@ bool SetStructByName(UObject* Object, const TCHAR* Name, const T& Value)
 	return bMatch;
 }
 
-/** The final shape of a spawned body (research/water-ocean-quadtree.md, question 5, step 2): UpdateAll with a shape change refreshes the
- *  collision and the cached bounds of a dynamic body; it applies the collision settings of the profile again, thus the client overlap rule
- *  follows. Then the water info meshes from that final shape, and the bounds and the render state of the two info components (they keep
- *  the bounds of their parent). */
-void FinishBody(UWaterBodyComponent& Body, bool bFullUpdate, bool bBuildInfo)
-{
-	if (bFullUpdate)
-	{
-		FOnWaterBodyChangedParams Params;
-		Params.bShapeOrPositionChanged = true;
-		Body.UpdateAll(Params);
-	}
-	SwcWaterCollisionAsOverlap(Body);
-	if (bBuildInfo)
-	{
-		SwcBuildWaterInfoMeshes(Body);
-	}
-	if (bFullUpdate && Body.GetOwner() != nullptr)
-	{
-		TInlineComponentArray<UStaticMeshComponent*> Components(Body.GetOwner());
-		for (UStaticMeshComponent* Component : Components)
-		{
-			if (Component->GetFName() == TEXT("WaterInfoMeshComponent") || Component->GetFName() == TEXT("DilatedWaterInfoMeshComponent"))
-			{
-				Component->UpdateBounds();
-				Component->MarkRenderStateDirty();
-			}
-		}
-	}
-}
-
 /** Makes all scene components of a spawned (deferred) body movable: the plugin makes render data after BeginPlay only for a movable
  *  component, and a static child cannot attach to a movable parent. */
 void MakeMovable(AActor& Actor)
@@ -242,9 +193,7 @@ bool USwcWaterSubsystem::LoadUnreal(const FString& Folder)
 	// game has no builder of the plugin).
 	FString InfoMesh;
 	bPluginInfoMeshes = FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterInfoMesh="), InfoMesh) && InfoMesh.Equals(TEXT("Plugin"), ESearchCase::IgnoreCase);
-	// -SwcWaterStartFix=N (research/water-ocean-quadtree.md, question 5): bit 1 the ocean center (SavedZoneLocation) and the final shape update of
-	// each body, bit 2 the refresh after each loading screen. Default 0: the check of 2026-10-26 did not prove it (docs/WATER.md).
-	FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterStartFix="), StartFix);
+	// -SwcWaterOceanDepth=M: the channel depth of the plugin ocean in m (a test; default 10).
 	FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterOceanDepth="), OceanChannelDepth);
 	FString Text;
 	TSharedPtr<FJsonObject> Doc;
@@ -338,17 +287,14 @@ void USwcWaterSubsystem::SpawnUnrealZone()
 	}
 	Spline->SetClosedLoop(true, false);
 	Spline->UpdateSpline();
-	// The setters of the extents are editor only (WITH_EDITOR); the cooked game sets the properties. The ocean rectangle is centered on
-	// SavedZoneLocation (bCenterOnWaterZone, UWaterBodyOceanComponent::CalcBounds); only the editor sets it (research/water-ocean-quadtree.md).
+	// The setters of the extents are editor only (WITH_EDITOR); the cooked game sets the properties.
 	SetStructByName(Body, TEXT("OceanExtents"), Extent);
-	if (StartFix & 1)
-	{
-		SetStructByName(Body, TEXT("SavedZoneLocation"), Center);
-	}
 	SetStructByName(Body, TEXT("CollisionExtents"), FVector(Extent.X * 0.5, Extent.Y * 0.5, OceanCollisionDepth));
-	// The test of the water height range (-SwcWaterOceanDepth): the zone takes WaterZMin from the lowest bounds of its bodies
-	// (AWaterZone::UpdateWaterInfoTexture). With a channel depth of 0 the ocean is that minimum when no body is lower; the merge pass then
-	// writes a normalized height of 0 (or no water), and the material decodes 0 as "no water" (WaterDataFunctions.ush): the ocean is clear.
+	// The channel depth of the ocean (docs/WATER.md "Stage 2a", the start-at-beach fault): the zone takes the minimum of its water height
+	// range from the lowest bounds of its bodies (AWaterZone::UpdateWaterInfoTexture), and the plugin decodes a height at that minimum as "no
+	// water" (WaterInfoMerge.usf, WaterDataFunctions.ush): the surface is clear. The ocean bounds reach the channel depth below the ocean level
+	// (UWaterBodyOceanComponent::CalcBounds; 0 by default): with 10 m the minimum is 30 m, below every body of the world (the lowest, a lake,
+	// is at 39.28 m). The ocean does not change the Landscape (bAffectsLandscape false): the depth changes only its bounds.
 	if (OceanChannelDepth > 0.0f)
 	{
 		FStructProperty* Curve = FindFProperty<FStructProperty>(Body->GetClass(), TEXT("CurveSettings"));
@@ -369,7 +315,11 @@ void USwcWaterSubsystem::SpawnUnrealZone()
 		UnrealPluginWaves = Reference;
 	}
 	OceanActor->FinishSpawning(FTransform::Identity);
-	FinishBody(*Body, (StartFix & 1) != 0, !bPluginInfoMeshes);
+	SwcWaterCollisionAsOverlap(*Body);
+	if (!bPluginInfoMeshes)
+	{
+		UE_CLOG(!SwcBuildWaterInfoMeshes(*Body), LogSwcWater, Warning, TEXT("water (Unreal): the ocean made no water info mesh"));
+	}
 	UnrealOcean = OceanActor;
 	// The ocean tone: the values of the ocean of the place (OceanNow: the mission ocean or the local override, blended in its transition time).
 	FUnrealTone Tone;
@@ -527,8 +477,12 @@ AActor* USwcWaterSubsystem::SpawnUnrealBody(const FUnrealBody& Entry)
 		Body->SetWaterAndUnderWaterPostProcessMaterial(Material, UnrealMaterial(SlotUnderwaterCustom.Instance, SlotUnderwaterCustom.Plugin));
 	}
 	Actor->FinishSpawning(FTransform::Identity);
-	FinishBody(*Body, (StartFix & 1) != 0, !bPluginInfoMeshes);
+	SwcWaterCollisionAsOverlap(*Body);
 	AddUnrealTone(*Body, Surface);
+	if (!bPluginInfoMeshes)
+	{
+		SwcBuildWaterInfoMeshes(*Body);
+	}
 	return Actor;
 }
 
@@ -655,44 +609,6 @@ void USwcWaterSubsystem::UpdateUnrealOceanWaves()
 	NextWavesUpdate = Now + SwcUnrealWater::WavesUpdateInterval;
 }
 
-void USwcWaterSubsystem::KickUnreal(int32 Kind)
-{
-	if (UnrealZone == nullptr)
-	{
-		UE_LOG(LogSwcWater, Warning, TEXT("water (Unreal): kick %d: no zone"), Kind);
-		return;
-	}
-	UWaterMeshComponent* WaterMesh = UnrealZone->GetWaterMeshComponent();
-	UWaterBodyComponent* OceanComponent = UnrealOcean != nullptr ? UnrealOcean->GetWaterBodyComponent() : nullptr;
-	switch (Kind)
-	{
-	case 1:
-		WaterMesh->MarkRenderStateDirty();
-		break;
-	case 2:
-		if (OceanComponent != nullptr)
-		{
-			OceanComponent->UpdateMaterialInstances();
-			OceanComponent->MarkRenderStateDirty();
-		}
-		break;
-	case 3:
-		WaterMesh->MarkWaterMeshGridDirty();
-		UnrealZone->MarkForRebuild(EWaterZoneRebuildFlags::All);
-		break;
-	case 4:
-		UnrealZone->ReregisterAllComponents();
-		break;
-	case 5:
-		SetUnrealVisible(false);
-		bShowAgain = true;
-		break;
-	default:
-		break;
-	}
-	UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): kick %d at %.1f s"), Kind, GetWorld()->GetTimeSeconds());
-}
-
 void USwcWaterSubsystem::SetUnrealVisible(bool bUnreal)
 {
 	// The Unreal water: the zone (its water mesh and far mesh), the ocean, and the bodies; no collision when it hides (the underwater sweep
@@ -767,73 +683,12 @@ void USwcWaterSubsystem::UpdateUnreal(const FVector& View, float DeltaTime)
 			OceanComponent ? OceanComponent->IsVisible() : -1, OceanComponent ? OceanComponent->ShouldRender() : -1,
 			OceanComponent ? OceanComponent->ShouldGenerateWaterMeshTile() : -1);
 	}
-	// The refresh after a loading screen (research/water-ocean-quadtree.md, question 5, step 4): on the first frames with world rendering after
-	// a loading screen (bDisableWorldRendering), when the zone has its water info texture: a full zone rebuild, the material instances of the
-	// ocean, and the GPU water data, at 0.5 s and again at 2 s.
-	if ((StartFix & 2) && UnrealZone != nullptr)
-	{
-		const UGameViewportClient* Viewport = GetWorld()->GetGameViewport();
-		const bool bRendering = Viewport == nullptr || !Viewport->bDisableWorldRendering;
-		const double Now = FPlatformTime::Seconds();
-		if (!bRendering)
-		{
-			RefreshesLeft = 2;
-			NextRefresh = 0.0;
-		}
-		else if (RefreshesLeft > 0 && UnrealZone->WaterInfoTextureArray != nullptr)
-		{
-			if (NextRefresh == 0.0)
-			{
-				NextRefresh = Now + 0.5;
-			}
-			else if (Now >= NextRefresh)
-			{
-				UnrealZone->MarkForRebuild(EWaterZoneRebuildFlags::All);
-				if (UWaterBodyComponent* OceanComponent = UnrealOcean != nullptr ? UnrealOcean->GetWaterBodyComponent() : nullptr)
-				{
-					OceanComponent->UpdateMaterialInstances();
-				}
-				// The GPU data of the water bodies (FWaterViewExtension::MarkGPUDataDirty; its header needs a private header of the plugin).
-				if (FWaterBodyManager* Manager = UWaterSubsystem::GetWaterBodyManager(GetWorld()))
-				{
-					Manager->RequestGPUDataRebuild();
-				}
-				--RefreshesLeft;
-				NextRefresh = Now + 1.5;
-				UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the refresh after the loading screen (%d left) at %.1f s"), RefreshesLeft, GetWorld()->GetTimeSeconds());
-			}
-		}
-	}
 	// The first water info texture of the zone (the plugin makes it only when its gates pass: the PSOs of the water info meshes, and in an
 	// editor binary the shader maps of the ground): until then the zone draws no water.
 	if (!bInfoTextureLogged && UnrealZone != nullptr && UnrealZone->WaterInfoTextureArray != nullptr)
 	{
 		bInfoTextureLogged = true;
 		UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the first water info texture of the zone at %.1f s (world time)"), GetWorld()->GetTimeSeconds());
-	}
-	// The start kick: once the window of the zone is valid (after the first loading screen), the kick of swc.WaterStartKick, and again 3 s later.
-	const int32 StartKick = SwcUnrealWater::CVarWaterStartKick.GetValueOnGameThread();
-	if (bShowAgain)
-	{
-		bShowAgain = false;
-		SetUnrealVisible(true);
-	}
-	if (StartKick > 0 && StartKicks < 2 && UnrealZone != nullptr && FPlatformTime::Seconds() >= NextStartKick)
-	{
-		FVector Center;
-		if (UnrealZone->GetDynamicWaterInfoCenter(0, Center))
-		{
-			KickUnreal(StartKick);
-			++StartKicks;
-			NextStartKick = FPlatformTime::Seconds() + 3.0;
-		}
-	}
-	const float Refresh = SwcUnrealWater::CVarWaterZoneRefresh.GetValueOnGameThread();
-	if (Refresh > 0.0f && UnrealZone != nullptr && FPlatformTime::Seconds() >= NextZoneRefresh)
-	{
-		NextZoneRefresh = FPlatformTime::Seconds() + Refresh;
-		UnrealZone->MarkForRebuild(EWaterZoneRebuildFlags::All);
-		UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the zone is marked for a rebuild (swc.WaterZoneRefresh)"));
 	}
 	// The plugin makes the instances of a body again on some changes (CreateOrUpdateWaterMID): a new instance gets the tone too.
 	const double Now = FPlatformTime::Seconds();

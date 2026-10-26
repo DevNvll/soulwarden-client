@@ -201,24 +201,10 @@ private:
 	bool bSourceWavesOn = false;
 	double NextWavesUpdate = 0.0;
 	double NextZoneRefresh = 0.0;
-public:
-	/** A test of the start-at-place fault (swc.WaterKick N; docs/WATER.md "Stage 2a"): 1 a new scene proxy of the water mesh, 2 new material
-	 *  instances of the ocean, 3 a zone rebuild with a dirty water mesh grid, 4 the components of the zone registered again, 5 the Unreal
-	 *  water hidden and shown again (the next tick). */
-	void KickUnreal(int32 Kind);
-private:
-	/** The automatic start kick (swc.WaterStartKick N > 0): the kick N once the window of the zone is valid, and again 3 s later. */
-	int32 StartKicks = 0;
-	double NextStartKick = 0.0;
-	bool bShowAgain = false;
 	bool bInfoTextureLogged = false;
-	/** -SwcWaterStartFix (bits: 1 the ocean center and the final shape update, 2 the refresh after a loading screen) and its state. */
-	int32 StartFix = 0;
-	/** -SwcWaterOceanDepth=M: the channel depth of the plugin ocean in m (default 0, the value of the plugin). Its bounds then reach M below the
-	 *  ocean level, and the water height range of the zone starts below the ocean (docs/WATER.md, research/water-info-texture.md). */
-	float OceanChannelDepth = 0.0f;
-	int32 RefreshesLeft = 2;
-	double NextRefresh = 0.0;
+	/** -SwcWaterOceanDepth=M: the channel depth of the plugin ocean in m (default 10; the plugin default 0 makes the ocean the minimum of the
+	 *  water height range of the zone, and then the plugin draws it clear: docs/WATER.md "Stage 2a"). */
+	float OceanChannelDepth = 10.0f;
 	UPROPERTY()
 	TObjectPtr<class UGerstnerWaterWaves> UnrealSourceWaves;
 	UPROPERTY()
