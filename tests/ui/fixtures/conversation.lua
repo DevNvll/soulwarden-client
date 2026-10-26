@@ -153,3 +153,23 @@ camera_sent(camera, "camera lookat ", "the conversation")
 camera_sent(camera, "camera dof 5.000 0.800 0.000 0.000 10.000", "the conversation")
 camera_sent(camera, "camera lookat -", "the conversation closes")
 camera_clean("the conversation")
+
+-- The look-at point of the Talk camera (conversationscreenv2.luac GetNpcLookAtPosition) reads the place of the person after the client hid
+-- the prompt: the last focus (swc/interact.lua). The player 1.9 m east of Sahal Yasin (the retail set ut567-camera); the point is 1.5 m
+-- over the feet less the z part of v, beyond the person (west), 0.25 m to the side.
+Swc.HostView(-107, 12059.64, 8048.92, 252.17)
+Swc.HostPrompt(table.concat({"object", "yasin", "npc", "Sahal Yasin", 1205782, -804946, 25196, "idle", 0, 0, "", "", "OpenConversation:0", 0, 0}, "\t"))
+frames(0.2)
+Swc.HostPrompt("")
+frames(0.2)
+camera_log()
+open()
+local look = Swc.camera.lookAt
+if check(look ~= nil, "the Talk sets a look-at point") then
+  near(look.x, 12057.08, 0.05, "the look-at point x (meters east)")
+  near(look.y, 8049.94, 0.05, "the look-at point y (meters north)")
+  near(look.z, 252.92, 0.05, "the look-at point z")
+end
+key("escape")
+frames(1.5)
+camera_clean("the conversation of the look-at check")

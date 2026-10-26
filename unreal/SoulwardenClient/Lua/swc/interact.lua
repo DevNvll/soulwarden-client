@@ -288,8 +288,10 @@ local NoTime = {ToSeconds = function() return 0 end}
 Swc.Define("UiInteractorComponentRequestsBus", "Event", {StopPositionUpdates = function() end})
 Swc.Define("TransformBus", "Event", {
   GetRootId = function(id) return id end,
+  -- The focus, else the last focus: the client hides the prompt when a Talk opens, and conversationscreenv2.luac GetNpcLookAtPosition
+  -- reads the place of the person after that (the look-at point of the camera; swc/camera.lua).
   GetWorldTranslation = function()
-    local f = P.focus
+    local f = P.focus or P.lastFocus
     return Vector3(f and f.x / 100 or 0, f and -f.y / 100 or 0, f and f.z / 100 or 0)
   end,
 })
@@ -480,6 +482,7 @@ function Swc.HostPrompt(line)
   end
   P.focus = focus
   if focus then
+    P.lastFocus = focus
     place(focus)
     update_rows(focus)
   end

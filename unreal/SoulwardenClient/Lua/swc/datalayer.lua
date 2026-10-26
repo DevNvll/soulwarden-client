@@ -116,6 +116,14 @@ local function deliver_to_callbacks(nodeId)
   end
 end
 
+--- A copy of a value object (Vector2, Vector3, Color: userdata of Swc.ValueClass), else the value itself.
+local function copy_value(value)
+  if Swc.Vector3.is(value) or Swc.Vector2.is(value) or Swc.Color.is(value) then
+    return value:Clone()
+  end
+  return value
+end
+
 --- Sets a value (the host and the scripts). A change also goes to the callbacks of each parent node: the HUD layout elements
 --- (hudlayoutelement.luac) wait on Hud.ActiveLayout.<Name> and read its table after the layout manager sets each leaf
 --- (uidatalayerinternal.luac SetDataWithTable); the retail HUD shows the places of the layout data. @return The node id.
@@ -123,7 +131,9 @@ function Swc.SetData(path, value)
   local id = node_of(path, true)
   local n = nodes[id]
   local changed = not n.hasValue or not same(n.value, value)
-  n.value = value
+  -- A value object (Vector3, Vector2, Color) is stored as a copy: the callbacks get the object of the caller, and a script that
+  -- changes it (a z of 0 for a distance on the map) does not change the node (ut567: GetNpcLookAtPosition read the player with z 0).
+  n.value = copy_value(value)
   n.hasValue = true
   deliver(n.path, value, id, true, changed)
   if changed then
@@ -147,10 +157,13 @@ end
 Swc.Define("LyShineDataLayerBus", "Broadcast", {
   SetData = function(path, value) Swc.SetData(path, value) end,
   GetData = function(path) return node_of(path, true) or 0 end,
+  -- A value object (Vector3, Vector2, Color) goes out as a copy, as the value types of the native data layer: a script that changes the
+  -- copy (a z of 0 for a distance on the map) does not change the node (conversationscreenv2.luac GetNpcLookAtPosition read
+  -- Hud.LocalPlayer.Position with a z of 0; ut567).
   GetDataFromNode = function(path)
     local id = node_of(path, false)
     if id then
-      return nodes[id].value
+      return copy_value(nodes[id].value)
     end
     return nil
   end,

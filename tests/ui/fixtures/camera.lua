@@ -69,4 +69,15 @@ Swc.CameraReset()
 equal(#Swc.camera.stack + (Swc.camera.lookAt and 1 or 0), 0, "Swc.CameraReset")
 equal(take(), "", "Swc.CameraReset drops the requests that the client did not take")
 
+-- The data layer gives value objects as copies (as the value types of the native data layer): a script that sets the z of its copy to 0
+-- does not change the node (GetNpcLookAtPosition read the player with z 0 in the client run s1 of ut567).
+Swc.HostView(-107, 12059.64, 8048.92, 252.17)
+local own = LyShineDataLayerBus.Broadcast.GetDataFromNode("Hud.LocalPlayer.Position")
+own.z = 0
+near(Swc.GetData("Hud.LocalPlayer.Position").z, 252.17, 0.001, "a change of the copy keeps the node")
+local mine = Swc.Vector3.new({x = 1, y = 2, z = 3})
+Swc.SetData("Hud.LocalPlayer.Position", mine)
+mine.z = 0
+near(Swc.GetData("Hud.LocalPlayer.Position").z, 3, 0.001, "a change of the object of the caller keeps the node")
+
 equal(Swc.errorCount or 0, 0, "no Lua error")

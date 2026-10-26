@@ -104,6 +104,12 @@ Swc.Define("JavCameraControllerRequestBus", "Broadcast", {
     end
     S.lookAt = Vector3(x, y, z)
     send(string.format("camera lookat %.3f %.3f %.3f", x, y, z))
+    -- The inputs of GetNpcLookAtPosition for the checks: the place of the person (TransformBus) and of the player (the data layer).
+    local person = TransformBus.Event.GetWorldTranslation(EntityId())
+    local own = Swc.GetData("Hud.LocalPlayer.Position")
+    Swc.Note(string.format("camera: the look-at point %.2f %.2f %.2f (the person %.2f %.2f %.2f, the player %s)", x, y, z,
+      person and person.x or 0, person and person.y or 0, person and person.z or 0,
+      own and string.format("%.2f %.2f %.2f", own.x or 0, own.y or 0, own.z or 0) or "none"))
   end,
   ClearCameraLookAt = function()
     if S.lookAt ~= nil then
