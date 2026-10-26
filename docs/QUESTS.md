@@ -582,6 +582,14 @@ natural chain):
   wheel, five truffles), the crafts at Urda's Campfire (the Light Ration, the knife), the kills, the four nodules and the monolith,
   the lore page, the topic of Grace 03 (3158, 5397), the whispers, the scenes, the TempestRising stand-in, the offers.
 - The relog at a scene (`c18`, `c19`): the run ended in the Corinth scene; at the next login the scene played again and completed.
+- The second archetype (2026-10-26, the cooked build of 2c3dc9c, evidence AST-244-occ `o1` to `o13b`, the drives in
+  `~/Games/soulwarden-client/work/q9/occ`): a new Occultist played the same ten quests and truffles with no grant (the task trees of the
+  seven archetype variants are equal; only the reward items differ). New natural steps: the knife at Urda's Campfire, the knife and the
+  sickle and the Fire Staff from the item menu (3895 into the slots 35, 34, and 25), the FireBall/Basic shots of the staff. A new
+  character of each archetype gets only 1hSwordT2_FTUE as a weapon (the backstory rows give the archetype weapons with the quantity 0):
+  the first staff is the reward of 06_demonstorm2, after the nodules and the monolith. 1 Lua error, fixed after the run:
+  bannertriggers.luac OnCategoricalProgressionRankChanged at the first Skinning rank (GetTradeskillLockedGatherableData gave nil; the
+  rank data had no IsValid).
 - The camp station: the converter left out each Camp1 station; fixed (docs/CRAFTING.md "The open"), deployed 2026-10-26 05:34.
 - Found (open): the item menu of a tool has only Lock and Drop (retail: Equip, Lock, Drop, Link to Chat, Salvage; and the tooltip has
   the gear score and "200% Gather Speed"); the craft result screen has no left buttons (Continue to Craft, Equip Tool, Salvage, Exit

@@ -484,6 +484,8 @@ local function rank_data(skillCrc, rank)
   -- The title of the rank (crafting.json rankNames: the standing ranks of AST-242; an empty title keeps the title of the rank before).
   local names = progression and d.rankNames and d.rankNames[progression.rankTable]
   out.displayName = names and names[(rank or 0) + 1] or ""
+  -- The native class has IsValid (bannertriggers.luac OnCategoricalProgressionRankChanged calls it; the crafting scripts read isValid).
+  out.IsValid = function() return out.isValid end
   return out
 end
 C.RankData = rank_data
@@ -506,6 +508,11 @@ C.ProgressionData = progression_data
 
 Swc.Define("CategoricalProgressionRequestBus", "Event", {
   GetStaticTradeskillRankData = function(_, skillCrc, rank) return rank_data(skillCrc, rank) end,
+  -- The gatherables that a rank of a trade skill unlocks (displayName, iconTypeUnlockImagePath): bannertriggers.luac
+  -- OnCategoricalProgressionRankChanged and tradeskills_gathering.luac take the length of the list. [I] An empty list: the rank-up
+  -- banner shows with no unlock cards (the client has no data of the locked gatherables; a nil stopped the banner at the first Skinning
+  -- rank of a gather, AST-244 o3b).
+  GetTradeskillLockedGatherableData = function() return {} end,
   GetCategoricalProgressionData = function(_, id) return progression_data(id) end,
   -- The points of a rank (the MaximumInfluence of its row: the points to the next rank).
   GetMaxPointsForRank = function(_, id, rank) return rank_data(type(id) == "number" and id or crc(tostring(id)), rank).maximumInfluence end,

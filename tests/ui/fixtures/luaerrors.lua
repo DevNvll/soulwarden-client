@@ -54,6 +54,17 @@ h:Disconnect()
 key("escape")
 frames(0.5)
 
+-- 3b. A trade skill rank change (AST-244 o3b: the first Skinning rank at the gather of a boar body): bannertriggers.luac
+-- OnCategoricalProgressionRankChanged takes the length of GetTradeskillLockedGatherableData (a nil stopped it).
+do
+  local function crc(text) return swcui.crc32(string.lower(text)) end
+  Swc.HostRanks(string.format("%d 0 0", crc("Skinning")))
+  frames(0.2)
+  Swc.HostRanks(string.format("%d 1 95", crc("Skinning")))
+  frames(0.5)
+  equal(errors(), 0, "a trade skill rank change (Skinning 0 to 1): no Lua error (bannertriggers.luac)")
+end
+
 -- 4. A travel: the tip pools of the loading screen manager (the show count of each tip).
 Swc.HostLoading(true, "newworld_vitaeeterna")
 frames(0.5)
