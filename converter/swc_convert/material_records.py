@@ -1002,13 +1002,16 @@ def file_srgb(product: str) -> bool:
     return bool(struct.unpack_from("<I", head, 36)[0] & SRGB_FLAG)
 
 
-def data_texture(product: str, decode: bool = False) -> dict:
+def data_texture(product: str, decode: bool = False, raw_rg: bool = False) -> dict:
     """Writes all channels of a texture product as an RGBA PNG for linear data (once) and @return its record: an
     overlay mask (the Custom slot with %OVERLAY_MASK or %COLOR_SAMPLER_OVERLAY_MASK), a detail map. Unreal imports it
     as linear data with alpha (TC_Masks). `decode`: the file is sRGB and the source sampler decodes it (sRGBLookup):
-    the PNG has the decoded RGB values (the alpha stays)."""
-    key = f"texture:{product}@data" + ("-decoded" if decode else "")
-    out = env.content_dir() / "textures" / (f"d{LINEAR_VERSION}-{CAP}" + ("-decoded" if decode else "")) / (product[:-4] + ".png")
+    the PNG has the decoded RGB values (the alpha stays). `raw_rg`: a two-channel file (BC5) as the shader samples it: R and
+    G as stored, B 0, A 1 (the decoder of a normal map rebuilds B as the normal Z; research beamsimple.md: the turbulence map of
+    GeometryBeamSimple reads the raw R and G with B zero)."""
+    suffix = "-decoded" if decode else "-rg" if raw_rg else ""
+    key = f"texture:{product}@data" + suffix
+    out = env.content_dir() / "textures" / (f"d{LINEAR_VERSION}-{CAP}" + suffix) / (product[:-4] + ".png")
     if not out.is_file():
         from . import dds
         data, w, h, fmt = dds.join(source.read, product, CAP)
@@ -1020,6 +1023,13 @@ def data_texture(product: str, decode: bool = False) -> dict:
             rgb = a[..., :3]
             a[..., :3] = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
             image = Image.fromarray(np.round(a * 255.0).astype(np.uint8), "RGBA")
+        if raw_rg:
+            import numpy as np
+            from PIL import Image
+            a = np.asarray(image).copy()
+            a[..., 2] = 0
+            a[..., 3] = 255
+            image = Image.fromarray(a, "RGBA")
         out.parent.mkdir(parents=True, exist_ok=True)
         temporary = out.with_name(f".{out.name}.tmp.png")
         image.save(temporary)
@@ -1509,8 +1519,8 @@ def beam_simple_spec(rules: dict, use) -> dict:
     if noise and "dust" in fx["textures"]:
         spec["textures"]["Dust"] = use(color_texture(fx["textures"]["dust"]["product"], "base"))
     if noise and "turbulence" in fx["textures"]:
-        product = fx["textures"]["turbulence"]["product"]
-        spec["textures"]["Turbulence"] = use(data_texture(product, decode=file_srgb(product)))
+        # The raw R and G of the two-channel Bumpmap with B zero (research beamsimple.md "Inputs"; a normal map PNG has B = Z).
+        spec["textures"]["Turbulence"] = use(data_texture(fx["textures"]["turbulence"]["product"], raw_rg=True))
     limits = ["%RECEIVE_SHADOWS: the shadow term is 1"] if "%RECEIVE_SHADOWS" in flags else []
     mod = (fx["textures"].get("base", {}).get("uv") or {}).get("mod", {})
     rotate = [0.0, 0.5, 0.5, 0.0]

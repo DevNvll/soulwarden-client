@@ -36,6 +36,21 @@ def out_dir() -> Path:
     return path
 
 
+# The bodies with a visible blend: 25 body sub-materials have Opacity below 1 and no AlphaTest; 20 of them are 0.98 or 0.99 (the ghost
+# bodies of the other kinds, the Seraphim wings, the eye shells, a head): blended they look the same and sort badly, so they stay opaque.
+# Below BLENDED_BODY_MAX: the glass of the engineer helmet and chest (0.35, 0.32), the Gillgut ghost body (0.9), Urda's eye shell (0.91),
+# the drowned ghost weed (0.75).
+BLENDED_BODY_MAX = 0.95
+
+
+def blended_body(record: dict, rules: dict) -> bool:
+    """@return True for an Illum sub-material of a body with Opacity below BLENDED_BODY_MAX and no AlphaTest."""
+    light = record["lighting"]
+    opacity, cutoff = light.get("Opacity", 1.0), light.get("AlphaTest", 0.0)
+    return (rules["shader"] == "illum" and rules["blend"] == "opaque" and isinstance(opacity, float) and opacity < BLENDED_BODY_MAX
+            and not (isinstance(cutoff, float) and cutoff > 0))
+
+
 def body_spec(mtl: str, index: int, element: ET.Element, use) -> tuple[str, dict] | None:
     """@return (the key: a hash of the spec, the spec) of one drawn sub-material of a body, or None: the glTF rule stays (glass, a
     shader that is not in SHADERS). A transparent head layer (player.HEAD_LAYER: the lashes, the eye shadow) takes the
@@ -51,6 +66,10 @@ def body_spec(mtl: str, index: int, element: ET.Element, use) -> tuple[str, dict
     if layer:
         rules = {**rules, "blend": "translucent", "opacity": record["lighting"].get("Opacity", 1.0)}
         rules.pop("cutoff", None)
+    elif blended_body(record, rules):
+        # Item 3 of the user test (the ghosts): an Illum body sub-material with Opacity below 1 and no AlphaTest is drawn in the
+        # blended pass by the source [I] (the Gillgut Faminegeist: Opacity 0.9); before, the client drew it opaque.
+        rules = {**rules, "blend": "translucent", "opacity": float(record["lighting"]["Opacity"])}
     if rules["shader"] == "hair" and not layer:
         # The Hair rule (research hair-shader.md): its own record and parent (M_SwcHair), not the surface F0 split.
         spec = mr.hair_spec(record, rules, use)
@@ -75,11 +94,12 @@ def gltf_material_names(path: Path) -> list[str]:
     return [m.get("name", "") for m in json.loads(path.read_text()).get("materials", [])]
 
 
-def skin_materials(skins: list[tuple[str, str]]) -> dict[str, tuple[str, int, ET.Element]]:
-    """@return The glTF material name of each sub-material of the skins (skin path, .mtl reference) -> (mtl path, index,
-    element): the name that the converters give a glTF material (the Name of the sub-material). The first skin wins a
-    name that two skins share."""
-    out: dict[str, tuple[str, int, ET.Element]] = {}
+def skin_materials(skins: list[tuple[str, str]]) -> dict[str, list[tuple[str, int, ET.Element]]]:
+    """@return The glTF material name of each sub-material of the skins (skin path, .mtl reference) -> [(mtl path, index,
+    element)] in the order of the skins: the name that the converters give a glTF material (the Name of the sub-material). A
+    name that two skins share has one entry for each skin (the ghost body and its follower skin: ghostBasic_mainBody); Unreal
+    names the second glTF material of that name NAME1, the third NAME2 (the material instances of the plugin)."""
+    out: dict[str, list[tuple[str, int, ET.Element]]] = {}
     for skin, reference in skins:
         if not reference:
             continue
@@ -88,7 +108,7 @@ def skin_materials(skins: list[tuple[str, str]]) -> dict[str, tuple[str, int, ET
         except Exception:
             continue
         for index, element in enumerate(subs):
-            out.setdefault(element.get("Name", ""), (mtl.lower(), index, element))
+            out.setdefault(element.get("Name", ""), []).append((mtl.lower(), index, element))
     return out
 
 
@@ -181,14 +201,17 @@ def write(wanted: str = "") -> dict:
         counts["bodies"] += 1
         names = skin_materials(skins)
         table = {}
-        for name in gltf_material_names(gltf_file):
+        seen: dict = {}
+        for gltf_name in gltf_material_names(gltf_file):
             counts["slots"] += 1
-            if name in table:
-                continue
-            found = names.get(name)
-            if found is None:
+            k = seen.get(gltf_name, 0)
+            seen[gltf_name] = k + 1
+            name = gltf_name if k == 0 else f"{gltf_name}{k}"   # the Unreal name of a repeated glTF material name
+            sources = names.get(gltf_name)
+            if not sources:
                 counts["no source"] += 1
                 continue
+            found = sources[min(k, len(sources) - 1)]
             try:
                 result = body_spec(*found, use)
             except Exception as error:

@@ -53,7 +53,8 @@ class BlendLayer(unittest.TestCase):
     def setUp(self):
         self.saved = (mr.color_texture, mr.data_texture, mr.file_srgb, mr.linear_texture)
         mr.color_texture = lambda product, role: {"asset": "texture:" + product, "file": product, "color": "srgb", "cap": 1024}
-        mr.data_texture = lambda product, **kw: {"asset": "texture:" + product + "@data", "file": product, "color": "linear", "cap": 1024}
+        mr.data_texture = lambda product, **kw: {"asset": "texture:" + product + "@data" + ("-rg" if kw.get("raw_rg") else ""),
+                                                 "file": product, "color": "linear", "cap": 1024}
         mr.linear_texture = lambda product, **kw: {"asset": "texture:" + product + "@linear", "file": product, "color": "linear",
                                                    "cap": 1024}
         mr.file_srgb = lambda product: True
@@ -112,7 +113,7 @@ class BeamSimple(BlendLayer):
         self.assertEqual(spec["parent"], "beam simple")
         self.assertEqual(spec["scalars"]["RawAdditive"], 1.0)   # the additive bit with Opacity 0.99: ONE, ONE
         self.assertEqual(spec["scalars"]["Noise"], 1.0)
-        self.assertIn("jumppads/up_01_ddna.dds", spec["textures"]["Turbulence"])
+        self.assertTrue(spec["textures"]["Turbulence"].endswith("jumppads/up_01_ddna.dds@data-rg"))   # the raw R and G, B 0
         self.assertEqual(spec["vectors"]["DiffuseColor"], [0.0, 0.13286835, 1.0, 0.99])
         self.assertEqual(spec["vectors"]["NoiseSpeed"], [0.2, 0.2, 0.2, 0.0])
         self.assertEqual(spec["scalars"]["dustUVScale"], 5.0)

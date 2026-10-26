@@ -649,6 +649,11 @@ the fallback: the specs of 187 person bodies change: 123 get new slots, 69 get t
   (a head layer of `player.HEAD_LAYER`: opacity = the diffuse alpha x the XML Opacity), D = the diffuse map x the XML
   Diffuse, the F0 split of the specular map x the XML Specular, the gloss and Shininess, the overlay masks (M3a: the hair
   and beard tint of `Mask_R_Color` with `Mask_R_Override`), two sided (MtlFlags bit 0x2: the fur cards), the cutoff.
+- Item 3 of the user test (the ghosts; prepared 2026-10-26, not deployed): a repeated glTF material name (the follower skin of a
+  ghost: two skins with the sub-material Name ghostBasic_mainBody) is NAME1, NAME2 in Unreal; `bodies.skin_materials` keeps one
+  source for each skin, so the k-th repeat takes the sub-material of the k-th skin (259 slots had no spec). An Illum sub-material
+  with Opacity below `bodies.BLENDED_BODY_MAX` (0.95) and no AlphaTest takes M_SwcSurfaceTranslucent (5 specs: the Gillgut ghost
+  body 0.9, the drowned ghost weed 0.75, Urda's eye shell 0.91, the engineer helmet and chest glass); 0.98 and 0.99 stay opaque.
 - A head layer is a decal layer of the head (`%HAS_DECAL_LAYERS`) [I]: it changes the albedo only, with no specular
   (before, the eye shadow was a white mirror).
 - The Hair rule (AST-247, research hair-shader.md; the first stage, 2026-10-22): a Hair sub-material (not a head layer) takes
