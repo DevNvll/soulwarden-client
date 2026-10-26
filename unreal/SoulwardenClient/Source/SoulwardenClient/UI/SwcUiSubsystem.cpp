@@ -1162,6 +1162,54 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 			HandleItemRequest(UTF8_TO_TCHAR(Request.c_str()), Backend);
 		}
 	}
+	UpdateCameraRequests();
+}
+
+void USwcUiSubsystem::UpdateCameraRequests()
+{
+	// All the requests of the frame in their order (a tween of the depth of field sends one for each frame; the last one wins).
+	APlayerController* Player = GetGameInstance() != nullptr ? GetGameInstance()->GetFirstLocalPlayerController() : nullptr;
+	ASwcCameraManager* Camera = Player != nullptr ? Cast<ASwcCameraManager>(Player->PlayerCameraManager) : nullptr;
+	for (int32 Guard = 0; Guard < 256; ++Guard)
+	{
+		std::string Line;
+		Runtime->call("TakeCameraRequest", {}, &Line);
+		if (Line.empty())
+		{
+			break;
+		}
+		if (Camera == nullptr)
+		{
+			continue;
+		}
+		TArray<FString> Parts;
+		FString(UTF8_TO_TCHAR(Line.c_str())).ParseIntoArray(Parts, TEXT(" "));
+		if (Parts.Num() < 3 || Parts[0] != TEXT("camera"))
+		{
+			UE_LOG(LogSwcUi, Warning, TEXT("ui: a camera request that the client does not know: %hs"), Line.c_str());
+			continue;
+		}
+		const bool bNone = Parts[2] == TEXT("-");
+		if (Parts[1] == TEXT("state"))
+		{
+			// "camera state NAME BLEND" or "camera state - BLEND".
+			Camera->SetUiState(bNone ? FString() : Parts[2], Parts.Num() > 3 ? FCString::Atof(*Parts[3]) : 0.0f);
+		}
+		else if (Parts[1] == TEXT("lookat"))
+		{
+			// "camera lookat X Y Z" (meters: x east, y north, z up) or "camera lookat -".
+			const bool bPoint = !bNone && Parts.Num() >= 5;
+			Camera->SetUiLookAt(bPoint, bPoint ? SwcEngineToUnreal(swc::net::WorldPosition{FCString::Atof(*Parts[2]), FCString::Atof(*Parts[3]),
+				FCString::Atof(*Parts[4])}) : FVector::ZeroVector);
+		}
+		else if (Parts[1] == TEXT("dof"))
+		{
+			// "camera dof DISTANCE BLUR NEAR FAR RANGE" or "camera dof -".
+			const bool bOn = !bNone && Parts.Num() >= 7;
+			Camera->SetUiDepthOfField(bOn, bOn ? FCString::Atof(*Parts[2]) : 0.0f, bOn ? FCString::Atof(*Parts[3]) : 0.0f,
+				bOn ? FCString::Atof(*Parts[4]) : 0.0f, bOn ? FCString::Atof(*Parts[5]) : 0.0f, bOn ? FCString::Atof(*Parts[6]) : 0.0f);
+		}
+	}
 }
 
 void USwcUiSubsystem::UpdateMenu(USwcBackendSubsystem* Backend)

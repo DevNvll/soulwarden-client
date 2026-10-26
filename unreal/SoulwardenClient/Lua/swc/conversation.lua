@@ -994,21 +994,8 @@ Swc.Define("PlayerCutsceneComponentRequestBus", "Broadcast", {
   GetMultiNpcEntityId = function() return EntityId() end,
 })
 
--- The camera of the screen: the client sets the Talk camera (a cut) and gives it back at the end.
-Swc.Define("JavCameraControllerRequestBus", "Broadcast", {
-  OverrideCameraState = function() end,
-  RestoreCameraState = function() end,
-  SetCameraLookAt = function() end,
-  ClearCameraLookAt = function() end,
-  SetCameraEnableMouseInput = function() end,
-  MakeActiveView = function() end,
-})
-Swc.Define("JavelinCameraRequestBus", "Broadcast", {
-  EnableDepthOfField = function() end,
-  ResetDepthOfField = function() end,
-  GetCurrentDepthOfFieldDistance = function() return 0 end,
-  GetCurrentDepthOfFieldBlur = function() return 0 end,
-})
+-- The camera of the screen (UI_Conversation, the look-at point of GetNpcLookAtPosition, the depth of field): swc/camera.lua. The client
+-- puts the cut of a line with a camera point over it (USwcBackendSubsystem).
 Swc.Define("TimelineControllerComponentRequestBus", "Event", {UnTriggerTimelineOverrideForCrc = function() end})
 -- The top progression of the objective of the line: none (the backend has no objectives): an empty record.
 Swc.Define("ObjectivesComponentRequestBus", "Event", {GetTopProgressionForObjective = function() return {displayName = ""} end})

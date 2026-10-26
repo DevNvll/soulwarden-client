@@ -199,3 +199,10 @@ frames(0.6)
 equal(LyShineManagerBus.Broadcast.GetCurrentState(), HUD, "Tab closes the inventory")
 check(not swcui.canvas_get(inventory, "enabled") and not swcui.canvas_get(equipment, "enabled"), "the two screens hide")
 check(not Swc.HostCursor(), "no cursor after the inventory")
+
+-- The camera of the inventory (newinventory.luac): the depth of field 3 0.8 and UI_Inventory 0.5 s; the close removes both.
+local camera = camera_log()
+camera_sent(camera, "camera dof 3.000 0.800 0.000 0.000 10.000", "the inventory")
+camera_sent(camera, "camera state UI_Inventory 0.500", "the inventory")
+camera_sent(camera, "camera state - 0.500", "the inventory closes")
+camera_clean("the inventory")

@@ -171,3 +171,23 @@ function script_of(id, path)
   end
   return nil
 end
+
+--- The camera requests of the screens (swc/camera.lua) since the last call: one string, the lines with " | " between them.
+function camera_log()
+  local log = Swc.camera.log
+  Swc.camera.log = {}
+  return table.concat(log, " | ")
+end
+
+--- Checks that a closed screen left no camera state override, no look-at point, and no depth of field.
+function camera_clean(label)
+  local S = Swc.camera
+  equal(#S.stack, 0, label .. ": no camera state override")
+  check(S.lookAt == nil, label .. ": no look-at point")
+  check(not S.dof.enabled, label .. ": the depth of field is off")
+end
+
+--- Checks that a camera log has a request (a plain text, not a pattern).
+function camera_sent(log, line, label)
+  check(string.find(log, line, 1, true) ~= nil, label .. ": the request \"" .. line .. "\"")
+end

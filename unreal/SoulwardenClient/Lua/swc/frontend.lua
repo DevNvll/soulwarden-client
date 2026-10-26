@@ -442,11 +442,7 @@ Swc.Define("CinematicRequestBus", "Broadcast", {
   end,
 })
 
-Swc.Define("JavelinCameraRequestBus", "Broadcast", {
-  EnableDepthOfField = function() end,
-  SetDepthOfField = function() end,
-  ResetDepthOfField = function() end,
-})
+-- The depth of field of the landing screen: swc/camera.lua.
 
 Swc.Define("UiCharacterServiceRequestBus", "Broadcast", {
   DeactivateCharacter = function(characterId) request("menu delete " .. tostring(characterId or "")) end,

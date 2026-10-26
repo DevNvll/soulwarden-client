@@ -119,3 +119,6 @@ frames(1.0)
 check(not swcui.canvas_get(respawn, "enabled"), "the respawn screen hides after the respawn")
 equal(LyShineManagerBus.Broadcast.GetCurrentState(), HUD, "the HUD after the respawn")
 check(not Swc.HostCursor(), "no cursor in the HUD")
+
+-- The respawn screen of this fixture sends no camera request.
+camera_clean("the respawn screen")

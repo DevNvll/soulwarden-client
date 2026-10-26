@@ -68,6 +68,10 @@ function Swc.EnterWorld(levelName)
   -- A level load starts the screen state machine again: the loader sets the state HUD when its screens are loaded,
   -- and each screen then gets OnTransitionIn. (The globals script sets HUD at its activation with no screen.)
   Swc.uiState = 0
+  -- The camera of the new world has no override, no look-at point, and no depth of field (swc/camera.lua).
+  if Swc.CameraReset then
+    Swc.CameraReset()
+  end
   local crc = Math.CreateCrc32(Swc.levelName)
   local buses = {"LyShineScriptBindNotificationBus", "CrySystemNotificationsBus"}
   Swc.NotifyOnce(buses, "OnLevelLoad", crc)

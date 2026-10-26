@@ -107,6 +107,7 @@ bool FSwcCameraData::Load(FString& OutReport)
 			Number(Params, TEXT("MinZoom"), State.MinZoom);
 			Number(Params, TEXT("MaxZoom"), State.MaxZoom);
 			Number(Params, TEXT("DistanceDampening"), State.DistanceDampening);
+			Number(Params, TEXT("RotationDampening"), State.RotationDampening);
 			Number(Params, TEXT("HorizontalSensitivity"), State.HorizontalSensitivity);
 			Number(Params, TEXT("VerticalSensitivity"), State.VerticalSensitivity);
 			Flag(Params, TEXT("IsADS"), State.bAds);

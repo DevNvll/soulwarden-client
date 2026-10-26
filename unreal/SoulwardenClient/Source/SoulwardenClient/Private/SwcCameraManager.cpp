@@ -11,6 +11,7 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "HAL/IConsoleManager.h"
 #include "SwcBackendSubsystem.h"
 #include "UI/SwcGameSettings.h"
 
@@ -23,6 +24,15 @@ constexpr float DefaultPlayerFov = 57.0f;
 constexpr float ReferenceAspect = 16.0f / 9.0f;
 /** The zoom option m_cameraZoom: 2.0 m at the start (C 0x457BCF8). */
 constexpr float DefaultZoom = 2.0f;
+/**
+ * The depth of field of the screens (swc/camera.lua; the study work/ut567/study2): the f-stop of the native blur 1.0, the f-stop of a blur
+ * B is this value / B (craftingscreenv4.luac: 0.95 for the craft result, 0.4 for the craft roll). [U] The units of the native blur have no
+ * source: 0 (no depth of field) until the scale of the retail pictures (the blur width at a known depth). swc.Camera.DofFstop sets it in a
+ * run (the matched views of the retail check).
+ */
+constexpr float UiDofFstopAtFullBlur = 0.0f;
+static TAutoConsoleVariable<float> CVarSwcDofFstop(TEXT("swc.Camera.DofFstop"), UiDofFstopAtFullBlur,
+	TEXT("The f-stop of the native blur 1.0 of the depth of field of a screen (the f-stop of a blur B is this value / B); 0: no depth of field."));
 /** The pivot snaps to its target after a move of more than 2 m in one frame (C 0x1049C20: distance squared > 4). */
 constexpr double PivotSnapDistance = 200.0;
 /** The CameraLockComponent of the player slice: m_maxLockRange 50 m; the scans close (radius 10 m, max angle 95, weights:
@@ -115,25 +125,42 @@ void ASwcCameraManager::SetForcedState(const FString& State)
 	ForcedState = State == TEXT("none") ? FString() : State;
 }
 
-void ASwcCameraManager::SetConversationOrbit(bool bOn, const FVector& LookAt)
+void ASwcCameraManager::SetUiState(const FString& State, float Blend)
 {
-	ConversationLookAt = LookAt;
-	if (bOn == bConversationOrbit)
+	if (!State.IsEmpty() && bLoaded && !Data.Has(State))
 	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("camera: a screen asks for the state %s, which the camera data does not have: ignored"), *State);
 		return;
 	}
-	bConversationOrbit = bOn;
-	if (bOn)
+	if (State != UiState)
 	{
-		ForcedStateBeforeOrbit = ForcedState;
-		ForcedState = TEXT("UI_Conversation");
+		UiState = State;
+		UiBlend = FMath::Max(0.0f, Blend);
+		UE_LOG(LogSwcBackend, Log, TEXT("camera: the screen state %s, blend %.2f s"), State.IsEmpty() ? TEXT("none") : *State, UiBlend);
 	}
-	else
+}
+
+void ASwcCameraManager::SetUiLookAt(bool bOn, const FVector& LookAt)
+{
+	if (bOn != bUiLookAt || (bOn && !LookAt.Equals(UiLookAt, 1.0)))
 	{
-		ForcedState = ForcedStateBeforeOrbit;
+		UE_LOG(LogSwcBackend, Log, TEXT("camera: %s"), bOn ? *FString::Printf(TEXT("the look-at point of a screen %.2f %.2f %.2f m"), LookAt.X / 100.0,
+			-LookAt.Y / 100.0, LookAt.Z / 100.0) : TEXT("no look-at point of a screen"));
 	}
-	UE_LOG(LogSwcBackend, Log, TEXT("camera: %s"), bOn ? *FString::Printf(TEXT("the orbit of the conversation (UI_Conversation), the look-at point %.2f %.2f %.2f m"),
-		LookAt.X / 100.0, -LookAt.Y / 100.0, LookAt.Z / 100.0) : TEXT("the orbit of the conversation ends"));
+	bUiLookAt = bOn;
+	UiLookAt = LookAt;
+}
+
+void ASwcCameraManager::SetUiDepthOfField(bool bOn, float InDistance, float Blur, float Near, float Far, float Range)
+{
+	if (bOn != bUiDof)
+	{
+		UE_LOG(LogSwcBackend, Log, TEXT("camera: the depth of field of a screen %s (distance %.2f, blur %.2f, near %.2f, far %.2f, range %.2f)"),
+			bOn ? TEXT("on") : TEXT("off"), InDistance, Blur, Near, Far, Range);
+	}
+	bUiDof = bOn;
+	UiDofDistance = InDistance;
+	UiDofBlur = Blur;
 }
 
 bool ASwcCameraManager::AllowsFreeLook() const
@@ -200,8 +227,14 @@ void ASwcCameraManager::SelectState(const ASwcPlayerCharacter& Character)
 	{
 		Camera = ForcedState;
 	}
+	else if (!UiState.IsEmpty())
+	{
+		Camera = UiState;
+	}
 	if (Camera == StateName)
 	{
+		// A screen request that keeps the state (the drive state wins, or the same name) has no blend for a later change.
+		UiBlend = -1.0f;
 		// A change of the FOV option blends in the states that use it.
 		const float Option = PlayerFov();
 		if (Data.State(Camera).bUserFov && !FMath::IsNearlyEqual(Option, UserFov))
@@ -218,8 +251,14 @@ void ASwcCameraManager::SelectState(const ASwcPlayerCharacter& Character)
 	{
 		SmoothTime = *Transition;
 	}
+	// A change of the screen state blends with the time of its request (OverrideCameraState, RestoreCameraState).
+	if (UiBlend >= 0.0f && ForcedState.IsEmpty())
+	{
+		SmoothTime = UiBlend;
+	}
+	UiBlend = -1.0f;
 	UE_LOG(LogSwcBackend, Log, TEXT("camera: %s -> %s (%s), blend %.2f s"), bFirst ? TEXT("start") : *StateName, *Camera,
-		ForcedState.IsEmpty() ? *Entry : TEXT("forced by the drive"), bFirst ? 0.0f : SmoothTime);
+		!ForcedState.IsEmpty() ? TEXT("forced by the drive") : !UiState.IsEmpty() ? TEXT("a screen") : *Entry, bFirst ? 0.0f : SmoothTime);
 	StateName = Camera;
 	BlendTime = SmoothTime;
 	UserFov = PlayerFov();
@@ -468,6 +507,24 @@ FRotator ASwcCameraManager::UpdateLock(const FVector& Pivot, const ASwcPlayerCha
 	return FRotator(Result.Pitch, Result.Yaw, 0.0);
 }
 
+void ASwcCameraManager::ApplyUiDepthOfField(FMinimalViewInfo& POV) const
+{
+	FPostProcessSettings& Settings = POV.PostProcessSettings;
+	const float FstopAtFullBlur = CVarSwcDofFstop.GetValueOnGameThread();
+	const bool bOn = bUiDof && UiDofBlur > 0.0f && FstopAtFullBlur > 0.0f;
+	Settings.bOverride_DepthOfFieldFocalDistance = bOn;
+	Settings.bOverride_DepthOfFieldFstop = bOn;
+	Settings.bOverride_DepthOfFieldMinFstop = bOn;
+	POV.PostProcessBlendWeight = bOn ? 1.0f : 0.0f;
+	if (bOn)
+	{
+		// The native distance in meters: the focal distance (0: the near limit of 0.1 m, all of the world is behind it).
+		Settings.DepthOfFieldFocalDistance = FMath::Max(UiDofDistance * 100.0f, 10.0f);
+		Settings.DepthOfFieldFstop = FMath::Clamp(FstopAtFullBlur / UiDofBlur, 0.1f, 32.0f);
+		Settings.DepthOfFieldMinFstop = FMath::Min(Settings.DepthOfFieldFstop, 1.2f);
+	}
+}
+
 void ASwcCameraManager::UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime)
 {
 	const ASwcPlayerCharacter* Character = Cast<ASwcPlayerCharacter>(OutVT.Target);
@@ -499,22 +556,23 @@ void ASwcCameraManager::UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime)
 	// yaw frame of the camera (R1.5).
 	FRotator Rotation = PCOwner->GetControlRotation();
 	const FVector Feet = Character->GetFeetLocation();
-	if (bConversationOrbit)
+	if (bUiLookAt && !UiState.IsEmpty() && ForcedState.IsEmpty())
 	{
-		// The view of the orbit turns toward the look-at point from the pivot (the side offset follows the yaw: three passes), the pitch
-		// in the limits of the state; the turn is smoothed with the RotationDampening of UI_Conversation (0.35 s, camera.json).
-		constexpr float TalkRotationDampening = 0.35f;
+		// The look-at point of a screen (the Talk: UI_Conversation and GetNpcLookAtPosition). The view turns toward it from the pivot
+		// (the side offset follows the yaw: three passes), the pitch in the limits of the state; the turn is smoothed with the
+		// RotationDampening of the state (UI_Conversation 0.35 s, camera.json). With the script point this fits the retail Talk camera of
+		// Sahal Yasin within 0.01 m (the set ut567-camera).
 		FRotator Target = Rotation;
 		for (int32 Pass = 0; Pass < 3; ++Pass)
 		{
 			const FRotator Yaw(0.0, Target.Yaw, 0.0);
 			const FVector AimPivot = Feet + FVector(0.0, 0.0, OffsetUp.Value * 100.0) + Yaw.Vector() * (OffsetForward.Value * 100.0)
 				+ FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y) * (OffsetSide.Value * 100.0);
-			Target = (ConversationLookAt - AimPivot).Rotation();
+			Target = (UiLookAt - AimPivot).Rotation();
 		}
 		Target.Pitch = FMath::Clamp(Target.Pitch, PitchDown.Value, PitchUp.Value);
 		Target.Roll = 0.0;
-		const float Alpha = DeltaTime > 0.0f ? 1.0f - FMath::Exp(-DeltaTime * 3.0f / TalkRotationDampening) : 1.0f;
+		const float Alpha = DeltaTime > 0.0f && State.RotationDampening > 0.0f ? 1.0f - FMath::Exp(-DeltaTime * 3.0f / State.RotationDampening) : 1.0f;
 		Rotation = FQuat::Slerp(Rotation.Quaternion(), Target.Quaternion(), Alpha).Rotator();
 		PCOwner->SetControlRotation(Rotation);
 	}
@@ -588,6 +646,7 @@ void ASwcCameraManager::UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime)
 	OutVT.POV.AspectRatio = ReferenceAspect;
 	OutVT.POV.bConstrainAspectRatio = false;
 	OutVT.POV.AspectRatioAxisConstraint = EAspectRatioAxisConstraint::AspectRatio_MaintainYFOV;
+	ApplyUiDepthOfField(OutVT.POV);
 	FSwcViewOverride::Apply(OutVT.POV);   // a matched view of the fidelity checks (Environment/SwcMatchView.h)
 	ViewPitchMin = PitchDown.Value;
 	ViewPitchMax = PitchUp.Value;

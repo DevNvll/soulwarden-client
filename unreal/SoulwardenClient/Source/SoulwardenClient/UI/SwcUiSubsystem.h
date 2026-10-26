@@ -120,6 +120,8 @@ private:
 	/** A request of the inventory scripts ("equip BAG SLOT QUANTITY INSTANCE", "use SLOT", ...) to the backend subsystem. */
 	void HandleItemRequest(const FString& Request, class USwcBackendSubsystem* Backend);
 	void HandleKeyRequest(const FString& Request);
+	/** The camera requests of the screens (swc/camera.lua Swc.TakeCameraRequest): the state overrides, the look-at point, the depth of field. */
+	void UpdateCameraRequests();
 	/** The front end (stage F2 of docs/FRONTEND.md, swc/frontend.lua): the landing screen after a character list with no
 	 *  -SwcPlay, the list answers, and the requests "menu ..." of the landing screen. */
 	void UpdateMenu(class USwcBackendSubsystem* Backend);

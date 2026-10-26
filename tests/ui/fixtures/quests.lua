@@ -104,3 +104,8 @@ check(has(hud, "Talk to Aelstrom"), "pin: the tracker shows the quest again")
 Swc.HostQuests("")
 frames(1.5)
 check(not has(hud, "Soul Survivor"), "an empty state: no quest on the tracker")
+
+-- The journal (journalscreen.luac): the depth of field of camerahelperfunctions.luac SetCameraBlur (0 1 1 3 10), off at the close.
+local camera = camera_log()
+camera_sent(camera, "camera dof 0.000 1.000 1.000 3.000 10.000", "the journal")
+camera_clean("the journal")

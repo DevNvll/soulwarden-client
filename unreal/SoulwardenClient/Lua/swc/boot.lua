@@ -49,3 +49,4 @@ Swc.Load("swc.quests")    -- the quests: the tracker of the HUD, the journal, th
 Swc.Load("swc.questpins") -- the quest pins: one list of the task positions for the map, the compass, and the world (docs/QUESTS.md)
 Swc.Load("swc.scenes")    -- the in-game scenes, the subtitles, the whispers, the cinematic video stand-in (docs/QUESTS.md)
 Swc.Load("swc.npcstates") -- the NPC quest states: the overhead Conversation markers, the compass, and the map NPC icons (docs/QUESTS.md)
+Swc.Load("swc.camera")    -- the camera requests of the screens: the state overrides, the look-at point, the depth of field (docs/UI.md)

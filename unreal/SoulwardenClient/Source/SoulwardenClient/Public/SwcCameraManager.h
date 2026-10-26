@@ -44,11 +44,19 @@ public:
 	void SetSceneView(bool bOn, const FVector& Location = FVector::ZeroVector, const FVector& LookAt = FVector::ZeroVector, float VerticalFov = 0.0f);
 	bool HasSceneView() const { return bScene; }
 	/**
-	 * The camera of a Talk line with no camera point (docs/PERSONS.md "The Talk camera"; the retail set ut567-camera): the state
-	 * UI_Conversation of the camera data (the orbit: Distance 2.5, Offset 1.0 0.0 1.5, the collision), and the view turns toward the
-	 * look-at point (Unreal world space). bOn false: the camera of the play again.
+	 * The camera requests of the screens (swc/camera.lua; docs/UI.md "The camera of the screens"). SetUiState: the top state override
+	 * of the stack of the scripts (empty: none) and its blend in seconds; the drive state (SetForcedState) wins over it, and a name that
+	 * the camera data does not have is ignored.
 	 */
-	void SetConversationOrbit(bool bOn, const FVector& LookAt = FVector::ZeroVector);
+	void SetUiState(const FString& State, float Blend);
+	/**
+	 * The look-at point of a screen (JavCameraControllerRequestBus SetCameraLookAt; Unreal world space). While a UI state is on, the
+	 * view turns toward it from the pivot: the orbit of the Talk (UI_Conversation and conversationscreenv2.luac GetNpcLookAtPosition,
+	 * docs/PERSONS.md "The Talk camera"). bOn false: none.
+	 */
+	void SetUiLookAt(bool bOn, const FVector& LookAt = FVector::ZeroVector);
+	/** The depth of field of a screen (JavelinCameraRequestBus SetDepthOfField: the five native values; bOn false: off). */
+	void SetUiDepthOfField(bool bOn, float Distance = 0.0f, float Blur = 0.0f, float Near = 0.0f, float Far = 0.0f, float Range = 0.0f);
 	/** The camera of an in-game scene (stage Q5, Scenes/SwcScenePlayer): a place, a rotation, and a vertical FOV (degrees). It wins over the
 	 *  camera of a conversation. */
 	void SetSceneCamera(bool bOn, const FVector& Location, const FRotator& Rotation, float VerticalFov);
@@ -96,6 +104,8 @@ private:
 	};
 
 	void SelectState(const ASwcPlayerCharacter& Character);
+	/** The depth of field of a screen on the view (SetUiDepthOfField), or no override of the depth of field. */
+	void ApplyUiDepthOfField(FMinimalViewInfo& POV) const;
 	void UpdateZ(const FVector& TargetPivot, const ASwcPlayerCharacter& Character, const FSwcCameraState& State, float DeltaTime);
 	FRotator UpdateLock(const FVector& Pivot, const ASwcPlayerCharacter& Character, float DeltaTime);
 	const FSwcLockCandidate* FindCandidate(uint32 Id) const;
@@ -147,10 +157,15 @@ private:
 	TArray<TPair<double, float>> LockMouse;
 	double LockMouseIgnoreUntil = 0.0;
 	FRotator LastRotation = FRotator::ZeroRotator;
-	/** The orbit of a Talk line with no camera point (SetConversationOrbit): its look-at point and the forced state before it. */
-	bool bConversationOrbit = false;
-	FVector ConversationLookAt = FVector::ZeroVector;
-	FString ForcedStateBeforeOrbit;
+	/** The camera requests of the screens: the top override and the blend of its change (negative: none since the last switch), the
+	 *  look-at point, and the depth of field (the native values). */
+	FString UiState;
+	float UiBlend = -1.0f;
+	bool bUiLookAt = false;
+	FVector UiLookAt = FVector::ZeroVector;
+	bool bUiDof = false;
+	float UiDofDistance = 0.0f;
+	float UiDofBlur = 0.0f;
 	/** The camera of a conversation (SetSceneView). */
 	bool bScene = false;
 	bool bSceneCamera = false;

@@ -441,3 +441,8 @@ equal(#requests("menu login"), 0, "no login request with no character")
 
 
 equal(Swc.errorCount or 0, 0, "no Lua error")
+
+-- The landing screen (landingscreenv2.luac): the depth of field 0 1 1 3 10, off at its close.
+local camera = camera_log()
+camera_sent(camera, "camera dof 0.000 1.000 1.000 3.000 10.000", "the landing screen")
+camera_clean("the landing screen")

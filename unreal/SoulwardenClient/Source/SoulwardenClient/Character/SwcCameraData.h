@@ -29,6 +29,8 @@ struct FSwcCameraState
 	/** ZoomLagOverride, or a negative value: the global zoomLag. */
 	float ZoomLag = -2.0f;
 	float NearPlane = 0.1f;
+	/** RotationDampening: the smooth time of a turn of the view toward a look-at point (s; UI_Conversation 0.35, UI_Inventory 0.1). */
+	float RotationDampening = 0.0f;
 	/** FromTransition: the blend time for a blend that comes from the named state. */
 	TMap<FString, float> Transitions;
 };
@@ -45,6 +47,8 @@ public:
 
 	/** @return A state, or the default state (MidCamera) when the data has no state of this name. */
 	const FSwcCameraState& State(const FString& Name) const;
+	/** @return True when the data has a state of this name. */
+	bool Has(const FString& Name) const { return States.Contains(Name); }
 	/** The ActivateCamera entry of the action list: its camera state and its SmoothTime. */
 	bool Activation(const FString& Entry, FString& OutCamera, float& OutSmoothTime) const;
 

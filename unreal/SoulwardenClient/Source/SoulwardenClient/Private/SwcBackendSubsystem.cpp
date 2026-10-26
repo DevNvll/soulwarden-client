@@ -1503,29 +1503,12 @@ void USwcBackendSubsystem::UpdatePlayer()
 			else
 			{
 				CameraManager->SetSceneCamera(false, FVector::ZeroVector, FRotator::ZeroRotator, 0.0f);
-				// A line with no camera point keeps the camera of the play (before: the camera stood at the frame of the person).
+				// A line with a camera point cuts to it; a line with no camera point shows the camera of the screen.
 				const bool bLineCamera = Line != nullptr && Line->bCamera;
 				CameraManager->SetSceneView(bLineCamera, bLineCamera ? Line->Camera : FVector::ZeroVector, bLineCamera ? Line->LookAt : FVector::ZeroVector,
 					bLineCamera ? Line->Fov : 0.0f);
-				// A line with no camera point: the orbit of the state UI_Conversation with the view toward a look-at point of the person
-				// (the retail set ut567-camera, 2026-10-26: the orbit fits Sahal Yasin within 0.00 m; Ser Payne Bennett stands in walls,
-				// the collision). [I] The look-at point: the feet of the person, 1.1 m up, 0.25 m to the right, and 1.0 m away from the
-				// player (the fit of the two samples: 6.6 and 9.1 degrees of heading, 3.4 and 3.8 of pitch; GetNpcLookAtPosition of the
-				// script is not read yet).
-				FVector OrbitLookAt = FVector::ZeroVector;
-				const bool bOrbit = Line != nullptr && !Line->bCamera && Person != nullptr;
-				if (bOrbit)
-				{
-					FVector Away = Person->Place - Avatar->GetActorLocation();
-					Away.Z = 0.0;
-					Away = Away.GetSafeNormal();
-					// The right of the line person -> player in the game frame (x east, y north) is (ty, -tx); in Unreal (Y = -north) it is
-					// the same vector rotated by -90 degrees about Z of the Unreal direction player -> person.
-					const FVector Toward = -Away;
-					const FVector Right(-Toward.Y, Toward.X, 0.0);
-					OrbitLookAt = Person->Place + FVector(0.0, 0.0, 110.0) + Away * 100.0 + Right * 25.0;
-				}
-				CameraManager->SetConversationOrbit(bOrbit, OrbitLookAt);
+				// Below the cut: the camera of the screen (conversationscreenv2.luac: UI_Conversation and the look-at point of
+				// GetNpcLookAtPosition; swc/camera.lua, ASwcCameraManager::SetUiState and SetUiLookAt).
 			}
 			// The exit camera of a scene (m_cameraStateToSetOnExit, m_lockCameraStateOnExitUntilInput): until the next move or look input
 			// [U: the exact input event that clears the lock].

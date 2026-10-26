@@ -1342,12 +1342,7 @@ Swc.Handled("PlayerComponentNotificationsBus")
 Swc.Define("LocalPlayerComponentRequestBus", "Broadcast", {
   GetCurrentSyncedWallClockTime = function() return WallClockTimePoint:Now() end,
 })
--- The depth of field of the camera (the inventory blurs the world): the client has no depth of field (the look).
-Swc.Define("JavelinCameraRequestBus", "Broadcast", {
-  GetCurrentDepthOfFieldDistance = function() return 0 end,
-  GetCurrentDepthOfFieldBlur = function() return 0 end,
-  SetDepthOfField = function() end,
-})
+-- The depth of field of the camera (the inventory blurs the world) and its camera states: swc/camera.lua.
 -- The afflictions (gamedata/afflictions.json: javelindata_afflictions): the meters of the HUD and of the equipment screen. The
 -- backend sends no affliction state (open point): each meter starts with no damage and hides (Swc.StartAfflictions).
 local afflictions = swcui.load_json("gamedata/afflictions.json") or {}
@@ -1451,15 +1446,6 @@ Swc.Define("LyShineManagerBus", "Broadcast", {
   -- screen to its result state with the buttons Continue to Craft, Equip, Salvage, and Exit Station; AST-244 item 7). With no
   -- method the action was lost. The same path as the action of a component (swc/interactables.lua Swc.SendAction).
   OnAction = function(_, entityId, action) Swc.SendAction(entityId, action) end,
-})
--- The camera of the inventory (JavCameraControllerRequestBus OverrideCameraState): open point (the camera track).
-Swc.Define("JavCameraControllerRequestBus", "Broadcast", {
-  OverrideCameraState = function() end,
-  ClearAllStateOverrides = function() end,
-  SetCameraEnableMouseInput = function() end,
-})
-Swc.Define("JavelinCameraRequestBus", "Broadcast", {
-  EnableDepthOfField = function() end,
 })
 
 -- The weight values exist from the start (the client computes them from its container: 0 with no bag).

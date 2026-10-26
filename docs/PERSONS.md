@@ -130,18 +130,24 @@ Open:
   of persons.json waits for the word of the orchestrator.
 - Oseye Kamau (0422_Innkeep, Everfall): the backend refuses the Talk ("a rule of the data that the backend cannot check", result 2), so
   the conversation closes after 30 ms and her camera was not seen (a backend need).
-- 27 persons have no preset and no point (12_SerPayneBennett, 9401_FirstHorse, and others). Since 2026-10-26 (the client, with the next
-  cook) a line with no camera point keeps the camera of the play: no cut, no hidden player, no dummy (`FSwcPerson::FLine::bCamera`).
-  Before, the camera stood at the frame of the person.
-- The retail camera of such a line (set `~/Games/soulwarden/work/evidence/unreal-references/set-ut567-camera`, 2026-10-26: Ser Payne
-  Bennett and Sahal Yasin, state.py 3.5 s after E): the orbit of the camera state UI_Conversation of camera.json (Distance 2.5, Offset
-  1.0 0.0 1.5, FOV 40, pitch -30 to 30, the collision). Yasin: the camera is 2.50 m behind the pivot (the feet, 1.5 m up, 1.0 m to the
-  right of the view), residual 0.00 m. Bennett stands on a walled walkway: 1.52 m and no side offset (the collision). The client
-  (`ASwcCameraManager::SetConversationOrbit`): the forced state UI_Conversation, and the view turns toward a look-at point from the
-  pivot (three passes; the pitch in the limits of the state; the RotationDampening 0.35 s). [I] The look-at point: the feet of the
-  person, 1.1 m up, 0.25 m to the right of the line person to player, 1.0 m away from the player (the fit of the two samples: 6.6 and
-  9.1 degrees of heading, 3.4 and 3.8 of pitch); the value "1 m toward the player" of GetNpcLookAtPosition above gives a reversed view
-  and is not used. Open: the side offset of retail shrinks in the collision (Bennett); the client sweeps only the distance.
+- 27 persons have no preset and no point (12_SerPayneBennett, 9401_FirstHorse, and others). A line with no camera point has no cut,
+  no hidden player, and no dummy (`FSwcPerson::FLine::bCamera`). Before 2026-10-26, the camera stood at the frame of the person.
+- The camera of such a line is the camera of the screen (2026-10-26, ut567). conversationscreenv2.luac SetScreenVisible calls
+  `OverrideCameraState("UI_Conversation", 0.4)` and `SetCameraLookAt(GetNpcLookAtPosition(), false)` when `cameraStateOverrideLocKey` is
+  nil (a line with a scene camera skips them). The client takes both through swc/camera.lua (docs/UI.md "The camera of the screens"):
+  the state UI_Conversation of camera.json (Distance 2.5, Offset 1.0 0.0 1.5, pitch -30 to 30, the collision, RotationDampening
+  0.35 s), and the view turns toward the look-at point from the pivot (`ASwcCameraManager::SetUiLookAt`; three passes, the pitch in the
+  limits of the state). A cut of a line with a camera point is over it.
+- GetNpcLookAtPosition (the bytecode): P = the position of the interact entity (the feet of the person); v = normalize(P - (0, 0, 1) -
+  the position of the player); the point = P + (0, 0, 1.5) + 0.25 x normalize(CrossZAxis(v)) + 1.0 x v. The point is beyond the person,
+  away from the player; v has a z part, so a person at 1 m gives a point near 0.8 m over the feet. With no player position, v is
+  (0, 1, 0) and the side axis is (1, 0, 0). (An earlier text here said "1 m toward the player": that was wrong.)
+- The retail check (set `~/Games/soulwarden/work/evidence/unreal-references/set-ut567-camera`, 2026-10-26, state.py 3.5 s after E). Sahal
+  Yasin (1.90 m from the player): the rule with the script point gives the retail camera within 0.01 m (heading 270.5 against 270.6,
+  pitch -16.3 against -16.4). Ser Payne Bennett (1.01 m): not explained. Retail has the camera 1.52 m behind the feet with no side
+  offset, heading 285.8 and pitch -8.1; the rule gives pitch -27 (1.79 m off). No source collider is within 1.5 m of the camera sweeps
+  (`work/ut567/orbit/probe.py`). The retail body does not turn at the E (body yaw 0 before and after). Open: a retail take at Bennett
+  from 1.9 m and a person in an open place at 1.0 m and 1.9 m.
 
 | Person (preset) | Retail camera (set-mvph-talk) | Client camera |
 | --- | --- | --- |
@@ -150,9 +156,8 @@ Open:
 | Sai Kumal (NSR_STP_MED_SNGL_HA) | 10069.537 7494.922 416.803, heading 82.2, pitch -10.3 | 0.001 m, 0.000 m, 0.0 and 0.2 degrees off |
 | Hoang Lin (NSL_FAC_MED_SNGL_LA; stage P4.8, L1-10) | 8836.71 4243.79 137.04, heading 349.7, pitch 13.0 | 0.004 m, 0.013 m, 0.1 and 0.3 degrees off |
 
-A line with no preset (91 initial states of the census) uses the camera UI_Conversation of the script (the look-at of
-GetNpcLookAtPosition: 1.5 m over the person, 0.25 m to the side, 1 m to the player): not done in the client (the client keeps the
-player camera for such a line).
+A line with no preset (91 initial states of the census) uses the camera UI_Conversation of the script and the look-at point of
+GetNpcLookAtPosition (above; swc/camera.lua since ut567).
 
 ## The persons of the client spawners (AST-248)
 

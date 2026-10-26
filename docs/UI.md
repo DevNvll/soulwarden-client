@@ -807,6 +807,39 @@ The live check (2026-10-25, evidence `evidence/game-menu/`; runs gm1, gm2b, gmgp
 - The UI drive splits a text with spaces (`point text:Keyboard & Mouse` points at "text:Keyboard"): a drive uses `move` for
   such a label.
 
+## The camera of the screens (swc/camera.lua, ut567)
+
+52 scripts of the game call the camera of the screens (the list: `work/ut567/orbit/camera-calls.txt`). The client loads 9 of them:
+the NavBar, the inventory, the conversation, crafting, options, skills, the journal, respawn, and the landing screen. One module
+implements the calls for all screens. Before, each call was an empty function in swc/items, swc/frontend, and swc/conversation.
+
+- JavCameraControllerRequestBus. `OverrideCameraState(NAME, BLEND)` puts NAME on top of a stack (one entry for each name).
+  `RestoreCameraState(NAME, BLEND)` removes NAME: craftingscreenv4.luac removes UI_CraftingStep3 and comes back to UI_CraftingStep1.
+  [I] `RestoreCameraState("", BLEND)` removes all: the full exits of crafting and of the conversation call it.
+  `ClearAllStateOverrides` removes all. `SetCameraLookAt(POINT, FLAG)` and `ClearCameraLookAt` set the look-at point ([U] the flag).
+  `SetCameraEnableMouseInput` is stored only: the client locks the camera while the cursor shows.
+- JavelinCameraRequestBus. `EnableDepthOfField`, `SetDepthOfField(DISTANCE, BLUR, NEAR, FAR, RANGE)`, `ResetDepthOfField`, and the
+  two reads of the current values (the scripts read them before a change and tween back to them). The values of the scripts:
+  crafting 6 0.4 for the craft roll and 0 0.95 for the result (1.2 s); the inventory 3 0.8; the conversation 5 0.8;
+  camerahelperfunctions.luac SetCameraBlur 0 1 1 3 10 (options, skills, the journal, the landing screen).
+- The requests go to the client in their own queue (`Swc.TakeCameraRequest`): "camera state NAME BLEND" (the top of the stack, "-" for
+  none), "camera lookat X Y Z" (meters), and "camera dof DISTANCE BLUR NEAR FAR RANGE" ("-" for off; one request for each change).
+  `USwcUiSubsystem::UpdateCameraRequests` takes all of them each frame.
+- The client (`ASwcCameraManager`). `SetUiState` forces the top state with the blend of its request; the drive state wins over it, and
+  a name that camera.json does not have is ignored (UI_Tools). `SetUiLookAt` turns the view toward the point from the pivot while a
+  screen state is on (the Talk orbit, docs/PERSONS.md "The Talk camera"). `SetUiDepthOfField` sets the depth of field of the view:
+  the focal distance is the native distance (at least 0.1 m); the f-stop is `swc.Camera.DofFstop` / BLUR. [U] The units of the native
+  blur have no source: the default of `swc.Camera.DofFstop` is 0 (no depth of field) until the scale of the retail pictures.
+- A world entry clears the stack, the look-at point, and the depth of field (`Swc.CameraReset` in `Swc.EnterWorld`). [U] Whether retail
+  clears them at a travel, a respawn, or the loading screen.
+- The crafting result keeps its two black layers: BackgroundStep1 (the sprite crafting_background_step3, black, alpha 73 to 236) and
+  BlackBg (alpha 0.5), both at fader 1 (the fixture crafting). No script hides the player body on the result (open: the retail check).
+- Risks for the screens that worked before: the NavBar, the inventory, and crafting now move the camera, as in retail. UI_Inventory
+  has no yaw key, so the client does not turn the view to the front of the player [U: the retail check]. A missing restore would leave
+  a state on: the fixtures check that each of the 9 screens leaves no override, no look-at point, and no depth of field at its close.
+- Checks: the fixture `camera` (the stack, the look-at point, the depth of field, the reset) and the camera checks of the fixtures
+  navbar, escape, inventory, conversation, crafting, options, skills, quests (the journal), respawn, and frontend.
+
 ## The Lua errors (the cleanup of 2026-10-25)
 
 The goal: no Lua error at the start of the client, at a travel, and in the journal. `tools/test-ui.sh` runs the start of the client with

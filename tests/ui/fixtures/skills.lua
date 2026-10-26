@@ -157,3 +157,11 @@ DynamicBus.SkillsBus.Broadcast.OpenBio()
 frames(1.5)
 picture("skills-bio")
 equal(swcui.error_count() - errorsBefore, 0, "the bio tab opens with no Lua error")
+
+-- The character window (skills.luac): the depth of field 0 1 1 3 10; the state HUD closes it, and the depth of field goes off.
+LyShineManagerBus.Broadcast.SetState(HUD)
+frames(1.0)
+local camera = camera_log()
+camera_sent(camera, "camera dof 0.000 1.000 1.000 3.000 10.000", "the character window")
+camera_sent(camera, "camera dof -", "the character window closes")
+camera_clean("the character window")

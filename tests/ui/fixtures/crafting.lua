@@ -192,6 +192,20 @@ do
   check(line:find("Continue to Craft", 1, true) ~= nil, "the result screen has Continue to Craft")
   check(line:find("Exit Station", 1, true) ~= nil, "the result screen has Exit Station")
   check(line:find("+ 13", 1, true) ~= nil and line:find("Smelting", 1, true) ~= nil, "the summary has the trade skill points (ui_plus_amount \"+ {amount}\": + 13 Smelting)")
+  -- The two black layers behind the result (the study work/ut567/study2 Q3): BackgroundStep1 (the sprite crafting_background_step3,
+  -- black with alpha 73 to 236; SetState fades it to 1 in the craft roll, and the result leaves it) and BlackBg (alpha 0.5; AnimateCraftDoneStats
+  -- fades it to 1).
+  local root = swcui.canvas_get(crafting, "root")
+  for _, name in ipairs({"BackgroundStep1", "BlackBg"}) do
+    local id = find(root, name)
+    if check(id ~= nil, "the result has the layer " .. name) then
+      check(swcui.enabled_in_hierarchy(id), "the layer " .. name .. " shows on the result")
+      near(UiFaderBus.Event.GetFadeValue(id), 1.0, 0.01, "the fader of the layer " .. name .. " on the result")
+    end
+  end
+  local step1 = find(root, "BackgroundStep1")
+  local sprite = step1 and swcui.get(step1, "image.sprite") or ""
+  check(tostring(sprite):lower():find("crafting_background_step3", 1, true) ~= nil, "BackgroundStep1 draws crafting_background_step3 (" .. tostring(sprite) .. ")")
 end
 
 -- A procedural recipe at the forge: the Orichalcum Great Axe (Weaponsmithing 150) with T5 materials; the screen shows its craft gear
@@ -271,3 +285,12 @@ frames(0.5)
 Swc.HostStation("open", "Carpentry3", true, "@CarpentryT2_MasterName")
 frames(4.0)
 picture("crafting-woodshop")
+
+-- The camera of the crafting screen (craftingscreenv4.luac): UI_CraftingStep1 0.5 s at the open, UI_CraftingStep3 0.2 s and the depth of
+-- field 6 0.4 in the craft roll, 0 0.95 for the result (ShowCraftDone, 1.2 s), and none at the exit (RestoreCameraState "" 0.5 s).
+local camera = camera_log()
+camera_sent(camera, "camera state UI_CraftingStep1 0.500", "the crafting screen")
+camera_sent(camera, "camera state UI_CraftingStep3 0.200", "the craft roll")
+camera_sent(camera, "camera dof 6.000 0.400 0.000 0.000 10.000", "the craft roll")
+camera_sent(camera, "camera dof 0.000 0.950 0.000 0.000 10.000", "the craft result")
+camera_sent(camera, "camera state - 0.500", "the exit of the station")

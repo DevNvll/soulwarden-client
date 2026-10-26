@@ -144,3 +144,12 @@ frames(0.5)
 check(result ~= "ok", "an NPC row with no state and no line: no screen (" .. tostring(result) .. ")")
 check(LyShineManagerBus.Broadcast.GetCurrentState() ~= CONVERSATION, "no screen: the state is not ConversationScreenV2")
 equal(#requests(), 0, "no screen: the script gives no request (the client ends the Talk)")
+
+-- The camera of the conversation (conversationscreenv2.luac SetScreenVisible): UI_Conversation 0.4 s and the look-at point of
+-- GetNpcLookAtPosition; the depth of field to 5 0.8; the close removes all of them (TryCloseInteraction).
+local camera = camera_log()
+camera_sent(camera, "camera state UI_Conversation 0.400", "the conversation")
+camera_sent(camera, "camera lookat ", "the conversation")
+camera_sent(camera, "camera dof 5.000 0.800 0.000 0.000 10.000", "the conversation")
+camera_sent(camera, "camera lookat -", "the conversation closes")
+camera_clean("the conversation")

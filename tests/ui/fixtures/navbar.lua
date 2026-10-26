@@ -120,3 +120,9 @@ frames(0.6)
 equal(state(), HUD, "Escape in the escape menu goes back to the HUD (the escape rule of the emulation)")
 check(not swcui.canvas_get(nav, "enabled"), "the NavBar hides in the HUD")
 equal(Swc.errorCount or 0, 0, "no Lua error")
+
+-- The camera of the NavBar (navbar.luac OnTransitionIn and OnTransitionOut): UI_NavBar 0.25 s, then none (swc/camera.lua).
+local camera = camera_log()
+camera_sent(camera, "camera state UI_NavBar 0.250", "the NavBar")
+camera_sent(camera, "camera state - 0.250", "the NavBar closes")
+camera_clean("the NavBar")

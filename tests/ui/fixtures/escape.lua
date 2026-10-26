@@ -134,3 +134,6 @@ equal(#quits, 1, "Yes: one quit request")
 equal(quits[1], "menu quit " .. tostring(eExitGameDestination_MainMenu), "the quit request goes to the main menu (destination 1)")
 
 equal(Swc.errorCount or 0, 0, "no Lua error")
+
+-- The escape menu has no camera request (escapemenu.luac); the NavBar fixture checks UI_NavBar.
+camera_clean("the escape menu")

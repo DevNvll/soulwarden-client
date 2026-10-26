@@ -237,3 +237,11 @@ picture("options-keys-reset")
 
 
 equal(Swc.errorCount or 0, 0, "no Lua error")
+
+-- The Options screen (options.luac): the depth of field 0 1 1 3 10; the state HUD closes it, and the depth of field goes off.
+LyShineManagerBus.Broadcast.SetState(2702338936)
+frames(1.0)
+local camera = camera_log()
+camera_sent(camera, "camera dof 0.000 1.000 1.000 3.000 10.000", "the Options screen")
+camera_sent(camera, "camera dof -", "the Options screen closes")
+camera_clean("the Options screen")
