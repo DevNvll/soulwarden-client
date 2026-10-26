@@ -704,11 +704,20 @@ void USwcWaterSubsystem::UpdateUnreal(const FVector& View, float DeltaTime)
 		const bool bCenter = UnrealZone->GetDynamicWaterInfoCenter(0, Center);
 		const bool bBounds = UnrealZone->GetDynamicWaterInfoBounds(0, Bounds);
 		const UWaterBodyComponent* OceanComponent = UnrealOcean != nullptr ? UnrealOcean->GetWaterBodyComponent() : nullptr;
-		UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): diag: view %.0f %.0f %.0f m; zone center %s %.0f %.0f m; bounds %s %.0f..%.0f %.0f..%.0f m; ocean %s visible %d render %d tiles %d"),
+		const UWaterMeshComponent* DiagMesh = UnrealZone->GetWaterMeshComponent();
+		UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): diag: t %.1f s; mesh proxy %d, info texture %d; view %.0f %.0f %.0f m; zone center %s %.0f %.0f m; bounds %s %.0f..%.0f %.0f..%.0f m; ocean %s visible %d render %d tiles %d"),
+			GetWorld()->GetTimeSeconds(), DiagMesh != nullptr && DiagMesh->SceneProxy != nullptr, UnrealZone->WaterInfoTextureArray != nullptr,
 			View.X / 100.0, View.Y / 100.0, View.Z / 100.0, bCenter ? TEXT("ok") : TEXT("none"), Center.X / 100.0, Center.Y / 100.0, bBounds ? TEXT("ok") : TEXT("none"),
 			Bounds.Min.X / 100.0, Bounds.Max.X / 100.0, Bounds.Min.Y / 100.0, Bounds.Max.Y / 100.0, OceanComponent ? *OceanComponent->Bounds.Origin.ToString() : TEXT("-"),
 			OceanComponent ? OceanComponent->IsVisible() : -1, OceanComponent ? OceanComponent->ShouldRender() : -1,
 			OceanComponent ? OceanComponent->ShouldGenerateWaterMeshTile() : -1);
+	}
+	// The first water info texture of the zone (the plugin makes it only when its gates pass: the PSOs of the water info meshes, and in an
+	// editor binary the shader maps of the ground): until then the zone draws no water.
+	if (!bInfoTextureLogged && UnrealZone != nullptr && UnrealZone->WaterInfoTextureArray != nullptr)
+	{
+		bInfoTextureLogged = true;
+		UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the first water info texture of the zone at %.1f s (world time)"), GetWorld()->GetTimeSeconds());
 	}
 	// The start kick: once the window of the zone is valid (after the first loading screen), the kick of swc.WaterStartKick, and again 3 s later.
 	const int32 StartKick = SwcUnrealWater::CVarWaterStartKick.GetValueOnGameThread();

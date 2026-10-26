@@ -211,6 +211,7 @@ private:
 	int32 StartKicks = 0;
 	double NextStartKick = 0.0;
 	bool bShowAgain = false;
+	bool bInfoTextureLogged = false;
 	UPROPERTY()
 	TObjectPtr<class UGerstnerWaterWaves> UnrealSourceWaves;
 	UPROPERTY()

@@ -218,6 +218,19 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     of the ocean, 3 a zone rebuild with a dirty water mesh grid, 4 the components of the zone registered again, 5 the Unreal water
     hidden and shown), each 6 s apart in a run that starts at the beach (`work/water-unreal/run_kick.sh`). The kick that makes the
     ocean draw becomes the automatic start kick (`swc.WaterStartKick N`: once the window of the zone is valid, and 3 s later).
+  - The third window (2026-10-26 04:34 to 05:13 UTC, evidence `wu2a-*` of that date), corrections to the analysis above:
+    - The darkening of the rock and the shore in the first 20 to 30 s after a start is the same in the source path
+      (`wu2a-cooked-source-fine.png`): it is not the fault.
+    - The fault is larger than the near shore: in a run that starts at the starting beach, the plugin ocean is missing in the whole
+      bay and in the far view (sand and seagrass to the cliff), also after 30 s, also in the cooked build of 46b2b5f3
+      (`wu2a-start-compare.png`, `2a-far-compare.png`). The 418 m travel away and back does NOT fix it: the earlier reading of
+      `wu2a-travel3-frames.png` was wrong (its last frame also shows a dry bay).
+    - The views of the 2a-after run (a match-view run that started at an earlier saved place and travelled to the beach) drew the
+      bay. Thus the start place, or a long travel to the beach, matters [I].
+    - Not the cause: the PSO and shader gates of the water info texture (the first texture comes at 30 s world time; the mesh
+      proxy exists from the start), texture streaming (`r.Streaming.FullyLoadUsedTextures 1`), the waves (the source waves give
+      the same), the kicks 1 to 5 of `swc.WaterKick`, and no other water body in the bay (the specs).
+    - The far mesh change (`FarDistanceMeshExtent` 20 km) is not checked: the fault hides the ocean in the far view too.
   - Thus the default stays the source path (the decision of the orchestrator, 2026-10-26 00:08 UTC). The full cook takes the plugin,
     its materials, and the specs. A later fix and the switch of the default need only a code change and an incremental cook.
 - The cook: `DefaultGame.ini` cooks `/Water/Materials` and `/Water/Waves` (the client loads them by path), and
