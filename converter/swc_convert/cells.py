@@ -40,8 +40,10 @@ CELL_M = 256.0
 # AST-265 (b); it brings these sheets back.
 # The fog sheets and spheres of AST-265 that mesh rule 8 makes drawable (their own GeometryBeam materials; empty with rule 6): AST-265
 # brings them back with the fog rule.
+# AST-288 W5 (2026-10-26): objects/vfx/fog/damned_poi_fog_a.cgf: its own three sub-materials are Geometryfog (no client parent; the W5
+# rule covers the overrides only): two white curtains near 14068 5192 (r_+06_+02); the retail still there shows none.
 LEFT_OUT_MESHES = ("objects/vfx/misc/snow/snow_blown_01.cgf", "objects/volumetrics/jav_fogsheet_a_cross.cgf",
-                   "objects/volumetrics/jav_fogsphere_a.cgf")
+                   "objects/volumetrics/jav_fogsphere_a.cgf", "objects/vfx/fog/damned_poi_fog_a.cgf")
 # The fog of an override (AST-275): a Geometryfog shader, or a GeometryBeam material of the fog folders (the fog sheets of AST-265). A
 # mesh with no material of its own and a fog override has no proved parent: not drawn (all 242 placements of the fog sphere
 # objects/vfx/mesh/generic/fogsphere_01.cgf, a white opaque sphere of 33 m before, near 8836 5130; the fog beams jav_fogbeam_a and b).
@@ -74,7 +76,10 @@ C8_LEFT_OUT_MATERIALS = ("azoth",)
 # path has one of these words is left out, as the C8 state objects. The PvP pylons of the Cutlass Keys outposts: the lights
 # (cutlasskeys_pvp_pylon_light_00.mtl on ruins_trim_long_01 and ruins_trim_ring_big_02b: a bright additive wall) and the barrier
 # (cutlasskeys_pvp_pylon_barrier.mtl on sideways_door); the server shows one state. A retail picture at 7018.7 34.0 checks it.
-STATE_OVERRIDE_WORDS = ("pvp_pylon",)
+# AST-288 W5 (2026-10-26): the crafting ghost previews (jav_crafting_ghost_mat, _mat_int, _far1_mat, _far2_mat: the build preview of a
+# station or a structure, 127 placements in 11 regions; Illum or GeometryFogNoVertAlpha): a blue rope cross at the pirate camp of
+# r_+04_+04 (8678 9605); the retail still there shows none.
+STATE_OVERRIDE_WORDS = ("pvp_pylon", "jav_crafting_ghost")
 
 
 def state_override(material: str) -> bool:
@@ -153,8 +158,8 @@ def refraction_override(mtl: str) -> bool:
 # M_SwcFogCard only in the landmark importer. A placement whose override has one of these shaders is left out (the overrides are pure:
 # no other drawn sub-material): the pirate ropes and the crafting ghosts (GeometryFogNoVertAlpha; the retail rope view shows no rope),
 # the jump pad ribbons (GeometryBeamSimple; a later study), the cave beams (Geometryfog; a later mapping to M_SwcFogCard, AST-265 b).
-# W5_LEFT_OUT: off until the next cell rebuild (the decision of 2026-10-25: 352 placements in 22 regions; with W3, W4, or AST-274).
-W5_LEFT_OUT = False
+# W5_LEFT_OUT and BEAM_SIMPLE: on since the cell rebuild of 2026-10-26 (19 regions; regions/NAME/inactive.json of the 7 pad regions).
+W5_LEFT_OUT = True
 NO_PARENT_EFFECT_SHADERS = frozenset({"geometryfog", "geometryfognovertalpha", "geometrybeamsimple"})
 
 
@@ -163,7 +168,7 @@ NO_PARENT_EFFECT_SHADERS = frozenset({"geometryfog", "geometryfognovertalpha", "
 # jump pad has an "off" and an "on" group of disks; the slice saves the "on" group inactive (IsRuntimeActive 0), and an
 # AchievementEvents rule activates it with the status 17DW_FoolSightPotion. Thus a GeometryBeamSimple placement whose entity starts
 # inactive (regions/NAME/inactive.json, region.write_inactive) is left out: the default state "off" shows.
-BEAM_SIMPLE = False
+BEAM_SIMPLE = True
 BEAM_SIMPLE_SHADERS = frozenset({"geometrybeamsimple"})
 # Only the jump pad materials have M_SwcBeamSimple specs; the other GeometryBeamSimple overrides (layered_fog_corruption.mtl on
 # wallroundsidebot, layered_fog*.mtl on the fog cards) stay in the W5 set.
@@ -179,8 +184,8 @@ def no_parent_effect(mtl: str) -> bool:
 
 
 def beam_simple_override(mtl: str) -> bool:
-    """@return True for an override material with a GeometryBeamSimple sub-material."""
-    return bool(mtl) and bool(override_shaders(mtl) & BEAM_SIMPLE_SHADERS)
+    """@return True for a jump pad override material (BEAM_SIMPLE_MATERIAL_FOLDERS) with a GeometryBeamSimple sub-material."""
+    return bool(mtl) and mtl.startswith(BEAM_SIMPLE_MATERIAL_FOLDERS) and bool(override_shaders(mtl) & BEAM_SIMPLE_SHADERS)
 
 
 def inactive_entities(name: str) -> np.ndarray:
@@ -447,7 +452,7 @@ def write(name: str) -> dict:
               "decal-only placements left out: no decal in the override (C11)": dropped_decal_only,
               "cells": len(cells), "components": groups, "file": str(path), "bytes": len(out),
               "left out (not imported, fog cards, fog volumes, no material)": int((~keep).sum()),
-              "state objects left out (pvp pylons)": int(state_objects.sum()),
+              "state objects left out (pvp pylons, crafting ghosts)": int(state_objects.sum()),
               "refraction placements left out (Meshparticle %REFRACTION)": int(refraction.sum()),
               "effect placements left out (no client parent, W5)": int(no_parent.sum()),
               "jump pad disks left out (inactive state group, BEAM_SIMPLE)": int(beam_state.sum()),

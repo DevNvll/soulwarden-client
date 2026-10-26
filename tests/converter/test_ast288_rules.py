@@ -106,6 +106,7 @@ class ShadowProxyCells(unittest.TestCase):
         self.assertTrue(cells.state_override("objects/props/cutlasskeys/cutlasskeys_pvp_pylon_light_00.mtl"))
         self.assertTrue(cells.state_override("materials/vfx/cutlasskeys_pvp_pylon_barrier.mtl"))
         self.assertFalse(cells.state_override("objects/pvp/pylon_stone_mat.mtl"))
+        self.assertTrue(cells.state_override("objects/crafting/ghost/jav_crafting_ghost_far2_mat.mtl"))
         self.assertFalse(cells.state_override(""))
 
     def test_names(self):
