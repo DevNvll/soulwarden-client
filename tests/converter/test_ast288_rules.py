@@ -268,6 +268,11 @@ class BeamSimpleState(unittest.TestCase):
         self.assertEqual(report["effect placements left out (no client parent, W5)"], 0)
         self.assertEqual(report["instances"], 1)   # the "off" disk
 
+    def test_other_beam_simple_stays_out(self):
+        cells.BEAM_SIMPLE, cells.W5_LEFT_OUT = True, True
+        self.assertTrue(cells.no_parent_effect("materials/vfx/corruption/layered_fog_corruption.mtl"))
+        self.assertFalse(cells.no_parent_effect("materials/vfx/jumppads/vfx_jumppad_up_01_off.mtl"))
+
     def test_w5_without_beam_simple(self):
         cells.BEAM_SIMPLE, cells.W5_LEFT_OUT = False, True
         report = cells.write(REGION)

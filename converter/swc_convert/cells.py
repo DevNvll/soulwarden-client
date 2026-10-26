@@ -165,12 +165,16 @@ NO_PARENT_EFFECT_SHADERS = frozenset({"geometryfog", "geometryfognovertalpha", "
 # inactive (regions/NAME/inactive.json, region.write_inactive) is left out: the default state "off" shows.
 BEAM_SIMPLE = False
 BEAM_SIMPLE_SHADERS = frozenset({"geometrybeamsimple"})
+# Only the jump pad materials have M_SwcBeamSimple specs; the other GeometryBeamSimple overrides (layered_fog_corruption.mtl on
+# wallroundsidebot, layered_fog*.mtl on the fog cards) stay in the W5 set.
+BEAM_SIMPLE_MATERIAL_FOLDERS = ("materials/vfx/jumppads/",)
 
 
 def no_parent_effect(mtl: str) -> bool:
-    """@return True for an override material with a NO_PARENT_EFFECT_SHADERS sub-material (without GeometryBeamSimple when
-    BEAM_SIMPLE)."""
-    shaders = NO_PARENT_EFFECT_SHADERS - BEAM_SIMPLE_SHADERS if BEAM_SIMPLE else NO_PARENT_EFFECT_SHADERS
+    """@return True for an override material with a NO_PARENT_EFFECT_SHADERS sub-material (without GeometryBeamSimple for a jump
+    pad material when BEAM_SIMPLE)."""
+    pad = BEAM_SIMPLE and mtl.startswith(BEAM_SIMPLE_MATERIAL_FOLDERS)
+    shaders = NO_PARENT_EFFECT_SHADERS - BEAM_SIMPLE_SHADERS if pad else NO_PARENT_EFFECT_SHADERS
     return bool(mtl) and bool(override_shaders(mtl) & shaders)
 
 
