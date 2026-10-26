@@ -27,7 +27,10 @@
 #include "WaterSplineComponent.h"
 #include "WaterSplineMetadata.h"
 #include "WaterWaves.h"
+#include "Engine/GameViewportClient.h"
 #include "WaterMeshComponent.h"
+#include "WaterSubsystem.h"
+#include "WaterViewExtension.h"
 #include "WaterZoneActor.h"
 #include "World/SwcLoadingGate.h"
 
@@ -173,6 +176,37 @@ bool SetStructByName(UObject* Object, const TCHAR* Name, const T& Value)
 	return bMatch;
 }
 
+/** The final shape of a spawned body (research/water-ocean-quadtree.md, question 5, step 2): UpdateAll with a shape change refreshes the
+ *  collision and the cached bounds of a dynamic body; it applies the collision settings of the profile again, thus the client overlap rule
+ *  follows. Then the water info meshes from that final shape, and the bounds and the render state of the two info components (they keep
+ *  the bounds of their parent). */
+void FinishBody(UWaterBodyComponent& Body, bool bFullUpdate, bool bBuildInfo)
+{
+	if (bFullUpdate)
+	{
+		FOnWaterBodyChangedParams Params;
+		Params.bShapeOrPositionChanged = true;
+		Body.UpdateAll(Params);
+	}
+	SwcWaterCollisionAsOverlap(Body);
+	if (bBuildInfo)
+	{
+		SwcBuildWaterInfoMeshes(Body);
+	}
+	if (bFullUpdate && Body.GetOwner() != nullptr)
+	{
+		TInlineComponentArray<UStaticMeshComponent*> Components(Body.GetOwner());
+		for (UStaticMeshComponent* Component : Components)
+		{
+			if (Component->GetFName() == TEXT("WaterInfoMeshComponent") || Component->GetFName() == TEXT("DilatedWaterInfoMeshComponent"))
+			{
+				Component->UpdateBounds();
+				Component->MarkRenderStateDirty();
+			}
+		}
+	}
+}
+
 /** Makes all scene components of a spawned (deferred) body movable: the plugin makes render data after BeginPlay only for a movable
  *  component, and a static child cannot attach to a movable parent. */
 void MakeMovable(AActor& Actor)
@@ -209,6 +243,9 @@ bool USwcWaterSubsystem::LoadUnreal(const FString& Folder)
 	// game has no builder of the plugin).
 	FString InfoMesh;
 	bPluginInfoMeshes = FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterInfoMesh="), InfoMesh) && InfoMesh.Equals(TEXT("Plugin"), ESearchCase::IgnoreCase);
+	// -SwcWaterStartFix=N (research/water-ocean-quadtree.md, question 5): bit 1 the ocean center (SavedZoneLocation) and the final shape update of
+	// each body, bit 2 the refresh after each loading screen. Default 3; 0 the baseline of stage 2a.
+	FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterStartFix="), StartFix);
 	FString Text;
 	TSharedPtr<FJsonObject> Doc;
 	if (!FFileHelper::LoadFileToString(Text, *Path) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Doc) || !Doc.IsValid())
@@ -301,8 +338,13 @@ void USwcWaterSubsystem::SpawnUnrealZone()
 	}
 	Spline->SetClosedLoop(true, false);
 	Spline->UpdateSpline();
-	// The setters of the extents are editor only (WITH_EDITOR); the cooked game sets the properties.
+	// The setters of the extents are editor only (WITH_EDITOR); the cooked game sets the properties. The ocean rectangle is centered on
+	// SavedZoneLocation (bCenterOnWaterZone, UWaterBodyOceanComponent::CalcBounds); only the editor sets it (research/water-ocean-quadtree.md).
 	SetStructByName(Body, TEXT("OceanExtents"), Extent);
+	if (StartFix & 1)
+	{
+		SetStructByName(Body, TEXT("SavedZoneLocation"), Center);
+	}
 	SetStructByName(Body, TEXT("CollisionExtents"), FVector(Extent.X * 0.5, Extent.Y * 0.5, OceanCollisionDepth));
 	Body->SetWaterAndUnderWaterPostProcessMaterial(UnrealMaterial(SlotOcean.Instance, SlotOcean.Plugin),
 		UnrealMaterial(SlotUnderwater.Instance, SlotUnderwater.Plugin));
@@ -315,11 +357,7 @@ void USwcWaterSubsystem::SpawnUnrealZone()
 		UnrealPluginWaves = Reference;
 	}
 	OceanActor->FinishSpawning(FTransform::Identity);
-	SwcWaterCollisionAsOverlap(*Body);
-	if (!bPluginInfoMeshes)
-	{
-		UE_CLOG(!SwcBuildWaterInfoMeshes(*Body), LogSwcWater, Warning, TEXT("water (Unreal): the ocean made no water info mesh"));
-	}
+	FinishBody(*Body, (StartFix & 1) != 0, !bPluginInfoMeshes);
 	UnrealOcean = OceanActor;
 	// The ocean tone: the values of the ocean of the place (OceanNow: the mission ocean or the local override, blended in its transition time).
 	FUnrealTone Tone;
@@ -477,12 +515,8 @@ AActor* USwcWaterSubsystem::SpawnUnrealBody(const FUnrealBody& Entry)
 		Body->SetWaterAndUnderWaterPostProcessMaterial(Material, UnrealMaterial(SlotUnderwaterCustom.Instance, SlotUnderwaterCustom.Plugin));
 	}
 	Actor->FinishSpawning(FTransform::Identity);
-	SwcWaterCollisionAsOverlap(*Body);
+	FinishBody(*Body, (StartFix & 1) != 0, !bPluginInfoMeshes);
 	AddUnrealTone(*Body, Surface);
-	if (!bPluginInfoMeshes)
-	{
-		SwcBuildWaterInfoMeshes(*Body);
-	}
 	return Actor;
 }
 
@@ -705,12 +739,55 @@ void USwcWaterSubsystem::UpdateUnreal(const FVector& View, float DeltaTime)
 		const bool bBounds = UnrealZone->GetDynamicWaterInfoBounds(0, Bounds);
 		const UWaterBodyComponent* OceanComponent = UnrealOcean != nullptr ? UnrealOcean->GetWaterBodyComponent() : nullptr;
 		const UWaterMeshComponent* DiagMesh = UnrealZone->GetWaterMeshComponent();
+		if (OceanComponent != nullptr)
+		{
+			const FStructProperty* Saved = FindFProperty<FStructProperty>(OceanComponent->GetClass(), TEXT("SavedZoneLocation"));
+			const FVector2D SavedZone = Saved != nullptr ? *Saved->ContainerPtrToValuePtr<FVector2D>(OceanComponent) : FVector2D::ZeroVector;
+			UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): diag: ocean bounds %s extent %s; saved zone %.0f %.0f m; body index %d"), *OceanComponent->Bounds.Origin.ToString(),
+				*OceanComponent->Bounds.BoxExtent.ToString(), SavedZone.X / 100.0, SavedZone.Y / 100.0, OceanComponent->GetWaterBodyIndex());
+		}
 		UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): diag: t %.1f s; mesh proxy %d, info texture %d; view %.0f %.0f %.0f m; zone center %s %.0f %.0f m; bounds %s %.0f..%.0f %.0f..%.0f m; ocean %s visible %d render %d tiles %d"),
 			GetWorld()->GetTimeSeconds(), DiagMesh != nullptr && DiagMesh->SceneProxy != nullptr, UnrealZone->WaterInfoTextureArray != nullptr,
 			View.X / 100.0, View.Y / 100.0, View.Z / 100.0, bCenter ? TEXT("ok") : TEXT("none"), Center.X / 100.0, Center.Y / 100.0, bBounds ? TEXT("ok") : TEXT("none"),
 			Bounds.Min.X / 100.0, Bounds.Max.X / 100.0, Bounds.Min.Y / 100.0, Bounds.Max.Y / 100.0, OceanComponent ? *OceanComponent->Bounds.Origin.ToString() : TEXT("-"),
 			OceanComponent ? OceanComponent->IsVisible() : -1, OceanComponent ? OceanComponent->ShouldRender() : -1,
 			OceanComponent ? OceanComponent->ShouldGenerateWaterMeshTile() : -1);
+	}
+	// The refresh after a loading screen (research/water-ocean-quadtree.md, question 5, step 4): on the first frames with world rendering after
+	// a loading screen (bDisableWorldRendering), when the zone has its water info texture: a full zone rebuild, the material instances of the
+	// ocean, and the GPU water data, at 0.5 s and again at 2 s.
+	if ((StartFix & 2) && UnrealZone != nullptr)
+	{
+		const UGameViewportClient* Viewport = GetWorld()->GetGameViewport();
+		const bool bRendering = Viewport == nullptr || !Viewport->bDisableWorldRendering;
+		const double Now = FPlatformTime::Seconds();
+		if (!bRendering)
+		{
+			RefreshesLeft = 2;
+			NextRefresh = 0.0;
+		}
+		else if (RefreshesLeft > 0 && UnrealZone->WaterInfoTextureArray != nullptr)
+		{
+			if (NextRefresh == 0.0)
+			{
+				NextRefresh = Now + 0.5;
+			}
+			else if (Now >= NextRefresh)
+			{
+				UnrealZone->MarkForRebuild(EWaterZoneRebuildFlags::All);
+				if (UWaterBodyComponent* OceanComponent = UnrealOcean != nullptr ? UnrealOcean->GetWaterBodyComponent() : nullptr)
+				{
+					OceanComponent->UpdateMaterialInstances();
+				}
+				if (FWaterViewExtension* Extension = UWaterSubsystem::GetWaterViewExtension(GetWorld()))
+				{
+					Extension->MarkGPUDataDirty();
+				}
+				--RefreshesLeft;
+				NextRefresh = Now + 1.5;
+				UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): the refresh after the loading screen (%d left) at %.1f s"), RefreshesLeft, GetWorld()->GetTimeSeconds());
+			}
+		}
 	}
 	// The first water info texture of the zone (the plugin makes it only when its gates pass: the PSOs of the water info meshes, and in an
 	// editor binary the shader maps of the ground): until then the zone draws no water.

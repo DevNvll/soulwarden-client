@@ -231,6 +231,24 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       proxy exists from the start), texture streaming (`r.Streaming.FullyLoadUsedTextures 1`), the waves (the source waves give
       the same), the kicks 1 to 5 of `swc.WaterKick`, and no other water body in the bay (the specs).
     - The far mesh change (`FarDistanceMeshExtent` 20 km) is not checked: the fault hides the ocean in the far view too.
+  - The study `~/Games/soulwarden-client/research/water-ocean-quadtree.md` (GPT-6.1-Sol, 2026-10-26; brief
+    `research/briefs/ast200-2a-ocean-quadtree.txt`) proves no single cause, and it finds two real gaps [R]:
+    - The ocean rectangle is centered on `SavedZoneLocation` (`bCenterOnWaterZone`, `UWaterBodyOceanComponent::CalcBounds`), and only
+      the editor sets it. The client did not set it, so the ocean bounds were centered at 0, 0.
+    - The far mesh of the plugin starts at the edge of the whole zone, not at the edge of the local window. A larger
+      `FarDistanceMeshExtent` cannot fill the zone outside the per-view tree (about 6 km wide). This is separate work.
+    - Other rules [R]: a per-view tree is rebuilt in full at each window move; the window moves only when the view leaves the
+      update rectangle (about 1,850 m half extent), thus a 418 m travel does not move it; the water info texture stores no body index,
+      and texels with no water give a negative depth, which makes the water clear (geometry present, no visible water).
+    - The client code (2026-10-26, not built yet): `-SwcWaterStartFix=N` (default 3, 0 the baseline). Bit 1: the client sets
+      `SavedZoneLocation` to the zone center before the ocean finishes spawning, and after each spawn it calls `UpdateAll` with a
+      shape change, applies the overlap rule again, builds the info meshes from the final shape, and refreshes the bounds and the render
+      state of the info components. Bit 2: after each loading screen, when world rendering is on and the zone has its texture, a full
+      zone rebuild, the ocean material instances, and `MarkGPUDataDirty`, at 0.5 s and again at 2 s. The diagnostic
+      (`swc.WaterZoneRefresh -1`) also logs the ocean bounds, the saved zone center, and the body index.
+    - The next check: a fresh start at the beach with no travel, baseline (0) against treatment (3), with the tile bounds
+      (`r.Water.WaterMesh.ShowTileBounds 1`) and the info meshes (`r.Water.WaterInfo.ShowSceneProxies 1`) to separate "no tiles" from
+      "tiles with clear water"; then the same in the cooked build.
   - Thus the default stays the source path (the decision of the orchestrator, 2026-10-26 00:08 UTC). The full cook takes the plugin,
     its materials, and the specs. A later fix and the switch of the default need only a code change and an incremental cook.
 - The cook: `DefaultGame.ini` cooks `/Water/Materials` and `/Water/Waves` (the client loads them by path), and
