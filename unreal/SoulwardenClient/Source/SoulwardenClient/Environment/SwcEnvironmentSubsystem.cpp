@@ -82,6 +82,13 @@ TAutoConsoleVariable<float> CVarSunStepShift(TEXT("swc.SunStepShift"), 0.005f,
 TAutoConsoleVariable<int32> CVarSourceMeter(TEXT("swc.SourceMeter"), 2,
 	TEXT("The meter of the exposure: 2 the source meter of the frame (Environment/SwcMeterProbe: E = pi L / the G-buffer albedo, the geometric mean) ")
 	TEXT("corrects the target of 1; 1 the illuminance of the Unreal meter that ignores the materials (r.AutoExposure.IgnoreMaterials); 0 the scene luminance."));
+/** A test of a fixed exposure (AST-200 stage 2c, research/water-near-tone.md: the tone of the water at the same exposure in each run): 1 the
+ *  manual exposure of Unreal with no physical camera and the bias swc.ExposureFixedBias; the source meter does not change its correction. */
+TAutoConsoleVariable<int32> CVarExposureFixed(TEXT("swc.ExposureFixed"), 0,
+	TEXT("A test: 1 a fixed exposure (the manual exposure of Unreal, no physical camera, the bias swc.ExposureFixedBias; the source meter keeps ")
+	TEXT("its correction); 0 the exposure of the source meter."));
+TAutoConsoleVariable<float> CVarExposureFixedBias(TEXT("swc.ExposureFixedBias"), -13.0f,
+	TEXT("The bias of the fixed exposure of swc.ExposureFixed 1 (EV; the log line \"meter diag\" of swc.MeterDiag 1 gives the EV of the frame)."));
 TAutoConsoleVariable<int32> CVarSsao(TEXT("swc.Ssao"), 0,
 	TEXT("A test of the screen-space AO (stage E5 step 3, research/e5-ssdo.md): 1 the AO values of the post process for the SSAO of Lumen ")
 	TEXT("(intensity 1, power 2, a world radius of 480 cm, bias 0, static fraction 0, quality 50; set r.Lumen.DiffuseIndirect.SSAO 1 and ")
@@ -979,9 +986,14 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 		// rule, slower than the eye adaptation of Unreal (no swing). While a loading screen shows, half of the difference: the gate
 		// (the check "meter") ends the screen when four measures in a row are within 0.05 EV.
 		const int32 MeterMode = CVarSourceMeter.GetValueOnGameThread();
+		const bool bFixedExposure = CVarExposureFixed.GetValueOnGameThread() != 0;
 		SwcMeterProbe::SetWatch(MeterMode == 2);
 		SwcMeterProbe::FResult Measure;
-		if (MeterMode != 2)
+		if (bFixedExposure)
+		{
+			// The fixed exposure test: the correction stays as it is (no new measure is taken into it).
+		}
+		else if (MeterMode != 2)
 		{
 			MeterCorrection = 0.0;
 		}
@@ -1006,6 +1018,13 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 		}
 		// The bloom mix of the source: in meter 2 the target has the factor 1 - w; else the bias takes it.
 		Post->Settings.AutoExposureBias = static_cast<float>(Compensation + MeterCorrection + (MeterMode == 2 ? 0.0 : FMath::Log2(1.0 - BloomMix)));
+		Post->Settings.AutoExposureMethod = bFixedExposure ? EAutoExposureMethod::AEM_Manual : EAutoExposureMethod::AEM_Histogram;
+		Post->Settings.bOverride_AutoExposureApplyPhysicalCameraExposure = bFixedExposure;
+		Post->Settings.AutoExposureApplyPhysicalCameraExposure = false;
+		if (bFixedExposure)
+		{
+			Post->Settings.AutoExposureBias = CVarExposureFixedBias.GetValueOnGameThread();
+		}
 		// The AO test (swc.Ssao 1): the first SSAO values of the SSDO study (its table "The values for the client").
 		const bool bSsao = CVarSsao.GetValueOnGameThread() != 0;
 		FPostProcessSettings& Ao = Post->Settings;

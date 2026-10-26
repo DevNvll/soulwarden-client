@@ -98,6 +98,15 @@ TAutoConsoleVariable<int32> CVarWaterMode(TEXT("swc.WaterMode"), 0,
 
 /** The ocean waves (docs/WATER.md "Stage 2b"): 1 the fixed list of 24 waves of the source field (its size and amount of the ocean of the place),
  *  0 the ocean waves of the plugin (GerstnerWaves_Ocean). 0 until the check of stage 2b. */
+/** The tests of the near tone of the ocean (AST-200 stage 2c, research/water-near-tone.md, one term at a time at a fixed exposure): the ocean
+ *  instance only (and its far mesh instance); a value below 0 (the default) keeps the value of the plugin material. */
+TAutoConsoleVariable<float> CVarWaterOceanFoamScatter(TEXT("swc.WaterOceanFoamScatter"), -1.0f,
+	TEXT("A test of the ocean: the scale of the plugin \"Foam Scattering\" (1, 1, 1, 5) of the ocean instance (0: no foam scattering); below 0 the plugin value."));
+TAutoConsoleVariable<float> CVarWaterOceanFoamOpacity(TEXT("swc.WaterOceanFoamOpacity"), -1.0f,
+	TEXT("A test of the ocean: the plugin \"Foam Opacity\" (1) of the ocean instance (0: no opaque foam); below 0 the plugin value."));
+TAutoConsoleVariable<float> CVarWaterOceanAnisotropy(TEXT("swc.WaterOceanAnisotropy"), -2.0f,
+	TEXT("A test of the ocean: the plugin \"Anisotropy\" (the phase g, 0.1) of the ocean instance (0: isotropic, as the source fog); below -1 the plugin value."));
+
 TAutoConsoleVariable<int32> CVarWaterOceanWaves(TEXT("swc.WaterOceanWaves"), 0,
 	TEXT("1: the ocean waves of the source (24 Gerstner waves scaled by WavesSize, lengths / WavesAmount; docs/WATER.md \"Stage 2b\"); ")
 	TEXT("0: the waves of the plugin."));
@@ -105,6 +114,35 @@ TAutoConsoleVariable<int32> CVarWaterOceanWaves(TEXT("swc.WaterOceanWaves"), 0,
  *  ocean, and the water height range); 0 off. */
 TAutoConsoleVariable<float> CVarWaterZoneRefresh(TEXT("swc.WaterZoneRefresh"), 0.0f,
 	TEXT("The diagnostic of the Unreal water zone: below 0 a log line of the zone state each 2 s (the window, the ocean, the water height range); 0 off."));
+
+/** The tests of the near tone (swc.WaterOceanFoamScatter, swc.WaterOceanFoamOpacity, swc.WaterOceanAnisotropy) on an ocean instance: the
+ *  test value, or the value of the parent (the plugin) when the test is off. */
+void ApplyOceanTests(UMaterialInstanceDynamic& Material)
+{
+	const float FoamScatter = CVarWaterOceanFoamScatter.GetValueOnGameThread();
+	const float FoamOpacity = CVarWaterOceanFoamOpacity.GetValueOnGameThread();
+	const float Anisotropy = CVarWaterOceanAnisotropy.GetValueOnGameThread();
+	UMaterialInterface* Parent = Material.Parent;
+	FLinearColor PluginFoam(1.0f, 1.0f, 1.0f, 5.0f);
+	float PluginOpacity = 1.0f;
+	float PluginAnisotropy = 0.1f;
+	if (Parent != nullptr)
+	{
+		Parent->GetVectorParameterValue(FHashedMaterialParameterInfo(TEXT("Foam Scattering")), PluginFoam);
+		Parent->GetScalarParameterValue(FHashedMaterialParameterInfo(TEXT("Foam Opacity")), PluginOpacity);
+		Parent->GetScalarParameterValue(FHashedMaterialParameterInfo(TEXT("Anisotropy")), PluginAnisotropy);
+	}
+	Material.SetVectorParameterValue(TEXT("Foam Scattering"), FoamScatter >= 0.0f ? PluginFoam * FoamScatter : PluginFoam);
+	Material.SetScalarParameterValue(TEXT("Foam Opacity"), FoamOpacity >= 0.0f ? FoamOpacity : PluginOpacity);
+	Material.SetScalarParameterValue(TEXT("Anisotropy"), Anisotropy >= -1.0f ? Anisotropy : PluginAnisotropy);
+}
+
+/** @return A key of the tests of the near tone of the ocean: a change applies the ocean tone again. */
+FVector3f OceanTestsKey()
+{
+	return FVector3f(CVarWaterOceanFoamScatter.GetValueOnGameThread(), CVarWaterOceanFoamOpacity.GetValueOnGameThread(),
+		CVarWaterOceanAnisotropy.GetValueOnGameThread());
+}
 
 /** The shortest time between two updates of the source waves in a transition (s; each update rebuilds the GPU wave data) [decision of the
  *  client]. */
@@ -540,6 +578,10 @@ void USwcWaterSubsystem::ApplyUnrealTone(FUnrealTone& Tone) const
 		{
 			Material->SetVectorParameterValue(TEXT("Absorption"), Absorption);
 			Material->SetVectorParameterValue(TEXT("Scattering"), Scattering);
+			if (Tone.bOcean)
+			{
+				SwcUnrealWater::ApplyOceanTests(*Material);
+			}
 			Tone.Materials.Add(Material);
 		}
 	}
@@ -560,8 +602,12 @@ void USwcWaterSubsystem::UpdateUnrealOceanTone()
 	const FLinearColor Fog(OceanNow.FindRef(TEXT("FogColorR")), OceanNow.FindRef(TEXT("FogColorG")), OceanNow.FindRef(TEXT("FogColorB")));
 	const float Scale = OceanNow.FindRef(TEXT("FogScale"));
 	const float Density = OceanNow.FindRef(TEXT("Density"));
-	if (Fog != Tone.Fog || Scale != Tone.Scale || Density != Tone.Density)
+	const FVector3f TestsKey = SwcUnrealWater::OceanTestsKey();
+	if (Fog != Tone.Fog || Scale != Tone.Scale || Density != Tone.Density || TestsKey != AppliedOceanTests)
 	{
+		UE_CLOG(TestsKey != AppliedOceanTests, LogSwcWater, Log, TEXT("water (Unreal): the ocean tests: foam scattering %.2f, foam opacity %.2f, anisotropy %.2f (below 0 / -1: the plugin)"),
+			TestsKey.X, TestsKey.Y, TestsKey.Z);
+		AppliedOceanTests = TestsKey;
 		Tone.Fog = Fog;
 		Tone.Scale = Scale;
 		Tone.Density = Density;

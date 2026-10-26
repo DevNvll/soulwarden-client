@@ -381,6 +381,35 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   - Cost: GPU p50 of the high views local 7.06 and 7.38 ms, global 7.48 and 7.04 ms; the VRAM peak local 9.9 GB, global 9.7 GB.
     The near-shore lightening of global at `ocean-far-noon` (the earlier cooked check) is the open cost of global.
 
+### Stage 2c: the dark tone of the source near the player (2026-10-26)
+
+- The problem (the orchestrator, 2026-10-26: the Unreal water needs the dark tone of the source near the player before it can be the
+  default): the near band L* (`work/water-unreal/tone3/near_lstar.txt`) at ocean-far-noon is 35.5 (source) against 52.3 (Unreal,
+  cooked), at ocean-clear-noon 30.6 against 48.8, at beach-down-noon 39.6 against 86.7; the lakes and the rivers are within 5.
+- The study `~/Games/soulwarden-client/research/water-near-tone.md` (GPT-6.1-Sol; brief `research/briefs/ast200-2c-near-tone.txt`):
+  - beach-down: the first suspect is the exposure. The meter skips each Single Layer Water pixel (`SwcMeter.usf`, `FMeterSums::Add`);
+    in an all-water view it has no accepted pixel, publishes no measure, and the last correction stays (the editor and the cooked
+    runs: 3.06 EV apart). Not proved: the logs do not give the exposure at the shot.
+  - The ocean channel depth (10 m) changes only the bounds and the height range, not the optics [R].
+  - The open water: the client tone is already dark. Other terms of the ocean material add light: the foam scattering (added to the
+    scattering), the opaque foam, the reflections, the phase (g 0.1), and the ambient light. Their shares need tests at a fixed exposure.
+  - The source near color term needs a client material or pass; only if a residual remains after the tests.
+- The source path is not touched by the meter fault [R by the code]: its water material is unlit and translucent, writes no G-buffer,
+  and the meter (after the depth of field, `SubscribeToPostProcessingPass` AfterDOF) reads the shading model of the floor under it.
+  Its pixels are counted (the denominator is the albedo of the floor).
+- The test switches (all off by default; set at run time, no Config change):
+  - `swc.MeterDiag 1`: a log line for each measure of the meter (at most each second): the accepted, sky, and water pixels, the
+    exposure of the frame as an EV, E, and the age of the last good measure; also for a measure with no accepted pixel.
+  - `swc.ExposureFixed 1` with `swc.ExposureFixedBias B` (default -13): the manual exposure of Unreal (no physical camera) with the
+    bias B; the source meter keeps its correction.
+  - The ocean instance only: `swc.WaterOceanFoamScatter S` (the scale of "Foam Scattering"; 0 none), `swc.WaterOceanFoamOpacity O`
+    ("Foam Opacity"; 0 no opaque foam), `swc.WaterOceanAnisotropy G` (the phase g; 0 isotropic). Below 0 (below -1 for the
+    anisotropy) the plugin value. A change applies the ocean tone again (a log line "the ocean tests").
+  - The reflection modes: the engine cvar `r.Water.SingleLayer.Reflection` 0, 1 (the default), 2, 3.
+- A change of `Shaders/` (for the meter fix later) makes the cooked build old (`tools/lib/cooked.sh` hashes Source, Lua, Config, and
+  Shaders), but not a full cook: `tools/cook.sh` asks for a full cook only for a change of the config hash (Config/Default*.ini and
+  the cooker options) or a small cooked folder. Thus an incremental cook with the compile of the changed global shader.
+
 ### Stage 2b (after the full cook)
 
 - The storm waves of the overrides. The GPT-6.1-Sol study `~/Games/soulwarden-client/research/water-storm-waves.md` (2026-10-25;

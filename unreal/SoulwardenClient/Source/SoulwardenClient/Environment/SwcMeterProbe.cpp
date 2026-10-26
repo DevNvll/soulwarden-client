@@ -38,6 +38,12 @@ TAutoConsoleVariable<int32> CVarMeterGpu(TEXT("swc.MeterGpu"), 1,
 TAutoConsoleVariable<float> CVarMeterInterval(TEXT("swc.MeterInterval"), 0.25f,
 	TEXT("The time between two measures of the source meter (seconds; 0: as often as the readbacks allow, a cost test of AST-273 P4)."));
 
+/** The diagnostic of the meter (AST-200 stage 2c, research/water-near-tone.md): 1 logs each measure, also a measure with no accepted pixel
+ *  (all Single Layer Water: the meter keeps its last correction), at most one line each second. */
+TAutoConsoleVariable<int32> CVarMeterDiag(TEXT("swc.MeterDiag"), 0,
+	TEXT("1: a log line for each measure of the source meter (at most each second): the accepted, sky, and water pixels, the exposure of the ")
+	TEXT("frame, and the age of the last good measure; also for a measure with no accepted pixel (an all-water view keeps the last correction)."));
+
 /** The step of the watch between the pixels that it reads in each direction (the geometric mean of a regular sample of the frame). */
 constexpr int32 WatchStep = 6;
 
@@ -321,6 +327,14 @@ public:
 			}
 			Sums = GpuSums;
 		}
+		if (CVarMeterDiag.GetValueOnAnyThread() != 0 && FPlatformTime::Seconds() >= NextDiag)
+		{
+			NextDiag = FPlatformTime::Seconds() + 1.0;
+			const double Exposure = Frame->PreExposure;
+			UE_LOG(LogSwcEnvironment, Log, TEXT("meter diag: %d accepted, %d sky, %d water (skipped) pixels; the exposure of the frame %.4g (EV %.2f); E %.0f lux; the last good measure %.1f s ago"),
+				Sums.Count, Sums.Sky, Sums.Water, Exposure, Exposure > 0.0 ? -FMath::Log2(1.2 * Exposure) : 0.0, Sums.Count > 0 ? Sums.E() : 0.0,
+				Latest.Time > 0.0 ? FPlatformTime::Seconds() - Latest.Time : -1.0);
+		}
 		if (!bFormats || Sums.Count == 0)
 		{
 			UE_CLOG(!bWarned, LogSwcEnvironment, Warning, TEXT("meter: no measure (the formats %s, %s, %s)"), GetPixelFormatString(Frame->ColorFormat),
@@ -394,6 +408,7 @@ public:
 	SwcMeterProbe::FResult Latest;
 	bool bWarned = false;
 	uint32 Dropped = 0;
+	double NextDiag = 0.0;
 };
 
 TSharedPtr<FMeterProbe, ESPMode::ThreadSafe>& Probe()
