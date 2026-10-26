@@ -408,14 +408,15 @@ void USwcWaterSubsystem::Load()
 	USceneComponent* Root = NewObject<USceneComponent>(WaterActor, TEXT("Root"));
 	WaterActor->SetRootComponent(Root);
 	Root->RegisterComponent();
-	// The render path (docs/WATER.md "The Unreal water"; the decision of the user, 2026-10-25): the Unreal water by default, the source path
-	// with -SwcWaterMode=Source (swc.WaterMode 0) or with no specs file.
+	// The render path (docs/WATER.md "The Unreal water"; the decision of the user, 2026-10-25): the source path by default until the
+	// start-at-place fault of the Unreal water is fixed (swc.WaterMode 0); the Unreal water with -SwcWaterMode=Unreal (swc.WaterMode 1) and its
+	// specs file.
 	FString Mode;
-	if (FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterMode="), Mode) && Mode.Equals(TEXT("Source"), ESearchCase::IgnoreCase))
+	if (FParse::Value(FCommandLine::Get(), TEXT("-SwcWaterMode="), Mode))
 	{
 		if (IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(TEXT("swc.WaterMode")))
 		{
-			Variable->Set(0, ECVF_SetByCommandline);
+			Variable->Set(Mode.Equals(TEXT("Unreal"), ESearchCase::IgnoreCase) ? 1 : 0, ECVF_SetByCommandline);
 		}
 	}
 	bUnrealAvailable = LoadUnreal(Folder);

@@ -73,8 +73,9 @@ fountains in a river, raised river parts.
 ## The Unreal water (AST-200, 2026-10-25)
 
 The client spawns the bodies of the Unreal Water plugin at run time from the source shapes (the orchestrator approved the plan on
-2026-10-25; stage 1 proved it). From stage 2a the Unreal water is the default (`swc.WaterMode 1`). `-SwcWaterMode=Source` or
-`swc.WaterMode 0` selects the source shader path, and with no specs file the source path draws too. No body changes the Landscape (`bAffectsLandscape`
+2026-10-25; stage 1 proved it). The default is the source shader path (`swc.WaterMode 0`) until the start-at-place fault of
+stage 2a is fixed. `-SwcWaterMode=Unreal` or `swc.WaterMode 1` selects the Unreal water; with no specs file the source path draws.
+No body changes the Landscape (`bAffectsLandscape`
 false). The depth classes, the wade, and the swim read only the quadtree. The Water plugin does not touch the pawns: its
 collision profile is query only, and the camera ignores it.
 
@@ -106,12 +107,12 @@ under them, so they have no depth.
 | `SoulwardenClient.uproject`, `SoulwardenClient.Build.cs` | The Water plugin (it needs Landmass, Niagara, GeometryProcessing, and BlueprintMaterialTextureNodes) and the modules Water, GeometryCore, and MeshConversion. A plugin change makes the next cook a FULL cook. |
 | `Water/SwcWaterBodies` | The river, lake, and custom bodies of the client. Their components are dynamic (`IsBodyDynamic`) and movable, so the plugin makes their render data at run time. `bAffectsLandscape` is false. `SwcBuildWaterInfoMeshes` builds the two water info meshes of a body at run time: the plugin builds them only in the editor, and a cooked game needs them. |
 | `Water/SwcWaterUnreal.cpp` | The water zone (local tessellation, a 4 km window, 2,048 texels), the ocean at the ocean level over the zone, and the bodies within 3 km of the view (4 in a tick). The river spline is the source Bezier. The metadata of each point has the width, the depth, and the flow speed. |
-| `Water/SwcWaterSubsystem` | The Unreal water is the default. `-SwcWaterMode=Source` (at the start) and `swc.WaterMode 0` (at run time: it hides the actors of one path and shows the other) select the source path. The ocean of the place (the local override and its transition) is the same for both paths (`UpdateOceanState`). The queries, the loading gate, and the shore foam decals are the same in both paths. |
+| `Water/SwcWaterSubsystem` | The source path is the default for now. `-SwcWaterMode=Unreal` (at the start) and `swc.WaterMode 1` (at run time: it hides the actors of one path and shows the other) select the Unreal water. The ocean of the place (the local override and its transition) is the same for both paths (`UpdateOceanState`). The queries, the loading gate, and the shore foam decals are the same in both paths. |
 | `Scripts/water_unreal_materials.py`, `tools/import-water-unreal.sh [--check]` | The material instances of each slot, as children of the plugin materials. `--check` writes them into the check plugin `SwcWaterCheck`, which is linked into this checkout only. |
 | `Environment/SwcMeterProbe`, `Shaders/Private/SwcMeter.usf` | The meter skips the Single Layer Water pixels (shading model id 10). Such a pixel has its own dark base color in G-buffer C, not the ground under the water. |
 
 The options of a run:
-- `-SwcWaterMode=Source` selects the source path at the start (`swc.WaterMode 0`). `-SwcWaterMode=Unreal` is the default.
+- `-SwcWaterMode=Unreal` selects the Unreal water at the start (`swc.WaterMode 1`). `-SwcWaterMode=Source` (`swc.WaterMode 0`) is the default.
 - `-SwcWaterBodies=FILE` sets the specs file. The default is `SWC_CONTENT/water/unreal-bodies.json`.
 - `-SwcWaterMaterials=/SwcWaterCheck/Water/Unreal` sets the folder of the instances. With no value, the materials of the plugin are used.
 - `-SwcWaterInfoMesh=Plugin` keeps the info meshes of the plugin. This works only in an editor run.
@@ -194,9 +195,23 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
 | swim-surface-noon | 7.61 | 8.60 | +0.99 |
 | swim-under-noon | 7.71 | 9.04 | +1.33 |
 
-### Stage 2a: the Unreal water as the default (code ready, 2026-10-25; the engine check is open)
+### Stage 2a: the Unreal water as the default (2026-10-25/26; the default stays the source path)
 
-- The default mode, the switch (`swc.WaterMode`, `-SwcWaterMode=Source`), the ocean tone, and the far mesh tone (above).
+- The switch (`swc.WaterMode`, `-SwcWaterMode`), the ocean tone, and the far mesh tone (above).
+- The check (2026-10-25 23:14 to 2026-10-26 00:45 UTC; evidence `~/Games/soulwarden-client/evidence/water-unreal/`):
+  - The views before and after at 9 places (`stage2a-before-after.png`, `stage2a-variants.png`). The ocean tone: the storm coast
+    dE 7.5 (11.4 with the plugin tone), the coast 1.8. The far view (ocean-far) is lighter than the source (L* 54 against 37) [open].
+    The runtime switch works in both directions. GPU: +0 to +2.6 ms (the most under the surface: 7.41 against 10.05 ms).
+  - The gameplay (`wu2a-water.mp4`): the classes at 0.22 and 0.90 m, the swim at 1.401 and 1.290 m, out at 0.20 m, the travel and the
+    river wade at 0.23 and 0.91 m: the same as the source path (the movement reads only the quadtree).
+  - THE FAULT [open]: when a run starts at a beach, the plugin ocean does not draw there (the character swims on "dry" sand with the
+    seagrass of the floor). After a travel away and back (418 m each way) the ocean draws at the same place (`wu2a-travel3-frames.png`).
+    The window of the zone follows the view at the start, and the ocean component is visible and makes water mesh tiles (the
+    diagnostic `swc.WaterZoneRefresh -1`). A water info texture each frame (`r.Water.WaterInfo.ForceUpdateWaterInfoNextFrames -1`) and a
+    full zone rebuild each 3 s (`swc.WaterZoneRefresh 3`) do not help. Thus the teleport changes something else; the next step is to
+    find it (for example the scene proxy of the water mesh or the view state of the view extension at the first frames).
+  - Thus the default stays the source path (the decision of the orchestrator, 2026-10-26 00:08 UTC). The full cook takes the plugin,
+    its materials, and the specs. A later fix and the switch of the default need only a code change and an incremental cook.
 - The cook: `DefaultGame.ini` cooks `/Water/Materials` and `/Water/Waves` (the client loads them by path), and
   `tools/lib/loose-data.txt` has `water/unreal-bodies.json`. The plugin change in the uproject and the Config change make the next
   cook a FULL cook. The deploy step before that cook: `tools/convert-water.sh bodies write` (the specs into `SWC_CONTENT/water`).

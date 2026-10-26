@@ -85,9 +85,10 @@ TAutoConsoleVariable<int32> CVarWaterSourceTone(TEXT("swc.WaterSourceTone"), 1,
  *  path at the lake view, docs/WATER.md "The source tone"]. */
 TAutoConsoleVariable<float> CVarWaterToneAlbedoScale(TEXT("swc.WaterToneAlbedoScale"), 4.0f,
 	TEXT("The albedo of the source tone: this value x FogColor x FogColorScale (docs/WATER.md \"The source tone\")."));
-/** The mode of the water at run time: 1 the Unreal water (the default), 0 the source path (-SwcWaterMode=Source sets 0 at the start). */
-TAutoConsoleVariable<int32> CVarWaterMode(TEXT("swc.WaterMode"), 1,
-	TEXT("1: the Unreal water (the Water plugin; the default); 0: the source water shader (docs/WATER.md). -SwcWaterMode=Source sets 0 at the start."));
+/** The mode of the water at run time: 0 the source path (the default until the start-at-place fault of the Unreal water is fixed, docs/WATER.md
+ *  "Stage 2a"), 1 the Unreal water (-SwcWaterMode=Unreal sets 1 at the start; -SwcWaterMode=Source sets 0). */
+TAutoConsoleVariable<int32> CVarWaterMode(TEXT("swc.WaterMode"), 0,
+	TEXT("0: the source water shader (the default for now; docs/WATER.md); 1: the Unreal water (the Water plugin). -SwcWaterMode=Unreal sets 1 at the start."));
 
 /** The ocean waves (docs/WATER.md "Stage 2b"): 1 the fixed list of 24 waves of the source field (its size and amount of the ocean of the place),
  *  0 the ocean waves of the plugin (GerstnerWaves_Ocean). 0 until the check of stage 2b. */
@@ -634,6 +635,21 @@ void USwcWaterSubsystem::UpdateUnreal(const FVector& View, float DeltaTime)
 	}
 	UpdateUnrealOceanTone();
 	UpdateUnrealOceanWaves();
+	// The state of the zone for the view (a diagnostic each 2 s with swc.WaterZoneRefresh < 0).
+	if (SwcUnrealWater::CVarWaterZoneRefresh.GetValueOnGameThread() < 0.0f && UnrealZone != nullptr && FPlatformTime::Seconds() >= NextZoneRefresh)
+	{
+		NextZoneRefresh = FPlatformTime::Seconds() + 2.0;
+		FVector Center = FVector::ZeroVector;
+		FBox Bounds(ForceInit);
+		const bool bCenter = UnrealZone->GetDynamicWaterInfoCenter(0, Center);
+		const bool bBounds = UnrealZone->GetDynamicWaterInfoBounds(0, Bounds);
+		const UWaterBodyComponent* OceanComponent = UnrealOcean != nullptr ? UnrealOcean->GetWaterBodyComponent() : nullptr;
+		UE_LOG(LogSwcWater, Log, TEXT("water (Unreal): diag: view %.0f %.0f %.0f m; zone center %s %.0f %.0f m; bounds %s %.0f..%.0f %.0f..%.0f m; ocean %s visible %d render %d tiles %d"),
+			View.X / 100.0, View.Y / 100.0, View.Z / 100.0, bCenter ? TEXT("ok") : TEXT("none"), Center.X / 100.0, Center.Y / 100.0, bBounds ? TEXT("ok") : TEXT("none"),
+			Bounds.Min.X / 100.0, Bounds.Max.X / 100.0, Bounds.Min.Y / 100.0, Bounds.Max.Y / 100.0, OceanComponent ? *OceanComponent->Bounds.Origin.ToString() : TEXT("-"),
+			OceanComponent ? OceanComponent->IsVisible() : -1, OceanComponent ? OceanComponent->ShouldRender() : -1,
+			OceanComponent ? OceanComponent->ShouldGenerateWaterMeshTile() : -1);
+	}
 	const float Refresh = SwcUnrealWater::CVarWaterZoneRefresh.GetValueOnGameThread();
 	if (Refresh > 0.0f && UnrealZone != nullptr && FPlatformTime::Seconds() >= NextZoneRefresh)
 	{
