@@ -669,12 +669,20 @@ def actions() -> dict:
 
 
 STATION_NAME = re.compile(rb"@[A-Za-z0-9]+_MasterName")
+TEXT_KEY = re.compile(rb"@[A-Za-z0-9_]+")
+# OpenCraftingOption and OpenCraftingOptionLevel60: the action of a station (interaction-data.json; the client StationAction).
+STATION_ACTION = 20
 
 
 def station_name(slice_path: str) -> str:
     """@return The name key of a station slice ("@BlacksmithT5_MasterName"): the one MasterName text of the slice (the name of its
-    Interact component). A slice with no such text or with two of them stops the tool."""
-    names = sorted({m.decode() for m in STATION_NAME.findall(source.read(slice_path))})
+    Interact component), else its one text key (a camp station). A slice with no such text or with two of them stops the tool."""
+    data = source.read(slice_path)
+    names = sorted({m.decode() for m in STATION_NAME.findall(data)})
+    if not names:
+        # A camp station of a world place has no MasterName: its name is the one text key of the slice ("@ui_watcherscampfire": "Urda's
+        # Campfire"; "@CookingKitT1_Name": "Camp"). "@HA" and "@_" are bytes of the binary slice, not text keys.
+        names = sorted({m.decode() for m in TEXT_KEY.findall(data)} - {"@HA", "@_"})
     if len(names) != 1:
         raise ValueError(f"the station slice {slice_path} has {len(names)} MasterName texts: {names}")
     return names[0]
@@ -694,23 +702,32 @@ def interactions() -> dict:
     for name, container in data.get("lootContainers", {}).items():
         wanted["loot:" + name] = container["template"]
     # Stage MVP-J: the crafting stations of the settlements (the server children of the placements, `spawned`; decision D1 of the
-    # backend: the template of a child is its runtime variant). A camp stays out: the retail client hides OpenCraftingOption of a camp
-    # (Soulwarden interactions.md, live check L5; docs/CRAFTING.md "The gaps").
+    # backend: the template of a child is its runtime variant). The camp stations of the world places (kind craftingStation, key Camp1:
+    # int_watchtowercampt1, int_hunterscampt1, int_hunterscampt1_small) stay in: the retail client shows "Urda's Campfire, E Craft" and
+    # its crafting screen (Soulwarden evidence quests/18d I0, 18e F-19 to F-22; AST-244). The player camps (permanentcamp_master, campT5:
+    # kind camp) stay out by their kind: the retail client hides OpenCraftingOption of a player camp (Soulwarden interactions.md, live
+    # check L5).
     for child in data.get("spawned", []):
         template = data["templates"][child["template"]]
-        if template["kind"] == "craftingStation" and template.get("assembly") and not template["assembly"]["key"].startswith("Camp"):
+        if template["kind"] == "craftingStation" and template.get("assembly"):
             wanted["station:" + template["slice"].rsplit("/", 1)[-1].removesuffix(".dynamicslice")] = child["template"]
     templates = []
     shapes = BoundShapes()
     for name, index in sorted(wanted.items()):
         template = data["templates"][index]
         bounds = []
-        for bound in template["bounds"]:
+        crafting = [any(options[option]["action"] == STATION_ACTION for option, _ in bound["options"]) for bound in template["bounds"]]
+        for bound, has_crafting in zip(template["bounds"], crafting):
+            if name.startswith("station:") and any(crafting) and not has_crafting:
+                # A station shows its crafting bound only (retail "Urda's Campfire, E Craft"): the plan bound of a buildable camp
+                # (ApplyAllResources, CancelStructurePlan) stays out; the client takes the first option of the bound in focus.
+                continue
+            pairs = bound["options"]
             bounds.append({"slot": bound["slot"], "component": bound["component"], "entity": bound["entity"],
                            "position": bound["position"], "rangeSq": bound["rangeSq"], "capacity": bound["capacity"],
                            "options": [{"name": options[option]["name"], "id": options[option]["id"], "action": options[option]["action"],
                                         "committed": options[option]["committed"], "delay": options[option]["delay"],
-                                        "hold": options[option]["hold"], "entity": entity} for option, entity in bound["options"]]})
+                                        "hold": options[option]["hold"], "entity": entity} for option, entity in pairs]})
             # AST-198: the candidate shape of the bound (the bag: the box 2 x 2 x 2 m of its Interaction entity; the range is the use check).
             shape = shapes.shape(template["slice"], entity=bound["entity"])
             if shape is not None:

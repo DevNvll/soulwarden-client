@@ -52,7 +52,14 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
 - Escape (or the back button) leaves the state; OnCraftingScreenHidden gives the request "station end", and the client sends 2473.
 - The canvas CraftingScreenV4: the retail dynamic canvas loader loads it at the first station. That loader does not run in the client
   (as the conversation screen of docs/PERSONS.md), so `swc/crafting.lua` loads it at the first open.
-- The camps stay out: the retail client hides OpenCraftingOption of a camp (Soulwarden interactions.md, live check L5).
+- The camp stations of the world places stay in (AST-244, 2026-10-26): the templates int_watchtowercampt1 ("Urda's Campfire",
+  `@ui_watcherscampfire`), int_hunterscampt1 and int_hunterscampt1_small ("Camp", `@CookingKitT1_Name`); kind craftingStation, key Camp1,
+  19 placements in `spawned` (watchtowers, quest camps, road campfires). The retail client shows "Urda's Campfire, E Craft" and its
+  crafting screen (Soulwarden evidence quests/18d I0, 18e F-19 to F-22). The converter keeps only the bound with OpenCraftingOption (the
+  plan bound of the buildable camp, ApplyAllResources and CancelStructurePlan, stays out: the client takes the first option of the bound
+  in focus); a camp slice has no MasterName, so its name is its one text key. The player camps (permanentcamp_master, campT5, the
+  underworld camp: kind camp) stay out by their kind: the retail client hides OpenCraftingOption of a player camp (Soulwarden
+  interactions.md, live check L5). Test: `tests/converter/test_interactions.py`.
 
 ## The rules of the screen (copies of the backend rules)
 

@@ -569,9 +569,26 @@ natural chain):
   the timer (76.6 s after its start, the time away counts) before the world entry; the client shows the next task at once, no stale row.
 - 0 Lua errors in all runs. The plates of the nodules: the AI pool (4) was full near the wreck ("no pool slot") or the plate was occluded
   in most frames.
-- Open (the rest of the acceptance, after the full cook, on the cooked build): the natural chain of a new Soldier (no grant) through the
-  ten quests to S_introtosettlement and truffles, one video for each quest, a relog at a scene (Q5 `ast240-relog` covers the beach scene),
-  and the retail | client crops of each new UI state.
+- The natural chain (2026-10-26, the cooked build of ac442a1, evidence AST-244 `c1` to `c23`, the drives in
+  `~/Games/soulwarden-client/work/q9/chain`): a new Soldier (ChainS, its own data folder) played the ten quests to S_introtosettlement
+  and 0625_0101_truffles with no quest grant and no achievement command. The aids: ignore on (off for the fights), the hour, the travels
+  (with a short walk for the place reports), a standing boar and five Corrupted Mariners spawned in front of the character, the knife
+  by a route before the camp fix (crafted at the camp later), and the equip of the knife and the sickle by the route (the client item
+  menu of a tool has no Equip: a gap). Each hand-in has the reward of retail 18e: 06_getoffbeach 200 XP 1.50; 06_skinningknife 275 XP
+  2.25 and the Meat Pouch; 06_boarfeast_soldier 350 XP 2.50, boots, 5 potions; 06_crewmates_soldier 400 XP 3.00, gauntlets;
+  06_survivors_soldier 450 XP 3.25, legs; 06_pillageship_soldier 500 XP 4.50, chest; 06_recoveritems_soldier 550 XP 4.75, head;
+  06_demonstorm 5 potions; 06_demonstorm2_soldier 650 XP 5.50, longsword; 06_raisealarm 800 XP 6.00, the amulet; truffles 400 XP 5.00,
+  the ingredients box. Natural parts: the beach scene, the gathers (flint, bush, the body of a boar, the treasures, the flag and the
+  wheel, five truffles), the crafts at Urda's Campfire (the Light Ration, the knife), the kills, the four nodules and the monolith,
+  the lore page, the topic of Grace 03 (3158, 5397), the whispers, the scenes, the TempestRising stand-in, the offers.
+- The relog at a scene (`c18`, `c19`): the run ended in the Corinth scene; at the next login the scene played again and completed.
+- The camp station: the converter left out each Camp1 station; fixed (docs/CRAFTING.md "The open"), deployed 2026-10-26 05:34.
+- Found (open): the item menu of a tool has only Lock and Drop (retail: Equip, Lock, Drop, Link to Chat, Salvage; and the tooltip has
+  the gear score and "200% Gather Speed"); the craft result screen has no left buttons (Continue to Craft, Equip Tool, Salvage, Exit
+  Station) and no summary of the trade skill XP, and shows the knife with "Gather Speed 135%" (retail 200%); craftingstatspanel.luac
+  UpdateStatsInfo: "attempt to compare number with nil" at a tool recipe (2 errors); videoplayerscreen.luac ProcessSubtitleText:
+  "attempt to concatenate a nil value" at 79 s of the TempestRising stand-in (1 error). No other Lua error in the 23 runs.
+- The repeat stays blocked (no repeatable row in the backend).
 
 ## Open points
 
