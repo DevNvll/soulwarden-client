@@ -597,6 +597,27 @@ def resolve(found: list, tables: Tables) -> list:
 PRESETS = "sharedassets/springboardentitites/datatables/cinematics/javelindata_cutscenecamerapresets.datasheet"
 
 
+def camera_point(text, dummy: dict | None) -> list[float]:
+    """@return A camera point of a line or a preset in the frame of the speaker, or [] when the client cannot place it. The values
+    have a frame mark (the localization attributes cameraStateOrigin and cameraStateLookAt, the preset columns): none or "s" (the
+    frame of the speaker; "s 1.4 2.2 1.7": the line 01_Urda_Default_00, AST-244 item 6), "p" (the frame of the player: in a Talk the
+    dummy of the preset, "p .5 -2.25 1.9"), "n NPC_ID" (the frame of a named person: [] here; no first line of a person uses it)."""
+    values = str(text or "").replace(",", " ").split()
+    if values and values[0] == "s":
+        return numbers(" ".join(values[1:]))
+    if values and values[0] == "p":
+        point = numbers(" ".join(values[1:]))
+        if dummy is None or len(point) < 3:
+            return []
+        # The dummy frame in the frame of the speaker: its place, turned by its z rotation (180 degrees in each Talk preset of the data).
+        angle = math.radians(dummy["rotation"][2])
+        x, y = point[0] * math.cos(angle) - point[1] * math.sin(angle), point[0] * math.sin(angle) + point[1] * math.cos(angle)
+        return [round(dummy["position"][0] + x, 6), round(dummy["position"][1] + y, 6), round(dummy["position"][2] + point[2], 6)]
+    if values and values[0] == "n":
+        return []
+    return numbers(text)
+
+
 def numbers(text) -> list[float]:
     try:
         return [float(v) for v in str(text or "").replace(",", " ").split()]
@@ -689,22 +710,31 @@ def conversations(persons: list) -> None:
         preset = presets.get(line.get("cutsceneCameraPresetId", ""), {})
         state = line.get("cameraState") or preset.get("CameraState", "")
         fov = re.search(r"FOV(\d+)", str(state))
-        conversation["camera"] = {
-            "preset": line.get("cutsceneCameraPresetId", ""), "state": state,
-            "fov": float(fov.group(1)) if fov else None,
-            "origin": numbers(line.get("cameraStateOrigin") or preset.get("CameraStateOrigin")),
-            "lookAt": numbers(line.get("cameraStateLookAt") or preset.get("CameraStateLookAt")),
-            "hidePlayer": str(preset.get("HidePlayerAvatar", "")).lower() == "true",
-            "enterBlend": float(preset.get("EnterBlendTime") or 0.0), "exitBlend": float(preset.get("ExitBlendTime") or 0.0)}
         # The dummy of the player (a two-shot preset): the body of the player at a place in the frame of the speaker ("s"), turned by
         # the rotation (degrees about x, y, z), armed or not; the real player is hidden (HidePlayerAvatar).
         place = str(preset.get("DummyPresetPos") or "").split()
         turn = str(preset.get("DummyPresetRot") or "").split()
+        dummy = None
         if len(place) == 4 and place[0] == "s":
-            conversation["camera"]["dummy"] = {
-                "position": [float(v) for v in place[1:]],
-                "rotation": [float(v) for v in turn[1:]] if len(turn) == 4 and turn[0] == "s" else [0.0, 0.0, 0.0],
-                "armed": str(preset.get("DummyIsArmed", "")).lower() == "true"}
+            dummy = {"position": [float(v) for v in place[1:]],
+                     "rotation": [float(v) for v in turn[1:]] if len(turn) == 4 and turn[0] == "s" else [0.0, 0.0, 0.0],
+                     "armed": str(preset.get("DummyIsArmed", "")).lower() == "true"}
+        origin = camera_point(line.get("cameraStateOrigin") or preset.get("CameraStateOrigin"), dummy)
+        look_at = camera_point(line.get("cameraStateLookAt") or preset.get("CameraStateLookAt"), dummy)
+        if not origin and line.get("cameraStateOrigin"):
+            # [I] A line point that the client cannot place (the frame of the player with no dummy: 06_FrancisTurner, "p .5 -2.25 1.9"):
+            # the origin and the look-at of the preset as one pair (an empty origin puts the camera into the person).
+            origin = camera_point(preset.get("CameraStateOrigin"), dummy)
+            look_at = camera_point(preset.get("CameraStateLookAt"), dummy)
+        conversation["camera"] = {
+            "preset": line.get("cutsceneCameraPresetId", ""), "state": state,
+            "fov": float(fov.group(1)) if fov else None,
+            "origin": origin,
+            "lookAt": look_at,
+            "hidePlayer": str(preset.get("HidePlayerAvatar", "")).lower() == "true",
+            "enterBlend": float(preset.get("EnterBlendTime") or 0.0), "exitBlend": float(preset.get("ExitBlendTime") or 0.0)}
+        if dummy:
+            conversation["camera"]["dummy"] = dummy
 
 
 def timeline_clips(persons: list) -> dict:

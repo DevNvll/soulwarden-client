@@ -818,7 +818,12 @@ A screen shows no hint and no category of a feature that this client does not ha
   keep rule wins): backend 1.8f supports and offers 9 MountUnlock rows, so the player can see and finish them. The rules: the TabbedList
   rule for hidden buttons (isVisible false, EnableHiddenButtons), and for each hidden list and its header row SetIsEnabled false with the
   height 0 (a disabled child keeps its place in a LyShine layout: the rule of the script for its MSQMessage).
-- Fixture `unusedfeatures` (21 checks; picture unusedfeatures-journal).
+- The loading screen tips of absent features go (`G.tipHidden`, the hook of loadingscreenmanager.luac CreateTipQueue; AST-244 item 5):
+  housing, company, the trading post and the trade between players, the social window, the PvP flag, duels, the PvP rewards track and
+  the PvP and faction missions, war, invasions, Outpost Rush, pings, fishing, and camps. A list keeps its tips when none would stay
+  (the script stops on an empty queue). The tips of the places that the client cannot load (dungeons, trials, arenas) stay: they show
+  only at a travel to such a place. 242 of the 712 tips go.
+- Fixture `unusedfeatures` (27 checks; picture unusedfeatures-journal).
 
 ## The world views (stage WF7)
 

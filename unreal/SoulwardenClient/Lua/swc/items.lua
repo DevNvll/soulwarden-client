@@ -110,6 +110,12 @@ local SLOT_TAGS = {
   [0] = "equippablehead", [1] = "equippablechest", [2] = "equippablehands", [3] = "equippablelegs", [4] = "equippablefeet",
   [5] = "equippableamulet", [6] = "equippabletoken", [7] = "equippablering", [8] = "equippablepaint",
   [20] = "equippablebackpack", [30] = "bag", [31] = "bag", [32] = "bag", [45] = "heartgem",
+  -- The tools, the instruments, and the mount slots (the backend kSlotRules; a tool has the classes EquippableTool+Axe+SkinningKnife:
+  -- with no slot of its class the item menu had no Equip, AST-244 item 7).
+  [33] = "loggingaxe", [34] = "sickle", [35] = "skinningknife", [36] = "pickaxe", [37] = "fishingpole", [38] = "azothstaff",
+  [39] = "instrumentflute", [40] = "instrumentguitar", [41] = "instrumentmandolin", [42] = "instrumentuprightbass",
+  [43] = "instrumentdrums", [44] = "throwableobject", [46] = "mountbuff1", [47] = "mountbuff2", [48] = "mountattachment",
+  [49] = "mountattachment",
 }
 local WEAPON_SLOTS = {24, 25, 26}
 local OFFHAND_SLOTS = {27, 28, 29}
@@ -121,7 +127,7 @@ function Swc.ItemEquipSlots(static)
   if not static then
     return out
   end
-  for slot = 0, 45 do
+  for slot = 0, 49 do
     local tag = SLOT_TAGS[slot]
     if tag and static.classes[tag] then
       out[#out + 1] = slot
@@ -261,6 +267,23 @@ function Swc.ItemLevelRequirement(static, gearScore, rarity)
   return levels[#levels] and levels[#levels][1] or 0
 end
 
+--- @return The gather speed of a tool at a gear score: MinGatherEFF to MaxGatherEFF of its weapon row, linear over the gear score
+--- range of the item (the "Gather Speed" of the tooltip and of the crafting screen: the T1 skinning knife 2.0, "200%"; Soulwarden
+--- docs/systems/gathering.md, live check L7: a T5 axe 625 % at 500, 850 % at 600). [I] A row with no MaxGatherEFF (the fishing poles)
+--- keeps its GatheringEfficiency.
+local function gather_speed(static, weapon, gearScore)
+  local low, high = tonumber(weapon.minGatherEff) or 0, tonumber(weapon.maxGatherEff) or 0
+  if high <= 0 then
+    return weapon.gatheringEfficiency or 0
+  end
+  local minimum, maximum = tonumber(static.minGearScore) or 0, tonumber(static.maxGearScore) or 0
+  local part = 0
+  if maximum > minimum then
+    part = math.max(0, math.min(1, ((gearScore or 0) - minimum) / (maximum - minimum)))
+  end
+  return low + part * (high - low)
+end
+
 --- @return The weapon attributes of an item at a gear score (the stat lines of the item tooltips), or {} for no weapon.
 local function weapon_attributes(static, gearScore)
   local weapon = stat_rows(static)
@@ -270,7 +293,10 @@ local function weapon_attributes(static, gearScore)
   -- isMagic (the label "core power" of the tooltip): the native rule is not known (open point); false gives "core damage".
   return {isValid = true, isMagic = false, baseDamage = weapon_base(weapon, gearScore), critChance = weapon.critChance or 0,
           critDamageMultiplier = weapon.critDamageMultiplier or 0, blockStaminaDamage = weapon.blockStaminaDamage or 0,
-          blockStability = weapon.blockStability or 0, gatheringEfficiency = weapon.gatheringEfficiency or 0,
+          blockStability = weapon.blockStability or 0, gatheringEfficiency = gather_speed(static, weapon, gearScore),
+          -- craftingstatspanel.luac UpdateStatsInfo compares 0 < maxCastDistance for each tool (a nil gave "attempt to compare number
+          -- with nil", AST-244 item 7); the weapon rows have no cast distance (the fishing data: an absent feature).
+          maxCastDistance = 0,
           physicalArmorRating = armor_rating(weapon, weapon.physicalArmor, gearScore),
           elementalArmorRating = armor_rating(weapon, weapon.elementalArmor, gearScore),
           primaryAttack = attacks_of(weapon, weapon.primaryAttack, gearScore),
@@ -1420,6 +1446,10 @@ Swc.Define("ItemDataManagerBus", "Broadcast", {
 Swc.Define("LyShineManagerBus", "Broadcast", {
   GetHDR10OutputEnabled = function() return false end,
   GetControllerIconPath = function() return "" end,
+  -- An action of a script for the canvas of an element (craftroll.luac AdvanceStep: "ancestor:OnSkip", which takes the crafting
+  -- screen to its result state with the buttons Continue to Craft, Equip, Salvage, and Exit Station; AST-244 item 7). With no
+  -- method the action was lost. The same path as the action of a component (swc/interactables.lua Swc.SendAction).
+  OnAction = function(_, entityId, action) Swc.SendAction(entityId, action) end,
 })
 -- The camera of the inventory (JavCameraControllerRequestBus OverrideCameraState): open point (the camera track).
 Swc.Define("JavCameraControllerRequestBus", "Broadcast", {

@@ -120,9 +120,26 @@ function Swc.HostRanks(text)
   for id, rank, points in string.gmatch(text or "", "(%d+) (%d+) (%d+)") do
     ranks[tonumber(id)] = {rank = tonumber(rank), points = tonumber(points)}
   end
+  local old = O.ranks
   O.ranks = ranks
   local azoth = ranks[AZOTH_CURRENCY]
   Swc.SetData("Hud.LocalPlayer.Currency.AzothAmount", azoth and azoth.points or 0)
+  -- The changes of a progression go to its listeners (CategoricalProgressionNotificationBus at the player entity): the crafting
+  -- screen adds the points of its trade skill into the summary of the result ("+13 Cooking"; craftingscreenv4.luac
+  -- OnCategoricalProgressionPointsChanged and OnCategoricalProgressionRankChanged; AST-244 item 7). The first map of a session is
+  -- the start, not a change.
+  if old then
+    local player = LyShineDataLayerBus.Broadcast.GetDataFromNode("Hud.LocalPlayer.HudComponent.PlayerEntityId")
+    for id, entry in pairs(ranks) do
+      local before = old[id] or {rank = 0, points = 0}
+      if entry.rank ~= before.rank then
+        Swc.Notify("CategoricalProgressionNotificationBus", player, "OnCategoricalProgressionRankChanged", id, before.rank, entry.rank)
+      end
+      if entry.points ~= before.points then
+        Swc.Notify("CategoricalProgressionNotificationBus", player, "OnCategoricalProgressionPointsChanged", id, before.points, entry.points)
+      end
+    end
+  end
 end
 
 --- @return The rank entry of a progression id (a number, or a text: its CRC-32 of the lower-case text).

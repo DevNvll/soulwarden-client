@@ -45,7 +45,15 @@ end
 
 local function attribute(key, name)
   local entry = data().attributes[string.lower(tostring(key or "")):gsub("^@", "")]
-  return entry and entry[name] or nil
+  local value = entry and entry[name] or nil
+  -- The last subtitle of a chain has no dialogue-next: videoplayerscreen.luac ProcessSubtitleText builds "@" .. the value and ends
+  -- the chain at "@" (its own check), so the native call gives "" there (a nil gave "attempt to concatenate a nil value" 8 s before
+  -- the end of TempestRising, AST-244 item 7). [I] The other attributes stay nil when they are missing: whispers.luac tests the
+  -- speaker and VO_Type for truth.
+  if value == nil and name == "dialogue-next" then
+    return ""
+  end
+  return value
 end
 
 -- The localization attributes of the keys of the scenes, the whispers, and the cinematic subtitles (speaker, VO_Type, start, end,

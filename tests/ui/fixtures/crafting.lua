@@ -170,9 +170,29 @@ equal(sent[1], string.format("craft %d 1 %d 0 0 - %d", crc("IngotT2"), Swc.craft
   "CRAFT gives one request of one Iron Ingot (" .. tostring(sent[1]) .. ")")
 Swc.HostBagSlot(3, crc("OreT1"), 28, 0, 0, 0, "4", 0, 0, 0, "")
 Swc.HostBagSlot(4, crc("IngotT2"), 1, 0, 0, 0, "5", 0, 0, 3, "")
+-- The trade skill points of the craft (the Owner state: 13 Smelting points; AST-244 item 7) while the screen listens.
+Swc.HostRanks(string.format("%d 150 0\n%d 0 13\n%d 2 0\n%d 0 2500", crc("Weaponsmithing"), crc("Smelting"), crc("Logging"),
+  crc("Azoth_Currency")))
 Swc.HostCraftProgress("IngotT2", 1, 1)
-frames(4.0)
+frames(6.0)
 picture("crafting-result")
+-- The result screen (craftingscreenv4.luac AnimateCraftDoneStats, reached by craftroll.luac AdvanceStep "ancestor:OnSkip" through
+-- LyShineManagerBus.OnAction): the buttons Continue to Craft and Exit Station and the summary of the trade skill points.
+do
+  local texts = {}
+  local function walk(id, depth)
+    if depth > 30 then return end
+    local t = swcui.has(id, "text") and swcui.get(id, "text.text")
+    if t and t ~= "" and swcui.enabled_in_hierarchy(id) then texts[#texts + 1] = t end
+    for _, c in ipairs(swcui.children(id)) do walk(c, depth + 1) end
+  end
+  walk(swcui.canvas_get(crafting, "root"), 0)
+  local line = table.concat(texts, " | ")
+  note("the result screen: " .. line)
+  check(line:find("Continue to Craft", 1, true) ~= nil, "the result screen has Continue to Craft")
+  check(line:find("Exit Station", 1, true) ~= nil, "the result screen has Exit Station")
+  check(line:find("+ 13", 1, true) ~= nil and line:find("Smelting", 1, true) ~= nil, "the summary has the trade skill points (ui_plus_amount \"+ {amount}\": + 13 Smelting)")
+end
 
 -- A procedural recipe at the forge: the Orichalcum Great Axe (Weaponsmithing 150) with T5 materials; the screen shows its craft gear
 -- score and its perk rows, and CRAFT gives one request with the gear score claim of the quality bar.

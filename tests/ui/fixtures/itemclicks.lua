@@ -3,6 +3,8 @@
 -- unequips an equipped item; OnCursorPressed with the right button (the CRC-32 of "mouse_button_right", 369457006): over an item it
 -- shows the tooltip and, when it can compare, the compare tooltip; elsewhere the mouse goes to the camera (EnableMouse false).
 -- itemdraggable.luac OnReleased ends at once after a right button press; OpenContextMenu is empty: a right click equips nothing.
+-- A tool (AST-244 item 7): its class SkinningKnife takes paperdoll slot 35, so a double click equips it; its gather speed is MinGatherEFF
+-- to MaxGatherEFF over its gear score range (the T1 knife: 2.0, "200%"); its cast distance is 0 (craftingstatspanel.luac compares it).
 -- Pictures: itemclicks-open, itemclicks-right-held.
 local HUD, INVENTORY = 2702338936, 2972535350
 local inventory = screen("LyShineUI/Inventory/NewInventory.uicanvas", 15)
@@ -27,10 +29,11 @@ Swc.HostBagSlot(0, "1hSwordT1", 1, 100, 900, 1000, instance(1), 1, 1, 17, "")
 Swc.HostBagSlot(1, "LightChestT1", 1, 60, 250, 250, instance(2), 1, 2, 17, "")
 Swc.HostBagSlot(2, "PotionHealthT1", 3, 100, 0, 0, instance(3), 0, 3, 17, "")
 Swc.HostBagSlot(3, "OreT1", 25, 0, 0, 0, instance(4), 0, 4, 17, "")
+Swc.HostBagSlot(4, "1hSkinningKnifeT1", 1, 100, 1000, 1000, instance(6), 1, 6, 17, "")
 Swc.HostPaperdollItem(24, "1hSwordT2_FTUE", 1, 125, 1000, 1000, instance(5), 1, 5, 17, "")
 Swc.HostCoin(12345)
 frames(0.3)
-equal(LyShineDataLayerBus.Broadcast.GetDataFromNode("Hud.LocalPlayer.Inventory.CurrentEncumbrance"), 30 + 45 + 3 * 5 + 25 * 2,
+equal(LyShineDataLayerBus.Broadcast.GetDataFromNode("Hud.LocalPlayer.Inventory.CurrentEncumbrance"), 30 + 45 + 3 * 5 + 25 * 2 + 20,
   "the bag weight in tenths (weight times quantity of each bag item)")
 
 -- Open: the key Tab (toggleInventoryWindow) sets the loadout flag.
@@ -66,7 +69,7 @@ check(section(eItemClass_UI_Smelting).count == 1 and section(eItemClass_UI_Smelt
 local weight = find(root, "WeightBar")
 local value = weight and find(weight, "ValueText")
 local maximum = weight and find(weight, "MaxValueText")
-equal(value and swcui.text_layout(value).lines[1].text, "14.0", "the bag weight of the header")
+equal(value and swcui.text_layout(value).lines[1].text, "16.0", "the bag weight of the header")
 check(maximum and swcui.text_layout(maximum).lines[1].text:find("200.0", 1, true) ~= nil, "the weight limit of the header (EncumbranceBaseMax 2000)")
 check(PaperdollRequestBus.Event.GetSlot(Swc.ids.paperdoll, 24):GetItemName() == "1hSwordT2_FTUE", "the paperdoll has the sword in slot 24")
 
@@ -115,4 +118,23 @@ if equipped then
   Swc.hostRequests = {}
   click(equipped, 0.5, 0.5); frames(0.08); click(equipped, 0.5, 0.5); frames(1.0)
   equal(Swc.hostRequests[1], "unequip 24 -1 1", "a double click on the equipped sword: the unequip request")
+end
+
+-- The tool: the equip into slot 35 (dressing-slot) by a double click, its gather speed, and its cast distance.
+local knifeSlot = Swc.NewItemSlot("bag", 4, {itemId = "1hSkinningKnifeT1", quantity = 1, gearScore = 100})
+check(knifeSlot:IsEquippable() and knifeSlot:CanEquipInSlot("dressing-slot"), "the skinning knife can go into the dressing slot (35)")
+local attributes = knifeSlot:GetWeaponAttributes()
+local knifeRow = swcui.table_row("weaponstats", "1hSkinningKnifeT1")
+if knifeRow and knifeRow.maxGatherEff ~= nil then
+  equal(attributes.gatheringEfficiency, 2, "the gather speed of the T1 knife at 100: 2.0 (MinGatherEFF, the tooltip 200%)")
+else
+  note("weaponstats.tsv has no MaxGatherEFF (the deploy of AST-244 item 7 waits): the gather speed check is skipped")
+end
+equal(attributes.maxCastDistance, 0, "the cast distance of a tool: 0 (not nil)")
+local knife = cell_of(root, "1hSkinningKnifeT1")
+check(knife ~= nil, "the knife has its cell in the bag")
+if knife then
+  Swc.hostRequests = {}
+  click(knife, 0.5, 0.5); frames(0.08); click(knife, 0.5, 0.5); frames(1.0)
+  equal(Swc.hostRequests[1], "equip 4 35 1 " .. instance(6), "a double click on the knife: the equip request into slot 35")
 end

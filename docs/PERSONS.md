@@ -115,6 +115,15 @@ preset point (or the cameraStateOrigin of the line) in that frame, 0.065 m highe
 (or the cameraStateLookAt of the line) in the same frame, not raised. The camera state (NPC_FOVnn_CamState) gives only the FOV.
 Before (stage P4.8) the client used the body frame: Purcell's camera stood 0.6 m too low at the barrels and framed his belt.
 
+The frame marks of the points (AST-244 item 6, 2026-10-26; `swc_convert/persons.camera_point`): a line or a preset point has no mark
+or "s" (the frame of the speaker: "s 1.4 2.2 1.7"), "p" (the frame of the player: the converter places it through the dummy of the
+preset, the player body at "s .25 1.3 0" turned 180 degrees), or "n NPC_ID" (the frame of a named person; no first line uses it).
+Before, the converter read only plain numbers: a mark gave an empty point, and the camera stood in the person and looked at the sky
+(Urda of the beach chain; 32 persons). [I] A line point with no frame in the data (the frame of the player with no dummy:
+06_FrancisTurner) takes the origin and the look-at of the preset as one pair. Open: 27 persons have no preset and no point; the client
+then puts the camera at the frame of the person (a client rule for an empty origin, the camera of the play, needs a cook).
+Test: `tests/converter/test_persons_camera.py`.
+
 | Person (preset) | Retail camera (set-mvph-talk) | Client camera |
 | --- | --- | --- |
 | Rodger Purcell (NSR_FAC_MED_SNGL_LOW) | 7318.768 3704.184 110.193, heading 21.8, pitch -1.4 | 0.001 m (plane), 0.000 m (height), heading 0.2 and pitch 0.3 degrees off |

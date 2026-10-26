@@ -1277,7 +1277,7 @@ WEAPON_STAT_COLUMNS = {
     "PhysicalArmorSetScaleFactor": "physicalArmor", "ElementalArmorSetScaleFactor": "elementalArmor",
     "ArmorRatingScaleFactor": "armorRating", "PrimaryUse": "primaryUse", "MannequinTag": "mannequinTag",
     "TooltipPrimaryAttackData": "primaryAttack", "TooltipAlternateAttackData": "alternateAttack",
-    "GatheringTypes": "gatheringTypes",
+    "GatheringTypes": "gatheringTypes", "MinGatherEFF": "minGatherEff", "MaxGatherEFF": "maxGatherEff",
 }
 # The columns of the armor definitions (javelindata_itemdefinitions_armor, by WeaponID = the ItemStatsRef of an item), with
 # the absorption (ABS*) and the resistance (RES*) columns as they are.

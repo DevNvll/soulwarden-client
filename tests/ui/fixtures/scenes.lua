@@ -99,6 +99,15 @@ equal(Swc.uiState, HUD, "after the video: the HUD state")
 S.open_video("TempestRising")
 frames(0.2)
 equal(requests(), "cinematic start 40214776", "the second video: 6606")
+-- The end of the subtitle chain (AST-244 item 7): TempestRising11 has no dialogue-next; the script reads ahead at 79 s and ends at "@".
+equal(LyShineScriptBindRequestBus.Broadcast.GetAttributeValueForKey("@TempestRising11", "dialogue-next"), "",
+      "the last subtitle: dialogue-next is \"\" (the chain ends at \"@\")")
+local errorsBefore = Swc.errorCount or 0
+S.video.time = 78
+frames(2.0)
+S.video.time = 88
+frames(1.0)
+equal((Swc.errorCount or 0) - errorsBefore, 0, "the subtitles from 78 s to the end of the chain: no Lua error")
 S.video.time = S.video.seconds - 0.1
 frames(0.3)
 equal(requests(), "cinematic end 40214776", "the end of the clock (106.74 s): 6542")

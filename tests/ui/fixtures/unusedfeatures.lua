@@ -2,6 +2,7 @@
 -- objective types the backend cannot give (G.journalHiddenTabs: Location, Favor, Season Story, Epic Equipment, Faction Missions, Event
 -- Quests, Town Projects, Recipes, Artifacts) and keeps Main Story, Faction Story, Skill Progression, Mount Quest, and Side Stories; the
 -- quest of a new character still shows. The help bar takes no hint of a hidden action of the key page (the ping wheel of the map).
+-- The loading screen tips of absent features go (G.tipHidden; AST-244 item 5: "HOUSING: You can view what Housing Trophy Buffs ...").
 -- Pictures: unusedfeatures-journal.
 local HUD = 2702338936
 screen("LyShineUI/Objectives/Hud/ObjectivesHud.uicanvas", 12, true)
@@ -67,4 +68,47 @@ end
 local pushed = stack and stack.FixtureMap and stack.FixtureMap[eAID_KeyboardMouse]
 check(pushed ~= nil and #pushed == 1 and pushed[1].action == "centerMap", "the help bar: the ping wheel hint goes, the center hint stays")
 DynamicBus.HelpBar.Broadcast.PopFromStack("FixtureMap")
+-- The loading screen tips: the hidden prefixes, then the pools of the manager after a travel.
+local G = Swc.gamemenu
+check(G.tipHidden("@tip_overworld_housing_buffs01") ~= nil, "the tip filter: a housing tip goes")
+check(G.tipHidden("@tip_overworld_fishing_hotspots01") ~= nil, "the tip filter: a fishing tip goes")
+check(G.tipHidden("@tip_overworld_quests_quests01") == nil, "the tip filter: a quest tip stays")
+check(G.tipHidden("@tip_overworld_combat_greatAxe01") == nil, "the tip filter: a weapon tip stays")
+Swc.HostLoading(true, "newworld_vitaeeterna")
+frames(0.5)
+Swc.HostLoading(false)
+frames(0.3)
+local manager
+for _, list in pairs(Swc.components) do
+  for _, inst in ipairs(list) do
+    if (inst.__swcScript or ""):find("loadingscreenmanager.luac", 1, true) then manager = inst end
+  end
+end
+check(manager ~= nil, "the loading screen manager is loaded")
+if manager then
+  -- Each tip list under destinationPools (the overworld pool and the pools of the places).
+  local lists, seen = {}, {}
+  local function walk(t, depth)
+    if type(t) ~= "table" or seen[t] or depth > 4 then return end
+    seen[t] = true
+    if type(t.tips) == "table" and #t.tips > 0 then lists[#lists + 1] = t end
+    for _, v in pairs(t) do walk(v, depth + 1) end
+  end
+  walk(manager.destinationPools, 0)
+  local before, hidden, after, left = 0, 0, 0, 0
+  for _, list in ipairs(lists) do
+    for _, tip in ipairs(list.tips) do
+      before = before + 1
+      if G.tipHidden(tip.localizationKey) then hidden = hidden + 1 end
+    end
+    manager:CreateTipQueue(list, list)
+    for _, tip in ipairs(list.tips) do
+      after = after + 1
+      if G.tipHidden(tip.localizationKey) then left = left + 1 end
+    end
+  end
+  note(string.format("the tip lists: %d, tips %d, %d of absent features, %d after the filter (%d left in lists of only such tips)",
+                     #lists, before, hidden, after, left))
+  check(#lists > 0 and hidden > 0 and after == before - hidden + left, "the tip lists lose the tips of absent features after CreateTipQueue")
+end
 equal(Swc.errorCount or 0, 0, "no Lua error")

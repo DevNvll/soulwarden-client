@@ -162,6 +162,24 @@ recipe id, the progression id. An ingredient type is an eIngredientType value (I
   `mvpj-crop-*.png` (retail: the Soulwarden evidence 37b I1-01, 37c I2-01, 37a D1-02).
 - The UI drives use the drive target "recipe:ID" (the shown row of a recipe) and the drive command "text" (the search box).
 
+## The result screen and the tools (AST-244 item 7, 2026-10-26)
+
+- The result screen: craftroll.luac AdvanceStep sends `LyShineManagerBus.OnAction(canvas, entity, "ancestor:OnSkip")`; the client
+  forwards it to the action of the element (swc/items.lua, the path of `Swc.SendAction`). Then craftingscreenv4.luac reaches its result
+  state: Continue to Craft, Equip (Equip Tool for a tool), Exit Station, the dark background. Salvage stays hidden: the salvage of an
+  item is backend stage 3.7d (a backend need).
+- The summary of the trade skill points ("+ 13 Cooking", the text ui_plus_amount "+ {amount}"): `Swc.HostRanks` sends
+  OnCategoricalProgressionPointsChanged and OnCategoricalProgressionRankChanged (CategoricalProgressionNotificationBus at the player)
+  for each changed progression after the first map of the session.
+- The tools: the slot classes of the backend (kSlotRules: LoggingAxe 33, Sickle 34, SkinningKnife 35, Pickaxe 36, FishingPole 37, the
+  instruments, the mount slots) in `Swc.ItemEquipSlots`. Thus the item menu has Equip (double click), the static IsEquippable and
+  GetEquipSlots agree, and the tooltip shows the gear score. Link to Chat stays hidden: UIFeatures.g_chatItemLinking (the chat is an
+  absent feature).
+- The gather speed of a tool (the tooltip and the crafting stats panel): MinGatherEFF to MaxGatherEFF of the weapon row (weaponstats.tsv
+  minGatherEff, maxGatherEff), linear over the gear score range of the item: the T1 knife 2.0, "200%" (before: the column
+  GatheringEfficiency, 1.35, "135%"); the rule of the backend (gathering.md, live check L7). maxCastDistance is 0 (a nil stopped
+  craftingstatspanel.luac UpdateStatsInfo).
+
 ## The differences from retail (the comparison pictures)
 
 - The hint bar of the screen: closed by AST-231 (the HelpBar and the chat widget; "ENTER Chat", "SPACE Max Quantity" for a recipe that can be

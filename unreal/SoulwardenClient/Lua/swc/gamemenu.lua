@@ -711,3 +711,67 @@ Swc.scriptHooks["lyshineui.slices.tabbedlist"] = function(base)
     end
   end
 end
+
+-- The loading screen tips (AST-244 item 5): the tips of a feature that this client does not have go (the cleanup rule of the user;
+-- docs/UI.md "Absent features"). The prefixes of the tip keys (loadingscreenmanager.luac ConstructTip, the key after "@tip_") with
+-- the reason of each. The tips of the places that this client cannot load (the dungeons, the trials, the arenas) stay: their pools
+-- show only at a travel to such a place.
+local HIDDEN_TIPS = {
+  {"no housing", "overworld_housing_"},
+  {"no company", "overworld_company_"},
+  {"no trading post and no trade between players", "overworld_tradingpost_", "overworld_social_p2ptrading"},
+  {"no social window", "overworld_social_donotdisturb"},
+  {"no PvP flag, duels, PvP rewards track, or PvP missions", "overworld_combat_pvpflagging", "overworld_combat_duels",
+    "overworld_pvprewardstrack_", "overworld_factions_pvpmissions"},
+  {"no faction missions (the journal tab Faction Missions is hidden)", "overworld_factions_pvemissions",
+    "overworld_factions_huntmissions"},
+  {"no war, invasion, or Outpost Rush", "war_", "invasion_", "outpostrush_", "overworld_gamemodes_outpostrush"},
+  {"no pings", "overworld_pings_"},
+  {"no fishing", "overworld_fishing_"},
+  {"no camp (makeCampOn is hidden)", "overworld_camping_"},
+}
+G.tipHidden = function(key)
+  local name = string.lower(tostring(key or "")):gsub("^@tip_", "")
+  for _, group in ipairs(HIDDEN_TIPS) do
+    for i = 2, #group do
+      if name:sub(1, #group[i]) == group[i] then
+        return group[1]
+      end
+    end
+  end
+  return nil
+end
+
+--- Takes the tips of absent features out of a tip list (in place, the order kept). A list keeps its tips when no tip would stay
+--- (CreateTipQueue stops with "tip queue is empty").
+local function filter_tips(pool)
+  if type(pool) ~= "table" or type(pool.tips) ~= "table" or pool.swcTipsFiltered then
+    return
+  end
+  pool.swcTipsFiltered = true
+  local kept = {}
+  for _, tip in ipairs(pool.tips) do
+    if not G.tipHidden(tip.localizationKey) then
+      kept[#kept + 1] = tip
+    end
+  end
+  if #kept > 0 and #kept < #pool.tips then
+    for i = #pool.tips, 1, -1 do
+      pool.tips[i] = nil
+    end
+    for i, tip in ipairs(kept) do
+      pool.tips[i] = tip
+    end
+  end
+end
+
+Swc.scriptHooks["lyshineui.loadingscreen.loadingscreenmanager"] = function(base)
+  local create = rawget(base, "CreateTipQueue")
+  if type(create) == "function" then
+    base.CreateTipQueue = function(self, pool, destination, ...)
+      filter_tips(pool)
+      filter_tips(destination)
+      return create(self, pool, destination, ...)
+    end
+  end
+end
