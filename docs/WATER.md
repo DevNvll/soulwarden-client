@@ -275,9 +275,17 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       body below 40 m is near its places.
     - [R] The terrain is an Unreal Landscape (the builder makes it); the ground capture takes only the Landscape and registered terrain
       components. The hidden source water, the clouds, the decals, and the shore meshes are not in the ground capture.
-    - The test (not built yet): `-SwcWaterOceanDepth=M` sets the channel depth of the plugin ocean (by reflection, before it finishes
-      spawning). The diagnostic logs the water height range and the ground minimum of the zone. Pass: with M = 10 the range starts at
-      30 m and the bay draws water at a fresh start at the beach; with M = 0 the range starts at 40.000 m and the bay is clear.
+    - The test: `-SwcWaterOceanDepth=M` sets the channel depth of the plugin ocean (by reflection, before it finishes spawning). The
+      diagnostic logs the water height range and the ground minimum of the zone. Pass: with M = 10 the range starts at 30 m and the
+      bay draws water at a fresh start at the beach; with M = 0 the range starts at 40.000 m and the bay is clear.
+    - The check (2026-10-26 07:30 to 07:39 UTC, an editor run; `wu2a-od0`, `wu2a-od10`, `wu2a-odtr`; `2a-oceandepth-compare.png`): PASS.
+      - M = 0, a fresh start at the beach: the range is 40.000 to 233 m for the whole run, and the bay is clear from 2 s to 40 s.
+      - M = 10, the same start: the range is 30.000 to 233 m, and the bay has water from 2 s.
+      - M = 0, the start at the beach, the travel of `2a-after` to the river (1,979 m) and back: the range is 40.000 m before the travel
+        (the bay is clear). After the travel it is 38.955 m: a body near the river has bounds below 40 m, which the specs do not show
+        (the bounds of the river spline meshes). Back at the beach, the bay has water. This explains `2a-after`.
+      - Thus the cause is proved: the ocean was the lowest body of the zone, and the plugin decodes the minimum of the range as "no
+        water". A lake that is the lowest body has the same fault; a channel depth of the ocean protects all bodies above 40 - M m.
   - Thus the default stays the source path (the decision of the orchestrator, 2026-10-26 00:08 UTC). The full cook takes the plugin,
     its materials, and the specs. A later fix and the switch of the default need only a code change and an incremental cook.
 - The cook: `DefaultGame.ini` cooks `/Water/Materials` and `/Water/Waves` (the client loads them by path), and
