@@ -755,6 +755,7 @@ end
 --- The coin of the backend (hundredths).
 function Swc.HostCoin(coin)
   Swc.player.coin = coin
+  Swc.player.coinKnown = true
   Swc.SetData("Hud.LocalPlayer.Currency.Amount", coin)
 end
 

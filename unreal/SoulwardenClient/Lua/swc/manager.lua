@@ -77,6 +77,10 @@ function Swc.UnloadCanvas(canvas)
     Swc.SetScreenShown(screen, false)
   end
   Swc.screens[tostring(canvas)] = nil
+  -- A canvas that unloads owns the mouse no more (user test 2026-10-26: charactercreation.luac SetState adds its canvas as a mouse owner
+  -- on each step but the name step and does not remove it at OnExit; the front end unloads it at PLAY, and the owner kept the cursor
+  -- in the world, with no mouse look). An inference: the native manager is not read; the retail world has a new level and no owner.
+  Swc.mouseOwners[tostring(canvas)] = nil
   swcui.unload_canvas(canvas)
 end
 

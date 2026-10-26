@@ -925,6 +925,39 @@ bool USwcUiSubsystem::UiKeyToGame(const FString& Name)
 	return Result != "false";
 }
 
+bool USwcUiSubsystem::UiChar(TCHAR Character)
+{
+	// The control characters: the Linux platform layer gives BackSpace and Enter as a key event and also as a character ('\b',
+	// '\r'); the key route of the text input has them (Swc.TextInputKey), so they do not go a second time.
+	if (Character < 0x20 || Character == 0x7F)
+	{
+		return false;
+	}
+	FString Text;
+	if (Character >= 0xD800 && Character <= 0xDBFF)
+	{
+		PendingHighSurrogate = Character;
+		return false;
+	}
+	if (Character >= 0xDC00 && Character <= 0xDFFF)
+	{
+		if (PendingHighSurrogate == 0)
+		{
+			return false;
+		}
+		Text.AppendChar(PendingHighSurrogate);
+	}
+	PendingHighSurrogate = 0;
+	Text.AppendChar(Character);
+	const bool bUsed = CallInput({FArg::of(std::string("text")), FArg::of(Utf8(Text))});
+	if (InputProcessor.IsValid() && InputProcessor->bLogKeys)
+	{
+		UE_LOG(LogSwcUi, Log, TEXT("ui: char U+%04X: %s"), static_cast<uint32>(Character),
+			bUsed ? TEXT("the text input took it") : TEXT("no text input edits"));
+	}
+	return bUsed;
+}
+
 void USwcUiSubsystem::UiPointer(FVector2D ScreenPosition)
 {
 	if (Widget.IsValid())
@@ -1694,10 +1727,33 @@ void USwcUiSubsystem::DriveKey(const FString& Name, bool bDown)
 	if (bDown)
 	{
 		Slate.ProcessKeyDownEvent(Event);
+		// The Linux platform layer gives BackSpace and Enter also as a character after the key event (FLinuxApplication,
+		// SDL_EVENT_KEY_DOWN): the drive does the same, so a check sees that a text input does not take them two times.
+		if (Key == EKeys::BackSpace)
+		{
+			DriveChars(TEXT("\b"));
+		}
+		else if (Key == EKeys::Enter)
+		{
+			DriveChars(TEXT("\r"));
+		}
 	}
 	else
 	{
 		Slate.ProcessKeyUpEvent(Event);
+	}
+}
+
+void USwcUiSubsystem::DriveChars(const FString& Text)
+{
+	if (!FSlateApplication::IsInitialized())
+	{
+		return;
+	}
+	FSlateApplication& Slate = FSlateApplication::Get();
+	for (const TCHAR Character : Text)
+	{
+		Slate.ProcessKeyCharEvent(FCharacterEvent(Character, Slate.GetModifierKeys(), 0, false));
 	}
 }
 
@@ -1788,6 +1844,14 @@ void USwcUiSubsystem::TickDrive()
 			}
 			UE_LOG(LogSwcUi, Log, TEXT("ui drive: %.2f s waitfor %s: %s after %.1f s"), Wait.Time, *Wait.Args[0],
 				Point.empty() ? TEXT("not shown (the limit)") : TEXT("shown"), Now - DriveWaitStart);
+			// waitfor ELEMENT SECONDS KEY: one press of KEY in the frame in which the element shows (the input of the next frame
+			// after a screen opens: user test 2026-10-26, E at the open of a Talk).
+			if (!Point.empty() && Wait.Args.IsValidIndex(2))
+			{
+				UE_LOG(LogSwcUi, Log, TEXT("ui drive: the key %s in the frame of the element"), *Wait.Args[2]);
+				DriveKey(Wait.Args[2], true);
+				DriveKey(Wait.Args[2], false);
+			}
 			// The clock goes on from the time of the wait (also when the element shows at once after a pause of the drive, as
 			// the level load of a return to the menu): the next steps start in the next frame with that clock.
 			DriveStart = Now - Wait.Time;
@@ -1806,7 +1870,14 @@ void USwcUiSubsystem::TickDrive()
 		else if (Step.Command == TEXT("text") && Step.Args.Num() > 0)
 		{
 			// The text of the arguments (one space between them) into the text input that edits (the search of the crafting screen).
+			// A short cut: the real keyboard gives characters (the command char).
 			CallInput({FArg::of(std::string("text")), FArg::of(Utf8(FString::Join(Step.Args, TEXT(" "))))});
+		}
+		else if (Step.Command == TEXT("char") && Step.Args.Num() > 0)
+		{
+			// The route of the real keyboard after the platform layer: one character event for each character of the arguments
+			// (one space between them) to Slate, which routes it along the focus path to the game viewport (USwcGameViewportClient).
+			DriveChars(FString::Join(Step.Args, TEXT(" ")));
 		}
 		else if (Step.Command == TEXT("keydown") && Step.Args.Num() > 0)
 		{
@@ -1932,6 +2003,14 @@ void USwcUiSubsystem::FeedLocalPlayer()
 		{
 			SentLevel = Own.level;
 			Runtime->call("HostProgression", {FArg::of(static_cast<double>(Own.level) + 1.0), FArg::of(static_cast<double>(Own.experience))});
+		}
+		// The coin before the spawn too (user test 2026-10-26, 8c): lootticker2024.luac takes the first value of
+		// Hud.LocalPlayer.Currency.Amount as the start total and shows each later increase as a row. PlayerSpawned wrote 0 first, and the
+		// wallet of the world entry showed as a gain ("+5.40").
+		if (Own.hasCoin)
+		{
+			SentCoin = static_cast<int64>(Own.coin);
+			Runtime->call("HostCoin", {FArg::of(static_cast<double>(Own.coin))});
 		}
 		Runtime->call("PlayerSpawned");
 	}

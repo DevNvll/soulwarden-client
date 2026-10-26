@@ -113,6 +113,20 @@ CC:navNext()
 frames(3.0)
 equal(CC.state, 3, "the identity step")
 check(icon("Invalid") == true and icon("Valid") == false, "an empty name: the invalid icon")
+-- The typed name (user test 2026-10-26, 8a): a click starts the edit; then each key of the keyboard comes as a key event and as a
+-- character (the C++ gives each character of USwcGameViewportClient::InputChar to Swc.HostInput "text"). The key of a letter adds
+-- no text and goes to no game map; BackSpace is a key only (the C++ drops the character '\b' of the platform layer).
+click(ID.Properties.NameInputField)
+check(Swc.IState(ID.Properties.NameInputField).editing == true, "a click on the name field starts the edit")
+for _, ch in ipairs({"M", "a", "d", "x"}) do
+  check(Swc.HostInput("key", string.lower(ch), true) == true, "the key " .. ch .. " goes to the text input")
+  check(Swc.HostKeyToGame(string.lower(ch)) == false, "the key " .. ch .. " does not go to the game")
+  Swc.HostInput("text", ch)
+  Swc.HostInput("key", string.lower(ch), false)
+end
+key("backspace")
+frames(0.1)
+equal(UiTextInputBus.Event.GetText(ID.Properties.NameInputField), "Mad", "the typed name with one backspace")
 UiTextInputBus.Event.SetText(ID.Properties.NameInputField, "Madevale")
 ID:editPlayerName()
 frames(0.3)
@@ -140,4 +154,12 @@ CC:OnPopupResult(ePopupResult_Yes, CC.QuitCharacterCreationEventId)
 frames(0.5)
 check(requested("creation exit"), "Yes in the quit popup ends the creation")
 equal(LyShineManagerBus.Broadcast.GetCurrentState(), 3881446394, "the landing screen")
+
+-- The mouse owner of the creation (user test 2026-10-26, 8b): charactercreation.luac SetState adds its canvas as a mouse owner on each
+-- step but the name step, and OnExit does not remove it. PLAY unloads the menu screens: the owner goes with its canvas, and the world
+-- gets the mouse.
+check(Swc.mouseOwners[tostring(creation)] == true, "the creation canvas is still a mouse owner after OnExit (the original script)")
+Swc.UnloadCanvas(creation)
+check(Swc.mouseOwners[tostring(creation)] == nil, "the unload of the canvas removes its mouse owner")
+check(next(Swc.mouseOwners) == nil, "no mouse owner after the menu screens unload")
 equal(swcui.error_count(), 0, "no Lua error")

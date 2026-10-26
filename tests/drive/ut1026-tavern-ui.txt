@@ -1,0 +1,31 @@
+# User test 2026-10-26, 8b, 8c, 8d (tools/menu-check.sh ut1026-tavern 150 -- -SwcUiDrive=FILE -SwcDrive=tests/drive/ut1026-tavern-player.txt;
+# SWC_DEV_CHARACTER=Devwarden, SWC_DEV_PLACE=8921.8:4263.5:139.1, 1.8 m west of Cecilia Polly; the development character has a wallet of
+# 5.40). PLAY with no creation: the cursor hides at the login token, and the wallet of the entry gives no ticker row. Then E held at
+# Cecilia Polly (the hold 0.5 s of OpenConversation), and one more press of E in the frame in which the Talk screen shows (the user
+# pressed E again; the screen has no options yet: before, a stack overflow, and the Talk ended). The Talk stays; E Next ends it. Then the
+# Skills screen (K) and its BIO tab (bio.luac SetupBonuses). The clock starts at the landing screen; it waits for the world.
+1 waitfor CharacterList 60
+3 point text:Devwarden
+3.5 click
+5 point PlayButton
+5.5 click
+6 log ut1026: PLAY with no creation
+7 waitfor world 180
+12 draw entry
+13 log ut1026: the entry, no coin row of the wallet
+20 log ut1026: E at Cecilia Polly
+20.1 keydown e
+20.66 keyup e
+20.67 waitfor ConversationOptionsHolder 10 e
+21 log ut1026: the second E in the frame of the open
+24 draw talk-open
+25 log ut1026: E Next
+26 key e
+29 draw talk-closed
+31 key k
+34 point text:Bio
+34.5 click
+37 draw bio
+38 log ut1026: the bio tab
+40 key k
+44 end

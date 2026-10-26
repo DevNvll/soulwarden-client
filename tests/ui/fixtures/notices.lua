@@ -72,6 +72,8 @@ frames(1.0)
 check(Swc.HostPointOf("text:+27 XP") ~= "" or Swc.HostPointOf("text:+27") ~= "", "the progression line: +27 XP")
 picture("notices-xp")
 frames(6.0)
+-- The progression row goes after its time too (user test 2026-10-26, 8c: before, the tween rule kept each new progression row).
+check(Swc.HostPointOf("text:+27 XP") == "" and Swc.HostPointOf("text:+27") == "", "the progression line goes after its time")
 -- A load of the bag (the cause 0x11): no notice.
 Swc.HostBagSlot(2, "1hSwordT1", 1, 100, 900, 1000, "{00000012-0000-0000-0000-000000000012}", 0, 2, 17, "")
 frames(1.0)

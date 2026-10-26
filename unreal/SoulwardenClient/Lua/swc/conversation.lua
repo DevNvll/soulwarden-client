@@ -521,6 +521,8 @@ local function send_state(withOption)
     Swc.Note("conversation: no ConversationScreenV2 screen")
     return
   end
+  -- The screen updates its options one tick later (the hook of conversationscreenv2 below); at most 1 s (a state with no update).
+  C.optionsPending = withOption and 1.0 or 0
   bus.Broadcast.OnConversationStateChange(state_of(withOption))
 end
 
@@ -631,7 +633,10 @@ function C.MarkChanged()
     C.dirty = true
   end
 end
-Swc.Connect("TickBus", {OnTick = function() refresh() end}, nil)
+Swc.Connect("TickBus", {OnTick = function(_, dt)
+  C.optionsPending = math.max(0, (C.optionsPending or 0) - (tonumber(dt) or 0))
+  refresh()
+end}, nil)
 
 -- The room for an objective (conversationscreenv2.luac RequestConversationOption: AcceptObjective asks it first; "@ui_objective_type_full"
 -- with no room) [I]: the active objectives of the type of the offer below the largest count of the type (GetMaxObjectivesForType; 0: no
@@ -831,6 +836,27 @@ C.handin_allowed = handin_allowed
 -- it calls ConversationRequestBus RequestConversationOption (conversationscreenv2.luac PC 110 to 152): the guard runs before the script, so
 -- that a refused hand-in shows no celebration and plays no sound; the screen keeps the ready dialogue and the Complete option.
 Swc.scriptHooks["lyshineui.conversation.conversationscreenv2"] = function(base)
+  -- The keys of the options wait for the options of the new state (user test 2026-10-26, 8d): the screen builds its options one tick
+  -- after OnConversationStateChange (UpdateConversationOptions). A key E in the frame of the open acted on the options and the center
+  -- hint of the Talk before: E Next of the old state ended the new Talk at once (Oseye Kamau, Saira Yangandul). Until the update, the
+  -- option keys do nothing (the retail frame of this gap is short; the first Talk of the client loads the canvas in that frame).
+  local update = rawget(base, "UpdateConversationOptions")
+  if type(update) == "function" then
+    base.UpdateConversationOptions = function(self, ...)
+      C.optionsPending = 0
+      return update(self, ...)
+    end
+  end
+  local cry = rawget(base, "OnCryAction")
+  if type(cry) == "function" then
+    base.OnCryAction = function(self, action, value, ...)
+      if (C.optionsPending or 0) > 0 and (action == "ui_interact" or action == "ui_nav_select" or string.match(tostring(action), "^dialogOption%d$")) then
+        Swc.Note("conversation: the key " .. tostring(action) .. " before the options of the new state: no action")
+        return true
+      end
+      return cry(self, action, value, ...)
+    end
+  end
   local request = rawget(base, "RequestConversationOption")
   if type(request) == "function" then
     base.RequestConversationOption = function(self, optionType, dataId, ...)
@@ -840,6 +866,27 @@ Swc.scriptHooks["lyshineui.conversation.conversationscreenv2"] = function(base)
       return request(self, optionType, dataId, ...)
     end
   end
+end
+
+-- An option before its setup (user test 2026-10-26, 8d): conversationoptionv2.luac OnInit calls SetCallback(self.OnPress, self), and
+-- OnPress calls self.callback(self.callbackTable, ...): OnPress calls itself with no end (a stack overflow) until UpdateConversationOptions
+-- gives the option its own callback (SetupConversationOption). The screen does that one tick after OnConversationStateChange; a key E in
+-- that frame (conversationscreenv2.luac OnCryAction: ui_interact goes to dialogOption1 while the center hint is off) pressed option 1. In
+-- the client the first Talk loads the canvas, and that frame took 0.6 s. The rule: a press of an option with the OnInit callback does
+-- nothing (no sound); a later press, after the setup, works as before.
+Swc.scriptHooks["lyshineui.conversation.conversationoptionv2"] = function(base)
+  local press = rawget(base, "OnPress")
+  if type(press) ~= "function" then
+    return
+  end
+  local guarded
+  guarded = function(self, ...)
+    if self.callback == guarded or self.callback == press then
+      return
+    end
+    return press(self, ...)
+  end
+  base.OnPress = guarded
 end
 
 -- The next option (Continue): the next line of the chain, a state with the same option; after the last line the state has no

@@ -406,6 +406,9 @@ Swc.Define("PlayerHousingClientRequestBus", "Broadcast", {
   IsFastTravelFromFieldAllowed = function() return true end,
   IsInFieldForFastTravel = function() return false end,
   GetFastTravelToTerritoryIdByPosition = function(position) return territoryAt(position) end,
+  -- The houses of the player: none (the backend has no housing). bio.luac SetupBonuses (the bio tab of the Skills screen) takes the
+  -- length of the list; the stub nil gave "attempt to get length of a nil value" (user test 2026-10-26, 8d).
+  GetOwnedHouseData = function() return {} end,
   RequestFastTravelToTerritory = function(poi)
     local mark = shrineMark(tonumber(poi) or -1)
     if not mark then

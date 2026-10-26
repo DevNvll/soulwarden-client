@@ -34,6 +34,8 @@ class SSwcUiCanvas;
  *   -SwcUiDrive=FILE     the harness input: a script of UI input events in the process (no input tool of the host).
  *                        Each line is "TIME COMMAND [VALUES]", the time in seconds from the spawn of the player:
  *                          key NAME            one press and release of a key (a CryInput name: escape, w, f10)
+ *                          char TEXT           typed text: one character event of Slate for each character (the route
+ *                                              of the real keyboard; "text TEXT" goes to the runtime directly)
  *                          keydown NAME / keyup NAME
  *                          point ELEMENT [FX FY]   the pointer to an element of a shown canvas (fractions of its
  *                                              rect, default the middle), by its name
@@ -41,8 +43,8 @@ class SSwcUiCanvas;
  *                          click / press / release   the left button at the pointer
  *                          drag ELEMENT FX0 FY0 FX1 FY1 SECONDS   press at one point of the element, move, release
  *                          wheel N             one wheel event of N notches
- *                          waitfor ELEMENT [SECONDS]   the clock stays at this step until a shown element has
- *                                              the name (default limit 30 s)
+ *                          waitfor ELEMENT [SECONDS [KEY]]   the clock stays at this step until a shown element has
+ *                                              the name (default limit 30 s); KEY: one press in that frame
  *                          log TEXT            a line in the client log (a mark for a video)
  *                          end                 releases each held key and button ("the test input is released")
  *                        The harness draws a marker at its pointer.
@@ -63,6 +65,8 @@ public:
 	bool UiKey(const FString& Name, bool bDown);
 	/** @return False when the game must not get a key: each game map that binds it is off, or a text input edits. */
 	bool UiKeyToGame(const FString& Name);
+	/** A typed character of the keyboard (USwcGameViewportClient::InputChar) to the text input that edits. @return True when it took it. */
+	bool UiChar(TCHAR Character);
 	/** @return True while the UI has the cursor (the pointer events go to the UI only). */
 	bool UiCursor() const { return bCursorWanted; }
 	/** @return True while the key page of the options screen binds a key (the mouse buttons and the wheel go as keys). */
@@ -93,6 +97,8 @@ private:
 	void ReleaseDriveInput();
 	/** A key of the harness input as a key of the keyboard (Slate): the UI first, then the game when the UI does not keep it. */
 	void DriveKey(const FString& Name, bool bDown);
+	/** The characters of a text as character events of Slate (the route of the real keyboard after the platform layer). */
+	void DriveChars(const FString& Text);
 	bool DrivePointAt(const FString& Element, float FractionX, float FractionY);
 	/** The loading screen of the start, the error UI of the login path, and the requests of the scripts (a respawn). */
 	void UpdateLoadingAndRequests();
@@ -198,6 +204,8 @@ private:
 	bool bCursorWanted = false;
 	bool bKeybinding = false;
 	bool bCursorApplied = false;
+	/** The first half of a UTF-16 surrogate pair of the typed text (the platform layer gives the two halves as two characters). */
+	TCHAR PendingHighSurrogate = 0;
 	/** The size of the window in pixels that the runtime has (HostDisplay: the resolution rows of the options screen). */
 	FIntPoint SentDisplay = FIntPoint::ZeroValue;
 	/** The window mode that the runtime has (0 fullscreen, 1 windowed, 2 windowed fullscreen; -1 before the first). */

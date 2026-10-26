@@ -1,0 +1,36 @@
+# User test 2026-10-26, 8a (docs/UI.md "Typed text"): the name of the identity step through the route of the real keyboard
+# (tools/menu-check.sh ut1026-name 200 -- -SwcUiDrive=FILE). "char" gives character events to Slate (the focus path, the game
+# viewport, USwcGameViewportClient::InputChar); "key BackSpace" gives the key and the platform character '\b' (one delete only).
+# Then the create of the new character and its world entry (the cursor hides). The clock starts at the landing screen.
+1 waitfor CharacterList 60
+2 waitfor text:Create_Character 120
+3 draw landing
+4 point text:Create_Character
+4.5 click
+8 point text:Yes
+8.5 click
+36 draw archetype
+37 point ButtonNext
+37.5 click
+41 draw appearance
+42 point ButtonNext
+42.5 click
+45 draw identity-empty
+46 point NameInputField
+46.5 click
+47 log ut1026: the typed name starts
+47.5 char Madevalx
+48.5 key BackSpace
+49 char e
+49.5 log ut1026: the typed name ends
+50 draw identity-typed
+55 draw name-valid
+56 point ButtonNext
+56.5 click
+60 draw world
+61 point ContinueButton
+61.5 click
+64 draw create
+72 waitfor world 240
+80 draw hud
+84 end

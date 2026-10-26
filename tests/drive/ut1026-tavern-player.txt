@@ -1,0 +1,4 @@
+# User test 2026-10-26, 8d: the player faces Cecilia Polly in the tavern of Everfall (the place of the run: 1.8 m west of her, at
+# 8921.8 4263.5). Times in seconds from the possession of the character. view H P: absolute (heading from the north to the east).
+1 view 90 -5
+5 view 90 -5

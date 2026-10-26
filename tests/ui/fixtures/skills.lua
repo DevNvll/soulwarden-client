@@ -147,3 +147,13 @@ frames(1.0)
 picture("skills-bow-chosen")
 equal(Swc.skills.requests[1], string.format("bar 25 2 %d", swcui.crc32("ability_bow_rapidshot")),
   "a click on Rapid Shot in the list of place 3 asks for 2701 (table index 25, place 2)")
+
+-- The bio tab (user test 2026-10-26, 8d): bio.luac SetupBonuses reads the territory of the player and the owned houses
+-- (PlayerHousingClientRequestBus GetOwnedHouseData: an empty list, no housing in the backend; the stub nil gave "attempt to get length
+-- of a nil value" at each open of the tab). The territory: Everfall (the ClaimKey of the client at the town).
+local errorsBefore = swcui.error_count()
+Swc.SetData("Hud.LocalPlayer.CurrentAreaTerritory.ClaimKey", 2)
+DynamicBus.SkillsBus.Broadcast.OpenBio()
+frames(1.5)
+picture("skills-bio")
+equal(swcui.error_count() - errorsBefore, 0, "the bio tab opens with no Lua error")

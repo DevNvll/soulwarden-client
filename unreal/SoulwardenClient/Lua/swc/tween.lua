@@ -146,9 +146,10 @@ local animations = {}   -- tostring(entity) .. "|" .. property id -> animation
 -- The animations that wait for their delay (the queued subtasks of the gem ScriptedEntityTweener): a delayed animation does not stop
 -- the running animation of its property; at the end of its delay it starts and replaces it, with the value of that moment as its
 -- start (damagenumber.luac: the fade in after 0.1 s, then the fade out after 1 s, on the same opacity; button.luac: the pulse of a
--- hover, a fade out and two delayed fades in). An animation with no delay removes the queued ones of its property. The rules come
+-- hover, a fade out and two delayed fades in). An animation with no delay removes the queued ones of its property from an earlier frame. The rules come
 -- from these scripts (the code of the gem is not in the game files).
 local queued = {}
+local tweenFrame = 0    -- the count of the tween ticks (the frame of a queued animation)
 local params = {}
 local cached = {}       -- cached animation id -> {params, entries = {{property, target}}}
 local nextCached = 1
@@ -190,13 +191,17 @@ local function start(entity, propertyId, target, p)
     backward = p.isPlayingBackward, timeline = p.timelineId, onComplete = p.onComplete, onUpdate = p.onUpdate,
     onLoop = p.onLoop, speed = 1, paused = false, key = key, uuid = p.uuid, target = target, isFrom = p.isFrom,
   }
+  a.frame = tweenFrame
   if a.delay > 0 then
     queued[#queued + 1] = a
   else
-    -- An animation with no delay also removes the queued animations of its property (the end of a hover stops its pulse).
+    -- An animation with no delay also removes the queued animations of its property from an earlier frame (the end of a hover stops
+    -- its pulse). A queued animation of the same frame stays (user test 2026-10-26, 8c: progressiontickeritem.luac QueueFadeOut queues
+    -- the fade out after 2 s, and in the same call the row fades in with no delay; with the removal each new row of the loot ticker
+    -- stayed on the screen, "+5.40" coin). An inference from these scripts: the code of the gem is not in the game files.
     local keep = {}
     for _, q in ipairs(queued) do
-      if q.key ~= key then
+      if q.key ~= key or q.frame == tweenFrame then
         keep[#keep + 1] = q
       end
     end
@@ -277,6 +282,7 @@ local function start_queued(dt)
 end
 
 function Swc.TickTweens(dt)
+  tweenFrame = tweenFrame + 1
   local starts = {}
   for _, s in ipairs(start_queued(dt)) do
     starts[s.a] = s.rest

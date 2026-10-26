@@ -213,6 +213,19 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   `HandleReleased`); a text input starts the edit on a release inside, takes typed text at its cursor (maximum length, password character), and ends
   with Enter or Escape or a press elsewhere; a drop-down expands (its content goes on top of the canvas at the same
   place) and collapses on a second click, on an option, or on a release outside.
+- Typed text (user test 2026-10-26, 8a: "im unable to type name when creating a new character"): the keyboard gives text only as
+  character events. The Linux platform layer of the engine (SDL3) starts the text input of each window that accepts input at its
+  creation (`LinuxWindow.cpp`, `SDL_StartTextInput`): the client makes no start call. `SDL_EVENT_TEXT_INPUT` gives
+  `FSlateApplication::OnKeyChar`; Slate routes the character along the focus path to the game viewport (`FSceneViewport::OnKeyChar`,
+  then `InputChar` of the viewport client). An input pre-processor (`IInputProcessor`) sees no character event. The client has its
+  own viewport client, `USwcGameViewportClient` (Config/DefaultEngine.ini `GameViewportClientClassName`): the console of the engine
+  first, then each character to `Swc.HostInput("text", ...)` (`USwcUiSubsystem::UiChar`). The rules: no control character (SDL also
+  gives BackSpace and Enter as the characters `\b` and `\r` after their key events; the key route of the text input has them), the two
+  halves of a UTF-16 surrogate pair join, and a key of a letter adds no text and goes to no game map while a text input edits. The
+  trap: the drive command `text` calls the runtime directly, so the check of AST-267 typed the name and the real keyboard did not. A
+  check of typed text uses the drive command `char TEXT` (`FSlateApplication::ProcessKeyCharEvent`, the route after the platform
+  layer); the drive `key BackSpace` and `key Enter` also give the platform character. Check (2026-10-26): `tests/drive/ut1026-name-ui.txt`,
+  the name "Madevale" (`char Madevalx`, BackSpace, `char e`) in the field, the valid icon, and the create of the new character.
 - The drag hand-off (O3DE `InputPositionUpdate`, `OfferDragHandOff`): a press on an interactable in a scroll box (the
   world map of the respawn screen: its tiles) gives the drag to the scroll box when the move along the scroll axes is
   more than the threshold 5 of a contained drag (a squared length, as in O3DE). The scroll box becomes the active
@@ -251,7 +264,11 @@ The model follows the rules of LyShine (the O3DE source is a reference only; no 
   `TryShowById` and `TryHideById` show and hide a screen over the state (the popup) with `OnTransitionIn` and
   `OnTransitionOut`; the state does not change.
 - The cursor: the UI needs the pointer while a mouse owner exists (`AddMouseOwner`) or a shown screen has
-  `requiresMouse` (`Swc.HostCursor`). A key goes to the game unless each game map (movement, combat, player, camera)
+  `requiresMouse` (`Swc.HostCursor`). The unload of a canvas removes its mouse owner (`Swc.UnloadCanvas`; an inference: the native
+  manager is not read). The trap (user test 2026-10-26, 8b): `charactercreation.luac` SetState adds its canvas as a mouse owner on each
+  step but the name step, and each quit path (OnExit) sets a step first; the owner stayed after PLAY unloaded the menu screens, and
+  the first world entry of the run kept the cursor (no mouse look). A return to the menu makes a new runtime, so the second entry was
+  correct. A key goes to the game unless each game map (movement, combat, player, camera)
   that binds it is off, or a text input edits (`Swc.HostKeyToGame`; "maxis_x" for the mouse moves).
 - Fixture `escape`: the original EscapeMenu and Popup screens: Escape opens the menu (the cursor, the maps off), exit
   to desktop opens the quit popup over it, Escape closes only the popup, the pointer hovers the menu buttons again,
@@ -802,6 +819,8 @@ a Lua error fails the run). Before the cleanup that run had 34 errors, the same 
 | bannertriggers.luac OnProgressionPointsChanged (index nil) | Missing stub: ProgressionPointRequestBus GetStaticProgressionPointData | A record with a category that is not a territory (swc/skills.lua) |
 | documentstab.luac (journal: `#` of nil, `GetCurrentBusId`) | Missing data (JournalDataManagerBus) and a missing bus method | Empty document lists (swc/quests.lua; open point: the lore documents); each bus has GetCurrentBusId: the address of the handler of the event that runs (Swc.CallHandler, swc/core.lua) |
 | loadingscreenmanager.luac UpdateTipPoolPriorityLevels (AST-280, at each travel) | Missing native data calls: 355238560 (the show count of a tip, -1 for none) and 1214891646 (save it) | Both calls, with a store for the session (swc/host.lua). The tip screen was off: `UIFeatures.g_uiEnableLoadingScreenTips` is true in retail (registration 0x4A3AC9F, the value byte 1) and the client did not have it; with it a travel shows the destination image, the mode icon, and a tip (live lc3) |
+| conversationoptionv2.luac OnPress (user test 2026-10-26: `stack overflow`, then the Talk ended) | Call order: OnInit sets the callback of the option to OnPress itself; the screen sets up its options one tick after OnConversationStateChange. A key E in that frame (OnCryAction: ui_interact goes to dialogOption1 while the center hint is off) pressed option 1. The first Talk loads the canvas, and that frame took 0.6 s. In the same frame E also acted on the center hint of the Talk before and ended the new Talk at once | swc/conversation.lua: the option keys (ui_interact, ui_nav_select, dialogOptionN) do nothing until the screen updates its options (at most 1 s); a press of an option with the OnInit callback does nothing. Fixture `conversationpress` |
+| bio.luac SetupBonuses (user test 2026-10-26: `#` of nil at the BIO tab of the Skills screen) | Missing data: PlayerHousingClientRequestBus GetOwnedHouseData was a stub (nil) | An empty list: the backend has no housing (swc/worldmap.lua). The fixture `skills` opens the BIO tab |
 | hudcanvasdefault.luac and lootticker2024canvas.luac SetIsVisible (AST-228) | An empty ElementsWithActionListeners list | Fixed before (commit 54c0c77, the hook of swc/elements.lua); no client log after 2026-10-23 has the error |
 
 Fixture `luaerrors` (22 checks) runs each path and checks `Swc.errorCount` after each step; with the Lua of main it fails 9 checks
@@ -902,14 +921,22 @@ The notices (`swc/notices.lua`, the bag feed of `swc/items.lua`, `Swc.HostProgre
   character (3601; the red number), the heals of the own character (the green "+N"); the numbers of the own character 1.6 m above
   the feet and 0.5 m to the right of the view (the Player settings of the script).
 - The tween rule: a tween with a delay waits in a queue and replaces the running tween of its property at the end of its delay,
-  with the value of that moment as its start; a tween with no delay removes the queued tweens of its property (the fade in and out
-  of a damage number, the pulse of a button hover).
+  with the value of that moment as its start; a tween with no delay removes the queued tweens of its property from an earlier frame
+  (the fade in and out of a damage number, the pulse of a button hover). A queued tween of the same frame stays (user test
+  2026-10-26, 8c): `progressiontickeritem.luac` QueueFadeOut queues the fade out (a delay of 2 s, a time of 3 s; its OnComplete
+  hides the row), and in the same call the new row fades in with no delay. With the removal each new progression row of the loot
+  ticker (the coin, the experience) stayed on the screen ("+5.40" coin); a row that took a merge (UpdateValue) went. The rules are an
+  inference from these scripts (the code of the gem is not in the game files).
 - The loot ticker (`lyshineui/hud2024/lootticker/lootticker2024`): a bag slot with the sync cause 1, 6, 20, 25, 37, or 40 (34 for a
   slot that the vector had) and a larger quantity gives `OnLootReceived(slot, the new quantity less the prior quantity)`
   (Soulwarden research loot.md: the gates 0x48DA750 and 0x48E4130); the load of the bag (0x11) and the cause 0 give none. The
   icon of the item shows the count of the item in the bag (`ContainerRequestBus` `GetItemCount` with the item descriptor). The
   experience: `Hud.LocalPlayer.Progression.Glory` (the total), `PrevRequiredGlory` and `RequiredGlory` (the level table
-  `gamedata/xplevels.json`); the ticker takes the first total of the world entry with no line. The flag
+  `gamedata/xplevels.json`); the ticker takes the first total of the world entry with no line. The coin: the first value of
+  `Hud.LocalPlayer.Currency.Amount` is the start total (lootticker2024.luac: a nil total takes the value; 0 is a value in Lua); each
+  later increase is a row "+N.NN" (hundredths), a second gain while the row shows adds to it, and the row goes 5 s after the last
+  gain. The client gives the wallet before PlayerSpawned (`FeedLocalPlayer`), and PlayerSpawned writes no 0 before the first wallet
+  (`Swc.player.coinKnown`): before, the wallet of the world entry showed as a gain. Fixture `tickercoin` (10 checks). The flag
   `g_enableNewProgressionTicker` (0x4A3A1F7) and `javelin.xp-multipliers.character` 1.0 come from the settings registration.
 - When the UI runs, the simple heal numbers (`SetUiHealNumbers`) and the loot lines of the object layer (`SetUiLootNotice`) go off.
 
@@ -1153,6 +1180,8 @@ default HUD layout. A cut of a running cooldown keeps its full time. Pictures `f
 | `plates` | The original AiMarker plates (`markermanager.luac`, `marker.luac`, `markerstatuseffect.luac`): the scripts register the types and the pools; two grey wolves of the host get the elements a0 and a1: the near one (5 m) with its name, its level 18, the red bar, and the stun icon on a red square at the middle of the view 1.5 m above its feet; the far one (12.4 m, one half of its health) with the alpha 0.52; at its death the bar empties, and a creature out of the pool hides. Pictures `plates`, `plates-dead`. |
 | `prompt` | The original prompt cards: a loot bag 2 m ahead gives the card "DROPPED ITEMS" with "E Take All" (the hold form) and "T Open" at the screen place of the bag; a hold of one half fills the ring of the key to one half; T gives the request `openloot 57`; a young tree with no axe gives the gatherable card "YOUNG TREE" with the crossed ring, no key, and "No equipped Axe" with the icon of the gathering type; no focus hides the card. Pictures `prompt-bag`, `prompt-hold`, `prompt-tree`. |
 | `notices` | The original damage numbers and loot ticker: 64 slash (white, the slash icon), 132 critical (orange), 85 thrust at a wolf (yellow with the arrow: the weakness of the wolf), 151 strike to the own character (red), a heal "+120" (green); the numbers go back to the pool after their animation; 9 iron ore with the cause 1 give "+9 Iron Ore" (the icon: the count in the bag, 9); 5 rawhide while that row shows give "+5"; 27 experience give "+27 XP"; the first total gives no line; a load of the bag gives no notice. Pictures `notices-damage`, `notices-loot`, `notices-xp`. |
+| `tickercoin` | The coin rows of the loot ticker (user test 2026-10-26, 8c): the wallet of the world entry gives no row; a gain of 5.40 shows "+5.40" and goes after 5 s (2 s delay, 3 s fade); two gains merge (+2.25) and go 5 s after the second; a gain while the HUD is hidden goes too. With the tween rule before, 2 checks fail (and 1 of `notices`: the progression line goes). |
+| `conversationpress` | E in the frame of the open of a Talk (user test 2026-10-26, 8d): Cecilia Polly, the first Talk of the runtime (option 1 has the OnInit callback): no stack overflow, no request, the Talk stays, a later E ends it; Saira Yangandul (two lines): E at the open does not end the new Talk, E shows the second line, E at the last line ends it. |
 | `text` | The original InfoModal screen (`infomodal.luac`, `modalrow_text.luac`) shows four text rows by its own scripts: wrap, `<font color face>` pieces, an inline image, a link with a line end; the rows do not overlap. Then the gesture tag, raw text for markup that is not valid, ellipsis, shrink to fit, clip. Pictures `text-modal`, `text-overflow`. |
 
 The layout check (C++, in the test program): each converted canvas of 1920 x 1080 loads into a model with no scripts,

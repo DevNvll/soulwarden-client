@@ -1,0 +1,28 @@
+# User test 2026-10-26, 8b: the creation ends with OnExit (Escape and Yes on the archetype step: the quit popup of
+# QuitCharacterArchetypesV2), then PLAY with the development character: at the login token the cursor must hide
+# (tools/menu-check.sh ut1026-exit-play 150 -- -SwcUiDrive=FILE). The clock starts at the landing screen.
+1 waitfor CharacterList 60
+2 waitfor text:Create_Character 120
+4 point text:Create_Character
+4.5 click
+8 point text:Yes
+8.5 click
+36 draw archetype
+37 key Escape
+39 draw quit-popup
+40 point text:Yes
+40.5 click
+44 draw landing-after-exit
+45 waitfor CharacterList 60
+46 point text:Devwarden
+46.5 click
+48 point PlayButton
+48.5 click
+49 log ut1026: PLAY after the creation exit
+50 waitfor world 180
+56 draw hud
+57 log ut1026: the world entry, the ticker and the cursor
+60 move 0.7 0.5
+61 move 0.3 0.5
+70 draw hud-later
+80 end

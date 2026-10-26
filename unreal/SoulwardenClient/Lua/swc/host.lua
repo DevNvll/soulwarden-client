@@ -89,7 +89,11 @@ function Swc.PlayerSpawned()
   Swc.SetData("Hud.LocalPlayer.HudComponent.VitalsEntityId", ids.vitals)
   Swc.SetData("Hud.LocalPlayer.HudComponent.EventNotificationEntityId", ids.eventNotification)
   Swc.SetData("Hud.LocalPlayer.HudComponent.GatheringEntityId", ids.gathering)
-  Swc.SetData("Hud.LocalPlayer.Currency.Amount", Swc.player.coin or 0)
+  -- The coin only when the host gave it (Swc.HostCoin): lootticker2024.luac takes the first value as the start total, and a 0 before
+  -- the wallet of the backend showed the wallet as a gain (user test 2026-10-26, 8c: the row "+5.40" at the world entry).
+  if Swc.player.coinKnown then
+    Swc.SetData("Hud.LocalPlayer.Currency.Amount", Swc.player.coin or 0)
+  end
   Swc.SetData("Hud.LocalPlayer.Vitals.ComponentIsActive", true)
   -- The progression of the player is connected (xpmeter.luac then compares the level with the maximum level: the meter hides at
   -- the maximum level, as in the retail HUD at level 70, set 6).
