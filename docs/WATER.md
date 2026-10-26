@@ -297,6 +297,10 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       `UpdateAll` and info mesh build; the refresh after each loading screen), `swc.WaterKick`, `swc.WaterStartKick`, and the rebuild
       mode of `swc.WaterZoneRefresh`. Kept: the diagnostic `swc.WaterZoneRefresh -1` (now with the water height range and the ground
       minimum of the zone) and the log of the first water info texture. `FarDistanceMeshExtent` 20 km stays until the far-ring task.
+    - The check (2026-10-26 07:55 to 07:58 UTC, an editor run, `wu2a-fix`, `2a-fix-sheet.png`; `work/water-unreal/run_fixcheck.sh`): PASS.
+      A fresh start at the beach with the default and no debug draw: the log has "the ocean channel depth 10.0 m"; the range is
+      30.000 to 233 m for the whole run; the bay has water from 2 s; the view to the open sea at 30 s has water to the islands; no
+      "Failed to compile" line. The cooked start comes after the next cook.
   - Thus the default stays the source path (the decision of the orchestrator, 2026-10-26 00:08 UTC). The full cook takes the plugin,
     its materials, and the specs. A later fix and the switch of the default need only a code change and an incremental cook.
 - The cook: `DefaultGame.ini` cooks `/Water/Materials` and `/Water/Waves` (the client loads them by path), and
