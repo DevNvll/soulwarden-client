@@ -103,6 +103,35 @@ local hasKey = false
 for _, k in ipairs(keys) do hasKey = hasKey or k == 6 end
 check(hasKey and #keys == #claims, "the claim keys: the territory ids of the claim rows")
 
+-- 1b. The standing list of the map (territorystandingspane.luac UpdateTerritories: the claim rows with no territory 9, sorted by tokens,
+-- then rank, then the localized name) with no standing: the 13 territories with a shape, Windsward among them, at its name place (the
+-- live check msb showed the first rows only: Brightwood to Mourningdale; Windsward is below them).
+local pane
+for _, list in pairs(Swc.components) do
+  for _, instance in ipairs(list) do
+    if string.find(instance.__swcScript or "", "territorystandingspane.luac", 1, true) then pane = instance end
+  end
+end
+local function pane_rows()
+  pane.territories = nil
+  pane:UpdateTerritories()
+  local ids, names = {}, {}
+  for _, row in ipairs(pane.territories or {}) do
+    ids[#ids + 1] = row.territoryId
+    names[#names + 1] = swcui.localize(row.nameLocalizationKey)
+  end
+  return ids, names
+end
+check(pane ~= nil, "the standing list of the map (territorystandingspane.luac)")
+if pane then
+  local ids, names = pane_rows()
+  note("the standing list with no standing: " .. table.concat(names, ", "))
+  equal(#ids, 13, "the list has the 13 territories with a shape")
+  local at = 0
+  for i, id in ipairs(ids) do if id == 6 then at = i end end
+  check(at > 0, "the list has Windsward (with no standing: at its name place " .. at .. ")")
+end
+
 -- 2. The first states (silent): Windsward rank 0 with 120 points, the pool with no token; a weapon pool with category 1.
 Swc.HostRanks(string.format("%d 0 120", WINDSWARD))
 pools(0)
@@ -133,6 +162,13 @@ frames(3.0)
 local bannerText = texts_of(banner)
 note("the banner: " .. bannerText)
 check(bannerText:find("Windsward", 1, true) ~= nil, "the rank banner names Windsward")
+
+if pane then
+  local ids, names = pane_rows()
+  note("the standing list at rank 1 with one token: " .. table.concat(names, ", "))
+  equal(ids[1], 6, "Windsward is the first row with its token (retail qg1 shot 22: Newcomer in Windsward)")
+  equal(#ids, 13, "still 13 rows")
+end
 
 -- 4. The available cards at rank 1 with one token: the rank row 0 in its order; the values of the next level.
 local available = ProgressionPointRequestBus.Event.GetAvailableProgressionPointsData(player, WINDSWARD, true)
