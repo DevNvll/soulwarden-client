@@ -59,6 +59,10 @@ Swc.config = {
   -- The banners (AST-236): banner.luac SwitchLayout shows no banner when this flag is not true. The retail client shows the banner of
   -- a new quest ("MAIN STORY QUEST / SOUL SURVIVOR": Soulwarden evidence quests/18a and 18c RS-2-after.png): thus true.
   ["UIFeatures.g_uiEnableLandBanners"] = true,
+  -- The territory mechanics of the map (QG1, step 3 of ut567): mapmenu.luac shows the Territories button (TerritoryStandingsButton) of
+  -- the left bar only when this flag is true. The retail map shows it (Soulwarden evidence quests/qg1/implement/live/22-map-standing-after.png:
+  -- the Territories list with Windsward): thus true. The native default is not read.
+  ["UIFeatures.g_uiEnableTerritoryMechanics"] = true,
   ["UIFeatures.housingImprovements"] = false,                  -- 0x4A3ABCD
   ["javelin.enable-all-dungeons"] = true,                      -- 0x617B13D
   ["javelin.enable-barbershop"] = true,                        -- 0x61850C4
