@@ -436,6 +436,55 @@ void test_progress(Session& session) {
                "the standing of Windsward (1DB87A14): rank 0, 120 points");
         expect(own.ranks.count(id_of("WarHammer")) == 1, "the masteries stay with the standing");
     }
+    // Step 3 of ut567 (QG1, protocol notes 4.59): the territory pool of Windsward (TerritoryRankBonus_6, CCDDF19B, category 2) after the
+    // weapon pools in one fragment: its free tokens (the rank 2 of the standing minus the spent levels) and its cards with their levels.
+    // TB_PurchaseHouse has DoNotSpendPoint: its level does not spend a token. The cards are not learned nodes of the weapon trees.
+    const std::uint32_t windsward = 0xCCDDF19BU;
+    const std::uint32_t gainStanding = 0x68C1F9AAU;
+    const std::uint32_t purchaseHouse = id_of("TB_PurchaseHouse");
+    entity.skills.progressions[0x1DB87A14U] = {2, 70};
+    backend::world::TerritoryPool pool;
+    pool.standing = 0x1DB87A14U;
+    pool.cards = {{gainStanding, 1}, {purchaseHouse, 1}};
+    pool.spent = 1;
+    entity.skills.territoryPools[windsward] = pool;
+    entity.changed[backend::world::ComponentKey::categorical] = 33;
+    entity.changed[backend::world::ComponentKey::points] = 33;
+    const std::vector<std::uint32_t> weaponNodes = own.learnedNodes;
+    session.apply(progress_fragments(entity, 32, clock));
+    expect(own.pointPools.count(windsward) == 1 && own.pointPools.at(windsward) == 1, "the territory pool of Windsward: 1 free token (rank 2 - 1)");
+    expect(own.poolCategories.count(windsward) == 1 && own.poolCategories.at(windsward) == swc::net::kPoolCategoryTerritory,
+           "the territory pool has the category 2");
+    expect(own.poolCategories.at(id_of("GreatAxe")) == 1, "a weapon pool has the category 1");
+    expect(own.learnedNodes == weaponNodes, "the cards are not learned nodes; the weapon nodes stay");
+    {
+        bool standingCard = false, houseCard = false;
+        for (const auto& entry : own.territoryEntries) {
+            standingCard = standingCard || (entry.pool == windsward && entry.point == gainStanding && entry.level == 1);
+            houseCard = houseCard || (entry.pool == windsward && entry.point == purchaseHouse && entry.level == 1);
+        }
+        expect(own.territoryEntries.size() == 2 && standingCard && houseCard, "the two cards of Windsward with their levels");
+    }
+    // A card at level 2 (a repeated card): the level stays (a set of learned nodes would keep only 1).
+    entity.skills.progressions[0x1DB87A14U] = {3, 10};
+    entity.skills.territoryPools[windsward].cards[gainStanding] = 2;
+    entity.skills.territoryPools[windsward].spent = 2;
+    entity.changed[backend::world::ComponentKey::categorical] = 34;
+    entity.changed[backend::world::ComponentKey::points] = 34;
+    session.apply(progress_fragments(entity, 33, clock));
+    {
+        std::uint16_t level = 0;
+        for (const auto& entry : own.territoryEntries) {
+            level = entry.point == gainStanding ? entry.level : level;
+        }
+        expect(level == 2 && own.pointPools.at(windsward) == 1, "TB_GainStanding at level 2; 1 free token (rank 3 - 2)");
+    }
+    // A state with no territory pool removes it and its cards.
+    entity.skills.territoryPools.clear();
+    entity.changed[backend::world::ComponentKey::points] = 35;
+    session.apply(progress_fragments(entity, 34, clock));
+    expect(own.pointPools.count(windsward) == 0 && own.poolCategories.count(windsward) == 0 && own.territoryEntries.empty(),
+           "a state with no territory pool: no pool, no card");
     expect(session.client->counts().incompleteBundles == 0, "the client reads each bundle to its end");
 }
 

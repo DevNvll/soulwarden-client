@@ -22,6 +22,8 @@ inline constexpr const char* kHudScreens[] = {
     "lyshineui/respawn/respawn",
     // The world map (stage MVP-C): M opens the state Map (magicmap.luac and its layers; the map data of swc/worldmap.lua).
     "lyshineui/worldmap/magicmap",
+    // The card popup of a territory standing (QG1, step 3 of ut567): the state Map loads it (swc/territory.lua).
+    "lyshineui/territory/territorystanding/territorybonuspopup",
     // The conversation screen (stage MVP-H): the Talk of a person (swc/conversation.lua, UI/SwcUiConversation).
     "lyshineui/conversation/conversationscreenv2",
     // The in-game scenes and the cinematic video stand-in (stage Q5, AST-240; swc/scenes.lua).

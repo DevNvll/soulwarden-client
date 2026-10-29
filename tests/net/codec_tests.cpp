@@ -1246,6 +1246,13 @@ void test_skills() {
     expect(assign && assign->call.entity == group && assign->call.target == swc::net::slice_facet_target(group, swc::net::kGameEventsEntity, swc::net::kProgressionPointComponent) && assign->pool == bow
                && assign->node == 0x6C2E4693 && assign->count == 1 && swc::net::assign_pool_points_body(group, bow, 1).size() == 28,
            "1112: the backend reads the pool, the node, and the count 1 (28 bytes)");
+    // Step 3 of ut567 (QG1): 4040 with the progression id of Windsward (the CRC-32 of "6") first and the card TB_GainStanding.
+    const auto card = rep::read_territory_point_request(swc::net::spend_territory_point_body(group, 0x1DB87A14, 0x68C1F9AA));
+    expect(card && card->call.entity == group
+               && card->call.target == swc::net::slice_facet_target(group, swc::net::kGameEventsEntity, swc::net::kProgressionPointComponent)
+               && card->progressionId == 0x1DB87A14 && card->pointId == 0x68C1F9AA
+               && swc::net::spend_territory_point_body(group, 1, 2).size() == 24,
+           "4040: the backend reads the progression 1DB87A14 and the card 68C1F9AA (24 bytes, the ProgressionPoint facet)");
     const auto bar = rep::read_bar_request(swc::net::change_mapped_ability_body(group, 25, 2, 0x12345678));
     expect(bar && bar->call.entity == group && bar->tableIndex == 25 && bar->slot == 2 && bar->ability == 0x12345678
                && swc::net::change_mapped_ability_body(group, 25, 2, 1).size() == 26,

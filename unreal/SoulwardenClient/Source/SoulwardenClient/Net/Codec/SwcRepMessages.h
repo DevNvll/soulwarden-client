@@ -656,6 +656,19 @@ inline constexpr std::uint64_t kSocialEntity = 0xE8A82A615858169DULL;
 inline constexpr std::uint64_t kFactionComponent = 0xE9FFAD8E007C4913ULL;
 /** @return The body of RequestSetFaction (3161, 17 bytes): the Faction facet of the entity Social, the entity (G), the faction. */
 Bytes set_faction_body(std::uint64_t group, std::uint8_t faction);
+/**
+ * The territory standing (QG1; protocol notes 4.59; Soulwarden progress_requests.h TerritoryPointRequest): the card choice
+ * RequestSpendTerritoryStandingPoint (4040, 24 bytes: target entity progressionId:u32 pointId:u32) to the ProgressionPoint facet of the entity
+ * GameEvents (the facet of 1112). progressionId is the CRC-32 of the territory id text ("6": 1DB87A14), not the pool; pointId the CRC-32 of
+ * the card (TB_GainStanding: 68C1F9AA). The answer is the next ProgressionPoint state (slot 67). The type id is not in the research tables:
+ * empty, the client does not use the type ids at run time.
+ */
+inline constexpr MessageType kRequestSpendTerritoryPoint{"ProgressionPointComponentServerFacet_RequestSpendTerritoryStandingPoint", "", 4040};
+/** The category of a pool of the ProgressionPoint state (slot 67, field 2): 1 a weapon tree, 2 a territory standing. */
+inline constexpr std::uint8_t kPoolCategoryTerritory = 2;
+/** @return The body of RequestSpendTerritoryStandingPoint (4040, 24 bytes): the ProgressionPoint facet, the entity (G), the progression
+ *  id, the point id (the writer 0x3274450 writes the progression id first). */
+Bytes spend_territory_point_body(std::uint64_t group, std::uint32_t progression, std::uint32_t point);
 /** @return The body of RequestChangeMappedAbility (2701, 26 bytes): target entity tableIndex:u16 slot:u32 abilityId:u32. */
 Bytes change_mapped_ability_body(std::uint64_t group, std::uint16_t tableIndex, std::uint32_t slot, std::uint32_t ability);
 /** @return The body of RequestApplyAbilityPoints (2857, 16 bytes): target entity. */

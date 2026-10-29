@@ -369,6 +369,41 @@ Linear AST-213. `tools/convert-ui.sh worldmap` writes the data and the textures;
   leaves the view goes to a pool. A scroll updates the visible copies.
 - The prototypes leave their list: they wait under a hidden element of the canvas ("Prototypes").
 
+## The territory standing (swc/territory.lua, QG1, step 3 of ut567)
+
+The standing of a territory, its tokens, and its cards (Soulwarden protocol notes 4.59; backend `docs/systems/progression-and-skills.md`;
+the static read `work/ut567/qgplan/t3points/ANSWERS.md`, all [S] unless marked).
+
+- The data: `tools/convert-territory.sh` writes `ui/gamedata/territory.json` from the backend copy (`progression-tables.json`: the
+  standings with their pools, the cards of each rank row of Territory_Standing, the card values) and the UI columns of
+  `javelindata_progressionpointdata.datasheet` (UpgradeCardSprite, UpgradeCardIcon, UpgradeCardCategory, UpgradeCardStat,
+  UpgradeCardDescription). Windsward: territory 6, progression 1DB87A14, pool TerritoryRankBonus_6 (CCDDF19B).
+- The state: the rank and the points come from slot 65 (`HostRanks`). The pools come from slot 67 (`HostPointPools`): "pool free
+  category" lines and the cards of the territory pools ("pool card level" lines). The codec keeps the category and the card levels;
+  the cards are not learned nodes of the weapon trees. The host sends the pools before the ranks, so that a rank banner reads the new
+  tokens.
+- `GetUnspentTokens(progression)`: the pool of the territory, and its received free count.
+- `GetAvailableProgressionPointsData(progression, filter)`: the cards of the rank row whose index is the spent levels of the pool (the
+  levels of the cards with no DoNotSpendPoint), in the row order. With the filter, only with a free token and room below MaxLevel. The
+  value is the total bonus of the next level (card_bonus, f32, client 0x5C51100).
+- `GetCurrentProgressionPointsData(progression)`: each stored card of the pool with the total bonus of its level. The native order is
+  the order of a hash container; the client uses the order of the card CRCs [I].
+- `canUpgrade`: a free token, the standing rank is RequiredCategoricalProgressionLevel or more, and the next level is MaxLevel or less.
+  The script shows HousePurchase alone while it can upgrade (territorydatahandler.luac ProgressionPointsToRewards).
+- The events of a new pools state, only for a territory pool of the earlier state: `OnUnallocatedProgressionPointsChanged(pool, old,
+  new)` when its free count changes, then `OnProgressionPointsChanged(card, oldLevel, newLevel)` for each changed card. The first
+  state, a new pool, and a removed pool send none. The weapon pools keep their earlier events [I].
+- The card choice: `RequestSpendTerritoryStandingPoint` sends "territory spend PROGRESSION CARD", that is 4040 (24 bytes: target,
+  entity, the territory CRC, the card CRC) to the ProgressionPoint facet. The client changes nothing before the next points state.
+- The claim rows (`MapComponentBus.GetClaims`): one row for each standing territory with a definition (id, monikerId, and settlementId
+  are the territory id; the name key). They have no compass icon, so compass.luac does not show them. The claim keys
+  (`LandClaimRequestBus.GetClaimKeys`) are the same territories [I: the offline world has no land claim manager]. The standing list,
+  the NavBar token count, and the rank banner read them.
+- The card popup (TerritoryBonusPopup, POPUP_DRAW_ORDER) loads at the state Map (2477632187), as the retail dynamic canvas loader does.
+- The enums: `eTerritoryBonus_*` (0 to 11) and `ePoolCategory_*` (0 to 2) of the binding 0x54DC42D (swc/enums.lua).
+- Fixture `tests/ui/fixtures/territory.lua`: the rank-up of Windsward (the banner "Windsward | Standing Rank Up | 1"), the popup with
+  HousePurchase alone, the two choices, the events, and the values. With no `territory.json`, it skips the checks with a note.
+
 ## The order of the canvases
 
 - The canvases draw in the order of their draw order; equal draw orders keep their load order, the later load on top, and the input goes

@@ -87,3 +87,8 @@ Swc.DefineEnum("eAID_AzPad", 16)
 -- The option OpenFactionGuide of the conversation (the PvP_Guide service; the enum name binding 0x5A5C78B to 0x5A5C795: 20; 2b of ut567,
 -- static read ut567/qgplan/f4service). The scripts do not read the name, so the table of the client does not have it.
 Swc.DefineEnum("eConversationOptionType_OpenFactionGuide", 20)
+-- The territory bonus of a card and the pool categories (QG1, step 3 of ut567; the static read ut567/qgplan/t3points: the binding 0x54DC42D to
+-- 0x54DC509). The table of the client has only the names that the scripts read.
+define("eTerritoryBonus", {"Invalid", "GainStanding", "GainXP", "GainStorage", "GainGatherRate", "GainFactionRep", "GainHousePoints",
+                           "TradingTax", "StationTax", "PropertyTax", "HousePurchase", "NumTerritoryBonuses"})
+define("ePoolCategory", {"Invalid", "Player", "Territory"})

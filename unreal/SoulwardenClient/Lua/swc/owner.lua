@@ -172,12 +172,29 @@ Swc.Define("CategoricalProgressionRequestBus", "Event", {
 })
 
 --- The free points of each weapon tree: "pool free" lines.
-function Swc.HostPointPools(text)
-  local pools = {}
-  for pool, free in string.gmatch(text or "", "(%d+) (%d+)") do
-    pools[tonumber(pool)] = tonumber(free)
+function Swc.HostPointPools(text, cards)
+  local pools, categories = {}, {}
+  for line in string.gmatch(text or "", "[^\n]+") do
+    local pool, free, category = line:match("^(%d+) (%d+) ?(%d*)")
+    if pool then
+      pools[tonumber(pool)] = tonumber(free)
+      categories[tonumber(pool)] = tonumber(category) or 0
+    end
   end
-  O.pools = pools
+  -- The cards of the territory pools (QG1; step 3 of ut567): "POOL CARD LEVEL" lines; each state replaces them.
+  local levels = {}
+  for line in string.gmatch(cards or "", "[^\n]+") do
+    local pool, card, level = line:match("^(%d+) (%d+) (%d+)")
+    if pool then
+      levels[tonumber(pool)] = levels[tonumber(pool)] or {}
+      levels[tonumber(pool)][tonumber(card)] = tonumber(level)
+    end
+  end
+  local old = O.pools
+  O.pools, O.poolCategories, O.cardLevels = pools, categories, levels
+  if Swc.territory and Swc.territory.PoolsChanged then
+    Swc.territory.PoolsChanged(old)
+  end
 end
 
 --- The heart rune charge in percent (0 to 100).

@@ -232,8 +232,8 @@ Swc.Define("CharacterAbilityRequestBus", "Event", {
 
 Swc.Define("ProgressionPointRequestBus", "Event", {
   -- The static data of a point pool (bannertriggers.luac OnProgressionPointsChanged reads its poolCategory; a nil record was a Lua error
-  -- at each change of the learned nodes): the pools of this client are the weapon trees; it has no territory token pool
-  -- (ePoolCategory_Territory 2), so the category is 0.
+  -- at each change of the learned nodes): the weapon nodes have the category 0 here; the territory cards (ePoolCategory_Territory 2) have
+  -- their own record in swc/territory.lua.
   GetStaticProgressionPointData = function(_, id) return {id = id or 0, poolCategory = 0} end,
   GetUnallocatedPoolPoints = function(_, id)
     local t = table_of(id)

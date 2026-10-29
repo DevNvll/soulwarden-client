@@ -1001,12 +1001,20 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                 const decoder::WirePools pools = decoder::read_pools(fields);
                 if (pools.ok) {
                     m_own.pointPools.clear();
+                    m_own.poolCategories.clear();
                     for (const decoder::WirePool& pool : pools.pools) {
                         m_own.pointPools[pool.id] = pool.free;
+                        m_own.poolCategories[pool.id] = pool.category;
                     }
+                    // The entries of a territory pool are cards with a level (QG1); the other entries are the learned nodes of the weapon
+                    // trees (a level above 0).
                     m_own.learnedNodes.clear();
+                    m_own.territoryEntries.clear();
                     for (const decoder::WireNode& node : pools.nodes) {
-                        if (node.level > 0) {
+                        const auto category = m_own.poolCategories.find(node.pool);
+                        if (category != m_own.poolCategories.end() && category->second == kPoolCategoryTerritory) {
+                            m_own.territoryEntries.push_back({node.pool, node.node, node.level});
+                        } else if (node.level > 0) {
                             m_own.learnedNodes.push_back(node.node);
                         }
                     }
@@ -1571,6 +1579,16 @@ void RepClient::set_faction(std::uint8_t faction) {
     }
     send_call(kRequestSetFaction, set_faction_body(m_own.group, faction));
     log(Event::Level::info, "faction: the request of the faction " + std::to_string(faction) + " (3161)");
+}
+
+void RepClient::spend_territory_point(std::uint32_t progression, std::uint32_t point) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata || progression == 0 || point == 0) {
+        return;
+    }
+    send_call(kRequestSpendTerritoryPoint, spend_territory_point_body(m_own.group, progression, point));
+    char text[96];
+    std::snprintf(text, sizeof(text), "territory: the card %08X of the progression %08X (4040)", point, progression);
+    log(Event::Level::info, text);
 }
 
 void RepClient::reset_objective(std::uint64_t instance) {

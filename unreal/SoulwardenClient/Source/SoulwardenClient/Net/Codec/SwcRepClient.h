@@ -256,10 +256,21 @@ public:
         std::vector<std::pair<std::uint32_t, std::uint64_t>> itemCooldowns;
         /**
          * The learned nodes of the weapon trees (the ProgressionPoint state, slot 67, type 3681; stage P3.5): the node id (the
-         * CRC-32 of the lower-case node id text) of each point entry with a level above 0. A state has each pool and each node
+         * CRC-32 of the lower-case node id text) of each point entry with a level above 0 of a pool that is not a territory pool (QG1). A state has each pool and each node
          * (the backend never cuts it), thus each state replaces the list. `nodesRevision` counts the states.
          */
         std::vector<std::uint32_t> learnedNodes;
+        /**
+         * The point entries of the territory pools (the ProgressionPoint state, field 3; QG1, protocol notes 4.59): the pool id, the card id
+         * (the CRC-32 of the lower-case card id text), and the level (a card can have a level above 1). Only the entries of the pools of the
+         * category 2 (kPoolCategoryTerritory); the entries of the weapon pools are the learned nodes. Each state replaces the list.
+         */
+        struct PointEntry {
+            std::uint32_t pool{0};
+            std::uint32_t point{0};
+            std::uint16_t level{0};
+        };
+        std::vector<PointEntry> territoryEntries;
         std::uint32_t nodesRevision{0};
         /**
          * The speed table of the owner (StatMultiplierTable, slot 43, type 1525; stage P3.3, protocol notes 4.24): the multiplier of
@@ -327,9 +338,11 @@ public:
         std::map<std::uint32_t, Rank> ranks;
         std::uint64_t rankStamp{0};
         std::uint32_t rankRevision{0};
-        /** The point pools of the weapon trees (the ProgressionPoint state, slot 67, fields 0 and 1): the pool id (the CRC-32 of the
-         *  mastery table) to its free points. The client removes a pool that is not in the lists: each state replaces the map. */
+        /** The point pools (the ProgressionPoint state, slot 67, fields 0 and 1): the pool id (the CRC-32 of the mastery table, or of a
+         *  territory rank bonus pool: TerritoryRankBonus_6 CCDDF19B) to its free points (the tokens of a territory). The client removes a pool that is not in the lists: each state replaces the map. */
         std::map<std::uint32_t, std::uint16_t> pointPools;
+        /** The category of each pool of pointPools (field 2): 1 a weapon tree, 2 a territory standing (QG1). */
+        std::map<std::uint32_t, std::uint8_t> poolCategories;
         /**
          * The hit counts of the tracked abilities (the ability state, slot 46, fields 1 and 2 hitDataNumHits and hitDataAbilityIds;
          * backend skill_states.cpp, stage 3.3b-M2): the ability id to its hits. The action lists test them (IfAbilityNumHits). Two
@@ -555,6 +568,9 @@ public:
     /** The join or the change of a faction (QG7; 3161 RequestSetFaction; faction 1 to 3). The answer is the Faction state, also after a
      *  refusal. */
     void set_faction(std::uint8_t faction);
+    /** The card choice of a territory standing (QG1; 4040 RequestSpendTerritoryStandingPoint): the progression id (the CRC-32 of the
+     *  territory id text) and the card id. The answer is the ProgressionPoint state (slot 67), also after a refusal. */
+    void spend_territory_point(std::uint32_t progression, std::uint32_t point);
     /** The place cues of a point of interest (AST-241; research poi-cues.md): 2297 at an entry (achievement: the CRC-32 of the full
      *  achievement name, 0 for none) and 6416 at an exit (no achievement), on the TerritoryDetector facet. */
     void territory_report(const std::array<std::uint8_t, 16>& actor, std::uint64_t group, std::uint64_t local, std::uint16_t territory,

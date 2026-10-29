@@ -599,6 +599,28 @@ void USwcUiSubsystem::FeedOwnerStates(const swc::net::RepClient::OwnEntity& Own)
 		UE_LOG(LogSwcUi, Log, TEXT("ui: attributes (base + bonus): CON %u+%u FOC %u+%u STR %u+%u DEX %u+%u INT %u+%u, %u free point(s)"),
 			A.base[0], A.bonus[0], A.base[1], A.bonus[1], A.base[2], A.bonus[2], A.base[3], A.bonus[3], A.base[4], A.bonus[4], A.unspent);
 	}
+	// The point pools (slot 67): "pool free category" lines (category 1 a weapon tree, 2 a territory standing), and the cards of the
+	// territory pools: "pool card level" lines (QG1). Before the ranks: the rank banner and the token reminder of a rank-up read the
+	// tokens of the new state (the backend sends both states in one bundle).
+	if (Own.nodesRevision != SentNodesRevision && Own.nodesRevision != 0)
+	{
+		SentNodesRevision = Own.nodesRevision;
+		std::string Text;
+		for (const auto& [Pool, Free] : Own.pointPools)
+		{
+			const auto Category = Own.poolCategories.find(Pool);
+			Text += std::to_string(Pool) + " " + std::to_string(Free) + " "
+				+ std::to_string(Category != Own.poolCategories.end() ? Category->second : 0) + "\n";
+		}
+		std::string Cards;
+		for (const auto& Entry : Own.territoryEntries)
+		{
+			Cards += std::to_string(Entry.pool) + " " + std::to_string(Entry.point) + " " + std::to_string(Entry.level) + "\n";
+		}
+		Runtime->call("HostPointPools", {FArg::of(Text), FArg::of(Cards)});
+		UE_LOG(LogSwcUi, Log, TEXT("ui: %d point pool(s), %d territory card entr(ies) (the ProgressionPoint state)"),
+			static_cast<int32>(Own.pointPools.size()), static_cast<int32>(Own.territoryEntries.size()));
+	}
 	// The ranks of the weapon masteries and the trade skills (slot 65): "id rank points" lines.
 	if (Own.rankRevision != SentRankRevision && Own.rankRevision != 0)
 	{
@@ -610,17 +632,6 @@ void USwcUiSubsystem::FeedOwnerStates(const swc::net::RepClient::OwnEntity& Own)
 		}
 		Runtime->call("HostRanks", {FArg::of(Text)});
 		UE_LOG(LogSwcUi, Log, TEXT("ui: %d mastery and trade skill rank(s) (the CategoricalProgression state)"), static_cast<int32>(Own.ranks.size()));
-	}
-	// The point pools of the weapon trees (slot 67): "pool free" lines.
-	if (Own.nodesRevision != SentNodesRevision && Own.nodesRevision != 0)
-	{
-		SentNodesRevision = Own.nodesRevision;
-		std::string Text;
-		for (const auto& [Pool, Free] : Own.pointPools)
-		{
-			Text += std::to_string(Pool) + " " + std::to_string(Free) + "\n";
-		}
-		Runtime->call("HostPointPools", {FArg::of(Text)});
 	}
 	// The faction (slot 49; QG7): each received faction field, also the same value (the answer to a refused request republishes it). The
 	// time is a text: Unix nanoseconds need 64 bits.
@@ -1125,6 +1136,19 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 		}
 		else if (FSwcUiSkills::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))
 		{
+		}
+		else if (Request.rfind("territory spend ", 0) == 0)
+		{
+			// "territory spend PROGRESSION CARD" (swc/territory.lua: ProgressionPointRequestBus RequestSpendTerritoryStandingPoint of the card
+			// popup): 4040. The answer is the ProgressionPoint state, also after a refusal (no local change of the tokens).
+			TArray<FString> Parts;
+			FString(UTF8_TO_TCHAR(Request.c_str())).ParseIntoArray(Parts, TEXT(" "));
+			const uint32 Progression = Parts.Num() >= 4 ? static_cast<uint32>(FCString::Strtoui64(*Parts[2], nullptr, 10)) : 0;
+			const uint32 Card = Parts.Num() >= 4 ? static_cast<uint32>(FCString::Strtoui64(*Parts[3], nullptr, 10)) : 0;
+			const bool bSent = Progression != 0 && Card != 0
+				&& Backend->QueueRepCall([Progression, Card](swc::net::RepClient& Client) { Client.spend_territory_point(Progression, Card); });
+			UE_LOG(LogSwcUi, Log, TEXT("ui: territory: the card %08X of the progression %08X (4040): %s"), Card, Progression,
+				bSent ? TEXT("sent") : TEXT("not sent"));
 		}
 		else if (Request.rfind("faction set ", 0) == 0)
 		{

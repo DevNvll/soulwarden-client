@@ -394,6 +394,15 @@ Bytes open_ui_screen_body(std::uint64_t group, std::uint32_t screen) {
     return w.data();
 }
 
+Bytes spend_territory_point_body(std::uint64_t group, std::uint32_t progression, std::uint32_t point) {
+    Writer w;
+    w.u64(slice_facet_target(group, kGameEventsEntity, kProgressionPointComponent));
+    w.u64(group);
+    w.u32(progression);
+    w.u32(point);
+    return w.data();
+}
+
 Bytes set_faction_body(std::uint64_t group, std::uint8_t faction) {
     Writer w;
     w.u64(slice_facet_target(group, kSocialEntity, kFactionComponent));
