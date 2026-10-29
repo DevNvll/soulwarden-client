@@ -117,7 +117,9 @@ void FSwcUiQuests::LoadEncounterTrees()
 					{
 						Title = StageTitle;
 					}
-					Tasks.Add(FString::Printf(TEXT("%s|%d|%g|%d"), *Description, Target, TimeLimit, bCountDown ? 1 : 0));
+					// The fifth field: the title of the stage objective, the text of the wrapper line (retail: "Stellar Research" under the
+					// head line; ut567 2026-10-29 retail stills).
+					Tasks.Add(FString::Printf(TEXT("%s|%d|%g|%d|%s"), *Description, Target, TimeLimit, bCountDown ? 1 : 0, *StageTitle));
 				}
 			}
 			const TArray<TSharedPtr<FJsonValue>>* Children = nullptr;

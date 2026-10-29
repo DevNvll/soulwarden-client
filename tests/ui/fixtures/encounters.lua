@@ -53,7 +53,8 @@ end
 -- The Obelisk root: G 0x4C554F534000002A = 5500585112935202858; the device done (leaf 1 1/1 Complete, wrapper 2 1/1 Complete), the kill
 -- leaf 3 at 1/2 Active, its wrapper 4 Active, the root 5 at 1/2 Active.
 local ROOT = "5500585112935202858"
-local TREE = "@04A_Side02_02_ObeliskDefenders_Title\t@Enc_04A_Side02_02_Interact|1|0|0\t@Enc_04A_Side02_02_KillAI|2|0|0"
+local TREE = "@04A_Side02_02_ObeliskDefenders_Title\t@Enc_04A_Side02_02_Interact|1|0|0|@04A_Side02_02_ObeliskDefenders_Title\t"
+  .. "@Enc_04A_Side02_02_KillAI|2|0|0|@04A_Side02_02_ObeliskDefenders_Title"
 local function encounter_lines(kill)
   local lines = {"E " .. ROOT .. " 7B52B1B2898D5D2684BD2DCED94F3321\t" .. TREE,
     "T " .. ROOT .. " 1 0 1 2", "T " .. ROOT .. " 2 0 1 2", "T " .. ROOT .. " 3 0 " .. kill .. " 1", "T " .. ROOT .. " 4 0 0 1",
@@ -90,6 +91,8 @@ check(not ObjectiveTaskRequestBus.Event.GetHideProgress(kill), "the kill leaf sh
 local text = texts_of(hud)
 note("the tracker: " .. text)
 check(text:find("1 / 2", 1, true) ~= nil, "the tracker shows the counter 1 / 2")
+local _, titles = text:gsub("Stellar Research", "")
+check(titles >= 2, "the wrapper line has the stage title (retail: \"Stellar Research\" under the head line; " .. titles .. " found)")
 picture("encounters-hud")
 
 -- The pin request of a change of the pins has only the ordinary quest.

@@ -356,14 +356,18 @@ local function encounter_record(rest)
                starts = {}, encounter = asset}
   local wrappers = {}
   for m = 0, #fields - 3 do
-    local desc, target, limit, hide = (fields[m + 3] or ""):match("^([^|]*)|(%d+)|([%d.]*)|(%d)$")
+    local field = fields[m + 3] or ""
+    local desc, target, limit, hide = field:match("^([^|]*)|(%d+)|([%d.]*)|(%d)")
     if not desc then
       break
     end
+    -- The fifth field: the title of the stage, the text of the wrapper line (retail: "Stellar Research" under the head line).
+    local stage = field:match("^[^|]*|%d+|[%d.]*|%d|(.*)$") or ""
     local leaf, wrapper = 2 * m + 1, 2 * m + 2
     rec.nodes[leaf] = {index = leaf, children = {}, row = {type = "task", cells = {TP_DescriptionTag = desc ~= "" and desc or nil,
       TargetQty = target, TimeLimit = (tonumber(limit) or 0) > 0 and limit or nil, HideProgress = hide == "1" and "1" or nil}}}
-    rec.nodes[wrapper] = {index = wrapper, children = {leaf}, row = {type = "consecutivetaskcontainer", cells = {}}}
+    rec.nodes[wrapper] = {index = wrapper, children = {leaf}, row = {type = "consecutivetaskcontainer",
+      cells = {TP_DescriptionTag = stage ~= "" and stage or nil}}}
     wrappers[#wrappers + 1] = wrapper
   end
   -- No user wave (Legion Attack): no row (the host sends no such line; this guards the record).
