@@ -391,11 +391,15 @@ int32 USwcObjectSubsystem::LoadEncounterObjects()
 	}
 	for (const auto& Pair : Document->GetObjectField(TEXT("objects"))->Values)
 	{
+		// [template, row, interactTag, onlyOnQuest]
 		const TArray<TSharedPtr<FJsonValue>>& Link = Pair.Value->AsArray();
-		if (Link.Num() == 2)
+		if (Link.Num() >= 2)
 		{
-			EncounterObjects.Add(FString(Pair.Key), TPair<int32, int32>(TemplateBase + static_cast<int32>(Link[0]->AsNumber()),
-				RowBase + static_cast<int32>(Link[1]->AsNumber())));
+			FEncounterLink& Entry = EncounterObjects.Add(FString(Pair.Key));
+			Entry.Template = TemplateBase + static_cast<int32>(Link[0]->AsNumber());
+			Entry.Row = RowBase + static_cast<int32>(Link[1]->AsNumber());
+			Entry.QuestTag = Link.Num() >= 4 ? Link[2]->AsString().ToLower() : FString();
+			Entry.bQuestOnly = Link.Num() >= 4 && Link[3]->AsBool();
 		}
 	}
 	return EncounterObjects.Num();
@@ -1129,12 +1133,12 @@ void USwcObjectSubsystem::AddEncounterObjects(const FVector3d& From, double Radi
 		{
 			continue;
 		}
-		const TPair<int32, int32>* Link = EncounterObjects.Find(UTF8_TO_TCHAR(Entity.slice_key().c_str()));
-		if (Link == nullptr || !Templates.IsValidIndex(Link->Key))
+		const FEncounterLink* Link = EncounterObjects.Find(UTF8_TO_TCHAR(Entity.slice_key().c_str()));
+		if (Link == nullptr || !Templates.IsValidIndex(Link->Template))
 		{
 			continue;
 		}
-		const FTemplate& Template = Templates[Link->Key];
+		const FTemplate& Template = Templates[Link->Template];
 		FBound Bound;
 		const float Offset[3]{static_cast<float>(Template.Translation.X), static_cast<float>(Template.Translation.Y), static_cast<float>(Template.Translation.Z)};
 		const swc::net::WorldPosition Place = swc::interact::transform_point(Entity.worldPlace, Entity.worldPlaceRotation, Offset);
@@ -1156,7 +1160,11 @@ void USwcObjectSubsystem::AddEncounterObjects(const FVector3d& From, double Radi
 		Bound.Options.Emplace(GatherOptionIndex, Ids.optionEntity);
 		FSwcWorldObjectTarget Target;
 		MakeTarget(FString::Printf(TEXT("encounter#%u"), Interest), KindEncounter, Entity.actor, Group, Bound, From, Target);
-		FillGather(Target, Link->Value);
+		FillGather(Target, Link->Row);
+		// The quest tag of the variant: the card of a quest gatherable (the key and the name, no option text: swc/interact.lua
+		// gatherable_card), and the gate InteractOnlyOnQuest (the interactor hides it with no Active task of the tag).
+		Target.QuestTag = Link->QuestTag;
+		Target.bQuestOnly = Link->bQuestOnly;
 		// The server state of the object: the GatherableController (Depleted after the gather), and the Enabled mark of its Interact state.
 		Target.State = Entity.hasGatherable && Entity.gatherableState == swc::objects::kNodeDepleted ? ESwcWorldObjectState::Depleted
 			: ESwcWorldObjectState::Ready;

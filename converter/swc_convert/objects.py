@@ -522,7 +522,10 @@ def encounter_doc(gathering: dict, columns: dict, texts: dict, shape_of) -> dict
         if row not in row_of:
             row_of[row] = len(rows)
             rows.append(gather_row(gathering["rows"][row], columns, texts, used_texts))
-        objects[f"{str(uuid.UUID(t['asset'])).upper()}:{t['sub']}"] = [template_of[index], row_of[row]]
+        # The InteractTag and InteractOnlyOnQuest of the variant (the variation actions; as the quest field of a capital node): the card of
+        # a quest gatherable ("E ANCIENT DEVICE", no option text) and the quest gate.
+        objects[f"{str(uuid.UUID(t['asset'])).upper()}:{t['sub']}"] = [template_of[index], row_of[row], str(link[2] if len(link) > 2 else ""),
+                                                                      bool(link[3]) if len(link) > 3 else False]
     return {"templates": templates, "rows": rows, "objects": objects, "texts": used_texts}
 
 
@@ -531,7 +534,7 @@ def encounters() -> dict:
     as server children (world/encounters.cpp) and gathers them through gathering-data.json encounterObjects (slice -> [template, row,
     interactTag, onlyOnQuest]). The file has only their templates and rows, in the form of objects.json, with local indices: the
     client puts them after the ones of objects.json (Objects/SwcObjectSubsystem LoadEncounterObjects). "objects": the slice key of the
-    entity table (the UUID with dashes, upper case, ":" sub) -> [template, row]."""
+    entity table (the UUID with dashes, upper case, ":" sub) -> [template, row, interactTag, onlyOnQuest]."""
     folder = gamedata_dir()
     gathering = json.loads((folder / "gathering-data.json").read_text())
     texts = localized_texts()

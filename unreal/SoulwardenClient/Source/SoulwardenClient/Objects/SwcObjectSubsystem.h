@@ -387,8 +387,16 @@ private:
 	TArray<FGatherRow> Rows;
 	TMap<uint32, FToolItem> Tools;
 	TMap<FString, TPair<int32, int32>> Bodies;
-	/** The start objects of the encounters by their slice key: the template and the gatherable row (indices after the loaded ones). */
-	TMap<FString, TPair<int32, int32>> EncounterObjects;
+	/** The start objects of the encounters by their slice key: the template and the gatherable row (indices after the loaded ones), and
+	 *  the InteractTag and InteractOnlyOnQuest of the variant (as a quest node of the level data). */
+	struct FEncounterLink
+	{
+		int32 Template = -1;
+		int32 Row = -1;
+		FString QuestTag;
+		bool bQuestOnly = false;
+	};
+	TMap<FString, FEncounterLink> EncounterObjects;
 	TMap<FString, FString> Texts;
 	TMap<uint32, uint32> Equipment;
 	/** The trade skill ranks of the owner (the CategoricalProgression state: the CRC-32 of the lower-case id to the rank). */
