@@ -1527,6 +1527,10 @@ and the backend encoders (states 3829, 1746, 3086; requests 3819, 2461).
   screen (RequestCancelCommittedInteraction) is "board end".
 - CanCompleteMission: the root container has the progress of its child count minus 1, its last child is not complete, and the
   destinationOverride is the provider of the current territory.
+- The board use of a level data object (kind missionBoard): the focus keeps the board flag of action 51. The board objects and the world
+  entity have no place state: the snapshot keeps them in their own list (`FSnapshot::Boards`, `OtherEntity::has_board_state`). Window 1
+  (2026-10-29): the screen opened, the seed was the seed of the backend, and the provider identity was the Claim landmark actor; the
+  offers were empty before this list.
 - The checks: the fixture `tests/ui/fixtures/boards.lua`, the claim row check of `tests/ui/fixtures/territory.lua`.
 - Open points: the grid of the project columns overlaps in the pictures of the fixture (the layout of the empty project rows). The faction
   board (option 8, state 2609973752, 3816) is phase 2.

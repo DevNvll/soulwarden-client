@@ -531,6 +531,9 @@ public:
         std::vector<std::uint16_t> claimKeys;
         std::vector<ClaimSummary> claimSummaries;
         std::uint32_t boardRevision{0};
+        /** C-12: a board object (TerritoryInterface) or the world entity (LandClaimManager). Neither needs a place state: the board
+         *  window 1 of ut567 found no project while the snapshot kept only the objects with a place. */
+        [[nodiscard]] bool has_board_state() const { return hasBoardProjects || hasClaims; }
     };
 
     /** A record of an interest number that is not 1, a stop of the control block, or a message for the view of the other

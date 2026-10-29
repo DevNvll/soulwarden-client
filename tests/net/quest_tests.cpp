@@ -443,6 +443,12 @@ void board_states()
 	          && world.claimSummaries[1].active[0].type == 6 && world.claimSummaries[1].active[0].state == 0 && world.claimSummaries[1].level == 0
 	          && world.claimSummaries[1].upgrades.empty(),
 	      "the summary of Windsward: the AlwaysAvailable projects, Active, level 0, no upgrade");
+	// The snapshot shape of the live window 1 (bd3): the board object and the world entity have their board states and no place state, so
+	// the snapshot list of the objects with a place (SwcRepConnection Publish) did not have them; the list of the board states has them.
+	RepClient::OtherEntity placed;
+	placed.hasPlace = true;
+	check(other.has_board_state() && !other.hasPlace && world.has_board_state() && !world.hasPlace && !placed.has_board_state(),
+	      "the board and the world entity have a board state and no place; a fixture with a place has no board state");
 	// The requests: 3819, 3816, and 2461 on the ObjectiveInteractor facet (G + B8D673AF8594A7CC); the readers of the backend take them.
 	const std::uint64_t group = 0x4C554F5340000100ULL;
 	const std::uint64_t target = group + 0xB8D673AF8594A7CCULL;

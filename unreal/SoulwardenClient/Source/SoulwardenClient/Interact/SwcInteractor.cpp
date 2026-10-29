@@ -531,7 +531,8 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Candidate.score = ObjectScore;
 			Focus = Candidate;
 			bFocusStation = false;
-			bFocusBoard = false;
+			// A town board of the level data (kind missionBoard, C-12): its option OpenMissionBoardOption (action 51) opens the board screen.
+			bFocusBoard = ObjectOption.action == BoardAction;
 			// The prompt of a gather has the name of the row and, with no tool, the refusal ("YOUNG TREE  No equipped Axe").
 			FocusName = Object.Name.IsEmpty() ? FString::Printf(TEXT("%s %s"), *Object.Kind.ToString(), *Object.Key)
 				: Object.bToolMissing || Object.bRankMissing ? FString::Printf(TEXT("%s  %s"), *Object.Name.ToUpper(), *Object.RefusalText) : Object.Name.ToUpper();

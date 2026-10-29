@@ -2246,16 +2246,30 @@ bool USwcBackendSubsystem::GetBoardStates(const swc::net::ActorId& Board, swc::n
 	{
 		return false;
 	}
-	for (const TPair<uint32, swc::net::RepClient::OtherEntity>& Entry : Snapshot.Objects)
+	bool bFound = false;
+	for (const TPair<uint32, swc::net::RepClient::OtherEntity>& Entry : Snapshot.Boards)
 	{
-		if (Entry.Value.actor == Board)
+		if (Entry.Value.actor == Board && Entry.Value.hasBoardProjects)
 		{
 			OutBoard = Entry.Value;
+			bFound = true;
 		}
 		if (Entry.Value.hasClaims)
 		{
 			OutClaims = Entry.Value;
 		}
+	}
+	if (!bFound && LoggedBoardMiss != Board)
+	{
+		// One line for each board with no TerritoryInterface state: the actors of the entities with a board state.
+		LoggedBoardMiss = Board;
+		FString Actors;
+		for (const TPair<uint32, swc::net::RepClient::OtherEntity>& Entry : Snapshot.Boards)
+		{
+			Actors += FString::Printf(TEXT(" %u:%s%s"), Entry.Key, *Hex(std::span(Entry.Value.actor)), Entry.Value.hasClaims ? TEXT("(claims)") : TEXT(""));
+		}
+		UE_LOG(LogSwcBackend, Warning, TEXT("boards: no TerritoryInterface state for the board %s; %d entit(ies) with a board state:%s"),
+			*Hex(std::span(Board)), Snapshot.Boards.Num(), *Actors);
 	}
 	return true;
 }

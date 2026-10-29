@@ -39,6 +39,9 @@ public:
 		TArray<TPair<uint32, swc::net::WorldPosition>> Others;
 		/** The objects of the server with a slice and a place (PositionInTheWorld): the fixtures, the loot bags (stage P2.10). */
 		TArray<TPair<uint32, swc::net::RepClient::OtherEntity>> Objects;
+		/** The entities with a board state (C-12; OtherEntity::has_board_state): the board objects and the world entity, with or without
+		 *  a place. */
+		TArray<TPair<uint32, swc::net::RepClient::OtherEntity>> Boards;
 		bool bMovementStale = false;
 		/** The position field of the last input entry (none: no position field): the start of the next one (RepClient::next_reported). */
 		std::optional<swc::net::WorldPosition> Reported;

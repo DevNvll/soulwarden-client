@@ -283,6 +283,8 @@ private:
 	void SendTravel(const FVector& LandmarkMeters);
 	FString AdminToken;
 	FString WorldCharacterId;
+	/** The last board with no TerritoryInterface state in the log (GetBoardStates: one line for each board). */
+	mutable swc::net::ActorId LoggedBoardMiss{};
 	TArray<FTravelPlace> TravelPlaces;
 	bool bTravelRequest = false;
 

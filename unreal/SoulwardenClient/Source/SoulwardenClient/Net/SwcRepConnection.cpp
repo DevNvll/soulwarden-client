@@ -310,8 +310,13 @@ void FSwcRepConnection::Publish(const swc::net::RepClient& Client, bool bFinishe
 	Snapshot.OtherEntities = static_cast<int32>(Client.others().size());
 	Snapshot.Others.Reset();
 	Snapshot.Objects.Reset();
+	Snapshot.Boards.Reset();
 	for (const auto& [Interest, Other] : Client.others())
 	{
+		if (Other.has_board_state())
+		{
+			Snapshot.Boards.Emplace(Interest, Other);
+		}
 		if (Other.hasPosition)
 		{
 			Snapshot.Others.Emplace(Interest, Other.position);
