@@ -488,6 +488,41 @@ def decal_transforms(decals: list[dict], materials: dict) -> list[dict]:
     return out
 
 
+# The color opacity of a decal (C-3, 2026-10-29): the source decal blends its color with alpha x DecalDiffuseOpacity and its normal,
+# gloss, and reflectance with the alpha alone. A DBuffer decal of Unreal has one opacity for all the channels that its material
+# connects (DecalRenderingCommon.cpp: the write mask is the connected pins of the parent). So a projected decal with a
+# DecalDiffuseOpacity below 1 is two decals at one place: dpc_ (M_SwcDecalColor: the color only, opacity x DecalDiffuseOpacity) and
+# dps_ (M_SwcDecalSurface: the normal, the roughness, and the reflectance, no color); at 0 only dps_ (the corruption glowy bits, the
+# water splash: no color). 227 of the 658 records; the black wet puddle jav_puddle_wet.mtl (diffuse 0, 0.3): a light wet darkening
+# with gloss, no black. Limit: the road ribbons and the mesh decal companions keep the one opacity (a second mesh would be needed).
+DIFFUSE_OPACITY_SPLIT = True
+
+
+def diffuse_opacity(rules: dict) -> float:
+    """@return The DecalDiffuseOpacity of the render rules of a decal material (1 when it has none)."""
+    value = (rules.get("params") or {}).get("DecalDiffuseOpacity", 1.0)
+    return float(value[0] if isinstance(value, list) else value)
+
+
+def split_entries(decals: list[dict], materials: dict) -> list[dict]:
+    """@return The layer decals with each dp_ entry of a material with DecalDiffuseOpacity below 1 split into its dpc_ (when above
+    0) and dps_ entries (the same place; DIFFUSE_OPACITY_SPLIT)."""
+    if not DIFFUSE_OPACITY_SPLIT:
+        return decals
+    out = []
+    for d in decals:
+        key = d["material"]
+        m = materials.get("d_" + key[3:]) if key.startswith("dp_") else None
+        value = diffuse_opacity(m["rules"]) if m else 1.0
+        if value >= 1.0:
+            out.append(d)
+            continue
+        if value > 0.0:
+            out.append({**d, "material": "dpc_" + key[3:]})
+        out.append({**d, "material": "dps_" + key[3:]})
+    return out
+
+
 def export(names: list[str]) -> dict:
     """Writes for each region SWC_CONTENT/decals/NAME/: items.json (the source records), the road meshes
     (roads_CX_CY_P.gltf), and layer.json (the road meshes with their Unreal folders and origins, the decals in Unreal
@@ -502,7 +537,7 @@ def export(names: list[str]) -> dict:
         items = region_items(name)
         (out_dir(name) / "items.json").write_text(json.dumps(items))
         roads = write_roads(name, items["roads"], heights, materials)
-        decals = decal_transforms(items["decals"], materials)
+        decals = split_entries(decal_transforms(items["decals"], materials), materials)
         layer = {"version": VERSION, "region": name, "roads": roads, "decals": decals}
         (out_dir(name) / "layer.json").write_text(json.dumps(layer))
         report[name] = {"roads": len(items["roads"]), "road meshes": len(roads), "decals": len(items["decals"]),
@@ -566,8 +601,14 @@ def specs() -> dict:
         spec["scalars"]["DecalAlphaMult"] = float(params.get("DecalAlphaMult", 1.0))
         spec["scalars"]["DecalFalloff"] = float(params.get("DecalFalloff", 1.0))
         out[key] = spec
+        projected_spec = {**spec, "switches": {**spec.get("switches", {}), "Projected": True}}
         if "dp_" + key[2:] in projected:   # the projected decals of the layer: the same spec, the angle fade on
-            out["dp_" + key[2:]] = {**spec, "switches": {**spec.get("switches", {}), "Projected": True}}
+            out["dp_" + key[2:]] = projected_spec
+        if "dpc_" + key[2:] in projected:   # the color pass of a split decal (DIFFUSE_OPACITY_SPLIT)
+            out["dpc_" + key[2:]] = {**projected_spec, "parent": "decal color",
+                                     "scalars": {**spec["scalars"], "DecalDiffuseOpacity": diffuse_opacity(rules)}}
+        if "dps_" + key[2:] in projected:   # the normal, gloss, and reflectance pass of a split decal
+            out["dps_" + key[2:]] = {**projected_spec, "parent": "decal surface"}
     from . import manifest
     for key, record in textures.items():
         record["unreal"] = manifest.unreal_folder("texture", key)

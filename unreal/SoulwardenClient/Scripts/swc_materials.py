@@ -26,7 +26,7 @@ PARENT_VERSIONS = {"M_SwcFoliage": "5", "M_SwcSurface": "13", "M_SwcSurfaceMaske
                    "M_SwcGlass": "1", "M_SwcBeam": "5",
                    "M_SwcSurfaceTranslucent": "12", "M_SwcHair": "7",
                    "M_SwcFxMesh": "2", "M_SwcFxMeshAdd": "2", "M_SwcMeshParticle": "1",
-                   "M_SwcBeamSimple": "1"}   # the rule of each parent
+                   "M_SwcBeamSimple": "1", "M_SwcDecalColor": "1", "M_SwcDecalSurface": "1"}   # the rule of each parent
 # (M_SwcSurface 2: the UV offset from the RGBA output of UVTransform, version 1 did not compile; 3: the overlay masks;
 # 4: M3b, the blend layer, the vertex colors, the detail map; 5: M4, the emission; 6: the detail map is linear data;
 # 7: the UV transforms of the emittance and intensity maps (AST-207); 8: the sRGB emission files on Color samplers;
@@ -58,7 +58,8 @@ PARENT_VERSIONS = {"M_SwcFoliage": "5", "M_SwcSurface": "13", "M_SwcSurfaceMaske
 # the vertex alpha occlusion; 3: the subsurface color x the albedo, as the back light of the source; 4: the camera fade)
 # The parent asset of each spec parent (apply_specs: a stale parent is made again).
 PARENT_NAMES = {"foliage": "M_SwcFoliage", "surface": "M_SwcSurface", "surface masked": "M_SwcSurfaceMasked",
-                "surface translucent": "M_SwcSurfaceTranslucent", "decal": "M_SwcDecal", "glass": "M_SwcGlass",
+                "surface translucent": "M_SwcSurfaceTranslucent", "decal": "M_SwcDecal", "decal color": "M_SwcDecalColor",
+                "decal surface": "M_SwcDecalSurface", "glass": "M_SwcGlass",
                 "beam": "M_SwcBeam", "hair": "M_SwcHair", "fxmesh": "M_SwcFxMesh", "fxmesh additive": "M_SwcFxMeshAdd",
                 "meshparticle": "M_SwcMeshParticle", "beam simple": "M_SwcBeamSimple"}
 INSTANCE_VERSION = "1"  # the rule of apply(): a new value applies each spec again
@@ -904,12 +905,21 @@ float l = length(d);
 return d / max(l, 1.0) * clamp((l - 2000.0) * 0.004, 0.0, 100.0);"""
 
 
-def decal_parent(content, state):
+DECAL_CHANNELS = {"all": "M_SwcDecal", "color": "M_SwcDecalColor", "surface": "M_SwcDecalSurface"}
+
+
+def decal_parent(content, state, channels="all"):
     """@return M_SwcDecal: the material of the projected decals and of the road meshes (mesh decals): the domain Deferred
     Decal, the blend mode Translucent (the DBuffer color, normal, and roughness). UV = TexCoord0 x UVTransform.rg +
     UVTransform.ba (the mesh UV of a road, the projection UV of a decal); base color = diffuse map x DiffuseColor;
-    roughness 1 - Smoothness x gloss; opacity DECAL_ALPHA_HLSL."""
-    name = "M_SwcDecal"
+    roughness 1 - Smoothness x gloss; opacity DECAL_ALPHA_HLSL.
+    `channels` (C-3, decals.DIFFUSE_OPACITY_SPLIT): "color" makes M_SwcDecalColor (only the base color connected; opacity x
+    DecalDiffuseOpacity), "surface" makes M_SwcDecalSurface (the normal, the roughness, and the specular; no base color). The
+    write mask of a DBuffer decal is the set of connected pins of its parent (DecalRenderingCommon.cpp), so a static switch
+    cannot do it."""
+    name = DECAL_CHANNELS[channels]
+    color_pins = channels in ("all", "color")
+    surface_pins = channels in ("all", "surface")
     material, white = parent_asset(name, content, state)
     if material is None:
         return assets.load_asset(f"{BASE}/{name}")
@@ -944,7 +954,8 @@ def decal_parent(content, state):
     vertex_rgb = node(material, unreal.MaterialExpressionVertexColor, -900, -700)
     with_vertex_rgb = multiply(material, (entity_tinted, ""), (vertex_rgb, ""), -300, -450)
     tinted = switch(material, "UseVertexAlpha", (with_vertex_rgb, ""), (entity_tinted, ""), -200, -350)
-    editing.connect_material_property(tinted, "", MP.MP_BASE_COLOR)
+    if color_pins:
+        editing.connect_material_property(tinted, "", MP.MP_BASE_COLOR)
     normal = sample("Normal", st.SAMPLERTYPE_NORMAL, unreal.load_asset("/Engine/EngineMaterials/FlatNormal"), 200)
     # A projected decal: Unreal turns the tangent normal (x, y, z) into -z X + y Y + x Z of the decal axes
     # (MaterialTemplate.ush TransformTangentNormalToWorld, DECAL_PRIMITIVE: its decals project along +X). Our X is the
@@ -955,7 +966,8 @@ def decal_parent(content, state):
     flip_z.set_editor_property("constant", unreal.LinearColor(1.0, 1.0, -1.0, 1.0))
     flipped = multiply(material, (normal, "RGB"), (flip_z, ""), -300, 250)
     projected_normal = switch(material, "Projected", (flipped, ""), (normal, "RGB"), -150, 200)
-    editing.connect_material_property(projected_normal, "", MP.MP_NORMAL)
+    if surface_pins:
+        editing.connect_material_property(projected_normal, "", MP.MP_NORMAL)
     gloss = sample("Gloss", st.SAMPLERTYPE_ALPHA, white, 500)
     smoothness = scalar(material, "Smoothness", 0.5, -900, 750)
     s_value = node(material, unreal.MaterialExpressionMultiply, -500, 550)
@@ -963,7 +975,8 @@ def decal_parent(content, state):
     editing.connect_material_expressions(smoothness, "", s_value, "B")
     rough = node(material, unreal.MaterialExpressionOneMinus, -300, 550)
     editing.connect_material_expressions(s_value, "", rough, "")
-    editing.connect_material_property(rough, "", MP.MP_ROUGHNESS)
+    if surface_pins:
+        editing.connect_material_property(rough, "", MP.MP_ROUGHNESS)
     # The reflectance of the source decal: the zpass encodes all the G-buffer channels of the decal, the reflectance too,
     # and blends them with the decal alpha (commonzpass EncodeGBuffer, SetGBufferBlending). S = the specular map x XML
     # Specular, Specular = lum(S) / 0.08 (SPECULAR_HLSL; Metallic stays 0: a limit for a decal above 0.08). Version 6 and
@@ -974,7 +987,8 @@ def decal_parent(content, state):
     reflectance = multiply(material, (spec_map, "RGB"), (spec_color, "RGB"), -600, 650)
     specular = custom(material, SPECULAR_HLSL, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ("S",), -350, 650)
     editing.connect_material_expressions(reflectance, "", specular, "S")
-    editing.connect_material_property(specular, "", MP.MP_SPECULAR)
+    if surface_pins:
+        editing.connect_material_property(specular, "", MP.MP_SPECULAR)
     opacity_map = sample("DecalOpacity", st.SAMPLERTYPE_ALPHA, white, 900)
     texture_alpha = node(material, unreal.MaterialExpressionMultiply, -750, 950)
     editing.connect_material_expressions(color, "A", texture_alpha, "A")
@@ -1007,7 +1021,11 @@ def decal_parent(content, state):
     editing.connect_material_expressions(opacity_map, "R", opacity, "O")
     editing.connect_material_expressions(mult, "", opacity, "Mult")
     editing.connect_material_expressions(falloff, "", opacity, "Falloff")
-    editing.connect_material_property(opacity, "", MP.MP_OPACITY)
+    if channels == "color":   # the color pass of a split decal: x DecalDiffuseOpacity (the source blends its color with it)
+        color_opacity = multiply(material, (opacity, ""), (scalar(material, "DecalDiffuseOpacity", 1.0, -350, 1250), ""), -200, 1100)
+        editing.connect_material_property(color_opacity, "", MP.MP_OPACITY)
+    else:
+        editing.connect_material_property(opacity, "", MP.MP_OPACITY)
     # The view bias in the vertex shader: CameraVectorWS is a pixel input (version 3 and 4 did not compile).
     camera = node(material, unreal.MaterialExpressionCameraPositionWS, -900, 1700)
     position = node(material, unreal.MaterialExpressionWorldPosition, -900, 1800)
@@ -2063,7 +2081,7 @@ def apply(instance, spec, parents, texture_of):
         editing.set_material_instance_scalar_parameter_value(instance, name, float(value))
     for name, value in spec.get("switches", {}).items():   # static switches (one shader for each combination)
         editing.set_material_instance_static_switch_parameter_value(instance, name, bool(value))
-    if parent is not None and spec.get("parent") != "decal":
+    if parent is not None and not str(spec.get("parent", "")).startswith("decal"):   # the decal parents: no two sided override
         overrides = instance.get_editor_property("base_property_overrides")
         overrides.set_editor_property("override_two_sided", True)
         overrides.set_editor_property("two_sided", bool(spec.get("two sided")))
@@ -2190,6 +2208,10 @@ def make_parents(wanted, content, state):
         parents["surface translucent"] = surface_parent(content, state, masked=False, translucent=True)
     if "decal" in wanted:
         parents["decal"] = decal_parent(content, state)
+    if "decal color" in wanted:
+        parents["decal color"] = decal_parent(content, state, "color")
+    if "decal surface" in wanted:
+        parents["decal surface"] = decal_parent(content, state, "surface")
     if "glass" in wanted:
         parents["glass"] = glass_parent(content, state)
     if "beam" in wanted:

@@ -616,7 +616,13 @@ tools/import-surface-layer.sh NAME... --max-seconds 300 --wait 7200   # the deca
   entity matrix, the heading of X. Other decals project along their Z axis.
 - `M_SwcDecal`: domain Deferred Decal, blend Translucent (DBuffer color, normal, roughness). Opacity =
   saturate(pow(DiffuseColor.w x diffuse.a x the decal opacity map x DecalAlphaMult, DecalFalloff)). One opacity for all
-  channels: DecalDiffuseOpacity is a limit.
+  channels (a DBuffer decal writes the channels whose pins its parent connects: DecalRenderingCommon.cpp).
+- DecalDiffuseOpacity (C-3, 2026-10-29; `decals.DIFFUSE_OPACITY_SPLIT`): the source blends the decal color with alpha x
+  DecalDiffuseOpacity, the normal, gloss, and reflectance with the alpha. A projected decal with a value below 1 is two decals at one
+  place in layer.json: `dpc_` (M_SwcDecalColor: only the base color connected, opacity x DecalDiffuseOpacity; not at 0) and `dps_`
+  (M_SwcDecalSurface: the normal, the roughness, and the specular, no base color). 227 of the 658 records; 8,435 more decal entries
+  (240,315 -> 248,750). The wet puddle jav_puddle_wet.mtl (diffuse 0, value 0.3) was a black patch; the corruption glowy bits and the
+  water splash (value 0) draw no color. Limit: the road ribbons and the mesh decal companions keep one opacity.
 - The client: `USwcSurfaceLayer` (a world subsystem) reads `layer.json` of the regions near the view, places the road
   meshes within 1 km and the decals within their view distance (Max View Distance x View Distance Multiplier, at
   most 300 m). On by default since the M5 cost check; `-SwcNoSurfaceLayer` or `SWC_SURFACE_LAYER=0` turns it off,
