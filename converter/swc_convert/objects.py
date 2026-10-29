@@ -77,6 +77,12 @@ def placement_actor(key: str) -> bytes:
     return bytes([(half[0] & 0xF8) | 3]) + half[1:] + bytes(8)
 
 
+def spawner_child(entry: dict) -> bool:
+    """@return True for an object of the interaction data that a spawner makes (its key is SPAWNER/ENTITY, or a person with
+    clientChild): its actor is not the actor of a placement UUID (placement_actor)."""
+    return "/" in entry["key"] or bool((entry.get("person") or {}).get("clientChild"))
+
+
 def group_of(actor: bytes) -> int:
     """@return G: the first 8 bytes of an actor id (little-endian)."""
     return int.from_bytes(actor[:8], "little")
@@ -312,9 +318,12 @@ def write() -> dict:
     for entry in interactions["objects"]:
         kind = object_kind(entry, chests, capitals)
         actor = bytes.fromhex(entry["actor"])
-        if (entry.get("person") or {}).get("clientChild"):
-            # A person child of a PrefabSpawner (format 4; AST-248): its actor is the client id of tag 7, not a placement UUID.
-            report["personChildren"] = report.get("personChildren", 0) + 1
+        if spawner_child(entry):
+            # A child of a spawner (the key SPAWNER/ENTITY of format 4): a person child of a PrefabSpawner (AST-248), a quest child
+            # (questChild: the scripted quest gatherables), or a mission board (QG6a, protocol notes 4.64). Its actor is a client id
+            # (the client rule of a child, tag 7), not the rule of a placement UUID (C-7, ut567 2026-10-29: 1405 keys of the backend 87865ea).
+            counts = report.setdefault("spawnerChildren", {})
+            counts[entry["kind"]] = counts.get(entry["kind"], 0) + 1
         elif placement_actor(entry["key"]) != actor:
             report["actorMismatches"] += 1
         bounds = []
@@ -368,8 +377,10 @@ def write() -> dict:
             target = facet_target(root, group, int(template["bound"]["entity"], 16), int(template["bound"]["component"], 16))
             option = (int(template["bound"]["option"], 16) ^ root ^ group) & MASK64
             report["capitalsChecked"] += 1
-            first = bounds[0]
-            if f"{target:016x}" != first["target"] or not first["options"] or f"{option:016x}" != first["options"][0][1]:
+            # The gather bound is the bound at the slot of the template bound: an object can have more bounds (the Anubian portals of
+            # the backend 87865ea have two; the first is not the gather bound: C-7, ut567).
+            gather = next((b for b in bounds if b["slot"] == template["bound"]["slot"]), None)
+            if gather is None or f"{target:016x}" != gather["target"] or not gather["options"] or f"{option:016x}" != gather["options"][0][1]:
                 report["capitalMismatches"] += 1
         elif kind == "chest":
             chest = chests[entry["key"]]
