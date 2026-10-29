@@ -690,6 +690,11 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       give the source mirror, and they act on all Single Layer Water.
     - The GPU time (the median gpu p50 of the frame lines in the 6 s before each shot): ocean-far mode 1 / 2 / 3: 6.95 / 6.81 / 6.85 ms;
       ocean-clear 7.13 / 7.00 / 6.98; beach-down 5.70 / 5.55 / 5.56; the blue gain changes nothing (6.89 to 7.11 ms).
+  - The fixed exposure at other places (the word of the orchestrator 2026-10-29 19:17 UTC): the frame EV of the bias B is the EV minimum
+    of the presets of the place - B - 2.47 [R by 5 measures: the minimum 5, B -10.5: 13.03; 9, -10.5 / -14.5 / -6.5: 17.03 / 21.03 /
+    13.03; 10.5, -10.5: 18.53]. `swc.ExposureFixedEv` (default 0: the bias `swc.ExposureFixedBias`, as before) gives the bias of each
+    place from that rule: the same EV at each place. The tool `work/water-unreal/tone3/check_ev.py` checks the EV of each shot before a
+    table.
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal

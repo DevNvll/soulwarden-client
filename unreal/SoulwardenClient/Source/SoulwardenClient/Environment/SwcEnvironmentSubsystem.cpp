@@ -89,6 +89,12 @@ TAutoConsoleVariable<int32> CVarExposureFixed(TEXT("swc.ExposureFixed"), 0,
 	TEXT("its correction); 0 the exposure of the source meter."));
 TAutoConsoleVariable<float> CVarExposureFixedBias(TEXT("swc.ExposureFixedBias"), -13.0f,
 	TEXT("The bias of the fixed exposure of swc.ExposureFixed 1 (EV; the log line \"meter diag\" of swc.MeterDiag 1 gives the EV of the frame)."));
+/** The target EV of the fixed exposure (docs/WATER.md "Stage 2c", the views of 2026-10-29): the bias curve of the source rule stays on the
+ *  post process in the manual mode too, so the frame EV of a bias B is the EV minimum of the presets of the place - B - 2.47 (measured: the
+ *  EV minimum 5 and B -10.5: EV 13.03; the minimum 9 and B -10.5 / -14.5 / -6.5: EV 17.03 / 21.03 / 13.03; the minimum 10.5 and B -10.5:
+ *  18.53). Set, the bias of each place is the EV minimum - the target - 2.47: the same EV at each place. */
+TAutoConsoleVariable<float> CVarExposureFixedEv(TEXT("swc.ExposureFixedEv"), 0.0f,
+	TEXT("The target EV of swc.ExposureFixed 1 (for example 13.03): the bias follows the EV minimum of the presets of the place; 0 the bias swc.ExposureFixedBias."));
 TAutoConsoleVariable<int32> CVarSsao(TEXT("swc.Ssao"), 0,
 	TEXT("A test of the screen-space AO (stage E5 step 3, research/e5-ssdo.md): 1 the AO values of the post process for the SSAO of Lumen ")
 	TEXT("(intensity 1, power 2, a world radius of 480 cm, bias 0, static fraction 0, quality 50; set r.Lumen.DiffuseIndirect.SSAO 1 and ")
@@ -1025,7 +1031,8 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 		Post->Settings.AutoExposureApplyPhysicalCameraExposure = false;
 		if (bFixedExposure)
 		{
-			Post->Settings.AutoExposureBias = CVarExposureFixedBias.GetValueOnGameThread();
+			const float TargetEv = CVarExposureFixedEv.GetValueOnGameThread();
+			Post->Settings.AutoExposureBias = TargetEv > 0.0f ? static_cast<float>(EvMin - TargetEv - 2.47) : CVarExposureFixedBias.GetValueOnGameThread();
 		}
 		// The AO test (swc.Ssao 1): the first SSAO values of the SSDO study (its table "The values for the client").
 		const bool bSsao = CVarSsao.GetValueOnGameThread() != 0;
