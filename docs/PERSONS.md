@@ -262,6 +262,15 @@ service_options; fixture `tests/ui/fixtures/factiontalk.lua`):
   - After the join, retail shows Faction_Board ("Open Faction Board") and Join_Outpost_Rush. The client hides them (the board waits
     for QG6).
   - The NPC marker of a Faction_Board state is not used (`swc/npcstates.lua` step 5).
+  - The Decline topic at Astrid (live check f4a, 2026-10-29): with the recruitment active, the client shows the topic "Thank you. I
+    will think on it." as option 1, so the choice is option 2. Retail qg7 13-options-3 has no Decline topic. The backend selection
+    gives the topic too (`topics [Syndicate_DeclineRecruitment]`), so the client agrees with the backend. Accepted as is
+    (orchestrator, 2026-10-29); the retail cause is not known (perhaps the state 01_b, or a finished topic).
+  - The icons of the service options (a static look item for later): the client shows small badges where retail shows the faction
+    icon (ChooseFaction) and the devil icon (the faction guide).
+  - The poster textures `changefaction/faction_poster_frame_1` and `faction_ring_bg_1` (the Syndicate) were missing in the shared
+    content (f4a: plain frame, orange reward slots). They are converted in a check copy and wait for the deploy. The Marauder files
+    (`_2`) are also missing.
 
 The backend handles only the presentation options of a person (`apps/backend/src/world/interactions.cpp` kPresentationOptions:
 OpenConversation): it has no handler for OpenInnScreen, SetSpawnPointOption, OpenMissionBoardOption, or the shops (OpenWolfShop,
