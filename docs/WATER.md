@@ -936,6 +936,14 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   - The recommendation: the trace test first (held 16:30; baseline / MaxIterations 100 / 100 / baseline; source shots around it), then mode
     3 against mode 1 if the cliff stays weak; measure the mirror silhouette as well as the mask; repeat a useful result in the normal scene.
 
+- The Lumen mesh data copies in the check plugin (the word of the orchestrator 2026-10-29 23:16 UTC; the defaults of stage E2 unchanged):
+  `Scripts/lumen_test_copies.py` takes `SWC_LUMEN_DEST` (the folder of the copies and their pipelines; default `/SwcGameContent/Test/E2`;
+  an engine-free check: no value and an empty value give the default, `/SwcWaterCheck/Lumen/` gives `/SwcWaterCheck/Lumen`), and the client
+  takes `-SwcLumenTestMap=PATH` (the map of the copies; default `SWC_CONTENT/environment/lumen-test.json`; the log line "lumen test: N mesh
+  copies ... (PATH)" names the file). The water track runs the copies with `work/water-unreal/tone3/run_lumen_copies.sh` (the 34 meshes
+  within 150 m of the ocean-far camera, `tools/lib/lumen_test.py --views`; the import lock, no world lock, no content-link, an own map
+  file), never with `tools/lumen-test.sh` (it writes into the shared plugin and the shared content).
+
 ### The visible differences of the Unreal ocean against the source (stage 2c, 2026-10-29)
 
 The list of the differences that the stage 2c pictures show (the best setting with blue 1.5; the fixed exposure EV 13.03; the source is the

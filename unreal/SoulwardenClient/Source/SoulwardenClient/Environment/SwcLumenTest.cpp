@@ -99,7 +99,9 @@ void USwcLumenTestSubsystem::Tick(float DeltaTime)
 	if (!bLoaded)
 	{
 		bLoaded = true;
-		const FString Path = FPaths::Combine(FSwcCreatureLibrary::ContentFolder(), TEXT("environment"), TEXT("lumen-test.json"));
+		// -SwcLumenTestMap=PATH: a map of the copies outside the shared content (the copies of a check plugin; docs/WATER.md "Stage 2c").
+		FString Path = FPaths::Combine(FSwcCreatureLibrary::ContentFolder(), TEXT("environment"), TEXT("lumen-test.json"));
+		FParse::Value(FCommandLine::Get(), TEXT("SwcLumenTestMap="), Path);
 		FString Text;
 		TSharedPtr<FJsonObject> Object;
 		const TSharedPtr<FJsonObject>* Meshes = nullptr;

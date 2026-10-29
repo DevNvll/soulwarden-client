@@ -7,7 +7,8 @@ lock).
 
 Environment: SWC_LUMEN_LIST (the list), SWC_LUMEN_REPORT (the report), SWC_LUMEN_MAP (the map of the client: the object path of
 each original mesh to its copy), SWC_LUMEN_MIN_SIZE (cm: a smaller mesh is not copied; it is below the detail of the distance
-fields), SWC_LUMEN_FORCE (1: import again).
+fields), SWC_LUMEN_FORCE (1: import again), SWC_LUMEN_DEST (the folder of the copies and their pipelines; default /SwcGameContent/Test/E2;
+the water track sets /SwcWaterCheck/Lumen: a check plugin, docs/WATER.md "Stage 2c").
 """
 import json
 import os
@@ -16,7 +17,7 @@ import time
 import unreal
 
 ROOT = "/SwcGameContent"
-TEST = ROOT + "/Test/E2"
+TEST = (os.environ.get("SWC_LUMEN_DEST") or ROOT + "/Test/E2").rstrip("/")
 BASE = TEST + "/Base"
 assets = unreal.EditorAssetLibrary
 items = json.load(open(os.environ["SWC_LUMEN_LIST"]))
