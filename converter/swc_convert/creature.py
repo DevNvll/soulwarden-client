@@ -989,6 +989,29 @@ def weapon_body(cdf_path: str, row: dict) -> dict:
     return dict(body, skins=skins)
 
 
+def set_clips(animations: dict, old: dict, known: dict, resolver) -> None:
+    """Sets the clips (with their object paths, from KNOWN: the clips of the skeleton), the blend spaces, the combinations, and the
+    missing clips of an animation set: those of the resolver of this run and those of OLD, the set file of an earlier conversion.
+    C-8: a conversion of some slices has a resolver with the clips of the sets of its own slices only; the set file of the full
+    conversion has all the clips of the skeleton (broken_controllerdefs lost 476 of its 753 clips)."""
+    animations["clips"] = {name: known[name] for name in sorted(set(old.get("clips", {})) | set(resolver.clips)) if name in known}
+    animations["blendSpaces"] = {**old.get("blendSpaces", {}), **resolver.spaces}
+    animations["combs"] = {**old.get("combs", {}), **resolver.combs}
+    animations["missingClips"] = sorted((set(old.get("missingClips", [])) | set(resolver.missing)) - set(animations["clips"]))
+
+
+def weapon_body_of_key(model_key: str) -> dict | None:
+    """@return The body of a weapon model from its model key (MeshOverride|SkinOverride1|MaterialOverride1|SkinOverride2|
+    MaterialOverride2, the key of convert), else None (a creature body key: PATH.cdf or PATH.cdf|MATERIAL). C-8: a conversion of
+    some slices writes a weapon skeleton again with the animated weapons of the slices of earlier conversions; their bodies are
+    not in the census (the census has the creature bodies only)."""
+    fields = model_key.split("|")
+    if len(fields) != 5 or not fields[0].endswith(".cdf"):
+        return None
+    return weapon_body(fields[0], {"SkinOverride1": fields[1], "MaterialOverride1": fields[2], "SkinOverride2": fields[3],
+                                   "MaterialOverride2": fields[4]})
+
+
 def weapon_animation_set(animations: dict, row: dict, scope: str, resolver: "ClipResolver") -> dict | None:
     """@return The animation set of the weapon scope of a weapon (Mannequin: a fragment whose FragmentDef has the scope Weapon,
     or OffHandWeapon for the off hand, plays the variant of the animation database of the weapon row on the weapon too; the
@@ -1391,7 +1414,12 @@ def convert(indexes: set[int], force: bool = False) -> dict:
         skeleton_entry = index["skeletons"].setdefault(skeleton_key, {"path": skeleton, "clips": {}})
         known = skeleton_entry["clips"]
         known.update({name: dict(info) for name, info in resolver.clips.items()})
-        base_body = base_body_of(census_doc, skeleton) or weapon_base.get(skeleton, "")
+        # A weapon skeleton keeps the base body of an earlier conversion (a stable skeleton file; C-8).
+        base_body = base_body_of(census_doc, skeleton) or skeleton_entry.get("baseBody") or weapon_base.get(skeleton, "")
+        if base_body and base_body not in weapon_bodies and base_body not in census_doc["bodies"]:
+            weapon = weapon_body_of_key(base_body)
+            if weapon is not None:
+                weapon_bodies[base_body] = weapon
         skeleton_entry["baseBody"] = base_body
         stem = file_stem("s", skeleton)
         out = creature_dir() / "skeletons" / f"{stem}.gltf"
@@ -1426,6 +1454,10 @@ def convert(indexes: set[int], force: bool = False) -> dict:
             for body_key in sorted(wanted_bodies):
                 if body_key == base_body or f"creature-body:{body_key}" in entries:
                     continue
+                if body_key not in weapon_bodies and body_key not in census_doc["bodies"]:
+                    weapon = weapon_body_of_key(body_key)   # an animated weapon of a slice of an earlier conversion
+                    if weapon is not None:
+                        weapon_bodies[body_key] = weapon
                 if body_key in weapon_bodies:
                     mesh_path = body_file(skeleton, weapon_bodies[body_key], file_stem("b", body_key), f"creature-body:{body_key}")
                     index["bodies"][body_key] = {"skeleton": skeleton_key, "mesh": mesh_path, "base": False}
@@ -1442,16 +1474,16 @@ def convert(indexes: set[int], force: bool = False) -> dict:
         # The animation sets: the clips (with the object path of each one), the blend spaces, and the combinations of the
         # skeleton go into each set that uses them.
         for set_key, animations in sets:
+            set_out = creature_dir() / "animations" / f"{set_key}.json"
+            # A conversion of some slices keeps the clips, blend spaces, and combinations of the set file of an earlier conversion:
+            # the resolver of this run has those of the sets of this run only (C-8: a set lost 476 of its 753 clips).
+            old = load_json(set_out, {}) if set_out.is_file() else {}
             animations["skeleton"] = skeleton_key
-            animations["clips"] = {name: known[name] for name in resolver.clips}
-            animations["blendSpaces"] = resolver.spaces
-            animations["combs"] = resolver.combs
+            set_clips(animations, old, known, resolver)
             for fragment in animations["fragments"].values():
                 if "items" in fragment:
                     fragment["length"] = fragment_length(fragment["items"], resolver.clips)
                     fragment["loop"] = bool(fragment["items"]) and fragment["items"][-1]["loop"] and fragment["length"] < 0
-            animations["missingClips"] = sorted(resolver.missing)
-            set_out = creature_dir() / "animations" / f"{set_key}.json"
             set_out.parent.mkdir(parents=True, exist_ok=True)
             set_out.write_text(json.dumps(animations, indent=1, sort_keys=True))
             report["animation sets"] += 1
