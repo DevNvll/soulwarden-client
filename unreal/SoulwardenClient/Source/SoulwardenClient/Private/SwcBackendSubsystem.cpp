@@ -1550,10 +1550,15 @@ void USwcBackendSubsystem::UpdatePlayer()
 		}
 		// HidePlayerAvatar hides the character (a Talk line or a scene: CutsceneInfo m_hidePlayerAvatar); a two-shot preset shows the
 		// dummy of the player in its place.
-		if (const bool bHide = (Line != nullptr && Line->bCamera && Line->bHidePlayer && !Line->bDummy) || Scenes->HidesPlayer(); Avatar->IsHidden() != bHide)
+		// The camera states of the crafting screen hide the character too (ASwcCameraManager::HidesPlayer [I]).
+		const ASwcCameraManager* ScreenCamera = Cast<ASwcCameraManager>(Controller->PlayerCameraManager);
+		const bool bScreenHide = ScreenCamera != nullptr && ScreenCamera->HidesPlayer();
+		if (const bool bHide = (Line != nullptr && Line->bCamera && Line->bHidePlayer && !Line->bDummy) || Scenes->HidesPlayer() || bScreenHide;
+			Avatar->IsHidden() != bHide)
 		{
 			Avatar->SetActorHiddenInGame(bHide);
-			UE_LOG(LogSwcBackend, Log, TEXT("interact: the character is %s (HidePlayerAvatar of the camera of the line)"), bHide ? TEXT("hidden") : TEXT("shown again"));
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the character is %s (%s)"), bHide ? TEXT("hidden") : TEXT("shown again"),
+				bScreenHide ? TEXT("the camera state of the crafting screen") : TEXT("HidePlayerAvatar of the camera of the line"));
 		}
 		const bool bDummy = Line != nullptr && Line->bCamera && Line->bDummy;
 		if (bDummy)

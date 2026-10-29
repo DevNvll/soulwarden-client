@@ -834,6 +834,16 @@ implements the calls for all screens. Before, each call was an empty function in
   radius grows with the sensor width at one FOV. [I] The units of the native blur have no source: `swc.Camera.DofScale` is 5, the
   value of the matched pictures (the client run s4 of ut567 with 2, 5, 10, 20, and 40 against set ut567-screens: at 5 the player of the
   inventory stays sharp and the world blurs as in retail, at 10 the player blurs; skills and the journal blur strongly as in retail).
+- [I] The focus and the near blur (ut567, 2026-10-29). With the native distance as the focus, the Talk (5 0.8) blurred the person and
+  the dummy (2.5 m from the camera, in front of the focus), and the craft result (0 0.95) blurred all of the world; retail keeps both
+  sharp or readable. The rule now: only the world behind the focus blurs (`r.DOF.Kernel.MaxForegroundRadius` 0 while a screen blur is
+  on; the value of the engine comes back after it and at EndPlay), and the focus is the native distance plus `swc.Camera.DofSpanPart`
+  (0.25) of the blur span (FAR - NEAR when the script gives them, else RANGE): the inventory 3 + 2.5 m, the Talk 5 + 2.5 m, the craft
+  roll 6 + 2.5 m, the craft result 0 + 2.5 m, skills and the journal 0 + 0.5 m.
+- [I] The player is hidden in the camera states of the crafting screen (`ASwcCameraManager::HidesPlayer`: UI_CraftingStep1 and
+  UI_CraftingStep3), with the other hide reasons of the character (USwcBackendSubsystem). The retail set ut567-screens shows no body
+  on the screen, in the craft roll, and on the result; the client showed the body large in the front of the frame (ut567-linecam c1).
+  No script call and no key of camera.json names it.
 - The body in the inventory (`ASwcCameraManager::UpdateBodyTurn`): in a state UI_Inventory* the body turns to face the camera, and
   at the end it turns to the view again. [I] The retail set ut567-screens: the body yaw 280.9 with the camera yaw 101.1 (180 degrees)
   0.5 s after Tab, and 100.9 after the close. No script call (newinventory.luac BeginPaperdollMode is the skin preview) and no key
@@ -850,7 +860,8 @@ implements the calls for all screens. Before, each call was an empty function in
   world strongly; the craft roll keeps the world sharp (the focus at 6 m); the result blurs it strongly and darker, with the camera
   1.4 m from the feet and no body in the frame.
 - The crafting result keeps its two black layers: BackgroundStep1 (the sprite crafting_background_step3, black, alpha 73 to 236) and
-  BlackBg (alpha 0.5), both at fader 1 (the fixture crafting). No script hides the player body on the result (open: the retail check).
+  BlackBg (alpha 0.5), both at fader 1 (the fixture crafting). No script hides the player body on the result; the client hides it in the
+  camera states of the screen [I] (below).
 - Risks for the screens that worked before: the NavBar, the inventory, and crafting now move the camera, as in retail. UI_Inventory
   has no yaw key, so the client does not turn the view to the front of the player [U: the retail check]. A missing restore would leave
   a state on: the fixtures check that each of the 9 screens leaves no override, no look-at point, and no depth of field at its close.

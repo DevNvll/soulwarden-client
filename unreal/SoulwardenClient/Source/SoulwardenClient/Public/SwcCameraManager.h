@@ -77,12 +77,20 @@ public:
 	bool IsAds() const { return bAds; }
 	bool AllowsFreeLook() const;
 	const FString& GetStateName() const { return StateName; }
+	/**
+	 * The player is hidden in the camera states of the crafting screen (UI_CraftingStep1, UI_CraftingStep3). [I] The retail set
+	 * ut567-screens shows no body on the screen, in the craft roll, and on the result with the same camera state (the client showed the
+	 * body large in the front of the frame); no script call and no key of camera.json names a hide (docs/UI.md "The camera of the screens").
+	 */
+	bool HidesPlayer() const { return StateName == TEXT("UI_CraftingStep1") || StateName == TEXT("UI_CraftingStep3"); }
 	/** The zoom option and the smoothed zoom (m), for the camera state log of the checks (AST-251). */
 	float GetSavedZoom() const { return SavedZoom; }
 	float GetZoom() const { return Zoom; }
 
 protected:
 	virtual void UpdateViewTarget(FTViewTarget& OutVT, float DeltaTime) override;
+	/** The foreground blur limit of the engine comes back when the camera ends with a screen blur on (ApplyUiDepthOfField). */
+	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 
 private:
 	/** @return The FOV option of the player: the row Field of View of the Options screen (UI/SwcGameSettings), else 57. */
@@ -105,7 +113,7 @@ private:
 
 	void SelectState(const ASwcPlayerCharacter& Character);
 	/** The depth of field of a screen on the view (SetUiDepthOfField), or no override of the depth of field. */
-	void ApplyUiDepthOfField(FMinimalViewInfo& POV) const;
+	void ApplyUiDepthOfField(FMinimalViewInfo& POV);
 	/** The turn of the body in the inventory states (UpdateViewTarget): toward the camera at the open, to the view at the end. */
 	void UpdateBodyTurn(ASwcPlayerCharacter& Character, float CameraYaw, float DeltaTime);
 	void UpdateZ(const FVector& TargetPivot, const ASwcPlayerCharacter& Character, const FSwcCameraState& State, float DeltaTime);
@@ -168,6 +176,12 @@ private:
 	bool bUiDof = false;
 	float UiDofDistance = 0.0f;
 	float UiDofBlur = 0.0f;
+	float UiDofNear = 0.0f;
+	float UiDofFar = 0.0f;
+	float UiDofRange = 0.0f;
+	/** The foreground blur limit of the engine (r.DOF.Kernel.MaxForegroundRadius) before a screen turned it off, and whether it is off. */
+	float SavedForegroundRadius = -1.0f;
+	bool bForegroundOff = false;
 	/** The turn of the body of the inventory states: on while the body turns to its target yaw (degrees), and the state of the last turn. */
 	bool bBodyTurn = false;
 	float BodyTurnYaw = 0.0f;

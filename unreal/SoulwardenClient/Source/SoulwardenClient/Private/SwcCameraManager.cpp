@@ -35,6 +35,16 @@ constexpr float DefaultZoom = 2.0f;
  */
 constexpr float UiDofScale = 5.0f;
 constexpr float UiDofBaseSensorWidth = 24.576f;
+/**
+ * [I] The focus of a screen blur: the native distance plus this part of the blur span (FAR - NEAR when the script gives them, else the
+ * RANGE). Only the world behind the focus blurs (the foreground blur of the engine is off while a screen blur is on). The retail set
+ * ut567-screens: the inventory (3 0.8, range 10) keeps the player at 2.75 m sharp and blurs the world a little; the Talk (5 0.8) keeps the
+ * persons sharp in the orbit and in a cut; the craft roll (6 0.4) keeps the camp sharp; the craft result (0 0.95, range 10) blurs the tent
+ * at 5 m but keeps it readable; skills and the journal (0 1, near 1, far 3) blur the world strongly.
+ */
+constexpr float UiDofSpanPart = 0.25f;
+static TAutoConsoleVariable<float> CVarSwcDofSpanPart(TEXT("swc.Camera.DofSpanPart"), UiDofSpanPart,
+	TEXT("The focus of a screen blur: the native distance plus this part of the blur span (far - near, else the range)."));
 static TAutoConsoleVariable<float> CVarSwcDofScale(TEXT("swc.Camera.DofScale"), UiDofScale,
 	TEXT("The scale of the native blur of the depth of field of a screen (the sensor width 24.576 mm x scale x blur at f/1); 0: no depth of field."));
 /** The pivot snaps to its target after a move of more than 2 m in one frame (C 0x1049C20: distance squared > 4). */
@@ -165,6 +175,9 @@ void ASwcCameraManager::SetUiDepthOfField(bool bOn, float InDistance, float Blur
 	bUiDof = bOn;
 	UiDofDistance = InDistance;
 	UiDofBlur = Blur;
+	UiDofNear = Near;
+	UiDofFar = Far;
+	UiDofRange = Range;
 }
 
 bool ASwcCameraManager::AllowsFreeLook() const
@@ -511,11 +524,42 @@ FRotator ASwcCameraManager::UpdateLock(const FVector& Pivot, const ASwcPlayerCha
 	return FRotator(Result.Pitch, Result.Yaw, 0.0);
 }
 
-void ASwcCameraManager::ApplyUiDepthOfField(FMinimalViewInfo& POV) const
+void ASwcCameraManager::EndPlay(const EEndPlayReason::Type Reason)
+{
+	if (bForegroundOff && SavedForegroundRadius >= 0.0f)
+	{
+		if (IConsoleVariable* Foreground = IConsoleManager::Get().FindConsoleVariable(TEXT("r.DOF.Kernel.MaxForegroundRadius")))
+		{
+			Foreground->Set(SavedForegroundRadius, ECVF_SetByCode);
+		}
+		bForegroundOff = false;
+	}
+	Super::EndPlay(Reason);
+}
+
+void ASwcCameraManager::ApplyUiDepthOfField(FMinimalViewInfo& POV)
 {
 	FPostProcessSettings& Settings = POV.PostProcessSettings;
 	const float Scale = CVarSwcDofScale.GetValueOnGameThread();
 	const bool bOn = bUiDof && UiDofBlur > 0.0f && Scale > 0.0f;
+	// No foreground blur while a screen blur is on: the world nearer than the focus stays sharp (the person of a Talk, the player of the
+	// inventory). The value of the engine comes back at the end.
+	if (bOn != bForegroundOff)
+	{
+		if (IConsoleVariable* Foreground = IConsoleManager::Get().FindConsoleVariable(TEXT("r.DOF.Kernel.MaxForegroundRadius")))
+		{
+			if (bOn)
+			{
+				SavedForegroundRadius = Foreground->GetFloat();
+				Foreground->Set(0.0f, ECVF_SetByCode);
+			}
+			else if (SavedForegroundRadius >= 0.0f)
+			{
+				Foreground->Set(SavedForegroundRadius, ECVF_SetByCode);
+			}
+		}
+		bForegroundOff = bOn;
+	}
 	Settings.bOverride_DepthOfFieldFocalDistance = bOn;
 	Settings.bOverride_DepthOfFieldFstop = bOn;
 	Settings.bOverride_DepthOfFieldMinFstop = bOn;
@@ -523,8 +567,10 @@ void ASwcCameraManager::ApplyUiDepthOfField(FMinimalViewInfo& POV) const
 	POV.PostProcessBlendWeight = bOn ? 1.0f : 0.0f;
 	if (bOn)
 	{
-		// The native distance in meters: the focal distance (0: the near limit of 0.1 m, all of the world is behind it).
-		Settings.DepthOfFieldFocalDistance = FMath::Max(UiDofDistance * 100.0f, 10.0f);
+		// The native distance in meters plus a part of the blur span: the focal distance (at least 0.1 m).
+		const float Span = UiDofFar > UiDofNear ? UiDofFar - UiDofNear : UiDofRange;
+		const float Focus = UiDofDistance + CVarSwcDofSpanPart.GetValueOnGameThread() * FMath::Max(Span, 0.0f);
+		Settings.DepthOfFieldFocalDistance = FMath::Max(Focus * 100.0f, 10.0f);
 		Settings.DepthOfFieldFstop = 1.0f;
 		Settings.DepthOfFieldMinFstop = 1.0f;
 		Settings.DepthOfFieldSensorWidth = FMath::Clamp(UiDofBaseSensorWidth * Scale * UiDofBlur, 0.1f, 1000.0f);
