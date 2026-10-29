@@ -15,6 +15,9 @@ public:
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, SceneColor)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, GBufferB)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, GBufferC)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, OpaqueGBufferB)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, OpaqueGBufferC)
+		SHADER_PARAMETER(int32, UseOpaque)
 		SHADER_PARAMETER(FIntVector4, Rect)
 		SHADER_PARAMETER(int32, Step)
 		SHADER_PARAMETER(int32, GroupsX)
@@ -44,6 +47,10 @@ FRDGBufferRef AddSwcMeterPass(FRDGBuilder& GraphBuilder, const FSwcMeterInputs& 
 	Parameters->SceneColor = Inputs.SceneColor;
 	Parameters->GBufferB = Inputs.GBufferB;
 	Parameters->GBufferC = Inputs.GBufferC;
+	const bool bOpaque = Inputs.OpaqueGBufferB != nullptr && Inputs.OpaqueGBufferC != nullptr;
+	Parameters->OpaqueGBufferB = bOpaque ? Inputs.OpaqueGBufferB : Inputs.GBufferB;
+	Parameters->OpaqueGBufferC = bOpaque ? Inputs.OpaqueGBufferC : Inputs.GBufferC;
+	Parameters->UseOpaque = bOpaque ? 1 : 0;
 	Parameters->Rect = FIntVector4(Inputs.Rect.Min.X, Inputs.Rect.Min.Y, Inputs.Rect.Max.X, Inputs.Rect.Max.Y);
 	Parameters->Step = Step;
 	Parameters->GroupsX = Groups.X;

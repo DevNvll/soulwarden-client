@@ -10,6 +10,9 @@ struct FSwcMeterInputs
 	FRDGTextureRef SceneColor = nullptr;
 	FRDGTextureRef GBufferB = nullptr;
 	FRDGTextureRef GBufferC = nullptr;
+	/** The G-buffer B and C after the base pass (the floor under the Single Layer Water); null: the meter skips the water pixels. */
+	FRDGTextureRef OpaqueGBufferB = nullptr;
+	FRDGTextureRef OpaqueGBufferC = nullptr;
 	FIntRect Rect;
 	/** The step between the samples in each direction (pixels). */
 	int32 Step = 6;

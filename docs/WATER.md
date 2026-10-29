@@ -443,6 +443,19 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     water (turquoise), and dark water with the reflections of the rocks in the source.
   - Next: the meter fix (the water pixels, a client shader change, an incremental cook); for ocean-far, a test of the floor
     transmission (the two-path attenuation of the source against the plugin path) and of the SSR alone (reflection modes 2 and 3).
+- C, the meter fix (2026-10-29; not built at the commit): `swc.MeterWater` (default 1). After the base pass of a game view, on a
+  frame that the meter measures, the client copies G-buffer B and C (the render targets "GBufferB" and "GBufferC" of the base pass:
+  the floor under the water; the Single Layer Water pass writes its own values later, `DeferredShadingRenderer.cpp`: the base pass
+  before `RenderSingleLayerWater`). The GPU reduction (`SwcMeter.usf`) then takes a water pixel with the luminance of the final pixel
+  and the denominator of the floor under it (the study, "Repair meter input"). 0 gives the old rule (the water pixels skipped). The
+  "meter diag" line gives the water pixels and the taken ones.
+  - The source path has no Single Layer Water pixel (its water is unlit and translucent), so its measure does not change [R by the
+    code]. The check: the 9 views in the source mode, each with `swc.MeterWater 1` and 0 (a variant): the EV of the frame within
+    0.05 EV (`work/water-unreal/tone3/run_c.sh source`, `ev_pairs.py`).
+  - A change of `Shaders/` makes the cooked build old but needs only an incremental cook.
+- The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
+  albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
+  `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
 
 ### Stage 2b (after the full cook)
 

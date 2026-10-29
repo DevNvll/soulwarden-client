@@ -38,6 +38,14 @@ TAutoConsoleVariable<int32> CVarMeterGpu(TEXT("swc.MeterGpu"), 1,
 TAutoConsoleVariable<float> CVarMeterInterval(TEXT("swc.MeterInterval"), 0.25f,
 	TEXT("The time between two measures of the source meter (seconds; 0: as often as the readbacks allow, a cost test of AST-273 P4)."));
 
+/** The water pixels of the meter (AST-200 stage 2c, research/water-near-tone.md "Repair meter input"): 1 the meter takes a Single Layer Water
+ *  pixel with the luminance of the final pixel and the denominator of the floor under it (G-buffer B and C copied after the base pass, before
+ *  the water pass writes its own values; the GPU reduction only); 0 it skips the water pixels (before 2026-10-29: an all-water view had no
+ *  measure and kept the last correction). The source water is translucent and writes no Single Layer Water pixel: no change there. */
+TAutoConsoleVariable<int32> CVarMeterWater(TEXT("swc.MeterWater"), 1,
+	TEXT("1: the source meter takes the Single Layer Water pixels with the G-buffer of the floor under them (saved after the base pass); ")
+	TEXT("0: it skips them (an all-water view then keeps the last correction)."));
+
 /** The diagnostic of the meter (AST-200 stage 2c, research/water-near-tone.md): 1 logs each measure, also a measure with no accepted pixel
  *  (all Single Layer Water: the meter keeps its last correction), at most one line each second. */
 TAutoConsoleVariable<int32> CVarMeterDiag(TEXT("swc.MeterDiag"), 0,
@@ -60,6 +68,8 @@ struct FMeterSums
 {
 	double SumE = 0.0, SumL = 0.0, SumAlbedo = 0.0;
 	int32 Count = 0, Sky = 0, Water = 0;
+	/** The water pixels that the GPU reduction took with the floor under them (swc.MeterWater 1; in Count too). */
+	int32 WaterTaken = 0;
 
 	/** Adds a pixel: L in cd/m2 (the scene color over the pre-exposure), G-buffer B (metallic, specular) and C (the base color). The
 	 *  denominator of the source (research/e5-meter-water.md): the Rec. 709 luminance of the diffuse color and of the specular
@@ -160,6 +170,53 @@ public:
 	virtual void SetupView(FSceneViewFamily& InViewFamily, FSceneView& InView) override {}
 	virtual void BeginRenderViewFamily(FSceneViewFamily& InViewFamily) override {}
 
+	/** After the base pass of a game view, on a frame that the watch measures (swc.MeterWater 1): copies G-buffer B and C (the floor under
+	 *  the water, before the Single Layer Water pass) for the reduction of the same frame. The render targets of the base pass, by name
+	 *  (FSceneTextures::GetGBufferRenderTargets: "GBufferB", "GBufferC"; the scene texture uniform buffer has no G-buffer at this time). */
+	virtual void PostRenderBasePassDeferred_RenderThread(FRDGBuilder& GraphBuilder, FSceneView& InView, const FRenderTargetBindingSlots& RenderTargets,
+		TRDGUniformBufferRef<FSceneTextureUniformParameters> SceneTextures) override
+	{
+		OpaqueGraph = nullptr;
+		OpaqueB = OpaqueC = nullptr;
+		if (!InView.bIsGameView || InView.bIsSceneCapture || CVarMeterWater.GetValueOnRenderThread() == 0 || CVarMeterGpu.GetValueOnRenderThread() == 0)
+		{
+			return;
+		}
+		{
+			FScopeLock Lock(&Guard);
+			if (!bWatch || InFlight.IsValid() || FPlatformTime::Seconds() < NextWatch)
+			{
+				return;
+			}
+		}
+		FRDGTextureRef SourceB = nullptr;
+		FRDGTextureRef SourceC = nullptr;
+		for (int32 Index = 0; Index < MaxSimultaneousRenderTargets; ++Index)
+		{
+			FRDGTextureRef Target = RenderTargets.Output[Index].GetTexture();
+			if (Target != nullptr && Target->Desc.Dimension == ETextureDimension::Texture2D)
+			{
+				SourceB = FCString::Strcmp(Target->Name, TEXT("GBufferB")) == 0 ? Target : SourceB;
+				SourceC = FCString::Strcmp(Target->Name, TEXT("GBufferC")) == 0 ? Target : SourceC;
+			}
+		}
+		if (SourceB == nullptr || SourceC == nullptr)
+		{
+			return;
+		}
+		auto Copy = [&GraphBuilder](FRDGTextureRef Source, const TCHAR* Name)
+		{
+			FRDGTextureDesc Desc = Source->Desc;
+			Desc.Flags = TexCreate_ShaderResource;
+			FRDGTextureRef Target = GraphBuilder.CreateTexture(Desc, Name);
+			AddCopyTexturePass(GraphBuilder, Source, Target);
+			return Target;
+		};
+		OpaqueB = Copy(SourceB, TEXT("SwcMeterOpaqueGBufferB"));
+		OpaqueC = Copy(SourceC, TEXT("SwcMeterOpaqueGBufferC"));
+		OpaqueGraph = &GraphBuilder;
+	}
+
 	virtual void SubscribeToPostProcessingPass(EPostProcessingPass Pass, const FSceneView& InView, FPostProcessingPassDelegateArray& InOutPassCallbacks,
 		bool bIsPassEnabled) override
 	{
@@ -241,6 +298,14 @@ public:
 				Meter.SceneColor = Color;
 				Meter.GBufferB = Normal;
 				Meter.GBufferC = Base;
+				// The floor under the water of the same frame (PostRenderBasePassDeferred_RenderThread), when it was copied.
+				if (OpaqueGraph == &GraphBuilder && OpaqueB != nullptr && OpaqueC != nullptr && OpaqueB->Desc.Extent == Base->Desc.Extent)
+				{
+					Meter.OpaqueGBufferB = OpaqueB;
+					Meter.OpaqueGBufferC = OpaqueC;
+				}
+				OpaqueGraph = nullptr;
+				OpaqueB = OpaqueC = nullptr;
 				Meter.Rect = Scene.ViewRect;
 				Meter.Step = WatchStep;
 				Meter.PreExposure = PreExposure;
@@ -317,6 +382,7 @@ public:
 				GpuSums.Count += FMath::RoundToInt32(Values[3]);
 				GpuSums.Sky += FMath::RoundToInt32(Values[4]);
 				GpuSums.Water += FMath::RoundToInt32(Values[5]);
+				GpuSums.WaterTaken += FMath::RoundToInt32(Values[6]);
 			}
 			Frame->Sums->Unlock();
 			if (Frame->Color.IsValid() && Sums.Count > 0 && GpuSums.Count > 0)
@@ -331,8 +397,8 @@ public:
 		{
 			NextDiag = FPlatformTime::Seconds() + 1.0;
 			const double Exposure = Frame->PreExposure;
-			UE_LOG(LogSwcEnvironment, Log, TEXT("meter diag: %d accepted, %d sky, %d water (skipped) pixels; the exposure of the frame %.4g (EV %.2f); E %.0f lux; the last good measure %.1f s ago"),
-				Sums.Count, Sums.Sky, Sums.Water, Exposure, Exposure > 0.0 ? -FMath::Log2(1.2 * Exposure) : 0.0, Sums.Count > 0 ? Sums.E() : 0.0,
+			UE_LOG(LogSwcEnvironment, Log, TEXT("meter diag: %d accepted, %d sky, %d water pixels (%d taken with the floor, the rest skipped); the exposure of the frame %.4g (EV %.2f); E %.0f lux; the last good measure %.1f s ago"),
+				Sums.Count, Sums.Sky, Sums.Water, Sums.WaterTaken, Exposure, Exposure > 0.0 ? -FMath::Log2(1.2 * Exposure) : 0.0, Sums.Count > 0 ? Sums.E() : 0.0,
 				Latest.Time > 0.0 ? FPlatformTime::Seconds() - Latest.Time : -1.0);
 		}
 		if (!bFormats || Sums.Count == 0)
@@ -409,6 +475,10 @@ public:
 	bool bWarned = false;
 	uint32 Dropped = 0;
 	double NextDiag = 0.0;
+	/** The copies of G-buffer B and C after the base pass (render thread; valid only in the graph builder of that frame). */
+	FRDGBuilder* OpaqueGraph = nullptr;
+	FRDGTextureRef OpaqueB = nullptr;
+	FRDGTextureRef OpaqueC = nullptr;
 };
 
 TSharedPtr<FMeterProbe, ESPMode::ThreadSafe>& Probe()
