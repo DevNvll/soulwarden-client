@@ -725,6 +725,18 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       blue-1 spread); at the lake the camera framing changed between shots (the band numbers measure the framing), and the lake water looks
       the same in all shots.
     - No default: blue 1.5 is not a candidate for all places yet.
+  - The hour study (GPT-6.1-Sol, read only; brief `research/briefs/ast200-2c-hour.txt`, result `~/Games/soulwarden-client/research/water-hour.md`):
+    - The fault is the response of the ocean to the light, not the scene lights [R by the pictures]: from noon to 16:30 the Source water
+      keeps 19.2 % of its display-linear luminance, the Unreal water 52.1 %. In the second late pair the dry cliff and the sky match the
+      source (Unreal / Source Y 1.04 and 1.01), and the water is still 2.48 times as bright.
+    - The source D and N terms fall only with the sun color and lux (0.83 / 0.77 / 0.74 of noon per channel) [R]; the near term of the
+      check parent follows the same sun (no fixed noon value) [R]. The world probe of the sky light keeps its cube and falls only to 86 %
+      of noon (the preset curve) [R]; it lights the ambient in-scatter of Single Layer Water and the reflection fallback: a strong
+      candidate for the excess [I], not proved [U].
+    - The supported test [I]: `swc.WaterOceanMediumGain` (default 1): a gain of the scattering albedo of the ocean in all channels with the
+      extinction held (`swc::water::albedo_gain`), after the blue gain; the main and the far ocean instances. Test values from the sun
+      (E sin(elevation) relative to noon): 1 at noon, 0.375 at 16:30, 0.507 at 08:00 (empirical, not a source rule). Expected at 16:30:
+      -5 to -13 L* (the part of the water signal that the medium makes is not known); noon unchanged.
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
