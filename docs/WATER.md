@@ -453,6 +453,11 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     code]. The check: the 9 views in the source mode, each with `swc.MeterWater 1` and 0 (a variant): the EV of the frame within
     0.05 EV (`work/water-unreal/tone3/run_c.sh source`, `ev_pairs.py`).
   - A change of `Shaders/` makes the cooked build old but needs only an incremental cook.
+  - The trap of the cook (2026-10-29 08:51 UTC, the first cook of C): the cook failed with status 25 ("FSwcMeterCS has unbound
+    parameters OpaqueGBufferB, OpaqueGBufferC, UseOpaque"). The cooker loads the EDITOR modules of the main checkout (the global shader
+    class of SwcShaders with its parameter struct), and `tools/cook.sh` builds only the game target. The old editor module did not
+    know the new parameters of the changed shader. Thus after a change of a global shader and its parameter struct (Shaders/ and
+    Source/SwcShaders): `tools/build.sh editor` in the main checkout first, then `tools/cook.sh`.
   - The source check (2026-10-29 07:42 to 08:15 UTC, an editor build): the 9 views with `swc.MeterWater` 1 and 0: 7 within 0.05 EV,
     ocean-clear -0.09 and beach-down -0.19, with "water 0, taken 0" in each frame (the new branch did not run). The A/A test (1, 1, 0
     and the reversed 0, 1, 1) gave the same EV sequence in the shot order in both passes (beach-down 13.85, 13.79, 13.67 to 13.69): the
@@ -468,6 +473,15 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   `swc.WaterOceanExtinction 2` -6.4 / -2.9 / +5.3; `r.Water.SingleLayer.Reflection 2` +17.7 / +27.6 / +23.6; 3: +15.7 / +22.7 / +21.6.
   The floor through the near ocean is a large part of the gap; the default reflection mode 1 is the darkest. The controls (lake-noon,
   river-down-noon, river-forest-noon): all near bands within 0.6; river-down middle -5.3, river-forest far +5.4.
+- The extinction sweep (2026-10-29 09:02 to 09:21 UTC, the cooked build of 9147255 with C, the fixed exposure EV 13.03; evidence
+  `water-unreal/wnt-d-*`), the near band, Unreal minus source, for `swc.WaterOceanExtinction` 1 / 1.5 / 2 / 3: ocean-far +11.6 / +8.1 /
+  +4.3 / +0.8; ocean-clear -3.1 / 0.0 / -0.7 / -2.3 (all bands within 5 from 1.5 to 3); beach-down -10.3 / -12.4 / -13.7 / -16.7. At
+  ocean-far `swc.WaterToneAlbedoScale` 2: near +2.4 but far -8.2; 1: -3.4 / -10.8 / -13.1 (all darker). No single extinction fits the
+  three views: the deep near ocean needs about 2 to 3 times, the shallow water at beach-down is too dark at all scales. Its probable cause
+  [I]: the near color term of the source (nearFogColor x the sun x T x sat(0.1 L); a light that has its peak at about 2 m of water) is
+  not in Single Layer Water. The plugin rule of the floor is the same two-path rule as the source (`SingleLayerWaterShading.ush`:
+  exp(-sigma WaterVolumeDepth) and exp(-sigma the vertical distance to the top); the view path is a depth difference along the view
+  axis, about 10 % shorter than the ray here) [R]. The controls: all near bands within 1.6; river-down middle -6.6, river-forest far +5.6.
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
