@@ -624,14 +624,6 @@ bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, int32 OptionCount, FRegio
 					Bound.HiddenMask |= Bit >= 0 && Bit < 32 ? 1u << Bit : 0u;
 				}
 			}
-			// The options that the client hides until it has their screen (the town boards: swc::objects::client_hides_option).
-			for (int32 Position = 0; Position < Bound.Options.Num() && Position < 32; ++Position)
-			{
-				if (swc::objects::client_hides_option(Options[Bound.Options[Position].Key].Option.name))
-				{
-					Bound.HiddenMask |= 1u << Position;
-				}
-			}
 			BoundInfo->TryGetBoolField(TEXT("npc"), Bound.bNpc);
 			Object.Bounds.Add(Bound);
 		}
@@ -823,8 +815,10 @@ void USwcObjectSubsystem::MakeTarget(const FString& Key, FName Kind, const swc::
 		FSwcWorldObjectOption& Option = Out.Options.AddDefaulted_GetRef();
 		Option.Index = Pair.Key;
 		const int32 Position = Out.Options.Num() - 1;
-		Option.bShow = Position >= 32 || (Bound.HiddenMask & (1u << Position)) == 0;
 		Option.Option = Options[Pair.Key].Option;
+		// The authored show flag, and the options that the client hides until it has their screen (the town boards:
+		// swc::objects::client_hides_option).
+		Option.bShow = (Position >= 32 || (Bound.HiddenMask & (1u << Position)) == 0) && !swc::objects::client_hides_option(Option.Option.name);
 		Option.Option.entity = Pair.Value;
 		// The request of the block (the rule of swc::interact::request_of with the ids of the data).
 		Option.Request.reference.actor = Actor;
