@@ -805,6 +805,24 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       off the water is lighter at each hour. The probe keeps its noon-like cube and falls only to 86 % at 16:30 (research/water-hour.md);
       the water takes that light in the ambient in-scatter and in the reflection fallback, the land much less (the 16:30 cliff changes by
       about 1 to 4 L*) [I].
+  - The probe-split and restore study (GPT-6.1-Sol, read only; brief `research/briefs/ast200-2c-probe-split.txt`, result
+    `~/Games/soulwarden-client/research/water-probe-split.md`):
+    - The probe part of the displayed water light is about 54 % at noon and 64 % at 16:30 [I]; the floor through the water is small at
+      this camera (the mean floor transmittance 0.0001) [R by the terrain model]. The pictures cannot split the ambient in-scatter from the
+      reflection [U].
+    - A correction [R]: with Lumen active (Vulkan), the capture fallback of the water composite has zero weight; Lumen fills its missed
+      rays with the sky light itself (the trace alpha is 1). A change of the composite fallback alone, or the additive sky term of version 8,
+      cannot remove this light; a replacement would have to act at the missed-ray sky lookup of Lumen.
+    - The next split test [I]: the 2 x 2 states `swc.ProbeScale` 1 / 0 and `r.Water.SingleLayer.Reflection` 1 / 0 at noon and 16:30 (a
+      global water diagnostic, mode 1 restored): the probe difference with the reflection off estimates the ambient in-scatter, the rest
+      the probe reflection. An exact ambient-only control would need a renderer bridge (the check parent cannot reach the ambient term).
+    - `swc.SkyLightSource 0` (the real-time capture of the current sky): a global diagnostic; the expected signs are not measured [U].
+    - The restore fault: no missing path of the switch is shown [R: the setters change only their own flag; the proxy is made again from
+      the component; the virtual shadow map cache of the removed light is cleared]. The most probable cause is the drift of the cloud
+      shadows and of the atmosphere and fog light over time [I]: at 16:30 the sky changed already before the second "off" (@pob sky L*
+      27.0 against 19.4 at @poa); the shadow-off cliff values repeat exactly; the first restored baseline is only near (noon @b1b cliff -5.6).
+      Not proved [U]. The next check: a no-switch time control over the same time, samples at least each second after a restore, and the
+      cloud shadows held off for one sequence.
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
