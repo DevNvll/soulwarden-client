@@ -844,6 +844,39 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       the split needs a repeat with the cloud shadow held off.]
     - The settle check of the defaults did not run (the stop); the defaults hold again because the client ended. `find -newer` of the
       shared content (SWC_CONTENT) against a stamp of 22:07:01: 0 files.
+  - Window D (2026-10-29 22:35 to 22:57 UTC; the word of the orchestrator 22:32 UTC): the repeat with the cloud shadow map held off
+    (`r.VolumetricCloud.ShadowMap 0`) in every shot of both paths, one stability sample, the important states first. No compile gate: the
+    stamps prove that the editor binary (21:04:16 UTC), the check plugin (15:31 UTC), and the shared game content did not change since the
+    gate pass of 22:15 UTC. 0 compile faults; one gate fault before the first shot of each run, then "in place" (6 source, 53 Unreal shots);
+    the swap guard: 0 stops (a backend-project dev run was alive); each shot at EV 13.03; `find -newer` of the shared content: 0 files;
+    evidence `water-unreal/wnt-d-*`, `near-probe-split.png`; the tables `work/water-unreal/tone3/d-water-mask.txt`, `d-scene.txt`,
+    `d-stability.txt`, `d-times.txt`, `d-ev.txt`.
+    - THE HELD SCENE IS NOT THE PLAY SCENE: the fog and the atmosphere get no cloud shadow (a bright pink haze over the view; the 16:30 horizon
+      L* 44 against 7 in the normal scene). The results below are a diagnostic of the split only. A default candidate must later pass in the
+      normal scene with the cloud shadows (paired or averaged shots).
+    - The stability: the water spread is at most 0.52 L* in each state; 7 states are "not stable" by the sky (0.5 to 1.05 L*) or are the
+      settle states (the cloud shadow on again). In the held scene the scene of both paths matches (16:30: the cliff 30.16 / 30.17, the
+      horizon 43.9 / 44.0, the far water band 37.2 / 36.5), so the differences are water only.
+    - dL*, d hue against the mean of the 2 held source shots (the source water L* 41.1 at noon, 28.8 at 16:30, 38.4 at 08:00; source
+      drift 3.9 / 0.5 / 3.1 L*); 2 counted shots each (order a and the reverse order b):
+
+      | State | 12:00 | 16:30 | 08:00 |
+      |---|---|---|---|
+      | Probe 1, reflection 1 (the baseline) | +0.8 / +1.0, -3.1 / -3.3 | +6.9 / +6.7, -21.0 / -20.5 | (sl1) -1.3, -10.1 |
+      | Probe 0, reflection 1 | -12.1 / -12.2 | -5.6 / -5.5, -26.7 / -26.1 | - |
+      | Probe 1, reflection 0 | -21.6 / -21.5 | -14.3 / -14.4 | - |
+      | Probe 0, reflection 0 | -34.6 / -34.6 | -23.8 / -23.8 | - |
+      | `swc.SkyLightSource 0` | (not taken) | -2.8 / -2.9, +1.2 / +1.1: PASS | -12.0 / -11.9, +1.3 / +1.3: FAIL |
+
+    - The split (display-linear Y of the water mask; the probe part = probe 1 minus probe 0): at 16:30 the probe gives 55 % of the water
+      light; 26 % of that with the reflection off (the ambient in-scatter and the floor), 74 % through the reflection (the Lumen sky fill of
+      the missed rays). Without the probe reflection the 16:30 water would be -0.0077 Y from the source (near), without the probe ambient
+      +0.0155 (still too light). At noon the probe gives 53 % (32 % ambient, 68 % reflection), and the water needs all of it. Thus the
+      16:30 excess is mainly the probe REFLECTION, a noon-like cube [I: from the held scene].
+    - `swc.SkyLightSource 0` (the real-time capture of the current sky in place of the imported world probe; a global diagnostic) brings the
+      16:30 water to the source (L* and hue), but makes 08:00 12 L* too dark (where the default passes) [I]. It is not a default.
+    - The settle check: with the defaults (the cloud shadow map 1) the scene goes back to the normal cloud-shadow scene at each hour (16:30
+      cliff 9.9, in the drift range 4.3 to 17 of window C; noon 32.3; 08:00 29.0).
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
