@@ -669,6 +669,24 @@ bool RepClient::apply_crafting(const decoder::Fragment& fragment) {
     return true;
 }
 
+bool RepClient::apply_faction(const decoder::Fragment& fragment, OwnEntity& own) {
+    // The owner gets group 1 (the time, the count) and group 2 (the faction); a field that is not in the fragment keeps its value.
+    if (const auto time = decoder::field_of(fragment, 1, 3); time.size() == 8) {
+        own.factionChangeNs = read_be(time);
+    }
+    if (const auto count = decoder::field_of(fragment, 1, 4); count.size() == 2) {
+        own.factionChangeCount = static_cast<std::uint16_t>(read_be(count));
+    }
+    const auto faction = decoder::field_of(fragment, 2, 0);
+    if (faction.size() != 1) {
+        return false;
+    }
+    own.faction = faction[0];
+    own.hasFaction = true;
+    ++own.factionRevision;
+    return true;
+}
+
 bool RepClient::read_objectives(const decoder::Fragment& fragment, OwnEntity& own) {
     // Group 1: field 0 the task starts (17-byte entries), 1 the tracked instances (8), 2 the completed notices (8), 3 the active objectives
     // (56-byte elements with an empty ingredient list), 4 the task elements (18). Each field in the full form (backend objectives_state.cpp;
@@ -1147,6 +1165,16 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
             } else {
                 log(Event::Level::warning, "the objectives state does not have its form");
             }
+        } else if (fragment.slot == kSlotFaction && fragment.type == kStateFaction.index) {
+            if (apply_faction(fragment, m_own)) {
+                log(Event::Level::info, "faction: " + std::to_string(m_own.faction) + " (changes " + std::to_string(m_own.factionChangeCount)
+                                            + ", the last change at " + std::to_string(m_own.factionChangeNs) + " ns)");
+            }
+        } else if (fragment.slot == kSlotSocial && fragment.type == kStateSocial.index) {
+            if (!m_own.socialReady) {
+                log(Event::Level::info, "social: the Social state (4176): the friend containers exist");
+            }
+            m_own.socialReady = true;
         } else if (fragment.slot == kSlotPinReadiness && fragment.type == kStatePinReadiness.index) {
             if (const auto value = decoder::field_of(fragment, 0, 0); value.size() == 1) {
                 m_own.pinReady = value[0] != 0;
@@ -1535,6 +1563,14 @@ void RepClient::abandon_objective(std::uint64_t instance) {
     }
     send_call(kAbandonObjective, objective_instance_body(m_own.group, instance));
     log(Event::Level::info, "objectives: abandon of the instance " + std::to_string(instance) + " (3836)");
+}
+
+void RepClient::set_faction(std::uint8_t faction) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata || faction == 0 || faction > 3) {
+        return;
+    }
+    send_call(kRequestSetFaction, set_faction_body(m_own.group, faction));
+    log(Event::Level::info, "faction: the request of the faction " + std::to_string(faction) + " (3161)");
 }
 
 void RepClient::reset_objective(std::uint64_t instance) {

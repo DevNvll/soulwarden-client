@@ -73,7 +73,16 @@ def recipe_rows() -> dict[str, dict]:
 # The rank tables of other categorical progressions in the same columns (a column that the table does not have is 0): the territory
 # standing (AST-242, Q7: javelindata_territory_standing, type CategoricalProgressionRankData; the map shows the points of the rank against
 # its MaximumInfluence, 150 for rank 0).
-OTHER_RANK_TABLES = {"Territory_Standing": "javelindata_territory_standing.datasheet"}
+OTHER_RANK_TABLES = {"Territory_Standing": "javelindata_territory_standing.datasheet",
+                     # The factions (QG7, 2a of ut567; Soulwarden docs/systems/factions.md): the reputation (Syndicate MerchantGuild, Marauder
+                     # ProcurerGuild, Covenant ExplorerGuild) and the tokens of each faction. The Bio tab and the poster show the points
+                     # against MaximumInfluence of the rank (bio.luac UpdateWallet: GetMaxPointsForRank); with no table it showed 2000 / 2000.
+                     "MerchantGuild": "javelindata_owg_merchant.datasheet",
+                     "ProcurerGuild": "javelindata_owg_procurer.datasheet",
+                     "ExplorerGuild": "javelindata_owg_explorer.datasheet",
+                     "SyndicateTokens": "javelindata_owg_progression_syndicatetokens.datasheet",
+                     "MarauderTokens": "javelindata_owg_progression_marauderstokens.datasheet",
+                     "CovenantTokens": "javelindata_owg_progression_covenanttokens.datasheet"}
 
 
 def rank_tables(progressions: dict[str, dict]) -> dict[str, list]:

@@ -394,6 +394,14 @@ Bytes open_ui_screen_body(std::uint64_t group, std::uint32_t screen) {
     return w.data();
 }
 
+Bytes set_faction_body(std::uint64_t group, std::uint8_t faction) {
+    Writer w;
+    w.u64(slice_facet_target(group, kSocialEntity, kFactionComponent));
+    w.u64(group);
+    w.u8(faction);
+    return w.data();
+}
+
 Bytes objective_instance_body(std::uint64_t group, std::uint64_t instance) {
     Writer w;
     w.u64(group + kObjectivesComponent);

@@ -32,6 +32,8 @@ inline constexpr const char* kHudScreens[] = {
     "lyshineui/stationproperties/stationproperties",
     // The character window (stage MVP-G): the attributes, the weapon mastery with its trees, the trade skills (swc/skills.lua).
     "lyshineui/skills/skills",
+    // The faction selection of the Bio tab (QG7, 2a): the state 1040880896 of Change Faction (swc/factions.lua loads it).
+    "lyshineui/changefaction/factionselection",
     "lyshineui/tooltip/tooltip",
     // The inventory (stage P2.4): the bag, the equipment, the weight of the action bar, the action menu of an item.
     "lyshineui/inventory/newinventory",

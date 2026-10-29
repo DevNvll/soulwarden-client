@@ -598,6 +598,30 @@ natural chain):
   "attempt to concatenate a nil value" at 79 s of the TempestRising stand-in (1 error). No other Lua error in the 23 runs.
 - The repeat stays blocked (no repeatable row in the backend).
 
+## The factions (QG7 of the backend; 2a of ut567)
+
+The backend has the faction of a character, the join and the change (3161), and the empty Social state (protocol notes 4.63; the Soulwarden
+docs/systems/factions.md). The client part of 2a:
+
+- The codec (`RepClient`): the Faction state of the owner (slot 49, 3152: group 1 field 3 the time of the last change, Unix nanoseconds;
+  field 4 the count; group 2 field 0 the faction) with `apply_faction` (each received faction field adds a revision, also the same value);
+  the empty Social state (slot 55, 4176: `socialReady`); the request `set_faction` (3161, 17 bytes, the Faction facet of the entity Social:
+  `slice_facet_target(G, kSocialEntity, kFactionComponent)`). Tests: `tests/net/quest_tests.cpp` `faction_states` (the backend encoders and
+  the 3161 reader).
+- The host (`USwcUiSubsystem`): `HostFaction(faction, time text, count)` at each revision, `HostSocial()` one time; the request
+  `faction set N` goes to `set_faction`.
+- The Lua (`swc/factions.lua`): the FactionRequestBus (the two progression ids: the CRC-32 of the lower-case ids; the cost 0; the wait of 30
+  days from the time of the last change; `CanSetFactionWithResults` in the client order with the states of this world; `RequestSetFaction`
+  shows the requested faction at once, and the answer of the server sets it again with `Swc.RepublishData`) and the JavSocialComponentBus
+  (empty lists, no title, the pronoun 0). `Swc.HostRanks` sets `Hud.LocalPlayer.CategoricalProgressionRequestBus.IsConnected` (the Bio
+  wallet waits for it).
+- The selection screen of Change Faction (state 1040880896: `LyShineUI/ChangeFaction/FactionSelection`, autohide, POPUP_DRAW_ORDER): a
+  HudScreens entry and its state hook (the retail dynamic loader does not run).
+- The data (`tools/convert-ui.sh crafting`): the rank tables of the reputation (MerchantGuild, ProcurerGuild, ExplorerGuild) and of the
+  tokens (SyndicateTokens, MarauderTokens, CovenantTokens) with their rank names: the caps of the Bio tooltip.
+- Check: the fixture `factions`. Not in 2a: the faction service of the Talk (F4, the poster from a recruiter), the name plates of other
+  players (F6), the title list of the Social state.
+
 ## The encounters of the quests (QG5 of the backend; ut567)
 
 The backend makes an instance of an encounter recipe near a character (encounter-data.json of the backend copy; protocol notes 4.62;

@@ -44,6 +44,8 @@ Usage (tools/creature-world.sh):
   travel PLACE [auto|on|off]         a travel to a travel place of the game data (shrine_40170, inn_40300)
   quest grant OBJECTIVE              a new instance of an objective of the quest data for the character (backend stage 1.8a,
                                      /v1/dev/quests/grant; AST-248: the task topic of a person)
+  faction NAME [now] | achievement ID on|off | reputation FACTION RANK POINTS   the factions (QG7): a set with no check, an achievement,
+                                     the reputation of a faction
   encounter [RADIUS] | encounter use   the encounters near the character (QG5; default 200 m), or the DEVELOPMENT AID: the start
                                      object 10 m or less from the character counts as gathered (only to pass a missing start object)
   fixture NAME [DX DY DZ]            a fixture of the backend at the character (powderKeg: the timed use "Ignite Fuse", 5 s)
@@ -276,6 +278,17 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "GET", f"/v1/dev/encounters?character={character(folder)}{radius}")
     if command == "encounter" and rest == ["use"]:
         return request(folder, "POST", f"/v1/dev/encounters/use?character={character(folder)}")
+    # The factions (QG7, 2a of ut567; the routes of ~/Developer/azoth/tools/world): a faction set with no check (none, syndicate, marauder,
+    # covenant; "now" sets the time of the last change: the wait of 30 days), an achievement on or off (the recruitment achievement of the
+    # Bio change), and the reputation of a faction (rank and points).
+    if command == "faction" and len(rest) in (1, 2):
+        changed = "&changed=now" if rest[1:] == ["now"] else ""
+        return request(folder, "POST", f"/v1/dev/progress/faction?character={character(folder)}&faction={rest[0]}{changed}")
+    if command == "achievement" and len(rest) == 2 and rest[1] in ("on", "off"):
+        return request(folder, "POST", f"/v1/dev/quests/achievement?character={character(folder)}&id={rest[0]}&on={1 if rest[1] == 'on' else 0}")
+    if command == "reputation" and len(rest) == 3:
+        return request(folder, "POST", f"/v1/dev/progress/faction-progress?character={character(folder)}&faction={rest[0]}&kind=reputation"
+                                       f"&rank={int(rest[1])}&points={int(rest[2])}")
     if command == "fixture" and len(rest) in (1, 4):
         offset = f"&dx={float(rest[1])}&dy={float(rest[2])}&dz={float(rest[3])}" if len(rest) == 4 else ""
         # The rule 1 of the Ownership state gives the prompt (the rule 4 of the data: "No public access.").

@@ -124,6 +124,9 @@ function Swc.HostRanks(text)
   O.ranks = ranks
   local azoth = ranks[AZOTH_CURRENCY]
   Swc.SetData("Hud.LocalPlayer.Currency.AzothAmount", azoth and azoth.points or 0)
+  -- The categorical progressions exist (the native component publishes this node): bio.luac UpdateWallet shows the reputation and the
+  -- tokens of the faction only after it (QG7, 2a; before, the tab kept the canvas text 2000 / 2000).
+  Swc.SetData("Hud.LocalPlayer.CategoricalProgressionRequestBus.IsConnected", true)
   -- The changes of a progression go to its listeners (CategoricalProgressionNotificationBus at the player entity): the crafting
   -- screen adds the points of its trade skill into the summary of the result ("+13 Cooking"; craftingscreenv4.luac
   -- OnCategoricalProgressionPointsChanged and OnCategoricalProgressionRankChanged; AST-244 item 7). The first map of a session is

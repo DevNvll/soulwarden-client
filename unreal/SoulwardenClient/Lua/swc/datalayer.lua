@@ -146,6 +146,21 @@ function Swc.SetData(path, value)
   return id
 end
 
+--- Sets a node and gives it to its plain observers also when the value is the same: a native republish (the faction of the HUD at each
+--- received faction field, QG7 0x30B6210; conversationscreenv2 ConfirmFaction waits for it after a refused request).
+function Swc.RepublishData(path, value)
+  local id = node_of(path, true)
+  local n = nodes[id]
+  n.value = copy_value(value)
+  n.hasValue = true
+  deliver(n.path, value, id, true, true)
+  local parent = n.parent
+  while parent do
+    deliver_to_callbacks(parent)
+    parent = nodes[parent].parent
+  end
+end
+
 function Swc.GetData(path)
   local id = node_of(path, false)
   if not id then

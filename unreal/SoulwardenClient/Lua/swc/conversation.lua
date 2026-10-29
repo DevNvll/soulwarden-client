@@ -1016,8 +1016,7 @@ Swc.Define("PlayerCutsceneComponentRequestBus", "Broadcast", {
 Swc.Define("TimelineControllerComponentRequestBus", "Event", {UnTriggerTimelineOverrideForCrc = function() end})
 -- The top progression of the objective of the line: none (the backend has no objectives): an empty record.
 Swc.Define("ObjectivesComponentRequestBus", "Event", {GetTopProgressionForObjective = function() return {displayName = ""} end})
--- The faction cooldown of the person (the text of a faction line): none (the time now).
-Swc.Define("FactionRequestBus", "Event", {GetCooldownEndTime = function() return WallClockTimePoint:Now() end})
+-- The faction cooldown of the person (the text of a faction line): swc/factions.lua (GetCooldownEndTime).
 
 -- The subtitle options that the options data does not decode (gamedata/options.json "unknown"): the values of the saved
 -- options of the retail client (usersettings javsave of the Soulwarden development prefix: m_subtitlesSpeakerNameColorOption

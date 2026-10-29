@@ -407,6 +407,16 @@ public:
         /** The pin readiness (the SeasonsRewardsTrackedStat state, slot 73, type 5606): group 0 field 0 `initialized`. */
         bool pinReady{false};
         std::uint32_t pinReadyRevision{0};
+        /** The faction (slot 49, 3152; QG7, protocol notes 4.63): the faction (0 none, 1 Syndicate, 2 Marauder, 3 Covenant), the time of
+         *  the last change (Unix nanoseconds; 0 after a join: no wait), and the count of the changes. Each received faction field adds one
+         *  to factionRevision, also with the same value: the retail apply republishes it (the answer to a refused request). */
+        bool hasFaction{false};
+        std::uint8_t faction{0};
+        std::uint64_t factionChangeNs{0};
+        std::uint16_t factionChangeCount{0};
+        std::uint32_t factionRevision{0};
+        /** The empty Social state (slot 55, 4176): the friend containers of the client exist (the poster calls GetFriends). */
+        bool socialReady{false};
     };
 
     /** An entity of a different interest number: its metadata and its position. */
@@ -542,6 +552,9 @@ public:
     void open_ui_screen(std::uint32_t screen);
     void abandon_objective(std::uint64_t instance);
     void reset_objective(std::uint64_t instance);
+    /** The join or the change of a faction (QG7; 3161 RequestSetFaction; faction 1 to 3). The answer is the Faction state, also after a
+     *  refusal. */
+    void set_faction(std::uint8_t faction);
     /** The place cues of a point of interest (AST-241; research poi-cues.md): 2297 at an entry (achievement: the CRC-32 of the full
      *  achievement name, 0 for none) and 6416 at an exit (no achievement), on the TerritoryDetector facet. */
     void territory_report(const std::array<std::uint8_t, 16>& actor, std::uint64_t group, std::uint64_t local, std::uint16_t territory,
@@ -563,6 +576,8 @@ public:
     static constexpr std::size_t kWhisperHistory = 32;
     /** Copies an Objectives state (slot 22) into an own entity: false for a fragment that does not have its form (no change). */
     static bool read_objectives(const soulwarden::backend::tests::Fragment& fragment, OwnEntity& own);
+    /** Copies a Faction state (slot 49) into an own entity: false when the fragment has no faction field (no change). */
+    static bool apply_faction(const soulwarden::backend::tests::Fragment& fragment, OwnEntity& own);
     /** The states of an entity of a different interest number (apply_other; public for the tests of the encounter states). */
     static void apply_other_fragments(const soulwarden::backend::tests::Record& record, OtherEntity& entity);
     /** True after the first 2709 of this session. */

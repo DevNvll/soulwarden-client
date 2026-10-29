@@ -43,6 +43,7 @@ Swc.Load("swc.host")      -- the calls of the host: Swc.Tick, Swc.Boot, Swc.Ente
 Swc.Load("swc.frontend")  -- the front end: the native part of the landing screen (docs/FRONTEND.md stage F2)
 Swc.Load("swc.creation")  -- the character creation: the native part of CharacterCreation (docs/FRONTEND.md stage Q3)
 Swc.Load("swc.conversation") -- the conversation screen: its state, the npc data, the end request (docs/PERSONS.md)
+Swc.Load("swc.factions")  -- the factions: the Faction and the Social buses, the join and the change (docs/QUESTS.md, QG7)
 Swc.Load("swc.crafting")  -- the crafting screens: the recipes, the station of the use, the craft requests (docs/CRAFTING.md)
 Swc.Load("swc.skills")    -- the character window: the settings, the trees, the bars, the ranks (docs/UI.md)
 Swc.Load("swc.quests")    -- the quests: the tracker of the HUD, the journal, the banners (docs/QUESTS.md)

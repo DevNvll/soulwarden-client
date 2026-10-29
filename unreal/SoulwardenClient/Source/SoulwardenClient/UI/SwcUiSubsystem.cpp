@@ -280,6 +280,8 @@ void USwcUiSubsystem::ResetSession()
 	SentRankRevision = ~0u;
 	SentNodesRevision = ~0u;
 	SentChargeRevision = ~0u;
+	SentFactionRevision = ~0u;
+	bSentSocial = false;
 	SentAchievementRevision = ~0u;
 	SentEntitlementRevision = ~0u;
 	SentCraftRevision = ~0u;
@@ -619,6 +621,21 @@ void USwcUiSubsystem::FeedOwnerStates(const swc::net::RepClient::OwnEntity& Own)
 			Text += std::to_string(Pool) + " " + std::to_string(Free) + "\n";
 		}
 		Runtime->call("HostPointPools", {FArg::of(Text)});
+	}
+	// The faction (slot 49; QG7): each received faction field, also the same value (the answer to a refused request republishes it). The
+	// time is a text: Unix nanoseconds need 64 bits.
+	if (Own.hasFaction && Own.factionRevision != SentFactionRevision)
+	{
+		SentFactionRevision = Own.factionRevision;
+		Runtime->call("HostFaction", {FArg::of(static_cast<double>(Own.faction)), FArg::of(std::to_string(Own.factionChangeNs)),
+			FArg::of(static_cast<double>(Own.factionChangeCount))});
+		UE_LOG(LogSwcUi, Log, TEXT("ui: faction %u (changes %u)"), Own.faction, Own.factionChangeCount);
+	}
+	// The empty Social state (slot 55): the friend lists exist (Hud.LocalPlayer.JavSocialComponentBus.IsReady).
+	if (Own.socialReady && !bSentSocial)
+	{
+		bSentSocial = true;
+		Runtime->call("HostSocial", {});
 	}
 	// The heart rune charge (slot 48): the HUD fills the icon of the rune (Hud.LocalPlayer.Vitals.ChargePercent).
 	if (Own.hasCharge && Own.chargeRevision != SentChargeRevision)
@@ -1108,6 +1125,15 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 		}
 		else if (FSwcUiSkills::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))
 		{
+		}
+		else if (Request.rfind("faction set ", 0) == 0)
+		{
+			// "faction set N" (swc/factions.lua: FactionRequestBus RequestSetFaction of the poster and of the Bio panel): 3161. The answer
+			// is the Faction state, also after a refusal (HostFaction republishes it).
+			const uint32 Faction = static_cast<uint32>(FCString::Strtoui64(UTF8_TO_TCHAR(Request.substr(12).c_str()), nullptr, 10));
+			const bool bSent = Faction >= 1 && Faction <= 3
+				&& Backend->QueueRepCall([Faction](swc::net::RepClient& Client) { Client.set_faction(static_cast<std::uint8_t>(Faction)); });
+			UE_LOG(LogSwcUi, Log, TEXT("ui: faction: the request of the faction %u (3161): %s"), Faction, bSent ? TEXT("sent") : TEXT("not sent"));
 		}
 		else if (Request.rfind("travel ", 0) == 0)
 		{

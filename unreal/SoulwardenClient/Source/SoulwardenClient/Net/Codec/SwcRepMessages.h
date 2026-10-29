@@ -638,6 +638,24 @@ inline constexpr std::uint64_t slice_facet_target(std::uint64_t group, std::uint
 }
 /** @return The body of RequestAssignPoolPoints (1112, 28 bytes): target entity poolId:u32 pointId:u32 count:u32. */
 Bytes assign_pool_points_body(std::uint64_t group, std::uint32_t pool, std::uint32_t node, std::uint32_t count = 1);
+
+/**
+ * The factions (QG7; protocol notes 4.63; Soulwarden docs/systems/factions.md). The Faction state of the owner (slot 49, 3152): group 1 field 3
+ * lastFactionChangeTimepoint (u64, Unix nanoseconds), field 4 factionChangeCount (u16), group 2 field 0 faction (u8: 0 none, 1 Syndicate,
+ * 2 Marauder, 3 Covenant). The empty Social state (slot 55, 4176): the client needs its friend containers before the faction poster calls
+ * GetFriends. The request RequestSetFaction (3161, 17 bytes: target entity faction:u8) goes to the Faction component of the entity Social
+ * (slice-ids.json Social/2bbb6c0d-...). The type id of 4176 is not in the research tables (Soulwarden research scratch/factions): empty,
+ * the client does not use the type ids at run time.
+ */
+inline constexpr MessageType kStateFaction{"MB::FactionComponentReplicatedState", "80A502FD67EB4A1B87E3B85004919249", 3152};
+inline constexpr MessageType kStateSocial{"MB::SocialReplicatedState", "", 4176};
+inline constexpr MessageType kRequestSetFaction{"FactionComponentServerFacet_RequestSetFaction", "AB5536E6A4F84FED919E8D851C07737C", 3161};
+inline constexpr std::uint32_t kSlotFaction = 49;
+inline constexpr std::uint32_t kSlotSocial = 55;
+inline constexpr std::uint64_t kSocialEntity = 0xE8A82A615858169DULL;
+inline constexpr std::uint64_t kFactionComponent = 0xE9FFAD8E007C4913ULL;
+/** @return The body of RequestSetFaction (3161, 17 bytes): the Faction facet of the entity Social, the entity (G), the faction. */
+Bytes set_faction_body(std::uint64_t group, std::uint8_t faction);
 /** @return The body of RequestChangeMappedAbility (2701, 26 bytes): target entity tableIndex:u16 slot:u32 abilityId:u32. */
 Bytes change_mapped_ability_body(std::uint64_t group, std::uint16_t tableIndex, std::uint32_t slot, std::uint32_t ability);
 /** @return The body of RequestApplyAbilityPoints (2857, 16 bytes): target entity. */

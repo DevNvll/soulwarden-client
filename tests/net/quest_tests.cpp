@@ -21,6 +21,7 @@
 #include "gamedata/quest_data.h"
 #include "server/rep/conversation_messages.h"
 #include "server/rep/lock_messages.h"
+#include "server/rep/progress_requests.h"
 #include "server/rep/quest_messages.h"
 #include "server/rep/states/state_codecs.h"
 #include "support/manual_clock.h"
@@ -303,6 +304,57 @@ void requests()
 } // namespace
 
 /** QG5 (protocol notes 4.62): the states of an encounter root and a start object of the backend encoders, and the link of field 5. */
+// The factions (QG7, 2a F1 and F3): the Faction state of the backend encoder for the owner and an observer, the empty Social state, and the
+// body of 3161 through the reader of the backend.
+void faction_states()
+{
+	std::printf("faction states (QG7)\n");
+	backend::tests::ManualClock clock;
+	namespace rep = backend::server::rep;
+	backend::world::Entity character;
+	character.kind = backend::world::EntityKind::player;
+	// A character with no faction: no owner fragment in its first record.
+	check(rep::encode_faction_state(character, rep::View::owner, rep::PartsRequest{}).empty(), "no Faction fragment for a character with no faction");
+	// A join: the Syndicate, the time 0, the count 0 (the owner bytes 06 18 <8> <2> 01 01).
+	character.faction.faction = 1;
+	const auto owner = rep::encode_faction_state(character, rep::View::owner, rep::PartsRequest{});
+	bool whole = false;
+	check(owner.size() == 1, "one owner part");
+	decoder::Fragment fragment = fragment_of(owner.front(), swc::net::kSlotFaction, swc::net::kStateFaction.index, whole);
+	check(whole, "the vendored reader takes the owner Faction state (" + std::to_string(owner.front().size()) + " bytes)");
+	RepClient::OwnEntity own;
+	check(RepClient::apply_faction(fragment, own) && own.hasFaction && own.faction == 1 && own.factionChangeNs == 0 && own.factionChangeCount == 0
+	          && own.factionRevision == 1, "the join: the Syndicate, the time 0, the count 0");
+	// The same answer again (a refused request): the revision moves (the retail apply republishes the faction).
+	check(RepClient::apply_faction(fragment, own) && own.faction == 1 && own.factionRevision == 2, "the same faction again adds a revision");
+	// A change: the Marauders, the time of now, the count 1.
+	character.faction.faction = 2;
+	character.faction.changedNs = 1793000000123456789ULL;
+	character.faction.changes = 1;
+	const auto changed = rep::encode_faction_state(character, rep::View::owner, rep::PartsRequest{});
+	fragment = fragment_of(changed.front(), swc::net::kSlotFaction, swc::net::kStateFaction.index, whole);
+	check(RepClient::apply_faction(fragment, own) && own.faction == 2 && own.factionChangeNs == 1793000000123456789ULL && own.factionChangeCount == 1,
+	      "the change: the Marauders, the time in Unix nanoseconds, the count 1");
+	// An observer gets only group 2: the time and the count of an own entity stay.
+	character.faction.publicChanged = 1;
+	const auto observer = rep::encode_faction_state(character, rep::View::observer, rep::PartsRequest{});
+	check(observer.size() == 1, "one observer part");
+	fragment = fragment_of(observer.front(), swc::net::kSlotFaction, swc::net::kStateFaction.index, whole);
+	check(whole && RepClient::apply_faction(fragment, own) && own.faction == 2 && own.factionChangeCount == 1, "the observer part: the faction only");
+	// The empty Social state (31 bytes with the slot and the type).
+	const backend::server::hub::Bytes social = rep::encode_social_state(character, rep::View::owner, clock);
+	fragment_of(social, swc::net::kSlotSocial, swc::net::kStateSocial.index, whole);
+	check(whole, "the vendored reader takes the empty Social state (" + std::to_string(social.size()) + " bytes)");
+	// 3161: the Faction facet of the entity Social (the rule of 4.2 with the ids of slice-ids.json) and the faction.
+	const std::uint64_t group = 0x4C554F5340000100ULL;
+	const backend::server::hub::Bytes body = swc::net::set_faction_body(group, 3);
+	const auto request = rep::read_set_faction_request(body);
+	check(body.size() == 17 && request.has_value(), "the body of 3161 has 17 bytes and the reader of the backend takes it");
+	check(request && request->call.entity == group && request->faction == 3
+	          && request->call.target == ((0xE8A82A615858169DULL ^ 0xDAEE4E2555650AB7ULL ^ group) + 0xE9FFAD8E007C4913ULL),
+	      "3161: the entity G, the Faction facet of the entity Social, the Covenant");
+}
+
 void encounter_states(const backend::gamedata::QuestData& data)
 {
 	std::printf("encounter states (QG5)\n");
@@ -419,6 +471,7 @@ int main(int argc, char** argv)
 		check(data.load(argv[1]), std::string("the quest data of the backend copy loads: ") + argv[1]);
 		objectives_state(data);
 		encounter_states(data);
+		faction_states();
 		requests();
 	} catch (const std::exception& error) {
 		check(false, error.what());
