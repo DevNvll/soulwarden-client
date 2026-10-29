@@ -44,6 +44,8 @@ Usage (tools/creature-world.sh):
   travel PLACE [auto|on|off]         a travel to a travel place of the game data (shrine_40170, inn_40300)
   quest grant OBJECTIVE              a new instance of an objective of the quest data for the character (backend stage 1.8a,
                                      /v1/dev/quests/grant; AST-248: the task topic of a person)
+  encounter [RADIUS] | encounter use   the encounters near the character (QG5; default 200 m), or the DEVELOPMENT AID: the start
+                                     object 10 m or less from the character counts as gathered (only to pass a missing start object)
   fixture NAME [DX DY DZ]            a fixture of the backend at the character (powderKeg: the timed use "Ignite Fuse", 5 s)
   remove-object ENTITY               removes a server child (the entity of the fixture reply, 16 hex digits)
   cancel                             the server ends the interaction of the character (3746)
@@ -267,6 +269,13 @@ def run(words: list[str], folder: Path) -> object:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", rest[1]):
             fail("the objective must be an id of the quest data")
         return request(folder, "POST", f"/v1/dev/quests/grant?character={character(folder)}&objective={rest[1]}")
+    # The encounters (QG5, docs/QUESTS.md; the routes of ~/Developer/azoth/tools/world): the instances near the character, and the
+    # development aid "use" (the start object 10 m or less from the character counts as gathered; only to pass a missing start object).
+    if command == "encounter" and len(rest) <= 1 and rest != ["use"]:
+        radius = f"&radius={float(rest[0])}" if rest else ""
+        return request(folder, "GET", f"/v1/dev/encounters?character={character(folder)}{radius}")
+    if command == "encounter" and rest == ["use"]:
+        return request(folder, "POST", f"/v1/dev/encounters/use?character={character(folder)}")
     if command == "fixture" and len(rest) in (1, 4):
         offset = f"&dx={float(rest[1])}&dy={float(rest[2])}&dz={float(rest[3])}" if len(rest) == 4 else ""
         # The rule 1 of the Ownership state gives the prompt (the rule 4 of the data: "No public access.").

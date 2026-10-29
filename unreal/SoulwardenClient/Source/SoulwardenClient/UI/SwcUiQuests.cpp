@@ -133,7 +133,12 @@ void FSwcUiQuests::LoadEncounterTrees()
 		{
 			Visit(static_cast<int32>(Entry->AsNumber()));
 		}
-		EncounterTrees.Add(Asset.ToUpper(), Title + TEXT("\t") + FString::Join(Tasks, TEXT("\t")));
+		// A recipe with no user wave (Legion Attack: all stages userWave false) has no row in the tracker: no tree (ut567 2026-10-29, the
+		// client drew a lone POI diamond with no title).
+		if (Tasks.Num() > 0)
+		{
+			EncounterTrees.Add(Asset.ToUpper(), Title + TEXT("\t") + FString::Join(Tasks, TEXT("\t")));
+		}
 	}
 	UE_LOG(LogSwcUiQuests, Log, TEXT("ui: quests: the task trees of %d encounter slice(s) (%s)"), EncounterTrees.Num(), *Path);
 }
@@ -201,7 +206,11 @@ void FSwcUiQuests::Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::Ow
 				LoadEncounterTrees();
 			}
 			const FString* Tree = EncounterTrees.Find(UTF8_TO_TCHAR(Asset));
-			Lines += "E " + std::to_string(Instance) + " " + Asset + "\t" + (Tree != nullptr ? std::string(TCHAR_TO_UTF8(**Tree)) : std::string()) + "\n";
+			if (Tree == nullptr)
+			{
+				continue;
+			}
+			Lines += "E " + std::to_string(Instance) + " " + Asset + "\t" + std::string(TCHAR_TO_UTF8(**Tree)) + "\n";
 			for (const auto& Task : Root->rootTasks)
 			{
 				Lines += "T " + std::to_string(Task.instance) + " " + std::to_string(Task.index) + " " + std::to_string(Task.task) + " "

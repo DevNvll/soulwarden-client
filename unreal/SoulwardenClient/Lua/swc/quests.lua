@@ -366,6 +366,10 @@ local function encounter_record(rest)
     rec.nodes[wrapper] = {index = wrapper, children = {leaf}, row = {type = "consecutivetaskcontainer", cells = {}}}
     wrappers[#wrappers + 1] = wrapper
   end
+  -- No user wave (Legion Attack): no row (the host sends no such line; this guards the record).
+  if #wrappers == 0 then
+    return nil
+  end
   local root = 2 * #wrappers + 1
   rec.nodes[root] = {index = root, children = wrappers, row = {type = "consecutivetaskcontainer", cells = {}}}
   rec.root = root

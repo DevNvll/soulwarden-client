@@ -621,6 +621,17 @@ the root at the top of the tracker (a teal diamond), its stage title, and the ro
   record is not in a pin request.
 - Check: the fixture `encounters` (the Obelisk tree, "1 / 2 - Defeat the enforcers" and "Stellar Research" in the tracker, the Thorpe
   TimeLimit and start, the end of the root). Not done yet: the start objects (VariationData, item E4) and the stage actions.
+- A recipe with no user-wave stage (Legion Attack) has no tree and no row; the backend still links the character to its root.
+- The live check (2026-10-29 10:03 to 10:18 UTC, the uncooked client, dev-data-qg; pictures in evidence/ut567-enc):
+  - Obelisk 01: the row arrived at the entry into the 30 m detector. Then "Examine the Ancient Device", "0 / 2", and "1 / 2" (the
+    development kills), and no row at the end. The respawn after about 10 s made the row again. The link came 65 ms before its root.
+  - Thorpe: "To Stand Against The Dark: Stage 1/5", "0 / 9 - Harass Thorpe's Supporters", then "Intermission 00:00:10" counting down.
+  - Legion Attack: no row (after the fix; before it, a lone POI diamond).
+  - The development aid `encounter use` moved past the device (E4 is missing) in the client runs.
+- Open points from the retail stills (set-ut567-encounters): the head line of retail is "Perseus Stellar Research" (the client shows
+  "Stellar Research"); retail shows the stage title "Stellar Research" on the line of the wrapper (the client shows an empty
+  checkbox line); and retail keeps the head line with no task for some seconds after the last kill (the cleanup stage of 3 s), while
+  the client removes the row at once.
 
 ## Open points
 

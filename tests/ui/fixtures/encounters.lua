@@ -113,6 +113,17 @@ equal(ObjectiveTaskRequestBus.Event.GetUIData(leaf, "TimeLimit"), 10, "the timed
 local taskStart = ObjectivesComponentRequestBus.Event.GetTaskStartTime(Swc.ids.player, leaf)
 near(taskStart and taskStart.seconds or 0, start, 0.01, "GetTaskStartTime gives the start of the root")
 
+-- A recipe with no user wave (Legion Attack): an E line with no task gives no record (ut567 2026-10-29: a lone POI diamond).
+local LEGION = "5500585112935202860"
+local before = #ObjectivesComponentRequestBus.Event.GetTrackedObjectives(Swc.ids.player)
+Swc.HostQuests(table.concat({"E " .. LEGION .. " 38C0B7FF392EF3E226390F6D866CD435\t", "T " .. LEGION .. " 1 0 0 1", "K " .. LEGION,
+  "E " .. TIMED .. " 252DC9178EA98EA7\t@MSQ_0036_Thorpe_Title\t|1|10|0", "K " .. TIMED}, "\n"))
+frames(0.5)
+local after = ObjectivesComponentRequestBus.Event.GetTrackedObjectives(Swc.ids.player)
+local named = false
+for _, id in ipairs(after) do named = named or id:ToString() == LEGION end
+check(not named, "an encounter with no task has no tracked row (" .. #after .. " tracked, " .. before .. " before)")
+
 -- The end of the encounter (no E line): the row goes, and no banner of a failed quest.
 failed = 0
 feed(false)
