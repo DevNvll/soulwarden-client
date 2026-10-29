@@ -837,9 +837,10 @@ implements the calls for all screens. Before, each call was an empty function in
 - [I] The focus and the near blur (ut567, 2026-10-29). With the native distance as the focus, the Talk (5 0.8) blurred the person and
   the dummy (2.5 m from the camera, in front of the focus), and the craft result (0 0.95) blurred all of the world; retail keeps both
   sharp or readable. The rule now: only the world behind the focus blurs (`r.DOF.Kernel.MaxForegroundRadius` 0 while a screen blur is
-  on; the value of the engine comes back after it and at EndPlay), and the focus is the native distance plus `swc.Camera.DofSpanPart`
-  (0.25) of the blur span (FAR - NEAR when the script gives them, else RANGE): the inventory 3 + 2.5 m, the Talk 5 + 2.5 m, the craft
-  roll 6 + 2.5 m, the craft result 0 + 2.5 m, skills and the journal 0 + 0.5 m.
+  on; the value of the engine comes back after it and at EndPlay), and the focus is the native distance, at least `swc.Camera.DofSpanPart`
+  (0.25) of the blur span (FAR - NEAR when the script gives them, else RANGE): the inventory 3 m, the Talk 5 m, the craft roll 6 m, the
+  craft result 2.5 m, skills and the journal 0.5 m. (The first form of the rule, the distance plus the part, focused the inventory at
+  5.5 m: a weaker blur than retail; the window of ut567-linecam w1.)
 - [I] The player is hidden in the camera states of the crafting screen (`ASwcCameraManager::HidesPlayer`: UI_CraftingStep1 and
   UI_CraftingStep3), with the other hide reasons of the character (USwcBackendSubsystem). The retail set ut567-screens shows no body
   on the screen, in the craft roll, and on the result; the client showed the body large in the front of the frame (ut567-linecam c1).

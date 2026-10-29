@@ -36,15 +36,16 @@ constexpr float DefaultZoom = 2.0f;
 constexpr float UiDofScale = 5.0f;
 constexpr float UiDofBaseSensorWidth = 24.576f;
 /**
- * [I] The focus of a screen blur: the native distance plus this part of the blur span (FAR - NEAR when the script gives them, else the
- * RANGE). Only the world behind the focus blurs (the foreground blur of the engine is off while a screen blur is on). The retail set
- * ut567-screens: the inventory (3 0.8, range 10) keeps the player at 2.75 m sharp and blurs the world a little; the Talk (5 0.8) keeps the
- * persons sharp in the orbit and in a cut; the craft roll (6 0.4) keeps the camp sharp; the craft result (0 0.95, range 10) blurs the tent
- * at 5 m but keeps it readable; skills and the journal (0 1, near 1, far 3) blur the world strongly.
+ * [I] The focus of a screen blur: the native distance, and at least this part of the blur span (FAR - NEAR when the script gives them,
+ * else the RANGE). Only the world behind the focus blurs (the foreground blur of the engine is off while a screen blur is on). The retail
+ * set ut567-screens: the inventory (3 0.8, range 10: the focus 3 m) keeps the player at 2.75 m sharp and blurs the grass behind it; the
+ * Talk (5 0.8: 5 m) keeps the persons sharp in the orbit and in a cut; the craft roll (6 0.4: 6 m) keeps the camp sharp; the craft result
+ * (0 0.95, range 10: 2.5 m) blurs the tent at 5 m but keeps it readable; skills and the journal (0 1, near 1, far 3: 0.5 m) blur the world
+ * strongly. (The first rule of ut567, the distance plus the part, focused the inventory at 5.5 m: a weaker blur than retail.)
  */
 constexpr float UiDofSpanPart = 0.25f;
 static TAutoConsoleVariable<float> CVarSwcDofSpanPart(TEXT("swc.Camera.DofSpanPart"), UiDofSpanPart,
-	TEXT("The focus of a screen blur: the native distance plus this part of the blur span (far - near, else the range)."));
+	TEXT("The focus of a screen blur: the native distance, and at least this part of the blur span (far - near, else the range)."));
 static TAutoConsoleVariable<float> CVarSwcDofScale(TEXT("swc.Camera.DofScale"), UiDofScale,
 	TEXT("The scale of the native blur of the depth of field of a screen (the sensor width 24.576 mm x scale x blur at f/1); 0: no depth of field."));
 /** The pivot snaps to its target after a move of more than 2 m in one frame (C 0x1049C20: distance squared > 4). */
@@ -567,9 +568,9 @@ void ASwcCameraManager::ApplyUiDepthOfField(FMinimalViewInfo& POV)
 	POV.PostProcessBlendWeight = bOn ? 1.0f : 0.0f;
 	if (bOn)
 	{
-		// The native distance in meters plus a part of the blur span: the focal distance (at least 0.1 m).
+		// The native distance in meters, and at least a part of the blur span: the focal distance (at least 0.1 m).
 		const float Span = UiDofFar > UiDofNear ? UiDofFar - UiDofNear : UiDofRange;
-		const float Focus = UiDofDistance + CVarSwcDofSpanPart.GetValueOnGameThread() * FMath::Max(Span, 0.0f);
+		const float Focus = FMath::Max(UiDofDistance, CVarSwcDofSpanPart.GetValueOnGameThread() * FMath::Max(Span, 0.0f));
 		Settings.DepthOfFieldFocalDistance = FMath::Max(Focus * 100.0f, 10.0f);
 		Settings.DepthOfFieldFstop = 1.0f;
 		Settings.DepthOfFieldMinFstop = 1.0f;
