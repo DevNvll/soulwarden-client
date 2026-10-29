@@ -699,11 +699,14 @@ bool RepClient::read_objectives(const decoder::Fragment& fragment, OwnEntity& ow
     next.questCompleted.clear();
     next.questActive.clear();
     next.questTasks.clear();
+    next.encounterLinks.clear();
     const bool hasStarts = !decoder::field_of(fragment, 1, 0).empty();
     const bool hasTracked = !decoder::field_of(fragment, 1, 1).empty();
     const bool hasCompleted = !decoder::field_of(fragment, 1, 2).empty();
     const bool hasActive = !decoder::field_of(fragment, 1, 3).empty();
     const bool hasTasks = !decoder::field_of(fragment, 1, 4).empty();
+    // QG5: field 5, the encounter roots of the character (G:u64 each; protocol notes 4.62).
+    const bool hasLinks = !decoder::field_of(fragment, 1, 5).empty();
     const bool ok = read(0, [&](Reader& r) {
                         OwnEntity::QuestTaskStart start;
                         start.instance = r.u64();
@@ -743,7 +746,8 @@ bool RepClient::read_objectives(const decoder::Fragment& fragment, OwnEntity& ow
                            task.progress = r.u32();
                            task.state = r.u8();
                            next.questTasks.push_back(task);
-                       }, 65536);
+                       }, 65536)
+                    && read(5, [&](Reader& r) { next.encounterLinks.push_back(r.u64()); }, 4096);
     if (!ok || !any) {
         return false;
     }
@@ -752,6 +756,7 @@ bool RepClient::read_objectives(const decoder::Fragment& fragment, OwnEntity& ow
     own.questCompleted = hasCompleted ? std::move(next.questCompleted) : own.questCompleted;
     own.questActive = hasActive ? std::move(next.questActive) : own.questActive;
     own.questTasks = hasTasks ? std::move(next.questTasks) : own.questTasks;
+    own.encounterLinks = hasLinks ? std::move(next.encounterLinks) : own.encounterLinks;
     own.questSequence = sequence;
     own.hasObjectives = true;
     return true;
@@ -1200,7 +1205,10 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
 }
 
 void RepClient::apply_other(const decoder::Record& record) {
-    OtherEntity& entity = m_others[record.interest];
+    apply_other_fragments(record, m_others[record.interest]);
+}
+
+void RepClient::apply_other_fragments(const decoder::Record& record, OtherEntity& entity) {
     for (const decoder::Fragment& fragment : record.fragments) {
         if (fragment.slot == kSlotMetadata && fragment.type == kStateMetadata.index) {
             const auto asset = decoder::field_of(fragment, 0, 0);
@@ -1222,6 +1230,64 @@ void RepClient::apply_other(const decoder::Record& record) {
             }
             if (const auto rotation = decoder::field_of(fragment, 0, 1); !rotation.empty()) {
                 entity.placeRotation = read_place_rotation(rotation);
+            }
+        } else if (fragment.type == kStateEncounterManager) {
+            // The manager status of an encounter root (0 uninitialized, 1 not started, 2 in progress, 3 succeeded, 4 failed).
+            if (const auto value = decoder::field_of(fragment, 0, 0); value.size() == 4) {
+                Reader reader(value);
+                entity.encounterStatus = reader.u32();
+                entity.hasEncounterStatus = true;
+                ++entity.encounterRevision;
+            }
+        } else if (fragment.type == kStateEncounterStage) {
+            // The history of a stage (at most 10 entries): the entry of the largest signed sequence of the record wins, and only when it is
+            // above the stored one (the apply of the retail facet: an equal or older sequence does nothing).
+            if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
+                Reader reader(value);
+                const std::uint32_t count = reader.size();
+                auto stored = entity.encounterStages.find(fragment.slot);
+                bool changed = false;
+                for (std::uint32_t index = 0; index < count && index < 10 && reader.ok(); ++index) {
+                    OtherEntity::StageEntry entry;
+                    entry.sequence = reader.u32();
+                    entry.status = reader.u32();
+                    if (!reader.ok()) {
+                        break;
+                    }
+                    if (stored == entity.encounterStages.end()) {
+                        stored = entity.encounterStages.emplace(fragment.slot, entry).first;
+                        changed = true;
+                    } else if (static_cast<std::int32_t>(entry.sequence - stored->second.sequence) > 0) {
+                        changed = changed || entry.status != stored->second.status;
+                        stored->second = entry;
+                    }
+                }
+                if (changed) {
+                    ++entity.encounterRevision;
+                }
+            }
+        } else if (fragment.type == kStateObjectives.index) {
+            // The root Objectives of an encounter (the slot of the slice, not the player slot 22): the reader of the own Objectives on a
+            // scratch entity with the lists of the root (a field that the state does not have keeps its list).
+            OwnEntity scratch;
+            scratch.questStarts = entity.rootStarts;
+            scratch.questActive = entity.rootActive;
+            scratch.questTasks = entity.rootTasks;
+            if (read_objectives(fragment, scratch)) {
+                entity.rootStarts = std::move(scratch.questStarts);
+                entity.rootActive = std::move(scratch.questActive);
+                entity.rootTasks = std::move(scratch.questTasks);
+                entity.hasRootObjectives = true;
+                ++entity.encounterRevision;
+            }
+        } else if (fragment.type == kStateVariationData) {
+            if (const auto narrow = decoder::field_of(fragment, 0, 0); narrow.size() == 1) {
+                entity.variation = narrow[0];
+                entity.hasVariation = true;
+            } else if (const auto wide = decoder::field_of(fragment, 0, 1); wide.size() == 2) {
+                Reader reader(wide);
+                entity.variation = reader.u16();
+                entity.hasVariation = true;
             }
         }
     }

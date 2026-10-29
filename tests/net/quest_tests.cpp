@@ -300,6 +300,98 @@ void requests()
 
 } // namespace
 
+/** QG5 (protocol notes 4.62): the states of an encounter root and a start object of the backend encoders, and the link of field 5. */
+void encounter_states(const backend::gamedata::QuestData& data)
+{
+	std::printf("encounter states (QG5)\n");
+	backend::tests::ManualClock clock;
+	namespace rep = backend::server::rep;
+	backend::world::Entity root;
+	root.kind = backend::world::EntityKind::encounter;
+	root.encounter.managerSlot = 2;
+	root.encounter.placeSlot = 3;
+	root.encounter.objectivesSlot = 4;
+	root.encounter.managerStatus = 2;
+	root.encounter.objectiveInstance = 0x4C554F534000002AULL;
+	root.encounter.objectiveCrc = 0x12345678U;
+	root.encounter.tasks = {{0, 1, 2}, {1, 1, 2}, {2, 1, 1}, {3, 0, 1}, {4, 0, 0}};
+	root.encounter.taskStarts = {{3, 1792600000123456789ULL}};
+	root.encounter.stages = {{7, 2, {{1, 2}, {2, 3}}}, {8, 1, {{1, 2}}}};
+	decoder::Record record;
+	record.interest = 2;
+	bool whole = false;
+	const backend::server::hub::Bytes manager = rep::encode_encounter_manager_state(root, rep::View::observer, clock);
+	record.fragments.push_back(fragment_of(manager, 2, swc::net::kStateEncounterManager, whole));
+	check(whole, "the vendored reader takes the manager state 6786 (" + std::to_string(manager.size()) + " bytes)");
+	for (const rep::SlotState& stage : rep::encode_encounter_stage_states(root, rep::View::observer, rep::PartsRequest{})) {
+		record.fragments.push_back(fragment_of(stage.state, stage.slot, swc::net::kStateEncounterStage, whole));
+		check(whole, "the vendored reader takes the stage state 2133 of slot " + std::to_string(stage.slot));
+	}
+	const backend::server::hub::Bytes objectives = rep::encode_encounter_objectives_state(root, rep::View::observer, clock);
+	record.fragments.push_back(fragment_of(objectives, 4, swc::net::kStateObjectives.index, whole));
+	check(whole, "the vendored reader takes the root Objectives (" + std::to_string(objectives.size()) + " bytes)");
+	RepClient::OtherEntity entity;
+	RepClient::apply_other_fragments(record, entity);
+	check(entity.hasEncounterStatus && entity.encounterStatus == 2, "the manager status 2 (in progress)");
+	check(entity.encounterStages.size() == 2 && entity.encounterStages[7].sequence == 2 && entity.encounterStages[7].status == 3
+	          && entity.encounterStages[8].status == 2, "the last entry of each stage (slot 7: sequence 2 status 3; slot 8: status 2)");
+	check(entity.hasRootObjectives && entity.rootActive.size() == 1 && entity.rootActive[0].instance == 0x4C554F534000002AULL
+	          && entity.rootActive[0].poiObjective, "the root Objectives: one instance with isPoiObjective");
+	check(entity.rootTasks.size() == 5 && entity.rootTasks[2].progress == 1 && entity.rootTasks[3].state == 1 && entity.rootTasks[4].index == 4,
+	      "the root task elements in their index order with the progress and the state");
+	check(entity.rootStarts.size() == 1 && entity.rootStarts[0].index == 3 && entity.rootStarts[0].startNs == 1792600000123456789ULL,
+	      "the start of the timed leaf (field 0)");
+	// An older or equal stage sequence changes nothing; a newer one replaces the entry.
+	const std::uint32_t revision = entity.encounterRevision;
+	root.encounter.stages = {{7, 2, {{2, 4}}}};
+	decoder::Record same;
+	for (const rep::SlotState& stage : rep::encode_encounter_stage_states(root, rep::View::observer, rep::PartsRequest{})) {
+		same.fragments.push_back(fragment_of(stage.state, stage.slot, swc::net::kStateEncounterStage, whole));
+	}
+	RepClient::apply_other_fragments(same, entity);
+	check(entity.encounterStages[7].status == 3 && entity.encounterRevision == revision, "an equal sequence of a stage is not applied");
+	root.encounter.stages = {{7, 3, {{3, 4}}}};
+	decoder::Record newer;
+	for (const rep::SlotState& stage : rep::encode_encounter_stage_states(root, rep::View::observer, rep::PartsRequest{})) {
+		newer.fragments.push_back(fragment_of(stage.state, stage.slot, swc::net::kStateEncounterStage, whole));
+	}
+	RepClient::apply_other_fragments(newer, entity);
+	check(entity.encounterStages[7].sequence == 3 && entity.encounterStages[7].status == 4 && entity.encounterRevision > revision,
+	      "a newer sequence replaces the entry (status 4)");
+	// The VariationData of a start object (field 1, u16).
+	backend::world::Entity device;
+	device.kind = backend::world::EntityKind::object;
+	device.object.variationSlot = 1;
+	device.object.variant = 733;
+	decoder::Record variation;
+	const backend::server::hub::Bytes variant = rep::encode_variation_state(device, rep::View::observer, clock);
+	variation.fragments.push_back(fragment_of(variant, 1, swc::net::kStateVariationData, whole));
+	check(whole, "the vendored reader takes the VariationData state 14");
+	RepClient::OtherEntity object;
+	RepClient::apply_other_fragments(variation, object);
+	check(object.hasVariation && object.variation == 733, "the variant row 733 (the Obelisk device)");
+	// The own link (field 5): no field before the first link, a list after it, and an empty list after the unlink.
+	backend::world::Entity own;
+	own.quests.loaded = true;
+	own.quests.data = &data;
+	RepClient::OwnEntity client;
+	client.encounterLinks = {7};
+	const backend::server::hub::Bytes before = rep::encode_objectives_state(own, rep::View::owner, clock);
+	check(RepClient::read_objectives(fragment_of(before, swc::net::kSlotObjectives, swc::net::kStateObjectives.index, whole), client)
+	          && client.encounterLinks == std::vector<std::uint64_t>{7}, "a state with no field 5 keeps the links");
+	own.encounterLinked = true;
+	own.encounterLinks = {0x4C554F534000002AULL};
+	const backend::server::hub::Bytes linked = rep::encode_objectives_state(own, rep::View::owner, clock);
+	check(RepClient::read_objectives(fragment_of(linked, swc::net::kSlotObjectives, swc::net::kStateObjectives.index, whole), client) && whole
+	          && client.encounterLinks == std::vector<std::uint64_t>{0x4C554F534000002AULL}, "field 5 gives the root G");
+	own.encounterLinks.clear();
+	const backend::server::hub::Bytes unlinked = rep::encode_objectives_state(own, rep::View::owner, clock);
+	check(RepClient::read_objectives(fragment_of(unlinked, swc::net::kSlotObjectives, swc::net::kStateObjectives.index, whole), client) && whole
+	          && client.encounterLinks.empty(), "an empty field 5 clears the links");
+	check(swc::net::group_of(swc::net::ActorId{0x2A, 0x00, 0x00, 0x40, 0x53, 0x4F, 0x55, 0x4C, 0x20, 0, 0, 0, 0x53, 0x4F, 0x55, 0x4C})
+	          == 0x4C554F534000002AULL, "the G of a root is the group of its actor (the first 8 bytes, little-endian)");
+}
+
 int main(int argc, char** argv)
 {
 	try {
@@ -309,6 +401,7 @@ int main(int argc, char** argv)
 		backend::gamedata::QuestData data;
 		check(data.load(argv[1]), std::string("the quest data of the backend copy loads: ") + argv[1]);
 		objectives_state(data);
+		encounter_states(data);
 		requests();
 	} catch (const std::exception& error) {
 		check(false, error.what());

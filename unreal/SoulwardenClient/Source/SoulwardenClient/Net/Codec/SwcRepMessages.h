@@ -387,6 +387,12 @@ WorldPosition position_field(const WorldPosition& character);
 WorldPosition read_object_place(std::span<const std::uint8_t> value);
 /** The type of the PositionInTheWorld state (the vendored state reader has it). */
 inline constexpr std::uint32_t kStatePositionInTheWorld = 13;
+/** The quest encounters (stage QG5 of the backend; protocol notes 4.62): the manager state of a root (group 0 field 0 status:u32), the
+ *  stage state of a root (group 0 field 0: count:size, then sequence:u32 status:u32 each), and the VariationData of a start object
+ *  (group 0 field 0 index:u8, field 1 index:u16; field 0 wins). */
+inline constexpr std::uint32_t kStateEncounterManager = 6786;
+inline constexpr std::uint32_t kStateEncounterStage = 2133;
+inline constexpr std::uint32_t kStateVariationData = 14;
 
 /** A compressed unit quaternion (protocol notes 4.3). */
 struct Quaternion {

@@ -401,6 +401,9 @@ public:
         std::vector<QuestTask> questTasks;
         std::uint64_t questSequence{0};
         std::uint32_t questRevision{0};
+        /** The encounter roots of the character (QG5; group 1 field 5: a full vector of the entity group ids G of the roots; protocol
+         *  notes 4.62 "The link of a nearby event"). A state with no field 5 keeps the list; an empty field 5 clears it. */
+        std::vector<std::uint64_t> encounterLinks;
         /** The pin readiness (the SeasonsRewardsTrackedStat state, slot 73, type 5606): group 0 field 0 `initialized`. */
         bool pinReady{false};
         std::uint32_t pinReadyRevision{0};
@@ -419,6 +422,24 @@ public:
         WorldPosition place;
         /** The rotation of the object (PositionInTheWorld, field 1): the server turns the bounds of its slice with it. */
         Quaternion placeRotation;
+        /** An encounter root (QG5; protocol notes 4.62): the manager status (6786), the last stage entry of each stage slot (2133: the
+         *  entry of the largest signed sequence), and the root Objectives (3857 at the objectives slot of the slice: field 0 the task
+         *  starts, 3 the instances, 4 the task elements; the reader of the own Objectives). */
+        bool hasEncounterStatus{false};
+        std::uint32_t encounterStatus{0};
+        struct StageEntry {
+            std::uint32_t sequence{0};
+            std::uint32_t status{0};
+        };
+        std::map<std::uint32_t, StageEntry> encounterStages;
+        bool hasRootObjectives{false};
+        std::vector<OwnEntity::QuestTaskStart> rootStarts;
+        std::vector<OwnEntity::QuestActive> rootActive;
+        std::vector<OwnEntity::QuestTask> rootTasks;
+        std::uint32_t encounterRevision{0};
+        /** The VariationData of a start object (14): the row index of the variation table of its slice. */
+        bool hasVariation{false};
+        std::uint16_t variation{0};
     };
 
     /** A record of an interest number that is not 1, a stop of the control block, or a message for the view of the other
@@ -531,6 +552,8 @@ public:
     static constexpr std::size_t kWhisperHistory = 32;
     /** Copies an Objectives state (slot 22) into an own entity: false for a fragment that does not have its form (no change). */
     static bool read_objectives(const soulwarden::backend::tests::Fragment& fragment, OwnEntity& own);
+    /** The states of an entity of a different interest number (apply_other; public for the tests of the encounter states). */
+    static void apply_other_fragments(const soulwarden::backend::tests::Record& record, OtherEntity& entity);
     /** True after the first 2709 of this session. */
     [[nodiscard]] bool objectives_enabled() const { return m_objectivesEnabled; }
     /** The edits of the weapon trees and the bars (stage MVP-G; protocol notes 4.13): a point of a node (1112, count 1), the ability
