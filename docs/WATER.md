@@ -668,6 +668,28 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       at the blue 1.25 baseline, 2 shots each (order 1, 2, 3, 3, 2, 1), with source shots. An engine cvar for all Single Layer Water: a
       diagnostic only, never a shipped ocean-only change. Later, in the check parent only: a roughness override (plugin, 0.02, 0.005,
       0.0005), and a source-shaped sky term (the current-sky cube, the source Fresnel, the soft intersection, the clamp; default gain 0).
+  - The window of the blue sweep and the reflection modes (2026-10-29 18:17 to 18:49 UTC, the editor build of bdf3c5ff (the branch at
+    03e143c4, before the rebase on 85eab35f); the compile gate passed: 0 "Failed to compile", 4 workers (a backend-project run was alive),
+    swap +5.7 GB; 0 compile faults in each run; each of the 43 shots at EV 13.03; evidence `water-unreal/wnt-r-*`,
+    `near-blue-sweep-modes.png`; the tables `work/water-unreal/tone3/r-water-mask.txt`, `r-gpu.txt`):
+    - The source drift (shot 1 before, shot 2 after the Unreal runs): beach-down 0.06 L*, ocean-clear 0.65, ocean-clear-open 1.07,
+      ocean-far 0.08 (a quiet window; b3 within 1.3 L* and 0.4 degrees).
+    - The blue sweep (the best setting, Mix 1, mode 1), dL* and d hue of the 2 shots against the mean of the 2 source shots:
+
+      | Mask | Blue 1 | Blue 1.25 | Blue 1.5 | Blue 1.75 |
+      |---|---|---|---|---|
+      | ocean-far | -0.4 / -1.0, -20.5 / -22.1 | -0.3 / -1.7, -10.3 / -12.3 | -0.1 / -1.1, -1.4 / -1.6 | -0.3 / -2.9, +7.2 / +5.0 |
+      | ocean-clear (the hue only) | -28.6 / -28.1 | -21.0 / -19.1 | -10.9 / -10.6 | +3.2 / +2.6 |
+      | ocean-clear-open | -11.8 / -12.3, -39.9 / -39.9 | -12.1 / -12.7, -31.8 / -30.0 | -11.4 / -11.8, -21.1 / -21.1 | -13.9 / -13.1, -6.8 / -8.8 |
+
+      Blue 1.5 brings ocean-far to the source (hue within 1.6 degrees, L* within 1.1) and passes ocean-clear (the hue); blue 1.75
+      passes the hue of all three ocean masks. The lightness of ocean-clear-open stays 11 to 14 L* too dark at each gain.
+    - The reflection modes at blue 1.25 (2 shots, order 1, 2, 3, 3, 2, 1): mode 2 and mode 3 make the ocean water 20 to 43 L* too light
+      and greener (ocean-far +20 to +23, ocean-clear-open +39 to +40: a white glare of the cube; the source has no such glare); at
+      beach-down mode 3 is -1.9 / -2.9, +4.4 / +5.7 (it passes) and mode 2 -2.5 / -1.8, +9.8 / +9.4. Mode 1 stays: the modes do not
+      give the source mirror, and they act on all Single Layer Water.
+    - The GPU time (the median gpu p50 of the frame lines in the 6 s before each shot): ocean-far mode 1 / 2 / 3: 6.95 / 6.81 / 6.85 ms;
+      ocean-clear 7.13 / 7.00 / 6.98; beach-down 5.70 / 5.55 / 5.56; the blue gain changes nothing (6.89 to 7.11 ms).
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
