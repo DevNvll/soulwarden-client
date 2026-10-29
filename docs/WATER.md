@@ -944,6 +944,28 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   within 150 m of the ocean-far camera, `tools/lib/lumen_test.py --views`; the import lock, no world lock, no content-link, an own map
   file), never with `tools/lumen-test.sh` (it writes into the shared plugin and the shared content).
 
+- Window E (2026-10-29 23:17 to 23:53 UTC; the word of the orchestrator 23:13 and 23:16 UTC; the held scene, r.VolumetricCloud.ShadowMap 0,
+  in every shot; one stability sample; 16:30 and noon; each shot at EV 13.03; 0 compile faults; one gate fault before the first shot of
+  each run, then "in place"; the swap guard 0 stops (the backend dev run alive); find -newer of the shared content and the shared plugin 0
+  after each step; evidence `water-unreal/wnt-e1-source`, `wnt-e-new`, `wnt-e2-source`, `wnt-e3-new`, `wnt-e3-source`,
+  `near-mirror-traces.png`; the tables `work/water-unreal/tone3/e-*.txt`, `e3-*.txt`, `e-gpu-all.txt`):
+  - The mirror boxes (the cliff-reflection box 40 530 480 700 under the near cliff; the sky-reflection box 560 560 900 700): the source
+    cliff box L* 20.9 / 21.2 at 16:30 and 30.0 / 30.5 at noon; the Unreal cliff box about 30 at 16:30 and 40 at noon in every state: the
+    Unreal water under the cliff is 9 to 10 L* lighter than the source (the bright sky in place of the dark rock).
+  - Step 1 (cvars, 23:21 to 23:33): `r.Lumen.Reflections.HierarchicalScreenTraces.MaxIterations` 100 against 50: no change (the cliff box
+    30.3 / 30.5 against 30.1 / 30.2 at 16:30; the water mask +6.6 / +6.6 against +6.4 / +6.2).
+  - Step 2: `r.Water.SingleLayer.Reflection 3` against 1: the cliff box stays (31.8 / 30.6 at 16:30); the sky box goes up 14 L* (the white
+    glare; the water mask +26 at 16:30, +20 at noon). The far rocks show in the water, the near cliff not. Not useful.
+  - Step 3 (the client build of cfe765fd 23:38:59 to 23:40:08; the copy import 23:40:08 to 23:41:12: 29 meshes copied with distance fields
+    and Lumen cards into /SwcWaterCheck/Lumen, 5 below 100 cm, 0 failed; the run 23:41 to 23:49 with -SwcLumenTestMap: "29 mesh copies ...
+    (work/water-unreal/lumen/lumen-map.json)", 409 components used the copies): `swc.LumenTest 1` against 0: no change (the cliff box
+    30.3 / 30.3 against 30.2 / 30.3; the picture difference 2.5 against 2.7 for the A/A pair at 16:30). The largest copies are the statue,
+    the ruin walls, the rock slab, and the wreck; the big cliff block seems not to be in the list (object placements within 150 m) [U].
+  - The GPU p50 per state (4 shots; the first shot of the run is high): MaxIterations 50 7.05 to 9.20 ms, 100 6.40 to 7.04; mode 1 6.82 to
+    7.25, mode 3 6.51 to 6.99 (p95 up to 10.6); the Lumen copies off 6.77 to 7.27, on 6.82 to 7.63 (p95 8.5 to 9.4 against 8.2 to 8.8).
+  - Thus no cvar of rank 1 and no Lumen copy of the listed meshes makes the water reflect the near cliff. Open [U]: what the cliff block is
+    (a region chunk mesh or another asset kind), and whether its own distance field and cards change the mirror.
+
 ### The visible differences of the Unreal ocean against the source (stage 2c, 2026-10-29)
 
 The list of the differences that the stage 2c pictures show (the best setting with blue 1.5; the fixed exposure EV 13.03; the source is the
