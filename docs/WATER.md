@@ -914,6 +914,22 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
 
+### The visible differences of the Unreal ocean against the source (stage 2c, 2026-10-29)
+
+The list of the differences that the stage 2c pictures show (the best setting with blue 1.5; the fixed exposure EV 13.03; the source is the
+source path of this client). Each item names its evidence; [R] measured, [I] an inference.
+
+1. The mirror: in the source the water is a clear mirror of the cliff, the statue, and the far rocks (ocean-far at 12:00 and 08:00 the
+   most); in the Unreal water the cliff reflection is weak or absent, and the water shows mainly the sky [R by the pictures
+   `near-probe-split.png`, `near-blue-sweep-modes.png`; the cliff step of research/water-reflection.md: the source +4.8 to +7.7 L*, the
+   Unreal water -0.9 to +0.9]. [I] If the Lumen traces from the water miss the cliff, those rays take the bright probe sky in place of
+   the dark rock: a part of the 16:30 excess, and a difference by itself.
+2. The hour: at 16:30 the Unreal water is about 12 L* too light (7 in the held scene); the probe reflection carries most of it (window D).
+3. The hue: the Unreal open water is greener (less blue against green); the blue gain 1.5 brings ocean-far to the source at noon.
+4. The open water of ocean-clear is 11 to 14 L* too dark at each blue gain.
+5. The shallow bay of the global ocean (global-bay) and west-beach do not pass with the best setting (window of the new views).
+6. The cloud shadow drifts the scene and the water over time in both paths (window C); a comparison needs paired or averaged shots.
+
 ### Stage 2b (after the full cook)
 
 - The storm waves of the overrides. The GPT-6.1-Sol study `~/Games/soulwarden-client/research/water-storm-waves.md` (2026-10-25;
