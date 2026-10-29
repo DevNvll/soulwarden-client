@@ -546,6 +546,19 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     float2 output of the cover node through component masks). The ocean drew with the default material in each run (the repeat and the
     blend runs: +35 to +46 L*). Version 5: two Custom nodes (SwcShoreOpacity float1, SwcShoreBase float3), no component masks. The
     rule for the next window: no run after a warm-up with a "Failed to compile" line.
+  - The check of version 5 (2026-10-29 13:25 to 13:49 UTC, the editor build of 36496b20; the warm-up gate passed: 0 "Failed to compile";
+    0 in each test run; the fixed exposure EV 13.03; the source: the editor run wnt-b3-source; evidence `water-unreal/wnt-g-*`,
+    `shore-blend-sweep.png`):
+    - The repeat (the additive best candidate, 3 shots at ocean-clear): the near band +7.0, +5.6, +3.0 (a spread of 4.0 L*); the base
+      (no treatment) +6.3, against -3.1 and -4.0 in earlier runs. The near band of ocean-clear is a noisy measure (the shore line).
+    - The source blend, the near band (beach-down / ocean-clear / ocean-far): base -10.0 / +6.7 / +11.9; shore + N + extinction 1.5: -1.5
+      / -2.0 / +8.3; shore + N + extinction 2: -3.8 / +3.5 / +4.9; shore + extinction 2: -4.9 / -3.1 / +4.7. Thus shore 1 + N 1 +
+      extinction 2 has each near band within 5 [one shot each; the ocean-clear spread above]. The far bands stay outside: ocean-far far
+      -6.4, beach-down far -8.0 and middle -6.2.
+    - The water-only region (the lower-half pixels that the treatment changes, 355,000 to 423,000 pixels: wide, it takes the shot drift too):
+      shore + N + extinction 2: beach-down -5.3, ocean-clear -0.1, ocean-far +3.0.
+    - Not done: the controls (the lakes, the rivers, the source mode, the underwater view, the far join) and the cooked build (it needs
+      the check material in the shared plugin: the word of the orchestrator).
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
