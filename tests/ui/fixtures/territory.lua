@@ -85,8 +85,15 @@ end
 check(T.data().byStanding[WINDSWARD] ~= nil and T.data().byStanding[WINDSWARD].poolCrc == POOL, "territory.json: Windsward 1DB87A14 with its pool CCDDF19B")
 local claims = MapComponentBus.Broadcast.GetClaims()
 local hasWindsward = false
-for _, row in ipairs(claims) do hasWindsward = hasWindsward or (row.settlementId == 6 and row.monikerId == 6 and row.id == 6) end
+for _, row in ipairs(claims) do hasWindsward = hasWindsward or (row.settlementId == 6 and row.monikerId == 6) end
 check(hasWindsward, "a claim row of Windsward (settlementId 6)")
+-- The id of a claim row is the Claim landmark actor of its territory (C-12: the town board resolves the destinationOverride against it).
+local windswardClaim
+for _, row in ipairs(claims) do if row.settlementId == 6 then windswardClaim = row end end
+equal(windswardClaim and windswardClaim.id, "4B657E1A68E06C9F0000000000000000", "the id of the Windsward claim row: its Claim landmark actor")
+local allActors = true
+for _, row in ipairs(claims) do allActors = allActors and type(row.id) == "string" and #row.id == 32 end
+check(allActors, "each claim row has a Claim landmark actor (32 hex digits)")
 check(#claims > 1 and (claims[1].compassIconPath == ""), "the claim rows have no compass icon (compass.luac AddCapitals skips them): " .. #claims)
 -- The DevWorld territories 74 and 75 (standings and definitions, no shape of the world map): no row (retail qg1 shot 22; live t3c).
 local devWorld, standingRows = false, 0

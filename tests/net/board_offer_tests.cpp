@@ -1,8 +1,8 @@
 // The town offers of the client (Boards/SwcTownOffers, C-12 of ut567) against the generator of the backend (world/missions.cpp
 // town_seed, seconds_to_next_seed, next_seed_ns, Missions::town_offers) with the real mission data: the backend copy mission-data.json in
-// the board fixture of the backend tests, and the converted ui/gamedata/missions.json (tools/convert-missions.sh) in the client generator.
+// the board fixture of the backend tests, and the converted ui/gamedata/missiontown.json (tools/convert-missions.sh) in the client generator.
 // The characters have no trade skill rank and no achievement (the fixture passes no character): the rows with such a rule are no candidates
-// on both sides. Usage: swc-board-offer-tests MISSION-DATA.json MISSIONS.json
+// on both sides. Usage: swc-board-offer-tests MISSION-DATA.json MISSIONTOWN.json
 #include <cstdio>
 #include <fstream>
 #include <string>
@@ -66,7 +66,7 @@ swc::boards::TownData client_data(const std::string& path) {
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: swc-board-offer-tests MISSION-DATA.json MISSIONS.json\n");
+        std::fprintf(stderr, "usage: swc-board-offer-tests MISSION-DATA.json MISSIONTOWN.json\n");
         return 2;
     }
     std::printf("the town offers of the client against the backend generator (C-12)\n");

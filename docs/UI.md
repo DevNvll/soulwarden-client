@@ -1504,3 +1504,29 @@ Soulwarden evidence of creatures, abilities-crit, fight, loot, loot-bags, gather
 - The key of an action: the names compare with no case (swc/keys.lua): the screen asks "trySkip", the map crafting has "tryskip".
 - Check (evidence AST-231: ast231-help4.mp4, ast231-max2.mp4, ast231-help-crops.png retail | client): the Talk screen "E Next
   ESC Back", the character window "ENTER Chat ... ESC Back", the crafting screen "ENTER Chat ... SPACE Max Quantity ESC Back".
+
+## The mission boards (C-12 of ut567)
+
+The town board of a settlement (QG6a). The source is the static read `~/Games/soulwarden-client/work/ut567/qgplan/boards/ANSWERS.md`
+and the backend encoders (states 3829, 1746, 3086; requests 3819, 2461).
+
+- The open: the option of action 51 (OpenMissionBoardOption) of a board object shows again (the hide rule of AST-287 is removed). The
+  interactor (Interact/SwcInteractor) keeps the board use open after the execution. UI/SwcUiBoards calls `Swc.HostBoard("open", ACTOR)`,
+  and swc/boards.lua sets `Hud.TerritoryGovernance.EntityId` and starts the state 640726528 (TownProjects). With no screen 2 s after the
+  open, the use ends.
+- The offers: the client computes them (Boards/SwcTownOffers, the same rules as the backend generator: the parity test
+  `tests/net/board_offer_tests.cpp`, 1,872 runs). The input is `ui/gamedata/missiontown.json` (tools/convert-missions.sh), the
+  characterId, the server clock, the projects of the board (1746), the town entry of the provider state (3829 field 3), the trade skill
+  ranks, and the level of the screen (the wire level plus 1). The territory is `Hud.LocalPlayer.CurrentAreaTerritory.ClaimKey`.
+- The data of the screen: `ui/gamedata/missions.json` (the mission rows with their cells, the projects, the events).
+  ObjectivesDataManagerBus GetMissionData, TerritoryGovernanceRequestBus, LandClaimRequestBus GetTerritoryProgressionData, and
+  TerritoryInterfaceComponentRequestBus come from these files and from the board states.
+- The provider identity is the Claim landmark actor of the territory (landmark type 4). The id of a claim row of the map
+  (MapComponentBus GetClaims) is that actor: the screen finds an accepted card through the destinationOverride of the mission.
+- The requests: a card accept is "board accept MISSION PROJECT" (3819). A hand-in is "board complete INSTANCE" (2461). The close of the
+  screen (RequestCancelCommittedInteraction) is "board end".
+- CanCompleteMission: the root container has the progress of its child count minus 1, its last child is not complete, and the
+  destinationOverride is the provider of the current territory.
+- The checks: the fixture `tests/ui/fixtures/boards.lua`, the claim row check of `tests/ui/fixtures/territory.lua`.
+- Open points: the grid of the project columns overlaps in the pictures of the fixture (the layout of the empty project rows). The faction
+  board (option 8, state 2609973752, 3816) is phase 2.

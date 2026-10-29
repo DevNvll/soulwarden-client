@@ -249,8 +249,16 @@ void FSwcUiQuests::Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::Ow
 		}
 		for (const auto& Active : Own.questActive)
 		{
+			// The mission fields (C-12): the mission CRC, the destinationOverride (the provider identity, 32 hex digits), the community flag.
+			static const char* Digits = "0123456789ABCDEF";
+			std::string Destination;
+			for (const std::uint8_t Byte : Active.destination)
+			{
+				Destination += Digits[Byte >> 4];
+				Destination += Digits[Byte & 15];
+			}
 			Lines += "A " + std::to_string(Active.instance) + " " + std::to_string(Active.objective) + " " + std::to_string(Active.originTerritory) + " "
-				+ std::to_string(Active.parent) + "\n";
+				+ std::to_string(Active.parent) + " " + std::to_string(Active.mission) + " " + Destination + " " + (Active.communityGoal ? "1" : "0") + "\n";
 		}
 		for (const auto& Task : Own.questTasks)
 		{

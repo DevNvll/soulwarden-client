@@ -218,6 +218,18 @@ public:
 	void EndCraftingStation();
 	/** The crafting screen shows or hides (UI/SwcUiCrafting): with no screen 2 s after the open the station use ends (AST-287). */
 	void SetCraftingScreenShown(bool bShown);
+	/** The mission board of the use whose board screen shows (C-12; action 51 of a community provider): its actor. @return False with no
+	 *  open board. */
+	bool GetMissionBoard(swc::net::ActorId& OutActor) const;
+	/** The board screen ends the board use (its Escape: RequestCancelCommittedInteraction). */
+	void EndMissionBoard();
+	/** The board screen shows or hides (UI/SwcUiBoards): with no screen 2 s after the open the board use ends. */
+	void SetBoardScreenShown(bool bShown);
+	/** The states of a board (C-12): the board entity of the actor (TerritoryInterface 1746: its active projects) and the world entity
+	 *  (LandClaimManager 3086: the claim keys and summaries). @return False out of the world; a missing entity stays empty. */
+	bool GetBoardStates(const swc::net::ActorId& Board, swc::net::RepClient::OtherEntity& OutBoard, swc::net::RepClient::OtherEntity& OutClaims) const;
+	/** The characterId of the character in the world (the seed text of the town offers, C-12). */
+	const FString& GetWorldCharacterId() const { return WorldCharacterId; }
 	/** The craft request of the crafting screen (2997; protocol notes 4.50): the recipe CRC, the count, the claims of the fee and of the
 	 *  gear score, the perk items, the upgrade level, and the CRC of the selected item of each ingredient (0: a currency). @return False
 	 *  with no connection or no open station. */

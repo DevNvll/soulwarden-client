@@ -297,9 +297,6 @@ void test_tool_rule() {
     // SingleStone (None, NoToolNecessary) and a Mining row with NoToolNecessary: no gate.
     check(!swc::objects::check_tool("Mining", "NoToolNecessary", false).missing, "NoToolNecessary: no gate");
     // The use fragment of the gather (the keys of gather_actions.py).
-    check(swc::objects::client_hides_option("OpenMissionBoardOption") && !swc::objects::client_hides_option("GatherOption")
-              && !swc::objects::client_hides_option("OpenConversationOption"),
-          "the client hides only OpenMissionBoardOption (the town boards have no screen before QG6)");
     check(swc::objects::gather_use_kind("Chopping", "2H_Melee,Axe,Tool", true) == "gather|Chopping|2H_Melee,Axe,Tool", "the use of a tree with the axe");
     check(swc::objects::gather_use_kind("Mining", "2H_Melee,Pick,Tool", true) == "gather|Mining|2H_Melee,Pick,Tool", "the use of an ore with the pick");
     check(swc::objects::gather_use_kind("Dressing", "1H_Melee,Knife,Tool", true) == "gather|Dressing|1H_Melee,Knife,Tool", "the use of a body with the knife");

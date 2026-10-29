@@ -2211,6 +2211,55 @@ void USwcBackendSubsystem::SetCraftingScreenShown(bool bShown)
 	}
 }
 
+bool USwcBackendSubsystem::GetMissionBoard(swc::net::ActorId& OutActor) const
+{
+	return Interactor.IsValid() && Interactor->GetBoard(OutActor);
+}
+
+void USwcBackendSubsystem::EndMissionBoard()
+{
+	if (Interactor.IsValid())
+	{
+		Interactor->EndBoard();
+	}
+}
+
+void USwcBackendSubsystem::SetBoardScreenShown(bool bShown)
+{
+	if (Interactor.IsValid())
+	{
+		Interactor->SetBoardScreen(bShown);
+	}
+}
+
+bool USwcBackendSubsystem::GetBoardStates(const swc::net::ActorId& Board, swc::net::RepClient::OtherEntity& OutBoard,
+	swc::net::RepClient::OtherEntity& OutClaims) const
+{
+	OutBoard = swc::net::RepClient::OtherEntity{};
+	OutClaims = swc::net::RepClient::OtherEntity{};
+	if (!Connection.IsValid())
+	{
+		return false;
+	}
+	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
+	if (Snapshot.Phase != FPhase::inGame)
+	{
+		return false;
+	}
+	for (const TPair<uint32, swc::net::RepClient::OtherEntity>& Entry : Snapshot.Objects)
+	{
+		if (Entry.Value.actor == Board)
+		{
+			OutBoard = Entry.Value;
+		}
+		if (Entry.Value.hasClaims)
+		{
+			OutClaims = Entry.Value;
+		}
+	}
+	return true;
+}
+
 void USwcBackendSubsystem::EndConversation(const std::vector<uint32>& FinishedTopics)
 {
 	if (Interactor.IsValid())

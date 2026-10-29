@@ -76,13 +76,6 @@ ToolCheck check_tool(std::string_view gatheringType, std::string_view restrictio
 std::string gather_use_kind(std::string_view action, std::string_view toolTags, bool hasTool);
 
 /**
- * @return True for an option that the client hides from the card although its data shows it: OpenMissionBoardOption of the town
- * boards (QG6a; interaction data format 5 makes the 13 boards objects), until the board screen (townprojects, QG6) exists. Without the
- * screen, E would open nothing (AST-287 once left the character stuck at a board with no screen). Remove the rule with that screen.
- */
-bool client_hides_option(std::string_view optionName);
-
-/**
  * The claims of the LootTracker map of the owner (stage P5.1; protocol notes 4.41, backend chests.md; InstancedLootState): Looted 2 (the
  * prompt and the light of the loot of a chest go off), NotOnRequiredQuest 4 and Locked 5 (a locked chest). No claim, Initial, Rolled,
  * and Unlocked: the chest is ready.

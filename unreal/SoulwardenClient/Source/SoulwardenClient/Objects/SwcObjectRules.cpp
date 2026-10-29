@@ -108,10 +108,6 @@ ToolCheck check_tool(std::string_view gatheringType, std::string_view restrictio
     return out;
 }
 
-bool client_hides_option(std::string_view optionName) {
-    return optionName == "OpenMissionBoardOption";
-}
-
 std::string gather_use_kind(std::string_view action, std::string_view toolTags, bool hasTool) {
     constexpr std::string_view kOwn[] = {"Chopping", "ChoppingVertical", "Mining", "Cutting", "Dressing"};
     for (const std::string_view own : kOwn) {

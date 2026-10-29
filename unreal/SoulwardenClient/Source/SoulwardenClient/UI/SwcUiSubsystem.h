@@ -7,6 +7,7 @@
 #include "SwcUi/Draw.h"
 #include "SwcUi/Runtime.h"
 #include "Net/Codec/SwcRepClient.h"
+#include "UI/SwcUiBoards.h"
 #include "UI/SwcUiConversation.h"
 #include "UI/SwcUiCrafting.h"
 #include "UI/SwcUiQuests.h"
@@ -147,6 +148,7 @@ private:
 	/** The quests (AST-236): the quest state to swc/quests.lua and the quest calls. */
 	FSwcUiQuests Quests;
 	FSwcUiCrafting CraftingScreen;
+	FSwcUiBoards Boards;
 	/** The character window (stage MVP-G): UI/SwcUiSkills. */
 	FSwcUiSkills Skills;
 	TSharedPtr<FSwcUiResources> Resources;

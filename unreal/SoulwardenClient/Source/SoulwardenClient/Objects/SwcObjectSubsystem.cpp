@@ -820,9 +820,8 @@ void USwcObjectSubsystem::MakeTarget(const FString& Key, FName Kind, const swc::
 		Option.Index = Pair.Key;
 		const int32 Position = Out.Options.Num() - 1;
 		Option.Option = Options[Pair.Key].Option;
-		// The authored show flag, and the options that the client hides until it has their screen (the town boards:
-		// swc::objects::client_hides_option).
-		Option.bShow = (Position >= 32 || (Bound.HiddenMask & (1u << Position)) == 0) && !swc::objects::client_hides_option(Option.Option.name);
+		// The authored show flag (C-12: the town boards show OpenMissionBoardOption again: the board screen exists).
+		Option.bShow = Position >= 32 || (Bound.HiddenMask & (1u << Position)) == 0;
 		Option.Option.entity = Pair.Value;
 		// The request of the block (the rule of swc::interact::request_of with the ids of the data).
 		Option.Request.reference.actor = Actor;

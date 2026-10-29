@@ -386,11 +386,14 @@ function Swc.HostQuests(text)
   for line in string.gmatch(text or "", "[^\n]+") do
     local kind, rest = line:match("^(%a) (.*)$")
     if kind == "A" then
-      local instance, objective, territory, parent = rest:match("^(%d+) (%d+) (%d+) (%d+)$")
+      -- The mission fields after the parent (C-12): the mission CRC, the destinationOverride (32 hex digits), the community flag.
+      local instance, objective, territory, parent, more = rest:match("^(%d+) (%d+) (%d+) (%d+)(.*)$")
+      local mission, destination, community = (more or ""):match("^ (%d+) (%x+) ([01])$")
       local row = data.byCrc[tonumber(objective)]
       local old = Q.byKey[instance]
       local rec = {key = instance, id = objective_id(instance), crc = tonumber(objective), row = row, territory = tonumber(territory) or 0,
-                   parent = parent, states = {}, nodes = {}, starts = {}}
+                   parent = parent, states = {}, nodes = {}, starts = {}, mission = tonumber(mission) or 0,
+                   destination = destination and destination ~= string.rep("0", 32) and string.upper(destination) or "", community = community == "1"}
       for _, entry in ipairs(row and row.tree or {}) do
         rec.nodes[entry[1]] = {index = entry[1], row = data.tasks[entry[2]], children = entry[3] or {}}
         rec.root = entry[1]
@@ -864,6 +867,18 @@ local GameEventData = Swc.ValueClass({name = "GameEventData", fields = {"isValid
   "factionInfluenceAmount", "contributionLevel", "pvpXp", "azothSalt", "categoricalProgressionReward", "categoricalProgressionId"},
   methods = {IsValid = function(self) return self.isValid == true end}})
 
+--- @return The GameEventData of an event row (the cells of the GameEventData table; also the mission events of swc/boards.lua).
+local function event_record(row)
+  return GameEventData.new({isValid = true, id = crc(row.id), progressionReward = tonumber(row.UniversalExpAmount or "0") or 0,
+    currencyRewardRange = row.CurrencyReward or "0", azothReward = tonumber(row.AzothReward or "0") or 0, itemReward = row.ItemReward or "",
+    gearScoreRange = row.GearScoreRange or "", factionReputation = tonumber(row.FactionReputation or "0") or 0,
+    factionTokens = tonumber(row.FactionTokens or "0") or 0, affinityRewards = {}, territoryStanding = tonumber(row.TerritoryStanding or "0") or 0,
+    factionInfluenceAmount = tonumber(row.FactionInfluenceAmount or "0") or 0, contributionLevel = 0, pvpXp = tonumber(row.PvpXp or "0") or 0,
+    azothSalt = 0, categoricalProgressionReward = tonumber(row.CategoricalProgressionReward or "0") or 0,
+    categoricalProgressionId = row.CategoricalProgressionId and crc(row.CategoricalProgressionId) or GetNilCrc()})
+end
+Q.event_record = event_record
+
 local otherEvents = Swc.Bus("GameEventRequestBus").Broadcast.GetGameSystemData
 Swc.Define("GameEventRequestBus", "Broadcast", {
   -- A quest event of quests.json; else the event of swc/crafting.lua (the trade skill events of the recipes).
@@ -873,13 +888,7 @@ Swc.Define("GameEventRequestBus", "Broadcast", {
     if not row then
       return otherEvents and otherEvents(eventId) or GameEventData.new({isValid = false})
     end
-    return GameEventData.new({isValid = true, id = crc(row.id), progressionReward = tonumber(row.UniversalExpAmount or "0") or 0,
-      currencyRewardRange = row.CurrencyReward or "0", azothReward = tonumber(row.AzothReward or "0") or 0, itemReward = row.ItemReward or "",
-      gearScoreRange = row.GearScoreRange or "", factionReputation = tonumber(row.FactionReputation or "0") or 0,
-      factionTokens = tonumber(row.FactionTokens or "0") or 0, affinityRewards = {}, territoryStanding = tonumber(row.TerritoryStanding or "0") or 0,
-      factionInfluenceAmount = tonumber(row.FactionInfluenceAmount or "0") or 0, contributionLevel = 0, pvpXp = tonumber(row.PvpXp or "0") or 0,
-      azothSalt = 0, categoricalProgressionReward = tonumber(row.CategoricalProgressionReward or "0") or 0,
-      categoricalProgressionId = row.CategoricalProgressionId and crc(row.CategoricalProgressionId) or GetNilCrc()})
+    return event_record(row)
   end,
 })
 

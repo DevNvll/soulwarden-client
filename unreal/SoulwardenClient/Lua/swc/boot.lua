@@ -51,4 +51,5 @@ Swc.Load("swc.questpins") -- the quest pins: one list of the task positions for 
 Swc.Load("swc.scenes")    -- the in-game scenes, the subtitles, the whispers, the cinematic video stand-in (docs/QUESTS.md)
 Swc.Load("swc.npcstates") -- the NPC quest states: the overhead Conversation markers, the compass, and the map NPC icons (docs/QUESTS.md)
 Swc.Load("swc.territory") -- the territory standing: the tokens, the card data, the claim rows, the card choice 4040 (docs/UI.md, QG1)
+Swc.Load("swc.boards")    -- the mission boards: the town screen, the offers of the client, the accept 3819 and the hand-in 2461 (docs/UI.md, C-12)
 Swc.Load("swc.camera")    -- the camera requests of the screens: the state overrides, the look-at point, the depth of field (docs/UI.md)

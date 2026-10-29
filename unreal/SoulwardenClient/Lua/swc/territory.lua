@@ -221,27 +221,39 @@ Swc.Define("ProgressionPointRequestBus", "Event", {
 -- definitions but no shape of the world map: no row (the retail standing list has no DevWorld row: Soulwarden qg1 shot 22; the live check
 -- t3c showed them before this rule). The offline world has no land claim manager: no owner, no war, no capital icon (compass.luac
 -- AddCapitals skips a row with no compassIconPath). The standing list, the NavBar token count, and the token banner read settlementId (the
--- territory id).
+-- territory id). The id of a row is the actor of the Claim landmark (type 4) of its territory, 32 uppercase hex digits, and worldPosition
+-- its place (C-12; static read ut567/qgplan/boards, ANSWERS.md 186 and 188: the town board resolves the destinationOverride of an
+-- accepted mission, the Claim landmark actor of the board, against these rows and needs their settlementId).
+local CLAIM_LANDMARK = 4
 local function map_shapes()
-  local ids = {}
+  local ids, marks = {}, {}
   local map = swcui.load_json("gamedata/worldmap.json") or {}
   for _, shape in ipairs(map.shapes or {}) do
     ids[tonumber(shape.id) or -1] = true
   end
-  return ids
+  for _, mark in ipairs(map.landmarks or {}) do
+    if mark.type == CLAIM_LANDMARK and mark.ids and mark.ids[1] and not marks[mark.ids[1]] then
+      marks[mark.ids[1]] = mark
+    end
+  end
+  return ids, marks
 end
 
 local function claims()
   if T.claims then
     return T.claims
   end
-  local rows, shapes = {}, map_shapes()
+  local rows = {}
+  local shapes, marks = map_shapes()
   for _, s in ipairs(data().standings or {}) do
     local id = tonumber(s.territory)
     local d = id and shapes[id] and TerritoryDefinitionsDataManagerBus.Broadcast.GetTerritoryDefinition(id)
     if d and (d.nameLocalizationKey or "") ~= "" then
-      rows[#rows + 1] = {id = id, monikerId = id, settlementId = id, nameLocalizationKey = d.nameLocalizationKey, compassIconPath = "",
-                         mapIconPath = "", sliceName = ""}
+      local mark = marks[id]
+      local at = mark and mark.position or {0, 0, 0}
+      rows[#rows + 1] = {id = mark and string.upper(mark.actor or "") or "", monikerId = id, settlementId = id,
+                         nameLocalizationKey = d.nameLocalizationKey, compassIconPath = "", mapIconPath = "", sliceName = "",
+                         worldPosition = Vector3(at[1], at[2], at[3])}
     end
   end
   T.claims = rows

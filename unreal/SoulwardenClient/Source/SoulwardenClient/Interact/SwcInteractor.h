@@ -153,6 +153,17 @@ public:
 		OutName = StationName;
 		return bStationOpen;
 	}
+	/** C-12: the mission board of the use whose screen shows (a town board: the option OpenMissionBoardOption, action 51): the actor of the
+	 *  board (the record of its TerritoryInterface state). @return False with no open board. */
+	bool GetBoard(swc::net::ActorId& OutActor) const
+	{
+		OutActor = BoardActor;
+		return bBoardOpen;
+	}
+	/** The board screen ends the board use (its Escape, its back button): the next Update sends 2473. */
+	void EndBoard() { bPendingBoardEnd = true; }
+	/** The board screen of the UI shows (the guard: no screen 2 s after the open ends the use). */
+	void SetBoardScreen(bool bShown) { bBoardScreen = bShown; }
 	/** The crafting screen ends the station use (its Escape, its exit): the next Update sends 2473. */
 	void EndStation() { bPendingStationEnd = true; }
 	/** The crafting screen of the UI shows (the station guard: no screen 2 s after the open ends the use; AST-287). */
@@ -231,6 +242,14 @@ private:
 	swc::interact::Conversation Talk;
 	/** The guards of the Talk: no screen, no answer 6709 (AST-287). */
 	swc::interact::TalkGuard TalkGuard;
+	/** C-12: the board use (the town board: action 51), as the station use: the focus, the use, the screen, the end by the screen. */
+	bool bFocusBoard = false;
+	bool bUseBoard = false;
+	bool bBoardOpen = false;
+	bool bPendingBoardEnd = false;
+	bool bBoardScreen = false;
+	double BoardOpenedAt = 0.0;
+	swc::net::ActorId BoardActor{};
 	/** The station use (stage MVP-J): the focus is a station, the use is a station use, its screen shows, and the end by the screen. */
 	bool bFocusStation = false;
 	bool bUseStation = false;

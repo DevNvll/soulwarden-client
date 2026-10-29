@@ -24,6 +24,8 @@ inline constexpr const char* kHudScreens[] = {
     "lyshineui/worldmap/magicmap",
     // The card popup of a territory standing (QG1, step 3 of ut567): the state Map loads it (swc/territory.lua).
     "lyshineui/territory/territorystanding/territorybonuspopup",
+    // The town board (C-12 of ut567): the state 640726528 of the board use of action 51 (swc/boards.lua, UI/SwcUiBoards).
+    "lyshineui/territory/territoryplanning/townprojects",
     // The conversation screen (stage MVP-H): the Talk of a person (swc/conversation.lua, UI/SwcUiConversation).
     "lyshineui/conversation/conversationscreenv2",
     // The in-game scenes and the cinematic video stand-in (stage Q5, AST-240; swc/scenes.lua).

@@ -7,7 +7,8 @@ and the world tables with their cells, the projects, the success events, the wei
 of the filter follow the loader of the backend (gamedata/mission_data.cpp): a whole number cell is a decimal number (an empty cell is 0);
 Enabled is true when the cell is absent or "1"/"true"; the project is the CRC-32 of the lower-case TerritoryProjectId.
 
-Output: SWC_CONTENT/ui/gamedata/missions.json (outside git):
+Output (outside git): SWC_CONTENT/ui/gamedata/missiontown.json (the town part alone, for the C++ generator of the client: a small file)
+and SWC_CONTENT/ui/gamedata/missions.json:
   "town":     {"rows": [[crc, projectCrc, enabled, territories, exclude, minLevel, maxLevel, tradeskill, tradeskillLevel, conditional], ...],
                "projects": [[crc, type, level], ...] (the order of the data), "buckets": [{"key", "goal", "missions"}, ...]}
   "missions": {"CRC": {"id", "table", "objective", "objectiveCrc", "cells"}}  (each row of both tables)
@@ -84,6 +85,7 @@ def write() -> dict:
     target = env.content_dir() / "ui" / "gamedata" / "missions.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(doc, separators=(",", ":")))
+    (target.parent / "missiontown.json").write_text(json.dumps({"format": 1, "town": doc["town"]}, separators=(",", ":")))
     return {"missions": len(doc["missions"]), "townRows": len(doc["town"]["rows"]), "projects": len(doc["town"]["projects"]),
             "buckets": [[b["goal"], len(b["missions"])] for b in doc["town"]["buckets"]], "problems": problems[:20], "file": str(target)}
 
