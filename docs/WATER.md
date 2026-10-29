@@ -420,6 +420,16 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     each view) and stop after one picture. In the runs of 2026-10-29 the pictures do not have the camera of the views (all show the
     same ground view of the starting beach): the camera override of match-view did not apply. The L* of those pictures is not a
     measure of the water. The wait line of match-view now logs the pawn, its place, and its distance from the feet (built, not cooked).
+  - The cause (a static check of the logs, 2026-10-29 06:50 UTC) [R by the logs and the code]: the loading gate did not end
+    ("world: the wait at the place failed after 90 s"). Then the view stays on the camera of the gate (`SwcWorldStreaming`
+    `SetViewTarget(Source)`; the camera manager applies the override of match-view only when the view target is the player character),
+    and the place check of match-view waits.
+    - In the B2 runs (both builds) the blocking system is "meter: the exposure is 0.00 EV from the source meter": with
+      `swc.ExposureFixed 1` the meter takes no measure, so its gate check (four measures in a row within 0.05 EV) never passes. Fixed:
+      the meter check passes while the fixed exposure is on.
+    - In B1 and in wfrb-global (the first place of a run) the blocking system is "surface: 0 road(s), 0 decal(s) to show, 0 region
+      file(s) to read". The surface check also needs its last update at the gate place within 1 cm (`UpdatedAt.Equals(Place, 1.0)`),
+      and it updates during a screen only when the gate is settled. Not a water change: for the world track.
 
 ### Stage 2b (after the full cook)
 

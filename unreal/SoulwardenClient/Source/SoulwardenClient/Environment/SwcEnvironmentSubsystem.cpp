@@ -638,7 +638,9 @@ void USwcEnvironmentSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	{
 		SwcLoadingGate::Register(GetWorld(), TEXT("meter"), [this](const FVector& Place, FString& Why)
 		{
-			if (CVarSourceMeter.GetValueOnGameThread() != 2 || MeterSettled >= 4)
+			// The fixed exposure test (swc.ExposureFixed 1) takes no measure: the meter has nothing to settle (the check of 2026-10-29: the
+			// gate waited 90 s at each place, and the view stayed on the camera of the gate).
+			if (CVarSourceMeter.GetValueOnGameThread() != 2 || MeterSettled >= 4 || CVarExposureFixed.GetValueOnGameThread() != 0)
 			{
 				return true;
 			}
