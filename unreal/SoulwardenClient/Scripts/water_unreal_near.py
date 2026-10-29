@@ -25,7 +25,7 @@ import unreal
 DEST = os.environ.get("SWC_WATER_UNREAL_DEST", "/SwcWaterCheck/Water/Near").rstrip("/")
 REPORT = os.environ["SWC_WATER_UNREAL_REPORT"]
 force = os.environ.get("SWC_IMPORT_FORCE", "") == "1"
-VERSION = "4"   # 1: the first near term; 2: Break / Make Material Attributes; 3: the shore foam (additive); 4: the shore blend (opacity)
+VERSION = "5"   # 1: the near term; 2: Break / Make; 3: the shore foam (additive); 4: the shore blend (failed: masks); 5: the blend, no masks
 if not DEST.startswith("/SwcWaterCheck/"):
     raise RuntimeError(f"the near term goes into the check plugin only, not {DEST}")
 
@@ -97,12 +97,19 @@ SHORE_F = SHORE.split("float3 Add = ")[0] + "return max(Gain * f, 0.0);\n"
 # uncovered part, and the base color of that new part is black (the white of the foam is the emissive f x FoamAmount x 10000 of SHORE; a lit
 # diffuse surface would add the sun). [I: the reflection of the composite is not proved to scale with the opacity.] Blend 0: the additive
 # test of version 3. Out: (the new opacity, the scale of the base color).
-COVER = r"""
+COVER_OPACITY = r"""
+float Old = saturate(OpacityOld);
+float Add = Blend > 0.5 ? saturate(F) * (1.0 - Old) : 0.0;
+return saturate(Old + Add);
+"""
+# The base color of the covered part: the old base color times the part of the cover that is not the new foam (version 4 used component
+# masks of a float2 and failed to compile: "Error on property BaseColor"; one Custom node for each output now).
+COVER_BASE = r"""
 float Old = saturate(OpacityOld);
 float Add = Blend > 0.5 ? saturate(F) * (1.0 - Old) : 0.0;
 float New = saturate(Old + Add);
-float BaseScale = New > 1e-4 ? saturate(1.0 - Add / New) : 1.0;
-return float2(New, BaseScale);
+float Scale = New > 1e-4 ? saturate(1.0 - Add / New) : 1.0;
+return BaseOld * Scale;
 """
 FOAM_TEXTURES = {"FoamData": "/SwcGameContent/Water/Textures/T_SwcWater_FoamData", "Gloss": "/SwcGameContent/Water/Textures/T_SwcWater_Gloss"}
 
@@ -119,7 +126,7 @@ def guid(text):
     return value
 
 
-def custom_inputs(names):
+def input_list(names):
     """The input list of a Custom node."""
     entries = []
     for name in names:
@@ -259,7 +266,7 @@ def make_parent():
     weight.set_editor_property("code", SHORE_F)
     weight.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT1)
     weight.set_editor_property("description", "SwcShoreWeight")
-    weight.set_editor_property("inputs", custom_inputs(shore_names))
+    weight.set_editor_property("inputs", input_list(shore_names))
     for name, node in shore_params.items():
         connect(node, [""], weight, [name])
     connect(sun, ["RGB", ""], weight, ["Sun"])
@@ -270,23 +277,23 @@ def make_parent():
     for name, node in textures.items():
         connect(node, [""], weight, [name])
     blend = scalar("SwcShoreBlend", 1.0, 2700)
-    cover = editing.create_material_expression(material, unreal.MaterialExpressionCustom, x + 700, y + 2000)
-    cover.set_editor_property("code", COVER)
-    cover.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT2)
-    cover.set_editor_property("description", "SwcShoreCover")
-    cover.set_editor_property("inputs", custom_inputs(["OpacityOld", "F", "Blend"]))
-    connect(get, ["Opacity"], cover, ["OpacityOld"])
-    connect(weight, [""], cover, ["F"])
-    connect(blend, [""], cover, ["Blend"])
-    opacity = editing.create_material_expression(material, unreal.MaterialExpressionComponentMask, x + 900, y + 2000)
-    opacity.set_editor_property("r", True)
-    connect(cover, [""], opacity, [""])
-    scale = editing.create_material_expression(material, unreal.MaterialExpressionComponentMask, x + 900, y + 2100)
-    scale.set_editor_property("g", True)
-    connect(cover, [""], scale, [""])
-    base = editing.create_material_expression(material, unreal.MaterialExpressionMultiply, x + 950, y + 2100)
-    connect(get, ["BaseColor"], base, ["A"])
-    connect(scale, [""], base, ["B"])
+    opacity = editing.create_material_expression(material, unreal.MaterialExpressionCustom, x + 700, y + 2000)
+    opacity.set_editor_property("code", COVER_OPACITY)
+    opacity.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+    opacity.set_editor_property("description", "SwcShoreOpacity")
+    opacity.set_editor_property("inputs", input_list(["OpacityOld", "F", "Blend"]))
+    connect(get, ["Opacity"], opacity, ["OpacityOld"])
+    connect(weight, [""], opacity, ["F"])
+    connect(blend, [""], opacity, ["Blend"])
+    base = editing.create_material_expression(material, unreal.MaterialExpressionCustom, x + 700, y + 2100)
+    base.set_editor_property("code", COVER_BASE)
+    base.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT3)
+    base.set_editor_property("description", "SwcShoreBase")
+    base.set_editor_property("inputs", input_list(["BaseOld", "OpacityOld", "F", "Blend"]))
+    connect(get, ["BaseColor"], base, ["BaseOld"])
+    connect(get, ["Opacity"], base, ["OpacityOld"])
+    connect(weight, [""], base, ["F"])
+    connect(blend, [""], base, ["Blend"])
 
     # Each attribute of the parent goes from Break to the pin of the same name on Make; the emissive goes through the Add. The break outputs
     # (MaterialExpressions.cpp, UMaterialExpressionBreakMaterialAttributes): the names below and CustomizedUV0..7.

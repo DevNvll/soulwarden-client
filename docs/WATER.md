@@ -541,6 +541,11 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     The drives: `run_e.sh repeat` (the additive best candidate three times at ocean-clear) and `run_e.sh blend`; `tone3/water_region.py`
     measures a water-only mask (the pixels of the lower half that the terms change). The near band of ocean-clear has no sea pixel in the
     terrain model of the study (land, the player, the shore line): its changes come from the shore edge.
+  - The window of 2026-10-29 12:59 to 13:24 UTC (the editor build of 6aac3073): NOT VALID. Version 4 failed to compile ("Failed to compile
+    Material for platform SF_VULKAN_SM6, Default Material will be used"; "(Node MakeMaterialAttributes) Error on property BaseColor": the
+    float2 output of the cover node through component masks). The ocean drew with the default material in each run (the repeat and the
+    blend runs: +35 to +46 L*). Version 5: two Custom nodes (SwcShoreOpacity float1, SwcShoreBase float3), no component masks. The
+    rule for the next window: no run after a warm-up with a "Failed to compile" line.
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
