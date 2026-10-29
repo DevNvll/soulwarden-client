@@ -289,7 +289,8 @@ C.record_valid = record_valid
 --     2. else the LinearObjectiveId of the state in column order through the classifier (0x37AE910): Proposal 3 appends ObjectiveDetails
 --        3 (PlayerPrompt; Title for @prompt_DEFAULT), InProgress 7 sets InProgressResponse; javelin.enable-linear-conversations (true, the
 --        fallback of the builder) stops at the first nonzero result. OnCooldown 8 (a Repeatable row whose completion achievement is set) sets ObjectiveOnCooldownResponse (stage Q8);
---     3. the passing topics (ConversationTopic 2, the prompt, the topic CRC). The services are not shown (an open point of the client);
+--     3. the passing topics (ConversationTopic 2, the prompt, the topic CRC), then the services of the state (service_options: only
+--        Faction_Selection and PvP_Guide; the other services are not shown);
 --     4. Leave 1 (@NPC_EndConversation) last: the screen hides it; with no other option E closes the screen (its center hint).
 --   ObjectiveDetails (0x3773540): the classifier again; Proposal: its Title, ObjectiveProposalResponse, Proposal 3, its CRC,
 --   AcceptObjective 4 (@NPC_AcceptObjective), Leave.
@@ -302,7 +303,8 @@ C.record_valid = record_valid
 --   achievements [I: the scheduling edge is not traced]. A refused request gets no answer: the page stays (no timeout, no retry).
 local OPTION = {leave = eConversationOptionType_Leave or 1, topic = 2, details = eConversationOptionType_ObjectiveDetails or 3,
                 accept = eConversationOptionType_AcceptObjective or 4, complete = eConversationOptionType_CompleteObjective or 5,
-                continue = eConversationOptionType_ContinueDialogue or 7}
+                continue = eConversationOptionType_ContinueDialogue or 7, refresh = eConversationOptionType_RefreshConversation or 6,
+                chooseFaction = eConversationOptionType_ChooseFaction or 11, factionGuide = eConversationOptionType_OpenFactionGuide or 20}
 local RESPONSE = {invalid = 0, default = 1, topic = 2, proposal = 3, acceptance = 4, completion = 5, available = 6, inprogress = 7,
                   cooldown = 8}
 C.RESPONSE = RESPONSE
@@ -454,6 +456,49 @@ local function leave_option()
   return option("@NPC_EndConversation", OPTION.leave, 0)
 end
 
+--- The faction alignment of a person (GetNpcFactionAlignment is bound to 0x37AE760, which the dispatcher case 11 also uses): the
+--- RequiredFaction of the last state of the NPC row with the service Faction_Board (a scan from the end; the selected state does not
+--- matter), else None 0. Astrid (9826_Astrid): 9826_RepAstrid_03, the Syndicate 1.
+local function npc_faction(npcId)
+  local data = cdata()
+  local states = data and data.npcs[string.lower(npcId or "")]
+  for i = #(states or {}), 1, -1 do
+    local state = data.states[states[i]]
+    for _, service in ipairs(state and state.services or {}) do
+      if string.lower(service) == "faction_board" then
+        local faction = FACTIONS[string.lower(tostring(state.requires and state.requires.RequiredFaction or ""))] or 0
+        return faction
+      end
+    end
+  end
+  return 0
+end
+C.npc_faction = npc_faction
+
+--- The service options of a state (the builder 0x37ACF10, its service loop from 0x37AD440 after the topics, in the order of the state;
+--- 2b of ut567, static read ut567/qgplan/f4service). Only two services have a path in this client: Faction_Selection (case 4,
+--- 0x37AD491 to 0x37AD55A: "@Topic_Prompt_Choose_Faction", ChooseFaction 11, dataId 0, when the faction of the player (GetFaction) is
+--- the RequiredFaction of the state or that is Any, and the display level is the RequiredLevel of the state or more) and PvP_Guide (case
+--- 12, 0x37ADD05 to 0x37ADD53: "@98_PvP_prompt", OpenFactionGuide 20, dataId 0). The other services stay hidden (no handler: the boards,
+--- the inn, the shops).
+local function service_options(state)
+  local out = {}
+  local requires = state and state.requires or {}
+  local stateFaction = FACTIONS[string.lower(tostring(requires.RequiredFaction or ""))] or 0
+  local level = tonumber(requires.RequiredLevel or "") or 0
+  local levelPasses = level <= 0 or (tonumber(Swc.GetData("Hud.LocalPlayer.Progression.Level")) or 1) >= level
+  for _, name in ipairs(state and state.services or {}) do
+    local service = string.lower(name)
+    if service == "faction_selection" and (stateFaction == character_faction() or stateFaction == 4) and levelPasses then
+      out[#out + 1] = option("@Topic_Prompt_Choose_Faction", OPTION.chooseFaction, 0)
+    elseif service == "pvp_guide" then
+      out[#out + 1] = option("@98_PvP_prompt", OPTION.factionGuide, 0)
+    end
+  end
+  return out
+end
+C.service_options = service_options
+
 --- Sets the page chain of a dialogue key.
 local function set_dialogue(key)
   C.lines, C.index = chain_of(key_of(key)), 1
@@ -501,6 +546,9 @@ local function build_result()
   end
   for _, topic in ipairs(C.topics or {}) do
     result.options[#result.options + 1] = option(topic.prompt, OPTION.topic, topic.crc)
+  end
+  for _, each in ipairs(service_options(state)) do
+    result.options[#result.options + 1] = each
   end
   result.options[#result.options + 1] = leave_option()
   C.result = result
@@ -726,12 +774,14 @@ Swc.Define("UiInteractorComponentRequestsBus", "Event", {
   RequestCancelCommittedInteraction = function() request_end("RequestCancelCommittedInteraction") end,
 })
 
--- The npc data of the person: its name and title (the header of the screen); no faction alignment.
+-- The npc data of the person: its name and title (the header of the screen), and its faction alignment (npc_faction: the {npcFaction} of
+-- the faction choice text).
 local npcData = Swc.Bus("NpcComponentRequestBus").Event.GetNpcData
 Swc.Define("NpcComponentRequestBus", "Event", {
   GetNpcData = function(id, ...)
     if C.open and id == C.entity then
-      return {id = swcui.crc32(C.key), genericName = C.name, title = C.title, GetNpcFactionAlignment = function() return eFactionType_None or 0 end}
+      local faction = npc_faction(C.npcId)
+      return {id = swcui.crc32(C.key), genericName = C.name, title = C.title, GetNpcFactionAlignment = function() return faction end}
     end
     return npcData and npcData(id, ...) or nil
   end,
@@ -948,6 +998,44 @@ Swc.Define("ConversationRequestBus", "Broadcast", {
         end
       end
       return nil
+    end
+    if optionType == OPTION.refresh then
+      -- RefreshConversation 6 (conversationscreenv2.luac OnUpdateFaction, after a faction join: the dispatcher case 6 calls the refresh
+      -- 0x376C720): the selection again and its result [I: the result of the new state also with no objective content; retail Soulwarden
+      -- qg7 16-after-join shows the dialogue of the new state of Astrid at once].
+      C.stateId = nil
+      if select_state(C.npcId) or (C.npcId ~= "" and ready_handin(C.npcId)) then
+        build_result()
+        C.log[#C.log + 1] = "refresh option: " .. tostring(C.stateId)
+        Swc.Note("conversation: RefreshConversation: the state " .. tostring(C.stateId))
+        send_state(true)
+      end
+      return
+    end
+    if optionType == OPTION.chooseFaction and has_option(OPTION.chooseFaction, dataId) then
+      -- ChooseFaction 11 (the dispatcher case 11, 0x376E7ED to 0x376E815): ConversationEventsBus ShowFactionSelection with the faction of
+      -- the person; the loader (dynamiccanvasloader.luac ShowFactionSelection) forwards it to the screen: its poster. A local event only:
+      -- no request, no close, no state change. The join is the poster's Join, the popup, and RequestSetFaction (3161).
+      local faction = npc_faction(C.npcId)
+      C.log[#C.log + 1] = "choose faction: " .. faction
+      Swc.Note("conversation: ShowFactionSelection " .. faction)
+      local bus = DynamicBus.ConversationScreenV2
+      if bus and bus.Broadcast then
+        bus.Broadcast.ShowFactionSelection(faction)
+      end
+      return
+    end
+    if optionType == OPTION.factionGuide and has_option(OPTION.factionGuide, dataId) then
+      -- OpenFactionGuide 20 (the dispatcher, thunk 0x571474): ConversationEventsBus ShowFactionGuide; the loader forwards it to
+      -- JournalScreen ShowFactionGuide. A local event only.
+      C.log[#C.log + 1] = "faction guide"
+      local journal = DynamicBus.JournalScreen
+      if journal and journal.Broadcast and #(journal.handlers or {}) > 0 then
+        journal.Broadcast.ShowFactionGuide()
+      else
+        Swc.Note("conversation: ShowFactionGuide: no JournalScreen")
+      end
+      return
     end
     if optionType == OPTION.accept and has_option(OPTION.accept, dataId) then
       local row = Swc.quests.D().byCrc[dataId]

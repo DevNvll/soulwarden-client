@@ -238,6 +238,31 @@ The client selects the conversation state of a person itself, with the rule of t
 
 ## The services of the persons
 
+The services of a conversation state (2b of ut567; static read `work/ut567/qgplan/f4service/ANSWERS.md`; `swc/conversation.lua`
+service_options; fixture `tests/ui/fixtures/factiontalk.lua`):
+
+- The builder (0x37ACF10) adds the options in this order: the objectives, the topics, the services of the state (in the order of the
+  state), then Leave. The client shows two services. The other services stay hidden, because the client has no handler for them
+  (the boards, the inn, and the shops).
+  - Faction_Selection (case 4): the option ChooseFaction 11, "@Topic_Prompt_Choose_Faction", dataId 0. The condition: the faction
+    of the player is the RequiredFaction of the state, or that is Any, and the display level is the RequiredLevel of the state or
+    more. The backend grants the service with the same rule.
+  - PvP_Guide (case 12): the option OpenFactionGuide 20 (not OpenPvPGuide 19), "@98_PvP_prompt" ("Why join a faction?"), dataId 0.
+    The client defines the enum value 20 (`swc/enums.lua`), because the table of the client does not have the name.
+- ChooseFaction (dispatcher case 11) sends ConversationEventsBus ShowFactionSelection with the faction of the person. The screen
+  shows its poster (ChangeFactionPoster). It is a local event only: there is no request, no close, and no state change. The poster's
+  Join, the popup, and Yes call RequestSetFaction (3161). The screen script then sends RefreshConversation (6), and the client selects
+  the state again and builds its result. That the client builds the result also with no objective content is an [I] rule; the retail
+  shot qg7 16-after-join shows the dialogue of the new state of Astrid.
+- OpenFactionGuide (20) sends ShowFactionGuide, which goes to the journal (JournalScreen ShowFactionGuide). It is a local event only.
+- The faction of a person (GetNpcFactionAlignment, the same function 0x37AE760 as case 11) is the RequiredFaction of the last state
+  of the NPC row with the service Faction_Board (a scan from the end), else None. It is not a field of the slice. For Astrid, it is
+  9826_RepAstrid_03: the Syndicate. The option text "{npcFaction}" uses this faction.
+- Open points:
+  - After the join, retail shows Faction_Board ("Open Faction Board") and Join_Outpost_Rush. The client hides them (the board waits
+    for QG6).
+  - The NPC marker of a Faction_Board state is not used (`swc/npcstates.lua` step 5).
+
 The backend handles only the presentation options of a person (`apps/backend/src/world/interactions.cpp` kPresentationOptions:
 OpenConversation): it has no handler for OpenInnScreen, SetSpawnPointOption, OpenMissionBoardOption, or the shops (OpenWolfShop,
 OpenLionShop, OpenHorseShop) and refuses them (3743 result 2). The option lists of the 146 npc objects: OpenConversation 89;

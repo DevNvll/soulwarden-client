@@ -84,3 +84,6 @@ define("ScriptedEntityTweenerEasingType", {"In", "Out", "InOut"})
 -- flags in the client (KeyboardMouse 1, AzPad 16).
 Swc.DefineEnum("eAID_KeyboardMouse", 1)
 Swc.DefineEnum("eAID_AzPad", 16)
+-- The option OpenFactionGuide of the conversation (the PvP_Guide service; the enum name binding 0x5A5C78B to 0x5A5C795: 20; 2b of ut567,
+-- static read ut567/qgplan/f4service). The scripts do not read the name, so the table of the client does not have it.
+Swc.DefineEnum("eConversationOptionType_OpenFactionGuide", 20)
