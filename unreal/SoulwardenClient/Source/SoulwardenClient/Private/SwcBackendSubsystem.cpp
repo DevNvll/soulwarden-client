@@ -33,6 +33,7 @@
 #include "Engine/StreamableManager.h"
 #include "Engine/World.h"
 #include "Camera/PlayerCameraManager.h"
+#include "Components/PrimitiveComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformTime.h"
@@ -1559,6 +1560,25 @@ void USwcBackendSubsystem::UpdatePlayer()
 			Avatar->SetActorHiddenInGame(bHide);
 			UE_LOG(LogSwcBackend, Log, TEXT("interact: the character is %s (%s)"), bHide ? TEXT("hidden") : TEXT("shown again"),
 				bScreenHide ? TEXT("the camera state of the crafting screen") : TEXT("HidePlayerAvatar of the camera of the line"));
+			if (bHide && Avatar->GetMesh() != nullptr)
+			{
+				// The check of a hide (ut567: a dark body stayed in the crafting camera): each drawn part under the body that the actor
+				// hide does not cover (a part of another owner, or one that casts a hidden shadow).
+				TArray<USceneComponent*> Parts;
+				Avatar->GetMesh()->GetChildrenComponents(true, Parts);
+				int32 Drawn = 0;
+				for (USceneComponent* Part : Parts)
+				{
+					const UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Part);
+					if (Primitive != nullptr && Primitive->IsVisible() && (Primitive->GetOwner() != Avatar.Get() || Primitive->bCastHiddenShadow))
+					{
+						++Drawn;
+						UE_LOG(LogSwcBackend, Log, TEXT("interact: a part under the hidden body: %s of %s (hidden shadow %d)"), *Primitive->GetName(),
+							Primitive->GetOwner() != nullptr ? *Primitive->GetOwner()->GetName() : TEXT("no owner"), Primitive->bCastHiddenShadow ? 1 : 0);
+					}
+				}
+				UE_LOG(LogSwcBackend, Log, TEXT("interact: %d part(s) under the body, %d not covered by the hide"), Parts.Num(), Drawn);
+			}
 		}
 		const bool bDummy = Line != nullptr && Line->bCamera && Line->bDummy;
 		if (bDummy)
