@@ -459,6 +459,15 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     drift of the place in time, not the setting. PASS by the A/A rule. The frame time was not clean (+0.27 and +0.34 ms at one place,
     none at the other; a retail run used 42 to 45 % of the GPU). Thus the copies are now made only when the last measure saw Single
     Layer Water pixels: the source path never copies.
+  - The check of the copy condition (2026-10-29 08:24 to 08:43 UTC, the editor build of c6157bf2): the reversed pass in the source mode
+    (0, 1, 1) has a frame cost of -0.02 to +0.04 ms and the same EV sequence: PASS. The Unreal mode, automatic exposure: beach-down
+    EV 11.60 with `swc.MeterWater 1` (all water pixels taken) against 10.36 with 0 (no measure) and 13.85 in the source; ocean-far 12.43
+    against 12.83 and 13.14. C gives the all-water view a measure but does not close the gap: at the same exposure the Unreal water is
+    darker at beach-down (B3), and a darker water pixel gives a lower E.
+- The floor tests at ocean-far (the fixed exposure EV 13.03, Unreal minus source, far / middle / near): base -6.7 / +2.7 / +11.0;
+  `swc.WaterOceanExtinction 2` -6.4 / -2.9 / +5.3; `r.Water.SingleLayer.Reflection 2` +17.7 / +27.6 / +23.6; 3: +15.7 / +22.7 / +21.6.
+  The floor through the near ocean is a large part of the gap; the default reflection mode 1 is the darkest. The controls (lake-noon,
+  river-down-noon, river-forest-noon): all near bands within 0.6; river-down middle -5.3, river-forest far +5.4.
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
