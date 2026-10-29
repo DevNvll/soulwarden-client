@@ -23,3 +23,9 @@ user_version="$(cat "${releases}/current/VERSION")"
 if [[ "${version}" != "${user_version}" ]]; then
     echo "note: the current release of the user is ${user_version}; a player run needs that version (shared database schema)" >&2
 fi
+# The vendored state decoders of the client against this release (tools/lib/vendor_check.py): a new state type of the backend needs a
+# new copy (a commit of its own; Net/Vendor/soulwarden/NOTICE.md). Status 4: the copy is done, the decoders are older.
+vendor_line="$(python3 -B -I "${SWC_REPO}/tools/lib/vendor_check.py" "${target}" \
+    "${SWC_REPO}/unreal/SoulwardenClient/Source/SoulwardenClient/Net/Vendor/soulwarden" "${SOULWARDEN_REPO:-${HOME}/Developer/azoth}")"
+echo "${vendor_line}" >&2
+[[ "${vendor_line}" == ok* ]] || exit 4

@@ -123,6 +123,15 @@ if [[ "${data_line}" == ok* ]]; then
 else
     report FAIL "${data_line#FAIL }"
 fi
+# The vendored wire codec and state decoders against the commit of the backend release (tools/lib/vendor_check.py; the client reads
+# each state to its end with them: an older decoder skips the rest of each bundle with a new state type).
+vendor_line="$(python3 -B -I "${SWC_REPO}/tools/lib/vendor_check.py" "${SWC_BACKEND_DIR}" \
+    "${SWC_REPO}/unreal/SoulwardenClient/Source/SoulwardenClient/Net/Vendor/soulwarden" "${SOULWARDEN_REPO:-${HOME}/Developer/azoth}")"
+if [[ "${vendor_line}" == ok* ]]; then
+    report ok "${vendor_line#ok }"
+else
+    report FAIL "${vendor_line#FAIL }"
+fi
 
 # 3. The client: the cooked build when it is current (or --cooked), else the engine and the module of the project.
 source "${SWC_REPO}/tools/lib/cooked.sh"

@@ -14,5 +14,10 @@ to read each fragment of a record to its end: a fragment has no length, thus the
 that the backend sends.
 
 Do not edit the files here. To update, copy the files again from the Soulwarden repository, and write the new commit
-in this file. Update them when the Soulwarden orchestrator reports a change of the wire bytes (the golden file of
+in this file. The copy of each new backend release is a commit of its own (through the orchestrator).
+
+The check (2026-10-29): `tools/play.sh --check` and `tools/backend-update.sh` compare these files with the files of the
+commit of the backend copy (release.json "commit"; `tools/lib/vendor_check.py`, `git show` in the read-only Soulwarden
+repository). A difference fails the check ("the vendored decoder is older than the backend release: copy it"), and
+`tools/backend-update.sh` ends with status 4 after its copy. Update them when the Soulwarden orchestrator reports a change of the wire bytes (the golden file of
 case T2) or a new state type.
