@@ -1,6 +1,7 @@
-"""Tests of the weapon body of a model key (C-8, converter/swc_convert/creature.py) with no game data: a conversion of some slices
-writes a weapon skeleton again with the animated weapons of the slices of earlier conversions; their bodies come from the model key
-(MeshOverride|SkinOverride1|MaterialOverride1|SkinOverride2|MaterialOverride2), as weapon_body makes them from the weapon row."""
+"""Tests of the partial creature conversion (C-8, C-9; converter/swc_convert/creature.py) with no game data. A conversion of some
+slices writes a weapon skeleton again with the animated weapons of the slices of earlier conversions: their bodies come from the model
+key (MeshOverride|SkinOverride1|MaterialOverride1|SkinOverride2|MaterialOverride2), as weapon_body makes them from the weapon row. A set
+file keeps the clips, blend spaces, combinations, and fragments of the set file of an earlier conversion."""
 import sys
 import unittest
 from pathlib import Path
@@ -57,6 +58,16 @@ class SetClips(unittest.TestCase):
         animations = {}
         creature.set_clips(animations, {}, {"idle": {"asset": "/A/idle"}}, Resolver())
         self.assertEqual(animations["clips"], {"idle": {"asset": "/A/idle"}})
+
+
+class KeepFragments(unittest.TestCase):
+    def test_earlier_fragments_stay(self):
+        animations = {"fragments": {"64": {"items": [{"clip": "new_move"}], "length": 1.0}}}
+        old = {"fragments": {"64": {"items": [{"clip": "old_move"}], "length": 2.0}, "12": {"items": [], "length": 0.5}}}
+        creature.keep_fragments(animations, old)
+        self.assertEqual(sorted(animations["fragments"]), ["12", "64"])
+        self.assertEqual(animations["fragments"]["64"]["length"], 1.0)   # this run wins for its own fragments
+        self.assertEqual(animations["fragments"]["12"]["length"], 0.5)   # an earlier fragment stays as it was
 
 
 if __name__ == "__main__":

@@ -1000,6 +1000,15 @@ def set_clips(animations: dict, old: dict, known: dict, resolver) -> None:
     animations["missingClips"] = sorted((set(old.get("missingClips", [])) | set(resolver.missing)) - set(animations["clips"]))
 
 
+def keep_fragments(animations: dict, old: dict) -> None:
+    """Adds the fragments of OLD (the set file of an earlier conversion) that the set of this run does not have, as they are (their
+    lengths come from the run that made them; the resolver of this run has not their clips). C-9: a conversion of some slices
+    builds the fragments that the action tables of its own slices want; mammoth_controllerdefs lost 13 of its fragments."""
+    fragments = animations.setdefault("fragments", {})
+    for key, fragment in old.get("fragments", {}).items():
+        fragments.setdefault(key, fragment)
+
+
 def weapon_body_of_key(model_key: str) -> dict | None:
     """@return The body of a weapon model from its model key (MeshOverride|SkinOverride1|MaterialOverride1|SkinOverride2|
     MaterialOverride2, the key of convert), else None (a creature body key: PATH.cdf or PATH.cdf|MATERIAL). C-8: a conversion of
@@ -1484,6 +1493,7 @@ def convert(indexes: set[int], force: bool = False) -> dict:
                 if "items" in fragment:
                     fragment["length"] = fragment_length(fragment["items"], resolver.clips)
                     fragment["loop"] = bool(fragment["items"]) and fragment["items"][-1]["loop"] and fragment["length"] < 0
+            keep_fragments(animations, old)
             set_out.parent.mkdir(parents=True, exist_ok=True)
             set_out.write_text(json.dumps(animations, indent=1, sort_keys=True))
             report["animation sets"] += 1
