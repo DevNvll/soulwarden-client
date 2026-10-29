@@ -765,6 +765,15 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       (the direction to the sun, the sky light of the hour, or the sun shadow in the medium) [I]. In the Unreal pictures the cliff shadow
       lies on the water at 08:00 and 16:30; the source water shows no such shadow (the source D and N have no sun shadow) [I, from the
       pictures]. No default, no automatic hour rule.
+  - The hour-rule study (GPT-6.1-Sol, read only; brief `research/briefs/ast200-2c-hour-rule.txt`, result
+    `~/Games/soulwarden-client/research/water-hour-rule.md`): no measured light term supports a gain of 1 / 0.3 / 1 at 12:00 / 16:30 / 08:00
+    [I]. The phase (the engine uses the Schlick form of Henyey-Greenstein, g = 0.1: at most a factor 1.86 over all angles) and the world
+    probe curve change too little (the candidate gains at 16:30: 0.82 to 0.92). A shadow explanation needs noon to be about 3 times more
+    shadowed than 16:30 in the medium (the wrong sign for a late cliff shadow) [I]. The ambient share and the shadow factor of the water are
+    not measured [U]. A display model puts the exact late gain near 0.15 (0.12 to 0.19 by the source drift); 0.375 already passes. The
+    medium gain stays a manual diagnostic (default 1). The next data: a term readback (the sun before and after the shadow, the ambient,
+    the medium terms as linear HDR) or a screening window with probe-off (`swc.ProbeScale 0`) and a full sun-shadow-off control (not
+    yet in the client).
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
