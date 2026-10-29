@@ -298,6 +298,17 @@ inline int value_size(std::uint32_t type, unsigned group, unsigned field, std::s
         return group == 0 && field == 0 ? 10 : group == 0 && field == 1 ? rotation_size(rest) : -1;
     case 3752: // Interactor (stage 2.5a): the cached object G (u64), and the enabled flag of group 1.
         return group == 0 && field == 0 ? 8 : group == 1 && field == 0 ? 1 : -1;
+    case 3152: // Faction (stage QG7): group 1 field 3 the time of the last change (u64), field 4 the count (u16); group 2 field 0 the faction.
+        return group == 1 && field == 3 ? 8 : group == 1 && field == 4 ? 2 : group == 2 && field == 0 ? 1 : -1;
+    case 4176: // Social (stage QG7): the title (u32), the pronoun (u8), the chatting state (u32); the four maps of group 1, each an empty
+               // full snapshot (00 01 01 00: the backend sends no other form).
+        if (group == 0) {
+            return field == 0 || field == 2 ? 4 : field == 1 ? 1 : -1;
+        }
+        if (group == 1 && (field == 0 || field == 4 || field == 5 || field == 6)) {
+            return rest.size() >= 4 && rest[0] == 0x00 && rest[1] == 0x01 && rest[2] == 0x01 && rest[3] == 0x00 ? 4 : -1;
+        }
+        return -1;
     case 2930: // Interact (stage 2.5a): Enabled (a flag) and HasInteractors (u32); CooldownUpdates is not sent.
         return group == 0 && field == 0 ? 1 : group == 0 && field == 1 ? 4 : -1;
     case 81: { // Gathering (stage 3.5b.1): group 1, nine fields (status, remaining, speed, num, ref, water ref, active, G, sync ref).
@@ -306,7 +317,7 @@ inline int value_size(std::uint32_t type, unsigned group, unsigned field, std::s
     }
     case 3857: { // Objectives (stage 1.8a): group 1, field 0 the timer map (17-byte entries), 1 tracked (8), 2 completed (8, stage 1.8b),
                  // 3 active (56), 4 tasks (18).
-        if (group != 1 || field > 4) {
+        if (group != 1 || field > 5) {
             return -1;
         }
         server::hub::Reader reader(rest);
@@ -320,11 +331,27 @@ inline int value_size(std::uint32_t type, unsigned group, unsigned field, std::s
         if (!reader.ok()) {
             return -1;
         }
-        const std::uint32_t element = field == 0 ? 17U : field == 1 || field == 2 ? 8U : field == 3 ? 56U : 18U;
+        // Stage QG5c2: field 5, the encounter roots of the character (8-byte G).
+        const std::uint32_t element = field == 0 ? 17U : field == 1 || field == 2 || field == 5 ? 8U : field == 3 ? 56U : 18U;
         return static_cast<int>(reader.position() + element * count);
     }
     case 5606: // SeasonsRewardsTrackedStat (stage 1.8a): group 0 field 0, initialized (one byte).
         return group == 0 && field == 0 ? 1 : -1;
+    case 6786: // The manager state of an encounter root (stage QG5c2): group 0 field 0, the status (u32).
+        return group == 0 && field == 0 ? 4 : -1;
+    case 14: // VariationData (stage QG5c2): group 0 field 0, the variant index (u8); field 1, the variant index (u16).
+        return group == 0 && field == 0 ? 1 : group == 0 && field == 1 ? 2 : -1;
+    case 2133: { // The stage state of an encounter root (stage QG5c2): group 0 field 0, count:size then (sequence:u32 status:u32) each.
+        if (group != 0 || field != 0) {
+            return -1;
+        }
+        server::hub::Reader reader(rest);
+        const std::uint32_t count = reader.size();
+        if (!reader.ok()) {
+            return -1;
+        }
+        return static_cast<int>(reader.position() + 8U * count);
+    }
     case 205: { // Crafting (stage 3.7b): field 0, the cooldown map (13-byte entries); field 1, the gear score bonus map (3-byte entries).
         if (group != 0 || field > 1) {
             return -1;
@@ -466,12 +493,17 @@ inline unsigned group_count(std::uint32_t type) {
     case 2027:
     case 205:
     case 5606:
+    case 6786:
+    case 2133:
+    case 14:
         return 1;
     case 3752:
     case 81:
     case 3857:
+    case 4176:
         return 2;
     case 4236:
+    case 3152:
         return 4;
     case 3935:
     case 3183:
