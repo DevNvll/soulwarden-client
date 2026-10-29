@@ -1332,6 +1332,16 @@ claims a slot with no mesh; a baked record draws only when its slot is still fre
   blockers, 10.9 million claimed slots of 172.8 million records.
 - The client leaves out a record of a claimed slot (`swc.GroundCover.Blockers 0` draws all records: a before and after
   test). At the user's place: 21 batches, 44,626 records left out (16.7 % within the range).
+- The run-time blockers (C-6, 2026-10-29; `cover_areas.RUNTIME_ONLY`): only a blocker whose area has bit 2 of
+  `PlacementModeTypeFlag` claims a slot. The bake of region.vegetation applied the flag-1 blockers: for most of them the
+  baked records under the blocker are 0.00 to 0.10 of the records of the free slots around it. Some flag-1 blockers were
+  not in the bake (ratio near 1), and retail draws their records: at 6833 4540 (r_+03_+02) five 20 m boxes of a
+  road-dressing chunk claimed 424 of 743 records within 10 m (all swamp grass; the retail picture shows dense plants), and
+  at Weaver's Fen (the view fen-outside-south, r_+05_+02) a cylinder of a static chunk claimed 873 records 5 to 22 m in front
+  of the camera (the retail picture shows grass). The flag-2 blockers (the capitals, the roads and houses of the study)
+  have their records (ratio 1.0 to 2.0), and retail clears them. Oxboro: 4,665 records after the blockers within 30 m of
+  8944.4, 4185.2, with each rule. World: 2,053,212 claimed records with every blocker, 586,669 with the rule (172.8
+  million records). The deploy is a patch of the claim part of each `cover.bin` (the descriptor and source bytes stay).
 - The camera fade (`M_SwcFoliage` version 4, `MPC_SwcMaterials` `VegCameraFade` = method 1, start 2 m, end 3 m): a fragment
   of the vegetation dissolves near the render camera, with a screen-space gradient noise, in the opacity mask (thus also
   in the depth pass). `swc.Foliage.CameraFade 0` turns it off (a test).

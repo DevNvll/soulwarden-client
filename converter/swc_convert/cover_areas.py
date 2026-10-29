@@ -12,6 +12,14 @@ component and a shape (box, cylinder, sphere, polygon prism; compound shapes are
 slot is the lattice point at the height of the terrain (bilinear), as the conditional replay of the study (Oxboro: 7,821
 records within 30 m of 8944.4, 4185.2, 4,674 after the blockers).
 
+The run-time blockers (C-6, 2026-10-29): only a blocker whose area has bit 2 of PlacementModeTypeFlag claims a slot
+(RUNTIME_ONLY). The bake of region.vegetation saw most blockers with the flag 1: the records under them are absent (the
+records of a blocker slot against the free slots around it: ratio 0.00 to 0.10 for most flag-1 groups). A flag-1 blocker that
+the bake did not see has its records (ratio near 1), and retail draws them: 6833 4540 (five 20 m boxes of a road-dressing
+chunk) and Weaver's Fen 12108.8 5227.4 (a cylinder of a static chunk). The flag-2 blockers (the capitals, the roads and houses
+of the study) have their records (ratio 1.0 to 2.0), and retail clears them (Oxboro). World: 2,053,212 claimed records with
+all the blockers, 586,669 with the rule.
+
 Not yet (open points of the study): the filter chain and the priorities of the areas, the inheritance of an enclosing area,
 the areas that place their own meshes, the surface providers other than the terrain, and the variant replacement of a shape.
 
@@ -40,6 +48,13 @@ SHAPES = {uuid.UUID("5edf4b9e-0d3d-40b8-8c91-5142bcfc30a6").bytes: "box",
           uuid.UUID("c0c817de-843f-44c8-9fc1-989cde66b662").bytes: "compound"}
 IDENTITY_TM = struct.pack(">12f", 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
 TILES, LATTICE, STEP = 128, 32, 0.5   # tiles of a region, lattice points of a tile side, the lattice step (m)
+RUNTIME_ONLY = True   # C-6: only the run-time blockers claim (False: every blocker, as before 2026-10-29)
+RUNTIME_PLACEMENT_BIT = 2   # PlacementModeTypeFlag: 1 = applied in the bake of region.vegetation, 2 = applied at run time
+
+
+def runtime(row: dict) -> bool:
+    """@return Whether a blocker claims slots at run time (RUNTIME_ONLY: its area has the run-time bit)."""
+    return not RUNTIME_ONLY or bool((row["flags"].get("PlacementModeTypeFlag") or 0) & RUNTIME_PLACEMENT_BIT)
 
 
 def value(node, name: str, default=None):
@@ -241,7 +256,8 @@ def tile_bits(slots: np.ndarray) -> dict[int, bytes]:
 def write(name: str) -> tuple[dict, np.ndarray]:
     """Writes regions/NAME/cover-blockers.json. @return (a report, the claimed slots of claimed())."""
     shapes, counts = blockers(name)
-    slots = claimed(name, shapes)
+    active = [row for row in shapes if runtime(row)]
+    slots = claimed(name, active)
     folder = env.content_dir() / "regions" / name
     folder.mkdir(parents=True, exist_ok=True)
     kinds: dict = {}
@@ -249,4 +265,5 @@ def write(name: str) -> tuple[dict, np.ndarray]:
         kinds[str(row["kind"])] = kinds.get(str(row["kind"]), 0) + 1
     (folder / "cover-blockers.json").write_text(json.dumps({"version": 1, "region": name, "counts": counts, "kinds": kinds,
                                                             "blockers": shapes}, indent=None))
-    return {"region": name, **counts, "blockers": len(shapes), "kinds": kinds, "claimed slots": int(slots.sum())}, slots
+    return {"region": name, **counts, "blockers": len(shapes), "run-time blockers": len(active), "kinds": kinds,
+            "claimed slots": int(slots.sum())}, slots
