@@ -34,6 +34,8 @@
 #include "Engine/World.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Components/PrimitiveComponent.h"
+#include "Components/MeshComponent.h"
+#include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformTime.h"
@@ -1578,6 +1580,25 @@ void USwcBackendSubsystem::UpdatePlayer()
 					}
 				}
 				UE_LOG(LogSwcBackend, Log, TEXT("interact: %d part(s) under the body, %d not covered by the hide"), Parts.Num(), Drawn);
+				// Each other actor with a drawn mesh within 2 m of the feet (a second body at the place of the character).
+				const FVector Feet = Avatar->GetActorLocation();
+				for (TActorIterator<AActor> It(Avatar->GetWorld()); It; ++It)
+				{
+					const AActor* Other = *It;
+					if (Other == Avatar.Get() || Other->IsHidden() || FVector::Dist(Other->GetActorLocation(), Feet) > 200.0)
+					{
+						continue;
+					}
+					TInlineComponentArray<UPrimitiveComponent*> Meshes(Other);
+					for (const UPrimitiveComponent* Mesh : Meshes)
+					{
+						if (Mesh->IsVisible() && (Mesh->IsA<UMeshComponent>()))
+						{
+							UE_LOG(LogSwcBackend, Log, TEXT("interact: an actor near the hidden body: %s (%s), the mesh %s, %.2f m"), *Other->GetName(),
+								*Other->GetClass()->GetName(), *Mesh->GetName(), FVector::Dist(Other->GetActorLocation(), Feet) / 100.0);
+						}
+					}
+				}
 			}
 		}
 		const bool bDummy = Line != nullptr && Line->bCamera && Line->bDummy;
