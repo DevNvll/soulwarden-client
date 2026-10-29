@@ -695,6 +695,36 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     13.03; 10.5, -10.5: 18.53]. `swc.ExposureFixedEv` (default 0: the bias `swc.ExposureFixedBias`, as before) gives the bias of each
     place from that rule: the same EV at each place. The tool `work/water-unreal/tone3/check_ev.py` checks the EV of each shot before a
     table.
+  - The window of the new views (2026-10-29 19:00 to 19:55 UTC; the editor build of bdf3c5ff for part 1, the build of 400ed9ed (the rule
+    above) for part 2 at 19:43 to 19:45; the compile gate passed at 19:08 (0 faults); 0 compile faults and 0 gate faults in each run;
+    evidence `water-unreal/wnt-s-*`, `wnt-s2-*`, `near-new-views.png`; the tables `work/water-unreal/tone3/s-water-mask-valid.txt`,
+    `s2-water-mask.txt`):
+    - The new views (`work/water-unreal/views/`, made by `tone3/find_beach.py` from the terrain model: a dry shore point, the camera 4 m
+      toward the sea, 2.5 m high, 6 degrees down) and their fixed masks (made once by `tone3/make_mask.py`, in `masks/SHA256SUMS`):
+      west-beach (the ocean override at 7197 3096), south-beach (the south-coast overrides), global-south and global-bay (the global ocean,
+      no override), and ocean-far-1630 (the camera of ocean-far at 16:30).
+    - The EV: in part 1, south-beach (cutlasskeys2_storm, the EV minimum 10.5) and global-south (monarchsbluff, 9) were at EV 18.53 and
+      17.03 (near black); part 2 took them again with `swc.ExposureFixedEv 13.03`: each shot at EV 13.03. All counted shots at EV 13.03.
+    - dL* and d hue against the mean of the 2 source shots (the source drift 0.2 to 1.6 L*); 2 shots each:
+
+      | View | All off | Blue 1 | Blue 1.5 | Blue 1.6 |
+      |---|---|---|---|---|
+      | west-beach | -10.5, -120.6 | -6.8 / -6.2, -30.1 / -29.1 | -6.5 / -6.9, -9.4 / -16.2 | -5.4 / -6.8, -8.9 / -17.0 |
+      | global-bay | -5.7, -11.0 | -8.7 / -9.0, -10.3 / -10.7 | -9.8 / -9.4, -17.8 / -15.4 | -9.3 / -10.1, -16.9 / -19.0 |
+      | ocean-far-1630 | +17.7, -25.7 | +12.1 / +11.5, -22.9 / -23.5 | +12.7 / +11.9, +2.8 / +0.7 | +13.0 / +12.5, +7.7 / +6.6 |
+      | global-south | -0.5, -0.5 | -5.4 / -0.2, +10.0 / -0.1 | -1.2 / +0.6, +3.2 / +0.7 | +0.1 / -0.1, +0.6 / +1.8 |
+
+      (Blue 1, 1.5, 1.6: the best setting, Mix 1, mode 1.) south-beach is not valid: the camera stands under a structure in a storm
+      (the source water mask L* 3.6 at EV 13.03).
+    - What the views show: the blue gain moves the hue of open water toward the source at the override beach (west-beach) and at 16:30
+      (ocean-far-1630: within 3 degrees at 1.5), as at ocean-far noon. But no setting passes all views: west-beach stays 5 to 7 L* too
+      dark; at 16:30 the Unreal water is 12 L* too light at each setting (the source water darkens much more in the low sun: a fault of
+      the hour, not of the blue); in the shallow bay of the global ocean (global-bay) the best setting is worse than all off (L* -9 to -10,
+      hue -15 to -19 at 1.5 and 1.6). global-south passes at each setting (its mask is mostly shallow water over flat sand: the floor).
+    - The controls: the rivers do not change with the blue gain (river-down within +-0.5 L*, river-forest within about 2 L*, inside the
+      blue-1 spread); at the lake the camera framing changed between shots (the band numbers measure the framing), and the lake water looks
+      the same in all shots.
+    - No default: blue 1.5 is not a candidate for all places yet.
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
