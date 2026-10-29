@@ -533,6 +533,14 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     extinction 2 (a second run): -3.6 / +7.8 / (not run). The shore foam is the term of the shallow water (beach-down all bands within
     1.1 with shore + N). No tested setting has each near band within 5: the best (shore 1, N 1, extinction 2) misses ocean-clear by
     0.6, and the ocean-clear near band (the shore line with the moving foam) changes by about 2 L* between shots. No default.
+  - The source blend (version 4 of the check parent, not built at the commit): the source C' = (1 - f) C + f x FoamAmount x 10000 as a
+    coverage of the Single Layer Water surface. The opacity is the covered part (the water volume light and the floor get 1 - opacity,
+    BasePassPixelShader.usf): the opacity takes f of the uncovered part, the base color of that new part is black, and the white is the
+    emissive f x FoamAmount x 10000 [I: the reflection of the composite is not proved to scale with the opacity].
+    `swc.WaterOceanShoreBlend` 1 (the default; with the shore gain 0 by default there is no effect), 0 the additive test of version 3.
+    The drives: `run_e.sh repeat` (the additive best candidate three times at ocean-clear) and `run_e.sh blend`; `tone3/water_region.py`
+    measures a water-only mask (the pixels of the lower half that the terms change). The near band of ocean-clear has no sea pixel in the
+    terrain model of the study (land, the player, the shore line): its changes come from the shore edge.
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).

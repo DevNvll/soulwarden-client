@@ -131,6 +131,8 @@ TAutoConsoleVariable<int32> CVarWaterOceanNearDebug(TEXT("swc.WaterOceanNearDebu
  *  gap under 1 / FoamSoftIntersectionFactor, the foam map, the gloss; an additive diagnostic of the source blend. Off by default. */
 TAutoConsoleVariable<float> CVarWaterOceanShore(TEXT("swc.WaterOceanShore"), 0.0f,
 	TEXT("A test of the ocean: the gain of the shore foam of the source (the check parent M_SwcWaterNear only); 0 off, 1 the source foam (additive)."));
+TAutoConsoleVariable<int32> CVarWaterOceanShoreBlend(TEXT("swc.WaterOceanShoreBlend"), 1,
+	TEXT("The shore foam: 1 the source blend (1 - f) C + f x the white, as a coverage of the water surface (the opacity takes f); 0 the additive test."));
 TAutoConsoleVariable<int32> CVarWaterOceanShoreDebug(TEXT("swc.WaterOceanShoreDebug"), 0,
 	TEXT("The debug view of the shore foam: 0 off, 1 the band s, the foam map m / 2, and the foam f x 4 as RGB."));
 
@@ -697,6 +699,7 @@ void USwcWaterSubsystem::UpdateUnrealOceanNear(const FUnrealTone& Tone)
 	const float Gain = FMath::Max(0.0f, SwcUnrealWater::CVarWaterOceanNear.GetValueOnGameThread());
 	const float ShoreGain = FMath::Max(0.0f, SwcUnrealWater::CVarWaterOceanShore.GetValueOnGameThread());
 	const int32 ShoreDebug = SwcUnrealWater::CVarWaterOceanShoreDebug.GetValueOnGameThread();
+	const int32 ShoreBlend = SwcUnrealWater::CVarWaterOceanShoreBlend.GetValueOnGameThread() != 0 ? 1 : 0;
 	const int32 Mode = SwcUnrealWater::CVarWaterOceanNearT.GetValueOnGameThread();
 	const int32 Debug = SwcUnrealWater::CVarWaterOceanNearDebug.GetValueOnGameThread();
 	const FLinearColor Near(FMath::Max(0.0f, OceanNow.FindRef(TEXT("NearFogColorR"))), FMath::Max(0.0f, OceanNow.FindRef(TEXT("NearFogColorG"))),
@@ -706,7 +709,7 @@ void USwcWaterSubsystem::UpdateUnrealOceanNear(const FUnrealTone& Tone)
 	const float Scale = SwcUnrealWater::CVarWaterOceanExtinction.GetValueOnGameThread();
 	const float Sigma = FMath::Max(0.0f, OceanNow.FindRef(TEXT("Density"))) * (Scale > 0.0f ? Scale : 1.0f) / 100.0f;
 	const FVector4f Key(Gain, static_cast<float>(Mode), static_cast<float>(Debug), Sigma);
-	const FVector2f ShoreKey(ShoreGain, static_cast<float>(ShoreDebug));
+	const FVector2f ShoreKey(ShoreGain, static_cast<float>(ShoreDebug + 10 * ShoreBlend));
 	const bool bLog = Key != AppliedNear || ShoreKey != AppliedShore;
 	if (Gain <= 0.0f && ShoreGain <= 0.0f && !bLog)
 	{
@@ -728,6 +731,7 @@ void USwcWaterSubsystem::UpdateUnrealOceanNear(const FUnrealTone& Tone)
 			Material->SetScalarParameterValue(TEXT("SwcNearDebug"), static_cast<float>(Debug));
 			Material->SetScalarParameterValue(TEXT("SwcShoreGain"), ShoreGain);
 			Material->SetScalarParameterValue(TEXT("SwcShoreDebug"), static_cast<float>(ShoreDebug));
+			Material->SetScalarParameterValue(TEXT("SwcShoreBlend"), static_cast<float>(ShoreBlend));
 			Material->SetScalarParameterValue(TEXT("SwcFoamAmount"), Value(TEXT("FoamAmount"), 0.5f));
 			Material->SetScalarParameterValue(TEXT("SwcFoamTilling"), Value(TEXT("FoamTilling"), 1.0f));
 			Material->SetScalarParameterValue(TEXT("SwcFoamSoft"), Value(TEXT("FoamSoftIntersectionFactor"), 1.0f));
@@ -739,8 +743,8 @@ void USwcWaterSubsystem::UpdateUnrealOceanNear(const FUnrealTone& Tone)
 			Material->SetScalarParameterValue(TEXT("SwcSoft"), Value(TEXT("SoftIntersectionFactor"), 1.0f));
 		}
 	}
-	UE_CLOG(bLog, LogSwcWater, Log, TEXT("water (Unreal): the ocean shore foam: gain %.2f, debug %d; amount %.2f, tilling %.2f, soft %.2f, transition %.2f, wind %.2f, speed %.3f, tilling %.1f"),
-		ShoreGain, ShoreDebug, Value(TEXT("FoamAmount"), 0.5f), Value(TEXT("FoamTilling"), 1.0f), Value(TEXT("FoamSoftIntersectionFactor"), 1.0f),
+	UE_CLOG(bLog, LogSwcWater, Log, TEXT("water (Unreal): the ocean shore foam: gain %.2f, blend %d, debug %d; amount %.2f, tilling %.2f, soft %.2f, transition %.2f, wind %.2f, speed %.3f, tilling %.1f"),
+		ShoreGain, ShoreBlend, ShoreDebug, Value(TEXT("FoamAmount"), 0.5f), Value(TEXT("FoamTilling"), 1.0f), Value(TEXT("FoamSoftIntersectionFactor"), 1.0f),
 		Value(TEXT("FoamTransitionSpeed"), 5.0f), Value(TEXT("WindDirection"), 0.0f), Value(TEXT("WaveSpeed"), 1.0f), Value(TEXT("Tilling"), 32.0f));
 	UE_CLOG(bLog, LogSwcWater, Log, TEXT("water (Unreal): the ocean near term: gain %.2f, T %s, debug %d; near %.4f %.4f %.4f, sun %.0f %.0f %.0f cd/m2, sigma %.5f per cm; %d instance(s)"),
 		Gain, Mode != 0 ? TEXT("of the source") : TEXT("of the plugin floor"), Debug, Near.R, Near.G, Near.B, Sun.R, Sun.G, Sun.B, Sigma, Tone.Materials.Num());
