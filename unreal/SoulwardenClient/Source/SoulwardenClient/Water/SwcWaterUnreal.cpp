@@ -118,6 +118,12 @@ TAutoConsoleVariable<float> CVarWaterOceanExtinction(TEXT("swc.WaterOceanExtinct
  *  each channel held (swc::water::albedo_gain), on the main and the far ocean instances; lakes and rivers keep their tone. */
 TAutoConsoleVariable<float> CVarWaterOceanScatterBlue(TEXT("swc.WaterOceanScatterBlue"), 1.0f,
 	TEXT("A test of the ocean: the gain of the blue scattering albedo with the extinction held (1 the source tone, 1.25 the first test)."));
+/** The light of the ocean medium (research/water-hour.md section 4): a gain of the scattering albedo of the ocean tone in all channels with
+ *  the extinction held (swc::water::albedo_gain, after the blue gain), on the main and the far ocean instances. A test of the hour fault
+ *  (the Unreal ocean is too light at 16:30): the test values 0.375 at 16:30 and 0.507 at 08:00 are E x sin(the sun elevation) relative to
+ *  noon [I: an empirical test value from the sun, not a source rule]. */
+TAutoConsoleVariable<float> CVarWaterOceanMediumGain(TEXT("swc.WaterOceanMediumGain"), 1.0f,
+	TEXT("A test of the ocean: the gain of the scattering albedo in all channels with the extinction held (1 the tone unchanged; 0.375 the test value of 16:30)."));
 TAutoConsoleVariable<float> CVarWaterOceanMaskOffset(TEXT("swc.WaterOceanMaskOffset"), -9999.0f,
 	TEXT("A test of the ocean: the plugin \"Water Opacity Mask Offset\" of the ocean instance (cm; the plugin -24); -9999 the plugin value."));
 
@@ -646,8 +652,11 @@ void USwcWaterSubsystem::ApplyUnrealTone(FUnrealTone& Tone) const
 		const float Extinction = Tone.bOcean && SwcUnrealWater::CVarWaterOceanExtinction.GetValueOnGameThread() > 0.0f
 			? SwcUnrealWater::CVarWaterOceanExtinction.GetValueOnGameThread() : 1.0f;
 		const float Blue[3] = {1.0f, 1.0f, Tone.bOcean ? FMath::Max(0.0f, SwcUnrealWater::CVarWaterOceanScatterBlue.GetValueOnGameThread()) : 1.0f};
+		const float Medium = Tone.bOcean ? FMath::Clamp(SwcUnrealWater::CVarWaterOceanMediumGain.GetValueOnGameThread(), 0.0f, 1.0f) : 1.0f;
+		const float MediumGain[3] = {Medium, Medium, Medium};
 		SwcUnrealWater::ToneParameters(Tone.bOcean
-			? swc::water::albedo_gain(swc::water::ocean_tone(Fog, Tone.Scale, Tone.Density * Extinction, AppliedAlbedoScale * Extinction), Blue)
+			? swc::water::albedo_gain(swc::water::albedo_gain(swc::water::ocean_tone(Fog, Tone.Scale, Tone.Density * Extinction,
+				AppliedAlbedoScale * Extinction), Blue), MediumGain)
 			: swc::water::volume_tone(Fog, Tone.Scale, Tone.Density, AppliedAlbedoScale), Absorption, Scattering);
 	}
 	Tone.Materials.Reset();
@@ -685,11 +694,14 @@ void USwcWaterSubsystem::UpdateUnrealOceanTone()
 	const FVector3f TestsKey = SwcUnrealWater::OceanTestsKey();
 	const FVector2f FloorKey = SwcUnrealWater::OceanFloorTestsKey();
 	const float Blue = SwcUnrealWater::CVarWaterOceanScatterBlue.GetValueOnGameThread();
+	const float Medium = SwcUnrealWater::CVarWaterOceanMediumGain.GetValueOnGameThread();
 	if (Fog != Tone.Fog || Scale != Tone.Scale || Density != Tone.Density || TestsKey != AppliedOceanTests || FloorKey != AppliedOceanFloorTests
-		|| Blue != AppliedOceanBlue)
+		|| Blue != AppliedOceanBlue || Medium != AppliedOceanMedium)
 	{
 		UE_CLOG(Blue != AppliedOceanBlue, LogSwcWater, Log, TEXT("water (Unreal): the ocean blue scattering gain %.3f (the extinction held; 1: the source tone)"), Blue);
+		UE_CLOG(Medium != AppliedOceanMedium, LogSwcWater, Log, TEXT("water (Unreal): the ocean medium gain %.3f (all channels, the extinction held; 1: the tone unchanged)"), Medium);
 		AppliedOceanBlue = Blue;
+		AppliedOceanMedium = Medium;
 		UE_CLOG(FloorKey != AppliedOceanFloorTests, LogSwcWater, Log, TEXT("water (Unreal): the ocean floor tests: extinction scale %.2f, opacity mask offset %.0f cm (below 0 / -9999: the source and the plugin)"),
 			FloorKey.X, FloorKey.Y);
 		AppliedOceanFloorTests = FloorKey;

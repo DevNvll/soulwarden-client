@@ -210,6 +210,8 @@ private:
 	FVector2f AppliedOceanFloorTests = FVector2f(-1.0f, -9999.0f);
 	/** The blue scattering gain of the ocean tone that the ocean instances have now (swc.WaterOceanScatterBlue). */
 	float AppliedOceanBlue = 1.0f;
+	/** The medium gain of the ocean tone that the ocean instances have now (swc.WaterOceanMediumGain). */
+	float AppliedOceanMedium = 1.0f;
 	/** The near term of the ocean that the ocean instances have now (gain, mode, debug, sigma) and the time of its next update. */
 	FVector4f AppliedNear = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
 	double NextNearUpdate = 0.0;

@@ -737,6 +737,12 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       extinction held (`swc::water::albedo_gain`), after the blue gain; the main and the far ocean instances. Test values from the sun
       (E sin(elevation) relative to noon): 1 at noon, 0.375 at 16:30, 0.507 at 08:00 (empirical, not a source rule). Expected at 16:30:
       -5 to -13 L* (the part of the water signal that the medium makes is not known); noon unchanged.
+  - The medium gain (the word of the orchestrator 2026-10-29 20:11 UTC; not built at the commit): `swc.WaterOceanMediumGain` (default 1:
+    no change; clamped to 0..1; ApplyUnrealTone, the ocean tone only, after the blue gain; in the change key of the ocean tone; 1 more check
+    in `tools/test-water.sh`). The test values (0.375 at 16:30, 0.507 at 08:00) are [I]: E x sin(the sun elevation) relative to noon, an
+    empirical test value from the sun, not a source rule. The window (`work/water-unreal/tone3/run_window_h.sh`): ocean-far at 12:00,
+    16:30, and 08:00 (a fixed mask made once for 08:00); 2 source shots, 2 shots at gain 1, and 2 at the test value for each hour; the EV
+    check of each shot; the dry cliff and the sky as the scene control (`tone3/scene_regions.py`).
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal

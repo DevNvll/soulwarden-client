@@ -221,6 +221,15 @@ int main(int argc, char** argv)
 		const float large[3] = {100.0F, 100.0F, 100.0F};
 		const swc::water::Tone capped = swc::water::albedo_gain(ocean, large);
 		check(std::fabs(capped.scattering[2] / 0.003F - swc::water::kToneMaxAlbedo) < 1e-5F, "the albedo gain stops at the albedo 0.95");
+		// The medium gain of the hour test (research/water-hour.md section 4): all channels x 0.375 after the blue gain, the extinction held.
+		const float medium[3] = {0.375F, 0.375F, 0.375F};
+		const swc::water::Tone dimmer = swc::water::albedo_gain(bluer, medium);
+		bool scaled = true;
+		for (int c = 0; c < 3; ++c) {
+			scaled = scaled && std::fabs(dimmer.scattering[c] / bluer.scattering[c] - 0.375F) < 1e-5F
+				&& std::fabs(dimmer.absorption[c] + dimmer.scattering[c] - (bluer.absorption[c] + bluer.scattering[c])) < 1e-9F;
+		}
+		check(scaled, "the medium gain: the scattering of each channel x 0.375 after the blue gain, the extinction held");
 		const float realm[3] = {0.0196F, 0.141F, 0.125F};
 		const swc::water::Tone clear = swc::water::ocean_tone(realm, 0.0F, 0.0F, 4.0F);
 		check(clear.scattering[0] == 0.0F && clear.absorption[0] == 0.0F, "a density of 0 is clear water (the magic realm box)");
