@@ -204,6 +204,23 @@ int main(int argc, char** argv)
 		check(std::fabs(ocean.scattering[1] / 0.003F - expected) < 1e-4F && std::fabs(ocean.absorption[1] + ocean.scattering[1] - 0.003F) < 1e-7F,
 			"the ocean: the albedo is 4 x FogColor x multiplier / (1.4427 density x 1.5), the extinction density / 100 per cm");
 		check(ocean.scattering[2] > ocean.scattering[1] && ocean.scattering[1] > ocean.scattering[0], "the starting beach is blue (b > g > r)");
+		// The blue gain of the ocean (research/water-hue.md section 5): the extinction of each channel stays, only the blue albedo changes.
+		const float blue[3] = {1.0F, 1.0F, 1.25F};
+		const swc::water::Tone bluer = swc::water::albedo_gain(ocean, blue);
+		bool held = true;
+		for (int c = 0; c < 3; ++c) {
+			held = held && std::fabs(bluer.absorption[c] + bluer.scattering[c] - (ocean.absorption[c] + ocean.scattering[c])) < 1e-9F;
+		}
+		check(held, "the albedo gain: the extinction of each channel is held");
+		check(bluer.scattering[0] == ocean.scattering[0] && bluer.scattering[1] == ocean.scattering[1]
+				&& std::fabs(bluer.scattering[2] / ocean.scattering[2] - 1.25F) < 1e-5F,
+			"the albedo gain: blue x 1.25, red and green unchanged");
+		const float one[3] = {1.0F, 1.0F, 1.0F};
+		const swc::water::Tone same = swc::water::albedo_gain(ocean, one);
+		check(same.absorption[2] == ocean.absorption[2] && same.scattering[2] == ocean.scattering[2], "the albedo gain 1 is the tone unchanged");
+		const float large[3] = {100.0F, 100.0F, 100.0F};
+		const swc::water::Tone capped = swc::water::albedo_gain(ocean, large);
+		check(std::fabs(capped.scattering[2] / 0.003F - swc::water::kToneMaxAlbedo) < 1e-5F, "the albedo gain stops at the albedo 0.95");
 		const float realm[3] = {0.0196F, 0.141F, 0.125F};
 		const swc::water::Tone clear = swc::water::ocean_tone(realm, 0.0F, 0.0F, 4.0F);
 		check(clear.scattering[0] == 0.0F && clear.absorption[0] == 0.0F, "a density of 0 is clear water (the magic realm box)");

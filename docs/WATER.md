@@ -627,6 +627,11 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       sigma_s + sigma_a fixed; albedo' = albedo x (1, 1, gain); the MID Scattering is sqrt(1000 sigma_s), the MID Absorption 1 / sigma_a).
       Gain 1.25 first, default 1. Expected by a display check: ocean-far hue +13 to +25 degrees at an L* change below 0.4; ocean-clear
       part of its hue; no fix of the L* of ocean-clear-open; beach-down little change.
+  - The blue test (the word of the orchestrator 2026-10-29 16:21 UTC; not built at the commit): `swc::water::albedo_gain` (SwcWaterData.cpp;
+    the extinction of each channel held, the albedo at most 0.95; 4 checks in `tools/test-water.sh`) and `swc.WaterOceanScatterBlue`
+    (default 1: no change; ApplyUnrealTone, the ocean tone only: the main and the far ocean instances; lakes and rivers keep their tone).
+    The window: the Mix sweep and an A/B/A of the blue gain (1 / 1.25 / 1) at ocean-far between two source shots; then at ocean-clear and
+    beach-down only when ocean-far moves its hue toward the source by more than its A/A spread (`tone3/blue_gate.py`).
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal

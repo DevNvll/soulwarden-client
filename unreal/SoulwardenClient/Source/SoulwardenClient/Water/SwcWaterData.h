@@ -159,6 +159,13 @@ Tone volume_tone(const float fog[3], float scale, float density, float albedo_sc
  */
 Tone ocean_tone(const float fog[3], float multiplier, float density, float albedo_scale, float mean_down = kOceanMeanDown);
 /**
+ * A gain of the albedo of each channel with the extinction of each channel held (research/water-hue.md section 5, the test of the blue of
+ * the ocean): sigma_t = absorption + scattering stays; the albedo scattering / sigma_t is multiplied by the gain of the channel, at most
+ * kToneMaxAlbedo; then scattering = albedo x sigma_t and absorption = sigma_t - scattering. Thus the floor transmittance does not change,
+ * only the color of the in-scatter. A gain of 1 gives the tone unchanged; a channel with no extinction stays clear.
+ */
+Tone albedo_gain(const Tone& tone, const float gain[3]);
+/**
  * The parameters of the plugin water material (Water_Material, read from its graph): the absorption coefficient is
  * 1 / (Absorption.RGB x Absorption.A), the scattering coefficient (Scattering.RGB x Scattering.RGB + the foam) / 1000.
  * @return In `absorption` and `scattering` the RGBA of the two vector parameters for a tone.

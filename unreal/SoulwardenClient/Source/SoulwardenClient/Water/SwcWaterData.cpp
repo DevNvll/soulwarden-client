@@ -276,6 +276,21 @@ Tone ocean_tone(const float fog[3], float multiplier, float density, float albed
     return tone_of(fog, k > 0.0F ? multiplier * albedo_scale / (k * (1.0F + mean_down)) : 0.0F, density);
 }
 
+Tone albedo_gain(const Tone& tone, const float gain[3])
+{
+    Tone out = tone;
+    for (int c = 0; c < 3; ++c) {
+        const float extinction = tone.absorption[c] + tone.scattering[c];
+        if (!(extinction > 0.0F) || gain[c] == 1.0F) {
+            continue;
+        }
+        const float albedo = std::clamp(tone.scattering[c] / extinction * std::max(gain[c], 0.0F), 0.0F, kToneMaxAlbedo);
+        out.scattering[c] = albedo * extinction;
+        out.absorption[c] = extinction - out.scattering[c];
+    }
+    return out;
+}
+
 void tone_parameters(const Tone& tone, float absorption[4], float scattering[4])
 {
     for (int c = 0; c < 3; ++c) {
