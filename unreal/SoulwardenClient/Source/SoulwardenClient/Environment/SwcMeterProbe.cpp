@@ -183,8 +183,11 @@ public:
 			return;
 		}
 		{
+			// Only when the last measure saw Single Layer Water pixels (the reduction counts them also with no copies): the source water
+			// writes none, so the source path never copies (the A/A check of 2026-10-29); with the Unreal water the first measure with
+			// water skips them and the next ones take them.
 			FScopeLock Lock(&Guard);
-			if (!bWatch || InFlight.IsValid() || FPlatformTime::Seconds() < NextWatch)
+			if (!bWatch || InFlight.IsValid() || FPlatformTime::Seconds() < NextWatch || LastWater == 0)
 			{
 				return;
 			}
@@ -392,6 +395,8 @@ public:
 					Sums.E(), GpuSums.E(), FMath::Log2(GpuSums.E() / Sums.E()), Sums.Count, GpuSums.Count, Sums.Sky, GpuSums.Sky, Sums.Water, GpuSums.Water);
 			}
 			Sums = GpuSums;
+			FScopeLock Lock(&Guard);
+			LastWater = GpuSums.Water;
 		}
 		if (CVarMeterDiag.GetValueOnAnyThread() != 0 && FPlatformTime::Seconds() >= NextDiag)
 		{
@@ -477,6 +482,8 @@ public:
 	double NextDiag = 0.0;
 	/** The copies of G-buffer B and C after the base pass (render thread; valid only in the graph builder of that frame). */
 	FRDGBuilder* OpaqueGraph = nullptr;
+	/** The Single Layer Water pixels of the last GPU measure (0: no copies for the next one). */
+	int32 LastWater = 0;
 	FRDGTextureRef OpaqueB = nullptr;
 	FRDGTextureRef OpaqueC = nullptr;
 };

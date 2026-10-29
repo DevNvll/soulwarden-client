@@ -453,6 +453,12 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     code]. The check: the 9 views in the source mode, each with `swc.MeterWater 1` and 0 (a variant): the EV of the frame within
     0.05 EV (`work/water-unreal/tone3/run_c.sh source`, `ev_pairs.py`).
   - A change of `Shaders/` makes the cooked build old but needs only an incremental cook.
+  - The source check (2026-10-29 07:42 to 08:15 UTC, an editor build): the 9 views with `swc.MeterWater` 1 and 0: 7 within 0.05 EV,
+    ocean-clear -0.09 and beach-down -0.19, with "water 0, taken 0" in each frame (the new branch did not run). The A/A test (1, 1, 0
+    and the reversed 0, 1, 1) gave the same EV sequence in the shot order in both passes (beach-down 13.85, 13.79, 13.67 to 13.69): the
+    drift of the place in time, not the setting. PASS by the A/A rule. The frame time was not clean (+0.27 and +0.34 ms at one place,
+    none at the other; a retail run used 42 to 45 % of the GPU). Thus the copies are now made only when the last measure saw Single
+    Layer Water pixels: the source path never copies.
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
