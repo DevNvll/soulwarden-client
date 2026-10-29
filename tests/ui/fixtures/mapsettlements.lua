@@ -82,6 +82,20 @@ if icon then
   end
   note(string.format("the Windsward landmark icons: %d (%s)", count, table.concat(names, ", ")))
   check(count > 0, "the Windsward settlement icon has landmark icons (stations, inn, trading post)")
+  -- The drawn state (the live check msa had icons that were never drawn): the filters exist before the settlement icons (the landmark
+  -- data is ready after PlayerMapFiltersHandler InitFilters), the Stations filter is on, and at this zoom the icon shows its station
+  -- layer with its station icons.
+  local filters = RequireScript("LyShineUI.WorldMap.PlayerMapFiltersHandler")
+  check(filters:GetFilterEnabled("Stations") == true and filters:GetFilterEnabled("Settlements") == true, "the Stations and Settlements filters are on")
+  check(swcui.enabled_in_hierarchy(icon.entityId), "the Windsward icon is shown")
+  note(string.format("the zoom %s, at the station zoom %s", tostring(icon.zoomLevel), tostring(icon.atStationZoom)))
+  check(icon.atStationZoom == true and UiElementBus.Event.IsEnabled(icon.Properties.StationsLayer), "the station layer of Windsward is shown")
+  local shown = 0
+  for _, child in ipairs(UiElementBus.Event.GetChildren(icon.Properties.StationsLayer) or {}) do
+    if swcui.enabled_in_hierarchy(child) then shown = shown + 1 end
+  end
+  note("the shown station icons of Windsward: " .. shown)
+  check(shown >= 10, "the station icons of Windsward are shown (" .. shown .. ")")
 end
 picture("mapsettlements-windsward")
 key("m")

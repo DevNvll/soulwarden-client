@@ -350,6 +350,7 @@ Swc.Define("RaidSetupRequestBus", "Broadcast", {
 -- (collapsiblesettlementicon.luac) shows the station, inn, and trading post icons of the landmarks of its territory.
 -- The prism [I]: a settlement takes the territory shape (isTerritory) that contains the landmark; an outpost first a point-of-interest
 -- shape of its ids that contains it, else the territory shape.
+local landmarkDataReady   -- below: true after the map filters exist
 local destinations
 local function outpostDestinations()
   if destinations then
@@ -387,20 +388,45 @@ Swc.Define("ObjectiveInteractorRequestBus", "Broadcast", {
   GetOutpostDestinations = function() return outpostDestinations() end,
   GetClaimDestinations = function() return {} end,
   GetInfluenceTowerDestinations = function() return {} end,
-  -- The readiness of the landmark data (the native checks feature flags and the provider readiness, 0x4953B90): the client data is
-  -- ready when worldmap.json has landmarks [I: the native sets Hud.LocalPlayer.LandmarkDataReady after these checks].
-  UpdateLandmarkDataAvailability = function()
-    Swc.SetData("Hud.LocalPlayer.LandmarkDataReady", #landmarks > 0)
-    return #landmarks > 0
-  end,
+  -- The readiness of the landmark data (the native checks feature flags and the provider readiness, 0x4953B90): below.
+  UpdateLandmarkDataAvailability = function() return landmarkDataReady() end,
 })
 -- The shop of a person of a Shop landmark (collapsiblesettlementicon.luac FillLandmarks, compass.luac, staticworldmarker.luac call IsValid on
 -- the result): the shops are a later stage (5.1), so each person has no shop record [I]: an invalid record, no map icon (a nil result
 -- stopped the settlement icons of the map at the first Shop landmark).
 local noShop = {displayOnMap = false, IsValid = function() return false end}
 Swc.Define("ShopDataManagerRequestBus", "Broadcast", {GetShopDataFromNpcId = function() return noShop end})
--- settlementiconslayer.luac waits for this node before it asks for the destinations (SetWorldMapData).
-Swc.SetData("Hud.LocalPlayer.LandmarkDataReady", #landmarks > 0)
+-- settlementiconslayer.luac waits for Hud.LocalPlayer.LandmarkDataReady before it asks for the destinations (SetWorldMapData). In retail
+-- the landmark data is ready after the region data loads, long after the map canvas and its filter panel (mapfilterspanel.luac calls
+-- PlayerMapFiltersHandler InitFilters) are initialized. The client data is in the file from the start: the node is true only after
+-- InitFilters [I: the order of retail]. With the node true at the load of this file, the map made its settlement icons in the activation
+-- of the map canvas, before InitFilters: collapsiblesettlementicon.luac SetZoomLevel read the Stations filter as false, entered the
+-- station zoom with no station layer, and no later filter change reached the icon (the live check msa: no settlement or station icon).
+local filtersReady = false
+landmarkDataReady = function()
+  local ready = filtersReady and #landmarks > 0
+  if Swc.GetData("Hud.LocalPlayer.LandmarkDataReady") ~= ready then
+    Swc.SetData("Hud.LocalPlayer.LandmarkDataReady", ready)
+  end
+  return ready
+end
+-- PlayerMapFiltersHandler is a module of RequireScript (the hooks of Swc.scriptHooks apply to component scripts only): each tick until its
+-- InitFilters has run (its objectiveTypeFilterMap exists), then the node, one time.
+local filterModules = {"lyshineui.worldmap.playermapfiltershandler", "LyShineUI.WorldMap.PlayerMapFiltersHandler"}
+local filterWatch
+filterWatch = Swc.Connect("TickBus", {OnTick = function()
+  for _, name in ipairs(filterModules) do
+    local module = package.loaded[name]
+    if type(module) == "table" and rawget(module, "objectiveTypeFilterMap") ~= nil then
+      filtersReady = true
+      landmarkDataReady()
+      if filterWatch and filterWatch.Disconnect then
+        filterWatch:Disconnect()
+      end
+      return
+    end
+  end
+end}, nil)
 
 -- No dungeon and no expedition (the map menu shows "Leave" and "Abandon Activity" only in a dungeon game mode).
 Swc.Define("GameModeParticipantComponentRequestBus", "Event", {

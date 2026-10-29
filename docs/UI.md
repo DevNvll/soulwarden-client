@@ -336,8 +336,10 @@ Linear AST-213. `tools/convert-ui.sh worldmap` writes the data and the textures;
   GetOutpostDestinations` gives the landmarks of type 1 (Settlement) and 22 (Outpost) with a prism, in their order: the record
   MissionDestinationData (id: the actor id of the landmark, 32 uppercase hex digits; territoryId: the territory shape that contains
   it, for an outpost first its point-of-interest shape [I]; worldPosition x and y; nameLocalizationKey). The world has 13 settlements
-  and 9 outposts. `GetClaimDestinations` stays empty (no land claim manager). `Hud.LocalPlayer.LandmarkDataReady` is true when the map
-  data has landmarks (settlementiconslayer.luac waits for it). The settlement icon (collapsiblesettlementicon.luac) shows the
+  and 9 outposts. `GetClaimDestinations` stays empty (no land claim manager). `Hud.LocalPlayer.LandmarkDataReady` (settlementiconslayer.luac
+  waits for it) is true when the map data has landmarks and PlayerMapFiltersHandler InitFilters has run (the order of retail [I]: the
+  region data loads long after the map canvas). With the node true earlier, the settlement icons came before the filters, read the
+  Stations filter as false, and never showed their stations (the live check msa). The settlement icon (collapsiblesettlementicon.luac) shows the
   landmarks of its territory: the crafting stations by their landmark data ("Smelting5": the station type and its tier), the inn, the
   trading post, the storage, the boards; Windsward has 20. `worldmap.json` has, for each landmark, `actor` and `data` (LandmarkData).
   `ShopDataManagerRequestBus.GetShopDataFromNpcId` gives an invalid record (the shops are a later stage) [I]. Fixture
