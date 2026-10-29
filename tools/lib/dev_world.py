@@ -46,6 +46,7 @@ Usage (tools/creature-world.sh):
                                      /v1/dev/quests/grant; AST-248: the task topic of a person)
   faction NAME [now] | achievement ID on|off | reputation FACTION RANK POINTS   the factions (QG7): a set with no check, an achievement,
                                      the reputation of a faction
+  standing TERRITORY AMOUNT          a game reward of territory standing (QG1: the ranks and one token for each rank; 6 Windsward)
   encounter [RADIUS] | encounter use   the encounters near the character (QG5; default 200 m), or the DEVELOPMENT AID: the start
                                      object 10 m or less from the character counts as gathered (only to pass a missing start object)
   fixture NAME [DX DY DZ]            a fixture of the backend at the character (powderKeg: the timed use "Ignite Fuse", 5 s)
@@ -284,6 +285,10 @@ def run(words: list[str], folder: Path) -> object:
     if command == "faction" and len(rest) in (1, 2):
         changed = "&changed=now" if rest[1:] == ["now"] else ""
         return request(folder, "POST", f"/v1/dev/progress/faction?character={character(folder)}&faction={rest[0]}{changed}")
+    # The territory standing (QG1, step 3 of ut567; the route of ~/Developer/azoth/tools/world standing): a game reward of standing for a
+    # territory (the ranks, one token for each rank, the experience of a rank-up), as a quest reward gives it.
+    if command == "standing" and len(rest) == 2:
+        return request(folder, "POST", f"/v1/dev/progress/standing?character={character(folder)}&territory={int(rest[0])}&amount={int(rest[1])}")
     if command == "achievement" and len(rest) == 2 and rest[1] in ("on", "off"):
         return request(folder, "POST", f"/v1/dev/quests/achievement?character={character(folder)}&id={rest[0]}&on={1 if rest[1] == 'on' else 0}")
     if command == "reputation" and len(rest) == 3:
