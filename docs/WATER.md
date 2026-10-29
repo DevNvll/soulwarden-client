@@ -605,6 +605,15 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     3. The limit (provisional): on the water mask, |L* (Unreal) - L* (source)| <= 5 and |hue (Unreal) - hue (source)| <= 15 degrees. The
        hue is atan2(mean b*, mean a*) of the mask. The user asked for the dark original tone: the hue counts.
     4. The old near band stays in each report beside the new measure.
+    5. ocean-clear has two masks (the word of the orchestrator 2026-10-29 16:05 UTC): `ocean-clear-open-noon.png`, the open water right of
+       the cliff reflection (the rectangle 1070 360 1230 450, 13,904 pixels, made once by `tone3/make_mask.py` with the geometry code of
+       the study; the tool makes the first mask again bit for bit), with L* and hue; the first mask `ocean-clear-noon.png` with the hue
+       only.
+    - The source drift of the open water of ocean-clear [R]: in the mask rows the cliff reflection ends at x 1040 to 1050 in each of the 6
+      source shots (b3, d, k, m); the open water right of it changes its lightness between shots (L* 45.7 and 60.9 in the two shots of
+      the window of 15:44; 50.9 in b3), at a stable hue (205.6 to 210.1). The Unreal shots of the same mask are stable (37.2 to 38.4).
+      Thus the L* drift of ocean-clear is a change of the source water over time, not the cliff edge [the cause is not known: the sky
+      cube or the clouds, I]. The statement of 16:05 ("the edge of the cliff reflection moves") is corrected here.
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
