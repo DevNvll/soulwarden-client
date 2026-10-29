@@ -526,6 +526,13 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     SoftIntersectionFactor; WindScale 0.02) on the ocean instances, in the Unreal mode only.
   - The test (`work/water-unreal/tone3/run_e.sh shore`): each beach view with shore 1, shore 1 + near 1, and the extinction 1.5 and 2.
     Expected [I]: beach-down near band +6 to +9 L*, ocean-clear and ocean-far about 0. ocean-far (+10.5) stays a separate fault.
+  - The check (2026-10-29 12:06 to 12:40 UTC, the editor build of 22f0ca98, the check parent version 3; the fixed exposure EV 13.03; the
+    source: the editor run wnt-b3-source; evidence `water-unreal/wnt-f-*`, `shore-foam-sweep.png`): the gain-0 control within 2.2 L*
+    (PASS). The near band, Unreal minus source (beach-down / ocean-clear / ocean-far): base -10.4 / -3.1 / +11.4; shore 1: -2.3 / +3.1 /
+    +11.4; shore 1 + N 1: +1.1 / +7.8 / +12.9; + extinction 1.5: -1.1 / +7.0 / +8.1; + extinction 2: -1.3 / +5.6 / +4.3; shore 1 + N 0.5 +
+    extinction 2 (a second run): -3.6 / +7.8 / (not run). The shore foam is the term of the shallow water (beach-down all bands within
+    1.1 with shore + N). No tested setting has each near band within 5: the best (shore 1, N 1, extinction 2) misses ocean-clear by
+    0.6, and the ocean-clear near band (the shore line with the moving foam) changes by about 2 L* between shots. No default.
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
