@@ -632,6 +632,29 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     (default 1: no change; ApplyUnrealTone, the ocean tone only: the main and the far ocean instances; lakes and rivers keep their tone).
     The window: the Mix sweep and an A/B/A of the blue gain (1 / 1.25 / 1) at ocean-far between two source shots; then at ocean-clear and
     beach-down only when ocean-far moves its hue toward the source by more than its A/A spread (`tone3/blue_gate.py`).
+  - The window of the Mix sweep and the blue A/B/A (2026-10-29 16:52 to 17:25 UTC, the editor build of bdf3c5ff; the compile gate passed: 0
+    "Failed to compile", swap +10.8 GB; 0 compile faults in each run; each of the 45 shots at EV 13.03; the backend release 2026-10-29-ef9d8aa,
+    schema 21; evidence `water-unreal/wnt-n-*`, `near-blue-mix.png`; the table `work/water-unreal/tone3/n-water-mask.txt`):
+    - The source shots (shot 1 before, shot 2 after the Unreal runs), the drift on the masks: beach-down 0.2 L*; ocean-clear 3.4 L* and
+      6.4 degrees; ocean-clear-open 4.1 L* and 7.2 degrees; ocean-far 5.5 L* and 4.5 degrees (36.3 / 41.8).
+    - The blue decision: yes (ocean-far: the source shot 1 hue 219.2; @b1a 187.8, @b125 204.6, @b1b 194.2; the move +13.6, the A/A
+      spread 6.5).
+    - The best setting with blue 1 (the 4 shots @b1a, @b1b, @m1a, @m1b) against blue 1.25 (one shot), dL* and d hue against the mean of
+      the 2 source shots:
+
+      | Mask | Blue 1: dL* (spread), d hue (spread) | Blue 1.25: dL*, d hue |
+      |---|---|---|
+      | ocean-far | +1.7 (2.5), -24.8 (6.5) | +2.3, -12.3: PASS |
+      | ocean-clear (the hue only) | -8.9 (2.6), -25.4 (2.0) | -8.2, -17.1 |
+      | ocean-clear-open | -15.3 (0.8), -36.4 (0.6) | -15.3, -26.9 |
+      | beach-down | -5.9 (5.1), +10.2 (10.9) | -6.2, +10.7 |
+
+      The blue gain moves the hue toward the source by +12.5 (far), +8.3 (clear), +9.5 (clear-open) degrees at no L* change; beach-down
+      does not change (the floor and the foam), as the study expected. The lightness of the open water of ocean-clear (-15) stays.
+    - The Mix sweep: the mean d hue for Mix 1 / 0.5 / 0.25 / 0.1: ocean-far -23.6 / -24.8 / -24.9 / -27.4; ocean-clear -24.9 / -25.6 /
+      -26.1 / -23.1; ocean-clear-open -36.1 / -36.3 / -36.7 / -34.1; beach-down +7.8 / +9.8 / +13.4 / +16.9 (its spread 10.9). No effect
+      beyond the shot spread at the ocean views; the flatter normal does not give the sharp mirror reflection of the source (the cliff
+      and the statue at ocean-far): the source reflection is a different term, not the normal [I]. Mix stays 1.
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
