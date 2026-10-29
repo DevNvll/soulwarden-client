@@ -184,11 +184,11 @@ void USwcPersonSubsystem::Load()
 	const TSharedPtr<FJsonObject>* LineCameraMap = nullptr;
 	if (LineCameraDoc.IsValid() && LineCameraDoc->TryGetObjectField(TEXT("cameras"), LineCameraMap))
 	{
-		for (const TPair<FString, TSharedPtr<FJsonValue>>& Entry : (*LineCameraMap)->Values)
+		for (const auto& Entry : (*LineCameraMap)->Values)
 		{
 			if (Entry.Value.IsValid() && Entry.Value->Type == EJson::Object)
 			{
-				LineCameras.Add(Entry.Key.ToLower(), Entry.Value->AsObject());
+				LineCameras.Add(FString(Entry.Key.ToView()).ToLower(), Entry.Value->AsObject());
 			}
 		}
 	}
