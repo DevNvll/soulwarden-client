@@ -83,6 +83,13 @@ check(text:find("3 / 5", 1, true) ~= nil, "a kill: the counter 3 / 5")
 local placeText = Swc.quests.FillTaskText("Go to {POITags}", Swc.quests.D().tasks["06_crewmates_02_taskgotopoitag_shipwreck1"])
 note("the place text: " .. placeText)
 check(placeText ~= "Go to " and not placeText:find("{", 1, true), "{POITags}: the name of the point of interest of the tag")
+-- A POI with no shape (not in the POI list of the backend): the name of its definition row (ut567 2026-10-29: "Travel to  to meet with
+-- Morgaine" in the live tracker).
+local morgaine = Swc.quests.D().tasks["quest_18008_task_2"]
+local unshaped = Swc.quests.FillTaskText("@quest_18008_task_2_description", morgaine)
+local morgaineText = Swc.quests.FillTaskText(LyShineScriptBindRequestBus.Broadcast.LocalizeText("@quest_18008_task_2_description"), morgaine)
+note("the unshaped place text: " .. morgaineText .. " (" .. unshaped .. ")")
+equal(morgaineText, "Travel to Gorgon's Landing to meet with Morgaine", "{POITags} of a POI with no shape: the name of its definition")
 
 -- The journal: Reset (CanBeAbandoned 0: a main story quest), the confirm popup, Yes.
 requests()

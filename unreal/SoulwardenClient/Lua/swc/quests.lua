@@ -530,10 +530,17 @@ function Q.FillTaskText(text, row)
   local tag = (cell(row, "POITag") or ""):match("^%s*([^,%s]+)")
   local poi = tag and Q.PoiOfTag(tag)
   local npc = item and (D().npcNames or {})[string.lower(item)]
+  -- A POI with no shape file is not in the POI list of the backend (poi-data.json "unshaped", for example gorgonslanding_30082 of
+  -- "Travel to {POITags} to meet with Morgaine"); its definition row (the territory and POI tables, worldmap.json) has the name.
+  local poiName = poi and poi.name
+  if not poiName and tag then
+    local definition = TerritoryDefinitionsDataManagerBus.Broadcast.GetTerritoryDefinitionByPoiTag(tag)
+    poiName = definition and definition.nameLocalizationKey ~= "" and definition.nameLocalizationKey or nil
+  end
   local values = {
     targetName = enemy and localize("@vc_" .. string.lower(enemy)) or itemName,
     itemName = itemName,
-    POITags = poi and localize(poi.name) or "",
+    POITags = localize(poiName),
     destinationName = npc and localize(npc) or "",
     targetAmount = cell(row, "TargetQty") or "",
   }
