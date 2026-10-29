@@ -206,8 +206,16 @@ The client selects the conversation state of a person itself, with the rule of t
   the first whose requirements pass. RequiredLevel: the level of the character. RequiredAchievement: ids with `!`, `&&`, `||`, and
   parentheses (an id is true with its bit of the Achievement state; a text that does not parse is false). RequiredActiveObjectiveId with
   RequiredActiveTaskId: one objective of the list has the task Active or CompleteActive (the quest state of `swc/quests.lua`).
-  RequiredCompletedObjective: the bit of the AchievementId of the objective. The character has no faction, no faction cooldown, and no
-  categorical progression (backend roadmap 4.5): a named faction, a cooldown, and a progression rank or points above 0 do not pass.
+  RequiredCompletedObjective: the bit of the AchievementId of the objective. The faction rules (2b of ut567, the mirror of the backend
+  `Persons::passes`; client 0x37AB440 for a state, 0x37AB7A0 for a topic): RequiredFaction None (also a negated or an unknown name) is no
+  rule; Any is no rule for a state, and a topic with Any needs a faction; a named faction must be the faction of the character
+  (`swc/factions.lua`, the Faction state of slot 49). RequiredFactionCooldown (a state only): NotInCooldown is no rule;
+  InCooldownMultipleDays needs more than 24 whole hours of the wait of a faction change, InCooldownSingleDay 1 to 24 whole hours
+  (0x37AB5F9 to 0x37AB6B5). RequiredProgression "ID RANK POINTS": the rank of the categorical progression ID (the CRC-32 of the lower-case
+  id) is RANK or more, and with POINTS above 0 its points are POINTS or more; RANK 0 with no POINTS is no rule; another form does not
+  pass. A change of the Faction state or of the categorical progressions selects the state of an open Talk again. Before 2b the client
+  refused each named faction, each cooldown value, and each progression rank or points above 0: 340 of the 3429 states of the data
+  could not be selected; no topic changes (no topic names a faction). Fixture `tests/ui/fixtures/factionrules.lua`.
   A person with no row keeps the line of persons.json.
 - The validity of a record (AST-239; backend stage 1.8f, client loader 0x379F2F0, selector 0x37AC846; backend `record_valid`): the scan
   skips a state whose IsInitialState is equal to "the row has a requirement" (a loaded value that is not 0: RequiredLevel not 0, a named
@@ -225,7 +233,8 @@ The client selects the conversation state of a person itself, with the rule of t
 - The end: the request "conversation end CRC,..." with the finished topics: 6705, 2473, then 5397 with the topics (at most 10). With no
   topic the client sends no 5397 (the retail client in the live checks of the backend stage 2.5c). A topic has no effect in the backend
   yet (stage 1.8b).
-- The player faction node (`Hud.LocalPlayer.Faction`) is None: the option script reads it for each option.
+- The player faction node (`Hud.LocalPlayer.Faction`) is the faction of the Faction state (None before it): the option script reads it
+  for each option.
 
 ## The services of the persons
 

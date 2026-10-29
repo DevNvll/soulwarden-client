@@ -121,14 +121,37 @@ achievements_pass = function(text, depth)
 end
 C.achievements_pass = function(text) return achievements_pass(text, 0) end
 
--- The faction of the player: the backend has none (roadmap 4.5); conversationoptionv2.luac reads the node for each option text.
+-- The faction of the player before the Faction state (swc/factions.lua sets it); conversationoptionv2.luac reads the node for each option
+-- text.
 if Swc.GetData("Hud.LocalPlayer.Faction") == nil then
   Swc.SetData("Hud.LocalPlayer.Faction", eFactionType_None or 0)
 end
 local FACTIONS = {syndicate = 1, marauder = 2, covenant = 3, any = 4, faction1 = 1, faction2 = 2, faction3 = 3}
 
--- @return True when the requirements of a state (forTopic false) or a topic pass for the character. The character has no faction, no
--- faction cooldown, and no categorical progression (backend roadmap 4.5).
+--- The faction of the character (swc/factions.lua: the Faction state of slot 49; 0 before it).
+local function character_faction()
+  return Swc.factions and Swc.factions.faction or 0
+end
+
+--- RequiredProgression "ID RANK POINTS" (client parser 0x37AF340, the check 0x3CB82D0; backend world/persons.cpp progression_passes): the
+--- rank of the categorical progression ID is RANK or more, and with POINTS above 0 its points are POINTS or more. RANK 0 and POINTS 0 (or
+--- no POINTS) is no rule. A text of another form does not pass.
+local function progression_pass(text)
+  local id, rank, points = text:match("^%s*(%S+)%s+(%S+)%s*(%S*)")
+  rank, points = rank and rank:match("^%d+$") and tonumber(rank), points == "" and 0 or (points and points:match("^%d+$") and tonumber(points))
+  if not rank or rank > 0xFFFF or not points then
+    return false
+  end
+  if rank == 0 and points == 0 then
+    return true
+  end
+  local player = Swc.GetData("Hud.LocalPlayer.HudComponent.PlayerEntityId")
+  return (CategoricalProgressionRequestBus.Event.GetRank(player, id) or 0) >= rank
+    and (points == 0 or (CategoricalProgressionRequestBus.Event.GetProgression(player, id) or 0) >= points)
+end
+
+-- @return True when the requirements of a state (forTopic false) or a topic pass for the character (the predicates of the client: a state
+-- 0x37AB440, a topic 0x37AB7A0; backend world/persons.cpp Persons::passes).
 local function requirements_pass(requires, forTopic)
   for name, value in pairs(requires or {}) do
     local text = tostring(value)
@@ -138,11 +161,22 @@ local function requirements_pass(requires, forTopic)
     elseif name == "RequiredAchievement" then
       if text ~= "" and not achievements_pass(text) then return false end
     elseif name == "RequiredFaction" then
-      local faction = FACTIONS[string.lower(text)] or 0
-      if forTopic and faction ~= 0 then return false end
-      if not forTopic and faction ~= 0 and faction ~= 4 then return false end
+      -- None (0) is no rule; Any (4) is no rule for a state, and a topic needs a faction; a named faction is the faction of the character.
+      local faction, own = FACTIONS[string.lower(text)] or 0, character_faction()
+      if faction == 4 then
+        if forTopic and own == 0 then return false end
+      elseif faction ~= 0 and faction ~= own then
+        return false
+      end
     elseif name == "RequiredFactionCooldown" then
-      if not forTopic and text ~= "" and text ~= "NotInCooldown" then return false end
+      -- A state only: NotInCooldown is no rule; InCooldownMultipleDays needs more than 24 whole hours of the wait of a faction change,
+      -- InCooldownSingleDay 1 to 24 whole hours (0x37AB5F9 to 0x37AB6B5).
+      local cooldown = string.lower(text)
+      local multiple = cooldown == "incooldownmultipledays"
+      if not forTopic and (multiple or cooldown == "incooldownsingleday") then
+        local hours = math.floor(Swc.factions.wait_left() / 3600)
+        if (multiple and hours <= 24) or (not multiple and (hours < 1 or hours > 24)) then return false end
+      end
     elseif name == "RequiredActiveObjectiveId" then
       local task = requires.RequiredActiveTaskId
       if not forTopic and text ~= "" and task and task ~= "" and not Swc.quests.ActiveTask(text, task) then return false end
@@ -153,12 +187,12 @@ local function requirements_pass(requires, forTopic)
         if not achievement or achievement == "" or not Swc.HasAchievement(Swc.AchievementIndex(achievement)) then return false end
       end
     elseif name == "RequiredProgression" then
-      local id, rank, points = text:match("^(%S+)%s+(%-?%d+)%s+(%-?%d+)$")
-      if id and ((tonumber(rank) or 0) > 0 or (tonumber(points) or 0) > 0) then return false end
+      if text:find("%S") and not progression_pass(text) then return false end
     end
   end
   return true
 end
+C.requirements_pass = requirements_pass
 
 -- The validity of a state record (backend stage 1.8f; client loader 0x379F2F0 to 0x379F377, selector 0x37AC846 to 0x37AC870; backend
 -- persons.md "The conversation state of a character", world/persons.cpp record_valid): IsInitialState XOR "the row has a requirement".
@@ -309,11 +343,6 @@ local function faction_mask(text)
   return negated and (0xF - mask) or mask
 end
 C.faction_mask = faction_mask
-
---- The faction of the character for the offers: the backend has no faction of a character (roadmap 4.5): unaligned (0).
-local function character_faction()
-  return 0
-end
 
 local function faction_allowed(mask, faction)
   return mask % 2 == 1 or math.floor(mask / 2 ^ faction) % 2 == 1

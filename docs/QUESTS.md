@@ -376,7 +376,8 @@ The sources: the backend stage 1.8d (Soulwarden `docs/systems/quests.md`), the s
      06_boarfeast follow from this rule (`S_skinningknife && Archetype_X`);
   6. the faction mask of RequiredFaction does not include the faction of the character: no offer. Masks: blank or None 0xF, Any 0xE,
      Syndicate 0x2, Marauder 0x4, Covenant 0x8; a leading "!" gives the complement (blank negated 0xE). Bit 0 lets each character pass.
-     The character is unaligned (faction 0): the backend has no faction of a character.
+     The faction of the character comes from the Faction state (swc/factions.lua; 0 before it; 2b of ut567). `!Syndicate` is 0xD: bit 0
+     lets each character pass (the recruitment rows of the factions; backend faction_mask). Fixture `tests/ui/fixtures/factionrules.lua`.
   The client hides an offer that fails (no locked offer; retail F-31).
 - The reward previews: `objectivedatahelper.luac GetRewardDataFromObjectiveData` with GameEventRequestBus.GetGameSystemData and
   ObjectivesDataManagerBus.GetObjectiveRewards (`swc/quests.lua`). 06_getoffbeach: 200 XP, 1.50 coin; 06_skinningknife: 275 XP,

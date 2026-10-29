@@ -38,6 +38,11 @@ local function cooldown_end()
   return F.changedSeconds + COOLDOWN_SECONDS
 end
 
+--- @return The seconds of the wait of a faction change that are left (0: no wait; backend Factions::wait_left).
+function F.wait_left()
+  return math.max(0, cooldown_end() - now_seconds())
+end
+
 local function has_recruitment(faction)
   for _, name in ipairs(RECRUITMENT[faction] or {}) do
     local bit = Swc.AchievementIndex and Swc.AchievementIndex(name)
@@ -132,6 +137,13 @@ function Swc.HostFaction(faction, changedNs, count)
   F.count = tonumber(count) or 0
   Swc.SetData("Hud.LocalPlayer.FactionRequestBus.IsConnected", true)
   republish()
+  -- The faction and the wait are requirements of the conversation states (swc/conversation.lua): a new selection.
+  if Swc.conversation and Swc.conversation.MarkChanged then
+    Swc.conversation.MarkChanged()
+  end
+  if Swc.npcStates then
+    Swc.npcStates.MarkChanged()
+  end
 end
 
 --- The empty Social state (the host, one time a session): the friend containers exist.
