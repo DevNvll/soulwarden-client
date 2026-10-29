@@ -230,16 +230,14 @@ function Swc.ActivateElements(ids, root, loading)
   end
   local order = post_order(root, {})
   for _, id in ipairs(order) do
-    -- The interactive components first (they connect before the script components of the element), then the scripts.
+    -- The interactive components first (they connect before the script components of the element), then the native part of the
+    -- dynamic lists, then the scripts. Each element at its own turn, children before their parent (canvas 0x6EC250): the auto
+    -- refresh of a dynamic scroll box (InGamePostActivate 0x6EBD50 -> RefreshContent 0x74E3D0) detaches its prototype and makes its
+    -- first copies before the OnInit of an ancestor script, so simplegriditemlist.luac Initialize gets a copy as Content child 0
+    -- (static read ut567/qgplan/gridclone, C-12; before, all OnInit came first: the copies of the TownProjects rows had 2N items).
     Swc.InitInteractive(id)
-    Swc.Notify("UiInitializationBus", id, "InGamePostActivate")
-  end
-  -- The dynamic lists after the OnInit of each new element: an owner script reads the prototype of a dynamic scroll box of
-  -- a child element in its OnInit (simplegriditemlist.luac Initialize, called by abilityselection.luac and
-  -- dynamicitemlist.luac), before the auto refresh moves the prototype away. (O3DE calls InGamePostActivate from the
-  -- children up and its auto refresh in it; the scripts of the game show that the fork does it later: open point O4.)
-  for _, id in ipairs(order) do
     Swc.InitDynamic(id)
+    Swc.Notify("UiInitializationBus", id, "InGamePostActivate")
   end
   if loading then
     for _, id in ipairs(order) do

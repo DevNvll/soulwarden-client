@@ -1532,5 +1532,8 @@ and the backend encoders (states 3829, 1746, 3086; requests 3819, 2461).
   (2026-10-29): the screen opened, the seed was the seed of the backend, and the provider identity was the Claim landmark actor; the
   offers were empty before this list.
 - The checks: the fixture `tests/ui/fixtures/boards.lua`, the claim row check of `tests/ui/fixtures/territory.lua`.
-- Open points: the grid of the project columns overlaps in the pictures of the fixture (the layout of the empty project rows). The faction
-  board (option 8, state 2609973752, 3816) is phase 2.
+- The project grid (simplegriditemlist.luac, 2 columns of 744 px in each row): the dynamic scroll box makes its first copies at its own
+  InGamePostActivate, children before parents, before the OnInit of the grid script (swc/elements.lua; static read
+  `~/Games/soulwarden-client/work/ut567/qgplan/gridclone/ANSWERS.md`). Its first refresh fills the pool to the default count (5). An item
+  takes the size settings of an item, not of a header (swc/dynamic.lua entry_size). Before, each row had 4 columns, 2 with the template.
+- Open point: the faction board (option 8, state 2609973752, 3816) is phase 2.

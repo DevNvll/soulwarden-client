@@ -203,12 +203,17 @@ end
 --- target size of a copy that the scripts prepare (auto size).
 local function entry_size(id, e, position)
   local d = box_state(id)
-  local variable = e.kind == "item" and d.variableSize or (e.kind == "header" and d.variableHeaderSize)
-  local fixed = e.kind == "header" and d.headerSize or d.itemSize
+  -- The settings of the kind (an if, not "and ... or": a false item setting took the header setting; C-12: TownProjects has autoSize false
+  -- and autoHeaderSize true, and its rows got the auto size 0).
+  local variable, auto, fixed
+  if e.kind == "header" then
+    variable, auto, fixed = d.variableHeaderSize, d.autoHeaderSize, d.headerSize
+  else
+    variable, auto, fixed = d.variableSize, d.autoSize, d.itemSize
+  end
   if not variable then
     return fixed
   end
-  local auto = e.kind == "item" and d.autoSize or d.autoHeaderSize
   if auto then
     local proto = e.kind == "header" and d.header or d.item
     swcui.set_enabled(proto, true)
@@ -345,6 +350,24 @@ function Swc.DynamicScrollBoxRefresh(id)
   local box = Swc.IState(id).scrollBox
   Swc.ScrollBoxSetOffset(id, Swc.Vector2.new({x = box.offset[1], y = box.offset[2]}))
   Swc.DynamicScrollBoxUpdate(id)
+  -- The first refresh fills the pool up to the default count (0x75DC96..0x75DD4B): disabled copies that stay children of the content
+  -- (GetChild does not filter the enabled state).
+  if not d.poolFilled then
+    d.poolFilled = true
+    local made = #d.pool.item
+    for _ in pairs(d.displayed) do
+      made = made + 1
+    end
+    for _ = made + 1, d.defaultCount or 0 do
+      swcui.set_enabled(d.item, true)
+      local entity = Swc.CloneElement(d.item, content_of(id), nil)
+      swcui.set_enabled(d.item, false)
+      if valid(entity) then
+        swcui.set_enabled(entity, false)
+        d.pool.item[#d.pool.item + 1] = entity
+      end
+    end
+  end
 end
 
 local function child_index(id, child)

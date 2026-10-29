@@ -75,6 +75,24 @@ frames(2.0)
 equal(LyShineManagerBus.Broadcast.GetCurrentState(), TOWN, "the open sets the state TownProjects")
 check(swcui.canvas_get(town, "enabled"), "the town screen shows")
 picture("town-open")
+-- The project grid (simplegriditemlist.luac, 744 px items in a 1534 px grid: 2 for each row). The dynamic scroll box makes its first copies
+-- at its own InGamePostActivate, before the OnInit of the grid (static read ut567/qgplan/gridclone): each shown row has 2 project columns.
+do
+  local content = find(find(swcui.canvas_get(town, "root"), "SimpleDynamicGrid"), "Content")
+  local shown, columns = 0, {}
+  for _, row in ipairs(UiElementBus.Event.GetChildren(content) or {}) do
+    if UiElementBus.Event.IsEnabled(row) then
+      shown = shown + 1
+      local n = 0
+      for _, child in ipairs(UiElementBus.Event.GetChildren(row) or {}) do
+        n = n + ((swcui.name(child) == "ActiveProjectPrototype") and 1 or 0)
+      end
+      columns[#columns + 1] = n
+    end
+  end
+  equal(shown, 2, "two rows of projects are shown (4 projects: 3 project types with no project and the always available project)")
+  equal(table.concat(columns, " "), "2 2", "each shown row has 2 project columns")
+end
 equal(swcui.error_count() - errorsBefore, 0, "no Lua error at the open")
 
 -- The cards of the always available project (the grid of the screen; the enabled TownProject_AvailableTask elements of its last row).
