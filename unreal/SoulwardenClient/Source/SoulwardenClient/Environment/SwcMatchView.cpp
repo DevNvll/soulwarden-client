@@ -342,8 +342,11 @@ void USwcMatchViewSubsystem::Tick(float DeltaTime)
 		{
 			NextStatus = Now + 5.0;
 			const UWorldPartitionSubsystem* Partition = World->GetSubsystem<UWorldPartitionSubsystem>();
-			UE_LOG(LogSwcEnvironment, Log, TEXT("matchview: view %d %s: waiting %.0f s (server at the feet %d, pawn %d, partition streaming done %d, %d package(s) loading)"),
-				Current + 1, *View.Name, Now - StepSince, bServer ? 1 : 0, bPawn ? 1 : 0, Partition == nullptr || Partition->IsStreamingCompleted() ? 1 : 0, GetNumAsyncPackages());
+			// The place and the class of the pawn (the check of 2026-10-29: "pawn 0" for the whole wait, but the pawn at the feet after the timeout).
+			const swc::net::WorldPosition PawnAt = SwcUnrealToEngine(Pawn != nullptr ? Pawn->GetActorLocation() : FVector::ZeroVector);
+			UE_LOG(LogSwcEnvironment, Log, TEXT("matchview: view %d %s: waiting %.0f s (server at the feet %d, pawn %d, partition streaming done %d, %d package(s) loading; pawn %s at %.3f %.3f %.3f, %.2f m from the feet)"),
+				Current + 1, *View.Name, Now - StepSince, bServer ? 1 : 0, bPawn ? 1 : 0, Partition == nullptr || Partition->IsStreamingCompleted() ? 1 : 0, GetNumAsyncPackages(),
+				*GetNameSafe(Pawn), PawnAt.x, PawnAt.y, PawnAt.z, Pawn != nullptr ? FVector::Dist2D(Pawn->GetActorLocation(), Target) / 100.0 : -1.0);
 		}
 		if (!(bServer && bPawn) && !bTimeout)
 		{

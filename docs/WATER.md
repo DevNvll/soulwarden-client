@@ -410,6 +410,17 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   Shaders), but not a full cook: `tools/cook.sh` asks for a full cook only for a change of the config hash (Config/Default*.ini and
   the cooker options) or a small cooked folder. Thus an incremental cook with the compile of the changed global shader.
 
+- The B window (2026-10-26 18:51 to 19:13 UTC and 2026-10-29 06:17 to 06:44 UTC, cooked builds 99ca53c and 9576cb5):
+  - B1 [R by the log]: in the Unreal mode the view beach-down has 0 accepted meter pixels (all 10,360 sample pixels are Single Layer
+    Water), the last good measure is 12 to 14 s old, and the frame EV is 10.37, against 12.89 at ocean-far in the same run and 13.87 for
+    the source path at beach-down: 2.5 to 3.5 EV too bright. The same in the two orders.
+  - The fixed exposure: `swc.ExposureFixedBias -13` gives EV 15.53 (the manual exposure adds about 2.5 EV); -10.5 gives EV 13.03.
+  - B2 is NOT valid yet. Since the build of 34fe062 the match-view runs wait the whole place timeout (about 86 s) with "pawn 0" at each
+    view, but the timeout line gives the pawn at the feet; with about 110 s for each view the runs pass the stay limit (120 s + 75 s for
+    each view) and stop after one picture. In the runs of 2026-10-29 the pictures do not have the camera of the views (all show the
+    same ground view of the starting beach): the camera override of match-view did not apply. The L* of those pictures is not a
+    measure of the water. The wait line of match-view now logs the pawn, its place, and its distance from the feet (built, not cooked).
+
 ### Stage 2b (after the full cook)
 
 - The storm waves of the overrides. The GPT-6.1-Sol study `~/Games/soulwarden-client/research/water-storm-waves.md` (2026-10-25;
