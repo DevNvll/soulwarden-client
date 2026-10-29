@@ -583,7 +583,18 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     are for the top side of the surface only. The underside keeps the plugin look, as the plugin coefficients of the water
     (x saturate(TwoSidedSign)). Expected: swim-surface as with all terms off; no change of the views from above.
   - The study of a depth-dependent extinction (GPT-6.1-Sol; brief `research/briefs/ast200-2c-depth-extinction.txt`, result
-    `~/Games/soulwarden-client/research/water-depth-extinction.md`): first the source formula, then the Unreal parameters.
+    `~/Games/soulwarden-client/research/water-depth-extinction.md`): first the source formula, then the Unreal parameters. The result
+    (2026-10-29, read only):
+    - The source has one ocean density for each local override: no density rule over the depth or the distance to the shore [R]. The
+      depth enters only through the path lengths (the view path and the vertical light path), as in the plugin.
+    - The pixel fit of the repeat error goes the other way: at ocean-far the error falls from +4.3 L* (3.6 to 5.3 m of model depth) to
+      -7.3 (9 to 10 m). At the same depth (8 to 9 m), the dark source pixels are +6.1 and the bright ones -10.4: the Unreal water loses
+      the spatial contrast of the source (the reflection) [I]. A depth ramp of the extinction or of the albedo is rejected.
+    - The near band of ocean-clear is mostly land and shore line (no fixed water pixel in it); the water mask of ocean-clear is -6 to
+      -7 L* too dark with the best setting. Two source runs (b3, d) differ by 7.9 L* in that near band: the band is not a water measure.
+    - The N term must use the source density (0.3 per m) and not the test scale of `swc.WaterOceanExtinction` [R: a formula difference].
+    - The next supported test [I]: the reflection normal of the ocean (the source ReflectionBumpScale 0.1: a flatter normal), as a
+      parameter of the check parent, the top side only.
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
