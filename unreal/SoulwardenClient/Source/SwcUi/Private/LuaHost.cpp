@@ -1096,7 +1096,15 @@ int n_canvas_set(lua_State* L) {
         return 0;
     }
     if (key == "drawOrder") { canvas->drawOrder = static_cast<int>(luaL_checknumber(L, 3)); return 0; }
-    if (key == "enabled") { canvas->enabled = lua_toboolean(L, 3) != 0; return 0; }
+    if (key == "enabled") {
+        const bool enabled = lua_toboolean(L, 3) != 0;
+        if (enabled && !canvas->enabled && canvas->raiseOnShow) {
+            model_of(L).raise_in_group(*canvas);
+        }
+        canvas->enabled = enabled;
+        return 0;
+    }
+    if (key == "raiseOnShow") { canvas->raiseOnShow = lua_toboolean(L, 3) != 0; return 0; }
     if (key == "posInput") { canvas->posInput = lua_toboolean(L, 3) != 0; return 0; }
     return luaL_error(L, "canvas_set: no field %s", key.c_str());
 }

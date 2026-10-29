@@ -263,6 +263,11 @@ struct Canvas {
     Id root{kNoId};
     JavelinCanvasData javelin;
     std::uint64_t loadSequence{0};
+    /** [I] The canvas goes to the top of its draw-order group each time it shows (enabled false to true): only the Popup canvas
+     *  (swc/manager.lua). Decided by the orchestrator on 2026-10-29: two static reads did not find the native cause (the native order is the
+     *  draw order, then the load order; no raise at a show); one retail picture (Soulwarden qg7 shot 53) has the confirmation popup over
+     *  FactionSelection, which loads later with the same draw order 52. */
+    bool raiseOnShow{false};
     /** The script components of the canvas entity itself (for example the globals canvas). */
     std::vector<ScriptData> scripts;
 };
@@ -321,6 +326,8 @@ public:
     [[nodiscard]] Id find_canvas_by_path(const std::string& path) const;
     /** @return The canvases in their draw order (then in their load order). */
     [[nodiscard]] std::vector<Canvas*> canvases_in_order();
+    /** Puts a canvas at the top of its draw-order group (a new load sequence): the show of a canvas with raiseOnShow. */
+    void raise_in_group(Canvas& canvas) { canvas.loadSequence = ++m_loadSequence; }
     /** @return The elements of a canvas that the load made, parents before children. */
     [[nodiscard]] std::vector<Id> subtree(Id root) const;
 

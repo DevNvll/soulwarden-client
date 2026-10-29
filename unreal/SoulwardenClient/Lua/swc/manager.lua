@@ -34,6 +34,12 @@ function Swc.LoadCanvas(path, drawOrder)
       swcui.canvas_set(canvas, "drawOrder", drawOrder)
     end
     Swc.canvasNames[tostring(canvas)] = name_of(path)
+    -- [I] The Popup canvas goes to the top of its draw-order group at each show (SwcUi Canvas::raiseOnShow): decided by the orchestrator on
+    -- 2026-10-29 (two static reads did not find the native cause; one retail picture, Soulwarden qg7 shot 53: the confirmation popup over
+    -- FactionSelection, which loads later with the same draw order 52). docs/UI.md "The order of the canvases".
+    if string.lower(tostring(path)):gsub("%.uicanvas$", "") == "lyshineui/popup/popup" then
+      swcui.canvas_set(canvas, "raiseOnShow", true)
+    end
     -- The canvas entity activates first (its own script components: the globals canvas has one).
     Swc.ActivateEntity(canvas)
     Swc.ActivateElements(created, swcui.canvas_get(canvas, "root"), true)

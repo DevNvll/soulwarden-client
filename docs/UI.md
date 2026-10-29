@@ -369,6 +369,20 @@ Linear AST-213. `tools/convert-ui.sh worldmap` writes the data and the textures;
   leaves the view goes to a pool. A scroll updates the visible copies.
 - The prototypes leave their list: they wait under a hidden element of the canvas ("Prototypes").
 
+## The order of the canvases
+
+- The canvases draw in the order of their draw order; equal draw orders keep their load order, the later load on top, and the input goes
+  from the top down (`Model::canvases_in_order`). This is the native rule of the retail client ([S], static read
+  `~/Games/soulwarden-client/work/ut567/qgplan/canvasorder/ANSWERS.md`: append, a stable sort by draw order, no raise at an enable, a show,
+  or a SetDrawOrder with the same value).
+- [I] The Popup canvas (`LyShineUI/Popup/Popup`) goes to the top of its draw-order group each time it shows (`Canvas::raiseOnShow`, set by
+  `Swc.LoadCanvas`). Decided by the orchestrator on 2026-10-29: two static reads did not find the native cause (the canvas order above,
+  and the default load order: `work/ut567/qgplan/bypass/ANSWERS.md`); one retail picture (Soulwarden
+  `quests/qg7/implement/shots/53-change-marauders.png`) has the confirmation popup over FactionSelection, which loads later with the same
+  draw order 52. Without the rule the popup of Change Faction was under the screen, and its Yes did not reach it (the live check f2a of
+  ut567). A third static read (the native show path of a popup) runs; its rule replaces this one when it is proved.
+- Checks: the fixtures `canvasorder` (Popup against RewardCelebrationPopup) and `factions` (Popup against FactionSelection, then Yes).
+
 ## The Lua host
 
 - Lua 5.1.5 compiles as C++ (`SwcLua51.cpp`, `SwcLua51Os.cpp`). Thus a Lua error is a C++ exception and unwinds the

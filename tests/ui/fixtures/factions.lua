@@ -8,8 +8,9 @@ local HUD, SKILLS, SELECTION = 2702338936, 3576764016, 1040880896
 -- development start with no front end has none, and the Bio reads "World:" only: the live check f2a).
 LyShineManagerBus.Broadcast.SetWorldName("Soulwarden")
 local skills = screen("LyShineUI/Skills/Skills.uicanvas", 20)
+-- The client order: the Popup loads at the start (swc/host.lua), FactionSelection later at its state; both have POPUP_DRAW_ORDER 52.
+local popup = screen("LyShineUI/Popup/Popup.uicanvas", 52)
 local selection = screen("LyShineUI/ChangeFaction/FactionSelection.uicanvas", 52)
-screen("LyShineUI/Popup/Popup.uicanvas", 52)
 -- The world map: mapfortressinfomenu.luac reads the war phase duration when the Social bus is ready (a Lua error of the live check f2a).
 screen("LyShineUI/WorldMap/MagicMap.uicanvas", 20)
 Swc.factions.selectionLoaded = true   -- the fixture loads the canvas (the state hook would load it in the client)
@@ -140,6 +141,22 @@ if marauders then
     .. tostring(panelScript and panelScript.isDisabled))
   note("after the click on the Marauders: SelectedFaction " .. tostring(Swc.GetData("FactionSelection.SelectedFaction")) .. "; " .. texts_of(selection))
   picture("factions-selected")
+  -- The confirmation popup is drawn over FactionSelection ([I] the Popup goes to the top of its draw-order group at each show; retail
+  -- Soulwarden qg7 shot 53), and a real click on Yes sends 3161.
+  local order = {}
+  for index, id in ipairs(swcui.canvases()) do order[tostring(id)] = index end
+  check(swcui.canvas_get(popup, "enabled"), "the confirmation popup shows")
+  check((order[tostring(popup)] or 0) > (order[tostring(selection)] or 0), "the popup is drawn over FactionSelection (the same draw order 52)")
+  note("the popup: " .. texts_of(popup))
+  local yes = find(swcui.canvas_get(popup, "root"), "ButtonYes")
+  check(yes ~= nil, "the Yes button of the popup")
+  if yes then
+    click(yes, 0.5, 0.5)
+    frames(0.5)
+    local sentYes = false
+    for _, r in ipairs(requests()) do sentYes = sentYes or r == "faction set 2" end
+    check(sentYes, "a real click on Yes asks the host for 3161 with the Marauders")
+  end
 end
 equal(swcui.error_count() - errorsBefore, 0, "the click on the panel: no Lua error")
 
