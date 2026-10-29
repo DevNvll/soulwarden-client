@@ -430,6 +430,19 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     - In B1 and in wfrb-global (the first place of a run) the blocking system is "surface: 0 road(s), 0 decal(s) to show, 0 region
       file(s) to read". The surface check also needs its last update at the gate place within 1 cm (`UpdatedAt.Equals(Place, 1.0)`),
       and it updates during a screen only when the gate is settled. Not a water change: for the world track.
+- The B3 window (2026-10-29 06:56 to 07:20 UTC, the editor build of d08440d3, uncooked; the fixed exposure EV 13.03 in each shot;
+  evidence `water-unreal/wnt-b3-*`, `near-tone-b3-source-vs-unreal.png`, `near-tone-ablation-ocean-far.png`):
+  - The match-view check: no gate failure after the fix, the right cameras (the water pixels of the meter fit the views). The first
+    place of an uncooked run waits for the load ("pawn None" while thousands of packages load).
+  - The L* (far / middle / near), Unreal minus source at the same exposure: ocean-far -5.3 / +2.9 / +11.3; ocean-clear +6.0 / -1.3 /
+    -4.0; beach-down -11.3 / -12.3 / -8.8. Thus the beach-down jump of the cooked run (+47) is the exposure fault alone (B1); at the
+    same exposure the Unreal water is darker there.
+  - The ablations at ocean-far (the near band): base +11.0, no foam +11.6, no foam scattering +11.2, isotropic phase +16.7,
+    `r.Water.SingleLayer.Reflection 0` -15.2. With that cvar the sand floor under the water also goes away, so it is not a clean
+    reflection test. The foam and the phase are not the cause. The pictures show the sand floor through the near water in the Unreal
+    water (turquoise), and dark water with the reflections of the rocks in the source.
+  - Next: the meter fix (the water pixels, a client shader change, an incremental cook); for ocean-far, a test of the floor
+    transmission (the two-path attenuation of the source against the plugin path) and of the SSR alone (reflection modes 2 and 3).
 
 ### Stage 2b (after the full cook)
 
