@@ -13,7 +13,9 @@ Run through tools/import-water-unreal.sh --near (UnrealEditor-Cmd -run=pythonscr
 
 The parameters (the client sets them on the ocean instance, Water/SwcWaterUnreal.cpp; all 0 by default: no effect):
 SwcNearGain (the gain; 0: no add), SwcNearColor (NearRGB of the ocean of the place), SwcNearSun (the source sun / pi, cd/m2),
-SwcNearSigma (the extinction of the ocean per cm), SwcNearMode (0 the plugin floor transmittance, 1 the source T), SwcNearDebug.
+SwcNearSigma (the extinction of the ocean per cm), SwcNearMode (0 the plugin floor transmittance, 1 the source T), SwcNearDebug,
+SwcNearRho (version 7: the own density of N per m; 0 not set: N uses SwcNearSigma), SwcNormalMix (version 7: the part of the plugin normal on
+the top side; 1, the default, is the plugin normal unchanged).
 
 Environment: SWC_WATER_UNREAL_DEST (default /SwcWaterCheck/Water/Near), SWC_WATER_UNREAL_REPORT, SWC_IMPORT_FORCE=1.
 """
@@ -25,8 +27,8 @@ import unreal
 DEST = os.environ.get("SWC_WATER_UNREAL_DEST", "/SwcWaterCheck/Water/Near").rstrip("/")
 REPORT = os.environ["SWC_WATER_UNREAL_REPORT"]
 force = os.environ.get("SWC_IMPORT_FORCE", "") == "1"
-VERSION = "6"   # 1: the near term; 2: Break / Make; 3: the shore foam (additive); 4: the shore blend (failed: masks); 5: the blend, no masks;
-                # 6: the underside gate
+VERSION = "7"   # 1: the near term; 2: Break / Make; 3: the shore foam (additive); 4: the shore blend (failed: masks); 5: the blend, no masks;
+                # 6: the underside gate; 7: the own density of N (SwcNearRho) and the normal mix (SwcNormalMix)
 if not DEST.startswith("/SwcWaterCheck/"):
     raise RuntimeError(f"the near term goes into the check plugin only, not {DEST}")
 
@@ -48,14 +50,15 @@ OPACITY = "B8F50FBA2A754EC19EF672CFEB27BF51"
 # look (the swim-surface fault of 2026-10-29: the blend opacity made the underside an opaque plane).
 CODE = r"""
 float Side = saturate(Above);
+float S = Rho > 0.0 ? Rho * 0.01 : Sigma;
 float GapCm = max(Behind - Surface, 0.0);
 float3 Dir = -normalize(CameraVector);
 float CosView = max(dot(Dir, View.ViewForward), 0.05);
 float RayCm = GapCm / CosView;
 float Down = max(-Dir.z, 0.0);
 float VerticalCm = RayCm * Down;
-float TPlugin = exp(-Sigma * GapCm) * exp(-Sigma * VerticalCm);
-float TSource = exp(-Sigma * RayCm * (1.0 + Down));
+float TPlugin = exp(-S * GapCm) * exp(-S * VerticalCm);
+float TSource = exp(-S * RayCm * (1.0 + Down));
 float T = Mode > 0.5 ? TSource : TPlugin;
 float Ramp = saturate(0.001 * RayCm);
 float NoV = saturate(abs(Dir.z));
@@ -117,6 +120,14 @@ float Add = Blend > 0.5 ? saturate(F) * (1.0 - Old) : 0.0;
 float New = saturate(Old + Add);
 float Scale = New > 1e-4 ? saturate(1.0 - Add / New) : 1.0;
 return BaseOld * Scale;
+"""
+# The normal mix (version 7; research/water-depth-extinction.md section 5): the source reflection uses ReflectionBumpScale 0.1, a flatter normal.
+# The final normal of the top side is normalize(lerp(up, the plugin normal, Mix)); (0, 0, 1) is the flat normal of the horizontal water mesh in
+# the tangent space and in the world space. Mix 1 and the underside give the plugin normal unchanged (the control).
+NORMAL_MIX = r"""
+float M = lerp(1.0, saturate(Mix), saturate(Above));
+float3 Flat = normalize(lerp(float3(0.0, 0.0, 1.0), NormalOld, M));
+return M > 0.9999 ? NormalOld : Flat;
 """
 FOAM_TEXTURES = {"FoamData": "/SwcGameContent/Water/Textures/T_SwcWater_FoamData", "Gloss": "/SwcGameContent/Water/Textures/T_SwcWater_Gloss"}
 
@@ -201,6 +212,7 @@ def make_parent():
     sigma = scalar("SwcNearSigma", 0.003, 500)
     mode = scalar("SwcNearMode", 0.0, 600)
     debug = scalar("SwcNearDebug", 0.0, 700)
+    rho = scalar("SwcNearRho", 0.0, 750)
     behind = editing.create_material_expression(material, unreal.MaterialExpressionSceneDepthWithoutWater, x, y + 800)
     surface = editing.create_material_expression(material, unreal.MaterialExpressionPixelDepth, x, y + 900)
     camera = editing.create_material_expression(material, unreal.MaterialExpressionCameraVectorWS, x, y + 1000)
@@ -210,7 +222,7 @@ def make_parent():
     custom.set_editor_property("code", CODE)
     custom.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT3)
     custom.set_editor_property("description", "SwcNearTerm")
-    names = ["Gain", "NearColor", "Sun", "Sigma", "Mode", "Debug", "Behind", "Surface", "CameraVector", "Opacity", "Above"]
+    names = ["Gain", "NearColor", "Sun", "Sigma", "Mode", "Debug", "Behind", "Surface", "CameraVector", "Opacity", "Above", "Rho"]
     custom_inputs = []
     for name in names:
         entry = unreal.CustomInput()
@@ -219,7 +231,7 @@ def make_parent():
     custom.set_editor_property("inputs", custom_inputs)
     for node, name, out in ((gain, "Gain", ""), (near, "NearColor", "RGB"), (sun, "Sun", "RGB"), (sigma, "Sigma", ""), (mode, "Mode", ""),
                             (debug, "Debug", ""), (behind, "Behind", ""), (surface, "Surface", ""), (camera, "CameraVector", ""),
-                            (side, "Above", "")):
+                            (side, "Above", ""), (rho, "Rho", "")):
         connect(node, [out, ""], custom, [name])
     connect(get, ["Opacity"], custom, ["Opacity"])
 
@@ -306,10 +318,25 @@ def make_parent():
     connect(weight, [""], base, ["F"])
     connect(blend, [""], base, ["Blend"])
 
+    # The normal mix (NORMAL_MIX): Break Normal -> the Custom node -> Make Normal.
+    mix = scalar("SwcNormalMix", 1.0, 2800)
+    normal = editing.create_material_expression(material, unreal.MaterialExpressionCustom, x + 700, y + 2300)
+    normal.set_editor_property("code", NORMAL_MIX)
+    normal.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT3)
+    normal.set_editor_property("description", "SwcNormalMix")
+    normal.set_editor_property("inputs", input_list(["NormalOld", "Mix", "Above"]))
+    connect(get, ["Normal"], normal, ["NormalOld"])
+    connect(mix, [""], normal, ["Mix"])
+    connect(side, [""], normal, ["Above"])
+    try:
+        report["notes"].append(f"the tangent space normal of the parent: {material.get_editor_property('tangent_space_normal')}")
+    except Exception:
+        pass
+
     # Each attribute of the parent goes from Break to the pin of the same name on Make; the emissive goes through the Add. The break outputs
     # (MaterialExpressions.cpp, UMaterialExpressionBreakMaterialAttributes): the names below and CustomizedUV0..7.
     put = editing.create_material_expression(material, unreal.MaterialExpressionMakeMaterialAttributes, x + 1100, y)
-    outputs = ["Metallic", "Specular", "Roughness", "Anisotropy", "OpacityMask", "Normal", "Tangent",
+    outputs = ["Metallic", "Specular", "Roughness", "Anisotropy", "OpacityMask", "Tangent",
                "WorldPositionOffset", "SubsurfaceColor", "ClearCoat", "ClearCoatRoughness", "AmbientOcclusion", "Refraction",
                "PixelDepthOffset", "ShadingModel", "Displacement"] + [f"CustomizedUV{i}" for i in range(8)]
     pins = list(editing.get_material_expression_input_names(put))
@@ -331,6 +358,7 @@ def make_parent():
     connect(total, [""], put, ["EmissiveColor", "Emissive Color"])
     connect(opacity, [""], put, ["Opacity"])
     connect(base, [""], put, ["BaseColor", "Base Color"])
+    connect(normal, [""], put, ["Normal"])
     try:
         report["notes"].append(f"customized UVs of the parent: {material.get_editor_property('num_customized_u_vs')}")
     except Exception:

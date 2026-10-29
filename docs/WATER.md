@@ -595,6 +595,28 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     - The N term must use the source density (0.3 per m) and not the test scale of `swc.WaterOceanExtinction` [R: a formula difference].
     - The next supported test [I]: the reflection normal of the ocean (the source ReflectionBumpScale 0.1: a flatter normal), as a
       parameter of the check parent, the top side only.
+  - The acceptance rule of the near tone (the word of the orchestrator, 2026-10-29 15:18 UTC; it replaces the near band as the rule):
+    1. The measure is the fixed water mask of each beach view (beach-down, ocean-clear, ocean-far): a pixel set from the terrain model
+       (the pixels whose view ray meets the ocean at 40 m and then the terrain model below it, in a fixed rectangle of the view), made once
+       by the study and saved as files (`work/water-unreal/tone3/masks/VIEW-noon.png`, with `SHA256SUMS`). Each later run uses the same
+       files; the measure tool `tone3/water_mask.py` stops when a file changed.
+    2. Each window takes 2 source shots of each beach view (`run_m.sh source`: the base and `@s2`). The reference is the mean of the two
+       shots; their spread is the drift of the window.
+    3. The limit (provisional): on the water mask, |L* (Unreal) - L* (source)| <= 5 and |hue (Unreal) - hue (source)| <= 15 degrees. The
+       hue is atan2(mean b*, mean a*) of the mask. The user asked for the dark original tone: the hue counts.
+    4. The old near band stays in each report beside the new measure.
+    - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
+      +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
+      / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
+      water 194). The two source runs differ by 3.5 L* at ocean-clear on the mask (7.9 in the near band) and by 0.1 at the other views.
+  - Version 7 of the check parent (the word of the orchestrator 2026-10-29 15:18 UTC; not built at the commit; the defaults change
+    nothing):
+    - `SwcNearRho` (`swc.WaterOceanNearRho`, default 0 not set): the own density of N per m; below 0 the source density of the ocean of the
+      place. Not set, N uses the floor sigma (with the test scale of `swc.WaterOceanExtinction`), as before.
+    - `SwcNormalMix` (`swc.WaterOceanNormalMix`, default 1): a Custom node between Break Normal and Make Normal, normalize(lerp((0, 0, 1),
+      the plugin normal, Mix)) on the top side; Mix 1 and the underside give the plugin normal unchanged. (0, 0, 1) is the flat normal of
+      the horizontal water mesh in the tangent space and in the world space. The final normal also changes the refraction, the Fresnel,
+      and the sun light: not a reflection-only test. The sweep 1 / 0.5 / 0.25 / 0.1 is for a later window.
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).

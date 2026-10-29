@@ -126,6 +126,14 @@ TAutoConsoleVariable<int32> CVarWaterOceanNearT(TEXT("swc.WaterOceanNearT"), 0,
 	TEXT("The transmittance of the near term: 0 the floor transmittance of the plugin (the same as the floor), 1 the source T (a diagnostic)."));
 TAutoConsoleVariable<int32> CVarWaterOceanNearDebug(TEXT("swc.WaterOceanNearDebug"), 0,
 	TEXT("The debug view of the near term: 0 off, 1 the ramp, T, and F as RGB, 2 the ray length (per 10 m), the downward part, and the cosine."));
+/** The own density of the near term (version 7 of the check parent; research/water-depth-extinction.md section 5): the source N uses the
+ *  source density, not the test scale of swc.WaterOceanExtinction. Not set by default (the near term uses the sigma of the floor). */
+TAutoConsoleVariable<float> CVarWaterOceanNearRho(TEXT("swc.WaterOceanNearRho"), 0.0f,
+	TEXT("The density of the near term per m: 0 not set (the sigma of the floor, with swc.WaterOceanExtinction), below 0 the source density of the ocean of the place, above 0 that value."));
+/** The reflection normal of the ocean (version 7 of the check parent; the source ReflectionBumpScale 0.1, a flatter normal): the final normal
+ *  of the top side is normalize(lerp(up, the plugin normal, Mix)). It also changes the refraction, the Fresnel, and the sun light. */
+TAutoConsoleVariable<float> CVarWaterOceanNormalMix(TEXT("swc.WaterOceanNormalMix"), 1.0f,
+	TEXT("A test of the ocean: the part of the plugin normal on the top side of the surface (the check parent M_SwcWaterNear only); 1 the plugin normal, 0.1 the source bump scale."));
 
 /** The shore foam of the source ocean (research/water-shallow-terms.md; the check parent M_SwcWaterNear only): the band of the view-depth
  *  gap under 1 / FoamSoftIntersectionFactor, the foam map, the gloss; an additive diagnostic of the source blend. Off by default. */
@@ -710,13 +718,19 @@ void USwcWaterSubsystem::UpdateUnrealOceanNear(const FUnrealTone& Tone)
 	const float Sigma = FMath::Max(0.0f, OceanNow.FindRef(TEXT("Density"))) * (Scale > 0.0f ? Scale : 1.0f) / 100.0f;
 	const FVector4f Key(Gain, static_cast<float>(Mode), static_cast<float>(Debug), Sigma);
 	const FVector2f ShoreKey(ShoreGain, static_cast<float>(ShoreDebug + 10 * ShoreBlend));
-	const bool bLog = Key != AppliedNear || ShoreKey != AppliedShore;
+	// The own density of the near term (per m; 0: the material uses SwcNearSigma) and the part of the plugin normal on the top side.
+	const float RhoSetting = SwcUnrealWater::CVarWaterOceanNearRho.GetValueOnGameThread();
+	const float Rho = RhoSetting < 0.0f ? FMath::Max(0.0f, OceanNow.FindRef(TEXT("Density"))) : RhoSetting;
+	const float NormalMix = FMath::Clamp(SwcUnrealWater::CVarWaterOceanNormalMix.GetValueOnGameThread(), 0.0f, 1.0f);
+	const FVector2f OpticsKey(Rho, NormalMix);
+	const bool bLog = Key != AppliedNear || ShoreKey != AppliedShore || OpticsKey != AppliedOptics;
 	if (Gain <= 0.0f && ShoreGain <= 0.0f && !bLog)
 	{
 		return;
 	}
 	AppliedNear = Key;
 	AppliedShore = ShoreKey;
+	AppliedOptics = OpticsKey;
 	// The values of the source ocean of the place for the shore foam (OceanValues: the material of the ocean and its animation).
 	const auto Value = [this](const TCHAR* Name, float Default) { const float* Found = OceanNow.Find(FName(Name)); return Found != nullptr ? *Found : Default; };
 	for (const TWeakObjectPtr<UMaterialInstanceDynamic>& Weak : Tone.Materials)
@@ -741,8 +755,11 @@ void USwcWaterSubsystem::UpdateUnrealOceanNear(const FUnrealTone& Tone)
 			Material->SetScalarParameterValue(TEXT("SwcWindScale"), Value(TEXT("WindScale"), 0.02f));
 			Material->SetScalarParameterValue(TEXT("SwcTilling"), Value(TEXT("Tilling"), 32.0f));
 			Material->SetScalarParameterValue(TEXT("SwcSoft"), Value(TEXT("SoftIntersectionFactor"), 1.0f));
+			Material->SetScalarParameterValue(TEXT("SwcNearRho"), Rho);
+			Material->SetScalarParameterValue(TEXT("SwcNormalMix"), NormalMix);
 		}
 	}
+	UE_CLOG(bLog, LogSwcWater, Log, TEXT("water (Unreal): the ocean optics tests: the near density %.4f per m (0: the floor sigma), the normal mix %.2f"), Rho, NormalMix);
 	UE_CLOG(bLog, LogSwcWater, Log, TEXT("water (Unreal): the ocean shore foam: gain %.2f, blend %d, debug %d; amount %.2f, tilling %.2f, soft %.2f, transition %.2f, wind %.2f, speed %.3f, tilling %.1f"),
 		ShoreGain, ShoreBlend, ShoreDebug, Value(TEXT("FoamAmount"), 0.5f), Value(TEXT("FoamTilling"), 1.0f), Value(TEXT("FoamSoftIntersectionFactor"), 1.0f),
 		Value(TEXT("FoamTransitionSpeed"), 5.0f), Value(TEXT("WindDirection"), 0.0f), Value(TEXT("WaveSpeed"), 1.0f), Value(TEXT("Tilling"), 32.0f));
