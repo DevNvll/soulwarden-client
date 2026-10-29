@@ -148,8 +148,10 @@ Open:
   offset, heading 285.8 and pitch -8.1; the rule gives pitch -27 (1.79 m off). No source collider is within 1.5 m of the camera sweeps
   (`work/ut567/orbit/probe.py`). The retail body does not turn at the E (body yaw 0 before and after). Sahal Yasin at 1.0 m (set
   ut567-screens): the rule gives the retail camera within 0.04 m (heading 258.7 against 258.9; pitch -30.0 at the limit against
-  -31.3). So a close person does not explain Bennett; the cause is the place or that take. Open: a take at Bennett from 1.5 m (in set
-  ut567-screens the Talk prompt did not show after a death and a heal).
+  -31.3). So a close person does not explain Bennett. Bennett from 1.5 m (set ut567-screens, 2026-10-29, a fresh start): the retail
+  camera is at 7422.90 3622.25 106.02, yaw 74.6, the same place as from 1.0 m (7422.902 3622.254 106.015). So the Talk camera of
+  Bennett is a fixed place, not the orbit: his line has a camera that persons.json does not have (no preset, no point). Open: find the
+  source of that camera (the cameraState attribute of the line, a talk timeline, or a cutscene camera preset of the dialogue).
 
 | Person (preset) | Retail camera (set-mvph-talk) | Client camera |
 | --- | --- | --- |

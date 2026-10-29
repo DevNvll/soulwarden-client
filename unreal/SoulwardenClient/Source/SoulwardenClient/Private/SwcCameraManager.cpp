@@ -28,10 +28,12 @@ constexpr float DefaultZoom = 2.0f;
  * The depth of field of the screens (swc/camera.lua; the study work/ut567/study2): the scale of the native blur. The view is at f/1, and the
  * sensor width is 24.576 mm x this scale x the native blur B (craftingscreenv4.luac: 0.95 for the craft result, 0.4 for the craft roll).
  * The blur radius grows with the sensor width at one FOV: with the wide view of the client (a focal length of about 12 mm on the default
- * sensor) the f-stop alone gave about 3 px at f/0.6 (the client run s3 of ut567). [U] The units of the native blur have no source: 0 (no
- * depth of field) until the scale of the retail pictures (set-ut567-screens). swc.Camera.DofScale sets it in a run.
+ * sensor) the f-stop alone gave about 3 px at f/0.6 (the client run s3 of ut567). [I] The units of the native blur have no source: 5 is
+ * the value of the matched pictures (the client run s4 of ut567, the scales 2 5 10 20 40 against set-ut567-screens: at 5 the player of the
+ * inventory, 2.75 m from the camera and 3 m of focus, stays sharp and the world blurs as in retail; at 10 the player blurs; skills and the
+ * journal, 0 1, blur strongly as in retail). swc.Camera.DofScale sets it in a run (0: no depth of field).
  */
-constexpr float UiDofScale = 0.0f;
+constexpr float UiDofScale = 5.0f;
 constexpr float UiDofBaseSensorWidth = 24.576f;
 static TAutoConsoleVariable<float> CVarSwcDofScale(TEXT("swc.Camera.DofScale"), UiDofScale,
 	TEXT("The scale of the native blur of the depth of field of a screen (the sensor width 24.576 mm x scale x blur at f/1); 0: no depth of field."));

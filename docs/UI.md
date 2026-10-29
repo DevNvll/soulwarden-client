@@ -831,8 +831,9 @@ implements the calls for all screens. Before, each call was an empty function in
   the focal distance is the native distance (at least 0.1 m), f/1, and the sensor width 24.576 mm x `swc.Camera.DofScale` x BLUR.
   The f-stop alone cannot give the retail blur: with the wide view of the client (a focal length of about 12 mm on the default
   sensor), f/0.6 gave about 3 px at 1280 px (the client run s3 of ut567, `swc.Camera.DofFstop` 0.5 to 8: no visible blur). The blur
-  radius grows with the sensor width at one FOV. [U] The units of the native blur have no source: the default of
-  `swc.Camera.DofScale` is 0 (no depth of field) until the scale of the retail pictures (set ut567-screens).
+  radius grows with the sensor width at one FOV. [I] The units of the native blur have no source: `swc.Camera.DofScale` is 5, the
+  value of the matched pictures (the client run s4 of ut567 with 2, 5, 10, 20, and 40 against set ut567-screens: at 5 the player of the
+  inventory stays sharp and the world blurs as in retail, at 10 the player blurs; skills and the journal blur strongly as in retail).
 - The body in the inventory (`ASwcCameraManager::UpdateBodyTurn`): in a state UI_Inventory* the body turns to face the camera, and
   at the end it turns to the view again. [I] The retail set ut567-screens: the body yaw 280.9 with the camera yaw 101.1 (180 degrees)
   0.5 s after Tab, and 100.9 after the close. No script call (newinventory.luac BeginPaperdollMode is the skin preview) and no key
