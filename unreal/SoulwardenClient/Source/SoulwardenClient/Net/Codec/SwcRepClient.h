@@ -385,6 +385,8 @@ public:
             std::uint32_t objective{0};
             std::uint64_t instance{0};
             std::uint32_t mission{0};
+            /** destinationOverride (16 raw bytes; C-12): the provider identity of a board mission (the Claim landmark actor). */
+            ActorId destination{};
             std::uint64_t acceptTime{0};
             std::uint16_t originTerritory{0};
             bool available{false};
@@ -430,6 +432,34 @@ public:
         std::uint32_t factionRevision{0};
         /** The empty Social state (slot 55, 4176): the friend containers of the client exist (the poster calls GetFriends). */
         bool socialReady{false};
+        /**
+         * The provider state of a mission board (ObjectiveInteractor, slot 10, type 3829; C-12): the provider of the last open (the Claim
+         * landmark actor of its territory), the expiration (server steady nanoseconds), the explicit offers of a faction board (field 2,
+         * in the order that 3816 names by index), and the town entries (field 3: the stored seed, the missions that a hand-in made
+         * unavailable in that seed, the previous projects). A field that a state does not have keeps its value.
+         */
+        struct BoardOffer {
+            std::uint64_t instance{0};
+            std::uint32_t mission{0};
+            ActorId destination{};
+            std::uint16_t origin{0};
+            bool available{false};
+        };
+        struct BoardTown {
+            std::uint16_t territory{0};
+            std::uint32_t seed{0};
+            std::vector<std::uint32_t> unavailable;
+            std::vector<std::uint32_t> previousProjects;
+        };
+        bool hasProvider{false};
+        ActorId provider{};
+        std::uint64_t providerExpirationNs{0};
+        std::vector<BoardOffer> boardOffers;
+        std::vector<BoardTown> boardTowns;
+        std::uint32_t providerRevision{0};
+        /** The daily bonuses (GameEvent, slot 68, type 497, field 1): the uses of each reward modifier (FactionMissionBonus 85D30F59). */
+        std::vector<std::pair<std::uint32_t, std::uint8_t>> dailyBonusesUsed;
+        std::uint32_t dailyBonusRevision{0};
     };
 
     /** An entity of a different interest number: its metadata and its position. */
@@ -474,6 +504,33 @@ public:
         /** The VariationData of a start object (14): the row index of the variation table of its slice. */
         bool hasVariation{false};
         std::uint16_t variation{0};
+        /**
+         * C-12: the TerritoryInterface state of a town board (type 1746, group 1 field 0): its active projects (the map key is the project
+         * type, 6 AlwaysAvailable), and the LandClaimManager state of the world entity (type 3086): the claim keys (field 2) and their
+         * progression summaries (field 15), parallel vectors. Vectors only (the snapshot TArray moves the entities with memcpy).
+         */
+        struct BoardProject {
+            std::uint8_t key{0};
+            std::uint32_t project{0};
+            std::uint64_t endNs{0};
+            std::uint32_t progress{0};
+        };
+        struct ClaimActive {
+            std::uint32_t project{0};
+            std::uint8_t type{0};
+            std::uint32_t state{0};
+        };
+        struct ClaimSummary {
+            std::vector<std::pair<std::uint32_t, std::uint8_t>> upgrades;
+            std::vector<ClaimActive> active;
+            std::uint8_t level{0};
+        };
+        bool hasBoardProjects{false};
+        std::vector<BoardProject> boardProjects;
+        bool hasClaims{false};
+        std::vector<std::uint16_t> claimKeys;
+        std::vector<ClaimSummary> claimSummaries;
+        std::uint32_t boardRevision{0};
     };
 
     /** A record of an interest number that is not 1, a stop of the control block, or a message for the view of the other
@@ -568,6 +625,12 @@ public:
     /** The join or the change of a faction (QG7; 3161 RequestSetFaction; faction 1 to 3). The answer is the Faction state, also after a
      *  refusal. */
     void set_faction(std::uint8_t faction);
+    /** C-12, the mission boards: the accept of a town offer (3819: the mission, the project of the card or 0), the accept of a faction offer
+     *  (3816: its index in field 2 of the provider state), and the hand-in at the board of the provider (2461: the instance). No answer:
+     *  the Objectives state and the provider state give the result. */
+    void select_community_goal(std::uint32_t mission, std::uint32_t destination);
+    void select_objective(std::uint8_t index);
+    void complete_mission(std::uint64_t instance);
     /** The card choice of a territory standing (QG1; 4040 RequestSpendTerritoryStandingPoint): the progression id (the CRC-32 of the
      *  territory id text) and the card id. The answer is the ProgressionPoint state (slot 67), also after a refusal. */
     void spend_territory_point(std::uint32_t progression, std::uint32_t point);
@@ -594,6 +657,10 @@ public:
     static bool read_objectives(const soulwarden::backend::tests::Fragment& fragment, OwnEntity& own);
     /** Copies a Faction state (slot 49) into an own entity: false when the fragment has no faction field (no change). */
     static bool apply_faction(const soulwarden::backend::tests::Fragment& fragment, OwnEntity& own);
+    /** C-12: copies a provider state (3829) into an own entity: false when the fragment has no field of the form. */
+    static bool apply_provider(const soulwarden::backend::tests::Fragment& fragment, OwnEntity& own);
+    /** C-12: copies the daily bonuses of a GameEvent state (497, field 1) into an own entity: false when it has no such field. */
+    static bool apply_daily_bonuses(const soulwarden::backend::tests::Fragment& fragment, OwnEntity& own);
     /** The states of an entity of a different interest number (apply_other; public for the tests of the encounter states). */
     static void apply_other_fragments(const soulwarden::backend::tests::Record& record, OtherEntity& entity);
     /** True after the first 2709 of this session. */

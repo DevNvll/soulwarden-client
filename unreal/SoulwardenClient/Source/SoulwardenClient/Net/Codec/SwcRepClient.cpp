@@ -669,6 +669,99 @@ bool RepClient::apply_crafting(const decoder::Fragment& fragment) {
     return true;
 }
 
+bool RepClient::apply_provider(const decoder::Fragment& fragment, OwnEntity& own) {
+    const auto provider = decoder::field_of(fragment, 0, 0);
+    const auto expiration = decoder::field_of(fragment, 0, 1);
+    const auto offers = decoder::field_of(fragment, 0, 2);
+    const auto towns = decoder::field_of(fragment, 0, 3);
+    bool changed = false;
+    if (provider.size() == 16) {
+        std::copy(provider.begin(), provider.end(), own.provider.begin());
+        own.hasProvider = true;
+        changed = true;
+    }
+    if (expiration.size() == 8) {
+        Reader reader(expiration);
+        own.providerExpirationNs = reader.u64();
+        changed = true;
+    }
+    if (!offers.empty()) {
+        Reader reader(offers);
+        const auto count = decoder::progress_wire::read_full_form(reader);
+        std::vector<OwnEntity::BoardOffer> list;
+        for (std::uint32_t index = 0; count && index < *count && index < 100 && reader.ok(); ++index) {
+            OwnEntity::BoardOffer offer;
+            offer.instance = reader.u64();
+            offer.mission = reader.u32();
+            for (std::uint8_t& part : offer.destination) {
+                part = reader.u8();
+            }
+            reader.u64(); // acceptTime
+            offer.origin = reader.u16();
+            offer.available = reader.u8() != 0;
+            reader.u8(); // isCommunityGoal
+            reader.u8(); // isPoiObjective
+            reader.u8(); // isDynamicPoiObjective
+            reader.u64(); // parentObjectiveId
+            reader.u8(); // isResetObjective
+            const std::uint32_t ingredients = reader.size();
+            for (std::uint32_t item = 0; item < ingredients && reader.ok(); ++item) {
+                reader.u32();
+            }
+            list.push_back(offer);
+        }
+        if (count && reader.ok()) {
+            own.boardOffers = std::move(list);
+            changed = true;
+        }
+    }
+    if (!towns.empty()) {
+        Reader reader(towns);
+        const std::uint32_t count = reader.size();
+        std::vector<OwnEntity::BoardTown> list;
+        for (std::uint32_t index = 0; index < count && index < 64 && reader.ok(); ++index) {
+            OwnEntity::BoardTown town;
+            town.territory = reader.u16();
+            town.seed = reader.u32();
+            for (auto* values : {&town.unavailable, &town.previousProjects}) {
+                const std::uint32_t n = reader.size();
+                for (std::uint32_t value = 0; value < n && value < 4096 && reader.ok(); ++value) {
+                    values->push_back(reader.u32());
+                }
+            }
+            list.push_back(std::move(town));
+        }
+        if (reader.ok()) {
+            own.boardTowns = std::move(list);
+            changed = true;
+        }
+    }
+    if (changed) {
+        ++own.providerRevision;
+    }
+    return changed;
+}
+
+bool RepClient::apply_daily_bonuses(const decoder::Fragment& fragment, OwnEntity& own) {
+    const auto used = decoder::field_of(fragment, 0, 1);
+    if (used.empty()) {
+        return false;
+    }
+    Reader reader(used);
+    const auto count = decoder::progress_wire::read_full_form(reader);
+    std::vector<std::pair<std::uint32_t, std::uint8_t>> list;
+    for (std::uint32_t index = 0; count && index < *count && index < 16 && reader.ok(); ++index) {
+        const std::uint32_t modifier = reader.u32();
+        list.emplace_back(modifier, reader.u8());
+    }
+    if (!count || !reader.ok()) {
+        return false;
+    }
+    own.dailyBonusesUsed = std::move(list);
+    ++own.dailyBonusRevision;
+    return true;
+}
+
 bool RepClient::apply_faction(const decoder::Fragment& fragment, OwnEntity& own) {
     // The owner gets group 1 (the time, the count) and group 2 (the faction); a field that is not in the fragment keeps its value.
     if (const auto time = decoder::field_of(fragment, 1, 3); time.size() == 8) {
@@ -739,8 +832,8 @@ bool RepClient::read_objectives(const decoder::Fragment& fragment, OwnEntity& ow
                            active.objective = r.u32();
                            active.instance = r.u64();
                            active.mission = r.u32();
-                           for (int part = 0; part < 16; ++part) {
-                               r.u8(); // destinationOverride
+                           for (std::uint8_t& part : active.destination) {
+                               part = r.u8(); // destinationOverride (C-12: the provider identity of a board mission)
                            }
                            active.acceptTime = r.u64();
                            active.originTerritory = r.u16();
@@ -1178,6 +1271,16 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                 log(Event::Level::info, "faction: " + std::to_string(m_own.faction) + " (changes " + std::to_string(m_own.factionChangeCount)
                                             + ", the last change at " + std::to_string(m_own.factionChangeNs) + " ns)");
             }
+        } else if (fragment.slot == kSlotObjectiveInteractor && fragment.type == kStateObjectiveInteractor.index) {
+            if (apply_provider(fragment, m_own)) {
+                log(Event::Level::info, "boards: the provider state (3829): " + std::to_string(m_own.boardOffers.size()) + " explicit offer(s), "
+                                            + std::to_string(m_own.boardTowns.size()) + " town entr(ies), expiration "
+                                            + std::to_string(m_own.providerExpirationNs) + " ns");
+            }
+        } else if (fragment.slot == kSlotGameEvent && fragment.type == kStateGameEvent.index) {
+            if (apply_daily_bonuses(fragment, m_own)) {
+                log(Event::Level::info, "boards: the daily bonuses (497): " + std::to_string(m_own.dailyBonusesUsed.size()) + " modifier(s)");
+            }
         } else if (fragment.slot == kSlotSocial && fragment.type == kStateSocial.index) {
             if (!m_own.socialReady) {
                 log(Event::Level::info, "social: the Social state (4176): the friend containers exist");
@@ -1321,6 +1424,71 @@ void RepClient::apply_other_fragments(const decoder::Record& record, OtherEntity
                 entity.rootTasks = std::move(scratch.questTasks);
                 entity.hasRootObjectives = true;
                 ++entity.encounterRevision;
+            }
+        } else if (fragment.type == kStateTerritoryInterface) {
+            // C-12: the active projects of a town board (group 1 field 0; the completed projects, the default project, and the status
+            // effects after them are not used).
+            if (const auto value = decoder::field_of(fragment, 1, 0); !value.empty()) {
+                Reader reader(value);
+                const std::uint32_t count = reader.size();
+                std::vector<OtherEntity::BoardProject> list;
+                for (std::uint32_t index = 0; index < count && index < 32 && reader.ok(); ++index) {
+                    OtherEntity::BoardProject project;
+                    project.key = reader.u8();
+                    project.project = reader.u32();
+                    project.endNs = reader.u64();
+                    project.progress = reader.u32();
+                    list.push_back(project);
+                }
+                if (reader.ok()) {
+                    entity.boardProjects = std::move(list);
+                    entity.hasBoardProjects = true;
+                    ++entity.boardRevision;
+                }
+            }
+        } else if (fragment.type == kStateLandClaimManager) {
+            // C-12: the claim keys (field 2) and their progression summaries (field 15), parallel full vectors; the other fields (the quiet
+            // values of a territory with no owner) are not used.
+            if (const auto keys = decoder::field_of(fragment, 0, 2); !keys.empty()) {
+                Reader reader(keys);
+                const auto count = decoder::progress_wire::read_full_form(reader);
+                std::vector<std::uint16_t> list;
+                for (std::uint32_t index = 0; count && index < *count && index < 256 && reader.ok(); ++index) {
+                    list.push_back(reader.u16());
+                }
+                if (count && reader.ok()) {
+                    entity.claimKeys = std::move(list);
+                    entity.hasClaims = true;
+                    ++entity.boardRevision;
+                }
+            }
+            if (const auto summaries = decoder::field_of(fragment, 0, 15); !summaries.empty()) {
+                Reader reader(summaries);
+                const auto count = decoder::progress_wire::read_full_form(reader);
+                std::vector<OtherEntity::ClaimSummary> list;
+                for (std::uint32_t index = 0; count && index < *count && index < 256 && reader.ok(); ++index) {
+                    OtherEntity::ClaimSummary summary;
+                    const std::uint32_t upgrades = reader.size();
+                    for (std::uint32_t item = 0; item < upgrades && item < 64 && reader.ok(); ++item) {
+                        const std::uint32_t category = reader.u32();
+                        summary.upgrades.emplace_back(category, reader.u8());
+                    }
+                    const std::uint32_t active = reader.size();
+                    for (std::uint32_t item = 0; item < active && item < 64 && reader.ok(); ++item) {
+                        OtherEntity::ClaimActive project;
+                        project.project = reader.u32();
+                        project.type = reader.u8();
+                        project.state = reader.u32();
+                        summary.active.push_back(project);
+                    }
+                    summary.level = reader.u8();
+                    list.push_back(std::move(summary));
+                }
+                if (count && reader.ok()) {
+                    entity.claimSummaries = std::move(list);
+                    entity.hasClaims = true;
+                    ++entity.boardRevision;
+                }
             }
         } else if (fragment.type == kStateVariationData) {
             if (const auto narrow = decoder::field_of(fragment, 0, 0); narrow.size() == 1) {
@@ -1579,6 +1747,32 @@ void RepClient::set_faction(std::uint8_t faction) {
     }
     send_call(kRequestSetFaction, set_faction_body(m_own.group, faction));
     log(Event::Level::info, "faction: the request of the faction " + std::to_string(faction) + " (3161)");
+}
+
+void RepClient::select_community_goal(std::uint32_t mission, std::uint32_t destination) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata || mission == 0) {
+        return;
+    }
+    send_call(kRequestCommunityGoalSelection, community_goal_selection_body(m_own.group, mission, destination));
+    char text[96];
+    std::snprintf(text, sizeof(text), "boards: the accept of the mission %08X (destination %08X; 3819)", mission, destination);
+    log(Event::Level::info, text);
+}
+
+void RepClient::select_objective(std::uint8_t index) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata || index > 99) {
+        return;
+    }
+    send_call(kRequestObjectiveSelection, objective_selection_body(m_own.group, index));
+    log(Event::Level::info, "boards: the accept of the faction offer " + std::to_string(index) + " (3816)");
+}
+
+void RepClient::complete_mission(std::uint64_t instance) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata || instance == 0) {
+        return;
+    }
+    send_call(kRequestObjectiveCompletion, objective_completion_body(m_own.group, instance));
+    log(Event::Level::info, "boards: the hand-in of the instance " + std::to_string(instance) + " (2461)");
 }
 
 void RepClient::spend_territory_point(std::uint32_t progression, std::uint32_t point) {

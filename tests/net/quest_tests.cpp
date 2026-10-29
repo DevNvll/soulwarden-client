@@ -355,6 +355,111 @@ void faction_states()
 	      "3161: the entity G, the Faction facet of the entity Social, the Covenant");
 }
 
+void board_states()
+{
+	std::printf("board states (C-12: QG6a, QG6b)\n");
+	backend::tests::ManualClock clock;
+	namespace rep = backend::server::rep;
+	// The provider state of a character after the open of the Windsward board: the claim of territory 6, the expiration, a town entry with a
+	// hand-in of this seed; then a faction board with three offers (the second accepted: its instance, available 0).
+	backend::world::Entity character;
+	character.kind = backend::world::EntityKind::player;
+	check(rep::encode_objective_interactor_state(character, rep::View::owner, clock).empty(), "no provider fragment before the first open");
+	character.missionBoard.opened = true;
+	const std::array<std::uint8_t, 16> claim{0x4b, 0x65, 0x7e, 0x1a, 0x68, 0xe0, 0x6c, 0x9f};
+	character.missionBoard.provider = claim;
+	character.missionBoard.expirationNs = 1'800'000'000'000ULL;
+	character.missionBoard.towns[6].seed = 0x12345678U;
+	character.missionBoard.towns[6].unavailable = {0xAAAA0001U};
+	character.missionBoard.towns[6].previousProjects = {0x2591C412U};
+	bool whole = false;
+	auto bytes = rep::encode_objective_interactor_state(character, rep::View::owner, clock);
+	auto fragment = fragment_of(bytes, swc::net::kSlotObjectiveInteractor, swc::net::kStateObjectiveInteractor.index, whole);
+	check(whole, "the vendored reader takes the provider state of a town board (" + std::to_string(bytes.size()) + " bytes)");
+	RepClient::OwnEntity own;
+	check(RepClient::apply_provider(fragment, own) && own.hasProvider && own.provider == claim && own.providerExpirationNs == 1'800'000'000'000ULL
+	          && own.boardOffers.empty() && own.boardTowns.size() == 1 && own.providerRevision == 1,
+	      "the town board: the claim, the expiration, no explicit offer, one town entry");
+	check(!own.boardTowns.empty() && own.boardTowns[0].territory == 6 && own.boardTowns[0].seed == 0x12345678U
+	          && own.boardTowns[0].unavailable == std::vector<std::uint32_t>{0xAAAA0001U}
+	          && own.boardTowns[0].previousProjects == std::vector<std::uint32_t>{0x2591C412U},
+	      "the town entry of Windsward: the seed, the unavailable mission, the previous project");
+	character.missionBoard.faction = true;
+	for (std::uint32_t index = 0; index < 3; ++index) {
+		backend::world::MissionOffer offer;
+		offer.mission = 0xBEEF0000U + index;
+		offer.destination = claim;
+		offer.origin = 4;
+		offer.available = index != 1;
+		offer.instance = index == 1 ? 0x4C554F5340000042ULL : 0;
+		character.missionBoard.offers.push_back(offer);
+	}
+	bytes = rep::encode_objective_interactor_state(character, rep::View::owner, clock);
+	fragment = fragment_of(bytes, swc::net::kSlotObjectiveInteractor, swc::net::kStateObjectiveInteractor.index, whole);
+	check(whole && RepClient::apply_provider(fragment, own) && own.boardOffers.size() == 3, "the faction board: three explicit offers");
+	check(own.boardOffers.size() == 3 && own.boardOffers[1].mission == 0xBEEF0001U && own.boardOffers[1].instance == 0x4C554F5340000042ULL
+	          && !own.boardOffers[1].available && own.boardOffers[0].available && own.boardOffers[2].origin == 4
+	          && own.boardOffers[0].destination == claim,
+	      "the offers in the order of 3816: the accepted one with its instance and available 0");
+	check(rep::encode_objective_interactor_state(character, rep::View::observer, clock).empty(), "an observer gets no provider state");
+	// The daily bonuses (GameEvent, slot 68): one use of FactionMissionBonus (85D30F59) of today.
+	character.dailyBonuses.uses[0x85D30F59U] = {1, 4'000'000'000'000'000'000ULL};
+	bytes = rep::encode_game_event_state(character, rep::View::owner, clock);
+	fragment = fragment_of(bytes, swc::net::kSlotGameEvent, swc::net::kStateGameEvent.index, whole);
+	check(whole && RepClient::apply_daily_bonuses(fragment, own) && own.dailyBonusesUsed.size() == 1
+	          && own.dailyBonusesUsed[0] == std::make_pair(0x85D30F59U, std::uint8_t{1}) && own.dailyBonusRevision == 1,
+	      "the daily bonuses: one use of FactionMissionBonus (" + std::to_string(bytes.size()) + " bytes)");
+	// The TerritoryInterface state of the Windsward board (slot 3): two always available projects.
+	backend::world::Entity board;
+	board.kind = backend::world::EntityKind::object;
+	board.object.territorySlot = 3;
+	board.object.territory = 6;
+	board.object.projects = {0x2591C412U, 0x11112222U};
+	bytes = rep::encode_territory_interface_state(board, rep::View::observer, clock);
+	fragment = fragment_of(bytes, 3, swc::net::kStateTerritoryInterface, whole);
+	check(whole, "the vendored reader takes the TerritoryInterface state (" + std::to_string(bytes.size()) + " bytes)");
+	RepClient::OtherEntity other;
+	decoder::Record record;
+	record.fragments.push_back(fragment);
+	RepClient::apply_other_fragments(record, other);
+	check(other.hasBoardProjects && other.boardProjects.size() == 2 && other.boardProjects[0].key == 6
+	          && other.boardProjects[0].project == 0x2591C412U && other.boardProjects[1].project == 0x11112222U && other.boardRevision == 1,
+	      "the board: two active projects with the key 6 (AlwaysAvailable)");
+	// The LandClaimManager state of the world entity: the claims of Windsward (6) and Everfall (4) with their projects.
+	backend::world::Entity worldEntity;
+	worldEntity.kind = backend::world::EntityKind::object;
+	worldEntity.object.world = true;
+	worldEntity.object.landClaims = {{4, {0x33334444U}}, {6, {0x2591C412U, 0x11112222U}}};
+	bytes = rep::encode_land_claim_state(worldEntity, rep::View::observer, clock);
+	fragment = fragment_of(bytes, 2, swc::net::kStateLandClaimManager, whole);
+	check(whole, "the vendored reader takes the LandClaimManager state (" + std::to_string(bytes.size()) + " bytes)");
+	RepClient::OtherEntity world;
+	decoder::Record claimRecord;
+	claimRecord.fragments.push_back(fragment);
+	RepClient::apply_other_fragments(claimRecord, world);
+	check(world.hasClaims && world.claimKeys == std::vector<std::uint16_t>{4, 6} && world.claimSummaries.size() == 2,
+	      "the claims: the keys 4 and 6 with two summaries");
+	check(world.claimSummaries.size() == 2 && world.claimSummaries[1].active.size() == 2 && world.claimSummaries[1].active[0].project == 0x2591C412U
+	          && world.claimSummaries[1].active[0].type == 6 && world.claimSummaries[1].active[0].state == 0 && world.claimSummaries[1].level == 0
+	          && world.claimSummaries[1].upgrades.empty(),
+	      "the summary of Windsward: the AlwaysAvailable projects, Active, level 0, no upgrade");
+	// The requests: 3819, 3816, and 2461 on the ObjectiveInteractor facet (G + B8D673AF8594A7CC); the readers of the backend take them.
+	const std::uint64_t group = 0x4C554F5340000100ULL;
+	const std::uint64_t target = group + 0xB8D673AF8594A7CCULL;
+	const auto goal = rep::read_community_goal_selection(swc::net::community_goal_selection_body(group, 0x9D2C7B11U, 0x2591C412U));
+	check(goal && goal->target == target && goal->entity == group && goal->mission == 0x9D2C7B11U && goal->destination == 0x2591C412U
+	          && swc::net::community_goal_selection_body(group, 1, 0).size() == 24,
+	      "3819: the backend reads the facet, the mission, and the project of the card (24 bytes)");
+	const auto selection = rep::read_objective_selection(swc::net::objective_selection_body(group, 2));
+	check(selection && selection->target == target && selection->entity == group && selection->index == 2
+	          && swc::net::objective_selection_body(group, 0).size() == 17,
+	      "3816: the backend reads the index 2 (17 bytes)");
+	const auto completion = rep::read_objective_call(swc::net::objective_completion_body(group, 0x4C554F5340000042ULL), true);
+	check(completion && completion->target == target && completion->entity == group && completion->value == 0x4C554F5340000042ULL
+	          && swc::net::objective_completion_body(group, 1).size() == 24,
+	      "2461: the backend reads the instance (24 bytes)");
+}
+
 void encounter_states(const backend::gamedata::QuestData& data)
 {
 	std::printf("encounter states (QG5)\n");
@@ -472,6 +577,7 @@ int main(int argc, char** argv)
 		objectives_state(data);
 		encounter_states(data);
 		faction_states();
+		board_states();
 		requests();
 	} catch (const std::exception& error) {
 		check(false, error.what());

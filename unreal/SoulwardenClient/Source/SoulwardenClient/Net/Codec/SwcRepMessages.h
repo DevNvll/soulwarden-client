@@ -669,6 +669,38 @@ inline constexpr std::uint8_t kPoolCategoryTerritory = 2;
 /** @return The body of RequestSpendTerritoryStandingPoint (4040, 24 bytes): the ProgressionPoint facet, the entity (G), the progression
  *  id, the point id (the writer 0x3274450 writes the progression id first). */
 Bytes spend_territory_point_body(std::uint64_t group, std::uint32_t progression, std::uint32_t point);
+/**
+ * The mission boards (C-12 of ut567; QG6a and QG6b; Soulwarden docs/systems/mission-boards.md, server/rep/quest_messages.h, the state encoders
+ * objective_interactor_state.cpp, territory_interface_state.cpp, land_claim_state.cpp, game_event_state.cpp). The type ids of the states and
+ * of 3819 and 2461 are not in the research tables: empty, the client does not use the type ids at run time.
+ *   3829 ObjectiveInteractor (player slot 10, owner): field 0 the provider (16 raw bytes: the Claim landmark actor of the territory), field 1
+ *        the expiration (u64, server steady nanoseconds), field 2 the explicit offers of a faction board (a full vector of 52-byte
+ *        ObjectiveCreationParams elements), field 3 the town entries (territory:u16 seed:u32 unavailable:size u32* previous:size u32*).
+ *   1746 TerritoryInterface (slot 3 of a town board): group 1 field 0, the progression: active {key:u8 project:u32 end:u64 progress:u32}*,
+ *        completed (12-byte elements), the default project (16 bytes), the status effects (12-byte elements).
+ *   3086 LandClaimManager (slot 2 of the world entity globalgde): parallel full vectors; field 2 the claim keys (u16), field 15 the
+ *        progression summaries {upgrades:size {category:u32 level:u8}* active:size {project:u32 type:u8 state:u32}* level:u8}.
+ *   497  GameEvent (player slot 68, owner): field 1 dailyBonusesUsed, a full vector of {modifier:u32 used:u8}.
+ * The requests go to the ObjectiveInteractor component of the root entity of the player slice (slice-ids.json RootPlayer/006554ad-...,
+ * component B8D673AF8594A7CC): the target is G + the component id (the rule of kObjectivesComponent).
+ */
+inline constexpr MessageType kStateObjectiveInteractor{"MB::ObjectiveInteractorReplicatedState", "", 3829};
+inline constexpr std::uint32_t kSlotObjectiveInteractor = 10;
+inline constexpr std::uint32_t kStateTerritoryInterface = 1746;
+inline constexpr std::uint32_t kStateLandClaimManager = 3086;
+inline constexpr MessageType kStateGameEvent{"MB::GameEventReplicatedState", "", 497};
+inline constexpr std::uint32_t kSlotGameEvent = 68;
+inline constexpr MessageType kRequestCommunityGoalSelection{"ObjectiveInteractorComponentServerFacet_OnCommunityGoalSelectionRequest", "", 3819};
+inline constexpr MessageType kRequestObjectiveSelection{"ObjectiveInteractorComponentServerFacet_OnObjectiveSelectionRequest",
+                                                         "40B9177C06DE47259166236BD7D4A7E8", 3816};
+inline constexpr MessageType kRequestObjectiveCompletion{"ObjectiveInteractorComponentServerFacet_OnObjectiveCompletionRequest", "", 2461};
+inline constexpr std::uint64_t kObjectiveInteractorComponent = 0xB8D673AF8594A7CCULL;
+/** @return The body of 3819 (24 bytes): the facet, the entity (G), the missionId, the destination argument (the project of a card, or 0). */
+Bytes community_goal_selection_body(std::uint64_t group, std::uint32_t mission, std::uint32_t destination);
+/** @return The body of 2461 (24 bytes): the facet, the entity (G), the instance of the mission. */
+Bytes objective_completion_body(std::uint64_t group, std::uint64_t instance);
+/** @return The body of 3816 (17 bytes): the facet, the entity (G), the index of the offer in field 2 of the provider state. */
+Bytes objective_selection_body(std::uint64_t group, std::uint8_t index);
 /** @return The body of RequestChangeMappedAbility (2701, 26 bytes): target entity tableIndex:u16 slot:u32 abilityId:u32. */
 Bytes change_mapped_ability_body(std::uint64_t group, std::uint16_t tableIndex, std::uint32_t slot, std::uint32_t ability);
 /** @return The body of RequestApplyAbilityPoints (2857, 16 bytes): target entity. */

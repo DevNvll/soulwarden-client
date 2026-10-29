@@ -37,6 +37,19 @@ nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     -L"${BACKEND_CORE}" -lsoulwarden_backend_core -lsoulwarden_sqlite -lsoulwarden_mbedtls -lpthread -ldl \
     -o "${out}/swc-interaction-range-tests"
 "${out}/swc-interaction-range-tests"
+# The town offers of the mission boards (C-12): the client generator (Boards/SwcTownOffers) against the backend generator with the real
+# mission data (the board fixture of the backend tests; the Soulwarden sources read only) and the converted missions.json of SWC_CONTENT
+# (tools/convert-missions.sh; with no such file the test is skipped).
+if [[ -f "${SWC_CONTENT}/ui/gamedata/missions.json" ]]; then
+    nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
+        -I"${module}" -I"${backend}/src" -I"${backend}/tests" -I"${backend}/vendor" \
+        "${SWC_REPO}/tests/net/board_offer_tests.cpp" "${module}/Boards/SwcTownOffers.cpp" \
+        -L"${BACKEND_CORE}" -lsoulwarden_backend_core -lsoulwarden_sqlite -lsoulwarden_mbedtls -lpthread -ldl \
+        -o "${out}/swc-board-offer-tests"
+    "${out}/swc-board-offer-tests" "${SWC_GAMEDATA_DIR}/mission-data.json" "${SWC_CONTENT}/ui/gamedata/missions.json" | grep -v "^  ok "
+else
+    echo "the town offer tests: no ${SWC_CONTENT}/ui/gamedata/missions.json (tools/convert-missions.sh): skipped"
+fi
 # The quest wire (Linear AST-236): the Objectives state of the backend encoder and the readers of the quest messages, with the quest data of
 # the backend copy (tests/net/quest_tests.cpp).
 nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \

@@ -394,6 +394,31 @@ Bytes open_ui_screen_body(std::uint64_t group, std::uint32_t screen) {
     return w.data();
 }
 
+Bytes community_goal_selection_body(std::uint64_t group, std::uint32_t mission, std::uint32_t destination) {
+    Writer w;
+    w.u64(group + kObjectiveInteractorComponent);
+    w.u64(group);
+    w.u32(mission);
+    w.u32(destination);
+    return w.data();
+}
+
+Bytes objective_completion_body(std::uint64_t group, std::uint64_t instance) {
+    Writer w;
+    w.u64(group + kObjectiveInteractorComponent);
+    w.u64(group);
+    w.u64(instance);
+    return w.data();
+}
+
+Bytes objective_selection_body(std::uint64_t group, std::uint8_t index) {
+    Writer w;
+    w.u64(group + kObjectiveInteractorComponent);
+    w.u64(group);
+    w.u8(index);
+    return w.data();
+}
+
 Bytes spend_territory_point_body(std::uint64_t group, std::uint32_t progression, std::uint32_t point) {
     Writer w;
     w.u64(slice_facet_target(group, kGameEventsEntity, kProgressionPointComponent));
