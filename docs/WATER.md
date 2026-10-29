@@ -482,6 +482,24 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   not in Single Layer Water. The plugin rule of the floor is the same two-path rule as the source (`SingleLayerWaterShading.ush`:
   exp(-sigma WaterVolumeDepth) and exp(-sigma the vertical distance to the top); the view path is a depth difference along the view
   axis, about 10 % shorter than the ray here) [R]. The controls: all near bands within 1.6; river-down middle -6.6, river-forest far +5.6.
+- The near color term of the source ocean (2026-10-29, the design `~/Games/soulwarden-client/research/water-near-term.md` option A,
+  the word of the orchestrator; not built at the commit): the check plugin only (`tools/import-water-unreal.sh --near`,
+  `Scripts/water_unreal_near.py`, the folder `/SwcWaterCheck/Water/Near`; never the shared plugin, never `/Water`).
+  - `M_SwcWaterNear`: a copy of the plugin parent `Water_Material`. Between its final material attributes and the output: Get Material
+    Attributes (the emissive, the opacity), a Custom node with N = gain x NearRGB x S x T x sat(0.1 L), an Add to the emissive, and Set
+    Material Attributes. The emissive of Single Layer Water is added outside the floor transmittance (`BasePassPixelShader.usf`): an
+    additive term under the surface, before the reflection composite. L is the ray length (the depth difference over the cosine of the
+    pixel), T the floor transmittance of the plugin (exp(-sigma the depth gap) x exp(-sigma the vertical depth); `swc.WaterOceanNearT 1`:
+    the source T), times (1 - opacity) x (1 - F) with a flat-surface Schlick F [a first approximation of EnvBRDF].
+  - The copies of the ocean instance chain onto it; the last one has the slot name `MI_SwcWater_Ocean`. With
+    `-SwcWaterMaterials=/SwcWaterCheck/Water/Near` only the ocean uses it; each other slot falls back to the plugin material.
+  - The client (`UpdateUnrealOceanNear`, the Unreal mode only; the source path runs no new code): each 0.5 s the parameters SwcNearGain
+    (`swc.WaterOceanNear`, default 0: no add), SwcNearColor (NearFogColor of the ocean of the place), SwcNearSun (the source sun / pi, a
+    copy of the rule of the source path), SwcNearSigma (the density / 100 x `swc.WaterOceanExtinction`), SwcNearMode
+    (`swc.WaterOceanNearT`), SwcNearDebug (`swc.WaterOceanNearDebug`). The plugin materials have no such parameters: no effect there.
+  - The test (the editor build, `work/water-unreal/tone3/run_e.sh control | sweep | controls | source`): the gain-0 control first (the
+    check parent against the plugin parent); then gain 1 with the extinction 1, 1.5, and 2 at the three beach views; the lakes and the
+    rivers; the source mode. Stop with no default when the fit of N with the extinction fails.
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).

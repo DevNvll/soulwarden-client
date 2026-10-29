@@ -7,7 +7,10 @@
 
 #include "Water/SwcWaterSubsystem.h"
 
+#include "Components/DirectionalLightComponent.h"
 #include "Dom/JsonObject.h"
+#include "Environment/SwcEnvironmentSubsystem.h"
+#include "UObject/UObjectIterator.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/TextureRenderTarget2DArray.h"
 #include "Engine/World.h"
@@ -113,6 +116,39 @@ TAutoConsoleVariable<float> CVarWaterOceanExtinction(TEXT("swc.WaterOceanExtinct
 	TEXT("A test of the ocean: a scale of the extinction of the ocean tone with the same albedo (2: the floor goes dark in half the path); below 0 the source value."));
 TAutoConsoleVariable<float> CVarWaterOceanMaskOffset(TEXT("swc.WaterOceanMaskOffset"), -9999.0f,
 	TEXT("A test of the ocean: the plugin \"Water Opacity Mask Offset\" of the ocean instance (cm; the plugin -24); -9999 the plugin value."));
+
+/** The near color term of the source ocean (docs/WATER.md "Stage 2c", research/water-near-term.md option A): the ocean instance of the
+ *  check parent M_SwcWaterNear (tools/import-water-unreal.sh --near; -SwcWaterMaterials=/SwcWaterCheck/Water/Near) adds N = gain x NearRGB
+ *  x the source sun x T x sat(0.1 L) to its emissive. The plugin materials have no such parameters: no effect there. Off by default. */
+TAutoConsoleVariable<float> CVarWaterOceanNear(TEXT("swc.WaterOceanNear"), 0.0f,
+	TEXT("A test of the ocean: the gain of the near color term of the source (the check parent M_SwcWaterNear only); 0 off, 1 the source term."));
+TAutoConsoleVariable<int32> CVarWaterOceanNearT(TEXT("swc.WaterOceanNearT"), 0,
+	TEXT("The transmittance of the near term: 0 the floor transmittance of the plugin (the same as the floor), 1 the source T (a diagnostic)."));
+TAutoConsoleVariable<int32> CVarWaterOceanNearDebug(TEXT("swc.WaterOceanNearDebug"), 0,
+	TEXT("The debug view of the near term: 0 off, 1 the ramp, T, and F as RGB, 2 the ray length (per 10 m), the downward part, and the cosine."));
+
+/** The sun S of the source water (the rule of the source path, USwcWaterSubsystem::UpdateSkyCube; research water-uploads.md 1): the source
+ *  sun of the hour / pi (cd/m2), else the brightest visible directional light x its intensity / pi. A copy for the Unreal mode only: the
+ *  source path keeps its own code. */
+FLinearColor SourceSunRadiance(const UWorld& World)
+{
+	const USwcEnvironmentSubsystem* Environment = World.GetSubsystem<USwcEnvironmentSubsystem>();
+	const FLinearColor Source = Environment != nullptr ? Environment->GetSourceSunLight() : FLinearColor::Transparent;
+	const IConsoleVariable* UseSource = IConsoleManager::Get().FindConsoleVariable(TEXT("swc.WaterSourceSun"));
+	if ((UseSource == nullptr || UseSource->GetInt() != 0) && Source.A > 0.5f)
+	{
+		return FLinearColor(Source.R, Source.G, Source.B) * (1.0f / UE_PI);
+	}
+	const UDirectionalLightComponent* Main = nullptr;
+	for (TObjectIterator<UDirectionalLightComponent> It; It; ++It)
+	{
+		if (It->GetWorld() == &World && It->IsVisible() && (Main == nullptr || It->Intensity > Main->Intensity))
+		{
+			Main = *It;
+		}
+	}
+	return Main != nullptr ? Main->GetLightColor() * (Main->Intensity / UE_PI) : FLinearColor::Black;
+}
 
 TAutoConsoleVariable<int32> CVarWaterOceanWaves(TEXT("swc.WaterOceanWaves"), 0,
 	TEXT("1: the ocean waves of the source (24 Gerstner waves scaled by WavesSize, lengths / WavesAmount; docs/WATER.md \"Stage 2b\"); ")
@@ -638,6 +674,49 @@ void USwcWaterSubsystem::UpdateUnrealOceanTone()
 		Tone.Density = Density;
 		ApplyUnrealTone(Tone);
 	}
+	UpdateUnrealOceanNear(Tone);
+}
+
+void USwcWaterSubsystem::UpdateUnrealOceanNear(const FUnrealTone& Tone)
+{
+	// The near term of the source ocean (swc.WaterOceanNear; the check parent M_SwcWaterNear only): its parameters on the ocean instances,
+	// each 0.5 s (the sun follows the hour). The plugin parent has no such parameter: a set value there changes nothing.
+	const double Now = FPlatformTime::Seconds();
+	if (Now < NextNearUpdate || GetWorld() == nullptr)
+	{
+		return;
+	}
+	NextNearUpdate = Now + 0.5;
+	const float Gain = FMath::Max(0.0f, SwcUnrealWater::CVarWaterOceanNear.GetValueOnGameThread());
+	const int32 Mode = SwcUnrealWater::CVarWaterOceanNearT.GetValueOnGameThread();
+	const int32 Debug = SwcUnrealWater::CVarWaterOceanNearDebug.GetValueOnGameThread();
+	const FLinearColor Near(FMath::Max(0.0f, OceanNow.FindRef(TEXT("NearFogColorR"))), FMath::Max(0.0f, OceanNow.FindRef(TEXT("NearFogColorG"))),
+		FMath::Max(0.0f, OceanNow.FindRef(TEXT("NearFogColorB"))), 0.0f);
+	const FLinearColor Sun = Gain > 0.0f ? SwcUnrealWater::SourceSunRadiance(*GetWorld()) : FLinearColor::Black;
+	// The extinction per cm of the ocean tone (the density per m / 100, times the extinction test swc.WaterOceanExtinction).
+	const float Scale = SwcUnrealWater::CVarWaterOceanExtinction.GetValueOnGameThread();
+	const float Sigma = FMath::Max(0.0f, OceanNow.FindRef(TEXT("Density"))) * (Scale > 0.0f ? Scale : 1.0f) / 100.0f;
+	const FVector4f Key(Gain, static_cast<float>(Mode), static_cast<float>(Debug), Sigma);
+	const bool bLog = Key != AppliedNear;
+	if (Gain <= 0.0f && !bLog)
+	{
+		return;
+	}
+	AppliedNear = Key;
+	for (const TWeakObjectPtr<UMaterialInstanceDynamic>& Weak : Tone.Materials)
+	{
+		if (UMaterialInstanceDynamic* Material = Weak.Get())
+		{
+			Material->SetScalarParameterValue(TEXT("SwcNearGain"), Gain);
+			Material->SetVectorParameterValue(TEXT("SwcNearColor"), Near);
+			Material->SetVectorParameterValue(TEXT("SwcNearSun"), Sun);
+			Material->SetScalarParameterValue(TEXT("SwcNearSigma"), Sigma);
+			Material->SetScalarParameterValue(TEXT("SwcNearMode"), static_cast<float>(Mode));
+			Material->SetScalarParameterValue(TEXT("SwcNearDebug"), static_cast<float>(Debug));
+		}
+	}
+	UE_CLOG(bLog, LogSwcWater, Log, TEXT("water (Unreal): the ocean near term: gain %.2f, T %s, debug %d; near %.4f %.4f %.4f, sun %.0f %.0f %.0f cd/m2, sigma %.5f per cm; %d instance(s)"),
+		Gain, Mode != 0 ? TEXT("of the source") : TEXT("of the plugin floor"), Debug, Near.R, Near.G, Near.B, Sun.R, Sun.G, Sun.B, Sigma, Tone.Materials.Num());
 }
 
 void USwcWaterSubsystem::UpdateUnrealOceanWaves()

@@ -189,6 +189,8 @@ private:
 	void ApplyUnrealTone(FUnrealTone& Tone) const;
 	/** The ocean tone of OceanNow (the ocean of the place, blended in the transition time of its override). */
 	void UpdateUnrealOceanTone();
+	/** The parameters of the near term of the source ocean on the ocean instances (swc.WaterOceanNear; the check parent M_SwcWaterNear). */
+	void UpdateUnrealOceanNear(const FUnrealTone& Tone);
 	/** Shows one render path and hides the other (swc.WaterMode). */
 	void SetUnrealVisible(bool bUnreal);
 	int32 OceanToneIndex = INDEX_NONE;
@@ -206,6 +208,9 @@ private:
 	FVector3f AppliedOceanTests = FVector3f(-1.0f, -1.0f, -2.0f);
 	/** The floor tests of the ocean that the ocean instance has now (swc.WaterOceanExtinction, swc.WaterOceanMaskOffset). */
 	FVector2f AppliedOceanFloorTests = FVector2f(-1.0f, -9999.0f);
+	/** The near term of the ocean that the ocean instances have now (gain, mode, debug, sigma) and the time of its next update. */
+	FVector4f AppliedNear = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
+	double NextNearUpdate = 0.0;
 	/** -SwcWaterOceanDepth=M: the channel depth of the plugin ocean in m (default 10; the plugin default 0 makes the ocean the minimum of the
 	 *  water height range of the zone, and then the plugin draws it clear: docs/WATER.md "Stage 2a"). */
 	float OceanChannelDepth = 10.0f;
