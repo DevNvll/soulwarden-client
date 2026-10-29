@@ -614,6 +614,19 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       the window of 15:44; 50.9 in b3), at a stable hue (205.6 to 210.1). The Unreal shots of the same mask are stable (37.2 to 38.4).
       Thus the L* drift of ocean-clear is a change of the source water over time, not the cliff edge [the cause is not known: the sky
       cube or the clouds, I]. The statement of 16:05 ("the edge of the cliff reflection moves") is corrected here.
+  - The hue study (GPT-6.1-Sol, read only; brief `research/briefs/ast200-2c-hue.txt`, result
+    `~/Games/soulwarden-client/research/water-hue.md`):
+    - The stable error is too little blue against green [R]. The best setting keeps (as display-linear RGB of the fixed masks, against
+      b3) at ocean-far R 0.91, G 0.98, B 0.82 of the source; ocean-clear 0.95 / 0.71 / 0.55; ocean-clear-open 0.70 / 0.54 / 0.38. The
+      source B/G is 1.17 (far) and 0.99 (clear); the Unreal B/G 0.97 and 0.77. The later source pair gives the same blue loss.
+    - The client puts no green bias in the coefficients [R]: the extinction is the same in each channel, and the albedo has the RGB ratio
+      of the source deep fog color. The loss is in the rendered sum (the light, the surface weights, the reflection) [I]; which HDR term
+      is not known [U].
+    - A scalar albedo scale moves the hue only by 4 degrees (4 to 1: 188 to 194) and loses too much L*.
+    - The supported test [I]: an ocean-only blue gain of the scattering albedo, with the extinction of each channel held (sigma_t =
+      sigma_s + sigma_a fixed; albedo' = albedo x (1, 1, gain); the MID Scattering is sqrt(1000 sigma_s), the MID Absorption 1 / sigma_a).
+      Gain 1.25 first, default 1. Expected by a display check: ocean-far hue +13 to +25 degrees at an L* change below 0.4; ocean-clear
+      part of its hue; no fix of the L* of ocean-clear-open; beach-down little change.
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
