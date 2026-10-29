@@ -86,6 +86,38 @@ swc::interact::ScenePoint ReadPoint(const TArray<TSharedPtr<FJsonValue>>& Values
 	return {Values.Num() > 0 ? Values[0]->AsNumber() : 0.0, Values.Num() > 1 ? Values[1]->AsNumber() : 0.0, Values.Num() > 2 ? Values[2]->AsNumber() : 0.0};
 }
 
+/**
+ * The camera of a line in the frame of a person (persons.json "conversation.camera", line-cameras.json): the points of the preset in that
+ * frame (swc::interact::scene_point). A preset with no look-at point (NSR_INN_MED_SNGL) looks at the person at the height of the camera
+ * (a client rule). The camera stands 0.065 m above the preset point; the look-at point does not move.
+ */
+void FillLineCamera(const FJsonObject& Camera, const swc::interact::ScenePoint& Feet, double EngineYaw, FSwcPerson::FLine& Line)
+{
+	const TArray<TSharedPtr<FJsonValue>>& OriginValues = Camera.GetArrayField(TEXT("origin"));
+	const swc::interact::ScenePoint Origin = ReadPoint(OriginValues);
+	const TArray<TSharedPtr<FJsonValue>>& LookAtValues = Camera.GetArrayField(TEXT("lookAt"));
+	const swc::interact::ScenePoint LookAt = LookAtValues.Num() >= 3 ? ReadPoint(LookAtValues) : swc::interact::ScenePoint{0.0, 0.0, Origin.z};
+	const auto ToUnreal = [](const swc::interact::ScenePoint& Point) { return FVector(Point.x * 100.0, -Point.y * 100.0, Point.z * 100.0); };
+	Line.bCamera = OriginValues.Num() >= 3;
+	Line.Camera = ToUnreal(swc::interact::scene_point(Feet, EngineYaw, Origin)) + FVector(0.0, 0.0, TalkCameraLift * 100.0);
+	Line.LookAt = ToUnreal(swc::interact::scene_point(Feet, EngineYaw, LookAt));
+	double Fov = 0.0;
+	Line.Fov = Camera.TryGetNumberField(TEXT("fov"), Fov) ? static_cast<float>(Fov) : 0.0f;
+	Line.bHidePlayer = Camera.GetBoolField(TEXT("hidePlayer"));
+	// The dummy: its place in the frame of the person, its facing the yaw of the person turned by the z rotation.
+	const TSharedPtr<FJsonObject>* Dummy = nullptr;
+	Line.bDummy = false;
+	if (Camera.TryGetObjectField(TEXT("dummy"), Dummy))
+	{
+		const TArray<TSharedPtr<FJsonValue>>& Turn = (*Dummy)->GetArrayField(TEXT("rotation"));
+		const double DummyYaw = FMath::DegreesToRadians(EngineYaw + (Turn.Num() > 2 ? Turn[2]->AsNumber() : 0.0));
+		Line.bDummy = true;
+		Line.DummyFeet = ToUnreal(swc::interact::scene_point(Feet, EngineYaw, ReadPoint((*Dummy)->GetArrayField(TEXT("position")))));
+		Line.DummyYaw = FVector(-FMath::Sin(DummyYaw), -FMath::Cos(DummyYaw), 0.0).Rotation().Yaw;
+		Line.bDummyArmed = (*Dummy)->GetBoolField(TEXT("armed"));
+	}
+}
+
 /** @return The first .caf clip of the PlayAnim layer of a timeline of persons.json (the clip pack has the file stem). */
 FSwcPerson::FClip TimelineClip(const TSharedPtr<FJsonObject>& Timelines, const TSharedPtr<FJsonObject>& Assets, const FString& ClipsKey, const FString& Path)
 {
@@ -145,6 +177,22 @@ void USwcPersonSubsystem::Load()
 	}
 	const TSharedPtr<FJsonObject> Assets = ImportedDoc->GetObjectField(TEXT("assets"));
 	const TSharedPtr<FJsonObject> Timelines = Document->GetObjectField(TEXT("timelines"));
+	// The cameras of the lines of the conversation states and topics (tools/convert-persons.sh line-cameras; ut567). With no file, only
+	// the first line of a person has a camera.
+	LineCameras.Reset();
+	const TSharedPtr<FJsonObject> LineCameraDoc = ReadJson(FPaths::Combine(Folder, TEXT("persons/line-cameras.json")));
+	const TSharedPtr<FJsonObject>* LineCameraMap = nullptr;
+	if (LineCameraDoc.IsValid() && LineCameraDoc->TryGetObjectField(TEXT("cameras"), LineCameraMap))
+	{
+		for (const TPair<FString, TSharedPtr<FJsonValue>>& Entry : (*LineCameraMap)->Values)
+		{
+			if (Entry.Value.IsValid() && Entry.Value->Type == EJson::Object)
+			{
+				LineCameras.Add(Entry.Key.ToLower(), Entry.Value->AsObject());
+			}
+		}
+	}
+	UE_LOG(LogSwcPersons, Log, TEXT("persons: %d line cameras of the conversation states (persons/line-cameras.json)"), LineCameras.Num());
 	const FString ClipsKey = TEXT("clips|male|persons");
 	int32 NoBody = 0;
 	int32 NoIdle = 0;
@@ -230,29 +278,25 @@ void USwcPersonSubsystem::Load()
 		{
 			Person.bTalk = Options->ContainsByPredicate([](const TSharedPtr<FJsonValue>& Option) { return Option->AsString() == TEXT("OpenConversation"); });
 		}
-		// The line and its camera: the points of the preset in the frame of the person (swc::interact::scene_point). A preset with no
-		// look-at point (NSR_INN_MED_SNGL) looks at the person at the height of the camera (a client rule).
+		// The frame of the camera points of the Talk lines: the Interact entity of the person (persons.json "talkFrame"; the body can stand
+		// 0.6 m from it or turned 180 degrees from it), else the body. Retail Talk cameras of MVP-H (Purcell, Ozian Atreus, Sai Kumal; the
+		// commander of Oxboro from P4.8): the place within 0.004 m, the heading within 0.25 degrees, the pitch within 0.3 degrees; Ser Payne
+		// Bennett (a line of a state, line-cameras.json; ut567): 0.00 m and 0.0 degrees of heading (docs/PERSONS.md "The Talk camera").
+		swc::interact::ScenePoint Feet = ReadPoint(Position);
+		double EngineYaw = Info->GetNumberField(TEXT("yaw"));
+		const TSharedPtr<FJsonObject>* Frame = nullptr;
+		if (Info->TryGetObjectField(TEXT("talkFrame"), Frame))
+		{
+			Feet = ReadPoint((*Frame)->GetArrayField(TEXT("position")));
+			EngineYaw = (*Frame)->GetNumberField(TEXT("yaw"));
+		}
+		Person.TalkFrame = FVector(Feet.x, Feet.y, Feet.z);
+		Person.TalkFrameYaw = EngineYaw;
+		// The first line and its camera.
 		const TSharedPtr<FJsonObject>* Conversation = nullptr;
 		const TSharedPtr<FJsonObject>* Camera = nullptr;
 		if (Info->TryGetObjectField(TEXT("conversation"), Conversation) && (*Conversation)->TryGetObjectField(TEXT("camera"), Camera))
 		{
-			// The frame of the presets: the Interact entity of the person (persons.json "talkFrame"; the body can stand 0.6 m from it
-			// or turned 180 degrees from it), else the body. The camera stands 0.065 m above the preset point; the look-at point does
-			// not move. Retail Talk cameras of MVP-H (Purcell, Ozian Atreus, Sai Kumal; the commander of Oxboro from P4.8): the place
-			// within 0.004 m, the heading within 0.25 degrees, the pitch within 0.3 degrees (docs/PERSONS.md "The Talk camera").
-			swc::interact::ScenePoint Feet = ReadPoint(Position);
-			double EngineYaw = Info->GetNumberField(TEXT("yaw"));
-			const TSharedPtr<FJsonObject>* Frame = nullptr;
-			if (Info->TryGetObjectField(TEXT("talkFrame"), Frame))
-			{
-				Feet = ReadPoint((*Frame)->GetArrayField(TEXT("position")));
-				EngineYaw = (*Frame)->GetNumberField(TEXT("yaw"));
-			}
-			const TArray<TSharedPtr<FJsonValue>>& OriginValues = (*Camera)->GetArrayField(TEXT("origin"));
-			const swc::interact::ScenePoint Origin = ReadPoint(OriginValues);
-			const TArray<TSharedPtr<FJsonValue>>& LookAtValues = (*Camera)->GetArrayField(TEXT("lookAt"));
-			const swc::interact::ScenePoint LookAt = LookAtValues.Num() >= 3 ? ReadPoint(LookAtValues) : swc::interact::ScenePoint{0.0, 0.0, Origin.z};
-			const auto ToUnreal = [](const swc::interact::ScenePoint& Point) { return FVector(Point.x * 100.0, -Point.y * 100.0, Point.z * 100.0); };
 			Person.Line.bValid = true;
 			Person.Line.LineKey = (*Conversation)->GetStringField(TEXT("line"));
 			const TArray<TSharedPtr<FJsonValue>>* Lines = nullptr;
@@ -266,22 +310,7 @@ void USwcPersonSubsystem::Load()
 			}
 			Person.Line.Speaker = (*Conversation)->GetStringField(TEXT("speaker"));
 			Person.Line.Text = (*Conversation)->GetStringField(TEXT("text"));
-			Person.Line.bCamera = OriginValues.Num() >= 3;
-			Person.Line.Camera = ToUnreal(swc::interact::scene_point(Feet, EngineYaw, Origin)) + FVector(0.0, 0.0, TalkCameraLift * 100.0);
-			Person.Line.LookAt = ToUnreal(swc::interact::scene_point(Feet, EngineYaw, LookAt));
-			Person.Line.Fov = static_cast<float>((*Camera)->GetNumberField(TEXT("fov")));
-			Person.Line.bHidePlayer = (*Camera)->GetBoolField(TEXT("hidePlayer"));
-			// The dummy: its place in the frame of the person, its facing the yaw of the person turned by the z rotation.
-			const TSharedPtr<FJsonObject>* Dummy = nullptr;
-			if ((*Camera)->TryGetObjectField(TEXT("dummy"), Dummy))
-			{
-				const TArray<TSharedPtr<FJsonValue>>& Turn = (*Dummy)->GetArrayField(TEXT("rotation"));
-				const double DummyYaw = FMath::DegreesToRadians(EngineYaw + (Turn.Num() > 2 ? Turn[2]->AsNumber() : 0.0));
-				Person.Line.bDummy = true;
-				Person.Line.DummyFeet = ToUnreal(swc::interact::scene_point(Feet, EngineYaw, ReadPoint((*Dummy)->GetArrayField(TEXT("position")))));
-				Person.Line.DummyYaw = FVector(-FMath::Sin(DummyYaw), -FMath::Cos(DummyYaw), 0.0).Rotation().Yaw;
-				Person.Line.bDummyArmed = (*Dummy)->GetBoolField(TEXT("armed"));
-			}
+			FillLineCamera(**Camera, Feet, EngineYaw, Person.Line);
 		}
 		Persons.Add(MoveTemp(Person));
 	}
@@ -289,6 +318,22 @@ void USwcPersonSubsystem::Load()
 		Persons.Num(), Persons.FilterByPredicate([](const FSwcPerson& P) { return P.bVisible; }).Num(),
 		Persons.FilterByPredicate([](const FSwcPerson& P) { return P.bTalk; }).Num(),
 		Persons.FilterByPredicate([](const FSwcPerson& P) { return !P.InteractionKey.IsEmpty(); }).Num(), NoBody, NoIdle);
+}
+
+bool USwcPersonSubsystem::GetLineCamera(const FSwcPerson& Person, const FString& LineKey, FSwcPerson::FLine& Out) const
+{
+	const TSharedPtr<FJsonObject>* Camera = LineCameras.Find(LineKey.ToLower());
+	if (Camera == nullptr || !Camera->IsValid())
+	{
+		return false;
+	}
+	Out = FSwcPerson::FLine();
+	Out.bValid = true;
+	Out.LineKey = LineKey;
+	Out.Speaker = Person.Line.Speaker;
+	Out.Text = Person.Line.Text;
+	FillLineCamera(**Camera, swc::interact::ScenePoint{Person.TalkFrame.X, Person.TalkFrame.Y, Person.TalkFrame.Z}, Person.TalkFrameYaw, Out);
+	return Out.bCamera;
 }
 
 bool USwcPersonSubsystem::GetViewLocation(FVector& Out) const

@@ -69,7 +69,12 @@ key("e")
 frames(1.5)
 note("Saira, line b: " .. body_text())
 check(body_text() ~= first, "Saira: E shows the second line")
-equal(#requests(), 0, "Saira: E at the first line gives no request")
+do
+  -- The only request is the line of the screen for the Talk camera of the client (ut567).
+  local r = requests()
+  equal(#r, 1, "Saira: E at the first line gives one request")
+  check(r[1] ~= nil and r[1]:find("^conversation line ") ~= nil, "Saira: the request is the line of the screen (" .. tostring(r[1]) .. ")")
+end
 key("e")
 frames(1.0)
 r = requests()

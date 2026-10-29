@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import struct
 import uuid
 import xml.etree.ElementTree as ET
@@ -640,6 +641,44 @@ def interaction_of(item: dict, tables) -> str | None:
     return None
 
 
+def line_camera(line: dict, presets: dict) -> dict:
+    """The camera of a line (the attributes of its localization entry): the camera preset of the line (javelindata_cutscenecamerapresets
+    .datasheet), the line attributes that replace the columns of the same name [inference of the research], the frame marks of the points
+    (camera_point), the dummy of the player, the hide, the FOV, and the blends. An empty origin keeps the camera of the play."""
+    preset = presets.get(line.get("cutsceneCameraPresetId", ""), {})
+    state = line.get("cameraState") or preset.get("CameraState", "")
+    fov = re.search(r"FOV(\d+)", str(state))
+    # The dummy of the player (a two-shot preset): the body of the player at a place in the frame of the speaker ("s"), turned by
+    # the rotation (degrees about x, y, z), armed or not; the real player is hidden (HidePlayerAvatar).
+    place = str(preset.get("DummyPresetPos") or "").split()
+    turn = str(preset.get("DummyPresetRot") or "").split()
+    dummy = None
+    if len(place) == 4 and place[0] == "s":
+        dummy = {"position": [float(v) for v in place[1:]],
+                 "rotation": [float(v) for v in turn[1:]] if len(turn) == 4 and turn[0] == "s" else [0.0, 0.0, 0.0],
+                 "armed": str(preset.get("DummyIsArmed", "")).lower() == "true"}
+    # [I] A point in the frame of the player with no dummy in the preset (06_FrancisTurner, "p .5 -2.25 1.9" with the single shot
+    # NSL_SIT_WID_SNGL_HA): the standard place of the player in a Talk, the dummy of 67 of the 88 two-shot presets.
+    frame = dummy or STANDARD_DUMMY
+    origin = camera_point(line.get("cameraStateOrigin") or preset.get("CameraStateOrigin"), frame)
+    look_at = camera_point(line.get("cameraStateLookAt") or preset.get("CameraStateLookAt"), frame)
+    if not origin and line.get("cameraStateOrigin"):
+        # [I] A line point that the client cannot place (the frame of a named person, "n NPC_ID"): the origin and the look-at of the
+        # preset as one pair (an empty origin keeps the camera of the play).
+        origin = camera_point(preset.get("CameraStateOrigin"), dummy)
+        look_at = camera_point(preset.get("CameraStateLookAt"), dummy)
+    camera = {
+        "preset": line.get("cutsceneCameraPresetId", ""), "state": state,
+        "fov": float(fov.group(1)) if fov else None,
+        "origin": origin,
+        "lookAt": look_at,
+        "hidePlayer": str(preset.get("HidePlayerAvatar", "")).lower() == "true",
+        "enterBlend": float(preset.get("EnterBlendTime") or 0.0), "exitBlend": float(preset.get("ExitBlendTime") or 0.0)}
+    if dummy:
+        camera["dummy"] = dummy
+    return camera
+
+
 def conversations(persons: list) -> None:
     """Adds the conversation of each person with conversation states: the state that the client takes for a character with no
     faction, level, or achievement of a requirement (the list in reverse order, the first state with no requirement: client code
@@ -711,37 +750,7 @@ def conversations(persons: list) -> None:
             lines.append({"line": key, "text": entry["text"], "speaker": entry.get("speaker", "")})
             key = str(entry.get("dialogue-next", "")).lstrip("@").lower()
         conversation["lines"] = lines
-        preset = presets.get(line.get("cutsceneCameraPresetId", ""), {})
-        state = line.get("cameraState") or preset.get("CameraState", "")
-        fov = re.search(r"FOV(\d+)", str(state))
-        # The dummy of the player (a two-shot preset): the body of the player at a place in the frame of the speaker ("s"), turned by
-        # the rotation (degrees about x, y, z), armed or not; the real player is hidden (HidePlayerAvatar).
-        place = str(preset.get("DummyPresetPos") or "").split()
-        turn = str(preset.get("DummyPresetRot") or "").split()
-        dummy = None
-        if len(place) == 4 and place[0] == "s":
-            dummy = {"position": [float(v) for v in place[1:]],
-                     "rotation": [float(v) for v in turn[1:]] if len(turn) == 4 and turn[0] == "s" else [0.0, 0.0, 0.0],
-                     "armed": str(preset.get("DummyIsArmed", "")).lower() == "true"}
-        # [I] A point in the frame of the player with no dummy in the preset (06_FrancisTurner, "p .5 -2.25 1.9" with the single shot
-        # NSL_SIT_WID_SNGL_HA): the standard place of the player in a Talk, the dummy of 67 of the 88 two-shot presets.
-        frame = dummy or STANDARD_DUMMY
-        origin = camera_point(line.get("cameraStateOrigin") or preset.get("CameraStateOrigin"), frame)
-        look_at = camera_point(line.get("cameraStateLookAt") or preset.get("CameraStateLookAt"), frame)
-        if not origin and line.get("cameraStateOrigin"):
-            # [I] A line point that the client cannot place (the frame of a named person, "n NPC_ID"): the origin and the look-at of the
-            # preset as one pair (an empty origin keeps the camera of the play).
-            origin = camera_point(preset.get("CameraStateOrigin"), dummy)
-            look_at = camera_point(preset.get("CameraStateLookAt"), dummy)
-        conversation["camera"] = {
-            "preset": line.get("cutsceneCameraPresetId", ""), "state": state,
-            "fov": float(fov.group(1)) if fov else None,
-            "origin": origin,
-            "lookAt": look_at,
-            "hidePlayer": str(preset.get("HidePlayerAvatar", "")).lower() == "true",
-            "enterBlend": float(preset.get("EnterBlendTime") or 0.0), "exitBlend": float(preset.get("ExitBlendTime") or 0.0)}
-        if dummy:
-            conversation["camera"]["dummy"] = dummy
+        conversation["camera"] = line_camera(line, presets)
 
 
 def timeline_clips(persons: list) -> dict:
@@ -968,10 +977,8 @@ def convert(force: bool = False) -> dict:
             "missing skins": {b["body"]: b["missing"] for b in report["bodies"] if b.get("missing")}}
 
 
-def read_line_attributes(keys: set[str]) -> dict:
-    """The localization entries of the text keys and of their chains of dialogue-next (at most 10 passes): key -> {speaker, next}
-    (the attributes of the en-us .loc.xml files; the text itself is in the UI localization)."""
-    import re
+def loc_entries() -> dict[str, dict]:
+    """The attributes of each entry of the en-us .loc.xml files (key in lower case -> attributes; the first entry of a key)."""
     files = [source.read(path).decode("utf-8", "replace") for path in source.paks().paths("localization/en-us/") if path.endswith(".loc.xml")]
     entries: dict[str, dict] = {}
     for text in files:
@@ -980,6 +987,13 @@ def read_line_attributes(keys: set[str]) -> dict:
             key = attrs.get("key", "").lower()
             if key and key not in entries:
                 entries[key] = attrs
+    return entries
+
+
+def read_line_attributes(keys: set[str]) -> dict:
+    """The localization entries of the text keys and of their chains of dialogue-next (at most 10 passes): key -> {speaker, next}
+    (the attributes of the en-us .loc.xml files; the text itself is in the UI localization)."""
+    entries = loc_entries()
     out: dict[str, dict] = {}
     wanted = set(keys)
     for _ in range(10):
@@ -1039,6 +1053,35 @@ def write_conversations() -> dict:
             "keysWithNoEntry": len(keys - set(lines)), "bytes": (target / "conversations.json").stat().st_size}
 
 
+def write_line_cameras(out_file: str | None = None) -> dict:
+    """SWC_CONTENT/persons/line-cameras.json (ut567; docs/PERSONS.md "The Talk camera"): the camera of each line of the conversation
+    states and topics (the line keys of ui/gamedata/conversations.json) that has one: the same rule as the first line of a person
+    (line_camera). The client cuts to it when the conversation screen shows the line (the host request "conversation line KEY"). A line
+    with no camera attribute is not in the file: the camera of the screen (UI_Conversation) stays."""
+    conversations_file = env.content_dir() / "ui" / "gamedata" / "conversations.json"
+    keys = set(json.loads(conversations_file.read_text())["lines"])
+    presets = {str(r["CutsceneCameraId"]): r for r in datasheet.Sheet(source.read(PRESETS)).rows()}
+    entries = loc_entries()
+    cameras: dict[str, dict] = {}
+    counts = {"lines": len(keys), "withCameraAttribute": 0, "noOrigin": 0, "unknownPreset": 0}
+    for key in sorted(keys):
+        attrs = entries.get(key) or {}
+        if not any(attrs.get(name) for name in ("cutsceneCameraPresetId", "cameraState", "cameraStateOrigin", "cameraStateLookAt")):
+            continue
+        counts["withCameraAttribute"] += 1
+        if attrs.get("cutsceneCameraPresetId") and attrs["cutsceneCameraPresetId"] not in presets:
+            counts["unknownPreset"] += 1
+        camera = line_camera(attrs, presets)
+        if not camera["origin"] or not camera["lookAt"]:
+            counts["noOrigin"] += 1
+            continue
+        cameras[key] = camera
+    target = Path(out_file) if out_file else env.content_dir() / "persons" / "line-cameras.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps({"format": 1, "cameras": cameras}, separators=(",", ":"), sort_keys=True))
+    return dict(counts, cameras=len(cameras), file=str(target), bytes=target.stat().st_size)
+
+
 def main(argv=None) -> int:
     import argparse
     parser = argparse.ArgumentParser(prog="python3 -B -m swc_convert.persons")
@@ -1049,9 +1092,13 @@ def main(argv=None) -> int:
     p = sub.add_parser("convert")
     p.add_argument("--force", action="store_true")
     sub.add_parser("conversations")
+    p = sub.add_parser("line-cameras")
+    p.add_argument("--out", help="the output file (default SWC_CONTENT/persons/line-cameras.json)")
     args = parser.parse_args(argv)
     if args.command == "conversations":
         result = write_conversations()
+    elif args.command == "line-cameras":
+        result = write_line_cameras(args.out)
     else:
         result = write(tuple(args.near) if args.near else None, args.out) if args.command == "write" else convert(args.force)
     print(json.dumps(result, indent=1))

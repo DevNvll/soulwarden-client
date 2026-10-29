@@ -84,6 +84,12 @@ bool FSwcUiConversation::HandleRequest(const FString& Request, USwcBackendSubsys
 		Backend.ConversationTopic(Topic);
 		return true;
 	}
+	if (Parts[1] == TEXT("line") && Parts.Num() == 3)
+	{
+		// "conversation line KEY" (swc/conversation.lua, ut567): the line that the screen shows; its camera (persons/line-cameras.json).
+		Backend.SetConversationLineKey(Parts[2] == TEXT("-") ? FString() : Parts[2]);
+		return true;
+	}
 	if (Parts[1] != TEXT("end"))
 	{
 		return false;

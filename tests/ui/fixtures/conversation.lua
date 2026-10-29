@@ -37,6 +37,12 @@ end
 
 -- The open.
 open()
+do
+  -- The open names the first line for the Talk camera of the client (persons/line-cameras.json; ut567).
+  local sent = {}
+  for _, r in ipairs(requests()) do sent[r] = true end
+  check(sent["conversation line 08_sq_zeng_greet_00"], "the open sends the line of the screen")
+end
 equal(#DynamicBus.ConversationScreenV2.handlers, 1, "one conversation screen after the open (no second load)")
 root = swcui.canvas_get(conversation, "root")
 equal(LyShineManagerBus.Broadcast.GetCurrentState(), CONVERSATION, "the open sets the state ConversationScreenV2")
@@ -86,7 +92,12 @@ requests()
 key("e")
 frames(1.5)
 note("line b: " .. body_text())
-equal(#requests(), 0, "E at the first line gives no request")
+-- The only request is the line of the screen for the Talk camera of the client (persons/line-cameras.json; ut567).
+do
+  local r = requests()
+  equal(#r, 1, "E at the first line gives one request")
+  equal(r[1], "conversation line npc_defaultdialogue_12_00_commander_new_b", "the request names the second line (its camera)")
+end
 check(body_text():find("Go on and look into the other factions", 1, true) ~= nil, "E shows the second line")
 equal(LyShineManagerBus.Broadcast.GetCurrentState(), CONVERSATION, "the screen stays at the second line")
 key("e")

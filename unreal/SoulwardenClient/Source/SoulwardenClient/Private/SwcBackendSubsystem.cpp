@@ -1476,6 +1476,30 @@ void USwcBackendSubsystem::UpdatePlayer()
 		}
 		const FSwcPerson* Person = Talk.scene() && Persons != nullptr ? Persons->FindByInteraction(Interactor->GetConversationKey()) : nullptr;
 		const FSwcPerson::FLine* Line = Person != nullptr && Person->Line.bValid ? &Person->Line : nullptr;
+		// The line of the screen (a line of a conversation state or a topic): its own camera (persons/line-cameras.json; ut567: 10,347
+		// of the 12,153 lines; Ser Payne Bennett within 0.01 m of retail). A line of the screen with no camera has no cut (the camera of the
+		// screen), except the first line of the person (persons.json, the same camera).
+		FSwcPerson::FLine ShownLine;
+		if (!Talk.scene())
+		{
+			ConversationLineKey.Reset();
+		}
+		else if (Person != nullptr && Persons != nullptr && !ConversationLineKey.IsEmpty())
+		{
+			if (Persons->GetLineCamera(*Person, ConversationLineKey, ShownLine))
+			{
+				ShownLine.Speaker = Line != nullptr ? Line->Speaker : Person->Name;
+				ShownLine.Text = Line != nullptr ? Line->Text : FString();
+				Line = &ShownLine;
+			}
+			else if (Line == nullptr || !Line->LineKey.Equals(ConversationLineKey, ESearchCase::IgnoreCase))
+			{
+				ShownLine = Line != nullptr ? *Line : FSwcPerson::FLine();
+				ShownLine.bValid = Line != nullptr;
+				ShownLine.bCamera = false;
+				Line = Line != nullptr ? &ShownLine : nullptr;
+			}
+		}
 		if (Talk.scene() && Line == nullptr && ConversationLine.IsEmpty())
 		{
 			ConversationLine = TEXT("?");
@@ -1877,6 +1901,15 @@ bool USwcBackendSubsystem::QueueRepCall(std::function<void(swc::net::RepClient&)
 	}
 	Connection->Queue(std::move(Call));
 	return true;
+}
+
+void USwcBackendSubsystem::SetConversationLineKey(const FString& Key)
+{
+	if (Key != ConversationLineKey)
+	{
+		ConversationLineKey = Key;
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: the screen shows the line %s"), Key.IsEmpty() ? TEXT("(none)") : *Key);
+	}
 }
 
 void USwcBackendSubsystem::SetConversationScreenShown(bool bShown)

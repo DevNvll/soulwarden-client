@@ -205,6 +205,9 @@ public:
 	bool QueueRepCall(std::function<void(swc::net::RepClient&)> Call);
 	/** The conversation screen shows or hides (UI/SwcUiConversation): while it shows, E is its Next key, not the end. */
 	void SetConversationScreenShown(bool bShown);
+	/** The line that the conversation screen shows (swc/conversation.lua "conversation line KEY"; empty: none): the Talk camera of that
+	 *  line (persons/line-cameras.json), else the camera of the first line of the person, else the camera of the screen. */
+	void SetConversationLineKey(const FString& Key);
 	/** The crafting station of the use whose crafting screen shows (stage MVP-J, docs/CRAFTING.md): its Assembly key ("Blacksmith5"),
 	 *  the fee flag, and its name key. @return False with no open station. */
 	bool GetCraftingStation(FString& OutKey, bool& bOutFee, FString& OutName) const;
@@ -370,6 +373,8 @@ private:
 	bool bInteractSecondKey = false;
 	bool bMoveKeys = false;
 	FString ConversationLine;
+	/** The line of the screen (SetConversationLineKey) and the camera of that line in the frame of the person of the Talk. */
+	FString ConversationLineKey;
 	bool bDummyShown = false;
 	/** The assets of the look of the character, loaded in the background before the spawn (the handle keeps them). */
 	TSharedPtr<FStreamableHandle> Preload;

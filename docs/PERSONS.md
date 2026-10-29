@@ -149,9 +149,20 @@ Open:
   (`work/ut567/orbit/probe.py`). The retail body does not turn at the E (body yaw 0 before and after). Sahal Yasin at 1.0 m (set
   ut567-screens): the rule gives the retail camera within 0.04 m (heading 258.7 against 258.9; pitch -30.0 at the limit against
   -31.3). So a close person does not explain Bennett. Bennett from 1.5 m (set ut567-screens, 2026-10-29, a fresh start): the retail
-  camera is at 7422.90 3622.25 106.02, yaw 74.6, the same place as from 1.0 m (7422.902 3622.254 106.015). So the Talk camera of
-  Bennett is a fixed place, not the orbit: his line has a camera that persons.json does not have (no preset, no point). Open: find the
-  source of that camera (the cameraState attribute of the line, a talk timeline, or a cutscene camera preset of the dialogue).
+  camera is at 7422.90 3622.25 106.02, yaw 74.6, the same place as from 1.0 m (7422.902 3622.254 106.015): a fixed place, not the orbit.
+- The cause (ut567, 2026-10-29): retail showed a line of a conversation state of his NPC row, NPC_DefaultDialogue_00_SerPayneBennett_a_new,
+  not the first line of persons.json. Its localization entry has cutsceneCameraPresetId NSR_MNP_MED_2SHT_OTS_Primary (origin -0.35 2.45
+  1.75, look-at 0.26 0.1 1.47, FOV 20, HidePlayerAvatar, the dummy s .25 1.3 0 turned 180). In his talk frame that gives 7422.90 3622.25
+  105.95 + 0.065 = 106.015, heading 285.4: the retail camera (the head in the retail picture is the dummy). Before, the client took a
+  camera only from the first line of persons.json (925 lines); 10,510 of the 12,153 lines of the conversation states and topics have a
+  camera attribute, 9,604 of them not in persons.json.
+- The camera of each line (ut567): `tools/convert-persons.sh line-cameras` writes `persons/line-cameras.json` (10,347 lines with a placed
+  camera; 155 lines name a point in the frame of a named person, "n", and keep the camera of the screen; the rule of the first line,
+  `persons.line_camera`, gives the same camera for each of the 1,002 persons of persons.json). The conversation screen sends the key of
+  each line that it shows ("conversation line KEY", swc/conversation.lua); the client cuts to the camera of that key in the frame of the
+  person (`USwcPersonSubsystem::GetLineCamera`, the Talk frame of the person), with its dummy and its hide. A line of the screen with no
+  camera has no cut: the camera of the screen (UI_Conversation). Tests: `tests/converter/test_persons_camera.py` (the Bennett preset
+  gives the retail camera within 0.01 m and 0.1 degree), the fixtures conversation and conversationpress (the line requests).
 
 | Person (preset) | Retail camera (set-mvph-talk) | Client camera |
 | --- | --- | --- |

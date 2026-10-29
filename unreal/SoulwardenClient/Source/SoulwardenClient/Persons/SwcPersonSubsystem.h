@@ -7,6 +7,8 @@
 
 #include "SwcPersonSubsystem.generated.h"
 
+class FJsonObject;
+
 class UAnimSequence;
 class USkeletalMesh;
 class USkeletalMeshComponent;
@@ -86,6 +88,10 @@ struct FSwcPerson
 		bool bDummyArmed = false;
 	};
 	FLine Line;
+	/** The frame of the camera points of the Talk lines: the Interact entity (persons.json "talkFrame"), else the body; engine meters
+	 *  (x east, y north, z up) and the engine yaw (degrees). */
+	FVector TalkFrame = FVector::ZeroVector;
+	double TalkFrameYaw = 0.0;
 	/** The spawned body, or null. */
 	TWeakObjectPtr<AActor> Actor;
 	/** The Talk of the body (SetTalking): none, the greet, the interact loop, the bye (then the idle). */
@@ -131,6 +137,12 @@ public:
 	/** @return The nearest person within a distance of a point (Unreal cm), or null. */
 	const FSwcPerson* FindNear(const FVector& Point, double Distance) const;
 	/**
+	 * The camera of a line of a conversation state or topic (SWC_CONTENT/persons/line-cameras.json, ut567; docs/PERSONS.md "The Talk
+	 * camera"): the camera place, the look-at point, the FOV, the hide, and the dummy in the frame of the person (the same rule as the
+	 * first line of persons.json). @return False when the line has no camera (the camera of the screen stays).
+	 */
+	bool GetLineCamera(const FSwcPerson& Person, const FString& LineKey, FSwcPerson::FLine& Out) const;
+	/**
 	 * The Talk of a person (the npc object key of the interaction data): the start plays the clip of GreetTimeline, then the loop of
 	 * InteractTimeline; the end plays the clip of ByeTimeline, then the idle (docs/PERSONS.md "The Talk").
 	 */
@@ -153,6 +165,8 @@ private:
 	uint32 SeenAchievementRevision = 0;
 	uint32 PresenceRevision = 0;
 	TArray<FSwcPerson> Persons;
+	/** The cameras of the lines of the conversation states and topics (line-cameras.json "cameras": the lower case key -> the camera). */
+	TMap<FString, TSharedPtr<FJsonObject>> LineCameras;
 	double NextUpdate = 0.0;
 	int32 Spawned = 0;
 };

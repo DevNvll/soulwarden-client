@@ -515,6 +515,19 @@ local function ensure_canvas()
   Swc.Note("conversation: the screen ConversationScreenV2 loads")
 end
 
+--- The line that the screen shows, for the Talk camera of the client (persons/line-cameras.json; ut567): "conversation line KEY" at each
+--- change of the key of the dialogue ("-": no line).
+local function announce(state)
+  local key = string.lower((string.gsub(tostring(state and state.dialogue or ""), "^@", "")))
+  if key == "" then
+    key = "-"
+  end
+  if key ~= C.announced then
+    C.announced = key
+    Swc.hostRequests[#Swc.hostRequests + 1] = "conversation line " .. key
+  end
+end
+
 local function send_state(withOption)
   local bus = DynamicBus.ConversationScreenV2
   if bus == nil or bus.Broadcast == nil then
@@ -523,7 +536,9 @@ local function send_state(withOption)
   end
   -- The screen updates its options one tick later (the hook of conversationscreenv2 below); at most 1 s (a state with no update).
   C.optionsPending = withOption and 1.0 or 0
-  bus.Broadcast.OnConversationStateChange(state_of(withOption))
+  local state = state_of(withOption)
+  announce(state)
+  bus.Broadcast.OnConversationStateChange(state)
 end
 
 local function request_end(why)
@@ -539,7 +554,7 @@ end
 --- The client opens or closes the conversation screen (UI/SwcUiConversation.cpp).
 function Swc.HostConversation(what, key, speaker, line, name, title, lines, npcId)
   if what == "open" then
-    C.open, C.ended = true, false
+    C.open, C.ended, C.announced = true, false, nil
     C.key, C.speaker, C.line, C.name, C.title = key or "", speaker or "", line or "", name or "", title or ""
     -- The lines: "KEY\tSPEAKER" each (the first line and its chain of dialogue-next), else the one line.
     C.lines, C.index = {}, 1
@@ -623,6 +638,7 @@ local function refresh()
   elseif C.prepared then
     local bus = DynamicBus.ConversationScreenV2
     if bus and bus.Broadcast then
+      announce(C.prepared)
       bus.Broadcast.OnConversationStateChange(C.prepared)
     end
   end
@@ -916,6 +932,7 @@ Swc.Define("ConversationRequestBus", "Broadcast", {
       local bus = DynamicBus.ConversationScreenV2
       if dialogue == "" then
         if bus and bus.Broadcast then
+          announce({dialogue = ""})
           bus.Broadcast.OnConversationStateChange({title = C.result.title, dialogue = "", responseType = RESPONSE.acceptance, dialogueId = dataId,
             options = {}})
         end
