@@ -823,6 +823,27 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       27.0 against 19.4 at @poa); the shadow-off cliff values repeat exactly; the first restored baseline is only near (noon @b1b cliff -5.6).
       Not proved [U]. The next check: a no-switch time control over the same time, samples at least each second after a restore, and the
       cloud shadows held off for one sequence.
+  - Window C (2026-10-29 22:07 to 22:30 UTC, the editor build of ace9c413 (the branch at 13a8b367: no code change); the compile gate passed:
+    0 faults, 4 workers (a backend-project retail run was alive), swap +9.5 GB; 0 compile faults; one gate fault before the first shot of
+    each run, then "in place"; each shot at EV 13.03; evidence `water-unreal/wnt-c-*`, `near-cloud-drift.png`; the tables
+    `work/water-unreal/tone3/c-water-mask.txt`, `c-scene.txt`, `c-stability.txt`, `c-times.txt`, `c-ev.txt`, `c-swap-guard.log`):
+    - The swap guard stopped the Unreal run at 22:28:55 (the swap +20.9 GB from 18.6 GB; the retail run was alive too): 27 of about 102
+      shots were taken (the time control, the two held controls, the settle sample, and the first 3 states of the 2 x 2 at 16:30). The
+      2 x 2 at noon, its reverse order, and `swc.SkyLightSource 0` did not run. The client ended with the stop (no switch stays set).
+    - The cloud drift, proved by these shots [R]: the time control at 16:30 (6 shots, no switch; the server hour 16:30:06 at each shot but
+      t3 at 16:29:41): the dry cliff L* 4.29 / 4.29 / 4.40 / 12.73 / 17.24 / 4.31, the sky 18.2 to 33.0, the water 28.9 to 31.8 (a spread
+      of 2.85 L*). With the cloud shadow map off (`r.VolumetricCloud.ShadowMap 0`, 3 shots): the cliff 30.16 in each shot, the sky spread
+      0.85, the water spread 0.28. With the clouds off (`swc.Clouds 0`, 3 shots): the cliff spread 0.02, the sky 0.01, the water 0.17. The
+      moving cloud shadow makes the drift of the scene and the water; the time does not (the server hour holds).
+    - The cloud shadow also makes the dark 16:30 cliff (L* 4.3 with it, 30.2 without it, in both paths of the scene). The "shadows off"
+      shots of the screening window turned the cloud shadows off too (CastCloudShadows): their cliff 30.4 is this cloud-shadow effect.
+    - The 16:30 water against the mean of the 2 source shots (L* 17.7): the time control +11.2 to +14.1; the cloud shadow off +17.6 to
+      +17.9 (the cloud shadow darkens the water too). The 2 x 2 at 16:30 (one counted shot each, all "not stable": the cliff or the sky moved
+      more than 0.5 L* over the 2 samples and the shot): probe 1 / reflection 1: +13.2; probe 0 / reflection 1: -1.5 (PASS, hue -9.0);
+      probe 1 / reflection 0: -9.2 (hue +60.6). Probe 0 / reflection 0 was not taken. [I: the reflection carries much of the water light;
+      the split needs a repeat with the cloud shadow held off.]
+    - The settle check of the defaults did not run (the stop); the defaults hold again because the client ended. `find -newer` of the
+      shared content (SWC_CONTENT) against a stamp of 22:07:01: 0 files.
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
