@@ -914,6 +914,28 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
 
+- The probe-reflection design (GPT-6.1-Sol, read only; brief `research/briefs/ast200-2c-probe-reflection.txt`, result
+  `~/Games/soulwarden-client/research/water-probe-reflection.md`; the word of the orchestrator 2026-10-29 22:59 and 23:00 UTC):
+  - The 08:00 result of `swc.SkyLightSource 0` [I]: the real-time capture is a different light input (intensity 1, white tint, the lower
+    hemisphere black; the world probe keeps its ground half and the source curve); it also darkens the land (the held cliff -3 L* at 16:30,
+    -4 at 08:00). No single faulty capture setting is proved. A hard switch by the hour needs no engine change (the existing switch), but it
+    changes the land, the rivers, and the lakes; an ordinary cube blend does not reach the Lumen sky misses (they sample the first cube only)
+    [R].
+  - The mirror [R]: the water roughness is not the cause (the Lumen ray generation forces roughness 0 for Single Layer Water: the rays are
+    already mirror rays); the screen traces are on by default (50 hierarchical iterations), but a hit can be rejected (thickness, history,
+    screen edge); the client import gives the meshes no distance fields and no Lumen cards, so offscreen and rejected rays fall to the probe
+    sky. The likely fault [I]: weak or rejected on-screen hits plus the missing scene data of the cliff.
+  - No existing cvar scales only the ocean sky misses [R] (`r.Lumen.Reflections.SpecularScale` is not used by the water composite; the sky
+    light has no reflection-only scale; the skylight leaking is extra light and defaults 0).
+  - The ranked options: rank 1 (runtime cvars, no build): `r.Lumen.Reflections.HierarchicalScreenTraces.MaxIterations` 50 -> 100, then the
+    depth thickness 0.005 -> 0.01, `r.Water.SingleLayer.Reflection 3` (classic SSR) as a control, `swc.SkyLightSource 0` at 16:30 only; rank 2
+    (client or content, no engine change): an hour rule of the sky light source, capture settings, hour probes as one specified cube (the
+    catalog has 3 world cubes with no hour field), distance fields and cards for the exact cliff meshes (an import and an incremental cook);
+    rank 3: an ocean-only selector at the Lumen missed-ray lookup (a renderer module and global shader rebuild, an incremental cook, not a
+    full cook by itself; an ocean tag that survives the water passes is not proved).
+  - The recommendation: the trace test first (held 16:30; baseline / MaxIterations 100 / 100 / baseline; source shots around it), then mode
+    3 against mode 1 if the cliff stays weak; measure the mirror silhouette as well as the mask; repeat a useful result in the normal scene.
+
 ### The visible differences of the Unreal ocean against the source (stage 2c, 2026-10-29)
 
 The list of the differences that the stage 2c pictures show (the best setting with blue 1.5; the fixed exposure EV 13.03; the source is the
