@@ -53,7 +53,8 @@ end
 -- The Obelisk root: G 0x4C554F534000002A = 5500585112935202858; the device done (leaf 1 1/1 Complete, wrapper 2 1/1 Complete), the kill
 -- leaf 3 at 1/2 Active, its wrapper 4 Active, the root 5 at 1/2 Active.
 local ROOT = "5500585112935202858"
-local TREE = "@04A_Side02_02_ObeliskDefenders_Title\t@Enc_04A_Side02_02_Interact|1|0|0|@04A_Side02_02_ObeliskDefenders_Title\t"
+-- The head: the name key of the territory definition 8058 of the root (E2b, tools/convert-ui.sh encounters); the wrapper: the stage title.
+local TREE = "@04A_Side02_02_Encounter_01\t@Enc_04A_Side02_02_Interact|1|0|0|@04A_Side02_02_ObeliskDefenders_Title\t"
   .. "@Enc_04A_Side02_02_KillAI|2|0|0|@04A_Side02_02_ObeliskDefenders_Title"
 local function encounter_lines(kill)
   local lines = {"E " .. ROOT .. " 7B52B1B2898D5D2684BD2DCED94F3321\t" .. TREE,
@@ -78,7 +79,7 @@ local tracked = ObjectivesComponentRequestBus.Event.GetTrackedObjectives(Swc.ids
 check(#tracked == 2 and tracked[1]:ToString() == ROOT, "the encounter is tracked first (" .. #tracked .. " tracked)")
 local rootId = tracked[1]
 equal(ObjectiveRequestBus.Event.GetType(rootId), eObjectiveType_POI, "the encounter objective has the type POI")
-equal(ObjectiveRequestBus.Event.GetTitle(rootId), "@04A_Side02_02_ObeliskDefenders_Title", "the title of the stages")
+equal(ObjectiveRequestBus.Event.GetTitle(rootId), "@04A_Side02_02_Encounter_01", "the head title: the name of the territory definition")
 local rootTasks = ObjectiveRequestBus.Event.GetTasks(rootId)
 check(#rootTasks == 1 and rootTasks[1].taskIndex == 5, "the root task is the outer container 5")
 local wrappers = ObjectiveTaskRequestBus.Event.GetTasks(rootTasks[1])
@@ -91,6 +92,7 @@ check(not ObjectiveTaskRequestBus.Event.GetHideProgress(kill), "the kill leaf sh
 local text = texts_of(hud)
 note("the tracker: " .. text)
 check(text:find("1 / 2", 1, true) ~= nil, "the tracker shows the counter 1 / 2")
+check(text:find("Perseus Stellar Research", 1, true) ~= nil, "the head line: Perseus Stellar Research (retail set-ut567-encounters)")
 local _, titles = text:gsub("Stellar Research", "")
 check(titles >= 2, "the wrapper line has the stage title (retail: \"Stellar Research\" under the head line; " .. titles .. " found)")
 picture("encounters-hud")
@@ -108,7 +110,7 @@ check(pins == nil or not pins:find(ROOT, 1, true), "no pin request names the enc
 -- A timed leaf (the Thorpe intermission: 10 s): its TimeLimit and the start of the S line.
 local TIMED = "5500585112935202859"
 local start = WallClockTimePoint:Now():GetTimeSinceEpoc():ToSeconds() - 2
-Swc.HostQuests(table.concat({"E " .. TIMED .. " 252DC9178EA98EA7\t@MSQ_0036_Thorpe_Title\t|1|10|0", "T " .. TIMED .. " 1 0 0 1",
+Swc.HostQuests(table.concat({"E " .. TIMED .. " 252DC9178EA98EA7\t@9901_0036_masterofthetempest_objective_solo_title\t|1|10|0", "T " .. TIMED .. " 1 0 0 1",
   "T " .. TIMED .. " 2 0 0 1", "T " .. TIMED .. " 3 0 0 1", string.format("S %s 1 %.0f", TIMED, start * 1e9), "K " .. TIMED}, "\n"))
 frames(0.5)
 local leaf = Swc.quests.task_id(TIMED, 1)
@@ -120,7 +122,7 @@ near(taskStart and taskStart.seconds or 0, start, 0.01, "GetTaskStartTime gives 
 local LEGION = "5500585112935202860"
 local before = #ObjectivesComponentRequestBus.Event.GetTrackedObjectives(Swc.ids.player)
 Swc.HostQuests(table.concat({"E " .. LEGION .. " 38C0B7FF392EF3E226390F6D866CD435\t", "T " .. LEGION .. " 1 0 0 1", "K " .. LEGION,
-  "E " .. TIMED .. " 252DC9178EA98EA7\t@MSQ_0036_Thorpe_Title\t|1|10|0", "K " .. TIMED}, "\n"))
+  "E " .. TIMED .. " 252DC9178EA98EA7\t@9901_0036_masterofthetempest_objective_solo_title\t|1|10|0", "K " .. TIMED}, "\n"))
 frames(0.5)
 local after = ObjectivesComponentRequestBus.Event.GetTrackedObjectives(Swc.ids.player)
 local named = false

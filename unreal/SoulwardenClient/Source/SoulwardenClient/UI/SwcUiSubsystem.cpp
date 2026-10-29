@@ -2117,7 +2117,7 @@ void USwcUiSubsystem::FeedLocalPlayer()
 	FeedItems(Own);
 	FeedOwnerStates(Own);
 	CraftingScreen.Feed(*Runtime, Own);
-	Quests.Feed(*Runtime, Own, *Backend);
+	Quests.Feed(*Runtime, Own, *Backend, ContentDir);
 	// The place cues 2297 and 6416 of the points of interest (AST-241): from the feet of the character.
 	if (UWorld* World = GetGameInstance()->GetWorld())
 	{

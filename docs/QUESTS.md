@@ -614,7 +614,12 @@ the root at the top of the tracker (a teal diamond), its stage title, and the ro
 - The task tree (`FSwcUiQuests::LoadEncounterTrees`, the rule of the notes, static read D of QG5c4): the stages in stageOrder and their
   child stages; each objective of a user-wave stage that makes a task (InvasionWave: target 1; SliceDestroyed and SliceSpawned:
   requiredCount; EntityActiveStateChanged with a description: 1; WaitForParent: none). Task m has the leaf 2m+1 and its consecutive
-  wrapper 2m+2; the root is the consecutive container 2T+1. The title is the first title of those objectives.
+  wrapper 2m+2; the root is the consecutive container 2T+1. The wrapper has the m_title of its stage objective ("Stellar Research").
+  The head title (E2b, static read work/ut567/qgplan/E2b/ANSWERS.md): the NameLocalizationKey of the territory definition of the
+  "Territory Id" of the TerritoryDataProviderComponent of the root (any table of the type TerritoryDefinition; Obelisk 01: 8058,
+  "@04A_Side02_02_Encounter_01" = "Perseus Stellar Research"; Thorpe: 8048, "To Stand Against The Dark"). No id or no row: an empty head
+  (retail has no fallback). `tools/convert-ui.sh encounters` writes ui/gamedata/encounters.json (60 of 62 recipes have a head). This
+  corrects the protocol notes 4.62, which name the stage title key as the head.
 - The adapter (`swc/quests.lua` `encounter_record`): the record has the type POI (the location slot of the tracker) and generated rows
   (TP_DescriptionTag, TargetQty, TimeLimit, HideProgress for m_countDownProgress). The timer of a timed leaf uses the S line of the root
   (`GetTaskStartTime`). [I] The end of a root sends only OnObjectiveRemoved (no banner of a failed or completed quest). An encounter
@@ -638,10 +643,8 @@ the root at the top of the tracker (a teal diamond), its stage title, and the ro
   - Thorpe: "To Stand Against The Dark: Stage 1/5", "0 / 9 - Harass Thorpe's Supporters", then "Intermission 00:00:10" counting down.
   - Legion Attack: no row (after the fix; before it, a lone POI diamond).
   - The development aid `encounter use` moved past the device (E4 is missing) in the client runs.
-- Open points from the retail stills (set-ut567-encounters): the head line of retail is "Perseus Stellar Research" (the client shows
-  "Stellar Research"); retail shows the stage title "Stellar Research" on the line of the wrapper (the client shows an empty
-  checkbox line); and retail keeps the head line with no task for some seconds after the last kill (the cleanup stage of 3 s), while
-  the client removes the row at once.
+- The retail stills (set-ut567-encounters) gave three points: the head line (fixed, above), the wrapper line (fixed, above), and the
+  end. The end is the same in both: the head line stays with no task for the 3 s of the cleanup stage, then the row goes.
 
 ## Open points
 

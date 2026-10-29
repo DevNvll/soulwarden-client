@@ -2,7 +2,7 @@
 # Converts the UI content of the game copy (canvases and UI slices as data, the Lua scripts, the textures and sprites,
 # the fonts, the English texts) into SWC_CONTENT/ui (outside the repository). See converter/swc_convert/ui.py.
 # Usage: tools/convert-ui.sh hud [--force] | canvases [PATH...|--all] | scripts | textures ... | wanted [FILE] | fonts | text | items | uistates
-#        | world | options | gamemenu | questsupport MANIFEST [--out FILE]
+#        | world | options | gamemenu | worldmap | encounters | questsupport MANIFEST [--out FILE]
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 cd "${SWC_REPO}/converter"

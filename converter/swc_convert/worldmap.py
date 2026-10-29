@@ -63,6 +63,52 @@ def definitions() -> dict[int, dict]:
     return out
 
 
+def slice_territory_ids(path: str) -> list[int]:
+    """@return The territory ids of the TerritoryDataProviderComponent fields "Territory Id" (a text) of a slice, in their order."""
+    ids = []
+    for top in source.parse(source.read(path)):
+        for node in source.walk(top):
+            if node.name == TERRITORY_ID_FIELD and node.value:
+                text = source.text(node)
+                if text.isdigit():
+                    ids.append(int(text))
+    return ids
+
+
+def encounter_titles(recipes: list[dict], territory_ids, names: dict[int, str]) -> dict[str, dict]:
+    """The head title of the tracker row of each encounter recipe (E2b, ut567; static read work/ut567/qgplan/E2b/ANSWERS.md): the
+    objective of the root takes the NameLocalizationKey of the territory definition of the "Territory Id" of its
+    TerritoryDataProviderComponent (0x3A575E0, 0x3A2E590, the lookup 0x44D1C60); with no id or no row the title is empty (no fallback:
+    not the stage title, not the success event). territory_ids(slice) gives the ids of a slice; names: territory id -> name key.
+    @return The upper-case slice asset of each recipe -> {"territory": ID or 0, "title": KEY or ""}."""
+    out: dict[str, dict] = {}
+    for recipe in recipes:
+        ids = territory_ids(recipe["slice"])
+        ident = ids[0] if ids else 0
+        out[str(recipe["asset"]).upper()] = {"territory": ident, "title": str(names.get(ident, "")) if ident else ""}
+    return out
+
+
+def definition_names() -> dict[int, str]:
+    """@return The NameLocalizationKey of each row of each table of the type TerritoryDefinition (the territories, areas, points of
+    interest, darkness, defend objects, arenas, invasions, trigger volume POIs; not devworld) by id: the rows of the native territory
+    definition manager (the head titles of the encounters, E2b; for example 8102 of javelindata_defendobjectdefinitions)."""
+    names: dict[int, str] = {}
+    for path in sorted(p for p in source.paks().entries if p.startswith(datasheet.TABLES_FOLDER) and p.endswith(".datasheet")
+                       and "devworld" not in p):
+        try:
+            sheet = datasheet.Sheet(source.read(path))
+        except (ValueError, struct.error):
+            continue
+        if sheet.type != "TerritoryDefinition":
+            continue
+        for row in sheet.rows():
+            ident = row.get("TerritoryID")
+            if isinstance(ident, float) and row.get("NameLocalizationKey"):
+                names.setdefault(int(ident), str(row["NameLocalizationKey"]))
+    return names
+
+
 def az_matrix(value: bytes) -> np.ndarray:
     v = struct.unpack(">12f", value)
     m = np.eye(4)

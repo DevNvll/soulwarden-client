@@ -1532,6 +1532,20 @@ WORLDMAP_CANVASES = ["lyshineui/worldmap/magicmap.dynamicuicanvas"]
 WORLDMAP_TEXTURE_FOLDERS = ["lyshineui/worldtiles/newworld_vitaeeterna/", "lyshineui/images/map/", "lyshineui/images/icons/worldmap/"]
 
 
+def convert_encounters() -> dict:
+    """E2b (QG5, ut567): the head title of the tracker row of each encounter recipe of the backend copy (encounter-data.json) ->
+    SWC_CONTENT/ui/gamedata/encounters.json {"format": 1, "titles": {ASSET: {"territory", "title"}}} (worldmap.encounter_titles;
+    the client: UI/SwcUiQuests LoadEncounterTrees). The texts of the keys are in the localization of the UI (tools/convert-ui.sh text)."""
+    recipes = json.loads((gamedata_dir() / "encounter-data.json").read_text())["recipes"]
+    titles = worldmap.encounter_titles(recipes, worldmap.slice_territory_ids, worldmap.definition_names())
+    target = out_dir() / "gamedata" / "encounters.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps({"format": 1, "titles": titles}, indent=1, sort_keys=True))
+    return {"file": str(target), "recipes": len(titles), "withTitle": sum(1 for t in titles.values() if t["title"]),
+            "noTerritory": sorted(a for a, t in titles.items() if not t["territory"]),
+            "noRow": sorted(a for a, t in titles.items() if t["territory"] and not t["title"])}
+
+
 def convert_worldmap(force: bool) -> dict:
     data = worldmap.convert()
     canvases = convert_canvases(WORLDMAP_CANVASES)
@@ -1817,6 +1831,7 @@ def main(argv=None) -> int:
     sub.add_parser("options")
     sub.add_parser("gamemenu")
     p = sub.add_parser("worldmap"); p.add_argument("--force", action="store_true")
+    sub.add_parser("encounters")
     p = sub.add_parser("crafting"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("quests"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("questsupport"); p.add_argument("manifest"); p.add_argument("--out")
@@ -1866,6 +1881,8 @@ def main(argv=None) -> int:
         result = convert_gamemenu()
     elif args.command == "worldmap":
         result = convert_worldmap(args.force)
+    elif args.command == "encounters":
+        result = convert_encounters()
     elif args.command == "crafting":
         result = convert_crafting(args.force)
     elif args.command == "quests":

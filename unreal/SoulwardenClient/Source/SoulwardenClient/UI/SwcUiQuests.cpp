@@ -30,7 +30,7 @@ void FSwcUiQuests::Reset()
 	bSentAny = false;
 }
 
-void FSwcUiQuests::LoadEncounterTrees()
+void FSwcUiQuests::LoadEncounterTrees(const FString& ContentDir)
 {
 	// The task tree of an encounter objective (protocol notes 4.62, the collector 0x26F1FD0 and the factories of 0x44650F0): the stages of
 	// the manager in their order (stageOrder) and the child stages of each one, and in each stage with m_userWave each objective
@@ -38,6 +38,32 @@ void FSwcUiQuests::LoadEncounterTrees()
 	// m_requiredCount), EntityActiveStateChangedObjective (target 1, only with a description); WaitForParentObjective and the other types
 	// make no task. Task m has the leaf 2m+1 and its wrapper 2m+2; the outer container is 2T+1 (swc/quests.lua builds the nodes).
 	bEncounterTreesLoaded = true;
+	// The head title of each recipe (E2b; static read work/ut567/qgplan/E2b): the name key of the territory definition of the "Territory
+	// Id" of the TerritoryDataProviderComponent of the root (ui/gamedata/encounters.json, tools/convert-ui.sh encounters). No id or no row:
+	// an empty title (retail has no fallback, not the stage title).
+	TMap<FString, FString> Heads;
+	{
+		FString HeadText;
+		TSharedPtr<FJsonObject> HeadRoot;
+		const TSharedPtr<FJsonObject>* Titles = nullptr;
+		const FString HeadPath = FPaths::Combine(ContentDir, TEXT("ui/gamedata/encounters.json"));
+		if (FFileHelper::LoadFileToString(HeadText, *HeadPath) && FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(HeadText), HeadRoot)
+			&& HeadRoot.IsValid() && HeadRoot->TryGetObjectField(TEXT("titles"), Titles))
+		{
+			for (const auto& Entry : (*Titles)->Values)
+			{
+				const TSharedPtr<FJsonObject> Head = Entry.Value->AsObject();
+				if (Head.IsValid())
+				{
+					Heads.Add(FString(Entry.Key).ToUpper(), Head->GetStringField(TEXT("title")));
+				}
+			}
+		}
+		else
+		{
+			UE_LOG(LogSwcUiQuests, Warning, TEXT("ui: quests: no encounter titles (%s; tools/convert-ui.sh encounters): the encounter rows have no head"), *HeadPath);
+		}
+	}
 	FString Text;
 	const FString Path = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_GAMEDATA_DIR")), TEXT("encounter-data.json"));
 	TSharedPtr<FJsonObject> Root;
@@ -62,7 +88,8 @@ void FSwcUiQuests::LoadEncounterTrees()
 		{
 			continue;
 		}
-		FString Title;
+		const FString* Head = Heads.Find(Asset.ToUpper());
+		const FString Title = Head != nullptr ? *Head : FString();
 		TArray<FString> Tasks;
 		TSet<int32> Seen;
 		TFunction<void(int32)> Visit = [&](int32 Index) {
@@ -113,10 +140,6 @@ void FSwcUiQuests::LoadEncounterTrees()
 					bool bCountDown = false;
 					Each->TryGetBoolField(TEXT("countDown"), bCountDown);
 					const FString StageTitle = Each->GetStringField(TEXT("title"));
-					if (Title.IsEmpty() && !StageTitle.IsEmpty())
-					{
-						Title = StageTitle;
-					}
 					// The fifth field: the title of the stage objective, the text of the wrapper line (retail: "Stellar Research" under the
 					// head line; ut567 2026-10-29 retail stills).
 					Tasks.Add(FString::Printf(TEXT("%s|%d|%g|%d|%s"), *Description, Target, TimeLimit, bCountDown ? 1 : 0, *StageTitle));
@@ -145,7 +168,7 @@ void FSwcUiQuests::LoadEncounterTrees()
 	UE_LOG(LogSwcUiQuests, Log, TEXT("ui: quests: the task trees of %d encounter slice(s) (%s)"), EncounterTrees.Num(), *Path);
 }
 
-void FSwcUiQuests::Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::OwnEntity& Own, USwcBackendSubsystem& Backend)
+void FSwcUiQuests::Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::OwnEntity& Own, USwcBackendSubsystem& Backend, const FString& ContentDir)
 {
 	using FArg = swc::ui::Runtime::Arg;
 	if (!Own.hasMetadata)
@@ -205,7 +228,7 @@ void FSwcUiQuests::Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::Ow
 			const std::uint64_t Instance = Root->rootActive.front().instance;
 			if (!bEncounterTreesLoaded)
 			{
-				LoadEncounterTrees();
+				LoadEncounterTrees(ContentDir);
 			}
 			const FString* Tree = EncounterTrees.Find(UTF8_TO_TCHAR(Asset));
 			if (Tree == nullptr)

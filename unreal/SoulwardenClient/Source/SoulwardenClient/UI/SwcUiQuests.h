@@ -20,7 +20,7 @@ class USwcBackendSubsystem;
  */
 struct FSwcUiQuests
 {
-	void Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::OwnEntity& Own, USwcBackendSubsystem& Backend);
+	void Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::OwnEntity& Own, USwcBackendSubsystem& Backend, const FString& ContentDir);
 	/** A new world session (a travel keeps it; a character change makes a new one): the state and the calls start again. */
 	void Reset();
 	/**
@@ -65,7 +65,7 @@ private:
 	 *  one "DESCRIPTION|TARGET|TIMELIMIT|HIDE" entry for each task, tab-separated (protocol notes 4.62 "The task tree"). */
 	TMap<FString, FString> EncounterTrees;
 	bool bEncounterTreesLoaded = false;
-	void LoadEncounterTrees();
+	void LoadEncounterTrees(const FString& ContentDir);
 	uint32 SentReadyRevision = 0;
 	bool bSentAny = false;
 	uint64 Group = 0;
