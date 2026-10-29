@@ -655,6 +655,19 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       -26.1 / -23.1; ocean-clear-open -36.1 / -36.3 / -36.7 / -34.1; beach-down +7.8 / +9.8 / +13.4 / +16.9 (its spread 10.9). No effect
       beyond the shot spread at the ocean views; the flatter normal does not give the sharp mirror reflection of the source (the cliff
       and the statue at ocean-far): the source reflection is a different term, not the normal [I]. Mix stays 1.
+  - The reflection study (GPT-6.1-Sol, read only; brief `research/briefs/ast200-2c-reflection.txt`, result
+    `~/Games/soulwarden-client/research/water-reflection.md`):
+    - The sharp cliff of the source path is the screen-space scene trace; the sky fill (the current-sky cube) replaces the material cube
+      [R]. Unreal mode 1 (`r.Water.SingleLayer.Reflection 1`, the default) uses software Lumen reflections (the project uses Lumen; the
+      imported meshes have no distance fields and no Lumen cards), then the captures and the skylight (`swc.SkyLightSource 1`: the
+      imported world probe cube, not the current sky). The plugin roughness is 0.02 to 0.1, F0 about 0.018 (the source floor 0.065) [R].
+    - Measures [R]: the source open water of ocean-clear has a tile SD 0.84 to 0.89 and a cliff silhouette step +4.8 to +7.7 L*; Unreal
+      2.5 to 2.9 and -0.9 to +0.9; Mix 0.1 removes the fine texture (1.1) but not the dark mean (L* 37) nor the weak cliff step. Two
+      faults [I]: too much small-scale distortion, and a weak or missing coherent reflection (the scene and the bright sky).
+    - The supported next test [I]: `r.Water.SingleLayer.Reflection` 1 / 2 / 3 (1 Lumen, 2 the cubes only, 3 SSR with the cube fallback)
+      at the blue 1.25 baseline, 2 shots each (order 1, 2, 3, 3, 2, 1), with source shots. An engine cvar for all Single Layer Water: a
+      diagnostic only, never a shipped ocean-only change. Later, in the check parent only: a roughness override (plugin, 0.02, 0.005,
+      0.0005), and a source-shaped sky term (the current-sky cube, the source Fresnel, the soft intersection, the clamp; default gain 0).
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
