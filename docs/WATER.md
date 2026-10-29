@@ -559,6 +559,19 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       shore + N + extinction 2: beach-down -5.3, ocean-clear -0.1, ocean-far +3.0.
     - Not done: the controls (the lakes, the rivers, the source mode, the underwater view, the far join) and the cooked build (it needs
       the check material in the shared plugin: the word of the orchestrator).
+  - The controls and the repeat (2026-10-29 14:23 to 14:55 UTC, the editor build of f5868fb6; the compile gate passed; 0 compile faults in
+    each run; evidence `water-unreal/wnt-k-*`, `shore-controls-faults.png`): the best setting (shore 1 + N 1 + extinction 2, the blend)
+    against all off, at the same place.
+    - The repeat, the near band, Unreal minus source (3 shots): ocean-far +5.3 / +5.5 / +5.7; ocean-clear +7.2 / +7.3 / +5.9; beach-down
+      -4.7 / -2.3 / -3.8. FAIL at ocean-far (just above 5 each time) and ocean-clear; the single pass of the last window (+4.9, +3.5) was
+      inside the spread. No default.
+    - The source mode (the automatic exposure): the EV of the frame -0.02 and +0.02 EV, the bands within 2.2 L*: PASS (no new code runs).
+    - The lake: within 0.6 L*: PASS. river-down -3.7 to -4.6 and river-forest up to -2.1: the grass and the wood are darker too (a change of
+      the light between the shots, not the ocean switches) [I; an A/A pair would prove it].
+    - The underwater view: FAIL. swim-surface -24 to -41 L*: the camera is under the surface in the best shot, and the underside of the
+      surface shows as an opaque yellow-green plane (the blend adds opacity on the underside too). The terms need an underside gate
+      (TwoSidedSign or the camera-underwater state; the study of the near term). swim-under -6.9 in the far band.
+    - The far join: NOT VALID (the pictures are near black, L* about 3; the first meter line of the run gives EV 0.74, then 13.03).
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
