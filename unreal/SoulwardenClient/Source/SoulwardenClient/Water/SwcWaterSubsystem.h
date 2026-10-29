@@ -211,6 +211,8 @@ private:
 	/** The near term of the ocean that the ocean instances have now (gain, mode, debug, sigma) and the time of its next update. */
 	FVector4f AppliedNear = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
 	double NextNearUpdate = 0.0;
+	/** The shore foam of the ocean that the ocean instances have now (gain, debug). */
+	FVector2f AppliedShore = FVector2f(0.0f, 0.0f);
 	/** -SwcWaterOceanDepth=M: the channel depth of the plugin ocean in m (default 10; the plugin default 0 makes the ocean the minimum of the
 	 *  water height range of the zone, and then the plugin draws it clear: docs/WATER.md "Stage 2a"). */
 	float OceanChannelDepth = 10.0f;

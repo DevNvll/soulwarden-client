@@ -25,7 +25,7 @@ import unreal
 DEST = os.environ.get("SWC_WATER_UNREAL_DEST", "/SwcWaterCheck/Water/Near").rstrip("/")
 REPORT = os.environ["SWC_WATER_UNREAL_REPORT"]
 force = os.environ.get("SWC_IMPORT_FORCE", "") == "1"
-VERSION = "2"   # 1: the first near term (the plugin floor T, a flat-surface Fresnel); 2: Break / Make Material Attributes
+VERSION = "3"   # 1: the first near term (the plugin floor T, a flat-surface Fresnel); 2: Break / Make Material Attributes; 3: the shore foam
 if not DEST.startswith("/SwcWaterCheck/"):
     raise RuntimeError(f"the near term goes into the check plugin only, not {DEST}")
 
@@ -64,9 +64,37 @@ if (Debug > 0.5)
 return max(Add, 0.0);
 """
 
+# The source shore foam of the ocean (water_materials.py, the ocean branch of the foam: research/water-shallow-terms.md): the band of the
+# view-depth gap s = sat(FoamSoft q), the foam map m (two samples of the linear foam data), the gloss G; fshore = m sat(m - 2 G s) sat(s - s^2);
+# f = fshore x the sun luminance / 10000 x sat(0.5 + shade^2) x a, with the minimum shade 0.5 [the first test: an additive diagnostic,
+# gain x f x FoamAmount x 10000 on the emissive; the source blend is f x (FoamAmount x 10000 - C)]. The coordinates of the source ocean:
+# FoamUV = world (m) x 0.005 x Tilling + wind, wind = (cos, sin)(WindDirection) x WaveSpeed x WindScale x Time. No crest foam (h = 0).
+SHORE = r"""
+float q = max(Behind - Surface, 0.0) * 0.01;
+float a = saturate(Soft * q);
+float2 world = P.xy * 0.01;
+float2 dir = float2(cos(WindDirection), sin(WindDirection));
+float2 FoamUV = world * 0.005 * Tilling + dir * WaveSpeed * WindScale * Time;
+float s = saturate(FoamSoft * q);
+float G = 0.7 * Texture2DSample(Gloss, GlossSampler, FoamUV * 0.05).r + 0.3;
+float2 u = FoamUV * FoamTilling;
+float2 u2 = 2.73 * u - dir * WaveSpeed * WindScale * FoamTransition * 0.1 * Time * FoamTilling;
+float m = Texture2DSampleBias(FoamData, FoamDataSampler, u, -1.0).r + 0.5 * Texture2DSampleBias(FoamData, FoamDataSampler, u2, -1.0).r;
+float fshore = m * saturate(m - 2.0 * G * s) * saturate(s - s * s);
+float sunUnit = dot(min(Sun, 100000.0), float3(0.2126, 0.7152, 0.0722)) / 10000.0;
+float f = fshore * sunUnit * 0.5 * a;
+float3 Add = Gain * f * FoamAmount * 10000.0;
+if (Debug > 0.5)
+{
+    Add = Gain * 1000.0 * float3(s, saturate(0.5 * m), saturate(4.0 * f));
+}
+return max(Add, 0.0);
+"""
+FOAM_TEXTURES = {"FoamData": "/SwcGameContent/Water/Textures/T_SwcWater_FoamData", "Gloss": "/SwcGameContent/Water/Textures/T_SwcWater_Gloss"}
+
 assets = unreal.EditorAssetLibrary
 editing = unreal.MaterialEditingLibrary
-unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(["/Water", DEST.rsplit("/", 1)[0]], True)
+unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(["/Water", "/SwcGameContent/Water", DEST.rsplit("/", 1)[0]], True)
 report = {"dest": DEST, "version": VERSION, "made": [], "kept": [], "failed": [], "notes": []}
 
 
@@ -159,6 +187,49 @@ def make_parent():
     connect(get, ["EmissiveColor"], add, ["A"])
     connect(custom, [""], add, ["B"])
 
+    # The shore foam (SHORE): its own Custom node and parameters; the source textures are read, not changed.
+    shore_params = {"Gain": scalar("SwcShoreGain", 0.0, 1100), "Debug": scalar("SwcShoreDebug", 0.0, 1200),
+                    "FoamAmount": scalar("SwcFoamAmount", 0.5, 1300), "FoamTilling": scalar("SwcFoamTilling", 1.0, 1400),
+                    "FoamSoft": scalar("SwcFoamSoft", 1.0, 1500), "FoamTransition": scalar("SwcFoamTransition", 5.0, 1600),
+                    "WindDirection": scalar("SwcWindDirection", 0.0, 1700), "WaveSpeed": scalar("SwcWaveSpeed", 1.0, 1800),
+                    "WindScale": scalar("SwcWindScale", 0.02, 1900), "Tilling": scalar("SwcTilling", 32.0, 2000),
+                    "Soft": scalar("SwcSoft", 1.0, 2100)}
+    textures = {}
+    for k, (name, path) in enumerate(FOAM_TEXTURES.items()):
+        texture = assets.load_asset(path)
+        if texture is None:
+            raise RuntimeError(f"no source texture {path}")
+        node = editing.create_material_expression(material, unreal.MaterialExpressionTextureObjectParameter, x, y + 2200 + 150 * k)
+        node.set_editor_property("parameter_name", f"Swc{name}")
+        node.set_editor_property("texture", texture)
+        node.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_MASKS)
+        textures[name] = node
+    position = editing.create_material_expression(material, unreal.MaterialExpressionWorldPosition, x, y + 2500)
+    time = editing.create_material_expression(material, unreal.MaterialExpressionTime, x, y + 2600)
+    shore = editing.create_material_expression(material, unreal.MaterialExpressionCustom, x + 400, y + 1600)
+    shore.set_editor_property("code", SHORE)
+    shore.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT3)
+    shore.set_editor_property("description", "SwcShoreTerm")
+    shore_names = list(shore_params) + ["Sun", "Behind", "Surface", "P", "Time", "FoamData", "Gloss"]
+    entries = []
+    for name in shore_names:
+        entry = unreal.CustomInput()
+        entry.set_editor_property("input_name", name)
+        entries.append(entry)
+    shore.set_editor_property("inputs", entries)
+    for name, node in shore_params.items():
+        connect(node, [""], shore, [name])
+    connect(sun, ["RGB", ""], shore, ["Sun"])
+    connect(behind, [""], shore, ["Behind"])
+    connect(surface, [""], shore, ["Surface"])
+    connect(position, [""], shore, ["P"])
+    connect(time, [""], shore, ["Time"])
+    for name, node in textures.items():
+        connect(node, [""], shore, [name])
+    total = editing.create_material_expression(material, unreal.MaterialExpressionAdd, x + 950, y)
+    connect(add, [""], total, ["A"])
+    connect(shore, [""], total, ["B"])
+
     # Each attribute of the parent goes from Break to the pin of the same name on Make; the emissive goes through the Add. The break outputs
     # (MaterialExpressions.cpp, UMaterialExpressionBreakMaterialAttributes): the names below and CustomizedUV0..7.
     put = editing.create_material_expression(material, unreal.MaterialExpressionMakeMaterialAttributes, x + 1100, y)
@@ -181,7 +252,7 @@ def make_parent():
     main = [out for out in missing if not out.startswith("CustomizedUV")]
     if main:
         raise RuntimeError(f"the attributes {main} do not go from Break to Make")
-    connect(add, [""], put, ["EmissiveColor", "Emissive Color"])
+    connect(total, [""], put, ["EmissiveColor", "Emissive Color"])
     try:
         report["notes"].append(f"customized UVs of the parent: {material.get_editor_property('num_customized_u_vs')}")
     except Exception:

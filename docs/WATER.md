@@ -512,6 +512,20 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       (ocean-far needs x2 or more, ocean-clear at most x1.5, beach-down is outside at each scale). FAIL: no default, as planned. In the
       shallow water at beach-down the source N is small (the ramp sat(0.1 L) with L below 1 m), so the missing light there comes from
       another term [I] (the floor light, the reflection, or the source surface blend; not measured).
+- The shore foam of the source ocean (2026-10-29; the study `~/Games/soulwarden-client/research/water-shallow-terms.md`, GPT-6.1-Sol;
+  not built at the commit): the term that the Unreal water lacks in the shallow water at beach-down is the source shore foam, a white
+  blend after the reflection in the band of the view-depth gap q below 1 / FoamSoftIntersectionFactor (0.83 m at the beach). A static
+  replay of the source foam texture and formula matches the bright pattern of the source minus the Unreal picture with a correlation of
+  0.929 on a held-out half [R by the measure; I for the model]. The source floor is not brighter: its T already has the down path.
+  - The check parent `M_SwcWaterNear` version 3 (`Scripts/water_unreal_near.py`): a second Custom node SwcShoreTerm with the source rule
+    (water_materials.py, the ocean foam: s, m from two samples of `T_SwcWater_FoamData`, the gloss `T_SwcWater_Gloss`, both read from
+    the shared plugin and not changed; the source ocean coordinates); the first test is additive: gain x f x FoamAmount x 10000 on the
+    emissive, with the minimum reflection shade 0.5 (an upper bias: the source blend is f x (FoamAmount x 10000 - C)).
+  - The client: `swc.WaterOceanShore` (gain, default 0) and `swc.WaterOceanShoreDebug` (1: s, m / 2, f x 4); the values of the ocean of
+    the place (FoamAmount, FoamTilling, FoamSoftIntersectionFactor, FoamTransitionSpeed, WindDirection, WaveSpeed, Tilling,
+    SoftIntersectionFactor; WindScale 0.02) on the ocean instances, in the Unreal mode only.
+  - The test (`work/water-unreal/tone3/run_e.sh shore`): each beach view with shore 1, shore 1 + near 1, and the extinction 1.5 and 2.
+    Expected [I]: beach-down near band +6 to +9 L*, ocean-clear and ocean-far about 0. ocean-far (+10.5) stays a separate fault.
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
