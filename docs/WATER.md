@@ -571,7 +571,12 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     - The underwater view: FAIL. swim-surface -24 to -41 L*: the camera is under the surface in the best shot, and the underside of the
       surface shows as an opaque yellow-green plane (the blend adds opacity on the underside too). The terms need an underside gate
       (TwoSidedSign or the camera-underwater state; the study of the near term). swim-under -6.9 in the far band.
-    - The far join: NOT VALID (the pictures are near black, L* about 3; the first meter line of the run gives EV 0.74, then 13.03).
+    - The far join: NOT VALID (the pictures are near black, L* about 3; the frame EV at the sky place is 17.03, not 13.03). The cause
+      [R by the logs]: `swc.ExposureFixed 1` keeps the bias curve of the source rule on the post process, and Unreal applies that curve
+      in the manual mode too (PostProcessEyeAdaptation.cpp, GetAutoExposureCompensationFromCurve). With the bias -10.5 the frame EV is
+      the lower EV bound of the preset + 8.03 [I for the rule]: 13.03 in each beach, lake, river, and underwater run (the preset EV 5 to
+      17), 17.03 at the sky place (firstlight_jungle_a, EV 9 to 18). The next far-join check uses the bias -14.5 and is valid only when
+      the meter lines of the shots give EV 13.03.
   - The underside gate (version 6 of the check parent, the word of the orchestrator 2026-10-29 14:56 UTC; not built at the commit): the
     Custom nodes SwcNearTerm, SwcShoreTerm, and SwcShoreWeight get the input Above (the TwoSidedSign of the pixel) and multiply their
     result by saturate(Above): the near term, the shore foam, and the blend (the weight f, thus the new opacity and the base color scale)
