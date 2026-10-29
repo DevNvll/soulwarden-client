@@ -433,6 +433,19 @@ entity with the facing of its movement state, and the player controller possesse
 snapshot of the connection has the other entities with a position (`Others`: the interest number and the position); the
 target lock of the camera takes its targets from them ([CAMERA.md](CAMERA.md)).
 
+### The trap: a std::map in an element of a TArray
+
+`FSwcRepConnection::FSnapshot::Objects` is a `TArray<TPair<uint32, swc::net::RepClient::OtherEntity>>`. A `TArray` moves its
+elements with memcpy when it grows. Thus an element of a `TArray` (and its members) must not have a type with internal
+pointers: no `std::map`, `std::set`, or `std::list` of libc++ (each has a node inside the object that its tree or list points
+to). `std::vector`, `std::string`, plain values, and Unreal types are safe.
+
+The fault (ut567, 2026-10-29): the encounter stages of E1 were a `std::map` in `OtherEntity`. The offline tests passed, because
+they never move the array. In a run, the client crashed (SIGSEGV in the copy of the snapshot, `GetSnapshot`) after a travel
+brought more entities and the array grew. The fix: `encounterStages` is a `std::vector` of entries with their slot
+(`OtherEntity::encounter_stage(slot)`). The check of `tests/net/quest_tests.cpp` copies an entity after a memcpy move.
+`OwnEntity` has maps: it is not in a `TArray`. Before you add a map or a set to a type of the snapshot, use a vector.
+
 ### The tests (`tools/test-net.sh`)
 
 `tests/net/codec_tests.cpp` builds with the system compiler (no engine) and uses only bytes that the backend makes:

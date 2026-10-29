@@ -10,6 +10,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -333,8 +335,10 @@ void encounter_states(const backend::gamedata::QuestData& data)
 	RepClient::OtherEntity entity;
 	RepClient::apply_other_fragments(record, entity);
 	check(entity.hasEncounterStatus && entity.encounterStatus == 2, "the manager status 2 (in progress)");
-	check(entity.encounterStages.size() == 2 && entity.encounterStages[7].sequence == 2 && entity.encounterStages[7].status == 3
-	          && entity.encounterStages[8].status == 2, "the last entry of each stage (slot 7: sequence 2 status 3; slot 8: status 2)");
+	const auto* slot7 = entity.encounter_stage(7);
+	const auto* slot8 = entity.encounter_stage(8);
+	check(entity.encounterStages.size() == 2 && slot7 && slot7->sequence == 2 && slot7->status == 3 && slot8 && slot8->status == 2,
+	      "the last entry of each stage (slot 7: sequence 2 status 3; slot 8: status 2)");
 	check(entity.hasRootObjectives && entity.rootActive.size() == 1 && entity.rootActive[0].instance == 0x4C554F534000002AULL
 	          && entity.rootActive[0].poiObjective, "the root Objectives: one instance with isPoiObjective");
 	check(entity.rootTasks.size() == 5 && entity.rootTasks[2].progress == 1 && entity.rootTasks[3].state == 1 && entity.rootTasks[4].index == 4,
@@ -349,15 +353,28 @@ void encounter_states(const backend::gamedata::QuestData& data)
 		same.fragments.push_back(fragment_of(stage.state, stage.slot, swc::net::kStateEncounterStage, whole));
 	}
 	RepClient::apply_other_fragments(same, entity);
-	check(entity.encounterStages[7].status == 3 && entity.encounterRevision == revision, "an equal sequence of a stage is not applied");
+	check(entity.encounter_stage(7)->status == 3 && entity.encounterRevision == revision, "an equal sequence of a stage is not applied");
 	root.encounter.stages = {{7, 3, {{3, 4}}}};
 	decoder::Record newer;
 	for (const rep::SlotState& stage : rep::encode_encounter_stage_states(root, rep::View::observer, rep::PartsRequest{})) {
 		newer.fragments.push_back(fragment_of(stage.state, stage.slot, swc::net::kStateEncounterStage, whole));
 	}
 	RepClient::apply_other_fragments(newer, entity);
-	check(entity.encounterStages[7].sequence == 3 && entity.encounterStages[7].status == 4 && entity.encounterRevision > revision,
+	check(entity.encounter_stage(7)->sequence == 3 && entity.encounter_stage(7)->status == 4 && entity.encounterRevision > revision,
 	      "a newer sequence replaces the entry (status 4)");
+	// A TArray of the snapshot moves its elements with memcpy (ut567 2026-10-29: a std::map of the stages crashed the copy after a move).
+	{
+		alignas(RepClient::OtherEntity) unsigned char first[sizeof(RepClient::OtherEntity)];
+		alignas(RepClient::OtherEntity) unsigned char moved[sizeof(RepClient::OtherEntity)];
+		auto* original = new (first) RepClient::OtherEntity(entity);
+		std::memcpy(moved, first, sizeof(RepClient::OtherEntity));
+		(void)original;
+		auto* relocated = std::launder(reinterpret_cast<RepClient::OtherEntity*>(moved));
+		const RepClient::OtherEntity copy(*relocated);
+		check(copy.encounterStages.size() == 2 && copy.encounter_stage(7)->status == 4 && copy.encounter_stage(8)->status == 2,
+		      "a copy of an entity that a memcpy moved keeps the stages");
+		relocated->~OtherEntity();
+	}
 	// The VariationData of a start object (field 1, u16).
 	backend::world::Entity device;
 	device.kind = backend::world::EntityKind::object;

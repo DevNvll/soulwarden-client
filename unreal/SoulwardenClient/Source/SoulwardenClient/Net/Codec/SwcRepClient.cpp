@@ -1245,21 +1245,27 @@ void RepClient::apply_other_fragments(const decoder::Record& record, OtherEntity
             if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
                 Reader reader(value);
                 const std::uint32_t count = reader.size();
-                auto stored = entity.encounterStages.find(fragment.slot);
+                std::size_t stored = entity.encounterStages.size();
+                for (std::size_t index = 0; index < entity.encounterStages.size(); ++index) {
+                    if (entity.encounterStages[index].slot == fragment.slot) {
+                        stored = index;
+                    }
+                }
                 bool changed = false;
                 for (std::uint32_t index = 0; index < count && index < 10 && reader.ok(); ++index) {
                     OtherEntity::StageEntry entry;
+                    entry.slot = fragment.slot;
                     entry.sequence = reader.u32();
                     entry.status = reader.u32();
                     if (!reader.ok()) {
                         break;
                     }
-                    if (stored == entity.encounterStages.end()) {
-                        stored = entity.encounterStages.emplace(fragment.slot, entry).first;
+                    if (stored == entity.encounterStages.size()) {
+                        entity.encounterStages.push_back(entry);
                         changed = true;
-                    } else if (static_cast<std::int32_t>(entry.sequence - stored->second.sequence) > 0) {
-                        changed = changed || entry.status != stored->second.status;
-                        stored->second = entry;
+                    } else if (static_cast<std::int32_t>(entry.sequence - entity.encounterStages[stored].sequence) > 0) {
+                        changed = changed || entry.status != entity.encounterStages[stored].status;
+                        entity.encounterStages[stored] = entry;
                     }
                 }
                 if (changed) {

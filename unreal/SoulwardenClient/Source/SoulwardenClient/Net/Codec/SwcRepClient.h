@@ -424,14 +424,25 @@ public:
         Quaternion placeRotation;
         /** An encounter root (QG5; protocol notes 4.62): the manager status (6786), the last stage entry of each stage slot (2133: the
          *  entry of the largest signed sequence), and the root Objectives (3857 at the objectives slot of the slice: field 0 the task
-         *  starts, 3 the instances, 4 the task elements; the reader of the own Objectives). */
+         *  starts, 3 the instances, 4 the task elements; the reader of the own Objectives).
+         *  No std::map here: a TArray of the snapshot (FSwcRepConnection::FSnapshot::Objects) moves its elements with memcpy, and the
+         *  tree of a libc++ map points into the object (a crash in the copy of the snapshot after the array grew; ut567, 2026-10-29). */
         bool hasEncounterStatus{false};
         std::uint32_t encounterStatus{0};
         struct StageEntry {
+            std::uint32_t slot{0};
             std::uint32_t sequence{0};
             std::uint32_t status{0};
         };
-        std::map<std::uint32_t, StageEntry> encounterStages;
+        std::vector<StageEntry> encounterStages;
+        const StageEntry* encounter_stage(std::uint32_t slot) const {
+            for (const StageEntry& entry : encounterStages) {
+                if (entry.slot == slot) {
+                    return &entry;
+                }
+            }
+            return nullptr;
+        }
         bool hasRootObjectives{false};
         std::vector<OwnEntity::QuestTaskStart> rootStarts;
         std::vector<OwnEntity::QuestActive> rootActive;
