@@ -783,6 +783,28 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     keeps them off; on gives the saved paths back exactly; after the restore the light is its own again). A global test: the land, the
     floor, and the reflections change too. The screening window: `work/water-unreal/tone3/run_window_x.sh` (ocean-far at 12:00, 16:30, 08:00;
     2 source shots; the baseline, the probe off (`swc.ProbeScale 0`), and the shadows off, 2 shots each, alternated; the scene control).
+  - The screening window (2026-10-29 21:02 to 21:28 UTC, the editor build of ace9c413 on main ae216f91; the compile gate passed: 0 faults,
+    swap +14.7 GB; 0 compile faults; one gate fault before the first shot of each run (the surface stall, then the retry: all shots "in
+    place"); each shot at EV 13.03; the switch log: 6 "off" and 6 "restored" lines, each with the same 8 paths (the client sun has the
+    distance-field shadows on); evidence `water-unreal/wnt-x-*`, `near-hour-screening.png`; the tables `work/water-unreal/tone3/
+    x-water-mask.txt`, `x-scene.txt`, `x-shadow-log.txt`). The best setting with blue 1.5 and the medium gain 1; dL*, d hue against the
+    mean of the 2 source shots (the source drift 4.1 / 0.8 / 7.7 L* at 12:00 / 16:30 / 08:00):
+
+    | Hour | Baseline | Probe off | Shadows off |
+    |---|---|---|---|
+    | 12:00 | +1.8 / +0.8, -2.3 / -3.8 | -11.6 / -12.2, -6.0 / -6.6 | +2.1 / +2.5, -1.8 / -1.9 |
+    | 16:30 | +11.7 / +11.8, +3.5 / +4.7 | -1.7 / -0.4, -10.0 / -6.6 | +17.7 / +18.0, +13.9 / +13.4 |
+    | 08:00 | +1.7 / +1.1, -6.3 / -7.5 | -13.3 / -14.5, -6.1 / -9.3 | +3.5 / +3.6, -8.5 / -8.4 |
+
+    - The scene control (the dry cliff L*): 16:30 baseline 4.4 / 5.4 (the source 4.3), probe off 0.5 / 3.6, shadows off 30.4 (the cliff is in
+      the sun shadow at 16:30 in both paths). The @end shots (after the last restore) are not valid: their cliff is L* 22 to 23 at each hour
+      (at 16:30 lit as with the shadows off) [U: the cause; a slow rebuild of the shadow maps after the restore is a candidate]; the first
+      shot after a restore (@b1b) may carry a part of that (12:00 cliff 31.3 against 36.9).
+    - What it shows: the world-probe sky light carries the 16:30 excess. With the probe off the water at 16:30 matches the source (within
+      1.7 L*), while at 12:00 and 08:00 the probe light is needed (-12 to -14 L* without it). The sun shadow is not the cause: with the shadows
+      off the water is lighter at each hour. The probe keeps its noon-like cube and falls only to 86 % at 16:30 (research/water-hour.md);
+      the water takes that light in the ambient in-scatter and in the reflection fallback, the land much less (the 16:30 cliff changes by
+      about 1 to 4 L*) [I].
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
