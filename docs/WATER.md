@@ -774,6 +774,15 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     medium gain stays a manual diagnostic (default 1). The next data: a term readback (the sun before and after the shadow, the ambient,
     the medium terms as linear HDR) or a screening window with probe-off (`swc.ProbeScale 0`) and a full sun-shadow-off control (not
     yet in the client).
+  - The sun shadow switch (the word of the orchestrator 2026-10-29 20:42 UTC; not built at the commit): `swc.SunShadowsOff` (default 0).
+    1 turns every shadow path of the sun off (`env::ShadowPaths` in SwcEnvironmentRules: CastShadows (the shadow maps and the virtual shadow
+    maps), CastStaticShadows, CastDynamicShadows, CastTranslucentShadows, CastVolumetricShadow, the ray-traced distance-field shadows, the
+    cloud shadows, and the contact shadow length) and logs each path that it changes ("environment: the sun shadows off ..."); 0 gives the
+    saved paths back exactly (`env::ShadowSwitch`: the first "off" saves, the first "on" restores once). 6 checks in
+    `tools/test-environment.sh` (on with no off changes nothing; off turns each path off; the log names the 7 changed paths; a second off
+    keeps them off; on gives the saved paths back exactly; after the restore the light is its own again). A global test: the land, the
+    floor, and the reflections change too. The screening window: `work/water-unreal/tone3/run_window_x.sh` (ocean-far at 12:00, 16:30, 08:00;
+    2 source shots; the baseline, the probe off (`swc.ProbeScale 0`), and the shadows off, 2 shots each, alternated; the scene control).
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal

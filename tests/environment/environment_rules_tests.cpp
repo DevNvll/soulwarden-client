@@ -353,6 +353,24 @@ void test_snow() {
 
 } // namespace
 
+// The reversible switch of the sun shadow paths (the screening test of the hour fault, research/water-hour-rule.md section 6).
+void test_shadow_switch() {
+    env::ShadowPaths sun;
+    sun.castCloudShadows = true;   // the client sun: CastShadows and the cloud shadows on (SwcEnvironmentSubsystem.cpp, MakeLight)
+    sun.contactShadowLength = 0.02;
+    env::ShadowSwitch shadow;
+    check(shadow.update(false, sun) == sun && !shadow.holds(), "the shadow switch: on with no off changes nothing");
+    const env::ShadowPaths off = shadow.update(true, sun);
+    check(off == env::shadow_paths_off() && shadow.holds(), "the shadow switch: off turns every path off");
+    check(env::shadow_path_changes(sun, off).size() == 7, "the shadow switch: the log names the 7 paths that change (the distance field was off)");
+    check(shadow.update(true, off) == env::shadow_paths_off(), "the shadow switch: a second off keeps the paths off");
+    const env::ShadowPaths back = shadow.update(false, off);
+    check(back == sun && !shadow.holds() && env::shadow_path_changes(sun, back).empty(), "the shadow switch: on gives the saved paths back exactly");
+    env::ShadowPaths other = sun;
+    other.castCloudShadows = false;
+    check(shadow.update(false, other) == other, "the shadow switch: after the restore the light is its own again");
+}
+
 int main(int argc, char** argv) {
     test_table(argc > 1 ? argv[1] : "");
     test_sun_path(argc > 2 ? argv[2] : "");
@@ -361,6 +379,7 @@ int main(int argc, char** argv) {
     test_blend_fog_and_stars();
     test_probes();
     test_snow();
+    test_shadow_switch();
     std::printf("environment rules: %d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }

@@ -527,4 +527,47 @@ double snow_fall_speed(double gravityScale, double multiplier) {
     return gravityScale * 9.8 * multiplier;
 }
 
+ShadowPaths shadow_paths_off() {
+    ShadowPaths off;
+    off.castShadows = off.castStaticShadows = off.castDynamicShadows = off.castTranslucentShadows = off.castVolumetricShadow = false;
+    off.rayTracedDistanceFieldShadows = off.castCloudShadows = false;
+    off.contactShadowLength = 0.0;
+    return off;
+}
+
+std::vector<std::string> shadow_path_changes(const ShadowPaths& from, const ShadowPaths& to) {
+    std::vector<std::string> out;
+    auto flag = [&](const char* name, bool a, bool b) {
+        if (a != b) {
+            out.push_back(std::string(name) + (b ? " on" : " off"));
+        }
+    };
+    flag("CastShadows", from.castShadows, to.castShadows);
+    flag("CastStaticShadows", from.castStaticShadows, to.castStaticShadows);
+    flag("CastDynamicShadows", from.castDynamicShadows, to.castDynamicShadows);
+    flag("CastTranslucentShadows", from.castTranslucentShadows, to.castTranslucentShadows);
+    flag("CastVolumetricShadow", from.castVolumetricShadow, to.castVolumetricShadow);
+    flag("RayTracedDistanceFieldShadows", from.rayTracedDistanceFieldShadows, to.rayTracedDistanceFieldShadows);
+    flag("CastCloudShadows", from.castCloudShadows, to.castCloudShadows);
+    if (from.contactShadowLength != to.contactShadowLength) {
+        out.push_back("ContactShadowLength " + std::to_string(from.contactShadowLength) + " -> " + std::to_string(to.contactShadowLength));
+    }
+    return out;
+}
+
+ShadowPaths ShadowSwitch::update(bool off, const ShadowPaths& current) {
+    if (off) {
+        if (!m_saved) {
+            m_paths = current;
+            m_saved = true;
+        }
+        return shadow_paths_off();
+    }
+    if (m_saved) {
+        m_saved = false;
+        return m_paths;
+    }
+    return current;
+}
+
 } // namespace swc::environment

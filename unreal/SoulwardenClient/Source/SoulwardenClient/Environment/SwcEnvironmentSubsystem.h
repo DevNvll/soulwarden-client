@@ -279,6 +279,8 @@ private:
 	TWeakObjectPtr<AActor> Actor;
 	TWeakObjectPtr<UDirectionalLightComponent> Sun;
 	TWeakObjectPtr<UDirectionalLightComponent> Moon;
+	/** swc.SunShadowsOff: the saved shadow paths of the sun while the test turns them off (env::ShadowSwitch). */
+	swc::environment::ShadowSwitch SunShadows;
 	TWeakObjectPtr<USkyAtmosphereComponent> Atmosphere;
 	TWeakObjectPtr<USkyLightComponent> SkyLight;
 	TWeakObjectPtr<UPostProcessComponent> Exposure;

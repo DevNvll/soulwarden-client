@@ -247,4 +247,39 @@ double snow_cluster_life(double gravityScale, double random);
 /** @return The downward speed of a cluster (m/s; 0x5FF18A7): gravity scale x 9.8 x the cluster multiplier (no acceleration). */
 double snow_fall_speed(double gravityScale, double multiplier);
 
+/** The shadow paths of a directional light (the screening test of the hour fault, AST-200 stage 2c, research/water-hour-rule.md section 6):
+ *  the fields of ULightComponentBase, ULightComponent, and UDirectionalLightComponent that make a sun shadow (the shadow maps and the
+ *  virtual shadow maps, the static shadows, the translucent and volumetric shadows, the distance-field shadows, the contact shadows, and
+ *  the cloud shadows). */
+struct ShadowPaths {
+    bool castShadows{true};
+    bool castStaticShadows{true};
+    bool castDynamicShadows{true};
+    bool castTranslucentShadows{true};
+    bool castVolumetricShadow{true};
+    bool rayTracedDistanceFieldShadows{false};
+    bool castCloudShadows{false};
+    double contactShadowLength{0.0};
+    bool operator==(const ShadowPaths&) const = default;
+};
+
+/** @return The paths with every shadow off (each flag false, the contact shadow length 0). */
+ShadowPaths shadow_paths_off();
+
+/** @return The names of the fields that differ between two path sets (the log of a change). */
+std::vector<std::string> shadow_path_changes(const ShadowPaths& from, const ShadowPaths& to);
+
+/** The reversible switch of the shadow paths: the first "off" saves the paths of the light, each "off" gives all paths off, and the first
+ *  "on" after that gives the saved paths back exactly (once; then the light is its own again). With no "off", "on" changes nothing. */
+class ShadowSwitch {
+public:
+    /** @return The paths that the light must have now; `current` are the paths that it has. */
+    ShadowPaths update(bool off, const ShadowPaths& current);
+    bool holds() const { return m_saved; }
+
+private:
+    bool m_saved{false};
+    ShadowPaths m_paths;
+};
+
 } // namespace swc::environment

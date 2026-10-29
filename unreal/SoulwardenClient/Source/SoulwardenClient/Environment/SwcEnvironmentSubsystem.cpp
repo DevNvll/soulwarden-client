@@ -95,6 +95,12 @@ TAutoConsoleVariable<float> CVarExposureFixedBias(TEXT("swc.ExposureFixedBias"),
  *  18.53). Set, the bias of each place is the EV minimum - the target - 2.47: the same EV at each place. */
 TAutoConsoleVariable<float> CVarExposureFixedEv(TEXT("swc.ExposureFixedEv"), 0.0f,
 	TEXT("The target EV of swc.ExposureFixed 1 (for example 13.03): the bias follows the EV minimum of the presets of the place; 0 the bias swc.ExposureFixedBias."));
+/** The screening test of the hour fault of the ocean (AST-200 stage 2c, research/water-hour-rule.md section 6): 1 turns every shadow path of
+ *  the sun off (env::ShadowPaths: the shadow maps and virtual shadow maps, the static, translucent, and volumetric shadows, the distance-field
+ *  shadows, the contact shadows, the cloud shadows), logs each path that it changes, and 0 gives the saved paths back exactly. A global
+ *  test: the floor, the land, and the reflections change too. */
+TAutoConsoleVariable<int32> CVarSunShadowsOff(TEXT("swc.SunShadowsOff"), 0,
+	TEXT("A test: 1 every shadow path of the sun off (logged); 0 the saved paths back exactly."));
 TAutoConsoleVariable<int32> CVarSsao(TEXT("swc.Ssao"), 0,
 	TEXT("A test of the screen-space AO (stage E5 step 3, research/e5-ssdo.md): 1 the AO values of the post process for the SSAO of Lumen ")
 	TEXT("(intensity 1, power 2, a world radius of 480 cm, bias 0, static fraction 0, quality 50; set r.Lumen.DiffuseIndirect.SSAO 1 and ")
@@ -941,6 +947,40 @@ void USwcEnvironmentSubsystem::Tick(float DeltaTime)
 			SunTowardApplied = Toward;
 			Light->SetWorldRotation(LightRotation(SunToward));
 			++SunTurns;
+		}
+		// The shadow test of the sun (swc.SunShadowsOff): the paths are read only while the test is on or holds saved paths.
+		const bool bShadowsOff = CVarSunShadowsOff.GetValueOnGameThread() != 0;
+		if (bShadowsOff || SunShadows.holds())
+		{
+			env::ShadowPaths Current;
+			Current.castShadows = Light->CastShadows != 0;
+			Current.castStaticShadows = Light->CastStaticShadows != 0;
+			Current.castDynamicShadows = Light->CastDynamicShadows != 0;
+			Current.castTranslucentShadows = Light->CastTranslucentShadows != 0;
+			Current.castVolumetricShadow = Light->bCastVolumetricShadow != 0;
+			Current.rayTracedDistanceFieldShadows = Light->bUseRayTracedDistanceFieldShadows;
+			Current.castCloudShadows = Light->bCastCloudShadows != 0;
+			Current.contactShadowLength = Light->ContactShadowLength;
+			const env::ShadowPaths Want = SunShadows.update(bShadowsOff, Current);
+			if (!(Want == Current))
+			{
+				Light->CastStaticShadows = Want.castStaticShadows;
+				Light->CastDynamicShadows = Want.castDynamicShadows;
+				Light->CastTranslucentShadows = Want.castTranslucentShadows;
+				Light->bUseRayTracedDistanceFieldShadows = Want.rayTracedDistanceFieldShadows;
+				Light->bCastCloudShadows = Want.castCloudShadows;
+				Light->ContactShadowLength = static_cast<float>(Want.contactShadowLength);
+				Light->SetCastVolumetricShadow(Want.castVolumetricShadow);
+				Light->SetCastShadows(Want.castShadows);   // marks the render state dirty: the other fields go with it
+				Light->MarkRenderStateDirty();
+				FString Changes;
+				for (const std::string& Change : env::shadow_path_changes(Current, Want))
+				{
+					Changes += (Changes.IsEmpty() ? TEXT("") : TEXT(", ")) + FString(UTF8_TO_TCHAR(Change.c_str()));
+				}
+				UE_LOG(LogSwcEnvironment, Log, TEXT("environment: the sun shadows %s (swc.SunShadowsOff %d): %s"),
+					bShadowsOff ? TEXT("off") : TEXT("restored"), bShadowsOff ? 1 : 0, *Changes);
+			}
 		}
 		if (bSunSource)
 		{
