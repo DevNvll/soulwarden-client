@@ -1581,11 +1581,11 @@ void USwcBackendSubsystem::UpdatePlayer()
 				}
 				UE_LOG(LogSwcBackend, Log, TEXT("interact: %d part(s) under the body, %d not covered by the hide"), Parts.Num(), Drawn);
 				// Each other actor with a drawn mesh within 2 m of the feet (a second body at the place of the character).
-				const FVector Feet = Avatar->GetActorLocation();
+				const FVector BodyPlace = Avatar->GetActorLocation();
 				for (TActorIterator<AActor> It(Avatar->GetWorld()); It; ++It)
 				{
 					const AActor* Other = *It;
-					if (Other == Avatar.Get() || Other->IsHidden() || FVector::Dist(Other->GetActorLocation(), Feet) > 200.0)
+					if (Other == Avatar.Get() || Other->IsHidden() || FVector::Dist(Other->GetActorLocation(), BodyPlace) > 200.0)
 					{
 						continue;
 					}
@@ -1595,7 +1595,7 @@ void USwcBackendSubsystem::UpdatePlayer()
 						if (Mesh->IsVisible() && (Mesh->IsA<UMeshComponent>()))
 						{
 							UE_LOG(LogSwcBackend, Log, TEXT("interact: an actor near the hidden body: %s (%s), the mesh %s, %.2f m"), *Other->GetName(),
-								*Other->GetClass()->GetName(), *Mesh->GetName(), FVector::Dist(Other->GetActorLocation(), Feet) / 100.0);
+								*Other->GetClass()->GetName(), *Mesh->GetName(), FVector::Dist(Other->GetActorLocation(), BodyPlace) / 100.0);
 						}
 					}
 				}
