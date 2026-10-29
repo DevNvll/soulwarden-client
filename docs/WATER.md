@@ -743,6 +743,28 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     empirical test value from the sun, not a source rule. The window (`work/water-unreal/tone3/run_window_h.sh`): ocean-far at 12:00,
     16:30, and 08:00 (a fixed mask made once for 08:00); 2 source shots, 2 shots at gain 1, and 2 at the test value for each hour; the EV
     check of each shot; the dry cliff and the sky as the scene control (`tone3/scene_regions.py`).
+  - The window of the hour test (2026-10-29 20:12 to 20:31 UTC, the editor build of 2b068d3d; the compile gate passed: 0 faults, swap +4.5
+    GB; 0 compile faults; one gate fault before the first shot of the Unreal run (the surface stall; the retry with a new streaming source
+    passed; all 15 shots "in place", the cameras as their source pictures); each shot at EV 13.03 (`swc.ExposureFixedEv 13.03`); evidence
+    `water-unreal/wnt-h-*`, `near-hour-test.png`; the tables `work/water-unreal/tone3/h-water-mask.txt`, `h-scene.txt`). The best setting
+    with blue 1.5; dL*, d hue against the mean of the 2 source shots:
+
+    | Hour | Source drift | Gain 1 (@b1a, @b1b) | Test (@ta, @tb) |
+    |---|---|---|---|
+    | 12:00 (test 1) | 0.9 L* | +1.2 / +0.7, -3.2 / -3.5 | +1.0 / +0.1, -3.7 / -4.1 (the identity control passes) |
+    | 16:30 (test 0.375) | 1.6 L* | (not valid) / +12.4, +1.1 | +4.1 / +4.3, -2.1 / -2.3: PASS |
+    | 08:00 (test 0.507) | 8.1 L* | -0.1 / +0.1, -11.7 / -10.5: PASS | -6.1 / -5.1, -11.8 / -8.5: FAIL (too dark) |
+
+    - 16:30 @b1a is not valid: the shot came before the light of the new hour settled (its dry cliff L* 25.5 against 4.3 in the other
+      shots). The scene control: at 16:30 the dry cliff and the sky do not change with the medium gain (cliff L* 4.30 at gain 1, 4.38 /
+      4.34 at 0.375; sky 19.1 against 18.9 / 19.0); at 08:00 the Unreal scene drifts between shots (cliff L* 21.0 to 26.0) and the source
+      water drifts 8.1 L*.
+    - What it shows: the ocean medium is the term of the 16:30 excess (a lower scattering albedo brings it within the limits, with the scene
+      unchanged). But the needed gain is not E x sin(the sun elevation): at 08:00 gain 1 already passes and 0.507 is too dark. The camera
+      faces south-east, so the sun is in front of the view at 08:00 and behind it at 16:30: the fault depends on more than the sun height
+      (the direction to the sun, the sky light of the hour, or the sun shadow in the medium) [I]. In the Unreal pictures the cliff shadow
+      lies on the water at 08:00 and 16:30; the source water shows no such shadow (the source D and N have no sun shadow) [I, from the
+      pictures]. No default, no automatic hour rule.
     - The earlier pictures by this rule (the source: b3 and d; the best setting r1 / r2 / r3): beach-down L* -5.1 / -4.2 / -5.7, hue
       +7.9 / +5.1 / +8.1; ocean-clear L* -7.9 / -8.0 / -9.2, hue -30.4 / -28.9 / -27.8; ocean-far L* -0.4 / -0.7 / -0.4, hue -20.4 / -21.1
       / -20.0. All fail but one beach-down shot: the deep water is as dark as the source, but greener (the source hue 214, the Unreal
