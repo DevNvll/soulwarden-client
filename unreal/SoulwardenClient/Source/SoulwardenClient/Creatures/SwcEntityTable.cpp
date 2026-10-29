@@ -226,7 +226,7 @@ void EntityTable::apply(const decoder::Record& record, std::uint64_t nowUs) {
                 ++entity.gatherableRevision;
             }
             m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
-         else if (fragment.type == kTypeVariationData) {
+        } else if (fragment.type == kTypeVariationData) {
             // The variant of a start object of an encounter (QG5, protocol notes 4.62): field 0 u8 when present, else field 1 u16.
             if (const auto narrow = decoder::field_of(fragment, 0, 0); narrow.size() == 1) {
                 entity.hasVariation = true;

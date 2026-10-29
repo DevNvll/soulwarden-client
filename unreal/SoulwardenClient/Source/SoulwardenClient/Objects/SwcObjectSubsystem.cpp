@@ -624,6 +624,14 @@ bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, int32 OptionCount, FRegio
 					Bound.HiddenMask |= Bit >= 0 && Bit < 32 ? 1u << Bit : 0u;
 				}
 			}
+			// The options that the client hides until it has their screen (the town boards: swc::objects::client_hides_option).
+			for (int32 Position = 0; Position < Bound.Options.Num() && Position < 32; ++Position)
+			{
+				if (swc::objects::client_hides_option(Options[Bound.Options[Position].Key].Option.name))
+				{
+					Bound.HiddenMask |= 1u << Position;
+				}
+			}
 			BoundInfo->TryGetBoolField(TEXT("npc"), Bound.bNpc);
 			Object.Bounds.Add(Bound);
 		}
