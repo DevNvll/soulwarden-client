@@ -25,7 +25,7 @@ import unreal
 DEST = os.environ.get("SWC_WATER_UNREAL_DEST", "/SwcWaterCheck/Water/Near").rstrip("/")
 REPORT = os.environ["SWC_WATER_UNREAL_REPORT"]
 force = os.environ.get("SWC_IMPORT_FORCE", "") == "1"
-VERSION = "1"   # 1: the first near term (the plugin floor T, a flat-surface Fresnel)
+VERSION = "2"   # 1: the first near term (the plugin floor T, a flat-surface Fresnel); 2: Break / Make Material Attributes
 if not DEST.startswith("/SwcWaterCheck/"):
     raise RuntimeError(f"the near term goes into the check plugin only, not {DEST}")
 
@@ -110,9 +110,10 @@ def make_parent():
     report["notes"].append(f"the final attributes: {final.get_name()} output '{final_out}'")
     x, y = final.get_editor_property("material_expression_editor_x") + 400, final.get_editor_property("material_expression_editor_y")
 
-    get = editing.create_material_expression(material, unreal.MaterialExpressionGetMaterialAttributes, x, y)
-    get.set_editor_property("attribute_get_types", [guid(EMISSIVE), guid(OPACITY)])
-    connect(final, [final_out, ""], get, ["MaterialAttributes", "", "Material Attributes"])
+    # Break / Make Material Attributes (fixed pins; Get / Set Material Attributes make their pins only with an editor graph node, which a
+    # commandlet has not: UMaterialExpressionGetMaterialAttributes::PostEditChangeProperty).
+    get = editing.create_material_expression(material, unreal.MaterialExpressionBreakMaterialAttributes, x, y)
+    connect(final, [final_out, ""], get, ["MaterialAttributes", "", "Material Attributes", "Attr"])
 
     def scalar(name, value, dy):
         node = editing.create_material_expression(material, unreal.MaterialExpressionScalarParameter, x, y + dy)
@@ -152,16 +153,39 @@ def make_parent():
     for node, name, out in ((gain, "Gain", ""), (near, "NearColor", "RGB"), (sun, "Sun", "RGB"), (sigma, "Sigma", ""), (mode, "Mode", ""),
                             (debug, "Debug", ""), (behind, "Behind", ""), (surface, "Surface", ""), (camera, "CameraVector", "")):
         connect(node, [out, ""], custom, [name])
-    connect(get, ["Opacity", "Opacity "], custom, ["Opacity"])
+    connect(get, ["Opacity"], custom, ["Opacity"])
 
     add = editing.create_material_expression(material, unreal.MaterialExpressionAdd, x + 800, y)
-    connect(get, ["EmissiveColor", "Emissive Color", "Emissive"], add, ["A"])
+    connect(get, ["EmissiveColor"], add, ["A"])
     connect(custom, [""], add, ["B"])
 
-    put = editing.create_material_expression(material, unreal.MaterialExpressionSetMaterialAttributes, x + 1100, y)
-    put.set_editor_property("attribute_set_types", [guid(EMISSIVE)])
-    connect(final, [final_out, ""], put, ["MaterialAttributes", "Material Attributes", ""])
-    connect(add, [""], put, ["EmissiveColor", "Emissive Color", "Emissive"])
+    # Each attribute of the parent goes from Break to the pin of the same name on Make; the emissive goes through the Add. The break outputs
+    # (MaterialExpressions.cpp, UMaterialExpressionBreakMaterialAttributes): the names below and CustomizedUV0..7.
+    put = editing.create_material_expression(material, unreal.MaterialExpressionMakeMaterialAttributes, x + 1100, y)
+    outputs = ["BaseColor", "Metallic", "Specular", "Roughness", "Anisotropy", "Opacity", "OpacityMask", "Normal", "Tangent",
+               "WorldPositionOffset", "SubsurfaceColor", "ClearCoat", "ClearCoatRoughness", "AmbientOcclusion", "Refraction",
+               "PixelDepthOffset", "ShadingModel", "Displacement"] + [f"CustomizedUV{i}" for i in range(8)]
+    pins = list(editing.get_material_expression_input_names(put))
+    report["notes"].append(f"the inputs of Make: {pins}")
+
+    def norm(text):
+        return str(text).replace(" ", "").replace("_", "").lower().replace("customizeduvs", "customizeduv")
+
+    missing = []
+    for out in outputs:
+        match = [pin for pin in pins if norm(pin) == norm(out)]
+        if not match or not editing.connect_material_expressions(get, out, put, str(match[0])):
+            missing.append(out)
+    report["notes"].append(f"not connected: {missing}")
+    # A main attribute that does not go through would take the default of Make (for example no waves: WorldPositionOffset).
+    main = [out for out in missing if not out.startswith("CustomizedUV")]
+    if main:
+        raise RuntimeError(f"the attributes {main} do not go from Break to Make")
+    connect(add, [""], put, ["EmissiveColor", "Emissive Color"])
+    try:
+        report["notes"].append(f"customized UVs of the parent: {material.get_editor_property('num_customized_u_vs')}")
+    except Exception:
+        pass
     if not editing.connect_material_property(put, "", prop):
         raise RuntimeError("no connection to the material attributes of the output")
     editing.recompile_material(material)

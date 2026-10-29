@@ -500,6 +500,18 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   - The test (the editor build, `work/water-unreal/tone3/run_e.sh control | sweep | controls | source`): the gain-0 control first (the
     check parent against the plugin parent); then gain 1 with the extinction 1, 1.5, and 2 at the three beach views; the lakes and the
     rivers; the source mode. Stop with no default when the fit of N with the extinction fails.
+  - The check (2026-10-29 10:28 to 11:02 UTC, the editor build of c19b2883, the check parent made at 10:32 UTC; the fixed exposure EV
+    13.03; the source pictures: the editor run wnt-b3-source; evidence `water-unreal/wnt-e-*`, `near-term-sweep.png`):
+    - Step 1: the script made M_SwcWaterNear and the ocean chain (all attributes from Break to Make; the parent has no customized UVs).
+      The first version with Get / Set Material Attributes failed: those nodes make their pins only with an editor graph node, which a
+      commandlet has not. Only the check plugin got new files. The first shader compile (the warm-up run) took the swap to +18.8 GB for
+      a short time (a retail run of the backend project was also alive).
+    - The gain-0 control (the check parent against the plugin parent): within 0.0 to 2.1 L* at the three views: PASS.
+    - The sweep, the near band, Unreal minus source (N off x1; N on x1 / x1.5 / x2): ocean-far +10.5; +13.3 / +8.1 / +5.2; ocean-clear
+      -4.0; -1.7 / +3.0 / +7.1; beach-down -9.9; -6.1 / -9.2 / -10.9. N adds about 2.5 to 4 L*; no gain-1 pair fits the three views
+      (ocean-far needs x2 or more, ocean-clear at most x1.5, beach-down is outside at each scale). FAIL: no default, as planned. In the
+      shallow water at beach-down the source N is small (the ramp sat(0.1 L) with L below 1 m), so the missing light there comes from
+      another term [I] (the floor light, the reflection, or the source surface blend; not measured).
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
