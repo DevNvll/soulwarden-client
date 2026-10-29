@@ -199,6 +199,17 @@ def text_key(value: str) -> str:
     return value[1:].lower() if value.startswith("@") else value.lower()
 
 
+def gather_row(row: dict, columns: dict, texts: dict, used_texts: dict) -> list:
+    """@return The row of the client ([id, type, action, restriction, tradeskill, level, time, name, unsupported]) of a gatherable row of
+    the backend; the text of its name goes into used_texts."""
+    extra = columns.get(row["id"].lower(), {})
+    name = extra.get("name", "")
+    if name and text_key(name) in texts:
+        used_texts[text_key(name)] = texts[text_key(name)]
+    return [row["id"], row["type"], extra.get("action", "None"), row["restriction"], row["tradeskill"], row["level"], row["time"], name,
+            list(row.get("unsupported", []))[:1]]
+
+
 def gathering_tables(folder: Path, gathering: dict, chest_names: set[str] = frozenset()) -> dict:
     """@return The rows of the gathering (the tool family, the gather action, the rank gate, the time, the name), the tools by
     their item index (the position in item-catalog.json plus 1: the value of the paperdoll; their weapon tags of weapons.json),
@@ -206,14 +217,7 @@ def gathering_tables(folder: Path, gathering: dict, chest_names: set[str] = froz
     columns = gatherable_columns()
     texts = localized_texts()
     used_texts: dict[str, str] = {}
-    rows = []
-    for row in gathering["rows"]:
-        extra = columns.get(row["id"].lower(), {})
-        name = extra.get("name", "")
-        if name and text_key(name) in texts:
-            used_texts[text_key(name)] = texts[text_key(name)]
-        rows.append([row["id"], row["type"], extra.get("action", "None"), row["restriction"], row["tradeskill"], row["level"], row["time"],
-                     name, list(row.get("unsupported", []))[:1]])
+    rows = [gather_row(row, columns, texts, used_texts) for row in gathering["rows"]]
     for kind in TOOL_SLOTS:
         # The refusals of the prompt: no tool (ui_notool<type>) and a rank under the gate of the row (ui_lowskill<type>, stage MVP-F).
         for key in (f"ui_notool{kind.lower()}", f"ui_lowskill{kind.lower()}"):
@@ -486,16 +490,63 @@ def depleted_meshes() -> dict:
             "visuals": len(doc["visuals"]), "keys": str(out_dir() / "depleted-meshes.json")}
 
 
+def encounter_doc(gathering: dict, columns: dict, texts: dict, shape_of) -> dict:
+    """@return The templates, rows, objects, and texts of encounter-objects.json (see encounters) of the backend gathering data;
+    shape_of(slice, entity) gives the candidate shape of a bound."""
+    used_texts: dict[str, str] = {}
+    templates: list[dict] = []
+    rows: list[list] = []
+    template_of: dict[int, int] = {}
+    row_of: dict[int, int] = {}
+    objects: dict[str, list[int]] = {}
+    for _slice, link in sorted(gathering.get("encounterObjects", {}).items()):
+        index, row = link[0], link[1]
+        t = gathering["templates"][index]
+        if index not in template_of:
+            template_of[index] = len(templates)
+            templates.append({"root": t["root"], "controllerSlot": t["controllerSlot"], "table": t["table"], "entry": t["entry"],
+                              "bound": {k: t["bound"][k] for k in ("entity", "component", "option", "slot", "rangeSq", "translation",
+                                                                   "lineOfSight")},
+                              "shape": shape_of(t["slice"], t["bound"]["entity"]), "visuals": [], "sliceVisuals": []})
+        if row not in row_of:
+            row_of[row] = len(rows)
+            rows.append(gather_row(gathering["rows"][row], columns, texts, used_texts))
+        objects[f"{str(uuid.UUID(t['asset'])).upper()}:{t['sub']}"] = [template_of[index], row_of[row]]
+    return {"templates": templates, "rows": rows, "objects": objects, "texts": used_texts}
+
+
+def encounters() -> dict:
+    """E4 (QG5, ut567): the start objects of the encounters -> SWC_CONTENT/world-objects/encounter-objects.json. The backend makes them
+    as server children (world/encounters.cpp) and gathers them through gathering-data.json encounterObjects (slice -> [template, row,
+    interactTag, onlyOnQuest]). The file has only their templates and rows, in the form of objects.json, with local indices: the
+    client puts them after the ones of objects.json (Objects/SwcObjectSubsystem LoadEncounterObjects). "objects": the slice key of the
+    entity table (the UUID with dashes, upper case, ":" sub) -> [template, row]."""
+    folder = gamedata_dir()
+    gathering = json.loads((folder / "gathering-data.json").read_text())
+    texts = localized_texts()
+    shapes = BoundShapes()
+    core = encounter_doc(gathering, gatherable_columns(), texts, lambda path, entity: shapes.shape(path, entity=entity))
+    templates, rows, objects = core["templates"], core["rows"], core["objects"]
+    doc = {"format": FORMAT, "gamedata": {"gathering-data.json": file_hash(folder / "gathering-data.json")}, "templates": templates,
+           "rows": rows, "objects": objects, "texts": core["texts"]}
+    write_atomic(out_dir() / "encounter-objects.json", json.dumps(doc, indent=1, sort_keys=True).encode())
+    return {"objects": len(objects), "templates": len(templates), "rows": len(rows), "withShape": sum(1 for t in templates if t["shape"]),
+            "names": sorted({texts.get(text_key(r[7]), r[7]) for r in rows})}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="swc-convert-objects", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("write")
     sub.add_parser("meshes")
+    sub.add_parser("encounters")
     q = sub.add_parser("quest-objects")
     q.add_argument("--out")
     args = parser.parse_args(argv)
     if args.command == "write":
         result = write()
+    elif args.command == "encounters":
+        result = encounters()
     elif args.command == "quest-objects":
         from . import quest_objects
         result = quest_objects.write(Path(args.out) if args.out else None)

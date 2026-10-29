@@ -622,6 +622,16 @@ the root at the top of the tracker (a teal diamond), its stage title, and the ro
 - Check: the fixture `encounters` (the Obelisk tree, "1 / 2 - Defeat the enforcers" and "Stellar Research" in the tracker, the Thorpe
   TimeLimit and start, the end of the root). Not done yet: the start objects (VariationData, item E4) and the stage actions.
 - A recipe with no user-wave stage (Legion Attack) has no tree and no row; the backend still links the character to its root.
+- The start objects (E4a): the backend makes each one as a server child (`world/encounters.cpp`, the fixture path) with its
+  VariationData (14), and gathers it through gathering-data.json `encounterObjects` (slice -> template, row). `tools/convert-objects.sh
+  encounters` writes `world-objects/encounter-objects.json` (47 slices: their templates and rows in the form of objects.json, local
+  indices; the Obelisk device: "Ancient Device", Handcrafting, 3 s, a sphere of 1.85 m). The object subsystem puts them after the ones
+  of objects.json, and `AddEncounterObjects` gives a record of such a slice a gather target only with its VariationData (retail: no
+  prompt without it), its place (PositionInTheWorld), and the GatherOption request on the object (the XOR rule, as a body). The
+  entity table keeps the variant (u8 field 0 first, else u16 field 1). Test: `tests/converter/test_encounter_objects.py`.
+  Not done (E4b): the mesh of the device. Its slice has no mesh; the variant row of the variation table of the slice sets it.
+  Note: `tools/convert-objects.sh write` fails with the backend copy 87865ea (1392 object keys "PLACEMENT/ENTITY"), and the shared
+  objects.json is older than the backend data (129 of 416 templates): this file does not need a new objects.json.
 - The live check (2026-10-29 10:03 to 10:18 UTC, the uncooked client, dev-data-qg; pictures in evidence/ut567-enc):
   - Obelisk 01: the row arrived at the entry into the 30 m detector. Then "Examine the Ancient Device", "0 / 2", and "1 / 2" (the
     development kills), and no row at the end. The respawn after about 10 s made the row again. The link came 65 ms before its root.

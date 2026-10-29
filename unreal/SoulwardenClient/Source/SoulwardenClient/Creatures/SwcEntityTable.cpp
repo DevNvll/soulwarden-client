@@ -23,6 +23,7 @@ constexpr std::uint32_t kTypeLootDrop = 2027;
 constexpr std::uint32_t kTypeInteract = 2930;
 constexpr std::uint32_t kTypeStatusEffects = 4236;
 constexpr std::uint32_t kTypeGatherable = 12;
+constexpr std::uint32_t kTypeVariationData = 14;
 // The compact map of the StatusEffects state (backend server/rep/states/status_state.cpp): group 3 field 1.
 constexpr unsigned kStatusObserverGroup = 3;
 constexpr unsigned kStatusCompactMap = 1;
@@ -223,6 +224,16 @@ void EntityTable::apply(const decoder::Record& record, std::uint64_t nowUs) {
                 entity.gatherableState = node[0];
                 entity.gatherableSlot = fragment.slot;
                 ++entity.gatherableRevision;
+            }
+            m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
+         else if (fragment.type == kTypeVariationData) {
+            // The variant of a start object of an encounter (QG5, protocol notes 4.62): field 0 u8 when present, else field 1 u16.
+            if (const auto narrow = decoder::field_of(fragment, 0, 0); narrow.size() == 1) {
+                entity.hasVariation = true;
+                entity.variation = narrow[0];
+            } else if (const auto wide = decoder::field_of(fragment, 0, 1); wide.size() == 2) {
+                entity.hasVariation = true;
+                entity.variation = static_cast<std::uint16_t>(read_be(wide));
             }
             m_changes.push_back({Change::Kind::effect, entity.interest, entity.serial});
         }

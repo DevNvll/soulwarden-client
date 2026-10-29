@@ -2,9 +2,10 @@
 # Writes the data of the object layer (stage P4.1 part 2; docs/OBJECTS.md) into SWC_CONTENT/world-objects (outside the repository):
 # the interactable objects of the interaction data, the chests, the capital and natural gathering nodes, and the visuals of the
 # node variants. See converter/swc_convert/objects.py.
-# Usage: tools/convert-objects.sh write | meshes | quest-objects [--out FILE]
+# Usage: tools/convert-objects.sh write | encounters | meshes | quest-objects [--out FILE]
 #   write    the data files
 #   quest-objects   the destructible quest objects (stage Q9; swc_convert/quest_objects.py) -> world-objects/quest-objects.json
+#   encounters   the start objects of the encounters (E4, QG5) -> world-objects/encounter-objects.json
 #   meshes   convert the depleted meshes of the node variants that the manifest does not have (then tools/import.sh --keys
 #            SWC_CONTENT/world-objects/depleted-meshes.json)
 # The conversion runs with nice 10 and at most SWC_MEMORY_MAX (default 8G).

@@ -66,6 +66,7 @@ const FName KindNatural(TEXT("naturalNode"));
 const FName KindChest(TEXT("chest"));
 const FName KindGatherable(TEXT("gatherable"));
 const FName KindBody(TEXT("body"));
+const FName KindEncounter(TEXT("encounterObject"));
 
 
 /** @return The claim of a chest in a map of claims (G to the state), or no value. */
@@ -316,6 +317,90 @@ void USwcObjectSubsystem::Tick(float DeltaTime)
 	}
 }
 
+void USwcObjectSubsystem::AddTemplate(const TSharedPtr<FJsonObject>& Info)
+{
+	const TSharedPtr<FJsonObject> Bound = Info->GetObjectField(TEXT("bound"));
+	FTemplate Template;
+	Template.Root = HexNumber(Info->GetStringField(TEXT("root")));
+	Template.BoundEntity = HexNumber(Bound->GetStringField(TEXT("entity")));
+	Template.Component = HexNumber(Bound->GetStringField(TEXT("component")));
+	Template.OptionEntity = HexNumber(Bound->GetStringField(TEXT("option")));
+	Template.Slot = static_cast<uint32>(Bound->GetIntegerField(TEXT("slot")));
+	Template.RangeSq = static_cast<float>(Bound->GetNumberField(TEXT("rangeSq")));
+	Template.bLineOfSight = Bound->GetBoolField(TEXT("lineOfSight"));
+	Template.Translation = ReadPlace(Bound->GetArrayField(TEXT("translation")));
+	ReadShape(Info, Template.Shape);
+	MaxRangeMeters = FMath::Max(MaxRangeMeters, FMath::Sqrt(static_cast<double>(Template.RangeSq)));
+	for (const TSharedPtr<FJsonValue>& Index : Info->GetArrayField(TEXT("visuals")))
+	{
+		Template.Visuals.Add(static_cast<int32>(Index->AsNumber()));
+	}
+	const TArray<TSharedPtr<FJsonValue>>* SliceVisuals = nullptr;
+	if (Info->TryGetArrayField(TEXT("sliceVisuals"), SliceVisuals))
+	{
+		for (const TSharedPtr<FJsonValue>& Index : *SliceVisuals)
+		{
+			Template.SliceVisuals.Add(static_cast<int32>(Index->AsNumber()));
+		}
+	}
+	Templates.Add(Template);
+}
+
+void USwcObjectSubsystem::AddRow(const TArray<TSharedPtr<FJsonValue>>& Row)
+{
+	// [id, type, action, restriction, tradeskill, level, time, name, unsupported]
+	FGatherRow& Entry = Rows.AddDefaulted_GetRef();
+	if (Row.Num() >= 8)
+	{
+		Entry.Id = Row[0]->AsString();
+		Entry.Type = Row[1]->AsString();
+		Entry.Action = Row[2]->AsString();
+		Entry.Restriction = Row[3]->AsString();
+		Entry.Tradeskill = Row[4]->AsString();
+		Entry.Level = static_cast<int32>(Row[5]->AsNumber());
+		Entry.Time = static_cast<float>(Row[6]->AsNumber());
+		Entry.Name = Row[7]->AsString();
+	}
+}
+
+int32 USwcObjectSubsystem::LoadEncounterObjects()
+{
+	EncounterObjects.Reset();
+	const FString Path = FPaths::Combine(FSwcCreatureLibrary::ContentFolder(), TEXT("world-objects/encounter-objects.json"));
+	FString Text;
+	TSharedPtr<FJsonObject> Document;
+	if (!FFileHelper::LoadFileToString(Text, *Path, FFileHelper::EHashOptions::None, FILEREAD_Silent)
+		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Document) || !Document.IsValid() || Document->GetIntegerField(TEXT("format")) != 1)
+	{
+		return 0;
+	}
+	// The indices of the file are local: its templates and rows go after the ones of objects.json.
+	const int32 TemplateBase = Templates.Num();
+	const int32 RowBase = Rows.Num();
+	for (const TSharedPtr<FJsonValue>& Value : Document->GetArrayField(TEXT("templates")))
+	{
+		AddTemplate(Value->AsObject());
+	}
+	for (const TSharedPtr<FJsonValue>& Value : Document->GetArrayField(TEXT("rows")))
+	{
+		AddRow(Value->AsArray());
+	}
+	for (const auto& Pair : Document->GetObjectField(TEXT("texts"))->Values)
+	{
+		Texts.Add(FString(Pair.Key), Pair.Value->AsString());
+	}
+	for (const auto& Pair : Document->GetObjectField(TEXT("objects"))->Values)
+	{
+		const TArray<TSharedPtr<FJsonValue>>& Link = Pair.Value->AsArray();
+		if (Link.Num() == 2)
+		{
+			EncounterObjects.Add(FString(Pair.Key), TPair<int32, int32>(TemplateBase + static_cast<int32>(Link[0]->AsNumber()),
+				RowBase + static_cast<int32>(Link[1]->AsNumber())));
+		}
+	}
+	return EncounterObjects.Num();
+}
+
 bool USwcObjectSubsystem::LoadTables(FString& OutReport)
 {
 	const FString Path = FPaths::Combine(FSwcCreatureLibrary::ContentFolder(), TEXT("world-objects/objects.json"));
@@ -369,32 +454,7 @@ bool USwcObjectSubsystem::LoadTables(FString& OutReport)
 	Templates.Reset();
 	for (const TSharedPtr<FJsonValue>& Value : Document->GetArrayField(TEXT("templates")))
 	{
-		const TSharedPtr<FJsonObject> Info = Value->AsObject();
-		const TSharedPtr<FJsonObject> Bound = Info->GetObjectField(TEXT("bound"));
-		FTemplate Template;
-		Template.Root = HexNumber(Info->GetStringField(TEXT("root")));
-		Template.BoundEntity = HexNumber(Bound->GetStringField(TEXT("entity")));
-		Template.Component = HexNumber(Bound->GetStringField(TEXT("component")));
-		Template.OptionEntity = HexNumber(Bound->GetStringField(TEXT("option")));
-		Template.Slot = static_cast<uint32>(Bound->GetIntegerField(TEXT("slot")));
-		Template.RangeSq = static_cast<float>(Bound->GetNumberField(TEXT("rangeSq")));
-		Template.bLineOfSight = Bound->GetBoolField(TEXT("lineOfSight"));
-		Template.Translation = ReadPlace(Bound->GetArrayField(TEXT("translation")));
-		ReadShape(Info, Template.Shape);
-		MaxRangeMeters = FMath::Max(MaxRangeMeters, FMath::Sqrt(static_cast<double>(Template.RangeSq)));
-		for (const TSharedPtr<FJsonValue>& Index : Info->GetArrayField(TEXT("visuals")))
-		{
-			Template.Visuals.Add(static_cast<int32>(Index->AsNumber()));
-		}
-		const TArray<TSharedPtr<FJsonValue>>* SliceVisuals = nullptr;
-		if (Info->TryGetArrayField(TEXT("sliceVisuals"), SliceVisuals))
-		{
-			for (const TSharedPtr<FJsonValue>& Index : *SliceVisuals)
-			{
-				Template.SliceVisuals.Add(static_cast<int32>(Index->AsNumber()));
-			}
-		}
-		Templates.Add(Template);
+		AddTemplate(Value->AsObject());
 	}
 	RegionTypes.Reset();
 	int32 Nodes = 0;
@@ -429,20 +489,7 @@ bool USwcObjectSubsystem::LoadTables(FString& OutReport)
 	{
 		for (const TSharedPtr<FJsonValue>& Value : (*Gathering)->GetArrayField(TEXT("rows")))
 		{
-			// [id, type, action, restriction, tradeskill, level, time, name, unsupported]
-			const TArray<TSharedPtr<FJsonValue>>& Row = Value->AsArray();
-			FGatherRow& Entry = Rows.AddDefaulted_GetRef();
-			if (Row.Num() >= 8)
-			{
-				Entry.Id = Row[0]->AsString();
-				Entry.Type = Row[1]->AsString();
-				Entry.Action = Row[2]->AsString();
-				Entry.Restriction = Row[3]->AsString();
-				Entry.Tradeskill = Row[4]->AsString();
-				Entry.Level = static_cast<int32>(Row[5]->AsNumber());
-				Entry.Time = static_cast<float>(Row[6]->AsNumber());
-				Entry.Name = Row[7]->AsString();
-			}
+			AddRow(Value->AsArray());
 		}
 		for (const auto& Pair : (*Gathering)->GetObjectField(TEXT("tools"))->Values)
 		{
@@ -478,8 +525,9 @@ bool USwcObjectSubsystem::LoadTables(FString& OutReport)
 		return false;
 	}
 	GatherOptionIndex = GatherOption;
-	OutReport = FString::Printf(TEXT("objects: %d options, %d gathering templates, %d node visuals, %d regions (%d objects of the interaction data, %d natural nodes), %d gatherable rows, %d tools, %d skinnable slices from %s"),
-		Options.Num(), Templates.Num(), Visuals.Num(), RegionTypes.Num(), Objects, Nodes, Rows.Num(), Tools.Num(), Bodies.Num(), *Path);
+	const int32 Encounters = LoadEncounterObjects();
+	OutReport = FString::Printf(TEXT("objects: %d options, %d gathering templates, %d node visuals, %d regions (%d objects of the interaction data, %d natural nodes), %d gatherable rows, %d tools, %d skinnable slices, %d encounter start objects from %s"),
+		Options.Num(), Templates.Num(), Visuals.Num(), RegionTypes.Num(), Objects, Nodes, Rows.Num(), Tools.Num(), Bodies.Num(), Encounters, *Path);
 	return true;
 }
 
@@ -804,6 +852,7 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 				&& Target.bInSight);
 	};
 	AddBodies(From, RadiusMeters, bUsableOnly, Out);
+	AddEncounterObjects(From, RadiusMeters, bUsableOnly, Out);
 	for (int32 GY = MinY; GY <= MaxY; ++GY)
 	{
 		for (int32 GX = MinX; GX <= MaxX; ++GX)
@@ -1055,6 +1104,63 @@ void USwcObjectSubsystem::AddBodies(const FVector3d& From, double RadiusMeters, 
 		}
 		// The prompt of a body shows only with the knife in slot 35 (protocol notes 4.44): no refusal text, no prompt.
 		if (bUsableOnly && (Target.bToolMissing || Target.State != ESwcWorldObjectState::Ready || !Target.bEnabled))
+		{
+			continue;
+		}
+		Out.Add(MoveTemp(Target));
+	}
+}
+
+void USwcObjectSubsystem::AddEncounterObjects(const FVector3d& From, double RadiusMeters, bool bUsableOnly, TArray<FSwcWorldObjectTarget>& Out) const
+{
+	const USwcCreatureSubsystem* Creatures = GetWorld() != nullptr ? GetWorld()->GetSubsystem<USwcCreatureSubsystem>() : nullptr;
+	if (Creatures == nullptr || EncounterObjects.IsEmpty())
+	{
+		return;
+	}
+	for (const auto& [Interest, Entity] : Creatures->GetEntityTable().entities())
+	{
+		// A start object of an encounter stage (a server child of the encounter system; backend world/encounters.cpp): its slice, its
+		// place (PositionInTheWorld), and its VariationData. Retail draws the mesh with no prompt until the variant is there (protocol
+		// notes 4.62; live check L3 of the backend stage QG5c2).
+		if (!Entity.hasMetadata || !Entity.hasWorldPlace || !Entity.hasVariation)
+		{
+			continue;
+		}
+		const TPair<int32, int32>* Link = EncounterObjects.Find(UTF8_TO_TCHAR(Entity.slice_key().c_str()));
+		if (Link == nullptr || !Templates.IsValidIndex(Link->Key))
+		{
+			continue;
+		}
+		const FTemplate& Template = Templates[Link->Key];
+		FBound Bound;
+		const float Offset[3]{static_cast<float>(Template.Translation.X), static_cast<float>(Template.Translation.Y), static_cast<float>(Template.Translation.Z)};
+		const swc::net::WorldPosition Place = swc::interact::transform_point(Entity.worldPlace, Entity.worldPlaceRotation, Offset);
+		Bound.EnginePlace = FVector3d(Place.x, Place.y, Place.z);
+		Bound.RangeSq = Template.RangeSq;
+		Bound.Shape = Template.Shape;
+		const swc::net::WorldPosition Player{static_cast<float>(From.X), static_cast<float>(From.Y), static_cast<float>(From.Z)};
+		if (bUsableOnly ? !swc::interact::contains(Bound.Shape, Place, Entity.worldPlaceRotation, Player, Bound.RangeSq)
+						: FVector3d::DistSquared(From, Bound.EnginePlace) > RadiusMeters * RadiusMeters)
+		{
+			continue;
+		}
+		// The ids of a server child: G of its actor, and the XOR rule with the template of its slice (as a fixture or a body).
+		const uint64 Group = swc::net::group_of(Entity.actor);
+		const swc::objects::BoundIds Ids = swc::objects::bound_ids(Template.Root, Group, Template.BoundEntity, Template.Component, Template.OptionEntity);
+		Bound.Slot = Template.Slot;
+		Bound.Target = Ids.target;
+		Bound.bLineOfSight = Template.bLineOfSight;
+		Bound.Options.Emplace(GatherOptionIndex, Ids.optionEntity);
+		FSwcWorldObjectTarget Target;
+		MakeTarget(FString::Printf(TEXT("encounter#%u"), Interest), KindEncounter, Entity.actor, Group, Bound, From, Target);
+		FillGather(Target, Link->Value);
+		// The server state of the object: the GatherableController (Depleted after the gather), and the Enabled mark of its Interact state.
+		Target.State = Entity.hasGatherable && Entity.gatherableState == swc::objects::kNodeDepleted ? ESwcWorldObjectState::Depleted
+			: ESwcWorldObjectState::Ready;
+		const auto Interact = Entity.interact.find(Template.Slot);
+		Target.bEnabled = Interact == Entity.interact.end() || Interact->second.enabled;
+		if (bUsableOnly && (Target.State != ESwcWorldObjectState::Ready || !Target.bEnabled))
 		{
 			continue;
 		}

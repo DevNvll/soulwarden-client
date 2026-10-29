@@ -178,6 +178,10 @@ struct Entity {
     std::uint8_t gatherableState{0};
     std::uint32_t gatherableSlot{0};
     std::uint32_t gatherableRevision{0};
+    /** VariationData (type 14; the start object of an encounter, QG5): the row index of the variation table of its slice. Retail gives
+     *  the prompt of a start object only with it (protocol notes 4.62). */
+    bool hasVariation{false};
+    std::uint16_t variation{0};
 
     /** The counts of the states of this entity. */
     std::uint32_t movementStates{0};

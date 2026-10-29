@@ -170,6 +170,10 @@ public:
 	const swc::interact::Option* FindOptionByAction(uint8 Action) const;
 	/** Reads the candidate shape of a bound of the converted data (objects.json, interactions.json: "shape"); no shape: type none. */
 	static void ReadShape(const TSharedPtr<FJsonObject>& Info, swc::interact::Shape& Out);
+	/** Reads one template of the object data (objects.json or encounter-objects.json) into Templates. */
+	void AddTemplate(const TSharedPtr<FJsonObject>& Info);
+	/** Reads one gatherable row ([id, type, action, restriction, tradeskill, level, time, name, unsupported]) into Rows. */
+	void AddRow(const TArray<TSharedPtr<FJsonValue>>& Row);
 	/** The bounds within a radius (m) of a point, in each state (for a marker or a check). */
 	void GetObjectsNear(const FVector& From, double RadiusMeters, TArray<FSwcWorldObjectTarget>& Out) const;
 	/** The UI shows the original loot ticker (stage WF7): the lines of the loot notice stand-in go off (default on; the log line stays). */
@@ -357,6 +361,10 @@ private:
 	void FillGather(FSwcWorldObjectTarget& Out, int32 Row) const;
 	/** The skinnable bodies of the creature view near a point (stage P5.2). */
 	void AddBodies(const FVector3d& From, double RadiusMeters, bool bUsableOnly, TArray<FSwcWorldObjectTarget>& Out) const;
+	/** The start objects of the encounters (E4, QG5): a server record of an encounter object slice with its VariationData state. */
+	void AddEncounterObjects(const FVector3d& From, double RadiusMeters, bool bUsableOnly, TArray<FSwcWorldObjectTarget>& Out) const;
+	/** Adds the templates and rows of world-objects/encounter-objects.json (tools/convert-objects.sh encounters) after the loaded ones. */
+	int32 LoadEncounterObjects();
 	FString Text(const FString& Key) const;
 	void DevelopmentAids();
 
@@ -379,6 +387,8 @@ private:
 	TArray<FGatherRow> Rows;
 	TMap<uint32, FToolItem> Tools;
 	TMap<FString, TPair<int32, int32>> Bodies;
+	/** The start objects of the encounters by their slice key: the template and the gatherable row (indices after the loaded ones). */
+	TMap<FString, TPair<int32, int32>> EncounterObjects;
 	TMap<FString, FString> Texts;
 	TMap<uint32, uint32> Equipment;
 	/** The trade skill ranks of the owner (the CategoricalProgression state: the CRC-32 of the lower-case id to the rank). */
