@@ -28,4 +28,7 @@ fi
 vendor_line="$(python3 -B -I "${SWC_REPO}/tools/lib/vendor_check.py" "${target}" \
     "${SWC_REPO}/unreal/SoulwardenClient/Source/SoulwardenClient/Net/Vendor/soulwarden" "${SOULWARDEN_REPO:-${HOME}/Developer/azoth}")"
 echo "${vendor_line}" >&2
+# The converted creature content against the creature data of this release (tools/lib/creature_check.py): a warning only, the client
+# shows a placeholder for a slice that is not converted.
+python3 -B -I "${SWC_REPO}/tools/lib/creature_check.py" "${target}" "${SWC_CONTENT}" >&2
 [[ "${vendor_line}" == ok* ]] || exit 4

@@ -33,9 +33,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 failures=0
-report() { # report ok|FAIL TEXT
+report() { # report ok|warn|FAIL TEXT (a warning is not a failure)
     printf '%-4s %s\n' "$1" "$2" >&2
-    [[ "$1" == "ok" ]] || failures=$((failures + 1))
+    [[ "$1" == "ok" || "$1" == "warn" ]] || failures=$((failures + 1))
 }
 
 # Prints "Steam id<TAB>persona name" of the account that logged in to Steam last on this computer: the block of
@@ -131,6 +131,14 @@ if [[ "${vendor_line}" == ok* ]]; then
     report ok "${vendor_line#ok }"
 else
     report FAIL "${vendor_line#FAIL }"
+fi
+# The converted creature content against the creature data of the backend copy (tools/lib/creature_check.py): a warning, not a
+# failure (the client runs; a slice that is not converted shows as a placeholder cylinder, a kind with no name as its id).
+creature_line="$(python3 -B -I "${SWC_REPO}/tools/lib/creature_check.py" "${SWC_BACKEND_DIR}" "${SWC_CONTENT}")"
+if [[ "${creature_line}" == ok* ]]; then
+    report ok "${creature_line#ok }"
+else
+    report warn "${creature_line#warn }"
 fi
 
 # 3. The client: the cooked build when it is current (or --cooked), else the engine and the module of the project.
