@@ -215,18 +215,30 @@ Swc.Define("ProgressionPointRequestBus", "Event", {
   end,
 })
 
--- The claim rows of the map (MapComponentBus GetClaims; the POICapital layout [I]: id, monikerId, settlementId, the name key): one row for
--- each standing territory with a territory definition. The offline world has no land claim manager: no owner, no war, no capital icon
--- (compass.luac AddCapitals skips a row with no compassIconPath). The standing list, the NavBar token count, and the token banner read
--- settlementId (the territory id).
+-- The claim rows of the map (MapComponentBus GetClaims; the POICapital layout [I]: id, monikerId, settlementId, the name key): the native
+-- map builder walks the records of the world map (the static read t3points, question 6), so a row is a standing territory with a territory
+-- definition and a shape in the world map data (gamedata/worldmap.json). The DevWorld territories 74 and 75 have standings and
+-- definitions but no shape of the world map: no row (the retail standing list has no DevWorld row: Soulwarden qg1 shot 22; the live check
+-- t3c showed them before this rule). The offline world has no land claim manager: no owner, no war, no capital icon (compass.luac
+-- AddCapitals skips a row with no compassIconPath). The standing list, the NavBar token count, and the token banner read settlementId (the
+-- territory id).
+local function map_shapes()
+  local ids = {}
+  local map = swcui.load_json("gamedata/worldmap.json") or {}
+  for _, shape in ipairs(map.shapes or {}) do
+    ids[tonumber(shape.id) or -1] = true
+  end
+  return ids
+end
+
 local function claims()
   if T.claims then
     return T.claims
   end
-  local rows = {}
+  local rows, shapes = {}, map_shapes()
   for _, s in ipairs(data().standings or {}) do
     local id = tonumber(s.territory)
-    local d = id and TerritoryDefinitionsDataManagerBus.Broadcast.GetTerritoryDefinition(id)
+    local d = id and shapes[id] and TerritoryDefinitionsDataManagerBus.Broadcast.GetTerritoryDefinition(id)
     if d and (d.nameLocalizationKey or "") ~= "" then
       rows[#rows + 1] = {id = id, monikerId = id, settlementId = id, nameLocalizationKey = d.nameLocalizationKey, compassIconPath = "",
                          mapIconPath = "", sliceName = ""}

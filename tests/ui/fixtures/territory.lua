@@ -88,6 +88,16 @@ local hasWindsward = false
 for _, row in ipairs(claims) do hasWindsward = hasWindsward or (row.settlementId == 6 and row.monikerId == 6 and row.id == 6) end
 check(hasWindsward, "a claim row of Windsward (settlementId 6)")
 check(#claims > 1 and (claims[1].compassIconPath == ""), "the claim rows have no compass icon (compass.luac AddCapitals skips them): " .. #claims)
+-- The DevWorld territories 74 and 75 (standings and definitions, no shape of the world map): no row (retail qg1 shot 22; live t3c).
+local devWorld, standingRows = false, 0
+for _, row in ipairs(claims) do
+  devWorld = devWorld or row.settlementId == 74 or row.settlementId == 75
+end
+for _, s in ipairs(T.data().standings) do
+  standingRows = standingRows + ((s.territory ~= "74" and s.territory ~= "75") and 1 or 0)
+end
+check(not devWorld, "no claim row of the DevWorld territories 74 and 75")
+equal(#claims, standingRows, "a claim row for each other standing territory (13)")
 local keys = LandClaimRequestBus.Broadcast.GetClaimKeys()
 local hasKey = false
 for _, k in ipairs(keys) do hasKey = hasKey or k == 6 end

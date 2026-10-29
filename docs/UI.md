@@ -395,8 +395,9 @@ the static read `work/ut567/qgplan/t3points/ANSWERS.md`, all [S] unless marked).
   state, a new pool, and a removed pool send none. The weapon pools keep their earlier events [I].
 - The card choice: `RequestSpendTerritoryStandingPoint` sends "territory spend PROGRESSION CARD", that is 4040 (24 bytes: target,
   entity, the territory CRC, the card CRC) to the ProgressionPoint facet. The client changes nothing before the next points state.
-- The claim rows (`MapComponentBus.GetClaims`): one row for each standing territory with a definition (id, monikerId, and settlementId
-  are the territory id; the name key). They have no compass icon, so compass.luac does not show them. The claim keys
+- The claim rows (`MapComponentBus.GetClaims`): one row for each standing territory with a definition and a shape of the world map
+  (`gamedata/worldmap.json`; the native map builder walks the world map records). The DevWorld territories 74 and 75 have no shape: no
+  row, as in the retail list (qg1 shot 22). The id, monikerId, and settlementId of a row are the territory id; it has the name key. They have no compass icon, so compass.luac does not show them. The claim keys
   (`LandClaimRequestBus.GetClaimKeys`) are the same territories [I: the offline world has no land claim manager]. The standing list,
   the NavBar token count, and the rank banner read them.
 - The card popup (TerritoryBonusPopup, POPUP_DRAW_ORDER) loads at the state Map (2477632187), as the retail dynamic canvas loader does.
