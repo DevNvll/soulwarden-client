@@ -572,6 +572,13 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       surface shows as an opaque yellow-green plane (the blend adds opacity on the underside too). The terms need an underside gate
       (TwoSidedSign or the camera-underwater state; the study of the near term). swim-under -6.9 in the far band.
     - The far join: NOT VALID (the pictures are near black, L* about 3; the first meter line of the run gives EV 0.74, then 13.03).
+  - The underside gate (version 6 of the check parent, the word of the orchestrator 2026-10-29 14:56 UTC; not built at the commit): the
+    Custom nodes SwcNearTerm, SwcShoreTerm, and SwcShoreWeight get the input Above (the TwoSidedSign of the pixel) and multiply their
+    result by saturate(Above): the near term, the shore foam, and the blend (the weight f, thus the new opacity and the base color scale)
+    are for the top side of the surface only. The underside keeps the plugin look, as the plugin coefficients of the water
+    (x saturate(TwoSidedSign)). Expected: swim-surface as with all terms off; no change of the views from above.
+  - The study of a depth-dependent extinction (GPT-6.1-Sol; brief `research/briefs/ast200-2c-depth-extinction.txt`, result
+    `~/Games/soulwarden-client/research/water-depth-extinction.md`): first the source formula, then the Unreal parameters.
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).

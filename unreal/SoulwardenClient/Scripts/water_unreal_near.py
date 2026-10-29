@@ -25,7 +25,8 @@ import unreal
 DEST = os.environ.get("SWC_WATER_UNREAL_DEST", "/SwcWaterCheck/Water/Near").rstrip("/")
 REPORT = os.environ["SWC_WATER_UNREAL_REPORT"]
 force = os.environ.get("SWC_IMPORT_FORCE", "") == "1"
-VERSION = "5"   # 1: the near term; 2: Break / Make; 3: the shore foam (additive); 4: the shore blend (failed: masks); 5: the blend, no masks
+VERSION = "6"   # 1: the near term; 2: Break / Make; 3: the shore foam (additive); 4: the shore blend (failed: masks); 5: the blend, no masks;
+                # 6: the underside gate
 if not DEST.startswith("/SwcWaterCheck/"):
     raise RuntimeError(f"the near term goes into the check plugin only, not {DEST}")
 
@@ -41,8 +42,12 @@ OPACITY = "B8F50FBA2A754EC19EF672CFEB27BF51"
 # ray in the water L = (Behind - Surface) / cos (the depth difference is along the view axis); u the downward part of the ray; the floor
 # transmittance of the plugin exp(-sigma x the depth gap) x exp(-sigma x the vertical depth) (SingleLayerWaterShading.ush) or the source
 # T = exp(-rho L (1 + u)); the ramp sat(0.1 L) with L in m; the transmission through the surface (1 - opacity) x (1 - F), F a Schlick
-# Fresnel of a flat surface (the up normal) [the first test: an approximation of EnvBRDF].
+# Fresnel of a flat surface (the up normal) [the first test: an approximation of EnvBRDF]. The underside gate (version 6): Above is the
+# TwoSidedSign of the pixel (+1 the top side of the surface, -1 the underside); the terms are for the view from above the water only, as the
+# scattering and absorption of the plugin (the function of the water coefficients: x saturate(TwoSidedSign)). The underside keeps the plugin
+# look (the swim-surface fault of 2026-10-29: the blend opacity made the underside an opaque plane).
 CODE = r"""
+float Side = saturate(Above);
 float GapCm = max(Behind - Surface, 0.0);
 float3 Dir = -normalize(CameraVector);
 float CosView = max(dot(Dir, View.ViewForward), 0.05);
@@ -61,7 +66,7 @@ if (Debug > 0.5)
 {
     Add = Gain * 1000.0 * (Debug < 1.5 ? float3(Ramp, T, F) : float3(saturate(RayCm / 1000.0), Down, CosView));
 }
-return max(Add, 0.0);
+return max(Add * Side, 0.0);
 """
 
 # The source shore foam of the ocean (water_materials.py, the ocean branch of the foam: research/water-shallow-terms.md): the band of the
@@ -69,7 +74,9 @@ return max(Add, 0.0);
 # f = fshore x the sun luminance / 10000 x sat(0.5 + shade^2) x a, with the minimum shade 0.5 [the first test: an additive diagnostic,
 # gain x f x FoamAmount x 10000 on the emissive; the source blend is f x (FoamAmount x 10000 - C)]. The coordinates of the source ocean:
 # FoamUV = world (m) x 0.005 x Tilling + wind, wind = (cos, sin)(WindDirection) x WaveSpeed x WindScale x Time. No crest foam (h = 0).
+# The underside gate of CODE (Side): no foam on the underside, and so no blend there (the weight f is 0).
 SHORE = r"""
+float Side = saturate(Above);
 float q = max(Behind - Surface, 0.0) * 0.01;
 float a = saturate(Soft * q);
 float2 world = P.xy * 0.01;
@@ -88,10 +95,10 @@ if (Debug > 0.5)
 {
     Add = Gain * 1000.0 * float3(s, saturate(0.5 * m), saturate(4.0 * f));
 }
-return max(Add, 0.0);
+return max(Add * Side, 0.0);
 """
-# The blend weight of the shore foam (the same rule as SHORE, no debug): gain x f.
-SHORE_F = SHORE.split("float3 Add = ")[0] + "return max(Gain * f, 0.0);\n"
+# The blend weight of the shore foam (the same rule as SHORE, no debug): gain x f, 0 on the underside.
+SHORE_F = SHORE.split("float3 Add = ")[0] + "return max(Gain * f * Side, 0.0);\n"
 # The source blend C' = (1 - f) C + f x FoamAmount x 10000 as a coverage of the Single Layer Water surface (SwcShoreBlend 1): the opacity is the
 # covered part of the surface (the water volume light and the floor get 1 - opacity; BasePassPixelShader.usf), so the opacity takes f of the
 # uncovered part, and the base color of that new part is black (the white of the foam is the emissive f x FoamAmount x 10000 of SHORE; a lit
@@ -197,12 +204,13 @@ def make_parent():
     behind = editing.create_material_expression(material, unreal.MaterialExpressionSceneDepthWithoutWater, x, y + 800)
     surface = editing.create_material_expression(material, unreal.MaterialExpressionPixelDepth, x, y + 900)
     camera = editing.create_material_expression(material, unreal.MaterialExpressionCameraVectorWS, x, y + 1000)
+    side = editing.create_material_expression(material, unreal.MaterialExpressionTwoSidedSign, x, y + 1050)
 
     custom = editing.create_material_expression(material, unreal.MaterialExpressionCustom, x + 400, y + 400)
     custom.set_editor_property("code", CODE)
     custom.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT3)
     custom.set_editor_property("description", "SwcNearTerm")
-    names = ["Gain", "NearColor", "Sun", "Sigma", "Mode", "Debug", "Behind", "Surface", "CameraVector", "Opacity"]
+    names = ["Gain", "NearColor", "Sun", "Sigma", "Mode", "Debug", "Behind", "Surface", "CameraVector", "Opacity", "Above"]
     custom_inputs = []
     for name in names:
         entry = unreal.CustomInput()
@@ -210,7 +218,8 @@ def make_parent():
         custom_inputs.append(entry)
     custom.set_editor_property("inputs", custom_inputs)
     for node, name, out in ((gain, "Gain", ""), (near, "NearColor", "RGB"), (sun, "Sun", "RGB"), (sigma, "Sigma", ""), (mode, "Mode", ""),
-                            (debug, "Debug", ""), (behind, "Behind", ""), (surface, "Surface", ""), (camera, "CameraVector", "")):
+                            (debug, "Debug", ""), (behind, "Behind", ""), (surface, "Surface", ""), (camera, "CameraVector", ""),
+                            (side, "Above", "")):
         connect(node, [out, ""], custom, [name])
     connect(get, ["Opacity"], custom, ["Opacity"])
 
@@ -241,7 +250,7 @@ def make_parent():
     shore.set_editor_property("code", SHORE)
     shore.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT3)
     shore.set_editor_property("description", "SwcShoreTerm")
-    shore_names = list(shore_params) + ["Sun", "Behind", "Surface", "P", "Time", "FoamData", "Gloss"]
+    shore_names = list(shore_params) + ["Sun", "Behind", "Surface", "P", "Time", "FoamData", "Gloss", "Above"]
     entries = []
     for name in shore_names:
         entry = unreal.CustomInput()
@@ -255,6 +264,7 @@ def make_parent():
     connect(surface, [""], shore, ["Surface"])
     connect(position, [""], shore, ["P"])
     connect(time, [""], shore, ["Time"])
+    connect(side, [""], shore, ["Above"])
     for name, node in textures.items():
         connect(node, [""], shore, [name])
     total = editing.create_material_expression(material, unreal.MaterialExpressionAdd, x + 950, y)
@@ -274,6 +284,7 @@ def make_parent():
     connect(surface, [""], weight, ["Surface"])
     connect(position, [""], weight, ["P"])
     connect(time, [""], weight, ["Time"])
+    connect(side, [""], weight, ["Above"])
     for name, node in textures.items():
         connect(node, [""], weight, [name])
     blend = scalar("SwcShoreBlend", 1.0, 2700)
