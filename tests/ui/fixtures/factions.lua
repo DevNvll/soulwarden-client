@@ -4,14 +4,20 @@
 -- the request 3161, the Bio tab with a faction, and the selection screen of Change Faction (state 1040880896).
 -- Pictures: factions-bio, factions-selection.
 local HUD, SKILLS, SELECTION = 2702338936, 3576764016, 1040880896
+-- The world name before the load of the canvases (the front end sets it: worldlistcommon.luac SetWorldName; bio.luac OnInit reads it once; a
+-- development start with no front end has none, and the Bio reads "World:" only: the live check f2a).
+LyShineManagerBus.Broadcast.SetWorldName("Soulwarden")
 local skills = screen("LyShineUI/Skills/Skills.uicanvas", 20)
 local selection = screen("LyShineUI/ChangeFaction/FactionSelection.uicanvas", 52)
 screen("LyShineUI/Popup/Popup.uicanvas", 52)
+-- The world map: mapfortressinfomenu.luac reads the war phase duration when the Social bus is ready (a Lua error of the live check f2a).
+screen("LyShineUI/WorldMap/MagicMap.uicanvas", 20)
 Swc.factions.selectionLoaded = true   -- the fixture loads the canvas (the state hook would load it in the client)
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(HUD)
 DynamicBus.UiLoader.Broadcast.OnUiLoadingComplete()
 Swc.HostProgression(16, 0)   -- the level index 16: the screen level 17 of the recruitment
+
 frames(0.3)
 
 local function texts_of(canvas)
@@ -77,7 +83,8 @@ equal(FactionRequestBus.Event.CanSetFactionWithResults(player, eFactionType_Fact
 equal(FactionRequestBus.Event.CanSetFactionWithResults(player, eFactionType_Faction2, false), eCanSetFactionResults_Success,
   "a change with no check (the poster) and the time 0 of a join: no wait")
 
--- 6. The Bio tab with the Syndicate.
+-- 6. The Bio tab with the Syndicate, and the recruitment achievement of the Marauders (the Bio change of the live check f2a).
+Swc.HostOwnership(tostring(Swc.AchievementIndex("FactionIntro_Marauders_Recruitment")), "", true)
 Swc.HostRanks(string.format("%d 1 120\n%d 0 35", 0x56FBDE12, 0xEBD7B082))
 LyShineManagerBus.Broadcast.SetState(SKILLS)
 frames(0.5)
@@ -86,6 +93,7 @@ frames(1.5)
 local bio = texts_of(skills)
 note("the bio tab: " .. bio)
 check(bio:lower():find("syndicate", 1, true) ~= nil, "the bio tab names the Syndicate")
+check(bio:find("World: | Soulwarden", 1, true) ~= nil, "the bio tab: World: Soulwarden (the faction states do not clear the world name)")
 -- The wallet of the faction (bio.luac UpdateWallet, after Hud.LocalPlayer.CategoricalProgressionRequestBus.IsConnected): the rank name,
 -- the reputation, and the tokens; before the node, the tab kept the canvas text 2000 / 2000.
 check(bio:find("Scrivener | 120 |", 1, true) ~= nil, "the reputation of the Syndicate: the rank name Scrivener and 120 points")
@@ -110,6 +118,30 @@ note("the selection screen: " .. selectionText)
 check(selectionText ~= "", "the selection screen shows")
 picture("factions-selection")
 equal(swcui.error_count() - errorsBefore, 0, "the selection screen: no Lua error")
+
+-- 7b. A real click on the panel of the Marauders (FactionSelection2): the live check f2a did not select it.
+local marauders = find(swcui.canvas_get(selection, "root"), "FactionSelection2")
+check(marauders ~= nil, "the panel FactionSelection2")
+if marauders then
+  equal(FactionRequestBus.Event.CanSetFactionWithResults(player, eFactionType_Faction2, true), eCanSetFactionResults_Success,
+    "the Marauders with their recruitment achievement: Success")
+  requests()
+  local title = find(marauders, "FactionName")
+  note("the title point: " .. table.concat({point_of(title, 0.5, 0.5)}, " ") .. "; the panel point: " .. table.concat({point_of(marauders, 0.5, 0.5)}, " "))
+  local panelScript
+  for _, inst in ipairs(Swc.components[tostring(marauders)] or {}) do
+    if (inst.__swcScript or ""):find("factionselectionpanel", 1, true) then panelScript = inst end
+  end
+  note("the panel before the click: factionSelected " .. tostring(panelScript and panelScript.factionSelected) .. ", isDisabled "
+    .. tostring(panelScript and panelScript.isDisabled))
+  click(title, 0.5, 0.5)
+  frames(1.0)
+  note("the panel after the click: factionSelected " .. tostring(panelScript and panelScript.factionSelected) .. ", isDisabled "
+    .. tostring(panelScript and panelScript.isDisabled))
+  note("after the click on the Marauders: SelectedFaction " .. tostring(Swc.GetData("FactionSelection.SelectedFaction")) .. "; " .. texts_of(selection))
+  picture("factions-selected")
+end
+equal(swcui.error_count() - errorsBefore, 0, "the click on the panel: no Lua error")
 
 -- 8. The request (the Yes of the selection or of the poster): "faction set N" (3161) and the HUD faction at once.
 requests()

@@ -522,6 +522,10 @@ Swc.Define("CategoricalProgressionRequestBus", "Event", {
   end,
   -- No boost of the trade skill points (the backend has no boost: crafting.md, the experience of a craft).
   GetTotalProgressionBoost = function() return 0 end,
+  -- The milestones of the PvP track: this client has no PvP track data (skills/pvptrack/pvptrack_emblempopup.luac reads the count when the
+  -- categorical bus connects; a nil gave five Lua errors after Hud.LocalPlayer.CategoricalProgressionRequestBus.IsConnected, ut567 2a).
+  -- [I] No milestone.
+  GetNumPvpMilestones = function() return 0 end,
 })
 
 -- The faction control buffs of a territory: the backend has no territory (0).

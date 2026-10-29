@@ -330,6 +330,9 @@ local noRace = {
   IsActive = function() return false end,
   IsUpcoming = function() return false end,
 }
+-- The phases of a war: no war in the offline world. mapfortressinfomenu.luac reads the Conquest duration when the Social bus is ready
+-- (GetWarPhaseDuration(eWarPhase_Conquest):ToHours(); a nil gave a Lua error at the Social state of QG7, ut567 2a). [I] 0 hours.
+Swc.Define("WarRequestBus", "Broadcast", {GetWarPhaseDuration = function() return Swc.Duration.new({seconds = 0}) end})
 Swc.Define("WarDataServiceBus", "Broadcast", {
   GetWars = function() return {} end,
   GetWarsForGuild = function() return {} end,
