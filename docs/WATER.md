@@ -575,7 +575,7 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       [R by the logs]: `swc.ExposureFixed 1` keeps the bias curve of the source rule on the post process, and Unreal applies that curve
       in the manual mode too (PostProcessEyeAdaptation.cpp, GetAutoExposureCompensationFromCurve). With the bias -10.5 the frame EV is
       the lower EV bound of the preset + 8.03 [I for the rule]: 13.03 in each beach, lake, river, and underwater run (the preset EV 5 to
-      17), 17.03 at the sky place (firstlight_jungle_a, EV 9 to 18). The next far-join check uses the bias -14.5 and is valid only when
+      17), 17.03 at the sky place (firstlight_jungle_a, EV 9 to 18). The far-join check uses the bias -6.5 (-14.5 gave EV 21.03: a lower bias gives a higher EV) and is valid only when
       the meter lines of the shots give EV 13.03.
   - The underside gate (version 6 of the check parent, the word of the orchestrator 2026-10-29 14:56 UTC; not built at the commit): the
     Custom nodes SwcNearTerm, SwcShoreTerm, and SwcShoreWeight get the input Above (the TwoSidedSign of the pixel) and multiply their
@@ -617,6 +617,27 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
       the plugin normal, Mix)) on the top side; Mix 1 and the underside give the plugin normal unchanged. (0, 0, 1) is the flat normal of
       the horizontal water mesh in the tangent space and in the world space. The final normal also changes the refraction, the Fresnel,
       and the sun light: not a reflection-only test. The sweep 1 / 0.5 / 0.25 / 0.1 is for a later window.
+  - The window of version 7 (2026-10-29 15:31 to 16:04 UTC, the editor build of 394ec7c0; the import 15:31:57 (the parent normal is in
+    the tangent space); the compile gate passed (0 "Failed to compile", swap +8 GB); 0 compile faults in each run; evidence
+    `water-unreal/wnt-m-*`, `near-gate-window.png`):
+    - The source shots (the base and @s2; each shot at EV 13.03), on the fixed masks: beach-down L* 52.10 / 51.24, hue 95.2 / 96.4;
+      ocean-clear 43.93 / 53.40, hue 195.5 / 189.9; ocean-far 41.93 / 37.96, hue 215.8 / 214.5. The drift of ocean-clear (9.5 L*) is
+      larger than the limit: the edge of the cliff reflection in the mask moves between the two source shots. The L* of that mask is not a
+      usable measure; its hue is (5.6 degrees).
+    - beach-down, one shot of the best setting (version 7 with the defaults; above the water the same as version 5): water L* -6.7, hue
+      +19.6: FAIL (the near band -2.1); the earlier shots of version 5: -4.2 to -5.7, hue +5 to +8 [the foam phase; one shot].
+    - The underside: the swim-surface camera (5 cm above the mean ocean level) is above the waves in some shots and under them in others.
+      This window: the base (all off) is under the waves and shows the yellow-green plane; @best is above. The last window: the reverse.
+      Thus the plane is the underside look of the plugin, not the blend; the statement of 14:55 ("the blend adds opacity on the
+      underside") was wrong. swim-surface is not a valid view for the gate. swim-under (the camera 0.8 m under): @best against the base
+      far +3.5, middle -0.6, near -0.2 (the last window, version 5: far -6.9): the gate leaves the underside as the plugin [within the
+      shot spread].
+    - The far join at EV 13.03 (a second run with the bias -6.5: the bias -14.5 gave EV 21.03; a lower bias gives a higher EV; each shot
+      at EV 13.03): @best against the base, sky-east far -0.1, middle -0.8, near -2.0; sky-south +0.4 / -0.3 / -1.4. No new seam; the
+      green haze of the place is also in the source path and in the far-ring pictures of 2026-10-26. PASS.
+    - The rivers, A/A (@a1 and @a2 all off around @best): river-down A/A spread 0.4 to 0.7 L*, @best minus the mean of a1 and a2 -0.1 to
+      +0.2; river-forest spread 0.7 to 1.0, @best +0.1 to +0.6. The ocean switches do not change the rivers; the -4 of the last window was
+      the light between the shots. PASS.
 - The floor tests of the ocean (off by default): `swc.WaterOceanExtinction S` (S x the extinction of the ocean tone with the same
   albedo), `swc.WaterOceanMaskOffset` (cm; the plugin "Water Opacity Mask Offset", -24); the SSR test with the engine cvar
   `r.Water.SingleLayer.Reflection` 2 and 3 against 1 (`run_c.sh floor`).
