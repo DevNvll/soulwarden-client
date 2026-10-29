@@ -190,6 +190,17 @@ def landmarks() -> list[dict]:
                     entry = {"type": int.from_bytes(kind.value, "big"),
                              "ids": [int.from_bytes(c.value, "big") for c in (ids.children if ids is not None else []) if c.value],
                              "position": [round(v, 3) for v in place]}
+                    # The actor id of the landmark (16 bytes; the id of the map destination records, MissionDestinationData: 32
+                    # uppercase hex digits in byte order; static read ut567/qgplan/mapsettle).
+                    actor = fields.get(F("ActorId"))
+                    if actor is not None and actor.value and len(actor.value) == 16:
+                        entry["actor"] = actor.value.hex().upper()
+                    # The data text of the landmark (LandmarkData: the station and its tier of a crafting station "Blacksmith5", the
+                    # NPC id of a person, the fishing hotspot id, the tower id; collapsiblesettlementicon.luac takes the station type of
+                    # it); an empty text is left out.
+                    text = fields.get(F("LandmarkData"))
+                    if text is not None and text.value:
+                        entry["data"] = text.value.decode("utf-8", "replace").rstrip("\x00")
                     key = (entry["type"], tuple(entry["position"]))
                     # A region file has a landmark two times when two layers place it.
                     if key in seen:

@@ -331,7 +331,17 @@ Linear AST-213. `tools/convert-ui.sh worldmap` writes the data and the textures;
   position (`Swc.HostView`) updates `Hud.LocalPlayer.CurrentAreaTerritory.SmallestContainingId`, `.ClaimKey`,
   `EnteredTerritoryId`, and `ExitedTerritoryId` after each move of 2 m or more.
 - The rules of the fixed backend: no discovery (each point of interest is discovered and charted), no wars, races, raids,
-  outposts, claims, missions, or companies (empty lists).
+  claims, missions, or companies (empty lists).
+- The settlements of the map (ut567; static read `work/ut567/qgplan/mapsettle/ANSWERS.md`): `ObjectiveInteractorRequestBus
+  GetOutpostDestinations` gives the landmarks of type 1 (Settlement) and 22 (Outpost) with a prism, in their order: the record
+  MissionDestinationData (id: the actor id of the landmark, 32 uppercase hex digits; territoryId: the territory shape that contains
+  it, for an outpost first its point-of-interest shape [I]; worldPosition x and y; nameLocalizationKey). The world has 13 settlements
+  and 9 outposts. `GetClaimDestinations` stays empty (no land claim manager). `Hud.LocalPlayer.LandmarkDataReady` is true when the map
+  data has landmarks (settlementiconslayer.luac waits for it). The settlement icon (collapsiblesettlementicon.luac) shows the
+  landmarks of its territory: the crafting stations by their landmark data ("Smelting5": the station type and its tier), the inn, the
+  trading post, the storage, the boards; Windsward has 20. `worldmap.json` has, for each landmark, `actor` and `data` (LandmarkData).
+  `ShopDataManagerRequestBus.GetShopDataFromNpcId` gives an invalid record (the shops are a later stage) [I]. Fixture
+  `tests/ui/fixtures/mapsettlements.lua` (it skips with the old map data).
 - The travel: the original shrine flow (fasttravelicon.luac: a click on a shrine, the flyout with "Fast Travel", the Yes/No
   popup, `PlayerHousingClientRequestBus.RequestFastTravelToTerritory`). The backend has no fast travel of the game (no fee, no
   cooldown, no discovery, no inn recall): the costs are 0 and the check gives Success, or IsDead for a dead character. The

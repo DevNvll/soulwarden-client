@@ -21,7 +21,7 @@ if not data then
 end
 
 local V3 = function(x, y, z) return Swc.Vector3.new({x = x or 0, y = y or 0, z = z or 0}) end
-local LANDMARK_SETTLEMENT, LANDMARK_SHRINE = 1, 27
+local LANDMARK_SETTLEMENT, LANDMARK_SHRINE, LANDMARK_OUTPOST = 1, 27, 22
 
 -- The definitions by id: the columns of the data tables in the names of the native class, and an icon column also with
 -- "Path" after it (mapIcon -> mapIconPath), as the scripts read them.
@@ -151,13 +151,13 @@ for _, mark in ipairs(data.landmarks or {}) do
       poi = id
     end
   end
-  landmarks[#landmarks + 1] = {type = mark.type, ids = mark.ids, poi = poi,
+  landmarks[#landmarks + 1] = {type = mark.type, ids = mark.ids, poi = poi, actor = mark.actor or "", data = mark.data or "",
     position = V3(mark.position[1], mark.position[2], mark.position[3])}
 end
 
 local function landmarkObject(mark)
   return {worldPosition = mark.position, position = mark.position, landmarkType = mark.type, type = mark.type,
-    territoryId = mark.ids[1] or 0, poiId = mark.poi, landmarkData = 0, index = mark.poi}
+    territoryId = mark.ids[1] or 0, poiId = mark.poi, landmarkData = mark.data, index = mark.poi}
 end
 
 local function hasId(mark, id)
@@ -255,7 +255,7 @@ Swc.Define("MapComponentBus", "Broadcast", {
       end
     end
     return {worldPosition = V3(0, 0, 0), position = V3(0, 0, 0), landmarkType = kind, type = kind, territoryId = 0,
-      poiId = 0, landmarkData = 0, index = 0}
+      poiId = 0, landmarkData = "", index = 0}
   end,
   GetLandmarksInTerritory = function(id)
     local out = {}
@@ -341,12 +341,66 @@ Swc.Define("WarDataServiceBus", "Broadcast", {
 Swc.Define("RaidSetupRequestBus", "Broadcast", {
   GetSignedUpTerritories = function() return {} end,
 })
+-- The settlement destinations of the map (the map settlements item of ut567; static read ut567/qgplan/mapsettle, all [S] unless marked):
+-- ObjectiveInteractorRequestBus GetOutpostDestinations is the cached list of TerritoryLandmarkDataManager: the landmarks of type 1
+-- (Settlement) and 22 (Outpost) of the region data, in their order, each with a prism (ClaimPrismDataManager; a landmark with no prism is
+-- left out). The record MissionDestinationData: id (the actor id of the landmark, 32 uppercase hex digits), territoryId (the territory
+-- of the prism), worldPosition (x and y), nameLocalizationKey (the name key of the definition of that territory). No discovery filter.
+-- settlementiconslayer.luac makes a Settlement icon (the definition isTerritory) or an Outpost icon for each record; the settlement icon
+-- (collapsiblesettlementicon.luac) shows the station, inn, and trading post icons of the landmarks of its territory.
+-- The prism [I]: a settlement takes the territory shape (isTerritory) that contains the landmark; an outpost first a point-of-interest
+-- shape of its ids that contains it, else the territory shape.
+local destinations
+local function outpostDestinations()
+  if destinations then
+    return destinations
+  end
+  destinations = {}
+  for _, mark in ipairs(landmarks) do
+    if mark.type == LANDMARK_SETTLEMENT or mark.type == LANDMARK_OUTPOST then
+      local territory, outpost = nil, nil
+      for _, shape in ipairs(containing(mark.position)) do
+        local d = definition(shape.id)
+        if d and d.isTerritory == true and not territory then
+          territory = shape.id
+        elseif mark.type == LANDMARK_OUTPOST and not outpost and hasId(mark, shape.id) then
+          outpost = shape.id
+        end
+      end
+      local id = (mark.type == LANDMARK_OUTPOST and outpost) or territory
+      local d = id and definition(id)
+      if d then
+        destinations[#destinations + 1] = {id = mark.actor, territoryId = id, nameLocalizationKey = d.nameLocalizationKey or "",
+          worldPosition = Vector2(mark.position.x, mark.position.y)}
+      end
+    end
+  end
+  return destinations
+end
+Swc.worldmap = Swc.worldmap or {}
+Swc.worldmap.outpostDestinations = outpostDestinations   -- the fixtures read it
+
 Swc.Define("ObjectiveInteractorRequestBus", "Broadcast", {
-  GetOutpostDestinations = function() return {} end,
+  -- The settlement and outpost destinations (above). The claim destinations (the Claim landmarks, with
+  -- javelin.enable-claim-mission-destinations) stay empty: the offline world has no land claim manager; the map layer runs no claim
+  -- loop with an empty list (settlementiconslayer.luac AddMapSettlements).
+  GetOutpostDestinations = function() return outpostDestinations() end,
   GetClaimDestinations = function() return {} end,
   GetInfluenceTowerDestinations = function() return {} end,
-  UpdateLandmarkDataAvailability = function() end,
+  -- The readiness of the landmark data (the native checks feature flags and the provider readiness, 0x4953B90): the client data is
+  -- ready when worldmap.json has landmarks [I: the native sets Hud.LocalPlayer.LandmarkDataReady after these checks].
+  UpdateLandmarkDataAvailability = function()
+    Swc.SetData("Hud.LocalPlayer.LandmarkDataReady", #landmarks > 0)
+    return #landmarks > 0
+  end,
 })
+-- The shop of a person of a Shop landmark (collapsiblesettlementicon.luac FillLandmarks, compass.luac, staticworldmarker.luac call IsValid on
+-- the result): the shops are a later stage (5.1), so each person has no shop record [I]: an invalid record, no map icon (a nil result
+-- stopped the settlement icons of the map at the first Shop landmark).
+local noShop = {displayOnMap = false, IsValid = function() return false end}
+Swc.Define("ShopDataManagerRequestBus", "Broadcast", {GetShopDataFromNpcId = function() return noShop end})
+-- settlementiconslayer.luac waits for this node before it asks for the destinations (SetWorldMapData).
+Swc.SetData("Hud.LocalPlayer.LandmarkDataReady", #landmarks > 0)
 
 -- No dungeon and no expedition (the map menu shows "Leave" and "Abandon Activity" only in a dungeon game mode).
 Swc.Define("GameModeParticipantComponentRequestBus", "Event", {
