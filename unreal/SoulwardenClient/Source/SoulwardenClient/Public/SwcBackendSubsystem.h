@@ -79,6 +79,9 @@ public:
 	 * @return True while the client is in the world (phase InGame).
 	 */
 	bool GetLocalPlayer(swc::net::RepClient::OwnEntity& Out) const;
+	/** The encounter roots near the character (QG5; the entities with a manager status or root Objectives): their interest numbers and
+	 *  their states. @return False out of the world. */
+	bool GetEncounterRoots(TArray<TPair<uint32, swc::net::RepClient::OtherEntity>>& Out) const;
 
 	/** @return The server clock now in microseconds (the clock of the cooldown ends), or 0 before the registration reply. */
 	uint64 GetServerTimeMicroseconds() const;

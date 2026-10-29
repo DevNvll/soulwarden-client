@@ -598,6 +598,30 @@ natural chain):
   "attempt to concatenate a nil value" at 79 s of the TempestRising stand-in (1 error). No other Lua error in the 23 runs.
 - The repeat stays blocked (no repeatable row in the backend).
 
+## The encounters of the quests (QG5 of the backend; ut567)
+
+The backend makes an instance of an encounter recipe near a character (encounter-data.json of the backend copy; protocol notes 4.62;
+the Soulwarden docs/systems/encounters.md). Retail shows it in the original quest HUD, with no other canvas: the linked objective of
+the root at the top of the tracker (a teal diamond), its stage title, and the row of the active task with its counter or its timer.
+
+- The codec (`RepClient`): the own Objectives field 5 (`encounterLinks`: G of each linked root; a state with no field 5 keeps the list,
+  an empty field clears it); for other entities the manager status 6786, the last entry of each stage 2133 (a larger signed sequence
+  only), the root Objectives 3857 at the slot of the slice (fields 0, 3, 4 with the reader of the own Objectives), and the
+  VariationData 14 of a start object. Tests: `tests/net/quest_tests.cpp` `encounter_states` (the bytes of the backend encoders).
+- The feed (`FSwcUiQuests::Feed`): for each link G (the group of the actor of a root: its first 8 bytes, little-endian) with a known
+  root, the line `E INSTANCE ASSET<TAB>TITLE<TAB>DESC|TARGET|TIMELIMIT|HIDE...`, its T and S lines, and a K line before the own
+  tracked list. A link before its root, or a root before its link, shows nothing until both are there.
+- The task tree (`FSwcUiQuests::LoadEncounterTrees`, the rule of the notes, static read D of QG5c4): the stages in stageOrder and their
+  child stages; each objective of a user-wave stage that makes a task (InvasionWave: target 1; SliceDestroyed and SliceSpawned:
+  requiredCount; EntityActiveStateChanged with a description: 1; WaitForParent: none). Task m has the leaf 2m+1 and its consecutive
+  wrapper 2m+2; the root is the consecutive container 2T+1. The title is the first title of those objectives.
+- The adapter (`swc/quests.lua` `encounter_record`): the record has the type POI (the location slot of the tracker) and generated rows
+  (TP_DescriptionTag, TargetQty, TimeLimit, HideProgress for m_countDownProgress). The timer of a timed leaf uses the S line of the root
+  (`GetTaskStartTime`). [I] The end of a root sends only OnObjectiveRemoved (no banner of a failed or completed quest). An encounter
+  record is not in a pin request.
+- Check: the fixture `encounters` (the Obelisk tree, "1 / 2 - Defeat the enforcers" and "Stellar Research" in the tracker, the Thorpe
+  TimeLimit and start, the end of the root). Not done yet: the start objects (VariationData, item E4) and the stage actions.
+
 ## Open points
 
 - The cinematics (TempestRising): the stand-in counts for the Q9 acceptance (the decision of the orchestrator, 2026-10-25); the quest result

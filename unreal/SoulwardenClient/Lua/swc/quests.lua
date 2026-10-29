@@ -229,7 +229,10 @@ end
 local function send_pins()
   local keys = {}
   for _, key in ipairs(Q.tracked) do
-    keys[#keys + 1] = key
+    -- An encounter root is tracked by its link (field 5), not by a pin of the character.
+    if not (Q.byKey[key] and Q.byKey[key].encounter) then
+      keys[#keys + 1] = key
+    end
   end
   Swc.hostRequests[#Swc.hostRequests + 1] = "quest pins " .. table.concat(keys, ",")
 end
@@ -327,6 +330,48 @@ end
 
 --- The quest state of the owner (UI/SwcUiQuests): "A instance objective territory parent", "T instance index task progress state",
 --- "K instance" (tracked), "S instance index startNs", "C instance" (completed notice).
+--- The record of an encounter root (QG5; protocol notes 4.62): "E INSTANCE ASSET<TAB>TITLE<TAB>DESC|TARGET|TIMELIMIT|HIDE<TAB>...". The
+--- generated tree of the native client: task m has the leaf 2m+1 (the text, the target, the TimeLimit, m_countDownProgress) and its
+--- consecutive wrapper 2m+2; the outer consecutive container 2T+1 is the root. The type POI: the tracker shows it in its location slot
+--- at the top (the teal diamond of retail). Its rows are not rows of quests.json: no pin request and no data of the quest table.
+local function encounter_record(rest)
+  -- The fields with the empty ones (an encounter with no title has an empty second field).
+  local fields, from = {}, 1
+  while true do
+    local at = string.find(rest, "\t", from, true)
+    fields[#fields + 1] = string.sub(rest, from, at and at - 1 or #rest)
+    if not at then
+      break
+    end
+    from = at + 1
+  end
+  local head = fields[1] or ""
+  local instance, asset = head:match("^(%d+) (%x+)$")
+  if not instance then
+    return nil
+  end
+  local title = fields[2] or ""
+  local row = {id = "encounter:" .. asset, cells = {Title = title ~= "" and title or nil, Type = "POI"}}
+  local rec = {key = instance, id = objective_id(instance), crc = 0, row = row, territory = 0, parent = "0", states = {}, nodes = {},
+               starts = {}, encounter = asset}
+  local wrappers = {}
+  for m = 0, #fields - 3 do
+    local desc, target, limit, hide = (fields[m + 3] or ""):match("^([^|]*)|(%d+)|([%d.]*)|(%d)$")
+    if not desc then
+      break
+    end
+    local leaf, wrapper = 2 * m + 1, 2 * m + 2
+    rec.nodes[leaf] = {index = leaf, children = {}, row = {type = "task", cells = {TP_DescriptionTag = desc ~= "" and desc or nil,
+      TargetQty = target, TimeLimit = (tonumber(limit) or 0) > 0 and limit or nil, HideProgress = hide == "1" and "1" or nil}}}
+    rec.nodes[wrapper] = {index = wrapper, children = {leaf}, row = {type = "consecutivetaskcontainer", cells = {}}}
+    wrappers[#wrappers + 1] = wrapper
+  end
+  local root = 2 * #wrappers + 1
+  rec.nodes[root] = {index = root, children = wrappers, row = {type = "consecutivetaskcontainer", cells = {}}}
+  rec.root = root
+  return rec
+end
+
 function Swc.HostQuests(text)
   local data = D()
   local list, byKey, tracked, completed = {}, {}, {}, {}
@@ -345,6 +390,14 @@ function Swc.HostQuests(text)
       rec.previous = old and old.states or {}
       list[#list + 1] = rec
       byKey[instance] = rec
+    elseif kind == "E" then
+      local rec = encounter_record(rest)
+      if rec and not byKey[rec.key] then
+        local old = Q.byKey[rec.key]
+        rec.previous = old and old.states or {}
+        list[#list + 1] = rec
+        byKey[rec.key] = rec
+      end
     elseif kind == "T" then
       local instance, index, task, progress, state = rest:match("^(%d+) (%d+) (%d+) (%d+) (%d+)$")
       local rec = byKey[instance]
@@ -379,7 +432,9 @@ function Swc.HostQuests(text)
   for key, old in pairs(before) do
     if not byKey[key] then
       notify_component("OnObjectiveRemoved", old.id)
-      if completed[key] then
+      if old.encounter then
+        -- [I] The end of an encounter (the stop of the root, the unlink): no banner of a completed or failed quest.
+      elseif completed[key] then
         -- bannertriggers.luac OnObjectiveCompleted(instanceId, objectiveCRC, creationParams) (research/quest-conversation.md 6.3).
         notify_component("OnObjectiveCompleted", old.id, old.crc, {missionId = 0, objectiveId = old.crc, originTerritoryId = old.territory or 0,
           destinationOverride = EntityId(), parentObjectiveId = objective_id(old.parent or "0")})

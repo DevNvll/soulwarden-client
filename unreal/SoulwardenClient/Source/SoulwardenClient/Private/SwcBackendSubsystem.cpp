@@ -673,6 +673,28 @@ void USwcBackendSubsystem::ShowOwnEntity()
 	}
 }
 
+bool USwcBackendSubsystem::GetEncounterRoots(TArray<TPair<uint32, swc::net::RepClient::OtherEntity>>& Out) const
+{
+	Out.Reset();
+	if (!Connection.IsValid())
+	{
+		return false;
+	}
+	const FSwcRepConnection::FSnapshot Snapshot = Connection->GetSnapshot();
+	if (Snapshot.Phase != FPhase::inGame)
+	{
+		return false;
+	}
+	for (const TPair<uint32, swc::net::RepClient::OtherEntity>& Entry : Snapshot.Objects)
+	{
+		if (Entry.Value.hasEncounterStatus || Entry.Value.hasRootObjectives)
+		{
+			Out.Add(Entry);
+		}
+	}
+	return true;
+}
+
 bool USwcBackendSubsystem::GetLocalPlayer(swc::net::RepClient::OwnEntity& Out) const
 {
 	if (!Connection.IsValid())

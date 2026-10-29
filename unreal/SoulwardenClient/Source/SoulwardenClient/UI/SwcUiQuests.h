@@ -59,6 +59,13 @@ private:
 	bool bEnabled = false;
 	bool bRestored = false;
 	uint32 SentRevision = 0;
+	/** The encounter roots of the last call (QG5): a hash of the links and of the revisions of the linked roots. */
+	uint64 SentEncounters = 0;
+	/** The generated task list of each recipe slice (the GUID text of its asset; SWC_GAMEDATA_DIR/encounter-data.json): the title, then
+	 *  one "DESCRIPTION|TARGET|TIMELIMIT|HIDE" entry for each task, tab-separated (protocol notes 4.62 "The task tree"). */
+	TMap<FString, FString> EncounterTrees;
+	bool bEncounterTreesLoaded = false;
+	void LoadEncounterTrees();
 	uint32 SentReadyRevision = 0;
 	bool bSentAny = false;
 	uint64 Group = 0;

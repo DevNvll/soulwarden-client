@@ -7,7 +7,9 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "SwcUi/Runtime.h"
+#include "Net/Codec/SwcRepMessages.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <tuple>
 #include <string>
@@ -26,6 +28,114 @@ void FSwcUiQuests::Reset()
 	SentRevision = 0;
 	SentReadyRevision = 0;
 	bSentAny = false;
+}
+
+void FSwcUiQuests::LoadEncounterTrees()
+{
+	// The task tree of an encounter objective (protocol notes 4.62, the collector 0x26F1FD0 and the factories of 0x44650F0): the stages of
+	// the manager in their order (stageOrder) and the child stages of each one, and in each stage with m_userWave each objective
+	// (objective, then more) that makes a task: InvasionWaveObjective (target 1), SliceDestroyedObjective and SliceSpawnedObjective (target
+	// m_requiredCount), EntityActiveStateChangedObjective (target 1, only with a description); WaitForParentObjective and the other types
+	// make no task. Task m has the leaf 2m+1 and its wrapper 2m+2; the outer container is 2T+1 (swc/quests.lua builds the nodes).
+	bEncounterTreesLoaded = true;
+	FString Text;
+	const FString Path = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("SWC_GAMEDATA_DIR")), TEXT("encounter-data.json"));
+	TSharedPtr<FJsonObject> Root;
+	if (!FFileHelper::LoadFileToString(Text, *Path) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root) || !Root.IsValid())
+	{
+		UE_LOG(LogSwcUiQuests, Warning, TEXT("ui: quests: no encounter data (%s): an encounter row has no task text"), *Path);
+		return;
+	}
+	const TArray<TSharedPtr<FJsonValue>>* Recipes = nullptr;
+	if (!Root->TryGetArrayField(TEXT("recipes"), Recipes))
+	{
+		return;
+	}
+	for (const TSharedPtr<FJsonValue>& Value : *Recipes)
+	{
+		const TSharedPtr<FJsonObject> Recipe = Value->AsObject();
+		FString Asset;
+		const TArray<TSharedPtr<FJsonValue>>* Stages = nullptr;
+		const TArray<TSharedPtr<FJsonValue>>* Order = nullptr;
+		if (!Recipe.IsValid() || !Recipe->TryGetStringField(TEXT("asset"), Asset) || EncounterTrees.Contains(Asset.ToUpper())
+			|| !Recipe->TryGetArrayField(TEXT("stages"), Stages) || !Recipe->TryGetArrayField(TEXT("stageOrder"), Order))
+		{
+			continue;
+		}
+		FString Title;
+		TArray<FString> Tasks;
+		TSet<int32> Seen;
+		TFunction<void(int32)> Visit = [&](int32 Index) {
+			if (!Stages->IsValidIndex(Index) || Seen.Contains(Index))
+			{
+				return;
+			}
+			Seen.Add(Index);
+			const TSharedPtr<FJsonObject> Stage = (*Stages)[Index]->AsObject();
+			bool bUserWave = false;
+			const TSharedPtr<FJsonObject>* Objective = nullptr;
+			if (Stage.IsValid() && Stage->TryGetBoolField(TEXT("userWave"), bUserWave) && bUserWave && Stage->TryGetObjectField(TEXT("objective"), Objective))
+			{
+				TArray<TSharedPtr<FJsonObject>> Objectives{*Objective};
+				const TArray<TSharedPtr<FJsonValue>>* More = nullptr;
+				if ((*Objective)->TryGetArrayField(TEXT("more"), More))
+				{
+					for (const TSharedPtr<FJsonValue>& Extra : *More)
+					{
+						Objectives.Add(Extra->AsObject());
+					}
+				}
+				for (const TSharedPtr<FJsonObject>& Each : Objectives)
+				{
+					if (!Each.IsValid())
+					{
+						continue;
+					}
+					const FString Type = Each->GetStringField(TEXT("type"));
+					const FString Description = Each->GetStringField(TEXT("description"));
+					int32 Target = 0;
+					if (Type == TEXT("InvasionWaveObjective") || (Type == TEXT("EntityActiveStateChangedObjective") && !Description.IsEmpty()))
+					{
+						Target = 1;
+					}
+					else if (Type == TEXT("SliceDestroyedObjective") || Type == TEXT("SliceSpawnedObjective"))
+					{
+						double Required = 1.0;
+						Each->TryGetNumberField(TEXT("requiredCount"), Required);
+						Target = FMath::Max(1, static_cast<int32>(Required));
+					}
+					if (Target == 0)
+					{
+						continue;
+					}
+					double TimeLimit = 0.0;
+					Each->TryGetNumberField(TEXT("timeLimit"), TimeLimit);
+					bool bCountDown = false;
+					Each->TryGetBoolField(TEXT("countDown"), bCountDown);
+					const FString StageTitle = Each->GetStringField(TEXT("title"));
+					if (Title.IsEmpty() && !StageTitle.IsEmpty())
+					{
+						Title = StageTitle;
+					}
+					Tasks.Add(FString::Printf(TEXT("%s|%d|%g|%d"), *Description, Target, TimeLimit, bCountDown ? 1 : 0));
+				}
+			}
+			const TArray<TSharedPtr<FJsonValue>>* Children = nullptr;
+			if (Stage.IsValid() && Stage->TryGetArrayField(TEXT("children"), Children))
+			{
+				for (const TSharedPtr<FJsonValue>& Child : *Children)
+				{
+					Visit(static_cast<int32>(Child->AsNumber()));
+				}
+			}
+		};
+		for (const TSharedPtr<FJsonValue>& Entry : *Order)
+		{
+			Visit(static_cast<int32>(Entry->AsNumber()));
+		}
+		EncounterTrees.Add(Asset.ToUpper(), Title + TEXT("\t") + FString::Join(Tasks, TEXT("\t")));
+	}
+	UE_LOG(LogSwcUiQuests, Log, TEXT("ui: quests: the task trees of %d encounter slice(s) (%s)"), EncounterTrees.Num(), *Path);
 }
 
 void FSwcUiQuests::Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::OwnEntity& Own, USwcBackendSubsystem& Backend)
@@ -50,10 +160,59 @@ void FSwcUiQuests::Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::Ow
 		Flags[swc::net::kCommunityGoalType] = false;
 		bEnabled = Backend.EnableObjectives(Flags);
 	}
-	if (Own.questRevision != SentRevision)
+	// The encounter roots of the links (QG5; protocol notes 4.62): a root shows when the own Objectives field 5 has its G and its record
+	// is known (a link can come before the root, and the root before the link).
+	TArray<TPair<uint32, swc::net::RepClient::OtherEntity>> Roots;
+	Backend.GetEncounterRoots(Roots);
+	std::vector<const swc::net::RepClient::OtherEntity*> Linked;
+	uint64 Encounters = 1469598103934665603ULL;
+	const auto Mix = [&Encounters](uint64 Value) { Encounters = (Encounters ^ Value) * 1099511628211ULL; };
+	for (const std::uint64_t Link : Own.encounterLinks)
+	{
+		Mix(Link);
+		for (const TPair<uint32, swc::net::RepClient::OtherEntity>& Root : Roots)
+		{
+			if (swc::net::group_of(Root.Value.actor) == Link && Root.Value.hasRootObjectives && !Root.Value.rootActive.empty())
+			{
+				Linked.push_back(&Root.Value);
+				Mix(Root.Key);
+				Mix(Root.Value.encounterRevision);
+				break;
+			}
+		}
+	}
+	if (Own.questRevision != SentRevision || Encounters != SentEncounters)
 	{
 		SentRevision = Own.questRevision;
+		SentEncounters = Encounters;
 		std::string Lines;
+		// "E INSTANCE ASSET": the objective of a linked root and the slice asset of its recipe (the GUID in the order of its text); its task
+		// elements and timer starts in the T and S lines; it is tracked first (the retail HUD shows it at the top).
+		for (const swc::net::RepClient::OtherEntity* Root : Linked)
+		{
+			char Asset[33];
+			for (int Index = 0; Index < 16; ++Index)
+			{
+				std::snprintf(Asset + Index * 2, 3, "%02X", Root->sliceAsset[Index]);
+			}
+			const std::uint64_t Instance = Root->rootActive.front().instance;
+			if (!bEncounterTreesLoaded)
+			{
+				LoadEncounterTrees();
+			}
+			const FString* Tree = EncounterTrees.Find(UTF8_TO_TCHAR(Asset));
+			Lines += "E " + std::to_string(Instance) + " " + Asset + "\t" + (Tree != nullptr ? std::string(TCHAR_TO_UTF8(**Tree)) : std::string()) + "\n";
+			for (const auto& Task : Root->rootTasks)
+			{
+				Lines += "T " + std::to_string(Task.instance) + " " + std::to_string(Task.index) + " " + std::to_string(Task.task) + " "
+					+ std::to_string(Task.progress) + " " + std::to_string(Task.state) + "\n";
+			}
+			for (const auto& Start : Root->rootStarts)
+			{
+				Lines += "S " + std::to_string(Start.instance) + " " + std::to_string(Start.index) + " " + std::to_string(Start.startNs) + "\n";
+			}
+			Lines += "K " + std::to_string(Instance) + "\n";
+		}
 		for (const auto& Active : Own.questActive)
 		{
 			Lines += "A " + std::to_string(Active.instance) + " " + std::to_string(Active.objective) + " " + std::to_string(Active.originTerritory) + " "
@@ -84,8 +243,9 @@ void FSwcUiQuests::Feed(swc::ui::Runtime& Runtime, const swc::net::RepClient::Ow
 		TArray<FString> Items;
 		FString(UTF8_TO_TCHAR(Tags.c_str())).ParseIntoArray(Items, TEXT(","));
 		Backend.SetQuestTags(TSet<FString>(Items));
-		UE_LOG(LogSwcUiQuests, Log, TEXT("ui: quests: %d active, %d task element(s), %d tracked"), static_cast<int32>(Own.questActive.size()),
-			static_cast<int32>(Own.questTasks.size()), static_cast<int32>(Own.questTracked.size()));
+		UE_LOG(LogSwcUiQuests, Log, TEXT("ui: quests: %d active, %d task element(s), %d tracked, %d linked encounter(s) of %d link(s)"),
+			static_cast<int32>(Own.questActive.size()), static_cast<int32>(Own.questTasks.size()), static_cast<int32>(Own.questTracked.size()),
+			static_cast<int32>(Linked.size()), static_cast<int32>(Own.encounterLinks.size()));
 	}
 	if (Own.pinReadyRevision != SentReadyRevision)
 	{
