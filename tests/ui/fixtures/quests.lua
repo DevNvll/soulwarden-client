@@ -81,6 +81,18 @@ check(has(journal, "Soul Survivor"), "the journal shows Soul Survivor")
 picture("quests-journal")
 note("the drive point of Unpin: " .. Swc.HostPointOf("text:Unpin", 0.5, 0.5))
 check(Swc.HostPointOf("text:Unpin", 0.5, 0.5) ~= "", "the journal shows the button Unpin (the drive target text:Unpin)")
+-- No group: no share button (objective.luac: javelin.enable-objective-sharing true, Hud.LocalPlayer.Group.Id not valid).
+do
+  local shown = 0
+  local function walk(id)
+    for _, child in ipairs(UiElementBus.Event.GetChildren(id) or {}) do
+      if swcui.name(child) == "ShareButton" and swcui.enabled_in_hierarchy(child) then shown = shown + 1 end
+      walk(child)
+    end
+  end
+  walk(swcui.canvas_get(journal, "root"))
+  equal(shown, 0, "a character with no group: no share button on the journal cards (retail qg6a I3: Pin and Abandon only)")
+end
 equal(ObjectivesComponentRequestBus.Event.GetObjectiveSortingPos(Swc.ids.player, ObjectivesComponentRequestBus.Event.GetObjectives(Swc.ids.player)[1]), 0,
   "the one pin has the place 0: the icon number 1 (retail I2-new-character-hud.png)")
 key("escape")

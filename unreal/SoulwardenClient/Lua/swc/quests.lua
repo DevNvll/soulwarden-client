@@ -936,6 +936,11 @@ Swc.config["javelin.enable-journal"] = true
 -- each type on, CommunityGoal (6) off, the retail default. A change of a switch does not go to the backend yet (an open point).
 Swc.config["javelin.enable-auto-pin-options"] = true
 Swc.SetData("javelin.enable-auto-pin-options", true)   -- objectivestab.luac reads it as a data node (dataLayer:OnChange)
+-- The share button of a journal card (objective.luac OnInit observes javelin.enable-objective-sharing: false hides it; true sets its text
+-- and shows it only in a group with a shareable objective). With no node the button kept its canvas state: an empty button under the
+-- other buttons of each card (window 3 of ut567, bd8-journal-quest.png; retail qg6a I3-journal-before-pin: Pin and Abandon only).
+Swc.config["javelin.enable-objective-sharing"] = true
+Swc.SetData("javelin.enable-objective-sharing", true)
 for objectiveType = 0, 35 do
   Swc.SetData("Hud.LocalPlayer.Options.Misc.EnableAutoPinningObjectives." .. objectiveType, objectiveType ~= 6)
 end
