@@ -247,6 +247,9 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "POST", f"/v1/dev/status/remove?character={character(folder)}&status={rest[0]}")
     if command in ("shoot", "area") and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/creatures/{command}?creature={rest[0]}&character={character(folder)}")
+    if command == "kill" and len(rest) == 1:
+        # The health 0 of a creature: its death counts for the stage of its encounter (backend Creatures::set_health, member_died).
+        return request(folder, "POST", f"/v1/dev/creatures/kill?creature={rest[0]}")
     if command == "health" and len(rest) == 2:
         amount = f"percent={float(rest[1][:-1])}" if rest[1].endswith("%") else f"health={float(rest[1])}"
         return request(folder, "POST", f"/v1/dev/creatures/health?creature={rest[0]}&{amount}")
@@ -393,9 +396,17 @@ class DriveClock:
 
 def script(path: str, folder: Path, clock: DriveClock | None = None) -> None:
     """Runs a timed list: "SECONDS COMMAND WORDS..." (seconds from the start of the script, or on the drive clock of the client
-    log). $N is the id of the creature of the Nth spawn of the script (1 first)."""
+    log). $N is the id of the creature of the Nth spawn of the script (1 first). $name:TEXT is the id of the first creature of the last
+    "creatures" answer whose name or slice has TEXT (no case; C-13: the boss of an encounter, which the script does not spawn). $given is the
+    first bag slot of the last "give" answer (for "equip $given SLOT")."""
     start = time.monotonic()
     spawned: list[str] = []
+    listed: list[dict] = []
+    given: list[str] = []
+
+    def named(text: str) -> str:
+        found = next((c for c in listed if text.lower() in (str(c.get("name", "")) + " " + str(c.get("slice", ""))).lower()), None)
+        return str(found["id"]) if found else "$name:" + text
     for line in Path(path).read_text().splitlines():
         line = line.split("#", 1)[0].strip()
         if not line:
@@ -413,7 +424,8 @@ def script(path: str, folder: Path, clock: DriveClock | None = None) -> None:
             delay = float(at) - (time.monotonic() - start)
             if delay > 0:
                 time.sleep(delay)
-        words = [spawned[int(word[1:]) - 1] if word.startswith("$") and word[1:].isdigit() and int(word[1:]) <= len(spawned) else word
+        words = [spawned[int(word[1:]) - 1] if word.startswith("$") and word[1:].isdigit() and int(word[1:]) <= len(spawned)
+                 else named(word[6:]) if word.startswith("$name:") else (given[0] if given else word) if word == "$given" else word
                  for word in words]
         try:
             result = run(words, folder)
@@ -422,6 +434,10 @@ def script(path: str, folder: Path, clock: DriveClock | None = None) -> None:
             continue
         if words[0] == "spawn" and isinstance(result, dict) and "creature" in result:
             spawned.append(str(result["creature"].get("id")))
+        if words[0] == "creatures" and isinstance(result, dict) and isinstance(result.get("creatures"), list):
+            listed = result["creatures"]
+        if words[0] == "give" and isinstance(result, dict) and result.get("slots"):
+            given = [str(result["slots"][0])]
         summary = json.dumps(result)[:240]
         print(f"{clock.now() if clock is not None else time.monotonic() - start:7.2f} s  {' '.join(words)}: {summary}", flush=True)
 
