@@ -171,7 +171,9 @@ local function objective_data(row)
   end
   local typeName = cell(row, "Type") or "Quest"
   return ObjectiveData.new({
-    id = row.crc, objectiveId = row.crc, type = _G["eObjectiveType_" .. typeName] or (eObjectiveType_Quest or 1),
+    -- id: the text id of the row (the scripts pass it to Math.CreateCrc32: factionmission.luac, flyoutrow_factionmission.luac; C-12 phase 2:
+    -- with the CRC number the reward helper found no objective and the card had no daily bonus); objectiveId: the CRC.
+    id = row.id or tostring(row.crc), objectiveId = row.crc, type = _G["eObjectiveType_" .. typeName] or (eObjectiveType_Quest or 1),
     title = cell(row, "Title") or "", description = cell(row, "Description") or "",
     npcDestinationId = cell(row, "NpcDestinationId") and crc(cell(row, "NpcDestinationId")) or GetNilCrc(),
     successGameEventId = cell(row, "SuccessGameEventId") and crc(cell(row, "SuccessGameEventId")) or GetNilCrc(),

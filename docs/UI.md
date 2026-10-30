@@ -1560,4 +1560,8 @@ and the backend encoders (states 3829, 1746, 3086; requests 3819, 2461).
     3 minus the uses), the reward preview with the factors of FactionMissionBonus while a use is left. A select is the index of the
     mission in the PvE list (3816). The faction shop has an empty list (the shops are a later stage).
   - Checks: the fixture `tests/ui/fixtures/factionboard.lua` (26 checks).
+  - The reward preview of a card: the helper (objectivedatahelper.luac) calls GetUIMissionRewardsAndBonuses for an objective of the type
+    Mission; `ObjectiveData.id` is the text id of the row (the scripts pass it to Math.CreateCrc32). activeBonuses has the kinds of the
+    flyout row (1 the daily bonus, 2 the fort control, 3 the territory, 4 the rested experience). Fixture: XP 6050 x 3, coin 23.00 x 10,
+    tokens 2540 x 5, "Daily Bonus".
   - Open points: some card texts have no place name ("Delve into  for the Syndicate"; the POI name of the card); the faction shop.

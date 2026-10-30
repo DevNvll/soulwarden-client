@@ -544,7 +544,9 @@ Swc.Define("GameEventRequestBus", "Broadcast", {
     if daily_available(FACTION_MISSION_BONUS) > 0 then
       local fx, fc, ft = bonus_factors()
       xp, coin, tokens = math.floor(xp * fx), coin * fc, math.floor(tokens * ft)
-      bonuses[#bonuses + 1] = FACTION_MISSION_BONUS
+      -- The bonus kinds of the preview (flyoutrow_factionmission.luac activeBonusLocTags): 1 the daily bonus, 2 the fort control,
+      -- 3 the territory, 4 the rested experience.
+      bonuses[#bonuses + 1] = 1
     end
     local territory = tonumber(origin) or 0
     if territory == 0 then

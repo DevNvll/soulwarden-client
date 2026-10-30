@@ -118,6 +118,29 @@ frames(2.0)
 equal(LyShineManagerBus.Broadcast.GetCurrentState(), FACTION, "the open sets the state of the faction board")
 check(swcui.canvas_get(board, "enabled"), "the faction board shows")
 picture("factionboard-open")
+-- The reward preview of a card (GetUIMissionRewardsAndBonuses): the daily bonus is the active bonus kind 1 while a use is left.
+do
+  local row = B.D().missions[picks[1]]
+  local event = swcui.crc32(string.lower(row.cells.SuccessGameEventIdOverride or ""))
+  local preview = GameEventRequestBus.Broadcast.GetUIMissionRewardsAndBonuses(event, 6)
+  equal(preview.activeBonuses[1], 1, "the reward preview: the daily bonus (the bonus kind 1)")
+end
+-- The hover of the first card shows its flyout row with the rewards and the active bonus "Daily Bonus".
+do
+  local first
+  local function walk(id)
+    for _, child in ipairs(UiElementBus.Event.GetChildren(id) or {}) do
+      if not first and swcui.name(child) == "FactionMission" and swcui.enabled_in_hierarchy(child) then first = child end
+      walk(child)
+    end
+  end
+  walk(swcui.canvas_get(board, "root"))
+  if first then
+    move_to(first)
+    frames(1.5)
+    picture("factionboard-hover")
+  end
+end
 
 -- 5. The select of the second offer: the index of the PvE list (3816).
 requests()
