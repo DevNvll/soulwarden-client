@@ -554,6 +554,8 @@ public:
         std::uint64_t incompleteBundles{0};
         std::uint64_t droppedBundles{0};
         std::uint64_t inputReports{0};
+        /** The input reports with no motion because the motion of the game side was for an older travel revision (C-13). */
+        std::uint64_t heldMotions{0};
         /** The melee contacts in list 3 of the input entries (each one in one entry). */
         std::uint64_t meleeContacts{0};
         /** The shots in list 2 of the input entries (stage P3.5). */
@@ -581,6 +583,10 @@ public:
         /** The point of the crosshair (the camera ray to the first hit or to the range of the weapon; stage P3.6): the shot items go to it. */
         bool hasAimPoint{false};
         WorldPosition aimPoint;
+        /** The travel revision of the own entity that the game side has handled (USwcBackendSubsystem::SeenTravel). With a value, the
+         *  motion goes out only while it is the current revision: after a travel of the server or a level change (C-13), the place
+         *  of the old scene does not go out with flag 0x8000 before the game side has moved the character. */
+        std::optional<std::uint32_t> travelRevision;
     };
 
     explicit RepClient(Options options);
@@ -785,6 +791,7 @@ private:
     std::uint64_t m_bundleSequence{0};
     bool m_bundleGap{false};
     std::uint32_t m_levelChanges{0};
+    bool m_holdingMotion{false};
     OwnEntity m_own;
     std::map<std::uint32_t, OtherEntity> m_others;
     std::vector<OtherUpdate> m_otherUpdates;

@@ -1468,6 +1468,7 @@ void USwcBackendSubsystem::UpdatePlayer()
 		Motion.hasAimPoint = true;
 		Motion.aimPoint = SwcUnrealToEngine(Aim);
 	}
+	Motion.travelRevision = SeenTravel;   // C-13: no place of the old scene after a travel or a level change of the server
 	Connection->SetMotion(Motion);
 	// The interactions (stage P2.10): the focus at the feet, the key E, the use, and the replies of the session. The death and a
 	// loading screen end a use (DisableInteractor of the action Death); a timed use plays the action DelayedInteraction.

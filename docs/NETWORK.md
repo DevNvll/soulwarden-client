@@ -279,6 +279,10 @@ context instance, 1635 with a new version and the reload flag, 1617, an empty bu
   teleport number starts at 0, and the phase goes from WaitingForSpawnPoint (the 1628) to InGame at the full owner record. That record
   is a travel: `USwcBackendSubsystem::Travel` loads the cells of the start of the instance behind its loading screen. Before C-13 the
   client took the bundle with the sequence 1 as a gap and dropped each later bundle (the world stopped, no action went out).
+- The motion of the game side has the travel revision that the game side has handled (`Motion::travelRevision` = `SeenTravel`).
+  While it is older than the revision of the own entity (after a travel of the server or a level change, before `Travel` has moved
+  the character), the input reports have no motion: the place of the old scene does not go out with flag 0x8000 (`heldMotions`, one
+  log line at the start of each hold).
 - A level that the client does not have (the expeditions, the arenas, the ORI story instances: their own levels): a clean end of the
   session with the cause "this instance is in the level LEVEL, which this client does not have yet"; the landing screen shows it, and
   the backend puts the character at its return place (docs/systems/instances.md of the backend, rule D9).

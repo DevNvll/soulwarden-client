@@ -137,6 +137,27 @@ int main() {
         stopped = stopped || update.stop;
     }
     expect(stopped || client.others().empty(), "the story instance: the entities of the old context stop before the records of the new one");
+    // The motion of the game side: the place of the old scene (the travel revision before the change) does not go out with flag
+    // 0x8000; the motion of the new place (the current revision) goes out.
+    swc::net::RepClient::Motion motion;
+    motion.character = {kHome.x, kHome.y, kHome.z};
+    motion.camera = {kHome.x, kHome.y - 4.0F, kHome.z + 1.6F};
+    motion.travelRevision = entryTravels;
+    client.set_motion(motion);
+    const std::uint64_t heldBefore = client.counts().heldMotions;
+    now += std::chrono::milliseconds(100);
+    (void)client.tick(now);
+    expect(client.counts().heldMotions > heldBefore, "the story instance: the motion of the old scene is held (no old place with flag 0x8000)");
+    motion.character = {kStoryStart.x, kStoryStart.y, kStoryStart.z};
+    motion.travelRevision = client.own().travelRevision;
+    client.set_motion(motion);
+    const std::uint64_t held = client.counts().heldMotions;
+    const std::uint64_t reports = client.counts().inputReports;
+    now += std::chrono::milliseconds(100);
+    (void)client.tick(now);
+    expect(client.counts().heldMotions == held && client.counts().inputReports > reports,
+           "the story instance: the motion of the new place goes out (the current travel revision)");
+    client.set_motion(std::nullopt);
     // The bytes of the 5181 of this client to the backend: the session writes its line (the backend waits for nothing).
     const swc::net::Bytes ack = swc::net::ack_level_info_body(client.own().group, 2);
     expect(ack.size() == 17, "5181: 17 bytes (target, entity, the context instance)");

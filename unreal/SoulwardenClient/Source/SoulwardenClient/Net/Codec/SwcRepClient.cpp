@@ -1593,7 +1593,16 @@ void RepClient::send_input(Clock::time_point now) {
         entry.actionBits = kRestActionBits;
     }
     entry.stepTime = 1.0F / 30.0F;
-    if (m_motion) {
+    const bool staleMotion = m_motion && m_motion->travelRevision && *m_motion->travelRevision != m_own.travelRevision;
+    if (staleMotion) {
+        ++m_counts.heldMotions;   // the game side has not moved the character to the place of the newest travel yet
+        if (!m_holdingMotion) {
+            log(Event::Level::info, "input: the motion of the game side is for the travel revision " + std::to_string(*m_motion->travelRevision)
+                                        + ", the own entity has " + std::to_string(m_own.travelRevision) + ": no position field until the game side moves");
+        }
+    }
+    m_holdingMotion = staleMotion;
+    if (m_motion && !staleMotion) {
         // The player of the game thread: the camera with its look, the keys, and the position field (flag 0x8000, as
         // the retail client with the game hook of Soulwarden sends it; protocol notes 4.7).
         entry.flags |= kInputFlagPosition;
