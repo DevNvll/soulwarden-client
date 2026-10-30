@@ -1001,6 +1001,20 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     box. No cvar, no copy, and no normal change of these windows makes the Unreal water mirror the near cliff [R by these shots]. The cause
     is not found [U].
 
+- The sky-weight design (GPT-6.1-Sol, read only; the idea of the orchestrator 2026-10-30 00:48 UTC; brief
+  `research/briefs/ast200-2c-sky-weight.txt`, result `~/Games/soulwarden-client/research/water-sky-weight.md`):
+  - The Specular input of the material cannot scale only the reflection [R]: it also changes the sun highlights, the in-scatter, and the
+    refraction. It is an ocean-only diagnostic at most.
+  - The clear-sky model of the client against the probe world02 in the reflected directions (0 to 30 degrees up over the water mask, Y):
+    08:00 0.251, 12:00 0.210, 16:30 0.282 [I: the model, no clouds or fog]. Normalized to noon: 1.19 and 1.34, the opposite sign of the need
+    (window D: about 0.21 at 16:30, about 0.92 at noon in the probe-reflection model). The raw ratio would also remove too much light at
+    noon. The full capture ratio (with the clouds and the fog) is not measured [U].
+  - The dark 08:00 of `swc.SkyLightSource 0` is not only a lower-hemisphere artifact [I]: the clear-sky model already gives the morning
+    upward sky well below the probe.
+  - An exact reflection-only control needs renderer work (a weight at the composite reflection, or an ocean-only selector at the Lumen
+    miss) [R]. A measured current-sky ratio needs new client and render code (a GPU reduction of the capture) [I].
+  - Thus the sky-ratio hour rule is not supported by the present data; no default.
+
 ### The visible differences of the Unreal ocean against the source (stage 2c, 2026-10-29)
 
 The list of the differences that the stage 2c pictures show (the best setting with blue 1.5; the fixed exposure EV 13.03; the source is the
