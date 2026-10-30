@@ -230,6 +230,15 @@ public:
 	bool OpenPersonBoard();
 	/** True when the open board use came from a person (the faction screen), false for a board object (the town screen). */
 	bool IsBoardFromPerson() const;
+	/** C-13 step 1b: the entrance of a story instance whose window shows (the use of OpenDungeonMenu, action 71): its game mode (the CRC-32
+	 *  of the lower-case GameModeId). @return False with no open entrance. */
+	bool GetDungeonEntrance(uint32& OutMode) const;
+	/** The Enter of the entrance window: the Enter request (72 with the base action 71). @return False with no open entrance. */
+	bool EnterDungeon();
+	/** The entrance window ends the entrance use (its Escape, its back button, a result that closes it): 2473. */
+	void EndDungeonEntrance();
+	/** The entrance window shows or hides (UI/SwcUiGameModes): with no window 2 s after the open the entrance use ends. */
+	void SetDungeonScreenShown(bool bShown);
 	/** The states of a board (C-12): the board entity of the actor (TerritoryInterface 1746: its active projects) and the world entity
 	 *  (LandClaimManager 3086: the claim keys and summaries). @return False out of the world; a missing entity stays empty. */
 	bool GetBoardStates(const swc::net::ActorId& Board, swc::net::RepClient::OtherEntity& OutBoard, swc::net::RepClient::OtherEntity& OutClaims) const;

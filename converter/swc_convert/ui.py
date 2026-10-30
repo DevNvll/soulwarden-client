@@ -1831,6 +1831,7 @@ def main(argv=None) -> int:
     sub.add_parser("options")
     sub.add_parser("gamemenu")
     p = sub.add_parser("worldmap"); p.add_argument("--force", action="store_true")
+    sub.add_parser("gamemodes")
     sub.add_parser("encounters")
     p = sub.add_parser("crafting"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("quests"); p.add_argument("--force", action="store_true")
@@ -1881,6 +1882,10 @@ def main(argv=None) -> int:
         result = convert_gamemenu()
     elif args.command == "worldmap":
         result = convert_worldmap(args.force)
+    elif args.command == "gamemodes":
+        # The game modes of the entrance window and of the leave of the escape menu (C-13 step 1b part B; swc_convert/gamemodes.py).
+        from . import gamemodes
+        result = gamemodes.write()
     elif args.command == "encounters":
         result = convert_encounters()
     elif args.command == "crafting":

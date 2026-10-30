@@ -174,6 +174,24 @@ public:
 	bool IsBoardFromPerson() const { return bBoardFromPerson; }
 	/** The board screen of the UI shows (the guard: no screen 2 s after the open ends the use). */
 	void SetBoardScreen(bool bShown) { bBoardScreen = bShown; }
+	/** C-13 step 1b: the entrance of a story instance whose window shows (the option OpenDungeonMenu, action 71, committed): its game mode
+	 *  (the CRC-32 of the lower-case GameModeId). @return False with no open entrance. */
+	bool GetDungeon(uint32& OutMode) const
+	{
+		OutMode = DungeonMode;
+		return bDungeonOpen;
+	}
+	/** The Enter of the entrance window (LocalPlayerUIRequestsBus EnterDungeon): the next Update sends the Enter request (72 with the base
+	 *  action 71) of the entrance. @return False with no open entrance or no Enter option of the object. */
+	bool EnterDungeon()
+	{
+		bPendingDungeonEnter = bDungeonOpen && bDungeonHasEnter;
+		return bPendingDungeonEnter;
+	}
+	/** The entrance window ends the use (its Escape, its back button, a result that closes it): the next Update sends 2473. */
+	void EndDungeon() { bPendingDungeonEnd = true; }
+	/** The entrance window of the UI shows (the guard: no window 2 s after the open ends the use). */
+	void SetDungeonScreen(bool bShown) { bDungeonScreen = bShown; }
 	/** The crafting screen ends the station use (its Escape, its exit): the next Update sends 2473. */
 	void EndStation() { bPendingStationEnd = true; }
 	/** The crafting screen of the UI shows (the station guard: no screen 2 s after the open ends the use; AST-287). */
@@ -273,6 +291,26 @@ private:
 	bool bPendingPersonBoard = false;
 	bool bBoardFromPerson = false;
 	swc::interact::Option PersonBoardOption;
+	/** C-13 step 1b: the entrance use (OpenDungeonMenu, action 71), as the board use: the focus, the use, the window, the end by the window;
+	 *  the mode of the entrance; the Enter option of the object (action 72, hidden on the card) and its request; the committed request of
+	 *  the use (the client puts it back after the Enter request: the retail client restores its record after a one-shot, 0x49175F0; the
+	 *  backend takes the same block again as the same use, and a block that does not change is no new request). */
+	bool bFocusDungeon = false;
+	uint32 FocusDungeonMode = 0;
+	bool bFocusHasEnter = false;
+	swc::net::InteractionRequest FocusEnterRequest;
+	bool bUseDungeon = false;
+	bool bDungeonOpen = false;
+	bool bPendingDungeonEnd = false;
+	bool bPendingDungeonEnter = false;
+	bool bDungeonScreen = false;
+	double DungeonOpenedAt = 0.0;
+	uint32 DungeonMode = 0;
+	bool bDungeonHasEnter = false;
+	swc::net::InteractionRequest DungeonEnterRequest;
+	swc::net::InteractionRequest DungeonBaseRequest;
+	/** The time of the last Enter request (-1: the committed request is in the block). */
+	double DungeonEnterSentAt = -1.0;
 	/** The station use (stage MVP-J): the focus is a station, the use is a station use, its screen shows, and the end by the screen. */
 	bool bFocusStation = false;
 	bool bUseStation = false;

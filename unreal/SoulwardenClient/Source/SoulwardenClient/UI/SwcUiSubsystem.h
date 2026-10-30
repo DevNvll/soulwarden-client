@@ -8,6 +8,7 @@
 #include "SwcUi/Runtime.h"
 #include "Net/Codec/SwcRepClient.h"
 #include "UI/SwcUiBoards.h"
+#include "UI/SwcUiGameModes.h"
 #include "UI/SwcUiConversation.h"
 #include "UI/SwcUiCrafting.h"
 #include "UI/SwcUiQuests.h"
@@ -149,6 +150,8 @@ private:
 	FSwcUiQuests Quests;
 	FSwcUiCrafting CraftingScreen;
 	FSwcUiBoards Boards;
+	/** The game modes, the entrance window, the leave (C-13 step 1b): UI/SwcUiGameModes. */
+	FSwcUiGameModes GameModes;
 	/** The character window (stage MVP-G): UI/SwcUiSkills. */
 	FSwcUiSkills Skills;
 	TSharedPtr<FSwcUiResources> Resources;

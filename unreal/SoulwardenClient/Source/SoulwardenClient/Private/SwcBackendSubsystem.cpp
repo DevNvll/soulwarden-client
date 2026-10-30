@@ -2243,6 +2243,32 @@ void USwcBackendSubsystem::SetBoardScreenShown(bool bShown)
 	}
 }
 
+bool USwcBackendSubsystem::GetDungeonEntrance(uint32& OutMode) const
+{
+	return Interactor.IsValid() && Interactor->GetDungeon(OutMode);
+}
+
+bool USwcBackendSubsystem::EnterDungeon()
+{
+	return Interactor.IsValid() && Interactor->EnterDungeon();
+}
+
+void USwcBackendSubsystem::EndDungeonEntrance()
+{
+	if (Interactor.IsValid())
+	{
+		Interactor->EndDungeon();
+	}
+}
+
+void USwcBackendSubsystem::SetDungeonScreenShown(bool bShown)
+{
+	if (Interactor.IsValid())
+	{
+		Interactor->SetDungeonScreen(bShown);
+	}
+}
+
 bool USwcBackendSubsystem::GetBoardStates(const swc::net::ActorId& Board, swc::net::RepClient::OtherEntity& OutBoard,
 	swc::net::RepClient::OtherEntity& OutClaims) const
 {

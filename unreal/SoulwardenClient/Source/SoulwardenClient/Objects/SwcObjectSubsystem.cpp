@@ -595,6 +595,11 @@ bool USwcObjectSubsystem::LoadRegion(int32 X, int32 Y, int32 OptionCount, FRegio
 			Object.NpcId = (*Talk)->GetStringField(TEXT("npc"));
 			Object.NpcName = (*Talk)->GetStringField(TEXT("name"));
 		}
+		const TSharedPtr<FJsonObject>* Entrance = nullptr;
+		if (Info->TryGetObjectField(TEXT("entrance"), Entrance))
+		{
+			Object.EntranceMode = static_cast<uint32>((*Entrance)->GetNumberField(TEXT("mode")));
+		}
 		const TArray<TSharedPtr<FJsonValue>>* Gather = nullptr;
 		if (Info->TryGetArrayField(TEXT("gather"), Gather) && Gather->Num() == 2)
 		{
@@ -915,6 +920,7 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 						// An npc object: its NPC row, and the name of the row (the card of a board: "Tour Board"; a person of the person layer
 						// gives its own name in the interactor).
 						Target.NpcId = Object.NpcId;
+						Target.EntranceMode = Object.EntranceMode;
 						if (!Object.NpcName.IsEmpty())
 						{
 							Target.Name = Text(Object.NpcName);

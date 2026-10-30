@@ -32,6 +32,13 @@ constexpr uint8 StationAction = 20;
 /** OpenMissionBoardOption (C-12; interaction-data.json: action 51, committed): the town board; the client opens its screen at the execution
  *  of its request (the provider action handler 0x3A33BA0), the server confirms with 3743 result 1. */
 constexpr uint8 BoardAction = 51;
+/** OpenDungeonMenu (C-13 step 1b; interaction-data.json option 21: action 71, committed, hold 0.5 s): the entrance of a story instance; the
+ *  client opens DungeonEnterScreen at the execution of its request. EnterDungeon (action 72, hidden on the card): the Enter of the window. */
+constexpr uint8 DungeonAction = swc::net::kActionOpenDungeonMenu;
+constexpr uint8 EnterDungeonAction = swc::net::kActionEnterDungeon;
+/** The time of the Enter block before the client puts the committed request back (s): a few input reports (a client rule; the backend
+ *  takes the block of each report, and the same block again is no new request). */
+constexpr double DungeonEnterBlockTime = 0.25;
 /** The prompt distance of a person with no npc object (m): the retail prompts of persons show at 2.07 to 2.98 m (set 5 of the
  *  Talk: the commander, the artificer, Giacomo); a client rule until the trigger area of a person is read. */
 constexpr double PersonTalkRange = 3.0;
@@ -235,6 +242,14 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		bPendingBoardEnd = true;
 		BoardOpenedAt = Now;
 	}
+	// The entrance guard (C-13, the rule of the board guard): an entrance use whose window does not show ends (2473).
+	if (bDungeonOpen && !bDungeonScreen && Now - DungeonOpenedAt >= swc::interact::TalkGuard::kScreenWait)
+	{
+		UE_LOG(LogSwcBackend, Warning, TEXT("interact: no entrance window %.1f s after the open: the client ends the entrance use (2473)"),
+			swc::interact::TalkGuard::kScreenWait);
+		bPendingDungeonEnd = true;
+		DungeonOpenedAt = Now;
+	}
 	// The station guard (AST-287): a station use whose crafting screen does not show ends (2473).
 	if (bStationOpen && !bStationScreen && Now - StationOpenedAt >= swc::interact::TalkGuard::kScreenWait)
 	{
@@ -268,6 +283,12 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		{
 			UE_LOG(LogSwcBackend, Log, TEXT("interact: the board use is refused: the board screen closes"));
 			bBoardOpen = false;
+		}
+		if (bUseDungeon && Use.phase() != swc::interact::Use::Phase::idle && Own.lastInteractionResult != 1 && bDungeonOpen
+			&& DungeonEnterSentAt < 0.0)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the entrance use is refused: the entrance window closes"));
+			bDungeonOpen = false;
 		}
 		if (bUseStation && Use.phase() != swc::interact::Use::Phase::idle && Own.lastInteractionResult != 1 && bStationOpen)
 		{
@@ -393,6 +414,13 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			bBoardOpen = false;
 		}
 		bUseBoard = false;
+		if (bDungeonOpen)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the entrance use ended: the entrance window closes"));
+			bDungeonOpen = false;
+		}
+		bUseDungeon = false;
+		DungeonEnterSentAt = -1.0;
 		// The candidates of the three sources (the fixtures of the server, the bags, the objects of the level data) have the point of the
 		// character in their shape (AST-198; research prompt-range.md); the focus is the smallest camera line score of all of them.
 		Focus = bLocked ? std::nullopt : swc::interact::focus(Templates, Objects, Reported, Camera, Forward);
@@ -404,6 +432,8 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		// request while the crafting screen shows.
 		bFocusStation = Focus && !Focus->object->station.empty() && Focus->option->action == StationAction;
 		bFocusBoard = Focus && Focus->option->action == BoardAction;
+		bFocusDungeon = false;
+		bFocusHasEnter = false;
 		if (Focus)
 		{
 			FocusPrompt.Kind = FSwcInteractPrompt::EKind::Fixture;
@@ -538,6 +568,20 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			bFocusStation = false;
 			// A town board of the level data (kind missionBoard, C-12): its option OpenMissionBoardOption (action 51) opens the board screen.
 			bFocusBoard = ObjectOption.action == BoardAction;
+			// The entrance of a story instance (kind dungeonEntrance, the member entrance): OpenDungeonMenu (71) opens the entrance window; the
+			// Enter option of the object (72) gives the request of its Enter.
+			bFocusDungeon = ObjectOption.action == DungeonAction && Object.EntranceMode != 0;
+			FocusDungeonMode = Object.EntranceMode;
+			bFocusHasEnter = false;
+			for (const FSwcWorldObjectOption& Each : Object.Options)
+			{
+				if (Each.Option.action == EnterDungeonAction)
+				{
+					bFocusHasEnter = true;
+					FocusEnterRequest = Each.Request;
+					break;
+				}
+			}
 			// The prompt of a gather has the name of the row and, with no tool, the refusal ("YOUNG TREE  No equipped Axe").
 			FocusName = Object.Name.IsEmpty() ? FString::Printf(TEXT("%s %s"), *Object.Kind.ToString(), *Object.Key)
 				: Object.bToolMissing || Object.bRankMissing ? FString::Printf(TEXT("%s  %s"), *Object.Name.ToUpper(), *Object.RefusalText) : Object.Name.ToUpper();
@@ -622,6 +666,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Focus = Candidate;
 			bFocusStation = false;
 			bFocusBoard = false;
+			bFocusDungeon = false;
 			FocusName = TalkPerson->Name.ToUpper();
 			bFocusBag = false;
 			FocusShape = TEXT("person");
@@ -763,6 +808,16 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Use.finish();
 		}
 	}
+	if (bPendingDungeonEnd)
+	{
+		bPendingDungeonEnd = false;
+		if (bUseDungeon && Use.phase() != swc::interact::Use::Phase::idle)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the entrance window ends the entrance use (2473)"));
+			DungeonEnterSentAt = -1.0;
+			Use.finish();
+		}
+	}
 	if (bPendingStationEnd)
 	{
 		bPendingStationEnd = false;
@@ -838,7 +893,8 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Focus->option->delay, Focus->option->hold);
 		// A bag, a gather, and a conversation keep their request until their source ends them (the Looted claim; the Gathering
 		// state; the end of the conversation).
-		Use.press(Now, *Focus, bFocusBag || bFocusGather || bFocusTalk || bFocusStation || bFocusBoard);
+		const uint32 ExecutionsBefore = Use.executions();
+		Use.press(Now, *Focus, bFocusBag || bFocusGather || bFocusTalk || bFocusStation || bFocusBoard || bFocusDungeon);
 		UsePlace = SwcEngineToUnreal(Focus->place);
 		if (bFocusBag)
 		{
@@ -869,6 +925,22 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			bUseBoard = true;
 			bBoardFromPerson = false;
 			BoardActor = Focus->request.reference.actor;
+		}
+		if (bFocusDungeon)
+		{
+			bUseDungeon = true;
+			DungeonMode = FocusDungeonMode;
+			bDungeonHasEnter = bFocusHasEnter;
+			DungeonEnterRequest = FocusEnterRequest;
+			DungeonBaseRequest = Focus->request;
+			DungeonEnterSentAt = -1.0;
+			if (Use.executions() != ExecutionsBefore)
+			{
+				// No hold and no Delay Time: the press executed the option (the rule of the person board above).
+				UE_LOG(LogSwcBackend, Log, TEXT("interact: the entrance window opens (action 71, mode %08X)"), DungeonMode);
+				bDungeonOpen = true;
+				DungeonOpenedAt = Now;
+			}
 		}
 		if (bFocusStation)
 		{
@@ -911,6 +983,12 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			bBoardOpen = true;
 			BoardOpenedAt = Now;
 		}
+		if (bUseDungeon)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the entrance window opens (action 71, mode %08X)"), DungeonMode);
+			bDungeonOpen = true;
+			DungeonOpenedAt = Now;
+		}
 		if (bUseStation)
 		{
 			// The client opens the crafting screen at its request (the station facts of the client: 0x2E6A440, 0x2E61E00; protocol notes
@@ -932,6 +1010,28 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		if (!Effects.request)
 		{
 			UE_LOG(LogSwcBackend, Log, TEXT("interact: the request ends with no message (the use completed)"));
+		}
+	}
+	// The Enter of the entrance window: the Enter request (72 with the base action 71, one time) in the block, then the committed request
+	// of the use again (docs/NETWORK.md "The membership of a story instance"; the backend: the answer 3743, then 3094).
+	if (bPendingDungeonEnter)
+	{
+		bPendingDungeonEnter = false;
+		if (bUseDungeon && bDungeonOpen && Use.phase() != swc::interact::Use::Phase::idle)
+		{
+			const swc::net::InteractionRequest Enter = swc::net::dungeon_enter_request(DungeonEnterRequest);
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the Enter of the entrance window: action %u, base %u, option %08X (mode %08X)"), Enter.action,
+				Enter.baseAction, Enter.optionId, DungeonMode);
+			Connection.SetInteraction(Enter);
+			DungeonEnterSentAt = Now;
+		}
+	}
+	else if (DungeonEnterSentAt >= 0.0 && Now - DungeonEnterSentAt >= DungeonEnterBlockTime)
+	{
+		DungeonEnterSentAt = -1.0;
+		if (bUseDungeon && Use.phase() != swc::interact::Use::Phase::idle)
+		{
+			Connection.SetInteraction(DungeonBaseRequest);
 		}
 	}
 	if (Effects.cancel)
@@ -978,7 +1078,7 @@ void FSwcInteractor::UpdateLootedBags(const swc::net::RepClient::OwnEntity& Own,
 bool FSwcInteractor::GetPrompt(double Now, FSwcInteractPrompt& Out) const
 {
 	// No prompt in a conversation and until the answer 6709 (the conversation screen replaces it), and none at an open station.
-	if (!Focus || Talk.locked() || bStationOpen || bBoardOpen)
+	if (!Focus || Talk.locked() || bStationOpen || bBoardOpen || bDungeonOpen)
 	{
 		Out = FSwcInteractPrompt();
 		return false;

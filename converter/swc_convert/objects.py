@@ -42,6 +42,7 @@ import os
 import struct
 import sys
 import uuid
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -262,6 +263,14 @@ def write_atomic(path: Path, data: bytes) -> None:
     temporary.replace(path)
 
 
+def entrance_record(entrance: dict) -> dict:
+    """@return The entrance of a dungeon entrance object (interaction data format 6, the backend stage QG9a; C-13 step 1b part B, ut567):
+    the mode of its DungeonEntranceComponent (m_gameMode, the CRC-32 of the lower-case GameModeId: ArenaRequestBus GetDungeonGameModeId of
+    the entrance window; QuestMedea 95B632E9), the GameModeId, and the solo flag."""
+    mode = str(entrance.get("mode", ""))
+    return {"mode": zlib.crc32(mode.lower().encode()) & 0xFFFFFFFF, "modeId": mode, "solo": bool(entrance.get("solo", False))}
+
+
 def object_kind(entry: dict, chests: dict, capitals: dict) -> str:
     if entry["kind"] != "gathering":
         return entry["kind"]
@@ -354,6 +363,8 @@ def write() -> dict:
         if not bounds:
             continue
         out = {"key": entry["key"], "kind": kind, "actor": entry["actor"], "position": entry["position"], "bounds": bounds}
+        if entry.get("entrance"):
+            out["entrance"] = entrance_record(entry["entrance"])
         npc_id = str((entry.get("person") or {}).get("npc", ""))
         if kind == "npc" and npc_id:
             # The NPC row of the object (its NpcComponent m_npcKey) and the name key of the row, with no "@" (AST-287).

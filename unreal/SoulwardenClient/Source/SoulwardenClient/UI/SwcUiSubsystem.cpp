@@ -1086,6 +1086,7 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 	Conversation.Update(*Runtime, GEngine != nullptr && GEngine->GameViewport != nullptr ? GEngine->GameViewport->GetWorld() : nullptr, *Backend);
 	CraftingScreen.Update(*Runtime, *Backend);
 	Boards.Update(*Runtime, *Backend, ContentDir);
+	GameModes.Update(*Runtime, *Backend);
 	Skills.Update(*Runtime, *Backend);
 	// The requests of the scripts: a respawn of the respawn screen (respawn.luac TriggerRespawn).
 	for (int32 Guard = 0; Guard < 8; ++Guard)
@@ -1136,6 +1137,9 @@ void USwcUiSubsystem::UpdateLoadingAndRequests()
 		{
 		}
 		else if (FSwcUiBoards::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))
+		{
+		}
+		else if (FSwcUiGameModes::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))
 		{
 		}
 		else if (FSwcUiSkills::HandleRequest(UTF8_TO_TCHAR(Request.c_str()), *Backend))

@@ -175,6 +175,14 @@ local function create_instance(entityId, script)
   return Swc.ScriptInstance(entityId, script.script, script.properties)
 end
 
+--- The scripts that a canvas names and the game paks do not have (a script component with no asset does nothing, as above): the path
+--- and the reason.
+Swc.absentScripts = {
+  -- DungeonEnterScreen (C-13 of ut567): the paks have only lyshineui/slices/howtowindow.luac (a search of the paks, 2026-10-30).
+  ["lyshineui/dungeons/howtowindow.luac"] = "not in the game paks",
+}
+local absentNoted = {}
+
 --- Activates the script components of one entity.
 function Swc.ActivateEntity(id)
   local k = key(id)
@@ -187,7 +195,13 @@ function Swc.ActivateEntity(id)
     -- A script component with no script asset does nothing (O3DE ScriptComponent); before, its require of '' was a Lua error at
     -- each start (an element of a HUD screen).
     local ok, instance = false, nil
-    if script.script ~= nil and script.script ~= "" then
+    local absent = script.script and Swc.absentScripts[string.lower(script.script)]
+    if absent then
+      if not absentNoted[script.script] then
+        absentNoted[script.script] = true
+        Swc.Note("script " .. script.script .. ": " .. absent .. " (the component does nothing)")
+      end
+    elseif script.script ~= nil and script.script ~= "" then
       ok, instance = Swc.Call(create_instance, id, script)
     end
     if ok and instance then

@@ -28,6 +28,8 @@ inline constexpr const char* kHudScreens[] = {
     "lyshineui/territory/territoryplanning/townprojects",
     // The faction board (C-12 phase 2): the state 2609973752 of the board use of a representative (the conversation option 8).
     "lyshineui/oldworldguilds/owmissionboard",
+    // The entrance window of a story instance (C-13 step 1b): the state 4119896358 of the use of OpenDungeonMenu (action 71; swc/gamemodes.lua).
+    "lyshineui/dungeons/dungeonenterscreen",
     // The conversation screen (stage MVP-H): the Talk of a person (swc/conversation.lua, UI/SwcUiConversation).
     "lyshineui/conversation/conversationscreenv2",
     // The in-game scenes and the cinematic video stand-in (stage Q5, AST-240; swc/scenes.lua).

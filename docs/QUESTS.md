@@ -701,6 +701,9 @@ the root at the top of the tracker (a teal diamond), its stage title, and the ro
   Bucheholz in Reekwater, from its description) and the tracker has no destination name. Open: does the retail tracker show a hand-in line
   for this state, and from which data (the NPC of the conversation state of the objective, as the backend uses)? No retail shot of this
   quest is in the backend evidence. Not an effect of the text ObjectiveData.id (the HUD of bd6 had the same).
+- The Quartermaster hand-in is not checked in the client (paused with the new milestones, 2026-10-30).
+- The story instances (C-13): only QuestMedea has the entrance window and the leave of the client (docs/UI.md "The entrance of a story
+  instance").
 - The place cues of the 86 points of interest of other slices (no local), and of the areas (the 2297 of 9011 in the retail packets).
 - The card of a quest object: the marker type Master_Quest and the gatherable card with no option text: "E ASTROLABE" as retail (AST-250).
 - The world pins of the quest objects (the retail "1" over the treasure): stage Q2.

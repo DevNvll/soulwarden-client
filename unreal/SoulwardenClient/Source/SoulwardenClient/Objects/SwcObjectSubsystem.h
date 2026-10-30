@@ -109,6 +109,9 @@ struct FSwcWorldObjectTarget
 	 *  task of the character with the tag (USwcBackendSubsystem::SetQuestTags). */
 	FString QuestTag;
 	bool bQuestOnly = false;
+	/** The entrance of a story instance (C-13 step 1b; the member entrance of the object, kind dungeonEntrance): its game mode (the
+	 *  CRC-32 of the lower-case GameModeId; QuestMedea 95B632E9), 0 for no entrance. The entrance window shows it. */
+	uint32 EntranceMode = 0;
 	/** The line of sight of a bound with m_requiresLineOfSight (the retail client: a ray before the prompt; stage P5.1): false when
 	 *  the world blocks the line from the head of the character to the object. */
 	bool bInSight = true;
@@ -245,6 +248,7 @@ private:
 		/** An npc object: its NPC row and the name key of the row ("talk" of the data; AST-287). */
 		FString NpcId;
 		FString NpcName;
+		uint32 EntranceMode = 0;
 		/** A quest object (backend stage 1.8c; AST-241): its InteractTag (lower case) and InteractOnlyOnQuest. */
 		FString QuestTag;
 		bool bQuestOnly = false;

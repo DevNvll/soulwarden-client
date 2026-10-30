@@ -1576,3 +1576,39 @@ and the backend encoders (states 3829, 1746, 3086; requests 3819, 2461).
     the world, so the compass is never "in a settlement" (the PvP panel of the faction board says "PvP missions aren't available at this
     location"; retail: "No PvP missions available right now"); the camera states UI_FactionMission and UI_TownProjects (L1); a round
     emblem at the left of the faction screen (L5); the "IN PROGRESS" bar of a card (L2); the bullet of the rank line (L6).
+  - Paused (the pause of new milestones of the user, 2026-10-30): L1, L2, L5, L6, the settlement trigger areas, the faction shop, and
+    the Quartermaster wait in this list. Not checked live in the client: the hand-in of a faction mission, and the use of a daily bonus
+    (3/3 to 2/3; the fixture has it). The Quartermaster hand-in is not checked in the client.
+
+## The entrance of a story instance (C-13 step 1b part B of ut567)
+
+The entrance window of QuestMedea (the only story instance of this stage). The source is the static read
+`~/Games/soulwarden-client/work/ut567/c13read/NOTES.md` (dungeonenterscreen.luac, escapemenu.luac) and the codec of part A (docs/NETWORK.md
+"The membership of a story instance").
+
+- The data: `world-objects` has the member `entrance` of a dungeon entrance object (tools/convert-objects.sh: `mode` is the CRC-32 of the
+  lower-case GameModeId, `modeId`, `solo`). `ui/gamedata/gamemodes.json` has the rows of javelindata_gamemodes by that CRC
+  (tools/convert-ui.sh gamemodes; the camel case columns). The textures of the window: the 22 textures of its canvas and the 44 entrance
+  pictures (`tools/convert-ui.sh textures`).
+- The open: the option OpenDungeonMenu (action 71, committed, hold 0.5 s) of an object with an entrance. The interactor keeps the use open
+  after the execution; UI/SwcUiGameModes calls `Swc.HostDungeon("open", MODE)`, and swc/gamemodes.lua loads the canvas
+  DungeonEnterScreen on demand and starts the state 4119896358. With no window 2 s after the open, the use ends.
+- The data of the window: ArenaRequestBus GetDungeonGameModeId (the mode of the entrance), GameModeDataManagerBus GetGameModeStaticData
+  (the row with IsValid, GetPossibleItemDropIds: the CRCs of PossibleItemDropIds, GetRequiredItems: empty, matchmakingRequirements), no
+  mutation (GameModeMutationSchedulerRequests), no group (the proximity and alive checks are true), no cooldown (-1), no queue. The
+  window shows "The Path of Thorns", 17+, the 7 rewards, Enter, and "Soul Trial".
+- Enter (LocalPlayerUIRequestsBus EnterDungeon): "dungeon enter 0". The interactor puts the Enter request (72 with the base action 71, the
+  request of the Enter option row of the object) in the interaction block for 0.25 s, then the committed 71 request again (the retail
+  client restores its record after a one-shot, 0x49175F0). The backend takes a block that does not change as no new request, and the
+  committed block again as the same use (no reply).
+- The result (3094): `Swc.HostDungeonResult(RESULT)` gives ArenaEventBus OnDungeonActivateResult at the entrance. EntranceBusy (17): the
+  window sends Enter again after its delay. Success (0): the window closes with no notice. A refusal: the window closes with its notice.
+  The close of the window (OnExit, Escape) is RequestCancelCommittedInteraction: "dungeon end" (2473).
+- The game modes of the character: `Swc.HostGameModes` at each change of the GameModeParticipant state (3312): IsInGameMode,
+  GetCurrentDungeonGameModeId (a mode of the data with isDungeon), GetLastEnteredGameMode, IsFlagSet (PlayerCanQuit, bit 22), and the
+  leave texts of the mode (QuitButtonTextId, LeaveTitleTextId, LeaveDescTextId, LeaveTimeDescTextId, CannotFastTravelTextId).
+- The leave: with PlayerCanQuit the escape menu shows ButtonGameExtra "Leave Soul Trial"; its popup has the leave texts of the mode (no
+  rejoin penalty); Yes sends the client event 9BB080D0: "gamemode event 2612035792" (1980), and the state goes to the HUD.
+- The script lyshineui/dungeons/howtowindow.luac of the canvas is not in the game paks (only lyshineui/slices/howtowindow.luac): its
+  component does nothing (Swc.absentScripts, swc/elements.lua).
+- Checks: the fixtures `tests/ui/fixtures/dungeonenter.lua` and `tests/ui/fixtures/escapeleave.lua`.
