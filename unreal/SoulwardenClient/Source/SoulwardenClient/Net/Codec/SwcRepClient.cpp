@@ -292,6 +292,10 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         if (m_level && m_level->version == info->version) {
             return; // The retail client does nothing for a version that it has (protocol notes 3.5).
         }
+        if (m_level && m_own.hasMetadata) {
+            change_level(*info);
+            return;
+        }
         m_level = info;
         m_levelLoad = false;
         log(Event::Level::info, "level information: level " + info->level + ", terrain " + info->terrain + ", instance "
@@ -514,6 +518,38 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         log(Event::Level::info, "message type " + std::to_string(message.type) + " (" + std::to_string(message.body.size())
                                     + " bytes) has no handler in this client");
     }
+}
+
+void RepClient::change_level(const LevelInfo& info) {
+    // The server sent 1628 (the new instance in its level block; the phase is WaitingForSpawnPoint again), then this 1635; 1617 and an
+    // empty bundle with the sequence 1 come next, then the full owner record (protocol notes 4.66; backend RepSession::change_level).
+    // The retail client sends 5181 at once, from the old context, with the new context instance as its byte.
+    send_call(kAckLevelInfoChanged, ack_level_info_body(m_own.group, info.instance));
+    log(Event::Level::info, "level change: level " + info.level + " (from " + m_level->level + "), instance "
+                                + std::to_string(m_level->instance) + " to " + std::to_string(info.instance) + ", version "
+                                + std::to_string(info.version) + "; the acknowledgement 5181 is sent");
+    if (info.level != m_level->level || info.terrain != m_level->terrain) {
+        // C-13: the client has only the open world level. A clean leave with a cause for the user (the landing screen shows it); the
+        // backend puts the character at its return place at the end of the session (docs/systems/instances.md, rule D9).
+        end("this instance is in the level " + info.level + ", which this client does not have yet", true);
+        return;
+    }
+    // A new client context (ClientContext::Initialize 0x171B850 cleans the interest table of the old one): each other entity of the old
+    // context stops (the creature table takes the stops before the records of the new context), the expected bundle sequence is 1 again
+    // (the reset 0x6463540), and the teleport number starts at 0: the full owner record is a travel to the start of the instance (the
+    // travel path of the game side loads the cells of the place behind its loading screen).
+    for (const auto& [interest, other] : m_others) {
+        if (m_options.keepOtherRecords) {
+            m_otherUpdates.push_back({true, interest, {}});
+        }
+    }
+    m_others.clear();
+    m_bundleSequence = 0;
+    m_bundleGap = false;
+    m_clientTeleport = 0;
+    m_level = info;
+    m_levelLoad = false;
+    ++m_levelChanges;
 }
 
 void RepClient::on_bundle(std::span<const std::uint8_t> body, Clock::time_point now) {

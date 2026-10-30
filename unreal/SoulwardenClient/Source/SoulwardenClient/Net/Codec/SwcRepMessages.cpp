@@ -269,6 +269,14 @@ Bytes respawn_request_body(std::uint64_t group, bool random, const std::string& 
     return w.data();
 }
 
+Bytes ack_level_info_body(std::uint64_t group, std::uint8_t instance) {
+    Writer w;
+    w.u64(group + kPlayerComponent);
+    w.u64(group);
+    w.u8(instance);
+    return w.data();
+}
+
 Bytes assign_pool_points_body(std::uint64_t group, std::uint32_t pool, std::uint32_t node, std::uint32_t count) {
     Writer w;
     w.u64(slice_facet_target(group, kGameEventsEntity, kProgressionPointComponent));

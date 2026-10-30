@@ -707,6 +707,8 @@ public:
     [[nodiscard]] const std::map<std::uint32_t, OtherEntity>& others() const { return m_others; }
     [[nodiscard]] const std::optional<SelfIdentification>& self_identification() const { return m_self; }
     [[nodiscard]] const std::optional<LevelInfo>& level_info() const { return m_level; }
+    /** The level changes of this connection to the same level (protocol notes 4.66; C-13: the story instances of the main world level). */
+    [[nodiscard]] std::uint32_t level_changes() const { return m_levelChanges; }
     [[nodiscard]] const Counts& counts() const { return m_counts; }
     [[nodiscard]] const Carrier& carrier() const { return m_carrier; }
     /** True while the last movement state of the own entity is older than 2 s (the input then has no actions). */
@@ -751,6 +753,8 @@ private:
     void log(Event::Level level, std::string text);
     void on_message(const ServerMessage& message, Clock::time_point now);
     void on_bundle(std::span<const std::uint8_t> body, Clock::time_point now);
+    /** A level information with a new version after the world entry: a level change in one connection (protocol notes 4.66). */
+    void change_level(const LevelInfo& info);
     /** The record 7036 and the phase 4247 of the own Time facet (protocol notes 4.43). */
     void on_world_time(const ServerMessage& message);
     void apply_own(const soulwarden::backend::tests::Record& record, Clock::time_point now);
@@ -780,6 +784,7 @@ private:
     bool m_levelLoad{false};
     std::uint64_t m_bundleSequence{0};
     bool m_bundleGap{false};
+    std::uint32_t m_levelChanges{0};
     OwnEntity m_own;
     std::map<std::uint32_t, OtherEntity> m_others;
     std::vector<OtherUpdate> m_otherUpdates;

@@ -42,6 +42,8 @@ inline constexpr MessageType kReceivePlayerSpawnPoint{"ClientViewListenerTrait::
 inline constexpr MessageType kSelfIdentification{"PlayerManagerSelfIdentificationMsg", "169443E0A5084653B43749B7A195F69C", 1628};
 inline constexpr MessageType kPlayerManagerRejected{"ClientMessagesTrait::PlayerManagerRejectedMsg", "DCB01CB8D04A40EAA3AF96604FE322FB", 1630};
 inline constexpr MessageType kLevelInfoChanged{"LevelInfoChangedMsg", "45918D0302E742A48A301B205F8C37FE", 1635};
+// C-13: the acknowledgement of a level change in one connection (protocol notes 4.66; reader 0x65917B0 of the retail client).
+inline constexpr MessageType kAckLevelInfoChanged{"PlayerComponentServerFacet_OnAckLevelInfoChanged", "971DDBB267DB4BEB963285851D0EE00E", 5181};
 // State types of the world entry (the vendored state reader has their indexes).
 inline constexpr MessageType kStateMetadata{"MB::GdeMetadataReplicatedState", "203DC8C70C60454BA46F566114314B84", 10};
 inline constexpr MessageType kStateMovement{"MB::ALCReplicatedState", "01B0664B3AB644A687E38C69D40E0365", 11};
@@ -199,7 +201,7 @@ inline constexpr MessageType kCinematicEnded{"PlayerCutsceneComponentServerFacet
 inline constexpr MessageType kStartWhisper{"WhisperPlayerComponentClientFacet_RequestStartWhisper", "4ABA7F5DD0C742C1A99E01308B6FF3FE", 5070};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 89> kUsedTypes{kAcceptObjective, kCompleteObjective, kRequestStartCutscene, kCutsceneGranted,
+inline constexpr std::array<MessageType, 90> kUsedTypes{kAckLevelInfoChanged, kAcceptObjective, kCompleteObjective, kRequestStartCutscene, kCutsceneGranted,
     kCutsceneStarted, kCutsceneCanceled, kCinematicStarted, kCinematicEnded, kStartWhisper, kStateObjectives, kStatePinReadiness, kObjectiveAutoPinning,
     kUpdateTrackedObjectives, kNotifyOpenUiScreen, kAbandonObjective, kResetObjective, kTerritoryEntered, kTerritoryLeft, kConversationTopic,
     kConversationTopicsFinished, kAssignPoolPoints, kChangeMappedAbility, kApplyAbilityPoints, kMasteryTreeRespec,
@@ -520,6 +522,9 @@ Bytes interaction_block(const InteractionRequest& request);
 /** @return The body of RequestRespawn (1938): target (G + Player) entity (G) random:u8 id:text; the row "Random Location" is
  *  random 1 and an empty id (18 bytes, the live client). */
 Bytes respawn_request_body(std::uint64_t group, bool random = true, const std::string& id = {});
+/** @return The body of OnAckLevelInfoChanged (5181, 17 bytes): target (G + Player) entity (G) and the new context instance (u8); the
+ *  retail client sends it at once after the level information of a level change, from the old context (protocol notes 4.66). */
+Bytes ack_level_info_body(std::uint64_t group, std::uint8_t instance);
 /** @return The body of OnClientCutsceneEnded (6705, 16 bytes): target (G + PlayerCutscene) and entity (G) of the character. */
 Bytes cutscene_ended_body(std::uint64_t group);
 /** @return The body of RequestCancelCommittedInteractionFromClient (2473, 48 bytes): target (G + Interactor) entity (G) and the

@@ -266,6 +266,26 @@ and "rejected" (1630).
 - A fragment of a state type that the reader does not know stops the reader for the rest of that bundle; the client
   logs the type one time. The live runs of this stage had none.
 
+### The level change in one connection (C-13; protocol notes 4.66)
+
+The backend moves a character into an instance (a story instance, an expedition) and back in the same connection: 1628 with the new
+context instance, 1635 with a new version and the reload flag, 1617, an empty bundle with the sequence 1, then the full owner record.
+
+- `RepClient::change_level` (a 1635 with a new version after the world entry): the client sends 5181
+  (`PlayerComponentServerFacet_OnAckLevelInfoChanged`: target G + Player, entity G, the new context instance) at once, as the retail
+  client does. The backend waits for nothing.
+- The same level text (the story instances of `newworld_vitaeeterna`, for example QuestMedea): a new client context. Each other entity
+  of the old context stops (the creature table takes the stops before the new records), the expected bundle sequence is 1 again, the
+  teleport number starts at 0, and the phase goes from WaitingForSpawnPoint (the 1628) to InGame at the full owner record. That record
+  is a travel: `USwcBackendSubsystem::Travel` loads the cells of the start of the instance behind its loading screen. Before C-13 the
+  client took the bundle with the sequence 1 as a gap and dropped each later bundle (the world stopped, no action went out).
+- A level that the client does not have (the expeditions, the arenas, the ORI story instances: their own levels): a clean end of the
+  session with the cause "this instance is in the level LEVEL, which this client does not have yet"; the landing screen shows it, and
+  the backend puts the character at its return place (docs/systems/instances.md of the backend, rule D9).
+- The test: `tests/net/level_change_tests.cpp` (`tools/test-net.sh`): a backend of the test fixtures (ServerHost, the fake client of
+  case IN4) moves the character into a story instance of the main world level, back, and into a dungeon level; each message of the
+  backend goes to the RepClient in order. The backend reads the 5181 of this client (its log line).
+
 ### The read path of the own entity (the HUD)
 
 `USwcBackendSubsystem::GetLocalPlayer(swc::net::RepClient::OwnEntity&)` gives a copy of the decoded own entity while the
