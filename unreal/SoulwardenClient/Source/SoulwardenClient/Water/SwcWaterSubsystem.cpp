@@ -3,6 +3,7 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Components/DecalComponent.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Components/PostProcessComponent.h"
 #include "Components/SceneCaptureComponentCube.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -14,6 +15,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Environment/SwcEnvironmentSubsystem.h"
+#include "Environment/SwcMatchView.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformMisc.h"
@@ -75,6 +77,21 @@ TAutoConsoleVariable<int32> CVarWaterSkyCube(TEXT("swc.WaterSkyCube"), 11,
 
 TAutoConsoleVariable<int32> CVarWaterSourceSun(TEXT("swc.WaterSourceSun"), 1,
 	TEXT("1: the water sun color is the source sun of the hour (the rule); 0: the Unreal sun light."));
+
+/** The underwater view of the source path (docs/WATER.md "The underwater view"; the decision of the user, 2026-10-30, option 5): the parents
+ *  of Scripts/water_underwater.py (tools/import-water-unreal.sh --under; -SwcUnderwater=FOLDER selects the folder). With no parents the view
+ *  from below stays as before. Above the water nothing changes: the pass and the undersides are off. */
+const TCHAR* UnderFolder = TEXT("/SwcGameContent/Water/Under");
+/** The mark of the ocean in USwcWaterSubsystem::UnderWater (INDEX_NONE: no water; else a body index). */
+constexpr int32 UnderOceanMark = -2;
+TAutoConsoleVariable<int32> CVarWaterUnderView(TEXT("swc.WaterUnderView"), 1,
+	TEXT("The underwater view of the source water: 1 (the default) the water fog of the source when the camera is under a surface and the ")
+	TEXT("underside of the surfaces; 0 off (the view from below as before); 2 to 4 the debug views of the pass (2 the pixels under the ")
+	TEXT("water, 3 T, the path, the depth, 4 blue: the path ends at the surface, green: at the scene)."));
+/** A check helper of the crossing video (tools: the matched views): the camera of a matched view moves up and down, Z = the place of the
+ *  view + A sin(2 pi t / P). */
+TAutoConsoleVariable<FString> CVarWaterUnderSweep(TEXT("swc.WaterUnderSweep"), TEXT(""),
+	TEXT("A check helper: \"A P\" moves the camera of an active matched view up and down by A m in P s (the crossing of the water surface); empty: off."));
 
 void ParseValues(const FString& Values, TMap<FName, float>& Out)
 {
@@ -234,6 +251,7 @@ void USwcWaterSubsystem::Tick(float DeltaTime)
 	}
 	if (bUnrealMode)
 	{
+		SetUnder(false);
 		UpdateUnreal(View, DeltaTime);
 	}
 	else
@@ -241,6 +259,7 @@ void USwcWaterSubsystem::Tick(float DeltaTime)
 		UpdateSkyCube(View);
 		UpdateBodies(View);
 		UpdateOcean(View, DeltaTime);
+		UpdateUnder(View);
 	}
 	UpdateShore(View);
 	const double Now = FPlatformTime::Seconds();
@@ -408,6 +427,30 @@ void USwcWaterSubsystem::Load()
 	USceneComponent* Root = NewObject<USceneComponent>(WaterActor, TEXT("Root"));
 	WaterActor->SetRootComponent(Root);
 	Root->RegisterComponent();
+	// The underwater view (option 5): the post-process pass (off until the camera is under a surface) and the parent of the undersides.
+	FString Under(UnderFolder);
+	FParse::Value(FCommandLine::Get(), TEXT("-SwcUnderwater="), Under);
+	Under.RemoveFromEnd(TEXT("/"));
+	UMaterialInterface* UnderPass = LoadObject<UMaterialInterface>(nullptr, *FString::Printf(TEXT("%s/M_SwcUnderwater.M_SwcUnderwater"), *Under), nullptr, LOAD_NoWarn);
+	UnderParent = LoadObject<UMaterialInterface>(nullptr, *FString::Printf(TEXT("%s/M_SwcWaterUnder.M_SwcWaterUnder"), *Under), nullptr, LOAD_NoWarn);
+	if (UnderPass != nullptr && UnderParent != nullptr && Parent != nullptr)
+	{
+		UnderMaterial = UMaterialInstanceDynamic::Create(UnderPass, WaterActor);
+		UnderPost = NewObject<UPostProcessComponent>(WaterActor, TEXT("SwcUnderwater"));
+		UnderPost->bUnbound = true;
+		UnderPost->Priority = 110.0f;
+		UnderPost->BlendWeight = 1.0f;
+		UnderPost->Settings.WeightedBlendables.Array.Add(FWeightedBlendable(1.0f, UnderMaterial));
+		UnderPost->bEnabled = false;
+		UnderPost->SetupAttachment(Root);
+		UnderPost->RegisterComponent();
+		UE_LOG(LogSwcWater, Log, TEXT("water: the underwater view of the source path from %s (swc.WaterUnderView %d)"), *Under, CVarWaterUnderView.GetValueOnGameThread());
+	}
+	else
+	{
+		UnderParent = nullptr;
+		UE_LOG(LogSwcWater, Log, TEXT("water: no underwater view (no %s/M_SwcUnderwater and M_SwcWaterUnder: tools/import-water-unreal.sh --under)"), *Under);
+	}
 	// The render path (docs/WATER.md "The Unreal water"; the decision of the user, 2026-10-25): the source path by default until the
 	// start-at-place fault of the Unreal water is fixed (swc.WaterMode 0); the Unreal water with -SwcWaterMode=Unreal (swc.WaterMode 1) and its
 	// specs file.
@@ -723,9 +766,9 @@ void USwcWaterSubsystem::ApplyOverrides(UMaterialInstanceDynamic* Material) cons
 	}
 }
 
-UMaterialInstanceDynamic* USwcWaterSubsystem::MakeMaterial(const swc::water::Body& Body)
+UMaterialInstanceDynamic* USwcWaterSubsystem::MakeMaterial(const swc::water::Body& Body, UMaterialInterface* Base)
 {
-	UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Parent, WaterActor);
+	UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(Base, WaterActor);
 	const TMap<FName, float> None;
 	const TMap<FName, float>& Params = Materials.IsValidIndex(Body.material) ? Materials[Body.material].Params : None;
 	const auto Param = [&Params](const TCHAR* Name, float Default) { const float* Found = Params.Find(FName(Name)); return Found ? *Found : Default; };
@@ -907,7 +950,8 @@ void USwcWaterSubsystem::UpdateSkyCube(const FVector& View)
 		}
 		NextSkyCapture = 0.0;
 	}
-	if (SkyCapture != nullptr && Now >= NextSkyCapture)
+	// Under the water the cube keeps its last capture (the capture camera is the camera: in the water; the view from above uses the cube).
+	if (SkyCapture != nullptr && Now >= NextSkyCapture && !bUnderOn)
 	{
 		NextSkyCapture = Now + 1.0;
 		const int32 Parts = CVarWaterSkyCube.GetValueOnGameThread();
@@ -954,9 +998,13 @@ void USwcWaterSubsystem::UpdateSkyCube(const FVector& View)
 	{
 		OceanMaterial->SetVectorParameterValue(TEXT("SunColor"), SunColor);
 	}
+	if (UnderOceanMaterial != nullptr)
+	{
+		UnderOceanMaterial->SetVectorParameterValue(TEXT("SunColor"), SunColor);
+	}
 }
 
-UStaticMesh* USwcWaterSubsystem::BuildMesh(const swc::water::Body& Body, const FVector& Center, UMaterialInterface* Material) const
+UStaticMesh* USwcWaterSubsystem::BuildMesh(const swc::water::Body& Body, const FVector& Center, UMaterialInterface* Material, bool bUnderside) const
 {
 	FMeshDescription Description;
 	FStaticMeshAttributes Attributes(Description);
@@ -1032,10 +1080,21 @@ UStaticMesh* USwcWaterSubsystem::BuildMesh(const swc::water::Body& Body, const F
 		UVs.Set(Instance, 0, FVector2f(Body.vertices[static_cast<size_t>(Index) * 5 + 3], Body.vertices[static_cast<size_t>(Index) * 5 + 4]));
 		Instances[Index] = Instance;
 	}
-	// The triangles: counterclockwise from above in engine space; the mirror of y (Unreal space) gives the order of an upward face.
+	// The triangles: counterclockwise from above in engine space; the mirror of y (Unreal space) gives the order of an upward face. The
+	// underside: the other order (a face down; the vertex frame stays the frame of the top side, thus its material reads the same normal).
 	for (size_t K = 0; K + 2 < Body.indices.size(); K += 3)
 	{
-		Description.CreateTriangle(Group, {Instances[Body.indices[K]], Instances[Body.indices[K + 1]], Instances[Body.indices[K + 2]]});
+		const FVertexInstanceID A = Instances[Body.indices[K]];
+		const FVertexInstanceID B = Instances[Body.indices[K + 1]];
+		const FVertexInstanceID C = Instances[Body.indices[K + 2]];
+		if (bUnderside)
+		{
+			Description.CreateTriangle(Group, {A, C, B});
+		}
+		else
+		{
+			Description.CreateTriangle(Group, {A, B, C});
+		}
 	}
 	UStaticMesh* Mesh = NewObject<UStaticMesh>(WaterActor);
 	Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, TEXT("Water")));
@@ -1070,20 +1129,20 @@ void USwcWaterSubsystem::UpdateBodies(const FVector& View)
 	{
 		FBodyEntry& Entry = Bodies[Wanted[K].Value];
 		Entry.bBuilt = true;
-		UMaterialInstanceDynamic* Material = MakeMaterial(Entry.Body);
+		UMaterialInstanceDynamic* Material = MakeMaterial(Entry.Body, Parent);
 		UStaticMesh* Mesh = BuildMesh(Entry.Body, Entry.Center, Material);
 		Meshes.Add(Mesh);
-		UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>(WaterActor);
-		Component->SetMobility(EComponentMobility::Movable);
-		Component->SetStaticMesh(Mesh);
-		Component->SetMaterial(0, Material);
-		Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		Component->SetCastShadow(false);
-		Component->bAffectDistanceFieldLighting = false;
-		Component->SetCullDistance(DrawDistance + static_cast<float>(Entry.Radius));
-		Component->SetupAttachment(WaterActor->GetRootComponent());
-		Component->RegisterComponent();
-		Component->SetWorldLocation(Entry.Center);
+		AddSurface(Mesh, Material, Entry.Center, DrawDistance + static_cast<float>(Entry.Radius));
+		if (UnderParent != nullptr)
+		{
+			// The underside (option 5): the same surface with the other triangle order and the underside parent; it shows only under the water.
+			UMaterialInstanceDynamic* Below = MakeMaterial(Entry.Body, UnderParent);
+			UStaticMesh* BelowMesh = BuildMesh(Entry.Body, Entry.Center, Below, true);
+			Meshes.Add(BelowMesh);
+			UStaticMeshComponent* Underside = AddSurface(BelowMesh, Below, Entry.Center, DrawDistance + static_cast<float>(Entry.Radius));
+			Underside->SetVisibility(bUnderOn);
+			Undersides.Add(Underside);
+		}
 		UE_LOG(LogSwcWater, Verbose, TEXT("water: %s (%s, %d vertices) at %.0f m"), UTF8_TO_TCHAR(Entry.Body.name.c_str()),
 			Entry.Body.kind == swc::water::Kind::river ? TEXT("river") : TEXT("volume"), static_cast<int32>(Entry.Body.vertex_count()), Wanted[K].Key / 100.0);
 	}
@@ -1127,32 +1186,209 @@ void USwcWaterSubsystem::UpdateOcean(const FVector& View, float DeltaTime)
 		}
 		UStaticMesh* Mesh = BuildMesh(Grid, FVector::ZeroVector, OceanMaterial);
 		Meshes.Add(Mesh);
-		Ocean = NewObject<UStaticMeshComponent>(WaterActor);
-		Ocean->SetMobility(EComponentMobility::Movable);
-		Ocean->SetStaticMesh(Mesh);
-		Ocean->SetMaterial(0, OceanMaterial);
-		Ocean->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		Ocean->SetCastShadow(false);
-		Ocean->bAffectDistanceFieldLighting = false;
-		Ocean->SetupAttachment(WaterActor->GetRootComponent());
-		Ocean->RegisterComponent();
-	}
-	// The grid follows the view in steps of one cell.
-	Ocean->SetWorldLocation(FVector(FMath::RoundToDouble(View.X / OceanCell) * OceanCell, FMath::RoundToDouble(View.Y / OceanCell) * OceanCell, OceanLevel * 100.0));
-	UpdateOceanState(View, DeltaTime);
-	for (const TPair<FName, float>& Pair : OceanNow)
-	{
-		const FString Key = Pair.Key.ToString();
-		if (!Key.StartsWith(TEXT("FogColor")) && !Key.StartsWith(TEXT("NearFogColor")))
+		Ocean = AddSurface(Mesh, OceanMaterial, FVector::ZeroVector, 0.0f);
+		if (UnderParent != nullptr)
 		{
-			OceanMaterial->SetScalarParameterValue(Pair.Key, Pair.Value);
+			// The underside of the ocean grid (option 5): the same grid with the other triangle order; it shows only under the water.
+			UnderOceanMaterial = UMaterialInstanceDynamic::Create(UnderParent, WaterActor);
+			UnderOceanMaterial->SetVectorParameterValue(TEXT("SunColor"), SunColor);
+			UStaticMesh* BelowMesh = BuildMesh(Grid, FVector::ZeroVector, UnderOceanMaterial, true);
+			Meshes.Add(BelowMesh);
+			UnderOcean = AddSurface(BelowMesh, UnderOceanMaterial, FVector::ZeroVector, 0.0f);
+			UnderOcean->SetVisibility(bUnderOn);
 		}
 	}
-	OceanMaterial->SetVectorParameterValue(TEXT("FogColor"), FLinearColor(OceanNow.FindRef(TEXT("FogColorR")), OceanNow.FindRef(TEXT("FogColorG")),
-		OceanNow.FindRef(TEXT("FogColorB")), 1.0f));
-	OceanMaterial->SetVectorParameterValue(TEXT("NearFogColor"), FLinearColor(OceanNow.FindRef(TEXT("NearFogColorR")), OceanNow.FindRef(TEXT("NearFogColorG")),
-		OceanNow.FindRef(TEXT("NearFogColorB")), 1.0f));
-	ApplyOverrides(OceanMaterial);
+	// The grid follows the view in steps of one cell.
+	const FVector GridPlace(FMath::RoundToDouble(View.X / OceanCell) * OceanCell, FMath::RoundToDouble(View.Y / OceanCell) * OceanCell, OceanLevel * 100.0);
+	Ocean->SetWorldLocation(GridPlace);
+	if (UnderOcean != nullptr)
+	{
+		UnderOcean->SetWorldLocation(GridPlace);
+	}
+	UpdateOceanState(View, DeltaTime);
+	const FLinearColor Fog(OceanNow.FindRef(TEXT("FogColorR")), OceanNow.FindRef(TEXT("FogColorG")), OceanNow.FindRef(TEXT("FogColorB")), 1.0f);
+	const FLinearColor Near(OceanNow.FindRef(TEXT("NearFogColorR")), OceanNow.FindRef(TEXT("NearFogColorG")), OceanNow.FindRef(TEXT("NearFogColorB")), 1.0f);
+	for (UMaterialInstanceDynamic* Instance : {OceanMaterial.Get(), UnderOceanMaterial.Get()})
+	{
+		if (Instance == nullptr)
+		{
+			continue;
+		}
+		for (const TPair<FName, float>& Pair : OceanNow)
+		{
+			const FString Key = Pair.Key.ToString();
+			if (!Key.StartsWith(TEXT("FogColor")) && !Key.StartsWith(TEXT("NearFogColor")))
+			{
+				Instance->SetScalarParameterValue(Pair.Key, Pair.Value);
+			}
+		}
+		Instance->SetVectorParameterValue(TEXT("FogColor"), Fog);
+		Instance->SetVectorParameterValue(TEXT("NearFogColor"), Near);
+		ApplyOverrides(Instance);
+	}
+}
+
+UStaticMeshComponent* USwcWaterSubsystem::AddSurface(UStaticMesh* Mesh, UMaterialInterface* Material, const FVector& Location, float CullDistance)
+{
+	UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>(WaterActor);
+	Component->SetMobility(EComponentMobility::Movable);
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(0, Material);
+	Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Component->SetCastShadow(false);
+	Component->bAffectDistanceFieldLighting = false;
+	if (CullDistance > 0.0f)
+	{
+		Component->SetCullDistance(CullDistance);
+	}
+	Component->SetupAttachment(WaterActor->GetRootComponent());
+	Component->RegisterComponent();
+	Component->SetWorldLocation(Location);
+	return Component;
+}
+
+void USwcWaterSubsystem::UpdateUnder(const FVector& View)
+{
+	UpdateSweep();
+	if (UnderPost == nullptr || UnderMaterial == nullptr)
+	{
+		return;
+	}
+	const int32 Mode = CVarWaterUnderView.GetValueOnGameThread();
+	if (Mode == 0)
+	{
+		SetUnder(false);
+		return;
+	}
+	// The water of the camera (engine m): the leaf of the quadtree, or the ocean. For a leaf of fresh water the body is the one with a triangle
+	// at the camera x, y and its height nearest to the leaf (the visible sheet; tools/test-water.sh), else the smallest one whose bounds have
+	// the point and the leaf height. A leaf with no body has no underwater view (a reason in the log), never the color of another water.
+	const double X = View.X / 100.0;
+	const double Y = -View.Y / 100.0;
+	const double Z = View.Z / 100.0;
+	const std::optional<swc::water::Sample> Water = GetWaterAt(X, Y);
+	const bool bOcean = Water && (Water->flags & swc::water::kFlagSalt) != 0;
+	int32 Found = INDEX_NONE;
+	float Surface = Water ? Water->surface : 0.0f;
+	if (Water && !bOcean && Z < Water->surface + 2.0)
+	{
+		std::optional<float> Best;
+		for (int32 Index = 0; Index < Bodies.Num(); ++Index)
+		{
+			const std::optional<float> Height = swc::water::surface_at(Bodies[Index].Body, static_cast<float>(X), static_cast<float>(Y));
+			if (Height && (!Best || FMath::Abs(*Height - Water->surface) < FMath::Abs(*Best - Water->surface)))
+			{
+				Found = Index;
+				Best = Height;
+			}
+		}
+		double Area = 0.0;
+		for (int32 Index = 0; Index < Bodies.Num() && !Best; ++Index)
+		{
+			const swc::water::Body& Body = Bodies[Index].Body;
+			const double Size = static_cast<double>(Body.high[0] - Body.low[0]) * (Body.high[1] - Body.low[1]);
+			if (swc::water::body_has(Body, static_cast<float>(X), static_cast<float>(Y), Water->surface) && (Found == INDEX_NONE || Size < Area))
+			{
+				Found = Index;
+				Area = Size;
+			}
+		}
+		Surface = Best ? *Best : Water->surface;
+	}
+	const std::optional<swc::water::Sample> Local = Water ? std::optional<swc::water::Sample>(swc::water::Sample{Surface, Water->floor, Water->flags}) : std::nullopt;
+	const bool bWet = swc::water::under_view(Local, static_cast<float>(Z), bUnderOn);
+	const bool bOn = bWet && (bOcean || Found != INDEX_NONE);
+	const int32 Which = !bOn ? INDEX_NONE : bOcean ? UnderOceanMark : Found;
+	if (bOn)
+	{
+		UnderMaterial->SetScalarParameterValue(TEXT("WaterZ"), Surface * 100.0f);
+		UnderMaterial->SetScalarParameterValue(TEXT("Debug"), static_cast<float>(FMath::Max(Mode - 1, 0)));
+		UnderMaterial->SetVectorParameterValue(TEXT("SunColor"), SunColor);
+		UnderMaterial->SetScalarParameterValue(TEXT("SunAffected"), 1.0f);
+		if (bOcean)
+		{
+			UnderMaterial->SetScalarParameterValue(TEXT("Kind"), 1.0f);
+			UnderMaterial->SetVectorParameterValue(TEXT("FogColor"), FLinearColor(OceanNow.FindRef(TEXT("FogColorR")), OceanNow.FindRef(TEXT("FogColorG")),
+				OceanNow.FindRef(TEXT("FogColorB")), 1.0f));
+			UnderMaterial->SetVectorParameterValue(TEXT("NearFogColor"), FLinearColor(OceanNow.FindRef(TEXT("NearFogColorR")),
+				OceanNow.FindRef(TEXT("NearFogColorG")), OceanNow.FindRef(TEXT("NearFogColorB")), 1.0f));
+			UnderMaterial->SetScalarParameterValue(TEXT("FogScale"), OceanNow.FindRef(TEXT("FogScale")));
+			UnderMaterial->SetScalarParameterValue(TEXT("Density"), OceanNow.FindRef(TEXT("Density")));
+		}
+		else
+		{
+			const swc::water::Body& Body = Bodies[Found].Body;
+			UnderMaterial->SetScalarParameterValue(TEXT("Kind"), 0.0f);
+			UnderMaterial->SetVectorParameterValue(TEXT("FogColor"), FLinearColor(Body.fog[0], Body.fog[1], Body.fog[2], 1.0f));
+			UnderMaterial->SetVectorParameterValue(TEXT("NearFogColor"), FLinearColor::Black);
+			UnderMaterial->SetScalarParameterValue(TEXT("FogScale"), Body.scale);
+			UnderMaterial->SetScalarParameterValue(TEXT("Density"), Body.density);
+		}
+	}
+	if (bOn != bUnderOn || Which != UnderWater)
+	{
+		UE_LOG(LogSwcWater, Log, TEXT("water: the underwater view %s (%s; camera %.2f m, surface %.2f m, floor %.2f m)"), bOn ? TEXT("on") : TEXT("off"),
+			Which == UnderOceanMark ? TEXT("the ocean") : Which != INDEX_NONE ? *FString(UTF8_TO_TCHAR(Bodies[Which].Body.name.c_str()))
+				: bWet ? TEXT("a leaf of fresh water with no body: off") : TEXT("above the water"),
+			Z, Surface, Water ? Water->floor : 0.0f);
+		UnderWater = Which;
+	}
+	SetUnder(bOn);
+}
+
+void USwcWaterSubsystem::UpdateSweep()
+{
+	// The check helper of the crossing video (swc.WaterUnderSweep): the camera of the matched view moves up and down.
+	TArray<FString> Sweep;
+	CVarWaterUnderSweep.GetValueOnGameThread().ParseIntoArrayWS(Sweep);
+	FSwcViewOverride& Override = FSwcViewOverride::Get();
+	const float Amplitude = Sweep.Num() == 2 ? FCString::Atof(*Sweep[0]) : 0.0f;
+	const float Period = Sweep.Num() == 2 ? FCString::Atof(*Sweep[1]) : 0.0f;
+	if (Override.bActive && Amplitude > 0.0f && Period > 0.0f)
+	{
+		const double Now = FPlatformTime::Seconds();
+		if (!bSweep || !Override.Location.Equals(SweepLast, 0.01))
+		{
+			bSweep = true;
+			SweepBase = Override.Location;
+			SweepStart = Now;
+			UE_LOG(LogSwcWater, Log, TEXT("water: the sweep of the camera, %.2f m in %.1f s about z %.2f m"), Amplitude, Period, SweepBase.Z / 100.0);
+		}
+		Override.Location = SweepBase + FVector(0.0, 0.0, Amplitude * 100.0 * FMath::Sin(2.0 * UE_DOUBLE_PI * (Now - SweepStart) / Period));
+		SweepLast = Override.Location;
+	}
+	else if (bSweep)
+	{
+		bSweep = false;
+		if (Override.bActive && Override.Location.Equals(SweepLast, 0.01))
+		{
+			Override.Location = SweepBase;
+		}
+	}
+}
+
+void USwcWaterSubsystem::SetUnder(bool bOn)
+{
+	if (UnderPost != nullptr && UnderPost->bEnabled != bOn)
+	{
+		UnderPost->bEnabled = bOn;
+	}
+	if (bOn == bUnderOn)
+	{
+		return;
+	}
+	bUnderOn = bOn;
+	for (UStaticMeshComponent* Component : Undersides)
+	{
+		if (Component != nullptr)
+		{
+			Component->SetVisibility(bOn);
+		}
+	}
+	if (UnderOcean != nullptr)
+	{
+		UnderOcean->SetVisibility(bOn);
+	}
 }
 
 void USwcWaterSubsystem::UpdateOceanState(const FVector& View, float DeltaTime)

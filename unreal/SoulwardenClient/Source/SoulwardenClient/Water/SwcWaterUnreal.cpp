@@ -867,7 +867,8 @@ void USwcWaterSubsystem::SetUnrealVisible(bool bUnreal)
 		TInlineComponentArray<UStaticMeshComponent*> Components(WaterActor.Get());
 		for (UStaticMeshComponent* Component : Components)
 		{
-			if (!SkyClouds.Contains(Component))
+			// The undersides of the underwater view keep their own state (USwcWaterSubsystem::SetUnder).
+			if (!SkyClouds.Contains(Component) && !Undersides.Contains(Component) && Component != UnderOcean)
 			{
 				Component->SetVisibility(!bUnreal);
 			}

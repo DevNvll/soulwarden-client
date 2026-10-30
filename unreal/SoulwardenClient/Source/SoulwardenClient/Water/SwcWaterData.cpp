@@ -186,6 +186,79 @@ std::optional<Sample> with_ocean(const std::optional<Sample>& leaf, float oceanL
     return leaf ? leaf : std::optional<Sample>(Sample{oceanLevel, 0.0F, kFlagSalt});
 }
 
+bool under_view(const std::optional<Sample>& water, float cameraZ, bool wasOn)
+{
+    return water && cameraZ >= water->floor && cameraZ < water->surface + (wasOn ? kUnderLeave : kUnderEnter);
+}
+
+Inside ocean_inside(float density, float h0, float dz, float path)
+{
+    const float k = std::max(density, 0.0F) * 1.442695F;
+    const float h = std::max(h0, 0.0F);
+    const float length = std::max(path, 0.0F);
+    // j <= 0 for each direction (dz <= 1); the source limit -1e-4 keeps the quotient finite at a clear water.
+    const float j = std::min(k * (dz - 1.0F), -1e-4F);
+    Inside out;
+    out.light = std::exp2(-k * h) * (std::exp2(j * length) - 1.0F) / j;
+    out.transmittance = std::exp2(-k * (length + std::max(h - length * dz, 0.0F)));
+    return out;
+}
+
+Inside volume_inside(float density, float path)
+{
+    Inside out;
+    out.transmittance = std::exp(-std::max(density, 0.0F) * std::max(path, 0.0F));
+    out.light = 1.0F - out.transmittance;
+    return out;
+}
+
+float underside_transmission(float dz)
+{
+    if (dz <= 0.0F) {
+        return 0.0F;
+    }
+    const float cosI = std::min(dz, 1.0F);
+    const float sinT2 = kWaterIndex * kWaterIndex * (1.0F - cosI * cosI);
+    if (sinT2 >= 1.0F) {
+        return 0.0F;
+    }
+    // The Fresnel equations of the two polarizations, from the water (n) into the air (1).
+    const float cosT = std::sqrt(1.0F - sinT2);
+    const float s = (kWaterIndex * cosI - cosT) / (kWaterIndex * cosI + cosT);
+    const float p = (kWaterIndex * cosT - cosI) / (kWaterIndex * cosT + cosI);
+    return 1.0F - 0.5F * (s * s + p * p);
+}
+
+bool body_has(const Body& body, float x, float y, float surface, float tolerance)
+{
+    return x >= body.low[0] && x <= body.high[0] && y >= body.low[1] && y <= body.high[1] && surface >= body.low[2] - tolerance
+        && surface <= body.high[2] + tolerance;
+}
+
+std::optional<float> surface_at(const Body& body, float x, float y)
+{
+    if (x < body.low[0] || x > body.high[0] || y < body.low[1] || y > body.high[1]) {
+        return std::nullopt;
+    }
+    for (std::size_t k = 0; k + 2 < body.indices.size(); k += 3) {
+        const float* a = &body.vertices[static_cast<std::size_t>(body.indices[k]) * 5];
+        const float* b = &body.vertices[static_cast<std::size_t>(body.indices[k + 1]) * 5];
+        const float* c = &body.vertices[static_cast<std::size_t>(body.indices[k + 2]) * 5];
+        // The barycentric weights in x, y (either order of the vertices: the folds of tight river bends are clockwise).
+        const double det = static_cast<double>(b[1] - c[1]) * (a[0] - c[0]) + static_cast<double>(c[0] - b[0]) * (a[1] - c[1]);
+        if (std::fabs(det) < 1e-12) {
+            continue;
+        }
+        const double wa = (static_cast<double>(b[1] - c[1]) * (x - c[0]) + static_cast<double>(c[0] - b[0]) * (y - c[1])) / det;
+        const double wb = (static_cast<double>(c[1] - a[1]) * (x - c[0]) + static_cast<double>(a[0] - c[0]) * (y - c[1])) / det;
+        const double wc = 1.0 - wa - wb;
+        if (wa >= 0.0 && wb >= 0.0 && wc >= 0.0) {
+            return static_cast<float>(wa * a[2] + wb * b[2] + wc * c[2]);
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<std::pair<int, int>> region_of(const std::string& name)
 {
     int x = 0;

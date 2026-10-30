@@ -1334,6 +1334,86 @@ the Unreal clouds); (3) the cube fog once on the composed cube. No stars at noon
 The capture fog of Unreal makes the cube white; the layers alone change little in these clear noon views. Evidence:
 `~/Games/soulwarden-client/evidence/AST-200/part5/` (retail | 11 | 6 | 2 | 4).
 
+### The underwater view (option 5 of the user, 2026-10-30)
+
+The decision of the user: keep the source water everywhere (`swc.WaterMode 0`) and give the source path a real view from under the
+water: a water fog when the camera is under a source surface, and a visible underside of the surfaces, for the ocean, the rivers, and the
+lakes. The view from above must not change. Before: from below the source path shows no water (the camera sees the land and the sky as
+in the air; `evidence/water-unreal/user-set/lake-river-through-sheet.png`, the last row).
+
+The study: `~/Games/soulwarden-client/research/water-underwater.md` (GPT-6.1-Sol). Its results that the design uses:
+
+- The post-process material of the Water plugin (`M_UnderWater_PostProcess_Volume`, also its Custom instance) reads the body data of
+  the plugin (`WaterBodyIndex`, `View.WaterIndirection`). With no plugin body it has no valid data. Thus the source path uses a client
+  material [R].
+- The source has passes for the view from inside: `WaterVolumeOutofPS` and `OceanOutofPS` (research
+  `ground-cover/waterfogvolume.cfxb.txt` 180-203 and 293-329, the cache entry 960e41c0). Both clip the ray at the plane of the water
+  level or at the scene [R]:
+  - a volume or a river: the fog color and T = exp(-density L): C = Cf + T (Cscene - Cf);
+  - the ocean: C = K x (2^(t L) - 1) / t x Cf + NearFogColor x the sun x T x sat(0.1 L) + Cscene x T, t = k (d.z - 1), k = 1.4427
+    density, T = 2^(-k (L + max(level - the z of the scene point, 0))). K is the CPU constant `cUnderWaterInScatterConst` (not
+    resolved). The client uses K = 2^(-k x the camera depth): the light at the camera depth, as the into pass has it at the entry
+    [I]. With the camera at the surface this is the view from above (`OceanInto`).
+- The source ocean shader sets its reflection to 0 when its facing test fails (the view from below) [R]. A rule of the total reflection
+  of the source is not known [U].
+
+The client (`Water/SwcWaterSubsystem.cpp` UpdateUnder, SetUnder; `Water/SwcWaterData.h` under_view, ocean_inside, volume_inside,
+underside_transmission, body_has, surface_at):
+
+- The water of the camera: the quadtree leaf at the camera x, y (`GetWaterAt`). A leaf with the salt flag, or no leaf: the ocean with
+  the blended `OceanNow` values. A fresh leaf: the body with a triangle at x, y and its height nearest to the leaf (the visible sheet;
+  the body can be in the file of the next region), else the smallest body whose bounds have the point and the leaf height. A fresh leaf
+  with no body: no underwater view (a log line), never the color of another water.
+- The trigger: the camera under the surface + 0.5 m (on) or + 1.0 m (when it was on), and not under the floor of the leaf. The margin
+  covers the near plane and the camera move of one frame. The pass itself decides for each pixel with the camera of the frame: a pixel
+  whose first point (at the near plane) is in the air keeps the scene color unchanged. Thus the crossing has no pop, and a camera above
+  the surface sees the same picture [I; the window checks it].
+- The pass: `M_SwcUnderwater`, a post-process material before the bloom (one unbound component, priority 110, off when the camera is
+  not under the water). The values: Kind, FogColor, NearFogColor (the ocean), FogScale, Density, the source sun, WaterZ.
+- The underside: a copy of each built surface and of the ocean grid with the other triangle order (the same vertices, UVs, and frame),
+  with `M_SwcWaterUnder`. The copies show only while the pass is on. The source parent `M_SwcWaterSource` does not change. The underside
+  material: the normal of the source (the same UV and normal code, read from `Scripts/water_materials.py`), the light from the air
+  through the window of the sky (1 - F, the Fresnel equations, n = 1.333; 0 outside 48.6 degrees from the vertical: the total
+  reflection) as the scene behind the sheet with the small refraction offset of the source, and for the rest the water below (a long
+  path in the water from the surface: the ocean Cf / (k (1 + cos)), a volume Cf). No sun lobes, no sky cube reflection, no foam, no air
+  fog. The fog between the camera and the sheet is the pass (once). The window, the refraction, and the reflected water color are
+  client rules [I].
+- The water sky cube keeps its last capture while the camera is under the water (its capture camera is the camera).
+- `swc.WaterUnderView`: 1 (the default) on, 0 off (the view from below as before), 2 to 4 the debug views of the pass.
+  `-SwcUnderwater=FOLDER` selects the folder of the two materials (default `/SwcGameContent/Water/Under`). With no materials the view
+  from below stays as before (a log line).
+- `swc.WaterUnderSweep "A P"`: a check helper; the camera of a matched view moves up and down by A m in P s (the crossing video).
+- The materials: `tools/import-water-unreal.sh --under` (`Scripts/water_underwater.py`) into the check plugin
+  `/SwcWaterCheck/Water/Under`; `--under --shared` into `/SwcGameContent/Water/Under` (only with the word of the orchestrator).
+
+The tests (no engine): `tools/test-water.sh`, the section "the underwater view": the trigger and its margins, the floor, the ocean form at
+the depth 0 against the formulas of the view from above, the depth factor, the ray to the surface, the long ray down, the volume rule, the
+window of the sky (98 % straight up, 0 outside 0.661), and two window places from the data (the river GreatPlains_River_Canyon_A at
+10176 3012: surface 106.0 m, terrain 95.0 m; the water volume BrightWoods_River_Forest_B at 9496 5548: surface 166.1 m, terrain 159.6
+m). 137 checks pass.
+
+The limits: the plane of the camera water is not the exit of a sloped river or of a river bank with no terrain (the source passes use
+the same plane); a camera in a dry place below 40 m with no quadtree leaf counts as the ocean (as the movement rule); the shore foam
+decals do not change; the cost of the pass and of the copies is not measured; the material compile and the large-world camera node in
+the pass are not checked yet.
+
+The window plan (one development run, the check plugin; the view set
+`~/Games/soulwarden-client/work/water-unreal/under/views/`, `make_views.py`):
+
+1. The build (`tools/build.sh editor`), `tools/import-water-unreal.sh --under`, the compile gate, a grep of "Failed to compile" in the
+   import and run logs.
+2. The views from below, each with the pair `swc.WaterUnderView 0` (the view as before): swim-under (up 12, the earlier source shot),
+   swim-under-level, swim-under-down, swim-under-up (60: the window of the sky), river-under and river-under-up (the canyon river),
+   lake-under and lake-under-up (the forest water volume). The debug views 2 and 4 at swim-under. The log lines "the underwater view
+   on (...)" with the body names.
+3. The crossing video: swim-cross with `swc.WaterUnderSweep 0.6 6` (the camera 0.6 m up and down in 6 s about the surface), recorded on
+   the agent desktop (about 14 s), and the same view with `swc.WaterUnderView 0`.
+4. The views from above, each pair 1 / 0 in one run with the cloud shadow held (`r.VolumetricCloud.ShadowMap 0`): ocean-clear,
+   river-down, lake, beach-down, ocean-far, river-forest, swim-surface (the camera 0.05 m over the ocean: its lower near-plane points are
+   in the water; the pass shows them as water). The rule: no "underwater view on" line at a view 0.5 m or more above the surface, and the
+   water mask difference of each pair at the noise of the pair; then the earlier source shots of item f beside.
+5. The GPU time of the pass and of the copies (a variant pair late in the run).
+
 ## The depth classes
 
 The rule of the retail client (research wf5-swim, client code 0x6A0DBF0; `swc::water::depth_class`): the leaf of the water quadtree

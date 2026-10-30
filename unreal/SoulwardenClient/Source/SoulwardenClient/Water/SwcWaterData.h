@@ -198,6 +198,58 @@ inline constexpr int kOceanWaveCount = 24;
  */
 std::vector<OceanWave> ocean_waves(float size, float amount);
 
+/**
+ * The underwater view of the source path (docs/WATER.md "The underwater view"; the decision of the user, 2026-10-30, option 5). The
+ * client turns on a post-process pass when the camera is near or under the surface of its water (the quadtree leaf of the camera, or
+ * the ocean). The pass decides for each pixel with the camera of the frame (its first point at the near plane under the surface or not:
+ * a pixel in the air keeps the scene color unchanged), thus the turn-on height only has to be above the near plane and the camera move of
+ * one frame (the client reads the camera of the last frame): kUnderEnter. kUnderLeave is a hysteresis of the client. Under the floor of the
+ * leaf (a cave under a river) the view is off. [the margins are client values, not retail values]
+ */
+inline constexpr float kUnderEnter = 0.5F;
+inline constexpr float kUnderLeave = 1.0F;
+/** @return True when the underwater pass must run for a camera at z (engine m); `wasOn` is the last answer. */
+bool under_view(const std::optional<Sample>& water, float cameraZ, bool wasOn);
+
+/** The light of the water along a ray in the water: the in-scatter weight (x the fog color x the sun) and the transmittance of the scene
+ *  behind. */
+struct Inside {
+    float light{0.0F};
+    float transmittance{1.0F};
+};
+/**
+ * The ocean seen from inside: WaterFogVolume/OceanOutofPS of the source (research ground-cover/waterfogvolume.cfxb.txt 293-329, the cache
+ * entry 960e41c0) for a ray that starts at the depth h0 (m under the surface) with the up part dz of its direction and the path L (m) in the
+ * water (clipped at the plane of the water level or at the scene), k = 1.442695 x density (base 2): light = C x (2^(j L) - 1) / j with
+ * j = k (dz - 1), transmittance = 2^(-k (L + max(level - the z of the scene point, 0))) = 2^(-k (L + max(h0 - L dz, 0))) [R]. C is the CPU
+ * constant cUnderWaterInScatterConst (not resolved): here 2^(-k h0), the light at the camera depth as the into shader has it at the entry
+ * [I]. With h0 = 0 and dz <= 0 these are the formulas of the view from above (OceanInto, the ocean branch of water_materials.py).
+ */
+Inside ocean_inside(float density, float h0, float dz, float path);
+/** A water volume or a river seen from inside: WaterFogVolume/WaterVolumeOutofPS (the path clipped at the plane of the water level or
+ *  at the scene): light = 1 - T, transmittance T = exp(-density x path) [R]. */
+Inside volume_inside(float density, float path);
+/** The index of refraction of the water for the view of the surface from below. */
+inline constexpr float kWaterIndex = 1.333F;
+/**
+ * @return The part of the light from the air that comes through a flat surface to a ray in the water that goes up with the up part dz
+ * (the cosine to the surface normal): 1 - F, F the Fresnel reflectance of unpolarized light (n = kWaterIndex); 0 outside the window of
+ * the sky (dz below sqrt(1 - 1 / n^2), 0.661: the total reflection) and for a ray that does not go up.
+ */
+float underside_transmission(float dz);
+/**
+ * @return True when the body can be the water of a point: its bounds have x, y (engine m) and the surface height is in its height bounds
+ * (with `tolerance` m). The second rule of the body of the underwater view (no triangle of a body covers the point): of these, the body
+ * with the smallest area of its bounds.
+ */
+bool body_has(const Body& body, float x, float y, float surface, float tolerance = 0.5F);
+/**
+ * @return The height (engine m) of the surface of the body at x, y: the triangle that covers the point (the plane of its three vertices;
+ * a point on an edge goes to the first triangle), or none. The first rule of the body of the underwater view: of the bodies that cover the
+ * point, the one with its height nearest to the quadtree surface; the view uses that height (the visible sheet).
+ */
+std::optional<float> surface_at(const Body& body, float x, float y);
+
 /** @return The region (x, y numbers) of a name r_+X_+Y, or none. */
 std::optional<std::pair<int, int>> region_of(const std::string& name);
 

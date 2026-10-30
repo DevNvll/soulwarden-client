@@ -5,7 +5,10 @@
 # /SwcWaterCheck/Water/Unreal; a run uses it with -SwcWaterMode=Unreal -SwcWaterMaterials=/SwcWaterCheck/Water/Unreal.
 # --near: the near color term of the ocean (Scripts/water_unreal_near.py; docs/WATER.md "Stage 2c"): a copy of the plugin parent and of
 # the ocean instance chain in the check plugin only (/SwcWaterCheck/Water/Near; a run uses it with -SwcWaterMaterials=/SwcWaterCheck/Water/Near).
-# Usage: tools/import-water-unreal.sh [--check] [--near] [--force]
+# --under: the underwater view of the source path (Scripts/water_underwater.py; docs/WATER.md "The underwater view"): the post-process
+# material M_SwcUnderwater and the underside material M_SwcWaterUnder in /SwcWaterCheck/Water/Under (a run uses them with
+# -SwcUnderwater=/SwcWaterCheck/Water/Under); --under --shared: /SwcGameContent/Water/Under (only with the word of the orchestrator).
+# Usage: tools/import-water-unreal.sh [--check] [--near] [--under [--shared]] [--force]
 # The editor commandlet uses at most SWC_CPU_QUOTA (default 400%: 4 cores) and SWC_MEMORY_MAX (default 12G).
 # One import at a time: the import waits for SWC_WORK/unreal/import.lock (the lock of tools/import.sh; 30 min at most).
 set -euo pipefail
@@ -16,10 +19,19 @@ for arg in "$@"; do
     case "${arg}" in
         --check) dest="/SwcWaterCheck/Water/Unreal" ;;
         --near) dest="/SwcWaterCheck/Water/Near"; script="water_unreal_near.py" ;;
+        --under) dest="/SwcWaterCheck/Water/Under"; script="water_underwater.py" ;;
+        --shared) shared=1 ;;
         --force) export SWC_IMPORT_FORCE=1 ;;
-        *) echo "usage: tools/import-water-unreal.sh [--check] [--near] [--force]" >&2; exit 2 ;;
+        *) echo "usage: tools/import-water-unreal.sh [--check] [--near] [--under [--shared]] [--force]" >&2; exit 2 ;;
     esac
 done
+if [[ "${shared:-0}" == 1 ]]; then
+    if [[ "${script}" != "water_underwater.py" ]]; then
+        echo "import-water-unreal: --shared goes only with --under" >&2
+        exit 2
+    fi
+    dest="/SwcGameContent/Water/Under"
+fi
 "${SWC_REPO}/tools/content-link.sh"
 if [[ "${dest}" == /SwcWaterCheck/* ]]; then
     check="${SWC_WORK}/unreal/SwcWaterCheck"

@@ -136,8 +136,18 @@ private:
 	 *  its values in its transition time: OceanNow (both render paths). */
 	void UpdateOceanState(const FVector& View, float DeltaTime);
 	void HideWorldOcean();
-	UStaticMesh* BuildMesh(const swc::water::Body& Body, const FVector& Center, UMaterialInterface* Material) const;
-	UMaterialInstanceDynamic* MakeMaterial(const swc::water::Body& Body);
+	/** bUnderside: the triangles in the other order (the copy that shows from below; the same vertices, UVs, and frame). */
+	UStaticMesh* BuildMesh(const swc::water::Body& Body, const FVector& Center, UMaterialInterface* Material, bool bUnderside = false) const;
+	/** @return An instance of Base (the source parent, or the underside parent) with the values of the body. */
+	UMaterialInstanceDynamic* MakeMaterial(const swc::water::Body& Body, UMaterialInterface* Base);
+	/** A component of a surface mesh on the water actor (no collision, no shadow, the draw distance). */
+	UStaticMeshComponent* AddSurface(UStaticMesh* Mesh, UMaterialInterface* Material, const FVector& Location, float CullDistance);
+	/** The underwater view of the source path (docs/WATER.md "The underwater view"): the water of the camera, the post-process pass, and
+	 *  the undersides. */
+	void UpdateUnder(const FVector& View);
+	void SetUnder(bool bOn);
+	/** The check helper of the crossing video (swc.WaterUnderSweep). */
+	void UpdateSweep();
 	/** The sky cube of the reflection (a capture of only the sky) and the sun color of the source on the instances. */
 	void UpdateSkyCube(const FVector& View);
 	void UpdateSkyCubeClouds(const FVector& View, bool bShow);
@@ -290,6 +300,28 @@ private:
 	TArray<TObjectPtr<UMaterialInstanceDynamic>> SkyCloudMaterials;
 	bool bSkyCloudsTried = false;
 	FLinearColor SunColor = FLinearColor(0, 0, 0, 0);
+	/** The underwater view (option 5 of the user, 2026-10-30): the parents (-SwcUnderwater=FOLDER, default /SwcGameContent/Water/Under), the
+	 *  post-process component and its instance, the underside copies of the surfaces and of the ocean grid (hidden above the water), the
+	 *  state, and the water of the camera (a body index, -2 the ocean, INDEX_NONE none). */
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> UnderParent;
+	UPROPERTY()
+	TObjectPtr<class UPostProcessComponent> UnderPost;
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> UnderMaterial;
+	UPROPERTY()
+	TArray<TObjectPtr<UStaticMeshComponent>> Undersides;
+	UPROPERTY()
+	TObjectPtr<UStaticMeshComponent> UnderOcean;
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> UnderOceanMaterial;
+	bool bUnderOn = false;
+	int32 UnderWater = INDEX_NONE;
+	/** The sweep of the crossing video (swc.WaterUnderSweep): the place of the matched view, the last place set, the start time. */
+	bool bSweep = false;
+	FVector SweepBase = FVector::ZeroVector;
+	FVector SweepLast = FVector::ZeroVector;
+	double SweepStart = 0.0;
 	/** The shore foam (AST-200): the effects (their sheets), the emitters, the decal material, the decals and their instances. */
 	TArray<TArray<FShoreSheet>> ShoreEffects;
 	TArray<FShoreEmitter> ShoreEmitters;

@@ -158,6 +158,104 @@ int main(int argc, char** argv)
 		const swc::water::Sample river{123.25F, 113.25F, 7};
 		check(swc::water::with_ocean(river, 40.0F)->surface == 123.25F, "a leaf with water keeps its surface");
 	}
+	std::printf("the underwater view (option 5, docs/WATER.md \"The underwater view\")\n");
+	{
+		const swc::water::Sample river{123.25F, 113.25F, 7};
+		check(!swc::water::under_view(std::nullopt, 0.0F, false), "no water: off");
+		check(swc::water::under_view(river, 122.0F, false) && swc::water::under_view(river, 123.25F + 0.49F, false)
+				&& !swc::water::under_view(river, 123.25F + 0.51F, false),
+			"on under the surface and up to 0.5 m above it (the near plane: the pass decides for each pixel)");
+		check(swc::water::under_view(river, 123.25F + 0.9F, true) && !swc::water::under_view(river, 123.25F + 1.1F, true),
+			"the hysteresis: on until 1 m above the surface");
+		check(!swc::water::under_view(river, 113.0F, false) && !swc::water::under_view(river, 113.0F, true), "under the floor of the leaf: off");
+		const auto ocean = swc::water::with_ocean(std::nullopt, 40.0F);
+		check(swc::water::under_view(ocean, 39.2F, false) && !swc::water::under_view(ocean, 45.0F, false),
+			"the swim-under view of item f (the camera at 39.2 m, the ocean at 40 m): on; the beach view at 45 m: off");
+
+		// The inside form at the depth 0 is the source view from above (water_materials.py, the ocean branch: j = k (min(d.z, 0) - 1),
+		// I = (2^(j L) - 1) / min(j, -1e-4), T = 2^(-k (L + max(0, -d.z L)))).
+		bool same = true;
+		for (const float density : {0.05F, 0.3F, 1.2F}) {
+			for (const float dz : {-1.0F, -0.5F, -0.1F, 0.0F}) {
+				for (const float path : {0.5F, 4.0F, 30.0F}) {
+					const float k = density * 1.442695F;
+					const float j = k * (std::min(dz, 0.0F) - 1.0F);
+					const float light = (std::exp2(j * path) - 1.0F) / std::min(j, -1e-4F);
+					const float t = std::exp2(-k * (path + std::max(0.0F, -dz * path)));
+					const swc::water::Inside inside = swc::water::ocean_inside(density, 0.0F, dz, path);
+					same = same && std::fabs(inside.light - light) <= 1e-5F * std::max(1.0F, light) && std::fabs(inside.transmittance - t) < 1e-6F;
+				}
+			}
+		}
+		check(same, "the ocean from inside at the depth 0: the source formulas of the view from above");
+		const swc::water::Inside deep = swc::water::ocean_inside(0.3F, 5.0F, 0.0F, 10.0F);
+		const swc::water::Inside top = swc::water::ocean_inside(0.3F, 0.0F, 0.0F, 10.0F);
+		check(std::fabs(deep.light / top.light - std::exp2(-0.3F * 1.442695F * 5.0F)) < 1e-5F && deep.transmittance < top.transmittance,
+			"a camera 5 m deep: the light x 2^(-5 k) (the light falls with the depth), the scene behind darker");
+		// A ray up to the surface: the scene at the end has the depth 0.
+		const swc::water::Inside up = swc::water::ocean_inside(0.3F, 2.0F, 0.5F, 4.0F);
+		check(std::fabs(up.transmittance - std::exp2(-0.3F * 1.442695F * 4.0F)) < 1e-6F, "a ray that ends at the surface: T = 2^(-k L)");
+		const swc::water::Inside far = swc::water::ocean_inside(0.3F, 0.0F, -0.5F, 1.0e4F);
+		check(std::fabs(far.light - 1.0F / (0.3F * 1.442695F * 1.5F)) < 1e-4F && far.transmittance < 1e-6F,
+			"a long ray down from the surface: the deep light 1 / (k (1 + |dz|)) (the color of the total reflection), T 0");
+		const swc::water::Inside lake = swc::water::volume_inside(0.4F, 3.0F);
+		check(std::fabs(lake.transmittance - std::exp(-1.2F)) < 1e-6F && std::fabs(lake.light + lake.transmittance - 1.0F) < 1e-6F,
+			"a lake from inside: T = exp(-density L), the light 1 - T");
+		check(swc::water::volume_inside(0.4F, 0.0F).transmittance == 1.0F && swc::water::ocean_inside(0.4F, 1.0F, 0.2F, 0.0F).light == 0.0F,
+			"no path: the scene unchanged");
+
+		// The window of the sky: 1 - F at a normal view is 1 - ((n - 1) / (n + 1))^2 = 0.9796; the total reflection outside 48.6 degrees.
+		check(std::fabs(swc::water::underside_transmission(1.0F) - 0.97962F) < 1e-4F, "straight up: 98 % of the sky comes through");
+		const float edge = std::sqrt(1.0F - 1.0F / (swc::water::kWaterIndex * swc::water::kWaterIndex));
+		check(swc::water::underside_transmission(edge - 0.01F) == 0.0F && swc::water::underside_transmission(edge + 0.02F) > 0.0F
+				&& swc::water::underside_transmission(edge + 0.02F) < swc::water::underside_transmission(0.8F),
+			"outside the window (dz < 0.661): the total reflection; inside it the transmission grows to the top");
+		check(swc::water::underside_transmission(0.0F) == 0.0F && swc::water::underside_transmission(-0.5F) == 0.0F, "a ray that does not go up: 0");
+
+		// The window places of the underwater view (docs/WATER.md "The underwater view"): a deep river and a deep water volume near the start,
+		// 11 m and 6.5 m over the terrain (the converter terrain, regions/NAME/landscape.r16). The body of a point can be in the file of
+		// the next region (the river of the canyon is in r_+05_+01): the client looks in all bodies.
+		struct Place {
+			const char* tree;
+			const char* file;
+			float x;
+			float y;
+			const char* name;
+		};
+		for (const Place& place : {Place{"r_+04_+01", "r_+05_+01", 10176.0F, 3012.0F, "GreatPlains_River_Canyon_A"},
+			     Place{"r_+04_+02", "r_+04_+02", 9496.0F, 5548.0F, "BrightWoods_River_Forest_B"}}) {
+			swc::water::Tree tree;
+			std::vector<swc::water::Body> bodies;
+			std::string error;
+			if (!tree.read(read_file(folder + "/" + place.tree + ".waterq"), error)
+				|| !swc::water::read_bodies(read_file(folder + "/" + place.file + ".water"), bodies, error)) {
+				check(false, std::string(place.name) + ": the files of the window place read (" + error + ")");
+				continue;
+			}
+			const int rx = static_cast<int>(place.x) / swc::water::kRegionSize;
+			const int ry = static_cast<int>(place.y) / swc::water::kRegionSize;
+			const auto leaf = tree.at(std::floor(place.x) - rx * swc::water::kRegionSize, std::floor(place.y) - ry * swc::water::kRegionSize);
+			// The rule of the client (USwcWaterSubsystem::UpdateUnder): a triangle that covers the point, the height nearest to the leaf.
+			const swc::water::Body* found = nullptr;
+			float height = 0.0F;
+			for (const swc::water::Body& body : bodies) {
+				const std::optional<float> z = leaf ? swc::water::surface_at(body, place.x, place.y) : std::nullopt;
+				if (z && (found == nullptr || std::fabs(*z - leaf->surface) < std::fabs(height - leaf->surface))) {
+					found = &body;
+					height = *z;
+				}
+			}
+			if (leaf) {
+				std::printf("  %s at %.0f %.0f: leaf surface %.2f m, floor %.2f m, flags %u; triangle of %s at %.3f m (kind %d, density %.3f, scale %.3f)\n",
+					place.name, place.x, place.y, leaf->surface, leaf->floor, leaf->flags, found ? found->name.c_str() : "none", height,
+					found ? static_cast<int>(found->kind) : -1, found ? found->density : 0.0F, found ? found->scale : 0.0F);
+			}
+			check(leaf && found != nullptr && found->name == place.name && std::fabs(height - leaf->surface) < 0.05F
+					&& swc::water::body_has(*found, place.x, place.y, leaf->surface) && swc::water::under_view(leaf, leaf->surface - 0.8F, false),
+				std::string(place.name) + ": the triangle of the body, its height at the leaf surface, and the view on 0.8 m under the surface");
+			check(!swc::water::surface_at(*found, found->low[0] - 1.0F, place.y), std::string(place.name) + ": no triangle outside the bounds");
+		}
+	}
 	check(!swc::water::region_of("x") && swc::water::region_of("r_+04_+02") == std::pair<int, int>{4, 2}, "the region of a name");
 	std::printf("the shore foam sheets (the particle curves of env_island.xml)\n");
 	{
