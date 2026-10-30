@@ -965,6 +965,21 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     7.25, mode 3 6.51 to 6.99 (p95 up to 10.6); the Lumen copies off 6.77 to 7.27, on 6.82 to 7.63 (p95 8.5 to 9.4 against 8.2 to 8.8).
   - Thus no cvar of rank 1 and no Lumen copy of the listed meshes makes the water reflect the near cliff. Open [U]: what the cliff block is
     (a region chunk mesh or another asset kind), and whether its own distance field and cards change the mirror.
+- The cliff-mirror study (GPT-6.1-Sol, read only; brief `research/briefs/ast200-2c-cliff-mirror.txt`, result
+  `~/Games/soulwarden-client/research/water-cliff-mirror.md`):
+  - The near cliff is the placed static mesh `objects/nature/rock_cliffs/cliffs_world/jav_wld_cliff_100m_b.cgf` (Nanite, an opaque one-sided
+    material) [R]. Its placement origin is 157 m from the camera: the 150 m origin test of `tools/lib/lumen_test.py` left it out of the copy
+    list, so window E did not test the cliff [R]. Nothing in the source says that it cannot get a distance field and cards [R].
+  - The water traces start at the water surface depth and normal (not at the floor; the channel depth is not a start offset) [R]. The
+    Lumen hit test: a view-depth shell of 0.005 x the hit depth (0.5 m at 100 m), a stochastic screen-edge rejection, and a history depth
+    test; the source tracer accepts min(5 m, depth / 20) and has no history gate [R]. A flat-mirror model at 40 m reaches visible front faces
+    of the cliff from 12 of 15 samples of the cliff box, several at full edge weight [I].
+  - Both paths have the ocean at 40 m and the camera at 70 m [R]. The Unreal water has the Gerstner waves of the plugin and their normals;
+    the source mirror uses an almost flat normal (the bump scale 0.1). A normal tilt of 5 to 10 degrees moves the reflected point by tens of
+    metres on the cliff, or off it [I]. The live wave normals are not measured [U].
+  - The supported next test [I]: one explicit copy of the cliff mesh (distance-field scale 1, 12 cards) into /SwcWaterCheck/Lumen with an
+    own map, `swc.LumenTest` 0 / 1 / 0 (2 shots each) at held 16:30; then, if needed, with the copy on, `r.Lumen.Reflections.ScreenTraces`
+    1 / 0 and `swc.WaterOceanNormalMix` 1 / 0 as separate controls.
 
 ### The visible differences of the Unreal ocean against the source (stage 2c, 2026-10-29)
 
