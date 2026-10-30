@@ -1577,8 +1577,15 @@ and the backend encoders (states 3829, 1746, 3086; requests 3819, 2461).
     location"; retail: "No PvP missions available right now"); the camera states UI_FactionMission and UI_TownProjects (L1); a round
     emblem at the left of the faction screen (L5); the "IN PROGRESS" bar of a card (L2); the bullet of the rank line (L6).
   - Paused (the pause of new milestones of the user, 2026-10-30): L1, L2, L5, L6, the settlement trigger areas, the faction shop, and
-    the Quartermaster wait in this list. Not checked live in the client: the hand-in of a faction mission, and the use of a daily bonus
-    (3/3 to 2/3; the fixture has it). The Quartermaster hand-in is not checked in the client.
+    the Quartermaster wait in this list. The Quartermaster hand-in is not checked in the client.
+  - The hand-in window (h1, 2026-10-30, backend 2026-10-30-4807a7d; evidence `ut567-c12`): the accepted FM_S_Ass_0602 went to its return
+    task with the development aid `quest advance FM_killx_location m_returntogiver` (the route kill has no killer: no kill credit; the kill
+    is not checked). The faction screen showed the card COMPLETED with "Complete" and Daily Bonuses 3/3; the flyout: 710 reputation, 4375
+    tokens, 82.50 coins, 250 standing, 4470 XP, Daily Bonus. The click sent "board complete 6" (2461). The backend handed in FactionV2_25
+    with the daily factors of FactionMissionBonus (XP 1490 x 3, coin 825 x 10, tokens 875 x 5; reputation 710 and standing 250 with no
+    factor): the same values. missions.py: daily bonuses 3 to 2, handIns 0 to 1, no accepted mission. The screen after it: 2/3, tokens
+    4,375, 2,290 to the next tier (3,000 before). 0 Lua errors. Open: after the hand-in the flyout of the card under the pointer keeps the
+    rewards of the handed-in mission (the new card is an expedition with no reward line). A Talk of one line: E chooses the first option.
 
 ## The entrance of a story instance (C-13 step 1b part B of ut567)
 
