@@ -1564,4 +1564,6 @@ and the backend encoders (states 3829, 1746, 3086; requests 3819, 2461).
     Mission; `ObjectiveData.id` is the text id of the row (the scripts pass it to Math.CreateCrc32). activeBonuses has the kinds of the
     flyout row (1 the daily bonus, 2 the fort control, 3 the territory, 4 the rested experience). Fixture: XP 6050 x 3, coin 23.00 x 10,
     tokens 2540 x 5, "Daily Bonus".
-  - Open points: some card texts have no place name ("Delve into  for the Syndicate"; the POI name of the card); the faction shop.
+  - The place names of the cards: the POI tags of the mission data are CRCs; GetTerritoryDefinitionByPoiTag also takes the CRC of a tag
+    (swc/worldmap.lua). Fixture: "Delve into Starstone Barrows for the Syndicate".
+  - Open point: the faction shop (no items; the shops are a later stage).

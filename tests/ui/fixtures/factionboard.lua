@@ -118,6 +118,9 @@ frames(2.0)
 equal(LyShineManagerBus.Broadcast.GetCurrentState(), FACTION, "the open sets the state of the faction board")
 check(swcui.canvas_get(board, "enabled"), "the faction board shows")
 picture("factionboard-open")
+-- The place names of the cards: the POI tags of the mission data are CRCs (StaticMissionData.poiTagsOverride).
+equal(TerritoryDefinitionsDataManagerBus.Broadcast.GetTerritoryDefinitionByPoiTag(crc("shattered_dungeon")).nameLocalizationKey,
+  "@ui_poi_shattered_dungeon", "GetTerritoryDefinitionByPoiTag with the CRC of the tag (the expedition of a card)")
 -- The reward preview of a card (GetUIMissionRewardsAndBonuses): the daily bonus is the active bonus kind 1 while a use is left.
 do
   local row = B.D().missions[picks[1]]

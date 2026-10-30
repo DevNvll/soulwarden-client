@@ -72,8 +72,15 @@ local function definitionOfTag(tag)
       for part in string.gmatch(tostring(definitions[id].pOITag or ""), "[^,]+") do
         local key = string.lower((part:gsub("^%s+", ""):gsub("%s+$", "")))
         byPoiTag[key] = byPoiTag[key] or definitions[id]
+        -- The CRC-32 of the tag too: the mission data gives the POI tags as CRCs (StaticMissionData.poiTagsOverride; the faction cards
+        -- of C-12 phase 2: "Delve into <the expedition> for the Syndicate").
+        local tagCrc = swcui.crc32(key)
+        byPoiTag[tagCrc] = byPoiTag[tagCrc] or definitions[id]
       end
     end
+  end
+  if type(tag) == "number" then
+    return byPoiTag[tag]
   end
   return byPoiTag[string.lower(tostring(tag or ""))]
 end
