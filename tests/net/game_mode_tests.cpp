@@ -112,7 +112,8 @@ int main() {
     expect(own.gameModes.empty() && own.gameModeRevision == 0, "the world entry: no game mode and no GameModeParticipant fragment before the first entry");
     expect(!client.leave_game_mode(), "the world entry: no leave request with no game mode");
 
-    // The entry: the backend sends the membership with the flag PlayerCanQuit.
+    // The entry: the backend sends the membership with no flag (stage QG9e of the backend: PlayerCanQuit shows the extra mode button of
+    // the escape menu, which needs a GameMode entity of the client; the leave of the game menu is 926 with the PlayerArena state).
     const backend::world::Entity& entity = *host.world.find_character(kCharacterA);
     expect(host.world.instances().enter(kCharacterA, "Test_Story").error == backend::world::InstanceError::none, "setup: the entry of the story instance");
     host.steps(3, {&a});
@@ -129,9 +130,9 @@ int main() {
                "the entry: the CRCs of the mode and of the map, the entry time, X 0");
     }
     expect(own.gameModeStamp != 0, "the entry: the stamp of the replacement");
-    expect(swc::net::has_game_mode_flag(own.gameModeFlags, swc::net::kGameModeFlagCanQuit)
-               && own.gameModeFlags == swc::net::GameModeFlags{0x00, 0x00, 0x40, 0x00, 0x00, 0x00},
-           "the entry: the flags 00 00 40 00 00 00 (bit 22 PlayerCanQuit)");
+    expect(!swc::net::has_game_mode_flag(own.gameModeFlags, swc::net::kGameModeFlagCanQuit)
+               && own.gameModeFlags == swc::net::GameModeFlags{0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+           "the entry: no flag (backend stage QG9e)");
     expect(entry.find("game mode (3312): 1 active") != std::string::npos, "the entry: the log line of the state");
 
     // The result 3094 of an entrance (the values of the live run L1 of stage QG9a): the client keeps it for DungeonEnterScreen.
