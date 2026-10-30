@@ -549,6 +549,13 @@ time, which is slower than the wall clock while the world loads. `SWC_DEV_CHARAC
 routes, and `SWC_DEV_PLACE` (X:Y:Z, engine m) its place at the start of the run (the swings move the character, and the
 database keeps its place).
 
+Two traps of the route files (C-12 window 2b, 2026-10-30):
+- The times use a point (`5.2 give ...`). The locale of this computer is pt_BR: `printf "%.1f"` in the shell writes `5,2`, and the
+  route tool does not read that time (a run with such a file gave nothing). Write generated route files with Python, or with
+  `LC_ALL=C printf`.
+- `give ITEM [GEARSCORE]` gives one item: its second word is the gear score. For a quantity of a stack item, use
+  `stack ITEM QUANTITY` (one line: `stack BlockT2 30`).
+
 Exit check (development run, 2026-10-18, the world level at the start place 8880 4250): `creatures-world.mp4` (80 s). The
 script gives the character the level 60 (a lunge of the level 18 wolf makes 1,079 damage) and makes a grey wolf and a
 skeleton with a club to the east, a turkey, a Risen, and a knight with a great axe and a shield to the west, on the street

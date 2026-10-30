@@ -1536,4 +1536,16 @@ and the backend encoders (states 3829, 1746, 3086; requests 3819, 2461).
   InGamePostActivate, children before parents, before the OnInit of the grid script (swc/elements.lua; static read
   `~/Games/soulwarden-client/work/ut567/qgplan/gridclone/ANSWERS.md`). Its first refresh fills the pool to the default count (5). An item
   takes the size settings of an item, not of a header (swc/dynamic.lua entry_size). Before, each row had 4 columns, 2 with the template.
+- The hand-in (retail qg6a I5): the banner "You have N completed mission(s)" with Complete All Missions, its popup (the items, the total
+  reward), Accept: RequestMissionCompletion of each ready mission (2461). After it the town entry makes the mission unavailable in the
+  seed: a change of the available flag of an offer refreshes the open screen (Hud.Objective.OnActiveObjectiveUpdate). Window 2b
+  (2026-10-30): 30 Stone Block given, the card COMPLETED, the popup 130 xp / 1.08 coin / 350 standing, the backend hand-in with the
+  same reward as the success event of the mission row (CMission_Success_Gather_RefinedT2_Small), the banner Standing Rank Up.
+- The pictures of the cards: `imagePath` (an item picture) or `detailImagePath` (a full card picture of
+  `lyshineui/images/missionimages`, the kill and explore cards). The mission images come with
+  `tools/convert-ui.sh textures --folder lyshineui/images/missionimages` (49 files; the shared content had 1).
+- The hover of a card fades the picture (townprojects_availabletask.luac OnFocus: the fade 0.5 of Icon; the image alpha 0.4): measured in
+  the fixture. Open point: the plus sign of a potion card has no circle (retail: a circle with a plus).
+- The pin rule: a town mission is not pinned at the accept (the auto-pin flag of CommunityGoal is off; retail qg6a I3 shows no tracker
+  entry after the accept).
 - Open point: the faction board (option 8, state 2609973752, 3816) is phase 2.

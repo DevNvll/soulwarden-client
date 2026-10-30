@@ -148,11 +148,64 @@ check(not ObjectiveInteractorRequestBus.Broadcast.CanCompleteMission(mine), "Can
 accepted_state(true, false)
 frames(0.5)
 check(ObjectiveInteractorRequestBus.Broadcast.CanCompleteMission(mine), "CanCompleteMission: true after the kill, at the provider")
--- The hand-in (townproject_activeproject.luac OnTaskComplete: RequestMissionCompletion(objectiveInstanceId)): 2461.
+-- The hand-in of retail (qg6a shots I5): the banner "You have 1 completed mission(s)" with Complete All Missions, then its popup with Accept
+-- (townprojects.luac OnUpdateGlobalStorage -> ContractsDataHandler RequestStorageData -> OnCompleteAllMissionsButton; Accept:
+-- OnCompleteAllMissionsConfirm -> RequestMissionCompletion(objectiveInstanceId)): 2461.
+do
+  local root = swcui.canvas_get(town, "root")
+  Swc.SetData("Hud.Objective.OnActiveObjectiveUpdate", true)   -- the refresh signal of the objectives (townprojects.luac <0.2.2>)
+  frames(1.0)
+  local banner = find(root, "CompleteAllContainer")
+  check(banner ~= nil and UiElementBus.Event.IsEnabled(banner), "the banner of the completed missions shows")
+  local button = banner and find(banner, "CompleteAllButton")
+  if button then note(string.format("Complete All Missions at %.4f %.4f", point_of(button) / 1920, select(2, point_of(button)) / 1080)) end
+  requests()
+  if button then
+    click(button)
+    frames(1.5)
+  end
+  local popup = find(root, "CompleteAllMissionsPopup")
+  check(popup ~= nil and UiElementBus.Event.IsEnabled(popup), "Complete All Missions opens its popup")
+  picture("town-complete-all")
+  local accept = popup and find(popup, "CompleteAllButton")
+  if accept then note(string.format("Accept at %.4f %.4f", point_of(accept) / 1920, select(2, point_of(accept)) / 1080)) end
+  if accept then
+    click(accept)
+    frames(1.0)
+  end
+  r = requests()
+  equal(r[1], "board complete 777", "Accept of the popup sends the hand-in of the ready mission (2461: the instance)")
+end
 requests()
 ObjectiveInteractorRequestBus.Broadcast.RequestMissionCompletion(mine)
 r = requests()
 equal(r[1], "board complete 777", "the hand-in request (2461: the instance)")
+-- After the hand-in the backend removes the mission and its town entry makes it unavailable in this seed: the client sends the offers with
+-- the available flag 0, and the open screen shows "A new mission will be available soon" in its place (retail qg6a I5-board-after-hand-in).
+Swc.HostQuests("")
+frames(1.0)   -- the live order of window 2b: the objective goes first (the screen refreshes), the new provider state after it
+Swc.HostBoardOffers(string.format("S 123456 1400\nO %d 4 %d 0\nO %d 1 %d 1\nO %d 5 %d 0\n", picks[1], COMMUNITY, picks[2], COMMUNITY,
+  picks[3], COMMUNITY))
+frames(1.0)
+do
+  local unavailable = 0
+  for _, c in ipairs(town_cards()) do
+    local root = c.id
+    local function walk(id)
+      for _, child in ipairs(UiElementBus.Event.GetChildren(id) or {}) do
+        if swcui.enabled_in_hierarchy(child) and (UiTextBus.Event.GetText(child) or ""):find("new mission will be", 1, true) then
+          unavailable = unavailable + 1
+        end
+        walk(child)
+      end
+    end
+    walk(root)
+  end
+  equal(unavailable, 2, "after the hand-in the open screen shows two unavailable cards (the handed-in mission and the third offer)")
+end
+picture("town-after-hand-in")
+accepted_state(true, false)
+frames(0.5)
 -- At another provider (the Claim of another territory) the mission is not ready to hand in.
 Swc.HostView(-45, 8461, 4877, 180)
 frames(0.3)

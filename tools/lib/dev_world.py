@@ -27,7 +27,8 @@ Usage (tools/creature-world.sh):
   place NAME [DX DY [DZ]]            a character NAME of the database into the world at the character (a remote test character)
   cast NAME PLACE [--yaw DEGREES]    the press of place PLACE of the bar for a character NAME (yaw from the north to the east)
   items                              the bag, the equipment, and the coin of the character
-  give ITEM [GEARSCORE]              one item of the item catalog (ItemID) into the bag of the character
+  give ITEM [GEARSCORE]              one item of the item catalog (ItemID) into the bag of the character (the second
+                                     word is the gear score, not a quantity: for a quantity use stack ITEM QUANTITY)
   equip FROM [SLOT]                  the item of the bag slot FROM into a slot of the paperdoll (no SLOT: the slot of its class)
   abilities                          the cooldowns of the server of the character and the counts of the abilities
   reset                              each cooldown of the server of the character ends (the client keeps its own cooldown)

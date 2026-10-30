@@ -244,11 +244,24 @@ function Swc.HostBoardOffers(text)
       offers[#offers].bucket, offers[#offers].project = tonumber(bucket), tonumber(project)
     end
   end
-  local changed = seed ~= B.seed or #offers ~= #B.offers
+  -- A new list: a new seed, other missions, or another available flag (a hand-in makes its mission unavailable in the seed: retail qg6a
+  -- I5-board-after-hand-in, "A new mission will be available soon"; window 2b of ut567 showed the old card before this rule).
+  local function key_of(list)
+    local parts = {}
+    for _, o in ipairs(list) do
+      parts[#parts + 1] = tostring(o.missionId) .. (o.available and "+" or "-")
+    end
+    return table.concat(parts, " ")
+  end
+  local changed = seed ~= B.seed or key_of(offers) ~= key_of(B.offers)
   B.offers, B.seed, B.seconds, B.secondsAt = offers, seed, seconds, swcui.clock()
   if changed then
-    -- A new list (a new seed, other projects): the screen refreshes (the native sets the node on a new list; ANSWERS.md section 1).
+    -- The native sets the node on a new list (ANSWERS.md section 1); the screen reads it at its transition-in. An open screen refreshes at
+    -- the signal of the objectives (townprojects.luac <0.2.2>: a data callback, each set).
     Swc.SetData("Hud.TerritoryGovernance.ReloadProjectMissions", true)
+    if B.open then
+      Swc.SetData("Hud.Objective.OnActiveObjectiveUpdate", true)
+    end
   end
   Swc.Note("boards: " .. #offers .. " town offer(s), seed " .. tostring(seed) .. ", " .. tostring(seconds) .. " s to the next seed")
 end
