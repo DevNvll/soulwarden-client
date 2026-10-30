@@ -1612,3 +1612,9 @@ The entrance window of QuestMedea (the only story instance of this stage). The s
 - The script lyshineui/dungeons/howtowindow.luac of the canvas is not in the game paks (only lyshineui/slices/howtowindow.luac): its
   component does nothing (Swc.absentScripts, swc/elements.lua).
 - Checks: the fixtures `tests/ui/fixtures/dungeonenter.lua` and `tests/ui/fixtures/escapeleave.lua`.
+- The window (2026-10-30, runs c1 to c3 of ut567; evidence `ut567-c13`): the character at the entrance (the dev route `achievement
+  Trial_Quest_Medea_Unlocked on`), E: 71 accepted and the window; Enter: 72 base 71 (EnterQuestCaerDun) accepted, the mode 95B632E9 with
+  PlayerCanQuit, 3094 result 0, the level change into instance 1 of QuestMedea (the backend ends the 71 use: "a travel"; the client sends
+  no 2473 after the level change); the escape menu "Leave", the popup "Leave Soul Trial?", Yes: 1980 with 9BB080D0, the empty state,
+  and the level change back to the return place. 0 Lua errors. Drive traps: `point text:Enter` finds the ENTER key hint of the chat
+  (use `move 0.8285 0.829`); the leave button text is "Leave" (@ui_solo_arena_leave), not the popup title.
