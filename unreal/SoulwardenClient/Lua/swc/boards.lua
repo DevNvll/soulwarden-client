@@ -172,7 +172,17 @@ Swc.Define("LandClaimRequestBus", "Broadcast", {
     for _, u in ipairs(claim.upgrades) do
       upgrades[#upgrades + 1] = {category = u.category, level = u.level}
     end
-    return {activeProjects = active, territoryUpgrades = upgrades}
+    -- GetUpgradeDataForCategory (territorydatahandler.luac GetUpgradeTierInfoByTerritoryId: the tier name of the settlement of the
+    -- compass): the upgrade of a category, else the category None and the level 0 (the backend sends no upgrade).
+    return {activeProjects = active, territoryUpgrades = upgrades,
+      GetUpgradeDataForCategory = function(_, category)
+        for _, u in ipairs(upgrades) do
+          if u.category == category then
+            return {category = category, categoryLevel = u.level or 0}
+          end
+        end
+        return {category = eSettlementProgressionCategory_None, categoryLevel = 0}
+      end}
   end,
 })
 
@@ -476,7 +486,9 @@ end
 Swc.Define("ObjectiveInteractorRequestBus", "Broadcast", {
   GetCurrentMissions = function() return B.provider.offers end,
   GetCurrentPvpMissions = function() return {} end,
-  ArePvpMissionsDisabledForThisProvider = function() return true end,
+  -- The representatives of the data have pvpDisabled false (interaction-data.json provider): the screen shows the empty PvP list
+  -- "No PvP missions available right now" (retail qg6b live-7), not "PvP missions aren't available at this location".
+  ArePvpMissionsDisabledForThisProvider = function() return false end,
   CanSelectPvpMission = function() return false end,
   RequestPvpMissionSelection = function() end,
   -- The category of the provider: the reputation progression of the faction of the representative (the faction of the character: the

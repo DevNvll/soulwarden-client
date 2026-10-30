@@ -1569,4 +1569,10 @@ and the backend encoders (states 3829, 1746, 3086; requests 3819, 2461).
   - The areas: worldmap.json has the area definitions (javelindata_areadefinitions: 176 rows; the hunt cards name an area by its POI tag:
     FM_S_Hunt_0605 "southwindsward5" = 9015). A landmark takes a point of interest that is not an area, else an area (the areas have
     isPOI too). Window 3b (bd9) showed "Hunt the  area for the  Turkey" with the earlier file.
-  - Open point: the faction shop (no items; the shops are a later stage).
+  - The PvP panel: the representatives have PvP (pvpDisabled false). Its empty text depends on the settlement (owguild.luac: DynamicBus.Compass
+    IsInSettlement; compass.luac sets it at UiTriggerAreaEventNotificationBus OnUiTriggerAreaEventEntered with the area kind "settlement"
+    0xDD9F1B51 or "fortress" 0x06D4CBF3).
+  - Open points: the faction shop (no items; the shops are a later stage); the client sends no event of the settlement trigger areas of
+    the world, so the compass is never "in a settlement" (the PvP panel of the faction board says "PvP missions aren't available at this
+    location"; retail: "No PvP missions available right now"); the camera states UI_FactionMission and UI_TownProjects (L1); a round
+    emblem at the left of the faction screen (L5); the "IN PROGRESS" bar of a card (L2); the bullet of the rank line (L6).

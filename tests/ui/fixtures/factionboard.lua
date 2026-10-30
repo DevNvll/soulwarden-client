@@ -9,6 +9,7 @@ local board = screen("LyShineUI/OldWorldGuilds/OWMissionBoard.uicanvas", 21)
 screen("LyShineUI/Popup/Popup.uicanvas", 52)
 screen("LyShineUI/HelpBar/HelpBar.uicanvas", 30, true)
 screen("LyShineUI/FlyoutMenu/FlyoutMenu.uicanvas", 55, true)
+screen("LyShineUI/Compass/Compass.uicanvas", 10, true)   -- IsInSettlement of the PvP panel (owguild.luac SetPvpMissionData)
 Swc.PlayerSpawned()
 LyShineManagerBus.Broadcast.SetState(HUD)
 DynamicBus.UiLoader.Broadcast.OnUiLoadingComplete()
@@ -118,6 +119,32 @@ frames(2.0)
 equal(LyShineManagerBus.Broadcast.GetCurrentState(), FACTION, "the open sets the state of the faction board")
 check(swcui.canvas_get(board, "enabled"), "the faction board shows")
 picture("factionboard-open")
+-- The empty PvP list of a representative with PvP (retail qg6b live-7: "No PvP missions available right now, check back soon."): the
+-- provider has PvP (pvpDisabled false in the data), and the text is the one of a settlement (owguild.luac SetPvpMissionData:
+-- DynamicBus.Compass IsInSettlement; compass.luac sets it at OnUiTriggerAreaEventEntered with the area kind "settlement" 0xDD9F1B51).
+-- The client sends no such event yet (an open point: the settlement trigger areas of the world); here the event of the trigger.
+check(not ObjectiveInteractorRequestBus.Broadcast.ArePvpMissionsDisabledForThisProvider(), "the representative has PvP (pvpDisabled false)")
+Swc.Notify("UiTriggerAreaEventNotificationBus", nil, "OnUiTriggerAreaEventEntered", EntityId(), EntityId(), 0xDD9F1B51, 0)
+check(DynamicBus.Compass.Broadcast.IsInSettlement() == true, "the compass: in a settlement after the enter event of a settlement area")
+Swc.HostBoardProvider(provider(nil, nil))
+frames(1.0)
+do
+  local found = {}
+  local function walk(id)
+    for _, child in ipairs(UiElementBus.Event.GetChildren(id) or {}) do
+      if swcui.enabled_in_hierarchy(child) and swcui.has(child, "text") then
+        local t = swcui.get(child, "text.text") or ""
+        if t:find("PvP missions", 1, true) then found[#found + 1] = t end
+      end
+      walk(child)
+    end
+  end
+  walk(swcui.canvas_get(board, "root"))
+  note("the PvP texts: " .. table.concat(found, " | "))
+  local retail = false
+  for _, t in ipairs(found) do retail = retail or t:find("right now", 1, true) ~= nil end
+  check(retail, "in a settlement the empty PvP list says: No PvP missions available right now (retail qg6b live-7)")
+end
 -- The place names of the cards: the POI tags of the mission data are CRCs (StaticMissionData.poiTagsOverride).
 equal(TerritoryDefinitionsDataManagerBus.Broadcast.GetTerritoryDefinitionByPoiTag(crc("shattered_dungeon")).nameLocalizationKey,
   "@ui_poi_shattered_dungeon", "GetTerritoryDefinitionByPoiTag with the CRC of the tag (the expedition of a card)")
