@@ -283,6 +283,8 @@ context instance, 1635 with a new version and the reload flag, 1617, an empty bu
   While it is older than the revision of the own entity (after a travel of the server or a level change, before `Travel` has moved
   the character), the input reports have no motion: the place of the old scene does not go out with flag 0x8000 (`heldMotions`, one
   log line at the start of each hold).
+- The interaction request of the old context (for example the block of the exit portal, 74) ends at the level change with no message:
+  its block does not go into the input of the new context (window 1 of C-13 step 1b: the backend refused it once after the leave).
 - A level that the client does not have (the expeditions, the arenas, the ORI story instances: their own levels): a clean end of the
   session with the cause "this instance is in the level LEVEL, which this client does not have yet"; the landing screen shows it, and
   the backend puts the character at its return place (docs/systems/instances.md of the backend, rule D9).

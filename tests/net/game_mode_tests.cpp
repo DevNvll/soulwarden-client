@@ -183,6 +183,11 @@ int main() {
            "1980 with an other event: the backend reads the body and changes nothing");
     client.game_mode_event();
     expect(events().find("the client event 9bb080d0 (1980)") != std::string::npos, "1980: RepClient sends the leave event");
+    // An interaction request of the old context (the block of the exit portal): the level change ends it (window 1 of C-13 step 1b).
+    swc::net::InteractionRequest portal;
+    portal.action = swc::net::kActionExitDungeon;
+    portal.optionId = 0xD5D62681U;
+    client.set_interaction(portal);
     const swc::net::Bytes event = swc::net::game_mode_event_body(own.group, swc::net::kGameModeLeaveEvent);
     expect(event.size() == 20, "1980: 20 bytes (target, entity, event)");
     host.datagram(a.peer, a.component_message(backend::server::rep::kTypeGameModeClientEvent, entity.actor.bytes, event));
@@ -191,6 +196,7 @@ int main() {
     feed();
     (void)events();
     expect(own.gameModes.empty() && client.level_changes() == 4, "1980: the level change and the empty map");
+    expect(!own.interaction.has_value(), "1980: the level change ends the interaction request of the old context");
 
     // The facet target: G + the GameModeParticipant component of the root entity (slice-ids.json RootPlayer/b5a705af-...).
     expect(swc::net::game_mode_event_body(own.group, 0).size() == 20

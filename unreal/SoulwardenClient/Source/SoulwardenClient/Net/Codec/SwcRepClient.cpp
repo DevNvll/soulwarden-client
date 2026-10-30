@@ -559,6 +559,12 @@ void RepClient::change_level(const LevelInfo& info) {
         }
     }
     m_others.clear();
+    // The interaction request names an object of the old context (the exit portal of the leave): its block does not go into the input of
+    // the new context (window 1 of C-13 step 1b: the block of 74 went out again after the leave, and the backend refused it).
+    if (m_own.interaction) {
+        m_own.interaction.reset();
+        log(Event::Level::info, "level change: the interaction request of the old context ends with no message");
+    }
     m_bundleSequence = 0;
     m_bundleGap = false;
     m_clientTeleport = 0;
