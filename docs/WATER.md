@@ -1062,6 +1062,32 @@ with the 100 GB reserve of the cook), a patch of about 9 engine files kept in th
 rebuild of the renderer and the client, new check materials, and a cook (incremental if the cooked tree stays valid; a full cook is about
 77 minutes). It would not restore the cliff mirror. The tone levers of stage 2c need no engine change.
 
+### A static question: the Unreal water only under the surface (2026-10-30, the question of the orchestrator)
+
+The question: can the client use the Unreal water only while the camera is under (or near) the water surface, and the source water above
+it? The answer: yes, with client code only (no engine change), but with a visible pop at the surface and a warm-up cost [R for the code
+facts, I for the design].
+- The switch path exists [R]: each tick `USwcWaterSubsystem::Tick` (SwcWaterSubsystem.cpp lines 227 to 244) reads `swc.WaterMode` and, on
+  a change, calls `SetUnrealVisible` (SwcWaterUnreal.cpp lines 847 to 876): it hides or shows the Unreal zone, ocean, and bodies (with their
+  collision, which the underwater post process of the plugin needs) and the source surfaces and ocean grid. Only the active path is
+  updated each tick (`UpdateUnreal` or `UpdateSkyCube` / `UpdateBodies` / `UpdateOcean`).
+- What an automatic mode needs [I]: a new value (for example `swc.WaterMode 2`, auto) that sets the path from the camera depth under the
+  local water surface (the client water data already answers the surface height for the depth classes), with a hysteresis band (the
+  source surface is flat; the Unreal ocean has Gerstner waves, so the two surfaces differ near the camera: for example Unreal below 0.5 m
+  under the source surface, the source above 0.2 m over it).
+- The cost [R/I]: the Unreal zone and bodies spawn only in the Unreal mode (`UpdateUnreal`: `SwcUnrealWater::SpawnsPerTick` bodies a tick
+  within 3 km, SwcWaterUnreal.cpp lines 965 to 991). An auto mode must spawn them (hidden) while the source path is on, or the first dive
+  shows missing water for some ticks. The switch itself is cheap (visibility and collision flags), but the first switch can stall on the
+  shader and pipeline compile of the water materials and on the first water-info texture of the zone [U: not measured]. Whether a hidden
+  zone still renders its water-info texture each frame is not known [U].
+- The pop [I]: the switch changes every water surface in the view at once (the flat source sea against the Unreal waves, the tone, the
+  foam), at the moment the camera is at the surface (half of the screen water). That is the most visible moment. A fade needs both paths
+  drawn at the same time (double cost), so the plain switch will pop.
+- A smaller alternative [I]: keep the source water everywhere, and add an underwater view to the source path: an underwater post process
+  (the plugin material `M_UnderWater_PostProcess_Volume`, already used by the Unreal bodies) when the camera is under the source surface,
+  and a visible underside of the source surface (a two-sided surface or a flipped copy). No path switch, no pop of the whole scene; it
+  fixes only the view from below.
+
 ### The visible differences of the Unreal ocean against the source (stage 2c, 2026-10-29)
 
 The list of the differences that the stage 2c pictures show (the best setting with blue 1.5; the fixed exposure EV 13.03; the source is the
