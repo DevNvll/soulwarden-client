@@ -62,6 +62,11 @@ client (a run) --writes--> SWC_WORK/creatures/wanted.json   (the slices with no 
   name; `slices.json` has the map from each clip name to its asset.
 - A slice with no converted model, or a model that does not load, shows a placeholder (a cylinder of 0.6 m by 1.8 m) with its
   name plate, and the client adds its key to the wanted list.
+- The body materials (C-14, 2026-10-30): after each conversion of creature bodies (convert, wanted, a release of new slices), run
+  `tools/convert-materials.sh bodies` and `tools/apply-materials.sh --part bodies --keys FOLDERS` (the Unreal folders of the new bodies)
+  after their import. A body folder with no slots in `SWC_CONTENT/bodies/slots.json` keeps the plain glTF material of Interchange (the
+  diffuse map x the XML Diffuse, no specular map): its metal stays grey (Medea, Medusa, Horus: 50 bodies of the C-8 and C-11
+  conversions had no slots). Deploy the bodies files as a patch of the new keys (a full run does not give the shared specs again).
 
 ## The chain from a record to a model
 

@@ -247,9 +247,6 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "POST", f"/v1/dev/status/remove?character={character(folder)}&status={rest[0]}")
     if command in ("shoot", "area") and len(rest) == 1:
         return request(folder, "POST", f"/v1/dev/creatures/{command}?creature={rest[0]}&character={character(folder)}")
-    if command == "kill" and len(rest) == 1:
-        # The health 0 of a creature: its death counts for the stage of its encounter (backend Creatures::set_health, member_died).
-        return request(folder, "POST", f"/v1/dev/creatures/kill?creature={rest[0]}")
     if command == "health" and len(rest) == 2:
         amount = f"percent={float(rest[1][:-1])}" if rest[1].endswith("%") else f"health={float(rest[1])}"
         return request(folder, "POST", f"/v1/dev/creatures/health?creature={rest[0]}&{amount}")

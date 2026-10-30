@@ -223,6 +223,20 @@ of the diffuse color and of F0 stay the same as in the source. The base color go
 Limits: a colored F0 of a dielectric becomes one gray value; the rotation and the oscillators of the TexMod are not
 shown; the normal, gloss, and specular maps use the tiling of the diffuse slot (`instances` counts the differences).
 
+### Open point C-15: the emission floor of a ground with a high intensity (2026-10-30; paused by the user)
+
+The haunted mound ground at the Medea exit portal (`objects/dungeons/dungeon_hauntedmound/hauntedmound2.cgf`, `witheredmound_mat_1.mtl`,
+instance `n_df83bce9e5`) draws a flat, bright yellow-green patch; retail F-04 (day) and L4-05 (night) show a dull dark moss green
+with small glints (the veins only). The material: EmittanceSrgb `hauntedmound_emissive` (yellow-green; 2.4 % bright veins, but
+30 % of the pixels have a low floor value, 10 % above 16 of 255), EmittanceColor 1, 0.53, 0.54 with A 49.7 (kcd/m2),
+EmittanceParams gamma 0.5, IntensitySrgb a corruption noise map tiled 3 x 3. In `GetEmittance` the factor lum^(gamma - 1) =
+lum^-0.5 lifts the dark floor: a floor value of 5/255 (linear 0.0015) becomes about 0.039 (26 times). The next step: the source rule of
+the gamma and of the intensity units (research/emission-fogcards.md), a census of the materials with a low gamma and a high A, and a
+check at the SAME hour as retail (F-04 about 11:00, L4-05 at night).
+
+Open point, the ground at the start of QuestMedea (2026-10-30): at the same hour as retail F-03 (world time 10:40), the rocks match,
+but the ground is pale sand-green and flat against the brown-olive mud of retail (the terrain material of r_+04_+01; not the hour).
+
 ### Shared legacy keys and the n_ instances (A1)
 
 One legacy key can serve source materials with different render rules (920 keys). The instance of a legacy key has
@@ -642,6 +656,11 @@ tools/import-surface-layer.sh NAME... --max-seconds 300 --wait 7200   # the deca
 tools/convert-materials.sh bodies [FILTER]        # SWC_CONTENT/bodies: instances.json, textures.json, slots.json
 tools/apply-materials.sh FILTER --part bodies --max-seconds 500 --wait 600   # the glTF instances of the body folders
 ```
+
+The process rule (C-14, 2026-10-30): after each conversion of creature bodies, person bodies, or player parts, run `tools/convert-materials.sh
+bodies` (in a check copy; deploy a patch of the new keys) and, after the import of the bodies, `tools/apply-materials.sh --part bodies
+--keys FOLDERS` for their Unreal folders. A body folder with no slots keeps the plain glTF material: no specular map, so no metal color
+(50 creature bodies of C-8 and C-11, among them Medea, Medusa, and Horus, and the 4 scene bodies of the Medea encounter).
 
 The converters of the creature bodies, the player parts (the persons wear them), and the person bodies write glTF
 materials with only the base color, the normal map, and some alpha rules (the parts had no XML Diffuse, no cutoff, and

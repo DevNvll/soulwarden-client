@@ -360,8 +360,16 @@ curves), `swc/scenes.lua` (the cutscene screen, the subtitles, the whispers, the
   of the first run), and the component value comes back at the end with RestoreOnEnd; the other curves of the clip (the frustum, the
   clip planes, the depth of field) are not played. A prop on a bone (AttachmentComponent) takes the full Target Offset: the basis axes
   and the translation through the space map of the gear sockets (before, only its scale: the ice staff of Medea lay flat at her hips).
-  The Medea clip plays on her scene body (the person path on the male player skeleton); her gold (the crown, the trim) is in her
-  specular map, which the body material does not use (C-14).
+  The Medea clip plays on her scene body (the person path on the male player skeleton); her gold (the crown, the trim) comes from her
+  specular map through the body specs (C-14: the scene bodies need `tools/convert-materials.sh bodies`).
+- Open points of the Medea scenes (2026-10-30; the new milestones of the client are paused by the user):
+  - (d) The player dummy of the scenes shows the head and the hair of the scene CDF (`medeashowdown*_player_male`), not the look of the
+    local character (retail qg9a: the player's own look, white hair). The copy of the local look (playercharacterupdate) does not take
+    the head and hair parts [I].
+  - The kill by the development route (`kill ID`, backend set_health 0) counts for the boss stage, but the client creature table logged
+    no death of Medea ("0 death(s)", no "is dead" line). A combat kill may differ; check it in a fight run.
+  - The scenes play with no lights, no particle effects (the ice gauntlet of the staff), no audio, and no fades (the declared limits
+    above).
 - Fixtures: `tests/ui/fixtures/scenes.lua` (26 checks: the cutscene screen, the skip hold and the tap, the scene subtitle, W1 and its VO
   token, the TempestRising stand-in: 6606, the skip, 6542, the natural end). Converter tests: `tests/converter/test_scenes.py`.
 - The live checks (2026-10-23, new development characters, the drives `tests/drive/ast240-*.txt`; evidence AST-240):
