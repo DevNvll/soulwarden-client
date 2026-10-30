@@ -780,12 +780,21 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		Candidate.request = TalkBoardRequest;
 		Candidate.place = TalkBoardPlace;
 		Candidate.rangeSq = TalkBoardRangeSq;
+		// With no hold and no Delay Time the press executes the option at once (Use::request): the count of the executions of this frame
+		// (below, around Use.tick) does not see it, so the board opens here (window 3 of ut567: 3743 result 1, and no screen before).
+		const uint32 ExecutionsBefore = Use.executions();
 		Use.press(Now, Candidate, true);
 		bUseBoard = true;
 		bBoardFromPerson = true;
 		BoardActor = TalkBoardRequest.reference.actor;
 		UE_LOG(LogSwcBackend, Log, TEXT("interact: the conversation option Open Faction Board: %s at the person (action %u)"),
 			UTF8_TO_TCHAR(PersonBoardOption.name.c_str()), PersonBoardOption.action);
+		if (Use.executions() != ExecutionsBefore)
+		{
+			UE_LOG(LogSwcBackend, Log, TEXT("interact: the board screen opens (action 51, the board of the person)"));
+			bBoardOpen = true;
+			BoardOpenedAt = Now;
+		}
 	}
 	// The key E. In a conversation with no conversation screen it ends the conversation (with the screen, E is its Next key).
 	// A gather with no tool for its row sends nothing (protocol notes 4.44, live check L6: no request in the log).

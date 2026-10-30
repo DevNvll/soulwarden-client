@@ -189,6 +189,32 @@ void run_case()
 }
 
 /**
+ * C-12 phase 2 (window 3 of ut567): the board use of a person (the conversation option 8 Open Faction Board) has no hold, and
+ * OpenMissionBoardOption has no Delay Time: the press executes the option at once (Use::request). The interactor counts the executions of
+ * a frame around Use.tick; a press with no hold and no delay must be seen at the press (before the fix, 3743 result 1 opened no screen).
+ */
+void instant_press()
+{
+	std::printf("a press with no hold and no Delay Time: the execution at the press\n");
+	swc::interact::Option board;
+	board.name = "OpenMissionBoardOption";
+	board.action = 51;
+	board.hold = 0.0F;
+	board.delay = 0.0F;
+	swc::interact::Candidate candidate;
+	candidate.option = &board;
+	candidate.rangeSq = 25.0F;
+	swc::interact::Use use;
+	const std::uint32_t before = use.executions();
+	use.press(10.0, candidate, true);
+	check(use.executions() == before + 1 && use.phase() == swc::interact::Use::Phase::executed && use.requests() == 1,
+		"the press executes the option at once (one request, one execution, before any tick)");
+	const std::uint32_t atTick = use.executions();
+	use.tick(10.016);
+	check(use.executions() == atTick, "the tick after the press adds no execution (a count around the tick does not see it)");
+}
+
+/**
  * The bounds of a turned server object (a camp: its bound 0.835 m from its origin): the PositionInTheWorld state of the backend
  * encoder (server/rep/states/object_states.cpp) into the readers of the client (the place and the rotation of the wire), then the bound
  * place of the client (transform_point) against the bound place of the server (gamedata::transform_point with the values before the
@@ -268,6 +294,7 @@ int main()
 		edges();
 		run_case();
 		turned_bounds();
+		instant_press();
 		body_trigger();
 	} catch (const std::exception& error) {
 		check(false, error.what());
