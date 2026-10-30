@@ -225,6 +225,11 @@ public:
 	void EndMissionBoard();
 	/** The board screen shows or hides (UI/SwcUiBoards): with no screen 2 s after the open the board use ends. */
 	void SetBoardScreenShown(bool bShown);
+	/** C-12 phase 2: the conversation option 8 (Open Faction Board): after the end of the conversation the board use of the same person.
+	 *  @return False when the person has no board option. */
+	bool OpenPersonBoard();
+	/** True when the open board use came from a person (the faction screen), false for a board object (the town screen). */
+	bool IsBoardFromPerson() const;
 	/** The states of a board (C-12): the board entity of the actor (TerritoryInterface 1746: its active projects) and the world entity
 	 *  (LandClaimManager 3086: the claim keys and summaries). @return False out of the world; a missing entity stays empty. */
 	bool GetBoardStates(const swc::net::ActorId& Board, swc::net::RepClient::OtherEntity& OutBoard, swc::net::RepClient::OtherEntity& OutClaims) const;

@@ -26,6 +26,8 @@ inline constexpr const char* kHudScreens[] = {
     "lyshineui/territory/territorystanding/territorybonuspopup",
     // The town board (C-12 of ut567): the state 640726528 of the board use of action 51 (swc/boards.lua, UI/SwcUiBoards).
     "lyshineui/territory/territoryplanning/townprojects",
+    // The faction board (C-12 phase 2): the state 2609973752 of the board use of a representative (the conversation option 8).
+    "lyshineui/oldworldguilds/owmissionboard",
     // The conversation screen (stage MVP-H): the Talk of a person (swc/conversation.lua, UI/SwcUiConversation).
     "lyshineui/conversation/conversationscreenv2",
     // The in-game scenes and the cinematic video stand-in (stage Q5, AST-240; swc/scenes.lua).

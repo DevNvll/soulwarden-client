@@ -90,7 +90,10 @@ bool FSwcUiConversation::HandleRequest(const FString& Request, USwcBackendSubsys
 		Backend.SetConversationLineKey(Parts[2] == TEXT("-") ? FString() : Parts[2]);
 		return true;
 	}
-	if (Parts[1] != TEXT("end"))
+	// "conversation board [CRC,...]" (C-12 phase 2): the option 8 Open Faction Board ends the conversation as "end", then the board use
+	// of the same person (action 51).
+	const bool bBoard = Parts[1] == TEXT("board");
+	if (Parts[1] != TEXT("end") && !bBoard)
 	{
 		return false;
 	}
@@ -107,5 +110,11 @@ bool FSwcUiConversation::HandleRequest(const FString& Request, USwcBackendSubsys
 	UE_LOG(LogSwcUiConversation, Log, TEXT("ui: the conversation screen ends the conversation (6705, then 2473; %d finished topic(s))"),
 		static_cast<int32>(Topics.size()));
 	Backend.EndConversation(Topics);
+	if (bBoard)
+	{
+		const bool bOpen = Backend.OpenPersonBoard();
+		UE_LOG(LogSwcUiConversation, Log, TEXT("ui: the conversation option Open Faction Board: %s"),
+			bOpen ? TEXT("the board use of the person follows (action 51)") : TEXT("the person has no board option"));
+	}
 	return true;
 }

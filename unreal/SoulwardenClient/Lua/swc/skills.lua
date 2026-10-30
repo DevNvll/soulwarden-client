@@ -288,6 +288,12 @@ Swc.Define("CategoricalProgressionRequestBus", "Event", {
   end,
   GetAbsoluteMaxRank = function(_, id)
     local _, p = rank_table(id)
+    if not p and Swc.crafting and Swc.crafting.ProgressionData then
+      -- Another progression (a faction reputation of the faction board, C-12 phase 2: owguild.luac UpdateReputationSummary): the largest
+      -- rank of the data, with the expansion (before, 0: the reputation bar divided by 0 and drew its milestones at NaN).
+      local row = Swc.crafting.ProgressionData(id)
+      return math.max(row.maxLevel or 0, row.expansion01MaxLevel or 0)
+    end
     return p and p.maxRank or 0
   end,
   GetMaxPointsForRank = function(owner, id, rank)

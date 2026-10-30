@@ -1548,4 +1548,16 @@ and the backend encoders (states 3829, 1746, 3086; requests 3819, 2461).
   the fixture. Open point: the plus sign of a potion card has no circle (retail: a circle with a plus).
 - The pin rule: a town mission is not pinned at the accept (the auto-pin flag of CommunityGoal is off; retail qg6a I3 shows no tracker
   entry after the accept).
-- Open point: the faction board (option 8, state 2609973752, 3816) is phase 2.
+- The faction board (phase 2; static read boards/ANSWERS.md section 5, qg6b FACTION.md, the backend docs "The faction boards" and "The
+  daily bonus"):
+  - The Talk of a representative has the option 8 Open Faction Board (the service Faction_Board) when the faction of the state is the
+    faction of the player and the level passes (swc/conversation.lua service_options). Its selection sets ConversationServiceOpen and
+    sends "conversation board": the client ends the conversation (6705, 2473), then sends action 51 OpenMissionBoardOption at the same
+    person with no hold (the hidden board option of its npc object; Interact/SwcInteractor OpenPersonBoard).
+  - A board use from a person opens OWMissionBoard (state 2609973752); a board object opens TownProjects.
+  - The data: the explicit offers of the provider state (3829 field 2, the PvE ones, in the order of 3816), the time to the provider
+    update (the expiration), the category (the reputation progression of the faction), the daily bonuses (GameEvent 497: 3 at most,
+    3 minus the uses), the reward preview with the factors of FactionMissionBonus while a use is left. A select is the index of the
+    mission in the PvE list (3816). The faction shop has an empty list (the shops are a later stage).
+  - Checks: the fixture `tests/ui/fixtures/factionboard.lua` (26 checks).
+  - Open points: some card texts have no place name ("Delve into  for the Syndicate"; the POI name of the card); the faction shop.

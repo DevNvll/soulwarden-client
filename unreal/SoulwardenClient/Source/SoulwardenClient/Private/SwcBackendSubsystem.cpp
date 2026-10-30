@@ -2224,6 +2224,16 @@ void USwcBackendSubsystem::EndMissionBoard()
 	}
 }
 
+bool USwcBackendSubsystem::OpenPersonBoard()
+{
+	return Interactor.IsValid() && Interactor->OpenPersonBoard();
+}
+
+bool USwcBackendSubsystem::IsBoardFromPerson() const
+{
+	return Interactor.IsValid() && Interactor->IsBoardFromPerson();
+}
+
 void USwcBackendSubsystem::SetBoardScreenShown(bool bShown)
 {
 	if (Interactor.IsValid())

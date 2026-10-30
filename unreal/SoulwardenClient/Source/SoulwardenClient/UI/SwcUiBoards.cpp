@@ -235,6 +235,27 @@ void FSwcUiBoards::Update(swc::ui::Runtime& Runtime, USwcBackendSubsystem& Backe
 		}
 		Runtime.call("HostBoardStates", {FArg::of(Lines)});
 	}
+	if (Own.providerRevision != SentProviderRevision || Own.dailyBonusRevision != SentDailyRevision || !bShown)
+	{
+		// The faction board (C-12 phase 2): the explicit offers of the provider state, its expiration (GetTimeTillNextProviderUpdate), the
+		// uses of the daily bonuses (GetAvailableDailyBonuses).
+		SentProviderRevision = Own.providerRevision;
+		SentDailyRevision = Own.dailyBonusRevision;
+		const uint64 ServerNs = Backend.GetServerTimeMicroseconds() * 1000ULL;
+		std::string Lines = "X " + std::to_string(Own.providerExpirationNs > ServerNs ? (Own.providerExpirationNs - ServerNs) / 1000000000ULL : 0) + "\n";
+		for (const swc::net::RepClient::OwnEntity::BoardOffer& Offer : Own.boardOffers)
+		{
+			Lines += "F " + std::to_string(Offer.instance) + " " + std::to_string(Offer.mission) + " " + (Offer.available ? "1" : "0") + " "
+				+ std::to_string(Offer.origin) + " " + HexOf(Offer.destination) + "\n";
+		}
+		for (const auto& [Modifier, Used] : Own.dailyBonusesUsed)
+		{
+			Lines += "B " + std::to_string(Modifier) + " " + std::to_string(Used) + "\n";
+		}
+		Runtime.call("HostBoardProvider", {FArg::of(Lines)});
+		UE_LOG(LogSwcUiBoards, Log, TEXT("ui: boards: the provider state: %d explicit offer(s), %d daily bonus entr(ies)"),
+			static_cast<int32>(Own.boardOffers.size()), static_cast<int32>(Own.dailyBonusesUsed.size()));
+	}
 	LoadTown(ContentDir);
 	SendOffers(Runtime, Backend, Own, Board, !bShown);
 	if (bShown)
@@ -243,7 +264,10 @@ void FSwcUiBoards::Update(swc::ui::Runtime& Runtime, USwcBackendSubsystem& Backe
 	}
 	ShownActor = Actor;
 	std::string Result;
-	const bool bCalled = Runtime.call("HostBoard", {FArg::of(std::string("open")), FArg::of(HexOf(Actor))}, &Result);
+	// The screen of the source of the use (native 0x49596E6, the mission category): a person (a faction representative) opens the faction
+	// screen, a board object the town screen.
+	const std::string Kind = Backend.IsBoardFromPerson() ? "faction" : "town";
+	const bool bCalled = Runtime.call("HostBoard", {FArg::of(std::string("open")), FArg::of(HexOf(Actor)), FArg::of(Kind)}, &Result);
 	if (!bCalled || Result != "ok")
 	{
 		// The screen did not open: the client ends the board use, so that the player is not stuck (as AST-287 for the stations).

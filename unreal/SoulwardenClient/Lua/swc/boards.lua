@@ -38,6 +38,7 @@ local function D()
     d.projectList[#d.projectList + 1] = p.crc
   end
   B.doc_events = doc.events or {}
+  B.doc_modifiers = doc.rewardModifiers or {}
   B.data = d
   return d
 end
@@ -406,36 +407,193 @@ Swc.Define("GameEventRequestBus", "Broadcast", {GetFactionControlModifiers = fun
 Swc.Define("PlayerHousingClientRequestBus", "Broadcast", {GetHasPurchasedHouse = function() return false end})
 Swc.Define("PlayerTutorialsRequestBus", "Broadcast", {SendUiEvent = function() end})
 
+-- ---------------------------------------------------------------------------------------------------- the faction board (phase 2)
+
+-- The faction board (C-12 phase 2; static read boards/ANSWERS.md section 5, qg6b FACTION.md, the backend docs/systems/mission-boards.md
+-- "The faction boards"): the option 8 of a representative opens a board use of the person; its screen is OWMissionBoard (state
+-- 2609973752). The offers are the explicit offers of the provider state (3829 field 2, in the order of 3816), the PvE ones (the native
+-- apply 0x3A43320 splits by isPvpMission); the accepted offer stays in its place with available 0 and its instance (0x495A166).
+local FACTION_STATE = 2609973752
+local FACTION_CANVAS = "LyShineUI/OldWorldGuilds/OWMissionBoard.uicanvas"
+local FACTION_MISSION_BONUS = 0x85D30F59
+local MAX_DAILY_BONUSES = 3   -- javelin.daily-bonus-mission-count (0x616E608)
+local REPUTATION = {[1] = "syndicate", [2] = "marauder", [3] = "covenant"}
+B.provider = {offers = {}, seconds = 0, at = 0}
+B.daily = {}
+
+local function daily_available(modifier)
+  -- GetAvailableDailyBonuses 0x31F1140: the maximum minus the used count (no lower clamp).
+  return MAX_DAILY_BONUSES - (B.daily[modifier] or 0)
+end
+
+function Swc.HostBoardProvider(text)
+  local offers, daily, seconds = {}, {}, 0
+  for line in string.gmatch(text or "", "[^\n]+") do
+    local left = line:match("^X (%d+)$")
+    if left then
+      seconds = tonumber(left)
+    end
+    local instance, mission, available, origin, destination = line:match("^F (%d+) (%d+) ([01]) (%d+) (%x+)$")
+    if instance then
+      local m = tonumber(mission)
+      local record = mission_record(m)
+      if not (record and record.isPvpMission) then
+        local p = creation_params({instanceId = Q.objective_id(instance ~= "0" and instance or ("faction" .. #offers)), missionId = m,
+          destinationOverride = string.upper(destination), originTerritoryId = tonumber(origin), available = available == "1",
+          objectiveId = (D().missions[m] or {}).objectiveCrc or 0})
+        p.accepted = instance ~= "0"
+        offers[#offers + 1] = p
+      end
+    end
+    local modifier, used = line:match("^B (%d+) (%d+)$")
+    if modifier then
+      daily[tonumber(modifier)] = tonumber(used)
+    end
+  end
+  local dailyBefore = daily_available(FACTION_MISSION_BONUS)
+  B.provider = {offers = offers, seconds = seconds, at = swcui.clock()}
+  B.daily = daily
+  Swc.Note("boards: the provider state: " .. #offers .. " faction offer(s), " .. seconds .. " s to the update, daily bonuses " ..
+    daily_available(FACTION_MISSION_BONUS) .. "/" .. MAX_DAILY_BONUSES)
+  if B.open and B.kind == "faction" then
+    -- The native store 0x4959E60 emits ObjectiveDataReady (owmissionboard.luac connects ObjectiveInteractorNotificationBus).
+    Swc.Notify("ObjectiveInteractorNotificationBus", nil, "ObjectiveDataReady")
+  end
+  if daily_available(FACTION_MISSION_BONUS) ~= dailyBefore then
+    Swc.Notify("GameEventNotificationBus", nil, "OnDailyMissionBonusChanged")
+  end
+end
+
+local function pve_index(missionCrc)
+  for i, p in ipairs(B.provider.offers) do
+    if p.missionId == missionCrc then
+      return i - 1
+    end
+  end
+  return nil
+end
+
+Swc.Define("ObjectiveInteractorRequestBus", "Broadcast", {
+  GetCurrentMissions = function() return B.provider.offers end,
+  GetCurrentPvpMissions = function() return {} end,
+  ArePvpMissionsDisabledForThisProvider = function() return true end,
+  CanSelectPvpMission = function() return false end,
+  RequestPvpMissionSelection = function() end,
+  -- The category of the provider: the reputation progression of the faction of the representative (the faction of the character: the
+  -- service admits only that faction) [I: progressionIdToFactionId of FactionCommon maps it to the faction].
+  GetCurrentMissionCategories = function()
+    local faction = tonumber(LyShineDataLayerBus.Broadcast.GetDataFromNode("Hud.LocalPlayer.Faction")) or 0
+    return REPUTATION[faction] and {crc(REPUTATION[faction])} or {}
+  end,
+  GetTimeTillNextProviderUpdate = function()
+    return Swc.Duration.new({seconds = math.max(0, B.provider.seconds - (swcui.clock() - B.provider.at))})
+  end,
+  GetCurrentProviderPosition = function()
+    return LyShineDataLayerBus.Broadcast.GetDataFromNode("Hud.LocalPlayer.Position") or Vector3(0, 0, 0)
+  end,
+  -- RequestMissionSelectionById 0x495CE70: the zero-based index of the mission in the PvE cache (3816), not the card place.
+  RequestMissionSelectionById = function(missionCrc)
+    local index = pve_index(missionCrc)
+    if index then
+      Swc.hostRequests[#Swc.hostRequests + 1] = "board select " .. index
+      Swc.Note("boards: select the faction mission " .. tostring(missionCrc) .. " (index " .. index .. ", 3816)")
+    end
+  end,
+})
+
+Swc.Define("ObjectivesComponentRequestBus", "Event", {
+  HasMission = function(_, missionCrc)
+    for _, rec in ipairs(Q.list or {}) do
+      if rec.mission == missionCrc then
+        return true
+      end
+    end
+    return false
+  end,
+  HasObjectiveInstanceId = function(_, id)
+    return id ~= nil and Q.byKey[id.key] ~= nil
+  end,
+})
+
+Swc.Define("TerritoryDetectorServiceRequestBus", "Event", {
+  GetDetectedTerritoryId = function() return tonumber(LyShineDataLayerBus.Broadcast.GetDataFromNode("Hud.LocalPlayer.CurrentAreaTerritory.ClaimKey")) or 0 end,
+})
+
+-- The daily bonus (GameEvent 497; GetMaxDailyBonuses 0x31F2230, GetAvailableDailyBonuses 0x31F1140) and the reward preview
+-- (GetUIMissionRewardsAndBonuses 0x31F4630): the values of the success event, with the factors of FactionMissionBonus (missions.json
+-- rewardModifiers: experience 2, currency 9, tokens 4, added to the multiplier 1) while a use is left.
+local function bonus_factors()
+  for _, row in ipairs(B.doc_modifiers or {}) do
+    if row.id == "FactionMissionBonus" then
+      local c = row.cells or {}
+      return 1 + number(c.Experience), 1 + number(c.Currency), 1 + number(c.FactionTokenModifier)
+    end
+  end
+  return 1, 1, 1
+end
+Swc.Define("GameEventRequestBus", "Broadcast", {
+  GetMaxDailyBonuses = function() return MAX_DAILY_BONUSES end,
+  GetAvailableDailyBonuses = function(modifier) return daily_available(tonumber(modifier) or FACTION_MISSION_BONUS) end,
+  GetUIMissionRewardsAndBonuses = function(eventCrc, origin)
+    D()
+    local d = B.data
+    local event = GameEventRequestBus.Broadcast.GetGameSystemData(eventCrc)
+    local xp, coin, standing = event and event.progressionReward or 0, tonumber(event and event.currencyRewardRange or "0") or 0, event and event.territoryStanding or 0
+    local reputation, tokens = event and event.factionReputation or 0, event and event.factionTokens or 0
+    local bonuses = {}
+    if daily_available(FACTION_MISSION_BONUS) > 0 then
+      local fx, fc, ft = bonus_factors()
+      xp, coin, tokens = math.floor(xp * fx), coin * fc, math.floor(tokens * ft)
+      bonuses[#bonuses + 1] = FACTION_MISSION_BONUS
+    end
+    local territory = tonumber(origin) or 0
+    if territory == 0 then
+      territory = tonumber(LyShineDataLayerBus.Broadcast.GetDataFromNode("Hud.LocalPlayer.CurrentAreaTerritory.ClaimKey")) or 0
+    end
+    return {finalXp = xp, finalCurrency = coin, finalStanding = standing, finalReputation = reputation, finalTokens = tokens,
+            activeBonuses = bonuses, rewardsTerritoryId = territory}
+  end,
+})
+-- The faction shop of the screen (owguildshop.luac PopulateGuildShops): the conversion list of the faction stores. The shops are a later
+-- stage (5.1): an empty list (no item of a store; with nil the script returned early and GetAvailableItemCountForCrc indexed no table).
+Swc.Define("CurrencyConversionRequestBus", "Event", {GetConversionList = function() return {} end})
+Swc.Define("MeshComponentRequestBus", "Event", {SetVisibility = function() end})
+Swc.Define("PaperdollRequestBus", "Event", {SetWeaponVisible = function() end})
+
 -- -------------------------------------------------------------------------------------------------------------- the screen
 
-local function ensure_canvas()
+local function ensure_canvas(path)
   for _, screen in pairs(Swc.screens) do
-    if string.lower(screen.path or "") == string.lower(TOWN_CANVAS) then
+    if string.lower(screen.path or "") == string.lower(path) then
       return   -- the screen is loaded
     end
   end
-  Swc.LoadScreen(TOWN_CANVAS, true)
-  Swc.Note("boards: the screen TownProjects loads")
+  Swc.LoadScreen(path, true)
+  Swc.Note("boards: the screen " .. path .. " loads")
 end
 
-function Swc.HostBoard(what, actor)
+function Swc.HostBoard(what, actor, kind)
   if what == "open" then
-    ensure_canvas()
-    B.open, B.actor = true, actor or ""
+    local faction = kind == "faction"
+    local state = faction and FACTION_STATE or TOWN_STATE
+    ensure_canvas(faction and FACTION_CANVAS or TOWN_CANVAS)
+    B.open, B.actor, B.kind = true, actor or "", faction and "faction" or "town"
     Swc.SetData("Hud.TerritoryGovernance.EntityId", B.entity)
     Swc.SetData("Hud.TerritoryGovernance.ReloadProjectMissions", true)
-    LyShineManagerBus.Broadcast.SetState(TOWN_STATE)
-    if LyShineManagerBus.Broadcast.GetCurrentState() ~= TOWN_STATE then
+    LyShineManagerBus.Broadcast.SetState(state)
+    if LyShineManagerBus.Broadcast.GetCurrentState() ~= state then
       B.open = false
-      return "the state of the town screen did not start"
+      return "the state of the " .. B.kind .. " screen did not start"
     end
-    Swc.Note("boards: the town screen opens (board " .. B.actor .. ", territory " .. territory_now() .. ")")
+    Swc.Note("boards: the " .. B.kind .. " screen opens (board " .. B.actor .. ", territory " .. territory_now() .. ")")
     return "ok"
   elseif B.open then
     B.open = false
     Swc.Note("boards: the client ended the board use: the screen closes")
-    if LyShineManagerBus.Broadcast.GetCurrentState() == TOWN_STATE then
-      LyShineManagerBus.Broadcast.ExitState(TOWN_STATE)
+    for _, state in ipairs({TOWN_STATE, FACTION_STATE}) do
+      if LyShineManagerBus.Broadcast.GetCurrentState() == state then
+        LyShineManagerBus.Broadcast.ExitState(state)
+      end
     end
   end
 end

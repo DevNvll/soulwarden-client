@@ -17,7 +17,11 @@ class USwcBackendSubsystem;
  *                                       "S seed seconds" and one line "O mission bucket project available" for each offer
  *   Swc.HostBoardStates(text)           the board projects (1746) "P key project secondsLeft progress" and the claims (3086) "C key level",
  *                                       "U category level", "A project type state" (the lines after a C line are of that claim)
- *   Swc.HostBoard("open", actor)        the screen of the board actor (32 hex digits); "close" when the use ends
+ *   Swc.HostBoardProvider(text)         the provider state (3829) of the faction board: "X secondsLeft" (the expiration) and one line
+ *                                       "F instance mission available origin destination" for each explicit offer (field 2, in the order of
+ *                                       3816), and the daily bonuses (GameEvent 497) "B modifier used" (C-12 phase 2)
+ *   Swc.HostBoard("open", actor, kind)  the screen of the board actor (32 hex digits; kind "town" or "faction": a person); "close" when
+ *                                       the use ends
  * The offers change with the seed window, the board projects, the town entry of the provider state, the ranks, and the level. The requests
  * of the screen: "board end" (the end of the use), "board accept MISSION PROJECT" (3819), "board select INDEX" (3816), "board complete
  * INSTANCE" (2461).
@@ -40,4 +44,6 @@ private:
 	FString OffersKey;
 	uint32 SentBoardRevision = ~0u;
 	uint32 SentClaimRevision = ~0u;
+	uint32 SentProviderRevision = ~0u;
+	uint32 SentDailyRevision = ~0u;
 };

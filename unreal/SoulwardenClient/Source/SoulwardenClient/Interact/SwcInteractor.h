@@ -162,6 +162,16 @@ public:
 	}
 	/** The board screen ends the board use (its Escape, its back button): the next Update sends 2473. */
 	void EndBoard() { bPendingBoardEnd = true; }
+	/** C-12 phase 2: the conversation option 8 (Open Faction Board; 0x376E845 -> helper 0x374EF70): after the end of the conversation the
+	 *  client sends action 51 OpenMissionBoardOption at the same person (the hidden board option of its npc object), with no hold.
+	 *  @return False when the person of the conversation has no board option. */
+	bool OpenPersonBoard()
+	{
+		bPendingPersonBoard = bTalkHasBoardOption;
+		return bTalkHasBoardOption;
+	}
+	/** True when the open board use came from a person (a faction representative: the faction screen), false for a board object. */
+	bool IsBoardFromPerson() const { return bBoardFromPerson; }
 	/** The board screen of the UI shows (the guard: no screen 2 s after the open ends the use). */
 	void SetBoardScreen(bool bShown) { bBoardScreen = bShown; }
 	/** The crafting screen ends the station use (its Escape, its exit): the next Update sends 2473. */
@@ -250,6 +260,19 @@ private:
 	bool bBoardScreen = false;
 	double BoardOpenedAt = 0.0;
 	swc::net::ActorId BoardActor{};
+	/** C-12 phase 2: the board option of the npc object of the focus and of the conversation (action 51, hidden on the card), its
+	 *  request, place, and range; the pending open after the conversation; the source of the open board. */
+	bool bFocusHasBoardOption = false;
+	swc::interact::Option FocusBoardOption;
+	swc::net::InteractionRequest FocusBoardRequest;
+	bool bTalkHasBoardOption = false;
+	swc::interact::Option TalkBoardOption;
+	swc::net::InteractionRequest TalkBoardRequest;
+	swc::net::WorldPosition TalkBoardPlace;
+	float TalkBoardRangeSq = 0.0f;
+	bool bPendingPersonBoard = false;
+	bool bBoardFromPerson = false;
+	swc::interact::Option PersonBoardOption;
 	/** The station use (stage MVP-J): the focus is a station, the use is a station use, its screen shows, and the end by the screen. */
 	bool bFocusStation = false;
 	bool bUseStation = false;

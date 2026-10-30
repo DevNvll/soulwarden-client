@@ -475,6 +475,7 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 		bFocusGather = false;
 		bFocusNoTool = false;
 		bFocusTalk = false;
+		bFocusHasBoardOption = false;
 		USwcObjectSubsystem* Layer = Creatures != nullptr && Creatures->GetWorld() != nullptr ? Creatures->GetWorld()->GetSubsystem<USwcObjectSubsystem>() : nullptr;
 		FSwcWorldObjectTarget Object;
 		float ObjectScore = 0.0f;
@@ -542,6 +543,17 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			// No tool or a rank under the gate of the row: E sends nothing (the server would refuse; the card says why).
 			bFocusNoTool = Object.bToolMissing || Object.bRankMissing;
 			bFocusTalk = ObjectOption.action == ConversationAction;
+			// A faction representative: its npc object has the board option (action 51) next to OpenConversation (C-12 phase 2).
+			for (const FSwcWorldObjectOption& Each : Object.Options)
+			{
+				if (Each.Option.action == BoardAction)
+				{
+					bFocusHasBoardOption = true;
+					FocusBoardOption = Each.Option;
+					FocusBoardRequest = Each.Request;
+					break;
+				}
+			}
 			FocusKey = Object.Key;
 			FocusNpcId = Object.NpcId;
 			FocusUseKind = Object.UseKind;
@@ -756,6 +768,25 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			Use.finish();
 		}
 	}
+	// The conversation option 8 (Open Faction Board): after the end of the conversation (6705, 2473) the board use of the same person,
+	// sent at once (the helper 0x374EF70 submits the interaction: no hold). Its execution opens the faction screen (C-12 phase 2).
+	if (bPendingPersonBoard && Use.phase() == swc::interact::Use::Phase::idle && !Talk.scene())
+	{
+		bPendingPersonBoard = false;
+		PersonBoardOption = TalkBoardOption;
+		PersonBoardOption.hold = 0.0f;
+		swc::interact::Candidate Candidate;
+		Candidate.option = &PersonBoardOption;
+		Candidate.request = TalkBoardRequest;
+		Candidate.place = TalkBoardPlace;
+		Candidate.rangeSq = TalkBoardRangeSq;
+		Use.press(Now, Candidate, true);
+		bUseBoard = true;
+		bBoardFromPerson = true;
+		BoardActor = TalkBoardRequest.reference.actor;
+		UE_LOG(LogSwcBackend, Log, TEXT("interact: the conversation option Open Faction Board: %s at the person (action %u)"),
+			UTF8_TO_TCHAR(PersonBoardOption.name.c_str()), PersonBoardOption.action);
+	}
 	// The key E. In a conversation with no conversation screen it ends the conversation (with the screen, E is its Next key).
 	// A gather with no tool for its row sends nothing (protocol notes 4.44, live check L6: no request in the log).
 	if ((bKeyDown && !bKeyWas && Talk.scene() && !bConversationScreen) || (bPendingTalkEnd && Talk.scene()))
@@ -814,10 +845,16 @@ void FSwcInteractor::Update(const FSwcRepConnection::FSnapshot& Snapshot, FSwcRe
 			TalkKey = FocusKey;
 			TalkNpcId = FocusNpcId;
 			TalkName = FocusPrompt.Name;
+			bTalkHasBoardOption = bFocusHasBoardOption;
+			TalkBoardOption = FocusBoardOption;
+			TalkBoardRequest = FocusBoardRequest;
+			TalkBoardPlace = Focus->place;
+			TalkBoardRangeSq = Focus->rangeSq;
 		}
 		if (bFocusBoard)
 		{
 			bUseBoard = true;
+			bBoardFromPerson = false;
 			BoardActor = Focus->request.reference.actor;
 		}
 		if (bFocusStation)

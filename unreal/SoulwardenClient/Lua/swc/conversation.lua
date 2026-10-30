@@ -304,7 +304,8 @@ C.record_valid = record_valid
 local OPTION = {leave = eConversationOptionType_Leave or 1, topic = 2, details = eConversationOptionType_ObjectiveDetails or 3,
                 accept = eConversationOptionType_AcceptObjective or 4, complete = eConversationOptionType_CompleteObjective or 5,
                 continue = eConversationOptionType_ContinueDialogue or 7, refresh = eConversationOptionType_RefreshConversation or 6,
-                chooseFaction = eConversationOptionType_ChooseFaction or 11, factionGuide = eConversationOptionType_OpenFactionGuide or 20}
+                chooseFaction = eConversationOptionType_ChooseFaction or 11, factionGuide = eConversationOptionType_OpenFactionGuide or 20,
+                factionBoard = eConversationOptionType_OpenFactionBoard or 8}
 local RESPONSE = {invalid = 0, default = 1, topic = 2, proposal = 3, acceptance = 4, completion = 5, available = 6, inprogress = 7,
                   cooldown = 8}
 C.RESPONSE = RESPONSE
@@ -479,8 +480,10 @@ C.npc_faction = npc_faction
 --- 2b of ut567, static read ut567/qgplan/f4service). Only two services have a path in this client: Faction_Selection (case 4,
 --- 0x37AD491 to 0x37AD55A: "@Topic_Prompt_Choose_Faction", ChooseFaction 11, dataId 0, when the faction of the player (GetFaction) is
 --- the RequiredFaction of the state or that is Any, and the display level is the RequiredLevel of the state or more) and PvP_Guide (case
---- 12, 0x37ADD05 to 0x37ADD53: "@98_PvP_prompt", OpenFactionGuide 20, dataId 0). The other services stay hidden (no handler: the boards,
---- the inn, the shops).
+--- 12, 0x37ADD05 to 0x37ADD53: "@98_PvP_prompt", OpenFactionGuide 20, dataId 0), and Faction_Board (C-12 phase 2; service 2, 0x37AD61A:
+--- the eligibility 0x37A7940, "@Topic_Prompt_Open_Faction_Board", OpenFactionBoard 8, dataId 0; qg6b FACTION.md section 1: the faction of
+--- the state is the faction of the player and the level passes, as the backend). The other services stay hidden (no handler: the inn,
+--- the shops).
 local function service_options(state)
   local out = {}
   local requires = state and state.requires or {}
@@ -493,6 +496,8 @@ local function service_options(state)
       out[#out + 1] = option("@Topic_Prompt_Choose_Faction", OPTION.chooseFaction, 0)
     elseif service == "pvp_guide" then
       out[#out + 1] = option("@98_PvP_prompt", OPTION.factionGuide, 0)
+    elseif service == "faction_board" and stateFaction ~= 0 and stateFaction == character_faction() and levelPasses then
+      out[#out + 1] = option("@Topic_Prompt_Open_Faction_Board", OPTION.factionBoard, 0)
     end
   end
   return out
@@ -618,11 +623,12 @@ local function send_state(withOption)
   bus.Broadcast.OnConversationStateChange(state)
 end
 
-local function request_end(why)
+local function request_end(why, kind)
   if C.open and not C.ended then
     C.ended = true
-    -- The finished topics go with the end: the client sends them (5397) after the 2473 of the close (AST-248).
-    Swc.hostRequests[#Swc.hostRequests + 1] = "conversation end" .. (#C.finished > 0 and (" " .. table.concat(C.finished, ",")) or "")
+    -- The finished topics go with the end: the client sends them (5397) after the 2473 of the close (AST-248). "conversation board": the
+    -- end of the option 8 Open Faction Board, then the board use of the person (C-12 phase 2).
+    Swc.hostRequests[#Swc.hostRequests + 1] = "conversation " .. (kind or "end") .. (#C.finished > 0 and (" " .. table.concat(C.finished, ",")) or "")
     C.log[#C.log + 1] = "end: " .. why
     Swc.Note("conversation: the screen ends the conversation (" .. why .. ")")
   end
@@ -1023,6 +1029,14 @@ Swc.Define("ConversationRequestBus", "Broadcast", {
       if bus and bus.Broadcast then
         bus.Broadcast.ShowFactionSelection(faction)
       end
+      return
+    end
+    if optionType == OPTION.factionBoard and has_option(OPTION.factionBoard, dataId) then
+      -- OpenFactionBoard 8 (the dispatcher 0x376E845 -> the helper 0x374EF70): ConversationServiceOpen, the close of the conversation,
+      -- then the new interaction action 51 at the same person (the client: "conversation board").
+      C.log[#C.log + 1] = "open faction board"
+      Swc.SetData("Hud.LocalPlayer.ConversationServiceOpen", true)
+      request_end("OpenFactionBoard", "board")
       return
     end
     if optionType == OPTION.factionGuide and has_option(OPTION.factionGuide, dataId) then
