@@ -163,6 +163,8 @@ private:
 	bool bLoadTried = false;
 	bool bPresenceKnown = false;
 	uint32 SeenAchievementRevision = 0;
+	/** C-13 step 1b: the owner is in a game mode (OwnEntity::gameModes): no person of the level data shows. */
+	bool bInGameMode = false;
 	uint32 PresenceRevision = 0;
 	TArray<FSwcPerson> Persons;
 	/** The cameras of the lines of the conversation states and topics (line-cameras.json "cameras": the lower case key -> the camera). */

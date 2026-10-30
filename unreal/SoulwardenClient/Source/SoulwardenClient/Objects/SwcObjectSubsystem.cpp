@@ -247,6 +247,14 @@ void USwcObjectSubsystem::Tick(float DeltaTime)
 	{
 		return;
 	}
+	// C-13 step 1b: the entry into a game mode (the level change to its space) and the leave. The views of the main space (the node
+	// depletions, the chest claims, the regions) go; the regions load again at the next update.
+	const bool bGameMode = !Own.gameModes.empty();
+	if (bGameMode != bInGameMode)
+	{
+		bInGameMode = bGameMode;
+		ClearAll(bGameMode ? TEXT("the character is in a game mode (its own space)") : TEXT("the character left its game mode"));
+	}
 	// The states: the records of the objects, the LootTracker claims, the Achievement state.
 	ReadStates();
 	if (Own.lootRevision != SeenLootRevision)
@@ -858,6 +866,12 @@ void USwcObjectSubsystem::AddTargets(const FVector3d& From, double RadiusMeters,
 	};
 	AddBodies(From, RadiusMeters, bUsableOnly, Out);
 	AddEncounterObjects(From, RadiusMeters, bUsableOnly, Out);
+	if (bInGameMode)
+	{
+		// C-13 step 1b: the space of a game mode has only its server children (the backend refuses a use of an object of the main space
+		// there); its exit portal is a fixture of the server (USwcInteractor, player/interactions.json).
+		return;
+	}
 	for (int32 GY = MinY; GY <= MaxY; ++GY)
 	{
 		for (int32 GX = MinX; GX <= MaxX; ++GX)

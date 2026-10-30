@@ -397,6 +397,9 @@ private:
 		bool bQuestOnly = false;
 	};
 	TMap<FString, FEncounterLink> EncounterObjects;
+	/** C-13 step 1b: the owner is in a game mode (OwnEntity::gameModes: a story instance of the main world level, in its own space). The
+	 *  objects of the level data and the natural nodes are of the main space: they give no target; the server records give them. */
+	bool bInGameMode = false;
 	TMap<FString, FString> Texts;
 	TMap<uint32, uint32> Equipment;
 	/** The trade skill ranks of the owner (the CategoricalProgression state: the CRC-32 of the lower-case id to the rank). */

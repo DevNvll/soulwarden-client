@@ -674,6 +674,10 @@ TEXT_KEY = re.compile(rb"@[A-Za-z0-9_]+")
 STATION_ACTION = 20
 
 
+# The text key of the card name of an exit portal (en-us "Expedition Exit Portal"; see interactions()).
+EXIT_PORTAL_NAME = "@ui_dungeon_exit"
+
+
 def station_name(slice_path: str) -> str:
     """@return The name key of a station slice ("@BlacksmithT5_MasterName"): the one MasterName text of the slice (the name of its
     Interact component), else its one text key (a camp station). A slice with no such text or with two of them stops the tool."""
@@ -711,6 +715,12 @@ def interactions() -> dict:
         template = data["templates"][child["template"]]
         if template["kind"] == "craftingStation" and template.get("assembly"):
             wanted["station:" + template["slice"].rsplit("/", 1)[-1].removesuffix(".dynamicslice")] = child["template"]
+    # C-13 step 1b (protocol notes 4.67): the exit portals of the story instances (instanceObjects of kind dungeonExit). The backend makes
+    # each one as a server child of the space of an instance (world/instances.cpp start_content); ExitDungeon (action 74, not committed)
+    # has a hold. The portal slices have no mesh: the arch of the level art is the look (Soulwarden evidence qg9a L4-05-portal.png).
+    for slice_path, index in data.get("instanceObjects", {}).items():
+        if data["templates"][index]["kind"] == "dungeonExit":
+            wanted["exit:" + slice_path.rsplit("/", 1)[-1].removesuffix(".dynamicslice")] = index
     templates = []
     shapes = BoundShapes()
     for name, index in sorted(wanted.items()):
@@ -741,6 +751,10 @@ def interactions() -> dict:
             # which stationproperties.luac reads for its header and its trade skills).
             entry["assembly"] = {"key": template["assembly"]["key"], "fee": bool(template["assembly"]["fee"])}
             entry["interactName"] = station_name(template["slice"])
+        if name.startswith("exit:"):
+            # The card name of an exit portal: "EXPEDITION EXIT PORTAL" in the retail card (L4-05-portal.png) is the text of this key. No
+            # slice, datasheet, or script of the game has the key: the game program gives it (open point of C-13 step 1b).
+            entry["interactName"] = EXIT_PORTAL_NAME
         templates.append(entry)
     doc = {"format": 1, "source": str(source_path), "templates": templates, "lootContainers": data.get("lootContainers", {})}
     out = player.player_dir() / "interactions.json"

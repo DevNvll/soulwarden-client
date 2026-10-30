@@ -1,6 +1,7 @@
 """The station rule of the client interaction templates (swc_convert/actions.interactions, AST-244) with synthetic data (no game data):
 a camp station of a world place stays in with its crafting bound and its one text key, a player camp (kind camp) stays out, and a
-settlement station keeps its bounds and options as they are."""
+settlement station keeps its bounds and options as they are. C-13 step 1b: an exit portal of instanceObjects (kind dungeonExit) is in
+with its card name; a gathering instance object stays out."""
 import json
 import tempfile
 import unittest
@@ -29,12 +30,16 @@ def template(slice_path, kind, key, *bounds):
 
 DATA = {
     "options": [option("ApplyAllResources", 16), option("CancelStructurePlan", 2), option("OpenCraftingOption", 20),
-                option("SetSecurityLevelOption", 42), option("CampOption", 21)],
+                option("SetSecurityLevelOption", 42), option("CampOption", 21), dict(option("ExitDungeon", 74), committed=False)],
     "templates": [
         template("slices/pois/interactions/int_watchtowercampt1.dynamicslice", "craftingStation", "Camp1", bound(0, 1), bound(2)),
         template("slices/structures/camps/permanentcamp_master.dynamicslice", "camp", "Camp5", bound(4)),
         template("slices/settlement/settlement_station_cooking_t3.dynamicslice", "craftingStation", "Cooking3", bound(2, 3)),
+        template("slices/interactobjects/portalstone/interactobject_portalstone.dynamicslice", "dungeonExit", "", bound(5)),
+        template("slices/gatherables/master_quest_instanced.dynamicslice", "gathering", "", bound(0)),
     ],
+    "instanceObjects": {"slices/interactobjects/portalstone/interactobject_portalstone.dynamicslice": 3,
+                        "slices/gatherables/master_quest_instanced.dynamicslice": 4},
     "spawned": [{"template": 0}, {"template": 1}, {"template": 2}],
     "fixtures": {},
     "lootContainers": {},
@@ -79,6 +84,16 @@ class StationRuleTest(unittest.TestCase):
         station = self.templates["station:settlement_station_cooking_t3"]
         self.assertEqual(station["interactName"], "@CookingT3_MasterName")
         self.assertEqual([[o["name"] for o in b["options"]] for b in station["bounds"]], [["OpenCraftingOption", "SetSecurityLevelOption"]])
+
+    def test_exit_portal_is_a_fixture_with_its_card_name(self):
+        portal = self.templates["exit:interactobject_portalstone"]
+        self.assertEqual(portal["interactName"], "@ui_dungeon_exit")
+        self.assertEqual([[(o["name"], o["action"], o["committed"], o["hold"]) for o in b["options"]] for b in portal["bounds"]],
+                         [[("ExitDungeon", 74, False, 0.5)]])
+        self.assertNotIn("assembly", portal)
+
+    def test_gathering_instance_object_stays_out(self):
+        self.assertFalse(any("master_quest_instanced" in name for name in self.templates))
 
 
 if __name__ == "__main__":

@@ -145,13 +145,17 @@ bool FSwcInteractor::Load(FString& OutReport)
 			}
 			Template.bounds.push_back(Bound);
 		}
-		// A crafting station (stage MVP-J): its Assembly and its name key.
+		// A crafting station (stage MVP-J): its Assembly. The name key of the card: a station, an exit portal (C-13 step 1b).
 		const TSharedPtr<FJsonObject>* Assembly = nullptr;
 		if (Info->TryGetObjectField(TEXT("assembly"), Assembly))
 		{
 			Template.station = TCHAR_TO_UTF8(*(*Assembly)->GetStringField(TEXT("key")));
 			Template.stationFee = (*Assembly)->GetBoolField(TEXT("fee"));
-			Template.interactName = TCHAR_TO_UTF8(*Info->GetStringField(TEXT("interactName")));
+		}
+		FString InteractName;
+		if (Info->TryGetStringField(TEXT("interactName"), InteractName))
+		{
+			Template.interactName = TCHAR_TO_UTF8(*InteractName);
 		}
 		// The personal loot bag: its focus comes from the bag entities of the creature view, not from the objects of the snapshot.
 		if (Template.name.rfind("loot:", 0) == 0)

@@ -266,6 +266,27 @@ The creature track added this part (docs/OBJECTS.md); the player track owns the 
   conversation. The lore page next to it shows "E Read" and "T Add To Journal"; E gives ReadLore and T gives AddLoreToJournal
   (both accepted). No gathering node has two options in the data.
 
+## The story instances (C-13 step 1b; protocol notes 4.67)
+
+A story instance of the main world level (QuestMedea) is its own space on the same level. The backend has only the content of the
+instance in that space: the encounter, its creatures, and the exit portal of the mode. A use of an object of the main space is refused.
+
+- The exit portal: a server child of the space (`interactobject_portalstone` of Medea; the backend makes it from `instanceObjects` of
+  the kind `dungeonExit`, 6 m from the start). `tools/convert-player.sh interactions` writes the four exit templates of the interaction
+  data (`exit:` names) into `player/interactions.json`: the interactor finds the record as a fixture of the server. ExitDungeon (action 74,
+  not committed) has the hold 0.5 s of its option row; the request goes after the hold. The answer is 3743, then the leave (the level
+  change to the main world). The card: the name `@ui_dungeon_exit` ("EXPEDITION EXIT PORTAL") and the option label `@ui_dungeon_leave`
+  ("Leave"), as the retail card (Soulwarden evidence `qg9a/implement/shots/L4-05-portal.png`).
+- The portal slices have no mesh: the arch of the level art at the place is the look. No server visual is needed.
+- The objects of the level data and the natural nodes give no target while the owner is in a game mode (`OwnEntity::gameModes` is not
+  empty). At the entry and at the leave, `USwcObjectSubsystem` clears its views of the main space (the node depletions, the chest claims,
+  the regions; they load again). The persons of the level data do not show in a game mode (`USwcPersonSubsystem`: no actor, no Talk).
+- The Enter request of an entrance (action 72 with the base action 71) is the work of the entrance window (`DungeonEnterScreen`):
+  `swc::net::dungeon_enter_request` (docs/NETWORK.md "The membership of a story instance").
+- Open point: the card name key of the exit portal is in no slice, datasheet, or script of the game (the game program gives it). The client
+  takes the key of the retail card text.
+- The instanced quest gatherable of the Medea mode root (`master_quest_instanced`) is not made by the backend: no client part.
+
 ## Not done, open points
 
 - The loot panel: stage P2.4 of the UI track (the inventory screen `lyshineui/inventory/newinventory`).

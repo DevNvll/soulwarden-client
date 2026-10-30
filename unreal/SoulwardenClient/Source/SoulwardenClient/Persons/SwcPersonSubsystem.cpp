@@ -423,17 +423,21 @@ bool USwcPersonSubsystem::UpdatePresence()
 	{
 		return bPresenceKnown;
 	}
-	if (bPresenceKnown && Own.achievementRevision == SeenAchievementRevision)
+	// C-13 step 1b: in a game mode (a story instance of the main world level, its own space) the persons of the level data are of the
+	// main space: none shows, none has a Talk (the backend has only the content of the instance in that space).
+	const bool bGameMode = !Own.gameModes.empty();
+	if (bPresenceKnown && Own.achievementRevision == SeenAchievementRevision && bGameMode == bInGameMode)
 	{
 		return true;
 	}
 	bPresenceKnown = true;
 	SeenAchievementRevision = Own.achievementRevision;
+	bInGameMode = bGameMode;
 	int32 Shown = 0;
 	int32 Changed = 0;
 	for (FSwcPerson& Person : Persons)
 	{
-		const bool bNow = swc::interact::presence_visible(Person.bHasSwap, Person.PresenceRule, Own.achievements, Person.bShowOnLocked);
+		const bool bNow = !bGameMode && swc::interact::presence_visible(Person.bHasSwap, Person.PresenceRule, Own.achievements, Person.bShowOnLocked);
 		Changed += bNow != Person.bVisible;
 		Person.bVisible = bNow;
 		Shown += bNow;
@@ -447,8 +451,8 @@ bool USwcPersonSubsystem::UpdatePresence()
 	{
 		++PresenceRevision;
 	}
-	UE_LOG(LogSwcPersons, Log, TEXT("persons: the presence for the Achievement state (%d byte(s), revision %u): %d of %d persons show, %d changed"),
-		static_cast<int32>(Own.achievements.size()), Own.achievementRevision, Shown, Persons.Num(), Changed);
+	UE_LOG(LogSwcPersons, Log, TEXT("persons: the presence for the Achievement state (%d byte(s), revision %u)%s: %d of %d persons show, %d changed"),
+		static_cast<int32>(Own.achievements.size()), Own.achievementRevision, bGameMode ? TEXT(" in a game mode") : TEXT(""), Shown, Persons.Num(), Changed);
 	return true;
 }
 
