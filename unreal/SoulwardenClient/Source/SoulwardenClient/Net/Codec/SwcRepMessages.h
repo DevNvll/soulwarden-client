@@ -200,8 +200,17 @@ inline constexpr MessageType kCinematicStarted{"PlayerCutsceneComponentServerFac
 inline constexpr MessageType kCinematicEnded{"PlayerCutsceneComponentServerFacet_NotifyCinematicEnded", "72DE563545D04D63B05C1479E0ED25F0", 6542};
 inline constexpr MessageType kStartWhisper{"WhisperPlayerComponentClientFacet_RequestStartWhisper", "4ABA7F5DD0C742C1A99E01308B6FF3FE", 5070};
 
+/** C-13 step 1b, the story instances (protocol notes 4.67; backend server/rep/instance_messages.h, states/game_mode_state.cpp): the
+ *  GameModeParticipant state of the owner (slot 24, 3312), the result of an entry request at an entrance (3094, server to client), and the
+ *  leave request (3309) and the client event (1980) on the GameModeParticipant facet of the root entity of the player slice. */
+inline constexpr MessageType kStateGameModeParticipant{"MB::GameModeParticipantComponentReplicatedState", "4C6684A969884A0594BD118CE991A7D9", 3312};
+inline constexpr MessageType kDungeonActivateResult{"DungeonEntranceClientFacet_OnDungeonActivateResult", "9EBFBF3739BB459195338B78AA68FEA5", 3094};
+inline constexpr MessageType kRequestLeaveGameMode{"GameModeParticipantComponentServerFacet_RequestLeaveGameMode", "D6B795136682491CB2433C675CE771B6", 3309};
+inline constexpr MessageType kGameModeClientEvent{"GameModeParticipantComponentServerFacet_OnReceivedClientEvent", "50FE025FFB2B434C9A9DB3D252098B26", 1980};
+
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 90> kUsedTypes{kAckLevelInfoChanged, kAcceptObjective, kCompleteObjective, kRequestStartCutscene, kCutsceneGranted,
+inline constexpr std::array<MessageType, 94> kUsedTypes{kStateGameModeParticipant, kDungeonActivateResult, kRequestLeaveGameMode,
+    kGameModeClientEvent, kAckLevelInfoChanged, kAcceptObjective, kCompleteObjective, kRequestStartCutscene, kCutsceneGranted,
     kCutsceneStarted, kCutsceneCanceled, kCinematicStarted, kCinematicEnded, kStartWhisper, kStateObjectives, kStatePinReadiness, kObjectiveAutoPinning,
     kUpdateTrackedObjectives, kNotifyOpenUiScreen, kAbandonObjective, kResetObjective, kTerritoryEntered, kTerritoryLeft, kConversationTopic,
     kConversationTopicsFinished, kAssignPoolPoints, kChangeMappedAbility, kApplyAbilityPoints, kMasteryTreeRespec,
@@ -235,6 +244,8 @@ inline constexpr std::uint32_t kSlotPoints = 67;
  *  Container (76: the open bag), and the GlobalStorage map (77). */
 inline constexpr std::uint32_t kSlotBag = 61;
 inline constexpr std::uint32_t kSlotLootTracker = 33;
+/** The GameModeParticipant state of the owner (C-13 step 1b; protocol notes 4.67). */
+inline constexpr std::uint32_t kSlotGameModeParticipant = 24;
 inline constexpr std::uint32_t kSlotSelectedContainer = 76;
 inline constexpr std::uint32_t kSlotGlobalStorage = 77;
 /** The Achievement state of the player slice (backend state_codecs.h kAchievementSlot). */
@@ -610,6 +621,76 @@ struct WhisperStart {
 };
 /** @return The body of RequestStartWhisper (5070), or no value for a body that does not have its form. */
 std::optional<WhisperStart> read_whisper_start(std::span<const std::uint8_t> body);
+
+/**
+ * C-13 step 1b, the story instances (protocol notes 4.67). The GameModeParticipant component of the root entity of the player slice
+ * (slice-ids.json: RootPlayer/b5a705af-...): the target of 3309 and 1980 is G + this id.
+ */
+inline constexpr std::uint64_t kGameModeParticipantComponent = 0x8DE633590B8FBEE0ULL;
+/**
+ * One entry of activeGameModes (field 0 of the GameModeParticipant state, 56 bytes): the server-facet reference of the game mode entity
+ * (A, G, F: the key of the leave 3309), the CRC-32 of the lower-case GameModeId (C; IsInGameMode compares it) and of the lower-case
+ * GameModeMapId (M), the entry time (W, Unix wall nanoseconds), and X (no checked reader tests it; the backend sends 0).
+ */
+struct GameModeEntry {
+    ActorId actor{};
+    std::uint64_t group{0};
+    std::uint64_t facet{0};
+    std::uint32_t mode{0};
+    std::uint32_t map{0};
+    std::uint64_t enteredNs{0};
+    std::uint64_t extra{0};
+    bool operator==(const GameModeEntry&) const = default;
+};
+/** The full form of activeGameModes (changes 0): the revision stamp R of the component (0 when the field has no stamp) and the entries. */
+struct ActiveGameModes {
+    std::uint64_t stamp{0};
+    std::vector<GameModeEntry> entries;
+};
+/** @return Field 0 of a GameModeParticipant state, or no value for a field that does not have the full form. */
+std::optional<ActiveGameModes> read_active_game_modes(std::span<const std::uint8_t> field);
+/** The flags of the GameModeParticipant state (field 1): six raw bytes of a bitset, little bit order. */
+using GameModeFlags = std::array<std::uint8_t, 6>;
+/** Bit 22 of the flags: PlayerCanQuit (the leave button of the escape menu needs it; the backend sets it in an instance). */
+inline constexpr unsigned kGameModeFlagCanQuit = 22;
+/** @return Field 1 of a GameModeParticipant state, or no value for a field that is not six bytes. */
+std::optional<GameModeFlags> read_game_mode_flags(std::span<const std::uint8_t> field);
+/** @return True when the bit `bit` of the flags is set. */
+inline bool has_game_mode_flag(const GameModeFlags& flags, unsigned bit) {
+    return bit < flags.size() * 8 && ((flags[bit / 8] >> (bit % 8)) & 1U) != 0;
+}
+
+/** The result of an entry request at an entrance (3094): the DungeonEntrance facet (target) and G (entity) of the entrance, the result. */
+struct DungeonResult {
+    std::uint64_t target{0};
+    std::uint64_t entity{0};
+    std::uint32_t result{0};
+};
+/** The values of eDungeonActivateResponse that the client and the backend use (protocol notes 4.67; 0 to 17). The window closes at 0 with no
+ *  notice and at a refusal with its notice; at 17 it sends the Enter request again after 0.5 s, three times. */
+inline constexpr std::uint32_t kDungeonResultSuccess = 0;
+inline constexpr std::uint32_t kDungeonResultEntranceActivationFailure = 10;
+inline constexpr std::uint32_t kDungeonResultGroupAlreadyInDungeon = 11;
+inline constexpr std::uint32_t kDungeonResultEntranceBusy = 17;
+/** @return The body of OnDungeonActivateResult (3094, 20 bytes: target entity result:u32), or no value for a body that does not have its form. */
+std::optional<DungeonResult> read_dungeon_result(std::span<const std::uint8_t> body);
+/** @return The body of RequestLeaveGameMode (3309, 48 bytes): target (G + GameModeParticipant) entity (G) and the key A G F of the entry. */
+Bytes leave_game_mode_body(std::uint64_t group, const GameModeEntry& entry);
+/** The client event of the leave confirmation of the escape menu and of the dungeon HUD (SendClientEvent 2612035792). */
+inline constexpr std::uint32_t kGameModeLeaveEvent = 0x9BB080D0;
+/** @return The body of OnReceivedClientEvent (1980, 20 bytes): target (G + GameModeParticipant) entity (G) event:u32. */
+Bytes game_mode_event_body(std::uint64_t group, std::uint32_t event);
+/** The interaction actions of an entrance and of an exit portal (the client enum 0x35E99B0): OpenDungeonMenu (committed; the client opens
+ *  DungeonEnterScreen itself), Enter (one time, a part of the committed 71), ExitDungeon (one time, not committed; a hold of its Delay Time). */
+inline constexpr std::uint8_t kActionOpenDungeonMenu = 71;
+inline constexpr std::uint8_t kActionEnterDungeon = 72;
+inline constexpr std::uint8_t kActionExitDungeon = 74;
+/**
+ * @return The Enter request of DungeonEnterScreen from the request of the Enter option row of the entrance (action 72; the form of
+ * swc::interact::request_of): the base action 71 and not committed. The client searches the current options by the action 72; the backend
+ * refuses the request when the committed use of the character is not the 71 of the same object (world/interactions.cpp).
+ */
+InteractionRequest dungeon_enter_request(InteractionRequest enter);
 
 /** The head of a component call: target:u64 entity:u64. */
 struct ComponentCall {

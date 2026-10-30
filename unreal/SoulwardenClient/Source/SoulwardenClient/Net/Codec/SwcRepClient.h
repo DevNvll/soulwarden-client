@@ -194,6 +194,17 @@ public:
         std::vector<std::uint32_t> whispers;
         std::uint32_t cinematicStarts{0};
         std::uint32_t cinematicEnds{0};
+        /** C-13 step 1b, the story instances (protocol notes 4.67):
+         *  - the GameModeParticipant state (slot 24, 3312): the entries of activeGameModes (one in an instance, none after the leave; the
+         *    client takes each full replacement in the order of the bundles), the stamp R of the last one, and the flags (bit 22
+         *    PlayerCanQuit: has_game_mode_flag(gameModeFlags, kGameModeFlagCanQuit)); one more gameModeRevision at each change;
+         *  - the results 3094 of the entry requests at an entrance (the count and the last one; DungeonEnterScreen reads them). */
+        std::vector<GameModeEntry> gameModes;
+        std::uint64_t gameModeStamp{0};
+        GameModeFlags gameModeFlags{};
+        std::uint32_t gameModeRevision{0};
+        std::uint32_t dungeonResults{0};
+        DungeonResult lastDungeonResult;
         /** The interaction request of the client (the block of the input entries) and the replies 3743 to it. */
         std::optional<InteractionRequest> interaction;
         std::uint32_t interactionResults{0};
@@ -634,6 +645,12 @@ public:
     /** The join or the change of a faction (QG7; 3161 RequestSetFaction; faction 1 to 3). The answer is the Faction state, also after a
      *  refusal. */
     void set_faction(std::uint8_t faction);
+    /** C-13 step 1b, the leave of a game mode (protocol notes 4.67) on the GameModeParticipant facet: 3309 with the key of the first entry
+     *  of OwnEntity::gameModes (false and no message with no entry), and 1980 with a client event (kGameModeLeaveEvent: the leave
+     *  confirmation of the escape menu and of the dungeon HUD). The answer of a leave is the level change to the main world and the empty
+     *  GameModeParticipant state. The Enter request of an entrance (72) and the exit portal (74) are interactions: dungeon_enter_request. */
+    bool leave_game_mode();
+    void game_mode_event(std::uint32_t event = kGameModeLeaveEvent);
     /** C-12, the mission boards: the accept of a town offer (3819: the mission, the project of the card or 0), the accept of a faction offer
      *  (3816: its index in field 2 of the provider state), and the hand-in at the board of the provider (2461: the instance). No answer:
      *  the Objectives state and the provider state give the result. */

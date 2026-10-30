@@ -662,6 +662,79 @@ ActorId read_actor(Reader& reader) {
 }
 } // namespace
 
+std::optional<ActiveGameModes> read_active_game_modes(std::span<const std::uint8_t> field) {
+    // changes:size = 0 (the full replacement), the optional stamp `01 R:size64`, count:size, then 56 bytes for each entry.
+    Reader reader(field);
+    if (reader.size() != 0) {
+        return std::nullopt;
+    }
+    ActiveGameModes modes;
+    if (reader.u8() == 1) {
+        modes.stamp = reader.size64();
+    }
+    const std::uint32_t count = reader.size();
+    for (std::uint32_t index = 0; index < count && reader.ok(); ++index) {
+        GameModeEntry entry;
+        entry.actor = read_actor(reader);
+        entry.group = reader.u64();
+        entry.facet = reader.u64();
+        entry.mode = reader.u32();
+        entry.map = reader.u32();
+        entry.enteredNs = reader.u64();
+        entry.extra = reader.u64();
+        modes.entries.push_back(entry);
+    }
+    if (!reader.ok() || reader.left() != 0) {
+        return std::nullopt;
+    }
+    return modes;
+}
+
+std::optional<GameModeFlags> read_game_mode_flags(std::span<const std::uint8_t> field) {
+    GameModeFlags flags{};
+    if (field.size() != flags.size()) {
+        return std::nullopt;
+    }
+    std::copy(field.begin(), field.end(), flags.begin());
+    return flags;
+}
+
+std::optional<DungeonResult> read_dungeon_result(std::span<const std::uint8_t> body) {
+    Reader r(body);
+    DungeonResult out;
+    out.target = r.u64();
+    out.entity = r.u64();
+    out.result = r.u32();
+    if (!r.ok() || r.left() != 0) {
+        return std::nullopt;
+    }
+    return out;
+}
+
+Bytes leave_game_mode_body(std::uint64_t group, const GameModeEntry& entry) {
+    Writer w;
+    w.u64(group + kGameModeParticipantComponent);
+    w.u64(group);
+    w.raw(entry.actor);
+    w.u64(entry.group);
+    w.u64(entry.facet);
+    return w.data();
+}
+
+Bytes game_mode_event_body(std::uint64_t group, std::uint32_t event) {
+    Writer w;
+    w.u64(group + kGameModeParticipantComponent);
+    w.u64(group);
+    w.u32(event);
+    return w.data();
+}
+
+InteractionRequest dungeon_enter_request(InteractionRequest enter) {
+    enter.baseAction = kActionOpenDungeonMenu;
+    enter.committed = false;
+    return enter;
+}
+
 Bytes take_all_items_body(const ActorId& actor) {
     Writer w;
     write_bag_reference(w, actor);

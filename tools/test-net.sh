@@ -59,6 +59,15 @@ nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     -L"${BACKEND_CORE}" -lsoulwarden_backend_core -lsoulwarden_sqlite -lsoulwarden_mbedtls -lpthread -ldl \
     -o "${out}/swc-level-change-tests"
 "${out}/swc-level-change-tests" | grep -v "^  ok "
+# The membership of a story instance (C-13 step 1b; protocol notes 4.67): the GameModeParticipant state, the result 3094, and the leave 3309
+# and 1980 of this client with a backend of the test fixtures (the form of the level change tests).
+nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \
+    -I"${module}" -I"${backend}/src" -I"${backend}/tests" -I"${backend}/vendor" \
+    "${SWC_REPO}/tests/net/game_mode_tests.cpp" "${module}/Net/Codec/SwcRepMessages.cpp" "${module}/Net/Codec/SwcRepClient.cpp" \
+    "${module}/Net/Codec/SwcCarrier.cpp" "${module}/Interact/SwcInteraction.cpp" "${module}/Interact/SwcConversation.cpp" \
+    -L"${BACKEND_CORE}" -lsoulwarden_backend_core -lsoulwarden_sqlite -lsoulwarden_mbedtls -lpthread -ldl \
+    -o "${out}/swc-game-mode-tests"
+"${out}/swc-game-mode-tests" | grep -v "^  ok "
 # The quest wire (Linear AST-236): the Objectives state of the backend encoder and the readers of the quest messages, with the quest data of
 # the backend copy (tests/net/quest_tests.cpp).
 nice -n 10 "${compiler}" -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-parameter \

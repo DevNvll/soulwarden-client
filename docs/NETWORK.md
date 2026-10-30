@@ -290,6 +290,36 @@ context instance, 1635 with a new version and the reload flag, 1617, an empty bu
   case IN4) moves the character into a story instance of the main world level, back, and into a dungeon level; each message of the
   backend goes to the RepClient in order. The backend reads the 5181 of this client (its log line).
 
+### The membership of a story instance (C-13 step 1b; protocol notes 4.67)
+
+The API of the codec for the entrance window, the exit portal, the leave, and the HUD of a game mode (`Net/Codec/SwcRepMessages.h`,
+`SwcRepClient.h`; the backend: `server/rep/instance_messages.h`, `states/game_mode_state.cpp`):
+
+- `OwnEntity::gameModes`: the entries of `activeGameModes` of the GameModeParticipant state (slot 24, type 3312, group 0 field 0, the
+  full replacement). Each `GameModeEntry` has the key of the game mode entity (`actor`, `group`, `facet`: A G F), `mode` (the CRC-32 of
+  the lower-case GameModeId; QuestMedea 95B632E9), `map` (of the GameModeMapId), `enteredNs` (Unix wall ns), and `extra` (X, 0). One
+  entry in an instance, none after the leave, nothing before the first entry of a world entry. `gameModeStamp` is the stamp R of the
+  last replacement; the client takes each replacement in the order of the bundles.
+- `OwnEntity::gameModeFlags`: field 1, six raw bytes. `has_game_mode_flag(flags, kGameModeFlagCanQuit)` is bit 22 PlayerCanQuit (the
+  leave button of the escape menu). `gameModeRevision` counts the changes of the entries or the flags.
+- `OwnEntity::dungeonResults` and `lastDungeonResult`: the count and the last 3094 (`DungeonEntranceClientFacet_OnDungeonActivateResult`):
+  `target` (the DungeonEntrance facet of the entrance), `entity` (G of the entrance), `result` (eDungeonActivateResponse: 0 Success,
+  10 EntranceActivationFailure, 11 GroupAlreadyInDungeon, 17 EntranceBusy; the constants `kDungeonResult...`). No state change and no
+  teleport: at 0 the window closes with no notice and the level change follows; at a refusal it closes with its notice; at 17 the
+  window sends the Enter request again after 0.5 s, three times.
+- The Enter request (72): `dungeon_enter_request(request_of(entrance, bound, enterOption, actor))` gives the base action 71
+  (`kActionOpenDungeonMenu`) and no commit. It goes out as an interaction (the input block) while the committed 71 of the same object is
+  the use of the character; the backend refuses it otherwise. The answer is 3743, then 3094.
+- The exit portal (74, `kActionExitDungeon`): the request of `request_of` with no change (not committed, base 0); the host holds the key
+  for its Delay Time (about 0.9 s) before the request. The answer is 3743, then the leave (a level change to the main world).
+- `RepClient::leave_game_mode()`: 3309 (`RequestLeaveGameMode`, 48 bytes) with the key of the first entry of `gameModes`; false and no
+  message with no entry. `RepClient::game_mode_event(kGameModeLeaveEvent)`: 1980 (`OnReceivedClientEvent`, 20 bytes) with the event
+  9BB080D0 of the leave confirmation of the escape menu and of the dungeon HUD. Both go to the GameModeParticipant facet (target
+  G + 8DE633590B8FBEE0). The UI calls them with `QueueRepCall`.
+- The test: `tests/net/game_mode_tests.cpp` (`tools/test-net.sh`): a backend of the test fixtures moves the character into a story
+  instance; the client reads the state, a 3094, and the empty state after each leave; the backend reads the 3309 and the 1980 of this
+  client (it leaves the mode) and refuses a 3309 with an other key and a 1980 with an other event.
+
 ### The read path of the own entity (the HUD)
 
 `USwcBackendSubsystem::GetLocalPlayer(swc::net::RepClient::OwnEntity&)` gives a copy of the decoded own entity while the

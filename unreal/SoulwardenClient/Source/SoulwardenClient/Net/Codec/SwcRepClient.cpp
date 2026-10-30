@@ -457,6 +457,21 @@ void RepClient::on_message(const ServerMessage& message, Clock::time_point now) 
         }
         return;
     }
+    if (message.type == kDungeonActivateResult.index) {
+        // To the DungeonEntrance facet of the entrance, not of the character: no state change and no teleport (handler 0x2FFB4F0). The
+        // DungeonEnterScreen reads the result (C-13 step 1b; protocol notes 4.67).
+        if (const auto result = read_dungeon_result(message.body)) {
+            ++m_own.dungeonResults;
+            m_own.lastDungeonResult = *result;
+            char entrance[24];
+            std::snprintf(entrance, sizeof entrance, "%016llx", static_cast<unsigned long long>(result->entity));
+            log(Event::Level::info, "the result of an entry request at an entrance (3094): " + std::to_string(result->result) + ", entrance "
+                                        + entrance);
+        } else {
+            log(Event::Level::warning, "a result of an entrance (3094) does not have its form");
+        }
+        return;
+    }
     if (message.type == kCutsceneCanceled.index) {
         // The cancel of a pending cutscene [I: no backend writer; research conversations.md section 5]: its retail handler does not by
         // itself release the input; the host resolves the lock through the known end path.
@@ -1196,6 +1211,31 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                     m_own.lootClaims = std::move(*claims);
                     ++m_own.lootRevision;
                 }
+            }
+        } else if (fragment.slot == kSlotGameModeParticipant && fragment.type == kStateGameModeParticipant.index) {
+            bool changed = false;
+            if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
+                if (auto modes = read_active_game_modes(value)) {
+                    m_own.gameModes = std::move(modes->entries);
+                    m_own.gameModeStamp = modes->stamp;
+                    changed = true;
+                } else {
+                    log(Event::Level::warning, "the game modes of the GameModeParticipant state do not have their form");
+                }
+            }
+            if (const auto value = decoder::field_of(fragment, 0, 1); !value.empty()) {
+                if (const auto flags = read_game_mode_flags(value)) {
+                    m_own.gameModeFlags = *flags;
+                    changed = true;
+                }
+            }
+            if (changed) {
+                ++m_own.gameModeRevision;
+                char mode[16];
+                std::snprintf(mode, sizeof mode, "%08x", m_own.gameModes.empty() ? 0U : m_own.gameModes.front().mode);
+                log(Event::Level::info, "game mode (3312): " + std::to_string(m_own.gameModes.size()) + " active"
+                                            + (m_own.gameModes.empty() ? std::string() : std::string(", mode ") + mode)
+                                            + (has_game_mode_flag(m_own.gameModeFlags, kGameModeFlagCanQuit) ? ", the player can quit" : ""));
             }
         } else if (fragment.slot == kSlotGlobalStorage && fragment.type == kStateGlobalStorage.index) {
             if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
@@ -2040,6 +2080,24 @@ void RepClient::cancel_interaction() {
     if (m_phase == Phase::inGame && m_own.hasMetadata) {
         send_call(kCancelCommittedInteraction, interaction_cancel_body(m_own.group, reference));
         log(Event::Level::info, "interaction cancel (2473): object " + hex_of(reference.actor));
+    }
+}
+
+bool RepClient::leave_game_mode() {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata || m_own.gameModes.empty()) {
+        return false;
+    }
+    send_call(kRequestLeaveGameMode, leave_game_mode_body(m_own.group, m_own.gameModes.front()));
+    log(Event::Level::info, "game mode: the leave request (3309)");
+    return true;
+}
+
+void RepClient::game_mode_event(std::uint32_t event) {
+    if (m_phase == Phase::inGame && m_own.hasMetadata) {
+        send_call(kGameModeClientEvent, game_mode_event_body(m_own.group, event));
+        char text[16];
+        std::snprintf(text, sizeof text, "%08x", event);
+        log(Event::Level::info, std::string("game mode: the client event ") + text + " (1980)");
     }
 }
 
