@@ -45,6 +45,8 @@ Usage (tools/creature-world.sh):
   travel PLACE [auto|on|off]         a travel to a travel place of the game data (shrine_40170, inn_40300)
   quest grant OBJECTIVE              a new instance of an objective of the quest data for the character (backend stage 1.8a,
                                      /v1/dev/quests/grant; AST-248: the task topic of a person)
+  quest advance OBJECTIVE TASK       DEVELOPMENT AID: the tasks of the active objective before TASK complete until TASK is Active
+                                     (backend stage QG9c, /v1/dev/quests/advance; a mission: FM_killx_location m_returntogiver)
   faction NAME [now] | achievement ID on|off | reputation FACTION RANK POINTS   the factions (QG7): a set with no check, an achievement,
                                      the reputation of a faction
   standing TERRITORY AMOUNT          a game reward of territory standing (QG1: the ranks and one token for each rank; 6 Windsward)
@@ -275,6 +277,10 @@ def run(words: list[str], folder: Path) -> object:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", rest[1]):
             fail("the objective must be an id of the quest data")
         return request(folder, "POST", f"/v1/dev/quests/grant?character={character(folder)}&objective={rest[1]}")
+    if command == "quest" and len(rest) == 3 and rest[0] == "advance":
+        if not all(re.fullmatch(r"[A-Za-z0-9_.-]+", word) for word in rest[1:]):
+            fail("the objective and the task must be ids of the quest data")
+        return request(folder, "POST", f"/v1/dev/quests/advance?character={character(folder)}&objective={rest[1]}&task={rest[2]}")
     # The encounters (QG5, docs/QUESTS.md; the routes of ~/Developer/azoth/tools/world): the instances near the character, and the
     # development aid "use" (the start object 10 m or less from the character counts as gathered; only to pass a missing start object).
     if command == "encounter" and len(rest) <= 1 and rest != ["use"]:
