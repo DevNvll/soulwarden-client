@@ -32,6 +32,9 @@ from .source import field_id as F
 
 WORLD = "sharedassets/coatlicue/newworld_vitaeeterna/"
 TERRITORY_TABLE = "javelindata_territorydefinitions.datasheet"
+# The areas (the "area" kind of the territory definitions; ut567: the faction hunt cards name an area by its POI tag, as
+# FM_S_Hunt_0605 "southwindsward5" = 9015 "@ui_area_southwindsward_5"; before, only the territories and the points of interest).
+AREA_TABLE = "javelindata_areadefinitions.datasheet"
 POI_TABLES = "sharedassets/springboardentitites/datatables/pointofinterestdefinitions/"
 # The territory id of a shape entity (the component of the territory; the field name is not in the name table).
 TERRITORY_ID_FIELD = 744121785
@@ -46,7 +49,7 @@ def camel(column: str) -> str:
 def definitions() -> dict[int, dict]:
     """@return Each territory, area, and point of interest by id, with the non-empty columns of its row."""
     out: dict[int, dict] = {}
-    tables = [datasheet.load(TERRITORY_TABLE)]
+    tables = [datasheet.load(TERRITORY_TABLE), datasheet.load(AREA_TABLE)]
     tables += [datasheet.Sheet(source.read(path)) for path in sorted(source.paks().paths(POI_TABLES, ".datasheet"))
                if "devworld" not in path]
     for sheet in tables:

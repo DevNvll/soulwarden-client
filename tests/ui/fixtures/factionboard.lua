@@ -121,6 +121,9 @@ picture("factionboard-open")
 -- The place names of the cards: the POI tags of the mission data are CRCs (StaticMissionData.poiTagsOverride).
 equal(TerritoryDefinitionsDataManagerBus.Broadcast.GetTerritoryDefinitionByPoiTag(crc("shattered_dungeon")).nameLocalizationKey,
   "@ui_poi_shattered_dungeon", "GetTerritoryDefinitionByPoiTag with the CRC of the tag (the expedition of a card)")
+-- The area of a hunt card (FM_S_Hunt_0605: the POI tag southwindsward5 is the area 9015; the area definitions of worldmap.json, ut567).
+equal(TerritoryDefinitionsDataManagerBus.Broadcast.GetTerritoryDefinitionByPoiTag(crc("southwindsward5")).nameLocalizationKey,
+  "@ui_area_southwindsward_5", "GetTerritoryDefinitionByPoiTag of an area tag (the hunt card: \"Hunt the South Windsward area\")")
 -- The reward preview of a card (GetUIMissionRewardsAndBonuses): the daily bonus is the active bonus kind 1 while a use is left.
 do
   local row = B.D().missions[picks[1]]

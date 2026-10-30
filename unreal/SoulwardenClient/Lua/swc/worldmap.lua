@@ -151,12 +151,21 @@ end
 -- The landmarks: the type, the ids of the territories that contain it, and the world position.
 local landmarks = {}
 for _, mark in ipairs(data.landmarks or {}) do
-  local poi = 0
+  -- The point of interest of the landmark: a definition with isPOI that is not an area (the areas have isPOI too in the data: with the
+  -- area definitions of ut567 the shrines of one area took the area id and collapsed into one), else an area.
+  local poi, area = 0, 0
   for _, id in ipairs(mark.ids) do
     local d = definition(id)
     if d and d.isPOI == true then
-      poi = id
+      if d.isArea == true then
+        area = id
+      else
+        poi = id
+      end
     end
+  end
+  if poi == 0 then
+    poi = area
   end
   landmarks[#landmarks + 1] = {type = mark.type, ids = mark.ids, poi = poi, actor = mark.actor or "", data = mark.data or "",
     position = V3(mark.position[1], mark.position[2], mark.position[3])}

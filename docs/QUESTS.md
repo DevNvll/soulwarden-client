@@ -694,6 +694,13 @@ the root at the top of the tracker (a teal diamond), its stage title, and the ro
   and wood (the items came from the development route), five kills (two credited kills shown).
 - 06_getoffbeach of a new character with backend 1.8b: in the trigger area the visible task is complete and the hidden cutscene task is
   active, so the tracker shows only the title until the cutscene (stage Q5).
+- Quest_18000 "Something Rotten in Reekwater" (a push MainStoryQuest; window 3 of ut567, 2026-10-30, bd8-journal-quest.png): the journal
+  and the tracker show the title with no task line. The saved state (dev-data-bd): all three tasks Complete (the hidden Task_1, Task_2
+  the travel to Reekwater, the root Task_0 with the progress 2), the quest still active. The row has hand-in texts
+  (DestinationCompletionAvailablePrompt/Response) and no NpcDestinationId cell in quests.json: the quest waits for a hand-in (Wiltrud
+  Bucheholz in Reekwater, from its description) and the tracker has no destination name. Open: does the retail tracker show a hand-in line
+  for this state, and from which data (the NPC of the conversation state of the objective, as the backend uses)? No retail shot of this
+  quest is in the backend evidence. Not an effect of the text ObjectiveData.id (the HUD of bd6 had the same).
 - The place cues of the 86 points of interest of other slices (no local), and of the areas (the 2297 of 9011 in the retail packets).
 - The card of a quest object: the marker type Master_Quest and the gatherable card with no option text: "E ASTROLABE" as retail (AST-250).
 - The world pins of the quest objects (the retail "1" over the treasure): stage Q2.

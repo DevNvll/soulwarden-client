@@ -1566,4 +1566,7 @@ and the backend encoders (states 3829, 1746, 3086; requests 3819, 2461).
     tokens 2540 x 5, "Daily Bonus".
   - The place names of the cards: the POI tags of the mission data are CRCs; GetTerritoryDefinitionByPoiTag also takes the CRC of a tag
     (swc/worldmap.lua). Fixture: "Delve into Starstone Barrows for the Syndicate".
+  - The areas: worldmap.json has the area definitions (javelindata_areadefinitions: 176 rows; the hunt cards name an area by its POI tag:
+    FM_S_Hunt_0605 "southwindsward5" = 9015). A landmark takes a point of interest that is not an area, else an area (the areas have
+    isPOI too). Window 3b (bd9) showed "Hunt the  area for the  Turkey" with the earlier file.
   - Open point: the faction shop (no items; the shops are a later stage).
