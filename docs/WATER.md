@@ -1015,6 +1015,53 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
     miss) [R]. A measured current-sky ratio needs new client and render code (a GPU reduction of the capture) [I].
   - Thus the sky-ratio hour rule is not supported by the present data; no default.
 
+- The window of item f (2026-10-30 01:04 to 01:40 UTC; no build; no compile gate: the water materials and the check parent did not change
+  since the gate pass of 22:15 UTC, and each run reported 0 compile faults; every shot at EV 13.03; find -newer of the shared content and
+  the shared plugin 0; evidence `water-unreal/wnt-g-*`, `user-set/`; the tables `work/water-unreal/tone3/g-water-mask.txt`,
+  `g-water-mask-oceanfar.txt`, `g-scene.txt`, `g-mirror.txt`): the swap guard stopped the source run at 01:09:15 (the swap +21.3 GB from
+  16.3 GB; the backend dev run alive) after 5 of 20 shots; its gamescope then aborted (a core dump in _XIOError, a result of the stop). The
+  guard then ended (it stops once), so the Unreal run (01:09 to 01:33, 50 shots) and the two video runs (01:33 to 01:40) ran without a swap
+  guard: a gap of the script (the guard must start again after a stop, or the chain must end). The source repeat (`tone3/run_window_g2.sh`)
+  waits until no backend dev run is alive (the word of the orchestrator after a guard stop).
+
+### For the user: the Unreal water against the source water (item f, 2026-10-30)
+
+The pictures (`~/Games/soulwarden-client/evidence/water-unreal/user-set/`): `ocean-sheet.png` (the open sea and a beach at 12:00, 16:30,
+08:00), `lake-river-through-sheet.png` (a lake, a river, the view through the water from above, and from below), and
+`waves-ocean-clear-noon-source-left-unreal-right.mp4` (5.5 s of the waves at a beach; the source left, the Unreal water right). In each
+sheet: the source water, the Unreal water before stage 2c, and the Unreal water with the best setting. The best setting: the source shore
+foam (`swc.WaterOceanShore 1`, the blend), the near color of the source (`swc.WaterOceanNear 1`), two times the extinction
+(`swc.WaterOceanExtinction 2`), the blue gain 1.5 (`swc.WaterOceanScatterBlue 1.5`), and the underside gate (the check parent version 7).
+The ocean only; the lakes and the rivers keep the source tone. All at the same fixed exposure (EV 13.03), in the normal scene with the
+moving cloud shadows (they drift the light between shots; the Unreal states are pairs; the source has one shot of 5 views in this window
+(the swap guard stopped the source run) and the ocean-far source shots come from the window of 20:20 UTC).
+
+Better with the Unreal water:
+1. Looking through the water (the first complaint of the user, "looking through the water makes the water disappear"): from below the
+   surface the source path shows no water at all (the sky and the land as in the air); the Unreal water shows a real underwater view.
+   From above, the best setting shows the white shore foam of the source on the sand (before stage 2c: plain brown sand).
+2. The tone of the open sea at 12:00 and 08:00: the best setting is within 1.4 L* of the source (12:00: +1.1 / +1.4 L*, hue -3; 08:00:
+   +0.5 / +0.8 L*, hue -9 / -10); before stage 2c it was 6 to 7 L* too light and 29 to 40 degrees too green.
+3. The beach at 12:00: the hue of the water goes from -44 degrees (before) to -11 (best) against the source.
+4. The lake ("the same dark original tone"): the Unreal lake has the source hue (-3 / -4 degrees) and is darker, by 9 to 11 L* in this
+   view: it reflects the dark trees of the far bank, the source lake a lighter sky.
+
+Worse or still different:
+1. 16:30: the Unreal sea is about 12 L* too light (the hue is right). The cause is known: the sky light of the noon-like world probe in
+   the reflection rays that miss the scene. The source reflects the current sky.
+2. The mirror: the source sea is a clear mirror of the near cliff and the statue; the Unreal sea shows mostly the sky there (open
+   difference 1 below; no cause found).
+3. The open water of the beach is 6 L* too dark and 22 degrees too green with the best setting (one source shot).
+4. The river is 6 L* lighter and 22 degrees more yellow (the river keeps the source tone; not changed by stage 2c).
+5. The shallow water seen from above is about 11 L* darker than the source in this window (one source shot; the clouds move).
+
+What the 16:30 fix would cost (route (b): the design `~/Games/soulwarden-client/research/water-miss-selector.md`): an ocean-only change of
+the sky light in the missed reflection rays needs a change of the Unreal renderer. The installed engine cannot rebuild its renderer: a
+separate source engine is needed (the first build about 4 to 12 hours; 200 to 350 GB of disk against about 262 GB free, which conflicts
+with the 100 GB reserve of the cook), a patch of about 9 engine files kept in the repository and applied again at each engine update, a
+rebuild of the renderer and the client, new check materials, and a cook (incremental if the cooked tree stays valid; a full cook is about
+77 minutes). It would not restore the cliff mirror. The tone levers of stage 2c need no engine change.
+
 ### The visible differences of the Unreal ocean against the source (stage 2c, 2026-10-29)
 
 The list of the differences that the stage 2c pictures show (the best setting with blue 1.5; the fixed exposure EV 13.03; the source is the
