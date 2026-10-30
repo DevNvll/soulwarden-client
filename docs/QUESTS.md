@@ -355,6 +355,13 @@ curves), `swc/scenes.lua` (the cutscene screen, the subtitles, the whispers, the
   backend grants only the scene of a running stage]. The backend recipes of 7341880 have 9 such stages: the Medea intro (slot 5) and outro
   (slot 6), each in the normal and the daily recipe, and Wolf, Medusa, Heartforge (two recipes), and Gawain. With no scene the backend ends
   the stage at its time limit (Medea: 22 s and 60 s, succeedOnTimeout). Converter test: `tests/converter/test_encounter_scenes.py`.
+- The play, after the D window of C-13 step 1b (the Medea intro against retail qg9a-intro.mp4): a CameraProperties clip on the camera
+  sets its vertical FOV from its FieldOfViewCurve (the Medea intro: 22.1 and 14.5 degrees against the component value 75; the wide shots
+  of the first run), and the component value comes back at the end with RestoreOnEnd; the other curves of the clip (the frustum, the
+  clip planes, the depth of field) are not played. A prop on a bone (AttachmentComponent) takes the full Target Offset: the basis axes
+  and the translation through the space map of the gear sockets (before, only its scale: the ice staff of Medea lay flat at her hips).
+  The Medea clip plays on her scene body (the person path on the male player skeleton); her gold (the crown, the trim) is in her
+  specular map, which the body material does not use (C-14).
 - Fixtures: `tests/ui/fixtures/scenes.lua` (26 checks: the cutscene screen, the skip hold and the tap, the scene subtitle, W1 and its VO
   token, the TempestRising stand-in: 6606, the skip, 6542, the natural end). Converter tests: `tests/converter/test_scenes.py`.
 - The live checks (2026-10-23, new development characters, the drives `tests/drive/ast240-*.txt`; evidence AST-240):

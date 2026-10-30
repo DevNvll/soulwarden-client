@@ -363,10 +363,17 @@ bool ASwcScenePlayer::Build(const FString& Name, const TSharedPtr<FJsonObject>& 
 			Entity.AttachTarget = Text(Attach, TEXT("target")).ToLower();
 			Entity.AttachBone = Text(Attach, TEXT("bone"));
 			const TArray<TSharedPtr<FJsonValue>>* Offset = nullptr;
-			if (Attach->TryGetArrayField(TEXT("offset"), Offset) && Offset->Num() >= 9)
+			if (Attach->TryGetArrayField(TEXT("offset"), Offset) && Offset->Num() >= 12)
 			{
-				// [I] Only the scale of the offset (the bone frames of the converted skeletons are not the game frames).
-				Entity.AttachScale = static_cast<float>(FVector((*Offset)[0]->AsNumber(), (*Offset)[1]->AsNumber(), (*Offset)[2]->AsNumber()).Size());
+				// The 12 numbers: the basis axes X, Y, Z of the offset, then its translation (m). An identity rotation fits the props of the
+				// checked scenes (the sword of the beach knight, scale 0.8); a turned prop takes the rotation through the space map of the
+				// gear sockets (C-13 step 1b, D).
+				const auto At = [Offset](int32 Index) { return (*Offset)[Index]->AsNumber(); };
+				const FVector X(At(0), At(1), At(2)), Y(At(3), At(4), At(5)), Z(At(6), At(7), At(8));
+				const FVector Scale(X.Size(), Y.Size(), Z.Size());
+				FQuat Game = FMatrix(X.GetSafeNormal(), Y.GetSafeNormal(), Z.GetSafeNormal(), FVector::ZeroVector).ToQuat();
+				Game = FQuat(-Game.X, Game.Y, -Game.Z, Game.W).GetNormalized();
+				Entity.AttachOffset = FTransform(Game, FVector(At(9) * 100.0, -At(10) * 100.0, At(11) * 100.0), Scale);
 			}
 		}
 		for (const TSharedPtr<FJsonValue>& ComponentValue : Object->GetArrayField(TEXT("components")))
@@ -377,6 +384,7 @@ bool ASwcScenePlayer::Build(const FString& Name, const TSharedPtr<FJsonObject>& 
 			{
 				Entity.bCamera = true;
 				Entity.Fov = Number(Component, TEXT("Field of View"), 40.0f);
+				Entity.ComponentFov = Entity.Fov;
 			}
 			else if (Class == TEXT("TriggerActivatePlayerCutsceneComponent"))
 			{
@@ -513,13 +521,13 @@ bool ASwcScenePlayer::BuildActors(const TSharedPtr<FJsonObject>& Record, APawn* 
 		if (Entity.Static.IsValid() && Owner != INDEX_NONE && Entities[Owner].Mesh.IsValid() && !Entity.AttachBone.IsEmpty())
 		{
 			Entity.Static->AttachToComponent(Entities[Owner].Mesh.Get(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, FName(*Entity.AttachBone));
-			Entity.Static->SetRelativeScale3D(FVector(Entity.AttachScale));
+			Entity.Static->SetRelativeTransform(Entity.AttachOffset);
 		}
 		const int32 Target = Find(Entity.AttachTarget);
 		if (Entity.Mesh.IsValid() && Target != INDEX_NONE && Entities[Target].Mesh.IsValid() && !Entity.AttachBone.IsEmpty())
 		{
 			Entity.Mesh->AttachToComponent(Entities[Target].Mesh.Get(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, FName(*Entity.AttachBone));
-			Entity.Mesh->SetRelativeScale3D(FVector(Entity.AttachScale));
+			Entity.Mesh->SetRelativeTransform(Entity.AttachOffset);
 		}
 	}
 	// The clips of the aliases: the scene pack of the player pipeline (clips|male|scenes) or the folder of the character.
@@ -611,6 +619,23 @@ void ASwcScenePlayer::BuildTimelines()
 						Clip.Kind = EKind::Command;
 						Clip.Text = Text(Object2, TEXT("#8EFC3AF2"));
 						Clip.Command = static_cast<int32>(Number(Object2, TEXT("#1AB2E2E7")));
+					}
+					else if (Class == TEXT("CameraProperties"))
+					{
+						// The FieldOfViewCurve (axis "FOV"); the other curves of the clip (the frustum, the clip planes, the depth of field)
+						// are not played [I].
+						Clip.Kind = EKind::CameraFov;
+						Clip.bRestore = Flag(Object2, TEXT("RestoreOnEnd"), true);
+						for (const TSharedPtr<FJsonValue>& AxisValue : Items(Child(Child(Object2, TEXT("FieldOfViewCurve")), TEXT("axes"))))
+						{
+							for (const TSharedPtr<FJsonValue>& KeyValue : Items(Child(AxisValue->AsObject(), TEXT("Keyframes"))))
+							{
+								const TSharedPtr<FJsonObject> Key = KeyValue->AsObject();
+								Clip.Fov.keys.push_back({Number(Key, TEXT("time")), Number(Key, TEXT("value")), Number(Key, TEXT("IncomingHandleX")),
+									Number(Key, TEXT("IncomingHandleY")), Number(Key, TEXT("OutgoingHandleX")), Number(Key, TEXT("OutgoingHandleY")),
+									static_cast<int>(Number(Key, TEXT("IncomingType")))});
+							}
+						}
 					}
 					else if (Object2->HasField(TEXT("TranslationCurve")) || Object2->HasField(TEXT("RotationCurve")))
 					{
@@ -742,7 +767,8 @@ void ASwcScenePlayer::Run(int32 Index, float From, float To, bool bSimulate)
 		}
 		for (const FClip& Clip : Layer.Clips)
 		{
-			if ((Clip.Kind == EKind::Anim || Clip.Kind == EKind::Transform) && Clip.Start <= To && (To < Clip.End || (Clip.End <= To && From < Clip.End)))
+			if ((Clip.Kind == EKind::Anim || Clip.Kind == EKind::Transform || Clip.Kind == EKind::CameraFov) && Clip.Start <= To
+				&& (To < Clip.End || (Clip.End <= To && From < Clip.End)))
 			{
 				Sample(Layer, Clip, FMath::Min(To, Clip.End));
 			}
@@ -816,6 +842,12 @@ void ASwcScenePlayer::Sample(const FLayer& Layer, const FClip& Clip, float Time)
 		{
 			Instance->SetPosition(Position, false);
 		}
+		return;
+	}
+	if (Clip.Kind == EKind::CameraFov)
+	{
+		// The value of the curve in the clip; the component value after the end of a clip with RestoreOnEnd.
+		Entity.Fov = Clip.bRestore && Time >= Clip.End ? Entity.ComponentFov : Clip.Fov.evaluate(Local, Entity.ComponentFov);
 		return;
 	}
 	if (Clip.Kind == EKind::Transform)

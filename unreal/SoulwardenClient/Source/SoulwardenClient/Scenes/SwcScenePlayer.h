@@ -30,7 +30,8 @@ class USkeletalMeshComponent;
  *   cinematic component starts its video), CommandClip (PlayWhisperSubtitle_@KEY with its duration: an event for the subtitle), and the
  *   transform clip (position and Euler curves; order 0 is Ry Rz Rx in the slice frame [D: it gives the matrix of the camera start
  *   entity]; the camera looks along -Y of that frame [I: the C1 framing]). The FOV is the CameraComponent value (the beach FOV layer has
- *   Ignore) as a vertical FOV [U: the projection axis].
+ *   Ignore), or the FieldOfViewCurve of a CameraProperties clip on the camera (C-13 step 1b, D: the Medea intro), as a vertical FOV
+ *   [U: the projection axis].
  * - Not played (declared limits): the lights, the particle effects, the material clips, the audio and the lip sync (no sound).
  */
 UCLASS()
@@ -81,7 +82,10 @@ private:
 		Trigger,
 		Untrigger,
 		Command,
-		Transform
+		Transform,
+		/** CameraProperties (C-13 step 1b, D): the FieldOfViewCurve of the camera entity of the layer (the Medea intro: 22.1 and 14.5
+		 *  degrees against the component value 75). */
+		CameraFov
 	};
 	struct FClip
 	{
@@ -100,6 +104,9 @@ private:
 		int32 EulerOrder = 0;
 		swc::scene::Curve Position[3];
 		swc::scene::Curve Rotation[3];
+		/** CameraFov: the FOV curve (degrees), and RestoreOnEnd (the component value after the clip). */
+		swc::scene::Curve Fov;
+		bool bRestore = true;
 		bool bBegun = false;
 		bool bEnded = false;
 	};
@@ -134,6 +141,8 @@ private:
 		bool bVisible = true;
 		bool bCamera = false;
 		float Fov = 40.0f;
+		/** The Field of View of the CameraComponent (Fov is the value of the frame: a CameraProperties clip changes it). */
+		float ComponentFov = 40.0f;
 		FString Cinematic;
 		TWeakObjectPtr<USkeletalMeshComponent> Mesh;
 		/** A static prop of the slice (a MeshComponent with a .cgf: the static mesh of the content import). */
@@ -141,7 +150,10 @@ private:
 		TArray<TWeakObjectPtr<USkeletalMeshComponent>> Followers;
 		FString AttachTarget;
 		FString AttachBone;
-		float AttachScale = 1.0f;
+		/** The Target Offset of the AttachmentComponent in the frame of the bone (C-13 step 1b, D: the ice staff of Medea, the X axis turned and Y
+		 *  and Z swapped). The space map of the gear sockets (SwcPlayerLooks: rotation (x, y, z, w) -> (-x, y, -z, w), position (x, -y, z));
+		 *  before D only its scale was used. */
+		FTransform AttachOffset = FTransform::Identity;
 	};
 
 	int32 Find(const FString& Id) const;
