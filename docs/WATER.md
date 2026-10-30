@@ -1637,3 +1637,7 @@ water values:
   caustics: not used (AST-200 open points).
 - 18 volumes are tilted (up to 6.4 degrees); the quadtree cannot tell if their surface tilts. The full matrix is used [inference].
 - The night views: the light of the client at night is the work of the environment track (E1); the water uses the light of the scene.
+- The underwater view (option 5): the underside sheet `M_SwcWaterUnder` keeps the air fog of Unreal (UE 5.8 has no material property
+  `apply_fogging`; find the translucency fog switch of this version). For the user: the forest water volume at a level view is very dark
+  (its dark source fog over a long path), and the total reflection hides the head of a swimmer above the surface (as in water). The
+  materials are in `/SwcGameContent/Water/Under` since 2026-10-30 05:56 UTC (`tools/import-water-unreal.sh --under --shared`).
