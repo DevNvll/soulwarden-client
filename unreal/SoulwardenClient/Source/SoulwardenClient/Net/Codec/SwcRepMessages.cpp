@@ -729,6 +729,14 @@ Bytes game_mode_event_body(std::uint64_t group, std::uint32_t event) {
     return w.data();
 }
 
+Bytes forfeit_arena_body(std::uint64_t group, bool leaveDungeon) {
+    Writer w;
+    w.u64(group + kPlayerArenaComponent);
+    w.u64(group);
+    w.u8(leaveDungeon ? 1 : 0);
+    return w.data();
+}
+
 InteractionRequest dungeon_enter_request(InteractionRequest enter) {
     enter.baseAction = kActionOpenDungeonMenu;
     enter.committed = false;

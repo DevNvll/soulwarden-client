@@ -1,8 +1,8 @@
 // C-13 step 1b: the membership of a story instance (protocol notes 4.67) against the backend. A backend of the test fixtures (ServerHost, the
 // fake client of case IN4 of the backend tests) moves a character into an instance; each message that the backend sends goes to the
 // RepClient of this client, in order. The checks: the GameModeParticipant state (slot 24, 3312) in OwnEntity at the entry and after the
-// leave, the result 3094 of an entrance, and the bodies of the leave 3309 and of the client event 1980 of this client, which the backend
-// reads (it leaves the mode). Build and run: tools/test-net.sh (the core library of the backend). The Soulwarden sources are read only.
+// leave, the result 3094 of an entrance, the bodies of the leave 3309 and of the client event 1980 of this client, which the backend
+// reads (it leaves the mode), and the PlayerArena state (slot 4, 2406) with the dungeon leave 926 (backend stage QG9e). Build and run: tools/test-net.sh (the core library of the backend). The Soulwarden sources are read only.
 
 #include <chrono>
 #include <cstdio>
@@ -111,6 +111,7 @@ int main() {
     expect(client.phase() == swc::net::RepClient::Phase::inGame, "the world entry: InGame");
     expect(own.gameModes.empty() && own.gameModeRevision == 0, "the world entry: no game mode and no GameModeParticipant fragment before the first entry");
     expect(!client.leave_game_mode(), "the world entry: no leave request with no game mode");
+    expect(!own.inArena && !client.forfeit_arena(), "the world entry: not in a dungeon mode, no 926 (ForfeitArena sends only while isInArena)");
 
     // The entry: the backend sends the membership with no flag (stage QG9e of the backend: PlayerCanQuit shows the extra mode button of
     // the escape menu, which needs a GameMode entity of the client; the leave of the game menu is 926 with the PlayerArena state).
@@ -134,6 +135,8 @@ int main() {
                && own.gameModeFlags == swc::net::GameModeFlags{0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
            "the entry: no flag (backend stage QG9e)");
     expect(entry.find("game mode (3312): 1 active") != std::string::npos, "the entry: the log line of the state");
+    expect(own.inArena && own.arenaRevision >= 1 && entry.find("player arena (2406): in a dungeon mode") != std::string::npos,
+           "the entry: the PlayerArena state (slot 4, 2406) says isInArena (a mode with IsDungeon)");
 
     // The result 3094 of an entrance (the values of the live run L1 of stage QG9a): the client keeps it for DungeonEnterScreen.
     host.world.dungeon_result(entity.owner, 0x53b85d6577faef54ULL, 0xd95c21d3f6dcde53ULL, swc::net::kDungeonResultEntranceBusy);
@@ -170,6 +173,7 @@ int main() {
     expect(client.phase() == swc::net::RepClient::Phase::inGame && client.level_changes() == 2, "3309: the level change to the main world");
     expect(own.gameModes.empty() && !swc::net::has_game_mode_flag(own.gameModeFlags, swc::net::kGameModeFlagCanQuit) && own.gameModeRevision > revision,
            "3309: the empty map and no flag after the leave");
+    expect(!own.inArena, "3309: isInArena false after the leave");
 
     // The second entry, and the leave event 1980 of the escape menu.
     expect(host.world.instances().enter(kCharacterA, "Test_Story").error == backend::world::InstanceError::none, "setup: the second entry");
@@ -198,6 +202,33 @@ int main() {
     (void)events();
     expect(own.gameModes.empty() && client.level_changes() == 4, "1980: the level change and the empty map");
     expect(!own.interaction.has_value(), "1980: the level change ends the interaction request of the old context");
+    expect(!own.inArena && !client.forfeit_arena(), "1980: isInArena false after the leave; no 926");
+
+    // The dungeon leave of the game menu (backend stage QG9e; protocol notes 4.69): 926 ForfeitArena with leaveDungeon 1 on the PlayerArena
+    // facet (G + 0ADF8519A10C374D), only while isInArena.
+    expect(host.world.instances().enter(kCharacterA, "Test_Story").error == backend::world::InstanceError::none, "setup: the third entry");
+    host.steps(3, {&a});
+    feed();
+    (void)events();
+    expect(own.gameModes.size() == 1 && own.inArena && client.level_changes() == 5, "the third entry: one game mode, isInArena");
+    const swc::net::Bytes stay = swc::net::forfeit_arena_body(own.group, false);
+    host.datagram(a.peer, a.component_message(backend::server::rep::kTypeForfeitArena, entity.actor.bytes, stay));
+    host.steps(2, {&a});
+    expect(host.world.instances().instance_of(kCharacterA) != nullptr, "926 with leaveDungeon 0: the backend changes nothing");
+    expect(client.forfeit_arena() && events().find("the dungeon leave ForfeitArena (926), leaveDungeon 1") != std::string::npos,
+           "926: RepClient sends ForfeitArena while isInArena");
+    const swc::net::Bytes forfeit = swc::net::forfeit_arena_body(own.group, true);
+    expect(forfeit.size() == 17 && forfeit.back() == 1, "926: 17 bytes (target, entity, leaveDungeon 1)");
+    expect(swc::net::Reader(forfeit).u64() == own.group + 0x0ADF8519A10C374DULL, "926: the target G + 0ADF8519A10C374D (the PlayerArena facet)");
+    const auto read = backend::server::rep::read_forfeit_arena(forfeit);
+    expect(read.has_value(), "926: the reader of the backend takes the body");
+    host.datagram(a.peer, a.component_message(backend::server::rep::kTypeForfeitArena, entity.actor.bytes, forfeit));
+    host.steps(3, {&a});
+    expect(host.world.instances().instance_of(kCharacterA) == nullptr, "926: the backend reads the leave and the character leaves the instance");
+    feed();
+    (void)events();
+    expect(own.gameModes.empty() && !own.inArena && client.level_changes() == 6, "926: the level change, the empty map, isInArena false");
+    expect(!client.forfeit_arena(), "926: no second ForfeitArena outside a dungeon mode");
 
     // The facet target: G + the GameModeParticipant component of the root entity (slice-ids.json RootPlayer/b5a705af-...).
     expect(swc::net::game_mode_event_body(own.group, 0).size() == 20

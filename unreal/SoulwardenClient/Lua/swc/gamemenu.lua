@@ -28,7 +28,7 @@ Swc.config["UIFeatures.g_uiEnableEntitlements"] = false
 --- The hidden elements of the escape menu (the names of the canvas) and the reason.
 G.escapeHidden = {
   ButtonUnstuck = "the backend has no unstuck (LocalPlayerComponentRequestBus RequestUnstuck)",
-  ButtonRespawn = "Recall to Inn: the backend has no inn bind, no recall, and no recall cooldown",
+  ButtonRespawn = "Recall to Inn: the backend has no inn bind, no recall, and no recall cooldown (in a dungeon mode it is the dungeon leave)",
   ButtonFeedback = "an online service (the feedback screen)",
   ButtonHelp = "a web page",
   ButtonNewsletter = "a web page",
@@ -37,6 +37,11 @@ G.escapeHidden = {
   ButtonFreeWeekend = "an online service",
   ButtonExternalRewards = "an online service (the entitlements)",
   ButtonConnectToTwitch = "an online service",
+}
+--- The hidden elements that show in a state of the script: in a mode with IsDungeon the button of Recall to Inn is the dungeon leave
+--- ("Leave", @ui_dungeon_leave and the postfix of the mode; its popup Popup_ExitDungeon sends ForfeitArena 926: backend stage QG9e).
+G.escapeShownWhen = {
+  ButtonRespawn = function(self) return self.isInDungeon == true end,
 }
 --- The button sections of the escape menu, from the top (a section with no shown button hides with its label).
 local SECTIONS = {"GameButtonsContainer", "SupportButtonsContainer", "ExitButtonsContainer"}
@@ -150,7 +155,7 @@ function G.LayoutEscapeMenu(self)
         local name = swcui.name(child) or ""
         if name:find("^Button") and UiElementBus.Event.IsEnabled(child) then
           places[#places + 1] = UiTransformBus.Event.GetLocalPositionY(child)
-          if G.escapeHidden[name] then
+          if G.escapeHidden[name] and not (G.escapeShownWhen[name] and G.escapeShownWhen[name](self)) then
             set_enabled(self, child, false)
           else
             shown[#shown + 1] = {id = child, y = places[#places]}

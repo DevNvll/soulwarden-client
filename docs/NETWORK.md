@@ -317,10 +317,18 @@ The API of the codec for the entrance window, the exit portal, the leave, and th
 - `RepClient::leave_game_mode()`: 3309 (`RequestLeaveGameMode`, 48 bytes) with the key of the first entry of `gameModes`; false and no
   message with no entry. `RepClient::game_mode_event(kGameModeLeaveEvent)`: 1980 (`OnReceivedClientEvent`, 20 bytes) with the event
   9BB080D0 of the leave confirmation of the escape menu and of the dungeon HUD. Both go to the GameModeParticipant facet (target
-  G + 8DE633590B8FBEE0). The UI calls them with `QueueRepCall`.
+  G + 8DE633590B8FBEE0). The UI calls them with `QueueRepCall`. Since backend release 2026-10-30-340fbc7 (stage QG9e) the state has no
+  flag: the extra mode button and its 1980 do not show.
+- The dungeon leave of the game menu (backend stage QG9e; protocol notes 4.69): `OwnEntity::inArena` is field 0 of the PlayerArena
+  state (slot 4, type 2406, owner only; `arenaRevision` counts its fragments): true while the membership is in a mode with IsDungeon,
+  false after the leave. `RepClient::forfeit_arena(true)`: 926 (`PlayerArenaComponentServerFacet_ForfeitArena`, 17 bytes: target
+  G + 0ADF8519A10C374D, entity G, leaveDungeon u8), only while `inArena` (the rule of ForfeitArena 0x2780110); false and no message
+  otherwise. The backend leaves the instance for leaveDungeon 1 (the return place, the empty state, isInArena false); leaveDungeon 0
+  changes nothing.
 - The test: `tests/net/game_mode_tests.cpp` (`tools/test-net.sh`): a backend of the test fixtures moves the character into a story
   instance; the client reads the state, a 3094, and the empty state after each leave; the backend reads the 3309 and the 1980 of this
-  client (it leaves the mode) and refuses a 3309 with an other key and a 1980 with an other event.
+  client (it leaves the mode) and refuses a 3309 with an other key and a 1980 with an other event; isInArena (2406) at each entry and
+  after each leave, no 926 outside a dungeon mode, 926 with leaveDungeon 0 changes nothing, and the 926 of this client leaves the mode.
 
 ### The read path of the own entity (the HUD)
 

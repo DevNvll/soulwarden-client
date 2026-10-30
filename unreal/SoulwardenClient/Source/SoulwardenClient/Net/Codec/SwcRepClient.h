@@ -205,6 +205,10 @@ public:
         std::uint32_t gameModeRevision{0};
         std::uint32_t dungeonResults{0};
         DungeonResult lastDungeonResult;
+        /** The PlayerArena state of the owner (slot 4, 2406; backend stage QG9e): isInArena (field 0) is true while the membership is in a
+         *  mode with IsDungeon; ForfeitArena sends 926 only while it is true. One more arenaRevision at each fragment. */
+        bool inArena{false};
+        std::uint32_t arenaRevision{0};
         /** The interaction request of the client (the block of the input entries) and the replies 3743 to it. */
         std::optional<InteractionRequest> interaction;
         std::uint32_t interactionResults{0};
@@ -651,6 +655,10 @@ public:
      *  GameModeParticipant state. The Enter request of an entrance (72) and the exit portal (74) are interactions: dungeon_enter_request. */
     bool leave_game_mode();
     void game_mode_event(std::uint32_t event = kGameModeLeaveEvent);
+    /** The dungeon leave of the game menu (backend stage QG9e; protocol notes 4.69): 926 ForfeitArena with leaveDungeon on the PlayerArena
+     *  facet, only while OwnEntity::inArena (the client rule of ForfeitArena 0x2780110). @return False and no message otherwise. The answer
+     *  of a leave is the level change to the return place, the empty GameModeParticipant state, and isInArena false. */
+    bool forfeit_arena(bool leaveDungeon = true);
     /** C-12, the mission boards: the accept of a town offer (3819: the mission, the project of the card or 0), the accept of a faction offer
      *  (3816: its index in field 2 of the provider state), and the hand-in at the board of the provider (2461: the instance). No answer:
      *  the Objectives state and the provider state give the result. */

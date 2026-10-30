@@ -1243,6 +1243,12 @@ void RepClient::apply_own(const decoder::Record& record, Clock::time_point now) 
                                             + (m_own.gameModes.empty() ? std::string() : std::string(", mode ") + mode)
                                             + (has_game_mode_flag(m_own.gameModeFlags, kGameModeFlagCanQuit) ? ", the player can quit" : ""));
             }
+        } else if (fragment.slot == kSlotPlayerArena && fragment.type == kStatePlayerArena.index) {
+            if (const auto value = decoder::field_of(fragment, 0, 0); value.size() == 1) {
+                m_own.inArena = value[0] != 0;
+                ++m_own.arenaRevision;
+                log(Event::Level::info, std::string("player arena (2406): ") + (m_own.inArena ? "in a dungeon mode" : "not in a dungeon mode"));
+            }
         } else if (fragment.slot == kSlotGlobalStorage && fragment.type == kStateGlobalStorage.index) {
             if (const auto value = decoder::field_of(fragment, 0, 0); !value.empty()) {
                 if (auto keys = read_global_storage(value)) {
@@ -2105,6 +2111,15 @@ void RepClient::game_mode_event(std::uint32_t event) {
         std::snprintf(text, sizeof text, "%08x", event);
         log(Event::Level::info, std::string("game mode: the client event ") + text + " (1980)");
     }
+}
+
+bool RepClient::forfeit_arena(bool leaveDungeon) {
+    if (m_phase != Phase::inGame || !m_own.hasMetadata || !m_own.inArena) {
+        return false;
+    }
+    send_call(kForfeitArena, forfeit_arena_body(m_own.group, leaveDungeon));
+    log(Event::Level::info, std::string("game mode: the dungeon leave ForfeitArena (926), leaveDungeon ") + (leaveDungeon ? "1" : "0"));
+    return true;
 }
 
 void RepClient::assign_point(std::uint32_t pool, std::uint32_t node) {

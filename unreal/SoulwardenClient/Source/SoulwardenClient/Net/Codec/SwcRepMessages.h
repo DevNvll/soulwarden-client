@@ -207,10 +207,14 @@ inline constexpr MessageType kStateGameModeParticipant{"MB::GameModeParticipantC
 inline constexpr MessageType kDungeonActivateResult{"DungeonEntranceClientFacet_OnDungeonActivateResult", "9EBFBF3739BB459195338B78AA68FEA5", 3094};
 inline constexpr MessageType kRequestLeaveGameMode{"GameModeParticipantComponentServerFacet_RequestLeaveGameMode", "D6B795136682491CB2433C675CE771B6", 3309};
 inline constexpr MessageType kGameModeClientEvent{"GameModeParticipantComponentServerFacet_OnReceivedClientEvent", "50FE025FFB2B434C9A9DB3D252098B26", 1980};
+/** The dungeon leave of the game menu (backend release 2026-10-30-340fbc7, stage QG9e; protocol notes 4.69): the PlayerArena state of the
+ *  owner (slot 4, 2406: field 0 isInArena) and ForfeitArena (926) on the PlayerArena facet of the root entity of the player slice. */
+inline constexpr MessageType kStatePlayerArena{"MB::PlayerArenaComponentReplicatedState", "7DD20E739E5C47538B942AEF87A82D37", 2406};
+inline constexpr MessageType kForfeitArena{"PlayerArenaComponentServerFacet_ForfeitArena", "F24C95B5CFE84E018539A9C154075810", 926};
 
 /** Each type that the client uses: the client checks them against typeindex.json. */
-inline constexpr std::array<MessageType, 94> kUsedTypes{kStateGameModeParticipant, kDungeonActivateResult, kRequestLeaveGameMode,
-    kGameModeClientEvent, kAckLevelInfoChanged, kAcceptObjective, kCompleteObjective, kRequestStartCutscene, kCutsceneGranted,
+inline constexpr std::array<MessageType, 96> kUsedTypes{kStateGameModeParticipant, kDungeonActivateResult, kRequestLeaveGameMode,
+    kGameModeClientEvent, kStatePlayerArena, kForfeitArena, kAckLevelInfoChanged, kAcceptObjective, kCompleteObjective, kRequestStartCutscene, kCutsceneGranted,
     kCutsceneStarted, kCutsceneCanceled, kCinematicStarted, kCinematicEnded, kStartWhisper, kStateObjectives, kStatePinReadiness, kObjectiveAutoPinning,
     kUpdateTrackedObjectives, kNotifyOpenUiScreen, kAbandonObjective, kResetObjective, kTerritoryEntered, kTerritoryLeft, kConversationTopic,
     kConversationTopicsFinished, kAssignPoolPoints, kChangeMappedAbility, kApplyAbilityPoints, kMasteryTreeRespec,
@@ -246,6 +250,8 @@ inline constexpr std::uint32_t kSlotBag = 61;
 inline constexpr std::uint32_t kSlotLootTracker = 33;
 /** The GameModeParticipant state of the owner (C-13 step 1b; protocol notes 4.67). */
 inline constexpr std::uint32_t kSlotGameModeParticipant = 24;
+/** The PlayerArena state of the owner (stage QG9e of the backend; protocol notes 4.69). */
+inline constexpr std::uint32_t kSlotPlayerArena = 4;
 inline constexpr std::uint32_t kSlotSelectedContainer = 76;
 inline constexpr std::uint32_t kSlotGlobalStorage = 77;
 /** The Achievement state of the player slice (backend state_codecs.h kAchievementSlot). */
@@ -680,6 +686,12 @@ Bytes leave_game_mode_body(std::uint64_t group, const GameModeEntry& entry);
 inline constexpr std::uint32_t kGameModeLeaveEvent = 0x9BB080D0;
 /** @return The body of OnReceivedClientEvent (1980, 20 bytes): target (G + GameModeParticipant) entity (G) event:u32. */
 Bytes game_mode_event_body(std::uint64_t group, std::uint32_t event);
+/** The PlayerArena component of the root entity of the player slice (slice-ids.json RootPlayer/7158ce3f-...): the target of 926 is G + this
+ *  id (live: 5734d46ca10c374f for G 4c554f5300000002). */
+inline constexpr std::uint64_t kPlayerArenaComponent = 0x0ADF8519A10C374DULL;
+/** @return The body of ForfeitArena (926, 17 bytes): target (G + PlayerArena) entity (G) leaveDungeon:u8 (1: the leave of the dungeon of
+ *  the game menu, Popup_ExitDungeon Yes). */
+Bytes forfeit_arena_body(std::uint64_t group, bool leaveDungeon);
 /** The interaction actions of an entrance and of an exit portal (the client enum 0x35E99B0): OpenDungeonMenu (committed; the client opens
  *  DungeonEnterScreen itself), Enter (one time, a part of the committed 71), ExitDungeon (one time, not committed; a hold of its Delay Time). */
 inline constexpr std::uint8_t kActionOpenDungeonMenu = 71;

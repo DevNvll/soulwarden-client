@@ -1614,8 +1614,13 @@ The entrance window of QuestMedea (the only story instance of this stage). The s
 - The game modes of the character: `Swc.HostGameModes` at each change of the GameModeParticipant state (3312): IsInGameMode,
   GetCurrentDungeonGameModeId (a mode of the data with isDungeon), GetLastEnteredGameMode, IsFlagSet (PlayerCanQuit, bit 22), and the
   leave texts of the mode (QuitButtonTextId, LeaveTitleTextId, LeaveDescTextId, LeaveTimeDescTextId, CannotFastTravelTextId).
-- The leave: with PlayerCanQuit the escape menu shows ButtonGameExtra "Leave Soul Trial"; its popup has the leave texts of the mode (no
-  rejoin penalty); Yes sends the client event 9BB080D0: "gamemode event 2612035792" (1980), and the state goes to the HUD.
+- The leave (backend release 2026-10-30-340fbc7, stage QG9e; protocol notes 4.69): in a mode with IsDungeon (GetCurrentDungeonGameModeId)
+  the button of Recall to Inn (ButtonRespawn; hidden in this client outside such a mode: `G.escapeShownWhen`, swc/gamemenu.lua) is
+  "Leave" (`@ui_dungeon_leave` and the postfix of the mode: `_solo` for a solo trial). Its popup Popup_ExitDungeon ("Exit Soul Trial?",
+  "Exit Expedition?") calls `PlayerArenaRequestBus.ForfeitArena(root, true)` at Yes: "arena forfeit 1" (926), and the state goes to the
+  HUD. The client sends 926 only while the PlayerArena state (2406) says isInArena (`Swc.HostGameModes` line "A 0|1"; IsInArena).
+- The extra mode button (ButtonGameExtra, PlayerCanQuit of the GameModeParticipant state; "gamemode event 2612035792", 1980): the backend
+  sends no flag since its stage QG9e (the button needs a GameMode entity of the client, which this client has not). The Lua path stays.
 - The script lyshineui/dungeons/howtowindow.luac of the canvas is not in the game paks (only lyshineui/slices/howtowindow.luac): its
   component does nothing (Swc.absentScripts, swc/elements.lua).
 - Checks: the fixtures `tests/ui/fixtures/dungeonenter.lua` and `tests/ui/fixtures/escapeleave.lua`.
@@ -1624,4 +1629,5 @@ The entrance window of QuestMedea (the only story instance of this stage). The s
   PlayerCanQuit, 3094 result 0, the level change into instance 1 of QuestMedea (the backend ends the 71 use: "a travel"; the client sends
   no 2473 after the level change); the escape menu "Leave", the popup "Leave Soul Trial?", Yes: 1980 with 9BB080D0, the empty state,
   and the level change back to the return place. 0 Lua errors. Drive traps: `point text:Enter` finds the ENTER key hint of the chat
-  (use `move 0.8285 0.829`); the leave button text is "Leave" (@ui_solo_arena_leave), not the popup title.
+  (use `move 0.8285 0.829`); the leave button text is "Leave" (@ui_solo_arena_leave), not the popup title. Since backend 340fbc7 this
+  leave (1980 of the extra mode button) is replaced by the dungeon leave 926 above.

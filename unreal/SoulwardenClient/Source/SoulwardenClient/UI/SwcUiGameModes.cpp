@@ -13,9 +13,10 @@ void FSwcUiGameModes::Update(swc::ui::Runtime& Runtime, USwcBackendSubsystem& Ba
 	using FArg = swc::ui::Runtime::Arg;
 	swc::net::RepClient::OwnEntity Own;
 	const bool bOwn = Backend.GetLocalPlayer(Own);
-	if (bOwn && Own.gameModeRevision != SentRevision)
+	if (bOwn && (Own.gameModeRevision != SentRevision || Own.arenaRevision != SentArenaRevision))
 	{
 		SentRevision = Own.gameModeRevision;
+		SentArenaRevision = Own.arenaRevision;
 		std::string Lines;
 		for (const swc::net::GameModeEntry& Entry : Own.gameModes)
 		{
@@ -23,9 +24,11 @@ void FSwcUiGameModes::Update(swc::ui::Runtime& Runtime, USwcBackendSubsystem& Ba
 		}
 		const bool bCanQuit = swc::net::has_game_mode_flag(Own.gameModeFlags, swc::net::kGameModeFlagCanQuit);
 		Lines += bCanQuit ? "Q 1\n" : "Q 0\n";
+		Lines += Own.inArena ? "A 1\n" : "A 0\n";
 		Runtime.call("HostGameModes", {FArg::of(Lines)});
-		UE_LOG(LogSwcUiGameModes, Log, TEXT("ui: game modes: %d active mode(s)%s, can quit %d (revision %u)"), static_cast<int32>(Own.gameModes.size()),
-			Own.gameModes.empty() ? TEXT("") : *FString::Printf(TEXT(" (%08X)"), Own.gameModes.front().mode), bCanQuit ? 1 : 0, Own.gameModeRevision);
+		UE_LOG(LogSwcUiGameModes, Log, TEXT("ui: game modes: %d active mode(s)%s, can quit %d, in arena %d (revision %u, arena %u)"),
+			static_cast<int32>(Own.gameModes.size()), Own.gameModes.empty() ? TEXT("") : *FString::Printf(TEXT(" (%08X)"), Own.gameModes.front().mode),
+			bCanQuit ? 1 : 0, Own.inArena ? 1 : 0, Own.gameModeRevision, Own.arenaRevision);
 	}
 	uint32 Mode = 0;
 	const bool bOpen = Backend.GetDungeonEntrance(Mode);
@@ -68,7 +71,7 @@ void FSwcUiGameModes::Update(swc::ui::Runtime& Runtime, USwcBackendSubsystem& Ba
 
 bool FSwcUiGameModes::HandleRequest(const FString& Request, USwcBackendSubsystem& Backend)
 {
-	if (!Request.StartsWith(TEXT("dungeon ")) && !Request.StartsWith(TEXT("gamemode ")))
+	if (!Request.StartsWith(TEXT("dungeon ")) && !Request.StartsWith(TEXT("gamemode ")) && !Request.StartsWith(TEXT("arena ")))
 	{
 		return false;
 	}
@@ -90,6 +93,12 @@ bool FSwcUiGameModes::HandleRequest(const FString& Request, USwcBackendSubsystem
 		const uint32 Event = static_cast<uint32>(FCString::Strtoui64(*Parts[2], nullptr, 10));
 		bSent = Event == swc::net::kGameModeLeaveEvent
 			&& Backend.QueueRepCall([Event](swc::net::RepClient& Client) { Client.game_mode_event(Event); });
+	}
+	else if (Parts.Num() == 3 && Parts[0] == TEXT("arena") && Parts[1] == TEXT("forfeit"))
+	{
+		// The dungeon leave of the game menu (926): the codec sends it only while isInArena (RepClient::forfeit_arena).
+		const bool bLeave = Parts[2] == TEXT("1");
+		bSent = Backend.QueueRepCall([bLeave](swc::net::RepClient& Client) { Client.forfeit_arena(bLeave); });
 	}
 	UE_LOG(LogSwcUiGameModes, Log, TEXT("ui: game modes: the request \"%s\": %s"), *Request, bSent ? TEXT("sent") : TEXT("not sent"));
 	return true;

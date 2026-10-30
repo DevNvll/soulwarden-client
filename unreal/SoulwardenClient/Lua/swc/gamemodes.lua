@@ -2,15 +2,17 @@
 -- ~/Games/soulwarden-client/work/ut567/c13read/NOTES.md; the codec part A: docs/NETWORK.md "The membership of a story instance").
 -- The client (UI/SwcUiGameModes.cpp) gives:
 --   Swc.HostGameModes(text)          the GameModeParticipant state (3312): "M mode map enteredSeconds" for each entry, "Q 0|1" PlayerCanQuit
---                                    (bit 22 of the flags)
+--                                    (bit 22 of the flags; the backend sends no flag since its stage QG9e), and the PlayerArena state
+--                                    (2406): "A 0|1" isInArena (true in a mode with IsDungeon)
 --   Swc.HostDungeon(what, mode)      "open" with the mode of the entrance (the member entrance of the object: the CRC of the lower-case
 --                                    GameModeId) when the use of OpenDungeonMenu (action 71) runs; "close" when it ends
 --   Swc.HostDungeonResult(result)    each 3094 (OnDungeonActivateResult: eDungeonActivateResponse, 0 Success, 10, 11, 17 EntranceBusy)
 -- The requests: "dungeon enter DIFFICULTY" (the Enter of the window: 72 with the base action 71), "dungeon end" (the window closes: the use
--- of 71 ends), "gamemode event EVENT" (the leave of the escape menu: 1980 with 9BB080D0).
+-- of 71 ends), "gamemode event EVENT" (the leave of the extra mode button: 1980 with 9BB080D0), "arena forfeit 1" (the dungeon leave of
+-- the game menu: the button of Recall to Inn is "Leave" in a mode with IsDungeon, Popup_ExitDungeon Yes: ForfeitArena 926).
 -- The game mode data: gamedata/gamemodes.json (tools/convert-ui.sh gamemodes: javelindata_gamemodes by the CRC of the GameModeId).
 
-local GM = {modes = {}, canQuit = false, open = false, mode = 0}
+local GM = {modes = {}, canQuit = false, inArena = false, open = false, mode = 0}
 Swc.gamemodes = GM
 
 local ENTRANCE_STATE = 4119896358
@@ -36,7 +38,7 @@ local function row_of(mode)
 end
 
 function Swc.HostGameModes(text)
-  local modes, canQuit = {}, false
+  local modes, canQuit, inArena = {}, false, false
   for line in string.gmatch(text or "", "[^\n]+") do
     local mode, map, entered = line:match("^M (%d+) (%d+) (%d+)$")
     if mode then
@@ -46,12 +48,16 @@ function Swc.HostGameModes(text)
     if quit then
       canQuit = quit == "1"
     end
+    local arena = line:match("^A ([01])$")
+    if arena then
+      inArena = arena == "1"
+    end
   end
-  GM.modes, GM.canQuit = modes, canQuit
+  GM.modes, GM.canQuit, GM.inArena = modes, canQuit, inArena
   if #modes > 0 then
     GM.last = modes[#modes].mode
   end
-  Swc.Note("gamemodes: " .. #modes .. " active mode(s)" .. (modes[1] and string.format(" (%08X)", modes[1].mode) or "") .. ", can quit " .. tostring(canQuit))
+  Swc.Note("gamemodes: " .. #modes .. " active mode(s)" .. (modes[1] and string.format(" (%08X)", modes[1].mode) or "") .. ", can quit " .. tostring(canQuit) .. ", in arena " .. tostring(inArena))
 end
 
 local function in_mode(mode)
@@ -138,6 +144,9 @@ Swc.Define("GameModeParticipantComponentRequestBus", "Event", {
   IsGameModeInCategory = function() return false end,
   SetActivityScreenState = function() end,
   GetActiveGameModeQueues = function() return {} end,
+  -- No schedule of the solo trials (expeditionscommon.luac GetPostFixForGameMode: the postfix "_solo" of a solo trial).
+  GetAllScheduledGameModesForCategory = function() return {} end,
+  IsScheduledGameModeOnQuest = function() return false end,
   IsGameModeGroupTrial = function() return false end,
   GetActivityId = function() return 0 end,
 })
@@ -178,7 +187,14 @@ Swc.Define("PlayerArenaRequestBus", "Event", {
   GetNumGroupTrialsEnteredSinceLastRefresh = function() return 0 end,
   GetNextGroupTrialMaxLimitRefreshTime = function() return WallClockTimePoint:Now() end,
   GetMutationRank = function() return 0 end,
-  IsInArena = function() return false end,
+  -- isInArena of the PlayerArena state (2406; true in a mode with IsDungeon).
+  IsInArena = function() return GM.inArena end,
+  -- The Yes of the dungeon leave (escapemenu.luac OnPopupResult, Popup_ExitDungeon: ForfeitArena(root, true)): 926. The client sends it only
+  -- while isInArena (ForfeitArena 0x2780110; the codec RepClient::forfeit_arena keeps that rule).
+  ForfeitArena = function(_, leaveDungeon)
+    Swc.hostRequests[#Swc.hostRequests + 1] = "arena forfeit " .. (leaveDungeon and "1" or "0")
+    Swc.Note("gamemodes: the dungeon leave ForfeitArena (926), leaveDungeon " .. tostring(leaveDungeon == true))
+  end,
 })
 -- No mutation (the backend has none; the window of a mode with isMutable false): no mutation set, no mutation rewards.
 Swc.Define("GameModeMutationSchedulerRequests", "Broadcast", {
