@@ -1340,7 +1340,8 @@ void USwcWaterSubsystem::UpdateSweep()
 {
 	// The check helper of the crossing video (swc.WaterUnderSweep): the camera of the matched view moves up and down.
 	TArray<FString> Sweep;
-	CVarWaterUnderSweep.GetValueOnGameThread().ParseIntoArrayWS(Sweep);
+	// The console keeps quotes in a string value: "0.6 4" and 0.6 4 are the same.
+	CVarWaterUnderSweep.GetValueOnGameThread().Replace(TEXT("\""), TEXT(" ")).ParseIntoArrayWS(Sweep);
 	FSwcViewOverride& Override = FSwcViewOverride::Get();
 	const float Amplitude = Sweep.Num() == 2 ? FCString::Atof(*Sweep[0]) : 0.0f;
 	const float Period = Sweep.Num() == 2 ? FCString::Atof(*Sweep[1]) : 0.0f;
