@@ -25,6 +25,11 @@ class UWorld;
  *   the next input, the screen gets OnCutsceneEnded, 6705 goes out once; the hard input lock stays until 6709 (ignoreAI and
  *   playerInvincibility are true for the chain). A world exit or a lost connection ends all locally with no message.
  * - The development preview (console swc.ScenePreview NAME; development runs only): the play with no handshake and no quest effect.
+ * - The scenes of the encounter stages (C-13 step 1b, D; protocol notes 4.62, 4.67): quests/scenes.json "encounterScenes" (the stages
+ *   with a cutscene of the quest encounter recipes, the slice asset of their root, and the world matrix of the trigger entity). The
+ *   start actions of a stage run at its status 2 (2133): its EntityEventAction activates the trigger (m_triggerOnActivate), and the
+ *   client requests the scene (the same handshake). A stage seen first with a later status (3, 4) requests nothing [I: the backend grants
+ *   only the scene of a running stage].
  */
 class FSwcScenes
 {
@@ -96,6 +101,10 @@ private:
 
 	bool bLoaded = false;
 	TArray<FSpawner> Spawners;
+	/** The encounter scenes: "ASSET#SLOT" (the GUID text of the root slice, the stage slot) to the index of their spawner. */
+	TMap<FString, int32> EncounterScenes;
+	/** The last status of each stage of an encounter root (G of the root, the stage slot). */
+	TMap<TPair<uint64, uint32>, uint32> StageStatus;
 	TSharedPtr<FJsonObject> Scenes;
 	TArray<FDelayed> Delayed;
 	EState State = EState::Idle;

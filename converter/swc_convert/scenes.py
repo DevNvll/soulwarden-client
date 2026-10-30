@@ -620,6 +620,46 @@ def write_ui(out_dir: Path, index: dict, whispers_doc: dict) -> dict:
             "uiAttributes": len(doc["attributes"])}
 
 
+TRIGGER_CUTSCENE = "TriggerPlayerCutsceneComponent"
+
+
+def encounter_triggers(recipes: list, read=None) -> list:
+    """C-13 step 1b, D: the scenes of the quest encounter stages (the Medea showdown intro and outro). A stage with a CutsceneFinishedObjective
+    starts with an EntityEventAction (event 0, activate) on an entity of the encounter slice with TriggerPlayerCutsceneComponent and
+    m_triggerOnActivate (01_IGC_Spawner_Medea_Intro): the client then asks for the scene (6703; protocol notes 4.67). The backend sends the
+    status 2 of the stage (2133) at its start; the start actions of the client run at the status 2 (protocol notes 4.62).
+    @return For each such stage: the recipe key, the slice asset of the encounter root (the record key of the client without ":SUB"), the
+    mode, the map, the stage slot and name, the cutscene name and CRC, the scene slice, the trigger entity, and its world matrix (the
+    placement of the recipe times the matrix of the entity in the slice). `read` gives the entities of a slice (tests)."""
+    read = read or (lambda path: entities_of(source.read(path)))
+    out = []
+    for recipe in recipes:
+        stages = [st for st in recipe.get("stages", []) if (st.get("objective") or {}).get("cutscene")]
+        if not stages:
+            continue
+        entities = {e["id"]: e for e in read(recipe["slice"])}
+        placement = np.eye(4)
+        placement[:3, :3] = region.quat_matrix(*recipe["rotation"])
+        placement[:3, 3] = recipe["position"]
+        for stage in stages:
+            name = stage["objective"]["cutscene"]
+            for action in stage.get("startActions", []):
+                if action.get("type") != "EntityEventAction" or action.get("event") != 0:
+                    continue
+                entity = entities.get("%016x" % int(action["entity"]))
+                trigger = next((c for c in (entity or {}).get("components", []) if isinstance(c, dict) and c.get("class") == TRIGGER_CUTSCENE), None)
+                facet = find_key(trigger, "m_clientFacetPtr") if trigger else None
+                if not isinstance(facet, dict) or not facet.get("m_triggerOnActivate") or str(facet.get("m_preloadCutsceneName", "")).lower() != name.lower():
+                    continue
+                out.append({"recipe": recipe["key"], "asset": str(uuid.UUID(recipe["asset"])).upper(), "mode": recipe.get("mode", ""),
+                            "map": recipe.get("map", ""), "slot": stage["slot"], "stage": stage.get("name", ""), "cutscene": name,
+                            "crc": "%08x" % (zlib.crc32(name.lower().encode()) & 0xFFFFFFFF),
+                            "slice": norm((facet.get("m_sliceAsset") or {}).get("path", "")), "trigger": entity["name"],
+                            "world": rows(placement @ np.asarray(entity["world"]))})
+                break
+    return out
+
+
 def write(only: str | None = None) -> dict:
     quests = json.loads((env.content_dir() / "ui" / "gamedata" / "quests.json").read_text())
     tasks: dict[str, list] = {}
@@ -651,6 +691,14 @@ def write(only: str | None = None) -> dict:
                          "events": [e | {"rule": persons.presence_rule(e["condition"], achievement_bits())} for e in root["events"]]},
                 "trigger": {k: v for k, v in trigger.items() if k != "matrix"} | {"world": rows(place["matrix"] @ trigger["matrix"]),
                                                                                   "crc": "%08x" % (zlib.crc32(name.lower().encode()) & 0xFFFFFFFF)}})
+    # D (C-13 step 1b): the scenes of the encounter stages of the backend recipes (their slices come from the trigger entities).
+    from .creature import gamedata_dir
+    encounter_data = gamedata_dir() / "encounter-data.json"
+    encounter = encounter_triggers(json.loads(encounter_data.read_text())["recipes"]) if encounter_data.is_file() else []
+    index["encounterScenes"] = encounter
+    for entry in encounter:
+        if entry["slice"]:
+            scene_slices.setdefault(entry["cutscene"].lower(), entry["slice"])
     for name in sorted(set(scene_slices) | set(tasks)):
         if only and name != only.lower():
             continue
@@ -697,7 +745,8 @@ def write(only: str | None = None) -> dict:
         index["scenes"][name] = record
     index["counts"] = {"spawnerSlices": len(spawners), "placements": len(index["spawners"]), "scenes": len(index["scenes"]),
                        "questScenes": len(tasks), "questScenesPlaced": sum(1 for n in tasks if n in scene_slices),
-                       "questScenesWithSlice": sum(1 for n in tasks if index["scenes"].get(n, {}).get("slice"))}
+                       "questScenesWithSlice": sum(1 for n in tasks if index["scenes"].get(n, {}).get("slice")),
+                       "encounterScenes": len(encounter)}
     save(out_dir / "scenes.json", index)
     counts = index["counts"] | write_whispers(out_dir)
     return counts | write_ui(out_dir, index, json.loads((out_dir / "whispers.json").read_text()))

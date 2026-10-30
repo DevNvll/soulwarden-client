@@ -345,6 +345,16 @@ curves), `swc/scenes.lua` (the cutscene screen, the subtitles, the whispers, the
   clock, 6542 at its end or at a skip (a hold of ui_cancel 2.25 s); a black image with the cinematic subtitles (no decoder, no audio). It is
   not full video parity (a decision of the user is needed to replace it in Q9).
 - The development preview: console `swc.ScenePreview NAME` (development runs only): a scene with no handshake and no quest effect.
+- The scenes of the encounter stages (C-13 step 1b, D; protocol notes 4.62, 4.67): a stage of a quest encounter recipe with a
+  CutsceneFinishedObjective starts with an EntityEventAction (event 0) on a trigger entity of the encounter slice
+  (TriggerPlayerCutsceneComponent, m_triggerOnActivate; `01_IGC_Spawner_Medea_Intro`). `tools/convert-scenes.sh write` reads the recipes
+  of the backend copy (encounter-data.json) and writes `encounterScenes` into `quests/scenes.json`: the slice asset of the root, the stage
+  slot, the scene and its CRC, and the world matrix of the trigger (the placement of the recipe times the matrix of the entity); the
+  scenes of these triggers get their records. In the client (`Scenes/SwcScenes`), a new status 2 of that stage slot (2133) on an encounter
+  root of the snapshot sends the request 6703 (the same handshake). A stage seen first with a later status requests nothing [I: the
+  backend grants only the scene of a running stage]. The backend recipes of 7341880 have 9 such stages: the Medea intro (slot 5) and outro
+  (slot 6), each in the normal and the daily recipe, and Wolf, Medusa, Heartforge (two recipes), and Gawain. With no scene the backend ends
+  the stage at its time limit (Medea: 22 s and 60 s, succeedOnTimeout). Converter test: `tests/converter/test_encounter_scenes.py`.
 - Fixtures: `tests/ui/fixtures/scenes.lua` (26 checks: the cutscene screen, the skip hold and the tap, the scene subtitle, W1 and its VO
   token, the TempestRising stand-in: 6606, the skip, 6542, the natural end). Converter tests: `tests/converter/test_scenes.py`.
 - The live checks (2026-10-23, new development characters, the drives `tests/drive/ast240-*.txt`; evidence AST-240):

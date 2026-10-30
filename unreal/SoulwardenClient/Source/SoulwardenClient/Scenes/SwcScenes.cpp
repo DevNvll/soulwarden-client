@@ -124,7 +124,23 @@ void FSwcScenes::Load()
 			}
 		}
 	}
-	UE_LOG(LogSwcSceneFlow, Log, TEXT("scenes: %d cutscene spawner(s) from %s"), Spawners.Num(), *Path);
+	const TArray<TSharedPtr<FJsonValue>>* Encounter = nullptr;
+	if (Doc->TryGetArrayField(TEXT("encounterScenes"), Encounter))
+	{
+		for (const TSharedPtr<FJsonValue>& Value : *Encounter)
+		{
+			// A spawner with no AchievementEvents: only the stage rule of Tick requests it.
+			const TSharedPtr<FJsonObject> Object = Value->AsObject();
+			FSpawner& Spawner = Spawners.AddDefaulted_GetRef();
+			Spawner.Cutscene = Object->GetStringField(TEXT("cutscene"));
+			Spawner.Crc = NameCrc(Spawner.Cutscene);
+			Spawner.TriggerEntity = Object->GetStringField(TEXT("trigger"));
+			Spawner.TriggerWorld = Object->GetArrayField(TEXT("world"));
+			EncounterScenes.Add(FString::Printf(TEXT("%s#%d"), *Object->GetStringField(TEXT("asset")), static_cast<int32>(Object->GetNumberField(TEXT("slot")))),
+				Spawners.Num() - 1);
+		}
+	}
+	UE_LOG(LogSwcSceneFlow, Log, TEXT("scenes: %d cutscene spawner(s) (%d of encounter stages) from %s"), Spawners.Num(), EncounterScenes.Num(), *Path);
 }
 
 bool FSwcScenes::HidesPlayer() const
@@ -307,6 +323,7 @@ void FSwcScenes::Tick(UWorld* World, const FSwcRepConnection::FSnapshot& Snapsho
 		SeenCancels = Own.cutsceneCancels;
 		SeenLockEnds = Own.lockEnds;
 		SeenTravel = Own.travelRevision;
+		StageStatus.Reset();
 		return;
 	}
 	// The answers of the server.
@@ -402,6 +419,38 @@ void FSwcScenes::Tick(UWorld* World, const FSwcRepConnection::FSnapshot& Snapsho
 				break;
 			}
 			UiLines.Add(Line);
+		}
+	}
+	// The scenes of the encounter stages (C-13 step 1b, D): the start actions of a stage at its status 2 activate its trigger.
+	if (!EncounterScenes.IsEmpty())
+	{
+		for (const TPair<uint32, swc::net::RepClient::OtherEntity>& Pair : Snapshot.Objects)
+		{
+			const swc::net::RepClient::OtherEntity& Root = Pair.Value;
+			if (Root.encounterStages.empty())
+			{
+				continue;
+			}
+			const auto& B = Root.sliceAsset;
+			const FString Asset = FString::Printf(TEXT("%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X"), B[0], B[1], B[2], B[3], B[4], B[5],
+				B[6], B[7], B[8], B[9], B[10], B[11], B[12], B[13], B[14], B[15]);
+			for (const swc::net::RepClient::OtherEntity::StageEntry& Stage : Root.encounterStages)
+			{
+				const int32* Index = EncounterScenes.Find(FString::Printf(TEXT("%s#%u"), *Asset, Stage.slot));
+				if (Index == nullptr)
+				{
+					continue;
+				}
+				uint32& Last = StageStatus.FindOrAdd(TPair<uint64, uint32>(swc::net::group_of(Root.actor), Stage.slot), 0);
+				const uint32 Before = Last;
+				Last = Stage.status;
+				if (Stage.status == 2 && Before != 2)
+				{
+					UE_LOG(LogSwcSceneFlow, Log, TEXT("scenes: %s: the stage slot %u of the encounter root %u has the status 2 (before %u): the trigger activates"),
+						*Spawners[*Index].Cutscene, Stage.slot, Pair.Key, Before);
+					Request(*Index, Connection);
+				}
+			}
 		}
 	}
 	// The activation by the bits of the character (the AchievementEvents of the spawners).
