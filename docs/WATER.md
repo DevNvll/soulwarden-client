@@ -980,6 +980,26 @@ The GPU time (`-SwcFrameStats=2`, the median while each view is in place, the se
   - The supported next test [I]: one explicit copy of the cliff mesh (distance-field scale 1, 12 cards) into /SwcWaterCheck/Lumen with an
     own map, `swc.LumenTest` 0 / 1 / 0 (2 shots each) at held 16:30; then, if needed, with the copy on, `r.Lumen.Reflections.ScreenTraces`
     1 / 0 and `swc.WaterOceanNormalMix` 1 / 0 as separate controls.
+- Window F (2026-10-30 00:21 to 00:40 UTC; no build: the binary of cfe765fd; the held scene at 16:30; each shot at EV 13.03; 0 compile
+  faults; one gate fault before the first shot of each run, then "in place"; the swap guard 0 stops; find -newer of the shared content and
+  the shared plugin 0 after the copy and at the end; evidence `water-unreal/wnt-f-*`, `near-cliff-copy.png`; the tables
+  `work/water-unreal/tone3/f-*.txt`):
+  - The copy (00:21:59 to 00:22:36): `jav_wld_cliff_100m_b` copied with a distance field and 12 cards into /SwcWaterCheck/Lumen (1 copied, 0
+    failed, 15 s) with the own map `work/water-unreal/lumen/cliff-map.json`; the run log: "1 mesh copies ... (cliff-map.json)", "on: 4
+    component(s) use the copies".
+  - The cliff box (L*) / the sky box: the source 20.40 / 23.07 and 20.68 / 23.63; the copy off 30.14 to 30.27 / 33.7 to 34.7; the copy on
+    30.19 / 30.19 (34.9 / 33.8): no change (the decision tool: a drop of 0.02 L*). The controls with the copy on: the screen traces off
+    29.76 / 29.57 (on: 30.05 to 30.34); the flat normal (`swc.WaterOceanNormalMix 0`) 30.11 / 30.03 (1: 29.93 to 30.17): no change. The
+    water mask +7.0 to +7.4 L*, hue about -22, in each state (+6.7 / +6.8 with the screen traces off).
+  - The GPU p50 / p95 (ms): the copy off 6.51 to 7.78 / 8.31 to 9.66; on 7.31 / 7.43, 10.14 / 11.53; the screen traces off 6.72 / 7.13,
+    8.88 / 9.79; the flat normal 7.59 / 8.71, 10.01 / 13.91 (the run time spread is large).
+  - The cliff box by the probe and reflection states of window D (held 16:30): probe 0 / reflection 0 1.8 / 2.2; probe 1 / reflection 0 11.7 /
+    11.6; probe 0 / reflection 1 20.7 / 20.7; probe 1 / reflection 1 30.2 / 30.5 (the source 20.7 / 21.2). So the cliff box is mostly
+    reflection and probe light; the reflection alone (the probe off) gives about the source level there, but with no cliff-against-sky
+    contrast (the cliff box 20.7, the sky box 20.3) [I].
+  - What it shows: the near cliff with its own distance field and cards, the screen traces off, and a flat normal do not change the cliff
+    box. No cvar, no copy, and no normal change of these windows makes the Unreal water mirror the near cliff [R by these shots]. The cause
+    is not found [U].
 
 ### The visible differences of the Unreal ocean against the source (stage 2c, 2026-10-29)
 
