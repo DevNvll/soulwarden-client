@@ -50,6 +50,8 @@ Usage (tools/creature-world.sh):
   standing TERRITORY AMOUNT          a game reward of territory standing (QG1: the ranks and one token for each rank; 6 Windsward)
   encounter [RADIUS] | encounter use   the encounters near the character (QG5; default 200 m), or the DEVELOPMENT AID: the start
                                      object 10 m or less from the character counts as gathered (only to pass a missing start object)
+  instance enter MAP | instance return   the entry of a map of the game modes (QuestMedea: a level change of the session) and the
+                                     return to the return place (C-13; backend stage DG1)
   fixture NAME [DX DY DZ]            a fixture of the backend at the character (powderKeg: the timed use "Ignite Fuse", 5 s)
   remove-object ENTITY               removes a server child (the entity of the fixture reply, 16 hex digits)
   cancel                             the server ends the interaction of the character (3746)
@@ -280,6 +282,14 @@ def run(words: list[str], folder: Path) -> object:
         return request(folder, "GET", f"/v1/dev/encounters?character={character(folder)}{radius}")
     if command == "encounter" and rest == ["use"]:
         return request(folder, "POST", f"/v1/dev/encounters/use?character={character(folder)}")
+    # The instances (C-13; the routes of ~/Developer/azoth/tools/world instance, backend stage DG1): the entry of a map of the game modes
+    # (a level change of the session, protocol notes 4.66), and the return to the return place in the main world.
+    if command == "instance" and len(rest) == 2 and rest[0] == "enter":
+        if not re.fullmatch(r"[A-Za-z0-9_]+", rest[1]):
+            fail("the map must be a map id of the game modes (game-modes.json)")
+        return request(folder, "POST", f"/v1/dev/world/instance/enter?character={character(folder)}&map={rest[1]}")
+    if command == "instance" and rest == ["return"]:
+        return request(folder, "POST", f"/v1/dev/world/instance/return?character={character(folder)}")
     # The factions (QG7, 2a of ut567; the routes of ~/Developer/azoth/tools/world): a faction set with no check (none, syndicate, marauder,
     # covenant; "now" sets the time of the last change: the wait of 30 days), an achievement on or off (the recruitment achievement of the
     # Bio change), and the reputation of a faction (rank and points).
