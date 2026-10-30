@@ -1619,6 +1619,10 @@ The entrance window of QuestMedea (the only story instance of this stage). The s
   "Leave" (`@ui_dungeon_leave` and the postfix of the mode: `_solo` for a solo trial). Its popup Popup_ExitDungeon ("Exit Soul Trial?",
   "Exit Expedition?") calls `PlayerArenaRequestBus.ForfeitArena(root, true)` at Yes: "arena forfeit 1" (926), and the state goes to the
   HUD. The client sends 926 only while the PlayerArena state (2406) says isInArena (`Swc.HostGameModes` line "A 0|1"; IsInArena).
+- The window l1 (2026-10-30, backend 2026-10-30-340fbc7; evidence `ut567-c13`, l1-*): the entry of QuestMedea gave "player arena
+  (2406): in a dungeon mode"; the game menu in the instance had "Leave" below Settings; the popup "EXIT SOUL TRIAL?"; Yes sent 926
+  (the backend: target 5734d46ca10c374f, the facet of 0adf8519a10c374d; "leaves instance 1 ... to its return place"); then the level
+  change, the empty state, and "player arena (2406): not in a dungeon mode". 0 Lua errors.
 - The extra mode button (ButtonGameExtra, PlayerCanQuit of the GameModeParticipant state; "gamemode event 2612035792", 1980): the backend
   sends no flag since its stage QG9e (the button needs a GameMode entity of the client, which this client has not). The Lua path stays.
 - The script lyshineui/dungeons/howtowindow.luac of the canvas is not in the game paks (only lyshineui/slices/howtowindow.luac): its
