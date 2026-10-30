@@ -1010,7 +1010,13 @@ source path of this client). Each item names its evidence; [R] measured, [I] an 
    most); in the Unreal water the cliff reflection is weak or absent, and the water shows mainly the sky [R by the pictures
    `near-probe-split.png`, `near-blue-sweep-modes.png`; the cliff step of research/water-reflection.md: the source +4.8 to +7.7 L*, the
    Unreal water -0.9 to +0.9]. [I] If the Lumen traces from the water miss the cliff, those rays take the bright probe sky in place of
-   the dark rock: a part of the 16:30 excess, and a difference by itself.
+   the dark rock: a part of the 16:30 excess, and a difference by itself. OPEN (the word of the orchestrator 2026-10-30 00:48 UTC: the
+   sweeps stop here). The evidence of windows E and F (held 16:30; the cliff-reflection box, the source L* 20.4 to 21.2): about 30 L* in
+   every state: `r.Lumen.Reflections.HierarchicalScreenTraces.MaxIterations` 100, `r.Water.SingleLayer.Reflection 3`, the Lumen copies of
+   29 nearby meshes, the copy of the cliff itself (`jav_wld_cliff_100m_b`, a distance field and 12 cards), the screen traces off, and the
+   flat normal. Window D: with the probe off, the reflection alone gives about the source level in the cliff box (20.7) but with no
+   cliff-against-sky contrast (the sky box 20.3). The cause is not found. A later item (a short design first, after the tone work): a GPU
+   capture of the reflection rays and hit buffers at two cliff pixels.
 2. The hour: at 16:30 the Unreal water is about 12 L* too light (7 in the held scene); the probe reflection carries most of it (window D).
 3. The hue: the Unreal open water is greener (less blue against green); the blue gain 1.5 brings ocean-far to the source at noon.
 4. The open water of ocean-clear is 11 to 14 L* too dark at each blue gain.
