@@ -1414,6 +1414,47 @@ The window plan (one development run, the check plugin; the view set
    water mask difference of each pair at the noise of the pair; then the earlier source shots of item f beside.
 5. The GPU time of the pass and of the copies (a variant pair late in the run).
 
+The window (2026-10-30, 05:22 to 06:05 UTC; commits e8150832 and f78aeb90 on main ea383370; `run_window_u.sh`; evidence
+`~/Games/soulwarden-client/evidence/water-unreal/wnt-u/`: `client/`, `under-sheet.png`, `pairs-sheet.png`, `pairs.txt`,
+`swim-cross-sweep.mp4`):
+
+- The build passed. The import made the two materials in the check plugin. The import log, the warm-up run, and the main run have 0
+  "Failed to compile" lines. 35 of 35 views were in place, with 0 gate faults. This engine has no material property `apply_fogging`:
+  the underside sheet keeps the air fog of Unreal (a small error; the next step: the translucency fog switch of this version).
+- The views from below (each with its pair `swc.WaterUnderView 0`): 1 shows the water of the source from inside; 0 shows the fault of
+  before (the dry beach, the dry river bed, the forest with no water). The log names the water: the ocean, GreatPlains_River_Canyon_A,
+  BrightWoods_River_Forest_B. Looking up (swim-under-up, river-under-up, lake-under-up), the window of the sky shows as a circle, with
+  the total reflection around it. The head of the standing swimmer is above the surface and outside the window: the total reflection hides
+  it (as in water). The forest water volume is very dark at a level view (a long path in its dark source fog). A light diagonal band in the
+  canyon views shows also with 0 (not the pass).
+
+| View | L* 1 | L* 0 | mean abs. difference |
+| --- | --- | --- | --- |
+| swim-under (up 12) | 34.8 | 59.9 | 32.2 |
+| swim-under-level | 29.9 | 55.1 | 31.9 |
+| swim-under-down | 22.1 | 44.5 | 29.5 |
+| swim-under-up (60) | 70.0 | 85.7 | 15.7 |
+| river-under | 21.0 | 19.5 | 14.0 |
+| river-under-up | 40.2 | 48.0 | 13.5 |
+| lake-under | 9.2 | 42.5 | 33.7 |
+| lake-under-up | 48.7 | 74.5 | 25.8 |
+
+- The crossing video (`swim-cross-sweep.mp4`, 20 s; the camera 0.6 m up and down in 4 s about the ocean level): at full frame rate the
+  crossing is a waterline, a sharp horizontal line that moves across the screen in about 3 frames (water under it, air above it); no
+  flash, no dry frame, no pop. After the view change, the pair with 0 shows the dry beach under the surface (the fault of before).
+  The debug views: 2 (the pixels in the water) all red at swim-under; 4: blue where the path ends at the surface, green at the scene.
+- The views from above (1 / 0 pairs, the cloud shadow held, the same client hour in each pair): no "underwater view on" line at any view
+  0.5 m or more above the surface (the pass and the copies were off: the render path is the path of before). The difference of the mean
+  L* of each pair: ocean-clear 0.21, ocean-far 0.53, lake 0.07, river-down 0.02, river-forest 0.21, beach-down 4.48 (the shore foam
+  band and the waves are at another phase in the second shot, about 10 min later: not the switch). A pixel identity is not proved: the
+  shots of a pair are not at one time. swim-surface (the camera 0.05 m over the ocean) shows a thin water band at the bottom edge (its
+  lower near-plane pixels are in the water), as planned.
+- The GPU time (p50 of the settled shots): the 8 views from below 6.2 ms with 1, 6.8 ms with 0. The cost of the pass and of the copies
+  is below the noise of the pairs (about 1.5 ms).
+- The same window took the 20 source shots of item f again (`wnt-g-source2`: 20 in place, 0 shots outside EV 13.03; the tables
+  `work/water-unreal/tone3/g-*.txt`). The swap guard made 0 stops. find -newer of the window: 0 files in the shared content, 0 in the
+  shared plugin.
+
 ## The depth classes
 
 The rule of the retail client (research wf5-swim, client code 0x6A0DBF0; `swc::water::depth_class`): the leaf of the water quadtree
