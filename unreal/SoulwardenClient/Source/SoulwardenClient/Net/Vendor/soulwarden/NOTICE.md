@@ -1,7 +1,7 @@
 # Soulwarden wire codec and state decoders (vendored)
 
-Unchanged copies of these files of the Soulwarden repository (`~/Developer/azoth`, commit 1bd3e43, the backend of the
-release `2026-10-29-1bd3e43`; before: 7f31a6e of `2026-10-29-7f31a6e`, a5ceec7 of `2026-10-29-a5ceec7`, 87865ea of `2026-10-29-87865ea`, ef7daf6 of `2026-10-22-ef7daf6`), MIT License (file `LICENSE`, Copyright (c) 2026 DevNvll):
+Unchanged copies of these files of the Soulwarden repository (`~/Developer/azoth`, commit 5b79d75, the backend of the
+release `2026-10-30-5b79d75`; before: 1bd3e43 of `2026-10-29-1bd3e43`, 7f31a6e of `2026-10-29-7f31a6e`, a5ceec7 of `2026-10-29-a5ceec7`, 87865ea of `2026-10-29-87865ea`, ef7daf6 of `2026-10-22-ef7daf6`), MIT License (file `LICENSE`, Copyright (c) 2026 DevNvll):
 
 | File here | File of the Soulwarden repository |
 | --- | --- |
